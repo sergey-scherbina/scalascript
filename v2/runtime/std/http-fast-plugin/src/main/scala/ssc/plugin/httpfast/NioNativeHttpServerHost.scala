@@ -38,6 +38,12 @@ private[httpfast] final class NioNativeHttpServerHost(context: NativePluginConte
   @volatile private var corsCfg: Option[CorsConfig] = None
   @volatile private var gzip = false
 
+  // Static mounts: (urlPrefix, dirPath). Served binary-safe at the host level (raw bytes),
+  // bypassing the String-based Response so images/fonts aren't UTF-8-mangled.
+  private val mounts = collection.mutable.ArrayBuffer.empty[(String, String)]
+  def addMount(urlPrefix: String, dir: String): Unit =
+    synchronized { mounts += (("/" + urlPrefix.stripPrefix("/").stripSuffix("/")) -> dir) }
+
   def addMiddleware(mw: Value): Unit = synchronized { middlewares += mw }
   def enableCors(origin: String, methods: String, headers: String): Unit =
     synchronized { corsCfg = Some(CorsConfig(origin, methods, headers)) }
@@ -227,8 +233,52 @@ private[httpfast] final class NioNativeHttpServerHost(context: NativePluginConte
             case r @ Value.DataV("Response", _) => short = toResponse(r)
             case _                              => ()
           i += 1
-      val base = if short != null then short.nn else routeDispatch(req)
+      val base =
+        if short != null then short.nn
+        else if req.method == "GET" || req.method == "HEAD" then
+          staticFile(req.path).getOrElse(routeDispatch(req))
+        else routeDispatch(req)
       finish(cors, req, base)
+
+  /** Serve a mounted static file (raw bytes, binary-safe) or `None` to fall through to routing.
+    * Guards against path traversal by normalizing under the mount root. */
+  private def staticFile(path: String): Option[RawResponse] =
+    if mounts.isEmpty then None
+    else
+      val decoded = HttpProtocol.percentDecode(path, plusAsSpace = false)
+      mounts.iterator.flatMap { (prefix, dir) =>
+        val under = decoded == prefix || decoded.startsWith(prefix + "/") || prefix == "/"
+        if !under then None
+        else
+          val rel  = decoded.stripPrefix(prefix).stripPrefix("/")
+          val base = java.nio.file.Paths.get(dir).toAbsolutePath.normalize()
+          val file = base.resolve(if rel.isEmpty then "index.html" else rel).normalize()
+          if file.startsWith(base) && java.nio.file.Files.isRegularFile(file) then
+            Some(RawResponse(200, Map("Content-Type" -> contentType(file.getFileName.toString)),
+              java.nio.file.Files.readAllBytes(file)))
+          else None
+      }.nextOption()
+
+  private def contentType(name: String): String =
+    val dot = name.lastIndexOf('.')
+    val ext = if dot >= 0 then name.substring(dot + 1).toLowerCase(java.util.Locale.ROOT) else ""
+    ext match
+      case "html" | "htm" => "text/html; charset=utf-8"
+      case "css"          => "text/css; charset=utf-8"
+      case "js" | "mjs"   => "text/javascript; charset=utf-8"
+      case "json"         => "application/json"
+      case "svg"          => "image/svg+xml"
+      case "png"          => "image/png"
+      case "jpg" | "jpeg" => "image/jpeg"
+      case "gif"          => "image/gif"
+      case "webp"         => "image/webp"
+      case "ico"          => "image/x-icon"
+      case "woff2"        => "font/woff2"
+      case "woff"         => "font/woff"
+      case "txt"          => "text/plain; charset=utf-8"
+      case "pdf"          => "application/pdf"
+      case "wasm"         => "application/wasm"
+      case _              => "application/octet-stream"
 
   private def routeDispatch(req: RawRequest): RawResponse =
     router.find(req.method, req.path) match

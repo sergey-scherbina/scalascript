@@ -137,8 +137,8 @@ final class HttpDispatchHandler(handler: HttpHandler) extends JHandler.Abstract:
       resp:     JResponse,
       callback: JCallback
   ): Boolean =
+    val (pojo, spooled) = JettyRequestAdapter.fromJetty(req)
     try
-      val pojo = JettyRequestAdapter.fromJetty(req)
       handler.onHttpRequest(pojo) match
         case HttpResult.PlainResp(r) =>
           writePlain(resp, r, callback)
@@ -155,6 +155,7 @@ final class HttpDispatchHandler(handler: HttpHandler) extends JHandler.Abstract:
         catch case _: Throwable => ()
         callback.failed(t)
         true
+    finally spooled.foreach(f => try f.delete() catch case _: Throwable => ())
 
   private def writePlain(resp: JResponse, r: Response, callback: JCallback): Unit =
     resp.setStatus(r.status)
@@ -204,7 +205,7 @@ object JettyRequestAdapter:
    *  body synchronously (acceptable for plain-HTTP request dispatch;
    *  the SPI contract gives `Request.body` as a `String`, so we eagerly
    *  buffer here). */
-  def fromJetty(req: JRequest): Request =
+  def fromJetty(req: JRequest): (Request, List[java.io.File]) =
     val method   = req.getMethod
     val uri      = req.getHttpURI
     val path     = uri.getPath
@@ -218,32 +219,25 @@ object JettyRequestAdapter:
       val f = it.next()
       headersBuilder(f.getName.toLowerCase) = f.getValue
     val headers = headersBuilder.toMap
-
-    val cookies = HttpHelpers.parseCookieHeader(headers.getOrElse("cookie", ""))
     val query   = HttpHelpers.parseQuery(rawQuery)
 
     // Body — drain Content.Source synchronously.  Bounded by Jetty's
-    // internal HttpConfiguration max-form-content-size / max-request
-    // limits; for the SPI we just read whatever is there.
-    val body: String =
+    // internal HttpConfiguration max-form-content-size / max-request limits.
+    val bodyBytes: Array[Byte] =
       try
         val bytes = Content.Source.asByteBuffer(req)
-        if bytes.remaining() == 0 then ""
+        if bytes.remaining() == 0 then Array.emptyByteArray
         else
           val arr = new Array[Byte](bytes.remaining())
           bytes.get(arr)
-          new String(arr, "UTF-8")
-      catch case _: Throwable => ""
+          arr
+      catch case _: Throwable => Array.emptyByteArray
 
-    Request(
-      method  = method,
-      path    = path,
-      params  = Map.empty,
-      query   = query,
-      headers = headers,
-      body    = body,
-      cookies = cookies
-    )
+    // Full parity with the JDK/fast backends: form, multipart uploads, cookie
+    // session, and bearer/basic/JWT auth via the shared transport-neutral builder.
+    val (request, _, spooled) =
+      RequestBuilder.parseRaw(method, path, Map.empty, query, headers, bodyBytes)
+    (request, spooled)
 
   /** Build a POJO `Request` from a Jetty WS `ServerUpgradeRequest`.
    *  Same shape as `fromJetty` but body is empty (upgrades are GETs). */
@@ -258,17 +252,9 @@ object JettyRequestAdapter:
       val f = it.next()
       headersBuilder(f.getName.toLowerCase) = f.getValue
     val headers = headersBuilder.toMap
-    val cookies = HttpHelpers.parseCookieHeader(headers.getOrElse("cookie", ""))
     val query   = HttpHelpers.parseQuery(rawQuery)
-    Request(
-      method  = method,
-      path    = path,
-      params  = Map.empty,
-      query   = query,
-      headers = headers,
-      body    = "",
-      cookies = cookies
-    )
+    // WS upgrades are GETs with no body; parseRaw still fills cookies + bearer/basic auth.
+    RequestBuilder.parseRaw(method, path, Map.empty, query, headers, Array.emptyByteArray)._1
 
 // ── WebSocket creator + endpoint + controls ────────────────────────────
 

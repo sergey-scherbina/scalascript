@@ -462,7 +462,14 @@ final class HttpFastNativePlugin extends NativePlugin:
       case _ => throw new RuntimeException("stream.isClosed")
     }
 
-    // Still stubbed — file-upload spooling + static mounting (future).
-    List("uploadSpoolThreshold", "uploadDir", "mount").foreach { name =>
+    // Static file serving: mount(urlPrefix, dir) — GET/HEAD under urlPrefix serves files from dir
+    // (binary-safe, content-type by extension, path-traversal guarded, index.html for a dir root).
+    native(context, "mount") { args =>
+      serverHost.addMount(text(args, 0, "mount"), text(args, 1, "mount"))
+      Value.UnitV
+    }
+
+    // Still stubbed — file-upload spooling knobs (RequestBuilder uses its own defaults).
+    List("uploadSpoolThreshold", "uploadDir").foreach { name =>
       native(context, name)(unsupported(name))
     }
