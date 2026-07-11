@@ -1039,6 +1039,7 @@ private def buildProjectFileCommand(
     baseOutDir: os.Path,
     fat: Boolean = false,
     legacySwift: Boolean = false,
+    backendBaseUrl: Option[String] = None,
 ): Unit =
   val manifest =
     scala.util.Try(scalascript.parser.Parser.parse(os.read(projectFile)).manifest)
@@ -1112,14 +1113,14 @@ private def buildProjectFileCommand(
     case "ios" | "mobile-ios" =>
       println(s"Building ${if legacySwift then "legacy SwiftUI" else "v2 Swift"} iOS package → ${displayPath(outDir)}")
       if legacySwift then buildSwiftUIPackage(projectFile, outDir, "ios", runSwiftBuild = fat)
-      else buildV2SwiftPackage(projectFile, outDir, _root_.ssc.swift.SwiftPlatform.IOS, runSwiftBuild = fat)
+      else buildV2SwiftPackage(projectFile, outDir, _root_.ssc.swift.SwiftPlatform.IOS, runSwiftBuild = fat, backendBaseUrl = backendBaseUrl)
       if !fat then
         println(s"  Swift package written. iOS application build continues after the NativeUi App target is generated.")
 
     case "macos" | "desktop-macos" =>
       println(s"Building ${if legacySwift then "legacy SwiftUI" else "v2 Swift"} macOS package → ${displayPath(outDir)}")
       if legacySwift then buildSwiftUIPackage(projectFile, outDir, "macos", runSwiftBuild = fat)
-      else buildV2SwiftPackage(projectFile, outDir, _root_.ssc.swift.SwiftPlatform.MacOS, runSwiftBuild = fat)
+      else buildV2SwiftPackage(projectFile, outDir, _root_.ssc.swift.SwiftPlatform.MacOS, runSwiftBuild = fat, backendBaseUrl = backendBaseUrl)
       if !fat then
         println(s"  Swift package written.  To build:")
         println(s"    cd ${displayPath(outDir)} && swift build")
@@ -1199,6 +1200,7 @@ final class BuildCmd extends CliCommand:
     var outFlag:    Option[String] = None
     var v1Flag:     Boolean        = false
     var v2Flag:     Boolean        = false
+    var serverUrlFlag: Option[String] = None
     val positional = scala.collection.mutable.ListBuffer.empty[String]
     val remaining  = args.iterator
     while remaining.hasNext do
@@ -1207,6 +1209,7 @@ final class BuildCmd extends CliCommand:
         case "--out"    if remaining.hasNext => outFlag    = Some(remaining.next())
         case "--v1"                          => v1Flag     = true
         case "--v2"                          => v2Flag     = true
+        case "--server-url" if remaining.hasNext => serverUrlFlag = Some(remaining.next())
         case other                           => positional += other
 
     if v1Flag && v2Flag then
@@ -1231,7 +1234,7 @@ final class BuildCmd extends CliCommand:
       case Some(pf) =>
         val outDir    = os.Path(outFlag.getOrElse("target/build"), os.pwd)
         val effective = targetFlag.orElse(ActiveFlags.current.target)
-        buildProjectFileCommand(pf, effective, outDir, legacySwift = v1Flag)
+        buildProjectFileCommand(pf, effective, outDir, legacySwift = v1Flag, backendBaseUrl = serverUrlFlag)
         return
       case None => // fall through to legacy dir mode
 
@@ -1635,7 +1638,7 @@ final class RunCmd extends CliCommand:
     if targetSelection.exists(t => t == "macos" || t == "desktop-macos") then
       rejectProgramArgs("run --target macos")
       if v1Flag then runMacosTargets(fileArgs.toList, rebuildFlag, consoleFlag)
-      else runV2MacosTargets(fileArgs.toList)
+      else runV2MacosTargets(fileArgs.toList, serverUrlFlag)
       return
 
     // --target ios / mobile-ios: Simulator (default) or real device (--device)
@@ -1848,7 +1851,7 @@ private[cli] def runMacosTargets(files: List[String], rebuild: Boolean, console:
 /** v2 Apple desktop route: checked frontend → CoreIR → generated AppCore
  *  package → SwiftPM. This deliberately shares no Parser/JvmGen/SwiftUIEmitter
  *  state with the compatibility route above. */
-private[cli] def runV2MacosTargets(files: List[String]): Unit =
+private[cli] def runV2MacosTargets(files: List[String], backendBaseUrl: Option[String] = None): Unit =
   val outRoot = os.Path("target/build", os.pwd) / "macos"
   for file <- files do
     val input = os.Path(file, os.pwd)
@@ -1857,6 +1860,7 @@ private[cli] def runV2MacosTargets(files: List[String]): Unit =
         input,
         outRoot,
         _root_.ssc.swift.SwiftPlatform.MacOS,
+        backendBaseUrl = backendBaseUrl,
       )
       val exit = SwiftV2Cli.runPackage(emitted, Nil, "run --target macos")
       if exit != 0 then System.exit(exit)
@@ -4724,6 +4728,7 @@ final class PackageCmd extends CliCommand:
     var notarizeFlag:     Boolean        = true
     var v1Flag:           Boolean        = false
     var v2Flag:           Boolean        = false
+    var serverUrlFlag:    Option[String] = None
     val positional = scala.collection.mutable.ListBuffer.empty[String]
     val it = rest.iterator
     while it.hasNext do
@@ -4739,6 +4744,7 @@ final class PackageCmd extends CliCommand:
         case "--notarize"                   => notarizeFlag      = true
         case "--v1"                         => v1Flag            = true
         case "--v2"                         => v2Flag            = true
+        case "--server-url" if it.hasNext  => serverUrlFlag     = Some(it.next())
         case other                          => positional += other
 
     if v1Flag && v2Flag then
@@ -4806,7 +4812,7 @@ final class PackageCmd extends CliCommand:
           if t == "ios" || t == "mobile-ios" then
             if v1Flag then packageIosIpa(pf, outDir / t, exportMethodFlag, teamIdFlag)
             else
-              buildV2SwiftPackage(pf, outDir / t, _root_.ssc.swift.SwiftPlatform.IOS)
+              buildV2SwiftPackage(pf, outDir / t, _root_.ssc.swift.SwiftPlatform.IOS, backendBaseUrl = serverUrlFlag)
               System.err.println(
                 "ssc package --target ios: the v2 NativeUi application target is not generated yet; no v1 fallback was attempted"
               )
@@ -4814,13 +4820,13 @@ final class PackageCmd extends CliCommand:
           else if (t == "macos" || t == "desktop-macos") && distributionFlag then
             if v1Flag then packageMacosDistribution(pf, outDir / t, teamIdFlag, dmg = dmgFlag, notarize = notarizeFlag)
             else
-              buildV2SwiftPackage(pf, outDir / t, _root_.ssc.swift.SwiftPlatform.MacOS)
+              buildV2SwiftPackage(pf, outDir / t, _root_.ssc.swift.SwiftPlatform.MacOS, backendBaseUrl = serverUrlFlag)
               System.err.println(
                 "ssc package --target macos --distribution: the v2 NativeUi application target is not generated yet; no v1 fallback was attempted"
               )
               System.exit(1)
           else
-            buildProjectFileCommand(pf, Some(t), outDir, fat = true, legacySwift = v1Flag)
+            buildProjectFileCommand(pf, Some(t), outDir, fat = true, legacySwift = v1Flag, backendBaseUrl = serverUrlFlag)
 
 /** `ssc publish --target ios [--testflight|--appstore] [--fastlane] [--api-key-path <p>]
  *    [--submit-for-review] [--release-notes <text>] [<project.ssc>]`
@@ -4842,6 +4848,7 @@ final class PublishCmd extends CliCommand:
     var releaseNotesFlag:    Option[String] = None
     var v1Flag:              Boolean        = false
     var v2Flag:              Boolean        = false
+    var serverUrlFlag:       Option[String] = None
     val positional = scala.collection.mutable.ListBuffer.empty[String]
     val it = args.iterator
     while it.hasNext do
@@ -4855,6 +4862,7 @@ final class PublishCmd extends CliCommand:
         case "--submit-for-review"              => submitForReviewFlag = true
         case "--v1"                             => v1Flag = true
         case "--v2"                             => v2Flag = true
+        case "--server-url" if it.hasNext       => serverUrlFlag = Some(it.next())
         case other                              => positional += other
 
     if v1Flag && v2Flag then
@@ -4876,6 +4884,7 @@ final class PublishCmd extends CliCommand:
       case "ios" | "mobile-ios" | "macos" | "desktop-macos" => true
       case _ => false
     } then
+      serverUrlFlag.foreach(_root_.ssc.swift.SwiftBackend.normalizeBackendBaseUrl)
       System.err.println(
         s"ssc publish --target ${effectiveTarget.get}: the v2 NativeUi application target is not generated yet; no v1 fallback was attempted"
       )

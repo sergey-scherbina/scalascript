@@ -245,13 +245,14 @@
       |    crate::value::Value::Tuple(vec![sig, crate::value::Value::Str(rows_path)])
       |}
       |
-      |/// dataTableView(source, columns, actions) → a `<table>` View whose data attrs
+      |/// dataTableView(source, columns, actions, row_key_path) → a `<table>` View whose data attrs
       |/// encode the source signal id, the rows path, and the columns; the tui renderer
       |/// reads the LIVE signal JSON and renders a ratatui Table.
       |pub fn _tui_data_table_view(
       |    source: crate::value::Value,
       |    columns: Vec<crate::value::Value>,
       |    _actions: Vec<crate::value::Value>,
+      |    _row_key_path: String,
       |) -> View {
       |    use crate::value::Value;
       |    let (sig_name, rows_path) = match source {

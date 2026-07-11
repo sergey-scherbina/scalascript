@@ -259,7 +259,7 @@ object TuiEmitter:
         |}""".stripMargin
 
   private def hasRemoteTable(v: View[?]): Boolean = v match
-    case View.DataTable(TableDataSource.Remote(_, _), _, _, _) => true
+    case View.DataTable(TableDataSource.Remote(_, _), _, _, _, _) => true
     case View.Column(ch, _, _, _)           => ch.exists(hasRemoteTable)
     case View.Row(ch, _, _, _)              => ch.exists(hasRemoteTable)
     case View.Stack(ch, _)                  => ch.exists(hasRemoteTable)
@@ -450,7 +450,7 @@ object TuiEmitter:
       case _                 => ()
     v match
       case View.SignalText(s, _)                                 => record(s)
-      case View.DataTable(TableDataSource.Remote(s, _), _, _, _) => record(s)
+      case View.DataTable(TableDataSource.Remote(s, _), _, _, _, _) => record(s)
       case View.ModelView(s, _, t, _)                            => record(s); rec(t)
       case View.Column(ch, _, _, _)                              => ch.foreach(rec)
       case View.Row(ch, _, _, _)                                 => ch.foreach(rec)
@@ -515,7 +515,7 @@ object TuiEmitter:
         val idx = fs.size
         fs += Focusable(idx, None, Some(value.id))
         para(s"""format!("{}{}", focus_mark(focus, $idx), text_input_display(signals, ${rustStr(value.id)}, ${rustStr(placeholder)}, $secure))""", area, sb, st.merge(termStyleOf(style)), Some(idx))
-      case View.DataTable(source, columns, _, _) =>
+      case View.DataTable(source, columns, _, _, _) =>
         source match
           case TableDataSource.StaticRows(rows) =>
             val n = math.max(1, columns.size)
@@ -695,7 +695,7 @@ object TuiEmitter:
     case View.ShowSignal(_, t, f)           => math.max(measureHeight(t), measureHeight(f))
     case View.TabBar(tabs, _, _)            => 1 + tabs.map(t => measureHeight(t.content)).maxOption.getOrElse(0)
     case View.NavigationStack(routes, _, _) => routes.values.map(r => measureHeight(r())).maxOption.getOrElse(1)
-    case View.DataTable(source, columns, _, _) => source match
+    case View.DataTable(source, columns, _, _, _) => source match
       case TableDataSource.StaticRows(rows) => rows.size + 1
       case _                                => 1
     case View.Spacer(size)                  => math.max(0, size.map(_.round.toInt).getOrElse(1))

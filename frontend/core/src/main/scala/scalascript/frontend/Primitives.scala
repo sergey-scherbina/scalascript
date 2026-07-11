@@ -497,7 +497,8 @@ enum View[+A]:
    *  Web backends lower this to standard `<table><thead><tbody>` chrome via
    *  `DataTableLowering`; Swing/JavaFX render it natively (JTable / TableView). */
   case DataTable(source: TableDataSource, columns: List[FieldColumnDef],
-                 actions: List[RowActionDef] = Nil, style: Style = Style()) extends View[Nothing]
+                 actions: List[RowActionDef] = Nil, style: Style = Style(),
+                 rowKeyPath: String = "id") extends View[Nothing]
 
   /** Static text node — internal use by web renderers.  Produced by the
    *  toolkit lowering pass; app code should use `View.Text` instead. */

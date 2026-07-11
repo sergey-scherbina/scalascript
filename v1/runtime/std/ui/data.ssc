@@ -60,9 +60,9 @@ def rowDelete(url: String, idField: String, tick: Any,
   rowDeleteAction(url, idField, tick, headers)
 
 // rowPost — per-row custom POST/PUT action.
-def rowPost(label: String, method: String, url: String, bodyField: String,
+def rowPost(label: String, method: String, url: String, payload: Any,
             tick: Any, headers: Any = emptyHeaders): Any =
-  rowPostAction(label, method, url, bodyField, tick, headers)
+  rowPostAction(label, method, url, payload, tick, headers)
 
 // rowLink — per-row navigate/select: writes item.fieldPath into signal on click.
 def rowLink(label: String, signal: Any, fieldPath: String): Any =
@@ -77,20 +77,20 @@ def rowEdit(method: String, url: String, idField: String, tick: Any,
 // dataTable — builds a DataTableNode from a FetchUrlSignal + column/action lists.
 // Lower with lower.ssc; web backends render as <table>, Swing as JTable.
 def dataTable(signal: Any, columns: List[Any],
-              actions: List[Any] = []): TkNode =
-  DataTableNode(signal, columns, actions)
+              actions: List[Any] = [], rowKeyPath: String = "id"): TkNode =
+  DataTableNode(signal, columns, actions, rowKeyPath)
 
 // staticDataTable — builds a DataTable backed by static in-memory rows.
 // rows is a List of Map[String, Any]; no fetch is performed.
 def staticDataTable(rows: List[Any], columns: List[Any],
-                    actions: List[Any] = []): Any =
-  dataTableView(staticRowsSource(rows), columns, actions)
+                    actions: List[Any] = [], rowKeyPath: String = "id"): Any =
+  dataTableView(staticRowsSource(rows), columns, actions, rowKeyPath)
 
 // signalDataTable — builds a DataTable backed by a reactive signal.
 // sig must be a ReactiveSignal whose value is a list of row maps.
 def signalDataTable(sig: Any, columns: List[Any],
-                    actions: List[Any] = []): Any =
-  dataTableView(signalRowsSource(sig), columns, actions)
+                    actions: List[Any] = [], rowKeyPath: String = "id"): Any =
+  dataTableView(signalRowsSource(sig), columns, actions, rowKeyPath)
 
 // remoteTable — a DataTable from a fetch whose rows live at a NESTED JSON path.
 // Use when one fetch returns an object and the table is a field inside it, e.g.
@@ -99,8 +99,8 @@ def signalDataTable(sig: Any, columns: List[Any],
 // response root array or the built-in {data|rows|items|results} keys. Backend-
 // agnostic: web drills the envelope, tui parses it (fetch_rows) — same .ssc.
 def remoteTable(fetchSignal: Any, columns: List[Any], rowsPath: String = "",
-                actions: List[Any] = []): Any =
-  dataTableView(fetchRowsSource(fetchSignal, rowsPath), columns, actions)
+                actions: List[Any] = [], rowKeyPath: String = "id"): Any =
+  dataTableView(fetchRowsSource(fetchSignal, rowsPath), columns, actions, rowKeyPath)
 
 // ── Column kind shorthand helpers ─────────────────────────────────────────────
 // dcol — date column: renders field value as locale-aware date string.

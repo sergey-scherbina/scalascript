@@ -145,11 +145,19 @@ object JvmRuntimeUiPrimitives:
        |        scalascript.frontend.RowActionDef.RowDelete(url, idField,
        |          tick.asInstanceOf[scalascript.frontend.ReactiveSignal[Int]], _hOpt)
        |
-       |      def rowPostAction(label: String, method: String, url: String, bodyField: String,
+       |      def fieldPayload(name: String): Any = scalascript.frontend.RowPayload.Field(name)
+       |      def wholeRowPayload(): Any = scalascript.frontend.RowPayload.WholeRow
+       |      def fieldsPayload(names: List[String]): Any = scalascript.frontend.RowPayload.Fields(names)
+       |
+       |      def rowPostAction(label: String, method: String, url: String, payload: Any,
        |                        tick: Any, headers: Any = null): Any =
        |        val _hOpt = Option(headers).map(_.asInstanceOf[scalascript.frontend.ReactiveSignal[String]])
        |          .filter(_.id != "__ssc_empty_headers")
-       |        scalascript.frontend.RowActionDef.RowPost(label, method, url, scalascript.frontend.RowPayload.Field(bodyField),
+       |        val _payload = payload match
+       |          case name: String => scalascript.frontend.RowPayload.Field(name)
+       |          case value: scalascript.frontend.RowPayload => value
+       |          case _ => throw IllegalArgumentException("rowPostAction payload must be String or RowPayload")
+       |        scalascript.frontend.RowActionDef.RowPost(label, method, url, _payload,
        |          tick.asInstanceOf[scalascript.frontend.ReactiveSignal[Int]], _hOpt)
        |
        |      def rowLinkAction(label: String, signal: Any, fieldPath: String): Any =
@@ -163,7 +171,7 @@ object JvmRuntimeUiPrimitives:
        |        scalascript.frontend.RowActionDef.RowInlineEdit(method, url, idField,
        |          tick.asInstanceOf[scalascript.frontend.ReactiveSignal[Int]], _hOpt)
        |
-       |      def dataTableView(source: Any, columns: Any, actions: Any): View =
+       |      def dataTableView(source: Any, columns: Any, actions: Any, rowKeyPath: String = "id"): View =
        |        val _cols = columns.asInstanceOf[List[scalascript.frontend.FieldColumnDef]]
        |        val _acts = actions.asInstanceOf[List[scalascript.frontend.RowActionDef]]
        |        // Accept a TableDataSource (e.g. fetchRowsSource, carrying rowsPath) or a
@@ -171,7 +179,8 @@ object JvmRuntimeUiPrimitives:
        |        val _src = source match
        |          case s: scalascript.frontend.TableDataSource => s
        |          case s => scalascript.frontend.TableDataSource.Remote(s.asInstanceOf[scalascript.frontend.FetchUrlSignal])
-       |        scalascript.frontend.View.DataTable(_src, _cols, _acts)
+       |        scalascript.frontend.View.DataTable(_src, _cols, _acts,
+       |          rowKeyPath = if rowKeyPath.isEmpty then "id" else rowKeyPath)
        |
        |      def emit(tree: View, outDir: String): Unit =
        |        _ssc_ui_emit_to_dir(tree.asInstanceOf[scalascript.frontend.View[?]], outDir)

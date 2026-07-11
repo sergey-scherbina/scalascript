@@ -597,6 +597,41 @@ final class NativeUiHost: SscRuntimeExtension {
         native("wholeRowPayload") { args in try nativeUiRequire(args.isEmpty, "wholeRowPayload()"); return try nativeUiData("NativeUiRowPayload", [.string("wholeRow"), try nativeUiListValue([])]) }
         native("fieldsPayload") { args in try nativeUiRequire(args.count == 1, "fieldsPayload(names)"); return try nativeUiData("NativeUiRowPayload", [.string("fields"), args[0]]) }
 
+        func validDottedName(_ name: String) -> Bool {
+            !name.isEmpty && name.split(separator: ".", omittingEmptySubsequences: false).allSatisfy { !$0.isEmpty }
+        }
+        func rowPayload(_ value: SscValue, _ operation: String) throws -> SscValue {
+            let descriptor: SscValue
+            switch value {
+            case let .string(name):
+                descriptor = try nativeUiData("NativeUiRowPayload", [.string("field"), try nativeUiListValue([.string(name)])])
+            case .data("NativeUiRowPayload", let fields) where fields.count == 2:
+                descriptor = value
+            default:
+                throw SscRuntimeFailure(description: "\(operation) payload must be String or NativeUiRowPayload")
+            }
+            guard case let .data("NativeUiRowPayload", fields) = descriptor,
+                  case let .string(kind) = fields[0] else {
+                throw SscRuntimeFailure(description: "\(operation) payload descriptor is malformed")
+            }
+            let names = try nativeUiList(fields[1], "\(operation) payload names").map { raw -> String in
+                let name = try nativeUiString(raw, "\(operation) payload name")
+                guard validDottedName(name) else {
+                    throw SscRuntimeFailure(description: "\(operation) payload names must be non-empty dotted Strings")
+                }
+                return name
+            }
+            let valid: Bool
+            switch kind {
+            case "field": valid = names.count == 1
+            case "wholeRow": valid = names.isEmpty
+            case "fields": valid = !names.isEmpty && Set(names).count == names.count
+            default: valid = false
+            }
+            guard valid else { throw SscRuntimeFailure(description: "\(operation) payload descriptor is malformed") }
+            return try nativeUiData("NativeUiRowPayload", [.string(kind), try nativeUiListValue(names.map { .string($0) })])
+        }
+
         func column(_ kind: String, _ args: [SscValue], _ options: SscValue) throws -> SscValue {
             return try nativeUiData("NativeUiColumn", [
                 .string(kind),
@@ -614,7 +649,7 @@ final class NativeUiHost: SscRuntimeExtension {
         native("stackedColumn") { args in try nativeUiRequire(args.count == 3 || args.count == 4, "stackedColumn"); return try nativeUiData("NativeUiColumn", [.string("stacked"), args[0], args[1], args.count == 4 ? args[3] : .string(""), nativeUiMap(("subFieldPath", args[2]))]) }
 
         func payload(_ name: SscValue, _ operation: String) throws -> SscValue {
-            try nativeUiData("NativeUiRowPayload", [.string("field"), try nativeUiListValue([.string(try nativeUiString(name, operation))])])
+            try rowPayload(.string(try nativeUiString(name, operation)), operation)
         }
         func rowAction(_ kind: String, _ label: SscValue, _ requestValue: SscValue, _ payloadValue: SscValue, _ refresh: SscValue, _ options: SscValue) throws -> SscValue {
             try [requestValue, payloadValue, refresh, options].forEach { try nativeUiEnsurePortable($0, "NativeUiRowAction[\(kind)]") }
@@ -628,7 +663,7 @@ final class NativeUiHost: SscRuntimeExtension {
         native("rowPostAction") { args in
             try nativeUiRequire(args.count == 5 || args.count == 6, "rowPostAction")
             let label = SscValue.string(try nativeUiString(args[0], "rowPostAction label"))
-            let p = try payload(args[3], "rowPostAction bodyField")
+            let p = try rowPayload(args[3], "rowPostAction")
             return try rowAction("post", label, try request(try nativeUiString(args[1], "rowPostAction method"), .string(try nativeUiString(args[2], "rowPostAction URL")), .unit, args.count == 6 ? args[5] : self.emptyHeaders), p, args[4], nativeUiMap())
         }
         native("rowLinkAction") { args in
@@ -641,7 +676,11 @@ final class NativeUiHost: SscRuntimeExtension {
             let p = try payload(args[2], "rowEditAction idField")
             return try rowAction("edit", .string("Edit"), try request(try nativeUiString(args[0], "rowEditAction method"), .string(try nativeUiString(args[1], "rowEditAction URL")), .unit, args.count == 5 ? args[4] : self.emptyHeaders), p, args[3], nativeUiMap())
         }
-        site("dataTableView") { siteId, _, args in try nativeUiRequire(args.count == 3, "dataTableView"); return try nativeUiData("NativeUiDataTable", [.string(siteId)] + args) }
+        site("dataTableView") { siteId, _, args in
+            try nativeUiRequire(args.count == 3 || args.count == 4, "dataTableView")
+            let key = args.count == 4 ? try nativeUiString(args[3], "dataTableView rowKeyPath") : "id"
+            return try nativeUiData("NativeUiDataTable", [.string(siteId), args[0], args[1], args[2], .string(key.isEmpty ? "id" : key)])
+        }
 
 """
   private val sourcePart2: String = """

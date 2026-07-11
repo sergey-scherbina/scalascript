@@ -2643,14 +2643,20 @@ object RustCodeWalk:
     val intr = callee.flatMap(qn => ctx.intrinsics.get(qn).map(qn -> _))
     intr match
       case Some((_, RuntimeCall(target))) =>
+        val effectiveArgs =
+          if (target == "crate::runtime::ui::_ui_data_table_view" ||
+              target == "crate::runtime::tui::_tui_data_table_view") && renderedArgs.length == 3
+          then renderedArgs :+ "\"id\".to_string()"
+          else renderedArgs
+        val effectiveJoined = effectiveArgs.mkString(", ")
         // A small set of intrinsics take their args by reference so the
         // caller can re-use a `String` after the call (e.g. fs round-trip
         // `writeFile(p, c); readFile(p)`).  Borrow every arg for those.
         if BorrowedArgIntrinsics.contains(target) then
-          val borrowed = renderedArgs.map(a => s"&$a").mkString(", ")
+          val borrowed = effectiveArgs.map(a => s"&$a").mkString(", ")
           Right(s"$target($borrowed)")
         else
-          Right(s"$target($joined)")
+          Right(s"$target($effectiveJoined)")
       case Some((qn, other)) =>
         Left(List(unsupported(
           s"intrinsic `${qn.value}` uses ${other.getClass.getSimpleName}; rust target accepts only RuntimeCall"

@@ -215,11 +215,12 @@ extern def fieldColumn(title: String, fieldPath: String, align: String = "",
 extern def rowDeleteAction(url: String, idField: String, tick: Signal[Int],
                            headers: Signal[String] = emptyHeaders): Any
 
-// rowPostAction — per-row custom action: POSTs/PUTs bodyField value via method, bumps tick.
+// rowPostAction — per-row custom action: POSTs/PUTs a Field/WholeRow/Fields
+// payload (a String remains shorthand for Field), then bumps tick on 2xx.
 // url supports path templating: '/:field' segments are replaced with the row's
 // (URL-encoded) field value at click time — e.g. "/api/paid/:id" (mirrors
 // rowLink's ':value'). Unknown fields stay verbatim.
-extern def rowPostAction(label: String, method: String, url: String, bodyField: String,
+extern def rowPostAction(label: String, method: String, url: String, payload: Any,
                          tick: Signal[Int], headers: Signal[String] = emptyHeaders): Any
 
 // rowLinkAction — per-row navigate/select: writes item.fieldPath into signal on click.
@@ -234,7 +235,8 @@ extern def rowEditAction(method: String, url: String, idField: String,
 // Web backends lower to <table><thead><tbody> chrome via DataTableLowering.
 // Swing renders natively as JTable.
 // Also accepts a bare FetchUrlSignal for the legacy Remote path.
-extern def dataTableView(source: Any, columns: List[Any], actions: List[Any]): View
+extern def dataTableView(source: Any, columns: List[Any], actions: List[Any],
+                         rowKeyPath: String = "id"): View
 
 // staticRowsSource — wraps a static list of row maps into a TableDataSource.StaticRows.
 extern def staticRowsSource(rows: List[Any]): Any

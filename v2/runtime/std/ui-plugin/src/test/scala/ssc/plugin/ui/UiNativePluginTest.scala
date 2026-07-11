@@ -229,12 +229,17 @@ class UiNativePluginTest extends AnyFunSuite:
       call("dateColumn", Value.StrV("When"), Value.StrV("createdAt"), Value.StrV(""), Value.StrV("yyyy-MM-dd")),
       call("rowDeleteAction", Value.StrV("/items"), Value.StrV("id"), tick, headers),
       call("dataTableView", call("staticRowsSource", list(map("id" -> Value.IntV(1)))),
-        list(call("fieldColumn", Value.StrV("ID"), Value.StrV("id"), Value.StrV(""), Value.UnitV)), list()))
+        list(call("fieldColumn", Value.StrV("ID"), Value.StrV("id"), Value.StrV(""), Value.UnitV)),
+        list(call("rowPostAction", Value.StrV("Save"), Value.StrV("POST"), Value.StrV("/items"),
+          call("fieldsPayload", list(Value.StrV("id"))), tick, headers)), Value.StrV("account.id")))
     values.foreach(assertPortable)
     assert(values.take(5).forall { case Value.DataV("NativeUiFetchAction", _) => true; case _ => false })
     assert(values(5).isInstanceOf[Value.DataV])
     assert(values(6).isInstanceOf[Value.DataV])
-    assert(values(7).asInstanceOf[Value.DataV].tag == "NativeUiDataTable")
+    val table = values(7).asInstanceOf[Value.DataV]
+    assert(table.tag == "NativeUiDataTable")
+    assert(table.fields.length == 5)
+    assert(table.fields(4) == Value.StrV("account.id"))
 
     call("localStorageSet", Value.StrV("token"), Value.StrV("abc"))
     val persisted = call("persistedSignal", Value.StrV("token"), Value.StrV("fallback"))

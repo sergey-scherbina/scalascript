@@ -501,8 +501,8 @@ def lower(n: TkNode, theme: Theme): View = n match
       Map(),
       [textNode(label)])
 
-  case DataTableNode(signal, columns, actions) =>
-    dataTableView(signal, columns, actions)
+  case DataTableNode(signal, columns, actions, rowKeyPath) =>
+    dataTableView(signal, columns, actions, rowKeyPath)
 
   // Idempotent passthrough.  All TkNode subtypes are matched above; this
   // catch-all fires only when `lower` is handed an already-lowered View (e.g.

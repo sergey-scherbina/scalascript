@@ -22,6 +22,7 @@ private[cli] object SwiftV2Cli:
       output: os.Path,
       platform: SwiftPlatform,
       requestedProduct: Option[String] = None,
+      backendBaseUrl: Option[String] = None,
   ): EmittedPackage =
     if !os.exists(input) || !os.isFile(input) then
       throw new IllegalArgumentException(s"file not found: $input")
@@ -45,7 +46,7 @@ private[cli] object SwiftV2Cli:
     scala.util.Try(os.remove.all(output / "Sources"))
     scala.util.Try(os.remove(output / "Package.swift"))
     os.makeDir.all(output)
-    val generated = SwiftBackend.generate(program, product, platform)
+    val generated = SwiftBackend.generate(program, product, platform, backendBaseUrl)
     generated.writeTo(output.toNIO)
     EmittedPackage(output, generated.executable, platform)
 
@@ -86,8 +87,9 @@ private[cli] def buildV2SwiftPackage(
     outDir: os.Path,
     platform: SwiftPlatform,
     runSwiftBuild: Boolean = false,
+    backendBaseUrl: Option[String] = None,
 ): SwiftV2Cli.EmittedPackage =
-  val emitted = SwiftV2Cli.emit(sscFile, outDir, platform)
+  val emitted = SwiftV2Cli.emit(sscFile, outDir, platform, backendBaseUrl = backendBaseUrl)
   if runSwiftBuild then
     if platform == SwiftPlatform.IOS then
       throw new IllegalStateException(
@@ -106,13 +108,14 @@ final class EmitSwiftCmd extends CliCommand:
   override def summary: String = "Compile checked v2 CoreIR to a deterministic Swift package"
   override def category: String = "Emit & transpile"
   override def details: List[String] = List(
-    "Flags: --target <macos|ios>, -o <dir>, --product-name <name>"
+    "Flags: --target <macos|ios>, -o <dir>, --product-name <name>, --server-url <url>"
   )
 
   def run(args: List[String]): Unit =
     var target = ActiveFlags.current.target.getOrElse("macos")
     var output: Option[String] = None
     var product: Option[String] = None
+    var serverUrl: Option[String] = None
     val files = scala.collection.mutable.ArrayBuffer.empty[String]
     val it = args.iterator
     while it.hasNext do
@@ -120,6 +123,7 @@ final class EmitSwiftCmd extends CliCommand:
         case "--target" if it.hasNext => target = it.next()
         case "-o" | "--output" if it.hasNext => output = Some(it.next())
         case "--product-name" if it.hasNext => product = Some(it.next())
+        case "--server-url" if it.hasNext => serverUrl = Some(it.next())
         case flag if flag.startsWith("-") => fail(s"unknown flag $flag")
         case file => files += file
     if files.size != 1 then
@@ -129,7 +133,7 @@ final class EmitSwiftCmd extends CliCommand:
       val input = os.Path(files.head, os.pwd)
       val stem = input.last.stripSuffix(".ssc")
       val out = output.map(os.Path(_, os.pwd)).getOrElse(os.pwd / s"$stem-swift")
-      val emitted = SwiftV2Cli.emit(input, out, SwiftV2Cli.parsePlatform(target, name), product)
+      val emitted = SwiftV2Cli.emit(input, out, SwiftV2Cli.parsePlatform(target, name), product, serverUrl)
       System.err.println(s"Swift package written to ${displayPath(emitted.root)}")
     catch case e: Exception => fail(Option(e.getMessage).getOrElse(e.getClass.getSimpleName))
 
@@ -143,18 +147,20 @@ final class RunSwiftCmd extends CliCommand:
   def name: String = "run-swift"
   override def summary: String = "Build checked v2 CoreIR with SwiftPM and run it on macOS"
   override def category: String = "Emit & transpile"
-  override def details: List[String] = List("Flags: --target macos; argv after `--`")
+  override def details: List[String] = List("Flags: --target macos, --server-url <url>; argv after `--`")
 
   def run(args: List[String]): Unit =
     val (commandArgs, programArgs) = args.span(_ != "--") match
       case (lhs, Nil) => (lhs, Nil)
       case (lhs, _ :: rhs) => (lhs, rhs)
     var target = ActiveFlags.current.target.getOrElse("macos")
+    var serverUrl: Option[String] = None
     val files = scala.collection.mutable.ArrayBuffer.empty[String]
     val it = commandArgs.iterator
     while it.hasNext do
       it.next() match
         case "--target" if it.hasNext => target = it.next()
+        case "--server-url" if it.hasNext => serverUrl = Some(it.next())
         case flag if flag.startsWith("-") => fail(s"unknown flag $flag")
         case file => files += file
     if files.size != 1 then
@@ -166,7 +172,7 @@ final class RunSwiftCmd extends CliCommand:
       if platform == SwiftPlatform.IOS then
         fail("running iOS packages requires ssc run --target ios")
       val input = os.Path(files.head, os.pwd)
-      val emitted = SwiftV2Cli.emit(input, temp, platform)
+      val emitted = SwiftV2Cli.emit(input, temp, platform, backendBaseUrl = serverUrl)
       val exit = SwiftV2Cli.runPackage(emitted, programArgs, name)
       if exit != 0 then System.exit(exit)
     catch case e: Exception => fail(Option(e.getMessage).getOrElse(e.getClass.getSimpleName))

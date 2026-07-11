@@ -774,9 +774,17 @@ private[codegen] trait JvmGenPreamble:
          |    tick.asInstanceOf[scalascript.frontend.ReactiveSignal[Int]],
          |    Option(headers).map(_.asInstanceOf[scalascript.frontend.ReactiveSignal[String]]))
          |
-         |def rowPostAction(label: String, method: String, url: String, bodyField: String,
+         |def fieldPayload(name: String): Any = scalascript.frontend.RowPayload.Field(name)
+         |def wholeRowPayload(): Any = scalascript.frontend.RowPayload.WholeRow
+         |def fieldsPayload(names: List[String]): Any = scalascript.frontend.RowPayload.Fields(names)
+         |
+         |def rowPostAction(label: String, method: String, url: String, payload: Any,
          |                  tick: Any, headers: Any = null): Any =
-         |  scalascript.frontend.RowActionDef.RowPost(label, method, url, scalascript.frontend.RowPayload.Field(bodyField),
+         |  val _payload = payload match
+         |    case name: String => scalascript.frontend.RowPayload.Field(name)
+         |    case value: scalascript.frontend.RowPayload => value
+         |    case _ => throw IllegalArgumentException("rowPostAction payload must be String or RowPayload")
+         |  scalascript.frontend.RowActionDef.RowPost(label, method, url, _payload,
          |    tick.asInstanceOf[scalascript.frontend.ReactiveSignal[Int]],
          |    Option(headers).map(_.asInstanceOf[scalascript.frontend.ReactiveSignal[String]]))
          |
@@ -790,9 +798,9 @@ private[codegen] trait JvmGenPreamble:
          |// is ambiguous"). dataTable below resolves it via the hoisted import instead.
          |def fcol(title: String, fieldPath: String, align: String = ""): Any = fieldColumn(title, fieldPath, align)
          |def rowDelete(url: String, idField: String, tick: Any, headers: Any = null): Any = rowDeleteAction(url, idField, tick, headers)
-         |def rowPost(label: String, method: String, url: String, bodyField: String, tick: Any, headers: Any = null): Any = rowPostAction(label, method, url, bodyField, tick, headers)
+         |def rowPost(label: String, method: String, url: String, payload: Any, tick: Any, headers: Any = null): Any = rowPostAction(label, method, url, payload, tick, headers)
          |def rowLink(label: String, signal: Any, fieldPath: String): Any = rowLinkAction(label, signal, fieldPath)
-         |def dataTable(signal: Any, columns: Any, actions: Any = List()): Any = std.ui.primitives.dataTableView(signal, columns, actions)
+         |def dataTable(signal: Any, columns: Any, actions: Any = List(), rowKeyPath: String = "id"): Any = std.ui.primitives.dataTableView(signal, columns, actions, rowKeyPath)
          |
          |// ── Widget children stack (for multi-statement DSL blocks) ─────────────────
          |private val _ssc_wstack = java.util.ArrayDeque[scala.collection.mutable.ArrayBuffer[scalascript.frontend.View[?]]]()

@@ -645,7 +645,7 @@ function _ssc_ui_renderBody(view) {
           }
           return a;
         })));
-        let dtAttrs = `data-ssc-datatable="${dtSigId}" data-ssc-datatable-url="${dtUrl}" data-ssc-datatable-cols="${dtCols}" data-ssc-datatable-acts="${dtActs}"`;
+        let dtAttrs = `data-ssc-datatable="${dtSigId}" data-ssc-datatable-url="${dtUrl}" data-ssc-datatable-cols="${dtCols}" data-ssc-datatable-acts="${dtActs}" data-ssc-datatable-row-key="${_esc(String(v._rowKeyPath || 'id'))}"`;
         if (isStatic) dtAttrs += ` data-ssc-datatable-rows="${_esc(JSON.stringify(src.rows || []))}"`;
         if (isSigRows && rowsSig && rowsSig.id != null) dtAttrs += ` data-ssc-datatable-rows-sig="${String(rowsSig.id)}"`;
         const _rp = (v && v._rowsPath) || (src && src._rowsPath);  // node snapshot wins (per-table); shared signal is the fallback
@@ -661,7 +661,7 @@ function _ssc_ui_renderBody(view) {
       // it just wraps into dataTableView — so normalise and render it here
       // rather than dropping it silently.  See specs/js-backend-ui-render-gaps.md.
       case 'DataTableNode':
-        return walk(_ssc_ui_dataTableView(v.signal, v.columns, v.actions));
+        return walk(_ssc_ui_dataTableView(v.signal, v.columns, v.actions, v.rowKeyPath || 'id'));
       default: return '';
     }
   }
@@ -1487,7 +1487,7 @@ function _ssc_ui_rowEditAction(method, url, idField, tick, headers) { return { _
 // DataTables sharing one fetch signal each keep their OWN dotted path: a later
 // `fetchRowsSource(sameSig, otherPath)` mutates `sig._rowsPath`, but each node
 // already froze the path it was built with (the shared-signal collision fix).
-function _ssc_ui_dataTableView(signal, columns, actions) { return { _type: '_DataTableView', signal, columns: columns || [], actions: actions || [], _rowsPath: (signal && signal._rowsPath) || '' }; }
+function _ssc_ui_dataTableView(signal, columns, actions, rowKeyPath) { return { _type: '_DataTableView', signal, columns: columns || [], actions: actions || [], _rowsPath: (signal && signal._rowsPath) || '', _rowKeyPath: rowKeyPath || 'id' }; }
 // TableDataSource markers — first argument to dataTableView (parity with the
 // interpreter TableDataSource.StaticRows / SignalRows; the legacy bare
 // FetchUrlSignal Remote path is still accepted via `._fetchGet`).

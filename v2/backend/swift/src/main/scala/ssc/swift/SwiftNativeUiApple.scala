@@ -115,6 +115,7 @@ final class NativeUiStore: ObservableObject {
     private var pendingBatchWriteSet = Set<NativeUiPendingWrite>()
     private var pendingSeedReleases = Set<String>()
     private let urlSession: URLSession
+    private let backendBaseURL: URL?
     private let onlineMonitorFactory: () -> any NativeUiOnlineMonitoring
     private var onlineMonitor: (any NativeUiOnlineMonitoring)?
     private var onlineMonitorToken: UUID?
@@ -132,10 +133,12 @@ final class NativeUiStore: ObservableObject {
 
     init(
         urlSession: URLSession = .shared,
+        backendBaseURL: URL? = SscGeneratedProgram.nativeUiBackendBaseURL.flatMap { URL(string: $0) },
         userDefaults: UserDefaults = .standard,
         onlineMonitorFactory: @escaping () -> any NativeUiOnlineMonitoring = { NativeUiPathMonitor() }
     ) {
         self.urlSession = urlSession
+        self.backendBaseURL = backendBaseURL
         self.onlineMonitorFactory = onlineMonitorFactory
         do {
             let defaults = userDefaults
@@ -1178,12 +1181,10 @@ final class NativeUiStore: ObservableObject {
     }
 
     private func makeRequest(method: String, urlValue: SscValue, bodyValue: SscValue, headersValue: SscValue) throws -> URLRequest {
-        guard case let .string(urlText) = urlValue,
-              let url = URL(string: urlText),
-              let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
-              let host = url.host, !host.isEmpty else {
-            throw SscRuntimeFailure(description: "native fetch URL must be an absolute http/https URL")
+        guard case let .string(urlText) = urlValue else {
+            throw SscRuntimeFailure(description: "native fetch URL must be String")
         }
+        let url = try requestURL(urlText)
         guard isHttpToken(method) else {
             throw SscRuntimeFailure(description: "native fetch method must be an RFC HTTP token")
         }
@@ -1192,6 +1193,35 @@ final class NativeUiStore: ObservableObject {
         request.httpBody = try requestBody(bodyValue)
         for (name, value) in try requestHeaders(headersValue) { request.setValue(value, forHTTPHeaderField: name) }
         return request
+    }
+
+    private func requestURL(_ text: String) throws -> URL {
+        guard !text.hasPrefix("//"), let parsed = URLComponents(string: text), parsed.fragment == nil,
+              parsed.user == nil, parsed.password == nil else {
+            throw SscRuntimeFailure(description: "native fetch URL rejects scheme-relative, credential, and fragment forms")
+        }
+        let candidate: URL
+        if let rawScheme = parsed.scheme?.lowercased() {
+            guard text.lowercased().hasPrefix(rawScheme + "://") else {
+                throw SscRuntimeFailure(description: "native fetch URL must be an absolute http/https URL with a host")
+            }
+            guard let absolute = parsed.url else {
+                throw SscRuntimeFailure(description: "native fetch URL is malformed")
+            }
+            candidate = absolute
+        } else {
+            guard let backendBaseURL, let resolved = URL(string: text, relativeTo: backendBaseURL)?.absoluteURL else {
+                throw SscRuntimeFailure(description: "relative native fetch URL requires --server-url")
+            }
+            candidate = resolved
+        }
+        guard let components = URLComponents(url: candidate, resolvingAgainstBaseURL: true),
+              let scheme = components.scheme?.lowercased(), ["http", "https"].contains(scheme),
+              let host = components.host, !host.isEmpty, components.user == nil,
+              components.password == nil, components.fragment == nil else {
+            throw SscRuntimeFailure(description: "native fetch URL must resolve to an absolute http/https URL with a host")
+        }
+        return candidate
     }
 
     private func requestHeaders(_ value: SscValue) throws -> [String: String] {

@@ -18,7 +18,7 @@ object NativeUiSites:
   private val arities: Map[String, Set[Int]] = Map(
     "element" -> Set(4),
     "forKeyedView" -> Set(3),
-    "dataTableView" -> Set(3),
+    "dataTableView" -> Set(3, 4),
     "computedSignal" -> Set(1),
     "eqSignal" -> Set(2),
     "fetchUrlSignal" -> Set(3, 4),

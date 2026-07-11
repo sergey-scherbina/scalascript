@@ -84,7 +84,7 @@ object ViewTraversal:
          View.AlertDialog(_, _, _, _) |
          View.FormField(_, _, _, _) |
          View.ItemText |
-         View.DataTable(_, _, _, _) |
+         View.DataTable(_, _, _, _, _) |
          View.ModelText(_, _, _) |
          View.FormattedField(_, _, _, _) |
          View.EditableCell(_, _, _) |

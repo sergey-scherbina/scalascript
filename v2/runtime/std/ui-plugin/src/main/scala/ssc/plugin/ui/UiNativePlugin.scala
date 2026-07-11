@@ -580,6 +580,29 @@ final class UiNativePlugin extends NativePlugin:
     native(context, "wholeRowPayload") { case Nil => Value.DataV("NativeUiRowPayload", Vector(Value.StrV("wholeRow"), list(Nil))); case _ => throw new RuntimeException("wholeRowPayload()") }
     native(context, "fieldsPayload") { case names :: Nil => Value.DataV("NativeUiRowPayload", Vector(Value.StrV("fields"), NativeUiPortable.canonical(names, "NativeUiRowPayload.names"))); case _ => throw new RuntimeException("fieldsPayload(names)") }
 
+    def validDottedName(name: String): Boolean =
+      name.nonEmpty && name.split("\\.", -1).forall(_.nonEmpty)
+    def rowPayload(value: Value, operation: String): Value =
+      val descriptor = value match
+        case Value.StrV(name) =>
+          Value.DataV("NativeUiRowPayload", Vector(Value.StrV("field"), list(List(Value.StrV(name)))))
+        case data @ Value.DataV("NativeUiRowPayload", fields) if fields.length == 2 => data
+        case _ => throw new RuntimeException(s"$operation payload must be String or NativeUiRowPayload")
+      descriptor match
+        case Value.DataV("NativeUiRowPayload", Seq(Value.StrV(kind), rawNames)) =>
+          val names = unlist(rawNames, s"$operation payload names").map {
+            case Value.StrV(name) if validDottedName(name) => name
+            case _ => throw new RuntimeException(s"$operation payload names must be non-empty dotted Strings")
+          }
+          val valid = kind match
+            case "field" => names.length == 1
+            case "wholeRow" => names.isEmpty
+            case "fields" => names.nonEmpty && names.distinct.length == names.length
+            case _ => false
+          if !valid then throw new RuntimeException(s"$operation payload descriptor is malformed")
+          Value.DataV("NativeUiRowPayload", Vector(Value.StrV(kind), list(names.map(Value.StrV.apply))))
+        case _ => throw new RuntimeException(s"$operation payload descriptor is malformed")
+
     def column(kind: String, title: Value, fieldPath: Value, align: Value, options: Value): Value =
       val operation = s"${kind}Column"
       val fields = List(title, fieldPath, align)
@@ -609,12 +632,15 @@ final class UiNativePlugin extends NativePlugin:
         rowAction("delete", "Delete", fetchRequest("POST", Value.StrV(text(args, 0, "rowDeleteAction")), payload, args.lift(3).getOrElse(emptyHeaders)), payload, args(2), metadata())
       else throw new RuntimeException("rowDeleteAction(url, idField, tick[, headers])")
     }
-    native(context, "rowPostAction") { args => if args.length == 5 || args.length == 6 then rowAction("post", text(args, 0, "rowPostAction"), fetchRequest(text(args, 1, "rowPostAction"), Value.StrV(text(args, 2, "rowPostAction")), Value.UnitV, args.lift(5).getOrElse(emptyHeaders)), Value.DataV("NativeUiRowPayload", Vector(Value.StrV("field"), list(List(Value.StrV(text(args, 3, "rowPostAction")))))), args(4), metadata()) else throw new RuntimeException("rowPostAction(label, method, url, bodyField, tick[, headers])") }
+    native(context, "rowPostAction") { args => if args.length == 5 || args.length == 6 then rowAction("post", text(args, 0, "rowPostAction"), fetchRequest(text(args, 1, "rowPostAction"), Value.StrV(text(args, 2, "rowPostAction")), Value.UnitV, args.lift(5).getOrElse(emptyHeaders)), rowPayload(args(3), "rowPostAction"), args(4), metadata()) else throw new RuntimeException("rowPostAction(label, method, url, payload, tick[, headers])") }
     native(context, "rowLinkAction") { case Value.StrV(label) :: signal :: Value.StrV(field) :: Nil => signalFields(signal, "rowLinkAction"); rowAction("link", label, Value.UnitV, Value.DataV("NativeUiRowPayload", Vector(Value.StrV("field"), list(List(Value.StrV(field))))), Value.UnitV, metadata("signal" -> signal)); case _ => throw new RuntimeException("rowLinkAction(label, signal, fieldPath)") }
     native(context, "rowEditAction") { args => if args.length == 4 || args.length == 5 then rowAction("edit", "Edit", fetchRequest(text(args, 0, "rowEditAction"), Value.StrV(text(args, 1, "rowEditAction")), Value.UnitV, args.lift(4).getOrElse(emptyHeaders)), Value.DataV("NativeUiRowPayload", Vector(Value.StrV("field"), list(List(Value.StrV(text(args, 2, "rowEditAction")))))), args(3), metadata()) else throw new RuntimeException("rowEditAction(method, url, idField, tick[, headers])") }
     siteNative(context, "dataTableView") { (site, _, args) => args match
-      case source :: columns :: actions :: Nil => Value.DataV("NativeUiDataTable", Vector(Value.StrV(site), NativeUiPortable.canonical(source, "NativeUiDataTable.source"), NativeUiPortable.canonical(columns, "NativeUiDataTable.columns"), NativeUiPortable.canonical(actions, "NativeUiDataTable.actions")))
-      case _ => throw new RuntimeException("dataTableView(source, columns, actions)")
+      case source :: columns :: actions :: Nil =>
+        Value.DataV("NativeUiDataTable", Vector(Value.StrV(site), NativeUiPortable.canonical(source, "NativeUiDataTable.source"), NativeUiPortable.canonical(columns, "NativeUiDataTable.columns"), NativeUiPortable.canonical(actions, "NativeUiDataTable.actions"), Value.StrV("id")))
+      case source :: columns :: actions :: Value.StrV(rowKeyPath) :: Nil =>
+        Value.DataV("NativeUiDataTable", Vector(Value.StrV(site), NativeUiPortable.canonical(source, "NativeUiDataTable.source"), NativeUiPortable.canonical(columns, "NativeUiDataTable.columns"), NativeUiPortable.canonical(actions, "NativeUiDataTable.actions"), Value.StrV(if rowKeyPath.isEmpty then "id" else rowKeyPath)))
+      case _ => throw new RuntimeException("dataTableView(source, columns, actions[, rowKeyPath])")
     }
 
     native(context, "localStorageGet") { case Value.StrV(key) :: Nil => storage.get(key).fold[Value](Value.DataV("None", Vector.empty))(value => Value.DataV("Some", Vector(Value.StrV(value)))); case _ => throw new RuntimeException("localStorageGet(key)") }

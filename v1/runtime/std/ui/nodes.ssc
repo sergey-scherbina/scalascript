@@ -155,7 +155,8 @@ case class LinkNode(to: String,
 // actions: List[RowActionDef] opaque as Any.
 case class DataTableNode(signal:  Any,
                          columns: List[Any],
-                         actions: List[Any])             extends TkNode
+                         actions: List[Any],
+                         rowKeyPath: String = "id")      extends TkNode
 
 // ── Styled primitives + token-aware Style (busi UI proposals P2) ───────────
 // A styled container carries a token map (key -> token string), resolved against

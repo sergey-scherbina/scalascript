@@ -431,7 +431,7 @@ object FetchIntrinsics:
         case _ => PluginError.raise("linkColumn(title, fieldPath[, align[, urlTemplate]])")
     },
 
-    // dataTableView(source, columns, actions): View
+    // dataTableView(source, columns, actions[, rowKeyPath]): View
     // Builds a View.DataTable from a TableDataSource + lists of FieldColumnDef/RowActionDef.
     // Accepts either a TableDataSource Foreign value, or a FetchUrlSignal directly (legacy path).
     QualifiedName("dataTableView") -> PluginNative.evalLegacy { (_, args) =>
@@ -443,17 +443,18 @@ object FetchIntrinsics:
         case PluginValue.Lst(items) => items.collect {
           case PluginValue.Foreign("RowActionDef", a: RowActionDef) => a }
         case _ => Nil
+      def build(source: Any, cols: Any, acts: Any, rowKeyPath: String): PluginValue = source match
+        case PluginValue.Foreign("TableDataSource", src: TableDataSource) =>
+          PluginValue.foreign("View",
+            View.DataTable(src, toColumns(cols), toActions(acts), rowKeyPath = if rowKeyPath.isEmpty then "id" else rowKeyPath))
+        case PluginValue.Foreign("ReactiveSignal", sig: FetchUrlSignal) =>
+          PluginValue.foreign("View",
+            View.DataTable(TableDataSource.Remote(sig), toColumns(cols), toActions(acts), rowKeyPath = if rowKeyPath.isEmpty then "id" else rowKeyPath))
+        case _ => PluginError.raise("dataTableView: invalid source")
       args match
-        case List(PluginValue.Foreign("TableDataSource", src: TableDataSource),
-                  cols, acts) =>
-          PluginValue.foreign("View",
-            View.DataTable(src, toColumns(cols), toActions(acts)))
-        case List(PluginValue.Foreign("ReactiveSignal", sig: FetchUrlSignal),
-                  cols, acts) =>
-          // Legacy path: bare FetchUrlSignal → wrap as Remote automatically.
-          PluginValue.foreign("View",
-            View.DataTable(TableDataSource.Remote(sig), toColumns(cols), toActions(acts)))
-        case _ => PluginError.raise("dataTableView(source, columns, actions)")
+        case List(source, cols, acts) => build(source, cols, acts, "id")
+        case List(source, cols, acts, rowKeyPath: String) => build(source, cols, acts, rowKeyPath)
+        case _ => PluginError.raise("dataTableView(source, columns, actions[, rowKeyPath])")
     },
 
     // staticRowsSource(rows: List[Map[String, Any]]): TableDataSource.StaticRows

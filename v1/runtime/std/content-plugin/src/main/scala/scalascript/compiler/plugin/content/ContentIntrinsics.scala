@@ -789,7 +789,8 @@ object ContentIntrinsics:
     instanceValue("DataTableNode",
       "signal"  -> rows,
       "columns" -> columns,
-      "actions" -> actions)
+      "actions" -> actions,
+      "rowKeyPath" -> PluginValue.string("id"))
 
   // Build typed DataColumns from an inline YAML `columns:` list (Scope B.2) by
   // invoking the registered column-builder natives via env.buildColumn, so the

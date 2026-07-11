@@ -94,6 +94,24 @@ final class SwiftBackendTest extends AnyFunSuite:
     assert(macos.contains("platforms: [.macOS(.v13)]"))
     assert(ios.contains("platforms: [.iOS(.v16)]"))
 
+  test("NativeUi generation validates and embeds the sole normalized backend base URL"):
+    val generated = SwiftBackend.generate(
+      nativeUiSessionProgram(), "NativeBase", backendBaseUrl = Some("https://api.example.com/v1"))
+    val program = generated.files.toMap.apply("Sources/AppCore/GeneratedProgram.swift")
+    assert(program.contains("nativeUiBackendBaseURL"))
+    assert(program.contains("https://api.example.com/v1/"))
+    List(
+      "ftp://api.example.com/v1",
+      "https://user@api.example.com/v1",
+      "https://api.example.com/v1?q=1",
+      "https://api.example.com/v1#fragment",
+      "/relative",
+    ).foreach { invalid =>
+      val error = intercept[IllegalArgumentException](
+        SwiftBackend.generate(nativeUiSessionProgram(), "NativeBase", backendBaseUrl = Some(invalid)))
+      assert(error.getMessage.contains("Swift --server-url"))
+    }
+
   test("real swift run matches VM structural fixtures fact tco and map"):
     assume(swiftAvailable, "Swift toolchain is not available")
     val cases = List(
@@ -179,7 +197,7 @@ final class SwiftBackendTest extends AnyFunSuite:
     val descriptors = runSwiftResult("nativeUiDescriptors", nativeUiDescriptorProgram(), probe = Some(nativeUiDescriptorProbe))
     assert(descriptors.exit == 0, descriptors.stderr)
     assert(descriptors.stdout ==
-      "source=static::;column=text:Id:id::edit=();delete=delete:Delete:POST:/delete:field:id;post=post:Save:POST:/save:field:id")
+      "source=static::;key=account.id;column=text:Id:id::edit=();delete=delete:Delete:POST:/delete:field:id;post=post:Save:POST:/save:field:id")
     assert(runSwift("nativeUiRawHtml", nativeUiRawHtmlProgram()) ==
       "NativeUiAbi(version=1, root=NativeUiTrustedHtml, operation=emit)")
 
@@ -569,13 +587,15 @@ final class SwiftBackendTest extends AnyFunSuite:
     val rows = Term.App(Term.Global("staticRowsSource"), List(Term.Ctor("Nil", Nil)))
     val column = Term.App(Term.Global("fieldColumn"), List(str("Id"), str("id")))
     val delete = Term.App(Term.Global("rowDeleteAction"), List(str("/delete"), str("id"), Term.Local(4)))
-    val post = Term.App(Term.Global("rowPostAction"), List(str("Save"), str("POST"), str("/save"), str("id"), Term.Local(5)))
+    val post = Term.App(Term.Global("rowPostAction"), List(str("Save"), str("POST"), str("/save"),
+      Term.App(Term.Global("fieldPayload"), List(str("id"))), Term.Local(5)))
     val fetchLiteral = Term.App(Term.Global("fetchAction"), List(str("POST"), str("/submit"), Term.Local(4), Term.Local(6)))
     val fetchDynamic = Term.App(Term.Global("fetchActionTo"), List(str("POST"), Term.Local(5), Term.Local(4), Term.Local(6)))
     val table = Term.App(Term.Global("dataTableView"), List(
       Term.Local(3),
       list(List(Term.Local(2))),
       list(List(Term.Local(1), Term.Local(0))),
+      str("account.id"),
     ))
     Program(Nil, Term.Let(List(refresh, url, body, rows, column, delete, post), Term.Seq(List(
       fetchLiteral,
@@ -3062,7 +3082,7 @@ public enum SessionProbe {
             let column = fields(list(table[2])[0], "NativeUiColumn")
             guard case let .map(options) = column[4], case .unit = options.get(.string("editAction")) else { fatalError("bad column options") }
             let actions = list(table[3])
-            Swift.print("source=\(string(source[0])):\(string(source[2])):;column=\(string(column[0])):\(string(column[1])):\(string(column[2])):\(string(column[3])):edit=();delete=\(action(actions[0]));post=\(action(actions[1]))")
+            Swift.print("source=\(string(source[0])):\(string(source[2])):;key=\(string(table[4]));column=\(string(column[0])):\(string(column[1])):\(string(column[2])):\(string(column[3])):edit=();delete=\(action(actions[0]));post=\(action(actions[1]))")
         } catch { fatalError(String(describing: error)) }
     }
 }
