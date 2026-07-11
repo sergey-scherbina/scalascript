@@ -960,6 +960,37 @@ manifest explicitly requests SwiftUI), never by attempting a v1 parse after a
 failure. Generated source cleanup is target-scoped so changing modes cannot
 leave the old entry point in the new target.
 
+Application metadata is part of the v2 checked-source result; the CLI obtains
+it in the same FrontendBridge conversion that produces `Program` and never
+calls the v1 `Parser`, `JvmGen`, or SwiftUI emitter. The app/scheme/product name
+uses explicit `--product-name`, otherwise top-level `name`, otherwise the source
+file stem, then passes through the existing `SwiftBackend.productName`
+normalizer. UI application mode requires a top-level `bundle-id`; it must be a
+non-empty reverse-DNS sequence of dot-separated ASCII alphanumeric/hyphen
+segments and is rejected rather than rewritten. `display-name` falls back to
+top-level `name`, then the normalized product. `version` becomes
+`MARKETING_VERSION` and defaults to `1.0.0`; a new top-level `build-version`
+becomes `CURRENT_PROJECT_VERSION` and defaults to `1`. Both version values must
+be one to three dot-separated non-negative decimal components. Invalid or
+missing required metadata fails before file output with a Unicode-bounded
+diagnostic naming the key and supplied value.
+
+The PBX project is Xcode-14-compatible (`objectVersion = 56`) and contains one
+multi-platform native application target. Every object id is the first 24
+uppercase hexadecimal digits of SHA-256 over a unique semantic key; generation
+checks collisions and renders sections/items in stable semantic-key order. The
+target sets `SWIFT_VERSION = 6.0`, `GENERATE_INFOPLIST_FILE = YES`,
+`SUPPORTS_MACCATALYST = NO`, the deployment/platform settings above, and no
+team, identity, profile, or credential. Its sources phase includes every sorted
+`Sources/AppCore/*.swift`, including `NativeUiHost.swift`, and every sorted
+`AppleApp/*.swift`; it excludes `Sources/<AppName>Cli/main.swift` and
+`Package.swift`. The resources phase recursively includes sorted files below
+`AppleApp/Resources`. UI generation always writes a minimal deterministic
+`AppleApp/Resources/Assets.xcassets/Contents.json`, so both the directory and
+phase are real. The shared scheme is written to
+`<AppName>.xcodeproj/xcshareddata/xcschemes/<AppName>.xcscheme` and references
+only the application target and `<AppName>.app` product.
+
 The generator also emits one immutable optional backend base URL into the
 Apple target configuration. It is the already-resolved `--server-url`/client
 build setting, validated during generation as absolute `http` or `https` with
@@ -977,6 +1008,26 @@ package/publish never point at `<AppName>Cli`. Simulator, device, IPA,
 notarization, TestFlight, and App Store adapters consume that generated app
 bundle and retain their existing tool/credential diagnostics.
 
+The generated-package result exposes two distinct capabilities: `debugCli` for
+`run-swift` only, and `XcodeAppArtifact(project, scheme, target, appProduct,
+bundleId, displayName, marketingVersion, buildVersion)` for every Apple
+build/run/package/publish lane. No generic `executable`/`product` field may be
+interpreted differently by callers. Apple lanes invoke `xcodebuild` with
+explicit `-project` and `-scheme`, query `-showBuildSettings` for the selected
+destination/configuration, and form the output from `TARGET_BUILD_DIR` plus
+`FULL_PRODUCT_NAME`; hard-coded `Debug-*` paths are forbidden. Before launch,
+install, archive handoff, signing, or publication, the common verifier requires
+an existing `.app`, an `Info.plist` with `CFBundlePackageType = APPL` and the
+exact expected `CFBundleIdentifier`, and `CFBundleExecutable` different from
+the debug CLI product. Product discovery/verification is shared by unsigned
+macOS/iOS gates and the signed device/archive/distribution adapters.
+
+Signed device/archive/IPA, macOS codesign/notarization/DMG, TestFlight, and App
+Store routing is a named implementation sub-slice after the common artifact
+helper. Those adapters keep their existing bounded missing-tool/credential
+diagnostics, but generation and product selection use only the v2 artifact;
+none may call the legacy generator or infer a product path independently.
+
 This project shape is an acceptance requirement, not packaging preference. On
 2026-07-11 the legacy generated SwiftPM package with an `@main App` and
 `.iOS(.v17)` was tested using `xcodebuild` from Xcode 26.5. The generic iOS
@@ -988,6 +1039,12 @@ contract. The first implementation gate builds the generated Xcode application
 scheme on macOS, inspects the real `.app` product and target type/settings, and
 also builds for an iOS Simulator wherever the SDK is installed. A missing local
 iOS SDK is a recorded skip only; CI with that SDK must run the simulator build.
+The iOS 26.5 Simulator runtime and available iPhone devices were installed and
+confirmed on the implementation host before this design checkpoint, so the
+current acceptance run must execute the iOS build rather than record a skip.
+The gate also executes `xcodebuild -list` and destination-specific
+`-showBuildSettings`, byte-compares two full generated trees, inspects the
+macOS bundle plist/product/executable, and bounded-launches that executable.
 
 The first implementation gate must prove the ABI on the JVM v2 runtime before
 SwiftUI rendering: no `ForeignV`, exact tags/fields, mutable/computed dependency
@@ -1053,6 +1110,8 @@ behavior.
   fall back.
 - [ ] Package/sign/simulator/device/publish adapters consume the generated
   package and retain bounded missing-tool diagnostics.
+- [ ] UI application metadata is obtained with the checked v2 source result,
+  validated before output, and never reparsed through the v1 frontend.
 
 ### SwiftUI portable runtime
 
@@ -1077,6 +1136,10 @@ behavior.
   smoke fixture.
 - [ ] The iOS Xcode application scheme passes an available simulator
   `xcodebuild` compile.
+- [ ] Full generated trees and semantic PBX ids are byte-for-byte deterministic;
+  `xcodebuild -list` and `-showBuildSettings` select only the application target.
+- [ ] Product discovery verifies `.app`, `APPL`, bundle id, and a non-CLI
+  executable before unsigned launch or signed adapter handoff.
 - [ ] Existing focused conformance and SwiftUI compatibility suites stay green.
 
 ## Testing strategy
@@ -1150,6 +1213,17 @@ Swift 6 warnings-as-errors execution on macOS and compile on iOS.
   runtime, not a trivial emitter case. Rejected: v1 one-shot list rendering.
 - **V2 default with explicit v1 compatibility** — target selection is honest and
   failures are visible. Rejected: transparent v1 fallback.
+- **One deterministic multi-platform PBX application target** — the same source
+  module and scheme build macOS and iOS, while semantic hashed ids make the
+  generated project reproducible. Rejected: SwiftPM executable schemes (not an
+  installable iOS application) and separate drifting platform projects.
+- **Explicit debug CLI versus Xcode application artifact** — command authority
+  is represented in types and every Apple product is discovered and verified
+  from Xcode build settings. Rejected: ambiguous product strings and hard-coded
+  `.build`/`Debug-*` paths that can select `<AppName>Cli`.
+- **Checked v2 application metadata** — bundle/version identity crosses the same
+  frontend conversion as CoreIR and fails before output. Rejected: using the v1
+  parser as a metadata side channel or silently rewriting invalid bundle ids.
 
 ## Out of scope
 
