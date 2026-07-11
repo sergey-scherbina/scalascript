@@ -640,6 +640,17 @@ def ordinary(x: Int): Int = x + 1 // not an extension member
 Nested delimiters in receiver types and parameter types do not affect the
 layout boundary.
 
+An in-scope symbolic extension is selected for non-primitive operands. Built-in
+numeric semantics remain authoritative for their primitive operand types, so a
+module may use an ADT extension named `|` and integer bitwise OR together:
+
+```scalascript
+val parserChoice = identifier | integer
+val permissionMask = 6 | 3 // 7
+```
+
+Imported extensions follow the same rule as local declarations.
+
 ### 5.7 String Interpolators
 
 ```scalascript
