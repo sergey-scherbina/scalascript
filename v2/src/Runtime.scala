@@ -165,13 +165,29 @@ object Runtime:
 
   // Trampoline: run a compiled Code to a final Value, bouncing tail Calls in
   // CONSTANT STACK (specs/10-core-ir.md invariant 7).
+  def partialClosure(c: Value.ClosV, args: Array[Value]): Value.ClosV =
+    if c.arity < 0 || args.length >= c.arity then
+      sys.error(s"cannot partially apply arity ${c.arity} to ${args.length} arguments")
+    val captured = new Array[Value](args.length + 1)
+    captured(0) = c
+    System.arraycopy(args, 0, captured, 1, args.length)
+    Value.ClosV(captured, c.arity - args.length, env2 =>
+      val original = env2(0).asInstanceOf[Value.ClosV]
+      val allArgs = java.util.Arrays.copyOfRange(env2, 1, env2.length)
+      val bodyEnv =
+        if allArgs.isEmpty then original.env
+        else if original.env.isEmpty then allArgs
+        else extend(original.env, allArgs)
+      original.code(bodyEnv))
+
   def run(code0: Code, env0: Env): Value =
     var code = code0; var env = env0
     while true do
       code(env) match
         case Done(v) => return v
         case Call(c, args) =>
-          if c.arity >= 0 && c.arity != args.length then sys.error(s"arity: ${c.arity} expected, ${args.length} given")
+          if c.arity >= 0 && args.length < c.arity then return partialClosure(c, args)
+          if c.arity >= 0 && args.length > c.arity then sys.error(s"arity: ${c.arity} expected, ${args.length} given")
           // Fast paths: empty args reuse closure env; empty closure env reuses args (no copy)
           env = if args.isEmpty then c.env else if c.env.isEmpty then args else Runtime.extend(c.env, args)
           code = c.code

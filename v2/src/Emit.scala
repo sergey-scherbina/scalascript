@@ -79,9 +79,11 @@ object Emit:
   /** Apply a closure/value to args (mirrors the VM's application semantics). */
   def app(f: Value, args: Array[Value]): Value = f match
     case c: Value.ClosV =>
-      if c.arity >= 0 && c.arity != args.length then
+      if c.arity >= 0 && args.length < c.arity then
+        Runtime.partialClosure(c, args)
+      else if c.arity >= 0 && args.length > c.arity then
         sys.error(s"arity: ${c.arity} expected, ${args.length} given")
-      Runtime.run(c.code, if args.isEmpty then c.env else Runtime.extend(c.env, args))
+      else Runtime.run(c.code, if args.isEmpty then c.env else Runtime.extend(c.env, args))
     case other =>
       Runtime.applyFallback(other, args) match
         case Done(v)        => v
