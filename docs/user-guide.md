@@ -304,9 +304,10 @@ The native frontend accepts named layout givens with indented member bodies:
 `given intShow: Show[Int] with` followed by `def` members. Explicit property and
 method calls such as `intShow.prefix` and `intShow.show(7)` use deterministic
 static dispatch on both the VM and direct ASM, including sibling-member calls
-inside the given body. Top-level `summon[...]`, anonymous givens, and
-type-directed overload selection remain bounded migration gaps; use an explicit
-named given on the native route until those slices land.
+inside the given body. Exact top-level `summon[TC[T]]` resolves a matching named
+given, including nested type arguments. Missing evidence fails explicitly;
+anonymous givens, Mirror/derived evidence, subtype search, and type-directed
+overload selection remain bounded migration gaps.
 
 The standard native route publishes the same portable `math` receiver on both
 execution lanes. `math.Pi`, `math.E`, and numeric `abs`, `sqrt`, `pow`, `sin`,
