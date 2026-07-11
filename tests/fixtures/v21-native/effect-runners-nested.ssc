@@ -1,0 +1,28 @@
+#!/usr/bin/env ssc
+
+# Nested standard effect runners
+
+```scalascript
+val logged = runLoggerToList {
+  Logger.info("outer-before")
+  val inner = runLoggerToList {
+    Logger.info("inner")
+    7
+  }
+  Logger.info("outer-after")
+  inner
+}
+println(logged)
+
+val (outerSource, innerValues) = runStream {
+  Stream.emit(1)
+  val (innerSource, _) = runStream {
+    Stream.emit(9)
+    ()
+  }
+  Stream.emit(2)
+  innerSource.runToList()
+}
+println(outerSource.runToList())
+println(innerValues)
+```

@@ -35,4 +35,16 @@ for mode in vm asm; do
 done
 cmp "$tmp/algebraic.vm.out" "$tmp/algebraic.asm.out"
 
+nested_fixture="$ROOT/tests/fixtures/v21-native/effect-runners-nested.ssc"
+nested_expected=$'((7, List((info, inner))), List((info, outer-before), (info, outer-after)))\nList(1, 2)\nList(9)'
+for mode in vm asm; do
+  mode_args=()
+  [[ $mode == asm ]] && mode_args+=(--bytecode)
+  run_native "${mode_args[@]}" "$nested_fixture" \
+    >"$tmp/nested.$mode.out" 2>"$tmp/nested.$mode.err"
+  [[ $(<"$tmp/nested.$mode.out") == "$nested_expected" ]]
+  [[ ! -s "$tmp/nested.$mode.err" ]]
+done
+cmp "$tmp/nested.vm.out" "$tmp/nested.asm.out"
+
 echo 'PASS v21-native-effect-handlers-smoke'

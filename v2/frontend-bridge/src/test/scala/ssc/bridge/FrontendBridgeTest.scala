@@ -675,6 +675,23 @@ class FrontendBridgeTest extends AnyFunSuite:
 
     val error = intercept[RuntimeException](runBytecodeProgram(wrongArity))
     assert(error.getMessage == "arity: 1 expected, 2 given")
+    val vmError = intercept[RuntimeException](runCore(wrongArity.entry))
+    assert(vmError.getMessage == error.getMessage)
+  }
+
+  test("v2 VM and bytecode partially apply closures with lexical capture") {
+    import Const.*, Term.*
+    val addCaptured = Lam(2,
+      Prim("__arith__", List(Lit(CStr("+")), Local(2),
+        Prim("__arith__", List(Lit(CStr("+")), Local(1), Local(0))))))
+    val curried = Program(
+      Nil,
+      Let(List(Lit(CInt(10))),
+        Let(List(addCaptured),
+          App(App(Local(0), List(Lit(CInt(20)))), List(Lit(CInt(12)))))))
+
+    assert(runCore(curried.entry) == Value.IntV(42))
+    assert(runBytecodeProgram(curried) == Value.IntV(42))
   }
 
   test("v2 bytecode compiles BigInt and byte-vector literals (was hard Unsupported)") {
