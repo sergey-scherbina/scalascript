@@ -208,11 +208,11 @@ private[cli] object SwiftV2Distribution:
     val complete = parsed.exists { obj =>
       def string(key: String): Boolean =
         obj.get(key).exists(value => scala.util.Try(value.str.trim.nonEmpty).getOrElse(false))
-      string("key_id") && string("issuer_id") && string("key")
+      string("key_id") && string("key")
     }
     if !complete then
       throw new IllegalArgumentException(
-        s"$command: API key JSON requires non-empty key_id, issuer_id, and key")
+        s"$command: API key JSON requires non-empty key_id and key")
     path
 
   def requireFastlane(command: String): Unit =
@@ -263,7 +263,10 @@ private[cli] object SwiftV2Distribution:
       throw new IllegalArgumentException(s"$command: no Fastfile found at $fastfilePath")
     val env = fastlaneEnvironment(
       context, artifact, apiKey, releaseNotes, submitForReview)
-    requireSuccess(tool("fastlane") ++ List(lane), Some(fastfilePath / os.up), command,
+    val laneArgs =
+      if !useExisting && lane == "mac_appstore" then List("mac", lane)
+      else List(lane)
+    requireSuccess(tool("fastlane") ++ laneArgs, Some(fastfilePath / os.up), command,
       s"fastlane $lane", env)
 
   private def exportArchive(

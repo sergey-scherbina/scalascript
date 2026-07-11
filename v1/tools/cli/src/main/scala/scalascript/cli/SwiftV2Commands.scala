@@ -167,7 +167,9 @@ private[cli] object SwiftV2Cli:
     val app = pkg.xcodeApp.getOrElse(
       throw new IllegalArgumentException(s"$command: checked program does not define a NativeUi application"))
     val macInfo = bundle / "Contents" / "Info.plist"
-    val infoPlist = if os.exists(macInfo) then macInfo else bundle / "Info.plist"
+    val infoPlist = pkg.platform match
+      case SwiftPlatform.MacOS => macInfo
+      case SwiftPlatform.IOS => bundle / "Info.plist"
     if bundle.ext != "app" || !os.exists(infoPlist) then
       throw new IllegalStateException(s"$command: Xcode application product missing at $bundle")
     def plist(key: String): String =
