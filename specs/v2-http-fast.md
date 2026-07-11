@@ -51,9 +51,12 @@ under real concurrency.
 
 ## Design — the server engine (from-scratch, zero-dep, JVM 21)
 
-- **Transport:** NIO `ServerSocketChannel` + **virtual-thread-per-connection** with blocking
-  channel reads. JVM 21 makes thread-per-connection cheap to millions of conns; no selector
-  event-loop complexity, lowest latency.
+- **Transport:** blocking `ServerSocket`/`Socket` + **virtual-thread-per-connection** with
+  blocking reads. JVM 21 makes thread-per-connection cheap to millions of conns; no selector
+  event-loop complexity, lowest latency. (Chose `java.net.ServerSocket` over
+  `ServerSocketChannel`: identical under vthreads — both park on blocking accept/read — but
+  `Socket.setSoTimeout` gives a real per-connection idle timeout, which a blocking
+  `SocketChannel` read ignores.)
 - **HTTP/1.1 parser:** byte-level, incremental, off a reused per-connection read buffer.
   Parse request line + headers without premature String alloc; keep-alive + pipelining +
   chunked transfer + Content-Length bodies; configurable max header/body sizes.
@@ -102,10 +105,18 @@ without your own synchronization" (out of scope for the VM fix).
       first-touches + a hot shared key) fails on the old `mutable.HashMap` (lost updates) and
       passes on TrieMap. Benches unregressed: float-loop 22.5×, list-fold 1.9×, float-fold
       1.87× (bytecode vs VM). Benefits the current server too. FOUNDATION.
-- [ ] **hf-2 http-core** — new `v2NativeHttpFastPlugin`: NIO + vthread-per-conn + zero-copy
-      HTTP/1.1 parser + keep-alive + path-params + query; match Request(9)/Response(3)/route/
-      serve/stop surface. Unit tests (parser, router, keep-alive) + integration (real socket)
-      + bench vs the JDK-server plugin (req/s, p99, alloc/req).
+- [x] **hf-2 http-core** — DONE. New module `v2/runtime/std/http-fast-plugin`
+      (`v2NativeHttpFastPlugin`, aggregated for CI but NOT yet on the CLI classpath). Engine:
+      `FastHttpServer` (blocking `ServerSocket` + vthread-per-connection), `HttpProtocol`
+      (hand-written HTTP/1.1 parser: request line, headers, Content-Length + chunked bodies,
+      `Expect: 100-continue`, header/body caps, keep-alive), `Router[H]` (literal/`:param`/`*`
+      with specificity ordering + 404-vs-405), `NioNativeHttpServerHost` (routes → 9-field
+      Request DataV — query+path-params in `form`, cookies parsed — → invoke → Response),
+      `HttpFastNativePlugin` (same intrinsic surface + `id="50-http"`; `maxBodySize` now real).
+      26 tests green (RouterTest, HttpProtocolTest, FastHttpServerIntegrationTest: GET/POST/
+      query/500/keep-alive/concurrency/body-limit). Transport bench vs raw `com.sun` server
+      (same vthread executor + client): **1.46× req/s** (21.8k→31.9k), p50 2.59→1.79ms, p99
+      7.79→4.18ms, 0 errors (`HttpFastBench` via `Test/runMain`).
 - [ ] **hf-3 websocket** — RFC 6455 upgrade + framing; `onWebSocket`/`wsConnect`/the `ws`
       value surface + `WsRoom`. Echo + broadcast tests + a throughput bench.
 - [ ] **hf-4 streaming/middleware** — fill the current stubs feasibly: `sse`, `cors`, `use`

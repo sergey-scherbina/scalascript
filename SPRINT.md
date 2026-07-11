@@ -23,9 +23,12 @@ Spec: `specs/v2-http-fast.md`. New v2 native plugin: NIO + Java-21 virtual-threa
       HashMap, passes on TrieMap. Benches unregressed (float-loop 22.5×, list-fold 1.9×,
       float-fold 1.87× bytecode vs VM). V2PluginRegistry=frozen-after-load (safe),
       effect-ctx=ThreadLocal (safe) — no change.
-- [ ] **hf-2 http-core** — v2NativeHttpFastPlugin: NIO/vthread server + zero-copy HTTP/1.1
-      parser + keep-alive + path-params/query; match Request(9)/Response(3)/route/serve/stop.
-      Unit + integration (real socket) tests + bench vs JDK-server plugin.
+- [x] **hf-2 http-core** — DONE. v2NativeHttpFastPlugin (http-fast-plugin): FastHttpServer
+      (ServerSocket + vthread-per-conn), HttpProtocol (HTTP/1.1 parser: content-length+chunked,
+      expect-continue, caps, keep-alive), Router (literal/:param/* + 404-vs-405),
+      NioNativeHttpServerHost (9-field Request, params in `form`, cookies), HttpFastNativePlugin
+      (id 50-http, maxBodySize real). 26 tests green. Bench vs raw com.sun: 1.46× req/s
+      (21.8k→31.9k), p99 7.79→4.18ms, 0 err. Aggregated for CI; not yet on CLI classpath (hf-5).
 - [ ] **hf-3 websocket** — RFC 6455 upgrade+framing; onWebSocket/wsConnect/ws-value/WsRoom.
 - [ ] **hf-4 streaming/middleware** — sse, cors, use (chain), useGzip, maxBodySize (fill stubs).
 - [ ] **hf-5 default-swap** — make it the default http plugin, full conformance, remove old.

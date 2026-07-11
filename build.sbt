@@ -245,6 +245,18 @@ lazy val v2NativeHttpPlugin = project
     scalacOptions ++= Seq("-deprecation", "-feature"),
   )
 
+// Super-optimal from-scratch HTTP/WS server plugin (NIO + virtual-thread-per-connection).
+// Aggregated for CI test coverage but NOT yet on the CLI classpath — it becomes the default
+// (replacing v2NativeHttpPlugin) in phase hf-5. See specs/v2-http-fast.md.
+lazy val v2NativeHttpFastPlugin = project
+  .in(file("v2/runtime/std/http-fast-plugin"))
+  .dependsOn(v2NativePluginSpi, v2NativeJsonPlugin)
+  .settings(
+    name := "scalascript-v2-native-http-fast-plugin",
+    libraryDependencies += scalatestTest,
+    scalacOptions ++= Seq("-deprecation", "-feature"),
+  )
+
 lazy val v2NativeSqlPlugin = project
   .in(file("v2/runtime/std/sql-plugin"))
   .dependsOn(v2NativePluginSpi, backendSqlRuntime)
@@ -4224,7 +4236,7 @@ lazy val root = project
   .in(file("."))
   .aggregate(
     v2Core, v2NativePluginSpi, v2NativeHostPlugin, v2NativeCryptoPlugin,
-    v2NativeOsPlugin, v2NativeFsPlugin, v2NativeJsonPlugin, v2NativeHttpPlugin,
+    v2NativeOsPlugin, v2NativeFsPlugin, v2NativeJsonPlugin, v2NativeHttpPlugin, v2NativeHttpFastPlugin,
     v2NativeSqlPlugin, v2NativeUiPlugin, v2NativeStateEffectPlugin,
     v2NativeStorageEffectPlugin, v2NativeReactivePlugin, v2NativeYamlPlugin,
     v2PluginBridge, v2FrontendBridge, v2JvmBytecode, v2JsBackend, v2SwiftBackend,
