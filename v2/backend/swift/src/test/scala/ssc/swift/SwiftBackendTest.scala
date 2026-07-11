@@ -204,6 +204,10 @@ final class SwiftBackendTest extends AnyFunSuite:
     assume(xcrunSwiftAvailable, "xcrun Swift toolchain is not available")
     assert(runNativeTableProbe("apple", includeAppleSources = true) == "apple")
 
+  test("trusted HTML WebKit adapter isolates content navigation and lifecycle"):
+    assume(xcrunSwiftAvailable, "xcrun Swift toolchain is not available")
+    assert(runNativeHtmlProbe() == "html")
+
   test("real swift run matches VM structural fixtures fact tco and map"):
     assume(swiftAvailable, "Swift toolchain is not available")
     val cases = List(
@@ -3869,6 +3873,211 @@ struct NativeTableProbe {
 }
 """
 
+  private val nativeUiHtmlProbe = """
+import AppKit
+import Foundation
+import Network
+import WebKit
+
+enum HtmlProbeError: Error { case expected }
+
+final class LoopbackServer: @unchecked Sendable {
+    private let listener: NWListener
+    private let queue = DispatchQueue(label: "ssc.nativeui.html.loopback")
+    private let lock = NSLock()
+    private var hitCount = 0
+    private var readyPort: UInt16?
+
+    init() throws {
+        listener = try NWListener(using: .tcp, on: .any)
+        listener.newConnectionHandler = { [weak self] connection in
+            guard let self else { connection.cancel(); return }
+            self.lock.lock(); self.hitCount += 1; self.lock.unlock()
+            connection.cancel()
+        }
+    }
+
+    func start() -> UInt16 {
+        let ready = DispatchSemaphore(value: 0)
+        listener.stateUpdateHandler = { [weak self] state in
+            guard let self else { return }
+            switch state {
+            case .ready:
+                self.lock.lock(); self.readyPort = self.listener.port?.rawValue; self.lock.unlock()
+                ready.signal()
+            case .failed: ready.signal()
+            default: break
+            }
+        }
+        listener.start(queue: queue)
+        guard ready.wait(timeout: .now() + 5) == .success else { fatalError("loopback listener timeout") }
+        lock.lock(); defer { lock.unlock() }
+        guard let readyPort else { fatalError("loopback listener failed") }
+        return readyPort
+    }
+
+    func hits() -> Int { lock.lock(); defer { lock.unlock() }; return hitCount }
+    deinit { listener.cancel() }
+}
+
+final class WeakCoordinatorBox {
+    weak var value: NativeUiHtmlCoordinator?
+    init(_ value: NativeUiHtmlCoordinator?) { self.value = value }
+}
+
+@main
+struct NativeHtmlProbe {
+    @MainActor static func waitFor(_ predicate: () -> Bool) async -> Bool {
+        for _ in 0..<240 {
+            if predicate() { return true }
+            try? await Task.sleep(nanoseconds: 25_000_000)
+        }
+        return false
+    }
+
+    @MainActor static func main() async {
+        _ = NSApplication.shared
+        let store = NativeUiStore()
+        var heights: [CGFloat] = []
+        var errors: [String?] = []
+        var opened: [URL] = []
+        let loopback = try! LoopbackServer()
+        let loopbackPort = loopback.start()
+        var coordinator: NativeUiHtmlCoordinator? = NativeUiHtmlCoordinator(
+            safeExternalURL: { store.safeExternalURL($0) },
+            openURL: { opened.append($0) },
+            publishHeight: { heights.append($0) },
+            publishError: { errors.append($0) })
+        let initial = [
+            "<strong id='strong' data-x='ok' style='color:rgb(255,0,0)'>raw</strong>",
+            "<img id='data' src='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==' />",
+            "<img id='network' src='http://127.0.0.1:\(loopbackPort)/blocked.png' />",
+            "<script>window.__sscPageScriptRan = true</script>",
+            "<div style='height:160px'></div>",
+        ].joined()
+        let webView = coordinator!.makeWebView(html: initial, source: "raw.ssc:4:2 [rawHtml]")
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = webView
+        window.orderFront(nil)
+        guard !webView.configuration.websiteDataStore.isPersistent,
+              webView.configuration.defaultWebpagePreferences.allowsContentJavaScript == false,
+              webView.url == nil else { fatalError("trusted HTML configuration/load ordering") }
+        guard await waitFor({ heights.last.map { $0 > 100 } == true }) else {
+            fatalError("timed out waiting for initial isolated height: \(heights)")
+        }
+        guard errors.compactMap({ $0 }).isEmpty else { fatalError("trusted HTML initial error") }
+        try? await Task.sleep(nanoseconds: 150_000_000)
+        guard loopback.hits() == 0 else { fatalError("trusted HTML network subresource escaped blocker") }
+        do {
+            let facts = try await webView.evaluateJavaScript(
+                "[document.querySelector('#strong')?.dataset.x || '', getComputedStyle(document.querySelector('#strong')).color, document.querySelector('#data')?.complete === true, window.__sscPageScriptRan === true]")
+            guard let values = facts as? [Any], values.count == 4,
+                  values[0] as? String == "ok",
+                  (values[1] as? String)?.contains("255") == true,
+                  values[2] as? Bool == true,
+                  values[3] as? Bool == false else { fatalError("trusted HTML inline/data/page-script isolation") }
+        } catch { fatalError("trusted HTML DOM probe: \(error)") }
+        let safe: (String) -> URL? = { store.safeExternalURL($0) }
+        guard NativeUiHtmlAdapter.externalURL(
+                "https://example.com/path", navigationType: .linkActivated,
+                safeExternalURL: safe)?.absoluteString == "https://example.com/path",
+              NativeUiHtmlAdapter.externalURL(
+                "mailto:a@example.com", navigationType: .linkActivated,
+                safeExternalURL: safe) != nil,
+              NativeUiHtmlAdapter.externalURL(
+                "https://example.com/path", navigationType: .other,
+                safeExternalURL: safe) == nil,
+              NativeUiHtmlAdapter.externalURL(
+                "javascript:alert(1)", navigationType: .linkActivated,
+                safeExternalURL: safe) == nil else { fatalError("trusted HTML external URL policy") }
+        guard coordinator!.handoffExternal("https://example.com/path", navigationType: .linkActivated),
+              opened.map(\.absoluteString) == ["https://example.com/path"],
+              !coordinator!.handoffExternal("https://example.com/redirect", navigationType: .other),
+              opened.count == 1 else { fatalError("trusted HTML external URL handoff count") }
+
+        guard case let .data("NativeUiAbi", abiFields) = store.root,
+              case let .data("NativeUiTrustedHtml", htmlFields) = abiFields[1] else {
+            fatalError("trusted HTML generated descriptor")
+        }
+        do {
+            let decoded = try NativeUiHtmlAdapter.decode(htmlFields, store: store)
+            guard decoded.html.contains("data-x=\"ok\"") else { fatalError("trusted HTML exact descriptor") }
+            let forged = SscValue.data("NativeUiTrustedHtml", [htmlFields[0], .int(1)])
+            guard case let .data(_, forgedFields) = forged else { fatalError("trusted HTML forged fields") }
+            do {
+                _ = try NativeUiHtmlAdapter.decode(forgedFields, store: store)
+                fatalError("trusted HTML forged source was accepted")
+            } catch {
+                guard String(describing: error).contains("malformed NativeUiTrustedHtml at") else { throw error }
+            }
+        } catch { fatalError("trusted HTML descriptor probe: \(error)") }
+
+        coordinator!.update(html: "<div style='height:420px'>grow</div>", source: "raw.ssc:4:2 [rawHtml]", in: webView)
+        guard await waitFor({ heights.last.map { $0 > 350 } == true }) else {
+            fatalError("timed out waiting for grown height: \(heights)")
+        }
+        let staleStart = heights.count
+        coordinator!.update(html: "<div style='height:900px'>stale</div>", source: "raw.ssc:4:2 [rawHtml]", in: webView)
+        coordinator!.update(html: "<div style='height:24px'>shrink</div>", source: "raw.ssc:4:2 [rawHtml]", in: webView)
+        guard await waitFor({ heights.last.map { $0 < 100 } == true }) else {
+            fatalError("timed out waiting for shrunk height: \(heights)")
+        }
+        try? await Task.sleep(nanoseconds: 150_000_000)
+        guard !heights.dropFirst(staleStart).contains(where: { $0 > 800 }) else {
+            fatalError("trusted HTML stale generation published height")
+        }
+
+        var failureErrors: [String?] = []
+        let failingCoordinator = NativeUiHtmlCoordinator(
+            safeExternalURL: safe, openURL: { _ in }, publishHeight: { _ in },
+            publishError: { failureErrors.append($0) },
+            ruleCompiler: { completion in completion(nil, HtmlProbeError.expected) })
+        let failingWebView = failingCoordinator.makeWebView(
+            html: "<strong>must not load</strong>", source: "failed.ssc:9:3 [rawHtml]")
+        guard await waitFor({ failureErrors.compactMap({ $0 }).count == 1 }), failingWebView.url == nil,
+              failureErrors.compactMap({ $0 }).first?.contains("failed.ssc:9:3 [rawHtml]") == true else {
+            fatalError("trusted HTML compile failure loaded or lost source: \(failureErrors)")
+        }
+        failingCoordinator.dismantle(failingWebView)
+
+        var pendingCompiles: [((WKContentRuleList?, Error?) -> Void)] = []
+        var staleErrors: [String?] = []
+        let staleCoordinator = NativeUiHtmlCoordinator(
+            safeExternalURL: safe, openURL: { _ in }, publishHeight: { _ in },
+            publishError: { staleErrors.append($0) },
+            ruleCompiler: { completion in pendingCompiles.append(completion) })
+        let staleWebView = staleCoordinator.makeWebView(html: "old", source: "old.ssc:1:1 [rawHtml]")
+        staleCoordinator.update(html: "new", source: "new.ssc:2:1 [rawHtml]", in: staleWebView)
+        guard pendingCompiles.count == 2 else { fatalError("trusted HTML generation compile count") }
+        pendingCompiles[0](nil, HtmlProbeError.expected)
+        guard staleErrors.compactMap({ $0 }).isEmpty, staleWebView.url == nil else {
+            fatalError("trusted HTML stale compile failure published")
+        }
+        pendingCompiles[1](nil, HtmlProbeError.expected)
+        guard staleErrors.compactMap({ $0 }).count == 1,
+              staleErrors.compactMap({ $0 }).first?.contains("new.ssc:2:1 [rawHtml]") == true else {
+            fatalError("trusted HTML current compile failure missing")
+        }
+        staleCoordinator.dismantle(staleWebView)
+        let stableHeight = heights.last!
+        let publishCount = heights.count
+        coordinator!.dismantle(webView)
+        _ = try? await webView.evaluateJavaScript("document.body.style.height='900px'")
+        try? await Task.sleep(nanoseconds: 150_000_000)
+        guard heights.count == publishCount, heights.last == stableHeight, opened.count == 1 else {
+            fatalError("trusted HTML published after dismantle")
+        }
+        let weakCoordinator = WeakCoordinatorBox(coordinator)
+        coordinator = nil
+        guard weakCoordinator.value == nil else { fatalError("trusted HTML coordinator retained after dismantle") }
+        window.close()
+        print("html")
+    }
+}
+"""
+
   private val nativeUiUnsupportedProbe = """
 public enum SessionProbe {
     private static func fields(_ value: SscValue, _ tag: String) -> [SscValue] {
@@ -3963,6 +4172,56 @@ public enum SessionProbe {
       val exit = run.waitFor()
       val stderr = Files.readString(errors, StandardCharsets.UTF_8)
       assert(exit == 0, s"Swift native table probe failed ($exit):\n$stderr\n$stdout")
+      stdout
+    finally deleteRecursively(root)
+
+  private def runNativeHtmlProbe(): String =
+    val root = Files.createTempDirectory("ssc-swift-trusted-html-")
+    val errors = root.resolve("swift.stderr")
+    try
+      val generated = SwiftBackend.generate(nativeUiRawHtmlProgram(), "NativeHtml")
+      generated.writeTo(root)
+      val probe = root.resolve("NativeHtmlProbe.swift")
+      val binary = root.resolve("NativeHtmlProbe")
+      Files.writeString(probe, nativeUiHtmlProbe, StandardCharsets.UTF_8)
+      val sources = generated.files.collect {
+        case (path, _) if path.startsWith("Sources/AppCore/") ||
+            (path.startsWith("AppleApp/") && !path.endsWith("App.swift")) =>
+          root.resolve(path).toString
+      }
+      val compile = new ProcessBuilder((List(
+        "xcrun", "swiftc", "-parse-as-library", "-swift-version", "6",
+        "-strict-concurrency=complete", "-warnings-as-errors",
+      ) ++ sources ++ List(probe.toString, "-o", binary.toString))*).redirectError(errors.toFile).start()
+      val compileOut = new String(compile.getInputStream.readAllBytes(), StandardCharsets.UTF_8)
+      val compileExit = compile.waitFor()
+      val compileErr = Files.readString(errors, StandardCharsets.UTF_8)
+      assert(compileExit == 0, s"Swift trusted HTML compile failed ($compileExit):\n$compileErr\n$compileOut")
+      val sdkProbe = new ProcessBuilder("xcrun", "--sdk", "iphonesimulator", "--show-sdk-path").start()
+      val sdkPath = new String(sdkProbe.getInputStream.readAllBytes(), StandardCharsets.UTF_8).trim
+      val sdkExit = sdkProbe.waitFor()
+      if sdkExit == 0 && sdkPath.nonEmpty then
+        val architecture = if sys.props.getOrElse("os.arch", "").contains("aarch64") then "arm64" else "x86_64"
+        val iosErrors = root.resolve("ios-typecheck.stderr")
+        val appleSources = generated.files.collect {
+          case (path, _) if path.startsWith("Sources/AppCore/") || path.startsWith("AppleApp/") =>
+            root.resolve(path).toString
+        }
+        val ios = new ProcessBuilder((List(
+          "xcrun", "swiftc", "-typecheck", "-parse-as-library", "-swift-version", "6",
+          "-strict-concurrency=complete", "-warnings-as-errors", "-sdk", sdkPath,
+          "-target", s"$architecture-apple-ios16.0-simulator",
+        ) ++ appleSources)*).redirectError(iosErrors.toFile).start()
+        val iosOut = new String(ios.getInputStream.readAllBytes(), StandardCharsets.UTF_8)
+        val iosExit = ios.waitFor()
+        val iosErr = Files.readString(iosErrors, StandardCharsets.UTF_8)
+        assert(iosExit == 0, s"Swift trusted HTML iOS typecheck failed ($iosExit):\n$iosErr\n$iosOut")
+      else info("iOS Simulator SDK unavailable; trusted HTML typecheck recorded as environment skip")
+      val run = new ProcessBuilder(binary.toString).redirectError(errors.toFile).start()
+      val stdout = new String(run.getInputStream.readAllBytes(), StandardCharsets.UTF_8).trim
+      val exit = run.waitFor()
+      val stderr = Files.readString(errors, StandardCharsets.UTF_8)
+      assert(exit == 0, s"Swift trusted HTML probe failed ($exit):\n$stderr\n$stdout")
       stdout
     finally deleteRecursively(root)
 

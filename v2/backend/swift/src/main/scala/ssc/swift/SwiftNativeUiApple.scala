@@ -1555,7 +1555,7 @@ final class NativeUiStore: ObservableObject {
         return result
     }
 
-    private func safeExternalURL(_ text: String) -> URL? {
+    func safeExternalURL(_ text: String) -> URL? {
         guard let url = URL(string: text), let scheme = url.scheme?.lowercased() else { return nil }
         switch scheme {
         case "http", "https":
@@ -2576,8 +2576,16 @@ struct NativeUiRenderer: View {
                 parentOwnerPath: store.ownerPath(for: value, fallback: ownerPath)
             ))
         case "NativeUiTrustedHtml" where fields.count == 2:
-            let site = store.string(fields[0])
-            return unsupported("trusted HTML adapter pending at " + store.source(site))
+            do {
+                let descriptor = try NativeUiHtmlAdapter.decode(fields, store: store)
+                return AnyView(NativeUiTrustedHtmlView(
+                    html: descriptor.html,
+                    source: descriptor.source,
+                    safeExternalURL: { store.safeExternalURL($0) },
+                    openURL: { openURL($0) }))
+            } catch {
+                return unsupported(String(describing: error))
+            }
         case "NativeUiDataTable" where fields.count == 5:
             return AnyView(NativeUiDataTableView(
                 store: store, value: value,
@@ -2593,6 +2601,9 @@ struct NativeUiRenderer: View {
         case "NativeUiForKeyed":
             let site = fields.first.map(store.string) ?? ""
             return unsupported("malformed NativeUiForKeyed at " + store.source(site))
+        case "NativeUiTrustedHtml":
+            let site = fields.first.map(store.string) ?? ""
+            return unsupported("malformed NativeUiTrustedHtml at " + store.source(site))
         default:
             return unsupported("unsupported NativeUi node " + tag)
         }
@@ -3866,9 +3877,430 @@ enum NativeUiActions {
 
 """
 
-  val htmlSource: String = """// Trusted HTML is intentionally surfaced as NativeUiUnsupported
-// until the isolated non-persistent WKWebView adapter slice is linked.
+  val htmlSource: String = """import Foundation
+import SwiftUI
+import WebKit
+
+@MainActor
 enum NativeUiHtmlAdapter {
-    static let available = false
+    static let minimumHeight: CGFloat = 1
+    static let maximumHeight: CGFloat = 100000
+    static let messageName = "sscNativeUiHeight"
+    static let contentRuleIdentifier = "ssc.nativeui.trusted-html.network-v1"
+    static let contentRuleJSON = "[" + ["http", "https", "ws", "wss", "ftp"].map { scheme in
+        "{\"trigger\":{\"url-filter\":\"^\(scheme)://\",\"resource-type\":[\"image\",\"style-sheet\",\"script\",\"font\",\"media\",\"raw\",\"svg-document\"]},\"action\":{\"type\":\"block\"}}"
+    }.joined(separator: ",") + "]"
+
+    static func bounded(_ value: String) -> String {
+        String(value.unicodeScalars.prefix(1024))
+    }
+
+    static func clampHeight(_ value: Double) -> CGFloat? {
+        guard value.isFinite, value > 0 else { return nil }
+        return CGFloat(min(max(value, Double(minimumHeight)), Double(maximumHeight)))
+    }
+
+    static func document(_ html: String) -> String {
+        "<style>html,body{margin:0!important;overflow:hidden!important;}</style>" + html
+    }
+
+    static func externalURL(
+        _ text: String,
+        navigationType: WKNavigationType,
+        safeExternalURL: (String) -> URL?
+    ) -> URL? {
+        guard navigationType == .linkActivated else { return nil }
+        return safeExternalURL(text)
+    }
+
+    static func decode(_ fields: SscFields, store: NativeUiStore) throws -> (html: String, source: String) {
+        let candidateSite = fields.count > 0 ? store.string(fields[0]) : ""
+        let candidateSource = store.source(candidateSite)
+        guard fields.count == 2,
+              case let .string(siteId) = fields[0],
+              case let .string(html) = fields[1],
+              store.source(siteId) != "<unknown source>" else {
+            throw SscRuntimeFailure(
+                description: "malformed NativeUiTrustedHtml at " + candidateSource)
+        }
+        return (html, store.source(siteId))
+    }
+
+    static func heightScript(generation: UInt64) -> String {
+        [
+            "(() => {",
+            "  if (globalThis.__sscNativeUiHeightObserver) globalThis.__sscNativeUiHeightObserver.disconnect();",
+            "  const generation = " + String(generation) + ";",
+            "  const publish = () => {",
+            "    const body = document.body; const rect = body ? body.getBoundingClientRect() : null;",
+            "    const range = document.createRange(); if (body) range.selectNodeContents(body);",
+            "    let height = body ? range.getBoundingClientRect().height : 0;",
+            "    if (body && rect) for (const child of body.children) height = Math.max(height, child.getBoundingClientRect().bottom - rect.top);",
+            "    height = Math.max(1, height);",
+            "    webkit.messageHandlers." + messageName + ".postMessage({generation, height});",
+            "  };",
+            "  const observer = new ResizeObserver(publish);",
+            "  if (document.documentElement) observer.observe(document.documentElement);",
+            "  if (document.body) observer.observe(document.body);",
+            "  globalThis.__sscNativeUiHeightObserver = observer; publish();",
+            "})();",
+        ].joined(separator: "\n")
+    }
 }
+
+@MainActor
+private final class NativeUiHtmlMessageProxy: NSObject, WKScriptMessageHandler {
+    weak var target: NativeUiHtmlCoordinator?
+
+    init(target: NativeUiHtmlCoordinator) { self.target = target }
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        target?.receiveHeight(message)
+    }
+}
+
+@MainActor
+final class NativeUiHtmlCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
+    private weak var webView: WKWebView?
+    private var controller: WKUserContentController?
+    private lazy var messageProxy = NativeUiHtmlMessageProxy(target: self)
+    private var generation: UInt64 = 0
+    private var authorizedGeneration: UInt64?
+    private var loadingGeneration: UInt64?
+    private var lastHTML: String?
+    private var lastSource: String?
+    private var mounted = false
+    #if !os(macOS)
+    private var contentSizeObservation: NSKeyValueObservation?
+    #endif
+    private var safeExternalURL: (String) -> URL?
+    private var openURL: (URL) -> Void
+    private var publishHeight: (CGFloat) -> Void
+    private var publishError: (String?) -> Void
+    private let ruleCompiler: (@escaping (WKContentRuleList?, Error?) -> Void) -> Void
+
+    init(
+        safeExternalURL: @escaping (String) -> URL?,
+        openURL: @escaping (URL) -> Void,
+        publishHeight: @escaping (CGFloat) -> Void,
+        publishError: @escaping (String?) -> Void,
+        ruleCompiler: @escaping (@escaping (WKContentRuleList?, Error?) -> Void) -> Void = { completion in
+            WKContentRuleListStore.default().compileContentRuleList(
+                forIdentifier: NativeUiHtmlAdapter.contentRuleIdentifier,
+                encodedContentRuleList: NativeUiHtmlAdapter.contentRuleJSON,
+                completionHandler: completion)
+        }
+    ) {
+        self.safeExternalURL = safeExternalURL
+        self.openURL = openURL
+        self.publishHeight = publishHeight
+        self.publishError = publishError
+        self.ruleCompiler = ruleCompiler
+    }
+
+    func updateCallbacks(
+        safeExternalURL: @escaping (String) -> URL?,
+        openURL: @escaping (URL) -> Void,
+        publishHeight: @escaping (CGFloat) -> Void,
+        publishError: @escaping (String?) -> Void
+    ) {
+        self.safeExternalURL = safeExternalURL
+        self.openURL = openURL
+        self.publishHeight = publishHeight
+        self.publishError = publishError
+    }
+
+    func makeWebView(html: String, source: String) -> WKWebView {
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        let contentController = WKUserContentController()
+        #if os(macOS)
+        contentController.add(messageProxy, contentWorld: .defaultClient, name: NativeUiHtmlAdapter.messageName)
+        #endif
+        configuration.userContentController = contentController
+        configuration.defaultWebpagePreferences.allowsContentJavaScript = false
+        configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.navigationDelegate = self
+        webView.uiDelegate = self
+        webView.allowsLinkPreview = false
+        #if os(macOS)
+        webView.allowsMagnification = false
+        #else
+        webView.isOpaque = false
+        webView.backgroundColor = .clear
+        webView.scrollView.isScrollEnabled = false
+        #endif
+        self.webView = webView
+        self.controller = contentController
+        mounted = true
+        schedule(html: html, source: source, in: webView)
+        return webView
+    }
+
+    func update(html: String, source: String, in webView: WKWebView) {
+        guard lastHTML != html || lastSource != source else { return }
+        schedule(html: html, source: source, in: webView)
+    }
+
+    private func schedule(html: String, source: String, in webView: WKWebView) {
+        generation &+= 1
+        let candidateGeneration = generation
+        lastHTML = html
+        lastSource = source
+        authorizedGeneration = nil
+        loadingGeneration = nil
+        publishError(nil)
+        webView.stopLoading()
+        #if !os(macOS)
+        contentSizeObservation?.invalidate()
+        contentSizeObservation = nil
+        #endif
+        controller?.removeAllContentRuleLists()
+        controller?.removeAllUserScripts()
+        ruleCompiler { [weak self, weak webView] rule, error in
+            guard let self, let webView, self.mounted,
+                  self.generation == candidateGeneration,
+                  self.webView === webView else { return }
+            guard let rule else {
+                self.fail(
+                    "trusted HTML content-rule compilation failed: " +
+                    (error?.localizedDescription ?? "unknown WebKit error"),
+                    generation: candidateGeneration)
+                return
+            }
+            self.controller?.add(rule)
+            #if os(macOS)
+            self.controller?.addUserScript(WKUserScript(
+                source: NativeUiHtmlAdapter.heightScript(generation: candidateGeneration),
+                injectionTime: .atDocumentEnd,
+                forMainFrameOnly: true,
+                in: .defaultClient))
+            #endif
+            self.authorizedGeneration = candidateGeneration
+            webView.loadHTMLString(NativeUiHtmlAdapter.document(html), baseURL: nil)
+        }
+    }
+
+    private func fail(_ message: String, generation candidateGeneration: UInt64) {
+        guard mounted, generation == candidateGeneration else { return }
+        let source = lastSource ?? "<unknown source>"
+        authorizedGeneration = nil
+        loadingGeneration = nil
+        publishError(NativeUiHtmlAdapter.bounded(message) + " at " + source)
+    }
+
+    private func externalURL(for action: WKNavigationAction) -> URL? {
+        guard let text = action.request.url?.absoluteString else { return nil }
+        return NativeUiHtmlAdapter.externalURL(
+            text, navigationType: action.navigationType,
+            safeExternalURL: safeExternalURL)
+    }
+
+    @discardableResult
+    func handoffExternal(_ text: String, navigationType: WKNavigationType) -> Bool {
+        guard let url = NativeUiHtmlAdapter.externalURL(
+            text, navigationType: navigationType,
+            safeExternalURL: safeExternalURL) else { return false }
+        openURL(url)
+        return true
+    }
+
+    private func isAuthorizedDocument(_ action: WKNavigationAction) -> Bool {
+        guard action.targetFrame?.isMainFrame == true,
+              action.navigationType == .other,
+              action.request.url?.absoluteString == "about:blank",
+              authorizedGeneration == generation else { return false }
+        authorizedGeneration = nil
+        loadingGeneration = generation
+        return true
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
+    ) {
+        guard mounted, self.webView === webView else { decisionHandler(.cancel); return }
+        if isAuthorizedDocument(navigationAction) { decisionHandler(.allow); return }
+        if navigationAction.targetFrame?.isMainFrame == true,
+           let url = externalURL(for: navigationAction) {
+            openURL(url)
+        }
+        decisionHandler(.cancel)
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        createWebViewWith configuration: WKWebViewConfiguration,
+        for navigationAction: WKNavigationAction,
+        windowFeatures: WKWindowFeatures
+    ) -> WKWebView? {
+        guard mounted, self.webView === webView, navigationAction.targetFrame == nil else { return nil }
+        if let url = externalURL(for: navigationAction) { openURL(url) }
+        return nil
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        guard mounted, self.webView === webView, loadingGeneration == generation else { return }
+        #if !os(macOS)
+        let observedGeneration = generation
+        contentSizeObservation?.invalidate()
+        contentSizeObservation = webView.scrollView.observe(\.contentSize, options: [.initial, .new]) {
+            [weak self] scrollView, _ in
+            MainActor.assumeIsolated {
+                guard let self, self.mounted, self.generation == observedGeneration,
+                      self.webView === webView,
+                      let height = NativeUiHtmlAdapter.clampHeight(Double(scrollView.contentSize.height)) else { return }
+                self.publishHeight(height)
+            }
+        }
+        #endif
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        fail("trusted HTML navigation failed: " + error.localizedDescription, generation: generation)
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        fail("trusted HTML navigation failed: " + error.localizedDescription, generation: generation)
+    }
+
+    func receiveHeight(_ message: WKScriptMessage) {
+        guard mounted, message.frameInfo.isMainFrame,
+              let body = message.body as? [String: Any],
+              let rawGeneration = body["generation"] as? NSNumber,
+              let rawHeight = body["height"] as? NSNumber,
+              rawGeneration.doubleValue.isFinite,
+              rawGeneration.doubleValue.rounded() == rawGeneration.doubleValue,
+              UInt64(exactly: rawGeneration.uint64Value) == generation,
+              let height = NativeUiHtmlAdapter.clampHeight(rawHeight.doubleValue) else { return }
+        publishHeight(height)
+    }
+
+    func dismantle(_ webView: WKWebView) {
+        guard self.webView === webView else { return }
+        mounted = false
+        generation &+= 1
+        authorizedGeneration = nil
+        loadingGeneration = nil
+        #if !os(macOS)
+        contentSizeObservation?.invalidate()
+        contentSizeObservation = nil
+        #endif
+        webView.stopLoading()
+        webView.navigationDelegate = nil
+        webView.uiDelegate = nil
+        controller?.removeAllContentRuleLists()
+        controller?.removeAllUserScripts()
+        #if os(macOS)
+        controller?.removeScriptMessageHandler(
+            forName: NativeUiHtmlAdapter.messageName, contentWorld: .defaultClient)
+        #endif
+        messageProxy.target = nil
+        controller = nil
+        self.webView = nil
+        safeExternalURL = { _ in nil }
+        openURL = { _ in }
+        publishHeight = { _ in }
+        publishError = { _ in }
+    }
+
+    isolated deinit {
+        #if !os(macOS)
+        contentSizeObservation?.invalidate()
+        #endif
+        messageProxy.target = nil
+    }
+}
+
+struct NativeUiTrustedHtmlView: View {
+    let html: String
+    let source: String
+    let safeExternalURL: (String) -> URL?
+    let openURL: (URL) -> Void
+    @State private var height = NativeUiHtmlAdapter.minimumHeight
+    @State private var diagnostic: String?
+
+    var body: some View {
+        Group {
+            if let diagnostic {
+                Text(diagnostic).foregroundStyle(.red)
+                    .accessibilityLabel("Unsupported native UI: " + diagnostic)
+            } else {
+                NativeUiHtmlRepresentable(
+                    html: html,
+                    source: source,
+                    safeExternalURL: safeExternalURL,
+                    openURL: openURL,
+                    publishHeight: { height = $0 },
+                    publishError: { diagnostic = $0 })
+                    .frame(height: height)
+            }
+        }
+        .task(id: html) { diagnostic = nil }
+    }
+}
+
+#if os(macOS)
+private struct NativeUiHtmlRepresentable: NSViewRepresentable {
+    let html: String
+    let source: String
+    let safeExternalURL: (String) -> URL?
+    let openURL: (URL) -> Void
+    let publishHeight: (CGFloat) -> Void
+    let publishError: (String?) -> Void
+
+    func makeCoordinator() -> NativeUiHtmlCoordinator {
+        NativeUiHtmlCoordinator(
+            safeExternalURL: safeExternalURL, openURL: openURL,
+            publishHeight: publishHeight, publishError: publishError)
+    }
+
+    func makeNSView(context: Context) -> WKWebView {
+        context.coordinator.makeWebView(html: html, source: source)
+    }
+
+    func updateNSView(_ webView: WKWebView, context: Context) {
+        context.coordinator.updateCallbacks(
+            safeExternalURL: safeExternalURL, openURL: openURL,
+            publishHeight: publishHeight, publishError: publishError)
+        context.coordinator.update(html: html, source: source, in: webView)
+    }
+
+    static func dismantleNSView(_ webView: WKWebView, coordinator: NativeUiHtmlCoordinator) {
+        coordinator.dismantle(webView)
+    }
+}
+#else
+private struct NativeUiHtmlRepresentable: UIViewRepresentable {
+    let html: String
+    let source: String
+    let safeExternalURL: (String) -> URL?
+    let openURL: (URL) -> Void
+    let publishHeight: (CGFloat) -> Void
+    let publishError: (String?) -> Void
+
+    func makeCoordinator() -> NativeUiHtmlCoordinator {
+        NativeUiHtmlCoordinator(
+            safeExternalURL: safeExternalURL, openURL: openURL,
+            publishHeight: publishHeight, publishError: publishError)
+    }
+
+    func makeUIView(context: Context) -> WKWebView {
+        context.coordinator.makeWebView(html: html, source: source)
+    }
+
+    func updateUIView(_ webView: WKWebView, context: Context) {
+        context.coordinator.updateCallbacks(
+            safeExternalURL: safeExternalURL, openURL: openURL,
+            publishHeight: publishHeight, publishError: publishError)
+        context.coordinator.update(html: html, source: source, in: webView)
+    }
+
+    static func dismantleUIView(_ webView: WKWebView, coordinator: NativeUiHtmlCoordinator) {
+        coordinator.dismantle(webView)
+    }
+}
+#endif
 """
