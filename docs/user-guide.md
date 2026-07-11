@@ -619,9 +619,15 @@ request metadata, generation-checked replacement/cancellation, atomic
 idle/loading/done/error state, click-time body/header snapshots, 2xx-only
 capture/clear/ordered success effects, form-body snapshots, and preflighted
 http/https/mailto navigation. Unsafe, hostless, stale, malformed, or late
-descriptors cannot start or mutate current work. Native tables, UserDefaults/
-NWPathMonitor adapters, trusted WKWebView content, and the Xcode app target are
-the next toolkit slices rather than silent fallbacks.
+descriptors cannot start or mutate current work. The UserDefaults/NWPathMonitor
+slice is now native:
+`persistedSignal` reads and transactionally commits String values through the
+configured defaults store without depending on a rendered cell, while failed
+root/keyed work and disposed wrappers cannot write. `onlineSignal` is one
+process-wide root signal backed by a single first/last-owner `NWPathMonitor`;
+direct and computed readers share it, callbacks hop to the main actor, and stale
+callbacks are generation-rejected. Native tables, trusted WKWebView content,
+and the Xcode app target remain the next toolkit slices.
 
 `--target ios` already emits an iOS-deployment Swift package through the same
 v2 backend plus the AppleApp sources. Until the real Xcode application project

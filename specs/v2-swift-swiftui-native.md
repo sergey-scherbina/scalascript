@@ -855,7 +855,7 @@ behavior.
 ### SwiftUI portable runtime
 
 - [x] The NativeUi ABI contains no v1 View/PluginValue/ForeignV instance.
-- [ ] Signal bindings and event handlers update SwiftUI on the main actor.
+- [x] Signal bindings and event handlers update SwiftUI on the main actor.
 - [x] Keyed insert/move/delete preserves surviving component state by key.
 - [ ] Toolkit layout/controls/cards/styles/links/rich content retain their
   specified semantics on macOS and iOS.
@@ -934,6 +934,26 @@ building generated Swift; snapshot/string tests alone are insufficient.
 
 ## Results
 
+### SwiftUI persisted and online Apple ownership (`0ade8bf7c`, 2026-07-11)
+
+- Persisted String signals now load from `UserDefaults` before fallback and
+  commit through a Host-owned journal independent of Store-cell materialization.
+  Successful root evaluation, direct post-handoff writes, keyed outer commit,
+  and disposal preserve committed values; failed root evaluation (including
+  same-Host retry), nested/keyed rollback, wrong-type writes, and stale wrappers
+  cannot mutate memory or disk.
+- `onlineSignal()` is one root/process-scoped signal across component and keyed
+  scopes. One `NWPathMonitor` is acquired by the first direct or transitive
+  computed/equality owner and cancelled by the last; callbacks hop to the main
+  actor and carry an opaque monitor token, so a callback queued before
+  cancel/restart is inert and late owners immediately observe current state.
+- The executable generated-Swift probe covers no-cell and root journals,
+  rollback, type atomicity, scope delete/fresh reinsert, post-deinit closures,
+  component singleton identity, computed-only ownership, stale generations,
+  and root cleanup under Swift 6 strict concurrency with warnings as errors.
+  `nativeui-reviewer` approved the final diff in the `scalascript` Rozum room;
+  the full Swift backend passed 31/31 and `tkv2-*` conformance passed 12/12.
+
 ### SwiftUI ordinary event mutation hardening (`12fae35e7`, 2026-07-11)
 
 - Set/input/toggle/increment now authenticate and mutate the same current Host
@@ -972,8 +992,8 @@ building generated Swift; snapshot/string tests alone are insufficient.
 - `nativeui-reviewer` approved the final async slice in the `scalascript` Rozum
   room. Landing gates passed Swift backend 30/30 with real SwiftPM/SwiftUI and
   strict-concurrency URLProtocol execution, plus `tkv2-*` conformance 12/12.
-  Persisted/online ownership, ordinary event overflow hardening, native tables,
-  WKWebView, and Xcode application products remain separate queued slices.
+  Native tables, WKWebView, and Xcode application products remain separate
+  queued slices.
 
 ### SwiftUI observation store and recursive renderer (`70bee065d`, 2026-07-11)
 
