@@ -1442,8 +1442,23 @@ class ActorScheduler(private val host: ActorRuntimeHost):
       val ctt = coordTickThread.getAndSet(null);  if ctt != null then ctt.interrupt()
       Pure(rootResult.getOrElse(rootId, Value.UnitV))
     finally
+      // The scheduler loop runs on the CALLER's thread (schedulerThread =
+      // Thread.currentThread() above), and ~a dozen background paths
+      // (coord/raft/heartbeat ticks, publish/metric/drain enqueues) wake it
+      // via `schedulerThread.interrupt()`. Once the loop exits, a late wake
+      // would land on the caller — and when the caller is a ScalaTest
+      // test-runner thread, a leftover interrupt makes its next interruptible
+      // call (reportTestSucceeded → LinkedBlockingQueue.put) throw
+      // InterruptedException, killing the forked test JVM with zero failed
+      // assertions (seen as `sbt.ForkMain … failed with exit code 1` on CI,
+      // deterministic on the slow 2-core runner, invisible on a fast box).
+      // Detach the caller from `schedulerThread` first so no further wake can
+      // target it, then clear any interrupt that already landed so the
+      // scheduler's internal wake signal never escapes to the caller.
+      schedulerThread = null
       actorRt = null
       host.actorSetRuntimeActive(wasActive)
+      Thread.interrupted()   // clear leftover self-wake interrupt; must not escape
 
   private enum ActorStep:
     case Done(value: Value)

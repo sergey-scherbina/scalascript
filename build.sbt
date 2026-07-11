@@ -1168,19 +1168,17 @@ lazy val cli = project
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
-    // CI-only fork crash containment: on GitHub's 2-core runner `sbt test`
-    // ran the cli suites concurrently inside the single forked JVM (default
-    // `parallelExecution := true`). The heavy cluster/server suites
-    // (Cluster*/Partition*/Singleton*/MultiNode*) each bind real ports and
-    // spawn `ssc.jar`/node subprocesses + ws-proxy threads; two of them
-    // overlapping in one fork raced on ports/thread-pools and killed the fork
-    // at shutdown (`sbt.ForkMain … exit code 1` with ZERO failed tests — the
-    // JVM died, not an assertion). It reproduced on every CI run but never
-    // locally (local cancels these env-gated suites when the staged jar/node
-    // deps are absent, and a fast box never overlaps them). Serialize the
-    // suites so at most one cluster node bring-up is live at a time;
-    // `logBuffered := false` streams each suite header immediately so, if a
-    // single suite is ever the culprit, the CI log names it in order.
+    // The root cause of the CI cli-fork crash (`sbt.ForkMain … exit code 1`
+    // with ZERO failed tests) was a stray interrupt leaking onto the ScalaTest
+    // test-runner thread — fixed in ActorScheduler.run's finally (it clears
+    // the scheduler's self-wake interrupt instead of letting it escape to the
+    // caller). These two Test settings are belt-and-suspenders for the cli
+    // module's heavy cluster/server suites (Cluster*/Partition*/Singleton*/
+    // MultiNode*), which bind real ports + spawn ssc.jar/node subprocesses:
+    // serial execution keeps at most one cluster node bring-up live at a time
+    // (no port/thread-pool overlap on the 2-core runner), and unbuffered logs
+    // stream each suite header in order so any future single-suite crash is
+    // named in the CI log rather than lost in interleaved fork output.
     Test / parallelExecution := false,
     Test / logBuffered       := false,
     assembly / mainClass       := Some("scalascript.cli.ssc"),
