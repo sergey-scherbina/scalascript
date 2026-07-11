@@ -14,6 +14,10 @@ read-only implementation audit of the local Apple table decoder draft.
   capability before transport. When a committed source update removes a row,
   its in-flight task plus action/edit slots must be cancelled/pruned immediately
   rather than waiting for SwiftUI `onDisappear`.
+- **Decoder audit extension:** Foundation numeric `NSNumber` must be classified
+  before Bool bridging so JSON `0`/`1` stays numeric; exact `yyyy-MM-dd` parsing
+  must reject any trailing/normalized input by round-trip, not trust
+  `DateFormatter.isLenient = false` alone.
 - **Expected:** loading immediately retains the last-good set; ordinary display
   excludes Float and Field payloads allow only String/Int/BigInt/Bool; one
   bounded native color grammar serves CSS and table status; fetch metadata and

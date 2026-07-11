@@ -699,6 +699,8 @@ there before changing this plan.
                         non-overflow before transport, and a committed row-set
                         update cancels/prunes task/action/edit state for deleted
                         typed identities without relying on `onDisappear`.
+                        JSON numeric/Bool bridging and exact-date full-input
+                        consumption are part of the decoder negative matrix.
                         Rozum verdict for the only draft spec ambiguity: URL
                         `/:field` and row-link values accept exactly String,
                         Int, BigInt, and Bool canonical text; tokens use the
