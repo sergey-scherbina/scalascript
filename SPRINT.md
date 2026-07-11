@@ -1291,7 +1291,8 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               both lanes, unsupported receivers fail honestly,
                               and the full extension example advances to its
                               independent `while` boundary with all gates green.
-                        - [ ] **TI-8.2d2g top-level while statements:** reuse the
+                        - [x] **TI-8.2d2g top-level while statements — DONE
+                              2026-07-11 (`d626f00a6`):** reuse the
                               existing block `while` parser and `IrWhile`
                               lowering for document-level loops, sequence them in
                               the entry alongside top-level vars/expressions, and
@@ -1299,6 +1300,9 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               counted, and nested-body VM/direct-ASM regressions,
                               rerun `extensions.ssc`, then apply all corpus,
                               parity, taxonomy, native-entry, and conformance gates.
+                              Result: focused loops and the full extension
+                              example run on both lanes; corpus is 32/94, strict
+                              parity 13/56/126, and blockers shrink to 44.
                   - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
                         `v2/runtime/std` providers, never through the v1 bridge.

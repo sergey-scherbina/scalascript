@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — document-level while loops use portable IrWhile
+
+Top-level while statements now reuse block parsing/lowering, execute in document
+order, and mutate the existing global cells without a loader/runtime special
+case. Focused nested loops and the full extension example run on VM/direct ASM;
+standard parity reaches 13 identical and blockers shrink from 45 to 44. Landed
+`d626f00a6`.
+
 ## 2026-07-11 — NativeUi calls carry stable lexical sites and provenance
 
 The checked FrontendBridge now records exact imported std/ui extern ownership
