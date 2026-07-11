@@ -854,7 +854,7 @@ behavior.
 
 ### SwiftUI portable runtime
 
-- [ ] The NativeUi ABI contains no v1 View/PluginValue/ForeignV instance.
+- [x] The NativeUi ABI contains no v1 View/PluginValue/ForeignV instance.
 - [ ] Signal bindings and event handlers update SwiftUI on the main actor.
 - [ ] Keyed insert/move/delete preserves surviving component state by key.
 - [ ] Toolkit layout/controls/cards/styles/links/rich content retain their
@@ -933,6 +933,29 @@ building generated Swift; snapshot/string tests alone are insufficient.
   native conformance screen is in scope).
 
 ## Results
+
+### Swift AppCore NativeUi host (`9ef73ac81`, 2026-07-11)
+
+- Swift generation now selects UI mode from provenance-qualified ABI globals
+  while excluding same-named user definitions. Domain packages remain
+  byte-for-byte free of `NativeUiHost.swift`; UI packages expose AppCore plus a
+  dedicated `<AppName>Cli` debug product and the checked
+  `examples/swift/appcore-nativeui.ssc` source runs through real SwiftPM.
+- `NativeUiHost` mirrors the complete JVM ABI-v1 signal, view, event, fetch,
+  form, storage/offline, table/column/row-action, trusted-HTML, mobile-CSS, and
+  exactly-one-root families. Constructor boundaries reject non-portable target
+  values, preserve ordered maps/closure identity, use tag-qualified signal
+  dispatch, and retain exact shortened defaults and source-rich diagnostics.
+- `makeNativeUiRoot` returns a retained `NativeUiSession`: successful handoff
+  keeps the Machine, signal store, and root-local `emptyHeaders` alive until
+  disposal. Mutable/computed/key/render closures were invoked after extraction
+  by a generated Swift probe, including a short-arity action. Native extension
+  failures are catchable and short-circuit every enclosing evaluated subterm;
+  abort clears provisional state and the same host then builds a clean root.
+- The independent `nativeui-reviewer` approved the final uncommitted diff in
+  Rozum after two blocker rounds. Final gates passed: Swift backend 19/19 with
+  real package execution; Swift CLI 5/5; JVM NativeUi 14/14; `tkv2-*` 12/12;
+  and `std-ui-jobpanel` 1/1.
 
 ### Portable NativeUi ABI-v1 JVM gate (`1f3ca3962`, 2026-07-11)
 

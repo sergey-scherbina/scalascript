@@ -498,7 +498,7 @@ When to use each:
 | `ssc run-rust` | Native binary via Cargo | One-shot native build & execute (see [`rust-backend.md`](rust-backend.md)) |
 | `ssc build-rust` | Native binary via Cargo | Ship a `cargo build`ed binary to `-o <path>` |
 | `ssc emit-swift` | v2 AppCore Swift package | Inspect/integrate deterministic checked-CoreIR Swift sources |
-| `ssc run-swift` | v2 AppCore via SwiftPM | Build and run the generated domain executable on macOS |
+| `ssc run-swift` | v2 AppCore via SwiftPM | Build and run the generated domain executable or NativeUi ABI debug CLI on macOS |
 | `ssc run --target macos` | v2 AppCore via SwiftPM | Apple desktop spelling; use `--v1` only for the legacy SwiftUI lane |
 
 **Requirements:** `ssc run --native` requires a staged installation produced by
@@ -517,6 +517,7 @@ ssc run --target jvm       examples/recursion.ssc    # JVM bytecode
 ssc run-js                 examples/recursion.ssc    # Node.js
 ssc run-rust               examples/hello.ssc        # native binary via Cargo
 ssc run-swift              examples/swift/appcore-money.ssc  # native SwiftPM AppCore
+ssc run-swift              examples/swift/appcore-nativeui.ssc # portable NativeUi ABI debug CLI
 
 # HTTP server on JVM (real threads, JDBC available)
 ssc run --target jvm myapp.ssc
@@ -560,7 +561,12 @@ block is always available as an escape into hand-written Rust. See
 The ScalaScript 2 Swift backend emits a deterministic Swift Package with a
 target-owned `AppCore` library/runtime and a thin executable. It consumes only
 the checked v2 `Program`; generated sources do not reference the v1 parser,
-interpreter, `JvmGen`, `View`, or `SwiftUIEmitter`.
+interpreter, `JvmGen`, `View`, or `SwiftUIEmitter`. Checked programs using the
+provenance-qualified `std/ui` ABI additionally receive
+`Sources/AppCore/NativeUiHost.swift` and a dedicated `<AppName>Cli` product.
+That host mirrors ABI-v1 signals, views, events, fetch/form/table descriptors,
+storage/offline values, trusted HTML, and exactly-one-root extraction without
+importing SwiftUI into AppCore.
 
 ```bash
 ssc emit-swift --target macos -o ./myapp-swift myapp.ssc
@@ -572,8 +578,15 @@ ssc run --target macos myapp.ssc
 ssc run --v1 --target macos legacy.ssc   # explicit compatibility only
 ```
 
+`examples/swift/appcore-nativeui.ssc` is the executable AppCore smoke. Its
+debug CLI evaluates the checked source into `NativeUiAbi(1, root, config)` and
+prints the version/root/operation summary. A retained `NativeUiSession` keeps
+signal, computed, keyed-render, and user closures callable after root handoff;
+failed evaluation aborts provisional state before the same host can be reused.
+The SwiftUI renderer and real Xcode application target remain the next slice.
+
 `--target ios` already emits an iOS-deployment Swift package through the same
-v2 backend. Until the portable NativeUi application target lands, iOS launch,
+v2 backend. Until the SwiftUI/Xcode application target lands, iOS launch,
 signing, distribution, and publication stop with an explicit diagnostic and
 never retry the v1 generator. The subsequent SwiftUI milestone replaces that
 temporary boundary with the native app/simulator/device adapters.
