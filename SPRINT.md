@@ -869,6 +869,9 @@ there before changing this plan.
                         child bounds rather than document/body scrollHeight or
                         the body rectangle, whose viewport floor blocks shrink
                         after a tall generation;
+                        on iOS the Sendable KVO callback enters
+                        `MainActor.assumeIsolated` before touching UIScrollView
+                        or coordinator state, as required by strict Swift 6;
                   - [x] close the four pre-code design blockers tracked as
                         `v2-trusted-html-isolation-contract-gaps`: generation-
                         scoped allow-once main navigation, linkActivated-only

@@ -33,6 +33,11 @@
   publish a `Range` over body contents plus child bounds independent of the
   current viewport (the body rectangle itself also inherits the viewport
   floor), then apply the frozen finite clamp.
+- **Real iOS strict-concurrency repro:** the iOS 16 Simulator typecheck rejects
+  direct access to coordinator state and `UIScrollView.contentSize` from the
+  Sendable KVO callback. UIKit emits that observation on its main actor; enter
+  it explicitly with `MainActor.assumeIsolated` before reading size, checking
+  generation/mount identity, and publishing.
 - **Plan/done-when:** freeze these four rules in
   `specs/v2-swift-swiftui-native.md` before code, obtain a second Rozum design
   APPROVE, then implement and execute loopback-zero-hit, data/inline,
