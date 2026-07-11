@@ -1,0 +1,6 @@
+claim: native-finterp
+owner: opus (native-front correctness program, cont.)
+started: 2026-07-11
+scope:
+  - v2/lib/ssc1-front.ssc0 — buildFInterp/splitFFormatPrefix: f"" format specifiers
+  - v2/lib/ssc1-lower.ssc0 — resolveE app: route __fInterpolate__ to prim
