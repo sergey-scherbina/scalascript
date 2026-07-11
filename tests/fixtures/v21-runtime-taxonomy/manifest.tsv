@@ -2,7 +2,6 @@ file	category	blocker	owner	reason
 actors-pingpong.ssc	standard-provider	yes	actors	runActors is not installed by a core-free standard actors provider
 actors-typed-remote-spawn.ssc	standard-provider	yes	actors	runActors is not installed by a core-free standard actors provider
 agent-mcp-toolsource.ssc	tools-backend	no	mcp	JVM/JS MCP tool-source syntax is already a reviewed backend surface
-algebraic-effects.ssc	language-runtime	yes	effects	portable effect-handler application reaches an arity mismatch
 async-demo.ssc	standard-provider	yes	async	runAsync is not installed by a core-free standard async provider
 content.ssc	language-runtime	yes	interpolator	built-in md interpolation lowers to an unbound global before doc/render execute
 custom-derives-mirror.ssc	language-runtime	yes	typeclass	Mirror/derives evidence is not synthesized, so exact summon has no named given to resolve
