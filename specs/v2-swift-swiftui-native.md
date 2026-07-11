@@ -856,11 +856,11 @@ behavior.
 
 - [x] The NativeUi ABI contains no v1 View/PluginValue/ForeignV instance.
 - [ ] Signal bindings and event handlers update SwiftUI on the main actor.
-- [ ] Keyed insert/move/delete preserves surviving component state by key.
+- [x] Keyed insert/move/delete preserves surviving component state by key.
 - [ ] Toolkit layout/controls/cards/styles/links/rich content retain their
   specified semantics on macOS and iOS.
 - [ ] Fetch/form/model/table state is reactive and cancels obsolete work.
-- [ ] Unsupported native features produce deterministic source diagnostics.
+- [x] Unsupported native features produce deterministic source diagnostics.
 
 ### Apple end to end
 
@@ -933,6 +933,29 @@ building generated Swift; snapshot/string tests alone are insufficient.
   native conformance screen is in scope).
 
 ## Results
+
+### SwiftUI observation store and recursive renderer (`70bee065d`, 2026-07-11)
+
+- UI-mode packages now emit a main-actor `NativeUiStore` plus recursive
+  renderer/styles/App entry while AppCore remains SwiftUI-free. Stable
+  per-signal cells, opaque subscription tokens, dependency recomputation,
+  semantic-equal suppression, direct/transitive cycle detection, and one
+  publication per changed transaction are executed by real Swift probes.
+- Keyed reconciliation crosses `NativeUiSession` into a Host-owned atomic
+  owner transaction. Structural node identity preserves the original shared
+  render closure, repeated-site occurrence paths, component-scope refcounts,
+  move/update state, delete disposal, fresh reinsertion, Store write buffering,
+  rollback, and bounded owner metadata without tombstones.
+- The core renderer subscribes signal text, Show, keyed items, controls, and
+  signal-backed styles. Shipped tags/CSS/accessibility values either map to
+  explicit SwiftUI behavior or produce a source-located Unsupported result;
+  forged signal/event shapes are rejected recursively and cycle-safely.
+  Fetch execution, tables, navigation/hash routes, trusted WKWebView HTML, and
+  the Xcode application project remain the explicitly queued next slices.
+- `nativeui-reviewer` approved the final uncommitted diff in Rozum after nine
+  blocker-driven passes. Final gates: Swift backend 27/27 with real SwiftPM/
+  SwiftUI execution, Swift CLI 5/5, JVM NativeUi 14/14, `tkv2-*` 12/12, and
+  `std-ui-jobpanel` 1/1.
 
 ### Swift AppCore NativeUi host (`9ef73ac81`, 2026-07-11)
 

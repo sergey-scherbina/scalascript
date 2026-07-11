@@ -606,13 +606,23 @@ debug CLI evaluates the checked source into `NativeUiAbi(1, root, config)` and
 prints the version/root/operation summary. A retained `NativeUiSession` keeps
 signal, computed, keyed-render, and user closures callable after root handoff;
 failed evaluation aborts provisional state before the same host can be reused.
-The SwiftUI renderer and real Xcode application target remain the next slice.
+UI-mode generation also writes `AppleApp/NativeUiStore.swift`,
+`NativeUiRenderer.swift`, `NativeUiStyles.swift`, `NativeUiHtml.swift`, and the
+SwiftUI `App` entry. The main-actor store owns one stable observable cell per
+signal, dependency-safe derived reads, exact subscription tokens, and atomic
+Host/Store keyed transactions. The recursive renderer covers reactive text,
+show/fragment/elements, text and checkbox bindings, styles/accessibility, and
+keyed component identity with move/delete/fresh-reinsert semantics. Malformed
+or deferred semantics are source-located Unsupported output; fetch execution,
+native tables, trusted WKWebView content, and navigation actions are the next
+toolkit slice rather than silent fallbacks.
 
 `--target ios` already emits an iOS-deployment Swift package through the same
-v2 backend. Until the SwiftUI/Xcode application target lands, iOS launch,
-signing, distribution, and publication stop with an explicit diagnostic and
-never retry the v1 generator. The subsequent SwiftUI milestone replaces that
-temporary boundary with the native app/simulator/device adapters.
+v2 backend plus the AppleApp sources. Until the real Xcode application project
+target lands, iOS launch, signing, distribution, and publication stop with an
+explicit diagnostic and never retry the v1 generator. The subsequent Apple
+e2e slice replaces that temporary boundary with the app/simulator/device
+adapters.
 
 **Reactive web server.** A declarative `std/ui` view compiled with
 `serve(view, port)` emits a native `tokio` + `hyper` server with

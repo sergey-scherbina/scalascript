@@ -125,7 +125,7 @@ bin/ssc run-rust   examples/hello.ssc
 # Inspect or run the checked ScalaScript 2 CoreIR Swift package (Swift 6+)
 bin/ssc emit-swift --target macos -o appcore-swift examples/swift/appcore-money.ssc
 bin/ssc run-swift examples/swift/appcore-money.ssc
-bin/ssc run-swift examples/swift/appcore-nativeui.ssc # portable NativeUi ABI debug CLI
+bin/ssc run-swift examples/swift/appcore-nativeui.ssc # ABI debug CLI; emit also writes AppleApp store/renderer
 
 # Run on Apache Spark (Spark 4.0.0 / Scala 3.7.1, local[*] by default)
 bin/ssc-spark examples/spark-encoder-demo.ssc
