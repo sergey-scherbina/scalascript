@@ -1064,6 +1064,11 @@ there before changing this plan.
             same checked source for one concrete installed iOS Simulator.
             The script must use only `bin/ssc`, Xcode/plutil/simctl, temporary
             owned paths, and no certificate, secret, network, or v1 fallback.
+      - [ ] **v2-swift-core-stale-testing-command** — final spec verification
+            found that `tests/e2e/v2-swift-core.sh` is only a stale planned
+            command and exits 127. Replace it in the durable testing strategy
+            with the real `v2SwiftBackend/test` 43/43 gate; retain assembled
+            `v2-swift-cli.sh` and `v2-swiftui-apple.sh` as separate e2e paths.
       - [x] **tkv2-js-duplicate-nodecrypto** — the mandatory fresh assembled
             `tkv2-* --no-memo` gate is 1/12 after the current-main rebase:
             every JS case fails at generated stdin line 2098 because

@@ -1,5 +1,16 @@
 # Bug tracker
 
+## v2-swift-core-stale-testing-command — spec names an absent e2e script
+
+**Status:** open (2026-07-11); found by codex during final spec verification.
+
+- **Real-harness repro:** `tests/e2e/v2-swift-core.sh` exits 127 because the
+  file has never existed, although the feature spec lists it as a release gate.
+- **Expected/fix:** the testing strategy names the real full Swift backend gate,
+  `scripts/sbtc 'v2SwiftBackend/test'`, which passed 43/43 and already executes
+  the checked money/effect/NativeUi sources through real Swift. Keep the
+  assembled CLI and Apple scripts as the two distinct end-to-end gates.
+
 ## tkv2-js-duplicate-nodecrypto — generated JS declares `_nodeCrypto` twice
 
 **Status:** done (2026-07-11, `aab53ab3c`); found by codex in the mandatory no-memo
