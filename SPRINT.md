@@ -730,6 +730,11 @@ there before changing this plan.
                         and typed row identity by current committed row set;
                         descriptor replacement is transactional and preserves
                         the prior model/capability when decode/snapshot fails.
+                        Round-2 final: extract one URLSession/generation runner
+                        used by ordinary and row actions; enforce empty
+                        static/signal rowsPath plus strict fetch dotted paths;
+                        preserve invalid→valid mounting and never combine old
+                        retained cells with a changed column descriptor.
             - [ ] **isolated trusted HTML** — dynamically sized WKWebView using
                   a nonpersistent store, JavaScript disabled, compiled network
                   content rules, cancelled external navigation, and SwiftUI

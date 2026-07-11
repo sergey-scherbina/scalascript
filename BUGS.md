@@ -66,6 +66,14 @@ read-only implementation audit of the local Apple table decoder draft.
   live table signature and old rows after replacement/removal must reject.
   Replacement itself commits only after both descriptor decode and candidate
   snapshot succeed, preserving the previous capability/model on failure.
+- **Rozum review round 2 final additions:** row transport must call the same
+  extracted URLSession/generation runner as ordinary fetch actions rather than
+  duplicate its Task loop. `rowsPath` is exactly empty for static/signal and a
+  valid non-empty dotted path for fetch when supplied (`a..b` never aliases to
+  `a.b`). Model appearance is tracked even when initial decode fails so a later
+  valid descriptor mounts; replacement must never pair retained old row cells
+  with a changed column layout or remove the old capability before a coherent
+  candidate commits.
 - **Plan/done-when:** close all four seams before the first Apple table code
   commit, add them to the six named executable gates, and obtain Rozum reviewer
   confirmation with the complete slice.
