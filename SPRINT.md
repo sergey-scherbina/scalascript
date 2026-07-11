@@ -9,6 +9,25 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## v2-http-fast — super-optimal HTTP/WS plugin for v2 JVM (2026-07-11, Sergiy: "сделай для v2 jvm новый супер оптимальный http/ws плагин … по умолчанию вместо старого … проверь thread-safety")
+
+Spec: `specs/v2-http-fast.md`. New v2 native plugin: NIO + Java-21 virtual-thread-per-connection
++ zero-copy HTTP/1.1 parser + path-params/query + native WebSocket (RFC 6455), replacing the
+`com.sun.net.httpserver` plugin AS DEFAULT. Each phase: worktree, tests, bench, conformance.
+
+- [ ] **hf-1 vm-thread-safety** — FOUNDATION. `Emit.globalsRef` + VM-lane `globals` are
+      mutable.HashMaps written in-place on concurrent @-global first-touch → race (the current
+      server ALREADY runs handlers concurrently with no lock, so it exists + is tolerated).
+      Fix: concurrent-safe maps (ConcurrentHashMap/TrieMap), lock-free reads. Concurrency
+      stress test + bytecode/VM benches unregressed. V2PluginRegistry=frozen-after-load (safe),
+      effect-ctx=ThreadLocal (safe) — no change.
+- [ ] **hf-2 http-core** — v2NativeHttpFastPlugin: NIO/vthread server + zero-copy HTTP/1.1
+      parser + keep-alive + path-params/query; match Request(9)/Response(3)/route/serve/stop.
+      Unit + integration (real socket) tests + bench vs JDK-server plugin.
+- [ ] **hf-3 websocket** — RFC 6455 upgrade+framing; onWebSocket/wsConnect/ws-value/WsRoom.
+- [ ] **hf-4 streaming/middleware** — sse, cors, use (chain), useGzip, maxBodySize (fill stubs).
+- [ ] **hf-5 default-swap** — make it the default http plugin, full conformance, remove old.
+
 ## v2-asm-jit — JIT for the ssc v2 VM ASM lane (2026-07-10, Sergiy: "jit делай для ssc vm asm v2" + "всё что сделал используй")
 
 Target: `v2/backend-jvm-bytecode/JvmByteGen.scala` (JVM bytecode/ASM emitter) + `v2/src/Emit.scala`
