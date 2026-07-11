@@ -1,5 +1,4 @@
 file	category	reason
-agent-mcp-toolsource.ssc	backend	MCP Spawn client explicitly requires the JVM/JS backend
 quoted-macro-constfold.ssc	tools-backend	restricted quoted-macro expansion remains an explicit tools-tier compiler surface
 quoted-macro-interpreter.ssc	tools-backend	restricted quoted-macro expansion remains an explicit tools-tier compiler surface
 wasm-http.ssc	tools-backend	WASM/Scala.js target document

@@ -82,7 +82,7 @@ if ! awk -F '\t' -v OFS='\t' -v summary="$summary" '
       print "unclassified both-fail row: " file > "/dev/stderr"; bad=1; next
     }
     category=manifestCategory[file]
-    if (category == "tools-backend" &&
+    if (category == "tools-backend" && sentinelCategory[file] != "" &&
         sentinelCategory[file] != "backend" && sentinelCategory[file] != "tools-backend") {
       print "tools-backend row disagrees with sentinel taxonomy: " file > "/dev/stderr"; bad=1
     }

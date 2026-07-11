@@ -76,6 +76,10 @@ if [[ $quick -eq 0 ]]; then
     echo 'v21-self-hosted-core-release-gate: standard parser gap remains in corpus' >&2
     exit 1
   fi
+  "$ROOT/scripts/v21-runtime-taxonomy" \
+    --parity-report "$report_dir/bytecode-parity.tsv" \
+    --sentinel-report "$report_dir/sentinel-taxonomy.tsv" \
+    --report "$report_dir/runtime-taxonomy.tsv"
 fi
 
 "$ROOT/tests/conformance/run.sh" --only 'v2-*' --no-memo
