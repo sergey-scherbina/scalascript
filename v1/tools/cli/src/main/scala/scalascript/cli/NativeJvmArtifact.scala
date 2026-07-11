@@ -7,7 +7,7 @@ import java.security.MessageDigest
 import java.util.zip.{CRC32, ZipEntry, ZipFile, ZipOutputStream}
 import scala.collection.mutable
 import scala.jdk.CollectionConverters.*
-import _root_.ssc.plugin.NativeRuntimeConfig
+import _root_.ssc.plugin.{NativeContentModule, NativeRuntimeConfig}
 
 /** Deterministic self-contained JAR writer for the native CoreIR→ASM lane. */
 private[cli] object NativeJvmArtifact:
@@ -172,7 +172,8 @@ private[cli] object NativeJvmArtifact:
     if config.contentModules.nonEmpty then
       add(
         "META-INF/scalascript/content.bin",
-        _root_.ssc.plugin.NativeContentCodec.encode(config.contentModules),
+        _root_.ssc.plugin.NativeContentCodec.encode(
+          artifactContentModules(config.contentModules, sourceUnits)),
         "generated structural content")
     val sourceDebug = NativeJvmSourceMap.build(program, sourceUnits)
     add(
@@ -197,6 +198,23 @@ private[cli] object NativeJvmArtifact:
         out.closeEntry()
       }
     finally out.close()
+
+  /** Structural compilation validates canonical source identities, but an
+   * executable artifact must not persist checkout or temporary-directory
+   * paths. The source closure already owns a deterministic display identity
+   * for every root/import; translate only the persisted artifact graph. */
+  private def artifactContentModules(
+      modules: List[NativeContentModule],
+      sourceUnits: List[NativeSourceUnit]): List[NativeContentModule] =
+    val displayBySource = sourceUnits.iterator.map { unit =>
+      unit.file.getCanonicalPath.replace(java.io.File.separatorChar, '/') -> unit.displayPath
+    }.toMap
+    def display(path: String): String = displayBySource.getOrElse(path, path)
+    modules.map { module =>
+      module.copy(
+        source = display(module.source),
+        directImports = module.directImports.map(display))
+    }
 
   private def skipPackagingEntry(name: String): Boolean =
     val upper = name.toUpperCase(java.util.Locale.ROOT)
