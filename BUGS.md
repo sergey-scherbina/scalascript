@@ -46,7 +46,7 @@ TI-8.2d2i, waiting for Sergiy confirmation before `done`.
 
 ## v2-nativeui-rust-component-scope-proof — Rust adapter lacks a real compiler gate
 
-**Status:** open (2026-07-11); found by `nativeui-reviewer` in Rozum while
+**Status:** fixed (2026-07-11, `1f3ca3962`); found by `nativeui-reviewer` in Rozum while
 reviewing the uncommitted NativeUi ABI-v1 migration.
 
 - **Repro:** `RustGenWebToolkitTest` only string-matches the emitted generic
@@ -54,12 +54,14 @@ reviewing the uncommitted NativeUi ABI-v1 migration.
   `componentScope`.
 - **Expected/fix:** compile a generated Rust package containing the generic
   identity call and retain the exact-return/exact-once contract.
+- **Fix/verified:** the toolkit test now writes the generated crate and runs
+  real `cargo run`; the generic `FnOnce` adapter compiles and prints `ok`.
 - **Done-when:** a real Rust toolchain gate passes and its landed SHA is reported
   in Rozum; keep `fixed` until Sergiy confirms.
 
 ## v2-nativeui-transitive-native-provenance — childCtx rebind can replace user NativeFnV
 
-**Status:** open (2026-07-11); found by `nativeui-reviewer` in Rozum while
+**Status:** fixed (2026-07-11, `1f3ca3962`); found by `nativeui-reviewer` in Rozum while
 reviewing the `componentScope` compatibility fix.
 
 - **Repro:** every raw `childCtx` `NativeFnV` currently enters
@@ -67,12 +69,15 @@ reviewing the `componentScope` compatibility fix.
   replaced whenever the parent owns a plugin native of that name.
 - **Expected/fix:** require child plugin provenance and identity with the child
   plugin binding before rebinding to the parent.
+- **Fix/verified:** transitive rebinding now requires both the child's recorded
+  plugin name and object identity with its live global; a same-named user case
+  constructor remains callable through an exported facade.
 - **Done-when:** component callbacks stay green, a same-name non-plugin
   regression is preserved, and the SHA is reported in Rozum.
 
 ## v2-nativeui-keyed-scope-ownership — JVM ABI lacks transactional keyed lifecycle
 
-**Status:** open (2026-07-11); found by `nativeui-reviewer` in Rozum against the
+**Status:** fixed (2026-07-11, `1f3ca3962`); found by `nativeui-reviewer` in Rozum against the
 frozen first JVM NativeUi gate.
 
 - **Repro:** `UiNativePlugin` has only a scope stack; signals have no owner
@@ -89,12 +94,15 @@ frozen first JVM NativeUi gate.
   bindings survive keyed refresh/deletion even after `ownerScopes` is pruned,
   retaining old view→signal-closure→cell graphs. Prune bindings in the same
   owner transaction, restore on rollback, and gate bounded counts/deletion.
+- **Fix/verified:** structural owners include component and site occurrence;
+  insert/move/update/delete, duplicate, shared-scope refcounts, rollback, and
+  25-refresh bounded-retention gates pass. The reviewer approved the result.
 - **Done-when:** insert/move/update/delete/duplicate/rollback tests pass and the
   reviewer approves.
 
 ## v2-nativeui-root-transaction — failed Apple extraction leaks root/runtime state
 
-**Status:** open (2026-07-11); found by `nativeui-reviewer` in Rozum.
+**Status:** fixed (2026-07-11, `1f3ca3962`); found by `nativeui-reviewer` in Rozum.
 
 - **Repro:** missing-root `__nativeUiTakeRoot` throws before clearing
   `appleContext`; duplicate registration retains the first root and signals.
@@ -104,12 +112,15 @@ frozen first JVM NativeUi gate.
 - **Fresh review delta (Rozum 2026-07-11):** `emptyHeaders` is registered once
   at plugin install, but begin clears its `SignalKey` while the global retains
   the old cell. Make it root-local/lazy and test an omitted-header Apple root.
+- **Fix/verified:** begin/take/abort and duplicate failure reset the same plugin
+  instance; each Apple begin re-registers the constant header cell under its
+  root key, including the omitted-header action path.
 - **Done-when:** one plugin instance can fail then begin a clean extraction;
   zero/duplicate/evaluation-error tests prove rollback.
 
 ## v2-nativeui-descriptor-contract — public UI descriptors diverge from ABI-v1
 
-**Status:** open (2026-07-11); found by `nativeui-reviewer` in Rozum.
+**Status:** fixed (2026-07-11, `1f3ca3962`); found by `nativeui-reviewer` in Rozum.
 
 - **Repro:** shortened column arities are rejected; raw HTML does not require
   the exact sentinel; seed first-write can stay pristine; row-delete encodes
@@ -118,11 +129,14 @@ frozen first JVM NativeUi gate.
 - **Expected/fix:** fill every public default, enforce the exact sentinel,
   dirty seed on the first user write, restore POST/id semantics, and register
   tag-qualified `id`.
+- **Fix/verified:** every short column form, the two-attribute raw sentinel,
+  first seed write, POST/id delete request, and tagged `id` are covered; the
+  affected assembled conformance cases remain green.
 - **Done-when:** focused tests plus `std-ui-jobpanel` and toolkit conformance pass.
 
 ## v2-nativeui-portable-graph — canonicalization/equality can leak host values or miscompare cycles
 
-**Status:** open (2026-07-11); found by `nativeui-reviewer` in Rozum.
+**Status:** fixed (2026-07-11, `1f3ca3962`); found by `nativeui-reviewer` in Rozum.
 
 - **Repro:** DataV→MapV cycles point to an unconverted DataV; ClosV traversal
   mutates caller-owned environments; equality marks failed map-key candidates
@@ -135,6 +149,9 @@ frozen first JVM NativeUi gate.
   alias when an outer DataV and a closure env share the same portable MapV and
   an unrelated host map forces copying. Preserve that alias without changing
   ClosV identity or its environment.
+- **Fix/verified:** validation is closure-context aware; conversion pins the
+  closure-reachable portable subgraph, copies transitional host maps without
+  alias loss, and equality backtracks cyclic unordered candidates soundly.
 - **Done-when:** adversarial cycle/reorder negatives, nested ForeignV paths,
   closure non-mutation, and every descriptor family are green.
 ## v21-layout-given-after-abstract-def — abstract return type consumes the next given
@@ -170,7 +187,7 @@ TI-8.2d2h, waiting for Sergiy confirmation before `done`.
 
 ## v2-nativeui-component-scope-compat — new scope extern is unbound in legacy INT/JS lanes
 
-**Status:** open (2026-07-11); found by codex while verifying the atomic
+**Status:** fixed (2026-07-11, `1f3ca3962`); found by codex while verifying the atomic
 NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
 
 - **Real-harness repro:** run `tests/conformance/run.sh --only 'tkv2-*'
@@ -199,6 +216,9 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
   program stayed green with fast/JIT disabled. The existing multi-file toolkit
   imports are the faithful cross-module regression. Keep the v2 NativeUi
   plugin's scoped semantics unchanged.
+- **Fix/verified:** exact-once identity adapters landed in all legacy runtimes;
+  only child-provenance/identity-proven natives are rebound to the caller. The
+  assembled multi-file toolkit corpus is 12/12 and the Rust adapter compiles.
 - **Done-when:** fresh toolkit conformance is 12/12 across declared lanes,
   focused plugin/codegen tests cover the thunk contract, and the landed SHA is
   reported in Rozum. Keep `fixed` until Sergiy confirms.

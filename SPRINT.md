@@ -258,7 +258,8 @@ there before changing this plan.
       Gates: sites/provenance 6/6, combined FrontendBridge 62/62, UI 4/4,
       toolkit conformance 12/12, std-ui-jobpanel 1/1. Next: step 4 atomic
       `UiNativePlugin` ABI-v1 signal/view/root migration and deep canonicalizer.
-      - [ ] **v2-nativeui-component-scope-compat** — the step-4 public
+      - [x] **v2-nativeui-component-scope-compat — DONE 2026-07-11
+        (`1f3ca3962`)** — the step-4 public
         `componentScope(scopeId, thunk)` declaration exposed missing legacy
         adapters: a fresh `tests/conformance/run.sh --only 'tkv2-*' --no-memo`
         is 9/12, with INT `componentScope not found` and JS `not callable` in
@@ -284,7 +285,7 @@ there before changing this plan.
         an explicitly imported native.
       ABI review blockers (Rozum `blockers:`, 2026-07-11; no landing until a
       second `approve:`):
-      - [ ] **portable graph** — graph-safe non-mutating canonicalization;
+      - [x] **portable graph** — graph-safe non-mutating canonicalization;
         sound cyclic unordered-map equality; deep canonicalization of every
         descriptor; String-keyed static rows; adversarial cycles, failed-key
         candidates, nested ForeignV paths, and closure non-mutation tests.
@@ -292,10 +293,10 @@ there before changing this plan.
         host map forces copying, a portable MapV shared by an outer DataV and a
         ClosV environment must stay the same object on both paths. Preserve
         closure identity without mutating its env and add that exact graph test.
-      - [ ] **exact descriptor surface** — all shortened column arities, exact
+      - [x] **exact descriptor surface** — all shortened column arities, exact
         rawHtml sentinel, first-write seed detachment, POST/id row-delete, and
         tag-qualified signal `id`.
-      - [ ] **root + keyed ownership transactions** — cleanup on zero/
+      - [x] **root + keyed ownership transactions** — cleanup on zero/
         duplicate/evaluation error; frozen owner/scope/signal keys; duplicate
         keyed diagnostics; stable insert/move/update; deleted-key disposal;
         render rollback.
@@ -309,11 +310,20 @@ there before changing this plan.
         pruned with their reconciled/deleted owner subtree (and restored on
         rollback). Repeated keyed refresh must have a bounded binding count;
         deleted views may not retain signal cells as hidden tombstones.
-      - [ ] **compatibility hardening** — child-provenance/identity-gated
+      - [x] **compatibility hardening** — child-provenance/identity-gated
         transitive native rebind plus same-name user regression; real cargo/rustc
         compile for the generic Rust adapter.
-      - [ ] Re-run focused suites, assembled `tkv2-*` and `std-ui-jobpanel`,
+      - [x] Re-run focused suites, assembled `tkv2-*` and `std-ui-jobpanel`,
         then request a fresh read-only Rozum review. Commit only after approve.
+      Progress 2026-07-11 (`1f3ca3962`, docs `fcfd72903`): step 4 JVM
+      ABI-v1 gate landed after the independent Rozum reviewer approved the
+      final diff. Portable graph conversion/equality, complete descriptors,
+      exact root/keyed/component ownership and bounded binding retention are
+      covered by 14/14 UI tests. Legacy callback adapters and provenance
+      hardening pass their focused suites plus a real Cargo run; assembled
+      `tkv2-*` is 12/12 and `std-ui-jobpanel` is 1/1. Next: step 5, mirror the
+      ABI globals/store/root extraction in Swift AppCore `NativeUiHost` before
+      adding the SwiftUI recursive renderer.
 - [ ] **v2-swiftui-toolkit-parity** — preserve the actual shipped toolkit-v2
       vocabulary on Apple native clients: `vstack`/`hstack`, `showWhen`,
       `forKeyed`, component/`ctxSignal`, `cardWithHeader`, styled/theme tokens,

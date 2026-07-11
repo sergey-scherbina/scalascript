@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — portable NativeUi ABI-v1 runtime and lifecycle
+
+The v2 UI plugin now produces the frozen portable signal/view/action/table/root
+ABI with graph-safe canonicalization, semantic equality, transactional keyed
+component ownership, bounded retention, and deterministic diagnostics. Legacy
+component callbacks remain compatible across INT/JS/JVM/Rust, including a real
+Cargo gate. Landed `1f3ca3962`; results `fcfd72903`.
+
 ## 2026-07-11 — nested constructor patterns preserve ordered fallback
 
 The self-hosted lowerer now carries nested constructor failures to the next
