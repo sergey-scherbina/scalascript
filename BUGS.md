@@ -21,6 +21,26 @@ reactive provider.
   the complete `signals-demo.ssc` output on assembled VM/direct ASM and
   standalone `build-jvm` lanes.
 
+## v2-swift-session-sticky-callback-failure — one caught render error poisons the retained runtime
+
+**Status:** open (2026-07-11); found by codex in the executable Swift keyed
+rollback probe and announced to `@scalascript` /
+`@nativeui-reviewer` in Rozum.
+
+- **Real-harness repro:** invoke a keyed render closure that throws after a
+  previously committed owner tree, catch the error, then reconcile the prior
+  clean item set through the same `NativeUiSession`. Host signal/owner state
+  rolls back, but `Machine.failure` remains sticky and the clean call rethrows
+  the old error.
+- **Expected:** failure is sticky across every nested subterm within initial
+  program evaluation or one callback invocation, so placeholder Unit is never
+  consumed. Once a post-evaluation caller catches that callback failure, the
+  retained session is reusable and the last committed UI tree remains valid.
+- **Plan/done-when:** distinguish initial evaluation from retained callback
+  boundaries; consume/clear the failure only while returning it from a
+  post-evaluation `invokeResult`/host-bound callback. Pin nested short-circuit
+  plus same-session keyed rollback/recovery under real Swift.
+
 ## v2-swiftui-fake-native-fallbacks — deferred semantics render misleading content
 
 **Status:** open (2026-07-11); found by `nativeui-reviewer` during the first

@@ -406,6 +406,11 @@ there before changing this plan.
             generated Swift. Until the next slice, actions/tables/WKWebView and
             any unimplemented inventory entry render explicit sourced
             Unsupported—not no-op/fake semantics.
+            A caught post-evaluation render failure must also clear the
+            callback-local sticky `Machine.failure` after it is returned;
+            preserve initial/nested short-circuit semantics while proving the
+            same retained session reconciles cleanly after rollback
+            (`v2-swift-session-sticky-callback-failure`).
       - [ ] **v2-swiftui-actions-tables-html** — add control bindings and ordered
             set/input/toggle/increment/navigation/fetch/form success actions,
             native table/column/row-action decoding, persisted/online state, and
