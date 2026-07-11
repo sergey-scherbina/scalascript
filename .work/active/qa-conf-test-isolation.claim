@@ -1,6 +1,0 @@
-feature/qa-conf-isolation 2026-07-11T11:12:38Z
-agent: claude-code (opus)
-heartbeat: 2026-07-11T11:12:38Z
-status: in-progress
-done-so-far: Found cross-test state pollution: un-skipping 11 concurrency conformance cases (actors/dataset/distributed thread-pools + free-monad executor) leaks state into the shared sequential test JVM → poisons a LATER test (html-dsl). V2ConformanceTest only does FrontendBridge.resetState(), NOT the V2PluginRegistry snapshot/restore that BatchCli uses ("restore before each file so runtime registrations can't leak").
-next: FIX the test isolation in V2ConformanceTest — snapshot V2PluginRegistry after loadAll, restore before each test (mirror BatchCli). If pollution is threads not registry, investigate deeper. Then un-skip the concurrency stale-passes (+11 coverage) if all-green 2x. Touches V2ConformanceTest.scala (test harness).
