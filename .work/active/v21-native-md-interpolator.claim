@@ -1,6 +1,0 @@
-feature/v21-native-md-interpolator 2026-07-11T21:53:03Z
-agent: codex
-heartbeat: 2026-07-11T22:04:27Z
-status: in-progress
-done-so-far: spec and front-only implementation committed; stage-2, core unit, focused VM/ASM/full-content/build-jvm, dependency/plugin/standard/slim/JRE gates are green
-next: run full corpus/parity/taxonomy and affected no-memo conformance, then verify spec/docs and push
