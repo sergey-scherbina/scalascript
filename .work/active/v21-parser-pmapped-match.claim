@@ -1,6 +1,6 @@
 feature/v21-parser-pmapped-match 2026-07-11T13:31:48Z
 agent: codex
-heartbeat: 2026-07-11T13:31:48Z
+heartbeat: 2026-07-11T13:51:19Z
 status: in-progress
-done-so-far: JSON and YAML parser DSLs reach identical VM/ASM match: no arm for PMapped/2
-next: isolate evaluator constructor matching, specify ordered arm behavior, implement an import regression, and rerun parser DSLs
+done-so-far: clean assembly proved PMapped source semantics correct; spec and exact multi-file VM/ASM regression are on main at 5b16df6df; parser DSL smoke passes
+next: reconcile full baseline and close after independent HTTP native-entry assertion is repaired; then take parser placeholder semantics
