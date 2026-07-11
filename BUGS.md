@@ -61,7 +61,7 @@ found by codex while closing the native content-helper cutover.
   runtime blockers fall to 18, and affected conformance is 17/17.
 ## v21-native-sql-recovery-parser-sentinel — loaded recovery source leaves `_err`
 
-**Status:** open (2026-07-11); found by codex after fixing the wrapped-import
+**Status:** fixed (2026-07-11, `fa27128ee`), awaiting Sergiy confirmation; found by codex after fixing the wrapped-import
 loss exposed the complete `dsl-sql-recovery.ssc` module closure.
 
 - **Real-harness repro:** after `scripts/sbtc "installBin"`, both
@@ -82,10 +82,14 @@ loss exposed the complete `dsl-sql-recovery.ssc` module closure.
   `name @ Constructor(...)` ownership with the whole scrutinee and inner fields
   in scope, then require exact public
   VM/ASM output and the complete release gates before taxonomy retirement.
+- **Fix/verification:** explicit `bpat` parsing and ordered lowering reuse the
+  once-evaluated whole value, preserve nested field scope, and pad failure scope.
+  Imported regression and the full sixteen-line public example are exact on
+  VM/ASM; consolidated release and fresh conformance 11/11 pass.
 
 ## v21-native-multiline-markdown-import-dropped — std parser companion stays unloaded
 
-**Status:** open (2026-07-11); found by codex while reproducing the queued
+**Status:** fixed (2026-07-11, `47ff48b6c`), awaiting Sergiy confirmation; found by codex while reproducing the queued
 TI-8.2d2x `dsl-sql-recovery.ssc` blocker in the installed standard tier.
 
 - **Real-harness repro:** after `scripts/sbtc "installBin"`, run
@@ -106,6 +110,10 @@ TI-8.2d2x `dsl-sql-recovery.ssc` blocker in the installed standard tier.
   fallback, require the installed VM/direct-ASM public example to advance
   identically, then pass module-loading/native-entry/full release and fresh
   `v2-*` conformance gates before retiring only the proved taxonomy row.
+- **Fix/verification:** a bounded pending-label state joins only complete
+  standalone links outside fences and resets at paragraph/heading/fence
+  boundaries. Focused VM/ASM output is `82`; the real four-module recovery
+  closure loads exactly and all release gates pass.
 
 ## v2-swift-core-stale-testing-command — spec names an absent e2e script
 

@@ -23,6 +23,17 @@ content output is exact on VM, direct ASM, and `build-jvm`; stage-2 and every
 release/dependency gate pass, conformance is 17/17, and the standard runtime
 blocker total falls from 19 to 18. Landed through `50715b7a3`.
 
+## 2026-07-11 — native parser recovery loads wrapped imports and bind patterns
+
+The self-hosted module loader now recognizes standalone Markdown import labels
+wrapped across physical lines without treating prose or fenced examples as
+dependencies. Constructor bind patterns preserve the complete matched value,
+nested fields, once-only evaluation, and ordered fallback in portable CoreIR.
+`dsl-sql-recovery.ssc` is sentinel-clear and matches its sixteen-line explicit
+compatibility output on installed VM/direct ASM. The release gate is green with
+36 identical / 30 both-fail / zero mismatch or one-sided rows and 18 remaining
+blocking taxonomy rows. Landed through `c88f1733f`.
+
 ## 2026-07-11 — portable standard effect runners complete natively
 
 ScalaScript 2.1 now runs Logger, State, and Stream standard effects through

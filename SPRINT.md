@@ -2107,7 +2107,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               `NativeSourceUnit.displayPath` only at artifact
                               packaging, retain runtime content values, and
                               restore the existing reproducibility gate.
-                        - [ ] **TI-8.2d2x parser recovery companion dispatch:**
+                        - [x] **TI-8.2d2x parser recovery companion dispatch:**
                               `dsl-sql-recovery.ssc` imports the same self-hosted
                               Parser companion that works in YAML but currently
                               reaches `Parser.regex` as a fallback `Op/3` in this
@@ -2126,7 +2126,11 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               public example on installed VM/direct ASM, module
                               loading/native-entry/release gates, and fresh
                               `v2-*` conformance before taxonomy retirement.
-                              - [ ] **TI-8.2d2x1 loaded recovery parser
+                              Result: bounded multiline-link scanning loads all
+                              four pure parser modules; the focused fixture is
+                              exact `82` and the public document is exact on
+                              VM/direct ASM.
+                              - [x] **TI-8.2d2x1 loaded recovery parser
                                     sentinel:** once wrapped imports load, the
                                     installed structural gate correctly rejects
                                     remaining `(global _err)` in the complete
@@ -2140,6 +2144,12 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     without weakening sentinel rejection or
                                     running partial IR. Track in
                                     `v21-native-sql-recovery-parser-sentinel`.
+                                    Result: constructor `bpat` lowering keeps
+                                    whole value + nested fields and ordered
+                                    fallthrough. Final parity 36 identical / 30
+                                    both-fail / 129 skipped, zero mismatch or
+                                    one-sided rows; taxonomy 18 blockers / 30
+                                    rows; release-ready and conformance 11/11.
                         - [x] **TI-8.2d2a multiple Markdown imports per line —
                               DONE 2026-07-11 (`836ceee03`, `64fcab537`):**
                               replace the native loader's one-link/whole-line
