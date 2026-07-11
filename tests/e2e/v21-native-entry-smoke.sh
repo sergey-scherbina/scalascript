@@ -83,6 +83,8 @@ exact_decimal_expected=$'12.35\n10.00\n13.00\n3.60\ntrue\n10\ndue: 12.35'
 [[ $(run_native "$ROOT/examples/multi-link-imports.ssc") == 'minor units: 1234' ]]
 default_arguments_expected=$'World\nAda\nAda!\n21\n15\n3\n1\n10\n20\n1\n7'
 [[ $(run_native "$FIXTURES/default-arguments.ssc") == "$default_arguments_expected" ]]
+collection_companions_expected=$'0,1,4,9\n1-2-3\n4-5-6\nx,x,x\n2,3,4,5\n10\n12\n7'
+[[ $(run_native "$FIXTURES/collection-companions.ssc") == "$collection_companions_expected" ]]
 ui_fetch_json_expected=$'body:{"name":"Acme \\"HQ\\"","n":5}\nfetch-json:ok'
 [[ $(run_native "$ROOT/examples/ui-fetch-json.ssc") == "$ui_fetch_json_expected" ]]
 index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
@@ -108,6 +110,7 @@ index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
 [[ $(run_native --bytecode "$FIXTURES/exact-decimal.ssc") == "$exact_decimal_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/multi-link-imports.ssc") == 'minor units: 1234' ]]
 [[ $(run_native --bytecode "$FIXTURES/default-arguments.ssc") == "$default_arguments_expected" ]]
+[[ $(run_native --bytecode "$FIXTURES/collection-companions.ssc") == "$collection_companions_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/ui-fetch-json.ssc") == "$ui_fetch_json_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/index.ssc") == "$index_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/fs-os-provider.ssc") == "$fs_os_expected" ]]

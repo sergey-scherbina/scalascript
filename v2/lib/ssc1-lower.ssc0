@@ -805,6 +805,46 @@ def expandDefaultCall = (fn, args) =>
           }
         else Pair("__none__", Nil) }
   }
+def isCollectionCompanion = (name) =>
+  if #seq(name, "List") then true
+  else if #seq(name, "Seq") then true
+  else if #seq(name, "Vector") then true
+  else #seq(name, "Array")
+def isCurriedCollectionFactory = (method) =>
+  if #seq(method, "tabulate") then true else #seq(method, "fill")
+def expandCollectionCurry = (fn, args) =>
+  match fn {
+    case Pair(fnTag, fnData) =>
+      if #seq(fnTag, "app") then
+        match fnData { case Pair(innerFn, innerArgs) =>
+          match innerFn { case Pair(innerTag, innerData) =>
+            if #seq(innerTag, "sel") then
+              match innerData { case Pair(owner, method) =>
+                match owner { case Pair(ownerTag, ownerName) =>
+                  if #seq(ownerTag, "uid") then
+                    if isCollectionCompanion(ownerName) then
+                      if isCurriedCollectionFactory(method) then
+                        if #i.eq(lenL(innerArgs), 1) then
+                          if #i.eq(lenL(args), 1) then
+                            Pair("__some__", Pair("app", Pair(innerFn, append(innerArgs, args))))
+                          else Pair("__none__", Nil)
+                        else Pair("__none__", Nil)
+                      else Pair("__none__", Nil)
+                    else Pair("__none__", Nil)
+                  else Pair("__none__", Nil)
+                }
+              }
+            else Pair("__none__", Nil)
+          }
+        }
+      else Pair("__none__", Nil)
+  }
+def expandCallSugar = (fn, args) =>
+  match expandCollectionCurry(fn, args) {
+    case Pair(tag, expanded) =>
+      if #seq(tag, "__some__") then Pair(tag, expanded)
+      else expandDefaultCall(fn, args)
+  }
 
 -- Main resolve function — transforms one AST node
 def resolveE = (expr) =>
@@ -825,7 +865,7 @@ def resolveE = (expr) =>
           case Pair(fn, args) =>
             -- K62.17: expand omitted positional defaults into a scoped,
             -- single-evaluation lambda chain before ordinary call resolution.
-            match expandDefaultCall(fn, args) {
+            match expandCallSugar(fn, args) {
               case Pair(expandedTag, expanded) =>
                 if #seq(expandedTag, "__some__") then resolveE(expanded)
                 else

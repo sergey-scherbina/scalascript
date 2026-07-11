@@ -1,0 +1,23 @@
+---
+name: v21-native-collection-companions
+---
+
+```scalascript
+val squares = List.tabulate(4)(i => i * i)
+println(squares.mkString(","))
+
+val grid = List.tabulate(2)(i => List.tabulate(3)(j => i * 3 + j + 1))
+grid.foreach(row => println(row.mkString("-")))
+
+val repeated = List.fill(3)("x")
+println(repeated.mkString(","))
+val ranged = List.range(2, 6)
+println(ranged.mkString(","))
+
+val generated = Array.tabulate(3)(i => i + 10)
+println(generated(0))
+println(generated(2))
+
+val filled = Array.fill(2)(7)
+println(filled(1))
+```
