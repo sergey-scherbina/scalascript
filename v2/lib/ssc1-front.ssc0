@@ -1737,10 +1737,17 @@ def parseOneStmt = (toks) =>
         -- Anonymous given (starts with uppercase type) — skip
         pr(Pair("sealed", ""), skipToStmt(ts1))
     else if #seq(v, "effect") then
-      -- Skip "effect E: { defs }" effect-type declaration (no runtime representation)
-      let ts1 = skipToBrace(advance(toks)) in
-      let ts2 = if kindIs("{", ts1) then skipBraceBlock(ts1) else ts1 in
-      pr(Pair("sealed", ""), ts2)
+      let ts1 = advance(toks) in
+      if kindIs("{", ts1) then
+        -- `effect { body }` is the reactive global call with a thunk argument.
+        -- `effect` is also a declaration keyword, so this call form must be
+        -- separated before the declaration-only erasure below.
+        parseExprOrAssign(toks)
+      else
+        -- Skip "effect E: { defs }" effect-type declaration (no runtime representation)
+        let ts2 = skipToBrace(ts1) in
+        let ts3 = if kindIs("{", ts2) then skipBraceBlock(ts2) else ts2 in
+        pr(Pair("sealed", ""), ts3)
     else if #seq(v, "object") then
       -- KC7b: parse object body into ("object", (name, [stmts]))
       let ts1 = advance(toks) in

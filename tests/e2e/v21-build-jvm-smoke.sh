@@ -112,6 +112,15 @@ unzip -p "$sandbox/storage.jar" META-INF/scalascript/artifact.properties \
 grep -F 'ssc.plugin.storage.StorageNativePlugin' \
   "$sandbox/storage-artifact.properties" >/dev/null
 
+PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
+  "$ROOT/examples/signals-demo.ssc" -o "$sandbox/signals.jar"
+signals_expected=$'0\n5\n10\nc=5 d=10\nc=7 d=14\nc=11 d=22\nn=3 sq=9 cube=27\nn=4 sq=16 cube=64'
+[[ $(PATH="$clean_path" java -jar "$sandbox/signals.jar") == "$signals_expected" ]]
+unzip -p "$sandbox/signals.jar" META-INF/scalascript/artifact.properties \
+  >"$sandbox/signals-artifact.properties"
+grep -F 'ssc.plugin.reactive.ReactiveNativePlugin' \
+  "$sandbox/signals-artifact.properties" >/dev/null
+
 deps=$(jdeps --multi-release base --ignore-missing-deps -verbose:class "$sandbox/app-a.jar")
 if printf '%s\n' "$deps" | grep -E \
     'scala[.]meta|dotty[.]tools|javax[.]tools|ssc[.]bridge|scalascript[.](ast|interpreter)' >/dev/null; then
