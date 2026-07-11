@@ -2040,12 +2040,17 @@ def parseOneStmt = (toks) =>
           else let re = parseExpr(toks) in pr(mkSExpr(prV(re)), prT(re))
         else let re = parseExpr(toks) in pr(mkSExpr(prV(re)), prT(re))
       else if #seq(v, "extern") then
-        -- K62.8: `extern def foo(...): T` declares a plugin intrinsic — no body,
-        -- resolved at runtime via the plugin registry. Skip the whole signature.
-        -- (advance past `extern` and the following `def` kw, then skip to next stmt.)
+        -- K62.8: extern defs are signatures; extern classes additionally own a
+        -- layout/braced abstract-member body. Consume that body atomically so
+        -- its `val`/`def` members cannot escape as top-level parser sentinels.
         let ts1 = advance(toks) in
-        let ts2 = if kindIs("kw", ts1) then advance(ts1) else ts1 in
-        pr(Pair("sealed", ""), skipToStmt(ts2))
+        if kwIs("class", ts1) then
+          let ts2 = skipToBrace(advance(ts1)) in
+          let ts3 = if kindIs("{", ts2) then skipBraceBlock(ts2) else skipToStmt(ts2) in
+          pr(Pair("sealed", ""), ts3)
+        else
+          let ts2 = if kindIs("kw", ts1) then advance(ts1) else ts1 in
+          pr(Pair("sealed", ""), skipToStmt(ts2))
       else if #seq(v, "opaque") then
         -- K62.8: `opaque type X = Y` — erased alias, skip to next stmt.
         pr(Pair("sealed", ""), skipToStmt(advance(toks)))
@@ -2353,6 +2358,7 @@ def layout = (toks) =>
               if #seq(k, "kw") then
                 (if #seq(v, "trait") then true
                  else if #seq(v, "object") then true
+                 else if #seq(v, "class") then true
                  else if #seq(v, "effect") then true
                  else declHead)
               else declHead in
