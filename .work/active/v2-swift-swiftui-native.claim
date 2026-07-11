@@ -1,6 +1,6 @@
 feature/v2-swift-swiftui-native 2026-07-10T17:41:11Z
 agent: codex
-heartbeat: 2026-07-11T04:53:58Z
+heartbeat: 2026-07-11T05:17:51Z
 status: in-progress
-done-so-far: Swift AppCore core gate closed through 0f364615d; structural terms, exact Decimal/BigInt, mutual TCO, checked Money/effects, and 8/8 real SwiftPM tests green
-next: implement emit-swift/run-swift and v2-default Apple target CLI/package routing without v1 fallback
+done-so-far: Swift AppCore and honest CLI routes landed through bb08306a0; backend 10/10, CLI/registry 12/12, assembled e2e and real Money/effects green
+next: Rozum-review and freeze the portable NativeUi ABI plus SwiftUI identity/lifecycle spec before UI code
