@@ -56,6 +56,9 @@ read-only SwiftUI store/renderer review in Rozum.
   rejected, and every `NativeUiEvent` kind must validate its target/payload
   before mutation so increment-on-non-Int and malformed set/input/toggle cannot
   silently no-op or surface an unsourced runtime failure.
+  Fifth review narrowed the remaining event shape to field 3: metadata must be
+  a portable Map (as every constructor emits), and the target must be the full
+  six-field `NativeUiSignal`, not merely a matching tag/kind string.
 
 ## v2-swiftui-shipped-inventory-semantic-loss — accepted tags/styles render different semantics
 
@@ -78,6 +81,10 @@ read-only SwiftUI store/renderer review in Rozum.
   `text-decoration`, and border shorthands must map or diagnose invalid values.
   Until a route-signal seam exists, hash/relative href is sourced Unsupported;
   treating `#/path` as a generic `Link` violates the frozen route contract.
+  Fifth review found the remaining recognized-value holes: parse the shipped
+  `box-shadow` grammar exactly (or source Unsupported) rather than applying one
+  hard-coded shadow to every value, and require the exact accepted border
+  shorthand instead of accepting trailing junk.
 
 ## v2-swiftui-owner-hint-closure-clone-leak — node identity mutates ABI and retains refresh tombstones
 
