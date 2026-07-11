@@ -26,8 +26,9 @@ TI-8.2d2 from the real `target/v21-runtime-taxonomy-current.tsv` report at
 
 ## v21-standard-markdown-abi-packaging — slim launcher omits structural Markdown ABI class
 
-**Status:** open (2026-07-11); found by codex while verifying the self-hosted
-Markdown frontend cutover.
+**Status:** fixed (2026-07-11, `36d5ef3b6`); found by codex while verifying the
+self-hosted Markdown frontend cutover, waiting for Sergiy confirmation before
+`done`.
 
 - **Real-harness repro:** after `scripts/sbtc "installBin"`, run
   `bin/ssc-standard run --native tests/fixtures/v21-native/sql-provider.ssc`.
@@ -40,9 +41,9 @@ Markdown frontend cutover.
 - **Root cause:** `build.sbt` builds the slim CLI with an explicit class-prefix
   allowlist. The new top-level `NativeSourceMarkdown` product was not added to
   that list, so only the full `ssc.jar` contained it.
-- **Fix plan:** add the class to the standard allowlist and keep the assembled
-  `v21-native-plugin-boundary-smoke.sh` plus Markdown frontend smoke as the
-  faithful regression.
+- **Fix:** the class is now in the standard allowlist. The assembled
+  `v21-native-plugin-boundary-smoke.sh` and Markdown frontend smoke are the
+  faithful regressions; both the full and slim launchers pass.
 - **Done-when:** both `bin/ssc-standard` and `bin/ssc` pass native Markdown/SQL,
   the slim JAR contains the ABI class, and the landed fix SHA is recorded here.
   Keep `fixed` until Sergiy confirms the assembled distribution.

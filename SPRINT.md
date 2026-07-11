@@ -387,19 +387,25 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
       before provider installation, VM/ASM SQL matches, deterministic
       `build-jvm` remains green, unit tests pass 5/5, affected conformance 9/9,
       and strict standard class-load sees none of the retired host parsers.
-- [ ] **v21-shc-markdown-profile** — complete the self-hosted ScalaScript
+- [x] **v21-shc-markdown-profile — DONE 2026-07-11 (`54e26493c`, structural cutover `36d5ef3b6`):** complete the self-hosted ScalaScript
       Markdown Profile for headings/scopes, pure-link imports, prose, fences,
       lists, images, tables, metadata directives, and interpolation source;
       remove CommonMark/Flexmark from the standard path while preserving them
       only for compatibility/reference tests. Run content/import/native corpus
-      gates without a host Markdown parser.
-- [ ] **v21-shc-standard-markdown-abi-packaging-bug** — add the new
+      gates without a host Markdown parser. Result: the pure scanner covers all
+      named profile constructs on native VM/direct ASM; every root crosses the
+      frozen ABI as a validated `MarkdownDocument`, malformed fences fail with
+      source position, and standard JAR/class-load scans contain no
+      CommonMark/Flexmark.
+- [x] **v21-shc-standard-markdown-abi-packaging-bug — FIXED 2026-07-11 (`36d5ef3b6`):** add the new
       `NativeSourceMarkdown` structural product to the explicit slim CLI class
       allowlist. Real assembled repro: after `scripts/sbtc "installBin"`,
       `bin/ssc-standard run --native tests/fixtures/v21-native/sql-provider.ssc`
       throws `NoClassDefFoundError`, while full `bin/ssc` works. Done when both
       Markdown frontend and native plugin-boundary smokes pass from the staged
-      distribution and `BUGS.md` records the landed SHA.
+      distribution and `BUGS.md` records the landed SHA. Result: both smokes
+      pass, `bin/ssc-standard` runs native SQL/Markdown, and the slim JAR
+      contains `NativeSourceMarkdown.class`.
 - [ ] **v21-shc-plugin-backend-isolation** — after the live TI-7 slim-layout
       owner lands, rebase and isolate ASM plus every remaining removable
       dependency behind the backend/plugin that declares it. Keep JDK and Scala

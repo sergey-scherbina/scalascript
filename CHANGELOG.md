@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — standard Markdown parsing is self-hosted and structural
+
+The pure ScalaScript Markdown Profile now covers headings/scopes, pure-link
+imports, prose/interpolation source, fences, lists, images, tables, and metadata
+directives on native VM and direct ASM. Every standard root crosses the frozen
+frontend ABI as a validated `MarkdownDocument`; malformed fences fail before
+plugins load, the slim launcher carries the complete ABI, and CommonMark/
+Flexmark are absent from standard JARs and runtime class-load. Landed
+`54e26493c` and `36d5ef3b6`.
+
 ## 2026-07-11 — runtime readiness failures have a fail-closed taxonomy
 
 All 60 standard VM/direct-ASM `both-fail` rows now have a reviewed category,
