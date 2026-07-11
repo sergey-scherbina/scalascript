@@ -76,6 +76,12 @@ PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
 dataset_expected=$'6,7,4,5,4,5\n1,2\n3,1,2,2,4\n3,2\n(3, a),(1, b)\n(3, 0),(1, 1),(2, 2),(2, 3)\nPair(1, 3-1),Pair(0, 2-2)\n(1, 4),(0, 4)\n1,2,2,3\ncount=4 sum=8 avg=2\nmin=1 max=3\ntop=3,2 ordered=1,2\nreduce=8 fold=18 first=Some(3)\ntwos=2\n(List(2, 2), List(3, 1))\n[3,1,2,2]\nMap(3 -> c, 1 -> a, 2 -> z)\n3,1,2\nparallel=333383335000 count=10000'
 [[ $(PATH="$clean_path" java -jar "$sandbox/dataset.jar") == "$dataset_expected" ]]
 
+cp "$ROOT/examples/generators.ssc" "$sandbox/other/generators.ssc"
+PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
+  "$sandbox/other/generators.ssc" -o "$sandbox/generator.jar"
+generator_expected=$'List(1, 2, 3)\nSome(10)\nSome(20)\nNone\na\nb\nc\nList(2, 4, 6)\nList(0, 1, 1, 2, 3, 5, 8, 13)\nList(30, 40)\nList(1, 10, 2, 20, 3, 30)\nList((1, a), (2, b))\nList((hello, 0), (world, 1), (foo, 2))'
+[[ $(PATH="$clean_path" java -jar "$sandbox/generator.jar") == "$generator_expected" ]]
+
 jar_cmd=$(command -v jar)
 javap_cmd=$(command -v javap)
 jdeps_cmd=$(command -v jdeps)
@@ -90,6 +96,8 @@ LC_ALL=C sort -c "$sandbox/entries"
   "$sandbox/yaml.jar" >"$sandbox/yaml.jdeps"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps -verbose:class \
   "$sandbox/dataset.jar" >"$sandbox/dataset.jdeps"
+"$jdeps_cmd" --multi-release base --ignore-missing-deps -verbose:class \
+  "$sandbox/generator.jar" >"$sandbox/generator.jdeps"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
   "$sandbox/a/app.jar" >"$sandbox/app.modules"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
@@ -98,11 +106,14 @@ LC_ALL=C sort -c "$sandbox/entries"
   "$sandbox/yaml.jar" >"$sandbox/yaml.modules"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
   "$sandbox/dataset.jar" >"$sandbox/dataset.modules"
+"$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
+  "$sandbox/generator.jar" >"$sandbox/generator.modules"
 
 forbidden='scala[./](meta|tools)|dotty[./]tools|scala3-compiler|compiler-driver|javax[./]tools|java[.]compiler|jdk[.]compiler|ssc[./]bridge|scalascript[./](ast|frontend|interpreter)'
 if grep -Ei "$forbidden" "$sandbox/entries" "$sandbox/entry.javap" \
     "$sandbox/app.jdeps" "$sandbox/sql.jdeps" "$sandbox/yaml.jdeps" "$sandbox/dataset.jdeps" \
-    "$sandbox/app.modules" "$sandbox/sql.modules" "$sandbox/yaml.modules" "$sandbox/dataset.modules" >/dev/null; then
+    "$sandbox/generator.jdeps" "$sandbox/app.modules" "$sandbox/sql.modules" \
+    "$sandbox/yaml.modules" "$sandbox/dataset.modules" "$sandbox/generator.modules" >/dev/null; then
   echo 'v21-build-jvm-release-gate: forbidden standard-tier entry/reference/module' >&2
   exit 1
 fi
@@ -124,6 +135,7 @@ app_modules=$(tr -d '\r\n' <"$sandbox/app.modules")
 sql_modules=$(tr -d '\r\n' <"$sandbox/sql.modules")
 yaml_modules=$(tr -d '\r\n' <"$sandbox/yaml.modules")
 dataset_modules=$(tr -d '\r\n' <"$sandbox/dataset.modules")
+generator_modules=$(tr -d '\r\n' <"$sandbox/generator.modules")
 report_tmp="$sandbox/release.tsv"
 {
   printf 'metric\tvalue\n'
@@ -135,6 +147,7 @@ report_tmp="$sandbox/release.tsv"
   printf 'sql.modules\t%s\n' "$sql_modules"
   printf 'yaml.modules\t%s\n' "$yaml_modules"
   printf 'dataset.modules\t%s\n' "$dataset_modules"
+  printf 'generator.modules\t%s\n' "$generator_modules"
   printf 'compiler.commands.hidden\ttrue\n'
   printf 'forbidden.references\t0\n'
   printf 'hello.output\tHello, World!\n'
@@ -142,6 +155,7 @@ report_tmp="$sandbox/release.tsv"
   printf 'sql.output\t1/7/Ada/true\n'
   printf 'yaml.output\tType/Host/Port/Debug/Tags/Round-trip/App\n'
   printf 'dataset.output\tlocal/parallel/exact\n'
+  printf 'generator.output\tpull/combinators/cancellation/exact\n'
 } >"$report_tmp"
 
 if [[ -n $REPORT ]]; then

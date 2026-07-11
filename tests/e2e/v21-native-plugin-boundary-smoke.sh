@@ -23,7 +23,8 @@ reactive=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-reactive-plugin
 yaml=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-yaml-plugin_*.jar' -print -quit)
 content=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-content-plugin_*.jar' -print -quit)
 dataset=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-dataset-plugin_*.jar' -print -quit)
-for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$http_engine" "$sql" "$ui" "$state" "$effects" "$storage" "$reactive" "$yaml" "$content" "$dataset"; do
+generator=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-generator-plugin_*.jar' -print -quit)
+for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$http_engine" "$sql" "$ui" "$state" "$effects" "$storage" "$reactive" "$yaml" "$content" "$dataset" "$generator"; do
   [[ -n "$jar_file" && -f "$jar_file" ]] || {
     echo 'v21-native-plugin-boundary-smoke: staged native provider jar missing' >&2
     exit 2
@@ -49,8 +50,9 @@ jar tf "$reactive" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/
 jar tf "$yaml" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 jar tf "$content" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 jar tf "$dataset" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
+jar tf "$generator" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 
-for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$http_engine" "$sql" "$ui" "$state" "$effects" "$storage" "$reactive" "$yaml" "$content" "$dataset"; do
+for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$http_engine" "$sql" "$ui" "$state" "$effects" "$storage" "$reactive" "$yaml" "$content" "$dataset" "$generator"; do
   deps=$(jdeps --multi-release base --ignore-missing-deps -verbose:class -cp "$CP" "$jar_file")
   if printf '%s\n' "$deps" | grep -E \
       'scala\.meta|scalascript\.interpreter|scalascript\.ast|scalascript\.plugin\.api|scalascript\.frontend|ssc\.bridge|dotty\.tools|javax\.tools' >/dev/null; then
@@ -130,6 +132,9 @@ grep -F 'n=4 sq=16 cube=64' "$classlog" >/dev/null
 PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc" run --native \
   "$ROOT/tests/fixtures/v21-native/dataset-provider.ssc" >>"$classlog" 2>&1
 grep -F 'parallel=333383335000 count=10000' "$classlog" >/dev/null
+PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc" run --native \
+  "$ROOT/examples/generators.ssc" >>"$classlog" 2>&1
+grep -F 'List((hello, 0), (world, 1), (foo, 2))' "$classlog" >/dev/null
 PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc" run --native \
   "$ROOT/examples/yaml-parse.ssc" >"$yaml_classlog" 2>&1
 grep -F 'App: MyApp' "$yaml_classlog" >/dev/null
