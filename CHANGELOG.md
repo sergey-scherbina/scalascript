@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — native function and constructor defaults preserve evaluation
+
+The self-hosted frontend now expands omitted positional defaults through scoped,
+single-evaluation lambdas for functions, case classes, and enum cases. The full
+default-parameter example runs on VM/direct ASM, fixed-arity failures remain
+honest, standard parity reaches 12 identical / 58 both-fail, and blockers shrink
+from 47 to 46. Landed `afb11b082`.
+
 ## 2026-07-11 — self-hosted core reaches a reproducible stage-2 release gate
 
 The permanent Scala 3 seed now proves single- and multi-file ssc0 compiler
