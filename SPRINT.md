@@ -584,7 +584,10 @@ there before changing this plan.
                   closure after authenticating only its `(scope,id,kind)`.
                   Forge a valid live wrapper with a marker write closure and
                   prove the marker is inert while the current cell is safely
-                  updated or the event is source-rejected.
+                  updated or the event is source-rejected. Resolve toggle/
+                  increment reads through that same Host cell's `dynamicRead`,
+                  so a pristine seed observes its current source before the
+                  event write makes it dirty and releases the dependency.
             - [ ] **persisted/online ownership** — UserDefaults-backed persisted
                   signals and one refcounted NWPathMonitor owned by first/last
                   observable tokens; callbacks hop to MainActor and root/scope

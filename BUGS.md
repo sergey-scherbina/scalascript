@@ -1107,7 +1107,9 @@ room.
   zero mutation, no process trap, and exact source diagnostics. Validation and
   mutation must bind to the same current Host cell: a forged otherwise-valid
   wrapper with a marker write closure cannot execute that closure or resurrect
-  a disposed tombstone. This is outside
+  a disposed tombstone. Authenticated reads also use the current Host cell's
+  `dynamicRead` (not a forged closure or stale `current` default), preserving
+  pristine seed-source semantics before the event makes the seed dirty. This is outside
   the already approved async fetch/action slice; keep `fixed` until the Rozum
   reporter confirms it.
 
