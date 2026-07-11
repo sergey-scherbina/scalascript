@@ -52,6 +52,27 @@ release gate after the content-provider main rebase.
   VM/ASM regression around the existing HTTP fixture, and rerun the exhaustive
   gate before retiring any effect taxonomy row.
 
+## v21-content-bind-copy-lane-divergence — structural copy is not portable
+
+**Status:** open (2026-07-11); found by codex while running the required
+`content-tables` INT/JS/JVM conformance after moving `contentBind` to pure
+ScalaScript.
+
+- **Real-harness repro:** after `scripts/sbtc "installBin"`, run
+  `tests/conformance/run.sh --only 'content-tables' --no-memo`. Native VM/ASM
+  and JS bind the table, but INT exits at `Strong.copy` because the portable
+  source's explicit `(field, value)` structural-copy arguments are interpreted
+  as two positional case-class fields; JVM source compilation rejects `copy`
+  on the statically widened `ContentInline`/`ContentBlock` scrutinee.
+- **Expected:** one pure `.ssc` binding definition must rebuild the same public
+  tags on INT/JS/JVM/native VM/direct ASM/build-jvm; no backend-specific source,
+  provider identity fallback, or duplicated Scala binding algorithm.
+- **Plan/done-when:** bind each match arm to its concrete case, use ordinary
+  positional case-class `copy`, and make the permanent v2 seed's generic
+  record-copy primitive accept positional overrides as well as its existing
+  explicit-name form. Add a focused seed regression, then require exact
+  `content-tables` conformance plus the native structural binding smoke.
+
 ## v21-native-explicit-effect-handler-erasure — declarations and handlers disappear
 
 **Status:** open (2026-07-11); found by codex while reducing the reviewed

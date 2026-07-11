@@ -2634,6 +2634,14 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               paths in the Scala provider. Cover nested/missing
                               paths and every supported block shape on VM/ASM/
                               build-jvm; do not install an identity fallback.
+                              - [ ] **TI-8.2d3f1 portable record-copy parity:**
+                                    fix tracked
+                                    `v21-content-bind-copy-lane-divergence` by
+                                    using concrete-arm positional copies in the
+                                    pure module and teaching the permanent seed
+                                    the same positional override semantics;
+                                    prove INT/JS/JVM/native VM/ASM parity before
+                                    closing the binding slice.
                   - [x] **TI-8.2d4 example/config blockers:** DONE 2026-07-11
                         (`d4c953b9c`, taxonomy `39cfe268b`). Repair stale imports,
                         fixture setup, and deterministic data/config assumptions
