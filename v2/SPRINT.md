@@ -1568,3 +1568,29 @@ corpus than v2/conformance 406/0 (curated) suggests — this is a multi-session 
       (List + ArrayBuffer). Verified reduce/reduceLeft/reduceRight (incl. _ ++ _ list-concat, and
       the K62.29 multi-placeholder _ + _); sum/foldLeft/max unchanged; conformance 406/0, bridge
       unchanged. (v2Core recompiled.)
+
+## Native-front correctness — remaining-work plan (2026-07-11, opus; after 13 fixes K62.21..31)
+
+Audit of the ~22 still-failing native-parity tests, categorized by ROOT blocker. Tractable,
+non-colliding SOLO native slices are now essentially EXHAUSTED — the rest needs the v2.1 lane or
+the plugin lane.
+
+### A. Extension / typeclass-method dispatch cluster (~15 tests) — v2.1 track's ACTIVE lane, COORDINATE
+Root: an extension/typeclass method (`.fmap`/`.bimap`/`.combine`/`.copy`) defined in a
+`given T with extension … def m` block is NOT dispatched by the native front — the call lowers to
+`__method__("m", recv)` → runtime `Stub("Type.m")`. Needs given-instance resolution BY RECEIVER
+TYPE + extension-method dispatch (ssc1-front/lower own extensionMethodsCell already; dispatch is
+the gap). Blocks: std-functor-applicative-monad, std-foldable-traversable, std-selective,
+std-bifunctor, std-semigroup-monoid, std-index, std-monaderror, tagless-multi-file/program/
+resolution, typeclass-extension, optic-polish, lenses, prisms, traversal, optics-index-at.
+  → Post in rozum before touching the extension paths (v2.1 owns them).
+
+### B. Plugin / std-global lane (unbound global or plugin Op, not native lowering)
+signals (unbound `Signal`), optional (unbound `Focus`), dataset-*/sql-*/mcp-types (plugin Op),
+json-value (jsonRead + i->str), litdoc (markup API arity), actors-*/cluster-*/distributed-*.
+
+### C. Low test-value native completeness (correctness wins, ~0 test greening)
+3-arg mkString(pre,sep,post) → route to __method__ (dataset-shape only); other edge-cases.
+
+CONCLUSION: 13 native fixes landed this session (K62.21..31, conformance 406/0, ~10 tests green).
+Further native TEST-greening requires the v2.1 extension-dispatch lane (coordinate) or plugin work.
