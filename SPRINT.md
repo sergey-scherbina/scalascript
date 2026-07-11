@@ -1061,14 +1061,17 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                         example-contract / 6 tools-backend. The initial blocker
                         ceiling is 48; smoke PASS and current conformance is
                         10/10.
-                  - [ ] **TI-8.2d1a content ownership correction:** the initial
+                  - [x] **TI-8.2d1a content ownership correction — DONE
+                        2026-07-11 (`6b736d078`):** the initial
                         review misassigned three content extern rows to the
                         module linker. Reclassify them as core-free
                         `standard-provider` blockers, tighten counts to 20
                         language-runtime / 25 standard-provider without changing
                         the 48 blocker total, update the spec baseline and
                         `BUGS.md`, then rerun smoke, real taxonomy, and fresh
-                        `v2-*` conformance.
+                        `v2-*` conformance. Result: counts are 20/25 with the
+                        same 48 blockers; smoke, real report, and conformance
+                        10/10 pass.
                   - [ ] **TI-8.2d2 language/runtime blockers:** group the rows
                         classified as portable language/runtime defects by root
                         cause (arity/default arguments, match/effect lowering,

@@ -2,8 +2,9 @@
 
 ## v21-runtime-taxonomy-content-owner — content extern gaps assigned to module linker
 
-**Status:** open (2026-07-11); found by codex while starting TI-8.2d2 from the
-real `target/v21-runtime-taxonomy-current.tsv` report at `df84e8acd`.
+**Status:** fixed (2026-07-11, `6b736d078`); found by codex while starting
+TI-8.2d2 from the real `target/v21-runtime-taxonomy-current.tsv` report at
+`df84e8acd`, waiting for Sergiy confirmation before `done`.
 
 - **Real-harness repro:** run `scripts/v21-runtime-taxonomy`, then inspect
   `content-linked-namespaces.ssc`, `content-to-markdown.ssc`, and `content.ssc`.
@@ -15,6 +16,9 @@ real `target/v21-runtime-taxonomy-current.tsv` report at `df84e8acd`.
 - **Root cause:** the initial 60-row review grouped unbound imported names by
   their visible error without checking whether the imported declaration was
   pure ScalaScript or an extern/provider contract.
+- **Fix/verified:** all three rows now belong to `standard-provider/content`;
+  exact ceilings are 20 language-runtime / 25 standard-provider / 48 blockers.
+  Synthetic smoke, real taxonomy, and fresh conformance 10/10 pass.
 - **Done-when:** move the three rows to `standard-provider`, tighten exact
   category limits from 23/22 to 20 language-runtime / 25 standard-provider,
   update the recorded baseline, and rerun taxonomy smoke, the real report, and
