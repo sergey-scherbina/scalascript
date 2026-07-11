@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# Consolidated ScalaScript 2.1 self-hosted-core release gate. Default mode is
+# exhaustive; --quick skips only the 195-example frontend/parity taxonomy.
+set -euo pipefail
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)
+quick=0
+skip_install=0
+report_dir=${V21_RELEASE_REPORT_DIR:-"$ROOT/target/v21-self-hosted-core-release"}
+
+usage() {
+  cat <<'EOF'
+usage: scripts/v21-self-hosted-core-release-gate [options]
+  --quick          skip the full examples frontend/parity/taxonomy sweep
+  --skip-install   use the already staged bin/ distribution
+  --report-dir DIR write component reports under DIR
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --quick) quick=1; shift ;;
+    --skip-install) skip_install=1; shift ;;
+    --report-dir) report_dir=$2; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "v21-self-hosted-core-release-gate: unknown option: $1" >&2; usage >&2; exit 2 ;;
+  esac
+done
+
+mkdir -p "$report_dir"
+if [[ $skip_install -eq 0 ]]; then
+  "$ROOT/scripts/sbtc" 'installBin'
+fi
+[[ -x $ROOT/bin/ssc-standard ]] || {
+  echo 'v21-self-hosted-core-release-gate: staged standard launcher missing' >&2
+  exit 2
+}
+
+"$ROOT/scripts/v21-stage2-bootstrap-gate" \
+  --report "$report_dir/stage2.tsv"
+"$ROOT/scripts/v21-core-dependency-gate" --strict-parsers \
+  --report "$report_dir/dependencies.tsv"
+"$ROOT/tests/e2e/v21-core-dependency-gate-smoke.sh"
+
+"$ROOT/tests/e2e/v21-self-hosted-json-core-smoke.sh"
+"$ROOT/tests/e2e/v21-self-hosted-json-cutover-smoke.sh"
+"$ROOT/tests/e2e/v21-self-hosted-yaml-core-smoke.sh"
+"$ROOT/tests/e2e/v21-self-hosted-markdown-core-smoke.sh"
+"$ROOT/tests/e2e/v21-self-hosted-markdown-frontend-smoke.sh"
+"$ROOT/tests/e2e/v21-self-hosted-parser-fuzz-smoke.sh"
+
+"$ROOT/tests/e2e/v21-plugin-backend-isolation-smoke.sh"
+"$ROOT/tests/e2e/v21-native-entry-smoke.sh"
+"$ROOT/tests/e2e/v21-native-plugin-boundary-smoke.sh"
+"$ROOT/tests/e2e/v21-slim-distribution-gate.sh" \
+  --report "$report_dir/slim.tsv"
+"$ROOT/tests/e2e/v21-build-jvm-release-gate.sh" \
+  --report "$report_dir/build-jvm.tsv"
+
+if [[ $quick -eq 0 ]]; then
+  "$ROOT/scripts/native-front-corpus" \
+    --report "$report_dir/native-front.tsv"
+  SSC="$ROOT/bin/ssc-standard" "$ROOT/scripts/bc-parity-sweep" --strict \
+    --report "$report_dir/bytecode-parity.tsv"
+  "$ROOT/scripts/v21-sentinel-taxonomy" \
+    --native-report "$report_dir/native-front.tsv" \
+    --parity-report "$report_dir/bytecode-parity.tsv" \
+    --report "$report_dir/sentinel-taxonomy.tsv"
+  if awk -F '\t' 'NR > 1 && $2 == "standard-gap" { bad=1 } END { exit bad }' \
+      "$report_dir/sentinel-taxonomy.tsv"; then
+    :
+  else
+    echo 'v21-self-hosted-core-release-gate: standard parser gap remains in corpus' >&2
+    exit 1
+  fi
+fi
+
+"$ROOT/tests/conformance/run.sh" --only 'v2-*' --no-memo
+
+{
+  printf 'metric\tvalue\n'
+  printf 'stage2.fixpoint\ttrue\n'
+  printf 'compiler.image.source-exact\ttrue\n'
+  printf 'dependency.strict-parser-violations\t0\n'
+  printf 'external-parser-jars.standard\t0\n'
+  printf 'runtime.classload.boundaries\tpass\n'
+  printf 'parser.fuzz\tpass\n'
+  printf 'slim.tools-present\tfalse\n'
+  printf 'build-jvm.reproducible\ttrue\n'
+  printf 'corpus.full\t%s\n' "$([[ $quick -eq 0 ]] && echo pass || echo skipped)"
+  printf 'release.ready\ttrue\n'
+} | tee "$report_dir/summary.tsv"
+
+echo 'PASS v21-self-hosted-core-release-gate'

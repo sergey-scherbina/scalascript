@@ -1,0 +1,96 @@
+---
+name: v21-self-hosted-parser-fuzz
+version: 2.1.0
+backends: [v2]
+---
+
+# Bounded self-hosted parser mutation corpus
+
+[jsonCoreParseStrict](std/json-core.ssc) [yamlParse](std/yaml-core.ssc) [markdownParse](std/markdown-core.ssc)
+
+```scalascript
+def jsonAccepts(values: List[String]): Boolean = values match
+  case Nil => true
+  case Cons(head, tail) => jsonCoreParseStrict(head) match
+    case JsonCoreOk(_, _) => jsonAccepts(tail)
+    case _ => false
+
+def jsonRejects(values: List[String]): Boolean = values match
+  case Nil => true
+  case Cons(head, tail) => jsonCoreParseStrict(head) match
+    case JsonCoreErr(_, _) => jsonRejects(tail)
+    case _ => false
+
+def jsonRejectsTruncations(source: String, length: Int): Boolean =
+  if length >= source.length then true
+  else jsonCoreParseStrict(source.substring(0, length)) match
+    case JsonCoreErr(_, _) => jsonRejectsTruncations(source, length + 1)
+    case _ => false
+
+def yamlAccepts(values: List[String]): Boolean = values match
+  case Nil => true
+  case Cons(head, tail) => yamlParse(head) match
+    case YamlOk(_, _) => yamlAccepts(tail)
+    case _ => false
+
+def yamlRejects(values: List[String]): Boolean = values match
+  case Nil => true
+  case Cons(head, tail) => yamlParse(head) match
+    case YamlErr(_, _, _, _) => yamlRejects(tail)
+    case _ => false
+
+def markdownAccepts(values: List[String]): Boolean = values match
+  case Nil => true
+  case Cons(head, tail) => markdownParse(head) match
+    case MarkdownDocument(_) => markdownAccepts(tail)
+    case _ => false
+
+def markdownRejects(values: List[String]): Boolean = values match
+  case Nil => true
+  case Cons(head, tail) => markdownParse(head) match
+    case MarkdownError(_, _, _, _) => markdownRejects(tail)
+    case _ => false
+
+val jsonValid = List(
+  "null", "true", "false", "0", "-0", "1.25e+3", "\"text\"",
+  "[]", "{}", "[1,true,null,\"x\"]", "{\"a\":1,\"b\":[2,3]}",
+  "{\"nested\":{\"ok\":true}}")
+val jsonInvalid = List(
+  "", "nul", "True", "+1", "01", "1.", "1e", "\"open", "[", "[1,]",
+  "{", "{\"a\"}", "{\"a\":}", "{\"a\":1,}", "null trailing")
+
+val yamlValid = List(
+  "name: demo", "enabled: true", "items:\n  - one\n  - two",
+  "nested:\n  value: 3", "flow: [1, 2, false]", "map: {a: 1, b: two}",
+  "literal: |\n  first\n  second", "folded: >\n  first\n  second",
+  "quoted: \"a:b\"", "nothing: null")
+val yamlInvalid = List(
+  "a: 1\na: 2", "a: &anchor value", "a: *anchor", "a: !tag value",
+  "a: 1\n---\nb: 2", "a: {b: 1,}", "%YAML 1.2\na: 1", "<<: {a: 1}")
+
+val interpolation = "$" + "{items.map(x => x + \"}\").mkString(\",\")}" 
+val markdownValid = List(
+  "# Title", "## Scope {#scope route=/scope}", "[One](./one.ssc)",
+  "[One](./one.ssc) [Two](./two.ssc)", "prose", "prose " + interpolation,
+  "- one\n- two", "3. three\n4. four", "![alt](image.png \"title\")",
+  "| A | B |\n| :--- | ---: |\n| 1 | 2 |",
+  "<!-- @meta component=Card -->", "```scalascript\nprintln(1)\n```")
+val markdownInvalid = List(
+  "```", "```scala\nval x = 1", "before\n```json\n{\"x\":1}",
+  "# title\n\n```scalascript\nprintln(1)")
+
+val jsonValidOk = jsonAccepts(jsonValid)
+val jsonInvalidOk = jsonRejects(jsonInvalid)
+val jsonTruncateOk = jsonRejectsTruncations("{\"a\":[1,true,null]}", 0)
+val yamlValidOk = yamlAccepts(yamlValid)
+val yamlInvalidOk = yamlRejects(yamlInvalid)
+val markdownValidOk = markdownAccepts(markdownValid)
+val markdownInvalidOk = markdownRejects(markdownInvalid)
+val ok = jsonValidOk && jsonInvalidOk && jsonTruncateOk && yamlValidOk &&
+  yamlInvalidOk && markdownValidOk && markdownInvalidOk
+
+println("json-valid=" + jsonValidOk + " json-invalid=" + jsonInvalidOk + " json-truncate=" + jsonTruncateOk)
+println("yaml-valid=" + yamlValidOk + " yaml-invalid=" + yamlInvalidOk)
+println("markdown-valid=" + markdownValidOk + " markdown-invalid=" + markdownInvalidOk)
+println(if ok then "parser-fuzz-ok" else "parser-fuzz-failed")
+```

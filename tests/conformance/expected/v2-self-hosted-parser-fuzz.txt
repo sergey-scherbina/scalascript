@@ -1,0 +1,4 @@
+json-valid=true json-invalid=true json-truncate=true
+yaml-valid=true yaml-invalid=true
+markdown-valid=true markdown-invalid=true
+parser-fuzz-ok

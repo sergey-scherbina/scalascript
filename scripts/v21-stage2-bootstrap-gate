@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+# Prove the permanent Scala 3 seed can rebuild the in-language ssc0 compiler to
+# a stable stage-2 fixpoint and that the installed native frontend image is an
+# exact deterministic projection of its checked-in tower/std sources.
+set -euo pipefail
+export LC_ALL=C
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)
+JARS=${SSC_STANDARD_JARS:-"$ROOT/bin/lib/standard/jars"}
+IMAGE=${SSC_NATIVE_FRONT_IMAGE:-"$ROOT/bin/lib/standard/native-front"}
+report=${V21_STAGE2_REPORT:-"${TMPDIR:-/tmp}/scalascript-v21-stage2-$$.tsv"}
+
+usage() {
+  cat <<'EOF'
+usage: scripts/v21-stage2-bootstrap-gate [--report PATH]
+
+Requires a staged standard distribution (`scripts/sbtc "installBin"`).
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --report) report=$2; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "v21-stage2-bootstrap-gate: unknown option: $1" >&2; usage >&2; exit 2 ;;
+  esac
+done
+
+[[ -d $JARS && -d $IMAGE ]] || {
+  echo 'v21-stage2-bootstrap-gate: staged standard distribution missing' >&2
+  echo 'run scripts/sbtc "installBin" first' >&2
+  exit 2
+}
+
+hash_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/ssc-v21-stage2.XXXXXX")
+trap 'rm -rf "$tmp"' EXIT HUP INT TERM
+mkdir -p "$(dirname -- "$report")"
+
+seed() { java -cp "$JARS/*" ssc.cli "$@"; }
+seed_deep() { java -Xss512m -cp "$JARS/*" ssc.cli "$@"; }
+
+single_source="$ROOT/v2/examples/ssc0c-self.ssc0"
+single1=$(seed compile "$single_source")
+printf '%s' "$single1" >"$tmp/single1.ir"
+single2=$(seed_deep run-ir "$tmp/single1.ir" "$single_source")
+printf '%s' "$single2" >"$tmp/single2.ir"
+single3=$(seed_deep run-ir "$tmp/single2.ir" "$single_source")
+[[ -n $single1 && $single1 == "$single2" && $single2 == "$single3" ]] || {
+  echo 'v21-stage2-bootstrap-gate: single-file compiler image is not a gen1/gen2/gen3 fixpoint' >&2
+  exit 1
+}
+
+multi_source="$ROOT/v2/bin/ssc0c.ssc0"
+multi1=$(seed compile "$multi_source")
+printf '%s' "$multi1" >"$tmp/multi1.ir"
+multi2=$(seed_deep run-ir "$tmp/multi1.ir" "$multi_source")
+printf '%s' "$multi2" >"$tmp/multi2.ir"
+multi3=$(seed_deep run-ir "$tmp/multi2.ir" "$multi_source")
+[[ -n $multi1 && $multi1 == "$multi2" && $multi2 == "$multi3" ]] || {
+  echo 'v21-stage2-bootstrap-gate: multi-file compiler image is not a gen1/gen2/gen3 fixpoint' >&2
+  exit 1
+}
+
+source_manifest="$tmp/source-image.tsv"
+staged_manifest="$tmp/staged-image.tsv"
+: >"$source_manifest"
+
+append_source() {
+  local relative=$1
+  local source=$2
+  printf '%s\t%s\n' "$relative" "$(hash_file "$source")" >>"$source_manifest"
+}
+
+append_source 'tower/bin/ssc1-run.ssc0' "$ROOT/v2/bin/ssc1-run.ssc0"
+append_source 'tower/bin/ssc1-check-run.ssc0' "$ROOT/v2/bin/ssc1-check-run.ssc0"
+append_source 'tower/lib/list.ssc0' "$ROOT/v2/lib/list.ssc0"
+append_source 'tower/lib/mira-md.ssc0' "$ROOT/v2/lib/mira-md.ssc0"
+append_source 'tower/lib/ssc1-front.ssc0' "$ROOT/v2/lib/ssc1-front.ssc0"
+append_source 'tower/lib/ssc1-lower.ssc0' "$ROOT/v2/lib/ssc1-lower.ssc0"
+append_source 'tower/lib/ssc1-check.ssc0' "$ROOT/v2/lib/ssc1-check.ssc0"
+while IFS= read -r source; do
+  relative=${source#"$ROOT/v1/runtime/std"/}
+  append_source "runtime/std/$relative" "$source"
+done < <(find "$ROOT/v1/runtime/std" -type f -name '*.ssc' -print | sort)
+sort -o "$source_manifest" "$source_manifest"
+
+while IFS= read -r staged; do
+  relative=${staged#"$IMAGE"/}
+  printf '%s\t%s\n' "$relative" "$(hash_file "$staged")"
+done < <(find "$IMAGE" -type f -print | sort) >"$staged_manifest"
+
+if ! cmp -s "$source_manifest" "$staged_manifest"; then
+  echo 'v21-stage2-bootstrap-gate: staged native frontend image differs from checked-in sources' >&2
+  diff -u "$source_manifest" "$staged_manifest" >&2 || true
+  exit 1
+fi
+if [[ -d $ROOT/bin/lib/native-front ]] && \
+    ! diff -qr "$ROOT/bin/lib/native-front" "$IMAGE" >/dev/null; then
+  echo 'v21-stage2-bootstrap-gate: full and standard native frontend images differ' >&2
+  exit 1
+fi
+
+single_hash=$(hash_file "$tmp/single1.ir")
+multi_hash=$(hash_file "$tmp/multi1.ir")
+image_hash=$(hash_file "$staged_manifest")
+image_files=$(wc -l <"$staged_manifest" | tr -d ' ')
+
+{
+  printf 'metric\tvalue\n'
+  printf 'stage2.single.fixpoint\ttrue\n'
+  printf 'stage2.single.bytes\t%s\n' "${#single1}"
+  printf 'stage2.single.sha256\t%s\n' "$single_hash"
+  printf 'stage2.multi.fixpoint\ttrue\n'
+  printf 'stage2.multi.bytes\t%s\n' "${#multi1}"
+  printf 'stage2.multi.sha256\t%s\n' "$multi_hash"
+  printf 'compiler.image.files\t%s\n' "$image_files"
+  printf 'compiler.image.sha256\t%s\n' "$image_hash"
+  printf 'compiler.image.source-exact\ttrue\n'
+} | tee "$report"
+
+echo 'PASS v21-stage2-bootstrap-gate'
