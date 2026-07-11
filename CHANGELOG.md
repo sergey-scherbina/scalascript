@@ -14,9 +14,9 @@ current descriptor/action slot/row at launch and completion through the shared
 generation-aware URLSession runner, so replacement and disposal cannot publish
 stale work. Named table gates passed 6/6 and full Swift backend 40/40, including
 macOS execution and iOS 16 strict typecheck; round-3 Rozum review approved with
-no lifecycle leak. Landed `62b6cd81f`; docs `e013509b2`.
+no lifecycle leak. Landed `1ff7304f2`; docs `a3830756e`.
 The final controllable-URLProtocol gate was also made race-free in
-`51dcdba65`; action stress passed 5/5 before another named 6/6 and full 40/40.
+`331db2bcd`; action stress passed 5/5 before another named 6/6 and full 40/40.
 
 ## 2026-07-11 — imported recursive records cross the compatibility bridge in linear space
 
