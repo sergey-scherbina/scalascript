@@ -45,14 +45,19 @@ hf-7 `--v2` fast backend.
   HTML but has no `Set-Cookie`; the cookie jar stays empty and the next
   `GET /api/vault` returns `{"error":"unpaired"}`. The same flow passed on the
   previous JDK transport.
-- **Expected:** `HttpResult.PlainResp(Response(..., setSession=Some(token)))`
-  maps through the fast backend to the shared hardened `busi_device` cookie,
-  preserving Path/HttpOnly/SameSite/Secure policy exactly like other backends.
+- **Expected:** the correct pairing code reaches `req.form`; the resulting
+  response's explicit `busi_device` cookie reaches the wire. Generic cookies,
+  signed sessions, form/multipart fields and auth match the JDK SPI backend.
 - **Impact:** every passwordless pairing/session flow is unusable on the new
   default `--v2` transport despite an apparently successful login response.
-- **Plan/done-when:** reproduce through a real fast socket, repair only the
-  `HttpResult` -> `RawResponse` boundary, run module/assembled/conformance gates,
-  and obtain reporter confirmation from busi Vault plus canonical browser E2E.
+- **Root cause:** `FastServerBackend.toPojo` copied body/query/cookies but left
+  `Request.form`, signed `session`, bearer/basic auth, JWT claims and files at
+  defaults, bypassing the shared `RequestBuilder` used by the JDK backend. The
+  correct code was therefore handled as an invalid form and no cookie response
+  was created; `RawResponse` header serialization was not the fault.
+- **Plan/done-when:** add a raw-input shared-builder path, reproduce through a
+  real fast socket, run module/assembled/conformance gates, and obtain reporter
+  confirmation from busi Vault plus canonical browser E2E.
 
 ## v21-storage-container-print-gates — release fixtures expect obsolete quoted children
 

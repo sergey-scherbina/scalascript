@@ -187,6 +187,15 @@ the SPI.
       selects it with `HttpServerBackends.setBackend("fast")` so `ssc run --v2 <server>` serves
       on the fast engine (framework unchanged). `--native` keeps the native plugin lane;
       `--v1`/default keep the JDK backend unless they `setHttpServerBackend("fast")`.
+- [ ] **hf-6d framework request/session parity** — the fast SPI backend must
+      feed raw method/path/query/headers/body through the same shared
+      `RequestBuilder` semantics as the JDK backend: urlencoded and multipart
+      form fields, generic cookies, signed session, bearer/basic auth and JWT
+      hooks. Handler `Response.headers` and `Response.setSession` must reach the
+      engine unchanged. A real-socket pairing regression posts a form, observes
+      `Set-Cookie`, and authenticates the next request with that cookie. The
+      fast engine remains value-agnostic and does not duplicate application or
+      cookie policy.
 
 ## Non-goals (this spec)
 

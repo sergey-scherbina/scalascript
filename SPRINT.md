@@ -13,13 +13,16 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 busi's first live check after hf-7 reached `POST /pair` with the correct code
 and received HTTP 200, but the fast backend omitted `Set-Cookie`; every protected
-API then returned `{"error":"unpaired"}`. The framework `HttpResult.PlainResp`
-already carries `setSession`, so this is a transport mapping regression.
+API then returned `{"error":"unpaired"}`. Diagnosis showed the response writer
+was sound: the fast request adapter bypassed the shared form/session/auth builder,
+so the correct code never reached the success branch.
 
 - [ ] **fast-http-session-cookie** — add a `FastServerBackend` regression over
-      the real HTTP socket proving a `PlainResp` session produces the shared
-      `SessionCookie.toSetCookie` header and survives the next cookie request;
-      fix response mapping without duplicating cookie policy in the engine.
+      the real HTTP socket proving a urlencoded pairing code reaches
+      `Request.form`, a returned cookie header survives the wire, and the next
+      cookie request authenticates. Extract a raw-input path through the shared
+      `RequestBuilder` so forms, cookies, signed session and auth match JDK
+      semantics; do not duplicate parsing or cookie policy in the engine.
       Rebuild the assembled CLI, rerun the fast backend/module tests and an
       affected conformance slice, then prove busi's paired Vault/restart check
       and canonical Chromium on the published runtime.
