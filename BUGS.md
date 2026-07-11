@@ -42,7 +42,7 @@ work before touching the provider.
 ## http-handler-concurrent-interpreter-entry — accepted durable fact can disappear
 
 **Status:** fixed (2026-07-11); reported by busi's personal-Vault canonical
-browser E2E. Fix commit: `075d9a734`.
+browser E2E. Fix commit: `1f7ea78d7`.
 
 - **Real-harness repro:** boot busi's assembled `scripts/ssc --v2` hub against
   an empty scratch repo, pair `/app`, and advance the eleven Vault simulator
