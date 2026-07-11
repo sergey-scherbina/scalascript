@@ -934,6 +934,20 @@ building generated Swift; snapshot/string tests alone are insufficient.
 
 ## Results
 
+### SwiftUI ordinary event mutation hardening (`12fae35e7`, 2026-07-11)
+
+- Set/input/toggle/increment now authenticate and mutate the same current Host
+  signal cell. Caller-supplied or stale read/write closures are never executed;
+  user writes retain Host rollback, observer publication, and source diagnostics.
+- Toggle/increment read through the authenticated cell's `dynamicRead`, so a
+  pristine seed observes its latest source before the event write makes it dirty.
+  Int64 increment uses checked addition and reports overflow without trapping or
+  mutation; live read-only targets are rejected before dispatch.
+- `nativeui-reviewer` approved the follow-up in Rozum. The executable gate uses
+  Swift 6 strict concurrency with warnings as errors, forged marker closures,
+  seed-source changes, read-only targets, and max-value overflow. Swift backend
+  passed 30/30 and affected `tkv2-*` conformance 12/12.
+
 ### SwiftUI async fetch/action lifecycle (`261dadb6b`, 2026-07-11)
 
 - The main-actor Store now owns URLSession fetch families and action tasks by
