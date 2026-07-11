@@ -891,6 +891,12 @@ there before changing this plan.
                         macOS/iOS 16 typecheck. Re-run full Swift backend,
                         toolkit conformance, and obtain Rozum APPROVE before
                         documentation/publication.
+                        Round-1 implementation review is BLOCKED until terminal
+                        callbacks match the current WKNavigation handle plus
+                        generation, the previous blocker stays installed during
+                        replacement compile, error recovery keys `(html,source)`,
+                        and delayed-network/delegate/naturalWidth/forged-
+                        descriptor/deinit edges execute in the probe.
 - [ ] **v2-swiftui-apple-e2e** — emit one `.ssc` application to both macOS and
       iOS Xcode application projects with correct deployment declarations,
       resources, entry point, product type, shared scheme, and stable filenames.

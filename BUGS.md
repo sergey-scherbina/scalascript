@@ -38,6 +38,17 @@
   Sendable KVO callback. UIKit emits that observation on its main actor; enter
   it explicitly with `MainActor.assumeIsolated` before reading size, checking
   generation/mount identity, and publishing.
+- **Rozum implementation review round 1 (BLOCKED):** retain the exact
+  `WKNavigation` handle with its generation and authenticate every finish/fail
+  callback, so a stopped prior load cannot fail the new source or install its
+  iOS observer. Do not remove the currently installed content rule while a
+  replacement rule compiles; the old live document must stay network-blocked
+  until the latest rule succeeds. Failure recovery keys SwiftUI state by the
+  exact `(html, source)` pair, not HTML alone. Expand executable gates for a
+  lazy network resource during pending replacement, source-only recovery,
+  programmatic cancellation and `_blank`/main handoff authority, data-image
+  `naturalWidth`, forged arity/site/source, and coordinator deinit without an
+  explicit dismantle.
 - **Plan/done-when:** freeze these four rules in
   `specs/v2-swift-swiftui-native.md` before code, obtain a second Rozum design
   APPROVE, then implement and execute loopback-zero-hit, data/inline,
