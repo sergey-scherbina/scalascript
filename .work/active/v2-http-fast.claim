@@ -1,0 +1,11 @@
+feature/v2-http-fast 2026-07-11
+agent: claude (lucky-perch)
+status: in-progress
+scope: NEW super-optimal v2 JVM HTTP/WS plugin (Sergiy-directed). From-scratch, zero-dep:
+  Java 21 virtual-thread-per-connection + NIO ServerSocketChannel + blocking reads +
+  byte-level zero-copy HTTP/1.1 parser (keep-alive/pipelining/chunked) + native WebSocket
+  (RFC 6455, SHA-1 accept via crypto plugin). Registered as a v2 native plugin via the SPI.
+  Replaces the current com.sun.net.httpserver plugin AS DEFAULT when ready. Also: verify +
+  fix v2 VM thread-safety under concurrent handlers (globals/registry/effect-ctx).
+  Spec-first (specs/v2-http-fast.md), phased, each phase benched + tested + conformance.
+next: spec + investigate intrinsic surface/SPI/thread-safety, build phase 1
