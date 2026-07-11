@@ -7,6 +7,11 @@ import ssc.plugin.{NativePlugin, NativePluginContext}
 final class HostNativePlugin extends NativePlugin:
   def id: String = "00-host"
 
+  private def documentLeaves(value: Value): Vector[String] = value match
+    case Value.DataV("NativeDoc", parts) =>
+      parts.toVector.flatMap(documentLeaves)
+    case other => Vector(Prims.display(other))
+
   def install(context: NativePluginContext): Unit =
     val args = context.argv.foldRight[Value](Value.DataV("Nil", Vector.empty)) { (arg, rest) =>
       Value.DataV("Cons", Vector(Value.StrV(arg), rest))
@@ -20,8 +25,8 @@ final class HostNativePlugin extends NativePlugin:
       Value.DataV("NativeDoc", parts.toVector)
     }
     context.register("render") {
-      case Value.DataV("NativeDoc", parts) :: Nil =>
-        Console.out.println(parts.map(Prims.display).mkString("\n"))
+      case (document @ Value.DataV("NativeDoc", _)) :: Nil =>
+        Console.out.println(documentLeaves(document).mkString("\n"))
         Value.UnitV
       case value :: Nil =>
         Console.out.println(Prims.display(value))

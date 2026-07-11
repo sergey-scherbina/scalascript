@@ -34,3 +34,12 @@ final class HostNativePluginTest extends AnyFunSuite:
     NativePluginHost.installProviders(List(new HostNativePlugin))
     assert(captured { call("render", call("doc")) } == "\n")
     assert(captured { call("render", Value.StrV("plain")) } == "plain\n")
+
+  test("nested documents flatten recursively without leaking their runtime tag"):
+    NativePluginHost.installProviders(List(new HostNativePlugin))
+    val nested = call("doc",
+      Value.StrV("alpha"),
+      call("doc", Value.IntV(2), call("doc"), Value.BoolV(true)),
+      call("doc", call("doc", Value.StrV("omega"))))
+    assert(captured { assert(call("render", nested) == Value.UnitV) } ==
+      "alpha\n2\ntrue\nomega\n")

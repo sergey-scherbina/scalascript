@@ -35,6 +35,27 @@ PATH="$clean_path" SSC_NO_CDS=1 java -jar "$sandbox/doc-render.jar" \
   >"$sandbox/artifact.out"
 cmp -s "$sandbox/full-vm.out" "$sandbox/artifact.out"
 
+for mode in vm asm; do
+  content_args=(run)
+  [[ $mode == asm ]] && content_args+=(--bytecode)
+  PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc-standard" \
+    "${content_args[@]}" "$ROOT/examples/content.ssc" \
+    >"$sandbox/content-$mode.out"
+done
+cmp -s "$sandbox/content-vm.out" "$sandbox/content-asm.out"
+if grep -F 'NativeDoc(' "$sandbox/content-vm.out" >/dev/null; then
+  echo 'v21-native-doc-render-smoke: nested document leaked its runtime tag' >&2
+  exit 1
+fi
+grep -Fx '=== Fruits ===' "$sandbox/content-vm.out" >/dev/null
+grep -Fx '=== Numbers ===' "$sandbox/content-vm.out" >/dev/null
+
+PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
+  "$ROOT/examples/content.ssc" -o "$sandbox/content.jar" >/dev/null
+PATH="$clean_path" SSC_NO_CDS=1 java -jar "$sandbox/content.jar" \
+  >"$sandbox/content-artifact.out"
+cmp -s "$sandbox/content-vm.out" "$sandbox/content-artifact.out"
+
 host_jar=$(find "$ROOT/bin/lib/standard/jars" -maxdepth 1 \
   -name 'scalascript-v2-native-host-plugin_*.jar' -print -quit)
 [[ -n $host_jar && -f $host_jar ]]
