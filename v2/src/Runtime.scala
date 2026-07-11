@@ -602,7 +602,12 @@ object Compiler:
   /** Compile a whole program; returns (entry Code, live globals map) for bench use. */
   def compileWithGlobals(p: Program): (Code, collection.mutable.Map[String, Value]) =
     val topDefs = p.defs.iterator.map(d => d.name -> d.body).toMap
-    val globals = collection.mutable.HashMap[String, Value]()
+    // Concurrent-safe: an HTTP/WS server runs handlers on many virtual threads that READ this
+    // map on every uncached Global, and `@`-cell / global.reg globals AUTO-CREATE writes into
+    // it on first access (Runtime:679/1061/1318, Emit.global). A plain mutable.HashMap
+    // corrupts on a concurrent read during a first-touch resize. TrieMap keeps reads lock-free
+    // (perf-neutral for the const-captured hot path) while making concurrent first-touch safe.
+    val globals = scala.collection.concurrent.TrieMap[String, Value]()
     val c = new C(globals, topDefs)
     // pass 1: lambda defs -> closures (recursion resolves via Global at call time)
     for d <- p.defs do d.body match

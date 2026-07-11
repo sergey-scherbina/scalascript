@@ -95,9 +95,13 @@ without your own synchronization" (out of scope for the VM fix).
 
 ## Phases (each: worktree, tests, bench, conformance, push when green)
 
-- [ ] **hf-1 vm-thread-safety** — make `Emit.globalsRef` + the VM-lane `globals` concurrent-
-      safe; concurrency stress test; verify bytecode/VM benches unregressed. Benefits the
-      current server too. FOUNDATION.
+- [x] **hf-1 vm-thread-safety** — DONE. Both globals maps (`Compiler.compileWithGlobals`'s
+      VM-lane map + `Emit.globalsRef` in the ASM/artifact lane) are now
+      `scala.collection.concurrent.TrieMap` — lock-free reads, race-free concurrent
+      first-touch. `GlobalsConcurrencyTest` (32 vthreads × 500 distinct `@`-global
+      first-touches + a hot shared key) fails on the old `mutable.HashMap` (lost updates) and
+      passes on TrieMap. Benches unregressed: float-loop 22.5×, list-fold 1.9×, float-fold
+      1.87× (bytecode vs VM). Benefits the current server too. FOUNDATION.
 - [ ] **hf-2 http-core** — new `v2NativeHttpFastPlugin`: NIO + vthread-per-conn + zero-copy
       HTTP/1.1 parser + keep-alive + path-params + query; match Request(9)/Response(3)/route/
       serve/stop surface. Unit tests (parser, router, keep-alive) + integration (real socket)

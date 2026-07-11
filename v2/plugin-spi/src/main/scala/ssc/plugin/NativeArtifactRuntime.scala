@@ -16,7 +16,9 @@ object NativeArtifactRuntime:
       case "--" :: rest => rest
       case rest         => rest
     Runtime.argv = args
-    Emit.globalsRef = collection.mutable.HashMap.empty[String, Value]
+    // Concurrent-safe (see Runtime.compileWithGlobals): `@`-cell first-touch writes race with
+    // concurrent handler-thread reads in the artifact/ASM lane. TrieMap keeps reads lock-free.
+    Emit.globalsRef = scala.collection.concurrent.TrieMap.empty[String, Value]
     NativePluginHost.loadAll(loadConfig())
 
   /** Same observable final-value contract as the standard native CLI lane. */

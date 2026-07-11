@@ -15,11 +15,13 @@ Spec: `specs/v2-http-fast.md`. New v2 native plugin: NIO + Java-21 virtual-threa
 + zero-copy HTTP/1.1 parser + path-params/query + native WebSocket (RFC 6455), replacing the
 `com.sun.net.httpserver` plugin AS DEFAULT. Each phase: worktree, tests, bench, conformance.
 
-- [ ] **hf-1 vm-thread-safety** — FOUNDATION. `Emit.globalsRef` + VM-lane `globals` are
+- [x] **hf-1 vm-thread-safety** — DONE. `Emit.globalsRef` + VM-lane `globals` were
       mutable.HashMaps written in-place on concurrent @-global first-touch → race (the current
-      server ALREADY runs handlers concurrently with no lock, so it exists + is tolerated).
-      Fix: concurrent-safe maps (ConcurrentHashMap/TrieMap), lock-free reads. Concurrency
-      stress test + bytecode/VM benches unregressed. V2PluginRegistry=frozen-after-load (safe),
+      server ALREADY runs handlers concurrently with no lock, so it existed + was tolerated).
+      Fixed: both → `scala.collection.concurrent.TrieMap` (lock-free reads, race-free
+      first-touch). `GlobalsConcurrencyTest` (32 vthreads × 500 first-touches) fails on
+      HashMap, passes on TrieMap. Benches unregressed (float-loop 22.5×, list-fold 1.9×,
+      float-fold 1.87× bytecode vs VM). V2PluginRegistry=frozen-after-load (safe),
       effect-ctx=ThreadLocal (safe) — no change.
 - [ ] **hf-2 http-core** — v2NativeHttpFastPlugin: NIO/vthread server + zero-copy HTTP/1.1
       parser + keep-alive + path-params/query; match Request(9)/Response(3)/route/serve/stop.

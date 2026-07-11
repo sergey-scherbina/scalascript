@@ -229,7 +229,7 @@ object Emit:
   def registerGlobal(name: String, v: Value): Unit =
     globalsRef match
       case m: scala.collection.mutable.Map[String, Value] @unchecked => m(name) = v
-      case ro => globalsRef = scala.collection.mutable.HashMap.from(ro).addOne(name -> v)
+      case ro => globalsRef = scala.collection.concurrent.TrieMap.from(ro).addOne(name -> v)
   def global(name: String): Value =
     globalsRef.getOrElse(name,
       V2PluginRegistry.lookupGlobal(name).getOrElse {
