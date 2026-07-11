@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — toolchain spec reflects the completed self-hosted core
+
+The SQL/front-matter and native JSON migration sections now describe structural
+`NativeCompilation/4`, pure `json-core.ssc`, and the installed HTTP renderer.
+The release baseline records 27 declared dependency JARs, a source-exact
+110-file compiler image, zero external parser edges, and conformance 11/11.
+Landed `1cc51ca38`.
+
 ## 2026-07-11 — standard native crypto no longer needs the v1 bridge
 
 The core-free crypto provider now covers AES-GCM/CBC, RSA-OAEP and signatures,

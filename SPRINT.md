@@ -606,16 +606,14 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
       slim, reproducible build-jvm, full 195-document corpus, zero-gap taxonomy,
       and conformance 11/11 all pass with `release.ready=true`. The toolchain
       spec edit is split below because its active owner is still live.
-- [ ] **v21-shc-toolchain-spec-reconcile** — after
-      `.work/active/v21-toolchain-independence.claim` is released, update the two
-      historical stale sections in `specs/v2.1-toolchain-independence.md`:
-      replace `SimpleYaml` host parsing with structural self-hosted YAML/Markdown
-      `NativeCompilation/4`, and replace the old ujson native-provider account
-      with the pure `json-core.ssc` + HTTP renderer cutover. Record the final
-      27 dependency-JAR / 110 image-file / 11-conformance release baseline. Do
-      not edit while the claim is live. Runtime, release gates, and
-      `specs/v2.1-self-hosted-core.md` are already complete; this is a docs-only
-      reconciliation of the toolchain spec's historical migration sections.
+- [x] **v21-shc-toolchain-spec-reconcile — DONE 2026-07-11
+      (`1cc51ca38`):** reconciled the two historical stale sections in
+      `specs/v2.1-toolchain-independence.md`: SQL/front-matter now names the
+      structural self-hosted YAML/Markdown `NativeCompilation/4` product, and
+      native JSON now names pure `json-core.ssc` plus the installed HTTP
+      renderer seam rather than ujson. The final 27 dependency-JAR / 110
+      image-file / 11-conformance release baseline is recorded; fresh affected
+      conformance passes 11/11.
 
 - [x] **v21-ti-spec-and-contract** — DONE 2026-07-10 in `625cb3339`:
       specified the standard/tools dependency tiers, mandatory native checker,
