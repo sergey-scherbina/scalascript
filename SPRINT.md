@@ -9,6 +9,21 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## bridge-v2tov1-openapi-oom — imported JSON value conversion must stay bounded
+
+Spec: `specs/bridge-v2tov1-openapi-oom.md`. Reported by busi while pinning the
+published fair/fast HTTP runtime. The current assembled `495467456` exhausts a
+2 GiB heap in `PluginBridge.v2ToV1` when busi constructs/parses its imported
+OpenAPI document; assembled `3666ccb7a` passes the identical current busi
+source. This blocks the personal-data Vault release.
+
+- [ ] Bisect the real assembled range and reduce the first bad commit to a
+      multi-module fixture that preserves the import + large nested JSON shape.
+- [ ] Repair the conversion/runtime ownership bug without weakening JSON or
+      imposing an application-size workaround; add focused regression coverage.
+- [ ] Run affected module tests, assembled repro, relevant conformance, and the
+      busi API/OpenAPI plus full JVM/JS/E2E gates on one published SHA.
+
 ## v2-http-fast — super-optimal HTTP/WS plugin for v2 JVM (2026-07-11, Sergiy: "сделай для v2 jvm новый супер оптимальный http/ws плагин … по умолчанию вместо старого … проверь thread-safety")
 
 Spec: `specs/v2-http-fast.md`. New v2 native plugin: NIO + Java-21 virtual-thread-per-connection

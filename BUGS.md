@@ -1,5 +1,24 @@
 # Bug tracker
 
+## bridge-v2tov1-openapi-oom — imported OpenAPI conversion exhausts the heap
+
+**Status:** open (2026-07-11); reported by busi while verifying the newly
+published HTTP runtime.
+
+- **Real-harness repro:** assemble `bin/ssc` at `495467456`, then run busi's
+  current `tests/v2/api.ssc` with `SSC_JIT=off`. All serializer assertions pass
+  through annual PIT; evaluating/parsing imported `openApiJson` then exhausts
+  even `-Xmx2g` in `PluginBridge.v2ToV1`. The identical current busi source
+  exits 0 and reaches `ALL OK - v2 api` on assembled `3666ccb7a`.
+- **Impact:** busi cannot pin the runtime that contains its required fair HTTP
+  mutation gate and fast request/session parity fixes.
+- **Expected:** imported nested JSON values convert in time and memory bounded
+  by their finite tree, with no retained/cyclic bridge expansion.
+- **Plan/done-when:** bisect the assembled range, retain a multi-file regression
+  for the first failing boundary, fix the owning runtime path, and pass focused
+  modules, affected conformance, the real busi API/OpenAPI gate and its full
+  release suite on the same published SHA.
+
 ## v21-functional-vm-asm-mkstring-parity — functional demo diverges on final dispatch
 
 **Status:** done (2026-07-11, `4c5254eed`); found and confirmed by codex
