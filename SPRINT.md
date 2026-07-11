@@ -2344,6 +2344,33 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     ordinary one-argument calls are unchanged,
                                     native-entry passes, and fresh affected
                                     conformance is 11/11.
+                        - [ ] **TI-8.2d3e core-free structural content:** retain
+                              the already parsed `MarkdownDocument` nodes from
+                              `NativeCompilation/4` as immutable values in the
+                              native runtime configuration instead of reducing
+                              each root to `blockCount`. Expose that frozen data
+                              read-only through `NativePluginContext`, then add
+                              `v2/runtime/std/content-plugin` for the standard
+                              `contentDocument`/`contentSection`/`contentBlock`/
+                              imported-module lookup, plain-text, and Markdown
+                              rendering surface without `core`, Scalameta,
+                              CommonMark/Flexmark, host reparsing, or the v1
+                              content bridge. Derive section ids and fenced YAML
+                              data only from the canonical structural Markdown
+                              and manifest products; preserve source order and
+                              deterministic namespace ownership. First pin the
+                              contract in `specs/v2.1-native-content.md`, then
+                              cover provider semantics plus exact assembled
+                              VM/direct-ASM/build-jvm output for
+                              `content-linked-namespaces.ssc` and
+                              `content-to-markdown.ssc`. Diagnose `content.ssc`
+                              separately: include its `md`/`doc`/`render`
+                              globals only if they are provider-owned rather
+                              than a parser/lowerer gap. Done when affected
+                              taxonomy rows are retired, structural ABI tests,
+                              native plugin/dependency/class-load gates, slim/
+                              JRE/build-jvm, and fresh `content*,v2-*`
+                              conformance are green.
                   - [x] **TI-8.2d4 example/config blockers:** DONE 2026-07-11
                         (`d4c953b9c`, taxonomy `39cfe268b`). Repair stale imports,
                         fixture setup, and deterministic data/config assumptions
