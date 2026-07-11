@@ -1,5 +1,29 @@
 # Bug tracker
 
+## v21-native-md-interpolator-unbound — self-hosted front misses the built-in prefix
+
+**Status:** open; found by codex while closing the native content-helper cutover.
+
+- **Real-harness repro:** after `scripts/sbtc "installBin"`, both
+  `bin/ssc-standard run --native examples/content.ssc` and the same command
+  with `--bytecode` exit nonzero with `unbound global: md`; the public example
+  cannot reach the already-native `doc` / `render` helpers.
+- **Expected:** normative `md"..."` uses ordinary `$name` / `${expr}` string
+  interpolation, drops blank leading/trailing lines, removes the minimum common
+  space indent from nonblank body lines, and produces identical text on native
+  VM, direct ASM, and deterministic `build-jvm`. Other/user-defined
+  interpolator prefixes retain their existing dispatch.
+- **Root cause:** `v2/lib/ssc1-front.ssc0` recognizes only `s`, `f`, and `raw`
+  before a string token. It therefore parses the reserved `md` prefix as an
+  ordinary global application even though the self-hosted interpolation builder
+  and runtime `__mdStrip__` primitive already implement the required pure
+  pieces.
+- **Plan/done-when:** specify the language-owned contract, emit the existing
+  strip primitive directly from the self-hosted front without changing the
+  separately claimed lowerer, add a faithful assembled regression, then require
+  the full content example, stage-2, release/dependency, corpus/parity, and
+  affected conformance gates before landing.
+
 ## v2-swift-core-stale-testing-command — spec names an absent e2e script
 
 **Status:** done (2026-07-11, `7e4b2e563`); found by codex during final spec verification.
