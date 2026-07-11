@@ -93,6 +93,11 @@ pre-code audit at 22:07–22:08, after unsigned Xcode closure `1ff9b2e76`.
   JSON must be flag then env; notarization must use an explicit keychain
   profile and bounded timeout. No prompt, secret logging, stale/duplicate
   export, archive traversal, or missing-tool stack trace is accepted.
+- **Spec review residual (22:11 BLOCKED):** freeze Mac App Store as a checked
+  Release archive plus canonical `app-store-connect` automatic export yielding
+  exactly one PKG; make DMG input the codesign-verified app and require
+  staple/validate only when notarization ran; transport release notes only via
+  `SSC_RELEASE_NOTES` and pin custom lane names plus hostile-text gates.
 - **Plan/done-when:** commit the exact distribution authority spec delta and
   obtain Rozum APPROVE before code. Then implement secret-free command plans,
   verified archive/export handoffs, device deploy, Developer-ID/notary/DMG, and

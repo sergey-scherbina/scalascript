@@ -1000,6 +1000,12 @@ there before changing this plan.
                   synthetic archive traversal/wrong-app/duplicate exports,
                   fake-runner handoffs, plist/Ruby syntax, and assembled
                   missing-tool/credential no-v1/no-stack paths without secrets.
+            Final spec review is BLOCKED on three exact residuals: freeze Mac
+            App Store as `app-store-connect` automatic fresh unique-PKG export;
+            allow DMG from the codesign-verified app without staple under
+            `--no-notarize`; and carry hostile release notes through
+            `SSC_RELEASE_NOTES` (not Ruby interpolation) while preserving custom
+            lane names `testflight`, `appstore`, and `mac_appstore`.
       - [x] **v2-swiftui-real-apple-gates** — generate one checked reduced-busi
             source for macOS/iOS, build the macOS scheme to a real `.app`, inspect
             Info.plist/product type, run a bounded smoke, and compile an iOS
