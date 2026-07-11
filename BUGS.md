@@ -1,5 +1,22 @@
 # Bug tracker
 
+## v21-native-http-request-source-arity — canonical Request omits provider fields
+
+**Status:** open (2026-07-11); found by codex after fixing extern-class layout
+ownership and rerunning the installed native-entry gate.
+
+- **Real-harness repro:** `tests/e2e/v21-native-entry-smoke.sh` reaches the HTTP
+  server fixture but returns `500 native HTTP handler failed: match: no arm for
+  Request/11`. The canonical `std.http.Request` declaration generates 9-field
+  accessors, while the portable HTTP host intentionally appends `params` and
+  `query` and registers the same 11-field order used by existing examples.
+- **Expected:** `std.http.Request` is the authority for the provider value shape
+  and includes `params` and `query`; `req.path`, route parameters, and query
+  access work through the same 11-field contract on VM/direct ASM.
+- **Plan/done-when:** add the two missing fields to the canonical case class,
+  retain the provider's established order, make the installed server fixture
+  exact again, and rerun native-entry, release, and fresh conformance gates.
+
 ## v21-native-extern-class-members-escape — abstract fields become parser sentinels
 
 **Status:** open (2026-07-11); found by codex in the exhaustive post-effect

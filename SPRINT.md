@@ -1964,6 +1964,14 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               make `extern class` consume exactly that body;
                               pin the installed HTTP response fixture before
                               resuming effect taxonomy retirement.
+                        - [ ] **TI-8.2d2w0b native Request field contract:**
+                              once extern-class members no longer hide the
+                              following declarations, `std.http.Request` is
+                              visibly 9-field while the portable HTTP host and
+                              established `req.params`/`req.query` API produce
+                              11 fields. Restore those two documented fields in
+                              the canonical case class, pin route dispatch, and
+                              rerun native-entry plus the release gate.
                         - [ ] **TI-8.2d2x parser recovery companion dispatch:**
                               `dsl-sql-recovery.ssc` imports the same self-hosted
                               Parser companion that works in YAML but currently
