@@ -89,6 +89,8 @@ extension_receivers_expected=$'HELLO!\nhahaha\n25\n20\n5'
 [[ $(run_native "$FIXTURES/extension-receivers.ssc") == "$extension_receivers_expected" ]]
 dynamic_length_expected=$'3\n8\n6\n4'
 [[ $(run_native "$FIXTURES/dynamic-length.ssc") == "$dynamic_length_expected" ]]
+dynamic_to_int_expected=$'42\n8\n1\n9'
+[[ $(run_native "$FIXTURES/dynamic-string-toint.ssc") == "$dynamic_to_int_expected" ]]
 top_level_while_expected=$'0\n10\n4'
 [[ $(run_native "$FIXTURES/top-level-while.ssc") == "$top_level_while_expected" ]]
 layout_given_expected=$'int\nint:7\nbool:yes\nbool:no\nafter-givens'
@@ -135,6 +137,7 @@ index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
 [[ $(run_native --bytecode "$FIXTURES/collection-companions.ssc") == "$collection_companions_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/extension-receivers.ssc") == "$extension_receivers_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/dynamic-length.ssc") == "$dynamic_length_expected" ]]
+[[ $(run_native --bytecode "$FIXTURES/dynamic-string-toint.ssc") == "$dynamic_to_int_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/top-level-while.ssc") == "$top_level_while_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/layout-given-objects.ssc") == "$layout_given_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/native-math-object.ssc") == "$native_math_expected" ]]

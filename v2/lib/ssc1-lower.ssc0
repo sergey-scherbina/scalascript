@@ -706,9 +706,10 @@ def resolveField = (robj, field) =>
   else if #seq(field, "toString") then
     Pair("prim", Pair("i->str", Cons(robj, Nil)))
   else if #seq(field, "toInt") then
-    -- identity for arithmetic; string→int only when obj is a string expression
-    if isStrExpr(robj) then Pair("prim", Pair("_str_toInt", Cons(robj, Nil)))
-    else robj
+    -- The receiver may be a dynamically-produced String (for example
+    -- Option[String].getOrElse) or a numeric value. Runtime method dispatch
+    -- preserves both cases; erasing unknown receivers loses String conversion.
+    Pair("prim", Pair("__method__", Cons(Pair("str", "toInt"), Cons(robj, Nil))))
   else if #seq(field, "toLong") then robj
   else if #seq(field, "toDouble") then robj
   else if #seq(field, "toFloat") then robj

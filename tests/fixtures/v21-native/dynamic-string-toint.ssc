@@ -1,0 +1,11 @@
+```scalascript
+def parse(value: String): Int = value.toInt
+
+def fromOption(value: Option[String]): Int =
+  value.getOrElse("0").toInt
+
+println(parse("41") + 1)
+println(fromOption(Some("7")) + 1)
+println(fromOption(None) + 1)
+println(8.toInt + 1)
+```
