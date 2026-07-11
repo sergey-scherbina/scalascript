@@ -1,0 +1,6 @@
+feature/v21-http-fast-standard-tier-cutover 2026-07-11T14:13:01Z
+agent: codex
+heartbeat: 2026-07-11T14:13:01Z
+status: in-progress
+done-so-far: standard image and release gates still name the retired native HTTP provider; native-entry retains an obsolete useGzip-unavailable assertion
+next: create worktree, specify standard-tier ownership, update staging and gates, then run all distribution/release checks
