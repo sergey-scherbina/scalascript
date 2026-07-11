@@ -2818,7 +2818,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     `unbound global: generator` and no stdout.
                                     Track as
                                     `v21-native-generator-provider-missing`.
-                              - [ ] **TI-8.2d3h1 provider contract:** specify
+                              - [x] **TI-8.2d3h1 provider contract:** specify
                                     single-consumer pull semantics, synchronous
                                     backpressure, completion/error propagation,
                                     cancellation of abandoned infinite sources,
