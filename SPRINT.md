@@ -537,6 +537,10 @@ there before changing this plan.
                   capability cancellation resets error/phase to empty/idle, but
                   cancelling one of multiple mounted tasks that share the exact
                   status capability must leave loading for the survivor.
+                  Reject delayed `onDisappear` cancellation carrying a stale
+                  action descriptor: cancel/reset requires the same exact Host
+                  capability check as start, so an old A cannot cancel a fresh or
+                  replacement B that reuses the structural task owner.
                   Preserve stable action status and in-flight work when the same
                   structural action is reconstructed for a surviving key: compare
                   request/effect signal refs by `(scope,id,kind)`, not regenerated

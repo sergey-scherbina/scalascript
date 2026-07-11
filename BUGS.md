@@ -1121,7 +1121,9 @@ read-only async lifecycle review in the `scalascript` Rozum room.
   and a freshly idle/error-empty action after reinsertion. Explicit cancellation
   must reset a unique/last task to idle+empty after generation invalidation while
   preserving loading if another mounted task shares the exact phase/error
-  capability. Keep `fixed` until
+  capability. A delayed lifecycle callback holding an obsolete action descriptor
+  must fail exact `validActionStatus` capability validation before it can cancel
+  or reset a fresh replacement at the same structural owner. Keep `fixed` until
   the Rozum reporter confirms the regression.
 
 ## v2-swift-swiftui-native — v2 has no proven native Swift/SwiftUI path for macOS and iOS
