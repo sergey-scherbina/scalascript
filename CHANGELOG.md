@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — standard native crypto no longer needs the v1 bridge
+
+The core-free crypto provider now covers AES-GCM/CBC, RSA-OAEP and signatures,
+X.509 extraction, Ed25519, RFC HOTP/TOTP, and prime-field Shamir recovery using
+only JDK runtime crypto plus local helpers. Three public examples agree on
+VM/direct ASM, strict parity reaches 19 identical, and blockers fall from 40 to
+37. Landed `f40b2b6b8`; taxonomy `6f4f0d13e`.
+
 ## 2026-07-11 — native output and provider ownership stay exact
 
 Native `List.mkString` now captures its requested separator, NativeUi keeps

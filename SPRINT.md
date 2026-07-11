@@ -1502,7 +1502,8 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                         Each provider family needs unit coverage, assembled
                         VM/ASM coverage, and forbidden-dependency/class-load
                         gates before its taxonomy rows can leave the blocker set.
-                        - [ ] **TI-8.2d3a core-free crypto breadth:** port the
+                        - [x] **TI-8.2d3a core-free crypto breadth:** DONE
+                              2026-07-11 (`f40b2b6b8`, taxonomy `6f4f0d13e`). Port the
                               established v1 crypto-plugin contracts—not its
                               frontend/runtime dependencies—into the v2 native
                               crypto provider: AES-GCM/CBC, X.509/RSA-OAEP,
@@ -1511,6 +1512,11 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               and vectors, cover malformed inputs, run all three
                               crypto examples on VM/direct ASM, then apply every
                               release gate and remove only resolved taxonomy rows.
+                              Result: all established JVM crypto globals run
+                              through the core-free provider; unit tests are
+                              7/7, three examples are identical, parity improves
+                              to 19/49/127, and blockers fall to 37. Dependency,
+                              module-limited, and 11/11 conformance gates pass.
                   - [ ] **TI-8.2d4 example/config blockers:** repair stale imports,
                         fixture setup, and deterministic data/config assumptions
                         only where the example is valid standard surface. Move
