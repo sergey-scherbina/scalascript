@@ -2620,6 +2620,21 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     stage-2, dependency/plugin/distribution gates,
                                     corpus/parity taxonomy, and affected
                                     `content*,v2-*` conformance are green.
+                              - [ ] **TI-8.2d2w-doc-nested recursive document
+                                    rendering:** once `md` lets the full public
+                                    example run, its nested `doc(table(...),
+                                    table(...))` values leak as
+                                    `NativeDoc(...)`. Specify a provider-owned
+                                    recursive flattening contract in the
+                                    existing doc/render spec, update only the
+                                    core-free host provider, and cover nested /
+                                    empty docs plus ordinary values. The
+                                    reserved tag must never reach visible
+                                    output; VM/direct ASM/build-jvm and the full
+                                    content example must be exact, followed by
+                                    plugin/dependency/distribution and affected
+                                    conformance gates. Tracked in `BUGS.md` as
+                                    `v21-native-doc-nested-render`.
                         - [x] **TI-8.2d2x dynamic `BigInt.toString` — DONE
                               2026-07-11 (`e2511c6ad`):** after the
                               structural content provider resolves

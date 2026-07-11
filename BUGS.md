@@ -1,5 +1,28 @@
 # Bug tracker
 
+## v21-native-doc-nested-render — nested documents leak the runtime tag
+
+**Status:** open; found by codex when native `md` unblocked the complete public
+`examples/content.ssc` execution.
+
+- **Real-harness repro:** after a current-source `scripts/sbtc "installBin"`,
+  run `bin/ssc-standard run --native examples/content.ssc` (or add
+  `--bytecode`). Both lanes complete, but the `render(doc(table(...),
+  table(...)))` section prints `NativeDoc(=== Fruits ===, ...)` and
+  `NativeDoc(=== Numbers ===, ...)` rather than the nested document text.
+- **Expected:** a `NativeDoc` nested as a part of another `NativeDoc` is rendered
+  recursively in source order with the same newline contract; the reserved
+  runtime representation never leaks into user output. VM, ASM, and
+  `build-jvm` remain byte-identical.
+- **Root cause:** the core-free host provider recursively recognizes only the
+  outer document. Each inner part is passed to the generic runtime display
+  function, which correctly exposes an arbitrary ADT tag but does not know the
+  provider-owned `NativeDoc` representation.
+- **Plan/done-when:** queue a separate provider-owned spec/fix after the
+  language-owned `md` slice lands; recursively flatten only `NativeDoc` values,
+  retain ordinary value display, add nested/empty provider and assembled
+  regressions, then rerun the full release/dependency/content gates.
+
 ## v21-native-md-interpolator-unbound — self-hosted front misses the built-in prefix
 
 **Status:** open; found by codex while closing the native content-helper cutover.
