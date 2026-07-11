@@ -1,6 +1,6 @@
 feature/v2-swift-swiftui-native 2026-07-10T17:41:11Z
 agent: codex
-heartbeat: 2026-07-11T16:56:04Z
+heartbeat: 2026-07-11T17:29:15Z
 status: in-progress
-done-so-far: adapter slice landed; Apple native-table decoder/model/view and row-action implementation is locally in round-2 blocker remediation
-next: share one URLSession runner, verify exact capabilities/transactional replacement/strict rowsPath, run 6/6 plus full 40/40, obtain Rozum APPROVE
+done-so-far: Apple native tables and synchronized executable harness landed through 3f08028bf after Rozum APPROVE; Swift 40/40 and tkv2 12/12 green
+next: spec-check and implement the isolated trusted WKWebView slice, then continue to generated Xcode application products
