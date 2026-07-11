@@ -1,5 +1,5 @@
 ScalaScript web · http://localhost:18631/  (root: .)
-  (backend=jdk)
+  (backend=fast)
 Ctrl+C to stop.
 true
 true
