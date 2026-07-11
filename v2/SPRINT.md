@@ -1473,3 +1473,21 @@ corpus than v2/conformance 406/0 (curated) suggests — this is a multi-session 
       (bimap/fmap/copy), plugin-Op unperformed, per-file early-halts (Array.tabulate static+curried,
       Option ops, string %-format). RECOMMEND: wire the native-parity check into CI (ssc1-run vs
       expected/, non-plugin subset) so these regressions are caught.
+
+## conf-flake + native correctness (2026-07-11, opus) — 4 fixes, conformance 406/0
+
+- [x] K63.4d — parallel temp-file race. run_logged/run_stdout_logged named temp files
+      `<label>-$RANDOM.<ext>`; bash subshells (parallel `&` jobs) INHERIT the parent's $RANDOM
+      seed → two jobs forked together collide on the same O_TRUNC file → truncated captured
+      output → false conformance fails with mangled strings ("anches" vs "if-branches"). Fixed
+      with `$BASHPID-$RANDOM` (BASHPID unique per subshell).
+- [x] K62.21 — None.isEmpty returned false. `.isEmpty` lowers to __list_isEmpty for List AND
+      Option (no type info); it only matched Nil→true. Added None→true arm (+ symmetric nonEmpty).
+- [x] K62.22 — println(Some("x")) printed Some("x") not Some(x). Native println → io.println →
+      `out`, whose container branch used Show.show (quotes StrV children) instead of anyStr (the
+      parity renderer the bridge already uses via __autoPrint__). Fixed `out` → anyStr. Verified
+      by rebuilding v2Core + native/bridge spot checks (bridge 10/10 unchanged, no regression).
+- [x] K62.23 — kc3 build-break (`unbound variable: lenL`) from sibling 7f6821856's flat-tuple
+      pattern code in ssc1-front.ssc0. A bare `lenL` was unbound standalone; a plain `def lenL`
+      duplicated ssc1-lower's when both imported (25-fail cascade). Fixed with a front-local
+      uniquely-named `lenLF`. Coordinated in rozum.
