@@ -1,6 +1,0 @@
-feature/v21-toolchain-independence 2026-07-11T12:10:00Z
-agent: codex
-heartbeat: 2026-07-11T12:10:00Z
-status: in-progress
-done-so-far: spec landed as d85e877ed; global v2.1 toolchain spec yielded for self-hosted-core reconcile
-next: implement and verify symbolic extension infix dispatch without editing specs/v2.1-toolchain-independence.md
