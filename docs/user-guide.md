@@ -653,8 +653,36 @@ expected id and non-CLI executable. Generated-file ownership is limited to the
 paths in `.ssc-swift-generated.json`, so product/mode changes remove stale
 entry points while preserving unlisted resources. macOS run launches the
 verified `.app`; iOS run builds, installs, and launches it on an available
-Simulator. Signed device/archive/IPA, notarization/DMG, TestFlight, and App
-Store routing is the next adapter slice and never falls back to v1.
+Simulator. Signed routes consume that same checked Xcode artifact and never
+fall back to v1 or select the debug CLI product:
+
+```bash
+# Physical iOS device and signed IPA (SSC_TEAM_ID may replace --team-id)
+ssc run --target ios --device --device-id <udid> --team-id <team> myapp.ssc
+ssc package --target ios --team-id <team> \
+  --export-method app-store-connect --out dist myapp.ssc
+
+# Developer-ID app, bounded keychain-profile notarization, and optional DMG
+ssc package --target macos --distribution --team-id <team> \
+  --notary-profile <keychain-profile> --notary-timeout-seconds 900 myapp.ssc
+# Add --no-notarize and/or --no-dmg when those steps are intentionally omitted.
+
+# Upload only the already-built, verified IPA/PKG; generated lanes never call gym
+ssc publish --target ios --testflight --team-id <team> \
+  --api-key-path app-store-key.json myapp.ssc
+ssc publish --target ios --appstore --team-id <team> \
+  --api-key-path app-store-key.json myapp.ssc
+ssc publish --target macos --appstore --team-id <team> \
+  --api-key-path app-store-key.json myapp.ssc
+```
+
+Team authority is flag then `SSC_TEAM_ID`; the App Store Connect key path is
+flag then `APP_STORE_CONNECT_API_KEY_PATH`; the notary profile is flag then
+`SSC_NOTARY_KEYCHAIN_PROFILE`. API-key JSON requires non-empty `key_id` and
+`key` (`issuer_id` is optional for individual keys). `--fastlane` uses an
+existing source-adjacent `Fastfile` with lanes named `testflight`, `appstore`,
+or `mac_appstore`; ScalaScript still builds and verifies the artifact first and
+passes its exact path, project, scheme, and bundle id through environment.
 
 **Reactive web server.** A declarative `std/ui` view compiled with
 `serve(view, port)` emits a native `tokio` + `hyper` server with
@@ -5454,15 +5482,17 @@ threading model, `:print` semantics, and known limitations.
 
 ## 25. SwiftUI / iOS / macOS Targets
 
-Declare `frontend: swiftui` in the front-matter to target Apple platforms.
-`ssc` generates a valid Swift Package (Package.swift, ContentView.swift,
-AppModel.swift, AppEntry.swift) and delegates build/run/package/publish to
-the local Xcode toolchain or fastlane.
+Declare `frontend: swiftui` with a reverse-DNS `bundle-id` in top-level
+front-matter to target Apple platforms. `ssc` lowers the checked v2 program to
+AppCore plus a deterministic multi-platform Xcode application target and
+delegates build/run/package/publish to Xcode, `ios-deploy`, and fastlane.
 
 ````ssc
 ---
 name: my-app
 version: 1.0.0
+build-version: 1
+bundle-id: com.example.my-app
 frontend: swiftui
 ---
 ````
@@ -5470,12 +5500,15 @@ frontend: swiftui
 ### CLI commands
 
 ```bash
-ssc run --target ios                 # build + run in iOS Simulator
-ssc run --target ios --device        # deploy to real device via ios-deploy
-ssc package --target ios             # signed .ipa
-ssc publish --target ios             # TestFlight + App Store via fastlane
-ssc package --target macos           # notarized DMG
-ssc publish --target macos           # Mac App Store via fastlane
+ssc run --target ios                                      # iOS Simulator
+ssc run --target ios --device --team-id TEAM              # physical device
+ssc package --target ios --team-id TEAM                   # signed .ipa
+ssc publish --target ios --testflight --team-id TEAM \
+  --api-key-path key.json                                 # TestFlight
+ssc package --target macos --distribution --team-id TEAM \
+  --notary-profile profile                                # Developer-ID + DMG
+ssc publish --target macos --appstore --team-id TEAM \
+  --api-key-path key.json                                 # Mac App Store
 ```
 
 ### View IR → SwiftUI mapping

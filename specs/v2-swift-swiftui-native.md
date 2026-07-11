@@ -1249,13 +1249,13 @@ behavior.
 - [x] Apple build/run lane flags are parsed as flags in every supported order.
 - [x] Apple targets use v2 by default, `--v1` is explicit, and v2 failures never
   fall back.
-- [ ] Package/sign/simulator/device/publish adapters consume the generated
-  package and retain bounded missing-tool diagnostics.
-- [ ] Signed device/archive/export routes use one checked-v2 distribution
-  context, explicit project/scheme, archive-relative product discovery, and the
-  common app verifier without a v1 parse or inferred product path.
-- [ ] IPA/PKG/app exports are fresh and unique; notarization is bounded and
-  fastlane uploads only the explicit verified artifact without `gym`.
+- [x] Package/sign/simulator/device/publish adapters consume the generated
+      package and retain bounded missing-tool diagnostics.
+- [x] Signed device/archive/export routes use one checked-v2 distribution
+      context, explicit project/scheme, archive-relative product discovery, and the
+      common app verifier without a v1 parse or inferred product path.
+- [x] IPA/PKG/app exports are fresh and unique; notarization is bounded and
+      fastlane uploads only the explicit verified artifact without `gym`.
 - [x] UI application metadata is obtained with the checked v2 source result,
   validated before output, and never reparsed through the v1 frontend.
 - [x] Generator ownership cleanup removes only validated manifest-listed paths,
@@ -1389,6 +1389,28 @@ Swift 6 warnings-as-errors execution on macOS and compile on iOS.
   native conformance screen is in scope).
 
 ## Results
+
+### Signed Apple distribution adapters (`v2-swiftui-apple-distribution-adapters`, 2026-07-11)
+
+- Device, archive, IPA, Developer-ID/notary/DMG, TestFlight, iOS App Store,
+  and Mac App Store commands now construct one checked-v2 distribution context
+  and consume only its explicit Xcode project/scheme/application identity.
+  Destination/configuration build settings, xcarchive-relative application
+  discovery, and the platform-strict APPL/bundle/non-CLI verifier are shared by
+  unsigned and signed routes; explicit non-v1 Apple packages return before the
+  legacy parser.
+- Team/API-key/notary credentials and every selected external tool are checked
+  noninteractively before generation/archive. Exports use canonical Xcode 26
+  methods and fresh exactly-one IPA/app/PKG directories. Generated fastlane
+  lanes pin the checked bundle and explicit artifact, invoke the platform-scoped
+  Mac lane correctly, never call `gym`, and transport hostile release notes
+  only through environment.
+- `nativeui-reviewer` approved implementation round 3 in the `scalascript`
+  Rozum room. Secret-free plan/synthetic/fake tests pass 19/19; combined v2
+  distribution/CLI and legacy SwiftUI CLI tests pass 53/53; fresh assembled
+  `v2-swift-cli` passes bounded credential/tool/no-v1 routes; no-memo
+  `tkv2-*` conformance passes 12/12; and the final full Swift backend repeat
+  passes 43/43 with real SwiftPM, SwiftUI, macOS, and iOS Simulator gates.
 
 ### Deterministic Xcode application products (`v2-swiftui-xcode-project`, 2026-07-11)
 
