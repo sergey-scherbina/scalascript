@@ -1,6 +1,6 @@
 feature/v2-swift-swiftui-native 2026-07-10T17:41:11Z
 agent: codex
-heartbeat: 2026-07-11T18:18:13Z
+heartbeat: 2026-07-11T18:36:08Z
 status: in-progress
-done-so-far: trusted HTML spec and first two implementation rounds are committed through 5213f4ddf; round-two residuals are tracked in SPRINT/BUGS after Rozum review
-next: close serialized policy authority, probe-only seams, shared delegate handoff, and forced recovery/terminal gates; request Rozum round-three verdict
+done-so-far: trusted HTML round three approved in Rozum at a4a74197b; focused 2/2, full Swift 41/41, and tkv2 12/12 are green before final rebase
+next: rerun landing gates on current origin/main, verify spec, publish implementation/docs/bookkeeping, then continue to Xcode application products
