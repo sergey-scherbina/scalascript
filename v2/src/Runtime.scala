@@ -2581,6 +2581,17 @@ object Prims:
             case (FloatV(a), IntV(b)) => FloatV(a + b)
             case (a, b) => sys.error(s"sum: cannot add ${Show.show(a)} and ${Show.show(b)}")
           }
+        // K62.31: reduce / reduceLeft / reduceRight on a list (List or ArrayBuffer). The native
+        // front routes `.reduce(f)` to __method__ (not a _sel_ prelude helper), and there was no
+        // handler, so it returned a silent Stub.
+        case (ls, "reduce" | "reduceLeft", List(fn: Value.ClosV)) if isList(ls) =>
+          val xs = unlist(ls)
+          if xs.isEmpty then sys.error("reduceLeft on empty list")
+          else xs.reduceLeft((a, b) => callClos(fn, Array(a, b)))
+        case (ls, "reduceRight", List(fn: Value.ClosV)) if isList(ls) =>
+          val xs = unlist(ls)
+          if xs.isEmpty then sys.error("reduceRight on empty list")
+          else xs.reduceRight((a, b) => callClos(fn, Array(a, b)))
         case (ls, "max", Nil) if isList(ls) => unlist(ls).max(valueOrdering)
         case (ls, "min", Nil) if isList(ls) => unlist(ls).min(valueOrdering)
         case (ls, "maxBy", List(fn: Value.ClosV)) if isList(ls) =>
