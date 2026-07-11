@@ -87,6 +87,21 @@ ssc package --target macos|ios <file.ssc>
 ssc publish --target macos|ios <file.ssc>
 ```
 
+Signed adapter flags are explicit:
+
+```text
+ssc run --target ios --device [--device-id <udid>] --team-id <team> <file.ssc>
+ssc package --target ios --team-id <team> [--export-method <method>] <file.ssc>
+ssc package --target macos --distribution --team-id <team>
+  [--notary-profile <profile>] [--notary-timeout-seconds <1..3600>]
+  [--no-notarize] [--no-dmg] <file.ssc>
+ssc publish --target ios|macos --team-id <team> --api-key-path <key.json> ...
+```
+
+`SSC_TEAM_ID`, `APP_STORE_CONNECT_API_KEY_PATH`, and
+`SSC_NOTARY_KEYCHAIN_PROFILE` are the corresponding noninteractive environment
+fallbacks; no v2 signed route reads these values from frontmatter.
+
 `build`, `run`, `package`, and `publish` accept the same `--server-url` client
 setting for Apple UI targets and validate/normalize it once before generation. A
 manifest/client build setting may provide the same resolved value before this
@@ -1041,6 +1056,105 @@ helper. Those adapters keep their existing bounded missing-tool/credential
 diagnostics, but generation and product selection use only the v2 artifact;
 none may call the legacy generator or infer a product path independently.
 
+### Signed Apple distribution authority
+
+Every signed v2 route constructs exactly one `V2AppleDistributionContext` from
+one `SwiftV2Cli.emit` call and requires its `XcodeAppArtifact`. The context owns
+the generated root, project, scheme, target, debug-CLI name, bundle identity,
+archive path, derived-data path, and fresh export paths. It never calls the v1
+`Parser`, `swiftAppName`, `JvmGen`, or `buildSwiftUIPackage`, and it never derives
+a product from a configuration directory or filename convention. `PackageCmd`
+dispatches an explicit non-v1 Apple `--target` before the current legacy
+manifest parse; signed v2 package/publish commands require the target rather
+than consulting v1 metadata.
+
+The unsigned build helper is factored into three shared authorities:
+
+1. `queryBuildSettings(context, destination, configuration, signingArgs)` runs
+   `xcodebuild -showBuildSettings` with the exact project, scheme, destination,
+   configuration, derived-data path, and signing arguments used by its build or
+   archive command.
+2. `verifyAppBundle(context, appPath, settings, command)` requires a contained
+   existing `.app`, `CFBundlePackageType=APPL`, the exact checked bundle id, and
+   a `CFBundleExecutable` different from `debugCli`, then requires that
+   executable at the platform-correct path.
+3. `archiveApplication` runs this exact shape (with the appropriate platform):
+
+   ```text
+   xcodebuild archive
+     -project <project> -scheme <scheme> -configuration Release
+     -destination generic/platform=iOS|macOS
+     -archivePath <owned.xcarchive> -derivedDataPath <owned-derived>
+     -allowProvisioningUpdates DEVELOPMENT_TEAM=<team>
+   ```
+
+   The same provisioning/team arguments enter the settings query. The archived
+   app is not guessed: read `ApplicationProperties.ApplicationPath` from the
+   xcarchive `Info.plist`, reject an absolute path or any `..` segment, resolve
+   it beneath `<archive>/Products`, and run the shared app verifier. A missing,
+   malformed, escaping, wrong-bundle, or debug-CLI archive fails before export.
+
+Signed v2 team authority is adapter input only: `--team-id` wins, then
+`SSC_TEAM_ID`; an empty/missing value is a bounded preflight error. Frontmatter
+and generated PBX files never supply or persist it. `run --target ios --device`
+therefore accepts `--team-id`, preserves `--device-id`, performs a signed Debug
+build with explicit project/scheme and destination
+`platform=iOS,id=<device-id>` when supplied (otherwise `generic/platform=iOS`),
+verifies the produced app, then gives that exact bundle to `ios-deploy` with the
+selected id and `--debug`/`--justlaunch`. The v2 route may not drop `--device` or
+reuse the simulator adapter.
+
+`package --target ios` accepts canonical Xcode 26.5 export methods
+`debugging`, `release-testing`, `app-store-connect`, and `enterprise`; legacy
+spellings normalize as `development -> debugging`, `ad-hoc -> release-testing`,
+and `app-store -> app-store-connect`. Export options set the canonical method,
+`destination=export`, `signingStyle=automatic`,
+`manageAppVersionAndBuildNumber=false`, and optional exact `teamID`; they do not
+emit an empty `provisioningProfiles` dictionary. `xcodebuild -exportArchive`
+receives the exact verified archive and a freshly absent/created owned export
+directory. Success requires exactly one `.ipa`; zero or multiple artifacts are
+errors, so a stale find-first result cannot be published.
+
+`package --target macos --distribution` archives the same v2 application target
+for Release and exports with canonical `developer-id`. The exported directory
+must contain exactly one app, which passes the shared verifier followed by
+`codesign --verify --deep --strict`. With notarization enabled, the adapter
+requires `--notary-profile` or `SSC_NOTARY_KEYCHAIN_PROFILE`, creates one fresh
+ZIP with `ditto -c -k --keepParent`, and submits it using
+`xcrun notarytool submit --wait --timeout <N>s --output-format json --no-progress
+--keychain-profile <profile>`. `--notary-timeout-seconds` defaults to 900 and
+accepts only `1...3600`. It then runs `xcrun stapler staple` and
+`xcrun stapler validate` on the verified app. `--no-notarize` requires no
+notary credential. A requested DMG is created only from that exact verified,
+stapled app; `--no-dmg` returns the app.
+
+Publication never invokes fastlane `gym` and never permits fastlane to rebuild
+or discover a product. v2 iOS publish first creates the verified
+`app-store-connect` IPA, then uploads its explicit path with `pilot` for
+TestFlight or `deliver` for App Store. v2 macOS publish first exports exactly one
+verified Mac App Store `.pkg`, then calls `deliver(pkg: <exact path>)`.
+`--api-key-path` wins over `APP_STORE_CONNECT_API_KEY_PATH` and must name a
+regular API-key JSON file before build/upload; it is passed by environment or
+`api_key_path`, never embedded in generated text or logs. Generated Fastfiles
+live in the owned distribution directory and consume
+`SSC_IPA_PATH`/`SSC_PKG_PATH`, `SSC_XCODE_PROJECT`, `SSC_XCODE_SCHEME`,
+`SSC_BUNDLE_ID`, and the API-key path. `--fastlane` selects an existing
+source-adjacent Fastfile only after the CLI has built and verified the artifact;
+the same environment contract is provided and the custom lane is responsible
+for uploading that path, not substituting a build.
+
+Every external tool probe catches a missing executable and emits one
+command-scoped corrective diagnostic with no host stack before expensive work.
+Missing team, API-key JSON, or notarization profile is likewise noninteractive
+and bounded. Tests need no real certificate, secret, notarization, or network:
+pure argv/environment plans pin every project/scheme/path/credential boundary;
+synthetic archives cover traversal, wrong bundle, debug CLI, and malformed
+plist; fresh export fixtures cover zero/one/multiple IPA/PKG/app results; a fake
+runner proves archive→verify→export→codesign/ZIP/notary/staple/DMG and explicit
+fastlane handoffs; generated plist/Fastfile text passes `plutil -lint` and
+`ruby -c`; assembled commands prove missing-tool/credential failures contain no
+v1 fallback or stack trace.
+
 This project shape is an acceptance requirement, not packaging preference. On
 2026-07-11 the legacy generated SwiftPM package with an `@main App` and
 `.iOS(.v17)` was tested using `xcodebuild` from Xcode 26.5. The generic iOS
@@ -1123,6 +1237,11 @@ behavior.
   fall back.
 - [ ] Package/sign/simulator/device/publish adapters consume the generated
   package and retain bounded missing-tool diagnostics.
+- [ ] Signed device/archive/export routes use one checked-v2 distribution
+  context, explicit project/scheme, archive-relative product discovery, and the
+  common app verifier without a v1 parse or inferred product path.
+- [ ] IPA/PKG/app exports are fresh and unique; notarization is bounded and
+  fastlane uploads only the explicit verified artifact without `gym`.
 - [x] UI application metadata is obtained with the checked v2 source result,
   validated before output, and never reparsed through the v1 frontend.
 - [x] Generator ownership cleanup removes only validated manifest-listed paths,
