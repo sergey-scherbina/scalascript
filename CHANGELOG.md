@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — reactive signals run on the core-free JVM route
+
+A dedicated portable provider now owns general `Signal`, `computed`, and
+`effect` semantics on native VM, direct ASM, and standalone build-jvm JARs.
+Dynamic dependencies refresh per run, diamond consumers deduplicate in order,
+and self-writes do not recurse while remaining subscribers observe the write.
+The self-hosted parser now distinguishes reactive effect blocks from algebraic
+effect declarations. Strict parity is 21/47/127 and runtime blockers fall from
+36 to 35. Landed `dae51ecab`; evidence `cda669058`; taxonomy `f2ca9b7ea`.
+
 ## 2026-07-11 — native Storage runs without the v1 bridge
 
 A dedicated core-free provider now owns ordered ephemeral and deterministic

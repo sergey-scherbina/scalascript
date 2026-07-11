@@ -1611,19 +1611,21 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               36 blockers / 48 total; dependency, JRE, slim,
                               plugin/class-load, portable, taxonomy, and fresh
                               conformance 11/11 gates pass.
-                        - [ ] **TI-8.2d3c core-free reactive signals:** add a
+                        - [x] **TI-8.2d3c core-free reactive signals:** DONE
+                              2026-07-11 (`dae51ecab`, evidence `cda669058`,
+                              taxonomy `f2ca9b7ea`). Added a
                               dedicated native standard provider for the general
                               `Signal(initial)`, `computed { ... }`, and
                               `effect { ... }` surface without reusing the
-                              NativeUi ABI signal store. Use portable tagged
+                              NativeUi ABI signal store using portable tagged
                               `ReactiveSignal` values, dynamic dependency
                               collection, insertion-ordered subscriber flush,
                               diamond dedup, and current-effect self-write
-                              suppression. Cover mutable/computed/chained/
-                              diamond/self-write behavior in provider tests and
-                              run `signals-demo.ssc` exactly on VM/direct ASM and
-                              build-jvm before retiring only its taxonomy row.
-                              - [ ] **TI-8.2d3c-front-effect-call:** fix tracked
+                              suppression. Provider tests cover mutable/computed/
+                              chained/diamond/self-write behavior;
+                              `signals-demo.ssc` runs exactly on VM/direct ASM
+                              and build-jvm, retiring only its taxonomy row.
+                              - [x] **TI-8.2d3c-front-effect-call:** fix tracked
                                     `v21-native-reactive-effect-parsed-as-declaration`.
                                     In `ssc1-front.ssc0`, parse keyword-led
                                     `effect { ... }` as a normal call/thunk while
@@ -1631,6 +1633,14 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     Gate full `signals-demo.ssc` exact output in
                                     the assembled VM/direct-ASM paths and keep
                                     algebraic-effect declaration conformance green.
+                              Result: provider unit 3/3 and exact VM/ASM/build-jvm
+                              output; corpus 194/0/0/1 with runtime 35/91;
+                              strict parity 21/47/127; taxonomy 35 blockers / 47
+                              total; dependency 15 roots / 58 edges / 11
+                              reflective / 29 staged jars. Native-entry,
+                              plugin/class-load, JRE, slim, build-jvm,
+                              standard-tier, portable/taxonomy, algebraic
+                              effects, and fresh conformance 11/11 pass.
                   - [ ] **TI-8.2d4 example/config blockers:** repair stale imports,
                         fixture setup, and deterministic data/config assumptions
                         only where the example is valid standard surface. Move

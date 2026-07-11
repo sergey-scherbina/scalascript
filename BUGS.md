@@ -2,8 +2,8 @@
 
 ## v21-native-reactive-effect-parsed-as-declaration — top-level effects disappear
 
-**Status:** open (2026-07-11); found by codex while gating the core-free
-reactive provider.
+**Status:** fixed (2026-07-11, `dae51ecab`), awaiting Sergiy confirmation;
+found by codex while gating the core-free reactive provider.
 
 - **Real-harness repro:** after `scripts/sbtc "installBin"`, run
   `bin/ssc run --native examples/signals-demo.ssc` (or `--bytecode`). Both
@@ -20,6 +20,10 @@ reactive provider.
   branch, keep existing algebraic-effect declaration fixtures green, and pin
   the complete `signals-demo.ssc` output on assembled VM/direct ASM and
   standalone `build-jvm` lanes.
+- **Fix/verified:** `parseOneStmt` now routes the keyword-plus-`{` form through
+  ordinary expression/block-argument parsing and leaves named declarations on
+  the erasure path. The complete demo is exact on assembled VM/direct ASM and
+  build-jvm; algebraic `effects` conformance is green on all four lanes.
 
 ## v2-swift-session-sticky-callback-failure — one caught render error poisons the retained runtime
 
