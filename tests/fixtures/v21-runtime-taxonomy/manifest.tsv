@@ -4,9 +4,9 @@ actors-typed-remote-spawn.ssc	standard-provider	yes	actors	runActors is not inst
 agent-mcp-toolsource.ssc	tools-backend	no	mcp	JVM/JS MCP tool-source syntax is already a reviewed backend surface
 algebraic-effects.ssc	language-runtime	yes	effects	portable effect-handler application reaches an arity mismatch
 async-demo.ssc	standard-provider	yes	async	runAsync is not installed by a core-free standard async provider
-content-linked-namespaces.ssc	language-runtime	yes	module-linker	imported contentModuleSection definition is not linked into the native program
-content-to-markdown.ssc	language-runtime	yes	module-linker	imported contentSection definition is not linked into the native program
-content.ssc	language-runtime	yes	module-linker	imported md definition is not linked into the native program
+content-linked-namespaces.ssc	standard-provider	yes	content	contentModuleSection is missing from a core-free standard content provider
+content-to-markdown.ssc	standard-provider	yes	content	contentSection is missing from a core-free standard content provider
+content.ssc	standard-provider	yes	content	md is missing from a core-free standard content provider
 crypto-encrypt-demo.ssc	standard-provider	yes	crypto	aesGenKey is missing from the core-free standard crypto provider
 crypto-verify-demo.ssc	standard-provider	yes	crypto	verifyEd25519 is missing from the core-free standard crypto provider
 custom-derives-mirror.ssc	language-runtime	yes	typeclass	summon/typeclass resolution is absent from the native runtime path
