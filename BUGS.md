@@ -83,6 +83,11 @@ uncommitted Swift AppCore ABI-v1 review.
   host cannot be proven clean on a second evaluation.
 - **Expected/fix:** introduce a catchable Swift runtime failure boundary,
   abort-on-error, and same-host recovery without weakening bounded diagnostics.
+- **Fresh review delta (Rozum 2026-07-11):** a native failure currently records
+  `SscRuntimeFailure` and substitutes `Unit`, but an enclosing application/
+  primitive/guard can inspect that placeholder and hit a second `fatalError`.
+  Short-circuit every enclosing evaluation step as soon as failure is recorded;
+  gate an invalid NativeUi call in outer-function position plus same-host reuse.
 - **Done-when:** a real Swift test fails after provisional state, recovers on the
   same host, and extracts a clean root; keep `fixed` until Sergiy confirms.
 
@@ -98,6 +103,11 @@ uncommitted Swift AppCore ABI-v1 review.
 - **Expected/fix:** expose `makeNativeUiRoot` backed by a retained evaluation
   session/store lifetime; successful handoff detaches provisional transaction
   bookkeeping without destroying live cells/Machine.
+- **Fresh review delta (Rozum 2026-07-11):** successful extraction retains the
+  signal map but replaces `emptyHeaders` with `Unit`; post-root render closures
+  using short fetch/row-action arities then fail because extern defaults are not
+  synthesized. Keep the root-scoped header signal until session disposal and
+  invoke a short-arity action from an extracted render closure.
 - **Done-when:** real Swift extracts a root and subsequently invokes signal get/
   set, computed, and user/render closures successfully; reviewer approves and
   the entry stays `fixed` until Sergiy confirms.

@@ -345,8 +345,12 @@ there before changing this plan.
         Reviewer blockers (Rozum 2026-07-11; no landing before re-approval):
         - [ ] retain a `NativeUiSession`/Machine through `makeNativeUiRoot` and
               prove signal/computed/user closures still execute after extraction;
+              keep root-local `emptyHeaders` until session disposal and invoke a
+              short-arity fetch/action from a post-extraction render closure;
         - [ ] replace fatal-only evaluation failure with a catchable boundary,
               abort provisional state, and recover on the same host/session;
+              short-circuit outer apply/primitive/guard evaluation immediately
+              after a nested extension failure instead of consuming placeholder Unit;
         - [ ] select UI mode from reserved annotated ABI provenance, not flat
               user names; gate domain-local `signal`/`emit` definitions;
         - [ ] correct the raw Swift mobile CSS regex and gate exact/near-miss CSS;
