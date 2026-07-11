@@ -1758,6 +1758,15 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               the same boundary after its min/max output), and
                               retire both taxonomy rows only when the full
                               examples become identical.
+                        - [ ] **TI-8.2d2v K62.20 tuple-pattern regression:**
+                              flat `TupleN` expression lowering left
+                              `tuplePat` on the obsolete right-nested `Pair`
+                              shape, so `Some((left, '+', right))` now returns
+                              `()` instead of `left+right`. Align 3+ tuple
+                              patterns with flat values while retaining Pair/2,
+                              then rerun the existing exact VM/ASM fixture and
+                              every v2.1 release gate before publishing either
+                              this fix or the symbolic-extension slice.
                   - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
                         `v2/runtime/std` providers, never through the v1 bridge.

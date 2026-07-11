@@ -1,5 +1,25 @@
 # Bug tracker
 
+## v21-k62-flat-tuple-pattern-regression — flat tuple values keep nested `Pair` patterns
+
+**Status:** open (2026-07-11); found by codex in the mandatory native-entry
+gate after K62.20 (`28061083a`) changed tuple expressions of arity three or
+greater to flat `TupleN` values.
+
+- **Real-harness repro:** `bin/ssc-standard run --native
+  tests/fixtures/v21-native/nested-tuple-pattern.ssc` prints `left` followed by
+  `()` on VM and direct ASM; the established exact output is `left` followed by
+  `left+right`.
+- **Expected:** pattern `Some((left, '+', right))` matches the flat `Tuple3`
+  constructed for its nested tuple and binds `left`/`right` on both lanes.
+- **Root cause:** K62.20 updated `lowerTuple` to emit flat `TupleN`, while
+  `ssc1-front.ssc0::tuplePat` still emits the obsolete right-nested `Pair`
+  pattern for arity three or greater.
+- **Plan/done-when:** make tuple expression and pattern shapes agree (Pair for
+  arity two, flat `TupleN` for arity three or greater), retain existing nested
+  and flat tuple regressions, and rerun native-entry, corpus/parity/taxonomy,
+  release, and fresh conformance gates.
+
 ## v21-imports-tuple2-collection-match — imported collection pipeline rejects `Tuple2/2`
 
 **Status:** open (2026-07-11); found by codex while refreshing native-entry
