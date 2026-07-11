@@ -9,6 +9,24 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## http-handler-serial-dispatch — keep one interpreter transaction serial across HTTP/WS (2026-07-11)
+
+Reported by busi's paired Vault E2E: the `--v2` FrontendBridge serves through the
+v1 `WebServer`; reactive GET and accepted POST handlers currently enter the same
+interpreter concurrently and can lose a repo-journal fact. The existing
+`WebServer` single-thread executor is already documented as shared by HTTP and
+WS, but `InterpreterHttpHandler.onHttpRequest` invokes the handler directly.
+
+- [ ] **http-handler-serial-dispatch** — specify the per-interpreter execution
+      boundary, add a real concurrent application-handler regression, execute
+      the entire matched HTTP middleware/handler chain through the shared
+      serial executor without blocking that executor recursively, and retain
+      direct in-process transport behavior. Verify the assembled `bin/ssc`
+      with busi's concurrent Vault/restart/browser repro after the focused
+      Scala tests and affected conformance slice. Do not serialize socket I/O,
+      unrelated interpreters, unmatched static fallbacks, or the separate v2
+      native `http-fast` plugin.
+
 ## v2-http-fast — super-optimal HTTP/WS plugin for v2 JVM (2026-07-11, Sergiy: "сделай для v2 jvm новый супер оптимальный http/ws плагин … по умолчанию вместо старого … проверь thread-safety")
 
 Spec: `specs/v2-http-fast.md`. New v2 native plugin: NIO + Java-21 virtual-thread-per-connection

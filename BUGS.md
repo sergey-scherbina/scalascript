@@ -39,6 +39,29 @@ work before touching the provider.
   dependency/class-load scans, and rerun native provider, core dependency,
   slim, JRE, standard, build-jvm, native-entry, and conformance gates.
 
+## http-handler-concurrent-interpreter-entry — accepted durable fact can disappear
+
+**Status:** open (2026-07-11); reported by busi's personal-Vault canonical
+browser E2E.
+
+- **Real-harness repro:** boot busi's assembled `scripts/ssc --v2` hub against
+  an empty scratch repo, pair `/app`, and advance the eleven Vault simulator
+  actions while its reactive dashboard polls `GET /api/vault`. All POSTs return
+  200 with the exact action, but the final recovery-rotation fact can vanish;
+  sequential live HTTP and in-process runs are green.
+- **Expected:** one interpreter executes user HTTP and WS callbacks serially,
+  so an accepted handler mutation is visible to the next request and survives
+  restart, while the network backend continues to parse/write concurrently.
+- **Root cause:** `WebServer` creates and documents a shared single-thread
+  executor, and WS callbacks use it, but `InterpreterHttpHandler.onHttpRequest`
+  calls `Interpreter.invoke` directly on whichever JDK/Jetty/Netty request
+  thread entered the SPI. This violates the interpreter thread-safety comment
+  and races application-level read-modify-write transactions.
+- **Plan/done-when:** specify the boundary, add a concurrent multi-request
+  regression that proves max one handler body in flight, dispatch the complete
+  middleware/route chain through the existing executor, rebuild the assembled
+  CLI and rerun the exact busi Vault plus offline-drain browser regressions.
+
 ## v21-json-parser-pmapped-match — JSON DSL reaches an unhandled `PMapped/2`
 
 **Status:** open, non-reproducible after clean assembly (2026-07-11); found by
