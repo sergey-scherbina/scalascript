@@ -1916,6 +1916,15 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               effect semantics through core-free providers or
                               portable runtime definitions, with nested runner
                               and multi-shot coverage.
+                        - [ ] **TI-8.2d2w0 extern-class layout ownership:** the
+                              post-handler exhaustive gate newly exposes
+                              `extern class UploadedFile:` members as top-level
+                              uninitialized `val` parser sentinels in the HTTP
+                              provider smoke. Give class headers the same
+                              explicit layout frame as trait/object/effect and
+                              make `extern class` consume exactly that body;
+                              pin the installed HTTP response fixture before
+                              resuming effect taxonomy retirement.
                         - [ ] **TI-8.2d2x parser recovery companion dispatch:**
                               `dsl-sql-recovery.ssc` imports the same self-hosted
                               Parser companion that works in YAML but currently

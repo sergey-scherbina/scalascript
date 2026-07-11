@@ -1,5 +1,23 @@
 # Bug tracker
 
+## v21-native-extern-class-members-escape — abstract fields become parser sentinels
+
+**Status:** open (2026-07-11); found by codex in the exhaustive post-effect
+release gate after the content-provider main rebase.
+
+- **Real-harness repro:** `scripts/v21-self-hosted-core-release-gate
+  --skip-install` fails in the HTTP response provider fixture because imported
+  `std/http.ssc` lowers `UploadedFile`'s abstract `name`, `filename`,
+  `contentType`, `size`, `bytes`, and `path` fields into top-level cell writes
+  from `_err`; the native entry rejects that structural CoreIR in both lanes.
+- **Expected:** `extern class C:` owns and erases exactly its abstract member
+  body. Members cannot leak into the module's top-level executable declaration
+  stream, while the following Request/Response declarations remain visible.
+- **Plan/done-when:** extend declaration-layout ownership to class headers,
+  consume a braced/layout extern-class body atomically, add a focused imported
+  VM/ASM regression around the existing HTTP fixture, and rerun the exhaustive
+  gate before retiring any effect taxonomy row.
+
 ## v21-native-explicit-effect-handler-erasure — declarations and handlers disappear
 
 **Status:** open (2026-07-11); found by codex while reducing the reviewed
