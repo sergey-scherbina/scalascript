@@ -2131,10 +2131,14 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     installed structural gate correctly rejects
                                     remaining `(global _err)` in the complete
                                     recovery closure on both VM/ASM. Isolate the
-                                    owning syntax/module, add a faithful focused
-                                    regression, and fix the general self-hosted
-                                    parser boundary without weakening sentinel
-                                    rejection or running partial IR. Track in
+                                    owning syntax/module: three
+                                    `case ok @ ParseOk(_, _, _)` arms currently
+                                    parse `@` as an unknown expression operator.
+                                    Add a focused bind-pattern regression and
+                                    preserve both the whole scrutinee binder and
+                                    inner constructor fields in ordered lowering,
+                                    without weakening sentinel rejection or
+                                    running partial IR. Track in
                                     `v21-native-sql-recovery-parser-sentinel`.
                         - [x] **TI-8.2d2a multiple Markdown imports per line —
                               DONE 2026-07-11 (`836ceee03`, `64fcab537`):**

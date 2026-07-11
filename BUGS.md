@@ -69,12 +69,18 @@ loss exposed the complete `dsl-sql-recovery.ssc` module closure.
   `--bytecode` twin exit 1 with `native frontend rejected incomplete parse ...
   structural CoreIR contains parser sentinel _err`. The focused wrapped-import
   fixture already passes `82` on both lanes, so module loading itself is fixed.
+- **Root cause:** the recovery evaluator contains three ordinary ScalaScript
+  bind patterns, `case ok @ ParseOk(_, _, _)`. The self-hosted pattern parser
+  stops after the bare binder, consumes `@` as an unknown expression operator,
+  and emits `_err`; nested constructor and tuple patterns themselves are already
+  correct. The compatibility frontend supports `Pat.Bind`.
 - **Expected:** isolate the exact imported/root source syntax that owns `_err`,
   repair its general self-hosted parser/lowerer boundary, and keep the strict
   structural sentinel rejection. Never execute partial IR or suppress `_err`.
 - **Plan/done-when:** inspect structural CoreIR and the assembled statement
-  stream, add the smallest faithful regression for the proved syntax family,
-  fix spec-first if the grammar contract changes, then require exact public
+  stream, add a focused bind-pattern regression, implement source-level
+  `name @ Constructor(...)` ownership with the whole scrutinee and inner fields
+  in scope, then require exact public
   VM/ASM output and the complete release gates before taxonomy retirement.
 
 ## v21-native-multiline-markdown-import-dropped — std parser companion stays unloaded
