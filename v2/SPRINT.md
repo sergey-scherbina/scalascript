@@ -1594,3 +1594,7 @@ json-value (jsonRead + i->str), litdoc (markup API arity), actors-*/cluster-*/di
 
 CONCLUSION: 13 native fixes landed this session (K62.21..31, conformance 406/0, ~10 tests green).
 Further native TEST-greening requires the v2.1 extension-dispatch lane (coordinate) or plugin work.
+
+## native mkString arities (2026-07-11, opus) — K62.32
+- [x] K62.32 — 0-arg / 3-arg mkString crashed (arity-2 _sel_mkString); route both to __method__,
+      keep 1-arg on the fast path. List + Array, all arities; conformance 406/0. (SPRINT §D item.)

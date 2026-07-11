@@ -1,5 +1,0 @@
-claim: native-mkstring-arity
-owner: opus (native-front correctness program, cont.)
-started: 2026-07-11
-scope:
-  - v2/lib/ssc1-lower.ssc0 — selMethodOr: 3-arg mkString(pre,sep,post) → __method__
