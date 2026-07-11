@@ -1,5 +1,27 @@
 # Bug tracker
 
+## v21-parity-mixed-scala-fence — native math exposes one-sided compiler surface
+
+**Status:** open (2026-07-11); found by codex while implementing TI-8.2d2i.
+
+- **Real-harness repro:** after staging the native `math` global, run
+  `scripts/bc-parity-sweep --ssc bin/ssc-standard --only 'lang-split.ssc'
+  --strict`. The VM exits zero after printing `Stub`-derived Scala-fence output,
+  while direct ASM fails on the later mixed numeric `%` expression.
+- **Expected:** a document whose front matter explicitly opts into
+  `runScalaFences: true` is a compiler/tools surface on the compiler-free
+  standard lane, even when it also contains `scalascript` fences. It must be
+  source-classified before either backend runs, not compared as portable CoreIR.
+- **Root cause:** the parity classifier skips backend-specific fences only when
+  no standard block exists. It ignores the explicit mixed-fence execution flag,
+  so the old shared `math` failure hid divergent unsupported Scala semantics.
+- **Planned fix:** classify `runScalaFences: true` as `skipped-backend`, pin
+  `lang-split.ssc` in the portable-gates smoke, remove its stale runtime-taxonomy
+  row, and keep mismatch/one-sided counts at zero.
+- **Done-when:** focused and full strict parity report no one-sided rows,
+  runtime/sentinel taxonomy gates pass, and the landed SHA is recorded here.
+  Keep `fixed` until Sergiy confirms.
+
 ## v21-layout-given-after-abstract-def — abstract return type consumes the next given
 
 **Status:** fixed (2026-07-11, `2a223d060`); found by codex while implementing
