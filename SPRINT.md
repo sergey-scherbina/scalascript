@@ -841,6 +841,34 @@ there before changing this plan.
                   a nonpersistent store, JavaScript disabled, compiled network
                   content rules, cancelled external navigation, and SwiftUI
                   openURL handoff for http/https/mailto links.
+                  Implementation plan against the frozen rich-content contract:
+                  - [ ] replace the generated `NativeUiHtmlAdapter.available`
+                        stub with one cross-platform SwiftUI representable plus
+                        platform coordinators; decode only the exact two-field
+                        `NativeUiTrustedHtml(siteId, String)` shape and render
+                        malformed values as sourced Unsupported output;
+                  - [ ] create each WKWebView with `.nonPersistent()` website
+                        data, content JavaScript disabled, no shared process
+                        pool/cookie state, scrolling disabled, and a compiled
+                        content rule installed before the first HTML load. The
+                        rule blocks network subresources while preserving
+                        inline markup/CSS and `data:` resources;
+                  - [ ] allow only the initial in-memory document navigation.
+                        Cancel every subsequent in-webview navigation; hand
+                        tapped absolute `http`, `https`, and non-empty `mailto`
+                        links to SwiftUI `openURL`, reject target-frame/new-window
+                        and all other schemes without loading them;
+                  - [ ] publish bounded positive height from platform scroll/
+                        document content-size observation and remove observers
+                        on dismantle/deinit. Descriptor replacement updates the
+                        existing view without retaining the prior markup;
+                  - [ ] add generated strict Swift gates for configuration,
+                        compiled-rule-before-load ordering, strong/`data-x` plus
+                        inline CSS/data visibility, external-link handoff,
+                        blocked network/unsafe navigation, dynamic height, and
+                        macOS/iOS 16 typecheck. Re-run full Swift backend,
+                        toolkit conformance, and obtain Rozum APPROVE before
+                        documentation/publication.
 - [ ] **v2-swiftui-apple-e2e** — emit one `.ssc` application to both macOS and
       iOS Xcode application projects with correct deployment declarations,
       resources, entry point, product type, shared scheme, and stable filenames.
