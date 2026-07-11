@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — fast --v2 preserves forms, sessions and authentication
+
+The fast HttpServerSpi backend now feeds its raw request through the shared
+transport-neutral `RequestBuilder`, restoring urlencoded/multipart forms,
+cookies, signed sessions, bearer/basic auth and cleanup of spooled files. The
+real-socket regression proves pair form -> cookie -> authenticated request plus
+signed-session round-trip. Common 150/150, fast 5/5, interpreter-server 58/58,
+INT/JS/JVM conformance, busi Vault restart/leakage and canonical Chromium 6/6
+are green. Landed `d202d2abf`; contract in `specs/v2-http-fast.md` hf-6d.
+
 ## 2026-07-11 — imported mapped parsers stay portable across VM and ASM
 
 A clean assembly proved the reported `PMapped/2` exception was a stale staged
