@@ -1536,3 +1536,16 @@ corpus than v2/conformance 406/0 (curated) suggests — this is a multi-session 
       only, flat false otherwise) giving Map.empty.isEmpty=false and "".isEmpty=false; fixed
       __list_isEmpty default → runtime __method__ isEmpty (type-aware), __list_nonEmpty → NOT(that).
       Verified Map/List/Option/String/Array isEmpty+nonEmpty; conformance 406/0.
+
+## native field-name registry + head/tail (2026-07-11, opus) — K62.28, head-field-shadow green
+
+- [x] K62.28 — head-field-shadow: `.head` on a LIST crashed / a case-class `head` field returned
+      Stub when a module defined `case class Ref(name, head)`. `.head` has no type info at
+      lowering (List.head vs a field literally named head). Fix (2 parts): (1) __list_head/
+      __list_tail keep the fast Cons arm, default → runtime __method__ (polymorphic: list head for
+      Cons, by-name field for a DataV, clean Nil error); (2) the native front now REGISTERS each
+      case class's field names — new __regfields__(tag,[names]) prim emitted from caseFieldOrderCell
+      at program start + a Runtime prim calling V2PluginRegistry.registerFieldNames (the registry
+      FrontendBridge populates on the scalameta path). Closes the NATIVE side of the field-name
+      registry family. Verified head-field-shadow MATCH (native + bridge), List.head/.tail
+      unchanged, conformance 406/0, bridge spot unchanged (v2Core recompiled, 5s).
