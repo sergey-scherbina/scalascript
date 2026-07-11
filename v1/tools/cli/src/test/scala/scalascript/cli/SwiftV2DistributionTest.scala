@@ -43,6 +43,12 @@ final class SwiftV2DistributionTest extends AnyFunSuite:
     assert(SwiftV2Distribution.normalizeExportMethod("app-store", "cmd") == "app-store-connect")
     assert(SwiftV2Distribution.normalizeExportMethod("enterprise", "cmd") == "enterprise")
     intercept[IllegalArgumentException](SwiftV2Distribution.normalizeExportMethod("legacy", "cmd"))
+    assert(SwiftV2Distribution.parseNotaryTimeout(None, "cmd") == 900)
+    assert(SwiftV2Distribution.parseNotaryTimeout(Some("3600"), "cmd") == 3600)
+    for raw <- List("abc", "0", "3601") do
+      val error = intercept[IllegalArgumentException](
+        SwiftV2Distribution.parseNotaryTimeout(Some(raw), "cmd"))
+      assert(error.getMessage == "cmd: --notary-timeout-seconds must be an integer in 1..3600")
 
   test("export options are canonical automatic and contain no empty profile map"):
     val xml = SwiftV2Distribution.exportOptionsPlist("app-store-connect", "TEAM123")
@@ -65,16 +71,28 @@ final class SwiftV2DistributionTest extends AnyFunSuite:
     writeArchiveInfo(archive, "../Outside.app")
     val traversal = intercept[IllegalStateException](SwiftV2Cli.archivedApplication(archive, "test"))
     assert(traversal.getMessage.contains("invalid xcarchive ApplicationPath"))
+    writeArchiveInfo(archive, "/tmp/Outside.app")
+    val absolute = intercept[IllegalStateException](SwiftV2Cli.archivedApplication(archive, "test"))
+    assert(absolute.getMessage.contains("invalid xcarchive ApplicationPath"))
+    os.remove(archive / "Info.plist")
+    val missing = intercept[IllegalStateException](SwiftV2Cli.archivedApplication(archive, "test"))
+    assert(missing.getMessage.contains("ApplicationPath missing"))
+    os.write(archive / "Info.plist", "not-a-plist")
+    val malformed = intercept[IllegalStateException](SwiftV2Cli.archivedApplication(archive, "test"))
+    assert(malformed.getMessage.contains("ApplicationPath missing"))
 
-  test("fresh export selection rejects zero and duplicate artifacts"):
-    val root = os.temp.dir(prefix = "ssc-export-")
-    intercept[IllegalStateException](SwiftV2Distribution.uniqueArtifact(root, "ipa", "test"))
-    os.write(root / "one.ipa", "one")
-    assert(SwiftV2Distribution.uniqueArtifact(root, "ipa", "test").last == "one.ipa")
-    os.write(root / "two.ipa", "two")
-    val duplicate = intercept[IllegalStateException](
-      SwiftV2Distribution.uniqueArtifact(root, "ipa", "test"))
-    assert(duplicate.getMessage.contains("found 2"))
+  test("fresh export selection rejects zero and duplicate IPA app and PKG artifacts"):
+    for extension <- List("ipa", "app", "pkg") do
+      val root = os.temp.dir(prefix = s"ssc-export-$extension-")
+      intercept[IllegalStateException](SwiftV2Distribution.uniqueArtifact(root, extension, "test"))
+      val one = root / s"one.$extension"
+      if extension == "app" then os.makeDir(one) else os.write(one, "one")
+      assert(SwiftV2Distribution.uniqueArtifact(root, extension, "test") == one)
+      val two = root / s"two.$extension"
+      if extension == "app" then os.makeDir(two) else os.write(two, "two")
+      val duplicate = intercept[IllegalStateException](
+        SwiftV2Distribution.uniqueArtifact(root, extension, "test"))
+      assert(duplicate.getMessage.contains("found 2"))
 
   test("shared app verifier rejects wrong bundle and debug CLI executable"):
     val root = os.temp.dir(prefix = "ssc-app-verify-")
@@ -90,6 +108,26 @@ final class SwiftV2DistributionTest extends AnyFunSuite:
     os.write(bundle / "SentinelCli", "")
     val debugCli = intercept[IllegalStateException](
       SwiftV2Cli.verifyAppBundle(emitted, bundle, Map.empty, "test"))
+    assert(debugCli.getMessage.contains("not the expected application"))
+
+  test("synthetic archives reject wrong bundle and debug CLI application"):
+    val root = os.temp.dir(prefix = "ssc-archive-identity-")
+    val archive = root / "Sentinel.xcarchive"
+    val bundle = archive / "Products" / "Applications" / "Sentinel.app"
+    os.makeDir.all(bundle)
+    writeArchiveInfo(archive, "Applications/Sentinel.app")
+    val emitted = SwiftV2Cli.EmittedPackage(root, "SentinelCli", SwiftPlatform.IOS, Some(app))
+    writeAppInfo(bundle, "com.example.wrong", "Sentinel")
+    os.write(bundle / "Sentinel", "")
+    val wrongBundle = intercept[IllegalStateException](
+      SwiftV2Cli.verifyAppBundle(
+        emitted, SwiftV2Cli.archivedApplication(archive, "archive test"), Map.empty, "archive test"))
+    assert(wrongBundle.getMessage.contains("not the expected application"))
+    writeAppInfo(bundle, app.bundleId, "SentinelCli")
+    os.write(bundle / "SentinelCli", "")
+    val debugCli = intercept[IllegalStateException](
+      SwiftV2Cli.verifyAppBundle(
+        emitted, SwiftV2Cli.archivedApplication(archive, "archive test"), Map.empty, "archive test"))
     assert(debugCli.getMessage.contains("not the expected application"))
 
   test("device export and notary plans preserve exact verified artifact inputs"):
@@ -112,6 +150,9 @@ final class SwiftV2DistributionTest extends AnyFunSuite:
     assert(source.contains("pilot(ipa: ENV.fetch(\"SSC_IPA_PATH\")"))
     assert(source.contains("deliver(ipa: ENV.fetch(\"SSC_IPA_PATH\")"))
     assert(source.contains("deliver(pkg: ENV.fetch(\"SSC_PKG_PATH\")"))
+    assert(source.count(_ == '\n') > 5)
+    assert(source.sliding("app_identifier: ENV.fetch(\"SSC_BUNDLE_ID\")".length)
+      .count(_ == "app_identifier: ENV.fetch(\"SSC_BUNDLE_ID\")") == 3)
     assert(source.contains("changelog: ENV[\"SSC_RELEASE_NOTES\"]"))
     val hostile = "quotes \" backslash \\ cr\r\nline\nПривіт"
     val root = os.Path("/tmp/ssc-fastlane-env", os.pwd)
@@ -132,14 +173,88 @@ final class SwiftV2DistributionTest extends AnyFunSuite:
     val root = os.temp.dir(prefix = "ssc-api-key-")
     val cli = root / "cli.json"
     val env = root / "env.json"
-    os.write(cli, "{\"key_id\":\"CLI\"}")
-    os.write(env, "{\"key_id\":\"ENV\"}")
+    os.write(cli, "{\"key_id\":\"CLI\",\"issuer_id\":\"ISS\",\"key\":\"SECRET\"}")
+    os.write(env, "{\"key_id\":\"ENV\",\"issuer_id\":\"ISS\",\"key\":\"SECRET\"}")
     assert(SwiftV2Distribution.requireApiKey(
       Some(cli.toString), Map("APP_STORE_CONNECT_API_KEY_PATH" -> env.toString), "cmd") == cli)
     val bad = root / "bad.json"
     os.write(bad, "not-json")
     intercept[IllegalArgumentException](
       SwiftV2Distribution.requireApiKey(Some(bad.toString), Map.empty, "cmd"))
+    val incomplete = root / "incomplete.json"
+    os.write(incomplete, "{\"key_id\":\"ONLY\"}")
+    intercept[IllegalArgumentException](
+      SwiftV2Distribution.requireApiKey(Some(incomplete.toString), Map.empty, "cmd"))
+
+  test("missing distribution tools fail during bounded preflight"):
+    val missing = "/definitely/missing/tool"
+    withProperties(Map("ssc.xcodebuild.command" -> missing)) {
+      assert(intercept[IllegalStateException](SwiftV2Distribution.requireXcodebuild("cmd"))
+        .getMessage.contains("xcodebuild"))
+    }
+    withProperties(Map("ssc.fastlane.command" -> missing)) {
+      assert(intercept[IllegalStateException](SwiftV2Distribution.requireFastlane("cmd"))
+        .getMessage.contains("fastlane"))
+    }
+    withProperties(Map("ssc.ios-deploy.command" -> missing)) {
+      assert(intercept[IllegalStateException](SwiftV2Distribution.requireIosDeploy("cmd"))
+        .getMessage.contains("ios-deploy"))
+    }
+    val trueTool = "/usr/bin/true"
+    withProperties(Map(
+      "ssc.xcodebuild.command" -> trueTool,
+      "ssc.codesign.command" -> trueTool,
+    )) {
+      val profile = intercept[IllegalArgumentException](
+        SwiftV2Distribution.preflightMacDistribution(
+          notarize = true, dmg = false, None, "cmd"))
+      assert(profile.getMessage ==
+        "cmd: --notary-profile or SSC_NOTARY_KEYCHAIN_PROFILE is required")
+    }
+    for (property, purpose, notarize, dmg) <- List(
+      ("ssc.codesign.command", "codesign", false, false),
+      ("ssc.ditto.command", "ditto", true, false),
+      ("ssc.xcrun.command", "notarytool", true, false),
+      ("ssc.hdiutil.command", "hdiutil", false, true),
+    ) do
+      val props = Map(
+        "ssc.xcodebuild.command" -> trueTool,
+        "ssc.codesign.command" -> trueTool,
+        "ssc.ditto.command" -> trueTool,
+        "ssc.xcrun.command" -> trueTool,
+        "ssc.hdiutil.command" -> trueTool,
+        property -> missing,
+      )
+      withProperties(props) {
+        val error = intercept[IllegalStateException](
+          SwiftV2Distribution.preflightMacDistribution(
+            notarize, dmg, Some("profile"), "cmd"))
+        assert(error.getMessage.contains(purpose), error.getMessage)
+      }
+
+  test("fake archive failure is bounded before export"):
+    val root = os.temp.dir(prefix = "ssc-fake-xcode-failure-")
+    val fake = executable(root / "xcodebuild",
+      """|#!/bin/sh
+         |set -eu
+         |if [ "$1" = "-version" ]; then exit 0; fi
+         |if [ "$1" = "-showBuildSettings" ]; then
+         |  echo '    TARGET_NAME = Sentinel'
+         |  echo '    FULL_PRODUCT_NAME = Sentinel.app'
+         |  echo '    TARGET_BUILD_DIR = /tmp/unused'
+         |  exit 0
+         |fi
+         |if [ "$1" = "archive" ]; then exit 23; fi
+         |exit 64
+         |""".stripMargin)
+    withProperties(Map("ssc.xcodebuild.command" -> fake.toString)) {
+      val emitted = SwiftV2Cli.EmittedPackage(root, "SentinelCli", SwiftPlatform.IOS, Some(app))
+      val context = SwiftV2Distribution.Context(emitted, app, root)
+      val error = intercept[IllegalStateException](
+        SwiftV2Distribution.packageIos(context, "debugging", "TEAM123", "fake failure"))
+      assert(error.getMessage.contains("xcodebuild archive failed (exit 23)"))
+      assert(!os.exists(root / "ipa"))
+    }
 
   test("fake Xcode runner preserves archive verification and unique IPA handoff"):
     val root = os.temp.dir(prefix = "ssc-fake-xcode-")
@@ -165,6 +280,139 @@ final class SwiftV2DistributionTest extends AnyFunSuite:
         case Some(value) => sys.props("ssc.xcodebuild.command") = value
         case None => sys.props.remove("ssc.xcodebuild.command")
 
+  test("fake signed device chain deploys only the verified Xcode app"):
+    val root = os.temp.dir(prefix = "ssc-fake-device-")
+    val log = root / "argv.log"
+    val xcode = executable(root / "xcodebuild", fakeXcodeScript(log))
+    val deploy = executable(root / "ios-deploy", fakeToolScript(log))
+    withProperties(Map(
+      "ssc.xcodebuild.command" -> xcode.toString,
+      "ssc.ios-deploy.command" -> deploy.toString,
+    )) {
+      val emitted = SwiftV2Cli.EmittedPackage(root, "SentinelCli", SwiftPlatform.IOS, Some(app))
+      val context = SwiftV2Distribution.Context(emitted, app, root)
+      SwiftV2Distribution.runIosDevice(
+        context, "TEAM123", Some("DEVICE1"), console = false, "fake device")
+      val argv = os.read(log)
+      assert(argv.contains("build -project Sentinel.xcodeproj -scheme Sentinel"))
+      assert(argv.contains("DEVELOPMENT_TEAM=TEAM123"))
+      assert(argv.contains("--bundle") && argv.contains("Sentinel.app"))
+      assert(argv.contains("--id DEVICE1 --justlaunch"))
+      assert(!argv.contains("SentinelCli"))
+    }
+
+  test("fake Developer ID chain preserves notarize and DMG toggles"):
+    val root = os.temp.dir(prefix = "ssc-fake-macdist-")
+    val log = root / "argv.log"
+    val xcode = executable(root / "xcodebuild", fakeXcodeScript(log, "app"))
+    val fake = executable(root / "tool", fakeToolScript(log))
+    val props = Map(
+      "ssc.xcodebuild.command" -> xcode.toString,
+      "ssc.codesign.command" -> fake.toString,
+      "ssc.ditto.command" -> fake.toString,
+      "ssc.xcrun.command" -> fake.toString,
+      "ssc.hdiutil.command" -> fake.toString,
+    )
+    withProperties(props) {
+      val emitted = SwiftV2Cli.EmittedPackage(root, "SentinelCli", SwiftPlatform.MacOS, Some(app))
+      val context = SwiftV2Distribution.Context(emitted, app, root)
+      SwiftV2Distribution.preflightMacDistribution(
+        notarize = true, dmg = true, Some("profile"), "fake mac")
+      val result = SwiftV2Distribution.packageMacDeveloperId(
+        context, "TEAM123", notarize = true, dmg = true, Some("profile"), 900, "fake mac")
+      assert(result.app.last == "Sentinel.app" && result.dmg.exists(_.last == "Sentinel.dmg"))
+      val argv = os.read(log)
+      assert(argv.contains("--verify --deep --strict"))
+      assert(argv.contains("-c -k --keepParent"))
+      assert(argv.contains("notarytool submit") && argv.contains("--keychain-profile profile"))
+      assert(argv.contains("stapler staple") && argv.contains("stapler validate"))
+      assert(argv.contains("create -volname Sentinel -srcfolder"))
+    }
+
+    val noNotaryRoot = os.temp.dir(prefix = "ssc-fake-macplain-")
+    val noNotaryLog = noNotaryRoot / "argv.log"
+    val noNotaryXcode = executable(noNotaryRoot / "xcodebuild", fakeXcodeScript(noNotaryLog, "app"))
+    val noNotaryTool = executable(noNotaryRoot / "tool", fakeToolScript(noNotaryLog))
+    withProperties(Map(
+      "ssc.xcodebuild.command" -> noNotaryXcode.toString,
+      "ssc.codesign.command" -> noNotaryTool.toString,
+      "ssc.ditto.command" -> "/definitely/missing/ditto",
+      "ssc.xcrun.command" -> "/definitely/missing/xcrun",
+      "ssc.hdiutil.command" -> "/definitely/missing/hdiutil",
+    )) {
+      val emitted = SwiftV2Cli.EmittedPackage(
+        noNotaryRoot, "SentinelCli", SwiftPlatform.MacOS, Some(app))
+      val context = SwiftV2Distribution.Context(emitted, app, noNotaryRoot)
+      SwiftV2Distribution.preflightMacDistribution(
+        notarize = false, dmg = false, None, "fake mac")
+      val result = SwiftV2Distribution.packageMacDeveloperId(
+        context, "TEAM123", notarize = false, dmg = false, None, 900, "fake mac")
+      assert(result.dmg.isEmpty)
+      val argv = os.read(noNotaryLog)
+      assert(!argv.contains("notarytool") && !argv.contains("stapler") && !argv.contains("create -volname"))
+    }
+
+  test("fake Mac App Store export and fastlane consume one explicit PKG"):
+    val root = os.temp.dir(prefix = "ssc-fake-macstore-")
+    val log = root / "argv.log"
+    val envLog = root / "env.log"
+    val xcode = executable(root / "xcodebuild", fakeXcodeScript(log, "pkg"))
+    val fastlane = executable(root / "fastlane", fakeFastlaneScript(envLog))
+    val key = root / "key.json"
+    os.write(key, "{\"key_id\":\"K\",\"issuer_id\":\"I\",\"key\":\"S\"}")
+    withProperties(Map(
+      "ssc.xcodebuild.command" -> xcode.toString,
+      "ssc.fastlane.command" -> fastlane.toString,
+    )) {
+      val emitted = SwiftV2Cli.EmittedPackage(root, "SentinelCli", SwiftPlatform.MacOS, Some(app))
+      val context = SwiftV2Distribution.Context(emitted, app, root)
+      val pkg = SwiftV2Distribution.packageMacAppStore(context, "TEAM123", "fake publish")
+      assert(pkg == root / "pkg" / "Sentinel.pkg")
+      SwiftV2Distribution.runFastlane(
+        context, "mac_appstore", pkg, key, None, submitForReview = true,
+        useExisting = false, root, "fake publish")
+      val env = os.read(envLog)
+      assert(env.contains("lane=mac_appstore"))
+      assert(env.contains(s"pkg=${pkg.toString}"))
+      assert(env.contains("bundle=com.scalascript.sentinel"))
+      assert(!os.read(root / "Fastfile").contains("gym("))
+    }
+
+  test("generated and existing iOS Fastfiles receive explicit artifact cwd and env"):
+    val root = os.temp.dir(prefix = "ssc-fake-ios-publish-")
+    val output = root / "generated"
+    os.makeDir.all(output)
+    val log = root / "env.log"
+    val fastlane = executable(root / "fastlane", fakeFastlaneScript(log))
+    val key = root / "key.json"
+    val ipa = root / "Sentinel.ipa"
+    os.write(key, "{\"key_id\":\"K\",\"issuer_id\":\"I\",\"key\":\"S\"}")
+    os.write(ipa, "ipa")
+    val emitted = SwiftV2Cli.EmittedPackage(output, "SentinelCli", SwiftPlatform.IOS, Some(app))
+    val context = SwiftV2Distribution.Context(emitted, app, output)
+    val custom = root / "custom"
+    os.makeDir.all(custom)
+    os.write(custom / "Fastfile", "lane :appstore do\nend\n")
+    val hostile = "quote \" slash \\ cr\r\nПривіт"
+    withProperties(Map("ssc.fastlane.command" -> fastlane.toString)) {
+      SwiftV2Distribution.runFastlane(
+        context, "testflight", ipa, key, Some(hostile), submitForReview = false,
+        useExisting = false, custom, "fake publish")
+      SwiftV2Distribution.runFastlane(
+        context, "appstore", ipa, key, None, submitForReview = true,
+        useExisting = true, custom, "fake publish")
+      val env = os.read(log)
+      assert(env.contains("lane=testflight") && env.contains("lane=appstore"))
+      assert(env.contains(s"ipa=${ipa.toString}"))
+      assert(env.contains("bundle=com.scalascript.sentinel"))
+      val workingDirectories = env.linesIterator.filter(_.startsWith("cwd="))
+        .map(line => os.Path(line.stripPrefix("cwd="), os.pwd).toNIO.toRealPath()).toSet
+      assert(workingDirectories == Set(output.toNIO.toRealPath(), custom.toNIO.toRealPath()))
+      assert(env.contains("notes=quote \" slash \\ cr"))
+      assert(os.exists(output / "Fastfile"))
+      assert(!os.read(output / "Fastfile").contains("gym("))
+    }
+
   private def writeArchiveInfo(archive: os.Path, applicationPath: String): Unit =
     os.write.over(archive / "Info.plist",
       s"""|<?xml version="1.0" encoding="UTF-8"?>
@@ -188,14 +436,66 @@ final class SwiftV2DistributionTest extends AnyFunSuite:
     try os.proc(command, "--version").call(check = false, stdout = os.Pipe, stderr = os.Pipe).exitCode == 0
     catch case _: Throwable => false
 
-  private def fakeXcodeScript(log: os.Path): String =
+  private def withProperties[A](values: Map[String, String])(body: => A): A =
+    val previous = values.keys.map(key => key -> sys.props.get(key)).toMap
+    values.foreach((key, value) => sys.props(key) = value)
+    try body
+    finally
+      previous.foreach {
+        case (key, Some(value)) => sys.props(key) = value
+        case (key, None) => sys.props.remove(key)
+      }
+
+  private def executable(path: os.Path, content: String): os.Path =
+    os.write(path, content)
+    os.perms.set(path, "rwxr--r--")
+    path
+
+  private def fakeToolScript(log: os.Path): String =
     s"""|#!/bin/sh
         |set -eu
         |echo "$$*" >> '${log.toString}'
+        |last=''
+        |for arg in "$$@"; do last="$$arg"; done
+        |case "$$last" in
+        |  *'.zip'|*'.dmg') : > "$$last" ;;
+        |esac
+        |exit 0
+        |""".stripMargin
+
+  private def fakeFastlaneScript(log: os.Path): String =
+    s"""|#!/bin/sh
+        |set -eu
+        |if [ "$$1" = '--version' ]; then exit 0; fi
+        |{
+        |  echo "lane=$$1"
+        |  echo "cwd=$$(pwd)"
+        |  echo "ipa=$${SSC_IPA_PATH-}"
+        |  echo "pkg=$${SSC_PKG_PATH-}"
+        |  echo "bundle=$${SSC_BUNDLE_ID-}"
+        |  echo "project=$${SSC_XCODE_PROJECT-}"
+        |  echo "scheme=$${SSC_XCODE_SCHEME-}"
+        |  echo "notes=$${SSC_RELEASE_NOTES-}"
+        |} >> '${log.toString}'
+        |exit 0
+        |""".stripMargin
+
+  private def fakeXcodeScript(log: os.Path, exportKind: String = "ipa"): String =
+    s"""|#!/bin/sh
+        |set -eu
+        |echo "$$*" >> '${log.toString}'
+        |if [ "$$1" = "-version" ]; then exit 0; fi
         |if [ "$$1" = "-showBuildSettings" ]; then
         |  echo '    TARGET_NAME = Sentinel'
         |  echo '    FULL_PRODUCT_NAME = Sentinel.app'
-        |  echo '    TARGET_BUILD_DIR = /tmp/unused'
+        |  echo '    TARGET_BUILD_DIR = ${log / os.up / "Build"}'
+        |  exit 0
+        |fi
+        |if [ "$$1" = "build" ]; then
+        |  app='${log / os.up / "Build"}/Sentinel.app'
+        |  mkdir -p "$$app/Contents/MacOS"
+        |  printf '%s' '<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleIdentifier</key><string>com.scalascript.sentinel</string><key>CFBundleExecutable</key><string>Sentinel</string></dict></plist>' > "$$app/Contents/Info.plist"
+        |  : > "$$app/Contents/MacOS/Sentinel"
         |  exit 0
         |fi
         |if [ "$$1" = "archive" ]; then
@@ -206,10 +506,12 @@ final class SwiftV2DistributionTest extends AnyFunSuite:
         |    previous="$$arg"
         |  done
         |  app="$$archive/Products/Applications/Sentinel.app"
-        |  mkdir -p "$$app"
+        |  mkdir -p "$$app/Contents/MacOS"
         |  printf '%s' '<?xml version="1.0"?><plist version="1.0"><dict><key>ApplicationProperties</key><dict><key>ApplicationPath</key><string>Applications/Sentinel.app</string></dict></dict></plist>' > "$$archive/Info.plist"
         |  printf '%s' '<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleIdentifier</key><string>com.scalascript.sentinel</string><key>CFBundleExecutable</key><string>Sentinel</string></dict></plist>' > "$$app/Info.plist"
         |  : > "$$app/Sentinel"
+        |  cp "$$app/Info.plist" "$$app/Contents/Info.plist"
+        |  : > "$$app/Contents/MacOS/Sentinel"
         |  exit 0
         |fi
         |if [ "$$1" = '-exportArchive' ]; then
@@ -220,7 +522,14 @@ final class SwiftV2DistributionTest extends AnyFunSuite:
         |    previous="$$arg"
         |  done
         |  mkdir -p "$$output"
-        |  : > "$$output/Sentinel.ipa"
+        |  if [ '$exportKind' = 'app' ]; then
+        |    app="$$output/Sentinel.app"
+        |    mkdir -p "$$app/Contents/MacOS"
+        |    printf '%s' '<?xml version="1.0"?><plist version="1.0"><dict><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleIdentifier</key><string>com.scalascript.sentinel</string><key>CFBundleExecutable</key><string>Sentinel</string></dict></plist>' > "$$app/Contents/Info.plist"
+        |    : > "$$app/Contents/MacOS/Sentinel"
+        |  else
+        |    : > "$$output/Sentinel.$exportKind"
+        |  fi
         |  exit 0
         |fi
         |exit 64
