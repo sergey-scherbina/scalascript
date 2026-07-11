@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — v2 Swift AppCore executes checked Money and effects
+
+The first-class CoreIR-to-Swift backend now closes its domain-runtime gate:
+generated programs carry checked constructor field layouts, self and mutual
+tail recursion stay on the trampoline, and dynamic Decimal/BigInt, collections,
+methods, and algebraic-effect continuations execute in target-owned Swift. The
+unchanged `money-portable-v2.ssc` and `effect-transitive-handler.ssc` fixtures
+compile through the checked frontend and real SwiftPM executables with exact VM
+output. Swift backend tests pass 8/8; affected Money and effect conformance pass
+1/1 and 4/4. Landed `f20b47b35`; detailed gates are recorded in
+`specs/v2-swift-swiftui-native.md`.
+
 ## 2026-07-11 — standard Markdown parsing is self-hosted and structural
 
 The pure ScalaScript Markdown Profile now covers headings/scopes, pure-link

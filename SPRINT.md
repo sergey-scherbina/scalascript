@@ -159,7 +159,7 @@ there before changing this plan.
       arithmetic/comparisons with a focused runtime regression, then rerun the
       unchanged Money/effect conformance slice. Exact dynamic BigInt delegation
       and the real Money allocation fixture now pass.
-- [ ] **v2-swift-core-backend** — add `v2/backend/swift` as a first-class
+- [x] **v2-swift-core-backend — DONE 2026-07-11 (`f20b47b35`)** — add `v2/backend/swift` as a first-class
       checked-CoreIR consumer parallel to JS/Rust. Emit deterministic `AppCore`
       Swift sources/runtime for all structural terms, values, cells/maps,
       closures, TCO, portable decimal/money, and lowered effects. Provide direct
@@ -175,7 +175,11 @@ there before changing this plan.
       exact scale-preserving Decimal, portable rounding, and numeric map-key
       identity under real SwiftPM execution. `ddcc01156` added explicit
       reusable-closure Pure/Op handling and a real multi-shot SwiftPM gate;
-      backend suite is 6/6.
+      backend suite is 6/6. Closure `f20b47b35` added checked constructor-field
+      metadata, bounded-stack mutual TCO, and exact execution of the unchanged
+      `money-portable-v2.ssc` and `effect-transitive-handler.ssc` sources through
+      FrontendBridge → generated SwiftPM → real Swift 6.3.2. Final gates: Swift
+      backend 8/8, Money conformance 1/1, effects conformance 4/4.
 - [ ] **v2-swift-cli-package** — add Rust-shaped developer commands
       (`emit-swift`, `run-swift`) and route `build/run --target
       macos|desktop-macos|ios|mobile-ios` to v2 by default. `--v1` is the only
