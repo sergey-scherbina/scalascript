@@ -20,7 +20,8 @@ final class FastHttpServer(
     host: String = "127.0.0.1",
     limits: HttpProtocol.Limits = HttpProtocol.Limits(),
     idleTimeoutMs: Int = 30_000,
-    maxKeepAliveRequests: Int = 10_000):
+    maxKeepAliveRequests: Int = 10_000,
+    webSocket: Option[FastHttpServer.WebSocketDispatcher] = None):
 
   @volatile private var server: ServerSocket | Null = null
   @volatile private var running = false
@@ -67,6 +68,9 @@ final class FastHttpServer(
                 s"Bad Request: ${b.getMessage}".getBytes(ISO_8859_1)), keepAlive = false)
               open = false; null
         if req == null then open = false
+        else if isWebSocketUpgrade(req.nn) then
+          upgradeWebSocket(req.nn, sock, reader, out)
+          open = false // the socket is now owned by the WS read loop (already returned/closed)
         else
           served += 1
           val resp =
@@ -81,6 +85,30 @@ final class FastHttpServer(
     finally
       connections.remove(sock)
       closeQuietly(sock)
+
+  private def isWebSocketUpgrade(req: RawRequest): Boolean =
+    webSocket.isDefined && WebSocketFrames.isUpgrade(req.headers) && webSocket.nn.get.hasRoute(req.path)
+
+  /** Complete the RFC 6455 handshake, hand the socket to the dispatcher, and run the frame
+    * read loop on this connection's virtual thread until the peer closes. */
+  private def upgradeWebSocket(req: RawRequest, sock: Socket, reader: HttpReader, out: OutputStream): Unit =
+    val dispatcher = webSocket.nn.get
+    val key    = req.headers.getOrElse("sec-websocket-key", "")
+    val offered = req.headers.get("sec-websocket-protocol")
+      .map(_.split(",").iterator.map(_.trim).filter(_.nonEmpty).toList).getOrElse(Nil)
+    val sub = dispatcher.selectSubprotocol(req.path, offered)
+    val sb = new StringBuilder(160)
+    sb.append("HTTP/1.1 101 Switching Protocols\r\n")
+      .append("Upgrade: websocket\r\n")
+      .append("Connection: Upgrade\r\n")
+      .append("Sec-WebSocket-Accept: ").append(WebSocketFrames.acceptKey(key)).append("\r\n")
+    sub.foreach(p => sb.append("Sec-WebSocket-Protocol: ").append(p).append("\r\n"))
+    sb.append("\r\n")
+    out.write(sb.toString.getBytes(ISO_8859_1))
+    out.flush()
+    sock.setSoTimeout(0) // a live WebSocket may idle between frames; rely on ping/pong + close
+    val conn = dispatcher.open(req, sock, reader, out, sub)
+    conn.readLoop() // blocks on this vthread until close/EOF; closes the socket on exit
 
   private def trySend(out: OutputStream, resp: RawResponse, keepAlive: Boolean): Unit =
     try HttpProtocol.writeResponse(out, resp, keepAlive)
@@ -102,3 +130,17 @@ final class FastHttpServer(
 
   private def closeQuietly(c: AutoCloseable): Unit =
     try c.close() catch case _: Throwable => ()
+
+object FastHttpServer:
+  /** The engine's WebSocket seam. The ssc-value bridge implements it (routing to
+    * `onWebSocket` handlers, building the `ws` value); the engine drives the handshake +
+    * read loop. */
+  trait WebSocketDispatcher:
+    /** Is there an `onWebSocket` route for this path? (else the request 404s as normal HTTP). */
+    def hasRoute(path: String): Boolean
+    /** Pick a subprotocol from the client's offered list (empty ⇒ none echoed). */
+    def selectSubprotocol(path: String, offered: List[String]): Option[String] = None
+    /** Build + register the connection and run the ssc handler to wire callbacks. The engine
+      * calls `readLoop()` on the returned connection. */
+    def open(request: RawRequest, sock: java.net.Socket, reader: HttpReader,
+             out: java.io.OutputStream, subprotocol: Option[String]): WsConnection

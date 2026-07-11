@@ -291,9 +291,109 @@ final class HttpFastNativePlugin extends NativePlugin:
       Value.UnitV
     }
 
-    // Still stubbed — filled by later phases (hf-3 websocket, hf-4 streaming/middleware).
+    // ---- WebSocket (RFC 6455) ----
+    context.registerFields("WebSocket", Vector("id"))
+    context.registerFields("WsRoom", Vector("id"))
+
+    def bytesOf(v: Value): Array[Byte] = v match
+      case Value.BytesV(b) => b.toArray
+      case Value.StrV(s)   => s.getBytes(java.nio.charset.StandardCharsets.UTF_8)
+      case _ => throw new RuntimeException("expected Bytes")
+
+    context.registerTaggedMethod("WebSocket", "send") {
+      case recv :: Value.StrV(msg) :: Nil => serverHost.wsSend(recv, msg); Value.UnitV
+      case _ => throw new RuntimeException("ws.send(text)")
+    }
+    context.registerTaggedMethod("WebSocket", "sendBytes") {
+      case recv :: payload :: Nil => serverHost.wsSendBytes(recv, bytesOf(payload)); Value.UnitV
+      case _ => throw new RuntimeException("ws.sendBytes(bytes)")
+    }
+    context.registerTaggedMethod("WebSocket", "ping") {
+      case recv :: Nil => serverHost.wsPing(recv); Value.UnitV
+      case recv :: _   => serverHost.wsPing(recv); Value.UnitV
+      case _ => throw new RuntimeException("ws.ping()")
+    }
+    context.registerTaggedMethod("WebSocket", "close") {
+      case recv :: Nil => serverHost.wsClose(recv, 1000, ""); Value.UnitV
+      case recv :: Value.IntV(code) :: rest =>
+        val reason = rest.headOption.collect { case Value.StrV(s) => s }.getOrElse("")
+        serverHost.wsClose(recv, code.toInt, reason); Value.UnitV
+      case recv :: _ => serverHost.wsClose(recv, 1000, ""); Value.UnitV
+      case _ => throw new RuntimeException("ws.close([code, reason])")
+    }
+    context.registerTaggedMethod("WebSocket", "onMessage") {
+      case recv :: cb :: Nil => serverHost.wsOnMessage(recv, cb); Value.UnitV
+      case _ => throw new RuntimeException("ws.onMessage { msg => … }")
+    }
+    context.registerTaggedMethod("WebSocket", "onClose") {
+      case recv :: cb :: Nil => serverHost.wsOnClose(recv, cb); Value.UnitV
+      case _ => throw new RuntimeException("ws.onClose { code => … }")
+    }
+    context.registerTaggedMethod("WebSocket", "onPong") {
+      case recv :: cb :: Nil => serverHost.wsOnPong(recv, cb); Value.UnitV
+      case _ => throw new RuntimeException("ws.onPong { bytes => … }")
+    }
+    context.registerTaggedMethod("WebSocket", "isClosed") {
+      case recv :: Nil => Value.BoolV(serverHost.wsIsClosed(recv))
+      case _ => throw new RuntimeException("ws.isClosed")
+    }
+    context.registerTaggedMethod("WebSocket", "request") {
+      case recv :: Nil => serverHost.wsRequest(recv)
+      case _ => throw new RuntimeException("ws.request")
+    }
+    context.registerTaggedMethod("WebSocket", "subprotocol") {
+      case recv :: Nil => serverHost.wsSubprotocol(recv)
+      case _ => throw new RuntimeException("ws.subprotocol")
+    }
+    context.registerTaggedMethod("WebSocket", "user") {
+      case recv :: Nil => serverHost.wsUser(recv)
+      case _ => throw new RuntimeException("ws.user")
+    }
+
+    context.registerTaggedMethod("WsRoom", "add") {
+      case recv :: ws :: Nil => serverHost.roomAdd(recv, ws); Value.UnitV
+      case _ => throw new RuntimeException("room.add(ws)")
+    }
+    context.registerTaggedMethod("WsRoom", "remove") {
+      case recv :: ws :: Nil => serverHost.roomRemove(recv, ws); Value.UnitV
+      case _ => throw new RuntimeException("room.remove(ws)")
+    }
+    context.registerTaggedMethod("WsRoom", "broadcast") {
+      case recv :: Value.StrV(msg) :: Nil => serverHost.roomBroadcast(recv, msg); Value.UnitV
+      case _ => throw new RuntimeException("room.broadcast(text)")
+    }
+    context.registerTaggedMethod("WsRoom", "size") {
+      case recv :: Nil => Value.IntV(serverHost.roomSize(recv).toLong)
+      case _ => throw new RuntimeException("room.size")
+    }
+
+    native(context, "onWebSocket") { args =>
+      val path = text(args, 0, "onWebSocket")
+      closure(1) {
+        case List(handler) => serverHost.registerWs(path, handler, None, Nil); Value.UnitV
+        case _ => throw new RuntimeException("onWebSocket(path)(handler)")
+      }
+    }
+    native(context, "onWebSocketAuth") { args =>
+      val path = text(args, 0, "onWebSocketAuth")
+      val authFn = args.lift(1).getOrElse(throw new RuntimeException("onWebSocketAuth(path, authFn)(handler)"))
+      closure(1) {
+        case List(handler) => serverHost.registerWs(path, handler, Some(authFn), Nil); Value.UnitV
+        case _ => throw new RuntimeException("onWebSocketAuth(path, authFn)(handler)")
+      }
+    }
+    native(context, "wsConnect") { args =>
+      val url = text(args, 0, "wsConnect")
+      val requestHeaders = args.lift(1).map(headers).getOrElse(Map.empty)
+      closure(1) {
+        case List(handler) => serverHost.connectClient(url, requestHeaders, Nil, handler)
+        case _ => throw new RuntimeException("wsConnect(url)(handler)")
+      }
+    }
+    native(context, "WsRoom") { _ => serverHost.roomCreate() }
+
+    // Still stubbed — filled by hf-4 (streaming/middleware).
     List("use", "cors", "useGzip",
-      "streamResponse", "sse", "uploadSpoolThreshold", "uploadDir",
-      "wsConnect", "onWebSocket", "onWebSocketAuth", "mount").foreach { name =>
+      "streamResponse", "sse", "uploadSpoolThreshold", "uploadDir", "mount").foreach { name =>
       native(context, name)(unsupported(name))
     }

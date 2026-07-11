@@ -29,7 +29,12 @@ Spec: `specs/v2-http-fast.md`. New v2 native plugin: NIO + Java-21 virtual-threa
       NioNativeHttpServerHost (9-field Request, params in `form`, cookies), HttpFastNativePlugin
       (id 50-http, maxBodySize real). 26 tests green. Bench vs raw com.sun: 1.46× req/s
       (21.8k→31.9k), p99 7.79→4.18ms, 0 err. Aggregated for CI; not yet on CLI classpath (hf-5).
-- [ ] **hf-3 websocket** — RFC 6455 upgrade+framing; onWebSocket/wsConnect/ws-value/WsRoom.
+- [x] **hf-3 websocket** — DONE. WebSocketFrames (RFC 6455 codec), WsConnection (read loop:
+      fragmentation, auto-pong, close handshake, thread-safe writes), upgrade in FastHttpServer
+      (101 + subprotocol), WsChannel unifies server+client, ws value = DataV("WebSocket",[id])
+      + tagged methods (send/onMessage/close/…), onWebSocket/onWebSocketAuth/wsConnect/WsRoom.
+      10 tests (echo, fragmentation, 200KB, binary, close both ways, 20-conn broadcast, RFC
+      vector, ServiceLoader install smoke). VM-level .ssc e2e → hf-5 conformance.
 - [ ] **hf-4 streaming/middleware** — sse, cors, use (chain), useGzip, maxBodySize (fill stubs).
 - [ ] **hf-5 default-swap** — make it the default http plugin, full conformance, remove old.
 

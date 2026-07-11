@@ -117,8 +117,18 @@ without your own synchronization" (out of scope for the VM fix).
       query/500/keep-alive/concurrency/body-limit). Transport bench vs raw `com.sun` server
       (same vthread executor + client): **1.46× req/s** (21.8k→31.9k), p50 2.59→1.79ms, p99
       7.79→4.18ms, 0 errors (`HttpFastBench` via `Test/runMain`).
-- [ ] **hf-3 websocket** — RFC 6455 upgrade + framing; `onWebSocket`/`wsConnect`/the `ws`
-      value surface + `WsRoom`. Echo + broadcast tests + a throughput bench.
+- [x] **hf-3 websocket** — DONE. `WebSocketFrames` (RFC 6455 codec: accept-key SHA-1/base64,
+      masked frame read, unmasked write, 7/16/64-bit lengths, close/ping/pong), `WsConnection`
+      (per-conn read loop: fragmentation reassembly, auto-pong, close handshake, thread-safe
+      writes, teardown hook), upgrade wired into `FastHttpServer` (101 handshake + subprotocol
+      negotiation, `setSoTimeout(0)` for live conns). Bridge: `WsChannel` unifies server
+      ([[WsConnection]]) + client (`java.net.http.WebSocket`); the `ws` value = `DataV(
+      "WebSocket",[id])` with tagged methods send/sendBytes/close/ping/onMessage/onClose/
+      onPong/isClosed/request/subprotocol/user; `onWebSocket`/`onWebSocketAuth`/`wsConnect`/
+      `WsRoom` (broadcast). 10 tests: 9 engine (echo, fragmentation, 200 KB, binary, close both
+      ways, 20-conn broadcast, RFC vector) + a ServiceLoader install smoke test asserting the
+      full surface registers. VM-level `.ssc` end-to-end validated in hf-5 conformance (the
+      tagged-method dispatch mirrors the proven reactive-plugin idiom).
 - [ ] **hf-4 streaming/middleware** — fill the current stubs feasibly: `sse`, `cors`, `use`
       (middleware chain), `useGzip`, `maxBodySize`. Tests.
 - [ ] **hf-5 default-swap** — make the new plugin the DEFAULT http plugin (service-file swap /
