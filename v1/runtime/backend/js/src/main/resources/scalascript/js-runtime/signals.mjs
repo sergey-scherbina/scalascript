@@ -1045,6 +1045,7 @@ function _ssc_ui_mount(sigs, keyedRoots) {
     var rawRows    = container.getAttribute('data-ssc-datatable-rows');
     var rowsSigId  = container.getAttribute('data-ssc-datatable-rows-sig');
     var rowsPath   = container.getAttribute('data-ssc-datatable-rows-path') || '';
+    var rowKeyPath = container.getAttribute('data-ssc-datatable-row-key') || 'id';
     var cols, acts;
     try { cols = JSON.parse(rawCols || '[]'); } catch(_e) { cols = []; }
     try { acts = JSON.parse(rawActs || '[]'); } catch(_e) { acts = []; }
@@ -1061,16 +1062,21 @@ function _ssc_ui_mount(sigs, keyedRoots) {
     // plain field name (back-compat) or a RowPayload marker (field/wholeRow/
     // fields) produced by _ssc_ui_fieldPayload / wholeRowPayload / fieldsPayload.
     function resolvePayload(row, payload) {
-      if (payload && typeof payload === 'object') {
-        if (payload._payload === 'wholeRow') return JSON.stringify(row);
-        if (payload._payload === 'fields') {
+      var checked = _ssc_ui_validateRowPayload(payload, 'rowPostAction');
+      if (checked && typeof checked === 'object') {
+        if (checked._payload === 'wholeRow') return JSON.stringify(_ssc_ui_jsonValue(row, 'rowPostAction whole row', new Set()));
+        if (checked._payload === 'fields') {
           var obj = {};
-          (payload.names || []).forEach(function(n) { obj[n] = getField(row, n); });
+          checked.names.forEach(function(n) {
+            var value = _ssc_ui_dottedField(row, n);
+            if (value === undefined) throw new Error('rowPostAction field ' + n + ' is missing');
+            obj[n] = _ssc_ui_jsonValue(value, 'rowPostAction field ' + n, new Set());
+          });
           return JSON.stringify(obj);
         }
-        if (payload._payload === 'field') return String(getField(row, payload.name) || '');
+        if (checked._payload === 'field') return _ssc_ui_rowScalar(_ssc_ui_dottedField(row, checked.name), 'rowPostAction field ' + checked.name);
       }
-      return String(getField(row, payload) || '');
+      throw new Error('rowPostAction payload descriptor is malformed');
     }
     function getHeaders(headersId) {
       if (!headersId) return undefined;
@@ -1161,6 +1167,7 @@ function _ssc_ui_mount(sigs, keyedRoots) {
       } else { btn.textContent = label || ''; }
     }
     function renderTable(rows) {
+      var rowIdentities = _ssc_ui_rowIdentities(rows || [], rowKeyPath);
       container.innerHTML = '';
       var tbl = document.createElement('table');
       tbl.setAttribute('style', 'border-collapse:collapse;width:100%;font-family:'+ff+';font-size:'+fs);
@@ -1176,8 +1183,9 @@ function _ssc_ui_mount(sigs, keyedRoots) {
       if (acts.length > 0) { var thA = document.createElement('th'); thA.setAttribute('style', thStyle); trH.appendChild(thA); }
       thead.appendChild(trH); tbl.appendChild(thead);
       var tbody = document.createElement('tbody');
-      (rows || []).forEach(function(row) {
+      (rows || []).forEach(function(row, rowIndex) {
         var tr = document.createElement('tr');
+        tr.setAttribute('data-ssc-row-identity', rowIdentities[rowIndex]);
         cols.forEach(function(col) {
           var td = document.createElement('td'); td.setAttribute('style', tdStyle + (col.align ? ';text-align:' + col.align : ''));
           appendCellValue(td, row, col);
@@ -1479,10 +1487,10 @@ function _ssc_ui_linkColumn(title, fieldPath, align, urlTemplate) {
 function _ssc_ui_stackedColumn(title, fieldPath, subFieldPath, align) {
   return _ssc_ui_makeColumn(title, fieldPath, align, { type: 'stacked', subFieldPath: subFieldPath || '' }, null);
 }
-function _ssc_ui_rowDeleteAction(url, idField, tick, headers) { return { _type: '_RowDelete', url, idField, tick, headers: headers || null }; }
-function _ssc_ui_rowPostAction(label, method, url, bodyField, tick, headers) { return { _type: '_RowPost', label, method, url, bodyField, tick, headers: headers || null }; }
-function _ssc_ui_rowLinkAction(label, signal, fieldPath) { return { _type: '_RowLink', label, signal, fieldPath }; }
-function _ssc_ui_rowEditAction(method, url, idField, tick, headers) { return { _type: '_RowInlineEdit', method, url, idField, tick, headers: headers || null }; }
+function _ssc_ui_rowDeleteAction(url, idField, tick, headers) { return { _type: '_RowDelete', url, idField: _ssc_ui_dottedName(idField, 'rowDeleteAction'), tick, headers: headers || null }; }
+function _ssc_ui_rowPostAction(label, method, url, bodyField, tick, headers) { return { _type: '_RowPost', label, method, url, bodyField: _ssc_ui_validateRowPayload(bodyField, 'rowPostAction'), tick, headers: headers || null }; }
+function _ssc_ui_rowLinkAction(label, signal, fieldPath) { return { _type: '_RowLink', label, signal, fieldPath: _ssc_ui_dottedName(fieldPath, 'rowLinkAction') }; }
+function _ssc_ui_rowEditAction(method, url, idField, tick, headers) { return { _type: '_RowInlineEdit', method, url, idField: _ssc_ui_dottedName(idField, 'rowEditAction'), tick, headers: headers || null }; }
 // Snapshot the source's `_rowsPath` onto the node at BUILD time so multiple
 // DataTables sharing one fetch signal each keep their OWN dotted path: a later
 // `fetchRowsSource(sameSig, otherPath)` mutates `sig._rowsPath`, but each node
@@ -1500,9 +1508,36 @@ function _ssc_ui_fetchRowsSource(sig, rowsPath) { if (sig) sig._rowsPath = rowsP
 // RowPayload markers — the `payload` argument of rowPostAction (parity with the
 // interpreter RowPayload.Field / WholeRow / Fields).  Resolved against a row in
 // _ssc_ui_mount's _RowPost handler (see _ssc_ui_resolveRowPayload).
-function _ssc_ui_fieldPayload(name) { return { _payload: 'field', name }; }
-function _ssc_ui_wholeRowPayload() { return { _payload: 'wholeRow' }; }
-function _ssc_ui_fieldsPayload(names) { return { _payload: 'fields', names: names || [] }; }
+function _ssc_ui_dottedName(name, operation) {
+  if (typeof name !== 'string' || !name || name.split('.').some(function(p) { return !p; })) {
+    throw new Error(operation + ' requires a non-empty dotted field path');
+  }
+  return name;
+}
+function _ssc_ui_validateRowPayload(payload, operation) {
+  if (typeof payload === 'string') return { _payload: 'field', name: _ssc_ui_dottedName(payload, operation) };
+  if (!payload || typeof payload !== 'object') throw new Error(operation + ' payload must be String or RowPayload');
+  var keys = Object.keys(payload).sort().join(',');
+  if (payload._payload === 'wholeRow') {
+    if (keys !== '_payload') throw new Error(operation + ' wholeRow payload descriptor is malformed');
+    return { _payload: 'wholeRow' };
+  }
+  if (payload._payload === 'field') {
+    if (keys !== '_payload,name') throw new Error(operation + ' field payload descriptor is malformed');
+    return { _payload: 'field', name: _ssc_ui_dottedName(payload.name, operation) };
+  }
+  if (payload._payload === 'fields') {
+    if (keys !== '_payload,names') throw new Error(operation + ' fields payload descriptor is malformed');
+    if (!Array.isArray(payload.names) || payload.names.length === 0) throw new Error(operation + ' fields must be non-empty');
+    var names = payload.names.map(function(n) { return _ssc_ui_dottedName(n, operation); });
+    if (new Set(names).size !== names.length) throw new Error(operation + ' fields must be unique');
+    return { _payload: 'fields', names: names };
+  }
+  throw new Error(operation + ' payload descriptor is malformed');
+}
+function _ssc_ui_fieldPayload(name) { return _ssc_ui_validateRowPayload({ _payload: 'field', name: name }, 'fieldPayload'); }
+function _ssc_ui_wholeRowPayload() { return _ssc_ui_validateRowPayload({ _payload: 'wholeRow' }, 'wholeRowPayload'); }
+function _ssc_ui_fieldsPayload(names) { return _ssc_ui_validateRowPayload({ _payload: 'fields', names: names }, 'fieldsPayload'); }
 // Normalise a DataTable data value into an array of row objects.  A fetch
 // response / rows signal may be a bare array, a JSON string, or a common list
 // envelope ({data|rows|items|results:[...]}, e.g. {"data":[...],"count":N}).
@@ -1529,4 +1564,54 @@ function _ssc_ui_rowsOf(v, rowsPath) {
     if (Array.isArray(v.results)) return v.results;
   }
   return [];
+}
+function _ssc_ui_dottedField(row, path) {
+  var name = _ssc_ui_dottedName(path, 'DataTable row key');
+  var cur = row;
+  if (cur == null || typeof cur !== 'object' || Array.isArray(cur)) return undefined;
+  for (var i = 0; i < name.split('.').length; i++) {
+    var part = name.split('.')[i];
+    if (cur == null || typeof cur !== 'object' || Array.isArray(cur) || !Object.prototype.hasOwnProperty.call(cur, part)) return undefined;
+    cur = cur[part];
+  }
+  return cur;
+}
+function _ssc_ui_rowScalar(value, operation) {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' && Number.isSafeInteger(value)) return String(value);
+  if (typeof value === 'bigint') return value.toString();
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  throw new Error(operation + ' must resolve to a portable scalar');
+}
+function _ssc_ui_jsonValue(value, operation, seen) {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value !== 'object') throw new Error(operation + ' is not a JSON value');
+  if (seen.has(value)) throw new Error(operation + ' contains a JSON cycle');
+  seen.add(value);
+  var result;
+  if (Array.isArray(value)) {
+    result = value.map(function(item, index) { return _ssc_ui_jsonValue(item, operation + '[' + index + ']', seen); });
+  } else {
+    result = {};
+    Object.keys(value).forEach(function(key) { result[key] = _ssc_ui_jsonValue(value[key], operation + '.' + key, seen); });
+  }
+  seen.delete(value);
+  return result;
+}
+function _ssc_ui_rowIdentities(rows, rowKeyPath) {
+  if (!Array.isArray(rows)) throw new Error('DataTable rows must be an array');
+  var path = _ssc_ui_dottedName(rowKeyPath || 'id', 'DataTable rowKeyPath');
+  var seen = new Set();
+  return rows.map(function(row, index) {
+    if (row == null || typeof row !== 'object' || Array.isArray(row)) throw new Error('DataTable row ' + index + ' must be an object');
+    var value = _ssc_ui_dottedField(row, path), identity;
+    if (typeof value === 'string' && value) identity = 'string:' + value;
+    else if (typeof value === 'number' && Number.isSafeInteger(value)) identity = 'int:' + String(value);
+    else if (typeof value === 'bigint') identity = 'bigint:' + value.toString();
+    else throw new Error('DataTable row ' + index + ' has invalid key at ' + path);
+    if (seen.has(identity)) throw new Error('DataTable duplicate row key ' + identity);
+    seen.add(identity);
+    return identity;
+  });
 }

@@ -1184,7 +1184,7 @@ final class NativeUiStore: ObservableObject {
         guard case let .string(urlText) = urlValue else {
             throw SscRuntimeFailure(description: "native fetch URL must be String")
         }
-        let url = try requestURL(urlText)
+        let url = try resolveRequestURL(urlText)
         guard isHttpToken(method) else {
             throw SscRuntimeFailure(description: "native fetch method must be an RFC HTTP token")
         }
@@ -1195,7 +1195,7 @@ final class NativeUiStore: ObservableObject {
         return request
     }
 
-    private func requestURL(_ text: String) throws -> URL {
+    func resolveRequestURL(_ text: String) throws -> URL {
         guard !text.hasPrefix("//"), let parsed = URLComponents(string: text), parsed.fragment == nil,
               parsed.user == nil, parsed.password == nil else {
             throw SscRuntimeFailure(description: "native fetch URL rejects scheme-relative, credential, and fragment forms")

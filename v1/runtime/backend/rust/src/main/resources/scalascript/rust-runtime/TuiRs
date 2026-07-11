@@ -252,7 +252,7 @@
       |    source: crate::value::Value,
       |    columns: Vec<crate::value::Value>,
       |    _actions: Vec<crate::value::Value>,
-      |    _row_key_path: String,
+      |    row_key_path: String,
       |) -> View {
       |    use crate::value::Value;
       |    let (sig_name, rows_path) = match source {
@@ -274,6 +274,7 @@
       |            ("data-ssc-rows-sig".to_string(), sig_name),
       |            ("data-ssc-rows-path".to_string(), rows_path),
       |            ("data-ssc-cols".to_string(), cols_enc),
+      |            ("data-ssc-row-key".to_string(), row_key_path),
       |        ],
       |        children: vec![],
       |    }
@@ -291,12 +292,54 @@
       |
       |/// Drill the fetched JSON to the row array (`rows_path` dotted, or common
       |/// envelope keys when empty) and project each row onto the column field paths.
-      |fn _tui_rows_of(json: &str, rows_path: &str, cols: &[(String, String)]) -> Vec<Vec<String>> {
-      |    let v: serde_json::Value = match serde_json::from_str(json) { Ok(x) => x, Err(_) => return vec![] };
+      |fn _tui_rows_of(json: &str, rows_path: &str, row_key_path: &str, cols: &[(String, String)]) -> Result<Vec<Vec<String>>, String> {
+      |    use std::collections::HashSet;
+      |    let v: serde_json::Value = serde_json::from_str(json).map_err(|_| "table response is not JSON".to_string())?;
       |    let arr = match _tui_drill(&v, rows_path).and_then(|x| x.as_array()) {
-      |        Some(a) => a, None => return vec![],
+      |        Some(a) => a, None => return Err("table rows are not an array".to_string()),
       |    };
-      |    arr.iter().map(|row| cols.iter().map(|(_, f)| _tui_json_field(row, f)).collect()).collect()
+      |    let mut seen = HashSet::new();
+      |    let mut projected = Vec::with_capacity(arr.len());
+      |    for (index, row) in arr.iter().enumerate() {
+      |        let identity = _tui_row_identity(row, row_key_path)
+      |            .map_err(|e| format!("row {}: {}", index, e))?;
+      |        if !seen.insert(identity.clone()) { return Err(format!("duplicate row key {}", identity)); }
+      |        projected.push(cols.iter().map(|(_, f)| _tui_json_field(row, f)).collect());
+      |    }
+      |    Ok(projected)
+      |}
+      |
+      |fn _tui_row_identity(row: &serde_json::Value, path: &str) -> Result<String, String> {
+      |    if path.is_empty() || path.split('.').any(|part| part.is_empty()) {
+      |        return Err("rowKeyPath must be a non-empty dotted path".to_string());
+      |    }
+      |    let mut cur = row;
+      |    for part in path.split('.') { cur = cur.get(part).ok_or_else(|| format!("missing key at {}", path))?; }
+      |    match cur {
+      |        serde_json::Value::String(value) if !value.is_empty() => Ok(format!("string:{}", value)),
+      |        serde_json::Value::Number(value) if value.as_i64().is_some() || value.as_u64().is_some() => Ok(format!("int:{}", value)),
+      |        _ => Err(format!("key at {} must be a non-empty String or integral number", path)),
+      |    }
+      |}
+      |
+      |#[cfg(test)]
+      |mod datatable_row_identity_tests {
+      |    use super::*;
+      |
+      |    #[test]
+      |    fn rejects_missing_empty_compound_duplicate_and_non_object_rows() {
+      |        let columns = vec![("Id".to_string(), "id".to_string())];
+      |        assert!(_tui_rows_of(r#"{"data":[{"id":1},{"id":"1"}]}"#, "data", "id", &columns).is_ok());
+      |        for invalid in [
+      |            r#"{"data":[{}]}"#,
+      |            r#"{"data":[{"id":""}]}"#,
+      |            r#"{"data":[{"id":{"nested":1}}]}"#,
+      |            r#"{"data":[{"id":1},{"id":1}]}"#,
+      |            r#"{"data":[[]]}"#,
+      |        ] {
+      |            assert!(_tui_rows_of(invalid, "data", "id", &columns).is_err(), "accepted {}", invalid);
+      |        }
+      |    }
       |}
       |
       |fn _tui_drill<'a>(v: &'a serde_json::Value, path: &str) -> Option<&'a serde_json::Value> {
@@ -334,14 +377,18 @@
       |    use ratatui::widgets::{Table, Row};
       |    let sig = _tui_attr(attrs, "data-ssc-rows-sig").unwrap_or("");
       |    let path = _tui_attr(attrs, "data-ssc-rows-path").unwrap_or("");
+      |    let row_key_path = _tui_attr(attrs, "data-ssc-row-key").unwrap_or("id");
       |    let cols = _tui_decode_cols(_tui_attr(attrs, "data-ssc-cols").unwrap_or(""));
       |    let json = crate::value::ssc_signals().lock().unwrap().get(sig).cloned().unwrap_or_default();
-      |    let rows = _tui_rows_of(&json, path, &cols);
+      |    let rows = _tui_rows_of(&json, path, row_key_path, &cols);
       |    let n = cols.len().max(1) as u32;
       |    let widths: Vec<Constraint> = (0..n).map(|_| Constraint::Ratio(1, n)).collect();
       |    let header = Row::new(cols.iter().map(|(t, _)| t.clone()).collect::<Vec<_>>())
       |        .style(Style::default().add_modifier(Modifier::BOLD));
-      |    let trows: Vec<Row> = rows.into_iter().map(Row::new).collect();
+      |    let trows: Vec<Row> = match rows {
+      |        Ok(values) => values.into_iter().map(Row::new).collect(),
+      |        Err(message) => vec![Row::new(vec![format!("Error: {}", message)])],
+      |    };
       |    frame.render_widget(Table::new(trows, widths).header(header), area);
       |}
       |

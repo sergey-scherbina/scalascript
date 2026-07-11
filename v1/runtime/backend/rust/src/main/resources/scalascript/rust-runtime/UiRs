@@ -188,7 +188,7 @@
       |    body()
       |}
       |#[allow(dead_code)]
-      |pub fn _ui_data_table_view(_source: Value, _columns: Vec<Value>, _actions: Vec<Value>, _row_key_path: String) -> View {
-      |    View::Fragment(vec![])
+      |pub fn _ui_data_table_view(_source: Value, _columns: Vec<Value>, _actions: Vec<Value>, row_key_path: String) -> View {
+      |    panic!("Rust UI DataTable is unsupported; rowKeyPath '{}' was not consumed", row_key_path)
       |}
       |

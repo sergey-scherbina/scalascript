@@ -66,7 +66,7 @@ class RustGenTuiToolkitTest extends AnyFunSuite:
 
   /** Build `prog`'s tui crate and `cargo run` it headlessly (SSC_TUI_SNAPSHOT —
    *  bypasses the interactive crossterm loop, which needs a TTY). Returns stdout. */
-  private def snapshotCrate(prog: String): String =
+  private def snapshotCrate(prog: String, runTests: Boolean = false): String =
     val a = assets(prog, tuiOpts)
     val crateDir = os.temp.dir(prefix = "ssc-rust-tui-")
     try
@@ -78,6 +78,9 @@ class RustGenTuiToolkitTest extends AnyFunSuite:
       val res = os.proc("cargo", "run", "--quiet").call(
         cwd = crateDir, check = false, env = Map("SSC_TUI_SNAPSHOT" -> "1"))
       assert(res.exitCode == 0, s"cargo run failed:\n${res.err.text()}")
+      if runTests then
+        val tested = os.proc("cargo", "test", "--quiet").call(cwd = crateDir, check = false)
+        assert(tested.exitCode == 0, s"cargo test failed:\n${tested.err.text()}\n${tested.out.text()}")
       res.out.text()
     finally
       os.remove.all(crateDir)
@@ -153,11 +156,12 @@ class RustGenTuiToolkitTest extends AnyFunSuite:
            |  val table = dataTableView(
            |    fetchRowsSource(rooms, "data"),
            |    List(fieldColumn("Room", "room"), fieldColumn("Unread", "unread")),
-           |    List())
+           |    List(),
+           |    "room")
            |  serve(table, 0)
            |```
            |""".stripMargin
-      val out = snapshotCrate(prog)
+      val out = snapshotCrate(prog, runTests = true)
       assert(out.contains("Room") && out.contains("Unread"), s"table header (column titles) missing:\n$out")
       assert(out.contains("demo") && out.contains("rozum"),  s"fetched row values missing (rowsPath drill failed?):\n$out")
       assert(out.contains("2")    && out.contains("5"),      s"projected numeric cells missing:\n$out")

@@ -593,10 +593,6 @@ final class NativeUiHost: SscRuntimeExtension {
         }
         native("signalRowsSource") { args in try nativeUiRequire(args.count == 1, "signalRowsSource(signal)"); _ = try nativeUiSignalFields(args[0], "signalRowsSource"); return try nativeUiData("NativeUiTableSource", [.string("signal"), args[0], .string("")]) }
         native("fetchRowsSource") { args in try nativeUiRequire(args.count == 2, "fetchRowsSource(signal, rowsPath)"); _ = try nativeUiSignalFields(args[0], "fetchRowsSource"); return try nativeUiData("NativeUiTableSource", [.string("fetch"), args[0], .string(try nativeUiString(args[1], "fetchRowsSource rowsPath"))]) }
-        native("fieldPayload") { args in try nativeUiRequire(args.count == 1, "fieldPayload(name)"); return try nativeUiData("NativeUiRowPayload", [.string("field"), try nativeUiListValue([.string(try nativeUiString(args[0], "fieldPayload name"))])]) }
-        native("wholeRowPayload") { args in try nativeUiRequire(args.isEmpty, "wholeRowPayload()"); return try nativeUiData("NativeUiRowPayload", [.string("wholeRow"), try nativeUiListValue([])]) }
-        native("fieldsPayload") { args in try nativeUiRequire(args.count == 1, "fieldsPayload(names)"); return try nativeUiData("NativeUiRowPayload", [.string("fields"), args[0]]) }
-
         func validDottedName(_ name: String) -> Bool {
             !name.isEmpty && name.split(separator: ".", omittingEmptySubsequences: false).allSatisfy { !$0.isEmpty }
         }
@@ -632,6 +628,19 @@ final class NativeUiHost: SscRuntimeExtension {
             return try nativeUiData("NativeUiRowPayload", [.string(kind), try nativeUiListValue(names.map { .string($0) })])
         }
 
+        native("fieldPayload") { args in
+            try nativeUiRequire(args.count == 1, "fieldPayload(name)")
+            return try rowPayload(.string(try nativeUiString(args[0], "fieldPayload name")), "fieldPayload")
+        }
+        native("wholeRowPayload") { args in
+            try nativeUiRequire(args.isEmpty, "wholeRowPayload()")
+            return try rowPayload(try nativeUiData("NativeUiRowPayload", [.string("wholeRow"), try nativeUiListValue([])]), "wholeRowPayload")
+        }
+        native("fieldsPayload") { args in
+            try nativeUiRequire(args.count == 1, "fieldsPayload(names)")
+            return try rowPayload(try nativeUiData("NativeUiRowPayload", [.string("fields"), args[0]]), "fieldsPayload")
+        }
+
         func column(_ kind: String, _ args: [SscValue], _ options: SscValue) throws -> SscValue {
             return try nativeUiData("NativeUiColumn", [
                 .string(kind),
@@ -652,8 +661,9 @@ final class NativeUiHost: SscRuntimeExtension {
             try rowPayload(.string(try nativeUiString(name, operation)), operation)
         }
         func rowAction(_ kind: String, _ label: SscValue, _ requestValue: SscValue, _ payloadValue: SscValue, _ refresh: SscValue, _ options: SscValue) throws -> SscValue {
-            try [requestValue, payloadValue, refresh, options].forEach { try nativeUiEnsurePortable($0, "NativeUiRowAction[\(kind)]") }
-            return try nativeUiData("NativeUiRowAction", [.string(kind), label, requestValue, payloadValue, refresh, options])
+            let checkedPayload = try rowPayload(payloadValue, "row \(kind) action")
+            try [requestValue, checkedPayload, refresh, options].forEach { try nativeUiEnsurePortable($0, "NativeUiRowAction[\(kind)]") }
+            return try nativeUiData("NativeUiRowAction", [.string(kind), label, requestValue, checkedPayload, refresh, options])
         }
         native("rowDeleteAction") { args in
             try nativeUiRequire(args.count == 3 || args.count == 4, "rowDeleteAction")

@@ -47,13 +47,17 @@ final class SwiftV2CliTest extends AnyFunSuite:
       finally os.remove.all(out)
     }
 
-  test("Swift NativeUi emit threads and normalizes --server-url"):
+  test("real build command threads and normalizes --server-url into Swift NativeUi"):
     withLibPath {
       val out = os.temp.dir(prefix = "ssc-v2-swift-base-")
       try
-        SwiftV2Cli.emit(nativeUiExample, out, SwiftPlatform.MacOS,
-          backendBaseUrl = Some("https://api.example.com/v1"))
-        val generated = os.read(out / "Sources" / "AppCore" / "GeneratedProgram.swift")
+        new BuildCmd().run(List(
+          nativeUiExample.toString,
+          "--v2",
+          "--target", "macos",
+          "--out", out.toString,
+          "--server-url", "https://api.example.com/v1"))
+        val generated = os.read(out / "macos" / "Sources" / "AppCore" / "GeneratedProgram.swift")
         assert(generated.contains("https://api.example.com/v1/"))
       finally os.remove.all(out)
     }

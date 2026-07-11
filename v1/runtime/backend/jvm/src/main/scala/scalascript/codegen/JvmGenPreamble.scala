@@ -769,28 +769,43 @@ private[codegen] trait JvmGenPreamble:
          |def fieldColumn(title: String, fieldPath: String, align: String = ""): Any =
          |  scalascript.frontend.FieldColumnDef(title, fieldPath, Option(align).filter(_.nonEmpty))
          |
+         |private def _ssc_dottedRowName(name: String, operation: String): String =
+         |  if name.nonEmpty && name.split("\\.", -1).forall(_.nonEmpty) then name
+         |  else throw IllegalArgumentException(s"$$operation requires a non-empty dotted field path")
+         |
+         |private def _ssc_exactRowPayload(payload: Any, operation: String): scalascript.frontend.RowPayload =
+         |  val candidate = payload match
+         |    case name: String => scalascript.frontend.RowPayload.Field(name)
+         |    case value: scalascript.frontend.RowPayload => value
+         |    case _ => throw IllegalArgumentException(s"$$operation payload must be String or RowPayload")
+         |  candidate match
+         |    case scalascript.frontend.RowPayload.Field(name) => scalascript.frontend.RowPayload.Field(_ssc_dottedRowName(name, operation))
+         |    case scalascript.frontend.RowPayload.WholeRow => scalascript.frontend.RowPayload.WholeRow
+         |    case scalascript.frontend.RowPayload.Fields(names)
+         |        if names.nonEmpty && names.distinct.size == names.size && names.forall(n => n.nonEmpty && n.split("\\.", -1).forall(_.nonEmpty)) =>
+         |      scalascript.frontend.RowPayload.Fields(names)
+         |    case scalascript.frontend.RowPayload.Fields(_) =>
+         |      throw IllegalArgumentException(s"$$operation fields must be unique non-empty dotted field paths")
+         |
          |def rowDeleteAction(url: String, idField: String, tick: Any, headers: Any = null): Any =
-         |  scalascript.frontend.RowActionDef.RowDelete(url, idField,
+         |  scalascript.frontend.RowActionDef.RowDelete(url, _ssc_dottedRowName(idField, "rowDeleteAction"),
          |    tick.asInstanceOf[scalascript.frontend.ReactiveSignal[Int]],
          |    Option(headers).map(_.asInstanceOf[scalascript.frontend.ReactiveSignal[String]]))
          |
-         |def fieldPayload(name: String): Any = scalascript.frontend.RowPayload.Field(name)
+         |def fieldPayload(name: String): Any = _ssc_exactRowPayload(name, "fieldPayload")
          |def wholeRowPayload(): Any = scalascript.frontend.RowPayload.WholeRow
-         |def fieldsPayload(names: List[String]): Any = scalascript.frontend.RowPayload.Fields(names)
+         |def fieldsPayload(names: List[String]): Any = _ssc_exactRowPayload(scalascript.frontend.RowPayload.Fields(names), "fieldsPayload")
          |
          |def rowPostAction(label: String, method: String, url: String, payload: Any,
          |                  tick: Any, headers: Any = null): Any =
-         |  val _payload = payload match
-         |    case name: String => scalascript.frontend.RowPayload.Field(name)
-         |    case value: scalascript.frontend.RowPayload => value
-         |    case _ => throw IllegalArgumentException("rowPostAction payload must be String or RowPayload")
+         |  val _payload = _ssc_exactRowPayload(payload, "rowPostAction")
          |  scalascript.frontend.RowActionDef.RowPost(label, method, url, _payload,
          |    tick.asInstanceOf[scalascript.frontend.ReactiveSignal[Int]],
          |    Option(headers).map(_.asInstanceOf[scalascript.frontend.ReactiveSignal[String]]))
          |
          |def rowLinkAction(label: String, signal: Any, fieldPath: String): Any =
          |  scalascript.frontend.RowActionDef.RowLink(label,
-         |    signal.asInstanceOf[scalascript.frontend.ReactiveSignal[String]], fieldPath)
+         |    signal.asInstanceOf[scalascript.frontend.ReactiveSignal[String]], _ssc_dottedRowName(fieldPath, "rowLinkAction"))
          |
          |// dataTableView itself is NOT redeclared here (was a byte-for-byte duplicate of
          |// JvmRuntimeUiPrimitives.scala's version, made ambiguous by the ui.primitives.{...}

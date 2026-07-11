@@ -112,6 +112,74 @@ final class SwiftBackendTest extends AnyFunSuite:
       assert(error.getMessage.contains("Swift --server-url"))
     }
 
+  test("generated Swift request resolver executes absolute root-relative base-relative and rejection semantics"):
+    assume(xcrunSwiftAvailable, "xcrun Swift toolchain is not available")
+    val root = Files.createTempDirectory("ssc-swiftui-request-url-")
+    val compileErrors = root.resolve("compile.stderr")
+    val runErrors = root.resolve("run.stderr")
+    try
+      val generated = SwiftBackend.generate(
+        nativeUiSessionProgram(), "NativeRequestUrl", backendBaseUrl = Some("https://api.example/base"))
+      generated.writeTo(root)
+      val probe = root.resolve("RequestUrlProbe.swift")
+      val binary = root.resolve("RequestUrlProbe")
+      Files.writeString(probe, nativeUiRequestUrlProbe, StandardCharsets.UTF_8)
+      val sources = generated.files.collect {
+        case (path, _) if path.startsWith("Sources/AppCore/") || path == "AppleApp/NativeUiStore.swift" =>
+          root.resolve(path).toString
+      }
+      val compile = new ProcessBuilder(
+        (List(
+          "xcrun", "swiftc", "-parse-as-library", "-swift-version", "6",
+          "-strict-concurrency=complete", "-warnings-as-errors",
+        ) ++ sources ++ List(probe.toString, "-o", binary.toString))*
+      ).redirectError(compileErrors.toFile).start()
+      val compileOut = new String(compile.getInputStream.readAllBytes(), StandardCharsets.UTF_8)
+      val compileExit = compile.waitFor()
+      val compileErr = Files.readString(compileErrors, StandardCharsets.UTF_8)
+      assert(compileExit == 0, s"Swift request URL compile failed ($compileExit):\n$compileErr\n$compileOut")
+
+      val run = new ProcessBuilder(binary.toString).redirectError(runErrors.toFile).start()
+      val stdout = new String(run.getInputStream.readAllBytes(), StandardCharsets.UTF_8).trim
+      val runExit = run.waitFor()
+      val stderr = Files.readString(runErrors, StandardCharsets.UTF_8)
+      assert(runExit == 0, s"Swift request URL probe failed ($runExit):\n$stderr\n$stdout")
+      assert(stdout == "absolute|root|relative|rejected")
+    finally deleteRecursively(root)
+
+  test("generated Swift host rejects malformed payload constructors and row actions"):
+    assume(xcrunSwiftAvailable, "xcrun Swift toolchain is not available")
+    val root = Files.createTempDirectory("ssc-swiftui-payload-validation-")
+    val compileErrors = root.resolve("compile.stderr")
+    val runErrors = root.resolve("run.stderr")
+    try
+      val generated = SwiftBackend.generate(nativeUiSessionProgram(), "NativePayloadValidation")
+      generated.writeTo(root)
+      val probe = root.resolve("PayloadValidationProbe.swift")
+      val binary = root.resolve("PayloadValidationProbe")
+      Files.writeString(probe, nativeUiPayloadValidationProbe, StandardCharsets.UTF_8)
+      val sources = generated.files.collect {
+        case (path, _) if path.startsWith("Sources/AppCore/") => root.resolve(path).toString
+      }
+      val compile = new ProcessBuilder(
+        (List(
+          "xcrun", "swiftc", "-parse-as-library", "-swift-version", "6",
+          "-strict-concurrency=complete", "-warnings-as-errors",
+        ) ++ sources ++ List(probe.toString, "-o", binary.toString))*
+      ).redirectError(compileErrors.toFile).start()
+      val compileOut = new String(compile.getInputStream.readAllBytes(), StandardCharsets.UTF_8)
+      val compileExit = compile.waitFor()
+      val compileErr = Files.readString(compileErrors, StandardCharsets.UTF_8)
+      assert(compileExit == 0, s"Swift payload validation compile failed ($compileExit):\n$compileErr\n$compileOut")
+
+      val run = new ProcessBuilder(binary.toString).redirectError(runErrors.toFile).start()
+      val stdout = new String(run.getInputStream.readAllBytes(), StandardCharsets.UTF_8).trim
+      val runExit = run.waitFor()
+      val stderr = Files.readString(runErrors, StandardCharsets.UTF_8)
+      assert(runExit == 0, s"Swift payload validation probe failed ($runExit):\n$stderr\n$stdout")
+      assert(stdout == "constructors|actions|raw")
+    finally deleteRecursively(root)
+
   test("real swift run matches VM structural fixtures fact tco and map"):
     assume(swiftAvailable, "Swift toolchain is not available")
     val cases = List(
@@ -3084,6 +3152,93 @@ public enum SessionProbe {
             let actions = list(table[3])
             Swift.print("source=\(string(source[0])):\(string(source[2])):;key=\(string(table[4]));column=\(string(column[0])):\(string(column[1])):\(string(column[2])):\(string(column[3])):edit=();delete=\(action(actions[0]));post=\(action(actions[1]))")
         } catch { fatalError(String(describing: error)) }
+    }
+}
+"""
+
+  private val nativeUiRequestUrlProbe = """
+import Foundation
+
+@main
+struct RequestUrlProbe {
+    @MainActor
+    static func main() {
+        let store = NativeUiStore(backendBaseURL: URL(string: "https://api.example/base/")!)
+        do {
+            guard try store.resolveRequestURL("https://other.example/x?q=1").absoluteString == "https://other.example/x?q=1" else { fatalError("absolute") }
+            guard try store.resolveRequestURL("/root").absoluteString == "https://api.example/root" else { fatalError("root") }
+            guard try store.resolveRequestURL("child").absoluteString == "https://api.example/base/child" else { fatalError("relative") }
+        } catch { fatalError(String(describing: error)) }
+
+        let withoutBase = NativeUiStore(backendBaseURL: nil)
+        let rejected: [(NativeUiStore, String)] = [
+            (withoutBase, "child"),
+            (store, "//evil.example/x"),
+            (store, "https://user@evil.example/x"),
+            (store, "https://evil.example/x#fragment"),
+            (store, "https:hostless"),
+            (store, "ftp://evil.example/x"),
+        ]
+        for (candidate, text) in rejected {
+            do {
+                _ = try candidate.resolveRequestURL(text)
+                fatalError("accepted rejected URL: \(text)")
+            } catch is SscRuntimeFailure {
+                continue
+            } catch {
+                fatalError("unexpected error for \(text): \(error)")
+            }
+        }
+        Swift.print("absolute|root|relative|rejected")
+    }
+}
+"""
+
+  private val nativeUiPayloadValidationProbe = """
+@main
+struct PayloadValidationProbe {
+    private static func list(_ values: [SscTerm]) -> SscTerm {
+        values.reversed().reduce(.constructor("Nil", [])) { .constructor("Cons", [$1, $0]) }
+    }
+    private static func string(_ value: String) -> SscTerm { .literal(.string(value)) }
+    private static func signal(_ name: String, _ value: SscTerm) -> SscTerm {
+        .apply(.global("signal"), [string(name), value])
+    }
+    private static func withTick(_ body: SscTerm) -> SscTerm {
+        .letBindings([signal("tick", .literal(.int(0)))], body)
+    }
+    private static func program(_ entry: SscTerm) -> SscProgram {
+        SscProgram(definitions: [], entry: entry, fieldLayouts: [:])
+    }
+    private static func mustReject(_ entry: SscTerm, _ label: String) {
+        do {
+            _ = try NativeUiHost().evaluate(program(entry))
+            fatalError("accepted \(label)")
+        } catch {
+            let message = String(describing: error)
+            if message.contains("did not register a root") { fatalError("accepted \(label): \(message)") }
+        }
+    }
+    static func main() {
+        mustReject(.apply(.global("fieldPayload"), [string("")]), "empty field")
+        mustReject(.apply(.global("fieldPayload"), [string("a..b")]), "malformed field")
+        mustReject(.apply(.global("fieldsPayload"), [list([])]), "empty fields")
+        mustReject(.apply(.global("fieldsPayload"), [list([string("id"), string("id")])]), "duplicate fields")
+        mustReject(.apply(.global("fieldsPayload"), [list([string("id"), .literal(.int(1))])]), "non-string field")
+
+        mustReject(withTick(.apply(.global("rowDeleteAction"), [string("/x"), string(""), .local(0)])), "delete field")
+        mustReject(
+            .letBindings([
+                signal("target", string(""))
+            ], .apply(.global("rowLinkAction"), [string("Pick"), .local(0), string("a..b")])),
+            "link field")
+        mustReject(withTick(.apply(.global("rowEditAction"), [string("PATCH"), string("/x"), string(""), .local(0)])), "edit field")
+
+        let badPayload = SscTerm.constructor("NativeUiRowPayload", [string("bad"), list([])])
+        mustReject(withTick(.apply(.global("rowPostAction"), [
+            string("Save"), string("POST"), string("/x"), badPayload, .local(0)
+        ])), "raw payload")
+        Swift.print("constructors|actions|raw")
     }
 }
 """

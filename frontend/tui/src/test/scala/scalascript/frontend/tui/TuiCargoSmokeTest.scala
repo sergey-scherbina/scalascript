@@ -84,7 +84,8 @@ final class TuiCargoSmokeTest extends AnyFunSuite:
         Map("room" -> "demo", "unread" -> "2"),
         Map("room" -> "rozum", "unread" -> "5")
       )),
-      List(FieldColumnDef("Room", "room"), FieldColumnDef("Unread", "unread"))
+      List(FieldColumnDef("Room", "room"), FieldColumnDef("Unread", "unread")),
+      rowKeyPath = "room"
     )
     val view = View.TabBar(
       Seq(Tab("Rooms", None, dt), Tab("Models", None, View.Text(() => "models panel"))),
@@ -132,9 +133,10 @@ final class TuiCargoSmokeTest extends AnyFunSuite:
       val feed = new FetchUrlSignal("rooms", s"http://127.0.0.1:$port/rooms", "tick")
       val view = View.DataTable(
         TableDataSource.Remote(feed, "data"),
-        List(FieldColumnDef("Room", "room"), FieldColumnDef("Unread", "unread"))
+        List(FieldColumnDef("Room", "room"), FieldColumnDef("Unread", "unread")),
+        rowKeyPath = "room"
       )
-      val out = snapshotViaCargo(view)
+      val out = snapshotViaCargo(view, runTests = true)
       assert(out.contains("Room") && out.contains("Unread"), s"table header missing:\n$out")
       assert(out.contains("demo") && out.contains("rozum"), s"fetched rows missing:\n$out")
       assert(out.contains("2") && out.contains("5"),        s"fetched cell values missing:\n$out")
@@ -143,7 +145,7 @@ final class TuiCargoSmokeTest extends AnyFunSuite:
 
   /** Emit `view`'s crate, `cargo run` it in `SSC_TUI_SNAPSHOT` mode (no TTY),
    *  return stdout. Cleans up the temp crate. */
-  private def snapshotViaCargo(view: View[?]): String =
+  private def snapshotViaCargo(view: View[?], runTests: Boolean = false): String =
     val module = FrontendModule(List(ComponentDef("App", Nil, _ => view)), "App", "/", targetPlatform = Platform.Terminal)
     val app = new TuiFrameworkBackend().emitNative(module, Platform.Terminal).getOrElse(fail("emitNative returned None"))
     val dir = Files.createTempDirectory("ssc-tui-smoke2-")
@@ -158,6 +160,9 @@ final class TuiCargoSmokeTest extends AnyFunSuite:
       val log = ProcessLogger(l => out.append(l).append('\n'), l => err.append(l).append('\n'))
       val code = Process(Seq("cargo", "run", "--quiet"), dir.toFile, "SSC_TUI_SNAPSHOT" -> "1").!(log)
       assert(code == 0, s"cargo run failed (exit $code):\n${err.toString}")
+      if runTests then
+        val testCode = Process(Seq("cargo", "test", "--quiet"), dir.toFile).!(log)
+        assert(testCode == 0, s"cargo test failed (exit $testCode):\n${err.toString}")
       out.toString
     finally
       deleteRecursively(dir)

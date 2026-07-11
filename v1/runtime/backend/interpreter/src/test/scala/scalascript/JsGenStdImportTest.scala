@@ -553,6 +553,69 @@ class JsGenStdImportTest extends AnyFunSuite:
     assert(runtime.contains("function resolvePayload("), "mount must resolve RowPayload markers")
     assert(runtime.contains("var _postBody = resolvePayload(r, act.bodyField);"), "_RowPost body must use resolvePayload")
     assert(runtime.contains("body: _postBody"), "_RowPost fetch must submit the resolved payload")
+    assert(runtime.contains("container.getAttribute('data-ssc-datatable-row-key')"),
+      "mount must consume the emitted rowKeyPath")
+
+  test("JS DataTable enforces typed dotted row identity and exact payload descriptors"):
+    val runtime = JsGen.generateRuntime(Set(JsGen.Capability.Signals))
+    val script = runtime + "\n" +
+      """
+        |function rejects(f, label) { try { f(); } catch (_e) { return; } throw new Error('accepted ' + label); }
+        |const ids = _ssc_ui_rowIdentities([{meta:{key:1}}, {meta:{key:'1'}}], 'meta.key');
+        |if (JSON.stringify(ids) !== JSON.stringify(['int:1','string:1'])) throw new Error('typed identity: ' + JSON.stringify(ids));
+        |rejects(() => _ssc_ui_rowIdentities([{meta:{}}], 'meta.key'), 'missing key');
+        |rejects(() => _ssc_ui_rowIdentities([{meta:{key:''}}], 'meta.key'), 'empty key');
+        |rejects(() => _ssc_ui_rowIdentities([{meta:{key:{x:1}}}], 'meta.key'), 'compound key');
+        |rejects(() => _ssc_ui_rowIdentities([{id:1},{id:1}], 'id'), 'duplicate key');
+        |rejects(() => _ssc_ui_rowIdentities([['array-row']], '0'), 'array row');
+        |rejects(() => _ssc_ui_fieldPayload('a..b'), 'malformed field');
+        |rejects(() => _ssc_ui_fieldsPayload([]), 'empty fields');
+        |rejects(() => _ssc_ui_fieldsPayload(['id','id']), 'duplicate fields');
+        |rejects(() => _ssc_ui_fieldsPayload(['id', 1]), 'non-string field');
+        |rejects(() => _ssc_ui_rowPostAction('Save','POST','/x',{_payload:'bad'},null), 'bad payload kind');
+        |rejects(() => _ssc_ui_rowPostAction('Save','POST','/x',{_payload:'wholeRow',names:[]},null), 'wholeRow names');
+        |const emptyField = _ssc_ui_rowPostAction('Save','POST','/x',_ssc_ui_fieldPayload('value'),null);
+        |if (_ssc_ui_validateRowPayload(emptyField.bodyField, 'test').name !== 'value') throw new Error('field payload changed');
+        |const compound = {nested:{ok:true}, list:[1,'two',null]};
+        |const preserved = _ssc_ui_jsonValue(compound, 'test', new Set());
+        |if (JSON.stringify(preserved) !== JSON.stringify(compound)) throw new Error('compound Fields value changed');
+        |if (_ssc_ui_rowScalar('', 'field') !== '') throw new Error('empty String Field was rejected');
+        |console.log('row-contract-ok');
+        |""".stripMargin
+    assert(runNode(script) == "row-contract-ok")
+
+  test("JS DataTable mount consumes rowKeyPath and attaches typed row identity"):
+    assume(hasJsdom, "jsdom not available")
+    val runtimeFile = writeTempText(
+      "ssc-datatable-row-key-runtime-", ".js",
+      JsGen.generateRuntime(Set(JsGen.Capability.Signals)))
+    val driver =
+      """const fs = require('fs');
+        |const cp = require('child_process');
+        |const Module = require('module');
+        |process.env.NODE_PATH = cp.execSync('npm root -g').toString().trim();
+        |Module._initPaths();
+        |const { JSDOM } = require('jsdom');
+        |const dom = new JSDOM('<!doctype html><body></body>', { runScripts: 'dangerously', url: 'http://localhost/' });
+        |const w = dom.window;
+        |w.eval(fs.readFileSync(process.argv[2], 'utf8'));
+        |const table = w.document.createElement('div');
+        |table.setAttribute('data-ssc-datatable', 'rows');
+        |table.setAttribute('data-ssc-datatable-rows', JSON.stringify([{meta:{key:1}}, {meta:{key:'1'}}]));
+        |table.setAttribute('data-ssc-datatable-cols', '[]');
+        |table.setAttribute('data-ssc-datatable-acts', '[]');
+        |table.setAttribute('data-ssc-datatable-row-key', 'meta.key');
+        |w.document.body.appendChild(table);
+        |w._ssc_ui_mount(new w.Map());
+        |const ids = [...table.querySelectorAll('tbody tr')].map(row => row.getAttribute('data-ssc-row-identity'));
+        |if (JSON.stringify(ids) !== JSON.stringify(['int:1','string:1'])) throw new Error('mount identities=' + JSON.stringify(ids));
+        |console.log('row-mount-ok');
+        |""".stripMargin
+    val driverFile = writeTempJs("ssc-datatable-row-key-driver-", driver)
+    val result = ProcTestUtil.runCaptured(
+      Seq("node", driverFile.getAbsolutePath, runtimeFile.getAbsolutePath), secs = 60)
+    assert(result.exit == 0, s"DataTable jsdom mount failed (${result.exit}):\n${result.out}\n${result.err}")
+    assert(result.out == "row-mount-ok")
 
   test("renderBody emits inline rows for a static DataTable source"):
     val runtime = JsGen.generateRuntime(Set(JsGen.Capability.Signals))

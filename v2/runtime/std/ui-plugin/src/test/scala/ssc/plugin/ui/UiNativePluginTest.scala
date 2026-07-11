@@ -240,6 +240,29 @@ class UiNativePluginTest extends AnyFunSuite:
     assert(table.tag == "NativeUiDataTable")
     assert(table.fields.length == 5)
     assert(table.fields(4) == Value.StrV("account.id"))
+    assert(ssc.V2PluginRegistry.lookupFieldNames("NativeUiDataTable", 5).contains(Vector(
+      "siteId", "source", "columns", "actions", "rowKeyPath")))
+    assert(ssc.Prims.methodOp("rowKeyPath", table, Nil) == Value.StrV("account.id"))
+
+    val malformedPayloads = List(
+      () => call("fieldPayload", Value.StrV("")),
+      () => call("fieldPayload", Value.StrV("meta..id")),
+      () => call("fieldsPayload", list()),
+      () => call("fieldsPayload", list(Value.StrV("id"), Value.StrV("id"))),
+      () => call("fieldsPayload", list(Value.StrV("id"), Value.IntV(1))),
+      () => call("rowDeleteAction", Value.StrV("/items"), Value.StrV(""), tick),
+      () => call("rowLinkAction", Value.StrV("Pick"), into, Value.StrV("meta..id")),
+      () => call("rowEditAction", Value.StrV("PATCH"), Value.StrV("/items"), Value.StrV(""), tick),
+      () => call("rowPostAction", Value.StrV("Save"), Value.StrV("POST"), Value.StrV("/items"),
+        Value.DataV("NativeUiRowPayload", Vector(Value.StrV("bad"), list())), tick),
+      () => call("rowPostAction", Value.StrV("Save"), Value.StrV("POST"), Value.StrV("/items"),
+        Value.DataV("NativeUiRowPayload", Vector(Value.StrV("wholeRow"), list(Value.StrV("id")))), tick),
+      () => call("rowPostAction", Value.StrV("Save"), Value.StrV("POST"), Value.StrV("/items"),
+        Value.DataV("NativeUiRowPayload", Vector(Value.StrV("field"))), tick))
+    malformedPayloads.foreach { build =>
+      val error = intercept[RuntimeException](build())
+      assert(error.getMessage.toLowerCase.contains("payload") || error.getMessage.toLowerCase.contains("field"))
+    }
 
     call("localStorageSet", Value.StrV("token"), Value.StrV("abc"))
     val persisted = call("persistedSignal", Value.StrV("token"), Value.StrV("fallback"))

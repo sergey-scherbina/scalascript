@@ -15,6 +15,22 @@ object FetchIntrinsics:
       case PluginValue.NativeFn("emptyHeaders", _) => true
       case _                                  => false)
 
+  private def validDottedName(name: String): Boolean =
+    name.nonEmpty && name.split("\\.", -1).forall(_.nonEmpty)
+
+  private def requireDottedName(name: String, operation: String): String =
+    if validDottedName(name) then name
+    else PluginError.raise(s"$operation requires a non-empty dotted field path")
+
+  private def validateRowPayload(payload: RowPayload, operation: String): RowPayload = payload match
+    case RowPayload.Field(name) => RowPayload.Field(requireDottedName(name, operation))
+    case RowPayload.WholeRow => RowPayload.WholeRow
+    case RowPayload.Fields(names)
+        if names.nonEmpty && names.distinct.length == names.length && names.forall(validDottedName) =>
+      RowPayload.Fields(names)
+    case RowPayload.Fields(_) =>
+      PluginError.raise(s"$operation fields must be unique non-empty dotted field paths")
+
   @nowarn("cat=deprecation")
   val table: Map[QualifiedName, IntrinsicImpl] = Map(
 
@@ -268,21 +284,21 @@ object FetchIntrinsics:
     QualifiedName("rowDeleteAction") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(url: String, idField: String,
-                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
+          PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
           PluginValue.foreign("RowActionDef",
-            RowActionDef.RowDelete(url, idField, tick.asInstanceOf[ReactiveSignal[Int]]))
+            RowActionDef.RowDelete(url, requireDottedName(idField, "rowDeleteAction"), tick.asInstanceOf[ReactiveSignal[Int]]))
         case List(url: String, idField: String,
                   PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
                   PluginValue.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
           val h = headers.asInstanceOf[ReactiveSignal[String]]
           PluginValue.foreign("RowActionDef",
-            RowActionDef.RowDelete(url, idField, tick.asInstanceOf[ReactiveSignal[Int]],
+            RowActionDef.RowDelete(url, requireDottedName(idField, "rowDeleteAction"), tick.asInstanceOf[ReactiveSignal[Int]],
               if h.id == "__ssc_empty_headers" then None else Some(h)))
         case List(url: String, idField: String,
                   PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?]), headers)
             if isEmptyHeadersArg(headers) =>
           PluginValue.foreign("RowActionDef",
-            RowActionDef.RowDelete(url, idField, tick.asInstanceOf[ReactiveSignal[Int]]))
+            RowActionDef.RowDelete(url, requireDottedName(idField, "rowDeleteAction"), tick.asInstanceOf[ReactiveSignal[Int]]))
         case _ => PluginError.raise("rowDeleteAction(url, idField, tick[, headers])")
     },
 
@@ -290,8 +306,8 @@ object FetchIntrinsics:
     // payload may be a String (backward compat → RowPayload.Field) or a Foreign("RowPayload", ...)
     QualifiedName("rowPostAction") -> PluginNative.evalLegacy { (_, args) =>
       def toPayload(v: Any): RowPayload = v match
-        case s: String                                    => RowPayload.Field(s)
-        case PluginValue.Foreign("RowPayload", p: RowPayload)   => p
+        case s: String => validateRowPayload(RowPayload.Field(s), "rowPostAction")
+        case PluginValue.Foreign("RowPayload", p: RowPayload) => validateRowPayload(p, "rowPostAction")
         case _                                            => PluginError.raise("rowPostAction: invalid payload argument")
       args match
         case List(label: String, method: String, url: String, payloadArg,
@@ -320,7 +336,7 @@ object FetchIntrinsics:
                   PluginValue.Foreign("ReactiveSignal", sig: ReactiveSignal[?]),
                   fieldPath: String) =>
           PluginValue.foreign("RowActionDef",
-            RowActionDef.RowLink(label, sig.asInstanceOf[ReactiveSignal[String]], fieldPath))
+            RowActionDef.RowLink(label, sig.asInstanceOf[ReactiveSignal[String]], requireDottedName(fieldPath, "rowLinkAction")))
         case _ => PluginError.raise("rowLinkAction(label, signal, fieldPath)")
     },
 
@@ -328,21 +344,21 @@ object FetchIntrinsics:
     QualifiedName("rowEditAction") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(method: String, url: String, idField: String,
-                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
+          PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
           PluginValue.foreign("RowActionDef",
-            RowActionDef.RowInlineEdit(method, url, idField, tick.asInstanceOf[ReactiveSignal[Int]]))
+            RowActionDef.RowInlineEdit(method, url, requireDottedName(idField, "rowEditAction"), tick.asInstanceOf[ReactiveSignal[Int]]))
         case List(method: String, url: String, idField: String,
                   PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
                   PluginValue.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
           val h = headers.asInstanceOf[ReactiveSignal[String]]
           PluginValue.foreign("RowActionDef",
-            RowActionDef.RowInlineEdit(method, url, idField, tick.asInstanceOf[ReactiveSignal[Int]],
+            RowActionDef.RowInlineEdit(method, url, requireDottedName(idField, "rowEditAction"), tick.asInstanceOf[ReactiveSignal[Int]],
               if h.id == "__ssc_empty_headers" then None else Some(h)))
         case List(method: String, url: String, idField: String,
                   PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?]), headers)
             if isEmptyHeadersArg(headers) =>
           PluginValue.foreign("RowActionDef",
-            RowActionDef.RowInlineEdit(method, url, idField, tick.asInstanceOf[ReactiveSignal[Int]]))
+            RowActionDef.RowInlineEdit(method, url, requireDottedName(idField, "rowEditAction"), tick.asInstanceOf[ReactiveSignal[Int]]))
         case _ => PluginError.raise("rowEditAction(method, url, idField, tick[, headers])")
     },
 
@@ -351,21 +367,26 @@ object FetchIntrinsics:
     // fieldPayload(name: String): RowPayload.Field
     QualifiedName("fieldPayload") -> PluginNative.evalLegacy { (_, args) =>
       args match
-        case List(name: String) => PluginValue.foreign("RowPayload", RowPayload.Field(name))
+        case List(name: String) => PluginValue.foreign("RowPayload", validateRowPayload(RowPayload.Field(name), "fieldPayload"))
         case _ => PluginError.raise("fieldPayload(name)")
     },
 
     // wholeRowPayload(): RowPayload.WholeRow
-    QualifiedName("wholeRowPayload") -> PluginNative.evalLegacy { (_, _) =>
-      PluginValue.foreign("RowPayload", RowPayload.WholeRow)
+    QualifiedName("wholeRowPayload") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case Nil => PluginValue.foreign("RowPayload", RowPayload.WholeRow)
+        case _ => PluginError.raise("wholeRowPayload()")
     },
 
     // fieldsPayload(names: List[String]): RowPayload.Fields
     QualifiedName("fieldsPayload") -> PluginNative.evalLegacy { (_, args) =>
       args match
         case List(PluginValue.Lst(items)) =>
-          val names = items.collect { case PluginValue.Str(s) => s }
-          PluginValue.foreign("RowPayload", RowPayload.Fields(names))
+          val names = items.map {
+            case PluginValue.Str(s) => s
+            case _ => PluginError.raise("fieldsPayload(names) requires only Strings")
+          }
+          PluginValue.foreign("RowPayload", validateRowPayload(RowPayload.Fields(names), "fieldsPayload"))
         case _ => PluginError.raise("fieldsPayload(names)")
     },
 

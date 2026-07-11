@@ -125,7 +125,8 @@ final class TuiEmitterTest extends AnyFunSuite:
         Map("room" -> "demo", "unread" -> "2"),
         Map("room" -> "rozum", "unread" -> "5")
       )),
-      List(FieldColumnDef("Room", "room"), FieldColumnDef("Unread", "unread"))
+      List(FieldColumnDef("Room", "room"), FieldColumnDef("Unread", "unread")),
+      rowKeyPath = "room"
     )
     val rs = emitMain(dt)
     assert(rs.contains("Table::new("))
@@ -153,15 +154,25 @@ final class TuiEmitterTest extends AnyFunSuite:
     val feed = new FetchUrlSignal("rooms", "http://x/rooms", "tick")
     val dt = View.DataTable(
       TableDataSource.Remote(feed, "data"),
-      List(FieldColumnDef("Room", "room"), FieldColumnDef("Unread", "unread"))
+      List(FieldColumnDef("Room", "room"), FieldColumnDef("Unread", "unread")),
+      rowKeyPath = "room"
     )
     val (cargo, rs) = emitCrate(dt)
     assert(cargo.contains("serde_json"))                       // JSON parse dep
     assert(cargo.contains("ureq"))                             // a remote table is also a fetch
     assert(rs.contains("fn fetch_rows("))
-    assert(rs.contains("""fetch_rows(&__json, "data", &["room", "unread"])"""))
+    assert(rs.contains("""fetch_rows(&__json, "data", "room", &["room", "unread"])"""))
     assert(rs.contains("""Row::new(vec!["Room", "Unread"])"""))   // header from column titles
     assert(rs.contains("""sig(signals, "rooms")"""))           // reads the bootstrap-fetched body
+  }
+
+  test("DataTable rejects duplicate static row identity before rendering") {
+    val table = View.DataTable(
+      TableDataSource.StaticRows(List(Map("meta" -> Map("key" -> 1)), Map("meta" -> Map("key" -> 1)))),
+      List(FieldColumnDef("Key", "meta.key")),
+      rowKeyPath = "meta.key")
+    val error = intercept[IllegalArgumentException](emitMain(table))
+    assert(error.getMessage.contains("duplicate row key int:1"))
   }
 
   test("NavigationStack lowers to a reactive route match") {

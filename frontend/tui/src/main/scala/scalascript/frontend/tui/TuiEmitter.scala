@@ -177,7 +177,7 @@ object TuiEmitter:
        |        let _ = run_interactive();
        |    }
        |}
-       |${genTests(signals, focusables.toSeq)}""".stripMargin
+       |${genTests(signals, focusables.toSeq, remoteTable)}""".stripMargin
 
   // ── Emitted Rust runtime: Value + accessors ────────────────────────────
 
@@ -245,17 +245,39 @@ object TuiEmitter:
         |        other => other.to_string(),
         |    }
         |}
-        |fn fetch_rows(json: &str, rows_path: &str, field_paths: &[&str]) -> Vec<Vec<String>> {
-        |    let v: serde_json::Value = match serde_json::from_str(json) { Ok(x) => x, Err(_) => return vec![] };
+        |fn row_identity(row: &serde_json::Value, row_key_path: &str) -> Result<String, String> {
+        |    if row_key_path.is_empty() || row_key_path.split('.').any(|part| part.is_empty()) {
+        |        return Err("rowKeyPath must be a non-empty dotted path".to_string());
+        |    }
+        |    let mut cur = row;
+        |    for part in row_key_path.split('.') {
+        |        cur = cur.get(part).ok_or_else(|| format!("missing row key at {}", row_key_path))?;
+        |    }
+        |    match cur {
+        |        serde_json::Value::String(value) if !value.is_empty() => Ok(format!("string:{}", value)),
+        |        serde_json::Value::Number(value) if value.as_i64().is_some() || value.as_u64().is_some() => Ok(format!("int:{}", value)),
+        |        _ => Err(format!("row key at {} must be a non-empty String or integral number", row_key_path)),
+        |    }
+        |}
+        |fn fetch_rows(json: &str, rows_path: &str, row_key_path: &str, field_paths: &[&str]) -> Result<Vec<Vec<String>>, String> {
+        |    use std::collections::HashSet;
+        |    let v: serde_json::Value = serde_json::from_str(json).map_err(|_| "table response is not JSON".to_string())?;
         |    let arr_val: &serde_json::Value = if rows_path.is_empty() {
         |        ["data", "rows", "items", "results"].iter().find_map(|k| v.get(k)).unwrap_or(&v)
         |    } else {
         |        let mut cur = &v;
-        |        for part in rows_path.split('.') { cur = match cur.get(part) { Some(x) => x, None => return vec![] }; }
+        |        for part in rows_path.split('.') { cur = cur.get(part).ok_or_else(|| format!("missing rowsPath {}", rows_path))?; }
         |        cur
         |    };
-        |    let arr = match arr_val.as_array() { Some(a) => a, None => return vec![] };
-        |    arr.iter().map(|row| field_paths.iter().map(|fp| json_field(row, fp)).collect()).collect()
+        |    let arr = arr_val.as_array().ok_or_else(|| "table rows are not an array".to_string())?;
+        |    let mut seen = HashSet::new();
+        |    let mut result = Vec::with_capacity(arr.len());
+        |    for (index, row) in arr.iter().enumerate() {
+        |        let identity = row_identity(row, row_key_path).map_err(|e| format!("row {}: {}", index, e))?;
+        |        if !seen.insert(identity.clone()) { return Err(format!("duplicate row key {}", identity)); }
+        |        result.push(field_paths.iter().map(|fp| json_field(row, fp)).collect());
+        |    }
+        |    Ok(result)
         |}""".stripMargin
 
   private def hasRemoteTable(v: View[?]): Boolean = v match
@@ -353,8 +375,27 @@ object TuiEmitter:
   /** `#[cfg(test)]` self-tests: reactivity (text signal present), event
    *  handlers run (a mutating focusable present), text typing (a text input
    *  present), focus traversal (any focusable present). */
-  private def genTests(signals: mutable.LinkedHashMap[String, SigInfo], fs: Seq[Focusable]): String =
+  private def genTests(
+      signals: mutable.LinkedHashMap[String, SigInfo],
+      fs: Seq[Focusable],
+      hasRemoteTable: Boolean): String =
     val tests = mutable.ArrayBuffer.empty[String]
+    if hasRemoteTable then
+      tests +=
+        """    #[test]
+          |    fn datatable_row_identity_contract() {
+          |        let fields = ["id"];
+          |        assert!(fetch_rows(r#"{"data":[{"id":1},{"id":"1"}]}"#, "data", "id", &fields).is_ok());
+          |        for invalid in [
+          |            r#"{"data":[{}]}"#,
+          |            r#"{"data":[{"id":""}]}"#,
+          |            r#"{"data":[{"id":{"nested":1}}]}"#,
+          |            r#"{"data":[{"id":1},{"id":1}]}"#,
+          |            r#"{"data":[[]]}"#,
+          |        ] {
+          |            assert!(fetch_rows(invalid, "data", "id", &fields).is_err(), "accepted {}", invalid);
+          |        }
+          |    }""".stripMargin
     signals.collectFirst { case (id, info) if info.isText => id }.foreach { id =>
       tests += s"""    #[test]
                   |    fn reactive_rerender() {
@@ -515,9 +556,10 @@ object TuiEmitter:
         val idx = fs.size
         fs += Focusable(idx, None, Some(value.id))
         para(s"""format!("{}{}", focus_mark(focus, $idx), text_input_display(signals, ${rustStr(value.id)}, ${rustStr(placeholder)}, $secure))""", area, sb, st.merge(termStyleOf(style)), Some(idx))
-      case View.DataTable(source, columns, _, _, _) =>
+      case View.DataTable(source, columns, _, _, rowKeyPath) =>
         source match
           case TableDataSource.StaticRows(rows) =>
+            validateStaticRowKeys(rows, rowKeyPath)
             val n = math.max(1, columns.size)
             val widths = (0 until n).map(_ => s"Constraint::Ratio(1, $n)").mkString(", ")
             val header = columns.map(c => rustStr(c.title)).mkString(", ")
@@ -533,7 +575,7 @@ object TuiEmitter:
             val header = columns.map(c => rustStr(c.title)).mkString(", ")
             val fields = columns.map(c => rustStr(c.fieldPath)).mkString(", ")
             sb ++= s"    { let __json = sig(signals, ${rustStr(fetchSig.id)}); " +
-                   s"let __rows = fetch_rows(&__json, ${rustStr(rowsPath)}, &[$fields]); " +
+                   s"let __rows = fetch_rows(&__json, ${rustStr(rowsPath)}, ${rustStr(rowKeyPath)}, &[$fields]).expect(\"invalid DataTable row identity\"); " +
                    s"let __trows: Vec<Row> = __rows.iter().map(|r| Row::new(r.iter().cloned().collect::<Vec<String>>())).collect(); " +
                    s"let __t = Table::new(__trows, [$widths]).header(Row::new(vec![$header])); frame.render_widget(__t, $area); }\n"
           case _ =>
@@ -721,6 +763,34 @@ object TuiEmitter:
       case ch   => ch.toString
     }
     "\"" + esc + "\""
+
+  private def validateStaticRowKeys(rows: List[Map[String, Any]], rowKeyPath: String): Unit =
+    val path = if rowKeyPath.isEmpty then "id" else rowKeyPath
+    if path.split("\\.", -1).exists(_.isEmpty) then
+      throw IllegalArgumentException("DataTable rowKeyPath must be a non-empty dotted path")
+    def lookup(value: Any, parts: List[String]): Option[Any] = parts match
+      case Nil => Some(value)
+      case head :: tail => value match
+        case map: collection.Map[?, ?] =>
+          map.asInstanceOf[collection.Map[Any, Any]].get(head).flatMap(lookup(_, tail))
+        case _ => None
+    val seen = collection.mutable.HashSet.empty[String]
+    rows.zipWithIndex.foreach { case (row, index) =>
+      val value = lookup(row, path.split("\\.").toList).getOrElse(
+        throw IllegalArgumentException(s"DataTable row $index is missing key at $path"))
+      val identity = value match
+        case text: String if text.nonEmpty => s"string:$text"
+        case value: Byte => s"int:$value"
+        case value: Short => s"int:$value"
+        case value: Int => s"int:$value"
+        case value: Long => s"int:$value"
+        case value: BigInt => s"bigint:$value"
+        case value: java.math.BigInteger => s"bigint:$value"
+        case _ => throw IllegalArgumentException(
+          s"DataTable row $index key at $path must be a non-empty String or integral scalar")
+      if !seen.add(identity) then
+        throw IllegalArgumentException(s"DataTable duplicate row key $identity")
+    }
 
   private def crateName(manifest: AppManifest): String =
     val seg = manifest.bundleId.split('.').lastOption.getOrElse("").trim
