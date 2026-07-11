@@ -1341,6 +1341,18 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               prints all explicit calls before its honest `summon`
                               boundary. Corpus stays 32/94, strict parity
                               13/56/126, blockers 44, and conformance 11/11.
+                        - [ ] **TI-8.2d2i native math object global:** publish
+                              the v2 kernel's existing portable `__math_obj__`
+                              primitive as the self-hosted program global
+                              `math`, matching FrontendBridge without loading a
+                              compatibility/provider class. Cover constants and
+                              mixed Int/Double `abs`/`sqrt`/`pow`/`round` on
+                              VM/direct ASM, rerun `enums.ssc`, `imports.ssc`,
+                              and `lang-split.ssc`, then shrink only rows that
+                              actually complete or advance to an independently
+                              classified boundary. Require native-entry, corpus,
+                              strict parity, sentinel/runtime taxonomy, and fresh
+                              affected conformance before push.
                   - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
                         `v2/runtime/std` providers, never through the v1 bridge.
