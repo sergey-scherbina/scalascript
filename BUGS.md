@@ -1,5 +1,20 @@
 # Bug tracker
 
+## v21-json-parser-pmapped-match — JSON DSL reaches an unhandled `PMapped/2`
+
+**Status:** open (2026-07-11); found by codex after native `case object`
+support advanced `dsl-json-parser.ssc` beyond `unbound global: NoContext`.
+
+- **Real-harness repro:** `bin/ssc-standard run --native
+  examples/dsl-json-parser.ssc` now fails identically on VM/ASM with `match: no
+  arm for PMapped/2`.
+- **Expected:** the imported combinator evaluator's existing `PMapped(inner, f)`
+  arm matches the reified parser node and applies the mapping closure.
+- **Plan/done-when:** isolate the constructor/import boundary in a multi-file
+  regression, compare the emitted `PMapped/2` arm with the assembled value,
+  repair native match ownership/order without parser-specific host code, and
+  rerun all parser DSLs plus release gates.
+
 ## v21-k62-flat-tuple-pattern-regression — flat tuple values keep nested `Pair` patterns
 
 **Status:** done (2026-07-11, `7f6821856`); found and confirmed by codex in the

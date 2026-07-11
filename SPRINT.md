@@ -1756,6 +1756,13 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               portable nullary constructor value, add a
                               multi-file VM/ASM regression, and rerun JSON/YAML
                               parser examples plus all release gates.
+                        - [ ] **TI-8.2d2s2 JSON `PMapped/2` match:** native case
+                              objects advance `dsl-json-parser.ssc` to identical
+                              VM/ASM `match: no arm for PMapped/2`. Isolate the
+                              imported constructor/arm boundary in a multi-file
+                              fixture, preserve the evaluator's existing mapping
+                              semantics without a host parser special case, and
+                              rerun every parser DSL plus release gates.
                         - [ ] **TI-8.2d2t portable unit lowering:** after
                               symbolic `|` dispatch, `dsl-yaml-like.ssc` advances
                               to identical VM/ASM `unbound global: Unit`. Isolate
