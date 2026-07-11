@@ -3946,12 +3946,21 @@ struct NativeHtmlProbe {
         var compiledRule: WKContentRuleList?
         var compileCount = 0
         var delayedCompiles: [((WKContentRuleList?, Error?) -> Void)] = []
+        var policyGate = NativeUiHtmlDocumentPolicyGate()
+        guard policyGate.begin(generation: 41),
+              !policyGate.begin(generation: 42),
+              policyGate.consume(currentGeneration: 42) == .cancel,
+              policyGate.begin(generation: 42),
+              policyGate.consume(currentGeneration: 42) == .allow,
+              policyGate.awaitingGeneration == nil else {
+            fatalError("trusted HTML serialized policy ordering")
+        }
         var coordinator: NativeUiHtmlCoordinator? = NativeUiHtmlCoordinator(
             safeExternalURL: { store.safeExternalURL($0) },
             openURL: { opened.append($0) },
             publishHeight: { heights.append($0) },
             publishError: { errors.append($0) },
-            ruleCompiler: { completion in
+            _probeRuleCompiler: { completion in
                 compileCount += 1
                 if compileCount == 1 {
                     WKContentRuleListStore.default().compileContentRuleList(
@@ -3984,6 +3993,9 @@ struct NativeHtmlProbe {
         guard await waitFor({ heights.last.map { $0 > 100 } == true }) else {
             fatalError("timed out waiting for initial isolated height: \(heights)")
         }
+        guard let forcedStaleNavigation = coordinator!.probeNavigation(at: 0) else {
+            fatalError("trusted HTML missing issued navigation probe")
+        }
         guard errors.compactMap({ $0 }).isEmpty else { fatalError("trusted HTML initial error") }
         try? await Task.sleep(nanoseconds: 150_000_000)
         guard loopback.hits() == 0 else { fatalError("trusted HTML network subresource escaped blocker") }
@@ -4013,10 +4025,18 @@ struct NativeHtmlProbe {
                 NativeUiHtmlAdapter.revisionKey(html: "same", source: "b.ssc:1:1") else {
             fatalError("trusted HTML source-only revision key")
         }
-        guard coordinator!.handoffExternal("https://example.com/path", navigationType: .linkActivated),
-              opened.map(\.absoluteString) == ["https://example.com/path"],
-              !coordinator!.handoffExternal("https://example.com/redirect", navigationType: .other),
-              opened.count == 1 else { fatalError("trusted HTML external URL handoff count") }
+        guard coordinator!.handoffMainFrame(
+                "https://example.com/main", navigationType: .linkActivated, isMainFrame: true),
+              coordinator!.handoffNewWindow(
+                "mailto:a@example.com", navigationType: .linkActivated, targetFrameIsNil: true),
+              opened.map(\.absoluteString) == ["https://example.com/main", "mailto:a@example.com"],
+              !coordinator!.handoffMainFrame(
+                "https://example.com/subframe", navigationType: .linkActivated, isMainFrame: false),
+              !coordinator!.handoffNewWindow(
+                "javascript:alert(1)", navigationType: .linkActivated, targetFrameIsNil: true),
+              !coordinator!.handoffNewWindow(
+                "https://example.com/redirect", navigationType: .other, targetFrameIsNil: true),
+              opened.count == 2 else { fatalError("trusted HTML external URL handoff count") }
 
         guard case let .data("NativeUiAbi", abiFields) = store.root,
               case let .data("NativeUiTrustedHtml", htmlFields) = abiFields[1] else {
@@ -4074,25 +4094,67 @@ struct NativeHtmlProbe {
             fatalError("trusted HTML stale generation published height")
         }
 
+        let forcedTerminalErrorCount = errors.count
+        let forcedTerminalHeightCount = heights.count
+        coordinator!.webView(
+            webView,
+            didFail: forcedStaleNavigation,
+            withError: NSError(domain: "NativeHtmlProbe", code: 41))
+        coordinator!.webView(webView, didFinish: forcedStaleNavigation)
+        guard errors.count == forcedTerminalErrorCount,
+              heights.count == forcedTerminalHeightCount else {
+            fatalError("trusted HTML stale terminal callback published")
+        }
+
         var failureErrors: [String?] = []
+        var failureCompileCount = 0
         let failingCoordinator = NativeUiHtmlCoordinator(
             safeExternalURL: safe, openURL: { _ in }, publishHeight: { _ in },
             publishError: { failureErrors.append($0) },
-            ruleCompiler: { completion in completion(nil, HtmlProbeError.expected) })
+            _probeRuleCompiler: { completion in
+                failureCompileCount += 1
+                if failureCompileCount == 1 { completion(nil, HtmlProbeError.expected) }
+                else { completion(compiledRule, nil) }
+            })
+        let recoveryHTML = "<strong>same html</strong>"
         let failingWebView = failingCoordinator.makeWebView(
-            html: "<strong>must not load</strong>", source: "failed.ssc:9:3 [rawHtml]")
+            html: recoveryHTML, source: "failed.ssc:9:3 [rawHtml]")
         guard await waitFor({ failureErrors.compactMap({ $0 }).count == 1 }), failingWebView.url == nil,
               failureErrors.compactMap({ $0 }).first?.contains("failed.ssc:9:3 [rawHtml]") == true else {
             fatalError("trusted HTML compile failure loaded or lost source: \(failureErrors)")
         }
+        failingCoordinator.update(
+            html: recoveryHTML, source: "recovered.ssc:12:5 [rawHtml]", in: failingWebView)
+        guard await waitFor({
+            failureCompileCount == 2 && failureErrors.last.map { $0 == nil } == true &&
+                failingCoordinator.probeNavigation(at: 0) != nil
+        }) else {
+            fatalError("trusted HTML same-html source-only recovery failed: \(failureErrors) \(failingCoordinator.probeState())")
+        }
         failingCoordinator.dismantle(failingWebView)
+
+        var nilLoadErrors: [String?] = []
+        let nilLoadCoordinator = NativeUiHtmlCoordinator(
+            safeExternalURL: safe, openURL: { _ in }, publishHeight: { _ in },
+            publishError: { nilLoadErrors.append($0) },
+            _probeRuleCompiler: { completion in completion(compiledRule, nil) },
+            _probeNavigationLoader: { _, _ in nil })
+        let nilLoadWebView = nilLoadCoordinator.makeWebView(
+            html: "nil load", source: "nil-load.ssc:3:7 [rawHtml]")
+        guard await waitFor({ nilLoadErrors.compactMap({ $0 }).count == 1 }),
+              nilLoadWebView.url == nil,
+              nilLoadErrors.compactMap({ $0 }).first?.contains("navigation did not start") == true,
+              nilLoadErrors.compactMap({ $0 }).first?.contains("nil-load.ssc:3:7 [rawHtml]") == true else {
+            fatalError("trusted HTML nil navigation start did not fail closed: \(nilLoadErrors)")
+        }
+        nilLoadCoordinator.dismantle(nilLoadWebView)
 
         var pendingCompiles: [((WKContentRuleList?, Error?) -> Void)] = []
         var staleErrors: [String?] = []
         let staleCoordinator = NativeUiHtmlCoordinator(
             safeExternalURL: safe, openURL: { _ in }, publishHeight: { _ in },
             publishError: { staleErrors.append($0) },
-            ruleCompiler: { completion in pendingCompiles.append(completion) })
+            _probeRuleCompiler: { completion in pendingCompiles.append(completion) })
         let staleWebView = staleCoordinator.makeWebView(html: "old", source: "old.ssc:1:1 [rawHtml]")
         staleCoordinator.update(html: "new", source: "new.ssc:2:1 [rawHtml]", in: staleWebView)
         guard pendingCompiles.count == 2 else { fatalError("trusted HTML generation compile count") }
@@ -4109,7 +4171,7 @@ struct NativeHtmlProbe {
 
         var orphanCoordinator: NativeUiHtmlCoordinator? = NativeUiHtmlCoordinator(
             safeExternalURL: safe, openURL: { _ in }, publishHeight: { _ in },
-            publishError: { _ in }, ruleCompiler: { _ in })
+            publishError: { _ in }, _probeRuleCompiler: { _ in })
         let orphanWebView = orphanCoordinator!.makeWebView(
             html: "orphan", source: "orphan.ssc:1:1 [rawHtml]")
         let weakOrphan = WeakCoordinatorBox(orphanCoordinator)
@@ -4124,7 +4186,7 @@ struct NativeHtmlProbe {
         coordinator!.dismantle(webView)
         _ = try? await webView.evaluateJavaScript("document.body.style.height='900px'")
         try? await Task.sleep(nanoseconds: 150_000_000)
-        guard heights.count == publishCount, heights.last == stableHeight, opened.count == 1 else {
+        guard heights.count == publishCount, heights.last == stableHeight, opened.count == 2 else {
             fatalError("trusted HTML published after dismantle")
         }
         let weakCoordinator = WeakCoordinatorBox(coordinator)
@@ -4249,7 +4311,7 @@ public enum SessionProbe {
       }
       val compile = new ProcessBuilder((List(
         "xcrun", "swiftc", "-parse-as-library", "-swift-version", "6",
-        "-strict-concurrency=complete", "-warnings-as-errors",
+        "-strict-concurrency=complete", "-warnings-as-errors", "-DSSC_NATIVEUI_HTML_PROBE",
       ) ++ sources ++ List(probe.toString, "-o", binary.toString))*).redirectError(errors.toFile).start()
       val compileOut = new String(compile.getInputStream.readAllBytes(), StandardCharsets.UTF_8)
       val compileExit = compile.waitFor()

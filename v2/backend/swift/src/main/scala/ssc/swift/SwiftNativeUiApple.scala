@@ -3963,14 +3963,45 @@ private final class NativeUiHtmlMessageProxy: NSObject, WKScriptMessageHandler {
     }
 }
 
+enum NativeUiHtmlDocumentPolicyDecision: Equatable {
+    case unrelated
+    case allow
+    case cancel
+}
+
+struct NativeUiHtmlDocumentPolicyGate {
+    private(set) var awaitingGeneration: UInt64?
+
+    mutating func begin(generation: UInt64) -> Bool {
+        guard awaitingGeneration == nil else { return false }
+        awaitingGeneration = generation
+        return true
+    }
+
+    mutating func consume(currentGeneration: UInt64) -> NativeUiHtmlDocumentPolicyDecision {
+        guard let candidate = awaitingGeneration else { return .unrelated }
+        awaitingGeneration = nil
+        return candidate == currentGeneration ? .allow : .cancel
+    }
+
+    @discardableResult
+    mutating func cancel(generation: UInt64) -> Bool {
+        guard awaitingGeneration == generation else { return false }
+        awaitingGeneration = nil
+        return true
+    }
+
+    mutating func reset() { awaitingGeneration = nil }
+}
+
 @MainActor
 final class NativeUiHtmlCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
     private weak var webView: WKWebView?
     private var controller: WKUserContentController?
     private lazy var messageProxy = NativeUiHtmlMessageProxy(target: self)
     private var generation: UInt64 = 0
-    private var authorizedGeneration: UInt64?
-    private var issuedGeneration: UInt64?
+    private var documentPolicyGate = NativeUiHtmlDocumentPolicyGate()
+    private var preparedLoad: (generation: UInt64, html: String, rule: WKContentRuleList)?
     private var loadingGeneration: UInt64?
     private var activeNavigation: (generation: UInt64, handle: WKNavigation)?
     private var lastHTML: String?
@@ -3983,26 +4014,52 @@ final class NativeUiHtmlCoordinator: NSObject, WKNavigationDelegate, WKUIDelegat
     private var openURL: (URL) -> Void
     private var publishHeight: (CGFloat) -> Void
     private var publishError: (String?) -> Void
-    private let ruleCompiler: (@escaping (WKContentRuleList?, Error?) -> Void) -> Void
+    #if SSC_NATIVEUI_HTML_PROBE
+    private var probeRuleCompiler: ((@escaping (WKContentRuleList?, Error?) -> Void) -> Void)?
+    private var probeNavigationLoader: ((WKWebView, String) -> WKNavigation?)?
+    private var probeIssuedNavigations: [WKNavigation] = []
+    #endif
 
     init(
         safeExternalURL: @escaping (String) -> URL?,
         openURL: @escaping (URL) -> Void,
         publishHeight: @escaping (CGFloat) -> Void,
-        publishError: @escaping (String?) -> Void,
-        ruleCompiler: @escaping (@escaping (WKContentRuleList?, Error?) -> Void) -> Void = { completion in
-            WKContentRuleListStore.default().compileContentRuleList(
-                forIdentifier: NativeUiHtmlAdapter.contentRuleIdentifier,
-                encodedContentRuleList: NativeUiHtmlAdapter.contentRuleJSON,
-                completionHandler: completion)
-        }
+        publishError: @escaping (String?) -> Void
     ) {
         self.safeExternalURL = safeExternalURL
         self.openURL = openURL
         self.publishHeight = publishHeight
         self.publishError = publishError
-        self.ruleCompiler = ruleCompiler
     }
+
+    #if SSC_NATIVEUI_HTML_PROBE
+    convenience init(
+        safeExternalURL: @escaping (String) -> URL?,
+        openURL: @escaping (URL) -> Void,
+        publishHeight: @escaping (CGFloat) -> Void,
+        publishError: @escaping (String?) -> Void,
+        _probeRuleCompiler: @escaping (@escaping (WKContentRuleList?, Error?) -> Void) -> Void,
+        _probeNavigationLoader: ((WKWebView, String) -> WKNavigation?)? = nil
+    ) {
+        self.init(
+            safeExternalURL: safeExternalURL,
+            openURL: openURL,
+            publishHeight: publishHeight,
+            publishError: publishError)
+        probeRuleCompiler = _probeRuleCompiler
+        probeNavigationLoader = _probeNavigationLoader
+    }
+
+    func probeNavigation(at index: Int) -> WKNavigation? {
+        guard probeIssuedNavigations.indices.contains(index) else { return nil }
+        return probeIssuedNavigations[index]
+    }
+
+    func probeState() -> String {
+        "generation=\(generation) awaiting=\(String(describing: documentPolicyGate.awaitingGeneration)) " +
+            "prepared=\(String(describing: preparedLoad?.generation)) issued=\(probeIssuedNavigations.count)"
+    }
+    #endif
 
     func updateCallbacks(
         safeExternalURL: @escaping (String) -> URL?,
@@ -4054,18 +4111,15 @@ final class NativeUiHtmlCoordinator: NSObject, WKNavigationDelegate, WKUIDelegat
         let candidateGeneration = generation
         lastHTML = html
         lastSource = source
-        authorizedGeneration = nil
-        issuedGeneration = nil
         loadingGeneration = nil
-        activeNavigation = nil
+        preparedLoad = nil
         publishError(nil)
-        webView.stopLoading()
         #if !os(macOS)
         contentSizeObservation?.invalidate()
         contentSizeObservation = nil
         #endif
         controller?.removeAllUserScripts()
-        ruleCompiler { [weak self, weak webView] rule, error in
+        compileRule { [weak self, weak webView] rule, error in
             guard let self, let webView, self.mounted,
                   self.generation == candidateGeneration,
                   self.webView === webView else { return }
@@ -4076,41 +4130,69 @@ final class NativeUiHtmlCoordinator: NSObject, WKNavigationDelegate, WKUIDelegat
                     generation: candidateGeneration)
                 return
             }
-            self.controller?.removeAllContentRuleLists()
-            self.controller?.add(rule)
-            #if os(macOS)
-            self.controller?.addUserScript(WKUserScript(
-                source: NativeUiHtmlAdapter.heightScript(generation: candidateGeneration),
-                injectionTime: .atDocumentEnd,
-                forMainFrameOnly: true,
-                in: .defaultClient))
-            #endif
-            self.authorizedGeneration = candidateGeneration
-            self.issuedGeneration = candidateGeneration
-            guard let navigation = webView.loadHTMLString(
-                NativeUiHtmlAdapter.document(html), baseURL: nil) else {
-                self.fail("trusted HTML navigation did not start", generation: candidateGeneration)
-                return
-            }
-            self.activeNavigation = (candidateGeneration, navigation)
+            self.preparedLoad = (candidateGeneration, html, rule)
+            self.startPreparedLoadIfPossible()
         }
+    }
+
+    private func compileRule(_ completion: @escaping (WKContentRuleList?, Error?) -> Void) {
+        #if SSC_NATIVEUI_HTML_PROBE
+        if let probeRuleCompiler {
+            probeRuleCompiler(completion)
+            return
+        }
+        #endif
+        WKContentRuleListStore.default().compileContentRuleList(
+            forIdentifier: NativeUiHtmlAdapter.contentRuleIdentifier,
+            encodedContentRuleList: NativeUiHtmlAdapter.contentRuleJSON,
+            completionHandler: completion)
+    }
+
+    private func loadDocument(_ html: String, in webView: WKWebView) -> WKNavigation? {
+        let document = NativeUiHtmlAdapter.document(html)
+        #if SSC_NATIVEUI_HTML_PROBE
+        if let probeNavigationLoader { return probeNavigationLoader(webView, document) }
+        #endif
+        return webView.loadHTMLString(document, baseURL: nil)
+    }
+
+    private func startPreparedLoadIfPossible() {
+        guard mounted, documentPolicyGate.awaitingGeneration == nil,
+              let candidate = preparedLoad,
+              candidate.generation == generation,
+              let webView, documentPolicyGate.begin(generation: candidate.generation) else { return }
+        preparedLoad = nil
+        webView.stopLoading()
+        activeNavigation = nil
+        controller?.removeAllContentRuleLists()
+        controller?.add(candidate.rule)
+        controller?.removeAllUserScripts()
+        #if os(macOS)
+        controller?.addUserScript(WKUserScript(
+            source: NativeUiHtmlAdapter.heightScript(generation: candidate.generation),
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true,
+            in: .defaultClient))
+        #endif
+        guard let navigation = loadDocument(candidate.html, in: webView) else {
+            documentPolicyGate.cancel(generation: candidate.generation)
+            fail("trusted HTML navigation did not start", generation: candidate.generation)
+            return
+        }
+        activeNavigation = (candidate.generation, navigation)
+        #if SSC_NATIVEUI_HTML_PROBE
+        probeIssuedNavigations.append(navigation)
+        #endif
     }
 
     private func fail(_ message: String, generation candidateGeneration: UInt64) {
         guard mounted, generation == candidateGeneration else { return }
         let source = lastSource ?? "<unknown source>"
-        authorizedGeneration = nil
-        issuedGeneration = nil
+        if preparedLoad?.generation == candidateGeneration { preparedLoad = nil }
+        documentPolicyGate.cancel(generation: candidateGeneration)
         loadingGeneration = nil
-        activeNavigation = nil
+        if activeNavigation?.generation == candidateGeneration { activeNavigation = nil }
         publishError(NativeUiHtmlAdapter.bounded(message) + " at " + source)
-    }
-
-    private func externalURL(for action: WKNavigationAction) -> URL? {
-        guard let text = action.request.url?.absoluteString else { return nil }
-        return NativeUiHtmlAdapter.externalURL(
-            text, navigationType: action.navigationType,
-            safeExternalURL: safeExternalURL)
     }
 
     @discardableResult
@@ -4122,15 +4204,31 @@ final class NativeUiHtmlCoordinator: NSObject, WKNavigationDelegate, WKUIDelegat
         return true
     }
 
-    private func isAuthorizedDocument(_ action: WKNavigationAction) -> Bool {
+    @discardableResult
+    func handoffMainFrame(
+        _ text: String,
+        navigationType: WKNavigationType,
+        isMainFrame: Bool
+    ) -> Bool {
+        guard isMainFrame else { return false }
+        return handoffExternal(text, navigationType: navigationType)
+    }
+
+    @discardableResult
+    func handoffNewWindow(
+        _ text: String,
+        navigationType: WKNavigationType,
+        targetFrameIsNil: Bool
+    ) -> Bool {
+        guard targetFrameIsNil else { return false }
+        return handoffExternal(text, navigationType: navigationType)
+    }
+
+    private func documentPolicyDecision(_ action: WKNavigationAction) -> NativeUiHtmlDocumentPolicyDecision {
         guard action.targetFrame?.isMainFrame == true,
               action.navigationType == .other,
-              action.request.url?.absoluteString == "about:blank",
-              authorizedGeneration == generation,
-              issuedGeneration == generation else { return false }
-        authorizedGeneration = nil
-        loadingGeneration = generation
-        return true
+              action.request.url?.absoluteString == "about:blank" else { return .unrelated }
+        return documentPolicyGate.consume(currentGeneration: generation)
     }
 
     func webView(
@@ -4139,10 +4237,24 @@ final class NativeUiHtmlCoordinator: NSObject, WKNavigationDelegate, WKUIDelegat
         decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
     ) {
         guard mounted, self.webView === webView else { decisionHandler(.cancel); return }
-        if isAuthorizedDocument(navigationAction) { decisionHandler(.allow); return }
-        if navigationAction.targetFrame?.isMainFrame == true,
-           let url = externalURL(for: navigationAction) {
-            openURL(url)
+        switch documentPolicyDecision(navigationAction) {
+        case .allow:
+            loadingGeneration = generation
+            decisionHandler(.allow)
+            startPreparedLoadIfPossible()
+            return
+        case .cancel:
+            decisionHandler(.cancel)
+            startPreparedLoadIfPossible()
+            return
+        case .unrelated:
+            break
+        }
+        if let text = navigationAction.request.url?.absoluteString {
+            _ = handoffMainFrame(
+                text,
+                navigationType: navigationAction.navigationType,
+                isMainFrame: navigationAction.targetFrame?.isMainFrame == true)
         }
         decisionHandler(.cancel)
     }
@@ -4153,8 +4265,13 @@ final class NativeUiHtmlCoordinator: NSObject, WKNavigationDelegate, WKUIDelegat
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
-        guard mounted, self.webView === webView, navigationAction.targetFrame == nil else { return nil }
-        if let url = externalURL(for: navigationAction) { openURL(url) }
+        guard mounted, self.webView === webView else { return nil }
+        if let text = navigationAction.request.url?.absoluteString {
+            _ = handoffNewWindow(
+                text,
+                navigationType: navigationAction.navigationType,
+                targetFrameIsNil: navigationAction.targetFrame == nil)
+        }
         return nil
     }
 
@@ -4164,6 +4281,7 @@ final class NativeUiHtmlCoordinator: NSObject, WKNavigationDelegate, WKUIDelegat
               activeNavigation.generation == generation,
               activeNavigation.handle === navigation,
               loadingGeneration == generation else { return }
+        self.activeNavigation = nil
         #if !os(macOS)
         let observedGeneration = generation
         contentSizeObservation?.invalidate()
@@ -4181,16 +4299,22 @@ final class NativeUiHtmlCoordinator: NSObject, WKNavigationDelegate, WKUIDelegat
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         guard let navigation, let activeNavigation,
-              activeNavigation.generation == generation,
+              mounted, self.webView === webView,
               activeNavigation.handle === navigation else { return }
-        fail("trusted HTML navigation failed: " + error.localizedDescription, generation: generation)
+        self.activeNavigation = nil
+        let failedGeneration = activeNavigation.generation
+        if documentPolicyGate.cancel(generation: failedGeneration) { startPreparedLoadIfPossible() }
+        fail("trusted HTML navigation failed: " + error.localizedDescription, generation: failedGeneration)
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         guard let navigation, let activeNavigation,
-              activeNavigation.generation == generation,
+              mounted, self.webView === webView,
               activeNavigation.handle === navigation else { return }
-        fail("trusted HTML navigation failed: " + error.localizedDescription, generation: generation)
+        self.activeNavigation = nil
+        let failedGeneration = activeNavigation.generation
+        if documentPolicyGate.cancel(generation: failedGeneration) { startPreparedLoadIfPossible() }
+        fail("trusted HTML navigation failed: " + error.localizedDescription, generation: failedGeneration)
     }
 
     func receiveHeight(_ message: WKScriptMessage) {
@@ -4209,8 +4333,8 @@ final class NativeUiHtmlCoordinator: NSObject, WKNavigationDelegate, WKUIDelegat
         guard self.webView === webView else { return }
         mounted = false
         generation &+= 1
-        authorizedGeneration = nil
-        issuedGeneration = nil
+        documentPolicyGate.reset()
+        preparedLoad = nil
         loadingGeneration = nil
         activeNavigation = nil
         #if !os(macOS)
