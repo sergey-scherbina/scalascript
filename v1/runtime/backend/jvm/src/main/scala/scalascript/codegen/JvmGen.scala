@@ -918,7 +918,7 @@ class JvmGen(
       // this had silently drifted — forKeyedView/seedSignal/emptyHeaders/fetchActionTo/
       // fetchCaptureAction/rowEditAction were missing, so any real .ssc using dynamic
       // forKeyed or those less-common primitives hit "Not found" on this import alone).
-      importBuf.prepend("  import ui.primitives.{View, EventHandler, signal, seedSignal, element, textNode, signalText, showSignal, fragment, forKeyedView, setSignal, inputChange, toggleSignal, eqSignal, hashSignal, emptyHeaders, emit, serve, fetchUrlSignal, fetchRowsSource, fetchAction, fetchActionTo, incSignal, fetchActionClear, fetchCaptureAction, fieldColumn, rowDeleteAction, rowPostAction, rowLinkAction, rowEditAction, dataTableView}")
+      importBuf.prepend("  import ui.primitives.{View, EventHandler, signal, seedSignal, componentScope, element, textNode, signalText, showSignal, fragment, forKeyedView, setSignal, inputChange, toggleSignal, eqSignal, hashSignal, emptyHeaders, emit, serve, fetchUrlSignal, fetchRowsSource, fetchAction, fetchActionTo, incSignal, fetchActionClear, fetchCaptureAction, fieldColumn, rowDeleteAction, rowPostAction, rowLinkAction, rowEditAction, dataTableView}")
 
     if importBuf.isEmpty && !hasPrimitivesObj then return src
 

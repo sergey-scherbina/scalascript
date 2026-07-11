@@ -381,7 +381,24 @@ private[interpreter] object SectionRuntime:
     val childPkg    = child.exportedPkg
     // Snapshot all child globals so exported FunVs can reference sibling imports
     // (e.g. VStackNode, element) when called from a parent interpreter that lacks them.
-    val childCtx: Map[String, Value] = exported ++ packageMembers(exported, childPkg)
+    val rawChildCtx: Map[String, Value] = exported ++ packageMembers(exported, childPkg)
+    // An exported function may call a plugin native that arrived transitively
+    // through one of its own imports. Rebind those natives to the caller just as
+    // we do for an explicit import below; otherwise callback-style intrinsics
+    // invoke user closures in the child Interpreter that loaded the dependency,
+    // where the caller's module globals are absent.
+    val childPluginBindings: Map[String, Value.NativeFnV] =
+      child.pluginNativeNames.iterator.flatMap { name =>
+        child.globals.get(name).collect { case fn: Value.NativeFnV => name -> fn }
+      }.toMap
+    val childCtx: Map[String, Value] = rawChildCtx.map { case (name, value) =>
+      val rebound = value match
+        case fn: Value.NativeFnV
+            if childPluginBindings.get(name).exists(binding => binding eq fn) =>
+          rebindPluginNative(name, name, fn, interp)
+        case _ => value
+      name -> rebound
+    }
     // Does the imported module hold mutable top-level state? If so its exported functions are
     // bound to run in the child interp (live module globals) rather than a frozen snapshot.
     val childHasVars = moduleDeclaresTopLevelVar(childModule)

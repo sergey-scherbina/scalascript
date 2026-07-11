@@ -1,13 +1,18 @@
 package scalascript
 
 import org.scalatest.funsuite.AnyFunSuite
-import scalascript.codegen.JvmGen
+import scalascript.codegen.{JvmGen, JvmRuntimeUiPrimitives}
 
 /** Split JVM runtime invariants used by `compile-jvm --bytecode`.
  *  The shared runtime always includes effects/common actor code, so a
  *  no-server runtime still needs the HTTP/WS dispatch stubs those blocks
  *  reference. */
 class JvmGenRuntimeSeparationTest extends AnyFunSuite:
+
+  test("JVM UI compatibility runtime preserves componentScope body result"):
+    val ui = JvmRuntimeUiPrimitives.source
+    assert(ui.contains("def componentScope[N](_scopeId: String, body: () => N): N ="))
+    assert(ui.contains("body()"))
 
   test("JvmGen.generateRuntime without Serve emits serve stubs"):
     val runtime = JvmGen.generateRuntime(Set.empty)

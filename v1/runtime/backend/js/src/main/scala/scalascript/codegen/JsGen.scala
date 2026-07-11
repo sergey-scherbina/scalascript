@@ -1310,7 +1310,7 @@ class JsGen(
       // ENTRY module's code blocks only, so each std/ui module's user-facing
       // names must appear here or import-only usage emits without signals.mjs.
       "validateField", "fieldError", "formErrors", "formValid", "formField",
-      "submitGate", "ctxSignal", "ctxSeedSignal",
+      "submitGate", "component(", "componentScope", "ctxSignal", "ctxSeedSignal",
       "textNode", "signalText", "showSignal", "fragment(", "forKeyed",
       "rawText", "rawHtml", "vstack", "hstack", "heading(", "lower("
     ).exists(allText.contains)

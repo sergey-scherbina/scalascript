@@ -42,7 +42,7 @@ defaults). Instance signals currently live for the app's lifetime (the view
 tree is built once); disposal on unmount lands with keyed reconciliation
 (`tkv2-keyed-for`, see `specs/ssc-toolkit-v2.md`).
 
-[Signal, signal, seedSignal](primitives.ssc)
+[Signal, signal, seedSignal, componentScope](primitives.ssc)
 
 ```scalascript
 case class Ctx(prefix: String)
@@ -63,7 +63,9 @@ def ctxClean(s: String): String = {
 }
 
 def component[N](kind: String, key: String)(body: Ctx => N): N =
-  body(Ctx(ctxClean(kind) + "__" + ctxClean(key)))
+  val scopeId = ctxClean(kind) + "__" + ctxClean(key)
+  val ctx = Ctx(scopeId)
+  componentScope(scopeId, () => body(ctx))
 
 def childCtx(parent: Ctx, kind: String, key: String): Ctx =
   Ctx(parent.prefix + "__" + ctxClean(kind) + "__" + ctxClean(key))

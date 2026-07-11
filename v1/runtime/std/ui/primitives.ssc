@@ -21,6 +21,7 @@ exports:
   - eqSignal
   - hashSignal
   - computedSignal
+  - componentScope
   - emit
   - serve
   - fetchUrlSignal
@@ -115,6 +116,9 @@ extern def hashSignal(): Signal[String]
 // signals. Re-evaluates automatically whenever a dependency changes.
 // Use to assemble composite values (e.g. JSON body) from individual fields.
 extern def computedSignal(f: () => String): Signal[String]
+
+// Internal component ownership region. Public component(...) keeps returning N.
+extern def componentScope[N](scopeId: String, body: () => N): N
 
 // ── Output ────────────────────────────────────────────────────────────────
 extern def emit(tree: View, outDir: String): Unit

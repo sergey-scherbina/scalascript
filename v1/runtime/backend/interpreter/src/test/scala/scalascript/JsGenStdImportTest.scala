@@ -269,6 +269,10 @@ class JsGenStdImportTest extends AnyFunSuite:
          |tab.set('fx');
          |assertRuntime(fx.get() === true, 'boolean computedSignal should update to true boolean');
          |assertRuntime(_ssc_ui_truthy('false') === false, 'legacy string false should not be visible');
+         |let componentCalls = 0;
+         |const componentResult = _ssc_ui_componentScope('counter__a', () => { componentCalls += 1; return 'scoped'; });
+         |assertRuntime(componentResult === 'scoped', 'componentScope should preserve the body result');
+         |assertRuntime(componentCalls === 1, 'componentScope should invoke its body exactly once');
          |
          |hash.set('/home');
          |const trueBranch = { style: {} };

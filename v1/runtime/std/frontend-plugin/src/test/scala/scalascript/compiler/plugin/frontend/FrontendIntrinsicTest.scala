@@ -2,8 +2,10 @@ package scalascript.compiler.plugin.frontend
 
 import org.scalatest.funsuite.AnyFunSuite
 import scalascript.ir.QualifiedName
-import scalascript.backend.spi.NativeImpl
+import scalascript.backend.spi.{NativeContext, NativeImpl}
 import scalascript.interpreter.InterpretError
+
+import java.io.{OutputStream, PrintStream}
 
 /** Unit smoke for the v1.18 / Phase A7 `setFrontendFramework(name)` intrinsic.
  *
@@ -59,4 +61,23 @@ class FrontendIntrinsicTest extends AnyFunSuite:
       }
     finally
       scalascript.frontend.FrontendFrameworks.setBackend(null)
+  }
+
+  test("componentScope compatibility intrinsic invokes its thunk exactly once") {
+    val bodyToken = new Object()
+    var calls = 0
+    val sink = new PrintStream(OutputStream.nullOutputStream())
+    val context = new NativeContext:
+      def out: PrintStream = sink
+      def err: PrintStream = sink
+      override def invokeCallback(fn: Any, args: List[Any]): Any =
+        assert(fn != null)
+        assert(args.isEmpty)
+        calls += 1
+        "scoped-result"
+
+    val impl = FrontendIntrinsics.table(QualifiedName("componentScope"))
+      .asInstanceOf[NativeImpl]
+    assert(impl.eval(context, List("counter__a", bodyToken)) == "scoped-result")
+    assert(calls == 1)
   }

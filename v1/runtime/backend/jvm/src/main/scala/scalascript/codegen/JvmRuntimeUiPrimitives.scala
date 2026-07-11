@@ -20,6 +20,9 @@ object JvmRuntimeUiPrimitives:
        |        new scalascript.frontend.SeedSignal(
        |          name, source.asInstanceOf[scalascript.frontend.ReactiveSignal[String]])
        |
+       |      def componentScope[N](_scopeId: String, body: () => N): N =
+       |        body()
+       |
        |      def element(tag: String, attrs: Map[String, Any], events: Map[String, Any], children: List[View]): View =
        |        scalascript.frontend.View.Element(tag,
        |          _ssc_ui_decodeAttrs(attrs), _ssc_ui_decodeEvents(events),

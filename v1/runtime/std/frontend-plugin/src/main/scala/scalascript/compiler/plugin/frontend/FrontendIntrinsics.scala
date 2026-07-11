@@ -72,6 +72,15 @@ object FrontendIntrinsics:
         case _ => PluginError.raise("seedSignal(name, source)")
     },
 
+    // Legacy lanes do not own NativeUi component lifetime. Preserve the public
+    // generic result and exact-once evaluation while v2's UiNativePlugin adds
+    // the scoped signal semantics behind the same source-level extern.
+    QualifiedName("componentScope") -> PluginNative.evalLegacy { (ctx, args) =>
+      args match
+        case List(_: String, body) => ctx.invokeCallback(body, Nil)
+        case _ => PluginError.raise("componentScope(scopeId, bodyThunk)")
+    },
+
     // ── element(tag, attrs, events, children): View ─────────────────────────
     QualifiedName("element") -> PluginNative.evalLegacy { (ctx, args) =>
       args match

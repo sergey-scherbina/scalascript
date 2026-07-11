@@ -19,6 +19,8 @@ object NativeUiSites:
     "element" -> Set(4),
     "forKeyedView" -> Set(3),
     "dataTableView" -> Set(3),
+    "computedSignal" -> Set(1),
+    "eqSignal" -> Set(2),
     "fetchUrlSignal" -> Set(3, 4),
     "fetchUrlSignalTo" -> Set(3, 4),
     "fetchAction" -> Set(4, 5),

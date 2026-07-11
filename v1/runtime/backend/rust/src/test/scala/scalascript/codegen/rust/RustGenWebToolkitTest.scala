@@ -34,6 +34,24 @@ class RustGenWebToolkitTest extends AnyFunSuite:
         segs.collect { case Segment.Asset(n, b, _) => n -> new String(b, "UTF-8") }.toMap
       case other => fail(s"expected Segmented, got $other")
 
+  private def cargoAvailable: Boolean =
+    try os.proc("cargo", "--version").call(check = false).exitCode == 0
+    catch case _: Throwable => false
+
+  private def cargoRun(src: String): String =
+    val crate = os.temp.dir(prefix = "ssc-rust-ui-component-")
+    assets(src).foreach { case (name, contents) =>
+      val output = crate / os.RelPath(name)
+      os.makeDir.all(output / os.up)
+      os.write.over(output, contents)
+    }
+    val result = os.proc("cargo", "run", "--quiet").call(cwd = crate, check = false)
+    if result.exitCode != 0 then
+      fail(s"cargo run failed (exit ${result.exitCode}):\n${result.err.text()}")
+    val stdout = result.out.text().trim
+    os.remove.all(crate)
+    stdout
+
   // ── I1: compound interpolation splices ─────────────────────────────
 
   test("s\"…${literal arith}…\" lowers the braced splice to a format! arg"):
@@ -82,6 +100,20 @@ class RustGenWebToolkitTest extends AnyFunSuite:
       s"expected a _ui_text call, got:\n$g")
     assert(g.contains("crate::runtime::ui::_ui_fragment"),
       s"expected a _ui_fragment call, got:\n$g")
+
+  test("componentScope compatibility adapter compiles and returns through real cargo"):
+    assume(cargoAvailable, "cargo not on PATH — skipping componentScope compiler gate")
+    val src =
+      """```scalascript
+        |@main def run(): Unit = println(componentScope("counter__a", () => "ok"))
+        |```
+        |""".stripMargin
+    val a = assets(src)
+    val generated = a("src/generated/ssc_program.rs")
+    val ui = a("src/runtime/ui.rs")
+    assert(generated.contains("crate::runtime::ui::_ui_component_scope"), generated)
+    assert(ui.contains("pub fn _ui_component_scope<T, F: FnOnce() -> T>"), ui)
+    assert(cargoRun(src) == "ok")
 
   test("using a View primitive wires the ui runtime module + asset"):
     val src =

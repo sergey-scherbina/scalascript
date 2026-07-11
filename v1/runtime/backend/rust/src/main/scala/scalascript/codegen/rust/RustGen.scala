@@ -208,7 +208,8 @@ object RustGen:
    *  usage; triggers the `src/runtime/ui.rs` SSR asset + `pub mod ui`. */
   private[rust] def scanUiUsage(astModule: scalascript.ast.Module): Boolean =
     val found = scala.collection.mutable.Set.empty[String]
-    astModule.sections.foreach(s => scanSectionForNames(s, Set("element", "textNode", "fragment", "renderHtml"), found))
+    astModule.sections.foreach(s => scanSectionForNames(s,
+      Set("element", "textNode", "fragment", "renderHtml", "componentScope"), found))
     found.nonEmpty
 
   private[rust] def scanCryptoUsage(astModule: scalascript.ast.Module): Set[String] =

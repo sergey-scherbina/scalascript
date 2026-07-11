@@ -184,6 +184,10 @@
       |    Value::Signal(name, Box::new(source.signal_value()))
       |}
       |#[allow(dead_code)]
+      |pub fn _ui_component_scope<T, F: FnOnce() -> T>(_scope_id: String, body: F) -> T {
+      |    body()
+      |}
+      |#[allow(dead_code)]
       |pub fn _ui_data_table_view(_source: Value, _columns: Vec<Value>, _actions: Vec<Value>) -> View {
       |    View::Fragment(vec![])
       |}

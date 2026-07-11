@@ -132,3 +132,29 @@ class TransitiveImportHelperTest extends AnyFunSuite with Matchers:
         |```
         |""".stripMargin)
     run(dir, "main.ssc") shouldBe "a,b,c"
+
+  test("transitive child context does not replace a same-named user NativeFnV with a parent plugin native"):
+    val dir = os.temp.dir(prefix = "ssc-transitive-native-provenance-")
+    os.write(dir / "facade.ssc",
+      """---
+        |name: facade
+        |exports:
+        |  - build
+        |---
+        |```scalascript
+        |case class jsonParse(value: String)
+        |def build(): String = jsonParse("user-constructor").value
+        |```
+        |""".stripMargin)
+    os.write(dir / "main.ssc",
+      """```scalascript
+        |extern def jsonParse(source: String): Any
+        |```
+        |
+        |[build](facade.ssc)
+        |
+        |```scalascript
+        |println(build())
+        |```
+        |""".stripMargin)
+    run(dir, "main.ssc") shouldBe "user-constructor"

@@ -398,6 +398,11 @@ function _ssc_ui_computedSignal(f) {
     catch(_e) { return ''; }
   });
 }
+function _ssc_ui_componentScope(_scopeId, body) {
+  if (typeof body === 'function') return body();
+  if (body && typeof body.apply === 'function') return body.apply();
+  throw new Error('componentScope body is not callable');
+}
 function _ssc_ui_emit(tree, outDir) {}
 function _ssc_ui_truthy(v) {
   if (typeof v === 'boolean') return v;

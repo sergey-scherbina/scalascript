@@ -84,6 +84,25 @@ class NativeUiSitesTest extends AnyFunSuite:
     assert(NativeUiSites.annotate(input,
       NativeUiSites.Config(eligibleSymbols = Set("element"))) == input)
 
+  test("derived signals receive stable sites instead of colliding runtime counters"):
+    val input = Program(List(Def("signals", Term.Seq(List(
+      Term.App(Term.Global("computedSignal"), List(Term.Lam(0, Term.Lit(Const.CStr("x"))))),
+      Term.App(Term.Global("eqSignal"), List(Term.Local(0), Term.Lit(Const.CStr("x")))))))),
+      Term.Lit(Const.CUnit))
+    val output = NativeUiSites.annotate(input,
+      NativeUiSites.Config(eligibleSymbols = Set("computedSignal", "eqSignal")))
+    val Term.Seq(List(
+      Term.App(Term.Global(computedName), Term.Lit(Const.CStr(computedSite)) :: _ :: computedArgs),
+      Term.App(Term.Global(equalityName), Term.Lit(Const.CStr(equalitySite)) :: _ :: equalityArgs)
+    )) = output.defs.head.body: @unchecked
+
+    assert(computedName == NativeUiSites.internalName("computedSignal"))
+    assert(equalityName == NativeUiSites.internalName("eqSignal"))
+    assert(computedSite == "d0:signals/root/s0")
+    assert(equalitySite == "d0:signals/root/s1")
+    assert(computedArgs.length == 1)
+    assert(equalityArgs.length == 2)
+
   test("bare UI references, bad arity, and reserved user globals fail early"):
     val bare = Program(List(Def("view", Term.Global("element"))), Term.Lit(Const.CUnit))
     val bareError = intercept[IllegalArgumentException](NativeUiSites.annotate(
