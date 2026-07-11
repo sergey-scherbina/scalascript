@@ -31,8 +31,8 @@ dependencies. Constructor bind patterns preserve the complete matched value,
 nested fields, once-only evaluation, and ordered fallback in portable CoreIR.
 `dsl-sql-recovery.ssc` is sentinel-clear and matches its sixteen-line explicit
 compatibility output on installed VM/direct ASM. The release gate is green with
-36 identical / 30 both-fail / zero mismatch or one-sided rows and 18 remaining
-blocking taxonomy rows. Landed through `c88f1733f`.
+37 identical / 29 both-fail / zero mismatch or one-sided rows and 17 remaining
+blocking taxonomy rows. Landed through `d25ff19ee`.
 
 ## 2026-07-11 — portable standard effect runners complete natively
 

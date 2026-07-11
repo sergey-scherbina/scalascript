@@ -2146,10 +2146,11 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     `v21-native-sql-recovery-parser-sentinel`.
                                     Result: constructor `bpat` lowering keeps
                                     whole value + nested fields and ordered
-                                    fallthrough. Final parity 36 identical / 30
+                                    fallthrough. Combined final parity 37 identical / 29
                                     both-fail / 129 skipped, zero mismatch or
-                                    one-sided rows; taxonomy 18 blockers / 30
-                                    rows; release-ready and conformance 11/11.
+                                    one-sided rows; corpus runtime is 47 OK / 90
+                                    errors, taxonomy 17 blockers / 29 rows;
+                                    release-ready and conformance 11/11.
                         - [x] **TI-8.2d2a multiple Markdown imports per line —
                               DONE 2026-07-11 (`836ceee03`, `64fcab537`):**
                               replace the native loader's one-link/whole-line

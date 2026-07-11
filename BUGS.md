@@ -61,7 +61,7 @@ found by codex while closing the native content-helper cutover.
   runtime blockers fall to 18, and affected conformance is 17/17.
 ## v21-native-sql-recovery-parser-sentinel — loaded recovery source leaves `_err`
 
-**Status:** fixed (2026-07-11, `fa27128ee`), awaiting Sergiy confirmation; found by codex after fixing the wrapped-import
+**Status:** fixed (2026-07-11, `1bf9c7c06`), awaiting Sergiy confirmation; found by codex after fixing the wrapped-import
 loss exposed the complete `dsl-sql-recovery.ssc` module closure.
 
 - **Real-harness repro:** after `scripts/sbtc "installBin"`, both
@@ -89,7 +89,7 @@ loss exposed the complete `dsl-sql-recovery.ssc` module closure.
 
 ## v21-native-multiline-markdown-import-dropped — std parser companion stays unloaded
 
-**Status:** fixed (2026-07-11, `47ff48b6c`), awaiting Sergiy confirmation; found by codex while reproducing the queued
+**Status:** fixed (2026-07-11, `96a1fa9dc`), awaiting Sergiy confirmation; found by codex while reproducing the queued
 TI-8.2d2x `dsl-sql-recovery.ssc` blocker in the installed standard tier.
 
 - **Real-harness repro:** after `scripts/sbtc "installBin"`, run
