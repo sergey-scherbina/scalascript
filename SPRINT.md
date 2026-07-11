@@ -633,6 +633,21 @@ there before changing this plan.
                   sources, column options/field paths and row payloads into the
                   shared Grid/Table behavior; execute row post/delete/link/edit
                   through the same action engine with exact request bodies.
+                  Rozum design checkpoint (2026-07-11): use one shared macOS/iOS
+                  Grid/LazyVStack renderer, strict ABI decoding, one dotted-path
+                  walker, deterministic formatters, stable table-local row
+                  models, and refactor the existing capability/generation/
+                  cancellation runner for row network work. Do not code until
+                  these spec gaps are resolved in a spec-only commit:
+                  - [ ] freeze stable row-key selection and duplicate/missing
+                        behavior (the ABI currently has no rowKeyPath);
+                  - [ ] reconcile general Field/WholeRow/Fields payloads with
+                        the String-only `rowPostAction(bodyField)` surface;
+                  - [ ] freeze a target-independent base URL contract for
+                        relative `/api` requests used by shipped sources;
+                  - [ ] freeze exact date/edit dotted-key/template/link and
+                        loading/empty/error semantics plus strict Swift 6 macOS
+                        runtime/iOS compile gates.
             - [ ] **isolated trusted HTML** — dynamically sized WKWebView using
                   a nonpersistent store, JavaScript disabled, compiled network
                   content rules, cancelled external navigation, and SwiftUI
