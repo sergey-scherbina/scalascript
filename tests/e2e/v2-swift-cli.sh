@@ -39,8 +39,9 @@ IOS_EXIT=$?
 set -e
 test "$IOS_EXIT" -eq 1
 grep -Fqx \
-  'run --target ios: the v2 NativeUi application target is not generated yet; no v1 fallback was attempted' \
+  'run --target ios: checked program does not define a NativeUi application' \
   "$TMP/ios-run.err"
+! grep -Fq 'Exception in thread' "$TMP/ios-run.err"
 
 set +e
 "$SSC" package --v2 --target ios --out "$TMP/package" "$FIXTURE" \

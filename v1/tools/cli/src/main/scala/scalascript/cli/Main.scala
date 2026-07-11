@@ -1884,24 +1884,30 @@ private[cli] def runIosTargets(files: List[String], device: Boolean, deviceId: O
       runSwiftUIIosSimulator(os.Path(file, os.pwd), outDir, console, rebuild)
 
 private[cli] def runV2IosTargets(files: List[String], console: Boolean): Unit =
-  val outDir = os.Path("target/build", os.pwd) / "ios"
-  val (simUdid, simName) = pickIosSimulator().getOrElse {
-    throw new IllegalStateException("run --target ios: no available iOS Simulator")
-  }
-  for file <- files do
-    val emitted = buildV2SwiftPackage(
-      os.Path(file, os.pwd), outDir, _root_.ssc.swift.SwiftPlatform.IOS)
-    val built = SwiftV2Cli.buildXcodeApplication(
-      emitted, s"platform=iOS Simulator,id=$simUdid", outDir / "derived", "run --target ios")
-    os.proc("xcrun", "simctl", "boot", simUdid).call(check = false, stdout = os.Pipe, stderr = os.Pipe)
-    val install = os.proc("xcrun", "simctl", "install", simUdid, built.bundle.toString)
-      .call(check = false, stdout = os.Inherit, stderr = os.Inherit)
-    if install.exitCode != 0 then throw new IllegalStateException("run --target ios: simulator install failed")
-    val bundleId = emitted.xcodeApp.get.bundleId
-    val launchArgs = if console then List("--console", simUdid, bundleId) else List(simUdid, bundleId)
-    val launch = os.proc(List("xcrun", "simctl", "launch") ++ launchArgs)
-      .call(check = false, stdout = os.Inherit, stderr = os.Inherit)
-    if launch.exitCode != 0 then throw new IllegalStateException(s"run --target ios: launch failed on $simName")
+  try
+    val outDir = os.Path("target/build", os.pwd) / "ios"
+    val (simUdid, simName) = pickIosSimulator().getOrElse {
+      throw new IllegalStateException("run --target ios: no available iOS Simulator")
+    }
+    for file <- files do
+      val emitted = buildV2SwiftPackage(
+        os.Path(file, os.pwd), outDir, _root_.ssc.swift.SwiftPlatform.IOS)
+      val built = SwiftV2Cli.buildXcodeApplication(
+        emitted, s"platform=iOS Simulator,id=$simUdid", outDir / "derived", "run --target ios")
+      os.proc("xcrun", "simctl", "boot", simUdid).call(check = false, stdout = os.Pipe, stderr = os.Pipe)
+      val install = os.proc("xcrun", "simctl", "install", simUdid, built.bundle.toString)
+        .call(check = false, stdout = os.Inherit, stderr = os.Inherit)
+      if install.exitCode != 0 then throw new IllegalStateException("run --target ios: simulator install failed")
+      val bundleId = emitted.xcodeApp.get.bundleId
+      val launchArgs = if console then List("--console", simUdid, bundleId) else List(simUdid, bundleId)
+      val launch = os.proc(List("xcrun", "simctl", "launch") ++ launchArgs)
+        .call(check = false, stdout = os.Inherit, stderr = os.Inherit)
+      if launch.exitCode != 0 then throw new IllegalStateException(s"run --target ios: launch failed on $simName")
+  catch case e: Exception =>
+    val detail = Option(e.getMessage).getOrElse(e.getClass.getSimpleName)
+    val message = if detail.startsWith("run --target ios:") then detail else s"run --target ios: $detail"
+    System.err.println(message)
+    System.exit(1)
 
 private[cli] def runJvmViaScalaCli(sscFile: os.Path, serverBackend: String, purpose: String): Unit =
   if !os.exists(sscFile) then
