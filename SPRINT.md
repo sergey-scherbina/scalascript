@@ -897,6 +897,12 @@ there before changing this plan.
                         replacement compile, error recovery keys `(html,source)`,
                         and delayed-network/delegate/naturalWidth/forged-
                         descriptor/deinit edges execute in the probe.
+                        Round-2 remains BLOCKED: replace duplicate issued/current
+                        flags with one serialized awaiting-policy generation and
+                        prepared-load queue; hide compiler/loader injection
+                        behind `SSC_NATIVEUI_HTML_PROBE`; route both delegate
+                        callers through one handoff; execute source-only recovery,
+                        forced stale terminal callbacks, and nil load start.
 - [ ] **v2-swiftui-apple-e2e** — emit one `.ssc` application to both macOS and
       iOS Xcode application projects with correct deployment declarations,
       resources, entry point, product type, shared scheme, and stable filenames.

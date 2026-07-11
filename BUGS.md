@@ -49,6 +49,16 @@
   programmatic cancellation and `_blank`/main handoff authority, data-image
   `naturalWidth`, forged arity/site/source, and coordinator deinit without an
   explicit dismantle.
+- **Rozum implementation review round 2 (BLOCKED):** `issuedGeneration` still
+  cannot distinguish a queued old `about:blank` policy action from the current
+  one. Serialize a single awaiting document-policy generation: a stale action
+  consumes/cancels only its old token, and a prepared current load cannot start
+  until that token clears. Production must not expose the injectable rule/
+  navigation loaders used by probes; compile them only under
+  `SSC_NATIVEUI_HTML_PROBE`. Both main-frame and `_blank` delegates must call
+  the one handoff function. Execute same-HTML/new-source failure recovery,
+  forced old finish/fail, and nil-navigation-start seams rather than asserting
+  key inequality alone.
 - **Plan/done-when:** freeze these four rules in
   `specs/v2-swift-swiftui-native.md` before code, obtain a second Rozum design
   APPROVE, then implement and execute loopback-zero-hit, data/inline,
