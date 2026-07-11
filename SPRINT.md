@@ -393,6 +393,13 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
       remove CommonMark/Flexmark from the standard path while preserving them
       only for compatibility/reference tests. Run content/import/native corpus
       gates without a host Markdown parser.
+- [ ] **v21-shc-standard-markdown-abi-packaging-bug** — add the new
+      `NativeSourceMarkdown` structural product to the explicit slim CLI class
+      allowlist. Real assembled repro: after `scripts/sbtc "installBin"`,
+      `bin/ssc-standard run --native tests/fixtures/v21-native/sql-provider.ssc`
+      throws `NoClassDefFoundError`, while full `bin/ssc` works. Done when both
+      Markdown frontend and native plugin-boundary smokes pass from the staged
+      distribution and `BUGS.md` records the landed SHA.
 - [ ] **v21-shc-plugin-backend-isolation** — after the live TI-7 slim-layout
       owner lands, rebase and isolate ASM plus every remaining removable
       dependency behind the backend/plugin that declares it. Keep JDK and Scala

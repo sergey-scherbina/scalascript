@@ -24,6 +24,29 @@ TI-8.2d2 from the real `target/v21-runtime-taxonomy-current.tsv` report at
   update the recorded baseline, and rerun taxonomy smoke, the real report, and
   affected conformance. Keep `fixed` until Sergiy confirms the taxonomy.
 
+## v21-standard-markdown-abi-packaging — slim launcher omits structural Markdown ABI class
+
+**Status:** open (2026-07-11); found by codex while verifying the self-hosted
+Markdown frontend cutover.
+
+- **Real-harness repro:** after `scripts/sbtc "installBin"`, run
+  `bin/ssc-standard run --native tests/fixtures/v21-native/sql-provider.ssc`.
+  The full launcher works, but the assembled slim launcher throws
+  `NoClassDefFoundError: scalascript/cli/NativeSourceMarkdown` while decoding
+  `NativeCompilation/4`.
+- **Expected:** every structural ABI class reachable from `RunNativeV2` is in
+  `bin/lib/standard/ssc.jar`; the slim launcher validates Markdown and runs the
+  program without a compatibility/tools JAR.
+- **Root cause:** `build.sbt` builds the slim CLI with an explicit class-prefix
+  allowlist. The new top-level `NativeSourceMarkdown` product was not added to
+  that list, so only the full `ssc.jar` contained it.
+- **Fix plan:** add the class to the standard allowlist and keep the assembled
+  `v21-native-plugin-boundary-smoke.sh` plus Markdown frontend smoke as the
+  faithful regression.
+- **Done-when:** both `bin/ssc-standard` and `bin/ssc` pass native Markdown/SQL,
+  the slim JAR contains the ABI class, and the landed fix SHA is recorded here.
+  Keep `fixed` until Sergiy confirms the assembled distribution.
+
 ## v21-sentinel-taxonomy-parity-success — parser sentinel becomes unclassified when both lanes exit zero
 
 **Status:** fixed (2026-07-10, `07c1d9b55`); found by codex while verifying
