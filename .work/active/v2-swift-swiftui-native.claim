@@ -1,6 +1,6 @@
 feature/v2-swift-swiftui-native 2026-07-10T17:41:11Z
 agent: codex
-heartbeat: 2026-07-11T09:34:54Z
+heartbeat: 2026-07-11T10:10:17Z
 status: in-progress
-done-so-far: SwiftUI store now passes a real stable-cell/equality/transitive/token probe; Host keyed transactions pass real move/delete/reinsert/shared-scope/rollback probes; renderer observes Show/keyed/controls/styles and real SwiftUI typechecks
-next: close strict inventory/source diagnostics and component occurrence gaps, run full gates, obtain nativeui-reviewer approval, then land code/spec/bookkeeping separately
+done-so-far: SwiftUI store/renderer passes 27/27 full Swift backend with transitive cycles, atomic Store+Host keyed rollback, node-bound component/occurrence owners, reactive wrappers, strict inventory and sourced deferred fetch/table/HTML diagnostics
+next: obtain nativeui-reviewer third verdict, rerun affected gates after any delta, then land code/spec/bookkeeping separately and continue actions/tables/WKWebView
