@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — named layout givens lower to portable static members
+
+Indented `given name: TC[T] with` bodies now retain balanced trait/given layout,
+emit deterministic member globals, and resolve sibling members after lexical
+scope. Multiple givens run identically on VM/direct ASM; the full typeclass
+example advances to its separately tracked top-level `summon` boundary with all
+release gates green. Landed `2a223d060`; taxonomy corrected in `625f1b628`.
+
 ## 2026-07-11 — document-level while loops use portable IrWhile
 
 Top-level while statements now reuse block parsing/lowering, execute in document
