@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — content binding executes as pure ScalaScript
+
+`contentBind` now validates and resolves dotted `ContentValue.MapV` paths,
+recursively rebuilds documents/sections/lists/tables and nested inline tags,
+preserves unresolved expressions, and renders scalar/list/map values entirely
+inside `std/content.ssc`. The core-free provider performs no path parse or
+binding fallback. Positional record-copy semantics are shared by the permanent
+Scala 3 seed and compatibility lanes; INT/JS/JVM conformance, native VM/direct
+ASM, standard/slim/JRE, and deterministic `build-jvm` are exact. Landed
+`208ec4c60`; contract `75eb9ac0e`; verification `1a50b8276`.
+
 ## 2026-07-11 — SwiftUI emits verified macOS and iOS Xcode applications
 
 Checked v2 NativeUi sources now emit one deterministic objectVersion-56

@@ -2626,7 +2626,8 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     exact malformed-fence frontend smoke and
                                     native content e2e pass without a fallback
                                     parse or fabricated empty document.
-                        - [ ] **TI-8.2d3f pure native content binding:** port
+                        - [x] **TI-8.2d3f pure native content binding — DONE
+                              2026-07-11 (`208ec4c60`, spec `75eb9ac0e`):** port
                               `contentBind(value, bindings)` path resolution and
                               recursive inline/block substitution into pure
                               `.ssc` content code, then expose the finished
@@ -2634,7 +2635,13 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               paths in the Scala provider. Cover nested/missing
                               paths and every supported block shape on VM/ASM/
                               build-jvm; do not install an identity fallback.
-                              - [ ] **TI-8.2d3f1 portable record-copy parity:**
+                              Result: dotted/nested/missing/invalid paths and
+                              every inline-bearing block shape bind recursively
+                              in pure `.ssc`; native/distribution gates pass,
+                              affected conformance is 17/17, and there is no
+                              Scala provider binding algorithm.
+                              - [x] **TI-8.2d3f1 portable record-copy parity —
+                                    DONE 2026-07-11 (`208ec4c60`):**
                                     fix tracked
                                     `v21-content-bind-copy-lane-divergence` by
                                     using concrete-arm positional copies in the
@@ -2642,6 +2649,17 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     the same positional override semantics;
                                     prove INT/JS/JVM/native VM/ASM parity before
                                     closing the binding slice.
+                                    Result: concrete positional copies share one
+                                    semantic path; seed/plugin tests are 3/3 and
+                                    both binding conformance cases pass on every
+                                    compatibility lane.
+                        - [ ] **TI-8.2d3g reconcile fresh runtime taxonomy:**
+                              fix tracked
+                              `v21-runtime-taxonomy-stale-after-front-fixes` by
+                              reviewing the fresh 57-identical/9-both-fail
+                              parity report against installed output, then
+                              update both taxonomy manifests and ceilings
+                              without restoring resolved blockers.
                   - [x] **TI-8.2d4 example/config blockers:** DONE 2026-07-11
                         (`d4c953b9c`, taxonomy `39cfe268b`). Repair stale imports,
                         fixture setup, and deterministic data/config assumptions

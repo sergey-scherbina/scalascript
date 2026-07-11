@@ -1,5 +1,24 @@
 # Bug tracker
 
+## v21-runtime-taxonomy-stale-after-front-fixes — reviewed blockers lag parity
+
+**Status:** open (2026-07-11); found by codex while running the exhaustive
+post-rebase release gate for pure native content binding.
+
+- **Real-harness repro:** fresh `scripts/native-front-corpus` reports 57
+  sentinels and `scripts/bc-parity-sweep --strict` reports 57 identical / 9
+  both-fail / 129 skipped, but `scripts/v21-sentinel-taxonomy` first rejects the
+  stale `agent-mcp-toolsource.ssc` override and `scripts/v21-runtime-taxonomy`
+  then rejects the older 34-row manifest (including rows now identical).
+- **Expected:** both reviewed taxonomies describe the same fresh corpus/parity
+  reports, retain zero sentinel `standard-gap` rows, and remove/reclassify only
+  rows proven by exact installed VM/ASM output.
+- **Plan/done-when:** join every stale/unclassified row to its exact fresh
+  output and owning feature, update overrides/manifests/ceilings atomically,
+  then rerun corpus, strict parity, both taxonomy gates, and the consolidated
+  release gate. This reconciliation is independent of `contentBind`, whose
+  focused and distribution gates are green.
+
 ## v21-build-jvm-content-path-nondeterminism — content.bin leaks source roots
 
 **Status:** open (2026-07-11); found by codex in the exhaustive post-effect
@@ -54,7 +73,7 @@ release gate after the content-provider main rebase.
 
 ## v21-content-bind-copy-lane-divergence — structural copy is not portable
 
-**Status:** open (2026-07-11); found by codex while running the required
+**Status:** fixed (2026-07-11, `208ec4c60`); found by codex while running the required
 `content-tables` INT/JS/JVM conformance after moving `contentBind` to pure
 ScalaScript.
 
@@ -72,6 +91,9 @@ ScalaScript.
   record-copy primitive accept positional overrides as well as its existing
   explicit-name form. Add a focused seed regression, then require exact
   `content-tables` conformance plus the native structural binding smoke.
+- **Verification:** the v2 seed regression is 3/3, `content-binding` and
+  `content-tables` pass on INT/JS/JVM, native VM/direct ASM are exact, and the
+  deterministic `build-jvm` artifact emits the same recursive binding output.
 
 ## v21-native-explicit-effect-handler-erasure — declarations and handlers disappear
 
