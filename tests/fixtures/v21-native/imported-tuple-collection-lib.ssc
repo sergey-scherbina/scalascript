@@ -1,0 +1,22 @@
+---
+name: v21-native-imported-tuple-collection-lib
+exports:
+  - importedTupleReport
+---
+
+# Imported tuple collection pipeline
+
+```scalascript
+def importedTupleReport(names: List[String], grades: List[Int]): List[String] =
+  val pairs = names.zip(grades)
+  val first = pairs.head
+  val second = pairs.tail.head
+  val third = pairs.tail.tail.head
+  val selected = s"${first._1}:${first._2}"
+  val matched = second match
+    case (name, grade) => s"$name=$grade"
+  val nested = Some(third) match
+    case Some((name, grade)) => s"Some($name/$grade)"
+    case _ => "missing"
+  List(selected, matched, nested)
+```

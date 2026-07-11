@@ -86,6 +86,8 @@ assignment_expression_expected=$'6\ntrue\n7'
 final_mini_language_expected=$'condition-ok\nstage\n7\ntrue'
 [[ $(run_native "$FIXTURES/final-mini-language-shapes.ssc") == "$final_mini_language_expected" ]]
 [[ $(run_native "$FIXTURES/multiple-link-imports.ssc") == '42' ]]
+imported_tuple_expected='Ada:90|Lin=88|Some(Cy/77)'
+[[ $(run_native "$FIXTURES/imported-tuple-collection.ssc") == "$imported_tuple_expected" ]]
 exact_decimal_expected=$'12.35\n10.00\n13.00\n3.60\ntrue\n10\ndue: 12.35'
 [[ $(run_native "$FIXTURES/exact-decimal.ssc") == "$exact_decimal_expected" ]]
 [[ $(run_native "$ROOT/examples/multi-link-imports.ssc") == 'minor units: 1234' ]]
@@ -157,6 +159,7 @@ index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
 [[ $(run_native --bytecode "$FIXTURES/assignment-expression.ssc") == "$assignment_expression_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/final-mini-language-shapes.ssc") == "$final_mini_language_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/multiple-link-imports.ssc") == '42' ]]
+[[ $(run_native --bytecode "$FIXTURES/imported-tuple-collection.ssc") == "$imported_tuple_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/exact-decimal.ssc") == "$exact_decimal_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/multi-link-imports.ssc") == 'minor units: 1234' ]]
 [[ $(run_native --bytecode "$FIXTURES/default-arguments.ssc") == "$default_arguments_expected" ]]
@@ -295,16 +298,19 @@ http_port=$((32000 + ($$ % 10000)))
 [[ $(run_native "$FIXTURES/http-server-fast-feature.ssc") == '' ]]
 [[ $(run_native --bytecode "$FIXTURES/http-server-fast-feature.ssc") == '' ]]
 
-set +e
-run_native "$ROOT/examples/imports.ssc" >"$sandbox/imports.out" 2>"$sandbox/imports.err"
-imports_rc=$?
-set -e
-[[ $imports_rc -ne 0 ]]
-# Native math and tuple selectors now execute through the portable kernel. The
-# following perimeter collection pipeline is separately classified and reaches
-# its honest tuple-pattern boundary on both lanes.
-grep -F 'distance (0,0)-(3,4) = 5' "$sandbox/imports.out" >/dev/null
-grep -F 'match: no arm for Tuple2/2' "$sandbox/imports.err" >/dev/null
+imports_vm=$(run_native "$ROOT/examples/imports.ssc")
+imports_asm=$(run_native --bytecode "$ROOT/examples/imports.ssc")
+[[ "$imports_vm" == "$imports_asm" ]]
+grep -F 'triangle perimeter   = 12' <<<"$imports_vm" >/dev/null
+grep -F 'square perimeter     = 8' <<<"$imports_vm" >/dev/null
+grep -F 'max    : 13' <<<"$imports_vm" >/dev/null
+
+extensions_vm=$(run_native "$ROOT/examples/extensions.ssc")
+extensions_asm=$(run_native --bytecode "$ROOT/examples/extensions.ssc")
+[[ "$extensions_vm" == "$extensions_asm" ]]
+grep -F 'min = 1, max = 9' <<<"$extensions_vm" >/dev/null
+grep -F '  Alice: 90' <<<"$extensions_vm" >/dev/null
+grep -F '  Carol: 88' <<<"$extensions_vm" >/dev/null
 
 # Object layout now keeps the imported component methods owned, so this
 # long-running server example reaches `serve` instead of failing at `unbound s`.

@@ -1,0 +1,15 @@
+---
+name: v21-native-imported-tuple-collection
+---
+
+[importedTupleReport](imported-tuple-collection-lib.ssc)
+
+# Imported tuple selectors and patterns
+
+```scalascript
+val result = importedTupleReport(
+  List("Ada", "Lin", "Cy"),
+  List(90, 88, 77)
+)
+println(result.mkString("|"))
+```

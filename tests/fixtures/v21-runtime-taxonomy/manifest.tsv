@@ -8,7 +8,6 @@ content-linked-namespaces.ssc	standard-provider	yes	content	contentModuleSection
 content-to-markdown.ssc	standard-provider	yes	content	contentSection is missing from a core-free standard content provider
 content.ssc	standard-provider	yes	content	md is missing from a core-free standard content provider
 custom-derives-mirror.ssc	language-runtime	yes	typeclass	Mirror/derives evidence is not synthesized, so exact summon has no named given to resolve
-data-types.ssc	language-runtime	yes	value-conversion	portable enum/data rendering attempts to use a foreign value as String
 dataset-parallel-sum.ssc	language-runtime	yes	stack-safety	portable dataset evaluation overflows the JVM stack on both backends
 dataset-stats.ssc	language-runtime	yes	effects	portable dataset evaluation leaks an unhandled Op/3 into match lowering
 dataset-word-count.ssc	language-runtime	yes	value-conversion	portable dataset rendering attempts to use a List as String
@@ -19,11 +18,9 @@ distributed-log-aggregation.ssc	standard-provider	yes	distributed	NamedHandler i
 dsl-mini-language.ssc	language-runtime	yes	value-conversion	mini-language evaluation receives token text where an Int value is required
 dsl-sql-recovery.ssc	language-runtime	yes	effects	parser recovery leaks an unhandled Op/3 into match lowering
 effects.ssc	language-runtime	yes	effects	declared portable effect operation greet remains an unbound global
-extensions.ssc	language-runtime	yes	collection-dispatch	tuple selectors now run; the following collection pipeline reaches a Tuple2/2 match gap
 generators.ssc	standard-provider	yes	generators	generator is missing from a core-free standard generator provider
 graph-rdf4j-http-storage.ssc	standard-provider	yes	graph	Graph.putRdf has no core-free standard effect handler
 graph-storage-interpreter.ssc	standard-provider	yes	graph	Graph.putVertex has no core-free standard effect handler
-imports.ssc	language-runtime	yes	collection-dispatch	native math and tuple selectors now run; the following perimeter list pipeline reaches a Tuple2/2 match gap
 international-bank-rails.ssc	optional-provider	no	swift	SwiftProvider is an explicitly optional platform provider
 invoice-email.ssc	optional-provider	no	pdf	htmlToPdfBase64 belongs to the explicitly optional PDF provider
 invoice-pdf.ssc	optional-provider	no	pdf	htmlToPdfBase64 belongs to the explicitly optional PDF provider

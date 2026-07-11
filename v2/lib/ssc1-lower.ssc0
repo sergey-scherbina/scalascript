@@ -1762,6 +1762,17 @@ def shiftObs = (obs, d) =>
       match ob { case Pair(pos, sp) => Cons(Pair(#i.add(pos, d), sp), shiftObs(rest, d)) }
   }
 
+-- A source-level 2-tuple is Pair/2 when emitted by the self-hosted lowerer, but
+-- collection/provider values inherited from the JVM boundary use Tuple2/2.
+-- Expand only source tuple patterns here; the CoreIR matcher must keep arbitrary
+-- constructor tags exact because Pair is also an internal bootstrap ADT.
+def ctorPatternArms = (ctorName, arity, body) =>
+  if #seq(ctorName, "Pair") then
+    if #i.eq(arity, 2) then
+      Cons(IrArm("Pair", 2, body), Cons(IrArm("Tuple2", 2, body), Nil))
+    else Cons(IrArm(ctorName, arity, body), Nil)
+  else Cons(IrArm(ctorName, arity, body), Nil)
+
 -- Discharge nested-match obligations left-to-right (each inner match prepends its
 -- sub-binders to the scope and shifts the remaining obligations), then lower the body.
 def dischargeObs = (obs, scope, body) =>
@@ -1776,7 +1787,8 @@ def dischargeObs = (obs, scope, body) =>
             let subObs = fldObligations(subs, m) in
             let restShifted = shiftObs(rest, m) in
             IrMatch(IrLocal(pos),
-              Cons(IrArm(subctor, m, dischargeObs(appendL(subObs, restShifted), innerScope, body)), Nil),
+              ctorPatternArms(subctor, m,
+                dischargeObs(appendL(subObs, restShifted), innerScope, body)),
               None)
           } }
       }
@@ -1802,7 +1814,7 @@ def dischargeObsOr = (obs, successScope, failureScope, scrutPos, body, fallbackA
               appendL(subObs, restShifted), innerSuccess, innerFailure,
               #i.add(scrutPos, m), body, fallbackArms) in
             let failureBody = lowerOrderedGuardArms(failureScope, scrutPos, fallbackArms) in
-            IrMatch(IrLocal(pos), Cons(IrArm(subctor, m, successBody), Nil), Some(failureBody))
+            IrMatch(IrLocal(pos), ctorPatternArms(subctor, m, successBody), Some(failureBody))
           } }
       }
   }
@@ -1832,7 +1844,7 @@ def dischargeObsOrGuard = (obs, successScope, failureScope, scrutPos, guard, bod
               appendL(subObs, restShifted), innerSuccess, innerFailure,
               #i.add(scrutPos, m), guard, body, fallbackArms) in
             let failureBody = lowerOrderedGuardArms(failureScope, scrutPos, fallbackArms) in
-            IrMatch(IrLocal(pos), Cons(IrArm(subctor, m, successBody), Nil), Some(failureBody))
+            IrMatch(IrLocal(pos), ctorPatternArms(subctor, m, successBody), Some(failureBody))
           } }
       }
   }
@@ -1876,7 +1888,7 @@ def lowerLitArms = (scope, letScope, arms) =>
             match pdata { case Pair(ctorName, fields) =>
               let armScope = appendL(revL(fldBinders(fields)), letScope) in
               let armBody = dischargeObs(fldObligations(fields, lenL(fields)), armScope, body) in
-              IrMatch(IrLocal(0), Cons(IrArm(ctorName, lenL(fields), armBody), Nil),
+              IrMatch(IrLocal(0), ctorPatternArms(ctorName, lenL(fields), armBody),
                       Some(lowerLitArms(scope, letScope, rest))) }
           else lowerE(letScope, body) } }
   }
@@ -1948,7 +1960,7 @@ def lowerOrderedGuardArms = (scope, scrutPos, arms) =>
                       fldObligations(fields, arity), armScope, failedScope,
                       #i.add(scrutPos, arity), guard, body, rest) in
                     IrMatch(IrLocal(scrutPos),
-                      Cons(IrArm(ctorName, arity, armBody), Nil),
+                      ctorPatternArms(ctorName, arity, armBody),
                       Some(lowerOrderedGuardArms(scope, scrutPos, rest)))
                   }
                 else
@@ -1972,7 +1984,7 @@ def lowerOrderedGuardArms = (scope, scrutPos, arms) =>
                 fldObligations(fields, arity), armScope, failedScope,
                 #i.add(scrutPos, arity), body, rest) in
               IrMatch(IrLocal(scrutPos),
-                Cons(IrArm(ctorName, arity, armBody), Nil),
+                ctorPatternArms(ctorName, arity, armBody),
                 Some(lowerOrderedGuardArms(scope, scrutPos, rest)))
             }
           else lowerE(scope, body)
@@ -2023,8 +2035,8 @@ def lowerMatch = (scope, scrutinee, arms) =>
                     case Pair(ctorName, fields) =>
                       let armScope = appendL(revL(fldBinders(fields)), letScope) in
                       let armBody = dischargeObs(fldObligations(fields, lenL(fields)), armScope, body) in
-                      let irArm = IrArm(ctorName, lenL(fields), armBody) in
-                      procArms(rest, appendL(irAcc, Cons(irArm, Nil)), defAcc)
+                      let irArms = ctorPatternArms(ctorName, lenL(fields), armBody) in
+                      procArms(rest, appendL(irAcc, irArms), defAcc)
                   }
                 else if #seq(ptag, "vpat") then
                   let defScope = Cons(pdata, scope) in
@@ -2473,18 +2485,20 @@ def sel1Def =
     IrLam(1,
       IrMatch(IrLocal(0),
         Cons(IrArm("Pair",   2, IrLocal(1)),
+        Cons(IrArm("Tuple2", 2, IrLocal(1)),
         Cons(IrArm("Tuple3", 3, IrLocal(2)),
         Cons(IrArm("Tuple4", 4, IrLocal(3)),
-        Nil))), None)))
+        Nil)))), None)))
 
 def sel2Def =
   IrDef("_sel__2",
     IrLam(1,
       IrMatch(IrLocal(0),
         Cons(IrArm("Pair",   2, IrLocal(0)),
+        Cons(IrArm("Tuple2", 2, IrLocal(0)),
         Cons(IrArm("Tuple3", 3, IrLocal(1)),
         Cons(IrArm("Tuple4", 4, IrLocal(2)),
-        Nil))), None)))
+        Nil)))), None)))
 
 def sel3Def =
   IrDef("_sel__3",
