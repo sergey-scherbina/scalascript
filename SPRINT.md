@@ -967,6 +967,39 @@ there before changing this plan.
             macOS codesign/notarization/DMG, TestFlight, and App Store lanes to
             that artifact with their existing bounded credential/tool errors;
             no adapter may regenerate through v1 or infer a hard-coded Debug path.
+            Pre-code audit is BLOCKED until the following exact authority is
+            committed to `specs/v2-swift-swiftui-native.md` and re-approved:
+            - [ ] construct one `V2AppleDistributionContext` from one checked
+                  `SwiftV2Cli.emit`; ban `Parser`, `swiftAppName`, `JvmGen`,
+                  `buildSwiftUIPackage`, inferred paths, and CLI product use;
+            - [ ] share destination/configuration-aware build-settings query
+                  and app verifier. Archive Release with explicit project,
+                  scheme, destination, archive/derived paths, provisioning/team
+                  args; resolve `ApplicationPath` from xcarchive Info.plist,
+                  reject traversal, require `Products`, then verify exact APPL/
+                  bundle/non-CLI executable before export;
+            - [ ] v2 iOS device run accepts `--team-id` with CLI >
+                  `SSC_TEAM_ID`, requires it, performs signed Debug build via
+                  the artifact, verifies the app, and passes only that bundle
+                  plus exact optional device id to `ios-deploy`;
+            - [ ] iOS package maps legacy export names to Xcode 26.5 canonical
+                  `debugging|release-testing|app-store-connect|enterprise`,
+                  exports to a fresh owned directory, and requires exactly one
+                  IPA. macOS Developer-ID export verifies the app/codesign,
+                  notarizes a bounded `ditto --keepParent` ZIP via explicit
+                  keychain profile, staples/validates, then optionally creates
+                  a DMG from that exact app;
+            - [ ] publish first builds/verifies the app-store-connect IPA or
+                  Mac App Store PKG, then fastlane `pilot`/`deliver` uploads the
+                  explicit path; generated Fastfiles never call `gym`.
+                  Existing `--fastlane` receives the same explicit artifact/
+                  project/scheme/bundle env contract only after CLI verification;
+            - [ ] credentials are noninteractive and bounded: team CLI > env,
+                  API-key JSON flag > env, notary profile flag > env; all tool
+                  probes catch spawn failures. Gate pure argv/env plans,
+                  synthetic archive traversal/wrong-app/duplicate exports,
+                  fake-runner handoffs, plist/Ruby syntax, and assembled
+                  missing-tool/credential no-v1/no-stack paths without secrets.
       - [x] **v2-swiftui-real-apple-gates** — generate one checked reduced-busi
             source for macOS/iOS, build the macOS scheme to a real `.app`, inspect
             Info.plist/product type, run a bounded smoke, and compile an iOS

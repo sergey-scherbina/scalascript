@@ -73,7 +73,31 @@ ownership and rerunning the installed native-entry gate.
 - **Plan/done-when:** add the two missing fields to the canonical case class,
   retain the provider's established order, make the installed server fixture
   exact again, and rerun native-entry, release, and fresh conformance gates.
+## v2-swift-distribution-authority-gaps — signed routes can rebuild or select an unverified product
 
+**Status:** open (2026-07-11); reported by `nativeui-reviewer` in the
+`scalascript` Rozum room during the `v2-swiftui-apple-distribution-adapters`
+pre-code audit at 22:07–22:08, after unsigned Xcode closure `1ff9b2e76`.
+
+- **Real routing repro:** non-v1 `run --target ios --device` currently drops
+  `--device`; `package` parses the source with v1 `Parser` before target routing
+  and hard-stops; legacy device/archive helpers call `JvmGen` and infer
+  `Debug-iphoneos`/`<App>.app`; generated fastlane lanes call `gym`, allowing a
+  second build and product selection outside the checked-v2 artifact.
+- **Expected:** one checked `SwiftV2Cli.emit` creates a
+  `V2AppleDistributionContext`. Device, archive, export, notarization, DMG, and
+  publish consume only its `XcodeAppArtifact`, explicit project/scheme, shared
+  build-settings query, archive-relative app path, and common
+  APPL/bundle/non-CLI verifier. No v1 parser/generator or inferred product path.
+- **Credential/safety gap:** team id must be CLI then `SSC_TEAM_ID`; API key
+  JSON must be flag then env; notarization must use an explicit keychain
+  profile and bounded timeout. No prompt, secret logging, stale/duplicate
+  export, archive traversal, or missing-tool stack trace is accepted.
+- **Plan/done-when:** commit the exact distribution authority spec delta and
+  obtain Rozum APPROVE before code. Then implement secret-free command plans,
+  verified archive/export handoffs, device deploy, Developer-ID/notary/DMG, and
+  explicit IPA/PKG fastlane upload; gate with pure argv/env, fake-runner,
+  synthetic archive/export, syntax, and assembled bounded-negative tests.
 ## v21-native-extern-class-members-escape — abstract fields become parser sentinels
 
 **Status:** fixed (2026-07-11, `fd36ee87e`), awaiting Sergiy confirmation; found by codex in the exhaustive post-effect
