@@ -745,7 +745,11 @@ object Compiler:
         // Signal/ComputedSignal → mutable cell (ForeignV(Array)) so .get/.set work in-place
         if tag == "Signal" || tag == "ComputedSignal" then
           val initCode: Code = if fields.isEmpty then (_ => Done(UnitV)) else compile(fields.head)
-          return (env: Env) => Done(ForeignV(Array[Value](Runtime.value(initCode, env))))
+          return (env: Env) =>
+            val initial = Runtime.value(initCode, env)
+            V2PluginRegistry.lookupGlobal(tag) match
+              case Some(provider: ClosV) => Call(provider, Array[Value](initial))
+              case _ => Done(ForeignV(Array[Value](initial)))
         val fcs = fields.map(compile)
         fcs.length match
           case 0 =>
@@ -3521,11 +3525,6 @@ object Prims:
       case _ =>
         anyStr(v)
     String.format(java.util.Locale.US, spec, arg)
-  /** User-visible deterministic display shared by standard host providers and
-   *  the kernel's println/interpolation paths. This is a renderer over an
-   *  already-built Value; it never parses source or data formats. */
-  def display(v: Value): String = anyStr(v)
-
   private def anyStr(v: Value): String = v match
     case StrV(s)   => s
     // Stub breadcrumbs render as the bare tag in user-visible strings — the

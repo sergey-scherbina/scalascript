@@ -1,7 +1,7 @@
 package ssc.plugin.reactive
 
 import org.scalatest.funsuite.AnyFunSuite
-import ssc.{Done, Prims, Runtime, V2PluginRegistry, Value}
+import ssc.{Compiler, Const, Done, Prims, Program, Runtime, Term, V2PluginRegistry, Value}
 import ssc.plugin.NativePluginHost
 
 class ReactiveNativePluginTest extends AnyFunSuite:
@@ -18,6 +18,19 @@ class ReactiveNativePluginTest extends AnyFunSuite:
 
   private def method(signal: Value, name: String, args: Value*): Value =
     Prims.methodOp(name, signal, args.toList)
+
+  private def compiledSignal(initial: Long): Value =
+    Runtime.run(Compiler.compile(Program(Nil,
+      Term.Ctor("Signal", List(Term.Lit(Const.CInt(initial)))))), Runtime.emptyEnv)
+
+  test("compiled Signal constructors prefer the installed reactive provider"):
+    NativePluginHost.installProviders(List(ReactiveNativePlugin()))
+    val signal = compiledSignal(1)
+    assert(signal.isInstanceOf[Value.DataV])
+    assert(method(signal, "get") == Value.IntV(1))
+
+    V2PluginRegistry.clear()
+    assert(compiledSignal(2).isInstanceOf[Value.ForeignV])
 
   test("mutable and computed signals publish current values"):
     NativePluginHost.installProviders(List(ReactiveNativePlugin()))
