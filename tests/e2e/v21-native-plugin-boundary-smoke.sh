@@ -16,7 +16,8 @@ http=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-http-plugin_*.jar' 
 sql=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-sql-plugin_*.jar' -print -quit)
 ui=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-ui-plugin_*.jar' -print -quit)
 state=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-state-effect-plugin_*.jar' -print -quit)
-for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$sql" "$ui" "$state"; do
+storage=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-storage-effect-plugin_*.jar' -print -quit)
+for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$sql" "$ui" "$state" "$storage"; do
   [[ -n "$jar_file" && -f "$jar_file" ]] || {
     echo 'v21-native-plugin-boundary-smoke: staged native provider jar missing' >&2
     exit 2
@@ -32,8 +33,9 @@ jar tf "$http" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 jar tf "$sql" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 jar tf "$ui" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 jar tf "$state" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
+jar tf "$storage" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 
-for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$sql" "$ui" "$state"; do
+for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$sql" "$ui" "$state" "$storage"; do
   deps=$(jdeps --multi-release base --ignore-missing-deps -verbose:class -cp "$CP" "$jar_file")
   if printf '%s\n' "$deps" | grep -E \
       'scala\.meta|scalascript\.interpreter|scalascript\.ast|scalascript\.plugin\.api|scalascript\.frontend|ssc\.bridge|dotty\.tools|javax\.tools' >/dev/null; then
@@ -64,6 +66,7 @@ sql_vm=$(mktemp "${TMPDIR:-/tmp}/v21-native-sql-vm.XXXXXX")
 sql_asm=$(mktemp "${TMPDIR:-/tmp}/v21-native-sql-asm.XXXXXX")
 state_vm=$(mktemp "${TMPDIR:-/tmp}/v21-native-state-vm.XXXXXX")
 state_asm=$(mktemp "${TMPDIR:-/tmp}/v21-native-state-asm.XXXXXX")
+storage_path="$ui_tmp/storage.json"
 trap 'rm -f "$classlog" "$standard_classlog" "$json_classlog" "$http_classlog" "$sql_vm" "$sql_asm" "$state_vm" "$state_asm"; rm -rf "$ui_tmp"' EXIT HUP INT TERM
 PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc-standard" run --native \
   "$ROOT/tests/fixtures/v21-native/sql-provider.ssc" >"$standard_classlog" 2>&1
@@ -101,6 +104,9 @@ grep -F 'Hi &lt;native&gt;' "$classlog" >/dev/null
 PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc" run --native \
   "$ROOT/tests/fixtures/v21-native/state-effect-provider.ssc" >>"$classlog" 2>&1
 grep -F '101' "$classlog" >/dev/null
+PATH=/usr/bin:/bin SSC_STORAGE_PATH="$storage_path" JAVA_TOOL_OPTIONS=-verbose:class \
+  "$ROOT/bin/ssc" run --native "$ROOT/examples/storage-demo.ssc" >>"$classlog" 2>&1
+grep -F 'Some("hello world")' "$classlog" >/dev/null
 if grep -E 'ssc\.bridge\.(PluginBridge|FrontendBridge)|scala\.meta\.' \
     "$classlog" >/dev/null; then
   echo 'native run loaded a compatibility bridge or Scalameta class' >&2

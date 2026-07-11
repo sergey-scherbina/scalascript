@@ -102,6 +102,16 @@ if printf '%s\n' "$sql_deps" | grep -E 'javax[.]tools|jdk[.]compiler|java[.]comp
   exit 1
 fi
 
+PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
+  "$ROOT/examples/storage-demo.ssc" -o "$sandbox/storage.jar"
+storage_expected=$'Some("alice")\nNone\ntrue\nList("user", "role")\n1\n2\n1\n3\nList("hits:alice", "hits:bob")\nSome("hello world")'
+[[ $(PATH="$clean_path" SSC_STORAGE_PATH="$sandbox/storage.json" \
+  java -jar "$sandbox/storage.jar") == "$storage_expected" ]]
+unzip -p "$sandbox/storage.jar" META-INF/scalascript/artifact.properties \
+  >"$sandbox/storage-artifact.properties"
+grep -F 'ssc.plugin.storage.StorageNativePlugin' \
+  "$sandbox/storage-artifact.properties" >/dev/null
+
 deps=$(jdeps --multi-release base --ignore-missing-deps -verbose:class "$sandbox/app-a.jar")
 if printf '%s\n' "$deps" | grep -E \
     'scala[.]meta|dotty[.]tools|javax[.]tools|ssc[.]bridge|scalascript[.](ast|interpreter)' >/dev/null; then

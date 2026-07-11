@@ -123,6 +123,7 @@ declare -a root_specs=(
   'feature-plugin|scalascript-v2-native-sql-plugin_*.jar'
   'feature-plugin|scalascript-v2-native-ui-plugin_*.jar'
   'feature-plugin|scalascript-v2-native-state-effect-plugin_*.jar'
+  'feature-plugin|scalascript-v2-native-storage-effect-plugin_*.jar'
 )
 
 # Some plugin dependencies are selected by runtime configuration, JDBC URLs,
