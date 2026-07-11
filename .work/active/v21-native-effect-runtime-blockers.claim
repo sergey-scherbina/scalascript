@@ -1,0 +1,6 @@
+feature/v21-native-effect-runtime-blockers 2026-07-11T19:21:44Z
+agent: codex
+heartbeat: 2026-07-11T19:21:44Z
+status: not-started
+done-so-far:
+next: queue and specify the four reviewed portable effect-runtime rows, reproduce each first loss on installed VM/direct ASM, then repair shared lowering/runtime semantics and shrink taxonomy empirically
