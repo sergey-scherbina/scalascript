@@ -1,7 +1,7 @@
-feature/v21-shc-plugin-backend-isolation 2026-07-10T16:27:29Z
+feature/v21-shc-bootstrap-release-gates 2026-07-10T16:27:29Z
 agent: codex
-heartbeat: 2026-07-11T04:49:34Z
+heartbeat: 2026-07-11T05:01:52Z
 status: in-progress
-done-so-far: dependency gates; pure JSON core; JSON/HTTP cutover ed945466d; pure YAML core 7a06d4a55; structural YAML 20d9db6db; pure/structural Markdown 54e26493c/36d5ef3b6
-next: isolate ASM and every remaining removable standard dependency behind its declaring backend/plugin, then make the strict dependency gate green
-scope: plugin/backend ownership, physical standard packaging, pure-core extern/host-regex audit; preserve JDK and Scala runtime as the permanent Scala 3 seed allowance
+done-so-far: pure/structural JSON, YAML, Markdown; strict plugin/backend isolation 6f393beea; standard layout 27 JARs and zero parser edges
+next: add stage-2 compiler-image reproducibility plus consolidated deletion/jdeps/classload/corpus/fuzz/slim/build-jvm release gates, then close every remaining 2.1 behavior item
+scope: release verification and reproducibility only; reconcile toolchain spec after its owner releases, preserve permanent Scala 3 seed and avoid overlapping active toolchain worktree files
