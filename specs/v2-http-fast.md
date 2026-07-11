@@ -258,6 +258,18 @@ Results (2026-07-11, `d503cf856`):
   image is 32 total JARs including `ssc.jar`, 6,617 classes, and 30,727,574
   bytes with compiler tools absent.
 
+### Follow-ups (resolved 2026-07-11)
+
+- **Cross-lane Request parity.** The native plugin used to stuff path params + query into
+  `form`; now it exposes `params` (path params) and `query` (query string) as their own fields
+  and `form` = POST `x-www-form-urlencoded` body — matching the v1 WebServer Request. An ssc
+  program using `req.params`/`req.query`/`req.form` now runs identically on `--native` and
+  `--v2` (verified: both print `params=7 query=hi` / `form=ada` for the same source).
+- **Standard-tier image cutover.** `standardJarPrefixes` still whitelisted the removed
+  `scalascript-v2-native-http-plugin_`, so the compiler-free standard image shipped no http
+  provider. Swapped to `scalascript-v2-native-http-fast-plugin_` + `scalascript-http-fast-engine_`
+  (standard image 29→31 jars). The `--v2` HttpServerSpi backend stays tools-only.
+
 ## Non-goals (this spec)
 
 HTTP/2, HTTP/3/QUIC (future); the HTTP CLIENT stays on `java.net.http` (the win is the
