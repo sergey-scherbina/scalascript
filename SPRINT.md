@@ -1589,6 +1589,18 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               36 blockers / 48 total; dependency, JRE, slim,
                               plugin/class-load, portable, taxonomy, and fresh
                               conformance 11/11 gates pass.
+                        - [ ] **TI-8.2d3c core-free reactive signals:** add a
+                              dedicated native standard provider for the general
+                              `Signal(initial)`, `computed { ... }`, and
+                              `effect { ... }` surface without reusing the
+                              NativeUi ABI signal store. Use portable tagged
+                              `ReactiveSignal` values, dynamic dependency
+                              collection, insertion-ordered subscriber flush,
+                              diamond dedup, and current-effect self-write
+                              suppression. Cover mutable/computed/chained/
+                              diamond/self-write behavior in provider tests and
+                              run `signals-demo.ssc` exactly on VM/direct ASM and
+                              build-jvm before retiring only its taxonomy row.
                   - [ ] **TI-8.2d4 example/config blockers:** repair stale imports,
                         fixture setup, and deterministic data/config assumptions
                         only where the example is valid standard surface. Move
