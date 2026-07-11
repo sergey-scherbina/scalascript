@@ -59,6 +59,13 @@ read-only implementation audit of the local Apple table decoder draft.
   7. the six probes must add Fields, token/base/header/content-type/scalar/
      overflow negatives, edit dedupe, descriptor replacement, row/unmount/
      deinit cancellation, and stale-completion rejection.
+- **Rozum review round 2 preliminary residual:** owner/site plus descriptor
+  signature alone does not authenticate the supplied row/action/slot. The
+  runner must match a canonical action signature at the current slot and the
+  typed identity in the current committed row set; arbitrary actions under a
+  live table signature and old rows after replacement/removal must reject.
+  Replacement itself commits only after both descriptor decode and candidate
+  snapshot succeed, preserving the previous capability/model on failure.
 - **Plan/done-when:** close all four seams before the first Apple table code
   commit, add them to the six named executable gates, and obtain Rozum reviewer
   confirmation with the complete slice.

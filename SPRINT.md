@@ -725,6 +725,11 @@ there before changing this plan.
                         fetch error; String-only row-map keys plus sourced bounded
                         init failures; and the missing negative/replacement/
                         edit-dedupe/cancellation/stale-completion probe matrix.
+                        Round-2 residual: capability state must additionally
+                        authenticate canonical action signature by current slot
+                        and typed row identity by current committed row set;
+                        descriptor replacement is transactional and preserves
+                        the prior model/capability when decode/snapshot fails.
             - [ ] **isolated trusted HTML** — dynamically sized WKWebView using
                   a nonpersistent store, JavaScript disabled, compiled network
                   content rules, cancelled external navigation, and SwiftUI
