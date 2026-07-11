@@ -2,7 +2,7 @@
 
 ## v21-native-dynamic-bigint-tostring — selected conversion is Int-only
 
-**Status:** fixed (2026-07-11, `0c6719718`); found by codex after the native structural
+**Status:** fixed (2026-07-11, `e2511c6ad`); found by codex after the native structural
 content provider exposed the next failure in `content-linked-namespaces.ssc`.
 
 - **Real-harness repro:** after `scripts/sbtc "installBin"`, both

@@ -2444,7 +2444,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               example byte-identically on VM/ASM/build-jvm and
                               keep user-defined interpolator dispatch unchanged.
                         - [x] **TI-8.2d2x dynamic `BigInt.toString` — DONE
-                              2026-07-11 (`0c6719718`):** after the
+                              2026-07-11 (`e2511c6ad`):** after the
                               structural content provider resolves
                               `contentModuleSection`,
                               `examples/content-linked-namespaces.ssc` prints
