@@ -3,10 +3,15 @@ package scalascript.cli
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 
-import _root_.ssc.swift.{SwiftBackend, SwiftPlatform}
+import _root_.ssc.swift.{SwiftAppMetadata, SwiftBackend, SwiftPlatform, XcodeAppArtifact}
 
 private[cli] object SwiftV2Cli:
-  final case class EmittedPackage(root: os.Path, product: String, platform: SwiftPlatform)
+  final case class EmittedPackage(
+      root: os.Path,
+      debugCli: String,
+      platform: SwiftPlatform,
+      xcodeApp: Option[XcodeAppArtifact],
+  )
 
   def parsePlatform(raw: String, command: String): SwiftPlatform =
     raw.trim.toLowerCase match
@@ -32,23 +37,30 @@ private[cli] object SwiftV2Cli:
     _root_.ssc.bridge.FrontendBridge.resetState()
     _root_.ssc.bridge.PluginBridge.loadAll()
     val source = Files.readString(input.toNIO, StandardCharsets.UTF_8)
-    val program = _root_.ssc.bridge.FrontendBridge.convertSource(
+    val checked = _root_.ssc.bridge.FrontendBridge.convertSourceWithMetadata(
       source,
       Some((input / os.up).toIO),
     )
     val product = SwiftBackend.productName(
-      requestedProduct.getOrElse(input.last.stripSuffix(".ssc"))
+      requestedProduct.orElse(checked.metadata.name).getOrElse(input.last.stripSuffix(".ssc"))
     )
+    val appMetadata = checked.metadata.bundleId.map { bundleId =>
+      SwiftAppMetadata(
+        bundleId = bundleId,
+        displayName = checked.metadata.displayName.orElse(checked.metadata.name).getOrElse(product),
+        marketingVersion = checked.metadata.version.getOrElse("1.0.0"),
+        buildVersion = checked.metadata.buildVersion.getOrElse("1"),
+      )
+    }
+    if SwiftBackend.requiresNativeUi(checked.program) && appMetadata.isEmpty then
+      throw new IllegalArgumentException(
+        "Swift UI application requires front-matter bundle-id")
 
-    // These paths are wholly generator-owned. Clearing them prevents stale v1
-    // SwiftUI sources from being compiled into an otherwise-v2 package while
-    // preserving user resources and unrelated files under an explicit -o dir.
-    scala.util.Try(os.remove.all(output / "Sources"))
-    scala.util.Try(os.remove(output / "Package.swift"))
     os.makeDir.all(output)
-    val generated = SwiftBackend.generate(program, product, platform, backendBaseUrl)
+    val generated = SwiftBackend.generate(
+      checked.program, product, platform, backendBaseUrl, appMetadata)
     generated.writeTo(output.toNIO)
-    EmittedPackage(output, generated.executable, platform)
+    EmittedPackage(output, generated.debugCli, platform, generated.xcodeApp)
 
   def requireSwift(command: String): String =
     val executable = sys.props.getOrElse("ssc.swift.command", "swift")
@@ -73,7 +85,7 @@ private[cli] object SwiftV2Cli:
       )
     val swift = requireSwift(command)
     val process = new ProcessBuilder(
-      (List(swift, "run", "--package-path", pkg.root.toString, "--quiet", pkg.product) ++ programArgs)*
+      (List(swift, "run", "--package-path", pkg.root.toString, "--quiet", pkg.debugCli) ++ programArgs)*
     ).inheritIO().start()
     val hook = new Thread(() => process.destroy())
     Runtime.getRuntime.addShutdownHook(hook)

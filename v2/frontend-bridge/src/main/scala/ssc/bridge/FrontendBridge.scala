@@ -19,6 +19,15 @@ import ssc.V2PluginRegistry
  *    "@name"  = cell ref for `var name` (cell.new)
  *    "@@name" = long-cell ref for `var name = <int-lit>` (lcell.new, avoids IntV boxing) */
 object FrontendBridge:
+  final case class SourceMetadata(
+      name: Option[String],
+      bundleId: Option[String],
+      displayName: Option[String],
+      version: Option[String],
+      buildVersion: Option[String],
+  )
+
+  final case class CheckedSource(program: Program, metadata: SourceMetadata)
 
   /** Case class / enum field map: className → ordered field names.
    *  Built during first pass over stats; used when resolving field selects.
@@ -756,6 +765,19 @@ object FrontendBridge:
     extAccum.clear()
 
   // ── Entry points ─────────────────────────────────────────────────────────────
+
+  def convertSourceWithMetadata(
+      src: String,
+      fileDir: Option[java.io.File] = None,
+  ): CheckedSource =
+    val metadata = SourceMetadata(
+      name = frontMatterValue(src, "name").filter(_.nonEmpty),
+      bundleId = frontMatterValue(src, "bundle-id").filter(_.nonEmpty),
+      displayName = frontMatterValue(src, "display-name").filter(_.nonEmpty),
+      version = frontMatterValue(src, "version").filter(_.nonEmpty),
+      buildVersion = frontMatterValue(src, "build-version").filter(_.nonEmpty),
+    )
+    CheckedSource(convertSource(src, fileDir), metadata)
 
   /** Parse a source string and convert to Core IR Program.
    *  Supports script mode: bare expressions at the top level are wrapped in a block.

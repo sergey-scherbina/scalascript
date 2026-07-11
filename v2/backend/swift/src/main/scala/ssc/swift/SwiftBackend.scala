@@ -2,20 +2,80 @@ package ssc.swift
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path}
+import java.nio.file.StandardCopyOption.{ATOMIC_MOVE, REPLACE_EXISTING}
 import java.net.URI
+import scala.jdk.CollectionConverters.*
 
 import ssc.{Arm, Const, Def, NativeUiSites, Program, Term}
 
 enum SwiftPlatform:
   case MacOS, IOS
 
-final case class SwiftPackage(files: Vector[(String, String)], executable: String):
+final case class SwiftPackage(
+    files: Vector[(String, String)],
+    debugCli: String,
+    xcodeApp: Option[XcodeAppArtifact] = None,
+):
+  private val ownershipManifest = ".ssc-swift-generated.json"
+
   def writeTo(root: Path): Unit =
-    files.foreach { (relative, content) =>
-      val path = root.resolve(relative)
+    Files.createDirectories(root)
+    val previous = readOwned(root.resolve(ownershipManifest))
+    previous.foreach { relative =>
+      val path = ownedPath(root, relative)
+      Files.deleteIfExists(path)
+      pruneEmpty(path.getParent, root)
+    }
+    files.sortBy(_._1).foreach { (relative, content) =>
+      val path = ownedPath(root, relative)
       Files.createDirectories(path.getParent)
       Files.writeString(path, content, StandardCharsets.UTF_8)
     }
+    val rendered = files.map(_._1).sorted.map(jsonString).mkString("[\n  ", ",\n  ", "\n]\n")
+    val manifest = root.resolve(ownershipManifest)
+    val temporary = root.resolve(s"$ownershipManifest.tmp")
+    Files.writeString(temporary, rendered, StandardCharsets.UTF_8)
+    try Files.move(temporary, manifest, ATOMIC_MOVE, REPLACE_EXISTING)
+    catch case _: java.nio.file.AtomicMoveNotSupportedException =>
+      Files.move(temporary, manifest, REPLACE_EXISTING)
+
+  private def ownedPath(root: Path, relative: String): Path =
+    val candidate = Path.of(relative)
+    if candidate.isAbsolute || candidate.iterator().asScala.exists(_.toString == "..") then
+      throw new IllegalArgumentException(s"invalid generated Swift ownership path '$relative'")
+    val resolved = root.resolve(candidate).normalize()
+    if !resolved.startsWith(root.normalize()) then
+      throw new IllegalArgumentException(s"invalid generated Swift ownership path '$relative'")
+    resolved
+
+  private def readOwned(path: Path): Vector[String] =
+    if !Files.isRegularFile(path) then Vector.empty
+    else
+      val text = Files.readString(path, StandardCharsets.UTF_8).trim
+      if !text.startsWith("[") || !text.endsWith("]") then
+        throw new IllegalArgumentException("invalid generated Swift ownership manifest")
+      val stringPattern = """"((?:\\.|[^"\\])*)"""".r
+      val values = stringPattern.findAllMatchIn(text).map(m => unescapeJson(m.group(1))).toVector
+      val remainder = stringPattern.replaceAllIn(text, "\"\"")
+      if !remainder.matches("(?s)\\[\\s*(?:\"\"\\s*(?:,\\s*\"\"\\s*)*)?\\]") then
+        throw new IllegalArgumentException("invalid generated Swift ownership manifest")
+      values.foreach(ownedPath(path.getParent, _))
+      values
+
+  private def unescapeJson(value: String): String =
+    value.replace("\\\"", "\"").replace("\\\\", "\\")
+
+  private def jsonString(value: String): String =
+    "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+
+  private def pruneEmpty(start: Path, root: Path): Unit =
+    var current = start
+    while current != null && current != root && current.startsWith(root) do
+      if Files.isDirectory(current) then
+        val stream = Files.list(current)
+        val empty = try !stream.findFirst().isPresent finally stream.close()
+        if empty then Files.delete(current) else return
+      current = current.getParent
 
 object SwiftBackend:
   private val coreBuiltinGlobals = Set("print", "println", "Decimal", "BigInt", "RoundingMode", "RuntimeException", "handle", "effect", "__throw__")
@@ -73,13 +133,14 @@ object SwiftBackend:
       packageName: String = "SscApp",
       platform: SwiftPlatform = SwiftPlatform.MacOS,
       backendBaseUrl: Option[String] = None,
+      appMetadata: Option[SwiftAppMetadata] = None,
   ): SwiftPackage =
     validate(program)
     val product = productName(packageName)
     val nativeUi = usesNativeUi(program)
     val normalizedBaseUrl = if nativeUi then backendBaseUrl.map(normalizeBackendBaseUrl) else None
     val executable = if nativeUi then s"${product}Cli" else product
-    val coreFiles = Vector(
+    val baseFiles = Vector(
       "Package.swift" -> packageManifest(product, executable, platform),
       "Sources/AppCore/SscRuntime.swift" -> SwiftRuntime.source,
     ) ++ (if nativeUi then Vector("Sources/AppCore/NativeUiHost.swift" -> SwiftNativeUiHost.source) else Vector.empty) ++ Vector(
@@ -93,7 +154,15 @@ object SwiftBackend:
       "AppleApp/NativeUiStyles.swift" -> SwiftNativeUiApple.stylesSource,
       "AppleApp/NativeUiHtml.swift" -> SwiftNativeUiApple.htmlSource,
     ) else Vector.empty)
-    SwiftPackage(coreFiles, executable)
+    val (xcodeFiles, xcodeApp) =
+      if nativeUi && appMetadata.nonEmpty then
+        val metadata = appMetadata.get
+        val (files, artifact) = SwiftXcodeProject.generate(product, metadata)
+        files -> Some(artifact)
+      else Vector.empty -> None
+    SwiftPackage(baseFiles ++ xcodeFiles, executable, xcodeApp)
+
+  def requiresNativeUi(program: Program): Boolean = usesNativeUi(program)
 
   def productName(raw: String): String =
     val cleaned = raw.replaceAll("[^A-Za-z0-9_]", "_")

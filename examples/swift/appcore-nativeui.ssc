@@ -1,6 +1,8 @@
 ---
 name: appcore-nativeui
 version: 1.0.0
+build-version: 1
+bundle-id: com.scalascript.appcore-nativeui
 ---
 
 # Swift AppCore NativeUi ABI smoke

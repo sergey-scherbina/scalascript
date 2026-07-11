@@ -48,10 +48,82 @@ final class SwiftBackendTest extends AnyFunSuite:
       "AppleApp/NativeUiStyles.swift",
       "AppleApp/NativeUiHtml.swift",
     ))
-    assert(ui.executable == "Native_AppCli")
+    assert(ui.debugCli == "Native_AppCli")
     assert(ui.files.find(_._1.endsWith("NativeUiHost.swift")).exists(!_._2.contains("import SwiftUI")))
     assert(ui.files.find(_._1.endsWith("NativeUiStore.swift")).exists(_._2.contains("ObservableObject")))
     assert(ui.files.find(_._1.endsWith("NativeUiRenderer.swift")).exists(_._2.contains("NativeUiForKeyedView")))
+
+  test("NativeUi application project and owned tree are deterministic across mode and product changes"):
+    val metadata = SwiftAppMetadata("com.scalascript.native", "Native App", "1.2.3", "7")
+    val first = SwiftBackend.generate(nativeUiProgram(), "Native-App", appMetadata = Some(metadata))
+    val second = SwiftBackend.generate(nativeUiProgram(), "Native-App", appMetadata = Some(metadata))
+    assert(first == second)
+    val artifact = first.xcodeApp.getOrElse(fail("missing Xcode application artifact"))
+    assert(artifact.project == "Native_App.xcodeproj")
+    assert(artifact.appProduct == "Native_App.app")
+    val paths = first.files.map(_._1)
+    assert(paths.contains("AppleApp/Resources/Assets.xcassets/Contents.json"))
+    assert(paths.contains("Native_App.xcodeproj/project.pbxproj"))
+    assert(paths.contains("Native_App.xcodeproj/xcshareddata/xcschemes/Native_App.xcscheme"))
+    val pbx = first.files.toMap.apply("Native_App.xcodeproj/project.pbxproj")
+    assert(pbx.contains("objectVersion = 56"))
+    assert(pbx.contains("com.apple.product-type.application"))
+    assert(pbx.contains("Sources/AppCore/NativeUiHost.swift"))
+    assert(!pbx.contains("Native_AppCli/main.swift"))
+
+    val root = Files.createTempDirectory("ssc-swift-owned-")
+    try
+      first.writeTo(root)
+      val userResource = root.resolve("AppleApp/Resources/user-owned.txt")
+      Files.writeString(userResource, "keep", StandardCharsets.UTF_8)
+      val manifest = Files.readString(root.resolve(".ssc-swift-generated.json"))
+      assert(manifest.linesIterator.filter(_.trim.startsWith("\"")).toVector ==
+        manifest.linesIterator.filter(_.trim.startsWith("\"")).toVector.sorted)
+      SwiftBackend.generate(fixture("fact"), "Domain-Rename").writeTo(root)
+      assert(!Files.exists(root.resolve("Native_App.xcodeproj")))
+      assert(Files.readString(userResource) == "keep")
+      val renamed = SwiftBackend.generate(
+        nativeUiProgram(), "Renamed-App", appMetadata = Some(metadata.copy(bundleId = "com.scalascript.renamed")))
+      renamed.writeTo(root)
+      assert(Files.exists(root.resolve("Renamed_App.xcodeproj/project.pbxproj")))
+      assert(!Files.exists(root.resolve("Sources/Domain_Rename/main.swift")))
+      assert(Files.readString(userResource) == "keep")
+    finally deleteRecursively(root)
+
+  test("generated Xcode application scheme builds real macOS and iOS Simulator apps"):
+    assume(xcodebuildAvailable, "Xcode toolchain is not available")
+    val root = Files.createTempDirectory("ssc-swift-xcode-")
+    try
+      val generated = SwiftBackend.generate(
+        nativeUiProgram(),
+        "NativeXcode",
+        appMetadata = Some(SwiftAppMetadata("com.scalascript.native-xcode", "Native Xcode")),
+      )
+      generated.writeTo(root)
+      val app = generated.xcodeApp.getOrElse(fail("missing Xcode application artifact"))
+      val listResult = runProcess(root, "xcodebuild", "-list", "-project", app.project)
+      assert(listResult._1 == 0, listResult._2)
+      assert(listResult._2.contains(app.scheme))
+
+      val macDerived = root.resolve("derived-macos")
+      val mac = runProcess(root,
+        "xcodebuild", "build", "-project", app.project, "-scheme", app.scheme,
+        "-configuration", "Debug", "-destination", "platform=macOS",
+        "-derivedDataPath", macDerived.toString,
+        "CODE_SIGNING_ALLOWED=NO")
+      assert(mac._1 == 0, mac._2)
+      val macApp = macDerived.resolve(s"Build/Products/Debug/${app.appProduct}")
+      assert(Files.isDirectory(macApp), s"missing $macApp\n${mac._2}")
+
+      val iosDerived = root.resolve("derived-ios")
+      val ios = runProcess(root,
+        "xcodebuild", "build", "-project", app.project, "-scheme", app.scheme,
+        "-configuration", "Debug", "-destination", "generic/platform=iOS Simulator",
+        "-derivedDataPath", iosDerived.toString,
+        "CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO")
+      assert(ios._1 == 0, ios._2)
+      assert(Files.isDirectory(iosDerived.resolve(s"Build/Products/Debug-iphonesimulator/${app.appProduct}")), ios._2)
+    finally deleteRecursively(root)
 
   test("SwiftUI renderer inventory covers every shipped lowerer tag and CSS property"):
     val sources = List(
@@ -83,7 +155,7 @@ final class SwiftBackendTest extends AnyFunSuite:
     val identity = ssc.Def("signal", Term.Lam(1, Term.Local(0)))
     val domain = Program(List(identity), Term.App(Term.Global("signal"), List(str("domain"))))
     val generated = SwiftBackend.generate(domain, "DomainSignal")
-    assert(generated.executable == "DomainSignal")
+    assert(generated.debugCli == "DomainSignal")
     assert(!generated.files.exists(_._1.endsWith("NativeUiHost.swift")))
     assert(runSwift("domainSignal", domain) == "\"domain\"")
 
@@ -4233,6 +4305,20 @@ public enum SessionProbe {
       process.waitFor() == 0
     catch case _: Exception => false
 
+  private def xcodebuildAvailable: Boolean =
+    try
+      val process = new ProcessBuilder("xcodebuild", "-version").start()
+      process.waitFor() == 0
+    catch case _: Exception => false
+
+  private def runProcess(root: Path, command: String*): (Int, String) =
+    val process = new ProcessBuilder(command*)
+      .directory(root.toFile)
+      .redirectErrorStream(true)
+      .start()
+    val output = new String(process.getInputStream.readAllBytes(), StandardCharsets.UTF_8)
+    process.waitFor() -> output
+
   private def runNativeTableProbe(mode: String, includeAppleSources: Boolean = false): String =
     val root = Files.createTempDirectory(s"ssc-swift-table-$mode-")
     val errors = root.resolve("swift.stderr")
@@ -4363,7 +4449,7 @@ public enum SessionProbe {
     try
       val requestedProduct = s"Ssc${name.capitalize}"
       val generated = SwiftBackend.generate(program, requestedProduct)
-      val product = generated.executable
+      val product = generated.debugCli
       val emitted = probe match
         case None => generated
         case Some(source) =>
@@ -4372,7 +4458,7 @@ public enum SessionProbe {
             case (`mainPath`, _) => mainPath -> "import AppCore\n\nSessionProbe.run()\n"
             case other => other
           } :+ ("Sources/AppCore/SessionProbe.swift" -> source)
-          SwiftPackage(files, generated.executable)
+          SwiftPackage(files, generated.debugCli)
       emitted.writeTo(root)
       val process = new ProcessBuilder(
         (List("swift", "run", "--package-path", root.toString, "--quiet", product) ++ programArgs)*

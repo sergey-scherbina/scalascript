@@ -78,9 +78,11 @@ final class SwiftV2CliTest extends AnyFunSuite:
       val out = os.temp.dir(prefix = "ssc-v2-swift-nativeui-")
       try
         val emitted = SwiftV2Cli.emit(nativeUiExample, out, SwiftPlatform.MacOS)
-        assert(emitted.product == "appcore_nativeuiCli")
+        assert(emitted.debugCli == "appcore_nativeuiCli")
+        assert(emitted.xcodeApp.exists(_.appProduct == "appcore_nativeui.app"))
         assert(os.exists(out / "Sources" / "AppCore" / "NativeUiHost.swift"))
-        assert(os.exists(out / "Sources" / emitted.product / "main.swift"))
+        assert(os.exists(out / "Sources" / emitted.debugCli / "main.swift"))
+        assert(os.exists(out / "appcore_nativeui.xcodeproj" / "project.pbxproj"))
         assert(SwiftV2Cli.runPackage(emitted, Nil, "run-swift") == 0)
       finally os.remove.all(out)
     }
