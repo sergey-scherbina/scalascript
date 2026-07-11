@@ -85,6 +85,10 @@ frozen first JVM NativeUi gate.
   enclosing component scopes and lexical occurrence. Two component/repeated
   instances at the same `forKeyed` site/key can collide; add that collision
   repro plus shared-scope refcount/delete coverage before re-review.
+- **Final retention delta (Rozum 2026-07-11):** strong component-result identity
+  bindings survive keyed refresh/deletion even after `ownerScopes` is pruned,
+  retaining old view→signal-closure→cell graphs. Prune bindings in the same
+  owner transaction, restore on rollback, and gate bounded counts/deletion.
 - **Done-when:** insert/move/update/delete/duplicate/rollback tests pass and the
   reviewer approves.
 

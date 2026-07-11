@@ -305,6 +305,10 @@ there before changing this plan.
         Also recreate/lazily register `emptyHeaders` per Apple root after begin
         clears the store; an omitted-header descriptor may not retain the
         install-time stale signal.
+        Final retention review: component-result identity bindings must be
+        pruned with their reconciled/deleted owner subtree (and restored on
+        rollback). Repeated keyed refresh must have a bounded binding count;
+        deleted views may not retain signal cells as hidden tombstones.
       - [ ] **compatibility hardening** — child-provenance/identity-gated
         transitive native rebind plus same-name user regression; real cargo/rustc
         compile for the generic Rust adapter.
