@@ -1503,3 +1503,17 @@ corpus than v2/conformance 406/0 (curated) suggests — this is a multi-session 
       ctorap(Array). Do the same for 0-arg, gated on isCollectionCompanion (enum cases untouched).
 - [ ] Follow-up: Map.empty/List.empty resolve receiver to a <closure> (not uid) via a different
       path — separate companion-receiver bug. Also: standard-scala-multifence %-format specifiers.
+
+## nested-pattern guards (2026-07-11, opus) — K62.26, conformance 406/0
+
+- [x] K62.26 — guard on a nested-destructuring pattern was SILENTLY DROPPED:
+      `case (ah::at, bh::_) if ah<=bh =>` took the arm regardless of the guard. Root: front
+      guardablePat/flatGuardFields only allowed flat vpat/wpat fields → the `if …` was never
+      parsed into a gpat; and the lowerer bound cpat fields flat, so nested binders weren't in
+      scope for the guard. Fix: flatGuardFields recurses into cpat fields; new dischargeObsOrGuard
+      mirrors the working non-guard nested path (dischargeObsOr) with the guard checked at the
+      fully-discharged point (guard-false falls through like a nested mismatch). Flat patterns
+      degenerate to the old IrIf(guard, body, fallback) — backward compatible. Verified: the bug
+      case + guard-true + multi-arm fallthrough + all flat guards; v2/conformance 406/0.
+- [ ] Follow-up: standard-scala-multifence now differs ONLY on the %-format line
+      (f"${x}%-4s=${v}%.1f" — printf specifiers not applied). One fix from fully green.
