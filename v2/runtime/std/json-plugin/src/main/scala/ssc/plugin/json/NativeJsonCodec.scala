@@ -67,7 +67,10 @@ private[plugin] object NativeJsonCodec:
       case '\t' => sb.append("\\t")
       case '\b' => sb.append("\\b")
       case '\f' => sb.append("\\f")
-      case c if c < 0x20 => sb.append("\\u%04x".format(c.toInt))
+      // Escape all non-ASCII (> 0x7e) and control chars as \uXXXX — parity with the
+      // self-hosted renderer (json-core.ssc). Covers U+2028/U+2029 (JS line terminators)
+      // and DEL, which the previous `c < 0x20` gate leaked raw.
+      case c if c < 0x20 || c > 0x7e => sb.append("\\u%04x".format(c.toInt))
       case c => sb.append(c)
     }
     sb.append('"').toString
