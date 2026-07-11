@@ -69,6 +69,69 @@ after pinning the hf-7 `--v2` fast backend. Fix commit: `d202d2abf`.
   `rest-validate` INT/JS/JVM, assembled paired Vault 11-step/restart/leakage
   check, and canonical busi fast-backend Chromium 6/6 in 1.9 minutes.
 
+## v2-swiftui-persisted-cell-dependent-journal — persisted writes can miss UserDefaults
+
+**Status:** open (2026-07-11); reported by `nativeui-reviewer` in the
+`scalascript` Rozum review of the persisted/online Apple slice.
+
+- **Real-harness repro:** the strict generated-Swift platform-signals probe
+  currently materializes `store.cell(for: persisted)` before writing. A live
+  persisted signal written by a retained AppCore closure without that cell, or
+  during successful root evaluation before `built.observe`, updates Host memory
+  but not `UserDefaults`.
+- **Expected:** every successful committed persisted String write reaches the
+  configured defaults suite, independent of renderer/cell materialization;
+  root-evaluation failure and keyed rollback never escape, and disposal does
+  not drop an already committed write.
+- **Plan/done-when:** add a Host-owned commit journal/callback independent of
+  Store cells, flush only at successful root/keyed commit, and executable gates
+  for no-cell post-init, successful/failed root evaluation, failed keyed
+  rollback, and committed disposal.
+
+## v2-swiftui-online-stale-monitor-generation — cancelled callback can mutate a restarted monitor
+
+**Status:** open (2026-07-11); reported by `nativeui-reviewer` in the
+`scalascript` Rozum review of the persisted/online Apple slice.
+
+- **Real-harness repro:** capture the old monitor callback, unsubscribe the last
+  token, subscribe again, then deliver the captured callback. The Store has no
+  monitor identity/generation guard, so the old callback sees the newly live
+  online signal set and mutates the restarted generation.
+- **Expected:** only the callback belonging to the current monitor generation
+  may publish. A callback queued before cancel is inert after cancel/restart.
+- **Plan/done-when:** bind callbacks to an opaque generation/token, invalidate it
+  before cancel, and gate stale-versus-current delivery through the strict Swift
+  fake monitor.
+
+## v2-swiftui-online-derived-owner-gap — computed online readers do not own monitoring
+
+**Status:** open (2026-07-11); reported by `nativeui-reviewer` in the
+`scalascript` Rozum review of the persisted/online Apple slice.
+
+- **Real-harness repro:** subscribe only to a computed/equality signal whose
+  closure reads `onlineSignal`. Dependency commit owns fetch families but has
+  no online-family ownership, so no monitor starts and the derived cell cannot
+  react to connectivity changes.
+- **Expected:** active transitive readers acquire exactly one refcounted online
+  owner; callbacks recompute/publish the derived cell, and last derived
+  unsubscribe cancels the monitor.
+- **Plan/done-when:** mirror dependency fetch ownership for online dependencies
+  and gate computed-only first/last subscription plus publication.
+
+## v2-swiftui-persisted-wrong-type-corruption — rejected write can corrupt Host memory
+
+**Status:** open (2026-07-11); reported by `nativeui-reviewer` in the
+`scalascript` Rozum review of the persisted/online Apple slice.
+
+- **Real-harness repro:** call the public persisted signal `set` closure with a
+  non-String. Generic write currently assigns `current`/`dirty` before the
+  persisted `afterWrite` type check throws, leaving a non-String in memory while
+  disk/onWrite did not commit.
+- **Expected:** rejected writes are atomic: the live value and defaults remain
+  the prior String and the error is deterministic.
+- **Plan/done-when:** prevalidate persisted values or restore the complete cell
+  snapshot on `afterWrite` failure; add a real generated-Swift wrapper-set gate.
+
 ## v21-storage-container-print-gates — release fixtures expect obsolete quoted children
 
 **Status:** open (2026-07-11); found by codex in the mandatory post-rebase

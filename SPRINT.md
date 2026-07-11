@@ -598,6 +598,22 @@ there before changing this plan.
                   signals and one refcounted NWPathMonitor owned by first/last
                   observable tokens; callbacks hop to MainActor and root/scope
                   disposal cancels target resources deterministically.
+                  Rozum review blockers (2026-07-11; do not land before a fresh
+                  `approve:`):
+                  - [ ] persist through a committed Host journal independent of
+                        Store-cell materialization; gate no-cell post-init,
+                        successful/failed root evaluation, keyed rollback, and
+                        committed disposal;
+                  - [ ] authenticate online callbacks with a monitor generation
+                        so a queued old callback is inert after cancel/restart;
+                  - [ ] let active computed/equality dependencies own online
+                        monitoring and release it on their last token;
+                  - [ ] make wrong-type persisted writes atomic and prove the
+                        in-memory String/defaults remain unchanged.
+                  Bugs: `v2-swiftui-persisted-cell-dependent-journal`,
+                  `v2-swiftui-online-stale-monitor-generation`,
+                  `v2-swiftui-online-derived-owner-gap`, and
+                  `v2-swiftui-persisted-wrong-type-corruption` in `BUGS.md`.
             - [ ] **native tables and row actions** — decode static/signal/fetch
                   sources, column options/field paths and row payloads into the
                   shared Grid/Table behavior; execute row post/delete/link/edit
