@@ -1,0 +1,6 @@
+feature/v2-native-nullthrow 2026-07-11T04:16:03Z
+agent: claude-code (opus)
+heartbeat: 2026-07-11T04:16:03Z
+status: in-progress
+done-so-far: K62.17 (default-arg synth) closed the arity blocker; revealed unbound null (content files + sql-h2). Scalameta bridge lowers null→None (FrontendBridge:1786 Lit.Null→Ctor("None")) and throw e→__throw__(e) (Term.Throw). inline=macros (skip), ctx=context-var (skip).
+next: ssc1-front parseAtom — null (kw) → mkUVar("None") (front already lowers None→ctorap); throw (id) → app(__throw__, [parseExpr]). Both mirror the bridge. Verify: null→None value, throw runs under BridgeCli, conformance 406/0.
