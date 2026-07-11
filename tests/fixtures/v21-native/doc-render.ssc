@@ -1,0 +1,10 @@
+---
+name: v21-native-doc-render
+---
+
+# Native Doc Render
+
+```scalascript
+render(doc("alpha", 2, true, List("x", "y"), Some("z")))
+render("omega")
+```

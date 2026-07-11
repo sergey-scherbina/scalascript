@@ -1,0 +1,12 @@
+---
+name: v21-native-doc-render-shadow
+---
+
+# Native Doc Render Shadowing
+
+```scalascript
+def doc(left: String, right: String): String = left + right
+def render(value: String): Unit = println("local:" + value)
+
+render(doc("a", "b"))
+```

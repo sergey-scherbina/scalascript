@@ -3521,6 +3521,11 @@ object Prims:
       case _ =>
         anyStr(v)
     String.format(java.util.Locale.US, spec, arg)
+  /** User-visible deterministic display shared by standard host providers and
+   *  the kernel's println/interpolation paths. This is a renderer over an
+   *  already-built Value; it never parses source or data formats. */
+  def display(v: Value): String = anyStr(v)
+
   private def anyStr(v: Value): String = v match
     case StrV(s)   => s
     // Stub breadcrumbs render as the bare tag in user-visible strings — the
