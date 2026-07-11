@@ -106,4 +106,18 @@ regressions of H6/M3).
 
 ## Landed this session
 
-See `SPRINT.md` → "security-hardening" for the checklist and per-fix status.
+10 fixes, all in code shipped this session or one-line cross-backend:
+
+- **rust `7d1d854d4`** — H3 (join can't inject userinfo), M3 (`.redirects(0)`),
+  M9 (`.timeout(timeout)`), L2 (header CRLF skip), H6 (`deleteFile` = single file).
+- **jvm `1caace5f3`** — M4 + M5: `exec` drains stdout AND stderr on daemon
+  threads (inline stdout drain both deadlocked on >64 KB stderr and defeated the
+  timeout) + `waitFor(opts.timeout)` + `destroyForcibly`. Verified scala-cli:
+  200 KB stderr → 14 ms no deadlock; `sleep 5` @ 300 ms timeout → killed, code -1.
+- **json `c7f116e45`** — M8: native `jsonQuote` escapes all `c<0x20 || c>0x7e`
+  as `\uXXXX` (parity with the self-hosted renderer; covers U+2028/2029).
+- **js+server `473bf2d71`** — M6 (JS `exec` exitCode no longer masks
+  signal-kill/ENOENT as 0), M11 (static-file containment via `Path.startsWith`).
+
+Remaining (`SPRINT.md` Batches B/C): H1, H2, H4, H5, M1, M2, M7, M10, L1, L3,
+L4, L5, L6, L8 — plus mirroring H3/M3/M9 to the JVM/interp/JS HTTP clients.

@@ -17,29 +17,24 @@ Defensive audit of fs/process/http-client/http-server+json/codegen+cache across 
 backends. Structural defenses (no-shell exec, TLS verify, escaped codegen literals) verified
 sound. `✎` = in code shipped this session. Fix order + full exploit/fix per finding in the spec.
 
-### Batch A — "your turf" (code shipped this session) — fixing now
-- [ ] **H3 ✎ httpClient scope bypass** — `HttpClientRs resolve()` join is `base+raw`; a `raw`
-      starting with `@` injects userinfo (re-points host), a `http`-prefix drops the base.
-      FIX: absolute only on `http://`/`https://`; else force `raw` to a leading-`/` path so it
-      can't inject authority. Mirror later to OutboundClients/HttpIntrinsics/ws-server.
-- [ ] **H6 Rust deleteFile recursive** — `RuntimeModRs:145` `remove_dir_all` on a dir diverges
-      from JVM/JS/interp (which error). FIX: `remove_file` only.
-- [ ] **M3 ✎ Rust redirect SSRF** — ureq follows 5 redirects (JVM/interp follow none). FIX:
-      `.redirects(0)` to unify with JVM/interp (3xx+Location returned to caller).
-- [ ] **M4 ✎ exec ignores opts.timeout** — JVM `processRuntime` `waitFor()` unbounded. FIX:
-      `waitFor(t,MS)` + `destroyForcibly()` when `opts.timeout` set.
-- [ ] **M5 ✎ JVM exec stderr deadlock** — stdout drained before stderr; >64 KB stderr wedges.
-      FIX: drain stderr on a side thread concurrently with stdout.
-- [ ] **M8 ✎ native jsonQuote parity** — `NativeJsonCodec:60` emits U+2028/2029 + non-ASCII raw.
-      FIX: escape all `c > 0x7e` (and `< 0x20`) as `\uXXXX`, matching the self-hosted renderer.
-- [ ] **M9 ✎ Rust no overall timeout** — only read/connect. FIX: add AgentBuilder `.timeout(t)`.
-- [ ] **L2 ✎ Rust header CRLF** — `req.set(k,v)` unvalidated. FIX: reject `\r`/`\n` in k/v.
+### Batch A — "your turf" — ✓ LANDED (rust 7d1d854d4 · jvm 1caace5f3 · json c7f116e45)
+- [x] **H3 ✎ httpClient scope bypass** — `resolve()` now joins base+raw as a leading-`/` path
+      (blocks `@`-userinfo host re-point); absolute only on `http://`/`https://`. VERIFIED cargo.
+- [x] **H6 Rust deleteFile recursive** — `remove_file` only; no `remove_dir_all`.
+- [x] **M3 ✎ Rust redirect SSRF** — `.redirects(0)` (unified with JVM/interp).
+- [x] **M4 ✎ exec honours opts.timeout** — `waitFor(t,MS)` + `destroyForcibly()`; ALSO required
+      draining stdout on a thread (inline `.mkString` blocked for the child's full lifetime and
+      defeated the timeout). VERIFIED scala-cli: sleep-5 killed at ~312ms, code=-1.
+- [x] **M5 ✎ JVM exec stderr deadlock** — drain BOTH stdout+stderr on daemon threads. VERIFIED:
+      200KB stderr flood drains in ~14ms, no deadlock.
+- [x] **M8 ✎ native jsonQuote parity** — escapes all `c<0x20 || c>0x7e` as `\uXXXX`.
+- [x] **M9 ✎ Rust overall timeout** — AgentBuilder `.timeout(timeout)`.
+- [x] **L2 ✎ Rust header CRLF** — skip header k/v containing `\r`/`\n`.
+- [ ] follow-up: mirror H3/M3/M9 to OutboundClients/HttpIntrinsics/ws-server (JVM/interp/JS clients).
 
-### Batch B — cross-backend, tractable one-liners
-- [ ] **M6 JS exec exitCode masking** — `JsRuntimeFs:180` `result.status || 0` → 0 for
-      signal-kill/ENOENT (security-gate bypass). FIX: `status!=null ? status : (signal||error?-1:0)`.
-- [ ] **M11 static-file prefix traversal** — `StaticAssetServer:23` `startsWith` w/o separator.
-      FIX: `target.toPath.startsWith(rootDir.toPath)`.
+### Batch B — cross-backend one-liners
+- [x] **M6 JS exec exitCode masking** — `status!=null ? status : (signal||error?-1:0)`. LANDED 473bf2d71.
+- [x] **M11 static-file prefix traversal** — `target.toPath.startsWith(rootDir.toPath)`. LANDED 473bf2d71.
 - [ ] **L6 OpenApiGenerator.jsonEscape** — escapes only `"`/`\`. FIX: route through `jsonStr`.
 - [ ] **L5 escapers omit newline** — `JsGen:3860` / `JvmGenStringUtils:6`. FIX: use full
       `jsStringLit` / `scalaStringLiteral`.
