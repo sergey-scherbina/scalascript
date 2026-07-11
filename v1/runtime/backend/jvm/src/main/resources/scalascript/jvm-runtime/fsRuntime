@@ -32,8 +32,8 @@
        |  java.nio.file.Files.isDirectory(java.nio.file.Paths.get(path))
        |def mkdir(path: String): Unit =
        |  val _sscP = java.nio.file.Paths.get(path)
-       |  if !java.nio.file.Files.exists(_sscP) then java.nio.file.Files.createDirectory(_sscP)
-       |  ()
+       |  try { java.nio.file.Files.createDirectory(_sscP); () }
+       |  catch { case _: java.nio.file.FileAlreadyExistsException => () }
        |def mkdirs(path: String): Unit =
        |  java.nio.file.Files.createDirectories(java.nio.file.Paths.get(path))
        |  ()

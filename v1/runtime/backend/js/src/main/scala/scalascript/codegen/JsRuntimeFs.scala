@@ -16,6 +16,7 @@ var _nodeFs   = (typeof require !== 'undefined') ? require('fs')           : nul
 var _nodePath = (typeof require !== 'undefined') ? require('path')         : null;
 var _nodeOs   = (typeof require !== 'undefined') ? require('os')           : null;
 var _nodeProc = (typeof require !== 'undefined') ? require('child_process'): null;
+var _nodeCrypto = (typeof require !== 'undefined') ? require('crypto')      : null;
 
 // ── std.fs ────────────────────────────────────────────────────────────────────
 function readFile(path) {
@@ -148,9 +149,20 @@ function tempDir() {
 function tempFile(prefix, suffix) {
   if (_nodeFs && _nodeOs) {
     var tmp = _nodeOs.tmpdir();
-    var name = tmp + '/' + prefix + Date.now() + suffix;
-    _nodeFs.writeFileSync(name, '');
-    return name;
+    // O_EXCL ('wx') create with a random name: fails if the path exists, so a
+    // pre-planted symlink can't hijack the write (CWE-377).
+    for (var i = 0; i < 1000; i++) {
+      var rand = _nodeCrypto ? _nodeCrypto.randomBytes(9).toString('hex') : (Date.now() + '' + i);
+      var name = tmp + '/' + prefix + rand + suffix;
+      try {
+        _nodeFs.closeSync(_nodeFs.openSync(name, 'wx', 0o600));
+        return name;
+      } catch (e) {
+        if (e && e.code === 'EEXIST') continue;
+        throw e;
+      }
+    }
+    throw new Error('tempFile: could not create a unique temp file');
   }
   throw new Error('FsNotSupported: tempFile is not available in the browser');
 }
