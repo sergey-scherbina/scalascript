@@ -1963,6 +1963,17 @@ def hasNestedPat = (arms) =>
       }
   }
 
+def hasBindPat = (arms) =>
+  match arms {
+    case Nil => false
+    case Cons(arm, rest) =>
+      match arm { case Pair(pat, body) =>
+        match pat { case Pair(ptag, pdata) =>
+          if #seq(ptag, "bpat") then true else hasBindPat(rest)
+        }
+      }
+  }
+
 def guardDummyBinders = (fields) =>
   match fields {
     case Nil => Nil
@@ -2061,6 +2072,29 @@ def lowerOrderedGuardArms = (scope, scrutPos, arms) =>
                 ctorPatternArms(ctorName, arity, armBody),
                 Some(lowerOrderedGuardArms(scope, scrutPos, rest)))
             }
+          else if #seq(ptag, "bpat") then
+            match pdata { case Pair(alias, innerPat) =>
+              match innerPat { case Pair(innerTag, innerData) =>
+                if #seq(innerTag, "cpat") then
+                  match innerData { case Pair(ctorName, fields) =>
+                    let arity = lenL(fields) in
+                    let fieldScope = appendL(revL(fldBinders(fields)), scope) in
+                    let failedFieldScope = appendL(revL(guardDummyBinders(fields)), scope) in
+                    let boundScope = Cons(alias, fieldScope) in
+                    let failedBoundScope = Cons("__bind_alias__", failedFieldScope) in
+                    let shiftedObs = shiftObs(fldObligations(fields, arity), 1) in
+                    let armBody = IrLet(
+                      Cons(IrLocal(#i.add(scrutPos, arity)), Nil),
+                      dischargeObsOr(
+                        shiftedObs, boundScope, failedBoundScope,
+                        #i.add(#i.add(scrutPos, arity), 1), body, rest)) in
+                    IrMatch(IrLocal(scrutPos),
+                      ctorPatternArms(ctorName, arity, armBody),
+                      Some(lowerOrderedGuardArms(scope, scrutPos, rest)))
+                  }
+                else lowerOrderedGuardArms(scope, scrutPos, rest)
+              }
+            }
           else lowerE(scope, body)
         }
       }
@@ -2089,7 +2123,9 @@ def lowerMatch = (scope, scrutinee, arms) =>
   let eIr = lowerE(scope, scrutinee) in
   let letScope = Cons("__scr__", scope) in
   let flatArms = expandAltArms(arms) in
-  if hasGuardPat(flatArms) then
+  if hasBindPat(flatArms) then
+    IrLet(Cons(eIr, Nil), lowerOrderedGuardArms(letScope, 0, flatArms))
+  else if hasGuardPat(flatArms) then
     IrLet(Cons(eIr, Nil), lowerOrderedGuardArms(letScope, 0, flatArms))
   else if hasTypedPat(flatArms) then
     IrLet(Cons(eIr, Nil), lowerOrderedGuardArms(letScope, 0, flatArms))

@@ -1576,6 +1576,27 @@ def parsePat = (toks) =>
     pr(Pair("cpat", Pair("Cons", Cons(prV(rHead), Cons(prV(rTail), Nil)))), prT(rTail))
   else rHead
 
+-- A source bind pattern owns the whole successfully matched value while its
+-- constructor pattern still binds fields. Keep this at the match-arm boundary:
+-- nested/typed/guarded aliases are separate syntax families, and accepting
+-- them partially would recreate the `_err` sentinel this node removes.
+def parseArmPat = (toks) =>
+  let rBase = parsePat(toks) in
+  match prV(rBase) {
+    case Pair(baseTag, baseData) =>
+      if #seq(baseTag, "vpat") then
+        if kindIs("@", prT(rBase)) then
+          let rInner = parsePat(advance(prT(rBase))) in
+          match prV(rInner) {
+            case Pair(innerTag, innerData) =>
+              if #seq(innerTag, "cpat") then
+                pr(Pair("bpat", Pair(baseData, prV(rInner))), prT(rInner))
+              else rBase
+          }
+        else rBase
+      else rBase
+  }
+
 -- parseMatchArm: `case Pat => expr`  (keyword `case` already consumed)
 -- K62.11: a match-arm body can be a statement SEQUENCE (`case X => val n = e; expr`),
 -- not just one expression. Parse statements (via parseOneStmt) until the next arm
@@ -1644,7 +1665,7 @@ def parsePatAlternatives = (ts, acc) =>
   else pr(reverse(acc), ts)
 
 def parseMatchArm = (toks) =>
-  let rPat = parsePat(toks) in
+  let rPat = parseArmPat(toks) in
   let rAlts = parsePatAlternatives(prT(rPat), Cons(prV(rPat), Nil)) in
   let pats = prV(rAlts) in
   let pat0 = match pats {
