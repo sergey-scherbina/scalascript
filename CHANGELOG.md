@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — parser DSLs preserve composed values end to end
+
+Imported extension calls now use member-first portable dispatch, local tuple
+destructuring binds every component, and typed match arms retain nominal ADT
+tags with tag-before-guard fallthrough. Native VM/direct ASM exactly match all
+seven JSON and seventeen YAML compatibility lines with empty stderr and no
+`Stub`; the focused composed-value and layout probes are exact. The exhaustive
+self-hosted release gate reports 194/194 front/check, 40/86 runtime, zero
+mismatch/one-sided rows, zero sentinel standard gaps, and fresh conformance
+11/11. Landed `9d5f13f95`, `0b5d1c69c`, `d4cc66736`; contract/results
+`8a411cd9a`.
+
 ## 2026-07-11 — imported two-element tuples match across collection boundaries
 
 The self-hosted lowerer now gives source-level two-element tuples one

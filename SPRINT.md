@@ -2111,31 +2111,6 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               gaps; the one functional mismatch, later parser
                               placeholders, and HTTP release-tail assertion are
                               each tracked independently.
-                        - [ ] **TI-8.2d2s3 parser DSL placeholder semantics:**
-                              clean assembly removes the `PMapped/2` exception,
-                              but JSON arrays/objects render `[Stub]`/`{Stub}`
-                              and YAML renders its document/query values as
-                              `Stub`; compatibility output is complete. Isolate
-                              the first complex mapped value, restore portable
-                              mapping/list/fold/tuple rendering semantics, then
-                              strengthen `v21-parser-dsl-smoke.sh` to exact
-                              canonical JSON/YAML output on VM/direct ASM.
-                              Spec: `specs/v2.1-parser-dsl-values.md`.
-                              Diagnosis: imported `Parser.map` is collected as
-                              a closure-global extension name, and the native
-                              lowerer incorrectly routes ordinary `List.map`
-                              through that global. The focused multi-file repro
-                              consequently prints `Stub` on both lanes. Route
-                              selected extensions through the existing runtime
-                              `__methodOrExt__` member-first protocol after the
-                              live `native-head-shadow` lowerer claim lands.
-                              JSON becomes exact after that dispatch fix; YAML
-                              then exposes incomplete local tuple binding and
-                              erased `case ic: IndentContext` semantics. Bind
-                              every tuple component and retain the typed
-                              pattern's nominal tag through `__isTag__`; the
-                              exact layout probe must advance from column-1
-                              failure to `ParseOk(List(host), , Position(6))`.
                         - [x] **TI-8.2d2s4 functional VM/ASM parity — DONE
                               2026-07-11 (`4c5254eed`):** the full
                               post-PMapped sweep is 25 identical / 1 mismatch /

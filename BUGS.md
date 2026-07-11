@@ -260,8 +260,9 @@ during the post-`PMapped` full strict parity sweep.
 
 ## v21-native-parser-dsl-stub-values — parser DSLs exit successfully with placeholders
 
-**Status:** open (2026-07-11); found by codex while validating the clean
-`PMapped/2` assembly result against the compatibility frontend.
+**Status:** fixed (2026-07-11); found by codex while validating the clean
+`PMapped/2` assembly result against the compatibility frontend. Fixes:
+`9d5f13f95`, `0b5d1c69c`, `d4cc66736`; verification: `8a411cd9a`.
 
 - **Real-harness repro:** native VM/direct ASM are byte-identical and exit 0,
   but `dsl-json-parser.ssc` renders arrays/objects as `[Stub]` / `{Stub}` and
@@ -271,15 +272,15 @@ during the post-`PMapped` full strict parity sweep.
 - **Expected:** the self-hosted native pipeline preserves the parser mapping,
   list/fold, tuple, and rendering semantics needed for the examples' canonical
   output; successful exit must not hide placeholder values.
-- **Root cause:** the imported parser combinator module registers an extension
-  named `map`. The self-hosted type-erased lowerer currently treats that name
-  as a global override at every selected call site, so
-  `items.asInstanceOf[List[Any]].map(f)` calls the parser extension and builds
+- **Root cause:** the imported parser combinator module registered an extension
+  named `map`. The self-hosted type-erased lowerer treated that name as a
+  global override at every selected call site, so
+  `items.asInstanceOf[List[Any]].map(f)` called the parser extension and built
   `PMapped(items, f)` instead of mapping the list. The following `mkString`
-  therefore receives a parser ADT and returns `Stub`. The shared runtime
-  already exposes the correct member-first/fallback-extension contract as
-  `__methodOrExt__`; the native lowerer is not yet routing imported extension
-  calls through it.
+  therefore received a parser ADT and returned `Stub`. YAML then exposed two
+  independent frontend losses: local tuple destructuring bound only `_1`, and
+  typed match patterns discarded their nominal runtime test so a wildcard arm
+  replaced the `IndentContext` arm.
 - **Later first-loss boundaries:** after routing extension calls through
   `__methodOrExt__`, JSON is exact. YAML first exposes local tuple
   destructuring that binds only `_1` (`value` becomes an unbound global), then
@@ -288,10 +289,14 @@ during the post-`PMapped` full strict parity sweep.
   `block.withIndent(3)` executes at column 1. The direct probe prints a native
   indentation error where compatibility returns
   `ParseOk(List(host), , Position(6))`.
-- **Plan/done-when:** isolate the first complex mapping result in a focused
-  import-shaped fixture, classify each later placeholder separately if it has
-  a different root cause, restore exact compatibility output on VM/direct ASM,
-  and strengthen the parser DSL smoke from exit/parity to exact output.
+- **Fix/result:** imported selected extensions now use the existing
+  `__methodOrExt__` member-first dispatcher; tuple destructuring binds every
+  `_sel__N`; typed patterns retain their outer nominal head and lower ordered
+  `__isTag__` checks. The focused fixture prints
+  `1:alpha|2:beta|3:gamma`, the layout probe reaches column 3, and VM/direct ASM
+  match all seven JSON and seventeen YAML expected lines with empty stderr and
+  no `Stub`. The exhaustive release gate and fresh conformance 11/11 pass with
+  zero mismatch or one-sided runtime rows.
 
 ## fast-http-session-cookie — successful setSession response loses Set-Cookie
 
