@@ -1,0 +1,10 @@
+---
+name: markdown-unterminated-fence
+version: 2.1.0
+backends: [v2]
+---
+
+# Broken Markdown
+
+```scalascript
+println("never")

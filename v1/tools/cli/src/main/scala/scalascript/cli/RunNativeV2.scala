@@ -43,6 +43,7 @@ object RunNativeV2:
         structural.program,
         structural.config,
         structural.manifests,
+        structural.markdown,
         canonicalFiles,
         sourceUnits)
     finally _root_.ssc.Runtime.argv = previousArgv
@@ -177,5 +178,6 @@ private[cli] final case class NativeV2Compilation(
     program: _root_.ssc.Program,
     config: _root_.ssc.plugin.NativeRuntimeConfig,
     manifests: List[NativeSourceManifest],
+    markdown: List[NativeSourceMarkdown],
     roots: List[java.io.File],
     sourceUnits: List[NativeSourceUnit])

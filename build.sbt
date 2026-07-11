@@ -1322,6 +1322,7 @@ lazy val cli = project
         "scalascript/cli/RunNativeV2",
         "scalascript/cli/NativeManifest",
         "scalascript/cli/NativeSourceManifest",
+        "scalascript/cli/NativeSourceMarkdown",
         "scalascript/cli/NativeStructuralFrontend",
         "scalascript/cli/NativeV2Structural",
         "scalascript/cli/NativeJvmArtifact",

@@ -16,12 +16,18 @@ class NativeV2StructuralTest extends AnyFunSuite:
   private def yamlOk(value: Value): Value =
     DataV("Some", Vector(DataV("YamlOk", Vector(value, IntV(0)))))
   private val noManifest: Value = DataV("None", Vector.empty)
+  private val emptyMarkdown: Value = DataV("MarkdownDocument", Vector(list()))
   private val emptyProgram: Value = DataV("IrProg", Vector(
     list(), DataV("IrLit", Vector(DataV("IrUnit", Vector.empty)))))
 
-  private def compilation(roots: List[java.io.File], manifests: List[Value]): Value =
+  private def compilation(
+      roots: List[java.io.File],
+      manifests: List[Value],
+      markdown: List[Value] = Nil): Value =
     val paths = roots.map(file => StrV(file.getCanonicalPath.replace(java.io.File.separatorChar, '/')))
-    DataV("NativeCompilation", Vector(emptyProgram, list(manifests*), list(paths*)))
+    val markdownValues = if markdown.nonEmpty then markdown else roots.map(_ => emptyMarkdown)
+    DataV("NativeCompilation", Vector(
+      emptyProgram, list(manifests*), list(markdownValues*), list(paths*)))
 
   private def database(url: Option[String], user: Option[String] = None): Value =
     val fields = url.toList.map(value => yamlField("url", yamlString(value))) ++
@@ -37,6 +43,7 @@ class NativeV2StructuralTest extends AnyFunSuite:
     assert(decoded.config.databases == Map(
       "default" -> NativeDatabaseConfig("jdbc:h2:mem:native", Some("sa"))))
     assert(decoded.manifests.head.value.nonEmpty)
+    assert(decoded.markdown == List(NativeSourceMarkdown(root, 0)))
 
   test("files without front-matter decode as absent manifests"):
     val root = source()
@@ -77,3 +84,25 @@ class NativeV2StructuralTest extends AnyFunSuite:
         compilation(List(root), List(yamlOk(database(None, Some("sa"))))), List(root))
     }
     assert(error.getMessage.contains("requires a non-empty url"))
+
+  test("validate the structural Markdown product without reparsing source text"):
+    val root = source()
+    val blocks = list(
+      DataV("MarkdownHeading", Vector(IntV(1), StrV("Title"), StrV("#title"), IntV(1))),
+      DataV("MarkdownParagraph", Vector(
+        list(DataV("MarkdownText", Vector(StrV("Hello")))), IntV(3))))
+    val decoded = NativeV2Structural.decode(
+      compilation(List(root), List(noManifest), List(
+        DataV("MarkdownDocument", Vector(blocks)))),
+      List(root))
+    assert(decoded.markdown == List(NativeSourceMarkdown(root, 2)))
+
+  test("source-located Markdown errors cross the ABI before plugin installation"):
+    val root = source()
+    val markdownError = DataV("MarkdownError", Vector(
+      StrV("unterminated fenced block"), IntV(12), IntV(2), IntV(1)))
+    val error = intercept[IllegalArgumentException] {
+      NativeV2Structural.decode(
+        compilation(List(root), List(noManifest), List(markdownError)), List(root))
+    }
+    assert(error.getMessage.contains(s"${root.getName}:2:1: unterminated fenced block"))

@@ -249,6 +249,33 @@ def sscParseFrontmatters = (paths) =>
       #coreir.eval(lowerProg(sscApp(yamlDefs, callStmts)))
   }
 
+-- Evaluate the canonical pure Markdown Profile for every root source. The
+-- frozen ssc0 tower still bootstraps the module definitions with mira-md, but
+-- ordinary roots cross the Scala seed boundary only as structural
+-- MarkdownDocument/MarkdownError values — the host never reparses their text.
+def sscMarkdownCall = (path) =>
+  let fileStr = #utf8->str(#io.readFile(path)) in
+  #sconcat("markdownParse(", #sconcat(sscQuoteYamlString(fileStr), ")"))
+
+def sscMarkdownCalls = (paths) =>
+  match paths {
+    case Nil => ""
+    case Cons(path, rest) =>
+      match rest {
+        case Nil => sscMarkdownCall(path)
+        case _ => #sconcat(sscMarkdownCall(path), #sconcat(", ", sscMarkdownCalls(rest)))
+      }
+  }
+
+def sscParseMarkdowns = (paths) =>
+  let markdownPath = sscResolve("", "std/markdown-core.ssc") in
+  match sscLoadMod(markdownPath, Nil) {
+    case Pair(markdownDefs, markdownSeen) =>
+      let callSource = #sconcat("List(", #sconcat(sscMarkdownCalls(paths), ")")) in
+      let callStmts = parse(callSource) in
+      #coreir.eval(lowerProg(sscApp(markdownDefs, callStmts)))
+  }
+
 def sscStructuralCell = #cell.new(false)
 def sscNativeArgs = (args) =>
   match args {
@@ -273,7 +300,7 @@ def main = () =>
         case Pair(allStmts, seen) =>
           let ir = lowerProg(allStmts) in
           if #cell.get(sscStructuralCell) then
-            NativeCompilation(ir, sscParseFrontmatters(paths), paths)
+            NativeCompilation(ir, sscParseFrontmatters(paths), sscParseMarkdowns(paths), paths)
           else #io.print(#coreir.encode(ir))
       }
     case Nil =>
