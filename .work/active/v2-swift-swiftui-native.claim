@@ -1,6 +1,6 @@
 feature/v2-swift-swiftui-native 2026-07-10T17:41:11Z
 agent: codex
-heartbeat: 2026-07-11T09:09:54Z
+heartbeat: 2026-07-11T09:34:54Z
 status: in-progress
-done-so-far: Swift AppCore NativeUiHost landed with reviewer approval; SwiftUI observation store and recursive renderer sources now real-SwiftUI typecheck, with runtime behavior probes and review still pending
-next: fix double-publish, add real Swift observation/keyed probes, obtain nativeui-reviewer verdict, then land observation/store renderer slice and update spec/results/board separately
+done-so-far: SwiftUI store now passes a real stable-cell/equality/transitive/token probe; Host keyed transactions pass real move/delete/reinsert/shared-scope/rollback probes; renderer observes Show/keyed/controls/styles and real SwiftUI typechecks
+next: close strict inventory/source diagnostics and component occurrence gaps, run full gates, obtain nativeui-reviewer approval, then land code/spec/bookkeeping separately
