@@ -190,21 +190,48 @@ def sscPushImports = (paths, acc) =>
     case Nil => acc
     case Cons(path, rest) => sscPushImports(rest, Cons(path, acc))
   }
-def sscScanLines = (lines, inFence, acc) =>
+def sscStartsChar = (s, c) =>
+  if #i.eq(#slen(s), 0) then false else #i.eq(#scodeAt(s, 0), c)
+def sscWrappedImportStart = (t) =>
+  if sscStartsChar(t, 91) then #i.ge(sscFindChar(t, 1, 93), #slen(t))
+  else false
+def sscPendingBreak = (t) =>
+  if #i.eq(#slen(t), 0) then true
+  else if sscStartsChar(t, 35) then true
+  else startsWith3bt(t)
+def sscPendingJoin = (pending, t) =>
+  if #i.eq(#slen(pending), 0) then t else #sconcat(pending, #sconcat(" ", t))
+def sscScanLines = (lines, inFence, pending, acc) =>
   match lines {
     case Nil => acc
     case Cons(line, rest) =>
       if inFence then
-        if isClosingFence(line) then sscScanLines(rest, false, acc)
-        else sscScanLines(rest, true, acc)
+        if isClosingFence(line) then sscScanLines(rest, false, "", acc)
+        else sscScanLines(rest, true, "", acc)
       else
         let t = strip(line) in
-        if startsWith3bt(t) then sscScanLines(rest, true, acc)
+        if startsWith3bt(t) then sscScanLines(rest, true, "", acc)
+        else if #i.gt(#slen(pending), 0) then
+          if sscPendingBreak(t) then
+            if sscStartsChar(t, 91) then sscScanLines(Cons(line, rest), false, "", acc)
+            else sscScanLines(rest, false, "", acc)
+          else
+            let joined = sscPendingJoin(pending, t) in
+            let close = sscFindChar(joined, 1, 93) in
+            if #i.lt(close, #slen(joined)) then
+              let paths = sscImportPaths(joined) in
+              sscScanLines(rest, false, "", sscPushImports(paths, acc))
+            else sscScanLines(rest, false, joined, acc)
         else
           let paths = sscImportPaths(t) in
-          sscScanLines(rest, false, sscPushImports(paths, acc))
+          match paths {
+            case Nil =>
+              if sscWrappedImportStart(t) then sscScanLines(rest, false, t, acc)
+              else sscScanLines(rest, false, "", acc)
+            case _ => sscScanLines(rest, false, "", sscPushImports(paths, acc))
+          }
   }
-def sscImports = (src) => reverse(sscScanLines(splitLines(src, 0, Nil), false, Nil))
+def sscImports = (src) => reverse(sscScanLines(splitLines(src, 0, Nil), false, "", Nil))
 
 -- resolve an import target: `std/…` maps to the std root (SSC_STD env, else the
 -- in-tree v1/runtime); everything else is relative to the importing file.
