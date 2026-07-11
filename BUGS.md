@@ -1069,6 +1069,31 @@ TI-8.2c2i, waiting for Sergiy confirmation before `done`.
   category ceilings shrink to the measured counts, and affected conformance is
   green. Keep `fixed` until Sergiy confirms the release-gate behavior.
 
+## v2-swiftui-surviving-owner-action-task-leak — removed action can finish under a surviving keyed owner
+
+**Status:** open (2026-07-11); found by `nativeui-reviewer` during the
+read-only async lifecycle review in the `scalascript` Rozum room.
+
+- **Real-harness repro:** mount a keyed row containing a fetch action, start its
+  controllable `URLProtocol` request, then reconcile the same key to a row that
+  no longer contains that action. The Host disposes the old owner-owned
+  phase/error signal keys, but the Store only cancels task owners returned as
+  deleted keyed paths. Because the keyed owner itself survives, the request can
+  remain current until a non-guaranteed SwiftUI `onDisappear`; a late 2xx may
+  commit capture/clear/effects before the eventual status write detects the
+  disposed signals.
+- **Expected/root-cause direction:** bind every active action task generation to
+  the exact phase/error signal capability that authorized it. Disposing either
+  key during Host reconciliation must synchronously invalidate and cancel that
+  task, even while its containing keyed owner survives; late completion must
+  become inert before any user mutation.
+- **Plan/done-when:** return or publish exact disposed action status keys through
+  the Host/Session reconciliation seam, cancel matching Store tasks without
+  view lifecycle callbacks, and add generated strict-concurrency Swift gates for
+  same-key action removal/replacement, stopped transport, no late 2xx mutation,
+  and a freshly idle/error-empty action after reinsertion. Keep `fixed` until
+  the Rozum reporter confirms the regression.
+
 ## v2-swift-swiftui-native — v2 has no proven native Swift/SwiftUI path for macOS and iOS
 
 **Status:** open (2026-07-10); reported by Sergiy in the Codex session.

@@ -526,6 +526,13 @@ there before changing this plan.
                   headers snapshots, capture→clear→ordered success effects,
                   and no effects outside 2xx. Real Swift uses a controllable
                   URLProtocol fixture for replacement/late-completion gates.
+                  Treat the action's exact owner-owned phase/error signal keys
+                  as a task capability: if a surviving keyed owner rerenders
+                  without that action or replaces it, signal disposal must
+                  synchronously invalidate/cancel the old task before any late
+                  2xx capture/clear/effect can commit. Gate same-key removal and
+                  fresh reinsertion without relying on SwiftUI `onDisappear`
+                  (`v2-swiftui-surviving-owner-action-task-leak`).
             - [ ] **persisted/online ownership** — UserDefaults-backed persisted
                   signals and one refcounted NWPathMonitor owned by first/last
                   observable tokens; callbacks hop to MainActor and root/scope
