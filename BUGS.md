@@ -26,6 +26,32 @@ binary.
   release gate. No provider, v1 bridge, transparent fallback, or backend branch
   is allowed.
 
+## v21-native-content-markdown-error-swallowed — malformed roots become empty content
+
+**Status:** open (2026-07-11); found by codex in the consolidated self-hosted
+release gate while verifying the new structural content projection.
+
+- **Real-harness repro:** after `scripts/sbtc "installBin"`,
+  `tests/e2e/v21-self-hosted-markdown-frontend-smoke.sh` reports
+  `unterminated Markdown fence unexpectedly compiled`. The exact malformed
+  root reaches `contentProjectModule`, whose default `contentDocument` branch
+  replaces `MarkdownError(message, offset, line, column)` with an empty
+  `DocumentContent` before `NativeV2Structural` can reject it.
+- **Expected:** the canonical self-hosted `MarkdownError` crosses the projection
+  boundary unchanged and becomes the established source-located compile error
+  before native provider installation; no fallback document is fabricated.
+- **Plan/done-when:** preserve `MarkdownError/4` in `NativeContentModule`, teach
+  the Scala seed validator to rethrow its existing `source:line:column`
+  diagnostic without reparsing, extend the structural regression test, then
+  rerun the exact frontend smoke and consolidated quick release gate.
+- **Root cause/fix prepared:** `contentDocument` intentionally had a defensive
+  empty-document default, but `contentProjectModule` called it for every
+  non-`MarkdownDocument`, including the canonical error ADT. Commit
+  `cc3edaaa2` now preserves `MarkdownError/4`; the seed converts it back to the
+  established source-located failure. Structural tests are 8/8 and both the
+  exact Markdown frontend repro and native content e2e pass. Awaiting push and
+  consolidated quick release confirmation before moving status to `fixed`.
+
 ## v21-runtime-taxonomy-stale-http-mount — resolved standard row still blocks freeze
 
 **Status:** fixed (2026-07-11, taxonomy `77da8e8e2`); found by codex while

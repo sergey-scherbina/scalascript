@@ -2548,6 +2548,20 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               `content-linked-namespaces` now reaches its later
                               independently queued `BigInt.toString` failure;
                               `content.ssc` is independently owned by `md`.
+                              - [x] **TI-8.2d3e0 preserve structural Markdown
+                                    failures — DONE 2026-07-11
+                                    (`cc3edaaa2`):** fix tracked
+                                    `v21-native-content-markdown-error-swallowed`.
+                                    `contentProjectModule` must retain
+                                    `MarkdownError/4`, and the seed must restore
+                                    the established source-located compile
+                                    diagnostic before provider installation.
+                                    Gate the exact unterminated-fence assembled
+                                    repro plus structural unit and quick release.
+                                    Result: structural ABI tests are 8/8; the
+                                    exact malformed-fence frontend smoke and
+                                    native content e2e pass without a fallback
+                                    parse or fabricated empty document.
                         - [ ] **TI-8.2d3f pure native content binding:** port
                               `contentBind(value, bindings)` path resolution and
                               recursive inline/block substitution into pure
