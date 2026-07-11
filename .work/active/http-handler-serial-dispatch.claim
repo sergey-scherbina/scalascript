@@ -1,6 +1,0 @@
-feature/http-handler-serial-dispatch 2026-07-11T12:38:53Z
-agent: codex
-heartbeat: 2026-07-11T13:14:46Z
-status: in-progress
-done-so-far: fair per-interpreter read/write execution gate implemented; focused concurrency tests and busi live Vault check pass
-next: rerun starvation/full-module/conformance gates, document results, push and release the runtime fix

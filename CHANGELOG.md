@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — interpreter HTTP mutations are fair and durable
+
+Interpreter-backed HTTP now shares one weak per-interpreter fair read/write
+gate across middleware, routes, streams and WebSocket callbacks. Safe reads
+remain concurrent, mutations exclude every callback without writer starvation,
+and distinct interpreters plus socket I/O stay parallel. Focused concurrency
+passed 8/8, the server module 58/58, `rest-validate` on INT/JS/JVM, and busi's
+assembled six-scenario Chromium matrix including offline drain, Housing and all
+eleven Vault transitions. Landed `1f7ea78d7`; contract and evidence are in
+`specs/http-handler-serial-dispatch.md`.
+
 ## 2026-07-11 — SwiftUI events mutate authenticated Host cells safely
 
 Native set/input/toggle/increment dispatch now binds validation, dynamic read,
