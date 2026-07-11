@@ -332,7 +332,18 @@ def selOrMethod = (field, robj) =>
   else if isTupleField(field) then
     Pair("app", Pair(Pair("var", #sconcat("_sel_", field)), Cons(robj, Nil)))
   else
-    Pair("prim", Pair("__method__", Cons(Pair("str", field), Cons(robj, Nil))))
+    -- K62.25: a bare companion static like `Array.empty` reaches here with robj = uid(Array),
+    -- which lowers to an UNBOUND `global Array`. The applied path (Array.tabulate(…)) already
+    -- wraps the receiver as ctorap(Array) → DataV("Array") so the runtime __method__ dispatch
+    -- fires; do the same for the 0-arg case. Gated on collection companions so enum-case value
+    -- access (Color.Red) and user objects are untouched.
+    let recv = match robj {
+      case Pair(rt, rn) =>
+        if #seq(rt, "uid") then
+          (if isCollectionCompanion(rn) then Pair("ctorap", Pair(rn, Nil)) else robj)
+        else robj
+    } in
+    Pair("prim", Pair("__method__", Cons(Pair("str", field), Cons(recv, Nil))))
 
 -- Parse "Show[Int]" → Pair("Show","Int"); "String" → Pair("String","*")
 -- ASCII 91='[', 93=']'
@@ -2452,7 +2463,14 @@ def selMkStringDef =
           Nil))),
         Nil))))) in
   let consArm = IrArm("Cons", 2, consBody) in
-  let goBody  = IrMatch(IrLocal(0), Cons(nilArm, Cons(consArm, Nil)), None) in
+  -- ForeignV(ArrayBuffer) receiver (Array.tabulate/fill result) is not Nil/Cons, so the
+  -- List-only go() match would crash ("scrutinee not Data: <foreign>"). Route the non-list
+  -- case to the runtime __method__, which handles mkString on isList (List AND ArrayBuffer)
+  -- with anyStr rendering. goBody scope: local0=receiver(x), local2=sep. Lists are unaffected
+  -- (Nil/Cons arms still win); only Arrays hit this default. K62.24.
+  let arrFallback = IrPrim("__method__",
+    Cons(IrLit(IrStr("mkString")), Cons(IrLocal(0), Cons(IrLocal(2), Nil)))) in
+  let goBody  = IrMatch(IrLocal(0), Cons(nilArm, Cons(consArm, Nil)), Some(arrFallback)) in
   IrDef("_sel_mkString",
     IrLam(2,
       IrLetRec(
