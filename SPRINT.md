@@ -1359,7 +1359,8 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               prints all explicit calls before its honest `summon`
                               boundary. Corpus stays 32/94, strict parity
                               13/56/126, blockers 44, and conformance 11/11.
-                        - [ ] **TI-8.2d2i native math object global:** publish
+                        - [x] **TI-8.2d2i native math object global — DONE
+                              2026-07-11 (`ee8467442`):** publish
                               the v2 kernel's existing portable `__math_obj__`
                               primitive as the self-hosted program global
                               `math`, matching FrontendBridge without loading a
@@ -1371,6 +1372,11 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               classified boundary. Require native-entry, corpus,
                               strict parity, sentinel/runtime taxonomy, and fresh
                               affected conformance before push.
+                              Result: math constants/methods agree on VM/direct
+                              ASM, `enums` completes, `imports` advances to an
+                              honest collection arity gap, and mixed Scala fences
+                              are reviewed backend skips. Corpus is 33/93,
+                              parity 14/54/127, blockers 42, conformance 11/11.
                   - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
                         `v2/runtime/std` providers, never through the v1 bridge.

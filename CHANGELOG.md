@@ -4,6 +4,13 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — self-hosted standard programs publish portable math
+
+The native lowerer now exposes the v2 kernel's existing `math` receiver without
+a compatibility/provider class. Constants and mixed numeric methods agree on
+VM/direct ASM, `enums.ssc` completes, mixed Scala fences are honestly skipped,
+and runtime blockers fall from 44 to 42. Landed `ee8467442`.
+
 ## 2026-07-11 — named layout givens lower to portable static members
 
 Indented `given name: TC[T] with` bodies now retain balanced trait/given layout,
