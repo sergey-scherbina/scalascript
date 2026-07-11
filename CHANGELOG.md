@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — standard native frontend reaches zero parser gaps
+
+Parenthesized `if` conditions now continue through infix operators without
+turning legacy braced branches into block arguments, and match patterns accept
+tuple heads in `head :: tail`. Focused VM/direct-ASM output is identical;
+`dsl-mini-language.ssc` and the OIDC regression are sentinel-clear/checker-OK.
+All 68 remaining sentinels are explicit server/backend/tools/nondeterministic
+rows: standard gaps are zero, parity remains 10/60/125 with no mismatch or
+one-sided failure, and fresh conformance is 9/9. Landed `063c64dcd`.
+
 ## 2026-07-10 — native frontend parses assignment expressions
 
 The self-hosted expression parser now recognizes a single `=` after a bare

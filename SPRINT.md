@@ -687,11 +687,11 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
             classify every remaining parser/checker sentinel or backend gap.
             Fix only unclaimed standard deterministic blockers, preserving
             explicit tools-tier categories and source-located failures.
-            Current baseline 2026-07-10 after TI-8.2c2l:
+            Current baseline 2026-07-11 after TI-8.2c2m:
             native-front covers all 195 rows with 194 frontend successes, 0
-            frontend host errors/timeouts, 1 non-code document, 69
+            frontend host errors/timeouts, 1 non-code document, 68
             sentinel-bearing outputs, 194 checker successes, 0 type errors,
-            28 runtime successes, and 97 runtime errors (166 strict-fail rows).
+            28 runtime successes, and 98 runtime errors (166 strict-fail rows).
             Standard VM/ASM
             classification is 10 identical, 0 stdout mismatch, 60 both-fail,
             125 skipped server/backend/nondeterministic, and 0 one-sided rows.
@@ -729,19 +729,19 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                   both former crash rows are frontend/checker OK with bounded
                   diagnostics; full corpus is 194/0/0/1 and native-entry plus
                   affected conformance 8/8 pass.
-            - [ ] **TI-8.2c sentinel taxonomy:** classify all 69 sentinel rows
+            - [ ] **TI-8.2c sentinel taxonomy:** classify all 68 sentinel rows
                   as standard syntax gaps, explicit tools/backend surfaces, or
                   already-skipped server/nondeterministic documents. Queue and
                   close standard deterministic parser shapes; keep category
                   growth spec-controlled.
                   - [x] **TI-8.2c1 stable taxonomy gate — DONE 2026-07-10
-                        (`aa9b30f28`, refined through `1f50dcaa8`):** join the native-front
+                        (`aa9b30f28`, refined through `063c64dcd`):** join the native-front
                         and standard parity TSVs, inherit the existing
                         server/backend/nondeterministic classifications, and
                         keep an explicit reviewed manifest for compiler/target-
                         only rows. Fail on every unclassified sentinel and on
                         manifest entries that disappear or change category.
-                        Result: all 69 rows classify as 1 standard-gap / 26
+                        Result: all 68 rows classify as 0 standard-gap / 26
                         server / 36 backend / 5 tools-backend / 1 nondeterministic;
                         category growth, stale overrides, and unknown rows fail.
                         Backend-only fenced documents are source-classified
@@ -764,9 +764,10 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                         rows as 6/26/36/5/1. Category ceilings are tightened,
                         taxonomy smoke and fresh conformance 9/9 pass. Tracked
                         in `BUGS.md#v21-sentinel-taxonomy-parity-success`.
-                  - [ ] **TI-8.2c2 standard syntax families:** group the
-                        1 remaining deterministic row by actual `_err` source
-                        shape, add one real-launcher regression per family, and
+                  - [x] **TI-8.2c2 standard syntax families — DONE 2026-07-11
+                        (`063c64dcd`):** group the remaining deterministic rows
+                        by actual `_err` source shape, add one real-launcher
+                        regression per family, and
                         close them in descending corpus impact without touching
                         active foreign claims.
                         Measured groups (overlap is intentional): extension and
@@ -1010,7 +1011,8 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               errors, taxonomy 1/26/36/5/1, and standard parity
                               10/60/125 with zero mismatch or one-sided row.
                               Native-entry passes and fresh conformance is 9/9.
-                        - [ ] **TI-8.2c2m final mini-language shapes:** parse an
+                        - [x] **TI-8.2c2m final mini-language shapes — DONE
+                              2026-07-11 (`063c64dcd`):** parse an
                               `if` condition whose leading parenthesized term is
                               followed by `&&`/ordinary infix continuation, and
                               parse `(name, pass) :: rest` as a cons pattern
@@ -1018,6 +1020,17 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               pattern. Add focused VM/direct-ASM regressions and
                               rerun `dsl-mini-language.ssc` plus every readiness
                               gate. This is the final standard parser-gap row.
+                              Result: the focused fixture prints `condition-ok`,
+                              `stage`, `7`, `true` on both assembled lanes.
+                              Parenthesized conditions continue through infix
+                              operators without consuming legacy braced branches;
+                              OIDC remains sentinel-clear/checker-OK. The mini-
+                              language row is sentinel-clear/checker-OK and reaches
+                              its honest `expected Int, got "2"` runtime boundary.
+                              Corpus is 194/0/0/1 with 68 classified sentinels,
+                              checker 194/0, runtime 28 OK / 98 errors, taxonomy
+                              0/26/36/5/1, and parity 10/60/125 with zero mismatch
+                              or one-sided row. Native-entry and conformance 9/9 pass.
                   - [ ] **TI-8.2c3 release classification:** rerun all 195 rows,
                         freeze the exact standard/tools/backend/server counts in
                         the feature spec, and make category growth fail CI.
