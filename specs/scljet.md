@@ -591,6 +591,9 @@ extern def jvmVfsDeviceCharacteristics(handle: Int): JvmVfsResult
 extern def jvmVfsClose(handle: Int): JvmVfsResult
 ```
 
+The assembled JVM adapter is demonstrated by
+[`examples/scljet-jvm-vfs.ssc`](../examples/scljet-jvm-vfs.ssc).
+
 `code == "ok"` means `value` is valid; expected lock contention is `busy`
 with no thrown host exception. All other host failures are bounded result codes
 and messages. The plugin never parses pages or implements pager/WAL policy.

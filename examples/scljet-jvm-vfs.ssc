@@ -1,0 +1,39 @@
+#!/usr/bin/env ssc-tools run --v1
+---
+name: scljet-jvm-vfs
+description: Use the explicit JVM SclJet VFS plugin for positioned durable I/O
+backends: [int]
+---
+
+# SclJet JVM VFS adapter
+
+[JvmVfsResult, JvmVfsRead, LockShared, LockReserved, LockNone, jvmVfsOpen, jvmVfsDelete, jvmVfsReadAt, jvmVfsWriteAt, jvmVfsSync, jvmVfsSize, jvmVfsLock, jvmVfsUnlock, jvmVfsClose](std/scljet/index.ssc)
+
+```scalascript
+def handleOf(result: JvmVfsResult): Int = result.value match
+  case handle: Int => handle
+  case _ => -1
+
+def bytesOf(result: JvmVfsResult): List[Int] = result.value match
+  case JvmVfsRead(bytes, _) => bytes
+  case _ => Nil
+
+val path = "scljet-jvm-vfs-example.db"
+jvmVfsDelete(path)
+
+val opened = jvmVfsOpen(path, false, true)
+val handle = handleOf(opened)
+println(opened.code)
+println(jvmVfsWriteAt(handle, 2L, List(10, 20, 30)).code)
+println(jvmVfsSync(handle, false).code)
+println(jvmVfsSize(handle).value)
+
+val read = jvmVfsReadAt(handle, 0L, 5)
+println(read.code)
+println(bytesOf(read))
+println(jvmVfsLock(handle, LockShared).code)
+println(jvmVfsLock(handle, LockReserved).code)
+println(jvmVfsUnlock(handle, LockNone).code)
+println(jvmVfsClose(handle).code)
+println(jvmVfsDelete(path).code)
+```
