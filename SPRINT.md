@@ -3326,9 +3326,14 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                           exact on VM/ASM/build-jvm; release is
                                           48 identical / 18 both-fail with 5
                                           blockers and conformance 11/11.
-                                    - [ ] **m2b derives/Mirror:** synthesize
+                                    - [x] **m2b derives/Mirror:** synthesize
                                           portable product metadata plus the
                                           requested derived dictionary.
+                                          Result: all four exact Mirror aliases,
+                                          ordered names/types, and one cached
+                                          custom dictionary are exact; public
+                                          VM/ASM/build-jvm output passes and
+                                          release is 49/17 with 4 blockers.
                                     - [ ] **m2c direct do-notation:** lower
                                           Option/List bind statements with
                                           nested/direct/local state semantics.

@@ -68,7 +68,8 @@ semantics advanced the mini-language pipeline report.
 
 ## v21-native-derives-mirror-unsynthesized — product evidence is absent
 
-**Status:** open (2026-07-12); found by codex in TI-8.2d3m audit.
+**Status:** fixed (2026-07-12, language `db97ad954`, taxonomy `151fd65b1`),
+awaiting Sergiy confirmation; found by codex in TI-8.2d3m audit.
 
 - **Real-harness repro:** standard VM/direct ASM fail before stdout with
   `unbound global: summon`; explicit compatibility prints
@@ -79,6 +80,10 @@ semantics advanced the mini-language pipeline report.
 - **Done-when:** portable product metadata and derived evidence are synthesized
   from declarations, exact summon lookup resolves both values, and unsupported
   evidence remains a bounded compile/runtime failure without reflection.
+- **Fix/result:** the self-hosted AST retains ordered product types and derives
+  names; the lowerer emits portable Mirror data plus one source-ordered cached
+  `TC.derived` result under exact given keys. Focused aliases/caching and the
+  public VM/ASM/build-jvm output are exact; release is 49/17 with four blockers.
 
 ## v21-native-parameterless-def-value — nullary method is passed as a function
 

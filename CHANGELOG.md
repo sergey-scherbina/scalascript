@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-12 — product Mirror and custom derives are self-hosted
+
+The compiler-free ScalaScript 2.1 frontend now retains product field type
+spellings and `derives` clauses, emits portable `Mirror.Of` /
+`Mirror.ProductOf` evidence, and initializes one cached custom dictionary via
+the known `TC.derived` companion in source order. The public four-line example
+is exact on VM, direct ASM, and reproducible `build-jvm`; parity is 49 identical
+/ 17 both-fail with four blockers and fresh conformance 11/11. Landed through
+`151fd65b1`.
+
 ## 2026-07-12 — parameterless def values and pair callbacks are native
 
 The self-hosted frontend now preserves `def value: T` versus `def value(): T`
