@@ -2,8 +2,6 @@ file	category	blocker	owner	reason
 agent-mcp-toolsource.ssc	tools-backend	no	mcp	JVM/JS MCP tool-source syntax is already a reviewed backend surface
 custom-derives-mirror.ssc	language-runtime	yes	typeclass	Mirror/derives evidence is not synthesized, so exact summon has no named given to resolve
 direct-syntax-demo.ssc	language-runtime	yes	direct	direct syntax lowers to an unbound global instead of portable runtime semantics
-distributed-join.ssc	standard-provider	yes	distributed	NamedHandler is missing from the core-free distributed runtime
-distributed-log-aggregation.ssc	standard-provider	yes	distributed	NamedHandler is missing from the core-free distributed runtime
 dsl-mini-language.ssc	language-runtime	yes	value-conversion	mini-language evaluation receives token text where an Int value is required
 graph-rdf4j-http-storage.ssc	standard-provider	yes	graph	Graph.putRdf has no core-free standard effect handler
 graph-storage-interpreter.ssc	standard-provider	yes	graph	Graph.putVertex has no core-free standard effect handler

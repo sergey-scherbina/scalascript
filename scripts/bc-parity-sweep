@@ -88,9 +88,20 @@ for f in "$ROOT"/examples/*.ssc; do
     skipped=$((skipped + 1)); record "$b" skipped-backend - - 'backend-specific fenced document with no standard scalascript block'; continue
   fi
 
-  "$SCRIPT_DIR/run-with-timeout" "$seconds" "$ssc" run "$f" >"$tmp/vm.out" 2>"$tmp/vm.err"
+  program_args=()
+  case "$b" in
+    distributed-join.ssc)
+      program_args=(-- "$ROOT/tests/fixtures/v21-native/distributed-orders.csv"
+        "$ROOT/tests/fixtures/v21-native/distributed-customers.csv")
+      ;;
+    distributed-log-aggregation.ssc)
+      program_args=(-- "$ROOT/tests/fixtures/v21-native/distributed-app.log")
+      ;;
+  esac
+
+  "$SCRIPT_DIR/run-with-timeout" "$seconds" "$ssc" run "$f" "${program_args[@]}" >"$tmp/vm.out" 2>"$tmp/vm.err"
   vm_rc=$?
-  "$SCRIPT_DIR/run-with-timeout" "$seconds" "$ssc" run --bytecode "$f" >"$tmp/bc.out" 2>"$tmp/bc.err"
+  "$SCRIPT_DIR/run-with-timeout" "$seconds" "$ssc" run --bytecode "$f" "${program_args[@]}" >"$tmp/bc.out" 2>"$tmp/bc.err"
   bc_rc=$?
 
   if [[ $vm_rc -ne 0 && $bc_rc -ne 0 ]]; then
