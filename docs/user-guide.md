@@ -44,7 +44,7 @@ After installation:
 
 ```bash
 ssc examples/hello.ssc     # v2 VM default runner
-ssc run --v1 examples/hello.ssc  # rollback: v1 tree-walking interpreter
+ssc-tools run --v1 examples/hello.ssc  # explicit v1 compatibility
 jssc examples/hello.ssc    # JS backend
 sscc examples/hello.ssc    # JVM backend
 ```
@@ -73,9 +73,10 @@ Run it four ways:
 
 ```bash
 ssc hello.ssc           # v2 VM default runner
-ssc run --v1 hello.ssc  # rollback: v1 tree-walking interpreter
-ssc run-jvm hello.ssc   # compile via JvmGen + run with scala-cli
-ssc run-js  hello.ssc   # compile via JsGen  + run with Node.js
+ssc run --bytecode hello.ssc # direct ASM, same native frontend/checker
+ssc-tools run --v1 hello.ssc # explicit v1 compatibility
+ssc-tools run-jvm hello.ssc  # compile via JvmGen + run with scala-cli
+ssc-tools run-js  hello.ssc  # compile via JsGen  + run with Node.js
 jssc hello.ssc          # alias for run-js via bin/ wrapper
 sscc hello.ssc          # alias for run-jvm via bin/ wrapper
 ```
@@ -85,7 +86,7 @@ All five produce `Hello, World!` with byte-identical output.
 ### Watch Mode
 
 ```bash
-ssc watch hello.ssc     # re-runs on every file save
+ssc-tools watch hello.ssc # tools command: re-runs on every file save
 ```
 
 `ssc watch` supports **hot reload** for both plain scripts and HTTP servers:
@@ -236,34 +237,37 @@ errorDetails = true
 See [`specs/repl-web.md`](repl-web.md) and [`specs/mount-handlers.md`](mount-handlers.md)
 for the full command reference, handler-file contract, and typed-handler deserialization rules.
 
-### `run`, `run --native`, `run --v1`, `run --target jvm`, `run-jvm`, and `run-js`
+### Standard `run`/`build-jvm` and explicit `ssc-tools` compatibility
 
-`ssc run` uses the v2 VM by default through the v1 frontend and FrontendBridge.
-Use `ssc run --v1` as the rollback path for the old tree-walking interpreter.
-ScalaScript 2.1 also ships an opt-in compiler-free frontend route:
-`ssc run --native`. It executes the staged `mira-md -> ssc1-front ->
-ssc1-lower` tower through the prebuilt v2 kernel, rejects partial CoreIR that
-contains the parser `_err` sentinel, and never invokes Scala CLI, scalac, or
-javac. `--compat-frontend` names the current Scalameta bridge explicitly while
-the native corpus and checker are being completed.
+`ssc run` is the ScalaScript 2.1 compiler-free default. It executes the staged
+`mira-md -> ssc1-front -> ssc1-check -> ssc1-lower` tower through the prebuilt
+Scala 3 seed and v2 kernel, rejects partial CoreIR that contains the parser
+`_err` sentinel, and never invokes Scala CLI, scalac, or javac. `--native` and
+`--v2` are idempotent standard-path assertions; `--bytecode` changes only the
+execution backend to direct ASM.
+
+The v1/Scalameta frontend and compiler/codegen commands require an explicit
+`ssc-tools` executable. Plain `ssc` rejects `--v1`, `--compat-frontend`, and
+tools-owned commands before source execution; it never spawns or discovers the
+tools launcher.
 
 When you need true JVM or Node.js execution semantics (or want to benchmark
 performance) use `--target jvm` or `run-js`:
 
 ```bash
 ssc run              hello.ssc   # v2 VM default runner
-ssc run --native     hello.ssc   # staged self-hosted frontend → CoreIR → v2 VM
+ssc run --native     hello.ssc   # idempotent standard-path assertion
 ssc run --native --bytecode hello.ssc # same frontend → direct ASM
-ssc run --compat-frontend hello.ssc   # explicit Scalameta compatibility frontend
-ssc run --v1         hello.ssc   # v1 tree-walking interpreter rollback
+ssc-tools run --compat-frontend hello.ssc # explicit Scalameta frontend
+ssc-tools run --v1   hello.ssc   # v1 tree-walking interpreter rollback
 ssc run              hello.ssc -- one two  # v2 VM program args
-ssc run --target jvm hello.ssc   # JvmGen → temp .sc → scala-cli run
-ssc run-jvm          hello.ssc   # same — backward-compat alias
-ssc run-js           hello.ssc   # JsGen  → temp .js → node
-ssc run-js --v2      hello.ssc   # FrontendBridge → CoreIR → v2 JsGen → node
+ssc-tools run --target jvm hello.ssc # JvmGen → temp .sc → scala-cli run
+ssc-tools run-jvm    hello.ssc   # same — backward-compat alias
+ssc-tools run-js     hello.ssc   # JsGen  → temp .js → node
+ssc-tools run-js --v2 hello.ssc  # FrontendBridge → CoreIR → v2 JsGen → node
 ```
 
-The generated-backend commands (`run --target jvm`, `run-jvm`, and `run-js`):
+The `ssc-tools` generated-backend commands (`run --target jvm`, `run-jvm`, and `run-js`):
 - compile the `.ssc` file through the respective backend codegen
 - write the output to a temporary file (deleted after the run)
 - execute it and forward stdout/stderr transparently
@@ -294,8 +298,8 @@ Standalone Markdown link imports resolve relative to the importing file;
 `std/...` resolves against `bin/lib/native-front/runtime`. The loader
 deduplicates normalized module paths, accepts multiple source files before
 `--`, and forwards only the values after `--` as program arguments. Prose and
-inline-code links are not imports. There is no transparent fallback: use
-`--compat-frontend` when a source still hits a documented native parity gap.
+inline-code links are not imports. There is no transparent fallback: explicitly
+invoke `ssc-tools run --compat-frontend` for a compatibility-only source.
 Both v2 VM and direct-ASM runners treat a top-level missing-dispatch `Stub` or
 an unresolved dotted runtime-effect `Op` as a nonzero runtime failure. They are
 diagnostics, not printable successful program values.
@@ -354,9 +358,9 @@ use a separate portable provider: dependencies are recollected on every
 effect/computed rerun, subscribers flush synchronously in insertion order,
 diamonds run a consumer once, and a running effect may write a signal it reads
 without recursively scheduling itself. The same semantics run in packaged
-`build-jvm` artifacts. Other plugin families are still being migrated; a
-missing native provider fails explicitly. Use
-`--compat-frontend` for a tools-tier plugin that has not moved yet.
+`build-jvm` artifacts. Other plugin families remain explicit optional surfaces;
+a missing native provider fails explicitly. Use
+`ssc-tools run --compat-frontend` for a tools-tier plugin.
 
 Runtime YAML uses portable `YStr`, `YNum`, `YBool`, `YNull`, `YArr`, and `YObj`
 values. `parseYaml` accepts the documented project subset (nested block/flow
@@ -371,22 +375,22 @@ self-hosted structural parser and is not reparsed by the Scala seed.
 
 ### `build-jvm` — executable JAR directly from native CoreIR + ASM
 
-During the 2.1 migration, `bin/ssc-standard` exposes the physically slim tier
-before the default-launcher flip:
+Plain `bin/ssc` now exposes the physically slim ScalaScript 2.1 tier;
+`bin/ssc-standard` is an equivalent descriptive alias:
 
 ```bash
-bin/ssc-standard run app.ssc
-bin/ssc-standard run --bytecode app.ssc
-bin/ssc-standard build-jvm app.ssc -o app.jar
-bin/ssc-standard info --execution-plan --bytecode
+bin/ssc run app.ssc
+bin/ssc run --bytecode app.ssc
+bin/ssc build-jvm app.ssc -o app.jar
+bin/ssc info --execution-plan --bytecode
 ```
 
 Its classpath is only `bin/lib/standard/ssc.jar` plus the explicit JAR allowlist
 under `bin/lib/standard/jars/`; its self-hosted tower and std sources live under
 `bin/lib/standard/native-front/`. The entry JAR itself is class-filtered, so it
-does not retain dormant compatibility command references. `bin/ssc` remains the
-compatibility launcher until the TI-8 default cutover; a standard request for a
-compiler-backed command fails with a tools-tier diagnostic.
+does not retain dormant compatibility command references. A standard request
+for a compiler-backed or compatibility command fails before source execution
+with a diagnostic naming `ssc-tools`.
 
 The closed standard JAR layout excludes the optional SQL wire codec and its
 ujson/upickle/upack/geny implementation family. Basic native SQL remains
@@ -397,11 +401,10 @@ explicitly. The canonical JSON, Frontmatter YAML, and Markdown modules are pure
 ScalaScript scanners with no `extern def` or host-regex route.
 
 The full installation also stages `bin/ssc-tools`, whose classpath contains the
-compatibility runtime, plugins, and lazy compiler directory. An explicit
-`ssc-standard run --v1 ...` or `--compat-frontend` delegates to that launcher;
-arbitrary unsupported commands do not. In a slim installation the same request
-fails before execution and names `ssc-tools` plus the full-distribution remedy.
-Self-install creates both tier launchers alongside the migration-default `ssc`.
+compatibility runtime, plugins, and lazy compiler directory. Compatibility is
+available through explicit `ssc-tools run --v1 ...` or `ssc-tools run
+--compat-frontend ...`; neither standard launcher delegates or spawns it.
+Self-install repeats the same default-standard plus explicit-tools split.
 
 CI proves that this is a physical boundary, not only a launcher convention:
 
@@ -411,9 +414,9 @@ tests/e2e/v21-slim-distribution-gate.sh \
 ```
 
 The gate copies the installation, deletes its compatibility JARs, compiler,
-legacy frontend, full CLI, `ssc`, and `ssc-tools`, then runs VM/direct-ASM,
-imports and argv, FS/OS, JSON, YAML, HTTP, SQL, UI, State, and `build-jvm` using only
-`ssc-standard`. It also hides `scala-cli`, `scalac`, and `javac`, rejects
+legacy frontend, full CLI, and `ssc-tools`, then runs VM/direct-ASM, imports and
+argv, FS/OS, JSON, YAML, HTTP, SQL, UI, State, and `build-jvm` through plain
+`ssc`. It also hides `scala-cli`, `scalac`, and `javac`, rejects
 compiler/Scalameta/v1 references recursively, and verifies that a requested
 compatibility route fails with the tools-tier remedy instead of falling back.
 
@@ -508,29 +511,29 @@ When to use each:
 
 | Command | Runtime | When to use |
 |---------|---------|-------------|
-| `ssc run` | v2 VM | Default day-to-day runner |
-| `ssc run --native` | v2 VM via self-hosted frontend | Validate/deploy the ScalaScript 2.1 compiler-free route |
+| `ssc run` | v2 VM via self-hosted frontend | Default compiler-free day-to-day runner |
+| `ssc run --native` | v2 VM via self-hosted frontend | Idempotently assert the standard route in CI/deployment |
 | `ssc run --native --bytecode` | direct ASM via self-hosted frontend | Validate native frontend plus JVM bytecode execution |
 | `ssc build-jvm <files...> -o app.jar` | direct ASM executable JAR | Ship a reproducible compiler-free JVM artifact |
-| `ssc run --compat-frontend` / `--v2` | v2 VM via Scalameta bridge | Explicit migration compatibility route |
-| `ssc run --v1` | v1 interpreter | Rollback/debug path for old tree-walking behavior |
+| `ssc-tools run --compat-frontend` | v2 VM via Scalameta bridge | Explicit compatibility route |
+| `ssc-tools run --v1` | v1 interpreter | Explicit rollback/debug path for old tree-walking behavior |
 | `ssc run <file> -- [args...]` | v2 VM | Pass program args to v2 `args` without changing source-file positionals |
-| `ssc run --target jvm` | JVM via scala-cli | Production logic, JDBC, JVM libraries, benchmarking |
-| `ssc run-jvm` | JVM via scala-cli | Backward-compat alias for `ssc run --target jvm` |
-| `ssc run-js` | Node.js | Browser-API testing, npm interop, JS-target verification |
-| `ssc run-js --v2` | Node.js via v2 CoreIR JS | Opt-in v2 JS lane verification before the default JS flip |
-| `ssc run-rust` | Native binary via Cargo | One-shot native build & execute (see [`rust-backend.md`](rust-backend.md)) |
-| `ssc build-rust` | Native binary via Cargo | Ship a `cargo build`ed binary to `-o <path>` |
-| `ssc emit-swift` | v2 AppCore Swift package | Inspect/integrate deterministic checked-CoreIR Swift sources |
-| `ssc run-swift` | v2 AppCore via SwiftPM | Build and run the generated domain executable or NativeUi ABI debug CLI on macOS |
+| `ssc-tools run --target jvm` | JVM via scala-cli | Explicit compiler-backed JVM route |
+| `ssc-tools run-jvm` | JVM via scala-cli | Backward-compat alias for the tools JVM route |
+| `ssc-tools run-js` | Node.js | Browser-API testing, npm interop, JS-target verification |
+| `ssc-tools run-js --v2` | Node.js via v2 CoreIR JS | Explicit v2 JS lane verification |
+| `ssc-tools run-rust` | Native binary via Cargo | One-shot native build & execute (see [`rust-backend.md`](rust-backend.md)) |
+| `ssc-tools build-rust` | Native binary via Cargo | Ship a `cargo build`ed binary to `-o <path>` |
+| `ssc-tools emit-swift` | v2 AppCore Swift package | Inspect/integrate deterministic checked-CoreIR Swift sources |
+| `ssc-tools run-swift` | v2 AppCore via SwiftPM | Build and run the generated domain executable or NativeUi ABI debug CLI on macOS |
 | `ssc build/run --target macos` | v2 AppCore or Xcode application | Domain programs use SwiftPM; NativeUi programs build/verify the generated `.app` and `run` launches it |
 | `ssc build/run --target ios` | v2 Xcode application | NativeUi programs build the application scheme; `run` installs and launches it on an available Simulator |
 
-**Requirements:** `ssc run --native` requires a staged installation produced by
+**Requirements:** `ssc run` requires a staged installation produced by
 `installBin`, but does not require Scala CLI or a Java/Scala compiler at user
-runtime. `ssc run --target jvm` / `ssc run-jvm` require `scala-cli` on PATH;
-`ssc run-js` requires `node` on PATH; `ssc run-rust` /
-`ssc build-rust` require `cargo` on PATH (install via `brew install rust`
+runtime. `ssc-tools run --target jvm` / `ssc-tools run-jvm` require `scala-cli`
+on PATH; `ssc-tools run-js` requires `node`; `ssc-tools run-rust` /
+`ssc-tools build-rust` require `cargo` on PATH (install via `brew install rust`
 or <https://www.rust-lang.org/tools/install>). `ssc run-swift` and
 `ssc run --target macos` require Swift 6+ on PATH; package generation itself
 does not invoke Scala CLI, v1 `JvmGen`, or the legacy SwiftUI emitter.
@@ -600,7 +603,7 @@ swift run --package-path ./myapp-swift
 ssc run-swift myapp.ssc -- arg1 arg2
 ssc build --target macos myapp.ssc       # v2 is the default
 ssc run --target macos myapp.ssc
-ssc run --v1 --target macos legacy.ssc   # explicit compatibility only
+ssc-tools run --v1 --target macos legacy.ssc # explicit compatibility only
 ```
 
 `examples/swift/appcore-nativeui.ssc` is the executable AppCore smoke. Its

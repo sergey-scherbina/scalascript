@@ -54,7 +54,8 @@ $ ssc watch hello.ssc
 ## Quick Start
 
 **Standard 2.1 runtime requirement:** Java 21+. Scala CLI/scalac/javac are not
-required by `ssc-standard`; Scala CLI is an optional tools-tier dependency.
+required by plain `ssc` (or its `ssc-standard` alias); Scala CLI is an optional
+tools-tier dependency reached only through explicit `ssc-tools` commands.
 [Node.js](https://nodejs.org) is needed for the JS backend, and
 [sbt](https://www.scala-sbt.org) for contributor builds.
 
@@ -99,23 +100,23 @@ cs install ssc --channel https://releases.scalascript.io/coursier.json
 # Pipe sops-decrypted secrets into a script (${sops:key} references in databases:)
 sops -d secrets.enc.yaml | ssc myapp.ssc
 
-# Compatibility/default launcher during the 2.1 migration
-bin/ssc examples/hello.ssc
-
-# Physically slim 2.1 standard tier: self-hosted frontend + v2 VM / direct ASM
+# Default, physically slim 2.1 tier: self-hosted frontend + v2 VM / direct ASM
+bin/ssc run examples/hello.ssc
+bin/ssc run --bytecode examples/hello.ssc
+# Descriptive alias with the identical standard classpath
 bin/ssc-standard run examples/hello.ssc
-bin/ssc-standard run --bytecode examples/hello.ssc
 
 # Roll back through the explicit optional tools/compatibility tier
 bin/ssc-tools run --v1 examples/hello.ssc
-# The slim launcher delegates this explicit request when tools are installed:
-bin/ssc-standard run --v1 examples/hello.ssc
+bin/ssc-tools run --compat-frontend examples/hello.ssc
+# Plain ssc never delegates; this fails early and names ssc-tools:
+bin/ssc run --v1 examples/hello.ssc
 
 # Watch mode — re-run on every file change
-bin/ssc watch examples/hello.ssc
+bin/ssc-tools watch examples/hello.ssc
 
 # Interactive REPL
-bin/ssc repl
+bin/ssc-tools repl
 
 # Transpile to JavaScript and run via Node.js
 bin/jssc examples/hello.ssc
@@ -124,7 +125,7 @@ bin/jssc examples/hello.ssc
 bin/sscc examples/hello.ssc
 
 # Build a deterministic self-contained JAR directly through native CoreIR + ASM
-bin/ssc-standard build-jvm examples/hello.ssc -o hello.jar
+bin/ssc build-jvm examples/hello.ssc -o hello.jar
 java -jar hello.jar
 
 # Contributor/release check: remove the tools tier and prove the remainder works
@@ -136,15 +137,15 @@ tests/e2e/v21-jre-module-gate.sh --report target/v21-jre-module.tsv
 
 # Compile to a native binary via Rust + Cargo (requires `cargo` on PATH;
 # see docs/rust-backend.md for the capability surface).
-bin/ssc build-rust examples/hello.ssc && ./hello
-bin/ssc run-rust   examples/hello.ssc
+bin/ssc-tools build-rust examples/hello.ssc && ./hello
+bin/ssc-tools run-rust   examples/hello.ssc
 
 # Inspect or run the checked ScalaScript 2 CoreIR Swift package (Swift 6+)
-bin/ssc emit-swift --target macos -o appcore-swift examples/swift/appcore-money.ssc
-bin/ssc run-swift examples/swift/appcore-money.ssc
-bin/ssc run-swift examples/swift/appcore-nativeui.ssc # ABI debug CLI; emit also writes the reactive AppleApp sources
-bin/ssc build --target macos examples/swift/appcore-nativeui.ssc # real Xcode .app
-bin/ssc run --target ios examples/swift/appcore-nativeui.ssc     # build/install/launch Simulator app
+bin/ssc-tools emit-swift --target macos -o appcore-swift examples/swift/appcore-money.ssc
+bin/ssc-tools run-swift examples/swift/appcore-money.ssc
+bin/ssc-tools run-swift examples/swift/appcore-nativeui.ssc # ABI debug CLI; emit also writes the reactive AppleApp sources
+bin/ssc-tools build --target macos examples/swift/appcore-nativeui.ssc # real Xcode .app
+bin/ssc-tools run --target ios examples/swift/appcore-nativeui.ssc     # build/install/launch Simulator app
 
 # Run on Apache Spark (Spark 4.0.0 / Scala 3.7.1, local[*] by default)
 bin/ssc-spark examples/spark-encoder-demo.ssc
@@ -774,12 +775,13 @@ ScalaScript supports the following bundled backends, all loaded through the
 
 | Command | Backend id | How it works |
 |---------|------------|--------------|
-| `bin/ssc file.ssc` / `ssc run file.ssc` | `v2`        | Default v2 VM runner through the v1 frontend + FrontendBridge. Use `ssc run --v1 file.ssc` to roll back to the v1 tree-walking interpreter. Program args use `ssc run file.ssc -- [args...]`. |
-| `ssc run --native file.ssc` | `v2-native` | Opt-in ScalaScript 2.1 path: staged self-hosted frontend → structural CoreIR + Frontmatter YAML + Markdown Profile → v2 VM, with no host Markdown/front-matter parser and no Scala CLI/scalac/javac process. The pure Markdown scanner covers headings/scopes, pure-link imports, prose/interpolation source, fences, lists, images, GFM tables, and metadata directives; malformed fences fail with source position before plugins load. Standard host, crypto, `std.fs`, `std.os`, typed `std.json`, runtime `std.yaml` plus heading-scoped YAML/YML fences, outbound HTTP/`Response`, basic JDK `route`/`serve[Async]`/`stop`, named JDBC `Db.query`/`Db.execute`, general `Signal`/`computed`/`effect`, core-free UI signals/static `emit`, `runState`, `Storage`, local actors, and process-local typed actor loopback load through the native provider SPI; advanced HTTP hooks, typed/fenced SQL, actor network/cluster/supervision, framework UI serving, and other standard effect families remain explicit migration slices. `--native --bytecode` selects direct ASM; unresolved runtime dispatch/effects fail instead of printing `Stub`/`Op`; `--compat-frontend` explicitly selects the Scalameta bridge during migration. |
-| `ssc run --target jvm file.ssc`      | `jvm`         | Compile via JvmGen → temp `.sc` → `scala-cli run`. True JVM semantics, no artifacts left on disk. Requires `scala-cli`. |
-| `ssc run-jvm file.ssc`               | `jvm`         | Alias for `ssc run --target jvm` (kept for backward compatibility) |
-| `ssc run-js  file.ssc`               | `js`          | Compile via JsGen → temp `.js` → `node`. True Node.js semantics, no artifacts left on disk. Requires `node`. |
-| `ssc run-js --v2 file.ssc [args...]` | `v2-js`       | Opt-in v2 JS lane: FrontendBridge → CoreIR → v2 JsGen → temp `.cjs` → `node`. Legacy `run-js` remains the default JS path. |
+| `bin/ssc file.ssc` / `ssc run file.ssc` | `v2`        | Default self-hosted frontend/checker → CoreIR → v2 VM. `--bytecode` selects direct ASM; program args use `ssc run file.ssc -- [args...]`. There is no compatibility fallback. |
+| `ssc run --native file.ssc` | `v2-native` | Idempotent assertion of the same standard ScalaScript 2.1 path: structural CoreIR + Frontmatter YAML + Markdown Profile → v2 VM, with no host Markdown/front-matter parser and no Scala CLI/scalac/javac process. `--native --bytecode` selects direct ASM; unresolved runtime dispatch/effects fail instead of printing `Stub`/`Op`. |
+| `ssc-tools run --compat-frontend file.ssc` / `ssc-tools run --v1 file.ssc` | `int` | Explicit optional Scalameta/v1 compatibility paths. Plain `ssc` rejects these flags and names `ssc-tools`. |
+| `ssc-tools run --target jvm file.ssc`      | `jvm`         | Compile via JvmGen → temp `.sc` → `scala-cli run`. True JVM semantics, no artifacts left on disk. Requires `scala-cli`. |
+| `ssc-tools run-jvm file.ssc`               | `jvm`         | Alias for `ssc-tools run --target jvm` (kept for backward compatibility) |
+| `ssc-tools run-js  file.ssc`               | `js`          | Compile via JsGen → temp `.js` → `node`. True Node.js semantics, no artifacts left on disk. Requires `node`. |
+| `ssc-tools run-js --v2 file.ssc [args...]` | `v2-js`       | Explicit tools-tier v2 JS lane: FrontendBridge → CoreIR → v2 JsGen → temp `.cjs` → `node`. |
 | `bin/jssc file.ssc`        | `js`          | Alias for `ssc run-js` via `bin/` wrapper |
 | `bin/sscc file.ssc`        | `jvm`         | Alias for `ssc run-jvm` via `bin/` wrapper |
 | `ssc emit-openapi file.ssc` | `openapi`     | Headless interpreter dry-run that exports registered routes as OpenAPI 3.1 JSON or YAML. Flags: `--format json\|yaml`, `-o`, `--title`, `--version`, repeatable `--server`. |
@@ -872,21 +874,21 @@ complete worked example and `docs/user-guide.md §21` for the full API reference
 
 ```bash
 ssc run file.ssc              # v2 VM default runner
-ssc run --v1 file.ssc         # rollback: v1 tree-walking interpreter
+ssc-tools run --v1 file.ssc   # explicit v1 tree-walking compatibility
 ssc run --v2 file.ssc         # explicit v2 VM runner
 ssc run --native file.ssc     # staged self-hosted frontend -> CoreIR -> v2 VM
 ssc run --native --bytecode file.ssc # same native frontend -> direct ASM execution
-ssc run --compat-frontend file.ssc   # explicit Scalameta bridge during migration
+ssc-tools run --compat-frontend file.ssc # explicit Scalameta bridge
 ssc run file.ssc -- arg1 arg2 # pass program args to the v2 VM runner
 ssc run --bytecode file.ssc -- arg1 arg2 # pass args to the v2 JVM bytecode lane
-ssc run --target jvm file.ssc # compile via JvmGen + run with scala-cli (no artifacts)
-ssc run-jvm file.ssc          # same as above (backward-compat alias)
-ssc run-js file.ssc           # compile via JsGen + run with node (no artifacts)
-ssc run-js --v2 file.ssc      # opt-in v2 CoreIR JS lane through node
-ssc watch file.ssc            # watch mode (re-run on change)
-ssc watch-bench file.ssc      # benchmark watch reload cycles on a temp copy
-ssc bench --smoke             # quick interpreter-only benchmark wiring smoke
-ssc check file.ssc            # type-check only (parse + typer, no codegen); exit 0=clean 1=type-err 2=parse-err 3=notfound
+ssc-tools run --target jvm file.ssc # compile via JvmGen + run with scala-cli (no artifacts)
+ssc-tools run-jvm file.ssc     # same as above (backward-compat alias)
+ssc-tools run-js file.ssc      # compile via JsGen + run with node (no artifacts)
+ssc-tools run-js --v2 file.ssc # explicit v2 CoreIR JS lane through node
+ssc-tools watch file.ssc       # watch mode (re-run on change)
+ssc-tools watch-bench file.ssc # benchmark watch reload cycles on a temp copy
+ssc-tools bench --smoke        # quick interpreter-only benchmark wiring smoke
+ssc-tools check file.ssc       # compatibility type-check only; exit 0=clean 1=type-err 2=parse-err 3=notfound
                               #   also warns on @ui=toolkit controls that reference an unregistered action/data-source id (declarative-ui B.7)
 ssc check --json file.ssc     # structured JSON diagnostics
 ssc check --quiet file.ssc    # no output, exit code only (for pre-commit hooks)
