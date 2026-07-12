@@ -438,7 +438,7 @@ It rebuilds the staged distribution, proves the single- and multi-file ssc0
 compiler images are gen1/gen2/gen3 fixpoints, verifies the 110-file native
 frontend image against checked-in sources, runs the bounded JSON/YAML/Markdown
 mutation corpus, strict dependency/JAR/class-load checks, the tools-deleted slim
-distribution, reproducible `build-jvm`, and the full 195-document
+distribution, reproducible `build-jvm`, and the full 196-document
 frontend/VM/ASM taxonomy. `--quick` skips only that final corpus sweep.
 
 The stronger module gate proves the same tier works when the Java compiler
