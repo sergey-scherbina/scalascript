@@ -1,5 +1,23 @@
 # Bug tracker
 
+## v1-js-scljet-readonly-leaf-depth — valid two-level B-tree fails common-depth validation
+
+**Status:** open (2026-07-12); found by codex during the SclJet M2c explicit
+JavaScript capability probe.
+
+- **Real-harness repro:** run `bin/ssc-tools run-js
+  tests/conformance/scljet-readonly-btree-pure.ssc`. Interpreter, native VM,
+  and direct ASM traverse table rows `1,9` and index records `1,5,9`; Node
+  instead throws `B-tree leaves do not have a common depth` while advancing
+  the same cached two-level table.
+- **Boundary/hypothesis:** all page bytes, cursor transitions, and expected
+  output are host-free `.ssc`; this is a JS lowering/runtime divergence around
+  immutable cursor stack length or `Option[Int]` state, not malformed SQLite
+  input. It is independent of the already tracked Long/bitwise and SHM gaps.
+- **Done-when:** reduce the first/second leaf transition, fix the JS backend so
+  `leafDepth` remains stable across sibling pages, and make the complete
+  three-line pure cursor golden exact on interpreter/VM/ASM/Node.
+
 ## scljet-readonly-close-imported-selector — facade close selects the wrong pager handle
 
 **Status:** open (2026-07-12); found by codex during the SclJet M2c assembled

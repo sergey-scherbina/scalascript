@@ -41,6 +41,13 @@ are plain bullets without checkboxes so agents do not claim them as build work.
       primitive. Repros and separated root causes are in `BUGS.md`; the v1
       companion and native-array `Nil`/`Cons` blockers are already fixed.
 
+- [ ] **scljet-js-m2-cursor-parity** — fix the Node-only corruption result for
+      the valid cached two-level table/index fixture: interpreter, native VM,
+      and ASM preserve one common leaf depth, while `run-js` loses the cursor's
+      `leafDepth` state before the sibling leaf. Reduce the immutable
+      stack/`Option[Int]` transition and require the full three-line M2 pure
+      cursor golden to match all four lanes; exact repro is in `BUGS.md`.
+
 - [ ] **scljet-same-jvm-reference-lock-bridge** — before SclJet may replace the
       existing `sqlite:` provider, make SclJet locks conflict with an official
       native SQLite/Xerial connection running in the same JVM. POSIX record
