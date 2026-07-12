@@ -1546,6 +1546,15 @@ derives Traversable  // traverse with effect
 derives Functor      // map over type parameter
 ```
 
+On the ScalaScript 2.1 standard native path, a product case class also exposes
+portable `Mirror.Of[T]` / `Mirror.ProductOf[T]` metadata with its source label,
+ordered element labels, and ordered portable element type spellings. A custom
+`derives TC` clause evaluates the known `TC.derived(mirror)` companion method
+once and registers the immutable result as exact `TC[T]` evidence. This is
+CoreIR language data and does not require compiler reflection or compatibility
+fallback. Sum Mirrors and compile-time tuple operations remain outside this
+bounded native contract.
+
 ## 8. Standard Library
 
 ### 8.1 Core Types
