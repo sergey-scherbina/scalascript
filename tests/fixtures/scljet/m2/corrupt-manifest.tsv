@@ -1,0 +1,6 @@
+id	path	sha256	expected
+bad-magic	tests/fixtures/scljet/m2/corrupt/bad-magic.db	b2e5c41567be7d8a6328c3bc1ddea944436699f1abc3f0df830a9222ce366878	header.magic
+truncated-header	tests/fixtures/scljet/m2/corrupt/truncated-header.db	b6e877e973ed4f2007c28abdaf423c07d07add9c936f8831f222c0bd9e4c7daf	header
+partial-trailing-page	tests/fixtures/scljet/m2/corrupt/partial-trailing-page.db	5766215c0a15a4934aebc9ec28d005cbff4212871bb9928ef797bd9a3207ad7d	trailing-page
+bad-page-kind	tests/fixtures/scljet/m2/corrupt/bad-page-kind.db	d6b0fcc50ceabcdef16638e3e26c17270e442064d62fab316a4fedfc172ec17a	page.kind
+bad-pointer-map-kind	tests/fixtures/scljet/m2/corrupt/bad-pointer-map-kind.db	1e3e22ce8bb97c061234608f4f7a8d47a19d71c68581f22d7b7f241b994147cf	pointerMap.kind
