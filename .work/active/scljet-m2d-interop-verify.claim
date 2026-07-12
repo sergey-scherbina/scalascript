@@ -1,6 +1,6 @@
 feature/scljet-m2d-interop-verify 2026-07-12T14:39:48Z
 agent: codex
-heartbeat: 2026-07-12T14:40:20Z
+heartbeat: 2026-07-12T15:03:57Z
 status: in-progress
-done-so-far: isolated feature worktree created from published M2c foundation
-next: inventory exact corpus matrix, then implement differential fixture generator and verification harness
+done-so-far: published pinned SQLite 3.53.3 differential corpus and iterative freelist fix; serial/rowid and clean-WAL extension committed locally
+next: publish the green corpus extension, then add officially generated reserved-byte fixtures and close verified M2d coverage honestly
