@@ -547,6 +547,14 @@ function _httpResolveUrl(url) {
   return resolved;
 }
 
+function _httpMaxBody() {
+  // M2: cap the response body read into memory (default 10 MB; SSC_HTTP_MAX_BODY
+  // bytes to override; negative = unbounded). Parity with JVM/interp/Rust clients.
+  var v = (typeof process !== 'undefined') && process.env && process.env.SSC_HTTP_MAX_BODY;
+  var n = v ? parseInt(v, 10) : NaN;
+  return Number.isFinite(n) ? n : 10 * 1024 * 1024;
+}
+
 function _httpSyncFetch(method, url, body, headers) {
   const effective = _httpResolveUrl(url);
   const timeoutMs = _httpTimeoutMs;
@@ -567,7 +575,16 @@ function _httpSyncFetch(method, url, body, headers) {
     '    if (workerData.body) opts.body = workerData.body;',
     '    const r = await fetch(workerData.url, opts);',
     '    clearTimeout(timer);',
-    '    const text = await r.text();',
+    '    const _maxBody = workerData.maxBody;',
+    '    let text;',
+    '    if (_maxBody < 0 || !r.body || !r.body.getReader) { text = await r.text(); }',
+    '    else {',
+    '      const _rd = r.body.getReader(); const _dec = new TextDecoder(); let _tot = 0; text = "";',
+    '      for (;;) { const _c = await _rd.read(); if (_c.done) break;',
+    '        _tot += _c.value.length;',
+    '        if (_tot > _maxBody) { await _rd.cancel(); throw new Error("HTTP response body exceeds " + _maxBody + " bytes (SSC_HTTP_MAX_BODY)"); }',
+    '        text += _dec.decode(_c.value, { stream: true }); }',
+    '      text += _dec.decode(); }',
     '    const hdrs = {};',
     '    r.headers.forEach((v, k) => hdrs[k] = v);',
     '    msg = { status: r.status, body: text, headers: hdrs };',
@@ -579,7 +596,7 @@ function _httpSyncFetch(method, url, body, headers) {
   ].join('\\n');
   const worker = new Worker(workerSrc, {
     eval: true,
-    workerData: { sab, port: port2, url: effective, method, headers: headers || {}, body: body || null, timeoutMs },
+    workerData: { sab, port: port2, url: effective, method, headers: headers || {}, body: body || null, timeoutMs, maxBody: _httpMaxBody() },
     transferList: [port2],
   });
   Atomics.wait(flag, 0, 0, timeoutMs + 500);
@@ -664,7 +681,16 @@ function _httpStreamFetch(method, url, body, headers, handler) {
     '    const r = await fetch(url, opts);',
     '    const hdrs = {};',
     '    r.headers.forEach((v, k) => hdrs[k] = v);',
-    '    const text = await r.text();',
+    '    const _maxBody = workerData.maxBody;',
+    '    let text;',
+    '    if (_maxBody < 0 || !r.body || !r.body.getReader) { text = await r.text(); }',
+    '    else {',
+    '      const _rd = r.body.getReader(); const _dec = new TextDecoder(); let _tot = 0; text = "";',
+    '      for (;;) { const _c = await _rd.read(); if (_c.done) break;',
+    '        _tot += _c.value.length;',
+    '        if (_tot > _maxBody) { await _rd.cancel(); throw new Error("HTTP response body exceeds " + _maxBody + " bytes (SSC_HTTP_MAX_BODY)"); }',
+    '        text += _dec.decode(_c.value, { stream: true }); }',
+    '      text += _dec.decode(); }',
     '    clearTimeout(timer);',
     '    const lines = text.split(\'\\n\');',
     '    result = { status: r.status, headers: hdrs, lines };',
@@ -676,7 +702,7 @@ function _httpStreamFetch(method, url, body, headers, handler) {
   ].join('\\n');
   const worker = new Worker(workerSrc, {
     eval: true,
-    workerData: { sab, port: port2, url: effective, method, headers, body: body || null, timeoutMs },
+    workerData: { sab, port: port2, url: effective, method, headers, body: body || null, timeoutMs, maxBody: _httpMaxBody() },
     transferList: [port2],
   });
   Atomics.wait(flag, 0, 0, timeoutMs + 500);
