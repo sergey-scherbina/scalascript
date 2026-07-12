@@ -3105,7 +3105,9 @@ private[interpreter] object EvalRuntime:
   // `f(args)` whose head is a `Term.Name` NOT in this set can skip the entire
   // special-form scan and go straight to generic call dispatch — that linear
   // scan was the dominant self-cost of `eval` on hot recursive calls (JFR).
-  private val reservedApplyHeads: Set[String] = Set(
+  // private[interpreter] so StatRuntime can recognise a curried block-form extern
+  // (e.g. httpClient) and register a placeholder global for import resolution.
+  private[interpreter] val reservedApplyHeads: Set[String] = Set(
     "bench", "computed", "effect", "handle", "httpClient", "receive", "restartable",
     "runActors", "runAsync", "runAsyncParallel", "runAuthWith",
     "runEphemeralStorage",

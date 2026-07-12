@@ -206,8 +206,21 @@ private[interpreter] object StatRuntime:
         val msg     = stringAnnot(d.mods, "interpreterUnsupported")
           .getOrElse(s"`$defName` is annotated @interpreterUnsupported and cannot be called from the interpreter.")
         env(defName) = Value.NativeFnV(defName, _ => interp.located(msg))
-      else if !interp.globals.contains(d.name.value) && !interp._pluginsLoaded then
-        interp.ensurePluginsLoaded()
+      else
+        if !interp.globals.contains(d.name.value) && !interp._pluginsLoaded then
+          interp.ensurePluginsLoaded()
+        // A curried block-form extern (e.g. `httpClient(base) { block }`) is not a
+        // plugin native — it's an eval-time special form matched by AST shape
+        // (EvalRuntime.reservedApplyHeads), so StatRuntime leaves it unbound and it
+        // never lands in `exportedGlobals`. That makes `import [httpClient](http.ssc)`
+        // fail name-resolution even though the call itself works. Register a placeholder
+        // global so the import resolves; the call always takes the special-form path and
+        // never this value (v2-httpclient-curried-extern-unbound).
+        if !interp.globals.contains(d.name.value)
+           && EvalRuntime.reservedApplyHeads.contains(d.name.value) then
+          val defName = d.name.value
+          interp.globals(defName) = Value.NativeFnV(defName, _ =>
+            interp.located(s"'$defName' is a block-form builtin — call it as $defName(...) { ... }"))
 
     case d: Defn.Def =>
       val allClauses      = d.paramClauseGroups.flatMap(_.paramClauses)

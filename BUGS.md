@@ -772,7 +772,18 @@ Rozum room from busi's production-shaped fixture and accepted by
   iPhone 16 Pro Simulator. `tkv2-*` conformance is 12/12.
 
 ## v2-httpclient-curried-extern-unbound — curried top-level `extern def` doesn't bind as a global on `ssc run`
-**Status:** open (2026-07-12), found by claude-code (rozum-ucc-test) while porting rozum's UCC
+**Status:** FIXED (2026-07-12, opus). The v2 VM + native lanes were already fixed by the v2.1
+native-curried-closures work (8df3e63a6/d85a1e903); the remaining failure was the **v1 interpreter**
+lane. Root cause: `httpClient(base){ block }` is not a plugin-native intrinsic — it's an eval-time
+special form matched by AST shape (`EvalRuntime.reservedApplyHeads`). StatRuntime's extern-def branch
+deliberately creates no binding (it relies on the intrinsic table for the global), so `httpClient`
+never entered `globals` → never entered `exportedGlobals` → `import [httpClient](http.ssc)` threw
+"'httpClient' not found" at import-resolution time (the *call* always worked, the import validation
+didn't). Fix: StatRuntime now registers a placeholder `NativeFnV` global when an extern name is a
+reserved block-form head and no plugin global exists (widened `reservedApplyHeads` to
+`private[interpreter]`); the placeholder is only ever consulted by import validation, never the call.
+Verified `run --v1` on the repro (now prints ok) + conformance `curried-extern-import` [INT].
+_Original report:_ found by claude-code (rozum-ucc-test) while porting rozum's UCC
 acceptance e2e test to native `.ssc`. Not blocking (single-param http externs work; the test uses those).
 - **Real-harness repro:** `ssc run` a `.ssc` importing `[httpClient](std/http.ssc)` that calls
   `httpClient("http://x"){ … }` → `RuntimeException: unbound global: httpClient`. Minimal:
