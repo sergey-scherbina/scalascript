@@ -463,7 +463,7 @@ lazy val v2FrontendBridge = project
   // v2NativeReactivePlugin (Test): puts the reactive NativePlugin on the test classpath so
   // run-ir-native's ServiceLoader can load it — the accurate native-production plugin mirror.
   .dependsOn(v2Core, v2PluginBridge, v2JvmBytecode, core, v2NativePluginSpi, graphPlugin % Test,
-    v2NativeReactivePlugin % Test)
+    v2NativeReactivePlugin % Test, runtimeServerJvmFast % Test)
   .settings(
     name := "scalascript-v2-frontend-bridge",
     scalacOptions ++= Seq("-deprecation", "-feature"),
