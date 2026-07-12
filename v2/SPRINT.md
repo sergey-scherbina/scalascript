@@ -1251,7 +1251,7 @@ frontend accepted the file).
         indented blocks (`def f() = <indent> stmts`, `if/while/for` bodies), with
         continuation handling (`else`/infix/`.` on a new line). Also: while-parser
         skips `do`. **End-to-end 22→33** (+11). Conformance 640/640.
-  - [ ] **K62.6c-rest** (small tail): `$`, missing methods (`takeWhile`/`dropWhile`),
+  - [~] **K62.6c-rest**: takeWhile/dropWhile DONE (list→__method__ element pred, str char-code); `$`
         multi-generator `for` with pattern binders. `throw` needs a VM error prim.
         Pre-existing (not indentation): match-in-def returns the wrong arm (`v2` block
         value / match-dispatch bug — verify on `def f(x)=x match {...}`).
