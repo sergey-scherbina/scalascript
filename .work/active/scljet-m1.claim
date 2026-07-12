@@ -1,6 +1,6 @@
 feature/scljet-m1 2026-07-12T10:35:37Z
 agent: codex
-heartbeat: 2026-07-12T11:16:55Z
+heartbeat: 2026-07-12T12:05:11Z
 status: in-progress
-done-so-far: M1 byte/codecs landed in 58d2e19de with exact v1/native VM/ASM golden coverage
-next: implement and verify the pure deterministic in-memory VFS state machine
+done-so-far: M1 bytes/codecs and deterministic memory VFS landed with exact v1/native VM/ASM coverage
+next: implement and verify the dedicated JVM host VFS plugin and process-visible locks
