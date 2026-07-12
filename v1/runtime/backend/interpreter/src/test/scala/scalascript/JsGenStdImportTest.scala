@@ -128,6 +128,63 @@ class JsGenStdImportTest extends AnyFunSuite:
     checkNodeSyntax(js)
     assert(runNode(js) == "42")
 
+  test("imported package case class and explicit companion share one JS binding"):
+    val dir = java.nio.file.Files.createTempDirectory("ssc-js-companion-import-")
+    val module = dir.resolve("model.ssc")
+    val entry = dir.resolve("entry.ssc")
+    java.nio.file.Files.writeString(module,
+      """---
+        |name: model
+        |package: model
+        |exports: [Box]
+        |---
+        |
+        |# Model
+        |
+        |```scalascript
+        |case class Box(value: Int)
+        |object Box:
+        |  def doubled(value: Int): Box = Box(value + value)
+        |```
+        |""".stripMargin)
+    java.nio.file.Files.writeString(entry,
+      """# Entry
+        |
+        |[Box](model.ssc)
+        |
+        |```scalascript
+        |println(Box.doubled(21).value)
+        |```
+        |""".stripMargin)
+    val parsed = Parser.parse(java.nio.file.Files.readString(entry))
+    val user = JsGen.generate(parsed, baseDir = Some(os.Path(dir)))
+    val js = coreBundle(user)
+
+    assert(user.contains("function Box(value)"), user)
+    assert(user.contains("Object.assign(Box,"), user)
+    assert(!user.contains("const Box = (() =>"), user)
+    checkNodeSyntax(js)
+    assert(runNode(js) == "42")
+
+  test("Nil and Cons patterns match JsGen native-array lists"):
+    val source =
+      """# List patterns
+        |
+        |```scalascript
+        |def sum(values: List[Int]): Int = values match
+        |  case Nil => 0
+        |  case Cons(head, tail) => head + sum(tail)
+        |
+        |println(sum(List(1, 2, 3)))
+        |println(sum(Nil))
+        |```
+        |""".stripMargin
+    val user = JsGen.generate(Parser.parse(source))
+    val js = coreBundle(user)
+
+    checkNodeSyntax(js)
+    assert(runNode(js) == "6\n0")
+
   test("runtime-colliding top-level enum case is renamed in flat JS bundle"):
     val source =
       """# App

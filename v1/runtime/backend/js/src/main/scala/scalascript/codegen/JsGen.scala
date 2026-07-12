@@ -2292,6 +2292,7 @@ class JsGen(
           case _               => true     // conservative: keep unknown node kinds
 
   private def genBlockStats(stats: List[Stat], topLevel: Boolean): Unit =
+    val companionClassNames = stats.collect { case d: Defn.Class => d.name.value }.toSet
     stats.zipWithIndex.foreach { (s, i) =>
       val isLast = i == stats.length - 1
       // Skip unreachable top-level declarations when tree-shaking is active
@@ -2321,6 +2322,10 @@ class JsGen(
           line(genExpr(t) + ";")
         case stat =>
           stat match
+            case d: Defn.Object if topLevel && companionClassNames.contains(d.name.value) =>
+              val name = emittedName(d.name.value)
+              topLevelConsts += name
+              line(s"Object.assign($name, ${genObjectAsExpr(d, name)});")
             case d: Defn.Object if topLevel =>
               val name = emittedName(d.name.value)
               if topLevelConsts.contains(name) then
@@ -2823,6 +2828,7 @@ class JsGen(
     val objectName = d.name.value
     val decls = mutable.ArrayBuffer.empty[String]
     val names = mutable.ArrayBuffer.empty[String]
+    val companionClassNames = d.templ.body.stats.collect { case cls: Defn.Class => cls.name.value }.toSet
     // Populate tcParentMap from trait declarations in this object (cross-block accumulation).
     d.templ.body.stats.foreach {
       case td: Defn.Trait =>
@@ -2931,6 +2937,10 @@ class JsGen(
       case Defn.Val(_, List(Pat.Var(n)), _, rhs) =>
         decls += s"const ${n.value} = ${genExpr(rhs)};"
         names += n.value
+      case nested: Defn.Object if companionClassNames.contains(nested.name.value) =>
+        val name = nested.name.value
+        decls += s"Object.assign($name, ${genObjectAsExpr(nested, s"$path.$name")});"
+        if !names.contains(name) then names += name
       case nested: Defn.Object =>
         decls += s"const ${nested.name.value} = ${genObjectAsExpr(nested, s"$path.${nested.name.value}")};"
         names += nested.name.value

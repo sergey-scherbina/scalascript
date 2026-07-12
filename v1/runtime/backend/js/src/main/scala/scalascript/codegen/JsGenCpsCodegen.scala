@@ -760,6 +760,17 @@ private[codegen] trait JsGenCpsCodegen:
       val args = argClause.values
 
       typeName match
+        case "Cons" if args.length == 2 =>
+          val isArray = s"(Array.isArray($scrutVar) && $scrutVar.length > 0)"
+          val isData = s"($scrutVar && $scrutVar._type === 'Cons')"
+          val head = s"(Array.isArray($scrutVar) ? $scrutVar[0] : Object.values($scrutVar).slice(1)[0])"
+          val tail = s"(Array.isArray($scrutVar) ? $scrutVar.slice(1) : Object.values($scrutVar).slice(1)[1])"
+          val subConds = List(genPattern(head, args.head), genPattern(tail, args(1)))
+          val subCond = subConds.map(_._1).filter(_ != "true").mkString(" && ")
+          val bindings = subConds.flatMap(_._2)
+          val cond = s"($isArray || $isData)" + (if subCond.nonEmpty then s" && $subCond" else "")
+          (cond, bindings)
+
         case "Some" =>
           val innerScrutVar = s"$scrutVar.value"
           val subConds = if args.isEmpty then Nil
@@ -818,6 +829,8 @@ private[codegen] trait JsGenCpsCodegen:
     case t: Term.Name =>
       t.value match
         case "None" => (s"($scrutVar && $scrutVar._type === '_None')", Nil)
+        case "Nil"  =>
+          (s"((Array.isArray($scrutVar) && $scrutVar.length === 0) || $scrutVar === Nil || ($scrutVar && $scrutVar._type === 'Nil'))", Nil)
         case n      => (s"($scrutVar === $n || ($scrutVar && $scrutVar._type === '$n'))", Nil)
 
     case Term.Select(qual, Term.Name(n)) =>
