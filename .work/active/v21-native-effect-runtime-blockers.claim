@@ -1,6 +1,6 @@
 feature/v21-native-effect-runtime-blockers 2026-07-11T19:21:44Z
 agent: codex
-heartbeat: 2026-07-12T03:22:22Z
+heartbeat: 2026-07-12T03:43:23Z
 status: in-progress
-done-so-far: parameterless-def and Pair/Tuple callback slice is pushed through a17bca83f; release is 48 identical / 18 both-fail with 5 blockers and conformance 11/11
-next: specify and implement portable Mirror/product metadata plus exact derived dictionary for custom-derives-mirror.ssc, then gate and push the independent slice
+done-so-far: native product Mirror/custom derives is pushed through c31f564c2; release is 49 identical / 17 both-fail with 4 blockers and conformance 11/11
+next: specify and implement self-hosted Option/List direct-block lowering before assignment semantics are erased, gate direct-syntax-demo, and push the independent slice
