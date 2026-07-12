@@ -118,11 +118,11 @@ every possible chunking.
 - [x] VM limits reject excessive nesting and node/token counts with structured diagnostics rather
       than stack overflow, unbounded allocation, or a platform exception.
 - [x] The module compiles and its focused tests pass on JVM and Scala.js.
-- [ ] A valid `Reframe` atomically closes zero or more expected frames before its source token, opens
+- [x] A valid `Reframe` atomically closes zero or more expected frames before its source token, opens
       zero or more replacement frames, emits that token once, then closes zero or more expected
       frames after it. It supports indentation transitions and implicit end-of-input closures without
       synthetic tokens.
-- [ ] An invalid `Reframe` shape or close-kind mismatch never partially mutates the frame stack; it
+- [x] An invalid `Reframe` shape or close-kind mismatch never partially mutates the frame stack; it
       retains the carrier token as an ordinary emit and reports a stable diagnostic. A depth/node
       limit rejection likewise leaves the stack unchanged and follows the core fatal-limit contract,
       which may reject the carrier token itself.
@@ -367,3 +367,8 @@ The conformance slice is a neighboring Markdown/content regression gate because 
 Scala library and does not yet add a `.ssc` syntax surface or a named UniML conformance case. Concrete
 JSON, XML, YAML, Markdown, and programming-language adapters remain roadmap milestones and are not
 claimed by this result.
+
+Atomic `Reframe` landed in `e9d4959ef`. It raised the core total to 13 tests on both JVM and Scala.js;
+all 13 passed on each platform. Tests cover multi-close/open/close-after ordering, exact single carrier
+ownership, invalid-transition rollback with fallback emission, and fatal depth rejection without stack
+mutation. The same `content*` gate remained 6/6 across INT, JS, and JVM.
