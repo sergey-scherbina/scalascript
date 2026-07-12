@@ -1749,9 +1749,14 @@ for in-process runs, and `inferType` already computes per-node `SType` (just dis
     "both types known locally" trick only applies where branches share one dst (if/match value pos).
   - Long-mirror is MOOT: Int and Long are both `TInt` in the VM (enum is TInt/TDouble/TRef only), so
     Int/Long mixed returns never bail — nothing to fix.
-  - [ ] later: typeGateOk (164) is UsingParams (typeclass dispatch — not a type-inference gap, out of
-        scope); call-arg mismatch (604) — check whether a type source avoids a false ref/numeric arg
-        mismatch. var-domain-change (849, `var x=0; x=1.5`) is the next MixedReturnType-class candidate.
+- [x] **C-6-var-widening** `597e1ffa3` — Int assigned to a Double var (`var x=0.0; x=5`): rhs compiled
+      into the var's home, so on old==TDouble && nt==TInt widen dst (I2D) instead of bailing "var
+      domain change". Reverse (Double→Int var) is a Scala type error → still bails. SscVmTest 183/183
+      (`var x=0.0; x=c; x+0.5` → 5.5/3.5); conformance no new fails. **==> Int/Double MixedReturnType
+      class now FULLY covered: RET (C-4), value if/match (C-5/b), var assign (C-6).**
+  - [ ] later: typeGateOk (164) is UsingParams (typeclass dispatch — out of the type-inference scope);
+        call-arg mismatch (604) — check whether a type source avoids a false ref/numeric arg mismatch.
+        Beyond Int/Double the RefReturn / field-meta bails are STRUCTURAL, not type-widening.
         (param seed loop is MOOT — def params are already annotated.)
 - [ ] **C-gate** — QUIET-MACHINE A/B (`scripts/bench interp patternMatch*|recursionFib`,
       `scripts/bench cross`): wider coverage doesn't regress hot paths + ideally removes the

@@ -67,6 +67,12 @@ LESSON (Sergiy, "Рассуждай логично"): the "compile-more-at-bail-
       conformance fail set byte-identical to the C-4 sweep (no regression; always-on).
     NOTE: RET leaves (C-4c) still need the DECLARED type because leaves compile independently — the
       "known locally" trick only works where branches share one dst (if/match value position).
+  C-6 DONE + on main (597e1ffa3, 2026-07-12) — Int assigned to a Double var (`var x=0.0; x=5`): the
+    rhs is compiled into the var's home reg, so on old==TDouble && nt==TInt widen dst (I2D) instead of
+    bailing "var domain change". Reverse (Double→Int var) is a Scala type error → still bails.
+    varWidenings ctr. SscVmTest 183/183 (`var x=0.0; x=c; x+0.5` → 5.5/3.5); conformance no new fails.
+  ==> Int/Double MixedReturnType class now FULLY covered: RET leaves (C-4), value-position if/match
+      (C-5/C-5b), var assign (C-6). All "compile-more-at-bail-sites", conformance-verified, no bench gate.
 next (further C-4 / new bail classes, in rough value order):
   - other bail-to-TInt/unknown sites: typeGateOk (164), call-arg mismatch (604) — check whether a
     type source can satisfy the gate instead of bailing. Same discipline: only UPGRADE an unknown
