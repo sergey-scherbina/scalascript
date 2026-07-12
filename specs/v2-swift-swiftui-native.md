@@ -1236,12 +1236,16 @@ once. This call is part of the checked program before backend validation and
 code generation; the generated Swift runtime does not reparse front matter.
 
 FrontendBridge already appends a call for a user function literally named
-`main`. Therefore `main: main` reuses that call and may not append a duplicate.
-An absent manifest entry preserves script-mode behavior. A manifest entry must
-be a plain source identifier, must resolve to a checked zero-argument function,
-and otherwise fails before Swift source generation with a deterministic
-diagnostic naming the entry. This prevents a malformed/missing entry from
-degrading into the later NativeUi error `program did not register a root`.
+`main` when no manifest entry is present. A present manifest entry is
+authoritative and replaces that implicit selection: if a source defines both
+`main()` and `run()` with `main: run`, only `run()` executes; `main()` must not
+run first. `main: main` emits/reuses one call and may not append a duplicate.
+Only an absent manifest entry preserves the existing script-mode plus implicit
+`def main()` behavior. A manifest entry must be a plain source identifier, must
+resolve to a checked zero-argument function, and otherwise fails before Swift
+source generation with a deterministic diagnostic naming the entry. This
+prevents a malformed/missing entry from degrading into the later NativeUi error
+`program did not register a root`.
 
 ### Module `val` registration
 
@@ -1415,8 +1419,9 @@ assembled macOS and iOS Xcode gates.
 ### SwiftUI portable runtime
 
 - [ ] Checked metadata preserves `main: run`, invokes it exactly once after
-  module initialization, leaves script mode unchanged, and rejects an invalid
-  or missing manifest entry before Swift generation.
+  module initialization, suppresses an otherwise implicit `def main()` when
+  `run` is selected, leaves absent-manifest script/auto-main mode unchanged,
+  and rejects an invalid or missing manifest entry before Swift generation.
 - [ ] The standard `text`/`heading`/`styled`/`defaultTheme`/`lower`/`serve`
   checked-source fixture executes as real Swift with token fallback and numeric
   conversion, rather than bypassing the toolkit lowerer.
