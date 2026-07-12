@@ -1249,6 +1249,13 @@ entries left-to-right so a duplicate String key is last-wins. An improper list,
 a non-`Tuple2` entry, a tuple of the wrong arity, or a non-String key is a
 bounded sourced runtime failure. The Apple renderer receives only the
 normalized map ABI; it does not decode source association lists itself.
+The real host/Apple-boundary probe pins
+`[("style", "first"), ("style", "last")]` to one `.map` attribute value
+`style = "last"` and verifies the original list is absent from the ABI. A cell
+or array association value is rejected by portable-value validation. Every
+malformed/nonportable diagnostic includes the originating `NativeUiSourceRef`
+file, line, column, and operation and returns through the bounded runtime
+failure path; none of these cases calls `fatalError`.
 
 ### Checked manifest entrypoint
 
@@ -1454,7 +1461,8 @@ assembled macOS and iOS Xcode gates.
   plus wrong-arity, wrong-delimiter-type, and non-list rejection boundaries.
 - [ ] NativeUi `element` accepts both checked String maps and proper String-key
   association lists with last-wins duplicates, while malformed list/tuple/key
-  shapes fail before a malformed ABI reaches the Apple renderer.
+  shapes and a cell/array value fail with the original source before a malformed
+  ABI reaches the Apple renderer; a host probe inspects the normalized map.
 - [ ] Entry-init module registrations expose `localeSignal`; a registration in
   a definition/lambda/dead branch or inside an outer registration value cannot
   authorize an unbound global.
