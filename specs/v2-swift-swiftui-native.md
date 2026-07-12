@@ -510,6 +510,14 @@ delete back to the signal-count baseline, named interleaving, three localeText
 calls plus locale flip, and JSON row update without stale closure/default
 conflict. Computed and equality counters are kind-separated.
 
+Nested keyed reconciliation is one transaction tree for scope disposal. An
+inner successful reconciliation records its owner/scope state but must not run
+global unreferenced-scope disposal while an outer render still has provisional
+owner scopes. The outermost successful commit first removes obsolete owner
+subtrees and then performs exactly one disposal pass. Any failure restores the
+outer snapshot, including cells, owner maps, occurrence counters and derived
+closures, before disposal is observable.
+
 Unsupported UI data must carry `NativeUiSourceRef(file, line, column,
 operation)` when source position is available; otherwise it carries the entry
 file and operation. A host stack trace is not an acceptable substitute.
