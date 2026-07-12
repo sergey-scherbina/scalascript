@@ -1734,7 +1734,8 @@ Discovery via `ServiceLoader` (in-process JARs) or `plugin.yaml` (subprocess).
 
 | id | Display name | Default invocation | Output | Notes |
 |----|--------------|--------------------|--------|-------|
-| `int` | Interpreter (tree-walking) | `ssc run` / `bin/ssc` | Executed in-process | Default when no `--backend` is supplied and front-matter has no `backend:` key. |
+| `v2` | Native CoreIR VM / direct ASM | `ssc run`, `ssc run --bytecode`, `ssc build-jvm` | Executed in-process or deterministic JVM JAR | The ScalaScript 2.1 standard/default tier; native frontend and checker, with no compiler or Scalameta fallback. |
+| `int` | Legacy interpreter (tree-walking) | `ssc-tools run --v1` / `ssc-tools run --compat-frontend` | Executed in-process | Explicit tools/compatibility tier only after the 2.1 launcher cutover. |
 | `jvm` | JVM (Scala 3 source) | `bin/sscc`, `ssc compile-jvm` | Scala 3 source → compiled via scala-cli | In-process emitter; scala-cli runs the produced `.scala` file. |
 | `js` | JavaScript (Node / SPA) | `bin/jssc`, `ssc emit-js` | JavaScript source (one-shot or segmented) | Same `JsGen` powers Node and browser builds; the latter pairs with `ssc emit-spa`. |
 | `node` | Node.js | `ssc run --backend node`, `bin/ssc-node` | Self-contained `.cjs` bundle for `node` | Extends JsGen with verbatim linking of `node.js` opaque-exec blocks (§ 3.3) and a Node-side `_output` flush epilogue. v1.25 Phase 3. |
