@@ -853,11 +853,15 @@ def resolveMethodCall = (robj, method, rargs) =>
     }
 
 def isKnownSelMethod = (m) =>
+  -- K62.6c-rest: takeWhile/dropWhile REMOVED — their prelude _sel_ helpers are STRING-only
+  -- (scodeAt char-code predicate) and silently returned empty on a List. Routing to __method__
+  -- lets the runtime dispatch: (StrV, takeWhile) with a char-code arg, (isList, takeWhile) with
+  -- the element. See Runtime.scala str handler fix (char-code, not 1-char string).
   let ks = Cons("map", Cons("filter", Cons("flatMap", Cons("fold", Cons("foldLeft",
            Cons("foreach", Cons("getOrElse", Cons("length", Cons("mkString", Cons("split",
-           Cons("trim", Cons("sum", Cons("take", Cons("takeWhile", Cons("dropWhile",
-           Cons("to", Cons("until", Cons("toList", Cons("runToList", Cons("mapUpdated",
-           Cons("mapGetOrElse", Cons("_1", Cons("_2", Cons("_3", Cons("_4", Nil))))))))))))))))))))))))) in
+           Cons("trim", Cons("sum", Cons("take", Cons("to", Cons("until",
+           Cons("toList", Cons("runToList", Cons("mapUpdated", Cons("mapGetOrElse",
+           Cons("_1", Cons("_2", Cons("_3", Cons("_4", Nil))))))))))))))))))))))) in
   let rec go = (xs) =>
     match xs { case Nil => false
       case Cons(h, t) => if #seq(h, m) then true else go(t) } in

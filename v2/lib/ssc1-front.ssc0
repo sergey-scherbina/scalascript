@@ -1446,13 +1446,13 @@ def parseDef = (toks) =>
     let re = parseExpr(advance(toks6)) in
     let body =
       if hasSourceParamClause then prV(re)
-      else if #i.eq(lenL(allParams), 0) then mkParameterlessBody(prV(re))
+      else if #i.eq(lenLF(allParams), 0) then mkParameterlessBody(prV(re))
       else prV(re) in
     pr(mkDef(name, allParams, body), prT(re))
   else
     let body =
       if hasSourceParamClause then mkTup(Nil)
-      else if #i.eq(lenL(allParams), 0) then mkParameterlessBody(mkTup(Nil))
+      else if #i.eq(lenLF(allParams), 0) then mkParameterlessBody(mkTup(Nil))
       else mkTup(Nil) in
     pr(mkDef(name, allParams, body), toks6)
 

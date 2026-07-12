@@ -2412,8 +2412,11 @@ object Prims:
           val m = java.util.regex.Pattern.compile(pat).matcher(s)
           if m.lookingAt() then DataV("Some", Array[Value](StrV(m.group()))) else DataV("None", Array.empty[Value])
         case (StrV(s), "filter",      List(fn: ClosV))  => StrV(s.filter(c => callClos(fn, Array(IntV(c.toLong))) == BoolV(true)))
-        case (StrV(s), "takeWhile",   List(fn: ClosV))  => StrV(s.takeWhile(c => callClos(fn, Array(StrV(c.toString))) == BoolV(true)))
-        case (StrV(s), "dropWhile",   List(fn: ClosV))  => StrV(s.dropWhile(c => callClos(fn, Array(StrV(c.toString))) == BoolV(true)))
+        // K62.6c-rest: ssc chars are int CODES (`'x'` lowers to an Int), so a string
+        // takeWhile/dropWhile predicate receives the char code, not a 1-char string (matches
+        // the old _sel_takeWhile scodeAt path now that .takeWhile routes here via __method__).
+        case (StrV(s), "takeWhile",   List(fn: ClosV))  => StrV(s.takeWhile(c => callClos(fn, Array(IntV(c.toLong))) == BoolV(true)))
+        case (StrV(s), "dropWhile",   List(fn: ClosV))  => StrV(s.dropWhile(c => callClos(fn, Array(IntV(c.toLong))) == BoolV(true)))
         case (StrV(s), "forall",      List(fn: ClosV))  => BoolV(s.forall(c => callClos(fn, Array(IntV(c.toLong))) == BoolV(true)))
         case (StrV(s), "exists",      List(fn: ClosV))  => BoolV(s.exists(c => callClos(fn, Array(IntV(c.toLong))) == BoolV(true)))
         // ── scala.math object ──────────────────────────────────────────────────────
