@@ -18,7 +18,7 @@ exports:
 # SclJet read-only pager
 
 [ByteSlice](bytes.ssc)
-[SqliteErrorCode, SqliteBusy, SqliteIo, SqliteCorrupt, SqliteCannotOpen, SqliteMisuse, SqliteNotADatabase, SqliteTooBig, SqliteUnsupportedCapability, SqliteError, SqliteOpenMode, OpenReadOnly, SqliteLimits, SqliteOpenOptions](values.ssc)
+[SqliteErrorCode, SqliteBusy, SqliteIo, SqliteCorrupt, SqliteCannotOpen, SqliteMisuse, SqliteNotADatabase, SqliteTooBig, SqliteUnsupportedCapability, SqliteError, SqliteOpenMode, OpenReadOnly, ReadOnlySalvage, SqliteLimits, SqliteOpenOptions](values.ssc)
 [FileKind, MainDatabaseFile, MainJournalFile, WalFile, OpenFlags, LockNone, LockShared, VfsError, VfsRead, SqliteFile, SqliteVfs](vfs.ssc)
 [DatabaseHeader, DecodeFailure, decodeDatabaseHeader, databasePageOffset](header.ssc)
 
@@ -91,7 +91,7 @@ def finishOpenPager(vfs: SqliteVfs, canonical: String, file: SqliteFile, options
   val remainder = fileSize % pageSize
   val logical = if header.headerPageCountTrusted then header.headerPageCount else physical
   val capacity = if options.pageCachePages < options.limits.cachePages then options.pageCachePages else options.limits.cachePages
-  if remainder != 0L then
+  if remainder != 0L && options.compatibility != ReadOnlySalvage then
     pagerCloseFailed(file)
     Left(pagerCorrupt("database has a partial trailing page", Some(fileSize - remainder), None))
   else if physical < 1L || logical < 1L || logical > physical then
@@ -187,6 +187,8 @@ def pagerReadPage(pager: ReadonlyPager, pageNumber: Long): Either[SqliteError, P
   if pager.closed then Left(sqliteFailure(SqliteMisuse, "pager is closed", None, Some(pageNumber), None))
   else if pageNumber < 1L || pageNumber > pager.logicalPageCount then
     Left(sqliteFailure(SqliteCorrupt, "page number is outside the logical database", None, Some(pageNumber), None))
+  else if pageNumber == 1073741824L / pager.header.pageSize.toLong + 1L then
+    Left(sqliteFailure(SqliteCorrupt, "lock-byte page cannot be read as database content", None, Some(pageNumber), None))
   else pager.cache.get(pageNumber) match
     case Some(bytes) =>
       val next = pagerTouch(pager, pageNumber, bytes)

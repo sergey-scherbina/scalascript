@@ -1,0 +1,170 @@
+---
+name: scljet-schema
+version: 0.4.0
+description: Raw sqlite_schema decoding and storage-tree classification for read-only SclJet
+package: scljet
+exports:
+  - SchemaObjectKind
+  - SchemaTable
+  - SchemaIndex
+  - SchemaView
+  - SchemaTrigger
+  - SchemaStorageKind
+  - SchemaRowidTable
+  - SchemaWithoutRowidTable
+  - SchemaIndexBtree
+  - SchemaNoBtree
+  - SchemaEntry
+  - ReadonlySchema
+  - ReadonlyDatabase
+  - decodeSchema
+---
+
+# SclJet sqlite_schema decoder
+
+[SqliteValue, SqlNull, SqlInteger, SqliteError, SqliteCorrupt, SqliteTooBig](values.ssc)
+[EncodingUnknown, SqliteTextEncoding](header.ssc)
+[DecodedText, RecordField, DecodedRecord](record.ssc)
+[TableInteriorPage, TableLeafPage, IndexInteriorPage, IndexLeafPage, PageContext, decodeBtreePage](page.ssc)
+[ReadonlyPager, DatabasePage, PagerPageRead, sqliteFailure, pagerDecodeError, pagerCorrupt, pagerReadPage](pager.ssc)
+[PointerMapRoot, validatePointerMapRelation, validateNonFreelistPage](freelist.ssc)
+[StorageTreeKind, RowidTableTree, StorageRecord, ReadonlyBtreeCursor, PagerCursorOpen, PagerCursorStep, openReadonlyCursor, readonlyCursorFirst, readonlyCursorNext](btree.ssc)
+
+```scalascript
+sealed trait SchemaObjectKind
+case object SchemaTable extends SchemaObjectKind
+case object SchemaIndex extends SchemaObjectKind
+case object SchemaView extends SchemaObjectKind
+case object SchemaTrigger extends SchemaObjectKind
+
+sealed trait SchemaStorageKind
+case object SchemaRowidTable extends SchemaStorageKind
+case object SchemaWithoutRowidTable extends SchemaStorageKind
+case object SchemaIndexBtree extends SchemaStorageKind
+case object SchemaNoBtree extends SchemaStorageKind
+
+case class SchemaEntry(
+  rowid: Long,
+  kind: SchemaObjectKind,
+  name: DecodedText,
+  tableName: DecodedText,
+  rootPage: Option[Long],
+  sql: Option[DecodedText],
+  storage: SchemaStorageKind,
+  internal: Boolean,
+  rawRecord: DecodedRecord
+)
+
+case class ReadonlySchema(cookie: Long, format: Int, encoding: SqliteTextEncoding, entries: List[SchemaEntry])
+case class ReadonlyDatabase(pager: ReadonlyPager, schema: ReadonlySchema)
+case class SchemaClassified(pager: ReadonlyPager, storage: SchemaStorageKind)
+
+def schemaCodePointsEqual(left: List[Int], right: List[Int]): Boolean = left match
+  case Nil => right.isEmpty
+  case Cons(head, tail) => right match
+    case Nil => false
+    case Cons(other, rest) => head == other && schemaCodePointsEqual(tail, rest)
+
+def schemaStartsWith(left: List[Int], prefix: List[Int]): Boolean = prefix match
+  case Nil => true
+  case Cons(head, tail) => left match
+    case Nil => false
+    case Cons(other, rest) => head == other && schemaStartsWith(rest, tail)
+
+def schemaObjectKind(text: DecodedText): Option[SchemaObjectKind] =
+  if schemaCodePointsEqual(text.codePoints, List(116,97,98,108,101)) then Some(SchemaTable)
+  else if schemaCodePointsEqual(text.codePoints, List(105,110,100,101,120)) then Some(SchemaIndex)
+  else if schemaCodePointsEqual(text.codePoints, List(118,105,101,119)) then Some(SchemaView)
+  else if schemaCodePointsEqual(text.codePoints, List(116,114,105,103,103,101,114)) then Some(SchemaTrigger)
+  else None
+
+def schemaText(field: RecordField, name: String): Either[SqliteError, DecodedText] = field.text match
+  case Some(text) => Right(text)
+  case None => Left(pagerCorrupt("sqlite_schema " + name + " must be TEXT", None, Some(1L)))
+
+def schemaRoot(field: RecordField): Either[SqliteError, Option[Long]] = field.value match
+  case Some(SqlNull) => Right(None)
+  case Some(SqlInteger(value)) => if value == 0L then Right(None) else if value > 0L then Right(Some(value))
+    else Left(pagerCorrupt("sqlite_schema rootpage must be non-negative", None, Some(1L)))
+  case _ => Left(pagerCorrupt("sqlite_schema rootpage must be INTEGER or NULL", None, Some(1L)))
+
+def schemaSql(field: RecordField): Either[SqliteError, Option[DecodedText]] = field.text match
+  case Some(text) => Right(Some(text))
+  case None => field.value match
+    case Some(SqlNull) => Right(None)
+    case _ => Left(pagerCorrupt("sqlite_schema sql must be TEXT or NULL", None, Some(1L)))
+
+def schemaPageContext(pager: ReadonlyPager): PageContext =
+  PageContext(pager.header.pageSize, pager.header.usableSize, pager.logicalPageCount, pager.limits)
+
+def classifySchemaStorage(pager: ReadonlyPager, kind: SchemaObjectKind, root: Option[Long]): Either[SqliteError, SchemaClassified] = root match
+  case None => kind match
+    case SchemaView | SchemaTrigger => Right(SchemaClassified(pager, SchemaNoBtree))
+    case SchemaTable => Right(SchemaClassified(pager, SchemaNoBtree))
+    case SchemaIndex => Left(pagerCorrupt("index has no B-tree root", None, Some(1L)))
+  case Some(pageNumber) =>
+    if kind == SchemaView || kind == SchemaTrigger then Left(pagerCorrupt("view or trigger has a B-tree root", None, Some(pageNumber)))
+    else validateNonFreelistPage(pager, pageNumber) match
+      case Left(error) => Left(error)
+      case Right(_) => validatePointerMapRelation(pager, pageNumber, PointerMapRoot, 0L) match
+        case Left(error) => Left(error)
+        case Right(validatedPager) => pagerReadPage(validatedPager, pageNumber) match
+          case Left(error) => Left(error)
+          case Right(PagerPageRead(nextPager, DatabasePage(_, bytes))) => decodeBtreePage(schemaPageContext(nextPager), pageNumber, bytes) match
+            case Left(error) => Left(pagerDecodeError(error))
+            case Right(page) => kind match
+              case SchemaTable => page.header.kind match
+                case TableInteriorPage | TableLeafPage => Right(SchemaClassified(nextPager, SchemaRowidTable))
+                case IndexInteriorPage | IndexLeafPage => Right(SchemaClassified(nextPager, SchemaWithoutRowidTable))
+              case SchemaIndex => page.header.kind match
+                case IndexInteriorPage | IndexLeafPage => Right(SchemaClassified(nextPager, SchemaIndexBtree))
+                case _ => Left(pagerCorrupt("index root is not an index B-tree", None, Some(pageNumber)))
+              case _ => Left(pagerCorrupt("schema object has an invalid B-tree root", None, Some(pageNumber)))
+
+def decodeSchemaEntry(pager: ReadonlyPager, storage: StorageRecord): Either[SqliteError, (ReadonlyPager, SchemaEntry)] =
+  val fields = storage.record.fields
+  if fields.length != 5 then Left(pagerCorrupt("sqlite_schema record must have exactly five fields", None, Some(1L)))
+  else storage.rowid match
+    case None => Left(pagerCorrupt("sqlite_schema record has no rowid", None, Some(1L)))
+    case Some(rowid) => schemaText(fields.head, "type") match
+      case Left(error) => Left(error)
+      case Right(typeText) => schemaText(fields.drop(1).head, "name") match
+        case Left(error) => Left(error)
+        case Right(name) => schemaText(fields.drop(2).head, "tbl_name") match
+          case Left(error) => Left(error)
+          case Right(tableName) => schemaRoot(fields.drop(3).head) match
+            case Left(error) => Left(error)
+            case Right(root) => schemaSql(fields.drop(4).head) match
+              case Left(error) => Left(error)
+              case Right(sql) => schemaObjectKind(typeText) match
+                case None => Left(pagerCorrupt("sqlite_schema type is unknown", None, Some(1L)))
+                case Some(kind) => classifySchemaStorage(pager, kind, root) match
+                  case Left(error) => Left(error)
+                  case Right(classified) =>
+                    val internal = schemaStartsWith(name.codePoints, List(115,113,108,105,116,101,95))
+                    Right((classified.pager, SchemaEntry(rowid, kind, name, tableName, root, sql,
+                      classified.storage, internal, storage.record)))
+
+def decodeSchemaRows(pager: ReadonlyPager, cursor: ReadonlyBtreeCursor, row: Option[StorageRecord], reversed: List[SchemaEntry]): Either[SqliteError, ReadonlyDatabase] = row match
+  case None =>
+    if pager.header.schemaFormat == 0 && reversed.nonEmpty then Left(pagerCorrupt("schema format zero requires an empty schema", Some(44L), Some(1L)))
+    else if pager.header.textEncoding == EncodingUnknown && reversed.nonEmpty then Left(pagerCorrupt("encoding zero requires an empty schema", Some(56L), Some(1L)))
+    else Right(ReadonlyDatabase(pager, ReadonlySchema(pager.header.schemaCookie,
+      pager.header.schemaFormat, pager.header.textEncoding, reversed.reverse)))
+  case Some(record) =>
+    if reversed.length >= pager.limits.schemaObjects then
+      Left(sqliteFailure(SqliteTooBig, "sqlite_schema exceeds configured schemaObjects", None, Some(1L), None))
+    else decodeSchemaEntry(pager, record) match
+      case Left(error) => Left(error)
+      case Right(pair) => readonlyCursorNext(pair._1, cursor) match
+        case Left(error) => Left(error)
+        case Right(PagerCursorStep(nextPager, nextCursor, nextRow)) =>
+          decodeSchemaRows(nextPager, nextCursor, nextRow, pair._2 :: reversed)
+
+def decodeSchema(pager: ReadonlyPager): Either[SqliteError, ReadonlyDatabase] =
+  openReadonlyCursor(pager, 1L, RowidTableTree) match
+    case Left(error) => Left(error)
+    case Right(PagerCursorOpen(openPager, cursor)) => readonlyCursorFirst(openPager, cursor) match
+      case Left(error) => Left(error)
+      case Right(PagerCursorStep(firstPager, firstCursor, row)) => decodeSchemaRows(firstPager, firstCursor, row, Nil)
+```

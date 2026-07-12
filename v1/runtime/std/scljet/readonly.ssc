@@ -1,0 +1,58 @@
+---
+name: scljet-readonly
+version: 0.4.0
+description: Minimal value-level read-only SQLite file facade for SclJet M2
+package: scljet
+exports:
+  - ReadonlyCursorStep
+  - openReadonly
+  - openReadonlyRoot
+  - readonlyFirst
+  - readonlyNext
+  - closeReadonly
+---
+
+# SclJet read-only database facade
+
+[SqliteError, SqliteOpenOptions](values.ssc)
+[SqliteVfs](vfs.ssc)
+[ReadonlyPager, openReadonlyPager, closeReadonlyPager](pager.ssc)
+[FreelistGraph, validateFreelist](freelist.ssc)
+[StorageTreeKind, StorageRecord, ReadonlyBtreeCursor, PagerCursorOpen, PagerCursorStep, openReadonlyCursor, readonlyCursorFirst, readonlyCursorNext](btree.ssc)
+[ReadonlyDatabase, decodeSchema](schema.ssc)
+
+```scalascript
+case class ReadonlyCursorStep(database: ReadonlyDatabase, cursor: ReadonlyBtreeCursor, row: Option[StorageRecord])
+
+def closeAfterOpenFailure(pager: ReadonlyPager, error: SqliteError): Either[SqliteError, ReadonlyDatabase] =
+  closeReadonlyPager(pager)
+  Left(error)
+
+def openReadonly(vfs: SqliteVfs, path: String, options: SqliteOpenOptions): Either[SqliteError, ReadonlyDatabase] =
+  openReadonlyPager(vfs, path, options) match
+    case Left(error) => Left(error)
+    case Right(pager) => validateFreelist(pager) match
+      case Left(error) => closeAfterOpenFailure(pager, error)
+      case Right(_) => decodeSchema(pager) match
+        case Left(error) => closeAfterOpenFailure(pager, error)
+        case Right(database) => Right(database)
+
+def openReadonlyRoot(database: ReadonlyDatabase, rootPage: Long, treeKind: StorageTreeKind): Either[SqliteError, ReadonlyBtreeCursor] =
+  openReadonlyCursor(database.pager, rootPage, treeKind) match
+    case Left(error) => Left(error)
+    case Right(PagerCursorOpen(_, cursor)) => Right(cursor)
+
+def readonlyFirst(database: ReadonlyDatabase, cursor: ReadonlyBtreeCursor): Either[SqliteError, ReadonlyCursorStep] =
+  readonlyCursorFirst(database.pager, cursor) match
+    case Left(error) => Left(error)
+    case Right(PagerCursorStep(pager, nextCursor, row)) =>
+      Right(ReadonlyCursorStep(database.copy(pager = pager), nextCursor, row))
+
+def readonlyNext(database: ReadonlyDatabase, cursor: ReadonlyBtreeCursor): Either[SqliteError, ReadonlyCursorStep] =
+  readonlyCursorNext(database.pager, cursor) match
+    case Left(error) => Left(error)
+    case Right(PagerCursorStep(pager, nextCursor, row)) =>
+      Right(ReadonlyCursorStep(database.copy(pager = pager), nextCursor, row))
+
+def closeReadonly(database: ReadonlyDatabase): Either[SqliteError, Unit] = closeReadonlyPager(database.pager)
+```

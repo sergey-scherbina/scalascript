@@ -10,8 +10,8 @@ exports:
   - StorageRecord
   - ReadonlyCursorFrame
   - ReadonlyBtreeCursor
-  - ReadonlyCursorOpen
-  - ReadonlyCursorStep
+  - PagerCursorOpen
+  - PagerCursorStep
   - openReadonlyCursor
   - readonlyCursorFirst
   - readonlyCursorNext
@@ -25,6 +25,7 @@ exports:
 [PageContext, BtreePageKind, TableInteriorPage, TableLeafPage, IndexInteriorPage, IndexLeafPage, BtreePage, BtreeCell, TableInteriorCell, TableLeafCell, IndexInteriorCell, IndexLeafCell, CellPayload, OverflowChunk, decodeBtreePage, decodeOverflowPage](page.ssc)
 [DecodedRecord, decodeRecord](record.ssc)
 [ReadonlyPager, DatabasePage, PagerPageRead, sqliteFailure, pagerDecodeError, pagerCorrupt, pagerReadPage](pager.ssc)
+[PointerMapRoot, PointerMapFirstOverflow, PointerMapLaterOverflow, PointerMapBtree, validatePointerMapRelation, validateNonFreelistPage](freelist.ssc)
 
 ```scalascript
 sealed trait StorageTreeKind
@@ -46,8 +47,8 @@ case class ReadonlyBtreeCursor(
   exhausted: Boolean
 )
 
-case class ReadonlyCursorOpen(pager: ReadonlyPager, cursor: ReadonlyBtreeCursor)
-case class ReadonlyCursorStep(pager: ReadonlyPager, cursor: ReadonlyBtreeCursor, row: Option[StorageRecord])
+case class PagerCursorOpen(pager: ReadonlyPager, cursor: ReadonlyBtreeCursor)
+case class PagerCursorStep(pager: ReadonlyPager, cursor: ReadonlyBtreeCursor, row: Option[StorageRecord])
 case class BtreePageRead(pager: ReadonlyPager, page: BtreePage)
 case class PayloadRead(pager: ReadonlyPager, bytes: ByteSlice, pages: List[Long])
 
@@ -75,29 +76,36 @@ def cursorReadBtreePage(pager: ReadonlyPager, pageNumber: Long, tree: StorageTre
             Left(pagerCorrupt("B-tree page kind changes within one tree", None, Some(pageNumber)))
           else Right(BtreePageRead(nextPager, page))
 
-def cursorReadOverflow(pager: ReadonlyPager, expected: Long, remaining: Long, accumulated: ByteSlice, reversedPages: List[Long]): Either[SqliteError, PayloadRead] =
+def cursorReadOverflow(pager: ReadonlyPager, ownerPage: Long, previousPage: Long, expected: Long, remaining: Long, accumulated: ByteSlice, reversedPages: List[Long]): Either[SqliteError, PayloadRead] =
   if remaining == 0L then Right(PayloadRead(pager, accumulated, reversedPages.reverse))
   else if expected == 0L then Left(pagerCorrupt("overflow chain ended before the payload", None, None))
   else if cursorContains(reversedPages, expected) then Left(pagerCorrupt("overflow chain contains a cycle", None, Some(expected)))
   else if reversedPages.length.toLong >= pager.limits.overflowPages then
     Left(sqliteFailure(SqliteTooBig, "overflow chain exceeds configured overflowPages", None, Some(expected), None))
-  else pagerReadPage(pager, expected) match
+  else validateNonFreelistPage(pager, expected) match
     case Left(error) => Left(error)
-    case Right(PagerPageRead(nextPager, DatabasePage(_, bytes))) =>
-      decodeOverflowPage(cursorPageContext(nextPager), expected, bytes, remaining) match
-        case Left(error) => Left(pagerDecodeError(error))
-        case Right(OverflowChunk(page, next, chunk, after)) =>
-          cursorReadOverflow(nextPager, next, after, byteSliceConcat(accumulated, chunk), page :: reversedPages)
+    case Right(_) =>
+      val expectedKind = if previousPage == 0L then PointerMapFirstOverflow else PointerMapLaterOverflow
+      val expectedParent = if previousPage == 0L then ownerPage else previousPage
+      validatePointerMapRelation(pager, expected, expectedKind, expectedParent) match
+        case Left(error) => Left(error)
+        case Right(validatedPager) => pagerReadPage(validatedPager, expected) match
+          case Left(error) => Left(error)
+          case Right(PagerPageRead(nextPager, DatabasePage(_, bytes))) =>
+            decodeOverflowPage(cursorPageContext(nextPager), expected, bytes, remaining) match
+              case Left(error) => Left(pagerDecodeError(error))
+              case Right(OverflowChunk(page, next, chunk, after)) =>
+                cursorReadOverflow(nextPager, ownerPage, page, next, after, byteSliceConcat(accumulated, chunk), page :: reversedPages)
 
-def cursorReadPayload(pager: ReadonlyPager, payload: CellPayload): Either[SqliteError, PayloadRead] =
+def cursorReadPayload(pager: ReadonlyPager, ownerPage: Long, payload: CellPayload): Either[SqliteError, PayloadRead] =
   val remaining = payload.totalBytes - payload.localBytes.length.toLong
   if remaining == 0L then Right(PayloadRead(pager, payload.localBytes, Nil))
   else payload.firstOverflowPage match
     case None => Left(pagerCorrupt("cell payload is missing its overflow pointer", None, None))
-    case Some(first) => cursorReadOverflow(pager, first, remaining, payload.localBytes, Nil)
+    case Some(first) => cursorReadOverflow(pager, ownerPage, 0L, first, remaining, payload.localBytes, Nil)
 
-def cursorDecodePayload(pager: ReadonlyPager, payload: CellPayload): Either[SqliteError, (ReadonlyPager, DecodedRecord)] =
-  cursorReadPayload(pager, payload) match
+def cursorDecodePayload(pager: ReadonlyPager, ownerPage: Long, payload: CellPayload): Either[SqliteError, (ReadonlyPager, DecodedRecord)] =
+  cursorReadPayload(pager, ownerPage, payload) match
     case Left(error) => Left(error)
     case Right(read) =>
       if read.bytes.length.toLong != payload.totalBytes then
@@ -107,8 +115,8 @@ def cursorDecodePayload(pager: ReadonlyPager, payload: CellPayload): Either[Sqli
         case Left(error) => Left(pagerDecodeError(error))
         case Right(record) => Right((read.pager, record))
 
-def cursorYieldCell(pager: ReadonlyPager, cursor: ReadonlyBtreeCursor, cell: BtreeCell): Either[SqliteError, ReadonlyCursorStep] = cell match
-  case TableLeafCell(rowid, payload) => cursorDecodePayload(pager, payload) match
+def cursorYieldCell(pager: ReadonlyPager, cursor: ReadonlyBtreeCursor, ownerPage: Long, cell: BtreeCell): Either[SqliteError, PagerCursorStep] = cell match
+  case TableLeafCell(rowid, payload) => cursorDecodePayload(pager, ownerPage, payload) match
     case Left(error) => Left(error)
     case Right(pair) =>
       val ordered = cursor.lastRowid match
@@ -118,19 +126,19 @@ def cursorYieldCell(pager: ReadonlyPager, cursor: ReadonlyBtreeCursor, cell: Btr
       else
         val row = StorageRecord(Some(rowid), pair._2)
         val next = cursor.copy(current = Some(row), lastRowid = Some(rowid), started = true)
-        Right(ReadonlyCursorStep(pair._1, next, Some(row)))
-  case IndexLeafCell(payload) => cursorDecodePayload(pager, payload) match
+        Right(PagerCursorStep(pair._1, next, Some(row)))
+  case IndexLeafCell(payload) => cursorDecodePayload(pager, ownerPage, payload) match
     case Left(error) => Left(error)
     case Right(pair) =>
       val row = StorageRecord(None, pair._2)
       val next = cursor.copy(current = Some(row), started = true)
-      Right(ReadonlyCursorStep(pair._1, next, Some(row)))
-  case IndexInteriorCell(_, payload) => cursorDecodePayload(pager, payload) match
+      Right(PagerCursorStep(pair._1, next, Some(row)))
+  case IndexInteriorCell(_, payload) => cursorDecodePayload(pager, ownerPage, payload) match
     case Left(error) => Left(error)
     case Right(pair) =>
       val row = StorageRecord(None, pair._2)
       val next = cursor.copy(current = Some(row), started = true)
-      Right(ReadonlyCursorStep(pair._1, next, Some(row)))
+      Right(PagerCursorStep(pair._1, next, Some(row)))
   case _ => Left(pagerCorrupt("interior table divider cannot be yielded as a row", None, None))
 
 def cursorChildAt(page: BtreePage, index: Int): Long =
@@ -146,31 +154,43 @@ def cursorCheckLeafDepth(cursor: ReadonlyBtreeCursor, depth: Int): Either[Sqlite
     if expected == depth then Right(cursor)
     else Left(pagerCorrupt("B-tree leaves do not have a common depth", None, None))
 
-def cursorPushPage(pager: ReadonlyPager, cursor: ReadonlyBtreeCursor, pageNumber: Long): Either[SqliteError, (ReadonlyPager, ReadonlyBtreeCursor)] =
-  if cursorContains(cursor.discoveredPages, pageNumber) then
+def cursorPushPage(pager: ReadonlyPager, cursor: ReadonlyBtreeCursor, pageNumber: Long, parentPage: Option[Long]): Either[SqliteError, (ReadonlyPager, ReadonlyBtreeCursor)] =
+  if parentPage.isDefined && pageNumber == 1L then
+    Left(pagerCorrupt("non-root B-tree child points to page 1", None, Some(pageNumber)))
+  else if cursorContains(cursor.discoveredPages, pageNumber) then
     Left(pagerCorrupt("B-tree contains a cycle or shared child", None, Some(pageNumber)))
   else if cursor.discoveredPages.length.toLong >= pager.limits.pageCount then
     Left(sqliteFailure(SqliteTooBig, "B-tree traversal exceeds configured pageCount", None, Some(pageNumber), None))
-  else cursorReadBtreePage(pager, pageNumber, cursor.treeKind) match
+  else if cursor.stack.length.toLong >= pager.limits.workBytes / pager.header.pageSize.toLong then
+    Left(sqliteFailure(SqliteTooBig, "B-tree depth exceeds configured workBytes", None, Some(pageNumber), None))
+  else validateNonFreelistPage(pager, pageNumber) match
     case Left(error) => Left(error)
-    case Right(read) =>
-      val pushed = cursor.copy(
-        stack = ReadonlyCursorFrame(read.page, 0) :: cursor.stack,
-        discoveredPages = pageNumber :: cursor.discoveredPages
-      )
-      if read.page.header.kind == TableLeafPage || read.page.header.kind == IndexLeafPage then
-        cursorCheckLeafDepth(pushed, pushed.stack.length) match
+    case Right(_) =>
+      val relation = parentPage match
+        case None => validatePointerMapRelation(pager, pageNumber, PointerMapRoot, 0L)
+        case Some(parent) => validatePointerMapRelation(pager, pageNumber, PointerMapBtree, parent)
+      relation match
+        case Left(error) => Left(error)
+        case Right(validatedPager) => cursorReadBtreePage(validatedPager, pageNumber, cursor.treeKind) match
           case Left(error) => Left(error)
-          case Right(checked) => Right((read.pager, checked))
-      else Right((read.pager, pushed))
+          case Right(read) =>
+            val pushed = cursor.copy(
+              stack = ReadonlyCursorFrame(read.page, 0) :: cursor.stack,
+              discoveredPages = pageNumber :: cursor.discoveredPages
+            )
+            if read.page.header.kind == TableLeafPage || read.page.header.kind == IndexLeafPage then
+              cursorCheckLeafDepth(pushed, pushed.stack.length) match
+                case Left(error) => Left(error)
+                case Right(checked) => Right((read.pager, checked))
+            else Right((read.pager, pushed))
 
 def cursorReplaceTop(cursor: ReadonlyBtreeCursor, frame: ReadonlyCursorFrame): ReadonlyBtreeCursor =
   cursor.copy(stack = frame :: cursor.stack.drop(1))
 
-def cursorAdvance(pager: ReadonlyPager, cursor: ReadonlyBtreeCursor): Either[SqliteError, ReadonlyCursorStep] = cursor.stack match
+def cursorAdvance(pager: ReadonlyPager, cursor: ReadonlyBtreeCursor): Either[SqliteError, PagerCursorStep] = cursor.stack match
   case Nil =>
     val done = cursor.copy(current = None, started = true, exhausted = true)
-    Right(ReadonlyCursorStep(pager, done, None))
+    Right(PagerCursorStep(pager, done, None))
   case Cons(frame, tail) =>
     val page = frame.page
     page.header.kind match
@@ -178,13 +198,13 @@ def cursorAdvance(pager: ReadonlyPager, cursor: ReadonlyBtreeCursor): Either[Sql
         if frame.nextEvent >= page.header.cellCount then cursorAdvance(pager, cursor.copy(stack = tail))
         else
           val nextCursor = cursorReplaceTop(cursor, frame.copy(nextEvent = frame.nextEvent + 1))
-          cursorYieldCell(pager, nextCursor, cursorCellAt(page.cells, frame.nextEvent))
+          cursorYieldCell(pager, nextCursor, page.pageNumber, cursorCellAt(page.cells, frame.nextEvent))
       case TableInteriorPage =>
         if frame.nextEvent > page.header.cellCount then cursorAdvance(pager, cursor.copy(stack = tail))
         else
           val child = cursorChildAt(page, frame.nextEvent)
           val parent = cursorReplaceTop(cursor, frame.copy(nextEvent = frame.nextEvent + 1))
-          cursorPushPage(pager, parent, child) match
+          cursorPushPage(pager, parent, child, Some(page.pageNumber)) match
             case Left(error) => Left(error)
             case Right(pair) => cursorAdvance(pair._1, pair._2)
       case IndexInteriorPage =>
@@ -193,30 +213,30 @@ def cursorAdvance(pager: ReadonlyPager, cursor: ReadonlyBtreeCursor): Either[Sql
         else if frame.nextEvent % 2 == 0 then
           val child = cursorChildAt(page, frame.nextEvent / 2)
           val parent = cursorReplaceTop(cursor, frame.copy(nextEvent = frame.nextEvent + 1))
-          cursorPushPage(pager, parent, child) match
+          cursorPushPage(pager, parent, child, Some(page.pageNumber)) match
             case Left(error) => Left(error)
             case Right(pair) => cursorAdvance(pair._1, pair._2)
         else
           val cellIndex = frame.nextEvent / 2
           val nextCursor = cursorReplaceTop(cursor, frame.copy(nextEvent = frame.nextEvent + 1))
-          cursorYieldCell(pager, nextCursor, cursorCellAt(page.cells, cellIndex))
+          cursorYieldCell(pager, nextCursor, page.pageNumber, cursorCellAt(page.cells, cellIndex))
 
 def emptyReadonlyCursor(rootPage: Long, treeKind: StorageTreeKind): ReadonlyBtreeCursor =
   ReadonlyBtreeCursor(rootPage, treeKind, Nil, Nil, None, None, None, false, false)
 
-def openReadonlyCursor(pager: ReadonlyPager, rootPage: Long, treeKind: StorageTreeKind): Either[SqliteError, ReadonlyCursorOpen] =
+def openReadonlyCursor(pager: ReadonlyPager, rootPage: Long, treeKind: StorageTreeKind): Either[SqliteError, PagerCursorOpen] =
   val cursor = emptyReadonlyCursor(rootPage, treeKind)
-  cursorPushPage(pager, cursor, rootPage) match
+  cursorPushPage(pager, cursor, rootPage, None) match
     case Left(error) => Left(error)
-    case Right(pair) => Right(ReadonlyCursorOpen(pair._1, pair._2))
+    case Right(pair) => Right(PagerCursorOpen(pair._1, pair._2))
 
-def readonlyCursorFirst(pager: ReadonlyPager, cursor: ReadonlyBtreeCursor): Either[SqliteError, ReadonlyCursorStep] =
+def readonlyCursorFirst(pager: ReadonlyPager, cursor: ReadonlyBtreeCursor): Either[SqliteError, PagerCursorStep] =
   openReadonlyCursor(pager, cursor.rootPage, cursor.treeKind) match
     case Left(error) => Left(error)
     case Right(opened) => cursorAdvance(opened.pager, opened.cursor)
 
-def readonlyCursorNext(pager: ReadonlyPager, cursor: ReadonlyBtreeCursor): Either[SqliteError, ReadonlyCursorStep] =
-  if cursor.exhausted then Right(ReadonlyCursorStep(pager, cursor, None))
+def readonlyCursorNext(pager: ReadonlyPager, cursor: ReadonlyBtreeCursor): Either[SqliteError, PagerCursorStep] =
+  if cursor.exhausted then Right(PagerCursorStep(pager, cursor, None))
   else if !cursor.started then readonlyCursorFirst(pager, cursor)
   else cursorAdvance(pager, cursor.copy(current = None))
 ```

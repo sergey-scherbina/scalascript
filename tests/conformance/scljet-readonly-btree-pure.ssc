@@ -1,0 +1,109 @@
+#!/usr/bin/env ssc
+---
+name: scljet-readonly-btree-pure
+description: SclJet M2 cached multi-level table/index B-tree traversal without a host VFS
+backends: [int]
+---
+
+# SclJet M2 pure cached B-tree traversal
+
+[ByteSlice, byteSliceUpdated, SqliteError, StrictSqlite, OpenReadOnly, JournalDelete, SyncFull, SqliteLimits, SqliteOpenOptions, LockLevel, SyncFlags, DeviceCharacteristic, ShmLockMode, VfsError, VfsRead, VfsWrite, SharedRegion, SqliteFile, DatabaseHeader, DecodeFailure, ReadonlyPager, StorageTreeKind, RowidTableTree, RecordKeyTree, StorageRecord, PagerCursorOpen, PagerCursorStep, openReadonlyCursor, readonlyCursorFirst, readonlyCursorNext, decodeDatabaseHeader](std/scljet/index.ssc)
+
+```scalascript
+def zeroBytes(length: Int): ByteSlice = ByteSlice.zeros(length) match
+  case Right(bytes) => bytes
+  case Left(_) => ByteSlice.empty
+
+def putAt(bytes: ByteSlice, offset: Int, values: List[Int]): ByteSlice = values match
+  case Nil => bytes
+  case Cons(value, tail) => byteSliceUpdated(bytes, offset, value) match
+    case Right(next) => putAt(next, offset + 1, tail)
+    case Left(_) => bytes
+
+def limits(): SqliteLimits = SqliteLimits(
+  1000000L, 100, 100, 100, 100, 10, 1000000L, 100, 100,
+  1000L, 1000000L, 8, 1000L, 100, 1000000L
+)
+
+val headerBytes = ByteSlice.fromList(List(
+  83,81,76,105,116,101,32,102,111,114,109,97,116,32,51,0,
+  2,0,1,1,0,64,32,32,0,0,0,2,0,0,0,5,0,0,0,0,0,0,0,0,
+  0,0,0,1,0,0,0,4,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,
+  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+  0,0,0,0,0,0,0,2,0,46,149,203
+)).toOption.get
+
+val header = decodeDatabaseHeader(headerBytes) match
+  case Right(value) => value
+  case Left(error) => throw RuntimeException(error.message)
+
+case object NoFile extends SqliteFile:
+  def readAt(offset: Long, length: Int): Either[VfsError, VfsRead] = Left(VfsError("io", "cache miss", false))
+  def writeAt(offset: Long, bytes: ByteSlice): Either[VfsError, VfsWrite] = Left(VfsError("readonly", "no file", false))
+  def truncate(size: Long): Either[VfsError, Unit] = Left(VfsError("readonly", "no file", false))
+  def sync(flags: SyncFlags): Either[VfsError, Unit] = Right(())
+  def size(): Either[VfsError, Long] = Right(2560L)
+  def lock(level: LockLevel): Either[VfsError, Unit] = Right(())
+  def unlock(level: LockLevel): Either[VfsError, Unit] = Right(())
+  def checkReservedLock(): Either[VfsError, Boolean] = Right(false)
+  def sectorSize: Int = 512
+  def deviceCharacteristics: List[DeviceCharacteristic] = Nil
+  def shmMap(region: Int, size: Int, extend: Boolean): Either[VfsError, SharedRegion] = Left(VfsError("unsupported", "no shm", false))
+  def shmLock(offset: Int, count: Int, mode: ShmLockMode): Either[VfsError, Unit] = Left(VfsError("unsupported", "no shm", false))
+  def shmBarrier(): Unit = ()
+  def shmUnmap(delete: Boolean): Either[VfsError, Unit] = Right(())
+  def close(): Either[VfsError, Unit] = Right(())
+
+def tableLeaf(rowid: Int, value: Int): ByteSlice =
+  val base = putAt(zeroBytes(512), 0, List(13,0,0,0,1,1,251,0,1,251))
+  putAt(base, 507, List(3,rowid,2,1,value))
+
+def indexLeaf(value: Int): ByteSlice =
+  val base = putAt(zeroBytes(512), 0, List(10,0,0,0,1,1,252,0,1,252))
+  putAt(base, 508, List(3,2,1,value))
+
+def tableRoot(right: Int): ByteSlice =
+  val base = putAt(zeroBytes(512), 0, List(5,0,0,0,1,1,251,0,0,0,0,right,1,251))
+  putAt(base, 507, List(0,0,0,4,5))
+
+def indexRoot(): ByteSlice =
+  val base = putAt(zeroBytes(512), 0, List(2,0,0,0,1,1,248,0,0,0,0,5,1,248))
+  putAt(base, 504, List(0,0,0,4,3,2,1,5))
+
+def pager(pages: Map[Long, ByteSlice]): ReadonlyPager =
+  ReadonlyPager("cache", "/cache.db", NoFile, header, 5L, 5L, pages,
+    pages.keys.toList.sorted, 8, limits(), false)
+
+def rowNumber(row: Option[StorageRecord]): String = row match
+  case None => "done"
+  case Some(value) => value.rowid.toString + ":" + value.record.fields.head.value.toString
+
+def collect(pager0: ReadonlyPager, kind: StorageTreeKind): String =
+  val opened = openReadonlyCursor(pager0, 3L, kind) match
+    case Right(value) => value
+    case Left(error) => throw RuntimeException(error.message)
+  val first = readonlyCursorFirst(opened.pager, opened.cursor) match
+    case Right(value) => value
+    case Left(error) => throw RuntimeException(error.message)
+  val second = readonlyCursorNext(first.pager, first.cursor) match
+    case Right(value) => value
+    case Left(error) => throw RuntimeException(error.message)
+  val third = readonlyCursorNext(second.pager, second.cursor) match
+    case Right(value) => value
+    case Left(error) => throw RuntimeException(error.message)
+  val fourth = readonlyCursorNext(third.pager, third.cursor) match
+    case Right(value) => value
+    case Left(_) => third
+  List(rowNumber(first.row), rowNumber(second.row), rowNumber(third.row), rowNumber(fourth.row)).toString
+
+val tablePager = pager(Map(3L -> tableRoot(5), 4L -> tableLeaf(1, 11), 5L -> tableLeaf(9, 19)))
+println(collect(tablePager, RowidTableTree))
+
+val indexPager = pager(Map(3L -> indexRoot(), 4L -> indexLeaf(1), 5L -> indexLeaf(9)))
+println(collect(indexPager, RecordKeyTree))
+
+val cyclePager = pager(Map(3L -> tableRoot(4), 4L -> tableLeaf(1, 11)))
+val cycleOpened = openReadonlyCursor(cyclePager, 3L, RowidTableTree).toOption.get
+val cycleFirst = readonlyCursorFirst(cycleOpened.pager, cycleOpened.cursor).toOption.get
+println(readonlyCursorNext(cycleFirst.pager, cycleFirst.cursor).isLeft)
+```

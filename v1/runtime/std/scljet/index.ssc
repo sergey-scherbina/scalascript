@@ -1,7 +1,7 @@
 ---
 name: scljet
 version: 0.4.0
-description: SclJet M2 pure SQLite codecs plus immutable read-only pager and B-tree cursor
+description: SclJet M2 pure SQLite codecs and minimal immutable read-only database facade
 package: scljet
 exports:
   - ByteSlice
@@ -82,8 +82,41 @@ exports:
   - StorageRecord
   - ReadonlyCursorFrame
   - ReadonlyBtreeCursor
-  - ReadonlyCursorOpen
+  - PagerCursorOpen
+  - PagerCursorStep
+  - FreelistTrunk
+  - FreelistGraph
+  - PointerMapKind
+  - PointerMapRoot
+  - PointerMapFreelist
+  - PointerMapFirstOverflow
+  - PointerMapLaterOverflow
+  - PointerMapBtree
+  - PointerMapEntry
+  - lockBytePageNumber
+  - pointerMapPageNumber
+  - decodeFreelistTrunk
+  - decodePointerMapEntry
+  - validateFreelist
+  - SchemaObjectKind
+  - SchemaTable
+  - SchemaIndex
+  - SchemaView
+  - SchemaTrigger
+  - SchemaStorageKind
+  - SchemaRowidTable
+  - SchemaWithoutRowidTable
+  - SchemaIndexBtree
+  - SchemaNoBtree
+  - SchemaEntry
+  - ReadonlySchema
+  - ReadonlyDatabase
   - ReadonlyCursorStep
+  - openReadonly
+  - openReadonlyRoot
+  - readonlyFirst
+  - readonlyNext
+  - closeReadonly
   - openReadonlyCursor
   - readonlyCursorFirst
   - readonlyCursorNext
@@ -288,7 +321,13 @@ interfaces and prove compatibility through differential and crash testing.
 
 [ReadonlyPager, DatabasePage, PagerPageRead, openReadonlyPager, pagerReadPage, closeReadonlyPager](pager.ssc)
 
-[StorageTreeKind, RowidTableTree, RecordKeyTree, StorageRecord, ReadonlyCursorFrame, ReadonlyBtreeCursor, ReadonlyCursorOpen, ReadonlyCursorStep, openReadonlyCursor, readonlyCursorFirst, readonlyCursorNext](btree.ssc)
+[FreelistTrunk, FreelistGraph, PointerMapKind, PointerMapRoot, PointerMapFreelist, PointerMapFirstOverflow, PointerMapLaterOverflow, PointerMapBtree, PointerMapEntry, lockBytePageNumber, pointerMapPageNumber, decodeFreelistTrunk, decodePointerMapEntry, validateFreelist](freelist.ssc)
+
+[StorageTreeKind, RowidTableTree, RecordKeyTree, StorageRecord, ReadonlyCursorFrame, ReadonlyBtreeCursor, PagerCursorOpen, PagerCursorStep, openReadonlyCursor, readonlyCursorFirst, readonlyCursorNext](btree.ssc)
+
+[SchemaObjectKind, SchemaTable, SchemaIndex, SchemaView, SchemaTrigger, SchemaStorageKind, SchemaRowidTable, SchemaWithoutRowidTable, SchemaIndexBtree, SchemaNoBtree, SchemaEntry, ReadonlySchema, ReadonlyDatabase](schema.ssc)
+
+[ReadonlyCursorStep, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly](readonly.ssc)
 
 [FileKind, MainDatabaseFile, MainJournalFile, WalFile, ShmFile, TempDatabaseFile, TempJournalFile, TransientFile, OpenFlags, LockLevel, LockNone, LockShared, LockReserved, LockPending, LockExclusive, SyncFlags, DeviceCharacteristic, AtomicWrite, SafeAppend, SequentialWrite, PowersafeOverwrite, UndeletableWhenOpen, AtomicDelete, ShmLockMode, ShmSharedLock, ShmExclusiveLock, ShmSharedUnlock, ShmExclusiveUnlock, VfsError, VfsRead, VfsWrite, SharedRegion, SqliteFile, SqliteVfs](vfs.ssc)
 

@@ -1,0 +1,187 @@
+#!/usr/bin/env ssc
+---
+name: scljet-readonly-pager-btree
+description: SclJet M2 immutable pager, B-tree cursor, schema, freelist, and pointer-map goldens
+backends: [int]
+---
+
+# SclJet M2 read-only pager and B-tree
+
+[ByteSlice, byteSliceUpdated, byteSliceSlice, byteSliceZeroExtend, SqliteValue, SqlNull, SqlInteger, SqlBlob, SqliteError, SqliteUnsupportedCapability, StrictSqlite, OpenReadOnly, OpenReadWrite, JournalDelete, SyncFull, SqliteLimits, SqliteOpenOptions, FileKind, MainDatabaseFile, MainJournalFile, WalFile, OpenFlags, LockLevel, LockNone, SyncFlags, DeviceCharacteristic, ShmLockMode, VfsError, VfsRead, VfsWrite, SharedRegion, SqliteFile, SqliteVfs, PageContext, FreelistTrunk, PointerMapFreelist, SchemaStorageKind, SchemaRowidTable, RecordField, StorageRecord, ReadonlyDatabase, ReadonlyCursorStep, PagerCursorOpen, PagerCursorStep, openReadonlyPager, pagerReadPage, closeReadonlyPager, decodeFreelistTrunk, decodePointerMapEntry, validateFreelist, openReadonlyCursor, readonlyCursorFirst, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly, RowidTableTree](std/scljet/index.ssc)
+
+```scalascript
+def mustBytes(values: List[Int]): ByteSlice = ByteSlice.fromList(values) match
+  case Right(bytes) => bytes
+  case Left(_) => ByteSlice.empty
+
+def zeroBytes(length: Int): ByteSlice = ByteSlice.zeros(length) match
+  case Right(bytes) => bytes
+  case Left(_) => ByteSlice.empty
+
+def putAt(bytes: ByteSlice, offset: Int, values: List[Int]): ByteSlice = values match
+  case Nil => bytes
+  case Cons(value, tail) => byteSliceUpdated(bytes, offset, value) match
+    case Right(next) => putAt(next, offset + 1, tail)
+    case Left(_) => bytes
+
+def limits(): SqliteLimits = SqliteLimits(
+  1000000L, 100, 100, 100, 100, 10, 1000000L, 100, 100,
+  1000L, 1000000L, 2, 1000L, 100, 1000000L
+)
+
+def options(cachePages: Int): SqliteOpenOptions = SqliteOpenOptions(
+  OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, 0L, cachePages, false, limits()
+)
+
+val header = List(
+  83,81,76,105,116,101,32,102,111,114,109,97,116,32,51,0,
+  2,0,1,1,0,64,32,32,0,0,0,2,0,0,0,2,0,0,0,0,0,0,0,0,
+  0,0,0,1,0,0,0,4,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,
+  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+  0,0,0,0,0,0,0,2,0,46,149,203
+)
+
+val emptyFile = zeroBytes(1024)
+val withHeader = putAt(emptyFile, 0, header)
+val withSchemaPage = putAt(withHeader, 100, List(13,0,0,0,1,1,219,0,1,219))
+val withSchemaRow = putAt(withSchemaPage, 475, List(
+  35,1,6,23,15,15,1,55,
+  116,97,98,108,101,
+  116,
+  116,
+  2,
+  67,82,69,65,84,69,32,84,65,66,76,69,32,116,40,97,44,98,44,99,41
+))
+val withTablePage = putAt(withSchemaRow, 512, List(13,0,0,0,1,1,245,0,1,245))
+val databaseBytes = putAt(withTablePage, 1013, List(9,1,4,1,17,16,254,72,105,0,255))
+
+case class FixtureFile(bytes: ByteSlice) extends SqliteFile:
+  def readAt(offset: Long, length: Int): Either[VfsError, VfsRead] =
+    byteSliceSlice(bytes, offset.toInt, length) match
+      case Right(value) => Right(VfsRead(value, None))
+      case Left(_) => Left(VfsError("io", "read outside fixture", false))
+  def writeAt(offset: Long, value: ByteSlice): Either[VfsError, VfsWrite] = Left(VfsError("readonly", "fixture is read-only", false))
+  def truncate(size: Long): Either[VfsError, Unit] = Left(VfsError("readonly", "fixture is read-only", false))
+  def sync(flags: SyncFlags): Either[VfsError, Unit] = Right(())
+  def size(): Either[VfsError, Long] = Right(bytes.length.toLong)
+  def lock(level: LockLevel): Either[VfsError, Unit] = Right(())
+  def unlock(level: LockLevel): Either[VfsError, Unit] = Right(())
+  def checkReservedLock(): Either[VfsError, Boolean] = Right(false)
+  def sectorSize: Int = 512
+  def deviceCharacteristics: List[DeviceCharacteristic] = Nil
+  def shmMap(region: Int, size: Int, extend: Boolean): Either[VfsError, SharedRegion] = Left(VfsError("unsupported", "no shm", false))
+  def shmLock(offset: Int, count: Int, mode: ShmLockMode): Either[VfsError, Unit] = Left(VfsError("unsupported", "no shm", false))
+  def shmBarrier(): Unit = ()
+  def shmUnmap(delete: Boolean): Either[VfsError, Unit] = Right(())
+  def close(): Either[VfsError, Unit] = Right(())
+
+case class FixtureVfs(main: ByteSlice, journalBytes: ByteSlice, walBytes: ByteSlice) extends SqliteVfs:
+  def name: String = "fixture"
+  def open(path: String, kind: FileKind, flags: OpenFlags): Either[VfsError, SqliteFile] = kind match
+    case MainDatabaseFile => Right(FixtureFile(main))
+    case MainJournalFile => Right(FixtureFile(journalBytes))
+    case WalFile => Right(FixtureFile(walBytes))
+    case _ => Left(VfsError("notfound", "fixture kind is absent", false))
+  def delete(path: String, syncDirectory: Boolean): Either[VfsError, Unit] = Left(VfsError("readonly", "fixture is read-only", false))
+  def exists(path: String): Either[VfsError, Boolean] =
+    if path == "/fixture.db-journal" then Right(journalBytes.length > 0)
+    else if path == "/fixture.db-wal" then Right(walBytes.length > 0)
+    else Right(path == "/fixture.db")
+  def fullPath(path: String): Either[VfsError, String] = Right("/fixture.db")
+  def randomness(length: Int): Either[VfsError, ByteSlice] = Right(zeroBytes(length))
+  def sleep(millis: Long): Unit = ()
+  def currentTimeMillis(): Long = 0L
+
+val cleanVfs = FixtureVfs(databaseBytes, ByteSlice.empty, ByteSlice.empty)
+
+def schemaLine(result: Either[SqliteError, ReadonlyDatabase]): String = result match
+  case Left(error) => "error:" + error.message
+  case Right(database) =>
+    val entry = database.schema.entries.head
+    database.pager.header.pageSize.toString + ":" + database.pager.logicalPageCount.toString + ":" +
+      database.schema.entries.length.toString + ":" + entry.name.codePoints.toString + ":" +
+      (entry.storage == SchemaRowidTable).toString
+
+println(schemaLine(openReadonly(cleanVfs, "fixture.db", options(2))))
+
+val opened = openReadonly(cleanVfs, "fixture.db", options(2)) match
+  case Right(database) => database
+  case Left(error) => throw RuntimeException(error.message)
+
+val cursor = openReadonlyRoot(opened, 2L, RowidTableTree) match
+  case Right(value) => value
+  case Left(error) => throw RuntimeException(error.message)
+
+def fieldLine(field: RecordField): String = field match
+  case RecordField(_, _, Some(SqlInteger(value)), _) => "i:" + value.toString
+  case RecordField(_, _, Some(SqlBlob(value)), _) => "b:" + value.length.toString
+  case RecordField(_, _, None, Some(text)) => "t:" + text.codePoints.toString
+  case _ => "other"
+
+def rowLine(step: Either[SqliteError, ReadonlyCursorStep]): String = step match
+  case Left(error) => "error:" + error.message
+  case Right(value) => value.row match
+    case None => "done"
+    case Some(StorageRecord(rowid, record)) => rowid.toString + ":" + record.fields.map(fieldLine).toString
+
+val first = readonlyFirst(opened, cursor)
+println(rowLine(first))
+val firstStep = first match
+  case Right(value) => value
+  case Left(error) => throw RuntimeException(error.message)
+println(rowLine(readonlyNext(firstStep.database, firstStep.cursor)))
+println(closeReadonly(firstStep.database).isRight)
+
+val onePagePager = openReadonlyPager(cleanVfs, "fixture.db", options(1)) match
+  case Right(value) => value
+  case Left(error) => throw RuntimeException(error.message)
+val page1 = pagerReadPage(onePagePager, 1L).toOption.get.pager
+val page2 = pagerReadPage(page1, 2L).toOption.get.pager
+println(page2.cache.keys.toList.sorted.toString + ":" + page2.lruOldestFirst.toString)
+println(closeReadonlyPager(page2).isRight)
+
+val hotWalVfs = FixtureVfs(databaseBytes, ByteSlice.empty, mustBytes(List(1)))
+def sidecarLine(result: Either[SqliteError, ReadonlyDatabase]): String = result match
+  case Left(error) => (error.code == SqliteUnsupportedCapability).toString
+  case Right(_) => "false"
+println(sidecarLine(openReadonly(hotWalVfs, "fixture.db", options(2))))
+
+val wrongMode = options(2).copy(mode = OpenReadWrite)
+println(openReadonly(cleanVfs, "fixture.db", wrongMode).isLeft)
+
+val context = PageContext(512, 512, 20L, limits())
+val trunkBytes = putAt(zeroBytes(512), 0, List(0,0,0,0,0,0,0,2,0,0,0,7,0,0,0,8))
+println(decodeFreelistTrunk(context, 6L, trunkBytes).toOption.get.leaves)
+
+val ptrmapBytes = putAt(zeroBytes(512), 0, List(2,0,0,0,0))
+val ptrmap = decodePointerMapEntry(context, 3L, ptrmapBytes).toOption.get
+println((ptrmap.kind == PointerMapFreelist).toString + ":" + ptrmap.parentPage.toString)
+
+val extended = byteSliceZeroExtend(databaseBytes, 2560).toOption.get
+val freelistHeader = putAt(extended, 28, List(0,0,0,5,0,0,0,3,0,0,0,3))
+val freelistDatabase = putAt(freelistHeader, 1024, List(0,0,0,0,0,0,0,2,0,0,0,4,0,0,0,5))
+val freelistPager = openReadonlyPager(FixtureVfs(freelistDatabase, ByteSlice.empty, ByteSlice.empty),
+  "fixture.db", options(2)).toOption.get
+val graph = validateFreelist(freelistPager).toOption.get
+println(graph.trunks.length.toString + ":" + graph.pages.sorted.toString)
+closeReadonlyPager(freelistPager)
+
+val autoBase = byteSliceZeroExtend(databaseBytes, 2048).toOption.get
+val autoHeader = putAt(autoBase, 28, List(0,0,0,4))
+val autoVacuumHeader = putAt(autoHeader, 52, List(0,0,0,3))
+val autoMap = putAt(autoVacuumHeader, 512, List(1,0,0,0,0))
+val autoLeafHeader = putAt(autoMap, 1024, List(13,0,0,0,1,1,251,0,1,251))
+val autoDatabase = putAt(autoLeafHeader, 1024 + 507, List(3,1,2,1,7))
+val autoPager = openReadonlyPager(FixtureVfs(autoDatabase, ByteSlice.empty, ByteSlice.empty),
+  "fixture.db", options(2)).toOption.get
+val autoCursor = openReadonlyCursor(autoPager, 3L, RowidTableTree).toOption.get
+val autoFirst = readonlyCursorFirst(autoCursor.pager, autoCursor.cursor).toOption.get
+println(autoFirst.row match
+  case Some(StorageRecord(rowid, record)) => rowid.toString + ":" + fieldLine(record.fields.head)
+  case None => "done")
+
+val badAutoDatabase = putAt(autoDatabase, 512, List(5,0,0,0,1))
+val badAutoPager = openReadonlyPager(FixtureVfs(badAutoDatabase, ByteSlice.empty, ByteSlice.empty),
+  "fixture.db", options(2)).toOption.get
+println(openReadonlyCursor(badAutoPager, 3L, RowidTableTree).isLeft)
+```
