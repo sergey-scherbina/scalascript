@@ -1767,9 +1767,12 @@ for in-process runs, and `inferType` already computes per-node `SType` (just dis
       an Int body into a Double acc is I2D'd, result type = accumulator type. SscVmTest 185/185
       (sumD(List(1,2,3,4))→10.0); conformance no new fails. (List[Double] receiver would need a
       LITERNXD unbox opcode — a follow-up if the corpus wants it.)
-- [ ] **call-arg mismatch (604/623/806)** — most false ref/numeric arg mismatches are already gone
-      (consumption #1 + C-4/5/7 type call results + if/match); AUDIT what remains — likely genuine
-      type errors, low yield. Measure before investing.
+- [x] **call-arg mismatch (604/623/806)** — AUDITED 2026-07-12, conclusion **SKIP (not safely
+      actionable)**. Both sites already widen the common false case `(TDouble param, TInt arg) → I2D`.
+      Remaining bails: `(TInt param, TDouble arg)` = Scala type error (no narrowing) → genuine; and
+      ref↔numeric = genuine OR an upstream ref-returning call result typed TInt. Fixing the latter
+      needs flipping the result VmType TInt→TRef — the SAME unsafe flip that miscompiled litdoc (C-7).
+      No local arg-site fix is safe. Frequency is moot — the fixable subclass needs the unsafe flip.
 - [ ] **RefReturn / field: no meta for type (STRUCTURAL, ~C-4-infra scale)** — `field:` bails (742
       unknown-ref-type, 756 no-meta) beyond the C-7 call-result case need broader refTypeName
       provenance (val/param-of-inferred-type, deeper chains) + full type→field-layout coverage. June:
