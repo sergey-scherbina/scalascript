@@ -1238,11 +1238,15 @@ registered value expression merely to discover another registration. A name
 that is not guaranteed by that compiler-owned spine remains an unsupported
 global at generation time. Runtime `global.reg` still installs the evaluated
 value in source order. This rule exposes `localeSignal` without allowing a
-never-executed registration to mask an unbound global.
+never-executed registration to mask an unbound global. The generation-negative
+matrix includes the exact unsafe draft shape: an outer spine registration whose
+value expression contains `global.reg("ghost", ...)` must not authorize a later
+`Global("ghost")`, in addition to definition/lambda/branch negatives.
 
 ### Portable `__throw__`, `__try__`, and recoverable conversion failures
 
-The normative oracle is FrontendBridge plus PluginBridge/v1 language behavior:
+The normative oracle is FrontendBridge plus PluginBridge/v1 intended language
+behavior:
 
 ```text
 __try__(bodyThunk, handler)
@@ -1272,12 +1276,22 @@ handlers must work without restoring an older sticky failure. An existing
 failure may not be consumed by a later unrelated `__try__`. `fatalError` and
 arbitrary Swift host bugs are not recovery mechanisms and must not be swallowed.
 
-`String.toInt` trims leading/trailing Unicode whitespace before exact Int64
-parsing, matching VM/v1 `trim.toLong`. Invalid or out-of-range input records the
-catchable deterministic runtime failure `String.toInt: invalid integer` and
-does not return `0` or expose Swift parser text. This is the failure used by
-`lower.ssc::_lenOf` to fall back from tokens such as `md`; numeric strings such
-as `" 12 "` return `12` without invoking the handler.
+`String.toInt` removes leading/trailing UTF-16 code units whose value is at most
+U+0020 before exact Int64 parsing, matching JVM/Scala `String.trim.toLong`.
+ASCII spaces/control padding therefore trims; NBSP U+00A0 does not. Invalid or
+out-of-range input records the catchable deterministic runtime failure
+`String.toInt: invalid integer` and does not return `0` or expose host parser
+text. This is the failure used by `lower.ssc::_lenOf` to fall back from tokens
+such as `md`; numeric strings such as `"\t 12 \r"` return `12` without invoking
+the handler, while `"\u00a012\u00a0"` follows the invalid-input handler path.
+
+At the start of this closure, v2 `Prims.__method__` leaked a raw
+`NumberFormatException` for invalid `String.toInt`, while PluginBridge
+`__try__` caught only `BridgeThrow` and `InterpretError`. This is a recorded
+implementation divergence, not the oracle. The slice normalizes that primitive
+failure into `InterpretError("String.toInt: invalid integer")` (or the same
+portable recoverable category) and adds focused v2 VM/PluginBridge tests before
+using PluginBridge as cross-target evidence.
 
 ### Self-hosted JSON facade on Swift
 
@@ -1293,9 +1307,12 @@ The canonical `JsonCoreString` payload is an ordered list of UTF-16 code units.
 Swift encodes from `String.utf16` and decodes with UTF-16 pairing semantics:
 BMP, valid surrogate pairs, controls, U+2028/U+2029, and astral scalars survive
 round-trip. Invalid standalone code units are bounded runtime failures, never
-silently dropped. Canonical quoting emits one lowercase four-hex `\\uXXXX` per
-UTF-16 unit; an astral scalar therefore emits its high and low surrogate pair,
-not a five/six-digit escape.
+silently dropped. The installed self-hosted renderer is authoritative and uses
+uppercase four-hex `\\uXXXX` escapes (`A😀` becomes
+`A\\uD83D\\uDE00`). Only the no-renderer native fallback follows the existing
+provider fallback's lowercase four-hex form (`\\ud83d\\ude00`). Both emit one
+escape per UTF-16 unit, never a five/six-digit scalar escape, and each path is
+gated separately.
 
 The existing provider contract remains exact:
 
@@ -1311,12 +1328,16 @@ The existing provider contract remains exact:
   `asInt` uses total truncating low-64-bit conversion matching
   `BigDecimal.longValue`; `optInt` accepts number or string values whose exact
   decimal value is integral (including `1.0` and `1e3`) and returns `None` for
-  fractional/invalid input;
+  fractional/invalid input. A huge integral value returns `Some` of the same
+  low 64 bits as `BigDecimal.longValue`; the matrix pins
+  `18446744073709551617` to `Some(1)`;
 - `lookup`/`lookupOpt` preserve the reference missing/null distinctions across
   a JsonValue, insertion-ordered map, list, and UTF-16-indexed string;
 - ordinary values encode through `__jsonCoreEncodeValue`: BigInt and Decimal
   remain exact, non-finite Float is a bounded runtime failure, maps sort object
-  fields by the reference key text, and a closure becomes `"<function>"`;
+  fields by the exact v2 `Value.toString` key text for non-string keys (for
+  example `IntV(1)` and `BoolV(true)`), while string keys remain their literal
+  contents, and a closure becomes `"<function>"`;
 - malformed JsonCore/list/field/code-unit shapes and unrepresentable numeric
   conversions fail through the catchable runtime category. They never
   `fatalError`, silently discard data, or manufacture a different value.
@@ -1325,8 +1346,9 @@ The real regression is a checked application fixture containing `text`,
 `heading`, `styled` with both token and numeric lengths, `defaultTheme`,
 `lower`, and `serve`, plus the production-shaped busi locale/JSON/keyed-list
 fixture. Snapshot/string inspection alone is insufficient: generated SwiftPM
-must execute, and the same checked application must pass the assembled macOS
-and iOS Xcode gates.
+must execute and its lowered ABI/style must prove `md` resolves to `16px` while
+the numeric `12` resolves to `12px`; the same checked application must pass the
+assembled macOS and iOS Xcode gates.
 
 ## Behavior
 
@@ -1379,11 +1401,14 @@ and iOS Xcode gates.
   checked-source fixture executes as real Swift with token fallback and numeric
   conversion, rather than bypassing the toolkit lowerer.
 - [ ] Entry-init module registrations expose `localeSignal`; a registration in
-  a definition/lambda/dead branch cannot authorize an unbound global.
+  a definition/lambda/dead branch or inside an outer registration value cannot
+  authorize an unbound global.
 - [ ] Swift `__throw__` preserves the exact ADT/value payload and `__try__`
   distinguishes explicit throw from recoverable runtime failure.
 - [ ] Successful, invalid/trimmed-conversion, nested handler rethrow/runtime
-  failure, and non-catchable host-negative cases execute under real Swift.
+  failure, and non-catchable host-negative cases execute under real Swift;
+  v2 VM/PluginBridge also normalize invalid `String.toInt` without leaking
+  `NumberFormatException`, while NBSP remains non-trimmed.
 - [ ] Swift `JsonValue` matches the self-hosted renderer and provider facade for
   every accessor, lookup, missing/null case, UTF-16 escape, exact number class,
   deterministic encoding, and bounded malformed/non-finite failure.
