@@ -89,13 +89,9 @@ Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
       value in later imported functions/methods. Reproduce cross-module and make
       generated constructor dispatch independent of declaration order.
 
-- [ ] **v1-args-native-method-gap** (2026-07-08) — the v1 interpreter lane fails
-      `args.length` with `No method 'length' on NativeFnV(<native:args>)` (same
-      class as the fixed v2 v2-args-global-shadowed-by-native, BUGS.md): the bare
-      parameterless-extern auto-call fix does not cover method-receiver position.
-      Repro: `bin/ssc run --v1` on a file with `val n = args.length`. Fix on the
-      v1 side: force parameterless natives in receiver position (or bind `args`
-      as a value list like v2 now does).
+- [x] **v1-args-native-method-gap** — DONE (git): dispatch auto-calls a parameterless
+      plugin-native receiver + re-dispatches (gated on pluginNativeNames). Verified
+      args.length / cwd.startsWith. Bare-value position (println(args)) still open (separate).
 
 - **v2-arith-unification** (2026-07-08) — ✓ Landed (2026-07-09,
       `a2985d911`): TWO diverged arith implementations:
