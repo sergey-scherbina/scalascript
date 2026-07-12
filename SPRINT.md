@@ -2999,6 +2999,17 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     an unhandled effect ABI; bind that exact
                                     operation explicitly without a catch-all or
                                     compatibility fallback.
+                                    - [ ] **TI-8.2d3k2a tuple-field pattern
+                                          boundary:** the exact provider ABI
+                                          advances log aggregation to green but
+                                          join reveals that nested `lpat` and
+                                          `tpat` fields are never checked/bound.
+                                          Specify ordered literal/typed field
+                                          obligations, add a focused imported
+                                          regression, preserve strict CoreIR
+                                          tags, and make join VM/ASM byte-exact.
+                                          Track as
+                                          `v21-native-tuple-field-patterns`.
                               - [ ] **TI-8.2d3k3 assembled contract:** add fixed
                                     CSV/log inputs and exact outputs for both
                                     public examples on VM/direct ASM/build-jvm.

@@ -1,5 +1,30 @@
 # Bug tracker
 
+## v21-native-tuple-field-patterns — tuple literal/typed fields are unchecked
+
+**Status:** open (2026-07-12); found by codex after binding the distributed
+registry provider ABI.
+
+- **Real-harness repro:** after staging the distributed provider, run
+  `bin/ssc run --native examples/distributed-join.ssc --
+  tests/fixtures/v21-native/distributed-orders.csv
+  tests/fixtures/v21-native/distributed-customers.csv` and repeat with
+  `--bytecode`.
+- **Observed:** VM prints five malformed rows (both customer and order tuple
+  filters accept every `Tuple4`); ASM prints six malformed rows and duplicates
+  two orders. Neither matches compatibility output. The generated CoreIR turns
+  `case ("customer", _, _, _)` and `case ("order", _, _, _)` into unconditional
+  `Tuple4` arms, and typed tuple fields such as `name: String` lose their binder.
+- **Root cause:** `fldBinder` recognizes only `vpat`; `fldObligations` recognizes
+  only nested `cpat`. Literal (`lpat`) and typed (`tpat`) constructor fields are
+  therefore represented by dummy locals but never tested or correctly bound.
+- **Expected/done-when:** ordered nested field obligations test literal equality
+  and portable typed tags, retain typed binders at the correct field position,
+  fall through to the next source arm on failure, and produce exact identical
+  distributed-join output on native VM/direct ASM. Add a focused multi-file
+  regression and rerun all release gates; do not weaken the CoreIR matcher or
+  add host reflection/fallback.
+
 ## v21-native-distributed-loopback-provider-missing — NamedHandler is absent from standard runtime
 
 **Status:** open (2026-07-12); found by codex after the core-free Actors slice
@@ -16,6 +41,10 @@ landed while continuing TI-8.2d3.
   method through the effect ABI rather than the registered method-object field.
   Resolve that exact structural/effect ownership in the core-free provider or
   lowerer; do not install a catch-all effect fallback.
+- **Third boundary after exact ABI binding:** log aggregation is byte-exact on
+  VM/ASM. Join exits zero but exposes separately tracked
+  `v21-native-tuple-field-patterns`; its literal and typed tuple fields are not
+  enforced by self-hosted lowering.
 - **Expected:** a required core-free provider owns the exact named-handler,
   stage, local-loopback cluster, distributed map/filter, shuffle group/reduce,
   result, and close contracts used by these two standard examples. Fixed input
