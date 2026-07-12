@@ -4,6 +4,11 @@ import scalascript.uniml.*
 import scala.collection.mutable
 
 private[yaml] object YamlStructure:
+  private[yaml] final case class Result(
+      tokens: Vector[VmToken],
+      diagnostics: Vector[Diagnostic],
+  )
+
   private final case class Range(
       kind: String,
       role: Option[String],
@@ -20,13 +25,13 @@ private[yaml] object YamlStructure:
       var last: Int,
   )
 
-  def assign(tokens: Vector[SourceToken]): Vector[VmToken] =
-    if tokens.isEmpty then Vector.empty
+  def assign(tokens: Vector[SourceToken]): Result =
+    if tokens.isEmpty then Result(Vector.empty, Vector.empty)
     else
       val ranges = streamAndDocuments(tokens) ++ blockRanges(tokens) ++ flowRanges(tokens)
       val opens = ranges.groupBy(_.start)
       val closes = ranges.groupBy(_.end)
-      tokens.indices.map { index =>
+      val assigned = tokens.indices.map { index =>
         val opening = opens.getOrElse(index, Vector.empty).sortBy(range => (range.rank, -range.end))
         val closing = closes.getOrElse(index, Vector.empty).sortBy(range => (-range.rank, -range.start))
         val instruction =
@@ -39,6 +44,7 @@ private[yaml] object YamlStructure:
           else VmInstruction.Emit(tokenRole(tokens(index)))
         VmToken(tokens(index), instruction)
       }.toVector
+      Result(assigned, validateFlow(tokens))
 
   private def streamAndDocuments(tokens: Vector[SourceToken]): Vector[Range] =
     val result = Vector.newBuilder[Range]
@@ -46,7 +52,12 @@ private[yaml] object YamlStructure:
     val documentStarts = tokens.indices.filter(index => tokens(index).kind == "yaml.document-start").toVector
     if documentStarts.isEmpty then result += Range("yaml.document", Some("stream.document"), 0, tokens.size - 1, 1)
     else
-      val starts = if documentStarts.head == 0 then documentStarts else 0 +: documentStarts
+      val meaningfulBeforeFirst = tokens.take(documentStarts.head).exists(token =>
+        token.channel == TokenChannel.Syntax && token.kind != "yaml.directive"
+      )
+      val starts =
+        if meaningfulBeforeFirst then 0 +: documentStarts
+        else 0 +: documentStarts.tail
       starts.indices.foreach { position =>
         val start = starts(position)
         val end = if position + 1 < starts.size then starts(position + 1) - 1 else tokens.size - 1
@@ -129,6 +140,36 @@ private[yaml] object YamlStructure:
         case _ => ()
     }
     result.result()
+
+  private def validateFlow(tokens: Vector[SourceToken]): Vector[Diagnostic] =
+    val diagnostics = Vector.newBuilder[Diagnostic]
+    val stack = mutable.ArrayBuffer.empty[(Char, SourceToken)]
+    tokens.foreach { token =>
+      token.lexeme match
+        case "[" | "{" => stack += ((token.lexeme.head, token))
+        case "]" | "}" =>
+          val expected = if token.lexeme == "]" then '[' else '{'
+          if stack.isEmpty || stack.last._1 != expected then
+            diagnostics += Diagnostic(
+              "uniml.yaml.unexpected-flow-close",
+              s"unexpected YAML flow delimiter '${token.lexeme}'",
+              Severity.Error,
+              Some(token.span),
+              Some(YamlDialect.id),
+            )
+          else stack.remove(stack.size - 1)
+        case _ => ()
+    }
+    stack.foreach { (delimiter, token) =>
+      diagnostics += Diagnostic(
+        "uniml.yaml.unclosed-flow",
+        s"unclosed YAML flow delimiter '$delimiter'",
+        Severity.Error,
+        Some(token.span),
+        Some(YamlDialect.id),
+      )
+    }
+    diagnostics.result()
 
   private def flowRole(parent: Option[Char]): String = parent match
     case Some('[') => "sequence.item"

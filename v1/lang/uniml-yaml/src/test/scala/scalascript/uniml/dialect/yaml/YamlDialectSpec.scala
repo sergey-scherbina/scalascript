@@ -70,6 +70,7 @@ final class YamlDialectSpec extends AnyFunSuite:
     assert(sourceText(result) == text)
     val stream = projected(result)
     assert(stream.documents.size == 2)
+    assert(branchKinds(result).count(_ == "yaml.document") == 2)
     assert(stream.documents.head.directives.map(_.name) == Vector("YAML"))
     assert(stream.documents.head.directives.head.lexeme == "%YAML 1.2")
     assert(result.roots.flatMap(UniNode.sourceTokens).exists(_.kind == "yaml.comment"))
@@ -143,8 +144,12 @@ final class YamlDialectSpec extends AnyFunSuite:
     assert(limited.diagnostics.exists(_.code == "uniml.yaml.limit.source"))
   }
 
-  test("malformed flow syntax is returned as a structured projection error") {
-    val projection = Yaml.project(parse("value: [1, 2\n"))
+  test("malformed flow syntax returns a partial CST and a structured parse error") {
+    val result = parse("value: [1, 2\n")
+    assert(result.status == CompletionStatus.Incomplete)
+    assert(sourceText(result) == "value: [1, 2\n")
+    assert(result.diagnostics.exists(_.code == "uniml.yaml.unclosed-flow"))
+    val projection = Yaml.project(result)
     assert(projection.value.isEmpty)
     assert(projection.diagnostics.exists(_.code == "uniml.yaml.unclosed-flow"))
   }

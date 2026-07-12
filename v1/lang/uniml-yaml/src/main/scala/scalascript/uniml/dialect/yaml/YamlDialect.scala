@@ -75,7 +75,7 @@ private final class YamlInstructionProcessor(source: SourceId, limits: YamlLimit
       else
         val lexed = YamlLexer.scan(source, input.result(), limits)
         val structured = YamlStructure.assign(lexed.tokens)
-        ProcessBatch(structured, lexed.diagnostics)
+        ProcessBatch(structured.tokens, lexed.diagnostics ++ structured.diagnostics)
 
   private val afterFinishDiagnostic = Diagnostic(
     code = "uniml.yaml.finished",
