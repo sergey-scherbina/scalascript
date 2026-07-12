@@ -469,7 +469,7 @@ http_port=$((32000 + ($$ % 10000)))
 [[ $(run_native "$FIXTURES/http-server-provider.ssc" -- "$http_port") == $'203\npong:/ping' ]]
 [[ $(run_native --bytecode "$FIXTURES/http-server-provider.ssc" -- "$((http_port + 1))") == $'203\npong:/ping' ]]
 [[ $(PATH="$clean_path" JAVA_TOOL_OPTIONS="-Djava.io.tmpdir=$sandbox/java-tmp" SSC_NO_CDS=1 \
-  "$ROOT/bin/ssc" run --compat-frontend "$ROOT/examples/hello.ssc") == 'Hello, World!' ]]
+  "$ROOT/bin/ssc-tools" run --compat-frontend "$ROOT/examples/hello.ssc") == 'Hello, World!' ]]
 
 [[ $(run_native "$FIXTURES/http-server-fast-feature.ssc") == '' ]]
 [[ $(run_native --bytecode "$FIXTURES/http-server-fast-feature.ssc") == '' ]]
