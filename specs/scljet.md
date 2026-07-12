@@ -233,7 +233,10 @@ table is keyed by chunk number and slices retain a `(start, length)` window.
 Consequently indexed access performs one map lookup plus at most 63 bounded
 list steps, independent of the total byte length. Construction validates every
 input value before exposing a slice, and all update/copy operations preserve
-the `0..255` invariant.
+the `0..255` invariant. Chunk selection uses
+`(absolute - (absolute % 64)) / 64`, which is equivalent to non-negative
+integer floor division and remains exact even on a backend that temporarily
+loses local integer type evidence.
 
 ```scalascript
 case class ByteError(code: String, message: String, offset: Int)
