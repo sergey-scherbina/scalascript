@@ -1762,9 +1762,11 @@ for in-process runs, and `inferType` already computes per-node `SType` (just dis
       (name an already-correct ref); never change a value's VmType (ripples).
 
 ### JIT coverage backlog — remaining bail classes (post C-1..7), in tractability order
-- [ ] **C-8 foldLeft-Double** — `foldLeft`/fold specialisation is Int-accumulator only (VmCompiler
-      ~509/525 "non-Int accumulator/lambda body (Slice A)"). Extend to a Double accumulator (I2D the
-      seed, FADD/FMUL in the body). Separate feature from the widening line; moderate.
+- [x] **C-8 foldLeft-Double** `b6c490e22` — Slice A foldLeft now allows a Double accumulator over
+      List[Int] (`foldLeft(0.0)((a,x)=>a+x)`): element stays Int (LITERNXI), the a+x body widens x,
+      an Int body into a Double acc is I2D'd, result type = accumulator type. SscVmTest 185/185
+      (sumD(List(1,2,3,4))→10.0); conformance no new fails. (List[Double] receiver would need a
+      LITERNXD unbox opcode — a follow-up if the corpus wants it.)
 - [ ] **call-arg mismatch (604/623/806)** — most false ref/numeric arg mismatches are already gone
       (consumption #1 + C-4/5/7 type call results + if/match); AUDIT what remains — likely genuine
       type errors, low yield. Measure before investing.
