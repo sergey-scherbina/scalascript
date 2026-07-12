@@ -1,6 +1,6 @@
 feature/v2-swift-nativeui-i18n-json 2026-07-12T10:15:00Z
 agent: codex
-heartbeat: 2026-07-12T09:12:26Z
+heartbeat: 2026-07-12T10:03:12Z
 status: in-progress
 done-so-far: Takeover after stale heartbeat/no Rozum ACK; preserving the dirty foreign worktree.
 Independent Rozum reviewers BLOCKED the current __try__/JSON WIP on exact-value throw/runtime/host
@@ -20,8 +20,8 @@ NOTE: found an existing, apparently-stale claim .work/active/v1-json-core-intrin
 gap — __jsonCore* intrinsics missing from the v1 INTERPRETER (not the Swift backend codegen).
 Not the same file/subsystem as this claim's target, but cross-referencing for awareness in
 case that agent is still active.
-next: Stop only the hung owner test/app; commit BUGS+SPRINT planning and spec-only exact semantics,
-request Rozum spec APPROVE, then correct the preserved WIP and run real Swift/Apple/full gates.
+next: Finish standard lower and production-shaped Swift regressions, request Rozum code review,
+then run assembled Swift/Apple/conformance gates and close docs/bookkeeping.
 Original next: (1) localeSignal first — smallest, cleanest, matches the existing onlineSignal/
 persistedSignal ABI pattern (add to nativeUiPublicGlobals + a Swift-side NativeUiSignal
 reflecting locale, default likely fixed/en or device locale). (2) __jsonCoreWrap — larger,
