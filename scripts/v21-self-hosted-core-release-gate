@@ -8,6 +8,9 @@ ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)
 quick=0
 skip_install=0
 report_dir=${V21_RELEASE_REPORT_DIR:-"$ROOT/target/v21-self-hosted-core-release"}
+freeze_optional=skipped
+freeze_tools=skipped
+freeze_blockers=skipped
 
 usage() {
   cat <<'EOF'
@@ -42,6 +45,7 @@ fi
 "$ROOT/scripts/v21-core-dependency-gate" --strict-parsers \
   --report "$report_dir/dependencies.tsv"
 "$ROOT/tests/e2e/v21-core-dependency-gate-smoke.sh"
+"$ROOT/tests/e2e/v21-runtime-taxonomy-freeze-smoke.sh"
 
 "$ROOT/tests/e2e/v21-self-hosted-json-core-smoke.sh"
 "$ROOT/tests/e2e/v21-self-hosted-json-cutover-smoke.sh"
@@ -80,6 +84,12 @@ if [[ $quick -eq 0 ]]; then
     --parity-report "$report_dir/bytecode-parity.tsv" \
     --sentinel-report "$report_dir/sentinel-taxonomy.tsv" \
     --report "$report_dir/runtime-taxonomy.tsv"
+  "$ROOT/scripts/v21-runtime-taxonomy-freeze" \
+    --taxonomy-report "$report_dir/runtime-taxonomy.tsv" \
+    --report "$report_dir/runtime-freeze.tsv"
+  freeze_optional=$(awk -F '\t' '$1 == "optional-provider" { print $2 }' "$report_dir/runtime-freeze.tsv")
+  freeze_tools=$(awk -F '\t' '$1 == "tools-backend" { print $2 }' "$report_dir/runtime-freeze.tsv")
+  freeze_blockers=$(awk -F '\t' '$1 == "blocker-total" { print $2 }' "$report_dir/runtime-freeze.tsv")
 fi
 
 "$ROOT/tests/conformance/run.sh" --only 'v2-*' --no-memo
@@ -95,6 +105,9 @@ fi
   printf 'slim.tools-present\tfalse\n'
   printf 'build-jvm.reproducible\ttrue\n'
   printf 'corpus.full\t%s\n' "$([[ $quick -eq 0 ]] && echo pass || echo skipped)"
+  printf 'runtime.optional-provider.freeze\t%s\n' "$freeze_optional"
+  printf 'runtime.tools-backend.freeze\t%s\n' "$freeze_tools"
+  printf 'runtime.blocker-total.freeze\t%s\n' "$freeze_blockers"
   printf 'release.ready\ttrue\n'
 } | tee "$report_dir/summary.tsv"
 

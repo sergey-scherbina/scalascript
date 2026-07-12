@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# Exact TI-8.2d5 release snapshot over the reviewed runtime taxonomy report.
+set -euo pipefail
+export LC_ALL=C
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)
+taxonomy="$ROOT/target/v21-self-hosted-core-release/runtime-taxonomy.tsv"
+expected="$ROOT/tests/fixtures/v21-runtime-taxonomy/release-freeze.tsv"
+report="$ROOT/target/v21-runtime-taxonomy-freeze.tsv"
+
+usage() {
+  echo 'usage: scripts/v21-runtime-taxonomy-freeze [--taxonomy-report PATH] [--expected PATH] [--report PATH]'
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --taxonomy-report) taxonomy=$2; shift 2 ;;
+    --expected) expected=$2; shift 2 ;;
+    --report) report=$2; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "v21-runtime-taxonomy-freeze: unknown option: $1" >&2; usage >&2; exit 2 ;;
+  esac
+done
+
+for input in "$taxonomy" "$expected"; do
+  [[ -f $input ]] || { echo "v21-runtime-taxonomy-freeze: missing input: $input" >&2; exit 2; }
+done
+mkdir -p "$(dirname -- "$report")"
+
+if ! awk -F '\t' -v OFS='\t' '
+  BEGIN {
+    known["example-contract"]=1
+    known["language-runtime"]=1
+    known["optional-provider"]=1
+    known["standard-provider"]=1
+    known["tools-backend"]=1
+    known["blocker-total"]=1
+    known["total"]=1
+  }
+  FILENAME == ARGV[1] {
+    if (FNR == 1 || $1 == "") next
+    if (!($1 in known)) { print "unknown freeze metric: " $1 > "/dev/stderr"; bad=1; next }
+    if ($1 in expected) { print "duplicate freeze metric: " $1 > "/dev/stderr"; bad=1; next }
+    expected[$1]=$2 + 0
+    next
+  }
+  FILENAME == ARGV[2] {
+    if (FNR == 1 || $1 == "") next
+    category=$2
+    if (!(category in known) || category == "blocker-total" || category == "total") {
+      print "unknown runtime category: " category > "/dev/stderr"; bad=1; next
+    }
+    count[category]++
+    total++
+    if ($3 == "yes") blockers++
+    next
+  }
+  END {
+    count["blocker-total"]=blockers + 0
+    count["total"]=total + 0
+    split("example-contract language-runtime optional-provider standard-provider tools-backend blocker-total total", order, " ")
+    print "metric", "value"
+    for (i=1; i<=7; i++) {
+      metric=order[i]
+      if (!(metric in expected)) {
+        print "missing freeze metric: " metric > "/dev/stderr"; bad=1
+      } else if ((count[metric] + 0) != expected[metric]) {
+        print "freeze drift: " metric "=" (count[metric] + 0) " expected " expected[metric] > "/dev/stderr"; bad=1
+      }
+      print metric, (count[metric] + 0)
+    }
+    if (bad) exit 1
+  }
+' "$expected" "$taxonomy" > "$report"; then
+  exit 1
+fi
+
+cat "$report"
+echo "REPORT: $report"
+echo 'PASS v21-runtime-taxonomy-freeze'
