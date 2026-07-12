@@ -16,17 +16,34 @@ DOCTYPE spelling, namespaces, attributes, mixed content, CDATA, comments, proces
 references, and whitespace while keeping external entity/schema/network resolution disabled; project
 the validated CST into the existing `scalascript.markup.Markup` model where that model is lossless.
 
-- [ ] **uniml-xml-0-spec** — write and commit `specs/uniml-xml.md` before code. Define XML 1.0
+- [x] **uniml-xml-0-spec** — DONE 2026-07-12 (`b11a120c5`, clarified by `9f36a30d0`). Pinned the
+      lossless/no-I/O profile to XML 1.0 Fifth Edition and Namespaces in XML 1.0, specifying tokens,
+      VM roles, QName/namespace rules, opaque DOCTYPE/entity policy, diagnostics, bounded M2 scan,
+      `Markup` projection losses, security, limits, targets and exclusions. Original plan: write and
+      commit `specs/uniml-xml.md` before code. Define XML 1.0
       conformance profile, token/CST roles, streaming lexical states, element stack and QName checks,
       namespace scopes, attribute uniqueness, entity/reference policy, DOCTYPE handling, diagnostics,
       limits, chunk invariance, `Markup` projection limits, security, corpora, and exclusions.
-- [ ] **uniml-xml-1-adapter** — implement separate `unimlXml`/`unimlXmlJs` cross-projects depending
+- [x] **uniml-xml-1-adapter** — DONE 2026-07-12 (`54b61ba5b`). Added separate JVM/Scala.js projects
+      depending on UniML and markup-core. The bounded scanner preserves declarations/DOCTYPE/tags,
+      attributes, exact mixed content constructs and chunk invariance, while an explicit QName stack
+      emits balanced common VM instructions. Original plan: implement separate
+      `unimlXml`/`unimlXmlJs` cross-projects depending
       on UniML; add chunk-stable XML tokenization and an iterative structural processor emitting one
       VM instruction per token for documents/elements and exact tokens for attributes/mixed content.
-- [ ] **uniml-xml-2-validation-projection** — validate start/end QName equality, one root element,
+- [x] **uniml-xml-2-validation-projection** — DONE 2026-07-12 (`54b61ba5b`, `30befecea`). Validates
+      tag/root/DOCTYPE structure, exact XML legal characters and Name ranges, raw/expanded duplicate
+      attributes, namespace scopes/reserved bindings/unbound prefixes, references and opaque entity
+      policy. Safe CSTs project to resolved existing `Markup.Doc`; custom entities block projection
+      and pre-root misc reports its model loss. Original plan: validate start/end QName equality, one root element,
       declaration/DOCTYPE positions, namespace bindings, duplicate expanded attributes, references,
       comments/CDATA/PI constraints, then project compatible valid CSTs to existing `Markup.Doc`.
-- [ ] **uniml-xml-3-verify** — cover XML declaration, namespaces/default namespace, attributes, empty
+- [x] **uniml-xml-3-verify** — DONE 2026-07-12. UniML XML is 13/13 on both JVM and Scala.js;
+      existing markup-core remains 17/17 on both; affected content conformance is 6/6 across all
+      requested lanes. The tests cover declarations, namespaces, attributes, empty/nested/mixed
+      content, CDATA/comments/PIs/DOCTYPE/references, every split, malformed/security/limit cases,
+      namespace/entity projection boundaries and exact QName ranges. Original plan: cover XML declaration,
+      namespaces/default namespace, attributes, empty
       elements, mixed content, CDATA/comments/PIs/DOCTYPE/references, arbitrary chunk splits,
       malformed/truncated/security cases and limits on JVM+Scala.js; run markup/XML conformance,
       verify spec behaviors, record changelog/sprint, publish, release, and continue to the next M3.

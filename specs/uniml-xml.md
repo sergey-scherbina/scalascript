@@ -62,57 +62,57 @@ returns no `Markup.Doc` when any Error/Fatal diagnostic exists.
 
 ### Lossless XML CST
 
-- [ ] A document with optional XML declaration, prolog Misc, optional DOCTYPE, exactly one root
+- [x] A document with optional XML declaration, prolog Misc, optional DOCTYPE, exactly one root
       element, and trailing Misc produces exact source tokens in order with code-point spans.
-- [ ] Start, end, and empty-element tags build balanced `xml.element` branches. The CST retains exact
+- [x] Start, end, and empty-element tags build balanced `xml.element` branches. The CST retains exact
       prefix/local spelling, attribute order, quote choice, whitespace, `=`, `>`, `/>`, and `</...>`.
-- [ ] Nested elements and mixed content preserve text, predefined/numeric/general references, CDATA,
+- [x] Nested elements and mixed content preserve text, predefined/numeric/general references, CDATA,
       comments, and processing instructions in their original order without executing or expanding
       source-backed constructs in the CST.
-- [ ] XML declarations preserve version/encoding/standalone spelling and are accepted only at the
+- [x] XML declarations preserve version/encoding/standalone spelling and are accepted only at the
       beginning. XML 1.1 declarations are rejected under `xml.1.0`.
-- [ ] DOCTYPE declarations, including a balanced internal subset, are retained as exact opaque CST
+- [x] DOCTYPE declarations, including a balanced internal subset, are retained as exact opaque CST
       tokens. External identifiers are data only; no SYSTEM/PUBLIC resource is opened.
-- [ ] Documents with zero or multiple root elements, non-whitespace character data outside the root,
+- [x] Documents with zero or multiple root elements, non-whitespace character data outside the root,
       mismatched/unclosed tags, duplicate raw attribute QNames, illegal XML characters/names,
       malformed references/comments/CDATA/PIs/declarations/DOCTYPE, or extra declaration/DOCTYPE
       positions are incomplete with stable diagnostics.
 
 ### Namespaces and attributes
 
-- [ ] Namespace scopes are immutable per element: `xmlns` changes the default element namespace;
+- [x] Namespace scopes are immutable per element: `xmlns` changes the default element namespace;
       `xmlns:p` binds prefixes; default namespace never applies to unprefixed attributes.
-- [ ] Element and attribute QNames have at most one colon, non-empty prefix/local parts, and valid XML
+- [x] Element and attribute QNames have at most one colon, non-empty prefix/local parts, and valid XML
       Name characters. Every used prefix is bound except reserved `xml`; `xmlns` is declaration-only.
-- [ ] Reserved bindings follow Namespaces in XML: `xml` is fixed to its standard URI, `xmlns` cannot
+- [x] Reserved bindings follow Namespaces in XML: `xml` is fixed to its standard URI, `xmlns` cannot
       be rebound/used normally, other prefixes cannot bind the XML/XMLNS URIs, and prefixed undeclare
       is rejected in the XML Namespaces 1.0 profile.
-- [ ] Attributes are unique by expanded name `(namespace URI, local name)`, not merely raw QName;
+- [x] Attributes are unique by expanded name `(namespace URI, local name)`, not merely raw QName;
       namespace declarations themselves are unique by declared prefix.
 
 ### References and security
 
-- [ ] `&lt;`, `&gt;`, `&amp;`, `&apos;`, `&quot;`, decimal `&#...;`, and hexadecimal `&#x...;` project to
+- [x] `&lt;`, `&gt;`, `&amp;`, `&apos;`, `&quot;`, decimal `&#...;`, and hexadecimal `&#x...;` project to
       legal XML characters while their exact reference spellings stay in the CST.
-- [ ] Other general entity references remain exact unresolved reference nodes. Parsing performs no
+- [x] Other general entity references remain exact unresolved reference nodes. Parsing performs no
       entity expansion; `Markup` projection fails explicitly unless a future caller supplies a
       bounded resolver. Parameter entity references outside the opaque DOCTYPE are errors.
-- [ ] Literal `<`/`&` in character/attribute data, `]]>` in ordinary character data, `--` inside a
+- [x] Literal `<`/`&` in character/attribute data, `]]>` in ordinary character data, `--` inside a
       comment, `?>` misuse, `<` inside attribute values, invalid numeric code points, and raw unpaired
       surrogates are rejected.
-- [ ] External entities, XInclude, schemas, XSLT, network, filesystem, environment, reflection, and
+- [x] External entities, XInclude, schemas, XSLT, network, filesystem, environment, reflection, and
       code execution are absent from parse/validate/project code paths.
 
 ### Streaming, limits, and targets
 
-- [ ] Tokens, instructions, CST, diagnostics, validation, and projection are identical for every
+- [x] Tokens, instructions, CST, diagnostics, validation, and projection are identical for every
       `SourceChunk` boundary, including boundaries inside delimiters, QNames, references, CDATA,
       comments, PIs, DOCTYPE subsets, and Unicode surrogate pairs.
-- [ ] The M2 adapter retains at most one source buffer bounded by `maxSourceCodePoints`; lexical,
+- [x] The M2 adapter retains at most one source buffer bounded by `maxSourceCodePoints`; lexical,
       structural, and namespace passes use explicit indices/stacks and never input-controlled recursion.
-- [ ] Source/name/attribute/text/DOCTYPE plus core depth/node/token/diagnostic limits produce bounded
+- [x] Source/name/attribute/text/DOCTYPE plus core depth/node/token/diagnostic limits produce bounded
       fatal diagnostics rather than allocation, stack, or platform failures.
-- [ ] Focused XML suites pass unchanged on JVM and Scala.js; `Markup` projection agrees with
+- [x] Focused XML suites pass unchanged on JVM and Scala.js; `Markup` projection agrees with
       `PureMarkupCodec` on their shared secure subset.
 
 ## Token model
@@ -285,4 +285,27 @@ v1/lang/uniml-xml/
 
 ## Results
 
-To be filled after implementation and verification.
+M2 landed in `54b61ba5b` with exact XML 1.0 Fifth Edition QName enforcement in `30befecea`.
+Verification on 2026-07-12:
+
+```text
+scripts/sbtc ";unimlXml/test;unimlXmlJs/test;markupCore/test;markupCoreJs/test"
+# UniML XML JVM:      13/13
+# UniML XML Scala.js: 13/13
+# markup-core JVM:    17/17
+# markup-core JS:     17/17
+
+tests/conformance/run.sh --only 'content*'
+# 6 passed, 0 failed across INT/JS/JVM
+
+git diff --check
+# clean
+```
+
+Coverage includes declarations, opaque balanced DOCTYPE subsets, explicit/empty/nested elements,
+attribute quote/order preservation, mixed text/references/CDATA/comments/PIs, every two-chunk split
+including a surrogate split, malformed/truncated constructs, XML legal characters and exact Fifth
+Edition Name ranges, source/name/depth limits, one-root/tag matching, raw and expanded attribute
+duplicates, default/prefixed/reserved namespace rules, unresolved entity refusal, DOCTYPE/root
+matching, secure `Markup` projection, and its explicit lossy-prolog warning. No external resource is
+opened by the module.

@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-12 — UniML secure lossless XML 1.0 dialect
+
+The new `scalascript-uniml-xml` cross-module reads XML 1.0 Fifth Edition into the common UniML VM,
+preserving declarations, opaque DOCTYPE subsets, exact tags/attributes, mixed text, references,
+CDATA, comments, PIs, whitespace, QNames, and arbitrary chunk boundaries. It validates root/tag
+structure, exact XML Name ranges, namespace scopes/reserved bindings and expanded attribute
+uniqueness without loading any external resource. Safe CSTs project into the existing resolved
+`Markup.Doc`; custom entities remain lossless but explicitly block projection. Landed in
+`54b61ba5b`/`30befecea`; UniML XML is 13/13 and markup-core 17/17 on both JVM and Scala.js, with 6/6
+affected content conformance.
+
 ## 2026-07-12 — UniML strict RFC 8259 JSON dialect
 
 The new `scalascript-uniml-json` cross-module reads strict RFC 8259 JSON through the common UniML
