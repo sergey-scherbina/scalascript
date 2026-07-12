@@ -374,6 +374,21 @@ lazy val v2NativeOpticsPlugin = project
     scalacOptions ++= Seq("-deprecation", "-feature"),
   )
 
+// Explicit, opt-in PDF provider. Its renderer/parser dependencies are staged
+// under bin/lib/providers/pdf and never enter the standard launcher graph.
+lazy val v2NativePdfPlugin = project
+  .in(file("v2/runtime/providers/pdf-plugin"))
+  .dependsOn(v2NativePluginSpi)
+  .settings(
+    name := "scalascript-v2-native-pdf-plugin",
+    libraryDependencies ++= Seq(
+      "com.openhtmltopdf" % "openhtmltopdf-pdfbox" % "1.0.10",
+      "org.jsoup"         % "jsoup"                % "1.17.2",
+      scalatestTest,
+    ),
+    scalacOptions ++= Seq("-deprecation", "-feature"),
+  )
+
 lazy val v2PluginBridge = project
   .in(file("v2/plugin-bridge"))
   // backendInterpreterServer: the REAL web server (route/serveAsync/stop) is
@@ -1268,7 +1283,7 @@ lazy val cli = project
   // cluster tests (which spawn `java -jar ssc.jar` nodes) died with
   // "runActors requires the actors plugin" — actorsPlugin was staged for
   // installBin but missing here.
-  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendRust, backendInterpreter, backendInterpreterServer, runtimeServerJvmFast, backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap, frontendCore, graphPlugin, deployPlugin, httpPlugin, wsPlugin, contentPlugin, frontendPlugin, fetchPlugin, streamsPlugin, actorsPlugin, v2FrontendBridge, v2JvmBytecode, v2JsBackend, v2SwiftBackend, v2NativePluginSpi, v2NativeHostPlugin, v2NativeCryptoPlugin, v2NativeOsPlugin, v2NativeFsPlugin, v2NativeJsonPlugin, v2NativeHttpFastPlugin, v2NativeSqlPlugin, v2NativeUiPlugin, v2NativeStateEffectPlugin, v2NativeEffectRunnersPlugin, v2NativeStorageEffectPlugin, v2NativeReactivePlugin, v2NativeYamlPlugin, v2NativeContentPlugin, v2NativeDatasetPlugin, v2NativeGeneratorPlugin, v2NativeActorsPlugin, v2NativeDistributedPlugin, v2NativeGraphPlugin, v2NativeOpticsPlugin)
+  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendRust, backendInterpreter, backendInterpreterServer, runtimeServerJvmFast, backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap, frontendCore, graphPlugin, deployPlugin, httpPlugin, wsPlugin, contentPlugin, frontendPlugin, fetchPlugin, streamsPlugin, actorsPlugin, v2FrontendBridge, v2JvmBytecode, v2JsBackend, v2SwiftBackend, v2NativePluginSpi, v2NativeHostPlugin, v2NativeCryptoPlugin, v2NativeOsPlugin, v2NativeFsPlugin, v2NativeJsonPlugin, v2NativeHttpFastPlugin, v2NativeSqlPlugin, v2NativeUiPlugin, v2NativeStateEffectPlugin, v2NativeEffectRunnersPlugin, v2NativeStorageEffectPlugin, v2NativeReactivePlugin, v2NativeYamlPlugin, v2NativeContentPlugin, v2NativeDatasetPlugin, v2NativeGeneratorPlugin, v2NativeActorsPlugin, v2NativeDistributedPlugin, v2NativeGraphPlugin, v2NativeOpticsPlugin, v2NativePdfPlugin)
   // Frontend backends — derived from allFrontends registry (arch-build-registry Phase 4)
   .dependsOn(allFrontends.map(f => ClasspathDependency(f.project, None)): _*)
   .settings(
@@ -1426,12 +1441,14 @@ lazy val cli = project
       val runtimeDir   = libDir / "jars"
       val standardDir  = libDir / "standard"
       val standardRuntimeDir = standardDir / "jars"
+      val providersDir = libDir / "providers"
       val compilerDir  = libDir / "compiler" / "jars"
       val plugDir      = libDir / "compiler" / "plugins"
       val availableDir = libDir / "compiler" / "plugin-available"
       val nativeFrontDir = libDir / "native-front"
       IO.delete(runtimeDir);  IO.createDirectory(runtimeDir)
       IO.delete(standardDir); IO.createDirectory(standardRuntimeDir)
+      IO.delete(providersDir); IO.createDirectory(providersDir)
       IO.delete(compilerDir); IO.createDirectory(compilerDir)
       IO.delete(plugDir);     IO.createDirectory(plugDir)
       IO.delete(availableDir); IO.createDirectory(availableDir)
@@ -1506,6 +1523,28 @@ lazy val cli = project
           |  scalascript.cli.ssc "$@"
           |""".stripMargin)
       toolsLauncher.setExecutable(true, false)
+      val providerLauncher = root / "bin" / "ssc-provider"
+      IO.write(providerLauncher,
+        """#!/usr/bin/env bash
+          |set -euo pipefail
+          |_SSC_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+          |_SSC_ROOT="$(dirname "$_SSC_BIN")"
+          |_SSC_PROVIDER="${1:-}"
+          |if [[ ! "$_SSC_PROVIDER" =~ ^[A-Za-z0-9._-]+$ ]]; then
+          |  echo 'usage: ssc-provider PROVIDER run [--bytecode] file.ssc [-- args...]' >&2
+          |  exit 2
+          |fi
+          |shift
+          |_SSC_PROVIDER_DIR="$_SSC_BIN/lib/providers/$_SSC_PROVIDER/jars"
+          |if [[ ! -d "$_SSC_PROVIDER_DIR" ]]; then
+          |  echo "ssc-provider: provider is not installed: $_SSC_PROVIDER" >&2
+          |  exit 2
+          |fi
+          |exec java -Dssc.lib.path="$_SSC_ROOT" \
+          |  -cp "$_SSC_PROVIDER_DIR/*:$_SSC_BIN/lib/standard/jars/*:$_SSC_BIN/lib/standard/ssc.jar" \
+          |  scalascript.cli.StandardMain "$@"
+          |""".stripMargin)
+      providerLauncher.setExecutable(true, false)
       log.info(s"bin/lib/ssc.jar  (${appJar.length / 1024} KB)")
       // compiler-driver JAR → lib/compiler/jars/
       val driverJar = (compilerDriver / Compile / packageBin).value
@@ -1657,6 +1696,17 @@ lazy val cli = project
       pdfGap.foreach(j => IO.copyFile(j, runtimeDir / j.getName))
       if (pdfGap.nonEmpty)
         log.info(s"bin/lib/jars/           +${pdfGap.size} pdf-plugin runtime dep(s): ${pdfGap.map(_.getName).mkString(", ")}")
+
+      val pdfProviderDir = providersDir / "pdf" / "jars"
+      IO.createDirectory(pdfProviderDir)
+      val pdfProviderJar = (v2NativePdfPlugin / Compile / packageBin).value
+      val standardNames = standardJars.map(_.getName).toSet
+      val pdfProviderFiles = (pdfProviderJar +:
+        (v2NativePdfPlugin / Compile / managedClasspath).value.files)
+        .filter(f => f.isFile && f.getName.endsWith(".jar") && !standardNames.contains(f.getName))
+        .groupBy(_.getName).values.map(_.head).toSeq.sortBy(_.getName)
+      pdfProviderFiles.foreach(j => IO.copyFile(j, pdfProviderDir / j.getName))
+      log.info(s"bin/lib/providers/pdf/jars/ (${pdfProviderFiles.size} JARs)")
 
       // ScalaScript 2.1 native frontend: stage the self-hosted compiler tower
       // and the .ssc standard-library sources it resolves. The installed
@@ -4354,7 +4404,7 @@ lazy val root = project
     v2NativeSqlPlugin, v2NativeUiPlugin, v2NativeStateEffectPlugin, v2NativeEffectRunnersPlugin,
     v2NativeStorageEffectPlugin, v2NativeReactivePlugin, v2NativeYamlPlugin,
     v2NativeContentPlugin, v2NativeDatasetPlugin, v2NativeGeneratorPlugin, v2NativeActorsPlugin,
-    v2NativeDistributedPlugin, v2NativeGraphPlugin, v2NativeOpticsPlugin,
+    v2NativeDistributedPlugin, v2NativeGraphPlugin, v2NativeOpticsPlugin, v2NativePdfPlugin,
     v2PluginBridge, v2FrontendBridge, v2JvmBytecode, v2JsBackend, v2SwiftBackend,
     valueData, backendSpi, pluginApi, ir, logger, yaml, core, interop, testUtils, pluginHost, wireCore,
 
