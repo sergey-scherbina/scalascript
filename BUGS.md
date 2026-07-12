@@ -1,5 +1,18 @@
 # Bug tracker
 
+## v21-empty-runtime-taxonomy-total — zero-row summary printed a blank total
+
+**Status:** fixed (2026-07-12, pending commit), awaiting Sergiy confirmation;
+found by codex in the zero-`both-fail` negative release gate.
+
+- **Real-harness repro:** generate a runtime taxonomy from a parity report with
+  no `both-fail` rows and the empty production manifest. All category counts
+  print `0`, but the final summary line prints `total` with an empty value.
+- **Root cause:** awk's never-incremented `total` scalar was concatenated
+  directly instead of being numerically normalized.
+- **Fix/result:** the summary now prints `total + 0`; the exact zero-row
+  runtime taxonomy freeze and its synthetic smoke remain green.
+
 ## js-ssc-ui-jsonvalue-duplicate — two `_ssc_ui_jsonValue` in the assembled JS runtime
 
 **Status:** open (2026-07-12); found by opus while running `backendInterpreter/test`

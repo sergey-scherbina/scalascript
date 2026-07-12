@@ -124,7 +124,7 @@ if ! awk -F '\t' -v OFS='\t' -v summary="$summary" '
     } else if (total > limit["total"]) {
       print "category growth: total=" total " > " limit["total"] > "/dev/stderr"; bad=1
     }
-    print "total\t" total >> summary
+    print "total\t" (total + 0) >> summary
     if (bad) exit 1
   }
 ' "$manifest" "$sentinel_report" "$parity_report" "$limits" > "$rows"; then
