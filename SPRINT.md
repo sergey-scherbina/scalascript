@@ -1170,15 +1170,19 @@ for in-process runs, and `inferType` already computes per-node `SType` (just dis
       (`SSC_JIT_STATS=1 sbt "backendInterpreter/test"` — NOT `scripts/sbtc`, it detaches).
       Record per-reason before-counts (June: 199 `call: no compilable target` + N unknown-type;
       p8/p10 may have shifted it). Count-verifiable baseline for C-3/C-4.
-- [ ] **C-2-thread-typed-tree** — for in-process runs, carry the original scalameta `Term`
-      + the C-1 `nodeTypes` map to `InterpreterBackend`/`Interpreter` instead of
-      `Denormalize`+re-parse. Keep re-parse as the JSON fallback. Needs a companion
-      `Typer.typeCheck` variant that returns `(TypedModule, nodeTypes)` (the current companion
-      discards the instance). Gate: conformance green (behavior-neutral — same tree, not
-      re-parsed → identical output).
-- [ ] **C-3-vmcompiler-consumes-map** — `VmCompiler.compile(fn, …, typeMap)`: seed
-      `regType`/param types + return type from the map instead of `TInt`/`decltpe`/runtime
-      hints. Gate: unknown-type miss counts drop (vs C-0); conformance green.
+- [~] **C-2-thread-typed-tree** — TREE part DONE (`ee661c949`, 2026-07-12): `compileViaBackend`
+      runs the interpreter on the ORIGINAL `ast.Module` via `InterpreterBackend.compileAstModule`
+      (skips `Denormalize`+re-parse); VERIFIED behaviour-neutral (146/146 INT-eligible conformance
+      cases identical; the 16 non-matches are all non-INT-eligible). REMAINING (folds into C-3):
+      run the Typer on the run path to produce `nodeTypes` + thread it in (needs a `Typer.typeCheck`
+      companion returning `(TypedModule, nodeTypes)`).
+- [ ] **C-3-vmcompiler-consumes-map** (IN PROGRESS, lucky-perch 2026-07-12) — (a) typecheck the
+      original module once on the run/--v1 path → `nodeTypes`; (b) thread `nodeTypes` through
+      Interpreter/SectionRuntime to the JIT (closure, like `metaFor`); (c) `VmCompiler.compile(fn,
+      …, typeMap)` seeds `regType`/param + return types from the map (SType→VmType) instead of
+      `TInt`/`decltpe`/runtime hints. Identity-key: the map is IdentityHashMap[scala.meta.Tree,…];
+      the Typer must see the SAME Term objects the interpreter/VmCompiler run (post-C-2 the interp
+      runs the original trees). Gate: unknown-type miss counts drop (vs C-0); conformance green.
 - [ ] **C-4-wide-compilation** — remove type-unknown bails in `compileExpr`/`compileInto`
       one class at a time, each A/B-provable via miss-count.
 - [ ] **C-gate** — QUIET-MACHINE A/B (`scripts/bench interp patternMatch*|recursionFib`,
