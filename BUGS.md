@@ -3311,9 +3311,7 @@ before `done`.
 
 ## v2-frontendbridge-sqlite-timeout — SQLite conformance exceeds the 15-second bridge-test limit
 
-**Status:** open (2026-07-10); reproduced twice against TI-6.1 `a8a86fffe`,
-whose artifact changes do not touch the compatibility FrontendBridge execution
-path.
+**Status:** fixed (2026-07-12, `b55811bf9`), awaiting Sergiy confirmation.
 
 - **Found by:** codex while running the broad post-TI-6.1 regression suite.
 - **Real-harness repro:** `scripts/sbtc "v2FrontendBridge/test"`; all other 151
@@ -3321,13 +3319,19 @@ path.
   `(timeout)` instead of `1` after the suite's 15-second `Await` bound.
 - **Expected:** `tests/conformance/v2-db-url-scheme-not-jdbc.ssc` opens its
   `sqlite::memory:` database and prints `1` within the normal test bound.
-- **Root-cause direction:** inspect the compatibility bridge SQL runtime/test
-  classpath for SQLite driver availability and Hikari's default connection
-  timeout. The direct native TI-6 artifact path and its H2/provider gate are a
-  separate standard-tier lane.
-- **Done-when:** the single named test and full `v2FrontendBridge/test` pass in
-  isolation without increasing the timeout; add a focused regression if the
-  missing-driver/classpath hypothesis is confirmed.
+- **Root cause:** sqlite-jdbc was present and Hikari was not involved. A live
+  blocked-thread trace showed Xerial's first connection in
+  `SQLiteJDBCLoader.cleanup → Files.list → readdir0`, scanning every entry in
+  the large shared macOS `java.io.tmpdir` before extracting its native library.
+- **Fix:** SQLite registration assigns Xerial a private, per-process native
+  temp directory unless the host explicitly sets `org.sqlite.tmpdir`. The
+  focused regression asserts that isolation and the real conformance fixture
+  still performs an actual in-memory JDBC round trip.
+- **Verified:** the named bridge case fell from timeout to 1.7 seconds;
+  `v2PluginBridge/test` is 32/32 and affected conformance is 1/1. The broad
+  bridge suite is 195/196 with this row green; the sole `tkv2-pwa`
+  `backend=jdk`/`backend=fast` banner red is the separately tracked provider
+  selection issue.
 
 ## v21-native-front-eager-plugin-val — plugin-backed top-level `val` runs before earlier statements
 

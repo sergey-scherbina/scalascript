@@ -3602,7 +3602,8 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
       with zero blockers. Provider/HTTP server and validator-negative smokes
       pass. The gate discovered and fixed the reflective `jdk.crypto.ec` JCA
       edge, is wired into CI/consolidated release, and conformance is 11/11.
-- [ ] **v2-frontendbridge-sqlite-timeout:** investigate the twice-reproduced
+- [x] **v2-frontendbridge-sqlite-timeout:** DONE 2026-07-12 (`b55811bf9`).
+      Investigated the twice-reproduced
       compatibility-bridge failure recorded in `BUGS.md`. Run only
       `v2-conformance: v2-db-url-scheme-not-jdbc`, verify whether sqlite-jdbc is
       absent from `v2FrontendBridge / Test / fullClasspath` or Hikari waits on
@@ -3610,6 +3611,13 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
       raising the 15-second limit. This does not block the native TI-6 artifact
       lane; schedule after the release-critical toolchain slices unless another
       compatibility owner claims it.
+      Result: sqlite-jdbc was present; Xerial's first connection spent the
+      entire bound scanning the large shared macOS temp directory in
+      `SQLiteJDBCLoader.cleanup`. SQLite native extraction now uses a private
+      per-process directory unless explicitly configured. Focused bridge time
+      fell to 1.7 s, plugin bridge is 32/32, and affected conformance is 1/1.
+      The broad bridge run is 195/196 with SQLite green; its sole unrelated
+      `tkv2-pwa` provider-banner failure is already tracked separately.
 - [ ] **v21-ti-retire-all-both-fail:** user-requested follow-up to eliminate the
       frozen 13/13 VM/ASM `both-fail` rows without hiding failures as skips or
       restoring compatibility fallback. Write and commit

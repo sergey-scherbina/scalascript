@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-12 — Compatibility SQLite startup no longer scans shared temp
+
+The v2 compatibility bridge now gives Xerial SQLite a private per-process
+native extraction directory instead of letting its first connection enumerate
+the complete shared macOS temp directory. The real in-memory SQLite fixture
+finishes in 1.7 seconds rather than exceeding 15 seconds; plugin bridge is
+32/32 and affected conformance is 1/1. Landed in `b55811bf9`.
+
 ## 2026-07-12 — ScalaScript 2.1 toolchain-independence parents closed
 
 The two stale umbrella rows now reflect their already-landed evidence: native
