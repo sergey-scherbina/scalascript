@@ -543,26 +543,26 @@ When to use each:
 | `ssc-tools build-rust` | Native binary via Cargo | Ship a `cargo build`ed binary to `-o <path>` |
 | `ssc-tools emit-swift` | v2 AppCore Swift package | Inspect/integrate deterministic checked-CoreIR Swift sources |
 | `ssc-tools run-swift` | v2 AppCore via SwiftPM | Build and run the generated domain executable or NativeUi ABI debug CLI on macOS |
-| `ssc build/run --target macos` | v2 AppCore or Xcode application | Domain programs use SwiftPM; NativeUi programs build/verify the generated `.app` and `run` launches it |
-| `ssc build/run --target ios` | v2 Xcode application | NativeUi programs build the application scheme; `run` installs and launches it on an available Simulator |
+| `ssc-tools build/run --target macos` | v2 AppCore or Xcode application | Domain programs use SwiftPM; NativeUi programs build/verify the generated `.app` and `run` launches it |
+| `ssc-tools build/run --target ios` | v2 Xcode application | NativeUi programs build the application scheme; `run` installs and launches it on an available Simulator |
 
 **Requirements:** `ssc run` requires a staged installation produced by
 `installBin`, but does not require Scala CLI or a Java/Scala compiler at user
 runtime. `ssc-tools run --target jvm` / `ssc-tools run-jvm` require `scala-cli`
 on PATH; `ssc-tools run-js` requires `node`; `ssc-tools run-rust` /
 `ssc-tools build-rust` require `cargo` on PATH (install via `brew install rust`
-or <https://www.rust-lang.org/tools/install>). `ssc run-swift` and
-`ssc run --target macos` require Swift 6+ on PATH; package generation itself
+or <https://www.rust-lang.org/tools/install>). `ssc-tools run-swift` and
+`ssc-tools run --target macos` require Swift 6+ on PATH; package generation itself
 does not invoke Scala CLI, v1 `JvmGen`, or the legacy SwiftUI emitter.
 
 ```bash
 # Example: same file, four runtimes
 ssc run                    examples/recursion.ssc    # interpreter
-ssc run --target jvm       examples/recursion.ssc    # JVM bytecode
-ssc run-js                 examples/recursion.ssc    # Node.js
-ssc run-rust               examples/hello.ssc        # native binary via Cargo
-ssc run-swift              examples/swift/appcore-money.ssc  # native SwiftPM AppCore
-ssc run-swift              examples/swift/appcore-nativeui.ssc # portable NativeUi ABI debug CLI
+ssc-tools run --target jvm  examples/recursion.ssc    # JVM bytecode
+ssc-tools run-js            examples/recursion.ssc    # Node.js
+ssc-tools run-rust          examples/hello.ssc        # native binary via Cargo
+ssc-tools run-swift         examples/swift/appcore-money.ssc  # native SwiftPM AppCore
+ssc-tools run-swift         examples/swift/appcore-nativeui.ssc # portable NativeUi ABI debug CLI
 
 # HTTP server on JVM (real threads, JDBC available)
 ssc run --target jvm myapp.ssc
@@ -614,14 +614,28 @@ storage/offline values, trusted HTML, and exactly-one-root extraction without
 importing SwiftUI into AppCore.
 
 ```bash
-ssc emit-swift --target macos -o ./myapp-swift myapp.ssc
+ssc-tools emit-swift --target macos -o ./myapp-swift myapp.ssc
 swift run --package-path ./myapp-swift
 
-ssc run-swift myapp.ssc -- arg1 arg2
-ssc build --target macos myapp.ssc       # v2 is the default
-ssc run --target macos myapp.ssc
+ssc-tools run-swift myapp.ssc -- arg1 arg2
+ssc-tools build --target macos myapp.ssc       # v2 is the default
+ssc-tools run --target macos myapp.ssc
 ssc-tools run --v1 --target macos legacy.ssc # explicit compatibility only
 ```
+
+For checked sources, top-level `main: run` is authoritative: module values are
+initialized first, then the selected zero-argument entry is called exactly
+once. A source that defines both `main()` and `run()` does not implicitly call
+`main()` when `main: run` is present. Missing or invalid entries fail before
+Swift generation.
+
+The native host executes the shipped `std/ui` path rather than a reduced
+constructor-only dialect: `localeSignal`/localized derived text, self-hosted
+`JsonValue`, keyed JSON lists, toolkit builders, theme conversion, and
+`serve(lower(view(), defaultTheme), ...)` all cross the same checked CoreIR and
+run on macOS and iOS. Proper-list builder operations and checked String maps
+are normalized before the Apple renderer, while malformed values retain their
+source location.
 
 `examples/swift/appcore-nativeui.ssc` is the executable AppCore smoke. Its
 debug CLI evaluates the checked source into `NativeUiAbi(1, root, config)` and
@@ -5721,7 +5735,7 @@ threading model, `:print` semantics, and known limitations.
 ## 25. SwiftUI / iOS / macOS Targets
 
 Declare `frontend: swiftui` with a reverse-DNS `bundle-id` in top-level
-front-matter to target Apple platforms. `ssc` lowers the checked v2 program to
+front-matter to target Apple platforms. `ssc-tools` lowers the checked v2 program to
 AppCore plus a deterministic multi-platform Xcode application target and
 delegates build/run/package/publish to Xcode, `ios-deploy`, and fastlane.
 
@@ -5738,14 +5752,14 @@ frontend: swiftui
 ### CLI commands
 
 ```bash
-ssc run --target ios                                      # iOS Simulator
-ssc run --target ios --device --team-id TEAM              # physical device
-ssc package --target ios --team-id TEAM                   # signed .ipa
-ssc publish --target ios --testflight --team-id TEAM \
+ssc-tools run --target ios                                # iOS Simulator
+ssc-tools run --target ios --device --team-id TEAM        # physical device
+ssc-tools package --target ios --team-id TEAM             # signed .ipa
+ssc-tools publish --target ios --testflight --team-id TEAM \
   --api-key-path key.json                                 # TestFlight
-ssc package --target macos --distribution --team-id TEAM \
+ssc-tools package --target macos --distribution --team-id TEAM \
   --notary-profile profile                                # Developer-ID + DMG
-ssc publish --target macos --appstore --team-id TEAM \
+ssc-tools publish --target macos --appstore --team-id TEAM \
   --api-key-path key.json                                 # Mac App Store
 ```
 
