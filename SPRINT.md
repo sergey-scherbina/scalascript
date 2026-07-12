@@ -379,7 +379,10 @@ pipeline used by real applications.
       the full shared List overload matrix (no args, separator, and
       prefix/separator/suffix) with `sscPlain` element text and audit the rest
       of `lower.ssc`'s dynamic List surface (`map`, `toList`, `mkString`) in one
-      focused gate so parity is not discovered one method at a time.
+      focused gate so parity is not discovered one method at a time. Because
+      `lower` exercises only the one-argument join, add a real-Swift/CoreIR
+      overload matrix for mixed `["a", 2]` and `Nil` across 0/1/3 arguments,
+      plus wrong-arity, non-String-delimiter and non-list rejection negatives.
 - [ ] **Release gates and closure** — require explicit post-code Rozum
       `APPROVE`; full Swift backend, combined CLI, assembled Swift CLI and
       macOS+iOS Apple e2e, money/effects/tkv2/v2 conformance, affected
