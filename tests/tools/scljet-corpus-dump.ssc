@@ -1,0 +1,130 @@
+#!/usr/bin/env ssc-tools run --v1
+---
+name: scljet-corpus-dump
+description: Deterministic physical SclJet dump for the committed M2 SQLite corpus
+backends: [int]
+---
+
+# SclJet M2 corpus dump
+
+[ByteSlice, byteSliceToList, SqlNull, SqlInteger, SqlReal, SqlBlob, SqliteError, StrictSqlite, OpenReadOnly, JournalDelete, SyncFull, SqliteLimits, SqliteOpenOptions, EncodingUnknown, EncodingUtf8, EncodingUtf16Le, EncodingUtf16Be, RecordField, StorageRecord, RowidTableTree, RecordKeyTree, SchemaObjectKind, SchemaTable, SchemaIndex, SchemaView, SchemaTrigger, SchemaStorageKind, SchemaRowidTable, SchemaWithoutRowidTable, SchemaIndexBtree, SchemaNoBtree, SchemaEntry, ReadonlyDatabase, ReadonlyBtreeCursor, ReadonlyCursorStep, jvmSqliteVfs, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly](std/scljet/index.ssc)
+
+```scalascript
+def limits(): SqliteLimits = SqliteLimits(
+  10000000L, 10000, 1000, 1000, 1000, 10, 10000000L, 10000, 1000,
+  1000000L, 10000000L, 64, 100000L, 10000, 10000000L
+)
+
+def options(): SqliteOpenOptions = SqliteOpenOptions(
+  OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, 0L, 64, false, limits()
+)
+
+def kindName(kind: SchemaObjectKind): String = kind match
+  case SchemaTable => "table"
+  case SchemaIndex => "index"
+  case SchemaView => "view"
+  case SchemaTrigger => "trigger"
+
+def storageName(storage: SchemaStorageKind): String = storage match
+  case SchemaRowidTable => "rowid"
+  case SchemaWithoutRowidTable => "without-rowid"
+  case SchemaIndexBtree => "index"
+  case SchemaNoBtree => "none"
+
+def encodingCode(database: ReadonlyDatabase): Int = database.pager.header.textEncoding match
+  case EncodingUnknown => 0
+  case EncodingUtf8 => 1
+  case EncodingUtf16Le => 2
+  case EncodingUtf16Be => 3
+
+def fieldName(field: RecordField): String = field match
+  case RecordField(_, _, Some(SqlNull), _) => "null"
+  case RecordField(_, _, Some(SqlInteger(value)), _) => "int:" + value.toString
+  case RecordField(_, _, Some(SqlReal(value)), _) => "real:" + value.toString
+  case RecordField(_, _, Some(SqlBlob(value)), _) => "blob:" + byteSliceToList(value).toString
+  case RecordField(_, _, None, Some(text)) => "text:" + text.codePoints.toString
+  case _ => "invalid"
+
+def fieldsName(fields: List[RecordField]): String = fields.map(fieldName).toString
+
+def dumpRoot(database: ReadonlyDatabase, root: Long, storage: SchemaStorageKind): Either[SqliteError, ReadonlyDatabase] =
+  val rowidTree = storage == SchemaRowidTable
+  val treeKind = if rowidTree then RowidTableTree else RecordKeyTree
+  openReadonlyRoot(database, root, treeKind) match
+    case Left(error) => Left(error)
+    case Right(cursor) => readonlyFirst(database, cursor) match
+      case Left(error) => Left(error)
+      case Right(ReadonlyCursorStep(firstDatabase, firstCursor, firstRow)) =>
+        var currentDatabase = firstDatabase
+        var currentCursor = firstCursor
+        var currentRow = firstRow
+        var failure: Option[SqliteError] = None
+        while currentRow.isDefined && failure.isEmpty do
+          currentRow match
+            case Some(StorageRecord(rowid, record)) =>
+              if rowidTree then println("root:" + root.toString + ":rowid:" + rowid.getOrElse(0L).toString + ":" + fieldsName(record.fields))
+              else println("root:" + root.toString + ":key:" + fieldsName(record.fields))
+            case None => ()
+          readonlyNext(currentDatabase, currentCursor) match
+            case Left(error) => failure = Some(error)
+            case Right(ReadonlyCursorStep(nextDatabase, nextCursor, nextRow)) =>
+              currentDatabase = nextDatabase
+              currentCursor = nextCursor
+              currentRow = nextRow
+        failure match
+          case Some(error) => Left(error)
+          case None => Right(currentDatabase)
+
+def dumpEntries(database: ReadonlyDatabase, entries: List[SchemaEntry]): Either[SqliteError, ReadonlyDatabase] = entries match
+  case Nil => Right(database)
+  case Cons(entry, tail) => entry match
+    case SchemaEntry(rowid, kind, name, tableName, rootPage, _, storage, internal, _) =>
+      val root = rootPage.getOrElse(0L)
+      println("schema:" + rowid.toString + ":" + kindName(kind) + ":" + name.codePoints.toString +
+        ":" + tableName.codePoints.toString + ":" + root.toString + ":" + storageName(storage) + ":" + internal.toString)
+      val next = rootPage match
+        case Some(page) => dumpRoot(database, page, storage)
+        case None => Right(database)
+      next match
+        case Left(error) => Left(error)
+        case Right(nextDatabase) => dumpEntries(nextDatabase, tail)
+
+def dumpFile(path: String): Unit =
+  println("FILE:" + path)
+  openReadonly(jvmSqliteVfs(), path, options()) match
+    case Left(error) => println("ERROR:" + error.message)
+    case Right(database) =>
+      println("header:" + database.pager.header.pageSize.toString + ":" +
+        database.pager.header.reservedBytes.toString + ":" + database.pager.logicalPageCount.toString + ":" +
+        database.pager.header.schemaFormat.toString + ":" + encodingCode(database).toString + ":" +
+        database.pager.header.freelistPageCount.toString)
+      dumpEntries(database, database.schema.entries) match
+        case Left(error) => println("ERROR:" + error.message)
+        case Right(finalDatabase) => closeReadonly(finalDatabase) match
+          case Left(error) => println("ERROR:" + error.message)
+          case Right(_) => ()
+
+def dumpFiles(paths: List[String]): Unit = paths match
+  case Nil => ()
+  case Cons(path, tail) =>
+    dumpFile(path)
+    dumpFiles(tail)
+
+dumpFiles(List(
+  "tests/fixtures/scljet/m2/valid/page-512.db",
+  "tests/fixtures/scljet/m2/valid/page-1024.db",
+  "tests/fixtures/scljet/m2/valid/page-2048.db",
+  "tests/fixtures/scljet/m2/valid/page-4096.db",
+  "tests/fixtures/scljet/m2/valid/page-8192.db",
+  "tests/fixtures/scljet/m2/valid/page-16384.db",
+  "tests/fixtures/scljet/m2/valid/page-32768.db",
+  "tests/fixtures/scljet/m2/valid/page-65536.db",
+  "tests/fixtures/scljet/m2/valid/utf16le.db",
+  "tests/fixtures/scljet/m2/valid/utf16be.db",
+  "tests/fixtures/scljet/m2/valid/comprehensive.db",
+  "tests/fixtures/scljet/m2/valid/freelist.db",
+  "tests/fixtures/scljet/m2/valid/auto-full.db",
+  "tests/fixtures/scljet/m2/valid/auto-incremental.db",
+  "tests/fixtures/scljet/m2/valid/empty-encoding-zero.db"
+))
+```

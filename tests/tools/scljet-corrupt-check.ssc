@@ -1,0 +1,40 @@
+#!/usr/bin/env ssc-tools run --v1
+---
+name: scljet-corrupt-check
+description: Structured-error checks for the committed SclJet M2 corrupt SQLite corpus
+backends: [int]
+---
+
+# SclJet M2 corrupt corpus
+
+[SqliteError, StrictSqlite, OpenReadOnly, JournalDelete, SyncFull, SqliteLimits, SqliteOpenOptions, ReadonlyDatabase, jvmSqliteVfs, openReadonly, closeReadonly](std/scljet/index.ssc)
+
+```scalascript
+case class CorruptCase(id: String, path: String, expected: String)
+
+def limits(): SqliteLimits = SqliteLimits(
+  1000000L, 1000, 100, 100, 100, 10, 1000000L, 1000, 100,
+  1000000L, 1000000L, 32, 10000L, 1000, 1000000L
+)
+
+def options(): SqliteOpenOptions = SqliteOpenOptions(
+  OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, 0L, 32, false, limits()
+)
+
+def check(value: CorruptCase): Unit =
+  openReadonly(jvmSqliteVfs(), value.path, options()) match
+    case Left(error) =>
+      val localized = error.message.contains(value.expected)
+      println(value.id + ":" + localized.toString + ":" + error.message)
+    case Right(database) =>
+      closeReadonly(database)
+      println(value.id + ":false:accepted")
+
+List(
+  CorruptCase("bad-magic", "tests/fixtures/scljet/m2/corrupt/bad-magic.db", "header.magic"),
+  CorruptCase("truncated-header", "tests/fixtures/scljet/m2/corrupt/truncated-header.db", "100-byte header"),
+  CorruptCase("partial-trailing-page", "tests/fixtures/scljet/m2/corrupt/partial-trailing-page.db", "partial trailing page"),
+  CorruptCase("bad-page-kind", "tests/fixtures/scljet/m2/corrupt/bad-page-kind.db", "page.kind"),
+  CorruptCase("bad-pointer-map-kind", "tests/fixtures/scljet/m2/corrupt/bad-pointer-map-kind.db", "pointerMap.kind")
+).foreach(check)
+```

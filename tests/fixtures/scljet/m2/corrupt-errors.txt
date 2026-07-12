@@ -1,0 +1,5 @@
+bad-magic:true:header.magic: database magic is not SQLite format 3
+truncated-header:true:database is shorter than the 100-byte header
+partial-trailing-page:true:database has a partial trailing page
+bad-page-kind:true:page.kind: unknown B-tree page type
+bad-pointer-map-kind:true:pointerMap.kind: pointer-map kind is invalid

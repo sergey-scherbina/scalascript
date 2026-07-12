@@ -1,0 +1,34 @@
+#!/usr/bin/env ssc-tools run --v1
+---
+name: scljet-fuzz-check
+description: Bounded deterministic SclJet M2 mutation smoke over temporary SQLite files
+backends: [int]
+---
+
+# SclJet M2 bounded fuzz smoke
+
+[StrictSqlite, OpenReadOnly, JournalDelete, SyncFull, SqliteLimits, SqliteOpenOptions, jvmSqliteVfs, openReadonly, closeReadonly](std/scljet/index.ssc)
+
+```scalascript
+val limits = SqliteLimits(
+  1000000L, 1000, 100, 100, 100, 10, 1000000L, 1000, 100,
+  100000L, 1000000L, 16, 1000L, 1000, 1000000L
+)
+val options = SqliteOpenOptions(
+  OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, 0L, 16, false, limits
+)
+
+var index = 0
+var accepted = 0
+var rejected = 0
+while index < 32 do
+  val path = "scljet-fuzz-" + index.toString + ".db"
+  openReadonly(jvmSqliteVfs(), path, options) match
+    case Left(_) => rejected = rejected + 1
+    case Right(database) =>
+      accepted = accepted + 1
+      closeReadonly(database)
+  index = index + 1
+
+println(index.toString + ":" + accepted.toString + ":" + rejected.toString)
+```
