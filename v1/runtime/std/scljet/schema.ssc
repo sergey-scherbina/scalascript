@@ -17,6 +17,8 @@ exports:
   - SchemaEntry
   - ReadonlySchema
   - ReadonlyDatabase
+  - readonlyDatabasePager
+  - readonlyDatabaseReplacePager
   - decodeSchema
 ---
 
@@ -58,6 +60,12 @@ case class SchemaEntry(
 case class ReadonlySchema(cookie: Long, format: Int, encoding: SqliteTextEncoding, entries: List[SchemaEntry])
 case class ReadonlyDatabase(pager: ReadonlyPager, schema: ReadonlySchema)
 case class SchemaClassified(pager: ReadonlyPager, storage: SchemaStorageKind)
+
+def readonlyDatabasePager(database: ReadonlyDatabase): ReadonlyPager = database match
+  case ReadonlyDatabase(pager, _) => pager
+
+def readonlyDatabaseReplacePager(database: ReadonlyDatabase, pager: ReadonlyPager): ReadonlyDatabase = database match
+  case ReadonlyDatabase(_, schema) => ReadonlyDatabase(pager, schema)
 
 def schemaCodePointsEqual(left: List[Int], right: List[Int]): Boolean = left match
   case Nil => right.isEmpty

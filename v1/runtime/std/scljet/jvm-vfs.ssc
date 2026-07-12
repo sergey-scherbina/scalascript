@@ -6,6 +6,10 @@ package: scljet
 exports:
   - JvmVfsResult
   - JvmVfsRead
+  - JvmSharedRegion
+  - JvmSqliteFile
+  - JvmSqliteVfs
+  - jvmSqliteVfs
   - jvmVfsFullPath
   - jvmVfsOpen
   - jvmVfsDelete
@@ -34,7 +38,8 @@ exports:
 These explicit intrinsics are the only JVM/filesystem boundary. The pager,
 locking policy, WAL algorithm, and byte codecs remain in pure ScalaScript.
 
-[LockLevel, ShmLockMode](vfs.ssc)
+[ByteSlice, byteSliceToList](bytes.ssc)
+[FileKind, OpenFlags, LockLevel, SyncFlags, DeviceCharacteristic, AtomicWrite, SafeAppend, SequentialWrite, PowersafeOverwrite, UndeletableWhenOpen, AtomicDelete, ShmLockMode, VfsError, VfsRead, VfsWrite, SharedRegion, SqliteFile, SqliteVfs](vfs.ssc)
 
 ```scalascript
 case class JvmVfsResult(code: String, message: String, value: Any)
@@ -61,4 +66,133 @@ extern def jvmVfsShmUnmap(handle: Int, delete: Boolean): JvmVfsResult
 extern def jvmVfsSectorSize(handle: Int): JvmVfsResult
 extern def jvmVfsDeviceCharacteristics(handle: Int): JvmVfsResult
 extern def jvmVfsClose(handle: Int): JvmVfsResult
+
+def jvmRetryable(code: String): Boolean = code == "busy" || code == "locked" || code == "protocol"
+
+def jvmVfsError(result: JvmVfsResult): VfsError = VfsError(result.code, result.message, jvmRetryable(result.code))
+
+def jvmUnitResult(result: JvmVfsResult): Either[VfsError, Unit] =
+  if result.code == "ok" then Right(()) else Left(jvmVfsError(result))
+
+def jvmIntValue(value: Any): Option[Int] = value match
+  case number: Int => Some(number)
+  case number: Long => Some(number.toInt)
+  case _ => None
+
+def jvmLongValue(value: Any): Option[Long] = value match
+  case number: Int => Some(number.toLong)
+  case number: Long => Some(number)
+  case _ => None
+
+def jvmBooleanValue(value: Any): Option[Boolean] = value match
+  case flag: Boolean => Some(flag)
+  case _ => None
+
+def jvmStringValue(value: Any): Option[String] = value match
+  case text: String => Some(text)
+  case _ => None
+
+def jvmIntResult(result: JvmVfsResult): Either[VfsError, Int] =
+  if result.code != "ok" then Left(jvmVfsError(result))
+  else jvmIntValue(result.value) match
+    case Some(value) => Right(value)
+    case None => Left(VfsError("io", "JVM VFS returned a non-integer value", false))
+
+def jvmLongResult(result: JvmVfsResult): Either[VfsError, Long] =
+  if result.code != "ok" then Left(jvmVfsError(result))
+  else jvmLongValue(result.value) match
+    case Some(value) => Right(value)
+    case None => Left(VfsError("io", "JVM VFS returned a non-integer value", false))
+
+def jvmBooleanResult(result: JvmVfsResult): Either[VfsError, Boolean] =
+  if result.code != "ok" then Left(jvmVfsError(result))
+  else jvmBooleanValue(result.value) match
+    case Some(value) => Right(value)
+    case None => Left(VfsError("io", "JVM VFS returned a non-boolean value", false))
+
+def jvmStringResult(result: JvmVfsResult): Either[VfsError, String] =
+  if result.code != "ok" then Left(jvmVfsError(result))
+  else jvmStringValue(result.value) match
+    case Some(value) => Right(value)
+    case None => Left(VfsError("io", "JVM VFS returned a non-string value", false))
+
+def jvmCharacteristic(name: String): Option[DeviceCharacteristic] = name match
+  case "safe-append" => Some(SafeAppend)
+  case "sequential-write" => Some(SequentialWrite)
+  case "powersafe-overwrite" => Some(PowersafeOverwrite)
+  case "undeletable-when-open" => Some(UndeletableWhenOpen)
+  case "atomic-delete" => Some(AtomicDelete)
+  case _ => if name.startsWith("atomic-") then name.drop(7).toIntOption match
+    case Some(bytes) => Some(AtomicWrite(bytes))
+    case None => None
+  else None
+
+def jvmCharacteristics(value: Any): List[DeviceCharacteristic] = value match
+  case names: List[String] => names.flatMap(name => jvmCharacteristic(name).toList)
+  case _ => Nil
+
+case class JvmSharedRegion(handle: Int, region: Int, length: Int) extends SharedRegion:
+  def read(offset: Int, length: Int): Either[VfsError, ByteSlice] =
+    val result = jvmVfsShmRead(handle, region, offset, length)
+    if result.code != "ok" then Left(jvmVfsError(result))
+    else result.value match
+      case values: List[Int] => ByteSlice.fromList(values) match
+        case Right(bytes) => Right(bytes)
+        case Left(_) => Left(VfsError("io", "JVM VFS returned invalid shared-memory bytes", false))
+      case _ => Left(VfsError("io", "JVM VFS returned a non-byte shared-memory value", false))
+  def write(offset: Int, bytes: ByteSlice): Either[VfsError, Unit] =
+    jvmUnitResult(jvmVfsShmWrite(handle, region, offset, byteSliceToList(bytes)))
+
+case class JvmSqliteFile(handle: Int) extends SqliteFile:
+  def readAt(offset: Long, length: Int): Either[VfsError, VfsRead] =
+    val result = jvmVfsReadAt(handle, offset, length)
+    if result.code != "ok" then Left(jvmVfsError(result))
+    else result.value match
+      case JvmVfsRead(values, short) => ByteSlice.fromList(values) match
+        case Left(_) => Left(VfsError("io", "JVM VFS returned invalid file bytes", false))
+        case Right(bytes) =>
+          val warning = if short then Some(VfsError("short-read", "positioned read reached EOF", false)) else None
+          Right(VfsRead(bytes, warning))
+      case _ => Left(VfsError("io", "JVM VFS returned a non-read value", false))
+  def writeAt(offset: Long, bytes: ByteSlice): Either[VfsError, VfsWrite] =
+    jvmIntResult(jvmVfsWriteAt(handle, offset, byteSliceToList(bytes))) match
+      case Left(error) => Left(error)
+      case Right(count) => Right(VfsWrite(count, None))
+  def truncate(size: Long): Either[VfsError, Unit] = jvmUnitResult(jvmVfsTruncate(handle, size))
+  def sync(flags: SyncFlags): Either[VfsError, Unit] = jvmUnitResult(jvmVfsSync(handle, flags.dataOnly))
+  def size(): Either[VfsError, Long] = jvmLongResult(jvmVfsSize(handle))
+  def lock(level: LockLevel): Either[VfsError, Unit] = jvmUnitResult(jvmVfsLock(handle, level))
+  def unlock(level: LockLevel): Either[VfsError, Unit] = jvmUnitResult(jvmVfsUnlock(handle, level))
+  def checkReservedLock(): Either[VfsError, Boolean] = jvmBooleanResult(jvmVfsCheckReservedLock(handle))
+  def sectorSize: Int = jvmIntResult(jvmVfsSectorSize(handle)).getOrElse(512)
+  def deviceCharacteristics: List[DeviceCharacteristic] =
+    val result = jvmVfsDeviceCharacteristics(handle)
+    if result.code == "ok" then jvmCharacteristics(result.value) else Nil
+  def shmMap(region: Int, size: Int, extend: Boolean): Either[VfsError, SharedRegion] =
+    jvmIntResult(jvmVfsShmMap(handle, region, size, extend)) match
+      case Left(error) => Left(error)
+      case Right(_) => Right(JvmSharedRegion(handle, region, size))
+  def shmLock(offset: Int, count: Int, mode: ShmLockMode): Either[VfsError, Unit] =
+    jvmUnitResult(jvmVfsShmLock(handle, offset, count, mode))
+  def shmBarrier(): Unit =
+    jvmVfsShmBarrier(handle)
+    ()
+  def shmUnmap(delete: Boolean): Either[VfsError, Unit] = jvmUnitResult(jvmVfsShmUnmap(handle, delete))
+  def close(): Either[VfsError, Unit] = jvmUnitResult(jvmVfsClose(handle))
+
+case class JvmSqliteVfs(adapterName: String) extends SqliteVfs:
+  def name: String = adapterName
+  def open(path: String, kind: FileKind, flags: OpenFlags): Either[VfsError, SqliteFile] =
+    if flags.exclusive || flags.deleteOnClose then Left(VfsError("unsupported", "JVM VFS open flags are not implemented", false))
+    else jvmLongResult(jvmVfsOpen(path, flags.readOnly, flags.create)) match
+      case Left(error) => Left(error)
+      case Right(handle) => Right(JvmSqliteFile(handle.toInt))
+  def delete(path: String, syncDirectory: Boolean): Either[VfsError, Unit] = jvmUnitResult(jvmVfsDelete(path))
+  def exists(path: String): Either[VfsError, Boolean] = jvmBooleanResult(jvmVfsExists(path))
+  def fullPath(path: String): Either[VfsError, String] = jvmStringResult(jvmVfsFullPath(path))
+  def randomness(length: Int): Either[VfsError, ByteSlice] = Left(VfsError("unsupported", "JVM VFS randomness is not implemented", false))
+  def sleep(millis: Long): Unit = ()
+  def currentTimeMillis(): Long = 0L
+
+def jvmSqliteVfs(): SqliteVfs = JvmSqliteVfs("scljet-jvm")
 ```

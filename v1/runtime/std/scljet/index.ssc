@@ -261,6 +261,10 @@ exports:
   - memoryCrash
   - JvmVfsResult
   - JvmVfsRead
+  - JvmSharedRegion
+  - JvmSqliteFile
+  - JvmSqliteVfs
+  - jvmSqliteVfs
   - jvmVfsFullPath
   - jvmVfsOpen
   - jvmVfsDelete
@@ -333,7 +337,7 @@ interfaces and prove compatibility through differential and crash testing.
 
 [MemoryFaultEffect, FaultError, FaultShortRead, FaultShortWrite, FaultCrash, MemoryFaultRule, MemoryFileState, MemoryHandleState, MemoryRollbackLock, MemoryShmByteLock, MemoryShmState, MemoryTrace, MemoryVfsState, MemoryStep, memoryVfs, memoryCanonicalPath, memoryOpen, memoryDelete, memoryExists, memoryReadAt, memoryWriteAt, memoryTruncate, memorySync, memorySize, memoryLock, memoryUnlock, memoryCheckReservedLock, memoryShmMap, memoryShmRead, memoryShmWrite, memoryShmLock, memoryShmBarrier, memoryShmUnmap, memoryClose, memoryRandomness, memorySleep, memoryCurrentTimeMillis, memoryCrash](memory-vfs.ssc)
 
-[JvmVfsResult, JvmVfsRead, jvmVfsFullPath, jvmVfsOpen, jvmVfsDelete, jvmVfsExists, jvmVfsReadAt, jvmVfsWriteAt, jvmVfsTruncate, jvmVfsSync, jvmVfsSize, jvmVfsLock, jvmVfsUnlock, jvmVfsCheckReservedLock, jvmVfsShmMap, jvmVfsShmRead, jvmVfsShmWrite, jvmVfsShmLock, jvmVfsShmBarrier, jvmVfsShmUnmap, jvmVfsSectorSize, jvmVfsDeviceCharacteristics, jvmVfsClose](jvm-vfs.ssc)
+[JvmVfsResult, JvmVfsRead, JvmSharedRegion, JvmSqliteFile, JvmSqliteVfs, jvmSqliteVfs, jvmVfsFullPath, jvmVfsOpen, jvmVfsDelete, jvmVfsExists, jvmVfsReadAt, jvmVfsWriteAt, jvmVfsTruncate, jvmVfsSync, jvmVfsSize, jvmVfsLock, jvmVfsUnlock, jvmVfsCheckReservedLock, jvmVfsShmMap, jvmVfsShmRead, jvmVfsShmWrite, jvmVfsShmLock, jvmVfsShmBarrier, jvmVfsShmUnmap, jvmVfsSectorSize, jvmVfsDeviceCharacteristics, jvmVfsClose](jvm-vfs.ssc)
 
 ## Application-defined functions and collations
 
