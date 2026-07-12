@@ -343,10 +343,16 @@ the `scalascript` Rozum room from busi's production-shaped fixture; accepted by
   because registrations inside lambdas/dead branches never execute.
 - **Rejected WIP behavior:** collapsing explicit throw and runtime failure to
   one description String loses the thrown ADT; catching every normalized host
-  `Error` hides runtime bugs; `Int64(value)` omits VM/v1 trimming. JSON surrogate
+  `Error` hides runtime bugs; `Int64(value)` omits VM/v1 trimming. The current
+  v2 `String.toInt` also leaks `NumberFormatException`, so PluginBridge does not
+  yet provide its claimed recoverable-error oracle. JSON surrogate
   halves are dropped and astral scalars render as invalid `\\u1f600`; renderer
   installation is ignored; huge integer/`optInt`/`asInt` and malformed-value
-  behavior diverge.
+  behavior diverge. Spec review further found that installed self-hosted JSON
+  emits uppercase escapes while the native fallback is lowercase; non-string
+  map keys use the reference `Value.toString`; huge integral `optInt` uses
+  `BigDecimal.longValue` low bits; and the exact unsafe validator case is a
+  nested registration inside an outer registration's value expression.
 - **Done-when:** the feature spec freezes exact semantics and receives Rozum
   pre-code approval; real Swift proves exact throw payload, nested handler
   propagation, recoverable trimmed `toInt`, non-catchable host negative, safe

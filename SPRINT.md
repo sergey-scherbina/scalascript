@@ -317,7 +317,13 @@ pipeline used by real applications.
       `String.toInt`, module `global.reg`, locale and `JsonValue` contracts in
       the feature spec; obtain explicit read-only Rozum `APPROVE` before
       landing implementation. Preserve the taken-over dirty worktree, but do
-      not treat its passing build as approval.
+      not treat its passing build as approval. Spec-review residuals to close:
+      code-unit `<= U+0020` trim versus NBSP, normalize the current v2
+      `NumberFormatException` to the recoverable bridge category, nested
+      registration inside an outer registration value, exact installed
+      uppercase versus fallback lowercase JSON escaping, reference
+      `Value.toString` map-key text, and huge-integral `optInt` low-64-bit
+      behavior.
 - [ ] **Safe module-val discovery** — authorize only compiler-generated,
       unconditionally executed init-continuation `global.reg(name, value)`
       registrations. Do not scan definitions, lambdas or dead branches;
@@ -331,7 +337,9 @@ pipeline used by real applications.
       thrown value or a deterministic runtime-error String, returns the
       handler result, and lets handler failures propagate to an outer try.
       `String.toInt` trims like VM/v1 and invalid input is recoverable; host
-      bugs/fatal invariants must not be swallowed.
+      bugs/fatal invariants must not be swallowed. The shared v2/PluginBridge
+      lane must normalize invalid conversion too, so it actually remains the
+      declared oracle rather than leaking `NumberFormatException`.
 - [ ] **Swift JsonValue parity** — implement the existing `__jsonCore*`,
       `lookup` and `lookupOpt` ABI against the self-hosted renderer contract:
       UTF-16 BMP/astral/control correctness, renderer installation/use,
