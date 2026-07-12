@@ -481,6 +481,12 @@ def patternTypeHead = (toks) =>
 -- Pair("__nodflt__", "") sentinel. Constructors share the same registry.
 def paramDefaultsCell = #cell.new(Nil)
 def funcDefaultsCell  = #cell.new(Nil)
+-- Nominal subtype registry: [Pair(parentType, childTag)] captured from a case
+-- class's `extends Parent`. ssc1-lower reads it (same self-hosted process) to
+-- EXPAND a `case _: Parent` type-ascription into an OR over the child tags
+-- (the VM's __isTag__ is an exact tag test; sealed-trait membership must be
+-- expanded at lower time, mirroring the scalameta bridge).
+def subtypeRegCell = #cell.new(Nil)
 -- Active top-level extension group and the unique method names it declares.
 -- ssc1-lower reads extensionMethodsCell in the same self-hosted process.
 def extensionParamsCell  = #cell.new(Nil)
@@ -1894,6 +1900,16 @@ def parseCaseClass = (toks) =>
   let types = caseParamTypes(prV(rp)) in
   let derives = findCaseDerives(prT(rp)) in
   let _reg = registerParamDflts(name, params) in
+  -- Record `extends Parent` (first named parent) so a `case _: Parent` ascription
+  -- can expand to the child tags. Only an uppercase (uid) parent is nominal.
+  let _regSub =
+    if kwIs("extends", prT(rp)) then
+      let parentTok = peek(advance(prT(rp))) in
+      if #seq(tokKind(parentTok), "uid") then
+        #cell.set(subtypeRegCell,
+          Cons(Pair(tokVal(parentTok), name), #cell.get(subtypeRegCell)))
+      else 0
+    else 0 in
   let rec skipExt = (ts) =>
     let tok = peek(ts) in
     let k2  = tokKind(tok) in
@@ -2289,7 +2305,17 @@ def parseOneStmt = (toks) =>
               let _clr = #cell.set(paramDefaultsCell, Nil) in
               let rp = if kindIs("(", tsC) then parseParamList(tsC) else pr(Nil, tsC) in
               let _reg = registerParamDflts(cname, prV(rp)) in
-              goCases(prT(rp), Cons(Pair(cname, prV(rp)), acc))
+              let acc1 = Cons(Pair(cname, prV(rp)), acc) in
+              -- `case Red, Green, …`: additional comma-separated NULLARY cases on one
+              -- line (Scala enum sugar). Without this the comma tail leaked as
+              -- statements (`, Green` → `case`/`Green` unbound globals).
+              let rec goComma = (tsK, accK) =>
+                if kindIs(",", tsK) then
+                  let nm = tokVal(peek(advance(tsK))) in
+                  goComma(advance(advance(tsK)), Cons(Pair(nm, Nil), accK))
+                else pr(accK, tsK) in
+              let rComma = goComma(prT(rp), acc1) in
+              goCases(prT(rComma), prV(rComma))
           else pr(reverse(acc), tsA) in
         let rc = goCases(ts5, Nil) in
         let ts6 = if brace then skipRestBrace(prT(rc)) else prT(rc) in

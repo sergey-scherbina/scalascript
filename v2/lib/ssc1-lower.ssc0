@@ -837,6 +837,14 @@ def buildMapExpr = (args) =>
     Pair("lam", Pair(Cons("__m", Nil), Pair("block", puts(args)))),
     Cons(Pair("prim", Pair("map.new", Nil)), Nil)))
 
+-- Whether `cname` is ANY case (nullary or parametrized) of the given enum cases.
+def enumHasCase = (cases, cname) =>
+  match cases {
+    case Nil => false
+    case Cons(c, t) =>
+      match c { case Pair(cn, params) => if #seq(cn, cname) then true else enumHasCase(t, cname) }
+  }
+
 -- Resolve a method call obj.method(rargs) — obj and rargs already resolved
 def resolveMethodCall = (robj, method, rargs) =>
   if isExtensionMethod(method) then
@@ -870,10 +878,21 @@ def resolveMethodCall = (robj, method, rargs) =>
     match robj {
       case Pair(rtag, rname) =>
         if #seq(rtag, "uid") then
-          -- K62.7b: a user object (Math.square) → static Math_square; an unknown
-          -- uppercase object (Dataset.of, Graph.vertices) → __method__ dispatch,
-          -- resolved by the plugin runtime's __fallback__.<Name>.<method>.
-          (if isKnownObject(rname) then
+          -- A parametrized enum case constructor `Color.Custom("#fff")` → `Custom("#fff")`
+          -- (bare ctor application), mirroring the scalameta bridge. Without this it fell
+          -- through to `__method__("Custom", (ctor Color), …)`, which the VM read as an
+          -- unhandled effect Op `Op("Color.Custom", …)`. Nullary `Color.Red` is handled by
+          -- the bare-selector enum intercept; this covers the applied parametrized form.
+          (if isEnumUid(rname) then
+             (if enumHasCase(enumCasesOf(rname), method) then
+                Pair("ctorap", Pair(method, rargs))
+              else
+                Pair("prim", Pair("__method__",
+                  Cons(Pair("str", method), Cons(Pair("ctorap", Pair(rname, Nil)), rargs)))))
+           -- K62.7b: a user object (Math.square) → static Math_square; an unknown
+           -- uppercase object (Dataset.of, Graph.vertices) → __method__ dispatch,
+           -- resolved by the plugin runtime's __fallback__.<Name>.<method>.
+           else if isKnownObject(rname) then
              Pair("app", Pair(Pair("var", #sconcat(rname, #sconcat("_", method))), rargs))
            else
              Pair("prim", Pair("__method__",
@@ -2350,14 +2369,53 @@ def hasTypedPat = (arms) =>
           else hasTypedPat(rest) } }
   }
 
+-- All child tags of a nominal supertype: case classes that `extends` it
+-- (subtypeRegCell) plus, if it is an enum, every case name (enumCasesCell). An
+-- empty result ⇒ `typeHead` is a leaf tag, so the ascription stays an exact test.
+def subtypeChildren = (parent) =>
+  let rec goReg = (xs) =>
+    match xs {
+      case Nil => Nil
+      case Cons(e, t) =>
+        match e { case Pair(p, child) =>
+          if #seq(p, parent) then Cons(child, goReg(t)) else goReg(t) }
+    } in
+  let rec goEnum = (cs) =>
+    match cs {
+      case Nil => Nil
+      case Cons(c, t) => match c { case Pair(cn, params) => Cons(cn, goEnum(t)) }
+    } in
+  append(goReg(#cell.get(subtypeRegCell)), goEnum(enumCasesOf(parent)))
+
+def isTagExact = (scrut, tag) =>
+  IrPrim("__isTag__",
+    Cons(scrut, Cons(IrLit(IrStr(tag)), Cons(IrLit(IrInt(#i.sub(0, 1))), Nil))))
+
+-- OR of exact tag tests over the child tags — mirrors the scalameta bridge's
+-- `_: Circle | _: Square` expansion (identical to how `||` lowers). `scrut` is a
+-- simple IrLocal at every call site, so repeating it is safe.
+def orTagTests = (scrut, tags) =>
+  match tags {
+    case Nil => IrLit(IrBool(false))
+    case Cons(tag, rest) =>
+      match rest {
+        case Nil => isTagExact(scrut, tag)
+        case Cons(h, t) =>
+          IrIf(isTagExact(scrut, tag), IrLit(IrBool(true)), orTagTests(scrut, rest))
+      }
+  }
+
 -- A typed binder retains only its portable outer nominal ADT tag. Constructor
 -- arity is intentionally unconstrained: type arguments and field layout are
--- erased, while the nominal tag remains observable on every target.
+-- erased, while the nominal tag remains observable on every target. A SUPERTYPE
+-- (sealed trait / enum) expands to an OR over its child tags, because the VM's
+-- __isTag__ is an EXACT tag test with no subtype resolution.
 def typedTagTest = (scrut, typeHead) =>
-  IrPrim("__isTag__",
-    Cons(scrut,
-      Cons(IrLit(IrStr(typeHead)),
-        Cons(IrLit(IrInt(#i.sub(0, 1))), Nil))))
+  let subs = subtypeChildren(typeHead) in
+  match subs {
+    case Nil => isTagExact(scrut, typeHead)
+    case Cons(h, t) => orTagTests(scrut, subs)
+  }
 
 def fieldsHaveNestedPat = (fields) =>
   match fields {
