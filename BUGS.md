@@ -1,5 +1,22 @@
 # Bug tracker
 
+## scljet-oracle-pin-stale — spec called SQLite 3.53.0 current after 3.53.3
+
+**Status:** open (2026-07-12); found by codex while validating primary sources
+for the SclJet M2 read-only specification.
+
+- **Repro:** compare `specs/scljet.md`'s M0 oracle paragraph with the official
+  SQLite release history: 3.53.3 was released 2026-06-26 and is the current
+  bug-fix release; the local Python oracle also reports 3.53.3.
+- **Root cause:** the initial specification pinned the 3.53.0 feature release
+  but described it as current without accounting for its subsequent patch
+  releases.
+- **Planned fix:** advance M2 fixtures to exact 3.53.3 source id
+  `d4c0e51e...d782c62`, record compile options per fixture, and require future
+  oracle upgrades to be explicit.
+- **Done-when:** the M2 spec commit lands and the corpus manifest/generator use
+  the same exact source id.
+
 ## v2-js-imported-method-object-primitive — SclJet stops at __mk_method_obj__
 
 **Status:** open (2026-07-12); found by codex while probing the native v2 JS
