@@ -18,15 +18,18 @@ planner, evaluator, and function registry are ScalaScript code; only the abstrac
 touches a host filesystem. Compatibility is pinned to SQLite 3 file format and observable behavior,
 with extensions isolated behind an explicit non-default profile.
 
-- [ ] **sqlite-0-plan-and-spec** — create `specs/scalascript-sqlite.md` after reconciling `SPEC.md`,
+- [x] **sqlite-0-plan-and-spec** — DONE 2026-07-12. Created `specs/scalascript-sqlite.md`
+      after reconciling `SPEC.md`,
       existing SQL runtimes, and the official SQLite file/WAL/VFS/locking/SQL contracts. Specify the
       public API, module layout, byte codec and record format, pager/cache/B-tree/freelist/overflow,
       rollback and WAL transaction protocols, abstract random-access/locking/shared-memory VFS,
       SQL parser/planner/VM, manifest typing and collations, external scalar/aggregate/window
       functions, errors/limits/security, differential/crash/concurrency tests, staged milestones,
       compatibility profiles, rejected alternatives, and explicit open decisions.
-      Done when the spec is self-contained, behavior items are testable, and no global language
-      invariant needs changing.
+      The spec is self-contained, its M0-M8 behavior gates are testable, and no global language
+      invariant needs changing. Decisions: pure core + synchronous VFS, strict/extended profiles,
+      opt-in `sqlite+ssc:` during development, private VDBE-inspired VM, pinned SQLite 3.53.0
+      differential oracle. Four non-blocking product choices remain explicit in the spec.
 - [ ] **sqlite-1-module-scaffold** — create the pure `.ssc` module at `runtime/std/sqlite/` with
       manifest/aggregator plus target-neutral public value, error, option, connection, prepared
       statement, VFS, random-access file, lock, shared-memory, and function-registry contracts.
