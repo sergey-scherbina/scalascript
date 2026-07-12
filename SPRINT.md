@@ -383,6 +383,12 @@ pipeline used by real applications.
       `lower` exercises only the one-argument join, add a real-Swift/CoreIR
       overload matrix for mixed `["a", 2]` and `Nil` across 0/1/3 arguments,
       plus wrong-arity, non-String-delimiter and non-list rejection negatives.
+      Once CSS joins, `element` receives attrs as the checked frontend's proper
+      association list of `Tuple2(String, Value)` although the source type is
+      `Map[String, Any]`; Swift host currently accepts only `SscMap`. Normalize
+      both exact shapes at the NativeUi boundary (left-to-right, duplicate key
+      last-wins), with improper-list/non-Tuple2/wrong-arity/non-String-key
+      negatives.
 - [ ] **Release gates and closure** — require explicit post-code Rozum
       `APPROVE`; full Swift backend, combined CLI, assembled Swift CLI and
       macOS+iOS Apple e2e, money/effects/tkv2/v2 conformance, affected

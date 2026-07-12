@@ -356,6 +356,11 @@ the `scalascript` Rozum room from busi's production-shaped fixture; accepted by
   After `toList` identity, the same gate advances to
   `method not found: mkString on List("padding-left:16px;...")`; Swift also
   omitted the shared List string-join overloads used by `_styleCss`.
+  After `mkString`, `lower` reaches `element` but attrs arrive as the checked
+  frontend's proper `List(Tuple2(String, Value))`; `nativeUiStringMap` accepts
+  only `.map` and fails with `NativeUiElement.attrs expected Map[String,
+  Value]`. The ABI must normalize the frontend representation rather than
+  changing the standard lowerer fixture.
 - **Rejected WIP behavior:** collapsing explicit throw and runtime failure to
   one description String loses the thrown ADT; catching every normalized host
   `Error` hides runtime bugs; `Int64(value)` omits VM/v1 trimming. The current
@@ -382,6 +387,8 @@ the `scalascript` Rozum room from busi's production-shaped fixture; accepted by
   real Swift and the resulting CSS list must join through `mkString("")`;
   replacing either with direct constructors/string literals would not close
   the bug.
+  `element` must then accept the association-list attrs and retain the produced
+  styles; malformed list/tuple/key shapes remain bounded failures.
 
 ## v2-httpclient-curried-extern-unbound — curried top-level `extern def` doesn't bind as a global on `ssc run`
 **Status:** open (2026-07-12), found by claude-code (rozum-ucc-test) while porting rozum's UCC
