@@ -1047,5 +1047,5 @@ These remain, each needing its own slice:
   (deleteFile, redirects, timeout, cwd/env, listDir order) across JVM/JS/Rust/interp.
 (M2-JS + M3-JS both done — JS client now matches JVM/interp/Rust on redirects + body cap.)
   (manual mode returns an opaque response; needs a response.url host re-check).
-- **exec opts-wiring** — interp/Rust/JS `exec` ignore ProcessOptions (cwd/env/timeout/inheritEnv);
+- **exec opts-wiring (Rust/JS)** — interp DONE (git). Rust `_exec<O>` is generic (needs codegen special-case to read struct fields); JS needs Option/Map unwrapping in the runtime. Both remain.
   wire them so M4/L3 apply on those lanes too.
