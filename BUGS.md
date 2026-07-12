@@ -395,6 +395,12 @@ the `scalascript` Rozum room from busi's production-shaped fixture; accepted by
   With the value included, the failure is `List(32, 24, 20, 18, 16, 14)` from
   `lower.ssc`'s `sizes(level - 1)`. Shared `Runtime.applyFallback` supports
   proper-List indexed application; Swift evaluator does not.
+- **Anonymous signal identity root cause:** after the standard lower fixture is
+  green, the production locale/JSON fixture fails with `duplicate native UI
+  signal '__computed__...localeText...' in scope 'root' has conflicting
+  kind/default`. `computedSignal` and `eqSignal` derive ids from lexical site
+  alone and ignore the spec's per-owner occurrence, so multiple calls to the
+  same imported component alias one signal.
 
 ## v2-httpclient-curried-extern-unbound — curried top-level `extern def` doesn't bind as a global on `ssc run`
 **Status:** open (2026-07-12), found by claude-code (rozum-ucc-test) while porting rozum's UCC

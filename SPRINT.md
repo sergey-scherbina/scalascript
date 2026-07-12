@@ -405,6 +405,13 @@ pipeline used by real applications.
       0, wrong-arity `Cons`, and non-empty `Nil` all yield catchable
       `SscRuntimeFailure("app: malformed list")`, never a partial head result or
       host trap.
+      Production i18n then exposes a state-identity collision: repeated calls
+      to imported `localeText` create `computedSignal` at one lexical site and
+      all use id `__computed__<siteId>` in root scope. Qualify anonymous
+      `computedSignal`/`eqSignal` ids by the existing `(ownerPath, siteId,
+      occurrence)` counter (separate kind namespace), preserving explicit
+      named-signal duplicate checks; gate three locale calls, stable keyed-owner
+      recreation, and no conflicting duplicate.
 - [ ] **Release gates and closure** — require explicit post-code Rozum
       `APPROVE`; full Swift backend, combined CLI, assembled Swift CLI and
       macOS+iOS Apple e2e, money/effects/tkv2/v2 conformance, affected
