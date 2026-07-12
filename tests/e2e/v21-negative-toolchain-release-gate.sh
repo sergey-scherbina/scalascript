@@ -71,7 +71,7 @@ for module in java.compiler jdk.compiler; do
   fi
 done
 
-for tool in bash dirname git find mkdir mktemp rm head tr basename grep cat cut python3 cmp; do
+for tool in awk bash dirname git find mkdir mktemp rm head tr basename grep cat cut python3 cmp; do
   target=$(command -v "$tool")
   [[ -n $target ]] || { echo "missing host utility: $tool" >&2; exit 2; }
   ln -s "$target" "$toolbin/$tool"
