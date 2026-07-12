@@ -1,6 +1,0 @@
-feature/scljet-m2 2026-07-12T13:02:18Z
-agent: codex
-heartbeat: 2026-07-12T13:17:06Z
-status: in-progress
-done-so-far: exact M2 header/page/record/pager/cursor/schema/corpus spec committed locally as 3a0a3834a
-next: publish the spec commit, record the oracle-pin bug, then implement pure page and record codecs
