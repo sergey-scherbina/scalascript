@@ -43,7 +43,15 @@ enum VmInstruction:
   case Open(kind: String, role: Option[String] = None)
   case Close(expectedKind: Option[String] = None, role: Option[String] = None)
   case Emit(role: Option[String] = None)
+  case Reframe(
+    closeBefore: Vector[String] = Vector.empty,
+    open: Vector[FrameSpec] = Vector.empty,
+    closeAfter: Vector[String] = Vector.empty,
+    role: Option[String] = None,
+  )
   case Report(code: String, message: String, severity: Severity = Severity.Error)
+
+final case class FrameSpec(kind: String, role: Option[String] = None)
 
 final case class VmToken(token: SourceToken, instruction: VmInstruction)
 
@@ -79,6 +87,9 @@ stable contracts:
 - dialect and node kinds are stable opaque strings namespaced as `<dialect>.<kind>`;
 - roles label ordered edges and never replace or reorder them;
 - every `VmToken` contains exactly one `SourceToken` and one `VmInstruction`;
+- `Reframe` close-kind vectors are ordered innermost-first and its open-frame vector is ordered
+  outermost-first; the carrier token is emitted exactly once after `closeBefore`/`open` and before
+  `closeAfter`;
 - `ProcessBatch` may contain zero, one, or many values, allowing lexers and projections to be
   composed without requiring the whole document in memory;
 - `finish()` is called exactly once after the final input and flushes buffered state;
@@ -107,6 +118,12 @@ every possible chunking.
 - [x] VM limits reject excessive nesting and node/token counts with structured diagnostics rather
       than stack overflow, unbounded allocation, or a platform exception.
 - [x] The module compiles and its focused tests pass on JVM and Scala.js.
+- [ ] A valid `Reframe` atomically closes zero or more expected frames before its source token, opens
+      zero or more replacement frames, emits that token once, then closes zero or more expected
+      frames after it. It supports indentation transitions and implicit end-of-input closures without
+      synthetic tokens.
+- [ ] An invalid `Reframe` (negative/impossible depth, kind mismatch, or limit overflow) never
+      partially mutates the frame stack; it retains the carrier token and reports a stable diagnostic.
 
 ### Dialect compatibility gates
 
@@ -300,6 +317,10 @@ not require a normative `SPEC.md` change in M0.
 - **Synchronous composable processors** — chosen for deterministic JVM/JS behavior and caller-owned
   backpressure. Rejected: a mandatory reactive-stream dependency, which would enlarge the leaf module
   and force concurrency semantics unrelated to tree construction.
+- **Atomic source-backed reframing** — chosen because indentation grammars can close several implicit
+  scopes at a line boundary or EOF while preserving the one-token/one-instruction invariant. Rejected:
+  synthetic DEDENT/EOF tokens (not source-backed), delaying one token per closed scope (cannot express
+  multi-dedent), and putting YAML-specific indentation behavior inside `TreeVm`.
 - **Standalone cross-compiled leaf module** — chosen so parsers, tools, backends, and browser code can
   share it without importing compiler/runtime internals. Rejected: adding the VM to `core` or
   `markup-core`, which would couple unrelated consumers and narrow UniML to XML.

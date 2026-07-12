@@ -150,23 +150,27 @@ permit; `:`/`-`/`?` become indicators only in their grammar contexts.
 
 ## CST and VM mapping
 
-The adapter uses only universal VM instructions:
+The adapter uses only universal VM instructions, including the format-neutral `Reframe` operation:
 
 - document start (explicit marker or first source-backed node token) opens `yaml.document`;
 - block/flow mapping open tokens open `yaml.mapping`; sequence open/first dash opens `yaml.sequence`;
 - mapping key/value and sequence item nodes attach with `mapping.key`, `mapping.value`, or
   `sequence.item` roles;
-- dedent, flow closing delimiter, explicit `...`, next `---`, or end-of-stream closes the relevant
-  source-backed frame; when a block scope has no explicit closing token, the last source token owned by
-  that scope carries the close instruction and remains exactly once in the tree;
+- a first source token after dedent carries `Reframe.closeBefore`; a final source token carries
+  `Reframe.closeAfter` for implicit end-of-document/end-of-stream closures; expected close kinds are
+  checked innermost-first, new frames are opened outermost-first, and the carrier token remains exactly
+  once in the tree;
+- flow closing delimiters use `Close`, while explicit `...`/next `---` may close block/document frames
+  through `Reframe` before being attached to the new stream/document context;
 - presentation tokens use ordered trivia/comment roles;
 - token-backed errors use `Report`; zero-width EOF/indentation-transition diagnostics travel in the
   processor batch.
 
 Because block YAML has implicit closures, the structural processor maintains a parallel indentation
-stack and may delay the final token of a block until the next line establishes whether it must carry
-`Emit` or `Close`. This preserves the one-token/one-instruction invariant without synthetic source
-tokens.
+stack and may delay the first token of a physical line or the final source token until the required
+`Reframe` transition is known. One instruction can close multiple expected scopes, open replacement
+scopes, emit its carrier, and close final scopes atomically, so neither synthetic DEDENT/EOF tokens nor
+token duplication is required.
 
 ## Lexer and structural parser
 
@@ -271,8 +275,9 @@ parsers may be test/differential or later projection consumers but are not the l
 - **Alias preservation by default** — chosen to avoid expansion bombs and retain graph identity.
   Rejected: automatic recursive cloning during parse.
 - **Tags are inert data** — chosen for portability/security. Rejected: JVM/JS-specific constructors.
-- **Separate cross-module** — chosen to keep UniML VM format-neutral. Rejected: YAML indentation rules
-  inside `TreeVm`.
+- **Generic VM reframing plus a separate cross-module** — chosen to keep `TreeVm` aware only of frame
+  transitions while all YAML indentation grammar remains in the dialect. Rejected: YAML-specific
+  indentation rules in core and synthetic DEDENT tokens.
 
 ## Results
 
