@@ -245,12 +245,13 @@ object ByteSlice:
   def fromList(values: List[Int]): Either[ByteError, ByteSlice]
   def zeros(length: Int): Either[ByteError, ByteSlice]
 
+def byteSliceToList(bytes: ByteSlice): List[Int]
+
 extension (bytes: ByteSlice)
   def length: Int
   def get(index: Int): Either[ByteError, Int]
   def updated(index: Int, value: Int): Either[ByteError, ByteSlice]
   def slice(offset: Int, length: Int): Either[ByteError, ByteSlice]
-  def toByteList(): List[Int]
   def concat(other: ByteSlice): ByteSlice
   def copyTo(target: ByteSlice, targetOffset: Int): Either[ByteError, ByteSlice]
   def zeroExtend(length: Int): Either[ByteError, ByteSlice]

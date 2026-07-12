@@ -115,8 +115,8 @@ with extensions isolated behind an explicit non-default profile.
       leaking host buffers. Chosen representation: immutable 64-byte chunk table with shared
       slice windows; varint failure consumes nothing; memory VFS is a replayable immutable state
       machine; JVM locking combines a process-local coordinator with OS byte-range locks. The list
-      adapter is named `toByteList()` rather than `toList`: the latter collides with ScalaScript's
-      built-in collection dispatch and fails as an extension method in the assembled runtime.
+      adapter is the top-level `byteSliceToList(bytes)`: zero-argument extension dispatch loses the
+      receiver in the assembled interpreter, while argument-taking byte extensions are reliable.
 - [ ] **scljet-m1b-bytes-codec** — replace the M0 byte placeholder with a bounds-checked immutable
       byte slice and add `bytes.ssc`: validated 0..255 construction, indexed read/update, zero-fill,
       slicing/copy/concat, big/little-endian 16/32/64-bit reads/writes, signed two's-complement reads,
