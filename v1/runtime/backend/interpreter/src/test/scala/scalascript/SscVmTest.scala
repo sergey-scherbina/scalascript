@@ -2745,6 +2745,18 @@ class SscVmTest extends AnyFunSuite with Matchers:
     VmCompiler.compile(len, globalsResolve(interp)) shouldBe empty
   }
 
+  test("wide-jit C-8: foldLeft with a Double accumulator over List[Int] compiles and runs") {
+    // Slice A foldLeft was Int-accumulator only. C-8 allows a Double accumulator (`foldLeft(0.0)`):
+    // element stays Int, the `a + x` body widens x (I2D) like any mixed arithmetic. Sum-as-double.
+    val f = funOf("sumD", "def sumD(xs: List[Int]): Double = xs.foldLeft(0.0)((a, x) => a + x)")
+    val before = VmCompiler.foldLeftCompileCount.get
+    val cfn = VmCompiler.compile(f)
+    cfn shouldBe defined
+    assert(VmCompiler.foldLeftCompileCount.get > before, "the Double-accumulator foldLeft did not compile")
+    val xs = Value.ListV(List(Value.intV(1L), Value.intV(2L), Value.intV(3L), Value.intV(4L)))
+    java.lang.Double.longBitsToDouble(SscVm.runRef(cfn.get, Array.empty[Long], Array[AnyRef](xs))) shouldBe 10.0
+  }
+
   test("wide-jit C-3: FunV.body is identity-keyed in the Typer's nodeTypes; the map threads to VmCompiler") {
     // Parse ONCE; run it (→ FunV) and typecheck it (→ nodeTypes) from the SAME parse, so the
     // FunV.body Term the JIT compiles is the exact object the Typer recorded a type for.

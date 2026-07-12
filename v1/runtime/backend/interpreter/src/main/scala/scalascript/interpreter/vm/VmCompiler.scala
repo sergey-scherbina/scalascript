@@ -526,7 +526,11 @@ object VmCompiler:
       if refTypeName.getOrElse(xsReg, "") != "List[Int]" then
         bail("foldLeft: receiver not statically List[Int] (Slice A)", Br.VmUnsupportedTerm)
       val accReg = freshReg()
-      if compileInto(z, accReg) != TInt then bail("foldLeft: non-Int accumulator (Slice A)", Br.VmUnsupportedTerm)
+      // wide-jit C-8: the accumulator may be Int OR Double — `List[Int].foldLeft(0.0)((a,x) => a + x)`
+      // (sum-as-double / average). Element stays Int (LITERNXI); the Double case just carries a
+      // Double accumulator + body (the a+x arith widens x via I2D like any mixed arithmetic).
+      val accT = compileInto(z, accReg)
+      if accT != TInt && accT != TDouble then bail("foldLeft: accumulator not Int/Double (Slice A)", Br.VmUnsupportedTerm)
       val cursor = freshReg()
       emit(LITERINIT, cursor, xsReg, 0); setType(cursor, TRef)
       val loopStart = ops.length
@@ -539,16 +543,22 @@ object VmCompiler:
       val savedA = locals.get(aName); val savedB = locals.get(bName)
       locals(aName) = accReg; locals(bName) = elem
       val res = freshReg()
-      val bt = compileInto(lambda.body, res)
+      var bt = compileInto(lambda.body, res)
       savedA match { case Some(r) => locals(aName) = r; case None => locals.remove(aName) }
       savedB match { case Some(r) => locals(bName) = r; case None => locals.remove(bName) }
-      if bt != TInt then bail("foldLeft: non-Int lambda body (Slice A)", Br.VmUnsupportedTerm)
+      // The body must feed back a value of the accumulator's type; Scala widens an Int body into a
+      // Double accumulator (`(a, x) => x` where `a` is Double). A Double body into an Int acc is a
+      // type error → bail.
+      if bt != accT then
+        if accT == TDouble && bt == TInt then
+          emit(I2D, res, res, 0); setType(res, TDouble); bt = TDouble
+        else bail("foldLeft: lambda body type mismatch (Slice A)", Br.VmUnsupportedTerm)
       emit(MOVE, accReg, res, 0)
       emit(JMP, loopStart, 0, 0)
       bs(jf) = ops.length
-      emit(MOVE, dst, accReg, 0); setType(dst, TInt)
+      emit(MOVE, dst, accReg, 0); setType(dst, accT)
       foldLeftCompileCount.incrementAndGet()
-      TInt
+      accT
 
     // Compile `t`, emitting its result directly into register `dst`, and return
     // the static type written there. Destination-passing avoids the extra MOVE a
