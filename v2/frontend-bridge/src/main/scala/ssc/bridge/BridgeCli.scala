@@ -69,6 +69,37 @@ import ssc.*
       case Value.UnitV => ()
       case other       => println(Show.show(other))
 
+  // K63.3: run MANY IRs through ONE JVM (avoids ~1s JVM startup per test — ~1.5-2 min over the
+  // full parity audit). The manifest lists one `<ir-path>\t<out-path>` per line; each IR's stdout
+  // is written to its out-path, byte-for-byte identical to a per-invocation `run-ir <ir> > out`.
+  // The plugin registry is snapshotted after loadAll and RESTORED before every IR so
+  // registrations don't leak between tests (same isolation V2ConformanceTest uses). io.println
+  // writes via Console.out, so each IR runs inside Console.withOut (main-thread output; IRs that
+  // spawn their own threads for output are the caveat — rerun those singly).
+  case "run-ir-batch" :: manifest :: rest =>
+    Runtime.argv = rest
+    PluginBridge.loadAll()
+    val snap = V2PluginRegistry.snapshot()
+    val entries = scala.io.Source.fromFile(manifest).getLines()
+      .map(_.trim).filter(_.nonEmpty).toList
+    for entry <- entries do
+      val tab = entry.indexOf('\t')
+      val (irPath, outPath) =
+        if tab >= 0 then (entry.substring(0, tab), entry.substring(tab + 1))
+        else (entry, entry + ".out")
+      V2PluginRegistry.restore(snap)
+      val ps = new java.io.PrintStream(new java.io.FileOutputStream(outPath), true, "UTF-8")
+      try
+        Console.withOut(ps) {
+          val prog = Reader.parseProgram(scala.io.Source.fromFile(irPath).mkString)
+          Runtime.run(Compiler.compile(prog), Array.empty[Value]) match
+            case Value.UnitV => ()
+            case other       => println(Show.show(other))
+        }
+      catch case e: Throwable => System.err.println(s"run-ir-batch: $irPath: $e")
+      finally
+        ps.flush(); ps.close()
+
   case _ =>
     System.err.println(
       """bridge-cli — v1 .ssc → FrontendBridge → v2 VM
