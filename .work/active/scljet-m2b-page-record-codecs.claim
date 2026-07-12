@@ -1,0 +1,6 @@
+feature/scljet-m2b-page-record-codecs 2026-07-12T13:20:57Z
+agent: codex
+heartbeat: 2026-07-12T13:20:57Z
+status: not-started
+done-so-far: M2 read-only specification landed in 7a6e2e70a
+next: create an isolated worktree and implement header/page/record pure codecs plus golden tests
