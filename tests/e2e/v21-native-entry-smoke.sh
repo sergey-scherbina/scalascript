@@ -76,6 +76,7 @@ distributed_join_expected=$'o1 | c1 | Ada | 10\no2 | c2 | Bob | 20\no3 | c1 | Ad
 distributed_log_expected=$'payments: 2 errors\nsearch: 1 errors'
 [[ $(run_native "$ROOT/examples/distributed-log-aggregation.ssc" -- \
   "$FIXTURES/distributed-app.log") == "$distributed_log_expected" ]]
+[[ $(run_native "$ROOT/examples/graph-storage-interpreter.ssc") == 'imports:b.ssc' ]]
 [[ $(run_native "$FIXTURES/zero-arg-println.ssc") == $'before\n\nafter' ]]
 signals_expected=$'0\n5\n10\nc=5 d=10\nc=7 d=14\nc=11 d=22\nn=3 sq=9 cube=27\nn=4 sq=16 cube=64'
 [[ $(run_native "$ROOT/examples/signals-demo.ssc") == "$signals_expected" ]]
@@ -206,6 +207,7 @@ index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
   "$FIXTURES/distributed-orders.csv" "$FIXTURES/distributed-customers.csv") == "$distributed_join_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/distributed-log-aggregation.ssc" -- \
   "$FIXTURES/distributed-app.log") == "$distributed_log_expected" ]]
+[[ $(run_native --bytecode "$ROOT/examples/graph-storage-interpreter.ssc") == 'imports:b.ssc' ]]
 [[ $(run_native --bytecode "$ROOT/examples/dsl-sql-recovery.ssc") == "$sql_recovery_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/imported-tuple-collection.ssc") == "$imported_tuple_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/exact-decimal.ssc") == "$exact_decimal_expected" ]]
@@ -273,6 +275,20 @@ grep -F 'requires a non-empty url' "$sandbox/yaml-missing-url.err" >/dev/null
 assert_frontmatter_failure yaml-conflict \
   "$FIXTURES/yaml-conflict-a.ssc" "$FIXTURES/yaml-conflict-b.ssc"
 grep -F "conflicting native database 'default'" "$sandbox/yaml-conflict.err" >/dev/null
+
+for mode in vm asm; do
+  mode_args=()
+  [[ $mode == asm ]] && mode_args=(--bytecode)
+  set +e
+  run_native "${mode_args[@]}" "$ROOT/examples/graph-rdf4j-http-storage.ssc" \
+    >"$sandbox/graph-rdf4j.$mode.out" 2>"$sandbox/graph-rdf4j.$mode.err"
+  graph_rdf_rc=$?
+  set -e
+  [[ $graph_rdf_rc -ne 0 ]]
+  [[ $(cat "$sandbox/graph-rdf4j.$mode.out") == 'Stored two books.' ]]
+  grep -F 'Sparql.select is not available in the standard local Graph provider' \
+    "$sandbox/graph-rdf4j.$mode.err" >/dev/null
+done
 
 for mode in vm asm; do
   mode_args=()

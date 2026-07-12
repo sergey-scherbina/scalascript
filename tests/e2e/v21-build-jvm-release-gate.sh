@@ -114,6 +114,24 @@ distributed_log_expected=$'payments: 2 errors\nsearch: 1 errors'
 [[ $(PATH="$clean_path" java -jar "$sandbox/distributed-log.jar" -- \
   "$FIXTURES/distributed-app.log") == "$distributed_log_expected" ]]
 
+cp "$ROOT/examples/graph-storage-interpreter.ssc" "$sandbox/other/graph-storage-interpreter.ssc"
+PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
+  "$sandbox/other/graph-storage-interpreter.ssc" -o "$sandbox/graph.jar"
+[[ $(PATH="$clean_path" java -jar "$sandbox/graph.jar") == 'imports:b.ssc' ]]
+
+cp "$ROOT/examples/graph-rdf4j-http-storage.ssc" "$sandbox/other/graph-rdf4j-http-storage.ssc"
+PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
+  "$sandbox/other/graph-rdf4j-http-storage.ssc" -o "$sandbox/graph-rdf4j.jar"
+set +e
+PATH="$clean_path" java -jar "$sandbox/graph-rdf4j.jar" \
+  >"$sandbox/graph-rdf4j.out" 2>"$sandbox/graph-rdf4j.err"
+graph_rdf_rc=$?
+set -e
+[[ $graph_rdf_rc -ne 0 ]]
+[[ $(cat "$sandbox/graph-rdf4j.out") == 'Stored two books.' ]]
+grep -F 'Sparql.select is not available in the standard local Graph provider' \
+  "$sandbox/graph-rdf4j.err" >/dev/null
+
 jar_cmd=$(command -v jar)
 javap_cmd=$(command -v javap)
 jdeps_cmd=$(command -v jdeps)
@@ -136,6 +154,8 @@ LC_ALL=C sort -c "$sandbox/entries"
   "$sandbox/actors.jar" >"$sandbox/actors.jdeps"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps -verbose:class \
   "$sandbox/distributed-join.jar" >"$sandbox/distributed.jdeps"
+"$jdeps_cmd" --multi-release base --ignore-missing-deps -verbose:class \
+  "$sandbox/graph.jar" >"$sandbox/graph.jdeps"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
   "$sandbox/a/app.jar" >"$sandbox/app.modules"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
@@ -152,6 +172,8 @@ LC_ALL=C sort -c "$sandbox/entries"
   "$sandbox/actors.jar" >"$sandbox/actors.modules"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
   "$sandbox/distributed-join.jar" >"$sandbox/distributed.modules"
+"$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
+  "$sandbox/graph.jar" >"$sandbox/graph.modules"
 
 forbidden='scala[./](meta|tools)|dotty[./]tools|scala3-compiler|compiler-driver|javax[./]tools|java[.]compiler|jdk[.]compiler|ssc[./]bridge|scalascript[./](ast|frontend|interpreter)'
 if grep -Ei "$forbidden" "$sandbox/entries" "$sandbox/entry.javap" \
@@ -159,7 +181,8 @@ if grep -Ei "$forbidden" "$sandbox/entries" "$sandbox/entry.javap" \
     "$sandbox/generator.jdeps" "$sandbox/async.jdeps" "$sandbox/app.modules" "$sandbox/sql.modules" \
     "$sandbox/yaml.modules" "$sandbox/dataset.modules" "$sandbox/generator.modules" \
     "$sandbox/async.modules" "$sandbox/actors.jdeps" "$sandbox/actors.modules" \
-    "$sandbox/distributed.jdeps" "$sandbox/distributed.modules" >/dev/null; then
+    "$sandbox/distributed.jdeps" "$sandbox/distributed.modules" \
+    "$sandbox/graph.jdeps" "$sandbox/graph.modules" >/dev/null; then
   echo 'v21-build-jvm-release-gate: forbidden standard-tier entry/reference/module' >&2
   exit 1
 fi
@@ -185,6 +208,7 @@ generator_modules=$(tr -d '\r\n' <"$sandbox/generator.modules")
 async_modules=$(tr -d '\r\n' <"$sandbox/async.modules")
 actors_modules=$(tr -d '\r\n' <"$sandbox/actors.modules")
 distributed_modules=$(tr -d '\r\n' <"$sandbox/distributed.modules")
+graph_modules=$(tr -d '\r\n' <"$sandbox/graph.modules")
 report_tmp="$sandbox/release.tsv"
 {
   printf 'metric\tvalue\n'
@@ -200,6 +224,7 @@ report_tmp="$sandbox/release.tsv"
   printf 'async.modules\t%s\n' "$async_modules"
   printf 'actors.modules\t%s\n' "$actors_modules"
   printf 'distributed.modules\t%s\n' "$distributed_modules"
+  printf 'graph.modules\t%s\n' "$graph_modules"
   printf 'compiler.commands.hidden\ttrue\n'
   printf 'forbidden.references\t0\n'
   printf 'hello.output\tHello, World!\n'
@@ -211,6 +236,7 @@ report_tmp="$sandbox/release.tsv"
   printf 'async.output\tsequential/parallel/nested/exact\n'
   printf 'actors.output\tmailbox/timeout/typed-loopback/exact\n'
   printf 'distributed.output\tlocal-map/shuffle-group/exact\n'
+  printf 'graph.output\tlocal-property/rdf-boundary/exact\n'
 } >"$report_tmp"
 
 if [[ -n $REPORT ]]; then

@@ -127,6 +127,21 @@ distributed_log_expected=$'payments: 2 errors\nsearch: 1 errors'
   "$FIXTURES/distributed-app.log") == "$distributed_log_expected" ]]
 [[ $(run_standard run --bytecode "$ROOT/examples/distributed-log-aggregation.ssc" -- \
   "$FIXTURES/distributed-app.log") == "$distributed_log_expected" ]]
+[[ $(run_standard run "$ROOT/examples/graph-storage-interpreter.ssc") == 'imports:b.ssc' ]]
+[[ $(run_standard run --bytecode "$ROOT/examples/graph-storage-interpreter.ssc") == 'imports:b.ssc' ]]
+for mode in vm asm; do
+  mode_args=()
+  [[ $mode == asm ]] && mode_args=(--bytecode)
+  set +e
+  run_standard run "${mode_args[@]}" "$ROOT/examples/graph-rdf4j-http-storage.ssc" \
+    >"$sandbox/graph-rdf4j.$mode.out" 2>"$sandbox/graph-rdf4j.$mode.err"
+  graph_rdf_rc=$?
+  set -e
+  [[ $graph_rdf_rc -ne 0 ]]
+  [[ $(cat "$sandbox/graph-rdf4j.$mode.out") == 'Stored two books.' ]]
+  grep -F 'Sparql.select is not available in the standard local Graph provider' \
+    "$sandbox/graph-rdf4j.$mode.err" >/dev/null
+done
 yaml_expected=$'Type:   YObj\nHost:   localhost\nPort:   8080\nDebug:  true\nTags:   web, api\n\nRound-trip:\ndebug: true\nhost: localhost\nport: 8080\n\nFrom fenced block:\nApp: MyApp'
 [[ $(run_standard run "$ROOT/examples/yaml-parse.ssc") == "$yaml_expected" ]]
 [[ $(run_standard run --bytecode "$ROOT/examples/yaml-parse.ssc") == "$yaml_expected" ]]
@@ -171,7 +186,7 @@ report_tmp="$sandbox/slim.tsv"
   printf 'forbidden.references\t0\n'
   printf 'standard.vm\tpass\n'
   printf 'standard.asm\tpass\n'
-  printf 'standard.providers\tfs-os/json/http/sql/ui/state/effect-runners/storage/reactive/yaml/content/dataset/generator/actors/distributed\n'
+  printf 'standard.providers\tfs-os/json/http/sql/ui/state/effect-runners/storage/reactive/yaml/content/dataset/generator/actors/distributed/graph\n'
   printf 'standard.build-jvm\tpass\n'
 } >"$report_tmp"
 if [[ -n $REPORT ]]; then
