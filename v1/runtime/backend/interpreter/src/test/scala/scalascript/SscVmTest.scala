@@ -2610,6 +2610,23 @@ class SscVmTest extends AnyFunSuite with Matchers:
     assert(wrongOrBail, "expected the heuristic-only path to miss mid's Double return")
   }
 
+  test("wide-jit C-3 finding: the Typer types a mixed Int/Double `if` body as Any, not Double") {
+    // Documents WHY a body-type-driven RET-widening (consumption #2, attempted + reverted) is inert:
+    // for a mixed-return function the very leaf that would need widening only exists when the
+    // branches disagree, and Typer (`if thenType==elseType then thenType else Any`) then types the
+    // body as Any — never Double. So `vmTypeOf(fn.body)` can never say Double when a TInt leaf is
+    // present. The real fix needs the DECLARED return type (`: Double`), which FunV doesn't carry.
+    val src    = "# T\n\n```scala\ndef f(c: Int): Double = if c > 0 then 1.5 else 2\n```\n"
+    val module = Parser.parse(src)
+    val f = { val i = Interpreter(devNull); i.run(module); i.globalsView("f").asInstanceOf[Value.FunV] }
+    val typer = new scalascript.typer.Typer(); typer.typeCheck(module)
+    val bodyType = typer.nodeTypes.get(f.body)
+    assert(bodyType != null, "f.body not recorded")
+    assert(bodyType.toString.contains("Any"), s"expected Any for a mixed-branch body, got $bodyType")
+    // and the JIT still (correctly) bails such a function to the tree-walker:
+    VmCompiler.compile(f, globalsResolve(Interpreter(devNull))) shouldBe empty
+  }
+
   test("wide-jit C-3: FunV.body is identity-keyed in the Typer's nodeTypes; the map threads to VmCompiler") {
     // Parse ONCE; run it (→ FunV) and typecheck it (→ nodeTypes) from the SAME parse, so the
     // FunV.body Term the JIT compiles is the exact object the Typer recorded a type for.
