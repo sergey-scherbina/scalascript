@@ -1,6 +1,6 @@
 feature/v2-swift-nativeui-i18n-json 2026-07-12T10:15:00Z
 agent: codex
-heartbeat: 2026-07-12T11:47:13Z
+heartbeat: 2026-07-12T12:49:04Z
 status: in-progress
-done-so-far: Branch 4a8d640ec has real-Swift standard lower/serve and production locale+JSON+three-keyed-list execution, exact try/toInt/JSON/List/association-map gates, and a new anonymous-derived lifecycle matrix. The lifecycle matrix found a real nested reconciliation bug: inner global disposal deletes outer provisional derived cells; plan 2a50d9586 and spec 8fa1349e9 freeze outermost-only disposal and are awaiting Rozum approval.
-next: Implement approved outermost disposal, make the lifecycle matrix green, update the Apple e2e to the production fixture, run full Swift/CLI/macOS+iOS/conformance gates, obtain post-code Rozum approval, then docs/spec/bookkeeping/push/reporter confirmation/claim and worktree cleanup.
+done-so-far: Branch through 6cfe19bc5 implements standard Swift lower/serve, exact try/toInt/JSON/List/association-map semantics, transactional anonymous derived-signal lifecycle, production Xcode generation, and docs. Focused/full frontend/plugin/CLI and macOS+iOS e2e gates are green; two Rozum reviewers gave final post-code approval. Combined conformance is 27/28; only standard native money-portable-v2 fails, while tools --v2 passes.
+next: Coordinate the active v2.1 native-front owner to land the money arity fix, rebase, rerun final Swift backend and 28-case conformance gates, spec-verify/bookkeep/push, obtain reporter confirmation, then release claim and remove worktree.
