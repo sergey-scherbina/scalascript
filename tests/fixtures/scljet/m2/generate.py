@@ -8,12 +8,18 @@ Python sqlite3 module must be built against the exact oracle version below.
 from __future__ import annotations
 
 import hashlib
+import os
 import sqlite3
 import struct
+import subprocess
 from pathlib import Path
 
 
 ORACLE_VERSION = "3.53.3"
+ORACLE_SOURCE_ID = (
+    "2026-06-26 20:14:12 "
+    "d4c0e51e4aeb96955b99185ab9cde75c339e2c29c3f3f12428d364a10d782c62"
+)
 ROOT = Path(__file__).resolve().parent
 VALID = ROOT / "valid"
 CORRUPT = ROOT / "corrupt"
@@ -127,6 +133,16 @@ def create_clean_wal_header(path: Path) -> None:
         sidecar = Path(str(path) + suffix)
         if sidecar.exists():
             raise RuntimeError(f"clean WAL fixture retained sidecar: {sidecar}")
+
+
+def create_reserved(path: Path, page_size: int, reserved: int, helper: Path) -> None:
+    subprocess.run(
+        [str(helper), str(path), str(page_size), str(reserved)],
+        check=True,
+    )
+    actual = path.read_bytes()[20]
+    if actual != reserved:
+        raise RuntimeError(f"{path}: requested {reserved} reserved bytes, header has {actual}")
 
 
 def cps(text: str) -> str:
@@ -264,6 +280,23 @@ def corruptions(simple: Path, autovacuum: Path) -> None:
 def main() -> None:
     if sqlite3.sqlite_version != ORACLE_VERSION:
         raise SystemExit(f"requires sqlite {ORACLE_VERSION}, got {sqlite3.sqlite_version}")
+    probe = sqlite3.connect(":memory:")
+    source_id = probe.execute("SELECT sqlite_source_id()").fetchone()[0]
+    compile_options = "\n".join(row[0] for row in probe.execute("PRAGMA compile_options"))
+    probe.close()
+    if source_id != ORACLE_SOURCE_ID:
+        raise SystemExit(f"requires source id {ORACLE_SOURCE_ID}, got {source_id}")
+
+    helper_value = os.environ.get("SCLJET_RESERVED_GENERATOR")
+    if not helper_value:
+        raise SystemExit(
+            "set SCLJET_RESERVED_GENERATOR to generate-reserved.c compiled with "
+            "the official SQLite 3.53.3 amalgamation"
+        )
+    reserved_helper = Path(helper_value).resolve()
+    if not reserved_helper.is_file() or not os.access(reserved_helper, os.X_OK):
+        raise SystemExit(f"reserved-byte generator is not executable: {reserved_helper}")
+
     VALID.mkdir(exist_ok=True)
     CORRUPT.mkdir(exist_ok=True)
     for path in list(VALID.glob("*.db")) + list(CORRUPT.glob("*.db")):
@@ -292,11 +325,15 @@ def main() -> None:
     create_serial_and_rowid_edges(serial_edges); fixtures.append(("serial-rowid-edges", serial_edges))
     wal_clean = VALID / "wal-clean.db"
     create_clean_wal_header(wal_clean); fixtures.append(("wal-clean", wal_clean))
+    for fixture_id, page_size, reserved in (
+        ("reserved-1", 512, 1),
+        ("reserved-7", 512, 7),
+        ("reserved-32-usable-480", 512, 32),
+    ):
+        path = VALID / f"{fixture_id}.db"
+        create_reserved(path, page_size, reserved, reserved_helper)
+        fixtures.append((fixture_id, path))
 
-    probe = sqlite3.connect(":memory:")
-    source_id = probe.execute("SELECT sqlite_source_id()").fetchone()[0]
-    compile_options = "\n".join(row[0] for row in probe.execute("PRAGMA compile_options"))
-    probe.close()
     write_manifest(fixtures, source_id, compile_options)
     corruptions(VALID / "page-512.db", auto_full)
     for suffix in ("-wal", "-shm"):
