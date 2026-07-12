@@ -61,8 +61,24 @@ object PluginBridge:
     else if url.startsWith("mysql://") then "jdbc:mysql://" + url.stripPrefix("mysql://")
     else url  // unknown scheme: let the driver decide (may still be a valid jdbc alias)
 
+  /** Xerial scans every entry in its extraction directory before its first
+   *  connection. `java.io.tmpdir` can be a large shared macOS directory, which
+   *  made an otherwise in-memory SQLite connection exceed the bridge's 15 s
+   *  execution bound. Keep Xerial's native extraction and cleanup in a private
+   *  per-process directory unless the host explicitly configured one. */
+  private def ensureSqliteNativeTempDir(url: String): Unit =
+    if url.startsWith("jdbc:sqlite:") && System.getProperty("org.sqlite.tmpdir") == null then
+      this.synchronized {
+        if System.getProperty("org.sqlite.tmpdir") == null then
+          val dir = java.nio.file.Files.createTempDirectory("scalascript-sqlite-")
+          dir.toFile.deleteOnExit()
+          System.setProperty("org.sqlite.tmpdir", dir.toString)
+      }
+
   def registerDb(name: String, url: String): Unit =
-    val conn = java.sql.DriverManager.getConnection(toJdbcUrl(url))
+    val jdbcUrl = toJdbcUrl(url)
+    ensureSqliteNativeTempDir(jdbcUrl)
+    val conn = java.sql.DriverManager.getConnection(jdbcUrl)
     dbRegistry.put(name, conn)
 
   /** Clear all registered DB connections (call between batch runs). */

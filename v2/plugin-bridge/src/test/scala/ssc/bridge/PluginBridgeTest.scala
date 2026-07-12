@@ -10,6 +10,17 @@ import scalascript.ir.{QualifiedName, NormalizedModule}
 
 class PluginBridgeTest extends AnyFunSuite:
 
+  test("SQLite registration isolates Xerial cleanup from the shared temp directory"):
+    assume(System.getProperty("org.sqlite.tmpdir") == null,
+      "host explicitly configured org.sqlite.tmpdir")
+    PluginBridge.registerDb("sqlite-temp-isolation", "sqlite::memory:")
+    try
+      val sqliteTmp = java.nio.file.Path.of(System.getProperty("org.sqlite.tmpdir"))
+      assert(java.nio.file.Files.isDirectory(sqliteTmp))
+      assert(sqliteTmp != java.nio.file.Path.of(System.getProperty("java.io.tmpdir")))
+      assert(sqliteTmp.getFileName.toString.startsWith("scalascript-sqlite-"))
+    finally PluginBridge.clearDbs()
+
   // ── Value translation: v2 → v1 ─────────────────────────────────────────
 
   test("v2ToV1: UnitV"):
