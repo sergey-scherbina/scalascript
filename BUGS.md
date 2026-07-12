@@ -411,6 +411,15 @@ the `scalascript` Rozum room from busi's production-shaped fixture; accepted by
   `mkString` rejection negatives, anonymous-derived transactional lifecycle
   execution, and direct-map/events/array/nonzero-source NativeUi normalization
   before the bug may move from `open` to `fixed`.
+- **Nested-owner lifecycle root cause (real Swift discovery):** an outer keyed
+  render can provision an owner-scoped anonymous derived signal and then run an
+  inner `reconcileKeyed`. The inner commit calls global scope disposal before
+  the outer `ownerScopes` entry exists, so it deletes the still-live outer
+  signal. The faithful probe observes four distinct outer/inner sibling ids but
+  only three total cells instead of empty-header baseline plus four. Disposal
+  must be deferred to the outermost reconciliation commit; the outer snapshot
+  remains the rollback boundary and recursively removed owner subtrees are
+  collected before the single disposal pass.
 
 ## v2-httpclient-curried-extern-unbound — curried top-level `extern def` doesn't bind as a global on `ssc run`
 **Status:** open (2026-07-12), found by claude-code (rozum-ucc-test) while porting rozum's UCC

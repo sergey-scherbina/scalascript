@@ -436,6 +436,13 @@ pipeline used by real applications.
       JSON closure refresh, computed/equality kind separation, keyed
       reorder/delete/rollback/retry, sibling/nested owners, abort/new-begin,
       named interleaving, exact ids, and signal-count return to baseline.
+      The first nested-owner execution found a real host defect: an inner
+      `reconcileKeyed` globally disposes scopes before its outer provisional
+      owner scopes are committed (four distinct identities but count `3`
+      instead of baseline+4=`5`). Keep snapshots/rollback unchanged, but defer
+      `disposeUnreferencedScopes` for nested reconciliation depth and run it
+      once at the outermost commit after recursive stale-owner removal; rerun
+      nested reorder/delete and rollback gates before post-code review.
 - [ ] **Release gates and closure** — require explicit post-code Rozum
       `APPROVE`; full Swift backend, combined CLI, assembled Swift CLI and
       macOS+iOS Apple e2e, money/effects/tkv2/v2 conformance, affected
