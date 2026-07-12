@@ -68,43 +68,43 @@ JSON-specific lexical limits. `JsonDialect` itself remains usable in arbitrary p
 
 ### RFC syntax and lossless CST
 
-- [ ] The adapter accepts every RFC 8259 value form at the document root: object, array, string,
+- [x] The adapter accepts every RFC 8259 value form at the document root: object, array, string,
       number, `true`, `false`, and `null`, with only JSON whitespace (`SP`, `HTAB`, `LF`, `CR`) around
       structural characters and the root value.
-- [ ] Objects and arrays produce balanced `json.object` / `json.array` UniML branches; scalar roots
+- [x] Objects and arrays produce balanced `json.object` / `json.array` UniML branches; scalar roots
       remain exact token roots. All punctuation and whitespace are retained once, in source order.
-- [ ] Object member order and duplicate names remain observable in CST edge order. Duplicate names
+- [x] Object member order and duplicate names remain observable in CST edge order. Duplicate names
       are valid syntax and do not make parsing incomplete.
-- [ ] String tokens preserve the original quotes and escapes. The projection decodes all short escapes
+- [x] String tokens preserve the original quotes and escapes. The projection decodes all short escapes
       and `\uXXXX` forms, combines escaped surrogate pairs, and reports unpaired surrogate escapes as
       interoperability warnings without rewriting the CST.
-- [ ] Number tokens preserve their exact spelling and accept only
+- [x] Number tokens preserve their exact spelling and accept only
       `-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?`; leading zeroes, missing fraction/exponent
       digits, `NaN`, and infinities are rejected.
-- [ ] JSON literals are lowercase only. Comments, trailing commas, single-quoted strings, unquoted
+- [x] JSON literals are lowercase only. Comments, trailing commas, single-quoted strings, unquoted
       names, hexadecimal numbers, leading plus, and extra data after the root are rejected with stable
       `uniml.json.*` diagnostics.
-- [ ] Empty input, whitespace-only input, truncated strings/escapes/numbers/literals, and unclosed
+- [x] Empty input, whitespace-only input, truncated strings/escapes/numbers/literals, and unclosed
       containers return `Incomplete` or `Halted`, never a platform exception.
 
 ### Streaming and limits
 
-- [ ] Tokenization, spans, instructions, CST, projection, and diagnostics are identical for every
+- [x] Tokenization, spans, instructions, CST, projection, and diagnostics are identical for every
       possible `SourceChunk` boundary, including a boundary inside a surrogate pair or escape.
-- [ ] Token ids increase monotonically and source offsets count Unicode code points while lexemes
+- [x] Token ids increase monotonically and source offsets count Unicode code points while lexemes
       preserve the original UTF-16 string exactly.
-- [ ] JSON source, string, number, depth, node, token, and diagnostic limits fail with structured fatal
+- [x] JSON source, string, number, depth, node, token, and diagnostic limits fail with structured fatal
       diagnostics and bounded parser/VM state.
-- [ ] The adapter and projection have no filesystem, network, reflection, execution, or platform API.
+- [x] The adapter and projection have no filesystem, network, reflection, execution, or platform API.
 
 ### Projection
 
-- [ ] Projection preserves object member order, duplicate names, exact key/string lexemes, and exact
+- [x] Projection preserves object member order, duplicate names, exact key/string lexemes, and exact
       number lexemes. It never coerces a number through `Double`.
-- [ ] Projection emits one `uniml.json.duplicate-key` warning for each repeated decoded key after its
+- [x] Projection emits one `uniml.json.duplicate-key` warning for each repeated decoded key after its
       first occurrence. `objectMap` requires an explicit duplicate policy; `Reject` returns errors,
       while `FirstWins` and `LastWins` state their loss in the call site.
-- [ ] Focused suites pass unchanged on JVM and Scala.js, including RFC examples, malformed corpus,
+- [x] Focused suites pass unchanged on JVM and Scala.js, including RFC examples, malformed corpus,
       chunk-split invariance, deep-limit cases, and differential semantic checks against a known JSON
       implementation for inputs without duplicate keys.
 
@@ -276,4 +276,24 @@ The build exposes `unimlJson` (JVM alias) and `unimlJsonJs`, backed by `unimlJso
 
 ## Results
 
-To be filled after implementation and verification.
+The strict adapter and projection landed in `2a3e2b0d8`; limit and processor-completion coverage
+landed in `c84e3c35b` and `21444f270`. Verification on 2026-07-12 after the final rebase:
+
+```text
+scripts/sbtc ";unimlJson/test;unimlJsonJs/test"
+# JVM:      16 tests, 2 suites, all passed
+# Scala.js: 16 tests, 2 suites, all passed
+
+tests/conformance/run.sh --only 'json*,v2-self-hosted-parser-fuzz'
+# 5 passed, 0 failed; json INT/JS/JVM/V2 and self-hosted V2 fuzz lanes green
+
+git diff --check
+# clean
+```
+
+The tests cover every root value family, ordered/duplicate members, decoded-equivalent duplicate
+keys, every short string escape, paired/unpaired surrogate escapes, exact number spellings,
+non-ASCII digit rejection, all two-chunk split positions, BOM policy, malformed/truncated inputs,
+strict rejection of JSON extensions, source/string/number/core limits, processor completion, and a
+representative differential semantic set against ujson. The adapter remains separate from existing
+ScalaScript `jsonParse`; wiring UniML into that runtime surface is deliberately outside M1.

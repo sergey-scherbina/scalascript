@@ -15,18 +15,37 @@ Goal: complete UniML roadmap M1 with a standalone strict JSON adapter that is ch
 invariant, produces the common token-as-instruction stream and lossless CST, preserves duplicate
 object members and exact lexical spellings, and rejects extensions that RFC 8259 does not allow.
 
-- [ ] **uniml-json-0-spec** — write and commit `specs/uniml-json.md` before code. Define token kinds,
+- [x] **uniml-json-0-spec** — DONE 2026-07-12 (`826b645e9`). Wrote and published
+      `specs/uniml-json.md` before code, pinned to RFC 8259/STD 90. It defines token kinds, ordered
+      CST roles, chunk-stable lexer, explicit structural stack, exact string/number grammar,
+      duplicate-preserving projection, diagnostics, limits, cross-module boundary, security,
+      compatibility gates, and rejected extensions. Original plan: write and commit
+      `specs/uniml-json.md` before code. Define token kinds,
       CST node/edge roles, lexer/parser state machines, UTF-16/string escape and number grammar,
       whitespace ownership, duplicate-member behavior, diagnostics/recovery, limits, public API,
       semantic projection, chunk invariance, RFC corpus/differential gates, and explicit exclusions.
-- [ ] **uniml-json-1-adapter** — implement `scalascript.uniml.dialect.json.JsonDialect` in a separate
+- [x] **uniml-json-1-adapter** — DONE 2026-07-12 (`2a3e2b0d8`). Added separate
+      `unimlJson`/`unimlJsonJs` CrossType.Pure projects depending only on UniML at compile time.
+      `JsonDialect` incrementally tokenizes chunks, preserves maximal exact lexemes and code-point
+      spans, then assigns balanced Open/Emit/Close/Report instructions with an iterative grammar
+      stack. It accepts strict RFC JSON and retains malformed source through stable diagnostics.
+      Original plan: implement `scalascript.uniml.dialect.json.JsonDialect` in a separate
       `unimlJson`/`unimlJsonJs` cross-module depending only on UniML. Build a streaming lexer plus
       structural processor that emits balanced VM instructions for objects, arrays, members, and
       scalar values while preserving every source token exactly once.
-- [ ] **uniml-json-2-projection** — implement the opt-in semantic JSON projection without weakening
+- [x] **uniml-json-2-projection** — DONE 2026-07-12 (`2a3e2b0d8`). Added ordered `JsonValue` /
+      `JsonMember` projection from CST, exact number and string lexemes, full escape decoding,
+      surrogate interoperability warnings, decoded-key duplicate warnings, and explicit
+      Reject/FirstWins/LastWins map conversion. Original plan: implement the opt-in semantic JSON
+      projection without weakening
       the CST: ordered members and duplicate keys remain in the tree; projection policy must report
       duplicates explicitly instead of silently changing source meaning.
-- [ ] **uniml-json-3-verify** — add JVM/Scala.js tests for all RFC value forms, escapes/surrogates,
+- [x] **uniml-json-3-verify** — DONE 2026-07-12 (`c84e3c35b`, `21444f270`). 16/16 focused tests pass
+      on both JVM and Scala.js; assembled `json*,v2-self-hosted-parser-fuzz` conformance is 5/5.
+      Coverage includes RFC forms, escapes/surrogates, exact numbers, nesting, duplicate/ordered
+      members, whitespace/BOM, every two-chunk split, malformed/truncated/extension inputs, all
+      adapter/core limits, projection differential checks, and single completion. Original plan:
+      add JVM/Scala.js tests for all RFC value forms, escapes/surrogates,
       exact numbers, nested structures, duplicates, whitespace, arbitrary chunk splits, malformed
       inputs, trailing data, comments/trailing commas, depth/size limits, and processor completion.
       Run both module suites plus affected conformance, check spec behaviors, update changelog/sprint,

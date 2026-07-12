@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-12 — UniML strict RFC 8259 JSON dialect
+
+The new `scalascript-uniml-json` cross-module reads strict RFC 8259 JSON through the common UniML
+token-as-instruction VM on JVM and Scala.js. It preserves every punctuation/whitespace token, exact
+string and number spelling, object order, duplicate names, Unicode code-point spans, and arbitrary
+transport chunk boundaries. Its semantic projection keeps ordered members and exact numbers, warns
+on decoded duplicate keys and unpaired surrogate escapes, and requires an explicit policy before
+lossy map conversion. JSON5/JSONC extensions remain rejected under the standard id. Landed through
+`2a3e2b0d8`, `c84e3c35b`, and `21444f270`; 16/16 tests on each platform and 5/5 assembled JSON/fuzz
+conformance pass.
+
 ## 2026-07-12 — SclJet immutable byte slices and SQLite codecs
 
 SclJet M1 now has target-neutral immutable 64-byte-chunk storage, bounds-checked
