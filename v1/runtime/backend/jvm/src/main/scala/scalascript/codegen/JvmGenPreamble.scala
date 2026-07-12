@@ -770,7 +770,7 @@ private[codegen] trait JvmGenPreamble:
          |  scalascript.frontend.FieldColumnDef(title, fieldPath, Option(align).filter(_.nonEmpty))
          |
          |private def _ssc_dottedRowName(name: String, operation: String): String =
-         |  if name.nonEmpty && name.split("\\.", -1).forall(_.nonEmpty) then name
+         |  if name.nonEmpty && name.split("\\\\.", -1).forall(_.nonEmpty) then name
          |  else throw IllegalArgumentException(s"$$operation requires a non-empty dotted field path")
          |
          |private def _ssc_exactRowPayload(payload: Any, operation: String): scalascript.frontend.RowPayload =
@@ -782,7 +782,7 @@ private[codegen] trait JvmGenPreamble:
          |    case scalascript.frontend.RowPayload.Field(name) => scalascript.frontend.RowPayload.Field(_ssc_dottedRowName(name, operation))
          |    case scalascript.frontend.RowPayload.WholeRow => scalascript.frontend.RowPayload.WholeRow
          |    case scalascript.frontend.RowPayload.Fields(names)
-         |        if names.nonEmpty && names.distinct.size == names.size && names.forall(n => n.nonEmpty && n.split("\\.", -1).forall(_.nonEmpty)) =>
+         |        if names.nonEmpty && names.distinct.size == names.size && names.forall(n => n.nonEmpty && n.split("\\\\.", -1).forall(_.nonEmpty)) =>
          |      scalascript.frontend.RowPayload.Fields(names)
          |    case scalascript.frontend.RowPayload.Fields(_) =>
          |      throw IllegalArgumentException(s"$$operation fields must be unique non-empty dotted field paths")
