@@ -3605,7 +3605,7 @@ object Prims:
     // Constructors and tuples render with anyStr FIELDS in interpolation —
     // v1 shows Some(got delivered) / (42, List(…)) UNQUOTED; deferring to
     // Show.show quoted the strings ("got delivered") and broke parity.
-    case DataV(tag, fields) if tag.startsWith("Tuple") && fields.nonEmpty =>
+    case DataV(tag, fields) if (tag.startsWith("Tuple") || (tag == "Pair" && fields.length == 2)) && fields.nonEmpty =>
       s"(${fields.map(anyStr).mkString(", ")})"
     case DataV(tag, fields) if fields.nonEmpty && tag != "Op" && tag != "Stub" =>
       s"$tag(${fields.map(anyStr).mkString(", ")})"
@@ -3821,7 +3821,8 @@ object Show:
         case DataV("Cons", Seq(h, t)) => h :: ul(t)
         case _ => Nil
       s"List(${ul(v).map(show).mkString(", ")})"
-    case DataV(t, fs) if t.matches("Tuple\\d+") => s"(${fs.map(show).mkString(", ")})"
+    // The native front tags 2-tuples (and `a -> b` arrows) "Pair"; render like TupleN.
+    case DataV(t, fs) if t.matches("Tuple\\d+") || (t == "Pair" && fs.length == 2) => s"(${fs.map(show).mkString(", ")})"
     case DataV(t, fs) => if fs.isEmpty then t else s"$t(${fs.map(show).mkString(", ")})"
     case MapV(entries) =>
       s"Map(${entries.iterator.map((k, value) => s"${show(k)} -> ${show(value)}").mkString(", ")})"
