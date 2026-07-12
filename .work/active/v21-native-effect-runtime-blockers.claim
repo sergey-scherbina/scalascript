@@ -1,6 +1,6 @@
 feature/v21-native-effect-runtime-blockers 2026-07-11T19:21:44Z
 agent: codex
-heartbeat: 2026-07-12T06:11:49Z
+heartbeat: 2026-07-12T06:27:50Z
 status: in-progress
-done-so-far: all TI-8.2d3n SQL work is pushed through 649758da4; exhaustive release is 53 identical / 13 non-blocking both-fail, 0 language / 0 standard / 0 blockers, fresh conformance 11/11
-next: complete TI-8.2d5 release freeze by pinning the exact 7 optional-provider + 6 tools-backend rows and zero-blocker release reports, then spec and implement TI-8.3 plain bin/ssc StandardMain cutover with explicit ssc-tools compatibility only
+done-so-far: TI-8.2d5 exact 7 optional / 6 tools / 0 blocker / 13 total release freeze is pushed through dea537745; full release and fresh conformance 11/11 are green
+next: audit launch/install surfaces, commit the TI-8.3 StandardMain default-launcher spec, then cut plain bin/ssc over with compatibility available only through explicit ssc-tools/--compat-frontend and no transparent fallback
