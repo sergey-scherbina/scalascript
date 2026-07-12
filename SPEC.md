@@ -276,6 +276,16 @@ the v1 AST/manifest and `PluginBridge` are not involved. Multiple explicit roots
 may repeat an identical named declaration, but conflicting declarations for the
 same name fail before any JDBC connection is opened.
 
+The self-hosted document projection retains server-side `sql` fences in source
+order, applies the same mandatory `${expr}` → `?` bind rewrite, assigns stable
+`_sqlBlock_N` values, and exposes the first result under `<Section>.sql`.
+Standard VM, direct ASM, and `build-jvm` execute those calls through the
+core-free native SQL provider. The bounded native typed surface retains
+`Db.query[A]` nominal product metadata and supports identifier-validated
+`Db.insert/update` for registered portable products. Client-only/transaction
+fences and advanced annotation-driven RowCodec policy remain explicit tools or
+future provider surfaces; they never trigger transparent fallback.
+
 **Drivers.**  The `backend-sql-runtime` module bundles H2 and SQLite
 (both embedded, no network) so that `jdbc:h2:mem:test` and
 `jdbc:sqlite:./data.db` work with zero configuration.  Any other
