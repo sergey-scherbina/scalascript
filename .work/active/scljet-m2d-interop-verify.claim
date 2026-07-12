@@ -1,6 +1,6 @@
 feature/scljet-m2d-interop-verify 2026-07-12T14:39:48Z
 agent: codex
-heartbeat: 2026-07-12T14:39:48Z
-status: not-started
-done-so-far: M2c pager/schema/B-tree foundation published and worktree cleaned
-next: create isolated M2d worktree, inventory exact corpus matrix, then implement differential fixture generator and verification harness
+heartbeat: 2026-07-12T14:40:20Z
+status: in-progress
+done-so-far: isolated feature worktree created from published M2c foundation
+next: inventory exact corpus matrix, then implement differential fixture generator and verification harness
