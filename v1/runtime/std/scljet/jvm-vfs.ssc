@@ -1,0 +1,64 @@
+---
+name: scljet-jvm-vfs
+version: 0.2.0
+description: Explicit JVM host adapter intrinsics for SclJet VFS operations
+package: scljet
+exports:
+  - JvmVfsResult
+  - JvmVfsRead
+  - jvmVfsFullPath
+  - jvmVfsOpen
+  - jvmVfsDelete
+  - jvmVfsExists
+  - jvmVfsReadAt
+  - jvmVfsWriteAt
+  - jvmVfsTruncate
+  - jvmVfsSync
+  - jvmVfsSize
+  - jvmVfsLock
+  - jvmVfsUnlock
+  - jvmVfsCheckReservedLock
+  - jvmVfsShmMap
+  - jvmVfsShmRead
+  - jvmVfsShmWrite
+  - jvmVfsShmLock
+  - jvmVfsShmBarrier
+  - jvmVfsShmUnmap
+  - jvmVfsSectorSize
+  - jvmVfsDeviceCharacteristics
+  - jvmVfsClose
+---
+
+# SclJet JVM VFS boundary
+
+These explicit intrinsics are the only JVM/filesystem boundary. The pager,
+locking policy, WAL algorithm, and byte codecs remain in pure ScalaScript.
+
+[LockLevel, ShmLockMode](vfs.ssc)
+
+```scalascript
+case class JvmVfsResult(code: String, message: String, value: Any)
+case class JvmVfsRead(bytes: List[Int], short: Boolean)
+
+extern def jvmVfsFullPath(path: String): JvmVfsResult
+extern def jvmVfsOpen(path: String, readOnly: Boolean, create: Boolean): JvmVfsResult
+extern def jvmVfsDelete(path: String): JvmVfsResult
+extern def jvmVfsExists(path: String): JvmVfsResult
+extern def jvmVfsReadAt(handle: Int, offset: Long, length: Int): JvmVfsResult
+extern def jvmVfsWriteAt(handle: Int, offset: Long, bytes: List[Int]): JvmVfsResult
+extern def jvmVfsTruncate(handle: Int, size: Long): JvmVfsResult
+extern def jvmVfsSync(handle: Int, dataOnly: Boolean): JvmVfsResult
+extern def jvmVfsSize(handle: Int): JvmVfsResult
+extern def jvmVfsLock(handle: Int, level: LockLevel): JvmVfsResult
+extern def jvmVfsUnlock(handle: Int, level: LockLevel): JvmVfsResult
+extern def jvmVfsCheckReservedLock(handle: Int): JvmVfsResult
+extern def jvmVfsShmMap(handle: Int, region: Int, size: Int, extend: Boolean): JvmVfsResult
+extern def jvmVfsShmRead(handle: Int, region: Int, offset: Int, length: Int): JvmVfsResult
+extern def jvmVfsShmWrite(handle: Int, region: Int, offset: Int, bytes: List[Int]): JvmVfsResult
+extern def jvmVfsShmLock(handle: Int, offset: Int, count: Int, mode: ShmLockMode): JvmVfsResult
+extern def jvmVfsShmBarrier(handle: Int): JvmVfsResult
+extern def jvmVfsShmUnmap(handle: Int, delete: Boolean): JvmVfsResult
+extern def jvmVfsSectorSize(handle: Int): JvmVfsResult
+extern def jvmVfsDeviceCharacteristics(handle: Int): JvmVfsResult
+extern def jvmVfsClose(handle: Int): JvmVfsResult
+```

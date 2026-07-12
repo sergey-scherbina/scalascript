@@ -1957,6 +1957,7 @@ lazy val cli = project
         stdPluginSpec("smtp")            -> (smtpPlugin            / packagePlugin).value,
         stdPluginSpec("tcp")             -> (tcpPlugin             / packagePlugin).value,
         stdPluginSpec("fs")              -> (fsPlugin              / packagePlugin).value,
+        stdPluginSpec("scljet-vfs")      -> (scljetVfsPlugin       / packagePlugin).value,
         stdPluginSpec("os")              -> (osPlugin              / packagePlugin).value,
         stdPluginSpec("yaml")            -> (yamlPlugin            / packagePlugin).value,
         stdPluginSpec("bench")           -> (benchPlugin           / packagePlugin).value,
@@ -3982,6 +3983,18 @@ lazy val fsPlugin = project
   )
   .settings(sscpkgSettings("scalascript.std.fs"))
 
+// ── scljet.jvm-vfs — positioned I/O + SQLite-compatible host locks ──────
+lazy val scljetVfsPlugin = project
+  .in(file("v1/runtime/std/scljet-vfs-plugin"))
+  .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test, backendSqlRuntime % Test)
+  .settings(
+    name := "scalascript-scljet-vfs-plugin",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+  .settings(sscpkgSettings("scalascript.std.scljet-vfs"))
+
 // ── std.os / std.process — OS environment + process management ───────────
 lazy val osPlugin = project
   .in(file("v1/runtime/std/os-plugin"))
@@ -4040,6 +4053,7 @@ lazy val allPlugins: Seq[PluginSpec] = Seq(
   PluginSpec("smtp",            smtpPlugin,            "scalascript-smtp-plugin",            tier = PluginTier.Advanced),
   PluginSpec("tcp",             tcpPlugin,             "scalascript-tcp-plugin",             tier = PluginTier.Advanced),
   PluginSpec("fs",              fsPlugin,              "scalascript-fs-plugin"),
+  PluginSpec("scljet-vfs",      scljetVfsPlugin,       "scalascript-scljet-vfs-plugin"),
   PluginSpec("os",              osPlugin,              "scalascript-os-plugin"),
   PluginSpec("yaml",            yamlPlugin,            "scalascript-yaml-plugin"),
   PluginSpec("bench",           benchPlugin,           "scalascript-bench-plugin"),

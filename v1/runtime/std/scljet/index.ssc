@@ -173,6 +173,29 @@ exports:
   - memorySleep
   - memoryCurrentTimeMillis
   - memoryCrash
+  - JvmVfsResult
+  - JvmVfsRead
+  - jvmVfsFullPath
+  - jvmVfsOpen
+  - jvmVfsDelete
+  - jvmVfsExists
+  - jvmVfsReadAt
+  - jvmVfsWriteAt
+  - jvmVfsTruncate
+  - jvmVfsSync
+  - jvmVfsSize
+  - jvmVfsLock
+  - jvmVfsUnlock
+  - jvmVfsCheckReservedLock
+  - jvmVfsShmMap
+  - jvmVfsShmRead
+  - jvmVfsShmWrite
+  - jvmVfsShmLock
+  - jvmVfsShmBarrier
+  - jvmVfsShmUnmap
+  - jvmVfsSectorSize
+  - jvmVfsDeviceCharacteristics
+  - jvmVfsClose
   - FunctionArity
   - FixedArity
   - VariadicArity
@@ -207,6 +230,8 @@ interfaces and prove compatibility through differential and crash testing.
 [FileKind, MainDatabaseFile, MainJournalFile, WalFile, ShmFile, TempDatabaseFile, TempJournalFile, TransientFile, OpenFlags, LockLevel, LockNone, LockShared, LockReserved, LockPending, LockExclusive, SyncFlags, DeviceCharacteristic, AtomicWrite, SafeAppend, SequentialWrite, PowersafeOverwrite, UndeletableWhenOpen, AtomicDelete, ShmLockMode, ShmSharedLock, ShmExclusiveLock, ShmSharedUnlock, ShmExclusiveUnlock, VfsError, VfsRead, VfsWrite, SharedRegion, SqliteFile, SqliteVfs](vfs.ssc)
 
 [MemoryFaultEffect, FaultError, FaultShortRead, FaultShortWrite, FaultCrash, MemoryFaultRule, MemoryFileState, MemoryHandleState, MemoryRollbackLock, MemoryShmByteLock, MemoryShmState, MemoryTrace, MemoryVfsState, MemoryStep, memoryVfs, memoryCanonicalPath, memoryOpen, memoryDelete, memoryExists, memoryReadAt, memoryWriteAt, memoryTruncate, memorySync, memorySize, memoryLock, memoryUnlock, memoryCheckReservedLock, memoryShmMap, memoryShmRead, memoryShmWrite, memoryShmLock, memoryShmBarrier, memoryShmUnmap, memoryClose, memoryRandomness, memorySleep, memoryCurrentTimeMillis, memoryCrash](memory-vfs.ssc)
+
+[JvmVfsResult, JvmVfsRead, jvmVfsFullPath, jvmVfsOpen, jvmVfsDelete, jvmVfsExists, jvmVfsReadAt, jvmVfsWriteAt, jvmVfsTruncate, jvmVfsSync, jvmVfsSize, jvmVfsLock, jvmVfsUnlock, jvmVfsCheckReservedLock, jvmVfsShmMap, jvmVfsShmRead, jvmVfsShmWrite, jvmVfsShmLock, jvmVfsShmBarrier, jvmVfsShmUnmap, jvmVfsSectorSize, jvmVfsDeviceCharacteristics, jvmVfsClose](jvm-vfs.ssc)
 
 ## Application-defined functions and collations
 
