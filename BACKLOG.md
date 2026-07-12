@@ -1045,7 +1045,7 @@ These remain, each needing its own slice:
   key (cheap dir-permission half already landed).
 - **L8 cross-backend conformance** — shared suite pinning identical fs/process/http semantics
   (deleteFile, redirects, timeout, cwd/env, listDir order) across JVM/JS/Rust/interp.
-- **M2-JS / M3-JS** — JS worker response-body cap (byte-counted reader) + JS redirect policy
+- **M3-JS** — JS redirect policy (manual mode = opaque response; needs a response.url host re-check). (M2-JS done.)
   (manual mode returns an opaque response; needs a response.url host re-check).
 - **exec opts-wiring** — interp/Rust/JS `exec` ignore ProcessOptions (cwd/env/timeout/inheritEnv);
   wire them so M4/L3 apply on those lanes too.
