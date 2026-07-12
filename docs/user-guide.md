@@ -1618,6 +1618,37 @@ runAsyncParallel {
 }
 ```
 
+### Pull generators
+
+`generator` starts a lazy pull stream. Values cross a synchronous handoff only
+when `next`, `toList`, `foreach`, or a downstream combinator requests them, so
+an infinite producer cannot build an unbounded host queue. `take` cancels the
+abandoned upstream producer after its last requested value.
+
+```scalascript
+val naturals = generator[Int] { () =>
+  var n = 0
+  while true do
+    suspend(n)
+    n = n + 1
+}
+
+val firstEvenSquares = naturals
+  .filter(_ % 2 == 0)
+  .map(n => n * n)
+  .take(5)
+
+println(firstEvenSquares.toList) // List(0, 4, 16, 36, 64)
+```
+
+The local surface includes `next`, `toList`, `foreach`, `map`, `filter`,
+`take`, `drop`, `flatMap`, `zip`, and `zipWithIndex`. Producer failures reach
+the next consumer operation rather than becoming an empty stream. ScalaScript
+2.1 uses the same core-free provider on native VM, direct ASM, and
+`build-jvm`; it does not load the compatibility frontend or compiler toolchain.
+See [`examples/generators.ssc`](../examples/generators.ssc) for the complete
+contract.
+
 ### Streams
 
 ```scalascript

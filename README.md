@@ -297,7 +297,7 @@ compiles them via Scala.js.
 | Real-thread `runAsyncParallel` | genuine JVM concurrency without touching call sites |
 | Built-in `Storage` effect | `runStorage { Storage.put(k, v); Storage.get(k) }` — core-free JSON file-backed or ephemeral handlers on 2.1 native VM/direct ASM/build-jvm |
 | Coroutines | `coroutineCreate`, `coroutineResume`, `suspend`, `Step[Y,T]` ADT, `coroutineCancel` |
-| Generators | `generator[T] { yield(v) }`, `fromGenerator`, streaming interop |
+| Generators | `generator[T] { () => suspend(v) }`, pull/combinator pipelines — core-free on 2.1 native VM/direct ASM/build-jvm; Dataset bridging remains explicit |
 | Reactive signals | `Signal(0)`, `s.get` / `s.set(v)`, `computed { … }`, `effect { … }` with diamond-dedup flush — core-free on 2.1 native VM/direct ASM/build-jvm |
 | Free monad | `Free[F,A]`, `liftF`, `foldMap`, `runM` — in `runtime/std/free.ssc` |
 
@@ -728,7 +728,7 @@ scala-cli conformance/run.sc
 | storage | Built-in `Storage` effect — `get` / `put` / `remove` / `has` / `keys` via ephemeral or file-backed handler |
 | direct | Direct-syntax do-notation: `direct[M]`, `.!` bind, pure lift, control flow |
 | coroutines | `coroutineCreate`, `coroutineResume`, `suspend`, `Step[Y,T]`, `coroutineCancel` |
-| generators | `generator[T] { yield(v) }`, pipeline composition, lazy streams |
+| generators | `generator[T] { () => suspend(v) }`, lazy `map` / `filter` / `take` / `drop` / `flatMap` / `zip` pipelines |
 | streams | `Source[A]` / `Sink[A]` / `Flow[A, B]`, `stream { emit(x) }`, bounded buffers, overflow strategies, wall-clock throttle/debounce, live `Source.signal`, and `sig.bind(source)` |
 | signals | Reactive `Signal` / `computed` / `effect` with diamond-dedup flush |
 | lenses | `.copy(field = v)` and `Focus[T](_.a.b)` — get / set / modify / andThen |
