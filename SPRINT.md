@@ -327,14 +327,13 @@ with extensions isolated behind an explicit non-default profile.
       SHA/value dumps match the SclJet reader. Corpus execution discovered
       `scljet-freelist-recursive-stack-overflow`: fix the 183-page valid freelist with an explicit
       bounded `while` traversal before accepting any corpus result; retain structured duplicate,
-      cycle and pointer-map failures. Current progress: 20 valid files / 607 exact lines now include
-      all page sizes, encodings, serial/rowid/WAL edges and official reserve counts 1/7/32. The next
-      historical slice is now reproducible: build official canonical `version-3.2.0` (Fossil UUID
-      `debf40e8ffa35406685ec027ced1f147ef0487df`; observed tar SHA3-256
-      `1b82ba33675022028b37fc067b1dbf399168cfafcbb653f74edfe7d950044cce`) and generate format 1
-      directly, format 2 via `ALTER ... ADD COLUMN`, and format 3 via a non-NULL added-column
-      default. Require the helper version and manifest UUID before deleting fixtures; insert oracle
-      rows after ALTER so M2 physical records and reference logical values are exactly comparable.
+      cycle and pointer-map failures. Current progress: 23 valid files / 619 exact lines now include
+      all page sizes, encodings, schema formats 0..4, serial/rowid/WAL edges and official reserve
+      counts 1/7/32. Historical formats 1/2/3 landed in `0c190aec8` from official canonical
+      `version-3.2.0` (Fossil UUID `debf40e8ffa35406685ec027ced1f147ef0487df`), with both creator
+      and 3.53.3 oracle identities pinned. Next: expand named corruptions across header/page/cell/
+      overflow/freelist/pointer-map/schema invariants and add exact M/K/X +/-1 table/index payload
+      vectors; then run the full corpus explicitly on VM/ASM and record the existing Node boundary.
 ## v2-swift-nativeui-i18n-json — standard `lower/serve`, locale and JSON parity (2026-07-12)
 
 Claim: `.work/active/v2-swift-nativeui-i18n-json.claim`. Spec:

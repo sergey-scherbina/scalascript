@@ -2,8 +2,8 @@
 
 ## scljet-freelist-recursive-stack-overflow — valid large freelist crashes the interpreter
 
-**Status:** open (2026-07-12); found by codex in the pinned SclJet M2d SQLite
-3.53.3 corpus.
+**Status:** fixed (2026-07-12, `7399fad95`), awaiting Sergiy confirmation;
+found by codex in the pinned SclJet M2d SQLite 3.53.3 corpus.
 
 - **Real-harness repro:** regenerate/consume
   `tests/fixtures/scljet/m2/valid/freelist.db` (512-byte pages, 183 freelist
@@ -21,6 +21,12 @@
   checks, pointer-map validation and exact count. The 183-page fixture must
   open/dump without platform exception on the real assembled runner; corrupt
   cycles/duplicates must still return localized `SqliteError`.
+- **Fix/verification:** both leaf membership and trunk/leaf validation now use
+  explicit bounded `while` state machines, preserving duplicate/cycle and
+  pointer-map checks. The real assembled corpus runner reads the 183-page
+  freelist as part of the exact 23-file/619-line oracle; all five named corrupt
+  files and 32 deterministic mutations remain structured and conformance is
+  6/6.
 
 ## v1-js-scljet-readonly-leaf-depth — valid two-level B-tree fails common-depth validation
 
