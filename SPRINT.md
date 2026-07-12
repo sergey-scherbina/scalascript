@@ -20,6 +20,12 @@ bounded semantic projections rather than parse-time execution.
       token/CST roles, indentation and flow state machines, scalar styles, directives/doc boundaries,
       anchors/aliases/tags, duplicate/order semantics, schema resolution, diagnostics/recovery, limits,
       chunk invariance, safe projection, corpus/differential gates, exclusions and security.
+- [ ] **uniml-yaml-0b-reframe** — extend the committed UniML VM contract with a source-backed
+      `Reframe` instruction that atomically closes implicit indentation frames, opens replacement
+      frames, and emits its carrier token exactly once. Update `specs/uniml.md` and
+      `specs/uniml-yaml.md` first, then add JVM/Scala.js core tests before the YAML adapter uses it.
+      This is the general indentation-language primitive; rejected alternative: synthetic dedent
+      tokens, which would violate the source-token invariant.
 - [ ] **uniml-yaml-1-adapter** — implement separate `unimlYaml`/`unimlYamlJs` cross-projects over
       UniML with a bounded chunk-invariant scanner and iterative indentation/flow parser emitting one
       VM instruction per source token for streams, documents, mappings, sequences, and scalar nodes.
