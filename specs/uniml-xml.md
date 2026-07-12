@@ -108,8 +108,8 @@ returns no `Markup.Doc` when any Error/Fatal diagnostic exists.
 - [ ] Tokens, instructions, CST, diagnostics, validation, and projection are identical for every
       `SourceChunk` boundary, including boundaries inside delimiters, QNames, references, CDATA,
       comments, PIs, DOCTYPE subsets, and Unicode surrogate pairs.
-- [ ] The lexer retains one incomplete lexical construct plus completed token metadata; the structural
-      processor and namespace validator use explicit stacks, never input-controlled recursion.
+- [ ] The M2 adapter retains at most one source buffer bounded by `maxSourceCodePoints`; lexical,
+      structural, and namespace passes use explicit indices/stacks and never input-controlled recursion.
 - [ ] Source/name/attribute/text/DOCTYPE plus core depth/node/token/diagnostic limits produce bounded
       fatal diagnostics rather than allocation, stack, or platform failures.
 - [ ] Focused XML suites pass unchanged on JVM and Scala.js; `Markup` projection agrees with
@@ -170,7 +170,9 @@ different element. An empty-element `/>` closes the frame opened by the same tag
 ## Lexical and structural states
 
 The lexer distinguishes `Content`, `StartTag`, `EndTag`, and opaque constructs introduced by `<!` or
-`<?`. It recognizes complete delimiters across chunks and scans quoted attribute values without
+`<?`. M2 may join the already-bounded chunks into one source buffer before its single linear scan;
+chunking remains observationally invisible and a later incremental scanner can replace it without an
+API/CST change. It recognizes complete delimiters and scans quoted attribute values without
 interpreting markup. Comments, CDATA, PI/declaration, and DOCTYPE are single exact tokens in M2;
 DOCTYPE scanning balances `[...]` and quote delimiters so `>` inside an internal subset/literal does
 not terminate it.
