@@ -38,7 +38,26 @@ the explicit companion.
 - **Done-when:** a multi-file v1 conformance case combines a case class and
   explicit companion and can construct from a later ordinary function and
   method without helper-order sensitivity.
+## wasm-emitter-js-import-name-mismatch — generated JS cannot find emitted module
 
+**Status:** fixed (2026-07-12, pending commit), awaiting Sergiy confirmation;
+found by codex while retiring the v2.1 WASM `both-fail` target row.
+
+- **Real-harness repro:** run `bin/ssc-tools emit-wasm
+  examples/wasm-scalascript.ssc` in a fresh directory, then run the generated
+  `wasm-scalascript.js` with Node. The emitter writes `module.wasm`, but the JS
+  contains `__load("./main.wasm", ...)`, so execution fails until the file is
+  manually copied to `main.wasm`.
+- **Root cause:** the artifact copy/name chosen by the ScalaScript WASM command
+  diverges from the fixed module name emitted by the Scala.js linker.
+- **Done-when:** the emitted JS references the actual emitted `.wasm` filename
+  (or the artifact is named exactly as linked), the pure WASM example executes
+  directly under Node with exact output, and the HTTP WASM document compiles
+  and validates without public-network execution.
+- **Fix/result:** the backend now preserves Scala.js' linked `main.wasm` name;
+  the generated JS runs directly under Node with the full exact pure-example
+  output, while the HTTP example compiles to a valid module/JS pair and is not
+  executed against the public URL. The focused backend suite is 40/40.
 ## v2-httpclient-curried-extern-unbound — curried top-level `extern def` doesn't bind as a global on `ssc run`
 **Status:** open (2026-07-12), found by claude-code (rozum-ucc-test) while porting rozum's UCC
 acceptance e2e test to native `.ssc`. Not blocking (single-param http externs work; the test uses those).

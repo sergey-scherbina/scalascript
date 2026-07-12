@@ -3791,6 +3791,10 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
       `parity.both-fail=0`, mismatch/one-sided/blockers=0, the updated exact
       freeze rejects any reintroduced member, the full release gate passes,
       and fresh affected conformance is green.
+      - [x] Fix the real WASM target-launcher artifact mismatch discovered by
+            this slice: `emit-wasm` writes `module.wasm` while its generated JS
+            imports `main.wasm`. Add a real Node execution regression so the
+            pure WASM row cannot be declared green from compilation alone.
 
 - [x] **v2-production-readiness-audit** - DONE 2026-07-10:
       bounded audit after closing the layout/YAML and indent-demo blockers.

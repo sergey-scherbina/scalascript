@@ -9,7 +9,7 @@ import scalascript.transform.Denormalize
  *  into a WebAssembly binary + two JavaScript ES-module files.
  *
  *  Returns `Segmented` with:
- *    - `Segment.Asset("module.wasm", bytes, "application/wasm")` — the WASM binary
+ *    - `Segment.Asset("main.wasm", bytes, "application/wasm")` — the WASM binary
  *    - `Segment.Code("javascript", mainJs)`                      — ES-module entry point
  *    - `Segment.Code("javascript", loaderJs)`                    — WASM loader / runtime glue
  *
@@ -50,7 +50,9 @@ class WasmBackend extends Backend:
       try
         val bundle = WasmGen.compileToWasm(astModule, baseDir)
         if bundle.wasmBytes.nonEmpty then
-          segments += Segment.Asset("module.wasm", bundle.wasmBytes, "application/wasm")
+          // Scala.js emits mainJs with a fixed `./main.wasm` import. Preserve
+          // that linked artifact name so `ssc emit-wasm` is runnable as-is.
+          segments += Segment.Asset("main.wasm", bundle.wasmBytes, "application/wasm")
         if bundle.mainJs.nonEmpty then
           segments += Segment.Code("javascript", bundle.mainJs)
         if bundle.loaderJs.nonEmpty then

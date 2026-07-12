@@ -475,7 +475,7 @@ class WasmBackendTest extends AnyFunSuite with Matchers:
     val ir = Normalize(Parser.parse(sscSrc))
     backend.compile(ir, BackendOptions()) match
       case CompileResult.Segmented(segs) =>
-        segs.collectFirst { case Segment.Asset(_, bytes, "application/wasm") => bytes }
+        segs.collectFirst { case Segment.Asset("main.wasm", bytes, "application/wasm") => bytes }
           .getOrElse(fail("no wasm asset in result"))
       case CompileResult.Failed(diags) =>
         fail(s"compilation failed: ${diags.mkString(", ")}")
