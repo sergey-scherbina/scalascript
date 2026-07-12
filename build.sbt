@@ -546,6 +546,27 @@ lazy val yaml = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+// ── UniML — universal lossless token-to-tree VM ─────────────────────────
+// Dependency-free leaf module shared by JVM and Scala.js. Concrete dialect
+// adapters live above this core and may project into Markup/DocumentContent.
+lazy val unimlCross =
+  crossProject(JVMPlatform, JSPlatform)
+    .crossType(CrossType.Pure)
+    .in(file("v1/lang/uniml"))
+    .settings(
+      name := "scalascript-uniml",
+      libraryDependencies ++= Seq("org.scalatest" %%% "scalatest" % scalatestV % Test),
+      Compile / scalacOptions ++= sharedScalacOptionsStrict,
+      Test    / scalacOptions ++= sharedScalacOptions,
+    )
+    .jvmConfigure(_.withId("uniml"))
+    .jsConfigure(_.withId("unimlJs"))
+    .jsSettings(Test / fork := false)
+
+lazy val unimlJvm = unimlCross.jvm
+lazy val unimlJs  = unimlCross.js
+lazy val uniml    = unimlJvm
+
 lazy val core = project
   .in(file("v1/lang/core"))
   .dependsOn(valueData, backendSpi, backendSqlRuntime, logger, yaml, markupCore)
@@ -4442,7 +4463,7 @@ lazy val root = project
     v2NativeDistributedPlugin, v2NativeGraphPlugin, v2NativeOpticsPlugin, v2NativePdfPlugin,
     v2NativeNfcPlugin, v2NativeMcpPlugin,
     v2PluginBridge, v2FrontendBridge, v2JvmBytecode, v2JsBackend, v2SwiftBackend,
-    valueData, backendSpi, pluginApi, ir, logger, yaml, core, interop, testUtils, pluginHost, wireCore,
+    valueData, backendSpi, pluginApi, ir, logger, yaml, uniml, unimlJs, core, interop, testUtils, pluginHost, wireCore,
 
     runtimeServerCommon, runtimeServerSpi, runtimeServerJvm,
     runtimeServerJvmJetty, runtimeServerJvmNetty, httpFastEngine, runtimeServerJvmFast, mcpCommon,
