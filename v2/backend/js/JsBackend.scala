@@ -390,6 +390,13 @@ object JsGen:
       case "__mk_map__" =>
         val argsJs = args.map(a => genE(a, scope, tco = false)).mkString(",")
         s"$$mkMap([$argsJs])"
+      case "__mk_method_obj__" =>
+        // Explicit companion / `object Foo { def m … }` / `given … with {…}`.
+        // args = flat [nameLit, lam, nameLit, lam, …] (mirrors the native runtime
+        // v2/src/Runtime.scala:2222). Build a method-object the $method dispatch
+        // can read (v2-js-imported-method-object-primitive).
+        val argsJs = args.map(a => genE(a, scope, tco = false)).mkString(",")
+        s"$$mkMethodObj([$argsJs])"
       case "__isNum2__" => s"($$isNum(${a(0)})&&$$isNum(${a(1)}))"
       case "__mdStrip__" => s"$$mdStrip(${a(0)})"
       // Fallback
@@ -586,6 +593,14 @@ function $arith(op,l,r){
 }
 function $method(name,recv){
   var args=Array.prototype.slice.call(arguments,2);
+  if(recv&&recv.$mo!==undefined){
+    var $mm=recv.$mo;
+    if(Object.prototype.hasOwnProperty.call($mm,name)){
+      var f=$mm[name];
+      if(typeof f==='function'){ if(args.length===0&&f.length>0) return f; return $c(f,args); }
+      if(args.length===0) return f;
+    }
+  }
   if(name==='asInstanceOf') return recv;
   if(/^_\d+$/.test(name)&&recv&&recv.f) return recv.f[Number(name.substring(1))-1];
   if(recv===$mathObj){
@@ -648,6 +663,11 @@ function $method(name,recv){
     if(name==='toList') return $listOf(recv);
   }
   throw new Error('__method__: no dispatch for .'+name+' on '+$show(recv));
+}
+function $mkMethodObj(pairs){
+  var mo={};
+  for(var i=0;i+1<pairs.length;i+=2) mo[pairs[i]]=pairs[i+1];
+  return {$mo:mo};
 }
 function $mkMap(pairs){
   var m=$mapNew();

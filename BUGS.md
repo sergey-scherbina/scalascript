@@ -196,16 +196,23 @@ Swift NativeUi final release repeat after SclJet M1 landed; reported to
   implementation gap remains tracked independently.
 ## v2-js-imported-method-object-primitive — SclJet stops at __mk_method_obj__
 
-**Status:** open (2026-07-12); found by codex while probing the native v2 JS
-lane as an alternative SclJet M1 cross-backend gate.
-
+**Status:** FIXED (2026-07-12, opus). The v2 JS backend (`v2/backend/js/JsBackend.scala`)
+had no `genPrim` case for the `__mk_method_obj__` CoreIR primitive (emitted by
+FrontendBridge for an imported explicit companion / `object Foo { def m … }` /
+`given … with {…}`), so it fell to the `$prim` fallback → `throw unimplemented
+primitive`. And because it lowers to an eager top-level initializer, Node threw at
+module load. Fix mirrors the v2 NATIVE runtime (Runtime.scala:2222/2054): added a
+`__mk_method_obj__` genPrim case → `$mkMethodObj([...])` (flat name/lambda pairs →
+`{$mo:{name→fn}}`), plus a method-object dispatch branch in the `$method` runtime
+(look up name; call the fn with args, or return it as a reference when arity>0 and
+no args). Verified via a multi-file imported companion repro: `run-js --v2` now
+prints `0/5/8` matching `run --v1`. Regression: V2JsLaneCliTest "dispatches an
+imported explicit companion". (`scljet-byte-codec.ssc` gets past this primitive but
+then hits separate pre-existing gaps — `$method` List `.drop` + the tracked
+v1-js-long-precision-and-bitops — which are out of scope for this bug.)
 - **Real-harness repro:** run `bin/ssc-tools run-js --v2
-  tests/conformance/scljet-byte-codec.ssc`; Node exits at startup with
+  tests/conformance/scljet-byte-codec.ssc`; Node exited at startup with
   `unimplemented primitive: __mk_method_obj__`.
-- **Root cause (partial):** the v2 JS runtime/generator does not implement the
-  method-object primitive emitted for imported explicit companions/methods.
-- **Done-when:** the v2 JS runtime implements the primitive or lowers it away,
-  with a multi-file imported case-class/companion regression.
 
 ## v1-js-scljet-shm-lock-divergence — two shared owners are rejected
 
