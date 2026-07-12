@@ -1,6 +1,6 @@
 feature/v21-ti-retire-all-both-fail 2026-07-12T08:55:21Z
 agent: codex
-heartbeat: 2026-07-12T12:52:00Z
+heartbeat: 2026-07-12T13:06:00Z
 status: in-progress
-done-so-far: all 13 explicit lanes and zero-gap reporting landed; fixed ASM cell-effect leak and stale x402 smoke; concurrent scljet-memory-vfs is proven VM/ASM exact plus conformance green, so strict freeze is updated to 197 total / 55 identical with all gap metrics still zero
-next: rerun standalone negative-toolchain and complete the consolidated release gate on the 197-row freeze, then record closure and release the claim
+done-so-far: exact gate is now 14/14 after adding the concurrently landed SclJet JVM VFS example to a deterministic real ssc-tools/v1 host-plugin lane; focused parity has zero both-fail, explicit lanes pass provider=8 target=6, and SclJet conformance is 3/3
+next: rerun standalone negative-toolchain and complete the consolidated release gate on the 198-row / 55-identical / 14-delegated freeze, then record closure and release the claim
