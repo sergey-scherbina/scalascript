@@ -267,6 +267,22 @@ def sscFindChar = (s, i, c) =>
 def sscEndsSsc = (s) =>
   let n = #slen(s) in
   if #i.lt(n, 4) then false else #seq(#sslice(s, #i.sub(n, 4), n), ".ssc")
+-- A directory import target: a relative (`./`, `../`) or `std/` path whose LAST
+-- segment carries no extension (no `.`), e.g. `./import-dir`, `../examples/std-ui`.
+-- Loaded as `<dir>/index.ssc`. The last-segment `.` test excludes prose links like
+-- `./logo.png "Brand"` (has `.png` + a title), which must NOT be treated as imports.
+def sscSegHasDot = (s) => #i.lt(sscFindChar(s, 0, 46), #slen(s))
+def sscLastSeg = (segs) =>
+  match segs {
+    case Nil => ""
+    case Cons(h, t) => match t { case Nil => h case _ => sscLastSeg(t) }
+  }
+def sscDirImportPath = (p) =>
+  let rel = if #i.eq(#slen(p), 0) then false
+            else if #i.eq(#scodeAt(p, 0), 46) then true
+            else sscStartsStd(p) in
+  if rel then (if sscSegHasDot(sscLastSeg(#str.split(p, "/"))) then false else true)
+  else false
 def sscSkipImportSpace = (s, i) =>
   if #i.ge(i, #slen(s)) then i
   else
@@ -287,6 +303,8 @@ def sscImportPathsFrom = (t, i, acc) =>
       else
         let p = #sslice(t, #i.add(labelEnd, 2), close) in
         if sscEndsSsc(p) then
+          sscImportPathsFrom(t, #i.add(close, 1), Cons(p, acc))
+        else if sscDirImportPath(p) then
           sscImportPathsFrom(t, #i.add(close, 1), Cons(p, acc))
         else Nil
     else Nil
@@ -391,7 +409,10 @@ def sscResolve = (dir, rel) =>
   else sscNormalize(#sconcat(dir, rel))
 
 def sscLoadMod = (rawPath, seen) =>
-  let path = sscNormalize(rawPath) in
+  let path0 = sscNormalize(rawPath) in
+  -- Directory import: `[names](./dir)` with no `.ssc` extension loads `dir/index.ssc`
+  -- (the directory's entry module), matching the bridge's package-import convention.
+  let path = if sscEndsSsc(path0) then path0 else #sconcat(path0, "/index.ssc") in
   if sscMem(seen, path) then Pair(Nil, seen)
   else
     let fileStr = #utf8->str(#io.readFile(path)) in
