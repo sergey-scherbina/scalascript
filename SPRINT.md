@@ -9,6 +9,28 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## uniml-xml — lossless secure XML 1.0 dialect and Markup projection (2026-07-12, Sergiy: "продолжай дальше не останавливайся")
+
+Goal: complete UniML roadmap M2 with a standalone XML 1.0 adapter that preserves declarations,
+DOCTYPE spelling, namespaces, attributes, mixed content, CDATA, comments, processing instructions,
+references, and whitespace while keeping external entity/schema/network resolution disabled; project
+the validated CST into the existing `scalascript.markup.Markup` model where that model is lossless.
+
+- [ ] **uniml-xml-0-spec** — write and commit `specs/uniml-xml.md` before code. Define XML 1.0
+      conformance profile, token/CST roles, streaming lexical states, element stack and QName checks,
+      namespace scopes, attribute uniqueness, entity/reference policy, DOCTYPE handling, diagnostics,
+      limits, chunk invariance, `Markup` projection limits, security, corpora, and exclusions.
+- [ ] **uniml-xml-1-adapter** — implement separate `unimlXml`/`unimlXmlJs` cross-projects depending
+      on UniML; add chunk-stable XML tokenization and an iterative structural processor emitting one
+      VM instruction per token for documents/elements and exact tokens for attributes/mixed content.
+- [ ] **uniml-xml-2-validation-projection** — validate start/end QName equality, one root element,
+      declaration/DOCTYPE positions, namespace bindings, duplicate expanded attributes, references,
+      comments/CDATA/PI constraints, then project compatible valid CSTs to existing `Markup.Doc`.
+- [ ] **uniml-xml-3-verify** — cover XML declaration, namespaces/default namespace, attributes, empty
+      elements, mixed content, CDATA/comments/PIs/DOCTYPE/references, arbitrary chunk splits,
+      malformed/truncated/security cases and limits on JVM+Scala.js; run markup/XML conformance,
+      verify spec behaviors, record changelog/sprint, publish, release, and continue to the next M3.
+
 ## uniml-json — strict RFC 8259 lossless dialect adapter (2026-07-12, Sergiy: "продолжай дальше не останавливайся")
 
 Goal: complete UniML roadmap M1 with a standalone strict JSON adapter that is chunk-boundary
