@@ -357,6 +357,14 @@ pipeline used by real applications.
       JSON matrix (including astral Unicode and huge numbers) and malformed
       strict failure, then run the assembled busi pipeline-smoke through
       locale+JSON+standard lower/serve.
+      The first real run exposed a fourth blocker: `convertSourceWithMetadata`
+      does not retain front-matter `main: run`, so the Swift CLI emits a package
+      whose entry performs module initialization but never calls `run()` and
+      therefore registers no NativeUi root. Extend checked source metadata with
+      the validated zero-argument entry name and append that call exactly once
+      after module initialization (`main: main` must not duplicate the bridge's
+      existing automatic `def main()` call); pin missing/invalid targets with a
+      checked diagnostic and prove `main: run` in real Swift.
 - [ ] **Release gates and closure** — require explicit post-code Rozum
       `APPROVE`; full Swift backend, combined CLI, assembled Swift CLI and
       macOS+iOS Apple e2e, money/effects/tkv2/v2 conformance, affected

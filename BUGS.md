@@ -341,6 +341,13 @@ the `scalascript` Rozum room from busi's production-shaped fixture; accepted by
   huge-number conversions, optional numeric coercion, deterministic/bounded
   failure and encoding behavior. A broad `global.reg` tree scan is unsafe
   because registrations inside lambdas/dead branches never execute.
+- **Entrypoint root cause (real Swift discovery):** the checked metadata passed
+  to `SwiftV2Cli.emit` omits front-matter `main`. FrontendBridge automatically
+  invokes only a function literally named `main`, so a production-shaped
+  `main: run` program initializes imported module globals but never calls
+  `run()`; `NativeUiHost.evaluate` then fails with `native UI program did not
+  register a root`. This is not a fixture issue: the assembled Swift command
+  uses the same `convertSourceWithMetadata` result.
 - **Rejected WIP behavior:** collapsing explicit throw and runtime failure to
   one description String loses the thrown ADT; catching every normalized host
   `Error` hides runtime bugs; `Int64(value)` omits VM/v1 trimming. The current
@@ -360,7 +367,9 @@ the `scalascript` Rozum room from busi's production-shaped fixture; accepted by
   parity, and the checked busi fixture runs through
   `serve(lower(view(), defaultTheme), ...)`. Full existing Swift/CLI/Apple and
   conformance gates remain green. Move to `fixed` only with landed SHA, and to
-  `done` only after reporter/reviewer confirmation.
+  `done` only after reporter/reviewer confirmation. The standard fixture must
+  retain and invoke `main: run` exactly once after module initialization; an
+  absent target is a checked error, not a root-registration runtime crash.
 
 ## v2-httpclient-curried-extern-unbound — curried top-level `extern def` doesn't bind as a global on `ssc run`
 **Status:** open (2026-07-12), found by claude-code (rozum-ucc-test) while porting rozum's UCC
