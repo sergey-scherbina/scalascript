@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-12 — raw SQL fences are self-hosted and core-free
+
+The ScalaScript 2.1 document frontend now retains `sql` fences in exact source
+order, rewrites `${expr}` to JDBC binds, preserves `$$`, and exposes every
+`_sqlBlock_N` plus the first `<Section>.sql` result through the core-free SQL
+provider. The public H2 quickstart and focused positive/negative cases are
+exact on standard VM, direct ASM, slim/JRE, and reproducible `build-jvm`; no v1,
+Scalameta, compiler, bridge, or transparent fallback is loaded. Full release
+parity advances to 52/14 with zero mismatch/one-sided rows and one remaining
+typed CRUD blocker. Landed through `e3632db14`.
+
 ## 2026-07-12 — structural optics are self-hosted and core-free
 
 The compiler-free ScalaScript 2.1 frontend now retains structural

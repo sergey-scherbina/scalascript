@@ -2,8 +2,8 @@
 
 ## v21-native-sql-fence-token-activates-client-code — SQL token parsing widened code fences
 
-**Status:** open (2026-07-12); found by codex in the full SQL-fence release gate
-before push.
+**Status:** fixed (2026-07-12, `e3632db14`), awaiting Sergiy confirmation;
+found by codex in the full SQL-fence release gate before push.
 
 - **Real-harness repro:** run
   `scripts/v21-self-hosted-core-release-gate --skip-install` after native SQL
@@ -19,6 +19,10 @@ before push.
   `sql @side`, while ordinary code/YAML fence selection retains its prior exact
   language-tag behavior. Full parity must advance to 52 identical / 14
   both-fail with zero mismatch, one-sided, or unclassified rows.
+- **Fix/result:** only SQL dispatch uses the attribute-stripped token; ordinary
+  code/YAML fences keep exact tag matching. `derived-route-clients.ssc` is
+  standard-green again, the SQL quickstart stays exact, and the exhaustive
+  release gate reaches the required 52/14 classification.
 
 ## v21-native-typed-sql-crud-missing — standard provider lacks typed Db writes/read
 
@@ -41,8 +45,9 @@ reported by the release gate and owned by codex.
 
 ## v21-native-sql-fence-binding-missing — SQL section result is not native
 
-**Status:** open (2026-07-12); accepted from the final TI-8.2d runtime taxonomy,
-reported by the release gate and owned by codex.
+**Status:** fixed (2026-07-12, implementation `97c7d3e00`, taxonomy
+`721490e99`, side correction `e3632db14`), awaiting Sergiy confirmation;
+accepted from the final TI-8.2d runtime taxonomy and owned by codex.
 
 - **Real-harness repro:** after `scripts/sbtc "installBin"`, run
   `bin/ssc-standard run examples/sql-h2-quickstart.ssc` and repeat with
@@ -57,6 +62,12 @@ reported by the release gate and owned by codex.
 - **Done-when:** DDL/DML/query fences, `${expr}` binds, and generic section
   result binding are exact on standard VM/direct ASM/reproducible build-jvm,
   including bounded malformed/config errors and no transparent fallback.
+- **Fix/result:** the document projection injects source-ordered `Db.sql`
+  calls, `_sqlBlock_N`, and the first structural `<Section>.sql`; the core-free
+  provider returns portable row maps or update counts. Public quickstart and
+  focused bind/order fixtures are exact on VM/ASM/slim/JRE/build-jvm, negative
+  sentinels fail before stdout, and release parity advances to 52/14 with one
+  typed CRUD blocker remaining.
 
 ## v21-native-tuple-lambda-destructuring — collection callbacks expect two arguments
 

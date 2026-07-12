@@ -3421,7 +3421,11 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     bindings, typed row codecs/CRUD conversion,
                                     bounded diagnostics, and explicit non-goals;
                                     add faithful positive/negative fixtures.
-                              - [ ] **n2 SQL fence slice:** lower fenced SQL to
+                                    Progress: the shared spec is committed and
+                                    the raw SQL positive/negative fixtures are
+                                    green; typed CRUD conversion/identifier
+                                    regressions remain with n3.
+                              - [x] **n2 SQL fence slice:** lower fenced SQL to
                                     provider-owned query/execute operations and
                                     bind section `.sql` results generically;
                                     require the public H2 quickstart exact on
@@ -3436,6 +3440,14 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     Preserve exact ordinary fence matching and
                                     scope attribute tokenization to SQL; require
                                     52/14 parity before this slice is green.
+                                    Result (`97c7d3e00`, `e3632db14`, taxonomy
+                                    `721490e99`): public quickstart, focused
+                                    binds/order/section fixture, bounded
+                                    malformed/client diagnostics, slim/JRE,
+                                    provider boundary, and reproducible
+                                    build-jvm are green. Full release is 52
+                                    identical / 14 both-fail / 129 skips with
+                                    0 language and 1 standard blocker.
                               - [ ] **n3 typed CRUD slice:** install the bounded
                                     `RowCodec` metadata plus `Db.insert`,
                                     `Db.update`, and typed `Db.query[A]` over
