@@ -6230,7 +6230,7 @@ same launcher; every fail was a real engine gap). One entry per cause:
   v2 parity gaps, queued as SPRINT `v2-busi-testsweep-gaps`. run.sh full
   conformance 123/123.
 
-## v1-jvm-state-threaded-handler-codegen — `open` (partial, 2026-07-12)
+## v1-jvm-state-threaded-handler-codegen — `fixed` (2026-07-12, opus)
 
 - **Root cause (refined 2026-07-12, opus) — THREE layers, all Any-typing of the
   deep-handler in JVM codegen:**
@@ -6243,8 +6243,8 @@ same launcher; every fail was a real engine gap). One entry per cause:
   3. `threaded(0)` — the `_handleWithReturn(...)` result is bound to an `Any` val;
      `threaded(0)` → E050 "threaded does not take parameters". Needs the general
      application codegen to cast an Any-typed callee to `Any => Any`.
-  Layers 2–3 are the remaining work (general Any-value-as-function application);
-  low-impact, so left for a dedicated pass. `effects`/`head-field-effect-shadow`
+  Layers 2–3 FIXED (571921446 + this commit): cast the Any-typed intermediate/callee to
+  `Any => Any` at both application sites. run-jvm now matches INT/JS. `effects`/`head-field-effect-shadow`
   conformance stay green on all lanes after layer 1.
 
 - **Found by:** claude-fable-5, while shaping the effect-multiarg-op regression.
