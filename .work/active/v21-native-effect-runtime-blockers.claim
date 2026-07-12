@@ -1,6 +1,6 @@
 feature/v21-native-effect-runtime-blockers 2026-07-11T19:21:44Z
 agent: codex
-heartbeat: 2026-07-12T03:43:23Z
+heartbeat: 2026-07-12T04:01:56Z
 status: in-progress
-done-so-far: native product Mirror/custom derives is pushed through c31f564c2; release is 49 identical / 17 both-fail with 4 blockers and conformance 11/11
-next: specify and implement self-hosted Option/List direct-block lowering before assignment semantics are erased, gate direct-syntax-demo, and push the independent slice
+done-so-far: native Option/List direct syntax is pushed through f638b4d5f; release is 50 identical / 16 both-fail with 3 blockers and conformance 11/11
+next: specify and implement generic case-class named-copy label preservation with focused VM/ASM/build-jvm coverage, then push before starting structural Focus/Prism optics
