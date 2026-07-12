@@ -39,7 +39,20 @@ sound. `✎` = in code shipped this session. Fix order + full exploit/fix per fi
 - [x] **L6 OpenApiGenerator.jsonEscape** — delegates to `jsonStr` (−outer quotes). LANDED 46e2aa06c.
 - [x] **L5 escapers omit newline** — JsGen → `jsStringLit`; JvmGenStringUtils adds `\n\r\t`. LANDED 46e2aa06c.
 
-### Batch C — design-heavy (queued, need a design decision)
+### Batch C — decisions made (2026-07-12, "делай автономно"); executing in order
+Chosen approaches (autonomous — non-breaking defaults):
+- **H2**: opt-in env flag `SSC_HTTP_BLOCK_INTERNAL=1` (default OFF = no behavior change). When set,
+  after URL resolve, block hosts resolving to loopback/link-local/site-local/any-local
+  (JVM+interp via `InetAddress`, catches DNS→internal; Rust via `to_socket_addrs`; JS literal+localhost).
+- **H4**: NO key mgmt — reject a cached artifact whose `.ssc-artifacts` dir is group/other-writable
+  (treat as stale → regenerate from source). Cheap, no secrets. Full HMAC signing → BACKLOG.
+- **M1/M2**: default body caps (16 MB request on legacy JDK serve via counted read; 10 MB response on
+  JVM/interp/JS clients via bounded read). Env `SSC_HTTP_MAX_BODY` overrides.
+- **L1**: cap retries at 10; exponential backoff (delay·2^attempt) + ±20% jitter.
+- **L3**: add `inheritEnv: Boolean = true` to ProcessOptions; `false` clears child env first.
+- **M10 / L8 / M3-JS → BACKLOG**: confined-fs API (new externs, own spec), shared conformance suite,
+  and JS manual-redirect (opaque-response) each need their own slice; do the M10 doc-warning inline.
+
 - [x] **H1 SSR XSS** — `signals.mjs` `_ssc_json_html_safe` escapes `<>&`/U+2028/2029 to `\uXXXX`
       before inlining into `<script>` (both renderPage + serve). LANDED fc8cbce00. VERIFIED node.
 - [ ] **H2 SSRF guard** — opt-in allow-list / reject loopback+link-local+RFC-1918 in the shared
