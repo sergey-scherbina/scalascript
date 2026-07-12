@@ -396,6 +396,11 @@ pipeline used by real applications.
       terminal diagnostic with the shared runtime (`app: not a function: <show>`)
       before the next expensive run; the current value-less message prevents a
       faithful root-cause record and is not itself a usable regression.
+      The actionable value is lowerer's heading-size list
+      `[32,24,20,18,16,14]`: shared v2 application treats a proper List called
+      with one Int as zero-based indexing (`sizes(level - 1)`), while Swift
+      accepts closures/host apply only. Add exact proper-list indexed apply and
+      real-Swift valid/bounds/wrong-type/wrong-arity gates.
 - [ ] **Release gates and closure** — require explicit post-code Rozum
       `APPROVE`; full Swift backend, combined CLI, assembled Swift CLI and
       macOS+iOS Apple e2e, money/effects/tkv2/v2 conformance, affected

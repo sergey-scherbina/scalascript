@@ -392,6 +392,9 @@ the `scalascript` Rozum room from busi's production-shaped fixture; accepted by
   The next observed failure is currently opaque (`app: not a function`); Swift
   omitted the non-callable value that shared v2 Runtime includes. Add that
   deterministic value text before classifying/fixing the next seam.
+  With the value included, the failure is `List(32, 24, 20, 18, 16, 14)` from
+  `lower.ssc`'s `sizes(level - 1)`. Shared `Runtime.applyFallback` supports
+  proper-List indexed application; Swift evaluator does not.
 
 ## v2-httpclient-curried-extern-unbound — curried top-level `extern def` doesn't bind as a global on `ssc run`
 **Status:** open (2026-07-12), found by claude-code (rozum-ucc-test) while porting rozum's UCC
