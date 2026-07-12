@@ -1,0 +1,6 @@
+feature/v2-nativeui-computed-site-vm 2026-07-12T20:39:37Z
+agent: claude-ucc
+heartbeat: 2026-07-12T20:39:37Z
+status: in-progress
+done-so-far: Diagnosed: browser/VM `ssc run` path does NOT site-annotate computedSignal calls, so they hit the UiNativePlugin fallback registration with a single shared id (__computed__manual:computedSignal) → 2+ anonymous computedSignals in one program collide ("conflicting kind/default"). Blocks building rozum UCC center.ssc (20+ computedSignals) on v2. Distinct facet from the codex v2-swift-nativeui-i18n-json claim (Swift-focused).
+next: Confirm why NativeUiSites.annotate leaves computedSignal ineligible in the VM pipeline (eligibleSymbols vs shadowing vs App-node match), fix so each anonymous computedSignal/eqSignal gets a unique (owner,site,occurrence) id, add a regression test, push, rebuild toolchain, rebuild+redeploy UCC on v2.
