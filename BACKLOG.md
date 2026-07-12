@@ -24,6 +24,18 @@ are plain bullets without checkboxes so agents do not claim them as build work.
       cases and keep JVM/Scala.js behavior identical. This is explicitly deferred from M3 rather than
       silently counted as compatibility already delivered.
 
+## SclJet interoperability follow-ups (2026-07-12)
+
+- [ ] **scljet-same-jvm-reference-lock-bridge** — before SclJet may replace the
+      existing `sqlite:` provider, make SclJet locks conflict with an official
+      native SQLite/Xerial connection running in the same JVM. POSIX record
+      locks are process-owned, so `FileChannel` plus the SclJet-local canonical-
+      path coordinator only covers SclJet↔SclJet in-process and reference SQLite
+      across processes. Evaluate a small lock-broker process first; a native
+      bridge into SQLite's per-process inode lock table is the alternative.
+      Done when rollback and WAL contention tests mix both implementations in
+      one JVM without unsafe simultaneous writers.
+
 ## ScalaScript 2.1 native provider parity follow-ups (2026-07-10)
 
 TI-5's representative Scalameta-free boundary is complete; these full-surface

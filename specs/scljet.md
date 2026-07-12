@@ -547,6 +547,14 @@ the plugin combines a process-local canonical-path coordinator with OS
 `FileChannel` locks; neither layer alone is sufficient for SQLite-compatible
 multi-handle and multi-process behavior.
 
+M1 coordinates all SclJet handles in one JVM and interoperates with reference
+SQLite through OS locks across process boundaries. POSIX record locks are owned
+by the process, so an unrelated native SQLite connection in the same JVM does
+not conflict with locks held through `FileChannel`. Same-JVM reference mixing
+therefore requires a later lock-broker process or a native SQLite lock-table
+bridge and remains a required gate before the provider can replace `sqlite:`;
+the M1 adapter does not claim that stronger guarantee.
+
 WAL shared memory maps 32-KiB `-shm` regions and uses process-visible locks at
 SHM offsets 120 through 127. The adapter performs positioned I/O, checked
 truncate/size, `force` for sync, canonical sidecar identity, and a conservative
