@@ -1,6 +1,6 @@
 feature/v21-native-effect-runtime-blockers 2026-07-11T19:21:44Z
 agent: codex
-heartbeat: 2026-07-12T04:24:59Z
+heartbeat: 2026-07-12T05:00:49Z
 status: in-progress
-done-so-far: native named case-class copy is pushed through d4fa0f3df; release is 50 identical / 16 both-fail with 3 blockers and conformance 11/11
-next: specify and implement self-hosted structural Focus/Prism Lens/Optional/Traversal semantics, require all 23 lenses rows on standard VM/ASM/build-jvm, then retire the final language blocker
+done-so-far: native structural optics is pushed through 32b220aae; release is 51 identical / 15 both-fail, 0 language blockers / 2 SQL provider blockers, with conformance 11/11
+next: audit sql-h2-quickstart.ssc and typed-sql-crud.ssc in installed standard VM/ASM versus explicit compat, inspect SQL-fence and typed Db CoreIR, then spec and close the first shared SQL provider slice without fallback
