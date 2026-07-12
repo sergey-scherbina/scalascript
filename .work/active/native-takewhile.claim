@@ -1,0 +1,6 @@
+claim: native-takewhile
+owner: opus (K62.6c-rest: list takeWhile/dropWhile)
+started: 2026-07-12
+scope:
+  - v2/lib/ssc1-lower.ssc0 — takeWhile/dropWhile off isKnownSelMethod → __method__
+  - v2/src/Runtime.scala — str takeWhile/dropWhile predicate gets char-code (IntV) not 1-char str
