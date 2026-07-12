@@ -1,6 +1,6 @@
 feature/uniml-markdown 2026-07-12T12:45:07Z
 agent: codex
-heartbeat: 2026-07-12T12:45:07Z
-status: not-started
-done-so-far: YAML M3 completed and released; Markdown M4 is unclaimed
-next: create isolated worktree, queue M4 slices in SPRINT.md, and write specs/uniml-markdown.md before code
+heartbeat: 2026-07-12T12:45:46Z
+status: in-progress
+done-so-far: isolated feature/uniml-markdown worktree created from origin/main
+next: queue M4 slices in SPRINT.md and write specs/uniml-markdown.md before code
