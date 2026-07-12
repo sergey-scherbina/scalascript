@@ -106,6 +106,33 @@ with extensions isolated behind an explicit non-default profile.
       affected conformance is 1/1; native VM and direct ASM both print the exact six-line expected
       result. No performance, durability, SQL, or file-format claim is made before a working pager.
 
+### SclJet M1 — bytes, codecs, and VFS foundations (active 2026-07-12)
+
+- [ ] **scljet-m1a-api-spec** — update `specs/scljet.md` before implementation with the exact
+      `ByteSlice` construction/index/slice/copy API, unsigned/signed endian codec surface, SQLite
+      varint error/consumption contract, immutable in-memory VFS state transitions, fault-script
+      semantics, and the JVM host-adapter boundary. Resolve the M0 `List[Int]` placeholder without
+      leaking host buffers. Commit this spec update before source changes.
+- [ ] **scljet-m1b-bytes-codec** — replace the M0 byte placeholder with a bounds-checked immutable
+      byte slice and add `bytes.ssc`: validated 0..255 construction, indexed read/update, zero-fill,
+      slicing/copy/concat, big/little-endian 16/32/64-bit reads/writes, signed two's-complement reads,
+      and exact 1..9-byte SQLite varint encode/decode. Add golden boundary/malformed/property-style
+      conformance cases and export through `scljet/index.ssc`.
+- [ ] **scljet-m1c-memory-vfs** — add a deterministic pure ScalaScript in-memory VFS model with
+      canonical file identity, random-access read/write/truncate/delete, exact short-read zero-fill,
+      shared regions, per-handle rollback lock transitions, eight-byte WAL shared/exclusive locks,
+      sync/operation trace, seeded randomness/time, and a scripted fail/short-read/short-write/crash
+      injector. Adapt it to the public VFS contracts without ambient filesystem access.
+- [ ] **scljet-m1d-jvm-vfs-plugin** — implement the narrow JVM host adapter in a dedicated std
+      plugin, never the pure engine: positioned file I/O, truncate/force, canonical identity,
+      SQLite-compatible process-visible rollback lock bytes, WAL shared-memory regions/locks and
+      barriers, pessimistic device characteristics, service registration/build wiring, and focused
+      multi-handle plus subprocess lock tests. No pager/SQL behavior belongs in the plugin.
+- [ ] **scljet-m1e-verify-record** — run affected conformance on interpreter/native VM/direct ASM
+      and JS where supported, JVM plugin unit/subprocess tests, exact golden codec vectors, and
+      `git diff --check`; then reconcile M1 behavior checkboxes/results in the spec and record
+      commits, limitations, and commands in `CHANGELOG.md`/SPRINT before releasing the claim.
+
 ## security-hardening — toolchain audit findings (2026-07-11, Sergiy: "аудит секюрити … запиши все проблемы в спеку и в спринт и исправь")
 
 Spec: `specs/security-hardening.md`. Report artifact:
