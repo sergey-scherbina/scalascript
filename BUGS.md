@@ -401,6 +401,10 @@ the `scalascript` Rozum room from busi's production-shaped fixture; accepted by
   kind/default`. `computedSignal` and `eqSignal` derive ids from lexical site
   alone and ignore the spec's per-owner occurrence, so multiple calls to the
   same imported component alias one signal.
+- **List concatenation root cause:** after anonymous ids are qualified, the
+  production card lowerer fails on `headerParts ++ [bodyEl] ++ footerParts`.
+  Shared v2 `arithOp` concatenates proper lists for `+`/`++`; Swift dynamic
+  arithmetic implements only String concatenation.
 
 ## v2-httpclient-curried-extern-unbound — curried top-level `extern def` doesn't bind as a global on `ssc run`
 **Status:** open (2026-07-12), found by claude-code (rozum-ucc-test) while porting rozum's UCC

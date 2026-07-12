@@ -420,6 +420,11 @@ pipeline used by real applications.
       on keyed rollback, reset at begin/per-owner render, and gate sibling/nested
       owners, reorder/delete, failed-render retry, abort/new-begin, and named
       interleaving that must not shift anonymous counters.
+      With locale identities separated, production `cardWithHeader` reaches
+      `headerParts ++ [bodyEl] ++ footerParts`. Implement shared-v2 proper-list
+      concatenation for `+`/`++` as a fresh canonical list, validating both
+      complete receivers; gate empty/nonempty order plus non-list rhs,
+      malformed lhs/tail/rhs as catchable bounded failures.
 - [ ] **Release gates and closure** — require explicit post-code Rozum
       `APPROVE`; full Swift backend, combined CLI, assembled Swift CLI and
       macOS+iOS Apple e2e, money/effects/tkv2/v2 conformance, affected
