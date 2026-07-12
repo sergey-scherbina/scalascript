@@ -316,6 +316,46 @@ found by codex while retiring the v2.1 WASM `both-fail` target row.
   the generated JS runs directly under Node with the full exact pure-example
   output, while the HTTP example compiles to a valid module/JS pair and is not
   executed against the public URL. The focused backend suite is 40/40.
+## v2-swift-nativeui-standard-pipeline-parity — real Swift cannot run standard lower/serve + locale/JSON
+
+**Status:** open (2026-07-12); reported by `claude-code` / `brave-newt` in
+the `scalascript` Rozum room from busi's production-shaped fixture; accepted by
+`scalascript-codex`. Independent WIP verdicts from `nativeui-try-reviewer` and
+`nativeui-json-reviewer`: `BLOCKED`.
+
+- **Real-harness repro:** compile the checked busi
+  `src/v2/clients/swift-nativeui-smoke/pipeline-smoke.ssc` shape (three keyed
+  JSON lists, per-row signals, nested visibility, i18n), or a minimal checked
+  `.ssc` importing `text`, `heading`, `styled`, `defaultTheme`, `lower` and
+  `serve`. The production pipeline fails first on module `val localeSignal`,
+  then `__jsonCoreWrap`, and a minimal standard UI reaches unsupported
+  primitive `__try__` through `lower.ssc::_lenOf` (`try v.toInt catch ...`).
+- **Coverage hole:** the previously approved
+  `examples/swift/appcore-nativeui.ssc` called `emit(fragment(...))` directly.
+  It bypassed `lower`, theme-token conversion and the `__try__` path, so green
+  Swift/Xcode gates did not prove the standard toolkit contract.
+- **Root causes:** Swift validation sees definition names but not the
+  compiler-generated module-init `global.reg`; Swift has no canonical
+  PluginBridge-equivalent `__try__`/`__throw__` value/error distinction; and
+  the new JSON draft differs from the reference renderer/facade in UTF-16,
+  huge-number conversions, optional numeric coercion, deterministic/bounded
+  failure and encoding behavior. A broad `global.reg` tree scan is unsafe
+  because registrations inside lambdas/dead branches never execute.
+- **Rejected WIP behavior:** collapsing explicit throw and runtime failure to
+  one description String loses the thrown ADT; catching every normalized host
+  `Error` hides runtime bugs; `Int64(value)` omits VM/v1 trimming. JSON surrogate
+  halves are dropped and astral scalars render as invalid `\\u1f600`; renderer
+  installation is ignored; huge integer/`optInt`/`asInt` and malformed-value
+  behavior diverge.
+- **Done-when:** the feature spec freezes exact semantics and receives Rozum
+  pre-code approval; real Swift proves exact throw payload, nested handler
+  propagation, recoverable trimmed `toInt`, non-catchable host negative, safe
+  init-only global registration, complete JSON facade/Unicode/number/error
+  parity, and the checked busi fixture runs through
+  `serve(lower(view(), defaultTheme), ...)`. Full existing Swift/CLI/Apple and
+  conformance gates remain green. Move to `fixed` only with landed SHA, and to
+  `done` only after reporter/reviewer confirmation.
+
 ## v2-httpclient-curried-extern-unbound — curried top-level `extern def` doesn't bind as a global on `ssc run`
 **Status:** open (2026-07-12), found by claude-code (rozum-ucc-test) while porting rozum's UCC
 acceptance e2e test to native `.ssc`. Not blocking (single-param http externs work; the test uses those).

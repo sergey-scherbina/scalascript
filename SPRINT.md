@@ -302,7 +302,59 @@ with extensions isolated behind an explicit non-default profile.
       encodings, overflow/freelist/schema shapes and corrupt/truncated files; require VM/ASM parity,
       JVM real-file execution, `integrity_check`/reference value agreement, spec verification,
       examples, changelog, and explicit JS capability results.
+## v2-swift-nativeui-i18n-json — standard `lower/serve`, locale and JSON parity (2026-07-12)
 
+Claim: `.work/active/v2-swift-nativeui-i18n-json.claim`. Spec:
+`specs/v2-swift-swiftui-native.md`. Reporters: `claude-code` / `brave-newt`
+in the `scalascript` Rozum room; independent reviewers:
+`nativeui-try-reviewer` and `nativeui-json-reviewer` (both pre-code/WIP
+`BLOCKED`). The previous milestone fixture called `emit(fragment(...))`
+directly and therefore did not exercise the shipped `std/ui/lower.ssc`
+pipeline used by real applications.
+
+- [ ] **Plan/spec gate before implementation** — record the three real-harness
+      blockers in `BUGS.md`; freeze the exact portable `__try__`/`__throw__`,
+      `String.toInt`, module `global.reg`, locale and `JsonValue` contracts in
+      the feature spec; obtain explicit read-only Rozum `APPROVE` before
+      landing implementation. Preserve the taken-over dirty worktree, but do
+      not treat its passing build as approval.
+- [ ] **Safe module-val discovery** — authorize only compiler-generated,
+      unconditionally executed init-continuation `global.reg(name, value)`
+      registrations. Do not scan definitions, lambdas or dead branches;
+      negative real-Swift coverage must prove a dead registration cannot
+      authorize an otherwise unbound global. This makes `localeSignal`
+      visible without weakening validation.
+- [ ] **Portable Swift failure semantics** — represent exact explicit
+      `thrown(SscValue)`, recoverable runtime failure, and non-catchable
+      unexpected host failure separately. `__try__` catches only the body,
+      clears the caught failure before invoking the handler, passes the exact
+      thrown value or a deterministic runtime-error String, returns the
+      handler result, and lets handler failures propagate to an outer try.
+      `String.toInt` trims like VM/v1 and invalid input is recoverable; host
+      bugs/fatal invariants must not be swallowed.
+- [ ] **Swift JsonValue parity** — implement the existing `__jsonCore*`,
+      `lookup` and `lookupOpt` ABI against the self-hosted renderer contract:
+      UTF-16 BMP/astral/control correctness, renderer installation/use,
+      deterministic object rendering, Int/BigInt/Decimal boundaries, total
+      `asInt`, integral `optInt` including string/decimal/exponent forms,
+      exact missing/null/list/map/string lookup behavior, facade accessors,
+      native key/function encoding parity, and bounded failures for malformed
+      core/non-finite/unrepresentable values.
+- [ ] **Faithful real-Swift regressions** — add a checked `.ssc` fixture using
+      `text`, `heading`, `styled` with both token (`md`) and numeric (`12`)
+      lengths, `defaultTheme`, `lower`, and `serve`; real SwiftPM run must cover
+      the fallback and success paths. Add real-Swift CoreIR tests for success,
+      exact ADT throw payload, invalid/whitespace `toInt`, nested handler
+      rethrow/runtime failure and non-catchable host negative. Add the exact
+      JSON matrix (including astral Unicode and huge numbers) and malformed
+      strict failure, then run the assembled busi pipeline-smoke through
+      locale+JSON+standard lower/serve.
+- [ ] **Release gates and closure** — require explicit post-code Rozum
+      `APPROVE`; full Swift backend, combined CLI, assembled Swift CLI and
+      macOS+iOS Apple e2e, money/effects/tkv2/v2 conformance, affected
+      `tests/conformance/run.sh --only ...`, docs/spec verify, separate
+      bookkeeping, push to `origin/main`, reporter confirmation, and claim /
+      branch / worktree cleanup.
 ## security-hardening — toolchain audit findings (2026-07-11, Sergiy: "аудит секюрити … запиши все проблемы в спеку и в спринт и исправь")
 
 Spec: `specs/security-hardening.md`. Report artifact:
