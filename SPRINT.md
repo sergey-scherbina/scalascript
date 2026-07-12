@@ -1243,10 +1243,18 @@ for in-process runs, and `inferType` already computes per-node `SType` (just dis
       delegating-Double value-demo test (calleeIsDouble doesn't follow delegation → the map catches
       it → closes a latent correctness gap, not a no-op). Verified: SscVmTest 178/178; INT conformance
       146/146 identical with map active. LESSON: this "compile-more-at-bail-sites" class is perf-safe
-      (never touches live hot paths) + conformance-verifiable → needs no bench gate. REMAINING
-      (folds into C-4): the other bail sites (unifyRet 252, typeGateOk 164, call-arg 604).
+      (never touches live hot paths) + conformance-verifiable → needs no bench gate.
+      CONSUMPTION #2 ATTEMPTED + REVERTED (c20e4702d): tried to widen Int RET leaves→Double via
+      vmTypeOf(fn.body) to kill the MixedReturnType bail. INERT BY CONSTRUCTION — the Typer types a
+      mixed-branch body as `Any` (Typer.scala:949), so the map is never Double exactly when a TInt
+      leaf needs widening. Verification (value-demo stayed None) caught it; kept a finding test.
+      ROOT CAUSE: the fix needs the DECLARED return type (`: Double`), which FunV doesn't carry →
+      folds into C-4 as a CORE change (thread decltpe into FunV, ~8 sites).
 - [ ] **C-4-wide-compilation** — remove type-unknown bails in `compileExpr`/`compileInto`
-      one class at a time, each A/B-provable via miss-count.
+      one class at a time, each A/B-provable via miss-count. FIRST real target: MixedReturnType —
+      thread `d.decltpe` into FunV (StatRuntime:239 + ~7 more sites), then widen Int RET leaves to
+      Double when the DECLARED return is Double. Then typeGateOk (164) / call-arg (604): can the map
+      satisfy the gate instead of bailing? (param seed loop is MOOT — def params are already annotated.)
 - [ ] **C-gate** — QUIET-MACHINE A/B (`scripts/bench interp patternMatch*|recursionFib`,
       `scripts/bench cross`): wider coverage doesn't regress hot paths + ideally removes the
       `recursionFib` bimodal variance. (The "(1)" timing work, deferred until load drops.)

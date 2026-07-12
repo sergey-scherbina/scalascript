@@ -25,10 +25,23 @@ LESSON (Sergiy, "Рассуждай логично"): the "compile-more-at-bail-
   perf-SAFE (only touches sites already defaulting/bailing, never live hot paths) and
   conformance-VERIFIABLE (correctness is timing-independent). So it does NOT need the quiet-machine
   bench gate — that gate only guards codegen changes that alter ALREADY-compiling hot paths.
-next (C-3 consumption #2+ / C-4):
-  - param seed loop (VmCompiler ~941-951): params are already annotated (unannotated def params
-    error "Undefined") so map-seeding params is MOOT for correctness — skip unless it unblocks a bail.
-  - other bail-to-TInt/unknown sites: unifyRet mixed-returns (252), typeGateOk (164), call-arg
-    mismatch (604) — each a candidate to consult the map + upgrade rather than bail. Apply the same
-    discipline: only UPGRADE an unknown default, verify via conformance + callResultUpgrades/JitMiss
-    counters. Hot-path-altering changes still want the quiet-machine bench (recursionFib/patternMatch).
+  C-3 CONSUMPTION #2 ATTEMPTED + REVERTED, FINDING RECORDED (c20e4702d, 2026-07-12) — tried to widen
+    Int-typed RET leaves to Double (I2D at RET) using vmTypeOf(fn.body), to kill the MixedReturnType
+    bail (`def f(c):Double = if c>0 then 1.5 else 2` bails today). INERT BY CONSTRUCTION: the Typer
+    types a mixed-branch body as Any (Typer.scala:949 `if thenType==elseType then thenType else Any`),
+    so vmTypeOf(fn.body) is NEVER Double when a TInt leaf is present — the widening can never fire.
+    Verification (the value-demo staying None) caught it; reverted the codegen, kept a FINDING TEST
+    that asserts f.body types as Any + the fn still bails. SscVmTest 179/179.
+  ROOT CAUSE for MixedReturnType: the JIT needs the DECLARED return type (`: Double`), NOT the
+    inferred body type. FunV does NOT carry decltpe (fields: params, body, env, name, defaults,
+    paramTypes, usingInfo, rThrows — StatRuntime:239). Real fix = thread d.decltpe into FunV (~8
+    construction sites, interpreter-CORE change) -> then widen at RET when declared-Double + TInt leaf.
+    Bigger/riskier core slice; deserves explicit scoping, NOT a tack-on map-consumption.
+next (C-4 candidates, in rough value order):
+  - decltpe->FunV threading, then MixedReturnType RET-widening (the real fix above). CORE change.
+  - other bail-to-TInt/unknown sites: typeGateOk (164), call-arg mismatch (604) — check whether the
+    map can satisfy the gate instead of bailing. Same discipline: only UPGRADE an unknown default,
+    verify via conformance + callResultUpgrades/JitMiss counters.
+  - param seed loop (~941-951): MOOT — params are already annotated (unannotated def params error
+    "Undefined"), so map-seeding params adds nothing for correctness. Skip.
+  Hot-path-altering changes still want the quiet-machine bench (recursionFib/patternMatch).
