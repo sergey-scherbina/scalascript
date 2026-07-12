@@ -1754,10 +1754,29 @@ for in-process runs, and `inferType` already computes per-node `SType` (just dis
       domain change". Reverse (Double→Int var) is a Scala type error → still bails. SscVmTest 183/183
       (`var x=0.0; x=c; x+0.5` → 5.5/3.5); conformance no new fails. **==> Int/Double MixedReturnType
       class now FULLY covered: RET (C-4), value if/match (C-5/b), var assign (C-6).**
-  - [ ] later: typeGateOk (164) is UsingParams (typeclass dispatch — out of the type-inference scope);
-        call-arg mismatch (604) — check whether a type source avoids a false ref/numeric arg mismatch.
-        Beyond Int/Double the RefReturn / field-meta bails are STRUCTURAL, not type-widening.
-        (param seed loop is MOOT — def params are already annotated.)
+- [x] **C-7-field-on-call-result** `e8599c66b` — NAME an already-ref call result from the callee's
+      declared return type (known layout: registered ADT or String), so `f(x).field`/`f(x).length`
+      resolve instead of bailing "unknown ref type". SscVmTest 184/184; conformance no new fails.
+      ⚠ LESSON: an earlier version FLIPPED a call result TInt→TRef via the declared type — that
+      MISCOMPILED litdoc (moving a value between long/ref banks ripples). RULE: only ADD metadata
+      (name an already-correct ref); never change a value's VmType (ripples).
+
+### JIT coverage backlog — remaining bail classes (post C-1..7), in tractability order
+- [ ] **C-8 foldLeft-Double** — `foldLeft`/fold specialisation is Int-accumulator only (VmCompiler
+      ~509/525 "non-Int accumulator/lambda body (Slice A)"). Extend to a Double accumulator (I2D the
+      seed, FADD/FMUL in the body). Separate feature from the widening line; moderate.
+- [ ] **call-arg mismatch (604/623/806)** — most false ref/numeric arg mismatches are already gone
+      (consumption #1 + C-4/5/7 type call results + if/match); AUDIT what remains — likely genuine
+      type errors, low yield. Measure before investing.
+- [ ] **RefReturn / field: no meta for type (STRUCTURAL, ~C-4-infra scale)** — `field:` bails (742
+      unknown-ref-type, 756 no-meta) beyond the C-7 call-result case need broader refTypeName
+      provenance (val/param-of-inferred-type, deeper chains) + full type→field-layout coverage. June:
+      ~39 misses. Bigger infra slice; do after the cheap ones. Apply the C-7 RULE (name, don't flip).
+- [ ] **typeGateOk (164) = UsingParams** — `using`/context-bound typeclass dispatch; NOT a type-
+      inference gap. Needs compile-time dictionary specialisation. Out of the C (typed-input) scope.
+- [ ] **closures / HOF (~199, DOMINANT) — HARD, explicit NON-GOAL of line C.** `call: no compilable
+      target (free name / closure / non-function)`. Needs a closure/heap model (capture env, indirect
+      dispatch) — a separate program, not typed-input widening.
 - [ ] **C-gate** — QUIET-MACHINE A/B (`scripts/bench interp patternMatch*|recursionFib`,
       `scripts/bench cross`): wider coverage doesn't regress hot paths + ideally removes the
       `recursionFib` bimodal variance. (The "(1)" timing work, deferred until load drops.)

@@ -73,6 +73,16 @@ LESSON (Sergiy, "Рассуждай логично"): the "compile-more-at-bail-
     varWidenings ctr. SscVmTest 183/183 (`var x=0.0; x=c; x+0.5` → 5.5/3.5); conformance no new fails.
   ==> Int/Double MixedReturnType class now FULLY covered: RET leaves (C-4), value-position if/match
       (C-5/C-5b), var assign (C-6). All "compile-more-at-bail-sites", conformance-verified, no bench gate.
+  C-7 DONE + on main (e8599c66b, 2026-07-12) — field/String methods on ref-returning CALL results:
+    an already-TRef call result carried an empty refTypeName, so `f(x).field`/`f(x).length` bailed
+    "unknown ref type". Now NAME it from the callee's declared return type (C-4b) when it denotes a
+    known layout (registered ADT via ctx.metaFor, or String). declaredVmType(name)→VmType helper;
+    refTypeFromDecl ctr. SscVmTest 184/184 (`clean(s).length` → 2); conformance no new fails.
+    ⚠ HARD LESSON (litdoc regression, caught by the always-on sweep): an earlier C-7 also used the
+    declared type to FLIP a call result TInt→TRef for callees the ref heuristic missed. That
+    MISCOMPILED litdoc — flipping which results are refs moves the value between the long/ref banks and
+    ripples into consumers. RULE: changing a value's VmType is unsafe (ripples); only ADD metadata
+    (naming an already-correctly-typed ref) — that can only turn a bail into a correct compile.
 next (further C-4 / new bail classes, in rough value order):
   - other bail-to-TInt/unknown sites: typeGateOk (164), call-arg mismatch (604) — check whether a
     type source can satisfy the gate instead of bailing. Same discipline: only UPGRADE an unknown
