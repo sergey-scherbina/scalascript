@@ -59,6 +59,18 @@ final class TreeVmSpec extends AnyFunSuite:
     assert(UniNode.sourceTokens(partial).map(_.lexeme) == Vector("{"))
   }
 
+  test("node and token-size limits reject input with fatal diagnostics") {
+    val nodeLimited = TreeVm(Limits(maxNodes = 1))
+    val nodeResult = nodeLimited.push(vmToken(0, "{", VmInstruction.Open("object")))
+    assert(nodeResult.diagnostics.map(_.code) == Vector("uniml.limit.nodes"))
+    assert(nodeResult.diagnostics.head.severity == Severity.Fatal)
+
+    val tokenLimited = TreeVm(Limits(maxTokenCodePoints = 1))
+    val tokenResult = tokenLimited.push(vmToken(0, "ab", VmInstruction.Emit()))
+    assert(tokenResult.diagnostics.map(_.code) == Vector("uniml.limit.token"))
+    assert(tokenResult.diagnostics.head.severity == Severity.Fatal)
+  }
+
   test("report instructions retain their source token") {
     val vm = TreeVm()
     val batch = vm.push(vmToken(0, "?", VmInstruction.Report("test.problem", "problem")))
