@@ -605,3 +605,15 @@ FILE:tests/fixtures/scljet/m2/valid/reserved-32-usable-480.db
 header:512:32:2:4:1:0
 schema:1:table:List(116):List(116):2:rowid:false
 root:2:rowid:1:List(int:7, text:List(114, 101, 115, 101, 114, 118, 101, 100), blob:List(0, 7, 255))
+FILE:tests/fixtures/scljet/m2/valid/schema-format-1.db
+header:512:0:2:1:1:0
+schema:1:table:List(116):List(116):2:rowid:false
+root:2:rowid:1:List(int:7, text:List(102, 111, 114, 109, 97, 116, 49))
+FILE:tests/fixtures/scljet/m2/valid/schema-format-2.db
+header:512:0:2:2:1:0
+schema:1:table:List(116):List(116):2:rowid:false
+root:2:rowid:1:List(int:7, null)
+FILE:tests/fixtures/scljet/m2/valid/schema-format-3.db
+header:512:0:2:3:1:0
+schema:1:table:List(116):List(116):2:rowid:false
+root:2:rowid:1:List(int:7, int:9)

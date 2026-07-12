@@ -64,4 +64,4 @@ PY
 [[ ! -s $tmp/fuzz-err ]]
 [[ $(cat "$tmp/fuzz-actual") == "32:30:2" ]]
 
-echo 'PASS scljet-m2-corpus-smoke (20 valid + 5 corrupt pinned files, 607 exact lines + 32 bounded mutations)'
+echo 'PASS scljet-m2-corpus-smoke (23 valid + 5 corrupt pinned files, 619 exact lines + 32 bounded mutations)'

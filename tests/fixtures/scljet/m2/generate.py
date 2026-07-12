@@ -20,6 +20,8 @@ ORACLE_SOURCE_ID = (
     "2026-06-26 20:14:12 "
     "d4c0e51e4aeb96955b99185ab9cde75c339e2c29c3f3f12428d364a10d782c62"
 )
+HISTORICAL_VERSION = "3.2.0"
+HISTORICAL_MANIFEST_UUID = "debf40e8ffa35406685ec027ced1f147ef0487df"
 ROOT = Path(__file__).resolve().parent
 VALID = ROOT / "valid"
 CORRUPT = ROOT / "corrupt"
@@ -145,6 +147,18 @@ def create_reserved(path: Path, page_size: int, reserved: int, helper: Path) -> 
         raise RuntimeError(f"{path}: requested {reserved} reserved bytes, header has {actual}")
 
 
+def create_historical(
+    path: Path,
+    schema_format: int,
+    sql: str,
+    helper: Path,
+) -> None:
+    subprocess.run([str(helper), str(path), sql], check=True)
+    actual = struct.unpack(">I", path.read_bytes()[44:48])[0]
+    if actual != schema_format:
+        raise RuntimeError(f"{path}: requested schema format {schema_format}, header has {actual}")
+
+
 def cps(text: str) -> str:
     return "List(" + ", ".join(str(ord(ch)) for ch in text) + ")"
 
@@ -185,7 +199,15 @@ def header_meta(data: bytes) -> tuple[int, int, int, int, int, int]:
     raw_page = struct.unpack(">H", data[16:18])[0]
     page_size = 65536 if raw_page == 1 else raw_page
     reserved = data[20]
-    page_count = struct.unpack(">I", data[28:32])[0]
+    header_page_count = struct.unpack(">I", data[28:32])[0]
+    change_counter = struct.unpack(">I", data[24:28])[0]
+    version_valid_for = struct.unpack(">I", data[92:96])[0]
+    file_page_count = len(data) // page_size
+    page_count = (
+        header_page_count
+        if header_page_count > 0 and change_counter == version_valid_for
+        else file_page_count
+    )
     schema_format = struct.unpack(">I", data[44:48])[0]
     encoding = struct.unpack(">I", data[56:60])[0]
     freelist = struct.unpack(">I", data[36:40])[0]
@@ -231,7 +253,7 @@ def write_manifest(paths: list[tuple[str, Path]], source_id: str, compile_option
         "id", "path", "sha256", "sqlite_version", "source_id", "page_size",
         "reserved", "page_count", "schema_format", "encoding", "write_version",
         "read_version", "auto_vacuum", "freelist_pages", "schema_entries",
-        "generator", "integrity_check",
+        "generator_version", "generator_source_id", "generator", "integrity_check",
     ]
     rows = ["\t".join(columns)]
     dump: list[str] = []
@@ -243,11 +265,15 @@ def write_manifest(paths: list[tuple[str, Path]], source_id: str, compile_option
         auto_vacuum = con.execute("PRAGMA auto_vacuum").fetchone()[0]
         schema_entries = con.execute("SELECT count(*) FROM sqlite_schema").fetchone()[0]
         con.close()
+        historical = fixture_id.startswith("schema-format-")
+        generator_version = HISTORICAL_VERSION if historical else ORACLE_VERSION
+        generator_source = HISTORICAL_MANIFEST_UUID if historical else ORACLE_SOURCE_ID
         rows.append("\t".join([
             fixture_id, rel, hashlib.sha256(data).hexdigest(), ORACLE_VERSION,
             source_id, str(page_size), str(reserved), str(page_count), str(schema_format),
             str(encoding), str(data[18]), str(data[19]), str(auto_vacuum), str(freelist),
-            str(schema_entries), f"generate.py:{fixture_id}", "ok",
+            str(schema_entries), generator_version, generator_source,
+            f"generate.py:{fixture_id}", "ok",
         ]))
         dump.extend(oracle_dump(rel, path))
     (ROOT / "manifest.tsv").write_text("\n".join(rows) + "\n", encoding="utf-8")
@@ -297,6 +323,37 @@ def main() -> None:
     if not reserved_helper.is_file() or not os.access(reserved_helper, os.X_OK):
         raise SystemExit(f"reserved-byte generator is not executable: {reserved_helper}")
 
+    historical_value = os.environ.get("SCLJET_HISTORICAL_SQLITE")
+    manifest_value = os.environ.get("SCLJET_HISTORICAL_MANIFEST_UUID")
+    if not historical_value or not manifest_value:
+        raise SystemExit(
+            "set SCLJET_HISTORICAL_SQLITE and SCLJET_HISTORICAL_MANIFEST_UUID "
+            "to an official canonical SQLite 3.2.0 build and its manifest.uuid"
+        )
+    historical_helper = Path(historical_value).resolve()
+    historical_manifest = Path(manifest_value).resolve()
+    if not historical_helper.is_file() or not os.access(historical_helper, os.X_OK):
+        raise SystemExit(f"historical sqlite is not executable: {historical_helper}")
+    if not historical_manifest.is_file():
+        raise SystemExit(f"historical manifest is not a file: {historical_manifest}")
+    actual_manifest = historical_manifest.read_text(encoding="ascii").strip()
+    if actual_manifest != HISTORICAL_MANIFEST_UUID:
+        raise SystemExit(
+            f"requires historical manifest {HISTORICAL_MANIFEST_UUID}, got {actual_manifest}"
+        )
+    historical_probe = subprocess.run(
+        [str(historical_helper), "-version"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    historical_version = historical_probe.stdout.strip()
+    if historical_version != HISTORICAL_VERSION or historical_probe.stderr:
+        raise SystemExit(
+            f"requires historical sqlite {HISTORICAL_VERSION}, got "
+            f"{historical_version!r} / {historical_probe.stderr.strip()!r}"
+        )
+
     VALID.mkdir(exist_ok=True)
     CORRUPT.mkdir(exist_ok=True)
     for path in list(VALID.glob("*.db")) + list(CORRUPT.glob("*.db")):
@@ -332,6 +389,29 @@ def main() -> None:
     ):
         path = VALID / f"{fixture_id}.db"
         create_reserved(path, page_size, reserved, reserved_helper)
+        fixtures.append((fixture_id, path))
+    for fixture_id, schema_format, sql in (
+        (
+            "schema-format-1",
+            1,
+            "PRAGMA page_size=512; CREATE TABLE t(a INTEGER, b TEXT); "
+            "INSERT INTO t VALUES(7, 'format1');",
+        ),
+        (
+            "schema-format-2",
+            2,
+            "PRAGMA page_size=512; CREATE TABLE t(a INTEGER); "
+            "ALTER TABLE t ADD COLUMN b; INSERT INTO t VALUES(7, NULL);",
+        ),
+        (
+            "schema-format-3",
+            3,
+            "PRAGMA page_size=512; CREATE TABLE t(a INTEGER); "
+            "ALTER TABLE t ADD COLUMN b DEFAULT 9; INSERT INTO t VALUES(7, 9);",
+        ),
+    ):
+        path = VALID / f"{fixture_id}.db"
+        create_historical(path, schema_format, sql, historical_helper)
         fixtures.append((fixture_id, path))
 
     write_manifest(fixtures, source_id, compile_options)
