@@ -388,7 +388,10 @@ pipeline used by real applications.
       `Map[String, Any]`; Swift host currently accepts only `SscMap`. Normalize
       both exact shapes at the NativeUi boundary (left-to-right, duplicate key
       last-wins), with improper-list/non-Tuple2/wrong-arity/non-String-key
-      negatives.
+      negatives. The host probe must inspect the emitted ABI map for
+      `[("style","first"),("style","last")] -> style=last`, prove no source
+      list reaches the Apple renderer, and reject a cell/array value with the
+      original `NativeUiSourceRef` file/line/operation in a bounded diagnostic.
 - [ ] **Release gates and closure** — require explicit post-code Rozum
       `APPROVE`; full Swift backend, combined CLI, assembled Swift CLI and
       macOS+iOS Apple e2e, money/effects/tkv2/v2 conformance, affected
