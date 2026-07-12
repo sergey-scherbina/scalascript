@@ -3882,7 +3882,7 @@ struct ObservationProbe {
         store.unsubscribe(cyclicToken)
         let transitiveCell = store.cell(for: transitive)
         let transitiveToken = store.subscribe(transitiveCell)
-        guard store.failure?.contains("__computed__observation:b -> __computed__observation:c -> __computed__observation:b") == true,
+        guard store.failure?.contains("__computed__13:observation:b:0 -> __computed__13:observation:c:0 -> __computed__13:observation:b:0") == true,
               transitiveCell.revision == 0 else { fatalError("transitive cycle was not ordered") }
         store.unsubscribe(transitiveToken)
         Swift.print("stable|\(sourceCell.revision)|\(firstCell.revision)|\(secondCell.revision)|cycle")
