@@ -119,6 +119,12 @@ def kc5SigCell   = #cell.new(Nil)
 def kc5ActiveCtxCell = #cell.new(Nil)
 -- Set of object names (lowercase given instances) for static dispatch
 def kc7bObjectsCell = #cell.new(Nil)
+-- Enum registry: [Pair(enumName, cases)] where cases = [Pair(caseName, params)].
+-- Lets a `EnumName.Case` companion access lower to a bare `(ctor Case)` and
+-- `EnumName.values` to the list of nullary case ctors (mirrors the scalameta
+-- bridge, which drops the enum qualifier — shared case names across enums are
+-- the same ctor tag, which is correct for `==`/pattern semantics).
+def enumCasesCell = #cell.new(Nil)
 -- While lowering one static object/given body, bare references to sibling
 -- members resolve to the same deterministic owner prefix. Parameters and
 -- locals still win because lowerE consults its lexical scope first.
@@ -226,6 +232,49 @@ def isKnownObject = (name) =>
       case Cons(h, t) => if #seq(h, name) then true else go(t)
     } in
   go(#cell.get(kc7bObjectsCell))
+
+-- Enum companion queries over enumCasesCell ([Pair(enumName, cases)]).
+def enumCasesOf = (ename) =>
+  let rec go = (xs) =>
+    match xs {
+      case Nil => Nil
+      case Cons(e, t) =>
+        match e { case Pair(en, cases) => if #seq(en, ename) then cases else go(t) }
+    } in
+  go(#cell.get(enumCasesCell))
+def isEnumUid = (ename) =>
+  let rec go = (xs) =>
+    match xs {
+      case Nil => false
+      case Cons(e, t) =>
+        match e { case Pair(en, cs) => if #seq(en, ename) then true else go(t) }
+    } in
+  go(#cell.get(enumCasesCell))
+-- A case is nullary iff it declares no params. Only nullary cases lower a BARE
+-- `EnumName.Case` to `(ctor Case)`; parametrized cases (e.g. `Custom(hex)`) reach
+-- here only via application `EnumName.Case(args)`, which the applied path handles.
+def enumNullaryCase = (cases, cname) =>
+  match cases {
+    case Nil => false
+    case Cons(c, t) =>
+      match c { case Pair(cn, params) =>
+        if #seq(cn, cname) then (match params { case Nil => true case Cons(h, m) => false })
+        else enumNullaryCase(t, cname) }
+  }
+-- EnumName.values → the Cons-list of the enum's NULLARY case ctors (Scala `.values`
+-- yields the singleton cases). Built as `ctorap` sexprs so lowerArgs turns them into
+-- nested IrCtor Cons cells.
+def enumValuesList = (cases) =>
+  match cases {
+    case Nil => Pair("ctorap", Pair("Nil", Nil))
+    case Cons(c, t) =>
+      match c { case Pair(cn, params) =>
+        match params {
+          case Nil => Pair("ctorap", Pair("Cons",
+                        Cons(Pair("ctorap", Pair(cn, Nil)), Cons(enumValuesList(t), Nil))))
+          case Cons(h, m) => enumValuesList(t)
+        } }
+  }
 
 def isActiveOwnerMember = (name) =>
   let rec go = (xs) =>
@@ -1002,7 +1051,15 @@ def resolveField = (robj, field) =>
           else
             selOrMethod(field, robj)
         else if #seq(rtag, "uid") then
-          if isKnownObject(rname) then
+          if isEnumUid(rname) then
+            -- Enum companion: `EnumName.Case` → `(ctor Case)` (nullary), `EnumName.values`
+            -- → the list of nullary case ctors. Mirrors the scalameta bridge (drops the
+            -- enum qualifier). A parametrized case reaches here only via application
+            -- `EnumName.Case(args)`, so falls through to the applied-ctor path.
+            if #seq(field, "values") then enumValuesList(enumCasesOf(rname))
+            else if enumNullaryCase(enumCasesOf(rname), field) then Pair("ctorap", Pair(field, Nil))
+            else selOrMethod(field, robj)
+          else if isKnownObject(rname) then
             -- User objects parse as uid receivers; properties use the same
             -- deterministic owner prefix as method calls.
             Pair("var", #sconcat(rname, #sconcat("_", field)))
@@ -3480,6 +3537,20 @@ def kc6Defs =
   Nil))))))))))))))))))))))))))))))))))))))
 
 -- Build a complete IrProg from parsed statements
+-- Enum pre-scan: [Pair(enumName, cases)] so a `EnumName.Case` / `EnumName.values`
+-- companion access can resolve regardless of decl-vs-use order.
+def collectEnums = (stmts) =>
+  match stmts {
+    case Nil => Nil
+    case Cons(s, rest) =>
+      match s {
+        case Pair(tag, data) =>
+          if #seq(tag, "enum") then
+            match data { case Pair(ename, cases) => Cons(Pair(ename, cases), collectEnums(rest)) }
+          else collectEnums(rest)
+      }
+  }
+
 -- K62.7b: pre-scan user `object` names so isKnownObject is reliable during lowering
 -- (a `Foo.method` on a KNOWN object → static Foo_method; on an UNKNOWN uppercase
 -- name like Dataset/Graph → __method__, resolved by the plugin runtime's
@@ -3734,6 +3805,7 @@ def lowerProg = (stmts) =>
   let _st = #cell.set(kc5SigCell, buildSigTable(stmts)) in
   -- KC7b: reset known-objects registry (lower-case given instances)
   let _ko = #cell.set(kc7bObjectsCell, collectObjects(stmts)) in
+  let _ke = #cell.set(enumCasesCell, collectEnums(stmts)) in
   let _kop = #cell.set(kc7bOwnerPrefixCell, "") in
   let _kom = #cell.set(kc7bOwnerMembersCell, Nil) in
   -- K62.6e: reset case-class field registry (generated _sel_ accessors)
