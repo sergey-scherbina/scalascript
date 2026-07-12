@@ -3522,6 +3522,21 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
             update launcher/CLI/docs regressions. Prove plain `ssc run`,
             `--bytecode`, and `build-jvm` on the compiler-free module-limited
             graph; retain bounded diagnostics rather than transparent fallback.
+            - [ ] Commit a launcher/install contract spec: `ssc` and
+                  `ssc-standard` are equivalent standard-tier entries;
+                  compatibility is reachable only through an explicit
+                  `ssc-tools` invocation (`--v1` / `--compat-frontend`), never
+                  delegated by the standard entry.
+            - [ ] Cut over checked-in, `installBin`, contributor-install, and
+                  self-install launchers while preserving the Scala 3 seed and
+                  the separate full tools layout.
+            - [ ] Add installed/default-launcher regressions for VM, direct ASM,
+                  deterministic `build-jvm`, compiler-free module limits, and
+                  bounded rejection of `--v1`, `--compat-frontend`, and
+                  compiler/tools commands.
+            - [ ] Run the exhaustive self-hosted release gate plus fresh
+                  `v2-*` conformance, record exact layout/results, then push the
+                  independently green cutover before starting negative CI.
 - [ ] **v21-ti-negative-ci-and-release** — add CI lanes with scala-cli absent,
       compiler/scalameta jars removed, and `java.compiler` unavailable; run the
       portable native-front VM/ASM corpus gates plus representative plugin/server
