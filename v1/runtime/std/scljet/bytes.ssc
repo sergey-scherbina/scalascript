@@ -76,7 +76,7 @@ def chunkValue(values: List[Int], index: Int): Int =
 
 def rawGet(bytes: ByteSlice, index: Int): Int =
   val absolute = bytes.start + index
-  val chunk = absolute / 64
+  val chunk = (absolute - (absolute % 64)) / 64
   val within = absolute % 64
   chunkValue(bytes.chunks.get(chunk).getOrElse(Nil), within)
 
@@ -88,7 +88,7 @@ def replaceAt(values: List[Int], index: Int, value: Int): List[Int] = values mat
 
 def rawUpdated(bytes: ByteSlice, index: Int, value: Int): ByteSlice =
   val absolute = bytes.start + index
-  val chunk = absolute / 64
+  val chunk = (absolute - (absolute % 64)) / 64
   val within = absolute % 64
   val current = bytes.chunks.get(chunk).getOrElse(Nil)
   val replacement = replaceAt(current, within, value)
