@@ -2757,6 +2757,26 @@ class SscVmTest extends AnyFunSuite with Matchers:
     java.lang.Double.longBitsToDouble(SscVm.runRef(cfn.get, Array.empty[Long], Array[AnyRef](xs))) shouldBe 10.0
   }
 
+  test("wide-jit C-9: a val's declared type names an if-result ref rhs → field access resolves") {
+    // `val p: Box = if a.v > 0 then a else b` — the if-result is a ref but (unlike a param/field/call)
+    // is not name-tagged, so `p.v` would bail "unknown ref type". C-9 names the home from the val's
+    // DECLARED type. All-ref params so runRef maps them cleanly. Only NAMES an already-TRef home.
+    val interp = interpOf(
+      """case class Box(v: Int)
+        |def pick(a: Box, b: Box): Int =
+        |  val p: Box = if a.v > 0 then a else b
+        |  p.v""".stripMargin)
+    val pick = interp.globalsView("pick").asInstanceOf[Value.FunV]
+    val meta: VmCompiler.Meta = { case "Box" => (List("v"), List("Int")); case _ => null }
+    val before = VmCompiler.refTypeFromDecl.get
+    val cfn = VmCompiler.compile(pick, globalsResolve(interp), meta)
+    cfn shouldBe defined
+    assert(VmCompiler.refTypeFromDecl.get > before, "the val's declared type should name the if-result ref home")
+    def box(v: Int) = Value.InstanceV("Box", Map("v" -> Value.intV(v.toLong)))
+    SscVm.runRef(cfn.get, Array.empty[Long], Array[AnyRef](box(5), box(-3)))  shouldBe 5L  // a.v>0 → a
+    SscVm.runRef(cfn.get, Array.empty[Long], Array[AnyRef](box(-1), box(7)))  shouldBe 7L  // else → b
+  }
+
   test("wide-jit C-3: FunV.body is identity-keyed in the Typer's nodeTypes; the map threads to VmCompiler") {
     // Parse ONCE; run it (→ FunV) and typecheck it (→ nodeTypes) from the SAME parse, so the
     // FunV.body Term the JIT compiles is the exact object the Typer recorded a type for.

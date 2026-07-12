@@ -271,6 +271,25 @@ object VmCompiler:
       else if t == "Int" || t == "Long" || t == "Boolean" || t == "Short" || t == "Byte" || t == "Char" then TInt
       else TRef
 
+    /** wide-jit C-9: NAME a val/var home reg from its DECLARED type when the rhs is already a ref but
+      * unnamed (e.g. an `if`/match result, or a call to an unannotated callee), so field access on the
+      * local resolves via `metaFor` instead of bailing "unknown ref type". Follows the C-7 rule: only
+      * NAMES an already-TRef home (never flips a VmType — that ripples, cf. litdoc), and only for a
+      * type with a known layout (a registered ADT, or String). */
+    private def nameRefFromDecl(home: Int, t: VmType, decltpe: Option[scala.meta.Type]): Unit =
+      if t == TRef && refTypeName.getOrElse(home, "").isEmpty then
+        decltpe match
+          case Some(tp) =>
+            val nm = declTypeName(tp)
+            if nm.nonEmpty && (nm == "String" || ctx.metaFor(nm) != null) then
+              setRefType(home, nm); VmCompiler.refTypeFromDecl.incrementAndGet()
+          case None => ()
+
+    private def declTypeName(tp: scala.meta.Type): String = tp match
+      case Type.Name(n)                 => n
+      case Type.Select(_, n: Type.Name) => n.value
+      case _                            => tp.toString.trim
+
     private val fnIsDouble: Boolean =
       // wide-jit C-4d: the DECLARED return type is authoritative and completes the syntactic scan.
       // Without it, a declared-Double fn whose body has no double param/literal (fnIsDouble=false)
@@ -897,10 +916,12 @@ object VmCompiler:
     // `val`/`var` get a stable home register written directly by compileInto;
     // assignments write straight into the bound register — no extra MOVE.
     private def compileStmt(t: Tree): Unit = t match
-      case Defn.Val(_, List(Pat.Var(nm: Term.Name)), _, rhs) =>
-        val home = freshReg(); compileInto(rhs, home); locals(nm.value) = home
-      case Defn.Var.After_4_7_2(_, List(Pat.Var(nm)), _, rhs) =>
-        val home = freshReg(); compileInto(rhs, home); locals(nm.value) = home
+      case Defn.Val(_, List(Pat.Var(nm: Term.Name)), decltpe, rhs) =>
+        val home = freshReg(); val t = compileInto(rhs, home); locals(nm.value) = home
+        nameRefFromDecl(home, t, decltpe)   // wide-jit C-9
+      case Defn.Var.After_4_7_2(_, List(Pat.Var(nm)), decltpe, rhs) =>
+        val home = freshReg(); val t = compileInto(rhs, home); locals(nm.value) = home
+        nameRefFromDecl(home, t, decltpe)   // wide-jit C-9
       case Term.Assign(nm: Term.Name, rhs) =>
         val dst = locals.getOrElse(nm.value, bail(s"undefined: assign to unknown var '${nm.value}'", Br.VmUndefinedName))
         val old = typeOf(dst)
