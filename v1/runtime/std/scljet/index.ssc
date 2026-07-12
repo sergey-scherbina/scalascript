@@ -1,7 +1,7 @@
 ---
 name: scljet
-version: 0.3.0
-description: SclJet M2 pure SQLite header, B-tree page, overflow, and record codecs plus portable engine contracts
+version: 0.4.0
+description: SclJet M2 pure SQLite codecs plus immutable read-only pager and B-tree cursor
 package: scljet
 exports:
   - ByteSlice
@@ -70,6 +70,23 @@ exports:
   - DecodedRecord
   - decodeText
   - decodeRecord
+  - ReadonlyPager
+  - DatabasePage
+  - PagerPageRead
+  - openReadonlyPager
+  - pagerReadPage
+  - closeReadonlyPager
+  - StorageTreeKind
+  - RowidTableTree
+  - RecordKeyTree
+  - StorageRecord
+  - ReadonlyCursorFrame
+  - ReadonlyBtreeCursor
+  - ReadonlyCursorOpen
+  - ReadonlyCursorStep
+  - openReadonlyCursor
+  - readonlyCursorFirst
+  - readonlyCursorNext
   - SqliteValue
   - SqlNull
   - SqlInteger
@@ -268,6 +285,10 @@ interfaces and prove compatibility through differential and crash testing.
 [BtreePageKind, IndexInteriorPage, TableInteriorPage, IndexLeafPage, TableLeafPage, PageContext, BtreePageHeader, CellPayload, BtreeCell, TableInteriorCell, TableLeafCell, IndexInteriorCell, IndexLeafCell, BtreePage, OverflowChunk, OverflowInput, OverflowPayload, localPayloadBytes, decodeBtreePage, decodeOverflowPage, decodeOverflowChain](page.ssc)
 
 [DecodedText, RecordField, DecodedRecord, decodeText, decodeRecord](record.ssc)
+
+[ReadonlyPager, DatabasePage, PagerPageRead, openReadonlyPager, pagerReadPage, closeReadonlyPager](pager.ssc)
+
+[StorageTreeKind, RowidTableTree, RecordKeyTree, StorageRecord, ReadonlyCursorFrame, ReadonlyBtreeCursor, ReadonlyCursorOpen, ReadonlyCursorStep, openReadonlyCursor, readonlyCursorFirst, readonlyCursorNext](btree.ssc)
 
 [FileKind, MainDatabaseFile, MainJournalFile, WalFile, ShmFile, TempDatabaseFile, TempJournalFile, TransientFile, OpenFlags, LockLevel, LockNone, LockShared, LockReserved, LockPending, LockExclusive, SyncFlags, DeviceCharacteristic, AtomicWrite, SafeAppend, SequentialWrite, PowersafeOverwrite, UndeletableWhenOpen, AtomicDelete, ShmLockMode, ShmSharedLock, ShmExclusiveLock, ShmSharedUnlock, ShmExclusiveUnlock, VfsError, VfsRead, VfsWrite, SharedRegion, SqliteFile, SqliteVfs](vfs.ssc)
 

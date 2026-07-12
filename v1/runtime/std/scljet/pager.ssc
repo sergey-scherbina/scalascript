@@ -1,0 +1,202 @@
+---
+name: scljet-pager
+version: 0.4.0
+description: Immutable SHARED-locked read-only SQLite pager and deterministic LRU cache
+package: scljet
+exports:
+  - ReadonlyPager
+  - DatabasePage
+  - PagerPageRead
+  - sqliteFailure
+  - pagerDecodeError
+  - pagerCorrupt
+  - openReadonlyPager
+  - pagerReadPage
+  - closeReadonlyPager
+---
+
+# SclJet read-only pager
+
+[ByteSlice](bytes.ssc)
+[SqliteErrorCode, SqliteBusy, SqliteIo, SqliteCorrupt, SqliteCannotOpen, SqliteMisuse, SqliteNotADatabase, SqliteTooBig, SqliteUnsupportedCapability, SqliteError, SqliteOpenMode, OpenReadOnly, SqliteLimits, SqliteOpenOptions](values.ssc)
+[FileKind, MainDatabaseFile, MainJournalFile, WalFile, OpenFlags, LockNone, LockShared, VfsError, VfsRead, SqliteFile, SqliteVfs](vfs.ssc)
+[DatabaseHeader, DecodeFailure, decodeDatabaseHeader, databasePageOffset](header.ssc)
+
+```scalascript
+case class ReadonlyPager(
+  vfsName: String,
+  canonicalPath: String,
+  file: SqliteFile,
+  header: DatabaseHeader,
+  physicalPageCount: Long,
+  logicalPageCount: Long,
+  cache: Map[Long, ByteSlice],
+  lruOldestFirst: List[Long],
+  cacheCapacity: Int,
+  limits: SqliteLimits,
+  closed: Boolean
+)
+
+case class DatabasePage(pageNumber: Long, bytes: ByteSlice)
+case class PagerPageRead(pager: ReadonlyPager, page: DatabasePage)
+
+def sqliteFailure(code: SqliteErrorCode, message: String, fileOffset: Option[Long], page: Option[Long], cause: Option[String]): SqliteError =
+  SqliteError(code, 0, message, None, fileOffset, page, cause)
+
+def pagerVfsError(error: VfsError, operation: String): SqliteError =
+  val code = if error.code == "busy" || error.retryable then SqliteBusy
+    else if operation == "open" then SqliteCannotOpen else SqliteIo
+  sqliteFailure(code, operation + ": " + error.message, None, None, Some(error.code))
+
+def pagerDecodeError(error: DecodeFailure): SqliteError =
+  sqliteFailure(error.code, error.location.field + ": " + error.message,
+    Some(error.location.fileOffset), error.location.pageNumber, None)
+
+def pagerCorrupt(message: String, offset: Option[Long], page: Option[Long]): SqliteError =
+  sqliteFailure(SqliteCorrupt, message, offset, page, None)
+
+def pagerCloseFailed(file: SqliteFile): Unit =
+  file.unlock(LockNone)
+  file.close()
+  ()
+
+def sidecarNonEmpty(vfs: SqliteVfs, path: String, kind: FileKind): Either[SqliteError, Boolean] =
+  vfs.exists(path) match
+    case Left(error) => Left(pagerVfsError(error, "exists"))
+    case Right(false) => Right(false)
+    case Right(true) => vfs.open(path, kind, OpenFlags(true, false, false, false, false)) match
+      case Left(error) => Left(pagerVfsError(error, "open"))
+      case Right(file) => file.size() match
+        case Left(error) =>
+          file.close()
+          Left(pagerVfsError(error, "size"))
+        case Right(size) =>
+          file.close()
+          Right(size > 0L)
+
+def validateSidecars(vfs: SqliteVfs, canonical: String): Either[SqliteError, Unit] =
+  sidecarNonEmpty(vfs, canonical + "-journal", MainJournalFile) match
+    case Left(error) => Left(error)
+    case Right(true) => Left(sqliteFailure(SqliteUnsupportedCapability,
+      "non-empty rollback journal requires M3 recovery", None, None, None))
+    case Right(false) => sidecarNonEmpty(vfs, canonical + "-wal", WalFile) match
+      case Left(error) => Left(error)
+      case Right(true) => Left(sqliteFailure(SqliteUnsupportedCapability,
+        "non-empty WAL requires an M5 snapshot", None, None, None))
+      case Right(false) => Right(())
+
+def finishOpenPager(vfs: SqliteVfs, canonical: String, file: SqliteFile, options: SqliteOpenOptions, fileSize: Long, header: DatabaseHeader): Either[SqliteError, ReadonlyPager] =
+  val pageSize = header.pageSize.toLong
+  val physical = fileSize / pageSize
+  val remainder = fileSize % pageSize
+  val logical = if header.headerPageCountTrusted then header.headerPageCount else physical
+  val capacity = if options.pageCachePages < options.limits.cachePages then options.pageCachePages else options.limits.cachePages
+  if remainder != 0L then
+    pagerCloseFailed(file)
+    Left(pagerCorrupt("database has a partial trailing page", Some(fileSize - remainder), None))
+  else if physical < 1L || logical < 1L || logical > physical then
+    pagerCloseFailed(file)
+    Left(pagerCorrupt("logical database page count is inconsistent with file size", Some(28L), None))
+  else if logical > 4294967294L || logical > options.limits.pageCount then
+    pagerCloseFailed(file)
+    Left(sqliteFailure(SqliteTooBig, "database exceeds configured pageCount", None, None, None))
+  else if capacity <= 0 then
+    pagerCloseFailed(file)
+    Left(sqliteFailure(SqliteMisuse, "page cache capacity must be positive", None, None, None))
+  else Right(ReadonlyPager(vfs.name, canonical, file, header, physical, logical,
+    Map(), Nil, capacity, options.limits, false))
+
+def readOpenHeader(vfs: SqliteVfs, canonical: String, file: SqliteFile, options: SqliteOpenOptions): Either[SqliteError, ReadonlyPager] =
+  file.size() match
+    case Left(error) =>
+      pagerCloseFailed(file)
+      Left(pagerVfsError(error, "size"))
+    case Right(size) =>
+      if size < 100L then
+        pagerCloseFailed(file)
+        Left(sqliteFailure(SqliteNotADatabase, "database is shorter than the 100-byte header", None, None, None))
+      else file.readAt(0L, 100) match
+        case Left(error) =>
+          pagerCloseFailed(file)
+          Left(pagerVfsError(error, "read"))
+        case Right(VfsRead(bytes, warning)) =>
+          if warning.isDefined then
+            pagerCloseFailed(file)
+            Left(pagerCorrupt("database header was a short read", Some(0L), Some(1L)))
+          else decodeDatabaseHeader(bytes) match
+            case Left(error) =>
+              pagerCloseFailed(file)
+              Left(pagerDecodeError(error))
+            case Right(header) => finishOpenPager(vfs, canonical, file, options, size, header)
+
+def openLockedPager(vfs: SqliteVfs, canonical: String, file: SqliteFile, options: SqliteOpenOptions): Either[SqliteError, ReadonlyPager] =
+  file.lock(LockShared) match
+    case Left(error) =>
+      file.close()
+      Left(pagerVfsError(error, "lock"))
+    case Right(_) => validateSidecars(vfs, canonical) match
+      case Left(error) =>
+        pagerCloseFailed(file)
+        Left(error)
+      case Right(_) => readOpenHeader(vfs, canonical, file, options)
+
+def openReadonlyPager(vfs: SqliteVfs, path: String, options: SqliteOpenOptions): Either[SqliteError, ReadonlyPager] =
+  if options.mode != OpenReadOnly then
+    Left(sqliteFailure(SqliteMisuse, "M2 pager requires OpenReadOnly", None, None, None))
+  else vfs.fullPath(path) match
+    case Left(error) => Left(pagerVfsError(error, "fullPath"))
+    case Right(canonical) => vfs.open(canonical, MainDatabaseFile,
+      OpenFlags(true, false, false, false, false)) match
+      case Left(error) => Left(pagerVfsError(error, "open"))
+      case Right(file) => openLockedPager(vfs, canonical, file, options)
+
+def pagerListWithout(values: List[Long], target: Long): List[Long] = values match
+  case Nil => Nil
+  case Cons(head, tail) => if head == target then pagerListWithout(tail, target)
+    else head :: pagerListWithout(tail, target)
+
+def pagerMapWithout(values: Map[Long, ByteSlice], target: Long): Map[Long, ByteSlice] =
+  values.keys.toList.filter(_ != target).foldLeft(Map())((acc, key) =>
+    acc.updated(key, values.get(key).getOrElse(ByteSlice.empty)))
+
+def pagerTouch(pager: ReadonlyPager, page: Long, bytes: ByteSlice): ReadonlyPager =
+  val existingOrder = pagerListWithout(pager.lruOldestFirst, page)
+  val existingCache = pager.cache.updated(page, bytes)
+  if existingOrder.length < pager.cacheCapacity then
+    pager.copy(cache = existingCache, lruOldestFirst = existingOrder :+ page)
+  else existingOrder match
+    case Nil => pager.copy(cache = Map(page -> bytes), lruOldestFirst = List(page))
+    case Cons(oldest, tail) => pager.copy(
+      cache = pagerMapWithout(existingCache, oldest),
+      lruOldestFirst = tail :+ page
+    )
+
+def pagerReadMiss(pager: ReadonlyPager, pageNumber: Long): Either[SqliteError, PagerPageRead] =
+  databasePageOffset(pageNumber, pager.header.pageSize) match
+    case Left(error) => Left(pagerDecodeError(error))
+    case Right(offset) => pager.file.readAt(offset, pager.header.pageSize) match
+      case Left(error) => Left(pagerVfsError(error, "read"))
+      case Right(VfsRead(bytes, warning)) =>
+        if warning.isDefined || bytes.length != pager.header.pageSize then
+          Left(pagerCorrupt("database page was a short read", Some(offset), Some(pageNumber)))
+        else
+          val next = pagerTouch(pager, pageNumber, bytes)
+          Right(PagerPageRead(next, DatabasePage(pageNumber, bytes)))
+
+def pagerReadPage(pager: ReadonlyPager, pageNumber: Long): Either[SqliteError, PagerPageRead] =
+  if pager.closed then Left(sqliteFailure(SqliteMisuse, "pager is closed", None, Some(pageNumber), None))
+  else if pageNumber < 1L || pageNumber > pager.logicalPageCount then
+    Left(sqliteFailure(SqliteCorrupt, "page number is outside the logical database", None, Some(pageNumber), None))
+  else pager.cache.get(pageNumber) match
+    case Some(bytes) =>
+      val next = pagerTouch(pager, pageNumber, bytes)
+      Right(PagerPageRead(next, DatabasePage(pageNumber, bytes)))
+    case None => pagerReadMiss(pager, pageNumber)
+
+def closeReadonlyPager(pager: ReadonlyPager): Either[SqliteError, Unit] =
+  pager.file.unlock(LockNone) match
+    case Left(error) => Left(pagerVfsError(error, "unlock"))
+    case Right(_) => pager.file.close() match
+      case Left(error) => Left(pagerVfsError(error, "close"))
+      case Right(_) => Right(())
+```
