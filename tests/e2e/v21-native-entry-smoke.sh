@@ -57,6 +57,29 @@ http_response_expected=$'201\ntext/plain; charset=utf-8\nhello\n{"n":2,"ok":true
 [[ $(run_native "$FIXTURES/http-response-provider.ssc") == "$http_response_expected" ]]
 sql_expected=$'1\n7\nAda\ntrue'
 [[ $(run_native "$FIXTURES/sql-provider.ssc") == "$sql_expected" ]]
+sql_fence_expected=$'0\n1\n1\nAda\n$\n1'
+[[ $(run_standard "$FIXTURES/sql-fence-provider.ssc") == "$sql_fence_expected" ]]
+[[ $(run_standard --bytecode "$FIXTURES/sql-fence-provider.ssc") == "$sql_fence_expected" ]]
+sql_quickstart_expected=$'active users: List(Map(ID -> 1, NAME -> Alice, EMAIL -> alice@example.com), Map(ID -> 2, NAME -> Bob, EMAIL -> bob@example.com))\nusers with id >= 1: List(Map(TOTAL -> 3))'
+[[ $(run_standard "$ROOT/examples/sql-h2-quickstart.ssc") == "$sql_quickstart_expected" ]]
+[[ $(run_standard --bytecode "$ROOT/examples/sql-h2-quickstart.ssc") == "$sql_quickstart_expected" ]]
+for sql_negative in \
+    'sql-fence-malformed-bind.ssc:__malformed_sql_bind' \
+    'sql-fence-client-only.ssc:__unsupported_client_sql_fence'; do
+  fixture=${sql_negative%%:*}
+  sentinel=${sql_negative#*:}
+  for backend in vm asm; do
+    backend_args=()
+    [[ $backend == asm ]] && backend_args=(--bytecode)
+    if run_standard "${backend_args[@]}" "$FIXTURES/$fixture" \
+        >"$sandbox/sql-negative.out" 2>"$sandbox/sql-negative.err"; then
+      echo "v21-native-entry-smoke: $fixture unexpectedly passed on $backend" >&2
+      exit 1
+    fi
+    [[ ! -s "$sandbox/sql-negative.out" ]]
+    grep -Fx "ssc: unbound global: $sentinel" "$sandbox/sql-negative.err" >/dev/null
+  done
+done
 ui_expected=$'<!doctype html>\n<main class="card" id="app"><h1>Hi &lt;native&gt;</h1>Ada<span>shown</span></main>'
 ui_vm="$sandbox/ui-vm"
 ui_asm="$sandbox/ui-asm"

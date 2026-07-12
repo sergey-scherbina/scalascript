@@ -67,42 +67,151 @@ def sscAppendSource = (acc, chunk) =>
   if #i.eq(#slen(chunk), 0) then acc
   else if #i.eq(#slen(acc), 0) then chunk
   else #sconcat(acc, #sconcat("\n\n", chunk))
-def sscFenceSource = (lang, source, heading) =>
-  let isCode = if #seq(lang, "scalascript") then true else #seq(lang, "scala") in
+
+-- SQL fences stay opaque to the language parser, but their `${expr}` binds are
+-- a source-language safety boundary. Rewrite them here, while exact document
+-- order and the enclosing heading are still available.
+def sscFenceTokenEnd = (s, i) =>
+  if #i.ge(i, #slen(s)) then i
+  else
+    let c = #scodeAt(s, i) in
+    if #i.eq(c, 32) then i else (if #i.eq(c, 9) then i else sscFenceTokenEnd(s, #i.add(i, 1)))
+def sscFenceToken = (s) => #sslice(s, 0, sscFenceTokenEnd(s, 0))
+def sscFindText = (s, needle, i) =>
+  if #i.gt(#i.add(i, #slen(needle)), #slen(s)) then #i.neg(1)
+  else if #seq(#sslice(s, i, #i.add(i, #slen(needle))), needle) then i
+  else sscFindText(s, needle, #i.add(i, 1))
+def sscAttrEnd = (s, i) =>
+  if #i.ge(i, #slen(s)) then i
+  else
+    let c = #scodeAt(s, i) in
+    if #i.eq(c, 32) then i else (if #i.eq(c, 9) then i else sscAttrEnd(s, #i.add(i, 1)))
+def sscFenceAttr = (lang, name, fallback) =>
+  let prefix = #sconcat("@", #sconcat(name, "=")) in
+  let at = sscFindText(lang, prefix, 0) in
+  if #i.lt(at, 0) then fallback
+  else
+    let start = #i.add(at, #slen(prefix)) in
+    let value = #sslice(lang, start, sscAttrEnd(lang, start)) in
+    if #i.eq(#slen(value), 0) then fallback else value
+
+def sscSqlBindEnd = (s, i, depth, quote, escaped) =>
+  if #i.ge(i, #slen(s)) then #i.neg(1)
+  else
+    let c = #scodeAt(s, i) in
+    if #i.gt(quote, 0) then
+      if escaped then sscSqlBindEnd(s, #i.add(i, 1), depth, quote, false)
+      else if #i.eq(c, 92) then sscSqlBindEnd(s, #i.add(i, 1), depth, quote, true)
+      else if #i.eq(c, quote) then sscSqlBindEnd(s, #i.add(i, 1), depth, 0, false)
+      else sscSqlBindEnd(s, #i.add(i, 1), depth, quote, false)
+    else if #i.eq(c, 34) then sscSqlBindEnd(s, #i.add(i, 1), depth, 34, false)
+    else if #i.eq(c, 39) then sscSqlBindEnd(s, #i.add(i, 1), depth, 39, false)
+    else if #i.eq(c, 123) then sscSqlBindEnd(s, #i.add(i, 1), #i.add(depth, 1), 0, false)
+    else if #i.eq(c, 125) then
+      if #i.eq(depth, 0) then i
+      else sscSqlBindEnd(s, #i.add(i, 1), #i.sub(depth, 1), 0, false)
+    else sscSqlBindEnd(s, #i.add(i, 1), depth, 0, false)
+
+def sscSqlRewrite = (s, i, sql, binds) =>
+  if #i.ge(i, #slen(s)) then Pair("__ok__", Pair(sql, reverse(binds)))
+  else
+    let c = #scodeAt(s, i) in
+    if #i.eq(c, 36) then
+      if #i.lt(#i.add(i, 1), #slen(s)) then
+        let next = #scodeAt(s, #i.add(i, 1)) in
+        if #i.eq(next, 36) then
+          sscSqlRewrite(s, #i.add(i, 2), #sconcat(sql, "$"), binds)
+        else if #i.eq(next, 123) then
+          let end = sscSqlBindEnd(s, #i.add(i, 2), 0, 0, false) in
+          if #i.lt(end, 0) then Pair("__bad__", Pair(sql, reverse(binds)))
+          else
+            let expr = strip(#sslice(s, #i.add(i, 2), end)) in
+            if #i.eq(#slen(expr), 0) then Pair("__bad__", Pair(sql, reverse(binds)))
+            else sscSqlRewrite(s, #i.add(end, 1), #sconcat(sql, "?"), Cons(expr, binds))
+        else sscSqlRewrite(s, #i.add(i, 1), #sconcat(sql, "$"), binds)
+      else sscSqlRewrite(s, #i.add(i, 1), #sconcat(sql, "$"), binds)
+    else sscSqlRewrite(s, #i.add(i, 1),
+      #sconcat(sql, #sslice(s, i, #i.add(i, 1))), binds)
+
+def sscSqlBindArgs = (binds) =>
+  match binds {
+    case Nil => ""
+    case Cons(expr, rest) =>
+      match rest {
+        case Nil => expr
+        case _ => #sconcat(expr, #sconcat(", ", sscSqlBindArgs(rest)))
+      }
+  }
+def sscSqlValName = (index) => #sconcat("_sqlBlock_", #i->str(index))
+def sscSqlFenceSource = (lang, source, heading, index, firstInSection) =>
+  let side = sscFenceAttr(lang, "side", "server") in
+  if #seq(side, "client") then "__unsupported_client_sql_fence"
+  else
+    match sscSqlRewrite(source, 0, "", Nil) {
+      case Pair(status, data) =>
+        if #seq(status, "__bad__") then "__malformed_sql_bind"
+        else match data {
+          case Pair(sql, binds) =>
+            let name = sscSqlValName(index) in
+            let db = sscFenceAttr(lang, "db", "default") in
+            let call = #sconcat("val ", #sconcat(name,
+              #sconcat(" = Db.sql(", #sconcat(sscQuoteYamlString(db),
+                #sconcat(", ", #sconcat(sscQuoteYamlString(sql),
+                  #sconcat(", List(", #sconcat(sscSqlBindArgs(binds), "))")))))))) in
+            if firstInSection then
+              #sconcat(call, #sconcat("\nval ", #sconcat(heading,
+                #sconcat(" = sqlSection(", #sconcat(name, ")")))))
+            else call
+        }
+    }
+
+def sscFenceSource = (lang, source, heading, sqlIndex, firstSqlInSection) =>
+  let token = sscFenceToken(lang) in
+  let isCode = if #seq(token, "scalascript") then true else #seq(token, "scala") in
   if isCode then source
-  else if #seq(lang, "yaml") then
+  else if #seq(token, "yaml") then
     #sconcat("val __yaml_", #sconcat(heading,
       #sconcat(" = __yamlSection__(", #sconcat(sscQuoteYamlString(source), ")"))))
-  else if #seq(lang, "yml") then
+  else if #seq(token, "yml") then
     #sconcat("val __yaml_", #sconcat(heading,
       #sconcat(" = __yamlSection__(", #sconcat(sscQuoteYamlString(source), ")"))))
+  else if #seq(token, "sql") then
+    sscSqlFenceSource(lang, source, heading, sqlIndex, firstSqlInSection)
   else ""
-def sscSourceLines = (lines, heading, inFence, lang, curLines, acc) =>
+def sscSourceLines = (lines, heading, inFence, lang, curLines, sqlIndex, sqlSections, acc) =>
   match lines {
     case Nil =>
       if inFence then
-        sscAppendSource(acc, sscFenceSource(lang, joinLines(reverse(curLines)), heading))
+        let token = sscFenceToken(lang) in
+        let isSql = #seq(token, "sql") in
+        let first = if isSql then (if #seq(heading, "S0") then false else (if sscMem(sqlSections, heading) then false else true)) else false in
+        sscAppendSource(acc, sscFenceSource(lang, joinLines(reverse(curLines)), heading, sqlIndex, first))
       else acc
     case Cons(line, rest) =>
       if inFence then
         if isClosingFence(line) then
           let source = joinLines(reverse(curLines)) in
+          let token = sscFenceToken(lang) in
+          let isSql = #seq(token, "sql") in
+          let first = if isSql then (if #seq(heading, "S0") then false else (if sscMem(sqlSections, heading) then false else true)) else false in
           sscSourceLines(rest, heading, false, "", Nil,
-            sscAppendSource(acc, sscFenceSource(lang, source, heading)))
-        else sscSourceLines(rest, heading, true, lang, Cons(line, curLines), acc)
+            if isSql then #i.add(sqlIndex, 1) else sqlIndex,
+            if first then Cons(heading, sqlSections) else sqlSections,
+            sscAppendSource(acc, sscFenceSource(lang, source, heading, sqlIndex, first)))
+        else sscSourceLines(rest, heading, true, lang, Cons(line, curLines), sqlIndex, sqlSections, acc)
       else
         let t = strip(line) in
         if startsWith3bt(t) then
-          sscSourceLines(rest, heading, true, getFenceLang(t), Nil, acc)
+          sscSourceLines(rest, heading, true, getFenceLang(t), Nil, sqlIndex, sqlSections, acc)
         else
           let nextHeading = sscHeadingId(t) in
           sscSourceLines(rest,
             if #i.eq(#slen(nextHeading), 0) then heading else nextHeading,
-            false, "", Nil, acc)
+            false, "", Nil, sqlIndex, sqlSections, acc)
   }
 def sscProgramSource = (src) =>
   let lines = splitLines(stripBom(src), 0, Nil) in
-  sscSourceLines(skipYaml(frontmatterLines(lines)), "S0", false, "", Nil, "")
+  sscSourceLines(skipYaml(frontmatterLines(lines)), "S0", false, "", Nil, 0, Nil, "")
 
 -- ── .ssc module loading (v2-native-front-ssc-module-loading) ─────────────────
 -- The parser treats `[names](path.ssc)` markdown-link imports as a parse-only

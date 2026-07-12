@@ -64,6 +64,12 @@ PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
   "$sandbox/other/sql-provider.ssc" -o "$sandbox/sql.jar"
 [[ $(PATH="$clean_path" java -jar "$sandbox/sql.jar") == $'1\n7\nAda\ntrue' ]]
 
+cp "$ROOT/examples/sql-h2-quickstart.ssc" "$sandbox/other/sql-h2-quickstart.ssc"
+PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
+  "$sandbox/other/sql-h2-quickstart.ssc" -o "$sandbox/sql-fence.jar"
+sql_fence_expected=$'active users: List(Map(ID -> 1, NAME -> Alice, EMAIL -> alice@example.com), Map(ID -> 2, NAME -> Bob, EMAIL -> bob@example.com))\nusers with id >= 1: List(Map(TOTAL -> 3))'
+[[ $(PATH="$clean_path" java -jar "$sandbox/sql-fence.jar") == "$sql_fence_expected" ]]
+
 cp "$ROOT/examples/yaml-parse.ssc" "$sandbox/other/yaml-parse.ssc"
 PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
   "$sandbox/other/yaml-parse.ssc" -o "$sandbox/yaml.jar"
@@ -173,6 +179,8 @@ LC_ALL=C sort -c "$sandbox/entries"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps -verbose:class \
   "$sandbox/sql.jar" >"$sandbox/sql.jdeps"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps -verbose:class \
+  "$sandbox/sql-fence.jar" >"$sandbox/sql-fence.jdeps"
+"$jdeps_cmd" --multi-release base --ignore-missing-deps -verbose:class \
   "$sandbox/yaml.jar" >"$sandbox/yaml.jdeps"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps -verbose:class \
   "$sandbox/dataset.jar" >"$sandbox/dataset.jdeps"
@@ -201,6 +209,8 @@ LC_ALL=C sort -c "$sandbox/entries"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
   "$sandbox/sql.jar" >"$sandbox/sql.modules"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
+  "$sandbox/sql-fence.jar" >"$sandbox/sql-fence.modules"
+"$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
   "$sandbox/yaml.jar" >"$sandbox/yaml.modules"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
   "$sandbox/dataset.jar" >"$sandbox/dataset.modules"
@@ -227,8 +237,10 @@ LC_ALL=C sort -c "$sandbox/entries"
 
 forbidden='scala[./](meta|tools)|dotty[./]tools|scala3-compiler|compiler-driver|javax[./]tools|java[.]compiler|jdk[.]compiler|ssc[./]bridge|scalascript[./](ast|frontend|interpreter)'
 if grep -Ei "$forbidden" "$sandbox/entries" "$sandbox/entry.javap" \
-    "$sandbox/app.jdeps" "$sandbox/sql.jdeps" "$sandbox/yaml.jdeps" "$sandbox/dataset.jdeps" \
-    "$sandbox/generator.jdeps" "$sandbox/async.jdeps" "$sandbox/app.modules" "$sandbox/sql.modules" \
+    "$sandbox/app.jdeps" "$sandbox/sql.jdeps" "$sandbox/sql-fence.jdeps" \
+    "$sandbox/yaml.jdeps" "$sandbox/dataset.jdeps" \
+    "$sandbox/generator.jdeps" "$sandbox/async.jdeps" "$sandbox/app.modules" \
+    "$sandbox/sql.modules" "$sandbox/sql-fence.modules" \
     "$sandbox/yaml.modules" "$sandbox/dataset.modules" "$sandbox/generator.modules" \
     "$sandbox/async.modules" "$sandbox/actors.jdeps" "$sandbox/actors.modules" \
     "$sandbox/distributed.jdeps" "$sandbox/distributed.modules" \
@@ -257,6 +269,7 @@ artifact_hash=$(hash_file "$sandbox/a/app.jar")
 artifact_bytes=$(wc -c <"$sandbox/a/app.jar" | tr -d ' ')
 app_modules=$(tr -d '\r\n' <"$sandbox/app.modules")
 sql_modules=$(tr -d '\r\n' <"$sandbox/sql.modules")
+sql_fence_modules=$(tr -d '\r\n' <"$sandbox/sql-fence.modules")
 yaml_modules=$(tr -d '\r\n' <"$sandbox/yaml.modules")
 dataset_modules=$(tr -d '\r\n' <"$sandbox/dataset.modules")
 generator_modules=$(tr -d '\r\n' <"$sandbox/generator.modules")
@@ -278,6 +291,7 @@ report_tmp="$sandbox/release.tsv"
   printf 'artifact.source-path-independent\ttrue\n'
   printf 'app.modules\t%s\n' "$app_modules"
   printf 'sql.modules\t%s\n' "$sql_modules"
+  printf 'sql-fence.modules\t%s\n' "$sql_fence_modules"
   printf 'yaml.modules\t%s\n' "$yaml_modules"
   printf 'dataset.modules\t%s\n' "$dataset_modules"
   printf 'generator.modules\t%s\n' "$generator_modules"
@@ -295,6 +309,7 @@ report_tmp="$sandbox/release.tsv"
   printf 'hello.output\tHello, World!\n'
   printf 'import.output\t42\n'
   printf 'sql.output\t1/7/Ada/true\n'
+  printf 'sql-fence.output\tactive-users/headcount/exact\n'
   printf 'yaml.output\tType/Host/Port/Debug/Tags/Round-trip/App\n'
   printf 'dataset.output\tlocal/parallel/exact\n'
   printf 'generator.output\tpull/combinators/cancellation/exact\n'

@@ -105,9 +105,24 @@ final class SqlNativePlugin extends NativePlugin:
         case SqlResult.UpdateCount(count) => Value.IntV(count.toLong)
         case SqlResult.Rows(_) => throw new RuntimeException("Db.execute expected update count, got rows")
 
+    val sql: List[Value] => Value = args =>
+      val dbName = text(args, 0, "Db.sql")
+      val source = text(args, 1, "Db.sql")
+      val binds = args.lift(2).map(unlist(_, "Db.sql")).getOrElse(
+        throw new RuntimeException("Db.sql expects (dbName, sql, params)"))
+      SqlRuntime.execute(registry.connect(dbName), source, binds.map(unwrap)) match
+        case SqlResult.Rows(rows) => list(rows.map(result => row(result.columns, result.values)))
+        case SqlResult.UpdateCount(count) => Value.IntV(count.toLong)
+
     native(context, "DriverManager.getConnection")(getConnection)
     native(context, "Db.query")(query)
     native(context, "Db.execute")(execute)
+    native(context, "Db.sql")(sql)
+    context.registerGlobal("sqlSection", 1) {
+      case result :: Nil => Value.DataV("SqlSection", Vector(result))
+      case _ => throw new RuntimeException("sqlSection expects one result")
+    }
+    context.registerFields("SqlSection", Vector("sql"))
 
     val driverMethods = Map("getConnection" -> closure(-1)(getConnection))
     context.registerValue("DriverManager", Value.ForeignV(new Value.NamedMethodObj:
@@ -116,7 +131,8 @@ final class SqlNativePlugin extends NativePlugin:
 
     val dbMethods = Map(
       "query" -> closure(3)(query),
-      "execute" -> closure(3)(execute))
+      "execute" -> closure(3)(execute),
+      "sql" -> closure(3)(sql))
     context.registerValue("Db", Value.ForeignV(new Value.NamedMethodObj:
       def underlying: AnyRef = dbMethods
       def getField(name: String): Option[Value] = dbMethods.get(name)))

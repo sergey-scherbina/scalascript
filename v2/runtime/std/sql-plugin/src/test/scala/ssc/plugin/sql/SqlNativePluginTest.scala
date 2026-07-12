@@ -50,3 +50,19 @@ class SqlNativePluginTest extends AnyFunSuite:
     }
 
     assert(error.getMessage.contains("no JDBC connection named `missing`"))
+
+  test("raw SQL fences preserve row/update results and structural section access"):
+    install("native-sql-fence")
+
+    assert(call("Db.sql", Value.StrV("default"),
+      Value.StrV("CREATE TABLE notes (id INT PRIMARY KEY, text VARCHAR(80))"), list()) ==
+      Value.IntV(0))
+    assert(call("Db.sql", Value.StrV("default"),
+      Value.StrV("INSERT INTO notes VALUES (?, ?)"),
+      list(Value.IntV(1), Value.StrV("bound"))) == Value.IntV(1))
+    val rows = call("Db.sql", Value.StrV("default"),
+      Value.StrV("SELECT text FROM notes WHERE id = ?"), list(Value.IntV(1)))
+    val Value.DataV("Cons", Seq(Value.ForeignV(rawRow: collection.Map[?, ?]), _)) = rows: @unchecked
+    assert(rawRow.asInstanceOf[collection.Map[Value, Value]](Value.StrV("TEXT")) ==
+      Value.StrV("bound"))
+    assert(V2PluginRegistry.lookupFieldNames("SqlSection", 1).contains(Vector("sql")))

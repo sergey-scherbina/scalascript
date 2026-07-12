@@ -1,0 +1,48 @@
+#!/usr/bin/env ssc
+---
+name: native-sql-fence-provider
+databases:
+  reports:
+    url: "jdbc:h2:mem:v21-native-sql-fence;DB_CLOSE_DELAY=-1"
+---
+
+# Schema
+
+```sql @db=reports
+CREATE TABLE people (id INT PRIMARY KEY, name VARCHAR(80), active BOOLEAN)
+```
+
+# Seed
+
+```scalascript
+val personId = 7
+val personName = "Ada"
+val active = true
+```
+
+```sql @db=reports
+INSERT INTO people VALUES (${personId}, ${personName}, ${active})
+```
+
+```sql @db=reports
+INSERT INTO people VALUES (8, 'Bob', false)
+```
+
+# Read
+
+```sql @db=reports
+SELECT name, '$$' AS marker FROM people WHERE id = ${personId}
+```
+
+```sql @db=reports
+UPDATE people SET name = 'Changed' WHERE id = 7
+```
+
+```scalascript
+println(_sqlBlock_0)
+println(_sqlBlock_1)
+println(_sqlBlock_2)
+println(Read.sql(0)("NAME"))
+println(Read.sql(0)("MARKER"))
+println(_sqlBlock_4)
+```
