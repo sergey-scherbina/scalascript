@@ -2932,7 +2932,12 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     source-order delivery, timeout, self-send,
                                     killed actors, quiescence, child failures,
                                     typed refs, publish/whereis, and missing
-                                    behaviors.
+                                    behaviors. Real installed validation also
+                                    exposed a strict ownership collision between
+                                    OS `exit(code)` and actor `exit(pid, reason)`;
+                                    resolve it by explicit native dispatch or
+                                    lowering, never by compatibility fallback or
+                                    weakening provider ownership checks.
                               - [ ] **TI-8.2d3j3 assembled contract:** pin a
                                     focused real-launcher fixture and exact full
                                     outputs for both public actor examples on

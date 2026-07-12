@@ -10,6 +10,12 @@ continuing TI-8.2d3.
   `examples/actors-typed-remote-spawn.ssc`.
 - **Observed:** all four runs exit 1 at the first block with
   `ssc: unbound global: runActors`; no stdout.
+- **Second boundary after provider install:** ServiceLoader rejects the complete
+  standard provider set before evaluation with
+  `native plugin ownership conflict for global 'exit': 20-os and 60-actors`.
+  Actor `exit(pid, reason)` and process `exit(code)` therefore need one explicit
+  arity/shape dispatch owner or a lowering-owned namespace; disabling ownership
+  checks or falling back to compatibility code is not acceptable.
 - **Expected:** a required core-free Actors provider owns local virtual-thread
   mailboxes, timeout receive, send/self/exit, quiescent runner shutdown, and the
   typed named-behavior loopback surface. Canonical outputs match the explicit
