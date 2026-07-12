@@ -1,0 +1,35 @@
+100
+512:512:2:4:true
+Right(512)
+Left(header.magic)
+512:480:2:4:true
+Left(header.reservedBytes)
+List(512, 1024, 2048, 4096, 8192, 16384, 32768, 65536)
+true
+Left(header.readVersion)
+table-leaf:1:List(501)
+List(4, 1, 17, 16, 254, 72, 105, 0, 255)
+4:5:List(i:-2, t:List(72, 105):true, b:List(0, 255))
+ti:2:5
+tl:1:List(4, 1, 17, 16, 254, 72, 105, 0, 255)
+il:List(2, 1, 7)
+ii:2:List(2, 1, 7)
+Left(page.kind)
+Left(cell)
+2:8:List(r:1.5)
+Left(record.serialType)
+Left(record.serialType)
+List(65, 8364):true
+List(65533, 65):false
+List(65533, 65533, 65):false
+List(65533):false
+List(128512):true
+List(65533):false
+Right(477)
+Right(39)
+Right(39)
+0:List(1, 2, 3, 4, 5, 6, 7, 8, 9, 10):0
+true
+Left(overflow.next)
+509:List(2, 3):Right(7)
+Left(overflow.page)

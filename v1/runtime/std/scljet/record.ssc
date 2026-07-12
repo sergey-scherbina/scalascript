@@ -1,0 +1,213 @@
+---
+name: scljet-record
+version: 0.3.0
+description: Pure SQLite record serial-type and UTF byte decoder
+package: scljet
+exports:
+  - DecodedText
+  - RecordField
+  - DecodedRecord
+  - decodeText
+  - decodeRecord
+---
+
+# SclJet record format
+
+[ByteSlice, ByteRead, VarintRead, byteSliceGet, byteSliceSlice, readI16Be, readI24Be, readI32Be, readI48Be, readI64Be, readU64Be, decodeVarint](bytes.ssc)
+[SqliteValue, SqlNull, SqlInteger, SqlReal, SqlBlob, SqliteLimits, SqliteCorrupt, SqliteTooBig](values.ssc)
+[SqliteTextEncoding, EncodingUnknown, EncodingUtf8, EncodingUtf16Le, EncodingUtf16Be, DecodeFailure, decodeFailure](header.ssc)
+
+```scalascript
+case class DecodedText(encoded: ByteSlice, encoding: SqliteTextEncoding, codePoints: List[Int], wellFormed: Boolean)
+case class RecordField(serialType: Long, encoded: ByteSlice, value: Option[SqliteValue], text: Option[DecodedText])
+case class DecodedRecord(headerBytes: Int, bodyBytes: Int, fields: List[RecordField])
+
+case class TextStep(codePoint: Int, nextOffset: Int, wellFormed: Boolean)
+case class SerialInfo(serialType: Long, bodyBytes: Int, kind: Int)
+case class SerialHeader(headerBytes: Int, bodyBytes: Int, serials: List[SerialInfo])
+
+def recordError(message: String, offset: Int, field: String): DecodeFailure =
+  decodeFailure(SqliteCorrupt, message, offset.toLong, None, field)
+
+def recordLimit(message: String, offset: Int, field: String): DecodeFailure =
+  decodeFailure(SqliteTooBig, message, offset.toLong, None, field)
+
+def recordByte(bytes: ByteSlice, offset: Int): Int = byteSliceGet(bytes, offset) match
+  case Right(value) => value
+  case Left(_) => -1
+
+def continuation(value: Int): Boolean = value >= 128 && value <= 191
+
+def utf8Step(bytes: ByteSlice, offset: Int): TextStep =
+  val a = recordByte(bytes, offset)
+  if a < 128 then TextStep(a, offset + 1, true)
+  else if a >= 194 && a <= 223 then
+    val b = recordByte(bytes, offset + 1)
+    if continuation(b) then TextStep((a - 192) * 64 + (b - 128), offset + 2, true)
+    else TextStep(65533, offset + 1, false)
+  else if a >= 224 && a <= 239 then
+    val b = recordByte(bytes, offset + 1)
+    val c = recordByte(bytes, offset + 2)
+    val secondOk = continuation(b) && (a != 224 || b >= 160) && (a != 237 || b <= 159)
+    if !secondOk then TextStep(65533, offset + 1, false)
+    else if !continuation(c) then TextStep(65533, offset + 2, false)
+    else
+      TextStep((a - 224) * 4096 + (b - 128) * 64 + (c - 128), offset + 3, true)
+  else if a >= 240 && a <= 244 then
+    val b = recordByte(bytes, offset + 1)
+    val c = recordByte(bytes, offset + 2)
+    val d = recordByte(bytes, offset + 3)
+    val secondOk = continuation(b) && (a != 240 || b >= 144) && (a != 244 || b <= 143)
+    if !secondOk then TextStep(65533, offset + 1, false)
+    else if !continuation(c) then TextStep(65533, offset + 2, false)
+    else if !continuation(d) then TextStep(65533, offset + 3, false)
+    else
+      TextStep((a - 240) * 262144 + (b - 128) * 4096 + (c - 128) * 64 + (d - 128), offset + 4, true)
+  else TextStep(65533, offset + 1, false)
+
+def decodeUtf8Loop(bytes: ByteSlice, offset: Int, reversed: List[Int], wellFormed: Boolean): DecodedText =
+  if offset >= bytes.length then DecodedText(bytes, EncodingUtf8, reversed.reverse, wellFormed)
+  else
+    val step = utf8Step(bytes, offset)
+    decodeUtf8Loop(bytes, step.nextOffset, step.codePoint :: reversed, wellFormed && step.wellFormed)
+
+def utf16Unit(bytes: ByteSlice, offset: Int, little: Boolean): Int =
+  val a = recordByte(bytes, offset)
+  val b = recordByte(bytes, offset + 1)
+  if a < 0 || b < 0 then -1
+  else if little then a + b * 256 else a * 256 + b
+
+def highSurrogate(value: Int): Boolean = value >= 55296 && value <= 56319
+def lowSurrogate(value: Int): Boolean = value >= 56320 && value <= 57343
+
+def utf16Step(bytes: ByteSlice, offset: Int, little: Boolean): TextStep =
+  val first = utf16Unit(bytes, offset, little)
+  if first < 0 then TextStep(65533, bytes.length, false)
+  else if highSurrogate(first) then
+    val second = utf16Unit(bytes, offset + 2, little)
+    if lowSurrogate(second) then
+      TextStep(65536 + (first - 55296) * 1024 + (second - 56320), offset + 4, true)
+    else TextStep(65533, offset + 2, false)
+  else if lowSurrogate(first) then TextStep(65533, offset + 2, false)
+  else TextStep(first, offset + 2, true)
+
+def decodeUtf16Loop(bytes: ByteSlice, offset: Int, little: Boolean, encoding: SqliteTextEncoding, reversed: List[Int], wellFormed: Boolean): DecodedText =
+  if offset >= bytes.length then DecodedText(bytes, encoding, reversed.reverse, wellFormed)
+  else
+    val step = utf16Step(bytes, offset, little)
+    decodeUtf16Loop(bytes, step.nextOffset, little, encoding, step.codePoint :: reversed, wellFormed && step.wellFormed)
+
+def decodeText(bytes: ByteSlice, encoding: SqliteTextEncoding): Either[DecodeFailure, DecodedText] = encoding match
+  case EncodingUnknown => Left(recordError("text cannot be decoded before the database encoding is fixed", 0, "record.textEncoding"))
+  case EncodingUtf8 => Right(decodeUtf8Loop(bytes, 0, Nil, true))
+  case EncodingUtf16Le => Right(decodeUtf16Loop(bytes, 0, true, EncodingUtf16Le, Nil, true))
+  case EncodingUtf16Be => Right(decodeUtf16Loop(bytes, 0, false, EncodingUtf16Be, Nil, true))
+
+def serialInfo(serialType: Long, schemaFormat: Int, limits: SqliteLimits, offset: Int): Either[DecodeFailure, SerialInfo] =
+  if serialType < 0L then Left(recordError("serial type must be non-negative", offset, "record.serialType"))
+  else if serialType == 0L then Right(SerialInfo(serialType, 0, 0))
+  else if serialType == 1L then Right(SerialInfo(serialType, 1, 1))
+  else if serialType == 2L then Right(SerialInfo(serialType, 2, 1))
+  else if serialType == 3L then Right(SerialInfo(serialType, 3, 1))
+  else if serialType == 4L then Right(SerialInfo(serialType, 4, 1))
+  else if serialType == 5L then Right(SerialInfo(serialType, 6, 1))
+  else if serialType == 6L then Right(SerialInfo(serialType, 8, 1))
+  else if serialType == 7L then Right(SerialInfo(serialType, 8, 2))
+  else if serialType == 8L || serialType == 9L then
+    if schemaFormat >= 4 then Right(SerialInfo(serialType, 0, if serialType == 8L then 5 else 6))
+    else Left(recordError("boolean serial types require schema format 4", offset, "record.serialType"))
+  else if serialType == 10L || serialType == 11L then
+    Left(recordError("serial types 10 and 11 are invalid in a persistent database", offset, "record.serialType"))
+  else
+    val body = if serialType % 2L == 0L then (serialType - 12L) / 2L else (serialType - 13L) / 2L
+    if body > 2147483647L || body > limits.valueBytes then Left(recordLimit("serial value exceeds configured valueBytes", offset, "record.serialType"))
+    else Right(SerialInfo(serialType, body.toInt, if serialType % 2L == 0L then 3 else 4))
+
+def decodeSerialHeaderLoop(payload: ByteSlice, headerEnd: Int, offset: Int, schemaFormat: Int, limits: SqliteLimits, reversed: List[SerialInfo], bodyBytes: Long): Either[DecodeFailure, SerialHeader] =
+  if offset == headerEnd then
+    if bodyBytes > 2147483647L then Left(recordLimit("record body exceeds addressable bytes", offset, "record.body"))
+    else Right(SerialHeader(headerEnd, bodyBytes.toInt, reversed.reverse))
+  else if offset > headerEnd then Left(recordError("serial varint crosses the record header", offset, "record.headerBytes"))
+  else if reversed.length >= limits.columns then Left(recordLimit("record has too many columns", offset, "record.columns"))
+  else decodeVarint(payload, offset) match
+    case Left(_) => Left(recordError("serial type varint is truncated", offset, "record.serialType"))
+    case Right(read) =>
+      if read.nextOffset > headerEnd then Left(recordError("serial type varint crosses the record header", offset, "record.serialType"))
+      else serialInfo(read.value, schemaFormat, limits, offset) match
+        case Left(error) => Left(error)
+        case Right(info) => decodeSerialHeaderLoop(payload, headerEnd, read.nextOffset, schemaFormat, limits, info :: reversed, bodyBytes + info.bodyBytes.toLong)
+
+def decodeSerialHeader(payload: ByteSlice, schemaFormat: Int, limits: SqliteLimits): Either[DecodeFailure, SerialHeader] =
+  decodeVarint(payload, 0) match
+    case Left(_) => Left(recordError("record header-length varint is truncated", 0, "record.headerBytes"))
+    case Right(read) =>
+      if read.value < read.length.toLong || read.value > payload.length.toLong || read.value > 2147483647L then
+        Left(recordError("record header length is outside the payload", 0, "record.headerBytes"))
+      else decodeSerialHeaderLoop(payload, read.value.toInt, read.nextOffset, schemaFormat, limits, Nil, 0L)
+
+def signedByte(value: Int): Long = if value >= 128 then (value - 256).toLong else value.toLong
+
+def fixedInteger(bytes: ByteSlice, width: Int): Either[DecodeFailure, Long] =
+  val result = width match
+    case 2 => readI16Be(bytes, 0)
+    case 3 => readI24Be(bytes, 0)
+    case 4 => readI32Be(bytes, 0)
+    case 6 => readI48Be(bytes, 0)
+    case _ => readI64Be(bytes, 0)
+  result match
+    case Right(ByteRead(value, _)) => Right(value)
+    case _ => Left(recordError("integer body is truncated", 0, "record.body"))
+
+def ieeeBinary64(bytes: ByteSlice): Either[DecodeFailure, Double] = readU64Be(bytes, 0) match
+  case Left(_) => Left(recordError("binary64 body is truncated", 0, "record.body"))
+  case Right(ByteRead(bits, _)) =>
+    val negative = (bits >>> 63) != 0L
+    val exponent = ((bits >>> 52) & 2047L).toInt
+    val fraction = bits & 4503599627370495L
+    val sign = if negative then -1.0 else 1.0
+    if exponent == 2047 then
+      if fraction == 0L then Right(sign * (1.0 / 0.0)) else Right(0.0 / 0.0)
+    else if exponent == 0 then Right(scalePowerOfTwo(sign * fraction.toDouble, -1074))
+    else Right(scalePowerOfTwo(sign * (4503599627370496L + fraction).toDouble, exponent - 1075))
+
+def scalePowerOfTwo(value: Double, exponent: Int): Double =
+  if exponent == 0 then value
+  else if exponent > 0 then scalePowerOfTwo(value * 2.0, exponent - 1)
+  else scalePowerOfTwo(value / 2.0, exponent + 1)
+
+def decodeField(info: SerialInfo, body: ByteSlice, encoding: SqliteTextEncoding): Either[DecodeFailure, RecordField] =
+  if info.kind == 0 then Right(RecordField(info.serialType, body, Some(SqlNull), None))
+  else if info.kind == 5 then Right(RecordField(info.serialType, body, Some(SqlInteger(0L)), None))
+  else if info.kind == 6 then Right(RecordField(info.serialType, body, Some(SqlInteger(1L)), None))
+  else if info.kind == 3 then Right(RecordField(info.serialType, body, Some(SqlBlob(body)), None))
+  else if info.kind == 4 then decodeText(body, encoding) match
+    case Left(error) => Left(error)
+    case Right(text) => Right(RecordField(info.serialType, body, None, Some(text)))
+  else if info.kind == 2 then ieeeBinary64(body) match
+    case Left(error) => Left(error)
+    case Right(value) => Right(RecordField(info.serialType, body, Some(SqlReal(value)), None))
+  else if info.bodyBytes == 1 then Right(RecordField(info.serialType, body, Some(SqlInteger(signedByte(recordByte(body, 0)))), None))
+  else fixedInteger(body, info.bodyBytes) match
+    case Left(error) => Left(error)
+    case Right(value) => Right(RecordField(info.serialType, body, Some(SqlInteger(value)), None))
+
+def decodeFields(payload: ByteSlice, infos: List[SerialInfo], bodyOffset: Int, encoding: SqliteTextEncoding, reversed: List[RecordField]): Either[DecodeFailure, List[RecordField]] = infos match
+  case Nil => Right(reversed.reverse)
+  case Cons(info, tail) => byteSliceSlice(payload, bodyOffset, info.bodyBytes) match
+    case Left(_) => Left(recordError("record body is truncated", bodyOffset, "record.body"))
+    case Right(body) => decodeField(info, body, encoding) match
+      case Left(error) => Left(error)
+      case Right(field) => decodeFields(payload, tail, bodyOffset + info.bodyBytes, encoding, field :: reversed)
+
+def decodeRecord(payload: ByteSlice, encoding: SqliteTextEncoding, schemaFormat: Int, limits: SqliteLimits): Either[DecodeFailure, DecodedRecord] =
+  if payload.length.toLong > limits.valueBytes then Left(recordLimit("record exceeds configured valueBytes", 0, "record"))
+  else if payload.length.toLong > limits.workBytes then Left(recordLimit("record exceeds configured workBytes", 0, "record"))
+  else decodeSerialHeader(payload, schemaFormat, limits) match
+    case Left(error) => Left(error)
+    case Right(header) =>
+      if header.headerBytes + header.bodyBytes != payload.length then
+        Left(recordError("record body length does not match serial types", header.headerBytes, "record.body"))
+      else decodeFields(payload, header.serials, header.headerBytes, encoding, Nil) match
+        case Left(error) => Left(error)
+        case Right(fields) => Right(DecodedRecord(header.headerBytes, header.bodyBytes, fields))
+```

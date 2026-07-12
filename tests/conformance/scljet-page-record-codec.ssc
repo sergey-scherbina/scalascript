@@ -1,0 +1,179 @@
+#!/usr/bin/env ssc
+---
+name: scljet-page-record-codec
+description: SclJet M2 official SQLite header/cell record, page, overflow, and UTF goldens
+backends: [int]
+---
+
+# SclJet M2 page and record codecs
+
+[ByteSlice, byteSliceToList, byteSliceGet, byteSliceUpdated, SqliteLimits, SqlInteger, SqlReal, SqlBlob, DatabaseHeader, DecodeFailure, EncodingUtf8, EncodingUtf16Le, PageContext, BtreePageKind, IndexLeafPage, TableLeafPage, TableInteriorCell, TableLeafCell, IndexInteriorCell, IndexLeafCell, OverflowChunk, OverflowInput, OverflowPayload, DecodedText, RecordField, DecodedRecord, decodeDatabaseHeader, databasePageOffset, localPayloadBytes, decodeBtreePage, decodeOverflowPage, decodeOverflowChain, decodeText, decodeRecord](std/scljet/index.ssc)
+
+```scalascript
+def mustBytes(values: List[Int]): ByteSlice = ByteSlice.fromList(values) match
+  case Right(bytes) => bytes
+  case Left(_) => ByteSlice.empty
+
+def putAt(bytes: ByteSlice, offset: Int, values: List[Int]): ByteSlice = values match
+  case Nil => bytes
+  case Cons(value, tail) => byteSliceUpdated(bytes, offset, value) match
+    case Right(next) => putAt(next, offset + 1, tail)
+    case Left(_) => bytes
+
+def zeroBytes(length: Int): ByteSlice = ByteSlice.zeros(length) match
+  case Right(bytes) => bytes
+  case Left(_) => ByteSlice.empty
+
+def limits(): SqliteLimits = SqliteLimits(
+  1000000L, 100, 100, 100, 100, 10, 1000000L, 100, 100,
+  1000L, 1000000L, 16, 1000L, 100, 1000000L
+)
+
+// SQLite 3.53.3, page_size=512, CREATE TABLE t(a,b,c),
+// INSERT INTO t VALUES(-2,'Hi',x'00ff').
+val oracleHeader = mustBytes(List(
+  83,81,76,105,116,101,32,102,111,114,109,97,116,32,51,0,
+  2,0,1,1,0,64,32,32,0,0,0,2,0,0,0,2,0,0,0,0,0,0,0,0,
+  0,0,0,1,0,0,0,4,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,
+  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+  0,0,0,0,0,0,0,2,0,46,149,203
+))
+
+println(oracleHeader.length)
+
+def headerLine(result: Either[DecodeFailure, DatabaseHeader]): String = result match
+  case Right(header) => header.pageSize.toString + ":" + header.usableSize.toString + ":" +
+    header.headerPageCount.toString + ":" + header.schemaFormat.toString + ":" +
+    header.headerPageCountTrusted.toString
+  case Left(error) => "error:" + error.location.field
+
+def errorField(result: Any): String = result match
+  case Left(DecodeFailure(_, _, location)) => "Left(" + location.field + ")"
+  case Right(_) => "Right"
+  case _ => "Unknown"
+
+println(headerLine(decodeDatabaseHeader(oracleHeader)))
+println(databasePageOffset(2L, 512))
+println(errorField(decodeDatabaseHeader(putAt(oracleHeader, 0, List(0)))))
+println(headerLine(decodeDatabaseHeader(putAt(oracleHeader, 20, List(32)))))
+println(errorField(decodeDatabaseHeader(putAt(oracleHeader, 20, List(33)))))
+
+def pageSizeBytes(size: Int): List[Int] =
+  if size == 65536 then List(0,1) else List((size / 256) % 256, size % 256)
+
+def headerSizes(sizes: List[Int], reversed: List[Int]): List[Int] = sizes match
+  case Nil => reversed.reverse
+  case Cons(size, tail) => decodeDatabaseHeader(putAt(oracleHeader, 16, pageSizeBytes(size))) match
+    case Right(header) => headerSizes(tail, header.pageSize :: reversed)
+    case Left(_) => headerSizes(tail, -1 :: reversed)
+
+println(headerSizes(List(512,1024,2048,4096,8192,16384,32768,65536), Nil))
+println(decodeDatabaseHeader(putAt(oracleHeader, 18, List(3))).isRight)
+println(errorField(decodeDatabaseHeader(putAt(oracleHeader, 19, List(3)))))
+
+val oraclePage0 = zeroBytes(512)
+val oraclePage1 = putAt(oraclePage0, 0, List(13,0,0,0,1,1,245,0,1,245))
+val oraclePage = putAt(oraclePage1, 501, List(9,1,4,1,17,16,254,72,105,0,255))
+val context = PageContext(512, 512, 2L, limits())
+
+def kindName(kind: BtreePageKind): String = kind match
+  case TableLeafPage => "table-leaf"
+  case _ => "other"
+
+def pageLine(result: Any): String = result match
+  case Right(page) => kindName(page.header.kind) + ":" + page.header.cellCount.toString + ":" + page.cellPointers.toString
+  case Left(error) => "error"
+  case _ => "unknown"
+
+def pagePayload(result: Any): ByteSlice = result match
+  case Right(page) => page.cells.head match
+    case TableLeafCell(_, payload) => payload.localBytes
+    case _ => ByteSlice.empty
+  case _ => ByteSlice.empty
+
+val decodedPage = decodeBtreePage(context, 2L, oraclePage)
+println(pageLine(decodedPage))
+val payload = pagePayload(decodedPage)
+println(byteSliceToList(payload))
+
+def fieldSummary(field: RecordField): String = field match
+  case RecordField(_, _, Some(SqlInteger(value)), _) => "i:" + value.toString
+  case RecordField(_, _, Some(SqlReal(value)), _) => "r:" + value.toString
+  case RecordField(_, _, Some(SqlBlob(value)), _) => "b:" + byteSliceToList(value).toString
+  case RecordField(_, _, None, Some(text)) => "t:" + text.codePoints.toString + ":" + text.wellFormed.toString
+  case _ => "other"
+
+def fieldLines(fields: List[RecordField], reversed: List[String]): List[String] = fields match
+  case Nil => reversed.reverse
+  case Cons(field, tail) => fieldLines(tail, fieldSummary(field) :: reversed)
+
+def recordLine(result: Any): String = result match
+  case Right(record) => record.headerBytes.toString + ":" + record.bodyBytes.toString + ":" + fieldLines(record.fields, Nil).toString
+  case Left(error) => "error"
+  case _ => "unknown"
+
+println(recordLine(decodeRecord(payload, EncodingUtf8, 4, limits())))
+
+val tableInterior0 = putAt(zeroBytes(512), 0, List(5,0,0,0,1,1,251,0,0,0,0,3,1,251))
+val tableInterior = putAt(tableInterior0, 507, List(0,0,0,2,5))
+val indexLeaf0 = putAt(zeroBytes(512), 0, List(10,0,0,0,1,1,252,0,1,252))
+val indexLeaf = putAt(indexLeaf0, 508, List(3,2,1,7))
+val indexInterior0 = putAt(zeroBytes(512), 0, List(2,0,0,0,1,1,248,0,0,0,0,3,1,248))
+val indexInterior = putAt(indexInterior0, 504, List(0,0,0,2,3,2,1,7))
+
+def cellLine(result: Any): String = result match
+  case Right(page) => page.cells.head match
+    case TableInteriorCell(child, rowid) => "ti:" + child.toString + ":" + rowid.toString
+    case TableLeafCell(rowid, cellPayload) => "tl:" + rowid.toString + ":" + byteSliceToList(cellPayload.localBytes).toString
+    case IndexLeafCell(cellPayload) => "il:" + byteSliceToList(cellPayload.localBytes).toString
+    case IndexInteriorCell(child, cellPayload) => "ii:" + child.toString + ":" + byteSliceToList(cellPayload.localBytes).toString
+  case _ => "error"
+
+val largerContext = PageContext(512, 512, 10L, limits())
+println(cellLine(decodeBtreePage(largerContext, 4L, tableInterior)))
+println(cellLine(decodedPage))
+println(cellLine(decodeBtreePage(largerContext, 5L, indexLeaf)))
+println(cellLine(decodeBtreePage(largerContext, 6L, indexInterior)))
+println(errorField(decodeBtreePage(context, 2L, putAt(oraclePage, 0, List(1)))))
+val duplicateCells = putAt(oraclePage, 3, List(0,2,1,245,0,1,245,1,245))
+println(errorField(decodeBtreePage(context, 2L, duplicateCells)))
+
+println(recordLine(decodeRecord(mustBytes(List(2,7,63,248,0,0,0,0,0,0)), EncodingUtf8, 4, limits())))
+println(errorField(decodeRecord(mustBytes(List(2,8)), EncodingUtf8, 1, limits())))
+println(errorField(decodeRecord(mustBytes(List(2,10)), EncodingUtf8, 4, limits())))
+
+def textLine(result: Either[DecodeFailure, DecodedText]): String = result match
+  case Right(text) => text.codePoints.toString + ":" + text.wellFormed.toString
+  case Left(error) => "error:" + error.location.field
+
+println(textLine(decodeText(mustBytes(List(65,226,130,172)), EncodingUtf8)))
+println(textLine(decodeText(mustBytes(List(128,65)), EncodingUtf8)))
+println(textLine(decodeText(mustBytes(List(192,128,65)), EncodingUtf8)))
+println(textLine(decodeText(mustBytes(List(226,130)), EncodingUtf8)))
+println(textLine(decodeText(mustBytes(List(61,216,0,222)), EncodingUtf16Le)))
+println(textLine(decodeText(mustBytes(List(65)), EncodingUtf16Le)))
+
+println(localPayloadBytes(TableLeafPage, 512, 477L))
+println(localPayloadBytes(TableLeafPage, 512, 478L))
+println(localPayloadBytes(IndexLeafPage, 512, 103L))
+
+val overflow = putAt(zeroBytes(512), 4, List(1,2,3,4,5,6,7,8,9,10))
+def overflowLine(result: Any): String = result match
+  case Right(chunk) => chunk.nextPage.toString + ":" + byteSliceToList(chunk.bytes).toString + ":" + chunk.remainingAfter.toString
+  case Left(error) => "error"
+  case _ => "unknown"
+
+println(overflowLine(decodeOverflowPage(context, 2L, overflow, 10L)))
+println(decodeOverflowPage(context, 2L, putAt(overflow, 0, List(0,0,0,1)), 10L).isLeft)
+println(errorField(decodeOverflowPage(context, 2L, overflow, 509L)))
+
+val chainFirst = putAt(zeroBytes(512), 0, List(0,0,0,3))
+val chainLast = putAt(zeroBytes(512), 4, List(7))
+def chainLine(result: Any): String = result match
+  case Right(value) => value.bytes.length.toString + ":" + value.pages.toString + ":" + byteSliceGet(value.bytes, 508).toString
+  case _ => "error"
+
+println(chainLine(decodeOverflowChain(largerContext, 2L, List(OverflowInput(2L, chainFirst), OverflowInput(3L, chainLast)), 509L)))
+val cyclePage = putAt(zeroBytes(512), 0, List(0,0,0,2))
+println(errorField(decodeOverflowChain(largerContext, 2L, List(OverflowInput(2L, cyclePage), OverflowInput(2L, cyclePage)), 509L)))
+```

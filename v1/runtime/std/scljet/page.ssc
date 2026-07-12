@@ -1,0 +1,368 @@
+---
+name: scljet-page
+version: 0.3.0
+description: Pure SQLite B-tree page, cell, local-payload, and overflow codecs
+package: scljet
+exports:
+  - BtreePageKind
+  - IndexInteriorPage
+  - TableInteriorPage
+  - IndexLeafPage
+  - TableLeafPage
+  - PageContext
+  - BtreePageHeader
+  - CellPayload
+  - BtreeCell
+  - TableInteriorCell
+  - TableLeafCell
+  - IndexInteriorCell
+  - IndexLeafCell
+  - BtreePage
+  - OverflowChunk
+  - OverflowInput
+  - OverflowPayload
+  - localPayloadBytes
+  - decodeBtreePage
+  - decodeOverflowPage
+  - decodeOverflowChain
+---
+
+# SclJet B-tree pages
+
+[ByteSlice, ByteRead, VarintRead, byteSliceGet, byteSliceSlice, byteSliceConcat, readU16Be, readU32Be, decodeVarint](bytes.ssc)
+[SqliteLimits, SqliteCorrupt, SqliteTooBig](values.ssc)
+[DecodeLocation, DecodeFailure, decodeFailure](header.ssc)
+
+```scalascript
+sealed trait BtreePageKind
+case object IndexInteriorPage extends BtreePageKind
+case object TableInteriorPage extends BtreePageKind
+case object IndexLeafPage extends BtreePageKind
+case object TableLeafPage extends BtreePageKind
+
+case class PageContext(pageSize: Int, usableSize: Int, logicalPageCount: Long, limits: SqliteLimits)
+
+case class BtreePageHeader(
+  kind: BtreePageKind,
+  headerOffset: Int,
+  headerBytes: Int,
+  firstFreeblock: Int,
+  cellCount: Int,
+  cellContentStart: Int,
+  fragmentedBytes: Int,
+  rightMostChild: Option[Long]
+)
+
+case class CellPayload(totalBytes: Long, localBytes: ByteSlice, firstOverflowPage: Option[Long])
+
+sealed trait BtreeCell
+case class TableInteriorCell(leftChild: Long, rowid: Long) extends BtreeCell
+case class TableLeafCell(rowid: Long, payload: CellPayload) extends BtreeCell
+case class IndexInteriorCell(leftChild: Long, payload: CellPayload) extends BtreeCell
+case class IndexLeafCell(payload: CellPayload) extends BtreeCell
+
+case class BtreePage(pageNumber: Long, header: BtreePageHeader, cellPointers: List[Int], cells: List[BtreeCell])
+case class OverflowChunk(pageNumber: Long, nextPage: Long, bytes: ByteSlice, remainingAfter: Long)
+case class OverflowInput(pageNumber: Long, bytes: ByteSlice)
+case class OverflowPayload(bytes: ByteSlice, pages: List[Long])
+
+case class CellRead(cell: BtreeCell, endOffset: Int)
+case class CellSpan(start: Int, end: Int)
+
+def pageError(message: String, page: Long, offset: Int, field: String): DecodeFailure =
+  decodeFailure(SqliteCorrupt, message, offset.toLong, Some(page), field)
+
+def pageLimit(message: String, page: Long, offset: Int, field: String): DecodeFailure =
+  decodeFailure(SqliteTooBig, message, offset.toLong, Some(page), field)
+
+def contextualizePageFailure(error: DecodeFailure, context: PageContext, page: Long): DecodeFailure =
+  val base = if page < 1L then 0L else (page - 1L) * context.pageSize.toLong
+  error match
+    case DecodeFailure(code, message, DecodeLocation(offset, _, field)) =>
+      decodeFailure(code, message, base + offset, Some(page), field)
+
+def contextualizePageResult(result: Either[DecodeFailure, BtreePage], context: PageContext, page: Long): Either[DecodeFailure, BtreePage] = result match
+  case Left(error) => Left(contextualizePageFailure(error, context, page))
+  case Right(value) => Right(value)
+
+def contextualizeOverflowResult(result: Either[DecodeFailure, OverflowChunk], context: PageContext, page: Long): Either[DecodeFailure, OverflowChunk] = result match
+  case Left(error) => Left(contextualizePageFailure(error, context, page))
+  case Right(value) => Right(value)
+
+def pageByte(bytes: ByteSlice, offset: Int, page: Long, field: String): Either[DecodeFailure, Int] =
+  byteSliceGet(bytes, offset) match
+    case Right(value) => Right(value)
+    case Left(_) => Left(pageError("page field is truncated", page, offset, field))
+
+def pageU16(bytes: ByteSlice, offset: Int, page: Long, field: String): Either[DecodeFailure, Int] =
+  readU16Be(bytes, offset) match
+    case Right(ByteRead(value, _)) => Right(value.toInt)
+    case _ => Left(pageError("page field is truncated", page, offset, field))
+
+def pageU32(bytes: ByteSlice, offset: Int, page: Long, field: String): Either[DecodeFailure, Long] =
+  readU32Be(bytes, offset) match
+    case Right(ByteRead(value, _)) => Right(value)
+    case _ => Left(pageError("page field is truncated", page, offset, field))
+
+def pageVarint(bytes: ByteSlice, offset: Int, page: Long, field: String): Either[DecodeFailure, VarintRead] =
+  decodeVarint(bytes, offset) match
+    case Right(read) => Right(read)
+    case Left(_) => Left(pageError("cell varint is truncated", page, offset, field))
+
+def pageKind(flag: Int, page: Long, offset: Int): Either[DecodeFailure, BtreePageKind] = flag match
+  case 2 => Right(IndexInteriorPage)
+  case 5 => Right(TableInteriorPage)
+  case 10 => Right(IndexLeafPage)
+  case 13 => Right(TableLeafPage)
+  case _ => Left(pageError("unknown B-tree page type", page, offset, "page.kind"))
+
+def isLeaf(kind: BtreePageKind): Boolean = kind match
+  case IndexLeafPage => true
+  case TableLeafPage => true
+  case _ => false
+
+def isTable(kind: BtreePageKind): Boolean = kind match
+  case TableInteriorPage => true
+  case TableLeafPage => true
+  case _ => false
+
+def localPayloadBytes(kind: BtreePageKind, usableSize: Int, payloadBytes: Long): Either[DecodeFailure, Int] =
+  if payloadBytes < 0L || payloadBytes > 2147483647L then
+    Left(decodeFailure(SqliteTooBig, "cell payload exceeds SQLite's format limit", 0L, None, "cell.payloadBytes"))
+  else kind match
+    case TableInteriorPage =>
+      if payloadBytes == 0L then Right(0)
+      else Left(decodeFailure(SqliteCorrupt, "table interior cells have no payload", 0L, None, "cell.payloadBytes"))
+    case _ =>
+      val p = payloadBytes
+      val u = usableSize.toLong
+      val m = ((u - 12L) * 32L / 255L) - 23L
+      val x = kind match
+        case TableLeafPage => u - 35L
+        case _ => ((u - 12L) * 64L / 255L) - 23L
+      if p <= x then Right(p.toInt)
+      else
+        val k = m + ((p - m) % (u - 4L))
+        if k <= x then Right(k.toInt) else Right(m.toInt)
+
+def validatePageNumber(context: PageContext, page: Long, field: String): Either[DecodeFailure, Unit] =
+  if page < 1L || page > context.logicalPageCount then
+    Left(pageError("page number is outside the logical database", page, 0, field))
+  else Right(())
+
+def validateChild(context: PageContext, page: Long, child: Long, offset: Int, field: String): Either[DecodeFailure, Long] =
+  if child < 1L || child > context.logicalPageCount then Left(pageError("child page is outside the logical database", page, offset, field))
+  else Right(child)
+
+def sliceCell(bytes: ByteSlice, offset: Int, length: Int, page: Long, field: String): Either[DecodeFailure, ByteSlice] =
+  byteSliceSlice(bytes, offset, length) match
+    case Right(value) => Right(value)
+    case Left(_) => Left(pageError("cell body is truncated", page, offset, field))
+
+def payloadAt(context: PageContext, page: Long, bytes: ByteSlice, kind: BtreePageKind, payloadSize: Long, offset: Int): Either[DecodeFailure, CellPayload] =
+  if payloadSize > context.limits.valueBytes then
+    Left(pageLimit("cell payload exceeds configured valueBytes", page, offset, "cell.payloadBytes"))
+  else localPayloadBytes(kind, context.usableSize, payloadSize) match
+    case Left(error) => Left(error)
+    case Right(local) =>
+      sliceCell(bytes, offset, local, page, "cell.localPayload") match
+        case Left(error) => Left(error)
+        case Right(localBytes) =>
+          if payloadSize == local.toLong then Right(CellPayload(payloadSize, localBytes, None))
+          else pageU32(bytes, offset + local, page, "cell.firstOverflowPage") match
+            case Left(error) => Left(error)
+            case Right(first) =>
+              if first < 1L || first > context.logicalPageCount then
+                Left(pageError("first overflow page is outside the logical database", page, offset + local, "cell.firstOverflowPage"))
+              else Right(CellPayload(payloadSize, localBytes, Some(first)))
+
+def decodeTableInterior(context: PageContext, page: Long, bytes: ByteSlice, offset: Int): Either[DecodeFailure, CellRead] =
+  pageU32(bytes, offset, page, "cell.leftChild") match
+    case Left(error) => Left(error)
+    case Right(child) => validateChild(context, page, child, offset, "cell.leftChild") match
+      case Left(error) => Left(error)
+      case Right(_) => pageVarint(bytes, offset + 4, page, "cell.rowid") match
+        case Left(error) => Left(error)
+        case Right(rowid) => Right(CellRead(TableInteriorCell(child, rowid.value), rowid.nextOffset))
+
+def decodeTableLeaf(context: PageContext, page: Long, bytes: ByteSlice, offset: Int): Either[DecodeFailure, CellRead] =
+  pageVarint(bytes, offset, page, "cell.payloadBytes") match
+    case Left(error) => Left(error)
+    case Right(sizeRead) => pageVarint(bytes, sizeRead.nextOffset, page, "cell.rowid") match
+      case Left(error) => Left(error)
+      case Right(rowid) => payloadAt(context, page, bytes, TableLeafPage, sizeRead.value, rowid.nextOffset) match
+        case Left(error) => Left(error)
+        case Right(payload) =>
+          val overflowBytes = if payload.firstOverflowPage.isDefined then 4 else 0
+          Right(CellRead(TableLeafCell(rowid.value, payload), rowid.nextOffset + payload.localBytes.length + overflowBytes))
+
+def decodeIndexLeaf(context: PageContext, page: Long, bytes: ByteSlice, offset: Int): Either[DecodeFailure, CellRead] =
+  pageVarint(bytes, offset, page, "cell.payloadBytes") match
+    case Left(error) => Left(error)
+    case Right(sizeRead) => payloadAt(context, page, bytes, IndexLeafPage, sizeRead.value, sizeRead.nextOffset) match
+      case Left(error) => Left(error)
+      case Right(payload) =>
+        val overflowBytes = if payload.firstOverflowPage.isDefined then 4 else 0
+        Right(CellRead(IndexLeafCell(payload), sizeRead.nextOffset + payload.localBytes.length + overflowBytes))
+
+def decodeIndexInterior(context: PageContext, page: Long, bytes: ByteSlice, offset: Int): Either[DecodeFailure, CellRead] =
+  pageU32(bytes, offset, page, "cell.leftChild") match
+    case Left(error) => Left(error)
+    case Right(child) => validateChild(context, page, child, offset, "cell.leftChild") match
+      case Left(error) => Left(error)
+      case Right(_) => pageVarint(bytes, offset + 4, page, "cell.payloadBytes") match
+        case Left(error) => Left(error)
+        case Right(sizeRead) => payloadAt(context, page, bytes, IndexInteriorPage, sizeRead.value, sizeRead.nextOffset) match
+          case Left(error) => Left(error)
+          case Right(payload) =>
+            val overflowBytes = if payload.firstOverflowPage.isDefined then 4 else 0
+            Right(CellRead(IndexInteriorCell(child, payload), sizeRead.nextOffset + payload.localBytes.length + overflowBytes))
+
+def decodeCell(context: PageContext, page: Long, bytes: ByteSlice, kind: BtreePageKind, offset: Int): Either[DecodeFailure, CellRead] = kind match
+  case TableInteriorPage => decodeTableInterior(context, page, bytes, offset)
+  case TableLeafPage => decodeTableLeaf(context, page, bytes, offset)
+  case IndexLeafPage => decodeIndexLeaf(context, page, bytes, offset)
+  case IndexInteriorPage => decodeIndexInterior(context, page, bytes, offset)
+
+def overlaps(start: Int, end: Int, spans: List[CellSpan]): Boolean = spans match
+  case Nil => false
+  case Cons(span, tail) => (start < span.end && end > span.start) || overlaps(start, end, tail)
+
+def readCellPointers(bytes: ByteSlice, page: Long, offset: Int, remaining: Int, reversed: List[Int]): Either[DecodeFailure, List[Int]] =
+  if remaining <= 0 then Right(reversed.reverse)
+  else pageU16(bytes, offset, page, "page.cellPointer") match
+    case Left(error) => Left(error)
+    case Right(pointer) => readCellPointers(bytes, page, offset + 2, remaining - 1, pointer :: reversed)
+
+def decodeCells(context: PageContext, page: Long, bytes: ByteSlice, kind: BtreePageKind, pointers: List[Int], contentStart: Int, spans: List[CellSpan], reversed: List[BtreeCell]): Either[DecodeFailure, (List[BtreeCell], List[CellSpan])] = pointers match
+  case Nil => Right((reversed.reverse, spans))
+  case Cons(pointer, tail) =>
+    if pointer < contentStart || pointer >= context.usableSize then
+      Left(pageError("cell pointer is outside the cell-content area", page, pointer, "page.cellPointer"))
+    else decodeCell(context, page, bytes, kind, pointer) match
+      case Left(error) => Left(error)
+      case Right(read) =>
+        if read.endOffset > context.usableSize || read.endOffset <= pointer then
+          Left(pageError("cell extends outside usable bytes", page, pointer, "cell"))
+        else if overlaps(pointer, read.endOffset, spans) then
+          Left(pageError("cell bodies overlap", page, pointer, "cell"))
+        else decodeCells(context, page, bytes, kind, tail, contentStart, CellSpan(pointer, read.endOffset) :: spans, read.cell :: reversed)
+
+def validateFreeblocks(bytes: ByteSlice, page: Long, usableSize: Int, minimum: Int, current: Int, previous: Int, spans: List[CellSpan]): Either[DecodeFailure, Unit] =
+  if current == 0 then Right(())
+  else if current < minimum || current <= previous || current + 4 > usableSize then
+    Left(pageError("freeblock chain is not increasing and in range", page, current, "page.freeblock"))
+  else pageU16(bytes, current, page, "page.freeblock.next") match
+    case Left(error) => Left(error)
+    case Right(next) => pageU16(bytes, current + 2, page, "page.freeblock.size") match
+      case Left(error) => Left(error)
+      case Right(size) =>
+        if size < 4 || current + size > usableSize then
+          Left(pageError("freeblock size is invalid", page, current + 2, "page.freeblock.size"))
+        else if overlaps(current, current + size, spans) then
+          Left(pageError("freeblock overlaps a cell", page, current, "page.freeblock"))
+        else validateFreeblocks(bytes, page, usableSize, minimum, next, current, CellSpan(current, current + size) :: spans)
+
+def finishBtreePage(context: PageContext, page: Long, bytes: ByteSlice, header: BtreePageHeader, pointerStart: Int): Either[DecodeFailure, BtreePage] =
+  readCellPointers(bytes, page, pointerStart, header.cellCount, Nil) match
+    case Left(error) => Left(error)
+    case Right(pointers) => decodeCells(context, page, bytes, header.kind, pointers, header.cellContentStart, Nil, Nil) match
+      case Left(error) => Left(error)
+      case Right(pair) => validateFreeblocks(bytes, page, context.usableSize, header.cellContentStart, header.firstFreeblock, 0, pair._2) match
+        case Left(error) => Left(error)
+        case Right(_) => Right(BtreePage(page, header, pointers, pair._1))
+
+def decodeBtreeHeader(context: PageContext, page: Long, bytes: ByteSlice, headerOffset: Int, kind: BtreePageKind): Either[DecodeFailure, BtreePage] =
+  val headerBytes = if isLeaf(kind) then 8 else 12
+  pageU16(bytes, headerOffset + 1, page, "page.firstFreeblock") match
+    case Left(error) => Left(error)
+    case Right(firstFreeblock) => pageU16(bytes, headerOffset + 3, page, "page.cellCount") match
+      case Left(error) => Left(error)
+      case Right(cellCount) => pageU16(bytes, headerOffset + 5, page, "page.cellContentStart") match
+        case Left(error) => Left(error)
+        case Right(rawContentStart) => pageByte(bytes, headerOffset + 7, page, "page.fragmentedBytes") match
+          case Left(error) => Left(error)
+          case Right(fragments) =>
+            val contentStart = if rawContentStart == 0 then 65536 else rawContentStart
+            val pointerStart = headerOffset + headerBytes
+            val pointerEnd = pointerStart + cellCount * 2
+            if rawContentStart == 0 && context.pageSize != 65536 then
+              Left(pageError("zero cell-content offset is legal only for 65536-byte pages", page, headerOffset + 5, "page.cellContentStart"))
+            else if fragments > 60 then
+              Left(pageError("fragmented free bytes exceed 60", page, headerOffset + 7, "page.fragmentedBytes"))
+            else if cellCount > context.usableSize / 2 || pointerEnd > contentStart || contentStart > context.usableSize then
+              Left(pageError("cell pointer array and content area overlap", page, pointerStart, "page.cellCount"))
+            else if isLeaf(kind) then
+              finishBtreePage(context, page, bytes, BtreePageHeader(kind, headerOffset, headerBytes, firstFreeblock, cellCount, contentStart, fragments, None), pointerStart)
+            else pageU32(bytes, headerOffset + 8, page, "page.rightMostChild") match
+              case Left(error) => Left(error)
+              case Right(child) => validateChild(context, page, child, headerOffset + 8, "page.rightMostChild") match
+                case Left(error) => Left(error)
+                case Right(_) => finishBtreePage(context, page, bytes, BtreePageHeader(kind, headerOffset, headerBytes, firstFreeblock, cellCount, contentStart, fragments, Some(child)), pointerStart)
+
+def decodeBtreePageLocal(context: PageContext, pageNumber: Long, bytes: ByteSlice): Either[DecodeFailure, BtreePage] =
+  if context.usableSize < 480 || context.usableSize > context.pageSize then
+    Left(pageError("page context has an invalid usable size", pageNumber, 0, "header.usableSize"))
+  else if bytes.length != context.pageSize then
+    Left(pageError("page read must contain exactly pageSize bytes", pageNumber, 0, "page.length"))
+  else validatePageNumber(context, pageNumber, "page.number") match
+    case Left(error) => Left(error)
+    case Right(_) =>
+      val headerOffset = if pageNumber == 1L then 100 else 0
+      pageByte(bytes, headerOffset, pageNumber, "page.kind") match
+        case Left(error) => Left(error)
+        case Right(flag) => pageKind(flag, pageNumber, headerOffset) match
+          case Left(error) => Left(error)
+          case Right(kind) =>
+            if pageNumber == 1L && !isTable(kind) then
+              Left(pageError("page 1 must be a table B-tree", pageNumber, headerOffset, "page.kind"))
+            else decodeBtreeHeader(context, pageNumber, bytes, headerOffset, kind)
+
+def decodeBtreePage(context: PageContext, pageNumber: Long, bytes: ByteSlice): Either[DecodeFailure, BtreePage] =
+  contextualizePageResult(decodeBtreePageLocal(context, pageNumber, bytes), context, pageNumber)
+
+def decodeOverflowPageLocal(context: PageContext, pageNumber: Long, bytes: ByteSlice, remaining: Long): Either[DecodeFailure, OverflowChunk] =
+  if remaining <= 0L then Left(pageError("overflow page is not needed", pageNumber, 0, "overflow.remaining"))
+  else if bytes.length != context.pageSize then Left(pageError("overflow page is truncated", pageNumber, 0, "overflow.length"))
+  else validatePageNumber(context, pageNumber, "overflow.page") match
+    case Left(error) => Left(error)
+    case Right(_) => pageU32(bytes, 0, pageNumber, "overflow.next") match
+      case Left(error) => Left(error)
+      case Right(next) =>
+        val capacity = context.usableSize - 4
+        val take = if remaining < capacity.toLong then remaining.toInt else capacity
+        sliceCell(bytes, 4, take, pageNumber, "overflow.payload") match
+          case Left(error) => Left(error)
+          case Right(chunk) =>
+            val after = remaining - take.toLong
+            if after == 0L && next != 0L then Left(pageError("overflow chain has an extra page", pageNumber, 0, "overflow.next"))
+            else if after > 0L && (next < 1L || next > context.logicalPageCount) then Left(pageError("overflow chain ended early or points out of range", pageNumber, 0, "overflow.next"))
+            else Right(OverflowChunk(pageNumber, next, chunk, after))
+
+def decodeOverflowPage(context: PageContext, pageNumber: Long, bytes: ByteSlice, remaining: Long): Either[DecodeFailure, OverflowChunk] =
+  contextualizeOverflowResult(decodeOverflowPageLocal(context, pageNumber, bytes, remaining), context, pageNumber)
+
+def overflowSeen(page: Long, pages: List[Long]): Boolean = pages match
+  case Nil => false
+  case Cons(head, tail) => head == page || overflowSeen(page, tail)
+
+def decodeOverflowChainLoop(context: PageContext, expectedPage: Long, inputs: List[OverflowInput], remaining: Long, accumulated: ByteSlice, reversedPages: List[Long]): Either[DecodeFailure, OverflowPayload] = inputs match
+  case Nil =>
+    if remaining == 0L then Right(OverflowPayload(accumulated, reversedPages.reverse))
+    else Left(contextualizePageFailure(pageError("overflow chain ended before the payload", expectedPage, 0, "overflow.next"), context, expectedPage))
+  case Cons(input, tail) =>
+    if input.pageNumber != expectedPage then Left(contextualizePageFailure(pageError("overflow input does not match the next pointer", expectedPage, 0, "overflow.page"), context, expectedPage))
+    else if overflowSeen(input.pageNumber, reversedPages) then Left(contextualizePageFailure(pageError("overflow chain contains a cycle", expectedPage, 0, "overflow.page"), context, expectedPage))
+    else if reversedPages.length.toLong >= context.limits.overflowPages then Left(contextualizePageFailure(pageLimit("overflow chain exceeds configured overflowPages", expectedPage, 0, "overflow.pages"), context, expectedPage))
+    else decodeOverflowPage(context, input.pageNumber, input.bytes, remaining) match
+      case Left(error) => Left(error)
+      case Right(chunk) =>
+        val combined = byteSliceConcat(accumulated, chunk.bytes)
+        if chunk.remainingAfter == 0L && tail.nonEmpty then Left(contextualizePageFailure(pageError("overflow input contains unused extra pages", input.pageNumber, 0, "overflow.next"), context, input.pageNumber))
+        else decodeOverflowChainLoop(context, chunk.nextPage, tail, chunk.remainingAfter, combined, input.pageNumber :: reversedPages)
+
+def decodeOverflowChain(context: PageContext, firstPage: Long, inputs: List[OverflowInput], payloadBytes: Long): Either[DecodeFailure, OverflowPayload] =
+  if payloadBytes < 0L || payloadBytes > context.limits.valueBytes || payloadBytes > context.limits.workBytes then
+    Left(contextualizePageFailure(pageLimit("overflow payload exceeds configured limits", firstPage, 0, "overflow.payloadBytes"), context, firstPage))
+  else decodeOverflowChainLoop(context, firstPage, inputs, payloadBytes, ByteSlice.empty, Nil)
+```

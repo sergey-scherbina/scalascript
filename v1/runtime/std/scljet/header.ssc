@@ -1,0 +1,237 @@
+---
+name: scljet-header
+version: 0.3.0
+description: Pure SQLite database-header and page-offset codec
+package: scljet
+exports:
+  - SqliteTextEncoding
+  - EncodingUnknown
+  - EncodingUtf8
+  - EncodingUtf16Le
+  - EncodingUtf16Be
+  - DatabaseHeader
+  - DecodeLocation
+  - DecodeFailure
+  - decodeFailure
+  - decodeDatabaseHeader
+  - databasePageOffset
+---
+
+# SclJet database header
+
+[ByteSlice, ByteRead, byteSliceGet, readU16Be, readU32Be, readI32Be](bytes.ssc)
+[SqliteErrorCode, SqliteNotADatabase, SqliteFormat, SqliteCorrupt](values.ssc)
+
+```scalascript
+sealed trait SqliteTextEncoding
+case object EncodingUnknown extends SqliteTextEncoding
+case object EncodingUtf8 extends SqliteTextEncoding
+case object EncodingUtf16Le extends SqliteTextEncoding
+case object EncodingUtf16Be extends SqliteTextEncoding
+
+case class DatabaseHeader(
+  pageSize: Int,
+  writeVersion: Int,
+  readVersion: Int,
+  reservedBytes: Int,
+  usableSize: Int,
+  changeCounter: Long,
+  headerPageCount: Long,
+  freelistHead: Long,
+  freelistPageCount: Long,
+  schemaCookie: Long,
+  schemaFormat: Int,
+  defaultCacheSize: Long,
+  largestRootPage: Long,
+  textEncoding: SqliteTextEncoding,
+  userVersion: Long,
+  incrementalVacuum: Boolean,
+  applicationId: Long,
+  versionValidFor: Long,
+  sqliteVersionNumber: Long,
+  headerPageCountTrusted: Boolean
+)
+
+case class DecodeLocation(fileOffset: Long, pageNumber: Option[Long], field: String)
+case class DecodeFailure(code: SqliteErrorCode, message: String, location: DecodeLocation)
+
+case class HeaderField(offset: Int, width: Int, signed: Boolean, name: String)
+
+def decodeFailure(code: SqliteErrorCode, message: String, offset: Long, page: Option[Long], field: String): DecodeFailure =
+  DecodeFailure(code, message, DecodeLocation(offset, page, field))
+
+def headerFailure(code: SqliteErrorCode, message: String, offset: Int, field: String): DecodeFailure =
+  decodeFailure(code, message, offset.toLong, None, field)
+
+def headerMagic(index: Int): Int = index match
+  case 0 => 83
+  case 1 => 81
+  case 2 => 76
+  case 3 => 105
+  case 4 => 116
+  case 5 => 101
+  case 6 => 32
+  case 7 => 102
+  case 8 => 111
+  case 9 => 114
+  case 10 => 109
+  case 11 => 97
+  case 12 => 116
+  case 13 => 32
+  case 14 => 51
+  case _ => 0
+
+def validateHeaderMagic(bytes: ByteSlice, index: Int): Boolean =
+  if index >= 16 then true
+  else byteSliceGet(bytes, index) match
+    case Right(value) => value == headerMagic(index) && validateHeaderMagic(bytes, index + 1)
+    case Left(_) => false
+
+def validateHeaderZeros(bytes: ByteSlice, index: Int): Boolean =
+  if index >= 92 then true
+  else byteSliceGet(bytes, index) match
+    case Right(value) => value == 0 && validateHeaderZeros(bytes, index + 1)
+    case Left(_) => false
+
+def headerByte(bytes: ByteSlice, field: HeaderField): Either[DecodeFailure, Long] =
+  byteSliceGet(bytes, field.offset) match
+    case Right(value) => Right(value.toLong)
+    case Left(_) => Left(headerFailure(SqliteNotADatabase, "database header is truncated", field.offset, field.name))
+
+def headerFixed(bytes: ByteSlice, field: HeaderField): Either[DecodeFailure, Long] =
+  val result =
+    if field.signed then readI32Be(bytes, field.offset)
+    else if field.width == 2 then readU16Be(bytes, field.offset)
+    else readU32Be(bytes, field.offset)
+  result match
+    case Right(ByteRead(value, _)) => Right(value)
+    case _ => Left(headerFailure(SqliteNotADatabase, "database header is truncated", field.offset, field.name))
+
+def readHeaderField(bytes: ByteSlice, field: HeaderField): Either[DecodeFailure, Long] =
+  if field.width == 1 then headerByte(bytes, field) else headerFixed(bytes, field)
+
+def collectHeaderFields(bytes: ByteSlice, fields: List[HeaderField], values: Map[Int, Long]): Either[DecodeFailure, Map[Int, Long]] = fields match
+  case Nil => Right(values)
+  case Cons(field, tail) =>
+    readHeaderField(bytes, field) match
+      case Left(error) => Left(error)
+      case Right(value) => collectHeaderFields(bytes, tail, values.updated(field.offset, value))
+
+def headerFields(): List[HeaderField] = List(
+  HeaderField(16, 2, false, "header.pageSize"),
+  HeaderField(18, 1, false, "header.writeVersion"),
+  HeaderField(19, 1, false, "header.readVersion"),
+  HeaderField(20, 1, false, "header.reservedBytes"),
+  HeaderField(21, 1, false, "header.maxPayloadFraction"),
+  HeaderField(22, 1, false, "header.minPayloadFraction"),
+  HeaderField(23, 1, false, "header.leafPayloadFraction"),
+  HeaderField(24, 4, false, "header.changeCounter"),
+  HeaderField(28, 4, false, "header.pageCount"),
+  HeaderField(32, 4, false, "header.freelistHead"),
+  HeaderField(36, 4, false, "header.freelistPageCount"),
+  HeaderField(40, 4, false, "header.schemaCookie"),
+  HeaderField(44, 4, false, "header.schemaFormat"),
+  HeaderField(48, 4, true, "header.defaultCacheSize"),
+  HeaderField(52, 4, false, "header.largestRootPage"),
+  HeaderField(56, 4, false, "header.textEncoding"),
+  HeaderField(60, 4, false, "header.userVersion"),
+  HeaderField(64, 4, false, "header.incrementalVacuum"),
+  HeaderField(68, 4, false, "header.applicationId"),
+  HeaderField(92, 4, false, "header.versionValidFor"),
+  HeaderField(96, 4, false, "header.sqliteVersionNumber")
+)
+
+def headerValue(values: Map[Int, Long], offset: Int): Long = values.get(offset).getOrElse(0L)
+
+def powerOfTwo(value: Int): Boolean =
+  if value == 1 then true
+  else if value <= 1 || value % 2 != 0 then false
+  else powerOfTwo(value / 2)
+
+def headerEncoding(code: Long): SqliteTextEncoding = code.toInt match
+  case 0 => EncodingUnknown
+  case 1 => EncodingUtf8
+  case 2 => EncodingUtf16Le
+  case _ => EncodingUtf16Be
+
+def buildDatabaseHeader(values: Map[Int, Long], pageSize: Int, usableSize: Int): DatabaseHeader =
+  val changeCounter = headerValue(values, 24)
+  val pageCount = headerValue(values, 28)
+  val versionValidFor = headerValue(values, 92)
+  DatabaseHeader(
+    pageSize,
+    headerValue(values, 18).toInt,
+    headerValue(values, 19).toInt,
+    headerValue(values, 20).toInt,
+    usableSize,
+    changeCounter,
+    pageCount,
+    headerValue(values, 32),
+    headerValue(values, 36),
+    headerValue(values, 40),
+    headerValue(values, 44).toInt,
+    headerValue(values, 48),
+    headerValue(values, 52),
+    headerEncoding(headerValue(values, 56)),
+    headerValue(values, 60),
+    headerValue(values, 64) != 0L,
+    headerValue(values, 68),
+    versionValidFor,
+    headerValue(values, 96),
+    pageCount != 0L && changeCounter == versionValidFor
+  )
+
+def validateHeaderValues(values: Map[Int, Long]): Either[DecodeFailure, DatabaseHeader] =
+  val encodedPageSize = headerValue(values, 16).toInt
+  val pageSize = if encodedPageSize == 1 then 65536 else encodedPageSize
+  val reserved = headerValue(values, 20).toInt
+  val usable = pageSize - reserved
+  val writeVersion = headerValue(values, 18)
+  val readVersion = headerValue(values, 19)
+  val schemaFormat = headerValue(values, 44)
+  val encoding = headerValue(values, 56)
+  val largestRoot = headerValue(values, 52)
+  val incremental = headerValue(values, 64)
+  val freelistHead = headerValue(values, 32)
+  val freelistCount = headerValue(values, 36)
+  if pageSize < 512 || pageSize > 65536 || !powerOfTwo(pageSize) then
+    Left(headerFailure(SqliteCorrupt, "page size must be a power of two from 512 through 65536", 16, "header.pageSize"))
+  else if usable < 480 then
+    Left(headerFailure(SqliteCorrupt, "usable page size must be at least 480", 20, "header.reservedBytes"))
+  else if readVersion != 1L && readVersion != 2L then
+    Left(headerFailure(SqliteFormat, "read version is not supported", 19, "header.readVersion"))
+  else if writeVersion <= 0L then
+    Left(headerFailure(SqliteFormat, "write version is invalid", 18, "header.writeVersion"))
+  else if headerValue(values, 21) != 64L || headerValue(values, 22) != 32L || headerValue(values, 23) != 32L then
+    Left(headerFailure(SqliteCorrupt, "payload fractions must be 64, 32, 32", 21, "header.payloadFractions"))
+  else if schemaFormat < 0L || schemaFormat > 4L then
+    Left(headerFailure(SqliteCorrupt, "schema format must be between 0 and 4", 44, "header.schemaFormat"))
+  else if encoding < 0L || encoding > 3L || (encoding == 0L && schemaFormat != 0L) then
+    Left(headerFailure(SqliteCorrupt, "text encoding must be 1, 2, or 3 except for an empty format-0 schema", 56, "header.textEncoding"))
+  else if largestRoot == 0L && incremental != 0L then
+    Left(headerFailure(SqliteCorrupt, "incremental vacuum requires pointer maps", 64, "header.incrementalVacuum"))
+  else if (freelistCount == 0L && freelistHead != 0L) || (freelistCount != 0L && freelistHead == 0L) then
+    Left(headerFailure(SqliteCorrupt, "freelist head and count disagree", 32, "header.freelistHead"))
+  else Right(buildDatabaseHeader(values, pageSize, usable))
+
+def decodeDatabaseHeader(first100: ByteSlice): Either[DecodeFailure, DatabaseHeader] =
+  if first100.length != 100 then
+    Left(headerFailure(SqliteNotADatabase, "database header must contain exactly 100 bytes", first100.length, "header"))
+  else if !validateHeaderMagic(first100, 0) then
+    Left(headerFailure(SqliteNotADatabase, "database magic is not SQLite format 3", 0, "header.magic"))
+  else if !validateHeaderZeros(first100, 72) then
+    Left(headerFailure(SqliteCorrupt, "reserved header bytes must be zero", 72, "header.reserved"))
+  else collectHeaderFields(first100, headerFields(), Map()) match
+    case Left(error) => Left(error)
+    case Right(values) => validateHeaderValues(values)
+
+def databasePageOffset(pageNumber: Long, pageSize: Int): Either[DecodeFailure, Long] =
+  val maxLong = 9223372036854775807L
+  if pageNumber < 1L then
+    Left(decodeFailure(SqliteCorrupt, "page numbers start at one", 0L, Some(pageNumber), "page.number"))
+  else if pageSize < 512 || pageSize > 65536 || !powerOfTwo(pageSize) then
+    Left(decodeFailure(SqliteCorrupt, "page size is invalid", 0L, Some(pageNumber), "header.pageSize"))
+  else if pageNumber - 1L > maxLong / pageSize.toLong then
+    Left(decodeFailure(SqliteCorrupt, "page file offset overflows 64 bits", 0L, Some(pageNumber), "page.offset"))
+  else Right((pageNumber - 1L) * pageSize.toLong)
+```
