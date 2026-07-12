@@ -66,8 +66,34 @@
       |    Response { status, headers, body }
       |}
       |
+      |/// Optional SSRF guard (H2): when SSC_HTTP_BLOCK_INTERNAL=1, block a host that
+      |/// resolves to a loopback / private / link-local / wildcard address. Off by default.
+      |fn guard_host(url: &str) {
+      |    let on = std::env::var("SSC_HTTP_BLOCK_INTERNAL").map(|v| v == "1" || v == "true").unwrap_or(false);
+      |    if !on { return; }
+      |    let after = url.splitn(2, "://").nth(1).unwrap_or(url);
+      |    let authority = after.split(['/', '?', '#']).next().unwrap_or("");
+      |    let hostport = authority.rsplit('@').next().unwrap_or(authority);
+      |    let host = hostport.rsplitn(2, ':').last().unwrap_or(hostport)
+      |        .trim_start_matches('[').trim_end_matches(']');
+      |    use std::net::ToSocketAddrs;
+      |    let internal = (host, 80u16).to_socket_addrs()
+      |        .map(|mut it| it.any(|sa| {
+      |            let ip = sa.ip();
+      |            ip.is_loopback() || ip.is_unspecified() || match ip {
+      |                std::net::IpAddr::V4(v4) => v4.is_private() || v4.is_link_local(),
+      |                std::net::IpAddr::V6(_) => false,
+      |            }
+      |        }))
+      |        .unwrap_or(false);
+      |    if internal {
+      |        panic!("SSRF blocked: host '{}' resolves to an internal address (SSC_HTTP_BLOCK_INTERNAL)", host);
+      |    }
+      |}
+      |
       |fn run(method: &str, raw: &str, body: Option<&str>, extra: &HashMap<String, String>) -> Response {
       |    let (url, timeout, max_retries, delay) = resolve(raw);
+      |    guard_host(&url);
       |    let agent = ureq::AgentBuilder::new()
       |        .timeout_read(timeout)
       |        .timeout_connect(timeout)

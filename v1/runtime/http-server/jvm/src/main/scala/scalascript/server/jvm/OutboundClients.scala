@@ -22,14 +22,32 @@ private val _httpRetryDelay = ThreadLocal.withInitial[Long](() => 1_000L)
 def httpTimeout(ms: Int): Unit  = _httpTimeoutMs.set(ms.toLong)
 def httpRetry(n: Int, delayMs: Int = 1000): Unit = { _httpMaxRetries.set(n); _httpRetryDelay.set(delayMs.toLong) }
 
+// Optional SSRF guard (H2): when SSC_HTTP_BLOCK_INTERNAL=1, reject a URL whose
+// host resolves to an internal address (loopback / link-local / RFC-1918 /
+// wildcard). Off by default — no behavior change. Uses InetAddress, so a
+// hostname that resolves to an internal IP is caught too.
+private def _httpGuard(url: String): Unit =
+  if sys.env.get("SSC_HTTP_BLOCK_INTERNAL").exists(v => v == "1" || v == "true") then
+    val host = try java.net.URI.create(url).getHost catch case _: Throwable => null
+    if host != null then
+      val addrs = try java.net.InetAddress.getAllByName(host)
+                  catch case _: Throwable => Array.empty[java.net.InetAddress]
+      if addrs.exists(a => a.isLoopbackAddress || a.isLinkLocalAddress
+                        || a.isSiteLocalAddress || a.isAnyLocalAddress) then
+        throw new RuntimeException(
+          s"SSRF blocked: host '$host' resolves to an internal address (SSC_HTTP_BLOCK_INTERNAL)")
+
 // Resolve `url` against the scoped base (H3): absolute only on an explicit
 // http(s):// scheme; otherwise join base + a leading-'/' path so a `url` like
 // "@evil/x" can't be parsed as userinfo that re-points the host.
 private def _httpResolve(url: String): String =
   val base = _httpBaseUrl.get().stripSuffix("/")
-  if base.isEmpty || url.startsWith("http://") || url.startsWith("https://") then url
-  else if url.startsWith("/") then base + url
-  else base + "/" + url
+  val resolved =
+    if base.isEmpty || url.startsWith("http://") || url.startsWith("https://") then url
+    else if url.startsWith("/") then base + url
+    else base + "/" + url
+  _httpGuard(resolved)
+  resolved
 
 private def _httpDoRequest(method: String, url: String, body: String,
     headers: Map[String, String]): Response =

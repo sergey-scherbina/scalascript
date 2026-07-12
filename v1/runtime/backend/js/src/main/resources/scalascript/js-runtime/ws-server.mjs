@@ -522,12 +522,29 @@ let _httpRetryDelay = 1_000;
 function httpTimeout(ms) { _httpTimeoutMs = ms; }
 function httpRetry(n, delayMs) { _httpMaxRetries = n; if (delayMs !== undefined) _httpRetryDelay = delayMs; }
 
+function _httpGuardUrl(url) {
+  // H2: opt-in SSRF guard. Literal-host check only (no sync DNS in the worker), so a
+  // hostname that resolves to an internal IP is NOT caught — literals + localhost.
+  var block = (typeof process !== 'undefined') && process.env && process.env.SSC_HTTP_BLOCK_INTERNAL;
+  if (block === '1' || block === 'true') {
+    var host = '';
+    try { host = new URL(url).hostname; } catch (e) { host = ''; }
+    host = host.replace(/^\[|\]$/g, '');
+    var internal = host === 'localhost' || host === '0.0.0.0' || host === '::1' ||
+      /^127\./.test(host) || /^10\./.test(host) || /^192\.168\./.test(host) ||
+      /^169\.254\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host);
+    if (internal) throw new Error("SSRF blocked: host '" + host + "' is internal (SSC_HTTP_BLOCK_INTERNAL)");
+  }
+}
+
 function _httpResolveUrl(url) {
   // H3: absolute only on an explicit http(s):// scheme; otherwise join base + a
   // leading-'/' path so a `url` like "@evil/x" can't inject userinfo that re-points the host.
-  if (!_httpBaseUrl || url.startsWith('http://') || url.startsWith('https://')) return url;
-  const base = _httpBaseUrl.replace(/\/+$/, '');
-  return url.startsWith('/') ? base + url : base + '/' + url;
+  var resolved;
+  if (!_httpBaseUrl || url.startsWith('http://') || url.startsWith('https://')) resolved = url;
+  else { var base = _httpBaseUrl.replace(/\/+$/, ''); resolved = url.startsWith('/') ? base + url : base + '/' + url; }
+  _httpGuardUrl(resolved);
+  return resolved;
 }
 
 function _httpSyncFetch(method, url, body, headers) {
