@@ -1,5 +1,34 @@
 # Bug tracker
 
+## js-ssc-ui-jsonvalue-duplicate — two `_ssc_ui_jsonValue` in the assembled JS runtime
+
+**Status:** open (2026-07-12); found by opus while running `backendInterpreter/test`
+for an unrelated interp fix (v1-args-native-method-gap). Pre-existing on origin/main,
+independent of that fix (which is Scala-only).
+
+- **Repro:** `sbt backendInterpreter/testOnly scalascript.JsGenStreamsTest` →
+  "full runtime has no duplicate top-level function declarations *** FAILED ***
+  List(\"_ssc_ui_jsonValue\") ... duplicate top-level functions: _ssc_ui_jsonValue".
+  1799/1800 of the full interp suite otherwise pass.
+- **Root cause:** two DIFFERENT functions share the name across two concatenated
+  runtime files:
+  - `core-collections.mjs:702` `function _ssc_ui_jsonValue(s)` — parses a JSON
+    STRING (`_jsonConvert(JSON.parse(s))`), added by `46571d5f8`
+    (fix(js): implement __jsonCore* natives).
+  - `signals.mjs:1595` `function _ssc_ui_jsonValue(value, operation, seen)` — the
+    recursive value validator that IS the `jsonValue` intrinsic impl
+    (`Json.scala:11` maps `jsonValue -> _ssc_ui_jsonValue`; `JsGenStdImportTest:580`
+    calls it 3-arg). Callers at signals.mjs:1067/1073/1603/1606.
+  Whichever is concatenated last wins. Currently the 3-arg version wins (the
+  `jsonValue` intrinsic works, JsGenStdImportTest passes), so the 1-arg
+  JSON-string-parse helper is dead-shadowed — the feature that needed it is broken.
+- **Owning area:** JS JSON-natives (the 1-arg intruder) + the `jsonValue` intrinsic.
+  Left for that owner — renaming safely needs knowing the 1-arg helper's callers
+  (not visible in `.mjs`; likely generated `__jsonCore*` code).
+- **Fix (suggested):** rename the `core-collections.mjs` 1-arg `_ssc_ui_jsonValue(s)`
+  (e.g. `_ssc_json_parse_value`) + its `__jsonCore*` callers; keep the 3-arg
+  `jsonValue` intrinsic impl as `_ssc_ui_jsonValue`.
+
 ## v2-imported-receiver-methods-not-linked — native imports cannot execute receiver operations
 
 **Status:** open (2026-07-12), found by codex while implementing SclJet M1; the
