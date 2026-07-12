@@ -27,7 +27,8 @@ generator=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-generator-plug
 actors=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-actors-plugin_*.jar' -print -quit)
 distributed=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-distributed-plugin_*.jar' -print -quit)
 graph=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-graph-plugin_*.jar' -print -quit)
-for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$http_engine" "$sql" "$ui" "$state" "$effects" "$storage" "$reactive" "$yaml" "$content" "$dataset" "$generator" "$actors" "$distributed" "$graph"; do
+optics=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-optics-plugin_*.jar' -print -quit)
+for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$http_engine" "$sql" "$ui" "$state" "$effects" "$storage" "$reactive" "$yaml" "$content" "$dataset" "$generator" "$actors" "$distributed" "$graph" "$optics"; do
   [[ -n "$jar_file" && -f "$jar_file" ]] || {
     echo 'v21-native-plugin-boundary-smoke: staged native provider jar missing' >&2
     exit 2
@@ -57,8 +58,9 @@ jar tf "$generator" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev
 jar tf "$actors" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 jar tf "$distributed" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 jar tf "$graph" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
+jar tf "$optics" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 
-for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$http_engine" "$sql" "$ui" "$state" "$effects" "$storage" "$reactive" "$yaml" "$content" "$dataset" "$generator" "$actors" "$distributed" "$graph"; do
+for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$http_engine" "$sql" "$ui" "$state" "$effects" "$storage" "$reactive" "$yaml" "$content" "$dataset" "$generator" "$actors" "$distributed" "$graph" "$optics"; do
   deps=$(jdeps --multi-release base --ignore-missing-deps -verbose:class -cp "$CP" "$jar_file")
   if printf '%s\n' "$deps" | grep -E \
       'scala\.meta|scalascript\.interpreter|scalascript\.ast|scalascript\.plugin\.api|scalascript\.frontend|ssc\.bridge|dotty\.tools|javax\.tools' >/dev/null; then
@@ -97,8 +99,10 @@ distributed_log_vm=$(mktemp "${TMPDIR:-/tmp}/v21-native-distributed-log-vm.XXXXX
 distributed_log_asm=$(mktemp "${TMPDIR:-/tmp}/v21-native-distributed-log-asm.XXXXXX")
 graph_vm=$(mktemp "${TMPDIR:-/tmp}/v21-native-graph-vm.XXXXXX")
 graph_asm=$(mktemp "${TMPDIR:-/tmp}/v21-native-graph-asm.XXXXXX")
+optics_vm=$(mktemp "${TMPDIR:-/tmp}/v21-native-optics-vm.XXXXXX")
+optics_asm=$(mktemp "${TMPDIR:-/tmp}/v21-native-optics-asm.XXXXXX")
 storage_path="$ui_tmp/storage.json"
-trap 'rm -f "$classlog" "$standard_classlog" "$json_classlog" "$http_classlog" "$yaml_classlog" "$content_classlog" "$sql_vm" "$sql_asm" "$state_vm" "$state_asm" "$distributed_vm" "$distributed_asm" "$distributed_log_vm" "$distributed_log_asm" "$graph_vm" "$graph_asm"; rm -rf "$ui_tmp"' EXIT HUP INT TERM
+trap 'rm -f "$classlog" "$standard_classlog" "$json_classlog" "$http_classlog" "$yaml_classlog" "$content_classlog" "$sql_vm" "$sql_asm" "$state_vm" "$state_asm" "$distributed_vm" "$distributed_asm" "$distributed_log_vm" "$distributed_log_asm" "$graph_vm" "$graph_asm" "$optics_vm" "$optics_asm"; rm -rf "$ui_tmp"' EXIT HUP INT TERM
 PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc-standard" run --native \
   "$ROOT/tests/fixtures/v21-native/sql-provider.ssc" >"$standard_classlog" 2>&1
 grep -F 'Ada' "$standard_classlog" >/dev/null
@@ -162,6 +166,10 @@ grep -F 'o3 | c1 | Ada | 30' "$classlog" >/dev/null
 PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc-standard" run \
   "$ROOT/examples/graph-storage-interpreter.ssc" >>"$classlog" 2>&1
 grep -F 'imports:b.ssc' "$classlog" >/dev/null
+PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc-standard" run \
+  "$ROOT/examples/lenses.ssc" >>"$standard_classlog" 2>&1
+grep -F 'List(TeamMember(anon, 30), TeamMember(anon, 25), TeamMember(anon, 35))' \
+  "$standard_classlog" >/dev/null
 PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc" run --native \
   "$ROOT/examples/yaml-parse.ssc" >"$yaml_classlog" 2>&1
 grep -F 'App: MyApp' "$yaml_classlog" >/dev/null
@@ -180,7 +188,7 @@ if grep -E 'org\.commonmark|com\.vladsch\.flexmark|scalascript\.parser\.Parser' 
   exit 1
 fi
 if grep -E 'ssc\.bridge\.(PluginBridge|FrontendBridge)|scala\.meta\.' \
-    "$classlog" "$yaml_classlog" "$content_classlog" >/dev/null; then
+    "$classlog" "$standard_classlog" "$yaml_classlog" "$content_classlog" >/dev/null; then
   echo 'native run loaded a compatibility bridge or Scalameta class' >&2
   grep -E 'ssc\.bridge\.(PluginBridge|FrontendBridge)|scala\.meta\.' \
     "$classlog" "$yaml_classlog" >&2
@@ -230,5 +238,15 @@ PATH=/usr/bin:/bin "$ROOT/bin/ssc" run --native --bytecode \
   "$ROOT/examples/graph-storage-interpreter.ssc" >"$graph_asm"
 cmp -s "$graph_vm" "$graph_asm"
 [[ $(cat "$graph_vm") == 'imports:b.ssc' ]]
+
+PATH=/usr/bin:/bin "$ROOT/bin/ssc-standard" run \
+  "$ROOT/examples/lenses.ssc" >"$optics_vm"
+PATH=/usr/bin:/bin "$ROOT/bin/ssc-standard" run --bytecode \
+  "$ROOT/examples/lenses.ssc" >"$optics_asm"
+cmp -s "$optics_vm" "$optics_asm"
+[[ $(wc -l <"$optics_vm" | tr -d ' ') == 23 ]]
+grep -Fx 'Some(Circle(5))' "$optics_vm" >/dev/null
+grep -Fx 'List(TeamMember(anon, 30), TeamMember(anon, 25), TeamMember(anon, 35))' \
+  "$optics_vm" >/dev/null
 
 echo 'PASS v21-native-plugin-boundary-smoke'

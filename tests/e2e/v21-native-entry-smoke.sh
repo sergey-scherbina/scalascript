@@ -102,6 +102,9 @@ direct_option_list_expected=$'None\n0\n1a,1b,2a,2b\nSome(7)\nSome(6)'
 named_copy_expected=$'Alice|31|Boston\nAlicia|30|Paris\nBob|40|Boston\n1|9\nRCN\nAlina|30|Kyiv'
 [[ $(run_native "$FIXTURES/named-copy.ssc") == "$named_copy_expected" ]]
 [[ $(run_standard "$FIXTURES/named-copy.ssc") == "$named_copy_expected" ]]
+lenses_expected=$'older   : Alice, 31\nrenamed : Bob, 40, Boston\n30\n99\n40\nBoston\nParis\nMain St\nMain St\nBroadway\nSome(Circle(5))\nNone\nCircle(10)\nRect(3, 4)\nSome(Boston)\nNone\nNone\nSome(Profile(Some(Address(Main St, Paris))))\nNone\nSome(Boston)\nList(Alice, Bob, Carol)\nList(31, 26, 36)\nList(TeamMember(anon, 30), TeamMember(anon, 25), TeamMember(anon, 35))'
+[[ $(run_standard "$ROOT/examples/lenses.ssc") == "$lenses_expected" ]]
+[[ $(run_standard --bytecode "$ROOT/examples/lenses.ssc") == "$lenses_expected" ]]
 [[ $(run_native "$FIXTURES/zero-arg-println.ssc") == $'before\n\nafter' ]]
 signals_expected=$'0\n5\n10\nc=5 d=10\nc=7 d=14\nc=11 d=22\nn=3 sq=9 cube=27\nn=4 sq=16 cube=64'
 [[ $(run_native "$ROOT/examples/signals-demo.ssc") == "$signals_expected" ]]
@@ -321,6 +324,21 @@ for mode in vm asm; do
   [[ $(cat "$sandbox/graph-rdf4j.$mode.out") == 'Stored two books.' ]]
   grep -F 'Sparql.select is not available in the standard local Graph provider' \
     "$sandbox/graph-rdf4j.$mode.err" >/dev/null
+done
+
+for mode in vm asm; do
+  mode_args=()
+  [[ $mode == asm ]] && mode_args=(--bytecode)
+  set +e
+  run_standard "${mode_args[@]}" "$FIXTURES/optics-unsupported.ssc" \
+    >"$sandbox/optics-unsupported.$mode.out" \
+    2>"$sandbox/optics-unsupported.$mode.err"
+  optics_unsupported_rc=$?
+  set -e
+  [[ $optics_unsupported_rc -ne 0 ]]
+  [[ ! -s "$sandbox/optics-unsupported.$mode.out" ]]
+  grep -F 'unbound global: __unsupported_focus_path' \
+    "$sandbox/optics-unsupported.$mode.err" >/dev/null
 done
 
 for mode in vm asm; do

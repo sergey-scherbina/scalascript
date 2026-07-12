@@ -651,6 +651,78 @@ def desugarNamedCopy = (recv, args) =>
   let recvName = freshCopyTemp("recv") in
   Pair("block", Cons(Pair("val", Pair(recvName, recv)),
     namedCopyBindingStmts(args, recvName, Nil)))
+
+-- ── bounded structural Focus/Prism lowering ─────────────────────────────────
+-- Extract selector chains before ordinary field/method resolution erases the
+-- source path. The only native steps are registered product fields, Option.some,
+-- and List.each; arbitrary getter bodies fail explicitly without executing.
+def focusStep = (field) =>
+  if #seq(field, "some") then Pair("ctorap", Pair("OSome", Nil))
+  else if #seq(field, "each") then Pair("ctorap", Pair("OEach", Nil))
+  else Pair("ctorap", Pair("OField", Cons(Pair("str", field), Nil)))
+
+def isFocusMarker = (expr) =>
+  match expr { case Pair(tag, data) => #seq(tag, "focus_marker") }
+
+def focusPathSteps = (expr, param) =>
+  match expr {
+    case Pair(tag, data) =>
+      if #seq(tag, "var") then
+        if #seq(data, param) then Pair("__ok__", Nil) else Pair("__bad__", Nil)
+      else if #seq(tag, "sel") then
+        match data {
+          case Pair(base, field) =>
+            match focusPathSteps(base, param) {
+              case Pair(status, steps) =>
+                if #seq(status, "__ok__") then
+                  Pair("__ok__", appendL(steps, Cons(focusStep(field), Nil)))
+                else Pair("__bad__", Nil)
+            }
+        }
+      else Pair("__bad__", Nil)
+  }
+
+def resolveFocusArgs = (args) =>
+  match args {
+    case Cons(arg, rest) =>
+      match rest {
+        case Nil =>
+          match arg {
+            case Pair(tag, data) =>
+              if #seq(tag, "lam") then
+                match data {
+                  case Pair(params, body) =>
+                    match params {
+                      case Cons(param, more) =>
+                        match more {
+                          case Nil =>
+                            match focusPathSteps(body, param) {
+                              case Pair(status, steps) =>
+                                if #seq(status, "__ok__") then
+                                  Pair("prim", Pair("optics.focus", Cons(buildListExpr(steps), Nil)))
+                                else Pair("var", "__unsupported_focus_path")
+                            }
+                          case _ => Pair("var", "__unsupported_focus_path")
+                        }
+                      case Nil => Pair("var", "__unsupported_focus_path")
+                    }
+                }
+              else Pair("var", "__unsupported_focus_path")
+          }
+        case _ => Pair("var", "__unsupported_focus_path")
+      }
+    case Nil => Pair("var", "__unsupported_focus_path")
+  }
+
+def prismVariant = (typeArgs) =>
+  let n = #slen(typeArgs) in
+  let rec lastComma = (i, found) =>
+    if #i.ge(i, n) then found
+    else if #i.eq(#scodeAt(typeArgs, i), 44) then lastComma(#i.add(i, 1), i)
+    else lastComma(#i.add(i, 1), found) in
+  let comma = lastComma(0, #i.neg(1)) in
+  if #i.lt(comma, 0) then ""
+  else #sslice(typeArgs, #i.add(comma, 1), n)
 def findNarg = (label, args) =>
   match args {
     case Nil => Pair("var", #sconcat("__missing_named_arg_", label))
@@ -1147,6 +1219,11 @@ def resolveE = (expr) =>
       else if #seq(tag, "parameterless") then resolveE(data)
       else if #seq(tag, "direct") then
         match data { case Pair(monad, body) => resolveE(desugarDirect(monad, body)) }
+      else if #seq(tag, "focus_marker") then Pair("var", "__unsupported_focus_path")
+      else if #seq(tag, "prism") then
+        let variant = prismVariant(data) in
+        if #seq(variant, "") then Pair("var", "__unsupported_prism_type")
+        else Pair("prim", Pair("optics.prism", Cons(Pair("str", variant), Nil)))
       else if #seq(tag, "summon") then
         match parseGivenType(data) {
           case Pair(tc, typeName) =>
@@ -1168,7 +1245,9 @@ def resolveE = (expr) =>
             -- app(var("__fInterpolate__"), [head, spec,arg,rest, …]); route it to a prim
             -- node so lowerE emits IrPrim("__fInterpolate__", …) (the runtime String.format
             -- op), not an unbound-global call.
-            if fInterpCall(fn) then Pair("prim", Pair("__fInterpolate__", resolveArgs(args)))
+            if isFocusMarker(fn) then
+              resolveFocusArgs(args)
+            else if fInterpCall(fn) then Pair("prim", Pair("__fInterpolate__", resolveArgs(args)))
             else
             -- K62.17: expand omitted positional defaults into a scoped,
             -- single-evaluation lambda chain before ordinary call resolution.

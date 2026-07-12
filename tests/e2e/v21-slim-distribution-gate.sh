@@ -93,6 +93,9 @@ run_standard() {
 [[ $(run_standard run "$FIXTURES/http-response-provider.ssc") == $'201\ntext/plain; charset=utf-8\nhello\n{"n":2,"ok":true}\npublic, max-age=60\nv1\nno-store' ]]
 [[ $(run_standard run "$FIXTURES/sql-provider.ssc") == $'1\n7\nAda\ntrue' ]]
 [[ $(run_standard run "$FIXTURES/state-effect-provider.ssc") == $'17\n20\n2\n101\n101\n2' ]]
+lenses_expected=$'older   : Alice, 31\nrenamed : Bob, 40, Boston\n30\n99\n40\nBoston\nParis\nMain St\nMain St\nBroadway\nSome(Circle(5))\nNone\nCircle(10)\nRect(3, 4)\nSome(Boston)\nNone\nNone\nSome(Profile(Some(Address(Main St, Paris))))\nNone\nSome(Boston)\nList(Alice, Bob, Carol)\nList(31, 26, 36)\nList(TeamMember(anon, 30), TeamMember(anon, 25), TeamMember(anon, 35))'
+[[ $(run_standard run "$ROOT/examples/lenses.ssc") == "$lenses_expected" ]]
+[[ $(run_standard run --bytecode "$ROOT/examples/lenses.ssc") == "$lenses_expected" ]]
 dataset_expected=$'6,7,4,5,4,5\n1,2\n3,1,2,2,4\n3,2\n(3, a),(1, b)\n(3, 0),(1, 1),(2, 2),(2, 3)\nPair(1, 3-1),Pair(0, 2-2)\n(1, 4),(0, 4)\n1,2,2,3\ncount=4 sum=8 avg=2\nmin=1 max=3\ntop=3,2 ordered=1,2\nreduce=8 fold=18 first=Some(3)\ntwos=2\n(List(2, 2), List(3, 1))\n[3,1,2,2]\nMap(3 -> c, 1 -> a, 2 -> z)\n3,1,2\nparallel=333383335000 count=10000'
 [[ $(run_standard run "$FIXTURES/dataset-provider.ssc") == "$dataset_expected" ]]
 [[ $(run_standard run --bytecode "$FIXTURES/dataset-provider.ssc") == "$dataset_expected" ]]

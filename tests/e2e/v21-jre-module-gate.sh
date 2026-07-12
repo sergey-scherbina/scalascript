@@ -102,6 +102,9 @@ run_standard() {
 [[ $(run_standard run "$FIXTURES/http-response-provider.ssc") == $'201\ntext/plain; charset=utf-8\nhello\n{"n":2,"ok":true}\npublic, max-age=60\nv1\nno-store' ]]
 [[ $(run_standard run "$FIXTURES/sql-provider.ssc") == $'1\n7\nAda\ntrue' ]]
 [[ $(run_standard run "$FIXTURES/state-effect-provider.ssc") == $'17\n20\n2\n101\n101\n2' ]]
+lenses_expected=$'older   : Alice, 31\nrenamed : Bob, 40, Boston\n30\n99\n40\nBoston\nParis\nMain St\nMain St\nBroadway\nSome(Circle(5))\nNone\nCircle(10)\nRect(3, 4)\nSome(Boston)\nNone\nNone\nSome(Profile(Some(Address(Main St, Paris))))\nNone\nSome(Boston)\nList(Alice, Bob, Carol)\nList(31, 26, 36)\nList(TeamMember(anon, 30), TeamMember(anon, 25), TeamMember(anon, 35))'
+[[ $(run_standard run "$ROOT/examples/lenses.ssc") == "$lenses_expected" ]]
+[[ $(run_standard run --bytecode "$ROOT/examples/lenses.ssc") == "$lenses_expected" ]]
 yaml_expected=$'Type:   YObj\nHost:   localhost\nPort:   8080\nDebug:  true\nTags:   web, api\n\nRound-trip:\ndebug: true\nhost: localhost\nport: 8080\n\nFrom fenced block:\nApp: MyApp'
 [[ $(run_standard run "$ROOT/examples/yaml-parse.ssc") == "$yaml_expected" ]]
 [[ $(run_standard run --bytecode "$ROOT/examples/yaml-parse.ssc") == "$yaml_expected" ]]
@@ -121,7 +124,7 @@ report_tmp="$sandbox/jre-module.tsv"
   printf 'forbidden.references\t0\n'
   printf 'standard.vm\tpass\n'
   printf 'standard.asm\tpass\n'
-  printf 'standard.providers\tfs-os/json/http/sql/ui/state/storage/reactive/yaml/content\n'
+  printf 'standard.providers\tfs-os/json/http/sql/ui/state/storage/reactive/yaml/content/optics\n'
   printf 'standard.build-jvm\tpass\n'
 } >"$report_tmp"
 if [[ -n $REPORT ]]; then

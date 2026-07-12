@@ -1135,6 +1135,10 @@ def buildPostfix = (e, toks) =>
           if #seq(edata, "summon") then Pair("summon", prV(rt))
           else if #seq(edata, "direct") then Pair("direct_marker", prV(rt))
           else e
+        else if #seq(etag, "uid") then
+          if #seq(edata, "Focus") then Pair("focus_marker", prV(rt))
+          else if #seq(edata, "Prism") then Pair("prism", prV(rt))
+          else e
         else e
     } in
     buildPostfix(typed, prT(rt))

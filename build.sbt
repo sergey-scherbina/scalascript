@@ -365,6 +365,15 @@ lazy val v2NativeGraphPlugin = project
     scalacOptions ++= Seq("-deprecation", "-feature"),
   )
 
+lazy val v2NativeOpticsPlugin = project
+  .in(file("v2/runtime/std/optics-plugin"))
+  .dependsOn(v2NativePluginSpi)
+  .settings(
+    name := "scalascript-v2-native-optics-plugin",
+    libraryDependencies += scalatestTest,
+    scalacOptions ++= Seq("-deprecation", "-feature"),
+  )
+
 lazy val v2PluginBridge = project
   .in(file("v2/plugin-bridge"))
   // backendInterpreterServer: the REAL web server (route/serveAsync/stop) is
@@ -1255,7 +1264,7 @@ lazy val cli = project
   // cluster tests (which spawn `java -jar ssc.jar` nodes) died with
   // "runActors requires the actors plugin" — actorsPlugin was staged for
   // installBin but missing here.
-  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendRust, backendInterpreter, backendInterpreterServer, runtimeServerJvmFast, backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap, frontendCore, graphPlugin, deployPlugin, httpPlugin, wsPlugin, contentPlugin, frontendPlugin, fetchPlugin, streamsPlugin, actorsPlugin, v2FrontendBridge, v2JvmBytecode, v2JsBackend, v2SwiftBackend, v2NativePluginSpi, v2NativeHostPlugin, v2NativeCryptoPlugin, v2NativeOsPlugin, v2NativeFsPlugin, v2NativeJsonPlugin, v2NativeHttpFastPlugin, v2NativeSqlPlugin, v2NativeUiPlugin, v2NativeStateEffectPlugin, v2NativeEffectRunnersPlugin, v2NativeStorageEffectPlugin, v2NativeReactivePlugin, v2NativeYamlPlugin, v2NativeContentPlugin, v2NativeDatasetPlugin, v2NativeGeneratorPlugin, v2NativeActorsPlugin, v2NativeDistributedPlugin, v2NativeGraphPlugin)
+  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendRust, backendInterpreter, backendInterpreterServer, runtimeServerJvmFast, backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap, frontendCore, graphPlugin, deployPlugin, httpPlugin, wsPlugin, contentPlugin, frontendPlugin, fetchPlugin, streamsPlugin, actorsPlugin, v2FrontendBridge, v2JvmBytecode, v2JsBackend, v2SwiftBackend, v2NativePluginSpi, v2NativeHostPlugin, v2NativeCryptoPlugin, v2NativeOsPlugin, v2NativeFsPlugin, v2NativeJsonPlugin, v2NativeHttpFastPlugin, v2NativeSqlPlugin, v2NativeUiPlugin, v2NativeStateEffectPlugin, v2NativeEffectRunnersPlugin, v2NativeStorageEffectPlugin, v2NativeReactivePlugin, v2NativeYamlPlugin, v2NativeContentPlugin, v2NativeDatasetPlugin, v2NativeGeneratorPlugin, v2NativeActorsPlugin, v2NativeDistributedPlugin, v2NativeGraphPlugin, v2NativeOpticsPlugin)
   // Frontend backends — derived from allFrontends registry (arch-build-registry Phase 4)
   .dependsOn(allFrontends.map(f => ClasspathDependency(f.project, None)): _*)
   .settings(
@@ -1542,6 +1551,7 @@ lazy val cli = project
         "scalascript-v2-native-actors-plugin_",
         "scalascript-v2-native-distributed-plugin_",
         "scalascript-v2-native-graph-plugin_",
+        "scalascript-v2-native-optics-plugin_",
         "scalascript-backend-sql-runtime_", "scalascript-backend-config-runtime_",
         "scalascript-backend-typed-data-runtime_", "scalascript-markup-core_",
         "scalascript-yaml_",
@@ -4327,7 +4337,7 @@ lazy val root = project
     v2NativeSqlPlugin, v2NativeUiPlugin, v2NativeStateEffectPlugin, v2NativeEffectRunnersPlugin,
     v2NativeStorageEffectPlugin, v2NativeReactivePlugin, v2NativeYamlPlugin,
     v2NativeContentPlugin, v2NativeDatasetPlugin, v2NativeGeneratorPlugin, v2NativeActorsPlugin,
-    v2NativeDistributedPlugin, v2NativeGraphPlugin,
+    v2NativeDistributedPlugin, v2NativeGraphPlugin, v2NativeOpticsPlugin,
     v2PluginBridge, v2FrontendBridge, v2JvmBytecode, v2JsBackend, v2SwiftBackend,
     valueData, backendSpi, pluginApi, ir, logger, yaml, core, interop, testUtils, pluginHost, wireCore,
 

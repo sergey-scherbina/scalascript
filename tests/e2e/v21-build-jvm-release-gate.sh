@@ -143,6 +143,12 @@ PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
 named_copy_expected=$'Alice|31|Boston\nAlicia|30|Paris\nBob|40|Boston\n1|9\nRCN\nAlina|30|Kyiv'
 [[ $(PATH="$clean_path" java -jar "$sandbox/named-copy.jar") == "$named_copy_expected" ]]
 
+cp "$ROOT/examples/lenses.ssc" "$sandbox/other/lenses.ssc"
+PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
+  "$sandbox/other/lenses.ssc" -o "$sandbox/lenses.jar"
+lenses_expected=$'older   : Alice, 31\nrenamed : Bob, 40, Boston\n30\n99\n40\nBoston\nParis\nMain St\nMain St\nBroadway\nSome(Circle(5))\nNone\nCircle(10)\nRect(3, 4)\nSome(Boston)\nNone\nNone\nSome(Profile(Some(Address(Main St, Paris))))\nNone\nSome(Boston)\nList(Alice, Bob, Carol)\nList(31, 26, 36)\nList(TeamMember(anon, 30), TeamMember(anon, 25), TeamMember(anon, 35))'
+[[ $(PATH="$clean_path" java -jar "$sandbox/lenses.jar") == "$lenses_expected" ]]
+
 cp "$ROOT/examples/graph-rdf4j-http-storage.ssc" "$sandbox/other/graph-rdf4j-http-storage.ssc"
 PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
   "$sandbox/other/graph-rdf4j-http-storage.ssc" -o "$sandbox/graph-rdf4j.jar"
@@ -188,6 +194,8 @@ LC_ALL=C sort -c "$sandbox/entries"
   "$sandbox/direct-syntax.jar" >"$sandbox/direct-syntax.jdeps"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps -verbose:class \
   "$sandbox/named-copy.jar" >"$sandbox/named-copy.jdeps"
+"$jdeps_cmd" --multi-release base --ignore-missing-deps -verbose:class \
+  "$sandbox/lenses.jar" >"$sandbox/lenses.jdeps"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
   "$sandbox/a/app.jar" >"$sandbox/app.modules"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
@@ -214,6 +222,8 @@ LC_ALL=C sort -c "$sandbox/entries"
   "$sandbox/direct-syntax.jar" >"$sandbox/direct-syntax.modules"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
   "$sandbox/named-copy.jar" >"$sandbox/named-copy.modules"
+"$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
+  "$sandbox/lenses.jar" >"$sandbox/lenses.modules"
 
 forbidden='scala[./](meta|tools)|dotty[./]tools|scala3-compiler|compiler-driver|javax[./]tools|java[.]compiler|jdk[.]compiler|ssc[./]bridge|scalascript[./](ast|frontend|interpreter)'
 if grep -Ei "$forbidden" "$sandbox/entries" "$sandbox/entry.javap" \
@@ -226,7 +236,8 @@ if grep -Ei "$forbidden" "$sandbox/entries" "$sandbox/entry.javap" \
     "$sandbox/dsl-mini-language.jdeps" "$sandbox/dsl-mini-language.modules" \
     "$sandbox/custom-derives.jdeps" "$sandbox/custom-derives.modules" \
     "$sandbox/direct-syntax.jdeps" "$sandbox/direct-syntax.modules" \
-    "$sandbox/named-copy.jdeps" "$sandbox/named-copy.modules" >/dev/null; then
+    "$sandbox/named-copy.jdeps" "$sandbox/named-copy.modules" \
+    "$sandbox/lenses.jdeps" "$sandbox/lenses.modules" >/dev/null; then
   echo 'v21-build-jvm-release-gate: forbidden standard-tier entry/reference/module' >&2
   exit 1
 fi
@@ -257,6 +268,7 @@ dsl_mini_language_modules=$(tr -d '\r\n' <"$sandbox/dsl-mini-language.modules")
 custom_derives_modules=$(tr -d '\r\n' <"$sandbox/custom-derives.modules")
 direct_syntax_modules=$(tr -d '\r\n' <"$sandbox/direct-syntax.modules")
 named_copy_modules=$(tr -d '\r\n' <"$sandbox/named-copy.modules")
+lenses_modules=$(tr -d '\r\n' <"$sandbox/lenses.modules")
 report_tmp="$sandbox/release.tsv"
 {
   printf 'metric\tvalue\n'
@@ -277,6 +289,7 @@ report_tmp="$sandbox/release.tsv"
   printf 'custom-derives.modules\t%s\n' "$custom_derives_modules"
   printf 'direct-syntax.modules\t%s\n' "$direct_syntax_modules"
   printf 'named-copy.modules\t%s\n' "$named_copy_modules"
+  printf 'lenses.modules\t%s\n' "$lenses_modules"
   printf 'compiler.commands.hidden\ttrue\n'
   printf 'forbidden.references\t0\n'
   printf 'hello.output\tHello, World!\n'
@@ -293,6 +306,7 @@ report_tmp="$sandbox/release.tsv"
   printf 'custom-derives.output\tMirror/derived/exact\n'
   printf 'direct-syntax.output\tOption/List/nested/exact\n'
   printf 'named-copy.output\tlabels/order/single-evaluation/exact\n'
+  printf 'lenses.output\tLens/Optional/Traversal/Prism/23-lines/exact\n'
 } >"$report_tmp"
 
 if [[ -n $REPORT ]]; then

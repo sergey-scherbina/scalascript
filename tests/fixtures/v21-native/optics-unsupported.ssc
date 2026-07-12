@@ -1,0 +1,12 @@
+#!/usr/bin/env ssc
+---
+name: optics-unsupported
+---
+
+```scalascript
+case class Person(age: Int)
+
+// Native Focus accepts selector chains only; arithmetic must fail explicitly.
+val invalid = Focus[Person](person => person.age + 1)
+println(invalid)
+```
