@@ -419,6 +419,18 @@ lazy val v2NativeGraphRdf4jPlugin = project
     scalacOptions ++= Seq("-deprecation", "-feature"),
   )
 
+lazy val v2NativeSwiftPlugin = project
+  .in(file("v2/runtime/providers/swift-plugin"))
+  .dependsOn(v2NativePluginSpi)
+  .settings(
+    name := "scalascript-v2-native-swift-plugin",
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "ujson" % upickleV,
+      scalatestTest,
+    ),
+    scalacOptions ++= Seq("-deprecation", "-feature"),
+  )
+
 lazy val v2PluginBridge = project
   .in(file("v2/plugin-bridge"))
   // backendInterpreterServer: the REAL web server (route/serveAsync/stop) is
@@ -1334,7 +1346,7 @@ lazy val cli = project
   // cluster tests (which spawn `java -jar ssc.jar` nodes) died with
   // "runActors requires the actors plugin" — actorsPlugin was staged for
   // installBin but missing here.
-  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendRust, backendInterpreter, backendInterpreterServer, runtimeServerJvmFast, backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap, frontendCore, graphPlugin, deployPlugin, httpPlugin, wsPlugin, contentPlugin, frontendPlugin, fetchPlugin, streamsPlugin, actorsPlugin, v2FrontendBridge, v2JvmBytecode, v2JsBackend, v2SwiftBackend, v2NativePluginSpi, v2NativeHostPlugin, v2NativeCryptoPlugin, v2NativeOsPlugin, v2NativeFsPlugin, v2NativeJsonPlugin, v2NativeHttpFastPlugin, v2NativeSqlPlugin, v2NativeUiPlugin, v2NativeStateEffectPlugin, v2NativeEffectRunnersPlugin, v2NativeStorageEffectPlugin, v2NativeReactivePlugin, v2NativeYamlPlugin, v2NativeContentPlugin, v2NativeDatasetPlugin, v2NativeGeneratorPlugin, v2NativeActorsPlugin, v2NativeDistributedPlugin, v2NativeGraphPlugin, v2NativeOpticsPlugin, v2NativePdfPlugin, v2NativeNfcPlugin, v2NativeMcpPlugin, v2NativeGraphRdf4jPlugin)
+  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendRust, backendInterpreter, backendInterpreterServer, runtimeServerJvmFast, backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap, frontendCore, graphPlugin, deployPlugin, httpPlugin, wsPlugin, contentPlugin, frontendPlugin, fetchPlugin, streamsPlugin, actorsPlugin, v2FrontendBridge, v2JvmBytecode, v2JsBackend, v2SwiftBackend, v2NativePluginSpi, v2NativeHostPlugin, v2NativeCryptoPlugin, v2NativeOsPlugin, v2NativeFsPlugin, v2NativeJsonPlugin, v2NativeHttpFastPlugin, v2NativeSqlPlugin, v2NativeUiPlugin, v2NativeStateEffectPlugin, v2NativeEffectRunnersPlugin, v2NativeStorageEffectPlugin, v2NativeReactivePlugin, v2NativeYamlPlugin, v2NativeContentPlugin, v2NativeDatasetPlugin, v2NativeGeneratorPlugin, v2NativeActorsPlugin, v2NativeDistributedPlugin, v2NativeGraphPlugin, v2NativeOpticsPlugin, v2NativePdfPlugin, v2NativeNfcPlugin, v2NativeMcpPlugin, v2NativeGraphRdf4jPlugin, v2NativeSwiftPlugin)
   // Frontend backends — derived from allFrontends registry (arch-build-registry Phase 4)
   .dependsOn(allFrontends.map(f => ClasspathDependency(f.project, None)): _*)
   .settings(
@@ -1785,6 +1797,16 @@ lazy val cli = project
         .groupBy(_.getName).values.map(_.head).toSeq.sortBy(_.getName)
       graphProviderFiles.foreach(j => IO.copyFile(j, graphProviderDir / j.getName))
       log.info(s"bin/lib/providers/graph-rdf4j/jars/ (${graphProviderFiles.size} JARs)")
+
+      val swiftProviderDir = providersDir / "swift" / "jars"
+      IO.createDirectory(swiftProviderDir)
+      val swiftProviderJar = (v2NativeSwiftPlugin / Compile / packageBin).value
+      val swiftProviderFiles = (swiftProviderJar +:
+        (v2NativeSwiftPlugin / Compile / managedClasspath).value.files)
+        .filter(f => f.isFile && f.getName.endsWith(".jar") && !standardNames.contains(f.getName))
+        .groupBy(_.getName).values.map(_.head).toSeq.sortBy(_.getName)
+      swiftProviderFiles.foreach(j => IO.copyFile(j, swiftProviderDir / j.getName))
+      log.info(s"bin/lib/providers/swift/jars/ (${swiftProviderFiles.size} JARs)")
 
       // ScalaScript 2.1 native frontend: stage the self-hosted compiler tower
       // and the .ssc standard-library sources it resolves. The installed
@@ -4483,7 +4505,7 @@ lazy val root = project
     v2NativeStorageEffectPlugin, v2NativeReactivePlugin, v2NativeYamlPlugin,
     v2NativeContentPlugin, v2NativeDatasetPlugin, v2NativeGeneratorPlugin, v2NativeActorsPlugin,
     v2NativeDistributedPlugin, v2NativeGraphPlugin, v2NativeOpticsPlugin, v2NativePdfPlugin,
-    v2NativeNfcPlugin, v2NativeMcpPlugin, v2NativeGraphRdf4jPlugin,
+    v2NativeNfcPlugin, v2NativeMcpPlugin, v2NativeGraphRdf4jPlugin, v2NativeSwiftPlugin,
     v2PluginBridge, v2FrontendBridge, v2JvmBytecode, v2JsBackend, v2SwiftBackend,
     valueData, backendSpi, pluginApi, ir, logger, yaml, uniml, unimlJs, core, interop, testUtils, pluginHost, wireCore,
 
