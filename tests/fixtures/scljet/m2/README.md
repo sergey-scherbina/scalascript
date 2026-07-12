@@ -1,10 +1,50 @@
-# SclJet M2 oracle vectors
+# SclJet M2 interoperability corpus
 
-`codec-vectors.tsv` is the first committed slice of the M2 corpus. It was
-generated with official SQLite 3.53.3 source id
-`2026-06-26 20:14:12 d4c0e51e4aeb96955b99185ab9cde75c339e2c29c3f3f12428d364a10d782c62`.
+Ordinary tests consume the committed databases and never invoke a reference
+SQLite library. `manifest.tsv` pins the SHA-256 and header metadata for every
+valid file; `oracle-storage.txt` pins its ordered schema and physical values;
+`corrupt-manifest.tsv` and `corrupt-errors.txt` pin the invalid inputs and
+localized SclJet results.
 
-The generator operations, in order, are:
+The valid corpus is generated and checked with official SQLite 3.53.3 source
+id `2026-06-26 20:14:12
+d4c0e51e4aeb96955b99185ab9cde75c339e2c29c3f3f12428d364a10d782c62`.
+The current slice has 20 valid databases, five named corruptions, 607 exact
+dump lines, and 32 deterministic bounded mutations. It covers every legal
+page size, UTF-8/UTF-16LE/UTF-16BE and empty encoding 0, rowid and WITHOUT
+ROWID trees, explicit/automatic indexes, multi-level B-trees, overflow,
+freelist, full/incremental auto-vacuum pointer maps, clean WAL header versions,
+serial/rowid edges, application/user versions, and reserved-byte counts 0, 1,
+7, and 32 (the 512-byte-page boundary with exactly 480 usable bytes).
+
+`generate.py` requires a Python `sqlite3` module built from that exact source.
+Reserved bytes cannot be selected through SQL, so `generate-reserved.c` is
+compiled against the separately downloaded official amalgamation and invokes
+`SQLITE_FCNTL_RESERVE_BYTES`, followed by `VACUUM`. The release archive is
+`sqlite-amalgamation-3530300.zip`, whose published SHA3-256 is
+`d45c688a8cb23f68611a894a756a12d7eb6ab6e9e2468ca70adbeab3808b5ab9`.
+A representative reproduction is:
+
+```sh
+unzip sqlite-amalgamation-3530300.zip
+cc -std=c11 -O2 -Isqlite-amalgamation-3530300 \
+  generate-reserved.c sqlite-amalgamation-3530300/sqlite3.c \
+  -lpthread -ldl -lm -o scljet-generate-reserved
+SCLJET_RESERVED_GENERATOR="$PWD/scljet-generate-reserved" ./generate.py
+```
+
+Regeneration verifies the exact version/source id, checks every valid database
+with reference `PRAGMA integrity_check`, recreates the manifests/oracle, and
+fails before deleting fixtures when the reserved-byte helper is unavailable.
+Historical schema formats 1/2/3 and the exhaustive corruption matrix remain
+explicit M2d work; current SQLite creates schema format 4 (or format 0 for an
+empty database), so those files must come from pinned historical official
+builds rather than header mutation.
+
+## Original pure codec vector
+
+`codec-vectors.tsv` is the first committed slice of the M2 corpus. Its
+generator operations, in order, are:
 
 ```sql
 PRAGMA page_size=512;
@@ -18,6 +58,3 @@ The database is committed and closed before bytes are read. Its SHA-256 is
 Page 2 is the `t` root; the cell offset is read from its pointer array rather
 than assumed by the generator. The conformance case embeds these exact vectors
 so pure codecs run without filesystem or SQLite dependencies.
-
-The broader page-size/encoding/reservation/freelist/corruption corpus remains
-the M2d interoperability slice described in `specs/scljet.md`.
