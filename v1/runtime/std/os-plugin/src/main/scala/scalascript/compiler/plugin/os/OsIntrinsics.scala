@@ -137,9 +137,16 @@ object OsIntrinsics:
         val pb   = new ProcessBuilder((cmd :: args)*)
         pb.redirectErrorStream(false)
         val proc = pb.start()
+        // M5: drain stdout AND stderr concurrently — reading stdout to EOF before
+        // stderr deadlocks when the child fills the >~64KB stderr pipe.
+        val errBuf = new java.util.concurrent.atomic.AtomicReference[String]("")
+        val errT = new Thread(() =>
+          errBuf.set(scala.io.Source.fromInputStream(proc.getErrorStream).mkString))
+        errT.setDaemon(true); errT.start()
         val stdout = scala.io.Source.fromInputStream(proc.getInputStream).mkString
-        val stderr = scala.io.Source.fromInputStream(proc.getErrorStream).mkString
         val code   = proc.waitFor()
+        errT.join(1000)
+        val stderr = errBuf.get()
         PluginValue.instance("ProcessResult", Map(
           "stdout"   -> PluginValue.string(stdout),
           "stderr"   -> PluginValue.string(stderr),

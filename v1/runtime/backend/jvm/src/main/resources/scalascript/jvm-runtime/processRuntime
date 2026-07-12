@@ -7,12 +7,13 @@
        |// (split --bytecode/run-jvm path), so `exec` resolves cross-module the same
        |// way `readFile` does. ssc Int is 64-bit → Long. `exec` honours
        |// opts.cwd / opts.env (the interpreter ignores them).
-       |case class ProcessOptions(cwd: Option[String] = None, env: Map[String, String] = Map(), timeout: Option[Long] = None)
+       |case class ProcessOptions(cwd: Option[String] = None, env: Map[String, String] = Map(), timeout: Option[Long] = None, inheritEnv: Boolean = true)
        |case class ProcessResult(stdout: String, stderr: String, exitCode: Long)
        |def exec(cmd: String, args: List[String], opts: ProcessOptions): ProcessResult =
        |  val _sscPb = new java.lang.ProcessBuilder((cmd :: args)*)
        |  _sscPb.redirectErrorStream(false)
        |  opts.cwd.foreach(_d => _sscPb.directory(new java.io.File(_d)))
+       |  if !opts.inheritEnv then _sscPb.environment().clear()  // L3: scrub parent secrets
        |  if opts.env.nonEmpty then
        |    val _sscEnv = _sscPb.environment()
        |    opts.env.foreach { case (_k, _v) => _sscEnv.put(_k, _v) }

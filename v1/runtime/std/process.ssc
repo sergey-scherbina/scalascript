@@ -19,9 +19,10 @@ See `specs/std-fs-os.md` §4 for the full API, `ProcessOptions`, `ProcessResult`
 
 ```scalascript
 case class ProcessOptions(
-  cwd:     Option[String]       = None,
-  env:     Map[String, String]  = Map(),
-  timeout: Option[Int]          = None
+  cwd:        Option[String]       = None,
+  env:        Map[String, String]  = Map(),
+  timeout:    Option[Int]          = None,
+  inheritEnv: Boolean              = true  // false → scrub the parent env before applying `env` (JVM codegen)
 )
 
 case class ProcessResult(
