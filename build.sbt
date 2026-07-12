@@ -614,6 +614,26 @@ lazy val unimlJsonJvm = unimlJsonCross.jvm
 lazy val unimlJsonJs  = unimlJsonCross.js
 lazy val unimlJson    = unimlJsonJvm
 
+// ── UniML XML — lossless secure XML 1.0 dialect ─────────────────────────
+lazy val unimlXmlCross =
+  crossProject(JVMPlatform, JSPlatform)
+    .crossType(CrossType.Pure)
+    .in(file("v1/lang/uniml-xml"))
+    .dependsOn(unimlCross, markupCoreCross)
+    .settings(
+      name := "scalascript-uniml-xml",
+      libraryDependencies ++= Seq("org.scalatest" %%% "scalatest" % scalatestV % Test),
+      Compile / scalacOptions ++= sharedScalacOptionsStrict,
+      Test    / scalacOptions ++= sharedScalacOptions,
+    )
+    .jvmConfigure(_.withId("unimlXml"))
+    .jsConfigure(_.withId("unimlXmlJs"))
+    .jsSettings(Test / fork := false)
+
+lazy val unimlXmlJvm = unimlXmlCross.jvm
+lazy val unimlXmlJs  = unimlXmlCross.js
+lazy val unimlXml    = unimlXmlJvm
+
 lazy val core = project
   .in(file("v1/lang/core"))
   .dependsOn(valueData, backendSpi, backendSqlRuntime, logger, yaml, markupCore)
@@ -4558,7 +4578,7 @@ lazy val root = project
     v2NativeDistributedPlugin, v2NativeGraphPlugin, v2NativeOpticsPlugin, v2NativePdfPlugin,
     v2NativeNfcPlugin, v2NativeMcpPlugin, v2NativeGraphRdf4jPlugin, v2NativeSwiftPlugin,
     v2PluginBridge, v2FrontendBridge, v2JvmBytecode, v2JsBackend, v2SwiftBackend,
-    valueData, backendSpi, pluginApi, ir, logger, yaml, uniml, unimlJs, unimlJson, unimlJsonJs, core, interop, testUtils, pluginHost, wireCore,
+    valueData, backendSpi, pluginApi, ir, logger, yaml, uniml, unimlJs, unimlJson, unimlJsonJs, unimlXml, unimlXmlJs, core, interop, testUtils, pluginHost, wireCore,
 
     runtimeServerCommon, runtimeServerSpi, runtimeServerJvm,
     runtimeServerJvmJetty, runtimeServerJvmNetty, httpFastEngine, runtimeServerJvmFast, mcpCommon,
