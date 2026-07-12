@@ -1,6 +1,6 @@
 # SclJet — pure ScalaScript SQLite-compatible engine
 
-Status: **design / M0 scaffold**  
+Status: **implementation / M1 foundations**  
 Module: `runtime/std/scljet/`  
 Package: `scljet`  
 Provider id: `scljet`  
@@ -991,11 +991,15 @@ reasons, never silent substitution by JDBC/sql.js.
 
 ### M1 — bytes, codecs, and VFS foundations
 
-- [ ] Bounds-checked byte slices and exact varint/endian codecs pass golden and
-  property tests on VM/ASM/JS.
-- [ ] In-memory VFS implements random access, lock identity, shared regions,
+- [x] Bounds-checked byte slices and exact varint/endian codecs pass golden and
+  property tests on the interpreter, native VM, and direct ASM.
+- [ ] The same byte-codec golden is exact on JS; v1 currently lacks exact
+  signed-64-bit Long/bitwise lowering and v2 stops at `__mk_method_obj__`.
+- [x] In-memory VFS implements random access, lock identity, shared regions,
   sync trace, and fault injection deterministically.
-- [ ] JVM host VFS lives in a std plugin and passes cross-process lock tests.
+- [ ] The in-memory VFS golden is exact on JS; 31/33 lines currently match,
+  with the two-handle SHM shared/exclusive transition still divergent.
+- [x] JVM host VFS lives in a std plugin and passes cross-process lock tests.
 
 ### M2 — read-only SQLite files
 
@@ -1118,3 +1122,34 @@ Verification on 2026-07-12:
 
 These are interface/import/typechecking results only. No runtime, file-format,
 durability, SQL-compatibility, or performance claim is made before M1+.
+
+M1 byte/codecs landed in `58d2e19de`, the deterministic memory VFS in
+`e6d027b92`, and the JVM host plugin in `2a594b870` with its assembled example
+in `1b9df2b57`. Backend-exact chunk indexing was clarified in `bc212e5f4` and
+implemented in `f9518f881`. The JS companion/list-pattern fixes needed to run
+the portable modules landed in `830c0db27`.
+
+M1 verification on 2026-07-12:
+
+- `scripts/sbtc "installBin"` staged 111 standard `.ssc` modules and 27
+  essential `.sscpkg` plugins, including `scljet-vfs-plugin.sscpkg`.
+- `tests/conformance/run.sh --only 'scljet-*' --no-memo` passed 3/3 on the
+  declared interpreter lane.
+- The 31-line byte golden, 33-line memory-VFS golden, and six-line module
+  contract are pairwise exact on the v1 interpreter, native VM, and direct ASM.
+- `scripts/sbtc "scljetVfsPlugin/test"` passed 6/6: positioned I/O,
+  truncate/sync/canonical identity, bounded intrinsic results, local rollback
+  transitions, WAL SHM regions/locks, raw subprocess locks, and official
+  Xerial SQLite contention across processes.
+- `bin/ssc-tools run --v1 examples/scljet-jvm-vfs.ssc` autoloaded the assembled
+  plugin and completed open/write/sync/read/lock/unlock/close/delete.
+- Focused JsGen regressions for imported explicit companions and native-array
+  `Nil`/`Cons` both pass on Node. The byte golden now executes all 31 lines but
+  retains three Long/bitwise differences; the memory VFS matches 31/33 lines
+  with the SHM transition gap recorded in `BUGS.md`.
+
+The JVM adapter guarantees SclJet-to-SclJet coordination inside one JVM and
+reference SQLite interoperability across processes. Same-JVM Xerial mixing
+remains deferred to the recorded lock-broker/native lock-table bridge. These
+limitations leave the two explicit JS behavior items open; no JDBC/sql.js
+fallback is used or claimed.
