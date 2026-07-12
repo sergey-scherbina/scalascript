@@ -534,6 +534,9 @@ the last handle closes. `durableFiles` is the last sync-visible snapshot;
 `FaultCrash` restores it, drops handles/locks/shared memory, consumes the rule,
 and preserves the deterministic operation trace.
 
+The executable transition example is
+[`examples/scljet-memory-vfs.ssc`](../examples/scljet-memory-vfs.ssc).
+
 ### M1 JVM host VFS boundary
 
 The JVM adapter is a separate std plugin. Main-file process-visible lock bytes

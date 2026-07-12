@@ -1,0 +1,36 @@
+#!/usr/bin/env ssc
+---
+name: scljet-memory-vfs
+description: Replay an immutable SclJet VFS through sync, mutation, and crash
+---
+
+# SclJet deterministic memory VFS
+
+[ByteSlice, byteSliceToList, MainDatabaseFile, OpenFlags, SyncFlags, MemoryStep, VfsRead, memoryVfs, memoryOpen, memoryWriteAt, memoryReadAt, memorySync, memoryCrash](std/scljet/index.ssc)
+
+```scalascript
+def mustBytes(values: List[Int]): ByteSlice = ByteSlice.fromList(values) match
+  case Right(bytes) => bytes
+  case Left(_) => ByteSlice.empty
+
+def handleOf(step: MemoryStep[Int]): Int = step.result match
+  case Right(handle) => handle
+  case Left(_) => -1
+
+def readMemoryBytes(step: MemoryStep[VfsRead]): List[Int] = step.result match
+  case Right(read) => byteSliceToList(read.bytes)
+  case Left(_) => Nil
+
+val create = OpenFlags(false, true, true, false, false)
+val reopen = OpenFlags(false, true, false, false, false)
+val opened = memoryOpen(memoryVfs(42L, 1000L, Nil), "/demo.db", MainDatabaseFile, create)
+val handle = handleOf(opened)
+val written = memoryWriteAt(opened.state, handle, 0L, mustBytes(List(1, 2, 3)))
+val synced = memorySync(written.state, handle, SyncFlags(false, true, false))
+val changed = memoryWriteAt(synced.state, handle, 0L, mustBytes(List(9)))
+
+val recovered = memoryCrash(changed.state)
+val reopened = memoryOpen(recovered, "/demo.db", MainDatabaseFile, reopen)
+println(readMemoryBytes(memoryReadAt(reopened.state, handleOf(reopened), 0L, 3)))
+println(reopened.state.trace.length)
+```
