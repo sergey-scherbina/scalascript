@@ -147,15 +147,17 @@ Instruction effects are normative:
 
 - `Open(kind, role)` creates and pushes a branch frame, then records its token as the first edge of
   that frame. The finished branch uses `role` when attached to its parent.
-- `Emit(role)` appends the token to the current frame using `role`.
+- `Emit(role)` appends the token to the current frame using `role`; when no frame is open it emits
+  the token itself as a completed root. This is the lossless flat-stream fallback used for unknown
+  languages and intentionally carries no orphan diagnostic.
 - `Close(expectedKind, role)` checks the current frame, appends the closing token using `role`, and
   closes only that frame. The resulting branch is appended to its parent or emitted as a root.
 - `Report(...)` appends the token and emits the corresponding structured diagnostic. It does not
   smuggle recovery policy into arbitrary exceptions.
 
-An instruction that requires a current frame while the stack is empty produces an orphan-token
-diagnostic. In recovery mode it is emitted as a token root; in strict mode it is retained in the
-partial result and parsing is marked incomplete. End-of-stream with open frames produces one
+An instruction that requires a current frame while the stack is empty (notably `Close`) produces an
+orphan-token diagnostic. In recovery mode it is emitted as a token root; in strict mode it is
+retained in the partial result and parsing is marked incomplete. End-of-stream with open frames produces one
 diagnostic per unclosed frame, innermost first. Recovery may synthesize zero-width closing nodes,
 which must have `Origin.Synthetic`; it may never invent source-backed tokens.
 
