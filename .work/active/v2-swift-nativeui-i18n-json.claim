@@ -1,8 +1,11 @@
 feature/v2-swift-nativeui-i18n-json 2026-07-12T10:15:00Z
 agent: codex
-heartbeat: 2026-07-12T10:03:12Z
+heartbeat: 2026-07-12T11:25:47Z
 status: in-progress
-done-so-far: Takeover after stale heartbeat/no Rozum ACK; preserving the dirty foreign worktree.
+done-so-far: Branch checkpoint 1ca7d8318 is rebased on current origin/main; real standard lower/style
+and production locale+JSON+three-keyed-list Swift runs pass. Rozum-approved fixes now cover checked
+manifest entry, safe init registrations, exact try/toInt, JSON facade, List builder/index/concat parity,
+association-list map normalization, and owner-transactional anonymous computed/equality signals.
 Independent Rozum reviewers BLOCKED the current __try__/JSON WIP on exact-value throw/runtime/host
 failure discrimination, String.toInt trim/nesting gates, UTF-16/renderer/BigInt/conversion/error
 parity, and dead-registration validation. Real-world verification of the completed
@@ -20,8 +23,8 @@ NOTE: found an existing, apparently-stale claim .work/active/v1-json-core-intrin
 gap — __jsonCore* intrinsics missing from the v1 INTERPRETER (not the Swift backend codegen).
 Not the same file/subsystem as this claim's target, but cross-referencing for awareness in
 case that agent is still active.
-next: Finish standard lower and production-shaped Swift regressions, request Rozum code review,
-then run assembled Swift/Apple/conformance gates and close docs/bookkeeping.
+next: Add remaining direct negative matrices and non-catchable host-error proof, run full Swift/CLI/
+assembled macOS+iOS/conformance gates, request post-code Rozum review, then docs/bookkeeping/release.
 Original next: (1) localeSignal first — smallest, cleanest, matches the existing onlineSignal/
 persistedSignal ABI pattern (add to nativeUiPublicGlobals + a Swift-side NativeUiSignal
 reflecting locale, default likely fixed/en or device locale). (2) __jsonCoreWrap — larger,
