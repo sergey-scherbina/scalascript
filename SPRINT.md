@@ -70,7 +70,7 @@ Chosen approaches (autonomous — non-breaking defaults):
 - [ ] **M10 confined fs variants** — `…Within(root, path)` normalize + `startsWith(root)` +
       NOFOLLOW; document raw helpers as trusted-input-only.
 - [x] **L1 retry backoff/cap** — cap 10 + exp backoff·2^n ±20% jitter, all 4 clients. LANDED (git).
-- [ ] **L3 env-scrub option** — `ProcessOptions(inheritEnv=false)`.
+- [x] **L3 env-scrub** — ProcessOptions.inheritEnv (JVM codegen + std/process.ssc). LANDED (git). VERIFIED scrub. + M5 interp-exec deadlock completed. (interp/Rust/JS opts-wiring → BACKLOG)
 - [x] **L4 mkdir TOCTOU** — Rust+JVM create directly, tolerate AlreadyExists. LANDED a2b11223b.
 - [ ] **L8 cross-backend conformance** — shared suite pinning identical fs/process/http semantics.
 
