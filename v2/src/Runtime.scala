@@ -2626,6 +2626,7 @@ object Prims:
           listOf(unlist(ls).zipWithIndex.map { case (a, i) => DataV("Tuple2", collection.immutable.ArraySeq(a, IntV(i.toLong))) })
         case (ls, "take", List(IntV(n))) if isList(ls) => listOf(unlist(ls).take(n.toInt))
         case (ls, "drop", List(IntV(n))) if isList(ls) => listOf(unlist(ls).drop(n.toInt))
+        case (ls, "slice", List(IntV(a), IntV(b))) if isList(ls) => listOf(unlist(ls).slice(a.toInt, b.toInt))
         case (ls, "takeWhile", List(fn: Value.ClosV)) if isList(ls) =>
           listOf(unlist(ls).takeWhile(x => callClos(fn, Array(x)) == Value.BoolV(true)))
         case (ls, "dropWhile", List(fn: Value.ClosV)) if isList(ls) =>

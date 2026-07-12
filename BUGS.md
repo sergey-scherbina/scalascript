@@ -621,24 +621,36 @@ independent of that fix (which is Scala-only).
 
 ## v2-imported-receiver-methods-not-linked — native imports cannot execute receiver operations
 
-**Status:** open (2026-07-12), found by codex while implementing SclJet M1;
-SclJet API is unblocked by exporting target-neutral top-level functions.
-
-- **Real-harness repro:** install the current std modules, define an exported
-  `extension (bytes: ByteSlice) def slice(offset: Int, length: Int)` in an
-  imported module, then call `base.slice(1, 3)` through `bin/ssc run --native`.
-  The standard launcher exits before user output with
-  `ssc: __method__: no column 'length' in row []`. Replacing the extension with
-  a real case-class method avoids that checker error, but calls such as
-  `base.get(4)` and `base.slice(1, 3)` evaluate to `Stub` in native VM/ASM; a
-  following match fails with `match: no arm for Stub/1`. The v1 interpreter
-  executes both forms.
-- **Root cause (partial):** the self-hosted import path loses receiver shape for
-  imported extensions and does not link imported case-class method bodies into
-  executable CoreIR. Top-level imported functions do link and execute.
-- **Done-when:** a multi-file native VM/direct-ASM conformance case imports both
-  an argument-taking extension and a case-class method, reads receiver fields,
-  and produces identical non-`Stub` output.
+**Status:** PARTIAL (2026-07-12, opus) — re-scoped after root-cause. This was TWO
+independent gaps, NOT an import bug (both reproduce same-file):
+1. **`List.slice` missing intrinsic — FIXED.** The v2 native runtime had `take`/`drop`
+   but no `slice` arm, so `xs.slice(a, b)` → `Stub` on VM/ASM. Added the arm at
+   `v2/src/Runtime.scala` (next to take/drop). Verified + conformance `list-slice`
+   [int, v2]. This was the actual cause of the `slice`-named symptoms (an extension
+   literally named `slice` also recursed into the Stub → StackOverflow).
+2. **Case-class BODY methods never lowered as receiver methods — STILL OPEN** (the core
+   gap). `case class ByteSlice(data): def get(i) = data(i)` then `base.get(4)` → `Stub`
+   even in a SINGLE file (v1 → 50). Root cause: `parseCaseClass` (`ssc1-front.ssc0:1894`)
+   `skipExt` stops at the first body `def` and `mkCaseCls` records only name/params/
+   types/derives — no method bodies. The body `def` then leaks to the top-level stmt
+   stream as a global whose bare field refs (`data`) are unbound (proof: bare `get(4)`
+   → `unbound global: data`, not `get`). At the call site `base.get(4)` lowers to
+   `__method__("get", base, …)`, and the runtime dispatch (`Runtime.scala:3011`) looks
+   `get` up only as a FIELD name via `lookupFieldNames` → not found → `DataV("Stub")`
+   (`Runtime.scala:3038`), which then poisons a downstream `match`. Extension methods,
+   by contrast, work (same-file + imported) — they register in `extensionMethodsCell`
+   and route through `__methodOrExt__`.
+- **Fix plan for gap 2 (focused follow-up, bootstrap-frontend change):** in
+  `parseCaseClass`, instead of skipping/leaking body defs, parse each `def m(ps) = body`
+  and re-emit it through the existing extension machinery as `extension (self: X) def
+  m(ps) = <body>` with the class fields bound at the top of the body (`let field =
+  self.field in …`, avoiding an AST field-rename walk). Reuses the proven extension
+  path (no runtime change). Higher-risk (touches the self-hosted tokenizer-layout +
+  parser that compiles ALL native programs) → needs full v2 conformance verification;
+  scoped separately rather than rushed. WORKAROUND meanwhile: export target-neutral
+  top-level functions or use `extension` methods (both link + execute on native).
+- **Done-when (gap 2):** a multi-file native VM/direct-ASM conformance case imports a
+  case class with a body method, reads receiver fields, and produces non-`Stub` output.
 
 ## v1-explicit-companion-shadows-case-constructor — later case-class construction resolves to the companion value
 
@@ -2566,11 +2578,19 @@ expressions of arity three or greater to flat `TupleN` values.
 
 ## v21-imports-tuple2-collection-match — imported collection pipeline rejects `Tuple2/2`
 
-**Status:** open (2026-07-11); found by codex while refreshing native-entry
-after K62.19 tuple selector support advanced `examples/imports.ssc` beyond its
-former collection arity failure.
+**Status:** FIXED (verified 2026-07-12, opus) — already resolved on main by
+`579679058` "fix(v2.1): match imported two-element tuples" (+ `7a4cc0c00` rendering),
+which landed after this entry was filed. Root cause was a tag mismatch: the native
+front tags source 2-tuples / `a -> b` arrows `DataV("Pair", …)` while runtime
+collection ops (`zip`/`groupBy`/`->`/Map factory) build `DataV("Tuple2", …)`, and the
+VM `Match` does an exact `(tag, arity)` lookup with no normalization → a `Tuple2/2`
+scrutinee found no `Pair/2` arm. The fix expands a source tuple pattern into BOTH
+`Pair/2` and `Tuple2/2` arms (`ssc1-lower.ssc0:2189`; `_sel_` accessors got the same
+dual treatment). VERIFIED: `examples/imports.ssc` and `examples/extensions.ssc` are
+now byte-identical across `ssc-tools run --v1` / `ssc-standard run --native` /
+`--native --bytecode`.
 
-- **Real-harness repro:** `bin/ssc-standard run --native examples/imports.ssc`
+- **Real-harness repro (historical):** `bin/ssc-standard run --native examples/imports.ssc`
   prints the complete native math section and `distance (0,0)-(3,4) = 5`, then
   VM/ASM reach the classified collection pipeline and fail with `match: no arm
   for Tuple2/2`. `examples/extensions.ssc` now reaches the same boundary after
