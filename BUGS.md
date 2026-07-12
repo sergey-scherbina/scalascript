@@ -231,7 +231,24 @@ differential after byte updates became portable.
 
 ## v1-js-long-precision-and-bitops — SQLite 64-bit codecs are not exact
 
-**Status:** open (2026-07-12); found by codex in the SclJet byte-codec Node
+**Status:** open — root-caused + scoped (2026-07-12, opus); NOT a small fix.
+ROOT CAUSE: JsGen emits ssc `Int`/`Long` as JS **`number`**, not BigInt
+(`Lit.Int`/`Lit.Long` → `v.toString`, JsGen.scala:~3800; no `longVars` set, no
+Long→BigInt path). So (a) any 64-bit value above 2^53 loses precision at JS parse
+time, and (b) the bitwise/shift operators `& | ^ << >> >>>` have no dedicated infix
+case — they fall through to the generic `($lhs $op $rhs)`, i.e. raw JS ops that are
+32-bit (ToInt32/ToUint32) and mask shift counts mod 32. Measured JS vs interp:
+`1L<<40` → 256 (want 1099511627776); `255<<24` → -16777216 (want 4278190080);
+`0x…L & 0xffL` → 0 (want 240). The runtime has exact BigInt paths (`_arith`/`_dispatch`
+bigint branches) but they only fire when an operand is already a BigInt, which
+Int/Long lowering never produces.
+WHY DEFERRED: ssc `Int` is itself 64-bit (interp: `255<<24 == 4278190080`), so the
+correct fix is to represent Int/Long as JS **BigInt** (`${v}n`) and mask 64-bit ops
+with `BigInt.asIntN(64,…)`/`asUintN(64,…)` — a backend-wide representation change
+with large blast radius (perf + every numeric codepath) and a genuine perf tradeoff.
+A bitwise-only patch would NOT close the done-when (SQLite codecs need exact 64-bit
+*literals + arithmetic*, not just bit ops). Needs a dedicated design decision, not a
+drive-by fix. _Original report:_ found by codex in the SclJet byte-codec Node
 differential.
 
 - **Real-harness repro:** `bin/ssc-tools run-js
