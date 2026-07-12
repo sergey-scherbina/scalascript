@@ -44,7 +44,7 @@ object WebServer:
   @volatile private var _corsMethods: List[String] = Nil
   @volatile private var _corsHeaders: List[String] = Nil
   @volatile private var _gzipEnabled = false
-  @volatile private var _maxBodySizeBytes: Long = Long.MaxValue
+  @volatile private var _maxBodySizeBytes: Long = 16L * 1024 * 1024  // M1: 16 MB default (was unbounded)
   @volatile private var _spoolThreshold: Long   = 1024L * 1024L
   @volatile private var _uploadDir: String       = System.getProperty("java.io.tmpdir")
 

@@ -17,6 +17,21 @@ object RequestBuilder:
    *  this to `413 Request Entity Too Large` on the wire. */
   final class BodyTooLargeError extends RuntimeException("Request Entity Too Large")
 
+  /** M1: read the request body with a hard cap, aborting mid-stream. Unlike
+   *  readAllBytes() + a post-hoc length check, this bounds a chunked/streamed
+   *  body (no Content-Length) so it can't buffer unbounded and OOM the server. */
+  private def readBoundedBody(is: java.io.InputStream, max: Long): Array[Byte] =
+    val out = new java.io.ByteArrayOutputStream()
+    val buf = new Array[Byte](8192)
+    var total = 0L
+    var n = is.read(buf)
+    while n >= 0 do
+      total += n
+      if total > max then throw new BodyTooLargeError()
+      out.write(buf, 0, n)
+      n = is.read(buf)
+    out.toByteArray
+
   /** Per-server config + per-call hooks needed to fully populate a
    *  Request.  Built once per server start (the callbacks close over
    *  the per-backend `SessionStore` / JWT verify implementation) and
@@ -25,7 +40,7 @@ object RequestBuilder:
    *  Defaults assume an unconfigured server (no body cap, no opt-in
    *  session store, no JWT verification). */
   case class Config(
-      maxBodySize:        Long                                 = Long.MaxValue,
+      maxBodySize:        Long                                 = 16L * 1024 * 1024, // M1: 16 MB default (was unbounded)
       spoolThreshold:     Long                                 = 1024L * 1024L,
       uploadDir:          String                               = System.getProperty("java.io.tmpdir"),
       sessionStoreEnabled: Boolean                             = false,
@@ -56,7 +71,7 @@ object RequestBuilder:
       Option(ex.getRequestHeaders.getFirst("Content-Length")).map(_.toLong).getOrElse(0L)
     catch case _: Throwable => 0L
     if clHdr > cfg.maxBodySize then throw new BodyTooLargeError()
-    val bodyBytes = ex.getRequestBody.readAllBytes()
+    val bodyBytes = readBoundedBody(ex.getRequestBody, cfg.maxBodySize)
     val rawQuery = Option(ex.getRequestURI.getRawQuery).getOrElse("")
     parseRaw(method, path, params, HttpHelpers.parseQuery(rawQuery), headers, bodyBytes, cfg)
 
