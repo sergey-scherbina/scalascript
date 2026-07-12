@@ -343,6 +343,13 @@ compiles them via Scala.js.
 | Secret resolution | `${env:VAR}`, `${file:/run/secrets/pw}`, `${sops:key.path}` in database URLs/credentials; `SecretResolver` SPI for Vault, AWS SM, GCP SM, Doppler, 1Password and more |
 | Progressive Web App | `pwa(name, themeColor, icons, precache)` — registers `GET /manifest.json` + `GET /sw.js`; cache-first precaching service worker; works in `ssc run` and `ssc run-jvm` |
 
+The ScalaScript 2.1 compiler-free standard launcher executes `sql` fences
+natively in document order, converts `${expr}` to JDBC binds, preserves `$$`,
+and exposes `_sqlBlock_N` plus the first `<Section>.sql` result. This path works
+on standard VM, direct ASM, slim/JRE, and `build-jvm` without Scalameta, the v1
+frontend, or a transparent fallback. Typed native `Db.query/insert/update[A]`
+is the remaining SQL-provider migration slice.
+
 Planned, not implemented yet:
 
 | Feature | Planned shape |

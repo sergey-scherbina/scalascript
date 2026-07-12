@@ -2165,7 +2165,10 @@ On `ssc run --native` and `ssc run --native --bytecode`, explicit root-module
 native SQL provider. Named H2/SQLite/PostgreSQL connections and programmatic
 `Db.query`/`Db.execute` use the shared JDBC runtime. Conflicting declarations of
 the same database name across explicit roots fail before a connection is opened.
-Native fenced `sql`/`transaction`, typed `Db.insert`/`Db.update`, and PostgreSQL
+Native `sql` fences execute in document order through that provider, expose
+each `_sqlBlock_N` result and the first `<Section>.sql` alias, and support
+source-expression binds without loading the compatibility frontend. Native
+`transaction` fences, typed `Db.query/insert/update[A]`, and PostgreSQL
 LISTEN/NOTIFY remain compatibility-only until their follow-up slices land. The
 native UI provider also builds mutable/derived signals and basic
 text/signal/show/fragment/element views, and `emit(view, outDir)` writes a
@@ -2184,7 +2187,10 @@ for them.
 
 ### `sql` fenced blocks
 
-A ` ```sql ``` ` fenced block executes against the `default` database (or the one named in `@database` front-matter of the block).  Return value is the row count for DML, void for DDL:
+A ` ```sql ``` ` fenced block executes against the `default` database. Use
+` ```sql @db=analytics ``` ` to select another declared connection. The raw
+result is an update count for DDL/DML or a portable `List[Map]` for a row
+statement:
 
 ````ssc
 ```sql
@@ -2195,15 +2201,24 @@ CREATE TABLE IF NOT EXISTS todos (
 ```
 ````
 
-Bind parameters use `?`:
+In the compiler-free standard frontend, `${expr}` creates one JDBC `?` and one
+source-ordered bind value. `$$` emits a literal dollar. The first SQL fence
+under a heading is also available as `<Section>.sql`:
 
 ````ssc
+## Users
+
 ```sql
-INSERT INTO users(name, email) VALUES (?, ?)
+INSERT INTO users(name, email) VALUES (${name}, ${email})
 ```
+
+println(Users.sql)
 ````
 
-Parameters are passed from the surrounding `scalascript` block via `Db.execute`.
+An unterminated `${...}` bind and a JVM `sql @side=client` fence fail before
+execution; neither condition triggers the v1/Scalameta compatibility frontend.
+Programmatic `Db.execute` and `Db.query` continue to accept explicit `?`
+parameters as shown below.
 
 ### Programmatic access
 
