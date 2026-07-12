@@ -1637,7 +1637,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
             provider families, and a generated H2 SQL JAR pass under
             `--limit-modules`. Slim/core dependency/artifact/standard gates and
             fresh affected conformance 8/8 are green.
-      - [ ] **TI-8.2 default-cutover readiness:** rerun the portable native-front
+      - [x] **TI-8.2 default-cutover readiness:** rerun the portable native-front
             and VM/ASM corpus reports after current self-hosted parser changes;
             classify every remaining parser/checker sentinel or backend gap.
             Fix only unclaimed standard deterministic blockers, preserving
@@ -1997,7 +1997,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                         fail the taxonomy gate. Standard parity is 10 identical /
                         60 both-fail / 125 skipped with no mismatch or one-sided
                         row, and fresh conformance is 9/9.
-            - [ ] **TI-8.2d runtime/provider taxonomy:** classify the 60
+            - [x] **TI-8.2d runtime/provider taxonomy:** classify the 60
                   both-fail rows after sentinel removal, distinguishing native
                   provider follow-ups from language/runtime gaps. The readiness
                   report must not count both-fail as parity success.
@@ -2027,14 +2027,14 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                         `v2-*` conformance. Result: counts are 20/25 with the
                         same 48 blockers; smoke, real report, and conformance
                         10/10 pass.
-                  - [ ] **TI-8.2d2 language/runtime blockers:** group the rows
+                  - [x] **TI-8.2d2 language/runtime blockers:** group the rows
                         classified as portable language/runtime defects by root
                         cause (arity/default arguments, match/effect lowering,
                         extension dispatch, recursion/stack safety, and value
                         conversion). Queue a spec-first slice per independent
                         root cause, add real VM/direct-ASM regressions, and shrink
                         the blocker ceiling after every green push.
-                        - [ ] **TI-8.2d2w portable effect runtime blockers:**
+                        - [x] **TI-8.2d2w portable effect runtime blockers:**
                               capture exact installed VM/direct-ASM first-loss
                               boundaries for `effects.ssc`,
                               `algebraic-effects.ssc`, `dataset-stats.ssc`, and
@@ -2742,7 +2742,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               title plus `1234` identically on VM/ASM/artifact.
                               Stage-2, native-entry, conformance 17/17, and full
                               corpus/parity pass with 45 runtime successes.
-                  - [ ] **TI-8.2d3 standard provider blockers:** migrate or wire
+                  - [x] **TI-8.2d3 standard provider blockers:** migrate or wire
                         standard-owned globals/intrinsics through core-free
                         `v2/runtime/std` providers, never through the v1 bridge.
                         Each provider family needs unit coverage, assembled
