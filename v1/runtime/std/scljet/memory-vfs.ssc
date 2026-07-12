@@ -1,0 +1,812 @@
+---
+name: scljet-memory-vfs
+version: 0.2.0
+description: Deterministic immutable in-memory VFS transition model for SclJet
+package: scljet
+exports:
+  - VfsRead
+  - VfsWrite
+  - MemoryFaultEffect
+  - FaultError
+  - FaultShortRead
+  - FaultShortWrite
+  - FaultCrash
+  - MemoryFaultRule
+  - MemoryFileState
+  - MemoryHandleState
+  - MemoryRollbackLock
+  - MemoryShmByteLock
+  - MemoryShmState
+  - MemoryTrace
+  - MemoryVfsState
+  - MemoryStep
+  - memoryVfs
+  - memoryCanonicalPath
+  - memoryOpen
+  - memoryDelete
+  - memoryExists
+  - memoryReadAt
+  - memoryWriteAt
+  - memoryTruncate
+  - memorySync
+  - memorySize
+  - memoryLock
+  - memoryUnlock
+  - memoryCheckReservedLock
+  - memoryShmMap
+  - memoryShmRead
+  - memoryShmWrite
+  - memoryShmLock
+  - memoryShmBarrier
+  - memoryShmUnmap
+  - memoryClose
+  - memoryRandomness
+  - memorySleep
+  - memoryCurrentTimeMillis
+  - memoryCrash
+---
+
+# SclJet deterministic memory VFS
+
+This module is a pure immutable state machine. It contains no host filesystem,
+clock, random, thread, or process access and is replayable from its initial
+state, inputs, and ordered fault script.
+
+[ByteSlice, byteSliceToList, byteSliceSlice, byteSliceCopyTo, byteSliceZeroExtend](bytes.ssc)
+
+[FileKind, OpenFlags, LockLevel, LockNone, LockShared, LockReserved, LockPending, LockExclusive, SyncFlags, ShmLockMode, ShmSharedLock, ShmExclusiveLock, ShmSharedUnlock, ShmExclusiveUnlock, VfsError, VfsRead, VfsWrite](vfs.ssc)
+
+```scalascript
+sealed trait MemoryFaultEffect
+case class FaultError(error: VfsError) extends MemoryFaultEffect
+case class FaultShortRead(maxBytes: Int) extends MemoryFaultEffect
+case class FaultShortWrite(maxBytes: Int) extends MemoryFaultEffect
+case object FaultCrash extends MemoryFaultEffect
+
+case class MemoryFaultRule(
+  ordinal: Long,
+  operation: Option[String],
+  path: Option[String],
+  faultEffect: MemoryFaultEffect
+)
+
+case class MemoryFileState(bytes: ByteSlice, kind: FileKind)
+
+case class MemoryHandleState(
+  id: Int,
+  path: String,
+  kind: FileKind,
+  readOnly: Boolean,
+  deleteOnClose: Boolean,
+  lock: LockLevel,
+  shmMapped: Boolean
+)
+
+case class MemoryRollbackLock(
+  shared: List[Int],
+  reserved: Option[Int],
+  pending: Option[Int],
+  exclusive: Option[Int]
+)
+
+case class MemoryShmByteLock(shared: List[Int], exclusive: Option[Int])
+case class MemoryShmState(regions: Map[Int, ByteSlice], locks: Map[Int, MemoryShmByteLock])
+
+case class MemoryTrace(
+  ordinal: Long,
+  operation: String,
+  path: String,
+  detail: String,
+  resultCode: String
+)
+
+case class MemoryVfsState(
+  files: Map[String, MemoryFileState],
+  durableFiles: Map[String, MemoryFileState],
+  handles: Map[Int, MemoryHandleState],
+  rollbackLocks: Map[String, MemoryRollbackLock],
+  sharedMemory: Map[String, MemoryShmState],
+  nextHandle: Int,
+  operationCounter: Long,
+  clockMillis: Long,
+  randomState: Long,
+  trace: List[MemoryTrace],
+  faults: List[MemoryFaultRule]
+)
+
+case class MemoryStep[A](state: MemoryVfsState, result: Either[VfsError, A])
+case class MemoryOperation(state: MemoryVfsState, ordinal: Long, fault: Option[MemoryFaultEffect])
+
+def memoryError(code: String, message: String, retryable: Boolean): VfsError =
+  VfsError(code, message, retryable)
+
+def memoryEmptyBytes(): ByteSlice = ByteSlice.empty
+
+def memoryEmptyRollbackLock(): MemoryRollbackLock =
+  MemoryRollbackLock(Nil, None, None, None)
+
+def memoryEmptyShmByteLock(): MemoryShmByteLock =
+  MemoryShmByteLock(Nil, None)
+
+def memoryEmptyShm(): MemoryShmState = MemoryShmState(Map(), Map())
+
+def memoryVfs(seed: Long, clockMillis: Long, faults: List[MemoryFaultRule]): MemoryVfsState =
+  MemoryVfsState(Map(), Map(), Map(), Map(), Map(), 1, 0L, clockMillis,
+    seed & 2147483647L, Nil, faults)
+
+def memoryOptionMatches(value: Option[String], actual: String): Boolean = value match
+  case None => true
+  case Some(expected) => expected == actual
+
+def memoryPickFault(rules: List[MemoryFaultRule], ordinal: Long, operation: String, path: String): (Option[MemoryFaultEffect], List[MemoryFaultRule]) = rules match
+  case Nil => (None, Nil)
+  case Cons(MemoryFaultRule(ruleOrdinal, ruleOperation, rulePath, faultEffect), tail) =>
+    val matches = ruleOrdinal == ordinal && memoryOptionMatches(ruleOperation, operation) && memoryOptionMatches(rulePath, path)
+    if matches then (Some(faultEffect), tail)
+    else
+      val picked = memoryPickFault(tail, ordinal, operation, path)
+      val rule = MemoryFaultRule(ruleOrdinal, ruleOperation, rulePath, faultEffect)
+      (picked._1, rule :: picked._2)
+
+def memoryBegin(state: MemoryVfsState, operation: String, path: String): MemoryOperation =
+  val ordinal = state.operationCounter + 1L
+  val picked = memoryPickFault(state.faults, ordinal, operation, path)
+  MemoryOperation(state.copy(operationCounter = ordinal, faults = picked._2), ordinal, picked._1)
+
+def memoryFinish(state: MemoryVfsState, ordinal: Long, operation: String, path: String, detail: String, resultCode: String): MemoryVfsState =
+  state.copy(trace = state.trace :+ MemoryTrace(ordinal, operation, path, detail, resultCode))
+
+def memoryStepLeft[A](state: MemoryVfsState, ordinal: Long, operation: String, path: String, detail: String, error: VfsError): MemoryStep[A] =
+  MemoryStep(memoryFinish(state, ordinal, operation, path, detail, error.code), Left(error))
+
+def memoryStepRight[A](state: MemoryVfsState, ordinal: Long, operation: String, path: String, detail: String, value: A): MemoryStep[A] =
+  MemoryStep(memoryFinish(state, ordinal, operation, path, detail, "ok"), Right(value))
+
+def memoryCrash(state: MemoryVfsState): MemoryVfsState =
+  state.copy(
+    files = state.durableFiles,
+    handles = Map(),
+    rollbackLocks = Map(),
+    sharedMemory = Map()
+  )
+
+def memoryFaultBefore[A](operation: MemoryOperation, operationName: String, path: String, detail: String): Option[MemoryStep[A]] = operation.fault match
+  case Some(FaultError(error)) =>
+    Some(memoryStepLeft(operation.state, operation.ordinal, operationName, path, detail, error))
+  case Some(FaultCrash) =>
+    Some(memoryStepLeft(memoryCrash(operation.state), operation.ordinal, operationName, path, detail,
+      memoryError("crash", "injected crash restored the durable snapshot", true)))
+  case _ => None
+
+def memoryPathSegment(segment: String, before: List[String]): List[String] =
+  if segment == "" || segment == "." then before
+  else if segment == ".." then before match
+    case Nil => Nil
+    case Cons(_, tail) => tail
+  else segment :: before
+
+def memoryPathSegments(path: String, index: Int, current: String, before: List[String]): List[String] =
+  if index >= path.length then memoryPathSegment(current, before).reverse
+  else if path.charAt(index) == 47 then
+    memoryPathSegments(path, index + 1, "", memoryPathSegment(current, before))
+  else memoryPathSegments(path, index + 1, current + path.substring(index, index + 1), before)
+
+def memoryJoinPath(parts: List[String], result: String): String = parts match
+  case Nil => if result == "" then "/" else result
+  case Cons(part, tail) => memoryJoinPath(tail, result + "/" + part)
+
+def memoryCanonicalPath(path: String): Either[VfsError, String] =
+  if path == "" then Left(memoryError("invalid-path", "path must not be empty", false))
+  else Right(memoryJoinPath(memoryPathSegments(path, 0, "", Nil), ""))
+
+def memoryIntContains(values: List[Int], value: Int): Boolean = values match
+  case Nil => false
+  case Cons(head, tail) => head == value || memoryIntContains(tail, value)
+
+def memoryIntAdd(values: List[Int], value: Int): List[Int] =
+  if memoryIntContains(values, value) then values else value :: values
+
+def memoryIntRemove(values: List[Int], value: Int): List[Int] = values match
+  case Nil => Nil
+  case Cons(head, tail) =>
+    if head == value then memoryIntRemove(tail, value)
+    else head :: memoryIntRemove(tail, value)
+
+def memoryOtherHolder(values: List[Int], handle: Int): Boolean = values match
+  case Nil => false
+  case Cons(head, tail) => head != handle || memoryOtherHolder(tail, handle)
+
+def memoryOptionOther(value: Option[Int], handle: Int): Boolean = value match
+  case None => false
+  case Some(owner) => owner != handle
+
+def memoryHandlesPath(handles: List[MemoryHandleState], path: String, except: Int): Boolean = handles match
+  case Nil => false
+  case Cons(handle, tail) =>
+    (handle.path == path && handle.id != except) || memoryHandlesPath(tail, path, except)
+
+def memoryMapWithoutFrom[K, V](values: Map[K, V], key: K, keys: List[K], result: Map[K, V]): Map[K, V] = keys match
+  case Nil => result
+  case Cons(head, tail) =>
+    val next = if head == key then result else values.get(head) match
+      case Some(value) => result.updated(head, value)
+      case None => result
+    memoryMapWithoutFrom(values, key, tail, next)
+
+def memoryMapWithout[K, V](values: Map[K, V], key: K): Map[K, V] =
+  memoryMapWithoutFrom(values, key, values.keys.toList, Map())
+
+def memoryHandle(state: MemoryVfsState, handle: Int): Either[VfsError, MemoryHandleState] =
+  state.handles.get(handle) match
+    case Some(value) => Right(value)
+    case None => Left(memoryError("bad-handle", "memory VFS handle is closed or unknown", false))
+
+def memoryFile(state: MemoryVfsState, path: String): Either[VfsError, MemoryFileState] =
+  state.files.get(path) match
+    case Some(value) => Right(value)
+    case None => Left(memoryError("not-found", "memory VFS file does not exist", false))
+
+def memoryOpen(state: MemoryVfsState, path: String, kind: FileKind, flags: OpenFlags): MemoryStep[Int] =
+  val canonicalResult = memoryCanonicalPath(path)
+  val canonical = canonicalResult match
+    case Right(value) => value
+    case Left(_) => path
+  val operation = memoryBegin(state, "open", canonical)
+  memoryFaultBefore[Int](operation, "open", canonical, "") match
+    case Some(step) => step
+    case None => canonicalResult match
+      case Left(error) => memoryStepLeft(operation.state, operation.ordinal, "open", path, "", error)
+      case Right(fullPath) =>
+        if flags.readOnly == flags.readWrite then
+          memoryStepLeft(operation.state, operation.ordinal, "open", fullPath, "", memoryError(
+            "invalid-flags", "exactly one of readOnly/readWrite must be true", false))
+        else if flags.create && !flags.readWrite then
+          memoryStepLeft(operation.state, operation.ordinal, "open", fullPath, "", memoryError(
+            "invalid-flags", "create requires readWrite", false))
+        else
+          val existing = operation.state.files.get(fullPath)
+          if existing.isDefined && flags.create && flags.exclusive then
+            memoryStepLeft(operation.state, operation.ordinal, "open", fullPath, "", memoryError(
+              "exists", "exclusive create found an existing file", false))
+          else if existing.isEmpty && !flags.create then
+            memoryStepLeft(operation.state, operation.ordinal, "open", fullPath, "", memoryError(
+              "not-found", "file does not exist and create is false", false))
+          else
+            val files = if existing.isDefined then operation.state.files
+              else operation.state.files.updated(fullPath, MemoryFileState(memoryEmptyBytes(), kind))
+            val id = operation.state.nextHandle
+            val handle = MemoryHandleState(id, fullPath, kind, flags.readOnly, flags.deleteOnClose,
+              LockNone, false)
+            val locks = if operation.state.rollbackLocks.contains(fullPath) then operation.state.rollbackLocks
+              else operation.state.rollbackLocks.updated(fullPath, memoryEmptyRollbackLock())
+            val next = operation.state.copy(files = files,
+              handles = operation.state.handles.updated(id, handle), rollbackLocks = locks,
+              nextHandle = id + 1)
+            memoryStepRight(next, operation.ordinal, "open", fullPath, "handle=" + id.toString, id)
+
+def memoryDelete(state: MemoryVfsState, path: String, syncDirectory: Boolean): MemoryStep[Unit] =
+  val canonicalResult = memoryCanonicalPath(path)
+  val canonical = canonicalResult match
+    case Right(value) => value
+    case Left(_) => path
+  val operation = memoryBegin(state, "delete", canonical)
+  memoryFaultBefore[Unit](operation, "delete", canonical, "") match
+    case Some(step) => step
+    case None => canonicalResult match
+      case Left(error) => memoryStepLeft(operation.state, operation.ordinal, "delete", path, "", error)
+      case Right(fullPath) =>
+        if !operation.state.files.contains(fullPath) then
+          memoryStepLeft(operation.state, operation.ordinal, "delete", fullPath, "", memoryError(
+            "not-found", "file does not exist", false))
+        else if memoryHandlesPath(operation.state.handles.values.toList, fullPath, -1) then
+          memoryStepLeft(operation.state, operation.ordinal, "delete", fullPath, "", memoryError(
+            "busy", "memory VFS files are undeletable while open", true))
+        else
+          val durable = if syncDirectory then memoryMapWithout(operation.state.durableFiles, fullPath)
+            else operation.state.durableFiles
+          val next = operation.state.copy(files = memoryMapWithout(operation.state.files, fullPath),
+            durableFiles = durable, rollbackLocks = memoryMapWithout(operation.state.rollbackLocks, fullPath),
+            sharedMemory = memoryMapWithout(operation.state.sharedMemory, fullPath))
+          memoryStepRight(next, operation.ordinal, "delete", fullPath,
+            "syncDirectory=" + syncDirectory.toString, ())
+
+def memoryExists(state: MemoryVfsState, path: String): MemoryStep[Boolean] =
+  val canonicalResult = memoryCanonicalPath(path)
+  val canonical = canonicalResult match
+    case Right(value) => value
+    case Left(_) => path
+  val operation = memoryBegin(state, "exists", canonical)
+  memoryFaultBefore[Boolean](operation, "exists", canonical, "") match
+    case Some(step) => step
+    case None => canonicalResult match
+      case Left(error) => memoryStepLeft(operation.state, operation.ordinal, "exists", path, "", error)
+      case Right(fullPath) => memoryStepRight(operation.state, operation.ordinal, "exists", fullPath, "",
+        operation.state.files.contains(fullPath))
+
+def memoryReadAvailable(bytes: ByteSlice, offset: Int, length: Int, cap: Int): ByteSlice =
+  val afterOffset = bytes.length - offset
+  val fileAvailable = if afterOffset < 0 then 0 else if afterOffset < length then afterOffset else length
+  val available = if cap < fileAvailable then cap else fileAvailable
+  val prefix = if available <= 0 then memoryEmptyBytes() else byteSliceSlice(bytes, offset, available) match
+    case Right(value) => value
+    case Left(_) => memoryEmptyBytes()
+  byteSliceZeroExtend(prefix, length) match
+    case Right(value) => value
+    case Left(_) => memoryEmptyBytes()
+
+def memoryReadAt(state: MemoryVfsState, handle: Int, offset: Long, length: Int): MemoryStep[VfsRead] =
+  val handleResult = memoryHandle(state, handle)
+  val path = handleResult match
+    case Right(value) => value.path
+    case Left(_) => ""
+  val operation = memoryBegin(state, "read", path)
+  memoryFaultBefore[VfsRead](operation, "read", path, "offset=" + offset.toString) match
+    case Some(step) => step
+    case None => handleResult match
+      case Left(error) => memoryStepLeft(operation.state, operation.ordinal, "read", path, "", error)
+      case Right(open) =>
+        if offset < 0L || offset > 2147483647L || length < 0 then
+          memoryStepLeft(operation.state, operation.ordinal, "read", path, "", memoryError(
+            "range", "read offset/length is outside the memory VFS range", false))
+        else memoryFile(operation.state, open.path) match
+          case Left(error) => memoryStepLeft(operation.state, operation.ordinal, "read", path, "", error)
+          case Right(file) =>
+            val start = offset.toInt
+            val normalAvailable = if start >= file.bytes.length then 0
+              else if file.bytes.length - start < length then file.bytes.length - start else length
+            val cap = operation.fault match
+              case Some(FaultShortRead(maxBytes)) => if maxBytes < 0 then 0 else maxBytes
+              case _ => length
+            val actual = if cap < normalAvailable then cap else normalAvailable
+            val warning = if actual < length then Some(memoryError(
+              "short-read", "read returned a zero-filled short tail", false)) else None
+            val value = VfsRead(memoryReadAvailable(file.bytes, start, length, cap), warning)
+            val next = memoryFinish(operation.state, operation.ordinal, "read", path,
+              "offset=" + offset.toString + ",length=" + length.toString,
+              if warning.isDefined then "short-read" else "ok")
+            MemoryStep(next, Right(value))
+
+def memoryWritePrefix(file: ByteSlice, offset: Int, bytes: ByteSlice, count: Int): ByteSlice =
+  val needed = offset + count
+  val targetSize = if file.length > needed then file.length else needed
+  val target = byteSliceZeroExtend(file, targetSize) match
+    case Right(value) => value
+    case Left(_) => file
+  val prefix = if count == bytes.length then bytes else byteSliceSlice(bytes, 0, count) match
+    case Right(value) => value
+    case Left(_) => memoryEmptyBytes()
+  byteSliceCopyTo(prefix, target, offset) match
+    case Right(value) => value
+    case Left(_) => target
+
+def memoryWriteAt(state: MemoryVfsState, handle: Int, offset: Long, bytes: ByteSlice): MemoryStep[VfsWrite] =
+  val handleResult = memoryHandle(state, handle)
+  val path = handleResult match
+    case Right(value) => value.path
+    case Left(_) => ""
+  val operation = memoryBegin(state, "write", path)
+  memoryFaultBefore[VfsWrite](operation, "write", path, "offset=" + offset.toString) match
+    case Some(step) => step
+    case None => handleResult match
+      case Left(error) => memoryStepLeft(operation.state, operation.ordinal, "write", path, "", error)
+      case Right(open) =>
+        if open.readOnly then memoryStepLeft(operation.state, operation.ordinal, "write", path, "", memoryError(
+          "readonly", "handle is read-only", false))
+        else if offset < 0L || offset > 2147483647L || offset + bytes.length.toLong > 2147483647L then
+          memoryStepLeft(operation.state, operation.ordinal, "write", path, "", memoryError(
+            "range", "write offset/length is outside the memory VFS range", false))
+        else memoryFile(operation.state, path) match
+          case Left(error) => memoryStepLeft(operation.state, operation.ordinal, "write", path, "", error)
+          case Right(file) =>
+            val cap = operation.fault match
+              case Some(FaultShortWrite(maxBytes)) => if maxBytes < 0 then 0 else maxBytes
+              case _ => bytes.length
+            val count = if cap < bytes.length then cap else bytes.length
+            val changed = memoryWritePrefix(file.bytes, offset.toInt, bytes, count)
+            val nextFiles = operation.state.files.updated(path, MemoryFileState(changed, file.kind))
+            val warning = if count < bytes.length then Some(memoryError(
+              "short-write", "write mutated only the injected prefix", false)) else None
+            val next = memoryFinish(operation.state.copy(files = nextFiles), operation.ordinal, "write", path,
+              "offset=" + offset.toString + ",written=" + count.toString,
+              if warning.isDefined then "short-write" else "ok")
+            MemoryStep(next, Right(VfsWrite(count, warning)))
+
+def memoryTruncate(state: MemoryVfsState, handle: Int, size: Long): MemoryStep[Unit] =
+  val handleResult = memoryHandle(state, handle)
+  val path = handleResult match
+    case Right(value) => value.path
+    case Left(_) => ""
+  val operation = memoryBegin(state, "truncate", path)
+  memoryFaultBefore[Unit](operation, "truncate", path, "size=" + size.toString) match
+    case Some(step) => step
+    case None => handleResult match
+      case Left(error) => memoryStepLeft(operation.state, operation.ordinal, "truncate", path, "", error)
+      case Right(open) =>
+        if open.readOnly then memoryStepLeft(operation.state, operation.ordinal, "truncate", path, "", memoryError(
+          "readonly", "handle is read-only", false))
+        else if size < 0L || size > 2147483647L then memoryStepLeft(operation.state, operation.ordinal,
+          "truncate", path, "", memoryError("range", "truncate size is outside the memory VFS range", false))
+        else memoryFile(operation.state, path) match
+          case Left(error) => memoryStepLeft(operation.state, operation.ordinal, "truncate", path, "", error)
+          case Right(file) =>
+            val newSize = size.toInt
+            val changed = if newSize < file.bytes.length then byteSliceSlice(file.bytes, 0, newSize) match
+              case Right(value) => value
+              case Left(_) => memoryEmptyBytes()
+            else byteSliceZeroExtend(file.bytes, newSize) match
+              case Right(value) => value
+              case Left(_) => file.bytes
+            val next = operation.state.copy(files = operation.state.files.updated(path,
+              MemoryFileState(changed, file.kind)))
+            memoryStepRight(next, operation.ordinal, "truncate", path, "size=" + size.toString, ())
+
+def memorySync(state: MemoryVfsState, handle: Int, flags: SyncFlags): MemoryStep[Unit] =
+  val handleResult = memoryHandle(state, handle)
+  val path = handleResult match
+    case Right(value) => value.path
+    case Left(_) => ""
+  val operation = memoryBegin(state, "sync", path)
+  memoryFaultBefore[Unit](operation, "sync", path, "") match
+    case Some(step) => step
+    case None => handleResult match
+      case Left(error) => memoryStepLeft(operation.state, operation.ordinal, "sync", path, "", error)
+      case Right(_) => memoryFile(operation.state, path) match
+        case Left(error) => memoryStepLeft(operation.state, operation.ordinal, "sync", path, "", error)
+        case Right(file) =>
+          val next = operation.state.copy(durableFiles = operation.state.durableFiles.updated(path, file))
+          memoryStepRight(next, operation.ordinal, "sync", path,
+            "dataOnly=" + flags.dataOnly.toString + ",full=" + flags.full.toString, ())
+
+def memorySize(state: MemoryVfsState, handle: Int): MemoryStep[Long] =
+  val handleResult = memoryHandle(state, handle)
+  val path = handleResult match
+    case Right(value) => value.path
+    case Left(_) => ""
+  val operation = memoryBegin(state, "size", path)
+  memoryFaultBefore[Long](operation, "size", path, "") match
+    case Some(step) => step
+    case None => handleResult match
+      case Left(error) => memoryStepLeft(operation.state, operation.ordinal, "size", path, "", error)
+      case Right(_) => memoryFile(operation.state, path) match
+        case Left(error) => memoryStepLeft(operation.state, operation.ordinal, "size", path, "", error)
+        case Right(file) => memoryStepRight(operation.state, operation.ordinal, "size", path, "",
+          file.bytes.length.toLong)
+
+def memoryLockRank(level: LockLevel): Int = level match
+  case LockNone => 0
+  case LockShared => 1
+  case LockReserved => 2
+  case LockPending => 3
+  case LockExclusive => 4
+
+def memoryAcquireRollback(lock: MemoryRollbackLock, handle: Int, current: LockLevel, level: LockLevel): Either[VfsError, MemoryRollbackLock] =
+  if memoryLockRank(level) < memoryLockRank(current) then
+    Left(memoryError("misuse", "lock cannot downgrade; use memoryUnlock", false))
+  else level match
+    case LockNone => Right(lock)
+    case LockShared =>
+      if memoryOptionOther(lock.pending, handle) || memoryOptionOther(lock.exclusive, handle) then
+        Left(memoryError("busy", "pending/exclusive owner blocks a new shared lock", true))
+      else Right(lock.copy(shared = memoryIntAdd(lock.shared, handle)))
+    case LockReserved =>
+      if memoryLockRank(current) < 1 then Left(memoryError(
+        "misuse", "reserved lock requires shared ownership", false))
+      else if memoryOptionOther(lock.reserved, handle) || memoryOptionOther(lock.pending, handle) || memoryOptionOther(lock.exclusive, handle) then Left(memoryError(
+          "busy", "another handle owns the rollback writer lock", true))
+      else Right(lock.copy(shared = memoryIntAdd(lock.shared, handle), reserved = Some(handle)))
+    case LockPending =>
+      if lock.reserved != Some(handle) then Left(memoryError(
+        "misuse", "pending lock requires this handle's reserved lock", false))
+      else if memoryOptionOther(lock.pending, handle) || memoryOptionOther(lock.exclusive, handle) then
+        Left(memoryError("busy", "another handle owns pending/exclusive", true))
+      else Right(lock.copy(pending = Some(handle)))
+    case LockExclusive =>
+      if lock.reserved != Some(handle) then Left(memoryError(
+        "misuse", "exclusive lock requires this handle's reserved lock", false))
+      else if memoryOtherHolder(lock.shared, handle) || memoryOptionOther(lock.pending, handle) || memoryOptionOther(lock.exclusive, handle) then Left(memoryError(
+          "busy", "other shared or writer owners block exclusive", true))
+      else Right(lock.copy(pending = Some(handle), exclusive = Some(handle)))
+
+def memoryReleaseRollback(lock: MemoryRollbackLock, handle: Int, level: LockLevel): MemoryRollbackLock =
+  val rank = memoryLockRank(level)
+  MemoryRollbackLock(
+    if rank >= 1 then memoryIntAdd(lock.shared, handle) else memoryIntRemove(lock.shared, handle),
+    if rank >= 2 then Some(handle) else if lock.reserved == Some(handle) then None else lock.reserved,
+    if rank >= 3 then Some(handle) else if lock.pending == Some(handle) then None else lock.pending,
+    if rank >= 4 then Some(handle) else if lock.exclusive == Some(handle) then None else lock.exclusive
+  )
+
+def memoryLock(state: MemoryVfsState, handle: Int, level: LockLevel): MemoryStep[Unit] =
+  val handleResult = memoryHandle(state, handle)
+  val path = handleResult match
+    case Right(value) => value.path
+    case Left(_) => ""
+  val operation = memoryBegin(state, "lock", path)
+  memoryFaultBefore[Unit](operation, "lock", path, level.toString) match
+    case Some(step) => step
+    case None => handleResult match
+      case Left(error) => memoryStepLeft(operation.state, operation.ordinal, "lock", path, "", error)
+      case Right(open) =>
+        val current = operation.state.rollbackLocks.get(path).getOrElse(memoryEmptyRollbackLock())
+        memoryAcquireRollback(current, handle, open.lock, level) match
+          case Left(error) => memoryStepLeft(operation.state, operation.ordinal, "lock", path,
+            level.toString, error)
+          case Right(changed) =>
+            val nextHandle = open.copy(lock = level)
+            val next = operation.state.copy(
+              rollbackLocks = operation.state.rollbackLocks.updated(path, changed),
+              handles = operation.state.handles.updated(handle, nextHandle))
+            memoryStepRight(next, operation.ordinal, "lock", path, level.toString, ())
+
+def memoryUnlock(state: MemoryVfsState, handle: Int, level: LockLevel): MemoryStep[Unit] =
+  val handleResult = memoryHandle(state, handle)
+  val path = handleResult match
+    case Right(value) => value.path
+    case Left(_) => ""
+  val operation = memoryBegin(state, "unlock", path)
+  memoryFaultBefore[Unit](operation, "unlock", path, level.toString) match
+    case Some(step) => step
+    case None => handleResult match
+      case Left(error) => memoryStepLeft(operation.state, operation.ordinal, "unlock", path, "", error)
+      case Right(open) =>
+        if memoryLockRank(level) > memoryLockRank(open.lock) then
+          memoryStepLeft(operation.state, operation.ordinal, "unlock", path, level.toString,
+            memoryError("misuse", "unlock cannot upgrade", false))
+        else
+          val current = operation.state.rollbackLocks.get(path).getOrElse(memoryEmptyRollbackLock())
+          val changed = memoryReleaseRollback(current, handle, level)
+          val next = operation.state.copy(
+            rollbackLocks = operation.state.rollbackLocks.updated(path, changed),
+            handles = operation.state.handles.updated(handle, open.copy(lock = level)))
+          memoryStepRight(next, operation.ordinal, "unlock", path, level.toString, ())
+
+def memoryCheckReservedLock(state: MemoryVfsState, handle: Int): MemoryStep[Boolean] =
+  val handleResult = memoryHandle(state, handle)
+  val path = handleResult match
+    case Right(value) => value.path
+    case Left(_) => ""
+  val operation = memoryBegin(state, "check-reserved", path)
+  memoryFaultBefore[Boolean](operation, "check-reserved", path, "") match
+    case Some(step) => step
+    case None => handleResult match
+      case Left(error) => memoryStepLeft(operation.state, operation.ordinal, "check-reserved", path, "", error)
+      case Right(_) =>
+        val lock = operation.state.rollbackLocks.get(path).getOrElse(memoryEmptyRollbackLock())
+        memoryStepRight(operation.state, operation.ordinal, "check-reserved", path, "",
+          lock.reserved.isDefined || lock.pending.isDefined || lock.exclusive.isDefined)
+
+def memoryShmFor(state: MemoryVfsState, path: String): MemoryShmState =
+  state.sharedMemory.get(path).getOrElse(memoryEmptyShm())
+
+def memoryShmMap(state: MemoryVfsState, handle: Int, region: Int, size: Int, extend: Boolean): MemoryStep[ByteSlice] =
+  val handleResult = memoryHandle(state, handle)
+  val path = handleResult match
+    case Right(value) => value.path
+    case Left(_) => ""
+  val operation = memoryBegin(state, "shm-map", path)
+  memoryFaultBefore[ByteSlice](operation, "shm-map", path, "region=" + region.toString) match
+    case Some(step) => step
+    case None => handleResult match
+      case Left(error) => memoryStepLeft(operation.state, operation.ordinal, "shm-map", path, "", error)
+      case Right(open) =>
+        if region < 0 || size <= 0 then memoryStepLeft(operation.state, operation.ordinal, "shm-map", path,
+          "", memoryError("range", "shared-memory region and size must be positive", false))
+        else
+          val shm = memoryShmFor(operation.state, path)
+          shm.regions.get(region) match
+            case None =>
+              if !extend then memoryStepLeft(operation.state, operation.ordinal, "shm-map", path, "",
+                memoryError("not-found", "shared-memory region does not exist", false))
+              else ByteSlice.zeros(size) match
+                case Left(_) => memoryStepLeft(operation.state, operation.ordinal, "shm-map", path, "",
+                  memoryError("range", "invalid shared-memory region size", false))
+                case Right(bytes) =>
+                  val changed = shm.copy(regions = shm.regions.updated(region, bytes))
+                  val next = operation.state.copy(
+                    sharedMemory = operation.state.sharedMemory.updated(path, changed),
+                    handles = operation.state.handles.updated(handle, open.copy(shmMapped = true)))
+                  memoryStepRight(next, operation.ordinal, "shm-map", path, "region=" + region.toString, bytes)
+            case Some(bytes) =>
+              if bytes.length < size && !extend then memoryStepLeft(operation.state, operation.ordinal,
+                "shm-map", path, "", memoryError("short-region", "shared-memory region is smaller", false))
+              else
+                val grown = if bytes.length < size then byteSliceZeroExtend(bytes, size) match
+                  case Right(value) => value
+                  case Left(_) => bytes
+                else bytes
+                val changed = shm.copy(regions = shm.regions.updated(region, grown))
+                val next = operation.state.copy(
+                  sharedMemory = operation.state.sharedMemory.updated(path, changed),
+                  handles = operation.state.handles.updated(handle, open.copy(shmMapped = true)))
+                memoryStepRight(next, operation.ordinal, "shm-map", path, "region=" + region.toString, grown)
+
+def memoryShmRead(state: MemoryVfsState, handle: Int, region: Int, offset: Int, length: Int): MemoryStep[ByteSlice] =
+  val handleResult = memoryHandle(state, handle)
+  val path = handleResult match
+    case Right(value) => value.path
+    case Left(_) => ""
+  val operation = memoryBegin(state, "shm-read", path)
+  memoryFaultBefore[ByteSlice](operation, "shm-read", path, "region=" + region.toString) match
+    case Some(step) => step
+    case None => handleResult match
+      case Left(error) => memoryStepLeft(operation.state, operation.ordinal, "shm-read", path, "", error)
+      case Right(_) => memoryShmFor(operation.state, path).regions.get(region) match
+        case None => memoryStepLeft(operation.state, operation.ordinal, "shm-read", path, "",
+          memoryError("not-found", "shared-memory region does not exist", false))
+        case Some(bytes) => byteSliceSlice(bytes, offset, length) match
+          case Left(_) => memoryStepLeft(operation.state, operation.ordinal, "shm-read", path, "",
+            memoryError("range", "shared-memory read is outside the region", false))
+          case Right(value) => memoryStepRight(operation.state, operation.ordinal, "shm-read", path,
+            "region=" + region.toString, value)
+
+def memoryShmWrite(state: MemoryVfsState, handle: Int, region: Int, offset: Int, bytes: ByteSlice): MemoryStep[Unit] =
+  val handleResult = memoryHandle(state, handle)
+  val path = handleResult match
+    case Right(value) => value.path
+    case Left(_) => ""
+  val operation = memoryBegin(state, "shm-write", path)
+  memoryFaultBefore[Unit](operation, "shm-write", path, "region=" + region.toString) match
+    case Some(step) => step
+    case None => handleResult match
+      case Left(error) => memoryStepLeft(operation.state, operation.ordinal, "shm-write", path, "", error)
+      case Right(open) =>
+        if open.readOnly then memoryStepLeft(operation.state, operation.ordinal, "shm-write", path, "",
+          memoryError("readonly", "handle is read-only", false))
+        else
+          val shm = memoryShmFor(operation.state, path)
+          shm.regions.get(region) match
+            case None => memoryStepLeft(operation.state, operation.ordinal, "shm-write", path, "",
+              memoryError("not-found", "shared-memory region does not exist", false))
+            case Some(target) => byteSliceCopyTo(bytes, target, offset) match
+              case Left(_) => memoryStepLeft(operation.state, operation.ordinal, "shm-write", path, "",
+                memoryError("range", "shared-memory write is outside the region", false))
+              case Right(changedBytes) =>
+                val changed = shm.copy(regions = shm.regions.updated(region, changedBytes))
+                val next = operation.state.copy(sharedMemory = operation.state.sharedMemory.updated(path, changed))
+                memoryStepRight(next, operation.ordinal, "shm-write", path, "region=" + region.toString, ())
+
+def memoryShmLockAvailable(shm: MemoryShmState, handle: Int, offset: Int, count: Int, exclusive: Boolean, index: Int): Boolean =
+  if index >= count then true
+  else
+    val lock = shm.locks.get(offset + index).getOrElse(memoryEmptyShmByteLock())
+    val available = if exclusive then !memoryOptionOther(lock.exclusive, handle) && !memoryOtherHolder(lock.shared, handle)
+    else !memoryOptionOther(lock.exclusive, handle)
+    available && memoryShmLockAvailable(shm, handle, offset, count, exclusive, index + 1)
+
+def memoryShmLockChange(locks: Map[Int, MemoryShmByteLock], handle: Int, offset: Int, count: Int, mode: ShmLockMode, index: Int): Map[Int, MemoryShmByteLock] =
+  if index >= count then locks
+  else
+    val position = offset + index
+    val current = locks.get(position).getOrElse(memoryEmptyShmByteLock())
+    val changed = mode match
+      case ShmSharedLock => current.copy(shared = memoryIntAdd(current.shared, handle))
+      case ShmExclusiveLock => current.copy(shared = memoryIntRemove(current.shared, handle),
+        exclusive = Some(handle))
+      case ShmSharedUnlock => current.copy(shared = memoryIntRemove(current.shared, handle))
+      case ShmExclusiveUnlock => current.copy(
+        exclusive = if current.exclusive == Some(handle) then None else current.exclusive)
+    memoryShmLockChange(locks.updated(position, changed), handle, offset, count, mode, index + 1)
+
+def memoryShmLock(state: MemoryVfsState, handle: Int, offset: Int, count: Int, mode: ShmLockMode): MemoryStep[Unit] =
+  val handleResult = memoryHandle(state, handle)
+  val path = handleResult match
+    case Right(value) => value.path
+    case Left(_) => ""
+  val operation = memoryBegin(state, "shm-lock", path)
+  memoryFaultBefore[Unit](operation, "shm-lock", path, "offset=" + offset.toString) match
+    case Some(step) => step
+    case None => handleResult match
+      case Left(error) => memoryStepLeft(operation.state, operation.ordinal, "shm-lock", path, "", error)
+      case Right(_) =>
+        if offset < 0 || count <= 0 || offset + count > 8 then
+          memoryStepLeft(operation.state, operation.ordinal, "shm-lock", path, "",
+            memoryError("range", "WAL shared-memory lock range must be inside 0..7", false))
+        else
+          val shm = memoryShmFor(operation.state, path)
+          val acquiring = mode == ShmSharedLock || mode == ShmExclusiveLock
+          val exclusive = mode == ShmExclusiveLock
+          if acquiring && !memoryShmLockAvailable(shm, handle, offset, count, exclusive, 0) then
+            memoryStepLeft(operation.state, operation.ordinal, "shm-lock", path, "",
+              memoryError("busy", "overlapping WAL shared-memory lock is owned", true))
+          else
+            val changed = shm.copy(locks = memoryShmLockChange(shm.locks, handle, offset, count, mode, 0))
+            val next = operation.state.copy(sharedMemory = operation.state.sharedMemory.updated(path, changed))
+            memoryStepRight(next, operation.ordinal, "shm-lock", path,
+              "offset=" + offset.toString + ",count=" + count.toString, ())
+
+def memoryShmBarrier(state: MemoryVfsState, handle: Int): MemoryStep[Unit] =
+  val handleResult = memoryHandle(state, handle)
+  val path = handleResult match
+    case Right(value) => value.path
+    case Left(_) => ""
+  val operation = memoryBegin(state, "shm-barrier", path)
+  memoryFaultBefore[Unit](operation, "shm-barrier", path, "") match
+    case Some(step) => step
+    case None => handleResult match
+      case Left(error) => memoryStepLeft(operation.state, operation.ordinal, "shm-barrier", path, "", error)
+      case Right(_) => memoryStepRight(operation.state, operation.ordinal, "shm-barrier", path, "", ())
+
+def memoryReleaseShmHandle(shm: MemoryShmState, handle: Int, position: Int): MemoryShmState =
+  if position >= 8 then shm
+  else
+    val current = shm.locks.get(position).getOrElse(memoryEmptyShmByteLock())
+    val changed = current.copy(shared = memoryIntRemove(current.shared, handle),
+      exclusive = if current.exclusive == Some(handle) then None else current.exclusive)
+    memoryReleaseShmHandle(shm.copy(locks = shm.locks.updated(position, changed)), handle, position + 1)
+
+def memoryShmUnmap(state: MemoryVfsState, handle: Int, delete: Boolean): MemoryStep[Unit] =
+  val handleResult = memoryHandle(state, handle)
+  val path = handleResult match
+    case Right(value) => value.path
+    case Left(_) => ""
+  val operation = memoryBegin(state, "shm-unmap", path)
+  memoryFaultBefore[Unit](operation, "shm-unmap", path, "delete=" + delete.toString) match
+    case Some(step) => step
+    case None => handleResult match
+      case Left(error) => memoryStepLeft(operation.state, operation.ordinal, "shm-unmap", path, "", error)
+      case Right(open) =>
+        val released = memoryReleaseShmHandle(memoryShmFor(operation.state, path), handle, 0)
+        val shared = if delete then memoryMapWithout(operation.state.sharedMemory, path)
+          else operation.state.sharedMemory.updated(path, released)
+        val next = operation.state.copy(sharedMemory = shared,
+          handles = operation.state.handles.updated(handle, open.copy(shmMapped = false)))
+        memoryStepRight(next, operation.ordinal, "shm-unmap", path, "delete=" + delete.toString, ())
+
+def memoryClose(state: MemoryVfsState, handle: Int): MemoryStep[Unit] =
+  val handleResult = memoryHandle(state, handle)
+  val path = handleResult match
+    case Right(value) => value.path
+    case Left(_) => ""
+  val operation = memoryBegin(state, "close", path)
+  memoryFaultBefore[Unit](operation, "close", path, "") match
+    case Some(step) => step
+    case None => handleResult match
+      case Left(error) => memoryStepLeft(operation.state, operation.ordinal, "close", path, "", error)
+      case Right(open) =>
+        val rollback = memoryReleaseRollback(
+          operation.state.rollbackLocks.get(path).getOrElse(memoryEmptyRollbackLock()), handle, LockNone)
+        val releasedShm = memoryReleaseShmHandle(memoryShmFor(operation.state, path), handle, 0)
+        val remainingHandles = memoryMapWithout(operation.state.handles, handle)
+        val last = !memoryHandlesPath(remainingHandles.values.toList, path, -1)
+        val files = if open.deleteOnClose && last then memoryMapWithout(operation.state.files, path) else operation.state.files
+        val durable = if open.deleteOnClose && last then memoryMapWithout(operation.state.durableFiles, path)
+          else operation.state.durableFiles
+        val shared = if open.deleteOnClose && last then memoryMapWithout(operation.state.sharedMemory, path)
+          else operation.state.sharedMemory.updated(path, releasedShm)
+        val next = operation.state.copy(files = files, durableFiles = durable, handles = remainingHandles,
+          rollbackLocks = operation.state.rollbackLocks.updated(path, rollback), sharedMemory = shared)
+        memoryStepRight(next, operation.ordinal, "close", path, "", ())
+
+def memoryRandomBytes(length: Int, state: Long, acc: List[Int]): (Long, List[Int]) =
+  if length <= 0 then (state, acc.reverse)
+  else
+    val next = (state * 1103515245L + 12345L) & 2147483647L
+    memoryRandomBytes(length - 1, next, (next & 255L).toInt :: acc)
+
+def memoryRandomness(state: MemoryVfsState, length: Int): MemoryStep[ByteSlice] =
+  val operation = memoryBegin(state, "randomness", "")
+  memoryFaultBefore[ByteSlice](operation, "randomness", "", "length=" + length.toString) match
+    case Some(step) => step
+    case None =>
+      if length < 0 then memoryStepLeft(operation.state, operation.ordinal, "randomness", "", "",
+        memoryError("range", "randomness length must be non-negative", false))
+      else
+        val generated = memoryRandomBytes(length, operation.state.randomState, Nil)
+        ByteSlice.fromList(generated._2) match
+          case Left(_) => memoryStepLeft(operation.state, operation.ordinal, "randomness", "", "",
+            memoryError("internal", "generated byte was outside 0..255", false))
+          case Right(bytes) => memoryStepRight(operation.state.copy(randomState = generated._1),
+            operation.ordinal, "randomness", "", "length=" + length.toString, bytes)
+
+def memorySleep(state: MemoryVfsState, millis: Long): MemoryStep[Unit] =
+  val operation = memoryBegin(state, "sleep", "")
+  memoryFaultBefore[Unit](operation, "sleep", "", "millis=" + millis.toString) match
+    case Some(step) => step
+    case None =>
+      if millis < 0L then memoryStepLeft(operation.state, operation.ordinal, "sleep", "", "",
+        memoryError("range", "sleep duration must be non-negative", false))
+      else memoryStepRight(operation.state.copy(clockMillis = operation.state.clockMillis + millis),
+        operation.ordinal, "sleep", "", "millis=" + millis.toString, ())
+
+def memoryCurrentTimeMillis(state: MemoryVfsState): Long = state.clockMillis
+```

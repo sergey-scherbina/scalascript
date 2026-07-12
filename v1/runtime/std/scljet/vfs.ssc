@@ -1,7 +1,7 @@
 ---
 name: scljet-vfs
-version: 0.1.0
-description: M0 target-neutral random-access, locking, durability, and shared-memory VFS contracts for SclJet
+version: 0.2.0
+description: M1 target-neutral random-access, short-I/O, locking, durability, and shared-memory VFS contracts for SclJet
 package: scljet
 exports:
   - FileKind
@@ -33,6 +33,8 @@ exports:
   - ShmSharedUnlock
   - ShmExclusiveUnlock
   - VfsError
+  - VfsRead
+  - VfsWrite
   - SharedRegion
   - SqliteFile
   - SqliteVfs
@@ -93,6 +95,8 @@ case object ShmSharedUnlock extends ShmLockMode
 case object ShmExclusiveUnlock extends ShmLockMode
 
 case class VfsError(code: String, message: String, retryable: Boolean)
+case class VfsRead(bytes: ByteSlice, warning: Option[VfsError])
+case class VfsWrite(bytesWritten: Int, warning: Option[VfsError])
 ```
 
 ## Shared memory and random-access files
@@ -104,8 +108,8 @@ trait SharedRegion:
   def write(offset: Int, bytes: ByteSlice): Either[VfsError, Unit]
 
 trait SqliteFile:
-  def readAt(offset: Long, length: Int): Either[VfsError, ByteSlice]
-  def writeAt(offset: Long, bytes: ByteSlice): Either[VfsError, Unit]
+  def readAt(offset: Long, length: Int): Either[VfsError, VfsRead]
+  def writeAt(offset: Long, bytes: ByteSlice): Either[VfsError, VfsWrite]
   def truncate(size: Long): Either[VfsError, Unit]
   def sync(flags: SyncFlags): Either[VfsError, Unit]
   def size(): Either[VfsError, Long]

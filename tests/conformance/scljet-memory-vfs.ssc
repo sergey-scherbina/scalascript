@@ -1,0 +1,129 @@
+#!/usr/bin/env ssc
+---
+name: scljet-memory-vfs
+description: Deterministic immutable SclJet memory VFS transitions, locks, SHM, and faults
+backends: [int]
+---
+
+# SclJet memory VFS M1
+
+[ByteSlice, byteSliceToList, MainDatabaseFile, OpenFlags, SyncFlags, LockNone, LockShared, LockReserved, LockPending, LockExclusive, ShmSharedLock, ShmExclusiveLock, ShmSharedUnlock, VfsError, FaultError, FaultShortRead, FaultShortWrite, FaultCrash, MemoryFaultRule, MemoryStep, VfsRead, VfsWrite, memoryVfs, memoryCanonicalPath, memoryOpen, memoryDelete, memoryExists, memoryReadAt, memoryWriteAt, memoryTruncate, memorySync, memorySize, memoryLock, memoryUnlock, memoryCheckReservedLock, memoryShmMap, memoryShmRead, memoryShmWrite, memoryShmLock, memoryShmUnmap, memoryClose, memoryRandomness, memorySleep, memoryCurrentTimeMillis, memoryCrash](std/scljet/index.ssc)
+
+```scalascript
+def mustBytes(values: List[Int]): ByteSlice = ByteSlice.fromList(values) match
+  case Right(bytes) => bytes
+  case Left(_) => ByteSlice.empty
+
+def handleOf(step: MemoryStep[Int]): Int = step.result match
+  case Right(handle) => handle
+  case Left(_) => -1
+
+def readList(step: MemoryStep[VfsRead]): List[Int] = step.result match
+  case Right(read) => byteSliceToList(read.bytes)
+  case Left(_) => Nil
+
+def readWarned(step: MemoryStep[VfsRead]): Boolean = step.result match
+  case Right(read) => read.warning.isDefined
+  case Left(_) => false
+
+def bytesList(step: MemoryStep[ByteSlice]): List[Int] = step.result match
+  case Right(bytes) => byteSliceToList(bytes)
+  case Left(_) => Nil
+
+println(memoryCanonicalPath("/tmp/./work/../db.sqlite"))
+
+val flags = OpenFlags(false, true, true, false, false)
+val reopenFlags = OpenFlags(false, true, false, false, false)
+val opened = memoryOpen(memoryVfs(7L, 1000L, Nil), "/tmp/../db.sqlite", MainDatabaseFile, flags)
+val handle = handleOf(opened)
+println(handle)
+
+val written = memoryWriteAt(opened.state, handle, 2L, mustBytes(List(1, 2, 3)))
+println(written.result)
+val read = memoryReadAt(written.state, handle, 1L, 6)
+println(readList(read))
+println(readWarned(read))
+println(memorySize(read.state, handle).result)
+
+val synced = memorySync(read.state, handle, SyncFlags(false, true, false))
+val changed = memoryWriteAt(synced.state, handle, 0L, mustBytes(List(9)))
+val crashed = memoryCrash(changed.state)
+val reopened = memoryOpen(crashed, "/db.sqlite", MainDatabaseFile, reopenFlags)
+val reopenedHandle = handleOf(reopened)
+val afterCrash = memoryReadAt(reopened.state, reopenedHandle, 0L, 5)
+println(readList(afterCrash))
+val truncated = memoryTruncate(afterCrash.state, reopenedHandle, 7L)
+println(readList(memoryReadAt(truncated.state, reopenedHandle, 0L, 7)))
+println(memoryExists(truncated.state, "/./db.sqlite").result)
+println(memoryDelete(truncated.state, "/db.sqlite", true).result.isLeft)
+val closed = memoryClose(truncated.state, reopenedHandle)
+val deleted = memoryDelete(closed.state, "/db.sqlite", true)
+println(deleted.result.isRight)
+println(memoryExists(deleted.state, "/db.sqlite").result)
+
+val openA = memoryOpen(memoryVfs(1L, 0L, Nil), "/locks.db", MainDatabaseFile, flags)
+val openB = memoryOpen(openA.state, "/locks.db", MainDatabaseFile, reopenFlags)
+val a = handleOf(openA)
+val b = handleOf(openB)
+val aShared = memoryLock(openB.state, a, LockShared)
+val bShared = memoryLock(aShared.state, b, LockShared)
+val aReserved = memoryLock(bShared.state, a, LockReserved)
+println(aReserved.result.isRight)
+println(memoryLock(aReserved.state, b, LockReserved).result.isLeft)
+println(memoryLock(aReserved.state, a, LockExclusive).result.isLeft)
+val bNone = memoryUnlock(aReserved.state, b, LockNone)
+val aPending = memoryLock(bNone.state, a, LockPending)
+val aExclusive = memoryLock(aPending.state, a, LockExclusive)
+println(aExclusive.result.isRight)
+println(memoryCheckReservedLock(aExclusive.state, b).result)
+
+val mapA = memoryShmMap(aExclusive.state, a, 0, 8, true)
+val mapB = memoryShmMap(mapA.state, b, 0, 8, false)
+val shmA = memoryShmLock(mapB.state, a, 3, 2, ShmSharedLock)
+val shmB = memoryShmLock(shmA.state, b, 3, 2, ShmSharedLock)
+println(shmB.result.isRight)
+println(memoryShmLock(shmB.state, a, 3, 2, ShmExclusiveLock).result.isLeft)
+val shmBFree = memoryShmLock(shmB.state, b, 3, 2, ShmSharedUnlock)
+val shmAX = memoryShmLock(shmBFree.state, a, 3, 2, ShmExclusiveLock)
+println(shmAX.result.isRight)
+val shmWrite = memoryShmWrite(shmAX.state, a, 0, 2, mustBytes(List(7, 8)))
+val shmRead = memoryShmRead(shmWrite.state, b, 0, 0, 5)
+println(bytesList(shmRead))
+val shmBUnmapped = memoryShmUnmap(shmRead.state, b, false)
+val shmADeleted = memoryShmUnmap(shmBUnmapped.state, a, true)
+println(memoryShmMap(shmADeleted.state, b, 0, 8, false).result.isLeft)
+
+val faultRules = List(
+  MemoryFaultRule(2L, Some("write"), Some("/fault.db"), FaultShortWrite(2)),
+  MemoryFaultRule(3L, Some("read"), Some("/fault.db"), FaultShortRead(1)),
+  MemoryFaultRule(6L, Some("size"), Some("/fault.db"), FaultCrash)
+)
+val faultOpen = memoryOpen(memoryVfs(5L, 10L, faultRules), "/fault.db", MainDatabaseFile, flags)
+val fh = handleOf(faultOpen)
+val faultWrite = memoryWriteAt(faultOpen.state, fh, 0L, mustBytes(List(1, 2, 3, 4)))
+println(faultWrite.result)
+val faultRead = memoryReadAt(faultWrite.state, fh, 0L, 4)
+println(readList(faultRead))
+println(readWarned(faultRead))
+val faultSync = memorySync(faultRead.state, fh, SyncFlags(false, true, false))
+val faultChange = memoryWriteAt(faultSync.state, fh, 0L, mustBytes(List(9)))
+val faultCrash = memorySize(faultChange.state, fh)
+println(faultCrash.result.isLeft)
+val faultReopen = memoryOpen(faultCrash.state, "/fault.db", MainDatabaseFile, reopenFlags)
+println(readList(memoryReadAt(faultReopen.state, handleOf(faultReopen), 0L, 2)))
+println(faultReopen.state.operationCounter)
+println(faultReopen.state.trace.length)
+
+val errorRules = List(MemoryFaultRule(2L, Some("write"), Some("/error.db"),
+  FaultError(VfsError("io", "injected write failure", true))))
+val errorOpen = memoryOpen(memoryVfs(1L, 0L, errorRules), "/error.db", MainDatabaseFile, flags)
+val errorWrite = memoryWriteAt(errorOpen.state, handleOf(errorOpen), 0L, mustBytes(List(1)))
+println(errorWrite.result)
+println(memorySize(errorWrite.state, handleOf(errorOpen)).result)
+
+val randomA = memoryRandomness(memoryVfs(42L, 100L, Nil), 4)
+val randomB = memoryRandomness(memoryVfs(42L, 100L, Nil), 4)
+println(bytesList(randomA) == bytesList(randomB))
+val slept = memorySleep(randomA.state, 25L)
+println(memoryCurrentTimeMillis(slept.state))
+```

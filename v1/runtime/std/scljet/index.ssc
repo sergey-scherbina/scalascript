@@ -130,9 +130,49 @@ exports:
   - ShmSharedUnlock
   - ShmExclusiveUnlock
   - VfsError
+  - VfsRead
+  - VfsWrite
   - SharedRegion
   - SqliteFile
   - SqliteVfs
+  - MemoryFaultEffect
+  - FaultError
+  - FaultShortRead
+  - FaultShortWrite
+  - FaultCrash
+  - MemoryFaultRule
+  - MemoryFileState
+  - MemoryHandleState
+  - MemoryRollbackLock
+  - MemoryShmByteLock
+  - MemoryShmState
+  - MemoryTrace
+  - MemoryVfsState
+  - MemoryStep
+  - memoryVfs
+  - memoryCanonicalPath
+  - memoryOpen
+  - memoryDelete
+  - memoryExists
+  - memoryReadAt
+  - memoryWriteAt
+  - memoryTruncate
+  - memorySync
+  - memorySize
+  - memoryLock
+  - memoryUnlock
+  - memoryCheckReservedLock
+  - memoryShmMap
+  - memoryShmRead
+  - memoryShmWrite
+  - memoryShmLock
+  - memoryShmBarrier
+  - memoryShmUnmap
+  - memoryClose
+  - memoryRandomness
+  - memorySleep
+  - memoryCurrentTimeMillis
+  - memoryCrash
   - FunctionArity
   - FixedArity
   - VariadicArity
@@ -164,7 +204,9 @@ interfaces and prove compatibility through differential and crash testing.
 
 [SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, SqliteColumn, SqliteRow, SqliteErrorCode, SqliteErrorGeneric, SqliteInternal, SqlitePermission, SqliteAbort, SqliteBusy, SqliteLocked, SqliteNoMemory, SqliteReadOnly, SqliteInterrupt, SqliteIo, SqliteCorrupt, SqliteNotFound, SqliteFull, SqliteCannotOpen, SqliteProtocol, SqliteSchemaChanged, SqliteTooBig, SqliteConstraint, SqliteMismatch, SqliteMisuse, SqliteFormat, SqliteRange, SqliteNotADatabase, SqliteUnsupportedCapability, SqliteError, SqliteCompatibility, StrictSqlite, ExtendedSqlite, ReadOnlySalvage, SqliteOpenMode, OpenReadOnly, OpenReadWrite, OpenReadWriteCreate, OpenMemory, SqliteJournalMode, JournalDelete, JournalTruncate, JournalPersist, JournalMemory, JournalWal, JournalOff, SqliteSyncMode, SyncOff, SyncNormal, SyncFull, SyncExtra, TransactionMode, TransactionDeferred, TransactionImmediate, TransactionExclusive, CheckpointMode, CheckpointPassive, CheckpointFull, CheckpointRestart, CheckpointTruncate, CheckpointResult, SqliteLimits, SqliteOpenOptions](values.ssc)
 
-[FileKind, MainDatabaseFile, MainJournalFile, WalFile, ShmFile, TempDatabaseFile, TempJournalFile, TransientFile, OpenFlags, LockLevel, LockNone, LockShared, LockReserved, LockPending, LockExclusive, SyncFlags, DeviceCharacteristic, AtomicWrite, SafeAppend, SequentialWrite, PowersafeOverwrite, UndeletableWhenOpen, AtomicDelete, ShmLockMode, ShmSharedLock, ShmExclusiveLock, ShmSharedUnlock, ShmExclusiveUnlock, VfsError, SharedRegion, SqliteFile, SqliteVfs](vfs.ssc)
+[FileKind, MainDatabaseFile, MainJournalFile, WalFile, ShmFile, TempDatabaseFile, TempJournalFile, TransientFile, OpenFlags, LockLevel, LockNone, LockShared, LockReserved, LockPending, LockExclusive, SyncFlags, DeviceCharacteristic, AtomicWrite, SafeAppend, SequentialWrite, PowersafeOverwrite, UndeletableWhenOpen, AtomicDelete, ShmLockMode, ShmSharedLock, ShmExclusiveLock, ShmSharedUnlock, ShmExclusiveUnlock, VfsError, VfsRead, VfsWrite, SharedRegion, SqliteFile, SqliteVfs](vfs.ssc)
+
+[MemoryFaultEffect, FaultError, FaultShortRead, FaultShortWrite, FaultCrash, MemoryFaultRule, MemoryFileState, MemoryHandleState, MemoryRollbackLock, MemoryShmByteLock, MemoryShmState, MemoryTrace, MemoryVfsState, MemoryStep, memoryVfs, memoryCanonicalPath, memoryOpen, memoryDelete, memoryExists, memoryReadAt, memoryWriteAt, memoryTruncate, memorySync, memorySize, memoryLock, memoryUnlock, memoryCheckReservedLock, memoryShmMap, memoryShmRead, memoryShmWrite, memoryShmLock, memoryShmBarrier, memoryShmUnmap, memoryClose, memoryRandomness, memorySleep, memoryCurrentTimeMillis, memoryCrash](memory-vfs.ssc)
 
 ## Application-defined functions and collations
 

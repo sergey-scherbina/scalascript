@@ -1,0 +1,33 @@
+Right(/tmp/db.sqlite)
+1
+Right(VfsWrite(3, None))
+List(0, 1, 2, 3, 0, 0)
+true
+Right(5)
+List(0, 0, 1, 2, 3)
+List(0, 0, 1, 2, 3, 0, 0)
+Right(true)
+true
+true
+Right(false)
+true
+true
+true
+true
+Right(true)
+true
+true
+true
+List(0, 0, 7, 8, 0)
+true
+Right(VfsWrite(2, Some(VfsError(short-write, write mutated only the injected prefix, false))))
+List(1, 0, 0, 0)
+true
+true
+List(1, 2)
+7
+7
+Left(VfsError(io, injected write failure, true))
+Right(0)
+true
+125
