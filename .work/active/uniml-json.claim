@@ -1,6 +1,6 @@
 feature/uniml-json 2026-07-12T10:35:36Z
 agent: codex
-heartbeat: 2026-07-12T10:35:36Z
-status: not-started
-done-so-far:
-next: create the isolated worktree, queue the JSON slice, and write the adapter specification
+heartbeat: 2026-07-12T10:35:56Z
+status: in-progress
+done-so-far: claim published and feature/uniml-json worktree created
+next: queue the JSON slice and write the adapter specification before implementation
