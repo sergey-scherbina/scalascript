@@ -9,10 +9,26 @@ DONE + on main:
     Main.compileViaBackend (opt-in SSC_JIT_TYPESTATS) typechecks the SAME module -> nodeTypes ->
     InterpreterBackend.compileAstModule -> interp.nodeTypes -> JitRuntime.typeMapFor closure ->
     VmCompiler 4th arg + Ctx.vmTypeOf (SType->VmType bridge) + opt-in coverage counters.
-    IDENTITY-KEY PROVEN empirically (SscVmTest: nodeTypes.get(fn.body) != null, typed Int; no
-    tree-copy on the C-2 path). Behaviour-neutral (default = empty map; SscVmTest 177/177; with-flag
-    conformance identical). This slice PLUMBS+MEASURES; does NOT yet consume types in codegen.
-next (C-3 consumption / C-4): seed the param loop (VmCompiler ~898-908) + compileInto register
-  types from ctx.vmTypeOf instead of TInt-default/decltpe; then remove type-unknown bails one class
-  at a time (each A/B via the coverage counters + JitMissStats). Gate: conformance green + miss-count
-  drop + (quiet machine) no hot-path bench regression. RISK: this is the codegen-changing part.
+    IDENTITY-KEY PROVEN empirically. Behaviour-neutral (default = empty map).
+  C-3 CONSUMPTION #1 (e72e4dcf2, 2026-07-12) — call-result type upgrade at the ONE heuristic-miss
+    bail-to-TInt site (VmCompiler ~612). When calleeIsDouble/calleeReturnsRef both give up (would
+    default TInt), consult ctx.vmTypeOf(callee.body) and UPGRADE TInt->TDouble/TRef. Never overrides
+    a heuristic hit; never fires on empty map -> can only ENABLE more/correct compilation at a site
+    already giving up, NEVER regress a hot path (this is why it's perf-safe even without a bench gate:
+    correctness is conformance-verifiable + timing-independent). callResultUpgrades counter added.
+    VALUE PROVEN: SscVmTest value-demo — delegating-Double chain (`def mid(x)=base(x)`, base:Double)
+    that calleeIsDouble misses (it doesn't follow delegation, unlike calleeReturnsRef). With map:
+    compiles, counter++, top(4)=12.0. Without: bails-or-wrong. So it closes a LATENT correctness gap,
+    not a no-op. Verified: SscVmTest 178/178; INT conformance 146/146 identical with map active (16
+    fails = known non-INT-eligible backends: cases, unchanged from C-2 baseline).
+LESSON (Sergiy, "Рассуждай логично"): the "compile-more-at-bail-sites" consumption class is
+  perf-SAFE (only touches sites already defaulting/bailing, never live hot paths) and
+  conformance-VERIFIABLE (correctness is timing-independent). So it does NOT need the quiet-machine
+  bench gate — that gate only guards codegen changes that alter ALREADY-compiling hot paths.
+next (C-3 consumption #2+ / C-4):
+  - param seed loop (VmCompiler ~941-951): params are already annotated (unannotated def params
+    error "Undefined") so map-seeding params is MOOT for correctness — skip unless it unblocks a bail.
+  - other bail-to-TInt/unknown sites: unifyRet mixed-returns (252), typeGateOk (164), call-arg
+    mismatch (604) — each a candidate to consult the map + upgrade rather than bail. Apply the same
+    discipline: only UPGRADE an unknown default, verify via conformance + callResultUpgrades/JitMiss
+    counters. Hot-path-altering changes still want the quiet-machine bench (recursionFib/patternMatch).

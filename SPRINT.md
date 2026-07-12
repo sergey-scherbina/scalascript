@@ -1208,12 +1208,17 @@ for in-process runs, and `inferType` already computes per-node `SType` (just dis
       cases identical; the 16 non-matches are all non-INT-eligible). REMAINING (folds into C-3):
       run the Typer on the run path to produce `nodeTypes` + thread it in (needs a `Typer.typeCheck`
       companion returning `(TypedModule, nodeTypes)`).
-- [~] **C-3-vmcompiler-consumes-map** — PLUMBING DONE (b188bd2ef, lucky-perch 2026-07-12): nodeTypes
-      threaded end-to-end to VmCompiler (4th arg + Ctx.vmTypeOf SType->VmType bridge), opt-in via
-      SSC_JIT_TYPESTATS. IDENTITY-KEY proven empirically (SscVmTest: FunV.body is a nodeTypes key,
-      typed Int). Behaviour-neutral (default empty map; SscVmTest 177/177; with-flag conformance
-      identical). REMAINING: consume the types (seed regType/param/return from the map) — the
-      codegen-changing part; folds into C-4.
+- [~] **C-3-vmcompiler-consumes-map** — PLUMBING DONE (b188bd2ef) + CONSUMPTION #1 DONE (e72e4dcf2,
+      lucky-perch 2026-07-12). Plumbing: nodeTypes threaded end-to-end to VmCompiler (4th arg +
+      Ctx.vmTypeOf SType->VmType bridge), opt-in via SSC_JIT_TYPESTATS; identity-key proven.
+      Consumption #1: call-result type UPGRADE at the one heuristic-miss bail-to-TInt site — when
+      calleeIsDouble/calleeReturnsRef both give up, consult ctx.vmTypeOf(callee.body) and upgrade
+      TInt->TDouble/TRef (never overrides a hit; never fires on empty map). VALUE PROVEN via a
+      delegating-Double value-demo test (calleeIsDouble doesn't follow delegation → the map catches
+      it → closes a latent correctness gap, not a no-op). Verified: SscVmTest 178/178; INT conformance
+      146/146 identical with map active. LESSON: this "compile-more-at-bail-sites" class is perf-safe
+      (never touches live hot paths) + conformance-verifiable → needs no bench gate. REMAINING
+      (folds into C-4): the other bail sites (unifyRet 252, typeGateOk 164, call-arg 604).
 - [ ] **C-4-wide-compilation** — remove type-unknown bails in `compileExpr`/`compileInto`
       one class at a time, each A/B-provable via miss-count.
 - [ ] **C-gate** — QUIET-MACHINE A/B (`scripts/bench interp patternMatch*|recursionFib`,
