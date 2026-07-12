@@ -55,6 +55,18 @@ LESSON (Sergiy, "Рассуждай логично"): the "compile-more-at-bail-
     KEY INSIGHT: Typer types a mixed `if` body as Any (Typer.scala:949) so the inferred body type
       NEVER supplies "returns Double" when a TInt leaf is present — only the DECLARED annotation can.
       That's why C-3 consumption #2 (map/vmTypeOf-driven) was inert and C-4 (decltpe-driven) works.
+  C-5 DONE + on main (2026-07-12) — MixedReturnType killed in VALUE position (no external type needed):
+    C-5 (75f2aad30): value-position `if` (e.g. `(if c then 1.5 else 2) + 1.0`) — both branch types are
+      known locally (both compile into `dst`), so widen the Int branch (I2D) to the {Int,Double} lub.
+      Int-else widens on fallthrough; Int-then routes its exit through an I2D pad the else skips.
+    C-5b (df105ace1): value-position `match` — arms compiled independently (like RET leaves) so unified
+      type unknown until done; record each arm's (end-jump, type), then route every Int arm's end-jump
+      through ONE shared I2D pad (after the terminal MFAIL) while Double arms jump to end.
+    branchWidenings ctr. Same safety class (only bails→compiles; same-type branches keep identical path).
+    VERIFIED: SscVmTest 182/182 (both if orderings 2.5/3.0/3.0/2.5; 3-arm match 3.0/4.0/7.0). INT
+      conformance fail set byte-identical to the C-4 sweep (no regression; always-on).
+    NOTE: RET leaves (C-4c) still need the DECLARED type because leaves compile independently — the
+      "known locally" trick only works where branches share one dst (if/match value position).
 next (further C-4 / new bail classes, in rough value order):
   - other bail-to-TInt/unknown sites: typeGateOk (164), call-arg mismatch (604) — check whether a
     type source can satisfy the gate instead of bailing. Same discipline: only UPGRADE an unknown

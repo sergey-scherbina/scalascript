@@ -1709,9 +1709,22 @@ for in-process runs, and `inferType` already computes per-node `SType` (just dis
   - KEY INSIGHT: Typer types a mixed `if` body as `Any` (Typer.scala:949) → the inferred body type
     NEVER says "returns Double" when a TInt leaf is present. Only the DECLARED annotation can — which
     is why the earlier map/vmTypeOf-driven attempt (consumption #2) was inert and C-4 works.
-  - [ ] later: typeGateOk (164) / call-arg (604) — can a type source satisfy the gate instead of
-        bailing? Mirror C-4 for `: Long` if the corpus shows Int/Long mixed-return bails. (param seed
-        loop is MOOT — def params are already annotated.)
+- [x] **C-5-value-position-widening** — MixedReturnType killed in VALUE position. DONE 2026-07-12
+      (SscVmTest 182/182; INT conformance fail set byte-identical to the C-4 sweep — no regression):
+  - [x] **C-5 (if)** `75f2aad30` — value-position `if` (e.g. `(if c then 1.5 else 2) + 1.0`): both
+        branch types known locally (share `dst`), so widen the Int branch (I2D) to the {Int,Double}
+        lub — NO external type needed. Int-else widens on fallthrough; Int-then via an I2D pad.
+  - [x] **C-5b (match)** `df105ace1` — value-position `match`: arms compile independently, so record
+        each arm's (end-jump, type) and route every Int arm's end-jump through ONE shared I2D pad
+        (after the terminal MFAIL) while Double arms jump to end.
+  - NOTE: RET leaves still need the DECLARED type (C-4c) — leaves compile independently, so the
+    "both types known locally" trick only applies where branches share one dst (if/match value pos).
+  - Long-mirror is MOOT: Int and Long are both `TInt` in the VM (enum is TInt/TDouble/TRef only), so
+    Int/Long mixed returns never bail — nothing to fix.
+  - [ ] later: typeGateOk (164) is UsingParams (typeclass dispatch — not a type-inference gap, out of
+        scope); call-arg mismatch (604) — check whether a type source avoids a false ref/numeric arg
+        mismatch. var-domain-change (849, `var x=0; x=1.5`) is the next MixedReturnType-class candidate.
+        (param seed loop is MOOT — def params are already annotated.)
 - [ ] **C-gate** — QUIET-MACHINE A/B (`scripts/bench interp patternMatch*|recursionFib`,
       `scripts/bench cross`): wider coverage doesn't regress hot paths + ideally removes the
       `recursionFib` bimodal variance. (The "(1)" timing work, deferred until load drops.)
