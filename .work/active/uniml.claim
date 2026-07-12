@@ -1,0 +1,6 @@
+feature/uniml 2026-07-12T09:46:15Z
+agent: codex
+heartbeat: 2026-07-12T09:46:15Z
+status: not-started
+done-so-far:
+next: create an isolated worktree, record the SPRINT plan, and write the UniML specification
