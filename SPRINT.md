@@ -401,6 +401,10 @@ pipeline used by real applications.
       with one Int as zero-based indexing (`sizes(level - 1)`), while Swift
       accepts closures/host apply only. Add exact proper-list indexed apply and
       real-Swift valid/bounds/wrong-type/wrong-arity gates.
+      Validate the entire receiver before indexing: `Cons(1, BadTail)` at index
+      0, wrong-arity `Cons`, and non-empty `Nil` all yield catchable
+      `SscRuntimeFailure("app: malformed list")`, never a partial head result or
+      host trap.
 - [ ] **Release gates and closure** — require explicit post-code Rozum
       `APPROVE`; full Swift backend, combined CLI, assembled Swift CLI and
       macOS+iOS Apple e2e, money/effects/tkv2/v2 conformance, affected
