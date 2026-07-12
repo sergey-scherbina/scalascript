@@ -16,7 +16,7 @@ canonical="$tmp/canonical.tsv"
   printf 'scala-cli.available\tfalse\nscalac.available\tfalse\njavac.available\tfalse\n'
   printf 'java.compiler.available\tfalse\njdk.compiler.available\tfalse\n'
   printf 'forbidden.references\t0\nfrontend.total\t195\nfrontend.ok\t194\nfrontend.non-code\t1\nchecker.ok\t194\n'
-  printf 'parity.identical\t53\nparity.both-fail\t13\nparity.skipped\t129\nparity.mismatch\t0\nparity.one-sided\t0\n'
+  printf 'parity.identical\t53\nparity.both-fail\t0\nparity.skipped\t129\nparity.delegated\t13\nparity.provider-lane\t8\nparity.target-lane\t5\nparity.mismatch\t0\nparity.one-sided\t0\n'
   printf 'runtime.blockers\t0\nprovider.smoke\tpass\nserver.smoke\tpass\nrelease.ready\ttrue\n'
 } >"$canonical"
 

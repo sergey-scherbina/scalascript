@@ -1,0 +1,14 @@
+file	family	lane	regression	dependency_tier
+agent-mcp-toolsource.ssc	mcp	provider-lane	tests/e2e/v21-explicit-mcp-provider-smoke.sh	core-free-provider
+graph-rdf4j-http-storage.ssc	graph	provider-lane	tests/e2e/v21-explicit-graph-provider-smoke.sh	core-free-provider
+international-bank-rails.ssc	swift	provider-lane	tests/e2e/v21-explicit-swift-provider-smoke.sh	core-free-provider
+invoice-email.ssc	pdf	provider-lane	tests/e2e/v21-explicit-pdf-provider-smoke.sh	core-free-provider
+invoice-pdf.ssc	pdf	provider-lane	tests/e2e/v21-explicit-pdf-provider-smoke.sh	core-free-provider
+mcp-client-discover.ssc	mcp	provider-lane	tests/e2e/v21-explicit-mcp-provider-smoke.sh	core-free-provider
+nfc-ndef.ssc	nfc	provider-lane	tests/e2e/v21-explicit-nfc-provider-smoke.sh	core-free-provider
+pdf-extract-demo.ssc	pdf	provider-lane	tests/e2e/v21-explicit-pdf-provider-smoke.sh	core-free-provider
+quoted-macro-constfold.ssc	quoted	target-lane	tests/e2e/v21-explicit-quoted-tools-smoke.sh	compiler-tools
+quoted-macro-interpreter.ssc	quoted	target-lane	tests/e2e/v21-explicit-quoted-tools-smoke.sh	compiler-tools
+wasm-http.ssc	wasm	target-lane	tests/e2e/v21-explicit-wasm-target-smoke.sh	wasm-target-tools
+wasm-scalascript.ssc	wasm	target-lane	tests/e2e/v21-explicit-wasm-target-smoke.sh	wasm-target-tools
+x402-client.ssc	x402	target-lane	tests/e2e/v21-explicit-x402-tools-smoke.sh	compiler-tools

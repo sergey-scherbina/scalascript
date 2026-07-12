@@ -25,7 +25,7 @@ usage: scripts/bc-parity-sweep [options]
   --timeout SEC    per-backend timeout (default: 45)
   --only GLOB      basename glob, e.g. 'hello*.ssc'
   --report PATH    TSV output path (default: temporary file)
-  --strict         fail on mismatch or one-sided backend error
+  --strict         fail on both-fail, mismatch, or one-sided backend error
 EOF
 }
 
@@ -52,9 +52,29 @@ trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 
 printf 'file\tcategory\tvm_rc\tbytecode_rc\tdetail\n' > "$report"
 
+explicit_manifest="$ROOT/tests/fixtures/v21-explicit-lanes/manifest.tsv"
+[[ -f $explicit_manifest ]] || {
+  echo "bc-parity-sweep: missing explicit-lane manifest: $explicit_manifest" >&2
+  exit 2
+}
+awk -F '\t' '
+  NR == 1 {
+    if ($0 != "file\tfamily\tlane\tregression\tdependency_tier") bad=1
+    next
+  }
+  NF != 5 || $1 == "" || ($3 != "provider-lane" && $3 != "target-lane") { bad=1 }
+  seen[$1]++ > 0 { bad=1 }
+  { total++ }
+  END { if (total != 13 || bad) exit 1 }
+' "$explicit_manifest" || {
+  echo 'bc-parity-sweep: invalid explicit-lane manifest' >&2
+  exit 2
+}
+
 skip_re='(^|[^[:alnum:]_])serve([[:space:]]*\(|[[:space:]]*\{|[A-Z][[:alnum:]_]*[[:space:]]*\()|listen|WebServer|websocket|(^|[^[:alnum:]_])tui([^[:alnum:]_]|$)'
 nondet_re='^(sql-sqlite-file|uuid-v7|os-env|mcp-server-protected|oauth-mcp-full-stack|async-parallel-demo|distributed-word-count|graphql-client|v2-http-sql-demo)\.ssc$'
 ident=0; mismatch=0; bcerr=0; bothfail=0; skipped=0; vmerr=0; total=0
+delegated=0; provider_lane=0; target_lane=0
 mlist=''; elist=''; vlist=''
 
 record() {
@@ -67,6 +87,19 @@ for f in "$ROOT"/examples/*.ssc; do
   b=$(basename -- "$f")
   case "$b" in $only) ;; *) continue ;; esac
   total=$((total + 1))
+
+  lane_row=$(awk -F '\t' -v file="$b" 'NR > 1 && $1 == file { print $3 "\t" $2 "\t" $4; exit }' "$explicit_manifest")
+  if [[ -n $lane_row ]]; then
+    lane=$(printf '%s\n' "$lane_row" | cut -f1)
+    family=$(printf '%s\n' "$lane_row" | cut -f2)
+    regression=$(printf '%s\n' "$lane_row" | cut -f3)
+    delegated=$((delegated + 1))
+    if [[ $lane == provider-lane ]]; then provider_lane=$((provider_lane + 1))
+    else target_lane=$((target_lane + 1))
+    fi
+    record "$b" "$lane" - - "$family via $regression"
+    continue
+  fi
 
   if grep -qiE "$skip_re" "$f" 2>/dev/null; then
     skipped=$((skipped + 1)); record "$b" skipped-server - - 'server/tui source'; continue
@@ -124,12 +157,12 @@ for f in "$ROOT"/examples/*.ssc; do
   fi
 done
 
-echo "=== total: $total  identical: $ident  mismatch: $mismatch  bytecode-error: $bcerr  vm-error: $vmerr  both-fail: $bothfail  skipped: $skipped"
+echo "=== total: $total  identical: $ident  mismatch: $mismatch  bytecode-error: $bcerr  vm-error: $vmerr  both-fail: $bothfail  skipped: $skipped  delegated: $delegated (provider: $provider_lane target: $target_lane)"
 echo "MISMATCH:$mlist"
 echo "BYTECODE-ERROR:$elist"
 echo "VM-ERROR:$vlist"
 echo "REPORT: $report"
 
-if [[ $strict -eq 1 && $((mismatch + bcerr + vmerr)) -ne 0 ]]; then
+if [[ $strict -eq 1 && $((bothfail + mismatch + bcerr + vmerr)) -ne 0 ]]; then
   exit 1
 fi

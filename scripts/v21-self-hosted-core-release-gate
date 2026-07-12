@@ -12,6 +12,8 @@ freeze_optional=skipped
 freeze_tools=skipped
 freeze_blockers=skipped
 negative_release=skipped
+explicit_provider=skipped
+explicit_target=skipped
 
 usage() {
   cat <<'EOF'
@@ -40,6 +42,11 @@ fi
   echo 'v21-self-hosted-core-release-gate: staged standard launcher missing' >&2
   exit 2
 }
+
+"$ROOT/tests/e2e/v21-explicit-lanes-gate.sh" \
+  --report "$report_dir/explicit-lanes.tsv"
+explicit_provider=$(awk -F '\t' 'NR > 1 && $2 == "provider-lane" {n++} END {print n+0}' "$report_dir/explicit-lanes.tsv")
+explicit_target=$(awk -F '\t' 'NR > 1 && $2 == "target-lane" {n++} END {print n+0}' "$report_dir/explicit-lanes.tsv")
 
 "$ROOT/scripts/v21-stage2-bootstrap-gate" \
   --report "$report_dir/stage2.tsv"
@@ -116,6 +123,8 @@ fi
   printf 'runtime.optional-provider.freeze\t%s\n' "$freeze_optional"
   printf 'runtime.tools-backend.freeze\t%s\n' "$freeze_tools"
   printf 'runtime.blocker-total.freeze\t%s\n' "$freeze_blockers"
+  printf 'explicit.provider-lanes\t%s\n' "$explicit_provider"
+  printf 'explicit.target-lanes\t%s\n' "$explicit_target"
   printf 'negative-toolchain.release\t%s\n' "$negative_release"
   printf 'release.ready\ttrue\n'
 } | tee "$report_dir/summary.tsv"

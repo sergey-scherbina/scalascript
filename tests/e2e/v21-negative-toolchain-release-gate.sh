@@ -71,7 +71,7 @@ for module in java.compiler jdk.compiler; do
   fi
 done
 
-for tool in bash dirname git find mkdir mktemp rm head tr basename grep cat python3 cmp; do
+for tool in bash dirname git find mkdir mktemp rm head tr basename grep cat cut python3 cmp; do
   target=$(command -v "$tool")
   [[ -n $target ]] || { echo "missing host utility: $tool" >&2; exit 2; }
   ln -s "$target" "$toolbin/$tool"
@@ -125,6 +125,9 @@ parity_both=$(awk -F '\t' 'NR > 1 && $2 == "both-fail" {n++} END {print n+0}' "$
 parity_skipped=$(awk -F '\t' 'NR > 1 && $2 ~ /^skipped-/ {n++} END {print n+0}' "$parity_report")
 parity_mismatch=$(awk -F '\t' 'NR > 1 && $2 == "mismatch" {n++} END {print n+0}' "$parity_report")
 parity_one_sided=$(awk -F '\t' 'NR > 1 && ($2 == "vm-error" || $2 == "bytecode-error") {n++} END {print n+0}' "$parity_report")
+parity_provider_lane=$(awk -F '\t' 'NR > 1 && $2 == "provider-lane" {n++} END {print n+0}' "$parity_report")
+parity_target_lane=$(awk -F '\t' 'NR > 1 && $2 == "target-lane" {n++} END {print n+0}' "$parity_report")
+parity_delegated=$((parity_provider_lane + parity_target_lane))
 runtime_blockers=$(awk -F '\t' '$1 == "blocker-total" {print $2}' "$runtime_freeze_report")
 
 mkdir -p "$(dirname "$report")"
@@ -136,7 +139,7 @@ mkdir -p "$(dirname "$report")"
   printf 'scala-cli.available\tfalse\nscalac.available\tfalse\njavac.available\tfalse\n'
   printf 'java.compiler.available\tfalse\njdk.compiler.available\tfalse\nforbidden.references\t0\n'
   printf 'frontend.total\t%s\nfrontend.ok\t%s\nfrontend.non-code\t%s\nchecker.ok\t%s\n' "$frontend_total" "$frontend_ok" "$frontend_noncode" "$checker_ok"
-  printf 'parity.identical\t%s\nparity.both-fail\t%s\nparity.skipped\t%s\nparity.mismatch\t%s\nparity.one-sided\t%s\n' "$parity_identical" "$parity_both" "$parity_skipped" "$parity_mismatch" "$parity_one_sided"
+  printf 'parity.identical\t%s\nparity.both-fail\t%s\nparity.skipped\t%s\nparity.delegated\t%s\nparity.provider-lane\t%s\nparity.target-lane\t%s\nparity.mismatch\t%s\nparity.one-sided\t%s\n' "$parity_identical" "$parity_both" "$parity_skipped" "$parity_delegated" "$parity_provider_lane" "$parity_target_lane" "$parity_mismatch" "$parity_one_sided"
   printf 'runtime.blockers\t%s\nprovider.smoke\t%s\nserver.smoke\t%s\nrelease.ready\ttrue\n' "$runtime_blockers" "$provider_smoke" "$server_smoke"
 } >"$report"
 "$ROOT/scripts/v21-negative-toolchain-freeze" "$report"

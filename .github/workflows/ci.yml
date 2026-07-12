@@ -240,6 +240,9 @@ jobs:
       - name: ScalaScript 2.1 compiler-free ASM artifact release gate
         run: tests/e2e/v21-build-jvm-release-gate.sh --report target/v21-build-jvm-release.tsv
 
+      - name: ScalaScript 2.1 explicit provider and target lanes
+        run: tests/e2e/v21-explicit-lanes-gate.sh --report target/v21-explicit-lanes.tsv
+
       - name: ScalaScript 2.1 physically slim standard distribution gate
         run: tests/e2e/v21-slim-distribution-gate.sh --report target/v21-slim-distribution.tsv
 

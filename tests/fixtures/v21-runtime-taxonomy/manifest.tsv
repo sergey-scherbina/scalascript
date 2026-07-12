@@ -1,14 +1,1 @@
 file	category	blocker	owner	reason
-agent-mcp-toolsource.ssc	tools-backend	no	mcp	JVM/JS MCP tool-source syntax is already a reviewed backend surface
-graph-rdf4j-http-storage.ssc	optional-provider	no	graph	remote RDF4J HTTP and SPARQL execution require an explicitly selected external graph backend
-international-bank-rails.ssc	optional-provider	no	swift	SwiftProvider is an explicitly optional platform provider
-invoice-email.ssc	optional-provider	no	pdf	htmlToPdfBase64 belongs to the explicitly optional PDF provider
-invoice-pdf.ssc	optional-provider	no	pdf	htmlToPdfBase64 belongs to the explicitly optional PDF provider
-mcp-client-discover.ssc	optional-provider	no	mcp	mcpConnect belongs to the explicitly optional MCP provider
-nfc-ndef.ssc	optional-provider	no	nfc	nfcCapabilities belongs to the explicitly optional NFC platform provider
-pdf-extract-demo.ssc	optional-provider	no	pdf	htmlToPdfBase64 belongs to the explicitly optional PDF provider
-quoted-macro-constfold.ssc	tools-backend	no	quoted	quoted macro syntax is a reviewed compiler/tools surface
-quoted-macro-interpreter.ssc	tools-backend	no	quoted	quoted macro syntax is a reviewed compiler/tools surface
-wasm-http.ssc	tools-backend	no	wasm	WASM HTTP syntax is already a reviewed backend surface
-wasm-scalascript.ssc	tools-backend	no	wasm	WASM ScalaScript syntax is already a reviewed backend surface
-x402-client.ssc	tools-backend	no	x402	compiler-backed Scala/sttp client syntax is already a reviewed tools surface
