@@ -2907,6 +2907,43 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     one-sided rows; taxonomy is 4 language / 8
                                     standard / 12 blockers / 24 total. Release
                                     gate and conformance are ready at 11/11.
+                        - [ ] **TI-8.2d3j core-free Actors provider:** both
+                              blocking actor examples fail on `runActors`. Add a
+                              required v2-native provider for the exact local and
+                              typed loopback contracts without importing the v1
+                              scheduler or compatibility bridge.
+                              - [x] **TI-8.2d3j0 installed baseline:** VM/direct
+                                    ASM both fail both examples with
+                                    `unbound global: runActors` and no stdout;
+                                    explicit compatibility outputs are recorded
+                                    in the feature spec. Track as
+                                    `v21-native-actors-provider-missing`.
+                              - [ ] **TI-8.2d3j1 provider contract:** specify
+                                    mailbox/send/receive timeout semantics,
+                                    actor-thread dynamic self, exit/drop behavior,
+                                    scope quiescence, child error propagation,
+                                    typed ActorRef fields/methods, named behaviors,
+                                    and process-local loopback registry. Commit
+                                    before code.
+                              - [ ] **TI-8.2d3j2 implementation + unit:** create
+                                    `v2/runtime/std/actors-plugin`, ServiceLoader
+                                    and standard/artifact/dependency wiring. Use
+                                    virtual threads and blocking queues; cover
+                                    source-order delivery, timeout, self-send,
+                                    killed actors, quiescence, child failures,
+                                    typed refs, publish/whereis, and missing
+                                    behaviors.
+                              - [ ] **TI-8.2d3j3 assembled contract:** pin a
+                                    focused real-launcher fixture and exact full
+                                    outputs for both public actor examples on
+                                    VM/direct ASM/build-jvm. No timing threshold;
+                                    timeout behavior is the only wall-clock API.
+                              - [ ] **TI-8.2d3j4 release closure:** run every
+                                    stage-2/native-entry/isolation/dependency/
+                                    slim/artifact/corpus/parity/taxonomy gate and
+                                    fresh `v2-*` conformance. Retire only the two
+                                    exact actor rows, record the new baseline, and
+                                    push immediately.
                         - [x] **TI-8.2d3a core-free crypto breadth:** DONE
                               2026-07-11 (`f40b2b6b8`, taxonomy `6f4f0d13e`). Port the
                               established v1 crypto-plugin contracts—not its

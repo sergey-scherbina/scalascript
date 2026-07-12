@@ -1,5 +1,24 @@
 # Bug tracker
 
+## v21-native-actors-provider-missing — runActors is absent from standard native runtime
+
+**Status:** open (2026-07-12); found by codex after Async landed while
+continuing TI-8.2d3.
+
+- **Real-harness repro:** run `bin/ssc-standard run --native` and
+  `--native --bytecode` on `examples/actors-pingpong.ssc` and
+  `examples/actors-typed-remote-spawn.ssc`.
+- **Observed:** all four runs exit 1 at the first block with
+  `ssc: unbound global: runActors`; no stdout.
+- **Expected:** a required core-free Actors provider owns local virtual-thread
+  mailboxes, timeout receive, send/self/exit, quiescent runner shutdown, and the
+  typed named-behavior loopback surface. Canonical outputs match the explicit
+  compatibility tier without loading its bridge or interpreter.
+- **Plan/done-when:** specify lifecycle/quiescence/error semantics, implement a
+  ServiceLoader provider with unit and assembled regressions, prove both public
+  examples exact on VM/ASM/build-jvm, pass full release/dependency gates, and
+  retire only the two proven actor taxonomy rows.
+
 ## v21-native-async-provider-missing — runAsync is absent from standard native runtime
 
 **Status:** fixed (2026-07-12, `4a5caa0ae`, taxonomy `7ac63130d`), awaiting
