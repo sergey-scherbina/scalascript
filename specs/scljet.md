@@ -55,6 +55,7 @@ The implementation follows the official SQLite documentation rather than
 reverse-engineering a particular host library:
 
 - [Database File Format](https://www.sqlite.org/fileformat.html)
+- [Invalid UTF Policy](https://www.sqlite.org/invalidutf.html)
 - [WAL-mode File Format and wal-index](https://www.sqlite.org/walformat.html)
 - [File Locking and Concurrency](https://www.sqlite.org/lockingv3.html)
 - [Atomic Commit](https://www.sqlite.org/atomiccommit.html)
@@ -63,10 +64,13 @@ reverse-engineering a particular host library:
 - [Application-defined SQL functions](https://www.sqlite.org/appfunc.html)
 
 The on-disk target is SQLite format 3 with schema formats 1 through 4. The
-differential behavior baseline begins with SQLite **3.53.0** (the current
-release when this spec was written on 2026-07-12). A test manifest records the
-exact oracle version; upgrading the oracle is an explicit compatibility task,
-not an incidental CI dependency update.
+differential behavior baseline begins with SQLite **3.53.3**, the current
+bug-fix release on 2026-07-12 (source id
+`2026-06-26 20:14:12 d4c0e51e4aeb96955b99185ab9cde75c339e2c29c3f3f12428d364a10d782c62`).
+M0 originally named 3.53.0; M2 advances to the compatible patch release because
+3.53.1..3 include upstream correctness fixes. A test manifest records the
+exact oracle version/source id and compile options; any later upgrade is an
+explicit compatibility task, not an incidental CI dependency update.
 
 Where the official documents leave behavior to a VFS, the VFS contract below
 is normative. Where documentation and the reference implementation disagree,
@@ -624,6 +628,204 @@ The codec implements SQLite's 1-to-9-byte varint exactly, including signed
 structured corruption errors with file offset, page, and field; they never
 throw from unchecked indexing.
 
+### M2 read-only module boundary
+
+M2 adds target-neutral modules under `runtime/std/scljet/`:
+
+```text
+header.ssc       database header, page-number and file-offset rules
+record.ssc       serial types, text decoding, and record values
+page.ssc         B-tree page headers, cells, freeblocks, and local payload
+freelist.ssc     freelist and pointer-map decoding/validation
+pager.ssc        SHARED-locked immutable read cache over SqliteVfs
+btree.ssc        forward table/index traversal and overflow assembly
+schema.ssc       sqlite_schema rows and storage-tree classification
+readonly.ssc     minimal public value-level read facade
+```
+
+`bytes.ssc`, the immutable `ByteSlice`, and the VFS contracts remain the only
+lower layers. Page, record, freelist, and B-tree codecs are pure functions: they
+accept bytes plus an explicit context and never call a host API. Only
+`pager.ssc` calls `SqliteVfs`/`SqliteFile`. No M2 module imports JDBC, sql.js,
+platform buffers, or native filesystem types.
+
+The portable public M2 surface is functional because imported receiver methods
+are not yet equally reliable on every backend:
+
+```scalascript
+sealed trait SqliteTextEncoding
+case object EncodingUnknown extends SqliteTextEncoding
+case object EncodingUtf8 extends SqliteTextEncoding
+case object EncodingUtf16Le extends SqliteTextEncoding
+case object EncodingUtf16Be extends SqliteTextEncoding
+
+sealed trait StorageTreeKind
+case object RowidTableTree extends StorageTreeKind
+case object RecordKeyTree extends StorageTreeKind
+
+case class StorageRecord(
+  rowid: Option[Long],
+  record: DecodedRecord
+)
+
+case class ReadonlyDatabase(pager: ReadonlyPager, schema: ReadonlySchema)
+case class ReadonlyCursorStep(
+  database: ReadonlyDatabase,
+  cursor: ReadonlyBtreeCursor,
+  row: Option[StorageRecord]
+)
+
+def openReadonly(
+  vfs: SqliteVfs,
+  path: String,
+  options: SqliteOpenOptions
+): Either[SqliteError, ReadonlyDatabase]
+
+def openReadonlyRoot(
+  database: ReadonlyDatabase,
+  rootPage: Long,
+  treeKind: StorageTreeKind
+): Either[SqliteError, ReadonlyBtreeCursor]
+
+def readonlyFirst(
+  database: ReadonlyDatabase,
+  cursor: ReadonlyBtreeCursor
+): Either[SqliteError, ReadonlyCursorStep]
+
+def readonlyNext(
+  database: ReadonlyDatabase,
+  cursor: ReadonlyBtreeCursor
+): Either[SqliteError, ReadonlyCursorStep]
+
+def closeReadonly(database: ReadonlyDatabase): Either[SqliteError, Unit]
+```
+
+`openReadonly` requires `OpenReadOnly`, acquires and retains a main-file SHARED
+lock before reading size/header/pages, loads `sqlite_schema`, and owns the file
+handle until `closeReadonly`. Failure after opening releases every acquired
+resource. The returned database value is immutable; page reads return a new
+pager/database value containing the updated cache while the underlying file
+capability remains position-independent.
+
+M2 reads a checkpointed main file only. A non-empty `-journal` or `-wal`
+sidecar causes `SqliteUnsupportedCapability` rather than being ignored; hot
+journal recovery lands in M3 and a WAL snapshot lands in M5. A clean database
+whose header versions remain `2` is readable when both sidecars are absent or
+zero length. This fail-closed rule prevents a nominally read-only milestone
+from returning stale or half-committed data.
+
+### Exact 100-byte database header
+
+The pure header API is:
+
+```scalascript
+case class DatabaseHeader(
+  pageSize: Int,
+  writeVersion: Int,
+  readVersion: Int,
+  reservedBytes: Int,
+  usableSize: Int,
+  changeCounter: Long,
+  headerPageCount: Long,
+  freelistHead: Long,
+  freelistPageCount: Long,
+  schemaCookie: Long,
+  schemaFormat: Int,
+  defaultCacheSize: Long,
+  largestRootPage: Long,
+  textEncoding: SqliteTextEncoding,
+  userVersion: Long,
+  incrementalVacuum: Boolean,
+  applicationId: Long,
+  versionValidFor: Long,
+  sqliteVersionNumber: Long,
+  headerPageCountTrusted: Boolean
+)
+
+case class DecodeLocation(
+  fileOffset: Long,
+  pageNumber: Option[Long],
+  field: String
+)
+
+case class DecodeFailure(
+  code: SqliteErrorCode,
+  message: String,
+  location: DecodeLocation
+)
+
+def decodeDatabaseHeader(first100: ByteSlice): Either[DecodeFailure, DatabaseHeader]
+def databasePageOffset(pageNumber: Long, pageSize: Int): Either[DecodeFailure, Long]
+```
+
+All unsigned 32-bit header fields are represented as non-negative `Long`.
+`defaultCacheSize` is sign-extended from its signed 32-bit field. The exact
+field table is:
+
+| Offset | Width | M2 interpretation |
+|---:|---:|---|
+| 0 | 16 | exact `SQLite format 3\u0000` magic |
+| 16 | 2 | page size: `1` means 65536, otherwise power of two 512..32768 |
+| 18 | 1 | write version |
+| 19 | 1 | read version |
+| 20 | 1 | reserved bytes |
+| 21..23 | 3 | exact payload fractions 64, 32, 32 |
+| 24 | 4 | change counter |
+| 28 | 4 | in-header page count |
+| 32 | 4 | first freelist trunk |
+| 36 | 4 | total freelist pages |
+| 40 | 4 | schema cookie |
+| 44 | 4 | schema format 0..4 |
+| 48 | 4 | signed suggested cache pages |
+| 52 | 4 | largest root page / pointer-map enable |
+| 56 | 4 | 0 for a physically initialized empty schema, else 1/2/3 |
+| 60 | 4 | user version |
+| 64 | 4 | incremental-vacuum flag |
+| 68 | 4 | application id |
+| 72 | 20 | all zero in StrictSqlite |
+| 92 | 4 | version-valid-for |
+| 96 | 4 | last writer SQLite version number |
+
+Validation is exact:
+
+- `usableSize = pageSize - reservedBytes` and must be at least 480; odd usable
+  sizes and odd non-zero reservations are legal.
+- `readVersion` must be 1 or 2. A `writeVersion` of 1 or 2 is normal; a value
+  greater than 2 is accepted by M2 only because the connection is read-only.
+  Zero/invalid write versions and readable versions greater than 2 fail with
+  `SqliteFormat`.
+- The page count at offset 28 is trusted only when non-zero and equal change
+  counter/version-valid-for values prove that it is current. Otherwise the
+  pager derives the count from file length.
+- A trusted header count may be smaller than the number of complete physical
+  pages; those trailing pages are outside the logical database. It may never
+  exceed the physical complete-page count. Strict mode rejects a partial
+  trailing page; salvage mode may ignore it with a diagnostic.
+- The logical page count must be 1..4294967294 and not exceed
+  `limits.pageCount`; every checked `(pageNumber - 1) * pageSize` calculation
+  must fit `Long` before I/O.
+- `schemaFormat` 1..4 is normal. Zero is provisionally accepted only with an
+  empty page-1 schema tree and encoding 0 or 1; schema loading confirms the
+  empty-tree invariant. Encoding 0 then means the reference engine's
+  not-yet-fixed empty-database encoding and is exposed as `EncodingUnknown`.
+- Encoding values 1, 2, and 3 map to UTF-8, UTF-16LE, and UTF-16BE. Encoding 0
+  with a non-empty schema and every other value are corrupt.
+- `largestRootPage == 0` requires the offset-64 value to be zero. A non-zero
+  largest root enables pointer maps; offset 64 is interpreted as false only
+  when zero and true for any other unsigned value.
+- A zero freelist count requires a zero freelist head and a non-zero count
+  requires an in-range non-zero head. Full count and graph validation occurs
+  after pages are available.
+
+`decodeDatabaseHeader` maps bad magic or a header shorter than 100 bytes to
+`SqliteNotADatabase`; unsupported/invalid version fields to `SqliteFormat`; and
+otherwise structurally inconsistent fields to `SqliteCorrupt`. Internal
+`DecodeFailure.field` uses stable dotted names such as `header.pageSize`,
+`page.freeblock[2].size`, and `record.serialType[4]`. At the public boundary it
+becomes the existing `SqliteError` with the primary code, message prefixed by
+that field, and populated file/page locations. A VFS cause is reserved for the
+existing `cause` field and is not overloaded with codec context.
+
 ### Page kinds and cells
 
 Supported page roles are table/index interior/leaf B-tree, freelist trunk/leaf,
@@ -631,28 +833,252 @@ overflow, pointer-map, and lock-byte pages. B-tree page type bytes `2`, `5`,
 `10`, and `13` select index interior, table interior, index leaf, and table
 leaf. Page 1 applies a 100-byte header offset.
 
+The exact pure page model/API is:
+
+```scalascript
+sealed trait BtreePageKind
+case object IndexInteriorPage extends BtreePageKind   // 0x02
+case object TableInteriorPage extends BtreePageKind   // 0x05
+case object IndexLeafPage extends BtreePageKind       // 0x0a
+case object TableLeafPage extends BtreePageKind       // 0x0d
+
+case class PageContext(
+  pageSize: Int,
+  usableSize: Int,
+  logicalPageCount: Long,
+  limits: SqliteLimits
+)
+
+case class BtreePageHeader(
+  kind: BtreePageKind,
+  headerOffset: Int,
+  headerBytes: Int,
+  firstFreeblock: Int,
+  cellCount: Int,
+  cellContentStart: Int,
+  fragmentedBytes: Int,
+  rightMostChild: Option[Long]
+)
+
+case class CellPayload(
+  totalBytes: Long,
+  localBytes: ByteSlice,
+  firstOverflowPage: Option[Long]
+)
+
+sealed trait BtreeCell
+case class TableInteriorCell(leftChild: Long, rowid: Long) extends BtreeCell
+case class TableLeafCell(rowid: Long, payload: CellPayload) extends BtreeCell
+case class IndexInteriorCell(leftChild: Long, payload: CellPayload) extends BtreeCell
+case class IndexLeafCell(payload: CellPayload) extends BtreeCell
+
+case class BtreePage(
+  pageNumber: Long,
+  header: BtreePageHeader,
+  cellPointers: List[Int],
+  cells: List[BtreeCell]
+)
+
+def decodeBtreePage(
+  context: PageContext,
+  pageNumber: Long,
+  bytes: ByteSlice
+): Either[DecodeFailure, BtreePage]
+
+def localPayloadBytes(
+  kind: BtreePageKind,
+  usableSize: Int,
+  payloadBytes: Long
+): Either[DecodeFailure, Int]
+```
+
+The B-tree header begins at byte 100 on page 1 and byte 0 otherwise. Leaves
+have an 8-byte header and interiors a 12-byte header. Relative to that start:
+type is at +0, first freeblock +1 (u16), cell count +3 (u16), cell-content
+start +5 (u16, zero means 65536), fragments +7 (u8), and an interior-only
+right-most child +8 (u32). The `2 * cellCount` pointer array follows. Pointer
+array order is logical key order; numeric pointer offsets are not required to
+be sorted because cell bodies may be placed arbitrarily.
+
+Cell bytes, in order, are:
+
+| Page kind | Cell representation |
+|---|---|
+| table leaf 0x0d | payload-size varint, signed-rowid varint, local payload, optional overflow page u32 |
+| table interior 0x05 | left-child u32, signed-rowid varint |
+| index leaf 0x0a | payload-size varint, local key payload, optional overflow page u32 |
+| index interior 0x02 | left-child u32, payload-size varint, local key payload, optional overflow page u32 |
+
+Rowid varints retain their 64-bit two's-complement bit pattern. Payload sizes
+are non-negative and at most both 2147483647 and `limits.valueBytes`. A first
+overflow pointer appears if and only if `localBytes.length < totalBytes`.
+
+For usable page size `U` and payload size `P`, all arithmetic is checked integer
+arithmetic with multiplication before division and truncation toward zero:
+
+```text
+M = ((U - 12) * 32 / 255) - 23
+
+table leaf:   X = U - 35
+index pages:  X = ((U - 12) * 64 / 255) - 23
+K = M + ((P - M) mod (U - 4))
+
+if P <= X       local = P
+else if K <= X  local = K
+else            local = M
+```
+
+Table interior cells have no payload. The modulo branch is evaluated only when
+`P > X`, which also guarantees the official non-negative domain for `P - M`.
+Changing or simplifying this formula is an on-disk incompatibility.
+
 The page codec validates:
 
 - header length (8 bytes leaf, 12 bytes interior), cell count, right-most
   child, cell-content offset (zero represents 65536), fragmented-byte count;
-- sorted and in-range cell-pointer array;
+- logical cell-pointer count and in-range offsets without assuming physical
+  offset ordering;
 - freeblock chain order, minimum block size, absence of cycles/overlap, and the
   60-byte fragmented-free limit;
 - cell shape for all four B-tree page kinds;
 - local payload size using the exact SQLite `X`, `M`, and `K` formula;
 - overflow chains, page uniqueness, termination, and total payload length.
 
-Freelist trunk/leaf handling preserves the historical rule that avoids using
-the last six trunk entries. Pointer-map pages and auto/incremental vacuum are
-read in the read-only milestone and written only after relocation tests exist.
+Every pointer, cell span, freeblock, unallocated interval, and reserved region
+is range-checked and pairwise non-overlapping. Freeblocks are increasing by
+offset, at least four bytes, cycle-free, and contained in the cell-content
+region; fragments total at most 60. Cell count is bounded by both the physical
+pointer-array capacity and `limits.columns` only where a record is decoded;
+page cell count itself is bounded by `usableSize / 2` before allocation.
+
+### Overflow, freelist, lock-byte, and pointer-map pages
+
+An overflow page stores a next-page u32 at bytes 0..3 and up to `U - 4`
+payload bytes at bytes 4 through `U - 1`. Assembly consumes exactly the
+declared remaining payload. The final required page must point to zero; a zero
+pointer before enough bytes, an extra pointer after all bytes, reuse/cycle,
+page 0, an out-of-range page, a lock-byte/ptrmap/freelist page, or more than
+`limits.overflowPages` is `SqliteCorrupt` (a configured legal-size cap can
+return `SqliteTooBig` before allocation). Payload is assembled incrementally
+as immutable chunks and must remain under `limits.valueBytes` and
+`limits.workBytes`.
+
+The freelist API/model is:
+
+```scalascript
+case class FreelistTrunk(
+  pageNumber: Long,
+  nextTrunk: Long,
+  leaves: List[Long]
+)
+
+case class FreelistGraph(
+  trunks: List[FreelistTrunk],
+  pages: List[Long]
+)
+
+def decodeFreelistTrunk(
+  context: PageContext,
+  pageNumber: Long,
+  bytes: ByteSlice
+): Either[DecodeFailure, FreelistTrunk]
+
+def validateFreelist(
+  pager: ReadonlyPager
+): Either[SqliteError, FreelistGraph]
+```
+
+A trunk is an array of big-endian u32 values in usable bytes: next trunk,
+leaf count `L`, then `L` leaf page numbers. A reader accepts
+`0 <= L <= floor(U / 4) - 2`, including modern files that use one of the last
+six array slots; the future writer deliberately leaves those six slots unused
+for legacy compatibility. Trunks/leaves are unique, non-zero, in range,
+not page 1, not lock-byte/ptrmap pages, and their exact total equals the header
+freelist count. Leaf contents are never interpreted.
+
+The lock-byte page contains file offsets 1073741824..1073742335 and its page
+number is `floor(1073741824 / pageSize) + 1`. The core does not read it as a
+database page or assign it another role.
+
+Pointer maps exist exactly when `largestRootPage != 0`. Let `J = floor(U / 5)`.
+The first ptrmap is page 2; normally subsequent maps are separated by `J + 1`
+pages. If a computed map page is the lock-byte page it moves to the following
+page. A target page's entry is the zero-based distance after its governing map,
+times five. Each entry is a type byte plus parent u32:
+
+```text
+1 root B-tree             parent = 0
+2 freelist page           parent = 0
+3 first overflow page     parent = owning B-tree page
+4 later overflow page     parent = previous overflow page
+5 non-root B-tree page    parent = parent B-tree page
+```
+
+M2 decodes and cross-checks pointer maps against every B-tree child, overflow
+edge, root, and freelist page it visits. Map pages occur only at their computed
+locations; all roots are at or below `largestRootPage` and precede every
+non-root B-tree/overflow/freelist page. Pointer maps are validation metadata in
+M2 and are never repaired.
 
 ### Record format and comparison
 
-Records contain a varint header length, one serial-type varint per value, then
-the bodies. Serial types 0 through 9 and length-derived TEXT/BLOB types 12 and
-above are implemented exactly. Types 10 and 11 are rejected in persistent
-well-formed files. Integer widths 1/2/3/4/6/8 bytes preserve sign; real values
-are IEEE-754 binary64.
+The pure record API preserves both decoded values and source bytes:
+
+```scalascript
+case class RecordField(
+  serialType: Long,
+  encoded: ByteSlice,
+  value: SqliteValue,
+  textWellFormed: Option[Boolean]
+)
+
+case class DecodedRecord(
+  headerBytes: Int,
+  bodyBytes: Int,
+  fields: List[RecordField]
+)
+
+def decodeRecord(
+  payload: ByteSlice,
+  encoding: SqliteTextEncoding,
+  schemaFormat: Int,
+  limits: SqliteLimits
+): Either[DecodeFailure, DecodedRecord]
+```
+
+The first varint is the total header length including itself. Serial-type
+varints must end exactly at that header boundary; their body widths must sum
+exactly to the remaining payload. Column count, individual value bytes, and
+total working bytes are checked before allocation.
+
+| Serial type | Body bytes | Value |
+|---:|---:|---|
+| 0 | 0 | NULL |
+| 1 | 1 | signed 8-bit integer |
+| 2 | 2 | big-endian signed 16-bit integer |
+| 3 | 3 | big-endian signed 24-bit integer |
+| 4 | 4 | big-endian signed 32-bit integer |
+| 5 | 6 | big-endian signed 48-bit integer |
+| 6 | 8 | big-endian signed 64-bit integer |
+| 7 | 8 | big-endian IEEE-754 binary64 |
+| 8 | 0 | integer 0, schema format 4 only |
+| 9 | 0 | integer 1, schema format 4 only |
+| 10, 11 | - | corrupt in a persistent main database |
+| even N >= 12 | `(N - 12) / 2` | BLOB |
+| odd N >= 13 | `(N - 13) / 2` | TEXT in database encoding |
+
+TEXT has no stored terminator. SQLite deliberately follows a garbage-in,
+garbage-out policy for malformed UTF, so invalid UTF-8, unpaired UTF-16
+surrogates, odd UTF-16 byte counts, embedded NUL, and noncharacters are not file
+corruption. `RecordField.encoded` is the authoritative lossless value and
+`textWellFormed = Some(...)` reports whether ordinary Unicode decoding is
+reversible for TEXT; non-TEXT fields use `None`.
+`SqlText.value` is the deterministic ScalaScript string projection, replacing
+each maximal malformed subsequence with U+FFFD; converting invalid text is not
+claimed to reproduce an arbitrary host SQLite binding byte-for-byte. Storage
+comparison and fixture equality use the original encoded bytes.
+`EncodingUnknown` is valid only for an empty schema, so no TEXT record may be
+decoded under it.
 
 Index comparison follows SQLite storage-class order: NULL, numeric, TEXT under
 the selected collation, then BLOB byte order. Built-in collations are:
@@ -665,6 +1091,15 @@ Application collations are connection-local and versioned in prepared plans.
 Changing a collation invalidates dependent prepared statements and may require
 `REINDEX`; the engine never assumes an existing index was built with a newly
 registered comparator.
+
+M2 implements reusable BINARY/NOCASE/RTRIM primitives and forward physical
+index traversal. Arbitrary collation-aware index seek and proof that an index
+is sorted require parsed index DDL and land with the SQL/schema semantics in
+M4. BINARY compares the encoded byte sequence, NOCASE folds only ASCII A..Z,
+and RTRIM removes only trailing U+0020 before BINARY comparison. Numeric
+integer/real comparison must not first coerce both operands to a lossy host
+`Double`; its differential vectors include values around 2^53 and signed
+64-bit endpoints.
 
 ## Pager and page cache
 
@@ -685,6 +1120,77 @@ VFS directly.
 - `close()` either completes a legal commit/rollback/cleanup sequence or
   reports an error while retaining enough state for retry; it never discards a
   hot recovery artifact casually.
+
+### M2 immutable read pager
+
+M2 uses only clean cached pages and the following internal transition values:
+
+```scalascript
+case class ReadonlyPager(
+  vfsName: String,
+  canonicalPath: String,
+  file: SqliteFile,
+  header: DatabaseHeader,
+  physicalPageCount: Long,
+  logicalPageCount: Long,
+  cache: Map[Long, ByteSlice],
+  lruOldestFirst: List[Long],
+  cacheCapacity: Int,
+  limits: SqliteLimits,
+  closed: Boolean
+)
+
+case class DatabasePage(pageNumber: Long, bytes: ByteSlice)
+case class PagerPageRead(pager: ReadonlyPager, page: DatabasePage)
+
+def openReadonlyPager(
+  vfs: SqliteVfs,
+  path: String,
+  options: SqliteOpenOptions
+): Either[SqliteError, ReadonlyPager]
+
+def pagerReadPage(
+  pager: ReadonlyPager,
+  pageNumber: Long
+): Either[SqliteError, PagerPageRead]
+
+def closeReadonlyPager(pager: ReadonlyPager): Either[SqliteError, Unit]
+```
+
+Opening canonicalizes the path, opens the main database without create/write,
+acquires SHARED, checks sidecars, reads exactly 100 header bytes and file size,
+then fixes the logical page count. A VFS short read within the declared logical
+database is `SqliteCorrupt`; an open/lock/read host failure is mapped to
+`SqliteCannotOpen`, `SqliteBusy`, or `SqliteIo` with its bounded VFS cause.
+Page 0, pages above the logical count, the lock-byte page, a closed pager, and
+offset arithmetic overflow are rejected before I/O.
+
+`cacheCapacity = min(options.pageCachePages, limits.cachePages)` and both
+inputs must be positive. Cache replacement is deterministic LRU: a hit moves
+the page to the newest end, a miss reads exactly `pageSize` bytes, and insertion
+evicts oldest pages until capacity is met. A page read never exposes reserved
+bytes as cell/overflow content, but the full page bytes remain cached so a
+future writer can preserve them. M2 has no dirty, spill, or partial-page cache
+state.
+
+The M2 limit interpretation is fixed without adding another parallel options
+object:
+
+| `SqliteLimits` field | Read-only use |
+|---|---|
+| `pageCount` | logical pages and maximum distinct pages visited |
+| `valueBytes` | one cell payload, record, TEXT, or BLOB |
+| `cachePages` | maximum resident page count |
+| `overflowPages` | links in one overflow chain |
+| `schemaObjects` | decoded `sqlite_schema` entries |
+| `columns` | serial fields in one record |
+| `workBytes` | aggregate temporary bytes for payload/schema/traversal state |
+
+Tree depth is bounded by both logical page count and the number of cursor
+frames that fit within `workBytes`; all traversals are iterative. Limit failure
+is `SqliteTooBig`, while a cycle, shared child, impossible depth, or declared
+length inconsistent with file bytes is `SqliteCorrupt`. This distinction keeps
+operator policy separate from malformed input.
 
 ## Rollback-journal transactions
 
@@ -780,12 +1286,118 @@ Every mutation is expressed as pager page edits inside a transaction. Property
 tests compare ordered contents before/after random operations; page-layout tests
 also validate exact bytes through official SQLite.
 
+The M2 forward cursor is an immutable iterative state machine:
+
+```scalascript
+case class ReadonlyCursorFrame(
+  pageNumber: Long,
+  nextCell: Int,
+  childVisited: Boolean
+)
+
+case class ReadonlyBtreeCursor(
+  rootPage: Long,
+  treeKind: StorageTreeKind,
+  stack: List[ReadonlyCursorFrame],
+  discoveredPages: List[Long],
+  current: Option[StorageRecord],
+  started: Boolean,
+  exhausted: Boolean
+)
+```
+
+`RowidTableTree` requires table pages throughout. Interior table cells guide
+descent but are never rows; leaf cells yield `(Some(rowid), decoded payload)`
+in strictly increasing signed-rowid order. `RecordKeyTree` requires index pages
+throughout and yields `(None, decoded key record)` in in-order B-tree order:
+left child, its separator cell, the next child, and finally the right-most
+child. Index interior cells are therefore observable records, not duplicated
+navigation-only copies.
+
+Each non-root B-tree page has exactly one discovered parent within a cursor.
+Child pointers must be in range, must not target page 1 unless it is the root,
+and must not target overflow/freelist/ptrmap/lock-byte roles. Leaf depths must
+agree. The cursor decodes only the current path plus the current cell payload;
+it never materializes a whole table. `readonlyFirst` starts or rewinds a cursor,
+`readonlyNext` advances once, and an exhausted cursor returns `row = None`
+idempotently. Reverse traversal and collation-aware seek remain on the general
+B-tree API but are not M2 behavior claims.
+
 ## Schema layer
 
-Root page 1 is the table B-tree for `sqlite_schema`. The loader decodes the five
-columns (`type`, `name`, `tbl_name`, `rootpage`, `sql`), recognizes the documented
-aliases, rejects user-created reserved `sqlite_*` objects, and reparses stored
-DDL into a normalized schema model.
+Root page 1 is the table B-tree for `sqlite_schema`. M2 decodes its five
+columns (`type`, `name`, `tbl_name`, `rootpage`, `sql`) without parsing or
+executing stored DDL:
+
+```scalascript
+sealed trait SchemaObjectKind
+case object SchemaTable extends SchemaObjectKind
+case object SchemaIndex extends SchemaObjectKind
+case object SchemaView extends SchemaObjectKind
+case object SchemaTrigger extends SchemaObjectKind
+
+sealed trait SchemaStorageKind
+case object SchemaRowidTable extends SchemaStorageKind
+case object SchemaWithoutRowidTable extends SchemaStorageKind
+case object SchemaIndexBtree extends SchemaStorageKind
+case object SchemaNoBtree extends SchemaStorageKind
+
+case class SchemaEntry(
+  rowid: Long,
+  kind: SchemaObjectKind,
+  name: String,
+  tableName: String,
+  rootPage: Option[Long],
+  sql: Option[String],
+  storage: SchemaStorageKind,
+  internal: Boolean,
+  rawRecord: DecodedRecord
+)
+
+case class ReadonlySchema(
+  cookie: Long,
+  format: Int,
+  encoding: SqliteTextEncoding,
+  entries: List[SchemaEntry]
+)
+
+def decodeSchema(
+  pager: ReadonlyPager
+): Either[SqliteError, ReadonlyDatabase]
+```
+
+The schema record must have exactly five fields. `type`, `name`, and
+`tbl_name` are TEXT; `rootpage` is INTEGER or NULL; `sql` is TEXT or NULL.
+`type` is exactly `table`, `index`, `view`, or `trigger`. A positive table root
+whose actual root page is a table B-tree is `SchemaRowidTable`; a positive
+table root whose page is an index B-tree is `SchemaWithoutRowidTable`; a
+positive index root must be an index B-tree. Views, triggers, and virtual-table
+rows have zero/NULL root and `SchemaNoBtree`. Other type/root/page-kind
+combinations are localized corruption.
+
+Names beginning `sqlite_` are marked `internal` and preserved, including
+future reference-engine objects unknown to this version. M2 cannot prove who
+created such an object and therefore does not reject it merely by name.
+`sqlite_master`, `sqlite_temp_schema`, and `sqlite_temp_master` are API aliases
+for the schema table, not alternative bytes stored in the file.
+
+The SQL text is inert data in M2. It is retained exactly as decoded but is not
+tokenized to recover column names, affinity, collations, partial predicates,
+generated columns, or redundant WITHOUT ROWID key suppression. The value-level
+cursor consequently exposes physical record order. Normalized DDL, logical
+column projection, `INTEGER PRIMARY KEY` substitution, and arbitrary index seek
+land with the SQL frontend/schema semantics in M4.
+
+### M2 explicit exclusions
+
+M2 does not create or mutate databases, recover rollback journals, overlay WAL
+frames, parse SQL/DDL, bind logical column names, apply affinity, execute
+expressions, or provide a query planner. It does not claim reverse/seek cursors.
+A physical zero-byte file, although some SQLite connection APIs treat it as a
+logical empty database, has no format-3 header and is outside the M2 raw-file
+reader; create/open semantics for that special case land with writable pager
+and connection integration. These exclusions must return a stable unsupported,
+read-only, or not-a-database error rather than silently using JDBC/sql.js.
 
 Supported storage forms include rowid tables, `INTEGER PRIMARY KEY` aliases,
 indexes and autoindexes, `WITHOUT ROWID`, `AUTOINCREMENT`/`sqlite_sequence`,
@@ -941,6 +1553,57 @@ Every traversal has visited-page detection and a limit derived from file size.
   run representative queries and `PRAGMA integrity_check`.
 - Differential record comparison covers NULL/numeric/text/BLOB and all built-in
   collations.
+
+### M2 pinned corpus and corruption matrix
+
+Committed fixtures live under `tests/fixtures/scljet/m2/` and are immutable
+inputs, not regenerated during ordinary test runs. `manifest.tsv` records for
+every file: fixture id, SHA-256, exact SQLite version/source id and compile
+options, generator SQL/script, page size, reserved bytes, schema format,
+encoding, auto-vacuum mode, journal header versions, expected schema entries,
+and an ordered storage-class/value dump from the oracle. The generator is a
+separate reproducible test tool using the official SQLite 3.53.3 amalgamation;
+non-zero reserved-byte fixtures use `SQLITE_FCNTL_RESERVE_BYTES`, not a SclJet
+writer. Schema-format 2/3 fixtures are generated by pinned historical official
+SQLite builds that introduced those formats, then reopened and accepted by the
+3.53.3 oracle; the manifest records both source ids.
+
+The valid corpus crosses, without requiring a Cartesian explosion:
+
+- every page size 512, 1024, 2048, 4096, 8192, 16384, 32768, and 65536;
+- UTF-8, UTF-16LE, UTF-16BE, plus a one-page empty schema with header encoding
+  0; schema formats 1, 2, 3, 4, and the legal empty format 0;
+- reserved-byte counts 0, odd 1/7, and boundary values that leave exactly 480
+  usable bytes, with reference `integrity_check` acceptance recorded; pure
+  header property tests enumerate every legal reservation for every page size;
+- rollback header versions and clean WAL-version headers with no live sidecar;
+- empty/single/multi-level rowid tables, negative/min/max rowids, all legal
+  persistent serial types, binary64 edge values, valid and invalid UTF,
+  embedded NUL, and BLOBs; invalid text compares/dumps by original bytes and
+  separately pins the deterministic ScalaScript string projection;
+- payloads at `M`, `K`, `X`, and each threshold +/-1 for table and index pages,
+  including one and many overflow pages;
+- explicit/auto indexes, index interior records, WITHOUT ROWID tables,
+  auto-vacuum and incremental-vacuum pointer maps, freelist trunks/leaves, and
+  a file large enough to exercise a later pointer-map page;
+- unknown-but-legal application id/user version and internal `sqlite_*` schema
+  rows that must be preserved.
+
+Each valid fixture must pass reference `PRAGMA integrity_check`, and SclJet's
+ordered physical records must match a reference dump including storage class,
+integer/real distinction, exact text scalar values, and BLOB bytes. Page/record
+pure goldens run without a host VFS; the same fixtures run through the memory
+VFS and assembled JVM VFS.
+
+Corrupt fixtures are one-byte/minimal-structure mutations of valid fixtures and
+name the expected stable field plus page/file offset. They cover every header
+invariant; truncated pages/varints/records; illegal page type; bad pointer
+array; overlapping cell/freeblock/reserved spans; freeblock, B-tree, overflow,
+freelist and pointer-map cycles/duplicates; premature/extra overflow; illegal
+serial 10/11 and format-1 boolean serials; schema type/root
+mismatch; limit exhaustion; and arithmetic boundaries. The test accepts no
+platform exception, hang, or unbounded allocation. Fuzz smoke mutates bounded
+fixture copies and asserts only success or a structured `SqliteError`.
 
 ### SQL differential suite
 
