@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-12 — SclJet M2 read-only format and traversal contract
+
+The implementation-ready M2 specification now fixes exact APIs and invariants
+for database headers, B-tree pages/cells, X/M/K payload splitting, overflow,
+freelist/pointer maps, record serial types, SQLite's lossless invalid-UTF policy,
+immutable SHARED-locked paging, forward table/index traversal, raw schema
+classification, limits, localized errors, and a valid/corrupt oracle corpus.
+Writes, recovery/WAL overlays and SQL/DDL semantics remain explicitly later
+milestones. The differential oracle is pinned to SQLite 3.53.3. Landed in
+`7a6e2e70a`; `scljet-*` conformance remains 3/3.
+
 ## 2026-07-12 — SclJet M1 VFS foundations and JVM SQLite lock adapter
 
 SclJet now has complete VM/ASM M1 foundations: immutable chunked bytes and SQLite
