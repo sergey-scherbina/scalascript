@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+report=${1:-}
+[[ -f $report ]] || {
+  echo 'usage: scripts/v21-negative-toolchain-freeze REPORT.tsv' >&2
+  exit 2
+}
+
+awk -F '\t' '
+BEGIN {
+  expected["default.launcher"]="standard"
+  expected["tools.present"]="false"
+  expected["compiler.jars"]="0"
+  expected["scalameta.jars"]="0"
+  expected["scala-cli.available"]="false"
+  expected["scalac.available"]="false"
+  expected["javac.available"]="false"
+  expected["java.compiler.available"]="false"
+  expected["jdk.compiler.available"]="false"
+  expected["forbidden.references"]="0"
+  expected["frontend.total"]="195"
+  expected["frontend.ok"]="194"
+  expected["frontend.non-code"]="1"
+  expected["checker.ok"]="194"
+  expected["parity.identical"]="53"
+  expected["parity.both-fail"]="13"
+  expected["parity.skipped"]="129"
+  expected["parity.mismatch"]="0"
+  expected["parity.one-sided"]="0"
+  expected["runtime.blockers"]="0"
+  expected["provider.smoke"]="pass"
+  expected["server.smoke"]="pass"
+  expected["release.ready"]="true"
+}
+NR == 1 {
+  if ($1 != "metric" || $2 != "value") {
+    print "v21-negative-toolchain-freeze: invalid header" > "/dev/stderr"
+    bad=1
+  }
+  next
+}
+{
+  if ($1 == "" || seen[$1]++) {
+    print "v21-negative-toolchain-freeze: empty or duplicate metric: " $1 > "/dev/stderr"
+    bad=1
+  }
+  value[$1]=$2
+}
+END {
+  for (key in expected) {
+    if (!(key in value)) {
+      print "v21-negative-toolchain-freeze: missing metric: " key > "/dev/stderr"
+      bad=1
+    } else if (value[key] != expected[key]) {
+      print "v21-negative-toolchain-freeze: " key " expected " expected[key] ", got " value[key] > "/dev/stderr"
+      bad=1
+    }
+  }
+  modules=value["runtime.modules"]
+  if (modules == "" || modules ~ /(^|,)(java[.]compiler|jdk[.]compiler)(,|$)/) {
+    print "v21-negative-toolchain-freeze: invalid runtime.modules: " modules > "/dev/stderr"
+    bad=1
+  }
+  exit bad
+}
+' "$report"
+
+echo 'PASS v21-negative-toolchain-freeze'

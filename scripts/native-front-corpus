@@ -18,6 +18,9 @@ only='*.ssc'
 strict=0
 report=${NATIVE_FRONT_REPORT:-"${TMPDIR:-/tmp}/scalascript-native-front-$$.tsv"}
 classpath="$ROOT/bin/lib/jars/*"
+standard=0
+ssc=${SSC:-"$ROOT/bin/ssc"}
+tower_root="$ROOT/v2"
 
 usage() {
   cat <<'EOF'
@@ -26,6 +29,8 @@ usage: scripts/native-front-corpus [options]
   --only GLOB      basename glob, e.g. 'hello*.ssc'
   --report PATH    TSV output path (default: temporary file)
   --strict         require front/check success and runtime success/server start
+  --standard       use only lib/standard plus StandardMain for runtime
+  --ssc PATH       standard launcher used with --standard
 
 Requires a staged distribution: scripts/sbtc "installBin"
 EOF
@@ -37,6 +42,8 @@ while [[ $# -gt 0 ]]; do
     --only)    only=$2; shift 2 ;;
     --report)  report=$2; shift 2 ;;
     --strict)  strict=1; shift ;;
+    --standard) standard=1; shift ;;
+    --ssc) ssc=$2; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "native-front-corpus: unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -44,7 +51,14 @@ done
 
 core_jar=$(find "$ROOT/bin/lib/jars" -maxdepth 1 -name 'scalascript-v2-core_*.jar' -print -quit 2>/dev/null)
 bridge_jar=$(find "$ROOT/bin/lib/jars" -maxdepth 1 -name 'scalascript-v2-frontend-bridge_*.jar' -print -quit 2>/dev/null)
-if [[ -z "$core_jar" || -z "$bridge_jar" ]]; then
+if [[ $standard -eq 1 ]]; then
+  standard_dir=${NATIVE_FRONT_STANDARD_DIR:-"$ROOT/bin/lib/standard"}
+  classpath="$standard_dir/jars/*"
+  tower_root="$standard_dir/native-front/tower"
+  core_jar=$(find "$standard_dir/jars" -maxdepth 1 -name 'scalascript-v2-core_*.jar' -print -quit 2>/dev/null)
+  bridge_jar=standard-runtime
+fi
+if [[ -z "$core_jar" || -z "$bridge_jar" || ($standard -eq 1 && ! -x "$ssc") ]]; then
   echo 'native-front-corpus: staged v2 jars missing (run scripts/sbtc "installBin")' >&2
   exit 2
 fi
@@ -74,7 +88,7 @@ for f in "$ROOT"/examples/*.ssc; do
   : >"$tmp/run.out"; : >"$tmp/run.err"
 
   "$SCRIPT_DIR/run-with-timeout" "$seconds" "$java_cmd" -Xss512m -cp "$classpath" \
-    ssc.cli run "$ROOT/v2/bin/ssc1-run.ssc0" "$f" >"$tmp/front.out" 2>"$tmp/front.err"
+    ssc.cli run "$tower_root/bin/ssc1-run.ssc0" "$f" >"$tmp/front.out" 2>"$tmp/front.err"
   front_rc=$?
   if [[ $front_rc -eq 124 ]]; then
     front_status=TIMEOUT; front_timeout=$((front_timeout + 1))
@@ -95,7 +109,7 @@ for f in "$ROOT"/examples/*.ssc; do
   fi
 
   "$SCRIPT_DIR/run-with-timeout" "$seconds" "$java_cmd" -Xss512m -cp "$classpath" \
-    ssc.cli run "$ROOT/v2/bin/ssc1-check-run.ssc0" "$f" >"$tmp/check.out" 2>"$tmp/check.err"
+    ssc.cli run "$tower_root/bin/ssc1-check-run.ssc0" "$f" >"$tmp/check.out" 2>"$tmp/check.err"
   check_rc=$?
   if [[ $check_rc -eq 0 && $(cat "$tmp/check.out") == OK ]]; then
     check_status=OK; check_ok=$((check_ok + 1))
@@ -111,8 +125,13 @@ for f in "$ROOT"/examples/*.ssc; do
 
   runtime_rc=-
   if [[ $front_status == OK && $sentinel_status == clear ]]; then
-    "$SCRIPT_DIR/run-with-timeout" "$seconds" "$java_cmd" -Xss512m -cp "$classpath" \
-      ssc.bridge.bridgeCli run-ir "$tmp/front.out" >"$tmp/run.out" 2>"$tmp/run.err"
+    if [[ $standard -eq 1 ]]; then
+      "$SCRIPT_DIR/run-with-timeout" "$seconds" "$ssc" run "$f" \
+        >"$tmp/run.out" 2>"$tmp/run.err"
+    else
+      "$SCRIPT_DIR/run-with-timeout" "$seconds" "$java_cmd" -Xss512m -cp "$classpath" \
+        ssc.bridge.bridgeCli run-ir "$tmp/front.out" >"$tmp/run.out" 2>"$tmp/run.err"
+    fi
     runtime_rc=$?
     if [[ $runtime_rc -eq 0 ]]; then
       runtime_status=OK; run_ok=$((run_ok + 1))

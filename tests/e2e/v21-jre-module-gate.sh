@@ -49,6 +49,12 @@ find "$sandbox/scan-classes/META-INF" -type f \
   -verbose:class "$sandbox/standard-scan.jar" >"$sandbox/standard.jdeps"
 runtime_modules=$("$jdeps_cmd" --multi-release base --ignore-missing-deps \
   --print-module-deps "$sandbox/standard-scan.jar" | tr -d '\r\n')
+# JCA providers are selected reflectively and are invisible to jdeps. Ed25519
+# is a standard crypto surface, so retain its JDK provider explicitly.
+case ",$runtime_modules," in
+  *,jdk.crypto.ec,*) ;;
+  *) runtime_modules="$runtime_modules,jdk.crypto.ec" ;;
+esac
 
 forbidden_refs='scala[.]meta|scala[.]tools|dotty[.]tools|javax[.]tools|java[.]compiler|jdk[.]compiler|ssc[.]bridge|scalascript[.](ast|frontend|interpreter)'
 if [[ -z $runtime_modules ]] || grep -Ei "$forbidden_refs" "$sandbox/standard.jdeps" >/dev/null; then
@@ -107,6 +113,9 @@ sql_quickstart_expected=$'active users: List(Map(ID -> 1, NAME -> Alice, EMAIL -
 [[ $(run_standard run --bytecode "$ROOT/examples/sql-h2-quickstart.ssc") == "$sql_quickstart_expected" ]]
 [[ $(run_standard run "$ROOT/examples/typed-sql-crud.ssc") == '1/1:Buy oat milk:true' ]]
 [[ $(run_standard run --bytecode "$ROOT/examples/typed-sql-crud.ssc") == '1/1:Buy oat milk:true' ]]
+crypto_expected=$'signature valid: true\ntampered valid: false\nmalformed valid: false\nsignature matches vector: true\nround-trip valid: true'
+[[ $(run_standard run "$ROOT/examples/crypto-verify-demo.ssc") == "$crypto_expected" ]]
+[[ $(run_standard run --bytecode "$ROOT/examples/crypto-verify-demo.ssc") == "$crypto_expected" ]]
 [[ $(run_standard run "$FIXTURES/state-effect-provider.ssc") == $'17\n20\n2\n101\n101\n2' ]]
 lenses_expected=$'older   : Alice, 31\nrenamed : Bob, 40, Boston\n30\n99\n40\nBoston\nParis\nMain St\nMain St\nBroadway\nSome(Circle(5))\nNone\nCircle(10)\nRect(3, 4)\nSome(Boston)\nNone\nNone\nSome(Profile(Some(Address(Main St, Paris))))\nNone\nSome(Boston)\nList(Alice, Bob, Carol)\nList(31, 26, 36)\nList(TeamMember(anon, 30), TeamMember(anon, 25), TeamMember(anon, 35))'
 [[ $(run_standard run "$ROOT/examples/lenses.ssc") == "$lenses_expected" ]]

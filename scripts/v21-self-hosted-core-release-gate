@@ -11,6 +11,7 @@ report_dir=${V21_RELEASE_REPORT_DIR:-"$ROOT/target/v21-self-hosted-core-release"
 freeze_optional=skipped
 freeze_tools=skipped
 freeze_blockers=skipped
+negative_release=skipped
 
 usage() {
   cat <<'EOF'
@@ -92,6 +93,9 @@ if [[ $quick -eq 0 ]]; then
   freeze_optional=$(awk -F '\t' '$1 == "optional-provider" { print $2 }' "$report_dir/runtime-freeze.tsv")
   freeze_tools=$(awk -F '\t' '$1 == "tools-backend" { print $2 }' "$report_dir/runtime-freeze.tsv")
   freeze_blockers=$(awk -F '\t' '$1 == "blocker-total" { print $2 }' "$report_dir/runtime-freeze.tsv")
+  "$ROOT/tests/e2e/v21-negative-toolchain-release-gate.sh" \
+    --report "$report_dir/negative-toolchain.tsv"
+  negative_release=pass
 fi
 
 "$ROOT/tests/conformance/run.sh" --only 'v2-*' --no-memo
@@ -112,6 +116,7 @@ fi
   printf 'runtime.optional-provider.freeze\t%s\n' "$freeze_optional"
   printf 'runtime.tools-backend.freeze\t%s\n' "$freeze_tools"
   printf 'runtime.blocker-total.freeze\t%s\n' "$freeze_blockers"
+  printf 'negative-toolchain.release\t%s\n' "$negative_release"
   printf 'release.ready\ttrue\n'
 } | tee "$report_dir/summary.tsv"
 

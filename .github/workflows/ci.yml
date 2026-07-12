@@ -246,6 +246,10 @@ jobs:
       - name: ScalaScript 2.1 JRE-shaped no-javac module gate
         run: tests/e2e/v21-jre-module-gate.sh --report target/v21-jre-module.tsv
 
+      - name: ScalaScript 2.1 standard-only negative toolchain release gate
+        timeout-minutes: 30
+        run: tests/e2e/v21-negative-toolchain-release-gate.sh --report target/v21-negative-toolchain-release.tsv
+
       - name: ScalaScript 2.1 direct-ASM local recursion gate
         run: tests/e2e/v21-direct-asm-recursion-smoke.sh
 
