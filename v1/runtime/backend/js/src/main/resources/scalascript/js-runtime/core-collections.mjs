@@ -60,6 +60,7 @@ function _dispatch(obj, method, args) {
       case 'toBigInt': return obj;
       case 'toDecimal': return Decimal(obj);
       case 'toDouble': return Number(obj);
+      case 'toChar': return _char(Number(obj & 0xFFFFn));  // 65.toChar -> 'A' (portable-codepoint)
       case 'toString': return obj.toString();
       case 'abs': return obj < 0n ? -obj : obj;
       case 'negate': return -obj;
@@ -82,6 +83,7 @@ function _dispatch(obj, method, args) {
     switch (method) {
       case 'toBigInt': return _toBig(obj);
       case 'toDecimal': return Decimal(obj);
+      case 'toChar': return _char(obj & 0xFFFF);  // 65.toChar -> 'A' (portable-codepoint)
     }
   }
   // LazyList — lazy ops stay lazy (only forced on demand); force ops materialise. (lazylist-all-backends.)

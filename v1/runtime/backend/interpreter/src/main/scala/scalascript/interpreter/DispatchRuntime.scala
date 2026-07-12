@@ -2735,6 +2735,9 @@ private[interpreter] object DispatchRuntime:
       case "toFloat"   => Pure(Value.doubleV(n.toDouble))
       case "toByte"    => Computation.pureIntV(n.toByte.toLong)
       case "toShort"   => Computation.pureIntV(n.toShort.toLong)
+      // `65.toChar` → 'A' — construct a UTF-16 code unit from an Int code point.
+      // (portable-codepoint-string-construction.)
+      case "toChar"    => Pure(Value.CharV(n.toChar))
       case "abs"       => Computation.pureIntV(math.abs(n))
       case "toString"  => Pure(Value.StringV(n.toString))
       case "max"       => args match
