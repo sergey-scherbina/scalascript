@@ -12,7 +12,7 @@ compiler/Scalameta JARs, compiler commands, or compiler modules. Native
 providers and an HTTP server pass in the same environment, and a frozen report
 self-test rejects launcher/JAR/tool/module/parity/blocker drift. The gate also
 found and fixed the reflective `jdk.crypto.ec` Ed25519 provider edge. Landed in
-`dce6aa0a8`; exhaustive release and conformance 11/11 pass.
+`4ce7aa1c9`; exhaustive release and conformance 11/11 pass.
 
 ## 2026-07-12 — Plain `ssc` is the compiler-free ScalaScript 2.1 launcher
 
