@@ -13,7 +13,9 @@ working engine constructor.
 [ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlText, SqlBlob, SqliteColumn, SqliteRow, StrictSqlite, ExtendedSqlite, ReadOnlySalvage, LockShared, LockExclusive, FunctionFlags](std/scljet/index.ssc)
 
 ```scalascript
-val bytes = ByteSlice(List(0, 127, 255))
+val bytes = ByteSlice.fromList(List(0, 127, 255)) match
+  case Right(value) => value
+  case Left(_) => ByteSlice.empty
 val row = SqliteRow(List(
   SqliteColumn("id", "INTEGER", SqlInteger(7)),
   SqliteColumn("name", "TEXT", SqlText("Ada")),
@@ -21,7 +23,7 @@ val row = SqliteRow(List(
   SqliteColumn("optional", "", SqlNull)
 ))
 
-println(bytes.bytes.length)
+println(bytes.length)
 println(row.columns.length)
 
 row.columns.head.value match

@@ -5,6 +5,9 @@ description: M0 portable values, errors, limits, and open options for the pure S
 package: scljet
 exports:
   - ByteSlice
+  - ByteError
+  - ByteRead
+  - VarintRead
   - SqliteValue
   - SqlNull
   - SqlInteger
@@ -82,11 +85,9 @@ milestones from `specs/scljet.md`.
 
 ## Bytes and SQL storage classes
 
-```scalascript
-// M0 representation only. M1 provides the bounds-checked, constant-time byte
-// implementation behind this target-neutral name without exposing host buffers.
-case class ByteSlice(bytes: List[Int])
+[ByteSlice, ByteError, ByteRead, VarintRead](bytes.ssc)
 
+```scalascript
 sealed trait SqliteValue
 case object SqlNull extends SqliteValue
 case class SqlInteger(value: Long) extends SqliteValue

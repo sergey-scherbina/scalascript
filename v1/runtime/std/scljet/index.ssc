@@ -1,10 +1,39 @@
 ---
 name: scljet
-version: 0.1.0
-description: M0 public contracts for a pure ScalaScript SQLite 3 compatible storage and SQL engine; no engine implementation yet
+version: 0.2.0
+description: SclJet M1 immutable bytes/codecs plus portable SQLite engine contracts; no pager or SQL engine yet
 package: scljet
 exports:
   - ByteSlice
+  - ByteError
+  - ByteRead
+  - VarintRead
+  - readU16Be
+  - readU32Be
+  - readU64Be
+  - readU16Le
+  - readU32Le
+  - readU64Le
+  - readI16Be
+  - readI24Be
+  - readI32Be
+  - readI48Be
+  - readI64Be
+  - writeU16Be
+  - writeU32Be
+  - writeU64Be
+  - writeU16Le
+  - writeU32Le
+  - writeU64Le
+  - byteSliceToList
+  - byteSliceGet
+  - byteSliceUpdated
+  - byteSliceSlice
+  - byteSliceConcat
+  - byteSliceCopyTo
+  - byteSliceZeroExtend
+  - decodeVarint
+  - encodeVarint
   - SqliteValue
   - SqlNull
   - SqlInteger
@@ -131,7 +160,9 @@ This M0 module fixes the portable public boundary for the engine specified in
 or `open` implementation yet; later milestones fill the layers behind these
 interfaces and prove compatibility through differential and crash testing.
 
-[ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, SqliteColumn, SqliteRow, SqliteErrorCode, SqliteErrorGeneric, SqliteInternal, SqlitePermission, SqliteAbort, SqliteBusy, SqliteLocked, SqliteNoMemory, SqliteReadOnly, SqliteInterrupt, SqliteIo, SqliteCorrupt, SqliteNotFound, SqliteFull, SqliteCannotOpen, SqliteProtocol, SqliteSchemaChanged, SqliteTooBig, SqliteConstraint, SqliteMismatch, SqliteMisuse, SqliteFormat, SqliteRange, SqliteNotADatabase, SqliteUnsupportedCapability, SqliteError, SqliteCompatibility, StrictSqlite, ExtendedSqlite, ReadOnlySalvage, SqliteOpenMode, OpenReadOnly, OpenReadWrite, OpenReadWriteCreate, OpenMemory, SqliteJournalMode, JournalDelete, JournalTruncate, JournalPersist, JournalMemory, JournalWal, JournalOff, SqliteSyncMode, SyncOff, SyncNormal, SyncFull, SyncExtra, TransactionMode, TransactionDeferred, TransactionImmediate, TransactionExclusive, CheckpointMode, CheckpointPassive, CheckpointFull, CheckpointRestart, CheckpointTruncate, CheckpointResult, SqliteLimits, SqliteOpenOptions](values.ssc)
+[ByteSlice, ByteError, ByteRead, VarintRead, byteSliceToList, byteSliceGet, byteSliceUpdated, byteSliceSlice, byteSliceConcat, byteSliceCopyTo, byteSliceZeroExtend, readU16Be, readU32Be, readU64Be, readU16Le, readU32Le, readU64Le, readI16Be, readI24Be, readI32Be, readI48Be, readI64Be, writeU16Be, writeU32Be, writeU64Be, writeU16Le, writeU32Le, writeU64Le, decodeVarint, encodeVarint](bytes.ssc)
+
+[SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, SqliteColumn, SqliteRow, SqliteErrorCode, SqliteErrorGeneric, SqliteInternal, SqlitePermission, SqliteAbort, SqliteBusy, SqliteLocked, SqliteNoMemory, SqliteReadOnly, SqliteInterrupt, SqliteIo, SqliteCorrupt, SqliteNotFound, SqliteFull, SqliteCannotOpen, SqliteProtocol, SqliteSchemaChanged, SqliteTooBig, SqliteConstraint, SqliteMismatch, SqliteMisuse, SqliteFormat, SqliteRange, SqliteNotADatabase, SqliteUnsupportedCapability, SqliteError, SqliteCompatibility, StrictSqlite, ExtendedSqlite, ReadOnlySalvage, SqliteOpenMode, OpenReadOnly, OpenReadWrite, OpenReadWriteCreate, OpenMemory, SqliteJournalMode, JournalDelete, JournalTruncate, JournalPersist, JournalMemory, JournalWal, JournalOff, SqliteSyncMode, SyncOff, SyncNormal, SyncFull, SyncExtra, TransactionMode, TransactionDeferred, TransactionImmediate, TransactionExclusive, CheckpointMode, CheckpointPassive, CheckpointFull, CheckpointRestart, CheckpointTruncate, CheckpointResult, SqliteLimits, SqliteOpenOptions](values.ssc)
 
 [FileKind, MainDatabaseFile, MainJournalFile, WalFile, ShmFile, TempDatabaseFile, TempJournalFile, TransientFile, OpenFlags, LockLevel, LockNone, LockShared, LockReserved, LockPending, LockExclusive, SyncFlags, DeviceCharacteristic, AtomicWrite, SafeAppend, SequentialWrite, PowersafeOverwrite, UndeletableWhenOpen, AtomicDelete, ShmLockMode, ShmSharedLock, ShmExclusiveLock, ShmSharedUnlock, ShmExclusiveUnlock, VfsError, SharedRegion, SqliteFile, SqliteVfs](vfs.ssc)
 

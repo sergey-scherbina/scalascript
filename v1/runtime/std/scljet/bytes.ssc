@@ -1,0 +1,244 @@
+---
+name: scljet-bytes
+version: 0.2.0
+description: Immutable byte slices plus SQLite endian and varint codecs
+package: scljet
+exports:
+  - ByteError
+  - ByteRead
+  - VarintRead
+  - ByteSlice
+  - readU16Be
+  - readU32Be
+  - readU64Be
+  - readU16Le
+  - readU32Le
+  - readU64Le
+  - readI16Be
+  - readI24Be
+  - readI32Be
+  - readI48Be
+  - readI64Be
+  - writeU16Be
+  - writeU32Be
+  - writeU64Be
+  - writeU16Le
+  - writeU32Le
+  - writeU64Le
+  - byteSliceToList
+  - byteSliceGet
+  - byteSliceUpdated
+  - byteSliceSlice
+  - byteSliceConcat
+  - byteSliceCopyTo
+  - byteSliceZeroExtend
+  - decodeVarint
+  - encodeVarint
+---
+
+# SclJet immutable bytes and SQLite codecs
+
+Pure ScalaScript byte storage. A slice is a shared window over 64-byte chunks;
+no host buffer or platform type crosses the API.
+
+```scalascript
+case class ByteError(code: String, message: String, offset: Int)
+case class ByteRead(value: Long, nextOffset: Int)
+case class VarintRead(value: Long, length: Int, nextOffset: Int)
+
+case class ByteSlice(chunks: Map[Int, List[Int]], start: Int, length: Int)
+
+def byteError(code: String, message: String, offset: Int): ByteError =
+  ByteError(code, message, offset)
+
+def validateBytes(values: List[Int], offset: Int): Either[ByteError, Unit] = values match
+  case Nil => Right(())
+  case Cons(value, tail) =>
+    if value < 0 || value > 255 then
+      Left(byteError("invalid-byte", "byte must be between 0 and 255", offset))
+    else validateBytes(tail, offset + 1)
+
+def buildChunks(values: List[Int], chunk: Int, acc: Map[Int, List[Int]]): Map[Int, List[Int]] =
+  if values.isEmpty then acc
+  else buildChunks(values.drop(64), chunk + 1, acc.updated(chunk, values.take(64)))
+
+def byteSliceUnsafe(values: List[Int]): ByteSlice =
+  ByteSlice(buildChunks(values, 0, Map()), 0, values.length)
+
+def byteSliceWindow(chunks: Map[Int, List[Int]], start: Int, length: Int): ByteSlice =
+  ByteSlice(chunks, start, length)
+
+def zerosList(length: Int, acc: List[Int]): List[Int] =
+  if length <= 0 then acc.reverse else zerosList(length - 1, 0 :: acc)
+
+def chunkValue(values: List[Int], index: Int): Int =
+  values.drop(index).head
+
+def rawGet(bytes: ByteSlice, index: Int): Int =
+  val absolute = bytes.start + index
+  val chunk = absolute / 64
+  val within = absolute % 64
+  chunkValue(bytes.chunks.get(chunk).getOrElse(Nil), within)
+
+def replaceAt(values: List[Int], index: Int, value: Int): List[Int] = values match
+  case Nil => Nil
+  case Cons(head, tail) =>
+    if index == 0 then value :: tail
+    else head :: replaceAt(tail, index - 1, value)
+
+def rawUpdated(bytes: ByteSlice, index: Int, value: Int): ByteSlice =
+  val absolute = bytes.start + index
+  val chunk = absolute / 64
+  val within = absolute % 64
+  val current = bytes.chunks.get(chunk).getOrElse(Nil)
+  val replacement = replaceAt(current, within, value)
+  val updatedChunks = bytes.chunks.updated(chunk, replacement)
+  byteSliceWindow(updatedChunks, bytes.start, bytes.length)
+
+def copyLoop(source: ByteSlice, sourceIndex: Int, target: ByteSlice, targetOffset: Int): ByteSlice =
+  if sourceIndex >= source.length then target
+  else copyLoop(source, sourceIndex + 1,
+    rawUpdated(target, targetOffset + sourceIndex, rawGet(source, sourceIndex)), targetOffset)
+
+object ByteSlice:
+  def empty: ByteSlice = byteSliceUnsafe(Nil)
+
+  def fromList(values: List[Int]): Either[ByteError, ByteSlice] =
+    validateBytes(values, 0) match
+      case Left(error) => Left(error)
+      case Right(_) => Right(byteSliceUnsafe(values))
+
+  def zeros(length: Int): Either[ByteError, ByteSlice] =
+    if length < 0 then Left(byteError("negative-length", "length must be non-negative", length))
+    else Right(byteSliceUnsafe(zerosList(length, Nil)))
+
+def collectBytes(bytes: ByteSlice, index: Int, acc: List[Int]): List[Int] =
+  if index >= bytes.length then acc.reverse
+  else collectBytes(bytes, index + 1, rawGet(bytes, index) :: acc)
+
+def byteSliceToList(bytes: ByteSlice): List[Int] = collectBytes(bytes, 0, Nil)
+
+def byteSliceGet(bytes: ByteSlice, index: Int): Either[ByteError, Int] =
+  if index < 0 || index >= bytes.length then
+    Left(byteError("out-of-bounds", "byte index is outside the slice", index))
+  else Right(rawGet(bytes, index))
+
+def byteSliceUpdated(bytes: ByteSlice, index: Int, value: Int): Either[ByteError, ByteSlice] =
+  if index < 0 || index >= bytes.length then
+    Left(byteError("out-of-bounds", "byte index is outside the slice", index))
+  else if value < 0 || value > 255 then
+    Left(byteError("invalid-byte", "byte must be between 0 and 255", index))
+  else Right(rawUpdated(bytes, index, value))
+
+def byteSliceSlice(bytes: ByteSlice, offset: Int, size: Int): Either[ByteError, ByteSlice] =
+  val available = bytes.length - size
+  if offset < 0 || size < 0 || offset > available then
+    Left(byteError("out-of-bounds", "slice is outside the byte range", offset))
+  else Right(byteSliceWindow(bytes.chunks, bytes.start + offset, size))
+
+def byteSliceConcat(left: ByteSlice, right: ByteSlice): ByteSlice =
+  byteSliceUnsafe(byteSliceToList(left) ++ byteSliceToList(right))
+
+def byteSliceCopyTo(source: ByteSlice, target: ByteSlice, targetOffset: Int): Either[ByteError, ByteSlice] =
+  val available = target.length - source.length
+  if targetOffset < 0 || targetOffset > available then
+    Left(byteError("out-of-bounds", "copy does not fit in target", targetOffset))
+  else Right(copyLoop(source, 0, target, targetOffset))
+
+def byteSliceZeroExtend(bytes: ByteSlice, size: Int): Either[ByteError, ByteSlice] =
+  if size < bytes.length then
+    Left(byteError("invalid-length", "byteSliceZeroExtend cannot shrink a slice", size))
+  else ByteSlice.zeros(size - bytes.length) match
+    case Left(error) => Left(error)
+    case Right(padding) => Right(byteSliceConcat(bytes, padding))
+
+def requireRange(bytes: ByteSlice, offset: Int, width: Int): Either[ByteError, Unit] =
+  val available = bytes.length - width
+  if offset < 0 || width < 0 || offset > available then
+    Left(byteError("truncated", "not enough bytes for fixed-width value", offset))
+  else Right(())
+
+def readBeLoop(bytes: ByteSlice, offset: Int, width: Int, index: Int, acc: Long): Long =
+  if index >= width then acc
+  else readBeLoop(bytes, offset, width, index + 1, (acc << 8) | rawGet(bytes, offset + index))
+
+def readLeLoop(bytes: ByteSlice, offset: Int, width: Int, index: Int, acc: Long): Long =
+  if index >= width then acc
+  else readLeLoop(bytes, offset, width, index + 1,
+    acc | (rawGet(bytes, offset + index).toLong << (index * 8)))
+
+def readUnsigned(bytes: ByteSlice, offset: Int, width: Int, little: Boolean): Either[ByteError, ByteRead] =
+  requireRange(bytes, offset, width) match
+    case Left(error) => Left(error)
+    case Right(_) =>
+      val value = if little then readLeLoop(bytes, offset, width, 0, 0L)
+                  else readBeLoop(bytes, offset, width, 0, 0L)
+      Right(ByteRead(value, offset + width))
+
+def readU16Be(bytes: ByteSlice, offset: Int): Either[ByteError, ByteRead] = readUnsigned(bytes, offset, 2, false)
+def readU32Be(bytes: ByteSlice, offset: Int): Either[ByteError, ByteRead] = readUnsigned(bytes, offset, 4, false)
+def readU64Be(bytes: ByteSlice, offset: Int): Either[ByteError, ByteRead] = readUnsigned(bytes, offset, 8, false)
+def readU16Le(bytes: ByteSlice, offset: Int): Either[ByteError, ByteRead] = readUnsigned(bytes, offset, 2, true)
+def readU32Le(bytes: ByteSlice, offset: Int): Either[ByteError, ByteRead] = readUnsigned(bytes, offset, 4, true)
+def readU64Le(bytes: ByteSlice, offset: Int): Either[ByteError, ByteRead] = readUnsigned(bytes, offset, 8, true)
+
+def signedRead(result: Either[ByteError, ByteRead], signBit: Long, modulus: Long): Either[ByteError, ByteRead] = result match
+  case Left(error) => Left(error)
+  case Right(read) =>
+    if (read.value & signBit) != 0 then Right(ByteRead(read.value - modulus, read.nextOffset))
+    else Right(read)
+
+def readI16Be(bytes: ByteSlice, offset: Int): Either[ByteError, ByteRead] = signedRead(readU16Be(bytes, offset), 32768L, 65536L)
+def readI24Be(bytes: ByteSlice, offset: Int): Either[ByteError, ByteRead] = signedRead(readUnsigned(bytes, offset, 3, false), 8388608L, 16777216L)
+def readI32Be(bytes: ByteSlice, offset: Int): Either[ByteError, ByteRead] = signedRead(readU32Be(bytes, offset), 2147483648L, 4294967296L)
+def readI48Be(bytes: ByteSlice, offset: Int): Either[ByteError, ByteRead] = signedRead(readUnsigned(bytes, offset, 6, false), 140737488355328L, 281474976710656L)
+def readI64Be(bytes: ByteSlice, offset: Int): Either[ByteError, ByteRead] = readU64Be(bytes, offset)
+
+def writeBeList(value: Long, width: Int, index: Int, acc: List[Int]): List[Int] =
+  if index >= width then acc.reverse
+  else writeBeList(value, width, index + 1, ((value >>> (index * 8)) & 255L).toInt :: acc)
+
+def reverseBytes(values: List[Int]): List[Int] = values.reverse
+
+def writeU16Le(value: Long): ByteSlice = byteSliceUnsafe(writeBeList(value, 2, 0, Nil))
+def writeU32Le(value: Long): ByteSlice = byteSliceUnsafe(writeBeList(value, 4, 0, Nil))
+def writeU64Le(value: Long): ByteSlice = byteSliceUnsafe(writeBeList(value, 8, 0, Nil))
+def writeU16Be(value: Long): ByteSlice = byteSliceUnsafe(reverseBytes(writeBeList(value, 2, 0, Nil)))
+def writeU32Be(value: Long): ByteSlice = byteSliceUnsafe(reverseBytes(writeBeList(value, 4, 0, Nil)))
+def writeU64Be(value: Long): ByteSlice = byteSliceUnsafe(reverseBytes(writeBeList(value, 8, 0, Nil)))
+
+def decodeVarintLoop(bytes: ByteSlice, offset: Int, index: Int, acc: Long): Either[ByteError, VarintRead] =
+  if offset + index >= bytes.length then
+    Left(byteError("truncated-varint", "varint ended before a terminating byte", offset + index))
+  else
+    val byte = rawGet(bytes, offset + index)
+    if index == 8 then Right(VarintRead((acc << 8) | byte, 9, offset + 9))
+    else
+      val next = (acc << 7) | (byte & 127)
+      if (byte & 128) == 0 then Right(VarintRead(next, index + 1, offset + index + 1))
+      else decodeVarintLoop(bytes, offset, index + 1, next)
+
+def decodeVarint(bytes: ByteSlice, offset: Int): Either[ByteError, VarintRead] =
+  if offset < 0 || offset >= bytes.length then
+    Left(byteError("truncated-varint", "varint has no first byte", offset))
+  else decodeVarintLoop(bytes, offset, 0, 0L)
+
+def shortVarintGroups(value: Long, acc: List[Int]): List[Int] =
+  if value <= 127L then value.toInt :: acc
+  else shortVarintGroups(value >>> 7, (value & 127L).toInt :: acc)
+
+def markVarintGroups(values: List[Int]): List[Int] = values match
+  case Nil => Nil
+  case Cons(value, Nil) => value :: Nil
+  case Cons(value, tail) => (value | 128) :: markVarintGroups(tail)
+
+def nineByteVarint(value: Long, index: Int, acc: List[Int]): List[Int] =
+  if index >= 8 then acc.reverse :+ (value & 255L).toInt
+  else
+    val shift = 57 - index * 7
+    nineByteVarint(value, index + 1, ((((value >>> shift) & 127L).toInt) | 128) :: acc)
+
+def encodeVarint(value: Long): ByteSlice =
+  if value < 0L || value > 72057594037927935L then byteSliceUnsafe(nineByteVarint(value, 0, Nil))
+  else byteSliceUnsafe(markVarintGroups(shortVarintGroups(value, Nil)))
+```

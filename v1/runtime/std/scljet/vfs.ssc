@@ -43,7 +43,7 @@ exports:
 The storage engine depends only on these synchronous target-neutral contracts.
 Host adapters and intrinsics live in separate plugins.
 
-[ByteSlice](values.ssc)
+[ByteSlice](bytes.ssc)
 
 ## File identity and open flags
 
