@@ -1320,24 +1320,26 @@ for in-process runs, and `inferType` already computes per-node `SType` (just dis
       leaf needs widening. Verification (value-demo stayed None) caught it; kept a finding test.
       ROOT CAUSE: the fix needs the DECLARED return type (`: Double`), which FunV doesn't carry →
       folds into C-4 as a CORE change (thread decltpe into FunV, ~8 sites).
-- [ ] **C-4-wide-compilation** — remove type-unknown bails in `compileExpr`/`compileInto`
-      one class at a time, each A/B-provable via miss-count. FIRST real target = MixedReturnType via
-      the DECLARED return type. Split infra→integration→activation (cross-module commit safety):
-  - [ ] **C-4a (infra)** — add `var declaredReturnType: String = ""` to `Value.FunV` (Value.scala),
-        NON-constructor mutable field (like `usingResolveCache`) so no positional-match / arity break
-        (note `case FunV(ps,_,_,_,_,_,_,_)` at Value.scala:261). Excluded from equals/hashCode.
-  - [ ] **C-4b (integration)** — populate it at the def-construction sites from `d.decltpe` via
-        `interp.typeToString` (same as paramTypes): StatRuntime:239 (top-level/local defs — the JIT's
-        primary targets) + BlockRuntime:501 (block-local defs). Methods (342/434/536) optional later.
-  - [ ] **C-4c (activation)** — VmCompiler: `declaredDouble = doubleTypes.contains(fn.declaredReturnType)`;
-        at the RET leaf, widen a TInt leaf to TDouble (I2D) when `declaredDouble` (Scala widens
-        Int→Double on every return path) instead of bailing MixedReturnType. Value-demo test
-        (`if c>0 then 1.5 else 2`) + conformance-verify.
-  - [ ] **C-4d (follow-up, optional)** — augment `fnIsDouble` with `declaredDouble` so self-recursive
-        declared-Double fns with non-tail self-calls + no double literal type the self-call result
-        correctly (416). Separate commit; only if conformance shows it matters.
-  - [ ] later: typeGateOk (164) / call-arg (604) — can the map satisfy the gate instead of bailing?
-        (param seed loop is MOOT — def params are already annotated.)
+- [x] **C-4-wide-compilation** — MixedReturnType killed via the DECLARED return type. DONE 2026-07-12
+      (SscVmTest 180/180; INT conformance 147/16, byte-identical fail set to the C-2 baseline — all 16
+      non-INT-eligible; no regression, always-on default path). Split infra→integration→activation:
+  - [x] **C-4a (infra)** `4b10492d6` — `FunV.declaredReturnType` non-ctor @transient var (mirrors
+        usingResolveCache) → no arity/positional-match break; out of equals/hashCode. Core compiled clean.
+  - [x] **C-4b (integration)** `de87860c7` — populate from `d.decltpe` via `interp.typeToString` at
+        StatRuntime:239 (top-level/local) + BlockRuntime:501 (block-local). Behaviour-neutral alone.
+  - [x] **C-4c (activation)** `b3668ca16` — `declaredDouble`; at the RET leaf widen a TInt leaf (I2D)
+        when declaredDouble instead of bailing MixedReturnType. Always-on (FunV field, no map/flag).
+        Value-demo: `if c>0 then 1.5 else 2` → compiles, f(5)=1.5, f(-5)=2.0.
+  - [x] **C-4d** `61f36b124` — folded `declaredDouble` into `fnIsDouble`, closing a latent miscompile:
+        a declared-Double fn with no double literal/param typed its self-call result TInt → non-tail
+        self-call read double bits as int (garbage). Now TDouble → correct. Value-demo: self-recursive
+        `f(n-1)/2` → 0.5/0.25/0.125. Conformance fail set byte-identical to pre-C-4d (no regression).
+  - KEY INSIGHT: Typer types a mixed `if` body as `Any` (Typer.scala:949) → the inferred body type
+    NEVER says "returns Double" when a TInt leaf is present. Only the DECLARED annotation can — which
+    is why the earlier map/vmTypeOf-driven attempt (consumption #2) was inert and C-4 works.
+  - [ ] later: typeGateOk (164) / call-arg (604) — can a type source satisfy the gate instead of
+        bailing? Mirror C-4 for `: Long` if the corpus shows Int/Long mixed-return bails. (param seed
+        loop is MOOT — def params are already annotated.)
 - [ ] **C-gate** — QUIET-MACHINE A/B (`scripts/bench interp patternMatch*|recursionFib`,
       `scripts/bench cross`): wider coverage doesn't regress hot paths + ideally removes the
       `recursionFib` bimodal variance. (The "(1)" timing work, deferred until load drops.)
