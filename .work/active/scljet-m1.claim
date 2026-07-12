@@ -1,0 +1,6 @@
+feature/scljet-m1 2026-07-12T10:35:37Z
+agent: codex
+heartbeat: 2026-07-12T10:35:37Z
+status: not-started
+done-so-far:
+next: create isolated worktree and queue M1 byte-codec and in-memory VFS slices
