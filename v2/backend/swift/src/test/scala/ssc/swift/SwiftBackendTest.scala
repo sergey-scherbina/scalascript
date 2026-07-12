@@ -224,6 +224,89 @@ final class SwiftBackendTest extends AnyFunSuite:
     assert(runSwift("tryParity", Program(Nil, result)) ==
       "(7, Boom(7), \"String.toInt: invalid integer\", 12, \"String.toInt: invalid integer\", Again(Boom(7)), \"String.toInt: invalid integer\")")
 
+  test("real Swift List method indexing and concatenation matrix is recoverable"):
+    assume(swiftAvailable, "Swift toolchain is not available")
+    def integer(value: Long): Term = Term.Lit(Const.CInt(value))
+    def method(name: String, receiver: Term, args: Term*): Term =
+      Term.Prim("__method__", str(name) :: receiver :: args.toList)
+    def attempt(body: Term): Term =
+      Term.Prim("__try__", List(Term.Lam(0, body), Term.Lam(1, Term.Local(0))))
+    def concat(op: String, left: Term, right: Term): Term =
+      Term.Prim("__arith__", List(str(op), left, right))
+
+    val mixed = list(List(str("a"), integer(2)))
+    val empty = list(Nil)
+    val badTail = Term.Ctor("Cons", List(integer(1), Term.Ctor("BadTail", Nil)))
+    val badCons = Term.Ctor("Cons", List(integer(1)))
+    val badNil = Term.Ctor("Nil", List(integer(1)))
+    val suffix = list(List(str("b")))
+    val matrix = Term.Ctor("Tuple20", List(
+      method("mkString", mixed),
+      method("mkString", mixed, str("|")),
+      method("mkString", mixed, str("<"), str("|"), str(">")),
+      method("mkString", empty),
+      method("mkString", empty, str("|")),
+      method("mkString", empty, str("<"), str("|"), str(">")),
+      Term.App(mixed, List(integer(1))),
+      attempt(Term.App(mixed, List(integer(-1)))),
+      attempt(Term.App(mixed, List(integer(2)))),
+      attempt(Term.App(mixed, List(str("x")))),
+      attempt(Term.App(mixed, Nil)),
+      attempt(Term.App(badTail, List(integer(0)))),
+      attempt(Term.App(badCons, List(integer(0)))),
+      attempt(Term.App(badNil, List(integer(0)))),
+      concat("+", mixed, suffix),
+      concat("++", empty, mixed),
+      concat("++", mixed, empty),
+      attempt(concat("++", mixed, str("not-list"))),
+      attempt(concat("++", badTail, empty)),
+      attempt(concat("++", mixed, badTail)),
+    ))
+    val output = runSwift("listParity", Program(Nil, matrix))
+    assert(output.contains("\"a2\", \"a|2\", \"<a|2>\", \"\", \"\", \"<>\", 2"), output)
+    assert(output.sliding("\"app: list index out of bounds\"".length)
+      .count(_ == "\"app: list index out of bounds\"") == 2, output)
+    assert(output.contains("\"app: list index requires exactly one Int\""), output)
+    assert(output.sliding("\"app: malformed list\"".length)
+      .count(_ == "\"app: malformed list\"") == 3, output)
+    assert(output.contains("List(\"a\", 2, \"b\"), List(\"a\", 2), List(\"a\", 2)"), output)
+    assert(output.contains("\"list concat: right operand must be List\""), output)
+    assert(output.sliding("\"list concat: malformed list\"".length)
+      .count(_ == "\"list concat: malformed list\"") == 2, output)
+
+  test("real Swift try never catches an unexpected host Error"):
+    assume(swiftAvailable, "Swift toolchain is not available")
+    val probe = """
+private enum ProbeHostError: Error { case boom }
+private final class ProbeHost: SscRuntimeExtension {
+    func bind(_ invoke: @escaping (SscClosure, [SscValue]) throws -> SscValue) {}
+    func globals() throws -> [String: SscValue] {
+        ["probe.host": .closure(SscClosure(arity: 0) { _ in throw ProbeHostError.boom })]
+    }
+    func apply(_ receiver: SscValue, _ arguments: [SscValue]) throws -> SscValue? { nil }
+    func method(_ name: String, _ receiver: SscValue, _ arguments: [SscValue]) throws -> SscValue? { nil }
+}
+public enum SessionProbe {
+    public static func run() {
+        let body = SscTerm.apply(.global("probe.host"), [])
+        let handler = SscTerm.lambda(1, .primitive("io.println", [.literal(.string("HANDLER-RAN"))]))
+        let program = SscProgram(
+            definitions: [],
+            entry: .primitive("__try__", [.lambda(0, body), handler]),
+            fieldLayouts: [:]
+        )
+        switch SscRuntime.session(program, nativeUiHost: ProbeHost()).evaluate() {
+        case .success: fatalError("unexpected host error was swallowed")
+        case let .failure(error): Swift.print(error.description)
+        }
+    }
+}
+"""
+    val result = runSwiftResult("hostError", Program(Nil, Term.Lit(Const.CUnit)), probe = Some(probe))
+    assert(result.exit == 0, result.stderr)
+    assert(result.stdout.contains("unexpected host error: boom"), result.stdout)
+    assert(!result.stdout.contains("HANDLER-RAN"), result.stdout)
+
   test("domain definitions named like UI globals do not switch package mode"):
     assume(swiftAvailable, "Swift toolchain is not available")
     val identity = ssc.Def("signal", Term.Lam(1, Term.Local(0)))
@@ -915,6 +998,65 @@ public enum SessionProbe {
       "NativeUiAbi(version=1, root=NativeUiElement, operation=serve)"), result.stdout)
     assert(result.stdout.contains("padding-left:16px;padding-right:16px"), result.stdout)
     assert(result.stdout.contains("padding-left:12px;padding-right:12px"), result.stdout)
+
+  test("real Swift NativeUi normalizes association maps and sources malformed failures"):
+    assume(swiftAvailable, "Swift toolchain is not available")
+    def pair(key: Term, value: Term): Term = Term.Ctor("Tuple2", List(key, value))
+    def element(attrs: Term): Term = Term.App(Term.Global("element"), List(
+      str("div"), attrs, Term.Prim("__mk_map__", Nil), list(Nil)))
+    def attempt(body: Term): Term =
+      Term.Prim("__try__", List(Term.Lam(0, body), Term.Lam(1, Term.Local(0))))
+
+    val duplicateAttrs = list(List(pair(str("style"), str("first")), pair(str("style"), str("last"))))
+    val positive = Program(Nil, Term.App(Term.Global("emit"), List(element(duplicateAttrs), str("out"))))
+    val probe = """
+public enum SessionProbe {
+    public static func run() {
+        do {
+            let session = try SscGeneratedProgram.makeNativeUiRoot()
+            guard case let .data("NativeUiAbi", abi) = session.root, abi.count == 3,
+                  case let .data("NativeUiElement", element) = abi[1], element.count == 5,
+                  case let .map(attrs) = element[2],
+                  case let .string(style)? = attrs.get(.string("style")) else {
+                fatalError("association list reached Apple ABI without normalization")
+            }
+            Swift.print("\(style)|\(attrs.entries.count)")
+        } catch { fatalError(String(describing: error)) }
+    }
+}
+"""
+    val normalized = runSwiftResult("associationMap", positive, probe = Some(probe))
+    assert(normalized.exit == 0, normalized.stderr)
+    assert(normalized.stdout == "last|1", normalized.stdout)
+
+    val validPair = pair(str("style"), str("ok"))
+    val malformed = Term.Ctor("Cons", List(validPair, str("bad-tail")))
+    val nonTuple = list(List(str("not-tuple")))
+    val wrongArity = list(List(Term.Ctor("Tuple2", List(str("style")))))
+    val nonStringKey = list(List(pair(Term.Lit(Const.CInt(1)), str("value"))))
+    val nonPortable = list(List(pair(str("style"), Term.Prim("cell.new", List(str("mutable"))))))
+    val errors = Term.Ctor("Tuple5", List(
+      attempt(element(malformed)),
+      attempt(element(nonTuple)),
+      attempt(element(wrongArity)),
+      attempt(element(nonStringKey)),
+      attempt(element(nonPortable)),
+    ))
+    val fallbackRoot = Term.App(Term.Global("fragment"), List(list(Nil)))
+    val negative = Program(Nil, Term.Let(List(errors), Term.Seq(List(
+      Term.Prim("io.println", List(Term.Local(0))),
+      Term.App(Term.Global("emit"), List(fallbackRoot, str("out"))),
+    ))))
+    val output = runSwift("associationMapErrors", negative)
+    assert(output.contains("expected a proper List[Tuple2(String, Value)]"), output)
+    assert(output.sliding("expected Tuple2(String, Value)".length)
+      .count(_ == "expected Tuple2(String, Value)") == 2, output)
+    assert(output.contains("requires a String key"), output)
+    assert(output.contains("contains a target-specific mutable value"), output)
+    assert(output.sliding("<entry>:0:0 [element]".length)
+      .count(_ == "<entry>:0:0 [element]") == 5, output)
+    assert(output.linesIterator.toVector.last ==
+      "NativeUiAbi(version=1, root=NativeUiFragment, operation=emit)", output)
 
   test("checked production-shaped locale JSON keyed pipeline runs in real Swift"):
     assume(swiftAvailable, "Swift toolchain is not available")
