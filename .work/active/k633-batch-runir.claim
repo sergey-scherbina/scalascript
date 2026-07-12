@@ -1,5 +1,0 @@
-claim: k633-batch-runir
-owner: opus (K63.3 batch run-ir)
-started: 2026-07-12
-scope:
-  - v2/frontend-bridge/src/main/scala/ssc/bridge/BridgeCli.scala — run-ir-batch (one JVM, many IRs)

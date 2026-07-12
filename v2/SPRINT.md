@@ -1309,7 +1309,7 @@ identical pass/FAIL set (diff old-vs-new output before landing).
       `lld` present) + `RUSTC_WRAPPER=sccache` (if present); no-op when absent. Kills
       the `ld: file is empty` disk-pressure flakes + caches repeat compiles. VERIFY:
       rustc lane still green; 2nd run faster.
-- [ ] **K63.3 — batch run-ir into one JVM**: add `ssc run-ir-batch <list>` (one JVM
+- [x] **K63.3 — batch run-ir into one JVM** (bridgeCli run-ir-batch; byte-for-byte 14/14, ~36x): add `ssc run-ir-batch <list>` (one JVM
       runs many IRs) or a persistent JVM; replace 316× cold `java -jar run-ir`. ~1.5-2
       min saved. VERIFY: batched stdout matches per-invocation, byte-for-byte.
 - [x] **K63.4 — OPTIONAL parallelism (opt-in `CONF_JOBS=N`, default 1=sequential)**:
