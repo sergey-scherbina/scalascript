@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-11 — pull generators are core-free on the standard JVM path
+
+ScalaScript 2.1 now supplies a required native Generator provider with
+synchronous backpressure, virtual-thread producers, explicit error delivery,
+ordered lazy combinators, and cancellation of bounded infinite sources. The
+focused lifecycle fixture and complete public demo are exact on VM, direct ASM,
+and deterministic `build-jvm`; dependency and slim-distribution gates remain
+compiler/Scalameta/bridge-free. Parity improves to 41 identical / 25 both-fail
+with zero mismatch/one-sided rows, leaving 13 blocking taxonomy rows. Landed
+through `6f3c398e5`.
+
 ## 2026-07-11 — local Dataset execution is core-free
 
 The ScalaScript 2.1 standard tier now supplies a required lazy Dataset provider

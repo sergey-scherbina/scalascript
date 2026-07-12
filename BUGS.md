@@ -2,8 +2,9 @@
 
 ## v21-native-generator-provider-missing — generator is absent from standard native runtime
 
-**Status:** open (2026-07-11); found by codex while continuing TI-8.2d3 after
-the Dataset provider landed.
+**Status:** fixed (2026-07-11, `fa265325f`, taxonomy `6f3c398e5`), awaiting
+Sergiy confirmation; found by codex while continuing TI-8.2d3 after the Dataset
+provider landed.
 
 - **Real-harness repro:** after `scripts/sbtc "installBin"`, run
   `bin/ssc-standard run --native examples/generators.ssc`, then repeat with
@@ -19,6 +20,14 @@ the Dataset provider landed.
   add unit and assembled regressions including infinite Fibonacci and nested
   flatMap, pass every dependency/distribution/corpus gate, and retire only the
   proved generator taxonomy row.
+- **Fix/evidence:** a required core-free provider now owns `generator`,
+  dynamically scoped `suspend`, single-consumer synchronous pull, explicit
+  producer failures, and all local combinators. Unit coverage is 5/5 including
+  100k stack safety and latch-proved infinite-source cancellation. The focused
+  lifecycle fixture and all thirteen public lines are exact on VM/direct ASM;
+  `build-jvm` is exact and compiler-free. Full parity is 41 identical / 25
+  both-fail / 129 skipped with zero mismatch/one-sided rows; taxonomy falls to
+  13 blockers / 25 total and the release gate is ready.
 
 ## v21-native-dataset-provider-missing — standard Dataset calls escape as effects
 

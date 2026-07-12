@@ -31,6 +31,11 @@ parity slices are intentionally non-blocking for the artifact/packaging cutover:
 - [ ] **v21-native-effects-remaining** — Logger, Random, Clock, Env, Retry,
       Cache, Async, and Stream providers over `NativePluginContext.withEffect`,
       without v1 `BlockForm`/`SpiValue` adapters.
+- [ ] **v21-native-generator-dataset-bridge** — define a provider-neutral
+      factory/pull contract so `Dataset.fromGenerator` and `Dataset.toGenerator`
+      compose without either provider depending on the other's implementation.
+      Until then both directions must remain bounded explicit errors, never a
+      compatibility value or transparent fallback.
 
 ## ssc-toolkit-v2 P2 follow-ups (2026-07-07) — see `specs/ssc-toolkit-v2.md`
 

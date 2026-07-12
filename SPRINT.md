@@ -2806,7 +2806,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     with zero mismatch/one-sided rows. Taxonomy
                                     is 4 language / 10 standard / 14 blockers /
                                     26 total; conformance 11/11 and release-ready.
-                        - [ ] **TI-8.2d3h core-free Generator provider:**
+                        - [x] **TI-8.2d3h core-free Generator provider:**
                               `generators.ssc` fails on both installed standard
                               engines at the first `generator` global. Add a
                               required standard provider for pull-based
@@ -2825,26 +2825,40 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     method-object operations, deterministic
                                     ordering, and Dataset integration boundary.
                                     Commit before code.
-                              - [ ] **TI-8.2d3h2 provider implementation:** add
+                              - [x] **TI-8.2d3h2 provider implementation:** add
                                     the zero-v1-dependency provider, ServiceLoader
                                     and standard/artifact/dependency wiring, plus
                                     unit coverage for next/toList/foreach,
                                     map/filter/take/drop, nested flatMap, zip,
                                     zipWithIndex, error propagation, cancellation,
                                     and large finite streams.
-                              - [ ] **TI-8.2d3h3 assembled contract:** add a
+                              - [x] **TI-8.2d3h3 assembled contract:** add a
                                     focused real-launcher fixture and require the
                                     complete public `generators.ssc` output on
                                     VM/direct ASM/build-jvm. The infinite
                                     Fibonacci source must terminate after `take`
                                     without an unbounded queue or surviving
                                     producer.
-                              - [ ] **TI-8.2d3h4 release closure:** run stage-2,
+                              - [x] **TI-8.2d3h4 release closure:** run stage-2,
                                     native-entry, provider/class-load/dependency,
                                     slim/JRE, deterministic artifact, full
                                     corpus/parity/taxonomy, and fresh `v2-*`
                                     conformance. Retire only `generators.ssc`
                                     after exact evidence and push immediately.
+                                    Result: provider unit is 5/5; synchronous
+                                    backpressure, errors, nested pipelines,
+                                    100k conversion, and infinite-source
+                                    cancellation are pinned. The focused fixture
+                                    and all thirteen public lines are exact on
+                                    VM/direct ASM/build-jvm. Dependency closure
+                                    is 21 roots / 83 edges / 35 staged jars with
+                                    zero violations; slim is 36 jars / 6660
+                                    classes / 31,000,456 bytes. Parity is 41
+                                    identical / 25 both-fail / 129 skipped with
+                                    zero mismatch/one-sided rows; taxonomy is 4
+                                    language / 9 standard / 13 blockers / 25
+                                    total. Release gate and conformance are
+                                    ready at 11/11.
                         - [x] **TI-8.2d3a core-free crypto breadth:** DONE
                               2026-07-11 (`f40b2b6b8`, taxonomy `6f4f0d13e`). Port the
                               established v1 crypto-plugin contracts—not its
