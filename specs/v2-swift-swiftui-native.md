@@ -1229,6 +1229,13 @@ Curried toolkit builders receive varargs as the canonical `Cons`/`Nil` list and
 call `.toList` before constructing nodes. Swift therefore implements the shared
 v2 method contract `List.toList == identity` for every proper list; it does not
 copy, reorder, or retag the value, and non-list receivers remain unsupported.
+The lowerer then maps style pairs and joins their strings. Swift implements the
+shared proper-list `mkString` overloads exactly: `mkString()` joins `sscPlain`
+element text with no separator, `mkString(sep)` inserts the String separator,
+and `mkString(prefix, sep, suffix)` adds the three String delimiters. Other
+arities/types and non-list receivers remain unsupported. Together with the
+existing `List.map`, these are the complete dynamic List methods called by the
+shipped `std/ui/lower.ssc`; the standard fixture crosses all three.
 
 ### Checked manifest entrypoint
 
@@ -1428,8 +1435,8 @@ assembled macOS and iOS Xcode gates.
   and rejects an invalid or missing manifest entry before Swift generation.
 - [ ] The standard `text`/`heading`/`styled`/`defaultTheme`/`lower`/`serve`
   checked-source fixture executes as real Swift with token fallback and numeric
-  conversion, including the builders' proper-list `.toList` identity, rather
-  than bypassing the toolkit lowerer.
+  conversion, including the builders' proper-list `.toList` identity and the
+  mapped CSS list's `.mkString("")`, rather than bypassing the toolkit lowerer.
 - [ ] Entry-init module registrations expose `localeSignal`; a registration in
   a definition/lambda/dead branch or inside an outer registration value cannot
   authorize an unbound global.
