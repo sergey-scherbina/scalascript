@@ -1,6 +1,6 @@
 feature/v21-ti-retire-all-both-fail-final 2026-07-12T13:30:21Z
 agent: codex
-heartbeat: 2026-07-12T13:37:51Z
+heartbeat: 2026-07-12T13:46:30Z
 status: in-progress
-done-so-far: resumed worktree is live; consolidated gate has passed fresh install, exact 14/14, stage2, dependency/self-hosted parser gates, and the complete native-entry/effect-handler stage
-next: let the running consolidated gate finish slim/build-jvm, positive+negative 198-row corpus, conformance, and summary; then record closure and release the claim
+done-so-far: resumed worktree is live; consolidated gate has passed exact/stage2/dependency/parsers/native-entry/slim/build-jvm plus positive 198-row parity at 55 identical, 14 delegated, zero both-fail/mismatch/one-sided/blockers
+next: let the running embedded negative sandbox, conformance, and final summary finish; then record closure and release the claim
