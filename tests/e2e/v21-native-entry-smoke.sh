@@ -85,6 +85,10 @@ custom_derives_expected=$'Person\nname|age\nString|Int\nname,age'
 [[ $(run_native "$ROOT/examples/custom-derives-mirror.ssc") == "$custom_derives_expected" ]]
 product_derives_expected=$'Person\nname|age\nString|Int\nPerson\nname,age|name,age\n1'
 [[ $(run_native "$FIXTURES/product-derives.ssc") == "$product_derives_expected" ]]
+direct_syntax_expected=$'Some(Profile(User(Alice, 30), functional programmer))\nNone\nNone\nSome(50)\nNone\nS-red, S-blue, M-red, M-blue, L-red, L-blue\nSome(order confirmed)\nNone\nSome(30)\nNone\nSome(60)'
+[[ $(run_native "$ROOT/examples/direct-syntax-demo.ssc") == "$direct_syntax_expected" ]]
+direct_option_list_expected=$'None\n0\n1a,1b,2a,2b\nSome(7)\nSome(6)'
+[[ $(run_native "$FIXTURES/direct-option-list.ssc") == "$direct_option_list_expected" ]]
 [[ $(run_native "$FIXTURES/zero-arg-println.ssc") == $'before\n\nafter' ]]
 signals_expected=$'0\n5\n10\nc=5 d=10\nc=7 d=14\nc=11 d=22\nn=3 sq=9 cube=27\nn=4 sq=16 cube=64'
 [[ $(run_native "$ROOT/examples/signals-demo.ssc") == "$signals_expected" ]]
@@ -220,6 +224,8 @@ index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
 [[ $(run_native --bytecode "$ROOT/examples/dsl-mini-language.ssc") == "$dsl_mini_language_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/custom-derives-mirror.ssc") == "$custom_derives_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/product-derives.ssc") == "$product_derives_expected" ]]
+[[ $(run_native --bytecode "$ROOT/examples/direct-syntax-demo.ssc") == "$direct_syntax_expected" ]]
+[[ $(run_native --bytecode "$FIXTURES/direct-option-list.ssc") == "$direct_option_list_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/dsl-sql-recovery.ssc") == "$sql_recovery_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/imported-tuple-collection.ssc") == "$imported_tuple_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/exact-decimal.ssc") == "$exact_decimal_expected" ]]
@@ -300,6 +306,21 @@ for mode in vm asm; do
   [[ $(cat "$sandbox/graph-rdf4j.$mode.out") == 'Stored two books.' ]]
   grep -F 'Sparql.select is not available in the standard local Graph provider' \
     "$sandbox/graph-rdf4j.$mode.err" >/dev/null
+done
+
+for mode in vm asm; do
+  mode_args=()
+  [[ $mode == asm ]] && mode_args=(--bytecode)
+  set +e
+  run_native "${mode_args[@]}" "$FIXTURES/direct-unsupported.ssc" \
+    >"$sandbox/direct-unsupported.$mode.out" \
+    2>"$sandbox/direct-unsupported.$mode.err"
+  direct_unsupported_rc=$?
+  set -e
+  [[ $direct_unsupported_rc -ne 0 ]]
+  [[ ! -s "$sandbox/direct-unsupported.$mode.out" ]]
+  grep -F 'unbound global: __unsupported_direct_Either' \
+    "$sandbox/direct-unsupported.$mode.err" >/dev/null
 done
 
 for mode in vm asm; do

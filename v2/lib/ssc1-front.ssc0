@@ -1132,17 +1132,26 @@ def buildPostfix = (e, toks) =>
     let typed = match e {
       case Pair(etag, edata) =>
         if #seq(etag, "var") then
-          if #seq(edata, "summon") then Pair("summon", prV(rt)) else e
+          if #seq(edata, "summon") then Pair("summon", prV(rt))
+          else if #seq(edata, "direct") then Pair("direct_marker", prV(rt))
+          else e
         else e
     } in
     buildPostfix(typed, prT(rt))
   else if #seq(k, "{") then
-    -- trailing block argument: e { body }  →  e(body)  (T5.7 / KC-postfix)
-    -- lambda-aware: parseBlockArg strips a `param =>` header, so
-    --   route("POST","/x") { req => ... }  parses the body as a lambda, not a
-    --   bare block (which would misparse `id = expr` as idx_assign).
-    let rbArg = parseBlockArg(advance(toks)) in
-    buildPostfix(mkApp(e, Cons(prV(rbArg), Nil)), prT(rbArg))
+    match e {
+      case Pair(etag, edata) =>
+        if #seq(etag, "direct_marker") then
+          -- Preserve fresh assignment statements before ordinary block
+          -- lowering can reinterpret them as mutable stores.
+          let rb = parseBlock(advance(toks)) in
+          buildPostfix(Pair("direct", Pair(edata, prV(rb))), prT(rb))
+        else
+          -- trailing block argument: e { body }  →  e(body)  (T5.7 / KC-postfix)
+          -- lambda-aware: parseBlockArg strips a `param =>` header.
+          let rbArg = parseBlockArg(advance(toks)) in
+          buildPostfix(mkApp(e, Cons(prV(rbArg), Nil)), prT(rbArg))
+    }
   else if #seq(k, "kw") then
     if kwIs("match", toks) then
       let ts2 = skipKind("{", advance(toks)) in

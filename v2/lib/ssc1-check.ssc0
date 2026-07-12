@@ -234,6 +234,7 @@ def ssc1inferE = (env, s, expr) =>
       else if #seq(tag, "uid")   then TcOk(s, TyDyn)
       else if #seq(tag, "var")   then ssc1inferVar(env, s, data)
       else if #seq(tag, "parameterless") then ssc1inferE(env, s, data)
+      else if #seq(tag, "direct") then TcOk(s, TyDyn)
       else if #seq(tag, "lam")   then
         match data { case Pair(ps, body) => ssc1inferLam(env, s, ps, body) }
       else if #seq(tag, "app")   then

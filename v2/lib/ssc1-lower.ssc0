@@ -1044,6 +1044,64 @@ def fInterpCall = (fn) =>
   match fn { case Pair(ftag, fdata) =>
     if #seq(ftag, "var") then #seq(fdata, "__fInterpolate__") else false }
 
+def directNameIn = (name, names) =>
+  match names {
+    case Nil => false
+    case Cons(h, rest) => if #seq(name, h) then true else directNameIn(name, rest)
+  }
+
+def directSupportedMonad = (monad) =>
+  if #seq(monad, "Option") then true else #seq(monad, "List")
+
+def directThen = (stmt, restExpr) =>
+  Pair("block", Cons(stmt, Cons(Pair("expr", restExpr), Nil)))
+
+def directBind = (name, rhs, restExpr) =>
+  Pair("app", Pair(
+    Pair("sel", Pair(rhs, "flatMap")),
+    Cons(Pair("lam", Pair(Cons(name, Nil), restExpr)), Nil)))
+
+def directStmts = (monad, stmts, mutableNames) =>
+  match stmts {
+    case Nil => Pair("tup", Nil)
+    case Cons(stmt, rest) =>
+      match stmt {
+        case Pair(stag, sdata) =>
+          if #seq(stag, "assign") then
+            match sdata {
+              case Pair(name, rhs) =>
+                if directNameIn(name, mutableNames) then
+                  directThen(stmt, directStmts(monad, rest, mutableNames))
+                else
+                  directBind(name, rhs, directStmts(monad, rest, mutableNames))
+            }
+          else if #seq(stag, "var") then
+            match sdata {
+              case Pair(name, init) =>
+                directThen(stmt, directStmts(monad, rest, Cons(name, mutableNames)))
+            }
+          else if #seq(stag, "val") then
+            directThen(stmt, directStmts(monad, rest, mutableNames))
+          else if #seq(stag, "expr") then
+            match rest {
+              case Nil => sdata
+              case Cons(next, more) =>
+                directThen(stmt, directStmts(monad, rest, mutableNames))
+            }
+          else
+            directThen(stmt, directStmts(monad, rest, mutableNames))
+      }
+  }
+
+def desugarDirect = (monad, body) =>
+  if directSupportedMonad(monad) then
+    match body {
+      case Pair(tag, stmts) =>
+        if #seq(tag, "block") then directStmts(monad, stmts, Nil)
+        else Pair("var", "__malformed_direct_block")
+    }
+  else Pair("var", #sconcat("__unsupported_direct_", monad))
+
 -- Main resolve function — transforms one AST node
 def resolveE = (expr) =>
   match expr {
@@ -1055,6 +1113,8 @@ def resolveE = (expr) =>
         if isParameterlessDef(data) then Pair("parameterless_app", data) else expr
       else if #seq(tag, "parameterless_app") then expr
       else if #seq(tag, "parameterless") then resolveE(data)
+      else if #seq(tag, "direct") then
+        match data { case Pair(monad, body) => resolveE(desugarDirect(monad, body)) }
       else if #seq(tag, "summon") then
         match parseGivenType(data) {
           case Pair(tc, typeName) =>

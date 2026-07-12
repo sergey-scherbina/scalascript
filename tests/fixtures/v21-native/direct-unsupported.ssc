@@ -1,0 +1,14 @@
+---
+name: direct-unsupported
+version: 1.0.0
+---
+
+# Unsupported native direct monad is explicit
+
+```scalascript
+val result = direct[Either] {
+  value = Right(1)
+  Right(value)
+}
+println(result)
+```

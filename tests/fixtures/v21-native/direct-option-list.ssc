@@ -1,0 +1,43 @@
+---
+name: direct-option-list
+version: 1.0.0
+---
+
+# Native direct Option/List control flow
+
+```scalascript
+var touched = 0
+
+val stopped = direct[Option] {
+  value = None
+  touched = 99
+  Some(value)
+}
+println(stopped)
+println(touched)
+
+val cartesian = direct[List] {
+  n = List(1, 2)
+  suffix = List("a", "b")
+  List(n.toString + suffix)
+}
+println(cartesian.mkString(","))
+
+val mutable = direct[Option] {
+  x = Some(2)
+  val scale = 3
+  var acc = 1
+  acc = acc + x * scale
+  Some(acc)
+}
+println(mutable)
+
+val nested = direct[Option] {
+  inner = direct[Option] {
+    x = Some(5)
+    Some(x + 1)
+  }
+  Some(inner)
+}
+println(nested)
+```
