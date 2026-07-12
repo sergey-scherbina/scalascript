@@ -478,10 +478,16 @@ pipeline used by real applications.
       so the earlier `cell.set` suspicion is ruled out: standard
       `bin/ssc run --native` prints five correct rows and fails before the
       allocation list, while `bin/ssc-tools run --v2` prints all six and exits
-      zero. Coordinate this native-front/VM residual with the active
+      zero. Structural IR inspection localizes the exact seam:
+      `base.zipWithIndex.map((u, i) => ...)` becomes
+      `App(Global(_sel_map), [list, Lam(2, ...)])`, but synthesized `_sel_map`
+      calls the mapper with one tuple value; the direct `__method__` map path
+      already tuple-spreads correctly. Coordinate this native-front/lowerer
+      residual with the active
       `v21-ti-retire-all-both-fail` owner and rebase their landed fix rather
       than editing the claimed area concurrently; require isolated money and
       combined 28/28.
+
 ## security-hardening — toolchain audit findings (2026-07-11, Sergiy: "аудит секюрити … запиши все проблемы в спеку и в спринт и исправь")
 
 Spec: `specs/security-hardening.md`. Report artifact:

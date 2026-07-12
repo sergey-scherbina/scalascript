@@ -295,6 +295,11 @@ Runtime.scala owner in the `scalascript` Rozum room.
   the residual is in the standard native-front/VM route. It is owned by the
   active `v21-ti-retire-all-both-fail` release claim; do not edit that area
   concurrently.
+- **Root cause:** native structural IR lowers the parenthesized two-parameter
+  `base.zipWithIndex.map((u, i) => ...)` through synthesized `_sel_map`.
+  `_sel_map` recursively matches `Cons` but invokes its `Lam(2, ...)` mapper
+  with the `Tuple2` as one argument, bypassing Runtime's tuple-spreading
+  `__method__("map", ...)` path and producing the exact arity error.
 - **Done-when:** the owning agent lands the exact fix with an isolated money
   regression, this branch rebases it, and both isolated money plus combined
   28-case no-memo conformance pass.
