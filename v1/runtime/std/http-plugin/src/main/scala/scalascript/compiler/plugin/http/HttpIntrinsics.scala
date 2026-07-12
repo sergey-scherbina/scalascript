@@ -618,6 +618,28 @@ object HttpIntrinsics:
             s"SSRF blocked: host '$host' resolves to an internal address (SSC_HTTP_BLOCK_INTERNAL)")
     url
 
+  // M2: cap the response body read into memory (default 10 MB, SSC_HTTP_MAX_BODY
+  // to override; negative = unbounded) — an unbounded/gzip-bombed body would OOM.
+  private def httpMaxBody: Long =
+    sys.env.get("SSC_HTTP_MAX_BODY").flatMap(_.toLongOption).getOrElse(10L * 1024 * 1024)
+
+  private def httpReadBounded(is: java.io.InputStream, max: Long): String =
+    try
+      if max < 0 then new String(is.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
+      else
+        val out = new java.io.ByteArrayOutputStream()
+        val buf = new Array[Byte](8192)
+        var total = 0L
+        var n = is.read(buf)
+        while n >= 0 do
+          total += n
+          if total > max then
+            throw new RuntimeException(s"HTTP response body exceeds $max bytes (SSC_HTTP_MAX_BODY)")
+          out.write(buf, 0, n)
+          n = is.read(buf)
+        new String(out.toByteArray, java.nio.charset.StandardCharsets.UTF_8)
+    finally is.close()
+
   private def doHttpRequest(
       method:  String,
       rawUrl:  String,
@@ -642,15 +664,17 @@ object HttpIntrinsics:
     val maxTries = math.min(ctx.httpMaxRetries, 10) + 1  // L1: cap runaway retry counts
     val delayMs  = ctx.httpRetryDelayMs
     var attempt  = 0
-    var lastResp: HttpResponse[String] | Null = null
+    var lastResp: HttpResponse[java.io.InputStream] | Null = null
     var lastErr:  Throwable | Null = null
     while attempt < maxTries do
-      try { lastResp = client.send(req, HttpResponse.BodyHandlers.ofString()); lastErr = null }
+      try { lastResp = client.send(req, HttpResponse.BodyHandlers.ofInputStream()); lastErr = null }
       catch case e: Throwable => lastErr = e
       val shouldRetry = lastErr != null || (lastResp != null && lastResp.statusCode() >= 500)
       attempt += 1
       // L1: exponential backoff (delay·2^(attempt-1)) ± 20% jitter.
       if shouldRetry && attempt < maxTries then
+        // M2: abandon the to-be-retried body stream so the connection isn't leaked.
+        if lastResp != null then try lastResp.nn.body().close() catch case _: Throwable => ()
         Thread.sleep(math.max(0L, (delayMs.toLong * (1L << math.min(attempt - 1, 16))
           * (0.8 + java.util.concurrent.ThreadLocalRandom.current().nextDouble() * 0.4)).toLong))
       else attempt = maxTries
@@ -662,7 +686,7 @@ object HttpIntrinsics:
     }.toMap
     PluginValue.instance("Response", Map(
       "status"  -> PluginValue.int(resp.statusCode().toLong),
-      "body"    -> PluginValue.string(resp.body()),
+      "body"    -> PluginValue.string(httpReadBounded(resp.body(), httpMaxBody)),
       "headers" -> PluginValue.mapOf(hdrs)
     ))
 

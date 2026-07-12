@@ -49,6 +49,29 @@ private def _httpResolve(url: String): String =
   _httpGuard(resolved)
   resolved
 
+// M2: cap the response body read into memory (default 10 MB, SSC_HTTP_MAX_BODY
+// bytes to override; negative = unbounded). A malicious server can otherwise
+// stream an unbounded/gzip-bombed body and OOM the process.
+private def _httpMaxBody: Long =
+  sys.env.get("SSC_HTTP_MAX_BODY").flatMap(_.toLongOption).getOrElse(10L * 1024 * 1024)
+
+private def _httpReadBounded(is: java.io.InputStream, max: Long): String =
+  try
+    if max < 0 then new String(is.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
+    else
+      val out = new java.io.ByteArrayOutputStream()
+      val buf = new Array[Byte](8192)
+      var total = 0L
+      var n = is.read(buf)
+      while n >= 0 do
+        total += n
+        if total > max then
+          throw new RuntimeException(s"HTTP response body exceeds $max bytes (SSC_HTTP_MAX_BODY)")
+        out.write(buf, 0, n)
+        n = is.read(buf)
+      new String(out.toByteArray, java.nio.charset.StandardCharsets.UTF_8)
+  finally is.close()
+
 private def _httpDoRequest(method: String, url: String, body: String,
     headers: Map[String, String]): Response =
   import java.net.http.{HttpClient as JHC, HttpRequest, HttpResponse}
@@ -63,14 +86,16 @@ private def _httpDoRequest(method: String, url: String, body: String,
     case "DELETE" => builder.DELETE().build()
     case m        => builder.method(m, HttpRequest.BodyPublishers.ofString(body)).build()
   val maxTries = math.min(_httpMaxRetries.get(), 10) + 1  // L1: cap runaway retry counts
-  var attempt = 0; var lastResp: HttpResponse[String] | Null = null; var lastErr: Throwable | Null = null
+  var attempt = 0; var lastResp: HttpResponse[java.io.InputStream] | Null = null; var lastErr: Throwable | Null = null
   while attempt < maxTries do
-    try { lastResp = client.send(req, HttpResponse.BodyHandlers.ofString()); lastErr = null }
+    try { lastResp = client.send(req, HttpResponse.BodyHandlers.ofInputStream()); lastErr = null }
     catch case e: Throwable => lastErr = e
     val shouldRetry = lastErr != null || (lastResp != null && lastResp.statusCode() >= 500)
     attempt += 1
     // L1: exponential backoff (delay·2^(attempt-1)) ± 20% jitter.
     if shouldRetry && attempt < maxTries then
+      // M2: abandon the to-be-retried body stream so the connection isn't leaked.
+      if lastResp != null then try lastResp.nn.body().close() catch case _: Throwable => ()
       Thread.sleep(math.max(0L, (_httpRetryDelay.get() * (1L << math.min(attempt - 1, 16))
         * (0.8 + java.util.concurrent.ThreadLocalRandom.current().nextDouble() * 0.4)).toLong))
     else attempt = maxTries
@@ -80,7 +105,7 @@ private def _httpDoRequest(method: String, url: String, body: String,
     if e.getValue.isEmpty then None
     else Some(e.getKey -> e.getValue.get(0))
   }.toMap
-  Response(status = resp.statusCode(), body = resp.body(), headers = hdrs)
+  Response(status = resp.statusCode(), body = _httpReadBounded(resp.body(), _httpMaxBody), headers = hdrs)
 
 def httpGet(url: String, headers: Map[String, String] = Map.empty): Response =
   _httpDoRequest("GET", url, "", headers)
