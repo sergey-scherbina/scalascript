@@ -1,0 +1,5 @@
+claim: native-audit-runner
+owner: opus (native-front correctness program, cont.)
+started: 2026-07-12
+scope:
+  - v2/frontend-bridge/src/main/scala/ssc/bridge/BridgeCli.scala — run-ir-native mode (NativePluginHost)
