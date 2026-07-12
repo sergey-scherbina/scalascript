@@ -1,7 +1,12 @@
 package ssc.swift
 
 private[swift] object SwiftRuntime:
-  val source: String = """// Generated ScalaScript v2 CoreIR runtime.
+  // Split across two vals: a single triple-quoted literal over ~64KB hits the
+  // JVM's per-constant UTF8 length limit, and `a + b` of two literals folds
+  // back into one constant at compile time — routing through separate vals
+  // keeps each half its own constant pool entry. Declared before `source`:
+  // object vals initialize in declaration order, so `source` must come last.
+  private val sourcePart1: String = """// Generated ScalaScript v2 CoreIR runtime.
 import Foundation
 
 struct SscBigInt: Equatable, Comparable, CustomStringConvertible {
@@ -557,6 +562,24 @@ private final class Machine {
         globals["__throw__"] = .closure(SscClosure(arity: 1) { args in
             throw SscRuntimeFailure(description: "throw: \(sscPlain(args[0]))")
         })
+        globals["__jsonCoreInstallRenderer"] = .closure(SscClosure(arity: 1) { _ in .unit })
+        globals["__jsonCoreWrap"] = .closure(SscClosure(arity: 1) { args in .data("__JsonBox__", [args[0]]) })
+        globals["__jsonCoreWrapStrict"] = .closure(SscClosure(arity: 1) { args in
+            .data("__JsonBox__", [try jsonUnwrapStrict(args[0])])
+        })
+        globals["__jsonCoreRawStrict"] = .closure(SscClosure(arity: 1) { args in
+            jsonToRaw(try jsonUnwrapStrict(args[0]))
+        })
+        globals["__jsonCoreEncodeValue"] = .closure(SscClosure(arity: 1) { args in jsonToCore(args[0]) })
+        globals["lookup"] = .closure(SscClosure(arity: 2) { args in
+            guard let result = jsonLookup(args[0], args[1]) else {
+                throw SscRuntimeFailure(description: "lookup: key not found")
+            }
+            return result
+        })
+        globals["lookupOpt"] = .closure(SscClosure(arity: 2) { args in
+            jsonLookup(args[0], args[1]).map(some) ?? none()
+        })
     }
 
     private func installDefinitions() {
@@ -760,6 +783,8 @@ private final class Machine {
         case "big.eq": return .bool(big(args, 0) == big(args, 1))
         case "big.lt": return .bool(big(args, 0) < big(args, 1))
         case "big.le": return .bool(big(args, 0) <= big(args, 1))
+"""
+  private val sourcePart2: String = """
         case "big.gt": return .bool(big(args, 0) > big(args, 1))
         case "big.ge": return .bool(big(args, 0) >= big(args, 1))
         case "i->big": return .big(SscBigInt(String(int(args, 0))))
@@ -914,6 +939,16 @@ private final class Machine {
         case "io.nanoTime": return .int(Int64(bitPattern: DispatchTime.now().uptimeNanoseconds))
         case "io.args": return listValue(CommandLine.arguments.dropFirst().map(SscValue.string))
         case "global.reg": globals[string(args, 0)] = args[1]; return .unit
+        case "__try__":
+            guard case let .closure(thunk) = args[0], case let .closure(handler) = args[1] else {
+                fatalError("__try__(thunk, handler)")
+            }
+            let result = call(thunk, [])
+            if let caught = failure {
+                failure = nil
+                return call(handler, [.string(caught.description)])
+            }
+            return result
         default: fatalError("swift runtime: unsupported primitive '\(operation)'")
         }
     }
@@ -1051,10 +1086,69 @@ private final class Machine {
             }
         case let .string(value):
             if name == "toString" { return .string(value) }
+            if name == "toInt" {
+                if let parsed = Int64(value) { return .int(parsed) }
+                recordFailure(SscRuntimeFailure(description: "toInt: not a number: \(value)"))
+                return .unit
+            }
         case let .int(value):
             if name == "toString" { return .string(String(value)) }
         case .data("__RoundingModeCompanion__", _):
             return .string(name)
+        case let .data("__JsonBox__", boxFields) where boxFields.count == 1:
+            let core = boxFields[0]
+            func boxed(_ value: SscValue) -> SscValue { .data("__JsonBox__", [value]) }
+            func decimalText() -> String? {
+                guard let raw = jsonNumberText(core) ?? jsonStringValue(core), Double(raw) != nil else { return nil }
+                return raw
+            }
+            switch name {
+            case "get":
+                guard case let .string(key) = args[0] else { return boxed(jsonNullCore()) }
+                return boxed(jsonObjectValues(core).first { $0.0 == key }?.1 ?? jsonNullCore())
+            case "at":
+                guard case let .int(index) = args[0] else { return boxed(jsonNullCore()) }
+                let items = jsonArrayValues(core)
+                return (index >= 0 && Int(index) < items.count) ? boxed(items[Int(index)]) : boxed(jsonNullCore())
+            case "isNull": return .bool(jsonIsNull(core))
+            case "asString": return .string(jsonStringValue(core) ?? "")
+            case "asInt":
+                if let raw = jsonNumberText(core) ?? jsonStringValue(core) {
+                    if let i = Int64(raw) { return .int(i) }
+                    if let d = Double(raw) { return .int(Int64(d)) }
+                }
+                return .int(0)
+            case "asDouble":
+                if let raw = jsonNumberText(core) ?? jsonStringValue(core), let d = Double(raw) { return .float(d) }
+                return .float(0.0)
+            case "asBool": return .bool(jsonBoolValue(core) ?? false)
+            case "asList": return listValue(jsonArrayValues(core).map(boxed))
+            case "asDecimal": return .decimal(SscDecimal(decimalText() ?? "0"))
+            case "optString":
+                if let s = jsonStringValue(core) { return some(.string(s)) }
+                return none()
+            case "optInt":
+                if let raw = jsonNumberText(core), !raw.contains(".") && !raw.lowercased().contains("e"),
+                   let i = Int64(raw) { return some(.int(i)) }
+                return none()
+            case "optDecimal":
+                if let raw = decimalText() { return some(.decimal(SscDecimal(raw))) }
+                return none()
+            case "getOrElse":
+                let fallback: String
+                if case let .string(s) = args[1] { fallback = s } else { fallback = "" }
+                guard case let .string(key) = args[0],
+                      let value = jsonObjectValues(core).first(where: { $0.0 == key })?.1 else {
+                    return .string(fallback)
+                }
+                return .string(jsonStringValue(value) ?? jsonRenderCoreNative(value))
+            case "raw": return .string(jsonRenderCoreNative(core))
+            case "size":
+                let items = jsonArrayValues(core)
+                return .int(Int64(items.isEmpty ? jsonObjectValues(core).count : items.count))
+            case "keys": return listValue(jsonObjectValues(core).map { .string($0.0) })
+            default: break
+            }
         case let .data(tag, _):
             let argument: SscValue
             if args.isEmpty { argument = .unit }
@@ -1231,6 +1325,187 @@ private func list(_ value: SscValue) -> [SscValue] {
     }
 }
 
+// ── JsonCore bridge: navigation/value mapping for std/json.ssc's opaque JsonValue.
+// Mirrors ssc.plugin.json.NativeJsonCodec (the JVM plugin) so the portable
+// JsonCore* ADT produced by the self-hosted json-core.ssc parser behaves the
+// same way here as on the interpreter/JVM lanes.
+
+private func jsonNullCore() -> SscValue { .data("JsonCoreNull", []) }
+
+private func jsonIsNull(_ core: SscValue) -> Bool {
+    if case .data("JsonCoreNull", _) = core { return true }
+    return false
+}
+
+private func jsonDecodeCodeUnits(_ value: SscValue) -> String {
+    var scalars = String.UnicodeScalarView()
+    for item in list(value) {
+        if case let .int(unit) = item, unit >= 0, unit <= 0xffff, let scalar = Unicode.Scalar(UInt32(unit)) {
+            scalars.append(scalar)
+        }
+    }
+    return String(scalars)
+}
+
+private func jsonCodeUnits(_ text: String) -> SscValue {
+    listValue(text.utf16.map { .int(Int64($0)) })
+}
+
+private func jsonStringValue(_ core: SscValue) -> String? {
+    if case let .data("JsonCoreString", fields) = core, fields.count == 1 { return jsonDecodeCodeUnits(fields[0]) }
+    return nil
+}
+
+private func jsonNumberText(_ core: SscValue) -> String? {
+    if case let .data("JsonCoreNumber", fields) = core, fields.count == 1, case let .string(raw) = fields[0] { return raw }
+    return nil
+}
+
+private func jsonBoolValue(_ core: SscValue) -> Bool? {
+    if case let .data("JsonCoreBool", fields) = core, fields.count == 1, case let .bool(b) = fields[0] { return b }
+    return nil
+}
+
+private func jsonArrayValues(_ core: SscValue) -> [SscValue] {
+    if case let .data("JsonCoreArray", fields) = core, fields.count == 1 { return list(fields[0]) }
+    return []
+}
+
+private func jsonObjectValues(_ core: SscValue) -> [(String, SscValue)] {
+    guard case let .data("JsonCoreObject", fields) = core, fields.count == 1 else { return [] }
+    return list(fields[0]).compactMap { entry in
+        guard case let .data("JsonCoreField", kv) = entry, kv.count == 2 else { return nil }
+        return (jsonDecodeCodeUnits(kv[0]), kv[1])
+    }
+}
+
+private func jsonStringCore(_ text: String) -> SscValue { .data("JsonCoreString", [jsonCodeUnits(text)]) }
+private func jsonNumberCore(_ raw: String) -> SscValue { .data("JsonCoreNumber", [.string(raw)]) }
+private func jsonArrayCore(_ values: [SscValue]) -> SscValue { .data("JsonCoreArray", [listValue(values)]) }
+private func jsonObjectCore(_ entries: [(String, SscValue)]) -> SscValue {
+    .data("JsonCoreObject", [listValue(entries.map { .data("JsonCoreField", [jsonCodeUnits($0.0), $0.1]) })])
+}
+
+private func jsonUnwrapStrict(_ result: SscValue) throws -> SscValue {
+    switch result {
+    case let .data("JsonCoreOk", fields) where fields.count == 2: return fields[0]
+    case let .data("JsonCoreErr", fields) where fields.count == 2:
+        guard case let .string(message) = fields[0], case let .int(offset) = fields[1] else {
+            throw SscRuntimeFailure(description: "invalid JSON")
+        }
+        throw SscRuntimeFailure(description: "invalid JSON at \(offset): \(message)")
+    default: throw SscRuntimeFailure(description: "invalid self-hosted JSON parser result")
+    }
+}
+
+private func jsonToRaw(_ core: SscValue) -> SscValue {
+    switch core {
+    case .data("JsonCoreNull", _): return .unit
+    case let .data("JsonCoreBool", fields) where fields.count == 1: return fields[0]
+    case let .data("JsonCoreNumber", fields) where fields.count == 1:
+        guard case let .string(raw) = fields[0] else { return .unit }
+        if !raw.contains(".") && !raw.lowercased().contains("e"), let i = Int64(raw) { return .int(i) }
+        return .decimal(SscDecimal(raw))
+    case .data("JsonCoreString", _): return .string(jsonStringValue(core) ?? "")
+    case .data("JsonCoreArray", _): return listValue(jsonArrayValues(core).map(jsonToRaw))
+    case .data("JsonCoreObject", _):
+        let result = SscMap()
+        for (key, value) in jsonObjectValues(core) { result.put(.string(key), jsonToRaw(value)) }
+        return .map(result)
+    default: return .unit
+    }
+}
+
+private func jsonToCore(_ value: SscValue) -> SscValue {
+    switch value {
+    case let .data("__JsonBox__", fields) where fields.count == 1: return fields[0]
+    case let .data(tag, _) where tag.hasPrefix("JsonCore"): return value
+    case .unit: return jsonNullCore()
+    case let .bool(b): return .data("JsonCoreBool", [.bool(b)])
+    case let .int(n): return jsonNumberCore(String(n))
+    case let .big(n): return jsonNumberCore(n.description)
+    case let .decimal(d): return jsonNumberCore(d.description)
+    case let .float(n):
+        guard n.isFinite else { fatalError("jsonStringify cannot encode NaN or Infinity") }
+        return jsonNumberCore(String(n))
+    case let .string(s): return jsonStringCore(s)
+    case let .bytes(b): return jsonArrayCore(b.map { jsonNumberCore(String($0)) })
+    case .data("Nil", _): return jsonArrayCore([])
+    case .data("Cons", _): return jsonArrayCore(list(value).map(jsonToCore))
+    case .data("None", _): return jsonNullCore()
+    case let .data("Some", fields) where fields.count == 1: return jsonToCore(fields[0])
+    case let .data(tag, fields) where tag.hasPrefix("Tuple"):
+        return jsonArrayCore(fields.asArray().map(jsonToCore))
+    case let .data(tag, fields):
+        return jsonObjectCore([("tag", jsonStringCore(tag)), ("fields", jsonArrayCore(fields.asArray().map(jsonToCore)))])
+    case let .map(m):
+        let entries = m.entries.map { (keyText: SscValue, value: SscValue) -> (String, SscValue) in
+            if case let .string(s) = keyText { return (s, jsonToCore(value)) }
+            return (sscPlain(keyText), jsonToCore(value))
+        }.sorted { $0.0 < $1.0 }
+        return jsonObjectCore(entries)
+    default: return jsonStringCore(sscPlain(value))
+    }
+}
+
+private func jsonQuote(_ text: String) -> String {
+    var result = "\""
+    for scalar in text.unicodeScalars {
+        switch scalar {
+        case "\"": result += "\\\""
+        case "\\": result += "\\\\"
+        case "\n": result += "\\n"
+        case "\r": result += "\\r"
+        case "\t": result += "\\t"
+        case "\u{08}": result += "\\b"
+        case "\u{0c}": result += "\\f"
+        default:
+            if scalar.value < 0x20 || scalar.value > 0x7e { result += String(format: "\\u%04x", scalar.value) }
+            else { result.unicodeScalars.append(scalar) }
+        }
+    }
+    result += "\""
+    return result
+}
+
+private func jsonRenderCoreNative(_ core: SscValue) -> String {
+    switch core {
+    case .data("JsonCoreNull", _): return "null"
+    case let .data("JsonCoreBool", fields) where fields.count == 1:
+        if case let .bool(b) = fields[0] { return b ? "true" : "false" }
+        return "null"
+    case .data("JsonCoreNumber", _): return jsonNumberText(core) ?? "0"
+    case .data("JsonCoreString", _): return jsonQuote(jsonStringValue(core) ?? "")
+    case .data("JsonCoreArray", _):
+        return "[" + jsonArrayValues(core).map(jsonRenderCoreNative).joined(separator: ",") + "]"
+    case .data("JsonCoreObject", _):
+        return "{" + jsonObjectValues(core).map { jsonQuote($0.0) + ":" + jsonRenderCoreNative($0.1) }.joined(separator: ",") + "}"
+    default: fatalError("cannot render JsonCore value: \(sscShow(core))")
+    }
+}
+
+private func jsonLookup(_ receiver: SscValue, _ key: SscValue) -> SscValue? {
+    switch receiver {
+    case let .data("__JsonBox__", fields) where fields.count == 1:
+        if case let .string(k) = key { return jsonObjectValues(fields[0]).first { $0.0 == k }.map { jsonToRaw($0.1) } }
+        if case let .int(i) = key {
+            let items = jsonArrayValues(fields[0])
+            return (i >= 0 && Int(i) < items.count) ? jsonToRaw(items[Int(i)]) : nil
+        }
+        return nil
+    case let .map(m): return m.get(key)
+    case .data("Cons", _), .data("Nil", _):
+        guard case let .int(i) = key, i >= 0 else { return nil }
+        let values = list(receiver)
+        return Int(i) < values.count ? values[Int(i)] : nil
+    case let .string(s):
+        guard case let .int(i) = key, i >= 0, Int(i) < s.utf16.count else { return nil }
+        let idx = s.utf16.index(s.utf16.startIndex, offsetBy: Int(i))
+        return .string(String(utf16CodeUnits: [s.utf16[idx]], count: 1))
+    default: return nil
+    }
+}
+
 private func sscEqual(_ lhs: SscValue, _ rhs: SscValue) -> Bool {
     switch (lhs, rhs) {
     case (.unit, .unit): return true
@@ -1290,3 +1565,4 @@ private func sscShow(_ value: SscValue) -> String {
     }
 }
 """
+  val source: String = sourcePart1 + sourcePart2
