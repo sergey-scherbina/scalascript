@@ -1,5 +1,25 @@
 # Bug tracker
 
+## v21-native-async-provider-missing — runAsync is absent from standard native runtime
+
+**Status:** open (2026-07-12); found by codex after the Generator provider
+landed while continuing TI-8.2d3.
+
+- **Real-harness repro:** after `scripts/sbtc "installBin"`, run
+  `bin/ssc-standard run --native examples/async-demo.ssc`, then repeat with
+  `--bytecode`.
+- **Observed:** both engines exit 1 at the first block with
+  `ssc: unbound global: runAsync`; no demo output is produced.
+- **Expected:** a core-free standard provider owns deterministic `runAsync`,
+  virtual-thread `runAsyncParallel`, and `Async.delay/async/await/parallel`
+  handling with ordered results and propagated failures on VM, ASM, and
+  `build-jvm` without the compatibility bridge.
+- **Plan/done-when:** specify the Future/error/lifecycle contract, extend the
+  native effect-runners provider, cover sequential and parallel behavior in
+  unit and real assembled fixtures, prove the complete public demo exact, pass
+  every release/dependency gate, and retire only `async-demo.ssc` from runtime
+  taxonomy.
+
 ## v21-native-generator-provider-missing — generator is absent from standard native runtime
 
 **Status:** fixed (2026-07-11, `fa265325f`, taxonomy `6f3c398e5`), awaiting

@@ -2859,6 +2859,41 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     language / 9 standard / 13 blockers / 25
                                     total. Release gate and conformance are
                                     ready at 11/11.
+                        - [ ] **TI-8.2d3i core-free Async provider:**
+                              `async-demo.ssc` fails on both installed standard
+                              engines at the first `runAsync` global. Extend the
+                              required effect-runners provider with the built-in
+                              Async surface; do not revive the compatibility
+                              bridge's fallback registrations.
+                              - [x] **TI-8.2d3i0 installed baseline:** VM and
+                                    direct ASM both exit 1 with
+                                    `unbound global: runAsync` and no stdout.
+                                    Track as `v21-native-async-provider-missing`.
+                              - [ ] **TI-8.2d3i1 provider contract:** specify
+                                    deterministic single-threaded `runAsync`,
+                                    virtual-thread `runAsyncParallel`, Future
+                                    representation, ordered parallel results,
+                                    nested runners, error propagation, delay,
+                                    and the bounded `recvFrom` boundary. Commit
+                                    before code.
+                              - [ ] **TI-8.2d3i2 implementation + unit:** extend
+                                    `EffectRunnersNativePlugin` over
+                                    `NativePluginContext.withEffect("Async")`;
+                                    cover async/await, sequential and concurrent
+                                    parallel, nested runners, malformed values,
+                                    and callback failures without v1 types.
+                              - [ ] **TI-8.2d3i3 assembled contract:** pin a
+                                    focused real-launcher fixture plus the full
+                                    `examples/async-demo.ssc` output on VM/direct
+                                    ASM/build-jvm. Keep deterministic output;
+                                    measure concurrency only with latches, not
+                                    wall-clock thresholds.
+                              - [ ] **TI-8.2d3i4 release closure:** run stage-2,
+                                    native-entry, provider isolation/dependency,
+                                    slim/JRE, deterministic artifact, full
+                                    corpus/parity/taxonomy, and fresh `v2-*`
+                                    conformance. Retire only `async-demo.ssc`
+                                    after exact evidence and push immediately.
                         - [x] **TI-8.2d3a core-free crypto breadth:** DONE
                               2026-07-11 (`f40b2b6b8`, taxonomy `6f4f0d13e`). Port the
                               established v1 crypto-plugin contracts—not its
