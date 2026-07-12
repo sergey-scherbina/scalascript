@@ -1,6 +1,0 @@
-feature/scalascript-sqlite 2026-07-12T09:25:42Z
-agent: codex
-heartbeat: 2026-07-12T09:26:01Z
-status: in-progress
-done-so-far: isolated feature/scalascript-sqlite worktree created
-next: inspect module conventions and queue the module/spec slices in SPRINT.md

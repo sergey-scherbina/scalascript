@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-12 — SclJet SQLite-compatible engine specification and M0 contracts
+
+SclJet now has a normative pure-ScalaScript architecture from byte codecs and
+abstract VFS through pager, B-trees, rollback/WAL, SQL execution, extensions,
+security, and M0-M8 verification gates. The `runtime/std/scljet/` scaffold fixes
+portable public value/error/options, random-access locking/shared-memory VFS,
+connection/statement/cursor, function, and collation contracts without a fake
+engine or platform dependency. Native VM, direct ASM, and affected conformance
+are green. Contracts landed in `449cfab0f`.
+
 ## 2026-07-12 — Compatibility SQLite startup no longer scans shared temp
 
 The v2 compatibility bridge now gives Xerial SQLite a private per-process

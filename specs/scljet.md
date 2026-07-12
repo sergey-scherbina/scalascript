@@ -738,11 +738,11 @@ reasons, never silent substitution by JDBC/sql.js.
 
 ### M0 — specification and module contracts
 
-- [ ] Canonical feature spec defines compatibility, layering, interfaces,
+- [x] Canonical feature spec defines compatibility, layering, interfaces,
   formats, transaction protocols, SQL/function extensions, tests, and scope.
-- [ ] `runtime/std/scljet/` imports and typechecks without platform types,
+- [x] `runtime/std/scljet/` imports and typechecks without platform types,
   intrinsics, JDBC, or sql.js.
-- [ ] The module advertises design status and does not expose a fake working
+- [x] The module advertises design status and does not expose a fake working
   `open` implementation.
 
 ### M1 — bytes, codecs, and VFS foundations
@@ -855,5 +855,22 @@ These do not block M0 but should be confirmed before M1 API freeze:
 
 ## Results
 
-M0 results are filled after the module scaffold is parsed/typechecked. No
-runtime, compatibility, durability, or performance result is claimed yet.
+M0 landed in `449cfab0f`: `runtime/std/scljet/` contains the `scljet` manifest
+and package, portable value/error/options, synchronous random-access/locking/
+shared-memory VFS contracts, and connection/statement/cursor/function/collation
+interfaces. It contains no `extern def`, platform type, JDBC/sql.js dependency,
+or concrete/fake engine constructor.
+
+Verification on 2026-07-12:
+
+- `scripts/sbtc "installBin"` staged the distribution with 108 standard `.ssc`
+  modules.
+- `tests/conformance/run.sh --only 'scljet-module-contract*'` passed 1/1 on the
+  declared interpreter lane.
+- `bin/ssc run --native tests/conformance/scljet-module-contract.ssc` produced
+  the exact six-line expected output.
+- `bin/ssc run --bytecode tests/conformance/scljet-module-contract.ssc`
+  produced the same output through direct ASM.
+
+These are interface/import/typechecking results only. No runtime, file-format,
+durability, SQL-compatibility, or performance claim is made before M1+.

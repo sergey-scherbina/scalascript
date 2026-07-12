@@ -54,16 +54,18 @@ with extensions isolated behind an explicit non-default profile.
       opt-in `scljet:` during development, private VDBE-inspired VM, pinned SQLite 3.53.0
       differential oracle. Public identity `scljet` is fixed; three non-blocking product choices
       remain explicit in the spec.
-- [ ] **scljet-1-module-scaffold** — create the pure `.ssc` module at `runtime/std/scljet/` with
+- [x] **scljet-1-module-scaffold** — DONE 2026-07-12 (`449cfab0f`). Created the pure `.ssc` module at `runtime/std/scljet/` with
       manifest/aggregator plus target-neutral public value, error, option, connection, prepared
       statement, VFS, random-access file, lock, shared-memory, and function-registry contracts.
       Do not add platform types or core intrinsics; future host adapters must live in std plugins.
-      Done when imports resolve and the scaffold matches the spec without claiming an implemented
-      engine.
-- [ ] **scljet-2-verify-and-record** — parse/typecheck the new module with the native ScalaScript
+      Imports resolve and the scaffold matches the spec without claiming an implemented engine;
+      the module/package/provider identity is `scljet`.
+- [x] **scljet-2-verify-and-record** — DONE 2026-07-12. Parsed/typechecked the new module with the native ScalaScript
       lane, run the affected conformance slice (or add a focused interface-only case if needed),
       verify links/manifests and spec behavior checkboxes, then record the result in the spec,
-      `CHANGELOG.md`, and this section. No performance claim is made before a working pager exists.
+      `CHANGELOG.md`, and this section. `scripts/sbtc "installBin"` staged 108 std modules;
+      affected conformance is 1/1; native VM and direct ASM both print the exact six-line expected
+      result. No performance, durability, SQL, or file-format claim is made before a working pager.
 
 ## security-hardening — toolchain audit findings (2026-07-11, Sergiy: "аудит секюрити … запиши все проблемы в спеку и в спринт и исправь")
 
