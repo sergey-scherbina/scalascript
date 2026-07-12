@@ -14,6 +14,16 @@ Status hygiene (2026-06-23): open `[ ]` rows below are intentionally still open,
 explicitly `BLOCKED` or `DEFERRED` product/external-decision items. History-only / wontfix notes
 are plain bullets without checkboxes so agents do not claim them as build work.
 
+## UniML conformance hardening (2026-07-12)
+
+- [ ] **uniml-yaml-m31-full-grammar** — extend the safe M3 YAML 1.2.2 profile through the remaining
+      grammar/lexical productions: multiline single/double-quoted folding and continuation escapes,
+      every printable/noncharacter restriction, `%TAG` handle expansion/validation, indentationless
+      sequences after property-only nodes, additional complex-key forms, and strict block indentation
+      recovery. Grow the pinned `yaml/yaml-test-suite` `data-2022-01-17` subset beyond the eight M3
+      cases and keep JVM/Scala.js behavior identical. This is explicitly deferred from M3 rather than
+      silently counted as compatibility already delivered.
+
 ## ScalaScript 2.1 native provider parity follow-ups (2026-07-10)
 
 TI-5's representative Scalameta-free boundary is complete; these full-surface

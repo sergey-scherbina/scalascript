@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-12 — UniML lossless safe YAML 1.2.2 profile
+
+The new `scalascript-uniml-yaml` JVM/Scala.js module preserves streams, directives, document markers,
+block/flow structure, scalar presentation, tags, anchors, aliases, comments, whitespace, ordering, and
+duplicate entries through the common source-token VM. Safe projection supports Core/JSON/Failsafe
+schemas, inert tags, ordered duplicates, and preserved or explicitly bounded alias graphs. The shared
+suite is 17/17 on both targets, JVM adds a SnakeYAML Engine differential gate (18/18 total), eight
+official YAML test-suite cases are pinned, and affected content conformance is 6/6. Core implementation
+landed in `48720429c`; corpus gate in `0cf72b971`.
+
 ## 2026-07-12 — SclJet deterministic immutable memory VFS
 
 SclJet M1 now includes a replayable pure VFS transition model with random

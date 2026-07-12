@@ -40,14 +40,17 @@ bounded semantic projections rather than parse-time execution.
       lexemes, Core/JSON/Failsafe resolution, inert tags, document-local anchors, preserved aliases,
       and explicit cycle/expansion/node-limited resolution. Original plan: add safe semantic values
       without weakening or mutating the presentation CST.
-- [ ] **uniml-yaml-3-verify** — test block/flow syntax, every scalar style, indentation/chomping,
+- [x] **uniml-yaml-3-verify** — DONE 2026-07-12 (`0cf72b971`, spec verification `677bf9652`).
+      JVM is 18/18 across the shared suite plus a SnakeYAML Engine 2.9 differential suite; Scala.js
+      is 17/17 across the unchanged shared suite. Eight valid cases pin the official
+      `yaml/yaml-test-suite` `data-2022-01-17` release; 27 Core Schema spellings agree by scalar class;
+      exhaustive two-chunk tests include CRLF and a split surrogate pair; `yaml*,content*`
+      conformance is 6/6. Remaining exotic YAML productions are explicitly profiled in the spec and
+      queued as `uniml-yaml-m31-full-grammar` in `BACKLOG.md`. Original plan: test block/flow syntax,
+      every scalar style, indentation/chomping,
       multi-document streams, directives, tags/anchors/aliases, comments/duplicates, all chunk splits,
       malformed/security/limit cases on JVM+Scala.js; run YAML/content conformance, verify spec,
-      publish bookkeeping, release claim, then continue to Markdown M4. Progress 2026-07-12:
-      16/16 focused tests pass unchanged on JVM and Scala.js; dense documents are tested at every
-      two-chunk split (including CRLF and a split surrogate pair); `yaml*,content*` conformance is
-      6/6. Before closure, add the official YAML test-suite subset/differential Core Schema gate and
-      either implement or explicitly profile remaining multiline-quoted/exotic-production gaps.
+      publish bookkeeping, release claim, then continue to Markdown M4.
 
 ## uniml-xml — lossless secure XML 1.0 dialect and Markup projection (2026-07-12, Sergiy: "продолжай дальше не останавливайся")
 
