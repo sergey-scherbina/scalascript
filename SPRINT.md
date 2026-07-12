@@ -3396,13 +3396,25 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               PluginBridge, the v1 interpreter, generated host
                               source, Scala/Java compilers, or transparent
                               compatibility fallback.
-                              - [ ] **n0 installed ownership audit:** capture
+                              - [x] **n0 installed ownership audit:** capture
                                     exact standard VM/direct-ASM and explicit
                                     compatibility output for
                                     `sql-h2-quickstart.ssc` and
                                     `typed-sql-crud.ssc`; inspect checked CoreIR
                                     plus current native SQL provider/metadata to
                                     separate fence binding from typed CRUD gaps.
+                                    Result: quickstart VM/ASM fail before stdout
+                                    at `unbound global: ActiveUsers`; its CoreIR
+                                    contains no SQL fence operations, only
+                                    `ActiveUsers.sql`/`Headcount.sql` consumers.
+                                    Typed CRUD VM/ASM fail before stdout at
+                                    `RowCodec_derived`; its CoreIR also drops the
+                                    schema fence, initializes a derived cell,
+                                    erases `Db.query[Todo]` to untyped query,
+                                    then reaches insert/update calls. Explicit
+                                    `ssc-tools --compat-frontend` prints the
+                                    canonical 2-line quickstart and
+                                    `1/1:Buy oat milk:true`, respectively.
                               - [ ] **n1 contract + regressions:** commit a
                                     feature spec covering source-ordered SQL
                                     fence execution, `${expr}` binds, section

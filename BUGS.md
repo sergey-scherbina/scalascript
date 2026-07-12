@@ -9,9 +9,11 @@ reported by the release gate and owned by codex.
   `bin/ssc-standard run examples/typed-sql-crud.ssc` and repeat with
   `--bytecode`; both are reviewed `both-fail` rows while explicit
   `bin/ssc-tools run --compat-frontend` supplies the reference behavior.
-- **Known boundary:** the document includes its schema SQL fence, but the
-  compiler-free path does not yet provide typed `Db.insert/update/query[A]`
-  over the portable `RowCodec`/product metadata.
+- **Root cause boundary:** the self-hosted document extractor drops the schema
+  SQL fence; independently, derives initialization calls missing
+  `RowCodec_derived`, and `Db.query[Todo]` loses `Todo` before CoreIR. Insert and
+  update survive as `Db` method calls over a portable `Todo/3`, so provider
+  writes can use registered field metadata once the missing boundaries land.
 - **Done-when:** schema execution plus typed insert/update/read produce the
   public exact output on standard VM/direct ASM/reproducible build-jvm through
   the core-free SQL provider, with negative conversion coverage and no v1 or
@@ -26,9 +28,12 @@ reported by the release gate and owned by codex.
   `bin/ssc-standard run examples/sql-h2-quickstart.ssc` and repeat with
   `--bytecode`; both are reviewed `both-fail` rows while explicit compatibility
   supplies the reference behavior.
-- **Known boundary:** the current core-free SQL provider owns `Db.query` and
-  `Db.execute`, but native lowering does not yet execute fenced SQL in document
-  order or expose the section's first result as `<Section>.sql`.
+- **Root cause boundary:** `sscProgramSource` recognizes ScalaScript and YAML
+  fences only. Every SQL fence is absent from CoreIR, so no DDL/DML/query runs;
+  surviving code lowers `ActiveUsers.sql` and `Headcount.sql` as method calls on
+  unbound heading globals. The current core-free provider already owns named
+  connections plus `Db.query/execute`; it needs one generic raw SQL result
+  operation and section-value registration, not a v1 SQL parser/runner.
 - **Done-when:** DDL/DML/query fences, `${expr}` binds, and generic section
   result binding are exact on standard VM/direct ASM/reproducible build-jvm,
   including bounded malformed/config errors and no transparent fallback.
