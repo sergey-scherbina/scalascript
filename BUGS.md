@@ -70,8 +70,11 @@ found by codex during the SclJet M2c assembled JVM VFS example.
 
 ## portable-codepoint-string-construction — v1 lacks Int.toChar, v2 renders Char numerically
 
-**Status:** open (2026-07-12); found by codex while designing SclJet's pure
-UTF-8/UTF-16 record decoder.
+**Status:** open (partial, 2026-07-12); found by codex designing SclJet's decoder.
+INT/JVM/JS `Int.toChar` FIXED (opus, see git; conformance int-tochar-codepoint) — added
+`toChar` to the interp Int dispatch + JS number/bigint dispatch. REMAINING: v2-native still
+renders Char numerically (658364) — that lane's Char rep/stringify is separate; and the
+broader portable UTF-16 text API from checked code points (Done-when) is a design item.
 
 - **Real-harness repro:** in an `.ssc` module evaluate `val a = 65.toChar; val
   b = 0x20ac.toChar; println(a.toString + b.toString)`. `ssc-tools run --v1`
