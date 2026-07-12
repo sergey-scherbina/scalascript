@@ -110,6 +110,7 @@ bin/ssc-standard run examples/hello.ssc
 # keeping StandardMain + the self-hosted frontend/VM or direct ASM
 bin/ssc-provider pdf run examples/invoice-pdf.ssc
 bin/ssc-provider pdf run --bytecode examples/pdf-extract-demo.ssc
+bin/ssc-provider mcp run examples/mcp-client-discover.ssc
 
 # Roll back through the explicit optional tools/compatibility tier
 bin/ssc-tools run --v1 examples/hello.ssc
@@ -392,7 +393,7 @@ Dataset/MapReduce typed wire calls can select `wireFormat = "msgpack" | "cbor"` 
 | Feature | Syntax |
 |---------|--------|
 | MCP server | `mcpServer { srv => srv.tool(...) }`, `serveMcp(Transport.stdio/Http/Ws)` |
-| MCP client | `mcpConnect(url) { client => client.callTool(...) }` |
+| MCP client | `mcpConnect(url) { client => client.callTool(...) }`; the explicit native VM/ASM lane is selected with `ssc-provider mcp` |
 
 ### Data processing
 

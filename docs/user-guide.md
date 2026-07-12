@@ -5117,6 +5117,8 @@ plain `ssc`. Select one explicitly with `ssc-provider`; execution still uses
 ```bash
 ssc-provider pdf run examples/invoice-pdf.ssc
 ssc-provider pdf run --bytecode examples/pdf-extract-demo.ssc
+ssc-provider mcp run examples/mcp-client-discover.ssc
+ssc-provider mcp run --bytecode examples/agent-mcp-toolsource.ssc
 ssc-provider nfc run examples/nfc-ndef.ssc
 ssc-provider nfc run --bytecode examples/nfc-ndef.ssc
 ```
@@ -5128,6 +5130,13 @@ they are not copied into the standard runtime, compiler image, or generated
 default `build-jvm` artifact. Unknown provider names fail before source
 execution. Compiler-backed `.sscpkg` plugins remain an explicit `ssc-tools`
 surface and are not loaded by this native launcher.
+
+The MCP lane supplies a native JSON-RPC client over an explicitly configured
+stdio subprocess. It uses the shared MCP protocol codec and a real child
+process transport without loading the v1 interpreter or compiler. The bundled
+`examples/mcp-server-tools.js` server makes the discovery and agent-tool-source
+examples deterministic for VM/direct-ASM regression tests; production clients
+can point the same `Transport.Spawn` value at another MCP stdio server.
 
 | Plugin | Intrinsics it provides |
 |--------|----------------------|
