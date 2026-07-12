@@ -262,6 +262,9 @@ top-level functions execute identically on the v1 interpreter, native VM, and
 direct ASM. A later ergonomic facade may delegate to this canonical functional
 surface once receiver operations are portable.
 
+The executable M1 usage example is
+[`examples/scljet-bytes.ssc`](../examples/scljet-bytes.ssc).
+
 `bytes.ssc` owns big- and little-endian unsigned 16/32/64-bit reads and
 writes plus signed big-endian 16/24/32/48/64-bit reads. Unsigned 32-bit values
 are returned as non-negative `Long`; unsigned 64-bit values use the raw signed

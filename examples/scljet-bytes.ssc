@@ -1,0 +1,23 @@
+#!/usr/bin/env ssc
+---
+name: scljet-bytes
+description: Immutable SclJet byte slices, endian reads, and SQLite varints
+---
+
+# SclJet byte foundations
+
+[ByteSlice, byteSliceToList, readU32Be, encodeVarint, decodeVarint](std/scljet/index.ssc)
+
+```scalascript
+def mustBytes(values: List[Int]): ByteSlice = ByteSlice.fromList(values) match
+  case Right(bytes) => bytes
+  case Left(_) => ByteSlice.empty
+
+val header = mustBytes(List(0x12, 0x34, 0x56, 0x78))
+println(byteSliceToList(header))
+println(readU32Be(header, 0))
+
+val encoded = encodeVarint(16384L)
+println(byteSliceToList(encoded))
+println(decodeVarint(encoded, 0))
+```
