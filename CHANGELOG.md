@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-12 — explicit Option/List direct syntax is self-hosted
+
+The compiler-free ScalaScript 2.1 frontend now preserves explicit
+`direct[Option]` and `direct[List]` blocks and lowers fresh assignments through
+portable `flatMap`, including Option short-circuiting, stable List Cartesian
+order, pure and mutable locals, and nesting. Unsupported monads fail explicitly
+without v1/runtime fallback. The public 11-line example is exact on VM, direct
+ASM, and reproducible `build-jvm`; parity is 50 identical / 16 both-fail with
+three blockers and fresh conformance 11/11. Landed through `602c91cb2`.
+
 ## 2026-07-12 — product Mirror and custom derives are self-hosted
 
 The compiler-free ScalaScript 2.1 frontend now retains product field type

@@ -54,7 +54,8 @@ semantics advanced the mini-language pipeline report.
 
 ## v21-native-direct-do-unlowered — direct[M] remains an unbound call
 
-**Status:** open (2026-07-12); found by codex in TI-8.2d3m audit.
+**Status:** fixed (2026-07-12, language `e8065f02b`, taxonomy `602c91cb2`),
+awaiting Sergiy confirmation; found by codex in TI-8.2d3m audit.
 
 - **Real-harness repro:** standard VM/direct ASM fail before stdout with
   `unbound global: direct`; explicit compatibility prints 11 canonical Option/
@@ -65,6 +66,11 @@ semantics advanced the mini-language pipeline report.
 - **Done-when:** the self-hosted frontend lowers Option/List direct blocks,
   short-circuiting/cartesian binds, pure vals/vars, and nesting generically with
   exact public output and no v1 `DirectAnorm` dependency or fallback.
+- **Fix/result:** the parser retains a dedicated direct node and frontend
+  desugaring emits existing portable `flatMap` control flow with lexical var
+  tracking. The focused positive/negative fixtures, public 11-line example,
+  VM/ASM/build-jvm release gate, and fresh 11/11 conformance pass; parity is
+  50/16 with three blockers and zero mismatch/one-sided rows.
 
 ## v21-native-derives-mirror-unsynthesized — product evidence is absent
 

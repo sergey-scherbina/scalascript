@@ -3334,9 +3334,17 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                           custom dictionary are exact; public
                                           VM/ASM/build-jvm output passes and
                                           release is 49/17 with 4 blockers.
-                                    - [ ] **m2c direct do-notation:** lower
+                                    - [x] **m2c direct do-notation:** lower
                                           Option/List bind statements with
                                           nested/direct/local state semantics.
+                                          Result: dedicated native direct nodes
+                                          lower fresh binds to portable
+                                          `flatMap`; Option short-circuiting,
+                                          List order, pure/mutable locals, and
+                                          nesting are exact. The public 11-line
+                                          example passes VM/ASM/build-jvm;
+                                          release is 50/16 with 3 blockers and
+                                          fresh conformance 11/11.
                                     - [ ] **m2d named copy + optics:** preserve
                                           copy labels, then lower Focus/Prism
                                           Lens/Optional/Traversal behavior from
