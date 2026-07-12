@@ -2918,7 +2918,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     explicit compatibility outputs are recorded
                                     in the feature spec. Track as
                                     `v21-native-actors-provider-missing`.
-                              - [ ] **TI-8.2d3j1 provider contract:** specify
+                              - [x] **TI-8.2d3j1 provider contract:** specify
                                     mailbox/send/receive timeout semantics,
                                     actor-thread dynamic self, exit/drop behavior,
                                     scope quiescence, child error propagation,
