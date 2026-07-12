@@ -240,22 +240,26 @@ case class ByteError(code: String, message: String, offset: Int)
 case class ByteRead(value: Long, nextOffset: Int)
 case class VarintRead(value: Long, length: Int, nextOffset: Int)
 
-object ByteSlice:
-  def empty: ByteSlice
-  def fromList(values: List[Int]): Either[ByteError, ByteSlice]
-  def zeros(length: Int): Either[ByteError, ByteSlice]
-
-def byteSliceToList(bytes: ByteSlice): List[Int]
-
-extension (bytes: ByteSlice)
-  def length: Int
+case class ByteSlice(chunks: Map[Int, List[Int]], start: Int, length: Int):
   def get(index: Int): Either[ByteError, Int]
   def updated(index: Int, value: Int): Either[ByteError, ByteSlice]
   def slice(offset: Int, length: Int): Either[ByteError, ByteSlice]
   def concat(other: ByteSlice): ByteSlice
   def copyTo(target: ByteSlice, targetOffset: Int): Either[ByteError, ByteSlice]
   def zeroExtend(length: Int): Either[ByteError, ByteSlice]
+
+object ByteSlice:
+  def empty: ByteSlice
+  def fromList(values: List[Int]): Either[ByteError, ByteSlice]
+  def zeros(length: Int): Either[ByteError, ByteSlice]
+
+def byteSliceToList(bytes: ByteSlice): List[Int]
 ```
+
+The byte operations are real case-class methods, not imported extensions. This
+keeps the declared receiver shape available to both the v1 interpreter and the
+self-hosted native frontend while preserving the same `bytes.slice(...)` call
+syntax.
 
 `bytes.ssc` owns big- and little-endian unsigned 16/32/64-bit reads and
 writes plus signed big-endian 16/24/32/48/64-bit reads. Unsigned 32-bit values
