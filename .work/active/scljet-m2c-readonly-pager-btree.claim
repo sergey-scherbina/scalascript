@@ -1,6 +1,0 @@
-feature/scljet-m2c-readonly-pager-btree 2026-07-12T13:50:23Z
-agent: codex
-heartbeat: 2026-07-12T14:16:27Z
-status: in-progress
-done-so-far: pager, multi-level table/index cursor, schema, freelist and pointer-map implementation passes focused interpreter fixtures; pure cursor is VM/ASM exact
-next: finish assembled verification, docs/example, spec verification and M2c bookkeeping
