@@ -1,6 +1,6 @@
 feature/scljet-m1 2026-07-12T10:35:37Z
 agent: codex
-heartbeat: 2026-07-12T10:36:14Z
+heartbeat: 2026-07-12T11:16:55Z
 status: in-progress
-done-so-far: isolated feature/scljet-m1 worktree created
-next: queue M1 byte-codec and in-memory VFS slices in SPRINT.md
+done-so-far: M1 byte/codecs landed in 58d2e19de with exact v1/native VM/ASM golden coverage
+next: implement and verify the pure deterministic in-memory VFS state machine
