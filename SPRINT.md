@@ -3506,10 +3506,16 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                         taxonomy remains 68 classified rows; portable,
                         sentinel/runtime taxonomy, and fresh conformance 11/11
                         pass.
-                  - [ ] **TI-8.2d5 release freeze:** rerun all 195 rows, require
+                  - [x] **TI-8.2d5 release freeze:** rerun all 195 rows, require
                         zero unclassified and zero blocking `both-fail` rows,
                         freeze exact non-blocking optional/tools counts, and keep
                         mismatch/one-sided counts at zero before TI-8.3.
+                        Result (`3e10ba0d5`): an exact snapshot gate plus
+                        shrink/growth/blocker/duplicate self-test is mandatory
+                        in the exhaustive release path. Full release stays
+                        194/194 checked, 53/13/129 parity, 0 mismatch/one-sided,
+                        and pins 7 optional / 6 tools / 0 blockers / 13 total;
+                        conformance is 11/11.
       - [ ] **TI-8.3 default launcher cutover:** once TI-4 parity is green, make
             staged/self-installed `bin/ssc` use `StandardMain`, require
             `ssc-tools` for every explicit compatibility/compiler surface, and

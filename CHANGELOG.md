@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-12 — ScalaScript 2.1 runtime release taxonomy is frozen
+
+The exhaustive self-hosted-core release gate now enforces the exact zero-blocker
+snapshot, not only a migration ceiling: 7 reviewed optional-provider rows, 6
+tools-backend rows, 0 standard/language/example blockers, and 13 total. A
+synthetic self-test rejects count changes in either direction, blocker growth,
+and malformed snapshots. Full release remains 53/13/129 with zero mismatch or
+one-sided failures and fresh conformance 11/11. Landed in `3e10ba0d5`.
+
 ## 2026-07-12 — typed SQL CRUD closes the final standard runtime blocker
 
 The compiler-free ScalaScript 2.1 frontend now retains `Db.query[A]` nominal
