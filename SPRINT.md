@@ -9,6 +9,30 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## uniml-markdown — lossless CommonMark/GFM and ScalaScript document adapter (2026-07-12, Sergiy: "продолжай дальше не останавливайся")
+
+Goal: complete UniML roadmap M4 with a standalone cross-platform Markdown reader pinned to
+CommonMark 0.31.2 and an explicit GFM 0.29 profile, preserving source presentation while exposing
+safe document semantics and a bounded bridge to the existing ScalaScript `DocumentContent` model.
+
+- [ ] **uniml-markdown-0-spec** — write and commit `specs/uniml-markdown.md` before code. Define
+      CommonMark/GFM/ScalaScript dialect ids, exact block/inline token and CST roles, delimiter and
+      container stacks, line-ending/indentation ownership, references/links/images, raw HTML safety,
+      fenced embedded-language delegation, diagnostics/recovery, limits, chunk invariance, semantic
+      model, `DocumentContent` projection losses, corpus pins, targets, security and exclusions.
+- [ ] **uniml-markdown-1-adapter** — add `unimlMarkdown`/`unimlMarkdownJs` CrossType.Pure projects
+      over UniML; implement bounded chunk-invariant scanning and source-backed VM ranges for headings,
+      paragraphs, thematic breaks, block quotes, lists/items, indented/fenced code, HTML, links,
+      references, emphasis/code spans, breaks and exact trivia/comments.
+- [ ] **uniml-markdown-2-projection** — add an ordered Markdown semantic model plus explicit profiles
+      for CommonMark, GFM tables/task items/strikethrough/autolinks, and ScalaScript headings/fences/
+      `${expr}` boundaries. Keep raw HTML and link destinations inert; project compatible nodes into
+      existing `DocumentContent` without making that compiler model the canonical CST.
+- [ ] **uniml-markdown-3-verify** — run pinned CommonMark examples and focused GFM/ScalaScript cases,
+      every transport split, malformed delimiter/fence/reference/HTML/security/limit cases, unchanged
+      JVM+Scala.js suites, affected content conformance, spec verification, docs/bookkeeping, claim
+      release, then continue to M5 programming-language adapters.
+
 ## uniml-yaml — lossless safe YAML 1.2 dialect (2026-07-12, Sergiy: "продолжай дальше не останавливайся")
 
 Goal: complete UniML roadmap M3 with a YAML 1.2 Core Schema adapter preserving streams/documents,
