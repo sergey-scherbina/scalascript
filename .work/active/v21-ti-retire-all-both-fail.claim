@@ -1,6 +1,6 @@
 feature/v21-ti-retire-all-both-fail 2026-07-12T08:55:21Z
 agent: codex
-heartbeat: 2026-07-12T10:21:04Z
+heartbeat: 2026-07-12T11:13:59Z
 status: in-progress
-done-so-far: spec plus explicit PDF/MIME, NFC, and MCP core-free provider lanes landed through 5a747d392; six provider-family examples are exact on VM/ASM and plain ssc stays isolated
-next: Graph RDF4J provider is green locally and running legacy release regressions; push it, add SWIFT, then close quoted/WASM/x402 target families and zero both-fail reporting
+done-so-far: all provider and tools/target lanes plus zero-both-fail reporting landed through 6d83082ca; explicit gate is 13/13 and ordinary corpus is 53 identical, 0 both-fail, 129 skipped, 13 delegated
+next: run negative-toolchain and consolidated full release gates on merged main, record closure, then release claim
