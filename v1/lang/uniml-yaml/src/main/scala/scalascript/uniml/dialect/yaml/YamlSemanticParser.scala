@@ -135,8 +135,13 @@ private[yaml] object YamlSemanticParser:
             val after = text.drop(1).trim
             if after.isEmpty then values += nestedOrNull(sequenceIndent, depth + 1)
             else if blockHeader(after).nonEmpty then values += parseBlockScalar(after, sequenceIndent, line)
-            else if findKeyColon(after) >= 0 then values += parseCompactMapping(after, sequenceIndent, line, depth + 1)
-            else values += parseInline(after, line.span(source), depth + 1)
+            else
+              val (properties, rest) = splitPropertiesNoDiagnostic(after)
+              if properties != Properties(None, None) && findKeyColon(rest) >= 0 then
+                val (validated, _) = splitProperties(after, line.span(source))
+                val mapping = parseCompactMapping(rest, sequenceIndent, line, depth + 1)
+                values += applyProperties(mapping, validated, line.span(source))
+              else values += parseAfterIndicator(after, sequenceIndent, line, depth + 1)
       YamlValue.Sequence(values.result(), None, None)
 
     private def parseCompactMapping(first: String, parentIndent: Int, firstLine: Line, depth: Int): YamlValue =
@@ -177,7 +182,12 @@ private[yaml] object YamlSemanticParser:
     private def parseAfterIndicator(text: String, parentIndent: Int, line: Line, depth: Int): YamlValue =
       if text.isEmpty then nestedOrNull(parentIndent, depth + 1)
       else if blockHeader(text).nonEmpty then parseBlockScalar(text, parentIndent, line)
-      else parseInline(text, line.span(source), depth + 1)
+      else
+        val (properties, rest) = splitPropertiesNoDiagnostic(text)
+        if properties != Properties(None, None) && rest.isEmpty then
+          val (validated, _) = splitProperties(text, line.span(source))
+          applyProperties(nestedOrNull(parentIndent, depth + 1), validated, line.span(source))
+        else parseInline(text, line.span(source), depth + 1)
 
     private def nestedOrNull(parentIndent: Int, depth: Int): YamlValue =
       skipBlank()

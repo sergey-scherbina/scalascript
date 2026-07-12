@@ -94,6 +94,15 @@ final class YamlDialectSpec extends AnyFunSuite:
     assert(mapping.entries(1).value.isInstanceOf[YamlValue.Sequence])
   }
 
+  test("property-only values attach anchors to following nested nodes") {
+    val text = "root: &root\n  child: value\nlist:\n  - &item\n    name: demo\n"
+    val mapping = documentValue(projected(parse(text))).asInstanceOf[YamlValue.Mapping]
+    val root = mapping.entries.head.value.asInstanceOf[YamlValue.Mapping]
+    assert(root.anchor.contains("root"))
+    val item = mapping.entries(1).value.asInstanceOf[YamlValue.Sequence].values.head.asInstanceOf[YamlValue.Mapping]
+    assert(item.anchor.contains("item"))
+  }
+
   test("undefined and cyclic aliases fail explicitly") {
     val undefined = Yaml.project(parse("value: *missing\n"))
     assert(undefined.value.isEmpty)
@@ -105,6 +114,30 @@ final class YamlDialectSpec extends AnyFunSuite:
     )
     assert(cyclic.value.isEmpty)
     assert(cyclic.diagnostics.exists(_.code == "uniml.yaml.alias-cycle"))
+
+    val mutual = Yaml.project(
+      parse("root: &a\n  child: &b\n    back: *a\n"),
+      YamlProjectionOptions(aliases = AliasPolicy.Resolve),
+    )
+    assert(mutual.value.isEmpty)
+    assert(mutual.diagnostics.exists(_.code == "uniml.yaml.alias-cycle"))
+  }
+
+  test("alias expansion and expanded-node budgets are enforced") {
+    val result = parse("base: &base [1, 2]\ncopy: *base\n")
+    val expansions = Yaml.project(
+      result,
+      YamlProjectionOptions(aliases = AliasPolicy.Resolve, maxAliasExpansions = 0),
+    )
+    assert(expansions.value.isEmpty)
+    assert(expansions.diagnostics.exists(_.code == "uniml.yaml.limit.expansion"))
+
+    val nodes = Yaml.project(
+      result,
+      YamlProjectionOptions(aliases = AliasPolicy.Resolve, maxExpandedNodes = 1),
+    )
+    assert(nodes.value.isEmpty)
+    assert(nodes.diagnostics.exists(_.code == "uniml.yaml.limit.expansion"))
   }
 
   test("duplicate mapping entries remain ordered and produce a warning") {
