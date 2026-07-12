@@ -474,10 +474,14 @@ pipeline used by real applications.
       build/package commands back to the standard launcher.
       Fresh combined conformance is 27/28: `money-portable-v2` alone now exits
       v2 with `arity: 2 expected, 1 given`; effects, all 12 toolkit-v2 cases,
-      and the remaining v2 corpus are green. Coordinate this with the active
-      `v21-ti-retire-all-both-fail` Runtime.scala owner (suspected interaction
-      with `3e90be0e7`) and rebase their landed fix rather than editing the
-      claimed runtime concurrently; require isolated money and combined 28/28.
+      and the remaining v2 corpus are green. The branch predates `3e90be0e7`,
+      so the earlier `cell.set` suspicion is ruled out: standard
+      `bin/ssc run --native` prints five correct rows and fails before the
+      allocation list, while `bin/ssc-tools run --v2` prints all six and exits
+      zero. Coordinate this native-front/VM residual with the active
+      `v21-ti-retire-all-both-fail` owner and rebase their landed fix rather
+      than editing the claimed area concurrently; require isolated money and
+      combined 28/28.
 ## security-hardening — toolchain audit findings (2026-07-11, Sergiy: "аудит секюрити … запиши все проблемы в спеку и в спринт и исправь")
 
 Spec: `specs/security-hardening.md`. Report artifact:

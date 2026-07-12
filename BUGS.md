@@ -278,7 +278,7 @@ in the `scalascript` Rozum room.
   update only their missing-binary hints, and pass the complete assembled CLI
   plus production-shaped macOS/iOS Apple gates. StandardMain remains narrow.
 
-## v2-money-portable-arity-after-cell-op-lift — native v2 release gate exits after allocation
+## v2-money-portable-native-front-arity — standard native release gate exits before allocation
 
 **Status:** open (2026-07-12); found by codex in the Swift NativeUi combined
 conformance gate and reported to the active `v21-ti-retire-all-both-fail`
@@ -289,10 +289,12 @@ Runtime.scala owner in the `scalascript` Rozum room.
   passes 27/28. `money-portable-v2` prints `$3.75` and `1.2100`, then its V2 lane
   exits before the allocation list with `ssc: arity: 2 expected, 1 given`.
   INT passes; all effect, toolkit-v2 and remaining v2 cases pass.
-- **Suspected boundary:** current origin recently landed `3e90be0e7`, which
-  changes generic/direct-ASM `cell.set` Op lifting and is owned by an active
-  release-gate claim. Do not edit `Runtime.scala` concurrently; reproduce and
-  root-cause in that claim first.
+- **Narrowed boundary:** this branch predates `3e90be0e7`, ruling out the
+  earlier `cell.set` suspicion. `bin/ssc run --native` fails after five correct
+  rows, while `bin/ssc-tools run --v2` prints all six rows and exits zero, so
+  the residual is in the standard native-front/VM route. It is owned by the
+  active `v21-ti-retire-all-both-fail` release claim; do not edit that area
+  concurrently.
 - **Done-when:** the owning agent lands the exact fix with an isolated money
   regression, this branch rebases it, and both isolated money plus combined
   28-case no-memo conformance pass.
