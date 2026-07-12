@@ -2,7 +2,8 @@
 
 ## v21-native-tuple-lambda-destructuring — collection callbacks expect two arguments
 
-**Status:** open (2026-07-12); found by codex after parameterless-def value
+**Status:** fixed (2026-07-12, language `12d3d9cf2`, taxonomy `06a518685`),
+awaiting Sergiy confirmation; found by codex after parameterless-def value
 semantics advanced the mini-language pipeline report.
 
 - **Real-harness repro:** standard VM/direct ASM now print the first nine
@@ -18,6 +19,10 @@ semantics advanced the mini-language pipeline report.
   collection callbacks on VM/ASM/build-jvm. Ordinary `(a, b) =>` callables that
   are invoked with two arguments must retain their existing arity; no runtime
   arity retry, reflection, or DSL special case.
+- **Fix/result:** the shared collection callback seam recognizes only exact
+  `Pair`/`TupleN` tags whose field count matches the closure arity. The full
+  public pipeline is exact on VM/ASM/build-jvm; release parity is 48/18 with
+  five blockers and zero mismatch/one-sided rows.
 
 ## v21-native-focus-optics-unlowered — Focus/Prism remain globals
 
@@ -77,7 +82,8 @@ semantics advanced the mini-language pipeline report.
 
 ## v21-native-parameterless-def-value — nullary method is passed as a function
 
-**Status:** open (2026-07-12); found by codex in TI-8.2d3m audit.
+**Status:** fixed (2026-07-12, language `12d3d9cf2`, taxonomy `06a518685`),
+awaiting Sergiy confirmation; found by codex in TI-8.2d3m audit.
 
 - **Real-harness repro:** standard VM/direct ASM print the mini-language success
   heading then fail `arity: 0 expected, 1 given`; explicit
@@ -90,6 +96,10 @@ semantics advanced the mini-language pipeline report.
   it once at the use site, while explicit `def f()` and higher-arity function
   values retain their current semantics; focused and public VM/ASM/build-jvm
   output is exact.
+- **Fix/result:** source clause shape survives the self-hosted AST and lowering;
+  a bare declared reference emits one zero-argument CoreIR application while
+  explicit callees are not double-applied. The imported regression and all 13
+  public lines are exact on VM/ASM/build-jvm.
 
 ## v21-native-graph-provider-missing — standard Graph facade has no core-free owner
 

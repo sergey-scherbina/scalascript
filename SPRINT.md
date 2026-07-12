@@ -3309,21 +3309,23 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     focused VM/ASM/build-jvm coverage and push
                                     it immediately; do not retire a taxonomy row
                                     until the public document succeeds exactly.
-                                    - [ ] **m2a parameterless def values:**
+                                    - [x] **m2a parameterless def values:**
                                           auto-apply a nullary def when used as
                                           an ordinary value and prove the full
                                           mini-language output.
-                                          Focused imported VM/ASM is exact and
-                                          the public row now prints its first
-                                          nine canonical lines before exposing
-                                          the independent tuple-lambda bug
-                                          `v21-native-tuple-lambda-destructuring`.
-                                    - [ ] **m2a1 tuple-lambda parameters:**
+                                          Result: the imported nine-line
+                                          fixture is exact and `def f` versus
+                                          `def f()` remains distinct.
+                                    - [x] **m2a1 tuple-lambda parameters:**
                                           destructure `(a, b) => body` from one
                                           Pair/Tuple2 argument for collection
                                           map/flatMap while retaining ordinary
                                           two-argument lambdas where the caller
                                           supplies two arguments.
+                                          Result: `dsl-mini-language.ssc` is
+                                          exact on VM/ASM/build-jvm; release is
+                                          48 identical / 18 both-fail with 5
+                                          blockers and conformance 11/11.
                                     - [ ] **m2b derives/Mirror:** synthesize
                                           portable product metadata plus the
                                           requested derived dictionary.

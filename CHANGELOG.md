@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-12 — parameterless def values and pair callbacks are native
+
+The self-hosted frontend now preserves `def value: T` versus `def value(): T`
+and auto-applies only bare references to the former. The shared v2 collection
+runtime also reconciles portable `Pair/2` with `Tuple2/2` for matching
+two-parameter `List.map`/`flatMap` callbacks without changing direct function
+arity. The complete mini-language example is exact on VM, direct ASM, and
+reproducible `build-jvm`; parity is 48 identical / 18 both-fail with five
+remaining blockers and fresh conformance 11/11. Landed through `06a518685`.
+
 ## 2026-07-12 — process-local Graph storage is core-free
 
 The ScalaScript 2.1 standard tier now owns deterministic process-local property
