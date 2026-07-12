@@ -1,0 +1,30 @@
+---
+name: companion-case-class-order
+backends: [int]
+---
+
+# case class + explicit companion coexist regardless of declaration order
+
+Regression for `v1-explicit-companion-shadows-case-constructor`: an explicit
+`object B` companion must not shadow the case-class constructor, and a case class
+declared after its companion must not drop the companion's factories. Both
+`B(...)` and `B.factory(...)` work from later ordinary functions.
+
+```scalascript
+case class B(x: Int)
+def mkEarly(): B = B(1)
+object B:
+  def of(n: Int): B = B(n)
+def mkLate(): B = B(2)
+
+object C:
+  def twice(n: Int): C = C(n, n)
+case class C(a: Int, b: Int)
+def mkC(): C = C(3, 4)
+
+println(mkEarly().x)
+println(B.of(5).x)
+println(mkLate().x)
+println(C.twice(7).a)
+println(mkC().a + mkC().b)
+```

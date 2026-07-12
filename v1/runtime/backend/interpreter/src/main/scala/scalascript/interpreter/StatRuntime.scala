@@ -279,7 +279,15 @@ private[interpreter] object StatRuntime:
       }
       // Only expose fields that are NEW or CHANGED relative to the outer scope,
       // so the InstanceV doesn't carry inherited interp.globals as object members.
-      val newFields = members.toMap.filter { (k, v) => outerSnap.get(k).forall(old => !(old eq v)) }
+      val newFields0 = members.toMap.filter { (k, v) => outerSnap.get(k).forall(old => !(old eq v)) }
+      // A case class's constructor is bound as a NativeFnV under the type name. An
+      // explicit companion `object B` processed later would overwrite it and lose the
+      // constructor, so `B(...)` in a following function crashes with "Instance is not
+      // callable". Preserve the prior callable "B" as the companion's `apply` (unless
+      // the object defines its own). (v1-explicit-companion-shadows-case-constructor.)
+      val newFields = env.get(objectName) match
+        case Some(ctor: Value.NativeFnV) if !newFields0.contains("apply") => newFields0 + ("apply" -> ctor)
+        case _                                                            => newFields0
       val newObj: Value.InstanceV = Value.InstanceV(objectName, newFields)
       env.get(objectName) match
         case Some(existing: Value.InstanceV) => env(objectName) = interp.mergeDeep(existing, newObj)
@@ -321,7 +329,7 @@ private[interpreter] object StatRuntime:
         Pure(inst)
       }
       val noDefaults = paramDefaults.forall(_.isEmpty)
-      env(typeName) = if noDefaults then
+      val ctorFn: Value.NativeFnV = if noDefaults then
         Value.NativeFnV(typeName, args =>
           constructNoDefaultInstanceOrFallback(typeName, paramNames, args, classTag, classFallbackCtor))
       else
@@ -330,6 +338,14 @@ private[interpreter] object StatRuntime:
         // would otherwise mis-bind values positionally).
         interp.typeFieldDefaults(typeName) = (paramDefaults, ctorEnv)
         Value.NativeFnV(typeName, classFallbackCtor)
+      // If an explicit companion `object B` was already bound (declared before the
+      // case class), keep its factories and add the constructor as `apply` instead of
+      // overwriting it — so `B(...)` and `B.factory(...)` both work regardless of
+      // declaration order. (v1-explicit-companion-shadows-case-constructor.)
+      env(typeName) = env.get(typeName) match
+        case Some(comp: Value.InstanceV) if !comp.effectiveFields.contains("apply") =>
+          Value.InstanceV(typeName, comp.effectiveFields + ("apply" -> ctorFn))
+        case _ => ctorFn
       // Methods defined inside the class body are stored in a separate
       // type-keyed registry; dispatch on an InstanceV consults it and re-binds
       // each method's closure with the instance's data fields so the body can
