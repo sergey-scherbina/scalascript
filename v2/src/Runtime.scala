@@ -2498,6 +2498,13 @@ object Prims:
         // single-sourced for both the VM and direct ASM closure ABI.
         case (ls, "foldLeft", List(z)) if isList(ls) =>
           ClosV(Runtime.emptyEnv, 1, env => Done(methodOp("foldLeft", ls, List(z, env.last))))
+        // Curried z-then-op arms for foldRight/scanLeft (mirror foldLeft): the native
+        // front lowers `xs.foldRight(z)(op)` as app(app(sel,[z]),[op]); without this
+        // 1-arg arm the z-application had no handler → Stub (never reached the 2-arg arm).
+        case (ls, "foldRight", List(z)) if isList(ls) =>
+          ClosV(Runtime.emptyEnv, 1, env => Done(methodOp("foldRight", ls, List(z, env.last))))
+        case (ls, "scanLeft", List(z)) if isList(ls) =>
+          ClosV(Runtime.emptyEnv, 1, env => Done(methodOp("scanLeft", ls, List(z, env.last))))
         // Mutable array (ForeignV(ArrayBuffer)) basics — Array.fill/tabulate
         // return these now (busi qr: g.length on an rs table).
         case (ForeignV(ab: collection.mutable.ArrayBuffer[?]), "length" | "size", Nil) =>
@@ -2607,6 +2614,17 @@ object Prims:
           listOf(unlist(ls).grouped(n.toInt).map(listOf).toList)
         case (ls, "last", Nil) if isList(ls) => unlist(ls).last
         case (ls, "init", Nil) if isList(ls) => listOf(unlist(ls).init)
+        case (ls, "headOption", Nil) if isList(ls) => unlist(ls).headOption.fold(none)(some)
+        case (ls, "lastOption", Nil) if isList(ls) => unlist(ls).lastOption.fold(none)(some)
+        case (ls, "indexWhere", List(fn: Value.ClosV)) if isList(ls) =>
+          IntV(unlist(ls).indexWhere(x => callClos(fn, Array(x)) == Value.BoolV(true)).toLong)
+        case (ls, "span", List(fn: Value.ClosV)) if isList(ls) =>
+          val (a, b) = unlist(ls).span(x => callClos(fn, Array(x)) == Value.BoolV(true))
+          DataV("Tuple2", collection.immutable.ArraySeq(listOf(a), listOf(b)))
+        case (ls, "sliding", List(IntV(n))) if isList(ls) =>
+          listOf(unlist(ls).sliding(n.toInt).map(listOf).toList)
+        case (ls, "scanLeft", List(z, fn: Value.ClosV)) if isList(ls) =>
+          listOf(unlist(ls).scanLeft(z)((acc, x) => callClos(fn, Array(acc, x))))
         case (ls, "sum", Nil) if isList(ls) =>
           unlist(ls).foldLeft[Value](IntV(0)) {
             case (IntV(a), IntV(b)) => IntV(a + b)
