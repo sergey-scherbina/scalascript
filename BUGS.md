@@ -1,5 +1,27 @@
 # Bug tracker
 
+## scljet-readonly-close-imported-selector — facade close selects the wrong pager handle
+
+**Status:** open (2026-07-12); found by codex during the SclJet M2c assembled
+JVM VFS example.
+
+- **Real-harness repro:** run `bin/ssc-tools run --v1
+  examples/scljet-readonly.ssc` after `scripts/sbtc "installBin"`. The real JVM
+  adapter opens handle 2, schema/table reads succeed, and direct
+  `closeReadonlyPager(database.pager)` succeeds, but
+  `closeReadonly(database)` returns `SqliteIo: unlock: unknown or closed
+  handle` (`bad-handle`).
+- **Root cause:** the cross-module facade body selected `database.pager` from
+  an imported case class and then forwarded it. In the v1 interpreter's known
+  receiver-blind imported-field environment that selector can bind the wrong
+  registered `pager` layout, even though constructor-pattern matching the same
+  value yields the correct `ReadonlyPager`/`JvmSqliteFile(2)`.
+- **Plan/done-when:** destructure `ReadonlyDatabase` at every facade boundary
+  (`openReadonlyRoot`, `readonlyFirst`, `readonlyNext`, `closeReadonly`) and
+  rebuild it explicitly instead of using imported selectors/copy; keep a
+  multi-file real-plugin regression where public `closeReadonly` returns
+  `Right(())`, then record the landed SHA and await Sergiy confirmation.
+
 ## portable-codepoint-string-construction — v1 lacks Int.toChar, v2 renders Char numerically
 
 **Status:** open (2026-07-12); found by codex while designing SclJet's pure
