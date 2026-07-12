@@ -2611,6 +2611,19 @@ class SscVmTest extends AnyFunSuite with Matchers:
     assert(wrongOrBail, "expected the heuristic-only path to miss mid's Double return")
   }
 
+  test("wide-jit C-4c regression: RET-leaf widening must not corrupt a shared home register") {
+    // BUG (fixed): C-4c widened the RET leaf with an in-place `I2D r, r` + `setType(r, TDouble)`.
+    // `compileExpr` of a bare local/param returns its HOME register directly, so both the value and
+    // its compile-time type were corrupted for a sibling RET leaf. `if c then a else a` returned the
+    // else path's raw int bits as a double (5 → 2.5e-323). The fix widens into a FRESH reg (asDouble).
+    val g = funOf("g", "def g(a: Int, c: Int): Double = if c > 0 then a else a")
+    val cfn = VmCompiler.compile(g)
+    cfn shouldBe defined
+    java.lang.Double.longBitsToDouble(SscVm.run(cfn.get, Array(5L, 1L)))  shouldBe 5.0  // then path
+    java.lang.Double.longBitsToDouble(SscVm.run(cfn.get, Array(5L, -1L))) shouldBe 5.0  // else path (was garbage)
+    java.lang.Double.longBitsToDouble(SscVm.run(cfn.get, Array(9L, -1L))) shouldBe 9.0
+  }
+
   test("wide-jit C-4c: a Double-declared function's Int RET leaf is widened, not bailed on") {
     // `f` is DECLARED `: Double` but one branch yields the Int literal `2`. Scala widens it to `2.0`.
     // The JIT's unifyRet otherwise sees TDouble (1.5) then TInt (2) → MixedReturnType bail. The Typer

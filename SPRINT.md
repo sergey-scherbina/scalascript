@@ -1788,6 +1788,20 @@ for in-process runs, and `inferType` already computes per-node `SType` (just dis
 - [ ] **closures / HOF (~199, DOMINANT) — HARD, explicit NON-GOAL of line C.** `call: no compilable
       target (free name / closure / non-function)`. Needs a closure/heap model (capture env, indirect
       dispatch) — a separate program, not typed-input widening.
+
+### JIT correctness fixes — adversarial self-review pass (2026-07-12)
+Directed hunt for LATENT MISCOMPILES (silent wrong result, NOT a safe bail) in the C-3..C-9 changes.
+- [x] **C-4c home-register corruption** (fixed, commit pending) — C-4c widened a RET leaf with an
+      in-place `emit(I2D, r, r); setType(r, TDouble)`. `compileExpr` of a bare local/param returns its
+      HOME register directly (VmCompiler:464), so this corrupted BOTH the value and the compile-time
+      type for a sibling RET leaf. `def g(a: Int, c: Int): Double = if c > 0 then a else a` returned
+      the else path's raw int bits as a double (g(5,-1) → 2.5e-323 instead of 5.0). Conformance did NOT
+      catch it (no corpus case had the pattern) — an adversarial unit probe did. FIX: widen into a
+      FRESH reg via `asDouble(r0)` (the existing self-tail arg coercion at :882 already did this).
+      Regression test added. LESSON: never `I2D`/`setType` in place on a `compileExpr` result — it may
+      be a shared home reg; use `asDouble` (fresh). C-5/C-5b/C-6 verified SAFE (they widen a
+      `compileInto` target `dst`, which is a MOVE'd copy, not a home reg).
+- [ ] (in progress) independent adversarial review of the full C-3..C-9 diff for further miscompiles.
 - [ ] **C-gate** — QUIET-MACHINE A/B (`scripts/bench interp patternMatch*|recursionFib`,
       `scripts/bench cross`): wider coverage doesn't regress hot paths + ideally removes the
       `recursionFib` bimodal variance. (The "(1)" timing work, deferred until load drops.)

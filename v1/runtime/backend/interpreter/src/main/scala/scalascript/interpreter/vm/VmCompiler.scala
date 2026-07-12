@@ -894,16 +894,21 @@ object VmCompiler:
         compileTail(rest.head.asInstanceOf[Term])
 
       case other =>
-        val r = compileExpr(other)
-        var rt = typeOf(r)
+        val r0 = compileExpr(other)
+        var rt = typeOf(r0)
         // wide-jit C-4c: the function is DECLARED to return Double but this leaf came back Int
         // (e.g. `if c > 0 then 1.5 else 2` — the `2`). Scala widens Int→Double implicitly on every
-        // return path, so emit the I2D here rather than letting `unifyRet` bail on a false "mixed
-        // return". `r` flows only to the RET below (tail position), so the in-place I2D is safe.
-        // Gated on the DECLARED annotation — a FunV with no populated return type leaves this alone.
-        if rt == TInt && declaredDouble then
-          emit(I2D, r, r, 0); setType(r, TDouble); rt = TDouble
-          VmCompiler.retDoubleWidenings.incrementAndGet()
+        // return path, so widen here rather than letting `unifyRet` bail on a false "mixed return".
+        // MUST use `asDouble` (a FRESH reg), NOT an in-place `I2D r0`: `compileExpr` returns a
+        // local/param's HOME register directly, so an in-place widen would corrupt that local's value
+        // AND its compile-time type for a sibling RET leaf — `if c then a else a` returned the else
+        // path's int bits as a double. Gated on the DECLARED annotation (empty ⇒ unchanged).
+        val r =
+          if rt == TInt && declaredDouble then
+            rt = TDouble
+            VmCompiler.retDoubleWidenings.incrementAndGet()
+            asDouble(r0)
+          else r0
         unifyRet(rt)
         if rt == TRef then emit(RETREF, r, 0, 0) else emit(RET, r, 0, 0)
 
