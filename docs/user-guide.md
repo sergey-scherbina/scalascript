@@ -1618,6 +1618,14 @@ runAsyncParallel {
 }
 ```
 
+On the ScalaScript 2.1 standard JVM path, both runners are owned by the
+core-free effect-runners provider. `runAsync` evaluates futures and parallel
+lists deterministically on the caller thread. `runAsyncParallel` starts virtual
+threads and joins results in declared order. Future failures are delivered at
+`await`/`parallel`; they are never silently converted to Unit. VM, direct ASM,
+and `build-jvm` use the same provider without the compatibility frontend or a
+compiler toolchain.
+
 ### Pull generators
 
 `generator` starts a lazy pull stream. Values cross a synchronous handoff only

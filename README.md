@@ -293,8 +293,8 @@ compiles them via Scala.js.
 | Standard effects — Auth | `Auth.check(claims)`, `runAuth(verifier)` |
 | Direct syntax (do-notation) | `direct[M] { x = expr; y = expr2 }`, `.!` postfix bind |
 | Effect-row unions | `direct[Async \| Random] { ... }` |
-| Built-in `Async` effect | `runAsync { Async.delay(ms); Async.parallel(...) }` |
-| Real-thread `runAsyncParallel` | genuine JVM concurrency without touching call sites |
+| Built-in `Async` effect | `runAsync { Async.delay(ms); Async.parallel(...) }` — deterministic and core-free on 2.1 native VM/direct ASM/build-jvm |
+| Real-thread `runAsyncParallel` | ordered JDK 21 virtual-thread concurrency without changing call sites or loading compatibility code |
 | Built-in `Storage` effect | `runStorage { Storage.put(k, v); Storage.get(k) }` — core-free JSON file-backed or ephemeral handlers on 2.1 native VM/direct ASM/build-jvm |
 | Coroutines | `coroutineCreate`, `coroutineResume`, `suspend`, `Step[Y,T]` ADT, `coroutineCancel` |
 | Generators | `generator[T] { () => suspend(v) }`, pull/combinator pipelines — core-free on 2.1 native VM/direct ASM/build-jvm; Dataset bridging remains explicit |
