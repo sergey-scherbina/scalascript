@@ -460,6 +460,13 @@ pipeline used by real applications.
       fast. Add `runtimeServerJvmFast % Test` to that project (the CLI already
       owns the production dependency), then require isolated `tkv2-pwa` and
       full bridge green; do not weaken the expected banner.
+      The combined legacy/v2 Swift CLI gate also aborts after 53/53 assertions
+      because `JvmGenPreamble`'s s-interpolated runtime string consumes one
+      escaping layer and emits invalid Scala `split("\.")` for dotted table
+      payload paths. Keep the non-interpolated `JvmRuntimeUiPrimitives` copy
+      unchanged; double only the two preamble escapes, assert generated runtime
+      contains compilable `split("\\.")`, and rerun the real SwiftUI fixture
+      plus all four combined Swift CLI suites.
 ## security-hardening — toolchain audit findings (2026-07-11, Sergiy: "аудит секюрити … запиши все проблемы в спеку и в спринт и исправь")
 
 Spec: `specs/security-hardening.md`. Report artifact:

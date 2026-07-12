@@ -245,6 +245,23 @@ gate, reported in the `scalascript` Rozum room.
 - **Fix/done-when:** add `runtimeServerJvmFast % Test` only to
   `v2FrontendBridge`, retain the exact fast banner, and pass isolated plus full
   bridge suites. This is test wiring, not a production backend selection change.
+## jvm-swiftui-row-path-invalid-escape — generated Scala emits `"\."`
+
+**Status:** open (2026-07-12); found by codex in the combined Swift CLI release
+gate and corrected in the `scalascript` Rozum room after inspecting source bytes.
+
+- **Real-harness repro:** run the four Swift CLI suites including
+  `SwiftUiRealFixtureBuildTest`. The first three complete 53/53, then the real
+  `.ssc` → generated Scala → Swift package lane aborts at generated lines
+  10500/10512 with `invalid escape character` in `name.split("\.", -1)`.
+- **Root cause:** the table payload helpers added in `1ecbc80ca` appear in an
+  `s"""..."""` runtime template in `JvmGenPreamble`; its `\\.` source spelling
+  loses one escaping layer. The parallel non-interpolated triple string in
+  `JvmRuntimeUiPrimitives` already retains two slashes and must not change.
+- **Fix/done-when:** use four source slashes for the two interpolated preamble
+  sites so emitted Scala contains two, pin the generated runtime text, and pass
+  the real fixture plus the combined 53-test Swift CLI set.
+
 ## js-ssc-ui-jsonvalue-duplicate — two `_ssc_ui_jsonValue` in the assembled JS runtime
 
 **Status:** open (2026-07-12); found by opus while running `backendInterpreter/test`
