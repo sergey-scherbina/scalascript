@@ -5117,6 +5117,8 @@ plain `ssc`. Select one explicitly with `ssc-provider`; execution still uses
 ```bash
 ssc-provider pdf run examples/invoice-pdf.ssc
 ssc-provider pdf run --bytecode examples/pdf-extract-demo.ssc
+ssc-provider nfc run examples/nfc-ndef.ssc
+ssc-provider nfc run --bytecode examples/nfc-ndef.ssc
 ```
 
 The PDF lane supplies `htmlToPdfBase64`, `pdfPageCount`, `pdfToMarkdown`, and
@@ -5431,12 +5433,14 @@ Regular `.ssc` code uses `NfcCapabilities`, `NfcScanOptions`, `NdefRecord`,
 and `NdefMessage`; Android `android.nfc.*`, Apple Core NFC, and browser
 `NDEFReader` objects remain behind backend/plugin adapters.
 
-Phase 1 is intentionally honest: the interpreter plugin is installed and
-returns `supported = false` from `nfcCapabilities()`. `readNdef()` and
-`writeNdef()` fail with a clear unsupported diagnostic on the interpreter
-until native Android/iOS/Web adapters land. Backends that do not declare
-`Feature.NfcNdef` are rejected by `CapabilityCheck` when a module imports or
-calls `std.nfc`.
+Phase 1 is intentionally honest. The compiler-free native lane is selected
+explicitly with `ssc-provider nfc`; on a JVM host without a device adapter it
+returns `supported = false` from `nfcCapabilities()` while all text, URI, and
+MIME record constructors execute identically on VM and direct ASM. `readNdef()`
+and `writeNdef()` fail with a bounded provider diagnostic until a native
+Android/iOS/Web adapter is selected. Plain `ssc` does not load the provider or
+its capability globals. Compiler/tools compatibility keeps its existing
+interpreter plugin behavior.
 
 ```scalascript
 [nfcCapabilities, nfcPermissionStatus, textRecord, uriRecord, mimeRecord](std/nfc.ssc)
@@ -5461,7 +5465,7 @@ maps to iOS `NFCReaderUsageDescription` + the NDEF reader-session entitlement,
 Android `android.permission.NFC` + `android.hardware.nfc`, and Web NFC's secure
 context / user-activation permission model. Full SwiftUI/iOS, Android, and
 Web/PWA packager consumption of that contract is still a follow-up; the
-interpreter remains deterministic unsupported.
+explicit JVM host provider remains deterministic unsupported for hardware I/O.
 
 See [examples/nfc-ndef.ssc](../examples/nfc-ndef.ssc) and
 [specs/std-nfc.md](../specs/std-nfc.md).
