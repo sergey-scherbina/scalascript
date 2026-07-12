@@ -682,6 +682,13 @@ val alice = Person("Alice", 30)
 val older = alice.copy(age = 31)
 ```
 
+Named copy arguments select fields by their declared labels, independent of
+call-site order; fields without an override retain the receiver value. The
+receiver and override expressions evaluate once from left to right. Positional
+copy arguments retain declaration-order prefix replacement. The ScalaScript
+2.1 compiler-free standard path carries this contract through portable case
+field metadata and never falls back to the compatibility frontend.
+
 `Focus[T](_.field.subfield)` builds a `Lens`:
 
 ```scalascript
