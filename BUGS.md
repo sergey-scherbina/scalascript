@@ -30,7 +30,19 @@ found by codex in the pinned SclJet M2d SQLite 3.53.3 corpus.
 
 ## v1-js-scljet-readonly-leaf-depth — valid two-level B-tree fails common-depth validation
 
-**Status:** open (2026-07-12); found by codex during the SclJet M2c explicit
+**Status:** FIXED (2026-07-12, opus). SHARED root cause with
+v1-js-scljet-shm-lock-divergence: a field-less `case object` lowered to a bare
+`{}` with no `_type` discriminator (`genObjectAsExpr`, JsGen.scala), so the
+user-level `==` operator — structural `_eq` — found two empty records with
+matching (undefined) `_type` equal, making EVERY field-less case object `==`
+every other. Here `read.page.header.kind == TableLeafPage` was wrongly `true`
+for the interior root, so it was misclassified as a leaf and
+`cursorCheckLeafDepth` recorded `leafDepth=Some(1)`; the real first leaf at
+depth 2 then failed the common-depth check. Fix: `genObjectAsExpr` now emits
+`{_type: 'Name'[, _tag: N]}` for `case object`s (guarded on `Mod.Case`, so
+namespace/companion objects are untouched) — additive, since pattern matching
+already keys on `._type`. Guarded by a JsGenStdImportTest case; JsGen 213/213.
+_Original report:_ found by codex during the SclJet M2c explicit
 JavaScript capability probe.
 
 - **Real-harness repro:** run `bin/ssc-tools run-js
@@ -143,7 +155,15 @@ lane as an alternative SclJet M1 cross-backend gate.
 
 ## v1-js-scljet-shm-lock-divergence — two shared owners are rejected
 
-**Status:** open (2026-07-12); found by codex in the SclJet memory-VFS Node
+**Status:** FIXED (2026-07-12, opus). SHARED root cause + fix with
+v1-js-scljet-readonly-leaf-depth (field-less `case object` → bare `{}` → all
+`==` equal under structural `_eq`; `genObjectAsExpr` now emits a `_type` tag).
+Here `mode == ShmExclusiveLock` was wrongly `true` for a `ShmSharedLock` acquire,
+so `exclusive` became true for a shared request → the availability check took the
+exclusive branch and rejected the 2nd shared lock (line 18), which then left the
+later exclusive request unblocked (line 19). Both restored to the INT golden;
+full 33-line memory-VFS output identical to `run --v1`. See that entry for detail.
+_Original report:_ found by codex in the SclJet memory-VFS Node
 differential after byte updates became portable.
 
 - **Real-harness repro:** compare `bin/ssc-tools run --v1` and `run-js` for

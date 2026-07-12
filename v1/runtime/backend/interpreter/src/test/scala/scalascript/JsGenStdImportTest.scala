@@ -1080,6 +1080,28 @@ class JsGenStdImportTest extends AnyFunSuite:
     // evidence. Guards v1-js-imported-int-division-loses-type.
     assert(emitJsLike("js-imported-int-div") == "2")
 
+  test("emit-js distinct field-less case objects are not `==` equal"):
+    // Field-less case objects used to lower to a bare `{}` with no `_type`, so the
+    // structural `==` (`_eq`) reported every one equal to every other. Guards
+    // v1-js-scljet-readonly-leaf-depth + v1-js-scljet-shm-lock-divergence.
+    val source =
+      """# CaseObjEq
+        |
+        |```scalascript
+        |case object TableLeafPage
+        |case object IndexLeafPage
+        |println(if TableLeafPage == IndexLeafPage then "SAME" else "DIFF")
+        |println(if TableLeafPage == TableLeafPage then "EQ" else "NE")
+        |```
+        |""".stripMargin
+    val user = JsGen.generate(Parser.parse(source))
+    val js =
+      JsGen.generateRuntime(Set(JsGen.Capability.Core)) + "\n" +
+        user + "\n" +
+        "if (typeof _output !== 'undefined' && _output.length) console.log(_output.join('\\n'));\n"
+    checkNodeSyntax(js)
+    assert(runNode(js) == "DIFF\nEQ", user)
+
   // busi declarative-ui Scope A: the JS toolkit runtime now resolves the
   // `action=`/`rows=` registries (parity with the interpreter), turning a
   // declarative `toolkit:` link into a typed effect / live table.  Capture the

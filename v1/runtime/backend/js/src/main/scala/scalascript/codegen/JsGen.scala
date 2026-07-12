@@ -3086,7 +3086,21 @@ class JsGen(
     namespaceMembers.getOrElseUpdate(path, mutable.Set.empty[String]) ++= thisMembers
     val body = rebindDecl + decls.mkString(" ")
     val ret  = names.mkString(", ")
-    s"(() => { $body return { $ret }; })()"
+    // A field-less `case object` must carry a `_type` discriminator (mirroring the
+    // enum-nullary / case-class emission) so the user-level `==` operator — which
+    // lowers to structural `_eq` — can tell distinct singletons apart. Without it a
+    // field-less case object lowers to a bare `{}`, and `_eq` finds two empty records
+    // with matching (undefined) `_type` equal, so EVERY field-less case object equals
+    // every other (v1-js-scljet-readonly-leaf-depth, v1-js-scljet-shm-lock-divergence).
+    // Pattern matching already keys on `._type === 'Name'`, so this is purely additive;
+    // namespace/package/companion objects (no `Mod.Case`) keep their plain member record.
+    val typeField =
+      if d.mods.exists(_.isInstanceOf[Mod.Case]) then
+        val tag = caseClassTagMap.get(objectName).map(t => s", _tag: $t").getOrElse("")
+        val sep = if ret.isEmpty then "" else ", "
+        s"_type: '$objectName'$tag$sep"
+      else ""
+    s"(() => { $body return { $typeField$ret }; })()"
 
   private def genDefAsMethod(dd: Defn.Def): String =
     val paramVals = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)

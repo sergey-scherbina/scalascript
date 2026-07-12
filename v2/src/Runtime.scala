@@ -2346,7 +2346,10 @@ object Prims:
         case (IntV(n), "toLong", Nil)        => IntV(n)
         case (IntV(n), "toByte", Nil)        => IntV(n.toByte.toLong)
         case (IntV(n), "toShort", Nil)       => IntV(n.toShort.toLong)
-        case (IntV(n), "toChar", Nil)        => IntV(n & 0xffffL)
+        // The v2 VM has no Char value type; a char is a single-code-point StrV
+        // (same convention as toCharArray / sfromCodes). Returning IntV here made
+        // `65.toChar.toString` render "65" (portable-codepoint-string-construction).
+        case (IntV(n), "toChar", Nil)        => StrV((n & 0xffffL).toChar.toString)
         case (IntV(n), "toDouble", Nil)      => FloatV(n.toDouble)
         case (IntV(n), "toFloat", Nil)       => FloatV(n.toDouble)
         case (IntV(n), "abs", Nil)           => IntV(math.abs(n))
