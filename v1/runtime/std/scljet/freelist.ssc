@@ -58,15 +58,23 @@ def freelistU32(context: PageContext, pageNumber: Long, bytes: ByteSlice, offset
     case Left(_) => Left(freelistFailure(context, pageNumber, offset, field, "freelist field is truncated"))
 
 def decodeFreelistLeaves(context: PageContext, pageNumber: Long, bytes: ByteSlice, count: Int, index: Int, reversed: List[Long]): Either[DecodeFailure, List[Long]] =
-  if index >= count then Right(reversed.reverse)
-  else freelistU32(context, pageNumber, bytes, 8 + index * 4,
-    "freelist.trunk.leaf[" + index.toString + "]") match
-    case Left(error) => Left(error)
-    case Right(leaf) =>
-      if leaf == 0L || leaf > context.logicalPageCount then
-        Left(freelistFailure(context, pageNumber, 8 + index * 4,
-          "freelist.trunk.leaf[" + index.toString + "]", "freelist leaf is outside the database"))
-      else decodeFreelistLeaves(context, pageNumber, bytes, count, index + 1, leaf :: reversed)
+  var current = index
+  var collected = reversed
+  var failure: Option[DecodeFailure] = None
+  while current < count && failure.isEmpty do
+    freelistU32(context, pageNumber, bytes, 8 + current * 4,
+      "freelist.trunk.leaf[" + current.toString + "]") match
+      case Left(error) => failure = Some(error)
+      case Right(leaf) =>
+        if leaf == 0L || leaf > context.logicalPageCount then
+          failure = Some(freelistFailure(context, pageNumber, 8 + current * 4,
+            "freelist.trunk.leaf[" + current.toString + "]", "freelist leaf is outside the database"))
+        else
+          collected = leaf :: collected
+          current = current + 1
+  failure match
+    case Some(error) => Left(error)
+    case None => Right(collected.reverse)
 
 def decodeFreelistTrunk(context: PageContext, pageNumber: Long, bytes: ByteSlice): Either[DecodeFailure, FreelistTrunk] =
   val maxLeaves = context.usableSize / 4 - 2
@@ -146,9 +154,13 @@ def validatePointerMapRelation(pager: ReadonlyPager, targetPage: Long, expectedK
               Left(pagerCorrupt("pointer-map relation disagrees with page ownership", None, Some(targetPage)))
             else Right(nextPager)
 
-def freelistContains(values: List[Long], target: Long): Boolean = values match
-  case Nil => false
-  case Cons(head, tail) => head == target || freelistContains(tail, target)
+def freelistContains(values: List[Long], target: Long): Boolean =
+  var remaining = values
+  var found = false
+  while remaining.nonEmpty && !found do
+    if remaining.head == target then found = true
+    else remaining = remaining.tail
+  found
 
 def freelistValidatePageRole(pager: ReadonlyPager, page: Long): Either[SqliteError, ReadonlyPager] =
   val context = freelistContext(pager)
@@ -185,11 +197,48 @@ def validateFreelist(pager: ReadonlyPager): Either[SqliteError, FreelistGraph] =
   val head = pager.header.freelistHead
   if expected == 0L && head == 0L then Right(FreelistGraph(Nil, Nil))
   else if expected == 0L || head == 0L then Left(pagerCorrupt("freelist head/count disagree", Some(32L), None))
-  else validateFreelistLoop(pager, head, Nil, Nil) match
-    case Left(error) => Left(error)
-    case Right(result) =>
-      if result._3.length.toLong != expected then Left(pagerCorrupt("freelist graph size disagrees with header", Some(36L), None))
-      else Right(FreelistGraph(result._2, result._3))
+  else
+    var currentPager = pager
+    var nextTrunk = head
+    var reversedTrunks: List[FreelistTrunk] = Nil
+    var seen: List[Long] = Nil
+    var failure: Option[SqliteError] = None
+    while nextTrunk != 0L && failure.isEmpty do
+      if freelistContains(seen, nextTrunk) then
+        failure = Some(pagerCorrupt("freelist trunk chain contains a cycle", None, Some(nextTrunk)))
+      else if seen.length.toLong >= currentPager.limits.pageCount then
+        failure = Some(sqliteFailure(SqliteTooBig, "freelist traversal exceeds configured pageCount", None, Some(nextTrunk), None))
+      else freelistValidatePageRole(currentPager, nextTrunk) match
+        case Left(error) => failure = Some(error)
+        case Right(rolePager) => pagerReadPage(rolePager, nextTrunk) match
+          case Left(error) => failure = Some(error)
+          case Right(PagerPageRead(readPager, DatabasePage(_, bytes))) =>
+            decodeFreelistTrunk(freelistContext(readPager), nextTrunk, bytes) match
+              case Left(error) => failure = Some(pagerDecodeError(error))
+              case Right(trunk) =>
+                var leafPager = readPager
+                var leafSeen = nextTrunk :: seen
+                var remainingLeaves = trunk.leaves
+                while remainingLeaves.nonEmpty && failure.isEmpty do
+                  val page = remainingLeaves.head
+                  if freelistContains(leafSeen, page) then
+                    failure = Some(pagerCorrupt("freelist contains a duplicate page", None, Some(page)))
+                  else freelistValidatePageRole(leafPager, page) match
+                    case Left(error) => failure = Some(error)
+                    case Right(nextPager) =>
+                      leafPager = nextPager
+                      leafSeen = page :: leafSeen
+                      remainingLeaves = remainingLeaves.tail
+                if failure.isEmpty then
+                  currentPager = leafPager
+                  seen = leafSeen
+                  reversedTrunks = trunk :: reversedTrunks
+                  nextTrunk = trunk.nextTrunk
+    failure match
+      case Some(error) => Left(error)
+      case None =>
+        if seen.length.toLong != expected then Left(pagerCorrupt("freelist graph size disagrees with header", Some(36L), None))
+        else Right(FreelistGraph(reversedTrunks.reverse, seen.reverse))
 
 def validateNonFreelistPage(pager: ReadonlyPager, page: Long): Either[SqliteError, Unit] =
   val context = freelistContext(pager)
