@@ -1,5 +1,24 @@
 # Bug tracker
 
+## v21-native-tuple-lambda-destructuring — collection callbacks expect two arguments
+
+**Status:** open (2026-07-12); found by codex after parameterless-def value
+semantics advanced the mini-language pipeline report.
+
+- **Real-harness repro:** standard VM/direct ASM now print the first nine
+  canonical `dsl-mini-language.ssc` lines, then both fail after the pipeline
+  report heading with `match: no arm for Pair/2`; explicit compatibility prints
+  four additional `[phase] ok` lines.
+- **Root cause:** source `(name, pass) => ...` and `(phase, outcome) => ...`
+  callbacks lower as `lam 2`, but `List.map`/`flatMap` pass one portable
+  `Pair/2` element. The body therefore receives the wrong environment shape and
+  later tries to match a Pair as an Either outcome.
+- **Done-when:** a tuple-pattern lambda accepts one Pair/Tuple2 value,
+  destructures it once in declaration order, and works across imports and
+  collection callbacks on VM/ASM/build-jvm. Ordinary `(a, b) =>` callables that
+  are invoked with two arguments must retain their existing arity; no runtime
+  arity retry, reflection, or DSL special case.
+
 ## v21-native-focus-optics-unlowered — Focus/Prism remain globals
 
 **Status:** open (2026-07-12); found by codex in TI-8.2d3m audit.
