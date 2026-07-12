@@ -25,7 +25,8 @@ content=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-content-plugin_*
 dataset=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-dataset-plugin_*.jar' -print -quit)
 generator=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-generator-plugin_*.jar' -print -quit)
 actors=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-actors-plugin_*.jar' -print -quit)
-for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$http_engine" "$sql" "$ui" "$state" "$effects" "$storage" "$reactive" "$yaml" "$content" "$dataset" "$generator" "$actors"; do
+distributed=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-distributed-plugin_*.jar' -print -quit)
+for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$http_engine" "$sql" "$ui" "$state" "$effects" "$storage" "$reactive" "$yaml" "$content" "$dataset" "$generator" "$actors" "$distributed"; do
   [[ -n "$jar_file" && -f "$jar_file" ]] || {
     echo 'v21-native-plugin-boundary-smoke: staged native provider jar missing' >&2
     exit 2
@@ -53,8 +54,9 @@ jar tf "$content" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/n
 jar tf "$dataset" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 jar tf "$generator" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 jar tf "$actors" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
+jar tf "$distributed" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 
-for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$http_engine" "$sql" "$ui" "$state" "$effects" "$storage" "$reactive" "$yaml" "$content" "$dataset" "$generator" "$actors"; do
+for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$http_engine" "$sql" "$ui" "$state" "$effects" "$storage" "$reactive" "$yaml" "$content" "$dataset" "$generator" "$actors" "$distributed"; do
   deps=$(jdeps --multi-release base --ignore-missing-deps -verbose:class -cp "$CP" "$jar_file")
   if printf '%s\n' "$deps" | grep -E \
       'scala\.meta|scalascript\.interpreter|scalascript\.ast|scalascript\.plugin\.api|scalascript\.frontend|ssc\.bridge|dotty\.tools|javax\.tools' >/dev/null; then
@@ -87,8 +89,12 @@ sql_vm=$(mktemp "${TMPDIR:-/tmp}/v21-native-sql-vm.XXXXXX")
 sql_asm=$(mktemp "${TMPDIR:-/tmp}/v21-native-sql-asm.XXXXXX")
 state_vm=$(mktemp "${TMPDIR:-/tmp}/v21-native-state-vm.XXXXXX")
 state_asm=$(mktemp "${TMPDIR:-/tmp}/v21-native-state-asm.XXXXXX")
+distributed_vm=$(mktemp "${TMPDIR:-/tmp}/v21-native-distributed-vm.XXXXXX")
+distributed_asm=$(mktemp "${TMPDIR:-/tmp}/v21-native-distributed-asm.XXXXXX")
+distributed_log_vm=$(mktemp "${TMPDIR:-/tmp}/v21-native-distributed-log-vm.XXXXXX")
+distributed_log_asm=$(mktemp "${TMPDIR:-/tmp}/v21-native-distributed-log-asm.XXXXXX")
 storage_path="$ui_tmp/storage.json"
-trap 'rm -f "$classlog" "$standard_classlog" "$json_classlog" "$http_classlog" "$yaml_classlog" "$content_classlog" "$sql_vm" "$sql_asm" "$state_vm" "$state_asm"; rm -rf "$ui_tmp"' EXIT HUP INT TERM
+trap 'rm -f "$classlog" "$standard_classlog" "$json_classlog" "$http_classlog" "$yaml_classlog" "$content_classlog" "$sql_vm" "$sql_asm" "$state_vm" "$state_asm" "$distributed_vm" "$distributed_asm" "$distributed_log_vm" "$distributed_log_asm"; rm -rf "$ui_tmp"' EXIT HUP INT TERM
 PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc-standard" run --native \
   "$ROOT/tests/fixtures/v21-native/sql-provider.ssc" >"$standard_classlog" 2>&1
 grep -F 'Ada' "$standard_classlog" >/dev/null
@@ -144,6 +150,11 @@ PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc-standard" run
   "$ROOT/examples/actors-pingpong.ssc" >>"$classlog" 2>&1
 grep -F 'pong: three' "$classlog" >/dev/null
 grep -F 'before timeout: Some(got delivered)' "$classlog" >/dev/null
+PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc-standard" run \
+  "$ROOT/examples/distributed-join.ssc" -- \
+  "$ROOT/tests/fixtures/v21-native/distributed-orders.csv" \
+  "$ROOT/tests/fixtures/v21-native/distributed-customers.csv" >>"$classlog" 2>&1
+grep -F 'o3 | c1 | Ada | 30' "$classlog" >/dev/null
 PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc" run --native \
   "$ROOT/examples/yaml-parse.ssc" >"$yaml_classlog" 2>&1
 grep -F 'App: MyApp' "$yaml_classlog" >/dev/null
@@ -185,5 +196,25 @@ PATH=/usr/bin:/bin "$ROOT/bin/ssc" run --native --bytecode \
   "$ROOT/tests/fixtures/v21-native/state-effect-provider.ssc" >"$state_asm"
 cmp -s "$state_vm" "$state_asm"
 [[ $(cat "$state_vm") == $'17\n20\n2\n101\n101\n2' ]]
+
+PATH=/usr/bin:/bin "$ROOT/bin/ssc" run --native \
+  "$ROOT/examples/distributed-join.ssc" -- \
+  "$ROOT/tests/fixtures/v21-native/distributed-orders.csv" \
+  "$ROOT/tests/fixtures/v21-native/distributed-customers.csv" >"$distributed_vm"
+PATH=/usr/bin:/bin "$ROOT/bin/ssc" run --native --bytecode \
+  "$ROOT/examples/distributed-join.ssc" -- \
+  "$ROOT/tests/fixtures/v21-native/distributed-orders.csv" \
+  "$ROOT/tests/fixtures/v21-native/distributed-customers.csv" >"$distributed_asm"
+cmp -s "$distributed_vm" "$distributed_asm"
+[[ $(cat "$distributed_vm") == $'o1 | c1 | Ada | 10\no2 | c2 | Bob | 20\no3 | c1 | Ada | 30' ]]
+
+PATH=/usr/bin:/bin "$ROOT/bin/ssc" run --native \
+  "$ROOT/examples/distributed-log-aggregation.ssc" -- \
+  "$ROOT/tests/fixtures/v21-native/distributed-app.log" >"$distributed_log_vm"
+PATH=/usr/bin:/bin "$ROOT/bin/ssc" run --native --bytecode \
+  "$ROOT/examples/distributed-log-aggregation.ssc" -- \
+  "$ROOT/tests/fixtures/v21-native/distributed-app.log" >"$distributed_log_asm"
+cmp -s "$distributed_log_vm" "$distributed_log_asm"
+[[ $(cat "$distributed_log_vm") == $'payments: 2 errors\nsearch: 1 errors' ]]
 
 echo 'PASS v21-native-plugin-boundary-smoke'

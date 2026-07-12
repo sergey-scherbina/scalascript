@@ -70,6 +70,12 @@ typed_actors_expected=$'true\ntrue\nlocal ref\nspawnRemote: pong'
 [[ $(run_native "$ROOT/examples/actors-typed-remote-spawn.ssc") == "$typed_actors_expected" ]]
 actors_provider_expected=$'worker: one\nSome(root: reply)'
 [[ $(run_native "$FIXTURES/actors-provider.ssc") == "$actors_provider_expected" ]]
+distributed_join_expected=$'o1 | c1 | Ada | 10\no2 | c2 | Bob | 20\no3 | c1 | Ada | 30'
+[[ $(run_native "$ROOT/examples/distributed-join.ssc" -- \
+  "$FIXTURES/distributed-orders.csv" "$FIXTURES/distributed-customers.csv") == "$distributed_join_expected" ]]
+distributed_log_expected=$'payments: 2 errors\nsearch: 1 errors'
+[[ $(run_native "$ROOT/examples/distributed-log-aggregation.ssc" -- \
+  "$FIXTURES/distributed-app.log") == "$distributed_log_expected" ]]
 [[ $(run_native "$FIXTURES/zero-arg-println.ssc") == $'before\n\nafter' ]]
 signals_expected=$'0\n5\n10\nc=5 d=10\nc=7 d=14\nc=11 d=22\nn=3 sq=9 cube=27\nn=4 sq=16 cube=64'
 [[ $(run_native "$ROOT/examples/signals-demo.ssc") == "$signals_expected" ]]
@@ -196,6 +202,10 @@ index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
 [[ $(run_native --bytecode "$ROOT/examples/actors-pingpong.ssc") == "$actors_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/actors-typed-remote-spawn.ssc") == "$typed_actors_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/actors-provider.ssc") == "$actors_provider_expected" ]]
+[[ $(run_native --bytecode "$ROOT/examples/distributed-join.ssc" -- \
+  "$FIXTURES/distributed-orders.csv" "$FIXTURES/distributed-customers.csv") == "$distributed_join_expected" ]]
+[[ $(run_native --bytecode "$ROOT/examples/distributed-log-aggregation.ssc" -- \
+  "$FIXTURES/distributed-app.log") == "$distributed_log_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/dsl-sql-recovery.ssc") == "$sql_recovery_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/imported-tuple-collection.ssc") == "$imported_tuple_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/exact-decimal.ssc") == "$exact_decimal_expected" ]]

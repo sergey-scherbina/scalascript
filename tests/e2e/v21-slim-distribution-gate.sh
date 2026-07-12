@@ -117,6 +117,16 @@ typed_actors_expected=$'true\ntrue\nlocal ref\nspawnRemote: pong'
 actors_provider_expected=$'worker: one\nSome(root: reply)'
 [[ $(run_standard run "$FIXTURES/actors-provider.ssc") == "$actors_provider_expected" ]]
 [[ $(run_standard run --bytecode "$FIXTURES/actors-provider.ssc") == "$actors_provider_expected" ]]
+distributed_join_expected=$'o1 | c1 | Ada | 10\no2 | c2 | Bob | 20\no3 | c1 | Ada | 30'
+[[ $(run_standard run "$ROOT/examples/distributed-join.ssc" -- \
+  "$FIXTURES/distributed-orders.csv" "$FIXTURES/distributed-customers.csv") == "$distributed_join_expected" ]]
+[[ $(run_standard run --bytecode "$ROOT/examples/distributed-join.ssc" -- \
+  "$FIXTURES/distributed-orders.csv" "$FIXTURES/distributed-customers.csv") == "$distributed_join_expected" ]]
+distributed_log_expected=$'payments: 2 errors\nsearch: 1 errors'
+[[ $(run_standard run "$ROOT/examples/distributed-log-aggregation.ssc" -- \
+  "$FIXTURES/distributed-app.log") == "$distributed_log_expected" ]]
+[[ $(run_standard run --bytecode "$ROOT/examples/distributed-log-aggregation.ssc" -- \
+  "$FIXTURES/distributed-app.log") == "$distributed_log_expected" ]]
 yaml_expected=$'Type:   YObj\nHost:   localhost\nPort:   8080\nDebug:  true\nTags:   web, api\n\nRound-trip:\ndebug: true\nhost: localhost\nport: 8080\n\nFrom fenced block:\nApp: MyApp'
 [[ $(run_standard run "$ROOT/examples/yaml-parse.ssc") == "$yaml_expected" ]]
 [[ $(run_standard run --bytecode "$ROOT/examples/yaml-parse.ssc") == "$yaml_expected" ]]
@@ -161,7 +171,7 @@ report_tmp="$sandbox/slim.tsv"
   printf 'forbidden.references\t0\n'
   printf 'standard.vm\tpass\n'
   printf 'standard.asm\tpass\n'
-  printf 'standard.providers\tfs-os/json/http/sql/ui/state/effect-runners/storage/reactive/yaml/content/dataset/generator/actors\n'
+  printf 'standard.providers\tfs-os/json/http/sql/ui/state/effect-runners/storage/reactive/yaml/content/dataset/generator/actors/distributed\n'
   printf 'standard.build-jvm\tpass\n'
 } >"$report_tmp"
 if [[ -n $REPORT ]]; then

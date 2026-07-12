@@ -100,6 +100,20 @@ PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
 typed_actors_expected=$'true\ntrue\nlocal ref\nspawnRemote: pong'
 [[ $(PATH="$clean_path" java -jar "$sandbox/typed-actors.jar") == "$typed_actors_expected" ]]
 
+cp "$ROOT/examples/distributed-join.ssc" "$sandbox/other/distributed-join.ssc"
+PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
+  "$sandbox/other/distributed-join.ssc" -o "$sandbox/distributed-join.jar"
+distributed_join_expected=$'o1 | c1 | Ada | 10\no2 | c2 | Bob | 20\no3 | c1 | Ada | 30'
+[[ $(PATH="$clean_path" java -jar "$sandbox/distributed-join.jar" -- \
+  "$FIXTURES/distributed-orders.csv" "$FIXTURES/distributed-customers.csv") == "$distributed_join_expected" ]]
+
+cp "$ROOT/examples/distributed-log-aggregation.ssc" "$sandbox/other/distributed-log-aggregation.ssc"
+PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
+  "$sandbox/other/distributed-log-aggregation.ssc" -o "$sandbox/distributed-log.jar"
+distributed_log_expected=$'payments: 2 errors\nsearch: 1 errors'
+[[ $(PATH="$clean_path" java -jar "$sandbox/distributed-log.jar" -- \
+  "$FIXTURES/distributed-app.log") == "$distributed_log_expected" ]]
+
 jar_cmd=$(command -v jar)
 javap_cmd=$(command -v javap)
 jdeps_cmd=$(command -v jdeps)
@@ -120,6 +134,8 @@ LC_ALL=C sort -c "$sandbox/entries"
   "$sandbox/async.jar" >"$sandbox/async.jdeps"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps -verbose:class \
   "$sandbox/actors.jar" >"$sandbox/actors.jdeps"
+"$jdeps_cmd" --multi-release base --ignore-missing-deps -verbose:class \
+  "$sandbox/distributed-join.jar" >"$sandbox/distributed.jdeps"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
   "$sandbox/a/app.jar" >"$sandbox/app.modules"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
@@ -134,13 +150,16 @@ LC_ALL=C sort -c "$sandbox/entries"
   "$sandbox/async.jar" >"$sandbox/async.modules"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
   "$sandbox/actors.jar" >"$sandbox/actors.modules"
+"$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
+  "$sandbox/distributed-join.jar" >"$sandbox/distributed.modules"
 
 forbidden='scala[./](meta|tools)|dotty[./]tools|scala3-compiler|compiler-driver|javax[./]tools|java[.]compiler|jdk[.]compiler|ssc[./]bridge|scalascript[./](ast|frontend|interpreter)'
 if grep -Ei "$forbidden" "$sandbox/entries" "$sandbox/entry.javap" \
     "$sandbox/app.jdeps" "$sandbox/sql.jdeps" "$sandbox/yaml.jdeps" "$sandbox/dataset.jdeps" \
     "$sandbox/generator.jdeps" "$sandbox/async.jdeps" "$sandbox/app.modules" "$sandbox/sql.modules" \
     "$sandbox/yaml.modules" "$sandbox/dataset.modules" "$sandbox/generator.modules" \
-    "$sandbox/async.modules" "$sandbox/actors.jdeps" "$sandbox/actors.modules" >/dev/null; then
+    "$sandbox/async.modules" "$sandbox/actors.jdeps" "$sandbox/actors.modules" \
+    "$sandbox/distributed.jdeps" "$sandbox/distributed.modules" >/dev/null; then
   echo 'v21-build-jvm-release-gate: forbidden standard-tier entry/reference/module' >&2
   exit 1
 fi
@@ -165,6 +184,7 @@ dataset_modules=$(tr -d '\r\n' <"$sandbox/dataset.modules")
 generator_modules=$(tr -d '\r\n' <"$sandbox/generator.modules")
 async_modules=$(tr -d '\r\n' <"$sandbox/async.modules")
 actors_modules=$(tr -d '\r\n' <"$sandbox/actors.modules")
+distributed_modules=$(tr -d '\r\n' <"$sandbox/distributed.modules")
 report_tmp="$sandbox/release.tsv"
 {
   printf 'metric\tvalue\n'
@@ -179,6 +199,7 @@ report_tmp="$sandbox/release.tsv"
   printf 'generator.modules\t%s\n' "$generator_modules"
   printf 'async.modules\t%s\n' "$async_modules"
   printf 'actors.modules\t%s\n' "$actors_modules"
+  printf 'distributed.modules\t%s\n' "$distributed_modules"
   printf 'compiler.commands.hidden\ttrue\n'
   printf 'forbidden.references\t0\n'
   printf 'hello.output\tHello, World!\n'
@@ -189,6 +210,7 @@ report_tmp="$sandbox/release.tsv"
   printf 'generator.output\tpull/combinators/cancellation/exact\n'
   printf 'async.output\tsequential/parallel/nested/exact\n'
   printf 'actors.output\tmailbox/timeout/typed-loopback/exact\n'
+  printf 'distributed.output\tlocal-map/shuffle-group/exact\n'
 } >"$report_tmp"
 
 if [[ -n $REPORT ]]; then
