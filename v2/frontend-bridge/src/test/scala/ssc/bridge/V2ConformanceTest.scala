@@ -53,6 +53,10 @@ class V2ConformanceTest extends AnyFunSuite, BeforeAndAfterAll:
     // v2 via FrontendBridge, so it is intentionally NOT skipped (verified byte-exact vs expected/).
     "mcp-client-invoke", "mcp-server-resource", "mcp-server-tool",
     // storage (filesystem, not available in batch test)
+    // SclJet memory VFS is explicitly backends:[int]. Its M1 release lane is
+    // the real ssc-tools/v1 JVM host-plugin path; the compatibility bridge
+    // still has the separately tracked imported-receiver linking gap.
+    "scljet-memory-vfs",
     // JS / browser-only
     // NOTE (2026-07-11 QA un-skip): js-applyunary-effect-cps / js-cps-intrinsic-rewrite /
     // js-crypto-extern-standalone now execute byte-exact on the v2 VM via FrontendBridge
