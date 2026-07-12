@@ -220,6 +220,8 @@ with extensions isolated behind an explicit non-default profile.
       the M0 `Either` read/write gap was resolved in the spec with `VfsRead(bytes, warning)` and
       `VfsWrite(bytesWritten, warning)`, so short I/O can report both initialized data/progress and
       the SQLite warning. Exact state and top-level transition signatures are in `specs/scljet.md`.
+      Native structural lowering also reserves receiver selector `effect`; the public rule field is
+      therefore `faultEffect`, and the implementation must destructure it rather than select it.
 - [ ] **scljet-m1d-jvm-vfs-plugin** — implement the narrow JVM host adapter in a dedicated std
       plugin, never the pure engine: positioned file I/O, truncate/force, canonical identity,
       SQLite-compatible process-visible rollback lock bytes, WAL shared-memory regions/locks and

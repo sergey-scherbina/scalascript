@@ -455,7 +455,7 @@ case class MemoryFaultRule(
   ordinal: Long,
   operation: Option[String],
   path: Option[String],
-  effect: MemoryFaultEffect
+  faultEffect: MemoryFaultEffect
 )
 case class MemoryFileState(bytes: ByteSlice, kind: FileKind)
 case class MemoryHandleState(
