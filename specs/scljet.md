@@ -1444,6 +1444,12 @@ cursor consequently exposes physical record order. Normalized DDL, logical
 column projection, `INTEGER PRIMARY KEY` substitution, and arbitrary index seek
 land with the SQL frontend/schema semantics in M4.
 
+The assembled real-file flow is demonstrated by
+[`examples/scljet-readonly.ssc`](../examples/scljet-readonly.ssc): it writes a
+pinned SQLite 3.53.3 image through the JVM VFS plugin, opens it through
+`jvmSqliteVfs()`/`openReadonly`, reads schema and one table row, releases the
+SHARED lock through `closeReadonly`, and removes the fixture.
+
 ### M2 explicit exclusions
 
 M2 does not create or mutate databases, recover rollback journals, overlay WAL

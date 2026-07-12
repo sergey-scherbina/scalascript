@@ -228,7 +228,7 @@ bin/http.ssc
 | [Browser SQL](specs/browser-sql.md) | Cross-backend `sql` fenced blocks (JS / Node / Wasm / JVM) |
 | [Electron SQL](specs/electron-sql.md) | Current `sqlite:` behavior in Electron desktop bundles, including the localStorage-backed renderer fallback |
 | [Electron Persistence Bridge](specs/electron-persistence-bridge.md) | Main/preload bridge for durable Electron SQLite under `app.getPath("userData")` |
-| [SclJet](specs/scljet.md) | Pure ScalaScript SQLite-format engine: M2 header/page/record codecs are runnable; pager, writes, WAL, and SQL land in later gates |
+| [SclJet](specs/scljet.md) | Pure ScalaScript SQLite-format engine: M2 opens clean files through an abstract VFS, validates schema/freelist/pointer maps, and traverses table/index B-trees; writes, recovery, WAL, and SQL remain later gates |
 | [Secret Resolvers](secret-resolvers.md) | `${env:}` · `${file:}` · `${sops:}` · `SecretResolver` SPI for Vault / AWS SM / GCP / Doppler / 1Password |
 | [MCP Support](specs/mcp.md) | MCP server tools + resources, MCP client |
 | [Rozum / Agent SDK](specs/rozum-integration.md) | Generic app-owned agent loop over a stateless OpenAI-compatible rozum gateway, with strict tool schemas and in-process tool handlers |
@@ -578,6 +578,7 @@ Dataset/MapReduce typed wire calls can select `wireFormat = "msgpack" | "cbor"` 
 | [mount-demo/](examples/mount-demo/) | `mount()` intrinsic — file-based handlers, typed (`CaseClass => CaseClass` auto-deser/ser), 1-arg, 2-arg with ctx, static response |
 | [sql-sqlite-file.ssc](examples/sql-sqlite-file.ssc) | SQLite file database — `databases:` front-matter, `sql` DDL/DML blocks, `Db.query/execute` |
 | [scljet-readonly-codecs.ssc](examples/scljet-readonly-codecs.ssc) | Pure low-level SQLite 3.53.3 header, B-tree cell, and record decoding without JDBC/sql.js |
+| [scljet-readonly.ssc](examples/scljet-readonly.ssc) | Write a pinned SQLite image through the JVM VFS plugin, then open its schema and stream a table row through SclJet's pure immutable pager |
 | [typed-sql-crud.ssc](examples/typed-sql-crud.ssc) | Typed SQL CRUD — `derives RowCodec`, `Db.insert/update/query[A]` on interpreter and JVM codegen paths |
 | [typed-object-codec.ssc](examples/typed-object-codec.ssc) | Typed object/document codec — `derives ObjectCodec`, portable object fields, aliases/defaults, and key extraction |
 | [graph-codecs.ssc](examples/graph-codecs.ssc) | Typed graph/RDF codecs — `derives VertexCodec`, `EdgeCodec`, and `RdfCodec` |

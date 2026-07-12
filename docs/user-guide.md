@@ -2197,10 +2197,18 @@ Bundled drivers: **SQLite** (`jdbc:sqlite:`) and **H2** (`jdbc:h2:`).  Any other
 `std/scljet/index.ssc` is an independent pure ScalaScript SQLite-format engine
 under staged development. Its current M2 surface decodes database headers, all
 four B-tree page/cell forms, overflow chunks/chains, record serial types, and
-UTF-8/UTF-16 bytes/code points. It does not replace the JDBC/sql.js `sqlite:`
-provider yet and exposes no query planner or writable connection. See
-`examples/scljet-readonly-codecs.ssc` for the runnable low-level API and
-`specs/scljet.md` for the compatibility gates.
+UTF-8/UTF-16 bytes/code points. `openReadonly(vfs, path, options)` acquires a
+SHARED lock, rejects non-empty journal/WAL sidecars, maintains an immutable LRU
+page cache, validates freelist and auto-vacuum pointer-map ownership, decodes
+raw `sqlite_schema`, and exposes forward rowid/WITHOUT ROWID/index cursors.
+`jvmSqliteVfs()` adapts the separately packaged JVM host plugin to that abstract
+VFS contract; page, record, B-tree, schema, and pager policy remain `.ssc` code.
+
+Run `ssc-tools run --v1 examples/scljet-readonly.ssc` for a complete real-file
+open/schema/row/close flow or `examples/scljet-readonly-codecs.ssc` for the pure
+low-level codecs. SclJet does not replace the JDBC/sql.js `sqlite:` provider yet
+and still exposes no query planner, recovery, WAL snapshot, or writable
+connection. See `specs/scljet.md` for the compatibility gates.
 
 Connection strings support `${scheme:ref}` secret references (see §6.2).
 

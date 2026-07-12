@@ -1,0 +1,95 @@
+#!/usr/bin/env ssc-tools run --v1
+---
+name: scljet-readonly
+description: Open and traverse a real SQLite-format file through the pure SclJet read-only pager
+backends: [int]
+---
+
+# SclJet read-only SQLite file
+
+This example writes a tiny pinned SQLite 3.53.3 image through the JVM VFS
+plugin, then reads its schema and table through the pure SclJet pager/B-tree
+implementation.
+
+[ByteSlice, byteSliceUpdated, byteSliceToList, SqlInteger, SqlBlob, StrictSqlite, OpenReadOnly, JournalDelete, SyncFull, SqliteLimits, SqliteOpenOptions, JvmVfsResult, jvmVfsDelete, jvmVfsOpen, jvmVfsWriteAt, jvmVfsClose, jvmSqliteVfs, SchemaRowidTable, StorageRecord, RecordField, RowidTableTree, openReadonly, openReadonlyRoot, readonlyFirst, closeReadonly](std/scljet/index.ssc)
+
+```scalascript
+def zeroBytes(length: Int): ByteSlice = ByteSlice.zeros(length) match
+  case Right(bytes) => bytes
+  case Left(_) => ByteSlice.empty
+
+def putAt(bytes: ByteSlice, offset: Int, values: List[Int]): ByteSlice = values match
+  case Nil => bytes
+  case Cons(value, tail) => byteSliceUpdated(bytes, offset, value) match
+    case Right(next) => putAt(next, offset + 1, tail)
+    case Left(_) => bytes
+
+val header = List(
+  83,81,76,105,116,101,32,102,111,114,109,97,116,32,51,0,
+  2,0,1,1,0,64,32,32,0,0,0,2,0,0,0,2,0,0,0,0,0,0,0,0,
+  0,0,0,1,0,0,0,4,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,
+  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+  0,0,0,0,0,0,0,2,0,46,149,203
+)
+
+val base = putAt(zeroBytes(1024), 0, header)
+val schemaPage = putAt(base, 100, List(13,0,0,0,1,1,219,0,1,219))
+val schemaRow = putAt(schemaPage, 475, List(
+  35,1,6,23,15,15,1,55,
+  116,97,98,108,101,116,116,2,
+  67,82,69,65,84,69,32,84,65,66,76,69,32,116,40,97,44,98,44,99,41
+))
+val tablePage = putAt(schemaRow, 512, List(13,0,0,0,1,1,245,0,1,245))
+val image = putAt(tablePage, 1013, List(9,1,4,1,17,16,254,72,105,0,255))
+
+def handle(result: JvmVfsResult): Int = result.value match
+  case value: Int => value
+  case _ => -1
+
+val path = "scljet-readonly-example.db"
+jvmVfsDelete(path)
+val raw = jvmVfsOpen(path, false, true)
+val rawHandle = handle(raw)
+jvmVfsWriteAt(rawHandle, 0L, byteSliceToList(image))
+jvmVfsClose(rawHandle)
+
+val limits = SqliteLimits(
+  1000000L, 100, 100, 100, 100, 10, 1000000L, 100, 100,
+  1000L, 1000000L, 4, 1000L, 100, 1000000L
+)
+val options = SqliteOpenOptions(
+  OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, 0L, 4, false, limits
+)
+
+val database = openReadonly(jvmSqliteVfs(), path, options) match
+  case Right(value) => value
+  case Left(error) => throw RuntimeException(error.message)
+
+val table = database.schema.entries.head
+println(database.pager.header.pageSize)
+println(table.name.codePoints)
+println(table.storage == SchemaRowidTable)
+
+val root = table.rootPage.getOrElse(0L)
+val cursor = openReadonlyRoot(database, root, RowidTableTree) match
+  case Right(value) => value
+  case Left(error) => throw RuntimeException(error.message)
+val first = readonlyFirst(database, cursor) match
+  case Right(value) => value
+  case Left(error) => throw RuntimeException(error.message)
+
+first.row match
+  case Some(StorageRecord(rowid, record)) =>
+    println(rowid)
+    println(record.fields.map(field => field match
+      case RecordField(_, _, Some(SqlInteger(value)), _) => "integer:" + value.toString
+      case RecordField(_, _, Some(SqlBlob(value)), _) => "blob:" + value.length.toString
+      case RecordField(_, _, None, Some(text)) => "text:" + text.codePoints.toString
+      case _ => "other"))
+  case None => println("empty")
+
+closeReadonly(first.database) match
+  case Right(_) => println(true)
+  case Left(error) => println("close-error:" + error.message + ":" + error.cause.toString)
+println(jvmVfsDelete(path).code)
+```
