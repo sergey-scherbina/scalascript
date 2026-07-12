@@ -15,7 +15,12 @@ Goal: complete UniML roadmap M4 with a standalone cross-platform Markdown reader
 CommonMark 0.31.2 and an explicit GFM 0.29 profile, preserving source presentation while exposing
 safe document semantics and a bounded bridge to the existing ScalaScript `DocumentContent` model.
 
-- [ ] **uniml-markdown-0-spec** — write and commit `specs/uniml-markdown.md` before code. Define
+- [x] **uniml-markdown-0-spec** — DONE 2026-07-12 (`1d839b289`). Pinned CommonMark 0.31.2 and
+      GFM 0.29, separated CommonMark/GFM/ScalaScript profiles, and specified exact token/CST roles,
+      `Reframe` container transitions, block/inline stacks, inert HTML/links/expressions/fences,
+      finite limits, chunk invariance, semantic types, optional `DocumentContent` bridge losses,
+      corpus gates, security and exclusions. Original plan: write and commit
+      `specs/uniml-markdown.md` before code. Define
       CommonMark/GFM/ScalaScript dialect ids, exact block/inline token and CST roles, delimiter and
       container stacks, line-ending/indentation ownership, references/links/images, raw HTML safety,
       fenced embedded-language delegation, diagnostics/recovery, limits, chunk invariance, semantic
