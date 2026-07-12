@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-12 — typed SQL CRUD closes the final standard runtime blocker
+
+The compiler-free ScalaScript 2.1 frontend now retains `Db.query[A]` nominal
+type arguments and derives bounded portable row schemas from `Mirror`. The
+core-free SQL provider owns case-insensitive typed reads and fully-bound,
+identifier-validated insert/update operations, including nullable `Option` and
+deterministic negative diagnostics. Public typed CRUD is exact on standard VM,
+direct ASM, slim/JRE, and reproducible `build-jvm`; exhaustive parity reaches
+53/13 with 0 language, 0 standard, and 0 blocking both-fail rows. Landed
+through `333d0a9bd`.
+
 ## 2026-07-12 — raw SQL fences are self-hosted and core-free
 
 The ScalaScript 2.1 document frontend now retains `sql` fences in exact source

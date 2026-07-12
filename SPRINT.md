@@ -3388,7 +3388,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     Taxonomy is 0 language / 2 standard / 7
                                     optional / 6 tools, so the remaining next
                                     work is exactly the two SQL blockers.
-                        - [ ] **TI-8.2d3n final native SQL blockers:** close the
+                        - [x] **TI-8.2d3n final native SQL blockers:** close the
                               two remaining standard-provider rows through the
                               existing core-free SQL provider, preserving lazy
                               front-matter connections and the Scala 3 seed.
@@ -3415,7 +3415,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     `ssc-tools --compat-frontend` prints the
                                     canonical 2-line quickstart and
                                     `1/1:Buy oat milk:true`, respectively.
-                              - [ ] **n1 contract + regressions:** commit a
+                              - [x] **n1 contract + regressions:** commit a
                                     feature spec covering source-ordered SQL
                                     fence execution, `${expr}` binds, section
                                     bindings, typed row codecs/CRUD conversion,
@@ -3425,6 +3425,12 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     the raw SQL positive/negative fixtures are
                                     green; typed CRUD conversion/identifier
                                     regressions remain with n3.
+                                    Result: the feature spec is fully verified;
+                                    focused installed negatives cover malformed
+                                    binds, client SQL, missing columns, and bad
+                                    identifiers, while provider tests cover
+                                    nullable Option, unsupported product/binds,
+                                    and unknown databases.
                               - [x] **n2 SQL fence slice:** lower fenced SQL to
                                     provider-owned query/execute operations and
                                     bind section `.sql` results generically;
@@ -3448,17 +3454,28 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     build-jvm are green. Full release is 52
                                     identical / 14 both-fail / 129 skips with
                                     0 language and 1 standard blocker.
-                              - [ ] **n3 typed CRUD slice:** install the bounded
+                              - [x] **n3 typed CRUD slice:** install the bounded
                                     `RowCodec` metadata plus `Db.insert`,
                                     `Db.update`, and typed `Db.query[A]` over
                                     portable products/maps; require exact public
                                     VM/ASM/build-jvm output before retiring the
                                     final blocker and pushing.
-                              - [ ] **n4 zero-blocker closure:** rerun provider,
+                                    Result (`50d01a136`, tests `333d0a9bd`,
+                                    taxonomy `f92ca4fcb`): portable Mirror
+                                    schemas, nominal typed query, fully-bound
+                                    insert/update, and bounded diagnostics are
+                                    exact on VM/ASM/slim/JRE/build-jvm.
+                              - [x] **n4 zero-blocker closure:** rerun provider,
                                     dependency/class-load, slim/JRE/build-jvm,
                                     195-row parity/taxonomy, and fresh no-memo
                                     conformance gates; require blocking
                                     both-fail=0 before TI-8.2d5 freeze.
+                                    Result: exhaustive release PASS; frontend
+                                    and checker 194/194, parity 53 identical /
+                                    13 both-fail / 129 skips, mismatch and
+                                    one-sided 0, taxonomy 0 language / 0
+                                    standard / 7 optional / 6 tools, blocking
+                                    both-fail 0, conformance 11/11.
                   - [x] **TI-8.2d4 example/config blockers:** DONE 2026-07-11
                         (`d4c953b9c`, taxonomy `39cfe268b`). Repair stale imports,
                         fixture setup, and deterministic data/config assumptions

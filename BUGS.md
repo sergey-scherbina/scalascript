@@ -26,8 +26,9 @@ found by codex in the full SQL-fence release gate before push.
 
 ## v21-native-typed-sql-crud-missing — standard provider lacks typed Db writes/read
 
-**Status:** open (2026-07-12); accepted from the final TI-8.2d runtime taxonomy,
-reported by the release gate and owned by codex.
+**Status:** fixed (2026-07-12, implementation `50d01a136`, taxonomy
+`f92ca4fcb`, boundaries `333d0a9bd`), awaiting Sergiy confirmation; accepted
+from the final TI-8.2d runtime taxonomy and owned by codex.
 
 - **Real-harness repro:** after `scripts/sbtc "installBin"`, run
   `bin/ssc-standard run examples/typed-sql-crud.ssc` and repeat with
@@ -42,6 +43,11 @@ reported by the release gate and owned by codex.
   public exact output on standard VM/direct ASM/reproducible build-jvm through
   the core-free SQL provider, with negative conversion coverage and no v1 or
   compiler fallback.
+- **Fix/result:** the parser retains the exact `Db.query[A]` nominal tag,
+  `RowCodec_derived` registers portable Mirror schemas, and the provider owns
+  fully-bound query/insert/update. The public row is exact on VM/ASM/slim/JRE/
+  build-jvm; focused errors are bounded before stdout, and exhaustive runtime
+  taxonomy reaches zero blocking rows.
 
 ## v21-native-sql-fence-binding-missing — SQL section result is not native
 
