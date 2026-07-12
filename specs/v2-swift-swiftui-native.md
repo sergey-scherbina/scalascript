@@ -1225,6 +1225,10 @@ The production NativeUi source shape is
 Swift acceptance therefore includes the imported `std/ui/lower.ssc` execution
 path, theme-token conversion, module-level values such as `localeSignal`, and
 the self-hosted `std/json.ssc` facade used by fetched/keyed application data.
+Curried toolkit builders receive varargs as the canonical `Cons`/`Nil` list and
+call `.toList` before constructing nodes. Swift therefore implements the shared
+v2 method contract `List.toList == identity` for every proper list; it does not
+copy, reorder, or retag the value, and non-list receivers remain unsupported.
 
 ### Checked manifest entrypoint
 
@@ -1424,7 +1428,8 @@ assembled macOS and iOS Xcode gates.
   and rejects an invalid or missing manifest entry before Swift generation.
 - [ ] The standard `text`/`heading`/`styled`/`defaultTheme`/`lower`/`serve`
   checked-source fixture executes as real Swift with token fallback and numeric
-  conversion, rather than bypassing the toolkit lowerer.
+  conversion, including the builders' proper-list `.toList` identity, rather
+  than bypassing the toolkit lowerer.
 - [ ] Entry-init module registrations expose `localeSignal`; a registration in
   a definition/lambda/dead branch or inside an outer registration value cannot
   authorize an unbound global.
