@@ -65,7 +65,7 @@ awk -F '\t' '
   NF != 5 || $1 == "" || ($3 != "provider-lane" && $3 != "target-lane") { bad=1 }
   seen[$1]++ > 0 { bad=1 }
   { total++ }
-  END { if (total != 14 || bad) exit 1 }
+  END { if (total != 15 || bad) exit 1 }
 ' "$explicit_manifest" || {
   echo 'bc-parity-sweep: invalid explicit-lane manifest' >&2
   exit 2
