@@ -1,6 +1,6 @@
 feature/v21-ti-parent-closeout 2026-07-12T08:48:40Z
 agent: codex
-heartbeat: 2026-07-12T08:48:40Z
-status: not-started
+heartbeat: 2026-07-12T08:49:05Z
+status: in-progress
 done-so-far: remote audit found two stale open parent rows after the zero-blocker cutover and negative release gate landed
-next: create worktree, reconcile both parent rows with their authoritative final evidence, verify no open v21-ti rows remain, and push
+next: reconcile both parent rows with their authoritative final evidence, verify no open v21-ti rows remain, and push
