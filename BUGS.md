@@ -177,7 +177,21 @@ differential.
 
 ## v1-js-imported-int-division-loses-type — byte chunk index becomes fractional
 
-**Status:** open (2026-07-12); found by codex in the SclJet Node golden after
+**Status:** FIXED (2026-07-12, opus). Root cause: JsGen only emits truncating
+integer division (`Math.trunc(a / b)`) when it can statically prove both operands
+are Int — evidence held in `intVars`/`instanceVars`/`caseClassFieldTypeMap`,
+populated by `genModule`'s pre-pass (`collectFuncParamOrders`). Imported bodies
+are emitted by a fresh `childGen` via `genScalaNode`, which BYPASSES that pre-pass,
+so an imported `def rawGet(bytes: ByteSlice, index: Int)` had empty type evidence:
+`bytes.start` degraded to `_dispatch`, `absolute` never entered `intVars`, and `/`
+fell through to floating `_arith('/')` → `131/64 = 2.046875` → Map key miss → `()`.
+Fix: extracted the per-def type-evidence into `recordDefTypeEvidence`, added
+`registerImportedTypeEvidence(module)` (populates intVars/instanceVars/intFunctions
++ caseClassFieldTypeMap/caseClassFieldsByType, descending into namespace objects),
+and call `childGen.registerImportedTypeEvidence(childModule)` in `genImport` before
+emitting imported bodies; nested imports recurse. Guarded by `examples/js-imported-int-div`
++ a JsGenStdImportTest case (== "2"). Full JsGen suite 212/212 green.
+_Original report:_ found by codex in the SclJet Node golden after
 companion and list-pattern lowering were repaired.
 
 - **Real-harness repro:** `bin/ssc-tools run-js examples/scljet-bytes.ssc`

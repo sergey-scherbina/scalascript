@@ -1074,6 +1074,12 @@ class JsGenStdImportTest extends AnyFunSuite:
   test("emit-js propagates a 4-level transitive import (A->B->C->D)"):
     assert(emitJsLike("js-transitive-iife-4") == "43")
 
+  test("emit-js integer division in an imported body truncates (Int type evidence crosses import)"):
+    // rawGet lives in b.ssc; (131+0)/64 must be 2, not the floating 2.046875 the
+    // JS lane produced before the childGen carried b.ssc's Int/case-class type
+    // evidence. Guards v1-js-imported-int-division-loses-type.
+    assert(emitJsLike("js-imported-int-div") == "2")
+
   // busi declarative-ui Scope A: the JS toolkit runtime now resolves the
   // `action=`/`rows=` registries (parity with the interpreter), turning a
   // declarative `toolkit:` link into a typed effect / live table.  Capture the

@@ -711,23 +711,10 @@ class JsGen(
         if explicitGroups.isEmpty then zeroParamFns += d.name.value
         // def f(): T — one explicit empty param clause, no actual parameters
         if explicitGroups.size == 1 && params.isEmpty then emptyParamFns += d.name.value
-        // Track Int/Long/Double/Float return type for isIntExpr/isNumericExpr at call sites.
-        d.decltpe match
-          case Some(Type.Name("Int" | "Long"))     => intFunctions     += d.name.value
-          case Some(Type.Name("Double" | "Float")) => numericFunctions += d.name.value
-          case _ => ()
-        // Track Int/Long/Double/Float-typed parameters so arithmetic on them avoids _arith.
-        paramVals.foreach { pv =>
-          pv.decltpe match
-            case Some(Type.Name("Int" | "Long"))         => intVars += pv.name.value
-            case Some(Type.Name("Double" | "Float"))     => numericVars += pv.name.value
-            // Any other simple named type: remember varName → typeName. The
-            // direct-field decision is gated later on caseClassFieldsByType so a
-            // non-case-class type harmlessly falls back to _dispatch.
-            case Some(t) if numericListElem(t).isDefined => listElemType(pv.name.value) = numericListElem(t).get
-            case Some(Type.Name(tn))                     => instanceVars(pv.name.value) = tn
-            case _ => ()
-        }
+        // Record Int/Long/Double/Float return- and param-type evidence for the
+        // isIntExpr/isNumericExpr heuristics (shared with imported modules — see
+        // registerImportedTypeEvidence).
+        recordDefTypeEvidence(d)
       // Top-level `val xs: List[Int] = …` — track numeric-element collections for
       // HOF closure-param typing (e.g. bench `val xs: List[Int]`).
       case dv: Defn.Val =>
@@ -757,6 +744,58 @@ class JsGen(
     // This second pass descends into namespace objects and also records
     // case-class primary constructors.  See collectParamOrdersFromModule.
     collectParamOrdersFromModule(module)
+
+  /** Record Int/Long/Double/Float return- and param-type evidence for one def
+   *  into the isIntExpr/isNumericExpr heuristic sets. Shared by
+   *  collectFuncParamOrders (entry module) and registerImportedTypeEvidence
+   *  (imported modules, whose bodies the childGen emits directly). */
+  private def recordDefTypeEvidence(d: Defn.Def): Unit =
+    d.decltpe match
+      case Some(Type.Name("Int" | "Long"))     => intFunctions     += d.name.value
+      case Some(Type.Name("Double" | "Float")) => numericFunctions += d.name.value
+      case _ => ()
+    d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).foreach { pv =>
+      pv.decltpe match
+        case Some(Type.Name("Int" | "Long"))         => intVars += pv.name.value
+        case Some(Type.Name("Double" | "Float"))     => numericVars += pv.name.value
+        // Any other simple named type: remember varName → typeName. The
+        // direct-field decision is gated later on caseClassFieldsByType so a
+        // non-case-class type harmlessly falls back to _dispatch.
+        case Some(t) if numericListElem(t).isDefined => listElemType(pv.name.value) = numericListElem(t).get
+        case Some(Type.Name(tn))                     => instanceVars(pv.name.value) = tn
+        case _ => ()
+    }
+
+  /** Populate the isIntExpr/isNumericExpr type-evidence sets and case-class
+   *  field-type maps for a module whose bodies THIS generator emits directly.
+   *  genModule runs the equivalent pre-pass for the entry module, but the
+   *  childGen in genImport emits imported bodies through genScalaNode, bypassing
+   *  it — without this, an imported `Int / Int` lowers to floating `_arith('/')`
+   *  instead of `Math.trunc(a / b)`, and imported case-class Int fields lose
+   *  their integer evidence (v1-js-imported-int-division-loses-type). Descends
+   *  into namespace/package `Defn.Object`s like collectParamOrdersFromModule. */
+  private def registerImportedTypeEvidence(module: Module): Unit =
+    caseClassFieldsByType = caseClassFieldsByType ++ caseClassFieldsInModule(module)
+    caseClassFieldTypeMap = caseClassFieldTypeMap ++ caseClassFieldTypesInModule(module)
+    def scanDefs(stats: List[Stat]): Unit = stats.foreach {
+      case d: Defn.Def    => recordDefTypeEvidence(d)
+      case o: Defn.Object => scanDefs(o.templ.body.stats)
+      case _              => ()
+    }
+    def scan(section: Section): Unit =
+      section.content.foreach {
+        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+          cb.tree.foreach { node =>
+            ScalaNode.fold(node) {
+              case Source(stats)     => scanDefs(stats)
+              case Term.Block(stats) => scanDefs(stats)
+              case _                 => ()
+            }
+          }
+        case _ => ()
+      }
+      section.subsections.foreach(scan)
+    module.sections.foreach(scan)
 
   // Collect named-arg param orders (function defs + case-class primary ctors)
   // from a module into funcParamOrder, descending into namespace/package
@@ -2190,6 +2229,12 @@ class JsGen(
       // which collects trees across the entire import graph. So an effect-performing
       // function defined here — or one calling a transitively-imported effectful
       // function — is already recognised; no per-import re-analysis is needed.
+      // Give the childGen the imported module's Int/Long/case-class type evidence
+      // so its bodies get the same integer-arithmetic lowering the entry module
+      // gets — otherwise an imported `Int / Int` emits floating `_arith('/')`
+      // (v1-js-imported-int-division-loses-type). Nested imports recurse through
+      // childGen.genImport below, each populating its own grandchild gen.
+      childGen.registerImportedTypeEvidence(childModule)
       // Emit only the definitions from the imported module (suppress top-level output)
       childModule.sections.foreach { section =>
         section.content.foreach {

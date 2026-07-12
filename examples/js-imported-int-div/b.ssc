@@ -1,0 +1,15 @@
+---
+name: bytelib
+---
+# ByteLib
+
+```scalascript
+case class ByteSlice(start: Int, len: Int)
+
+// Integer division on Int fields/params must truncate on the JS lane even when
+// this function is emitted across an import boundary (childGen), not just when
+// it lives in the entry module. Guards v1-js-imported-int-division-loses-type.
+def rawGet(bytes: ByteSlice, index: Int): Int =
+  val absolute = bytes.start + index
+  absolute / 64
+```
