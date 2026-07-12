@@ -70,7 +70,7 @@ Chosen approaches (autonomous — non-breaking defaults):
       (Bonus 921a5da7c: fixed BorrowedArgIntrinsics so &str fs/path intrinsics compile on Rust — E0308.)
 - [ ] **M10 confined fs variants** — `…Within(root, path)` normalize + `startsWith(root)` +
       NOFOLLOW; document raw helpers as trusted-input-only.
-- [ ] **L1 retry backoff/cap** — cap `n`, exponential backoff + jitter, honor `Retry-After`.
+- [x] **L1 retry backoff/cap** — cap 10 + exp backoff·2^n ±20% jitter, all 4 clients. LANDED (git).
 - [ ] **L3 env-scrub option** — `ProcessOptions(inheritEnv=false)`.
 - [x] **L4 mkdir TOCTOU** — Rust+JVM create directly, tolerate AlreadyExists. LANDED a2b11223b.
 - [ ] **L8 cross-backend conformance** — shared suite pinning identical fs/process/http semantics.
