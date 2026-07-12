@@ -225,6 +225,50 @@ does not expose `Array[Byte]` or a host buffer. A temporary `List[Int]` adapter
 is allowed at VFS edges, but the pager cannot use linked lists as its internal
 random-access representation.
 
+### M1 byte API
+
+M1 replaces the placeholder `case class ByteSlice(bytes: List[Int])` with an
+immutable chunk table. Chunks contain at most 64 unsigned byte values; the
+table is keyed by chunk number and slices retain a `(start, length)` window.
+Consequently indexed access performs one map lookup plus at most 63 bounded
+list steps, independent of the total byte length. Construction validates every
+input value before exposing a slice, and all update/copy operations preserve
+the `0..255` invariant.
+
+```scalascript
+case class ByteError(code: String, message: String, offset: Int)
+case class ByteRead(value: Long, nextOffset: Int)
+case class VarintRead(value: Long, length: Int, nextOffset: Int)
+
+object ByteSlice:
+  def empty: ByteSlice
+  def fromList(values: List[Int]): Either[ByteError, ByteSlice]
+  def zeros(length: Int): Either[ByteError, ByteSlice]
+
+extension (bytes: ByteSlice)
+  def length: Int
+  def get(index: Int): Either[ByteError, Int]
+  def updated(index: Int, value: Int): Either[ByteError, ByteSlice]
+  def slice(offset: Int, length: Int): Either[ByteError, ByteSlice]
+  def toList: List[Int]
+  def concat(other: ByteSlice): ByteSlice
+  def copyTo(target: ByteSlice, targetOffset: Int): Either[ByteError, ByteSlice]
+  def zeroExtend(length: Int): Either[ByteError, ByteSlice]
+```
+
+`bytes.ssc` owns big- and little-endian unsigned 16/32/64-bit reads and
+writes plus signed big-endian 16/24/32/48/64-bit reads. Unsigned 32-bit values
+are returned as non-negative `Long`; unsigned 64-bit values use the raw signed
+`Long` bit pattern because ScalaScript has no wider fixed-width unsigned type.
+Every read reports the first unavailable offset and never partially succeeds.
+
+SQLite varint decoding consumes 1 through 9 bytes. In bytes 1 through 8 the
+high bit continues and the low 7 bits contribute in big-endian order; byte 9
+contributes all 8 bits. A clear high bit terminates before byte 9. Truncation is
+`ByteError("truncated-varint", ..., offset)` and returns no value/consumption.
+Encoding is canonical: non-negative values use the shortest form, while any
+negative `Long` bit pattern uses exactly 9 bytes.
+
 ### Open options
 
 ```scalascript
@@ -356,6 +400,47 @@ Durability claims are explicit capabilities: atomic sector sizes, safe append,
 sequential writes, powersafe overwrite, undeletable-when-open, and atomic file
 deletion. The pager takes only documented optimizations. Unknown capability
 bits are treated pessimistically.
+
+### M1 deterministic in-memory VFS
+
+The pure test VFS is an immutable transition system. `MemoryVfsState` owns
+canonical-path file bytes, open-handle metadata, rollback locks, shared-memory
+regions/locks, an operation counter, logical clock/PRNG state, sync trace, and
+an ordered fault script. Each operation returns `(newState, result)`; a thin
+connection-local cell adapts those transitions to `SqliteVfs` without global
+ambient state. Tests can therefore replay and compare traces exactly.
+
+Fault rules match operation ordinal plus optional operation/path and choose one
+effect: return an error before mutation, cap a read/write to a short length, or
+simulate crash by discarding changes after the most recent durable sync point.
+Rules are consumed once in declaration order. Short reads return the available
+prefix plus a zero-filled tail and the `short-read` error; short writes mutate
+only the reported prefix and return `short-write`. A crash never invents a
+filesystem ordering stronger than the advertised device characteristics.
+
+Rollback locks are tracked per canonical file identity and handle. Any number
+of SHARED holders may coexist; at most one RESERVED holder may coexist with
+SHARED; PENDING blocks new SHARED; EXCLUSIVE requires all other SHARED holders
+to leave. Downgrades release stronger ownership atomically. WAL shared-memory
+locks cover offsets 0 through 7, support shared/exclusive acquisition over a
+contiguous range, reject overlapping incompatible owners, and are released on
+handle close/unmap.
+
+### M1 JVM host VFS boundary
+
+The JVM adapter is a separate std plugin. Main-file process-visible lock bytes
+use the standard SQLite layout: PENDING at `1073741824`, RESERVED at
+`1073741825`, and the 510-byte SHARED range beginning at `1073741826`. Because
+JVM `FileLock` rejects overlapping locks even between channels in one process,
+the plugin combines a process-local canonical-path coordinator with OS
+`FileChannel` locks; neither layer alone is sufficient for SQLite-compatible
+multi-handle and multi-process behavior.
+
+WAL shared memory maps 32-KiB `-shm` regions and uses process-visible locks at
+SHM offsets 120 through 127. The adapter performs positioned I/O, checked
+truncate/size, `force` for sync, canonical sidecar identity, and a conservative
+sector size/device-characteristic report. Service wiring exposes only VFS host
+operations; byte codecs, pager, WAL algorithms, and SQL remain pure `.ssc`.
 
 ## Main database format
 

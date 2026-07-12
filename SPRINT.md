@@ -108,11 +108,13 @@ with extensions isolated behind an explicit non-default profile.
 
 ### SclJet M1 — bytes, codecs, and VFS foundations (active 2026-07-12)
 
-- [ ] **scljet-m1a-api-spec** — update `specs/scljet.md` before implementation with the exact
+- [x] **scljet-m1a-api-spec** — DONE 2026-07-12. Updated `specs/scljet.md` before implementation with the exact
       `ByteSlice` construction/index/slice/copy API, unsigned/signed endian codec surface, SQLite
       varint error/consumption contract, immutable in-memory VFS state transitions, fault-script
       semantics, and the JVM host-adapter boundary. Resolve the M0 `List[Int]` placeholder without
-      leaking host buffers. Commit this spec update before source changes.
+      leaking host buffers. Chosen representation: immutable 64-byte chunk table with shared
+      slice windows; varint failure consumes nothing; memory VFS is a replayable immutable state
+      machine; JVM locking combines a process-local coordinator with OS byte-range locks.
 - [ ] **scljet-m1b-bytes-codec** — replace the M0 byte placeholder with a bounds-checked immutable
       byte slice and add `bytes.ssc`: validated 0..255 construction, indexed read/update, zero-fill,
       slicing/copy/concat, big/little-endian 16/32/64-bit reads/writes, signed two's-complement reads,
