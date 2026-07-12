@@ -1011,7 +1011,20 @@ def parseBlock = (toks) =>
         -- name { body }  →  name(arg): lambda-block or 0-arity thunk (T5.7)
         let rbArg = parseBlockArg(advance(ts3)) in
         let call = mkApp(Pair("var", name), Cons(prV(rbArg), Nil)) in
-        go(prT(rbArg), Cons(Pair("expr", call), acc))
+        -- Effect handler: `handle { body } { case Op(a,resume)=>… }` carries a SECOND
+        -- brace block (the `{ case … }` handler). The def-body `=` opens a layout block,
+        -- so this reaches the statement parser: consume block2 as a curried arg →
+        -- handle(bodyThunk)(handlerλ). parseBlockArg turns `{ case … }` into
+        -- `__pf => __pf match { arms }` (the VM handler shape); without this the handler
+        -- block leaked as statements (`case` → unbound global).
+        if #seq(name, "handle") then
+          let afterB1 = skipSemis(prT(rbArg)) in
+          if kindIs("{", afterB1) then
+            let rbH = parseBlockArg(advance(afterB1)) in
+            let call2 = mkApp(call, Cons(prV(rbH), Nil)) in
+            go(prT(rbH), Cons(Pair("expr", call2), acc))
+          else go(prT(rbArg), Cons(Pair("expr", call), acc))
+        else go(prT(rbArg), Cons(Pair("expr", call), acc))
       else
         let r = parseExpr(ts2) in
         -- Check for a(idx) = rhs  →  idx_assign
@@ -1463,7 +1476,10 @@ def parseDef = (toks) =>
 -- block as the lambda body (so `val`/`def` stmts in the body work). A block
 -- with no lambda header stays a 0-arity thunk (runStream { … } style).
 -- toks = tokens AFTER the '{'. Returns pr(argExpr, toksAfterBlock).
-def parseBlockArg = (toks) =>
+def parseBlockArg = (toks0) =>
+  -- Skip layout separators after `{` (a newline lexes to NL→`;`) so a multi-line
+  -- `{ \n case … }` partial-function / effect-handler block is still recognised.
+  let toks = skipSemis(toks0) in
   -- K62.9: partial-function literal `{ case P => B; … }` (the `{` already consumed) →
   -- `__pf => __pf match { arms }`. parseMatchArms consumes the closing `}`.
   if kwIs("case", toks) then
