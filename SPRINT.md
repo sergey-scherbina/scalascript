@@ -369,6 +369,12 @@ pipeline used by real applications.
       `main()` and `run()` with `main: run`, suppress the bridge's implicit
       `main()` call and execute only `run()` exactly once; only absent metadata
       retains current implicit-main/script behavior.
+      After entrypoint execution was restored, the same real runtime gate
+      exposed `method not found: toList on List(...)`: curried UI builders call
+      `children.toList` even when varargs are already a proper `Cons/Nil` list.
+      Add shared-runtime parity in Swift (`List.toList` is the exact identity,
+      malformed non-lists still reject) and keep the lower/serve test as the
+      faithful regression rather than bypassing the builder.
 - [ ] **Release gates and closure** — require explicit post-code Rozum
       `APPROVE`; full Swift backend, combined CLI, assembled Swift CLI and
       macOS+iOS Apple e2e, money/effects/tkv2/v2 conformance, affected

@@ -348,6 +348,11 @@ the `scalascript` Rozum room from busi's production-shaped fixture; accepted by
   `run()`; `NativeUiHost.evaluate` then fails with `native UI program did not
   register a root`. This is not a fixture issue: the assembled Swift command
   uses the same `convertSourceWithMetadata` result.
+- **Builder root cause (next real-runtime boundary):** once `main: run` is
+  invoked, `vstack`/`styled` reach `__method__("toList", children)` with an
+  already proper `Cons/Nil` value. The v2 shared runtime returns that list
+  unchanged, but Swift lacks the method case and terminates with `method not
+  found: toList on List(TextNode_(...))` before `lower` can produce a root.
 - **Rejected WIP behavior:** collapsing explicit throw and runtime failure to
   one description String loses the thrown ADT; catching every normalized host
   `Error` hides runtime bugs; `Int64(value)` omits VM/v1 trimming. The current
@@ -370,6 +375,8 @@ the `scalascript` Rozum room from busi's production-shaped fixture; accepted by
   `done` only after reporter/reviewer confirmation. The standard fixture must
   retain and invoke `main: run` exactly once after module initialization; an
   absent target is a checked error, not a root-registration runtime crash.
+  Its unchanged curried builders must also prove `List.toList` identity under
+  real Swift; replacing them with direct constructors would not close the bug.
 
 ## v2-httpclient-curried-extern-unbound — curried top-level `extern def` doesn't bind as a global on `ssc run`
 **Status:** open (2026-07-12), found by claude-code (rozum-ucc-test) while porting rozum's UCC
