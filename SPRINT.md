@@ -4186,6 +4186,13 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
             the committed retirement spec first, add a deterministic real-plugin
             tools regression and exact manifest row, then advance the 198-row
             freeze only after ordinary and negative reports return to zero gaps.
+      - [ ] Reconcile the concurrently landed pure
+            `examples/scljet-readonly-codecs.ssc` M2 row after the 198-row
+            consolidated gate passed. Prove native VM/direct-ASM exactness and
+            the real SclJet codec conformance case, advance the strict corpus
+            freeze to 199 rows without changing delegated membership if it is
+            standard-identical, then rerun exhaustive release gates on current
+            `origin/main` before closure.
 
 - [x] **v2-production-readiness-audit** - DONE 2026-07-10:
       bounded audit after closing the layout/YAML and indent-demo blockers.
