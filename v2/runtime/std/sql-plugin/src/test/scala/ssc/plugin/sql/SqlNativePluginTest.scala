@@ -101,3 +101,27 @@ class SqlNativePluginTest extends AnyFunSuite:
       call("Db.insert", Value.StrV("default"), Value.StrV("todos;drop"), first)
     }
     assert(badIdentifier.getMessage.contains("invalid SQL identifier"))
+
+    val badProduct = intercept[RuntimeException] {
+      call("Db.insert", Value.StrV("default"), Value.StrV("todos"), Value.StrV("not a product"))
+    }
+    assert(badProduct.getMessage.contains("expects a derived product value"))
+    val badBind = intercept[RuntimeException] {
+      call("Db.execute", Value.StrV("default"), Value.StrV("SELECT ?"),
+        list(Value.DataV("Unsupported", Vector.empty)))
+    }
+    assert(badBind.getMessage.contains("unsupported native SQL bind value"))
+
+    V2PluginRegistry.registerFieldNames("MaybeTodo", Vector("id", "note"))
+    call("RowCodec_derived", Value.DataV("Mirror", Vector(
+      Value.StrV("MaybeTodo"),
+      list(Value.StrV("id"), Value.StrV("note")),
+      list(Value.StrV("Int"), Value.StrV("Option[String]")))))
+    call("Db.sql", Value.StrV("default"),
+      Value.StrV("CREATE TABLE maybe_todos (id INT PRIMARY KEY, note VARCHAR(120))"), list())
+    val nullable = Value.DataV("MaybeTodo", Vector(
+      Value.IntV(2), Value.DataV("None", Vector.empty)))
+    assert(call("Db.insert", Value.StrV("default"), Value.StrV("maybe_todos"), nullable) ==
+      Value.IntV(1))
+    assert(call("Db.queryTyped", Value.StrV("MaybeTodo"), Value.StrV("default"),
+      Value.StrV("SELECT id, note FROM maybe_todos"), list()) == list(nullable))
