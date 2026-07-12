@@ -3598,6 +3598,22 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
       raising the 15-second limit. This does not block the native TI-6 artifact
       lane; schedule after the release-critical toolchain slices unless another
       compatibility owner claims it.
+- [ ] **v21-ti-retire-all-both-fail:** user-requested follow-up to eliminate the
+      frozen 13/13 VM/ASM `both-fail` rows without hiding failures as skips or
+      restoring compatibility fallback. Write and commit
+      `specs/v2.1-retire-all-both-fail.md` before implementation, audit each
+      exact manifest member in its real intended lane, then land independently
+      claimable provider/backend families: PDF (3 rows), MCP (2), Graph (1),
+      Swift (1), NFC (1), quoted macros (2), WASM (2), and x402 (1). Optional
+      capabilities must execute through explicit core-free providers; compiler
+      and target-specific documents must execute through explicit tools/target
+      launchers while plain `ssc` remains `StandardMain` with no transparent
+      fallback. Every retired row needs a real-launcher VM/ASM or declared
+      target regression and removal from the exact manifest/freeze. Done when
+      exhaustive ordinary and negative-toolchain reports contain
+      `parity.both-fail=0`, mismatch/one-sided/blockers=0, the updated exact
+      freeze rejects any reintroduced member, the full release gate passes,
+      and fresh affected conformance is green.
 
 - [x] **v2-production-readiness-audit** - DONE 2026-07-10:
       bounded audit after closing the layout/YAML and indent-demo blockers.
