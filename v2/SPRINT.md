@@ -1615,3 +1615,10 @@ Further native TEST-greening requires the v2.1 extension-dispatch lane (coordina
       NOT native-front or native-production bugs (production runs them via NativePluginHost). The
       accurate fix is an audit-runner using NativePluginHost, not a native-front change. Deferred:
       it's audit-tooling + a Scala runner + architectural (which plugin set the audit should mirror).
+
+## run-ir-native audit mode (2026-07-12, opus) — #1 DELIVERED
+- [x] bridgeCli `run-ir-native` (NativePluginHost) — accurate native-production plugin mirror,
+      vs run-ir (v1-compat PluginBridge). Added frontend-bridge deps v2NativePluginSpi (compile) +
+      v2NativeReactivePlugin (Test). PROVED signals.ssc is a native FULL MATCH under run-ir-native
+      (was a run-ir "MISMATCH" = audit artifact of the wrong plugin system). V2ConformanceTest
+      126/128 unchanged (2 pre-existing reds verified on clean main). Closes #1 accurately.
