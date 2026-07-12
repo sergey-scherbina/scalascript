@@ -244,18 +244,23 @@ object VmCompiler:
     // body). Used to type self-recursive call results, which would otherwise be
     // circular. The actual return type is re-derived from the RET leaves and must
     // agree (see buildInstructions) — so a misclassification bails, never miswraps.
-    private val fnIsDouble: Boolean =
-      val paramDouble = fn.paramTypes.exists(t => doubleTypes.contains(t.trim))
-      paramDouble || fn.body.collect {
-        case _: Lit.Double => ()
-      }.nonEmpty
-
     /** wide-jit C-4c: does the function's DECLARED return annotation say Double/Float? This is the
       * AUTHORITATIVE signal `fnIsDouble` (a syntactic body scan) and the Typer's inferred body type
       * (Any for mixed branches) both lack. Used to widen Int RET leaves to Double (Scala widens
       * Int→Double on every return path) rather than bailing on a false "mixed return". Empty when the
       * def carried no annotation / the FunV came from a site that doesn't populate it ⇒ unchanged. */
     private val declaredDouble: Boolean = doubleTypes.contains(fn.declaredReturnType.trim)
+
+    private val fnIsDouble: Boolean =
+      // wide-jit C-4d: the DECLARED return type is authoritative and completes the syntactic scan.
+      // Without it, a declared-Double fn whose body has no double param/literal (fnIsDouble=false)
+      // types its own self-recursive call result as TInt (the `callee eq fn => fnIsDouble` case
+      // below) — so a non-tail self-call reads the callee's double return bits as an int and the
+      // arithmetic is garbage. Honouring the declaration types the self-call TDouble → correct.
+      val paramDouble = fn.paramTypes.exists(t => doubleTypes.contains(t.trim))
+      declaredDouble || paramDouble || fn.body.collect {
+        case _: Lit.Double => ()
+      }.nonEmpty
 
     // Unified type of every value reaching a RET/RETREF. None until first leaf.
     private var retType: Option[VmType] = None

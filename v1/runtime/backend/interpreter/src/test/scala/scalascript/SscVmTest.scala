@@ -2639,6 +2639,26 @@ class SscVmTest extends AnyFunSuite with Matchers:
     VmCompiler.compile(bare, globalsResolve(interp)) shouldBe empty
   }
 
+  test("wide-jit C-4d: a declared-Double self-recursive fn types its self-call result Double (no double literal)") {
+    // `f` is declared `: Double`, is self-recursive, and has NO double param and NO Lit.Double — so
+    // the syntactic `fnIsDouble` scan is false. Without honouring the declaration, the self-call
+    // result `f(n-1)` types TInt, so `f(n-1) / 2` runs INTEGER division (double bits read as int →
+    // garbage). Honouring the declared type (C-4d) types the self-call TDouble → real double
+    // division. Division is what makes int-space and double-space arithmetic observably differ.
+    val src    = "# T\n\n```scala\ndef f(n: Int): Double = if n <= 0 then 1 else f(n - 1) / 2\n```\n"
+    val module = Parser.parse(src)
+    val interp = Interpreter(devNull); interp.run(module)
+    val f = interp.globalsView("f").asInstanceOf[Value.FunV]
+    f.declaredReturnType shouldBe "Double"
+    val compiled = VmCompiler.compile(f, globalsResolve(interp))
+    compiled shouldBe defined
+    java.lang.Double.longBitsToDouble(SscVm.run(compiled.get, Array(0L))) shouldBe 1.0
+    java.lang.Double.longBitsToDouble(SscVm.run(compiled.get, Array(1L))) shouldBe 0.5   // 1.0 / 2
+    java.lang.Double.longBitsToDouble(SscVm.run(compiled.get, Array(2L))) shouldBe 0.25  // (1.0/2)/2
+    // The compiled result must equal the tree-walk (correct) result — the invariant that matters.
+    java.lang.Double.longBitsToDouble(SscVm.run(compiled.get, Array(3L))) shouldBe 0.125
+  }
+
   test("wide-jit C-3: FunV.body is identity-keyed in the Typer's nodeTypes; the map threads to VmCompiler") {
     // Parse ONCE; run it (→ FunV) and typecheck it (→ nodeTypes) from the SAME parse, so the
     // FunV.body Term the JIT compiles is the exact object the Typer recorded a type for.
