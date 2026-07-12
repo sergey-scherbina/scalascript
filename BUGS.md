@@ -16,6 +16,13 @@ continuing TI-8.2d3.
   Actor `exit(pid, reason)` and process `exit(code)` therefore need one explicit
   arity/shape dispatch owner or a lowering-owned namespace; disabling ownership
   checks or falling back to compatibility code is not acceptable.
+- **Third boundary after explicit exit composition:** typed loopback is exact on
+  VM/ASM, but ping-pong is not. VM prints only `after timeout: None`,
+  `before timeout: None`, `done`; direct ASM fails with
+  `Actors scope failed: if: condition not Bool: "one"`. This points at the
+  provider callback ABI/concurrent source-closure execution rather than mailbox
+  registration. Diagnose against emitted CoreIR/closure invocation and pin the
+  multi-actor source shape in the real launcher before retiring either row.
 - **Expected:** a required core-free Actors provider owns local virtual-thread
   mailboxes, timeout receive, send/self/exit, quiescent runner shutdown, and the
   typed named-behavior loopback surface. Canonical outputs match the explicit
