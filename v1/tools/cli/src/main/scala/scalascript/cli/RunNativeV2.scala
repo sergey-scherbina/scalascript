@@ -39,8 +39,33 @@ object RunNativeV2:
           s"native frontend rejected incomplete parse in $inputs: " +
             "structural CoreIR contains parser sentinel _err")
 
+      // NativeUi site annotation. The self-hosted native frontend lowers std/ui primitive
+      // calls to PLAIN globals; unlike the scalameta FrontendBridge it does NOT run the
+      // `NativeUiSites.annotate` pass, so every ANONYMOUS derived signal (`computedSignal` /
+      // `eqSignal`) reaches the ui plugin's fallback registration with one shared id
+      // (`__computed__manual:computedSignal`). Creating a second such signal whose computed
+      // default differs then fails with "duplicate native UI signal … conflicting kind/default"
+      // (measured on rozum's control center: 20+ computedSignals collapse to one id). Run the
+      // same annotation pass here so each anonymous-signal call site gets a unique lexical id.
+      //
+      // Scope: ONLY the anonymous derived-signal primitives, and only those ACTUALLY CALLED as
+      // `App(Global(name))` (a bare/eta-expanded reference to an un-called primitive must not
+      // fail the whole program). We deliberately do NOT yet annotate the other site-native
+      // primitives (`element`/`fetchAction*`/`forKeyedView`/…): they don't hit this shared-id
+      // collision, and rich SPAs that use them still fail the native frontend for an INDEPENDENT
+      // reason (an `arity: 2 expected, 1 given` runtime error reproducible on the in-repo
+      // `examples/control-center-live.ssc` with OR without this fix) — broadening is deferred
+      // until that native-front SPA gap is closed. See BUGS.md `native-front-nativeui-site-annotation`.
+      val annotatableSignals = Set("computedSignal", "eqSignal")
+      val calledPrimitives = calledNativeUiPrimitives(structural.program).intersect(annotatableSignals)
+      val annotatedProgram =
+        if calledPrimitives.isEmpty then structural.program
+        else _root_.ssc.NativeUiSites.annotate(
+          structural.program,
+          _root_.ssc.NativeUiSites.Config(eligibleSymbols = calledPrimitives))
+
       NativeV2Compilation(
-        structural.program,
+        annotatedProgram,
         structural.config,
         structural.manifests,
         structural.contentModules,
@@ -147,6 +172,36 @@ object RunNativeV2:
       containsErrorSentinel(cond) || containsErrorSentinel(body)
     case _root_.ssc.Term.Seq(terms) => terms.exists(containsErrorSentinel)
     case _ => false
+
+  /** Names of std/ui site-native primitives that appear in APPLIED position
+   *  (`App(Global(name), _)`) anywhere in the program — the set the NativeUiSites
+   *  annotation pass may safely rewrite. Scoping eligibility to actually-called
+   *  primitives keeps a bare/eta-expanded reference to an un-called primitive from
+   *  failing the whole program (the pass rejects bare eligible primitives), and a
+   *  never-called primitive would be a no-op anyway. */
+  private[cli] def calledNativeUiPrimitives(program: _root_.ssc.Program): Set[String] =
+    val found = collection.mutable.Set.empty[String]
+    def walk(term: _root_.ssc.Term): Unit = term match
+      case _root_.ssc.Term.App(fn, args) =>
+        fn match
+          case _root_.ssc.Term.Global(name) if _root_.ssc.NativeUiSites.annotatedSymbols(name) =>
+            found += name
+          case _ => ()
+        walk(fn); args.foreach(walk)
+      case _root_.ssc.Term.Lam(_, body) => walk(body)
+      case _root_.ssc.Term.Let(rhs, body) => rhs.foreach(walk); walk(body)
+      case _root_.ssc.Term.LetRec(lams, body) => lams.foreach(walk); walk(body)
+      case _root_.ssc.Term.If(cond, yes, no) => walk(cond); walk(yes); walk(no)
+      case _root_.ssc.Term.Ctor(_, fields) => fields.foreach(walk)
+      case _root_.ssc.Term.Match(scrutinee, arms, default) =>
+        walk(scrutinee); arms.foreach(arm => walk(arm.body)); default.foreach(walk)
+      case _root_.ssc.Term.Prim(_, args) => args.foreach(walk)
+      case _root_.ssc.Term.While(cond, body) => walk(cond); walk(body)
+      case _root_.ssc.Term.Seq(terms) => terms.foreach(walk)
+      case _ => ()
+    program.defs.foreach(definition => walk(definition.body))
+    walk(program.entry)
+    found.toSet
 
   private final case class NativeFrontLayout(
       runner: java.io.File,
