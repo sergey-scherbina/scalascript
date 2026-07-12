@@ -2859,7 +2859,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     language / 9 standard / 13 blockers / 25
                                     total. Release gate and conformance are
                                     ready at 11/11.
-                        - [ ] **TI-8.2d3i core-free Async provider:**
+                        - [x] **TI-8.2d3i core-free Async provider:**
                               `async-demo.ssc` fails on both installed standard
                               engines at the first `runAsync` global. Extend the
                               required effect-runners provider with the built-in
@@ -2876,24 +2876,37 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     nested runners, error propagation, delay,
                                     and the bounded `recvFrom` boundary. Commit
                                     before code.
-                              - [ ] **TI-8.2d3i2 implementation + unit:** extend
+                              - [x] **TI-8.2d3i2 implementation + unit:** extend
                                     `EffectRunnersNativePlugin` over
                                     `NativePluginContext.withEffect("Async")`;
                                     cover async/await, sequential and concurrent
                                     parallel, nested runners, malformed values,
                                     and callback failures without v1 types.
-                              - [ ] **TI-8.2d3i3 assembled contract:** pin a
+                              - [x] **TI-8.2d3i3 assembled contract:** pin a
                                     focused real-launcher fixture plus the full
                                     `examples/async-demo.ssc` output on VM/direct
                                     ASM/build-jvm. Keep deterministic output;
                                     measure concurrency only with latches, not
                                     wall-clock thresholds.
-                              - [ ] **TI-8.2d3i4 release closure:** run stage-2,
+                              - [x] **TI-8.2d3i4 release closure:** run stage-2,
                                     native-entry, provider isolation/dependency,
                                     slim/JRE, deterministic artifact, full
                                     corpus/parity/taxonomy, and fresh `v2-*`
                                     conformance. Retire only `async-demo.ssc`
                                     after exact evidence and push immediately.
+                                    Result: effect-runners unit is 4/4 with
+                                    latch-proved concurrent start, reverse task
+                                    completion, and ordered results. Focused,
+                                    public sequential, and public parallel demos
+                                    are exact on VM/direct ASM; sequential is
+                                    exact on build-jvm. Dependency closure is 21
+                                    roots / 84 edges / 35 staged jars with zero
+                                    violations; slim is 36 jars / 6661 classes /
+                                    31,010,773 bytes. Parity is 42 identical / 24
+                                    both-fail / 129 skipped with zero mismatch or
+                                    one-sided rows; taxonomy is 4 language / 8
+                                    standard / 12 blockers / 24 total. Release
+                                    gate and conformance are ready at 11/11.
                         - [x] **TI-8.2d3a core-free crypto breadth:** DONE
                               2026-07-11 (`f40b2b6b8`, taxonomy `6f4f0d13e`). Port the
                               established v1 crypto-plugin contracts—not its

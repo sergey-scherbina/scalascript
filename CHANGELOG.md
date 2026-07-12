@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-12 — built-in Async runners are core-free
+
+The required ScalaScript 2.1 effect-runners provider now owns deterministic
+`runAsync` and ordered virtual-thread `runAsyncParallel`, including opaque
+futures, delay, async/await/parallel, nested scopes, explicit failures, and a
+bounded `recvFrom` bridge. Unit 4/4 uses latches to prove concurrent start and
+ordered join; focused and public demos are exact on VM/direct ASM/build-jvm.
+The release gate is ready at 42 identical / 24 both-fail, zero mismatch or
+one-sided rows, and 12 remaining blockers. Landed through `7ac63130d`.
+
 ## 2026-07-11 — pull generators are core-free on the standard JVM path
 
 ScalaScript 2.1 now supplies a required native Generator provider with

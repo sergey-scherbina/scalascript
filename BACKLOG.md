@@ -28,9 +28,10 @@ parity slices are intentionally non-blocking for the artifact/packaging cutover:
 - [ ] **v21-native-ui-advanced** — framework SPA generation, `serve(view)`,
       keyed/fetch/data-table actions, storage/WebAuthn, and desktop/mobile
       renderers without `frontendCore`.
-- [ ] **v21-native-effects-remaining** — Logger, Random, Clock, Env, Retry,
-      Cache, Async, and Stream providers over `NativePluginContext.withEffect`,
-      without v1 `BlockForm`/`SpiValue` adapters.
+- [ ] **v21-native-effects-remaining** — Random, Clock, Env, Retry, and Cache
+      providers over `NativePluginContext.withEffect`, without v1
+      `BlockForm`/`SpiValue` adapters. Logger, State, Stream, and Async are now
+      core-free standard providers.
 - [ ] **v21-native-generator-dataset-bridge** — define a provider-neutral
       factory/pull contract so `Dataset.fromGenerator` and `Dataset.toGenerator`
       compose without either provider depending on the other's implementation.
