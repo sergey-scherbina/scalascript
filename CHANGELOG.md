@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-12 — SclJet pure SQLite header, B-tree page, and record codecs
+
+SclJet M2 now decodes exact database headers, all four B-tree cell layouts,
+X/M/K local payloads, freeblock/cell spans, overflow pages/chains, every legal
+persistent record serial type, IEEE binary64, and lossless SQLite GIGO text as
+encoded bytes plus code points. An official SQLite 3.53.3 fixture and 35-line
+golden are exact on interpreter/native VM/direct ASM; `scljet-*` conformance is
+4/4 and a runnable no-JDBC example ships. JS matches 34/35 lines, with its known
+64-bit bit-pattern gap isolated to binary64. Code landed in `66ff828b9`, docs in
+`ae709c40a`.
+
 ## 2026-07-12 — SclJet M2 read-only format and traversal contract
 
 The implementation-ready M2 specification now fixes exact APIs and invariants

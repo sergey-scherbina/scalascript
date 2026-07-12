@@ -1,6 +1,6 @@
 # SclJet — pure ScalaScript SQLite-compatible engine
 
-Status: **implementation / M1 foundations**  
+Status: **implementation / M2 codec foundations**
 Module: `runtime/std/scljet/`  
 Package: `scljet`  
 Provider id: `scljet`  
@@ -1829,3 +1829,26 @@ reference SQLite interoperability across processes. Same-JVM Xerial mixing
 remains deferred to the recorded lock-broker/native lock-table bridge. These
 limitations leave the two explicit JS behavior items open; no JDBC/sql.js
 fallback is used or claimed.
+
+M2 page/record codecs landed in `66ff828b9` with documentation and runnable
+example in `ae709c40a`. Verification on 2026-07-12:
+
+- `scripts/sbtc "installBin"` staged 114 standard `.ssc` modules and the
+  unchanged 27 essential plugins.
+- `tests/conformance/run.sh --only 'scljet-*' --no-memo` passed 4/4 on the
+  declared interpreter lane.
+- The 35-line M2 golden is byte-for-output exact on the interpreter, native VM,
+  and direct ASM. It covers an official SQLite 3.53.3 header/table-leaf record,
+  all page sizes, all four cell layouts, localized corruption, X/M/K thresholds,
+  binary64, invalid/valid UTF-8 and UTF-16, and bounded overflow chains.
+- `examples/scljet-readonly-codecs.ssc` prints the same header/page/record
+  summary on v1, native VM, and direct ASM without JDBC, sql.js, filesystem, or
+  a host buffer.
+- Node executes the complete golden and matches 34/35 lines. The sole mismatch
+  is binary64 `1.5 -> 0` through the existing v1 JS Long/bitwise precision bug;
+  no fallback is used. Portable `DecodedText -> SqlText(String)` remains the
+  separately tracked code-point string-construction gap.
+
+These are pure codec results, not a claim that the M2 pager, schema loader, or
+file-level interoperability corpus is complete; their behavior gates remain
+unchecked above.

@@ -96,8 +96,13 @@ differential.
 - **Root cause:** v1 JsGen represents source `Long` literals/accumulators as JS
   `Number` and emits native 32-bit bitwise operators; the runtime supports
   BigInt arithmetic but typed `Long` lowering does not consistently use it.
+- **M2 codec impact:** the 35-line `scljet-page-record-codec` golden matches
+  34/35 lines on Node. Header/page/cell/overflow/serial/UTF behavior is exact;
+  reconstructing the binary64 bits for `1.5` yields `0` because the u64/shift
+  path has already lost the bit pattern.
 - **Done-when:** `Long` arithmetic, shifts and bitwise operations use exact
-  signed 64-bit semantics and the 31-line codec golden is identical on Node.
+  signed 64-bit semantics and both the 31-line M1 and 35-line M2 codec goldens
+  are identical on Node.
 
 ## v1-js-imported-int-division-loses-type — byte chunk index becomes fractional
 
