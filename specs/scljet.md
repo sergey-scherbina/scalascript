@@ -374,8 +374,8 @@ trait SqliteVfs:
   def currentTimeMillis(): Long
 
 trait SqliteFile:
-  def readAt(offset: Long, length: Int): Either[VfsError, ByteSlice]
-  def writeAt(offset: Long, bytes: ByteSlice): Either[VfsError, Unit]
+  def readAt(offset: Long, length: Int): Either[VfsError, VfsRead]
+  def writeAt(offset: Long, bytes: ByteSlice): Either[VfsError, VfsWrite]
   def truncate(size: Long): Either[VfsError, Unit]
   def sync(flags: SyncFlags): Either[VfsError, Unit]
   def size(): Either[VfsError, Long]
@@ -391,9 +391,13 @@ trait SqliteFile:
   def close(): Either[VfsError, Unit]
 ```
 
-`readAt` either returns exactly `length` bytes or returns `ShortRead` together
-with a zero-filled tail; callers never observe uninitialized bytes. Arithmetic
-on offsets and lengths is checked before VFS dispatch.
+`VfsRead(bytes, warning)` always contains exactly the requested length after a
+successful dispatch. EOF or an injected short read returns the available
+prefix plus a zero-filled tail and `Some(short-read)`; callers never observe
+uninitialized bytes. `VfsWrite(bytesWritten, warning)` reports a complete write
+with `None` or a deliberately short prefix with `Some(short-write)`. Validation
+and host failures that produce no meaningful buffer/progress remain the outer
+`Left(VfsError)`. Arithmetic on offsets and lengths is checked before dispatch.
 
 `fullPath` defines file identity. Handles for the same identity must observe
 compatible locks even inside one process. Lock levels are `None`, `Shared`,
@@ -434,6 +438,101 @@ to leave. Downgrades release stronger ownership atomically. WAL shared-memory
 locks cover offsets 0 through 7, support shared/exclusive acquisition over a
 contiguous range, reject overlapping incompatible owners, and are released on
 handle close/unmap.
+
+The exact portable M1 model surface is:
+
+```scalascript
+case class VfsRead(bytes: ByteSlice, warning: Option[VfsError])
+case class VfsWrite(bytesWritten: Int, warning: Option[VfsError])
+
+sealed trait MemoryFaultEffect
+case class FaultError(error: VfsError) extends MemoryFaultEffect
+case class FaultShortRead(maxBytes: Int) extends MemoryFaultEffect
+case class FaultShortWrite(maxBytes: Int) extends MemoryFaultEffect
+case object FaultCrash extends MemoryFaultEffect
+
+case class MemoryFaultRule(
+  ordinal: Long,
+  operation: Option[String],
+  path: Option[String],
+  effect: MemoryFaultEffect
+)
+case class MemoryFileState(bytes: ByteSlice, kind: FileKind)
+case class MemoryHandleState(
+  id: Int,
+  path: String,
+  kind: FileKind,
+  readOnly: Boolean,
+  deleteOnClose: Boolean,
+  lock: LockLevel,
+  shmMapped: Boolean
+)
+case class MemoryRollbackLock(
+  shared: List[Int],
+  reserved: Option[Int],
+  pending: Option[Int],
+  exclusive: Option[Int]
+)
+case class MemoryShmByteLock(shared: List[Int], exclusive: Option[Int])
+case class MemoryShmState(
+  regions: Map[Int, ByteSlice],
+  locks: Map[Int, MemoryShmByteLock]
+)
+case class MemoryTrace(
+  ordinal: Long,
+  operation: String,
+  path: String,
+  detail: String,
+  resultCode: String
+)
+case class MemoryVfsState(
+  files: Map[String, MemoryFileState],
+  durableFiles: Map[String, MemoryFileState],
+  handles: Map[Int, MemoryHandleState],
+  rollbackLocks: Map[String, MemoryRollbackLock],
+  sharedMemory: Map[String, MemoryShmState],
+  nextHandle: Int,
+  operationCounter: Long,
+  clockMillis: Long,
+  randomState: Long,
+  trace: List[MemoryTrace],
+  faults: List[MemoryFaultRule]
+)
+case class MemoryStep[A](state: MemoryVfsState, result: Either[VfsError, A])
+
+def memoryVfs(seed: Long, clockMillis: Long, faults: List[MemoryFaultRule]): MemoryVfsState
+def memoryCanonicalPath(path: String): Either[VfsError, String]
+def memoryOpen(state: MemoryVfsState, path: String, kind: FileKind, flags: OpenFlags): MemoryStep[Int]
+def memoryDelete(state: MemoryVfsState, path: String, syncDirectory: Boolean): MemoryStep[Unit]
+def memoryExists(state: MemoryVfsState, path: String): MemoryStep[Boolean]
+def memoryReadAt(state: MemoryVfsState, handle: Int, offset: Long, length: Int): MemoryStep[VfsRead]
+def memoryWriteAt(state: MemoryVfsState, handle: Int, offset: Long, bytes: ByteSlice): MemoryStep[VfsWrite]
+def memoryTruncate(state: MemoryVfsState, handle: Int, size: Long): MemoryStep[Unit]
+def memorySync(state: MemoryVfsState, handle: Int, flags: SyncFlags): MemoryStep[Unit]
+def memorySize(state: MemoryVfsState, handle: Int): MemoryStep[Long]
+def memoryLock(state: MemoryVfsState, handle: Int, level: LockLevel): MemoryStep[Unit]
+def memoryUnlock(state: MemoryVfsState, handle: Int, level: LockLevel): MemoryStep[Unit]
+def memoryCheckReservedLock(state: MemoryVfsState, handle: Int): MemoryStep[Boolean]
+def memoryShmMap(state: MemoryVfsState, handle: Int, region: Int, size: Int, extend: Boolean): MemoryStep[ByteSlice]
+def memoryShmRead(state: MemoryVfsState, handle: Int, region: Int, offset: Int, length: Int): MemoryStep[ByteSlice]
+def memoryShmWrite(state: MemoryVfsState, handle: Int, region: Int, offset: Int, bytes: ByteSlice): MemoryStep[Unit]
+def memoryShmLock(state: MemoryVfsState, handle: Int, offset: Int, count: Int, mode: ShmLockMode): MemoryStep[Unit]
+def memoryShmBarrier(state: MemoryVfsState, handle: Int): MemoryStep[Unit]
+def memoryShmUnmap(state: MemoryVfsState, handle: Int, delete: Boolean): MemoryStep[Unit]
+def memoryClose(state: MemoryVfsState, handle: Int): MemoryStep[Unit]
+def memoryRandomness(state: MemoryVfsState, length: Int): MemoryStep[ByteSlice]
+def memorySleep(state: MemoryVfsState, millis: Long): MemoryStep[Unit]
+def memoryCurrentTimeMillis(state: MemoryVfsState): Long
+def memoryCrash(state: MemoryVfsState): MemoryVfsState
+```
+
+All mutation is expressed by these top-level pure transitions because imported
+receiver methods are not yet portable across ScalaScript backends. Handles are
+opaque integer capabilities. The memory VFS advertises undeletable-when-open:
+deleting an open identity returns `busy`, and `deleteOnClose` removes it when
+the last handle closes. `durableFiles` is the last sync-visible snapshot;
+`FaultCrash` restores it, drops handles/locks/shared memory, consumes the rule,
+and preserves the deterministic operation trace.
 
 ### M1 JVM host VFS boundary
 

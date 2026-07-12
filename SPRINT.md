@@ -149,7 +149,10 @@ with extensions isolated behind an explicit non-default profile.
       canonical file identity, random-access read/write/truncate/delete, exact short-read zero-fill,
       shared regions, per-handle rollback lock transitions, eight-byte WAL shared/exclusive locks,
       sync/operation trace, seeded randomness/time, and a scripted fail/short-read/short-write/crash
-      injector. Adapt it to the public VFS contracts without ambient filesystem access.
+      injector. Adapt it to the public VFS contracts without ambient filesystem access. Before code,
+      the M0 `Either` read/write gap was resolved in the spec with `VfsRead(bytes, warning)` and
+      `VfsWrite(bytesWritten, warning)`, so short I/O can report both initialized data/progress and
+      the SQLite warning. Exact state and top-level transition signatures are in `specs/scljet.md`.
 - [ ] **scljet-m1d-jvm-vfs-plugin** — implement the narrow JVM host adapter in a dedicated std
       plugin, never the pure engine: positioned file I/O, truncate/force, canonical identity,
       SQLite-compatible process-visible rollback lock bytes, WAL shared-memory regions/locks and
