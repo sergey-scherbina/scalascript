@@ -1501,43 +1501,43 @@ assembled macOS and iOS Xcode gates.
 
 ### SwiftUI portable runtime
 
-- [ ] Checked metadata preserves `main: run`, invokes it exactly once after
+- [x] Checked metadata preserves `main: run`, invokes it exactly once after
   module initialization, suppresses an otherwise implicit `def main()` when
   `run` is selected, leaves absent-manifest script/auto-main mode unchanged,
   and rejects an invalid or missing manifest entry before Swift generation.
-- [ ] The standard `text`/`heading`/`styled`/`defaultTheme`/`lower`/`serve`
+- [x] The standard `text`/`heading`/`styled`/`defaultTheme`/`lower`/`serve`
   checked-source fixture executes as real Swift with token fallback and numeric
   conversion, including the builders' proper-list `.toList` identity and the
   mapped CSS list's `.mkString("")`, rather than bypassing the toolkit lowerer.
-- [ ] Real Swift pins List `mkString` 0/1/3 overloads for mixed and empty lists,
+- [x] Real Swift pins List `mkString` 0/1/3 overloads for mixed and empty lists,
   plus wrong-arity, wrong-delimiter-type, and non-list rejection boundaries.
-- [ ] Real Swift applies proper lists as zero-based indexed values and pins
+- [x] Real Swift applies proper lists as zero-based indexed values and pins
   valid, negative/out-of-range, non-Int, wrong-arity, malformed tail/Cons, and
   non-empty Nil cases with catchable runtime failures.
-- [ ] Real Swift concatenates proper lists for `+`/`++` with exact order and
+- [x] Real Swift concatenates proper lists for `+`/`++` with exact order and
   empty cases, rejecting non-list and malformed operands recoverably.
-- [ ] NativeUi `element` accepts both checked String maps and proper String-key
+- [x] NativeUi `element` accepts both checked String maps and proper String-key
   association lists with last-wins duplicates, while malformed list/tuple/key
   shapes and a cell/array value fail with the original source before a malformed
   ABI reaches the Apple renderer; a host probe inspects the normalized map.
-- [ ] Entry-init module registrations expose `localeSignal`; a registration in
+- [x] Entry-init module registrations expose `localeSignal`; a registration in
   a definition/lambda/dead branch or inside an outer registration value cannot
   authorize an unbound global.
-- [ ] Repeated imported `localeText`/anonymous computed and equality signal
+- [x] Repeated imported `localeText`/anonymous computed and equality signal
   sites receive stable owner/site/occurrence ids without weakening explicit
   named-signal conflict detection; locale/JSON updates refresh derived closures,
   and keyed rollback/retry/reorder/delete plus nested owners retain exact
   transactional ownership without leaks.
-- [ ] Swift `__throw__` preserves the exact ADT/value payload and `__try__`
+- [x] Swift `__throw__` preserves the exact ADT/value payload and `__try__`
   distinguishes explicit throw from recoverable runtime failure.
-- [ ] Successful, invalid/trimmed-conversion, nested handler rethrow/runtime
+- [x] Successful, invalid/trimmed-conversion, nested handler rethrow/runtime
   failure, and non-catchable host-negative cases execute under real Swift;
   v2 VM/PluginBridge also normalize invalid `String.toInt` without leaking
   `NumberFormatException`, while NBSP remains non-trimmed.
-- [ ] Swift `JsonValue` matches the self-hosted renderer and provider facade for
+- [x] Swift `JsonValue` matches the self-hosted renderer and provider facade for
   every accessor, lookup, missing/null case, UTF-16 escape, exact number class,
   deterministic encoding, and bounded malformed/non-finite failure.
-- [ ] The checked production-shaped locale/JSON/keyed-list fixture reaches
+- [x] The checked production-shaped locale/JSON/keyed-list fixture reaches
   `serve(lower(view(), defaultTheme), ...)` and builds/runs on macOS while the
   same application builds for a concrete installed iOS Simulator.
 
@@ -1667,6 +1667,35 @@ Swift 6 warnings-as-errors execution on macOS and compile on iOS.
   native conformance screen is in scope).
 
 ## Results
+
+### Standard lower, locale, JSON and transactional lifecycle closure (2026-07-12)
+
+- `730055e78` runs checked manifest selection, safe init-spine registration,
+  portable `__try__`/`String.toInt`, exact JSON facade/renderer behavior,
+  proper-list methods/application/concatenation, normalized association maps,
+  anonymous owner-qualified derived signals, and the unchanged standard
+  `serve(lower(...))` production shape in generated Swift. `fb2590069` fixes
+  the nested reconciliation defect found by the real lifecycle matrix: only
+  the outermost successful transaction performs global scope disposal.
+- The independent `nativeui-try-reviewer` and `nativeui-json-reviewer` both
+  posted final post-code `APPROVE` in the `scalascript` Rozum room. Their final
+  gates cover unexpected host errors, every List/mkString shape, sourced
+  attrs/events normalization, locale/JSON closure refresh, keyed rollback,
+  reorder/delete/reinsert, retained outer owners, and exact disposal counts.
+- Fresh post-rebase feature gates pass: `v2SwiftBackend/test` 54/54;
+  `SwiftV2CliTest` + `SwiftV2DistributionTest` + `SwiftUIBuildCliTest` +
+  `SwiftUiRealFixtureBuildTest` 54/54; `v2PluginBridge/test` 33/33;
+  assembled `tests/e2e/v2-swift-cli.sh`; and assembled
+  `tests/e2e/v2-swiftui-apple.sh`, which builds/verifies
+  `busi_pipeline_nativeui_smoke.app` on macOS and iPhone 16 Pro Simulator.
+- Full FrontendBridge was green for the feature corpus (including fast tkv2
+  PWA) before the concurrent SclJet M1 row landed. The latest repeat is 200/201
+  solely because that independent row dispatches `.state` on a String; it is
+  tracked as `v2-frontend-scljet-memory-vfs-state-dispatch`. The standard
+  native `money-portable-v2` tuple-map arity residual is separately localized
+  to synthesized `_sel_map` and tracked as
+  `v2-money-portable-native-front-arity`; neither changes a checked behavior
+  item above.
 
 ### Final Apple assembled and release verification (2026-07-11)
 
