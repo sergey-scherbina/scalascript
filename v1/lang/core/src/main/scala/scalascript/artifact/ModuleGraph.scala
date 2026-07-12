@@ -277,10 +277,23 @@ object ModuleGraph:
    *  @param srcPath    Path to the `.ssc` source file.
    *  @param artifactDir Directory where `.scjvm` artifacts live.
    *  @return `true` if the JVM artifact needs regeneration. */
+  /** H4: a `.scjvm`/`.scjs` artifact is compiled and run verbatim, so a cache dir
+   *  that group/other can write to is a code-execution vector (plant an artifact
+   *  whose sourceHash matches the read-only source). When the dir is world/group-
+   *  writable we can't trust its artifacts — force regeneration from the source.
+   *  Best-effort: on a non-POSIX filesystem (no perms) we don't force-regen. */
+  private def artifactDirUntrusted(artifactDir: os.Path): Boolean =
+    try
+      import java.nio.file.attribute.PosixFilePermission.*
+      val perms = java.nio.file.Files.getPosixFilePermissions(artifactDir.toNIO)
+      perms.contains(GROUP_WRITE) || perms.contains(OTHERS_WRITE)
+    catch case _: Throwable => false
+
   def isJvmStale(srcPath: os.Path, artifactDir: os.Path): Boolean =
     val baseName = srcPath.last.stripSuffix(".ssc")
     val scjvmPath = artifactDir / (baseName + ".scjvm")
     if !os.exists(scjvmPath) then return true
+    if artifactDirUntrusted(artifactDir) then return true
     JvmArtifactIO.readJvmFile(scjvmPath) match
       case Left(_) => true
       case Right(art) =>
@@ -305,6 +318,7 @@ object ModuleGraph:
     val baseName = srcPath.last.stripSuffix(".ssc")
     val scjsPath = artifactDir / (baseName + ".scjs")
     if !os.exists(scjsPath) then return true
+    if artifactDirUntrusted(artifactDir) then return true
     JsArtifactIO.readJsFile(scjsPath) match
       case Left(_) => true
       case Right(art) =>
