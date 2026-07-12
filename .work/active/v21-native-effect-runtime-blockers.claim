@@ -1,6 +1,6 @@
 feature/v21-native-effect-runtime-blockers 2026-07-11T19:21:44Z
 agent: codex
-heartbeat: 2026-07-12T02:32:17Z
+heartbeat: 2026-07-12T03:00:14Z
 status: in-progress
-done-so-far: graph provider is pushed through ff42d5d57; parity is 47 identical / 19 both-fail and taxonomy is 6 blockers / 19 classified rows
-next: run the exhaustive self-hosted-core release gate, verify the graph spec, record exact baselines, and advance to the four language blockers
+done-so-far: graph is pushed and fully gated; final language audit/specs are committed locally, parameterless-def implementation is exact on VM/ASM and exposed Pair tuple-lambda adaptation in dsl-mini-language
+next: commit tuple-lambda spec, implement exact Pair/Tuple callback adaptation, gate parameterless def plus dsl-mini-language, then push the green slice
