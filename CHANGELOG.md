@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-12 — native case-class copy preserves named labels
+
+The compiler-free ScalaScript 2.1 frontend now carries named `.copy` overrides
+through portable field metadata instead of erasing them to positional values.
+Receiver and overrides evaluate once from left to right, out-of-order labels
+rebuild the correct fields, and positional prefix copy is unchanged. Focused
+standard VM/direct-ASM/build-jvm output is exact; release remains 50/16 with
+three honest blockers until native optics lands, with fresh conformance 11/11.
+Landed in `d01d2e9f1`.
+
 ## 2026-07-12 — explicit Option/List direct syntax is self-hosted
 
 The compiler-free ScalaScript 2.1 frontend now preserves explicit

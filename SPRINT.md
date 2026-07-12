@@ -3349,6 +3349,23 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                           copy labels, then lower Focus/Prism
                                           Lens/Optional/Traversal behavior from
                                           structural paths.
+                                          - [x] **m2d1 named copy:** retain
+                                                labels through portable copy,
+                                                evaluate receiver/overrides once
+                                                left-to-right, and keep
+                                                positional prefix semantics.
+                                                Result: focused standard
+                                                VM/ASM/build-jvm output is exact;
+                                                release remains honestly 50/16
+                                                with 3 blockers because Focus is
+                                                still absent; conformance 11/11.
+                                          - [ ] **m2d2 native optics:** preserve
+                                                Focus paths and Prism variant
+                                                type applications, then provide
+                                                core-free Lens/Optional/
+                                                Traversal/Prism dispatch and
+                                                retire `lenses.ssc` only after
+                                                all 23 rows are exact.
                               - [ ] **TI-8.2d3m3 release closure:** rerun the
                                     195-row frontend/parity/taxonomy suite and
                                     exhaustive release gate, require all four

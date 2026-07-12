@@ -39,7 +39,8 @@ semantics advanced the mini-language pipeline report.
 
 ## v21-native-named-copy-labels-dropped — case-class copy overrides by position
 
-**Status:** open (2026-07-12); found by codex in TI-8.2d3m audit.
+**Status:** fixed (2026-07-12, `d01d2e9f1`), awaiting Sergiy confirmation;
+found by codex in TI-8.2d3m audit.
 
 - **Real-harness repro:** before the Focus failure, `alice.copy(age = 31)`
   prints `older   : 31, 30` instead of `older   : Alice, 31` on both standard
@@ -51,6 +52,11 @@ semantics advanced the mini-language pipeline report.
 - **Done-when:** generic structural copy preserves/reorders labels by the
   registered case-class layout, evaluates receiver/overrides once, and keeps
   positional copy behavior unchanged on VM/ASM/build-jvm.
+- **Fix/result:** the native lowerer binds receiver and named overrides once in
+  source order, then passes label/local pairs through existing portable copy
+  dispatch. The generic focused fixture is exact on standard VM, direct ASM,
+  and reproducible build-jvm (`RCN` proves ordering); release stays 50/16 with
+  three blockers because the independently tracked Focus/Prism gap remains.
 
 ## v21-native-direct-do-unlowered — direct[M] remains an unbound call
 
