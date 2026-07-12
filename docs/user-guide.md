@@ -305,9 +305,10 @@ The native frontend accepts named layout givens with indented member bodies:
 method calls such as `intShow.prefix` and `intShow.show(7)` use deterministic
 static dispatch on both the VM and direct ASM, including sibling-member calls
 inside the given body. Exact top-level `summon[TC[T]]` resolves a matching named
-given, including nested type arguments. Missing evidence fails explicitly;
-anonymous givens, Mirror/derived evidence, subtype search, and type-directed
-overload selection remain bounded migration gaps.
+given, including nested type arguments. Product `Mirror.Of[T]` and custom
+`derives TC` evidence are also synthesized by the standard self-hosted route.
+Missing evidence fails explicitly; anonymous givens, sum Mirrors, subtype
+search, and type-directed overload selection remain bounded migration gaps.
 
 Nested constructor matches on the native route preserve source arm order. If an
 outer tag matches but an inner constructor does not—such as
@@ -6066,13 +6067,15 @@ println(m.elemLabels.mkString("|"))  // name|age
 println(m.elemTypes.mkString("|"))   // String|Int
 ```
 
-Status: **partially implemented**. Supported now in the interpreter:
-`Mirror.Of[T]`, `Mirror.ProductOf[T]`, `Mirror.SumOf[T]`, `Mirror.of[T]`,
+Status: **partially implemented**. Product `Mirror.Of[T]` /
+`Mirror.ProductOf[T]`, ordered labels/types, and custom `derived(m: Mirror)`
+also run on the compiler-free ScalaScript 2.1 standard VM, direct-ASM, and
+`build-jvm` path. The broader interpreter additionally supports
+`Mirror.SumOf[T]`, `Mirror.of[T]`,
 `label`, `fields`, `elemLabels`, `elemTypes`, `variants`, `isProduct`,
 `isSum`, `fromProduct`, and `ordinal`. Still planned: source-level
 `inline match` over `Mirror.Product/Sum`, richer compile-time tuple
-operations, and explicit cross-backend conformance for JVM/JS/WASM generated
-paths.
+operations, native sum Mirrors, and broader generated-backend edge cases.
 
 ---
 

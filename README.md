@@ -66,8 +66,10 @@ Indented extension bodies close at dedent and retain selected-call ownership
 when imported through another `.ssc` module.
 An imported symbolic extension such as parser choice `|` handles non-primitive
 values while `6 | 3` remains ordinary integer bitwise OR.
-Exact top-level `summon[TC[T]]` resolves a matching named given; Mirror/derived
-evidence, anonymous givens, and general implicit search remain migration gaps.
+Exact top-level `summon[TC[T]]` resolves a matching named given. Product
+`Mirror.Of[T]` / `Mirror.ProductOf[T]` metadata and custom `derives TC` evidence
+are self-hosted on the standard VM/direct-ASM/build-jvm route; anonymous
+givens, sum Mirrors, and general implicit search remain migration gaps.
 Parameterless `def value: T = ...` references evaluate the nullary definition,
 while explicit `def value(): T = ...` keeps its required call. List `map` and
 `flatMap` spread portable pair elements into matching two-parameter callbacks.
@@ -172,7 +174,7 @@ bin/http.ssc
 | [Coroutines & Generators](specs/coroutines.md) | Coroutine primitive underlying one-shot effects and generators |
 | [Algebraic Effects spec](specs/algebraic-effects.md) | Typed effect rows — `!` operator, `multi effect`, Rémy-style unification, typed stdlib, `Reader[R]`, `NonDet` |
 | [Error Handling](docs/error-handling.md) | Checked errors via `throws[A, E]`, `attemptCatch`, `HasStackTrace` |
-| [Metaprogramming](specs/metaprogramming.md) / [v2 macros](specs/arch-metaprogramming-v2.md) | `inline`, `derives`, `compiletime.*`; partially implemented restricted quoted macros for `ssc link`, interpreter `ssc run`, and the JVM + JS backends, incl. `Expr.asValue match` compile-time constant folding, with targeted unsupported-body diagnostics; interpreter `Mirror.Of[T]` and user `derived(m: Mirror)` typeclasses |
+| [Metaprogramming](specs/metaprogramming.md) / [v2 macros](specs/arch-metaprogramming-v2.md) | `inline`, `derives`, `compiletime.*`; partially implemented restricted quoted macros for `ssc link`, interpreter `ssc run`, and the JVM + JS backends, incl. `Expr.asValue match` compile-time constant folding, with targeted unsupported-body diagnostics; product `Mirror.Of[T]` and user `derived(m: Mirror)` typeclasses also run on the compiler-free standard 2.1 path |
 | [Markdown Content Introspection](specs/markdown-content-introspection.md) | Markdown-to-frontend content layer: Markdown/YAML/GFM tables/fenced language blocks lower to `std/ui` through `contentToolkitNode()` or explicit `contentToolkitBlock(id)` / `contentToolkitSection(id)` selectors, including declarative `yaml @ui=toolkit` controls, Markdown-authored tables as `TableNode`, `contentData(id)` lookup, explicit `contentComponent(...)` registries for `component=<name>` / `data=<id>` metadata, pure-ScalaScript `contentBind(value, bindings)` resolution for Markdown `${name}` placeholders (including compiler-free native VM/ASM and `build-jvm`), and cross-backend `std/content` lookup helpers `contentCurrentSection()`, `contentSection(id)`, `contentBlock(id)`, `contentMetadata(path)`, `contentPlainText(value)`, `contentToMarkdown(value)`, plus direct imported module content namespaces via `contentModule(namespace)` for interpreter, JS, and JVM targets; `.scir` and `.sscc` preserve the current-module `DocumentContent` snapshot when present; low-level `contentView(contentDocument())` remains available |
 | [Markdown Content Linked Namespaces](specs/markdown-content-linked-namespaces.md) | Focused contract for reusing Markdown-authored sections, blocks, data, and `content:` metadata from direct `.ssc` imports through `contentModules()` and namespace-scoped lookup helpers; the [2.1 native structural provider](specs/v2.1-native-content.md) carries the same direct-import content through VM, ASM, standard/slim/JRE, and deterministic `build-jvm` without a host Markdown parser |
 | [Markdown Content Native Client Parity](specs/markdown-content-native-client-parity.md) | Same Markdown-authored toolkit controls render through Swing, JavaFX, and SwiftUI native frontends by normalizing shared `std/ui/lower` `View.Element` output into native text fields, checkboxes/toggles, buttons, and signal state |
@@ -744,7 +746,7 @@ scala-cli conformance/run.sc
 | mcp | MCP server tools + resources; MCP client callTool |
 | dataset | `Dataset[T]` local sequential, parallel, distributed MapReduce |
 | dsl | Parser combinators, error recovery, indentation-aware, multi-pass pipeline |
-| metaprogramming | `inline`, `derives`, `compiletime.*`, restricted quoted macro link/interpreter expansion (partial), interpreter `Mirror.Of[T]` custom derives |
+| metaprogramming | `inline`, `derives`, `compiletime.*`, restricted quoted macro link/interpreter expansion (partial), compiler-free product `Mirror.Of[T]` custom derives |
 | checked-errors | `throws[A, E]`, `attemptCatch`, `HasStackTrace` |
 | websocket | `onWebSocket`, `ws.send/recv`, rate limiting, `wss://` |
 | tls | `tls(cert, key)`, HTTPS, WSS |
