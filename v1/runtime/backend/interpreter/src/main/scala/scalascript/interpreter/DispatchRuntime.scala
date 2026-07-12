@@ -118,6 +118,14 @@ private[interpreter] object DispatchRuntime:
       // workloads — JFR ~600 MB on typeclassFoldMacro). Read the fields via the type-tested ref.
       case inst: Value.InstanceV   => dispatchInstance(recv, inst.typeName, inst.effectiveFields, name, args, env, interp)
       case Value.Foreign(t, _)     => dispatchForeign(recv, t, name, args, env, interp)
+      // A parameterless native global (args/cwd/sep/platform/homedir/nowMillis/…) used
+      // in receiver position — `args.length`, `platform.toUpperCase`, `args(0)` — is a
+      // function value with no methods of its own. Auto-call it to its value (like the
+      // bare-value auto-call) and re-dispatch on the result. Gated to registered plugin
+      // natives so method-ref NativeFnVs (foldLeft/apply/…) are untouched.
+      // (v1-args-native-method-gap.)
+      case Value.NativeFnV(nm, fn) if interp.pluginNativeNames.contains(nm) =>
+        FlatMap(fn(Nil), v => dispatch(v, name, args, env, interp))
       case other                   => dispatchFallback(other, name, args, env, interp)
 
   /** Single-arg fast path: avoids allocating `arg :: Nil` per method call.
