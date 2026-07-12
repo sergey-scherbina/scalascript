@@ -867,12 +867,38 @@ def isKnownSelMethod = (m) =>
       case Cons(h, t) => if #seq(h, m) then true else go(t) } in
   go(ks)
 
+-- A parenthesized multi-parameter mapper is parsed as an ordinary selected
+-- method call, so the generic `_sel_map` helper would receive a Tuple2 head
+-- but call the mapper with that tuple as one argument. The VM's polymorphic
+-- __method__ map path owns tuple spreading; use it only for this shape and
+-- retain `_sel_map` for the one-parameter LazyCons/Option/Either cases.
+def isSingleMultiParamLambda = (args) =>
+  match args {
+    case Cons(arg, rest) =>
+      match rest {
+        case Nil =>
+          match arg {
+            case Pair(tag, data) =>
+              if #seq(tag, "lam") then
+                match data { case Pair(params, body) => #i.gt(lenL(params), 1) }
+              else false
+          }
+        case _ => false
+      }
+    case Nil => false
+  }
+
 def selMethodOr = (method, robj, rargs) =>
   -- K62.32: the _sel_mkString prelude helper is arity-2 (receiver, sep), so the 0-arg
   -- (mkString) and 3-arg (mkString(pre, sep, post)) forms crashed "arity: 2 expected, N given".
   -- Route those to the polymorphic runtime __method__ (handles all three arities on List AND
   -- ArrayBuffer); keep the 1-arg (sep) form on the fast _sel_mkString path.
-  if #seq(method, "mkString") then
+  if #seq(method, "map") then
+    (if isSingleMultiParamLambda(rargs) then
+       Pair("prim", Pair("__method__", Cons(Pair("str", "map"), Cons(robj, rargs))))
+     else
+       Pair("app", Pair(Pair("var", "_sel_map"), Cons(robj, rargs))))
+  else if #seq(method, "mkString") then
     (if #i.eq(lenL(rargs), 1) then
        Pair("app", Pair(Pair("var", "_sel_mkString"), Cons(robj, rargs)))
      else
