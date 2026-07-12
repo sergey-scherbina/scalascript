@@ -1,5 +1,53 @@
 # Bug tracker
 
+## native-front-nativeui-site-annotation — anonymous computedSignal/eqSignal collide on `ssc run`
+
+**Status:** fixed (2026-07-12, `dc9814521`), awaiting Sergiy confirmation; found while
+migrating rozum's control center (`clients/control/center.ssc`, 20+ computedSignals) to the
+latest v2.
+
+- **Real-harness repro:** `bin/ssc run` a file with two anonymous derived signals whose
+  computed defaults differ:
+  ```
+  import [signal, computedSignal](std/ui/primitives.ssc)
+  val a = signal("a", "x")
+  val b = computedSignal(() => a() + "1")
+  val c = computedSignal(() => a() + "2")
+  println(b()); println(c())
+  ```
+  Before the fix: `ssc: duplicate native UI signal '__computed__manual:computedSignal' in
+  scope 'root' has conflicting kind/default`. After: prints `x1` / `x2`.
+- **Root cause:** the self-hosted native frontend (`RunNativeV2`, the default `ssc run`
+  path) lowers std/ui primitive calls to PLAIN globals and — unlike the scalameta
+  `FrontendBridge` — never ran the `NativeUiSites.annotate` pass. So every anonymous
+  `computedSignal`/`eqSignal` reached the ui plugin's fallback registration
+  (`UiNativePlugin.siteNative`, id `manual:<name>`) with one shared id, and the second
+  distinct-default signal collided.
+- **Fix/verification:** `RunNativeV2.compile` now scans the structural CoreIR for the
+  anonymous derived-signal primitives actually called (`App(Global(name))`) and runs the
+  same `NativeUiSites.annotate` so each site gets a unique lexical id. New
+  `NativeUiSiteAnnotationTest` (2), `NativeUiSitesTest` (7), `UiNativePluginTest` (14),
+  std-ui conformance (7) all green.
+
+## native-front-spa-arity-gap — rich native-ui SPAs fail `ssc run` with `arity: 2 expected, 1 given`
+
+**Status:** open (2026-07-12); found immediately after the collision above was fixed, while
+bringing rozum's control center up on the latest native frontend.
+
+- **Real-harness repro:** `bin/ssc run examples/control-center-live.ssc` (an in-repo example)
+  fails with `ssc: arity: 2 expected, 1 given` (`Runtime.scala:178`). Reproduces WITH OR
+  WITHOUT the site-annotation fix and independent of the computedSignal collision — a bare
+  2-signal file runs fine, so the fault is in one of the richer primitives the SPA uses
+  (`fetchUrlSignal`/`fetchUrlSignalTo`/`fetchAction*`/`fieldColumn`/`incSignal`/`onBumpTick`).
+- **Impact:** blocks moving rozum's control center (and any comparably rich native-ui SPA)
+  to the latest v2 native frontend — the current UCC therefore keeps serving its
+  previously-built HTML. The native `ssc run` path is not yet SPA-complete for the full
+  std/ui surface.
+- **Plan/done-when:** identify which std/ui primitive is invoked with the wrong arity on the
+  native VM path (bisect `control-center-live.ssc`), fix the native-front lowering/registration
+  for it, and make `ssc run examples/control-center-live.ssc` emit its HTML. Overlaps the
+  active `v2-swift-nativeui-i18n-json` native-ui work — coordinate before broad edits.
+
 ## scljet-freelist-recursive-stack-overflow — valid large freelist crashes the interpreter
 
 **Status:** fixed (2026-07-12, `7399fad95`), awaiting Sergiy confirmation;
