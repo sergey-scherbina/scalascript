@@ -2,7 +2,6 @@ file	category	blocker	owner	reason
 actors-pingpong.ssc	standard-provider	yes	actors	runActors is not installed by a core-free standard actors provider
 actors-typed-remote-spawn.ssc	standard-provider	yes	actors	runActors is not installed by a core-free standard actors provider
 agent-mcp-toolsource.ssc	tools-backend	no	mcp	JVM/JS MCP tool-source syntax is already a reviewed backend surface
-async-demo.ssc	standard-provider	yes	async	runAsync is not installed by a core-free standard async provider
 custom-derives-mirror.ssc	language-runtime	yes	typeclass	Mirror/derives evidence is not synthesized, so exact summon has no named given to resolve
 direct-syntax-demo.ssc	language-runtime	yes	direct	direct syntax lowers to an unbound global instead of portable runtime semantics
 distributed-join.ssc	standard-provider	yes	distributed	NamedHandler is missing from the core-free distributed runtime
