@@ -9,6 +9,28 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## uniml-yaml — lossless safe YAML 1.2 dialect (2026-07-12, Sergiy: "продолжай дальше не останавливайся")
+
+Goal: complete UniML roadmap M3 with a YAML 1.2 Core Schema adapter preserving streams/documents,
+directives, block and flow collections, scalar style/chomping/indentation, anchors, aliases, tags,
+comments, whitespace and duplicate entries while keeping construction and alias expansion explicit,
+bounded semantic projections rather than parse-time execution.
+
+- [ ] **uniml-yaml-0-spec** — write and commit `specs/uniml-yaml.md` before code. Pin YAML 1.2.2,
+      token/CST roles, indentation and flow state machines, scalar styles, directives/doc boundaries,
+      anchors/aliases/tags, duplicate/order semantics, schema resolution, diagnostics/recovery, limits,
+      chunk invariance, safe projection, corpus/differential gates, exclusions and security.
+- [ ] **uniml-yaml-1-adapter** — implement separate `unimlYaml`/`unimlYamlJs` cross-projects over
+      UniML with a bounded chunk-invariant scanner and iterative indentation/flow parser emitting one
+      VM instruction per source token for streams, documents, mappings, sequences, and scalar nodes.
+- [ ] **uniml-yaml-2-projection** — add ordered duplicate-preserving YAML semantic values and bounded
+      Core Schema resolution; retain tags/anchors/aliases structurally and expose alias resolution only
+      through an explicit cycle/expansion-limited projection policy.
+- [ ] **uniml-yaml-3-verify** — test block/flow syntax, every scalar style, indentation/chomping,
+      multi-document streams, directives, tags/anchors/aliases, comments/duplicates, all chunk splits,
+      malformed/security/limit cases on JVM+Scala.js; run YAML/content conformance, verify spec,
+      publish bookkeeping, release claim, then continue to Markdown M4.
+
 ## uniml-xml — lossless secure XML 1.0 dialect and Markup projection (2026-07-12, Sergiy: "продолжай дальше не останавливайся")
 
 Goal: complete UniML roadmap M2 with a standalone XML 1.0 adapter that preserves declarations,
