@@ -1,0 +1,18 @@
+#!/usr/bin/env ssc
+---
+databases:
+  default:
+    url: "jdbc:h2:mem:v21-native-typed-sql-identifier;DB_CLOSE_DELAY=-1"
+---
+
+# Model
+
+```scalascript
+case class Todo(id: Int, text: String, done: Boolean) derives RowCodec
+```
+
+# Invalid table
+
+```scalascript
+Db.insert("default", "todos;drop", Todo(1, "rejected", false))
+```

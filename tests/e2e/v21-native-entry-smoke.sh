@@ -63,6 +63,9 @@ sql_fence_expected=$'0\n1\n1\nAda\n$\n1'
 sql_quickstart_expected=$'active users: List(Map(ID -> 1, NAME -> Alice, EMAIL -> alice@example.com), Map(ID -> 2, NAME -> Bob, EMAIL -> bob@example.com))\nusers with id >= 1: List(Map(TOTAL -> 3))'
 [[ $(run_standard "$ROOT/examples/sql-h2-quickstart.ssc") == "$sql_quickstart_expected" ]]
 [[ $(run_standard --bytecode "$ROOT/examples/sql-h2-quickstart.ssc") == "$sql_quickstart_expected" ]]
+typed_sql_expected='1/1:Buy oat milk:true'
+[[ $(run_standard "$ROOT/examples/typed-sql-crud.ssc") == "$typed_sql_expected" ]]
+[[ $(run_standard --bytecode "$ROOT/examples/typed-sql-crud.ssc") == "$typed_sql_expected" ]]
 for sql_negative in \
     'sql-fence-malformed-bind.ssc:__malformed_sql_bind' \
     'sql-fence-client-only.ssc:__unsupported_client_sql_fence'; do
@@ -78,6 +81,23 @@ for sql_negative in \
     fi
     [[ ! -s "$sandbox/sql-negative.out" ]]
     grep -Fx "ssc: unbound global: $sentinel" "$sandbox/sql-negative.err" >/dev/null
+  done
+done
+for typed_sql_negative in \
+    'typed-sql-missing-column.ssc:Db.query[Todo] missing column: done' \
+    'typed-sql-invalid-identifier.ssc:Db.insert invalid SQL identifier: todos;drop'; do
+  fixture=${typed_sql_negative%%:*}
+  diagnostic=${typed_sql_negative#*:}
+  for backend in vm asm; do
+    backend_args=()
+    [[ $backend == asm ]] && backend_args=(--bytecode)
+    if run_standard "${backend_args[@]}" "$FIXTURES/$fixture" \
+        >"$sandbox/typed-sql-negative.out" 2>"$sandbox/typed-sql-negative.err"; then
+      echo "v21-native-entry-smoke: $fixture unexpectedly passed on $backend" >&2
+      exit 1
+    fi
+    [[ ! -s "$sandbox/typed-sql-negative.out" ]]
+    grep -Fx "ssc: $diagnostic" "$sandbox/typed-sql-negative.err" >/dev/null
   done
 done
 ui_expected=$'<!doctype html>\n<main class="card" id="app"><h1>Hi &lt;native&gt;</h1>Ada<span>shown</span></main>'

@@ -104,6 +104,8 @@ run_standard() {
 sql_quickstart_expected=$'active users: List(Map(ID -> 1, NAME -> Alice, EMAIL -> alice@example.com), Map(ID -> 2, NAME -> Bob, EMAIL -> bob@example.com))\nusers with id >= 1: List(Map(TOTAL -> 3))'
 [[ $(run_standard run "$ROOT/examples/sql-h2-quickstart.ssc") == "$sql_quickstart_expected" ]]
 [[ $(run_standard run --bytecode "$ROOT/examples/sql-h2-quickstart.ssc") == "$sql_quickstart_expected" ]]
+[[ $(run_standard run "$ROOT/examples/typed-sql-crud.ssc") == '1/1:Buy oat milk:true' ]]
+[[ $(run_standard run --bytecode "$ROOT/examples/typed-sql-crud.ssc") == '1/1:Buy oat milk:true' ]]
 [[ $(run_standard run "$FIXTURES/state-effect-provider.ssc") == $'17\n20\n2\n101\n101\n2' ]]
 lenses_expected=$'older   : Alice, 31\nrenamed : Bob, 40, Boston\n30\n99\n40\nBoston\nParis\nMain St\nMain St\nBroadway\nSome(Circle(5))\nNone\nCircle(10)\nRect(3, 4)\nSome(Boston)\nNone\nNone\nSome(Profile(Some(Address(Main St, Paris))))\nNone\nSome(Boston)\nList(Alice, Bob, Carol)\nList(31, 26, 36)\nList(TeamMember(anon, 30), TeamMember(anon, 25), TeamMember(anon, 35))'
 [[ $(run_standard run "$ROOT/examples/lenses.ssc") == "$lenses_expected" ]]

@@ -70,6 +70,11 @@ PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
 sql_fence_expected=$'active users: List(Map(ID -> 1, NAME -> Alice, EMAIL -> alice@example.com), Map(ID -> 2, NAME -> Bob, EMAIL -> bob@example.com))\nusers with id >= 1: List(Map(TOTAL -> 3))'
 [[ $(PATH="$clean_path" java -jar "$sandbox/sql-fence.jar") == "$sql_fence_expected" ]]
 
+cp "$ROOT/examples/typed-sql-crud.ssc" "$sandbox/other/typed-sql-crud.ssc"
+PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
+  "$sandbox/other/typed-sql-crud.ssc" -o "$sandbox/typed-sql.jar"
+[[ $(PATH="$clean_path" java -jar "$sandbox/typed-sql.jar") == '1/1:Buy oat milk:true' ]]
+
 cp "$ROOT/examples/yaml-parse.ssc" "$sandbox/other/yaml-parse.ssc"
 PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
   "$sandbox/other/yaml-parse.ssc" -o "$sandbox/yaml.jar"
@@ -181,6 +186,8 @@ LC_ALL=C sort -c "$sandbox/entries"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps -verbose:class \
   "$sandbox/sql-fence.jar" >"$sandbox/sql-fence.jdeps"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps -verbose:class \
+  "$sandbox/typed-sql.jar" >"$sandbox/typed-sql.jdeps"
+"$jdeps_cmd" --multi-release base --ignore-missing-deps -verbose:class \
   "$sandbox/yaml.jar" >"$sandbox/yaml.jdeps"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps -verbose:class \
   "$sandbox/dataset.jar" >"$sandbox/dataset.jdeps"
@@ -211,6 +218,8 @@ LC_ALL=C sort -c "$sandbox/entries"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
   "$sandbox/sql-fence.jar" >"$sandbox/sql-fence.modules"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
+  "$sandbox/typed-sql.jar" >"$sandbox/typed-sql.modules"
+"$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
   "$sandbox/yaml.jar" >"$sandbox/yaml.modules"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
   "$sandbox/dataset.jar" >"$sandbox/dataset.modules"
@@ -238,9 +247,10 @@ LC_ALL=C sort -c "$sandbox/entries"
 forbidden='scala[./](meta|tools)|dotty[./]tools|scala3-compiler|compiler-driver|javax[./]tools|java[.]compiler|jdk[.]compiler|ssc[./]bridge|scalascript[./](ast|frontend|interpreter)'
 if grep -Ei "$forbidden" "$sandbox/entries" "$sandbox/entry.javap" \
     "$sandbox/app.jdeps" "$sandbox/sql.jdeps" "$sandbox/sql-fence.jdeps" \
+    "$sandbox/typed-sql.jdeps" \
     "$sandbox/yaml.jdeps" "$sandbox/dataset.jdeps" \
     "$sandbox/generator.jdeps" "$sandbox/async.jdeps" "$sandbox/app.modules" \
-    "$sandbox/sql.modules" "$sandbox/sql-fence.modules" \
+    "$sandbox/sql.modules" "$sandbox/sql-fence.modules" "$sandbox/typed-sql.modules" \
     "$sandbox/yaml.modules" "$sandbox/dataset.modules" "$sandbox/generator.modules" \
     "$sandbox/async.modules" "$sandbox/actors.jdeps" "$sandbox/actors.modules" \
     "$sandbox/distributed.jdeps" "$sandbox/distributed.modules" \
@@ -270,6 +280,7 @@ artifact_bytes=$(wc -c <"$sandbox/a/app.jar" | tr -d ' ')
 app_modules=$(tr -d '\r\n' <"$sandbox/app.modules")
 sql_modules=$(tr -d '\r\n' <"$sandbox/sql.modules")
 sql_fence_modules=$(tr -d '\r\n' <"$sandbox/sql-fence.modules")
+typed_sql_modules=$(tr -d '\r\n' <"$sandbox/typed-sql.modules")
 yaml_modules=$(tr -d '\r\n' <"$sandbox/yaml.modules")
 dataset_modules=$(tr -d '\r\n' <"$sandbox/dataset.modules")
 generator_modules=$(tr -d '\r\n' <"$sandbox/generator.modules")
@@ -292,6 +303,7 @@ report_tmp="$sandbox/release.tsv"
   printf 'app.modules\t%s\n' "$app_modules"
   printf 'sql.modules\t%s\n' "$sql_modules"
   printf 'sql-fence.modules\t%s\n' "$sql_fence_modules"
+  printf 'typed-sql.modules\t%s\n' "$typed_sql_modules"
   printf 'yaml.modules\t%s\n' "$yaml_modules"
   printf 'dataset.modules\t%s\n' "$dataset_modules"
   printf 'generator.modules\t%s\n' "$generator_modules"
@@ -310,6 +322,7 @@ report_tmp="$sandbox/release.tsv"
   printf 'import.output\t42\n'
   printf 'sql.output\t1/7/Ada/true\n'
   printf 'sql-fence.output\tactive-users/headcount/exact\n'
+  printf 'typed-sql.output\t1/1:Buy oat milk:true\n'
   printf 'yaml.output\tType/Host/Port/Debug/Tags/Round-trip/App\n'
   printf 'dataset.output\tlocal/parallel/exact\n'
   printf 'generator.output\tpull/combinators/cancellation/exact\n'

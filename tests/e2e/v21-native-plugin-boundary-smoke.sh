@@ -212,6 +212,13 @@ PATH=/usr/bin:/bin "$ROOT/bin/ssc-standard" run --bytecode \
 cmp -s "$sql_vm" "$sql_asm"
 [[ $(cat "$sql_vm") == $'active users: List(Map(ID -> 1, NAME -> Alice, EMAIL -> alice@example.com), Map(ID -> 2, NAME -> Bob, EMAIL -> bob@example.com))\nusers with id >= 1: List(Map(TOTAL -> 3))' ]]
 
+PATH=/usr/bin:/bin "$ROOT/bin/ssc-standard" run \
+  "$ROOT/examples/typed-sql-crud.ssc" >"$sql_vm"
+PATH=/usr/bin:/bin "$ROOT/bin/ssc-standard" run --bytecode \
+  "$ROOT/examples/typed-sql-crud.ssc" >"$sql_asm"
+cmp -s "$sql_vm" "$sql_asm"
+[[ $(cat "$sql_vm") == '1/1:Buy oat milk:true' ]]
+
 PATH=/usr/bin:/bin "$ROOT/bin/ssc" run --native \
   "$ROOT/tests/fixtures/v21-native/state-effect-provider.ssc" >"$state_vm"
 PATH=/usr/bin:/bin "$ROOT/bin/ssc" run --native --bytecode \

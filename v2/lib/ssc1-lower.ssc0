@@ -1148,6 +1148,14 @@ def fInterpCall = (fn) =>
   match fn { case Pair(ftag, fdata) =>
     if #seq(ftag, "var") then #seq(fdata, "__fInterpolate__") else false }
 
+def isTypedDbQueryMarker = (fn) =>
+  match fn { case Pair(ftag, fdata) => #seq(ftag, "typed_db_query") }
+
+def resolveTypedDbQuery = (fn, args) =>
+  match fn { case Pair(ftag, typeName) =>
+    Pair("app", Pair(Pair("var", "Db.queryTyped"),
+      Cons(Pair("str", typeName), resolveArgs(args)))) }
+
 def directNameIn = (name, names) =>
   match names {
     case Nil => false
@@ -1247,18 +1255,19 @@ def resolveE = (expr) =>
             -- app(var("__fInterpolate__"), [head, spec,arg,rest, …]); route it to a prim
             -- node so lowerE emits IrPrim("__fInterpolate__", …) (the runtime String.format
             -- op), not an unbound-global call.
-            if isFocusMarker(fn) then
+            if isTypedDbQueryMarker(fn) then resolveTypedDbQuery(fn, args)
+            else if isFocusMarker(fn) then
               resolveFocusArgs(args)
             else if fInterpCall(fn) then Pair("prim", Pair("__fInterpolate__", resolveArgs(args)))
             else
             -- K62.17: expand omitted positional defaults into a scoped,
             -- single-evaluation lambda chain before ordinary call resolution.
             match expandCallSugar(fn, args) {
-              case Pair(expandedTag, expanded) =>
-                if #seq(expandedTag, "__some__") then resolveE(expanded)
-                else
-                  let rargs = resolveArgs(args) in
-                  match fn {
+                  case Pair(expandedTag, expanded) =>
+                    if #seq(expandedTag, "__some__") then resolveE(expanded)
+                    else
+                      let rargs = resolveArgs(args) in
+                      match fn {
               case Pair(ftag, fdata) =>
                 if #seq(ftag, "uid") then
                   if #seq(fdata, "Some") then Pair("ctorap", Pair("Some", rargs))

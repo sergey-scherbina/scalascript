@@ -1,0 +1,26 @@
+#!/usr/bin/env ssc
+---
+databases:
+  default:
+    url: "jdbc:h2:mem:v21-native-typed-sql-missing;DB_CLOSE_DELAY=-1"
+---
+
+# Model
+
+```scalascript
+case class Todo(id: Int, text: String, done: Boolean) derives RowCodec
+```
+
+# Schema
+
+```sql
+CREATE TABLE todos (id INT PRIMARY KEY, text VARCHAR(120), done BOOLEAN)
+```
+
+# Missing column
+
+```scalascript
+Db.insert("default", "todos", Todo(1, "missing done", false))
+val rows = Db.query[Todo]("default", "SELECT id, text FROM todos", [])
+println(rows)
+```

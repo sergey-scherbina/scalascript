@@ -1082,6 +1082,22 @@ def readTypeApply = (toks, depth, acc) =>
     let sv = if #seq(v, "") then k else v in
     readTypeApply(advance(toks), depth, Cons(sv, acc))
 
+def isDbQuerySelection = (e) =>
+  match e {
+    case Pair(tag, data) =>
+      if #seq(tag, "sel") then
+        match data {
+          case Pair(obj, method) =>
+            if #seq(method, "query") then
+              match obj {
+                case Pair(objTag, objName) =>
+                  if #seq(objTag, "uid") then #seq(objName, "Db") else false
+              }
+            else false
+        }
+      else false
+  }
+
 -- buildPostfix: e . name | e (args)  (left-recursive, iterative)
 def buildPostfix = (e, toks) =>
   let t = peek(toks) in
@@ -1139,6 +1155,8 @@ def buildPostfix = (e, toks) =>
           if #seq(edata, "Focus") then Pair("focus_marker", prV(rt))
           else if #seq(edata, "Prism") then Pair("prism", prV(rt))
           else e
+        else if #seq(etag, "sel") then
+          if isDbQuerySelection(e) then Pair("typed_db_query", prV(rt)) else e
         else e
     } in
     buildPostfix(typed, prT(rt))

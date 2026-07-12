@@ -66,3 +66,38 @@ class SqlNativePluginTest extends AnyFunSuite:
     assert(rawRow.asInstanceOf[collection.Map[Value, Value]](Value.StrV("TEXT")) ==
       Value.StrV("bound"))
     assert(V2PluginRegistry.lookupFieldNames("SqlSection", 1).contains(Vector("sql")))
+
+  test("derived portable products support typed query insert update and bounded errors"):
+    install("native-typed-sql")
+    V2PluginRegistry.registerFieldNames("Todo", Vector("id", "text", "done"))
+    val mirror = Value.DataV("Mirror", Vector(
+      Value.StrV("Todo"),
+      list(Value.StrV("id"), Value.StrV("text"), Value.StrV("done")),
+      list(Value.StrV("Int"), Value.StrV("String"), Value.StrV("Boolean"))))
+    val codec = call("RowCodec_derived", mirror)
+    assert(codec.isInstanceOf[Value.DataV])
+
+    assert(call("Db.sql", Value.StrV("default"), Value.StrV(
+      "CREATE TABLE todos (id INT PRIMARY KEY, text VARCHAR(120), done BOOLEAN)"), list()) ==
+      Value.IntV(0))
+    val first = Value.DataV("Todo", Vector(
+      Value.IntV(1), Value.StrV("Buy milk"), Value.BoolV(false)))
+    val changed = Value.DataV("Todo", Vector(
+      Value.IntV(1), Value.StrV("Buy oat milk"), Value.BoolV(true)))
+    assert(call("Db.insert", Value.StrV("default"), Value.StrV("todos"), first) ==
+      Value.IntV(1))
+    assert(call("Db.update", Value.StrV("default"), Value.StrV("todos"),
+      Value.StrV("id"), Value.IntV(1), changed) == Value.IntV(1))
+    assert(call("Db.queryTyped", Value.StrV("Todo"), Value.StrV("default"),
+      Value.StrV("SELECT ID, TEXT, DONE FROM todos"), list()) ==
+      list(changed))
+
+    val missing = intercept[RuntimeException] {
+      call("Db.queryTyped", Value.StrV("Todo"), Value.StrV("default"),
+        Value.StrV("SELECT id, text FROM todos"), list())
+    }
+    assert(missing.getMessage.contains("Db.query[Todo] missing column: done"))
+    val badIdentifier = intercept[RuntimeException] {
+      call("Db.insert", Value.StrV("default"), Value.StrV("todos;drop"), first)
+    }
+    assert(badIdentifier.getMessage.contains("invalid SQL identifier"))
