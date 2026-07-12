@@ -89,7 +89,7 @@ final class YamlDialectSpec extends AnyFunSuite:
   }
 
   test("all-feature transport remains invariant around properties and block scalars") {
-    val text = "%TAG !e! tag:example.org,2026:\n---\nroot: &root\n  text: |2-\n    hello\n  flow: [!e!value 'x', *root]\n...\n"
+    val text = "%TAG !e! tag:example.org,2026:\n---\nroot: &root\n  text: |2-\n    hello\n  flow: [!e!value 'x😀', *root]\n...\n"
     val baseline = parse(text)
     val shape = tokenShape(baseline)
     (0 to text.length).foreach { split =>
