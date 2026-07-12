@@ -1,5 +1,38 @@
 # Bug tracker
 
+## v21-native-typed-sql-crud-missing — standard provider lacks typed Db writes/read
+
+**Status:** open (2026-07-12); accepted from the final TI-8.2d runtime taxonomy,
+reported by the release gate and owned by codex.
+
+- **Real-harness repro:** after `scripts/sbtc "installBin"`, run
+  `bin/ssc-standard run examples/typed-sql-crud.ssc` and repeat with
+  `--bytecode`; both are reviewed `both-fail` rows while explicit
+  `bin/ssc-tools run --compat-frontend` supplies the reference behavior.
+- **Known boundary:** the document includes its schema SQL fence, but the
+  compiler-free path does not yet provide typed `Db.insert/update/query[A]`
+  over the portable `RowCodec`/product metadata.
+- **Done-when:** schema execution plus typed insert/update/read produce the
+  public exact output on standard VM/direct ASM/reproducible build-jvm through
+  the core-free SQL provider, with negative conversion coverage and no v1 or
+  compiler fallback.
+
+## v21-native-sql-fence-binding-missing — SQL section result is not native
+
+**Status:** open (2026-07-12); accepted from the final TI-8.2d runtime taxonomy,
+reported by the release gate and owned by codex.
+
+- **Real-harness repro:** after `scripts/sbtc "installBin"`, run
+  `bin/ssc-standard run examples/sql-h2-quickstart.ssc` and repeat with
+  `--bytecode`; both are reviewed `both-fail` rows while explicit compatibility
+  supplies the reference behavior.
+- **Known boundary:** the current core-free SQL provider owns `Db.query` and
+  `Db.execute`, but native lowering does not yet execute fenced SQL in document
+  order or expose the section's first result as `<Section>.sql`.
+- **Done-when:** DDL/DML/query fences, `${expr}` binds, and generic section
+  result binding are exact on standard VM/direct ASM/reproducible build-jvm,
+  including bounded malformed/config errors and no transparent fallback.
+
 ## v21-native-tuple-lambda-destructuring — collection callbacks expect two arguments
 
 **Status:** fixed (2026-07-12, language `12d3d9cf2`, taxonomy `06a518685`),

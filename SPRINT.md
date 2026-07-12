@@ -3388,6 +3388,44 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     Taxonomy is 0 language / 2 standard / 7
                                     optional / 6 tools, so the remaining next
                                     work is exactly the two SQL blockers.
+                        - [ ] **TI-8.2d3n final native SQL blockers:** close the
+                              two remaining standard-provider rows through the
+                              existing core-free SQL provider, preserving lazy
+                              front-matter connections and the Scala 3 seed.
+                              No SQL fence or typed CRUD path may route through
+                              PluginBridge, the v1 interpreter, generated host
+                              source, Scala/Java compilers, or transparent
+                              compatibility fallback.
+                              - [ ] **n0 installed ownership audit:** capture
+                                    exact standard VM/direct-ASM and explicit
+                                    compatibility output for
+                                    `sql-h2-quickstart.ssc` and
+                                    `typed-sql-crud.ssc`; inspect checked CoreIR
+                                    plus current native SQL provider/metadata to
+                                    separate fence binding from typed CRUD gaps.
+                              - [ ] **n1 contract + regressions:** commit a
+                                    feature spec covering source-ordered SQL
+                                    fence execution, `${expr}` binds, section
+                                    bindings, typed row codecs/CRUD conversion,
+                                    bounded diagnostics, and explicit non-goals;
+                                    add faithful positive/negative fixtures.
+                              - [ ] **n2 SQL fence slice:** lower fenced SQL to
+                                    provider-owned query/execute operations and
+                                    bind section `.sql` results generically;
+                                    require the public H2 quickstart exact on
+                                    standard VM/ASM/build-jvm before retiring
+                                    its taxonomy row and pushing.
+                              - [ ] **n3 typed CRUD slice:** install the bounded
+                                    `RowCodec` metadata plus `Db.insert`,
+                                    `Db.update`, and typed `Db.query[A]` over
+                                    portable products/maps; require exact public
+                                    VM/ASM/build-jvm output before retiring the
+                                    final blocker and pushing.
+                              - [ ] **n4 zero-blocker closure:** rerun provider,
+                                    dependency/class-load, slim/JRE/build-jvm,
+                                    195-row parity/taxonomy, and fresh no-memo
+                                    conformance gates; require blocking
+                                    both-fail=0 before TI-8.2d5 freeze.
                   - [x] **TI-8.2d4 example/config blockers:** DONE 2026-07-11
                         (`d4c953b9c`, taxonomy `39cfe268b`). Repair stale imports,
                         fixture setup, and deterministic data/config assumptions
