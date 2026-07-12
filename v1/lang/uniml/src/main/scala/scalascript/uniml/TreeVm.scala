@@ -2,10 +2,18 @@ package scalascript.uniml
 
 import scala.collection.mutable.ArrayBuffer
 
+final case class FrameSpec(kind: String, role: Option[String] = None)
+
 enum VmInstruction:
   case Open(kind: String, role: Option[String] = None)
   case Close(expectedKind: Option[String] = None, role: Option[String] = None)
   case Emit(role: Option[String] = None)
+  case Reframe(
+      closeBefore: Vector[String] = Vector.empty,
+      open: Vector[FrameSpec] = Vector.empty,
+      closeAfter: Vector[String] = Vector.empty,
+      role: Option[String] = None,
+  )
   case Report(code: String, message: String, severity: Severity = Severity.Error)
 
 final case class VmToken(token: SourceToken, instruction: VmInstruction)
@@ -74,18 +82,22 @@ final class TreeVm(limits: Limits = Limits.default) extends Processor[VmToken, U
         severity = Severity.Fatal,
         span = Some(token.span),
       ))
-    else if input.instruction.isInstanceOf[VmInstruction.Open] && stack.size >= limits.maxDepth then
-      Some(Diagnostic(
-        code = "uniml.limit.depth",
-        message = s"tree depth exceeds the ${limits.maxDepth} frame limit",
-        severity = Severity.Fatal,
-        span = Some(token.span),
-      ))
     else
-      val requiredNodes = input.instruction match
-        case _: VmInstruction.Open => 2L
-        case _                     => 1L
-      if nodeCount + requiredNodes > limits.maxNodes then
+      val (requiredNodes, peakDepth) = input.instruction match
+        case _: VmInstruction.Open => (2L, stack.size + 1)
+        case instruction: VmInstruction.Reframe =>
+          reframeProblem(instruction) match
+            case None          => (1L + instruction.open.size, stack.size - instruction.closeBefore.size + instruction.open.size)
+            case Some(_)       => (1L, stack.size)
+        case _ => (1L, stack.size)
+      if peakDepth > limits.maxDepth then
+        Some(Diagnostic(
+          code = "uniml.limit.depth",
+          message = s"tree depth exceeds the ${limits.maxDepth} frame limit",
+          severity = Severity.Fatal,
+          span = Some(token.span),
+        ))
+      else if nodeCount + requiredNodes > limits.maxNodes then
         Some(Diagnostic(
           code = "uniml.limit.nodes",
           message = s"tree exceeds the ${limits.maxNodes} node limit",
@@ -113,6 +125,30 @@ final class TreeVm(limits: Limits = Limits.default) extends Processor[VmToken, U
           stack.last.edges += UniEdge(role, tokenNode)
           ProcessBatch(Vector.empty, diagnostics.result())
         else ProcessBatch(Vector(tokenNode), diagnostics.result())
+
+      case instruction @ VmInstruction.Reframe(closeBefore, open, closeAfter, role) =>
+        reframeProblem(instruction) match
+          case Some(problem) =>
+            nodeCount += 1L
+            diagnostics ++= record(problem.copy(span = Some(input.token.span)))
+            val tokenNode = UniNode.Token(input.token)
+            if stack.nonEmpty then
+              stack.last.edges += UniEdge(role, tokenNode)
+              ProcessBatch(Vector.empty, diagnostics.result())
+            else ProcessBatch(Vector(tokenNode), diagnostics.result())
+
+          case None =>
+            nodeCount += 1L + open.size
+            val roots = Vector.newBuilder[UniNode]
+            closeBefore.foreach(expected => closeFrame(expected, roots))
+            open.foreach { spec =>
+              stack += Frame(spec.kind, spec.role, ArrayBuffer.empty, input.token.span)
+            }
+            val tokenNode = UniNode.Token(input.token)
+            if stack.nonEmpty then stack.last.edges += UniEdge(role, tokenNode)
+            else roots += tokenNode
+            closeAfter.foreach(expected => closeFrame(expected, roots))
+            ProcessBatch(roots.result(), diagnostics.result())
 
       case VmInstruction.Report(code, message, severity) =>
         nodeCount += 1L
@@ -155,6 +191,48 @@ final class TreeVm(limits: Limits = Limits.default) extends Processor[VmToken, U
               val roots = Vector.newBuilder[UniNode]
               attach(branch, frame.role, roots)
               ProcessBatch(roots.result(), diagnostics.result())
+
+  private def reframeProblem(instruction: VmInstruction.Reframe): Option[Diagnostic] =
+    val VmInstruction.Reframe(closeBefore, open, closeAfter, _) = instruction
+    if closeBefore.exists(_.isEmpty) || closeAfter.exists(_.isEmpty) || open.exists(_.kind.isEmpty) then
+      Some(Diagnostic(
+        code = "uniml.vm.invalid-reframe",
+        message = "reframe kinds must be non-empty",
+        severity = Severity.Error,
+        span = None,
+      ))
+    else
+      val kinds = ArrayBuffer.from(stack.iterator.map(_.kind))
+      def close(expected: String): Option[Diagnostic] =
+        if kinds.isEmpty then
+          Some(Diagnostic(
+            code = "uniml.vm.reframe-underflow",
+            message = s"reframe cannot close '$expected' because no frame is open",
+            severity = Severity.Error,
+            span = None,
+          ))
+        else if kinds.last != expected then
+          Some(Diagnostic(
+            code = "uniml.vm.mismatched-reframe",
+            message = s"expected to reframe '$expected' but current node is '${kinds.last}'",
+            severity = Severity.Error,
+            span = None,
+            details = Vector("expected" -> expected, "actual" -> kinds.last),
+          ))
+        else
+          kinds.remove(kinds.size - 1)
+          None
+
+      closeBefore.iterator.map(close).collectFirst { case Some(problem) => problem }
+        .orElse {
+          open.foreach(spec => kinds += spec.kind)
+          closeAfter.iterator.map(close).collectFirst { case Some(problem) => problem }
+        }
+
+  private def closeFrame(expected: String, roots: scala.collection.mutable.Builder[UniNode, Vector[UniNode]]): Unit =
+    val frame = stack.remove(stack.size - 1)
+    assert(frame.kind == expected)
+    attach(buildBranch(frame, Origin.SourceBacked), frame.role, roots)
 
   private def validateToken(token: SourceToken): Vector[Diagnostic] =
     val diagnostics = Vector.newBuilder[Diagnostic]

@@ -78,6 +78,68 @@ final class TreeVmSpec extends AnyFunSuite:
     assert(batch.values.collect { case UniNode.Token(token) => token.lexeme } == Vector("?"))
   }
 
+  test("reframe atomically closes, opens, emits once, and closes after the carrier") {
+    val vm = TreeVm()
+    vm.push(vmToken(0, "doc", VmInstruction.Open("yaml.document")))
+    vm.push(vmToken(1, "a", VmInstruction.Open("yaml.mapping", Some("document.value"))))
+    vm.push(vmToken(2, ":", VmInstruction.Emit(Some("mapping.colon"))))
+    val result = vm.push(vmToken(
+      3,
+      "b",
+      VmInstruction.Reframe(
+        closeBefore = Vector("yaml.mapping"),
+        open = Vector(FrameSpec("yaml.sequence", Some("document.next"))),
+        closeAfter = Vector("yaml.sequence", "yaml.document"),
+        role = Some("sequence.item"),
+      ),
+    ))
+
+    assert(result.diagnostics.isEmpty)
+    assert(result.values.size == 1)
+    val document = result.values.head.asInstanceOf[UniNode.Branch]
+    assert(document.kind == "yaml.document")
+    assert(document.edges.collect { case UniEdge(role, branch: UniNode.Branch) => role -> branch.kind } ==
+      Vector(Some("document.value") -> "yaml.mapping", Some("document.next") -> "yaml.sequence"))
+    assert(UniNode.sourceTokens(document).map(_.lexeme) == Vector("doc", "a", ":", "b"))
+    assert(vm.finish().values.isEmpty)
+  }
+
+  test("invalid reframe is atomic and retains its carrier as an emit") {
+    val vm = TreeVm()
+    vm.push(vmToken(0, "{", VmInstruction.Open("outer")))
+    val invalid = vm.push(vmToken(
+      1,
+      "x",
+      VmInstruction.Reframe(
+        closeBefore = Vector("wrong"),
+        open = Vector(FrameSpec("inner")),
+        role = Some("fallback"),
+      ),
+    ))
+
+    assert(invalid.diagnostics.map(_.code) == Vector("uniml.vm.mismatched-reframe"))
+    val closed = vm.push(vmToken(2, "}", VmInstruction.Close(Some("outer"))))
+    val outer = closed.values.head.asInstanceOf[UniNode.Branch]
+    assert(outer.edges.exists(edge => edge.role.contains("fallback")))
+    assert(!outer.edges.exists(_.child match
+      case UniNode.Branch("inner", _, _, _) => true
+      case _                                 => false
+    ))
+    assert(UniNode.sourceTokens(outer).map(_.lexeme) == Vector("{", "x", "}"))
+  }
+
+  test("reframe depth rejection leaves existing frames unchanged") {
+    val vm = TreeVm(Limits(maxDepth = 1))
+    vm.push(vmToken(0, "{", VmInstruction.Open("outer")))
+    val rejected = vm.push(vmToken(1, "x", VmInstruction.Reframe(open = Vector(FrameSpec("inner")))))
+
+    assert(rejected.diagnostics.map(_.code) == Vector("uniml.limit.depth"))
+    assert(rejected.diagnostics.head.severity == Severity.Fatal)
+    val partial = vm.finish().values.head.asInstanceOf[UniNode.Branch]
+    assert(partial.kind == "outer")
+    assert(UniNode.sourceTokens(partial).map(_.lexeme) == Vector("{"))
+  }
+
   private def vmToken(id: Long, lexeme: String, instruction: VmInstruction): VmToken =
     val start = SourcePosition(id.toInt, 1, id.toInt + 1)
     val end = SourcePosition(id.toInt + 1, 1, id.toInt + 2)
