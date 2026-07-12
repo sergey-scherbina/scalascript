@@ -1267,10 +1267,23 @@ for in-process runs, and `inferType` already computes per-node `SType` (just dis
       ROOT CAUSE: the fix needs the DECLARED return type (`: Double`), which FunV doesn't carry →
       folds into C-4 as a CORE change (thread decltpe into FunV, ~8 sites).
 - [ ] **C-4-wide-compilation** — remove type-unknown bails in `compileExpr`/`compileInto`
-      one class at a time, each A/B-provable via miss-count. FIRST real target: MixedReturnType —
-      thread `d.decltpe` into FunV (StatRuntime:239 + ~7 more sites), then widen Int RET leaves to
-      Double when the DECLARED return is Double. Then typeGateOk (164) / call-arg (604): can the map
-      satisfy the gate instead of bailing? (param seed loop is MOOT — def params are already annotated.)
+      one class at a time, each A/B-provable via miss-count. FIRST real target = MixedReturnType via
+      the DECLARED return type. Split infra→integration→activation (cross-module commit safety):
+  - [ ] **C-4a (infra)** — add `var declaredReturnType: String = ""` to `Value.FunV` (Value.scala),
+        NON-constructor mutable field (like `usingResolveCache`) so no positional-match / arity break
+        (note `case FunV(ps,_,_,_,_,_,_,_)` at Value.scala:261). Excluded from equals/hashCode.
+  - [ ] **C-4b (integration)** — populate it at the def-construction sites from `d.decltpe` via
+        `interp.typeToString` (same as paramTypes): StatRuntime:239 (top-level/local defs — the JIT's
+        primary targets) + BlockRuntime:501 (block-local defs). Methods (342/434/536) optional later.
+  - [ ] **C-4c (activation)** — VmCompiler: `declaredDouble = doubleTypes.contains(fn.declaredReturnType)`;
+        at the RET leaf, widen a TInt leaf to TDouble (I2D) when `declaredDouble` (Scala widens
+        Int→Double on every return path) instead of bailing MixedReturnType. Value-demo test
+        (`if c>0 then 1.5 else 2`) + conformance-verify.
+  - [ ] **C-4d (follow-up, optional)** — augment `fnIsDouble` with `declaredDouble` so self-recursive
+        declared-Double fns with non-tail self-calls + no double literal type the self-call result
+        correctly (416). Separate commit; only if conformance shows it matters.
+  - [ ] later: typeGateOk (164) / call-arg (604) — can the map satisfy the gate instead of bailing?
+        (param seed loop is MOOT — def params are already annotated.)
 - [ ] **C-gate** — QUIET-MACHINE A/B (`scripts/bench interp patternMatch*|recursionFib`,
       `scripts/bench cross`): wider coverage doesn't regress hot paths + ideally removes the
       `recursionFib` bimodal variance. (The "(1)" timing work, deferred until load drops.)
