@@ -553,6 +553,40 @@ truncate/size, `force` for sync, canonical sidecar identity, and a conservative
 sector size/device-characteristic report. Service wiring exposes only VFS host
 operations; byte codecs, pager, WAL algorithms, and SQL remain pure `.ssc`.
 
+The plugin boundary intentionally uses opaque integer handles and `List[Int]`
+only at the host edge; `jvm-vfs.ssc` converts the structured result and the pure
+engine converts bytes to/from `ByteSlice`:
+
+```scalascript
+case class JvmVfsResult(code: String, message: String, value: Any)
+
+extern def jvmVfsFullPath(path: String): JvmVfsResult
+extern def jvmVfsOpen(path: String, readOnly: Boolean, create: Boolean): JvmVfsResult
+extern def jvmVfsDelete(path: String): JvmVfsResult
+extern def jvmVfsExists(path: String): JvmVfsResult
+extern def jvmVfsReadAt(handle: Int, offset: Long, length: Int): JvmVfsResult
+extern def jvmVfsWriteAt(handle: Int, offset: Long, bytes: List[Int]): JvmVfsResult
+extern def jvmVfsTruncate(handle: Int, size: Long): JvmVfsResult
+extern def jvmVfsSync(handle: Int, dataOnly: Boolean): JvmVfsResult
+extern def jvmVfsSize(handle: Int): JvmVfsResult
+extern def jvmVfsLock(handle: Int, level: LockLevel): JvmVfsResult
+extern def jvmVfsUnlock(handle: Int, level: LockLevel): JvmVfsResult
+extern def jvmVfsCheckReservedLock(handle: Int): JvmVfsResult
+extern def jvmVfsShmMap(handle: Int, region: Int, size: Int, extend: Boolean): JvmVfsResult
+extern def jvmVfsShmRead(handle: Int, region: Int, offset: Int, length: Int): JvmVfsResult
+extern def jvmVfsShmWrite(handle: Int, region: Int, offset: Int, bytes: List[Int]): JvmVfsResult
+extern def jvmVfsShmLock(handle: Int, offset: Int, count: Int, mode: ShmLockMode): JvmVfsResult
+extern def jvmVfsShmBarrier(handle: Int): JvmVfsResult
+extern def jvmVfsShmUnmap(handle: Int, delete: Boolean): JvmVfsResult
+extern def jvmVfsSectorSize(handle: Int): JvmVfsResult
+extern def jvmVfsDeviceCharacteristics(handle: Int): JvmVfsResult
+extern def jvmVfsClose(handle: Int): JvmVfsResult
+```
+
+`code == "ok"` means `value` is valid; expected lock contention is `busy`
+with no thrown host exception. All other host failures are bounded result codes
+and messages. The plugin never parses pages or implements pager/WAL policy.
+
 ## Main database format
 
 ### Byte and header rules
