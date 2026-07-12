@@ -1,10 +1,11 @@
 package ssc.plugin.effects
 
+import java.util.concurrent.{CompletableFuture, CompletionException}
 import scala.collection.mutable.ListBuffer
-import ssc.{Done, PortableEffects, Runtime, Value}
+import ssc.{Done, PortableEffects, Prims, Runtime, Value}
 import ssc.plugin.{NativePlugin, NativePluginContext}
 
-/** Core-free standard Logger and Stream runners over the portable Op protocol. */
+/** Core-free standard Logger, Stream, and Async runners. */
 final class EffectRunnersNativePlugin extends NativePlugin:
   def id: String = "56-effect-runners"
 
@@ -13,6 +14,8 @@ final class EffectRunnersNativePlugin extends NativePlugin:
       case "runToList" => Some(closure(0)(_ => items))
       case _ => None
     def underlying: AnyRef = this
+
+  private final class AsyncFuture(val completion: CompletableFuture[Value])
 
   private def closure(arity: Int)(fn: List[Value] => Value): Value.ClosV =
     Value.ClosV(Runtime.emptyEnv, arity, env => Done(fn(env.toList)))
@@ -29,6 +32,80 @@ final class EffectRunnersNativePlugin extends NativePlugin:
   private def list(values: List[Value]): Value =
     values.foldRight[Value](Value.DataV("Nil", Vector.empty)) { (value, tail) =>
       Value.DataV("Cons", Vector(value, tail))
+    }
+
+  private def rootMessage(error: Throwable): String =
+    var root = error
+    while root.getCause != null && root.getCause != root do root = root.getCause
+    Option(root.getMessage).filter(_.nonEmpty).getOrElse(root.getClass.getSimpleName)
+
+  private def asyncFailure(operation: String, error: Throwable): IllegalStateException =
+    new IllegalStateException(s"Async.$operation failed: ${rootMessage(error)}", error)
+
+  private def awaitFuture(value: Value, operation: String): Value = value match
+    case Value.ForeignV(future: AsyncFuture) =>
+      try future.completion.join()
+      catch
+        case error: CompletionException =>
+          throw asyncFailure(operation, Option(error.getCause).getOrElse(error))
+    case _ => throw new IllegalArgumentException(s"Async.$operation expects an Async future")
+
+  private def asyncRunner(context: NativePluginContext, parallel: Boolean): Value =
+    lazy val handler: (String, List[Value]) => Value =
+      case ("delay", Value.IntV(milliseconds) :: Nil) =>
+        if milliseconds > 0 then
+          try Thread.sleep(milliseconds)
+          catch case error: InterruptedException =>
+            Thread.currentThread().interrupt()
+            throw asyncFailure("delay", error)
+        Value.UnitV
+      case ("delay", _) => throw new IllegalArgumentException("Async.delay(ms: Int)")
+      case ("async", thunk :: Nil) =>
+        val completion = new CompletableFuture[Value]()
+        def execute(): Unit =
+          try completion.complete(context.withEffect("Async")(handler) {
+            invoke(context, thunk)
+          })
+          catch case error: Throwable => completion.completeExceptionally(error)
+        if parallel then Thread.ofVirtual().name("ssc-async").start(() => execute())
+        else execute()
+        Value.ForeignV(AsyncFuture(completion))
+      case ("async", _) => throw new IllegalArgumentException("Async.async(thunk)")
+      case ("await", future :: Nil) => awaitFuture(future, "await")
+      case ("await", _) => throw new IllegalArgumentException("Async.await(future)")
+      case ("parallel", thunks :: Nil) =>
+        val callbacks =
+          try Prims.unlistPub(thunks)
+          catch case error: Throwable =>
+            throw new IllegalArgumentException("Async.parallel(thunks: List[() => A])", error)
+        if parallel then
+          val futures = callbacks.map { thunk =>
+            handler("async", List(thunk))
+          }
+          list(futures.map(future => awaitFuture(future, "parallel")))
+        else
+          list(callbacks.map { thunk =>
+            try context.withEffect("Async")(handler) { invoke(context, thunk) }
+            catch case error: Throwable => throw asyncFailure("parallel", error)
+          })
+      case ("parallel", _) =>
+        throw new IllegalArgumentException("Async.parallel(thunks: List[() => A])")
+      case ("recvFrom", Value.ForeignV(obj: Value.NamedMethodObj) :: Nil) =>
+        obj.getField("recv") match
+          case Some(recv) =>
+            try invoke(context, recv)
+            catch case error: Throwable => throw asyncFailure("recvFrom", error)
+          case None => throw new IllegalArgumentException("Async.recvFrom: receiver has no recv method")
+      case ("recvFrom", _) =>
+        throw new IllegalArgumentException("Async.recvFrom(ws: named method object)")
+      case (operation, _) => throw new IllegalArgumentException(s"unknown native Async operation: $operation")
+
+    closure(1) {
+      case thunk :: Nil => context.withEffect("Async")(handler) {
+        invoke(context, thunk)
+      }
+      case _ => throw new IllegalArgumentException(
+        if parallel then "runAsyncParallel(body)" else "runAsync(body)")
     }
 
   def install(context: NativePluginContext): Unit =
@@ -92,3 +169,6 @@ final class EffectRunnersNativePlugin extends NativePlugin:
         }
       case _ => throw new IllegalArgumentException("runStream(body)")
     })
+
+    context.registerValue("runAsync", asyncRunner(context, parallel = false))
+    context.registerValue("runAsyncParallel", asyncRunner(context, parallel = true))

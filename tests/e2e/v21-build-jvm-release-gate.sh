@@ -82,6 +82,12 @@ PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
 generator_expected=$'List(1, 2, 3)\nSome(10)\nSome(20)\nNone\na\nb\nc\nList(2, 4, 6)\nList(0, 1, 1, 2, 3, 5, 8, 13)\nList(30, 40)\nList(1, 10, 2, 20, 3, 30)\nList((1, a), (2, b))\nList((hello, 0), (world, 1), (foo, 2))'
 [[ $(PATH="$clean_path" java -jar "$sandbox/generator.jar") == "$generator_expected" ]]
 
+cp "$ROOT/examples/async-demo.ssc" "$sandbox/other/async-demo.ssc"
+PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
+  "$sandbox/other/async-demo.ssc" -o "$sandbox/async.jar"
+async_expected=$'6\nList(1, 4, 9, 16)\nafter delay\nList(20, 40, 60)\n56'
+[[ $(PATH="$clean_path" java -jar "$sandbox/async.jar") == "$async_expected" ]]
+
 jar_cmd=$(command -v jar)
 javap_cmd=$(command -v javap)
 jdeps_cmd=$(command -v jdeps)
@@ -98,6 +104,8 @@ LC_ALL=C sort -c "$sandbox/entries"
   "$sandbox/dataset.jar" >"$sandbox/dataset.jdeps"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps -verbose:class \
   "$sandbox/generator.jar" >"$sandbox/generator.jdeps"
+"$jdeps_cmd" --multi-release base --ignore-missing-deps -verbose:class \
+  "$sandbox/async.jar" >"$sandbox/async.jdeps"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
   "$sandbox/a/app.jar" >"$sandbox/app.modules"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
@@ -108,12 +116,15 @@ LC_ALL=C sort -c "$sandbox/entries"
   "$sandbox/dataset.jar" >"$sandbox/dataset.modules"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
   "$sandbox/generator.jar" >"$sandbox/generator.modules"
+"$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
+  "$sandbox/async.jar" >"$sandbox/async.modules"
 
 forbidden='scala[./](meta|tools)|dotty[./]tools|scala3-compiler|compiler-driver|javax[./]tools|java[.]compiler|jdk[.]compiler|ssc[./]bridge|scalascript[./](ast|frontend|interpreter)'
 if grep -Ei "$forbidden" "$sandbox/entries" "$sandbox/entry.javap" \
     "$sandbox/app.jdeps" "$sandbox/sql.jdeps" "$sandbox/yaml.jdeps" "$sandbox/dataset.jdeps" \
-    "$sandbox/generator.jdeps" "$sandbox/app.modules" "$sandbox/sql.modules" \
-    "$sandbox/yaml.modules" "$sandbox/dataset.modules" "$sandbox/generator.modules" >/dev/null; then
+    "$sandbox/generator.jdeps" "$sandbox/async.jdeps" "$sandbox/app.modules" "$sandbox/sql.modules" \
+    "$sandbox/yaml.modules" "$sandbox/dataset.modules" "$sandbox/generator.modules" \
+    "$sandbox/async.modules" >/dev/null; then
   echo 'v21-build-jvm-release-gate: forbidden standard-tier entry/reference/module' >&2
   exit 1
 fi
@@ -136,6 +147,7 @@ sql_modules=$(tr -d '\r\n' <"$sandbox/sql.modules")
 yaml_modules=$(tr -d '\r\n' <"$sandbox/yaml.modules")
 dataset_modules=$(tr -d '\r\n' <"$sandbox/dataset.modules")
 generator_modules=$(tr -d '\r\n' <"$sandbox/generator.modules")
+async_modules=$(tr -d '\r\n' <"$sandbox/async.modules")
 report_tmp="$sandbox/release.tsv"
 {
   printf 'metric\tvalue\n'
@@ -148,6 +160,7 @@ report_tmp="$sandbox/release.tsv"
   printf 'yaml.modules\t%s\n' "$yaml_modules"
   printf 'dataset.modules\t%s\n' "$dataset_modules"
   printf 'generator.modules\t%s\n' "$generator_modules"
+  printf 'async.modules\t%s\n' "$async_modules"
   printf 'compiler.commands.hidden\ttrue\n'
   printf 'forbidden.references\t0\n'
   printf 'hello.output\tHello, World!\n'
@@ -156,6 +169,7 @@ report_tmp="$sandbox/release.tsv"
   printf 'yaml.output\tType/Host/Port/Debug/Tags/Round-trip/App\n'
   printf 'dataset.output\tlocal/parallel/exact\n'
   printf 'generator.output\tpull/combinators/cancellation/exact\n'
+  printf 'async.output\tsequential/parallel/nested/exact\n'
 } >"$report_tmp"
 
 if [[ -n $REPORT ]]; then

@@ -60,6 +60,10 @@ generator_expected=$'List(1, 2, 3)\nSome(10)\nSome(20)\nNone\na\nb\nc\nList(2, 4
 [[ $(run_native "$ROOT/examples/generators.ssc") == "$generator_expected" ]]
 generator_provider_expected=$'Some(1)\nSome(2)\nNone\nList(0, 1, 2, 3, 4)\nList(1, 10, 2, 20)\nList((x, 0), (y, 1))'
 [[ $(run_native "$FIXTURES/generator-provider.ssc") == "$generator_provider_expected" ]]
+async_expected=$'6\nList(1, 4, 9, 16)\nafter delay\nList(20, 40, 60)\n56'
+[[ $(run_native "$ROOT/examples/async-demo.ssc") == "$async_expected" ]]
+async_provider_expected=$'3\nList(30, 20, 10)\n8\nafter-zero'
+[[ $(run_native "$FIXTURES/async-provider.ssc") == "$async_provider_expected" ]]
 [[ $(run_native "$FIXTURES/zero-arg-println.ssc") == $'before\n\nafter' ]]
 signals_expected=$'0\n5\n10\nc=5 d=10\nc=7 d=14\nc=11 d=22\nn=3 sq=9 cube=27\nn=4 sq=16 cube=64'
 [[ $(run_native "$ROOT/examples/signals-demo.ssc") == "$signals_expected" ]]
@@ -179,6 +183,8 @@ index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
 [[ $(run_native --bytecode "$FIXTURES/dataset-provider.ssc") == "$dataset_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/generators.ssc") == "$generator_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/generator-provider.ssc") == "$generator_provider_expected" ]]
+[[ $(run_native --bytecode "$ROOT/examples/async-demo.ssc") == "$async_expected" ]]
+[[ $(run_native --bytecode "$FIXTURES/async-provider.ssc") == "$async_provider_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/dsl-sql-recovery.ssc") == "$sql_recovery_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/imported-tuple-collection.ssc") == "$imported_tuple_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/exact-decimal.ssc") == "$exact_decimal_expected" ]]

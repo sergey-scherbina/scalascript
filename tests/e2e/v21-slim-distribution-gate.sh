@@ -102,6 +102,12 @@ generator_expected=$'List(1, 2, 3)\nSome(10)\nSome(20)\nNone\na\nb\nc\nList(2, 4
 generator_provider_expected=$'Some(1)\nSome(2)\nNone\nList(0, 1, 2, 3, 4)\nList(1, 10, 2, 20)\nList((x, 0), (y, 1))'
 [[ $(run_standard run "$FIXTURES/generator-provider.ssc") == "$generator_provider_expected" ]]
 [[ $(run_standard run --bytecode "$FIXTURES/generator-provider.ssc") == "$generator_provider_expected" ]]
+async_expected=$'6\nList(1, 4, 9, 16)\nafter delay\nList(20, 40, 60)\n56'
+[[ $(run_standard run "$ROOT/examples/async-demo.ssc") == "$async_expected" ]]
+[[ $(run_standard run --bytecode "$ROOT/examples/async-demo.ssc") == "$async_expected" ]]
+async_provider_expected=$'3\nList(30, 20, 10)\n8\nafter-zero'
+[[ $(run_standard run "$FIXTURES/async-provider.ssc") == "$async_provider_expected" ]]
+[[ $(run_standard run --bytecode "$FIXTURES/async-provider.ssc") == "$async_provider_expected" ]]
 yaml_expected=$'Type:   YObj\nHost:   localhost\nPort:   8080\nDebug:  true\nTags:   web, api\n\nRound-trip:\ndebug: true\nhost: localhost\nport: 8080\n\nFrom fenced block:\nApp: MyApp'
 [[ $(run_standard run "$ROOT/examples/yaml-parse.ssc") == "$yaml_expected" ]]
 [[ $(run_standard run --bytecode "$ROOT/examples/yaml-parse.ssc") == "$yaml_expected" ]]

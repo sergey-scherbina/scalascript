@@ -136,6 +136,9 @@ PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc" run --native
   "$ROOT/examples/generators.ssc" >>"$classlog" 2>&1
 grep -F 'List((hello, 0), (world, 1), (foo, 2))' "$classlog" >/dev/null
 PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc" run --native \
+  "$ROOT/examples/async-demo.ssc" >>"$classlog" 2>&1
+grep -F 'List(20, 40, 60)' "$classlog" >/dev/null
+PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc" run --native \
   "$ROOT/examples/yaml-parse.ssc" >"$yaml_classlog" 2>&1
 grep -F 'App: MyApp' "$yaml_classlog" >/dev/null
 if grep -E 'org\.yaml\.snakeyaml|com\.fasterxml\.jackson|io\.circe' \

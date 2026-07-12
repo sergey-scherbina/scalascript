@@ -1,0 +1,31 @@
+#!/usr/bin/env ssc
+---
+name: v21-native-async-provider
+---
+
+# Core-free Async provider
+
+```scalascript
+val sequential = runAsync {
+  val first = Async.async(() => 1)
+  val second = Async.async(() => 2)
+  Async.await(first) + Async.await(second)
+}
+println(sequential)
+
+val ordered = runAsyncParallel {
+  Async.parallel(List(() => 30, () => 20, () => 10))
+}
+println(ordered)
+
+val nested = runAsync {
+  val inner = runAsyncParallel {
+    val value = Async.async(() => 7)
+    Async.await(value)
+  }
+  inner + 1
+}
+println(nested)
+
+runAsync { Async.delay(0); println("after-zero") }
+```
