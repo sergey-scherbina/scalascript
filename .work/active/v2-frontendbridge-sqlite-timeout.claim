@@ -1,6 +1,0 @@
-feature/v2-frontendbridge-sqlite-timeout 2026-07-12T08:39:00Z
-agent: codex
-heartbeat: 2026-07-12T09:05:25Z
-status: in-progress
-done-so-far: reproduced timeout; thread dump proves Xerial cleanup scans shared java.io.tmpdir; private native temp fix and focused tests pass in 3.7s
-next: run full FrontendBridge suite plus affected conformance, then commit/push fix and bookkeeping
