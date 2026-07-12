@@ -9,6 +9,29 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## uniml — universal token-to-tree markup VM (2026-07-12, Sergiy: "универсальный язык разметки ... читать md, json, yaml и xml и любой язык программирования")
+
+Goal: add an independently consumable `uniml` module whose neutral event/token model can represent
+Markdown, JSON, YAML, XML, and programming-language syntax without collapsing their lossless source
+details. Each input token is interpreted as a tree-building VM instruction; processors compose into
+a streaming chain. The first slice defines and scaffolds the extensible core, not complete parsers for
+every named language.
+
+- [ ] **uniml-0-plan-and-spec** — inspect the global language invariants and existing module/build
+      conventions, then write and commit `specs/uniml.md` before implementation. Specify the lossless
+      source/token model, tree/event model, VM instruction set and state invariants, processor-chain
+      protocol, dialect adapter SPI, diagnostics/recovery, resource limits, public API, module layout,
+      and staged compatibility gates for Markdown/JSON/YAML/XML plus programming-language adapters.
+- [ ] **uniml-1-module-scaffold** — add the standalone Scala 3 `uniml` build module and implement the
+      specified core contracts with no dependency on ScalaScript compiler internals: source spans,
+      tokens/instructions, immutable output nodes, tree-building VM, processor pipeline, dialect SPI,
+      diagnostics, and a minimal generic token processor demonstrating composition. Keep full concrete
+      dialect readers in later slices unless repository conventions make a focused reader necessary.
+- [ ] **uniml-2-verify-and-record** — add focused unit tests for VM/tree invariants and processor-chain
+      composition, run the module tests plus the affected conformance slice required by the repository,
+      reconcile/check the specification behavior items, then record results in `CHANGELOG.md` and this
+      section in a separate bookkeeping commit before releasing the claim.
+
 ## scalascript-sqlite — pure ScalaScript SQLite-compatible engine specification (2026-07-12, Sergiy: "сделать ... чистую низкоуровневую реализацию формата данных ... блокировками и wal ... sql интерпретатора")
 
 Goal: establish a real pure-ScalaScript module boundary and a normative, implementation-ready
