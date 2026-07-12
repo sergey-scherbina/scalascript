@@ -93,20 +93,20 @@ every possible chunking.
 
 ### M0 — core VM and processor scaffold
 
-- [ ] A balanced `Open → Emit* → Close` instruction stream produces one branch whose token leaves
+- [x] A balanced `Open → Emit* → Close` instruction stream produces one branch whose token leaves
       retain source order, exact lexemes, spans, channels, and edge roles.
-- [ ] Nested `Open` instructions create nested branches; `Close(expectedKind)` diagnoses a mismatch
+- [x] Nested `Open` instructions create nested branches; `Close(expectedKind)` diagnoses a mismatch
       deterministically and never silently closes a different frame.
-- [ ] Every consumed source-backed VM input appears exactly once as a token leaf in the resulting
+- [x] Every consumed source-backed VM input appears exactly once as a token leaf in the resulting
       tree, including opening/closing punctuation, trivia, comments, and `Report` tokens.
-- [ ] A processor chain forwards values and diagnostics in order, flushes every stage on `finish()`,
+- [x] A processor chain forwards values and diagnostics in order, flushes every stage on `finish()`,
       and produces the same result whether values arrive singly or in batches.
-- [ ] A literal/code-point adapter demonstrates the universal fallback: arbitrary Unicode text,
+- [x] A literal/code-point adapter demonstrates the universal fallback: arbitrary Unicode text,
       including an unknown programming language, can be ingested losslessly as `Emit` instructions
       without claiming a semantic parse.
-- [ ] VM limits reject excessive nesting and node/token counts with structured diagnostics rather
+- [x] VM limits reject excessive nesting and node/token counts with structured diagnostics rather
       than stack overflow, unbounded allocation, or a platform exception.
-- [ ] The module compiles and its focused tests pass on JVM and Scala.js.
+- [x] The module compiles and its focused tests pass on JVM and Scala.js.
 
 ### Dialect compatibility gates
 
@@ -324,4 +324,23 @@ lossless token coverage.
 
 ## Results
 
-To be filled after M0 implementation and verification.
+M0 landed in `9815338ea` with limit-test completion in `c79787d46`. The module contains eight
+dependency-free production source files and three focused suites. Verification from the isolated
+worktree on 2026-07-12:
+
+```text
+scripts/sbtc ";uniml/test;unimlJs/test"
+# JVM:      10 tests, 3 suites, all passed
+# Scala.js: 10 tests, 3 suites, all passed
+
+tests/conformance/run.sh --only 'content*'
+# 6 passed, 0 failed; INT, JS, and JVM lanes all green
+
+git diff --check
+# clean
+```
+
+The conformance slice is a neighboring Markdown/content regression gate because M0 is a standalone
+Scala library and does not yet add a `.ssc` syntax surface or a named UniML conformance case. Concrete
+JSON, XML, YAML, Markdown, and programming-language adapters remain roadmap milestones and are not
+claimed by this result.

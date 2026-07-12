@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-12 — UniML universal token-to-tree VM core
+
+The new dependency-free `scalascript-uniml` module cross-compiles for JVM and Scala.js. It provides
+lossless source tokens and ordered CST nodes, a bounded Open/Emit/Close/Report tree VM, structured
+diagnostics, synchronous processor chains, dialect registration, and a chunk-invariant Unicode
+literal fallback that can retain any unknown language without falsely claiming a semantic parse.
+The normative spec defines separate compatibility gates for JSON, YAML, XML, Markdown, and future
+programming-language adapters, and keeps projections compatible with existing `Markup` and
+`DocumentContent`. Landed in `9815338ea`/`c79787d46`; 10/10 JVM and 10/10 Scala.js tests plus 6/6
+neighboring content conformance pass.
+
 ## 2026-07-12 — SclJet SQLite-compatible engine specification and M0 contracts
 
 SclJet now has a normative pure-ScalaScript architecture from byte codecs and

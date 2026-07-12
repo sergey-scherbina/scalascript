@@ -17,17 +17,33 @@ details. Each input token is interpreted as a tree-building VM instruction; proc
 a streaming chain. The first slice defines and scaffolds the extensible core, not complete parsers for
 every named language.
 
-- [ ] **uniml-0-plan-and-spec** — inspect the global language invariants and existing module/build
+- [x] **uniml-0-plan-and-spec** — DONE 2026-07-12 (`7162169ba`, clarified by `647a22115`). Inspected
+      global language invariants plus existing markup/build conventions and committed
+      `specs/uniml.md` before implementation. It specifies the lossless CST/token model, VM
+      instruction/state invariants, processor chain, dialect adapter SPI, diagnostics/recovery,
+      limits, module layout, and honest compatibility gates for Markdown/JSON/YAML/XML/languages.
+      It also fixes the boundary with existing `Markup` and `DocumentContent` projections.
+      Original plan: inspect the global language invariants and existing module/build
       conventions, then write and commit `specs/uniml.md` before implementation. Specify the lossless
       source/token model, tree/event model, VM instruction set and state invariants, processor-chain
       protocol, dialect adapter SPI, diagnostics/recovery, resource limits, public API, module layout,
       and staged compatibility gates for Markdown/JSON/YAML/XML plus programming-language adapters.
-- [ ] **uniml-1-module-scaffold** — add the standalone Scala 3 `uniml` build module and implement the
+- [x] **uniml-1-module-scaffold** — DONE 2026-07-12 (`9815338ea`). Added dependency-free
+      `unimlCross` with JVM `uniml` and Scala.js `unimlJs` projects. Implemented code-point spans,
+      exact tokens, ordered CST edges, Open/Emit/Close/Report instructions, bounded stack VM,
+      structured diagnostics, synchronous processor composition, dialect registry, `UniML.parse`,
+      and chunk-stable literal fallback for arbitrary languages. Original plan: add the standalone
+      Scala 3 `uniml` build module and implement the
       specified core contracts with no dependency on ScalaScript compiler internals: source spans,
       tokens/instructions, immutable output nodes, tree-building VM, processor pipeline, dialect SPI,
       diagnostics, and a minimal generic token processor demonstrating composition. Keep full concrete
       dialect readers in later slices unless repository conventions make a focused reader necessary.
-- [ ] **uniml-2-verify-and-record** — add focused unit tests for VM/tree invariants and processor-chain
+- [x] **uniml-2-verify-and-record** — DONE 2026-07-12 (`c79787d46`). Added 10 focused tests across
+      three suites; all 10 pass independently on JVM and Scala.js. `content*` conformance is 6/6
+      across INT/JS/JVM and `git diff --check` is clean. Checked all M0 behavior items and recorded
+      exact results in the spec and `CHANGELOG.md`. Concrete named-format adapters remain explicit
+      later milestones, not an inflated M0 claim. Original plan: add focused unit tests for VM/tree
+      invariants and processor-chain
       composition, run the module tests plus the affected conformance slice required by the repository,
       reconcile/check the specification behavior items, then record results in `CHANGELOG.md` and this
       section in a separate bookkeeping commit before releasing the claim.
