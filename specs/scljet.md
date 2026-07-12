@@ -243,10 +243,10 @@ case class VarintRead(value: Long, length: Int, nextOffset: Int)
 case class ByteSlice(chunks: Map[Int, List[Int]], start: Int, length: Int):
   def get(index: Int): Either[ByteError, Int]
   def updated(index: Int, value: Int): Either[ByteError, ByteSlice]
-  def slice(offset: Int, length: Int): Either[ByteError, ByteSlice]
+  def slice(offset: Int, size: Int): Either[ByteError, ByteSlice]
   def concat(other: ByteSlice): ByteSlice
   def copyTo(target: ByteSlice, targetOffset: Int): Either[ByteError, ByteSlice]
-  def zeroExtend(length: Int): Either[ByteError, ByteSlice]
+  def zeroExtend(size: Int): Either[ByteError, ByteSlice]
 
 object ByteSlice:
   def empty: ByteSlice
