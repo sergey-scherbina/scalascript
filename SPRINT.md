@@ -412,6 +412,14 @@ pipeline used by real applications.
       occurrence)` counter (separate kind namespace), preserving explicit
       named-signal duplicate checks; gate three locale calls, stable keyed-owner
       recreation, and no conflicting duplicate.
+      Anonymous derived cells live in an owner-specific scope (root only for
+      root owner), are enrolled in owner cleanup, and on stable re-registration
+      replace metadata/dynamic closure even when the newly computed default
+      changes; named/fetch/persisted cells remain strict. Increment occurrence
+      only after successful allocation, reuse ids after retry, snapshot/restore
+      on keyed rollback, reset at begin/per-owner render, and gate sibling/nested
+      owners, reorder/delete, failed-render retry, abort/new-begin, and named
+      interleaving that must not shift anonymous counters.
 - [ ] **Release gates and closure** — require explicit post-code Rozum
       `APPROVE`; full Swift backend, combined CLI, assembled Swift CLI and
       macOS+iOS Apple e2e, money/effects/tkv2/v2 conformance, affected
