@@ -1,7 +1,7 @@
 package ssc.plugin.os
 
 import java.nio.file.{Files, Paths}
-import ssc.{Runtime, Value}
+import ssc.{Runtime, V2PluginRegistry, Value}
 import ssc.plugin.{NativePlugin, NativePluginContext}
 
 /** Core-free JVM environment/path provider for the standard ScalaScript 2.1 runtime. */
@@ -40,6 +40,14 @@ final class OsNativePlugin extends NativePlugin:
     context.register(name)(fn)
     context.registerGlobal(name, -1)(fn)
 
+  private def exit(args: List[Value]): Value = args match
+    case Value.IntV(code) :: Nil => Runtime.exitHandler(code.toInt)
+    case _ =>
+      V2PluginRegistry.lookup("actor.exit") match
+        case Some(actorExit) => actorExit(args)
+        case None => throw new RuntimeException(
+          "exit expects exit(code: Int); actor exit(pid, reason) requires the Actors provider")
+
   def install(context: NativePluginContext): Unit =
     native(context, "env") { args =>
       Option(System.getenv(text(args, 0, "env"))) match
@@ -50,7 +58,7 @@ final class OsNativePlugin extends NativePlugin:
       Value.StrV(Option(System.getenv(text(args, 0, "envOrElse")))
         .getOrElse(text(args, 1, "envOrElse")))
     }
-    native(context, "exit") { args => Runtime.exitHandler(integer(args, 0, "exit").toInt) }
+    native(context, "exit")(exit)
     native(context, "pathJoin") { args =>
       pathParts(args) match
         case Nil => Value.StrV(".")

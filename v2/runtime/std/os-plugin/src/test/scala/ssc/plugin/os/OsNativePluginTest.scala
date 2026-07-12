@@ -3,7 +3,7 @@ package ssc.plugin.os
 import java.nio.file.{Files, Paths}
 import org.scalatest.funsuite.AnyFunSuite
 import ssc.{V2PluginRegistry, Value}
-import ssc.plugin.NativePluginHost
+import ssc.plugin.{NativePlugin, NativePluginContext, NativePluginHost}
 
 class OsNativePluginTest extends AnyFunSuite:
   private def call(name: String, args: Value*): Value =
@@ -33,4 +33,24 @@ class OsNativePluginTest extends AnyFunSuite:
       case other => fail(s"expected temp-file path, got $other")
     try assert(Files.isRegularFile(temp))
     finally Files.deleteIfExists(temp)
+  }
+
+  test("bare exit explicitly dispatches non-process shapes to the Actors provider") {
+    val actorExit = new NativePlugin:
+      def id: String = "60-actors-test"
+      def install(context: NativePluginContext): Unit =
+        context.register("actor.exit") {
+          case Value.StrV(pid) :: Value.StrV(reason) :: Nil => Value.StrV(s"$pid:$reason")
+          case _ => throw new IllegalArgumentException("exit(pid, reason)")
+        }
+
+    NativePluginHost.installProviders(List(OsNativePlugin(), actorExit))
+    assert(call("exit", Value.StrV("worker"), Value.StrV("kill")) ==
+      Value.StrV("worker:kill"))
+
+    NativePluginHost.installProviders(List(OsNativePlugin()))
+    val error = intercept[RuntimeException] {
+      call("exit", Value.StrV("worker"), Value.StrV("kill"))
+    }
+    assert(error.getMessage.contains("requires the Actors provider"))
   }

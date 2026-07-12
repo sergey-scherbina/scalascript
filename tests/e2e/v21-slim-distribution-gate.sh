@@ -108,6 +108,15 @@ async_expected=$'6\nList(1, 4, 9, 16)\nafter delay\nList(20, 40, 60)\n56'
 async_provider_expected=$'3\nList(30, 20, 10)\n8\nafter-zero'
 [[ $(run_standard run "$FIXTURES/async-provider.ssc") == "$async_provider_expected" ]]
 [[ $(run_standard run --bytecode "$FIXTURES/async-provider.ssc") == "$async_provider_expected" ]]
+actors_expected=$'pong: one\npong: two\npong: three\nafter timeout: None\nbefore timeout: Some(got delivered)\ndone'
+[[ $(run_standard run "$ROOT/examples/actors-pingpong.ssc") == "$actors_expected" ]]
+[[ $(run_standard run --bytecode "$ROOT/examples/actors-pingpong.ssc") == "$actors_expected" ]]
+typed_actors_expected=$'true\ntrue\nlocal ref\nspawnRemote: pong'
+[[ $(run_standard run "$ROOT/examples/actors-typed-remote-spawn.ssc") == "$typed_actors_expected" ]]
+[[ $(run_standard run --bytecode "$ROOT/examples/actors-typed-remote-spawn.ssc") == "$typed_actors_expected" ]]
+actors_provider_expected=$'worker: one\nSome(root: reply)'
+[[ $(run_standard run "$FIXTURES/actors-provider.ssc") == "$actors_provider_expected" ]]
+[[ $(run_standard run --bytecode "$FIXTURES/actors-provider.ssc") == "$actors_provider_expected" ]]
 yaml_expected=$'Type:   YObj\nHost:   localhost\nPort:   8080\nDebug:  true\nTags:   web, api\n\nRound-trip:\ndebug: true\nhost: localhost\nport: 8080\n\nFrom fenced block:\nApp: MyApp'
 [[ $(run_standard run "$ROOT/examples/yaml-parse.ssc") == "$yaml_expected" ]]
 [[ $(run_standard run --bytecode "$ROOT/examples/yaml-parse.ssc") == "$yaml_expected" ]]
@@ -152,7 +161,7 @@ report_tmp="$sandbox/slim.tsv"
   printf 'forbidden.references\t0\n'
   printf 'standard.vm\tpass\n'
   printf 'standard.asm\tpass\n'
-  printf 'standard.providers\tfs-os/json/http/sql/ui/state/effect-runners/storage/reactive/yaml/content/dataset/generator\n'
+  printf 'standard.providers\tfs-os/json/http/sql/ui/state/effect-runners/storage/reactive/yaml/content/dataset/generator/actors\n'
   printf 'standard.build-jvm\tpass\n'
 } >"$report_tmp"
 if [[ -n $REPORT ]]; then

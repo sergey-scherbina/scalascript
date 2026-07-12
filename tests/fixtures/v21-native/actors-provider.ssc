@@ -1,0 +1,19 @@
+#!/usr/bin/env ssc
+---
+name: v21-native-actors-provider
+---
+
+# Native Actors provider lifecycle
+
+```scalascript
+runActors {
+  val worker = spawn { () =>
+    receive { case message: String => println("worker: " + message) }
+  }
+  worker ! "one"
+
+  val root = self()
+  spawn { () => root ! "reply" }
+  println(receive(timeout = 1000) { case message: String => "root: " + message })
+}
+```

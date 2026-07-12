@@ -24,7 +24,8 @@ yaml=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-yaml-plugin_*.jar' 
 content=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-content-plugin_*.jar' -print -quit)
 dataset=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-dataset-plugin_*.jar' -print -quit)
 generator=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-generator-plugin_*.jar' -print -quit)
-for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$http_engine" "$sql" "$ui" "$state" "$effects" "$storage" "$reactive" "$yaml" "$content" "$dataset" "$generator"; do
+actors=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-actors-plugin_*.jar' -print -quit)
+for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$http_engine" "$sql" "$ui" "$state" "$effects" "$storage" "$reactive" "$yaml" "$content" "$dataset" "$generator" "$actors"; do
   [[ -n "$jar_file" && -f "$jar_file" ]] || {
     echo 'v21-native-plugin-boundary-smoke: staged native provider jar missing' >&2
     exit 2
@@ -51,8 +52,9 @@ jar tf "$yaml" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 jar tf "$content" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 jar tf "$dataset" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 jar tf "$generator" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
+jar tf "$actors" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 
-for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$http_engine" "$sql" "$ui" "$state" "$effects" "$storage" "$reactive" "$yaml" "$content" "$dataset" "$generator"; do
+for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$http_engine" "$sql" "$ui" "$state" "$effects" "$storage" "$reactive" "$yaml" "$content" "$dataset" "$generator" "$actors"; do
   deps=$(jdeps --multi-release base --ignore-missing-deps -verbose:class -cp "$CP" "$jar_file")
   if printf '%s\n' "$deps" | grep -E \
       'scala\.meta|scalascript\.interpreter|scalascript\.ast|scalascript\.plugin\.api|scalascript\.frontend|ssc\.bridge|dotty\.tools|javax\.tools' >/dev/null; then
@@ -138,6 +140,10 @@ grep -F 'List((hello, 0), (world, 1), (foo, 2))' "$classlog" >/dev/null
 PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc" run --native \
   "$ROOT/examples/async-demo.ssc" >>"$classlog" 2>&1
 grep -F 'List(20, 40, 60)' "$classlog" >/dev/null
+PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc-standard" run \
+  "$ROOT/examples/actors-pingpong.ssc" >>"$classlog" 2>&1
+grep -F 'pong: three' "$classlog" >/dev/null
+grep -F 'before timeout: Some(got delivered)' "$classlog" >/dev/null
 PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class "$ROOT/bin/ssc" run --native \
   "$ROOT/examples/yaml-parse.ssc" >"$yaml_classlog" 2>&1
 grep -F 'App: MyApp' "$yaml_classlog" >/dev/null

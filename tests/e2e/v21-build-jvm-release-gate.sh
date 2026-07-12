@@ -88,6 +88,18 @@ PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
 async_expected=$'6\nList(1, 4, 9, 16)\nafter delay\nList(20, 40, 60)\n56'
 [[ $(PATH="$clean_path" java -jar "$sandbox/async.jar") == "$async_expected" ]]
 
+cp "$ROOT/examples/actors-pingpong.ssc" "$sandbox/other/actors-pingpong.ssc"
+PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
+  "$sandbox/other/actors-pingpong.ssc" -o "$sandbox/actors.jar"
+actors_expected=$'pong: one\npong: two\npong: three\nafter timeout: None\nbefore timeout: Some(got delivered)\ndone'
+[[ $(PATH="$clean_path" java -jar "$sandbox/actors.jar") == "$actors_expected" ]]
+
+cp "$ROOT/examples/actors-typed-remote-spawn.ssc" "$sandbox/other/actors-typed-remote-spawn.ssc"
+PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
+  "$sandbox/other/actors-typed-remote-spawn.ssc" -o "$sandbox/typed-actors.jar"
+typed_actors_expected=$'true\ntrue\nlocal ref\nspawnRemote: pong'
+[[ $(PATH="$clean_path" java -jar "$sandbox/typed-actors.jar") == "$typed_actors_expected" ]]
+
 jar_cmd=$(command -v jar)
 javap_cmd=$(command -v javap)
 jdeps_cmd=$(command -v jdeps)
@@ -106,6 +118,8 @@ LC_ALL=C sort -c "$sandbox/entries"
   "$sandbox/generator.jar" >"$sandbox/generator.jdeps"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps -verbose:class \
   "$sandbox/async.jar" >"$sandbox/async.jdeps"
+"$jdeps_cmd" --multi-release base --ignore-missing-deps -verbose:class \
+  "$sandbox/actors.jar" >"$sandbox/actors.jdeps"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
   "$sandbox/a/app.jar" >"$sandbox/app.modules"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
@@ -118,13 +132,15 @@ LC_ALL=C sort -c "$sandbox/entries"
   "$sandbox/generator.jar" >"$sandbox/generator.modules"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
   "$sandbox/async.jar" >"$sandbox/async.modules"
+"$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
+  "$sandbox/actors.jar" >"$sandbox/actors.modules"
 
 forbidden='scala[./](meta|tools)|dotty[./]tools|scala3-compiler|compiler-driver|javax[./]tools|java[.]compiler|jdk[.]compiler|ssc[./]bridge|scalascript[./](ast|frontend|interpreter)'
 if grep -Ei "$forbidden" "$sandbox/entries" "$sandbox/entry.javap" \
     "$sandbox/app.jdeps" "$sandbox/sql.jdeps" "$sandbox/yaml.jdeps" "$sandbox/dataset.jdeps" \
     "$sandbox/generator.jdeps" "$sandbox/async.jdeps" "$sandbox/app.modules" "$sandbox/sql.modules" \
     "$sandbox/yaml.modules" "$sandbox/dataset.modules" "$sandbox/generator.modules" \
-    "$sandbox/async.modules" >/dev/null; then
+    "$sandbox/async.modules" "$sandbox/actors.jdeps" "$sandbox/actors.modules" >/dev/null; then
   echo 'v21-build-jvm-release-gate: forbidden standard-tier entry/reference/module' >&2
   exit 1
 fi
@@ -148,6 +164,7 @@ yaml_modules=$(tr -d '\r\n' <"$sandbox/yaml.modules")
 dataset_modules=$(tr -d '\r\n' <"$sandbox/dataset.modules")
 generator_modules=$(tr -d '\r\n' <"$sandbox/generator.modules")
 async_modules=$(tr -d '\r\n' <"$sandbox/async.modules")
+actors_modules=$(tr -d '\r\n' <"$sandbox/actors.modules")
 report_tmp="$sandbox/release.tsv"
 {
   printf 'metric\tvalue\n'
@@ -161,6 +178,7 @@ report_tmp="$sandbox/release.tsv"
   printf 'dataset.modules\t%s\n' "$dataset_modules"
   printf 'generator.modules\t%s\n' "$generator_modules"
   printf 'async.modules\t%s\n' "$async_modules"
+  printf 'actors.modules\t%s\n' "$actors_modules"
   printf 'compiler.commands.hidden\ttrue\n'
   printf 'forbidden.references\t0\n'
   printf 'hello.output\tHello, World!\n'
@@ -170,6 +188,7 @@ report_tmp="$sandbox/release.tsv"
   printf 'dataset.output\tlocal/parallel/exact\n'
   printf 'generator.output\tpull/combinators/cancellation/exact\n'
   printf 'async.output\tsequential/parallel/nested/exact\n'
+  printf 'actors.output\tmailbox/timeout/typed-loopback/exact\n'
 } >"$report_tmp"
 
 if [[ -n $REPORT ]]; then

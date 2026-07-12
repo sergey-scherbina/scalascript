@@ -131,6 +131,7 @@ declare -a root_specs=(
   'feature-plugin|scalascript-v2-native-content-plugin_*.jar'
   'feature-plugin|scalascript-v2-native-dataset-plugin_*.jar'
   'feature-plugin|scalascript-v2-native-generator-plugin_*.jar'
+  'feature-plugin|scalascript-v2-native-actors-plugin_*.jar'
 )
 
 # Some plugin dependencies are selected by runtime configuration, JDBC URLs,

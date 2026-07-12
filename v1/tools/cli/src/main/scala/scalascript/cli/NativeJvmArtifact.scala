@@ -36,6 +36,7 @@ private[cli] object NativeJvmArtifact:
     "scalascript-v2-native-content-plugin_",
     "scalascript-v2-native-dataset-plugin_",
     "scalascript-v2-native-generator-plugin_",
+    "scalascript-v2-native-actors-plugin_",
     "scalascript-yaml_",
   )
 
@@ -48,6 +49,7 @@ private[cli] object NativeJvmArtifact:
     "scalascript-v2-native-dataset-plugin_",
     "scalascript-v2-native-generator-plugin_",
     "scalascript-v2-native-effect-runners-plugin_",
+    "scalascript-v2-native-actors-plugin_",
     "scalascript-v2-native-http-fast-plugin_",
     "scalascript-http-fast-engine_",
   )
