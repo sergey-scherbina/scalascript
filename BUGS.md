@@ -247,8 +247,9 @@ found by codex in the zero-`both-fail` negative release gate.
   runtime taxonomy freeze and its synthetic smoke remain green.
 ## v2-frontend-tkv2-pwa-fast-provider-missing — unit classpath contradicts assembled default
 
-**Status:** open (2026-07-12); found by codex during the Swift NativeUi release
-gate, reported in the `scalascript` Rozum room.
+**Status:** fixed (2026-07-12, `3a87eb29c`), awaiting Sergiy confirmation;
+found by codex during the Swift NativeUi release gate and reported in the
+`scalascript` Rozum room.
 
 - **Real-harness repro:** both full `v2FrontendBridge/test` and isolated
   `V2ConformanceTest -- -z tkv2-pwa` produce all eight correct PWA assertions
@@ -262,10 +263,13 @@ gate, reported in the `scalascript` Rozum room.
 - **Fix/done-when:** add `runtimeServerJvmFast % Test` only to
   `v2FrontendBridge`, retain the exact fast banner, and pass isolated plus full
   bridge suites. This is test wiring, not a production backend selection change.
+- **Fix/result:** the test-only dependency now exposes the shipped fast provider;
+  isolated tkv2 PWA and the pre-SclJet full bridge suite are green.
 ## jvm-swiftui-row-path-invalid-escape — generated Scala emits `"\."`
 
-**Status:** open (2026-07-12); found by codex in the combined Swift CLI release
-gate and corrected in the `scalascript` Rozum room after inspecting source bytes.
+**Status:** fixed (2026-07-12, `236a02de2`), awaiting Sergiy confirmation;
+found by codex in the combined Swift CLI release gate and corrected in the
+`scalascript` Rozum room after inspecting source bytes.
 
 - **Real-harness repro:** run the four Swift CLI suites including
   `SwiftUiRealFixtureBuildTest`. The first three complete 53/53, then the real
@@ -278,11 +282,14 @@ gate and corrected in the `scalascript` Rozum room after inspecting source bytes
 - **Fix/done-when:** use four source slashes for the two interpolated preamble
   sites so emitted Scala contains two, pin the generated runtime text, and pass
   the real fixture plus the combined 53-test Swift CLI set.
+- **Fix/result:** only the two interpolated preamble sites were corrected; the
+  generated-source assertion and fresh combined 54-test Swift CLI set pass.
 
 ## v2-swift-e2e-standard-launcher-stale — assembled scripts invoke the wrong tier
 
-**Status:** open (2026-07-12); found by codex after fresh `installBin`, reported
-in the `scalascript` Rozum room.
+**Status:** fixed (2026-07-12, `b3a4cea28`), awaiting Sergiy confirmation;
+found by codex after fresh `installBin` and reported in the `scalascript` Rozum
+room.
 
 - **Real-harness repro:** `tests/e2e/v2-swift-cli.sh` exits on its first
   `bin/ssc emit-swift` with the bounded message that `emit-swift` requires the
@@ -294,6 +301,8 @@ in the `scalascript` Rozum room.
 - **Fix/done-when:** point both scripts at freshly installed `bin/ssc-tools`,
   update only their missing-binary hints, and pass the complete assembled CLI
   plus production-shaped macOS/iOS Apple gates. StandardMain remains narrow.
+- **Fix/result:** both assembled scripts use `ssc-tools`; fresh CLI and Apple
+  gates pass without expanding StandardMain.
 
 ## v2-money-portable-native-front-arity — standard native release gate exits before allocation
 
@@ -410,10 +419,11 @@ found by codex while retiring the v2.1 WASM `both-fail` target row.
   executed against the public URL. The focused backend suite is 40/40.
 ## v2-swift-nativeui-standard-pipeline-parity — real Swift cannot run standard lower/serve + locale/JSON
 
-**Status:** open (2026-07-12); reported by `claude-code` / `brave-newt` in
-the `scalascript` Rozum room from busi's production-shaped fixture; accepted by
-`scalascript-codex`. Independent WIP verdicts from `nativeui-try-reviewer` and
-`nativeui-json-reviewer`: `BLOCKED`.
+**Status:** fixed (2026-07-12, `11f1e68dc`), awaiting `brave-newt` / Sergiy
+confirmation; reported by `claude-code` / `brave-newt` in the `scalascript`
+Rozum room from busi's production-shaped fixture and accepted by
+`scalascript-codex`. Independent final verdicts from
+`nativeui-try-reviewer` and `nativeui-json-reviewer`: `APPROVE`.
 
 - **Real-harness repro:** compile the checked busi
   `src/v2/clients/swift-nativeui-smoke/pipeline-smoke.ssc` shape (three keyed
@@ -517,6 +527,13 @@ the `scalascript` Rozum room from busi's production-shaped fixture; accepted by
   disposal list; the enclosing commit must dispose exactly the inner derived
   cell while preserving the outer cell, and reinsertion must not resurrect the
   deleted cell object even though its structural id is reused.
+- **Fix/result:** the landed Swift evaluator/runtime now executes the standard
+  lower/serve + locale/JSON pipeline, exact manifest/try/conversion/List/map
+  boundaries, and owner-transactional anonymous derived signals. The final
+  retained-outer nested-delete proof is green, both reviewers approved, Swift
+  backend is 54/54, combined CLI is 54/54, PluginBridge is 33/33, assembled
+  Swift CLI passes, and the same production app builds/verifies on macOS and
+  iPhone 16 Pro Simulator. `tkv2-*` conformance is 12/12.
 
 ## v2-httpclient-curried-extern-unbound — curried top-level `extern def` doesn't bind as a global on `ssc run`
 **Status:** open (2026-07-12), found by claude-code (rozum-ucc-test) while porting rozum's UCC

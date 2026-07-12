@@ -312,7 +312,8 @@ in the `scalascript` Rozum room; independent reviewers:
 directly and therefore did not exercise the shipped `std/ui/lower.ssc`
 pipeline used by real applications.
 
-- [ ] **Plan/spec gate before implementation** — record the three real-harness
+- [x] **Plan/spec gate before implementation** — DONE in the committed spec and
+      independent Rozum approvals. Original plan: record the three real-harness
       blockers in `BUGS.md`; freeze the exact portable `__try__`/`__throw__`,
       `String.toInt`, module `global.reg`, locale and `JsonValue` contracts in
       the feature spec; obtain explicit read-only Rozum `APPROVE` before
@@ -324,13 +325,14 @@ pipeline used by real applications.
       uppercase versus fallback lowercase JSON escaping, reference
       `Value.toString` map-key text, and huge-integral `optInt` low-64-bit
       behavior.
-- [ ] **Safe module-val discovery** — authorize only compiler-generated,
+- [x] **Safe module-val discovery** — DONE in `730055e78`. Authorize only compiler-generated,
       unconditionally executed init-continuation `global.reg(name, value)`
       registrations. Do not scan definitions, lambdas or dead branches;
       negative real-Swift coverage must prove a dead registration cannot
       authorize an otherwise unbound global. This makes `localeSignal`
       visible without weakening validation.
-- [ ] **Portable Swift failure semantics** — represent exact explicit
+- [x] **Portable Swift failure semantics** — DONE in `730055e78` with final
+      real-Swift/PluginBridge matrices. Represent exact explicit
       `thrown(SscValue)`, recoverable runtime failure, and non-catchable
       unexpected host failure separately. `__try__` catches only the body,
       clears the caught failure before invoking the handler, passes the exact
@@ -340,7 +342,8 @@ pipeline used by real applications.
       bugs/fatal invariants must not be swallowed. The shared v2/PluginBridge
       lane must normalize invalid conversion too, so it actually remains the
       declared oracle rather than leaking `NumberFormatException`.
-- [ ] **Swift JsonValue parity** — implement the existing `__jsonCore*`,
+- [x] **Swift JsonValue parity** — DONE in `730055e78` with self-hosted and
+      fallback renderer gates. Implement the existing `__jsonCore*`,
       `lookup` and `lookupOpt` ABI against the self-hosted renderer contract:
       UTF-16 BMP/astral/control correctness, renderer installation/use,
       deterministic object rendering, Int/BigInt/Decimal boundaries, total
@@ -348,7 +351,9 @@ pipeline used by real applications.
       exact missing/null/list/map/string lookup behavior, facade accessors,
       native key/function encoding parity, and bounded failures for malformed
       core/non-finite/unrepresentable values.
-- [ ] **Faithful real-Swift regressions** — add a checked `.ssc` fixture using
+- [x] **Faithful real-Swift regressions** — DONE through `f9322e179`,
+      `fb2590069`, `a1bf127ed`, and `af2937a3a`; final backend is 54/54 and
+      assembled macOS/iOS production e2e passes. Original plan: add a checked `.ssc` fixture using
       `text`, `heading`, `styled` with both token (`md`) and numeric (`12`)
       lengths, `defaultTheme`, `lower`, and `serve`; real SwiftPM run must cover
       the fallback and success paths. Add real-Swift CoreIR tests for success,
