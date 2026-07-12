@@ -135,6 +135,11 @@ tests/e2e/v21-slim-distribution-gate.sh \
 # Also remove java.compiler/jdk.compiler from the resolvable module graph
 tests/e2e/v21-jre-module-gate.sh --report target/v21-jre-module.tsv
 
+# Authoritative negative release: no tools/compiler/scalameta files or commands,
+# no compiler modules, exhaustive frontend + VM/ASM + providers/server
+tests/e2e/v21-negative-toolchain-release-gate.sh \
+  --report target/v21-negative-toolchain-release.tsv
+
 # Compile to a native binary via Rust + Cargo (requires `cargo` on PATH;
 # see docs/rust-backend.md for the capability surface).
 bin/ssc-tools build-rust examples/hello.ssc && ./hello

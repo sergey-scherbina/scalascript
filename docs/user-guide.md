@@ -426,6 +426,14 @@ For a complete 2.1 self-hosted-core release check, run:
 scripts/v21-self-hosted-core-release-gate
 ```
 
+The consolidated release includes the authoritative negative environment:
+`tests/e2e/v21-negative-toolchain-release-gate.sh`. It copies only the standard
+launchers/tree, removes compiler and Scalameta layouts, hides
+scala-cli/scalac/javac, removes both compiler modules, then re-runs the complete
+frontend/checker and VM/direct-ASM corpus plus provider and HTTP server smokes.
+The derived Java module set explicitly retains `jdk.crypto.ec` because JCA
+provider discovery is reflective and therefore invisible to `jdeps`.
+
 It rebuilds the staged distribution, proves the single- and multi-file ssc0
 compiler images are gen1/gen2/gen3 fixpoints, verifies the 110-file native
 frontend image against checked-in sources, runs the bounded JSON/YAML/Markdown
