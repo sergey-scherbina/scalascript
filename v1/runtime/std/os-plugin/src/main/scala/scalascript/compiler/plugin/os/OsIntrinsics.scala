@@ -3,7 +3,7 @@ package scalascript.compiler.plugin.os
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
 import scalascript.plugin.api.{PluginComputation, PluginError, PluginNative, PluginValue}
-import scalascript.plugin.api.PluginValue.{Str, Lst}
+import scalascript.plugin.api.PluginValue.{Str, Lst, Num, Bool, Inst, Opt, MapVal}
 
 import java.nio.file.Paths
 
@@ -131,21 +131,41 @@ object OsIntrinsics:
       // with the Str/Lst extractors (which `wrap` either form) rather than type-testing
       // `cmd: String` / `argsList: List[?]` — the latter silently missed the ListV and
       // fell through to the exit-1 stub.
-      case List(c, a, _) =>
+      case List(c, a, o) =>
         val cmd  = Str.unapply(c).getOrElse(c.toString)
         val args = Lst.unapply(a).getOrElse(Nil).flatMap(Str.unapply)
+        // ProcessOptions fields — the interp previously ignored opts entirely, so
+        // cwd/env/timeout/inheritEnv were silently dropped on `ssc run`.
+        val f: Map[String, PluginValue] = o match { case Inst(_, fs) => fs; case _ => Map.empty }
+        val cwd        = f.get("cwd").flatMap(Opt.unapply).flatten.flatMap(Str.unapply)
+        val env        = f.get("env").flatMap(MapVal.unapply).getOrElse(Map.empty).flatMap {
+                           case (Str(k), Str(v)) => Some(k -> v); case _ => None }
+        val timeoutMs  = f.get("timeout").flatMap(Opt.unapply).flatten.flatMap(Num.unapply)
+        val inheritEnv = f.get("inheritEnv").flatMap(Bool.unapply).getOrElse(true)
         val pb   = new ProcessBuilder((cmd :: args)*)
         pb.redirectErrorStream(false)
+        cwd.foreach(d => pb.directory(new java.io.File(d)))                 // honor opts.cwd
+        if !inheritEnv then pb.environment().clear()                        // L3: scrub parent env
+        if env.nonEmpty then { val e = pb.environment(); env.foreach { case (k, v) => e.put(k, v) } }
         val proc = pb.start()
-        // M5: drain stdout AND stderr concurrently — reading stdout to EOF before
-        // stderr deadlocks when the child fills the >~64KB stderr pipe.
+        // M4/M5: drain stdout AND stderr on threads. Reading a stream to EOF blocks
+        // until the child exits — inline it would deadlock on >64KB stderr AND defeat
+        // opts.timeout (the read wouldn't return until the process already finished).
+        val outBuf = new java.util.concurrent.atomic.AtomicReference[String]("")
         val errBuf = new java.util.concurrent.atomic.AtomicReference[String]("")
+        val outT = new Thread(() =>
+          outBuf.set(scala.io.Source.fromInputStream(proc.getInputStream).mkString))
         val errT = new Thread(() =>
           errBuf.set(scala.io.Source.fromInputStream(proc.getErrorStream).mkString))
-        errT.setDaemon(true); errT.start()
-        val stdout = scala.io.Source.fromInputStream(proc.getInputStream).mkString
-        val code   = proc.waitFor()
-        errT.join(1000)
+        outT.setDaemon(true); errT.setDaemon(true)
+        outT.start(); errT.start()
+        val code   = timeoutMs match                                       // M4: honor opts.timeout
+          case Some(ms) =>
+            if proc.waitFor(ms, java.util.concurrent.TimeUnit.MILLISECONDS) then proc.exitValue()
+            else { proc.destroyForcibly(); proc.waitFor(); -1 }
+          case None => proc.waitFor()
+        outT.join(1000); errT.join(1000)
+        val stdout = outBuf.get()
         val stderr = errBuf.get()
         PluginValue.instance("ProcessResult", Map(
           "stdout"   -> PluginValue.string(stdout),
