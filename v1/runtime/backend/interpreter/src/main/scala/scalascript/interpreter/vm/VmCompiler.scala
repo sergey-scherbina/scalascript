@@ -972,27 +972,49 @@ object VmCompiler:
       emit(MFAIL, 0, 0, 0)
 
     /** Expression-position match: each arm writes `dst` then jumps to the end.
-     *  All arms must agree on result type. */
+     *  All arms must agree on result type — except a mix of only {Int, Double}, which
+     *  widens to Double (wide-jit C-5b), the same lub Scala applies to match branches. */
     private def compileMatchInto(scrut: Term, cases: List[scala.meta.Case], dst: Int): VmType =
       val sr = compileExpr(scrut)
       if typeOf(sr) != TRef then bail("match: non-ref scrutinee", Br.NonAdtScrutinee)
       val endJumps = mutable.ArrayBuffer.empty[Int]
-      var resultType: Option[VmType] = None
+      val armTypes = mutable.ArrayBuffer.empty[VmType]
       var rest = cases
       while rest.nonEmpty do
         val jf = emitCaseHeader(sr, rest.head)
         val bt = compileInto(rest.head.body, dst)
-        resultType match
-          case None                    => resultType = Some(bt)
-          case Some(prev) if prev == bt => ()
-          case _                       => bail("match: mismatched arm types", Br.MixedReturnType)
         endJumps += emit(JMP, -1, 0, 0)
+        armTypes += bt
         bs(jf) = ops.length
         rest = rest.tail
       emit(MFAIL, 0, 0, 0)
-      val end = ops.length
-      endJumps.foreach(j => as(j) = end)
-      val rt = resultType.getOrElse(bail("match: no result type (empty cases?)", Br.VmEmptyBlock))
+      if armTypes.isEmpty then bail("match: no result type (empty cases?)", Br.VmEmptyBlock)
+      // wide-jit C-5b: unify arm types. All-equal → that type. A mix of only {Int, Double} widens to
+      // Double — Int arms route their end-jump through a shared I2D pad (placed after the terminal
+      // MFAIL, so only reached via that jump) so each leaves a Double in `dst`; Double arms jump
+      // straight to end. Any other mix (ref vs numeric, …) still bails MixedReturnType.
+      val distinct = armTypes.distinct
+      val rt: VmType =
+        if distinct.lengthCompare(1) == 0 then
+          val end = ops.length
+          endJumps.foreach(j => as(j) = end)
+          distinct.head
+        else if distinct.forall(t => t == TInt || t == TDouble) then
+          val pad     = ops.length
+          emit(I2D, dst, dst, 0)
+          val padExit = emit(JMP, -1, 0, 0)
+          val end     = ops.length
+          as(padExit) = end
+          var k = 0
+          while k < endJumps.length do
+            as(endJumps(k)) = if armTypes(k) == TInt then pad else end
+            k += 1
+          VmCompiler.branchWidenings.incrementAndGet()
+          TDouble
+        else
+          val end = ops.length
+          endJumps.foreach(j => as(j) = end)
+          bail("match: mismatched arm types", Br.MixedReturnType)
       setType(dst, rt); rt
 
     /** Emit the instruction stream; callee shells are resolved later by [[Ctx]]. */

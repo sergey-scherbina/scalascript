@@ -2684,6 +2684,30 @@ class SscVmTest extends AnyFunSuite with Matchers:
     java.lang.Double.longBitsToDouble(SscVm.run(c2.get, Array(-1L))) shouldBe 2.5  // 1.5 + 1.0
   }
 
+  test("wide-jit C-5b: a value-position match with mixed Int/Double arms is widened, not bailed on") {
+    // The match is an operand of `* 2.0` (value position). Its arms are {Double, Int, Double}; the
+    // Int arm (`2`) routes its end-jump through a shared I2D pad so every arm leaves a Double in dst.
+    val interp = interpOf(
+      """sealed trait E
+        |case object A extends E
+        |case object B extends E
+        |case object C extends E
+        |def f(e: E): Double = (e match {
+        |  case A => 1.5
+        |  case B => 2
+        |  case C => 3.5
+        |}) * 2.0""".stripMargin)
+    val f = interp.globalsView("f").asInstanceOf[Value.FunV]
+    val before = VmCompiler.branchWidenings.get
+    val cfn = VmCompiler.compile(f, globalsResolve(interp))
+    cfn shouldBe defined
+    assert(VmCompiler.branchWidenings.get > before, "the mixed-arm match should widen")
+    def e(tag: String) = Value.InstanceV(tag, Map.empty)
+    java.lang.Double.longBitsToDouble(SscVm.runRef(cfn.get, Array.empty[Long], Array[AnyRef](e("A")))) shouldBe 3.0  // 1.5 * 2
+    java.lang.Double.longBitsToDouble(SscVm.runRef(cfn.get, Array.empty[Long], Array[AnyRef](e("B")))) shouldBe 4.0  // 2→2.0 * 2
+    java.lang.Double.longBitsToDouble(SscVm.runRef(cfn.get, Array.empty[Long], Array[AnyRef](e("C")))) shouldBe 7.0  // 3.5 * 2
+  }
+
   test("wide-jit C-3: FunV.body is identity-keyed in the Typer's nodeTypes; the map threads to VmCompiler") {
     // Parse ONCE; run it (→ FunV) and typecheck it (→ nodeTypes) from the SAME parse, so the
     // FunV.body Term the JIT compiles is the exact object the Typer recorded a type for.
