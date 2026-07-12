@@ -1,6 +1,6 @@
 feature/v21-native-effect-runtime-blockers 2026-07-11T19:21:44Z
 agent: codex
-heartbeat: 2026-07-12T01:25:57Z
+heartbeat: 2026-07-12T02:01:04Z
 status: in-progress
-done-so-far: core-free Actors provider is pushed through ddb11db51; release gate is ready at 44 identical / 22 both-fail / 10 blockers
-next: specify and implement the two core-free local-loopback distributed MapReduce rows, starting from the exact NamedHandler baseline and fixed input fixtures
+done-so-far: distributed local-loopback provider, exact HandlerRegistry ABI, tuple-field pattern fix, VM/ASM/build-jvm gates, and taxonomy are green at 46 identical / 20 both-fail / 8 blockers
+next: run the exhaustive release gate, verify specs/bookkeeping, fresh v2 conformance, and push the complete distributed slice
