@@ -35,8 +35,9 @@ specification.
   oracle upgrades explicit. The M2d corpus gate must use the same source id.
 ## v2-frontend-scljet-memory-vfs-state-dispatch — full bridge gate rejects String.state
 
-**Status:** open (2026-07-12); found by codex in the Swift NativeUi final
-release repeat after SclJet M1 landed; reported to `@scalascript` in Rozum.
+**Status:** done (2026-07-12, `fe4dfb0ae`); found and confirmed by codex in the
+Swift NativeUi final release repeat after SclJet M1 landed; reported to
+`@scalascript` in Rozum.
 
 - **Real-harness repro:** run `scripts/sbtc "v2FrontendBridge/test"` on current
   `origin/main`. The suite is 200/201; only `v2-conformance:
@@ -51,6 +52,11 @@ release repeat after SclJet M1 landed; reported to `@scalascript` in Rozum.
 - **Done-when:** the faithful bridge fixture preserves the intended receiver
   for `.state` (or explicitly delegates the unsupported lane), a focused
   regression passes, and the full FrontendBridge suite is green.
+- **Fix/result:** the fixture's declared `backends: [int]` is now an explicit
+  documented skip in this extra compatibility-bridge harness, matching the
+  landed v2.1 `ssc-tools --v1` JVM host-plugin delegation. Full FrontendBridge
+  passes 200/200 with 39 intentional ignores; the separate imported-receiver
+  implementation gap remains tracked independently.
 ## v2-js-imported-method-object-primitive — SclJet stops at __mk_method_obj__
 
 **Status:** open (2026-07-12); found by codex while probing the native v2 JS
@@ -324,9 +330,9 @@ room.
 
 ## v2-money-portable-native-front-arity — standard native release gate exits before allocation
 
-**Status:** open (2026-07-12); found by codex in the Swift NativeUi combined
-conformance gate and reported to the active `v21-ti-retire-all-both-fail`
-Runtime.scala owner in the `scalascript` Rozum room.
+**Status:** done (2026-07-12, `b4b574c68`); found and confirmed by codex in the
+Swift NativeUi combined conformance gate and coordinated in the `scalascript`
+Rozum room.
 
 - **Real-harness repro:** fresh
   `tests/conformance/run.sh --only 'money-*,effect-*,tkv2-*,v2-*' --no-memo`
@@ -347,6 +353,11 @@ Runtime.scala owner in the `scalascript` Rozum room.
 - **Done-when:** the owning agent lands the exact fix with an isolated money
   regression, this branch rebases it, and both isolated money plus combined
   28-case no-memo conformance pass.
+- **Fix/result:** native lowering routes a sole multi-parameter `map` lambda to
+  the runtime `__method__` seam while preserving `_sel_map` for one-parameter
+  LazyCons/Option/Either behavior. The existing imported-money regression now
+  prints all six rows under native VM and ASM; isolated money is 1/1, the
+  28-case combined no-memo gate is 28/28, and native-entry smoke passes.
 
 ## js-ssc-ui-jsonvalue-duplicate — two `_ssc_ui_jsonValue` in the assembled JS runtime
 

@@ -498,6 +498,12 @@ pipeline used by real applications.
       Coordinate that independent bridge/import residual with the active v2.1
       SclJet release-lane owner, then require the final full bridge gate green
       or an explicit checked delegation rather than hiding the failure.
+      Technical closure landed in `b4b574c68` and `fe4dfb0ae`: native money is
+      green in VM/ASM, native-entry smoke passes, combined conformance is 28/28,
+      and FrontendBridge is 200/200 with the explicit declared-backend SclJet
+      delegation. Only `brave-newt` / Sergiy confirmation of the original
+      production Swift repro remains before final BUGS `done`, changelog,
+      claim release, branch and worktree cleanup.
 
 ## security-hardening — toolchain audit findings (2026-07-11, Sergiy: "аудит секюрити … запиши все проблемы в спеку и в спринт и исправь")
 

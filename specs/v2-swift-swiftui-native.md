@@ -1688,14 +1688,13 @@ Swift 6 warnings-as-errors execution on macOS and compile on iOS.
   assembled `tests/e2e/v2-swift-cli.sh`; and assembled
   `tests/e2e/v2-swiftui-apple.sh`, which builds/verifies
   `busi_pipeline_nativeui_smoke.app` on macOS and iPhone 16 Pro Simulator.
-- Full FrontendBridge was green for the feature corpus (including fast tkv2
-  PWA) before the concurrent SclJet M1 row landed. The latest repeat is 200/201
-  solely because that independent row dispatches `.state` on a String; it is
-  tracked as `v2-frontend-scljet-memory-vfs-state-dispatch`. The standard
-  native `money-portable-v2` tuple-map arity residual is separately localized
-  to synthesized `_sel_map` and tracked as
-  `v2-money-portable-native-front-arity`; neither changes a checked behavior
-  item above.
+- Final release closure adds `b4b574c68`, routing only multi-parameter native
+  `map` lambdas through the runtime tuple-spreading seam, and `fe4dfb0ae`,
+  explicitly delegating the newly landed `backends:[int]` SclJet memory-VFS
+  row away from the extra compatibility-bridge harness in agreement with its
+  v2.1 real tools/v1 host-plugin lane. Native VM/ASM money output is exact,
+  native-entry smoke passes, full FrontendBridge is 200/200, and the fresh
+  no-memo money/effect/tkv2/v2 conformance gate is 28/28.
 
 ### Final Apple assembled and release verification (2026-07-11)
 
