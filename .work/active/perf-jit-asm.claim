@@ -86,10 +86,17 @@ LESSON (Sergiy, "Рассуждай логично"): the "compile-more-at-bail-
   C-8 DONE + on main (b6c490e22, 2026-07-12) — Slice A foldLeft accepts a Double accumulator over
     List[Int] (`foldLeft(0.0)((a,x)=>a+x)`): element stays Int (LITERNXI), a+x body widens x, Int
     body→Double acc I2D'd, result type = acc type. SscVmTest 185/185 (sumD→10.0); conformance clean.
-  BACKLOG (in SPRINT "JIT coverage backlog"): call-arg mismatch (audit, likely low yield);
-    RefReturn/field-meta STRUCTURAL (broader refTypeName provenance + type→layout, ~C-4-infra scale,
-    apply the C-7 name-don't-flip RULE); typeGateOk=UsingParams (out of scope); closures/HOF (~199,
-    HARD NON-GOAL). List[Double] foldLeft needs a LITERNXD opcode (follow-up).
+  call-arg mismatch AUDITED 2026-07-12 → SKIP: both sites already widen (TDouble,TInt); remaining
+    bails are genuine type errors or need the unsafe TInt→TRef flip (litdoc). Not safely actionable.
+  C-9 DONE + on main (4229abf69, 2026-07-12) — field-meta deep: name VAL/VAR locals from their
+    declared type when the rhs is already-ref-but-unnamed (if/match result, unannotated-callee call).
+    nameRefFromDecl+declTypeName; name-don't-flip RULE. SscVmTest 186/186 (val p:Box=if…;p.v → 5/7);
+    conformance clean. ⇒ 742 unknown-ref-type now broadly covered (params/fields/C-7 calls/C-9 locals/
+    string-ops). Residual field bail = 741 non-ref-base (base typed TInt but really a ref) → needs the
+    FORBIDDEN flip. field-meta effectively CLOSED on the safe side.
+  STILL OPEN (structural/hard, not typed-input widening): typeGateOk=UsingParams (typeclass dict
+    specialisation, out of scope); closures/HOF (~199, HARD — closure/heap model). List[Double]
+    foldLeft needs a LITERNXD opcode (follow-up).
 next (further C-4 / new bail classes, in rough value order):
   - other bail-to-TInt/unknown sites: typeGateOk (164), call-arg mismatch (604) — check whether a
     type source can satisfy the gate instead of bailing. Same discipline: only UPGRADE an unknown

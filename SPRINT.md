@@ -1773,10 +1773,16 @@ for in-process runs, and `inferType` already computes per-node `SType` (just dis
       ref↔numeric = genuine OR an upstream ref-returning call result typed TInt. Fixing the latter
       needs flipping the result VmType TInt→TRef — the SAME unsafe flip that miscompiled litdoc (C-7).
       No local arg-site fix is safe. Frequency is moot — the fixable subclass needs the unsafe flip.
-- [ ] **RefReturn / field: no meta for type (STRUCTURAL, ~C-4-infra scale)** — `field:` bails (742
-      unknown-ref-type, 756 no-meta) beyond the C-7 call-result case need broader refTypeName
-      provenance (val/param-of-inferred-type, deeper chains) + full type→field-layout coverage. June:
-      ~39 misses. Bigger infra slice; do after the cheap ones. Apply the C-7 RULE (name, don't flip).
+- [~] **RefReturn / field: no meta for type (STRUCTURAL)** — refTypeName provenance widened:
+  - [x] **C-7** `e8599c66b` — name CALL results from the callee's declared return type.
+  - [x] **C-9 (field-meta deep)** `4229abf69` — name VAL/VAR locals from their declared type when the
+        rhs is an already-ref-but-unnamed value (if/match result, unannotated-callee call). SscVmTest
+        186/186 (val p: Box = if…; p.v resolves); conformance clean. Both follow the name-don't-flip RULE.
+  - REMAINING (LOW-YIELD / UNSAFE): 742 unknown-ref-type is now largely covered (params, fields, calls
+        via C-7, locals via C-9, string-ops). The dominant residual field bail is **741 non-ref-base**
+        = the base expr is typed TInt when it's really a ref — fixing it needs the TInt→TRef flip that
+        miscompiled litdoc (FORBIDDEN by the C-7 RULE). 756 no-meta is rare (unregistered layouts).
+        ⇒ field-meta is now effectively closed on the SAFE side; the rest requires the unsafe flip.
 - [ ] **typeGateOk (164) = UsingParams** — `using`/context-bound typeclass dispatch; NOT a type-
       inference gap. Needs compile-time dictionary specialisation. Out of the C (typed-input) scope.
 - [ ] **closures / HOF (~199, DOMINANT) — HARD, explicit NON-GOAL of line C.** `call: no compilable
