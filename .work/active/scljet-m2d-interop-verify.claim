@@ -1,6 +1,6 @@
 feature/scljet-m2d-interop-verify 2026-07-12T14:39:48Z
 agent: codex
-heartbeat: 2026-07-12T15:03:57Z
+heartbeat: 2026-07-12T15:17:52Z
 status: in-progress
-done-so-far: published pinned SQLite 3.53.3 differential corpus and iterative freelist fix; serial/rowid and clean-WAL extension committed locally
-next: publish the green corpus extension, then add officially generated reserved-byte fixtures and close verified M2d coverage honestly
+done-so-far: published 20-file/607-line oracle including serial, rowid, clean WAL and official reserve counts 1/7/32; conformance 6/6
+next: pin official SQLite 3.2.0 canonical source and generate honest schema-format 1/2/3 fixtures, then expand corruption coverage
