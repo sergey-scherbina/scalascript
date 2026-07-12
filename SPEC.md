@@ -642,6 +642,12 @@ a non-data value falls through to the next arm. On success the complete
 scrutinee is bound to `value`. Type arguments are erased after their balanced
 syntax has been checked, but the outer nominal type head is retained in CoreIR.
 
+Literal and typed patterns retain the same semantics when nested in a
+constructor or tuple field. Fields are checked left-to-right at their exact
+positions before a guard or arm body runs; any failed literal equality,
+portable nominal type test, or nested constructor continues with the next
+source arm without exposing rejected-arm bindings.
+
 A `case object` is one stable nullary constructor value. It can be imported,
 referenced directly, compared structurally, and matched by name:
 
