@@ -3893,6 +3893,15 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
             this slice: `emit-wasm` writes `module.wasm` while its generated JS
             imports `main.wasm`. Add a real Node execution regression so the
             pure WASM row cannot be declared green from compilation alone.
+      - [ ] Fix the direct-ASM top-level-val effect leak discovered by the
+            consolidated release gate: `cell.set` must defer an unhandled
+            `Op` exactly like the VM instead of storing it and exposing its raw
+            representation to a following `println`. Add a bytecode regression,
+            rerun native-entry, then rerun the complete consolidated gate.
+      - [ ] Repair the stale x402 bridge assertion in
+            `v21-unhandled-effect-smoke`: invoke the compiler-backed
+            compatibility lane through explicit `ssc-tools`, while keeping
+            standard `ssc` native-only and parser-sentinel strict.
 
 - [x] **v2-production-readiness-audit** - DONE 2026-07-10:
       bounded audit after closing the layout/YAML and indent-demo blockers.

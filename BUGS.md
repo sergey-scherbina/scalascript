@@ -1,5 +1,38 @@
 # Bug tracker
 
+## v21-unhandled-effect-smoke-x402-launcher — bridge assertion used standard `ssc`
+
+**Status:** open (2026-07-12); found by codex while verifying the direct-ASM
+effect fix for `v21-ti-retire-all-both-fail`.
+
+- **Real-harness repro:** after installing the v2.1 tier split, run
+  `tests/e2e/v21-unhandled-effect-smoke.sh`. Its “bridge ASM x402 Op” case
+  invokes `bin/ssc run --bytecode examples/x402-metamask.ssc`; standard native
+  correctly rejects compiler-backed x402 syntax with a structural parser
+  sentinel, so the stale assertion never reaches the compatibility bridge.
+- **Root cause:** the regression kept the pre-split launcher even though the
+  compatibility frontend is now reachable only through explicit `ssc-tools`.
+- **Done-when:** the bridge assertion invokes `ssc-tools` explicitly, standard
+  `ssc` retains its compiler-free rejection, and the complete smoke passes.
+
+## v21-asm-top-val-effect-leak — direct ASM stores and prints an unhandled effect
+
+**Status:** open (2026-07-12); found by codex in the consolidated v2.1
+release gate while closing `v21-ti-retire-all-both-fail`.
+
+- **Real-harness repro:** run `bin/ssc run --native --bytecode
+  examples/graph-rdf4j-http-storage.ssc` without the explicit RDF4J provider.
+  The process correctly exits nonzero with `unhandled runtime effect:
+  Sparql.select`, but stdout also contains the raw
+  `Op("Sparql.select", ...)` value after `Stored two books.`. The native VM
+  prints only `Stored two books.` before rejecting the effect.
+- **Root cause:** pending investigation in the direct-ASM primitive/cell-write
+  boundary; the self-hosted lowerer initializes top-level immutable values
+  through `cell.set`, so an effect result must be deferred instead of stored.
+- **Done-when:** direct ASM and VM both leave the raw `Op` unobservable, the
+  focused native-entry regression passes in both modes, and the consolidated
+  release gate is green.
+
 ## v21-empty-runtime-taxonomy-total — zero-row summary printed a blank total
 
 **Status:** fixed (2026-07-12, pending commit), awaiting Sergiy confirmation;
