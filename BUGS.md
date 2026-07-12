@@ -389,6 +389,9 @@ the `scalascript` Rozum room from busi's production-shaped fixture; accepted by
   the bug.
   `element` must then accept the association-list attrs and retain the produced
   styles; malformed list/tuple/key shapes remain bounded failures.
+  The next observed failure is currently opaque (`app: not a function`); Swift
+  omitted the non-callable value that shared v2 Runtime includes. Add that
+  deterministic value text before classifying/fixing the next seam.
 
 ## v2-httpclient-curried-extern-unbound — curried top-level `extern def` doesn't bind as a global on `ssc run`
 **Status:** open (2026-07-12), found by claude-code (rozum-ucc-test) while porting rozum's UCC

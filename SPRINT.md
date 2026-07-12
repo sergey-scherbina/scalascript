@@ -392,6 +392,10 @@ pipeline used by real applications.
       `[("style","first"),("style","last")] -> style=last`, prove no source
       list reaches the Apple renderer, and reject a cell/array value with the
       original `NativeUiSourceRef` file/line/operation in a bounded diagnostic.
+      If execution then reaches a non-callable application, align Swift's
+      terminal diagnostic with the shared runtime (`app: not a function: <show>`)
+      before the next expensive run; the current value-less message prevents a
+      faithful root-cause record and is not itself a usable regression.
 - [ ] **Release gates and closure** — require explicit post-code Rozum
       `APPROVE`; full Swift backend, combined CLI, assembled Swift CLI and
       macOS+iOS Apple e2e, money/effects/tkv2/v2 conformance, affected
