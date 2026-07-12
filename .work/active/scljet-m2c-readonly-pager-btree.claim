@@ -1,6 +1,6 @@
 feature/scljet-m2c-readonly-pager-btree 2026-07-12T13:50:23Z
 agent: codex
-heartbeat: 2026-07-12T13:50:23Z
-status: not-started
-done-so-far: M2 header/page/record codecs landed in 66ff828b9 with 4/4 conformance
-next: create isolated worktree and implement immutable read pager plus B-tree/schema traversal
+heartbeat: 2026-07-12T13:50:41Z
+status: in-progress
+done-so-far: isolated worktree created from published M2 codec foundation
+next: implement pure pager transitions over memory VFS first, then B-tree cursor/schema validation
