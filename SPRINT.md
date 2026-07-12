@@ -3236,7 +3236,8 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     semantic path; seed/plugin tests are 3/3 and
                                     both binding conformance cases pass on every
                                     compatibility lane.
-                        - [ ] **TI-8.2d3l core-free Graph runtime:** audit and
+                        - [x] **TI-8.2d3l core-free Graph runtime — DONE
+                              2026-07-12 (`eb69124e2`, taxonomy `ff42d5d57`):** audit and
                               close the two graph taxonomy rows without
                               pretending that an external RDF4J HTTP service is
                               local standard behavior. Track the missing owner
@@ -3252,22 +3253,29 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     credentials are external, so the remote
                                     query row is optional, not a local standard
                                     success target.
-                              - [ ] **TI-8.2d3l1 provider spec:** commit a
+                              - [x] **TI-8.2d3l1 provider spec:** commit a
                                     core-free portable Graph/RDF ownership,
                                     ordering, isolation, error, packaging, and
                                     explicit remote-boundary contract before
                                     code.
-                              - [ ] **TI-8.2d3l2 implementation + unit:** add a
+                              - [x] **TI-8.2d3l2 implementation + unit:** add a
                                     required ServiceLoader provider for the real
                                     standard surface and faithful focused tests;
                                     do not import the v1 graph plugin/backend or
                                     install catch-all operations.
-                              - [ ] **TI-8.2d3l3 assembled closure:** prove the
+                              - [x] **TI-8.2d3l3 assembled closure:** prove the
                                     applicable public examples on VM/ASM and
                                     build-jvm, extend dependency/slim/classload
                                     gates, reconcile only confirmed taxonomy
                                     rows, then run the exhaustive release gate
                                     and fresh `v2-*` conformance before push.
+                              Result: the required local Graph/RDF facade is
+                              exact on VM/ASM/slim/build-jvm; external RDF4J
+                              HTTP reaches one bounded diagnostic. Full parity
+                              is 47 identical / 19 both-fail / 129 skipped,
+                              taxonomy is 6 blockers / 19 rows, dependency
+                              closure is 24 roots / 97 edges / 38 staged jars,
+                              and fresh conformance is 11/11.
                   - [x] **TI-8.2d4 example/config blockers:** DONE 2026-07-11
                         (`d4c953b9c`, taxonomy `39cfe268b`). Repair stale imports,
                         fixture setup, and deterministic data/config assumptions

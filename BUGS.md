@@ -2,7 +2,8 @@
 
 ## v21-native-graph-provider-missing — standard Graph facade has no core-free owner
 
-**Status:** open (2026-07-12); found by codex while continuing the TI-8.2d3
+**Status:** fixed (2026-07-12, provider `eb69124e2`, taxonomy `ff42d5d57`),
+awaiting Sergiy confirmation; found by codex while continuing the TI-8.2d3
 blocking taxonomy after distributed local-loopback landed.
 
 - **Installed baseline:** VM and direct ASM both exit 1 with empty stdout.
@@ -21,6 +22,12 @@ blocking taxonomy after distributed local-loopback landed.
   Exact standard examples pass VM/ASM/build-jvm and only genuinely resolved
   taxonomy rows are retired; explicitly remote backends receive an honest
   optional/external classification or bounded diagnostic.
+- **Fix/result:** `v2/runtime/std/graph-plugin` owns deterministic process-local
+  property/RDF storage and exact remote-query diagnostics through the native
+  SPI. The local public example is exact on VM/ASM/build-jvm; the external
+  RDF4J HTTP row is non-blocking and names the required explicit backend.
+  Provider tests are 4/4 and the exhaustive release gate is green at 47
+  identical / 19 both-fail / 6 blockers with zero mismatch/one-sided rows.
 
 ## v21-native-tuple-field-patterns — tuple literal/typed fields are unchecked
 

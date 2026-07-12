@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-12 — process-local Graph storage is core-free
+
+The ScalaScript 2.1 standard tier now owns deterministic process-local property
+and RDF graph storage, ordered vertex/edge/triple traversal, structural portable
+values, and explicit remote SPARQL/Cypher/Gremlin boundaries without the v1
+graph plugin or compatibility fallback. The local public example is exact on
+VM, direct ASM, slim, and reproducible `build-jvm`; full parity is 47 identical
+/ 19 both-fail with zero mismatch/one-sided rows, leaving 6 blockers. Landed
+through `ff42d5d57`.
+
 ## 2026-07-12 — distributed local-loopback MapReduce is core-free
 
 The ScalaScript 2.1 standard tier now supplies deterministic process-local
