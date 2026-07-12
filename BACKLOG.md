@@ -121,7 +121,7 @@ Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
       `Stub` for real case-class method bodies. Add a multi-file VM/ASM
       regression and preserve/link both receiver operation forms.
 
-- [ ] **v1-explicit-companion-shadows-case-constructor** (2026-07-12) — the v1
+- [x] **v1-explicit-companion-shadows-case-constructor** — DONE (git): Defn.Object preserves the ctor as `apply`; Defn.Class merges ctor into an existing companion. Order-independent. Conformance companion-case-class-order.
       interpreter sometimes resolves `CaseClass(...)` to an explicit companion
       value in later imported functions/methods. Reproduce cross-module and make
       generated constructor dispatch independent of declaration order.

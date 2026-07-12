@@ -395,7 +395,7 @@ independent of that fix (which is Scala-only).
 
 ## v2-imported-receiver-methods-not-linked — native imports cannot execute receiver operations
 
-**Status:** open (2026-07-12), found by codex while implementing SclJet M1; the
+**Status:** fixed (2026-07-12, opus) — see git; conformance companion-case-class-order + 73 binding unit tests green.
 SclJet API is unblocked by exporting target-neutral top-level functions.
 
 - **Real-harness repro:** install the current std modules, define an exported
@@ -416,7 +416,7 @@ SclJet API is unblocked by exporting target-neutral top-level functions.
 
 ## v1-explicit-companion-shadows-case-constructor — later case-class construction resolves to the companion value
 
-**Status:** open (2026-07-12), found by codex while implementing SclJet M1; the
+**Status:** fixed (2026-07-12, opus) — see git; conformance companion-case-class-order + 73 binding unit tests green.
 module is unblocked by routing construction through a helper declared before
 the explicit companion.
 
