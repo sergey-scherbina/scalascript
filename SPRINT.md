@@ -425,6 +425,17 @@ pipeline used by real applications.
       concatenation for `+`/`++` as a fresh canonical list, validating both
       complete receivers; gate empty/nonempty order plus non-list rhs,
       malformed lhs/tail/rhs as catchable bounded failures.
+      Post-code review on `1ca7d8318`/`82e10647e` remains `BLOCKED` until the
+      real-Swift matrices independently pin `+` and `++` (including
+      empty+empty and malformed Cons/Nil shapes), count both List-apply
+      type/arity errors, and exercise the approved `mkString` wrong-arity,
+      wrong-delimiter and non-list boundaries. The NativeUi boundary matrix
+      must additionally prove direct `SscMap`, association-list events,
+      forbidden array values, and a nonzero file/line/column source. Add one
+      dedicated anonymous-derived lifecycle probe for locale flip, same-key
+      JSON closure refresh, computed/equality kind separation, keyed
+      reorder/delete/rollback/retry, sibling/nested owners, abort/new-begin,
+      named interleaving, exact ids, and signal-count return to baseline.
 - [ ] **Release gates and closure** — require explicit post-code Rozum
       `APPROVE`; full Swift backend, combined CLI, assembled Swift CLI and
       macOS+iOS Apple e2e, money/effects/tkv2/v2 conformance, affected

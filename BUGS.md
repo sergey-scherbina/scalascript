@@ -405,6 +405,12 @@ the `scalascript` Rozum room from busi's production-shaped fixture; accepted by
   production card lowerer fails on `headerParts ++ [bodyEl] ++ footerParts`.
   Shared v2 `arithOp` concatenates proper lists for `+`/`++`; Swift dynamic
   arithmetic implements only String concatenation.
+- **Post-code review status:** runtime structure passed inspection, but closure
+  remains blocked on faithful coverage. The first green regression checkpoint
+  is `82e10647e`; reviewers require complete per-operator List matrices,
+  `mkString` rejection negatives, anonymous-derived transactional lifecycle
+  execution, and direct-map/events/array/nonzero-source NativeUi normalization
+  before the bug may move from `open` to `fixed`.
 
 ## v2-httpclient-curried-extern-unbound — curried top-level `extern def` doesn't bind as a global on `ssc run`
 **Status:** open (2026-07-12), found by claude-code (rozum-ucc-test) while porting rozum's UCC
