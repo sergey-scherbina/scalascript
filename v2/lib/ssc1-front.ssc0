@@ -1160,6 +1160,7 @@ def opPrec = (op) =>
   else if #seq(op, "<=") then 5 else if #seq(op, ">=") then 5
   else if #seq(op, "&&") then 4
   else if #seq(op, "||") then 3
+  else if #seq(op, "!") then 2       -- actor send: receiver ! message
   else if #seq(op, "&") then 5      -- K62.6c: bitwise
   else if #seq(op, "^") then 4
   else if #seq(op, "|") then 4

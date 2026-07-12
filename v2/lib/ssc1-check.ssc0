@@ -342,7 +342,20 @@ def ssc1inferInf = (env, s, op, l, r) =>
   else if #seq(op, "++") then ssc1inferConcat(env, s, l, r)
   else if #seq(op, ":+") then ssc1inferAppend(env, s, l, r)
   else if #seq(op, "::") then ssc1inferCons(env, s, l, r)
+  else if #seq(op, "!") then ssc1inferActorSend(env, s, l, r)
   else TcOk(s, TyDyn)
+
+-- Actor send is type-erased at CoreIR, but both operands must still be checked.
+-- The runtime provider validates the receiver and the expression returns Unit.
+def ssc1inferActorSend = (env, s, l, r) =>
+  match ssc1inferE(env, s, l) {
+    case TcErr(m) => TcErr(m)
+    case TcOk(s1, tl) =>
+      match ssc1inferE(env, s1, r) {
+        case TcErr(m) => TcErr(m)
+        case TcOk(s2, tr) => TcOk(s2, TyUnit)
+      }
+  }
 
 -- "+" is overloaded: Int+Int or Str+Any (Scala toString-concat); never reject Str+T
 def ssc1inferPlus = (env, s, l, r) =>

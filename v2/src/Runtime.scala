@@ -2179,7 +2179,23 @@ object Prims:
       // arity < 0 = "any arity" — used by type-ascription patterns (`case _: T =>`)
       // where the test is on the tag alone, independent of field count.
       case DataV(t, fs) => val ar = int(a, 2).toInt; BoolV(t == str(a, 1) && (ar < 0 || fs.length == ar))
-      case _            => BoolV(false)
+      // Primitive values are not DataV constructors, but source-level typed
+      // patterns still use the same portable nominal test (`case s: String`).
+      // They are necessarily arity-zero; aliases retain the ScalaScript surface
+      // without exposing JVM classes to user code.
+      case value =>
+        val expected = str(a, 1)
+        val arity = int(a, 2).toInt
+        val primitive = value match
+          case UnitV     => expected == "Unit"
+          case BoolV(_)  => expected == "Boolean" || expected == "Bool"
+          case IntV(_)   => expected == "Int" || expected == "Long"
+          case BigV(_)   => expected == "BigInt"
+          case FloatV(_) => expected == "Float" || expected == "Double"
+          case StrV(_)   => expected == "String"
+          case BytesV(_) => expected == "Bytes"
+          case _         => false
+        BoolV(primitive && (arity < 0 || arity == 0))
     // Target-neutral insertion-ordered mutable MapV.
     case "map.new"  => _ => MapV.empty
     case "map.get"  => a => asMap(a(0)).get(a(1)).fold(none)(some)
