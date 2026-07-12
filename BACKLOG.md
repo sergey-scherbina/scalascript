@@ -79,6 +79,16 @@ Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
 
 ## v1→v2 migration follow-ups (2026-07-03)
 
+- [ ] **v2-imported-extension-receiver-empty-row** (2026-07-12) — native
+      self-hosted checking loses the declared receiver shape of an imported
+      extension and reports `no column ... in row []`; add a multi-file
+      VM/ASM regression and preserve the receiver type across import lowering.
+
+- [ ] **v1-explicit-companion-shadows-case-constructor** (2026-07-12) — the v1
+      interpreter sometimes resolves `CaseClass(...)` to an explicit companion
+      value in later imported functions/methods. Reproduce cross-module and make
+      generated constructor dispatch independent of declaration order.
+
 - [ ] **v1-args-native-method-gap** (2026-07-08) — the v1 interpreter lane fails
       `args.length` with `No method 'length' on NativeFnV(<native:args>)` (same
       class as the fixed v2 v2-args-global-shadowed-by-native, BUGS.md): the bare

@@ -1,5 +1,42 @@
 # Bug tracker
 
+## v2-imported-extension-receiver-empty-row — native frontend loses the receiver type of imported extensions
+
+**Status:** open (2026-07-12), found by codex while implementing SclJet M1; the
+SclJet API is unblocked by defining the operations as real `ByteSlice` methods.
+
+- **Real-harness repro:** install the current std modules, define an exported
+  `extension (bytes: ByteSlice) def slice(offset: Int, length: Int)` in an
+  imported module, then call `base.slice(1, 3)` through `bin/ssc run --native`.
+  The standard launcher exits before user output with
+  `ssc: __method__: no column 'length' in row []`. The v1 interpreter accepts
+  the same imported extension.
+- **Root cause (partial):** the self-hosted/native import path checks the
+  extension body with an empty-row receiver rather than the declared
+  `ByteSlice`; ordinary methods declared in the case class retain the receiver
+  shape and are the safe cross-backend form.
+- **Done-when:** a multi-file native VM/direct-ASM conformance case imports an
+  argument-taking case-class extension, reads its receiver fields, and produces
+  identical output without an empty-row diagnostic.
+
+## v1-explicit-companion-shadows-case-constructor — later case-class construction resolves to the companion value
+
+**Status:** open (2026-07-12), found by codex while implementing SclJet M1; the
+module is unblocked by routing construction through a helper declared before
+the explicit companion.
+
+- **Real-harness repro:** in an imported module declare `case class B(...)`, a
+  helper/extension that returns `B(...)`, and then `object B` with factories.
+  Invoke the later constructor path with `bin/ssc-tools run --v1`; it exits with
+  `Instance is not callable` at the `B(...)` expression. A constructor helper
+  declared before `object B` remains callable.
+- **Root cause (partial):** v1 name resolution/dispatch binds the explicit
+  companion instance where the generated case-class constructor should be used
+  in some later function/extension bodies.
+- **Done-when:** a multi-file v1 conformance case combines a case class and
+  explicit companion and can construct from a later ordinary function and
+  method without helper-order sensitivity.
+
 ## v2-httpclient-curried-extern-unbound — curried top-level `extern def` doesn't bind as a global on `ssc run`
 **Status:** open (2026-07-12), found by claude-code (rozum-ucc-test) while porting rozum's UCC
 acceptance e2e test to native `.ssc`. Not blocking (single-param http externs work; the test uses those).
