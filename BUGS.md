@@ -82,11 +82,17 @@ found by codex during the SclJet M2c assembled JVM VFS example.
 
 ## portable-codepoint-string-construction — v1 lacks Int.toChar, v2 renders Char numerically
 
-**Status:** open (partial, 2026-07-12); found by codex designing SclJet's decoder.
-INT/JVM/JS `Int.toChar` FIXED (opus, see git; conformance int-tochar-codepoint) — added
-`toChar` to the interp Int dispatch + JS number/bigint dispatch. REMAINING: v2-native still
-renders Char numerically (658364) — that lane's Char rep/stringify is separate; and the
-broader portable UTF-16 text API from checked code points (Done-when) is a design item.
+**Status:** FIXED for INT/JVM/JS/v2-VM/v2-native (2026-07-12, opus); the broader
+portable UTF-16 text API from checked code points (Done-when) remains a design item.
+INT/JVM/JS `Int.toChar` fixed earlier (interp Int dispatch + JS number/bigint dispatch).
+v2 lane fixed now: the v2 VM has no Char value type, so `case (IntV(n), "toChar", Nil)`
+in `v2/src/Runtime.scala` returned `IntV(n & 0xffff)` and `65.toChar.toString` rendered
+"65". Changed it to return a single-code-point `StrV` — the convention the VM already uses
+for chars (`toCharArray`, `sfromCodes`). Verified via a direct `Prims.resolve("__method__")`
+probe: `toChar(65)→"A"`, `toChar(8364)→"€"`, `.toString` chains render the character.
+Known edge: `65.toChar.toInt` (unusual round-trip) now parses the 1-char string rather
+than returning 65 — a real `CharV` type would be needed for full Scala parity (separate
+larger change, tracked under the Done-when text API).
 
 - **Real-harness repro:** in an `.ssc` module evaluate `val a = 65.toChar; val
   b = 0x20ac.toChar; println(a.toString + b.toString)`. `ssc-tools run --v1`
