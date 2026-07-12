@@ -9,6 +9,7 @@ nfc-ndef.ssc	nfc	provider-lane	tests/e2e/v21-explicit-nfc-provider-smoke.sh	core
 pdf-extract-demo.ssc	pdf	provider-lane	tests/e2e/v21-explicit-pdf-provider-smoke.sh	core-free-provider
 quoted-macro-constfold.ssc	quoted	target-lane	tests/e2e/v21-explicit-quoted-tools-smoke.sh	compiler-tools
 quoted-macro-interpreter.ssc	quoted	target-lane	tests/e2e/v21-explicit-quoted-tools-smoke.sh	compiler-tools
+scljet-jvm-vfs.ssc	scljet-vfs	target-lane	tests/e2e/v21-explicit-scljet-jvm-vfs-tools-smoke.sh	compiler-tools-jvm-host
 wasm-http.ssc	wasm	target-lane	tests/e2e/v21-explicit-wasm-target-smoke.sh	wasm-target-tools
 wasm-scalascript.ssc	wasm	target-lane	tests/e2e/v21-explicit-wasm-target-smoke.sh	wasm-target-tools
 x402-client.ssc	x402	target-lane	tests/e2e/v21-explicit-x402-tools-smoke.sh	compiler-tools

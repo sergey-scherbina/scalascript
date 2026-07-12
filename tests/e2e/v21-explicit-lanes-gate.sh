@@ -37,11 +37,11 @@ awk -F '\t' -v root="$ROOT" '
     count[$3]++; family[$2]++; total++
   }
   END {
-    if (total != 13) { print "v21-explicit-lanes-gate: exact member count " total " != 13" > "/dev/stderr"; bad=1 }
-    if (count["provider-lane"] != 8 || count["target-lane"] != 5) {
-      print "v21-explicit-lanes-gate: lane counts must be provider=8 target=5" > "/dev/stderr"; bad=1
+    if (total != 14) { print "v21-explicit-lanes-gate: exact member count " total " != 14" > "/dev/stderr"; bad=1 }
+    if (count["provider-lane"] != 8 || count["target-lane"] != 6) {
+      print "v21-explicit-lanes-gate: lane counts must be provider=8 target=6" > "/dev/stderr"; bad=1
     }
-    split("pdf:3 mcp:2 graph:1 swift:1 nfc:1 quoted:2 wasm:2 x402:1", expected, " ")
+    split("pdf:3 mcp:2 graph:1 swift:1 nfc:1 quoted:2 scljet-vfs:1 wasm:2 x402:1", expected, " ")
     for (i in expected) { split(expected[i], pair, ":"); if (family[pair[1]] != pair[2]) { print "v21-explicit-lanes-gate: family drift: " pair[1] > "/dev/stderr"; bad=1 } }
     if (bad) exit 1
   }
@@ -60,6 +60,6 @@ awk -F '\t' -v OFS='\t' '
 
 provider=$(awk -F '\t' 'NR > 1 && $2 == "provider-lane" {n++} END {print n+0}' "$report")
 target=$(awk -F '\t' 'NR > 1 && $2 == "target-lane" {n++} END {print n+0}' "$report")
-[[ $provider -eq 8 && $target -eq 5 ]]
-echo "PASS v21-explicit-lanes-gate (13 exact rows: provider=$provider target=$target)"
+[[ $provider -eq 8 && $target -eq 6 ]]
+echo "PASS v21-explicit-lanes-gate (14 exact rows: provider=$provider target=$target)"
 echo "REPORT: $report"
