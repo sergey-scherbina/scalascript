@@ -1,5 +1,77 @@
 # Bug tracker
 
+## v21-native-focus-optics-unlowered — Focus/Prism remain globals
+
+**Status:** open (2026-07-12); found by codex in TI-8.2d3m audit.
+
+- **Real-harness repro:** standard VM/direct ASM run `examples/lenses.ssc`,
+  print only the two pre-Focus rows, then fail `unbound global: Focus`;
+  explicit `--compat-frontend` prints all 23 canonical rows.
+- **Root boundary:** CoreIR retains `app(global Focus, lam ...)` and a bare
+  `global Prism`; no structural path or optic value is synthesized.
+- **Done-when:** portable Lens/Optional/Traversal/Prism values implement the
+  public structural paths and composition exactly on VM/ASM/build-jvm without
+  compiler macros, reflection, example-specific globals, or fallback.
+
+## v21-native-named-copy-labels-dropped — case-class copy overrides by position
+
+**Status:** open (2026-07-12); found by codex in TI-8.2d3m audit.
+
+- **Real-harness repro:** before the Focus failure, `alice.copy(age = 31)`
+  prints `older   : 31, 30` instead of `older   : Alice, 31` on both standard
+  lanes. Explicit compatibility is correct.
+- **Root cause boundary:** named-argument labels are erased before CoreIR;
+  `copy(age = 31)` becomes `__method__("copy", alice, 31)` and replaces field
+  zero. Multi-label copies happen to work only when labels follow declaration
+  order.
+- **Done-when:** generic structural copy preserves/reorders labels by the
+  registered case-class layout, evaluates receiver/overrides once, and keeps
+  positional copy behavior unchanged on VM/ASM/build-jvm.
+
+## v21-native-direct-do-unlowered — direct[M] remains an unbound call
+
+**Status:** open (2026-07-12); found by codex in TI-8.2d3m audit.
+
+- **Real-harness repro:** standard VM/direct ASM fail before stdout with
+  `unbound global: direct`; explicit compatibility prints 11 canonical Option/
+  List rows.
+- **Root boundary:** type application is erased and every block remains
+  `app(global direct, lam0(seq(cell.set(@bind, rhs), ...)))`; bind statements
+  have already lost the monadic control-flow semantics.
+- **Done-when:** the self-hosted frontend lowers Option/List direct blocks,
+  short-circuiting/cartesian binds, pure vals/vars, and nesting generically with
+  exact public output and no v1 `DirectAnorm` dependency or fallback.
+
+## v21-native-derives-mirror-unsynthesized — product evidence is absent
+
+**Status:** open (2026-07-12); found by codex in TI-8.2d3m audit.
+
+- **Real-harness repro:** standard VM/direct ASM fail before stdout with
+  `unbound global: summon`; explicit compatibility prints
+  `Person`, `name|age`, `String|Int`, `name,age`.
+- **Root boundary:** the case-class layout is registered and `Csv.derived` is
+  retained, but `derives Csv` creates no `Mirror.Of[Person]` value or exact
+  `Csv[Person]` dictionary; both summons remain `global summon` in CoreIR.
+- **Done-when:** portable product metadata and derived evidence are synthesized
+  from declarations, exact summon lookup resolves both values, and unsupported
+  evidence remains a bounded compile/runtime failure without reflection.
+
+## v21-native-parameterless-def-value — nullary method is passed as a function
+
+**Status:** open (2026-07-12); found by codex in TI-8.2d3m audit.
+
+- **Real-harness repro:** standard VM/direct ASM print the mini-language success
+  heading then fail `arity: 0 expected, 1 given`; explicit
+  `--compat-frontend` prints all 13 canonical lines.
+- **Root cause:** `def typeCheckPass: Pass[Any, Any] = ast => ...` lowers to
+  `lam 0(lam 1(...))`. Bare value use in
+  `parsePass.andThen(...).andThen(typeCheckPass)` passes the nullary closure
+  itself; the composed pipeline later calls it with the AST.
+- **Done-when:** an ordinary reference to a declared parameterless def evaluates
+  it once at the use site, while explicit `def f()` and higher-arity function
+  values retain their current semantics; focused and public VM/ASM/build-jvm
+  output is exact.
+
 ## v21-native-graph-provider-missing — standard Graph facade has no core-free owner
 
 **Status:** fixed (2026-07-12, provider `eb69124e2`, taxonomy `ff42d5d57`),

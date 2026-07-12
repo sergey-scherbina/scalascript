@@ -3283,7 +3283,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               Preserve the Scala 3 seed unless an independently
                               specified bootstrap-language invariant requires a
                               source-exact update.
-                              - [ ] **TI-8.2d3m0 installed ownership audit:**
+                              - [x] **TI-8.2d3m0 installed ownership audit:**
                                     capture exact standard VM/ASM and explicit
                                     compatibility output for
                                     `custom-derives-mirror.ssc`,
@@ -3291,6 +3291,15 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     `dsl-mini-language.ssc`, and `lenses.ssc`;
                                     inspect CoreIR and group only shared root
                                     causes.
+                                    Result: all four VM/ASM pairs fail
+                                    identically and explicit
+                                    `--compat-frontend` supplies canonical
+                                    output. CoreIR identifies five independent
+                                    losses: parameterless-def value access in
+                                    the DSL pipeline; absent derives/Mirror
+                                    synthesis; unlowered `direct[M]`; dropped
+                                    named labels on case-class `copy`; and
+                                    unlowered Focus/Prism optics.
                               - [ ] **TI-8.2d3m1 specs + regressions:** write
                                     committed feature contracts and BUG entries
                                     for the confirmed language semantics before
@@ -3300,6 +3309,20 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     focused VM/ASM/build-jvm coverage and push
                                     it immediately; do not retire a taxonomy row
                                     until the public document succeeds exactly.
+                                    - [ ] **m2a parameterless def values:**
+                                          auto-apply a nullary def when used as
+                                          an ordinary value and prove the full
+                                          mini-language output.
+                                    - [ ] **m2b derives/Mirror:** synthesize
+                                          portable product metadata plus the
+                                          requested derived dictionary.
+                                    - [ ] **m2c direct do-notation:** lower
+                                          Option/List bind statements with
+                                          nested/direct/local state semantics.
+                                    - [ ] **m2d named copy + optics:** preserve
+                                          copy labels, then lower Focus/Prism
+                                          Lens/Optional/Traversal behavior from
+                                          structural paths.
                               - [ ] **TI-8.2d3m3 release closure:** rerun the
                                     195-row frontend/parity/taxonomy suite and
                                     exhaustive release gate, require all four
