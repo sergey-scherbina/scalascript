@@ -1,0 +1,27 @@
+feature/v2-swift-nativeui-i18n-json 2026-07-12T10:15:00Z
+agent: claude-code-busi
+heartbeat: 2026-07-12T10:15:00Z
+status: in-progress
+done-so-far: Real-world verification of the completed v2-swift-swiftui-native milestone
+against busi's actual production pipeline view (src/v2/clients/ssc/app.ssc's gigRow/oppRow/
+closedRow, copied faithfully into busi's src/v2/clients/swift-nativeui-smoke/pipeline-smoke.ssc)
+found two real gaps in the Swift backend's supported-globals allowlist
+(v2/backend/swift/src/main/scala/ssc/swift/SwiftBackend.scala:80-93 nativeUiPublicGlobals):
+(1) localeSignal (std/ui/i18n.ssc) — blocks any i18n'd screen, i.e. every real busi screen.
+(2) __jsonCoreWrap and friends (std/json.ssc's jsonValue/JsonValue machinery) — blocks any
+JSON-driven forKeyed list, i.e. every real busi list. Reported in the scalascript Rozum room;
+no objection/claim after a reasonable wait, proceeding per the room's established pattern.
+NOTE: found an existing, apparently-stale claim .work/active/v1-json-core-intrinsics.claim
+(heartbeat == created timestamp, 2026-07-10, no updates since) about a DIFFERENT but related
+gap — __jsonCore* intrinsics missing from the v1 INTERPRETER (not the Swift backend codegen).
+Not the same file/subsystem as this claim's target, but cross-referencing for awareness in
+case that agent is still active.
+next: (1) localeSignal first — smallest, cleanest, matches the existing onlineSignal/
+persistedSignal ABI pattern (add to nativeUiPublicGlobals + a Swift-side NativeUiSignal
+reflecting locale, default likely fixed/en or device locale). (2) __jsonCoreWrap — larger,
+needs a real Swift-side JSON value representation + Map/List-based accessor semantics
+matching std/json.ssc's JsonValue.get/.asString/.asList/.asBool. Verify via real swift build/
+run against busi's pipeline-smoke.ssc fixture, plus existing tkv2 conformance. Compatibility-
+only in spirit (busi's real-world usage), following the same real-regression discipline as
+swiftui-legacy-real-harness and the NativeUi review rounds (actual swift build, not string-
+match).
