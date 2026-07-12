@@ -1505,10 +1505,14 @@ def mkCaseObj = (n)       => Pair("caseobj", n)
 def goSubPats = (ts0) =>
   let rec go = (ts, acc, cnt) =>
     let rp = parsePat(ts) in
+    let typeHead = patternTypeHead(prT(rp)) in
+    let fieldPat = if #i.gt(#slen(typeHead), 0) then
+      Pair("tpat", Pair(prV(rp), typeHead))
+    else prV(rp) in
     let tsA = skipTypeAnnot(prT(rp)) in
     let cnt2 = #i.add(cnt, 1) in
-    if kindIs(",", tsA) then go(advance(tsA), Cons(prV(rp), acc), cnt2)
-    else pr(Pair(reverse(Cons(prV(rp), acc)), cnt2), tsA) in
+    if kindIs(",", tsA) then go(advance(tsA), Cons(fieldPat, acc), cnt2)
+    else pr(Pair(reverse(Cons(fieldPat, acc)), cnt2), tsA) in
   go(ts0, Nil, 0)
 
 -- K62.20 tuple values use Pair for arity two and flat Tuple${N} constructors
@@ -1638,6 +1642,10 @@ def flatGuardFields = (fields) =>
       match field { case Pair(ftag, fdata) =>
         if #seq(ftag, "vpat") then flatGuardFields(rest)
         else if #seq(ftag, "wpat") then flatGuardFields(rest)
+        else if #seq(ftag, "lpat") then flatGuardFields(rest)
+        else if #seq(ftag, "tpat") then
+          match fdata { case Pair(basePat, typeHead) =>
+            if guardablePat(basePat) then flatGuardFields(rest) else false }
         else if #seq(ftag, "cpat") then
           match fdata { case Pair(cn, cf) =>
             if flatGuardFields(cf) then flatGuardFields(rest) else false }

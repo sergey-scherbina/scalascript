@@ -1,0 +1,16 @@
+---
+name: v21-native-tuple-field-pattern
+---
+
+[Entry, OtherEntry, classifyRow, classifyNested](tuple-field-pattern-lib.ssc)
+
+# Imported tuple-field patterns
+
+```scalascript
+println(classifyRow(("customer", "c1", "Ada", "")))
+println(classifyRow(("order", "o1", "c1", "10")))
+println(classifyRow(("supplier", "s1", "Acme", "")))
+println(classifyRow(("customer", 7, "Ada", "")))
+println(classifyNested(Some(("ready", Entry("ok")))))
+println(classifyNested(Some(("ready", OtherEntry("wrong")))))
+```

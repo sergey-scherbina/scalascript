@@ -1,0 +1,21 @@
+---
+name: v21-native-tuple-field-pattern-lib
+---
+
+# Tuple-field pattern implementation
+
+```scalascript
+case class Entry(label: String)
+case class OtherEntry(label: String)
+
+def classifyRow(row: Any): String = row match
+  case ("customer", id: String, name: String, _) if name.startsWith("A") =>
+    "customer:" + id + ":" + name
+  case ("order", id: String, customerId: String, amount: String) =>
+    "order:" + id + ":" + customerId + ":" + amount
+  case _ => "other"
+
+def classifyNested(value: Any): String = value match
+  case Some(("ready", item: Entry)) => "entry:" + item.label
+  case _                             => "other"
+```

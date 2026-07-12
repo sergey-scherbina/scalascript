@@ -1767,6 +1767,8 @@ def fldBinder = (fld, idx) =>
   match fld { case Pair(ftag, fdata) =>
     if #seq(ftag, "vpat") then fdata
     else if #seq(ftag, "wpat") then "_"
+    else if #seq(ftag, "tpat") then
+      match fdata { case Pair(basePat, typeHead) => fldBinder(basePat, idx) }
     else npTemp(idx) }
 
 def fldBinders = (fields) =>
@@ -1785,6 +1787,27 @@ def fldObligations = (fields, n) =>
       case Cons(f, rest) =>
         match f { case Pair(ftag, fdata) =>
           if #seq(ftag, "cpat") then
+            Cons(Pair(#i.sub(#i.sub(n, 1), idx), f), go(rest, #i.add(idx, 1)))
+          else go(rest, #i.add(idx, 1))
+        }
+    } in
+  go(fields, 0)
+
+-- Ordered field refinements additionally retain literal equality and typed
+-- nominal checks. Unlike a nested constructor they add no locals: the field's
+-- existing arm local is tested in place, and a typed vpat is already exposed by
+-- fldBinder at that position.
+def fldRefinedObligations = (fields, n) =>
+  let rec go = (fs, idx) =>
+    match fs {
+      case Nil => Nil
+      case Cons(f, rest) =>
+        match f { case Pair(ftag, fdata) =>
+          if #seq(ftag, "cpat") then
+            Cons(Pair(#i.sub(#i.sub(n, 1), idx), f), go(rest, #i.add(idx, 1)))
+          else if #seq(ftag, "lpat") then
+            Cons(Pair(#i.sub(#i.sub(n, 1), idx), f), go(rest, #i.add(idx, 1)))
+          else if #seq(ftag, "tpat") then
             Cons(Pair(#i.sub(#i.sub(n, 1), idx), f), go(rest, #i.add(idx, 1)))
           else go(rest, #i.add(idx, 1))
         }
@@ -1840,18 +1863,33 @@ def dischargeObsOr = (obs, successScope, failureScope, scrutPos, body, fallbackA
     case Cons(ob, rest) =>
       match ob { case Pair(pos, sp) =>
         match sp { case Pair(sptag, spdata) =>
-          match spdata { case Pair(subctor, subs) =>
-            let m = lenL(subs) in
-            let innerSuccess = appendL(revL(fldBinders(subs)), successScope) in
-            let innerFailure = appendL(revL(guardDummyBinders(subs)), failureScope) in
-            let subObs = fldObligations(subs, m) in
-            let restShifted = shiftObs(rest, m) in
-            let successBody = dischargeObsOr(
-              appendL(subObs, restShifted), innerSuccess, innerFailure,
-              #i.add(scrutPos, m), body, fallbackArms) in
-            let failureBody = lowerOrderedGuardArms(failureScope, scrutPos, fallbackArms) in
-            IrMatch(IrLocal(pos), ctorPatternArms(subctor, m, successBody), Some(failureBody))
-          } }
+          if #seq(sptag, "cpat") then
+            match spdata { case Pair(subctor, subs) =>
+              let m = lenL(subs) in
+              let innerSuccess = appendL(revL(fldBinders(subs)), successScope) in
+              let innerFailure = appendL(revL(guardDummyBinders(subs)), failureScope) in
+              let subObs = fldRefinedObligations(subs, m) in
+              let restShifted = shiftObs(rest, m) in
+              let successBody = dischargeObsOr(
+                appendL(subObs, restShifted), innerSuccess, innerFailure,
+                #i.add(scrutPos, m), body, fallbackArms) in
+              let failureBody = lowerOrderedGuardArms(failureScope, scrutPos, fallbackArms) in
+              IrMatch(IrLocal(pos), ctorPatternArms(subctor, m, successBody), Some(failureBody))
+            }
+          else if #seq(sptag, "lpat") then
+            match spdata { case Pair(ty, v) =>
+              IrIf(IrPrim("__eq__", Cons(IrLocal(pos), Cons(litPatIr(ty, v), Nil))),
+                dischargeObsOr(rest, successScope, failureScope, scrutPos, body, fallbackArms),
+                lowerOrderedGuardArms(failureScope, scrutPos, fallbackArms))
+            }
+          else if #seq(sptag, "tpat") then
+            match spdata { case Pair(basePat, typeHead) =>
+              IrIf(typedTagTest(IrLocal(pos), typeHead),
+                dischargeObsOr(rest, successScope, failureScope, scrutPos, body, fallbackArms),
+                lowerOrderedGuardArms(failureScope, scrutPos, fallbackArms))
+            }
+          else dischargeObsOr(rest, successScope, failureScope, scrutPos, body, fallbackArms)
+        }
       }
   }
 
@@ -1870,18 +1908,36 @@ def dischargeObsOrGuard = (obs, successScope, failureScope, scrutPos, guard, bod
     case Cons(ob, rest) =>
       match ob { case Pair(pos, sp) =>
         match sp { case Pair(sptag, spdata) =>
-          match spdata { case Pair(subctor, subs) =>
-            let m = lenL(subs) in
-            let innerSuccess = appendL(revL(fldBinders(subs)), successScope) in
-            let innerFailure = appendL(revL(guardDummyBinders(subs)), failureScope) in
-            let subObs = fldObligations(subs, m) in
-            let restShifted = shiftObs(rest, m) in
-            let successBody = dischargeObsOrGuard(
-              appendL(subObs, restShifted), innerSuccess, innerFailure,
-              #i.add(scrutPos, m), guard, body, fallbackArms) in
-            let failureBody = lowerOrderedGuardArms(failureScope, scrutPos, fallbackArms) in
-            IrMatch(IrLocal(pos), ctorPatternArms(subctor, m, successBody), Some(failureBody))
-          } }
+          if #seq(sptag, "cpat") then
+            match spdata { case Pair(subctor, subs) =>
+              let m = lenL(subs) in
+              let innerSuccess = appendL(revL(fldBinders(subs)), successScope) in
+              let innerFailure = appendL(revL(guardDummyBinders(subs)), failureScope) in
+              let subObs = fldRefinedObligations(subs, m) in
+              let restShifted = shiftObs(rest, m) in
+              let successBody = dischargeObsOrGuard(
+                appendL(subObs, restShifted), innerSuccess, innerFailure,
+                #i.add(scrutPos, m), guard, body, fallbackArms) in
+              let failureBody = lowerOrderedGuardArms(failureScope, scrutPos, fallbackArms) in
+              IrMatch(IrLocal(pos), ctorPatternArms(subctor, m, successBody), Some(failureBody))
+            }
+          else if #seq(sptag, "lpat") then
+            match spdata { case Pair(ty, v) =>
+              IrIf(IrPrim("__eq__", Cons(IrLocal(pos), Cons(litPatIr(ty, v), Nil))),
+                dischargeObsOrGuard(rest, successScope, failureScope, scrutPos,
+                  guard, body, fallbackArms),
+                lowerOrderedGuardArms(failureScope, scrutPos, fallbackArms))
+            }
+          else if #seq(sptag, "tpat") then
+            match spdata { case Pair(basePat, typeHead) =>
+              IrIf(typedTagTest(IrLocal(pos), typeHead),
+                dischargeObsOrGuard(rest, successScope, failureScope, scrutPos,
+                  guard, body, fallbackArms),
+                lowerOrderedGuardArms(failureScope, scrutPos, fallbackArms))
+            }
+          else dischargeObsOrGuard(rest, successScope, failureScope, scrutPos,
+            guard, body, fallbackArms)
+        }
       }
   }
 
@@ -1966,7 +2022,10 @@ def fieldsHaveNestedPat = (fields) =>
     case Nil => false
     case Cons(field, rest) =>
       match field { case Pair(ftag, fdata) =>
-        if #seq(ftag, "cpat") then true else fieldsHaveNestedPat(rest) }
+        if #seq(ftag, "cpat") then true
+        else if #seq(ftag, "lpat") then true
+        else if #seq(ftag, "tpat") then true
+        else fieldsHaveNestedPat(rest) }
   }
 
 def hasNestedPat = (arms) =>
@@ -2023,11 +2082,10 @@ def lowerOrderedGuardArms = (scope, scrutPos, arms) =>
                     let arity = lenL(fields) in
                     let armScope = appendL(revL(fldBinders(fields)), scope) in
                     let failedScope = appendL(revL(guardDummyBinders(fields)), scope) in
-                    -- K62.26: discharge NESTED field obligations before the guard so nested
-                    -- binders (case (ah::at, bh::_) if ah<=bh) are in scope; flat fields give
-                    -- fldObligations=[] → the old IrIf(guard, body, fallback) exactly.
+                    -- Discharge nested/literal/typed field obligations before the guard so
+                    -- every binder is in scope and every refinement wins before side effects.
                     let armBody = dischargeObsOrGuard(
-                      fldObligations(fields, arity), armScope, failedScope,
+                      fldRefinedObligations(fields, arity), armScope, failedScope,
                       #i.add(scrutPos, arity), guard, body, rest) in
                     IrMatch(IrLocal(scrutPos),
                       ctorPatternArms(ctorName, arity, armBody),
@@ -2086,7 +2144,7 @@ def lowerOrderedGuardArms = (scope, scrutPos, arms) =>
               let armScope = appendL(revL(fldBinders(fields)), scope) in
               let failedScope = appendL(revL(guardDummyBinders(fields)), scope) in
               let armBody = dischargeObsOr(
-                fldObligations(fields, arity), armScope, failedScope,
+                fldRefinedObligations(fields, arity), armScope, failedScope,
                 #i.add(scrutPos, arity), body, rest) in
               IrMatch(IrLocal(scrutPos),
                 ctorPatternArms(ctorName, arity, armBody),
@@ -2102,7 +2160,7 @@ def lowerOrderedGuardArms = (scope, scrutPos, arms) =>
                     let failedFieldScope = appendL(revL(guardDummyBinders(fields)), scope) in
                     let boundScope = Cons(alias, fieldScope) in
                     let failedBoundScope = Cons("__bind_alias__", failedFieldScope) in
-                    let shiftedObs = shiftObs(fldObligations(fields, arity), 1) in
+                    let shiftedObs = shiftObs(fldRefinedObligations(fields, arity), 1) in
                     let armBody = IrLet(
                       Cons(IrLocal(#i.add(scrutPos, arity)), Nil),
                       dischargeObsOr(
