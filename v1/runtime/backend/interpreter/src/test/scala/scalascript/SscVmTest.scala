@@ -2578,6 +2578,38 @@ class SscVmTest extends AnyFunSuite with Matchers:
       }
   }
 
+  test("wide-jit C-3 consumption: the map recovers a delegating callee's Double return that the heuristic misses") {
+    // `mid` returns Double but only by DELEGATION (`base(x)`), with no double param and no
+    // Lit.Double in its own body — so `calleeIsDouble` (which doesn't follow delegation, unlike
+    // calleeReturnsRef) misses it and `top`'s call to `mid` defaults to TInt. The Typer's map
+    // types `mid.body` (= `base(x)`) as Double, so the call-result is upgraded to TDouble.
+    val src = "# T\n\n```scala\n" +
+      "def base(x: Int): Double = x * 1.5\n" +
+      "def mid(x: Int): Double = base(x)\n" +
+      "def top(n: Int): Double = mid(n) * 2.0\n```\n"
+    val module = Parser.parse(src)
+    val interp = Interpreter(devNull); interp.run(module)
+    val top = interp.globalsView("top").asInstanceOf[Value.FunV]
+    val resolve = globalsResolve(interp)
+    val noMeta:  VmCompiler.Meta    = (_: String) => null
+    val typer = new scalascript.typer.Typer(); typer.typeCheck(module)
+    val typeMap: VmCompiler.TypeMap = (t: scala.meta.Tree) => typer.nodeTypes.get(t)
+
+    // With the map: the delegating callee's Double return is recovered → correct result.
+    val before = VmCompiler.callResultUpgrades.get
+    val withMap = VmCompiler.compile(top, resolve, noMeta, typeMap)
+    withMap shouldBe defined
+    assert(VmCompiler.callResultUpgrades.get > before, "the map did not upgrade any call-result type")
+    java.lang.Double.longBitsToDouble(SscVm.run(withMap.get, Array(4L))) shouldBe 12.0  // (4*1.5)*2.0
+
+    // Without the map, the heuristic misses `mid`'s Double return — the compiled `top` does NOT
+    // produce 12.0 (this is the latent gap the map closes; either a wrong value or a bail).
+    val noMap = VmCompiler.compile(top, resolve, noMeta)
+    val wrongOrBail =
+      noMap.isEmpty || java.lang.Double.longBitsToDouble(SscVm.run(noMap.get, Array(4L))) != 12.0
+    assert(wrongOrBail, "expected the heuristic-only path to miss mid's Double return")
+  }
+
   test("wide-jit C-3: FunV.body is identity-keyed in the Typer's nodeTypes; the map threads to VmCompiler") {
     // Parse ONCE; run it (→ FunV) and typecheck it (→ nodeTypes) from the SAME parse, so the
     // FunV.body Term the JIT compiles is the exact object the Typer recorded a type for.

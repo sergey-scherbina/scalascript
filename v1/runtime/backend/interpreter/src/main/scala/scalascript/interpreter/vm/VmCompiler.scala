@@ -68,6 +68,10 @@ object VmCompiler:
    *  the C-4 "remove type-unknown bail" opportunity. Cumulative across compilations. */
   val typeMapSeen = new java.util.concurrent.atomic.AtomicLong(0L)
   val typeMapHits = new java.util.concurrent.atomic.AtomicLong(0L)
+  /** wide-jit C-3 consumption: call-result types recovered from the map where the syntactic
+    * heuristic gave up (TInt-default → TDouble/TRef). Each one is a call the JIT would otherwise
+    * mistype/bail on. */
+  val callResultUpgrades = new java.util.concurrent.atomic.AtomicLong(0L)
   /** Opt-in (zero overhead otherwise): count TypeMap coverage at each compiled node. Read the
     * counters directly (tests / future C-4 opportunity sizing). */
   val measureTypes: Boolean =
@@ -612,7 +616,15 @@ object VmCompiler:
             val rt =
               if calleeIsDouble(callee) then TDouble
               else if calleeReturnsRef(callee) then TRef
-              else TInt
+              else
+                // wide-jit C-3 consumption: the syntactic heuristic gave up (would default to
+                // TInt). Take the callee's REAL return type from the Typer's map — but only to
+                // UPGRADE the unknown default (never override a heuristic hit). Empty map ⇒ null
+                // ⇒ TInt = current behaviour (same-module siblings only; imports re-parse → miss).
+                ctx.vmTypeOf(callee.body) match
+                  case TDouble => callResultUpgrades.incrementAndGet(); TDouble
+                  case TRef    => callResultUpgrades.incrementAndGet(); TRef
+                  case _       => TInt
             setType(dst, rt)
             if rt == TRef then refTypeName(dst) = ""
             rt
