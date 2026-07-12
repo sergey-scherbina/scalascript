@@ -5156,6 +5156,15 @@ and performs authenticated transfer creation/status requests against
 fixture and fixed UETR/GPI results, never production credentials or a public
 network.
 
+Compiler- and target-owned documents use `ssc-tools`, never a fallback from
+plain `ssc`. Quoted macro examples run with `ssc-tools run --v1`. `emit-wasm`
+now emits the linked `main.wasm`, its stem-named ES module, and `__loader.js` as
+a directly runnable set; the pure example is executed under Node while the
+HTTP example is compile-validated without contacting its public URL. The x402
+example uses `ssc-tools run-jvm`; its staged x402/sttp classpath lives only at
+`bin/lib/tools/x402` and is selected only when generated source imports
+`scalascript.x402`.
+
 | Plugin | Intrinsics it provides |
 |--------|----------------------|
 | `std/json-plugin` | `jsonStringify`, `jsonParse`, `jsonRead`, `lookup`, `lookupOpt` |

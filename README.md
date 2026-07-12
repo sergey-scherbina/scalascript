@@ -119,6 +119,10 @@ SWIFT_AGGREGATOR_URL=http://localhost:9000 SWIFT_API_KEY=secret \
 # Roll back through the explicit optional tools/compatibility tier
 bin/ssc-tools run --v1 examples/hello.ssc
 bin/ssc-tools run --compat-frontend examples/hello.ssc
+# Compiler/target-owned documents stay on explicit tools lanes
+bin/ssc-tools run --v1 examples/quoted-macro-constfold.ssc
+bin/ssc-tools emit-wasm examples/wasm-scalascript.ssc
+bin/ssc-tools run-jvm examples/x402-client.ssc
 # Plain ssc never delegates; this fails early and names ssc-tools:
 bin/ssc run --v1 examples/hello.ssc
 
