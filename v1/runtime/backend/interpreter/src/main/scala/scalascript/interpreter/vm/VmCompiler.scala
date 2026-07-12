@@ -75,6 +75,9 @@ object VmCompiler:
   /** wide-jit C-4c: Int-typed RET leaves widened to Double because the function's DECLARED return
     * type says Double. Each one is a `MixedReturnType` bail avoided. */
   val retDoubleWidenings = new java.util.concurrent.atomic.AtomicLong(0L)
+  /** wide-jit C-5: value-position `if`/match branches with mixed {Int, Double} types, widened
+    * locally (Scala's lub widens Int→Double) instead of bailing MixedReturnType. */
+  val branchWidenings = new java.util.concurrent.atomic.AtomicLong(0L)
   /** Opt-in (zero overhead otherwise): count TypeMap coverage at each compiled node. Read the
     * counters directly (tests / future C-4 opportunity sizing). */
   val measureTypes: Boolean =
@@ -594,12 +597,34 @@ object VmCompiler:
         if typeOf(cr) != TInt then bail("cond: non-boolean if-condition", Br.VmNonBoolCond)
         val jf  = emit(JF, cr, -1, 0)            // patch to else-start
         val tT  = compileInto(t.thenp, dst)
-        val jmp = emit(JMP, -1, 0, 0)            // patch to end
+        val jmp = emit(JMP, -1, 0, 0)            // then-branch exit; patched below
         bs(jf) = ops.length                      // JF else-target: else-branch starts here
-        val eT  = compileInto(t.elsep, dst)
-        as(jmp) = ops.length                     // end
-        if tT != eT then bail("types: mismatched if-branches", Br.MixedReturnType)
-        setType(dst, tT); tT
+        val eT  = compileInto(t.elsep, dst)      // both branches write `dst`
+        // wide-jit C-5: mixed {Int, Double} branches unify to Double (Scala's if-lub widens
+        // Int→Double). Both branch types are known locally, so no external type is needed — widen the
+        // Int branch's `dst` (I2D) rather than bailing MixedReturnType. Whichever branch ran leaves a
+        // Double in `dst`. The Double branch already exits via `jmp`/fallthrough; the Int branch gets
+        // an I2D on its own path so the other branch skips it.
+        val unified: VmType =
+          if tT == eT then
+            as(jmp) = ops.length                 // then exit → end
+            tT
+          else if tT == TDouble && eT == TInt then
+            emit(I2D, dst, dst, 0)               // else path: dst holds the Int else value → Double
+            as(jmp) = ops.length                 // then exit → end (past the widen)
+            VmCompiler.branchWidenings.incrementAndGet()
+            TDouble
+          else if tT == TInt && eT == TDouble then
+            val jmp2 = emit(JMP, -1, 0, 0)       // else exit → end, skipping the then-pad
+            as(jmp) = ops.length                 // then exit → then-pad (the I2D)
+            emit(I2D, dst, dst, 0)               // then path: dst holds the Int then value → Double
+            as(jmp2) = ops.length                // else exit → end
+            VmCompiler.branchWidenings.incrementAndGet()
+            TDouble
+          else
+            as(jmp) = ops.length
+            bail("types: mismatched if-branches", Br.MixedReturnType)
+        setType(dst, unified); unified
 
       // call to self or another compilable function (int or double domain)
       case app: Term.Apply =>

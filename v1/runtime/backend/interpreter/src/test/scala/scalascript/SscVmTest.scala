@@ -2659,6 +2659,31 @@ class SscVmTest extends AnyFunSuite with Matchers:
     java.lang.Double.longBitsToDouble(SscVm.run(compiled.get, Array(3L))) shouldBe 0.125
   }
 
+  test("wide-jit C-5: a value-position if with mixed Int/Double branches is widened, not bailed on") {
+    // The `if` is an OPERAND of `+ 1.0` (value position, not a RET leaf → C-4c doesn't apply). Its
+    // branches are {Double, Int}; Scala widens the Int branch to Double. Both branch types are known
+    // locally, so the JIT widens (I2D) instead of bailing MixedReturnType. Tests BOTH orderings to
+    // exercise the else-widen path (g1) and the then-pad path (g2).
+    val src = "# T\n\n```scala\n" +
+      "def g1(c: Int): Double = (if c > 0 then 1.5 else 2) + 1.0\n" +   // then=Double, else=Int
+      "def g2(c: Int): Double = (if c > 0 then 2 else 1.5) + 1.0\n```\n" // then=Int, else=Double
+    val module = Parser.parse(src)
+    val interp = Interpreter(devNull); interp.run(module)
+    val g1 = interp.globalsView("g1").asInstanceOf[Value.FunV]
+    val g2 = interp.globalsView("g2").asInstanceOf[Value.FunV]
+    val resolve = globalsResolve(interp)
+
+    val before = VmCompiler.branchWidenings.get
+    val c1 = VmCompiler.compile(g1, resolve); c1 shouldBe defined
+    val c2 = VmCompiler.compile(g2, resolve); c2 shouldBe defined
+    assert(VmCompiler.branchWidenings.get >= before + 2, "both value-position ifs should widen")
+    // Correct doubles (garbage bits if the widening mis-read the Int branch):
+    java.lang.Double.longBitsToDouble(SscVm.run(c1.get, Array(1L)))  shouldBe 2.5  // 1.5 + 1.0
+    java.lang.Double.longBitsToDouble(SscVm.run(c1.get, Array(-1L))) shouldBe 3.0  // 2→2.0 + 1.0
+    java.lang.Double.longBitsToDouble(SscVm.run(c2.get, Array(1L)))  shouldBe 3.0  // 2→2.0 + 1.0
+    java.lang.Double.longBitsToDouble(SscVm.run(c2.get, Array(-1L))) shouldBe 2.5  // 1.5 + 1.0
+  }
+
   test("wide-jit C-3: FunV.body is identity-keyed in the Typer's nodeTypes; the map threads to VmCompiler") {
     // Parse ONCE; run it (→ FunV) and typecheck it (→ nodeTypes) from the SAME parse, so the
     // FunV.body Term the JIT compiles is the exact object the Typer recorded a type for.
