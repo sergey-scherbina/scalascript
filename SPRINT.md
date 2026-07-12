@@ -3276,6 +3276,36 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               taxonomy is 6 blockers / 19 rows, dependency
                               closure is 24 roots / 97 edges / 38 staged jars,
                               and fresh conformance is 11/11.
+                        - [ ] **TI-8.2d3m final native language blockers:**
+                              close all four remaining blocking language rows
+                              without example-specific lowering, runtime stubs,
+                              compiler reflection, or compatibility fallback.
+                              Preserve the Scala 3 seed unless an independently
+                              specified bootstrap-language invariant requires a
+                              source-exact update.
+                              - [ ] **TI-8.2d3m0 installed ownership audit:**
+                                    capture exact standard VM/ASM and explicit
+                                    compatibility output for
+                                    `custom-derives-mirror.ssc`,
+                                    `direct-syntax-demo.ssc`,
+                                    `dsl-mini-language.ssc`, and `lenses.ssc`;
+                                    inspect CoreIR and group only shared root
+                                    causes.
+                              - [ ] **TI-8.2d3m1 specs + regressions:** write
+                                    committed feature contracts and BUG entries
+                                    for the confirmed language semantics before
+                                    changing the self-hosted frontend/runtime.
+                              - [ ] **TI-8.2d3m2 implementation slices:** close
+                                    each independently green root cause with
+                                    focused VM/ASM/build-jvm coverage and push
+                                    it immediately; do not retire a taxonomy row
+                                    until the public document succeeds exactly.
+                              - [ ] **TI-8.2d3m3 release closure:** rerun the
+                                    195-row frontend/parity/taxonomy suite and
+                                    exhaustive release gate, require all four
+                                    language rows gone and zero mismatch or
+                                    one-sided failures, then advance to the two
+                                    SQL blockers.
                   - [x] **TI-8.2d4 example/config blockers:** DONE 2026-07-11
                         (`d4c953b9c`, taxonomy `39cfe268b`). Repair stale imports,
                         fixture setup, and deterministic data/config assumptions
