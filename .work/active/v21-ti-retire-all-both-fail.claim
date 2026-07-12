@@ -1,6 +1,6 @@
 feature/v21-ti-retire-all-both-fail 2026-07-12T08:55:21Z
 agent: codex
-heartbeat: 2026-07-12T11:27:46Z
+heartbeat: 2026-07-12T11:43:18Z
 status: in-progress
-done-so-far: all provider and tools/target lanes plus zero-both-fail reporting landed through 6d83082ca; explicit gate is 13/13 and ordinary corpus is 53 identical, 0 both-fail, 129 skipped, 13 delegated
-next: rerun negative-toolchain after c108daf8b restored awk to its restricted host-utility set, then run consolidated full release, record closure, and release claim
+done-so-far: all lanes/reporting landed; exact gate is 13/13; concurrent scljet-bytes advanced the fresh standard corpus to 196 rows and is exact VM/ASM, so the zero-gap freeze is now 54 identical, 0 both-fail, 129 skipped, 13 delegated
+next: finish the fresh negative-toolchain run on the rebuilt 196-row distribution, then run consolidated full release, record closure, and release claim
