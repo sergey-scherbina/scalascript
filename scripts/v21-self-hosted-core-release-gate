@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Consolidated ScalaScript 2.1 self-hosted-core release gate. Default mode is
-# exhaustive; --quick skips only the 195-example frontend/parity taxonomy.
+# exhaustive; --quick skips only the 197-example frontend/parity taxonomy.
 set -euo pipefail
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)

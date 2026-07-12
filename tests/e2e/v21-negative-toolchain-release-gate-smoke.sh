@@ -15,8 +15,8 @@ canonical="$tmp/canonical.tsv"
   printf 'tools.present\tfalse\ncompiler.jars\t0\nscalameta.jars\t0\n'
   printf 'scala-cli.available\tfalse\nscalac.available\tfalse\njavac.available\tfalse\n'
   printf 'java.compiler.available\tfalse\njdk.compiler.available\tfalse\n'
-  printf 'forbidden.references\t0\nfrontend.total\t196\nfrontend.ok\t195\nfrontend.non-code\t1\nchecker.ok\t195\n'
-  printf 'parity.identical\t54\nparity.both-fail\t0\nparity.skipped\t129\nparity.delegated\t13\nparity.provider-lane\t8\nparity.target-lane\t5\nparity.mismatch\t0\nparity.one-sided\t0\n'
+  printf 'forbidden.references\t0\nfrontend.total\t197\nfrontend.ok\t196\nfrontend.non-code\t1\nchecker.ok\t196\n'
+  printf 'parity.identical\t55\nparity.both-fail\t0\nparity.skipped\t129\nparity.delegated\t13\nparity.provider-lane\t8\nparity.target-lane\t5\nparity.mismatch\t0\nparity.one-sided\t0\n'
   printf 'runtime.blockers\t0\nprovider.smoke\tpass\nserver.smoke\tpass\nrelease.ready\ttrue\n'
 } >"$canonical"
 
@@ -35,7 +35,7 @@ reject_change launcher 'default.launcher.standard' 'default.launcher.tools'
 reject_change jar 'scalameta.jars.0' 'scalameta.jars.1'
 reject_change tool 'scala-cli.available.false' 'scala-cli.available.true'
 reject_change module 'java.base,java.sql' 'java.base,java.compiler,java.sql'
-reject_change frontend 'frontend.ok.195' 'frontend.ok.194'
+reject_change frontend 'frontend.ok.196' 'frontend.ok.195'
 reject_change parity 'parity.one-sided.0' 'parity.one-sided.1'
 reject_change blocker 'runtime.blockers.0' 'runtime.blockers.1'
 
