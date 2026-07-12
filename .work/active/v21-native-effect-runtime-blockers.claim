@@ -1,6 +1,6 @@
 feature/v21-native-effect-runtime-blockers 2026-07-11T19:21:44Z
 agent: codex
-heartbeat: 2026-07-11T23:39:55Z
+heartbeat: 2026-07-12T00:11:10Z
 status: in-progress
-done-so-far: core-free Generator provider is implemented and focused VM/ASM/build-jvm/isolation/slim gates are green in ea60d2384
-next: run the complete self-hosted release gate, retire only generators.ssc from taxonomy, rerun fresh conformance, then push the green slice
+done-so-far: core-free Generator provider is pushed through a64b738bb; release gate is ready at 41 identical / 25 both-fail / 13 blockers
+next: baseline async-demo.ssc, specify a core-free standard Async provider, and retire only its exact row after VM/ASM/build-jvm and full gates
