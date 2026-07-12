@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-12 — SclJet M1 VFS foundations and JVM SQLite lock adapter
+
+SclJet now has complete VM/ASM M1 foundations: immutable chunked bytes and SQLite
+codecs, a replayable deterministic memory VFS, and a dedicated JVM std plugin for
+positioned durable I/O, rollback byte-range locks, WAL shared memory and barriers.
+The assembled distribution autoloads the essential plugin; its suite is 6/6,
+including official Xerial SQLite contention across processes, while affected
+conformance is 3/3 and all 31/33/6-line portable goldens are exact on
+interpreter/native VM/direct ASM. JVM plugin code landed in `2a594b870`, example
+in `1b9df2b57`; JS companion/list matching was repaired in `830c0db27` and exact
+chunk indexing in `f9518f881`. JS now executes both pure programs, with exact
+64-bit codecs and two SHM-lock assertions explicitly retained as open gates.
+
 ## 2026-07-12 — UniML lossless safe YAML 1.2.2 profile
 
 The new `scalascript-uniml-yaml` JVM/Scala.js module preserves streams, directives, document markers,

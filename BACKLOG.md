@@ -26,6 +26,13 @@ are plain bullets without checkboxes so agents do not claim them as build work.
 
 ## SclJet interoperability follow-ups (2026-07-12)
 
+- [ ] **scljet-js-m1-parity** — close the explicit M1 JS behavior gates without
+      JDBC/sql.js substitution: exact signed-64-bit Long/shift/bitwise lowering
+      for the 31-line byte-codec golden, the two-handle SHM transition mismatch
+      in the 33-line memory-VFS golden, and the v2 JS `__mk_method_obj__` import
+      primitive. Repros and separated root causes are in `BUGS.md`; the v1
+      companion and native-array `Nil`/`Cons` blockers are already fixed.
+
 - [ ] **scljet-same-jvm-reference-lock-bridge** — before SclJet may replace the
       existing `sqlite:` provider, make SclJet locks conflict with an official
       native SQLite/Xerial connection running in the same JVM. POSIX record

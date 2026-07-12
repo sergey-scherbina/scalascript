@@ -1,5 +1,122 @@
 # Bug tracker
 
+## v2-js-imported-method-object-primitive — SclJet stops at __mk_method_obj__
+
+**Status:** open (2026-07-12); found by codex while probing the native v2 JS
+lane as an alternative SclJet M1 cross-backend gate.
+
+- **Real-harness repro:** run `bin/ssc-tools run-js --v2
+  tests/conformance/scljet-byte-codec.ssc`; Node exits at startup with
+  `unimplemented primitive: __mk_method_obj__`.
+- **Root cause (partial):** the v2 JS runtime/generator does not implement the
+  method-object primitive emitted for imported explicit companions/methods.
+- **Done-when:** the v2 JS runtime implements the primitive or lowers it away,
+  with a multi-file imported case-class/companion regression.
+
+## v1-js-scljet-shm-lock-divergence — two shared owners are rejected
+
+**Status:** open (2026-07-12); found by codex in the SclJet memory-VFS Node
+differential after byte updates became portable.
+
+- **Real-harness repro:** compare `bin/ssc-tools run --v1` and `run-js` for
+  `tests/conformance/scljet-memory-vfs.ssc`. Lines 18–19 differ: the JS lane
+  reports the second shared SHM lock as failed and consequently does not report
+  the conflicting exclusive request as busy; the remaining 31 lines match.
+- **Root cause:** pending reduction in JsGen object/Option/equality lowering for
+  `MemoryShmByteLock`; the pure transition algorithm is exact on INT/VM/ASM.
+- **Done-when:** a reduced two-handle SHM lock test and the complete 33-line
+  memory-VFS golden are exact on Node.
+
+## v1-js-long-precision-and-bitops — SQLite 64-bit codecs are not exact
+
+**Status:** open (2026-07-12); found by codex in the SclJet byte-codec Node
+differential.
+
+- **Real-harness repro:** `bin/ssc-tools run-js
+  tests/conformance/scljet-byte-codec.ssc` now executes all 31 lines, but
+  `readU64Be(0x123456789abcdef0)` becomes `-1698898192`, signed 32-bit decode
+  yields `-4294967298`, and the 11-value varint round trip is `false`.
+- **Root cause:** v1 JsGen represents source `Long` literals/accumulators as JS
+  `Number` and emits native 32-bit bitwise operators; the runtime supports
+  BigInt arithmetic but typed `Long` lowering does not consistently use it.
+- **Done-when:** `Long` arithmetic, shifts and bitwise operations use exact
+  signed 64-bit semantics and the 31-line codec golden is identical on Node.
+
+## v1-js-imported-int-division-loses-type — byte chunk index becomes fractional
+
+**Status:** open (2026-07-12); found by codex in the SclJet Node golden after
+companion and list-pattern lowering were repaired.
+
+- **Real-harness repro:** `bin/ssc-tools run-js examples/scljet-bytes.ssc`
+  prints `List(18, (), (), ())` for four input bytes. Emitted `rawGet` computes
+  `chunk = absolute / 64`; for indices 1–3 JsGen uses JavaScript floating
+  division, asks the persistent Map for keys `1/64`, `2/64`, `3/64`, and gets
+  no chunk.
+- **Root cause (partial):** imported-function local `val absolute` loses the
+  inferred `Int` fact even though it is derived from `Int` fields/parameters,
+  so `/` bypasses the integer-division lowering.
+- **Current SclJet workaround:** compute the chunk as
+  `(absolute - (absolute % 64)) / 64`; the numerator is exactly divisible on
+  every backend and preserves the specified floor division for non-negative
+  byte indices.
+- **Done-when:** imported local integer arithmetic retains type evidence and a
+  focused JS regression proves positive and negative `Int / Int` truncation
+  without source-level rewrites.
+
+## v1-js-list-pattern-array-mismatch — Cons/Nil reject emitted List literals
+
+**Status:** fixed (2026-07-12, `830c0db27`), awaiting Sergiy confirmation;
+found by codex after the SclJet explicit-companion JS fix allowed the byte-codec
+program to begin execution.
+
+- **Real-harness repro:** run `bin/ssc-tools run-js
+  tests/conformance/scljet-byte-codec.ssc`. `List(0, 1, 127, 128, 255)` is a
+  JavaScript array, while `validateBytes` enters a `values match` with
+  `case Nil` / `case Cons(value, tail)` and falls through to `Match failure`.
+- **Root cause:** `genPattern` emitted case-class `_type` checks for `Cons` and
+  the singleton check for `Nil`, but JsGen represents ordinary ScalaScript
+  lists as native arrays. Pattern lowering did not recognize the backend's own
+  list representation.
+- **Fix/result:** `genPattern` now handles the native-array and legacy data
+  representations of recursive `Nil`/`Cons`; focused Node coverage passes and
+  both SclJet programs execute past all list matches. Remaining Long/SHM output
+  differences are tracked independently above.
+
+## v1-js-case-companion-duplicate-declaration — imported companion redeclares ByteSlice
+
+**Status:** fixed (2026-07-12, `830c0db27`), awaiting Sergiy confirmation;
+found by codex while running the SclJet M1 cross-backend verification.
+
+- **Real-harness repro:** after `scripts/sbtc "reload; installBin"`, run
+  `bin/ssc-tools run-js tests/conformance/scljet-byte-codec.ssc`. The generated
+  CommonJS file is rejected by Node with `SyntaxError: Identifier 'ByteSlice'
+  has already been declared`; the case imports SclJet through
+  `std/scljet/index.ssc`, which re-exports definitions from `bytes.ssc`.
+- **Root cause:** inside a `package:` namespace IIFE, `Defn.Class` emitted
+  `function ByteSlice(...)` while its explicit `Defn.Object` companion emitted
+  `const ByteSlice = ...` in the same scope. The JS backend did not merge the
+  companion's static members onto the constructor binding. INT/native VM/direct
+  ASM represent the two Scala namespaces separately and therefore succeeded.
+- **Fix/result:** JsGen merges explicit companion members onto the constructor
+  with `Object.assign` at top level and inside package IIFEs. The multi-file
+  package import regression executes on Node and SclJet no longer emits a
+  duplicate `ByteSlice` binding.
+
+## scljet-vfs-plugin-not-packaged — installBin registry/package list diverged
+
+**Status:** fixed (2026-07-12, `2a594b870`), awaiting Sergiy confirmation;
+found by codex in the real assembled-distribution gate for SclJet M1.
+
+- **Real-harness repro:** add `scljet-vfs` to `allPlugins` and run
+  `scripts/sbtc "installBin"`. Compilation and std-source staging complete, then
+  the task fails with `installBin pluginPkgs missing std plugin(s): scljet-vfs`.
+- **Root cause:** `installBin` intentionally validates its explicit task-macro
+  `pluginPkgsBySpec` list against `allPlugins`; the new project was registered in
+  `allPlugins` but omitted from that explicit package-task list.
+- **Fix/result:** the explicit package task is registered; `installBin` stages
+  27 essential plugins including `scljet-vfs-plugin.sscpkg`, the assembled JVM
+  example autoloads it, and SclJet conformance is 3/3.
+
 ## uniml-yaml-property-only-node — anchor/tag-only value lost its nested node
 
 **Status:** fixed (2026-07-12, `c9f599589`), awaiting Sergiy confirmation;
