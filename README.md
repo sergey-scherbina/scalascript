@@ -68,6 +68,9 @@ An imported symbolic extension such as parser choice `|` handles non-primitive
 values while `6 | 3` remains ordinary integer bitwise OR.
 Exact top-level `summon[TC[T]]` resolves a matching named given; Mirror/derived
 evidence, anonymous givens, and general implicit search remain migration gaps.
+Parameterless `def value: T = ...` references evaluate the nullary definition,
+while explicit `def value(): T = ...` keeps its required call. List `map` and
+`flatMap` spread portable pair elements into matching two-parameter callbacks.
 Top-level `case object` declarations are stable portable nullary values across
 imports, direct references, equality, and pattern matching.
 Its built-in `math` object is also portable on both lanes (`Pi`, `E`, `abs`,

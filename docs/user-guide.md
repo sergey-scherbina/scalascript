@@ -1147,6 +1147,26 @@ def apply(f: Int => Int, x: Int): Int = f(x)
 apply(double, 21)    // 42
 ```
 
+A definition without a parameter clause is evaluated when referenced as a
+value. This differs from an explicit empty parameter clause:
+
+```scalascript
+def stage: Int => Int = value => value + 1
+def explicit(): Int => Int = value => value + 2
+
+val next = stage       // evaluates `stage`, then stores the returned function
+println(next(4))       // 5
+println(explicit()(4)) // 6; explicit `()` remains required
+```
+
+For lists of pairs, `map` and `flatMap` accept a two-parameter callback and
+spread each pair in field order. A one-parameter callback still receives the
+whole pair; direct two-argument functions retain their ordinary arity.
+
+```scalascript
+List(("parse", 1), ("check", 2)).map((name, n) => s"$name=$n")
+```
+
 Self and mutual tail calls are stack-safe in the standard VM and direct-ASM
 lanes, including functions declared locally inside another function. The
 direct-ASM `build-jvm` artifact uses the same trampoline contract; it does not
