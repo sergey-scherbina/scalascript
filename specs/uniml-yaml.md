@@ -124,7 +124,7 @@ duplicates; any conversion to a host map requires an explicit duplicate-key poli
 - [x] Focused suites pass unchanged on JVM and Scala.js, including exhaustive two-chunk splits for
       CRLF, escapes, supplementary Unicode, directives, tags, anchors, flow collections, and block
       scalar content.
-- [ ] A future corpus-hardening slice must add an official YAML test-suite subset and differential
+- [x] The corpus gate includes a pinned official YAML test-suite subset and differential
       Core Schema values against an independent YAML 1.2 implementation.
 
 ## Token model
@@ -268,6 +268,10 @@ parsers may be test/differential or later projection consumers but are not the l
 - Implicit merge-key semantics, schema validation, querying, patching, formatting, or generation.
 - Incremental reparse; M3 guarantees transport chunk invariance, not edit-delta reuse.
 - Replacing current ScalaScript front-matter/runtime YAML parsing in M3.
+- Full-production coverage of YAML 1.2.2's exotic productions, including multiline quoted-scalar
+  folding, every Unicode noncharacter restriction, complete `%TAG` handle expansion, and all
+  indentationless/property-only sequence combinations. These are recorded as the M3.1 grammar
+  hardening follow-up rather than silently claimed by the safe M3 profile.
 
 ## Decisions
 
@@ -287,13 +291,14 @@ parsers may be test/differential or later projection consumers but are not the l
 ## Results
 
 The cross-module landed in `48720429c`; malformed-flow recovery followed in `371e99abc`, nested
-property-only nodes in `c9f599589`, and limit/corpus reinforcement in `d608a8dd2` plus `ab3acdf81`.
+property-only nodes in `c9f599589`, limit/split reinforcement in `d608a8dd2` plus `ab3acdf81`, and
+official/differential corpus coverage in `0cf72b971`.
 Verification on 2026-07-12:
 
 ```text
 scripts/sbtc ";unimlYaml/test;unimlYamlJs/test"
-# JVM:      16 tests, 1 suite, all passed
-# Scala.js: 16 tests, 1 suite, all passed
+# JVM:      18 tests, 2 suites, all passed
+# Scala.js: 17 tests, 1 suite, all passed
 
 tests/conformance/run.sh --only 'yaml*,content*'
 # 6 passed, 0 failed; existing content cases were memoized green
@@ -306,5 +311,7 @@ The focused suite covers lossless block/flow structures, explicit/empty/compact 
 scalar styles in the implemented profile, directives and multi-document streams, three schemas,
 ordered duplicates, inert tags, nested anchors, preserved/resolved aliases, self/mutual cycles,
 finite expansion and parse limits, malformed flow recovery, and every two-chunk split of two dense
-documents. Full YAML-test-suite and independent differential coverage remain the unchecked behavior
-item above; M3 does not claim those corpus gates yet.
+documents. The official subset pins eight valid presentation cases from `yaml/yaml-test-suite`
+`data-2022-01-17` (`6e6c296a`), while the JVM-only differential suite compares 27 Core Schema scalar
+classes with SnakeYAML Engine 2.9. The unchecked grammar/lexical behavior items and explicit
+out-of-scope paragraph bound M3 honestly; they are the queued M3.1 hardening work, not hidden claims.
