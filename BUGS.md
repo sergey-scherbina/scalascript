@@ -5,14 +5,15 @@
 **Status:** open (2026-07-12); found by codex while continuing the TI-8.2d3
 blocking taxonomy after distributed local-loopback landed.
 
-- **Report baseline:** strict parity classifies `graph-storage-interpreter.ssc`
-  and `graph-rdf4j-http-storage.ssc` as both-fail standard-provider rows at
-  missing `Graph.putVertex` / `Graph.putRdf` ownership.
-- **Real-harness repro:** stage `bin/ssc-standard`, run both examples on VM and
-  direct ASM, and capture the first exact runtime boundary plus stdout before
-  implementation. The in-memory example is a required standard contract; the
-  RDF4J HTTP example must additionally be audited against its declared remote
-  backend/environment requirements before retaining blocker status.
+- **Installed baseline:** VM and direct ASM both exit 1 with empty stdout.
+  `graph-storage-interpreter.ssc` stops at `unhandled runtime effect:
+  Graph.putVertex`; `graph-rdf4j-http-storage.ssc` stops at `Graph.putRdf`.
+  Explicit compatibility proves the semantic split: the local example prints
+  `imports:b.ssc` and exits zero, while the HTTP example prints
+  `Stored two books.` then fails at `Sparql.select is not available in
+  interpreter mode; use ssc run-jvm with backend: rdf4j-memory`. Its front
+  matter requires an external URL and credentials, so remote query execution
+  is not a standard local blocker.
 - **Expected/done-when:** a required core-free provider owns the portable
   process-local property/RDF graph operations actually promised by the standard
   library, with deterministic values/order/errors and no v1 graph plugin,

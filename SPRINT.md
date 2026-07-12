@@ -3241,12 +3241,17 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               pretending that an external RDF4J HTTP service is
                               local standard behavior. Track the missing owner
                               as `v21-native-graph-provider-missing`.
-                              - [ ] **TI-8.2d3l0 installed audit:** capture exact
-                                    VM/ASM boundaries and output for both public
-                                    rows; compare their front matter and
-                                    `specs/graph-storage.md` contracts to split
-                                    required process-local behavior from remote
-                                    provider/config requirements.
+                              - [x] **TI-8.2d3l0 installed audit:** VM/ASM are
+                                    identical with empty stdout: local property
+                                    graph stops at `Graph.putVertex`, remote RDF
+                                    stops at `Graph.putRdf`. Explicit compat
+                                    makes the split concrete: local prints
+                                    `imports:b.ssc`; RDF HTTP writes two local
+                                    records then rejects `Sparql.select` as
+                                    unavailable in interpreter mode. Its URL/
+                                    credentials are external, so the remote
+                                    query row is optional, not a local standard
+                                    success target.
                               - [ ] **TI-8.2d3l1 provider spec:** commit a
                                     core-free portable Graph/RDF ownership,
                                     ordering, isolation, error, packaging, and
