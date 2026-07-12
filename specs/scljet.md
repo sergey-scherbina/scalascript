@@ -1301,9 +1301,8 @@ The M2 forward cursor is an immutable iterative state machine:
 
 ```scalascript
 case class ReadonlyCursorFrame(
-  pageNumber: Long,
-  nextCell: Int,
-  childVisited: Boolean
+  page: BtreePage,
+  nextEvent: Int
 )
 
 case class ReadonlyBtreeCursor(
@@ -1312,10 +1311,36 @@ case class ReadonlyBtreeCursor(
   stack: List[ReadonlyCursorFrame],
   discoveredPages: List[Long],
   current: Option[StorageRecord],
+  lastRowid: Option[Long],
+  leafDepth: Option[Int],
   started: Boolean,
   exhausted: Boolean
 )
+
+case class PagerCursorOpen(
+  pager: ReadonlyPager,
+  cursor: ReadonlyBtreeCursor
+)
+
+case class PagerCursorStep(
+  pager: ReadonlyPager,
+  cursor: ReadonlyBtreeCursor,
+  row: Option[StorageRecord]
+)
 ```
+
+Frames retain the decoded page so advancing an immutable cursor never repeats
+page decoding merely to recover navigation state. `nextEvent` is a logical
+in-order event index: one event per leaf cell, one child event per table
+interior edge, and alternating child/separator events on index interiors.
+`lastRowid` enforces strict signed-rowid order across leaf boundaries and
+`leafDepth` enforces the common-depth invariant. `PagerCursorOpen` and
+`PagerCursorStep` are internal transitions; the public `ReadonlyCursorStep`
+wraps their updated pager in a `ReadonlyDatabase`.
+Each retained decoded frame is charged one `pageSize` unit against
+`limits.workBytes`; a descent that would exceed
+`floor(workBytes / pageSize)` frames fails with `SqliteTooBig` before reading
+the child.
 
 `RowidTableTree` requires table pages throughout. Interior table cells guide
 descent but are never rows; leaf cells yield `(Some(rowid), decoded payload)`
