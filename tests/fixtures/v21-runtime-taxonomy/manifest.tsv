@@ -1,6 +1,5 @@
 file	category	blocker	owner	reason
 agent-mcp-toolsource.ssc	tools-backend	no	mcp	JVM/JS MCP tool-source syntax is already a reviewed backend surface
-custom-derives-mirror.ssc	language-runtime	yes	typeclass	Mirror/derives evidence is not synthesized, so exact summon has no named given to resolve
 direct-syntax-demo.ssc	language-runtime	yes	direct	direct syntax lowers to an unbound global instead of portable runtime semantics
 graph-rdf4j-http-storage.ssc	optional-provider	no	graph	remote RDF4J HTTP and SPARQL execution require an explicitly selected external graph backend
 international-bank-rails.ssc	optional-provider	no	swift	SwiftProvider is an explicitly optional platform provider
