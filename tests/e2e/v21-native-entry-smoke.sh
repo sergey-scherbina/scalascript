@@ -12,6 +12,10 @@ mkdir -p "$sandbox/java-tmp"
   echo 'v21-native-entry-smoke: run scripts/sbtc "installBin" first' >&2
   exit 2
 }
+[[ -x "$ROOT/bin/ssc-standard" ]] || {
+  echo 'v21-native-entry-smoke: staged standard launcher missing' >&2
+  exit 2
+}
 [[ -f "$ROOT/bin/lib/native-front/tower/bin/ssc1-run.ssc0" ]] || {
   echo 'v21-native-entry-smoke: staged native frontend missing' >&2
   exit 2
@@ -31,6 +35,12 @@ run_native() {
   PATH="$clean_path" JAVA_TOOL_OPTIONS="-Djava.io.tmpdir=$sandbox/java-tmp" \
     SSC_STORAGE_PATH="$sandbox/storage.json" SSC_NO_CDS=1 \
     "$ROOT/bin/ssc" run --native "$@"
+}
+
+run_standard() {
+  PATH="$clean_path" JAVA_TOOL_OPTIONS="-Djava.io.tmpdir=$sandbox/java-tmp" \
+    SSC_STORAGE_PATH="$sandbox/storage.json" \
+    "$ROOT/bin/ssc-standard" run "$@"
 }
 
 [[ $(run_native "$ROOT/examples/hello.ssc") == 'Hello, World!' ]]
@@ -89,6 +99,9 @@ direct_syntax_expected=$'Some(Profile(User(Alice, 30), functional programmer))\n
 [[ $(run_native "$ROOT/examples/direct-syntax-demo.ssc") == "$direct_syntax_expected" ]]
 direct_option_list_expected=$'None\n0\n1a,1b,2a,2b\nSome(7)\nSome(6)'
 [[ $(run_native "$FIXTURES/direct-option-list.ssc") == "$direct_option_list_expected" ]]
+named_copy_expected=$'Alice|31|Boston\nAlicia|30|Paris\nBob|40|Boston\n1|9\nRCN\nAlina|30|Kyiv'
+[[ $(run_native "$FIXTURES/named-copy.ssc") == "$named_copy_expected" ]]
+[[ $(run_standard "$FIXTURES/named-copy.ssc") == "$named_copy_expected" ]]
 [[ $(run_native "$FIXTURES/zero-arg-println.ssc") == $'before\n\nafter' ]]
 signals_expected=$'0\n5\n10\nc=5 d=10\nc=7 d=14\nc=11 d=22\nn=3 sq=9 cube=27\nn=4 sq=16 cube=64'
 [[ $(run_native "$ROOT/examples/signals-demo.ssc") == "$signals_expected" ]]
@@ -226,6 +239,8 @@ index_expected=$'ScalaScript 0.1 is running!\nSquares: 1, 4, 9, 16, 25'
 [[ $(run_native --bytecode "$FIXTURES/product-derives.ssc") == "$product_derives_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/direct-syntax-demo.ssc") == "$direct_syntax_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/direct-option-list.ssc") == "$direct_option_list_expected" ]]
+[[ $(run_native --bytecode "$FIXTURES/named-copy.ssc") == "$named_copy_expected" ]]
+[[ $(run_standard --bytecode "$FIXTURES/named-copy.ssc") == "$named_copy_expected" ]]
 [[ $(run_native --bytecode "$ROOT/examples/dsl-sql-recovery.ssc") == "$sql_recovery_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/imported-tuple-collection.ssc") == "$imported_tuple_expected" ]]
 [[ $(run_native --bytecode "$FIXTURES/exact-decimal.ssc") == "$exact_decimal_expected" ]]

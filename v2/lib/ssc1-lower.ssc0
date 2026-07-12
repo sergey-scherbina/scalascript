@@ -147,6 +147,13 @@ def defAritiesCell = #cell.new(Nil)
 -- nullary factory, but a bare source reference denotes the produced value.
 -- Explicit `def f()` declarations are intentionally absent from this set.
 def parameterlessDefsCell = #cell.new(Nil)
+-- Synthetic lexical names for named-copy single-evaluation lowering.
+def copyTempCounterCell = #cell.new(0)
+
+def freshCopyTemp = (kind) =>
+  let n = #cell.get(copyTempCounterCell) in
+  let _next = #cell.set(copyTempCounterCell, #i.add(n, 1)) in
+  #sconcat("__ssc_copy_", #sconcat(kind, #sconcat("_", #i->str(n))))
 
 def defArity = (name) =>
   let rec go = (entries) =>
@@ -619,6 +626,31 @@ def allNargs = (args) =>
     case Cons(h, t) => match h { case Pair(tag, d) => if #seq(tag, "narg") then allNargs(t) else false } }
 def stripNargs = (args) =>
   match args { case Nil => Nil case Cons(h, t) => Cons(nargVal(h), stripNargs(t)) }
+-- Named copy is sequenced through lexical bindings because general multi-arg
+-- primitive evaluation is not the source-language ordering contract. Bind the
+-- receiver first, then each override in written order, then call the existing
+-- alternating field-name/value portable runtime ABI using only pure locals.
+def namedCopyBindingStmts = (args, recvName, encoded) =>
+  match args {
+    case Nil =>
+      Cons(Pair("expr", Pair("prim", Pair("__method__",
+        Cons(Pair("str", "copy"), Cons(Pair("var", recvName), encoded))))), Nil)
+    case Cons(h, t) =>
+      match h {
+        case Pair(tag, data) =>
+          match data {
+            case Pair(label, value) =>
+              let argName = freshCopyTemp("arg") in
+              Cons(Pair("val", Pair(argName, value)),
+                namedCopyBindingStmts(t, recvName,
+                  appendL(encoded, Cons(Pair("str", label), Cons(Pair("var", argName), Nil)))))
+          }
+      }
+  }
+def desugarNamedCopy = (recv, args) =>
+  let recvName = freshCopyTemp("recv") in
+  Pair("block", Cons(Pair("val", Pair(recvName, recv)),
+    namedCopyBindingStmts(args, recvName, Nil)))
 def findNarg = (label, args) =>
   match args {
     case Nil => Pair("var", #sconcat("__missing_named_arg_", label))
@@ -1192,7 +1224,12 @@ def resolveE = (expr) =>
                 else if #seq(ftag, "sel") then
                   match fdata {
                     case Pair(obj, method) =>
-                      resolveMethodCall(resolveE(obj), method, stripNargs(rargs))
+                      if #seq(method, "copy") then
+                        if hasNarg(rargs) then
+                          if allNargs(rargs) then desugarNamedCopy(resolveE(obj), rargs)
+                          else resolveMethodCall(resolveE(obj), method, stripNargs(rargs))
+                        else resolveMethodCall(resolveE(obj), method, rargs)
+                      else resolveMethodCall(resolveE(obj), method, stripNargs(rargs))
                   }
                 else if #seq(ftag, "app") then
                   -- Explicit portable handler: retain both the computation and
@@ -3581,6 +3618,7 @@ def lowerProg = (stmts) =>
   let _lv = #cell.set(listVarsCell, Nil) in
   let _da = #cell.set(defAritiesCell, collectDefArities(stmts)) in
   let _pd = #cell.set(parameterlessDefsCell, collectParameterlessDefs(stmts)) in
+  let _ct = #cell.set(copyTempCounterCell, 0) in
   -- K62.6b: register top-level var names BEFORE lowering so references resolve to cells
   let _tv = #cell.set(topVarsCell, collectTopVars(stmts)) in
   let topValNames = collectTopVals(stmts) in

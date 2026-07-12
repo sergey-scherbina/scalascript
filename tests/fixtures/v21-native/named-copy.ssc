@@ -1,0 +1,37 @@
+---
+name: named-copy
+version: 1.0.0
+---
+
+# Native named case-class copy
+
+```scalascript
+case class Person(name: String, age: Int, city: String)
+case class Box(left: Int, right: Int)
+
+val alice = Person("Alice", 30, "Boston")
+val older = alice.copy(age = 31)
+val moved = alice.copy(city = "Paris", name = "Alicia")
+val positional = alice.copy("Bob", 40)
+val box = Box(1, 2).copy(right = 9)
+
+println(older.name + "|" + older.age + "|" + older.city)
+println(moved.name + "|" + moved.age + "|" + moved.city)
+println(positional.name + "|" + positional.age + "|" + positional.city)
+println(box.left.toString + "|" + box.right)
+
+var trace = ""
+def source(): Person =
+  trace = trace + "R"
+  alice
+def mark(label: String, value: String): String =
+  trace = trace + label
+  value
+
+val ordered = source().copy(
+  city = mark("C", "Kyiv"),
+  name = mark("N", "Alina")
+)
+println(trace)
+println(ordered.name + "|" + ordered.age + "|" + ordered.city)
+```

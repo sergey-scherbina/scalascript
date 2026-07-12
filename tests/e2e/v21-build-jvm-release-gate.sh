@@ -137,6 +137,12 @@ PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
 direct_syntax_expected=$'Some(Profile(User(Alice, 30), functional programmer))\nNone\nNone\nSome(50)\nNone\nS-red, S-blue, M-red, M-blue, L-red, L-blue\nSome(order confirmed)\nNone\nSome(30)\nNone\nSome(60)'
 [[ $(PATH="$clean_path" java -jar "$sandbox/direct-syntax.jar") == "$direct_syntax_expected" ]]
 
+cp "$FIXTURES/named-copy.ssc" "$sandbox/other/named-copy.ssc"
+PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
+  "$sandbox/other/named-copy.ssc" -o "$sandbox/named-copy.jar"
+named_copy_expected=$'Alice|31|Boston\nAlicia|30|Paris\nBob|40|Boston\n1|9\nRCN\nAlina|30|Kyiv'
+[[ $(PATH="$clean_path" java -jar "$sandbox/named-copy.jar") == "$named_copy_expected" ]]
+
 cp "$ROOT/examples/graph-rdf4j-http-storage.ssc" "$sandbox/other/graph-rdf4j-http-storage.ssc"
 PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
   "$sandbox/other/graph-rdf4j-http-storage.ssc" -o "$sandbox/graph-rdf4j.jar"
@@ -180,6 +186,8 @@ LC_ALL=C sort -c "$sandbox/entries"
   "$sandbox/custom-derives.jar" >"$sandbox/custom-derives.jdeps"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps -verbose:class \
   "$sandbox/direct-syntax.jar" >"$sandbox/direct-syntax.jdeps"
+"$jdeps_cmd" --multi-release base --ignore-missing-deps -verbose:class \
+  "$sandbox/named-copy.jar" >"$sandbox/named-copy.jdeps"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
   "$sandbox/a/app.jar" >"$sandbox/app.modules"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
@@ -204,6 +212,8 @@ LC_ALL=C sort -c "$sandbox/entries"
   "$sandbox/custom-derives.jar" >"$sandbox/custom-derives.modules"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
   "$sandbox/direct-syntax.jar" >"$sandbox/direct-syntax.modules"
+"$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
+  "$sandbox/named-copy.jar" >"$sandbox/named-copy.modules"
 
 forbidden='scala[./](meta|tools)|dotty[./]tools|scala3-compiler|compiler-driver|javax[./]tools|java[.]compiler|jdk[.]compiler|ssc[./]bridge|scalascript[./](ast|frontend|interpreter)'
 if grep -Ei "$forbidden" "$sandbox/entries" "$sandbox/entry.javap" \
@@ -215,7 +225,8 @@ if grep -Ei "$forbidden" "$sandbox/entries" "$sandbox/entry.javap" \
     "$sandbox/graph.jdeps" "$sandbox/graph.modules" \
     "$sandbox/dsl-mini-language.jdeps" "$sandbox/dsl-mini-language.modules" \
     "$sandbox/custom-derives.jdeps" "$sandbox/custom-derives.modules" \
-    "$sandbox/direct-syntax.jdeps" "$sandbox/direct-syntax.modules" >/dev/null; then
+    "$sandbox/direct-syntax.jdeps" "$sandbox/direct-syntax.modules" \
+    "$sandbox/named-copy.jdeps" "$sandbox/named-copy.modules" >/dev/null; then
   echo 'v21-build-jvm-release-gate: forbidden standard-tier entry/reference/module' >&2
   exit 1
 fi
@@ -245,6 +256,7 @@ graph_modules=$(tr -d '\r\n' <"$sandbox/graph.modules")
 dsl_mini_language_modules=$(tr -d '\r\n' <"$sandbox/dsl-mini-language.modules")
 custom_derives_modules=$(tr -d '\r\n' <"$sandbox/custom-derives.modules")
 direct_syntax_modules=$(tr -d '\r\n' <"$sandbox/direct-syntax.modules")
+named_copy_modules=$(tr -d '\r\n' <"$sandbox/named-copy.modules")
 report_tmp="$sandbox/release.tsv"
 {
   printf 'metric\tvalue\n'
@@ -264,6 +276,7 @@ report_tmp="$sandbox/release.tsv"
   printf 'dsl-mini-language.modules\t%s\n' "$dsl_mini_language_modules"
   printf 'custom-derives.modules\t%s\n' "$custom_derives_modules"
   printf 'direct-syntax.modules\t%s\n' "$direct_syntax_modules"
+  printf 'named-copy.modules\t%s\n' "$named_copy_modules"
   printf 'compiler.commands.hidden\ttrue\n'
   printf 'forbidden.references\t0\n'
   printf 'hello.output\tHello, World!\n'
@@ -279,6 +292,7 @@ report_tmp="$sandbox/release.tsv"
   printf 'dsl-mini-language.output\t13-lines/exact\n'
   printf 'custom-derives.output\tMirror/derived/exact\n'
   printf 'direct-syntax.output\tOption/List/nested/exact\n'
+  printf 'named-copy.output\tlabels/order/single-evaluation/exact\n'
 } >"$report_tmp"
 
 if [[ -n $REPORT ]]; then
