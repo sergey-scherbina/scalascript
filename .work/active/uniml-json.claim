@@ -1,6 +1,0 @@
-feature/uniml-json 2026-07-12T10:35:36Z
-agent: codex
-heartbeat: 2026-07-12T11:01:23Z
-status: in-progress
-done-so-far: spec published; strict cross-platform adapter, CST projection, and 15-test JVM/Scala.js suites committed locally and green
-next: run assembled JSON conformance, reconcile spec behaviors, publish implementation/bookkeeping, then release the claim
