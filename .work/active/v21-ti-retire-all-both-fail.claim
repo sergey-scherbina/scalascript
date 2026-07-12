@@ -1,6 +1,6 @@
 feature/v21-ti-retire-all-both-fail 2026-07-12T08:55:21Z
 agent: codex
-heartbeat: 2026-07-12T12:22:56Z
+heartbeat: 2026-07-12T12:52:00Z
 status: in-progress
-done-so-far: all 13 explicit lanes and zero-gap reporting landed; 196-row negative gate is green; fixed direct-ASM top-val effect leakage plus the stale x402 tools-lane smoke, with focused CoreIR/real-launcher tests and fresh v2 conformance 11/11 green
-next: rerun full native-entry and consolidated self-hosted-core release gate, then record closure and release the claim
+done-so-far: all 13 explicit lanes and zero-gap reporting landed; fixed ASM cell-effect leak and stale x402 smoke; concurrent scljet-memory-vfs is proven VM/ASM exact plus conformance green, so strict freeze is updated to 197 total / 55 identical with all gap metrics still zero
+next: rerun standalone negative-toolchain and complete the consolidated release gate on the 197-row freeze, then record closure and release the claim
