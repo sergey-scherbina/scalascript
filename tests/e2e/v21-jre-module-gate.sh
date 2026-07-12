@@ -24,8 +24,9 @@ slim="$sandbox/slim"
 standard="$slim/bin/lib/standard"
 mkdir -p "$slim/bin/lib" "$sandbox/toolbin" "$sandbox/scan-classes" "$sandbox/ui"
 cp -R "$ROOT/bin/lib/standard" "$slim/bin/lib/standard"
+cp "$ROOT/bin/ssc" "$slim/bin/ssc"
 cp "$ROOT/bin/ssc-standard" "$slim/bin/ssc-standard"
-chmod +x "$slim/bin/ssc-standard"
+chmod +x "$slim/bin/ssc" "$slim/bin/ssc-standard"
 
 # Build a scan-only union JAR. This makes every standard dependency a jdeps
 # root, including ServiceLoader providers and JDBC drivers that are not
@@ -90,7 +91,7 @@ for compiler in scala-cli scalac javac; do
 done
 
 run_standard() {
-  PATH="$clean_path" SSC_NO_CDS=1 "$slim/bin/ssc-standard" "$@"
+  PATH="$clean_path" SSC_NO_CDS=1 "$slim/bin/ssc" "$@"
 }
 
 [[ $(run_standard run "$ROOT/examples/hello.ssc") == 'Hello, World!' ]]
@@ -125,6 +126,7 @@ report_tmp="$sandbox/jre-module.tsv"
   printf 'runtime.modules\t%s\n' "$runtime_modules"
   printf 'java.compiler.available\tfalse\n'
   printf 'jdk.compiler.available\tfalse\n'
+  printf 'default.launcher\tstandard\n'
   printf 'compiler.commands.hidden\ttrue\n'
   printf 'forbidden.references\t0\n'
   printf 'standard.vm\tpass\n'

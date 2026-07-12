@@ -1,28 +1,16 @@
 #!/usr/bin/env bash
 _SSC_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _SSC_ROOT="$(dirname "$_SSC_BIN")"
-
-# AppCDS: mmap a class-data archive instead of parsing classes on every launch —
-# cuts `ssc` cold-start ~50% (396 -> ~195 ms; tests/perf/coldstart). The archive
-# is auto-created on first run (JDK 19+ AutoCreateSharedArchive) and auto-recreated
-# if the classpath changes; only CDS is enabled -- NOT -XX:TieredStopAtLevel=1,
-# which would speed startup a touch more but cripple long-running `ssc serve`
-# throughput. Old JDKs ignore the flags (+IgnoreUnrecognizedVMOptions). Opt out
-# with SSC_NO_CDS=1. The archive lives in a user-writable cache, never the
-# (possibly read-only) install dir.
 _SSC_CDS_ARGS=()
 if [[ "${SSC_NO_CDS:-}" != "1" ]]; then
   _SSC_CACHE="${SSC_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/scalascript}"
   if mkdir -p "$_SSC_CACHE" 2>/dev/null; then
-    # -Xlog:cds*=off: the one-time archive dump otherwise prints `[cds] Skipping…`
-    # warnings to STDOUT (JVM unified logging default), which would corrupt piped
-    # `ssc` output on the first run.
     _SSC_CDS_ARGS=(-XX:+IgnoreUnrecognizedVMOptions \
                    -XX:+AutoCreateSharedArchive \
                    -XX:SharedArchiveFile="$_SSC_CACHE/ssc.jsa" \
                    -Xlog:cds=off -Xlog:cds+dynamic=off)
   fi
 fi
-
 exec java "${_SSC_CDS_ARGS[@]}" -Dssc.lib.path="$_SSC_ROOT" \
-  -cp "$_SSC_BIN/lib/jars/*:$_SSC_BIN/lib/ssc.jar" scalascript.cli.ssc "$@"
+  -cp "$_SSC_BIN/lib/standard/jars/*:$_SSC_BIN/lib/standard/ssc.jar" \
+  scalascript.cli.StandardMain "$@"

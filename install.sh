@@ -83,8 +83,8 @@ echo "Staging ssc (thin jar + deps) via sbt cli/installBin..."
 
 mkdir -p "$BIN"
 
-# Compatibility launcher remains the default until the TI-8 cutover.
-# Keep this launcher in sync with the checked-in bin/ssc (AppCDS cold-start cut).
+# The ScalaScript 2.1 standard tier is the default launcher. Keep this launcher
+# in sync with the checked-in bin/ssc (AppCDS cold-start cut).
 cat > "$BIN/ssc" <<'LAUNCHER'
 #!/usr/bin/env bash
 _SSC_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -106,7 +106,8 @@ if [[ "${SSC_NO_CDS:-}" != "1" ]]; then
 fi
 
 exec java "${_SSC_CDS_ARGS[@]}" -Dssc.lib.path="$_SSC_ROOT" \
-  -cp "$_SSC_BIN/lib/jars/*:$_SSC_BIN/lib/ssc.jar" scalascript.cli.ssc "$@"
+  -cp "$_SSC_BIN/lib/standard/jars/*:$_SSC_BIN/lib/standard/ssc.jar" \
+  scalascript.cli.StandardMain "$@"
 LAUNCHER
 chmod +x "$BIN/ssc"
 

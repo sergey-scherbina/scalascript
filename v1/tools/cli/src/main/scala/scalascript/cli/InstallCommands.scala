@@ -83,8 +83,8 @@ def selfInstallCommand(args: List[String]): Unit =
   os.write.over(launcher,
     s"""#!/usr/bin/env bash
        |exec java -Dssc.lib.path="$destRoot" \\
-       |  -cp "$destRoot/bin/lib/jars/*:$destRoot/bin/lib/ssc.jar" \\
-       |  scalascript.cli.ssc "$$@"
+       |  -cp "$destRoot/bin/lib/standard/jars/*:$destRoot/bin/lib/standard/ssc.jar" \\
+       |  scalascript.cli.StandardMain "$$@"
        |""".stripMargin)
   java.nio.file.Files.setPosixFilePermissions(
     launcher.toNIO,

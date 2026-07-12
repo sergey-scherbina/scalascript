@@ -59,6 +59,8 @@ fi
 "$ROOT/tests/e2e/v21-native-entry-smoke.sh"
 "$ROOT/tests/e2e/v21-native-effect-handlers-smoke.sh"
 "$ROOT/tests/e2e/v21-native-plugin-boundary-smoke.sh"
+"$ROOT/tests/e2e/v21-standard-tier-smoke.sh"
+"$ROOT/tests/e2e/v21-default-launcher-cutover-smoke.sh"
 "$ROOT/tests/e2e/v21-slim-distribution-gate.sh" \
   --report "$report_dir/slim.tsv"
 "$ROOT/tests/e2e/v21-build-jvm-release-gate.sh" \
@@ -102,6 +104,8 @@ fi
   printf 'external-parser-jars.standard\t0\n'
   printf 'runtime.classload.boundaries\tpass\n'
   printf 'parser.fuzz\tpass\n'
+  printf 'default.launcher\tstandard\n'
+  printf 'compatibility.entry\texplicit-ssc-tools\n'
   printf 'slim.tools-present\tfalse\n'
   printf 'build-jvm.reproducible\ttrue\n'
   printf 'corpus.full\t%s\n' "$([[ $quick -eq 0 ]] && echo pass || echo skipped)"

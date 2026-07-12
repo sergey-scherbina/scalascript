@@ -6,8 +6,8 @@ import scala.util.control.NonFatal
  *
  * This object deliberately mentions only the native frontend/runtime and the
  * direct ASM artifact command. The compatibility `Main.scala` entry remains in
- * the same thin JAR for the optional tools launcher, but is never initialized
- * by the standard launcher. */
+ * the separate full CLI JAR for the optional tools launcher, but is never
+ * initialized or spawned by the standard launcher. */
 object StandardMain:
   def main(rawArgs: Array[String]): Unit =
     try dispatch(rawArgs.toList.filterNot(_ == "--quiet"))
@@ -35,7 +35,7 @@ object StandardMain:
     var bytecode = false
     val files = collection.mutable.ListBuffer.empty[String]
     if beforeArgs.exists(arg => arg == "--v1" || arg == "--compat-frontend") then
-      delegateTools("run" :: args)
+      toolsRequired("run with the compatibility frontend")
     beforeArgs.foreach {
       case "--native" | "--v2" => ()
       case "--bytecode"         => bytecode = true
@@ -55,21 +55,9 @@ object StandardMain:
       s"""{"tier":"standard","frontend":"native","checker":"native","backend":"$backend","compiler":false}""")
 
   private def toolsRequired(surface: String): Nothing =
-    val root = Option(System.getProperty("ssc.lib.path")).getOrElse("<ssc-install>")
     throw new IllegalArgumentException(
       s"'$surface' requires the optional ScalaScript tools/compatibility tier; " +
-      s"run $root/bin/ssc-tools or install the full distribution")
-
-  private def delegateTools(args: List[String]): Nothing =
-    val root = Option(System.getProperty("ssc.lib.path")).map(new java.io.File(_)).getOrElse {
-      toolsRequired("run with the compatibility frontend")
-    }
-    val launcher = new java.io.File(root, "bin/ssc-tools")
-    if !launcher.isFile || !launcher.canExecute then
-      toolsRequired("run with the compatibility frontend")
-    val process = new ProcessBuilder((launcher.getPath :: args)*).inheritIO().start()
-    System.exit(process.waitFor())
-    throw new IllegalStateException("unreachable after tools process exit")
+      s"run ssc-tools explicitly or install the full distribution")
 
   private def printHelp(): Unit =
     println(
@@ -81,5 +69,6 @@ object StandardMain:
         |
         |The standard tier uses the self-hosted frontend/checker and v2 VM or
         |direct ASM. Legacy compiler-backed commands use the optional ssc-tools
-        |launcher and are never discovered from the standard classpath.
+        |launcher, which must be invoked explicitly and is never discovered or
+        |spawned from the standard entry.
         |""".stripMargin)

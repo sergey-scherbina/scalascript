@@ -1412,8 +1412,9 @@ lazy val cli = project
     //   $ROOT/lib/compiler/jars/*.jar  ← scala3-compiler, asm, compiler-driver
     //   $ROOT/lib/compiler/plugins/          ← essential .sscpkg files (auto-loaded at startup)
     //   $ROOT/lib/compiler/plugin-available/ ← advanced .sscpkg files (bundled opt-in; no registry/domain)
-    // Launcher: java -cp "$ROOT/lib/jars/*:$ROOT/lib/ssc.jar" scalascript.cli.ssc
-    // (lib/compiler/jars/ is NOT on startup CP — loaded lazily by CompilerLoader)
+    // Default launcher: standard classpath + StandardMain. The separate
+    // ssc-tools launcher uses lib/jars + scalascript.cli.ssc; compiler JARs are
+    // still absent from its startup CP and loaded lazily by CompilerLoader.
     installBin := {
       val log          = streams.value.log
       val root         = (ThisBuild / baseDirectory).value
@@ -1469,16 +1470,28 @@ lazy val cli = project
         }
       } finally appZip.close()
       IO.zip(Path.allSubpaths(standardJarStage).toSeq, standardJar)
-      val standardLauncher = root / "bin" / "ssc-standard"
-      IO.write(standardLauncher,
+      val standardLauncherScript =
         """#!/usr/bin/env bash
           |_SSC_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
           |_SSC_ROOT="$(dirname "$_SSC_BIN")"
-          |exec java -Dssc.lib.path="$_SSC_ROOT" \
+          |_SSC_CDS_ARGS=()
+          |if [[ "${SSC_NO_CDS:-}" != "1" ]]; then
+          |  _SSC_CACHE="${SSC_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/scalascript}"
+          |  if mkdir -p "$_SSC_CACHE" 2>/dev/null; then
+          |    _SSC_CDS_ARGS=(-XX:+IgnoreUnrecognizedVMOptions \
+          |                   -XX:+AutoCreateSharedArchive \
+          |                   -XX:SharedArchiveFile="$_SSC_CACHE/ssc.jsa" \
+          |                   -Xlog:cds=off -Xlog:cds+dynamic=off)
+          |  fi
+          |fi
+          |exec java "${_SSC_CDS_ARGS[@]}" -Dssc.lib.path="$_SSC_ROOT" \
           |  -cp "$_SSC_BIN/lib/standard/jars/*:$_SSC_BIN/lib/standard/ssc.jar" \
           |  scalascript.cli.StandardMain "$@"
-          |""".stripMargin)
-      standardLauncher.setExecutable(true, false)
+          |""".stripMargin
+      Seq(root / "bin" / "ssc", root / "bin" / "ssc-standard").foreach { launcher =>
+        IO.write(launcher, standardLauncherScript)
+        launcher.setExecutable(true, false)
+      }
       val toolsLauncher = root / "bin" / "ssc-tools"
       IO.write(toolsLauncher,
         """#!/usr/bin/env bash

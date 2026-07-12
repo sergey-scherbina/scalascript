@@ -23,15 +23,15 @@ trap 'rm -rf "$sandbox"' EXIT HUP INT TERM
 slim="$sandbox/slim"
 mkdir -p "$slim/bin" "$sandbox/toolbin" "$sandbox/ui"
 cp -R "$ROOT/bin/lib" "$slim/bin/lib"
+cp "$ROOT/bin/ssc" "$slim/bin/ssc"
 cp "$ROOT/bin/ssc-standard" "$slim/bin/ssc-standard"
-chmod +x "$slim/bin/ssc-standard"
+chmod +x "$slim/bin/ssc" "$slim/bin/ssc-standard"
 
 # Delete the complete compatibility/tools surface from the copied install.
 rm -rf "$slim/bin/lib/jars" \
        "$slim/bin/lib/compiler" \
        "$slim/bin/lib/native-front" \
        "$slim/bin/lib/ssc.jar" \
-       "$slim/bin/ssc" \
        "$slim/bin/ssc-tools"
 
 for tool in bash dirname java; do
@@ -81,7 +81,7 @@ if grep -Ei "$forbidden_refs" "$sandbox/standard.jdeps" >/dev/null; then
 fi
 
 run_standard() {
-  PATH="$clean_path" SSC_NO_CDS=1 "$slim/bin/ssc-standard" "$@"
+  PATH="$clean_path" SSC_NO_CDS=1 "$slim/bin/ssc" "$@"
 }
 
 [[ $(run_standard run "$ROOT/examples/hello.ssc") == 'Hello, World!' ]]
@@ -168,7 +168,7 @@ set -e
 grep -F 'requires the optional ScalaScript tools/compatibility tier' "$sandbox/tools.err" >/dev/null
 
 PATH="$clean_path" SSC_NO_CDS=1 JAVA_TOOL_OPTIONS=-verbose:class \
-  "$slim/bin/ssc-standard" run "$ROOT/examples/hello.ssc" \
+  "$slim/bin/ssc" run "$ROOT/examples/hello.ssc" \
   >"$sandbox/classload.log" 2>&1
 if grep -Ei 'scala[.]meta|dotty[.]tools|ssc[.]bridge|scalascript[.](ast|frontend|interpreter)' \
     "$sandbox/classload.log" >/dev/null; then
@@ -189,6 +189,7 @@ report_tmp="$sandbox/slim.tsv"
   printf 'standard.jar.count\t%s\n' "$jar_count"
   printf 'standard.class.count\t%s\n' "$class_count"
   printf 'standard.bytes\t%s\n' "$standard_bytes"
+  printf 'default.launcher\tstandard\n'
   printf 'tools.present\tfalse\n'
   printf 'compiler.commands.hidden\ttrue\n'
   printf 'forbidden.references\t0\n'
