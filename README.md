@@ -539,7 +539,7 @@ Dataset/MapReduce typed wire calls can select `wireFormat = "msgpack" | "cbor"` 
 | [distributed-log-aggregation.ssc](examples/distributed-log-aggregation.ssc) | Offline distributed ERROR-count aggregation; pass a log path after `--` |
 | [distributed-join.ssc](examples/distributed-join.ssc) | Offline distributed customer/order join using local shuffle workers; pass order and customer CSV paths after `--` |
 | [dsl-demo.ssc](examples/dsl-demo.ssc) | Parser combinators, error recovery, multi-pass compilation pipeline |
-| [lenses.ssc](examples/lenses.ssc) | `.copy(field = v)`, `Focus[T](_.a.b)`, `get` / `set` / `modify` / `andThen` |
+| [lenses.ssc](examples/lenses.ssc) | Native standard-path `.copy`, structural `Focus` Lens/Optional/Traversal, and `Prism` with no macro/compiler fallback |
 | [default-params.ssc](examples/default-params.ssc) | Default parameter values on defs, classes, and enum cases |
 | [lang-split.ssc](examples/lang-split.ssc) | `scala` vs `scalascript` block annotations side by side |
 | [scala-js-demo.ssc](examples/scala-js-demo.ssc) | Pure `scala` 3 document — runs on all three backends with byte-identical output |
@@ -743,7 +743,7 @@ scala-cli conformance/run.sc
 | generators | `generator[T] { () => suspend(v) }`, lazy `map` / `filter` / `take` / `drop` / `flatMap` / `zip` pipelines |
 | streams | `Source[A]` / `Sink[A]` / `Flow[A, B]`, `stream { emit(x) }`, bounded buffers, overflow strategies, wall-clock throttle/debounce, live `Source.signal`, and `sig.bind(source)` |
 | signals | Reactive `Signal` / `computed` / `effect` with diamond-dedup flush |
-| lenses | `.copy(field = v)` and `Focus[T](_.a.b)` — get / set / modify / andThen |
+| lenses | Native `.copy`, `Focus[T](_.a.b/.some/.each)`, and `Prism[Sum, Variant]` — get / set / modify / compose |
 | prisms | `Prism[Sum, Variant]` — getOption / set / modify on enum / sealed-trait cases |
 | optional | `Focus[T](_.maybe.some.field)` — Optional optic with getOption / set / modify / andThen |
 | traversal | `Focus[T](_.items.each.field)` — Traversal with getAll / modify / set / andThen |

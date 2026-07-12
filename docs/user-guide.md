@@ -1218,7 +1218,14 @@ matched by field label rather than position, even when written out of
 declaration order. Unmentioned fields retain their original values. The
 receiver and override expressions evaluate exactly once, left to right;
 positional copy keeps declaration-order prefix replacement. `Focus`/`Prism`
-optics are a separate native migration surface.
+are also compiler-free on the ScalaScript 2.1 standard path. `Focus[T]` accepts
+structural selector chains: ordinary fields produce a Lens, `.some` crosses an
+`Option` as an Optional, and `.each` traverses a `List` in source order.
+`andThen` composes those structural paths; `Prism[Outer, Variant]` matches the
+exact enum/sealed-hierarchy variant tag. Missing Optional/Prism targets return
+`None` and leave `set`/`modify` input unchanged. Arbitrary getter expressions,
+method calls, indexes, or filters are rejected explicitly; the standard
+launcher never falls back to Scala macros, reflection, or the v1 frontend.
 
 ### Enums
 
