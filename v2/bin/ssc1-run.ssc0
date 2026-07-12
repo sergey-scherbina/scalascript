@@ -167,12 +167,12 @@ def sscSqlFenceSource = (lang, source, heading, index, firstInSection) =>
 
 def sscFenceSource = (lang, source, heading, sqlIndex, firstSqlInSection) =>
   let token = sscFenceToken(lang) in
-  let isCode = if #seq(token, "scalascript") then true else #seq(token, "scala") in
+  let isCode = if #seq(lang, "scalascript") then true else #seq(lang, "scala") in
   if isCode then source
-  else if #seq(token, "yaml") then
+  else if #seq(lang, "yaml") then
     #sconcat("val __yaml_", #sconcat(heading,
       #sconcat(" = __yamlSection__(", #sconcat(sscQuoteYamlString(source), ")"))))
-  else if #seq(token, "yml") then
+  else if #seq(lang, "yml") then
     #sconcat("val __yaml_", #sconcat(heading,
       #sconcat(" = __yamlSection__(", #sconcat(sscQuoteYamlString(source), ")"))))
   else if #seq(token, "sql") then
