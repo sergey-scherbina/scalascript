@@ -78,6 +78,9 @@ object VmCompiler:
   /** wide-jit C-5: value-position `if`/match branches with mixed {Int, Double} types, widened
     * locally (Scala's lub widens Int→Double) instead of bailing MixedReturnType. */
   val branchWidenings = new java.util.concurrent.atomic.AtomicLong(0L)
+  /** wide-jit C-6: an Int value assigned to a Double var, widened (I2D) rather than bailing on a
+    * false "var domain change". */
+  val varWidenings = new java.util.concurrent.atomic.AtomicLong(0L)
   /** Opt-in (zero overhead otherwise): count TypeMap coverage at each compiled node. Read the
     * counters directly (tests / future C-4 opportunity sizing). */
   val measureTypes: Boolean =
@@ -871,7 +874,14 @@ object VmCompiler:
         val dst = locals.getOrElse(nm.value, bail(s"undefined: assign to unknown var '${nm.value}'", Br.VmUndefinedName))
         val old = typeOf(dst)
         val nt  = compileInto(rhs, dst)
-        if nt != old then bail("types: var domain change (Int↔Double)", Br.MixedReturnType)
+        if nt != old then
+          // wide-jit C-6: assigning an Int to a Double var — Scala widens Int→Double, so widen `dst`
+          // (which holds the just-compiled Int rhs) rather than bailing on a false domain change. The
+          // reverse (Double into an Int var) is a Scala type error → still bails.
+          if old == TDouble && nt == TInt then
+            emit(I2D, dst, dst, 0); setType(dst, TDouble)
+            VmCompiler.varWidenings.incrementAndGet()
+          else bail("types: var domain change (Int↔Double)", Br.MixedReturnType)
       // Inner def: compile to a standalone callee that shares the Ctx call pool.
       // Only non-capturing inner defs compile; a body that references outer locals
       // will bail with "undefined: name '...'" when the inner Builder runs — that

@@ -2708,6 +2708,22 @@ class SscVmTest extends AnyFunSuite with Matchers:
     java.lang.Double.longBitsToDouble(SscVm.runRef(cfn.get, Array.empty[Long], Array[AnyRef](e("C")))) shouldBe 7.0  // 3.5 * 2
   }
 
+  test("wide-jit C-6: an Int assigned to a Double var is widened, not bailed on") {
+    // `x` is a Double var (init 0.0); `x = c` assigns the Int param. Scala widens Int→Double, so the
+    // assign widens `x` (I2D) rather than bailing on a false "var domain change".
+    val f = funOf("f",
+      """def f(c: Int): Double =
+        |  var x = 0.0
+        |  x = c
+        |  x + 0.5""".stripMargin)
+    val before = VmCompiler.varWidenings.get
+    val cfn = VmCompiler.compile(f)
+    cfn shouldBe defined
+    assert(VmCompiler.varWidenings.get > before, "the Int→Double var assign should widen")
+    java.lang.Double.longBitsToDouble(SscVm.run(cfn.get, Array(5L))) shouldBe 5.5  // 5→5.0 + 0.5
+    java.lang.Double.longBitsToDouble(SscVm.run(cfn.get, Array(3L))) shouldBe 3.5  // 3→3.0 + 0.5
+  }
+
   test("wide-jit C-3: FunV.body is identity-keyed in the Typer's nodeTypes; the map threads to VmCompiler") {
     // Parse ONCE; run it (→ FunV) and typecheck it (→ nodeTypes) from the SAME parse, so the
     // FunV.body Term the JIT compiles is the exact object the Typer recorded a type for.
