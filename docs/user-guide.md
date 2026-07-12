@@ -1213,6 +1213,13 @@ def area(s: Shape): Double = s match
   case Rect(w, h) => w * h
 ```
 
+On the compiler-free ScalaScript 2.1 standard path, named `.copy` overrides are
+matched by field label rather than position, even when written out of
+declaration order. Unmentioned fields retain their original values. The
+receiver and override expressions evaluate exactly once, left to right;
+positional copy keeps declaration-order prefix replacement. `Focus`/`Prism`
+optics are a separate native migration surface.
+
 ### Enums
 
 ```scalascript

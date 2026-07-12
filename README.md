@@ -76,6 +76,9 @@ while explicit `def value(): T = ...` keeps its required call. List `map` and
 Explicit `direct[Option]` and `direct[List]` blocks are compiler-free too:
 fresh assignments bind, Option short-circuits, and List expansion keeps source
 order; broader direct inference and monads remain compatibility-only gaps.
+Named case-class `.copy(field = value)` is likewise native: labels are
+preserved independently of call order, omitted fields are retained, and the
+receiver/overrides evaluate exactly once from left to right.
 Top-level `case object` declarations are stable portable nullary values across
 imports, direct references, equality, and pattern matching.
 Its built-in `math` object is also portable on both lanes (`Pi`, `E`, `abs`,
@@ -267,7 +270,7 @@ compiles them via Scala.js.
 | Standard typeclasses | Functor, Applicative, Monad, Foldable, Traversable, Either, Eq, Show, Hash, Order, Semigroup, Monoid, Bifunctor, MonadError, Selective |
 | Recursion | factorial, Fibonacci, tree traversal |
 | Tail-call optimisation | self-TCO and mutual TCO — no `@tailrec` required |
-| Case-class `.copy` | `p.copy(field = newValue, ...)` |
+| Case-class `.copy` | `p.copy(field = newValue, ...)`; named labels and evaluation order are compiler-free on the standard 2.1 path |
 | List / map literals | `[1, 2, 3]` → `List(…)`, `["k" -> v, ...]` → `Map(…)`, `[]` → `List()` — compact sugar in `.ssc` code blocks |
 
 ### Optics
