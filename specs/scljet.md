@@ -250,7 +250,7 @@ extension (bytes: ByteSlice)
   def get(index: Int): Either[ByteError, Int]
   def updated(index: Int, value: Int): Either[ByteError, ByteSlice]
   def slice(offset: Int, length: Int): Either[ByteError, ByteSlice]
-  def toList: List[Int]
+  def toByteList(): List[Int]
   def concat(other: ByteSlice): ByteSlice
   def copyTo(target: ByteSlice, targetOffset: Int): Either[ByteError, ByteSlice]
   def zeroExtend(length: Int): Either[ByteError, ByteSlice]
