@@ -9,6 +9,35 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## scalascript-sqlite — pure ScalaScript SQLite-compatible engine specification (2026-07-12, Sergiy: "сделать ... чистую низкоуровневую реализацию формата данных ... блокировками и wal ... sql интерпретатора")
+
+Goal: establish a real pure-ScalaScript module boundary and a normative, implementation-ready
+specification for an independently implemented SQLite-compatible storage engine. This is not the
+existing JDBC/sql.js adapter: the codec, pager, B-trees, journaling, WAL reader/writer, SQL parser,
+planner, evaluator, and function registry are ScalaScript code; only the abstract VFS capability
+touches a host filesystem. Compatibility is pinned to SQLite 3 file format and observable behavior,
+with extensions isolated behind an explicit non-default profile.
+
+- [ ] **sqlite-0-plan-and-spec** — create `specs/scalascript-sqlite.md` after reconciling `SPEC.md`,
+      existing SQL runtimes, and the official SQLite file/WAL/VFS/locking/SQL contracts. Specify the
+      public API, module layout, byte codec and record format, pager/cache/B-tree/freelist/overflow,
+      rollback and WAL transaction protocols, abstract random-access/locking/shared-memory VFS,
+      SQL parser/planner/VM, manifest typing and collations, external scalar/aggregate/window
+      functions, errors/limits/security, differential/crash/concurrency tests, staged milestones,
+      compatibility profiles, rejected alternatives, and explicit open decisions.
+      Done when the spec is self-contained, behavior items are testable, and no global language
+      invariant needs changing.
+- [ ] **sqlite-1-module-scaffold** — create the pure `.ssc` module at `runtime/std/sqlite/` with
+      manifest/aggregator plus target-neutral public value, error, option, connection, prepared
+      statement, VFS, random-access file, lock, shared-memory, and function-registry contracts.
+      Do not add platform types or core intrinsics; future host adapters must live in std plugins.
+      Done when imports resolve and the scaffold matches the spec without claiming an implemented
+      engine.
+- [ ] **sqlite-2-verify-and-record** — parse/typecheck the new module with the native ScalaScript
+      lane, run the affected conformance slice (or add a focused interface-only case if needed),
+      verify links/manifests and spec behavior checkboxes, then record the result in the spec,
+      `CHANGELOG.md`, and this section. No performance claim is made before a working pager exists.
+
 ## security-hardening — toolchain audit findings (2026-07-11, Sergiy: "аудит секюрити … запиши все проблемы в спеку и в спринт и исправь")
 
 Spec: `specs/security-hardening.md`. Report artifact:
