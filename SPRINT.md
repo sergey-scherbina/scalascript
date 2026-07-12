@@ -3236,13 +3236,33 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     semantic path; seed/plugin tests are 3/3 and
                                     both binding conformance cases pass on every
                                     compatibility lane.
-                        - [ ] **TI-8.2d3g reconcile fresh runtime taxonomy:**
-                              fix tracked
-                              `v21-runtime-taxonomy-stale-after-front-fixes` by
-                              reviewing the fresh 57-identical/9-both-fail
-                              parity report against installed output, then
-                              update both taxonomy manifests and ceilings
-                              without restoring resolved blockers.
+                        - [ ] **TI-8.2d3l core-free Graph runtime:** audit and
+                              close the two graph taxonomy rows without
+                              pretending that an external RDF4J HTTP service is
+                              local standard behavior. Track the missing owner
+                              as `v21-native-graph-provider-missing`.
+                              - [ ] **TI-8.2d3l0 installed audit:** capture exact
+                                    VM/ASM boundaries and output for both public
+                                    rows; compare their front matter and
+                                    `specs/graph-storage.md` contracts to split
+                                    required process-local behavior from remote
+                                    provider/config requirements.
+                              - [ ] **TI-8.2d3l1 provider spec:** commit a
+                                    core-free portable Graph/RDF ownership,
+                                    ordering, isolation, error, packaging, and
+                                    explicit remote-boundary contract before
+                                    code.
+                              - [ ] **TI-8.2d3l2 implementation + unit:** add a
+                                    required ServiceLoader provider for the real
+                                    standard surface and faithful focused tests;
+                                    do not import the v1 graph plugin/backend or
+                                    install catch-all operations.
+                              - [ ] **TI-8.2d3l3 assembled closure:** prove the
+                                    applicable public examples on VM/ASM and
+                                    build-jvm, extend dependency/slim/classload
+                                    gates, reconcile only confirmed taxonomy
+                                    rows, then run the exhaustive release gate
+                                    and fresh `v2-*` conformance before push.
                   - [x] **TI-8.2d4 example/config blockers:** DONE 2026-07-11
                         (`d4c953b9c`, taxonomy `39cfe268b`). Repair stale imports,
                         fixture setup, and deterministic data/config assumptions

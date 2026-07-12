@@ -1,5 +1,26 @@
 # Bug tracker
 
+## v21-native-graph-provider-missing — standard Graph facade has no core-free owner
+
+**Status:** open (2026-07-12); found by codex while continuing the TI-8.2d3
+blocking taxonomy after distributed local-loopback landed.
+
+- **Report baseline:** strict parity classifies `graph-storage-interpreter.ssc`
+  and `graph-rdf4j-http-storage.ssc` as both-fail standard-provider rows at
+  missing `Graph.putVertex` / `Graph.putRdf` ownership.
+- **Real-harness repro:** stage `bin/ssc-standard`, run both examples on VM and
+  direct ASM, and capture the first exact runtime boundary plus stdout before
+  implementation. The in-memory example is a required standard contract; the
+  RDF4J HTTP example must additionally be audited against its declared remote
+  backend/environment requirements before retaining blocker status.
+- **Expected/done-when:** a required core-free provider owns the portable
+  process-local property/RDF graph operations actually promised by the standard
+  library, with deterministic values/order/errors and no v1 graph plugin,
+  Scalameta, compiler, remote-service emulation, or transparent fallback.
+  Exact standard examples pass VM/ASM/build-jvm and only genuinely resolved
+  taxonomy rows are retired; explicitly remote backends receive an honest
+  optional/external classification or bounded diagnostic.
+
 ## v21-native-tuple-field-patterns — tuple literal/typed fields are unchecked
 
 **Status:** fixed (2026-07-12, language `2b87c57df`, taxonomy `e0e7e98c3`),
