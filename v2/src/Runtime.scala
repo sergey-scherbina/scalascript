@@ -2221,15 +2221,28 @@ object Prims:
     case "__math_obj__" => _ => ForeignV("__math__")
     case "cell.new" => a => ForeignV(scala.Array[Value](a(0)))
     case "cell.get" => a => asCell(a(0))(0)
-    case "cell.set" => a => asCell(a(0))(0) = a(1); UnitV
+    // Generic resolve is the path used by Emit.prim* in direct ASM. Keep it
+    // effect-safe like resolve2 below: top-level vals are initialized through
+    // cell.set, so storing a raw Op would make a following statement observe
+    // and print the implementation value before the final unhandled-effect
+    // check rejects it.
+    case "cell.set" => a => a(1) match
+      case op @ DataV("Op", _) => liftOverOp(op, x => { asCell(a(0))(0) = x; UnitV })
+      case v => asCell(a(0))(0) = v; UnitV
     // Long cell: mutable long without Value boxing per store (for tight integer loops)
     case "lcell.new" => a => new LongCellV(asInt1(a(0)))
     case "lcell.get" => a => IntV(a(0).asInstanceOf[LongCellV].v)
-    case "lcell.set" => a => a(0).asInstanceOf[LongCellV].v = asInt1(a(1)); UnitV
+    case "lcell.set" => a => a(1) match
+      case op @ DataV("Op", _) =>
+        liftOverOp(op, x => { a(0).asInstanceOf[LongCellV].v = asInt1(x); UnitV })
+      case v => a(0).asInstanceOf[LongCellV].v = asInt1(v); UnitV
     // Double cell: mutable double without FloatV boxing per store (tight float loops)
     case "dcell.new" => a => new DoubleCellV(asFloat1(a(0)))
     case "dcell.get" => a => FloatV(a(0).asInstanceOf[DoubleCellV].v)
-    case "dcell.set" => a => a(0).asInstanceOf[DoubleCellV].v = asFloat1(a(1)); UnitV
+    case "dcell.set" => a => a(1) match
+      case op @ DataV("Op", _) =>
+        liftOverOp(op, x => { a(0).asInstanceOf[DoubleCellV].v = asFloat1(x); UnitV })
+      case v => a(0).asInstanceOf[DoubleCellV].v = asFloat1(v); UnitV
     // I/O [eff]
     case "io.print"   => a => out(a(0), Console.out); UnitV
     // __regfields__(tag, [names…]) — the native front (ssc1-lower K62.28) registers each

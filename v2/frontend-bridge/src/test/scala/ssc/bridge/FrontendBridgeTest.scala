@@ -38,6 +38,42 @@ class FrontendBridgeTest extends AnyFunSuite:
     catch case e: java.lang.reflect.InvocationTargetException =>
       throw Option(e.getCause).getOrElse(e)
 
+  test("direct ASM defers an effectful top-level cell initializer") {
+    val missing = Def("missing", Term.Lam(0, Term.Ctor("Op", List(
+      Term.Lit(Const.CStr("MissingRuntime.call")),
+      Term.Lit(Const.CUnit),
+      Term.Lam(1, Term.Local(0))))))
+    val program = Program(List(missing), Term.Let(
+      List(Term.Prim("cell.new", List(Term.Lit(Const.CUnit)))),
+      Term.Seq(List(
+        Term.Prim("cell.set", List(
+          Term.Local(0),
+          Term.App(Term.Global("missing"), Nil))),
+        Term.Prim("io.println", List(
+          Term.Prim("cell.get", List(Term.Local(0)))))))))
+
+    def label(value: Value): String = value match
+      case op @ Value.DataV("Op", fields) if Runtime.isAutoThreadOp(op) =>
+        fields.head match
+          case Value.StrV(value) => value
+          case other => fail(s"expected an effect label, got ${Show.show(other)}")
+      case other => fail(s"expected an auto-thread Op, got ${Show.show(other)}")
+
+    val vmOut = new java.io.ByteArrayOutputStream
+    val vmResult = Console.withOut(vmOut) {
+      Runtime.run(Compiler.compile(program), Array.empty[Value])
+    }
+    val asmOut = new java.io.ByteArrayOutputStream
+    val asmResult = Console.withOut(asmOut) {
+      runBytecodeProgram(program)
+    }
+
+    assert(label(vmResult) == "MissingRuntime.call")
+    assert(label(asmResult) == "MissingRuntime.call")
+    assert(vmOut.toString("UTF-8").isEmpty)
+    assert(asmOut.toString("UTF-8").isEmpty)
+  }
+
   private lazy val repoRoot: java.io.File =
     Iterator.iterate(new java.io.File(".").getAbsoluteFile)(_.getParentFile)
       .takeWhile(f => f != null && f.getParentFile != f)
