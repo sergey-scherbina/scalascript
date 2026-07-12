@@ -1236,6 +1236,10 @@ and `mkString(prefix, sep, suffix)` adds the three String delimiters. Other
 arities/types and non-list receivers remain unsupported. Together with the
 existing `List.map`, these are the complete dynamic List methods called by the
 shipped `std/ui/lower.ssc`; the standard fixture crosses all three.
+The dedicated real-Swift/CoreIR method matrix additionally pins every promised
+join overload: `["a", 2]` produces `a2`, `a|2`, and `<a|2>` for 0, 1, and 3
+arguments; `Nil` produces `""`, `""`, and `"<>"`. Wrong arity, a non-String
+delimiter, and a non-list receiver remain rejected and are negative gates.
 
 ### Checked manifest entrypoint
 
@@ -1437,6 +1441,8 @@ assembled macOS and iOS Xcode gates.
   checked-source fixture executes as real Swift with token fallback and numeric
   conversion, including the builders' proper-list `.toList` identity and the
   mapped CSS list's `.mkString("")`, rather than bypassing the toolkit lowerer.
+- [ ] Real Swift pins List `mkString` 0/1/3 overloads for mixed and empty lists,
+  plus wrong-arity, wrong-delimiter-type, and non-list rejection boundaries.
 - [ ] Entry-init module registrations expose `localeSignal`; a registration in
   a definition/lambda/dead branch or inside an outer registration value cannot
   authorize an unbound global.
