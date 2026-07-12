@@ -1,6 +1,0 @@
-feature/v21-native-effect-runtime-blockers 2026-07-11T19:21:44Z
-agent: codex
-heartbeat: 2026-07-12T07:11:02Z
-status: in-progress
-done-so-far: TI-8.3 default StandardMain launcher cutover is pushed through a8601c074; exhaustive release is 194/194, 53/13/129, 0 blockers, exact freeze 7/6/0, conformance 11/11
-next: specify and implement v21-ti-negative-ci-and-release: CI/release lanes with tools/compiler/scalameta physically absent, compiler modules unavailable, launcher drift rejected, release docs/layout/size baseline frozen
