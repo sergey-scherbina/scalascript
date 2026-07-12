@@ -41,16 +41,20 @@ val dir: os.Path =
 
 val expectedDir = dir / "expected"
 val sscBin      = repoRoot / "bin" / "ssc"
+val sscToolsBin = repoRoot / "bin" / "ssc-tools"
 
 // Requires the pre-built launcher. Build with `bash install.sh --dev`
 // (which produces cli/target/scala-3.8.3/ssc.jar via sbt-assembly and writes
 // bin/ssc as a tiny java -jar wrapper).
-if !os.exists(sscBin) then
-  System.err.println(s"bin/ssc not found at $sscBin. Build it first: bash install.sh --dev")
+if !os.exists(sscBin) || !os.exists(sscToolsBin) then
+  System.err.println(s"bin/ssc or bin/ssc-tools not found. Build them first: bash install.sh --dev")
   System.exit(2)
 
 def ssc(args: String*): os.proc =
   os.proc(sscBin.toString +: args.toSeq)
+
+def sscTools(args: String*): os.proc =
+  os.proc(sscToolsBin.toString +: args.toSeq)
 
 def globMatch(glob: String, name: String): Boolean =
   val rx = ("^" + java.util.regex.Pattern.quote(glob)
@@ -75,10 +79,13 @@ var memoSkipped = 0
 // machine-local (the cache file lives under target/, not committed).
 val memoFile = repoRoot / "target" / "conformance-memo.txt"
 val jarId: String =
-  // the INT/JS/JVM lanes all run through bin/ssc -> bin/lib/ssc.jar
-  val jar = repoRoot / "bin" / "lib" / "ssc.jar"
-  val f   = jar.toIO
-  if f.exists then s"${f.length}-${f.lastModified}" else "no-jar"
+  // Compatibility lanes use the explicit tools JAR; v2 uses the standard JAR.
+  val jars = Seq(repoRoot / "bin" / "lib" / "ssc.jar",
+                 repoRoot / "bin" / "lib" / "standard" / "ssc.jar")
+  jars.map { jar =>
+    val f = jar.toIO
+    if f.exists then s"${f.length}-${f.lastModified}" else "no-jar"
+  }.mkString(":")
 def sha(text: String): String =
   val d = java.security.MessageDigest.getInstance("SHA-256")
   d.digest(text.getBytes("UTF-8")).map("%02x".format(_)).mkString
@@ -258,7 +265,8 @@ var pendingCount = 0
 
 // ── F4 batch lanes (specs/conformance-perf.md) ──────────────────────────────
 // One JVM runs ALL eligible cases per lane instead of a cold JVM per case:
-// INT executes in one explicit `ssc run-batch --v1`; JS emits every source in one JVM
+// INT executes in one explicit `ssc-tools run-batch --v1`; JS emits every
+// source through the explicit tools launcher in one JVM
 // (node stays per-case — its start is ~50 ms). A case missing from the batch
 // output (e.g. an earlier case called exit()) falls back to a per-case run.
 val BATCH_MARK = "<<<SSC-BATCH-CASE:"
@@ -295,16 +303,16 @@ def splitBatch(out: String): Map[String, String] =
 val noBatch: Boolean =
   cliArgs.contains("--no-batch") || sys.env.get("SSC_CONF_NO_BATCH").contains("1")
 
-def batchLane(extra: Seq[String], eligible: List[Meta]): Map[String, String] =
+def batchLane(launcher: os.Path, extra: Seq[String], eligible: List[Meta]): Map[String, String] =
   if noBatch || eligible.length < 3 then Map.empty
   else
-    val cmd = Seq(sscBin.toString, "run-batch", "--delim", BATCH_MARK) ++ extra ++ eligible.map(_.test.toString)
+    val cmd = Seq(launcher.toString, "run-batch", "--delim", BATCH_MARK) ++ extra ++ eligible.map(_.test.toString)
     val res = os.proc(cmd).call(stdin = "", stderr = os.Pipe, check = false)
     splitBatch(res.out.text())
 
 val runnable   = metas.filter(m => m.pending.isEmpty && m.expected.isDefined && !m.memoHit)
-val intBatch   = batchLane(Seq("--v1"), runnable.filter(metaSupports(_, "int")))
-val jsEmitted  = batchLane(Seq("--emit-js"), runnable.filter(metaSupports(_, "js")))
+val intBatch   = batchLane(sscToolsBin, Seq("--v1"), runnable.filter(metaSupports(_, "int")))
+val jsEmitted  = batchLane(sscToolsBin, Seq("--emit-js"), runnable.filter(metaSupports(_, "js")))
 
 for test <- tests do
   val name         = test.baseName
@@ -349,7 +357,7 @@ for test <- tests do
         println(s"  SKIP [INT] (${skipReason("int")})")
         true
       else
-        val intOut = intBatch.getOrElse(name, run(ssc("run", "--v1", test.toString)))
+        val intOut = intBatch.getOrElse(name, run(sscTools("run", "--v1", test.toString)))
         check("INT", intOut, expected)
 
     // JS via Node.js
@@ -361,11 +369,11 @@ for test <- tests do
         val jsOut =
           if codegen.contains("v2") then
             // 64-bit v2 JS codegen: `run-js --v2` compiles + runs via node itself.
-            val r = os.proc(sscBin.toString, "run-js", "--v2", test.toString)
+            val r = os.proc(sscToolsBin.toString, "run-js", "--v2", test.toString)
               .call(stdin = "", stderr = os.Pipe, check = false)
             outputWithFailureContext(r.out.text(), r.err.text(), r.exitCode)
           else
-            val jsSource = jsEmitted.getOrElse(name, run(ssc("emit-js", test.toString)))
+            val jsSource = jsEmitted.getOrElse(name, run(sscTools("emit-js", test.toString)))
             val jsRes = os.proc("node").call(stdin = jsSource, stderr = os.Pipe, check = false)
             outputWithFailureContext(jsRes.out.text(), jsRes.err.text(), jsRes.exitCode)
         check("JS ", jsOut, expected)
@@ -393,7 +401,7 @@ for test <- tests do
             os.proc(sscBin.toString, "run", "--bytecode", test.toString)
               .call(stdin = "", stderr = os.Pipe, check = false)
           else
-            os.proc(sscBin.toString, "run-jvm", test.toString)
+            os.proc(sscToolsBin.toString, "run-jvm", test.toString)
               .call(stdin = "", stderr = os.Pipe, check = false, env = jvmEnv)
         val jvmOut = outputWithFailureContext(jvmRes.out.text(), jvmRes.err.text(), jvmRes.exitCode)
         check("JVM", jvmOut, expected)
