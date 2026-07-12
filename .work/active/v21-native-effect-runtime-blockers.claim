@@ -1,6 +1,6 @@
 feature/v21-native-effect-runtime-blockers 2026-07-11T19:21:44Z
 agent: codex
-heartbeat: 2026-07-12T00:38:34Z
+heartbeat: 2026-07-12T01:13:27Z
 status: in-progress
-done-so-far: core-free Async runners are pushed through 1bfb39884; release gate is ready at 42 identical / 24 both-fail / 12 blockers
-next: implement the core-free local/typed-loopback Actors provider, prove both actor examples on VM/ASM/build-jvm, and retire only exact rows
+done-so-far: core-free Actors provider is locally green on VM/ASM/build-jvm; parity is 44 identical / 22 both-fail and taxonomy is 10 blockers / 22 total
+next: finish the post-taxonomy release gate, docs/spec/bookkeeping and fresh v2 conformance, push Actors, then advance to the next real standard blocker
