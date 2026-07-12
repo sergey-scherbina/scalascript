@@ -1528,6 +1528,7 @@ lazy val cli = project
       val standardDir  = libDir / "standard"
       val standardRuntimeDir = standardDir / "jars"
       val providersDir = libDir / "providers"
+      val toolsDir     = libDir / "tools"
       val compilerDir  = libDir / "compiler" / "jars"
       val plugDir      = libDir / "compiler" / "plugins"
       val availableDir = libDir / "compiler" / "plugin-available"
@@ -1535,6 +1536,7 @@ lazy val cli = project
       IO.delete(runtimeDir);  IO.createDirectory(runtimeDir)
       IO.delete(standardDir); IO.createDirectory(standardRuntimeDir)
       IO.delete(providersDir); IO.createDirectory(providersDir)
+      IO.delete(toolsDir); IO.createDirectory(toolsDir)
       IO.delete(compilerDir); IO.createDirectory(compilerDir)
       IO.delete(plugDir);     IO.createDirectory(plugDir)
       IO.delete(availableDir); IO.createDirectory(availableDir)
@@ -1830,6 +1832,21 @@ lazy val cli = project
         .groupBy(_.getName).values.map(_.head).toSeq.sortBy(_.getName)
       swiftProviderFiles.foreach(j => IO.copyFile(j, swiftProviderDir / j.getName))
       log.info(s"bin/lib/providers/swift/jars/ (${swiftProviderFiles.size} JARs)")
+
+      val x402ToolsDir = toolsDir / "x402"
+      val x402ToolsClasses = x402ToolsDir / "classes"
+      val x402ToolsJars = x402ToolsDir / "jars"
+      IO.createDirectory(x402ToolsClasses)
+      IO.createDirectory(x402ToolsJars)
+      val x402ToolsClasspath = (v21X402ToolsRuntime / Compile / fullClasspath).value.files
+      x402ToolsClasspath.filter(_.isDirectory).foreach { dir =>
+        IO.copyDirectory(dir, x402ToolsClasses, overwrite = true)
+      }
+      val x402ToolJarFiles = x402ToolsClasspath
+        .filter(f => f.isFile && f.getName.endsWith(".jar"))
+        .groupBy(_.getName).values.map(_.head).toSeq.sortBy(_.getName)
+      x402ToolJarFiles.foreach(j => IO.copyFile(j, x402ToolsJars / j.getName))
+      log.info(s"bin/lib/tools/x402/ (${x402ToolsClasspath.count(_.isDirectory)} class dirs, ${x402ToolJarFiles.size} JARs)")
 
       // ScalaScript 2.1 native frontend: stage the self-hosted compiler tower
       // and the .ssc standard-library sources it resolves. The installed
@@ -2248,6 +2265,17 @@ lazy val x402Client = project
     ),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
+// Explicit compiler-backed runtime for the x402 example. It is staged under
+// bin/lib/tools and selected only by ssc-tools run-jvm for x402 imports.
+lazy val v21X402ToolsRuntime = project
+  .in(file("v1/tools/x402-runtime"))
+  .dependsOn(x402Client)
+  .settings(
+    name := "scalascript-v21-x402-tools-runtime",
+    libraryDependencies += "com.softwaremill.sttp.client4" %% "core" % "4.0.23",
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
   )
 
 lazy val x402ClientJs = project
@@ -4541,7 +4569,7 @@ lazy val root = project
     x402Core, x402Server, x402Client, x402ClientJs,
     x402FacilitatorCoinbase, x402FacilitatorEvm, x402FacilitatorCardano,
     x402QueueKafka, x402QueuePostgres, x402NoncePostgres, x402NonceRedis,
-    cryptoSpi, cryptoSpiJs, cryptoBouncycastle, cryptoFrost, cryptoFrostJs, cryptoNobleJs, blockchainSpi, blockchainSpiJs, blockchainEvm, blockchainEvmAbi, blockchainEvmAbiJs, blockchainSolana, blockchainCardano, blockchainCardanoJs, blockchainBitcoin, blockchainBitcoinJs, blockchainCosmos, blockchainCosmosJs, walletSpi, walletSpiJs, walletVaultEncrypted, walletVaultEncryptedJs, walletVaultMpc, walletVaultTrezor, walletVaultMpcFireblocks, walletVaultMpcCoinbase, walletVaultMpcLit, walletVaultMpcZengo, walletVaultMpcFrost, walletVaultLedger, walletVaultLedgerJvm, walletVaultLedgerJs, walletVaultLedgerBluetoothJs, walletVaultLedgerEthereum, walletVaultLedgerSolana, walletVaultLedgerBitcoin, walletVaultLedgerCardano, walletStrategyEoa, walletStrategyEoaJs, walletStrategyErc4337, walletStrategyErc4337Js, walletConnectorEip1193, walletConnectorEip1193Js, walletConnect, walletConnectJs, walletConnectorWalletStd, walletConnectorWalletStdJs, mcpWallet, mcpX402,
+    cryptoSpi, cryptoSpiJs, cryptoBouncycastle, cryptoFrost, cryptoFrostJs, cryptoNobleJs, blockchainSpi, blockchainSpiJs, blockchainEvm, blockchainEvmAbi, blockchainEvmAbiJs, blockchainSolana, blockchainCardano, blockchainCardanoJs, blockchainBitcoin, blockchainBitcoinJs, blockchainCosmos, blockchainCosmosJs, walletSpi, walletSpiJs, walletVaultEncrypted, walletVaultEncryptedJs, walletVaultMpc, walletVaultTrezor, walletVaultMpcFireblocks, walletVaultMpcCoinbase, walletVaultMpcLit, walletVaultMpcZengo, walletVaultMpcFrost, walletVaultLedger, walletVaultLedgerJvm, walletVaultLedgerJs, walletVaultLedgerBluetoothJs, walletVaultLedgerEthereum, walletVaultLedgerSolana, walletVaultLedgerBitcoin, walletVaultLedgerCardano, walletStrategyEoa, walletStrategyEoaJs, walletStrategyErc4337, walletStrategyErc4337Js, walletConnectorEip1193, walletConnectorEip1193Js, walletConnect, walletConnectJs, walletConnectorWalletStd, walletConnectorWalletStdJs, mcpWallet, mcpX402, v21X402ToolsRuntime,
     micropaymentSpi, micropaymentThreshold, micropaymentServer, micropaymentClient, micropaymentProbabilistic, micropaymentHashchain, micropaymentChannelEvm, micropaymentHydra,
     frontendCore,
     // Frontend backends — derived from allFrontends registry below (arch-build-registry Phase 4)

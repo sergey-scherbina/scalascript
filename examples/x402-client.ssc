@@ -19,7 +19,7 @@ demo key if unset.
 ```scalascript
 import scalascript.x402.client.{X402Client, Wallets}
 import scalascript.x402.Network
-import scala.concurrent.Await
+import scala.concurrent.{Await, Future as ScalaFuture}
 import scala.concurrent.duration.*
 import scala.concurrent.ExecutionContext.Implicits.global
 
@@ -41,7 +41,7 @@ val backend = (method: String, url: String, headers: Map[String, String], body: 
   val req = basicRequest.headers(headers)
   val resp = if method == "GET" then req.get(uri"$url").send(http)
              else req.post(uri"$url").body(body).send(http)
-  Future.successful(HttpResponse(resp.code.code, Map.empty, resp.body.getOrElse("")))
+  ScalaFuture.successful(HttpResponse(resp.code.code, Map.empty, resp.body.fold(identity, identity)))
 
 val client = X402Client(
   wallet    = wallet,

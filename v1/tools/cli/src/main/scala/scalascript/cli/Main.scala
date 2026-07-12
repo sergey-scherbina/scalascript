@@ -3134,14 +3134,31 @@ final class RunJvmCmd extends CliCommand:
     val source = jarsDir match
       case Some(jars) => patchLocalSscDeps(raw, jars)
       case None       => raw
+    val x402ToolsClasspath =
+      if !source.contains("scalascript.x402.") then None
+      else
+        scalascript.imports.ImportResolver.libPath.flatMap { libRoot =>
+          val lane = libRoot / "bin" / "lib" / "tools" / "x402"
+          val classes = lane / "classes"
+          val jars = lane / "jars"
+          val entries =
+            (if os.exists(classes) then List(classes) else Nil) ++
+            (if os.exists(jars) then os.list(jars).filter(_.ext == "jar").sorted else Nil)
+          Option.when(entries.nonEmpty)(entries.map(_.toString)
+            .mkString(java.io.File.pathSeparator))
+        }
+    if source.contains("scalascript.x402.") && x402ToolsClasspath.isEmpty then
+      System.err.println("run-jvm: x402 tools runtime is not installed; run installBin")
+      System.exit(1)
     val tmp = os.temp(source, suffix = ".sc", deleteOnExit = true)
     try
       // SSC_SCALACLI_SERVER=1 keeps the bloop server (warm compiler): the
       // conformance JVM lane pays a COLD scalac start per case otherwise
       // (specs/conformance-perf.md F3). Default stays serverless.
       val scliArgs =
-        if sys.env.get("SSC_SCALACLI_SERVER").contains("1") then Seq("scala-cli", "run", tmp.toString)
-        else Seq("scala-cli", "run", tmp.toString, "--server=false")
+        (if sys.env.get("SSC_SCALACLI_SERVER").contains("1") then Seq("scala-cli", "run", tmp.toString)
+         else Seq("scala-cli", "run", tmp.toString, "--server=false")) ++
+          x402ToolsClasspath.toSeq.flatMap(cp => Seq("--classpath", cp))
       val sub = os.proc(scliArgs)
         .spawn(stdout = os.Inherit, stderr = os.Inherit)
       // Kill the entire scala-cli process tree on JVM shutdown so the server
