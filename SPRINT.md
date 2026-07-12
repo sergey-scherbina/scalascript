@@ -65,7 +65,7 @@ Chosen approaches (autonomous — non-breaking defaults):
 - [x] **H5 JVM outbound global vars** — base/timeout/retries/delay → `ThreadLocal`. LANDED ef7fd23e7.
 - [ ] **M1 request-body cap** — sane default + streaming counted read on the legacy JDK serve
       path (chunked bypasses the Content-Length pre-check).
-- [ ] **M2 response-body cap** — bounded reader (mirror ureq's 10 MB) on JVM/interp/JS clients.
+- [x] **M2 response-body cap** — JVM+interp ofInputStream+bounded read (10MB, SSC_HTTP_MAX_BODY); Rust already 10MB. LANDED (git). JS worker-reader → follow-up.
 - [x] **M7 secure temp files** — Rust `create_new`+pid/nanos / JS `'wx' 0o600`+randomBytes. LANDED a2b11223b.
       (Bonus 921a5da7c: fixed BorrowedArgIntrinsics so &str fs/path intrinsics compile on Rust — E0308.)
 - [ ] **M10 confined fs variants** — `…Within(root, path)` normalize + `startsWith(root)` +
