@@ -1,0 +1,27 @@
+---
+name: nativeui-standard-lower
+version: 1.0.0
+frontend: swiftui
+bundle-id: com.scalascript.nativeui-standard-lower
+main: run
+---
+
+# Standard NativeUi lower/serve pipeline
+
+[serve](std/ui/primitives.ssc)
+[vstack](std/ui/layout.ssc)
+[text, heading](std/ui/typography.ssc)
+[styled](std/ui/display.ssc)
+[TkNode](std/ui/nodes.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
+
+```scalascript
+def view(): TkNode =
+  vstack(gap = 4)(
+    styled(["paddingX" -> "md"])(text("token spacing")),
+    styled(["paddingX" -> "12"])(heading(2, "numeric spacing"))
+  )
+
+def run(): Unit = serve(lower(view(), defaultTheme), 0)
+```

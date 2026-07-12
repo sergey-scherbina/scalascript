@@ -351,39 +351,20 @@ object SwiftBackend:
     out += '"'
     out.toString
 
-  // A module-level `val` (e.g. std/ui/i18n.ssc's `val localeSignal = signal("locale", "en")`)
-  // does not compile to a `Def` in `program.defs` — it compiles to a runtime
-  // `Prim("global.reg", [Lit(CStr(name)), valueTerm])` call, executed once during the
-  // program's init sequence (visible in `program.entry` as a `Seq` of registrations ahead of
-  // the real entry point). `global.reg` itself is already a supported primitive (the backend
-  // knows how to EXECUTE it), but until now nothing told `validate` that a name registered
-  // this way becomes a legitimate global — every `def`-imported std/ui module works fine
-  // (its functions land in `program.defs`), but every `val`-imported one (localeSignal and
-  // anything else defined as `val x = ...` in an imported module) was rejected as
-  // "unsupported global", even though it's built entirely from already-supported primitives.
-  // Collecting these names statically (same shape as validateTerm's own traversal) closes that
-  // gap for every such val, not just this one.
-  private def collectRegisteredGlobals(term: Term): Set[String] = term match
-    case Term.Lit(_) | Term.Local(_) | Term.Global(_) => Set.empty
-    case Term.Lam(_, body) => collectRegisteredGlobals(body)
-    case Term.App(fn, args) => collectRegisteredGlobals(fn) ++ args.flatMap(collectRegisteredGlobals)
-    case Term.Let(rhs, body) => rhs.flatMap(collectRegisteredGlobals).toSet ++ collectRegisteredGlobals(body)
-    case Term.LetRec(lams, body) => lams.flatMap(collectRegisteredGlobals).toSet ++ collectRegisteredGlobals(body)
-    case Term.If(c, t, e) => collectRegisteredGlobals(c) ++ collectRegisteredGlobals(t) ++ collectRegisteredGlobals(e)
-    case Term.Ctor(_, fields) => fields.flatMap(collectRegisteredGlobals).toSet
-    case Term.Match(scrut, arms, default) =>
-      collectRegisteredGlobals(scrut) ++ arms.flatMap(a => collectRegisteredGlobals(a.body)).toSet ++
-        default.toSet.flatMap(collectRegisteredGlobals)
-    case Term.Prim("global.reg", List(Term.Lit(Const.CStr(name)), value)) =>
-      Set(name) ++ collectRegisteredGlobals(value)
-    case Term.Prim(_, args) => args.flatMap(collectRegisteredGlobals).toSet
-    case Term.While(c, body) => collectRegisteredGlobals(c) ++ collectRegisteredGlobals(body)
-    case Term.Seq(terms) => terms.flatMap(collectRegisteredGlobals).toSet
+  /** Literal globals installed by FrontendBridge's unconditional top-level
+    * initialization continuation. Do not recursively search value expressions,
+    * lambdas, definitions, or control-flow branches: those registrations are
+    * not guaranteed to execute and therefore cannot authorize a Global use. */
+  private def collectEntryRegisteredGlobals(term: Term): Set[String] = term match
+    case Term.Let(_, body) => collectEntryRegisteredGlobals(body)
+    case Term.LetRec(_, body) => collectEntryRegisteredGlobals(body)
+    case Term.Seq(terms) => terms.iterator.flatMap(collectEntryRegisteredGlobals).toSet
+    case Term.Prim("global.reg", List(Term.Lit(Const.CStr(name)), _)) => Set(name)
+    case _ => Set.empty
 
   private def validate(program: Program): Unit =
     val defNames = program.defs.map(_.name).toSet
-    val registeredNames = program.defs.flatMap(d => collectRegisteredGlobals(d.body)).toSet ++
-      collectRegisteredGlobals(program.entry)
+    val registeredNames = collectEntryRegisteredGlobals(program.entry)
     val definitions = defNames ++ registeredNames
     program.defs.foreach(d => validateTerm(d.body, definitions))
     validateTerm(program.entry, definitions)

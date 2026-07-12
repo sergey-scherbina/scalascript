@@ -26,6 +26,7 @@ object FrontendBridge:
       version: Option[String],
       buildVersion: Option[String],
       frontend: Option[String],
+      main: Option[String],
   )
 
   final case class CheckedSource(program: Program, metadata: SourceMetadata)
@@ -778,14 +779,19 @@ object FrontendBridge:
       version = topLevelFrontMatterValue(src, "version"),
       buildVersion = topLevelFrontMatterValue(src, "build-version"),
       frontend = topLevelFrontMatterValue(src, "frontend"),
+      main = topLevelFrontMatterValue(src, "main"),
     )
-    CheckedSource(convertSource(src, fileDir), metadata)
+    CheckedSource(convertSource(src, fileDir, metadata.main), metadata)
 
   /** Parse a source string and convert to Core IR Program.
    *  Supports script mode: bare expressions at the top level are wrapped in a block.
    *  Handles .ssc file format: optional shebang + YAML front matter + markdown prose +
    *  ```scalascript...``` fence; if no fence, uses the whole source. */
-  def convertSource(src0: String, fileDir: Option[java.io.File] = None): Program =
+  def convertSource(
+      src0: String,
+      fileDir: Option[java.io.File] = None,
+      manifestMain: Option[String] = None,
+  ): Program =
     // Quoted-macro expansion pre-pass (v1 MacroCodegen) — the bridge has no
     // conversion for splice syntax, so expand call sites in the TEXT first.
     val src = if System.getenv("SSC_NO_MACRO_PREPASS") != null then src0 else PluginBridge.expandMacrosInSource(src0, fileDir)
@@ -853,7 +859,7 @@ object FrontendBridge:
     val processed = desugarListLiterals(
       stripExternDecls(preprocessAtAnnotations(preprocessRemoteDefs(merged))))
     val stats = parseStats(processed)
-    val program = convertStats(stats)
+    val program = convertStats(stats, manifestMain)
     val sourceRefs = nativeUiDefinitionSources(stats, processed)
     ssc.NativeUiSites.annotate(program, ssc.NativeUiSites.Config(
       eligibleSymbols = resolvedImports.nativeUiSymbols,
@@ -1455,7 +1461,7 @@ object FrontendBridge:
    *  safe default ON for standalone convertStats/convertTrees callers). */
   private var opAnfNeeded: Boolean = true
 
-  def convertStats(stats: List[Stat]): Program =
+  def convertStats(stats: List[Stat], manifestMain: Option[String] = None): Program =
     registerTypes(stats)  // first pass: populate field registry
 
     // Pre-pass: top-level vars referenced inside any top-level def body become
@@ -1683,13 +1689,25 @@ object FrontendBridge:
     }
     flushExtensions(defsB)  // emit per-name (possibly tag-dispatching) extension globals
     val defs  = stdDefs ++ defsB.result() ++ derivedDefs ++ generalDerivedDefs
-    // A user `def main()` is the program entry — call it AFTER any top-level statements (v1 semantics).
-    // Appending the call (rather than an either/or) fixes programs where a def with default params (case
-    // class / enum-case defaults) makes entryStmts non-empty, which previously skipped calling main()
-    // entirely — the program then ran nothing at all.
-    val mainCall: List[Stat] =
-      if userDefNames.contains("main") then List(Term.Apply.After_4_6_0(Term.Name("main"), Term.ArgClause(Nil)))
-      else Nil
+    // A manifest `main:` is authoritative. It replaces the compatibility
+    // auto-call of a literal `def main()` and is validated while the checked
+    // source definitions are still available, before any target emits output.
+    // With no manifest entry, retain the existing v1-compatible auto-main.
+    val selectedMain: Option[String] = manifestMain match
+      case Some(name) =>
+        if !name.matches("[A-Za-z_][A-Za-z0-9_]*") then
+          throw new IllegalArgumentException(s"checked source: invalid manifest main entry '$name'")
+        val body = defs.find(_.name == name).map(_.body).getOrElse(
+          throw new IllegalArgumentException(s"checked source: manifest main entry '$name' is not defined"))
+        body match
+          case CT.Lam(0, _) => Some(name)
+          case _ =>
+            throw new IllegalArgumentException(
+              s"checked source: manifest main entry '$name' must be a zero-argument function")
+      case None => Option.when(userDefNames.contains("main"))("main")
+    // Call the selected entry AFTER all top-level/module initialization.
+    val mainCall: List[Stat] = selectedMain.toList.map(name =>
+      Term.Apply.After_4_6_0(Term.Name(name), Term.ArgClause(Nil)))
     val entryStmts = entryB.result() ++ mainCall
     def optStr(value: Option[String]): CT =
       value match

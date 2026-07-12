@@ -8,7 +8,7 @@ private final class NativeUiSignalCell {
     let id: String
     let scope: String
     let kind: String
-    let declaredDefault: SscValue
+    var declaredDefault: SscValue
     let writable: Bool
     let targetWritable: Bool
     var metadataSignature: SscValue
@@ -30,10 +30,11 @@ private final class NativeUiSignalCell {
     }
 
     func snapshot() -> NativeUiSignalState {
-        NativeUiSignalState(current: current, dirty: dirty, metadataSignature: metadataSignature, dynamicRead: dynamicRead, afterWrite: afterWrite)
+        NativeUiSignalState(declaredDefault: declaredDefault, current: current, dirty: dirty, metadataSignature: metadataSignature, dynamicRead: dynamicRead, afterWrite: afterWrite)
     }
 
     func restore(_ state: NativeUiSignalState) {
+        declaredDefault = state.declaredDefault
         current = state.current
         dirty = state.dirty
         metadataSignature = state.metadataSignature
@@ -43,6 +44,7 @@ private final class NativeUiSignalCell {
 }
 
 private struct NativeUiSignalState {
+    let declaredDefault: SscValue
     let current: SscValue
     let dirty: Bool
     let metadataSignature: SscValue
@@ -404,25 +406,31 @@ final class NativeUiHost: SscRuntimeExtension {
             try nativeUiRequire(args.count == 1, "computedSignal(callback)")
             let compute = try nativeUiClosure(args[0], "computedSignal callback")
             let initial = try self!.call(compute, [])
+            let slot = self!.anonymousSignalSlot(kind: "computed", siteId: siteId)
             let signal = try self!.makeSignal(
-                id: "__computed__\(siteId)", kind: "computed", declaredDefault: initial,
-                metadata: try nativeUiData("NativeUiSignalMetaComputed", [.closure(compute)]), writable: false)
+                id: slot.id, kind: "computed", declaredDefault: initial,
+                metadata: try nativeUiData("NativeUiSignalMetaComputed", [.closure(compute)]),
+                writable: false, scopeOverride: slot.scope, refreshDerived: true)
             let fields = try nativeUiSignalFields(signal, "computedSignal")
             let key = self!.signalKey(scope: try nativeUiString(fields[1], "computed scope"), id: try nativeUiString(fields[0], "computed id"))
             self!.signals[key]!.dynamicRead = { [weak self] in try self!.call(compute, []) }
+            self!.currentSiteOccurrences[slot.counterKey] = slot.occurrence + 1
             return signal
         }
         site("eqSignal") { [weak self] siteId, _, args in
             try nativeUiRequire(args.count == 2, "eqSignal(signal, value)")
             _ = try nativeUiSignalFields(args[0], "eqSignal source")
             let source = args[0], expected = args[1]
+            let slot = self!.anonymousSignalSlot(kind: "equality", siteId: siteId)
             let signal = try self!.makeSignal(
-                id: "__equality__\(siteId)", kind: "equality",
+                id: slot.id, kind: "equality",
                 declaredDefault: .bool(nativeUiEqual(try self!.readSignal(source, "eqSignal"), expected)),
-                metadata: try nativeUiData("NativeUiSignalMetaEquality", [source, expected]), writable: false)
+                metadata: try nativeUiData("NativeUiSignalMetaEquality", [source, expected]),
+                writable: false, scopeOverride: slot.scope, refreshDerived: true)
             let fields = try nativeUiSignalFields(signal, "eqSignal")
             let key = self!.signalKey(scope: try nativeUiString(fields[1], "equality scope"), id: try nativeUiString(fields[0], "equality id"))
             self!.signals[key]!.dynamicRead = { [weak self] in .bool(nativeUiEqual(try self!.readSignal(source, "eqSignal"), expected)) }
+            self!.currentSiteOccurrences[slot.counterKey] = slot.occurrence + 1
             return signal
         }
         native("hashSignal") { [weak self] args in
@@ -477,8 +485,9 @@ final class NativeUiHost: SscRuntimeExtension {
         site("element") { siteId, source, args in
             try nativeUiRequire(args.count == 4, "element(tag, attrs, events, children)")
             let tag = try nativeUiString(args[0], "element tag")
-            let attrs = try nativeUiStringMap(args[1], "NativeUiElement.attrs")
-            let events = try nativeUiStringMap(args[2], "NativeUiElement.events")
+            let sourceLabel = nativeUiSourceLabel(source)
+            let attrs = try nativeUiStringMap(args[1], "NativeUiElement.attrs at \(sourceLabel)")
+            let events = try nativeUiStringMap(args[2], "NativeUiElement.events at \(sourceLabel)")
             let children = args[3]
             _ = try nativeUiList(children, "element children")
             try nativeUiEnsurePortable(children, "NativeUiElement.children")
@@ -777,7 +786,18 @@ final class NativeUiHost: SscRuntimeExtension {
 
     private func signalKey(scope: String, id: String) -> String { "\(scope)\u{0}\(id)" }
 
-    private func makeSignal(id: String, kind: String, declaredDefault: SscValue, metadata: SscValue, writable: Bool = true, targetWritable: Bool = false, scopeOverride: String? = nil) throws -> SscValue {
+    private func anonymousSignalSlot(kind: String, siteId: String) ->
+        (id: String, scope: String, counterKey: String, occurrence: Int) {
+        let counterKey = "anonymous:\(kind)\u{0}\(currentOwnerPath)\u{0}\(siteId)"
+        let occurrence = currentSiteOccurrences[counterKey, default: 0]
+        let id = "__\(kind)__\(siteId.utf8.count):\(siteId):\(occurrence)"
+        let scope = currentOwnerPath == "root"
+            ? "root"
+            : "__anonymous__\(currentOwnerPath.utf8.count):\(currentOwnerPath)"
+        return (id, scope, counterKey, occurrence)
+    }
+
+    private func makeSignal(id: String, kind: String, declaredDefault: SscValue, metadata: SscValue, writable: Bool = true, targetWritable: Bool = false, scopeOverride: String? = nil, refreshDerived: Bool = false) throws -> SscValue {
         try nativeUiEnsurePortable(declaredDefault, "NativeUiSignal[\(id)].default")
         try nativeUiEnsurePortable(metadata, "NativeUiSignal[\(id)].metadata")
         let scope = scopeOverride ?? scopes.last!, key = signalKey(scope: scope, id: id)
@@ -785,8 +805,13 @@ final class NativeUiHost: SscRuntimeExtension {
         let cell: NativeUiSignalCell
         var metadataChanged = false
         if let existing = signals[key] {
-            guard existing.kind == kind && existing.writable == writable && existing.targetWritable == targetWritable && nativeUiEqual(existing.declaredDefault, declaredDefault) else {
+            guard existing.kind == kind && existing.writable == writable && existing.targetWritable == targetWritable &&
+                    (refreshDerived || nativeUiEqual(existing.declaredDefault, declaredDefault)) else {
                 throw SscRuntimeFailure(description: "duplicate native UI signal '\(id)' in scope '\(scope)' has conflicting kind/default")
+            }
+            if refreshDerived {
+                existing.declaredDefault = declaredDefault
+                if !existing.dirty { existing.current = declaredDefault }
             }
             metadataChanged = !nativeUiEqual(existing.metadataSignature, metadataSignature)
             existing.metadataSignature = metadataSignature
@@ -1297,6 +1322,15 @@ private func nativeUiSource(_ operation: String) throws -> SscValue {
     try nativeUiData("NativeUiSourceRef", [.string("<entry>"), .int(0), .int(0), .string(operation)])
 }
 
+private func nativeUiSourceLabel(_ source: SscValue) -> String {
+    guard case let .data("NativeUiSourceRef", fields) = source, fields.count == 4,
+          case let .string(file) = fields[0], case let .int(line) = fields[1],
+          case let .int(column) = fields[2], case let .string(operation) = fields[3] else {
+        return "<unknown>:0:0 [unknown]"
+    }
+    return "\(file):\(line):\(column) [\(operation)]"
+}
+
 private func nativeUiMap(_ entries: (String, SscValue)...) -> SscValue {
     let result = SscMap()
     for (key, value) in entries { result.put(.string(key), value) }
@@ -1304,10 +1338,38 @@ private func nativeUiMap(_ entries: (String, SscValue)...) -> SscValue {
 }
 
 private func nativeUiStringMap(_ value: SscValue, _ path: String) throws -> SscMap {
-    guard case let .map(result) = value else { throw SscRuntimeFailure(description: "\(path) expected Map[String, Value]") }
-    for (key, item) in result.entries {
-        guard case .string = key else { throw SscRuntimeFailure(description: "\(path) requires String keys") }
-        try nativeUiEnsurePortable(item, path)
+    let result = SscMap()
+    func append(_ key: SscValue, _ item: SscValue, _ entryPath: String) throws {
+        guard case .string = key else {
+            throw SscRuntimeFailure(description: "\(entryPath) requires a String key")
+        }
+        try nativeUiEnsurePortable(item, "\(entryPath).value")
+        result.put(key, item)
+    }
+    switch value {
+    case let .map(source):
+        for (index, entry) in source.entries.enumerated() {
+            try append(entry.0, entry.1, "\(path)[\(index)]")
+        }
+    case .data("Cons", _), .data("Nil", _):
+        var current = value, index = 0
+        while true {
+            switch current {
+            case let .data("Cons", fields) where fields.count == 2:
+                guard case let .data("Tuple2", tuple) = fields[0], tuple.count == 2 else {
+                    throw SscRuntimeFailure(description: "\(path)[\(index)] expected Tuple2(String, Value)")
+                }
+                try append(tuple[0], tuple[1], "\(path)[\(index)]")
+                current = fields[1]
+                index += 1
+            case let .data("Nil", fields) where fields.isEmpty:
+                return result
+            default:
+                throw SscRuntimeFailure(description: "\(path) expected a proper List[Tuple2(String, Value)]")
+            }
+        }
+    default:
+        throw SscRuntimeFailure(description: "\(path) expected Map[String, Value] or List[Tuple2(String, Value)]")
     }
     return result
 }

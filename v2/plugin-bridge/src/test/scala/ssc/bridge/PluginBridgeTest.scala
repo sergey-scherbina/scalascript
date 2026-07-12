@@ -233,6 +233,27 @@ class PluginBridgeTest extends AnyFunSuite:
       V2PluginRegistry.restore(snap)
       Show.foreignRenderer = oldRenderer
 
+  test("__try__ catches exact throws and normalized String.toInt failures"):
+    val snap = V2PluginRegistry.snapshot()
+    try
+      PluginBridge.loadAll()
+      val attempt = V2PluginRegistry.lookup("__try__").getOrElse(fail("missing __try__"))
+      val handler = V2Value.ClosV(Runtime.emptyEnv, 1, env => ssc.Done(env.last))
+      def thunk(body: => V2Value): V2Value.ClosV =
+        V2Value.ClosV(Runtime.emptyEnv, 0, _ => ssc.Done(body))
+      def toInt(text: String): V2Value =
+        ssc.Prims.resolve("__method__")(List(V2Value.StrV("toInt"), V2Value.StrV(text)))
+
+      val boom = V2Value.DataV("Boom", Vector(V2Value.IntV(7)))
+      val thrown = V2Value.ClosV(Runtime.emptyEnv, 0, _ => throw BridgeThrow(boom))
+      assert(attempt(List(thrown, handler)) == boom)
+      assert(attempt(List(thunk(toInt("bad")), handler)) ==
+        V2Value.StrV("String.toInt: invalid integer"))
+      assert(attempt(List(thunk(toInt("\t 12 \r")), handler)) == V2Value.IntV(12))
+      assert(attempt(List(thunk(toInt("\u00a012\u00a0")), handler)) ==
+        V2Value.StrV("String.toInt: invalid integer"))
+    finally V2PluginRegistry.restore(snap)
+
   // ── loadBackend: wire a stub backend through the registry ───────────────
 
   test("loadBackend: NativeImpl registered and callable via V2PluginRegistry"):

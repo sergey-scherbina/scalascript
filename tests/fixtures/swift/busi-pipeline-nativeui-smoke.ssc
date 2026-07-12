@@ -1,0 +1,145 @@
+---
+name: busi-pipeline-nativeui-smoke
+version: 1.0.0
+description: >
+  Production-shaped Swift NativeUi regression copied from busi's pipeline view.
+frontend: swiftui
+bundle-id: com.example.busi-pipeline-smoke
+main: run
+---
+
+# busi pipeline — native Swift/SwiftUI real-world smoke
+
+[signal, computedSignal, eqSignal, onBumpTick, onSetSignal, fetchActionWith](std/ui/primitives.ssc)
+[localeSignal, localeText, localeHeading](std/ui/i18n.ssc)
+[translateIn](std/i18n.ssc)
+[JsonValue, jsonValue](std/json.ssc)
+[vstack, hstack](std/ui/layout.ssc)
+[text](std/ui/typography.ssc)
+[signalActionButton, signalLabelButton, textFieldR](std/ui/input.ssc)
+[signalText_, showWhen, forKeyed](std/ui/reactive.ssc)
+[cardWithHeader](std/ui/containers.ssc)
+[TkNode](std/ui/nodes.ssc)
+[lower](std/ui/lower.ssc)
+[Theme, defaultTheme](std/ui/theme.ssc)
+
+```scalascript
+val cat = Map(
+  "en" -> Map(
+    "pipeline" -> "Pipeline", "findWork" -> "Find work", "inWork" -> "In progress", "closedSec" -> "Closed",
+    "take" -> "Take →", "proposeBtn" -> "Propose →", "winBtn" -> "Won", "loseBtn" -> "Lost",
+    "sendProp" -> "Send", "cancelProp" -> "cancel",
+    "proposalAmt" -> "Proposal amount, zł", "proposalTerms" -> "Terms (NET-14…)",
+    "stageOpen" -> "lead", "stageProposed" -> "proposed", "stageWon" -> "won", "stageLost" -> "lost"
+  ),
+  "ru" -> Map(
+    "pipeline" -> "Воронка", "findWork" -> "🔎 Найти работу", "inWork" -> "В работе", "closedSec" -> "Закрытые",
+    "take" -> "Взять →", "proposeBtn" -> "Предложение →", "winBtn" -> "Выиграли", "loseBtn" -> "Проиграли",
+    "sendProp" -> "Отправить", "cancelProp" -> "отмена",
+    "proposalAmt" -> "Сумма предложения, zł", "proposalTerms" -> "Условия (NET-14…)",
+    "stageOpen" -> "лид", "stageProposed" -> "предложение", "stageWon" -> "выиграно", "stageLost" -> "проиграно"
+  )
+)
+def tt(key: String, base: String): Any = key
+def valMsg(key: String, base: String): String = translateIn(cat, localeSignal(), key, base)
+
+def stageLabel(stage: String): String =
+  if stage == "open" then valMsg("stageOpen", "лид")
+  else if stage == "proposed" then valMsg("stageProposed", "предложение")
+  else if stage == "won" then valMsg("stageWon", "выиграно")
+  else if stage == "lost" then valMsg("stageLost", "проиграно")
+  else stage
+
+val refresh = signal("refresh", 0)
+val pipelineHdrs = signal("pipelineHdrs", "{\"Content-Type\":\"application/x-www-form-urlencoded\"}")
+
+val gigsList = signal("gigsList", jsonValue(
+  "{\"items\":[" +
+  "{\"id\":\"g1\",\"title\":\"WordPress fix\",\"score\":\"85\",\"budget\":\"400\",\"effortHours\":\"5\",\"deadline\":\"2026-07-15\",\"scope\":\"remote\",\"source\":\"useme\"}," +
+  "{\"id\":\"g2\",\"title\":\"Landing page\",\"score\":\"120\",\"budget\":\"1200\",\"effortHours\":\"10\",\"deadline\":\"2026-07-20\",\"scope\":\"remote\",\"source\":\"useme\"}" +
+  "]}").get("items").asList)
+
+val activeOpps = signal("activeOpps", jsonValue(
+  "{\"opportunities\":[" +
+  "{\"id\":\"o1\",\"stage\":\"open\",\"client\":\"Szykownia\",\"summary\":\"Alterations batch\",\"value\":{\"amount\":\"800\",\"currency\":\"PLN\"}}," +
+  "{\"id\":\"o2\",\"stage\":\"proposed\",\"client\":\"IT Consulting\",\"summary\":\"Backend audit\",\"value\":{\"amount\":\"3000\",\"currency\":\"PLN\"}}" +
+  "]}").get("opportunities").asList)
+
+val closedOpps = signal("closedOpps", jsonValue(
+  "{\"opportunities\":[" +
+  "{\"id\":\"o3\",\"stage\":\"won\",\"client\":\"Atelier Klein\",\"value\":{\"amount\":\"2200\",\"currency\":\"PLN\"}}," +
+  "{\"id\":\"o4\",\"stage\":\"lost\",\"client\":\"Fast Fashion Co\",\"value\":{\"amount\":\"500\",\"currency\":\"PLN\"}}" +
+  "]}").get("opportunities").asList)
+
+def gigRow(g: JsonValue): TkNode = {
+  val id = g.get("id").asString
+  val takeBody = signal("gigTake-" + id, "id=" + id)
+  hstack(gap = 8)(
+    vstack(gap = 2)(
+      text(g.get("title").asString + " · ~" + g.get("score").asString + " zł/h"),
+      text("zł" + g.get("budget").asString + " · " + g.get("effortHours").asString + "h · " +
+           g.get("deadline").asString + " · " + g.get("scope").asString + " · " + g.get("source").asString)
+    ),
+    signalActionButton(fetchActionWith("POST", "/api/gigs/take", takeBody, [onBumpTick(refresh)], pipelineHdrs),
+                       tt("take", "Взять →"))
+  )
+}
+
+def oppRow(o: JsonValue): TkNode = {
+  val id = o.get("id").asString
+  val client = o.get("client").asString
+  val summary = o.get("summary").asString
+  val stage = o.get("stage").asString
+  val valAmt = o.get("value").get("amount").asString
+  val valCur = o.get("value").get("currency").asString
+  val stageNow = signal("oppStage-" + id, stage)
+  val stageLine = computedSignal(() =>
+    (if summary == "" then "—" else summary) + " · " + valCur + " " + valAmt + " · " + stageLabel(stageNow()))
+  val propOpen = signal("propOpen-" + id, false)
+  val propAmt = signal("propAmt-" + id, valAmt)
+  val propTerms = signal("propTerms-" + id, "")
+  val propBody = computedSignal(() => "id=" + id + "&amount=" + propAmt() + "&terms=" + propTerms())
+  val winBody = signal("winBody-" + id, "id=" + id)
+  val loseBody = signal("loseBody-" + id, "id=" + id + "&reason=")
+  vstack(gap = 4)(
+    text(client),
+    signalText_(stageLine),
+    showWhen(propOpen,
+      vstack(gap = 4)(
+        textFieldR(propAmt, tt("proposalAmt", "Сумма предложения, zł"), false, false),
+        textFieldR(propTerms, tt("proposalTerms", "Условия (NET-14…)"), false, false),
+        hstack(gap = 8)(
+          signalActionButton(fetchActionWith("POST", "/api/opportunity/proposal", propBody,
+                                              [onSetSignal(stageNow, "proposed"), onBumpTick(refresh), onSetSignal(propOpen, false)], pipelineHdrs),
+                             tt("sendProp", "Отправить")),
+          signalLabelButton(propOpen, false, tt("cancelProp", "отмена")))),
+      hstack(gap = 8)(
+        signalLabelButton(propOpen, true, tt("proposeBtn", "Предложение →")),
+        signalActionButton(fetchActionWith("POST", "/api/opportunity/won", winBody,
+                                           [onSetSignal(stageNow, "won"), onBumpTick(refresh)], pipelineHdrs),
+                           tt("winBtn", "Выиграли")),
+        signalActionButton(fetchActionWith("POST", "/api/opportunity/lost", loseBody,
+                                           [onSetSignal(stageNow, "lost"), onBumpTick(refresh)], pipelineHdrs),
+                           tt("loseBtn", "Проиграли"))))
+  )
+}
+
+def closedRow(o: JsonValue): TkNode =
+  vstack(gap = 2)(
+    text(o.get("client").asString),
+    text(o.get("value").get("currency").asString + " " + o.get("value").get("amount").asString +
+         " · " + stageLabel(o.get("stage").asString))
+  )
+
+def view(): TkNode =
+  cardWithHeader(localeHeading(2, cat, "pipeline", "Pipeline"))(
+    localeText(cat, "findWork", "🔎 Find work"),
+    forKeyed(gigsList, (g: JsonValue) => g.get("id").asString)((g: JsonValue) => gigRow(g)),
+    localeText(cat, "inWork", "In progress"),
+    forKeyed(activeOpps, (o: JsonValue) => o.get("id").asString + ":" + o.get("stage").asString)((o: JsonValue) => oppRow(o)),
+    localeText(cat, "closedSec", "Closed"),
+    forKeyed(closedOpps, (o: JsonValue) => o.get("id").asString + ":" + o.get("stage").asString)((o: JsonValue) => closedRow(o))
+  )
+
+def run(): Unit = serve(lower(view(), defaultTheme), 0)
+```

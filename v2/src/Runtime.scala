@@ -13,6 +13,10 @@ sealed trait Step
 final case class Done(v: Value)                       extends Step  // a finished value
 final case class Call(clos: Value.ClosV, args: Array[Value]) extends Step  // a tail call to bounce
 
+/** A language/runtime failure that `__try__` may recover from. Unexpected host
+  * exceptions remain outside this category and must reach the program boundary. */
+final class RecoverableError(message: String) extends RuntimeException(message)
+
 sealed trait Value
 object Value:
   case object UnitV                                    extends Value
@@ -2356,7 +2360,10 @@ object Prims:
         // v1 parity: String.toInt is PLAIN (throws on junk) — the FLC fast path
         // already returned a bare Long, so Option-wrapping here made the same
         // program behave differently depending on which path compiled it.
-        case (StrV(s), "toInt", Nil)         => IntV(s.trim.toLong)
+        case (StrV(s), "toInt", Nil)         =>
+          try IntV(s.trim.toLong)
+          catch case _: NumberFormatException =>
+            throw new RecoverableError("String.toInt: invalid integer")
         case (StrV(s), "toIntOption", Nil)   => s.toLongOption.fold(none)(n => some(IntV(n)))
         // v1 semantics: .toDouble is the RAW conversion (throws on junk) —
         // the Option-returning variant is .toDoubleOption, mirroring .toInt.

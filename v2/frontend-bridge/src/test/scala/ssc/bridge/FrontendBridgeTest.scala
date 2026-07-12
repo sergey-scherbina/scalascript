@@ -114,6 +114,47 @@ class FrontendBridgeTest extends AnyFunSuite:
     Console.withOut(out)(run(src))
     out.toString.trim
 
+  private def captureChecked(src: String): String =
+    ensureBridgeRuntime()
+    FrontendBridge.resetState()
+    val checked = FrontendBridge.convertSourceWithMetadata(src)
+    val out = new java.io.ByteArrayOutputStream
+    Console.withOut(out)(Runtime.run(Compiler.compile(checked.program), Array.empty[Value]))
+    out.toString("UTF-8").stripTrailing()
+
+  test("checked manifest main is authoritative and validated before generation") {
+    val both =
+      """---
+        |main: run
+        |---
+        |```scalascript
+        |println("init")
+        |def main(): Unit = println("implicit-main")
+        |def run(): Unit = println("selected-run")
+        |```
+        |""".stripMargin
+    assert(captureChecked(both) == "init\nselected-run")
+
+    val literalMain = both.replace("main: run", "main: main")
+    assert(captureChecked(literalMain) == "init\nimplicit-main")
+
+    val absent = both.replace("main: run\n", "")
+    assert(captureChecked(absent) == "init\nimplicit-main")
+
+    val invalid = intercept[IllegalArgumentException](
+      FrontendBridge.convertSourceWithMetadata(both.replace("main: run", "main: run-me")))
+    assert(invalid.getMessage == "checked source: invalid manifest main entry 'run-me'")
+
+    val missing = intercept[IllegalArgumentException](
+      FrontendBridge.convertSourceWithMetadata(both.replace("main: run", "main: missing")))
+    assert(missing.getMessage == "checked source: manifest main entry 'missing' is not defined")
+
+    val nonzero = intercept[IllegalArgumentException](FrontendBridge.convertSourceWithMetadata(
+      both.replace("def run(): Unit", "def run(value: Int): Unit")))
+    assert(nonzero.getMessage ==
+      "checked source: manifest main entry 'run' must be a zero-argument function")
+  }
+
   def captureFromRepo(src: String): String =
     ensureBridgeRuntime()
     val out = new java.io.ByteArrayOutputStream

@@ -2170,6 +2170,8 @@ object PluginBridge:
         try callClosure(thunk, Nil)
         catch
           case BridgeThrow(v) => callClosure(handler, List(v))
+          case e: ssc.RecoverableError =>
+            callClosure(handler, List(StrV(e.getMessage)))
           case e: scalascript.interpreter.InterpretError =>
             callClosure(handler, List(StrV(e.getMessage)))
       case _ => sys.error("__try__(thunk, handler)"))

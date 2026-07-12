@@ -161,6 +161,69 @@ final class SwiftBackendTest extends AnyFunSuite:
     val primitiveError = intercept[IllegalArgumentException](SwiftBackend.generate(badPrimitive))
     assert(primitiveError.getMessage == "swift backend: unsupported primitive 'host.secret'")
 
+  test("Swift validation authorizes only unconditional entry-spine registrations"):
+    val registered = Program(Nil,
+      Term.Let(List(str("en")), Term.Seq(List(
+        Term.Prim("global.reg", List(str("localeSignal"), Term.Local(0))),
+        Term.Global("localeSignal"),
+      ))))
+    assert(SwiftBackend.generate(registered).files.nonEmpty)
+
+    val hiddenInValue = Program(Nil, Term.Seq(List(
+      Term.Prim("global.reg", List(str("outer"),
+        Term.Prim("global.reg", List(str("ghost"), str("value"))))),
+      Term.Global("ghost"),
+    )))
+    val hiddenError = intercept[IllegalArgumentException](SwiftBackend.generate(hiddenInValue))
+    assert(hiddenError.getMessage == "swift backend: unsupported global 'ghost'")
+
+    val hiddenInDef = Program(
+      List(ssc.Def("never", Term.Lam(0,
+        Term.Prim("global.reg", List(str("ghost"), str("value")))))),
+      Term.Global("ghost"),
+    )
+    assert(intercept[IllegalArgumentException](SwiftBackend.generate(hiddenInDef)).getMessage ==
+      "swift backend: unsupported global 'ghost'")
+
+    val hiddenInBranch = Program(Nil, Term.Seq(List(
+      Term.If(Term.Lit(Const.CBool(false)),
+        Term.Prim("global.reg", List(str("ghost"), str("value"))),
+        Term.Lit(Const.CUnit)),
+      Term.Global("ghost"),
+    )))
+    assert(intercept[IllegalArgumentException](SwiftBackend.generate(hiddenInBranch)).getMessage ==
+      "swift backend: unsupported global 'ghost'")
+
+  test("real Swift try preserves values conversions and nested handler failures"):
+    assume(swiftAvailable, "Swift toolchain is not available")
+    def method(name: String, receiver: Term): Term =
+      Term.Prim("__method__", List(str(name), receiver))
+    def integer(value: Long): Term = Term.Lit(Const.CInt(value))
+    def attempt(body: Term, handler: Term): Term =
+      Term.Prim("__try__", List(Term.Lam(0, body), Term.Lam(1, handler)))
+    def raise(value: Term): Term = Term.App(Term.Global("__throw__"), List(value))
+
+    val boom = Term.Ctor("Boom", List(integer(7)))
+    val nestedRethrow = attempt(
+      attempt(raise(boom), raise(Term.Ctor("Again", List(Term.Local(0))))),
+      Term.Local(0),
+    )
+    val nestedRuntime = attempt(
+      attempt(raise(boom), method("toInt", str("bad"))),
+      Term.Local(0),
+    )
+    val result = Term.Ctor("Tuple7", List(
+      attempt(integer(7), str("handler-ran")),
+      attempt(raise(boom), Term.Local(0)),
+      attempt(method("toInt", str("md")), Term.Local(0)),
+      attempt(method("toInt", str("\t 12 \r")), str("handler-ran")),
+      attempt(method("toInt", str("\u00a012\u00a0")), Term.Local(0)),
+      nestedRethrow,
+      nestedRuntime,
+    ))
+    assert(runSwift("tryParity", Program(Nil, result)) ==
+      "(7, Boom(7), \"String.toInt: invalid integer\", 12, \"String.toInt: invalid integer\", Again(Boom(7)), \"String.toInt: invalid integer\")")
+
   test("domain definitions named like UI globals do not switch package mode"):
     assume(swiftAvailable, "Swift toolchain is not available")
     val identity = ssc.Def("signal", Term.Lam(1, Term.Local(0)))
@@ -707,6 +770,72 @@ final class SwiftBackendTest extends AnyFunSuite:
     ).trim
     assert(runSwift("money", program) == expected)
 
+  test("checked self-hosted JSON cutover runs through FrontendBridge and real Swift"):
+    assume(swiftAvailable, "Swift toolchain is not available")
+    val fixtureRoot = repoRoot.resolve("tests/fixtures/v21-native")
+    val source = fixtureRoot.resolve("json-cutover.ssc")
+    FrontendBridge.resetState()
+    PluginBridge.loadAll()
+    val program = FrontendBridge.convertSource(
+      Files.readString(source, StandardCharsets.UTF_8),
+      Some(source.getParent.toFile),
+    )
+    val expected = Files.readString(
+      fixtureRoot.resolve("json-cutover.expected"), StandardCharsets.UTF_8).trim
+    assert(runSwift("checkedJsonCutover", program) == expected)
+
+    val invalid = fixtureRoot.resolve("json-cutover-invalid.ssc")
+    FrontendBridge.resetState()
+    PluginBridge.loadAll()
+    val invalidProgram = FrontendBridge.convertSource(
+      Files.readString(invalid, StandardCharsets.UTF_8),
+      Some(invalid.getParent.toFile),
+    )
+    val failed = runSwiftResult("checkedJsonInvalid", invalidProgram)
+    assert(failed.exit != 0)
+    assert(failed.stderr.contains("invalid JSON"), failed.stderr)
+
+  test("real Swift JSON facade covers fallback Unicode numbers keys and bounded failures"):
+    assume(swiftAvailable, "Swift toolchain is not available")
+    def app(name: String, args: Term*): Term = Term.App(Term.Global(name), args.toList)
+    def method(name: String, receiver: Term, args: Term*): Term =
+      Term.Prim("__method__", str(name) :: receiver :: args.toList)
+    def attempt(body: Term): Term =
+      Term.Prim("__try__", List(Term.Lam(0, body), Term.Lam(1, Term.Local(0))))
+    def codeUnits(text: String): Term = list(text.toList.map(ch => Term.Lit(Const.CInt(ch.toLong))))
+    def jsonString(text: String): Term = Term.Ctor("JsonCoreString", List(codeUnits(text)))
+    def jsonNumber(text: String): Term = Term.Ctor("JsonCoreNumber", List(str(text)))
+    def wrap(core: Term): Term = app("__jsonCoreWrap", core)
+
+    val fallbackRaw = method("raw", wrap(jsonString("A😀")))
+    val mapRaw = Term.Let(List(Term.Prim("map.new", Nil)), Term.Seq(List(
+      Term.Prim("map.put", List(Term.Local(0), Term.Lit(Const.CBool(true)), str("b"))),
+      Term.Prim("map.put", List(Term.Local(0), Term.Lit(Const.CInt(1)), str("i"))),
+      method("raw", wrap(app("__jsonCoreEncodeValue", Term.Local(0)))),
+    )))
+    val badSurrogate = Term.Ctor("JsonCoreString", List(list(List(Term.Lit(Const.CInt(0xd83d))))))
+    val body = Term.Let(List(fallbackRaw, mapRaw), Term.Seq(List(
+      app("__jsonCoreInstallRenderer", Term.Lam(1, str("SELF"))),
+      Term.Ctor("Tuple8", List(
+        Term.Local(1),
+        Term.Local(0),
+        method("optInt", wrap(jsonNumber("18446744073709551617"))),
+        method("optInt", wrap(jsonNumber("1.0"))),
+        method("optInt", wrap(jsonString("1e3"))),
+        method("raw", wrap(jsonNumber("7"))),
+        attempt(wrap(badSurrogate)),
+        attempt(app("__jsonCoreEncodeValue", Term.Lit(Const.CFloat(Double.NaN)))),
+      )),
+    )))
+    val output = runSwift("jsonFacadeEdges", Program(Nil, body))
+    assert(output.contains("\\\\ud83d\\\\ude00"), output)
+    assert(!output.contains("\\\\u1f600"), output)
+    assert(output.contains("BoolV(true)"), output)
+    assert(output.contains("IntV(1)"), output)
+    assert(output.contains("Some(1), Some(1), Some(1000), \"SELF\""), output)
+    assert(output.contains("invalid JsonCore UTF-16 surrogate pair"), output)
+    assert(output.contains("jsonStringify cannot encode NaN or Infinity"), output)
+
   test("checked transitive effect source runs through FrontendBridge and SwiftPM"):
     assume(swiftAvailable, "Swift toolchain is not available")
     val source = repoRoot.resolve("tests/conformance/effect-transitive-handler.ssc")
@@ -733,6 +862,72 @@ final class SwiftBackendTest extends AnyFunSuite:
     )
     assert(runSwift("checkedNativeUi", program) ==
       "NativeUiAbi(version=1, root=NativeUiFragment, operation=emit)")
+
+  test("checked standard lower serve source resolves token and numeric styles in real Swift"):
+    assume(swiftAvailable, "Swift toolchain is not available")
+    val source = repoRoot.resolve("tests/fixtures/swift/nativeui-standard-lower.ssc")
+    FrontendBridge.resetState()
+    PluginBridge.loadAll()
+    val checked = FrontendBridge.convertSourceWithMetadata(
+      Files.readString(source, StandardCharsets.UTF_8),
+      Some(source.getParent.toFile),
+    )
+    assert(checked.metadata.main.contains("run"))
+    val program = checked.program
+    val probe = """
+public enum SessionProbe {
+    private static func list(_ value: SscValue) -> [SscValue] {
+        var current = value
+        var result: [SscValue] = []
+        while case let .data("Cons", fields) = current, fields.count == 2 {
+            result.append(fields[0])
+            current = fields[1]
+        }
+        guard case let .data("Nil", fields) = current, fields.isEmpty else {
+            fatalError("expected proper NativeUi child list")
+        }
+        return result
+    }
+    private static func styles(_ value: SscValue) -> [String] {
+        guard case let .data(tag, fields) = value else { return [] }
+        if tag == "NativeUiAbi", fields.count == 3 { return styles(fields[1]) }
+        if tag == "NativeUiFragment", fields.count == 1 {
+            return list(fields[0]).flatMap(styles)
+        }
+        guard tag == "NativeUiElement", fields.count == 5,
+              case let .map(attributes) = fields[2] else { return [] }
+        var result: [String] = []
+        if case let .string(style)? = attributes.get(.string("style")) { result.append(style) }
+        return result + list(fields[4]).flatMap(styles)
+    }
+    public static func run() {
+        do {
+            let session = try SscGeneratedProgram.makeNativeUiRoot()
+            Swift.print(nativeUiDebug(session.root))
+            Swift.print(styles(session.root).joined(separator: "|"))
+        } catch { fatalError(String(describing: error)) }
+    }
+}
+"""
+    val result = runSwiftResult("standardLower", program, probe = Some(probe))
+    assert(result.exit == 0, s"swift run standardLower failed (${result.exit}):\n${result.stderr}\n${result.stdout}")
+    assert(result.stdout.linesIterator.nextOption().contains(
+      "NativeUiAbi(version=1, root=NativeUiElement, operation=serve)"), result.stdout)
+    assert(result.stdout.contains("padding-left:16px;padding-right:16px"), result.stdout)
+    assert(result.stdout.contains("padding-left:12px;padding-right:12px"), result.stdout)
+
+  test("checked production-shaped locale JSON keyed pipeline runs in real Swift"):
+    assume(swiftAvailable, "Swift toolchain is not available")
+    val source = repoRoot.resolve("tests/fixtures/swift/busi-pipeline-nativeui-smoke.ssc")
+    FrontendBridge.resetState()
+    PluginBridge.loadAll()
+    val checked = FrontendBridge.convertSourceWithMetadata(
+      Files.readString(source, StandardCharsets.UTF_8),
+      Some(source.getParent.toFile),
+    )
+    assert(checked.metadata.main.contains("run"))
+    assert(runSwift("busiPipelineNativeUi", checked.program) ==
+      "NativeUiAbi(version=1, root=NativeUiElement, operation=serve)")
 
   private def fixture(name: String): Program =
     val path = repoRoot.resolve(s"v2/conformance/$name.coreir")
