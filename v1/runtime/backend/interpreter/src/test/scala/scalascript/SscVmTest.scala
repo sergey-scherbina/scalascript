@@ -2722,6 +2722,37 @@ class SscVmTest extends AnyFunSuite with Matchers:
     java.lang.Double.longBitsToDouble(SscVm.runRef(cfn.get, Array.empty[Long], Array[AnyRef](e("C")))) shouldBe 7.0  // 3.5 * 2
   }
 
+  test("wide-jit C-6/C-5b regression: assigning a self-referencing if/match to a var must not corrupt it") {
+    // BUG (fixed): `y = if c then 5 else y` compiled the rhs straight into y's HOME reg. The `else y`
+    // branch self-aliases the home (no MOVE), so it read a compile-time type polluted by the `then`
+    // branch (TInt), the if reported TInt, and C-6's widen fired on the else path where y still held
+    // the Double 3.0 → garbage (f(false) → 4.6e18 instead of 3.0). Same for a self-referencing match
+    // arm (C-5b pad). FIX: a self-referencing rhs compiles into a FRESH temp, then moves to the home.
+    val fIf = interpOf(
+      """def f(c: Boolean): Double =
+        |  var y = 3.0
+        |  y = if c then 5 else y
+        |  y""".stripMargin).globalsView("f").asInstanceOf[Value.FunV]
+    val cIf = VmCompiler.compile(fIf); cIf shouldBe defined
+    java.lang.Double.longBitsToDouble(SscVm.run(cIf.get, Array(1L))) shouldBe 5.0  // c=true → 5→5.0
+    java.lang.Double.longBitsToDouble(SscVm.run(cIf.get, Array(0L))) shouldBe 3.0  // c=false → y unchanged
+
+    val interp = interpOf(
+      """sealed trait Opt
+        |case object A extends Opt
+        |case object B extends Opt
+        |def g(o: Opt): Double =
+        |  var y = 3.0
+        |  y = o match
+        |    case A => 5
+        |    case B => y
+        |  y""".stripMargin)
+    val g = interp.globalsView("g").asInstanceOf[Value.FunV]
+    val cG = VmCompiler.compile(g, globalsResolve(interp)); cG shouldBe defined
+    java.lang.Double.longBitsToDouble(SscVm.runRef(cG.get, Array.empty[Long], Array[AnyRef](Value.InstanceV("A", Map.empty)))) shouldBe 5.0
+    java.lang.Double.longBitsToDouble(SscVm.runRef(cG.get, Array.empty[Long], Array[AnyRef](Value.InstanceV("B", Map.empty)))) shouldBe 3.0
+  }
+
   test("wide-jit C-6: an Int assigned to a Double var is widened, not bailed on") {
     // `x` is a Double var (init 0.0); `x = c` assigns the Int param. Scala widens Int→Double, so the
     // assign widens `x` (I2D) rather than bailing on a false "var domain change".

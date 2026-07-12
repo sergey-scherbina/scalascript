@@ -930,15 +930,23 @@ object VmCompiler:
       case Term.Assign(nm: Term.Name, rhs) =>
         val dst = locals.getOrElse(nm.value, bail(s"undefined: assign to unknown var '${nm.value}'", Br.VmUndefinedName))
         val old = typeOf(dst)
-        val nt  = compileInto(rhs, dst)
+        // If the rhs references this var, compiling it straight into the var's HOME register is
+        // unsafe: a value-position if/match branch that self-aliases the var (`y = if c then 5 else
+        // y`) does NO move (its home IS dst) and reads a compile-time type polluted by a sibling
+        // branch — the C-6/C-5b widen below could then fire on a runtime path where `dst` still holds
+        // the old (Double) value → silent garbage. Compile such an rhs into a FRESH temp, then move.
+        val selfRef = rhs.collect { case n: Term.Name if n.value == nm.value => () }.nonEmpty
+        val target  = if selfRef then freshReg() else dst
+        var nt      = compileInto(rhs, target)
         if nt != old then
-          // wide-jit C-6: assigning an Int to a Double var — Scala widens Int→Double, so widen `dst`
-          // (which holds the just-compiled Int rhs) rather than bailing on a false domain change. The
-          // reverse (Double into an Int var) is a Scala type error → still bails.
+          // wide-jit C-6: assigning an Int to a Double var — Scala widens Int→Double. `target` is the
+          // var home (no self-ref) or a fresh temp, so this in-place I2D never corrupts an aliased reg.
           if old == TDouble && nt == TInt then
-            emit(I2D, dst, dst, 0); setType(dst, TDouble)
+            emit(I2D, target, target, 0); setType(target, TDouble); nt = TDouble
             VmCompiler.varWidenings.incrementAndGet()
           else bail("types: var domain change (Int↔Double)", Br.MixedReturnType)
+        if selfRef then
+          emit(MOVE, dst, target, 0); setType(dst, nt)
       // Inner def: compile to a standalone callee that shares the Ctx call pool.
       // Only non-capturing inner defs compile; a body that references outer locals
       // will bail with "undefined: name '...'" when the inner Builder runs — that

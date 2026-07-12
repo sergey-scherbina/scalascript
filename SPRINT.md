@@ -1799,9 +1799,24 @@ Directed hunt for LATENT MISCOMPILES (silent wrong result, NOT a safe bail) in t
       catch it (no corpus case had the pattern) — an adversarial unit probe did. FIX: widen into a
       FRESH reg via `asDouble(r0)` (the existing self-tail arg coercion at :882 already did this).
       Regression test added. LESSON: never `I2D`/`setType` in place on a `compileExpr` result — it may
-      be a shared home reg; use `asDouble` (fresh). C-5/C-5b/C-6 verified SAFE (they widen a
-      `compileInto` target `dst`, which is a MOVE'd copy, not a home reg).
-- [ ] (in progress) independent adversarial review of the full C-3..C-9 diff for further miscompiles.
+      be a shared home reg; use `asDouble` (fresh).
+- [x] **C-6 / C-5b self-alias var-assign corruption** (fixed, commit pending) — found by the
+      INDEPENDENT review (it caught the flaw in my initial "C-5/C-5b/C-6 are safe" claim). `compileInto(
+      Term.Name, dst)` does NO move when the name's home IS `dst` (VmCompiler:602 `if r != dst`), so
+      assigning a value-position if/match that self-references the var (`var y = 3.0; y = if c then 5
+      else y`) compiled the rhs into y's HOME: the `then` branch clobbered the home's compile-time type
+      (→TInt), the self-aliasing `else y` read that polluted type, the if reported TInt, and C-6's widen
+      then fired on the else runtime path where y still physically held the Double 3.0 → f(false) →
+      4.6e18 instead of 3.0. Same via a self-referencing match arm (C-5b pad). Pre-C-6 this SAFELY
+      BAILED ("var domain change"); C-6/C-5b turned the bail into a silent wrong result. FIX (root
+      cause): `Term.Assign` compiles a rhs that references the var into a FRESH temp, then MOVEs to the
+      home — the var's home is never clobbered mid-compilation, so a self-aliasing branch reads its true
+      (unpolluted) type. Both if + match regression tests added. Conformance no new fails.
+- [x] **Independent adversarial review of C-3..C-9 COMPLETE** — confirmed C-4c (already fixed) + found
+      C-6/C-5b self-alias (fixed above). Verified SAFE: C-3 (map keyed on body expr type, matches
+      callee retIsRef bank), C-4d, C-5 (fresh-dst pads traced correct), C-7/C-9 (naming-only, field
+      access is by-name at runtime), C-8 (fold body into fresh reg, mixed ops via asDouble). No further
+      latent miscompiles. ⇒ the C-1..C-9 line is now correctness-clean under adversarial audit.
 - [ ] **C-gate** — QUIET-MACHINE A/B (`scripts/bench interp patternMatch*|recursionFib`,
       `scripts/bench cross`): wider coverage doesn't regress hot paths + ideally removes the
       `recursionFib` bimodal variance. (The "(1)" timing work, deferred until load drops.)
