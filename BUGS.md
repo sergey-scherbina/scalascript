@@ -26,7 +26,9 @@ semantics advanced the mini-language pipeline report.
 
 ## v21-native-focus-optics-unlowered — Focus/Prism remain globals
 
-**Status:** open (2026-07-12); found by codex in TI-8.2d3m audit.
+**Status:** fixed (2026-07-12, frontend/provider `a3d5abde0`, artifact
+`16a4b9f8f`, taxonomy `5557ddf61`), awaiting Sergiy confirmation; found by
+codex in TI-8.2d3m audit.
 
 - **Real-harness repro:** standard VM/direct ASM run `examples/lenses.ssc`,
   print only the two pre-Focus rows, then fail `unbound global: Focus`;
@@ -36,6 +38,14 @@ semantics advanced the mini-language pipeline report.
 - **Done-when:** portable Lens/Optional/Traversal/Prism values implement the
   public structural paths and composition exactly on VM/ASM/build-jvm without
   compiler macros, reflection, example-specific globals, or fallback.
+- **Fix/result:** the self-hosted frontend serializes field/`.some`/`.each`
+  selector steps and exact Prism variants to portable CoreIR; a required
+  core-free ServiceLoader provider performs immutable get/set/modify/compose.
+  The first release run exposed a separate strict `build-jvm` provider-prefix
+  omission, fixed in `16a4b9f8f`. All 23 public rows are now exact on standard
+  VM/direct ASM/reproducible JAR; arbitrary getter arithmetic fails before
+  stdout with `__unsupported_focus_path`. Full release parity is 51/15 with
+  zero language-runtime rows and two remaining SQL-provider blockers.
 
 ## v21-native-named-copy-labels-dropped — case-class copy overrides by position
 

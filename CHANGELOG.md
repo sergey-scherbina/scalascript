@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-12 — structural optics are self-hosted and core-free
+
+The compiler-free ScalaScript 2.1 frontend now retains structural
+`Focus[T]` field/`.some`/`.each` paths and exact `Prism` variants. A required
+core-free provider implements immutable Lens, Optional, Traversal, and Prism
+operations on standard VM, direct ASM, slim/JRE, and reproducible `build-jvm`;
+unsupported getter expressions fail explicitly without macros, reflection, or
+compatibility fallback. All 23 public lenses rows are exact, parity reaches
+51/15, and language-runtime blockers reach zero. Landed through `16a4b9f8f`.
+
 ## 2026-07-12 — native case-class copy preserves named labels
 
 The compiler-free ScalaScript 2.1 frontend now carries named `.copy` overrides

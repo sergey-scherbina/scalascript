@@ -3276,7 +3276,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                               taxonomy is 6 blockers / 19 rows, dependency
                               closure is 24 roots / 97 edges / 38 staged jars,
                               and fresh conformance is 11/11.
-                        - [ ] **TI-8.2d3m final native language blockers:**
+                        - [x] **TI-8.2d3m final native language blockers:**
                               close all four remaining blocking language rows
                               without example-specific lowering, runtime stubs,
                               compiler reflection, or compatibility fallback.
@@ -3300,11 +3300,11 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     synthesis; unlowered `direct[M]`; dropped
                                     named labels on case-class `copy`; and
                                     unlowered Focus/Prism optics.
-                              - [ ] **TI-8.2d3m1 specs + regressions:** write
+                              - [x] **TI-8.2d3m1 specs + regressions:** write
                                     committed feature contracts and BUG entries
                                     for the confirmed language semantics before
                                     changing the self-hosted frontend/runtime.
-                              - [ ] **TI-8.2d3m2 implementation slices:** close
+                              - [x] **TI-8.2d3m2 implementation slices:** close
                                     each independently green root cause with
                                     focused VM/ASM/build-jvm coverage and push
                                     it immediately; do not retire a taxonomy row
@@ -3345,7 +3345,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                           example passes VM/ASM/build-jvm;
                                           release is 50/16 with 3 blockers and
                                           fresh conformance 11/11.
-                                    - [ ] **m2d named copy + optics:** preserve
+                                    - [x] **m2d named copy + optics:** preserve
                                           copy labels, then lower Focus/Prism
                                           Lens/Optional/Traversal behavior from
                                           structural paths.
@@ -3359,19 +3359,35 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                                 release remains honestly 50/16
                                                 with 3 blockers because Focus is
                                                 still absent; conformance 11/11.
-                                          - [ ] **m2d2 native optics:** preserve
+                                          - [x] **m2d2 native optics:** preserve
                                                 Focus paths and Prism variant
                                                 type applications, then provide
                                                 core-free Lens/Optional/
                                                 Traversal/Prism dispatch and
                                                 retire `lenses.ssc` only after
                                                 all 23 rows are exact.
-                              - [ ] **TI-8.2d3m3 release closure:** rerun the
+                                                Result: structural Focus paths
+                                                and Prism variants now lower to
+                                                a required core-free provider;
+                                                public VM/ASM/build-jvm output
+                                                is exact and arbitrary getters
+                                                fail explicitly without
+                                                fallback. Release is 51/15,
+                                                with 0 language blockers and
+                                                fresh conformance 11/11.
+                              - [x] **TI-8.2d3m3 release closure:** rerun the
                                     195-row frontend/parity/taxonomy suite and
                                     exhaustive release gate, require all four
                                     language rows gone and zero mismatch or
                                     one-sided failures, then advance to the two
                                     SQL blockers.
+                                    Result: all 195 rows are classified; frontend
+                                    and checker are 194/194, strict parity is
+                                    51 identical / 15 both-fail / 129 scoped
+                                    skips with zero mismatch/one-sided rows.
+                                    Taxonomy is 0 language / 2 standard / 7
+                                    optional / 6 tools, so the remaining next
+                                    work is exactly the two SQL blockers.
                   - [x] **TI-8.2d4 example/config blockers:** DONE 2026-07-11
                         (`d4c953b9c`, taxonomy `39cfe268b`). Repair stale imports,
                         fixture setup, and deterministic data/config assumptions
