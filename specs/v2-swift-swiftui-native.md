@@ -1,6 +1,8 @@
 # ScalaScript 2 Swift backend and SwiftUI native toolkit
 
-**Status:** accepted; implementation in progress (2026-07-10)
+**Status:** accepted; implementation reopened for standard-pipeline parity
+(2026-07-12). The 2026-07-11 Apple closure remains valid for its direct
+`emit(fragment(...))` fixture, but did not cover `std/ui/lower.ssc`.
 
 ## Overview
 
@@ -1216,6 +1218,116 @@ The same `.ssc` source emits both macOS and iOS application projects. Platform
 selection may change deployment metadata and native adapters, not source-level
 behavior.
 
+## Standard toolkit, module initialization, failure, locale and JSON closure
+
+The production NativeUi source shape is
+`serve(lower(view(), theme), port)`, not a direct `emit(fragment(...))` call.
+Swift acceptance therefore includes the imported `std/ui/lower.ssc` execution
+path, theme-token conversion, module-level values such as `localeSignal`, and
+the self-hosted `std/json.ssc` facade used by fetched/keyed application data.
+
+### Module `val` registration
+
+FrontendBridge represents an imported/top-level `val` as an unconditional
+initialization-continuation spine: `Let`/`LetRec` bodies and ordered `Seq`
+elements contain `global.reg(Lit(CStr(name)), value)` before the rest of the
+entry program. Swift validation may authorize those literal names while
+following only that entry initialization spine. It must not descend into a
+definition body, lambda, conditional/match arm, loop body, dead branch, or the
+registered value expression merely to discover another registration. A name
+that is not guaranteed by that compiler-owned spine remains an unsupported
+global at generation time. Runtime `global.reg` still installs the evaluated
+value in source order. This rule exposes `localeSignal` without allowing a
+never-executed registration to mask an unbound global.
+
+### Portable `__throw__`, `__try__`, and recoverable conversion failures
+
+The normative oracle is FrontendBridge plus PluginBridge/v1 language behavior:
+
+```text
+__try__(bodyThunk, handler)
+  bodyThunk arity = 0
+  handler arity   = 1
+  success         -> body result; handler is not invoked
+  explicit throw -> handler receives the exact thrown SscValue
+  runtime failure -> handler receives String(the deterministic description)
+```
+
+Swift keeps three failure categories in the evaluator side channel:
+
+1. `thrown(SscValue)` for `__throw__`; the value is never stringified or
+   wrapped before a matching handler receives it;
+2. `runtime(SscRuntimeFailure)` for an intentional catchable runtime failure,
+   including invalid primitive conversion and NativeUi extension failures;
+3. `host(Error)` (or an equivalent non-catchable terminal) for unexpected host
+   errors/invariant failures. This category reaches the bounded top-level
+   failure boundary and is never converted into a language catch payload.
+
+`__try__` owns only failures produced while invoking its body. It starts with a
+clean body scope, returns normally on success, and on `thrown`/`runtime` clears
+that caught failure before it invokes the handler. The handler result is the
+whole expression result. A throw or runtime failure from the handler is outside
+the same catch and therefore propagates to an enclosing `__try__`; nested
+handlers must work without restoring an older sticky failure. An existing
+failure may not be consumed by a later unrelated `__try__`. `fatalError` and
+arbitrary Swift host bugs are not recovery mechanisms and must not be swallowed.
+
+`String.toInt` trims leading/trailing Unicode whitespace before exact Int64
+parsing, matching VM/v1 `trim.toLong`. Invalid or out-of-range input records the
+catchable deterministic runtime failure `String.toInt: invalid integer` and
+does not return `0` or expose Swift parser text. This is the failure used by
+`lower.ssc::_lenOf` to fall back from tokens such as `md`; numeric strings such
+as `" 12 "` return `12` without invoking the handler.
+
+### Self-hosted JSON facade on Swift
+
+Swift implements only the provider boundary from `std/json.ssc`; parsing and
+the preferred renderer remain the imported self-hosted `json-core.ssc` code.
+`__jsonCoreInstallRenderer(fn)` stores the program closure for the Machine that
+installed it. `JsonValue.raw` and non-string `getOrElse` values invoke that
+renderer; a faithful native canonical renderer is permitted only when no
+self-hosted renderer is installed. Renderer state is not process-global and
+cannot leak between generated sessions.
+
+The canonical `JsonCoreString` payload is an ordered list of UTF-16 code units.
+Swift encodes from `String.utf16` and decodes with UTF-16 pairing semantics:
+BMP, valid surrogate pairs, controls, U+2028/U+2029, and astral scalars survive
+round-trip. Invalid standalone code units are bounded runtime failures, never
+silently dropped. Canonical quoting emits one lowercase four-hex `\\uXXXX` per
+UTF-16 unit; an astral scalar therefore emits its high and low surrogate pair,
+not a five/six-digit escape.
+
+The existing provider contract remains exact:
+
+- tolerant `__jsonCoreWrap` yields a total navigable wrapper; strict
+  wrap/raw unwrap `JsonCoreOk` and fail deterministically on `JsonCoreErr` or a
+  malformed parser result;
+- `get`, `at`, `isNull`, `asString`, `asInt`, `asDouble`, `asBool`, `asList`,
+  `asDecimal`, `optString`, `optInt`, `optDecimal`, `getOrElse`, `raw`, `size`,
+  and `keys` match `JsonNativePlugin.JsonBox`; missing/wrong-shape navigation
+  yields the documented null/zero/empty/default rather than a trap;
+- number text without a decimal/exponent becomes Int64 when representable and
+  otherwise portable BigInt; decimal/exponent forms become exact Decimal.
+  `asInt` uses total truncating low-64-bit conversion matching
+  `BigDecimal.longValue`; `optInt` accepts number or string values whose exact
+  decimal value is integral (including `1.0` and `1e3`) and returns `None` for
+  fractional/invalid input;
+- `lookup`/`lookupOpt` preserve the reference missing/null distinctions across
+  a JsonValue, insertion-ordered map, list, and UTF-16-indexed string;
+- ordinary values encode through `__jsonCoreEncodeValue`: BigInt and Decimal
+  remain exact, non-finite Float is a bounded runtime failure, maps sort object
+  fields by the reference key text, and a closure becomes `"<function>"`;
+- malformed JsonCore/list/field/code-unit shapes and unrepresentable numeric
+  conversions fail through the catchable runtime category. They never
+  `fatalError`, silently discard data, or manufacture a different value.
+
+The real regression is a checked application fixture containing `text`,
+`heading`, `styled` with both token and numeric lengths, `defaultTheme`,
+`lower`, and `serve`, plus the production-shaped busi locale/JSON/keyed-list
+fixture. Snapshot/string inspection alone is insufficient: generated SwiftPM
+must execute, and the same checked application must pass the assembled macOS
+and iOS Xcode gates.
+
 ## Behavior
 
 ### Specification and regression baseline
@@ -1262,6 +1374,22 @@ behavior.
   survives product/mode changes, and preserves unlisted resources.
 
 ### SwiftUI portable runtime
+
+- [ ] The standard `text`/`heading`/`styled`/`defaultTheme`/`lower`/`serve`
+  checked-source fixture executes as real Swift with token fallback and numeric
+  conversion, rather than bypassing the toolkit lowerer.
+- [ ] Entry-init module registrations expose `localeSignal`; a registration in
+  a definition/lambda/dead branch cannot authorize an unbound global.
+- [ ] Swift `__throw__` preserves the exact ADT/value payload and `__try__`
+  distinguishes explicit throw from recoverable runtime failure.
+- [ ] Successful, invalid/trimmed-conversion, nested handler rethrow/runtime
+  failure, and non-catchable host-negative cases execute under real Swift.
+- [ ] Swift `JsonValue` matches the self-hosted renderer and provider facade for
+  every accessor, lookup, missing/null case, UTF-16 escape, exact number class,
+  deterministic encoding, and bounded malformed/non-finite failure.
+- [ ] The checked production-shaped locale/JSON/keyed-list fixture reaches
+  `serve(lower(view(), defaultTheme), ...)` and builds/runs on macOS while the
+  same application builds for a concrete installed iOS Simulator.
 
 - [x] The NativeUi ABI contains no v1 View/PluginValue/ForeignV instance.
 - [x] Signal bindings and event handlers update SwiftUI on the main actor.
