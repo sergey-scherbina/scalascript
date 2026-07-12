@@ -262,6 +262,22 @@ gate and corrected in the `scalascript` Rozum room after inspecting source bytes
   sites so emitted Scala contains two, pin the generated runtime text, and pass
   the real fixture plus the combined 53-test Swift CLI set.
 
+## v2-swift-e2e-standard-launcher-stale — assembled scripts invoke the wrong tier
+
+**Status:** open (2026-07-12); found by codex after fresh `installBin`, reported
+in the `scalascript` Rozum room.
+
+- **Real-harness repro:** `tests/e2e/v2-swift-cli.sh` exits on its first
+  `bin/ssc emit-swift` with the bounded message that `emit-swift` requires the
+  optional tools/compatibility tier. The Apple script has the same stale
+  launcher assignment for `build`.
+- **Root cause:** `e28560761` intentionally made `bin/ssc` StandardMain and
+  installed the full compatibility CLI as `bin/ssc-tools`; the Swift e2e
+  scripts still assumed the former single launcher.
+- **Fix/done-when:** point both scripts at freshly installed `bin/ssc-tools`,
+  update only their missing-binary hints, and pass the complete assembled CLI
+  plus production-shaped macOS/iOS Apple gates. StandardMain remains narrow.
+
 ## js-ssc-ui-jsonvalue-duplicate — two `_ssc_ui_jsonValue` in the assembled JS runtime
 
 **Status:** open (2026-07-12); found by opus while running `backendInterpreter/test`

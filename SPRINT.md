@@ -467,6 +467,11 @@ pipeline used by real applications.
       unchanged; double only the two preamble escapes, assert generated runtime
       contains compilable `split("\\.")`, and rerun the real SwiftUI fixture
       plus all four combined Swift CLI suites.
+      Assembled Swift scripts must invoke the tools tier after StandardMain
+      became `bin/ssc`: switch both `v2-swift-cli.sh` and
+      `v2-swiftui-apple.sh` to freshly installed `bin/ssc-tools`, retain all
+      existing bounded diagnostics, and rerun both scripts. Do not add Swift
+      build/package commands back to the standard launcher.
 ## security-hardening — toolchain audit findings (2026-07-11, Sergiy: "аудит секюрити … запиши все проблемы в спеку и в спринт и исправь")
 
 Spec: `specs/security-hardening.md`. Report artifact:
