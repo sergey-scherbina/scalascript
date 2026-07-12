@@ -598,6 +598,25 @@ extern def jvmVfsDeviceCharacteristics(handle: Int): JvmVfsResult
 extern def jvmVfsClose(handle: Int): JvmVfsResult
 ```
 
+The same module provides the executable M2 adapter over that boundary:
+
+```scalascript
+case class JvmSharedRegion(handle: Int, region: Int, length: Int)
+  extends SharedRegion
+case class JvmSqliteFile(handle: Int) extends SqliteFile
+case class JvmSqliteVfs(adapterName: String) extends SqliteVfs
+
+def jvmSqliteVfs(): SqliteVfs
+```
+
+The wrapper only converts structured plugin results into the target-neutral
+`VfsError`, `VfsRead`, `VfsWrite`, file, lock, and shared-region contracts; it
+does not implement pager policy. M2 uses canonical path, exists, open, size,
+positioned read, SHARED/unlock, and close. The current plugin has no clock,
+sleep, or randomness host calls, so those unused M2 methods return a stable
+unsupported result or deterministic no-op/zero; writable transaction work must
+add real host implementations before relying on them.
+
 The assembled JVM adapter is demonstrated by
 [`examples/scljet-jvm-vfs.ssc`](../examples/scljet-jvm-vfs.ssc).
 
