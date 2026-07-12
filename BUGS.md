@@ -15,7 +15,24 @@ specification.
 - **Fix/result:** the M2 spec now pins exact 3.53.3 source id
   `d4c0e51e...d782c62`, requires compile options per fixture, and makes future
   oracle upgrades explicit. The M2d corpus gate must use the same source id.
+## v2-frontend-scljet-memory-vfs-state-dispatch — full bridge gate rejects String.state
 
+**Status:** open (2026-07-12); found by codex in the Swift NativeUi final
+release repeat after SclJet M1 landed; reported to `@scalascript` in Rozum.
+
+- **Real-harness repro:** run `scripts/sbtc "v2FrontendBridge/test"` on current
+  `origin/main`. The suite is 200/201; only `v2-conformance:
+  scljet-memory-vfs` fails with `__method__: no dispatch for .state on
+  "/db.sqlite"` at `Runtime.scala:3038`. The same suite's money, tkv2 PWA and
+  all Swift-adjacent rows pass.
+- **Boundary:** this is the compiler-backed FrontendBridge lane for a newly
+  landed SclJet fixture, independent of the Swift implementation and of the
+  standard native tuple-map arity residual. The SclJet M1 claim is released;
+  the active v2.1 release owner is already reconciling its SclJet delegated
+  lane, so coordinate before editing shared dispatch/import code.
+- **Done-when:** the faithful bridge fixture preserves the intended receiver
+  for `.state` (or explicitly delegates the unsupported lane), a focused
+  regression passes, and the full FrontendBridge suite is green.
 ## v2-js-imported-method-object-primitive — SclJet stops at __mk_method_obj__
 
 **Status:** open (2026-07-12); found by codex while probing the native v2 JS

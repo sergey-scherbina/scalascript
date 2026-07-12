@@ -487,6 +487,12 @@ pipeline used by real applications.
       `v21-ti-retire-all-both-fail` owner and rebase their landed fix rather
       than editing the claimed area concurrently; require isolated money and
       combined 28/28.
+      After SclJet M1 landed, the full FrontendBridge repeat is 200/201: only
+      `scljet-memory-vfs` fails with `__method__: no dispatch for .state on
+      "/db.sqlite"`; all Swift-adjacent rows including tkv2 PWA are green.
+      Coordinate that independent bridge/import residual with the active v2.1
+      SclJet release-lane owner, then require the final full bridge gate green
+      or an explicit checked delegation rather than hiding the failure.
 
 ## security-hardening — toolchain audit findings (2026-07-11, Sergiy: "аудит секюрити … запиши все проблемы в спеку и в спринт и исправь")
 
