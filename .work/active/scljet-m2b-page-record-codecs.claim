@@ -1,6 +1,0 @@
-feature/scljet-m2b-page-record-codecs 2026-07-12T13:20:57Z
-agent: codex
-heartbeat: 2026-07-12T13:21:13Z
-status: in-progress
-done-so-far: worktree created from origin/main; exact M2 spec is committed and published
-next: add pure header/page/record modules and focused conformance goldens before pager work
