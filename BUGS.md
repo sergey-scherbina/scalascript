@@ -2,8 +2,9 @@
 
 ## v21-native-actors-provider-missing — runActors is absent from standard native runtime
 
-**Status:** open (2026-07-12); found by codex after Async landed while
-continuing TI-8.2d3.
+**Status:** fixed (2026-07-12, provider `289b828b9`, language/runtime
+`ac30dd778`, taxonomy `2230ebc8a`), awaiting Sergiy confirmation; found by
+codex after Async landed while continuing TI-8.2d3.
 
 - **Real-harness repro:** run `bin/ssc-standard run --native` and
   `--native --bytecode` on `examples/actors-pingpong.ssc` and
@@ -31,6 +32,18 @@ continuing TI-8.2d3.
   ServiceLoader provider with unit and assembled regressions, prove both public
   examples exact on VM/ASM/build-jvm, pass full release/dependency gates, and
   retire only the two proven actor taxonomy rows.
+- **Root cause/fix:** the standard tier had no Actors provider. Adding it exposed
+  two independent boundaries: OS and Actors both claimed bare `exit`, and the
+  self-hosted frontend treated infix `pid ! msg` as a later prefix negation while
+  primitive typed patterns never matched `String`. OS now solely owns bare
+  `exit` and explicitly dispatches actor-shaped calls to `actor.exit`; the front
+  emits portable actor send and `__isTag__` recognizes primitive nominal types.
+  The required Actors provider supplies FIFO virtual-thread mailboxes,
+  quiescence/error propagation, timeout/self/exit, and typed named loopback.
+  Provider unit is 4/4 and OS dispatch is 3/3; focused and public outputs are
+  exact on VM/ASM/build-jvm. Full parity is 44 identical / 22 both-fail / 129
+  skipped with zero mismatch/one-sided rows; taxonomy is 10 blockers / 22 total
+  and the complete release gate passes.
 
 ## v21-native-async-provider-missing — runAsync is absent from standard native runtime
 

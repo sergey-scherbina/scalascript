@@ -2907,7 +2907,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     one-sided rows; taxonomy is 4 language / 8
                                     standard / 12 blockers / 24 total. Release
                                     gate and conformance are ready at 11/11.
-                        - [ ] **TI-8.2d3j core-free Actors provider:** both
+                        - [x] **TI-8.2d3j core-free Actors provider:** both
                               blocking actor examples fail on `runActors`. Add a
                               required v2-native provider for the exact local and
                               typed loopback contracts without importing the v1
@@ -2925,7 +2925,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     typed ActorRef fields/methods, named behaviors,
                                     and process-local loopback registry. Commit
                                     before code.
-                              - [ ] **TI-8.2d3j2 implementation + unit:** create
+                              - [x] **TI-8.2d3j2 implementation + unit:** create
                                     `v2/runtime/std/actors-plugin`, ServiceLoader
                                     and standard/artifact/dependency wiring. Use
                                     virtual threads and blocking queues; cover
@@ -2938,17 +2938,37 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     resolve it by explicit native dispatch or
                                     lowering, never by compatibility fallback or
                                     weakening provider ownership checks.
-                              - [ ] **TI-8.2d3j3 assembled contract:** pin a
+                              - [x] **TI-8.2d3j3 assembled contract:** pin a
                                     focused real-launcher fixture and exact full
                                     outputs for both public actor examples on
                                     VM/direct ASM/build-jvm. No timing threshold;
                                     timeout behavior is the only wall-clock API.
-                              - [ ] **TI-8.2d3j4 release closure:** run every
+                              - [x] **TI-8.2d3j4 release closure:** run every
                                     stage-2/native-entry/isolation/dependency/
                                     slim/artifact/corpus/parity/taxonomy gate and
                                     fresh `v2-*` conformance. Retire only the two
                                     exact actor rows, record the new baseline, and
                                     push immediately.
+                                    Result: required provider commit `289b828b9`
+                                    supplies FIFO virtual-thread mailboxes,
+                                    quiescence/failure propagation, timeout,
+                                    self/send/exit, and typed named loopback.
+                                    `ac30dd778` makes `pid ! msg` a real infix
+                                    send and recognizes primitive typed patterns;
+                                    OS remains the sole explicit bare-`exit`
+                                    dispatcher. Actors unit is 4/4 and OS dispatch
+                                    is 3/3; focused and both public programs are
+                                    exact on VM/direct ASM/build-jvm. Dependency
+                                    closure is 22 roots / 89 edges / 36 staged
+                                    dependency jars. Slim is 37 jars / 6665
+                                    classes / 31,040,124 bytes; reproducible
+                                    artifact SHA-256 is
+                                    `7980985ff2d28626fda5f56c1f7c715f53351149ec79bb5eeb8f2997c5a033c9`.
+                                    Parity is 44 identical / 22 both-fail / 129
+                                    skipped with zero mismatch/one-sided rows;
+                                    taxonomy is 4 language / 6 standard / 10
+                                    blockers / 22 total. Full release gate and
+                                    conformance pass 11/11.
                         - [x] **TI-8.2d3a core-free crypto breadth:** DONE
                               2026-07-11 (`f40b2b6b8`, taxonomy `6f4f0d13e`). Port the
                               established v1 crypto-plugin contracts—not its

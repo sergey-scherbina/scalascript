@@ -37,6 +37,11 @@ parity slices are intentionally non-blocking for the artifact/packaging cutover:
       compose without either provider depending on the other's implementation.
       Until then both directions must remain bounded explicit errors, never a
       compatibility value or transparent fallback.
+- [ ] **v21-native-actors-advanced** — add provider-owned network transport,
+      discovery/cluster membership, links/monitors, supervision trees, durable
+      mailboxes, and timer APIs on top of the core-free local actor contract.
+      Keep these surfaces explicit until implemented; never route the standard
+      launcher through the v1 actor scheduler or compatibility bridge.
 
 ## ssc-toolkit-v2 P2 follow-ups (2026-07-07) — see `specs/ssc-toolkit-v2.md`
 

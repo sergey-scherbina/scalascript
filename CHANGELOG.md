@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-12 — local and typed-loopback Actors are core-free
+
+The ScalaScript 2.1 standard tier now supplies FIFO virtual-thread actors with
+plain/timed receive, self/send/exit, quiescent scope shutdown, propagated child
+failures, and typed process-local named loopback. The self-hosted frontend now
+lowers infix `pid ! msg` correctly and primitive typed patterns match `String`;
+OS and Actors compose the overloaded `exit` surface without weakening strict
+provider ownership. Unit coverage is 4/4 plus OS dispatch 3/3, and focused plus
+both public examples are exact on VM/direct ASM/build-jvm. Full parity is 44
+identical / 22 both-fail with zero mismatch/one-sided rows, leaving 10 blockers
+out of 22 taxonomy rows. Landed through `2230ebc8a`.
+
 ## 2026-07-12 — built-in Async runners are core-free
 
 The required ScalaScript 2.1 effect-runners provider now owns deterministic
