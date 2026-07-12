@@ -113,6 +113,8 @@ bin/ssc-provider pdf run --bytecode examples/pdf-extract-demo.ssc
 bin/ssc-provider mcp run examples/mcp-client-discover.ssc
 RDF4J_URL=http://localhost:8080/rdf4j-server/repositories/kg \
   bin/ssc-provider graph-rdf4j run examples/graph-rdf4j-http-storage.ssc
+SWIFT_AGGREGATOR_URL=http://localhost:9000 SWIFT_API_KEY=secret \
+  bin/ssc-provider swift run examples/international-bank-rails.ssc
 
 # Roll back through the explicit optional tools/compatibility tier
 bin/ssc-tools run --v1 examples/hello.ssc

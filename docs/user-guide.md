@@ -5121,6 +5121,8 @@ ssc-provider mcp run examples/mcp-client-discover.ssc
 ssc-provider mcp run --bytecode examples/agent-mcp-toolsource.ssc
 RDF4J_URL=http://localhost:8080/rdf4j-server/repositories/kg \
   ssc-provider graph-rdf4j run examples/graph-rdf4j-http-storage.ssc
+SWIFT_AGGREGATOR_URL=http://localhost:9000 SWIFT_API_KEY=secret \
+  ssc-provider swift run examples/international-bank-rails.ssc
 ssc-provider nfc run examples/nfc-ndef.ssc
 ssc-provider nfc run --bytecode examples/nfc-ndef.ssc
 ```
@@ -5146,6 +5148,13 @@ uses the RDF4J SPARQL HTTP protocol at `RDF4J_URL`, with optional
 `RDF4J_USER`/`RDF4J_PASS` basic authentication. Its JSON dependency is staged
 only under `bin/lib/providers/graph-rdf4j/jars`; plain `ssc` keeps local Graph
 storage but does not claim remote SPARQL ownership.
+
+The `swift` lane supplies the portable `SwiftProvider` and bank-rails values
+and performs authenticated transfer creation/status requests against
+`SWIFT_AGGREGATOR_URL`. Its HTTP/JSON implementation is isolated under
+`bin/lib/providers/swift/jars`; the exact regression uses a local aggregator
+fixture and fixed UETR/GPI results, never production credentials or a public
+network.
 
 | Plugin | Intrinsics it provides |
 |--------|----------------------|
