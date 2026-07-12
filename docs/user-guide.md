@@ -5119,6 +5119,8 @@ ssc-provider pdf run examples/invoice-pdf.ssc
 ssc-provider pdf run --bytecode examples/pdf-extract-demo.ssc
 ssc-provider mcp run examples/mcp-client-discover.ssc
 ssc-provider mcp run --bytecode examples/agent-mcp-toolsource.ssc
+RDF4J_URL=http://localhost:8080/rdf4j-server/repositories/kg \
+  ssc-provider graph-rdf4j run examples/graph-rdf4j-http-storage.ssc
 ssc-provider nfc run examples/nfc-ndef.ssc
 ssc-provider nfc run --bytecode examples/nfc-ndef.ssc
 ```
@@ -5137,6 +5139,13 @@ process transport without loading the v1 interpreter or compiler. The bundled
 `examples/mcp-server-tools.js` server makes the discovery and agent-tool-source
 examples deterministic for VM/direct-ASM regression tests; production clients
 can point the same `Transport.Spawn` value at another MCP stdio server.
+
+The `graph-rdf4j` lane adds only the remote `Sparql.select` and
+`Sparql.update` operations to the standard process-local Graph provider. It
+uses the RDF4J SPARQL HTTP protocol at `RDF4J_URL`, with optional
+`RDF4J_USER`/`RDF4J_PASS` basic authentication. Its JSON dependency is staged
+only under `bin/lib/providers/graph-rdf4j/jars`; plain `ssc` keeps local Graph
+storage but does not claim remote SPARQL ownership.
 
 | Plugin | Intrinsics it provides |
 |--------|----------------------|
