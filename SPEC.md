@@ -666,6 +666,12 @@ and `zipWithIndex`, map entries, and imported values all support `._1`/`._2`
 and `(left, right)` patterns. Backend-internal `Pair/2` versus `Tuple2/2` tags
 are not observable at the ScalaScript source level.
 
+For `List.map` and `List.flatMap`, an arity-two callback may consume one
+two-element tuple: `(left, right) => body` receives the tuple fields in order
+whether the producer used portable `Pair/2` or runtime `Tuple2/2`. An arity-one
+callback receives the complete tuple, while ordinary direct arity-two calls,
+folds, and binary comparators retain their existing argument contracts.
+
 ### 5.5 Functional Updates and Lenses
 
 Case classes carry an auto-generated `copy` method:
