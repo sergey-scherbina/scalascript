@@ -1020,6 +1020,14 @@ direct[Async | Random] {
 
 The leftmost type drives `flatMap` dispatch.
 
+On the ScalaScript 2.1 compiler-free standard path, explicit `direct[Option]`
+and `direct[List]` blocks have a bounded self-hosted lowering: fresh
+assignments become ordered `flatMap` binds, pure `val` stays lexical, declared
+`var` names retain mutable assignment, and nested explicit blocks lower
+independently. The final expression must already inhabit the selected monad.
+Implicit direct inference, other monads, and pure auto-lift remain outside this
+bounded native contract and never trigger a compatibility fallback.
+
 ### 7.4 Built-in Async Effect
 
 `Async` is pre-registered on all three backends — no `effect Async:` declaration needed.
