@@ -1025,11 +1025,18 @@ M2 and are never repaired.
 The pure record API preserves both decoded values and source bytes:
 
 ```scalascript
+case class DecodedText(
+  encoded: ByteSlice,
+  encoding: SqliteTextEncoding,
+  codePoints: List[Int],
+  wellFormed: Boolean
+)
+
 case class RecordField(
   serialType: Long,
   encoded: ByteSlice,
-  value: SqliteValue,
-  textWellFormed: Option[Boolean]
+  value: Option[SqliteValue],
+  text: Option[DecodedText]
 )
 
 case class DecodedRecord(
@@ -1070,15 +1077,19 @@ total working bytes are checked before allocation.
 TEXT has no stored terminator. SQLite deliberately follows a garbage-in,
 garbage-out policy for malformed UTF, so invalid UTF-8, unpaired UTF-16
 surrogates, odd UTF-16 byte counts, embedded NUL, and noncharacters are not file
-corruption. `RecordField.encoded` is the authoritative lossless value and
-`textWellFormed = Some(...)` reports whether ordinary Unicode decoding is
-reversible for TEXT; non-TEXT fields use `None`.
-`SqlText.value` is the deterministic ScalaScript string projection, replacing
-each maximal malformed subsequence with U+FFFD; converting invalid text is not
-claimed to reproduce an arbitrary host SQLite binding byte-for-byte. Storage
-comparison and fixture equality use the original encoded bytes.
-`EncodingUnknown` is valid only for an empty schema, so no TEXT record may be
-decoded under it.
+corruption. `DecodedText.encoded` is the authoritative lossless value;
+`codePoints` uses U+FFFD for each maximal malformed subsequence and `wellFormed`
+reports whether decoding is reversible. TEXT fields set `value = None` and
+`text = Some(...)`; non-TEXT fields set `value = Some(...)` and `text = None`.
+
+The pure M2 layer intentionally does not materialize `SqlText(String)`:
+ScalaScript v1 currently has no `Int.toChar`/code-point-to-string primitive and
+v2 renders dynamically produced chars numerically. Calling a host decoder or a
+JSON intrinsic here would violate the pure cross-backend boundary. A later
+portable text-construction task projects well-formed `DecodedText` into
+`SqlText` and defines the public GIGO string policy; storage comparison and M2
+fixture equality use encoded bytes plus code points. `EncodingUnknown` is valid
+only for an empty schema, so no TEXT record may be decoded under it.
 
 Index comparison follows SQLite storage-class order: NULL, numeric, TEXT under
 the selected collation, then BLOB byte order. Built-in collations are:
@@ -1345,10 +1356,10 @@ case object SchemaNoBtree extends SchemaStorageKind
 case class SchemaEntry(
   rowid: Long,
   kind: SchemaObjectKind,
-  name: String,
-  tableName: String,
+  name: DecodedText,
+  tableName: DecodedText,
   rootPage: Option[Long],
-  sql: Option[String],
+  sql: Option[DecodedText],
   storage: SchemaStorageKind,
   internal: Boolean,
   rawRecord: DecodedRecord
@@ -1368,7 +1379,8 @@ def decodeSchema(
 
 The schema record must have exactly five fields. `type`, `name`, and
 `tbl_name` are TEXT; `rootpage` is INTEGER or NULL; `sql` is TEXT or NULL.
-`type` is exactly `table`, `index`, `view`, or `trigger`. A positive table root
+The raw `type` code points are exactly ASCII `table`, `index`, `view`, or
+`trigger`. A positive table root
 whose actual root page is a table B-tree is `SchemaRowidTable`; a positive
 table root whose page is an index B-tree is `SchemaWithoutRowidTable`; a
 positive index root must be an index B-tree. Views, triggers, and virtual-table
@@ -1392,7 +1404,8 @@ land with the SQL frontend/schema semantics in M4.
 
 M2 does not create or mutate databases, recover rollback journals, overlay WAL
 frames, parse SQL/DDL, bind logical column names, apply affinity, execute
-expressions, or provide a query planner. It does not claim reverse/seek cursors.
+expressions, materialize decoded code points as ScalaScript `String`, or provide
+a query planner. It does not claim reverse/seek cursors.
 A physical zero-byte file, although some SQLite connection APIs treat it as a
 logical empty database, has no format-3 header and is outside the M2 raw-file
 reader; create/open semantics for that special case land with writable pager
@@ -1580,7 +1593,7 @@ The valid corpus crosses, without requiring a Cartesian explosion:
 - empty/single/multi-level rowid tables, negative/min/max rowids, all legal
   persistent serial types, binary64 edge values, valid and invalid UTF,
   embedded NUL, and BLOBs; invalid text compares/dumps by original bytes and
-  separately pins the deterministic ScalaScript string projection;
+  separately pins the deterministic code-point projection;
 - payloads at `M`, `K`, `X`, and each threshold +/-1 for table and index pages,
   including one and many overflow pages;
 - explicit/auto indexes, index interior records, WITHOUT ROWID tables,
