@@ -116,6 +116,22 @@ found by codex in the real assembled-distribution gate for SclJet M1.
 - **Fix/result:** the explicit package task is registered; `installBin` stages
   27 essential plugins including `scljet-vfs-plugin.sscpkg`, the assembled JVM
   example autoloads it, and SclJet conformance is 3/3.
+## v21-scljet-jvm-vfs-unclassified-lane — new explicit tools example became both-fail
+
+**Status:** open (2026-07-12); found by codex when the strict zero-gap freeze
+caught the concurrently landed `examples/scljet-jvm-vfs.ssc` row.
+
+- **Real-harness repro:** run strict `scripts/bc-parity-sweep` after the SclJet
+  JVM VFS example lands. The document declares `backends: [int]` and a
+  `ssc-tools run --v1` shebang, but is absent from the explicit-lane manifest;
+  plain standard VM and ASM both fail, producing one new `both-fail` row.
+- **Root cause:** the example and its v1 JVM host plugin landed after the frozen
+  13-row explicit-lane census, without registering their compiler/tools-owned
+  execution contract in the exact v2.1 manifest.
+- **Done-when:** an exact tools regression executes the real JVM VFS plugin in
+  a temporary filesystem with deterministic output, the manifest accounts for
+  the row as `target-lane`, and exhaustive ordinary/negative reports return to
+  zero `both-fail`, mismatch, one-sided, and blockers.
 
 ## uniml-yaml-property-only-node — anchor/tag-only value lost its nested node
 

@@ -3971,6 +3971,12 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
             196/54 to 197/55. Prove the new row byte-identical on native VM/ASM
             and green in its real conformance lane before updating exact
             positive/negative counts; do not change any zero-gap metric.
+      - [ ] Classify the concurrently landed `examples/scljet-jvm-vfs.ssc`,
+            which correctly requires its declared `ssc-tools run --v1` JVM host
+            plugin and therefore appears as a new standard `both-fail`. Update
+            the committed retirement spec first, add a deterministic real-plugin
+            tools regression and exact manifest row, then advance the 198-row
+            freeze only after ordinary and negative reports return to zero gaps.
 
 - [x] **v2-production-readiness-audit** - DONE 2026-07-10:
       bounded audit after closing the layout/YAML and indent-demo blockers.
