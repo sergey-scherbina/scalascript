@@ -4762,9 +4762,15 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
       val a = argClause.values.map(emitCaseBody).mkString(", ")
       s"$f($a)"
     case Term.Function.After_4_6_0(paramClause, body) =>
-      val ps = paramClause.values.map(_.name.value).mkString(", ")
-      val wrap = if paramClause.values.length == 1 then ps else s"($ps)"
-      s"$wrap => ${emitCaseBody(body)}"
+      // Annotate each param with its declared type (or `: Any` when un-annotated) so a
+      // lambda that lands in an Any-typed handler slot has an inferable parameter type.
+      // Without this the deep-handler state-threading arm `(s: Int) => resume(())(s + n)`
+      // emitted as bare `s => …` and Scala 3 could not infer `s`.
+      // (v1-jvm-state-threaded-handler-codegen.)
+      val ps = paramClause.values.map { p =>
+        p.decltpe.map(t => s"${p.name.value}: ${t.syntax}").getOrElse(s"${p.name.value}: Any")
+      }.mkString(", ")
+      s"($ps) => ${emitCaseBody(body)}"
     case Term.Block(stats) =>
       val items = stats.map {
         case t: Term => emitCaseBody(t)
