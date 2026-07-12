@@ -1,5 +1,25 @@
 # Bug tracker
 
+## v21-native-distributed-loopback-provider-missing — NamedHandler is absent from standard runtime
+
+**Status:** open (2026-07-12); found by codex after the core-free Actors slice
+landed while continuing TI-8.2d3.
+
+- **Real-harness repro:** run `bin/ssc-standard run` and repeat with
+  `--bytecode` on `examples/distributed-join.ssc` and
+  `examples/distributed-log-aggregation.ssc`.
+- **Observed:** all four runs exit 1 before file I/O at
+  `ssc: unbound global: NamedHandler`; no stdout.
+- **Expected:** a required core-free provider owns the exact named-handler,
+  stage, local-loopback cluster, distributed map/filter, shuffle group/reduce,
+  result, and close contracts used by these two standard examples. Fixed input
+  fixtures produce deterministic output on VM/ASM/build-jvm without actor
+  network transport, the v1 scheduler, or compatibility fallback.
+- **Plan/done-when:** specify portable values and deterministic partition/order/
+  error semantics, implement and unit-test a ServiceLoader provider, prove both
+  public programs with fixed inputs on all standard JVM paths, pass the full
+  release/dependency gates, and retire only the two distributed taxonomy rows.
+
 ## v21-native-actors-provider-missing — runActors is absent from standard native runtime
 
 **Status:** fixed (2026-07-12, provider `289b828b9`, language/runtime

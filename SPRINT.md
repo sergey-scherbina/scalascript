@@ -2969,6 +2969,42 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     taxonomy is 4 language / 6 standard / 10
                                     blockers / 22 total. Full release gate and
                                     conformance pass 11/11.
+                        - [ ] **TI-8.2d3k core-free distributed local loopback:**
+                              the two blocking distributed MapReduce examples
+                              fail before I/O at `NamedHandler`. Add one required
+                              v2-native provider for their deterministic local
+                              loopback contract; do not import actor networking,
+                              the v1 interpreter/scheduler, or PluginBridge.
+                              - [x] **TI-8.2d3k0 installed baseline:** VM and
+                                    direct ASM both fail `distributed-join.ssc`
+                                    and `distributed-log-aggregation.ssc` with
+                                    `unbound global: NamedHandler` and no stdout.
+                                    Track as
+                                    `v21-native-distributed-loopback-provider-missing`.
+                              - [ ] **TI-8.2d3k1 provider contract:** define
+                                    portable NamedHandler/registry, Node/Cluster,
+                                    Stage/MapOp/FilterOp/FlatMapOp, ShuffleStage,
+                                    DistributedResult fields, partition ordering,
+                                    group/reduce ordering, missing-handler/error,
+                                    duplicate registration, close, and batch
+                                    isolation semantics. Commit before code.
+                              - [ ] **TI-8.2d3k2 implementation + unit:** create
+                                    `v2/runtime/std/distributed-plugin`, wire its
+                                    required ServiceLoader/artifact/dependency
+                                    roots, and cover map/filter/flatMap, groupBy,
+                                    reduceByKey, ordering, result fields, missing
+                                    handlers, registry replacement, and close.
+                              - [ ] **TI-8.2d3k3 assembled contract:** add fixed
+                                    CSV/log inputs and exact outputs for both
+                                    public examples on VM/direct ASM/build-jvm.
+                                    The provider is deliberately process-local;
+                                    network distribution remains explicit
+                                    advanced-provider work.
+                              - [ ] **TI-8.2d3k4 release closure:** extend native
+                                    entry, isolation/dependency, slim, and
+                                    build-jvm gates; run full corpus/parity/
+                                    taxonomy and fresh `v2-*` conformance. Retire
+                                    only the two exact distributed rows and push.
                         - [x] **TI-8.2d3a core-free crypto breadth:** DONE
                               2026-07-11 (`f40b2b6b8`, taxonomy `6f4f0d13e`). Port the
                               established v1 crypto-plugin contracts—not its
