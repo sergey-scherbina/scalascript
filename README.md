@@ -106,6 +106,11 @@ bin/ssc run --bytecode examples/hello.ssc
 # Descriptive alias with the identical standard classpath
 bin/ssc-standard run examples/hello.ssc
 
+# Explicit native provider: adds only the selected provider classpath while
+# keeping StandardMain + the self-hosted frontend/VM or direct ASM
+bin/ssc-provider pdf run examples/invoice-pdf.ssc
+bin/ssc-provider pdf run --bytecode examples/pdf-extract-demo.ssc
+
 # Roll back through the explicit optional tools/compatibility tier
 bin/ssc-tools run --v1 examples/hello.ssc
 bin/ssc-tools run --compat-frontend examples/hello.ssc
@@ -467,9 +472,9 @@ Dataset/MapReduce typed wire calls can select `wireFormat = "msgpack" | "cbor"` 
 | `std.crypto` signature verify | `verifyEd25519`/`verifyEd25519Url`, `verifyRsaSha256` (PKCS1/PSS) — total verifiers (malformed → `false`, never throw) for trustless federation (JVM, including compiler-free native VM/ASM) |
 | `std.crypto` signing | `ed25519Sign`/`ed25519SignUrl`, `rsaSignSha256` (PKCS1/PSS) — private-key signers that round-trip with the verifiers; for chain-checkpoint evidence a third party can verify without a shared secret (JVM, including compiler-free native VM/ASM) |
 | `std.crypto` OTP + secret sharing | RFC 4226/6238 `hotp`/`totp`/`totpValidate` plus prime-field `shamirSplit`/`shamirRecover`; fixed vectors and threshold recovery agree on native VM/ASM |
-| `std.pdf` generation | `htmlToPdfBase64(html)` — render a confined HTML/CSS subset (table layout, A4, typography/borders/bg) to base64 PDF bytes via OpenHTMLtoPDF; drop-in for an HTML→PDF relay (JVM only) |
-| `std.pdf` extraction | `pdfToMarkdown(pdfBase64)` / `pdfPageCount(pdfBase64)` — read a PDF's text layer (Apache PDFBox), pages split by `---`; honest plain-text (no layout inference), non-PDF throws (JVM only) |
-| `std.mime` assembly | `buildMimeMessage(from,to,subject,htmlBody,attachments)` — hand-rolled RFC 5322 `multipart/mixed` (base64 HTML body + base64 attachments, RFC 2047 subject), ready for SMTP `DATA` (JVM only) |
+| `std.pdf` generation | `htmlToPdfBase64(html)` — render a confined HTML/CSS subset (table layout, A4, typography/borders/bg) to base64 PDF bytes via OpenHTMLtoPDF; explicit native VM/ASM provider: `ssc-provider pdf ...` (JVM only) |
+| `std.pdf` extraction | `pdfToMarkdown(pdfBase64)` / `pdfPageCount(pdfBase64)` — read a PDF's text layer (Apache PDFBox), pages split by `---`; explicit native VM/ASM provider, non-PDF throws (JVM only) |
+| `std.mime` assembly | `buildMimeMessage(from,to,subject,htmlBody,attachments)` — hand-rolled RFC 5322 `multipart/mixed`; the dependency-free MIME companion is selected with the explicit PDF invoice provider lane (JVM only) |
 | MCP × x402 | `mcpServer { srv => srv.tool(...).requirePayment(...) }` — paid LLM tools |
 
 ### Cluster, leader election, federation

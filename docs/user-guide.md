@@ -5108,6 +5108,25 @@ This is the no-domain path for opt-in capabilities such as `auth`, `oauth`,
 `sql`, `crypto`, `payments`, `payment-request`, `pdf`, `smtp`, `graphql`,
 `dstreams`, `pwa`, `nfc`, and `swing`.
 
+ScalaScript 2.1 also has core-free native provider lanes. These providers
+implement the v2 `NativePlugin` SPI and are staged outside
+`bin/lib/standard/jars`, so their dependencies are physically absent from
+plain `ssc`. Select one explicitly with `ssc-provider`; execution still uses
+`StandardMain`, the self-hosted frontend/checker, and native VM or direct ASM:
+
+```bash
+ssc-provider pdf run examples/invoice-pdf.ssc
+ssc-provider pdf run --bytecode examples/pdf-extract-demo.ssc
+```
+
+The PDF lane supplies `htmlToPdfBase64`, `pdfPageCount`, `pdfToMarkdown`, and
+the dependency-free `buildMimeMessage` companion needed by invoice email.
+OpenHTMLtoPDF, PDFBox, and jsoup remain under `bin/lib/providers/pdf/jars`;
+they are not copied into the standard runtime, compiler image, or generated
+default `build-jvm` artifact. Unknown provider names fail before source
+execution. Compiler-backed `.sscpkg` plugins remain an explicit `ssc-tools`
+surface and are not loaded by this native launcher.
+
 | Plugin | Intrinsics it provides |
 |--------|----------------------|
 | `std/json-plugin` | `jsonStringify`, `jsonParse`, `jsonRead`, `lookup`, `lookupOpt` |
