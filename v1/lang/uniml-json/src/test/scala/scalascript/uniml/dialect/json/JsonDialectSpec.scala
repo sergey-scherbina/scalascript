@@ -141,6 +141,20 @@ final class JsonDialectSpec extends AnyFunSuite:
     assert(nodeLimited.status == CompletionStatus.Halted)
     assert(nodeLimited.diagnostics.exists(_.code == "uniml.limit.nodes"))
 
+    val tokenLimited = Json.parse(
+      SourceInput.fromString(source, "12"),
+      JsonLimits(core = Limits(maxTokenCodePoints = 1)),
+    )
+    assert(tokenLimited.status == CompletionStatus.Halted)
+    assert(tokenLimited.diagnostics.exists(_.code == "uniml.limit.token"))
+
+    val diagnosticsLimited = Json.parse(
+      SourceInput.fromString(source, "bad worse"),
+      JsonLimits(core = Limits(maxDiagnostics = 1)),
+    )
+    assert(diagnosticsLimited.status == CompletionStatus.Halted)
+    assert(diagnosticsLimited.diagnostics.exists(_.code == "uniml.limit.diagnostics"))
+
     val depthLimited = Json.parse(
       SourceInput.fromString(source, "[[[]]]"),
       JsonLimits(core = Limits(maxDepth = 2)),
