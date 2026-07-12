@@ -4234,6 +4234,12 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
             freeze to 199 rows without changing delegated membership if it is
             standard-identical, then rerun exhaustive release gates on current
             `origin/main` before closure.
+      - [ ] Classify the concurrently landed
+            `examples/scljet-readonly.ssc` M2c row after the 199-row gate passed.
+            Keep its declared `ssc-tools run --v1` JVM VFS host-plugin boundary,
+            add its existing exact real-filesystem smoke to the explicit target
+            manifest, advance the strict corpus freeze to 200 rows / 15 delegated,
+            and rerun the exhaustive release gate before closure.
 
 - [x] **v2-production-readiness-audit** - DONE 2026-07-10:
       bounded audit after closing the layout/YAML and indent-demo blockers.
