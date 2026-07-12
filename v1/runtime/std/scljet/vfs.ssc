@@ -1,0 +1,136 @@
+---
+name: scljet-vfs
+version: 0.1.0
+description: M0 target-neutral random-access, locking, durability, and shared-memory VFS contracts for SclJet
+package: scljet
+exports:
+  - FileKind
+  - MainDatabaseFile
+  - MainJournalFile
+  - WalFile
+  - ShmFile
+  - TempDatabaseFile
+  - TempJournalFile
+  - TransientFile
+  - OpenFlags
+  - LockLevel
+  - LockNone
+  - LockShared
+  - LockReserved
+  - LockPending
+  - LockExclusive
+  - SyncFlags
+  - DeviceCharacteristic
+  - AtomicWrite
+  - SafeAppend
+  - SequentialWrite
+  - PowersafeOverwrite
+  - UndeletableWhenOpen
+  - AtomicDelete
+  - ShmLockMode
+  - ShmSharedLock
+  - ShmExclusiveLock
+  - ShmSharedUnlock
+  - ShmExclusiveUnlock
+  - VfsError
+  - SharedRegion
+  - SqliteFile
+  - SqliteVfs
+---
+
+# SclJet virtual filesystem
+
+The storage engine depends only on these synchronous target-neutral contracts.
+Host adapters and intrinsics live in separate plugins.
+
+[ByteSlice](values.ssc)
+
+## File identity and open flags
+
+```scalascript
+sealed trait FileKind
+case object MainDatabaseFile extends FileKind
+case object MainJournalFile extends FileKind
+case object WalFile extends FileKind
+case object ShmFile extends FileKind
+case object TempDatabaseFile extends FileKind
+case object TempJournalFile extends FileKind
+case object TransientFile extends FileKind
+
+case class OpenFlags(
+  readOnly: Boolean,
+  readWrite: Boolean,
+  create: Boolean,
+  exclusive: Boolean,
+  deleteOnClose: Boolean
+)
+```
+
+## Locks, sync, and device capabilities
+
+```scalascript
+sealed trait LockLevel
+case object LockNone extends LockLevel
+case object LockShared extends LockLevel
+case object LockReserved extends LockLevel
+case object LockPending extends LockLevel
+case object LockExclusive extends LockLevel
+
+case class SyncFlags(dataOnly: Boolean, full: Boolean, directory: Boolean)
+
+sealed trait DeviceCharacteristic
+case class AtomicWrite(bytes: Int) extends DeviceCharacteristic
+case object SafeAppend extends DeviceCharacteristic
+case object SequentialWrite extends DeviceCharacteristic
+case object PowersafeOverwrite extends DeviceCharacteristic
+case object UndeletableWhenOpen extends DeviceCharacteristic
+case object AtomicDelete extends DeviceCharacteristic
+
+sealed trait ShmLockMode
+case object ShmSharedLock extends ShmLockMode
+case object ShmExclusiveLock extends ShmLockMode
+case object ShmSharedUnlock extends ShmLockMode
+case object ShmExclusiveUnlock extends ShmLockMode
+
+case class VfsError(code: String, message: String, retryable: Boolean)
+```
+
+## Shared memory and random-access files
+
+```scalascript
+trait SharedRegion:
+  def length: Int
+  def read(offset: Int, length: Int): Either[VfsError, ByteSlice]
+  def write(offset: Int, bytes: ByteSlice): Either[VfsError, Unit]
+
+trait SqliteFile:
+  def readAt(offset: Long, length: Int): Either[VfsError, ByteSlice]
+  def writeAt(offset: Long, bytes: ByteSlice): Either[VfsError, Unit]
+  def truncate(size: Long): Either[VfsError, Unit]
+  def sync(flags: SyncFlags): Either[VfsError, Unit]
+  def size(): Either[VfsError, Long]
+  def lock(level: LockLevel): Either[VfsError, Unit]
+  def unlock(level: LockLevel): Either[VfsError, Unit]
+  def checkReservedLock(): Either[VfsError, Boolean]
+  def sectorSize: Int
+  def deviceCharacteristics: List[DeviceCharacteristic]
+  def shmMap(region: Int, size: Int, extend: Boolean): Either[VfsError, SharedRegion]
+  def shmLock(offset: Int, count: Int, mode: ShmLockMode): Either[VfsError, Unit]
+  def shmBarrier(): Unit
+  def shmUnmap(delete: Boolean): Either[VfsError, Unit]
+  def close(): Either[VfsError, Unit]
+```
+
+## VFS
+
+```scalascript
+trait SqliteVfs:
+  def name: String
+  def open(path: String, kind: FileKind, flags: OpenFlags): Either[VfsError, SqliteFile]
+  def delete(path: String, syncDirectory: Boolean): Either[VfsError, Unit]
+  def exists(path: String): Either[VfsError, Boolean]
+  def fullPath(path: String): Either[VfsError, String]
+  def randomness(length: Int): Either[VfsError, ByteSlice]
+  def sleep(millis: Long): Unit
+  def currentTimeMillis(): Long
+```

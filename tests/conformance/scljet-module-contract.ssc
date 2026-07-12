@@ -1,0 +1,39 @@
+#!/usr/bin/env ssc
+---
+name: scljet-module-contract
+description: M0 pure SclJet public values and contracts import without a host database provider
+backends: [int]
+---
+
+# SclJet M0 contract scaffold
+
+The scaffold deliberately exposes portable values and interfaces but no fake
+working engine constructor.
+
+[ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlText, SqlBlob, SqliteColumn, SqliteRow, StrictSqlite, ExtendedSqlite, ReadOnlySalvage, LockShared, LockExclusive, FunctionFlags](std/scljet/index.ssc)
+
+```scalascript
+val bytes = ByteSlice(List(0, 127, 255))
+val row = SqliteRow(List(
+  SqliteColumn("id", "INTEGER", SqlInteger(7)),
+  SqliteColumn("name", "TEXT", SqlText("Ada")),
+  SqliteColumn("payload", "BLOB", SqlBlob(bytes)),
+  SqliteColumn("optional", "", SqlNull)
+))
+
+println(bytes.bytes.length)
+println(row.columns.length)
+
+row.columns.head.value match
+  case SqlInteger(value) => println(value)
+  case _ => println(-1)
+
+val compatibility = List(StrictSqlite, ExtendedSqlite, ReadOnlySalvage)
+println(compatibility.length)
+
+val locks = List(LockShared, LockExclusive)
+println(locks.length)
+
+val flags = FunctionFlags(true, true, false, false)
+println(flags.deterministic)
+```

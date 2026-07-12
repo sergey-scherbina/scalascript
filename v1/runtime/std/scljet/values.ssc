@@ -1,0 +1,219 @@
+---
+name: scljet-values
+version: 0.1.0
+description: M0 portable values, errors, limits, and open options for the pure ScalaScript SQLite engine
+package: scljet
+exports:
+  - ByteSlice
+  - SqliteValue
+  - SqlNull
+  - SqlInteger
+  - SqlReal
+  - SqlText
+  - SqlBlob
+  - SqliteColumn
+  - SqliteRow
+  - SqliteErrorCode
+  - SqliteErrorGeneric
+  - SqliteInternal
+  - SqlitePermission
+  - SqliteAbort
+  - SqliteBusy
+  - SqliteLocked
+  - SqliteNoMemory
+  - SqliteReadOnly
+  - SqliteInterrupt
+  - SqliteIo
+  - SqliteCorrupt
+  - SqliteNotFound
+  - SqliteFull
+  - SqliteCannotOpen
+  - SqliteProtocol
+  - SqliteSchemaChanged
+  - SqliteTooBig
+  - SqliteConstraint
+  - SqliteMismatch
+  - SqliteMisuse
+  - SqliteFormat
+  - SqliteRange
+  - SqliteNotADatabase
+  - SqliteUnsupportedCapability
+  - SqliteError
+  - SqliteCompatibility
+  - StrictSqlite
+  - ExtendedSqlite
+  - ReadOnlySalvage
+  - SqliteOpenMode
+  - OpenReadOnly
+  - OpenReadWrite
+  - OpenReadWriteCreate
+  - OpenMemory
+  - SqliteJournalMode
+  - JournalDelete
+  - JournalTruncate
+  - JournalPersist
+  - JournalMemory
+  - JournalWal
+  - JournalOff
+  - SqliteSyncMode
+  - SyncOff
+  - SyncNormal
+  - SyncFull
+  - SyncExtra
+  - TransactionMode
+  - TransactionDeferred
+  - TransactionImmediate
+  - TransactionExclusive
+  - CheckpointMode
+  - CheckpointPassive
+  - CheckpointFull
+  - CheckpointRestart
+  - CheckpointTruncate
+  - CheckpointResult
+  - SqliteLimits
+  - SqliteOpenOptions
+---
+
+# SclJet values and options
+
+M0 portable data contracts for the pure ScalaScript SQLite engine. The actual
+byte codec, pager, B-tree, journal, WAL, and SQL implementation land in later
+milestones from `specs/scljet.md`.
+
+## Bytes and SQL storage classes
+
+```scalascript
+// M0 representation only. M1 provides the bounds-checked, constant-time byte
+// implementation behind this target-neutral name without exposing host buffers.
+case class ByteSlice(bytes: List[Int])
+
+sealed trait SqliteValue
+case object SqlNull extends SqliteValue
+case class SqlInteger(value: Long) extends SqliteValue
+case class SqlReal(value: Double) extends SqliteValue
+case class SqlText(value: String) extends SqliteValue
+case class SqlBlob(value: ByteSlice) extends SqliteValue
+
+// Ordered columns preserve duplicate result labels.
+case class SqliteColumn(name: String, declaredType: String, value: SqliteValue)
+case class SqliteRow(columns: List[SqliteColumn])
+```
+
+## Errors
+
+```scalascript
+sealed trait SqliteErrorCode
+case object SqliteErrorGeneric extends SqliteErrorCode
+case object SqliteInternal extends SqliteErrorCode
+case object SqlitePermission extends SqliteErrorCode
+case object SqliteAbort extends SqliteErrorCode
+case object SqliteBusy extends SqliteErrorCode
+case object SqliteLocked extends SqliteErrorCode
+case object SqliteNoMemory extends SqliteErrorCode
+case object SqliteReadOnly extends SqliteErrorCode
+case object SqliteInterrupt extends SqliteErrorCode
+case object SqliteIo extends SqliteErrorCode
+case object SqliteCorrupt extends SqliteErrorCode
+case object SqliteNotFound extends SqliteErrorCode
+case object SqliteFull extends SqliteErrorCode
+case object SqliteCannotOpen extends SqliteErrorCode
+case object SqliteProtocol extends SqliteErrorCode
+case object SqliteSchemaChanged extends SqliteErrorCode
+case object SqliteTooBig extends SqliteErrorCode
+case object SqliteConstraint extends SqliteErrorCode
+case object SqliteMismatch extends SqliteErrorCode
+case object SqliteMisuse extends SqliteErrorCode
+case object SqliteFormat extends SqliteErrorCode
+case object SqliteRange extends SqliteErrorCode
+case object SqliteNotADatabase extends SqliteErrorCode
+case object SqliteUnsupportedCapability extends SqliteErrorCode
+
+case class SqliteError(
+  code: SqliteErrorCode,
+  extendedCode: Int,
+  message: String,
+  sqlOffset: Option[Int],
+  fileOffset: Option[Long],
+  pageNumber: Option[Long],
+  cause: Option[String]
+)
+```
+
+## Open and transaction modes
+
+```scalascript
+sealed trait SqliteCompatibility
+case object StrictSqlite extends SqliteCompatibility
+case object ExtendedSqlite extends SqliteCompatibility
+case object ReadOnlySalvage extends SqliteCompatibility
+
+sealed trait SqliteOpenMode
+case object OpenReadOnly extends SqliteOpenMode
+case object OpenReadWrite extends SqliteOpenMode
+case object OpenReadWriteCreate extends SqliteOpenMode
+case object OpenMemory extends SqliteOpenMode
+
+sealed trait SqliteJournalMode
+case object JournalDelete extends SqliteJournalMode
+case object JournalTruncate extends SqliteJournalMode
+case object JournalPersist extends SqliteJournalMode
+case object JournalMemory extends SqliteJournalMode
+case object JournalWal extends SqliteJournalMode
+case object JournalOff extends SqliteJournalMode
+
+sealed trait SqliteSyncMode
+case object SyncOff extends SqliteSyncMode
+case object SyncNormal extends SqliteSyncMode
+case object SyncFull extends SqliteSyncMode
+case object SyncExtra extends SqliteSyncMode
+
+sealed trait TransactionMode
+case object TransactionDeferred extends TransactionMode
+case object TransactionImmediate extends TransactionMode
+case object TransactionExclusive extends TransactionMode
+
+sealed trait CheckpointMode
+case object CheckpointPassive extends CheckpointMode
+case object CheckpointFull extends CheckpointMode
+case object CheckpointRestart extends CheckpointMode
+case object CheckpointTruncate extends CheckpointMode
+
+case class CheckpointResult(
+  busy: Boolean,
+  walFrames: Long,
+  checkpointedFrames: Long
+)
+```
+
+## Limits and open options
+
+```scalascript
+case class SqliteLimits(
+  sqlBytes: Long,
+  columns: Int,
+  expressionDepth: Int,
+  compoundSelectTerms: Int,
+  functionArgs: Int,
+  attachedDatabases: Int,
+  patternBytes: Long,
+  variables: Int,
+  triggerDepth: Int,
+  pageCount: Long,
+  valueBytes: Long,
+  cachePages: Int,
+  overflowPages: Long,
+  schemaObjects: Int,
+  workBytes: Long
+)
+
+case class SqliteOpenOptions(
+  mode: SqliteOpenMode,
+  compatibility: SqliteCompatibility,
+  journalMode: SqliteJournalMode,
+  synchronous: SqliteSyncMode,
+  busyTimeoutMillis: Long,
+  pageCachePages: Int,
+  trustedSchema: Boolean,
+  limits: SqliteLimits
+)
+```

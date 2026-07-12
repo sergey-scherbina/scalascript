@@ -1,0 +1,218 @@
+---
+name: scljet
+version: 0.1.0
+description: M0 public contracts for a pure ScalaScript SQLite 3 compatible storage and SQL engine; no engine implementation yet
+package: scljet
+exports:
+  - ByteSlice
+  - SqliteValue
+  - SqlNull
+  - SqlInteger
+  - SqlReal
+  - SqlText
+  - SqlBlob
+  - SqliteColumn
+  - SqliteRow
+  - SqliteErrorCode
+  - SqliteErrorGeneric
+  - SqliteInternal
+  - SqlitePermission
+  - SqliteAbort
+  - SqliteBusy
+  - SqliteLocked
+  - SqliteNoMemory
+  - SqliteReadOnly
+  - SqliteInterrupt
+  - SqliteIo
+  - SqliteCorrupt
+  - SqliteNotFound
+  - SqliteFull
+  - SqliteCannotOpen
+  - SqliteProtocol
+  - SqliteSchemaChanged
+  - SqliteTooBig
+  - SqliteConstraint
+  - SqliteMismatch
+  - SqliteMisuse
+  - SqliteFormat
+  - SqliteRange
+  - SqliteNotADatabase
+  - SqliteUnsupportedCapability
+  - SqliteError
+  - SqliteCompatibility
+  - StrictSqlite
+  - ExtendedSqlite
+  - ReadOnlySalvage
+  - SqliteOpenMode
+  - OpenReadOnly
+  - OpenReadWrite
+  - OpenReadWriteCreate
+  - OpenMemory
+  - SqliteJournalMode
+  - JournalDelete
+  - JournalTruncate
+  - JournalPersist
+  - JournalMemory
+  - JournalWal
+  - JournalOff
+  - SqliteSyncMode
+  - SyncOff
+  - SyncNormal
+  - SyncFull
+  - SyncExtra
+  - TransactionMode
+  - TransactionDeferred
+  - TransactionImmediate
+  - TransactionExclusive
+  - CheckpointMode
+  - CheckpointPassive
+  - CheckpointFull
+  - CheckpointRestart
+  - CheckpointTruncate
+  - CheckpointResult
+  - SqliteLimits
+  - SqliteOpenOptions
+  - FileKind
+  - MainDatabaseFile
+  - MainJournalFile
+  - WalFile
+  - ShmFile
+  - TempDatabaseFile
+  - TempJournalFile
+  - TransientFile
+  - OpenFlags
+  - LockLevel
+  - LockNone
+  - LockShared
+  - LockReserved
+  - LockPending
+  - LockExclusive
+  - SyncFlags
+  - DeviceCharacteristic
+  - AtomicWrite
+  - SafeAppend
+  - SequentialWrite
+  - PowersafeOverwrite
+  - UndeletableWhenOpen
+  - AtomicDelete
+  - ShmLockMode
+  - ShmSharedLock
+  - ShmExclusiveLock
+  - ShmSharedUnlock
+  - ShmExclusiveUnlock
+  - VfsError
+  - SharedRegion
+  - SqliteFile
+  - SqliteVfs
+  - FunctionArity
+  - FixedArity
+  - VariadicArity
+  - FunctionFlags
+  - ScalarFunction
+  - AggregateFunction
+  - WindowFunction
+  - SqliteCollation
+  - StatementStep
+  - RowStep
+  - DoneStep
+  - SqliteCursor
+  - SqliteStatement
+  - SqliteResult
+  - RowsResult
+  - UpdatedResult
+  - SqliteConnection
+  - SqliteEngine
+---
+
+# SclJet — pure ScalaScript SQLite engine contracts
+
+This M0 module fixes the portable public boundary for the engine specified in
+`specs/scljet.md`. It intentionally has no concrete `SqliteEngine`
+or `open` implementation yet; later milestones fill the layers behind these
+interfaces and prove compatibility through differential and crash testing.
+
+[ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, SqliteColumn, SqliteRow, SqliteErrorCode, SqliteErrorGeneric, SqliteInternal, SqlitePermission, SqliteAbort, SqliteBusy, SqliteLocked, SqliteNoMemory, SqliteReadOnly, SqliteInterrupt, SqliteIo, SqliteCorrupt, SqliteNotFound, SqliteFull, SqliteCannotOpen, SqliteProtocol, SqliteSchemaChanged, SqliteTooBig, SqliteConstraint, SqliteMismatch, SqliteMisuse, SqliteFormat, SqliteRange, SqliteNotADatabase, SqliteUnsupportedCapability, SqliteError, SqliteCompatibility, StrictSqlite, ExtendedSqlite, ReadOnlySalvage, SqliteOpenMode, OpenReadOnly, OpenReadWrite, OpenReadWriteCreate, OpenMemory, SqliteJournalMode, JournalDelete, JournalTruncate, JournalPersist, JournalMemory, JournalWal, JournalOff, SqliteSyncMode, SyncOff, SyncNormal, SyncFull, SyncExtra, TransactionMode, TransactionDeferred, TransactionImmediate, TransactionExclusive, CheckpointMode, CheckpointPassive, CheckpointFull, CheckpointRestart, CheckpointTruncate, CheckpointResult, SqliteLimits, SqliteOpenOptions](values.ssc)
+
+[FileKind, MainDatabaseFile, MainJournalFile, WalFile, ShmFile, TempDatabaseFile, TempJournalFile, TransientFile, OpenFlags, LockLevel, LockNone, LockShared, LockReserved, LockPending, LockExclusive, SyncFlags, DeviceCharacteristic, AtomicWrite, SafeAppend, SequentialWrite, PowersafeOverwrite, UndeletableWhenOpen, AtomicDelete, ShmLockMode, ShmSharedLock, ShmExclusiveLock, ShmSharedUnlock, ShmExclusiveUnlock, VfsError, SharedRegion, SqliteFile, SqliteVfs](vfs.ssc)
+
+## Application-defined functions and collations
+
+```scalascript
+sealed trait FunctionArity
+case class FixedArity(value: Int) extends FunctionArity
+case object VariadicArity extends FunctionArity
+
+case class FunctionFlags(
+  deterministic: Boolean,
+  directOnly: Boolean,
+  innocuous: Boolean,
+  subtypeAware: Boolean
+)
+
+trait ScalarFunction:
+  def name: String
+  def arity: FunctionArity
+  def flags: FunctionFlags
+  def call(args: List[SqliteValue]): Either[SqliteError, SqliteValue]
+
+trait AggregateFunction:
+  def name: String
+  def arity: FunctionArity
+  def flags: FunctionFlags
+  def initial(): Any
+  def step(state: Any, args: List[SqliteValue]): Either[SqliteError, Any]
+  def finish(state: Any): Either[SqliteError, SqliteValue]
+
+trait WindowFunction extends AggregateFunction:
+  def inverse(state: Any, args: List[SqliteValue]): Either[SqliteError, Any]
+  def value(state: Any): Either[SqliteError, SqliteValue]
+
+trait SqliteCollation:
+  def name: String
+  def compare(left: String, right: String): Int
+```
+
+## Statement and cursor lifecycle
+
+```scalascript
+sealed trait StatementStep
+case class RowStep(row: SqliteRow) extends StatementStep
+case object DoneStep extends StatementStep
+
+trait SqliteCursor:
+  def columns: List[String]
+  def next(): Either[SqliteError, Option[SqliteRow]]
+  def close(): Unit
+
+trait SqliteStatement:
+  def bind(index: Int, value: SqliteValue): Either[SqliteError, Unit]
+  def bind(name: String, value: SqliteValue): Either[SqliteError, Unit]
+  def step(): Either[SqliteError, StatementStep]
+  def reset(): Either[SqliteError, Unit]
+  def clearBindings(): Unit
+  def close(): Unit
+
+sealed trait SqliteResult
+case class RowsResult(cursor: SqliteCursor) extends SqliteResult
+case class UpdatedResult(changes: Long, lastInsertRowid: Long) extends SqliteResult
+```
+
+## Connection and engine
+
+```scalascript
+trait SqliteConnection:
+  def prepare(sql: String): Either[SqliteError, SqliteStatement]
+  def execute(sql: String, params: List[SqliteValue]): Either[SqliteError, SqliteResult]
+  def begin(mode: TransactionMode): Either[SqliteError, Unit]
+  def commit(): Either[SqliteError, Unit]
+  def rollback(): Either[SqliteError, Unit]
+  def checkpoint(mode: CheckpointMode): Either[SqliteError, CheckpointResult]
+  def registerScalar(function: ScalarFunction): Either[SqliteError, Unit]
+  def registerAggregate(function: AggregateFunction): Either[SqliteError, Unit]
+  def registerWindow(function: WindowFunction): Either[SqliteError, Unit]
+  def registerCollation(collation: SqliteCollation): Either[SqliteError, Unit]
+  def close(): Either[SqliteError, Unit]
+
+trait SqliteEngine:
+  def open(vfs: SqliteVfs, path: String, options: SqliteOpenOptions): Either[SqliteError, SqliteConnection]
+```
