@@ -1,0 +1,26 @@
+---
+name: effect-deep-handler-state
+---
+
+# deep-handler state threading (handler arms return functions)
+
+Regression for `v1-jvm-state-threaded-handler-codegen`: handler arms that return
+lambdas thread an accumulator through `resume(())(s + n)`, and the return arm uses
+it (`x + s`). The final `threaded(0)` applies the handle result as a function.
+INT/JS always ran this; run-jvm now compiles + runs it too.
+
+```scalascript
+effect Cnt:
+  def tick(n: Int): Unit
+
+def prog(): Int =
+  Cnt.tick(5)
+  Cnt.tick(3)
+  100
+
+val threaded = handle(prog()) {
+  case Cnt.tick(n, resume) => (s: Int) => resume(())(s + n)
+  case Return(x) => (s: Int) => x + s
+}
+println(threaded(0))
+```

@@ -4547,7 +4547,15 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
                         case None    => emitted
                     case _ => emitted
                 }.mkString(", ")
-                s"$f($args)"
+                // A handle-result val applied as a function (`threaded(0)`) is Any-typed;
+                // cast the callee to `Any => Any` so the application type-checks.
+                // (deep-handler state threading — v1-jvm-state-threaded-handler-codegen.)
+                val fApp = calleeName match
+                  case Some(n) if (handleResultVals.contains(n) || anyTypedVals.contains(n))
+                                  && app.argClause.values.lengthCompare(1) == 0 =>
+                    s"$f.asInstanceOf[Any => Any]"
+                  case _ => f
+                s"$fApp($args)"
       }
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) =>
       val args = argClause.values
@@ -4760,7 +4768,12 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
     case Term.Apply.After_4_6_0(fun, argClause) =>
       val f = emitCaseBody(fun)
       val a = argClause.values.map(emitCaseBody).mkString(", ")
-      s"$f($a)"
+      // `resume(())(x)`: applying the RESULT of a call. In a handler body that
+      // intermediate is Any-typed, so cast it to a function before applying.
+      // (deep-handler state threading — v1-jvm-state-threaded-handler-codegen.)
+      fun match
+        case _: Term.Apply => s"($f).asInstanceOf[Any => Any]($a)"
+        case _             => s"$f($a)"
     case Term.Function.After_4_6_0(paramClause, body) =>
       // Annotate each param with its declared type (or `: Any` when un-annotated) so a
       // lambda that lands in an Any-typed handler slot has an inferable parameter type.
