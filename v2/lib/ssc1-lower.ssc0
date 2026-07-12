@@ -143,6 +143,10 @@ def listVarsCell = #cell.new(Nil)
 -- flattened in def nodes but calls retain nested App clauses; this table lets
 -- resolveE reconcile only a known full curried call without relaxing CoreIR.
 def defAritiesCell = #cell.new(Nil)
+-- Source declarations that omitted a parameter clause. Their CoreIR body is a
+-- nullary factory, but a bare source reference denotes the produced value.
+-- Explicit `def f()` declarations are intentionally absent from this set.
+def parameterlessDefsCell = #cell.new(Nil)
 
 def defArity = (name) =>
   let rec go = (entries) =>
@@ -155,6 +159,30 @@ def defArity = (name) =>
         }
     } in
   go(#cell.get(defAritiesCell))
+
+def isParameterlessDef = (name) =>
+  let rec go = (names) =>
+    match names {
+      case Nil => false
+      case Cons(h, rest) => if #seq(h, name) then true else go(rest)
+    } in
+  go(#cell.get(parameterlessDefsCell))
+
+def isParameterlessBody = (body) =>
+  match body {
+    case Pair(tag, data) => #seq(tag, "parameterless")
+  }
+
+-- A callee position already supplies an explicit argument clause. Do not
+-- auto-apply it while resolving the surrounding App or `f()` would become
+-- `f()()`.
+def resolveCallee = (fn) =>
+  match fn {
+    case Pair(tag, data) =>
+      if #seq(tag, "var") then
+        if isParameterlessDef(data) then fn else resolveE(fn)
+      else resolveE(fn)
+  }
 
 -- Check if a name is a registered list variable
 def isListVar = (name) =>
@@ -992,7 +1020,10 @@ def resolveE = (expr) =>
       if #seq(tag, "int") then expr
       else if #seq(tag, "str") then expr
       else if #seq(tag, "bool") then expr
-      else if #seq(tag, "var") then expr
+      else if #seq(tag, "var") then
+        if isParameterlessDef(data) then Pair("parameterless_app", data) else expr
+      else if #seq(tag, "parameterless_app") then expr
+      else if #seq(tag, "parameterless") then resolveE(data)
       else if #seq(tag, "summon") then
         match parseGivenType(data) {
           case Pair(tc, typeName) =>
@@ -1100,13 +1131,13 @@ def resolveE = (expr) =>
                                     match handlerRest {
                                       case Nil => Pair("prim", Pair("effect.handle",
                                         Cons(resolvedCompute, Cons(resolveE(handlerExpr), Nil))))
-                                      case _ => Pair("app", Pair(resolveE(fn), stripNargs(rargs)))
+                                      case _ => Pair("app", Pair(resolveCallee(fn), stripNargs(rargs)))
                                     }
-                                  case Nil => Pair("app", Pair(resolveE(fn), Nil))
+                                  case Nil => Pair("app", Pair(resolveCallee(fn), Nil))
                                 }
-                              case _ => Pair("app", Pair(resolveE(fn), stripNargs(rargs)))
+                              case _ => Pair("app", Pair(resolveCallee(fn), stripNargs(rargs)))
                             }
-                          case _ => Pair("app", Pair(resolveE(fn), stripNargs(rargs)))
+                          case _ => Pair("app", Pair(resolveCallee(fn), stripNargs(rargs)))
                         }
                     }
                   else
@@ -1124,11 +1155,11 @@ def resolveE = (expr) =>
                             if found then
                               if #i.eq(lenL(combinedArgs), arity) then
                                 resolveE(Pair("app", Pair(innerFn, combinedArgs)))
-                              else Pair("app", Pair(resolveE(fn), stripNargs(rargs)))
-                            else Pair("app", Pair(resolveE(fn), stripNargs(rargs)))
+                              else Pair("app", Pair(resolveCallee(fn), stripNargs(rargs)))
+                            else Pair("app", Pair(resolveCallee(fn), stripNargs(rargs)))
                         }
                     }
-                else Pair("app", Pair(resolveE(fn), stripNargs(rargs)))
+                else Pair("app", Pair(resolveCallee(fn), stripNargs(rargs)))
                   }
             }
         }
@@ -1339,6 +1370,8 @@ def lowerE = (scope, rawExpr) =>
         IrLit(IrStr(data))
       else if #seq(tag, "bool") then
         IrLit(IrBool(if #seq(data, "true") then true else false))
+      else if #seq(tag, "parameterless_app") then
+        IrApp(IrGlobal(data), Nil)
       else if #seq(tag, "var") then
         -- KC10: check for mutable var ("@name" or "@@name" in scope → cell.get/lcell.get)
         let plain = lookupVar(scope, data) in
@@ -3369,6 +3402,26 @@ def collectDefArities = (stmts) =>
       }
   }
 
+def collectParameterlessDefs = (stmts) =>
+  match stmts {
+    case Nil => Nil
+    case Cons(stmt, rest) =>
+      match stmt {
+        case Pair(tag, data) =>
+          if #seq(tag, "def") then
+            match data {
+              case Pair(name, defRest) =>
+                match defRest {
+                  case Pair(params, body) =>
+                    if isParameterlessBody(body) then
+                      Cons(name, collectParameterlessDefs(rest))
+                    else collectParameterlessDefs(rest)
+                }
+            }
+          else collectParameterlessDefs(rest)
+      }
+  }
+
 def lowerProg = (stmts) =>
   -- K62.18: imported extension identity is AST-owned, never transient parser
   -- state. This must run before resolveE classifies selected method calls.
@@ -3391,6 +3444,7 @@ def lowerProg = (stmts) =>
   let _mv = #cell.set(mapVarsCell, Nil) in
   let _lv = #cell.set(listVarsCell, Nil) in
   let _da = #cell.set(defAritiesCell, collectDefArities(stmts)) in
+  let _pd = #cell.set(parameterlessDefsCell, collectParameterlessDefs(stmts)) in
   -- K62.6b: register top-level var names BEFORE lowering so references resolve to cells
   let _tv = #cell.set(topVarsCell, collectTopVars(stmts)) in
   let topValNames = collectTopVals(stmts) in

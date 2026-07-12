@@ -119,6 +119,12 @@ PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
   "$sandbox/other/graph-storage-interpreter.ssc" -o "$sandbox/graph.jar"
 [[ $(PATH="$clean_path" java -jar "$sandbox/graph.jar") == 'imports:b.ssc' ]]
 
+cp "$ROOT/examples/dsl-mini-language.ssc" "$sandbox/other/dsl-mini-language.ssc"
+PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
+  "$sandbox/other/dsl-mini-language.ssc" -o "$sandbox/dsl-mini-language.jar"
+dsl_mini_language_expected=$'=== success: 2 * x + y ===\nresult: 23\n=== name-resolve error: x + z ===\nPassError(name-resolve, undefined variable: z, <unknown>, 0, 0)\n=== type-check error: x / 0 ===\nPassError(type-check, division by zero, <unknown>, 0, 0)\n=== parse error: 1 @ 2 ===\nPassError(parse, cannot parse atom: 1 @ 2, <unknown>, 0, 0)\n=== pipeline report: 2 * x + y ===\n  [parse] ok\n  [name-resolve] ok\n  [type-check] ok\n  [evaluate] ok'
+[[ $(PATH="$clean_path" java -jar "$sandbox/dsl-mini-language.jar") == "$dsl_mini_language_expected" ]]
+
 cp "$ROOT/examples/graph-rdf4j-http-storage.ssc" "$sandbox/other/graph-rdf4j-http-storage.ssc"
 PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
   "$sandbox/other/graph-rdf4j-http-storage.ssc" -o "$sandbox/graph-rdf4j.jar"
@@ -156,6 +162,8 @@ LC_ALL=C sort -c "$sandbox/entries"
   "$sandbox/distributed-join.jar" >"$sandbox/distributed.jdeps"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps -verbose:class \
   "$sandbox/graph.jar" >"$sandbox/graph.jdeps"
+"$jdeps_cmd" --multi-release base --ignore-missing-deps -verbose:class \
+  "$sandbox/dsl-mini-language.jar" >"$sandbox/dsl-mini-language.jdeps"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
   "$sandbox/a/app.jar" >"$sandbox/app.modules"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
@@ -174,6 +182,8 @@ LC_ALL=C sort -c "$sandbox/entries"
   "$sandbox/distributed-join.jar" >"$sandbox/distributed.modules"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
   "$sandbox/graph.jar" >"$sandbox/graph.modules"
+"$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
+  "$sandbox/dsl-mini-language.jar" >"$sandbox/dsl-mini-language.modules"
 
 forbidden='scala[./](meta|tools)|dotty[./]tools|scala3-compiler|compiler-driver|javax[./]tools|java[.]compiler|jdk[.]compiler|ssc[./]bridge|scalascript[./](ast|frontend|interpreter)'
 if grep -Ei "$forbidden" "$sandbox/entries" "$sandbox/entry.javap" \
@@ -182,7 +192,8 @@ if grep -Ei "$forbidden" "$sandbox/entries" "$sandbox/entry.javap" \
     "$sandbox/yaml.modules" "$sandbox/dataset.modules" "$sandbox/generator.modules" \
     "$sandbox/async.modules" "$sandbox/actors.jdeps" "$sandbox/actors.modules" \
     "$sandbox/distributed.jdeps" "$sandbox/distributed.modules" \
-    "$sandbox/graph.jdeps" "$sandbox/graph.modules" >/dev/null; then
+    "$sandbox/graph.jdeps" "$sandbox/graph.modules" \
+    "$sandbox/dsl-mini-language.jdeps" "$sandbox/dsl-mini-language.modules" >/dev/null; then
   echo 'v21-build-jvm-release-gate: forbidden standard-tier entry/reference/module' >&2
   exit 1
 fi
@@ -209,6 +220,7 @@ async_modules=$(tr -d '\r\n' <"$sandbox/async.modules")
 actors_modules=$(tr -d '\r\n' <"$sandbox/actors.modules")
 distributed_modules=$(tr -d '\r\n' <"$sandbox/distributed.modules")
 graph_modules=$(tr -d '\r\n' <"$sandbox/graph.modules")
+dsl_mini_language_modules=$(tr -d '\r\n' <"$sandbox/dsl-mini-language.modules")
 report_tmp="$sandbox/release.tsv"
 {
   printf 'metric\tvalue\n'
@@ -225,6 +237,7 @@ report_tmp="$sandbox/release.tsv"
   printf 'actors.modules\t%s\n' "$actors_modules"
   printf 'distributed.modules\t%s\n' "$distributed_modules"
   printf 'graph.modules\t%s\n' "$graph_modules"
+  printf 'dsl-mini-language.modules\t%s\n' "$dsl_mini_language_modules"
   printf 'compiler.commands.hidden\ttrue\n'
   printf 'forbidden.references\t0\n'
   printf 'hello.output\tHello, World!\n'
@@ -237,6 +250,7 @@ report_tmp="$sandbox/release.tsv"
   printf 'actors.output\tmailbox/timeout/typed-loopback/exact\n'
   printf 'distributed.output\tlocal-map/shuffle-group/exact\n'
   printf 'graph.output\tlocal-property/rdf-boundary/exact\n'
+  printf 'dsl-mini-language.output\t13-lines/exact\n'
 } >"$report_tmp"
 
 if [[ -n $REPORT ]]; then

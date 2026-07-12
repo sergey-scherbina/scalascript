@@ -374,6 +374,11 @@ def mkInf  = (op, l, r) => Pair("inf",  Pair(op, Pair(l, r)))
 def mkPre  = (op, e)    => Pair("pre",  Pair(op, e))
 def mkTup  = (es)       => Pair("tup",  es)
 def mkDef  = (n, ps, e) => Pair("def",  Pair(n, Pair(ps, e)))
+-- Preserve whether a zero-parameter declaration omitted the parameter clause.
+-- `def value: T = rhs` auto-applies on bare reference; `def value(): T = rhs`
+-- remains an explicit-empty-parens method. CoreIR arity alone cannot recover
+-- this source distinction, so keep a transparent AST marker around the body.
+def mkParameterlessBody = (e) => Pair("parameterless", e)
 def mkVal  = (n, e)     => Pair("val",  Pair(n, e))
 def mkSExpr = (e)       => Pair("expr", e)
 
@@ -1376,7 +1381,9 @@ def parseDef = (toks) =>
   -- (a nested def in the body clears it again before the outer def reads the body,
   -- so outer/inner never interfere).
   let _clr = #cell.set(paramDefaultsCell, Nil) in
-  -- first parameter list
+  -- first parameter list. Remember whether a source clause was present before
+  -- parseParamList erases both an absent clause and explicit `()` to Nil.
+  let hasSourceParamClause = kindIs("(", toks3) in
   let rp = parseParamList(toks3) in
   let params = prV(rp) in
   let toks4 = prT(rp) in
@@ -1406,9 +1413,17 @@ def parseDef = (toks) =>
   -- '=' is optional: abstract defs (in traits/effects) have no body
   if kindIs("=", toks6) then
     let re = parseExpr(advance(toks6)) in
-    pr(mkDef(name, allParams, prV(re)), prT(re))
+    let body =
+      if hasSourceParamClause then prV(re)
+      else if #i.eq(lenL(allParams), 0) then mkParameterlessBody(prV(re))
+      else prV(re) in
+    pr(mkDef(name, allParams, body), prT(re))
   else
-    pr(mkDef(name, allParams, mkTup(Nil)), toks6)
+    let body =
+      if hasSourceParamClause then mkTup(Nil)
+      else if #i.eq(lenL(allParams), 0) then mkParameterlessBody(mkTup(Nil))
+      else mkTup(Nil) in
+    pr(mkDef(name, allParams, body), toks6)
 
 -- consumeBlockArg: if next token is '{', parse it as a 0-arg thunk and apply to expr
 -- T5.7: parse a `{ … }` call argument, lambda-header-FIRST.

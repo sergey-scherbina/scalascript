@@ -2540,7 +2540,7 @@ object Prims:
         case (ls, "map", List(fn: Value.ClosV)) if isList(ls) =>
           def step(x: Value): Value =
             if fn.arity > 1 then x match
-              case DataV(tag, fs) if tag.startsWith("Tuple") && fs.length == fn.arity =>
+              case DataV(tag, fs) if (tag == "Pair" || tag.startsWith("Tuple")) && fs.length == fn.arity =>
                 callClos(fn, fs.toArray)
               case _ => callClos(fn, Array(x))
             else callClos(fn, Array(x))
@@ -2548,7 +2548,7 @@ object Prims:
         case (ls, "flatMap", List(fn: Value.ClosV)) if isList(ls) =>
           def step(x: Value): Value =
             if fn.arity > 1 then x match
-              case DataV(tag, fs) if tag.startsWith("Tuple") && fs.length == fn.arity =>
+              case DataV(tag, fs) if (tag == "Pair" || tag.startsWith("Tuple")) && fs.length == fn.arity =>
                 callClos(fn, fs.toArray)
               case _ => callClos(fn, Array(x))
             else callClos(fn, Array(x))

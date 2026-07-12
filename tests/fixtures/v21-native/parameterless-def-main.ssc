@@ -1,0 +1,28 @@
+---
+name: parameterless-def-main
+version: 1.0.0
+---
+
+# Parameterless def value contract
+
+[stage, stageBuildCount, explicit, add](parameterless-def-lib.ssc)
+
+```scalascript
+def applyFn(fn: Int => Int, value: Int): Int = fn(value)
+
+val alias = stage
+println(alias(4))
+println(alias(9))
+println(stageBuildCount())
+
+val fresh = stage
+println(fresh(1))
+println(stageBuildCount())
+
+println(applyFn(stage, 4))
+println(stageBuildCount())
+
+println(explicit()(4))
+val addFn = add
+println(addFn(2, 3))
+```
