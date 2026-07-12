@@ -4,6 +4,14 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-12 — SclJet immutable byte slices and SQLite codecs
+
+SclJet M1 now has target-neutral immutable 64-byte-chunk storage, bounds-checked
+functional updates/slices/copies, endian integer codecs, signed reads, and exact
+SQLite varint encoding/decoding. Golden boundary and malformed cases pass on the
+v1 interpreter, native VM, and direct ASM; the runnable byte-codec example is
+identical on all three. Landed in `58d2e19de` with docs in `3aeb22068`.
+
 ## 2026-07-12 — UniML universal token-to-tree VM core
 
 The new dependency-free `scalascript-uniml` module cross-compiles for JVM and Scala.js. It provides

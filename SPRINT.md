@@ -118,11 +118,14 @@ with extensions isolated behind an explicit non-default profile.
       adapter and operations are top-level pure functions. Native imports currently lose extension
       receiver types (`row []`) and link real case-class methods as `Stub`; the functional surface is
       the common executable contract until receiver operations are portable.
-- [ ] **scljet-m1b-bytes-codec** — replace the M0 byte placeholder with a bounds-checked immutable
-      byte slice and add `bytes.ssc`: validated 0..255 construction, indexed read/update, zero-fill,
-      slicing/copy/concat, big/little-endian 16/32/64-bit reads/writes, signed two's-complement reads,
-      and exact 1..9-byte SQLite varint encode/decode. Add golden boundary/malformed/property-style
-      conformance cases and export through `scljet/index.ssc`.
+- [x] **scljet-m1b-bytes-codec** — DONE 2026-07-12 in `58d2e19de` (docs/example
+      `3aeb22068`). Added validated immutable 64-byte chunks with shared slice windows, functional
+      get/update/slice/concat/copy/zero-extend operations, big/little-endian 16/32/64-bit codecs,
+      signed reads, and canonical SQLite 1–9 byte varints. Golden tests cover malformed input,
+      bounds, the 63/64 chunk boundary, exact vectors, and 11-value round trips. After
+      `scripts/sbtc "installBin"`, `tests/conformance/run.sh --only 'scljet-*' --no-memo` is 2/2;
+      native VM and direct ASM outputs exactly diff-equal the 31-line codec golden. The runnable
+      `examples/scljet-bytes.ssc` is identical on v1/native VM/ASM.
 - [ ] **scljet-m1c-memory-vfs** — add a deterministic pure ScalaScript in-memory VFS model with
       canonical file identity, random-access read/write/truncate/delete, exact short-read zero-fill,
       shared regions, per-handle rollback lock transitions, eight-byte WAL shared/exclusive locks,
