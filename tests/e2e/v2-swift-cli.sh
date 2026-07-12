@@ -2,14 +2,14 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
-SSC="$ROOT/bin/ssc"
+SSC="$ROOT/bin/ssc-tools"
 FIXTURE="$ROOT/tests/conformance/money-portable-v2.ssc"
 EXPECTED="$ROOT/tests/conformance/expected/money-portable-v2.txt"
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/ssc-v2-swift-cli.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
 
 if [[ ! -x "$SSC" ]]; then
-  echo "v2-swift-cli: bin/ssc is missing; run scripts/sbtc installBin" >&2
+  echo "v2-swift-cli: bin/ssc-tools is missing; run scripts/sbtc installBin" >&2
   exit 1
 fi
 

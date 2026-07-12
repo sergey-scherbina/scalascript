@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
-SSC="$ROOT/bin/ssc"
+SSC="$ROOT/bin/ssc-tools"
 FIXTURE="$ROOT/tests/fixtures/swift/busi-pipeline-nativeui-smoke.ssc"
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/ssc-v2-swiftui-apple.XXXXXX")
 MAC_PID=""
@@ -22,7 +22,7 @@ fail() {
 }
 
 if [[ ! -x "$SSC" ]]; then
-  fail "bin/ssc is missing; run scripts/sbtc installBin"
+  fail "bin/ssc-tools is missing; run scripts/sbtc installBin"
 fi
 for tool in xcodebuild xcrun plutil; do
   command -v "$tool" >/dev/null || fail "$tool is required"
