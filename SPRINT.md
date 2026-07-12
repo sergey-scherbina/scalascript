@@ -2869,7 +2869,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     direct ASM both exit 1 with
                                     `unbound global: runAsync` and no stdout.
                                     Track as `v21-native-async-provider-missing`.
-                              - [ ] **TI-8.2d3i1 provider contract:** specify
+                              - [x] **TI-8.2d3i1 provider contract:** specify
                                     deterministic single-threaded `runAsync`,
                                     virtual-thread `runAsyncParallel`, Future
                                     representation, ordered parallel results,
