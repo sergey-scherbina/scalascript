@@ -1,6 +1,0 @@
-feature/scljet-m1 2026-07-12T10:35:37Z
-agent: codex
-heartbeat: 2026-07-12T12:31:20Z
-status: in-progress
-done-so-far: M1 bytes/codecs and memory VFS landed; JVM host VFS plugin compiles and focused I/O/lock/SQLite subprocess tests pass
-next: run the complete JVM VFS suite, add the user example/docs, then finish M1 verification
