@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-12 — Plain `ssc` is the compiler-free ScalaScript 2.1 launcher
+
+Staged, contributor, and self-installed `ssc` now selects `StandardMain` and
+the physical standard graph; `ssc-standard` is an equivalent alias. Scalameta,
+v1, compiler, and legacy backend commands require explicit `ssc-tools`, and the
+standard launcher never delegates or falls back. Slim/module-limited VM, direct
+ASM, reproducible `build-jvm`, exhaustive 195-row release, exact zero-blocker
+freeze, and conformance 11/11 are green. Landed in `e28560761`, with explicit
+compatibility harnesses in `7ed7c630e` and `849907875`.
+
 ## 2026-07-12 — ScalaScript 2.1 runtime release taxonomy is frozen
 
 The exhaustive self-hosted-core release gate now enforces the exact zero-blocker

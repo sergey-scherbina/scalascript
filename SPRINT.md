@@ -3516,27 +3516,33 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                         194/194 checked, 53/13/129 parity, 0 mismatch/one-sided,
                         and pins 7 optional / 6 tools / 0 blockers / 13 total;
                         conformance is 11/11.
-      - [ ] **TI-8.3 default launcher cutover:** once TI-4 parity is green, make
+      - [x] **TI-8.3 default launcher cutover:** once TI-4 parity is green, make
             staged/self-installed `bin/ssc` use `StandardMain`, require
             `ssc-tools` for every explicit compatibility/compiler surface, and
             update launcher/CLI/docs regressions. Prove plain `ssc run`,
             `--bytecode`, and `build-jvm` on the compiler-free module-limited
             graph; retain bounded diagnostics rather than transparent fallback.
-            - [ ] Commit a launcher/install contract spec: `ssc` and
+            - [x] Commit a launcher/install contract spec: `ssc` and
                   `ssc-standard` are equivalent standard-tier entries;
                   compatibility is reachable only through an explicit
                   `ssc-tools` invocation (`--v1` / `--compat-frontend`), never
                   delegated by the standard entry.
-            - [ ] Cut over checked-in, `installBin`, contributor-install, and
+            - [x] Cut over checked-in, `installBin`, contributor-install, and
                   self-install launchers while preserving the Scala 3 seed and
                   the separate full tools layout.
-            - [ ] Add installed/default-launcher regressions for VM, direct ASM,
+            - [x] Add installed/default-launcher regressions for VM, direct ASM,
                   deterministic `build-jvm`, compiler-free module limits, and
                   bounded rejection of `--v1`, `--compat-frontend`, and
                   compiler/tools commands.
-            - [ ] Run the exhaustive self-hosted release gate plus fresh
+            - [x] Run the exhaustive self-hosted release gate plus fresh
                   `v2-*` conformance, record exact layout/results, then push the
                   independently green cutover before starting negative CI.
+            Result (`e28560761`, `7ed7c630e`, `849907875`): plain staged and
+            self-installed `ssc` now uses StandardMain and the standard graph;
+            legacy flags never delegate, while compatibility harnesses invoke
+            `ssc-tools` explicitly. Slim/JRE/build-jvm and the exhaustive
+            194/194, 53/13/129, 0-blocker freeze pass; conformance is 11/11 and
+            the Scala 3 seed/artifact SHA are unchanged.
 - [ ] **v21-ti-negative-ci-and-release** — add CI lanes with scala-cli absent,
       compiler/scalameta jars removed, and `java.compiler` unavailable; run the
       portable native-front VM/ASM corpus gates plus representative plugin/server
