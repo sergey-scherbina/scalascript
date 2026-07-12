@@ -32,7 +32,7 @@ every named language.
       reconcile/check the specification behavior items, then record results in `CHANGELOG.md` and this
       section in a separate bookkeeping commit before releasing the claim.
 
-## scalascript-sqlite — pure ScalaScript SQLite-compatible engine specification (2026-07-12, Sergiy: "сделать ... чистую низкоуровневую реализацию формата данных ... блокировками и wal ... sql интерпретатора")
+## scljet — pure ScalaScript SQLite-compatible engine specification (2026-07-12, Sergiy: "сделать ... чистую низкоуровневую реализацию формата данных ... блокировками и wal ... sql интерпретатора"; name: "scljet")
 
 Goal: establish a real pure-ScalaScript module boundary and a normative, implementation-ready
 specification for an independently implemented SQLite-compatible storage engine. This is not the
@@ -41,7 +41,7 @@ planner, evaluator, and function registry are ScalaScript code; only the abstrac
 touches a host filesystem. Compatibility is pinned to SQLite 3 file format and observable behavior,
 with extensions isolated behind an explicit non-default profile.
 
-- [x] **sqlite-0-plan-and-spec** — DONE 2026-07-12. Created `specs/scalascript-sqlite.md`
+- [x] **scljet-0-plan-and-spec** — DONE 2026-07-12. Created `specs/scljet.md`
       after reconciling `SPEC.md`,
       existing SQL runtimes, and the official SQLite file/WAL/VFS/locking/SQL contracts. Specify the
       public API, module layout, byte codec and record format, pager/cache/B-tree/freelist/overflow,
@@ -51,15 +51,16 @@ with extensions isolated behind an explicit non-default profile.
       compatibility profiles, rejected alternatives, and explicit open decisions.
       The spec is self-contained, its M0-M8 behavior gates are testable, and no global language
       invariant needs changing. Decisions: pure core + synchronous VFS, strict/extended profiles,
-      opt-in `sqlite+ssc:` during development, private VDBE-inspired VM, pinned SQLite 3.53.0
-      differential oracle. Four non-blocking product choices remain explicit in the spec.
-- [ ] **sqlite-1-module-scaffold** — create the pure `.ssc` module at `runtime/std/sqlite/` with
+      opt-in `scljet:` during development, private VDBE-inspired VM, pinned SQLite 3.53.0
+      differential oracle. Public identity `scljet` is fixed; three non-blocking product choices
+      remain explicit in the spec.
+- [ ] **scljet-1-module-scaffold** — create the pure `.ssc` module at `runtime/std/scljet/` with
       manifest/aggregator plus target-neutral public value, error, option, connection, prepared
       statement, VFS, random-access file, lock, shared-memory, and function-registry contracts.
       Do not add platform types or core intrinsics; future host adapters must live in std plugins.
       Done when imports resolve and the scaffold matches the spec without claiming an implemented
       engine.
-- [ ] **sqlite-2-verify-and-record** — parse/typecheck the new module with the native ScalaScript
+- [ ] **scljet-2-verify-and-record** — parse/typecheck the new module with the native ScalaScript
       lane, run the affected conformance slice (or add a focused interface-only case if needed),
       verify links/manifests and spec behavior checkboxes, then record the result in the spec,
       `CHANGELOG.md`, and this section. No performance claim is made before a working pager exists.

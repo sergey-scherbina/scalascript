@@ -1,10 +1,10 @@
-# ScalaScript SQLite-compatible engine
+# SclJet — pure ScalaScript SQLite-compatible engine
 
 Status: **design / M0 scaffold**  
-Module: `runtime/std/sqlite/`  
-Package: `std.sqlite`  
-Working provider id: `scalascript-sqlite`  
-Initial opt-in URL scheme: `sqlite+ssc:`
+Module: `runtime/std/scljet/`  
+Package: `scljet`  
+Provider id: `scljet`  
+Initial opt-in URL scheme: `scljet:`
 
 ## Overview
 
@@ -36,8 +36,8 @@ adapters. This module is a new engine.
 
 - Existing `sqlite:` and `jdbc:sqlite:` behavior remains unchanged while this
   implementation is incomplete.
-- During development, `sqlite+ssc:` selects this engine explicitly.
-- A future `databases:` entry may select `engine: scalascript-sqlite` while
+- During development, `scljet:` selects this engine explicitly.
+- A future `databases:` entry may select `engine: scljet` while
   retaining a canonical `sqlite:` URL. That cutover requires differential and
   crash-safety gates; it is not part of M0.
 - SQL fenced-block bind rewriting remains owned by the existing frontend. The
@@ -152,7 +152,7 @@ For inspection and recovery tools.
 The intended pure `.ssc` layout is:
 
 ```text
-runtime/std/sqlite/
+runtime/std/scljet/
   index.ssc          public aggregator and engine entry contract
   values.ssc         storage classes, rows, results, limits, errors
   bytes.ssc          bounds-checked byte slices, endian and varint codecs
@@ -177,7 +177,7 @@ runtime/std/sqlite/
 
 Files are introduced by milestone; M0 creates only the public contracts. Host
 adapters are separate plugins, for example
-`v2/runtime/std/sqlite-vfs-plugin/`. Any new `extern def` belongs in such a
+`v2/runtime/std/scljet-vfs-plugin/`. Any new `extern def` belongs in such a
 plugin under the project intrinsic rules, never in the engine core.
 
 Dependencies point inward only:
@@ -740,7 +740,7 @@ reasons, never silent substitution by JDBC/sql.js.
 
 - [ ] Canonical feature spec defines compatibility, layering, interfaces,
   formats, transaction protocols, SQL/function extensions, tests, and scope.
-- [ ] `runtime/std/sqlite/` imports and typechecks without platform types,
+- [ ] `runtime/std/scljet/` imports and typechecks without platform types,
   intrinsics, JDBC, or sql.js.
 - [ ] The module advertises design status and does not expose a fake working
   `open` implementation.
@@ -777,7 +777,7 @@ reasons, never silent substitution by JDBC/sql.js.
   declared core SQL differential matrix.
 - [ ] Constraints, affinity, NULL, collations, rowids, transactions, savepoints,
   schema invalidation, and streaming cursors match reference behavior.
-- [ ] `sqlite+ssc:` integrates with `Db.*` and `sql` fences without changing
+- [ ] `scljet:` integrates with `Db.*` and `sql` fences without changing
   existing `sqlite:` providers.
 
 ### M5 — WAL
@@ -824,7 +824,7 @@ reasons, never silent substitution by JDBC/sql.js.
 - **Synchronous VFS boundary** — chosen for explicit lock and durability order.
   Rejected: make the entire engine generic in an async effect (large semantic
   and verification cost); async stores use a worker/proxy.
-- **Opt-in `sqlite+ssc:` during development** — chosen to avoid breaking the
+- **Opt-in `scljet:` during development** — chosen to avoid breaking the
   mature JDBC/sql.js `sqlite:` paths. Rejected: silently replace existing
   providers before parity gates.
 - **Strict and Extended profiles are separate** — chosen so extensions never
@@ -833,9 +833,10 @@ reasons, never silent substitution by JDBC/sql.js.
 - **VDBE-inspired private VM, not VDBE bytecode compatibility** — chosen because
   observable SQL/file behavior is the contract. Rejected: bind implementation
   to unstable internal opcodes.
-- **`std.sqlite` as provisional package** — chosen because the core is a
-  portable ScalaScript library. A later standalone package can re-export it;
-  names are confirmed before M1 public release.
+- **SclJet / `scljet` public identity** — chosen by Sergiy. The package,
+  provider id, development URL scheme, module manifest, and module directory
+  use that name. `Sqlite*` remains the compatibility vocabulary for value,
+  error, format, and protocol types.
 - **Clean implementation from official specifications** — chosen for clarity,
   portability, and independent design. Reference SQLite is an oracle in tests,
   not runtime code.
@@ -844,14 +845,12 @@ reasons, never silent substitution by JDBC/sql.js.
 
 These do not block M0 but should be confirmed before M1 API freeze:
 
-1. Final public identity: `std.sqlite`, `scalascript.sqlite`, or a lineage name
-   connected to SQLJet.
-2. First production host priority: JVM/POSIX, browser worker/OPFS, or embedded
+1. First production host priority: JVM/POSIX, browser worker/OPFS, or embedded
    in-memory. The proposed order is in-memory model -> JVM/POSIX -> JS worker.
-3. Whether the first writable release must ship WAL immediately or may ship a
+2. Whether the first writable release must ship WAL immediately or may ship a
    fully crash-safe rollback-journal release first. This spec recommends the
    latter.
-4. Whether a future Extended profile is a product goal or only an architectural
+3. Whether a future Extended profile is a product goal or only an architectural
    escape hatch. Strict compatibility does not depend on it.
 
 ## Results
