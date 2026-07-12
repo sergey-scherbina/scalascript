@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-12 — SclJet deterministic immutable memory VFS
+
+SclJet M1 now includes a replayable pure VFS transition model with random
+access, durable sync/crash recovery, rollback and WAL shared-memory locks,
+logical time/randomness, exact traces, and scripted error/short-I/O/crash
+injection. A 33-line multi-handle golden and runnable recovery example are
+identical on v1, native VM, and direct ASM. Landed in `e6d027b92`; docs and
+example in `ef9816597`.
+
 ## 2026-07-12 — UniML secure lossless XML 1.0 dialect
 
 The new `scalascript-uniml-xml` cross-module reads XML 1.0 Fifth Edition into the common UniML VM,

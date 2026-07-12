@@ -216,16 +216,16 @@ with extensions isolated behind an explicit non-default profile.
       `scripts/sbtc "installBin"`, `tests/conformance/run.sh --only 'scljet-*' --no-memo` is 2/2;
       native VM and direct ASM outputs exactly diff-equal the 31-line codec golden. The runnable
       `examples/scljet-bytes.ssc` is identical on v1/native VM/ASM.
-- [ ] **scljet-m1c-memory-vfs** — add a deterministic pure ScalaScript in-memory VFS model with
-      canonical file identity, random-access read/write/truncate/delete, exact short-read zero-fill,
-      shared regions, per-handle rollback lock transitions, eight-byte WAL shared/exclusive locks,
-      sync/operation trace, seeded randomness/time, and a scripted fail/short-read/short-write/crash
-      injector. Adapt it to the public VFS contracts without ambient filesystem access. Before code,
-      the M0 `Either` read/write gap was resolved in the spec with `VfsRead(bytes, warning)` and
-      `VfsWrite(bytesWritten, warning)`, so short I/O can report both initialized data/progress and
-      the SQLite warning. Exact state and top-level transition signatures are in `specs/scljet.md`.
-      Native structural lowering also reserves receiver selector `effect`; the public rule field is
-      therefore `faultEffect`, and the implementation must destructure it rather than select it.
+- [x] **scljet-m1c-memory-vfs** — DONE 2026-07-12 in `e6d027b92` (docs/example
+      `ef9816597`). Added a pure immutable transition model for canonical identity, random I/O,
+      truncate/delete/close, durable sync/crash snapshots, rollback locks, eight WAL SHM locks,
+      shared regions/barriers/unmap, deterministic clock/PRNG, ordered trace, and one-shot
+      error/short-read/short-write/crash rules. `VfsRead`/`VfsWrite` honestly carry initialized
+      buffers/progress plus short-I/O warnings. The 33-line golden covers two-handle conflicts,
+      SHM conflicts, delete-while-open, durability recovery, and all fault classes; affected
+      conformance is 3/3 and native VM/direct ASM are exact. Portability gotchas resolved: native
+      structural lowering requires one-line `def` parameters and reserves selector `effect`, while
+      VM `Map - key` returns `Unit`, so immutable removal rebuilds maps from keys.
 - [ ] **scljet-m1d-jvm-vfs-plugin** — implement the narrow JVM host adapter in a dedicated std
       plugin, never the pure engine: positioned file I/O, truncate/force, canonical identity,
       SQLite-compatible process-visible rollback lock bytes, WAL shared-memory regions/locks and
