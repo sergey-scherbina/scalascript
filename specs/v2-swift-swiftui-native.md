@@ -491,6 +491,25 @@ the same call order in a keyed owner recreates the same ids. Explicitly named
 `signal`/fetch/persisted ids retain their existing duplicate/conflict rules and
 do not receive an occurrence suffix.
 
+For a non-root owner, each anonymous derived signal is stored in an
+owner-specific scope and enrolled in `currentOwnerScopes`, so keyed reorder
+retains it, deletion disposes it, and sibling/nested owners cannot alias. A
+stable derived re-registration may change its newly evaluated default and must
+replace the metadata signature and `dynamicRead` closure; this is required for
+locale flips and updated JSON rows and must not report the explicit-signal
+default conflict or retain a stale captured row. Explicit named, fetch, online,
+and persisted signals keep the strict existing-default rule.
+
+Occurrence allocation is transactional: root `begin` and each keyed-owner
+render start from zero; keyed snapshot/rollback restores counters and cells; a
+failed compute/allocation does not advance the counter; retry and keyed
+recreation therefore select the same id. Named-signal construction neither
+uses nor increments anonymous counters. Real Swift gates cover failed keyed
+render then retry, abort then new begin, sibling/nested owners, key reorder and
+delete back to the signal-count baseline, named interleaving, three localeText
+calls plus locale flip, and JSON row update without stale closure/default
+conflict. Computed and equality counters are kind-separated.
+
 Unsupported UI data must carry `NativeUiSourceRef(file, line, column,
 operation)` when source position is available; otherwise it carries the entry
 file and operation. A host stack trace is not an acceptable substitute.
@@ -1488,7 +1507,9 @@ assembled macOS and iOS Xcode gates.
   authorize an unbound global.
 - [ ] Repeated imported `localeText`/anonymous computed and equality signal
   sites receive stable owner/site/occurrence ids without weakening explicit
-  named-signal conflict detection, including keyed-owner recreation.
+  named-signal conflict detection; locale/JSON updates refresh derived closures,
+  and keyed rollback/retry/reorder/delete plus nested owners retain exact
+  transactional ownership without leaks.
 - [ ] Swift `__throw__` preserves the exact ADT/value payload and `__try__`
   distinguishes explicit throw from recoverable runtime failure.
 - [ ] Successful, invalid/trimmed-conversion, nested handler rethrow/runtime
