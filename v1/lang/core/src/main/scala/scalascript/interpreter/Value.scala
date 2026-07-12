@@ -48,6 +48,14 @@ object Value:
      *  `AnyRef` to avoid a core→runtime dependency; a benign data race just
      *  recomputes. Excluded from `equals`/`hashCode` (non-constructor field). */
     @transient var usingResolveCache: AnyRef = null
+    /** wide-jit C-4: the def's DECLARED return type as a syntactic name (e.g. `"Double"`), or `""`
+     *  when unknown (lambdas, methods, defs with no annotation). Populated post-construction from
+     *  `d.decltpe` at the def-construction sites (StatRuntime / BlockRuntime). The register-VM JIT
+     *  reads it to widen Int RET leaves to Double for a declared-Double function instead of bailing
+     *  on a false "mixed return". A NON-constructor `var` (like `usingResolveCache`) so adding it
+     *  neither changes the constructor arity nor breaks positional `FunV(…)` pattern matches, and it
+     *  stays out of `equals`/`hashCode`. */
+    @transient var declaredReturnType: String = ""
   /** Native function: must return a Computation. Pure built-ins return Pure(v); higher-order
    *  built-ins (map, filter, …) flatMap user callbacks to propagate effects. */
   final case class NativeFnV(name: String, f: List[Value] => Computation) extends ValueRest
