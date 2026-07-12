@@ -1226,6 +1226,23 @@ Swift acceptance therefore includes the imported `std/ui/lower.ssc` execution
 path, theme-token conversion, module-level values such as `localeSignal`, and
 the self-hosted `std/json.ssc` facade used by fetched/keyed application data.
 
+### Checked manifest entrypoint
+
+The checked source result retains the optional top-level front-matter `main`
+name alongside the existing application metadata. For Swift package emission,
+`main: run` means that the CoreIR entry executes imported/top-level module
+initialization first and then calls the zero-argument global `run` exactly
+once. This call is part of the checked program before backend validation and
+code generation; the generated Swift runtime does not reparse front matter.
+
+FrontendBridge already appends a call for a user function literally named
+`main`. Therefore `main: main` reuses that call and may not append a duplicate.
+An absent manifest entry preserves script-mode behavior. A manifest entry must
+be a plain source identifier, must resolve to a checked zero-argument function,
+and otherwise fails before Swift source generation with a deterministic
+diagnostic naming the entry. This prevents a malformed/missing entry from
+degrading into the later NativeUi error `program did not register a root`.
+
 ### Module `val` registration
 
 FrontendBridge represents an imported/top-level `val` as an unconditional
@@ -1397,6 +1414,9 @@ assembled macOS and iOS Xcode gates.
 
 ### SwiftUI portable runtime
 
+- [ ] Checked metadata preserves `main: run`, invokes it exactly once after
+  module initialization, leaves script mode unchanged, and rejects an invalid
+  or missing manifest entry before Swift generation.
 - [ ] The standard `text`/`heading`/`styled`/`defaultTheme`/`lower`/`serve`
   checked-source fixture executes as real Swift with token fallback and numeric
   conversion, rather than bypassing the toolkit lowerer.
