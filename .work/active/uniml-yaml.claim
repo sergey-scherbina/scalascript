@@ -1,0 +1,6 @@
+feature/uniml-yaml 2026-07-12T11:42:46Z
+agent: codex
+heartbeat: 2026-07-12T11:42:46Z
+status: not-started
+done-so-far:
+next: create the isolated worktree, queue YAML M3, and write its specification
