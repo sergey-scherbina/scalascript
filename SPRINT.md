@@ -16,11 +16,15 @@ directives, block and flow collections, scalar style/chomping/indentation, ancho
 comments, whitespace and duplicate entries while keeping construction and alias expansion explicit,
 bounded semantic projections rather than parse-time execution.
 
-- [ ] **uniml-yaml-0-spec** — write and commit `specs/uniml-yaml.md` before code. Pin YAML 1.2.2,
-      token/CST roles, indentation and flow state machines, scalar styles, directives/doc boundaries,
-      anchors/aliases/tags, duplicate/order semantics, schema resolution, diagnostics/recovery, limits,
-      chunk invariance, safe projection, corpus/differential gates, exclusions and security.
-- [ ] **uniml-yaml-0b-reframe** — extend the committed UniML VM contract with a source-backed
+- [x] **uniml-yaml-0-spec** — DONE 2026-07-12 (`dc57bd0de`, clarified by `2b07ef567` and
+      `c732f8b58`). Pinned YAML 1.2.2 and specified token/CST roles, indentation/flow state,
+      scalar styles, directives/documents, inert tags, anchors/aliases, ordered duplicates, Core
+      Schema projection, diagnostics/recovery, finite limits, chunk invariance and security.
+      Original plan: write and commit `specs/uniml-yaml.md` before code.
+- [x] **uniml-yaml-0b-reframe** — DONE 2026-07-12 (`e9d4959ef`, verified by `3c66b9340`). Extended
+      the common VM with atomic source-backed multi-close/open/close-after transitions. Core tests are
+      13/13 on both JVM and Scala.js; `content*` conformance is 6/6 across INT/JS/JVM. Original plan:
+      extend the committed UniML VM contract with a source-backed
       `Reframe` instruction that atomically closes implicit indentation frames, opens replacement
       frames, and emits its carrier token exactly once. Update `specs/uniml.md` and
       `specs/uniml-yaml.md` first, then add JVM/Scala.js core tests before the YAML adapter uses it.
