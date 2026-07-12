@@ -72,6 +72,9 @@ object VmCompiler:
     * heuristic gave up (TInt-default → TDouble/TRef). Each one is a call the JIT would otherwise
     * mistype/bail on. */
   val callResultUpgrades = new java.util.concurrent.atomic.AtomicLong(0L)
+  /** wide-jit C-4c: Int-typed RET leaves widened to Double because the function's DECLARED return
+    * type says Double. Each one is a `MixedReturnType` bail avoided. */
+  val retDoubleWidenings = new java.util.concurrent.atomic.AtomicLong(0L)
   /** Opt-in (zero overhead otherwise): count TypeMap coverage at each compiled node. Read the
     * counters directly (tests / future C-4 opportunity sizing). */
   val measureTypes: Boolean =
@@ -246,6 +249,13 @@ object VmCompiler:
       paramDouble || fn.body.collect {
         case _: Lit.Double => ()
       }.nonEmpty
+
+    /** wide-jit C-4c: does the function's DECLARED return annotation say Double/Float? This is the
+      * AUTHORITATIVE signal `fnIsDouble` (a syntactic body scan) and the Typer's inferred body type
+      * (Any for mixed branches) both lack. Used to widen Int RET leaves to Double (Scala widens
+      * Int→Double on every return path) rather than bailing on a false "mixed return". Empty when the
+      * def carried no annotation / the FunV came from a site that doesn't populate it ⇒ unchanged. */
+    private val declaredDouble: Boolean = doubleTypes.contains(fn.declaredReturnType.trim)
 
     // Unified type of every value reaching a RET/RETREF. None until first leaf.
     private var retType: Option[VmType] = None
@@ -801,8 +811,18 @@ object VmCompiler:
         compileTail(rest.head.asInstanceOf[Term])
 
       case other =>
-        val r = compileExpr(other); unifyRet(typeOf(r))
-        if typeOf(r) == TRef then emit(RETREF, r, 0, 0) else emit(RET, r, 0, 0)
+        val r = compileExpr(other)
+        var rt = typeOf(r)
+        // wide-jit C-4c: the function is DECLARED to return Double but this leaf came back Int
+        // (e.g. `if c > 0 then 1.5 else 2` — the `2`). Scala widens Int→Double implicitly on every
+        // return path, so emit the I2D here rather than letting `unifyRet` bail on a false "mixed
+        // return". `r` flows only to the RET below (tail position), so the in-place I2D is safe.
+        // Gated on the DECLARED annotation — a FunV with no populated return type leaves this alone.
+        if rt == TInt && declaredDouble then
+          emit(I2D, r, r, 0); setType(r, TDouble); rt = TDouble
+          VmCompiler.retDoubleWidenings.incrementAndGet()
+        unifyRet(rt)
+        if rt == TRef then emit(RETREF, r, 0, 0) else emit(RET, r, 0, 0)
 
     private def isSelfTailCall(app: Term.Apply): Boolean =
       fn.name.nonEmpty && (app.fun match

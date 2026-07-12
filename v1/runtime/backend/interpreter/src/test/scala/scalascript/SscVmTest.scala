@@ -2610,21 +2610,33 @@ class SscVmTest extends AnyFunSuite with Matchers:
     assert(wrongOrBail, "expected the heuristic-only path to miss mid's Double return")
   }
 
-  test("wide-jit C-3 finding: the Typer types a mixed Int/Double `if` body as Any, not Double") {
-    // Documents WHY a body-type-driven RET-widening (consumption #2, attempted + reverted) is inert:
-    // for a mixed-return function the very leaf that would need widening only exists when the
-    // branches disagree, and Typer (`if thenType==elseType then thenType else Any`) then types the
-    // body as Any — never Double. So `vmTypeOf(fn.body)` can never say Double when a TInt leaf is
-    // present. The real fix needs the DECLARED return type (`: Double`), which FunV doesn't carry.
+  test("wide-jit C-4c: a Double-declared function's Int RET leaf is widened, not bailed on") {
+    // `f` is DECLARED `: Double` but one branch yields the Int literal `2`. Scala widens it to `2.0`.
+    // The JIT's unifyRet otherwise sees TDouble (1.5) then TInt (2) → MixedReturnType bail. The Typer
+    // CANNOT supply the signal — it types the mixed `if` body as Any (asserted below), which is why
+    // the earlier map-based attempt was inert. The DECLARED return type (threaded into FunV, C-4a/b)
+    // does supply it, so the Int leaf is widened (I2D) at RET and the function compiles.
     val src    = "# T\n\n```scala\ndef f(c: Int): Double = if c > 0 then 1.5 else 2\n```\n"
     val module = Parser.parse(src)
-    val f = { val i = Interpreter(devNull); i.run(module); i.globalsView("f").asInstanceOf[Value.FunV] }
+    val interp = Interpreter(devNull); interp.run(module)
+    val f = interp.globalsView("f").asInstanceOf[Value.FunV]
+    // C-4b populated the declared return type on the FunV:
+    f.declaredReturnType shouldBe "Double"
+    // ...while the Typer's inferred body type is Any (why a body-type-driven widening was inert):
     val typer = new scalascript.typer.Typer(); typer.typeCheck(module)
-    val bodyType = typer.nodeTypes.get(f.body)
-    assert(bodyType != null, "f.body not recorded")
-    assert(bodyType.toString.contains("Any"), s"expected Any for a mixed-branch body, got $bodyType")
-    // and the JIT still (correctly) bails such a function to the tree-walker:
-    VmCompiler.compile(f, globalsResolve(Interpreter(devNull))) shouldBe empty
+    assert(typer.nodeTypes.get(f.body).toString.contains("Any"), "expected Any for a mixed-branch body")
+
+    // The widening is driven by the FunV field (no map / flag needed) → always-on.
+    val before   = VmCompiler.retDoubleWidenings.get
+    val compiled = VmCompiler.compile(f, globalsResolve(interp))
+    compiled shouldBe defined
+    assert(VmCompiler.retDoubleWidenings.get > before, "the Int-return leaf was not widened")
+    java.lang.Double.longBitsToDouble(SscVm.run(compiled.get, Array(5L)))  shouldBe 1.5
+    java.lang.Double.longBitsToDouble(SscVm.run(compiled.get, Array(-5L))) shouldBe 2.0  // Int 2 widened
+
+    // Guard: a FunV with NO declared return type (field unset) is untouched — still bails.
+    val bare = f.copy(); bare.declaredReturnType = ""
+    VmCompiler.compile(bare, globalsResolve(interp)) shouldBe empty
   }
 
   test("wide-jit C-3: FunV.body is identity-keyed in the Typer's nodeTypes; the map threads to VmCompiler") {
