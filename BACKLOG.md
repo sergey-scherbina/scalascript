@@ -26,6 +26,14 @@ are plain bullets without checkboxes so agents do not claim them as build work.
 
 ## SclJet interoperability follow-ups (2026-07-12)
 
+- [ ] **scljet-portable-text-projection** — specify and implement a general
+      target-neutral `code points/UTF-16 units -> String` construction API, then
+      project SclJet `DecodedText` to `SqlText` without a host/JSON decoder.
+      Current real-harness repro is in `BUGS.md`: v1 lacks `Int.toChar`, while
+      v2 renders dynamic chars as decimal numbers. Keep raw encoded bytes as the
+      SQLite GIGO source of truth and prove interpreter/VM/ASM/JS parity before
+      the M4 value API depends on this projection.
+
 - [ ] **scljet-js-m1-parity** — close the explicit M1 JS behavior gates without
       JDBC/sql.js substitution: exact signed-64-bit Long/shift/bitwise lowering
       for the 31-line byte-codec golden, the two-handle SHM transition mismatch

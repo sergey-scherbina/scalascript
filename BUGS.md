@@ -1,5 +1,23 @@
 # Bug tracker
 
+## portable-codepoint-string-construction — v1 lacks Int.toChar, v2 renders Char numerically
+
+**Status:** open (2026-07-12); found by codex while designing SclJet's pure
+UTF-8/UTF-16 record decoder.
+
+- **Real-harness repro:** in an `.ssc` module evaluate `val a = 65.toChar; val
+  b = 0x20ac.toChar; println(a.toString + b.toString)`. `ssc-tools run --v1`
+  fails with `No method 'toChar' on IntV(65)`; `ssc run` prints `658364`
+  instead of `A€`. Mapping `List(65,66,67).map(_.toChar).mkString` similarly
+  prints `656667` on v2.
+- **Impact:** pure byte decoders can compute exact Unicode code points but
+  cannot portably construct a `String` without a host/plugin decoder. SclJet
+  M2 therefore preserves `DecodedText(encoded, encoding, codePoints,
+  wellFormed)` and does not fake `SqlText`.
+- **Done-when:** a separately specified language/std text API constructs UTF-16
+  strings from checked code points identically on interpreter, VM/ASM, JS and
+  native targets, with malformed-sequence policy owned by the caller.
+
 ## scljet-oracle-pin-stale — spec called SQLite 3.53.0 current after 3.53.3
 
 **Status:** fixed (2026-07-12, `7a6e2e70a`), awaiting Sergiy confirmation;
