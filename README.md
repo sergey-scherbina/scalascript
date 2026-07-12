@@ -73,6 +73,9 @@ givens, sum Mirrors, and general implicit search remain migration gaps.
 Parameterless `def value: T = ...` references evaluate the nullary definition,
 while explicit `def value(): T = ...` keeps its required call. List `map` and
 `flatMap` spread portable pair elements into matching two-parameter callbacks.
+Explicit `direct[Option]` and `direct[List]` blocks are compiler-free too:
+fresh assignments bind, Option short-circuits, and List expansion keeps source
+order; broader direct inference and monads remain compatibility-only gaps.
 Top-level `case object` declarations are stable portable nullary values across
 imports, direct references, equality, and pattern matching.
 Its built-in `math` object is also portable on both lanes (`Pi`, `E`, `abs`,
@@ -170,7 +173,7 @@ bin/http.ssc
 | | |
 |---|---|
 | [Language Specification](SPEC.md) | Formal grammar, type system, semantics, all language constructs |
-| [Direct Syntax](docs/direct-syntax.md) | Do-notation over any monad — `direct[M] { x = expr }`, `.!` postfix bind, effect-row unions |
+| [Direct Syntax](docs/direct-syntax.md) | Do-notation over any monad — `direct[M] { x = expr }`, `.!` postfix bind, effect-row unions; explicit Option/List blocks also run on the compiler-free standard 2.1 path |
 | [Coroutines & Generators](specs/coroutines.md) | Coroutine primitive underlying one-shot effects and generators |
 | [Algebraic Effects spec](specs/algebraic-effects.md) | Typed effect rows — `!` operator, `multi effect`, Rémy-style unification, typed stdlib, `Reader[R]`, `NonDet` |
 | [Error Handling](docs/error-handling.md) | Checked errors via `throws[A, E]`, `attemptCatch`, `HasStackTrace` |

@@ -1595,6 +1595,14 @@ See [`specs/algebraic-effects.md`](algebraic-effects.md) for the full spec.
 
 Write monadic code without `<-` arrows:
 
+On the compiler-free ScalaScript 2.1 standard path, the supported native
+contract is deliberately bounded to explicit `direct[Option]` and
+`direct[List]` blocks. Fresh assignments are binds, Option short-circuits,
+List expands in source order, and pure `val`, mutable `var`, and nested direct
+blocks work without a compiler or runtime fallback. Type-directed direct
+blocks, postfix `.!`, Async/custom monads, and pure auto-lift remain available
+only through explicit `--compat-frontend` until their native contracts land.
+
 ```scalascript
 // Explicit direct block
 val result = direct[Option] {

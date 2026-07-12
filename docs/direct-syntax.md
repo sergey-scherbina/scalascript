@@ -3,6 +3,15 @@
 **Status: ✅ Landed — v1.8 (core) + v1.8.1 (extensions).**
 All three backends (interpreter, JVM, JS) ship the feature.
 
+**ScalaScript 2.1 standard path.** The compiler-free self-hosted frontend owns
+the bounded explicit forms `direct[Option]` and `direct[List]`: fresh
+assignments bind through portable `flatMap`, Option short-circuits, List keeps
+source-order Cartesian expansion, and pure `val`, mutable `var`, and nested
+direct blocks retain their lexical behavior. Unsupported monads fail
+explicitly. Type-directed blocks, postfix `.!`, pure auto-lift, Async/custom
+monads, and the wider v1 contract still require the explicit
+`--compat-frontend`; the standard launcher never falls back transparently.
+
 Source of truth for the user-facing syntax, its lowering, and the
 seven locked design decisions.  See also
 [`specs/backend-spi.md`](backend-spi.md) §6 (effect lowering) and
