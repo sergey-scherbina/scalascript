@@ -10,6 +10,12 @@ landed while continuing TI-8.2d3.
   `examples/distributed-log-aggregation.ssc`.
 - **Observed:** all four runs exit 1 before file I/O at
   `ssc: unbound global: NamedHandler`; no stdout.
+- **Second boundary after provider install:** `NamedHandler` resolves, but all
+  four real runs now exit at `unhandled runtime effect:
+  HandlerRegistry.register`. The self-hosted lowerer routes the imported object
+  method through the effect ABI rather than the registered method-object field.
+  Resolve that exact structural/effect ownership in the core-free provider or
+  lowerer; do not install a catch-all effect fallback.
 - **Expected:** a required core-free provider owns the exact named-handler,
   stage, local-loopback cluster, distributed map/filter, shuffle group/reduce,
   result, and close contracts used by these two standard examples. Fixed input

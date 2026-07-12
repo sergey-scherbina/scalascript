@@ -2994,6 +2994,11 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     roots, and cover map/filter/flatMap, groupBy,
                                     reduceByKey, ordering, result fields, missing
                                     handlers, registry replacement, and close.
+                                    Real installed validation additionally routes
+                                    imported `HandlerRegistry.register` through
+                                    an unhandled effect ABI; bind that exact
+                                    operation explicitly without a catch-all or
+                                    compatibility fallback.
                               - [ ] **TI-8.2d3k3 assembled contract:** add fixed
                                     CSV/log inputs and exact outputs for both
                                     public examples on VM/direct ASM/build-jvm.
