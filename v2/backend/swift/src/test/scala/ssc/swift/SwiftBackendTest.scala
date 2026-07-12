@@ -240,7 +240,7 @@ final class SwiftBackendTest extends AnyFunSuite:
     val badCons = Term.Ctor("Cons", List(integer(1)))
     val badNil = Term.Ctor("Nil", List(integer(1)))
     val suffix = list(List(str("b")))
-    val matrix = Term.Ctor("Tuple20", List(
+    val matrix = list(List(
       method("mkString", mixed),
       method("mkString", mixed, str("|")),
       method("mkString", mixed, str("<"), str("|"), str(">")),
@@ -256,23 +256,46 @@ final class SwiftBackendTest extends AnyFunSuite:
       attempt(Term.App(badCons, List(integer(0)))),
       attempt(Term.App(badNil, List(integer(0)))),
       concat("+", mixed, suffix),
+      concat("+", empty, mixed),
+      concat("+", mixed, empty),
+      concat("+", empty, empty),
       concat("++", empty, mixed),
       concat("++", mixed, empty),
+      concat("++", mixed, suffix),
+      concat("++", empty, empty),
+      attempt(concat("+", mixed, str("not-list"))),
+      attempt(concat("+", badTail, empty)),
+      attempt(concat("+", badCons, empty)),
+      attempt(concat("+", badNil, empty)),
+      attempt(concat("+", mixed, badTail)),
+      attempt(concat("+", mixed, badCons)),
+      attempt(concat("+", mixed, badNil)),
       attempt(concat("++", mixed, str("not-list"))),
       attempt(concat("++", badTail, empty)),
+      attempt(concat("++", badCons, empty)),
+      attempt(concat("++", badNil, empty)),
       attempt(concat("++", mixed, badTail)),
+      attempt(concat("++", mixed, badCons)),
+      attempt(concat("++", mixed, badNil)),
     ))
     val output = runSwift("listParity", Program(Nil, matrix))
-    assert(output.contains("\"a2\", \"a|2\", \"<a|2>\", \"\", \"\", \"<>\", 2"), output)
-    assert(output.sliding("\"app: list index out of bounds\"".length)
-      .count(_ == "\"app: list index out of bounds\"") == 2, output)
-    assert(output.contains("\"app: list index requires exactly one Int\""), output)
-    assert(output.sliding("\"app: malformed list\"".length)
-      .count(_ == "\"app: malformed list\"") == 3, output)
-    assert(output.contains("List(\"a\", 2, \"b\"), List(\"a\", 2), List(\"a\", 2)"), output)
-    assert(output.contains("\"list concat: right operand must be List\""), output)
-    assert(output.sliding("\"list concat: malformed list\"".length)
-      .count(_ == "\"list concat: malformed list\"") == 2, output)
+    val bounds = "\"app: list index out of bounds\""
+    val indexType = "\"app: list index requires exactly one Int\""
+    val malformedIndex = "\"app: malformed list\""
+    val nonListConcat = "\"list concat: right operand must be List\""
+    val malformedConcat = "\"list concat: malformed list\""
+    assert(output.sliding(bounds.length).count(_ == bounds) == 2, output)
+    assert(output.sliding(indexType.length).count(_ == indexType) == 2, output)
+    assert(output.sliding(malformedIndex.length).count(_ == malformedIndex) == 3, output)
+    assert(output.sliding(nonListConcat.length).count(_ == nonListConcat) == 2, output)
+    assert(output.sliding(malformedConcat.length).count(_ == malformedConcat) == 12, output)
+    assert(output ==
+      "List(\"a2\", \"a|2\", \"<a|2>\", \"\", \"\", \"<>\", 2, " +
+      s"$bounds, $bounds, $indexType, $indexType, $malformedIndex, $malformedIndex, $malformedIndex, " +
+      "List(\"a\", 2, \"b\"), List(\"a\", 2), List(\"a\", 2), List(), " +
+      "List(\"a\", 2), List(\"a\", 2), List(\"a\", 2, \"b\"), List(), " +
+      s"$nonListConcat, $malformedConcat, $malformedConcat, $malformedConcat, $malformedConcat, $malformedConcat, $malformedConcat, " +
+      s"$nonListConcat, $malformedConcat, $malformedConcat, $malformedConcat, $malformedConcat, $malformedConcat, $malformedConcat)", output)
 
   test("real Swift try never catches an unexpected host Error"):
     assume(swiftAvailable, "Swift toolchain is not available")
@@ -306,6 +329,21 @@ public enum SessionProbe {
     assert(result.exit == 0, result.stderr)
     assert(result.stdout.contains("unexpected host error: boom"), result.stdout)
     assert(!result.stdout.contains("HANDLER-RAN"), result.stdout)
+
+  test("real Swift rejects unsupported List mkString invocation shapes"):
+    assume(swiftAvailable, "Swift toolchain is not available")
+    def integer(value: Long): Term = Term.Lit(Const.CInt(value))
+    def method(receiver: Term, args: Term*): Term =
+      Term.Prim("__method__", str("mkString") :: receiver :: args.toList)
+    val mixed = list(List(str("a"), integer(2)))
+    val wrongArity = runSwiftResult("mkStringArity", Program(Nil, method(mixed, str("["), str("]"))))
+    val wrongType = runSwiftResult("mkStringType", Program(Nil, method(mixed, integer(7))))
+    val nonList = runSwiftResult("mkStringReceiver", Program(Nil, method(integer(7), str("|"))))
+    for result <- List(wrongArity, wrongType) do
+      assert(result.exit != 0, result.stdout)
+      assert(result.stderr.contains("method not found: mkString on List(\"a\", 2)"), result.stderr)
+    assert(nonList.exit != 0, nonList.stdout)
+    assert(nonList.stderr.contains("method not found: mkString on 7"), nonList.stderr)
 
   test("domain definitions named like UI globals do not switch package mode"):
     assume(swiftAvailable, "Swift toolchain is not available")
@@ -818,6 +856,17 @@ public enum SessionProbe {
     assert(result.exit == 0, result.stderr)
     assert(result.stdout == "dirty-a|dirty-b|fresh-a|rollback-ok")
 
+  test("real Swift anonymous derived signals retain transactional owner identity"):
+    assume(swiftAvailable, "Swift toolchain is not available")
+    val result = runSwiftResult(
+      "nativeUiAnonymousLifecycle",
+      nativeUiProgram(),
+      probe = Some(nativeUiAnonymousLifecycleProbe),
+    )
+    assert(result.exit == 0, result.stderr)
+    assert(result.stdout ==
+      "locale|kind|named|failed-allocation|refresh|reorder|rollback|retry|delete|nested|reset")
+
   test("real Swift keyed reconciliation reference-counts shared component scopes"):
     assume(swiftAvailable, "Swift toolchain is not available")
     val result = runSwiftResult(
@@ -1002,45 +1051,84 @@ public enum SessionProbe {
   test("real Swift NativeUi normalizes association maps and sources malformed failures"):
     assume(swiftAvailable, "Swift toolchain is not available")
     def pair(key: Term, value: Term): Term = Term.Ctor("Tuple2", List(key, value))
-    def element(attrs: Term): Term = Term.App(Term.Global("element"), List(
-      str("div"), attrs, Term.Prim("__mk_map__", Nil), list(Nil)))
+    def source = Term.Ctor("NativeUiSourceRef", List(
+      str("association.ssc"), Term.Lit(Const.CInt(12)), Term.Lit(Const.CInt(7)), str("element")))
+    def element(attrs: Term, events: Term, sourced: Boolean = false): Term =
+      val args = List(str("div"), attrs, events, list(Nil))
+      if sourced then Term.App(Term.Global("__ssc_nativeui_v1.element"), str("association:element") :: source :: args)
+      else Term.App(Term.Global("element"), args)
     def attempt(body: Term): Term =
       Term.Prim("__try__", List(Term.Lam(0, body), Term.Lam(1, Term.Local(0))))
 
     val duplicateAttrs = list(List(pair(str("style"), str("first")), pair(str("style"), str("last"))))
-    val positive = Program(Nil, Term.App(Term.Global("emit"), List(element(duplicateAttrs), str("out"))))
+    val duplicateEvents = list(List(pair(str("tap"), str("first")), pair(str("tap"), str("last"))))
+    val directAttrs = Term.Prim("__mk_map__", List(pair(str("style"), str("direct"))))
+    val directEvents = Term.Prim("__mk_map__", List(pair(str("tap"), str("direct"))))
+    val positiveRoot = Term.App(Term.Global("fragment"), List(list(List(
+      element(duplicateAttrs, directEvents),
+      element(directAttrs, duplicateEvents),
+    ))))
+    val positive = Program(Nil, Term.App(Term.Global("emit"), List(positiveRoot, str("out"))))
     val probe = """
 public enum SessionProbe {
+    private static func list(_ value: SscValue) -> [SscValue] {
+        var current = value
+        var result: [SscValue] = []
+        while true {
+            switch current {
+            case let .data("Cons", fields) where fields.count == 2:
+                result.append(fields[0]); current = fields[1]
+            case let .data("Nil", fields) where fields.isEmpty: return result
+            default: fatalError("expected proper list")
+            }
+        }
+    }
+    private static func elementMaps(_ value: SscValue) -> (SscMap, SscMap) {
+        guard case let .data("NativeUiElement", fields) = value, fields.count == 5,
+              case let .map(attrs) = fields[2], case let .map(events) = fields[3] else {
+            fatalError("source map/list reached Apple ABI without normalization")
+        }
+        return (attrs, events)
+    }
     public static func run() {
         do {
             let session = try SscGeneratedProgram.makeNativeUiRoot()
             guard case let .data("NativeUiAbi", abi) = session.root, abi.count == 3,
-                  case let .data("NativeUiElement", element) = abi[1], element.count == 5,
-                  case let .map(attrs) = element[2],
-                  case let .string(style)? = attrs.get(.string("style")) else {
-                fatalError("association list reached Apple ABI without normalization")
+                  case let .data("NativeUiFragment", root) = abi[1], root.count == 1 else {
+                fatalError("expected fragment root")
             }
-            Swift.print("\(style)|\(attrs.entries.count)")
+            let children = list(root[0])
+            guard children.count == 2 else { fatalError("expected two elements") }
+            let first = elementMaps(children[0]), second = elementMaps(children[1])
+            guard case let .string(firstStyle)? = first.0.get(.string("style")),
+                  case let .string(firstTap)? = first.1.get(.string("tap")),
+                  case let .string(secondStyle)? = second.0.get(.string("style")),
+                  case let .string(secondTap)? = second.1.get(.string("tap")) else {
+                fatalError("normalized map values missing")
+            }
+            Swift.print("\(firstStyle):\(firstTap):\(first.0.entries.count):\(first.1.entries.count)|\(secondStyle):\(secondTap):\(second.0.entries.count):\(second.1.entries.count)")
         } catch { fatalError(String(describing: error)) }
     }
 }
 """
     val normalized = runSwiftResult("associationMap", positive, probe = Some(probe))
     assert(normalized.exit == 0, normalized.stderr)
-    assert(normalized.stdout == "last|1", normalized.stdout)
+    assert(normalized.stdout == "last:direct:1:1|direct:last:1:1", normalized.stdout)
 
     val validPair = pair(str("style"), str("ok"))
     val malformed = Term.Ctor("Cons", List(validPair, str("bad-tail")))
     val nonTuple = list(List(str("not-tuple")))
     val wrongArity = list(List(Term.Ctor("Tuple2", List(str("style")))))
     val nonStringKey = list(List(pair(Term.Lit(Const.CInt(1)), str("value"))))
-    val nonPortable = list(List(pair(str("style"), Term.Prim("cell.new", List(str("mutable"))))))
-    val errors = Term.Ctor("Tuple5", List(
-      attempt(element(malformed)),
-      attempt(element(nonTuple)),
-      attempt(element(wrongArity)),
-      attempt(element(nonStringKey)),
-      attempt(element(nonPortable)),
+    val nonPortableCell = list(List(pair(str("style"), Term.Prim("cell.new", List(str("mutable"))))))
+    val nonPortableArray = list(List(pair(str("style"), Term.Prim("__mk_arr__", List(str("mutable"))))))
+    val errors = Term.Ctor("Tuple6", List(
+      attempt(element(malformed, directEvents, sourced = true)),
+      attempt(element(nonTuple, directEvents, sourced = true)),
+      attempt(element(wrongArity, directEvents, sourced = true)),
+      attempt(element(nonStringKey, directEvents, sourced = true)),
+      attempt(element(nonPortableCell, directEvents, sourced = true)),
+      attempt(element(nonPortableArray, directEvents, sourced = true)),
     ))
     val fallbackRoot = Term.App(Term.Global("fragment"), List(list(Nil)))
     val negative = Program(Nil, Term.Let(List(errors), Term.Seq(List(
@@ -1052,9 +1140,10 @@ public enum SessionProbe {
     assert(output.sliding("expected Tuple2(String, Value)".length)
       .count(_ == "expected Tuple2(String, Value)") == 2, output)
     assert(output.contains("requires a String key"), output)
-    assert(output.contains("contains a target-specific mutable value"), output)
-    assert(output.sliding("<entry>:0:0 [element]".length)
-      .count(_ == "<entry>:0:0 [element]") == 5, output)
+    assert(output.sliding("contains a target-specific mutable value".length)
+      .count(_ == "contains a target-specific mutable value") == 2, output)
+    assert(output.sliding("association.ssc:12:7 [element]".length)
+      .count(_ == "association.ssc:12:7 [element]") == 6, output)
     assert(output.linesIterator.toVector.last ==
       "NativeUiAbi(version=1, root=NativeUiFragment, operation=emit)", output)
 
@@ -3444,6 +3533,249 @@ public enum SessionProbe {
                 items: [.string("a"), .string("b")], key: key, render: render)
             let freshA = string(try session.read(signal(value("a", in: reinserted))))
             Swift.print("dirty-a|dirty-b|fresh-\(freshA)|rollback-ok")
+        } catch { fatalError(String(describing: error)) }
+    }
+}
+"""
+
+  private val nativeUiAnonymousLifecycleProbe = """
+public enum SessionProbe {
+    private static func fields(_ value: SscValue, _ tag: String) -> [SscValue] {
+        guard case let .data(actual, fields) = value, actual == tag else {
+            fatalError("expected \(tag), got \(value)")
+        }
+        return fields.asArray()
+    }
+    private static func string(_ value: SscValue) -> String {
+        guard case let .string(result) = value else { fatalError("expected string, got \(value)") }
+        return result
+    }
+    private static func signalIdentity(_ value: SscValue) -> String {
+        let signal = fields(value, "NativeUiSignal")
+        return string(signal[1]) + "|" + string(signal[0])
+    }
+    private static func entry(_ key: String, _ result: NativeUiKeyedResult) -> NativeUiKeyedEntryValue {
+        guard let value = result.entries.first(where: { $0.id == key }) else {
+            fatalError("missing keyed entry \(key)")
+        }
+        return value
+    }
+    private static func tuple(_ key: String, _ value: String) -> SscValue {
+        .data("Tuple2", [.string(key), .string(value)])
+    }
+    public static func run() {
+        do {
+            let host = NativeUiHost()
+            let program = SscProgram(
+                definitions: [], entry: .literal(.unit), fieldLayouts: [:])
+            let runtime = SscRuntime.session(program, nativeUiHost: host)
+            _ = runtime
+            var globals = try host.globals()
+            let source: SscValue = .data("NativeUiSourceRef", [
+                .string("anonymous-lifecycle.ssc"), .int(21), .int(9), .string("computedSignal")])
+
+            func call(_ name: String, _ args: [SscValue]) throws -> SscValue {
+                guard case let .closure(closure)? = globals[name], let native = closure.native else {
+                    throw SscRuntimeFailure(description: "missing native \(name)")
+                }
+                return try native(args)
+            }
+            func computed(_ site: String, _ body: @escaping () throws -> SscValue) throws -> SscValue {
+                try call("__ssc_nativeui_v1.computedSignal", [
+                    .string(site), source, .closure(SscClosure(arity: 0) { _ in try body() })])
+            }
+            func equality(_ site: String, _ signal: SscValue, _ expected: SscValue) throws -> SscValue {
+                try call("__ssc_nativeui_v1.eqSignal", [.string(site), source, signal, expected])
+            }
+            func named(_ id: String, _ value: SscValue) throws -> SscValue {
+                try call("signal", [.string(id), value])
+            }
+            func read(_ signal: SscValue) throws -> SscValue {
+                try host.readSignal(signal, "anonymous lifecycle probe")
+            }
+
+            let locale = try named("locale", .string("en"))
+            let localeSignals = try ["title", "body", "footer"].map { prefix in
+                try computed("localeText") {
+                    .string(prefix + "-" + string(try read(locale)))
+                }
+            }
+            guard localeSignals.map(signalIdentity) == [
+                "root|__computed__10:localeText:0",
+                "root|__computed__10:localeText:1",
+                "root|__computed__10:localeText:2",
+            ] else { fatalError("locale occurrence ids") }
+            try host.writeSignal(locale, .string("ru"), "locale flip")
+            guard try localeSignals.map { string(try read($0)) } == ["title-ru", "body-ru", "footer-ru"] else {
+                fatalError("locale closures did not refresh")
+            }
+
+            let kindComputed0 = try computed("kind-site") { .string("c0") }
+            let kindEq0 = try equality("kind-site", locale, .string("ru"))
+            let kindComputed1 = try computed("kind-site") { .string("c1") }
+            let kindEq1 = try equality("kind-site", locale, .string("ru"))
+            guard signalIdentity(kindComputed0).hasSuffix("__computed__9:kind-site:0"),
+                  signalIdentity(kindComputed1).hasSuffix("__computed__9:kind-site:1"),
+                  signalIdentity(kindEq0).hasSuffix("__equality__9:kind-site:0"),
+                  signalIdentity(kindEq1).hasSuffix("__equality__9:kind-site:1") else {
+                fatalError("computed/equality counters collided")
+            }
+
+            let interleave0 = try computed("interleave") { .string("zero") }
+            let explicit = try named("explicit", .string("strict"))
+            let interleave1 = try computed("interleave") { .string("one") }
+            guard signalIdentity(interleave0).hasSuffix("__computed__10:interleave:0"),
+                  signalIdentity(interleave1).hasSuffix("__computed__10:interleave:1"),
+                  signalIdentity(explicit) == "root|explicit" else { fatalError("named interleave shifted counters") }
+            do {
+                _ = try named("explicit", .string("conflict"))
+                fatalError("explicit duplicate default was accepted")
+            } catch let error as SscRuntimeFailure {
+                guard error.description.contains("conflicting kind/default") else { throw error }
+            }
+
+            do {
+                _ = try computed("failed-site") { throw SscRuntimeFailure(description: "compute failed") }
+                fatalError("failed compute unexpectedly succeeded")
+            } catch let error as SscRuntimeFailure {
+                guard error.description == "compute failed" else { throw error }
+            }
+            let afterFailure = try computed("failed-site") { .string("retry") }
+            guard signalIdentity(afterFailure).hasSuffix("__computed__11:failed-site:0") else {
+                fatalError("failed allocation burned occurrence")
+            }
+
+            host.abort()
+            globals = try host.globals()
+            let baseline = host.signalCount()
+            guard baseline == 1 else { fatalError("unexpected keyed baseline \(baseline)") }
+            let key = SscClosure(arity: 1) { args in fields(args[0], "Tuple2")[0] }
+            func renderRow(_ args: [SscValue]) throws -> SscValue {
+                let item = fields(args[0], "Tuple2"), value = string(item[1])
+                let first = try computed("row-site") { .string(value) }
+                let equal = try equality("row-site", first, .string(value))
+                let second = try computed("row-site") { .string(value + "-second") }
+                return .data("Tuple3", [first, equal, second])
+            }
+            let render = SscClosure(arity: 1, native: renderRow)
+            func rowSignals(_ value: NativeUiKeyedEntryValue) -> [SscValue] {
+                fields(value.value, "Tuple3")
+            }
+
+            let first = try host.reconcileKeyed(
+                parentOwnerPath: "root", siteId: "rows",
+                items: [tuple("a", "v1"), tuple("b", "b1")], key: key, render: render)
+            let firstA = rowSignals(entry("a", first)), firstB = rowSignals(entry("b", first))
+            guard host.signalCount() == baseline + 6,
+                  signalIdentity(firstA[0]) != signalIdentity(firstB[0]),
+                  signalIdentity(firstA[0]).hasSuffix("__computed__8:row-site:0"),
+                  signalIdentity(firstA[1]).hasSuffix("__equality__8:row-site:0"),
+                  signalIdentity(firstA[2]).hasSuffix("__computed__8:row-site:1") else {
+                fatalError("sibling/kind owner identities")
+            }
+
+            let refreshed = try host.reconcileKeyed(
+                parentOwnerPath: "root", siteId: "rows",
+                items: [tuple("a", "v2"), tuple("b", "b2")], key: key, render: render)
+            let refreshedA = rowSignals(entry("a", refreshed))
+            guard signalIdentity(refreshedA[0]) == signalIdentity(firstA[0]),
+                  string(try read(refreshedA[0])) == "v2",
+                  string(try read(refreshedA[2])) == "v2-second" else {
+                fatalError("same-key derived closure/default stayed stale")
+            }
+
+            let moved = try host.reconcileKeyed(
+                parentOwnerPath: "root", siteId: "rows",
+                items: [tuple("b", "b3"), tuple("a", "v3")], key: key, render: render)
+            guard signalIdentity(rowSignals(entry("a", moved))[0]) == signalIdentity(firstA[0]),
+                  signalIdentity(rowSignals(entry("b", moved))[0]) == signalIdentity(firstB[0]),
+                  host.signalCount() == baseline + 6 else { fatalError("reorder changed identity/count") }
+
+            let throwingRender = SscClosure(arity: 1) { args in
+                let rendered = try renderRow(args)
+                if string(fields(args[0], "Tuple2")[0]) == "boom" {
+                    throw SscRuntimeFailure(description: "render boom")
+                }
+                return rendered
+            }
+            do {
+                _ = try host.reconcileKeyed(
+                    parentOwnerPath: "root", siteId: "rows",
+                    items: [tuple("a", "rollback"), tuple("boom", "bad")], key: key, render: throwingRender)
+                fatalError("failed keyed render unexpectedly committed")
+            } catch let error as SscRuntimeFailure {
+                guard error.description == "render boom", host.signalCount() == baseline + 6,
+                      string(try read(rowSignals(entry("a", moved))[0])) == "v3" else { throw error }
+            }
+
+            let retry = try host.reconcileKeyed(
+                parentOwnerPath: "root", siteId: "rows",
+                items: [tuple("a", "retry"), tuple("boom", "ok")], key: key, render: render)
+            let retryA = rowSignals(entry("a", retry)), retryBoom = rowSignals(entry("boom", retry))
+            guard signalIdentity(retryA[0]) == signalIdentity(firstA[0]),
+                  signalIdentity(retryBoom[0]).hasSuffix("__computed__8:row-site:0"),
+                  string(try read(retryA[0])) == "retry", host.signalCount() == baseline + 6 else {
+                fatalError("rollback retry identity/count")
+            }
+
+            let deleted = try host.reconcileKeyed(
+                parentOwnerPath: "root", siteId: "rows",
+                items: [tuple("a", "last")], key: key, render: render)
+            guard deleted.disposedSignalKeys.count == 3, host.signalCount() == baseline + 3 else {
+                fatalError("key deletion retained derived cells")
+            }
+            let empty = try host.reconcileKeyed(
+                parentOwnerPath: "root", siteId: "rows", items: [], key: key, render: render)
+            guard empty.disposedSignalKeys.count == 3, host.signalCount() == baseline else {
+                fatalError("empty keyed owner did not return to baseline")
+            }
+
+            func ownerPath(_ parent: String, _ site: String, _ key: String) -> String {
+                parent + "/f" + String(site.utf8.count) + ":" + site + "/k" + String(key.utf8.count) + ":" + key
+            }
+            let nestedKey = SscClosure(arity: 1) { args in args[0] }
+            let outerRender = SscClosure(arity: 1) { args in
+                let outerKey = string(args[0])
+                let outer = try computed("nested-site") { .string("outer-" + outerKey) }
+                let nestedRender = SscClosure(arity: 1) { nestedArgs in
+                    try computed("nested-site") { .string("inner-" + string(nestedArgs[0])) }
+                }
+                let nested = try host.reconcileKeyed(
+                    parentOwnerPath: ownerPath("root", "outer", outerKey), siteId: "inner",
+                    items: [.string("child")], key: nestedKey, render: nestedRender)
+                return .data("Tuple2", [outer, entry("child", nested).value])
+            }
+            let nestedFirst = try host.reconcileKeyed(
+                parentOwnerPath: "root", siteId: "outer",
+                items: [.string("left"), .string("right")], key: nestedKey, render: outerRender)
+            let left = fields(entry("left", nestedFirst).value, "Tuple2")
+            let right = fields(entry("right", nestedFirst).value, "Tuple2")
+            guard signalIdentity(left[0]) != signalIdentity(left[1]),
+                  signalIdentity(left[0]) != signalIdentity(right[0]),
+                  signalIdentity(left[1]) != signalIdentity(right[1]),
+                  host.signalCount() == baseline + 4 else {
+                fatalError("nested/sibling owners aliased: \(signalIdentity(left[0])) | \(signalIdentity(left[1])) | \(signalIdentity(right[0])) | \(signalIdentity(right[1])) count=\(host.signalCount())")
+            }
+            let nestedMoved = try host.reconcileKeyed(
+                parentOwnerPath: "root", siteId: "outer",
+                items: [.string("right"), .string("left")], key: nestedKey, render: outerRender)
+            let movedLeft = fields(entry("left", nestedMoved).value, "Tuple2")
+            guard signalIdentity(movedLeft[0]) == signalIdentity(left[0]),
+                  signalIdentity(movedLeft[1]) == signalIdentity(left[1]) else {
+                fatalError("nested reorder changed identity")
+            }
+            _ = try host.reconcileKeyed(
+                parentOwnerPath: "root", siteId: "outer", items: [], key: nestedKey, render: outerRender)
+            guard host.signalCount() == baseline else { fatalError("nested delete leaked signals") }
+
+            let reset0 = try computed("reset-site") { .string("before") }
+            host.abort()
+            globals = try host.globals()
+            let reset1 = try computed("reset-site") { .string("after") }
+            guard signalIdentity(reset0) == signalIdentity(reset1), host.signalCount() == 2 else {
+                fatalError("abort/new begin did not reset anonymous counters")
+            }
+            Swift.print("locale|kind|named|failed-allocation|refresh|reorder|rollback|retry|delete|nested|reset")
         } catch { fatalError(String(describing: error)) }
     }
 }
