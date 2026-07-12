@@ -1028,7 +1028,13 @@ final class NativeUiHost: SscRuntimeExtension {
                 ownerScopes[owner] = usedScopes
             }
             keyedOwners[base] = nextOwners
-            let disposed = disposeUnreferencedScopes()
+            // An inner reconciliation commits owner topology while its outer render still
+            // owns provisional scopes that are not visible in ownerScopes yet. Disposing
+            // globally here would delete those live outer cells; the outermost commit sees
+            // the complete transaction tree and performs the single safe disposal pass.
+            let disposed = previousPersistedTransactionDepth == 0
+                ? disposeUnreferencedScopes()
+                : []
             currentOwnerPath = previousOwnerPath
             currentOwnerScopes = previousOwnerScopes
             currentSiteOccurrences = previousSiteOccurrences

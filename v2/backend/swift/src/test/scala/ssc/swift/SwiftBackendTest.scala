@@ -3606,7 +3606,7 @@ public enum SessionProbe {
                 "root|__computed__10:localeText:2",
             ] else { fatalError("locale occurrence ids") }
             try host.writeSignal(locale, .string("ru"), "locale flip")
-            guard try localeSignals.map { string(try read($0)) } == ["title-ru", "body-ru", "footer-ru"] else {
+            guard try localeSignals.map({ string(try read($0)) }) == ["title-ru", "body-ru", "footer-ru"] else {
                 fatalError("locale closures did not refresh")
             }
 
@@ -3763,6 +3763,32 @@ public enum SessionProbe {
             guard signalIdentity(movedLeft[0]) == signalIdentity(left[0]),
                   signalIdentity(movedLeft[1]) == signalIdentity(left[1]) else {
                 fatalError("nested reorder changed identity")
+            }
+            let throwingOuter = SscClosure(arity: 1) { args in
+                let rendered = try outerRender.native!(args)
+                if string(args[0]) == "boom" {
+                    throw SscRuntimeFailure(description: "outer render boom")
+                }
+                return rendered
+            }
+            do {
+                _ = try host.reconcileKeyed(
+                    parentOwnerPath: "root", siteId: "outer",
+                    items: [.string("left"), .string("boom")], key: nestedKey, render: throwingOuter)
+                fatalError("outer failure after inner commit unexpectedly succeeded")
+            } catch let error as SscRuntimeFailure {
+                guard error.description == "outer render boom", host.signalCount() == baseline + 4 else {
+                    throw error
+                }
+            }
+            let nestedRetry = try host.reconcileKeyed(
+                parentOwnerPath: "root", siteId: "outer",
+                items: [.string("left"), .string("boom")], key: nestedKey, render: outerRender)
+            let retryLeft = fields(entry("left", nestedRetry).value, "Tuple2")
+            guard signalIdentity(retryLeft[0]) == signalIdentity(left[0]),
+                  signalIdentity(retryLeft[1]) == signalIdentity(left[1]),
+                  host.signalCount() == baseline + 4 else {
+                fatalError("nested rollback/retry changed identity or count")
             }
             _ = try host.reconcileKeyed(
                 parentOwnerPath: "root", siteId: "outer", items: [], key: nestedKey, render: outerRender)
