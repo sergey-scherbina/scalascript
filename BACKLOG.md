@@ -79,10 +79,10 @@ Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
 
 ## v1→v2 migration follow-ups (2026-07-03)
 
-- [ ] **v2-imported-extension-receiver-empty-row** (2026-07-12) — native
-      self-hosted checking loses the declared receiver shape of an imported
-      extension and reports `no column ... in row []`; add a multi-file
-      VM/ASM regression and preserve the receiver type across import lowering.
+- [ ] **v2-imported-receiver-methods-not-linked** (2026-07-12) — native
+      self-hosted imports lose extension receiver shape (`row []`) and emit
+      `Stub` for real case-class method bodies. Add a multi-file VM/ASM
+      regression and preserve/link both receiver operation forms.
 
 - [ ] **v1-explicit-companion-shadows-case-constructor** (2026-07-12) — the v1
       interpreter sometimes resolves `CaseClass(...)` to an explicit companion

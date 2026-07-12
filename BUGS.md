@@ -1,23 +1,25 @@
 # Bug tracker
 
-## v2-imported-extension-receiver-empty-row — native frontend loses the receiver type of imported extensions
+## v2-imported-receiver-methods-not-linked — native imports cannot execute receiver operations
 
 **Status:** open (2026-07-12), found by codex while implementing SclJet M1; the
-SclJet API is unblocked by defining the operations as real `ByteSlice` methods.
+SclJet API is unblocked by exporting target-neutral top-level functions.
 
 - **Real-harness repro:** install the current std modules, define an exported
   `extension (bytes: ByteSlice) def slice(offset: Int, length: Int)` in an
   imported module, then call `base.slice(1, 3)` through `bin/ssc run --native`.
   The standard launcher exits before user output with
-  `ssc: __method__: no column 'length' in row []`. The v1 interpreter accepts
-  the same imported extension.
-- **Root cause (partial):** the self-hosted/native import path checks the
-  extension body with an empty-row receiver rather than the declared
-  `ByteSlice`; ordinary methods declared in the case class retain the receiver
-  shape and are the safe cross-backend form.
-- **Done-when:** a multi-file native VM/direct-ASM conformance case imports an
-  argument-taking case-class extension, reads its receiver fields, and produces
-  identical output without an empty-row diagnostic.
+  `ssc: __method__: no column 'length' in row []`. Replacing the extension with
+  a real case-class method avoids that checker error, but calls such as
+  `base.get(4)` and `base.slice(1, 3)` evaluate to `Stub` in native VM/ASM; a
+  following match fails with `match: no arm for Stub/1`. The v1 interpreter
+  executes both forms.
+- **Root cause (partial):** the self-hosted import path loses receiver shape for
+  imported extensions and does not link imported case-class method bodies into
+  executable CoreIR. Top-level imported functions do link and execute.
+- **Done-when:** a multi-file native VM/direct-ASM conformance case imports both
+  an argument-taking extension and a case-class method, reads receiver fields,
+  and produces identical non-`Stub` output.
 
 ## v1-explicit-companion-shadows-case-constructor — later case-class construction resolves to the companion value
 
