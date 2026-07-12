@@ -348,7 +348,9 @@ natively in document order, converts `${expr}` to JDBC binds, preserves `$$`,
 and exposes `_sqlBlock_N` plus the first `<Section>.sql` result. This path works
 on standard VM, direct ASM, slim/JRE, and `build-jvm` without Scalameta, the v1
 frontend, or a transparent fallback. Typed native `Db.query/insert/update[A]`
-is the remaining SQL-provider migration slice.
+now derives bounded portable product schemas from `Mirror`, validates generated
+identifiers, binds every value, and reconstructs case-insensitive JDBC rows on
+the same compiler-free lanes.
 
 Planned, not implemented yet:
 

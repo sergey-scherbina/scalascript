@@ -2168,8 +2168,10 @@ the same database name across explicit roots fail before a connection is opened.
 Native `sql` fences execute in document order through that provider, expose
 each `_sqlBlock_N` result and the first `<Section>.sql` alias, and support
 source-expression binds without loading the compatibility frontend. Native
-`transaction` fences, typed `Db.query/insert/update[A]`, and PostgreSQL
-LISTEN/NOTIFY remain compatibility-only until their follow-up slices land. The
+`RowCodec` products also support native `Db.query/insert/update[A]` with
+identifier-validated generated writes and case-insensitive row reconstruction.
+`transaction` fences and PostgreSQL LISTEN/NOTIFY remain compatibility-only
+until their follow-up slices land. The
 native UI provider also builds mutable/derived signals and basic
 text/signal/show/fragment/element views, and `emit(view, outDir)` writes a
 deterministic escaped UTF-8 `index.html` without loading `frontendCore` or a
@@ -2233,11 +2235,11 @@ Db.execute("default", "INSERT INTO todos(text) VALUES (?)", ["Buy milk"])
 Db.execute("default", "DELETE FROM todos WHERE id = ?", [id.toInt])
 ```
 
-On the interpreter and JVM codegen paths, typed SQL helpers can decode and
-encode rows through case-class field mappings. On JVM codegen the mapping is
-provided by derived `RowCodec[A]`; on the interpreter path the same public
-`Db.query/insert/update[A]` API uses the interpreter's registered case-class
-field metadata.
+Typed SQL helpers decode and encode rows through case-class field mappings. On
+the compiler-free 2.1 standard VM/direct-ASM path, `derives RowCodec` consumes
+portable `Mirror` metadata and the public `Db.query/insert/update[A]` API uses
+the registered field order. JVM codegen retains its existing derived
+`RowCodec[A]` implementation.
 
 ```scalascript
 import scalascript.typeddata.RowCodec
