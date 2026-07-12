@@ -1509,7 +1509,11 @@ def parseVal = (toks) =>
 -- ── KC7: match + case class parsing ─────────────────────────────────────────
 
 def mkMatch   = (e, arms) => Pair("match",   Pair(e, arms))
-def mkCaseCls = (n, ps)   => Pair("casecls", Pair(n, ps))
+-- Product declarations retain the source data needed by portable Mirror and
+-- exact custom derives synthesis. Constructor lowering still consumes `ps`;
+-- `types` and `derives` are metadata, never host reflection handles.
+def mkCaseCls = (n, ps, types, derives) =>
+  Pair("casecls", Pair(n, Pair(ps, Pair(types, derives))))
 def mkCaseObj = (n)       => Pair("caseobj", n)
 
 -- parsePat: single flat pattern; returns (pat, remaining-toks)
@@ -1734,13 +1738,115 @@ def parseMatchExpr = (toks) =>
   let rArms = parseMatchArms(ts1) in
   pr(mkMatch(prV(re), prV(rArms)), prT(rArms))
 
--- parseCaseClass: `case class Name(params)`  (keywords `case class` consumed)
+-- Read a case-class parameter type while preserving balanced source spelling.
+-- This mirrors skipTypeAt's boundary but returns the collected token text.
+def readCaseParamTypeAt = (depth, toks, acc) =>
+  let t = peek(toks) in
+  let k = tokKind(t) in
+  let v = tokVal(t) in
+  if #seq(k, "EOF") then pr(joinStrs(reverse(acc)), toks)
+  else if #seq(k, "[") then
+    readCaseParamTypeAt(#i.add(depth, 1), advance(toks), Cons("[", acc))
+  else if #seq(k, "(") then
+    readCaseParamTypeAt(#i.add(depth, 1), advance(toks), Cons("(", acc))
+  else if #seq(k, "]") then
+    if #i.eq(depth, 0) then pr(joinStrs(reverse(acc)), toks)
+    else readCaseParamTypeAt(#i.sub(depth, 1), advance(toks), Cons("]", acc))
+  else if #seq(k, ")") then
+    if #i.eq(depth, 0) then pr(joinStrs(reverse(acc)), toks)
+    else readCaseParamTypeAt(#i.sub(depth, 1), advance(toks), Cons(")", acc))
+  else if #i.eq(depth, 0) then
+    if #seq(k, "=") then pr(joinStrs(reverse(acc)), toks)
+    else if #seq(k, ",") then pr(joinStrs(reverse(acc)), toks)
+    else if #seq(k, ";") then pr(joinStrs(reverse(acc)), toks)
+    else if #seq(k, "{") then pr(joinStrs(reverse(acc)), toks)
+    else if #seq(k, "}") then pr(joinStrs(reverse(acc)), toks)
+    else
+      let sv = if #seq(v, "") then k else v in
+      readCaseParamTypeAt(depth, advance(toks), Cons(sv, acc))
+  else
+    let sv = if #seq(v, "") then k else v in
+    readCaseParamTypeAt(depth, advance(toks), Cons(sv, acc))
+
+def parseCaseParam = (toks) =>
+  if #seq(tokKind(peek(toks)), "id") then
+    let name = tokVal(peek(toks)) in
+    let ts1 = advance(toks) in
+    let rt = if kindIs(":", ts1) then
+      readCaseParamTypeAt(0, advance(ts1), Nil)
+    else pr("Any", ts1) in
+    let fieldType = if #i.eq(#slen(prV(rt)), 0) then "Any" else prV(rt) in
+    let ts2 = prT(rt) in
+    if kindIs("=", ts2) then
+      let rd = parseExpr(advance(ts2)) in
+      let _rec = #cell.set(paramDefaultsCell,
+                   Cons(Pair(name, prV(rd)), #cell.get(paramDefaultsCell))) in
+      pr(Pair(name, fieldType), prT(rd))
+    else pr(Pair(name, fieldType), ts2)
+  else pr(Pair("_", "Any"), toks)
+
+def parseCaseParamList = (toks) =>
+  if kindIs("(", toks) then
+    let toks2 = advance(toks) in
+    if kindIs(")", toks2) then pr(Nil, advance(toks2))
+    else
+      let rec goParams = (ts, acc) =>
+        let r = parseCaseParam(ts) in
+        let acc2 = Cons(prV(r), acc) in
+        let ts2 = prT(r) in
+        if kindIs(",", ts2) then goParams(advance(ts2), acc2)
+        else pr(reverse(acc2), ts2) in
+      let r = goParams(toks2, Nil) in
+      pr(prV(r), skipKind(")", prT(r)))
+  else pr(Nil, toks)
+
+def caseParamNames = (params) =>
+  match params {
+    case Nil => Nil
+    case Cons(p, rest) => match p { case Pair(name, fieldType) => Cons(name, caseParamNames(rest)) }
+  }
+
+def caseParamTypes = (params) =>
+  match params {
+    case Nil => Nil
+    case Cons(p, rest) => match p { case Pair(name, fieldType) => Cons(fieldType, caseParamTypes(rest)) }
+  }
+
+def parseDeriveNames = (toks, acc) =>
+  let k = tokKind(peek(toks)) in
+  if #seq(k, "uid") then
+    let name = tokVal(peek(toks)) in
+    let ts2 = skipTypeArgs(advance(toks)) in
+    if kindIs(",", ts2) then parseDeriveNames(advance(ts2), Cons(name, acc))
+    else reverse(Cons(name, acc))
+  else if #seq(k, "id") then
+    let name = tokVal(peek(toks)) in
+    let ts2 = skipTypeArgs(advance(toks)) in
+    if kindIs(",", ts2) then parseDeriveNames(advance(ts2), Cons(name, acc))
+    else reverse(Cons(name, acc))
+  else reverse(acc)
+
+def findCaseDerives = (toks) =>
+  let k = tokKind(peek(toks)) in
+  let v = tokVal(peek(toks)) in
+  if #seq(k, "EOF") then Nil
+  else if #seq(k, ";") then Nil
+  else if #seq(k, "{") then Nil
+  else if #seq(k, "id") then
+    if #seq(v, "derives") then parseDeriveNames(advance(toks), Nil)
+    else findCaseDerives(advance(toks))
+  else findCaseDerives(advance(toks))
+
+-- parseCaseClass: `case class Name(params) [derives TC]` (keywords consumed)
 def parseCaseClass = (toks) =>
   let name = tokVal(peek(toks)) in
   let ts1  = skipTypeParams(advance(toks)) in
   let _clr = #cell.set(paramDefaultsCell, Nil) in
-  let rp   = parseParamList(ts1) in
-  let _reg = registerParamDflts(name, prV(rp)) in
+  let rp   = parseCaseParamList(ts1) in
+  let params = caseParamNames(prV(rp)) in
+  let types = caseParamTypes(prV(rp)) in
+  let derives = findCaseDerives(prT(rp)) in
+  let _reg = registerParamDflts(name, params) in
   let rec skipExt = (ts) =>
     let tok = peek(ts) in
     let k2  = tokKind(tok) in
@@ -1764,7 +1870,7 @@ def parseCaseClass = (toks) =>
       else skipBody(advance(ts)) in
     skipBody(advance(ts2))
   else ts2 in
-  pr(mkCaseCls(name, prV(rp)), ts3)
+  pr(mkCaseCls(name, params, types, derives), ts3)
 
 -- parseCaseObject: `case object Name [extends ...]` (keywords consumed).
 -- The native route represents the declaration as one stable nullary value.

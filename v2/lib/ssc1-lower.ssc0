@@ -350,6 +350,26 @@ def parseGivenType = (typeStr) =>
     let inner = #sslice(typeStr, #i.add(bi, 1), #i.sub(len, 1)) in
     Pair(tc, inner)
 
+def mirrorDefName = (typeName) => #sconcat("__mirror_", typeName)
+def derivedDefName = (tc, typeName) =>
+  #sconcat("__derived_", #sconcat(tc, #sconcat("_", typeName)))
+
+def derivedGivenEntries = (typeName, derives) =>
+  match derives {
+    case Nil => Nil
+    case Cons(tc, rest) =>
+      Cons(Pair(Pair(tc, typeName), derivedDefName(tc, typeName)),
+        derivedGivenEntries(typeName, rest))
+  }
+
+def caseGeneratedGivenEntries = (typeName, derives) =>
+  let mirrorName = mirrorDefName(typeName) in
+  Cons(Pair(Pair("Mirror.Of", typeName), mirrorName),
+  Cons(Pair(Pair("Mirror.ProductOf", typeName), mirrorName),
+  Cons(Pair(Pair("deriving.Mirror.Of", typeName), mirrorName),
+  Cons(Pair(Pair("deriving.Mirror.ProductOf", typeName), mirrorName),
+    derivedGivenEntries(typeName, derives)))))
+
 -- Build given table from parsed stmts — "given" and "given_obj" tags
 def buildGivenTable = (stmts) =>
   match stmts {
@@ -372,6 +392,17 @@ def buildGivenTable = (stmts) =>
                 match rest2 {
                   case Pair(typeStr, stmts2) =>
                     Cons(Pair(parseGivenType(typeStr), gname), more)
+                }
+            }
+          else if #seq(tag, "casecls") then
+            match data {
+              case Pair(typeName, caseMeta) =>
+                match caseMeta {
+                  case Pair(params, typeAndDerives) =>
+                    match typeAndDerives {
+                      case Pair(types, derives) =>
+                        appendL(caseGeneratedGivenEntries(typeName, derives), more)
+                    }
                 }
             }
           else more
@@ -2298,6 +2329,34 @@ def lowerCaseCls = (name, params) =>
   -- `Student(name,…)`) no longer overwrite each other's accessor → `.name` works on both.
   Cons(IrDef(name, IrLam(n, IrCtor(name, ctorArgs))), Nil)
 
+def derivedValueNames = (typeName, derives) =>
+  match derives {
+    case Nil => Nil
+    case Cons(tc, rest) =>
+      Cons(derivedDefName(tc, typeName), derivedValueNames(typeName, rest))
+  }
+
+def lowerProductMetadata = (typeName, fieldNames, fieldTypes, derives) =>
+  let mirror = IrCtor("Mirror",
+    Cons(IrLit(IrStr(typeName)),
+      Cons(strListIr(fieldNames), Cons(strListIr(fieldTypes), Nil)))) in
+  Cons(IrDef(mirrorDefName(typeName), mirror), Nil)
+
+-- Derived dictionaries are top-level immutable values, initialized in source
+-- order after preceding vars/vals and cached in the same cell-backed ABI. This
+-- prevents an eager IrDef from running TC.derived before earlier initializers.
+def derivedInitIrs = (typeName, derives) =>
+  match derives {
+    case Nil => Nil
+    case Cons(tc, rest) =>
+      let name = derivedDefName(tc, typeName) in
+      let value = IrApp(IrGlobal(#sconcat(tc, "_derived")),
+        Cons(IrGlobal(mirrorDefName(typeName)), Nil)) in
+      Cons(IrPrim("cell.set",
+        Cons(IrGlobal(#sconcat(name, "__cell")), Cons(value, Nil))),
+        derivedInitIrs(typeName, rest))
+  }
+
 -- K62.13: lower an `enum` decl into constructor defs. A nullary case is a VALUE
 -- (IrDef name = IrCtor name []) so a bare reference (`North`) → IrGlobal → the ctor
 -- value (correct for `case North =>` matches). A parametrized case reuses lowerCaseCls
@@ -2539,7 +2598,15 @@ def lowerStmtToList = (stmt) =>
         }
       else if #seq(tag, "casecls") then
         match data {
-          case Pair(name, params) => lowerCaseCls(name, params)
+          case Pair(name, caseMeta) =>
+            match caseMeta {
+              case Pair(params, typeAndDerives) =>
+                match typeAndDerives {
+                  case Pair(types, derives) =>
+                    appendL(lowerCaseCls(name, params),
+                      lowerProductMetadata(name, params, types, derives))
+                }
+            }
         }
       else if #seq(tag, "caseobj") then
         Cons(IrDef(data, IrCtor(data, Nil)), Nil)
@@ -3233,7 +3300,9 @@ def collectCaseFields = (stmts) =>
       match s {
         case Pair(tag, data) =>
           if #seq(tag, "casecls") then
-            match data { case Pair(name, params) => append(params, collectCaseFields(rest)) }
+            match data { case Pair(name, caseMeta) =>
+              match caseMeta { case Pair(params, typeAndDerives) =>
+                append(params, collectCaseFields(rest)) } }
           else if #seq(tag, "enum") then
             match data { case Pair(ename, cases) => append(enumCaseFields(cases), collectCaseFields(rest)) }
           else collectCaseFields(rest)
@@ -3248,7 +3317,9 @@ def collectCaseClassOrder = (stmts) =>
       match s {
         case Pair(tag, data) =>
           if #seq(tag, "casecls") then
-            match data { case Pair(name, params) => Cons(Pair(name, params), collectCaseClassOrder(rest)) }
+            match data { case Pair(name, caseMeta) =>
+              match caseMeta { case Pair(params, typeAndDerives) =>
+                Cons(Pair(name, params), collectCaseClassOrder(rest)) } }
           else if #seq(tag, "enum") then
             match data { case Pair(ename, cases) => append(enumCaseOrder(cases), collectCaseClassOrder(rest)) }
           else collectCaseClassOrder(rest)
@@ -3279,6 +3350,11 @@ def collectTopVals = (stmts) =>
             match data { case Pair(name, init) => Cons(name, collectTopVals(rest)) }
           else if #seq(tag, "tuppat") then
             match data { case Pair(names, init) => appendL(names, collectTopVals(rest)) }
+          else if #seq(tag, "casecls") then
+            match data { case Pair(typeName, caseMeta) =>
+              match caseMeta { case Pair(params, typeAndDerives) =>
+                match typeAndDerives { case Pair(types, derives) =>
+                  appendL(derivedValueNames(typeName, derives), collectTopVals(rest)) } } }
           else collectTopVals(rest)
       }
   }
@@ -3519,6 +3595,17 @@ def lowerProg = (stmts) =>
                   } in
                   Cons(IrLet(Cons(lowerE(Nil, resolveE(init)), Nil), setBody),
                        topExprs(rest1))
+              }
+            else if #seq(stag, "casecls") then
+              match sdata {
+                case Pair(typeName, caseMeta) =>
+                  match caseMeta {
+                    case Pair(params, typeAndDerives) =>
+                      match typeAndDerives {
+                        case Pair(types, derives) =>
+                          appendL(derivedInitIrs(typeName, derives), topExprs(rest1))
+                      }
+                  }
               }
             else topExprs(rest1)
         }

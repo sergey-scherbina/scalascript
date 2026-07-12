@@ -1,0 +1,36 @@
+---
+name: product-derives
+version: 1.0.0
+---
+
+# Portable product Mirror and custom evidence
+
+```scalascript
+var derivedCalls = 0
+
+trait Csv[A]:
+  def header: String
+
+case class CsvInstance(header: String) extends Csv[Any]
+
+object Csv:
+  def derived(m: Mirror): Csv[Any] =
+    derivedCalls = derivedCalls + 1
+    CsvInstance(m.elemLabels.mkString(","))
+
+case class Person(name: String, age: Int) derives Csv
+
+val mirrorOf = summon[Mirror.Of[Person]]
+val productOf = summon[Mirror.ProductOf[Person]]
+val derivingOf = summon[deriving.Mirror.Of[Person]]
+val derivingProduct = summon[deriving.Mirror.ProductOf[Person]]
+val csv1 = summon[Csv[Person]]
+val csv2 = summon[Csv[Person]]
+
+println(mirrorOf.label)
+println(productOf.elemLabels.mkString("|"))
+println(derivingOf.elemTypes.mkString("|"))
+println(derivingProduct.label)
+println(csv1.header + "|" + csv2.header)
+println(derivedCalls)
+```

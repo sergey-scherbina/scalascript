@@ -125,6 +125,12 @@ PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
 dsl_mini_language_expected=$'=== success: 2 * x + y ===\nresult: 23\n=== name-resolve error: x + z ===\nPassError(name-resolve, undefined variable: z, <unknown>, 0, 0)\n=== type-check error: x / 0 ===\nPassError(type-check, division by zero, <unknown>, 0, 0)\n=== parse error: 1 @ 2 ===\nPassError(parse, cannot parse atom: 1 @ 2, <unknown>, 0, 0)\n=== pipeline report: 2 * x + y ===\n  [parse] ok\n  [name-resolve] ok\n  [type-check] ok\n  [evaluate] ok'
 [[ $(PATH="$clean_path" java -jar "$sandbox/dsl-mini-language.jar") == "$dsl_mini_language_expected" ]]
 
+cp "$ROOT/examples/custom-derives-mirror.ssc" "$sandbox/other/custom-derives-mirror.ssc"
+PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
+  "$sandbox/other/custom-derives-mirror.ssc" -o "$sandbox/custom-derives.jar"
+custom_derives_expected=$'Person\nname|age\nString|Int\nname,age'
+[[ $(PATH="$clean_path" java -jar "$sandbox/custom-derives.jar") == "$custom_derives_expected" ]]
+
 cp "$ROOT/examples/graph-rdf4j-http-storage.ssc" "$sandbox/other/graph-rdf4j-http-storage.ssc"
 PATH="$clean_path" SSC_NO_CDS=1 "$ROOT/bin/ssc" build-jvm \
   "$sandbox/other/graph-rdf4j-http-storage.ssc" -o "$sandbox/graph-rdf4j.jar"
@@ -164,6 +170,8 @@ LC_ALL=C sort -c "$sandbox/entries"
   "$sandbox/graph.jar" >"$sandbox/graph.jdeps"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps -verbose:class \
   "$sandbox/dsl-mini-language.jar" >"$sandbox/dsl-mini-language.jdeps"
+"$jdeps_cmd" --multi-release base --ignore-missing-deps -verbose:class \
+  "$sandbox/custom-derives.jar" >"$sandbox/custom-derives.jdeps"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
   "$sandbox/a/app.jar" >"$sandbox/app.modules"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
@@ -184,6 +192,8 @@ LC_ALL=C sort -c "$sandbox/entries"
   "$sandbox/graph.jar" >"$sandbox/graph.modules"
 "$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
   "$sandbox/dsl-mini-language.jar" >"$sandbox/dsl-mini-language.modules"
+"$jdeps_cmd" --multi-release base --ignore-missing-deps --print-module-deps \
+  "$sandbox/custom-derives.jar" >"$sandbox/custom-derives.modules"
 
 forbidden='scala[./](meta|tools)|dotty[./]tools|scala3-compiler|compiler-driver|javax[./]tools|java[.]compiler|jdk[.]compiler|ssc[./]bridge|scalascript[./](ast|frontend|interpreter)'
 if grep -Ei "$forbidden" "$sandbox/entries" "$sandbox/entry.javap" \
@@ -193,7 +203,8 @@ if grep -Ei "$forbidden" "$sandbox/entries" "$sandbox/entry.javap" \
     "$sandbox/async.modules" "$sandbox/actors.jdeps" "$sandbox/actors.modules" \
     "$sandbox/distributed.jdeps" "$sandbox/distributed.modules" \
     "$sandbox/graph.jdeps" "$sandbox/graph.modules" \
-    "$sandbox/dsl-mini-language.jdeps" "$sandbox/dsl-mini-language.modules" >/dev/null; then
+    "$sandbox/dsl-mini-language.jdeps" "$sandbox/dsl-mini-language.modules" \
+    "$sandbox/custom-derives.jdeps" "$sandbox/custom-derives.modules" >/dev/null; then
   echo 'v21-build-jvm-release-gate: forbidden standard-tier entry/reference/module' >&2
   exit 1
 fi
@@ -221,6 +232,7 @@ actors_modules=$(tr -d '\r\n' <"$sandbox/actors.modules")
 distributed_modules=$(tr -d '\r\n' <"$sandbox/distributed.modules")
 graph_modules=$(tr -d '\r\n' <"$sandbox/graph.modules")
 dsl_mini_language_modules=$(tr -d '\r\n' <"$sandbox/dsl-mini-language.modules")
+custom_derives_modules=$(tr -d '\r\n' <"$sandbox/custom-derives.modules")
 report_tmp="$sandbox/release.tsv"
 {
   printf 'metric\tvalue\n'
@@ -238,6 +250,7 @@ report_tmp="$sandbox/release.tsv"
   printf 'distributed.modules\t%s\n' "$distributed_modules"
   printf 'graph.modules\t%s\n' "$graph_modules"
   printf 'dsl-mini-language.modules\t%s\n' "$dsl_mini_language_modules"
+  printf 'custom-derives.modules\t%s\n' "$custom_derives_modules"
   printf 'compiler.commands.hidden\ttrue\n'
   printf 'forbidden.references\t0\n'
   printf 'hello.output\tHello, World!\n'
@@ -251,6 +264,7 @@ report_tmp="$sandbox/release.tsv"
   printf 'distributed.output\tlocal-map/shuffle-group/exact\n'
   printf 'graph.output\tlocal-property/rdf-boundary/exact\n'
   printf 'dsl-mini-language.output\t13-lines/exact\n'
+  printf 'custom-derives.output\tMirror/derived/exact\n'
 } >"$report_tmp"
 
 if [[ -n $REPORT ]]; then
