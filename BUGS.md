@@ -28,7 +28,7 @@ acceptance e2e test to native `.ssc`. Not blocking (single-param http externs wo
 
 ## v21-module-gate-misses-jca-provider — derived JRE omits Ed25519 module
 
-**Status:** fixed (2026-07-12, `4ce7aa1c9`), awaiting Sergiy confirmation;
+**Status:** fixed (2026-07-12, `43fded0f9`), awaiting Sergiy confirmation;
 found by codex in the standard-only negative release gate.
 
 - **Real-harness repro:** run `tests/e2e/v21-negative-toolchain-release-gate.sh`.

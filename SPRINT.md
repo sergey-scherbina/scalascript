@@ -3585,7 +3585,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
       - [x] Run the new gate, exhaustive release, and fresh `v2-*` conformance;
             freeze report/layout/size results, update docs, and push the green
             slice immediately.
-      Result (`4ce7aa1c9`): the standard-only copied distribution has zero
+      Result (`43fded0f9`): the standard-only copied distribution has zero
       compiler/Scalameta JARs, commands, modules, or forbidden references; its
       exhaustive frontend/checker and VM/ASM results are 194/194 and 53/13/129
       with zero blockers. Provider/HTTP server and validator-negative smokes
