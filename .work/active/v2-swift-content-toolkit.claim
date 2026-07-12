@@ -1,0 +1,6 @@
+feature/v2-swift-content-toolkit 2026-07-12T20:49:17Z
+agent: claude-code
+heartbeat: 2026-07-12T20:49:17Z
+status: in-progress
+done-so-far: reproduced busi's real content-toolkit usage (offline_guide.ssc's offlineGuideToolkit()) failing on Swift with "unsupported global 'contentToolkitNode'". Confirmed the three existing backend implementations to use as reference: ContentIntrinsics.scala (JVM interpreter, ~2170 lines), JvmGenContentEmit.scala (JVM codegen, ~1040 lines), ContentToolkitJs.scala (JS codegen, ~520 lines, closest analog — confirmed it emits plain TkNode-shaped values, same shape the Swift backend's .data(tag,fields) already handles). Posted scope proposal to scalascript rozum room, no objections yet.
+next: read ContentToolkitJs.scala in full as the porting template, scope a minimal-first plan (static markdown rendering: sections/blocks/paragraphs/lists/tables first; defer bindings/actions/data-sources/components to a follow-up slice unless trivial to include), draft + verify against a real busi content-toolkit fixture (offline_guide.ssc or similar), post plan for review before landing given foundational-Swift-backend size/risk.
