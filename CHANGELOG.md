@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-12 — distributed local-loopback MapReduce is core-free
+
+The ScalaScript 2.1 standard tier now supplies deterministic process-local
+named handlers, contiguous partitioned map/filter/flatMap, first-key-order
+shuffle group/reduce, portable result fields, and idempotent local cluster
+close. Imported uppercase object calls bind exact provider-owned
+`HandlerRegistry.*` operations without an effect fallback. The self-hosted
+frontend also retains literal and typed tuple-field refinements, making both
+public distributed examples exact on VM, direct ASM, slim, and reproducible
+`build-jvm`. Full parity is 46 identical / 20 both-fail with zero mismatch or
+one-sided rows, leaving 8 blockers. Landed through `e0e7e98c3`.
+
 ## 2026-07-12 — local and typed-loopback Actors are core-free
 
 The ScalaScript 2.1 standard tier now supplies FIFO virtual-thread actors with

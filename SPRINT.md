@@ -2969,7 +2969,9 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     taxonomy is 4 language / 6 standard / 10
                                     blockers / 22 total. Full release gate and
                                     conformance pass 11/11.
-                        - [ ] **TI-8.2d3k core-free distributed local loopback:**
+                        - [x] **TI-8.2d3k core-free distributed local loopback —
+                              DONE 2026-07-12 (`31d730c1e`, language
+                              `2b87c57df`, taxonomy `e0e7e98c3`):**
                               the two blocking distributed MapReduce examples
                               fail before I/O at `NamedHandler`. Add one required
                               v2-native provider for their deterministic local
@@ -2981,14 +2983,14 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     `unbound global: NamedHandler` and no stdout.
                                     Track as
                                     `v21-native-distributed-loopback-provider-missing`.
-                              - [ ] **TI-8.2d3k1 provider contract:** define
+                              - [x] **TI-8.2d3k1 provider contract:** define
                                     portable NamedHandler/registry, Node/Cluster,
                                     Stage/MapOp/FilterOp/FlatMapOp, ShuffleStage,
                                     DistributedResult fields, partition ordering,
                                     group/reduce ordering, missing-handler/error,
                                     duplicate registration, close, and batch
                                     isolation semantics. Commit before code.
-                              - [ ] **TI-8.2d3k2 implementation + unit:** create
+                              - [x] **TI-8.2d3k2 implementation + unit:** create
                                     `v2/runtime/std/distributed-plugin`, wire its
                                     required ServiceLoader/artifact/dependency
                                     roots, and cover map/filter/flatMap, groupBy,
@@ -2999,7 +3001,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     an unhandled effect ABI; bind that exact
                                     operation explicitly without a catch-all or
                                     compatibility fallback.
-                                    - [ ] **TI-8.2d3k2a tuple-field pattern
+                                    - [x] **TI-8.2d3k2a tuple-field pattern
                                           boundary:** the exact provider ABI
                                           advances log aggregation to green but
                                           join reveals that nested `lpat` and
@@ -3010,17 +3012,27 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                           tags, and make join VM/ASM byte-exact.
                                           Track as
                                           `v21-native-tuple-field-patterns`.
-                              - [ ] **TI-8.2d3k3 assembled contract:** add fixed
+                              - [x] **TI-8.2d3k3 assembled contract:** add fixed
                                     CSV/log inputs and exact outputs for both
                                     public examples on VM/direct ASM/build-jvm.
                                     The provider is deliberately process-local;
                                     network distribution remains explicit
                                     advanced-provider work.
-                              - [ ] **TI-8.2d3k4 release closure:** extend native
+                              - [x] **TI-8.2d3k4 release closure:** extend native
                                     entry, isolation/dependency, slim, and
                                     build-jvm gates; run full corpus/parity/
                                     taxonomy and fresh `v2-*` conformance. Retire
                                     only the two exact distributed rows and push.
+                              - **Result:** provider unit 4/4 and both public
+                                examples exact on VM/ASM/slim/build-jvm. Full
+                                release gate: 23 roots / 93 edges / 37 staged
+                                dependency jars; slim 38 jars / 6,669 classes /
+                                31,077,507 bytes; reproducible artifact
+                                26,787,628 bytes, SHA-256 `3843e22262d56ad936e1733b4eccec64a07ef5bfacbc163c1fb22210a4f5d1ca`.
+                                Parity 46 identical / 20 both-fail / 129 skipped,
+                                zero mismatch/one-sided; taxonomy 4 language /
+                                4 standard / 6 optional / 6 tools = 8 blockers.
+                                Fresh conformance passes 11/11.
                         - [x] **TI-8.2d3a core-free crypto breadth:** DONE
                               2026-07-11 (`f40b2b6b8`, taxonomy `6f4f0d13e`). Port the
                               established v1 crypto-plugin contracts—not its

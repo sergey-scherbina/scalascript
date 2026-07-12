@@ -42,6 +42,12 @@ parity slices are intentionally non-blocking for the artifact/packaging cutover:
       mailboxes, and timer APIs on top of the core-free local actor contract.
       Keep these surfaces explicit until implemented; never route the standard
       launcher through the v1 actor scheduler or compatibility bridge.
+- [ ] **v21-native-distributed-advanced** — add explicit provider-owned remote
+      workers, network transport, discovery/membership, failure detection,
+      retry/partial-result semantics, durable queues, and deployed named-handler
+      agreement on top of the deterministic local-loopback MapReduce contract.
+      Never serialize closures or route the standard launcher through the v1
+      actor scheduler/compatibility bridge.
 
 ## ssc-toolkit-v2 P2 follow-ups (2026-07-07) — see `specs/ssc-toolkit-v2.md`
 

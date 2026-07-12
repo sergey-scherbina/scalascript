@@ -2,7 +2,8 @@
 
 ## v21-native-tuple-field-patterns — tuple literal/typed fields are unchecked
 
-**Status:** open (2026-07-12); found by codex after binding the distributed
+**Status:** fixed (2026-07-12, language `2b87c57df`, taxonomy `e0e7e98c3`),
+awaiting Sergiy confirmation; found by codex after binding the distributed
 registry provider ABI.
 
 - **Real-harness repro:** after staging the distributed provider, run
@@ -24,11 +25,17 @@ registry provider ABI.
   distributed-join output on native VM/direct ASM. Add a focused multi-file
   regression and rerun all release gates; do not weaken the CoreIR matcher or
   add host reflection/fallback.
+- **Fix/result:** nested type annotations are retained as `tpat`; ordered field
+  obligations now enforce literal `__eq__`, portable `__isTag__`, and nested
+  constructors before guards/bodies while preserving exact binder positions and
+  fallthrough. The imported regression and public join are byte-exact on
+  VM/ASM/build-jvm; the full release gate and conformance 11/11 pass.
 
 ## v21-native-distributed-loopback-provider-missing — NamedHandler is absent from standard runtime
 
-**Status:** open (2026-07-12); found by codex after the core-free Actors slice
-landed while continuing TI-8.2d3.
+**Status:** fixed (2026-07-12, provider `31d730c1e`, language `2b87c57df`,
+taxonomy `e0e7e98c3`), awaiting Sergiy confirmation; found by codex after the
+core-free Actors slice landed while continuing TI-8.2d3.
 
 - **Real-harness repro:** run `bin/ssc-standard run` and repeat with
   `--bytecode` on `examples/distributed-join.ssc` and
@@ -54,6 +61,11 @@ landed while continuing TI-8.2d3.
   error semantics, implement and unit-test a ServiceLoader provider, prove both
   public programs with fixed inputs on all standard JVM paths, pass the full
   release/dependency gates, and retire only the two distributed taxonomy rows.
+- **Fix/result:** the required core-free provider owns exact structural
+  `HandlerRegistry.*` operations plus portable local-loopback stage/shuffle
+  values. Both public examples are exact on VM/ASM/slim/build-jvm; parity moves
+  to 46 identical / 20 both-fail with zero mismatch/one-sided rows and the two
+  distributed taxonomy rows are retired.
 
 ## v21-native-actors-provider-missing — runActors is absent from standard native runtime
 
