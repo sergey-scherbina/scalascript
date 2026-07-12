@@ -122,8 +122,10 @@ every possible chunking.
       zero or more replacement frames, emits that token once, then closes zero or more expected
       frames after it. It supports indentation transitions and implicit end-of-input closures without
       synthetic tokens.
-- [ ] An invalid `Reframe` (negative/impossible depth, kind mismatch, or limit overflow) never
-      partially mutates the frame stack; it retains the carrier token and reports a stable diagnostic.
+- [ ] An invalid `Reframe` shape or close-kind mismatch never partially mutates the frame stack; it
+      retains the carrier token as an ordinary emit and reports a stable diagnostic. A depth/node
+      limit rejection likewise leaves the stack unchanged and follows the core fatal-limit contract,
+      which may reject the carrier token itself.
 
 ### Dialect compatibility gates
 
