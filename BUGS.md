@@ -1,5 +1,20 @@
 # Bug tracker
 
+## uniml-yaml-property-only-node — anchor/tag-only value lost its nested node
+
+**Status:** open (2026-07-12); found by codex while extending the UniML YAML
+alias-cycle verification after `48720429c`.
+
+- **Real-harness repro:** parse and project `root: &root\n  child: value\n` through
+  `Yaml.parse` followed by `Yaml.project`. The projected `root` value is an
+  anchored empty scalar instead of an anchored nested mapping.
+- **Root cause:** `parseAfterIndicator` sent every non-empty post-colon spelling
+  directly to `parseInline`; after consuming `&root`, the empty remainder was
+  resolved as a scalar without consulting the following indented node.
+- **Done-when:** property-only mapping and sequence values attach their tag/anchor
+  to the following nested node, self/mutual alias cycles stay preservable, and
+  bounded `Resolve` reports cycles/expansion limits on JVM and Scala.js.
+
 ## v21-unhandled-effect-smoke-x402-launcher — bridge assertion used standard `ssc`
 
 **Status:** open (2026-07-12); found by codex while verifying the direct-ASM
