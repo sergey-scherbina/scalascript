@@ -3790,9 +3790,62 @@ public enum SessionProbe {
                   host.signalCount() == baseline + 4 else {
                 fatalError("nested rollback/retry changed identity or count")
             }
-            _ = try host.reconcileKeyed(
+            let onlyLeft = try host.reconcileKeyed(
+                parentOwnerPath: "root", siteId: "outer",
+                items: [.string("left")], key: nestedKey, render: outerRender)
+            let retainedLeft = fields(entry("left", onlyLeft).value, "Tuple2")
+            guard onlyLeft.disposedSignalKeys.count == 2,
+                  host.signalCount() == baseline + 2 else { fatalError("outer sibling delete") }
+            let deletedInnerHandle = retainedLeft[1]
+            var innerReportedDisposals = -1
+            let outerWithoutInner = SscClosure(arity: 1) { args in
+                let outerKey = string(args[0])
+                let outer = try computed("nested-site") { .string("outer-" + outerKey) }
+                let inner = try host.reconcileKeyed(
+                    parentOwnerPath: ownerPath("root", "outer", outerKey), siteId: "inner",
+                    items: [], key: nestedKey,
+                    render: SscClosure(arity: 1) { nestedArgs in
+                        try computed("nested-site") { .string("unused-" + string(nestedArgs[0])) }
+                    })
+                innerReportedDisposals = inner.disposedSignalKeys.count
+                return .data("Tuple2", [outer, .unit])
+            }
+            let innerDeleted = try host.reconcileKeyed(
+                parentOwnerPath: "root", siteId: "outer",
+                items: [.string("left")], key: nestedKey, render: outerWithoutInner)
+            let outerAfterInnerDelete = fields(entry("left", innerDeleted).value, "Tuple2")[0]
+            guard innerReportedDisposals == 0,
+                  innerDeleted.disposedSignalKeys.count == 1,
+                  signalIdentity(outerAfterInnerDelete) == signalIdentity(retainedLeft[0]),
+                  string(try read(outerAfterInnerDelete)) == "outer-left",
+                  host.signalCount() == baseline + 1 else {
+                fatalError("inner delete did not defer to outer commit")
+            }
+            do {
+                _ = try read(deletedInnerHandle)
+                fatalError("deleted inner signal handle stayed live")
+            } catch let error as SscRuntimeFailure {
+                guard error.description.contains("is no longer live") else { throw error }
+            }
+            let innerReinserted = try host.reconcileKeyed(
+                parentOwnerPath: "root", siteId: "outer",
+                items: [.string("left")], key: nestedKey, render: outerRender)
+            let reinsertedLeft = fields(entry("left", innerReinserted).value, "Tuple2")
+            guard signalIdentity(reinsertedLeft[1]) == signalIdentity(deletedInnerHandle),
+                  string(try read(reinsertedLeft[1])) == "inner-child",
+                  host.signalCount() == baseline + 2 else {
+                fatalError("inner reinsertion was not fresh/stable")
+            }
+            do {
+                _ = try read(deletedInnerHandle)
+                fatalError("old inner handle resurrected after reinsertion")
+            } catch let error as SscRuntimeFailure {
+                guard error.description.contains("is no longer live") else { throw error }
+            }
+            let nestedEmpty = try host.reconcileKeyed(
                 parentOwnerPath: "root", siteId: "outer", items: [], key: nestedKey, render: outerRender)
-            guard host.signalCount() == baseline else { fatalError("nested delete leaked signals") }
+            guard nestedEmpty.disposedSignalKeys.count == 2,
+                  host.signalCount() == baseline else { fatalError("nested delete leaked signals") }
 
             let reset0 = try computed("reset-site") { .string("before") }
             host.abort()
