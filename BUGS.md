@@ -1,5 +1,27 @@
 # Bug tracker
 
+## scljet-freelist-recursive-stack-overflow — valid large freelist crashes the interpreter
+
+**Status:** open (2026-07-12); found by codex in the pinned SclJet M2d SQLite
+3.53.3 corpus.
+
+- **Real-harness repro:** regenerate/consume
+  `tests/fixtures/scljet/m2/valid/freelist.db` (512-byte pages, 183 freelist
+  pages, SHA recorded in `manifest.tsv`, reference `PRAGMA integrity_check =
+  ok`) and run `bin/ssc-tools run --v1
+  tests/tools/scljet-corpus-dump.ssc`. The first eleven fixture families read;
+  opening `freelist.db` ends in a JVM `StackOverflowError`, not a structured
+  `SqliteError`.
+- **Root cause:** `validateFreelistLoop` and `validateFreelistLeaves` recursively
+  retain one interpreter call frame per trunk/leaf. ScalaScript v1 does not
+  guarantee tail-call elimination, contradicting the M2 spec's explicit
+  iterative-traversal invariant.
+- **Plan/done-when:** replace both recursive walks with a bounded mutable-local
+  `while` state machine that preserves immutable pager values, duplicate/cycle
+  checks, pointer-map validation and exact count. The 183-page fixture must
+  open/dump without platform exception on the real assembled runner; corrupt
+  cycles/duplicates must still return localized `SqliteError`.
+
 ## v1-js-scljet-readonly-leaf-depth — valid two-level B-tree fails common-depth validation
 
 **Status:** open (2026-07-12); found by codex during the SclJet M2c explicit

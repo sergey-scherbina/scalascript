@@ -324,7 +324,10 @@ with extensions isolated behind an explicit non-default profile.
       land the reproducible current-oracle slice and keep the remaining exact gates open rather than
       fabricating coverage. Done-when ordinary tests consume committed bytes only, regeneration is
       optional, every committed valid DB says `ok` under reference `integrity_check`, and manifest
-      SHA/value dumps match the SclJet reader.
+      SHA/value dumps match the SclJet reader. Corpus execution discovered
+      `scljet-freelist-recursive-stack-overflow`: fix the 183-page valid freelist with an explicit
+      bounded `while` traversal before accepting any corpus result; retain structured duplicate,
+      cycle and pointer-map failures.
 ## v2-swift-nativeui-i18n-json — standard `lower/serve`, locale and JSON parity (2026-07-12)
 
 Claim: `.work/active/v2-swift-nativeui-i18n-json.claim`. Spec:
