@@ -4,13 +4,15 @@ status: in-progress
 scope: WIDE JIT foundation (Sergiy-directed, strategy C) — spec specs/wide-jit-typed-input.md.
 DONE + on main:
   C-1 (dbec2af53) Typer records Term->SType node-type map (nodeTypes).
-  C-2 (ee661c949, 2026-07-12) interpreter runs the ORIGINAL ast.Module via
-    InterpreterBackend.compileAstModule (skips Normalize->Denormalize round-trip + re-parse in
-    compileViaBackend for the interpreter backend). VERIFIED behaviour-neutral: full conformance
-    corpus swept through `ssc-tools run --v1` with C-2 active (marker-confirmed) — all 146
-    INT-eligible cases identical to expected; the 16 non-matches are all non-INT-eligible
-    (backends:[jvm]/[js]/[node]/[v2] / requires:HttpClient), fail on missing v2/jvm features
-    unrelated to the Normalize bypass.
-next: C-3 — typecheck the original module once, thread nodeTypes to VmCompiler.compile via a
-  new closure (like metaFor), seed regType from it. Then C-4 (remove type-unknown JIT bails)
-  + C-0 (baseline JIT miss histogram, SSC_JIT_STATS=1, foreground sbt).
+  C-2 (ee661c949) interpreter runs the ORIGINAL ast.Module (skip Normalize round-trip). VERIFIED neutral.
+  C-3 PLUMBING (b188bd2ef, 2026-07-12) — thread nodeTypes end-to-end to VmCompiler:
+    Main.compileViaBackend (opt-in SSC_JIT_TYPESTATS) typechecks the SAME module -> nodeTypes ->
+    InterpreterBackend.compileAstModule -> interp.nodeTypes -> JitRuntime.typeMapFor closure ->
+    VmCompiler 4th arg + Ctx.vmTypeOf (SType->VmType bridge) + opt-in coverage counters.
+    IDENTITY-KEY PROVEN empirically (SscVmTest: nodeTypes.get(fn.body) != null, typed Int; no
+    tree-copy on the C-2 path). Behaviour-neutral (default = empty map; SscVmTest 177/177; with-flag
+    conformance identical). This slice PLUMBS+MEASURES; does NOT yet consume types in codegen.
+next (C-3 consumption / C-4): seed the param loop (VmCompiler ~898-908) + compileInto register
+  types from ctx.vmTypeOf instead of TInt-default/decltpe; then remove type-unknown bails one class
+  at a time (each A/B via the coverage counters + JitMissStats). Gate: conformance green + miss-count
+  drop + (quiet machine) no hot-path bench regression. RISK: this is the codegen-changing part.

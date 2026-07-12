@@ -1176,13 +1176,12 @@ for in-process runs, and `inferType` already computes per-node `SType` (just dis
       cases identical; the 16 non-matches are all non-INT-eligible). REMAINING (folds into C-3):
       run the Typer on the run path to produce `nodeTypes` + thread it in (needs a `Typer.typeCheck`
       companion returning `(TypedModule, nodeTypes)`).
-- [ ] **C-3-vmcompiler-consumes-map** (IN PROGRESS, lucky-perch 2026-07-12) — (a) typecheck the
-      original module once on the run/--v1 path → `nodeTypes`; (b) thread `nodeTypes` through
-      Interpreter/SectionRuntime to the JIT (closure, like `metaFor`); (c) `VmCompiler.compile(fn,
-      …, typeMap)` seeds `regType`/param + return types from the map (SType→VmType) instead of
-      `TInt`/`decltpe`/runtime hints. Identity-key: the map is IdentityHashMap[scala.meta.Tree,…];
-      the Typer must see the SAME Term objects the interpreter/VmCompiler run (post-C-2 the interp
-      runs the original trees). Gate: unknown-type miss counts drop (vs C-0); conformance green.
+- [~] **C-3-vmcompiler-consumes-map** — PLUMBING DONE (b188bd2ef, lucky-perch 2026-07-12): nodeTypes
+      threaded end-to-end to VmCompiler (4th arg + Ctx.vmTypeOf SType->VmType bridge), opt-in via
+      SSC_JIT_TYPESTATS. IDENTITY-KEY proven empirically (SscVmTest: FunV.body is a nodeTypes key,
+      typed Int). Behaviour-neutral (default empty map; SscVmTest 177/177; with-flag conformance
+      identical). REMAINING: consume the types (seed regType/param/return from the map) — the
+      codegen-changing part; folds into C-4.
 - [ ] **C-4-wide-compilation** — remove type-unknown bails in `compileExpr`/`compileInto`
       one class at a time, each A/B-provable via miss-count.
 - [ ] **C-gate** — QUIET-MACHINE A/B (`scripts/bench interp patternMatch*|recursionFib`,
