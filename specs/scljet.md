@@ -1954,13 +1954,19 @@ M2d's first reference corpus slices landed in `17fd8238a`, `315e68d44`,
   tool compiled against the official 3.53.3 amalgamation. It invokes
   `SQLITE_FCNTL_RESERVE_BYTES` and `VACUUM`; no header bytes are fabricated.
 - `tests/e2e/scljet-m2-corpus-smoke.sh` passes through the assembled JVM VFS:
-  SclJet reproduces all 619 oracle lines, five pinned corrupt files produce
+  SclJet reproduces all 619 oracle lines, 25 pinned corrupt files produce
   their stable structured errors, and 32 bounded mutations yield only success
   or `SqliteError` (`32:30:2`). A valid 183-page freelist found and now guards
   the former recursive interpreter stack overflow.
+- The named corruption slice now spans all decoded header value invariants,
+  trusted page-count/file-size disagreement, B-tree header/pointer bounds,
+  pointer-map kind/ownership, and freelist range/cycle/count/duplicate checks.
+  Each input pins its SHA plus a stable field/message substring and produces no
+  platform exception or hang through the assembled runner.
 - `tests/conformance/run.sh --only 'scljet-*' --no-memo` remains 6/6.
 
-The exhaustive named corruption/threshold matrix, explicit VM/ASM corpus
-execution, and the known Node cursor-depth divergence remain M2d. The first
-two aggregate M2 behavior gates are now covered; byte-for-value corpus closure
-and exhaustive safe-corruption diagnostics remain honestly unchecked.
+Deep record/overflow/freeblock/schema corruptions, exact payload thresholds,
+explicit VM/ASM corpus execution, and the known Node cursor-depth divergence
+remain M2d. The first two aggregate M2 behavior gates are now covered;
+byte-for-value corpus closure and exhaustive safe-corruption diagnostics remain
+honestly unchecked.
