@@ -1,6 +1,6 @@
 feature/uniml-xml 2026-07-12T11:18:06Z
 agent: codex
-heartbeat: 2026-07-12T11:18:31Z
+heartbeat: 2026-07-12T11:34:57Z
 status: in-progress
-done-so-far: claim published and feature/uniml-xml worktree created
-next: queue XML M2 and write its specification before implementation
+done-so-far: spec published; XML tokenizer/VM adapter, namespace validation, Markup projection, and 12-test JVM/Scala.js suites committed locally and green
+next: run assembled markup/XML conformance, reconcile specification, publish and release
