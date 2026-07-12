@@ -3653,8 +3653,14 @@ def buildMergedAccessors = (caseOrder) =>
     match fs {
       case Nil => Nil
       case Cons(f, rest) =>
+        -- Default arm → runtime field-by-name lookup: a `.f` access whose receiver
+        -- is NOT one of the user case classes carrying `f` (e.g. a PLUGIN record like
+        -- exec's ProcessResult, whose fields aren't in the compile-time registry) hit
+        -- the None default → hard "no arm for <Tag>/<n>". __method__ resolves it via
+        -- V2PluginRegistry.lookupFieldNames(tag, arity) at runtime (mirrors the bridge).
         Cons(IrDef(#sconcat("_sel_", f),
-               IrLam(1, IrMatch(IrLocal(0), acc_armsFor(f, triples), None))),
+               IrLam(1, IrMatch(IrLocal(0), acc_armsFor(f, triples),
+                 Some(IrPrim("__method__", Cons(IrLit(IrStr(f)), Cons(IrLocal(0), Nil))))))),
              go(rest))
     } in
   go(acc_uniqFields(triples, Nil))
