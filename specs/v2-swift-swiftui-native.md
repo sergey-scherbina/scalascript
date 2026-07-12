@@ -1245,7 +1245,10 @@ indexing, matching shared v2 `Runtime.applyFallback`; the standard heading
 lowerer depends on `sizes(level - 1)`. A negative index or index at/above length
 is the bounded runtime failure `app: list index out of bounds`; a non-Int or
 wrong arity is `app: list index requires exactly one Int`. Malformed lists do
-not produce a value.
+not produce a value: the evaluator validates the entire receiver before
+indexing and records catchable `SscRuntimeFailure("app: malformed list")`.
+`Cons(1, BadTail)` at index 0, a wrong-arity `Cons`, and a `Nil` carrying fields
+are explicit real-Swift negatives; none may return a partial head or host-trap.
 
 At the checked CoreIR boundary a source `Map[String, Any]` may be represented
 either as `SscMap` or as the frontend's proper association list of
@@ -1466,7 +1469,8 @@ assembled macOS and iOS Xcode gates.
 - [ ] Real Swift pins List `mkString` 0/1/3 overloads for mixed and empty lists,
   plus wrong-arity, wrong-delimiter-type, and non-list rejection boundaries.
 - [ ] Real Swift applies proper lists as zero-based indexed values and pins
-  valid, negative/out-of-range, non-Int, and wrong-arity cases.
+  valid, negative/out-of-range, non-Int, wrong-arity, malformed tail/Cons, and
+  non-empty Nil cases with catchable runtime failures.
 - [ ] NativeUi `element` accepts both checked String maps and proper String-key
   association lists with last-wins duplicates, while malformed list/tuple/key
   shapes and a cell/array value fail with the original source before a malformed
