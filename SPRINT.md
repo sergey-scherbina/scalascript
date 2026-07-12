@@ -3576,6 +3576,10 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
       - [ ] Implement one report-producing negative release gate and a synthetic
             self-test that proves forbidden launcher/JAR/module/tool drift is
             rejected rather than merely absent on the happy path.
+            - [ ] Fix `v21-module-gate-misses-jca-provider`: augment the
+                  statically derived JRE set with the standard runtime's
+                  reflective `jdk.crypto.ec` JCA provider edge and add focused
+                  Ed25519 VM/ASM coverage without admitting compiler modules.
       - [ ] Wire the gate into CI and the consolidated self-hosted release gate;
             keep the existing focused slim/JRE/build-jvm jobs as fast diagnostics.
       - [ ] Run the new gate, exhaustive release, and fresh `v2-*` conformance;

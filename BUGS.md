@@ -26,6 +26,23 @@ acceptance e2e test to native `.ssc`. Not blocking (single-param http externs wo
 - **Done-when:** `ssc run` binds a curried top-level `extern def m(a)(b)` (e.g. `httpClient`) to its
   plugin native so `httpClient(base){block}` runs the block; a conformance/probe covers it.
 
+## v21-module-gate-misses-jca-provider — derived JRE omits Ed25519 module
+
+**Status:** open; found by codex in the standard-only negative release gate on
+2026-07-12.
+
+- **Real-harness repro:** run `tests/e2e/v21-negative-toolchain-release-gate.sh`.
+  The copied standard graph with the current `jdeps`-derived module set changes
+  `crypto-verify-demo.ssc` from identical to `both-fail`; focused VM and ASM
+  both exit 1 after three lines with `ssc: Ed25519 Signature not available`.
+- **Root cause:** `Signature.getInstance("Ed25519")` discovers its JCA provider
+  dynamically from `jdk.crypto.ec`, so static `jdeps --print-module-deps` cannot
+  see the edge. The existing JRE-shaped gate did not exercise signature APIs
+  and therefore reported an incomplete runtime module set as green.
+- **Done-when:** the allowed standard runtime module set explicitly retains the
+  JDK crypto provider module, focused Ed25519 VM/ASM checks pass under
+  `--limit-modules`, and the negative exhaustive parity returns to 53/13 with
+  zero unclassified or blocking rows. Compiler modules must remain absent.
 
 ## v21-native-sql-fence-token-activates-client-code — SQL token parsing widened code fences
 
