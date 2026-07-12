@@ -9,6 +9,29 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## uniml-json — strict RFC 8259 lossless dialect adapter (2026-07-12, Sergiy: "продолжай дальше не останавливайся")
+
+Goal: complete UniML roadmap M1 with a standalone strict JSON adapter that is chunk-boundary
+invariant, produces the common token-as-instruction stream and lossless CST, preserves duplicate
+object members and exact lexical spellings, and rejects extensions that RFC 8259 does not allow.
+
+- [ ] **uniml-json-0-spec** — write and commit `specs/uniml-json.md` before code. Define token kinds,
+      CST node/edge roles, lexer/parser state machines, UTF-16/string escape and number grammar,
+      whitespace ownership, duplicate-member behavior, diagnostics/recovery, limits, public API,
+      semantic projection, chunk invariance, RFC corpus/differential gates, and explicit exclusions.
+- [ ] **uniml-json-1-adapter** — implement `scalascript.uniml.dialect.json.JsonDialect` in a separate
+      `unimlJson`/`unimlJsonJs` cross-module depending only on UniML. Build a streaming lexer plus
+      structural processor that emits balanced VM instructions for objects, arrays, members, and
+      scalar values while preserving every source token exactly once.
+- [ ] **uniml-json-2-projection** — implement the opt-in semantic JSON projection without weakening
+      the CST: ordered members and duplicate keys remain in the tree; projection policy must report
+      duplicates explicitly instead of silently changing source meaning.
+- [ ] **uniml-json-3-verify** — add JVM/Scala.js tests for all RFC value forms, escapes/surrogates,
+      exact numbers, nested structures, duplicates, whitespace, arbitrary chunk splits, malformed
+      inputs, trailing data, comments/trailing commas, depth/size limits, and processor completion.
+      Run both module suites plus affected conformance, check spec behaviors, update changelog/sprint,
+      publish each finished piece, and release the claim.
+
 ## uniml — universal token-to-tree markup VM (2026-07-12, Sergiy: "универсальный язык разметки ... читать md, json, yaml и xml и любой язык программирования")
 
 Goal: add an independently consumable `uniml` module whose neutral event/token model can represent
