@@ -1,6 +1,6 @@
 feature/uniml-yaml 2026-07-12T11:42:46Z
 agent: codex
-heartbeat: 2026-07-12T11:43:18Z
+heartbeat: 2026-07-12T12:01:20Z
 status: in-progress
-done-so-far: claim published and feature/uniml-yaml worktree created
-next: queue YAML M3 and write its specification before implementation
+done-so-far: YAML 1.2.2 spec published; atomic Reframe VM primitive is green on JVM/JS and origin/main
+next: scaffold unimlYaml cross-project, then implement bounded lossless scanner and semantic projection
