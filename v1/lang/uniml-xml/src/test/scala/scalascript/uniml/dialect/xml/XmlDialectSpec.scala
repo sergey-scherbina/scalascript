@@ -75,6 +75,20 @@ final class XmlDialectSpec extends AnyFunSuite:
     )
     assert(depthLimited.status == CompletionStatus.Halted)
     assert(depthLimited.diagnostics.exists(_.code == "uniml.limit.depth"))
+
+    val nameLimited = Xml.parse(
+      SourceInput.fromString(source, "<abcd/>"),
+      XmlLimits(maxNameCodePoints = 3),
+    )
+    assert(nameLimited.status == CompletionStatus.Halted)
+    assert(nameLimited.diagnostics.exists(_.code == "uniml.xml.limit.name"))
+  }
+
+  test("implements XML 1.0 Fifth Edition name code-point ranges") {
+    assert(parse("<𐀀/>").status == CompletionStatus.Complete)
+    val excluded = parse("<a×b/>")
+    assert(excluded.status == CompletionStatus.Incomplete)
+    assert(excluded.diagnostics.exists(_.code == "uniml.xml.invalid-name"))
   }
 
   test("processor flushes once") {

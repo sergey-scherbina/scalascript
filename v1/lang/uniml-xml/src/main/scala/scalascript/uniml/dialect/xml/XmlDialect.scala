@@ -395,14 +395,15 @@ private final class XmlScanner(source: SourceId, input: String, limits: XmlLimit
 
   private def scanName(role: String): String =
     val start = index
-    if index < input.length && isNameStart(input.charAt(index)) then
-      index += 1
-      while index < input.length && isNameChar(input.charAt(index)) do index += 1
-    else if index < input.length then index += 1
+    while index < input.length && !isNameDelimiter(input.charAt(index)) do index += 1
+    if index == start && index < input.length then index += 1
     val lexeme = input.substring(start, index)
-    val valid = lexeme.nonEmpty && lexeme.count(_ == ':') <= 1 && Unicode.codePointCount(lexeme) <= limits.maxNameCodePoints
+    val tooLong = Unicode.codePointCount(lexeme) > limits.maxNameCodePoints
+    val valid = !tooLong && validXmlName(lexeme) && lexeme.count(_ == ':') <= 1
     emitKnownRange(start, lexeme, if valid then "xml.name" else "xml.invalid", if valid then TokenChannel.Syntax else TokenChannel.Error,
-      if valid then VmInstruction.Emit(Some(role)) else VmInstruction.Report("uniml.xml.invalid-name", "invalid XML name"))
+      if valid then VmInstruction.Emit(Some(role))
+      else if tooLong then VmInstruction.Report("uniml.xml.limit.name", "XML name exceeds configured limit", Severity.Fatal)
+      else VmInstruction.Report("uniml.xml.invalid-name", "invalid XML name"))
     lexeme
 
   private def scanOpaque(
@@ -454,8 +455,39 @@ private final class XmlScanner(source: SourceId, input: String, limits: XmlLimit
     Diagnostic(code, message, Severity.Error, Some(SourceSpan(source, position, position)), Some(XmlDialect.id))
 
   private def isXmlWhitespace(char: Char): Boolean = char == ' ' || char == '\t' || char == '\n' || char == '\r'
-  private def isNameStart(char: Char): Boolean = char == ':' || char == '_' || char.isLetter || char >= '\u00C0'
-  private def isNameChar(char: Char): Boolean = isNameStart(char) || char.isDigit || char == '-' || char == '.' || char == '\u00B7'
+
+  private def isNameDelimiter(char: Char): Boolean =
+    isXmlWhitespace(char) || char == '/' || char == '>' || char == '=' || char == '\'' || char == '"' || char == '<'
+
+  private def validXmlName(value: String): Boolean =
+    var cursor = 0
+    var first = true
+    var valid = value.nonEmpty
+    while cursor < value.length && valid do
+      val high = value.charAt(cursor)
+      val (codePoint, width) =
+        if Unicode.isHighSurrogate(high) && cursor + 1 < value.length && Unicode.isLowSurrogate(value.charAt(cursor + 1)) then
+          (0x10000 + ((high.toInt - 0xD800) << 10) + value.charAt(cursor + 1).toInt - 0xDC00, 2)
+        else (high.toInt, 1)
+      valid = if first then isNameStartCodePoint(codePoint) else isNameCharCodePoint(codePoint)
+      first = false
+      cursor += width
+    valid
+
+  private def isNameStartCodePoint(value: Int): Boolean =
+    value == ':' || value == '_' ||
+      (value >= 'A' && value <= 'Z') || (value >= 'a' && value <= 'z') ||
+      (value >= 0xC0 && value <= 0xD6) || (value >= 0xD8 && value <= 0xF6) ||
+      (value >= 0xF8 && value <= 0x2FF) || (value >= 0x370 && value <= 0x37D) ||
+      (value >= 0x37F && value <= 0x1FFF) || (value >= 0x200C && value <= 0x200D) ||
+      (value >= 0x2070 && value <= 0x218F) || (value >= 0x2C00 && value <= 0x2FEF) ||
+      (value >= 0x3001 && value <= 0xD7FF) || (value >= 0xF900 && value <= 0xFDCF) ||
+      (value >= 0xFDF0 && value <= 0xFFFD) || (value >= 0x10000 && value <= 0xEFFFF)
+
+  private def isNameCharCodePoint(value: Int): Boolean =
+    isNameStartCodePoint(value) || value == '-' || value == '.' ||
+      (value >= '0' && value <= '9') || value == 0xB7 ||
+      (value >= 0x300 && value <= 0x36F) || (value >= 0x203F && value <= 0x2040)
 
   private def validateSourceCharacters(): Unit =
     var cursor = 0
