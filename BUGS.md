@@ -6230,7 +6230,22 @@ same launcher; every fail was a real engine gap). One entry per cause:
   v2 parity gaps, queued as SPRINT `v2-busi-testsweep-gaps`. run.sh full
   conformance 123/123.
 
-## v1-jvm-state-threaded-handler-codegen — `open` (2026-07-08)
+## v1-jvm-state-threaded-handler-codegen — `open` (partial, 2026-07-12)
+
+- **Root cause (refined 2026-07-12, opus) — THREE layers, all Any-typing of the
+  deep-handler in JVM codegen:**
+  1. `emitCaseBody` rendered a handler-arm lambda `(s: Int) => …` as bare `s => …`
+     (dropped the type) → "could not infer parameter s". **FIXED** (571921446):
+     annotate each param with its decltpe or `: Any`, mirroring JvmGenCpsTransform.
+  2. `resume(())(x)` — `resume` is `Any => Any`, so `resume(())` is `Any`; applying
+     `(x)` to it → E050 "Function1 does not take more parameters". Needs the inner
+     `resume(())` cast to `Any => Any` before the outer application.
+  3. `threaded(0)` — the `_handleWithReturn(...)` result is bound to an `Any` val;
+     `threaded(0)` → E050 "threaded does not take parameters". Needs the general
+     application codegen to cast an Any-typed callee to `Any => Any`.
+  Layers 2–3 are the remaining work (general Any-value-as-function application);
+  low-impact, so left for a dedicated pass. `effects`/`head-field-effect-shadow`
+  conformance stay green on all lanes after layer 1.
 
 - **Found by:** claude-fable-5, while shaping the effect-multiarg-op regression.
 - **Symptom:** `bin/ssc run-jvm` fails to COMPILE any handler whose arms return
