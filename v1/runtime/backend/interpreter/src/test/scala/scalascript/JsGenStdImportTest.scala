@@ -634,7 +634,7 @@ class JsGenStdImportTest extends AnyFunSuite:
         |const emptyField = _ssc_ui_rowPostAction('Save','POST','/x',_ssc_ui_fieldPayload('value'),null);
         |if (_ssc_ui_validateRowPayload(emptyField.bodyField, 'test').name !== 'value') throw new Error('field payload changed');
         |const compound = {nested:{ok:true}, list:[1,'two',null]};
-        |const preserved = _ssc_ui_jsonValue(compound, 'test', new Set());
+        |const preserved = _ssc_ui_rowJsonValue(compound, 'test', new Set());
         |if (JSON.stringify(preserved) !== JSON.stringify(compound)) throw new Error('compound Fields value changed');
         |if (_ssc_ui_rowScalar('', 'field') !== '') throw new Error('empty String Field was rejected');
         |console.log('row-contract-ok');

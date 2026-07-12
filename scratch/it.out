@@ -1,0 +1,2133 @@
+[info] welcome to sbt 1.10.7 (Eclipse Adoptium Java 21.0.7)
+[info] loading global plugins from /Users/sergiy/.sbt/1.0/plugins
+[info] loading settings for project cli-fork-serialize-build from plugins.sbt...
+[info] loading project definition from /Users/sergiy/work/my/scalascript/.worktrees/feature/cli-fork-serialize/project
+[info] loading settings for project root from build.sbt...
+[info] resolving key references (218150 settings) ...
+[info] set current project to root (in build file:/Users/sergiy/work/my/scalascript/.worktrees/feature/cli-fork-serialize/)
+[info] CrossBackendPropertyTest:
+[info] - effect-result main-path composition cross-backend
+[info] - curried partial application cross-backend
+[info] - effects-in-hof and main-path edge cases cross-backend
+[info] - effect perform in for-do loop cross-backend
+[info] - collection HOFs and pattern matching cross-backend
+[info] - monadic for-comprehension cross-backend
+[info] - collections, case-class equality, num+string cross-backend
+[info] - enum payload, collect, Option.fold cross-backend
+[info] - ranges, collection + string method gaps cross-backend
+[info] - String.map char vs non-char cross-backend
+[info] - Seq/Vector/Array constructors + conversions cross-backend
+[info] - real collection type: Vector display + mutable Array cross-backend
+[info] - LazyList lazy combinators cross-backend (interp == JS == JVM)
+[info] - generated programs (12 kinds incl. effects + main-path): interp == JS(node) over 72 seeds
+[info]   + interp==JS: checked 74 generated programs, skipped 0 (out-of-range/interp-error) 
+[info] - generated programs (all 12 kinds + effect shapes): interp == JVM(scala-cli)
+[info]   + interp==JVM: checked 19 generated programs (all kinds + effect shapes) 
+[info] - effect return-clause cross-backend (direct / recursion / while)
+[info] EnumCrossBackendTest:
+[info] - interpreter result is the expected baseline
+[info] - JVM matches the interpreter
+[info] - JS matches the interpreter
+[info] JsGenUsingTest:
+[info] - JsGen: explicit using — single given resolved
+[info] - JsGen: auto-resolve using — given picked from registry
+[info] - JsGen: context bound [A: Show] auto-resolves given
+[info] - JsGen: context bound Monoid — combineAll folds with given
+[info] - JsGen: summon — retrieves given by type
+[info] - JsGen: Functor[List] fmap via given extension
+[info] - JvmGen: using param preserved in generated code
+[info] - JvmGen: context bound [A: Show] emitted verbatim
+[info] - JvmGen: explicit context-bound instance arg lowers to using clause
+[info] - JvmGen: explicit using instance arg lowers from flat call
+[info] - JvmGen: cross-file trait import uses Scala import, not val alias
+[info] - JvmGen: cross-file standalone extension import is brought into scope
+[info] - JvmGen: colon object survives unindented triple-quoted literal body
+[info] - JvmGen: std-ui directory import keeps SubmitButton object closed after js literal
+[info] SpaOpenJsonEffectTest:
+[info] - onOpenJson navigates from the response body on 2xx only
+[info] CoroutineCodegenTest:
+[info] - JvmGen: coroutineCreate call is present in generated code
+[info] - JvmGen: coroutineResume call is present in generated code
+[info] - JvmGen: Yielded / Returned / Errored ADT is in the preamble
+[info] - JvmGen: coroutineCreate / coroutineResume defs are in the preamble
+[info] - JsGen: single yield then return
+[info] - JsGen: generator loop via while
+[info] - JsGen: ping-pong two-way value passing
+[info] - JsGen: error propagation returns Errored
+[info] - JsGen: multiple sequential yields
+[info] - JsGen: nested coroutines
+[info] - JsGen: throw new RuntimeException — Errored captures message
+[info] - JsGen: body side effects happen after first resume, not at create time
+[info] - JsGen: generator and coroutine both work in same program
+[info] InterpImportCycleTest:
+[info] - a direct 2-cycle (a <-> b) reports a cycle, not a StackOverflowError
+[info] - a facade<->leaf cycle (sub-module imports back from its facade) reports a cycle
+[info] - an acyclic re-export (user -> facade -> leaf) still resolves and computes
+[info] JsGenStreamsTest:
+[info] - Async runtime declares collection sequencing helpers once
+[info] - full runtime has no duplicate top-level function declarations *** FAILED ***
+[info]   List("_ssc_ui_jsonValue") was not empty duplicate top-level functions: _ssc_ui_jsonValue (JsGenStreamsTest.scala:52)
+[info] - _makeAsyncStream runtime includes scan method
+[info] - _makeAsyncStream runtime includes merge method
+[info] - _makeAsyncStream runtime includes zipWith method
+[info] - _makeAsyncStream runtime includes broadcast method
+[info] - _makeAsyncStream runtime includes groupBy method
+[info] - _makeAsyncStream runtime includes mergeSubstreams method
+[info] - _makeAsyncStream runtime includes mapAsync method
+[info] - _makeAsyncStream runtime includes to and via routing methods
+[info] - _makeAsyncStream runtime includes recover and mapError
+[info] - _makeAsyncStream runtime includes cancellable method
+[info] - Source.tick(ms) generates infinite async stream with setTimeout
+[info] - Source.unfold(seed)(f) generates async unfolding stream
+[info] - Source.fromCallback(register) generates push-based stream
+[info] - Sink.foreach(f) generates run via runForeach
+[info] - Sink.fold(z)(f) generates run with accumulator
+[info] - Sink.ignore generates runDrain
+[info] - Sink.toList generates runToList
+[info] - Flow.map(f) generates apply via src.map(f)
+[info] - Flow.filter(p) generates apply via src.filter(p)
+[info] - scan(z)(f) call chain is present in generated JS
+[info] - JsRuntimeEffects contains Stream.emit _perform definition
+[info] - runStream body with Stream.emit: user code references Stream and runStream
+[info] - runStream body with Stream.complete: user code references Stream.complete
+[info] - runStream body with Stream.error: user code references Stream.error
+[info] - Core runtime includes _tupleConcat helper
+[info] - tuple-literal ++ tuple-literal flattens to a single array (no _tupleConcat)
+[info] - tuple-var ++ tuple still uses _tupleConcat (shape not a literal)
+[info] - ._N on a known tuple lowers to a direct index, not _dispatch
+[info] - list ++ also uses _tupleConcat (runtime polymorphism)
+[info] - _tupleConcat handles non-array values (bare ++ bare)
+[info] - tuple ++ bare value uses _tupleConcat
+[info] JsGenYamlRuntimeTest:
+[info] - preamble defines parseYaml
+[info] - preamble defines toYaml
+[info] - preamble defines yamlType
+[info] - preamble defines yamlStr
+[info] - preamble defines yamlNum
+[info] - preamble defines yamlBool
+[info] - preamble defines yamlArr
+[info] - preamble defines yamlGet
+[info] - preamble defines _YStr constructor
+[info] - preamble defines _YObj constructor
+[info] - preamble defines _YArr constructor
+[info] - preamble defines _yamlParse
+[info] - preamble defines _toYamlVal serializer
+[info] BitwiseTest:
+[info] - and / or / xor
+[info] - shifts left / right / unsigned-right
+[info] - unary bitwise not
+[info] - masking a byte (the QR/GF256 use-case)
+[info] - combining shift, and, or with parens
+[info] - bitwise inside a function body (general dispatch path)
+[info] OpticsRuntimeTest:
+[info] - optional optics treat None as absent after OptionV null-sentinel optimization
+[info] BugReproTest:
+[info] - while-loop var i advances with simple list
+[info] - while-loop var i advances with tuple accumulation
+[info] - while-loop result contains correct values
+[info] - while-loop accumulates into a typed empty tuple list
+[info] - hot function with typed-list while loop keeps appends (while-JIT path)
+[info] - hot while loop accumulating a recursive call does not overflow (jit-walklocalslotctx-so)
+[info] - multi-line function: binary expression as last statement
+[info] - multi-line function: call expression as last statement
+[info] - multi-line function: last statement after a flatMap/map chain
+[info] - tuple construction in while loop body
+[info] - append tuple via :+ in while loop
+[info] - InstanceV(Map, ...) is callable via direct apply
+[info] - asInstanceOf no-op on Map
+[info] - asInstanceOf no-op on List
+[info] - asInstanceOf no-op on Int
+[info] - var total accumulated via foreach closure in while loop
+[info] - var counter returned after while loop
+[info] - try/catch with handler function (no case keyword)
+[info] - try/catch handler ignores exception with wildcard
+[info] - Map ++ Map merges both maps
+[info] - Map ++ Map via infix operator
+[info] - Map.getOrElse returns default when value is null
+[info] - unary ! on Int 0 returns true
+[info] - unary ! on Int 1 returns false
+[info] - unary ! on Int nonzero returns false
+[info] - Map key -> string + value: string concat absorbed into tuple
+[info] - Map multi-entry with -> string + val
+[info] - String.indexOf(str) returns position
+[info] - String.indexOf(str) returns -1 when not found
+[info] - String.indexOf(str, from) skips before fromIndex
+[info] - String.indexOf(char code as Int) finds char
+[info] - String.lastIndexOf(str) returns last position
+[info] - String.lastIndexOf(str, from) stops at fromIndex
+[info] - String.split with regex literal dot (\\.)
+[info] - String.split with regex whitespace (\\s+)
+[info] - String.split(sep, limit) limits result count
+[info] - String.split with pipe char (no escape needed for literal)
+[info] - foldLeft updating Map of 11-field case class then values.toList.sortBy
+[info] - foldLeft with match branch reconstructing wide case class then keyed access
+[info] - type-test by an intermediate sealed-trait supertype (busi seq-120)
+[info] - type-test by the top trait and the enum, through the chain (busi seq-120)
+[info] - concrete method on a sealed trait dispatches on enum-case instances (busi seq-121)
+[info] - `this` resolves to the receiver in a case-class method body
+[info] - inherited trait method with an argument dispatches on a subtype instance
+[info] - an instance field shadows an inherited method of the same name
+[info] - hot JIT'd function: supertype type-test (statement form) stays correct
+[info] - hot JIT'd function: supertype type-test in a larger expression stays correct
+[info] - hot JIT'd function: leaf + supertype arms ordered correctly
+[info] - while accumulator over a recursive call computes correctly (JIT codegen SO shape)
+[info] - toString on a list renders like println (interp-toString-on-collection)
+[info] - toString matches the canonical render for composite values
+[info] - bare println reference is not auto-invoked — foreach(println) (interp-bare-fn-ref)
+[info] - println bound to a val is a callable function
+[info] - explicit println() / println(x) still invoke (eta change is reference-only)
+[info] - 0-arg native getter called with parens still works (nanoTime)
+[info] XsltTransformerTest:
+[info] - identity transform — root element name is preserved
+[info] - identity transform — child elements are preserved
+[info] - element rename — root is renamed from 'root' to 'renamed'
+[info] - element rename — children survive rename transform
+[info] - parameter substitution — default param value when no override
+[info] - parameter substitution — caller param overrides default
+[info] - malformed XSLT — returns Left(TransformError)
+[info] - malformed XSLT — error message mentions stylesheet or XSLT
+[Fatal Error] :1:1: Content is not allowed in prolog.
+[info] - source with text content — text survives identity transform
+[info] - namespace-aware output — namespaced element processed correctly
+[info] - empty-output stylesheet — returns empty placeholder doc
+[info] - HTML generation — table rows are created for each data element
+[info] - multiple parameters — both parameters substituted correctly
+[info] - JvmMarkupCodec.transform — delegates to XsltTransformer
+[info] - PureMarkupCodec.transform — returns Left(TransformError) — XSLT not supported
+[info] - attribute value template — attribute derived from source data
+[info] - nested element transform — deeply nested elements processed recursively
+[info] - element count — identity transform preserves all top-level children
+[info] InterpModuleDedupTest:
+[info] - a module imported via a diamond is evaluated exactly once (busi seq-132)
+[info] - a deeper stacked diamond stays linear (would blow up without the cache)
+[info] BigIntTest:
+[info] - BigInt from String exceeds Long range exactly
+[info] - BigInt multiplication stays exact past Long.MaxValue
+[info] - BigInt addition / subtraction / division / modulo
+[info] - Int and BigInt mix widens to BigInt
+[info] - BigInt comparisons including mix with Int
+[info] - BigInt equality, including numeric equality with Int
+[info] - BigInt methods: pow, abs, gcd, signum, isEven, isProbablePrime
+[info] - conversions: Int.toBigInt and BigInt.toInt/toLong
+[info] - BigInt round-trips through the value serializer
+[info] QuotedMacroJvmConformanceTest:
+[info] - interpreter result is the expected baseline
+[info] - JVM quoted-macro output matches the interpreter
+[info] JitLintTest:
+[info] - def f(x: Int) = x + 1 — should JIT cleanly
+[info] - supertype type-test JITs on Javac (isSubtype if-chain, not a bail)
+[info] - stage7-refchain: local ref val getOrElse JITs on both backends
+[info] - stage7-hof-method: numeric HOF chains JIT on both backends
+[info] - bare `.length`/`.size` on a global String / collection JITs on both backends
+[info] - bare `.isEmpty`/`.nonEmpty` on a global String / collection JITs on both backends
+[info] - numeric `.last.toLong` JITs on both backends (looksLongValue covers .last)
+[info] - jit-loop-fusion: fusedFoldLong applies a string map op (OpStringTrimToInt) without throwing
+[info] - jit-loop-fusion: map+filter foldLeft receiver decomposes to a FoldChain
+[info] - jit-loop-fusion: map-only receiver fuses with no filter stage
+[info] - jit-loop-fusion: filter-only receiver fuses with no map stage
+[info] - jit-loop-fusion: bare receiver does not fuse
+[info] - jit-loop-fusion: unrecognised lambda shape does not fuse
+[info] - jit-range-fusion: `until` range bounds are exclusive
+[info] - jit-range-fusion: `to` range bounds are inclusive
+[info] - jit-range-fusion: non-range receiver has no bounds
+[info] - stage7-typeclass-fold: context-bound fold is classified as typeclass dispatch
+[info] - stage7-refchain-bucket-split: primitive local/direct reads stay RefChainCall
+[info] - stage7-refchain-bucket-split: qualified helper calls are not RefChainCall
+[info] - stage7-refchain-bucket-split: object-producing computed chains are split
+[info] - stage8-refchain-residual: known dispatchable methods classify as RefChainCall
+[info] - stage7-refchain-object-dispatch: numeric object method calls are split
+[info] - stage7-unknownshape-tagging: interpolated strings are classified
+[info] - stage7-unknownshape-tagging: ref-like infix operators are classified
+[info] - stage7-unknownshape-tagging: type applications are classified
+[info] - stage8-unknownshape-tail: throw expression classified as ThrowExpression
+[info] - stage8-unknownshape-tail: tuple construction classified as TupleConstruction
+[info] - stage8-unknownshape-tail: explicit return classified as ExplicitReturn
+[info] - stage8-nonextract-residual: nested tuple destructure classified as NestedTuplePattern
+[info] - stage8-nonextract-residual: simple typed pattern compiles (no flag)
+[info] - stage8-nonextract-residual: alternative with bindings classified as AlternativeWithBindings
+[info] - stage7-unknownshape-tagging: for-comprehensions and new objects are classified
+[info] - stage7-unknownshape-tagging: higher-order apply expressions are classified
+[info] - stage7-unknownshape-tagging: direct global or constructor calls are classified
+[info] - stage7-unknownshape-tagging: known direct JIT constructors stay out of global-call bucket
+[info] - ADT match with guard — should JIT (walkArmAsIfBranch path)
+[info] - non-extract guard (Int match) reports PatternGuard
+[info] - vararg param reports VarargParam
+[info] - try/catch body now JITs (Stage 5.3 — simple wildcard/typed catch)
+[info] - try/catch with finally still reports TryCatch
+[info] - bool-returning body now JITs (compiled as 0/1 long, unwrapped to BoolV at runtime)
+[info] - zero-param function with a constant body now JITs
+[info] - three-param function compiles (Stage 4 ceiling lifted to 3)
+[info] - four-param function reports TooManyParams
+[info] - multiple defs — JITable one stays JITable alongside bails
+[info] - recursive ADT eval ObjToLong — should JIT (arm self-calls)
+[info] - recursive ADT eval — JIT direct interface evaluates tree correctly
+[info] - gEval (scale: Int, e: Expr) — should JIT (2-param arm self-calls)
+[info] - gEval — JIT direct interface evaluates correctly
+[info] - ADT match with wildcard catch-all arm — should JIT
+[info] - ADT match with wildcard catch-all arm — evaluates correctly via JIT
+[info] - ADT match with named catch-all arm (Pat.Var) — should JIT
+[info] - function with no detectable cliff but JIT bail reports UnknownShape
+[info] - lintFun with explicit JavacJitBackend — same result as default
+[info] - lintFun with explicit AsmJitBackend — simple arith JITs on ASM
+[info] - lintFun with AsmJitBackend — zero-param constant body JITs
+[info] - lintFun with AsmJitBackend — simple try/catch now JITs (Stage 5.3)
+[info] - lintFun with AsmJitBackend — block-body f(x) = { val y = x+1; y } JITs
+[info] - lintFun with AsmJitBackend — if-body f(x) = if x>0 then x else -x JITs
+[info] - lintInterpreterCompare — simple arith shows BOTH OK
+[info] - lintInterpreterCompare — zero-param constant body shows BOTH OK
+[info] - lintInterpreterCompare — 3-param now shows BOTH OK (Stage 4)
+[info] - lintInterpreterCompare — 4-param TooManyParams shows BOTH FAIL
+[info] - lintInterpreterCompare — ADT eval JITs on both backends
+[info] - lintInterpreterCompare — humanReadable contains JAVAC and ASM tags
+[info] - simple Int counter while — lintWhileLoops reports [JIT OK]
+[info] - while loop not executed — does not appear in lintWhileLoops
+[info] - while with unsupported condition — reports WhileCondShape
+[info] - while with two Int assigns — lintWhileLoops reports [JIT OK]
+[info] - lintWhileLoops — zero top-level while loops returns empty list
+[info] - lintWhileLoops — multiple loops sorted by condition line
+[info] - lintWhileLoops with AsmJitBackend — compiled loop reports [JIT OK]
+[info] - JitLintWhileReport.humanReadable — [JIT OK] when compiled
+[info] - JitLintWhileReport.humanReadable — [will NOT JIT] when bail
+[info] - lintWhileLoopsCompare — compiled loop reports BOTH OK
+[info] - lintWhileLoopsCompare — humanReadable contains JAVAC and ASM tags
+[info] - stage5.4: Pat.Alternative arm — Javac lints as willJit
+[info] - stage5.4: Pat.Alternative arm — ASM lints as willJit
+[info] - stage5.4: Pat.Alternative arm — lintInterpreterCompare shows BOTH OK
+[info] UnionTypeTest:
+[info] - show(String | Int) with String argument returns the string
+[info] - show(String | Int) with Int argument returns string representation
+[info] - show dispatches correctly for both types
+[info] - union type parameter accepts String
+[info] - union type parameter accepts Int
+[info] - List of mixed String and Int values
+[info] - map over List[String | Int] collects correct results
+[info] - type-test pattern match: String arm fires for String value
+[info] - type-test pattern match: Int arm fires for Int value
+[info] - three-way union type: String | Int | Boolean
+[info] - wildcard arm fires when no typed arm matches
+[info] - function returning String | Int returns correct typed values
+[info] JsGenReservedParamTest:
+[info] - parameter named 'default' is renamed to 'default_p' in emitted JS
+[info] - extern def inside object body is not emitted into the JS IIFE
+[info] - reserved-keyword params do not cause a JS syntax error at parse time
+[info] NamedArgTest:
+[info] - interpreter: named args in declaration order
+[info] - interpreter: named args out of order
+[info] - interpreter: fully reordered named args — 3 params
+[info] - interpreter: mixed positional + named args
+[info] - interpreter: named args with default — skip trailing default
+[info] - interpreter: named args with defaults — supply non-trailing by name
+[info] - interpreter: named args — fully reordered with default
+[info] - interpreter: positional + named + skipped default
+[info] - interpreter: unknown arg name raises error
+[info] - JsGen: named args in declaration order
+[info] - JsGen: named args out of order
+[info] - JsGen: fully reordered named args — 3 params
+[info] - JsGen: mixed positional + named args
+[info] - JsGen: named args with default — skip trailing default
+[info] - JsGen: named args — fully reordered with default
+[info] JvmMarkupCodecTest:
+[info] - parse — simple element
+[info] - parse — element with text content
+[info] - parse — nested elements and attributes
+[info] - parse — XML declaration is captured
+[info] - parse — malformed XML returns Left(ParseError)
+[info] - parse — mismatched tags returns Left(ParseError)
+[info] - parse — empty string returns Left(ParseError)
+[info] - serialize — delegates to PureMarkupCodec, round-trip preserves structure
+[info] - serialize — pretty option produces indented output
+[info] - validate — valid doc against matching XSD returns empty error list
+[info] - validate — doc violating XSD constraint returns non-empty error list
+[info] - JvmMarkupCodec id is 'jvm-sax'
+[info] JsGenIndexedDbTest:
+[info] - JS codegen lowers IndexedDb.store type argument to runtime type name
+[info] - JS runtime stores typed objects through IndexedDb fallback
+[info] - JS codegen lowers Sync pull/push type arguments to runtime type names
+[info] - JS runtime sync helpers push local entries and pull remote changes
+[info] - JS codegen lowers Sync put/remove type arguments to runtime type names
+[info] - JS runtime keeps durable sync mutations until push acknowledges them
+[info] - JS codegen lowers Sync resolve type argument to runtime type name
+[info] - JS runtime stores conflicts and resolves them with server value
+[info] - JS codegen lowers Sync.sync type argument to runtime type name
+[info] - JS runtime Sync.sync pushes then pulls
+[info] - JS runtime Sync.status reports pending count and isSyncing false at rest
+[info] - JS runtime Sync.isOnline returns true on Node (no navigator)
+[info] - JS runtime Sync.isSyncing returns false after push completes
+[info] DirectSyntaxTest:
+[info] - direct[Option] — monadic bind with Some
+[info] - direct[Option] — short-circuits on None
+[info] - direct[List] — monadic bind produces Cartesian product
+[info] - val binding inside direct block is pure (no bind)
+[info] - multiple val and bind mixed
+[info] - val _ = expr performs bind-and-discard
+[info] - var inside direct block is mutable (not a bind)
+[info] - bare expression evaluated for side effect
+[info] - nested direct blocks are independent
+[info] - direct block with only a tail expression
+[info] - .! operator — inline in function argument
+[info] - .! operator — inline expression combining two binds
+[info] - .! operator — short-circuits on None
+[info] - .! operator — chained method calls
+[info] - effect-row union type direct[Option | List] is accepted
+[info] - transformer lift — direct[Option] auto-lifts Right to Some track
+[info] - transformer lift — direct[Option] auto-lifts Left to None
+[info] - transformer lift — direct[Either] auto-lifts Some to Right track
+[info] - transformer lift — direct[Either] auto-lifts None to Left
+[info] ParsingHelpersTest:
+[info] - helpers: whitespace skips spaces
+[info] - helpers: whitespace matches empty
+[info] - helpers: whitespace1 fails on no whitespace
+[info] - helpers: identifier parses word
+[info] - helpers: integer parses positive
+[info] - helpers: integer parses negative
+[info] - helpers: number parses float
+[info] - helpers: number parses whole as double
+[info] - helpers: stringLit parses quoted string
+[info] - helpers: stringLit parses empty string
+[info] - helpers: skip strips surrounding whitespace
+[info] - helpers: keyword matches literal
+[info] - helpers: token skips trailing whitespace
+[info] - helpers: JSON parses {"a":1,"b":[2,3]}
+[info] ConstFoldJsGenTest:
+[info] - int add folded to literal
+[info] - int subtract folded to literal
+[info] - int multiply folded to literal
+[info] - int divide folded to literal
+[info] - int modulo folded to literal
+[info] - int divide by zero not folded
+[info] - int less-than folded to true
+[info] - int greater-than folded to false
+[info] - int equal folded
+[info] - int not-equal folded
+[info] - bool and folded: true && false = false
+[info] - bool or folded: false || true = true
+[info] - bool and folded: true && true = true
+[info] - string concat folded at compile time
+[info] - string concat preserves special chars
+[info] - if(true) emits then-branch only
+[info] - if(false) emits else-branch only
+[info] - if(false) with no else emits undefined
+[info] - unary minus on int literal folded
+[info] - unary not on bool literal folded
+[info] - unary not on false folded
+[info] - double add folded
+[info] - double comparison folded
+[info] - constant ++ in while body is hoisted before loop
+[info] - literal tuple in while body is hoisted before loop
+[info] - non-constant tuple in while body is not hoisted
+[info] - no folding when LHS is not a literal
+[info] - no folding for if with non-literal condition
+[info] FinalTaglessConformanceTest:
+[info] - using auto-resolve: single in-scope given injected at call site
+[info] - context bound [A: Monoid] auto-resolves and summon retrieves instance
+[info] - multiple context bounds [A: Show: Monoid] both resolve
+[info] - std combineAll[A: Monoid] auto-resolves given from imported std
+[info] - Either.bimap dispatches via sealed-parent chain (Left/Right → Either)
+[info] - Either.handleError dispatches via sealed-parent chain
+[info] JsRuntimeKeyedForTest:
+[info] - signals runtime keyed-for reorders, removes, inserts, and preserves row identity
+[info] CrossBackendIntrinsicParityTest:
+[info] - core JVM and JS intrinsic tables stay in parity (only allowlisted exceptions)
+[info] JvmGenSqlBlockTest:
+[info] - module without sql blocks emits no JDBC scaffolding
+[info] - sql block emits `//> using dep` for H2 and SQLite
+[info] - sql block emits backend-sql-runtime artifact directive
+[info] - sql block emits typed-data runtime and typed Db.query overload
+[info] - databases-less sql module emits empty registry
+[info] - databases entry materialises into a DatabaseSpec list
+[info] - resolver helper uses summonFrom for the given-Connection override path
+[info] - sql block with no binds emits zero-argument SqlRuntime.execute call
+[info] - sql block with binds emits the bind expressions verbatim into a List(...)
+[info] - multiple sql blocks get sequential _sqlBlock_<N> names
+[info] - first sql block per section gets a friendly `<sectionId>.sql` alias
+[info] - second sql block in the same section does NOT get a duplicate alias
+[info] - `@db=name` on the fence threads through to _ssc_sql_resolve as Some
+[info] - sql fence without `@db=` resolves with None (registry default applies)
+[info] - transaction block emits withTransaction wrapping multiple SqlRuntime.execute calls
+[info] - transaction block with binds splices expressions into each statement
+[info] - transaction block uses `@db=name` attribute in withTransaction call
+[info] - transaction block increments sqlBlockCounter (triggers sql preamble emission)
+[info] - `${env:NAME}` references in databases survive into the emitted DatabaseSpec
+[info] - @side=server sql block emits server JDBC code (existing behaviour)
+[info] - @side=client sql block does NOT emit server JDBC _sqlBlock_N
+[info] - @side=client sql block emits _ssc_client_sql_js val in frontend modules
+[info] - frontend module with no @side=client sql emits empty _ssc_client_sql_js
+[info] - mixed @side=client + @side=server blocks: server → JDBC, client → browser JS
+[info] - _ssc_ui_emit_to_dir and _ssc_ui_emit_to_tempdir append _ssc_client_sql_js to app.js
+[info] JvmGenRowsPathTest:
+[info] - emit-jvm threads rowsPath through fetchRowsSource into a Remote source
+[info] - scala-cli executes emitted JVM row payload rejection
+[info] ContentNativeClientParityTest:
+[info] - markdown-native-controls example parses as one shared native-client source
+[info] - JVM codegen exposes Markdown toolkit helpers for Swing native frontend
+[info] - JVM codegen keeps std/ui primitives available before SwiftUI native emission
+[info] JitSeqIndexTest:
+[info] - seqIndexLong reads the right element from VectorV / ListV / ArrayV
+[info] - sizeLong handles VectorV and ArrayV
+[info] - seqIndexLong throws (→ JIT bail) on a non-seq receiver
+[info] - seqIndexRef returns the element Value for ref elements
+[info] - buildArrayRef builds a mutable ArrayV; buildVectorRef builds a VectorV
+[info] - arrayUpdateLong stores in place and reads back via seqIndexLong
+[info] - arrayUpdateLong throws (→ JIT bail) on a non-Array receiver
+[info] - lazyFromMapTakeSum matches LazyList.from(s).map(_*2).take(8).sum
+[info] - lazyFromMapTake recognizes the pipeline shape and rejects unbounded / foreign shapes
+[info] GeneratorTest:
+[info] - generator — toList collects all values
+[info] - generator — next() returns Some then None
+[info] - generator — foreach iterates all
+[info] - generator — map transforms values
+[info] - generator — filter skips non-matching
+[info] - generator — take(n) limits output
+[info] - generator — drop(n) skips first n
+[info] - generator — map.filter pipeline
+[info] - generator — infinite stream with take
+[info] - generator — empty generator returns empty list
+[info] - generator — flatMap expands each element
+[info] - generator — zip pairs elements, stops at shorter
+[info] - generator — zipWithIndex pairs values with indices
+[info] - generator — flatMap on infinite stream with take
+[info] SealedExtensionDispatchTest:
+[info] - enum case dispatches extension registered on the enum type
+[info] - case class subtype dispatches extension on sealed parent
+[info] - Right and Left dispatch extension on Either
+[info] - Some dispatches extension on Option
+[info] MoneyCrossBackendTest:
+[info] - money.ssc — JVM output matches the interpreter
+[info] - money.ssc — JS output matches the interpreter
+[info] ClosureCaptureSoundnessTest:
+[info] - a frame-local equal-in-value to a same-named global is captured (not re-read live)
+[info] - a true global var (no local shadow) is still re-read live at call time
+[info] - a destructuring `val (a, b) = …` must not mark a pre-existing var as a val
+[info] - destructured names are still captured correctly (a real val, not re-read-live)
+[info] JsGenTypedRouteClientTest:
+[info] - JS codegen emits auth header helpers alongside typed route clients
+[info] - JS typed route client request merges extra headers from _ssc_api_extra_headers
+[info] - JS typed route client per-call headers override module headers
+[info] - JS typed route client retries on 5xx and succeeds on eventual 2xx
+[info] - JS typed route client retries on network error
+[info] - JS typed route client does not retry 4xx errors
+[info] - JS typed route client pre-cancelled token throws before calling fetch
+[info] - JS typed route client active token does not block uncancelled calls
+[info] - JS codegen emits HTTP typed route client metadata and Promise methods
+[info] - JS typed route client bundle is strict-mode syntax valid with generated runtime
+[info] - JS typed route runtime builds path params and GET query strings
+[info] - JS route-derived path-param client accepts input and fetches substituted path
+[info] - segmented JS output includes HTTP typed route clients before user code
+[info] - awaitClient lowers typed client Promises through an async wrapper
+[info] - segmented output wraps awaitClient and skips server-only ScalaScript blocks
+[info] - def with awaitClient in body emits async function
+[info] - for-yield with multiple awaitClient generators lowers to async IIFE
+[info] - for-do with multiple awaitClient generators lowers to async IIFE
+[ssc warning] apiClient Items.get: path param ':id' cannot be filled — request type is Unit
+[info] - path param validation: Unit request type with path param emits warning comment
+[info] - path param validation: matching case class fields produce no warning
+[ssc warning] apiClient Items.get: path param ':id' not found in case class 'ItemQuery' (fields: name)
+[info] - path param validation: case class missing path param field emits warning
+[info] - path param validation: primitive with single path param produces no warning
+[ssc warning] apiClient Items.get: 2 path params but request type 'Int' provides at most one value
+[info] - path param validation: primitive with multiple path params emits warning
+[info] - JS typed route clients encode and decode through generated codecs
+[info] - JS codegen emits _ssc_api_stream_request runtime function
+[info] - JS codegen emits SSE method for Unit-request endpoint without input arg
+[info] - JS codegen emits SSE method for non-Unit-request endpoint with input arg
+[info] - JS SSE runtime delivers events and close() stops the stream
+[info] - JS codegen emits _ssc_api_ws_request runtime function
+[info] - JS codegen emits WS method for Unit-request endpoint without input arg
+[info] - JS codegen emits WS method for typed-request endpoint with input arg
+[info] - JS codegen: stream: websocket is also recognised as WS
+[info] - JS WS runtime delivers messages via fake WebSocket
+[info] - JS codegen emits Paged method for paginated Unit-request endpoint
+[info] - JS codegen emits Paged method for paginated typed-request endpoint
+[info] - JS codegen does not emit Paged method for non-paginated endpoints
+[info] - JS paginated client with multiple endpoints has correct comma placement
+[info] SetTest:
+[info] - construction: Set(...), Set[T](), Set.empty, dedup
+[info] - contains / + / - 
+[info] - union ++, intersect &, diff --
+[info] - list.toSet returns a Set; folds work
+[info] - map / filter return Sets
+[info] - deterministic show (sorted)
+[info] - set equality is by value, order-independent
+[info] - Set round-trips through the value serializer
+[info] NumericSugarE2ETest:
+[info] - interpreter: n / m suffixes and oversized ints
+[info] - n / m produce the exact BigInt / Decimal types
+[info] - JVM conformance for literal sugar
+[info] - JS conformance for literal sugar
+[info] SectionXmlBlockTest:
+[info] - fenced xml block is bound to section ident as Markup.Doc
+[info] - section ident preserves first word capitalisation
+[info] - interpolated string value is XML-unescaped in parsed text content
+[info] - interpolated integer value appears as text
+[info] - interpolated value in attribute is preserved through parse
+[info] - namespaced root element is preserved in parsed doc
+[info] - malformed xml block raises InterpretError with line info
+[info] - section can have both scala and xml blocks
+[info] JitCrossModuleRefReturnTest:
+[info] - cross-module single-expr String delegation returns the String, not IntV(0)
+[info] - transitive String delegation chain f→g→h also returns the String
+[info] - numeric cross-module delegation is unaffected (still returns the Int)
+[info] ContainsEffectPrimitiveTest:
+[info] - bare actor primitive — self()
+[info] - bare actor primitive — link(pid)
+[info] - bare actor primitive — trapExit(true)
+[info] - bare actor primitive — receive { case x => x }
+[info] - bare actor primitive — receiveWithTimeout(t) { case x => x }
+[info] - bare actor primitive — spawn { () => () }
+[info] - infix send — pid ! msg
+[info] - infix send — pid ! (a, b) tuple
+[info] - infix send — chained — a ! b ! c
+[info] - qualified primitive — Actor.self()
+[info] - qualified primitive — Actor.send(pid, msg)
+[info] - qualified primitive — Random.uuid()
+[info] - qualified primitive — Random.nextInt(10)
+[info] - qualified primitive — Storage.get(key)
+[info] - qualified primitive — Storage.put(key, value)
+[info] - qualified primitive — Clock.now()
+[info] - qualified primitive — Clock.sleep(100)
+[info] - qualified primitive — Logger.info("x")
+[info] - qualified primitive — Async.delay(100)
+[info] - qualified primitive — Async.await(fut)
+[info] - primitive nested inside larger expression
+[info] - primitive inside if-arm
+[info] - primitive inside lambda body
+[info] - primitive inside case body
+[info] - bare Select on Any-typed value — NOT effectful
+[info] - bare Select chain — NOT effectful
+[info] - plain literal — NOT effectful
+[info] - plain string concat — NOT effectful
+[info] - user-defined function call — NOT effectful
+[info] - qualified cross-dep effectful call — effectful when method is marked
+[info] - generic qualified cross-dep effectful call — effectful when method is marked
+[info] - collection ops — NOT effectful
+[info] - Select-Apply on unknown object — NOT effectful
+[info] - Select-Apply on Random with non-primitive op — NOT effectful
+[info] - Select-Apply on Actor with any op — IS effectful (Actor is fully open)
+[info] - Block of pure statements — NOT effectful
+[info] - Try-catch around pure code — NOT effectful
+[info] - function definition with pure body — NOT effectful
+[info] - class definition with pure methods — NOT effectful
+[info] - import statement alone — NOT effectful
+[info] - primitive inside object body — IS effectful
+[info] - primitive inside def body — IS effectful
+[info] - primitive inside for-comprehension — IS effectful
+[info] - primitive in pattern guard — IS effectful (we walk guards too)
+[info] - primitive in default parameter — IS effectful
+[info] - qualified primitive — Uuid.v4()
+[info] - qualified primitive — Uuid.v7()
+[info] - Uuid.rawV4() — NOT effectful
+[info] - Uuid.rawV7() — NOT effectful
+[info] JvmGenObjectStoreRuntimeTest:
+[info] - JVM codegen adds JDBC runtime and ObjectStore facade when ObjectStore is used
+[info] - JVM codegen generates REST sync routes for objectStores front matter
+[info] - JVM codegen carries objectStores conflict policy into sync push route
+[info] InlineDerivesTest:
+[info] - inline def — basic call works
+[info] - inline val — constant value
+[info] - inline if — condition folding
+[info] - inline match — wildcard and literal patterns
+[info] - compiletime.constValue[42] returns 42
+[info] - compiletime.constValue["hello"] returns "hello"
+[info] - compiletime.summonInline[Eq[Int]] returns an Eq instance
+[info] - compiletime.error throws
+[info] - restricted quoted macro — direct interpreter run expands quoted body
+[info] - restricted quoted macro — Expr.asValue exposes runtime quoted value
+[info] - restricted quoted macro — Expr.asValue match Some-branch Expr(...) is unwrapped by the splice
+[info] - restricted quoted macro — Expr.asTerm exposes opaque term metadata
+[info] - restricted quoted macro — unsupported entrypoint reports a diagnostic
+[info] - derives Eq — eqv(a, a) is true
+[info] - derives Eq — eqv(a, b) with different values is false
+[info] - derives Show — renders case class as TypeName(field=value, ...)
+[info] - derives Hash — same value produces same hash
+[info] - derives Order — compare(a, b) correct sign
+[info] - derives Eq, Show — multiple derives on one class
+[info] - derives Show on sealed trait subtype — renders correctly
+[info] - Mirror.Of — summon exposes product labels, types, and fromProduct
+[info] - derives custom typeclass via Mirror metadata
+[info] StdEffectsTest:
+[info] - Tx.atomic just runs body
+[info] - runTx runs body directly
+[info] - Auth.currentUser returns None outside runAuthWith
+[info] - runAuthWith injects user for Auth.currentUser
+[info] - Auth.require returns user inside runAuthWith
+[info] - Auth.require throws outside runAuthWith
+[info] - runAuthWith restores prior user after block
+[info] - NonDet.choose is accessible as a global
+[info] - Reader.ask is accessible as a global
+[info] - a parameterized effect declaration `effect Name[T]:` works
+[info] - a multi effect declared in a `##` subsection multi-shots
+[info] - return clause enables deep-handler accumulation msg :: resume(())
+[info] - return clause maps a tail-position completion value
+[info] - return clause wraps each multi-shot branch (NonDet singleton)
+[info] - a handler with no return clause returns the pure value unchanged (back-compat)
+[info] ThrowsTest:
+[info] - Left constructor produces isLeft=true, isRight=false
+[info] - Right constructor produces isRight=true, isLeft=false
+[info] - Right.getOrElse returns the value
+[info] - Left.getOrElse returns the default
+[info] - Right.map transforms the value
+[info] - Left.map passes through
+[info] - Right.flatMap chains
+[info] - Left.flatMap short-circuits
+[info] - Right.fold applies right function
+[info] - Left.fold applies left function
+[info] - Right.toOption returns Some
+[info] - Left.toOption returns None
+[info] - throws-typed function — bare value auto-wraps in Right
+[info] - throws-typed function — explicit Left passes through
+[info] - throws-typed function — explicit Right passes through unchanged
+[info] - throw RuntimeException propagates as ScriptException
+[info] - throw custom exception value propagates
+[info] - try block without throw returns body value
+[info] - try-catch catches ScriptException
+[info] - try-catch binds exception value
+[info] - try-finally runs cleanup
+[info] - try-catch-finally: catch fires, finally runs
+[info] - attemptCatch wraps success in Right
+[info] - attemptCatch wraps exception in Left
+[info] - parseInt success — Right(n)
+[info] - parseInt failure — Left
+[info] - parseDouble success — Right(d)
+[info] - parseDouble failure — Left
+[info] - requireNonNull on non-null — Right
+[info] - requireNonNull on null — Left
+[info] - divideOrError success — Right(n)
+[info] - divideOrError by zero — Left
+[info] - raise wraps error in Left
+[info] - rethrow unwraps Right
+[info] - rethrow on Left throws
+[info] - direct[Either] — auto-bind unwraps Right and continues
+[info] - direct[Either] — short-circuits on Left bind
+[info] - direct[Either] — throw as last statement lowers to Left
+[info] - direct[Either] — throw in middle short-circuits
+[info] - currentStackTrace() returns a List
+[info] - Frame has file/line/fn fields
+[info] - stack-trace filtering — named user function appears in default trace
+[info] - stack-trace filtering — nested named functions both appear
+[info] - setTraceVerbose — toggling verbose does not throw, trace remains non-empty
+[info] - throwsRaw — function with throwsRaw return type returns raw value
+[info] - unbox — unwraps Right
+[info] - unbox — unwraps Left
+[info] - box — wraps raw value in Right
+[info] - attemptCatchRaw — returns raw value on success
+[info] - attemptCatchRaw — returns raw error on failure
+[info] - fail — wraps error value in Left
+[info] - HasStackTrace — user class with custom stackTrace
+[info] - throws — bare value return auto-wraps to Right
+[info] - throws — Left return from throws function
+[info] - direct[Either] — calling a throws-annotated callee chains correctly
+[info] - direct[Either] — short-circuits when callee returns Left
+[info] - fromError — prod mode returns 500 with anonymous body
+[info] - fromError — dev mode returns 500 with error message and trace
+[info] - @noTrace case class can be thrown and caught normally
+[info] - @noTrace case class can be used without throwing
+[info] JvmGenTypedRouteClientTest:
+[info] - JVM codegen preserves typed route client endpoint metadata
+[info] - Swing JVM codegen emits callable typed client methods over in-process fetch
+[info] - Swing JVM route-derived path-param client emits callable input method
+[info] - non-Swing JVM codegen keeps metadata only until HTTP transport lands
+[info] - JVM codegen emits auth header helpers in Swing typed client runtime
+[ssc warning] apiClient Items.get: path param ':id' cannot be filled — request type is Unit
+[info] - JVM codegen path param validation: Unit request type emits warning comment
+[info] - JVM codegen path param validation: case class with matching field produces no warning
+[info] - JVM codegen emits per-call headers param in client methods and runtime
+[info] - JVM Swing codegen emits SSE method for Unit-request endpoint
+[info] - JVM Swing codegen emits SSE method for non-Unit-request endpoint
+[info] - JVM Swing codegen emits _ssc_api_stream_request runtime implementation
+[info] - JVM codegen skips client-only ScalaScript blocks
+[info] - JavaFX JVM codegen emits typed route client objects with same runtime as Swing
+[info] - JavaFX JVM codegen emits in-process fetch helpers and javafx serve branch
+[info] - JVM Swing codegen emits WS method for Unit-request endpoint
+[info] - JVM Swing codegen emits WS method for typed-request endpoint
+[info] - JVM Swing codegen emits _ssc_api_ws_request and _SscWsHandle runtime
+[info] - JVM Swing codegen emits listPaged method for paginated Unit-request endpoint
+[info] - JVM Swing codegen emits listPaged method for paginated typed-request endpoint
+[info] - JVM codegen does not emit Paged method for non-paginated endpoints
+[info] FfiAnnotationTest:
+[info] - JvmGen: @jvm extern def emits inline expression as method body
+[info] - JvmGen: @jvm extern def with $0 substitution replaces placeholder with param name
+[info] - JvmGen: @jvm extern def with multiple arg substitution
+[info] - JvmGen: @jvm preserves return type annotation
+[info] - JvmGen: non-annotated extern def is skipped (no inline body)
+[info] - JvmGen: @jvm and @js both present — JvmGen uses @jvm expression
+[info] - JsGen: @js extern def emits JS function with inline body
+[info] - JsGen: @js extern def with $0 arg substitution
+[info] - JsGen: @jvm-only extern def emits error-throwing JS stub
+[info] - JsGen: @jvm and @js both present — JsGen uses @js expression
+[info] - CapabilityCheck: @jvm-only extern def + JS target → JvmOnlyExternDef diagnostic
+[info] - CapabilityCheck: @jvm + @js extern def + JS target → no JvmOnlyExternDef
+[info] - CapabilityCheck: @jvm-only extern def + JVM target → no diagnostic
+[info] TypeAliasTest:
+[info] - simple alias: type Name = String used in function signature
+[info] - simple alias: type UserId = String, alias name accepted at call site
+[info] - simple alias: type alias does not produce any runtime output
+[info] - simple alias: value of aliased type can be passed to function expecting base type
+[info] - parameterized alias: type Opt[A] = Option[A]
+[info] - parameterized alias: type Pair[A, B] = (A, B) — alias in val type annotation
+[info] - parameterized alias: type Result[A] = Either[String, A] — use in def return type
+[info] - alias of alias: type A = String; type B = A — B expands to String
+[info] - alias of alias: chained expansion works in function param
+[info] - typer: simple alias is registered in scope with no type errors
+[info] - typer: parameterized alias is registered in scope with no type errors
+[info] - typer: directly recursive alias produces a type error
+[info] - typer: arity mismatch for parameterized alias produces a type error
+[info] PatternMatchTest:
+[info] - nested — Some inside tuple
+[info] - nested — None inside tuple falls to wildcard
+[info] - nested — Some inside case class field
+[info] - nested — tuple of tuples
+[info] - nested — case class inside Option
+[info] - nested — list cons with nested Some
+[info] - guard — positive / negative / zero
+[info] - guard — string length condition
+[info] - guard — combined pattern and guard
+[info] - guard — multiple guards on same pattern shape
+[info] - @ binder — bind whole list and use head
+[info] - @ binder — bind Some value
+[info] - @ binder — empty list falls to wildcard
+[info] - @ binder — nested pattern with binder on inner
+[info] - @ binder — use bound name in guard
+[info] - combined — nested Some with guard
+[info] - combined — @ binder with nested pattern
+[info] ThreeWayMutualTcoTest:
+[info] - three-way mutual TCO (ping/pong/pang) is constant-stack at depth ~100k
+[info] - two-way mutual TCO (isEven/isOdd) stays fast at depth 100k
+[info] - self-tail-recursion via a delegate (workload -> sumTco) still JITs
+[info] ContentBackendExposureTest:
+[info] - JS codegen exposes std/content helpers from Markdown content
+[info] - JVM codegen exposes std/content helpers from Markdown content
+[info] - JS codegen renders std/content values back to Markdown
+[info] - JVM codegen renders std/content values back to Markdown
+[info] - JS codegen exposes directly imported Markdown content namespaces
+[info] - JVM codegen exposes directly imported Markdown content namespaces
+[info] - JS codegen exposes Markdown content tables
+[info] - JVM codegen exposes Markdown content tables
+[info] SpiValueDataRoundTripTest:
+[info] - Char survives the SPI boundary as a Char (not a 1-char String)
+[info] - Vector survives the SPI boundary as a Vector (not a List)
+[info] - nested Vector-of-Char round-trips losslessly (no element coercion)
+[info] - List stays a List and String stays a String (no regression on the close cousins)
+[info] JsRuntimeWebAuthnClientTest:
+[info] - browser WebAuthn actions build navigator options and POST verifier-shaped payloads
+[info] FetchUrlSignalToTest:
+[info] - fetchUrlSignalTo fetches on mount and re-fetches the new URL when its url signal changes
+[info] SscVmTest:
+[info] - compiles and runs recursive fib
+[info] - compiles and runs two-arg tail-recursive sum
+[info] - handles arithmetic, division and modulo
+[info] - compiles a three-argument integer function
+[info] - compiles a call to another integer function via the resolver
+[info] - compiles mutual recursion (isEven / isOdd)
+[info] - Javac bytecode JIT co-emits a sibling pure-int function
+[info] - Javac bytecode JIT co-emits mutually recursive pure-int functions
+[info] - Javac bytecode JIT co-emits mutually recursive ref-param match functions
+[info] - ASM bytecode JIT handles unary ops and block expressions
+[info] - ASM bytecode JIT co-emits a sibling pure-int function
+[info] - ASM bytecode JIT co-emits mutually recursive pure-int functions
+[info] - ASM bytecode JIT co-emits mutually recursive bool-returning functions (stage6 fix)
+[info] - ASM bytecode JIT co-emits mutually recursive ref-param match functions
+[info] - ASM bytecode JIT compiles ref-returning matches as ObjToObject
+[info] - ASM while JIT compiles inline ref match RHS
+[info] - ASM while JIT compiles ObjToObject ref-arg chains
+[info] - ASM mixed while JIT fuses List foreach with ObjToLong accumulator
+[info] - ASM mixed while JIT fuses Set foreach with ObjToDouble accumulator
+[info] - ASM mixed while JIT fuses Map foreach value mode with Long accumulator
+[info] - ASM mixed while JIT fuses Map foreach key mode with Double accumulator
+[info] - Javac LICM hoists Set+match foreach out of outer while (long acc)
+[info] - Javac LICM hoists Map foreach out of outer while (long acc)
+[info] - Javac LICM hoists List+fn foreach out of outer while (non-match body)
+[info] - end-to-end: Set LICM foreach while gives correct result
+[info] - end-to-end: Map LICM foreach while gives correct result
+[info] - compiles and runs a double-typed arithmetic function
+[info] - promotes an Int param into the double domain (Int -> Double)
+[info] - compiles a tail-recursive double accumulator
+[info] - double comparison drives a branch
+[info] - bails (None) on unsupported string operations
+[info] - compiles and runs a recursive ADT tree evaluator
+[info] - tryHoistedPureWhile: var self-assignment is treated as no-op, counter still advances
+[info] - tryHoistedPureWhile: self-assignment with multiple non-int vars all hoisted
+[info] - end-to-end: recursive ADT eval is JIT-compiled and stays correct
+[info] - closed-form: counter update before accumulator preserves sequential assignment order
+[info] - closed-form: 1-param linear f(x)=x+1 folds Σ(i+1) correctly
+[info] - closed-form: 2-param f(x,y)=x+y both bound to counter folds Σ2i correctly
+[info] - closed-form: block-wrapped body {x+1} is still recognized as linear
+[info] - closed-form: val-bound global constant folded into linear polynomial
+[info] - compiles Boolean literal and Boolean-returning function
+[info] - compiles Boolean parameter used in arithmetic expression
+[info] - compiles unary minus on Int
+[info] - compiles unary minus on Double
+[info] - compiles logical not (!) on Boolean
+[info] - end-to-end: qualified enum patterns and qualified Pat.Extract compile and run
+[info] - closed-form does not fire when arg is not the counter (invariant fold handles it)
+[info] - p1b: arity-0 function compiles and returns constant
+[info] - p1b: arity-0 function with nested while compiles and returns correct sum
+[info] - p1b: arity-0 function compiles and returns correct result via direct SscVm.run
+[info] - p2: end-to-end normSq with field access runs on JIT path
+[info] - p2: chained field access compiles and returns correct result
+[info] - p5: Lit.Null in val declaration no longer bails — function compiles
+[info] - p4+p3: non-capturing inner def compiles and is callable
+[info] - p4+p3: inner def called multiple times in loop
+[info] - p4+p3: capturing inner def bails gracefully (outer falls back to interpreter)
+[info] - p6: Lit.String in val position compiles — function body uses string as TRef sentinel
+[info] - p6: String == String compiles and returns correct Boolean (EQREF)
+[info] - p6: String != String compiles and returns correct Boolean (NEREF)
+[info] - p6: multi-branch string classify compiles and returns correct Int
+[info] - p6: function returning String compiles with RETREF (retIsRef=true)
+[info] - p7: String.length compiles and returns correct value
+[info] - p7: String.isEmpty compiles and returns correct Boolean
+[info] - p7: String.nonEmpty compiles and returns correct Boolean
+[info] - p7: String.length in expression (addition) compiles
+[info] - p7: string literal .length compiles (setRefType on LOADS)
+[info] - p7: end-to-end String.length via JIT path
+[info] - string-method: s.toInt compiles (GETFI) and parses
+[info] - string-method: s.trim.toInt chains SSTR then GETFI
+[info] - string-method: s.trim returns a String (SSTR + RETREF)
+[info] - string-method: toLowerCase / toUpperCase compile (SSTR)
+[info] - string-method: unsupported method bails (→ tree-walk)
+[info] - stage2.1: Javac — bool top-level body (comparison) compiles and returns 0/1
+[info] - stage2.1: Javac — bool body with && compiles
+[info] - stage2.1: ASM — bool top-level body compiles and returns 0/1
+[info] - stage2.1: end-to-end bool predicate runs via JIT
+[info] - stage2.1b: function calling bool-returning sibling compiles (Javac)
+[info] - stage2.1b: function calling bool-returning sibling compiles (ASM)
+[info] - stage2.1b: Lit.Boolean literal in bool expression (Javac)
+[info] - stage2.1b: ! negation compiles (Javac)
+[info] - stage2.1b: end-to-end: caller of bool sibling returns correct value
+[info] - stage7-refchain: Javac ref-local getOrElse compiles and runs
+[info] - stage7-refchain: ASM ref-local getOrElse compiles and runs
+[info] - stage7-hof-method: Javac Option flatMap/map/getOrElse compiles and runs
+[info] - stage7-hof-method: ASM Option flatMap/map/getOrElse compiles and runs
+[info] - stage7-hof-method: Javac Either map/flatMap/fold compiles and runs
+[info] - stage7-hof-method: ASM Either map/flatMap/fold compiles and runs
+[info] - jit-escape-analysis: JavacJitBackend map+getOrElse over Option fuses and runs
+[info] - jit-escape-analysis: JavacJitBackend map+flatMap over Either fuses and runs
+[info] - jit-escape-analysis: AsmJitBackend map+getOrElse over Option fuses and runs
+[info] - jit-escape-analysis: AsmJitBackend map+flatMap over Either fuses and runs
+[info] - stage7-hof-method: Javac List map/filter/foldLeft compiles and runs
+[info] - stage7-hof-method: ASM List map/filter/foldLeft compiles and runs
+[info] - stage7-hof-method: Javac Range until map/foldLeft compiles and runs
+[info] - stage7-hof-method: ASM Range until map/foldLeft compiles and runs
+[info] - jit-range-fusion: JavacJitBackend inclusive `to` range with map+filter fuses and runs
+[info] - jit-range-fusion: JavacJitBackend bare range foldLeft fuses with no map/filter
+[info] - jit-range-fusion: AsmJitBackend inclusive `to` range with map+filter fuses and runs
+[info] - jit-range-fusion: AsmJitBackend bare range foldLeft fuses with no map/filter
+[info] - stage7-refchain-object-dispatch: Javac List map/mkString compiles and runs
+[info] - stage7-refchain-object-dispatch: ASM List map/mkString compiles and runs
+[info] - stage7-refchain-object-dispatch: Javac Map getOrElse compiles and runs
+[info] - stage7-refchain-object-dispatch: ASM Map getOrElse compiles and runs
+[info] - stage7-numeric-object-dispatch: Javac BigInt/Decimal methods compile and run
+[info] - stage7-numeric-object-dispatch: ASM BigInt/Decimal methods compile and run
+[info] - stage2.1b: HofCall detected when param is called as function
+[info] - stage2.4: Javac — literal-int match compiles
+[info] - stage2.4-expr: Javac+ASM — literal-int match with ApplyInfix scrutinee compiles and runs
+[info] - stage2.4: ASM — literal-int match compiles
+[info] - stage2.4: end-to-end literal-int match runs correctly
+[info] - stage6-vm-retref: SscVm RETREF — String-returning function compiles and runs
+[info] - stage6-vm-retref: VmCompiler emits RETREF for ref-returning function
+[info] - stage6-nonextract-tuple: JitLint does not report NonExtractPattern for Pat.Tuple arms
+[info] - stage6-nonextract-tuple: Javac — tuple 2-elem match compiles and returns correct result
+[info] - stage6-nonextract-tuple: end-to-end — tuple destructure in match body
+[info] - stage6-nonextract-tuple: end-to-end — tuple with wildcard
+[info] - stage2.4: JitLint does not report NonExtractPattern for Lit.Int arms
+[info] - stage2.5: Javac — caller compiles when calling a non-sibling global fn
+[info] - stage2.5: end-to-end: caller of non-compiling global uses fallback dispatch
+[info] - stage2.2: Javac — 2-param both-ref function compiles to ObjObjToLong interface
+[info] - stage2.2: ASM — 2-param both-ref function compiles to ObjObjToLong interface
+[info] - stage2.2: end-to-end 2-param both-ref dispatch runs correctly
+[info] - stage2.3: ASM — ref-returning match with guarded arm compiles
+[info] - stage2.3: end-to-end — guarded ADT match in numeric JIT runs correctly
+[info] - stage6-bool-body: bool-returning literal match compiles via walkBool→walkLong fallback
+[info] - jit-bool-match: enum-match-returning-Bool detected by isBoolReturning (regression)
+[info] - jit-bool-match: nested if + match all bool-returning (regression edge)
+[info] - jit-bool-match: match returning Int is NOT bool-returning
+[info] - stage6-pattern-guard: guarded match EXPRESSION (match as val RHS) compiles
+[info] - stage8-builtin-ctors: Nil / List(...) / Set(...) JIT through JitRefDispatch
+[info] - stage8-string-methods: .trim / .toInt / .startsWith / .toUpperCase JIT through JitRefDispatch
+[info] - stage8-option-map-methods: Option.isDefined / List.contains JIT through JitRefDispatch
+[info] - stage8-list-extra-methods: .last / .isEmpty JIT through JitRefDispatch
+[info] - stage8-typed-pattern: case _: T => and case x: T => JIT via Pat.Typed in walkArm
+[info] - stage8-ref-equality: String == String JITs via Objects.equals fallback
+[info] - stage8-list-concat-infix: List ++ List JITs through JitRefDispatch.collectionConcat
+[info] - stage8-map-ops: ref-typed var + Map.updated + Map.getOrElse JIT-compiles
+[info] - stage8-map-get-string-substr: Map.get / String.substring / replace JIT through JitRefDispatch
+[info] - stage8-math-intrinsics: Math.max / Math.min / Math.abs inline to java.lang.Math
+[info] - stage8-bigint-cmp: BigInt(n) < BigInt(m) and Decimal cmp JIT through JitRefDispatch
+[info] - stage8-bigint-infix: BigInt(n) + n / * / - JITs through JitRefDispatch
+[info] - stage8-string-interp: s"prefix${n}suffix" compiles via walkRef Interpolate path
+[info] - stage8-string-interp-asm: ASM single-arg s-interp compiles via AsmJitBackend
+[info] - stage8-apply-infix-ref: String + Long concat JITs via walkRef Term.ApplyInfix
+[info] - stage8-string-interp: multi-arg s-interpolation compiles
+[info] - stage8-pattern-guard-complex: guard with Long expression compiles via walkLong-fallback
+[info] - jit-uc-finding-litmatch: .toLong/.toInt identity conversions compile (workload pattern)
+[info] - jit-uc-finding-litmatch: void Term.If in while body (conditional accumulation)
+[info] - stage3.1: VmCompiler compiles FunV-param function (tags param as FunV_N); JitRuntime threads FunV through
+[info] - stage3.2: CALLREF — VmCompiler compiles FunV param call, SscVm dispatches via interp
+[info] - stage3.2: CALLREF — chained HOF: applyTwice(f, n) = f(f(n))
+[info] - stage3.3: LOADFV — non-capturing lambda literal passed to HOF (VmCompiler emits LOADFV + CALLREF)
+[info] - stage3.3: LOADFV — lambda with 2 params, non-capturing
+[info] - stage3.4: CALLREF IC — same FunV repeated calls produce correct results (cache correctness gate)
+[info] - stage3.5: Javac — HOF param (f: Int => Int) compiles; direct dispatch via ObjLongToLong
+[info] - stage3.5: ASM — HOF param (f: Int => Int) compiles; direct dispatch via ObjLongToLong
+[info] - stage3.5: Javac — 2-param HOF with LongFn2 callback (f: (Int,Int)=>Int, n: Int) compiles; ObjLongToLong
+[info] - stage3.5: end-to-end — bytecode JIT HOF: applyN(f: Int => Int, n: Int)
+[info] - stage3.5: end-to-end — bytecode JIT HOF with lambda arg
+[info] - stage4: Javac — 3-param all-Long function compiles to LongFn3
+[info] - stage4: ASM — 3-param all-Long function compiles to LongFn3
+[info] - stage4: end-to-end — 3-param function runs via bytecode JIT
+[info] - stage4: end-to-end — 3-param recursive gcd via co-emit (self-call)
+[info] - stage5.4: Javac — Pat.Alternative match arm compiles
+[info] - stage5.4: ASM — Pat.Alternative match arm compiles
+[info] - stage5.4: end-to-end — Pat.Alternative match runs correctly
+[info] - stage5.5: end-to-end — field access scrutinee (Term.Select match) compiles and runs
+[info] - stage5.5: Javac — field access scrutinee compiles
+[info] - stage5.5: ASM — field access scrutinee compiles
+[info] - stage5.3: end-to-end — try/catch with wildcard arm compiles and runs correctly
+[info] - stage5.3: Javac — try/catch compiles
+[info] - stage5.3: ASM — try/catch compiles
+[info] - stage5.2: end-to-end — var reassignment in pure body compiles and runs correctly
+[info] - stage5.2: Javac — var reassignment in pure body compiles
+[info] - stage5.2: ASM — var reassignment in pure body compiles
+[info] - JIT tags a startsWith-bodied Boolean fn resultIsBool (busi pwhash isHashed)
+[info] - wide-jit C-3: FunV.body is identity-keyed in the Typer's nodeTypes; the map threads to VmCompiler
+[info] SupertypeTypeTestXModuleJsTest:
+[info] - case x: <imported sealed trait> matches a subtype — the busi card-header repro (cross-module)
+[info] - case x: <imported intermediate trait> + enum subtype, transitive, cross-module
+[info] StringIndexApplyTest:
+[info] - s(i) returns the i-th char
+[info] - s(i) on a binding — the busi MT940 shape
+[info] - s(i) inside a boolean expression
+[info] - out-of-range index raises a clear index error, not 'Not callable'
+[info] - List / Map apply unaffected (regression guard)
+[info] JvmGenRuntimeSeparationTest:
+[info] - JVM UI compatibility runtime preserves componentScope body result
+[info] - JvmGen.generateRuntime without Serve emits serve stubs
+[info] JitFoldTcTest:
+[info] - single call
+[info] - repeated calls (memo hits)
+[info] - single-element list (trivial fold)
+[info] - empty generic typeclass-fold is a PRE-EXISTING limitation (fails memo-on AND -off)
+[info] - string monoid (different given, same call-site)
+[info] - POLYMORPHIC: same call-site, two givens alternating — must not go stale
+[info] - nested combineAll calls
+[info] - the memo path is actually exercised (diffs above are not vacuous)
+[info] JsEffectLoopTest:
+[info] - JsGen base runtime: effectful foreach sequences its body (no async runtime bundled)
+[info] - JsGen: one-shot effect performed in a while-loop compiles + runs
+[info] - JsGen: a longer-running perform loop accumulates correctly
+[info] - JsGen: a self-handling CPS fn (no loop) runs at the value boundary
+[info] - JsGen: multi-shot effect handled inside a while-loop runs end-to-end
+[info] - JsGen return clause: code-shape emits _handleWithReturn + retMap
+[info] - JsGen return clause: deep-handler accumulation collects messages
+[info] - JsGen return clause: binds + maps the completion value (tail-position resume)
+[info] JvmGenGraphRuntimeTest:
+[info] - JVM codegen emits graph runtime jar and Graph facade for graphs front matter
+[info] - JVM codegen emits a default in-memory graph when Graph is used without graphs front matter
+[info] - JVM codegen emits embedded graph adapters and external runtime deps
+[info] ValueWireTest:
+[info] - round-trips primitives, collections, BigInt/Decimal, Set
+[info] - round-trips a case-class instance with nested fields
+[info] - round-trips a list of records (an event-log shape)
+[info] - serialized form is a parseable string
+[info] TailCallDefaultArgsTest:
+[info] - mutual tail call to a 2-param fn relying on a default arg fills the default
+[info] - self tail-recursive fn with a defaulted trailing param, tail-called short, recurses
+[info] - 3-param fn tail-called with 1 arg fills two trailing defaults
+[info] ModuleFnNameConflictTest:
+[warn] 'htmlEsc' imported from 'fmt_b.ssc' shadows the 'htmlEsc' imported from 'fmt_a.ssc' — last import wins
+[info] - two modules exporting the same fn name — last import wins + warning recorded
+[info] - no warning when the imported name does not collide
+[info] - re-importing the same name from the same module does not warn
+[info] DirectSyntaxDiagnosticsTest:
+[info] - interpreter: return inside direct[Option] raises error
+[info] - interpreter: return inside nested if inside direct raises error
+[info] - interpreter: return inside nested def inside direct is allowed
+[info] - interpreter: return inside nested direct[Option] raises error
+[info] - JvmGen: return inside direct[Option] raises error at codegen
+[info] - JsGen: return inside direct[Option] raises error at codegen
+[info] - legitimate direct[Option] block still works after diagnostics added
+[info] StdlibDerivesJvmConformanceTest:
+[info] - interpreter result is the expected baseline
+[info] - JVM stdlib derives matches the interpreter
+[info] - JS stdlib derives matches the interpreter
+[info] NamedArgDefaultsTest:
+[info] - gap: S(a=.., c=..) leaves b at its default None
+[info] - single named field, rest default
+[info] - reordered named args bind by name, not position
+[info] - all named (already worked) still correct
+[info] - default value can reference an earlier provided field
+[info] TryCatchExternTest:
+[info] - catch case e: Any catches a runtime-thrown Java exception
+[info] - catch case e: Throwable catches a runtime-thrown Java exception
+[info] - catch case e: Exception catches and exposes the message
+[info] - a specific user exception type still matches precisely (no over-broadening of normal matches)
+[info] AsyncPerfTest:
+[info] - perf: 1 000 sequential async/await cycles complete in < 3s
+[info] - perf: 500 Async.parallel thunks complete in < 3s
+[info] SpaFormBodyNamedSignalsTest:
+[info] - formBody fields referenced by signal NAME resolve to live values at submit
+[info] SscPreviewVariantsTest:
+[info] - variants: absent → empty list
+[info] - variants: single entry with args
+[info] - variants: multiple entries with distinct args
+[info] - variants: entry without args yields empty map
+[info] - spinner.ssc front-matter round-trip preserves three variants
+[info] CoroutineTest:
+[info] - single yield then return
+[info] - generator loop — pull three values (explicit mutation)
+[info] - generator loop — pull three values (while loop)
+[info] - ping-pong — resume input becomes suspend return value
+[info] - accumulator — body uses resumed values
+[info] - body throws — coroutineResume returns Errored
+[info] - resuming a completed coroutine raises error
+[info] - body side effects happen after first resume, not at create time
+[info] - coroutine creates and resumes another coroutine inside body
+[info] - suspend outside coroutine raises error
+[info] - generator suspend and coroutine suspend both work in same program
+[info] ImportExportsGatingTest:
+[info] - importing an exported name resolves
+[info] - importing a defined-but-not-exported name is rejected
+[info] - a module that declares no exports stays permissive
+[info] - a name reachable only transitively through a facade is NOT importable from the facade
+[info] - re-exporting (listing the imported name in exports) makes it importable
+[info] - exported fn calling its own non-exported helper still works (call-time dump intact)
+[info] ParsingCoreTest:
+[info] - core: Position and Span construct correctly
+[info] - core: ParseError carries message and position
+[info] - core: ParseOk wraps value, rest, pos
+[info] - core: ParseErr wraps ParseError
+[info] - core: Parser.char builds PChar node
+[info] - core: Parser.string builds PString node
+[info] - core: Parser.regex builds PRegex node
+[info] - core: Parser.succeed builds PSucceed node
+[info] - core: Parser.fail builds PFail node
+[info] - core: Parser.satisfy builds PSatisfy node
+[info] NativeContextStateBagTest:
+[info] - NativeContext shared feature state persists across native calls
+[info] - NativeContext feature-local state scopes and restores httpClient base URL
+[info] JsGenStdImportTest:
+[info] - runtime-colliding top-level val is renamed in flat JS bundle
+[info] - runtime-colliding top-level def is renamed in flat JS bundle
+[info] - runtime-colliding top-level object is renamed in flat JS bundle
+[info] - runtime-colliding top-level case class is renamed in flat JS bundle
+[info] - runtime-colliding top-level enum case is renamed in flat JS bundle
+[info] - runtime-colliding top-level js extern def is renamed in flat JS bundle
+[info] - JS String.split uses Scala-compatible regex patterns
+[info] - JsGen resolves bare std imports from project runtime tree
+[info] - browser patch overrides Node helpers without duplicate ES module declarations
+[info] - browser patch routes same-app fetch calls through registered routes
+[info] - browser patch can forward relative fetch calls to injected JVM backend
+[info] - browser runtime HTTP route helper does not clash with std/ui routing route import
+[info] - browser signal runtime seeds hash routes and updates derived show guards
+[info] - eqSignal matches the hash regardless of a leading '#'; showSignal reveals the matched branch
+[info] - async browser module failures render a visible error
+[info] - JS runtime upload directory default is guarded for browser renderers
+[info] - JS signal runtime defines std/ui typed DataTable column helpers
+[info] - typed DataTable helpers trigger the JS Signals runtime capability
+[info] - seedSignal triggers the JS Signals runtime capability
+[info] - seedSignal example parses and emits the browser helper shim
+[info] - std/json jsonValue extern binds without a duplicate top-level declaration
+[info] - bare std/json intrinsics call the renamed JS runtime helpers
+[info] - fetchCaptureAction wires response capture into a signal in the emit-spa bundle
+[info] - JS signal runtime defines the std/ui row-data natives
+[info] - JS DataTable enforces typed dotted row identity and exact payload descriptors
+[info] - JS DataTable mount consumes rowKeyPath and attaches typed row identity
+[info] - renderBody emits inline rows for a static DataTable source
+[info] - renderBody — three DataTables on one fetch signal each keep their own rowsPath
+[info] - emit-spa datatable-static-spa example binds the row-data natives and parses
+[info] - emit-spa std/ui forKeyed lowers to browser keyed marker
+[info] - emit-spa std/ui i18n demo live-switches locales in the custom browser runtime
+[info] - renderBody renders a raw un-lowered DataTableNode child
+[info] - rowsOf normalises array / envelope / string / HTML into a row array
+[info] - JS runtime defines the content-toolkit natives bound to functions
+[info] - contentToolkitNode renders toolkit links and @ui=toolkit controls to DOM
+[info] - content-toolkit runtime emits when the toolkit is imported transitively
+[info] - contentToolkitBlock resolves a block defined in a transitively-imported module
+[info] - emit-spa markdown-toolkit-links example binds contentToolkitSection and parses
+[info] - emit-js propagates a transitive package import (A->B->C)
+[info] - emit-js propagates a transitive name-only import (no package, A->B->C)
+[info] - emit-js propagates a 4-level transitive import (A->B->C->D)
+[info] - contentToolkitSection resolves toolkit:button?action= and toolkit:table?rows= registries
+[info] - an unregistered toolkit action id renders an inline error, never blanks the render
+[info] - named arg to an imported option builder reorders (skips defaulted params)
+[info] - @ui=toolkit YAML controls resolve button action= and table source= in JS
+[info] - @ui=toolkit signalText resolves a registered computed signal in JS (Scope B.5)
+[info] - @ui=toolkit table builds typed columns from inline YAML columns: in JS (Scope B.2)
+[info] - @ui=toolkit source bound to a fetchSource(rowsPath) data source threads rowsPath in JS (Scope B.3)
+[info] - @ui=toolkit button action with fetchActionWith threads structured onSuccess in JS (Scope B.4)
+[info] - @ui=toolkit {type: slot} injects a contentSlot-registered node in JS (Scope B.6)
+[info] - @ui=toolkit button action with formBody threads field list + assembles body in JS (Scope B.4+)
+[info] - @ui=toolkit formBody supports keyed (jsonKey, signalId) tuples (Scope B.4+)
+[info] MarkdownMultiLinkImportInterpreterTest:
+[info] - interpreter resolves two modules imported from one Markdown paragraph
+[info] NumericJvmConformanceTest:
+[info] - BigInt: construction, arithmetic, mixing with Int
+[info] - Decimal: exact arithmetic and scale
+[info] - Decimal: setScale and divide with rounding
+[info] - conversions and comparisons
+[info] AstDumpTest:
+Source(List(
+  Defn.Def(
+    Nil,
+    Term.Name("spanMerge"),
+    List(
+      Member.ParamClauseGroup(
+        Type.ParamClause(Nil),
+        List(
+          Term.ParamClause(List(
+            Term.Param(
+              Nil,
+              Term.Name("a"),
+              Some(
+                Type.Name("Span")
+              ),
+              None
+            ),
+            Term.Param(
+              Nil,
+              Term.Name("b"),
+              Some(
+                Type.Name("Span")
+              ),
+              None
+            )
+          ))
+        )
+      )
+    ),
+    Some(
+      Type.Name("Span")
+    ),
+    Term.Block(List(
+      Defn.Val(
+        Nil,
+        List(
+          Pat.Var(Term.Name("s"))
+        ),
+        None,
+        Term.If(
+          Term.ApplyInfix(
+            Term.Select(
+              Term.Name("a"),
+              Term.Name("start")
+            ),
+            Term.Name("<"),
+            Type.ArgClause(Nil),
+            Term.ArgClause(List(
+              Term.Select(
+                Term.Name("b"),
+                Term.Name("start")
+              )
+            ))
+          ),
+          Term.Select(
+            Term.Name("a"),
+            Term.Name("start")
+          ),
+          Term.Select(
+            Term.Name("b"),
+            Term.Name("start")
+          ),
+          Nil
+        )
+      ),
+      Defn.Val(
+        Nil,
+        List(
+          Pat.Var(Term.Name("e"))
+        ),
+        None,
+        Term.If(
+          Term.ApplyInfix(
+            Term.Select(
+              Term.Name("a"),
+              Term.Name("end")
+            ),
+            Term.Name(">"),
+            Type.ArgClause(Nil),
+            Term.ArgClause(List(
+              Term.Select(
+                Term.Name("b"),
+                Term.Name("end")
+              )
+            ))
+          ),
+          Term.Select(
+            Term.Name("a"),
+            Term.Name("end")
+          ),
+          Term.Select(
+            Term.Name("b"),
+            Term.Name("end")
+          ),
+          Nil
+        )
+      ),
+      Term.Apply(
+        Term.Name("Span"),
+        Term.ArgClause(List(
+          Term.Name("s"),
+          Term.Name("e")
+        ))
+      )
+    ))
+  )
+))
+[info] - dump spanMerge AST
+[info] JvmGenSwingRuntimeTest:
+[info] - Swing frontend helper launches same-process runtime instead of nested scala-cli
+[info] - Swing full-stack example generates same-process fetch dispatcher
+[info] - Swing typed-client example generates callable client over same-process dispatcher
+[info] - Swing frontend emits iconPath in generated Options when app-icon front matter is set
+[info] - Swing frontend does not emit iconPath when app-icon is absent
+[info] AsmEffectJitTest:
+[info] - ASM walkLong lowers one-shot effect resolver calls
+[info] StringComparisonOpsTest:
+[info] - String < — lexicographic less-than
+[info] - String > — lexicographic greater-than
+[info] - String <= — lexicographic less-or-equal
+[info] - String >= — lexicographic greater-or-equal
+[info] - String.compareTo — returns sign of comparison
+[info] - UUID v7-style ordering via string comparison
+[info] - String comparison on identical strings via != still works
+[info] - sortBy of strings works correctly
+[info] OpaqueTypeTest:
+/GenJit_apply_335637419.java:6: error: method apply(long) is already defined in class GenJit_apply_335637419
+  public long apply(long s) { return apply(s); }
+              ^
+/GenJit_apply_335637419.java:2: error: apply(long) in GenJit_apply_335637419 cannot implement apply(long) in LongFn1
+  public static long apply(long s) {
+                     ^
+  overriding method is static
+2 errors
+[info] - opaque type — construct via companion apply and use in function
+/GenJit_apply_194366537.java:6: error: method apply(long) is already defined in class GenJit_apply_194366537
+  public long apply(long s) { return apply(s); }
+              ^
+/GenJit_apply_194366537.java:2: error: apply(long) in GenJit_apply_194366537 cannot implement apply(long) in LongFn1
+  public static long apply(long s) {
+                     ^
+  overriding method is static
+2 errors
+[info] - opaque type — wrapped value prints as underlying type
+/GenJit_apply_548587582.java:6: error: method apply(long) is already defined in class GenJit_apply_548587582
+  public long apply(long s) { return apply(s); }
+              ^
+/GenJit_apply_548587582.java:2: error: apply(long) in GenJit_apply_548587582 cannot implement apply(long) in LongFn1
+  public static long apply(long s) {
+                     ^
+  overriding method is static
+2 errors
+[info] - opaque type — equality uses underlying representation
+/GenJit_apply_1869076200.java:6: error: method apply(long) is already defined in class GenJit_apply_1869076200
+  public long apply(long s) { return apply(s); }
+              ^
+/GenJit_apply_1869076200.java:2: error: apply(long) in GenJit_apply_1869076200 cannot implement apply(long) in LongFn1
+  public static long apply(long s) {
+                     ^
+  overriding method is static
+2 errors
+[info] - opaque type — unapply companion method is callable
+[info] - opaque type — auto-generated companion apply works
+[info] - opaque type — raw String literal assigned to opaque type is a type error
+[info] - opaque type — companion-constructed value passes type check
+/GenJit_apply_135510532.java:6: error: method apply(long) is already defined in class GenJit_apply_135510532
+  public long apply(long s) { return apply(s); }
+              ^
+/GenJit_apply_135510532.java:2: error: apply(long) in GenJit_apply_135510532 cannot implement apply(long) in LongFn1
+  public static long apply(long s) {
+                     ^
+  overriding method is static
+2 errors
+/GenJit_apply_1374497193.java:6: error: method apply(long) is already defined in class GenJit_apply_1374497193
+  public long apply(long s) { return apply(s); }
+              ^
+/GenJit_apply_1374497193.java:2: error: apply(long) in GenJit_apply_1374497193 cannot implement apply(long) in LongFn1
+  public static long apply(long s) {
+                     ^
+  overriding method is static
+2 errors
+[info] - opaque type — multiple distinct opaque types coexist
+[info] MirrorOfJvmConformanceTest:
+[info] - interpreter result is the expected baseline
+[info] - JVM summon[Mirror.Of[T]] matches the interpreter
+[info] SscTestRunnerTest:
+[info] - injectGlobal makes a value visible to user code
+[info] - injected test thunk returning true evaluates to BoolV(true)
+[info] - injected test thunk returning false evaluates to BoolV(false)
+[info] - multiple tests are collected in order
+[info] - test thunks can reference defs defined in the same module
+[info] - exportedGlobals reflects injected values after run
+[info] QuotedMacroCrossModuleJvmTest:
+[info] - interpreter: cross-module macro call resolves the imported macro
+[info] - JVM: cross-module macro is expanded + stripped (matches interpreter)
+[info] ExtensionMethodTest:
+[info] - Interpreter: no-arg extension methods on User case class
+[info] - Interpreter: multi-method extension block on User
+[info] - Interpreter: extension with additional argument on User
+[info] - Interpreter: primitive extension with two additional arguments
+[info] - Interpreter: no collision between same-named extensions on different case classes
+[info] - Interpreter: non-admin User isAdmin returns false
+[info] - JsGen: extension on User case class registers typed extension
+[info] - JsGen: extension with arg on User emits correct function
+[info] - JsGen: two case classes with same extension name emit distinct functions
+[info] - JsGen: no-arg extension on User case class runs correctly via node
+[info] - JsGen: extension with arg on User runs correctly via node
+[info] - JsGen: no collision between same-named extensions on different case classes via node
+[info] - JvmGen: extension on User case class passes through as Scala 3 extension syntax
+[info] - JvmGen: extension with arg on User passes through correctly
+[info] DslHooksCodegenTest:
+[info] - JvmGen: registered interpolator uses jvmEmit instead of StringContext path
+[info] - JvmGen: registered interpolator with arg uses jvmEmit with arg string
+[info] - JvmGen: unregistered interpolator emits raw Scala syntax
+[info] - JsGen: registered interpolator uses jsEmit instead of _ext_StringContext path
+[info] - JsGen: registered interpolator with arg uses jsEmit with arg string
+[info] - JsGen: unregistered interpolator uses _ext_StringContext fallback
+[info] - InterpolatorRegistry: html is pre-registered with name html
+[info] ForeachVarMutationTest:
+[info] - List.foreach appending to an outer typed-list var propagates
+[info] - List.foreach accumulating into an outer Int var propagates
+[info] - nested foreach mutating the same outer var
+[info] - Set.foreach mutation propagates
+[info] - Map.foreach mutation propagates
+[info] - a var declared inside the lambda stays local (no leak upward)
+[info] - foldLeft accumulation is unchanged (the documented workaround)
+[info] - for-do over a range mutating an enclosing var inside a function
+[info] - for-do over a list mutating an enclosing var inside a function
+[info] - for-do with a guard mutating an enclosing var inside a function
+[info] - nested for-do mutating the same enclosing var inside a function
+[info] SupertypeTypeTestJsTest:
+[info] - case x: <sealed trait> matches a direct case-class subtype (the busi card-header repro)
+[info] - case x: <sealed trait> matches a transitive enum-case subtype
+[info] - case x: <intermediate trait> narrows correctly across a 3-level hierarchy
+[info] - supertype type-test binds the value for use in the body
+[info] EnumTraitCrossModuleTest:
+[info] - type-test by an intermediate trait works across an import boundary (busi seq-124)
+[info] - a concrete trait method dispatches on an imported enum-case instance (busi seq-125)
+[info] ImportModuleVarStateTest:
+[info] - imported module-level var is shared, live, and consistent across import boundaries
+[info] AsyncStackTraceTest:
+[info] - runAsync: exception inside body propagates as original type
+[info] - runAsync: InterpretError inside body propagates as InterpretError
+[info] - runAsync: error inside Async.async propagates to await
+[info] - runAsync: error message is not double-wrapped
+[info] DslInterpolatorTest:
+[info] - Interpreter: user-defined interpolator is called with StringContext + args
+[info] - Interpreter: zero-arg user-defined interpolator (no splices)
+[info] - Interpreter: interpolator accesses parts and args by index
+[info] - JsGen: user-defined interpolator emits _ext_StringContext_prefix(_sc([...]), ...) call
+[info] - JsGen: user-defined interpolator runs correctly via node
+[info] - JsGen: zero-arg interpolator via node
+[info] - JvmGen: user-defined interpolator — passes through as Scala 3 native interpolation
+[info] ConstFoldJvmGenTest:
+[info] - int add: no _binOp for literal operands in JvmGen output
+[info] - int subtract folded in JvmGen output
+[info] - int multiply: no _binOp for literal operands in JvmGen output
+[info] - int comparison folded in JvmGen output
+[info] - bool and folded in JvmGen output
+[info] - bool or folded in JvmGen output
+[info] - string concat: no _binOp for literal strings in JvmGen output
+[info] - if(true) emits then-branch in JvmGen output
+[info] - if(false) emits else-branch in JvmGen output
+[info] - double add folded in JvmGen output
+[info] - no folding when operand is a name
+[info] FetchActionToUrlTest:
+[info] - fetchActionTo resolves its URL signal at click (reflects typed selection)
+[info] DirectSyntaxCodegenTest:
+[info] - JvmGen: direct[Option] simple bind emits flatMap
+[info] - JvmGen: direct[Option] emits nested flatMap chain
+[info] - JvmGen: val _ = expr emits flatMap for bind-and-discard
+[info] - JvmGen: var inside direct emits mutable var + flatMap
+[info] - JsGen: direct[Option] — monadic bind with Some
+[info] - JsGen: direct[Option] — short-circuits on None
+[info] - JsGen: direct[List] — Cartesian product
+[info] - JsGen: val binding inside direct block is pure (no bind)
+[info] - JsGen: val _ = expr performs bind-and-discard
+[info] - JsGen: var inside direct block is mutable
+[info] - JsGen: nested direct blocks are independent
+[info] NumericJsConformanceTest:
+[info] - BigInt: construction, arithmetic, mixing with Int
+[info] - BigInt comparisons and methods
+[info] - Decimal: exact arithmetic, no binary-float error
+[info] - Decimal: value equality ignores scale; comparisons
+[info] - Decimal: setScale and divide across all rounding modes
+[info] - Decimal: scale/precision/abs/toBigInt; conversions
+[info] JsGenFsRuntimeTest:
+[info] - preamble defines readFile
+[info] - preamble defines writeFile
+[info] - preamble defines exists
+[info] - preamble defines listDir
+[info] - preamble defines copyFile
+[info] - preamble defines deleteFile
+[info] - preamble defines mkdirs
+[info] - preamble defines env
+[info] - preamble defines envOrElse
+[info] - preamble defines pathJoin
+[info] - preamble defines pathDirname
+[info] - preamble defines pathBasename
+[info] - preamble defines platform
+[info] - preamble defines hostname
+[info] - preamble defines homedir
+[info] - preamble defines exec
+[info] - preamble loads node:fs via require
+[info] - preamble loads node:path via require
+[info] - preamble loads node:os via require
+[info] - preamble owns exactly one top-level node crypto binding
+[info] - preamble has FsNotSupported throw for browser
+[info] - preamble has ProcessNotSupported throw for browser
+[info] JsGlueJsFfi4Test:
+[info] - JsGen.generateRuntime: no glue preamble by default
+[info] - JsGen.generateRuntime: registered glue preamble appears before runtime helpers
+[info] - JsGen.generateRuntime: multiple glue preambles all included
+[info] - JsGen.generateRuntime: glue preamble present with newline termination
+[info] JsRuntimeMcpBrowserTest:
+[info] - preamble defines the user-facing client surface
+[info] - preamble has no Node-only API references
+[info] - preamble uses synchronous XHR for the request/response transport
+[info] - mcpServer / serveMcp raise actionable not-supported errors
+[info] - mcpConnect rejects non-Http transports with a clear message
+[info] - handshake — preamble sends initialize before returning
+[info] - async variant — mcpConnectAsync uses fetch + returns Promise-based client
+[info] - async variant — every client method is async
+[info] - async variant — supports request abort via AbortController on timeout
+[info] - async variant — sync and async share the wire-shape adapters
+[info] - onNotification: both variants subscribe via EventSource to <url>/events
+[info] - onNotification: skips when EventSource is undefined (non-browser host)
+[info] - onNotification: close cleans up the active EventSource
+[info] MoneyStdTest:
+[info] - construction + formatting normalises to currency scale
+[info] - plus / minus within a currency
+[info] - minorUnits gives the integer cent count
+[info] - times scales and rounds to currency scale
+[info] - allocate preserves cents: $0.05 three ways → 2,2,1
+[info] - allocate by uneven weights still sums to the total
+[info] - distribute n equal shares
+[info] EffectVmContinuationsTest:
+[info] - JIT bridge path: one-shot tail-resume accumulation (long loop)
+[info] - JIT bridge path: resume value is a constant other than 1
+[info] - SAME effect, DEEP handler in a loop: bridge bails, deep accumulation correct
+[info] - op with an arg, one-shot tail-resume (resolver binds the op-arg)
+[info] - two-arg effect op + arithmetic resume expr (P2b: resolveEffectLong2)
+[info] - multi-shot effect in a loop is unaffected (no resolver)
+[info] - p3: multi-shot over a cached const list literal yields all 256 paths
+[info] - p3b: deep interleaved multi-shot (5×5) yields all 3125 paths, exact score sum
+[info] - p2c: subtraction + nested arith resume expr (compiled path)
+[info] - p2c: long compiled-arith loop computes the exact sum (not folded)
+[info] - p2c: unary-minus resume expr (compiled path)
+[info] - p2c: division resume expr falls back to interp.eval (still correct)
+[info] - p2c: zero-arg constant resume compiles (effectOneShot shape)
+[info] OpenApiRuntimeTest:
+[info] - empty registry produces valid OpenAPI 3.1 document with no paths
+[info] - single GET route appears under its path
+[info] - :param segments are converted to {param} OpenAPI notation
+[info] - internal routes (/_*) are excluded from the document
+[info] - multiple methods for same path are grouped under one path item
+[info] - paths are sorted alphabetically
+[info] - typed GET handler: non-path typed params become query parameters
+[info] - typed POST handler: non-path params become requestBody properties
+[info] - path params are not duplicated as query params
+[info] - type map: Double→number, Boolean→boolean, unknown→object
+[info] - route metadata appears in generated OpenAPI operation
+[info] - security schemes are emitted with per-route security requirements
+[info] - registerOpenApiDefaults registers GET /_openapi.json
+[info] - registerOpenApiDefaults registers GET /_swagger
+[info] - registerOpenApiDefaults is idempotent — calling twice does not duplicate routes
+[info] - /_openapi.json handler returns 200 with application/json Content-Type
+[info] - /_swagger handler returns 200 with text/html Content-Type and Swagger UI markup
+[info] - /_openapi.json body is valid JSON containing registered user routes
+[info] - generateOpenApiJson with schemaComponents emits components.schemas
+[info] - responseType referencing a registered schema emits $ref in generated doc
+[info] - generateOpenApiYaml with schemaComponents emits components.schemas section
+[info] - deriveSchemaComponents builds ObjNode from a case class referenced by a route
+[info] - Option fields are nullable and not required
+[info] - nested type references are derived recursively
+[info] - an enum with only parameterless cases derives a string EnumNode
+[info] - a sum type with payload cases derives a OneOfNode of refs
+[info] - manually-registered schema takes precedence over a derived one
+[info] - derived schemas surface in the live /_openapi.json document
+[info] SpaComputedBodyBridgeTest:
+[info] - a computedSignal fetchAction body reflects typed input (computed→_sv bridge)
+[info] PolyClosedFormTest:
+[info] - multiVal: quadratic inline polynomial (i-500)^2 + 2*(i-500)
+[info] - linear inline: acc = acc + 3*i + 1
+[info] - constant inline: acc = acc + 7
+[info] - pure quadratic no offset: acc = acc + i*i
+[info] - step-2 quadratic: counter increments by 2
+[info] - negative offset: acc = acc + (i - 250)*(i - 250)
+[info] - non-zero start: counter starts mid-range
+[info] TupleScalarReplaceTest:
+[info] - tuple-monoid concat ++ accumulation (JIT path), full scale
+[info] - plain 2-tuple, accessed by _1/_2 (no ++)
+[info] - nested ++ (three pairs → 6-tuple)
+[info] - accessors out of source order
+[info] - SOUNDNESS: t used non-_K (passed whole) stays correct (no scalar-replace)
+[info] - SOUNDNESS: single-arg ++ with a tuple-valued var stays correct
+[info] - result tuple still materialisable when bound and returned
+[info] - SOUNDNESS: tuple var reassigned before use (i += 1 between val and use)
+[info] - SOUNDNESS: scalar val var reassigned before use
+[info] - scalar val intermediate, used twice (JIT path)
+[info] - scalar val used once (JIT path)
+[info] - SOUNDNESS: val with a function call is NOT inlined (stays correct)
+[info] - match intermediate on an Int scrutinee
+[info] - match intermediate destructuring a constant case class
+[info] - SOUNDNESS: match scrutinee var reassigned before use
+[info] - conditional intermediate: val x = if … then … else …
+[info] - conditional intermediate with && condition
+[info] - SOUNDNESS: if-cond var reassigned before use stays correct
+[info] - multiple independent leading vals
+[info] - chained leading vals (b references a)
+[info] - multiple vals mixing tuple + scalar
+[info] - destructuring val (a, b) = tuple
+[info] - val with a pure numeric conversion (.toLong) is inlinable
+[info] - SOUNDNESS multi: second val's var reassigned before its use
+[info] TransitiveImportHelperTest:
+[info] - exported fn → internal helper → transitively-imported std name
+[info] - multi-level chain: exported → helper1 → helper2 → imported name
+[info] - imported module exports identifiers ending in underscore
+[info] - imported module remains exportable with foldLeft brace lambda
+[info] - transitive child context does not replace a same-named user NativeFnV with a parent plugin native
+[info] JvmLazyListFusionTest:
+[info] - map+take+sum pipeline is fused into a while loop (no LazyList)
+[info] - take+sum (no map) pipeline is fused
+[info] - a trailing .toLong stays applied to the fused block
+[info] - unbounded LazyList (no take) is NOT fused — left verbatim
+[info] - non-LazyList code is untouched (guard early-returns)
+[info] RestartableTest:
+[info] - Restart.resume — handler resumes body with a replacement value
+[info] - Restart.resume — body continues after resume and returns computed value
+[info] - Restart.useDefault — body continues after the throw expression
+[info] - Restart.useDefault — resumed throw expression evaluates to unit
+[info] - Restart.rethrow — exception propagates out of restartable
+[info] - Restart.rethrow — can be caught by an outer try/catch
+[info] - No matching handler case — exception propagates
+[info] - No matching handler case — caught by outer try/catch
+[info] - Multiple throws — each is handled independently, result is correct
+[info] - Multiple throws — handler invoked for each throw
+[info] - Handler can inspect the error value
+[info] - Nested restartable — inner handler matches first
+[info] - Nested restartable — unmatched inner throw reaches outer handler
+[info] - Body returns normally — handler not invoked
+[info] - Restart.resume value is inspectable
+[info] - Restart.useDefault value is inspectable
+[info] - Restart.rethrow value is inspectable
+[info] I18nSsrTest:
+[info] - i18n: t(key) returns key when no translations loaded
+[info] - i18n: t(key) resolves default locale 'en' from front-matter
+[info] - i18n: t(key) falls back to key for unknown key
+[info] - i18n: setLocale switches active locale
+[info] - i18n: setLocale back to en
+[info] - i18n: multiple keys in same locale
+[info] - SSR: wc renders declarative shadow DOM markup
+[info] - SSR: wc with InstanceV returns shadow DOM wrapper
+[info] - JsGen: i18n preamble is always emitted
+[info] - JsGen: _i18nTable initialized from front-matter translations
+[info] - JsGen: no _i18nTable assignment when translations empty
+[info] - JsGen: wc preamble uses declarative shadow DOM
+[info] - JvmGen: i18n helpers are emitted in preamble
+[info] - JvmGen: _i18nTable injected from front-matter translations
+[info] - JvmGen: no _i18nTable assignment when translations empty
+[info] - JvmGen: wc uses declarative shadow DOM markup
+[info] - emit-wc: JsRuntime wc() wraps output in declarative shadow DOM
+[info] - emit-wc: JsRuntime wc() includes component css and render
+[info] JsRuntimeResourceTest:
+[info] - JsRuntimeOptics is the verbatim optics.mjs resource
+[info] - the loaded fragment preserves the leading + trailing newline JsGen relies on
+[info] - the loader caches — repeat load returns the same instance
+[info] - a missing resource fails loudly
+[info] - Node syntax-checks the raw optics.mjs resource (assume node)
+[info] CoroutineCancellationTest:
+[info] - coroutineCancel — cancel before first resume makes further resumes fail
+[info] - coroutineCancel — cancel mid-flight: body does not advance past last suspend
+[info] - coroutineCancel — cancel already-finished coroutine is a no-op
+[info] - coroutineCancel — cancelled coroutine handle is invalidated for further resumes
+[info] FusedFoldLeftTest:
+[info] - List.foldLeft(z)(g) — fast path (FunV combine)
+[info] - List.foldLeft with a named def combine
+[info] - foldLeft fallback — Range receiver
+[info] - foldLeft fallback — Set / String-accumulator combine
+[info] - typeclass fold (the hof-glue workload) still correct
+[info] - foldLeft producing a List accumulator (non-numeric)
+[info] WireOptionTest:
+[info] - Option (Some/None), Char, and null round-trip
+[info] - case class with Option fields round-trips (the busi Account shape)
+[info] - list of records with Option fields (event-log shape)
+[info] UsingAutoResolveTest:
+[info] - using — single concrete given resolved automatically
+[info] - using — explicit given still works
+[info] - using — type variable inferred from List element
+[info] - summon — retrieves given by type
+[info] - context bound — [A: Show] desugars to using Show[A]
+[info] CustomDerivesMirrorCrossBackendTest:
+[info] - interpreter result is the expected baseline
+[info] - JVM matches the interpreter
+[info] - JS matches the interpreter
+[info] JvmGenSqlRuntimeTest:
+[info] - scala-cli compiles + runs JvmGen-emitted SQL block against H2
+[info] - scala-cli compiles + runs typed Db.query overload through RowCodec
+[info] - scala-cli compiles + runs typed Db.insert and Db.update through RowCodec
+[info] - scala-cli runs DDL + UPDATE returning affected-row count
+[info] FreeMonadTest:
+[info] - freePure — foldMapList returns singleton
+[info] - freePure — foldMapOption returns Some
+[info] - freeLiftF — nt is applied once
+[info] - freeMap on pure — transforms value
+[info] - freeMap on lifted — nt result is transformed
+[info] - freeFlatMap — result of first effect feeds second
+[info] - freeFlatMap — non-deterministic branch (Choice)
+[info] - sequential program — three effects, side-effecting nt
+[info] - sequential program — freeFoldMapOption success chain
+[info] - freeFoldMapOption — short-circuits on None
+[info] - freeFoldMapOption — None in middle stops chain
+[info] - left identity — freeFlatMap(freePure(a), f) = f(a)
+[info] - right identity — freeFlatMap(prog, freePure) = prog
+[info] - same program, two interpreters — program as data
+[info] - stack safety — 1000 freeFlatMap reductions do not overflow
+[info] DslTest:
+[info] - dsl/ast: Span constructs and merges
+[info] - dsl/ast: Span.empty sentinel
+[info] - dsl/ast: Node wraps value with span
+[info] - dsl/pretty: text renders literal
+[info] - dsl/pretty: beside concatenates
+[info] - dsl/pretty: above puts on separate lines
+[info] - dsl/pretty: indent shifts inner doc
+[info] - dsl/pretty: line inserts newline at current col
+[info] - dsl/pretty: empty renders to empty string
+[info] - dsl/builders: build with name and value
+[info] - dsl/builders: withTag accumulates
+[info] - dsl: Calc AST round-trip parse → pretty → parse
+[info] JvmGenBackendBlockTest:
+[info] - scala block: source included in generated code
+[info] - scala block: extern def declaration is included alongside implementation
+[info] - module without backend blocks: no //> using sources emitted
+[info] - no-arg mkString rewrite emits Scala parameterless call
+[info] - java block: //> using sources directive is emitted
+[info] - java block: directive references deterministic filename
+[info] - multiple java blocks: one directive per block with sequential names
+[info] - java block: directive appears before user code
+[info] JsLibPackagerTest:
+[info] - npm package has exactly the three standard files
+[info] - package.json exposes a stable ESM + types surface
+[info] - index.mjs bundles the optics runtime + its Option/Map prelude and re-exports public names
+[info] - optics.d.ts matches the frozen public API signature (golden)
+[info] - Node smoke: the generated package's four optics work via real ESM import
+[info] IntrinsicShadowTest:
+[warn] 'rateLimit' shadows plugin intrinsic 'rateLimit' — user definition wins
+[info] - user top-level def wins over plugin intrinsic of the same name (native installed first)
+[warn] 'rateLimit' shadows plugin intrinsic 'rateLimit' — user definition wins
+[info] - user def wins when plugins load AFTER the user def (lazy-load ordering)
+[info] - intrinsic resolves normally and no warning when the user does not redefine it
+[info] - a local def named like an intrinsic does not warn and does not shadow the global intrinsic
+[info] EffectOneShotFastPathTest:
+[info] - bare tail-resume (fast path): accumulate over a perform loop
+[info] - tail-resume with op-arg binding (fast path): resume(x) uses the bound arg
+[info] - non-tail resume (general path): msg :: resume(()) deep accumulation
+[info] - guarded arm (general path): guard still selects correctly
+[info] - resume(()) on a Unit effect (fast path): loop of side-effecting performs
+[info] JitFoldLeftTest:
+[info] - sum
+[info] - product
+[info] - subtract (order-sensitive)
+[info] - count — element ignored
+[info] - max via if-expression
+[info] - accumulator read twice (no clobber)
+[info] - constant + arithmetic in body
+[info] - empty list — returns the seed
+[info] - single element
+[info] - negative seed + mixed
+[info] - foldLeft then trailing arithmetic (whole fn compiles)
+[info] - code before AND after the fold
+[info] - fold result feeds an if
+[info] - two folds in one function
+[info] - the whole surrounding function actually compiles (the real win)
+[info] - the foldLeft-JIT path is actually exercised (diffs above are not vacuous)
+[info] - flag OFF leaves the receiver/body untouched (no compile)
+[info] MutualTcoCrossBackendTest:
+[info] - interpreter result is the expected baseline
+[info] - JVM merged mutual-TCO matches the interpreter
+[info] FetchUrlSignalOfflineTest:
+[info] - managed GET retains last-good data and recovers without unhandled rejection
+[info] QuotedMacroCrossModuleJsTest:
+[info] - interpreter: cross-module macro call resolves the imported macro
+[info] - JS: cross-module macro is expanded + stripped (matches interpreter)
+[info] StatusValEventCaseCollisionTest:
+[info] - expression bare-ref with expected type matching the val resolves to the val
+[info] - expression-call with args resolves to the case-constructor (unchanged behaviour)
+[info] - expression bare-ref with expected type matching the case-constructor return resolves to it
+[info] - pattern position resolves to case-constructor (unchanged behaviour)
+[info] - no collision: standalone val without competing case-constructor still works
+[info] - no collision: standalone case-constructor without competing val still works
+[info] - cross-module: typed val ascription disambiguates back to imported status-val
+[info] - A-half: bare `val x = Foo` with no ascription on a collision is an error
+[info] - A-half: a non-colliding bare `val x = Foo` is unaffected
+[info] InterpreterTest:
+[info] - integer arithmetic
+[info] - double arithmetic
+[info] - boolean operators
+[info] - unary operators
+[info] - comparison operators
+[info] - string comparison operators are lexicographic
+[info] - string interpolation
+[info] - string methods
+[info] - if/else
+[info] - def and call
+[info] - def with three params
+[info] - recursive function
+[info] - recursive function with multi-stat block body (JIT A.5)
+[info] - while loop with ref-arg match in LRefExpr position (LRefMatch)
+[info] - while loop with f(g(item)) ref-arg chain via LApplyR1ToRef
+[info] - nested functions and closures
+[info] - list construction and map
+[info] - list filter and sum
+[info] - list foldLeft
+[info] - list with underscore lambda
+[info] - list mkString
+[info] - map construction and access
+[info] - map size
+[info] - option some/none
+[info] - basic pattern match
+[info] - pattern match with guard
+[info] - case class construction and field access
+[info] - case class missing required field raises error
+[info] - case class pattern matching
+[info] - nested Some pattern in case class
+[info] - enum simple cases
+[info] - enum with parameters
+[info] - object members
+[info] - hello world via main
+[info] - given instance — summon and call
+[info] - summon retrieves a given instance
+[info] - given instance with multiple methods
+[info] - named given — direct access by name
+[info] - extension method on String
+[info] - extension method with argument
+[info] - extension method on List
+[info] - built-in members take precedence over same-named extensions
+[info] - multiple extension methods in one block
+[info] - for-yield simple
+[info] - for-yield with guard
+[info] - for-yield nested generators
+[info] - for-do foreach
+[info] - val tuple destructuring
+[info] - val tuple destructuring in for
+[info] - tuple ++ concatenation
+[info] - tuple ++ left identity: () ++ t = t
+[info] - tuple ++ right identity: t ++ () = t
+[info] - tuple ++ associativity
+[info] - tuple ++ bare value appends element
+[info] - bare value ++ tuple prepends element
+[info] - bare ++ bare creates 2-tuple
+[info] - () ++ bare = bare (identity law with bare)
+[info] - bare ++ () = bare (identity law with bare)
+[info] - while loop
+[info] - top-level while observes global mutation from called function
+[info] - while loop direct assignments preserve statement order
+[info] - string split
+[info] - string replace
+[info] - string take and drop
+[info] - string startsWith and endsWith
+[info] - string trim
+[info] - string char higher-order methods
+[info] - string toList and zipWithIndex
+[info] - list zip
+[info] - list zipWithIndex
+[info] - list indices
+[info] - list find
+[info] - list count
+[info] - list exists and forall
+[info] - list flatten
+[info] - list foldRight
+[info] - list aggregators scanLeft reduceLeft partition and groupBy
+[info] - list distinct
+[info] - list headOption and lastOption
+[info] - Int Long Double constructors from String
+[info] - Int constructor from numeric types
+[info] - asInstanceOf is a no-op at runtime
+[info] - list extra one-arg collection methods
+[info] - map updated and removed
+[info] - map keys and values
+[info] - map contains
+[info] - map higher-order single-arg methods
+[info] - option map and flatMap
+[info] - option orElse
+[info] - int to and until ranges
+[info] - int max and min
+[info] - int and double abs
+[info] - int toDouble and double toInt
+[info] - String numeric parses: toInt / toLong / toDouble
+[info] - new class instantiation
+[info] - explicit return from function
+[info] - parser strips shebang line
+[info] - parser handles pure scala without markdown
+[info] - md interpolator strips indentation
+[info] - md interpolator trims leading and trailing blank lines
+[info] - auto-output prints last non-unit expression
+[info] - auto-output prints string expression
+[info] - auto-output skips unit result
+[info] - auto-output skips last def binding
+[info] - doc assembles parts with newlines
+[info] - doc nested inside doc
+[info] - partial function in map
+[info] - self-TCO — sum with accumulator, depth 100 000
+[info] - self-TCO — countdown, depth 100 000
+[info] - self-TCO — reverse list with accumulator
+[info] - self-TCO — non-tail-recursive factorial still works
+[info] - mutual-TCO — isEven / isOdd, depth 100 000
+[info] - mutual-TCO — three-way ping-pong
+[info] - mutual-TCO — accumulator-style even sum / odd sum
+[info] - effects — Console one-shot routing
+[info] - effects — Choose multi-shot nondeterminism
+[info] - effects — Fail early return
+[info] - effects — collect output into list
+[info] - effects — stack-safe bind chains (trampolined Free)
+[info] - def — all defaults, called with no args
+[info] - def — default references a previous parameter
+[info] - def — default uses outer val from closure
+[info] - case class — default field values
+[info] - class with default ctor params and method
+[info] - class method default parameter
+[info] - class method with one argument
+[info] - class method with three arguments
+[info] - enum case — default parameters
+[info] - enum case missing required field raises error
+[info] - recursive function with default seed
+[info] - missing required argument raises error
+[info] - type ascription — bare expression
+[info] - type ascription — inside larger expression
+[info] - type ascription — None / Nil disambiguation
+[info] - html block: } inside string literal does not prematurely close ${}
+[info] - html block: conditional with } in string does not prematurely close ${}
+[info] - html block: balanced braces still work after string-aware fix
+[info] - html block: nested block expression braces still work
+[info] - javascript block: bound to <section>.javascript as raw String
+[info] - js alias: bound to <section>.js as raw String
+[info] - javascript block: angle brackets are not html-escaped
+[info] - map.getOrElse with fn-call default in match arm returns map value
+[info] PackageKeywordTest:
+[info] - package: wraps module symbols under nested objects
+[info] - import from single-segment packaged module
+[info] - import with `as` alias from packaged module
+[info] - collision-free: two modules export the same short name
+[info] - multi-segment package path (org.example.ui)
+[info] - module without package: still imports by short name
+[info] - unknown name in packaged module throws InterpretError
+[info] JsGenBackendBlockTest:
+[info] - javascript block: function definition emitted verbatim into JS bundle
+[info] - javascript block: emitted before or alongside ScalaScript user code
+[info] - javascript block: multiple blocks all emitted
+[info] - javascript block: source preserved verbatim without interpolation
+[info] - module without javascript blocks: no javascript block comment emitted
+[info] - html block: still creates template value (not verbatim)
+[info] JvmGenTypedDataRuntimeTest:
+[info] - JVM codegen adds typed-data runtime jar when user code imports typeddata
+[info] - JVM codegen adds wire-core jar when user code imports wire runtime
+[info] AsyncTest:
+[info] - runAsync: sequential await
+[info] - runAsync: parallel keeps declared order
+[info] - runAsync: delay is honoured
+[info] - runAsync: async + await + arithmetic
+[info] - runAsync: nested runAsync
+[info] - runAsync: map with effectful callback
+[info] - runAsync: filter with effectful predicate
+[info] - runAsync: foldLeft with effectful accumulator
+[info] - runAsyncParallel: parallel keeps declared order
+[info] - runAsyncParallel: sequential await
+[info] - runAsyncParallel: delay is honoured
+[info] ParsingCombinatorsTest:
+[info] - combinators: PChar matches single character
+[info] - combinators: PChar fails on wrong character
+[info] - combinators: PString matches literal
+[info] - combinators: PRegex matches prefix
+[info] - combinators: PSatisfy matches on predicate
+[info] - combinators: PSequence node is built by ~
+[info] - combinators: PChoice node is built by |
+[info] - combinators: PMapped node is built by map
+[info] - combinators: PMany node is built by many
+[info] - combinators: PMany node is built by many1
+[info] - combinators: POpt node is built by opt
+[info] - combinators: PNamed node is built by named
+[info] - combinators: ~ sequences two parsers
+[info] - combinators: | picks first match
+[info] - combinators: | falls back to second on failure
+[info] - combinators: map transforms the result
+[info] - combinators: ~> keeps right side
+[info] - combinators: <~ keeps left side
+[info] - combinators: many collects zero matches
+[info] - combinators: many collects multiple matches
+[info] - combinators: many1 fails on zero matches
+[info] - combinators: opt returns Some on match
+[info] - combinators: opt returns None on no match
+[info] - combinators: named augments error message
+[info] - combinators: flatMap chains parsers
+[info] - combinators: calculator parses 1 + 2 * 3 = 7.0
+[info] - combinators: calculator parses 10 * 2 + 5 = 25.0
+[info] JsCollectionPerfTest:
+[info] - seq(idx) on a numeric-element Vector lowers to direct v[idx] (no _call)
+[info] - local Array(...) is tracked: a(i) read direct + a(i)=x store direct
+[info] - .toInt/.toLong on a numeric receiver lower to Math.trunc (no _dispatch)
+[info] - seq(idx).toLong makes surrounding arithmetic native (no _arith / _dispatch)
+[info] - .toInt on a String receiver still routes through the runtime (not Math.trunc)
+[info] - LazyList.from(s).map(f).take(n).sum is fused into a native loop (no _lz/_dispatch chain)
+[info] - unbounded LazyList (no take) is NOT fused
+[info] JitClasspathTest:
+[info] - jitClasspathOptions harvests the classpath and resolves runtime classes
+[info] JvmGenTypeLambdaTest:
+[info] - top-level placeholder alias emits the desugared `=>>` lambda
+[info] - placeholder alias nested in an `object` emits the desugared `=>>` lambda
+[info] CollectionRealTypeTest:
+[info] - Vector renders as Vector and map preserves the type
+[info] - IndexedSeq renders as Vector (its default impl)
+[info] - Seq / Iterable render as List (Scala's default Seq IS List)
+[info] - Vector == List is true (structural Seq equality, as in Scala)
+[info] - toVector converts a List to Vector display; original List unchanged
+[info] - Vector indexed access returns the right element
+[info] - Vector.updated returns a new Vector; original unchanged
+[info] - Vector.map / filter stay Vector
+[info] - Vector.fill / tabulate are Vectors
+[info] - Vector head/last/length and toList round-trip
+[info] - List.toVector then index is the real Vector
+[info] - for-comprehension over a Vector iterates correctly
+[info] - Array index update mutates in place
+[info] - Array.update method mutates in place
+[info] - Array has reference identity: distinct arrays are not ==
+[info] - Array equals itself by reference
+[info] - Array.map returns a (mutable) Array; mkString reads it
+[info] - Array.fill / Array.tabulate
+[info] - Array.toList / sameElements
+[info] - LazyList.from infinite source, only the demanded prefix forced
+[info] - LazyList.toString shows <not computed> until forced (JVM parity)
+[info] - LazyList.iterate is lazy/infinite
+[info] - LazyList.continually is lazy/infinite
+[info] - LazyList filter + take on an infinite source
+[info] - self-recursive #:: stream definition yields an infinite LazyList
+[info] - LazyList.range / toVector
+[info] EnumValueTest:
+[info] - comma-separated nullary cases bind (the reported gap)
+[info] - qualified access EnumName.Case
+[info] - one-case-per-line nullary cases
+[info] - EnumName.values lists the parameterless cases in order
+[info] - parametrized enum cases still work as constructors
+[info] - enum used as a domain element with derived logic (busi-style)
+[info] ProcTestUtilTest:
+[info] - runCaptured captures stdout and exit 0
+[info] - runCaptured surfaces a non-zero exit + stderr
+[info] - runCaptured force-kills a hung child within the deadline (the firsthand fix)
+[info] - runCaptured does not deadlock on a child that floods stderr
+[info] JsGenWsTest:
+[info] - echo round-trip — JsGen runtime via node
+[info] FfiPhase2Test:
+[info] - @interpreterUnsupported: calling extern def throws InterpretError
+[info] - @interpreterUnsupported: default error message includes def name
+[info] - @interpreterUnsupported(msg): custom error message is used verbatim
+[info] - @interpreterUnsupported: error is thrown at call site, not at definition
+[info] - @interpreterUnsupported: combined with @jvm — still throws from interpreter
+[info] - cross-backend parity: @jvm+@js def produces non-empty JVM method
+[info] - cross-backend parity: @jvm+@js def produces non-empty JS function
+[info] - cross-backend parity: $0 substitution works identically on both backends
+[info] - cross-backend parity: multi-arg $0 $1 substitution on both backends
+[info] AsyncCodegenTest:
+[info] - JvmGen: _runAsync uses coroutine scheduler in generated code
+[info] - JvmGen: Async methods check _coHandleTL in generated code
+[info] - JvmGen: _driveAsyncCo scheduler is present in generated code
+[info] - JvmGen: runAsync sequential await
+[info] - JvmGen: runAsync parallel keeps declared order
+[info] - JvmGen: runAsync delay
+[info] - JsGen: runAsync sequential await
+[info] - JsGen: runAsync parallel keeps declared order
+[info] - JsGen: runAsync delay
+[info] - JsGen: runAsync effectful map callback
+[info] JsGenSqlBlockTest:
+[info] - module without sql blocks emits no SQL runtime preamble
+[info] - sql block triggers sql-runtime.mjs inlined preamble
+[info] - sql block wraps user body in async IIFE
+[info] - module with sql but no front-matter databases → empty registry init
+[info] - front-matter databases entries land in the registry
+[info] - databases entries preserve ${env:NAME} markers verbatim
+[info] - sql block emits `const _sqlBlock_0 = await SqlRuntimeJs.execute(...)`
+[info] - sql block with ${expr} interpolations becomes ?-template + bind list
+[info] - sequential sql blocks get sequential `_sqlBlock_<N>` numbering
+[info] - first sql block in a section binds `<sectionId>.sql`; second does not redefine
+[info] - `@db=name` attribute threads through to _ssc_sql_resolve
+[info] - absent @db= falls back to undefined → resolver default
+[info] - @side=server sql block is skipped in JS output
+[info] - @side=server block does not trigger sql preamble in JS output
+[info] - @side=client sql block emits normally in JS target
+[info] - mixed @side=server + @side=client: only client block is emitted in JS
+[info] DepEffectfulnessFixpointTest:
+[info] - seed: def calling Random.uuid is effectful
+[info] - seed: def calling Uuid.v7() is effectful
+[info] - seed: def calling Uuid.v4() is effectful
+[info] - seed: def calling Uuid.v7Monotonic() is effectful
+[info] - seed: def calling Uuid.rawV7() is NOT effectful
+[info] - seed: def calling self() is effectful
+[info] - seed: pure def is not effectful
+[info] - transitive: pingPair -> ping (1 hop)
+[info] - transitive: 3-hop chain f -> g -> h -> primitive
+[info] - siblings: marked + unmarked coexist
+[info] - conditional effect: if-arm contains primitive — marked
+[info] - nested def: outer pure, inner effectful — both marked (over-approximation)
+[info] - nested def: outer calls inner — both marked transitively
+[info] - mutual recursion: both reach a primitive — both marked
+[info] - mutual recursion: neither reaches a primitive — neither marked
+[info] - call to non-dep external function — not effectful
+[info] - def inside object — collected and analysed (simple-name keying)
+[info] - qualified call to effectful dep method marks wrapper
+[info] - generic qualified call to effectful dep method marks wrapper
+[info] - fixpoint converges in one extra iteration for typical chains
+[info] GivenUsingTest:
+[info] - nested given chain — simple two-level resolution
+[info] - nested given chain — explicit using at call site uses nested given
+[info] - nested given chain — three levels deep
+[info] - nested given chain — two levels with concrete instantiation
+[info] - ambiguous givens — two concrete given instances for same type produce error
+[info] - explicit using at call site — passes the named given
+[info] - explicit using at call site — works with parametric given
+[info] - using in higher-order function context — combineAll
+[info] - using resolution in nested higher-order call
+[info] - using in fold — explicit given passed to accumulate minimum
+[warn] 'render' shadows plugin intrinsic 'render' — user definition wins
+[info] - given auto-resolution works with context bound syntax
+[info] JsTreeShakeTest:
+[info] - unused def helper is absent from shaken JS output
+[info] - helper called by @main is kept in shaken JS output
+[info] - transitive reachability: main->foo->bar kept, baz pruned
+[info] - export-listed def is kept even when main does not call it
+[info] - top-level statement that references a val keeps that val
+[info] - --no-tree-shake keeps all symbols including unused ones
+[info] - --stats: generateWithStats returns TreeShakeStats with summary
+[info] - recursive function reachable from main does not cause infinite loop
+[info] - mutually recursive functions: both kept if either is reachable from main
+[info] - case class kept when reachable from main; unused class pruned
+[info] - TreeShaker.shake: total and reachable counts are accurate
+[info] - tree-shaking spans multiple scalascript code blocks in one module
+[info] - top-level terms keep the functions they reference
+[info] - TreeShakeStats.summary format matches expected pattern
+[info] - generateWithStats with noTreeShake=true returns None for stats
+[info] - object declaration kept when referenced by main
+[info] - enum reachable via a bare parameterless case reference is kept
+[info] - comma-form parameterless cases (RepeatedEnumCase) keep the enum via bare ref
+[info] QuotedMacroJsConformanceTest:
+[info] - interpreter result is the expected baseline
+[info] - JS quoted-macro output matches the interpreter
+[info] DecimalTest:
+[info] - Decimal from string preserves scale on display
+[info] - Decimal(unscaled, scale)
+[info] - exact addition has no binary-float error (0.1 + 0.2 == 0.3)
+[info] - multiplication keeps full precision
+[info] - value equality ignores scale (1.0 == 1.00)
+[info] - Decimal mixes with Int and BigInt, widening to Decimal
+[info] - comparisons across Decimal / Int
+[info] - setScale with rounding modes
+[info] - divide with scale + rounding mode (non-terminating)
+[info] - Decimal methods: abs, negate, signum, scale, toBigInt, pow
+[info] - mixing Decimal and Double is a deliberate error
+[info] - building Decimal from Double is rejected
+[info] - Int.toDecimal and BigInt.toDecimal
+[info] - Decimal round-trips through the value serializer preserving scale
+[info] Run completed in 1 hour, 26 minutes, 44 seconds.
+[info] Total number of tests run: 1800
+[info] Suites: completed 150, aborted 0
+[info] Tests: succeeded 1799, failed 1, canceled 0, ignored 0, pending 0
+[info] *** 1 TEST FAILED ***
+[error] Failed tests:
+[error] 	scalascript.JsGenStreamsTest
+[error] (backendInterpreter / Test / test) sbt.TestsFailedException: Tests unsuccessful
+[error] Total time: 5218 s (01:26:58), completed Jul 12, 2026, 1:22:30 PM

@@ -469,7 +469,18 @@ Rozum room.
 
 ## js-ssc-ui-jsonvalue-duplicate — two `_ssc_ui_jsonValue` in the assembled JS runtime
 
-**Status:** open (2026-07-12); found by opus while running `backendInterpreter/test`
+**Status:** FIXED (2026-07-12, opus). Root cause: `1ecbc80ca` (2026-07-11 17:53)
+added a 3-arg row-validator `_ssc_ui_jsonValue(value, operation, seen)` to
+`signals.mjs`, coincidentally reusing the name of the canonical 1-arg `jsonValue`
+intrinsic impl `_ssc_ui_jsonValue(s)` in `core-collections.mjs` (from `46571d5f8`,
+17h earlier). Any Signals+json bundle (`Capability.all`) had both top-level defs, so
+`JsGenStreamsTest` "no duplicate top-level function declarations" was RED — and JS
+function-hoisting silently let the 3-arg version win, breaking the `jsonValue`
+intrinsic. Fix: renamed the intruder (the internal 3-arg validator, only ever called
+from within signals.mjs) to `_ssc_ui_rowJsonValue` at all 5 sites, keeping the
+load-bearing `_ssc_ui_jsonValue` name for the extern-bound 1-arg intrinsic. Verified:
+`JsGenStreamsTest` + `JsGenStdImportTest` = 87/87 green.
+_Original report:_ found by opus while running `backendInterpreter/test`
 for an unrelated interp fix (v1-args-native-method-gap). Pre-existing on origin/main,
 independent of that fix (which is Scala-only).
 
