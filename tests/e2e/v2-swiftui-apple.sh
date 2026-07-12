@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 SSC="$ROOT/bin/ssc"
-FIXTURE="$ROOT/examples/swift/appcore-nativeui.ssc"
+FIXTURE="$ROOT/tests/fixtures/swift/busi-pipeline-nativeui-smoke.ssc"
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/ssc-v2-swiftui-apple.XXXXXX")
 MAC_PID=""
 
@@ -90,7 +90,7 @@ MAC_APP="$MAC_TARGET_DIR/$MAC_PRODUCT"
 MAC_INFO="$MAC_APP/Contents/Info.plist"
 test -f "$MAC_INFO"
 [[ $(plutil -extract CFBundlePackageType raw -o - "$MAC_INFO") == APPL ]]
-[[ $(plutil -extract CFBundleIdentifier raw -o - "$MAC_INFO") == com.scalascript.appcore-nativeui ]]
+[[ $(plutil -extract CFBundleIdentifier raw -o - "$MAC_INFO") == com.example.busi-pipeline-smoke ]]
 MAC_EXEC_NAME=$(plutil -extract CFBundleExecutable raw -o - "$MAC_INFO")
 [[ "$MAC_EXEC_NAME" != *Cli ]] || fail "macOS application selected the debug CLI"
 MAC_EXEC="$MAC_APP/Contents/MacOS/$MAC_EXEC_NAME"
@@ -147,7 +147,7 @@ IOS_APP="$IOS_TARGET_DIR/$IOS_PRODUCT"
 IOS_INFO="$IOS_APP/Info.plist"
 test -f "$IOS_INFO"
 [[ $(plutil -extract CFBundlePackageType raw -o - "$IOS_INFO") == APPL ]]
-[[ $(plutil -extract CFBundleIdentifier raw -o - "$IOS_INFO") == com.scalascript.appcore-nativeui ]]
+[[ $(plutil -extract CFBundleIdentifier raw -o - "$IOS_INFO") == com.example.busi-pipeline-smoke ]]
 IOS_EXEC_NAME=$(plutil -extract CFBundleExecutable raw -o - "$IOS_INFO")
 [[ "$IOS_EXEC_NAME" != *Cli ]] || fail "iOS application selected the debug CLI"
 test -f "$IOS_APP/$IOS_EXEC_NAME"
