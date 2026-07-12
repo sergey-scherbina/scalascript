@@ -402,7 +402,11 @@ lazy val v2FrontendBridge = project
   // exercise Graph.putVertex/putEdge, which register via ServiceLoader (PluginBridge.loadAll).
   // Without the plugin on the test classpath those ops stay unperformed (raw Op), so the
   // case produced no StoredEdge. The assembled CLI already bundles it.
-  .dependsOn(v2Core, v2PluginBridge, v2JvmBytecode, core, graphPlugin % Test)
+  // v2NativePluginSpi (compile): NativePluginHost for the `run-ir-native` audit mode.
+  // v2NativeReactivePlugin (Test): puts the reactive NativePlugin on the test classpath so
+  // run-ir-native's ServiceLoader can load it — the accurate native-production plugin mirror.
+  .dependsOn(v2Core, v2PluginBridge, v2JvmBytecode, core, v2NativePluginSpi, graphPlugin % Test,
+    v2NativeReactivePlugin % Test)
   .settings(
     name := "scalascript-v2-frontend-bridge",
     scalacOptions ++= Seq("-deprecation", "-feature"),

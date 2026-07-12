@@ -54,6 +54,21 @@ import ssc.*
       case Value.UnitV => ()
       case other       => println(Show.show(other))
 
+  // Like run-ir, but loads the NATIVE-PRODUCTION plugin set (NativePluginHost /
+  // ServiceLoader classOf[NativePlugin] — reactive/content/json/…) instead of the v1-compat
+  // PluginBridge (Backend + stubs). The two plugin systems are mutually exclusive
+  // (NativePluginHost.loadAll clears the registry + enforces exclusive ownership), so this is
+  // the ACCURATE mirror for native-plugin-dependent tests (signals/content/json): a parity
+  // "failure" under run-ir may just be run-ir using the wrong plugin system. See SPRINT §#1.
+  case "run-ir-native" :: file :: rest =>
+    Runtime.argv = rest
+    _root_.ssc.plugin.NativePluginHost.loadAll()
+    val prog = Reader.parseProgram(scala.io.Source.fromFile(file).mkString)
+    val v = Runtime.run(Compiler.compile(prog), Array.empty[Value])
+    v match
+      case Value.UnitV => ()
+      case other       => println(Show.show(other))
+
   case _ =>
     System.err.println(
       """bridge-cli — v1 .ssc → FrontendBridge → v2 VM
