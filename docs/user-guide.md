@@ -2192,6 +2192,16 @@ databases:
 
 Bundled drivers: **SQLite** (`jdbc:sqlite:`) and **H2** (`jdbc:h2:`).  Any other driver can be added as a `dep:` import or placed on the classpath.
 
+#### SclJet low-level format module
+
+`std/scljet/index.ssc` is an independent pure ScalaScript SQLite-format engine
+under staged development. Its current M2 surface decodes database headers, all
+four B-tree page/cell forms, overflow chunks/chains, record serial types, and
+UTF-8/UTF-16 bytes/code points. It does not replace the JDBC/sql.js `sqlite:`
+provider yet and exposes no query planner or writable connection. See
+`examples/scljet-readonly-codecs.ssc` for the runnable low-level API and
+`specs/scljet.md` for the compatibility gates.
+
 Connection strings support `${scheme:ref}` secret references (see §6.2).
 
 On `ssc run --native` and `ssc run --native --bytecode`, explicit root-module

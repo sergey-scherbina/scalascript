@@ -1,0 +1,67 @@
+#!/usr/bin/env ssc
+---
+name: scljet-readonly-codecs
+description: Decode an official SQLite 3.53.3 database header, table leaf cell, and record without JDBC
+---
+
+# SclJet read-only codecs
+
+This example decodes bytes produced by official SQLite 3.53.3. It uses only
+pure ScalaScript format code: no JDBC, sql.js, filesystem, or native buffer.
+
+[ByteSlice, byteSliceUpdated, SqliteLimits, DatabaseHeader, DecodeFailure, EncodingUtf8, PageContext, TableLeafCell, DecodedRecord, decodeDatabaseHeader, decodeBtreePage, decodeRecord](std/scljet/index.ssc)
+
+```scalascript
+def bytes(values: List[Int]): ByteSlice = ByteSlice.fromList(values) match
+  case Right(value) => value
+  case Left(_) => ByteSlice.empty
+
+def zeros(length: Int): ByteSlice = ByteSlice.zeros(length) match
+  case Right(value) => value
+  case Left(_) => ByteSlice.empty
+
+def putAt(target: ByteSlice, offset: Int, values: List[Int]): ByteSlice = values match
+  case Nil => target
+  case Cons(value, tail) => byteSliceUpdated(target, offset, value) match
+    case Right(next) => putAt(next, offset + 1, tail)
+    case Left(_) => target
+
+def limits(): SqliteLimits = SqliteLimits(
+  1000000L, 100, 100, 100, 100, 10, 1000000L, 100, 100,
+  1000L, 1000000L, 16, 1000L, 100, 1000000L
+)
+
+val headerBytes = bytes(List(
+  83,81,76,105,116,101,32,102,111,114,109,97,116,32,51,0,
+  2,0,1,1,0,64,32,32,0,0,0,2,0,0,0,2,0,0,0,0,0,0,0,0,
+  0,0,0,1,0,0,0,4,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,
+  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+  0,0,0,0,0,0,0,2,0,46,149,203
+))
+
+def showHeader(result: Either[DecodeFailure, DatabaseHeader]): String = result match
+  case Right(header) => "pageSize=" + header.pageSize.toString + ", pages=" + header.headerPageCount.toString
+  case Left(error) => "header error: " + error.location.field
+
+println(showHeader(decodeDatabaseHeader(headerBytes)))
+
+val page0 = putAt(zeros(512), 0, List(13,0,0,0,1,1,245,0,1,245))
+val page = putAt(page0, 501, List(9,1,4,1,17,16,254,72,105,0,255))
+val context = PageContext(512, 512, 2L, limits())
+
+val payload = decodeBtreePage(context, 2L, page) match
+  case Right(decoded) => decoded.cells.head match
+    case TableLeafCell(rowid, value) =>
+      println("rowid=" + rowid.toString + ", payloadBytes=" + value.totalBytes.toString)
+      value.localBytes
+    case _ => ByteSlice.empty
+  case Left(error) =>
+    println("page error: " + error.location.field)
+    ByteSlice.empty
+
+def showRecord(result: Either[DecodeFailure, DecodedRecord]): String = result match
+  case Right(record) => "recordFields=" + record.fields.length.toString + ", headerBytes=" + record.headerBytes.toString
+  case Left(error) => "record error: " + error.location.field
+
+println(showRecord(decodeRecord(payload, EncodingUtf8, 4, limits())))
+```
