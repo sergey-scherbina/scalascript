@@ -1,6 +1,6 @@
 feature/v2-swift-nativeui-i18n-json 2026-07-12T10:15:00Z
 agent: codex
-heartbeat: 2026-07-12T12:49:04Z
+heartbeat: 2026-07-12T13:29:32Z
 status: in-progress
-done-so-far: Branch through 6cfe19bc5 implements standard Swift lower/serve, exact try/toInt/JSON/List/association-map semantics, transactional anonymous derived-signal lifecycle, production Xcode generation, and docs. Focused/full frontend/plugin/CLI and macOS+iOS e2e gates are green; two Rozum reviewers gave final post-code approval. Combined conformance is 27/28; only standard native money-portable-v2 fails, while tools --v2 passes.
-next: Coordinate the active v2.1 native-front owner to land the money arity fix, rebase, rerun final Swift backend and 28-case conformance gates, spec-verify/bookkeep/push, obtain reporter confirmation, then release claim and remove worktree.
+done-so-far: Swift implementation/spec/docs/bookkeeping landed through 98a5f7bec; backend 54/54, CLI 54/54, PluginBridge 33/33, tkv2 12/12, assembled CLI and macOS/iOS e2e pass, and both reviewers approve. The stale clean v2.1 release claim was triaged/released after no live Rozum participant; exact money tuple-map and independent SclJet bridge blockers are recorded.
+next: Rebase the Swift closure worktree, implement faithful regressions/fixes for native _sel_map tuple spreading and the SclJet FrontendBridge receiver/delegation boundary, rerun 28/28 plus full bridge, close BUGS after reporter confirmation, then release claim and remove worktree.
