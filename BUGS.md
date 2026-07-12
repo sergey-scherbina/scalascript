@@ -1,5 +1,25 @@
 # Bug tracker
 
+## v21-native-sql-fence-token-activates-client-code — SQL token parsing widened code fences
+
+**Status:** open (2026-07-12); found by codex in the full SQL-fence release gate
+before push.
+
+- **Real-harness repro:** run
+  `scripts/v21-self-hosted-core-release-gate --skip-install` after native SQL
+  fence lowering. `sql-h2-quickstart.ssc` becomes standard-green, but
+  `derived-route-clients.ssc` newly becomes `both-fail` on VM/ASM with
+  `unbound global: awaitClient`, leaving parity at 51/15 and the taxonomy row
+  unclassified.
+- **Root cause:** `sscFenceSource` reused the new attribute-stripped SQL fence
+  token for ordinary ScalaScript fences. That changed the existing standard
+  JVM side contract by executing `scalascript @side=client`, which is a
+  browser/JS-only block and was previously excluded.
+- **Done-when:** attribute tokenization remains available for `sql @db` and
+  `sql @side`, while ordinary code/YAML fence selection retains its prior exact
+  language-tag behavior. Full parity must advance to 52 identical / 14
+  both-fail with zero mismatch, one-sided, or unclassified rows.
+
 ## v21-native-typed-sql-crud-missing — standard provider lacks typed Db writes/read
 
 **Status:** open (2026-07-12); accepted from the final TI-8.2d runtime taxonomy,

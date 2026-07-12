@@ -3427,6 +3427,15 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
                                     require the public H2 quickstart exact on
                                     standard VM/ASM/build-jvm before retiring
                                     its taxonomy row and pushing.
+                                    Gate-found regression: the first full run
+                                    correctly closed the quickstart but reused
+                                    attribute-stripped SQL token matching for
+                                    ordinary code fences, activating
+                                    `scalascript @side=client` and moving
+                                    `derived-route-clients.ssc` to `both-fail`.
+                                    Preserve exact ordinary fence matching and
+                                    scope attribute tokenization to SQL; require
+                                    52/14 parity before this slice is green.
                               - [ ] **n3 typed CRUD slice:** install the bounded
                                     `RowCodec` metadata plus `Db.insert`,
                                     `Db.update`, and typed `Db.query[A]` over
