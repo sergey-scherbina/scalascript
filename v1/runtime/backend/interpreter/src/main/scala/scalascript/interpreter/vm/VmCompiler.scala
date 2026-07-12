@@ -81,6 +81,10 @@ object VmCompiler:
   /** wide-jit C-6: an Int value assigned to a Double var, widened (I2D) rather than bailing on a
     * false "var domain change". */
   val varWidenings = new java.util.concurrent.atomic.AtomicLong(0L)
+  /** wide-jit C-7: ref-returning call results whose type NAME was recovered from the callee's
+    * declared return type — enabling field access / String methods that would otherwise bail on an
+    * "unknown ref type". */
+  val refTypeFromDecl = new java.util.concurrent.atomic.AtomicLong(0L)
   /** Opt-in (zero overhead otherwise): count TypeMap coverage at each compiled node. Read the
     * counters directly (tests / future C-4 opportunity sizing). */
   val measureTypes: Boolean =
@@ -256,6 +260,16 @@ object VmCompiler:
       * Int→Double on every return path) rather than bailing on a false "mixed return". Empty when the
       * def carried no annotation / the FunV came from a site that doesn't populate it ⇒ unchanged. */
     private val declaredDouble: Boolean = doubleTypes.contains(fn.declaredReturnType.trim)
+
+    /** wide-jit C-7: map a DECLARED type NAME (as stored by C-4b) to a VmType. Double/Float → TDouble;
+      * the integral/boolean scalars → TInt; any other non-empty name is a reference type → TRef; an
+      * empty name (unannotated / not populated) → null (unknown, defer to the heuristic + map). */
+    private def declaredVmType(name: String): VmType | Null =
+      val t = name.trim
+      if t.isEmpty then null
+      else if doubleTypes.contains(t) then TDouble
+      else if t == "Int" || t == "Long" || t == "Boolean" || t == "Short" || t == "Byte" || t == "Char" then TInt
+      else TRef
 
     private val fnIsDouble: Boolean =
       // wide-jit C-4d: the DECLARED return type is authoritative and completes the syntactic scan.
@@ -660,16 +674,23 @@ object VmCompiler:
               if calleeIsDouble(callee) then TDouble
               else if calleeReturnsRef(callee) then TRef
               else
-                // wide-jit C-3 consumption: the syntactic heuristic gave up (would default to
-                // TInt). Take the callee's REAL return type from the Typer's map — but only to
-                // UPGRADE the unknown default (never override a heuristic hit). Empty map ⇒ null
-                // ⇒ TInt = current behaviour (same-module siblings only; imports re-parse → miss).
                 ctx.vmTypeOf(callee.body) match
                   case TDouble => callResultUpgrades.incrementAndGet(); TDouble
                   case TRef    => callResultUpgrades.incrementAndGet(); TRef
                   case _       => TInt
             setType(dst, rt)
-            if rt == TRef then refTypeName(dst) = ""
+            if rt == TRef then
+              // wide-jit C-7: NAME an already-ref call result from the callee's DECLARED return type
+              // when it denotes a known layout (a registered ADT, or String), so `f(x).field` /
+              // `f(x).length` resolve via `metaFor` instead of bailing on an "unknown ref type". This
+              // does NOT change which results are refs (that flip ripples — it miscompiled `litdoc`),
+              // only names the ones already typed TRef; otherwise "" = prior behaviour.
+              val declName = callee.declaredReturnType.trim
+              val nm =
+                if declaredVmType(declName) == TRef && (declName == "String" || ctx.metaFor(declName) != null)
+                then declName else ""
+              refTypeName(dst) = nm
+              if nm.nonEmpty then VmCompiler.refTypeFromDecl.incrementAndGet()
             rt
           case None =>
             app.fun match

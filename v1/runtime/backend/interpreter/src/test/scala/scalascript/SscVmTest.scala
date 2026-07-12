@@ -2578,14 +2578,15 @@ class SscVmTest extends AnyFunSuite with Matchers:
       }
   }
 
-  test("wide-jit C-3 consumption: the map recovers a delegating callee's Double return that the heuristic misses") {
-    // `mid` returns Double but only by DELEGATION (`base(x)`), with no double param and no
-    // Lit.Double in its own body — so `calleeIsDouble` (which doesn't follow delegation, unlike
-    // calleeReturnsRef) misses it and `top`'s call to `mid` defaults to TInt. The Typer's map
-    // types `mid.body` (= `base(x)`) as Double, so the call-result is upgraded to TDouble.
+  test("wide-jit C-3 consumption: the map recovers an UNANNOTATED delegating callee's Double return") {
+    // `mid` is UNANNOTATED and returns Double only by DELEGATION (`base(x)`), with no double param
+    // and no Lit.Double in its own body — so `calleeIsDouble` misses it AND C-7's declared-type path
+    // can't help (no annotation). The Typer's map types `mid.body` (= `base(x)`) as Double, so the
+    // call-result is upgraded to TDouble. (Annotated delegating callees are now handled always-on by
+    // C-7; the map remains the fallback for unannotated ones.)
     val src = "# T\n\n```scala\n" +
       "def base(x: Int): Double = x * 1.5\n" +
-      "def mid(x: Int): Double = base(x)\n" +
+      "def mid(x: Int) = base(x)\n" +
       "def top(n: Int): Double = mid(n) * 2.0\n```\n"
     val module = Parser.parse(src)
     val interp = Interpreter(devNull); interp.run(module)
@@ -2722,6 +2723,26 @@ class SscVmTest extends AnyFunSuite with Matchers:
     assert(VmCompiler.varWidenings.get > before, "the Int→Double var assign should widen")
     java.lang.Double.longBitsToDouble(SscVm.run(cfn.get, Array(5L))) shouldBe 5.5  // 5→5.0 + 0.5
     java.lang.Double.longBitsToDouble(SscVm.run(cfn.get, Array(3L))) shouldBe 3.5  // 3→3.0 + 0.5
+  }
+
+  test("wide-jit C-7: an already-ref call result is named from the declared type → String method resolves") {
+    // `clean(s)` returns a String (calleeReturnsRef already types the result TRef), but without a
+    // NAME a chained `.length` bails on an "unknown ref type". C-7 names the result "String" (from
+    // the callee's declared return type), so `clean(s).length` resolves. C-7 does NOT change which
+    // results are refs — only names ones already TRef — so it can't ripple like a type flip would.
+    val interp = interpOf(
+      """def clean(s: String): String = s.trim
+        |def len(s: String): Int = clean(s).length""".stripMargin)
+    val len = interp.globalsView("len").asInstanceOf[Value.FunV]
+    val before = VmCompiler.refTypeFromDecl.get
+    val cfn = VmCompiler.compile(len, globalsResolve(interp))
+    cfn shouldBe defined
+    assert(VmCompiler.refTypeFromDecl.get > before, "the call result should be named from the declared type")
+    SscVm.runRef(cfn.get, Array.empty[Long], Array[AnyRef](Value.StringV("  hi  "))) shouldBe 2L  // "hi".length
+
+    // Guard: strip the callee's declared type → the result's ref name is empty → `.length` bails.
+    interp.globalsView("clean").asInstanceOf[Value.FunV].declaredReturnType = ""
+    VmCompiler.compile(len, globalsResolve(interp)) shouldBe empty
   }
 
   test("wide-jit C-3: FunV.body is identity-keyed in the Typer's nodeTypes; the map threads to VmCompiler") {
