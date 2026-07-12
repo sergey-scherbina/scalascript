@@ -647,6 +647,10 @@ lazy val unimlYamlCross =
       Test    / scalacOptions ++= sharedScalacOptions,
     )
     .jvmConfigure(_.withId("unimlYaml"))
+    .jvmSettings(
+      libraryDependencies += "org.snakeyaml" % "snakeyaml-engine" % "2.9" % Test,
+      Test / unmanagedSourceDirectories += baseDirectory.value.getParentFile / "src" / "test-jvm" / "scala",
+    )
     .jsConfigure(_.withId("unimlYamlJs"))
     .jsSettings(Test / fork := false)
 

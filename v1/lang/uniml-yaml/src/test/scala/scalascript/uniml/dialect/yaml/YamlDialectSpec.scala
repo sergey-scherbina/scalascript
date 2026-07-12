@@ -229,6 +229,27 @@ final class YamlDialectSpec extends AnyFunSuite:
     assert(projection.diagnostics.exists(_.code == "uniml.yaml.unclosed-flow"))
   }
 
+  test("pinned official yaml-test-suite examples stay lossless and projectable") {
+    val cases = Vector(
+      "FQ7F" -> "- Mark McGwire\n- Sammy Sosa\n- Ken Griffey\n",
+      "SYW4" -> "hr:  65    # Home runs\navg: 0.278 # Batting average\nrbi: 147   # Runs Batted In\n",
+      "PBJ2" -> "american:\n  - Boston Red Sox\n  - Detroit Tigers\nnational:\n  - New York Mets\n  - Chicago Cubs\n",
+      "229Q" -> "-\n  name: Mark McGwire\n  hr:   65\n  avg:  0.278\n-\n  name: Sammy Sosa\n  hr:   63\n  avg:  0.288\n",
+      "5C5M" -> "- { one : two , three: four , }\n- {five: six,seven : eight}\n",
+      "9FMG" -> "a:\n  b:\n    c: d\n  e:\n    f: g\nh: i\n",
+      "J9HZ" -> "---\nhr: # 1998 hr ranking\n  - Mark McGwire\n  - Sammy Sosa\nrbi:\n  # 1998 rbi ranking\n  - Sammy Sosa\n  - Ken Griffey\n",
+      "4GC6" -> "'here''s to \"quotes\"'\n",
+    )
+
+    cases.foreach { (id, text) =>
+      val result = parse(text)
+      assert(result.status == CompletionStatus.Complete, s"official case $id: ${result.diagnostics}")
+      assert(sourceText(result) == text, s"official case $id was not lossless")
+      val projection = Yaml.project(result)
+      assert(projection.value.nonEmpty, s"official case $id projection: ${projection.diagnostics}")
+    }
+  }
+
   private def parse(text: String): ParseResult = Yaml.parse(SourceInput.fromString(source, text))
 
   private def projected(result: ParseResult): YamlValue.Stream =
