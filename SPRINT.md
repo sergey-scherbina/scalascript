@@ -327,7 +327,14 @@ with extensions isolated behind an explicit non-default profile.
       SHA/value dumps match the SclJet reader. Corpus execution discovered
       `scljet-freelist-recursive-stack-overflow`: fix the 183-page valid freelist with an explicit
       bounded `while` traversal before accepting any corpus result; retain structured duplicate,
-      cycle and pointer-map failures.
+      cycle and pointer-map failures. Current progress: 20 valid files / 607 exact lines now include
+      all page sizes, encodings, serial/rowid/WAL edges and official reserve counts 1/7/32. The next
+      historical slice is now reproducible: build official canonical `version-3.2.0` (Fossil UUID
+      `debf40e8ffa35406685ec027ced1f147ef0487df`; observed tar SHA3-256
+      `1b82ba33675022028b37fc067b1dbf399168cfafcbb653f74edfe7d950044cce`) and generate format 1
+      directly, format 2 via `ALTER ... ADD COLUMN`, and format 3 via a non-NULL added-column
+      default. Require the helper version and manifest UUID before deleting fixtures; insert oracle
+      rows after ALTER so M2 physical records and reference logical values are exactly comparable.
 ## v2-swift-nativeui-i18n-json — standard `lower/serve`, locale and JSON parity (2026-07-12)
 
 Claim: `.work/active/v2-swift-nativeui-i18n-json.claim`. Spec:
