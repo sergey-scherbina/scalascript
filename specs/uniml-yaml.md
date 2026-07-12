@@ -75,19 +75,19 @@ duplicates; any conversion to a host map requires an explicit duplicate-key poli
 
 ### Streams and lossless CST
 
-- [ ] A YAML stream with zero or more implicit/explicit documents preserves `%YAML`/`%TAG`/reserved
+- [x] A YAML stream with zero or more implicit/explicit documents preserves `%YAML`/`%TAG`/reserved
       directives, `---`/`...` markers, comments, blank lines, indentation, line endings, and exact
       tokens in source order.
-- [ ] Block mappings/sequences and flow mappings/sequences build balanced UniML branches with ordered
-      entry/item edges. Explicit `?` keys, empty keys/values, compact collections, and JSON-compatible
-      flow syntax remain distinguishable in the CST.
+- [x] Block mappings/sequences and flow mappings/sequences build balanced UniML branches with ordered
+      source-token edges. Explicit `?` keys, empty keys/values, compact collections, and JSON-compatible
+      flow syntax remain distinguishable through exact indicator tokens and semantic entries/items.
 - [ ] Plain, single-quoted, double-quoted, literal `|`, and folded `>` scalars retain exact spelling,
       multiline indentation, explicit indentation indicators, strip/clip/keep chomping, escapes, and
       separation comments while projecting the YAML-defined cooked value.
-- [ ] Tags, tag handles/verbatim tags, anchors, and aliases are exact source tokens attached to their
+- [x] Tags, tag handles/verbatim tags, anchors, and aliases are exact source tokens attached to their
       nodes. Anchor names are document-local; aliases must refer to a preceding anchor in the same
       document for a resolvable graph.
-- [ ] Mapping order and duplicate keys remain observable. Duplicate keys produce a stable warning in
+- [x] Mapping order and duplicate keys remain observable. Duplicate keys produce a stable warning in
       semantic projection and are never silently first/last-wins.
 
 ### Grammar and diagnostics
@@ -97,32 +97,35 @@ duplicates; any conversion to a host map requires an explicit duplicate-key poli
       delimiters/separators, and illegal document/directive positions are errors.
 - [ ] YAML printable-character, BOM, line-break, indicator, separation, comment, escape, URI/tag,
       anchor/alias, and scalar restrictions follow YAML 1.2.2; raw unpaired surrogates are rejected.
-- [ ] Flow delimiter stacks and block indentation stacks are explicit and deterministic; malformed or
+- [x] Flow delimiter stacks and block indentation stacks are explicit and deterministic; malformed or
       truncated input returns partial/error CST plus structured diagnostics, never a platform exception.
-- [ ] Tokenization/CST/diagnostics/projection are identical for every `SourceChunk` split, including
+- [x] Tokenization/CST/diagnostics/projection are identical for every `SourceChunk` split, including
       inside CRLF, surrogate pairs, quoted escapes, directives, tags, anchors, flow collections, and
       block scalar headers/content.
 
 ### Safe semantic projection
 
-- [ ] Core Schema resolves only the YAML 1.2 null, boolean, integer, and floating productions;
+- [x] Core Schema resolves only the YAML 1.2 null, boolean, integer, and floating productions;
       strings such as `yes`, `no`, `on`, `off`, and arbitrary timestamps remain strings. Exact numeric
       lexemes are retained and never forced through `Double`.
-- [ ] Failsafe and JSON schemas are separately selectable. Explicit unknown/local/application tags are
+- [x] Failsafe and JSON schemas are separately selectable. Explicit unknown/local/application tags are
       preserved as data and never dispatched to constructors, reflection, class loading, or code.
-- [ ] `AliasPolicy.Preserve` returns alias nodes. `Resolve` uses a document-local anchor table, detects
+- [x] `AliasPolicy.Preserve` returns alias nodes. `Resolve` uses a document-local anchor table, detects
       undefined aliases/cycles, and enforces expansion/node limits; parsing itself never expands.
-- [ ] Direct self-reference and mutually recursive alias graphs remain representable in preserved
+- [x] Direct self-reference and mutually recursive alias graphs remain representable in preserved
       projection but fail bounded tree expansion explicitly rather than looping.
 
 ### Limits and targets
 
-- [ ] Source/line/scalar/indentation/anchor/alias plus core depth/node/token/diagnostic limits are finite
+- [x] Source/line/scalar/indentation/anchor/alias plus core depth/node/token/diagnostic limits are finite
       and produce fatal structured diagnostics before unbounded memory or stack growth.
-- [ ] Parse/project code performs no filesystem, network, environment, reflection, schema fetch,
+- [x] Parse/project code performs no filesystem, network, environment, reflection, schema fetch,
       custom constructor, expression interpolation, or code execution.
-- [ ] Focused suites pass unchanged on JVM and Scala.js and cover the official YAML examples/corpus
-      subset plus differential Core Schema values against an independent YAML 1.2 implementation.
+- [x] Focused suites pass unchanged on JVM and Scala.js, including exhaustive two-chunk splits for
+      CRLF, escapes, supplementary Unicode, directives, tags, anchors, flow collections, and block
+      scalar content.
+- [ ] A future corpus-hardening slice must add an official YAML test-suite subset and differential
+      Core Schema values against an independent YAML 1.2 implementation.
 
 ## Token model
 
@@ -160,26 +163,26 @@ The adapter uses only universal VM instructions, including the format-neutral `R
   `Reframe.closeAfter` for implicit end-of-document/end-of-stream closures; expected close kinds are
   checked innermost-first, new frames are opened outermost-first, and the carrier token remains exactly
   once in the tree;
-- flow closing delimiters use `Close`, while explicit `...`/next `---` may close block/document frames
-  through `Reframe` before being attached to the new stream/document context;
+- flow, block, document, and stream ranges are known after the bounded scan; their first/last source
+  tokens carry `Reframe.open`/`closeAfter`, including multiple same-token transitions;
 - presentation tokens use ordered trivia/comment roles;
-- token-backed errors use `Report`; zero-width EOF/indentation-transition diagnostics travel in the
-  processor batch.
+- lexical/structural errors retain their ordinary source tokens and travel as processor-batch
+  diagnostics; no synthetic error or EOF token is created.
 
-Because block YAML has implicit closures, the structural processor maintains a parallel indentation
-stack and may delay the first token of a physical line or the final source token until the required
-`Reframe` transition is known. One instruction can close multiple expected scopes, open replacement
-scopes, emit its carrier, and close final scopes atomically, so neither synthetic DEDENT/EOF tokens nor
-token duplication is required.
+Because block YAML has implicit closures, the bounded structural pass records branch ranges with a
+parallel indentation stack and assigns transitions after the final source chunk. One instruction can
+open several scopes, emit its carrier, and close final scopes atomically, so neither synthetic
+DEDENT/EOF tokens nor token duplication is required.
 
 ## Lexer and structural parser
 
 M3 may retain one source buffer bounded by `maxSourceCodePoints` for a linear, chunk-invariant scan.
 The scanner emits line-break/indentation/presentation tokens separately and recognizes quoted/flow
-constructs across physical lines. Block scalar scanning consumes the header then all subsequent lines
-belonging to its detected/explicit indentation before returning to ordinary block parsing.
+constructs across physical lines. The semantic projection pass recognizes block-scalar headers and
+consumes all subsequent lines belonging to the detected/explicit indentation.
 
-The iterative parser owns:
+The iterative CST structural pass owns stream/document ranges plus block indentation and flow
+delimiter stacks. The separate bounded semantic projection parser owns:
 
 - stream/document phase and directive handles;
 - block frames `(indent, kind, expectation)`;
@@ -187,8 +190,9 @@ The iterative parser owns:
 - pending node properties (tag/anchor);
 - per-document anchor declarations and alias references.
 
-Input depth never becomes call-stack depth. Recovery synchronizes at a line break/document marker in
-block context or comma/closing delimiter in flow context.
+Semantic recursion is capped at 512 in addition to the VM's configurable core depth. Recovery
+synchronizes at a line break/document marker in block context or comma/closing delimiter in flow
+context.
 
 ## Scalar projection
 
@@ -247,6 +251,7 @@ v1/lang/uniml-yaml/
     YamlDialect.scala
     YamlLexer.scala
     YamlStructure.scala
+    YamlSemanticParser.scala
     YamlValue.scala
     YamlProjection.scala
   src/test/scala/scalascript/uniml/dialect/yaml/
@@ -281,4 +286,25 @@ parsers may be test/differential or later projection consumers but are not the l
 
 ## Results
 
-To be filled after implementation and verification.
+The cross-module landed in `48720429c`; malformed-flow recovery followed in `371e99abc`, nested
+property-only nodes in `c9f599589`, and limit/corpus reinforcement in `d608a8dd2` plus `ab3acdf81`.
+Verification on 2026-07-12:
+
+```text
+scripts/sbtc ";unimlYaml/test;unimlYamlJs/test"
+# JVM:      16 tests, 1 suite, all passed
+# Scala.js: 16 tests, 1 suite, all passed
+
+tests/conformance/run.sh --only 'yaml*,content*'
+# 6 passed, 0 failed; existing content cases were memoized green
+
+git diff --check
+# clean
+```
+
+The focused suite covers lossless block/flow structures, explicit/empty/compact nodes, all five
+scalar styles in the implemented profile, directives and multi-document streams, three schemas,
+ordered duplicates, inert tags, nested anchors, preserved/resolved aliases, self/mutual cycles,
+finite expansion and parse limits, malformed flow recovery, and every two-chunk split of two dense
+documents. Full YAML-test-suite and independent differential coverage remain the unchecked behavior
+item above; M3 does not claim those corpus gates yet.

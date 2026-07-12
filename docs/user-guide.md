@@ -373,6 +373,15 @@ direct ASM, and packaged `build-jvm` JARs. Runtime YAML intentionally uses the
 project-owned dependency-free `SimpleYaml`; front-matter remains the separate
 self-hosted structural parser and is not reparsed by the Scala seed.
 
+For lossless tooling rather than `.ssc` runtime values, the separate
+`scalascript-uniml-yaml` library exposes `Yaml.parse(SourceInput, YamlLimits)`
+and `Yaml.project(ParseResult, YamlProjectionOptions)` on both JVM and
+Scala.js. Its CST preserves comments, whitespace, scalar spelling/styles,
+document markers, directives, tags, anchors, aliases, order, and duplicates.
+Projection selects Failsafe, JSON, or YAML 1.2 Core Schema explicitly; tags are
+never executed, aliases remain nodes by default, and opt-in resolution has
+cycle, expansion, and node limits.
+
 ### `build-jvm` — executable JAR directly from native CoreIR + ASM
 
 Plain `bin/ssc` now exposes the physically slim ScalaScript 2.1 tier;

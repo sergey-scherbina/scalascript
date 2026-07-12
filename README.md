@@ -196,6 +196,7 @@ bin/http.ssc
 | | |
 |---|---|
 | [Language Specification](SPEC.md) | Formal grammar, type system, semantics, all language constructs |
+| [UniML](specs/uniml.md) / [YAML 1.2.2 adapter](specs/uniml-yaml.md) | Cross-platform token-as-instruction tree VM with lossless JSON/XML/YAML dialect modules; YAML preserves presentation syntax and exposes explicit Core/JSON/Failsafe plus bounded alias projection |
 | [Direct Syntax](docs/direct-syntax.md) | Do-notation over any monad — `direct[M] { x = expr }`, `.!` postfix bind, effect-row unions; explicit Option/List blocks also run on the compiler-free standard 2.1 path |
 | [Coroutines & Generators](specs/coroutines.md) | Coroutine primitive underlying one-shot effects and generators |
 | [Algebraic Effects spec](specs/algebraic-effects.md) | Typed effect rows — `!` operator, `multi effect`, Rémy-style unification, typed stdlib, `Reader[R]`, `NonDet` |

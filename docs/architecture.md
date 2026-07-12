@@ -104,6 +104,22 @@ enum Statement:
 - Pratt parser for expressions (handles precedence)
 - Special handling for interpolation boundaries
 
+### UniML format modules
+
+`v1/lang/uniml` is a standalone JVM/Scala.js lossless parsing layer, separate
+from the `.ssc` compiler frontend. Every source token carries one tree-VM
+instruction (`Open`, `Emit`, `Close`, `Reframe`, or `Report`), and ordered
+processors can be chained before the tree builder. `Reframe` is the generic
+indentation-language transition: one source-backed token can atomically close
+implicit frames, open replacements, emit once, and close final frames.
+
+Concrete leaf modules currently provide strict JSON, secure XML, and a safe
+YAML 1.2.2 profile. Their canonical result is a presentation CST preserving
+punctuation, whitespace, comments, ordering, duplicates, and exact spans;
+semantic values are explicit projections. The YAML projection keeps tags inert,
+preserves aliases by default, and bounds opt-in alias resolution. These modules
+do not replace the existing runtime/front-matter readers yet.
+
 ### 3. Type Checking (Typer)
 
 **Input:** Raw AST
