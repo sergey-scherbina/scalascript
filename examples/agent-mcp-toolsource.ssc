@@ -16,9 +16,11 @@ bridge. Requires a jvm/js backend (the MCP client is unavailable on the interpre
 
 ```scalascript
 val client = mcpConnect(Transport.Spawn("node", List("examples/mcp-server-tools.js")))
+val descriptors = client.listTools()
 val tools = mcpToolSource(client)
 println("imported " + tools.length.toString + " MCP tools as agent tools:")
-tools.foreach { t => println("  " + t.name + " — " + t.description) }
+for descriptor <- descriptors do
+  println("  " + descriptor.name + " — " + descriptor.description)
 // `tools` can now be passed to runAgent(...) alongside the app's own AgentTools.
 client.close()
 ```

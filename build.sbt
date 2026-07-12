@@ -398,6 +398,15 @@ lazy val v2NativeNfcPlugin = project
     scalacOptions ++= Seq("-deprecation", "-feature"),
   )
 
+lazy val v2NativeMcpPlugin = project
+  .in(file("v2/runtime/providers/mcp-plugin"))
+  .dependsOn(v2NativePluginSpi, v2NativeJsonPlugin, mcpCommon)
+  .settings(
+    name := "scalascript-v2-native-mcp-plugin",
+    libraryDependencies += scalatestTest,
+    scalacOptions ++= Seq("-deprecation", "-feature"),
+  )
+
 lazy val v2PluginBridge = project
   .in(file("v2/plugin-bridge"))
   // backendInterpreterServer: the REAL web server (route/serveAsync/stop) is
@@ -1292,7 +1301,7 @@ lazy val cli = project
   // cluster tests (which spawn `java -jar ssc.jar` nodes) died with
   // "runActors requires the actors plugin" — actorsPlugin was staged for
   // installBin but missing here.
-  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendRust, backendInterpreter, backendInterpreterServer, runtimeServerJvmFast, backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap, frontendCore, graphPlugin, deployPlugin, httpPlugin, wsPlugin, contentPlugin, frontendPlugin, fetchPlugin, streamsPlugin, actorsPlugin, v2FrontendBridge, v2JvmBytecode, v2JsBackend, v2SwiftBackend, v2NativePluginSpi, v2NativeHostPlugin, v2NativeCryptoPlugin, v2NativeOsPlugin, v2NativeFsPlugin, v2NativeJsonPlugin, v2NativeHttpFastPlugin, v2NativeSqlPlugin, v2NativeUiPlugin, v2NativeStateEffectPlugin, v2NativeEffectRunnersPlugin, v2NativeStorageEffectPlugin, v2NativeReactivePlugin, v2NativeYamlPlugin, v2NativeContentPlugin, v2NativeDatasetPlugin, v2NativeGeneratorPlugin, v2NativeActorsPlugin, v2NativeDistributedPlugin, v2NativeGraphPlugin, v2NativeOpticsPlugin, v2NativePdfPlugin, v2NativeNfcPlugin)
+  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendRust, backendInterpreter, backendInterpreterServer, runtimeServerJvmFast, backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap, frontendCore, graphPlugin, deployPlugin, httpPlugin, wsPlugin, contentPlugin, frontendPlugin, fetchPlugin, streamsPlugin, actorsPlugin, v2FrontendBridge, v2JvmBytecode, v2JsBackend, v2SwiftBackend, v2NativePluginSpi, v2NativeHostPlugin, v2NativeCryptoPlugin, v2NativeOsPlugin, v2NativeFsPlugin, v2NativeJsonPlugin, v2NativeHttpFastPlugin, v2NativeSqlPlugin, v2NativeUiPlugin, v2NativeStateEffectPlugin, v2NativeEffectRunnersPlugin, v2NativeStorageEffectPlugin, v2NativeReactivePlugin, v2NativeYamlPlugin, v2NativeContentPlugin, v2NativeDatasetPlugin, v2NativeGeneratorPlugin, v2NativeActorsPlugin, v2NativeDistributedPlugin, v2NativeGraphPlugin, v2NativeOpticsPlugin, v2NativePdfPlugin, v2NativeNfcPlugin, v2NativeMcpPlugin)
   // Frontend backends — derived from allFrontends registry (arch-build-registry Phase 4)
   .dependsOn(allFrontends.map(f => ClasspathDependency(f.project, None)): _*)
   .settings(
@@ -1722,6 +1731,17 @@ lazy val cli = project
       val nfcProviderJar = (v2NativeNfcPlugin / Compile / packageBin).value
       IO.copyFile(nfcProviderJar, nfcProviderDir / nfcProviderJar.getName)
       log.info("bin/lib/providers/nfc/jars/ (1 JAR)")
+
+      val mcpProviderDir = providersDir / "mcp" / "jars"
+      IO.createDirectory(mcpProviderDir)
+      val mcpProviderJar = (v2NativeMcpPlugin / Compile / packageBin).value
+      val mcpCommonJar = (mcpCommon / Compile / packageBin).value
+      val mcpProviderFiles = (Seq(mcpProviderJar, mcpCommonJar) ++
+        (v2NativeMcpPlugin / Compile / managedClasspath).value.files)
+        .filter(f => f.isFile && f.getName.endsWith(".jar") && !standardNames.contains(f.getName))
+        .groupBy(_.getName).values.map(_.head).toSeq.sortBy(_.getName)
+      mcpProviderFiles.foreach(j => IO.copyFile(j, mcpProviderDir / j.getName))
+      log.info(s"bin/lib/providers/mcp/jars/ (${mcpProviderFiles.size} JARs)")
 
       // ScalaScript 2.1 native frontend: stage the self-hosted compiler tower
       // and the .ssc standard-library sources it resolves. The installed
@@ -4420,7 +4440,7 @@ lazy val root = project
     v2NativeStorageEffectPlugin, v2NativeReactivePlugin, v2NativeYamlPlugin,
     v2NativeContentPlugin, v2NativeDatasetPlugin, v2NativeGeneratorPlugin, v2NativeActorsPlugin,
     v2NativeDistributedPlugin, v2NativeGraphPlugin, v2NativeOpticsPlugin, v2NativePdfPlugin,
-    v2NativeNfcPlugin,
+    v2NativeNfcPlugin, v2NativeMcpPlugin,
     v2PluginBridge, v2FrontendBridge, v2JvmBytecode, v2JsBackend, v2SwiftBackend,
     valueData, backendSpi, pluginApi, ir, logger, yaml, core, interop, testUtils, pluginHost, wireCore,
 
