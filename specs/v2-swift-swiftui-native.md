@@ -1240,6 +1240,12 @@ The dedicated real-Swift/CoreIR method matrix additionally pins every promised
 join overload: `["a", 2]` produces `a2`, `a|2`, and `<a|2>` for 0, 1, and 3
 arguments; `Nil` produces `""`, `""`, and `"<>"`. Wrong arity, a non-String
 delimiter, and a non-list receiver remain rejected and are negative gates.
+Calling a proper `Cons`/`Nil` list with exactly one Int performs zero-based
+indexing, matching shared v2 `Runtime.applyFallback`; the standard heading
+lowerer depends on `sizes(level - 1)`. A negative index or index at/above length
+is the bounded runtime failure `app: list index out of bounds`; a non-Int or
+wrong arity is `app: list index requires exactly one Int`. Malformed lists do
+not produce a value.
 
 At the checked CoreIR boundary a source `Map[String, Any]` may be represented
 either as `SscMap` or as the frontend's proper association list of
@@ -1459,6 +1465,8 @@ assembled macOS and iOS Xcode gates.
   mapped CSS list's `.mkString("")`, rather than bypassing the toolkit lowerer.
 - [ ] Real Swift pins List `mkString` 0/1/3 overloads for mixed and empty lists,
   plus wrong-arity, wrong-delimiter-type, and non-list rejection boundaries.
+- [ ] Real Swift applies proper lists as zero-based indexed values and pins
+  valid, negative/out-of-range, non-Int, and wrong-arity cases.
 - [ ] NativeUi `element` accepts both checked String maps and proper String-key
   association lists with last-wins duplicates, while malformed list/tuple/key
   shapes and a cell/array value fail with the original source before a malformed
