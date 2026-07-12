@@ -1,6 +1,6 @@
 feature/v21-native-effect-runtime-blockers 2026-07-11T19:21:44Z
 agent: codex
-heartbeat: 2026-07-12T02:01:04Z
+heartbeat: 2026-07-12T02:13:05Z
 status: in-progress
-done-so-far: distributed local-loopback provider, exact HandlerRegistry ABI, tuple-field pattern fix, VM/ASM/build-jvm gates, and taxonomy are green at 46 identical / 20 both-fail / 8 blockers
-next: run the exhaustive release gate, verify specs/bookkeeping, fresh v2 conformance, and push the complete distributed slice
+done-so-far: distributed slice is pushed through 3e6256c92; release gate is green at 46 identical / 20 both-fail / 8 blockers
+next: audit the two graph rows, implement the real core-free in-memory standard Graph surface, and reclassify only genuinely remote RDF4J HTTP work if the public contract proves it optional
