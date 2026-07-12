@@ -1389,7 +1389,8 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
       migration; plain `ssc run` is intentionally not flipped before TI-4.
       Gates: native-entry and temp-cleanup assembled e2e PASS with scala-cli
       absent from PATH; `v2-*` conformance 8/8.
-- [ ] **v21-ti-native-front-parity** — close the remaining native parser/lowerer
+- [x] **v21-ti-native-front-parity — DONE 2026-07-12 (`43fded0f9`,
+      parent closeout `a34d2d2b9`):** close the remaining native parser/lowerer
       blockers surfaced by the new corpus gate (layout/match openers, method
       fallback, named/default arguments, pattern guards/literal discrimination,
       and code-heavy std module loading), rebasing around sibling K62 work rather
@@ -1405,9 +1406,12 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
       `TYPEERR` / 1 non-code; `6e8464ea8` then fixed postfix binding inside
       unary `!`/`-`/`~`, raising the checker result to 189 OK / 5 `TYPEERR` /
       1 non-code. Every remaining checker reject is now a parser-sentinel row.
-      Next: re-run the classified front/check/runtime sweep after the current
-      native module-loader sibling lands, then close the remaining sentinel
-      categories.
+      Final result: the standard-only negative release environment processes
+      all 194 code rows through the self-hosted frontend and mandatory checker
+      (plus one non-code row) with no compatibility bridge or silent parser
+      sentinel success. VM/direct-ASM parity is frozen at 53 identical / 13
+      reviewed optional-or-tools failures / 129 skips, with zero mismatch,
+      zero one-sided failure, and zero runtime blockers.
       VM/ASM result parity slice `7192cd6e4` also closes the x402 silent-success
       bug: dotted unhandled `Op` and missing-dispatch `Stub` final values now
       fail nonzero through shared result validation; assembled VM/ASM/x402 smoke
@@ -1615,12 +1619,20 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
             recursive static/runtime scans find 0 forbidden references. TI-8.1
             strengthened this baseline by making every dependency JAR a scan
             root and removing H2's eight optional compiler classes.
-- [ ] **v21-ti-no-javac-cutover** — retire the default v1 `JavacJitBackend` from
+- [x] **v21-ti-no-javac-cutover — DONE 2026-07-12 (`a8601c074`,
+      negative gate `43fded0f9`):** retire the default v1 `JavacJitBackend` from
       the standard tier instead of treating the old scala.meta-based
       `AsmJitBackend` as the new architecture. Keep v1 JITs only in the optional
       compatibility tier; close any correctness gap needed by `--v1` there.
       Done when `jdeps` for the standard launcher/runtime does not require
       `java.compiler` and standard conformance runs on a JRE-shaped module set.
+      Final result: plain staged, contributor-installed, and self-installed
+      `ssc` use compiler-free `StandardMain`; compatibility/JIT/compiler
+      surfaces require explicit `ssc-tools`. The copied standard distribution
+      contains zero compiler/Scalameta JARs or forbidden references, cannot
+      resolve `scala-cli`, `scalac`, `javac`, `java.compiler`, or
+      `jdk.compiler`, and passes VM, direct ASM, providers, HTTP server,
+      reproducible `build-jvm`, exhaustive release, and conformance 11/11.
       - [x] **TI-8.1 JRE-shaped module gate — DONE 2026-07-10 (`e4cd55b36`):** derive the standard runtime module
             allowlist from the staged classpath, explicitly subtract
             `java.compiler`/`jdk.compiler`, and run native VM, direct ASM,

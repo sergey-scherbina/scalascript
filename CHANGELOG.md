@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-12 — ScalaScript 2.1 toolchain-independence parents closed
+
+The two stale umbrella rows now reflect their already-landed evidence: native
+frontend/checker parity is exhaustive and the standard launcher has no javac,
+compiler, or Scalameta dependency. The authoritative negative release gate
+remains 194/194 checked, 53/13/129 VM/ASM classification, zero mismatch,
+one-sided failures, or runtime blockers, with conformance 11/11. No runtime or
+seed code changed in this bookkeeping closeout.
+
 ## 2026-07-12 — ScalaScript 2.1 negative toolchain release gate
 
 CI and the consolidated release now re-run the 195-row native frontend/checker
