@@ -89,6 +89,46 @@ def create_empty(path: Path) -> None:
     con.close()
 
 
+def create_serial_and_rowid_edges(path: Path) -> None:
+    con = sqlite3.connect(path)
+    configure(con, 1024, "UTF-8", "NONE")
+    con.execute(
+        "CREATE TABLE serials(nul, i1a, i1b, i2, i3, i4, i5, i6, r, z, o, txt, blob)"
+    )
+    con.execute(
+        "INSERT INTO serials VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            None, -128, 127, -32768, -8388608, -2147483648,
+            -140737488355328, -9223372036854775808, 1.5, 0, 1,
+            "A\x00\u03a9", bytes((0, 127, 128, 255)),
+        ),
+    )
+    con.execute("CREATE TABLE rowids(v TEXT)")
+    con.execute("INSERT INTO rowids(rowid,v) VALUES(?,?)", (-9223372036854775808, "min"))
+    con.execute("INSERT INTO rowids(rowid,v) VALUES(?,?)", (9223372036854775807, "max"))
+    con.execute("PRAGMA user_version=20260712")
+    con.execute("PRAGMA application_id=305419896")
+    con.commit()
+    con.close()
+
+
+def create_clean_wal_header(path: Path) -> None:
+    con = sqlite3.connect(path)
+    configure(con, 4096, "UTF-8", "NONE")
+    mode = con.execute("PRAGMA journal_mode=WAL").fetchone()[0]
+    if mode.lower() != "wal":
+        raise RuntimeError(f"cannot enable WAL for {path}: {mode}")
+    con.execute("CREATE TABLE t(a INTEGER, b TEXT, c BLOB)")
+    con.execute("INSERT INTO t VALUES(2, 'checkpointed', x'0203')")
+    con.commit()
+    con.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+    con.close()
+    for suffix in ("-wal", "-shm"):
+        sidecar = Path(str(path) + suffix)
+        if sidecar.exists():
+            raise RuntimeError(f"clean WAL fixture retained sidecar: {sidecar}")
+
+
 def cps(text: str) -> str:
     return "List(" + ", ".join(str(ord(ch)) for ch in text) + ")"
 
@@ -173,18 +213,25 @@ def oracle_dump(rel_path: str, path: Path) -> list[str]:
 def write_manifest(paths: list[tuple[str, Path]], source_id: str, compile_options: str) -> None:
     columns = [
         "id", "path", "sha256", "sqlite_version", "source_id", "page_size",
-        "reserved", "schema_format", "encoding", "freelist_pages", "integrity_check",
+        "reserved", "page_count", "schema_format", "encoding", "write_version",
+        "read_version", "auto_vacuum", "freelist_pages", "schema_entries",
+        "generator", "integrity_check",
     ]
     rows = ["\t".join(columns)]
     dump: list[str] = []
     for fixture_id, path in paths:
         data = path.read_bytes()
-        page_size, reserved, _, schema_format, encoding, freelist = header_meta(data)
+        page_size, reserved, page_count, schema_format, encoding, freelist = header_meta(data)
         rel = path.relative_to(ROOT.parent.parent.parent.parent).as_posix()
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        auto_vacuum = con.execute("PRAGMA auto_vacuum").fetchone()[0]
+        schema_entries = con.execute("SELECT count(*) FROM sqlite_schema").fetchone()[0]
+        con.close()
         rows.append("\t".join([
             fixture_id, rel, hashlib.sha256(data).hexdigest(), ORACLE_VERSION,
-            source_id, str(page_size), str(reserved), str(schema_format), str(encoding),
-            str(freelist), "ok",
+            source_id, str(page_size), str(reserved), str(page_count), str(schema_format),
+            str(encoding), str(data[18]), str(data[19]), str(auto_vacuum), str(freelist),
+            str(schema_entries), f"generate.py:{fixture_id}", "ok",
         ]))
         dump.extend(oracle_dump(rel, path))
     (ROOT / "manifest.tsv").write_text("\n".join(rows) + "\n", encoding="utf-8")
@@ -241,6 +288,10 @@ def main() -> None:
     create_autovacuum(auto_incremental, "INCREMENTAL", False); fixtures.append(("auto-incremental", auto_incremental))
     empty = VALID / "empty-encoding-zero.db"
     create_empty(empty); fixtures.append(("empty-encoding-zero", empty))
+    serial_edges = VALID / "serial-rowid-edges.db"
+    create_serial_and_rowid_edges(serial_edges); fixtures.append(("serial-rowid-edges", serial_edges))
+    wal_clean = VALID / "wal-clean.db"
+    create_clean_wal_header(wal_clean); fixtures.append(("wal-clean", wal_clean))
 
     probe = sqlite3.connect(":memory:")
     source_id = probe.execute("SELECT sqlite_source_id()").fetchone()[0]
@@ -248,6 +299,10 @@ def main() -> None:
     probe.close()
     write_manifest(fixtures, source_id, compile_options)
     corruptions(VALID / "page-512.db", auto_full)
+    for suffix in ("-wal", "-shm"):
+        sidecar = Path(str(wal_clean) + suffix)
+        if sidecar.exists():
+            sidecar.unlink()
 
 
 if __name__ == "__main__":

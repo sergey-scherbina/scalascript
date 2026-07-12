@@ -125,6 +125,8 @@ dumpFiles(List(
   "tests/fixtures/scljet/m2/valid/freelist.db",
   "tests/fixtures/scljet/m2/valid/auto-full.db",
   "tests/fixtures/scljet/m2/valid/auto-incremental.db",
-  "tests/fixtures/scljet/m2/valid/empty-encoding-zero.db"
+  "tests/fixtures/scljet/m2/valid/empty-encoding-zero.db",
+  "tests/fixtures/scljet/m2/valid/serial-rowid-edges.db",
+  "tests/fixtures/scljet/m2/valid/wal-clean.db"
 ))
 ```

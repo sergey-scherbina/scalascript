@@ -582,3 +582,14 @@ schema:1:table:List(116):List(116):3:rowid:false
 root:3:rowid:1:List(int:1, text:List(105, 110, 99, 114, 101, 109, 101, 110, 116, 97, 108), blob:List(1, 2))
 FILE:tests/fixtures/scljet/m2/valid/empty-encoding-zero.db
 header:512:0:1:0:0:0
+FILE:tests/fixtures/scljet/m2/valid/serial-rowid-edges.db
+header:1024:0:3:4:1:0
+schema:1:table:List(115, 101, 114, 105, 97, 108, 115):List(115, 101, 114, 105, 97, 108, 115):2:rowid:false
+root:2:rowid:1:List(null, int:-128, int:127, int:-32768, int:-8388608, int:-2147483648, int:-140737488355328, int:-9223372036854775808, real:1.5, int:0, int:1, text:List(65, 0, 937), blob:List(0, 127, 128, 255))
+schema:2:table:List(114, 111, 119, 105, 100, 115):List(114, 111, 119, 105, 100, 115):3:rowid:false
+root:3:rowid:-9223372036854775808:List(text:List(109, 105, 110))
+root:3:rowid:9223372036854775807:List(text:List(109, 97, 120))
+FILE:tests/fixtures/scljet/m2/valid/wal-clean.db
+header:4096:0:2:4:1:0
+schema:1:table:List(116):List(116):2:rowid:false
+root:2:rowid:1:List(int:2, text:List(99, 104, 101, 99, 107, 112, 111, 105, 110, 116, 101, 100), blob:List(2, 3))
