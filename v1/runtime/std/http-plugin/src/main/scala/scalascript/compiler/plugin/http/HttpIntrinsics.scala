@@ -601,6 +601,23 @@ object HttpIntrinsics:
     case other if PluginValue.isRuntimeValue(other) => PluginValue.wrap(other)
     case _            => PluginValue.unit
 
+  // H3 join + H2 opt-in SSRF guard, shared by doHttpRequest and doHttpRequestStream.
+  private def resolveAndGuard(base: String, rawUrl: String): String =
+    val url =
+      if base.isEmpty || rawUrl.startsWith("http://") || rawUrl.startsWith("https://") then rawUrl
+      else if rawUrl.startsWith("/") then base.stripSuffix("/") + rawUrl
+      else base.stripSuffix("/") + "/" + rawUrl
+    if sys.env.get("SSC_HTTP_BLOCK_INTERNAL").exists(v => v == "1" || v == "true") then
+      val host = try java.net.URI.create(url).getHost catch case _: Throwable => null
+      if host != null then
+        val addrs = try java.net.InetAddress.getAllByName(host)
+                    catch case _: Throwable => Array.empty[java.net.InetAddress]
+        if addrs.exists(a => a.isLoopbackAddress || a.isLinkLocalAddress
+                          || a.isSiteLocalAddress || a.isAnyLocalAddress) then
+          throw new RuntimeException(
+            s"SSRF blocked: host '$host' resolves to an internal address (SSC_HTTP_BLOCK_INTERNAL)")
+    url
+
   private def doHttpRequest(
       method:  String,
       rawUrl:  String,
@@ -611,12 +628,7 @@ object HttpIntrinsics:
     import java.net.http.{HttpClient as JHttpClient, HttpRequest, HttpResponse}
     import scala.jdk.CollectionConverters.*
     val base    = ctx.httpBaseUrl
-    val url     =
-      // H3: absolute only on an explicit http(s):// scheme; otherwise join base + a
-      // leading-'/' path so a `rawUrl` like "@evil/x" can't re-point the host via userinfo.
-      if base.isEmpty || rawUrl.startsWith("http://") || rawUrl.startsWith("https://") then rawUrl
-      else if rawUrl.startsWith("/") then base.stripSuffix("/") + rawUrl
-      else base.stripSuffix("/") + "/" + rawUrl
+    val url     = resolveAndGuard(base, rawUrl)
     val timeout = java.time.Duration.ofMillis(ctx.httpTimeoutMs)
     val client  = JHttpClient.newBuilder().connectTimeout(timeout).build()
     val builder = HttpRequest.newBuilder().uri(java.net.URI.create(url)).timeout(timeout)
@@ -662,12 +674,7 @@ object HttpIntrinsics:
     import java.net.http.{HttpClient as JHttpClient, HttpRequest, HttpResponse}
     import scala.jdk.CollectionConverters.*
     val base    = ctx.httpBaseUrl
-    val url     =
-      // H3: absolute only on an explicit http(s):// scheme; otherwise join base + a
-      // leading-'/' path so a `rawUrl` like "@evil/x" can't re-point the host via userinfo.
-      if base.isEmpty || rawUrl.startsWith("http://") || rawUrl.startsWith("https://") then rawUrl
-      else if rawUrl.startsWith("/") then base.stripSuffix("/") + rawUrl
-      else base.stripSuffix("/") + "/" + rawUrl
+    val url     = resolveAndGuard(base, rawUrl)
     val timeout = java.time.Duration.ofMillis(ctx.httpTimeoutMs)
     val client  = JHttpClient.newBuilder().connectTimeout(timeout).build()
     val builder = HttpRequest.newBuilder().uri(java.net.URI.create(url)).timeout(timeout)

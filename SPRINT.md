@@ -55,8 +55,10 @@ Chosen approaches (autonomous — non-breaking defaults):
 
 - [x] **H1 SSR XSS** — `signals.mjs` `_ssc_json_html_safe` escapes `<>&`/U+2028/2029 to `\uXXXX`
       before inlining into `<script>` (both renderPage + serve). LANDED fc8cbce00. VERIFIED node.
-- [ ] **H2 SSRF guard** — opt-in allow-list / reject loopback+link-local+RFC-1918 in the shared
-      resolve step (policy, not a pure bug — needs a config surface).
+- [x] **H2 SSRF guard** — opt-in `SSC_HTTP_BLOCK_INTERNAL=1`; JVM/interp InetAddress (catches
+      DNS→internal), Rust to_socket_addrs, JS literal+localhost. LANDED 81ba4efce. VERIFIED all 3
+      (127.0.0.1/localhost/10.x/169.254.169.254 blocked on, external+off allowed).
+      interp HttpIntrinsics also wired (shared resolveAndGuard). All 4 backends done.
 - [ ] **H4 cache integrity** — HMAC/sign `.scjvm`/`.scjs`/`classBundle` with an install-private
       key (jar mtime/size stamp is forgeable); reject group/other-writable artifact dirs.
 - [x] **H5 JVM outbound global vars** — base/timeout/retries/delay → `ThreadLocal`. LANDED ef7fd23e7.
