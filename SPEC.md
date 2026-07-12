@@ -702,6 +702,13 @@ ageLens.modify(alice, _ + 10)   // Person(Alice, 40)
 `Prism[Outer, Variant]` focuses on a single enum case.
 All optics compose via `.andThen`.
 
+On the ScalaScript 2.1 compiler-free standard path, Focus accepts structural
+field chains plus `.some` and `.each`, lowering them to portable immutable step
+data consumed by a core-free optics provider. Prism retains the exact variant
+type argument as a portable nominal tag. Arbitrary getter lambdas are outside
+this bounded native contract and fail explicitly; neither construct triggers a
+compatibility frontend fallback.
+
 ### 5.6 Extension Methods
 
 An extension declaration uses significant indentation to delimit its members.
