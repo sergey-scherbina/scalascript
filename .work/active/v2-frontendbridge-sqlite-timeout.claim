@@ -1,0 +1,6 @@
+feature/v2-frontendbridge-sqlite-timeout 2026-07-12T08:39:00Z
+agent: codex
+heartbeat: 2026-07-12T08:39:00Z
+status: not-started
+done-so-far: existing SPRINT and BUGS entries confirmed; task is unclaimed
+next: create isolated worktree, commit resume-cold plan, reproduce named compatibility-bridge test in the real harness
