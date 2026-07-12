@@ -299,12 +299,15 @@ with extensions isolated behind an explicit non-default profile.
       SQLite 3.53.3 vector is exact on interpreter/native VM/direct ASM; affected conformance is
       4/4 and the runnable example is identical on all three lanes. JS matches 34/35 lines; its
       known Long/bitwise lowering decodes binary64 `1.5` as `0`, recorded in `BUGS.md`.
-- [ ] **scljet-m2c-readonly-pager-btree** — add a VFS-backed immutable pager/cache plus table/index
-      B-tree cursors, sqlite_schema decoding, rowid/WITHOUT ROWID traversal, freelist/pointer-map
-      validation, and a minimal value-level read API; no planner or writes. The assembled JVM gate
-      found `scljet-readonly-close-imported-selector`: before closing M2c, make every public facade
-      boundary destructure `ReadonlyDatabase` rather than select/copy imported fields and require
-      the real plugin example to close its SHARED-locked handle successfully.
+- [x] **scljet-m2c-readonly-pager-btree** — DONE 2026-07-12 (`4aba98aef`,
+      `d52f89ead`, JVM adapter `c281958bd`, docs `0f5bec401`). Added a SHARED-locked immutable
+      pager/LRU, fail-closed sidecar checks, table/index forward cursors, overflow ownership,
+      sqlite_schema decoding and rowid/WITHOUT ROWID root classification, freelist and auto-vacuum
+      pointer-map validation, plus the minimal value-level read facade. Conformance is 6/6; the
+      multi-level pure cursor is exact on interpreter/VM/ASM; the assembled real JVM plugin reads
+      schema/row and public close releases the handle. The discovered imported-selector close bug
+      is fixed and guarded. Node's false leaf-depth result is recorded for M2d/backend parity; no
+      JDBC/sql.js fallback, planner, recovery, WAL overlay, or write path was added.
 - [ ] **scljet-m2d-interop-verify** — differential-read a pinned corpus across legal page sizes,
       encodings, overflow/freelist/schema shapes and corrupt/truncated files; require VM/ASM parity,
       JVM real-file execution, `integrity_check`/reference value agreement, spec verification,

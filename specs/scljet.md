@@ -1,6 +1,6 @@
 # SclJet — pure ScalaScript SQLite-compatible engine
 
-Status: **implementation / M2 codec foundations**
+Status: **implementation / M2 read-only pager and traversal foundations**
 Module: `runtime/std/scljet/`  
 Package: `scljet`  
 Provider id: `scljet`  
@@ -1902,3 +1902,31 @@ example in `ae709c40a`. Verification on 2026-07-12:
 These are pure codec results, not a claim that the M2 pager, schema loader, or
 file-level interoperability corpus is complete; their behavior gates remain
 unchecked above.
+
+M2c read-only paging/traversal landed in `4aba98aef` and `d52f89ead`; the
+executable JVM VFS facade and its cross-module close regression landed in
+`c281958bd`, with the runnable flow documented in `0f5bec401`. Verification on
+2026-07-12:
+
+- `scripts/sbtc "installBin"` staged 119 standard `.ssc` modules and 27
+  essential plugins.
+- `tests/conformance/run.sh --only 'scljet-*' --no-memo` passed 6/6 on the
+  declared interpreter lane. The new fixture covers immutable LRU replacement,
+  SHARED open/close, fail-closed WAL sidecars, schema classification, row reads,
+  non-empty freelists, pointer-map ownership, and corrupted pointer maps.
+- The cached multi-level table/index cursor golden is exact on the interpreter,
+  native VM, and direct ASM: table leaves yield signed rowids only, index
+  interiors yield separator records in order, and shared/cyclic children fail.
+- `tests/e2e/scljet-readonly-jvm-vfs-smoke.sh` passes through the assembled JVM
+  plugin with `PATH=/usr/bin:/bin`: a pinned SQLite 3.53.3 image is opened,
+  schema and one row are read, public `closeReadonly` releases the handle, and
+  the file is removed without JDBC/sql.js.
+- The explicit Node probe currently rejects the valid sibling leaf with a false
+  common-depth error; this backend divergence is recorded as
+  `v1-js-scljet-readonly-leaf-depth` and `scljet-js-m2-cursor-parity` rather
+  than hidden by a fallback.
+
+The broad legal-format/corruption/reference corpus, WITHOUT ROWID fixture
+matrix, overflow-through-pager differential, and full behavior-gate closure
+remain M2d; the four M2 milestone checkboxes above therefore remain honestly
+unchecked.

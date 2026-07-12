@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-12 — SclJet immutable read-only pager, schema, and B-tree traversal
+
+SclJet M2c now opens clean SQLite-format files through an abstract VFS under a
+SHARED lock, keeps a deterministic immutable LRU, validates freelists and
+auto-vacuum pointer maps, decodes raw `sqlite_schema`, and streams rowid or
+record-key B-trees without mutation. A packaged JVM VFS adapter and runnable
+SQLite 3.53.3 file example cover schema, row, public close, and cleanup through
+the real plugin. Affected conformance is 6/6 and multi-level table/index cursor
+output is exact on interpreter/native VM/direct ASM; the explicit Node
+leaf-depth divergence is tracked for M2d. Core landed through `4aba98aef` and
+`d52f89ead`, JVM facade/regression in `c281958bd`, docs in `0f5bec401`.
+
 ## 2026-07-12 — SclJet pure SQLite header, B-tree page, and record codecs
 
 SclJet M2 now decodes exact database headers, all four B-tree cell layouts,

@@ -20,8 +20,8 @@ JavaScript capability probe.
 
 ## scljet-readonly-close-imported-selector — facade close selects the wrong pager handle
 
-**Status:** open (2026-07-12); found by codex during the SclJet M2c assembled
-JVM VFS example.
+**Status:** fixed (2026-07-12, `c281958bd`), awaiting Sergiy confirmation;
+found by codex during the SclJet M2c assembled JVM VFS example.
 
 - **Real-harness repro:** run `bin/ssc-tools run --v1
   examples/scljet-readonly.ssc` after `scripts/sbtc "installBin"`. The real JVM
@@ -34,11 +34,11 @@ JVM VFS example.
   receiver-blind imported-field environment that selector can bind the wrong
   registered `pager` layout, even though constructor-pattern matching the same
   value yields the correct `ReadonlyPager`/`JvmSqliteFile(2)`.
-- **Plan/done-when:** destructure `ReadonlyDatabase` at every facade boundary
-  (`openReadonlyRoot`, `readonlyFirst`, `readonlyNext`, `closeReadonly`) and
-  rebuild it explicitly instead of using imported selectors/copy; keep a
-  multi-file real-plugin regression where public `closeReadonly` returns
-  `Right(())`, then record the landed SHA and await Sergiy confirmation.
+- **Fix/result:** `schema.ssc`, where `ReadonlyDatabase` is defined, now owns
+  constructor-pattern access/replacement helpers; every facade transition uses
+  those helpers and never selects/copies the imported product directly. The
+  multi-file real-plugin smoke opens a pinned SQLite image, reads schema/row,
+  requires public `closeReadonly` to return `Right(())`, and verifies deletion.
 
 ## portable-codepoint-string-construction — v1 lacks Int.toChar, v2 renders Char numerically
 
