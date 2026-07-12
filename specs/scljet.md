@@ -240,13 +240,7 @@ case class ByteError(code: String, message: String, offset: Int)
 case class ByteRead(value: Long, nextOffset: Int)
 case class VarintRead(value: Long, length: Int, nextOffset: Int)
 
-case class ByteSlice(chunks: Map[Int, List[Int]], start: Int, length: Int):
-  def get(index: Int): Either[ByteError, Int]
-  def updated(index: Int, value: Int): Either[ByteError, ByteSlice]
-  def slice(offset: Int, size: Int): Either[ByteError, ByteSlice]
-  def concat(other: ByteSlice): ByteSlice
-  def copyTo(target: ByteSlice, targetOffset: Int): Either[ByteError, ByteSlice]
-  def zeroExtend(size: Int): Either[ByteError, ByteSlice]
+case class ByteSlice(chunks: Map[Int, List[Int]], start: Int, length: Int)
 
 object ByteSlice:
   def empty: ByteSlice
@@ -254,12 +248,19 @@ object ByteSlice:
   def zeros(length: Int): Either[ByteError, ByteSlice]
 
 def byteSliceToList(bytes: ByteSlice): List[Int]
+def byteSliceGet(bytes: ByteSlice, index: Int): Either[ByteError, Int]
+def byteSliceUpdated(bytes: ByteSlice, index: Int, value: Int): Either[ByteError, ByteSlice]
+def byteSliceSlice(bytes: ByteSlice, offset: Int, size: Int): Either[ByteError, ByteSlice]
+def byteSliceConcat(left: ByteSlice, right: ByteSlice): ByteSlice
+def byteSliceCopyTo(source: ByteSlice, target: ByteSlice, targetOffset: Int): Either[ByteError, ByteSlice]
+def byteSliceZeroExtend(bytes: ByteSlice, size: Int): Either[ByteError, ByteSlice]
 ```
 
-The byte operations are real case-class methods, not imported extensions. This
-keeps the declared receiver shape available to both the v1 interpreter and the
-self-hosted native frontend while preserving the same `bytes.slice(...)` call
-syntax.
+Byte operations are explicit pure functions. Current self-hosted imports do not
+link case-class method bodies and lose imported extension receiver types, while
+top-level functions execute identically on the v1 interpreter, native VM, and
+direct ASM. A later ergonomic facade may delegate to this canonical functional
+surface once receiver operations are portable.
 
 `bytes.ssc` owns big- and little-endian unsigned 16/32/64-bit reads and
 writes plus signed big-endian 16/24/32/48/64-bit reads. Unsigned 32-bit values

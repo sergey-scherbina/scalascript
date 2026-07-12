@@ -115,9 +115,9 @@ with extensions isolated behind an explicit non-default profile.
       leaking host buffers. Chosen representation: immutable 64-byte chunk table with shared
       slice windows; varint failure consumes nothing; memory VFS is a replayable immutable state
       machine; JVM locking combines a process-local coordinator with OS byte-range locks. The list
-      adapter is the top-level `byteSliceToList(bytes)`. Byte operations are real case-class methods,
-      not imported extensions: the native frontend currently loses imported extension receiver types
-      (`row []`), while methods preserve identical `bytes.slice(...)` call syntax across backends.
+      adapter and operations are top-level pure functions. Native imports currently lose extension
+      receiver types (`row []`) and link real case-class methods as `Stub`; the functional surface is
+      the common executable contract until receiver operations are portable.
 - [ ] **scljet-m1b-bytes-codec** — replace the M0 byte placeholder with a bounds-checked immutable
       byte slice and add `bytes.ssc`: validated 0..255 construction, indexed read/update, zero-fill,
       slicing/copy/concat, big/little-endian 16/32/64-bit reads/writes, signed two's-complement reads,
