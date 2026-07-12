@@ -1,6 +1,6 @@
 feature/uniml-markdown 2026-07-12T12:45:07Z
 agent: codex
-heartbeat: 2026-07-12T12:45:46Z
+heartbeat: 2026-07-12T12:49:49Z
 status: in-progress
-done-so-far: isolated feature/uniml-markdown worktree created from origin/main
-next: queue M4 slices in SPRINT.md and write specs/uniml-markdown.md before code
+done-so-far: M4 plan and CommonMark/GFM/ScalaScript specification published before code
+next: scaffold unimlMarkdown cross-project and implement bounded lossless block scanner
