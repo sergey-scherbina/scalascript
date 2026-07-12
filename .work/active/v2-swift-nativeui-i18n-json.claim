@@ -1,8 +1,12 @@
 feature/v2-swift-nativeui-i18n-json 2026-07-12T10:15:00Z
-agent: claude-code-busi
-heartbeat: 2026-07-12T10:15:00Z
+agent: codex
+heartbeat: 2026-07-12T09:12:26Z
 status: in-progress
-done-so-far: Real-world verification of the completed v2-swift-swiftui-native milestone
+done-so-far: Takeover after stale heartbeat/no Rozum ACK; preserving the dirty foreign worktree.
+Independent Rozum reviewers BLOCKED the current __try__/JSON WIP on exact-value throw/runtime/host
+failure discrimination, String.toInt trim/nesting gates, UTF-16/renderer/BigInt/conversion/error
+parity, and dead-registration validation. Real-world verification of the completed
+v2-swift-swiftui-native milestone
 against busi's actual production pipeline view (src/v2/clients/ssc/app.ssc's gigRow/oppRow/
 closedRow, copied faithfully into busi's src/v2/clients/swift-nativeui-smoke/pipeline-smoke.ssc)
 found two real gaps in the Swift backend's supported-globals allowlist
@@ -16,7 +20,9 @@ NOTE: found an existing, apparently-stale claim .work/active/v1-json-core-intrin
 gap — __jsonCore* intrinsics missing from the v1 INTERPRETER (not the Swift backend codegen).
 Not the same file/subsystem as this claim's target, but cross-referencing for awareness in
 case that agent is still active.
-next: (1) localeSignal first — smallest, cleanest, matches the existing onlineSignal/
+next: Stop only the hung owner test/app; commit BUGS+SPRINT planning and spec-only exact semantics,
+request Rozum spec APPROVE, then correct the preserved WIP and run real Swift/Apple/full gates.
+Original next: (1) localeSignal first — smallest, cleanest, matches the existing onlineSignal/
 persistedSignal ABI pattern (add to nativeUiPublicGlobals + a Swift-side NativeUiSignal
 reflecting locale, default likely fixed/en or device locale). (2) __jsonCoreWrap — larger,
 needs a real Swift-side JSON value representation + Map/List-based accessor semantics
