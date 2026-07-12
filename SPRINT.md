@@ -455,6 +455,11 @@ pipeline used by real applications.
       `tests/conformance/run.sh --only ...`, docs/spec verify, separate
       bookkeeping, push to `origin/main`, reporter confirmation, and claim /
       branch / worktree cleanup.
+      Full `v2FrontendBridge/test` currently fails only `tkv2-pwa`: its test
+      classpath exposes JDK server only while the expected/assembled default is
+      fast. Add `runtimeServerJvmFast % Test` to that project (the CLI already
+      owns the production dependency), then require isolated `tkv2-pwa` and
+      full bridge green; do not weaken the expected banner.
 ## security-hardening — toolchain audit findings (2026-07-11, Sergiy: "аудит секюрити … запиши все проблемы в спеку и в спринт и исправь")
 
 Spec: `specs/security-hardening.md`. Report artifact:

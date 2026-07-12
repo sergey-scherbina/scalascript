@@ -228,7 +228,23 @@ found by codex in the zero-`both-fail` negative release gate.
   directly instead of being numerically normalized.
 - **Fix/result:** the summary now prints `total + 0`; the exact zero-row
   runtime taxonomy freeze and its synthetic smoke remain green.
+## v2-frontend-tkv2-pwa-fast-provider-missing — unit classpath contradicts assembled default
 
+**Status:** open (2026-07-12); found by codex during the Swift NativeUi release
+gate, reported in the `scalascript` Rozum room.
+
+- **Real-harness repro:** both full `v2FrontendBridge/test` and isolated
+  `V2ConformanceTest -- -z tkv2-pwa` produce all eight correct PWA assertions
+  but print `backend=jdk`; the checked corpus expects the shipped
+  `backend=fast` default. The full suite is 198/199 for this reason alone.
+- **Root cause:** `v2FrontendBridge` has `backendInterpreterServer` through the
+  plugin bridge but no test dependency on `runtimeServerJvmFast`, so
+  `ServiceLoader` cannot discover the provider that the assembled CLI includes.
+  The prior expected-file-only fix `b060951ce` verified the assembled corpus but
+  did not align this unit-test classpath.
+- **Fix/done-when:** add `runtimeServerJvmFast % Test` only to
+  `v2FrontendBridge`, retain the exact fast banner, and pass isolated plus full
+  bridge suites. This is test wiring, not a production backend selection change.
 ## js-ssc-ui-jsonvalue-duplicate — two `_ssc_ui_jsonValue` in the assembled JS runtime
 
 **Status:** open (2026-07-12); found by opus while running `backendInterpreter/test`
