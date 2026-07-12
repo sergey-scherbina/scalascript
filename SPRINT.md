@@ -375,6 +375,11 @@ pipeline used by real applications.
       Add shared-runtime parity in Swift (`List.toList` is the exact identity,
       malformed non-lists still reject) and keep the lower/serve test as the
       faithful regression rather than bypassing the builder.
+      The next unchanged lowerer call is `cssParts.mkString("")`; implement
+      the full shared List overload matrix (no args, separator, and
+      prefix/separator/suffix) with `sscPlain` element text and audit the rest
+      of `lower.ssc`'s dynamic List surface (`map`, `toList`, `mkString`) in one
+      focused gate so parity is not discovered one method at a time.
 - [ ] **Release gates and closure** — require explicit post-code Rozum
       `APPROVE`; full Swift backend, combined CLI, assembled Swift CLI and
       macOS+iOS Apple e2e, money/effects/tkv2/v2 conformance, affected

@@ -353,6 +353,9 @@ the `scalascript` Rozum room from busi's production-shaped fixture; accepted by
   already proper `Cons/Nil` value. The v2 shared runtime returns that list
   unchanged, but Swift lacks the method case and terminates with `method not
   found: toList on List(TextNode_(...))` before `lower` can produce a root.
+  After `toList` identity, the same gate advances to
+  `method not found: mkString on List("padding-left:16px;...")`; Swift also
+  omitted the shared List string-join overloads used by `_styleCss`.
 - **Rejected WIP behavior:** collapsing explicit throw and runtime failure to
   one description String loses the thrown ADT; catching every normalized host
   `Error` hides runtime bugs; `Int64(value)` omits VM/v1 trimming. The current
@@ -376,7 +379,9 @@ the `scalascript` Rozum room from busi's production-shaped fixture; accepted by
   retain and invoke `main: run` exactly once after module initialization; an
   absent target is a checked error, not a root-registration runtime crash.
   Its unchanged curried builders must also prove `List.toList` identity under
-  real Swift; replacing them with direct constructors would not close the bug.
+  real Swift and the resulting CSS list must join through `mkString("")`;
+  replacing either with direct constructors/string literals would not close
+  the bug.
 
 ## v2-httpclient-curried-extern-unbound — curried top-level `extern def` doesn't bind as a global on `ssc run`
 **Status:** open (2026-07-12), found by claude-code (rozum-ucc-test) while porting rozum's UCC
