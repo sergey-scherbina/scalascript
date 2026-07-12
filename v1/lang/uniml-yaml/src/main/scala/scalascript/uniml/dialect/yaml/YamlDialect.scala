@@ -75,7 +75,26 @@ private final class YamlInstructionProcessor(source: SourceId, limits: YamlLimit
       else
         val lexed = YamlLexer.scan(source, input.result(), limits)
         val structured = YamlStructure.assign(lexed.tokens)
-        ProcessBatch(structured.tokens, lexed.diagnostics ++ structured.diagnostics)
+        val countDiagnostics = Vector.newBuilder[Diagnostic]
+        val anchorCount = lexed.tokens.count(_.kind == "yaml.anchor")
+        val aliasCount = lexed.tokens.count(_.kind == "yaml.alias")
+        if anchorCount > limits.maxAnchors then
+          countDiagnostics += Diagnostic(
+            "uniml.yaml.limit.anchors",
+            s"YAML source contains $anchorCount anchors; limit is ${limits.maxAnchors}",
+            Severity.Fatal,
+            lexed.tokens.find(_.kind == "yaml.anchor").map(_.span),
+            Some(YamlDialect.id),
+          )
+        if aliasCount > limits.maxAliases then
+          countDiagnostics += Diagnostic(
+            "uniml.yaml.limit.aliases",
+            s"YAML source contains $aliasCount aliases; limit is ${limits.maxAliases}",
+            Severity.Fatal,
+            lexed.tokens.find(_.kind == "yaml.alias").map(_.span),
+            Some(YamlDialect.id),
+          )
+        ProcessBatch(structured.tokens, lexed.diagnostics ++ structured.diagnostics ++ countDiagnostics.result())
 
   private val afterFinishDiagnostic = Diagnostic(
     code = "uniml.yaml.finished",

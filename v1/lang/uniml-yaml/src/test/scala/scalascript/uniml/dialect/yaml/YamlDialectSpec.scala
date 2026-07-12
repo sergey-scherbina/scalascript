@@ -76,6 +76,30 @@ final class YamlDialectSpec extends AnyFunSuite:
     assert(result.roots.flatMap(UniNode.sourceTokens).exists(_.kind == "yaml.comment"))
   }
 
+  test("empty streams, explicit keys, empty values, and compact mappings remain distinct") {
+    val empty = projected(parse(""))
+    assert(empty.documents.isEmpty)
+
+    val text = "? [a, b]\n: explicit\nempty:\nitems:\n  - name: first\n    enabled: true\n"
+    val mapping = documentValue(projected(parse(text))).asInstanceOf[YamlValue.Mapping]
+    assert(mapping.entries.head.key.isInstanceOf[YamlValue.Sequence])
+    assert(mapping.entries(1).value == YamlValue.Scalar(YamlScalar.NullValue(""), None, None))
+    val item = mapping.entries(2).value.asInstanceOf[YamlValue.Sequence].values.head.asInstanceOf[YamlValue.Mapping]
+    assert(item.entries.map(scalarStringKey) == Vector("name", "enabled"))
+  }
+
+  test("all-feature transport remains invariant around properties and block scalars") {
+    val text = "%TAG !e! tag:example.org,2026:\n---\nroot: &root\n  text: |2-\n    hello\n  flow: [!e!value 'x', *root]\n...\n"
+    val baseline = parse(text)
+    val shape = tokenShape(baseline)
+    (0 to text.length).foreach { split =>
+      val result = Yaml.parse(SourceInput(source, Vector(SourceChunk(text.take(split)), SourceChunk(text.drop(split)))))
+      assert(tokenShape(result) == shape, s"all-feature token mismatch at split $split")
+      assert(sourceText(result) == text)
+      assert(result.diagnostics.map(_.code) == baseline.diagnostics.map(_.code))
+    }
+  }
+
   test("tags are inert and anchors and aliases are preserved by default") {
     val text = "base: &base !local [1, 2]\ncopy: *base\n"
     val stream = projected(parse(text))
@@ -175,6 +199,24 @@ final class YamlDialectSpec extends AnyFunSuite:
     val limited = Yaml.parse(SourceInput.fromString(source, "abcd"), YamlLimits(maxSourceCodePoints = 3))
     assert(limited.status == CompletionStatus.Halted)
     assert(limited.diagnostics.exists(_.code == "uniml.yaml.limit.source"))
+
+    val lineLimited = Yaml.parse(SourceInput.fromString(source, "abcd\n"), YamlLimits(maxLineCodePoints = 3))
+    assert(lineLimited.diagnostics.exists(_.code == "uniml.yaml.limit.line"))
+
+    val scalarLimited = Yaml.parse(SourceInput.fromString(source, "abcd\n"), YamlLimits(maxScalarCodePoints = 3))
+    assert(scalarLimited.diagnostics.exists(_.code == "uniml.yaml.limit.scalar"))
+
+    val indentationLimited = Yaml.parse(SourceInput.fromString(source, "  a: 1\n"), YamlLimits(maxIndentation = 1))
+    assert(indentationLimited.diagnostics.exists(_.code == "uniml.yaml.limit.indentation"))
+
+    val anchorLimited = Yaml.parse(SourceInput.fromString(source, "a: &a 1\n"), YamlLimits(maxAnchors = 0))
+    assert(anchorLimited.diagnostics.exists(_.code == "uniml.yaml.limit.anchors"))
+
+    val aliasLimited = Yaml.parse(SourceInput.fromString(source, "a: &a 1\nb: *a\n"), YamlLimits(maxAliases = 0))
+    assert(aliasLimited.diagnostics.exists(_.code == "uniml.yaml.limit.aliases"))
+
+    val depthLimited = Yaml.parse(SourceInput.fromString(source, "a: 1\n"), YamlLimits(core = Limits(maxDepth = 1)))
+    assert(depthLimited.diagnostics.exists(_.code == "uniml.limit.depth"))
   }
 
   test("malformed flow syntax returns a partial CST and a structured parse error") {

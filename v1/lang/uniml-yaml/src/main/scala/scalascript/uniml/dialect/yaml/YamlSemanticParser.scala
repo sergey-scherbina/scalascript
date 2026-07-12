@@ -137,10 +137,12 @@ private[yaml] object YamlSemanticParser:
             else if blockHeader(after).nonEmpty then values += parseBlockScalar(after, sequenceIndent, line)
             else
               val (properties, rest) = splitPropertiesNoDiagnostic(after)
-              if properties != Properties(None, None) && findKeyColon(rest) >= 0 then
-                val (validated, _) = splitProperties(after, line.span(source))
+              if findKeyColon(rest) >= 0 then
                 val mapping = parseCompactMapping(rest, sequenceIndent, line, depth + 1)
-                values += applyProperties(mapping, validated, line.span(source))
+                if properties == Properties(None, None) then values += mapping
+                else
+                  val (validated, _) = splitProperties(after, line.span(source))
+                  values += applyProperties(mapping, validated, line.span(source))
               else values += parseAfterIndicator(after, sequenceIndent, line, depth + 1)
       YamlValue.Sequence(values.result(), None, None)
 
