@@ -35,6 +35,26 @@ List(
   CorruptCase("truncated-header", "tests/fixtures/scljet/m2/corrupt/truncated-header.db", "100-byte header"),
   CorruptCase("partial-trailing-page", "tests/fixtures/scljet/m2/corrupt/partial-trailing-page.db", "partial trailing page"),
   CorruptCase("bad-page-kind", "tests/fixtures/scljet/m2/corrupt/bad-page-kind.db", "page.kind"),
-  CorruptCase("bad-pointer-map-kind", "tests/fixtures/scljet/m2/corrupt/bad-pointer-map-kind.db", "pointerMap.kind")
+  CorruptCase("bad-page-size", "tests/fixtures/scljet/m2/corrupt/bad-page-size.db", "header.pageSize"),
+  CorruptCase("bad-read-version", "tests/fixtures/scljet/m2/corrupt/bad-read-version.db", "header.readVersion"),
+  CorruptCase("bad-write-version", "tests/fixtures/scljet/m2/corrupt/bad-write-version.db", "header.writeVersion"),
+  CorruptCase("bad-reserved-size", "tests/fixtures/scljet/m2/corrupt/bad-reserved-size.db", "header.reservedBytes"),
+  CorruptCase("bad-payload-fractions", "tests/fixtures/scljet/m2/corrupt/bad-payload-fractions.db", "header.payloadFractions"),
+  CorruptCase("bad-schema-format", "tests/fixtures/scljet/m2/corrupt/bad-schema-format.db", "header.schemaFormat"),
+  CorruptCase("bad-text-encoding", "tests/fixtures/scljet/m2/corrupt/bad-text-encoding.db", "header.textEncoding"),
+  CorruptCase("bad-header-reserved", "tests/fixtures/scljet/m2/corrupt/bad-header-reserved.db", "header.reserved"),
+  CorruptCase("bad-incremental-without-ptrmap", "tests/fixtures/scljet/m2/corrupt/bad-incremental-without-ptrmap.db", "header.incrementalVacuum"),
+  CorruptCase("bad-freelist-head-count-pair", "tests/fixtures/scljet/m2/corrupt/bad-freelist-head-count-pair.db", "header.freelistHead"),
+  CorruptCase("bad-header-page-count", "tests/fixtures/scljet/m2/corrupt/bad-header-page-count.db", "page count"),
+  CorruptCase("bad-fragmented-bytes", "tests/fixtures/scljet/m2/corrupt/bad-fragmented-bytes.db", "page.fragmentedBytes"),
+  CorruptCase("bad-zero-content-offset", "tests/fixtures/scljet/m2/corrupt/bad-zero-content-offset.db", "page.cellContentStart"),
+  CorruptCase("bad-pointer-array-overlap", "tests/fixtures/scljet/m2/corrupt/bad-pointer-array-overlap.db", "page.cellCount"),
+  CorruptCase("bad-cell-pointer", "tests/fixtures/scljet/m2/corrupt/bad-cell-pointer.db", "page.cellPointer"),
+  CorruptCase("bad-pointer-map-kind", "tests/fixtures/scljet/m2/corrupt/bad-pointer-map-kind.db", "pointerMap.kind"),
+  CorruptCase("bad-pointer-map-parent", "tests/fixtures/scljet/m2/corrupt/bad-pointer-map-parent.db", "pointer-map relation"),
+  CorruptCase("bad-freelist-head", "tests/fixtures/scljet/m2/corrupt/bad-freelist-head.db", "freelist page is outside"),
+  CorruptCase("freelist-trunk-cycle", "tests/fixtures/scljet/m2/corrupt/freelist-trunk-cycle.db", "freelist trunk chain contains a cycle"),
+  CorruptCase("freelist-too-many-leaves", "tests/fixtures/scljet/m2/corrupt/freelist-too-many-leaves.db", "freelist.trunk.leafCount"),
+  CorruptCase("freelist-duplicate-leaf", "tests/fixtures/scljet/m2/corrupt/freelist-duplicate-leaf.db", "freelist contains a duplicate page")
 ).foreach(check)
 ```

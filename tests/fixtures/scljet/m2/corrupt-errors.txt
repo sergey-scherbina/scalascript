@@ -2,4 +2,24 @@ bad-magic:true:header.magic: database magic is not SQLite format 3
 truncated-header:true:database is shorter than the 100-byte header
 partial-trailing-page:true:database has a partial trailing page
 bad-page-kind:true:page.kind: unknown B-tree page type
+bad-page-size:true:header.pageSize: page size must be a power of two from 512 through 65536
+bad-read-version:true:header.readVersion: read version is not supported
+bad-write-version:true:header.writeVersion: write version is invalid
+bad-reserved-size:true:header.reservedBytes: usable page size must be at least 480
+bad-payload-fractions:true:header.payloadFractions: payload fractions must be 64, 32, 32
+bad-schema-format:true:header.schemaFormat: schema format must be between 0 and 4
+bad-text-encoding:true:header.textEncoding: text encoding must be 1, 2, or 3 except for an empty format-0 schema
+bad-header-reserved:true:header.reserved: reserved header bytes must be zero
+bad-incremental-without-ptrmap:true:header.incrementalVacuum: incremental vacuum requires pointer maps
+bad-freelist-head-count-pair:true:header.freelistHead: freelist head and count disagree
+bad-header-page-count:true:logical database page count is inconsistent with file size
+bad-fragmented-bytes:true:page.fragmentedBytes: fragmented free bytes exceed 60
+bad-zero-content-offset:true:page.cellContentStart: zero cell-content offset is legal only for 65536-byte pages
+bad-pointer-array-overlap:true:page.cellCount: cell pointer array and content area overlap
+bad-cell-pointer:true:page.cellPointer: cell pointer is outside the cell-content area
 bad-pointer-map-kind:true:pointerMap.kind: pointer-map kind is invalid
+bad-pointer-map-parent:true:pointer-map relation disagrees with page ownership
+bad-freelist-head:true:freelist page is outside the database
+freelist-trunk-cycle:true:freelist trunk chain contains a cycle
+freelist-too-many-leaves:true:freelist.trunk.leafCount: freelist trunk has too many leaves
+freelist-duplicate-leaf:true:freelist contains a duplicate page

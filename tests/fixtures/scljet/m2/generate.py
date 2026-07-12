@@ -281,19 +281,76 @@ def write_manifest(paths: list[tuple[str, Path]], source_id: str, compile_option
     (ROOT / "oracle-compile-options.txt").write_text(compile_options + "\n", encoding="utf-8")
 
 
-def corruptions(simple: Path, autovacuum: Path) -> None:
+def put_u16(data: bytearray, offset: int, value: int) -> None:
+    data[offset:offset + 2] = struct.pack(">H", value)
+
+
+def put_u32(data: bytearray, offset: int, value: int) -> None:
+    data[offset:offset + 4] = struct.pack(">I", value)
+
+
+def corruptions(simple: Path, autovacuum: Path, freelist: Path) -> None:
     cases: list[tuple[str, bytes, str]] = []
     base = simple.read_bytes()
     bad_magic = bytearray(base); bad_magic[0] = 0
     bad_kind = bytearray(base); bad_kind[100] = 1
+    bad_page_size = bytearray(base); put_u16(bad_page_size, 16, 513)
+    bad_read_version = bytearray(base); bad_read_version[19] = 3
+    bad_write_version = bytearray(base); bad_write_version[18] = 0
+    bad_reserved_size = bytearray(base); bad_reserved_size[20] = 33
+    bad_payload_fractions = bytearray(base); bad_payload_fractions[21] = 63
+    bad_schema_format = bytearray(base); put_u32(bad_schema_format, 44, 5)
+    bad_text_encoding = bytearray(base); put_u32(bad_text_encoding, 56, 4)
+    bad_header_reserved = bytearray(base); bad_header_reserved[72] = 1
+    bad_incremental = bytearray(base); put_u32(bad_incremental, 64, 1)
+    bad_freelist_pair = bytearray(base); put_u32(bad_freelist_pair, 36, 1)
+    bad_page_count = bytearray(base); put_u32(bad_page_count, 28, 3)
+    bad_fragments = bytearray(base); bad_fragments[107] = 61
+    zero_content = bytearray(base); put_u16(zero_content, 105, 0)
+    pointer_overlap = bytearray(base); put_u16(pointer_overlap, 103, 65535)
+    bad_cell_pointer = bytearray(base); put_u16(bad_cell_pointer, 108, 0)
     cases.extend([
         ("bad-magic", bytes(bad_magic), "header.magic"),
         ("truncated-header", base[:99], "header"),
         ("partial-trailing-page", base[:-1], "trailing-page"),
         ("bad-page-kind", bytes(bad_kind), "page.kind"),
+        ("bad-page-size", bytes(bad_page_size), "header.pageSize"),
+        ("bad-read-version", bytes(bad_read_version), "header.readVersion"),
+        ("bad-write-version", bytes(bad_write_version), "header.writeVersion"),
+        ("bad-reserved-size", bytes(bad_reserved_size), "header.reservedBytes"),
+        ("bad-payload-fractions", bytes(bad_payload_fractions), "header.payloadFractions"),
+        ("bad-schema-format", bytes(bad_schema_format), "header.schemaFormat"),
+        ("bad-text-encoding", bytes(bad_text_encoding), "header.textEncoding"),
+        ("bad-header-reserved", bytes(bad_header_reserved), "header.reserved"),
+        ("bad-incremental-without-ptrmap", bytes(bad_incremental), "header.incrementalVacuum"),
+        ("bad-freelist-head-count-pair", bytes(bad_freelist_pair), "header.freelistHead"),
+        ("bad-header-page-count", bytes(bad_page_count), "page count"),
+        ("bad-fragmented-bytes", bytes(bad_fragments), "page.fragmentedBytes"),
+        ("bad-zero-content-offset", bytes(zero_content), "page.cellContentStart"),
+        ("bad-pointer-array-overlap", bytes(pointer_overlap), "page.cellCount"),
+        ("bad-cell-pointer", bytes(bad_cell_pointer), "page.cellPointer"),
     ])
     auto = bytearray(autovacuum.read_bytes()); auto[512] = 0
     cases.append(("bad-pointer-map-kind", bytes(auto), "pointerMap.kind"))
+    auto_parent = bytearray(autovacuum.read_bytes()); put_u32(auto_parent, 513, 99)
+    cases.append(("bad-pointer-map-parent", bytes(auto_parent), "pointer-map relation"))
+
+    free = freelist.read_bytes()
+    free_page_size, _, free_pages, _, _, _ = header_meta(free)
+    free_head = struct.unpack(">I", free[32:36])[0]
+    free_offset = (free_head - 1) * free_page_size
+    free_out_of_range = bytearray(free); put_u32(free_out_of_range, 32, free_pages + 1)
+    free_cycle = bytearray(free); put_u32(free_cycle, free_offset, free_head)
+    free_too_many = bytearray(free); put_u32(free_too_many, free_offset + 4, free_page_size // 4 - 1)
+    free_duplicate = bytearray(free)
+    first_leaf = struct.unpack(">I", free_duplicate[free_offset + 8:free_offset + 12])[0]
+    put_u32(free_duplicate, free_offset + 12, first_leaf)
+    cases.extend([
+        ("bad-freelist-head", bytes(free_out_of_range), "freelist page is outside"),
+        ("freelist-trunk-cycle", bytes(free_cycle), "freelist trunk chain contains a cycle"),
+        ("freelist-too-many-leaves", bytes(free_too_many), "freelist.trunk.leafCount"),
+        ("freelist-duplicate-leaf", bytes(free_duplicate), "freelist contains a duplicate page"),
+    ])
     rows = ["id\tpath\tsha256\texpected"]
     for fixture_id, data, expected in cases:
         path = CORRUPT / f"{fixture_id}.db"
@@ -415,7 +472,7 @@ def main() -> None:
         fixtures.append((fixture_id, path))
 
     write_manifest(fixtures, source_id, compile_options)
-    corruptions(VALID / "page-512.db", auto_full)
+    corruptions(VALID / "page-512.db", auto_full, freelist)
     for suffix in ("-wal", "-shm"):
         sidecar = Path(str(wal_clean) + suffix)
         if sidecar.exists():
