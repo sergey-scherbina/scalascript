@@ -1,6 +1,6 @@
 feature/v21-native-effect-runtime-blockers 2026-07-11T19:21:44Z
 agent: codex
-heartbeat: 2026-07-12T00:11:10Z
+heartbeat: 2026-07-12T00:26:51Z
 status: in-progress
-done-so-far: core-free Generator provider is pushed through a64b738bb; release gate is ready at 41 identical / 25 both-fail / 13 blockers
-next: baseline async-demo.ssc, specify a core-free standard Async provider, and retire only its exact row after VM/ASM/build-jvm and full gates
+done-so-far: core-free Async runners are implemented in 65ee5f908; VM/ASM/build-jvm and pre-taxonomy release gate are exact at 42 identical / 24 both-fail
+next: rerun the complete release gate with async-demo removed, close docs/spec/bug, run fresh conformance, and push the green slice
