@@ -364,7 +364,11 @@ pipeline used by real applications.
       the validated zero-argument entry name and append that call exactly once
       after module initialization (`main: main` must not duplicate the bridge's
       existing automatic `def main()` call); pin missing/invalid targets with a
-      checked diagnostic and prove `main: run` in real Swift.
+      checked diagnostic and prove `main: run` in real Swift. Rozum review adds
+      the authoritative-selection negative: when a source defines both
+      `main()` and `run()` with `main: run`, suppress the bridge's implicit
+      `main()` call and execute only `run()` exactly once; only absent metadata
+      retains current implicit-main/script behavior.
 - [ ] **Release gates and closure** — require explicit post-code Rozum
       `APPROVE`; full Swift backend, combined CLI, assembled Swift CLI and
       macOS+iOS Apple e2e, money/effects/tkv2/v2 conformance, affected
