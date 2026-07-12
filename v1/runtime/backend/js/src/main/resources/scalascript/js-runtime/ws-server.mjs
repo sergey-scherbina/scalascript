@@ -592,14 +592,16 @@ function _httpSyncFetch(method, url, body, headers) {
 
 function _httpSyncFetchWithRetry(method, url, body, headers) {
   const { receiveMessageOnPort } = require('worker_threads');
-  const maxTries = _httpMaxRetries + 1;
+  const maxTries = Math.min(_httpMaxRetries, 10) + 1;  // L1: cap runaway retry counts
   let last;
   for (let attempt = 0; attempt < maxTries; attempt++) {
     last = _httpSyncFetch(method, url, body, headers);
     if (last.status !== 0 && last.status < 500) break;
     if (attempt < maxTries - 1) {
       const sab2 = new SharedArrayBuffer(4); const flag2 = new Int32Array(sab2);
-      Atomics.wait(flag2, 0, 0, _httpRetryDelay);
+      // L1: exponential backoff (delay·2^attempt) ± 20% jitter.
+      const backoff = Math.max(0, Math.round(_httpRetryDelay * Math.pow(2, Math.min(attempt, 16)) * (0.8 + Math.random() * 0.4)));
+      Atomics.wait(flag2, 0, 0, backoff);
     }
   }
   return last;

@@ -62,14 +62,17 @@ private def _httpDoRequest(method: String, url: String, body: String,
     case "GET"    => builder.GET().build()
     case "DELETE" => builder.DELETE().build()
     case m        => builder.method(m, HttpRequest.BodyPublishers.ofString(body)).build()
-  val maxTries = _httpMaxRetries.get() + 1
+  val maxTries = math.min(_httpMaxRetries.get(), 10) + 1  // L1: cap runaway retry counts
   var attempt = 0; var lastResp: HttpResponse[String] | Null = null; var lastErr: Throwable | Null = null
   while attempt < maxTries do
     try { lastResp = client.send(req, HttpResponse.BodyHandlers.ofString()); lastErr = null }
     catch case e: Throwable => lastErr = e
     val shouldRetry = lastErr != null || (lastResp != null && lastResp.statusCode() >= 500)
     attempt += 1
-    if shouldRetry && attempt < maxTries then Thread.sleep(_httpRetryDelay.get())
+    // L1: exponential backoff (delay·2^(attempt-1)) ± 20% jitter.
+    if shouldRetry && attempt < maxTries then
+      Thread.sleep(math.max(0L, (_httpRetryDelay.get() * (1L << math.min(attempt - 1, 16))
+        * (0.8 + java.util.concurrent.ThreadLocalRandom.current().nextDouble() * 0.4)).toLong))
     else attempt = maxTries
   if lastErr != null then throw lastErr
   val resp = lastResp.nn

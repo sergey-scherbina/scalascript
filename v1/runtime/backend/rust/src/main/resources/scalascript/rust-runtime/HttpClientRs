@@ -94,6 +94,7 @@
       |fn run(method: &str, raw: &str, body: Option<&str>, extra: &HashMap<String, String>) -> Response {
       |    let (url, timeout, max_retries, delay) = resolve(raw);
       |    guard_host(&url);
+      |    let max_retries = max_retries.min(10); // L1: cap runaway retry counts
       |    let agent = ureq::AgentBuilder::new()
       |        .timeout_read(timeout)
       |        .timeout_connect(timeout)
@@ -125,7 +126,12 @@
       |                }
       |            }
       |        }
-      |        std::thread::sleep(Duration::from_millis(delay.max(0) as u64));
+      |        // L1: exponential backoff (delay·2^(attempt-1)) ± ~20% jitter.
+      |        let shift = ((attempt - 1).max(0) as u32).min(16);
+      |        let base = (delay.max(0) as u64).saturating_mul(1u64 << shift);
+      |        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+      |            .map(|d| d.subsec_nanos() as u64).unwrap_or(0);
+      |        std::thread::sleep(Duration::from_millis(base * (80 + nanos % 41) / 100));
       |    }
       |}
       |

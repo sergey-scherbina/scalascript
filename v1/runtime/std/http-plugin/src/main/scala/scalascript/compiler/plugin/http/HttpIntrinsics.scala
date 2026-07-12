@@ -639,7 +639,7 @@ object HttpIntrinsics:
       case "PUT"    => builder.PUT(HttpRequest.BodyPublishers.ofString(body)).build()
       case "DELETE" => builder.DELETE().build()
       case m        => builder.method(m, HttpRequest.BodyPublishers.ofString(body)).build()
-    val maxTries = ctx.httpMaxRetries + 1
+    val maxTries = math.min(ctx.httpMaxRetries, 10) + 1  // L1: cap runaway retry counts
     val delayMs  = ctx.httpRetryDelayMs
     var attempt  = 0
     var lastResp: HttpResponse[String] | Null = null
@@ -649,7 +649,10 @@ object HttpIntrinsics:
       catch case e: Throwable => lastErr = e
       val shouldRetry = lastErr != null || (lastResp != null && lastResp.statusCode() >= 500)
       attempt += 1
-      if shouldRetry && attempt < maxTries then Thread.sleep(delayMs)
+      // L1: exponential backoff (delay·2^(attempt-1)) ± 20% jitter.
+      if shouldRetry && attempt < maxTries then
+        Thread.sleep(math.max(0L, (delayMs.toLong * (1L << math.min(attempt - 1, 16))
+          * (0.8 + java.util.concurrent.ThreadLocalRandom.current().nextDouble() * 0.4)).toLong))
       else attempt = maxTries
     if lastErr != null then throw lastErr
     val resp = lastResp.nn
