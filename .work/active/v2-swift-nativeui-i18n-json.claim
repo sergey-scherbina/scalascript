@@ -1,36 +1,6 @@
 feature/v2-swift-nativeui-i18n-json 2026-07-12T10:15:00Z
 agent: codex
-heartbeat: 2026-07-12T11:25:47Z
+heartbeat: 2026-07-12T11:47:13Z
 status: in-progress
-done-so-far: Branch checkpoint 1ca7d8318 is rebased on current origin/main; real standard lower/style
-and production locale+JSON+three-keyed-list Swift runs pass. Rozum-approved fixes now cover checked
-manifest entry, safe init registrations, exact try/toInt, JSON facade, List builder/index/concat parity,
-association-list map normalization, and owner-transactional anonymous computed/equality signals.
-Independent Rozum reviewers BLOCKED the current __try__/JSON WIP on exact-value throw/runtime/host
-failure discrimination, String.toInt trim/nesting gates, UTF-16/renderer/BigInt/conversion/error
-parity, and dead-registration validation. Real-world verification of the completed
-v2-swift-swiftui-native milestone
-against busi's actual production pipeline view (src/v2/clients/ssc/app.ssc's gigRow/oppRow/
-closedRow, copied faithfully into busi's src/v2/clients/swift-nativeui-smoke/pipeline-smoke.ssc)
-found two real gaps in the Swift backend's supported-globals allowlist
-(v2/backend/swift/src/main/scala/ssc/swift/SwiftBackend.scala:80-93 nativeUiPublicGlobals):
-(1) localeSignal (std/ui/i18n.ssc) — blocks any i18n'd screen, i.e. every real busi screen.
-(2) __jsonCoreWrap and friends (std/json.ssc's jsonValue/JsonValue machinery) — blocks any
-JSON-driven forKeyed list, i.e. every real busi list. Reported in the scalascript Rozum room;
-no objection/claim after a reasonable wait, proceeding per the room's established pattern.
-NOTE: found an existing, apparently-stale claim .work/active/v1-json-core-intrinsics.claim
-(heartbeat == created timestamp, 2026-07-10, no updates since) about a DIFFERENT but related
-gap — __jsonCore* intrinsics missing from the v1 INTERPRETER (not the Swift backend codegen).
-Not the same file/subsystem as this claim's target, but cross-referencing for awareness in
-case that agent is still active.
-next: Add remaining direct negative matrices and non-catchable host-error proof, run full Swift/CLI/
-assembled macOS+iOS/conformance gates, request post-code Rozum review, then docs/bookkeeping/release.
-Original next: (1) localeSignal first — smallest, cleanest, matches the existing onlineSignal/
-persistedSignal ABI pattern (add to nativeUiPublicGlobals + a Swift-side NativeUiSignal
-reflecting locale, default likely fixed/en or device locale). (2) __jsonCoreWrap — larger,
-needs a real Swift-side JSON value representation + Map/List-based accessor semantics
-matching std/json.ssc's JsonValue.get/.asString/.asList/.asBool. Verify via real swift build/
-run against busi's pipeline-smoke.ssc fixture, plus existing tkv2 conformance. Compatibility-
-only in spirit (busi's real-world usage), following the same real-regression discipline as
-swiftui-legacy-real-harness and the NativeUi review rounds (actual swift build, not string-
-match).
+done-so-far: Branch 4a8d640ec has real-Swift standard lower/serve and production locale+JSON+three-keyed-list execution, exact try/toInt/JSON/List/association-map gates, and a new anonymous-derived lifecycle matrix. The lifecycle matrix found a real nested reconciliation bug: inner global disposal deletes outer provisional derived cells; plan 2a50d9586 and spec 8fa1349e9 freeze outermost-only disposal and are awaiting Rozum approval.
+next: Implement approved outermost disposal, make the lifecycle matrix green, update the Apple e2e to the production fixture, run full Swift/CLI/macOS+iOS/conformance gates, obtain post-code Rozum approval, then docs/spec/bookkeeping/push/reporter confirmation/claim and worktree cleanup.
