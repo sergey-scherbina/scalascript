@@ -59,8 +59,9 @@ Chosen approaches (autonomous — non-breaking defaults):
       DNS→internal), Rust to_socket_addrs, JS literal+localhost. LANDED 81ba4efce. VERIFIED all 3
       (127.0.0.1/localhost/10.x/169.254.169.254 blocked on, external+off allowed).
       interp HttpIntrinsics also wired (shared resolveAndGuard). All 4 backends done.
-- [ ] **H4 cache integrity** — HMAC/sign `.scjvm`/`.scjs`/`classBundle` with an install-private
-      key (jar mtime/size stamp is forgeable); reject group/other-writable artifact dirs.
+- [~] **H4 cache integrity** — DONE (cheap half): isJvmStale/isJsStale reject a group/other-writable
+      `.ssc-artifacts` dir → regenerate from source. LANDED (see git). VERIFIED 755/775/777.
+      → BACKLOG: full HMAC signing of `.scjvm`/`.scjs`/`classBundle` with an install-private key.
 - [x] **H5 JVM outbound global vars** — base/timeout/retries/delay → `ThreadLocal`. LANDED ef7fd23e7.
 - [ ] **M1 request-body cap** — sane default + streaming counted read on the legacy JDK serve
       path (chunked bypasses the Content-Length pre-check).
