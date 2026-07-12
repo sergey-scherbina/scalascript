@@ -443,6 +443,12 @@ pipeline used by real applications.
       `disposeUnreferencedScopes` for nested reconciliation depth and run it
       once at the outermost commit after recursive stale-owner removal; rerun
       nested reorder/delete and rollback gates before post-code review.
+      Final lifecycle re-review keeps one narrow gate open: delete an inner
+      keyed child while its outer keyed owner survives. Assert the inner
+      reconcile reports no premature disposal, the outermost commit reports
+      exactly the inner cell, the outer signal remains live, count drops by
+      one, the deleted handle stays dead, and reinsertion creates a fresh cell
+      under the same structural id.
 - [ ] **Release gates and closure** — require explicit post-code Rozum
       `APPROVE`; full Swift backend, combined CLI, assembled Swift CLI and
       macOS+iOS Apple e2e, money/effects/tkv2/v2 conformance, affected

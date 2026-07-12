@@ -420,6 +420,11 @@ the `scalascript` Rozum room from busi's production-shaped fixture; accepted by
   must be deferred to the outermost reconciliation commit; the outer snapshot
   remains the rollback boundary and recursively removed owner subtrees are
   collected before the single disposal pass.
+- **Final nested-delete proof still required:** keep the outer key and remove
+  only its inner keyed child. The inner call must expose an empty deferred
+  disposal list; the enclosing commit must dispose exactly the inner derived
+  cell while preserving the outer cell, and reinsertion must not resurrect the
+  deleted cell object even though its structural id is reused.
 
 ## v2-httpclient-curried-extern-unbound — curried top-level `extern def` doesn't bind as a global on `ssc run`
 **Status:** open (2026-07-12), found by claude-code (rozum-ucc-test) while porting rozum's UCC
