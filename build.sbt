@@ -591,6 +591,29 @@ lazy val unimlJvm = unimlCross.jvm
 lazy val unimlJs  = unimlCross.js
 lazy val uniml    = unimlJvm
 
+// ── UniML JSON — strict RFC 8259 dialect adapter ────────────────────────
+lazy val unimlJsonCross =
+  crossProject(JVMPlatform, JSPlatform)
+    .crossType(CrossType.Pure)
+    .in(file("v1/lang/uniml-json"))
+    .dependsOn(unimlCross)
+    .settings(
+      name := "scalascript-uniml-json",
+      libraryDependencies ++= Seq(
+        "com.lihaoyi" %%% "ujson" % upickleV % Test,
+        "org.scalatest" %%% "scalatest" % scalatestV % Test,
+      ),
+      Compile / scalacOptions ++= sharedScalacOptionsStrict,
+      Test    / scalacOptions ++= sharedScalacOptions,
+    )
+    .jvmConfigure(_.withId("unimlJson"))
+    .jsConfigure(_.withId("unimlJsonJs"))
+    .jsSettings(Test / fork := false)
+
+lazy val unimlJsonJvm = unimlJsonCross.jvm
+lazy val unimlJsonJs  = unimlJsonCross.js
+lazy val unimlJson    = unimlJsonJvm
+
 lazy val core = project
   .in(file("v1/lang/core"))
   .dependsOn(valueData, backendSpi, backendSqlRuntime, logger, yaml, markupCore)
@@ -4507,7 +4530,7 @@ lazy val root = project
     v2NativeDistributedPlugin, v2NativeGraphPlugin, v2NativeOpticsPlugin, v2NativePdfPlugin,
     v2NativeNfcPlugin, v2NativeMcpPlugin, v2NativeGraphRdf4jPlugin, v2NativeSwiftPlugin,
     v2PluginBridge, v2FrontendBridge, v2JvmBytecode, v2JsBackend, v2SwiftBackend,
-    valueData, backendSpi, pluginApi, ir, logger, yaml, uniml, unimlJs, core, interop, testUtils, pluginHost, wireCore,
+    valueData, backendSpi, pluginApi, ir, logger, yaml, uniml, unimlJs, unimlJson, unimlJsonJs, core, interop, testUtils, pluginHost, wireCore,
 
     runtimeServerCommon, runtimeServerSpi, runtimeServerJvm,
     runtimeServerJvmJetty, runtimeServerJvmNetty, httpFastEngine, runtimeServerJvmFast, mcpCommon,
