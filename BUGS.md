@@ -28,8 +28,8 @@ acceptance e2e test to native `.ssc`. Not blocking (single-param http externs wo
 
 ## v21-module-gate-misses-jca-provider — derived JRE omits Ed25519 module
 
-**Status:** open; found by codex in the standard-only negative release gate on
-2026-07-12.
+**Status:** fixed (2026-07-12, `dce6aa0a8`), awaiting Sergiy confirmation;
+found by codex in the standard-only negative release gate.
 
 - **Real-harness repro:** run `tests/e2e/v21-negative-toolchain-release-gate.sh`.
   The copied standard graph with the current `jdeps`-derived module set changes
@@ -43,6 +43,10 @@ acceptance e2e test to native `.ssc`. Not blocking (single-param http externs wo
   JDK crypto provider module, focused Ed25519 VM/ASM checks pass under
   `--limit-modules`, and the negative exhaustive parity returns to 53/13 with
   zero unclassified or blocking rows. Compiler modules must remain absent.
+- **Fix/result:** both module-limited gates add the reflective `jdk.crypto.ec`
+  provider edge and run exact Ed25519 VM/ASM checks. The combined negative
+  environment returns to 53/13/129, compiler modules remain unresolvable, and
+  the consolidated release gate passes.
 
 ## v21-native-sql-fence-token-activates-client-code — SQL token parsing widened code fences
 

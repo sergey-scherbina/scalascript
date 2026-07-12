@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-12 — ScalaScript 2.1 negative toolchain release gate
+
+CI and the consolidated release now re-run the 195-row native frontend/checker
+and VM/direct-ASM corpus from a copied standard-only distribution with no
+compiler/Scalameta JARs, compiler commands, or compiler modules. Native
+providers and an HTTP server pass in the same environment, and a frozen report
+self-test rejects launcher/JAR/tool/module/parity/blocker drift. The gate also
+found and fixed the reflective `jdk.crypto.ec` Ed25519 provider edge. Landed in
+`dce6aa0a8`; exhaustive release and conformance 11/11 pass.
+
 ## 2026-07-12 — Plain `ssc` is the compiler-free ScalaScript 2.1 launcher
 
 Staged, contributor, and self-installed `ssc` now selects `StandardMain` and

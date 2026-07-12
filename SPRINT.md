@@ -3562,29 +3562,35 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
             `ssc-tools` explicitly. Slim/JRE/build-jvm and the exhaustive
             194/194, 53/13/129, 0-blocker freeze pass; conformance is 11/11 and
             the Scala 3 seed/artifact SHA are unchanged.
-- [ ] **v21-ti-negative-ci-and-release** — add CI lanes with scala-cli absent,
+- [x] **v21-ti-negative-ci-and-release** — add CI lanes with scala-cli absent,
       compiler/scalameta jars removed, and `java.compiler` unavailable; run the
       portable native-front VM/ASM corpus gates plus representative plugin/server
       smokes. Update the spec behavior checkboxes, results, CHANGELOG, release
       layout/docs, and dependency-size baseline. Done when all affected
       conformance slices are green and the standard 2.1 path cannot accidentally
       regress back to a compiler-backed route.
-      - [ ] Commit a negative-environment release spec with an explicit copied
+      - [x] Commit a negative-environment release spec with an explicit copied
             standard-only layout, sanitized non-compiler PATH, derived
             module-limited Java runtime, exhaustive frontend/VM/ASM corpus, and
             representative provider/server acceptance contract.
-      - [ ] Implement one report-producing negative release gate and a synthetic
+      - [x] Implement one report-producing negative release gate and a synthetic
             self-test that proves forbidden launcher/JAR/module/tool drift is
             rejected rather than merely absent on the happy path.
-            - [ ] Fix `v21-module-gate-misses-jca-provider`: augment the
+            - [x] Fix `v21-module-gate-misses-jca-provider`: augment the
                   statically derived JRE set with the standard runtime's
                   reflective `jdk.crypto.ec` JCA provider edge and add focused
                   Ed25519 VM/ASM coverage without admitting compiler modules.
-      - [ ] Wire the gate into CI and the consolidated self-hosted release gate;
+      - [x] Wire the gate into CI and the consolidated self-hosted release gate;
             keep the existing focused slim/JRE/build-jvm jobs as fast diagnostics.
-      - [ ] Run the new gate, exhaustive release, and fresh `v2-*` conformance;
+      - [x] Run the new gate, exhaustive release, and fresh `v2-*` conformance;
             freeze report/layout/size results, update docs, and push the green
             slice immediately.
+      Result (`dce6aa0a8`): the standard-only copied distribution has zero
+      compiler/Scalameta JARs, commands, modules, or forbidden references; its
+      exhaustive frontend/checker and VM/ASM results are 194/194 and 53/13/129
+      with zero blockers. Provider/HTTP server and validator-negative smokes
+      pass. The gate discovered and fixed the reflective `jdk.crypto.ec` JCA
+      edge, is wired into CI/consolidated release, and conformance is 11/11.
 - [ ] **v2-frontendbridge-sqlite-timeout:** investigate the twice-reproduced
       compatibility-bridge failure recorded in `BUGS.md`. Run only
       `v2-conformance: v2-db-url-scheme-not-jdbc`, verify whether sqlite-jdbc is
