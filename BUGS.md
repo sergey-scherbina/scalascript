@@ -1,5 +1,32 @@
 # Bug tracker
 
+## v2-httpclient-curried-extern-unbound — curried top-level `extern def` doesn't bind as a global on `ssc run`
+**Status:** open (2026-07-12), found by claude-code (rozum-ucc-test) while porting rozum's UCC
+acceptance e2e test to native `.ssc`. Not blocking (single-param http externs work; the test uses those).
+- **Real-harness repro:** `ssc run` a `.ssc` importing `[httpClient](std/http.ssc)` that calls
+  `httpClient("http://x"){ … }` → `RuntimeException: unbound global: httpClient`. Minimal:
+  `[httpClient, httpRetry, httpTimeout](std/http.ssc)` then a `scalascript` fence with
+  `httpClient("http://example.invalid") { httpTimeout(2000); httpRetry(2, 500) }`. (`ssc run` only;
+  `run-jvm` has a separate std-module JVM-lowering issue — Any-vs-Int in the generated prelude.)
+- **Scope:** single-param-list http externs (`httpGet`/`httpPost`/`httpTimeout`/`httpRetry`) bind + work
+  fine on `ssc run`. ONLY the CURRIED `httpClient(baseUrl)(block)` from `std/http.ssc` stays unbound.
+- **Root cause (partial):** `JvmBackend` emits its "unbound global" stub (`JvmBackend.scala` ~1224) for
+  `httpClient` ⇒ it is not among the program's DEFINED globals. A referenced *curried* plugin-native is
+  not injected as a defined global the way single-param-list ones are.
+- **Ruled out (two failed fix attempts, released claims `887913740` + `5225aef97`):**
+  1. `PluginBridge.registerGlobal` for httpClient/Timeout/Retry — NO-OP: JvmBackend decides
+     bound-vs-stub from the frontend's defined globals, not runtime plugin registration.
+  2. Recording top-level `extern def m(a)(b)` into `curriedExternMethods` in
+     `FrontendBridge.stripExternDecls` (mirroring the `extern class/trait` scan @899) — compiles, but
+     httpClient STILL unbound ⇒ the curried-merge / `curriedExternMethods` is NOT the cause.
+- **Open question (where to fix):** WHERE does a referenced single-param plugin-native (`httpGet`) become
+  a DEFINED global so JvmBackend binds it instead of stubbing? `httpGet` is not injected in
+  `FrontendBridge`, and the injection wasn't found in `JvmBackend` either. Whatever that mechanism is, a
+  curried extern is skipped by it — start there.
+- **Done-when:** `ssc run` binds a curried top-level `extern def m(a)(b)` (e.g. `httpClient`) to its
+  plugin native so `httpClient(base){block}` runs the block; a conformance/probe covers it.
+
+
 ## v21-native-sql-fence-token-activates-client-code — SQL token parsing widened code fences
 
 **Status:** fixed (2026-07-12, `e3632db14`), awaiting Sergiy confirmation;
