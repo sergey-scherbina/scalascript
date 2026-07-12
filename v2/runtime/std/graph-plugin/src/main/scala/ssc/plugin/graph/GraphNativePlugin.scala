@@ -211,7 +211,5 @@ final class GraphNativePlugin extends NativePlugin:
     context.register("Graph.putRdf")(putRdf)
     context.register("Graph.getRdf")(getRdf)
     context.register("Graph.triples")(triples)
-    context.register("Sparql.select")(unavailable("Sparql.select", "rdf4j-memory or rdf4j-http"))
-    context.register("Sparql.update")(unavailable("Sparql.update", "rdf4j-memory or rdf4j-http"))
     context.register("Cypher.query")(unavailable("Cypher.query", "neo4j"))
     context.register("Gremlin.query")(unavailable("Gremlin.query", "gremlin-server or janusgraph"))

@@ -147,7 +147,7 @@ for mode in vm asm; do
   set -e
   [[ $graph_rdf_rc -ne 0 ]]
   [[ $(cat "$sandbox/graph-rdf4j.$mode.out") == 'Stored two books.' ]]
-  grep -F 'Sparql.select is not available in the standard local Graph provider' \
+  grep -F 'unhandled runtime effect: Sparql.select' \
     "$sandbox/graph-rdf4j.$mode.err" >/dev/null
 done
 yaml_expected=$'Type:   YObj\nHost:   localhost\nPort:   8080\nDebug:  true\nTags:   web, api\n\nRound-trip:\ndebug: true\nhost: localhost\nport: 8080\n\nFrom fenced block:\nApp: MyApp'

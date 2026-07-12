@@ -6,7 +6,6 @@ import ssc.plugin.NativePluginHost
 
 final class GraphNativePluginTest extends AnyFunSuite:
   private val graph = Value.DataV("Graph", Vector.empty)
-  private val sparql = Value.DataV("Sparql", Vector.empty)
 
   private def install(): Unit =
     NativePluginHost.installProviders(List(GraphNativePlugin()))
@@ -73,13 +72,11 @@ final class GraphNativePluginTest extends AnyFunSuite:
       Value.DataV("RdfTriple", Vector(Value.StrV("urn:2"), Value.StrV("name"), Value.StrV("Bob")))))
   }
 
-  test("remote diagnostics are exact and reinstall clears state") {
+  test("remote SPARQL ownership stays outside standard and reinstall clears state") {
     install()
     call(graph, "putVertex", Value.StrV("deps"), module("A", "a.ssc"))
-    val error = intercept[UnsupportedOperationException] {
-      call(sparql, "select", Value.StrV("kg"), Value.StrV("SELECT * WHERE {}"))
-    }
-    assert(error.getMessage.contains("explicit rdf4j-memory or rdf4j-http backend"))
+    assert(V2PluginRegistry.lookup("Sparql.select").isEmpty)
+    assert(V2PluginRegistry.lookup("Sparql.update").isEmpty)
     assert(V2PluginRegistry.lookup("Graph.unknown").isEmpty)
     install()
     assert(items(call(graph, "vertices", Value.StrV("deps"))).isEmpty)

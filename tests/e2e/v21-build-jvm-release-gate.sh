@@ -170,7 +170,7 @@ graph_rdf_rc=$?
 set -e
 [[ $graph_rdf_rc -ne 0 ]]
 [[ $(cat "$sandbox/graph-rdf4j.out") == 'Stored two books.' ]]
-grep -F 'Sparql.select is not available in the standard local Graph provider' \
+grep -F 'unhandled runtime effect: Sparql.select' \
   "$sandbox/graph-rdf4j.err" >/dev/null
 
 jar_cmd=$(command -v jar)
