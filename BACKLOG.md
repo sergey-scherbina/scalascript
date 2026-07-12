@@ -1034,3 +1034,18 @@ Tier-2 static-depth general handlers all cargo-run. The deferred remainder is na
 inside a loop or other shape where the number of continuation nests is not statically known. That likely needs
 the explicit defunctionalized trampoline sketched in `specs/rust-effects.md §11`. No current benchmark/example
 requires it; keep it in BACKLOG until a real consumer appears.
+
+## security-hardening follow-ups (2026-07-12) — from specs/security-hardening.md
+
+The implementable audit findings landed (see CHANGELOG / git `security-hardening`).
+These remain, each needing its own slice:
+- **M10 confined-fs API** — `readFileWithin(root, path)` family (normalize + startsWith(root) +
+  NOFOLLOW) as new externs across backends; raw fs helpers stay trusted-input-only. Needs a spec.
+- **H4-full artifact signing** — HMAC/sign `.scjvm`/`.scjs`/`classBundle` with an install-private
+  key (cheap dir-permission half already landed).
+- **L8 cross-backend conformance** — shared suite pinning identical fs/process/http semantics
+  (deleteFile, redirects, timeout, cwd/env, listDir order) across JVM/JS/Rust/interp.
+- **M2-JS / M3-JS** — JS worker response-body cap (byte-counted reader) + JS redirect policy
+  (manual mode returns an opaque response; needs a response.url host re-check).
+- **exec opts-wiring** — interp/Rust/JS `exec` ignore ProcessOptions (cwd/env/timeout/inheritEnv);
+  wire them so M4/L3 apply on those lanes too.
