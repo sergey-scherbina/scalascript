@@ -1241,6 +1241,15 @@ join overload: `["a", 2]` produces `a2`, `a|2`, and `<a|2>` for 0, 1, and 3
 arguments; `Nil` produces `""`, `""`, and `"<>"`. Wrong arity, a non-String
 delimiter, and a non-list receiver remain rejected and are negative gates.
 
+At the checked CoreIR boundary a source `Map[String, Any]` may be represented
+either as `SscMap` or as the frontend's proper association list of
+`Tuple2(String, Value)`. NativeUi `element` normalizes both shapes into the same
+owned `SscMap`, validates every value as portable, and consumes association
+entries left-to-right so a duplicate String key is last-wins. An improper list,
+a non-`Tuple2` entry, a tuple of the wrong arity, or a non-String key is a
+bounded sourced runtime failure. The Apple renderer receives only the
+normalized map ABI; it does not decode source association lists itself.
+
 ### Checked manifest entrypoint
 
 The checked source result retains the optional top-level front-matter `main`
@@ -1443,6 +1452,9 @@ assembled macOS and iOS Xcode gates.
   mapped CSS list's `.mkString("")`, rather than bypassing the toolkit lowerer.
 - [ ] Real Swift pins List `mkString` 0/1/3 overloads for mixed and empty lists,
   plus wrong-arity, wrong-delimiter-type, and non-list rejection boundaries.
+- [ ] NativeUi `element` accepts both checked String maps and proper String-key
+  association lists with last-wins duplicates, while malformed list/tuple/key
+  shapes fail before a malformed ABI reaches the Apple renderer.
 - [ ] Entry-init module registrations expose `localeSignal`; a registration in
   a definition/lambda/dead branch or inside an outer registration value cannot
   authorize an unbound global.
