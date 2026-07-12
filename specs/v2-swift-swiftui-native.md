@@ -483,6 +483,14 @@ render closure recreates the same structural ids rather than consuming a global
 monotonic id. Unkeyed repeated siblings are intentionally position-identified;
 stateful moves require `forKeyed`.
 
+Anonymous site-derived signals (`computedSignal` and `eqSignal`) use that same
+structural identity, not lexical `siteId` alone. Their internal id includes a
+kind-separated zero-based occurrence under the current owner, so three calls to
+an imported helper such as `localeText` create three independent root signals;
+the same call order in a keyed owner recreates the same ids. Explicitly named
+`signal`/fetch/persisted ids retain their existing duplicate/conflict rules and
+do not receive an occurrence suffix.
+
 Unsupported UI data must carry `NativeUiSourceRef(file, line, column,
 operation)` when source position is available; otherwise it carries the entry
 file and operation. A host stack trace is not an acceptable substitute.
@@ -1478,6 +1486,9 @@ assembled macOS and iOS Xcode gates.
 - [ ] Entry-init module registrations expose `localeSignal`; a registration in
   a definition/lambda/dead branch or inside an outer registration value cannot
   authorize an unbound global.
+- [ ] Repeated imported `localeText`/anonymous computed and equality signal
+  sites receive stable owner/site/occurrence ids without weakening explicit
+  named-signal conflict detection, including keyed-owner recreation.
 - [ ] Swift `__throw__` preserves the exact ADT/value payload and `__try__`
   distinguishes explicit throw from recoverable runtime failure.
 - [ ] Successful, invalid/trimmed-conversion, nested handler rethrow/runtime
