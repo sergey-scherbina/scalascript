@@ -81,7 +81,7 @@ object JitRuntime:
         if e.compiled != null then e.compiled
         else if e.disabled then null
         else
-          VmCompiler.compile(withParamHints(f, paramHints), resolverFor(interp), metaFor(interp)) match
+          VmCompiler.compile(withParamHints(f, paramHints), resolverFor(interp), metaFor(interp), typeMapFor(interp)) match
             case Some(cf) => e.compiled = cf; cf
             case None     => e.disabled = true; null
 
@@ -139,6 +139,13 @@ object JitRuntime:
   // These are zero-arg Scala val-like accessors; the VM emits GETFI for them.
   private val StringMeta: (List[String], List[String]) =
     (List("length", "isEmpty", "nonEmpty"), List("Int", "Boolean", "Boolean"))
+
+  /** wide-jit C-3: a per-node static-type lookup over the interpreter's `nodeTypes` map
+   *  (identity-keyed on the original scala.meta trees). Empty map ⇒ always-null ⇒ the JIT
+   *  behaves exactly as before. */
+  private def typeMapFor(interp: Interpreter): VmCompiler.TypeMap =
+    val m = interp.nodeTypes
+    (t: scala.meta.Tree) => m.get(t)
 
   /** Build an ADT-constructor metadata lookup from the interpreter's recorded
    *  field order + field types, for `match` field extraction in [[VmCompiler]]. */

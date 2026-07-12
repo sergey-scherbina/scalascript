@@ -156,6 +156,11 @@ class Interpreter(
   // since `InstanceV.fields` is an unordered Map for instances with more
   // than four fields.
   private[interpreter] val typeFieldOrder = mutable.Map.empty[String, List[String]]
+  // wide-jit C-3: per-node static types from the Typer, identity-keyed on the original
+  // scala.meta trees this interpreter runs. Set by the run path (compileAstModule) when it
+  // typechecks the module; empty by default (JIT then behaves exactly as before).
+  var nodeTypes: java.util.Map[scala.meta.Tree, scalascript.typer.SType] =
+    java.util.Collections.emptyMap[scala.meta.Tree, scalascript.typer.SType]()
   // Opaque int tags for ADT constructors — enables switch(int) tableswitch in BytecodeJit
   // instead of switch(String) lookupswitch+equals. Tags start at 1 (0 = unregistered).
   private[interpreter] val typeTagMap = mutable.HashMap.empty[String, Int]

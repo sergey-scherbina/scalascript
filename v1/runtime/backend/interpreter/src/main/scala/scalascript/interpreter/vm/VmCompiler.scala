@@ -54,6 +54,25 @@ object VmCompiler:
 
   private val noMeta: Meta = _ => null
 
+  /** wide-jit C-3: per-node static types from the Typer, identity-keyed on the ORIGINAL
+   *  scala.meta trees the interpreter runs (the C-2 `compileAstModule` path preserves that
+   *  identity — the `Defn.Def` body node the Typer recorded is `eq` to `FunV.body`). Returns
+   *  `null` when no type was inferred for a node (partial by design: signature-level, so
+   *  closures/some locals are absent). */
+  type TypeMap = scala.meta.Tree => scalascript.typer.SType | Null
+
+  private val noTypeMap: TypeMap = _ => null
+
+  /** Measurement (behaviour-neutral): how often a compiled expression node carries a concrete
+   *  numeric static type from the TypeMap. Confirms the identity-key hits end-to-end and sizes
+   *  the C-4 "remove type-unknown bail" opportunity. Cumulative across compilations. */
+  val typeMapSeen = new java.util.concurrent.atomic.AtomicLong(0L)
+  val typeMapHits = new java.util.concurrent.atomic.AtomicLong(0L)
+  /** Opt-in (zero overhead otherwise): count TypeMap coverage at each compiled node. Read the
+    * counters directly (tests / future C-4 opportunity sizing). */
+  val measureTypes: Boolean =
+    sys.env.contains("SSC_JIT_TYPESTATS") || sys.props.contains("ssc.jit.typestats")
+
   /** Self-recursion only (no sibling calls). Used by tests/bench. */
   def compile(fn: Value.FunV): Option[CompiledFn] = compile(fn, noResolve, noMeta)
 
@@ -63,7 +82,11 @@ object VmCompiler:
   /** Compile `fn`, resolving sibling calls via `resolve` and ADT constructors
    *  (for `match` field extraction) via `meta`. */
   def compile(fn: Value.FunV, resolve: Resolve, meta: Meta): Option[CompiledFn] =
-    try Some(new Ctx(resolve, meta).compileFn(fn))
+    compile(fn, resolve, meta, noTypeMap)
+
+  /** Compile `fn` with, additionally, a `typeMap` of static per-node types (wide-jit C-3). */
+  def compile(fn: Value.FunV, resolve: Resolve, meta: Meta, typeMap: TypeMap): Option[CompiledFn] =
+    try Some(new Ctx(resolve, meta, typeMap).compileFn(fn))
     catch case b: Bail =>
       if b.typed != null then JitMissStats.record("vm", b.typed)
       else                    JitMissStats.record(b.reason)
@@ -115,7 +138,21 @@ object VmCompiler:
   val foldLeftCompileCount = new java.util.concurrent.atomic.AtomicLong(0L)
 
   // ── shared compilation context (handles cyclic call graphs) ──────
-  private final class Ctx(resolve: Resolve, meta: Meta):
+  private final class Ctx(resolve: Resolve, meta: Meta, typeMap: TypeMap = noTypeMap):
+    /** wide-jit C-3: the static `VmType` of a node from the Typer's map, or `null` if the map
+      * has no (or a non-scalar) type for it. Mirrors `fieldVmType` but keyed on real `SType`. */
+    def vmTypeOf(t: scala.meta.Tree): VmType | Null =
+      typeMap(t) match
+        case null => null
+        case st   => sTypeToVm(st)
+
+    private def sTypeToVm(st: scalascript.typer.SType): VmType | Null =
+      import scalascript.typer.SType
+      st match
+        case SType.Named("Double", _) | SType.Named("Float", _)                        => TDouble
+        case SType.Named("Int", _) | SType.Named("Long", _) | SType.Named("Boolean", _) => TInt
+        case SType.Named(_, _)                                                          => TRef
+        case _                                                                         => null // Var/Function/… → unknown
     // Shells registered BEFORE their callPool is filled, so a cycle (f→g→f)
     // resolves to the in-progress shell instead of recompiling forever.
     private val building = new java.util.IdentityHashMap[Value.FunV, CompiledFn]()
@@ -478,7 +515,13 @@ object VmCompiler:
     // the static type written there. Destination-passing avoids the extra MOVE a
     // return-a-register scheme needs at every use site (call args, if-branches,
     // assignments), cutting the instruction count of the hot VM dispatch loop.
-    private def compileInto(t: Term, dst: Int): VmType = t match
+    private def compileInto(t: Term, dst: Int): VmType =
+      if VmCompiler.measureTypes then
+        typeMapSeen.incrementAndGet()
+        if ctx.vmTypeOf(t) != null then typeMapHits.incrementAndGet()
+      compileIntoImpl(t, dst)
+
+    private def compileIntoImpl(t: Term, dst: Int): VmType = t match
       case Lit.Int(v)       => emit(CONST, dst, constSlot(v.toLong), 0); setType(dst, TInt); TInt
       case Lit.Long(v)      => emit(CONST, dst, constSlot(v), 0); setType(dst, TInt); TInt
       case Lit.Boolean(v)   => emit(CONST, dst, constSlot(if v then 1L else 0L), 0); setType(dst, TInt); TInt

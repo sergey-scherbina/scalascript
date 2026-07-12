@@ -287,7 +287,17 @@ private[cli] def compileViaBackend(
     // re-parse (SectionRuntime consumes `cb.tree`). Parse errors were already
     // reported above; the interpreter imposes no capability restrictions.
     case ib: scalascript.interpreter.InterpreterBackend =>
-      ib.compileAstModule(module, opts)
+      // wide-jit C-3 (opt-in via SSC_JIT_TYPESTATS): typecheck the SAME `module` object —
+      // identity-preserving, so the Typer's per-node types key on the very trees the JIT
+      // compiles — best-effort (never fail the run on a type error). OFF by default → empty
+      // map → the interpreter/JIT behave exactly as before.
+      val emptyTypes = java.util.Collections.emptyMap[scala.meta.Tree, scalascript.typer.SType]()
+      val nodeTypes =
+        if sys.env.contains("SSC_JIT_TYPESTATS") || sys.props.contains("ssc.jit.typestats") then
+          try { val typer = new scalascript.typer.Typer(); typer.typeCheck(module); typer.nodeTypes }
+          catch case _: Throwable => emptyTypes
+        else emptyTypes
+      ib.compileAstModule(module, opts, nodeTypes)
     case _ =>
       val ir    = Normalize(module)
       val diags = CapabilityCheck.validate(ir, backend.capabilities, backendId)

@@ -2577,3 +2577,31 @@ class SscVmTest extends AnyFunSuite with Matchers:
         direct.apply(Value.StringV("nope")) shouldBe 0L
       }
   }
+
+  test("wide-jit C-3: FunV.body is identity-keyed in the Typer's nodeTypes; the map threads to VmCompiler") {
+    // Parse ONCE; run it (→ FunV) and typecheck it (→ nodeTypes) from the SAME parse, so the
+    // FunV.body Term the JIT compiles is the exact object the Typer recorded a type for.
+    val src    = "# T\n\n```scala\ndef sq(n: Int): Int = n * n\n```\n"
+    val module = Parser.parse(src)
+    val interp = Interpreter(devNull)
+    interp.run(module)
+    val fn = interp.globalsView("sq").asInstanceOf[Value.FunV]
+
+    val typer = new scalascript.typer.Typer()
+    typer.typeCheck(module)
+    val nodeTypes = typer.nodeTypes
+    assert(!nodeTypes.isEmpty, "Typer recorded no node types")
+
+    // Identity-key (the crux of C-3's viability): the exact body Term the FunV runs is a key the
+    // Typer recorded a type for — there is no tree-copy between parse and FunV on this path.
+    assert(nodeTypes.get(fn.body) != null,
+      s"FunV.body (${fn.body.getClass.getSimpleName}) not found in nodeTypes — identity broken")
+    assert(nodeTypes.get(fn.body).toString.contains("Int"),
+      s"expected Int for `n * n`, got ${nodeTypes.get(fn.body)}")
+
+    // The map threads through the 4-arg compile and the function still compiles.
+    val typeMap: VmCompiler.TypeMap = (t: scala.meta.Tree) => nodeTypes.get(t)
+    val noMeta:  VmCompiler.Meta    = (_: String) => null
+    val cf = VmCompiler.compile(fn, VmCompiler.noResolve, noMeta, typeMap)
+    assert(cf.isDefined, "sq did not compile with a typeMap present")
+  }

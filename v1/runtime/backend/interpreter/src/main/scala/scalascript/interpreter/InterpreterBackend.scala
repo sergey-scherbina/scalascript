@@ -56,11 +56,17 @@ class InterpreterBackend extends InteractiveBackend:
    *  Same interpreter setup as `compile`; `SectionRuntime` consumes `cb.tree`
    *  directly, so no re-parse occurs. Used by the CLI `run` fast-path for `"int"`
    *  so a later phase can key a static-type map on the very trees the JIT compiles. */
-  def compileAstModule(astModule: scalascript.ast.Module, opts: BackendOptions): CompileResult =
+  def compileAstModule(
+      astModule: scalascript.ast.Module,
+      opts: BackendOptions,
+      nodeTypes: java.util.Map[scala.meta.Tree, scalascript.typer.SType] =
+        java.util.Collections.emptyMap[scala.meta.Tree, scalascript.typer.SType]()
+  ): CompileResult =
     val baseDir = opts.baseDir.map(p => os.Path(p.toAbsolutePath.toString))
     val exit =
       try
         val interp = Interpreter(baseDir = baseDir)
+        interp.nodeTypes = nodeTypes // wide-jit C-3: static types for the JIT (empty = no-op)
         opts.extra.get("frontendName")
           .foreach(n => interp.injectGlobal("_ssc_frontend_name", Value.StringV(n)))
         interp.run(astModule)
