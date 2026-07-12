@@ -30,16 +30,24 @@ bounded semantic projections rather than parse-time execution.
       `specs/uniml-yaml.md` first, then add JVM/Scala.js core tests before the YAML adapter uses it.
       This is the general indentation-language primitive; rejected alternative: synthetic dedent
       tokens, which would violate the source-token invariant.
-- [ ] **uniml-yaml-1-adapter** — implement separate `unimlYaml`/`unimlYamlJs` cross-projects over
-      UniML with a bounded chunk-invariant scanner and iterative indentation/flow parser emitting one
-      VM instruction per source token for streams, documents, mappings, sequences, and scalar nodes.
-- [ ] **uniml-yaml-2-projection** — add ordered duplicate-preserving YAML semantic values and bounded
-      Core Schema resolution; retain tags/anchors/aliases structurally and expose alias resolution only
-      through an explicit cycle/expansion-limited projection policy.
+- [x] **uniml-yaml-1-adapter** — DONE 2026-07-12 (`48720429c`, recovery fix `371e99abc`). Added
+      separate `unimlYaml`/`unimlYamlJs` projects over UniML, a bounded whole-source
+      chunk-invariant scanner, exact presentation tokens, iterative document/block/flow range stacks,
+      and balanced `Reframe` branches. Malformed flow returns a partial lossless CST plus diagnostics.
+      Original plan: implement a scanner/parser emitting one VM instruction per source token.
+- [x] **uniml-yaml-2-projection** — DONE 2026-07-12 (`48720429c`, nested-property fix `c9f599589`,
+      reinforcement `d608a8dd2`). Added ordered duplicate-preserving YAML values, exact scalar
+      lexemes, Core/JSON/Failsafe resolution, inert tags, document-local anchors, preserved aliases,
+      and explicit cycle/expansion/node-limited resolution. Original plan: add safe semantic values
+      without weakening or mutating the presentation CST.
 - [ ] **uniml-yaml-3-verify** — test block/flow syntax, every scalar style, indentation/chomping,
       multi-document streams, directives, tags/anchors/aliases, comments/duplicates, all chunk splits,
       malformed/security/limit cases on JVM+Scala.js; run YAML/content conformance, verify spec,
-      publish bookkeeping, release claim, then continue to Markdown M4.
+      publish bookkeeping, release claim, then continue to Markdown M4. Progress 2026-07-12:
+      16/16 focused tests pass unchanged on JVM and Scala.js; dense documents are tested at every
+      two-chunk split (including CRLF and a split surrogate pair); `yaml*,content*` conformance is
+      6/6. Before closure, add the official YAML test-suite subset/differential Core Schema gate and
+      either implement or explicitly profile remaining multiline-quoted/exotic-production gaps.
 
 ## uniml-xml — lossless secure XML 1.0 dialect and Markup projection (2026-07-12, Sergiy: "продолжай дальше не останавливайся")
 
