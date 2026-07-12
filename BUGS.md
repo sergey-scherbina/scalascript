@@ -248,8 +248,9 @@ found by codex in the real assembled-distribution gate for SclJet M1.
   example autoloads it, and SclJet conformance is 3/3.
 ## v21-scljet-jvm-vfs-unclassified-lane — new explicit tools example became both-fail
 
-**Status:** open (2026-07-12); found by codex when the strict zero-gap freeze
-caught the concurrently landed `examples/scljet-jvm-vfs.ssc` row.
+**Status:** fixed (2026-07-12, `5cd86bf1c`), awaiting Sergiy confirmation;
+found by codex when the strict zero-gap freeze caught the concurrently landed
+`examples/scljet-jvm-vfs.ssc` row.
 
 - **Real-harness repro:** run strict `scripts/bc-parity-sweep` after the SclJet
   JVM VFS example lands. The document declares `backends: [int]` and a
@@ -262,6 +263,25 @@ caught the concurrently landed `examples/scljet-jvm-vfs.ssc` row.
   a temporary filesystem with deterministic output, the manifest accounts for
   the row as `target-lane`, and exhaustive ordinary/negative reports return to
   zero `both-fail`, mismatch, one-sided, and blockers.
+- **Fix/result:** `v21-explicit-scljet-jvm-vfs-tools-smoke.sh` executes the real
+  v1 host plugin with exact output and cleanup; the row is an exact target lane.
+  The final 200-row ordinary and negative reports contain no parity gaps.
+
+## v21-scljet-readonly-unclassified-lane — new read-only JVM example became both-fail
+
+**Status:** fixed (2026-07-12, `2b61b6611`), awaiting Sergiy confirmation;
+found by codex when `examples/scljet-readonly.ssc` landed during the final
+199-row release gate.
+
+- **Real-harness repro:** run strict `scripts/bc-parity-sweep` after the example
+  lands. Its declared `ssc-tools run --v1` JVM VFS operation cannot execute in
+  compiler-free standard v2 VM or ASM, so an unregistered row is `both-fail`.
+- **Root cause:** the M2c example landed after the exact 14-row census while its
+  real filesystem smoke existed outside the v2.1 explicit-lane manifest.
+- **Fix/result:** the existing assembled `ssc-tools --v1` smoke is wrapped by an
+  exact target-lane regression, including exact schema/row output, close, and
+  file deletion. The freeze is 200 rows / 15 delegated (8 provider / 7 target),
+  with zero ordinary and negative parity gaps; SclJet conformance is 6/6.
 
 ## uniml-yaml-property-only-node — anchor/tag-only value lost its nested node
 
@@ -284,8 +304,9 @@ found by codex while extending the UniML YAML alias-cycle verification after
   alias-expansion budgets.
 ## v21-negative-freeze-smoke-stale-frontend-mutation — drift test became a no-op
 
-**Status:** open (2026-07-12); found by codex while reconciling the 197-row
-release freeze after `scljet-memory-vfs.ssc` landed concurrently.
+**Status:** fixed (2026-07-12, `65d0db5e5`), awaiting Sergiy confirmation;
+found by codex while reconciling the 197-row release freeze after
+`scljet-memory-vfs.ssc` landed concurrently.
 
 - **Real-harness repro:** update the canonical negative report from
   `frontend.ok=195` to `196` and run
@@ -296,11 +317,15 @@ release freeze after `scljet-memory-vfs.ssc` landed concurrently.
   from the canonical fixture.
 - **Done-when:** the mutation changes the current exact value, the canonical
   report passes, every synthetic drift is rejected, and the smoke prints PASS.
+- **Fix/result:** the mutation now targets the current exact value and is
+  advanced with every corpus freeze. The canonical 200-row report passes and
+  every synthetic count/membership drift is rejected.
 
 ## v21-unhandled-effect-smoke-x402-launcher — bridge assertion used standard `ssc`
 
-**Status:** open (2026-07-12); found by codex while verifying the direct-ASM
-effect fix for `v21-ti-retire-all-both-fail`.
+**Status:** fixed (2026-07-12, `3e90be0e7`), awaiting Sergiy confirmation;
+found by codex while verifying the direct-ASM effect fix for
+`v21-ti-retire-all-both-fail`.
 
 - **Real-harness repro:** after installing the v2.1 tier split, run
   `tests/e2e/v21-unhandled-effect-smoke.sh`. Its “bridge ASM x402 Op” case
@@ -311,11 +336,15 @@ effect fix for `v21-ti-retire-all-both-fail`.
   compatibility frontend is now reachable only through explicit `ssc-tools`.
 - **Done-when:** the bridge assertion invokes `ssc-tools` explicitly, standard
   `ssc` retains its compiler-free rejection, and the complete smoke passes.
+- **Fix/result:** the compatibility assertion now invokes explicit `ssc-tools`;
+  standard `ssc` keeps its structural parser rejection. Native-entry and the
+  final consolidated release gate pass.
 
 ## v21-asm-top-val-effect-leak — direct ASM stores and prints an unhandled effect
 
-**Status:** open (2026-07-12); found by codex in the consolidated v2.1
-release gate while closing `v21-ti-retire-all-both-fail`.
+**Status:** fixed (2026-07-12, `3e90be0e7`), awaiting Sergiy confirmation;
+found by codex in the consolidated v2.1 release gate while closing
+`v21-ti-retire-all-both-fail`.
 
 - **Real-harness repro:** run `bin/ssc run --native --bytecode
   examples/graph-rdf4j-http-storage.ssc` without the explicit RDF4J provider.
@@ -323,16 +352,19 @@ release gate while closing `v21-ti-retire-all-both-fail`.
   Sparql.select`, but stdout also contains the raw
   `Op("Sparql.select", ...)` value after `Stored two books.`. The native VM
   prints only `Stored two books.` before rejecting the effect.
-- **Root cause:** pending investigation in the direct-ASM primitive/cell-write
-  boundary; the self-hosted lowerer initializes top-level immutable values
-  through `cell.set`, so an effect result must be deferred instead of stored.
+- **Root cause:** generic direct-ASM `cell.set`, `lcell.set`, and `dcell.set`
+  primitive resolution stored a raw effect `Op`; the VM path lifted the write
+  through the effect and therefore never exposed the raw operation.
 - **Done-when:** direct ASM and VM both leave the raw `Op` unobservable, the
   focused native-entry regression passes in both modes, and the consolidated
   release gate is green.
+- **Fix/result:** generic setters now lift writes over `Op` before mutating the
+  cell. The bytecode regression, native-entry smoke, and final 200-row release
+  gate pass with no raw effect output.
 
 ## v21-empty-runtime-taxonomy-total — zero-row summary printed a blank total
 
-**Status:** fixed (2026-07-12, pending commit), awaiting Sergiy confirmation;
+**Status:** fixed (2026-07-12, `0efc3dd75`), awaiting Sergiy confirmation;
 found by codex in the zero-`both-fail` negative release gate.
 
 - **Real-harness repro:** generate a runtime taxonomy from a parity report with
@@ -501,7 +533,7 @@ the explicit companion.
   method without helper-order sensitivity.
 ## wasm-emitter-js-import-name-mismatch — generated JS cannot find emitted module
 
-**Status:** fixed (2026-07-12, pending commit), awaiting Sergiy confirmation;
+**Status:** fixed (2026-07-12, `422a5b7c8`), awaiting Sergiy confirmation;
 found by codex while retiring the v2.1 WASM `both-fail` target row.
 
 - **Real-harness repro:** run `bin/ssc-tools emit-wasm

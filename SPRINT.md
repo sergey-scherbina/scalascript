@@ -4187,7 +4187,7 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
       fell to 1.7 s, plugin bridge is 32/32, and affected conformance is 1/1.
       The broad bridge run is 195/196 with SQLite green; its sole unrelated
       `tkv2-pwa` provider-banner failure is already tracked separately.
-- [ ] **v21-ti-retire-all-both-fail:** user-requested follow-up to eliminate the
+- [x] **v21-ti-retire-all-both-fail:** DONE 2026-07-12 — user-requested follow-up to eliminate the
       frozen 13/13 VM/ASM `both-fail` rows without hiding failures as skips or
       restoring compatibility fallback. Write and commit
       `specs/v2.1-retire-all-both-fail.md` before implementation, audit each
@@ -4207,39 +4207,45 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
             this slice: `emit-wasm` writes `module.wasm` while its generated JS
             imports `main.wasm`. Add a real Node execution regression so the
             pure WASM row cannot be declared green from compilation alone.
-      - [ ] Fix the direct-ASM top-level-val effect leak discovered by the
+      - [x] Fix the direct-ASM top-level-val effect leak discovered by the
             consolidated release gate: `cell.set` must defer an unhandled
             `Op` exactly like the VM instead of storing it and exposing its raw
             representation to a following `println`. Add a bytecode regression,
             rerun native-entry, then rerun the complete consolidated gate.
-      - [ ] Repair the stale x402 bridge assertion in
+      - [x] Repair the stale x402 bridge assertion in
             `v21-unhandled-effect-smoke`: invoke the compiler-backed
             compatibility lane through explicit `ssc-tools`, while keeping
             standard `ssc` native-only and parser-sentinel strict.
-      - [ ] Reconcile the strict release freeze after the concurrently landed
+      - [x] Reconcile the strict release freeze after the concurrently landed
             `examples/scljet-memory-vfs.ssc` grows the exhaustive corpus from
             196/54 to 197/55. Prove the new row byte-identical on native VM/ASM
             and green in its real conformance lane before updating exact
             positive/negative counts; do not change any zero-gap metric.
-      - [ ] Classify the concurrently landed `examples/scljet-jvm-vfs.ssc`,
+      - [x] Classify the concurrently landed `examples/scljet-jvm-vfs.ssc`,
             which correctly requires its declared `ssc-tools run --v1` JVM host
             plugin and therefore appears as a new standard `both-fail`. Update
             the committed retirement spec first, add a deterministic real-plugin
             tools regression and exact manifest row, then advance the 198-row
             freeze only after ordinary and negative reports return to zero gaps.
-      - [ ] Reconcile the concurrently landed pure
+      - [x] Reconcile the concurrently landed pure
             `examples/scljet-readonly-codecs.ssc` M2 row after the 198-row
             consolidated gate passed. Prove native VM/direct-ASM exactness and
             the real SclJet codec conformance case, advance the strict corpus
             freeze to 199 rows without changing delegated membership if it is
             standard-identical, then rerun exhaustive release gates on current
             `origin/main` before closure.
-      - [ ] Classify the concurrently landed
+      - [x] Classify the concurrently landed
             `examples/scljet-readonly.ssc` M2c row after the 199-row gate passed.
             Keep its declared `ssc-tools run --v1` JVM VFS host-plugin boundary,
             add its existing exact real-filesystem smoke to the explicit target
             manifest, advance the strict corpus freeze to 200 rows / 15 delegated,
             and rerun the exhaustive release gate before closure.
+      Result: the 200-row corpus has 56 standard-identical rows, 129 declared
+      skips, and 15 exact delegated rows (8 provider / 7 target); `both-fail`,
+      mismatch, one-sided, standard-gap, and runtime-blocker counts are all zero.
+      Standard `ssc`/`build-jvm` contain no compiler or Scalameta jars or
+      forbidden references. The final consolidated release gate reports
+      `release.ready=true`; v2 conformance is 11/11 and SclJet conformance 6/6.
 
 - [x] **v2-production-readiness-audit** - DONE 2026-07-10:
       bounded audit after closing the layout/YAML and indent-demo blockers.

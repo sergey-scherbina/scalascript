@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-12 — ScalaScript 2.1 zero both-fail release closure
+
+The exhaustive 200-example release corpus now has no VM/direct-ASM `both-fail`,
+mismatch, one-sided error, standard gap, or runtime blocker. Fifty-six standard
+rows execute byte-identically, 129 retain declared skip categories, and all 15
+out-of-tier rows execute through an exact manifest of real provider/tools lanes
+(8 provider, 7 target). PDF, MCP, Graph, SWIFT, NFC, quoted macros, WASM, x402,
+and both JVM SclJet examples have deterministic launcher regressions. Standard
+`ssc`, `ssc-standard`, and reproducible `build-jvm` remain compiler- and
+Scalameta-free with zero forbidden references; stage-2 is source-exact, the
+negative-toolchain sandbox reports `release.ready=true`, v2 conformance is
+11/11, and affected SclJet conformance is 6/6.
+
 ## 2026-07-12 — SclJet immutable read-only pager, schema, and B-tree traversal
 
 SclJet M2c now opens clean SQLite-format files through an abstract VFS under a
