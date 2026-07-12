@@ -2890,6 +2890,23 @@ runAsync {
 
 ## 8. Actors
 
+The ScalaScript 2.1 standard launcher provides local actors without the v1
+interpreter or compatibility bridge. Each actor has a FIFO mailbox and a JDK
+21 virtual thread; `runActors` returns when the local scope is quiescent, while
+child failures are propagated. Plain and timed `receive`, `self`, `pid ! msg`,
+and `exit(pid, reason)` behave identically on the native VM, direct ASM, and
+`build-jvm` paths. Bare `exit(code: Int)` remains the process-exit overload;
+the standard providers dispatch the two shapes explicitly.
+
+Typed `ActorRef` fields, `tell`, `publishAs`, `globalWhereis`, named behaviors,
+and `spawnRemote` are available as deterministic process-local loopback. Actor
+network transport, cluster membership, links/monitors, supervision trees,
+durable mailboxes, and timers still require the explicit tools/compatibility or
+an advanced provider; the standard launcher never falls back to them
+transparently. See
+[`actors-pingpong.ssc`](../examples/actors-pingpong.ssc) and
+[`actors-typed-remote-spawn.ssc`](../examples/actors-typed-remote-spawn.ssc).
+
 ### Basic Actors
 
 ```scalascript
