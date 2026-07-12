@@ -3942,6 +3942,11 @@ explicit plugin/backend boundaries or in build/test tooling. Feature spec:
             `v21-unhandled-effect-smoke`: invoke the compiler-backed
             compatibility lane through explicit `ssc-tools`, while keeping
             standard `ssc` native-only and parser-sentinel strict.
+      - [ ] Reconcile the strict release freeze after the concurrently landed
+            `examples/scljet-memory-vfs.ssc` grows the exhaustive corpus from
+            196/54 to 197/55. Prove the new row byte-identical on native VM/ASM
+            and green in its real conformance lane before updating exact
+            positive/negative counts; do not change any zero-gap metric.
 
 - [x] **v2-production-readiness-audit** - DONE 2026-07-10:
       bounded audit after closing the layout/YAML and indent-demo blockers.

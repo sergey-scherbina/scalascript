@@ -19,6 +19,20 @@ found by codex while extending the UniML YAML alias-cycle verification after
   apply their validated properties to it. The focused suite is 14/14 on both JVM
   and Scala.js, including nested mapping/sequence anchors, mutual cycles, and both
   alias-expansion budgets.
+## v21-negative-freeze-smoke-stale-frontend-mutation — drift test became a no-op
+
+**Status:** open (2026-07-12); found by codex while reconciling the 197-row
+release freeze after `scljet-memory-vfs.ssc` landed concurrently.
+
+- **Real-harness repro:** update the canonical negative report from
+  `frontend.ok=195` to `196` and run
+  `tests/e2e/v21-negative-toolchain-release-gate-smoke.sh`. Its frontend drift
+  mutation still searches for `frontend.ok.195`, changes nothing, and then
+  reports that the freeze “accepted frontend drift”.
+- **Root cause:** the synthetic mutation encoded the old exact value separately
+  from the canonical fixture.
+- **Done-when:** the mutation changes the current exact value, the canonical
+  report passes, every synthetic drift is rejected, and the smoke prints PASS.
 
 ## v21-unhandled-effect-smoke-x402-launcher — bridge assertion used standard `ssc`
 
