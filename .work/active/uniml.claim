@@ -1,6 +1,6 @@
 feature/uniml 2026-07-12T09:46:15Z
 agent: codex
-heartbeat: 2026-07-12T09:46:38Z
+heartbeat: 2026-07-12T10:06:45Z
 status: in-progress
-done-so-far: claim published and feature/uniml worktree created
-next: record the SPRINT plan, inspect module conventions, and write the UniML specification
+done-so-far: specification and JVM/Scala.js M0 implementation committed; 9 tests pass on each platform and content conformance is green
+next: verify spec checkboxes, record results and changelog, publish bookkeeping, then release the claim
