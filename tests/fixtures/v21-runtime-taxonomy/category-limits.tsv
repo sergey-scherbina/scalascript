@@ -1,8 +1,8 @@
 category	max_count
 example-contract	0
-language-runtime	2
+language-runtime	1
 optional-provider	7
 standard-provider	2
 tools-backend	6
-blocker-total	4
+blocker-total	3
 total	19
