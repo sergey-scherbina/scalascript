@@ -311,7 +311,20 @@ with extensions isolated behind an explicit non-default profile.
 - [ ] **scljet-m2d-interop-verify** — differential-read a pinned corpus across legal page sizes,
       encodings, overflow/freelist/schema shapes and corrupt/truncated files; require VM/ASM parity,
       JVM real-file execution, `integrity_check`/reference value agreement, spec verification,
-      examples, changelog, and explicit JS capability results.
+      examples, changelog, and explicit JS capability results. Execute as resume-cold slices:
+      (1) commit a reproducible host-only generator plus immutable manifest/SHA/oracle dumps for a
+      compact SQLite 3.53.3 matrix (all eight page sizes, three encodings, empty encoding-0, rowid,
+      WITHOUT ROWID/index-interior, overflow, auto/incremental-vacuum and freelist reuse); record
+      compile options and `integrity_check`; (2) add one pure `.ssc` corpus dumper and assembled JVM
+      harness that compare ordered physical schema/records without JDBC/sql.js; (3) add named
+      one-byte/truncation corruptions with stable `SqliteError` field/page evidence plus bounded fuzz
+      smoke; (4) rerun interpreter/VM/ASM and explicitly record Node results, then check only the M2
+      behavior gates actually covered. Historical schema-format 1/2/3 and non-zero reserved-byte
+      generation require pinned historical/amalgamation builds: if those tools are unavailable,
+      land the reproducible current-oracle slice and keep the remaining exact gates open rather than
+      fabricating coverage. Done-when ordinary tests consume committed bytes only, regeneration is
+      optional, every committed valid DB says `ok` under reference `integrity_check`, and manifest
+      SHA/value dumps match the SclJet reader.
 ## v2-swift-nativeui-i18n-json — standard `lower/serve`, locale and JSON parity (2026-07-12)
 
 Claim: `.work/active/v2-swift-nativeui-i18n-json.claim`. Spec:
