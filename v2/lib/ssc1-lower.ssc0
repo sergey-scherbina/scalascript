@@ -614,14 +614,87 @@ def firstActiveGiven = (dummy) =>
       match pair { case Pair(gname, tc) => Some(gname) }
   }
 
--- Best-effort type of a parsed expression (no full HM; literal-only)
+-- Best-effort type of a parsed expression (no full HM; literals + the List constructor)
 def typeOfExpr = (e) =>
   match e {
     case Pair(tag, data) =>
       if #seq(tag, "int") then "Int"
       else if #seq(tag, "str") then "String"
       else if #seq(tag, "bool") then "Bool"
+      else if #seq(tag, "app") then
+        match data {
+          case Pair(fn, args) =>
+            match fn {
+              case Pair(ftag, fname) =>
+                if #seq(ftag, "var") then (if #seq(fname, "List") then "List" else "?")
+                else "?"
+            }
+        }
       else "?"
+  }
+
+-- Is `e` a `List(...)` application?
+def isListApp = (e) =>
+  match e {
+    case Pair(tag, data) =>
+      if #seq(tag, "app") then
+        match data {
+          case Pair(fn, args) =>
+            match fn { case Pair(ftag, fname) => if #seq(ftag, "var") then #seq(fname, "List") else false }
+        }
+      else false
+  }
+
+-- First element of a `List(...)` application, or None.
+def listFirstElem = (e) =>
+  match e {
+    case Pair(tag, data) =>
+      match data {
+        case Pair(fn, args) =>
+          match args { case Nil => None case Cons(h, t) => Some(h) }
+      }
+  }
+
+-- ── KC5-mono: typeclass monomorphisation (specs/v2-typeclass-monomorphization.md) ──────────────
+-- Worklist of specialisations to emit: List[Pair(fnName, Pair(instance, tc))].
+def kc5MonoCell = #cell.new(Nil)
+-- Specialised def name for (fnName, instance): `fnName__mono__instance`.
+def monoName = (fnName, instance) => #sconcat(fnName, #sconcat("__mono__", instance))
+-- Select the instance for a single-ctx-TC call by the arg type (List[A] → element type A).
+def monoArgType = (args) =>
+  match args {
+    case Nil => "?"
+    case Cons(fa, ra) =>
+      if isListApp(fa) then
+        match listFirstElem(fa) { case None => "?" case Some(el) => typeOfExpr(el) }
+      else typeOfExpr(fa)
+  }
+-- If `fn` is a polymorphic typeclass fn with exactly ONE ctx TC and the instance resolves from the
+-- arg type, record the specialisation and return Some(specialisedName); else None (call unchanged).
+def monoInstanceFor = (fn, args) =>
+  match fn {
+    case Pair(ftag, fname) =>
+      if #seq(ftag, "var") then
+        match lookupSig(#cell.get(kc5SigCell), fname) {
+          case None => None
+          case Some(tcs) =>
+            match tcs {
+              case Cons(tc, tcRest) =>
+                match tcRest {
+                  case Nil =>
+                    match findGiven(#cell.get(kc5GivenCell), tc, monoArgType(args)) {
+                      case None => None
+                      case Some(instance) =>
+                        let _rec = #cell.set(kc5MonoCell,
+                          Cons(Pair(fname, Pair(instance, tc)), #cell.get(kc5MonoCell))) in
+                        Some(monoName(fname, instance))
+                    }
+                  case _ => None
+                }
+              case Nil => None
+            }
+        }
+      else None
   }
 
 -- Build given-injected arg list: prepend one given per TC name, before actual args
@@ -1888,8 +1961,10 @@ def lowerE = (scope, rawExpr) =>
           case Pair(fn, args) =>
             -- KC5: auto-inject given instances for context dict params
             let injArgs = injectGivens(fn, args) in
+            -- KC5-mono: rewrite a 1-ctx-TC typeclass call to its specialised copy (`fn` unchanged else)
+            let fnM = match monoInstanceFor(fn, args) { case None => fn case Some(nm) => Pair("var", nm) } in
             -- Check if calling a registered array var with a single index → arr.get
-            match fn {
+            match fnM {
               case Pair(ftag, fname) =>
                 if #seq(ftag, "var") then
                   if #seq(fname, "println") then
@@ -1915,7 +1990,7 @@ def lowerE = (scope, rawExpr) =>
                   -- app→IrApp step is terminal (Ir nodes are never re-lowered), so a
                   -- single pack is idempotent. packVarargsArgs is a no-op for non-vararg
                   -- callees; for a `T*` def it folds the trailing args into one Cons-list.
-                  else IrApp(lowerE(scope, fn), lowerArgs(scope, packVarargsArgs(fname, injArgs)))
+                  else IrApp(lowerE(scope, fnM), lowerArgs(scope, packVarargsArgs(fname, injArgs)))
                 else IrApp(lowerE(scope, fn), lowerArgs(scope, injArgs))
             }
         }
@@ -4017,6 +4092,64 @@ def collectParameterlessDefs = (stmts) =>
       }
   }
 
+-- ── KC5-mono: emit specialised defs collected during lowering ──────────────────────────────────
+-- Find a def stmt's (params, body) by name.
+def findDefStmt = (stmts, name) =>
+  match stmts {
+    case Nil => None
+    case Cons(s, rest) =>
+      match s {
+        case Pair(tag, data) =>
+          if #seq(tag, "def") then
+            match data { case Pair(dname, drest) => if #seq(dname, name) then Some(drest) else findDefStmt(rest, name) }
+          else findDefStmt(rest, name)
+      }
+  }
+
+-- Emit one specialised IrDef: `fnName`'s body lowered with active ctx = the CONCRETE instance, so
+-- `combine`/`empty` resolve to `<instance>_<method>` globals. Same arity (the ctx param stays but is
+-- unused). Nil if the def is missing.
+def emitOneMonoDef = (stmts, fnName, instance, tc) =>
+  match findDefStmt(stmts, fnName) {
+    case None => Nil
+    case Some(drest) =>
+      match drest {
+        case Pair(params, body) =>
+          let scope = revL(params) in
+          let prevCtx = #cell.get(kc5ActiveCtxCell) in
+          let _set = #cell.set(kc5ActiveCtxCell, Cons(Pair(instance, tc), Nil)) in
+          let resolvedBody = resolveE(body) in
+          let ir = match resolvedBody {
+            case Pair(btag, bdata) =>
+              if #seq(btag, "block") then IrDef(monoName(fnName, instance), IrLam(lenL(params), lowerBlock(scope, bdata)))
+              else IrDef(monoName(fnName, instance), IrLam(lenL(params), lowerE(scope, resolvedBody)))
+          } in
+          let _rest = #cell.set(kc5ActiveCtxCell, prevCtx) in
+          Cons(ir, Nil)
+      }
+  }
+
+-- Emit all specialisations in kc5MonoCell, deduped by specialised name.
+def emitMonoDefs = (stmts) =>
+  let rec go = (work, seen) =>
+    match work {
+      case Nil => Nil
+      case Cons(entry, rest) =>
+        match entry {
+          case Pair(fnName, instTc) =>
+            match instTc {
+              case Pair(instance, tc) =>
+                let key = monoName(fnName, instance) in
+                let seenIt =
+                  let rec mem = (xs) => match xs { case Nil => false case Cons(h, t) => if #seq(h, key) then true else mem(t) } in
+                  mem(seen) in
+                if seenIt then go(rest, seen)
+                else appendL(emitOneMonoDef(stmts, fnName, instance, tc), go(rest, Cons(key, seen)))
+            }
+        }
+    } in
+  go(#cell.get(kc5MonoCell), Nil)
+
 def lowerProg = (stmts) =>
   -- K62.18: imported extension identity is AST-owned, never transient parser
   -- state. This must run before resolveE classifies selected method calls.
@@ -4035,6 +4168,8 @@ def lowerProg = (stmts) =>
   let _cfo = #cell.set(caseFieldOrderCell, collectCaseClassOrder(stmts)) in
   -- KC5b: reset active ctx (summon dispatch)
   let _ac = #cell.set(kc5ActiveCtxCell, Nil) in
+  -- KC5-mono: reset the typeclass-monomorphisation worklist (populated while lowering)
+  let _mono = #cell.set(kc5MonoCell, Nil) in
   -- Reset array/map/list variable registries
   let _av = #cell.set(arrVarsCell, Nil) in
   let _mv = #cell.set(mapVarsCell, Nil) in
@@ -4147,4 +4282,5 @@ def lowerProg = (stmts) =>
           case _ => IrSeq(seqItems)
         }
     } in
-  IrProg(allDefs, entry)
+  -- KC5-mono: append the specialised typeclass copies collected while lowering (defs + top exprs).
+  IrProg(appendL(allDefs, emitMonoDefs(stmts)), entry)
