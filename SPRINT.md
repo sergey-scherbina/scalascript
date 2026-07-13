@@ -7418,12 +7418,16 @@ JS `1410065408` = mod 2^32; JVM emits Scala's 32-bit `Int`). Huge blast radius
             dropped: parseObj closed the given at the extension's virtual E-frame `}` (an extension closes
             `} extension_end`, the given closes bare `}`). Fix: on `}`, peek extension_end → reset
             extensionParams, keep the marker, continue the body.
-    - [x] **✅ ENTIRE tagless/typeclass conformance cluster GREEN (10/10)** on the v2 bytecode lane:
+    - [x] **✅ ENTIRE tagless/typeclass/functor conformance cluster GREEN (12/12)** on the v2 bytecode lane:
           std-semigroup-monoid, tagless-context-bounds, typeclass-extension, std-functor-applicative-monad,
           std-selective, tagless-sealed-dispatch, tagless-resolution, tagless-program, tagless-multi-file,
-          tagless-direct-syntax. v2 bytecode sweep 102 → 114 across the session, 0 real regressions.
-          Backlog (not blocking any conformance case): mono transitivity, multi-ctx-param mono, non-List
-          containers, multi-param TC typeHead (MonadError[F,E]→first arg F).
+          tagless-direct-syntax, + **std-bifunctor, std-monaderror** (`027250d4d`): extTypeTags("Tuple2")→
+          ["Pair","Tuple2"] (tuple literal is IrCtor("Pair"), runtime ops make DataV("Tuple2")) and
+          firstTypeArg extracts the container type from a multi-param TC (`MonadError[Option,Unit]`→Option,
+          was taking the whole "Option, Unit" → None fell to the Either impl → "no arm for None"). v2
+          bytecode sweep 102 → 117 across the session, 0 real regressions.
+          Backlog (not blocking any conformance case): mono transitivity, multi-ctx-param mono, non-tuple
+          multi-arg containers (Map).
           - `tagless-program` → `TYPEERR: cannot unify Tuple with non-Tuple` (typer/tuple, distinct).
 
 ### ▶ ssc-toolkit-v2 (2026-07-07, owner-directed via busi: the busi SPA must move React→ScalaScript)
