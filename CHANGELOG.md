@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-13 — UniML Markdown → DocumentContent bridge (M4.1)
+
+New optional `unimlMarkdownBridge` module (JVM-only, depends on `core` and the Markdown leaf; the
+leaf never depends on it) projects a compatible `MarkdownDocument` into the existing ScalaScript
+`DocumentContent` compiler model — headings build the nested section tree; paragraphs, lists,
+images, tables and fenced code map to content blocks; inline emphasis/strong/code/link/expr map to
+content inlines — reusing the compiler model without making it the canonical Markdown representation.
+Every construct the target model cannot express (block quotes, thematic breaks, raw HTML, standalone
+definitions, hard/soft-break distinction, task state, inline images, strikethrough) yields an
+explicit model-loss diagnostic. Representable content is mapped exactly as
+`Parser.buildDocumentContent` maps it, verified by a differential test against `Parser.parse`. Also
+fixes a Markdown-leaf structural bug where a sibling list of a different marker type nested inside the
+previous list frame (CST was always lossless). 11 bridge tests green; leaf stays 25/25 on JVM + JS.
+
 ## 2026-07-13 — UniML Markdown (M4) lossless CommonMark/GFM/ScalaScript adapter
 
 Completed UniML roadmap M4 (M1–M4 JSON/XML/YAML/Markdown now all done). The new

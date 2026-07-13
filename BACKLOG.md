@@ -29,12 +29,12 @@ are plain bullets without checkboxes so agents do not claim them as build work.
       tight/loose list classification, multi-line inline spans that cross a block-quote/list
       continuation marker, deep/mixed container nesting, and the full CommonMark HTML-block type
       table. Grow the pinned example corpus beyond the curated 34 and keep JVM/Scala.js identical.
-- [ ] **uniml-markdown-m41-doccontent-bridge** — add the optional bridge that projects a compatible
-      `MarkdownDocument` into the existing ScalaScript `DocumentContent` model (headings→sections,
-      paragraphs/lists/images/tables→content blocks, fences→embedded), differential-tested against
-      `Parser.buildDocumentContent`, and reporting model loss for block quotes, thematic breaks, raw
-      HTML, standalone definitions, hard/soft-break distinction and task state. The bridge lives in a
-      separate module and must not become a dependency of the `unimlMarkdown` leaf.
+- [x] **uniml-markdown-m41-doccontent-bridge** — ✓ Landed (2026-07-13). `unimlMarkdownBridge`
+      (JVM-only, depends on `core` + the Markdown leaf) projects a compatible `MarkdownDocument` into
+      `DocumentContent` (headings→sections, paragraphs/lists/images/tables→content blocks,
+      fences→embedded), differential-tested against `Parser.buildDocumentContent`, reporting model
+      loss for block quotes, thematic breaks, raw HTML, definitions, hard/soft-break distinction,
+      task state, inline images and strikethrough. 11 tests green. The leaf does not depend on it.
 - [ ] **uniml-markdown-m41-entities** — replace the small named-entity table in `MarkdownProjection`
       with the full CommonMark/HTML5 named-entity set (numeric entities already decode; unknown named
       entities currently stay literal, which is lossless but under-decoded in projection).

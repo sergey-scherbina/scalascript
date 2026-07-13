@@ -127,8 +127,11 @@ model is not the canonical Markdown representation and never becomes a dependenc
 
 - [x] Pinned CommonMark 0.31.2 examples pass in both JVM and Scala.js lanes with a documented supported
       count and failure profile (see Results); focused GFM 0.29 examples cover every enabled extension.
-- [~] The optional `DocumentContent` bridge is deferred to M4.1 (`uniml-markdown-m41-doccontent-bridge`
-      in `BACKLOG.md`); the leaf projection into `MarkdownDocument` is complete and profile-agnostic.
+- [x] The optional `DocumentContent` bridge (`unimlMarkdownBridge`, JVM-only, landed 2026-07-13) is
+      differential-tested against the existing CommonMark-based `Parser.buildDocumentContent` path for
+      representable paragraphs/headings/lists/images/tables, and reports model loss for block quotes,
+      thematic breaks, raw HTML, standalone definitions, hard/soft-break distinction, task state,
+      inline images and strikethrough. The leaf never depends on the bridge.
 
 ## Token and CST model
 
@@ -248,12 +251,14 @@ invariance by construction). Emphasis is resolved with a CommonMark-faithful del
 structure uses a container stack whose transitions are `Reframe` instructions, with dangling frames
 closed on the last token to avoid spurious end-of-input diagnostics.
 
-**Scoped for M4.1** (queued in `BACKLOG.md`, CST stays lossless meanwhile):
+**Landed in M4.1:** the optional `DocumentContent` bridge (`unimlMarkdownBridge`, 2026-07-13) and a
+fix so a sibling list of a different marker type is no longer nested in the previous list frame.
+
+**Still scoped for M4.1** (queued in `BACKLOG.md`, CST stays lossless meanwhile):
 
 - Lazy paragraph continuation and full tight/loose list classification (`tight` is reported `true`).
 - Multi-line inline spans that cross a block-quote/list continuation marker (single-line content is
   fully resolved; continuation markers are preserved as trivia).
 - Deep/mixed container nesting beyond the common cases, and the full CommonMark HTML-block type table
   (types 6/7 plus comment/PI/declaration are recognized as a block; others fall back to paragraphs).
-- The optional `DocumentContent` bridge (`uniml-markdown-m41-doccontent-bridge`).
 - The full named-entity table (numeric + common named entities decode; others stay literal, lossless).
