@@ -1,49 +1,60 @@
-# SclJet
+# SclJet — a pure ScalaScript SQLite engine
 
-Pure ScalaScript SQLite-compatible engine module.
+SclJet is a self-contained, SQLite-format-compatible database engine written
+**entirely in ScalaScript (`.ssc`)**. It has no dependency on JDBC, `sql.js`, or
+native SQLite — everything from the 100-byte file header to record codecs, B-tree
+traversal, the write path, and rollback-journal recovery is implemented from
+scratch as portable code.
 
-**Current status: M2 read-only format codecs in progress.** The module provides immutable
-64-byte-chunk `ByteSlice` storage, bounds-checked functional updates and slices,
-big/little-endian integer codecs, exact SQLite 1–9 byte varints, and a
-deterministic immutable in-memory VFS. M2 adds exact 100-byte database headers,
-all four B-tree page/cell layouts, X/M/K local-payload sizing, overflow pages and
-chains, record serial types, IEEE binary64, and lossless UTF-8/UTF-16 decoding
-to encoded bytes plus code points. The VFS models random access, durable
-sync/crash snapshots, rollback locks, eight WAL lock bytes, shared regions,
-logical time/randomness, traces, and scripted faults. Portable connection,
-statement, cursor, function, and collation contracts are also defined; a
-working pager, schema cursor, and SQL engine are not exposed yet.
+## Standalone and version-independent
 
-The dedicated JVM VFS plugin adds positioned file I/O, force/truncate,
-canonical identity, SQLite rollback lock bytes, 32-KiB WAL shared-memory
-regions and their eight lock bytes. It is an explicit host adapter only: pager,
-WAL policy, codecs, and SQL remain pure ScalaScript. See the runnable
-[`examples/scljet-jvm-vfs.ssc`](../../../examples/scljet-jvm-vfs.ssc), executed
-with `bin/ssc-tools run --v1 examples/scljet-jvm-vfs.ssc`.
+This directory is the **standalone SclJet library** — deliberately not owned by
+`v1/` or `v2/`. The same source runs on every ScalaScript tier: the v1
+interpreter, the bytecode VM, the direct ASM JIT, the pure tree-walk fallback,
+JavaScript (Node), and the v2 standard/native tier (`ssc run`).
 
-The canonical design and implementation gates are in
-[`specs/scljet.md`](../../../specs/scljet.md).
+It is consumed as the standard import `std/scljet/index.ssc`. For toolchain
+resolution that path is served from `v1/runtime/std/scljet`, which is a
+**symlink to this directory** — so the library lives here, standalone, while the
+existing `std/`-import resolvers (the interpreter `ImportResolver`, the native/JS
+loaders, and `installBin`'s bundling into both `bin/lib/native-front` and
+`bin/lib/standard/native-front`) find it unchanged. See
+[`../specs/scljet-standalone-library.md`](../specs/scljet-standalone-library.md)
+for the follow-up that drops the compatibility symlink by giving the resolvers a
+first-class library root.
 
-A runnable introduction is
-[`examples/scljet-bytes.ssc`](../../../examples/scljet-bytes.ssc):
+## Status
 
-```scalascript
-val bytes = ByteSlice.fromList(List(0x12, 0x34, 0x56, 0x78))
-val value = bytes match
-  case Right(slice) => readU32Be(slice, 0)
-  case Left(error) => Left(error)
-```
+Read-only (M0–M2) and its hardening are complete on the interpreter/VM/ASM/JS
+lanes: exact codecs, header/page/record decoders, pager and B-tree cursors,
+`sqlite_schema`, and a corpus of 25 valid + 30 corrupt pinned SQLite files
+verified byte-for-value against reference SQLite 3.53.3.
 
-The replayable VFS transition model is demonstrated by
-[`examples/scljet-memory-vfs.ssc`](../../../examples/scljet-memory-vfs.ssc).
-The M2 codec path over an official SQLite 3.53.3 header/cell is demonstrated by
-[`examples/scljet-readonly-codecs.ssc`](../../../examples/scljet-readonly-codecs.ssc).
+The M3 write path (`write.ssc`, `journal.ssc`) is in progress and byte-verified
+against reference SQLite: `emptyDatabase`, the record encoder (`encodeRecord`,
+all five value types incl. IEEE-754 reals), single- and multi-page rowid-table
+writers (`buildSingleTableDatabase` / `buildTableDatabase`, producing files that
+pass reference `PRAGMA integrity_check`), and the rollback journal
+(`writeRollbackJournal` + hot-journal `applyRollbackJournal`, byte-identical to
+SQLite's journal). The mutable pager, pager recover-on-open, and delete/update
+remain.
 
-`DecodedText` keeps the original encoded bytes authoritative, matching
-SQLite's invalid-UTF GIGO policy, and exposes a deterministic code-point list.
-It intentionally does not fake a `SqlText(String)` projection while portable
-code-point-to-string construction differs between ScalaScript runtimes.
+## Modules
 
-The implementation must remain pure ScalaScript above `SqliteVfs`. Host
-filesystem adapters and any required intrinsics belong in separate
-`runtime/std/<feature>-plugin/` modules.
+| File | Role |
+|---|---|
+| `bytes.ssc` | immutable `ByteSlice`, varints, endian read/write |
+| `values.ssc` / `header.ssc` / `page.ssc` / `record.ssc` | SQLite value types, header, B-tree page, and record codecs |
+| `freelist.ssc` / `btree.ssc` / `schema.ssc` | freelist/pointer-map validation, cursors, `sqlite_schema` |
+| `pager.ssc` / `readonly.ssc` | SHARED-locked immutable pager and the read-only facade |
+| `vfs.ssc` / `memory-vfs.ssc` / `jvm-vfs.ssc` | file-system abstraction (in-memory + real files) |
+| `write.ssc` | M3 write path: header/record encoders, table and multi-page B-tree writers |
+| `journal.ssc` | rollback-journal write + hot-journal recovery |
+| `index.ssc` | the module manifest re-exporting the public API |
+
+The full specification and behavior gates are in
+[`../specs/scljet.md`](../specs/scljet.md). Runnable examples live in
+[`../examples/`](../examples/) (`scljet-bytes`, `scljet-readonly`,
+`scljet-memory-vfs`, `scljet-write-empty`, `scljet-write-table`). The JVM
+real-file host adapter is the separate `v1/runtime/std/scljet-vfs-plugin/`; the
+engine above `SqliteVfs` remains pure ScalaScript.
