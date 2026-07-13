@@ -1,5 +1,6 @@
 feature/scljet-m3-writes 2026-07-13T11:38:32Z
 agent: claude-code
-heartbeat: 2026-07-13T11:38:32Z
+heartbeat: 2026-07-13T11:52:15Z
 status: in-progress
-next: M3 (writes + rollback journal). Slice m3b first — byte-exact empty-database writer (runtime/std/scljet/write.ssc), verified byte-identical to reference empty-encoding-zero.db (page 512). Then m3c single-row insert, etc. Plan + exact byte layout in SPRINT.
+done-so-far: m3b DONE (931df5bc2) — write.ssc emptyDatabase, byte-identical to reference SQLite 3.53.3 for 512/1024/4096/65536, VM/ASM/fallback + native + JS(≤8192); conformance scljet-write-empty + example.
+next: m3c — single-row insert into a single-table DB with no page split (record encoder = inverse of record.ssc; append a cell to page 2's cell array + content area; bump change counter + page count). Then m3d btree balancing, m3e rollback journal, m3f delete/update. Plan in SPRINT.
