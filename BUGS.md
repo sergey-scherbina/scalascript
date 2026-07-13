@@ -12,10 +12,14 @@ is bridged into v2 as a `NamedMethodObj` that exposes `.set` (works) but whose
 `registerTaggedMethod("NativeUiSignal","id")` (`UiNativePlugin.scala:417/451`). So the app's
 `textNode(message.id)` works on the native/Swift lane but crashes on the bridged VM lane —
 a cross-lane inconsistency in the v1-std/ui→v2 PluginBridge NamedMethodObj wrapper (shared
-bridge/kernel area, NOT Swift-specific). NOT-BLOCKING for the Swift lane (appcore-nativeui runs
-end-to-end via `run --v2 --target macos`). Fix belongs to the FrontendBridge/plugin-bridge
-owner: make the bridged std/ui signal's NamedMethodObj resolve `id` (and the other declared
-`NativeUiSignal` fields) from the underlying signal, mirroring the native ui-plugin.
+bridge/kernel area, NOT Swift-specific). **CONFIRMED `--v2`-bridge-lane ONLY, not blocking:**
+on the app's real lanes the whole thing works — `bin/ssc run --native examples/swift/appcore-nativeui.ssc`
+emits `/tmp/ssc-nativeui/index.html` = `<!doctype html>\nmessageafter` (`message.id`→`"message"`,
+`signalText(message)`→`"after"`), and the Swift lane (`run --v2 --target macos`) builds+launches.
+Only the plain `run --v2` FrontendBridge lane (v1-compat bridged plugins, which the native ui
+apps do NOT target) resolves `signal` to the id-less NamedMethodObj. LOW PRIORITY. Fix belongs
+to the FrontendBridge/plugin-bridge owner: make the bridged std/ui signal's NamedMethodObj
+resolve `id` (and the other declared `NativeUiSignal` fields), mirroring the native ui-plugin.
 
 ## v2-swift-at-global-cell-vivification — mutated signals crash "unbound global: @x"
 
