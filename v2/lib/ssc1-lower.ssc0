@@ -1513,6 +1513,13 @@ def resolveE = (expr) =>
                   else if #seq(fdata, "Signal") then Pair("ctorap", Pair("Signal", rargs))
                   else if #seq(fdata, "ComputedSignal") then Pair("ctorap", Pair("ComputedSignal", rargs))
                   else if #seq(fdata, "List") then buildListExpr(rargs)
+                  else if #seq(fdata, "Set") then
+                    -- v2 sets are DISTINCT lists (`.toSet`); `Set(a, b, …)` / `Set()` →
+                    -- `[a, b, …].toSet`. Was an unbound global (Set not a collection
+                    -- companion); blocked the std/mapreduce distributed modules (`retried
+                    -- = Set()`, `pending: Set[Int]`).
+                    Pair("prim", Pair("__method__",
+                      Cons(Pair("str", "toSet"), Cons(buildListExpr(rargs), Nil))))
                   else if #seq(fdata, "Array") then
                     Pair("app", Pair(Pair("var", "_arr_fill"), Cons(buildListExpr(rargs), Nil)))
                   else if #seq(fdata, "Vector") then
