@@ -1,0 +1,36 @@
+---
+name: js-effect-multishot-long-fold
+backends: [int, js]
+---
+
+# Multi-shot effect result folded with a Long accumulator (js-effect-multishot-in-while-loop)
+
+Regression for `js-effect-multishot-in-while-loop`: the JsGen CPS codegen lowered an
+effectful `foldLeft(0L)((acc, x) => acc + x.toLong)` (running under a `handle` block, so
+the fold body is CPS-lowered) with a **raw** JS `+`. Because a `Long` seed is a JS BigInt
+and the list elements are plain Numbers, the emitted `(acc + _t)` threw at runtime with
+"Cannot mix BigInt and other types". The CPS `ApplyInfix` path now mirrors the non-CPS
+path and routes any not-provably-Int arithmetic through the BigInt-aware `_arith`.
+
+```scalascript
+multi effect NonDet:
+  def choose(options: List[Int]): Int
+
+def program(): Int ! NonDet =
+  val a = NonDet.choose(List(1, 2, 3))
+  val b = NonDet.choose(List(10, 20))
+  a + b
+
+def workload(): Long =
+  var total = 0L
+  var i = 0
+  while i < 2 do
+    val all = handle(program()) {
+      case NonDet.choose(opts, resume) => opts.flatMap(opt => resume(opt))
+    }
+    total = total + all.foldLeft(0L)((acc, x) => acc + x.toLong)
+    i = i + 1
+  total
+
+println(workload())
+```

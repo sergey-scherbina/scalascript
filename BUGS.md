@@ -172,14 +172,23 @@ position. Needs a fix in the interpreter's block/if lowering.
 
 ## js-effect-multishot-in-while-loop — multi-shot effect handled inside a `while` crashes on JS
 
-**Status:** open (found 2026-07-13, opus, while regression-testing var-scope). A `multi
-effect` handled with a resuming continuation INSIDE a `while` loop body — the interpreter
-golden is 204 (`JsEffectLoopTest` "multi-shot effect handled inside a while-loop") — crashes
-the JS-generated code at runtime (Node error in the emitted `.cjs`), so the test is RED.
-PRE-EXISTING: fails identically on clean HEAD (confirmed by stashing an unrelated interp
-change and re-running). The interpreter (`--v1`) produces the correct 204; only the JsGen
-multi-shot-continuation-inside-while lowering is wrong. JsGen bug, separate from the interp
-var-scope work — filed for the JS-effects owner.
+**Status:** FIXED (2026-07-13, opus). Root cause was NOT the `while` and NOT multi-shot
+itself — it was the **Long accumulator** in the fold `total = total + all.foldLeft(0L)((acc,
+x) => acc + x.toLong)`. Because the fold runs under a `handle` block, its body is lowered by
+the JsGen **CPS** codegen (`JsGenCpsCodegen.genCpsExpr`), whose `ApplyInfix` handler emitted
+arithmetic via a **raw** JS operator (`case other => ($vl $other $vr)`) — unlike the non-CPS
+`ApplyInfix` path (`JsGen.scala`), which routes any not-provably-Int operand through the
+BigInt/Decimal-aware `_arith`. A `0L` seed is a JS **BigInt** and the list elements are plain
+**Numbers**, so the emitted `(acc + _t)` threw `TypeError: Cannot mix BigInt and other types`
+at runtime. Minimized: the crash reproduces with NO `while` at all — any `foldLeft(0L)` over a
+multi-shot result (or any effectful Long arithmetic) triggered it; a plain `foldLeft(0)` (Int)
+was fine. Fix: the CPS `ApplyInfix` handler now mirrors the non-CPS path — arithmetic/
+comparison route through `_arith` (and bit-ops through `_bit`) whenever operands are not
+provably both plain Int, using the original `lhs`/`rhs` terms for the `isLongExpr`/`isIntExpr`/
+`isNumericExpr` checks (both-Int keeps the fast raw operator). Verified: `JsEffectLoopTest`
+8/8 (the multi-shot-in-while case now 204); a seed×toLong matrix (0L/0, ±toLong) all → 102 on
+both `run-js` and `run --v1`; new conformance `js-effect-multishot-long-fold` [int, js] → 204;
+full `backendInterpreter/test` **1828 pass, 0 failed** (was 1827 pass + this 1 fail).
 
 ## interp-var-scope-leak-across-calls — a callee's `var` clobbers a caller's live `var` of the same name
 

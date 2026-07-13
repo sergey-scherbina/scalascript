@@ -458,16 +458,34 @@ private[codegen] trait JsGenCpsCodegen:
           case "++" | ":::"   => s"_tupleConcat($vl, $vr)"
           case "!"            => s"Actor.send($vl, $vr)"
           case "->"           => s"Object.assign([$vl, $vr], {_isTuple: true})"
-          case "*"            =>
-            if isNumericExpr(lhs) && isNumericExpr(rhs) then s"($vl * $vr)"
-            else s"(typeof ($vl) === 'string' ? ($vl).repeat($vr) : ($vl) * ($vr))"
-          case "=="           => s"($vl === $vr)"
-          case "!="           => s"($vl !== $vr)"
           case "&&"           => s"($vl && $vr)"
           case "||"           => s"($vl || $vr)"
           case "to"           => s"_dispatch($vl, 'to', [$vr])"
           case "until"        => s"_dispatch($vl, 'until', [$vr])"
+          // v1-js-long-precision-and-bitops: mirror the non-CPS ApplyInfix path
+          // (JsGen.scala) — any arithmetic/comparison that isn't provably plain-Int
+          // on both sides routes through the BigInt/Decimal-aware `_arith` (a native
+          // JS `+` throws on BigInt+Number). Without this, a Long accumulator in an
+          // effectful fold (`foldLeft(0L)((acc, x) => acc + x)` under `handle`) emitted
+          // a raw `+` and crashed with "Cannot mix BigInt and other types" at runtime.
+          // (js-effect-multishot-in-while-loop.)
+          case "+" | "-" | "*" | "/" | "%" | "<" | ">" | "<=" | ">=" | "==" | "!="
+              if isLongExpr(lhs) || isLongExpr(rhs) =>
+            s"_arith('${op.value}', $vl, $vr)"
+          case "*" =>
+            if isIntExpr(lhs) && isIntExpr(rhs) then s"($vl * $vr)"
+            else if isNumericExpr(lhs) && isNumericExpr(rhs) then s"($vl * $vr)"
+            else s"(typeof ($vl) === 'string' ? ($vl).repeat($vr) : _arith('*', $vl, $vr))"
+          case "==" if isNumericExpr(lhs) && isNumericExpr(rhs) => s"($vl === $vr)"
+          case "!=" if isNumericExpr(lhs) && isNumericExpr(rhs) => s"($vl !== $vr)"
+          case "=="           => s"_arith('==', $vl, $vr)"
+          case "!="           => s"_arith('!=', $vl, $vr)"
           case "/" if isIntExpr(lhs) && isIntExpr(rhs) => s"Math.trunc($vl / $vr)"
+          case "+" | "-" | "/" | "%" | "<" | ">" | "<=" | ">="
+              if !(isIntExpr(lhs) && isIntExpr(rhs)) =>
+            if isNumericExpr(lhs) && isNumericExpr(rhs) then s"($vl ${op.value} $vr)"
+            else s"_arith('${op.value}', $vl, $vr)"
+          case "&" | "|" | "^" | "<<" | ">>" | ">>>" => s"_bit('${op.value}', $vl, $vr)"
           case other          => s"($vl $other $vr)"
         case _ => "/* infix arity mismatch */"
       }
