@@ -477,6 +477,33 @@ public enum SessionProbe {
     assume(xcrunSwiftAvailable, "xcrun Swift toolchain is not available")
     assert(runNativeHtmlProbe() == "html")
 
+  test("real swift run handles a Term nested far past Swift's 256 structure-nesting limit"):
+    assume(swiftAvailable, "Swift toolchain is not available")
+    // Regression for the real bug found compiling busi's actual production app.ssc
+    // (3305 lines) as a native iOS app: the OLD codegen encoded the whole Program as
+    // one nested Swift literal expression, and Swift 6's compiler enforces a hard
+    // "structure nesting level exceeded maximum of 256" limit per expression. The
+    // Program is now embedded as CoreIR S-expr TEXT and decoded via runtime
+    // recursion instead, so a Term this deep must still compile and run correctly.
+    // Depth 1000 clears the old 256 compile-time ceiling with a wide margin while
+    // staying under a SEPARATE, pre-existing, unrelated limit found while choosing
+    // this depth: Machine.evaluate/runTerm in SwiftRuntime.swift isn't stack-safe
+    // for a single non-tail-nested Prim/App argument chain deeper than ~1300-1500
+    // (real native stack overflow, confirmed via a real crash report) — tracked
+    // separately, see SPRINT.md v2-swift-machine-deep-nontail-stack.
+    def deepAdd(depth: Int): Term =
+      if depth == 0 then Term.Lit(Const.CInt(0))
+      else Term.Prim("i.add", List(Term.Lit(Const.CInt(1)), deepAdd(depth - 1)))
+    val program = Program(Nil, deepAdd(1000))
+    assert(runSwift("deep-nesting", program) == "1000")
+
+  test("real swift run round-trips strings with quotes backslashes and control escapes through the CoreIR S-expr text embed"):
+    assume(swiftAvailable, "Swift toolchain is not available")
+    val tricky = "a\"b\\cd"
+    val program = Program(Nil, Term.Lit(Const.CStr(tricky)))
+    val expected = "\"" + tricky.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+    assert(runSwift("sexpr-string-escape", program) == expected)
+
   test("real swift run matches VM structural fixtures fact tco and map"):
     assume(swiftAvailable, "Swift toolchain is not available")
     val cases = List(

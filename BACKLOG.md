@@ -14,6 +14,27 @@ Status hygiene (2026-06-23): open `[ ]` rows below are intentionally still open,
 explicitly `BLOCKED` or `DEFERRED` product/external-decision items. History-only / wontfix notes
 are plain bullets without checkboxes so agents do not claim them as build work.
 
+## Swift backend hardening (2026-07-13)
+
+- [ ] **v2-swift-machine-deep-nontail-stack** — `Machine.evaluate`/`runTerm`/
+      `value` (`v2/backend/swift/.../SwiftRuntime.scala`'s embedded Swift
+      source) recurse on native Swift call frames per non-tail Prim/App
+      argument. A single Term nested >~1300-1500 levels deep in one non-tail
+      chain (e.g. `(i.add 1 (i.add 1 (i.add 1 ...)))`) genuinely stack-
+      overflows at runtime (SIGSEGV; confirmed via a real macOS crash report,
+      "Thread stack size exceeded due to excessive recursion"). Found
+      2026-07-13 while picking a safe depth for the
+      `v2-swift-coreir-sexpr-embed` regression test — previously unreachable
+      because the OLD codegen (whole Program as one nested Swift literal)
+      could never even COMPILE a term this deep (hit Swift's 256
+      structure-nesting compile-time limit first, well before runtime).
+      Real business logic essentially never nests one non-tail expression
+      chain this deep, so this is not believed to block busi's real
+      `app.ssc` — not urgent. Eventual fix needs the evaluator to stop
+      relying on the native call stack for non-tail argument evaluation
+      (an explicit heap-allocated work stack or CPS transform), mirroring
+      how the JVM/JS backends presumably already handle (or bound) this.
+
 ## UniML conformance hardening (2026-07-12)
 
 - [ ] **uniml-yaml-m31-full-grammar** — extend the safe M3 YAML 1.2.2 profile through the remaining

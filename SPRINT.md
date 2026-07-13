@@ -1786,6 +1786,19 @@ there before changing this plan.
       landed: attempt an actual `xcodebuild`/Simulator run of the generated
       iOS package — the original ask (compile busi's client as a native iPhone
       app) is not met until that succeeds.
+      Found while choosing a safe regression-test depth (2026-07-13): a
+      SEPARATE, pre-existing, unrelated bug — `Machine.evaluate`/`runTerm`/
+      `value` in `SwiftRuntime.swift` recurse on native Swift call frames per
+      non-tail Prim/App argument, and a single term nested >~1300-1500 levels
+      deep in one non-tail chain (e.g. `(i.add 1 (i.add 1 (i.add 1 ...)))`)
+      genuinely stack-overflows (SIGSEGV, confirmed via a real macOS crash
+      report: "Thread stack size exceeded due to excessive recursion").
+      Previously unreachable/unobserved because the OLD codegen could never
+      even COMPILE a term that deep (hit the 256 compile-time limit first).
+      Filed separately as `v2-swift-machine-deep-nontail-stack` (BACKLOG —
+      real business logic essentially never nests one non-tail expression
+      chain this deep; not a blocker for busi's real app.ssc, but a genuine
+      gap worth a bounded-stack/CPS fix eventually).
 
 ## perf-jit-asm — investigation (2026-07-10, Sergiy: "заняться бенчмарками перфоменсом и jit asm")
 
