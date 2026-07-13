@@ -134,6 +134,7 @@ dumpFiles(List(
   "tests/fixtures/scljet/m2/valid/schema-format-1.db",
   "tests/fixtures/scljet/m2/valid/schema-format-2.db",
   "tests/fixtures/scljet/m2/valid/schema-format-3.db",
-  "tests/fixtures/scljet/m2/valid/overflow-thresholds.db"
+  "tests/fixtures/scljet/m2/valid/overflow-thresholds.db",
+  "tests/fixtures/scljet/m2/valid/index-overflow-thresholds.db"
 ))
 ```

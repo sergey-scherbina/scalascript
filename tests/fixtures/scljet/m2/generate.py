@@ -142,6 +142,31 @@ def create_overflow_thresholds(path: Path) -> None:
     con.close()
 
 
+def create_index_overflow_thresholds(path: Path) -> None:
+    """Index-btree cells straddling SQLite's exact index overflow threshold.
+
+    Page size 512, reserved 0 -> usable u = 512, so an index-leaf cell keeps its
+    whole key record local while p <= X = ((u-12)*64/255) - 23 = 102 (the
+    index formula, distinct from the table-leaf u - 35 = 477), and otherwise
+    stores K = m + ((p - m) % (u - 4)) locally when K <= X, else m = 39.  An
+    index key record over a rowid table is (key columns..., rowid); a single
+    BLOB key with a small (1-byte) rowid has a 4-byte record header, so a blob
+    of length L produces p = L + 5.  The lengths hit p = X-1/X/X+1 (the
+    inclusive local boundary and the sharp fall to the m-byte residue when
+    K > X), a further overflow, and a K <= X multi-page overflow chain.
+    """
+    con = sqlite3.connect(path)
+    configure(con, 512, "UTF-8", "NONE")
+    con.execute("CREATE TABLE t(k)")
+    con.execute("CREATE INDEX ix ON t(k)")
+    for p in (101, 102, 103, 200, 1100):
+        length = p - 5
+        blob = bytes((i * 29 + p) & 255 for i in range(length))
+        con.execute("INSERT INTO t(k) VALUES(?)", (blob,))
+    con.commit()
+    con.close()
+
+
 def create_clean_wal_header(path: Path) -> None:
     con = sqlite3.connect(path)
     configure(con, 4096, "UTF-8", "NONE")
@@ -259,8 +284,18 @@ def oracle_dump(rel_path: str, path: Path) -> list[str]:
             rows = con.execute(f"SELECT * FROM {qident(name)} ORDER BY 1")
             for physical in rows:
                 lines.append(f"root:{root}:key:{scala_list([value(v) for v in physical])}")
-        elif role == "index" and name == "idx_t_a":
-            rows = con.execute("SELECT a,rowid FROM t ORDER BY a,rowid")
+        elif role == "index":
+            # Physical index-btree order = (indexed columns..., rowid) under the
+            # default BINARY collation, which for these fixtures equals a SQL
+            # ORDER BY on the same columns.  Rowid-table indexes only (there is no
+            # WITHOUT ROWID index in the corpus); the trailing key column is the
+            # table rowid, exactly as the SclJet reader decodes the index record.
+            info = con.execute(f"PRAGMA index_info({qident(name)})").fetchall()
+            cols = [qident(entry[2]) for entry in info]
+            projection = ", ".join(cols + ["rowid"])
+            rows = con.execute(
+                f"SELECT {projection} FROM {qident(table_name)} ORDER BY {projection}"
+            )
             for physical in rows:
                 lines.append(f"root:{root}:key:{scala_list([value(v) for v in physical])}")
     integrity = con.execute("PRAGMA integrity_check").fetchone()[0]
@@ -495,6 +530,9 @@ def main() -> None:
     overflow_thresholds = VALID / "overflow-thresholds.db"
     create_overflow_thresholds(overflow_thresholds)
     fixtures.append(("overflow-thresholds", overflow_thresholds))
+    index_overflow_thresholds = VALID / "index-overflow-thresholds.db"
+    create_index_overflow_thresholds(index_overflow_thresholds)
+    fixtures.append(("index-overflow-thresholds", index_overflow_thresholds))
 
     write_manifest(fixtures, source_id, compile_options)
     corruptions(VALID / "page-512.db", auto_full, freelist)
