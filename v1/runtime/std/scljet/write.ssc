@@ -5,6 +5,7 @@ description: SclJet M3 database file writer — byte-exact serializers for the w
 package: scljet
 exports:
   - emptyDatabase
+  - encodeRecord
 ---
 
 # SclJet M3 write path
@@ -18,7 +19,8 @@ fixed only when the first object is created), a change counter of 1, one page,
 and the writer's SQLite version number (3.53.3 → 3053003), matching the
 committed `empty-encoding-zero.db` fixture exactly.
 
-[ByteSlice, ByteError, byteSliceZeroExtend](bytes.ssc)
+[ByteSlice, ByteError, byteSliceToList, byteSliceZeroExtend, encodeVarint](bytes.ssc)
+[SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob](values.ssc)
 
 ```scalascript
 // Big-endian fixed-width encoders. Division/modulo keeps them exact on every
@@ -65,4 +67,79 @@ def emptyDatabase(pageSize: Int): Either[ByteError, ByteSlice] =
   ByteSlice.fromList(header) match
     case Left(error) => Left(error)
     case Right(prefix) => byteSliceZeroExtend(prefix, pageSize)
+
+// ── Record encoder — the inverse of `record.ssc`'s decoder ──────────────────
+
+case class EncodedValue(serialType: Long, body: List[Int])
+
+/** One byte of `value`'s two's-complement big-endian representation. */
+def recordIntByte(value: Long, index: Int): Int = ((value >> (index * 8)) & 255L).toInt
+
+def recordIntBytes(value: Long, index: Int): List[Int] =
+  if index < 0 then Nil else recordIntByte(value, index) :: recordIntBytes(value, index - 1)
+
+/** SQLite integer serial type + big-endian body, matching the reader's
+ *  `serialInfo`: 0 and 1 use the storage-class serials 8/9 (zero body bytes),
+ *  every other value the narrowest of int8/16/24/32/48/64. */
+def encodeInteger(value: Long): EncodedValue =
+  if value == 0L then EncodedValue(8L, Nil)
+  else if value == 1L then EncodedValue(9L, Nil)
+  else if value >= -128L && value <= 127L then EncodedValue(1L, recordIntBytes(value, 0))
+  else if value >= -32768L && value <= 32767L then EncodedValue(2L, recordIntBytes(value, 1))
+  else if value >= -8388608L && value <= 8388607L then EncodedValue(3L, recordIntBytes(value, 2))
+  else if value >= -2147483648L && value <= 2147483647L then EncodedValue(4L, recordIntBytes(value, 3))
+  else if value >= -140737488355328L && value <= 140737488355327L then EncodedValue(5L, recordIntBytes(value, 5))
+  else EncodedValue(6L, recordIntBytes(value, 7))
+
+/** UTF-8 bytes of one BMP code point (division/modulo → exact on every backend).
+ *  Astral characters (surrogate pairs) are a follow-up. */
+def utf8CodePoint(codePoint: Int): List[Int] =
+  if codePoint < 128 then List(codePoint)
+  else if codePoint < 2048 then List(192 + codePoint / 64, 128 + codePoint % 64)
+  else List(224 + codePoint / 4096, 128 + (codePoint / 64) % 64, 128 + codePoint % 64)
+
+def utf8Bytes(text: String): List[Int] = text.toList.flatMap(ch => utf8CodePoint(ch.toInt))
+
+def encodeValue(value: SqliteValue): Either[ByteError, EncodedValue] = value match
+  case SqlNull => Right(EncodedValue(0L, Nil))
+  case SqlInteger(v) => Right(encodeInteger(v))
+  case SqlText(s) =>
+    val bytes = utf8Bytes(s)
+    Right(EncodedValue(13L + 2L * bytes.length.toLong, bytes))
+  case SqlBlob(b) =>
+    val bytes = byteSliceToList(b)
+    Right(EncodedValue(12L + 2L * bytes.length.toLong, bytes))
+  case SqlReal(_) =>
+    Left(ByteError("unsupported", "SqlReal record encoding is not yet implemented", 0))
+
+case class EncodedFields(serialBytes: List[Int], body: List[Int])
+
+def encodeFields(values: List[SqliteValue]): Either[ByteError, EncodedFields] = values match
+  case Nil => Right(EncodedFields(Nil, Nil))
+  case Cons(head, tail) =>
+    encodeValue(head) match
+      case Left(error) => Left(error)
+      case Right(encoded) =>
+        encodeFields(tail) match
+          case Left(error) => Left(error)
+          case Right(rest) =>
+            val serial = byteSliceToList(encodeVarint(encoded.serialType))
+            Right(EncodedFields(serial ++ rest.serialBytes, encoded.body ++ rest.body))
+
+/** Total header length (its own varint + the serial-type varints), matching
+ *  SQLite's self-describing record header. */
+def recordHeaderLength(serialLength: Int): Int =
+  if 1 + serialLength < 128 then 1 + serialLength
+  else if 2 + serialLength < 16384 then 2 + serialLength
+  else 3 + serialLength
+
+/** Serialize a record: `varint(headerLen) ++ serial-type varints ++ body`,
+ *  byte-identical to what SQLite writes and the inverse of `decodeRecord`. */
+def encodeRecord(values: List[SqliteValue]): Either[ByteError, ByteSlice] =
+  encodeFields(values) match
+    case Left(error) => Left(error)
+    case Right(fields) =>
+      val headerLen = recordHeaderLength(fields.serialBytes.length)
+      val record = byteSliceToList(encodeVarint(headerLen.toLong)) ++ fields.serialBytes ++ fields.body
+      ByteSlice.fromList(record)
 ```
