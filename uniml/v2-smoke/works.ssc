@@ -1,0 +1,31 @@
+// UniML-shape constructs that v2's .ssc frontend ALREADY compiles+runs (Phase 0.5).
+enum Tree:
+  case Leaf(v: Int)
+  case Node(l: Tree, r: Tree)
+def sumT(t: Tree): Int = t match
+  case Tree.Leaf(v) => v
+  case Tree.Node(l, r) => sumT(l) + sumT(r)
+def idA[A](x: A): A = x
+case class Box[A](value: A)
+trait Proc[I, O]:
+  def push(i: I): O
+case class Inc() extends Proc[Int, Int]:
+  def push(i: Int): Int = i + 1
+def runProc[I, O](p: Proc[I, O], i: I): O = p.push(i)
+def sumTo(n: Int): Int =
+  var s = 0
+  var i = 1
+  while i <= n do
+    s = s + i
+    i = i + 1
+  s
+def strTest(): String =
+  val s = "hello"
+  s.substring(1, 3) + s.length.toString
+def main(): Unit =
+  println(sumT(Tree.Node(Tree.Leaf(1), Tree.Leaf(2))))
+  println(idA(42))
+  println(Box(7).value)
+  println(runProc(Inc(), 41))
+  println(sumTo(10))
+  println(strTest())

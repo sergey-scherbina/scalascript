@@ -1,0 +1,9 @@
+// GAP: new Array[T](n) + indexed apply/update is broken on v2 (IndexOutOfBounds).
+// The uniml.compat mutable primitives need a working mutable-array floor.
+def arrTest(): Int =
+  val a = new Array[Int](3)
+  a(0) = 10
+  a(1) = 20
+  a(2) = 30
+  a(0) + a(1) + a(2) + a.length
+def main(): Unit = println(arrTest())

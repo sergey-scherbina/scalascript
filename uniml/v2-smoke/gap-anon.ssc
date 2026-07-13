@@ -1,0 +1,7 @@
+// GAP: anonymous instance `new Trait[..]:` lowers to `unbound global: _err` on v2.
+// UniML's Processor.andThen creates these; resolution = named classes (UniML-side).
+trait Proc[I, O]:
+  def push(i: I): O
+def mkInc(): Proc[Int, Int] = new Proc[Int, Int]:
+  def push(i: Int): Int = i + 1
+def main(): Unit = println(mkInc().push(41))

@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-13 — UniML × v2 compile gap map (uniml-portable Phase 0.5)
+
+Measured what the self-hosted ScalaScript v2 `.ssc` compiler accepts today, toward compiling UniML's
+Scala 3 source unchanged. `specs/uniml-portable-gapmap.md` + a repeatable red v2-compile smoke
+(`uniml/v2-smoke/`, `run.sh` via `v2/ssc1`). Result: v2 is **far more capable than its example corpus
+suggested** — it already compiles+runs enums with ADT payloads and nested pattern match, generic
+`def`s, generic `case class`es, `var`/`while`, traits + generic-trait `[I,O]` dispatch, and string
+ops (`.length/.charAt/.substring/toString`) — most of UniML's structural surface. **Two blocking
+gaps** remain: (1) `new Array[T](n)` with indexed apply/update is broken (the compat-layer floor);
+(2) anonymous `new Trait[..]:` lowers to `unbound global: _err`. The smoke is RED on exactly those
+two and GREEN on the rest; it turns green as the v2-side track (`uniml-portable-3`) closes them.
+
 ## 2026-07-13 — UniML relocated to a standalone library (uniml-portable Phase 0)
 
 First step of the **uniml-portable** program (make UniML a standalone library whose single Scala 3

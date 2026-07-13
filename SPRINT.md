@@ -36,23 +36,35 @@ Lead: opus-continue; phases are open to other agents (esp. the v2-side track uni
       (4 `.in(file(...))` paths only); v1 bindings `uniml-xml` (13/13) + `uniml-markdown-bridge`
       (11/11) unchanged and green. History preserved (git renames). Follow-up (at true extraction):
       collapse the dual build to `publishLocal`.
-- [ ] **uniml-portable-0.5-gapmap** — run UniML-shape source through the v2 compiler; record the
-      **primitive floor** (which `Array`/`String`/`Int`/`Char` APIs v2 gives identically to scalac)
-      and the **language gaps** (generics+variance, traits-with-HOF, multi-file `.ssc`,
-      `package`/`import`). Produce a **red v2-compile smoke** enumerating the gaps → becomes the
-      spec/TODO for the v2-side track.
+- [x] **uniml-portable-0.5-gapmap** — ✓ DONE 2026-07-13. `specs/uniml-portable-gapmap.md` + a red
+      v2-compile smoke `uniml/v2-smoke/` (run.sh via `v2/ssc1`). Finding: v2's `.ssc` frontend
+      **already** compiles enums/ADT+nested match, generic defs, generic case classes, `var`/`while`,
+      traits + generic-trait `[I,O]` dispatch, and string ops (`.length/.charAt/.substring/toString`)
+      — most of UniML's surface. **Two blocking gaps:** (1) `new Array[T](n)` + indexed apply/update
+      is broken (IndexOutOfBounds) — the compat-layer floor; (2) anonymous `new Trait[..]:` →
+      `unbound global: _err`. Untested: variance `[+A]`, multi-file `package`/`import`.
 - [ ] **uniml-portable-1-compat** — write `uniml.compat` (Scala3∩v2 subset): mutable `Buffer[T]`,
       ordered `LinkedMap`, `HashSet`, `StrBuilder`, int↔hex parse/format, and `CharClass` with a
       **compact curated Unicode table** (whitespace/punct/symbol/letter/digit + P*/S* for markdown
       flanking) + ASCII fast-path. Refactor core+dialects off `scala.collection.mutable` /
       `Character.*` / `Integer.*` / `StringBuilder` onto `uniml.compat`. Keep scalac build + all tests
-      green (compat is a drop-in). This is the largest UniML-side slice.
+      green (compat is a drop-in). This is the largest UniML-side slice. NOTE (from gapmap): compat's
+      mutable primitives need a **working mutable-array floor** — blocked on `uniml-portable-3`
+      fixing `new Array[T](n)` in v2, unless we build the floor on a v2-native buffer.
+- [ ] **uniml-portable-1b-namedclasses** — [UniML-side, no v2 change] replace anonymous
+      `new Trait[..]:` instances (in `Processor.andThen` etc.) with **named classes**, and drop
+      covariance annotations (`ProcessBatch[+A]` → invariant) if v2 can't parse them. Keeps scalac
+      green; removes two of the gapmap blockers on the UniML side.
 - [ ] **uniml-portable-2-subset** — constrain UniML to the Scala3∩v2 subset per the gap map; add a
       lint that fails on out-of-subset constructs. Set up mechanism (b): canonical `.scala` + `.ssc`
       mirror (symlink or generation) so both compilers see identical content.
 - [ ] **uniml-portable-3-v2compile** — [v2-side, coordinate with v2 agents] drive v2 to compile
       UniML, module by module (core→json→yaml→markdown); each gap = a v2 feature slice with UniML as
-      the test. v2-smoke red→green.
+      the test; `uniml/v2-smoke/run.sh` red→green. Concrete asks from the gapmap, by priority:
+      (1) **fix `new Array[T](n)` + indexed `apply`/`update`** (the floor everything builds on);
+      (2) **multi-file `package`/`import`** so UniML's modules compile together; (3) [optional]
+      anonymous class instances; (4) [optional] covariance annotations. See
+      `specs/uniml-portable-gapmap.md`.
 - [ ] **uniml-portable-4-parity** — a small set of **dual-compilable behavioral tests** (in the
       subset) run under both scalac and v2, proving v2-compiled UniML behaves identically
       (lossless/chunk-invariance agree on a handful of cases).
