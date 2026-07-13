@@ -84,6 +84,35 @@ see Design.
       (`StdUiSmokeTest`) still prints `smoke:ok`.
 - [ ] Affected `tkv2-*` / `std-ui-*` conformance cases pass before push.
 
+## Known limitation (discovered during implementation)
+
+`select` has three trailing defaulted parameters (`label`, `placeholder`,
+`disabled`) — the natural call shape for "just disable it" is
+`select(options, selected, disabled = true)`, skipping `label`/`placeholder`.
+That call shape triggers a **pre-existing bug in `bin/ssc run`'s self-hosted
+"standard tier" pipeline** (default, and `--v2` explicitly — a different
+codebase area from the v1 interpreter), unrelated to this slice's design:
+it mis-binds a named argument for a non-first trailing defaulted parameter
+to the *first* defaulted parameter instead (silently — wrong value, no
+error). Naming every trailing param from the first one overridden onward
+(or calling fully positionally) is unaffected. Verified **not** to affect
+`bin/ssc-tools run` (v1 — what `StdUiSmokeTest.scala` and this repo's own
+`tests/conformance/run.sh` `int` lane actually use), `bin/ssc-tools run
+--v2`, or `bin/ssc-tools emit-js` (the `js` lane / busi's `emit-spa`
+production path) — all four bind correctly in every case. Filed as
+`BUGS.md` § `standard-tier-named-arg-skip-default` (status: open, not fixed
+here — a compiler bug in a different, actively-developed pipeline, out of
+scope for a std/ui widget slice) and `BACKLOG.md` § Standard-tier compiler
+correctness. Every `select(...)` call site added by this slice (examples,
+smoke test, conformance test) avoids the trigger shape regardless: either
+all-positional, or every trailing param named starting from the first one
+overridden — e.g. `select(options, selected, label = "...", placeholder =
+"...", disabled = true)`, not `select(options, selected, disabled = true)`.
+Callers integrating `select` elsewhere (the busi follow-up) should do the
+same as a matter of habit, and should additionally confirm which pipeline
+their own `ssc`/`--v2` wrapper actually dispatches to before assuming
+either way.
+
 ## Out of Scope
 
 - **Reactive/fetched options** (`Signal[List[(String, String)]]`). busi's real
