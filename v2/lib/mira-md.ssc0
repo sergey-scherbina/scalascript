@@ -176,3 +176,29 @@ def extractFences = (src) =>
   let allLines = splitLines(stripBom(src), 0, Nil) in
   let bodyLines = skipYaml(allLines) in
   go(bodyLines, false, "", Nil, Nil)
+
+-- ── Bare-code fallback (fences optional since 2026-07-09) ─────────────────────
+-- A .ssc with NO fenced code blocks is treated as code in full ("код целиком") IF it is heading-less;
+-- a heading-less document is bare code, one with markdown headings (but no fences) is doc-only.
+-- An ATX heading line starts with `#` (not a `#!` shebang).
+def lineIsHeading = (line) =>
+  if #i.lt(#slen(line), 1) then false
+  else if #i.eq(#scodeAt(line, 0), 35) then
+    if #i.lt(#slen(line), 2) then true
+    else if #i.eq(#scodeAt(line, 1), 33) then false else true
+  else false
+
+def anyHeadingLine = (ls) =>
+  match ls {
+    case Nil => false
+    case Cons(l, r) => if lineIsHeading(l) then true else anyHeadingLine(r)
+  }
+
+-- The whole body (past a leading shebang and YAML front-matter) as one code string, OR "" when the
+-- document has any markdown heading (doc-only) — the caller keeps its no-blocks handling for that.
+def bareCodeFallback = (src) =>
+  let allLines = splitLines(stripBom(src), 0, Nil) in
+  let afterShebang = frontmatterLines(allLines) in
+  let bodyLines = skipYaml(afterShebang) in
+  if anyHeadingLine(bodyLines) then ""
+  else joinLines(bodyLines)

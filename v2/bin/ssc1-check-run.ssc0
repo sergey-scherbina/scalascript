@@ -27,7 +27,9 @@ def main = () =>
     case Cons(path, rest) =>
       let fileStr = #utf8->str(#io.readFile(path)) in
       let blocks = extractFences(fileStr) in
-      let src = joinScalaScript(blocks) in
+      let fenced = joinScalaScript(blocks) in
+      -- Fences optional: a heading-less .ssc with no code fences IS code in full ("код целиком").
+      let src = if #i.eq(slen(fenced), 0) then bareCodeFallback(fileStr) else fenced in
       if #i.eq(slen(src), 0) then
         let z = #io.eprint("no scalascript blocks\n") in
         #io.exit(2)
