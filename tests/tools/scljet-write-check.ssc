@@ -1,0 +1,22 @@
+#!/usr/bin/env ssc-tools run --v1
+---
+name: scljet-write-check
+description: Emit the bytes of SclJet's empty-database writer for byte-exact comparison
+backends: [int]
+---
+
+# SclJet empty-database writer check
+
+[ByteSlice, ByteError, byteSliceToList, emptyDatabase](std/scljet/index.ssc)
+
+```scalascript
+def emitBytes(pageSize: Int): Unit =
+  emptyDatabase(pageSize) match
+    case Right(bytes) => println(pageSize.toString + ":" + byteSliceToList(bytes).toString)
+    case Left(error) => println(pageSize.toString + ":ERROR:" + error.message)
+
+emitBytes(512)
+emitBytes(1024)
+emitBytes(4096)
+emitBytes(65536)
+```

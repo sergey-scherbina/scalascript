@@ -1,0 +1,41 @@
+---
+name: scljet-write-empty
+description: SclJet M3 empty-database writer round-trips through the header decoder
+backends: [int, js]
+---
+
+# SclJet empty-database writer
+
+[ByteSlice, ByteError, byteSliceGet, byteSliceSlice](std/scljet/index.ssc)
+[SqliteTextEncoding, EncodingUnknown, EncodingUtf8, EncodingUtf16Le, EncodingUtf16Be, DatabaseHeader, DecodeFailure, decodeDatabaseHeader, emptyDatabase](std/scljet/index.ssc)
+
+```scalascript
+def encodingCode(encoding: SqliteTextEncoding): Int = encoding match
+  case EncodingUnknown => 0
+  case EncodingUtf8 => 1
+  case EncodingUtf16Le => 2
+  case EncodingUtf16Be => 3
+
+def describe(pageSize: Int): String =
+  emptyDatabase(pageSize) match
+    case Left(error) => "write-error:" + error.message
+    case Right(bytes) =>
+      byteSliceSlice(bytes, 0, 100) match
+        case Left(error) => "slice-error:" + error.message
+        case Right(head) =>
+          decodeDatabaseHeader(head) match
+            case Left(failure) => "decode-error:" + failure.message
+            case Right(header) =>
+              val kind = byteSliceGet(bytes, 100) match
+                case Right(value) => value.toString
+                case Left(_) => "?"
+              bytes.length.toString + ":" + header.pageSize.toString + ":" +
+                header.schemaFormat.toString + ":" + encodingCode(header.textEncoding).toString + ":" +
+                header.changeCounter.toString + ":" + header.headerPageCount.toString + ":" +
+                header.sqliteVersionNumber.toString + ":leaf" + kind
+
+println(describe(512))
+println(describe(1024))
+println(describe(4096))
+println(describe(8192))
+```
