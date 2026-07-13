@@ -1,5 +1,0 @@
-agent: opus-continue
-slice: v2-frontend companion-object val members
-file: v2/lib/ssc1-lower.ssc0 (object lowering: emit val members as static globals like def/given)
-motivation: unblock UniML on v2 (Limits.default/SourcePosition.Start pervasive)
-gate: v2/conformance/check.sh + UniML probe

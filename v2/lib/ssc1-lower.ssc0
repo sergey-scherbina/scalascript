@@ -330,6 +330,8 @@ def staticMemberNames = (stmts) =>
         case Pair(tag, data) =>
           if #seq(tag, "def") then
             match data { case Pair(name, body) => Cons(name, staticMemberNames(rest)) }
+          else if #seq(tag, "val") then
+            match data { case Pair(name, body) => Cons(name, staticMemberNames(rest)) }
           else staticMemberNames(rest)
       }
   }
@@ -345,6 +347,13 @@ def staticMemberObjectArgs = (prefix, stmts) =>
       match s {
         case Pair(tag, data) =>
           if #seq(tag, "def") then
+            match data {
+              case Pair(name, body) =>
+                Cons(IrLit(IrStr(name)),
+                  Cons(IrGlobal(#sconcat(prefix, name)),
+                    staticMemberObjectArgs(prefix, rest)))
+            }
+          else if #seq(tag, "val") then
             match data {
               case Pair(name, body) =>
                 Cons(IrLit(IrStr(name)),
@@ -3419,6 +3428,18 @@ def lowerStmtToList = (stmt) =>
                             let cellDef = IrDef(#sconcat(prefix, #sconcat(vname, "__cell")),
                                             IrPrim("cell.new", Cons(lowerE(Nil, vinit), Nil))) in
                             appendL(Cons(cellDef, Nil), prefixDefs(rest))
+                        }
+                      else if #seq(stag, "val") then
+                        -- Immutable value member → an eager owner-prefixed global
+                        -- (`Owner_name`), like a `given` or a parameterless `def`
+                        -- property. Fixes `Owner.name` value access (e.g.
+                        -- `SourcePosition.Start`, `DialectRegistry.empty`). (A val whose
+                        -- body is an all-defaults constructor call, e.g. `val d = X()`,
+                        -- still needs default synthesis at this eager site — separate gap.)
+                        match sdata {
+                          case Pair(vname, vbody) =>
+                            appendL(Cons(IrDef(#sconcat(prefix, vname), lowerE(Nil, vbody)), Nil),
+                                    prefixDefs(rest))
                         }
                       else prefixDefs(rest)
                   }

@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-13 — v2 front: companion-object `val` members (unblocks UniML `Limits.default` etc.)
+
+Fixed the first of the v2 `.ssc`-frontend gaps blocking UniML from compiling on v2: a companion-object
+`val` member (`object Lim: val default = …`) was unresolvable (`Lim.default` → `unbound global:
+Lim_default`), because the object lowering in `v2/lib/ssc1-lower.ssc0` handled `def` and `var` members
+but silently dropped `val` members. Added `val` handling in three mirror spots (`prefixDefs`,
+`staticMemberNames`, `staticMemberObjectArgs`): a `val name = e` inside an object now emits
+`IrDef(Owner_name, lowerE(e))` — an eager static global, exactly like a `given` or a parameterless
+`def` property. Verified: probe `Lim.default` → `direct=5`/`passed=5` (was unbound), and the flattened
+UniML JSON dialect now advances past `Limits.default` to the next frontend gap (multi-param case-class
+constructor defaults). Full v2 conformance green (self-hosting preserved). This is pervasive for UniML
+(`Limits.default`, `SourcePosition.Start`, `JsonLimits.default`, `DialectRegistry.empty`).
+
 ## 2026-07-13 — UniML portable-subset lint + 2 caught misses; complete v2-frontend handoff (uniml-portable Phase 2/3)
 
 Added `uniml/lint-portable-subset.sh`, a guard that scans the dual-compilable UniML sources

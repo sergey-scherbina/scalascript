@@ -110,11 +110,12 @@ are v2-side, the active v2.2-self-hosted-dialect track — NOT UniML constructs)
   `Set`). `DialectAdapter`'s default `def aliases: Set[String] = Set.empty` hits this. (Adding `Set`
   needs front-end companion recognition, not just a runtime `case` — bigger than the additive
   `.dropRight`/`.indices` fixes.)
-- **Companion-object `val` members are not accessible** (`object Lim: val default = …` → `Lim.default`
-  gives `unbound global: Lim_default`, even direct access; `object.def` members DO work). This is
-  pervasive — `Limits.default`, `SourcePosition.Start`, `JsonLimits.default`, `DialectRegistry.empty`
-  all use it. Bisected: with `JsonDialect` removed, `core + JsonLexer + JsonStructure` fails here on
-  `Limits.default` (used as a case-class default-param value).
+- ~~**Companion-object `val` members are not accessible**~~ **FIXED (v2-side, this commit).** The object
+  lowering in `v2/lib/ssc1-lower.ssc0` (`prefixDefs`, `staticMemberNames`, `staticMemberObjectArgs`)
+  handled `def`/`var` members but dropped `val` members (`else`); now `val name = e` inside an object
+  emits `IrDef(Owner_name, lowerE(e))` — an eager static global, like `given` / a parameterless `def`.
+  Probe `direct=5`/`passed=5` (was `unbound global: Lim_default`). Unblocks the pervasive
+  `Limits.default`/`SourcePosition.Start`/`JsonLimits.default`/`DialectRegistry.empty` usages.
 - The `unbound global: extends` is isolated to `JsonDialect.scala` specifically (removing it changes the
   error to the companion-`val` one above); the exact form is still to pinpoint but it is a
   `JsonDialect`-local declaration, a v2-frontend parse issue.
