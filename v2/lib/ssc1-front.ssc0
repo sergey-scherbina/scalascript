@@ -1416,7 +1416,9 @@ def parseTypeParams = (toks) =>
       else if kindIs("EOF", ts) then pr(reverse(acc), ts)
       else
         let tv = tokVal(peek(ts)) in
-        let ts2 = advance(ts) in
+        -- Skip a higher-kinded type param's own params (`F[_]`, `G[_, _]`) before the bound/comma —
+        -- otherwise `[F[_]]` stops at the INNER `]`, misaligning the whole signature.
+        let ts2 = skipTypeArgs(advance(ts)) in
         if kindIs(":", ts2) then
           -- bounded: read one OR MORE chained TC bounds for this tv (`A: Monoid: Pretty`).
           -- Each `: TC[optArg]` yields a Pair(tv, TC); loop while another `:` follows.
