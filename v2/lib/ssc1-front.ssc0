@@ -347,6 +347,7 @@ def lexFrom = (s, i) =>
       else Cons(mkTok(".", ""), lexFrom(s, #i.add(i2, 1)))                       -- .
     else if #i.eq(c, 45) then
       if #i.eq(n, 62) then Cons(mkTok("->", ""), lexFrom(s, #i.add(i2, 2)))     -- ->
+      else if #i.eq(n, 61) then Cons(mkTok("op", "-="), lexFrom(s, #i.add(i2, 2))) -- -=
       else Cons(mkTok("op", "-"), lexFrom(s, #i.add(i2, 1)))
     else if #i.eq(c, 60) then
       if #i.eq(n, 126) then Cons(mkTok("op", "<~"), lexFrom(s, #i.add(i2, 2)))
@@ -376,6 +377,7 @@ def lexFrom = (s, i) =>
       else Cons(mkTok("op", "+"), lexFrom(s, #i.add(i2, 1)))
     else if #i.eq(c, 42) then
       if #i.eq(n, 42) then Cons(mkTok("op", "**"), lexFrom(s, #i.add(i2, 2)))
+      else if #i.eq(n, 61) then Cons(mkTok("op", "*="), lexFrom(s, #i.add(i2, 2))) -- *=
       else Cons(mkTok("op", "*"), lexFrom(s, #i.add(i2, 1)))
     else if #i.eq(c, 126) then
       if #i.eq(n, 62) then Cons(mkTok("op", "~>"), lexFrom(s, #i.add(i2, 2)))
@@ -1399,6 +1401,14 @@ def tryLamParams = (toksAfterParen) =>
   if kindIs(")", toksAfterParen) then pr(Some(Nil), advance(toksAfterParen))
   else tryLamParamsMore(toksAfterParen, Nil)
 
+-- The base infix operator of a compound-assignment token, or "" if the head is
+-- not one. `x += e` desugars to `x = x + e` (K62: loop var mutation `i += 1`).
+def compoundBaseOp = (toks) =>
+  if opIs("+=", toks) then "+"
+  else if opIs("-=", toks) then "-"
+  else if opIs("*=", toks) then "*"
+  else ""
+
 def finishAssignment = (r) =>
   if kindIs("=", prT(r)) then
     match prV(r) { case Pair(tag, data) =>
@@ -1407,7 +1417,15 @@ def finishAssignment = (r) =>
         pr(Pair("assign", Pair(data, prV(rr))), prT(rr))
       else r
     }
-  else r
+  else
+    let baseOp = compoundBaseOp(prT(r)) in
+    if #seq(baseOp, "") then r
+    else match prV(r) { case Pair(tag, data) =>
+      if #seq(tag, "var") then
+        let rr = parseExpr(advance(prT(r))) in
+        pr(Pair("assign", Pair(data, mkInf(baseOp, mkVar(data), prV(rr)))), prT(rr))
+      else r
+    }
 
 -- KC11: parse expression, with lambda short-circuit before infix parsing.
 -- A single `=` tail on a bare variable is an assignment expression; named
