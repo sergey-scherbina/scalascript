@@ -7093,6 +7093,21 @@ JS `1410065408` = mod 2^32; JVM emits Scala's 32-bit `Int`). Huge blast radius
         injection (i.e. real type-directed resolution / light unification), not a single-site heuristic.
         That is a genuine multi-session type-inference slice — the "biggest lever" but also the deepest;
         needs a deliberate design pass on the whole given-dict flow in ssc1-lower.ssc0, not a bolt-on.
+        A1-CONT (deliberate pass, 2026-07-13) → hit the ARCHITECTURAL wall, reverted. Implemented the
+        3-part fix (typeOfExpr List; buildGivenArgs element-type selection; computeActiveCtx → param
+        name). Result: `__tc_Monoid_empty` UNBOUND. ROOT ARCHITECTURE: v2 typeclass dispatch is fully
+        STATIC — a given instance is a set of GLOBALS (`intSum_combine`, `intSum_empty`, …) and a method
+        call lowers to `<given>_<method>` resolved at COMPILE time. There is NO runtime dictionary: a
+        ctx param is not a value carrying methods, so mapping it to the param name yields
+        `__tc_<Cls>_<method>` globals that don't exist. And a polymorphic `combineAll` body is lowered
+        ONCE while the needed instance depends on the CALL — static `<given>_<method>` dispatch cannot
+        bridge that. The current code "works" for the int case only because `computeActiveCtx` blindly
+        binds the FIRST instance (intSum). ⇒ Correct polymorphic typeclass dispatch requires either
+        (a) MONOMORPHISATION (emit a specialised `combineAll_<T>` per instantiation with the instance
+        baked in) or (b) RUNTIME DICTIONARIES (pass the instance's methods as values; lower method
+        access to field/value access, not a mangled global). BOTH are MAJOR v2-lowering architecture
+        changes, not a patch — a dedicated design+build effort. This diagnostic pass pinned the exact
+        wall; no code landed (kernel reverted clean).
 
 ### ▶ ssc-toolkit-v2 (2026-07-07, owner-directed via busi: the busi SPA must move React→ScalaScript)
 
