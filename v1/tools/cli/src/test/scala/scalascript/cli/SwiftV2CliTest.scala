@@ -160,6 +160,42 @@ final class SwiftV2CliTest extends AnyFunSuite:
       finally os.remove.all(out)
     }
 
+  test("package --target macos builds and ad-hoc signs a codesign-verifiable app"):
+    assume(xcodeAvailable, "Xcode is not available")
+    withLibPath {
+      val out = os.temp.dir(prefix = "ssc-v2-swift-package-macos-")
+      try
+        val packaged = SwiftV2Cli.packageMacos(
+          nativeUiExample, out, None, "ssc package --target macos")
+        assert(packaged.signed, "NativeUi macOS package must be ad-hoc signed")
+        assert(packaged.artifact.ext == "app")
+        assert(os.exists(packaged.artifact / "Contents" / "Info.plist"))
+        // Real proof: codesign accepts the bundle under strict, deep verification.
+        val verify = os.proc("codesign", "--verify", "--deep", "--strict", packaged.artifact.toString)
+          .call(stdout = os.Pipe, stderr = os.Pipe, check = false)
+        assert(verify.exitCode == 0, s"codesign --verify failed: ${verify.err.text()}")
+        // The signature is ad-hoc (Signature=adhoc, no certificate Authority) —
+        // proving no Apple identity was used, only `codesign --sign -`.
+        val display = os.proc("codesign", "-dvvv", packaged.artifact.toString)
+          .call(stdout = os.Pipe, stderr = os.Pipe, check = false)
+        val info = display.out.text() + display.err.text()
+        assert(info.contains("Signature=adhoc"), s"expected ad-hoc signature, got:\n$info")
+        assert(!info.contains("Authority="), s"ad-hoc signature must carry no certificate authority:\n$info")
+      finally os.remove.all(out)
+    }
+
+  test("ad-hoc codesign diagnostic is bounded when codesign is missing"):
+    val previous = sys.props.get("ssc.codesign.command")
+    sys.props("ssc.codesign.command") = "/definitely/missing/codesign"
+    try
+      val error = intercept[IllegalStateException](
+        SwiftV2Cli.adhocSignAndVerify(os.pwd / "nonexistent.app", "ssc package --target macos"))
+      assert(error.getMessage.contains("is required for ad-hoc codesign"))
+    finally
+      previous match
+        case Some(value) => sys.props("ssc.codesign.command") = value
+        case None => sys.props.remove("ssc.codesign.command")
+
   test("missing Swift diagnostic is bounded and corrective"):
     val previous = sys.props.get("ssc.swift.command")
     sys.props("ssc.swift.command") = "/definitely/missing/swift"

@@ -104,6 +104,18 @@ ssc publish --target ios|macos --team-id <team> --api-key-path <key.json> ...
 `SSC_NOTARY_KEYCHAIN_PROFILE` are the corresponding noninteractive environment
 fallbacks; no v2 signed route reads these values from frontmatter.
 
+macOS signing is tiered by credential requirement. Plain `ssc package --target
+macos <file.ssc>` (no `--distribution`, no team id) builds the UI-mode `.app`
+and **ad-hoc signs** it (`codesign --sign -`, no Apple identity) then proves it
+with `codesign --verify --deep --strict`, so the packaged bundle is signed and
+launch-ready on the build host with zero credentials. This is the credential-
+free tier: an ad-hoc signature is self-consistent but carries no certificate
+authority, so Gatekeeper still rejects it for redistribution. Trusted
+distribution stays behind `--distribution --team-id <team>`, which archives and
+exports a Developer ID-signed (and optionally notarized) `.app`/DMG. A
+domain-only macOS program has no application bundle to sign; its SwiftPM
+executable is built unsigned.
+
 `build`, `run`, `package`, and `publish` accept the same `--server-url` client
 setting for Apple UI targets and validate/normalize it once before generation. A
 manifest/client build setting may provide the same resolved value before this

@@ -3783,6 +3783,27 @@ present in Main.scala). The produced package builds to a real `.app` (see
 distribution — genuine multi-day feature work owned by the swift specialists. _Original report:_
 reported by Sergiy in the Codex session.
 
+- **Signing sub-slice — credential-free tier landed (opus, 07-13, CLI/packaging
+  layer only; Swift 6.3.2/Xcode 26.5).** Plain `ssc-tools package --target macos
+  <file.ssc>` (no `--distribution`, no team id) now ad-hoc codesigns the built
+  `.app` (`codesign --sign -`, no cert) and proves it with `codesign --verify
+  --deep --strict` before returning, so the packaged bundle is signed and
+  launch-ready with zero Apple credentials. Verified end-to-end on both
+  `examples/swift/appcore-nativeui.ssc` and the headline
+  `examples/frontend/ios-hello/ios-hello.ssc`: BEFORE (old output, xcodebuild
+  `CODE_SIGNING_ALLOWED=NO`) → no `_CodeSignature` seal, `codesign --verify` =
+  "code object is not signed at all" (exit 1); AFTER → `valid on disk` /
+  `satisfies its Designated Requirement` (exit 0), `Signature=adhoc` (not
+  linker-signed), `TeamIdentifier=not set`, `CFBundlePackageType=APPL`. `spctl
+  -a` still rejects ad-hoc (exit 3) — expected; Gatekeeper needs Developer ID.
+  Changes confined to `SwiftV2Cli.packageMacos`/`adhocSignAndVerify`
+  (`SwiftV2Commands.scala`) + `PackageCmd` (`Main.scala`); the 4 renderer files
+  untouched. Contract documented in `specs/v2-swift-swiftui-native.md`; regression
+  in `SwiftV2CliTest`. STILL REMAINING (credential-blocked, not implementable in
+  this env): Developer-ID `--distribution` codesign+notarize+DMG, TestFlight/App
+  Store publish, and real device runs — all need an Apple signing certificate /
+  notary profile / provisioning we do not have.
+
 - **Reported symptom:** ScalaScript 2.0 has a problem with both the Swift backend
   and the SwiftUI toolkit for desktop and mobile applications.
 - **Real-harness repro (assembled `bin/ssc`, 2026-07-10):** after

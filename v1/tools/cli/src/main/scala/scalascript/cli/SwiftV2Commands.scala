@@ -18,6 +18,11 @@ private[cli] object SwiftV2Cli:
       executable: os.Path,
       buildSettings: Map[String, String],
   )
+  /** Result of `ssc package --target macos` (no `--distribution`).
+   *  UI-mode apps yield a built, ad-hoc-signed, verified `.app` (`signed = true`);
+   *  a domain-only macOS program yields its built SwiftPM package root
+   *  (`signed = false` — a plain executable, nothing to bundle-sign). */
+  final case class PackagedMacApp(artifact: os.Path, signed: Boolean)
 
   def parsePlatform(raw: String, command: String): SwiftPlatform =
     raw.trim.toLowerCase match
@@ -219,6 +224,53 @@ private[cli] object SwiftV2Cli:
     if !os.exists(executable) then
       throw new IllegalStateException(s"$command: application executable missing at $executable")
     BuiltXcodeApp(bundle, executable, buildSettings)
+
+  /** Ad-hoc codesign (`codesign --sign -`) the bundle, then prove it with
+   *  `codesign --verify --deep --strict`. Ad-hoc signing needs NO Apple
+   *  identity/certificate and produces a launch-ready, self-consistent
+   *  signature (Gatekeeper still rejects it — that requires Developer ID via
+   *  `--distribution`; ad-hoc is the credential-free tier). Both steps run
+   *  hermetically (`--timestamp=none`, no notary/network). */
+  def adhocSignAndVerify(bundle: os.Path, command: String): Unit =
+    val codesign = sys.props.getOrElse("ssc.codesign.command", "codesign")
+    val sign = callProcess(
+      List(codesign, "--force", "--deep", "--timestamp=none", "--sign", "-", bundle.toString),
+      None, command, "ad-hoc codesign")
+    if sign.exitCode != 0 then
+      throw new IllegalStateException(
+        s"$command: ad-hoc codesign failed (exit ${sign.exitCode}): ${sign.err.text().take(2048)}")
+    val verify = callProcess(
+      List(codesign, "--verify", "--deep", "--strict", bundle.toString),
+      None, command, "codesign verification")
+    if verify.exitCode != 0 then
+      throw new IllegalStateException(
+        s"$command: codesign verification failed (exit ${verify.exitCode}): ${verify.err.text().take(2048)}")
+
+  /** `ssc package --target macos` (no `--distribution`): emit the package, build
+   *  the real artifact, and — for a UI-mode app — ad-hoc sign + verify the
+   *  produced `.app` so the packaged bundle is signed and launch-ready without
+   *  any Apple credential. A domain-only macOS program has no `.app` bundle to
+   *  sign; its SwiftPM executable is built and returned unsigned. */
+  def packageMacos(
+      sscFile: os.Path,
+      outDir: os.Path,
+      backendBaseUrl: Option[String],
+      command: String,
+  ): PackagedMacApp =
+    val emitted = emit(sscFile, outDir, SwiftPlatform.MacOS, backendBaseUrl = backendBaseUrl)
+    emitted.xcodeApp match
+      case Some(_) =>
+        val built = buildXcodeApplication(
+          emitted, "platform=macOS", outDir / "derived", command)
+        adhocSignAndVerify(built.bundle, command)
+        PackagedMacApp(built.bundle, signed = true)
+      case None =>
+        val swift = requireSwift(command)
+        val result = os.proc(swift, "build")
+          .call(stdout = os.Inherit, stderr = os.Inherit, cwd = outDir, check = false)
+        if result.exitCode != 0 then
+          throw new IllegalStateException(s"$command: swift build failed (exit ${result.exitCode})")
+        PackagedMacApp(outDir, signed = false)
 
   def archiveXcodeApplication(
       pkg: EmittedPackage,

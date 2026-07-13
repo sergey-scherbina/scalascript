@@ -506,7 +506,7 @@ def printUsage(): Unit =
       |  run-jvm --frontend javafx <f>     Launch the OpenJFX desktop frontend
       |  build   --target desktop <f>      Generate an Electron bundle (npm run build to package)
       |  build   --target ios|macos <f>    Generate a SwiftUI Swift package
-      |  package --target macos <f>        Swift package + swift build (ready-to-run binary)
+      |  package --target macos <f>        Build + ad-hoc codesign .app (ready-to-run, no cert)
       |  package --target ios <f>          Archive + export signed .ipa (Xcode + Apple Developer)
       |    --export-method <m>             development|ad-hoc|enterprise|app-store (default: development)
       |    --team-id <id>                  Apple Developer Team ID (or SSC_TEAM_ID)
@@ -4934,10 +4934,12 @@ final class PackageCmd extends CliCommand:
                     case Some(path) => println(s"  .dmg → ${displayPath(path)}")
                     case None => println(s"  .app → ${displayPath(result.app)}")
                 else
-                  buildV2SwiftPackage(
-                    pf, targetOut, _root_.ssc.swift.SwiftPlatform.MacOS,
-                    runSwiftBuild = true, backendBaseUrl = serverUrlFlag)
-                  println(s"  Xcode application → ${displayPath(targetOut)}")
+                  val command = "ssc package --target macos"
+                  val packaged = SwiftV2Cli.packageMacos(pf, targetOut, serverUrlFlag, command)
+                  if packaged.signed then
+                    println(s"  Signed application (ad-hoc) → ${displayPath(packaged.artifact)}")
+                  else
+                    println(s"  Swift package → ${displayPath(packaged.artifact)}")
               case _ => ()
             return
           catch case e: Exception =>
