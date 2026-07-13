@@ -50,10 +50,12 @@ are plain bullets without checkboxes so agents do not claim them as build work.
       start/end conditions) all implemented and tested (leaf 30/30 JVM+JS); the example corpus was
       grown (curated 34 + ~70 adversarial edge cases). Remaining tail (multi-line inline spans across
       a continuation marker; deep/mixed container nesting) is tracked in `uniml-markdown-m41-tail`.
-- [ ] **uniml-markdown-m41-tail** — the last CommonMark edge cases the M4.1 pass left: multi-line
-      inline spans (emphasis/links) that cross a block-quote/list continuation marker (single-line
-      content is fully resolved today), and deep/mixed container nesting beyond the common cases. The
-      CST stays lossless meanwhile; keep JVM/Scala.js identical.
+- [x] **uniml-markdown-m41-tail** — ✓ Landed (2026-07-13). Paragraphs are buffered as per-line
+      segments so continuation markers (`> `, list indents) are emitted as trivia at their source
+      position instead of leaking into inline text; multi-line emphasis/links now resolve cleanly
+      across a marker. Deep/mixed container nesting (nested quotes/lists, quote-in-list, list-in-quote,
+      lazy continuation into a nested quote) is correct. Leaf 32/32 JVM+JS. UniML Markdown M4 + all
+      M4.1 follow-ups are now complete; only the exotic HTML5-only entity long-tail remains deferred.
 - [x] **uniml-markdown-m41-doccontent-bridge** — ✓ Landed (2026-07-13). `unimlMarkdownBridge`
       (JVM-only, depends on `core` + the Markdown leaf) projects a compatible `MarkdownDocument` into
       `DocumentContent` (headings→sections, paragraphs/lists/images/tables→content blocks,

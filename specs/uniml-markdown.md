@@ -256,15 +256,15 @@ invariance by construction). Emphasis is resolved with a CommonMark-faithful del
 structure uses a container stack whose transitions are `Reframe` instructions, with dangling frames
 closed on the last token to avoid spurious end-of-input diagnostics.
 
-**Landed in M4.1:** the optional `DocumentContent` bridge (`unimlMarkdownBridge`); a fix so a sibling
-list of a different marker type is no longer nested in the previous list frame; the full HTML4/XHTML
-named-entity set in projection; an adversarial edge-case corpus; and (2026-07-13) the behavioral
-conformance items — lazy paragraph continuation, tight/loose list classification, and the full
-CommonMark HTML-block type table (types 1–7 with their correct start and end conditions).
+**Landed in M4.1** (all follow-ups complete as of 2026-07-13): the optional `DocumentContent` bridge
+(`unimlMarkdownBridge`); a fix so a sibling list of a different marker type is not nested in the
+previous list frame; the full HTML4/XHTML named-entity set in projection; an adversarial edge-case
+corpus; the behavioral conformance items — lazy paragraph continuation, tight/loose list
+classification, and the full CommonMark HTML-block type table (types 1–7); and the tail — multi-line
+inline spans that resolve cleanly across a block-quote/list continuation marker (the marker is emitted
+as a trivia token at its source position, no longer leaking into the projected inline text) plus
+correct deep/mixed container nesting (nested quotes/lists, quote-in-list, list-in-quote, and lazy
+continuation into a nested quote).
 
-**Still scoped for M4.1** (queued in `BACKLOG.md`, CST stays lossless meanwhile):
-
-- Multi-line inline spans that cross a block-quote/list continuation marker (single-line content is
-  fully resolved; continuation markers are preserved as trivia).
-- Deep/mixed container nesting beyond the common cases.
-- The exotic HTML5-only named entities beyond the HTML4/XHTML set (unknown names stay literal, lossless).
+**Deferred beyond M4.1:** the exotic HTML5-only named entities beyond the HTML4/XHTML set (unknown
+names stay literal, which is lossless).

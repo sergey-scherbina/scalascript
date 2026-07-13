@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-13 — UniML Markdown: continuation-marker trivia + nesting (M4.1 tail)
+
+Closes the last CommonMark edge cases of the M4.1 pass. Paragraphs are now buffered as per-line
+segments `(prefix, content, ending)` rather than one woven string: the inline content is the
+de-prefixed lines joined by their endings, so multi-line emphasis/links resolve cleanly across a
+block-quote or list continuation marker, and each line's continuation prefix (`> `, list indent) is
+spliced back in as a trivia token at its exact source position (right after the line's soft/hard
+break) instead of leaking into the projected inline text. Combined with lazy continuation and the
+earlier list-frame fix, deep/mixed container nesting is now correct — nested quotes/lists,
+quote-in-list, list-in-quote, and lazy continuation into a nested quote (`> a / > > b / > c`). Leaf
+32/32 on JVM and Scala.js; bridge 11/11. **UniML Markdown M4 and every M4.1 follow-up are complete**;
+only the exotic HTML5-only named-entity long-tail remains deferred (unknown names stay literal,
+lossless).
+
 ## 2026-07-13 — UniML Markdown: behavioral CommonMark conformance (M4.1)
 
 Closed the behavioral edge cases the initial M4 pass deferred, each gated behind tests and keeping
