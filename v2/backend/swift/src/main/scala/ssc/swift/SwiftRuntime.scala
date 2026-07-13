@@ -618,6 +618,69 @@ private final class Machine {
         globals["lookupOpt"] = .closure(SscClosure(arity: 2) { args in
             try jsonLookup(args[0], args[1]).map(some) ?? none()
         })
+        globals["contentDocument"] = .closure(SscClosure(arity: 0) { _ in sscContentRootModule().document })
+        globals["contentCurrentSection"] = .closure(SscClosure(arity: 0) { _ in
+            throw SscRuntimeFailure(description: "contentCurrentSection() is unavailable on native without source-aware call identity")
+        })
+        globals["contentSection"] = .closure(SscClosure(arity: 1) { args in
+            guard case let .string(id) = args[0] else { throw SscRuntimeFailure(description: "contentSection(id)") }
+            let hit = sscContentFindSection(sscContentSections(sscContentRootModule().document), id)
+            return hit.map(some) ?? none()
+        })
+        globals["contentBlock"] = .closure(SscClosure(arity: 1) { args in
+            guard case let .string(id) = args[0] else { throw SscRuntimeFailure(description: "contentBlock(id)") }
+            let hit = sscContentFindBlock(sscContentRootModule().document, id)
+            return hit.map(some) ?? none()
+        })
+        globals["contentData"] = .closure(SscClosure(arity: 1) { args in
+            guard case let .string(id) = args[0] else { throw SscRuntimeFailure(description: "contentData(id)") }
+            let hit = sscContentFindBlock(sscContentRootModule().document, id).flatMap(sscContentBlockData)
+            return hit.map(some) ?? none()
+        })
+        globals["contentMetadata"] = .closure(SscClosure(arity: 1) { args in
+            guard case let .string(path) = args[0] else { throw SscRuntimeFailure(description: "contentMetadata(path)") }
+            let hit = sscContentMetadata(sscContentRootModule().document, path)
+            return hit.map(some) ?? none()
+        })
+        globals["contentPlainText"] = .closure(SscClosure(arity: 1) { args in .string(sscContentPlain(args[0])) })
+        globals["contentToMarkdown"] = .closure(SscClosure(arity: 1) { args in .string(sscContentMarkdown(args[0])) })
+        globals["contentModules"] = .closure(SscClosure(arity: 0) { _ in
+            let m = SscMap()
+            for module in sscContentDirectModules() { m.put(.string(module.namespace), module.document) }
+            return .map(m)
+        })
+        globals["contentModule"] = .closure(SscClosure(arity: 1) { args in
+            guard case let .string(namespace) = args[0] else { throw SscRuntimeFailure(description: "contentModule(namespace)") }
+            return sscContentImportedModule(namespace).map { some($0.document) } ?? none()
+        })
+        globals["contentModuleSection"] = .closure(SscClosure(arity: 2) { args in
+            guard case let .string(namespace) = args[0], case let .string(id) = args[1] else {
+                throw SscRuntimeFailure(description: "contentModuleSection(namespace, id)")
+            }
+            let hit = sscContentImportedModule(namespace).flatMap { sscContentFindSection(sscContentSections($0.document), id) }
+            return hit.map(some) ?? none()
+        })
+        globals["contentModuleBlock"] = .closure(SscClosure(arity: 2) { args in
+            guard case let .string(namespace) = args[0], case let .string(id) = args[1] else {
+                throw SscRuntimeFailure(description: "contentModuleBlock(namespace, id)")
+            }
+            let hit = sscContentImportedModule(namespace).flatMap { sscContentFindBlock($0.document, id) }
+            return hit.map(some) ?? none()
+        })
+        globals["contentModuleData"] = .closure(SscClosure(arity: 2) { args in
+            guard case let .string(namespace) = args[0], case let .string(id) = args[1] else {
+                throw SscRuntimeFailure(description: "contentModuleData(namespace, id)")
+            }
+            let hit = sscContentImportedModule(namespace).flatMap { sscContentFindBlock($0.document, id) }.flatMap(sscContentBlockData)
+            return hit.map(some) ?? none()
+        })
+        globals["contentModuleMetadata"] = .closure(SscClosure(arity: 2) { args in
+            guard case let .string(namespace) = args[0], case let .string(path) = args[1] else {
+                throw SscRuntimeFailure(description: "contentModuleMetadata(namespace, path)")
+            }
+            let hit = sscContentImportedModule(namespace).flatMap { sscContentMetadata($0.document, path) }
+            return hit.map(some) ?? none()
+        })
     }
 
     private func installDefinitions() {
@@ -1892,4 +1955,333 @@ private func sscShow(_ value: SscValue) -> String {
     }
 }
 """
-  val source: String = sourcePart1 + sourcePart2
+  private val sourcePart3: String = """
+// ── Content modules: decode + native accessors (std/content.ssc, std/ui/content.ssc) ─
+// Mirrors ssc.plugin.content.ContentNativePlugin (JVM) exactly, reading the SAME
+// NativeContentCodec binary format the JVM/build-jvm paths already produce
+// (specs/v2.1-native-content.md), embedded per-app as a base64 Swift string literal
+// (sscContentModulesBase64, generated by SwiftBackend.contentModulesSource — always
+// present, "" when the source closure never imports std/ui/content).
+
+struct SscContentModule {
+    let source: String
+    let explicitRoot: Bool
+    let directImports: [String]
+    let namespace: String
+    let document: SscValue
+}
+
+private final class SscContentDecoder {
+    private let bytes: [UInt8]
+    private var offset: Int = 0
+    init(_ bytes: [UInt8]) { self.bytes = bytes }
+
+    private func readByte() -> UInt8 {
+        guard offset < bytes.count else { fatalError("content codec: truncated input") }
+        let b = bytes[offset]; offset += 1; return b
+    }
+    private func readInt32() -> Int32 {
+        var v: UInt32 = 0
+        for _ in 0..<4 { v = (v << 8) | UInt32(readByte()) }
+        return Int32(bitPattern: v)
+    }
+    private func readInt64() -> Int64 {
+        var v: UInt64 = 0
+        for _ in 0..<8 { v = (v << 8) | UInt64(readByte()) }
+        return Int64(bitPattern: v)
+    }
+    private func readDouble() -> Double { Double(bitPattern: UInt64(bitPattern: readInt64())) }
+    private func readString() -> String {
+        let len = Int(readInt32())
+        guard len >= 0 else { fatalError("content codec: invalid string length") }
+        var s = [UInt8](); s.reserveCapacity(len)
+        for _ in 0..<len { s.append(readByte()) }
+        return String(decoding: s, as: UTF8.self)
+    }
+    private func readCount() -> Int {
+        let n = Int(readInt32())
+        guard n >= 0 else { fatalError("content codec: invalid count") }
+        return n
+    }
+
+    func readValue() -> SscValue {
+        switch readByte() {
+        case 0: return .unit
+        case 1: return .bool(readByte() != 0)
+        case 2: return .int(readInt64())
+        case 3: return .big(SscBigInt(readString()))
+        case 4: return .float(readDouble())
+        case 5: return .string(readString())
+        case 6: return .decimal(SscDecimal(readString()))
+        case 7:
+            let tag = readString()
+            let count = readCount()
+            var fields: [SscValue] = []; fields.reserveCapacity(count)
+            for _ in 0..<count { fields.append(readValue()) }
+            return .data(tag, SscFields(fields))
+        case 8:
+            let count = readCount()
+            let m = SscMap()
+            for _ in 0..<count { let key = readValue(); let value = readValue(); m.put(key, value) }
+            return .map(m)
+        default: fatalError("content codec: unknown value tag")
+        }
+    }
+
+    func readModules() -> [SscContentModule] {
+        let magic = readString()
+        guard magic == "SSC-CONTENT-1" else { fatalError("content codec: unsupported native content artifact format: \(magic)") }
+        let count = readCount()
+        var modules: [SscContentModule] = []; modules.reserveCapacity(count)
+        for _ in 0..<count {
+            let source = readString()
+            let explicitRoot = readByte() != 0
+            let importCount = readCount()
+            var imports: [String] = []; imports.reserveCapacity(importCount)
+            for _ in 0..<importCount { imports.append(readString()) }
+            let namespace = readString()
+            let document = readValue()
+            modules.append(SscContentModule(source: source, explicitRoot: explicitRoot, directImports: imports, namespace: namespace, document: document))
+        }
+        return modules
+    }
+}
+
+private func sscContentModules() -> [SscContentModule] {
+    if sscContentModulesBase64.isEmpty { return [] }
+    guard let data = Data(base64Encoded: sscContentModulesBase64) else {
+        fatalError("content codec: invalid base64 in generated ContentModules.swift")
+    }
+    return SscContentDecoder([UInt8](data)).readModules()
+}
+
+private func sscContentRootModule() -> SscContentModule {
+    guard let root = sscContentModules().first(where: { $0.explicitRoot }) else {
+        fatalError("contentDocument() is unavailable: native compilation has no explicit root content")
+    }
+    return root
+}
+
+// direct (non-helper) imports of the root module — std/content.ssc / std/content-bind-core.ssc /
+// std/ui/content.ssc are excluded, matching ContentNativePlugin.helperImport/directModules.
+private func sscContentHelperImport(_ path: String) -> Bool {
+    path == "std/content.ssc" || path.hasSuffix("/std/content.ssc") ||
+    path == "std/content-bind-core.ssc" || path.hasSuffix("/std/content-bind-core.ssc") ||
+    path == "std/ui/content.ssc" || path.hasSuffix("/std/ui/content.ssc")
+}
+private func sscContentDirectModules() -> [SscContentModule] {
+    let modules = sscContentModules()
+    let root = sscContentRootModule()
+    let paths = Set(root.directImports.filter { !sscContentHelperImport($0) })
+    return modules.filter { paths.contains($0.source) }
+}
+private func sscContentImportedModule(_ namespace: String) -> SscContentModule? {
+    let matches = sscContentDirectModules().filter { $0.namespace == namespace }
+    if matches.count > 1 { fatalError("contentModule: duplicate imported content namespace '\(namespace)'") }
+    return matches.first
+}
+
+private func sscContentData(_ value: SscValue, _ tag: String, _ arity: Int) -> [SscValue] {
+    guard case let .data(t, fields) = value, t == tag, fields.count == arity else {
+        fatalError("expected \(tag)/\(arity), got \(sscShow(value))")
+    }
+    return fields.asArray()
+}
+private func sscContentAttrs(_ value: SscValue) -> SscMap {
+    guard case let .map(m) = value else { fatalError("expected content attrs map, got \(sscShow(value))") }
+    return m
+}
+private func sscContentAttrString(_ value: SscValue, _ key: String) -> String? {
+    guard let found = sscContentAttrs(value).get(.string(key)) else { return nil }
+    if case let .data("Str", fields) = found, fields.count == 1, case let .string(text) = fields[0] { return text }
+    return nil
+}
+private func sscContentBlocks(_ documentOrSection: SscValue) -> [SscValue] {
+    switch documentOrSection {
+    case let .data("DocumentContent", fields) where fields.count == 6: return list(fields[5])
+    case let .data("SectionContent", fields) where fields.count == 6: return list(fields[4])
+    default: fatalError("expected document or section, got \(sscShow(documentOrSection))")
+    }
+}
+private func sscContentSections(_ document: SscValue) -> [SscValue] { list(sscContentData(document, "DocumentContent", 6)[4]) }
+private func sscContentSectionChildren(_ section: SscValue) -> [SscValue] { list(sscContentData(section, "SectionContent", 6)[5]) }
+
+private func sscContentFindSection(_ values: [SscValue], _ id: String) -> SscValue? {
+    for section in values {
+        let fields = sscContentData(section, "SectionContent", 6)
+        if case let .string(sid) = fields[0], sid == id { return section }
+        if let hit = sscContentFindSection(sscContentSectionChildren(section), id) { return hit }
+    }
+    return nil
+}
+private func sscContentBlockAttrsField(_ block: SscValue) -> SscValue? {
+    switch block {
+    case let .data("Paragraph", f) where f.count == 2: return f[1]
+    case let .data("BulletList", f) where f.count == 2: return f[1]
+    case let .data("OrderedList", f) where f.count == 3: return f[2]
+    case let .data("Image", f) where f.count == 4: return f[3]
+    case let .data("Table", f) where f.count == 4: return f[3]
+    case let .data("Embedded", f) where f.count == 5: return f[4]
+    default: return nil
+    }
+}
+private func sscContentFindBlockIn(_ values: [SscValue], _ id: String) -> SscValue? {
+    for block in values {
+        if let attrs = sscContentBlockAttrsField(block), sscContentAttrString(attrs, "id") == id { return block }
+    }
+    return nil
+}
+private func sscContentFindBlockSections(_ values: [SscValue], _ id: String) -> SscValue? {
+    for section in values {
+        if let hit = sscContentFindBlockIn(sscContentBlocks(section), id) { return hit }
+        if let hit = sscContentFindBlockSections(sscContentSectionChildren(section), id) { return hit }
+    }
+    return nil
+}
+private func sscContentFindBlock(_ document: SscValue, _ id: String) -> SscValue? {
+    sscContentFindBlockIn(sscContentBlocks(document), id) ?? sscContentFindBlockSections(sscContentSections(document), id)
+}
+private func sscContentBlockData(_ block: SscValue) -> SscValue? {
+    guard case let .data("Embedded", f) = block, f.count == 5, case let .data("Some", inner) = f[3], inner.count == 1 else { return nil }
+    return inner[0]
+}
+private func sscContentMap(_ value: SscValue) -> SscMap? {
+    guard case let .data("MapV", f) = value, f.count == 1, case let .map(m) = f[0] else { return nil }
+    return m
+}
+private func sscContentMetadata(_ document: SscValue, _ path: String) -> SscValue? {
+    let manifest = sscContentData(document, "DocumentContent", 6)[0]
+    var current: SscValue? = sscContentMap(manifest).flatMap { $0.get(.string("content")) }
+    for part in path.split(separator: ".").map(String.init) where !part.isEmpty {
+        current = current.flatMap(sscContentMap).flatMap { $0.get(.string(part)) }
+    }
+    return current
+}
+
+// ── plain text / semantic Markdown rendering (contentPlainText / contentToMarkdown) ──
+
+private func sscContentInlineText(_ value: SscValue) -> String {
+    switch value {
+    case let .data("Text", f) where f.count == 1: if case let .string(s) = f[0] { return s }; return ""
+    case let .data("Code", f) where f.count == 1: if case let .string(s) = f[0] { return s }; return ""
+    case let .data("Expr", f) where f.count == 1: if case let .string(s) = f[0] { return "${" + s + "}" }; return ""
+    case let .data("Emphasis", f) where f.count == 1: return list(f[0]).map(sscContentInlineText).joined()
+    case let .data("Strong", f) where f.count == 1: return list(f[0]).map(sscContentInlineText).joined()
+    case let .data("Link", f) where f.count == 3: return list(f[0]).map(sscContentInlineText).joined()
+    default: return ""
+    }
+}
+private func sscContentInlineMarkdown(_ value: SscValue) -> String {
+    switch value {
+    case let .data("Text", f) where f.count == 1: if case let .string(s) = f[0] { return s }; return ""
+    case let .data("Code", f) where f.count == 1: if case let .string(s) = f[0] { return "`" + s + "`" }; return ""
+    case let .data("Expr", f) where f.count == 1: if case let .string(s) = f[0] { return "${" + s + "}" }; return ""
+    case let .data("Emphasis", f) where f.count == 1: return "*" + list(f[0]).map(sscContentInlineMarkdown).joined() + "*"
+    case let .data("Strong", f) where f.count == 1: return "**" + list(f[0]).map(sscContentInlineMarkdown).joined() + "**"
+    case let .data("Link", f) where f.count == 3:
+        let label = list(f[0]).map(sscContentInlineMarkdown).joined()
+        guard case let .string(href) = f[1] else { return label }
+        var suffix = ""
+        if case let .data("Some", t) = f[2], t.count == 1, case let .string(text) = t[0] { suffix = " \"" + text + "\"" }
+        return "[" + label + "](" + href + suffix + ")"
+    default: return ""
+    }
+}
+private func sscContentAttrEntries(_ value: SscValue) -> [(String, String)] {
+    sscContentAttrs(value).entries.compactMap { (key, val) in
+        guard case let .string(k) = key, case let .data("Str", f) = val, f.count == 1, case let .string(text) = f[0] else { return nil }
+        return (k, text)
+    }
+}
+private func sscContentHeadingAttrs(_ value: SscValue) -> String {
+    let entries = sscContentAttrEntries(value)
+    if entries.isEmpty { return "" }
+    let rendered = entries.map { (k, v) in k == "id" ? "#" + v : k + "=" + v }.joined(separator: " ")
+    return " {" + rendered + "}"
+}
+private func sscContentMetadataPrefix(_ value: SscValue) -> String {
+    let entries = sscContentAttrEntries(value)
+    if entries.isEmpty { return "" }
+    return "<!-- @meta " + entries.map { (k, v) in k + "=" + v }.joined(separator: " ") + " -->\n"
+}
+private func sscContentFenceAttrs(_ value: SscValue) -> String {
+    let entries = sscContentAttrEntries(value)
+    if entries.isEmpty { return "" }
+    return " " + entries.map { (k, v) in k == "id" ? "@id=" + v : "@" + k + "=" + v }.joined(separator: " ")
+}
+private func sscContentPlainBlock(_ value: SscValue) -> String {
+    switch value {
+    case let .data("Paragraph", f) where f.count == 2: return list(f[0]).map(sscContentInlineText).joined()
+    case let .data("BulletList", f) where f.count == 2:
+        return list(f[0]).map { item in list(item).map(sscContentPlainBlock).joined(separator: " ") }.joined(separator: "\n")
+    case let .data("OrderedList", f) where f.count == 3:
+        return list(f[0]).map { item in list(item).map(sscContentPlainBlock).joined(separator: " ") }.joined(separator: "\n")
+    case let .data("Image", f) where f.count == 4: if case let .string(alt) = f[1] { return alt }; return ""
+    case let .data("Table", f) where f.count == 4:
+        let header = list(f[0]).map { cell in list(cell).map(sscContentInlineText).joined() }.joined(separator: " | ")
+        let body = list(f[1]).map { row in list(row).map { cell in list(cell).map(sscContentInlineText).joined() }.joined(separator: " | ") }
+        return ([header] + body).joined(separator: "\n")
+    case let .data("Embedded", f) where f.count == 5: if case let .string(source) = f[1] { return source }; return ""
+    default: return ""
+    }
+}
+private func sscContentPlain(_ value: SscValue) -> String {
+    switch value {
+    case let .data("SectionContent", f) where f.count == 6:
+        guard case let .string(title) = f[2] else { return "" }
+        let parts = [title] + sscContentBlocks(value).map(sscContentPlainBlock) + sscContentSectionChildren(value).map(sscContentPlain)
+        return parts.filter { !$0.isEmpty }.joined(separator: "\n")
+    case .data("DocumentContent", _):
+        let parts = sscContentBlocks(value).map(sscContentPlainBlock) + sscContentSections(value).map(sscContentPlain)
+        return parts.filter { !$0.isEmpty }.joined(separator: "\n")
+    default: return sscContentPlainBlock(value)
+    }
+}
+private func sscContentMarkdownBlock(_ value: SscValue) -> String {
+    switch value {
+    case let .data("Paragraph", f) where f.count == 2:
+        return sscContentMetadataPrefix(f[1]) + list(f[0]).map(sscContentInlineMarkdown).joined()
+    case let .data("BulletList", f) where f.count == 2:
+        return sscContentMetadataPrefix(f[1]) + list(f[0]).map { item in "- " + list(item).map(sscContentMarkdownBlock).joined(separator: " ") }.joined(separator: "\n")
+    case let .data("OrderedList", f) where f.count == 3:
+        guard case let .int(start) = f[1] else { return "" }
+        let items = list(f[0])
+        let rendered = items.enumerated().map { (i, item) in "\(start + Int64(i)). " + list(item).map(sscContentMarkdownBlock).joined(separator: " ") }
+        return sscContentMetadataPrefix(f[2]) + rendered.joined(separator: "\n")
+    case let .data("Image", f) where f.count == 4:
+        guard case let .string(src) = f[0], case let .string(alt) = f[1] else { return "" }
+        var titleText = ""
+        if case let .data("Some", t) = f[2], t.count == 1, case let .string(text) = t[0] { titleText = " \"" + text + "\"" }
+        return sscContentMetadataPrefix(f[3]) + "![" + alt + "](" + src + titleText + ")"
+    case let .data("Table", f) where f.count == 4:
+        let header = list(f[0]).map { cell in list(cell).map(sscContentInlineMarkdown).joined() }
+        let aligns = list(f[2]).map { v -> String in
+            if case let .string(a) = v {
+                switch a { case "left": return ":---"; case "right": return "---:"; case "center": return ":---:"; default: return "---" }
+            }
+            return "---"
+        }
+        let body = list(f[1]).map { row in "| " + list(row).map { cell in list(cell).map(sscContentInlineMarkdown).joined() }.joined(separator: " | ") + " |" }
+        let lines = ["| " + header.joined(separator: " | ") + " |", "| " + aligns.joined(separator: " | ") + " |"] + body
+        return sscContentMetadataPrefix(f[3]) + lines.joined(separator: "\n")
+    case let .data("Embedded", f) where f.count == 5:
+        guard case let .string(lang) = f[0], case let .string(source) = f[1] else { return "" }
+        return "```" + lang + sscContentFenceAttrs(f[4]) + "\n" + source + "\n```"
+    default: fatalError("contentToMarkdown: unsupported value \(sscShow(value))")
+    }
+}
+private func sscContentMarkdown(_ value: SscValue) -> String {
+    switch value {
+    case let .data("SectionContent", f) where f.count == 6:
+        guard case let .int(level) = f[1], case let .string(title) = f[2] else { return "" }
+        let heading = String(repeating: "#", count: Int(level)) + " " + title + sscContentHeadingAttrs(f[3])
+        let parts = [heading] + sscContentBlocks(value).map(sscContentMarkdownBlock) + sscContentSectionChildren(value).map(sscContentMarkdown)
+        return parts.joined(separator: "\n\n")
+    case .data("DocumentContent", _):
+        let parts = sscContentBlocks(value).map(sscContentMarkdownBlock) + sscContentSections(value).map(sscContentMarkdown)
+        return parts.joined(separator: "\n\n")
+    default: return sscContentMarkdownBlock(value)
+    }
+}
+"""
+  val source: String = sourcePart1 + sourcePart2 + sourcePart3

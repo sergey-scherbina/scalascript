@@ -64,6 +64,8 @@ private[cli] object SwiftV2Cli:
         "Swift UI application requires front-matter bundle-id")
     appMetadata.foreach(SwiftBackend.validateAppMetadata)
 
+    val contentModulesBase64 = contentModulesBase64For(input)
+
     os.makeDir.all(output)
     val resourcesRoot = output / "AppleApp" / "Resources"
     val existingResources =
@@ -75,9 +77,29 @@ private[cli] object SwiftV2Cli:
       checked.program, product, platform, backendBaseUrl, appMetadata,
       forceNativeUi = forceNativeUi,
       appleResourcePaths = existingResources,
+      contentModulesBase64 = contentModulesBase64,
     )
     generated.writeTo(output.toNIO)
     EmittedPackage(output, generated.debugCli, platform, generated.xcodeApp)
+
+  /** Content-module extraction (std/ui/content.ssc's contentDocument/etc) lives
+   *  only in the self-hosted tower's structural ABI (RunNativeV2/
+   *  NativeV2Structural), a separate pipeline from FrontendBridge — which is
+   *  what `emit` otherwise uses for the actual Core IR. This is a SECOND,
+   *  independent compile of the same input, kept deliberately non-fatal: not
+   *  every Swift-targeted source is self-hosted-tower-parseable (v1-only
+   *  syntax FrontendBridge accepts), and a Swift app that never imports
+   *  std/ui/content must not fail to emit because of this. See
+   *  specs/v2.1-native-content.md for the ABI this reuses unmodified.
+   */
+  private def contentModulesBase64For(input: os.Path): Option[String] =
+    try
+      val compiled = RunNativeV2.compile(List(input.toString))
+      if compiled.contentModules.isEmpty then None
+      else
+        val bytes = _root_.ssc.plugin.NativeContentCodec.encode(compiled.contentModules)
+        Some(java.util.Base64.getEncoder.encodeToString(bytes))
+    catch case _: Exception => None
 
   def requireSwift(command: String): String =
     val executable = sys.props.getOrElse("ssc.swift.command", "swift")

@@ -26,6 +26,7 @@ private[swift] object SwiftXcodeProject:
     "Sources/AppCore/SscRuntime.swift",
     "Sources/AppCore/NativeUiHost.swift",
     "Sources/AppCore/GeneratedProgram.swift",
+    "Sources/AppCore/ContentModules.swift",
     "AppleApp/NativeUiStore.swift",
     "AppleApp/NativeUiRenderer.swift",
     "AppleApp/NativeUiStyles.swift",
