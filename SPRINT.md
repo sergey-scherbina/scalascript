@@ -185,8 +185,15 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
           cc-field/cc-arith/cc-match Core IR byte-identical to ssc1-front (run-ir needs plugin VM —
           bare VM lacks `__regfields__`, identical on both sides). Notes §P6.2d. Deferred: derives/
           extends/type-params/methods; enum/trait/object/type.
-    - [ ] next: alternative/typed/bind patterns + block case bodies; `::`/`->`/`to`/`until` + prefix
-          ops; `given`/`using`/extension; `enum`/`trait`/`object`/`type` decls.
+    - [x] **P6.2e given + summon ✓ Landed 2026-07-13** — `given name: T = e` + `summon[T]` (typeclass
+          resolution core). Projection emits `("given",…)`/`("summon",T)`; lowerProg's resolve pass
+          does the dict-passing (buildGivenTable/findGiven) — no hidden cells. 27/27 tests;
+          given-summon→42, given-summon2→8, **Core IR byte-identical to ssc1-front AND runs on bare
+          VM**. Notes §P6.2e. Tractability probe verdict: typeclass family is NOT (C) — resolution is
+          in the lower's resolve pass over AST-derived tables. Deferred: trait+`with`+context-bound
+          dispatch loop (finicky even in ssc1-front), named `using` + `tcExtendsCell` (hidden cells).
+    - [ ] next: `enum` decls (cleanest casecls-style); `extension` methods (AST-node-driven); then
+          alternative/typed/bind patterns, `::`/`->`/`to`/`until` + prefix ops.
   - [ ] **P6.3 injection + registry** — interpolator injection (s/f/md) via registry; registry hook
         (built-in set, user-closed).
   - [ ] **P6.4 self-host proof** — compile v2.2 with itself (stage1→stage2 fixed point); scalac oracle.

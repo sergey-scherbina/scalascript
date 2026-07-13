@@ -202,6 +202,17 @@ final class ScalaSpikeSpec extends AnyFunSuite:
     assert(proj.contains("mkSel("), proj)
   }
 
+  test("given + summon parse to spike.given / spike.summon and project to the right nodes") {
+    val pr = parse("given g: Int = 42\ndef main(): Int = summon[Int]")
+    assert(pr.status == CompletionStatus.Complete, pr.diagnostics)
+    val prog = pr.roots.head
+    assert(allBranches(prog, "spike.given").size == 1)
+    assert(kindOf(childWithRole(allBranches(prog, "spike.def").head, "def.body").get) == "spike.summon")
+    val proj = SpikeProject.program(prog)
+    assert(proj.contains("""Pair("given", Pair("g", Pair("Int","""), proj)
+    assert(proj.contains("""Pair("summon", "Int")"""), proj)
+  }
+
   test("tuple pattern parses to spike.tuppat; uid application projects to mkUVar/mkApp") {
     val m = defBody(parse("def main(): Int = Pair(1, 2) match\n  case (a, b) => a\n  case _ => 0")).asInstanceOf[UniNode.Branch]
     assert(childWithRole(arms(m).head, "case.pat").get.asInstanceOf[UniNode.Branch].kind == "spike.tuppat")
@@ -294,7 +305,10 @@ final class ScalaSpikeSpec extends AnyFunSuite:
       // P6.2d — case class declaration + construction + field access + ctor pattern
       "cc-field"  -> "case class Point(x: Int, y: Int)\ndef main(): Int = Point(3, 4).x",
       "cc-arith"  -> "case class Point(x: Int, y: Int)\ndef main(): Int = Point(3, 4).x + Point(3, 4).y",
-      "cc-match"  -> "case class Box(a: Int, b: Int)\ndef main(): Int = Box(10, 20) match\n  case Box(x, y) => x + y\n  case _ => 0"
+      "cc-match"  -> "case class Box(a: Int, b: Int)\ndef main(): Int = Box(10, 20) match\n  case Box(x, y) => x + y\n  case _ => 0",
+      // P6.2e — given instance + summon (typeclass resolution core; lowerProg does dict-passing)
+      "given-summon"  -> "given g: Int = 42\ndef main(): Int = summon[Int]",
+      "given-summon2" -> "given g: Int = 7\ndef main(): Int = summon[Int] + 1"
     )
     // broken — no oracle; the harness proves containment (`main` still runs).
     val broken = Seq(

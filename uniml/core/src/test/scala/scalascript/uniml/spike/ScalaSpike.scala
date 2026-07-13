@@ -26,7 +26,7 @@ enum Node:
 
 // ── lexer ────────────────────────────────────────────────────────────────────
 object SpikeLex:
-  private val keywords = Set("def", "val", "if", "then", "else", "match", "case", "class")
+  private val keywords = Set("def", "val", "if", "then", "else", "match", "case", "class", "given")
   private def isOpChar(c: Char): Boolean = "+-*/%<>=!&|^~:".indexOf(c.toInt) >= 0
 
   def scan(src: SourceId, text: String): Vector[SourceToken] =
@@ -79,6 +79,8 @@ object SpikeLex:
           case ',' => "spike.comma"
           case ';' => "spike.semi"
           case '.' => "spike.dot"
+          case '[' => "spike.lbracket"
+          case ']' => "spike.rbracket"
           case _   => "spike.junk"
         advance(c)
         emit(kind, start, c.toString, TokenChannel.Syntax)
@@ -133,6 +135,7 @@ object SpikeParse:
     while !c.eof do
       if isDefStart(c) then defs += parseDef(c)
       else if isKw(c, "case") then defs += parseCaseClass(c)
+      else if isKw(c, "given") then defs += parseGiven(c)
       else
         c.report("spike.unexpected-toplevel", s"unexpected token '${c.peekLexeme}' at top level")
         val skipped = Vector.newBuilder[Node]
@@ -198,6 +201,33 @@ object SpikeParse:
         else more = false
     expect(c, "spike.rparen", "cc.rparen", "')'").foreach(kids += _)
     Node.Frame("spike.casecls", None, kids.result())
+
+  // `given name: T = expr` — a named typeclass instance (dictionary). lowerProg's resolve pass
+  // does the dict-passing; the projection only emits the `("given", (name, typeStr, body))` node.
+  private def parseGiven(c: Cur): Node =
+    val kids = Vector.newBuilder[Node]
+    c.advance().foreach(t => kids += Node.Leaf(t, Some("given.kw"))) // `given`
+    expect(c, "spike.id", "given.name", "given name").foreach(kids += _)
+    expect(c, "spike.colon", "given.colon", "':'").foreach(kids += _)
+    expectType(c, "given.type").foreach(kids += _)
+    expect(c, "spike.eq", "given.eq", "'='").foreach(kids += _)
+    parseExpr(c, 1) match
+      case Some(b) => kids += b.withRole("given.body")
+      case None    => c.report("spike.missing-given-body", "missing given body")
+    Node.Frame("spike.given", None, kids.result())
+
+  // `summon[T]` — resolved to the matching given by lowerProg. A bare `summon` (no `[`) is a var.
+  private def parseSummon(c: Cur): Node =
+    val id = c.advance().get // `summon`
+    if c.peekKind != "spike.lbracket" then Node.Leaf(id, Some("var"))
+    else
+      val kids = Vector.newBuilder[Node]
+      kids += Node.Leaf(id, Some("summon.kw"))
+      c.advance().foreach(t => kids += Node.Leaf(t, Some("summon.open"))) // `[`
+      expectType(c, "summon.type").foreach(kids += _)
+      if c.peekKind == "spike.rbracket" then c.advance().foreach(t => kids += Node.Leaf(t, Some("summon.close")))
+      else c.report("spike.expected", "expected ']' after summon type")
+      Node.Frame("spike.summon", None, kids.result())
 
   // an indented block: statements at column >= blockCol; a dedent (col < blockCol),
   // EOF, or a top-level `def` ends it. parseStmt always consumes ≥1 token (progress).
@@ -326,6 +356,7 @@ object SpikeParse:
       case "spike.int"    => c.advance().map(t => Node.Leaf(t, Some("int")))
       case "spike.lparen" => parseParen(c)
       case "spike.kw" if c.peekLexeme == "if" => parseIf(c)
+      case "spike.id" if c.peekLexeme == "summon" => Some(parseSummon(c))
       case "spike.id" | "spike.uid" => parseIdOrCall(c) // uid = uppercase ctor/type ref → mkUVar
       case "spike.junk" =>
         c.report("spike.unexpected-expr", s"unexpected token '${c.peekLexeme}' in expression")
@@ -442,7 +473,16 @@ object SpikeProject:
     consList(kids(root).collect {
       case (_, c) if kindOf(c) == "spike.def"     => defNode(c)
       case (_, c) if kindOf(c) == "spike.casecls" => caseClsNode(c)
+      case (_, c) if kindOf(c) == "spike.given"   => givenNode(c)
     })
+
+  // Pair("given", Pair(name, Pair(typeStr, body))) — lowerProg builds the given table + IrDef.
+  private def givenNode(n: UniNode): String =
+    val ks = kids(n)
+    val name = ks.collectFirst { case (Some("given.name"), c) => lexeme(c) }.getOrElse("_")
+    val ty   = ks.collectFirst { case (Some("given.type"), c) => lexeme(c) }.getOrElse("_")
+    val body = ks.collectFirst { case (Some("given.body"), c) => expr(c) }.getOrElse(hole)
+    s"""Pair("given", Pair("${esc(name)}", Pair("${esc(ty)}", $body)))"""
 
   // Pair("casecls", Pair(name, Pair(fieldNames, Pair(fieldTypes, derives)))) via mkCaseCls;
   // lowerProg generates the ctor def, Mirror, `_sel_<field>` accessors and `__regfields__`.
@@ -476,6 +516,8 @@ object SpikeProject:
       case "spike.block" => block(b)
       case "spike.match" => matchExpr(b)
       case "spike.sel"   => sel(b)
+      case "spike.summon" =>
+        s"""Pair("summon", "${esc(kids(b).collectFirst { case (Some("summon.type"), c) => lexeme(c) }.getOrElse("_"))}")"""
       case "spike.error" => hole
       case _             => hole
     case _ => hole
