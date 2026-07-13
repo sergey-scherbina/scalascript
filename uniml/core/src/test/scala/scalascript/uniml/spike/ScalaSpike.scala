@@ -2,24 +2,23 @@ package scalascript.uniml.spike
 
 import scalascript.uniml.*
 
-/** P6.0/P6.1 gate-spike: a UniML dialect for a tiny Scala subset —
-  * `def NAME(p: Int, ...): Int = EXPR`, EXPR over int / id / `+ - *` (with `*`
-  * binding tighter) / `( )` / call `f(a, b)` / `if c then t else e`.
+/** v2.2 spike — a UniML dialect for a growing Scala subset.
+  *   `def NAME(p: Int, ...): Int = EXPR`; EXPR over int / id / call `f(a,b)` /
+  *   `( )` / `if c then t else e` / the full ssc-v2 infix operator set with the
+  *   `ssc1-front` precedence table.
   *
-  * P6.0 answered the gate question — precedence is expressible: the dialect runs
-  * a normal Pratt parse INTERNALLY, builds a `Node` tree, then MECHANICALLY
-  * serialises it to `VmToken`s where each frame opens on the first token of its
-  * subtree and closes (via `Reframe.closeAfter`) on the last. UniML's VM rebuilds
-  * exactly that tree as a lossless CST.
-  *
-  * P6.1 makes the pipeline TOTAL and error-resilient: the parser never crashes,
-  * records `Diagnostic`s, resyncs to the next `def` boundary on error, and emits
-  * `spike.error` frames for salvaged junk; the projection is total and turns any
-  * error / missing subtree into a `__notImplemented__` hole (generalising `???`),
-  * so a broken region degrades to a hole without poisoning the rest of the file.
+  * P6.0 gate: precedence is expressible — a normal Pratt parse INSIDE the dialect,
+  *   serialised to `VmToken`s where each frame opens on the first token of its
+  *   subtree and closes (`Reframe.closeAfter`) on the last (source-order, lossless).
+  * P6.1: the pipeline is TOTAL — the parser never throws, records `Diagnostic`s,
+  *   resyncs to the next `def` boundary, emits `spike.error` frames; the projection
+  *   turns any error / missing subtree into a `__notImplemented__` hole.
+  * P6.2 (this slice): the FULL infix table (matching `v2/lib/ssc1-front.ssc0`
+  *   `opPrec`, left-associative) with a generic `spike.infix` frame carrying the
+  *   operator token. (`::` / `->` / `to` / `until` are special-cased in ssc1-front
+  *   — deferred to a later slice, together with offside layout.)
   */
 
-// ── the intermediate tree the dialect builds (Pratt result), mapped 1:1 to the CST ──
 enum Node:
   case Leaf(tok: SourceToken, role: Option[String])
   case Frame(kind: String, role: Option[String], children: Vector[Node])
@@ -27,6 +26,7 @@ enum Node:
 // ── lexer ────────────────────────────────────────────────────────────────────
 object SpikeLex:
   private val keywords = Set("def", "if", "then", "else")
+  private def isOpChar(c: Char): Boolean = "+-*/%<>=!&|^~:".indexOf(c.toInt) >= 0
 
   def scan(src: SourceId, text: String): Vector[SourceToken] =
     val out = Vector.newBuilder[SourceToken]
@@ -59,16 +59,21 @@ object SpikeLex:
         while i < n && (text.charAt(i).isLetterOrDigit || text.charAt(i) == '_') do { sb.append(text.charAt(i)); advance(text.charAt(i)) }
         val w = sb.toString
         emit(if keywords(w) then "spike.kw" else "spike.id", start, w, TokenChannel.Syntax)
+      else if isOpChar(c) then
+        // greedy maximal run of operator characters, then classify
+        val sb = new StringBuilder
+        while i < n && isOpChar(text.charAt(i)) do { sb.append(text.charAt(i)); advance(text.charAt(i)) }
+        val op = sb.toString
+        val kind = op match
+          case "=" => "spike.eq"
+          case ":" => "spike.colon"
+          case _   => "spike.op" // classified by opPrec in the parser
+        emit(kind, start, op, TokenChannel.Syntax)
       else
         val kind = c match
-          case '+' => "spike.plus"
-          case '-' => "spike.minus"
-          case '*' => "spike.star"
           case '(' => "spike.lparen"
           case ')' => "spike.rparen"
           case ',' => "spike.comma"
-          case ':' => "spike.colon"
-          case '=' => "spike.eq"
           case _   => "spike.junk"
         advance(c)
         emit(kind, start, c.toString, TokenChannel.Syntax)
@@ -83,6 +88,19 @@ extension (n: Node)
 object SpikeParse:
   final case class Parsed(tree: Node, diagnostics: Vector[Diagnostic])
 
+  // exact mirror of v2/lib/ssc1-front.ssc0 `opPrec` (0 = not an infix op).
+  private def opPrec(op: String): Int = op match
+    case "~" | "~>"                         => 9
+    case "*" | "/" | "%"                    => 8
+    case "+" | "-"                          => 7
+    case "++" | ":+" | "<<" | ">>" | ">>>"  => 6
+    case "==" | "!=" | "<" | "<~" | ">" | "<=" | ">=" | "&" => 5
+    case "&&" | "^" | "|"                   => 4
+    case "||"                               => 3
+    case "!"                                => 2
+    case ":="                               => 1
+    case _                                  => 0
+
   private final class Cur(val toks: Vector[SourceToken]):
     private var p = 0
     private val diags = Vector.newBuilder[Diagnostic]
@@ -91,21 +109,12 @@ object SpikeParse:
     def peek: Option[SourceToken] = { skipTrivia(); if p < toks.length then Some(toks(p)) else None }
     def peekKind: String = peek.map(_.kind).getOrElse("spike.eof")
     def peekLexeme: String = peek.map(_.lexeme).getOrElse("<eof>")
+    def peekPrec: Int = if peekKind == "spike.op" then opPrec(peekLexeme) else 0
     def advance(): Option[SourceToken] = { skipTrivia(); if p < toks.length then { val t = toks(p); p += 1; Some(t) } else None }
     def diagnostics: Vector[Diagnostic] = diags.result()
     def report(code: String, msg: String): Unit =
       val span = peek.map(_.span).orElse(toks.lastOption.map(_.span))
       diags += Diagnostic(code, msg, Severity.Error, span, Some("scalascript.spike"))
-
-  private def prec(kind: String): Int = kind match
-    case "spike.star"                 => 2
-    case "spike.plus" | "spike.minus" => 1
-    case _                            => 0
-  private def binKind(kind: String): String = kind match
-    case "spike.star"  => "spike.mul"
-    case "spike.plus"  => "spike.add"
-    case "spike.minus" => "spike.sub"
-    case _             => "spike.bin"
 
   private def isDefStart(c: Cur): Boolean = c.peekKind == "spike.kw" && c.peekLexeme == "def"
 
@@ -115,7 +124,6 @@ object SpikeParse:
     while !c.eof do
       if isDefStart(c) then defs += parseDef(c)
       else
-        // resync: skip junk up to the next `def` / eof into an error frame
         c.report("spike.unexpected-toplevel", s"unexpected token '${c.peekLexeme}' at top level")
         val skipped = Vector.newBuilder[Node]
         while !c.eof && !isDefStart(c) do c.advance().foreach(t => skipped += Node.Leaf(t, Some("error.skipped")))
@@ -156,16 +164,16 @@ object SpikeParse:
       case None => None
       case Some(first) =>
         var left = first
-        var p = prec(c.peekKind)
+        var p = c.peekPrec
         while p >= minPrec && p > 0 do
-          val op = c.advance().get // safe: peek was an operator
+          val op = c.advance().get // spike.op
           val kids = parseExpr(c, p + 1) match
             case Some(r) => Vector(left.withRole("bin.left"), Node.Leaf(op, Some("bin.op")), r.withRole("bin.right"))
             case None =>
               c.report("spike.missing-operand", s"missing right operand after '${op.lexeme}'")
               Vector(left.withRole("bin.left"), Node.Leaf(op, Some("bin.op"))) // right absent → hole in projection
-          left = Node.Frame(binKind(op.kind), None, kids)
-          p = prec(c.peekKind)
+          left = Node.Frame("spike.infix", None, kids)
+          p = c.peekPrec
         Some(left)
 
   private def parseAtom(c: Cur): Option[Node] =
@@ -174,11 +182,10 @@ object SpikeParse:
       case "spike.lparen" => parseParen(c)
       case "spike.kw" if c.peekLexeme == "if" => parseIf(c)
       case "spike.id"     => parseIdOrCall(c)
-      case "spike.eof"    => None
-      case "spike.kw"     => None // `def`/`then`/`else` — a boundary; do not consume
-      case _ => // junk token — consume into an error frame so we make progress
+      case "spike.junk" => // truly unknown char — consume into an error frame so we make progress
         c.report("spike.unexpected-expr", s"unexpected token '${c.peekLexeme}' in expression")
         c.advance().map(t => Node.Frame("spike.error", None, Vector(Node.Leaf(t, Some("error.token")))))
+      case _ => None // eof / `def`/`then`/`else` / operator / `)` / `=` / `:` / `,` — a boundary
 
   private def parseParen(c: Cur): Option[Node] =
     val kids = Vector.newBuilder[Node]
@@ -257,10 +264,8 @@ object SpikeDialect extends DialectAdapter:
         ProcessBatch(SpikeEmit.emit(parsed.tree), parsed.diagnostics)
 
 // ── projection: UniML CST → ssc-v2 `Pair(tag,data)` AST as ssc0 source text ────
-// TOTAL: any error / missing subtree becomes a `__notImplemented__` hole (the ssc-v2
-// generalisation of `???`) — compiles fine, throws only if evaluated.
+// TOTAL: any error / missing subtree becomes a `__notImplemented__` hole.
 object SpikeProject:
-  /** the typed-hole placeholder in the ssc-v2 AST (a prim → IrPrim). */
   private val hole = """Pair("prim", Pair("__notImplemented__", Nil))"""
 
   private def esc(s: String): String = s.replace("\\", "\\\\").replace("\"", "\\\"")
@@ -280,10 +285,8 @@ object SpikeProject:
       }
     case _ => Vector.empty
 
-  /** program CST → ssc0 statement-list expression (Cons(def, ... Nil)). Never throws. */
   def program(root: UniNode): String =
-    val defs = kids(root).collect { case (_, c) if kindOf(c) == "spike.def" => defNode(c) }
-    consList(defs)
+    consList(kids(root).collect { case (_, c) if kindOf(c) == "spike.def" => defNode(c) })
 
   private def consList(xs: Vector[String]): String =
     xs.foldRight("Nil")((h, acc) => s"Cons($h, $acc)")
@@ -300,11 +303,7 @@ object SpikeProject:
     case UniNode.Token(t) if t.kind == "spike.int" => s"""mkInt("${esc(t.lexeme)}")"""
     case UniNode.Token(t) if t.kind == "spike.id"  => s"""mkVar("${esc(t.lexeme)}")"""
     case b: UniNode.Branch => b.kind match
-      case "spike.int"   => s"""mkInt("${esc(firstLeaf(b))}")"""
-      case "spike.id"    => s"""mkVar("${esc(firstLeaf(b))}")"""
-      case "spike.add"   => bin("+", b)
-      case "spike.sub"   => bin("-", b)
-      case "spike.mul"   => bin("*", b)
+      case "spike.infix" => infix(b)
       case "spike.paren" => kids(b).collectFirst { case (Some("paren.inner"), c) => expr(c) }.getOrElse(hole)
       case "spike.call"  => call(b)
       case "spike.if"    => ifExpr(b)
@@ -312,14 +311,11 @@ object SpikeProject:
       case _             => hole
     case _ => hole
 
-  private def firstLeaf(n: UniNode): String = n match
-    case UniNode.Token(t)  => t.lexeme
-    case b: UniNode.Branch => kids(b).headOption.map((_, c) => firstLeaf(c)).getOrElse("")
-
-  private def bin(op: String, b: UniNode.Branch): String =
-    val l = kids(b).collectFirst { case (Some("bin.left"), c) => expr(c) }.getOrElse(hole)
-    val r = kids(b).collectFirst { case (Some("bin.right"), c) => expr(c) }.getOrElse(hole)
-    s"""mkInf("$op", $l, $r)"""
+  private def infix(b: UniNode.Branch): String =
+    val op = kids(b).collectFirst { case (Some("bin.op"), c) => lexeme(c) }.getOrElse("+")
+    val l  = kids(b).collectFirst { case (Some("bin.left"), c) => expr(c) }.getOrElse(hole)
+    val r  = kids(b).collectFirst { case (Some("bin.right"), c) => expr(c) }.getOrElse(hole)
+    s"""mkInf("${esc(op)}", $l, $r)"""
 
   private def call(b: UniNode.Branch): String =
     val fn = kids(b).collectFirst { case (Some("call.fn"), c) => expr(c) }.getOrElse(hole)

@@ -145,8 +145,16 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
         = 2*3` compiles (broken body = hole) and `run-ir main` = 6; happy path still byte-identical
         Core IR vs `ssc1-front`. Notes: `specs/v2.2-p6.0-spike-notes.md` §P6.1. Deferred (non-block):
         trivia losslessness, typed-holes-proper (needs v2.2 typer), intra-def statement resync.
-  - [ ] **P6.2 grow the dialect** to full front coverage (layout/precedence/given-using/patterns/
-        for-match/decls), differential-tested vs `ssc1-front` across the corpus, until it replaces it.
+  - [~] **P6.2 grow the dialect** to full front coverage (layout/precedence/given-using/patterns/
+        for-match/decls), differential-tested vs `ssc1-front`, until it replaces it. Sliced:
+    - [x] **P6.2a full infix table ✓ Landed 2026-07-13** — greedy operator-run lexer + exact
+          `ssc1-front` `opPrec` (left-assoc) via one generic `spike.infix` frame. 16/16 tests; the
+          operator corpus (prec/assoc/shift/cmp/bool/bit) is **Core IR byte-identical to ssc1-front**.
+          Notes: `specs/v2.2-p6.0-spike-notes.md` §P6.2.
+    - [ ] **P6.2b offside layout** — significant indentation → `Reframe` (UniML's YAML indent
+          machinery applies); Scala-3 optional-braces + semicolon inference (mirror ssc1-front
+          `layout`). The big one.
+    - [ ] **P6.2c** `::`/`->`/`to`/`until` + prefix ops; then patterns/`match`/`given`-`using`/decls.
   - [ ] **P6.3 injection + registry** — interpolator injection (s/f/md) via registry; registry hook
         (built-in set, user-closed).
   - [ ] **P6.4 self-host proof** — compile v2.2 with itself (stage1→stage2 fixed point); scalac oracle.
