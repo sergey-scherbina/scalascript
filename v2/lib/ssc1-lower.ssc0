@@ -376,6 +376,12 @@ def collectExtensionMethods = (stmts) =>
           case Pair(tag, data) =>
             if #seq(tag, "extension_start") then go(rest, true)
             else if #seq(tag, "extension_end") then go(rest, false)
+            else if #seq(tag, "given_obj") then
+              -- An `extension` group can live INSIDE a `given … with` body; descend so its
+              -- methods register too (else `recv.m` misroutes to __method__ and stubs).
+              match data { case Pair(gname, rest2) =>
+                match rest2 { case Pair(typeStr, gstmts) =>
+                  appendL(go(gstmts, false), go(rest, active)) } }
             else if active then
               if #seq(tag, "def") then
                 match data {
@@ -4253,6 +4259,117 @@ def emitMonoDefs = (stmts) =>
     } in
   go(#cell.get(kc5MonoCell), Nil)
 
+-- ── Extension-method instance dispatch ────────────────────────────────────────
+-- An `extension … def m` declared INSIDE `given g: TC[T] with …` is emitted prefixed as `g_m`
+-- (given_obj lowering). But a call `recv.m(args)` references the BARE name `m` (via __methodOrExt__).
+-- With 2+ instances (`Functor[List]`, `Functor[Option]`) there is no single `m` to bind. We synthesise
+-- a bare `m` DISPATCHER that type-tests the receiver's runtime tag and forwards to the matching `g_m`.
+
+-- Runtime constructor tags for a nominal type head (built-ins + user ADTs via subtypeChildren).
+def extTypeTags = (typeHead) =>
+  if #seq(typeHead, "List") then Cons("Cons", Cons("Nil", Nil))
+  else if #seq(typeHead, "Option") then Cons("Some", Cons("None", Nil))
+  else if #seq(typeHead, "Either") then Cons("Left", Cons("Right", Nil))
+  else
+    let subs = subtypeChildren(typeHead) in
+    match subs { case Nil => Cons(typeHead, Nil) case Cons(h, t) => subs }
+
+def extMemberStr = (x, xs) =>
+  match xs { case Nil => false case Cons(h, t) => if #seq(h, x) then true else extMemberStr(x, t) }
+
+-- Arg locals for an arity-N lambda, in source-param order [IrLocal(N-1) … IrLocal(0)] (param at
+-- source position k binds to IrLocal(N-1-k), so the first param/receiver is IrLocal(N-1)).
+def descLocals = (n) =>
+  let rec go = (k) => if #i.lt(k, 0) then Nil else Cons(IrLocal(k), go(#i.sub(k, 1))) in
+  go(#i.sub(n, 1))
+
+-- Collect [Pair(method, Pair(typeHead, Pair(implName, arity)))] for every extension def in a given body.
+def collectExtDispatch = (stmts) =>
+  match stmts {
+    case Nil => Nil
+    case Cons(s, rest) =>
+      let more = collectExtDispatch(rest) in
+      match s {
+        case Pair(tag, data) =>
+          if #seq(tag, "given_obj") then
+            match data {
+              case Pair(gname, rest2) =>
+                match rest2 {
+                  case Pair(typeStr, gstmts) =>
+                    let typeHead = match parseGivenType(typeStr) { case Pair(tc, t) => t } in
+                    -- Track the extension group within the given body (extension_start/_end); a def
+                    -- while active is an extension method implemented for `typeHead`.
+                    let rec scan = (ss, active) =>
+                      match ss {
+                        case Nil => more
+                        case Cons(s2, r2) =>
+                          match s2 {
+                            case Pair(stag, sdata) =>
+                              if #seq(stag, "extension_start") then scan(r2, true)
+                              else if #seq(stag, "extension_end") then scan(r2, false)
+                              else if #seq(stag, "def") then
+                                (if active then
+                                  match sdata {
+                                    case Pair(dname, drest) =>
+                                      match drest {
+                                        case Pair(dparams, dbody) =>
+                                          Cons(Pair(dname, Pair(typeHead,
+                                                 Pair(#sconcat(gname, #sconcat("_", dname)), lenL(dparams)))),
+                                               scan(r2, active))
+                                      }
+                                  }
+                                 else scan(r2, active))
+                              else scan(r2, active)
+                          }
+                      } in
+                    scan(gstmts, false)
+                }
+            }
+          else more
+      }
+  }
+
+def extInstancesFor = (m, entries) =>
+  match entries {
+    case Nil => Nil
+    case Cons(e, r) =>
+      match e { case Pair(em, rst) => if #seq(em, m) then Cons(rst, extInstancesFor(m, r)) else extInstancesFor(m, r) }
+  }
+
+-- One bare dispatcher IrDef for extension method `m`: if <recv is T1> then g1_m(args…) else … else recv.
+def emitOneExtDispatcher = (m, insts) =>
+  match insts {
+    case Nil => Nil
+    case Cons(first, instsTail) =>
+      let arity = match first { case Pair(th, rr) => match rr { case Pair(impl, ar) => ar } } in
+      let args = descLocals(arity) in
+      let recvLocal = IrLocal(#i.sub(arity, 1)) in
+      let rec build = (is) =>
+        match is {
+          case Nil => recvLocal
+          case Cons(i, r) =>
+            match i { case Pair(th, rr) => match rr { case Pair(impl, ar) =>
+              IrIf(orTagTests(recvLocal, extTypeTags(th)), IrApp(IrGlobal(impl), args), build(r)) } }
+        } in
+      Cons(IrDef(m, IrLam(arity, build(insts))), Nil)
+  }
+
+-- Emit one dispatcher per distinct extension-method name defined across given bodies.
+def emitExtDispatchers = (stmts) =>
+  let entries = collectExtDispatch(stmts) in
+  let rec uniq = (es, seen) =>
+    match es {
+      case Nil => Nil
+      case Cons(e, r) =>
+        match e { case Pair(mm, mrest) => if extMemberStr(mm, seen) then uniq(r, seen) else Cons(mm, uniq(r, Cons(mm, seen))) }
+    } in
+  let rec emitAll = (ms) =>
+    match ms {
+      case Nil => Nil
+      case Cons(mm, r) => appendL(emitOneExtDispatcher(mm, extInstancesFor(mm, entries)), emitAll(r))
+    } in
+  emitAll(uniq(entries, Nil))
+
 def lowerProg = (stmts) =>
   -- K62.18: imported extension identity is AST-owned, never transient parser
   -- state. This must run before resolveE classifies selected method calls.
@@ -4386,4 +4503,5 @@ def lowerProg = (stmts) =>
         }
     } in
   -- KC5-mono: append the specialised typeclass copies collected while lowering (defs + top exprs).
-  IrProg(appendL(allDefs, emitMonoDefs(stmts)), entry)
+  -- Then bare extension-method dispatchers (given-body `extension def m` → type-dispatched `m`).
+  IrProg(appendL(appendL(allDefs, emitMonoDefs(stmts)), emitExtDispatchers(stmts)), entry)
