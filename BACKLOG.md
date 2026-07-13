@@ -70,10 +70,12 @@ are plain bullets without checkboxes so agents do not claim them as build work.
 ## SclJet interoperability follow-ups (2026-07-12)
 
 - [ ] **scljet-m3-write-followups** — edge cases beyond the m3b–m3d write path
-      (`runtime/std/scljet/write.ssc`): (1) `SqlReal` record encoding (Double →
-      IEEE-754 8-byte big-endian — the reader decodes it in `ieeeBinary64`; the
-      encoder needs the reverse, which has no bits intrinsic so it must decompose
-      the Double); (2) cell-overflow-page allocation for payloads larger than the
+      (`runtime/std/scljet/write.ssc`). `SqlReal` record encoding is DONE
+      (2026-07-13): `encodeReal` decomposes a Double into IEEE-754 binary64 by
+      normalizing to `[1,2)` (exact powers-of-two arithmetic) — byte-exact vs
+      `struct.pack('>d')` for 1.5/-2.5/3.14159/0/100/0.1/1e20/-0.001, reads back
+      through a real DB, int/VM/ASM/fallback/JS (subnormals/non-finite out of
+      scope). Remaining: (2) cell-overflow-page allocation for payloads larger than the
       leaf X threshold (`buildTableLeafPage` currently errors on a cell that does
       not fit); (3) B-trees deeper than two levels — an interior root that itself
       overflows needs a recursive interior level; (4) incremental

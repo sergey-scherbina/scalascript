@@ -98,6 +98,38 @@ def encodeInteger(value: Long): EncodedValue =
   else if value >= -140737488355328L && value <= 140737488355327L then EncodedValue(5L, recordIntBytes(value, 5))
   else EncodedValue(6L, recordIntBytes(value, 7))
 
+// ── IEEE-754 binary64 encoder (inverse of record.ssc's ieeeBinary64) ────────
+
+case class RealNormal(exponent: Int, mantissa: Double)
+
+/** Normalize a positive finite value to `mantissa in [1, 2)` and its base-2
+ *  exponent (division/multiplication by 2 is exact, so no bits are lost). */
+def normalizeReal(value: Double): RealNormal =
+  var mantissa = value
+  var exponent = 0
+  while mantissa >= 2.0 do
+    mantissa = mantissa / 2.0
+    exponent = exponent + 1
+  while mantissa < 1.0 do
+    mantissa = mantissa * 2.0
+    exponent = exponent - 1
+  RealNormal(exponent, mantissa)
+
+/** Big-endian 8-byte IEEE-754 binary64 of a real, matching what SQLite stores
+ *  and the inverse of the reader's `ieeeBinary64`. Handles zero and normal
+ *  numbers exactly; subnormals and non-finite values are out of scope (SQLite
+ *  reals in stored records are finite). */
+def encodeReal(value: Double): List[Int] =
+  if value == 0.0 then List(0, 0, 0, 0, 0, 0, 0, 0)
+  else
+    val sign: Long = if value < 0.0 then 1L else 0L
+    val magnitude: Double = if value < 0.0 then 0.0 - value else value
+    val normal = normalizeReal(magnitude)
+    val biased: Long = (normal.exponent + 1023).toLong
+    val fraction: Long = ((normal.mantissa - 1.0) * 4503599627370496.0).toLong  // *2^52
+    val bits: Long = (sign << 63) | (biased << 52) | fraction
+    recordIntBytes(bits, 7)
+
 /** UTF-8 bytes of one BMP code point (division/modulo → exact on every backend).
  *  Astral characters (surrogate pairs) are a follow-up. */
 def utf8CodePoint(codePoint: Int): List[Int] =
@@ -123,8 +155,7 @@ def encodeValue(value: SqliteValue): Either[ByteError, EncodedValue] = value mat
   case SqlBlob(b) =>
     val bytes = byteSliceToList(b)
     Right(EncodedValue(12L + 2L * bytes.length.toLong, bytes))
-  case SqlReal(_) =>
-    Left(ByteError("unsupported", "SqlReal record encoding is not yet implemented", 0))
+  case SqlReal(d) => Right(EncodedValue(7L, encodeReal(d)))
 
 case class EncodedFields(serialBytes: List[Int], body: List[Int])
 

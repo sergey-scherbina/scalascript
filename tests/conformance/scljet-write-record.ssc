@@ -28,6 +28,8 @@ enc("nulls", List(SqlNull, SqlNull))
 enc("ints", List(SqlInteger(0L), SqlInteger(1L), SqlInteger(-1L), SqlInteger(300L),
   SqlInteger(-32768L), SqlInteger(2147483648L)))
 enc("empty", List(SqlText(""), SqlBlob(blob(Nil))))
+// IEEE-754 binary64 reals (serial 7): exact, large, small, repeating, negative.
+enc("reals", List(SqlReal(1.5), SqlReal(100.0), SqlReal(0.1), SqlReal(-2.5)))
 
 def limits(): SqliteLimits = SqliteLimits(
   10000000L, 10000, 1000, 1000, 1000, 10, 10000000L, 10000, 1000,
