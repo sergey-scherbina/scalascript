@@ -3273,7 +3273,13 @@ object Prims:
       case _    => sys.error(s"__arith__: op $op not valid for Bool")
     // List :+ and ++ — bridge compiles infix ops as __arith__, but list ops live here too
     case (lv, rv) if op == ":+" && isList(lv) => listOf(unlist(lv) :+ rv)
-    case (lv, rv) if (op == "++" || op == "+") && isList(lv) => listOf(unlist(lv) ++ unlist(rv))
+    case (lv, rv) if op == "++" && isList(lv) => listOf(unlist(lv) ++ unlist(rv))
+    // `+` on a list: `list ++ list` semantics when the RHS is itself a list, but
+    // `set + element` (v2 sets are distinct lists — `retried = Set(); retried + partId`)
+    // ADDS the element (distinct). A non-list RHS is an element, not a list to unlist.
+    case (lv, rv) if op == "+" && isList(lv) =>
+      if isList(rv) then listOf(unlist(lv) ++ unlist(rv))
+      else listOf((unlist(lv) :+ rv).distinct)
     // Tuple concatenation: (a,b) ++ (c,d) = (a,b,c,d)
     case (DataV(lt, lf), DataV(rt, rf))
         if op == "++" && lt.startsWith("Tuple") && rt.startsWith("Tuple") =>
