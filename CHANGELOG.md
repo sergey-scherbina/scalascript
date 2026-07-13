@@ -17,6 +17,43 @@ UniML JSON dialect now advances past `Limits.default` to the next frontend gap (
 constructor defaults). Full v2 conformance green (self-hosting preserved). This is pervasive for UniML
 (`Limits.default`, `SourcePosition.Start`, `JsonLimits.default`, `DialectRegistry.empty`).
 
+---
+
+## 2026-07-13 — `selectFrom` — reactive-options variant of std/ui `select` (select-from-signal)
+
+Closes the `select-from-signal` BACKLOG entry. `select()` keeps its static
+`List[(String,String)]` options unchanged; `selectFrom(items, key, optionFn,
+selected, label, placeholder, disabled)` is a new, additive sibling whose
+`<option>` children track a `Signal[List[A]]` reactively (busi's motivating
+case: a fetched active-contracts list that can gain an item mid-session).
+Reuses `forKeyedView`/`KeyedForNode`'s key-based reconcile algorithm, but as
+a dedicated `_SelectFrom` View-level construct (mirroring `dataTableView`)
+rather than embedding `forKeyedView` as a generic `element("select", ...)`
+child — `<select>`'s HTML content model rejects `forKeyedView`'s wrapping
+`<span data-ssc-key>` (silently dropped by the browser's "in select"
+insertion mode), so the key has to live on the `<option>` directly and the
+reconcile container has to be the `<select>` tag itself. New extern
+`selectFromView` (interpreter snapshot fallback + a real `signals.mjs`
+implementation: `_ssc_ui_selectFromView`/`_SelectFrom`/`_mountSelectFrom`).
+Proven live by `JsRuntimeSelectFromTest.scala` (real `signals.mjs` runtime
+under real Node, mirroring `JsRuntimeKeyedForTest.scala`'s method):
+append/reorder/remove all preserve untouched `<option>` DOM node identity;
+selecting an option still writes back to the bound signal. Runnable example
+`examples/frontend/select-reactive-demo/` (build via `emit-js`/`emit-spa`).
+Conformance: `tkv2-select-reactive` green on `[int, js]`; no regressions in
+the sibling `tkv2-*`/`std-ui-*`/`tkv2-keyed-for` suite (10/10).
+
+Found (not fixed) an unrelated pre-existing bug while building this:
+`frontend/custom/StaticJsEmitter.scala`'s `jsLiteral` can't encode a
+`List`-valued signal referenced by an event handler — crashes `ssc run` for
+any such program, including the previously-shipped `keyed-for-demo.ssc`.
+Unaffected: `emit-js`/`emit-spa` (the production pipeline). Tracked in
+`BUGS.md`/`BACKLOG.md` § `custom-jsemitter-signal-list-literal`.
+
+Spec: `specs/std-ui-select.md` § "Reactive options (selectFrom)".
+
+---
+
 ## 2026-07-13 — UniML portable-subset lint + 2 caught misses; complete v2-frontend handoff (uniml-portable Phase 2/3)
 
 Added `uniml/lint-portable-subset.sh`, a guard that scans the dual-compilable UniML sources

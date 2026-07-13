@@ -14,26 +14,6 @@ Status hygiene (2026-06-23): open `[ ]` rows below are intentionally still open,
 explicitly `BLOCKED` or `DEFERRED` product/external-decision items. History-only / wontfix notes
 are plain bullets without checkboxes so agents do not claim them as build work.
 
-## std/ui follow-ups (2026-07-13)
-
-- [ ] **select-from-signal** — `std.ui.input.select` (`specs/std-ui-select.md`,
-      landed `84187250b`) takes a static `List[(String, String)]` for
-      `options`, built once when the tree is constructed. busi's actual
-      motivating case (a dropdown of active contracts fetched from an API)
-      wants a reactive `Signal[List[(String, String)]]` instead, so the
-      option list can populate/update after a client-side fetch resolves.
-      No existing `std/ui` mechanism does this generically today —
-      `forKeyedView` (`primitives.ssc`) is a render-once snapshot in the
-      interpreter path; only `dataTableView`/`fetchRowsSource` have genuine
-      fetch-then-rerender wiring, and that's bespoke, table-specific JS
-      runtime code. This needs either generalizing that machinery or a new
-      bespoke `<select>`-shaped fetch+rerender primitive — deliberately out
-      of scope for the initial `select` slice (kept minimal). Until this
-      lands, callers needing a fetched option list should query it
-      server-side before calling `select(...)` (this `std/ui` toolkit
-      already supports full-stack server-rendered pages — see tutorial 4)
-      or rebuild/re-serve the page after the fetch.
-
 ## Standard-tier compiler correctness (2026-07-13)
 
 - [ ] **standard-tier-named-arg-skip-default** — `bin/ssc run` (default, and
@@ -56,6 +36,24 @@ are plain bullets without checkboxes so agents do not claim them as build work.
       default" call shapes are, and given the standard tier is the
       forward-looking default (no `--v1` fallback exists on `bin/ssc`
       itself).
+
+## Custom-backend (StaticJsEmitter) correctness (2026-07-13)
+
+- [ ] **custom-jsemitter-signal-list-literal** — `frontend/custom/StaticJsEmitter.scala`'s
+      `jsLiteral` (`registerSignal`, called from `compileEventHandler`) has no
+      `List`/`Seq` (or `InstanceV`) case — only bare scalars. Any program
+      where a `Signal[List[_]]` (of scalars or case-class instances) is
+      referenced by an event handler crashes `ssc run` (both the default
+      v2-VM/`custom`-frontend path and `--v1`) at startup, before serving
+      anything. Not new — already affects the previously-shipped
+      `examples/frontend/keyed-for-demo/keyed-for-demo.ssc` the same way
+      (its own docstring's `ssc run` instructions are currently stale).
+      `emit-js`/`emit-spa` (the production static-compile pipeline) are
+      unaffected. Found 2026-07-13 building `select-from-signal`
+      (`specs/std-ui-select.md` § "Reactive options (selectFrom)"); not
+      fixed there — see `BUGS.md` § `custom-jsemitter-signal-list-literal`
+      for the full repro. A real fix means teaching `jsLiteral` to
+      recursively encode `List`/`InstanceV`/`Map` values.
 
 ## Swift backend hardening (2026-07-13)
 
