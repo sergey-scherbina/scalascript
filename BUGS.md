@@ -1,5 +1,29 @@
 # Bug tracker
 
+## interp-tco-tail-call-in-match — NOT A BUG (investigated 2026-07-13)
+
+Claimed during m3d that "the interpreter does not TCO a tail self-call nested
+inside a `match`". **Rigorously disproven** — the interpreter TCOs tail self-calls
+correctly, including all of these at high depth with no stack overflow:
+
+```scalascript
+// 1,000,000-deep: Either return + accumulator + tail call inside a nested match
+def enc(x: Int): Either[String, Int] = Right(x * 2)
+def loop(n: Int, acc: List[Int]): Either[String, List[Int]] = n match
+  case 0 => Right(acc)
+  case _ => enc(n) match
+    case Left(e) => Left(e)
+    case Right(v) => loop(n - 1, v :: acc)   // TCO'd — loop(1000000, Nil) is fine
+```
+
+Also verified: a plain tail call inside `match` and a tail call inside an `if`
+inside a `match` both TCO at 500k+. The overflow that triggered this claim was
+plain **non-tail** recursion — `packLeavesLoop`'s `LeafPlan(...) :: packLeavesLoop(...)`
+branches and the original non-accumulator `encodeRowCellsWithRowid`
+(`recurse match { case Right => x :: rest }`) — resolved by `while` loops in
+`write.ssc`. No interpreter change is needed. (The `feat(scljet): M3 multi-page`
+commit message repeats the wrong claim; disregard it.)
+
 ## interp-if-then-no-else-after-while — a bare `if cond then stmt` before a return is skipped
 
 **Status:** open (found 2026-07-13). Interpreter (`ssc-tools run --v1`) bug;

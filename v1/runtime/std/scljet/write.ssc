@@ -251,9 +251,10 @@ def buildSingleTableDatabase(pageSize: Int, changeCounter: Int, schemaCookie: In
 case class RowCell(rowid: Long, bytes: List[Int])
 case class LeafPlan(cells: List[List[Int]], maxRowid: Long)
 
-// A `while` loop (not recursion): row counts reach the thousands, and the
-// interpreter does not TCO a self-call nested inside a `match`, so recursion
-// here overflows the stack around a hundred rows.
+// A `while` loop (not recursion) for uniformity with `packLeaves` below, whose
+// natural formulation is not tail-recursive. (A tail-recursive accumulator would
+// also work here — the interpreter does TCO tail self-calls, including inside a
+// `match`.)
 def encodeRowCellsWithRowid(rows: List[List[SqliteValue]], startRowid: Long): Either[ByteError, List[RowCell]] =
   var remaining = rows
   var rowid = startRowid
@@ -271,7 +272,9 @@ def encodeRowCellsWithRowid(rows: List[List[SqliteValue]], startRowid: Long): Ei
     case None => Right(acc.reverse)
 
 /** Greedily pack row cells (in rowid order) into leaf pages, each filled until
- *  the next cell would exceed the page. A `while` loop (see the note above).
+ *  the next cell would exceed the page. A `while` loop because the natural
+ *  recursive form is not tail-recursive (it prepends a finalized leaf and then
+ *  continues), so it would grow the stack with the number of rows.
  *  Assumes each cell fits on a page (no cell overflow — a separate follow-up). */
 def packLeaves(cells: List[RowCell], pageSize: Int): List[LeafPlan] =
   var remaining = cells
