@@ -287,6 +287,16 @@ final class ActorsNativePlugin extends NativePlugin:
       case _ => throw new IllegalArgumentException("demonitor(ref)")
     }
 
+    // ── Cluster / phi-accrual failure detector — single-node no-data branch ──────
+    // A single local node has no peers and no heartbeat history: joining/broadcasting are no-ops,
+    // every remote node has phi = +Infinity (⇒ suspect / down). Multi-node aggregation lives in the
+    // integration suite; these pin the portable no-data semantics.
+    context.registerGlobal("joinCluster", -1)(_ => Value.UnitV)
+    context.registerGlobal("broadcastHealth", -1)(_ => Value.UnitV)
+    context.registerGlobal("clusterIsDown", -1)(_ => Value.BoolV(false))
+    context.registerGlobal("phiOf", -1)(_ => Value.FloatV(Double.PositiveInfinity))
+    context.registerGlobal("isSuspect", -1)(_ => Value.BoolV(true))
+
     context.register("actor.send") {
       case Value.ForeignV(mailbox: Mailbox) :: message :: Nil =>
         deliver(mailbox, message)

@@ -102,6 +102,26 @@ def scanDecEnd = (s, i) =>
       if isDigit(next) then scanDecEnd(s, #i.add(i, 1)) else i
     else i
 
+-- Scientific exponent: `i` points AT an `e`/`E`. If a valid `e[+-]?digits` follows, return its end;
+-- otherwise return `i` (so `1.0e` / `1.0eX` keep the `e` as a separate identifier). Enables `1.0e100`.
+def scanExponent = (s, i) =>
+  if #i.ge(i, slen(s)) then i
+  else
+    let c = sget(s, i) in
+    if if #i.eq(c, 101) then true else #i.eq(c, 69) then
+      let afterE = #i.add(i, 1) in
+      let afterSign =
+        if #i.lt(afterE, slen(s)) then
+          let sc = sget(s, afterE) in
+          if #i.eq(sc, 43) then #i.add(afterE, 1)
+          else if #i.eq(sc, 45) then #i.add(afterE, 1)
+          else afterE
+        else afterE in
+      if #i.lt(afterSign, slen(s)) then
+        (if isDigit(sget(s, afterSign)) then scanDecEnd(s, afterSign) else i)
+      else i
+    else i
+
 def stripNumericSeparators = (s) =>
   let rec go = (i, acc) =>
     if #i.ge(i, slen(s)) then acc
@@ -264,7 +284,13 @@ def lexFrom = (s, i) =>
       else false in
       if nextDotIsFloat then
         let e2 = scanDecEnd(s, #i.add(e, 1)) in
-        Cons(mkTok("float", stripNumericSeparators(#sslice(s, i2, e2))), lexFrom(s, e2))
+        let e3 = scanExponent(s, e2) in       -- optional scientific exponent (`1.0e100`)
+        Cons(mkTok("float", stripNumericSeparators(#sslice(s, i2, e3))), lexFrom(s, e3))
+      else
+      -- `1e10` (no decimal point) is still a float in Scala.
+      let eExp = scanExponent(s, e) in
+      if #i.gt(eExp, e) then
+        Cons(mkTok("float", stripNumericSeparators(#sslice(s, i2, eExp))), lexFrom(s, eExp))
       else
       -- strip Long suffix L/l (e.g. 0L, 2862933555777941757L)
       let eL = if #i.lt(e, slen(s)) then
