@@ -466,6 +466,13 @@ private[markdown] final class MarkdownBlocks(
       case _             => false
     }
     val opens = ArrayBuffer.empty[FrameSpec]
+    // a list of a different marker type ends the current sibling list; close it
+    // so the new list is a sibling, not nested inside the old frame
+    if needList then containers.lastOption match
+      case Some(lf: ListFrame) =>
+        containers.remove(containers.size - 1)
+        pendingClose = pendingClose :+ lf.frame
+      case _ => ()
     if lead > 0 then flushPending(MdKind.Indent, content.substring(0, lead), Vector.empty, Some("indent"), TokenChannel.Trivia)
     if needList then
       opens += FrameSpec(MdBranch.List)
