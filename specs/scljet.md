@@ -1742,8 +1742,15 @@ reasons, never silent substitution by JDBC/sql.js.
   reserved-byte counts.
 - [x] Traverse table/index B-trees, overflow, freelist, and pointer maps without
   mutation; decode sqlite_schema, rowid and WITHOUT ROWID tables.
-- [ ] Read the interoperability corpus byte-for-value equal to reference SQLite.
-- [ ] Corrupt/fuzzed files fail safely with localized diagnostics.
+- [x] Read the interoperability corpus byte-for-value equal to reference SQLite
+  on the interpreter, native VM, direct ASM, and the pure tree-walk fallback —
+  all four tiers reproduce the identical 619-line reference oracle.
+- [x] Corrupt/fuzzed files fail safely with localized diagnostics; the 25 named
+  corruptions and 32 bounded mutations yield the identical structured results on
+  every interpreter execution tier, never a platform exception or hang.
+- [ ] The corpus dump and record codecs are exact on JS/Node; the byte and
+  page-record codecs currently diverge there on signed-64-bit Long/bitwise and
+  real decoding (same v1 lowering gap as the M1 byte-codec golden).
 
 ### M3 — writes and rollback journal
 
@@ -1965,8 +1972,25 @@ M2d's first reference corpus slices landed in `17fd8238a`, `315e68d44`,
   platform exception or hang through the assembled runner.
 - `tests/conformance/run.sh --only 'scljet-*' --no-memo` remains 6/6.
 
-Deep record/overflow/freeblock/schema corruptions, exact payload thresholds,
-explicit VM/ASM corpus execution, and the known Node cursor-depth divergence
-remain M2d. The first two aggregate M2 behavior gates are now covered;
-byte-for-value corpus closure and exhaustive safe-corruption diagnostics remain
-honestly unchecked.
+Verification continued on 2026-07-13 (VM/ASM parity lock):
+
+- `tests/e2e/scljet-m2-corpus-smoke.sh` now executes the corpus dump, the 25
+  named corruption checks, and the 32 bounded fuzz mutations on three
+  interpreter execution tiers and requires byte-identical results from each:
+  the default bytecode VM + fast tier + javac JIT, the ASM JIT backend
+  (`SSC_JIT_BACKEND=asm`), and the pure tree-walk fallback
+  (`SSC_JIT_BYTECODE=off SSC_FASTTIER=off`). All three reproduce the identical
+  619-line reference oracle, the identical structured corruption diagnostics,
+  and the identical `32:30:2` fuzz outcome. This closes the explicit VM/ASM
+  corpus-execution requirement: the pure `.ssc` reader is tier-independent.
+- Node boundary recorded honestly: `scljet-byte-codec` and
+  `scljet-page-record-codec` still fail on JS (signed-64-bit Long/bitwise and
+  real decoding), tracked as `scljet-js-m1-parity` / `scljet-js-m2-cursor-parity`
+  in `BACKLOG.md`. The M2 corpus tools declare `backends: [int]`; there is no
+  silent JDBC/sql.js substitution.
+
+With the four executable tiers reproducing the reference oracle and the corrupt
+diagnostics, the byte-for-value corpus and safe-corruption M2 behavior gates are
+now covered on the interpreter, VM, ASM, and fallback lanes; JS exactness stays
+an explicit open gate. Deep record/overflow/freeblock/schema corruptions and
+exact payload-threshold vectors remain queued M2d hardening (`BACKLOG.md`).
