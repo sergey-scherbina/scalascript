@@ -3146,8 +3146,27 @@ class JsGen(
                         .toList.filterNot(thisMembers.contains).sorted
     val rebindDecl  = if rebinds.isEmpty then "" else s"const { ${rebinds.mkString(", ")} } = $path; "
     namespaceMembers.getOrElseUpdate(path, mutable.Set.empty[String]) ++= thisMembers
-    val body = rebindDecl + decls.mkString(" ")
-    val ret  = names.mkString(", ")
+    // Overloaded defs that share a JS name (e.g. std/http's `serve(port)` /
+    // `serve(port, tls)`, and likewise serveAsync/httpGet/…) each emit a
+    // `const NAME = …`; JS forbids re-declaring a `const`/`function` in the same
+    // scope, so a duplicate crashed the whole bundle at parse time with
+    // "Identifier 'NAME' has already been declared". Keep the FIRST declaration
+    // per name — JS has no overloading and the extern shims for the duplicates are
+    // identical — while non-declaring entries (registrations, `_ssc_mergeDeep`,
+    // `_ssc_givens[…]`) always pass through. (js-namespace-dup-const-serve.)
+    val seenDecl = mutable.Set.empty[String]
+    def declaredName(s: String): Option[String] =
+      val t = s.trim
+      val kw = if t.startsWith("const ") then "const " else if t.startsWith("function ") then "function " else ""
+      if kw.isEmpty then None
+      else Some(t.stripPrefix(kw).takeWhile(c => c.isLetterOrDigit || c == '_' || c == '$'))
+    val dedupedDecls = decls.filter { d =>
+      declaredName(d) match
+        case Some(nm) => seenDecl.add(nm)   // false when already declared → dropped
+        case None     => true
+    }
+    val body = rebindDecl + dedupedDecls.mkString(" ")
+    val ret  = names.distinct.mkString(", ")
     // A field-less `case object` must carry a `_type` discriminator (mirroring the
     // enum-nullary / case-class emission) so the user-level `==` operator — which
     // lowers to structural `_eq` — can tell distinct singletons apart. Without it a
