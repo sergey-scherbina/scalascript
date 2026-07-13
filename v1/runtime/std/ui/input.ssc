@@ -8,6 +8,7 @@ exports:
   - textFieldR
   - checkbox
   - select
+  - selectFrom
   - signalButton
   - actionButton
   - signalLabelButton
@@ -16,7 +17,9 @@ exports:
 
 # `std.ui.input` — input constructors
 
-[TkNode, TextFieldNode, TextFieldRNode, CheckboxNode, SelectNode, SignalButtonNode, ActionButtonNode, SignalLabelButtonNode, SignalActionButtonNode](nodes.ssc)
+[TkNode, TextFieldNode, TextFieldRNode, CheckboxNode, SelectNode, SelectFromNode, SignalButtonNode, ActionButtonNode, SignalLabelButtonNode, SignalActionButtonNode](nodes.ssc)
+
+[Signal](primitives.ssc)
 
 ```scalascript
 def textField(value: Any,
@@ -55,6 +58,24 @@ def select(options: List[(String, String)],
            placeholder: String = "",
            disabled: Boolean = false): TkNode =
   SelectNode(options, selected, label, placeholder, disabled)
+
+// selectFrom — like select, but `items` is a Signal[List[A]] instead of a
+// static options list: the <option> children re-render when the signal's
+// list changes (item added/removed/reordered), without a page reload —
+// see specs/std-ui-select.md § "Reactive options (selectFrom)". `key`
+// gives each item a stable identity for reconciliation (same convention
+// as forKeyed's own `key`); `optionFn` maps each item to the (value, label)
+// pair `select`'s static `options` takes directly. Same named-arg caveat
+// as `select` applies (BUGS.md: standard-tier-named-arg-skip-default): name
+// every trailing param from the first one overridden onward.
+def selectFrom[A](items: Signal[List[A]],
+                  key: A => String,
+                  optionFn: A => (String, String),
+                  selected: Any,
+                  label: String = "",
+                  placeholder: String = "",
+                  disabled: Boolean = false): TkNode =
+  SelectFromNode(items, key, optionFn, selected, label, placeholder, disabled)
 
 def signalButton(signal: Any,
                  value: Any,

@@ -14,11 +14,11 @@ Pure function, no DOM, no async — safe for SSR.
 Import this + a Theme, build your tree with widget constructors,
 then call `serve(lower(tree, defaultTheme), 8080)`.
 
-[TkNode, VStackNode, HStackNode, DividerNode, SpacerNode, HeadingNode, TextNode_, SignalHeadingNode, ShowWhenNode, SignalTextNode, FragmentNode, KeyedForNode, RawTextNode, RawHtmlNode, TextFieldNode, TextFieldRNode, CheckboxNode, SelectNode, SignalButtonNode, ActionButtonNode, SignalLabelButtonNode, SignalActionButtonNode, BadgeNode, SpinnerNode, SignalPreNode, CardNode, ModalNode, TableColumn, TableNode, RouteEntry, RouterNode, LinkNode, DataTableNode, StyledNode, TagNode, PillNode, KpiCardNode, Tab, TabBarNode, BoxNode, AnchorNode](nodes.ssc)
+[TkNode, VStackNode, HStackNode, DividerNode, SpacerNode, HeadingNode, TextNode_, SignalHeadingNode, ShowWhenNode, SignalTextNode, FragmentNode, KeyedForNode, RawTextNode, RawHtmlNode, TextFieldNode, TextFieldRNode, CheckboxNode, SelectNode, SelectFromNode, SignalButtonNode, ActionButtonNode, SignalLabelButtonNode, SignalActionButtonNode, BadgeNode, SpinnerNode, SignalPreNode, CardNode, ModalNode, TableColumn, TableNode, RouteEntry, RouterNode, LinkNode, DataTableNode, StyledNode, TagNode, PillNode, KpiCardNode, Tab, TabBarNode, BoxNode, AnchorNode](nodes.ssc)
 
 [Theme, TypographyItem](theme.ssc)
 
-[element, textNode, signalText, showSignal, fragment, forKeyedView, setSignal, inputChange, toggleSignal, eqSignal, dataTableView](primitives.ssc)
+[element, textNode, signalText, showSignal, fragment, forKeyedView, selectFromView, setSignal, inputChange, toggleSignal, eqSignal, dataTableView](primitives.ssc)
 
 ```scalascript
 // ── Token resolution (styled-TkNode, P2) ─────────────────────────────────
@@ -271,6 +271,31 @@ def lower(n: TkNode, theme: Theme): View = n match
       ["style" -> style, "disabled" -> disabled, "value" -> selected],
       if disabled then Map() else ["change" -> inputChange(selected)],
       placeholderOpt ++ optionEls)
+    if label == "" then selectEl
+    else
+      val labelEl = element("label",
+        ["style" -> s"font-size:${theme.typography.body.fontSize}px; font-family:${theme.typography.body.fontFamily}; color:${theme.colors.onSurface}"],
+        Map(),
+        [textNode(label)])
+      element("div",
+        ["style" -> s"display:flex; flex-direction:column; gap:${sp.xs}px"],
+        Map(),
+        [labelEl, selectEl])
+
+  case SelectFromNode(items, key, optionFn, selected, label, placeholder, disabled) =>
+    // Style computed the same way as SelectNode's — selectFromView takes the
+    // finished CSS string so the extern stays theme-agnostic. Unlike
+    // SelectNode, the whole <select> element (attrs, events, AND the
+    // reactive <option> children) is built by the extern itself, not by
+    // element(...) here — see specs/std-ui-select.md § "Reactive options
+    // (selectFrom)" for why (the <select>-only key-reconcile container has
+    // nowhere legal to live except the <select> tag itself).
+    val sp    = theme.spacing
+    val base  = s"font-size:${theme.typography.body.fontSize}px; font-family:${theme.typography.body.fontFamily}; " +
+                s"padding:${sp.sm}px ${sp.sm}px; border:1px solid ${theme.colors.muted}; " +
+                s"border-radius:${theme.radii.sm}px; width:100%; box-sizing:border-box; background:#fff"
+    val style = if disabled then base + "; background:#f3f4f6; color:#9ca3af; cursor:not-allowed" else base + "; cursor:pointer"
+    val selectEl = selectFromView(items, key, optionFn, selected, style, placeholder, disabled)
     if label == "" then selectEl
     else
       val labelEl = element("label",

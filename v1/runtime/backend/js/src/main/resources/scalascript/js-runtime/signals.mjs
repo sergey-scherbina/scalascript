@@ -364,6 +364,15 @@ function _ssc_ui_signalText(sig) { return { _type: '_SignalText', sig }; }
 function _ssc_ui_showSignal(cond, whenTrue, whenFalse) { return { _type: '_ShowSignal', cond, whenTrue, whenFalse }; }
 function _ssc_ui_fragment(children) { return { _type: '_Fragment', children: children || [] }; }
 function _ssc_ui_forKeyedView(items, key, render) { return { _type: '_ForKeyed', items, key, render }; }
+// selectFromView — a <select> whose <option> children track `items`
+// reactively (specs/std-ui-select.md § "Reactive options (selectFrom)").
+// Unlike _ForKeyed, this owns the WHOLE <select> element: <select>'s HTML
+// content model only allows <option>/<optgroup>/<hr>, so _ForKeyed's generic
+// <span data-ssc-key> row wrapper would be silently dropped by the browser's
+// "in select" HTML parsing (losing the key) if reused unmodified here.
+function _ssc_ui_selectFromView(items, key, optionFn, selected, style, placeholder, disabled) {
+  return { _type: '_SelectFrom', items, key, optionFn, selected, style: style || '', placeholder: placeholder || '', disabled: !!disabled };
+}
 function _ssc_ui_setSignal(s, v) { return { _type: '_SetSignal', s, v }; }
 function _ssc_ui_inputChange(s) { return { _type: '_InputChange', s }; }
 function _ssc_ui_toggleSignal(s) { return { _type: '_ToggleSignal', s }; }
@@ -601,6 +610,34 @@ function _ssc_ui_renderBody(view) {
         }).join('');
         const sigId = v.items && v.items.id != null ? ` data-ssc-forkeyed-sig="${_esc(String(v.items.id))}"` : '';
         return `<span data-ssc-forkeyed="${seq}"${sigId} style="display:contents">${rows}</span>`;
+      }
+      case '_SelectFrom': {
+        // Mirrors _ForKeyed's key-based reconcile, adapted for <select>:
+        // the container marker lives on the <select> tag itself (not a
+        // wrapper span — see the constructor comment above), and each
+        // <option> carries its own data-ssc-key directly (no per-row
+        // wrapper — <select>'s content model wouldn't survive one).
+        collectSig(v.items);
+        collectSig(v.selected);
+        const seq = keyed.length;
+        keyed.push(v);
+        const cur = (v.selected && v.selected.get) ? String(v.selected.get()) : '';
+        const rows = _ssc_ui_arrayValue(v.items).map(function(item, idx) {
+          const optKey = _ssc_ui_keyFor(v.key, item, idx);
+          const pair = _ssc_ui_call1(v.optionFn, item);
+          const value = (pair && pair[0] != null) ? String(pair[0]) : '';
+          const label = (pair && pair[1] != null) ? String(pair[1]) : '';
+          const sel = value === cur ? ' selected' : '';
+          return `<option value="${_esc(value)}" data-ssc-key="${_esc(optKey)}"${sel}>${_escT(label)}</option>`;
+        }).join('');
+        const placeholderHtml = v.placeholder
+          ? `<option value=""${cur === '' ? ' selected' : ''} disabled hidden>${_escT(v.placeholder)}</option>`
+          : '';
+        const disAttr    = v.disabled ? ' disabled' : '';
+        const styleAttr  = v.style ? ` style="${_esc(v.style)}"` : '';
+        const selId      = (v.selected && v.selected.id != null) ? String(v.selected.id) : '';
+        const changeAttr = (!v.disabled && selId) ? ` data-ssc-change="${selId}"` : '';
+        return `<select data-ssc-forkeyed-options="${seq}"${styleAttr}${disAttr}${changeAttr}>${placeholderHtml}${rows}</select>`;
       }
       case '_DataTableView': {
         // The source may be a TableDataSource marker (static / signal rows) or a
@@ -883,6 +920,7 @@ function _ssc_ui_mount(sigs, keyedRoots) {
   }
   function _mountKeyed(scope, keyedViews) {
     (keyedViews || []).forEach(function(kv, seq) {
+      if (kv && kv._type === '_SelectFrom') { _mountSelectFrom(scope, kv, seq); return; }
       _qsa(scope, '[data-ssc-forkeyed="' + seq + '"]').forEach(function(container) {
         if (_bound(container, 'forkeyed')) return;
         var sig = kv && kv.items;
@@ -920,6 +958,59 @@ function _ssc_ui_mount(sigs, keyedRoots) {
         }
         _sub(sigId, reconcile);
       });
+    });
+  }
+  // _mountSelectFrom — the <select>-specific sibling of _mountKeyed's own
+  // reconcile: same algorithm shape (existing-by-key map -> keep-or-create ->
+  // append in new order -> remove stale), but the container IS the <select>
+  // element itself (found via data-ssc-forkeyed-options, not a wrapper span)
+  // and each kept/created child is a plain <option> with its key on the
+  // option itself (no per-row wrapper -- see the _SelectFrom renderBody case
+  // above for why). See specs/std-ui-select.md § "Reactive options (selectFrom)".
+  function _mountSelectFrom(scope, kv, seq) {
+    _qsa(scope, '[data-ssc-forkeyed-options="' + seq + '"]').forEach(function(select) {
+      if (_bound(select, 'forkeyed-options')) return;
+      var itemsSig = kv && kv.items;
+      if (!itemsSig || itemsSig.id == null) return;
+      var itemsSigId = String(itemsSig.id);
+      function makeOption(item, key) {
+        var pair = _ssc_ui_call1(kv.optionFn, item);
+        var opt = document.createElement('option');
+        opt.value = (pair && pair[0] != null) ? String(pair[0]) : '';
+        opt.textContent = (pair && pair[1] != null) ? String(pair[1]) : '';
+        opt.setAttribute('data-ssc-key', key);
+        return opt;
+      }
+      function reconcile(rawItems) {
+        var items = _ssc_ui_arrayValue(rawItems);
+        var existing = Object.create(null);
+        Array.prototype.forEach.call(select.children || [], function(child) {
+          var k = child.getAttribute && child.getAttribute('data-ssc-key');
+          if (k != null) existing[k] = child;
+        });
+        var keep = Object.create(null);
+        items.forEach(function(item, idx) {
+          var key = _ssc_ui_keyFor(kv.key, item, idx);
+          var node = existing[key];
+          if (!node) node = makeOption(item, key);
+          keep[key] = true;
+          select.appendChild(node);
+        });
+        Array.prototype.slice.call(select.children || []).forEach(function(child) {
+          var k = child.getAttribute && child.getAttribute('data-ssc-key');
+          if (k != null && !keep[k]) child.remove();
+        });
+        // Re-apply the selection AFTER all options exist as real DOM nodes —
+        // the same "ordering wrinkle" the base select() has at first render
+        // (HTMLSelectElement.value only matches EXISTING options) recurs on
+        // every rebuild here, since a list change can create fresh option
+        // nodes. Doing this last (not per-option at creation time) keeps it
+        // correct regardless of whether this is the mount-time pass or a
+        // later one.
+        var curSel = (kv.selected && kv.selected.get) ? String(kv.selected.get()) : '';
+        select.value = curSel;
+      }
+      _sub(itemsSigId, reconcile);
     });
   }
   _signals.forEach(function(s, rawId) {
