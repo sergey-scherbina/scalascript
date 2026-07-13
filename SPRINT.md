@@ -124,10 +124,14 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
       subset = oracle+seed). 4 decisions settled: typed holes (total pipeline), design-for-injection
       ship-composition-first, user-dialects deferred, resync-at-structural-boundary + only-Scala-
       subset-executable. Spike-first sub-phases:
-  - [ ] **P6.0 spike (GATE)** — UniML sub-dialect for `def f(x:Int):Int = <expr>` over `+ - * ( )` +
-        call + if/then/else; project CST → `Pair(tag,data)` → existing `ssc1-lower` → run-ir; diff
-        vs `ssc1-front`; dual-compile the spike with scalac. Answers: precedence-through-UniML vs
-        Pratt helper. Do NOT proceed until green + answer recorded.
+  - [x] **P6.0 spike (GATE) ✓ Landed 2026-07-13 (e510e53ab)** — GREEN. Verdict
+        (`specs/v2.2-p6.0-spike-notes.md`): precedence IS expressible via UniML — Pratt-parse INSIDE
+        the dialect, then serialise the tree with "open-on-first-token / `Reframe.closeAfter`-on-last"
+        (Reframe handles multi-open/close), source-order + lossless. NO separate parser layer; one
+        CST. Proven: 6/6 CST-shape tests; 4/4 end-to-end projection → UNCHANGED `ssc1-lower` → run-ir
+        with BYTE-IDENTICAL Core IR vs `ssc1-front`; scalac dual-compile agrees (7 5 9 9). Dialect:
+        `uniml/core/src/test/.../spike/ScalaSpike.scala`. Trivia-losslessness + error nodes + full
+        grammar deferred to P6.1/P6.2 (do not block).
   - [ ] **P6.1 error model** — CST `Error` nodes + structural-boundary resync; total projection +
         typed holes into IR (generalize `__notImplemented__`); broken input → partial IR, no crash.
   - [ ] **P6.2 grow the dialect** to full front coverage (layout/precedence/given-using/patterns/
