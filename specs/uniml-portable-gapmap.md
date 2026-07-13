@@ -87,6 +87,26 @@ search — probed.) Remaining Markdown = the OPTIONAL `MarkdownProjection` seman
 1c = the OPTIONAL semantic/projection layers (YAML `YamlSemanticParser` plain classes + regex +
 `Character.digit`; `*Projection` mutable collections) + a few unprobed functional-API constructs.
 
+### Gold-standard finding 2026-07-13: the remaining blocker is the v2 `.ssc` FRONTEND, not UniML
+
+Ran the actual JSON dialect flattened to one `.ssc` (core + json, `package`/`import` stripped) through
+`v2/ssc1`. Result: **UniML's runtime constructs are all individually v2-verified, but the current v2
+`.ssc` frontend cannot parse the full multi-declaration module.** Concrete frontend gaps found (these
+are v2-side, the active v2.2-self-hosted-dialect track — NOT UniML constructs):
+
+- **Modifiers `final` / `sealed` / `private` are not parsed** (`unbound global: final`) — the generator
+  strips them, so tolerable under mechanism (b) (generate `.ssc` from `.scala`).
+- **Nested type declarations inside an object body are unsupported** (`object O: enum State …` →
+  `unbound global: State`). UniML-side mitigation: hoist such types to top level (done for
+  `JsonStructure` this commit — scalac-green, behaviour-preserving). Only `JsonStructure` had them; the
+  core and other json files are already top-level.
+- **Some `extends` / declaration form in the large flattened file still fails** (`unbound global:
+  extends`) even after hoisting — not yet pinpointed; a v2-frontend parse issue in big multi-decl files.
+
+So end-to-end dual-compilation is now gated on **v2 `.ssc`-frontend maturity** (the v2.2 track is
+actively building exactly this: offside layout, given/summon, CoreIR≡ssc1-front), not on UniML. The
+UniML-side 1c parse-path work is complete and verified; the isolated-construct probes all pass.
+
 ## Method
 
 Probes are small bare `.ssc` programs (`def main(): Unit = …`) exercising one or a few UniML-shape

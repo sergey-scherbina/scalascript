@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-13 — UniML gold-standard v2 finding: blocker is the `.ssc` frontend, not UniML (uniml-portable Phase 3)
+
+Ran the actual JSON dialect flattened to one `.ssc` (core + json, package/import stripped) through the
+self-hosted v2 compiler. Finding: UniML's runtime constructs are all individually v2-verified, but the
+current v2 `.ssc` frontend cannot parse the full multi-declaration module — it does not parse the
+`final`/`sealed`/`private` modifiers (the generator strips these), does not support type declarations
+nested inside an object body (`unbound global: State`), and still fails on some `extends`/declaration
+form in the large flattened file. These are v2 `.ssc`-frontend maturity items (the active v2.2
+self-hosted-dialect track), not UniML constructs. UniML-side mitigation applied: hoisted
+`JsonStructure`'s nested `enum`/`trait`/`case class` to top level (scalac-green, behaviour-preserving,
+unimlJson 16/16) — the only nested-in-object types in JSON's parse path. Documented in the gapmap
+"Gold-standard finding" section.
+
 ## 2026-07-13 — UniML Markdown parse path v2-construct-free + portable Unicode table (uniml-portable Phase 1c)
 
 Made the Markdown parse path (MarkdownLexer/MarkdownInlines/MarkdownBlocks/MdChars) free of v2's

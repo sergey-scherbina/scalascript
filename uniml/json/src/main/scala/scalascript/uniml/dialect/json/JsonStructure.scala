@@ -11,20 +11,22 @@ private final case class JsonStructureBatch(tokens: Vector[VmToken], diagnostics
   * `dropRight`, state-transition = replace the top with a fresh copy). Frame states
   * are immutable case classes (no mutable object fields). Uses only v2-supported
   * constructs. */
+// Top-level (not nested in the object): v2's .ssc frontend does not support type
+// declarations nested inside an object body.
+private enum DocumentState:
+  case Value, End
+
+private enum ObjectState:
+  case KeyOrEnd, Key, Colon, Value, CommaOrEnd
+
+private enum ArrayState:
+  case ValueOrEnd, Value, CommaOrEnd
+
+private sealed trait Frame
+private final case class ObjectFrame(state: ObjectState) extends Frame
+private final case class ArrayFrame(state: ArrayState) extends Frame
+
 private object JsonStructure:
-  private enum DocumentState:
-    case Value, End
-
-  private enum ObjectState:
-    case KeyOrEnd, Key, Colon, Value, CommaOrEnd
-
-  private enum ArrayState:
-    case ValueOrEnd, Value, CommaOrEnd
-
-  private sealed trait Frame
-  private final case class ObjectFrame(state: ObjectState) extends Frame
-  private final case class ArrayFrame(state: ArrayState) extends Frame
-
   def assign(tokens: Vector[JsonLexToken], eof: SourcePosition, source: SourceId): JsonStructureBatch =
     var instructions: Vector[VmToken] = Vector.empty
     var diagnostics: Vector[Diagnostic] = Vector.empty
