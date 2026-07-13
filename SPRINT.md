@@ -7308,8 +7308,15 @@ JS `1410065408` = mod 2^32; JVM emits Scala's 32-bit `Int`). Huge blast radius
           impl mangled to `m__ext_default` and the dispatcher falls back to it (handleError: Either
           top-level + Option given). v2 bytecode sweep +4: typeclass-extension, std-functor-applicative-
           monad, std-selective, tagless-sealed-dispatch. 0 regressions.
+    - [x] **A1-mono SLICE 5 (named `using` param auto-resolution)** `a36f886b4` — DONE. Named
+          `using s: Show[A]` params were parsed (type discarded) and appended after regular params, but
+          ctxTCsOf only saw `__tc_TC` params → no injection → "arity: 2N expected, N given". Now:
+          ssc1-front parseUsingParams captures each using param's TC head (skipTypeAnnot advancement —
+          readTypeStr over-read past the depth-0 `,`), parseDef registers (defName→([tcHead],fullCount))
+          in shared usingSigCell; ssc1-lower injectGivens appends buildUsingGivenArgs at the END (ctx
+          givens still prepend), guarded by `len(args) < fullCount` so explicit `(using x)` isn't
+          double-injected. → **tagless-resolution 5/5**. sweep 109→112 (+ 2 flaky scljet-write), 0 regr.
     - [ ] **A1-mono REMAINING tagless cluster** — distinct features, all fall back safely today:
-          - `tagless-resolution` → `arity: 2 expected, 1 given` (distinct arity bug, not summon/ext).
           - `tagless-program` → `TYPEERR: cannot unify Tuple with non-Tuple` (typer/tuple).
           - `tagless-multi-file` → multi-file typeclass resolution gap.
           - ext-dispatch backlog: multi-param TC typeHead (MonadError[F,E] → first arg F; today takes the
