@@ -14,6 +14,29 @@ Status hygiene (2026-06-23): open `[ ]` rows below are intentionally still open,
 explicitly `BLOCKED` or `DEFERRED` product/external-decision items. History-only / wontfix notes
 are plain bullets without checkboxes so agents do not claim them as build work.
 
+## Standard-tier compiler correctness (2026-07-13)
+
+- [ ] **standard-tier-named-arg-skip-default** — `bin/ssc run` (default, and
+      `--v2` explicitly) — the self-hosted "standard tier" pipeline, a
+      *different* codebase area from `v1/runtime/backend/interpreter` — mis-
+      binds a named argument to the FIRST defaulted parameter instead of the
+      actual named one, whenever a call names a trailing defaulted param
+      other than the first while skipping an earlier one (e.g. `f(a, c =
+      "C1")` where `b`/`c`/`d` all default — binds `C1` to `b`, not `c`).
+      Silent wrong value, not a crash. Verified NOT to affect `bin/ssc-tools
+      run` (v1), `bin/ssc-tools run --v2`, or `bin/ssc-tools emit-js` — i.e.
+      not this repo's own `tests/conformance/run.sh` / `StdUiSmokeTest.scala`
+      harness. See `BUGS.md` § `standard-tier-named-arg-skip-default` for the
+      full repro/lane matrix. Found 2026-07-13 building `std-ui-select`
+      (`specs/std-ui-select.md`); worked around there (examples/docs always
+      name every trailing param from the first one overridden onward) but
+      not fixed — likely bites any `.ssc` author who calls a multi-default
+      function/constructor the natural way via plain `bin/ssc run`. Worth a
+      dedicated fix + regression test given how common "skip the middle
+      default" call shapes are, and given the standard tier is the
+      forward-looking default (no `--v1` fallback exists on `bin/ssc`
+      itself).
+
 ## Swift backend hardening (2026-07-13)
 
 - [ ] **v2-swift-machine-deep-nontail-stack** — `Machine.evaluate`/`runTerm`/

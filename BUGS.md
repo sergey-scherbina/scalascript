@@ -1,5 +1,90 @@
 # Bug tracker
 
+## standard-tier-named-arg-skip-default — `bin/ssc run` (self-hosted standard-tier pipeline) mis-binds a named arg for a non-first trailing defaulted param
+
+**Status:** open (found 2026-07-13, claude-sonnet-5, while building `std-ui-select`
+(`specs/std-ui-select.md`, on top of `a0eb3b984`)). Not fixed in this task — out of
+scope for a std/ui widget slice (this is a compiler/argument-binding bug in a
+different, actively-developed pipeline, not UI-specific), and risky/cross-cutting to
+touch opportunistically. Flagging for a dedicated follow-up.
+
+**Symptom:** for a function/constructor with 2+ **trailing defaulted** parameters,
+calling it via `bin/ssc run` (the "ScalaScript 2.1 standard tier" — self-hosted
+frontend/checker + v2 VM/ASM; this is the default when no compat flag is given, and
+`bin/ssc run --v2` reproduces it too) with a single named argument that is **not**
+the first defaulted parameter silently binds the value to the **first** defaulted
+parameter instead — no error, wrong value, wrong slot. Naming defaulted params **in
+order starting from the first one overridden** works fine; so does an all-positional
+call.
+
+**Important scope correction (verified after initial filing):** this is *not* the
+old v1 tree-walking interpreter, and *not* what this repo's own test/conformance
+harness exercises. Four lanes tested on the identical repro:
+
+| Command | Result |
+|---|---|
+| `bin/ssc run <file>` (default) | **WRONG** |
+| `bin/ssc run --v2 <file>` | **WRONG** |
+| `bin/ssc-tools run <file>` (v1 — matches `StdUiSmokeTest.scala`'s direct `Interpreter`/`Parser` use and the conformance `int` lane) | correct |
+| `bin/ssc-tools run --v2 <file>` (older v2-VM-bridge compat mode) | correct |
+| `bin/ssc-tools emit-js <file>` + `node` (JsGen — the `js` conformance lane) | correct |
+
+So this only affects `bin/ssc`'s standalone "standard tier" binary specifically — the
+newest self-hosted pipeline (the same one under heavy concurrent development in this
+repo right now, e.g. the `v2.2-p6.2*` match/patterns/case-class/typeclass spikes
+landing the same day this was found). It does **not** affect `tests/conformance/run.sh`
+(uses `ssc-tools`), `StdUiSmokeTest.scala` (uses the v1 `Interpreter` directly), or the
+`js`/`emit-spa` production path — so `std-ui-select` itself is unaffected by this for
+every path this repo actually verifies through. It *may* matter for a downstream
+consumer whose own wrapper script invokes `bin/ssc run`/`--v2` directly (check what
+your `--v2` flag actually dispatches to before assuming safety).
+
+**Repro** (after `scripts/sbtc "installBin"`):
+
+```scalascript
+def f(a: String, b: String = "B0", c: String = "C0", d: String = "D0"): String =
+  s"b=$b c=$c d=$d"
+
+println(f("x", c = "C1"))           // bin/ssc run:        "b=C1 c=C0 d=D0"  (WRONG: c's value bound to b)
+                                     // bin/ssc-tools run:  "b=B0 c=C1 d=D0"  (correct)
+println(f("x", d = "D1"))           // bin/ssc run:        "b=D1 c=C0 d=D0"  (WRONG)
+println(f("x", c = "C1", d = "D1")) // bin/ssc run:        "b=C1 c=D1 d=D0"  (WRONG on both)
+```
+
+Save as a `.ssc` file and diff `bin/ssc run <file>` against `bin/ssc-tools run <file>`
+(or `bin/ssc-tools emit-js <file> | node`) to see the divergence directly. The pattern
+holds regardless of parameter count (reproduced with 3 and 4 total params, 1 required
++ up to 3 defaulted).
+
+**Hypothesis (unconfirmed — not root-caused):** the standard-tier pipeline's
+call-argument resolver appears to treat each named argument as "the next unfilled
+positional slot, in call-site order" rather than matching by parameter name once any
+earlier default is skipped — i.e. named-arg counting degrades to positional counting
+as soon as a defaulted param is skipped by name. Likely lives in the self-hosted
+frontend/checker's call-binding logic (`v2/` — not investigated further; note this is
+a *different* codebase area from `v1/runtime/backend/interpreter`, which was ruled
+out by the `bin/ssc-tools run` result above).
+
+**Why it wasn't caught before:** grepping the existing `.ssc` corpus (examples/,
+runtime/std/) for the trigger shape (a named arg for a non-first trailing default,
+skipping an earlier one) found no existing call sites — every existing multi-default
+call either passes all args positionally or names them in left-to-right order. `select`
+(`runtime/std/ui/input.ssc`) is the first primitive whose natural call shape
+(`select(options, selected, disabled = true)`, skipping `label`/`placeholder`) exercises
+the bug, so it was worked around there (see `specs/std-ui-select.md`) rather than
+relied upon: examples/docs for `select` always name every trailing param they touch,
+starting from the first one overridden.
+
+**Impact:** silent wrong-value binding (not a crash) in any `.ssc` program run via
+`bin/ssc run` (or `--v2`) specifically, that skips a middle defaulted parameter by
+name. Does not affect `bin/ssc-tools run` (v1), `bin/ssc-tools run --v2`, or code
+compiled via `emit-js`/`emit-spa` — i.e. not this repo's own conformance/test harness,
+and not (as far as verified) busi's production build path.
+
+**Suggested regression test once fixed:** a small conformance case (e.g.
+`tests/conformance/standard-tier-named-arg-skip-default.ssc`) plus a `bin/ssc run`
+smoke assertion, asserting the repro above matches `bin/ssc-tools run`'s output.
+
 ## v2-bridged-ui-emit-name-collision — `emit` resolves to the streams plugin, not the UI plugin, on `run --v2`
 
 **Status:** FIXED (2026-07-13, opus, Option 1 — mirror the native lane's UI-plugin
