@@ -1,0 +1,29 @@
+---
+name: js-parser-combinator-choice
+backends: [int, js]
+---
+
+# std/parsing combinators on JS: `|` choice + regex `.parse` (js-parser-choice-pipe-bitwise)
+
+Two JS bugs surfaced by the parser-combinator DSLs: (1) `p | q` (PChoice) lowered to
+the bitwise `_bit('|', …)` — `_bit` now dispatches to the `|` extension when the
+receiver isn't a number; (2) `String.matchPrefix(pat)` (used by the `PRegex` primitive,
+a Java `Matcher.lookingAt` regex prefix match) had no JS runtime impl. With both fixed,
+a real grammar parses identically on both lanes.
+
+[Position, ParseError, ParseOk, ParseErr, Parser, PChar, PString, PRegex, PSatisfy, PSucceed, PFail](std/parsing/core.ssc)
+[PSequence, PChoice, PMany, POpt, PMapped, PFlatMapped, PNamed, runParser](std/parsing/combinators.ssc)
+
+```scalascript
+def token(): Parser[Any] =
+  Parser.regex("[0-9]+").map(s => s"num:$s") | Parser.regex("[a-z]+").map(s => s"word:$s")
+
+def show(input: String): String =
+  token().parse(input) match
+    case ParseOk(v, _, _) => v.toString
+    case ParseErr(_)      => "err"
+
+println(show("42"))
+println(show("hello"))
+println(show("!!"))
+```

@@ -351,6 +351,10 @@ function _dispatch(obj, method, args) {
       case 'replace': return obj.replaceAll(args[0], args[1]);
       // Scala String.matches = FULL-string regex match — anchor the pattern.
       case 'matches': return new RegExp('^(?:' + args[0] + ')$').test(obj);
+      // String.matchPrefix(pat): Option[String] of the regex match ANCHORED at the
+      // start (Java Matcher.lookingAt) — Some(prefix) or None. Used by std/parsing's
+      // PRegex primitive. (js-string-matchprefix.)
+      case 'matchPrefix': { const _m = new RegExp('^(?:' + args[0] + ')').exec(obj); return _m ? _Some(_m[0]) : _None; }
       case 'startsWith': return obj.startsWith(args[0]);
       case 'endsWith': return obj.endsWith(args[0]);
       case 'contains': return obj.includes(args[0]);

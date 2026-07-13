@@ -121,6 +121,13 @@ function _toBig(v) {
 // the 64-bit width; shift counts wrap mod 64 (JVM Long-shift semantics). The result is a
 // BigInt (a Long), so downstream arithmetic/comparison stays exact via _arith.
 function _bit(op, a, b) {
+  // `& | ^ << >> >>>` double as user operator/method names — most notably the
+  // parser-combinator `|` (PChoice) and `&`. When the receiver isn't a
+  // bit-coercible number/bigint, treat the operator as a method call and dispatch
+  // through the extension registry instead of forcing a numeric bit op (which
+  // would throw "cannot use … as an integer"). Int/Long bitwise is unchanged.
+  // (js-parser-choice-pipe-bitwise.)
+  if (typeof a !== 'number' && typeof a !== 'bigint') return _dispatch(a, op, [b]);
   const x = _toBig(a);
   switch (op) {
     case '&':   return BigInt.asIntN(64, x & _toBig(b));

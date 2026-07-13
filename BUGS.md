@@ -21,9 +21,12 @@ case, full `backendInterpreter/test` green):
 
 Remaining (categorized; not yet fixed):
 
-- **js-parser-choice-pipe-bitwise** (open) — `p | q` on a non-Int (parser combinator
-  choice) lowers to the bitwise `_bit('|', …)`; needs type-directed disambiguation.
-  Blocks dsl-calc-parser/dsl-json-parser at runtime (they parse now, wrong output).
+- **js-parser-choice-pipe-bitwise** (FIXED) — `p | q` on a non-Int (parser combinator
+  choice) lowered to the bitwise `_bit('|', …)`. `_bit` now dispatches to the method/
+  extension registry when the receiver isn't a number/bigint (Int/Long bitwise
+  unchanged). This surfaced a second gap — `String.matchPrefix(pat)` (Java
+  `Matcher.lookingAt` regex prefix match, used by the `PRegex` primitive) had no JS
+  runtime impl; added it. dsl-calc-parser + dsl-json-parser now match INT end-to-end.
 - **js-http-config-namespace-tdz** (open) — `std.http.httpTimeout`/`httpRetry`
   imported into a namespace resolve to the absent `_ssc_ui_*` UI stub instead of
   the real preamble function (`function httpTimeout` exists) — the identity-
