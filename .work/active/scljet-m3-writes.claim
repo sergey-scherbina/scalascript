@@ -1,0 +1,5 @@
+feature/scljet-m3-writes 2026-07-13T10:15:42Z
+agent: claude-code
+heartbeat: 2026-07-13T10:15:42Z
+status: in-progress
+next: M3 (writes + rollback journal) — large milestone. Starting spec-first with a committed slice plan, then slice 1: a byte-exact empty-database writer (header + empty page-1 leaf) verified against reference SQLite. Design already exists in specs/scljet.md (M0 transaction protocols, pager transaction state, WriteHandle API).
