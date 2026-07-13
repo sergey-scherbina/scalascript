@@ -293,8 +293,13 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
           (2) named `using` + `trait extends` — need the two hidden `#cell` channels (usingSigCell/
           tcExtendsCell), a different integration than pure AST-node projection. **P6.2 grow-the-dialect
           effectively COMPLETE** — everything the architecture can reach byte-identically is reached.
-  - [ ] **P6.3 injection + registry** — interpolator injection (s/f/md) via registry; registry hook
-        (built-in set, user-closed).
+  - [~] **P6.3 injection + registry** — *hybrid composition ✓ Landed 2026-07-13* (035e120c1): new
+        JVM-only module `unimlScala` + `SscCompose` composes Markdown+YAML+ScalaScript so a whole `.ssc`
+        (front-matter + prose + fenced code) parses as ONE lossless UniML tree by injection (each dialect
+        sees only its own bytes; foreign fences inert). 7/7 tests + harness: hybrid-basic→14, hybrid-cc,
+        both Core IR byte-identical to ssc1-front on the extracted bare source; precedence survives the
+        hybrid pipeline; extraction lossless. Notes §P6.3. **Remaining P6.3:** inline interpolator
+        injection (s/f/md — same mechanism inside a token) + user-closed registry hook.
   - [ ] **P6.4 self-host proof** — compile v2.2 with itself (stage1→stage2 fixed point); scalac oracle.
   - [ ] **P6.5 (follow-on, non-gate)** — port `ssc1-lower` from ssc0 into the subset (whole compiler
         dual-compilable end to end).
