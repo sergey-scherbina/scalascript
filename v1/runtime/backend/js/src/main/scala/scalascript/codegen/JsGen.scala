@@ -2715,14 +2715,30 @@ class JsGen(
       val tagField = caseClassTagMap.get(typeName).map(t => s"_tag: $t, ").getOrElse("")
       line(s"function $ctorName($paramsStr) { return {_type: '$typeName', ${tagField}$fields}; }")
       line(jsTypedJsonRegisterProduct(typeName, params, ctorName))
-      // Compile zero-param body methods (e.g. override def toString) as typed extension registrations.
-      val destructure = if params.isEmpty then "" else s"const {${params.mkString(", ")}} = _self; "
+      // Compile case-class body methods (e.g. `override def toString`, or trait
+      // methods on a class that `extends` an interface — a FixtureVfs's
+      // `fullPath(path)`) as typed extension registrations so `_dispatch` finds
+      // them via `_extensions['Type:method']`.  Both zero-param methods and
+      // methods with a single (non-implicit) parameter clause are registered as
+      // `(_self, p1, p2, …) => { const {fields} = _self; return body; }`.  A
+      // method parameter that shadows a field is NOT re-destructured (a `const`
+      // redeclaration of a lambda param is a JS syntax error).  Curried methods
+      // (>1 param clause) are left unregistered — their calling convention would
+      // not match `_dispatch`'s flat argument array.
       d.templ.body.stats.foreach {
         case meth: Defn.Def
-            if meth.paramClauseGroups.flatMap(_.paramClauses).filterNot(_.mod.nonEmpty).flatMap(_.values).isEmpty =>
-          val methName = meth.name.value
-          val bodyJs = genExpr(meth.body)
-          line(s"_registerExt('$methName', (_self) => { ${destructure}return $bodyJs; }, '$typeName');")
+            if meth.paramClauseGroups.flatMap(_.paramClauses).filterNot(_.mod.nonEmpty).sizeIs <= 1 =>
+          val methName    = meth.name.value
+          val methParams  = meth.paramClauseGroups.flatMap(_.paramClauses)
+            .filterNot(_.mod.nonEmpty).flatMap(_.values).map(_.name.value)
+          // A parameter that is a JS reserved word (e.g. `delete`) must be
+          // renamed in both the lambda header and the body (`delete` -> `delete_p`).
+          val methRenames = paramRenameMap(methParams)
+          val fields      = params.filterNot(methParams.contains)
+          val destructure = if fields.isEmpty then "" else s"const {${fields.mkString(", ")}} = _self; "
+          val recv        = ("_self" :: methParams.map(safeJsParam)).mkString(", ")
+          val bodyJs      = withParamRenames(methRenames)(genExpr(meth.body))
+          line(s"_registerExt('$methName', ($recv) => { ${destructure}return $bodyJs; }, '$typeName');")
         case _ => ()
       }
 
