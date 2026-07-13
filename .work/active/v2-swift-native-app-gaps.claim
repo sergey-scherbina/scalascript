@@ -1,0 +1,10 @@
+feature/cli-fork-serialize 2026-07-13
+agent: claude (opus)
+status: in-progress
+heartbeat: 2026-07-13T15:57:26+02:00
+scope: run the remaining native-UI example apps (dashboard, appcore-money,
+  appcore-nativeui) end-to-end through ssc-tools run --v2 --target macos, find
+  the next real SwiftRuntime/renderer gaps (method dispatch, runtime, render),
+  fix them mirroring v2/src/Runtime.scala semantics. Continues the busi-app
+  frontier (v2-swift-signal-column-title/option-getorelse) after its claim was
+  released. Swift files now unclaimed (only stale nativeui-i18n-json, 07-12).
