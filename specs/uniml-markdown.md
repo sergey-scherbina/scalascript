@@ -245,6 +245,11 @@ Landed 2026-07-13. The `unimlMarkdown` / `unimlMarkdownJs` `CrossType.Pure` leaf
   source code-point limit fails with a structured fatal diagnostic.
 - A **curated CommonMark 0.31.2 example corpus** (34 examples spanning every leaf/inline family):
   all are lossless and all project to a document without throwing on both lanes.
+- An **adversarial edge-case corpus** (~70 cases, added 2026-07-13) exercising the constructs most
+  likely to drop a character or diverge on a split — tab handling, ATX/setext ambiguity, delimiter
+  stress, code-span/link/autolink edges, raw HTML, malformed entities, breaks, and unicode/surrogate/
+  ZWJ sequences — each checked for losslessness, no-throw projection AND chunk-split invariance under
+  both CommonMark and GFM profiles. All pass, confirming the invariants hold broadly.
 
 **Design note.** M4 defers inline parsing to `finish()` over one bounded whole-source buffer (chunk
 invariance by construction). Emphasis is resolved with a CommonMark-faithful delimiter stack; block
