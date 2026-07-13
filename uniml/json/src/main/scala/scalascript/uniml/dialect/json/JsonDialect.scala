@@ -44,9 +44,6 @@ private final case class JsonInstructionProcessor(source: SourceId, limits: Json
     Stepped(state + input.text, ProcessBatch.empty)
 
   def stop(state: String): ProcessBatch[VmToken] =
-    val lexer = JsonLexer(source, limits)
-    val lexed1 = lexer.push(SourceChunk(state))
-    val lexed2 = lexer.finish()
-    val tokens = lexed1.tokens ++ lexed2.tokens
-    val structured = JsonStructure.assign(tokens, lexer.position, source)
-    ProcessBatch(structured.tokens, lexed1.diagnostics ++ lexed2.diagnostics ++ structured.diagnostics)
+    val lexed = JsonLexer.scan(source, state, limits)
+    val structured = JsonStructure.assign(lexed.tokens, lexed.position, source)
+    ProcessBatch(structured.tokens, lexed.diagnostics ++ structured.diagnostics)
