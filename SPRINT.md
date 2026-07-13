@@ -92,10 +92,20 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
             mutate/remove/insert; `tokenize`/`processEmphasis` return/thread `Vector` not `ArrayBuffer`.
             Green md 32/32 JVM+JS + bridge 11/11. (Remaining local `StringBuilder`/`Vector.newBuilder`
             + `MarkdownProjection`'s local `mutable` collections are not object fields → 1c-compat.)
-- [ ] **uniml-portable-1c-compat** — the small platform-shim that survives the immutable rewrite:
-      `CharClass` with a **compact portable Unicode table** (whitespace/punct/symbol/letter/digit +
-      P*/S* for markdown flanking) + ASCII fast-path, hand-rolled int↔hex, and an immutable `Map`-like
-      structure **iff** v2 lacks one. No mutable `Buffer`/`StrBuilder`/`Array` needed once immutable.
+- [~] **uniml-portable-1c-compat** — make the DIALECTS v2-construct-free. Gaps fully probed 2026-07-13
+      (see gapmap "Dialect gaps" table): `StringBuilder` (unbound → `Vector[String]`+`.mkString`),
+      `ArrayBuffer` (unbound → `Vector`), plain `class` (crash → immutable rewrite), regex `.r`
+      (no-dispatch → hand-rolled predicates), `Character.getType`/`isSpaceChar`/`digit` (unresolved Op
+      → **portable Unicode table**, the hard one), mutable case-class `var` field (→ copy-on-transition).
+      - [x] **JSON**: JsonLexer `StringBuilder`→`Vector[String]`; JsonStructure `ArrayBuffer`→immutable
+            `Vector` + `Frame.state` immutable (copy-on-transition), nested-def pattern. Green
+            unimlJson 16/16 JVM+JS. Uses only v2-probed constructs. Core+JSON now v2-construct-free.
+      - [ ] **YAML**: `YamlLexer` StringBuilder, plain classes (Parser/FlowParser/BlockFrame), 7 regexes,
+            `Character.digit`, local ArrayBuffer/LinkedHashMap in structure/semantic/projection.
+      - [ ] **Markdown**: lexer/MdLine/inlines StringBuilder; `MdChars` `Character.getType`/`isSpaceChar`
+            portable-Unicode-table (CommonMark flanking — conformance-sensitive); projection mutable.
+      - [ ] Gold-standard: full-concatenation v2 run per dialect (core+dialect → one `.ssc`), + probe
+            multi-file `package`/`import`.
 - [~] **uniml-portable-1b-namedclasses** — SUPERSEDED by `uniml-portable-1-immutable` (the immutable
       rewrite removes the anonymous `Processor` instances entirely, along with all mutable fields).
 - [ ] **uniml-portable-v2-objectmodel** — [v2-side] RE-MEASURE after the immutable rewrite; the list

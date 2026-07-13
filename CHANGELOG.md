@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-13 — UniML JSON dialect v2-construct-free + full dialect-gap map (uniml-portable Phase 1c)
+
+Probed every dialect-level construct against v2 and mapped the complete 1c-compat surface (gapmap
+"Dialect gaps" table): `StringBuilder` and `ArrayBuffer` are `unbound global` (v2 can't construct
+them), plain `class` crashes, regex `.r` has no dispatch, and `Character.getType`/`isSpaceChar`/`digit`
+lower to unresolved `Op`s. Then made the **JSON dialect** free of all of them: JsonLexer's token buffer
+`StringBuilder` → an immutable `Vector[String]` joined with `.mkString`; JsonStructure's three
+`ArrayBuffer`s → immutable `Vector`s threaded through nested defs, and its `Frame` state machine's
+mutable `var state` → immutable case classes with copy-on-transition (`dropRight`+`:+`). Every
+construct used is already v2-probed as working, so core + JSON dialect are now v2-construct-free.
+Behaviour-preserving: unimlJson 16/16 JVM+JS. Remaining dialects (YAML: plain classes + regex;
+Markdown: `Character` Unicode table) are the harder 1c-compat tail.
+
 ## 2026-07-13 — v2: Vector/List `.dropRight`/`.takeRight`; UniML core runs on v2 (uniml-portable Phase 3)
 
 Probed the now-immutable UniML core against the self-hosted v2 `.ssc` compiler and found the

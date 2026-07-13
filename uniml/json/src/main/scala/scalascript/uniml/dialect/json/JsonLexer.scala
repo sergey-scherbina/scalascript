@@ -26,13 +26,16 @@ private enum JsonStringState:
 /** Pure JSON lexer: a single fold over the whole source that returns the token
   * vector, diagnostics, and the final position. All lexing state lives in local
   * `var`s inside `scan` (no mutable object fields), with a local imperative shell
-  * and immutable `Vector` accumulation. The one remaining local mutable buffer is
-  * `current` (the in-progress lexeme); it never escapes `scan`. */
+  * and immutable `Vector` accumulation — including the in-progress lexeme buffer
+  * `current` (a `Vector[String]` of code-point lexemes, joined with `.mkString`).
+  * Uses only v2-supported constructs (no `StringBuilder`). */
 private object JsonLexer:
   def scan(source: SourceId, text: String, limits: JsonLimits): JsonLexResult =
     var completed: Vector[JsonLexToken] = Vector.empty
     var diagnostics: Vector[Diagnostic] = Vector.empty
-    val current = StringBuilder()
+    // token buffer as an immutable Vector of code-point lexemes (v2 has no
+    // StringBuilder; Vector `:+`/`.mkString` are supported and fully immutable)
+    var current: Vector[String] = Vector.empty
     var mode = JsonMode.Default
     var stringState = JsonStringState.Normal
     var currentStart = SourcePosition.Start
@@ -47,7 +50,7 @@ private object JsonLexer:
       if currentIssue.isEmpty then currentIssue = Some(JsonLexIssue(code, message, severity))
 
     def complete(kind: String, channel: TokenChannel): Unit =
-      val lexeme = current.result()
+      val lexeme = current.mkString
       completed = completed :+ JsonLexToken(
         SourceToken(
           id = nextTokenId,
@@ -61,12 +64,12 @@ private object JsonLexer:
       nextTokenId += 1L
       mode = JsonMode.Default
       stringState = JsonStringState.Normal
-      current.clear()
+      current = Vector.empty
       currentIssue = None
       currentCodePoints = 0
 
     def append(lexeme: String, rawSurrogate: Boolean): Unit =
-      current.append(lexeme)
+      current = current :+ lexeme
       currentCodePoints += 1
       currentPosition = Unicode.advance(currentPosition, lexeme)
       if rawSurrogate && mode != JsonMode.StringValue then
@@ -76,7 +79,7 @@ private object JsonLexer:
         complete("json.invalid", TokenChannel.Error)
         halted = true
       else if mode == JsonMode.Atom && current.nonEmpty &&
-          (current.charAt(0) == '-' || isAsciiDigit(current.charAt(0))) &&
+          (current.head.charAt(0) == '-' || isAsciiDigit(current.head.charAt(0))) &&
           currentCodePoints > limits.maxNumberCodePoints then
         setIssue("uniml.json.limit.number", s"JSON number exceeds the ${limits.maxNumberCodePoints} code-point limit", Severity.Fatal)
         complete("json.invalid", TokenChannel.Error)
@@ -85,7 +88,7 @@ private object JsonLexer:
     def start(nextMode: JsonMode, lexeme: String, rawSurrogate: Boolean): Unit =
       mode = nextMode
       currentStart = currentPosition
-      current.clear()
+      current = Vector.empty
       currentIssue = None
       currentCodePoints = 0
       append(lexeme, rawSurrogate)
@@ -95,7 +98,7 @@ private object JsonLexer:
       complete(kind, TokenChannel.Syntax)
 
     def completeAtom(): Unit =
-      val lexeme = current.result()
+      val lexeme = current.mkString
       if currentIssue.nonEmpty then complete("json.invalid", TokenChannel.Error)
       else lexeme match
         case "true"  => complete("json.true", TokenChannel.Syntax)

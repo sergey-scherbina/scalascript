@@ -31,6 +31,31 @@ standalone lib (`uniml/core` + json/yaml/markdown) now uses **no** `new Array`, 
 `scala.collection.mutable` collections in the projection/structure/semantic layers. These are the
 `uniml-portable-1c-compat` scope; the core does **not** need them.
 
+### Dialect gaps — fully probed 2026-07-13 (the 1c-compat surface)
+
+Confirmed by isolated `.ssc` probes (each a real v2 crash/miss, not a guess):
+
+| construct | v2 result | UniML users | fix |
+|---|---|---|---|
+| `StringBuilder()` | `unbound global: StringBuilder` | all 4 lexers' token buffer, `MdLine.split`, `MarkdownInlines` | UniML-side: `Vector[String]` + `.mkString` (v2-supported, fully immutable) |
+| `ArrayBuffer.empty` | `unbound global: ArrayBuffer` | `JsonStructure`, structure/projection/semantic layers | UniML-side: immutable `Vector` |
+| plain (non-case) `class` | crash (compile) | `YamlSemanticParser.Parser`/`FlowParser`, `YamlStructure.BlockFrame` | UniML-side: immutable rewrite (nested defs / case classes) |
+| regex `"…".r` / `.matches` | `no dispatch for .r` | `YamlSemanticParser` scalar typing (7 patterns) | UniML-side: hand-rolled char-scan predicates |
+| `Character.getType`/`isSpaceChar`/`digit` | unresolved `Op(...)` | `MdChars` (CommonMark flanking), `YamlSemanticParser` hex | UniML-side portable Unicode table (**the hard one**) OR v2-side `Character` |
+| mutable `var` field in case class | v2 object-model wall | `JsonStructure.Frame`, similar | UniML-side: immutable state (copy-on-transition) |
+
+Note: v2 supports `Vector`/`List` `:+` `.mkString` `.head` `.last` `.dropRight`(added) `.copy` — so the
+`StringBuilder`→`Vector` and `ArrayBuffer`→`Vector` swaps compile on v2.
+
+**JSON dialect — 1c DONE (this commit).** JSON's only gaps were `StringBuilder` (JsonLexer) +
+`ArrayBuffer`/mutable-`Frame.state` (JsonStructure) — no regex/Character/plain-class. Both rewritten
+immutably with v2-supported constructs (JsonLexer buffer → `Vector[String]`; JsonStructure → nested
+defs + `Vector` stack, `Frame` states → immutable case classes, transitions via `dropRight`+`:+`
+copy). Green unimlJson 16/16 JVM+JS. So core + JSON dialect are now v2-construct-free. (Gold-standard
+full-concatenation v2 run of the JSON dialect deferred — every construct used is already v2-probed.)
+Remaining dialects: YAML (plain class + regex + ArrayBuffer + StringBuilder), Markdown (StringBuilder
++ Character-table).
+
 ## Method
 
 Probes are small bare `.ssc` programs (`def main(): Unit = …`) exercising one or a few UniML-shape
