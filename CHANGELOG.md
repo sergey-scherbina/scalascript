@@ -20,6 +20,28 @@ differential spec vs snakeyaml). Every UniML dialect file now has zero mutable/r
 markers — the UniML side of dual-compilation is complete; the remaining blocker is the v2 `.ssc`
 frontend (see the gold-standard finding).
 
+---
+
+## 2026-07-13 — std-ui-select: dropdown/select primitive for std/ui
+
+Added `select(options, selected, label, placeholder, disabled): TkNode` to
+`runtime/std/ui/input.ssc` (`SelectNode` in `nodes.ssc`, lowered in
+`lower.ssc`) — the first `<select>`/dropdown widget in `std/ui`. Pure `.ssc`
+composition of the existing `element`/`textNode`/`inputChange` primitives:
+no new `extern def`, no changes needed in `FrontendIntrinsics.scala`,
+`StaticJsEmitter.scala`, `CustomFrameworkBackend.scala`, or `JsGen.scala` —
+both conformance lanes (interpreter + JS codegen) already implement
+everything `select` needs. `options` is a static `(value, label)` list
+(matches `TabBarNode.tabs`); reactive/fetched options are an explicit,
+recorded follow-up (`select-from-signal` in `BACKLOG.md`), not built here.
+Found and documented a pre-existing, unrelated bug in `bin/ssc run`'s
+self-hosted standard-tier pipeline while building this (named args that
+skip a non-first trailing default mis-bind) — confirmed not to affect the
+v1 interpreter, `--v2` compat mode, or `emit-js`/`emit-spa`; tracked in
+`BUGS.md`/`BACKLOG.md`, not fixed here. See `specs/std-ui-select.md`.
+
+---
+
 ## 2026-07-13 — UniML gold-standard v2 finding: blocker is the `.ssc` frontend, not UniML (uniml-portable Phase 3)
 
 Ran the actual JSON dialect flattened to one `.ssc` (core + json, package/import stripped) through the
