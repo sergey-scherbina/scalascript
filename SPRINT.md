@@ -1758,6 +1758,34 @@ there before changing this plan.
       backend 43/43, combined CLI 53/53, both assembled Apple/CLI scripts,
       money 2/2, effects 4/4, toolkit-v2 12/12, and v2 11/11 all pass on every
       applicable lane without signing credentials or external network.
+- [ ] **v2-swift-coreir-sexpr-embed** — `SwiftBackend.emitProgram`/`emitTerm`
+      encode the WHOLE Core IR `Program` as one giant nested Swift literal
+      expression (`.apply(.global(...), [.lambda(...)])`). Swift 6's compiler
+      enforces a hard "structure nesting level exceeded maximum of 256" limit
+      per expression, which busi's real production `app.ssc` (3305 lines,
+      `frontend: custom`) exceeds — confirmed via a real `swiftc -typecheck`
+      against the iOS SDK on an otherwise-successful `emit-swift --target ios`
+      output (2026-07-13, after landing the 3 parser/stub fixes in `22740d38f`
+      that first got this real file past `emit-swift` at all). Fix: reuse the
+      EXISTING portable Core IR text encoding (`ssc.Writer.program`/
+      `ssc.Reader.parseProgram`, `specs/12-ir-format.md`) — already the
+      canonical input format for the JS/Rust/JVM backends — instead of
+      inventing a new one. Embed the S-expr text as a Swift string constant
+      (same base64-embed-and-decode-at-runtime shape already built for content
+      modules in `ContentModules.swift`/`SscContentDecoder`) and add a Swift-side
+      S-expr decoder (mirrors `ssc.Reader` exactly) that builds `SscProgram`/
+      `SscTerm` via ordinary recursive Swift function calls at runtime — those
+      are bound only by the real call stack, not the compiler's expression-
+      nesting limit. `fieldLayouts` (already a flat, non-nested dict literal)
+      is unaffected and stays as-is. Verify: existing `v2SwiftBackend/test`
+      real-`swiftc`/`swift run` gates stay green (they already exercise the
+      generation contract end to end), plus a new test with an artificially
+      deep/broad nested Term tree that reproduces the original 256-limit crash
+      pre-fix, and a full re-run of `emit-swift --target ios` +
+      `swiftc -typecheck` against busi's real `app.ssc` scratch copy. Once
+      landed: attempt an actual `xcodebuild`/Simulator run of the generated
+      iOS package — the original ask (compile busi's client as a native iPhone
+      app) is not met until that succeeds.
 
 ## perf-jit-asm — investigation (2026-07-10, Sergiy: "заняться бенчмарками перфоменсом и jit asm")
 
