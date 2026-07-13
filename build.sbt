@@ -576,7 +576,7 @@ lazy val yaml = project
 lazy val unimlCross =
   crossProject(JVMPlatform, JSPlatform)
     .crossType(CrossType.Pure)
-    .in(file("v1/lang/uniml"))
+    .in(file("uniml/core"))
     .settings(
       name := "scalascript-uniml",
       libraryDependencies ++= Seq("org.scalatest" %%% "scalatest" % scalatestV % Test),
@@ -595,7 +595,7 @@ lazy val uniml    = unimlJvm
 lazy val unimlJsonCross =
   crossProject(JVMPlatform, JSPlatform)
     .crossType(CrossType.Pure)
-    .in(file("v1/lang/uniml-json"))
+    .in(file("uniml/json"))
     .dependsOn(unimlCross)
     .settings(
       name := "scalascript-uniml-json",
@@ -638,7 +638,7 @@ lazy val unimlXml    = unimlXmlJvm
 lazy val unimlYamlCross =
   crossProject(JVMPlatform, JSPlatform)
     .crossType(CrossType.Pure)
-    .in(file("v1/lang/uniml-yaml"))
+    .in(file("uniml/yaml"))
     .dependsOn(unimlCross)
     .settings(
       name := "scalascript-uniml-yaml",
@@ -662,7 +662,7 @@ lazy val unimlYaml    = unimlYamlJvm
 lazy val unimlMarkdownCross =
   crossProject(JVMPlatform, JSPlatform)
     .crossType(CrossType.Pure)
-    .in(file("v1/lang/uniml-markdown"))
+    .in(file("uniml/markdown"))
     .dependsOn(unimlCross)
     .settings(
       name := "scalascript-uniml-markdown",
