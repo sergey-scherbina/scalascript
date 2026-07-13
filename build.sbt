@@ -678,6 +678,20 @@ lazy val unimlMarkdownJvm = unimlMarkdownCross.jvm
 lazy val unimlMarkdownJs  = unimlMarkdownCross.js
 lazy val unimlMarkdown    = unimlMarkdownJvm
 
+// ── UniML Markdown → DocumentContent bridge (optional, JVM-only) ─────────
+// Projects a compatible MarkdownDocument into the existing ScalaScript
+// `DocumentContent` compiler model. Depends on both `core` and the Markdown
+// leaf; the leaf never depends on this bridge.
+lazy val unimlMarkdownBridge = project
+  .in(file("v1/lang/uniml-markdown-bridge"))
+  .dependsOn(unimlMarkdownJvm, core)
+  .settings(
+    name := "scalascript-uniml-markdown-bridge",
+    libraryDependencies ++= Seq("org.scalatest" %% "scalatest" % scalatestV % Test),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val core = project
   .in(file("v1/lang/core"))
   .dependsOn(valueData, backendSpi, backendSqlRuntime, logger, yaml, markupCore)
@@ -4636,7 +4650,7 @@ lazy val root = project
     v2NativeDistributedPlugin, v2NativeGraphPlugin, v2NativeOpticsPlugin, v2NativePdfPlugin,
     v2NativeNfcPlugin, v2NativeMcpPlugin, v2NativeGraphRdf4jPlugin, v2NativeSwiftPlugin,
     v2PluginBridge, v2FrontendBridge, v2JvmBytecode, v2JsBackend, v2SwiftBackend,
-    valueData, backendSpi, pluginApi, ir, logger, yaml, uniml, unimlJs, unimlJson, unimlJsonJs, unimlXml, unimlXmlJs, unimlYaml, unimlYamlJs, unimlMarkdown, unimlMarkdownJs, core, interop, testUtils, pluginHost, wireCore,
+    valueData, backendSpi, pluginApi, ir, logger, yaml, uniml, unimlJs, unimlJson, unimlJsonJs, unimlXml, unimlXmlJs, unimlYaml, unimlYamlJs, unimlMarkdown, unimlMarkdownJs, unimlMarkdownBridge, core, interop, testUtils, pluginHost, wireCore,
 
     runtimeServerCommon, runtimeServerSpi, runtimeServerJvm,
     runtimeServerJvmJetty, runtimeServerJvmNetty, httpFastEngine, runtimeServerJvmFast, mcpCommon,
