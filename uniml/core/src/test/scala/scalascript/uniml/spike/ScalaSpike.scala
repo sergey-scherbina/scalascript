@@ -81,6 +81,7 @@ object SpikeLex:
           case '.' => "spike.dot"
           case '[' => "spike.lbracket"
           case ']' => "spike.rbracket"
+          case '@' => "spike.at"
           case _   => "spike.junk"
         advance(c)
         emit(kind, start, c.toString, TokenChannel.Syntax)
@@ -352,7 +353,7 @@ object SpikeParse:
   private def parseArm(c: Cur): Node =
     val kids = Vector.newBuilder[Node]
     c.advance().foreach(t => kids += Node.Leaf(t, Some("case.kw"))) // `case`
-    kids += parsePattern(c).withRole("case.pat")
+    kids += parseArmPattern(c).withRole("case.pat")
     if isKw(c, "if") then
       c.advance().foreach(t => kids += Node.Leaf(t, Some("case.ifkw")))
       parseExpr(c, 1).foreach(g => kids += g.withRole("case.guard"))
@@ -362,6 +363,26 @@ object SpikeParse:
       case Some(b) => kids += b.withRole("case.body")
       case None    => c.report("spike.missing-case-body", "missing case body")
     Node.Frame("spike.arm", None, kids.result())
+
+  // a full arm pattern: `alias @ PAT` (bind, bpat) around `PAT | PAT | …` (alternatives, apat).
+  private def parseArmPattern(c: Cur): Node =
+    val bindAlias =
+      if c.peekKind == "spike.id" && c.peekLexeme != "_" && c.peek2Lexeme == "@" then
+        val a = c.advance().get; c.advance(); Some(a) // consume name + `@`
+      else None
+    val first = parsePattern(c)
+    val alts = Vector.newBuilder[Node]
+    alts += first
+    while c.peekKind == "spike.op" && c.peekLexeme == "|" do
+      c.advance() // `|`
+      alts += parsePattern(c)
+    val altList = alts.result()
+    val base =
+      if altList.length > 1 then Node.Frame("spike.apat", None, altList.map(_.withRole("apat.alt")))
+      else first
+    bindAlias match
+      case Some(a) => Node.Frame("spike.bpat", None, Vector(Node.Leaf(a, Some("bpat.alias")), base.withRole("bpat.inner")))
+      case None    => base
 
   // patterns: int literal (lpat) / `_` (wpat) / lowercase binder (vpat) / ctor `Name(subpats)`
   // (cpat) / tuple `(a, b)` (→ cpat "Pair"/"TupleN"). Recursive for sub-patterns.
@@ -634,6 +655,12 @@ object SpikeProject:
     case UniNode.Token(t) if t.kind == "spike.id"                     => s"""Pair("vpat", "${esc(t.lexeme)}")"""
     case b: UniNode.Branch if b.kind == "spike.cpat"                  => cpatProj(b)
     case b: UniNode.Branch if b.kind == "spike.tuppat"                => tuppatProj(b)
+    case b: UniNode.Branch if b.kind == "spike.apat"                  =>
+      s"""Pair("apat", ${consList(kids(b).collect { case (Some("apat.alt"), c) => patProj(c) }.toVector)})"""
+    case b: UniNode.Branch if b.kind == "spike.bpat"                  =>
+      val alias = kids(b).collectFirst { case (Some("bpat.alias"), c) => lexeme(c) }.getOrElse("_")
+      val inner = kids(b).collectFirst { case (Some("bpat.inner"), c) => patProj(c) }.getOrElse("""Pair("wpat", "")""")
+      s"""Pair("bpat", Pair("${esc(alias)}", $inner))"""
     case _ => """Pair("wpat", "")"""
 
   // ctor pattern → Pair("cpat", Pair(name, [subpats])); mirrors ssc1-front finishCtorPat.

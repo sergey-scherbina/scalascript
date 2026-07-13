@@ -187,6 +187,13 @@ final class ScalaSpikeSpec extends AnyFunSuite:
     assert(childWithRole(arms(m)(1), "case.pat").get.asInstanceOf[UniNode.Branch].kind == "spike.cpat") // None nullary
   }
 
+  test("alternative (A | B) and bind (n @ P) patterns parse to spike.apat / spike.bpat") {
+    val m = defBody(parse("def main(): Int = 2 match\n  case 1 | 2 | 3 => 100\n  case _ => 0")).asInstanceOf[UniNode.Branch]
+    assert(childWithRole(arms(m).head, "case.pat").get.asInstanceOf[UniNode.Branch].kind == "spike.apat")
+    val m2 = defBody(parse("def main(): Int = Some(9) match\n  case n @ Some(v) => v\n  case _ => 0")).asInstanceOf[UniNode.Branch]
+    assert(childWithRole(arms(m2).head, "case.pat").get.asInstanceOf[UniNode.Branch].kind == "spike.bpat")
+  }
+
   test("case class: declaration + field access project to mkCaseCls / mkSel") {
     val pr = parse("case class Point(x: Int, y: Int)\ndef main(): Int = Point(3, 4).x")
     assert(pr.status == CompletionStatus.Complete, pr.diagnostics)
@@ -339,7 +346,10 @@ final class ScalaSpikeSpec extends AnyFunSuite:
       "enum-nullary" -> "enum Color:\n  case Red, Green, Blue\ndef main(): Int = Green match\n  case Red => 1\n  case Green => 2\n  case Blue => 3",
       "enum-params"  -> "enum Opt:\n  case Sm(v: Int)\n  case Nn\ndef main(): Int = Sm(9) match\n  case Sm(v) => v\n  case Nn => 0",
       // P6.2g — extension methods (receiver prepended; `.m` dispatch via extensionMethodsCell)
-      "ext-method" -> "extension (x: Int)\n  def double: Int = x * 2\ndef main(): Int = 5.double"
+      "ext-method" -> "extension (x: Int)\n  def double: Int = x * 2\ndef main(): Int = 5.double",
+      // P6.2h — pattern completion: alternatives (A | B) and bind (n @ P)
+      "pat-alt"  -> "def main(): Int = 2 match\n  case 1 | 2 | 3 => 100\n  case _ => 0",
+      "pat-bind" -> "def main(): Int = Some(9) match\n  case n @ Some(v) => v\n  case _ => 0"
     )
     // broken — no oracle; the harness proves containment (`main` still runs).
     val broken = Seq(
