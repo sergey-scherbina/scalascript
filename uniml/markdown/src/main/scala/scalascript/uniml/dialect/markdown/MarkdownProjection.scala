@@ -1,7 +1,6 @@
 package scalascript.uniml.dialect.markdown
 
 import scalascript.uniml.*
-import scala.collection.mutable
 
 /** Projects a parsed Markdown CST into the semantic [[MarkdownDocument]]. The
   * CST remains canonical; this view normalizes escapes/entities, code-span
@@ -15,33 +14,33 @@ object MarkdownProjection:
       MarkdownProjectionResult(None, result.diagnostics)
     else
       val refs = collectDefinitions(result.roots)
-      val blocks = Vector.newBuilder[MarkdownBlock]
-      val references = Vector.newBuilder[MarkdownBlock.LinkDefinition]
+      var blocks: Vector[MarkdownBlock] = Vector.empty
+      var references: Vector[MarkdownBlock.LinkDefinition] = Vector.empty
       result.roots.foreach { root =>
         projectBlock(root, refs) match
-          case Some(defn: MarkdownBlock.LinkDefinition) => references += defn
-          case Some(block)                              => blocks += block
+          case Some(defn: MarkdownBlock.LinkDefinition) => references = references :+ defn
+          case Some(block)                              => blocks = blocks :+ block
           case None                                     => ()
       }
       MarkdownProjectionResult(
-        Some(MarkdownDocument(blocks.result(), references.result())),
+        Some(MarkdownDocument(blocks, references)),
         result.diagnostics,
       )
 
   // ── reference definitions ────────────────────────────────────────────────
 
   private def collectDefinitions(roots: Vector[UniNode]): Map[String, MarkdownBlock.LinkDefinition] =
-    val map = mutable.LinkedHashMap.empty[String, MarkdownBlock.LinkDefinition]
+    var map: Map[String, MarkdownBlock.LinkDefinition] = Map.empty
     def walk(node: UniNode): Unit = node match
       case b @ UniNode.Branch(MdBranch.Definition, _, _, _) =>
         definitionOf(b).foreach { defn =>
           val key = MarkdownInlines.normalizeLabel(defn.label)
-          if !map.contains(key) then map.put(key, defn)
+          if !map.contains(key) then map = map + (key -> defn)
         }
       case UniNode.Branch(_, edges, _, _) => edges.foreach(e => walk(e.child))
       case _                              => ()
     roots.foreach(walk)
-    map.toMap
+    map
 
   private def definitionOf(branch: UniNode.Branch): Option[MarkdownBlock.LinkDefinition] =
     var label = ""
@@ -142,22 +141,22 @@ object MarkdownProjection:
       .filter(_.nonEmpty)
 
   private def codeLiteral(edges: Vector[UniEdge]): String =
-    val sb = StringBuilder()
+    var buf: Vector[String] = Vector.empty
     edges.foreach {
       case UniEdge(_, UniNode.Token(t)) if t.kind == MdKind.CodeContent || (t.kind == MdKind.LineBreak && t.channel == TokenChannel.Embedded) =>
-        sb.append(t.lexeme)
+        buf = buf :+ t.lexeme
       case _ => ()
     }
-    sb.result()
+    buf.mkString
 
   private def concatTokens(edges: Vector[UniEdge], kind: String): String =
-    val sb = StringBuilder()
+    var buf: Vector[String] = Vector.empty
     def walk(node: UniNode): Unit = node match
-      case UniNode.Token(t) if t.kind == kind || (t.kind == MdKind.LineBreak && t.channel == TokenChannel.Embedded) => sb.append(t.lexeme)
+      case UniNode.Token(t) if t.kind == kind || (t.kind == MdKind.LineBreak && t.channel == TokenChannel.Embedded) => buf = buf :+ t.lexeme
       case UniNode.Branch(_, es, _, _) => es.foreach(e => walk(e.child))
       case _ => ()
     edges.foreach(e => walk(e.child))
-    sb.result()
+    buf.mkString
 
   private def projectTable(edges: Vector[UniEdge]): MarkdownBlock =
     val rows = edges.collect { case UniEdge(_, UniNode.Token(t)) if t.kind == MdKind.TableRow => t.lexeme }
@@ -196,15 +195,14 @@ object MarkdownProjection:
       case _                                => is
 
   private def projectInlines(edges: Vector[UniEdge], refs: Map[String, MarkdownBlock.LinkDefinition]): Vector[MarkdownInline] =
-    val out = mutable.ArrayBuffer.empty[MarkdownInline]
-    edges.foreach { edge => projectInline(edge, refs).foreach(appendMerging(out, _)) }
-    out.toVector
-
-  private def appendMerging(out: mutable.ArrayBuffer[MarkdownInline], inline: MarkdownInline): Unit =
-    (out.lastOption, inline) match
-      case (Some(MarkdownInline.Text(a)), MarkdownInline.Text(b)) =>
-        out(out.size - 1) = MarkdownInline.Text(a + b)
-      case _ => out += inline
+    var out: Vector[MarkdownInline] = Vector.empty
+    def appendMerging(inline: MarkdownInline): Unit =
+      (out.lastOption, inline) match
+        case (Some(MarkdownInline.Text(a)), MarkdownInline.Text(b)) =>
+          out = out.dropRight(1) :+ MarkdownInline.Text(a + b)
+        case _ => out = out :+ inline
+    edges.foreach { edge => projectInline(edge, refs).foreach(appendMerging) }
+    out
 
   private def projectInline(edge: UniEdge, refs: Map[String, MarkdownBlock.LinkDefinition]): Option[MarkdownInline] =
     edge.child match
@@ -272,16 +270,16 @@ object MarkdownProjection:
     if open >= 0 && close > open then lex.substring(open + 1, close) else ""
 
   private def plainText(inlines: Vector[MarkdownInline]): String =
-    val sb = StringBuilder()
+    var buf: Vector[String] = Vector.empty
     def walk(i: MarkdownInline): Unit = i match
-      case MarkdownInline.Text(v)            => sb.append(v)
-      case MarkdownInline.Code(v)            => sb.append(v)
+      case MarkdownInline.Text(v)            => buf = buf :+ v
+      case MarkdownInline.Code(v)            => buf = buf :+ v
       case MarkdownInline.Emphasis(cs)       => cs.foreach(walk)
       case MarkdownInline.Strong(cs)         => cs.foreach(walk)
       case MarkdownInline.Strikethrough(cs)  => cs.foreach(walk)
       case _                                 => ()
     inlines.foreach(walk)
-    sb.result()
+    buf.mkString
 
   // ── decoding helpers ────────────────────────────────────────────────────
 
@@ -299,13 +297,13 @@ object MarkdownProjection:
   private def unescape(s: String): String =
     if !s.contains('\\') then s
     else
-      val sb = StringBuilder()
+      var buf: Vector[String] = Vector.empty
       var i = 0
       while i < s.length do
         if s.charAt(i) == '\\' && i + 1 < s.length && MdChars.isAsciiPunctuation(s.charAt(i + 1)) then
-          sb.append(s.charAt(i + 1)); i += 2
-        else { sb.append(s.charAt(i)); i += 1 }
-      sb.result()
+          buf = buf :+ s.charAt(i + 1).toString; i += 2
+        else { buf = buf :+ s.charAt(i).toString; i += 1 }
+      buf.mkString
 
   // The 96 Latin-1 Supplement entity names in U+00A0..U+00FF order — a
   // contiguous block, so we generate their code points rather than hand-typing
@@ -373,4 +371,9 @@ object MarkdownProjection:
 
   private def codePointToString(cp: Int): String =
     if cp <= 0 || cp > 0x10FFFF then "�"
-    else new String(Character.toChars(cp))
+    else if cp <= 0xFFFF then cp.toChar.toString
+    else
+      val c = cp - 0x10000
+      val hi = 0xD800 + (c >> 10)
+      val lo = 0xDC00 + (c & 0x3FF)
+      hi.toChar.toString + lo.toChar.toString
