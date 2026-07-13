@@ -770,6 +770,16 @@ class Interpreter(
     java.util.IdentityHashMap()
   private[interpreter] val EffBlockMiss: AnyRef = new AnyRef
 
+  /** interp-var-scope-leak-across-calls: per-block-AST cache of the `var` names a
+   *  block DECLARES via a single-`Pat.Var` `Defn.Var` — the only var shape that
+   *  dual-writes `interp.globals` (BlockRuntime `step`). Keyed by the `stats` List
+   *  object identity (stable for a given `Term.Block`). Used to snapshot+restore the
+   *  shadowed OUTER globals binding around a block so a callee's `var X` cannot
+   *  clobber a caller's live `var X`. An empty array means "declares no globals-
+   *  writing var" (the common case) — cached so the one-time scan runs once per AST. */
+  private[interpreter] val blockVarNamesCache: java.util.IdentityHashMap[AnyRef, Array[String]] =
+    java.util.IdentityHashMap()
+
   /** Cache of `typeToString` results by AST identity.  Type AST nodes (the
    *  argument of `summon[…]` and friends) are immutable — recursing across
    *  `Type.Apply`/`Type.Name` and string-building takes O(n) on each visit,

@@ -102,6 +102,25 @@ private[interpreter] object BlockRuntime:
       cur = cur.tail
     if buf.lengthIs < 2 then null else buf.toArray
 
+  private val EmptyStringArray: Array[String] = Array.empty[String]
+
+  /** interp-var-scope-leak-across-calls: the `var` names this block declares via a
+   *  single-`Pat.Var` `Defn.Var`. This is EXACTLY the shape that `step` dual-writes to
+   *  `interp.globals` (line ~227); destructuring vars and `Defn.Val` stay block-local
+   *  (they write only `local`, so they never leak across calls). Scanned once per block
+   *  AST and cached by `stats` identity in `interp.blockVarNamesCache`. */
+  private def collectVarDeclNames(stats: List[Stat]): Array[String] =
+    var buf: scala.collection.mutable.ArrayBuffer[String] = null
+    var cur = stats
+    while cur.nonEmpty do
+      cur.head match
+        case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, _) =>
+          if buf == null then buf = scala.collection.mutable.ArrayBuffer.empty[String]
+          buf += n.value
+        case _ =>
+      cur = cur.tail
+    if buf == null then EmptyStringArray else buf.toArray
+
   /** Evaluate a block of statements; effects propagate through statements via flatMap.
    *  val/var declarations are threaded as Computation so effects in their rhs work. */
   def evalBlock(stats: List[Stat], env: Env, interp: Interpreter): Computation =
@@ -353,8 +372,64 @@ private[interpreter] object BlockRuntime:
           val c = compileEffBlock(stats)
           interp.effBlockCache.put(stats, if c == null then interp.EffBlockMiss else c.asInstanceOf[AnyRef])
           c
-    if compiledSteps != null then runCompiled(compiledSteps, 0, Value.UnitV)
-    else step(stats, Value.UnitV)
+    def runDispatch(): Computation =
+      if compiledSteps != null then runCompiled(compiledSteps, 0, Value.UnitV)
+      else step(stats, Value.UnitV)
+
+    // ── interp-var-scope-leak-across-calls ──
+    // A `Defn.Var` in this block dual-writes `interp.globals` (see `step` ~line 246):
+    // the write is load-bearing because the `while` loop re-reads its counter from
+    // globals during the function body. Without per-call scoping a callee's `var X`
+    // clobbers a caller's live `var X` of the same name (both land in the single
+    // module-global `interp.globals` map keyed by name). Fix: snapshot the globals
+    // value of each var name THIS block declares that ALREADY exists in globals (i.e.
+    // an OUTER binding this declaration shadows), then restore those on block exit.
+    //
+    // Names ABSENT from globals at entry are intentionally left in place on exit — a
+    // fresh name never clobbers anything, and a returned closure that dropped the var
+    // (relying on the `interp.globals` fallback, EvalRuntime Term.Function capture)
+    // must still read it after the function returns. Nested/recursive calls each
+    // snapshot+restore their own shadow, so every stack level sees its own var.
+    //
+    // The `while` loop is unaffected: the counter lives in the ENCLOSING function
+    // block and is restored only at that block's EXIT (after the loop), so the JIT /
+    // fast-while paths read/write globals exactly as before during the loop. The
+    // restore is deferred past effect suspension (it rides a `FlatMap` continuation so
+    // it fires on true completion, not on a mid-block `perform`) and also fires on the
+    // exception paths (`return`/throw) via the surrounding `catch`.
+    // reusedView blocks declare no vars (guarded above), so skip the scan entirely.
+    if reusedView then runDispatch()
+    else
+      val declNames: Array[String] =
+        val cached = interp.blockVarNamesCache.get(stats)
+        if cached != null then cached
+        else
+          val ns = collectVarDeclNames(stats)
+          interp.blockVarNamesCache.put(stats, ns)
+          ns
+      if declNames.length == 0 then runDispatch()
+      else
+        // Snapshot only the OUTER (present-before) bindings this block shadows.
+        var saved: List[(String, Value)] = Nil
+        var k = 0
+        while k < declNames.length do
+          val g = interp.globals.getOrElse(declNames(k), null)
+          if g != null then saved = (declNames(k), g) :: saved
+          k += 1
+        if saved eq Nil then runDispatch() // nothing shadowed → no restore needed
+        else
+          val savedList = saved
+          def restore(): Unit =
+            var s = savedList
+            while s.nonEmpty do
+              interp.globals(s.head._1) = s.head._2
+              s = s.tail
+          try
+            runDispatch() match
+              case p: Pure => restore(); p
+              case comp    => FlatMap(comp, { v => restore(); Pure(v) })
+          catch
+            case e: Throwable => restore(); throw e
 
   /** True when `op` is a comparison operator ending in `=` (not a compound assignment). */
   private[interpreter] inline def isCompareOp(op: String): Boolean =
