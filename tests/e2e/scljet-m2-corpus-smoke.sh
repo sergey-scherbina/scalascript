@@ -32,21 +32,8 @@ done < "$FIXTURES/corrupt-manifest.tsv"
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/scljet-m2-corpus.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
-(
-  cd "$ROOT"
-  PATH=/usr/bin:/bin "$SSC_TOOLS" run --v1 "$DUMPER"
-) >"$tmp/actual" 2>"$tmp/err"
 
-[[ ! -s $tmp/err ]]
-diff -u "$FIXTURES/oracle-storage.txt" "$tmp/actual"
-
-(
-  cd "$ROOT"
-  PATH=/usr/bin:/bin "$SSC_TOOLS" run --v1 "$CORRUPT_CHECKER"
-) >"$tmp/corrupt-actual" 2>"$tmp/corrupt-err"
-[[ ! -s $tmp/corrupt-err ]]
-diff -u "$FIXTURES/corrupt-errors.txt" "$tmp/corrupt-actual"
-
+# Deterministic bounded fuzz corpus (identical inputs for every tier).
 /usr/bin/python3 - "$FIXTURES/valid/page-512.db" "$tmp" <<'PY'
 import pathlib, sys
 source = pathlib.Path(sys.argv[1]).read_bytes()
@@ -57,11 +44,44 @@ for index in range(32):
     value[offset] ^= 1 << (index % 8)
     (out / f"scljet-fuzz-{index}.db").write_bytes(value)
 PY
-(
-  cd "$tmp"
-  PATH=/usr/bin:/bin "$SSC_TOOLS" run --v1 "$FUZZ_CHECKER"
-) >"$tmp/fuzz-actual" 2>"$tmp/fuzz-err"
-[[ ! -s $tmp/fuzz-err ]]
-[[ $(cat "$tmp/fuzz-actual") == "32:30:2" ]]
 
-echo 'PASS scljet-m2-corpus-smoke (23 valid + 25 corrupt pinned files, 619 exact lines + 32 bounded mutations)'
+# M2d requires VM/ASM parity: the same pure `.ssc` reader must produce the exact
+# reference dump and localized diagnostics on every interpreter execution tier.
+#   default  — bytecode VM + fast tier + javac JIT (the tier ordinary runs use)
+#   asm      — the ASM JIT backend
+#   fallback — pure tree-walk (bytecode JIT and fast tier disabled)
+run_tier() {
+  local tier=$1 env_prefix=$2
+
+  # 1. Byte-for-value equal reads of the whole valid corpus.
+  (
+    cd "$ROOT"
+    env $env_prefix PATH=/usr/bin:/bin "$SSC_TOOLS" run --v1 "$DUMPER"
+  ) >"$tmp/actual" 2>"$tmp/err"
+  [[ ! -s $tmp/err ]] || { echo "dump stderr on tier $tier:" >&2; cat "$tmp/err" >&2; exit 1; }
+  diff -u "$FIXTURES/oracle-storage.txt" "$tmp/actual" || { echo "dump diverged on tier $tier" >&2; exit 1; }
+
+  # 2. Corrupt files fail safely with localized diagnostics.
+  (
+    cd "$ROOT"
+    env $env_prefix PATH=/usr/bin:/bin "$SSC_TOOLS" run --v1 "$CORRUPT_CHECKER"
+  ) >"$tmp/corrupt-actual" 2>"$tmp/corrupt-err"
+  [[ ! -s $tmp/corrupt-err ]] || { echo "corrupt stderr on tier $tier:" >&2; cat "$tmp/corrupt-err" >&2; exit 1; }
+  diff -u "$FIXTURES/corrupt-errors.txt" "$tmp/corrupt-actual" || { echo "corrupt diverged on tier $tier" >&2; exit 1; }
+
+  # 3. Bounded fuzz mutations: 32 checked, 30 rejected, 2 legally accepted.
+  (
+    cd "$tmp"
+    env $env_prefix PATH=/usr/bin:/bin "$SSC_TOOLS" run --v1 "$FUZZ_CHECKER"
+  ) >"$tmp/fuzz-actual" 2>"$tmp/fuzz-err"
+  [[ ! -s $tmp/fuzz-err ]] || { echo "fuzz stderr on tier $tier:" >&2; cat "$tmp/fuzz-err" >&2; exit 1; }
+  [[ $(cat "$tmp/fuzz-actual") == "32:30:2" ]] || { echo "fuzz result changed on tier $tier: $(cat "$tmp/fuzz-actual")" >&2; exit 1; }
+
+  echo "  tier $tier: dump + corrupt + fuzz identical to reference oracle"
+}
+
+run_tier default ""
+run_tier asm "SSC_JIT_BACKEND=asm"
+run_tier fallback "SSC_JIT_BYTECODE=off SSC_FASTTIER=off"
+
+echo 'PASS scljet-m2-corpus-smoke (23 valid + 25 corrupt pinned files, 619 exact lines + 32 bounded mutations; VM/ASM/fallback tiers identical)'
