@@ -133,6 +133,7 @@ dumpFiles(List(
   "tests/fixtures/scljet/m2/valid/reserved-32-usable-480.db",
   "tests/fixtures/scljet/m2/valid/schema-format-1.db",
   "tests/fixtures/scljet/m2/valid/schema-format-2.db",
-  "tests/fixtures/scljet/m2/valid/schema-format-3.db"
+  "tests/fixtures/scljet/m2/valid/schema-format-3.db",
+  "tests/fixtures/scljet/m2/valid/overflow-thresholds.db"
 ))
 ```

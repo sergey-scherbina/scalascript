@@ -120,6 +120,28 @@ def create_serial_and_rowid_edges(path: Path) -> None:
     con.close()
 
 
+def create_overflow_thresholds(path: Path) -> None:
+    """Table-leaf cells straddling SQLite's exact overflow threshold.
+
+    Page size 512, reserved 0 -> usable u = 512, so a table-leaf cell keeps its
+    whole payload local while p <= X = u - 35 = 477 and otherwise stores
+    K = m + ((p - m) % (u - 4)) bytes locally when K <= X, else m = 39.  A single
+    implicit-rowid BLOB column has a 3-byte record header, so a blob of length L
+    produces total payload p = L + 3.  The chosen lengths hit p = X-1/X/X+1/X+2
+    (the inclusive local boundary and the sharp fall to the m-byte residue when
+    K > X), a mid-range K <= X case, and a genuine multi-page overflow chain.
+    """
+    con = sqlite3.connect(path)
+    configure(con, 512, "UTF-8", "NONE")
+    con.execute("CREATE TABLE t(payload BLOB)")
+    for p in (476, 477, 478, 479, 500, 900, 1100):
+        length = p - 3
+        blob = bytes((i * 37 + p) & 255 for i in range(length))
+        con.execute("INSERT INTO t(payload) VALUES(?)", (blob,))
+    con.commit()
+    con.close()
+
+
 def create_clean_wal_header(path: Path) -> None:
     con = sqlite3.connect(path)
     configure(con, 4096, "UTF-8", "NONE")
@@ -470,6 +492,9 @@ def main() -> None:
         path = VALID / f"{fixture_id}.db"
         create_historical(path, schema_format, sql, historical_helper)
         fixtures.append((fixture_id, path))
+    overflow_thresholds = VALID / "overflow-thresholds.db"
+    create_overflow_thresholds(overflow_thresholds)
+    fixtures.append(("overflow-thresholds", overflow_thresholds))
 
     write_manifest(fixtures, source_id, compile_options)
     corruptions(VALID / "page-512.db", auto_full, freelist)
