@@ -482,20 +482,22 @@ against reference-produced files) and by reopening with the SclJet reader.
       Follow-ups (`BACKLOG.md`): cell-overflow-page allocation for large payloads,
       3+-level trees (interior root that itself overflows), incremental
       insert-into-existing-DB (that is the pager/journal path, m3e), and `SqlReal`.
-- [~] **scljet-m3e-rollback-journal** — hot-journal RECOVERY done 2026-07-13;
-      writer + pager integration + transactional cycle remaining. `journal.ssc`
+- [~] **scljet-m3e-rollback-journal** — journal FORMAT (write + recover) done
+      2026-07-13; pager integration + transactional cycle remaining. `journal.ssc`:
       `applyRollbackJournal(db, journal)` parses the official rollback-journal
       format (header magic `d9d505f920a163d7`, nonce, initial page count, sector/
       page size; records `u32 pageNo ++ page ++ u32 checksum`), verifies SQLite's
       sparse checksum (`nonce + Σ data[pageSize-200k]`, u32 — confirmed matching a
       real SQLite journal), restores every pre-image, and truncates to the recorded
-      size. Verified: a dirtied `page-512.db` recovers **byte-identical** (records=1)
-      with reference `integrity_check = ok`; a 2-record journal restores
-      `comprehensive.db` byte-identical; a no-magic journal is not hot (unchanged);
+      size; `writeRollbackJournal(pageSize, sectorSize, dbSize, nonce, records)` is
+      the exact inverse — **byte-identical to SQLite's journal** and it round-trips
+      (write → recover → original). Verified: a dirtied `page-512.db` recovers
+      byte-identical with reference `integrity_check = ok`; a 2-record journal
+      restores `comprehensive.db` byte-identical; a no-magic journal is not hot;
       a corrupt checksum is rejected. int/VM/ASM/fallback + JS (conformance
-      `scljet-journal-recover`). REMAINING m3e: the journal WRITER (create
-      `<db>-journal` from pre-images before mutation), wiring recovery into
-      `pager.ssc`'s open path (it currently rejects a non-empty journal), and the
+      `scljet-journal-recover`, a write→recover round-trip). REMAINING m3e: wire
+      recovery into `pager.ssc`'s open path (it currently rejects a non-empty
+      journal — needs a writable VFS write-back + journal delete), and the
       transactional begin/mutate/commit/rollback cycle (needs the mutable pager) so
       fault-injected aborts leave the file fully committed or fully rolled back.
 - [ ] **scljet-m3f-delete-update** — DELETE and UPDATE (cell removal + freeblock

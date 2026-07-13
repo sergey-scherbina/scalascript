@@ -2089,8 +2089,11 @@ an interrupted transaction is undone. Verified byte-identical recovery of a
 dirtied `page-512.db` (one record) and `comprehensive.db` (two records) with
 reference `integrity_check = ok`; a journal without the complete-header magic is
 correctly not hot; a corrupt checksum is rejected (conformance
-`scljet-journal-recover`, int/VM/ASM/fallback and JS). The journal writer, wiring
-recovery into the pager open path (which currently rejects a non-empty journal),
-and the transactional begin/commit/rollback cycle remain, along with m3f
-delete/update. The change counter and schema cookie are caller-supplied because
-they belong to the pager/journal layer.
+`scljet-journal-recover`, int/VM/ASM/fallback and JS — a write→recover
+round-trip). `writeRollbackJournal` is the exact inverse and produces bytes
+identical to what SQLite writes, so the journal format is symmetric. Wiring
+recovery into the pager open path (which currently rejects a non-empty journal —
+it needs a writable VFS write-back and journal delete) and the transactional
+begin/commit/rollback cycle remain, along with m3f delete/update. The change
+counter and schema cookie are caller-supplied because they belong to the
+pager/journal layer.
