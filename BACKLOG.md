@@ -84,15 +84,21 @@ are plain bullets without checkboxes so agents do not claim them as build work.
 
 
 - [ ] **scljet-m3-write-followups** — edge cases beyond the m3b–m3d write path
-      (`runtime/std/scljet/write.ssc`). `SqlReal` record encoding is DONE
+      (`scljet/write.ssc`). `SqlReal` record encoding is DONE
       (2026-07-13): `encodeReal` decomposes a Double into IEEE-754 binary64 by
       normalizing to `[1,2)` (exact powers-of-two arithmetic) — byte-exact vs
       `struct.pack('>d')` for 1.5/-2.5/3.14159/0/100/0.1/1e20/-0.001, reads back
       through a real DB, int/VM/ASM/fallback/JS (subnormals/non-finite out of
-      scope). Remaining: (2) cell-overflow-page allocation for payloads larger than the
-      leaf X threshold (`buildTableLeafPage` currently errors on a cell that does
-      not fit); (3) B-trees deeper than two levels — an interior root that itself
-      overflows needs a recursive interior level; (4) incremental
+      scope). Cell-overflow (single-leaf) is DONE (2026-07-13):
+      `buildOverflowTableDatabase` keeps each cell's local portion on the leaf
+      (SQLite `localPayloadBytes` formula) and spills the remainder onto a chain
+      of `[u32 next][content]` overflow pages — byte-exact vs reference SQLite,
+      `integrity_check` ok, reads back exact, int==js (conformance
+      `scljet-write-overflow`). Remaining: (2) MULTI-LEAF overflow — fold overflow
+      into `buildTableDatabase` so large payloads work past a single leaf (needs
+      overflow-page allocation after the leaf/interior pages, referenced from
+      cells within leaves); (3) B-trees deeper than two levels — an interior root
+      that itself overflows needs a recursive interior level; (4) incremental
       insert/update into an existing database file (mutating pages in place), which
       is really the pager/journal path (m3e) rather than bulk build.
 

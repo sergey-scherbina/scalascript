@@ -34,10 +34,11 @@ The M3 write path (`write.ssc`, `journal.ssc`) is in progress and byte-verified
 against reference SQLite: `emptyDatabase`, the record encoder (`encodeRecord`,
 all five value types incl. IEEE-754 reals), single- and multi-page rowid-table
 writers (`buildSingleTableDatabase` / `buildTableDatabase`, producing files that
-pass reference `PRAGMA integrity_check`), and the rollback journal
-(`writeRollbackJournal` + hot-journal `applyRollbackJournal`, byte-identical to
-SQLite's journal). The mutable pager, pager recover-on-open, and delete/update
-remain.
+pass reference `PRAGMA integrity_check`), a single-leaf cell-overflow writer
+(`buildOverflowTableDatabase`, spilling large payloads onto overflow-page chains),
+and the rollback journal (`writeRollbackJournal` + hot-journal
+`applyRollbackJournal`, byte-identical to SQLite's journal). The mutable pager,
+pager recover-on-open, multi-leaf overflow, and delete/update remain.
 
 ## Modules
 
