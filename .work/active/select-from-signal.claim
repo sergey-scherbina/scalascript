@@ -1,0 +1,5 @@
+feature/select-from-signal 2026-07-13T00:00:00Z
+agent: claude-code (agent-a735ad6311c27e48b)
+heartbeat: 2026-07-13T00:00:00Z
+status: IN PROGRESS — spec amendment next, then selectFrom implementation (nodes/input/lower/primitives + FrontendIntrinsics + signals.mjs) + example + conformance + a real-DOM reactivity proof test.
+next: see SPRINT.md § select-from-signal for the full plan.
