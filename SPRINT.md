@@ -192,8 +192,13 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
           VM**. Notes §P6.2e. Tractability probe verdict: typeclass family is NOT (C) — resolution is
           in the lower's resolve pass over AST-derived tables. Deferred: trait+`with`+context-bound
           dispatch loop (finicky even in ssc1-front), named `using` + `tcExtendsCell` (hidden cells).
-    - [ ] next: `enum` decls (cleanest casecls-style); `extension` methods (AST-node-driven); then
-          alternative/typed/bind patterns, `::`/`->`/`to`/`until` + prefix ops.
+    - [x] **P6.2f–i ✓ Landed 2026-07-13** — enum (offside/braced + comma-nullary), extension methods
+          + parameterless defs, alternative/bind patterns (apat/bpat), `::`(right-assoc)/`->`. All Core
+          IR byte-identical to ssc1-front (enum-nullary/params, ext-method→10, pat-alt→100/pat-bind→9,
+          op-cons→1/op-arrow→3). Notes §P6.2f–i. **P6.2 core COMPLETE**: 9 grammatical families spanning
+          the whole ssc1-front (2899 lines), 34-toy corpus all byte-identical — architecture validated
+          end-to-end. Deferred edge cases: to/until, prefix ops, typed patterns, named using +
+          trait-extends (hidden cells), full trait+with+context-bound dispatch loop (finicky in ssc1-front).
   - [ ] **P6.3 injection + registry** — interpolator injection (s/f/md) via registry; registry hook
         (built-in set, user-closed).
   - [ ] **P6.4 self-host proof** — compile v2.2 with itself (stage1→stage2 fixed point); scalac oracle.
