@@ -1303,6 +1303,26 @@ private final class Machine {
                 return values.reduce(args[0]) { call(fn, [$0, $1]) }
             case "zipWithIndex":
                 return listValue(values.enumerated().map { .data("Tuple2", [$0.element, .int(Int64($0.offset))]) })
+            case "filter":
+                guard case let .closure(fn) = args[0] else { fatalError("List.filter expects closure") }
+                return listValue(values.filter { item in
+                    if case .bool(true) = call(fn, [item]) { return true }
+                    return false
+                })
+            case "flatMap":
+                guard case let .closure(fn) = args[0] else { fatalError("List.flatMap expects closure") }
+                return listValue(values.flatMap { item -> [SscValue] in
+                    let result: SscValue
+                    if case let .data(tag, fields) = item, tag.hasPrefix("Tuple"), fn.arity == fields.count {
+                        result = call(fn, fields.asArray())
+                    } else {
+                        result = call(fn, [item])
+                    }
+                    switch result {
+                    case .data("Cons", _), .data("Nil", _): return list(result)
+                    default: return [result]
+                    }
+                })
             case "reverse": return listValue(Array(values.reversed()))
             case "mkString":
                 let delimiters: (String, String, String)?
@@ -1354,6 +1374,18 @@ private final class Machine {
                 if let parsed = Int64(trimmed) { return .int(parsed) }
                 recordFailure(SscRuntimeFailure(description: "String.toInt: invalid integer"))
                 return .unit
+            }
+            if name == "replace", args.count == 2, case let .string(from) = args[0], case let .string(to) = args[1] {
+                return .string(value.replacingOccurrences(of: from, with: to))
+            }
+            if name == "contains", args.count == 1, case let .string(sub) = args[0] {
+                return .bool(sub.isEmpty || value.contains(sub))
+            }
+            if name == "startsWith", args.count == 1, case let .string(prefix) = args[0] {
+                return .bool(value.hasPrefix(prefix))
+            }
+            if name == "endsWith", args.count == 1, case let .string(suffix) = args[0] {
+                return .bool(value.hasSuffix(suffix))
             }
         case let .int(value):
             if name == "toString" { return .string(String(value)) }
@@ -1427,7 +1459,15 @@ private final class Machine {
                 recordFailure(error)
                 return .unit
             }
-        case let .data(tag, _):
+        case let .data(tag, fields):
+            // Option.getOrElse, mirroring v2/src/Runtime.scala's general interpreter exactly
+            // (DataV("Some", Seq(v)) => v; DataV("None", _) => the passed default, used as-is,
+            // not invoked as a thunk). Found running busi's real app.ssc natively: without
+            // this, `someOption.getOrElse(...)` on None fell through to the generic
+            // unimplemented-method Op-deferral below, and using that Op as an `if` condition
+            // crashed with "if: condition not Bool".
+            if tag == "Some", fields.count == 1, name == "getOrElse", args.count == 1 { return fields[0] }
+            if tag == "None", name == "getOrElse", args.count == 1 { return args[0] }
             let argument: SscValue
             if args.isEmpty { argument = .unit }
             else if args.count == 1 { argument = args[0] }

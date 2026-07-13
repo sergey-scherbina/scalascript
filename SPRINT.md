@@ -1735,7 +1735,7 @@ there before changing this plan.
       backend 43/43, combined CLI 53/53, both assembled Apple/CLI scripts,
       money 2/2, effects 4/4, toolkit-v2 12/12, and v2 11/11 all pass on every
       applicable lane without signing credentials or external network.
-- [ ] **v2-swift-coreir-sexpr-embed** — `SwiftBackend.emitProgram`/`emitTerm`
+- [x] **v2-swift-coreir-sexpr-embed** — DONE 2026-07-13 (`033f6dcd7`). `SwiftBackend.emitProgram`/`emitTerm`
       encode the WHOLE Core IR `Program` as one giant nested Swift literal
       expression (`.apply(.global(...), [.lambda(...)])`). Swift 6's compiler
       enforces a hard "structure nesting level exceeded maximum of 256" limit
@@ -1776,6 +1776,42 @@ there before changing this plan.
       real business logic essentially never nests one non-tail expression
       chain this deep; not a blocker for busi's real app.ssc, but a genuine
       gap worth a bounded-stack/CPS fix eventually).
+- [ ] **v2-swift-busi-real-app-runtime-gaps** — with `v2-swift-coreir-sexpr-embed`
+      landed, `emit-swift`/`swiftc -typecheck` succeed on busi's real
+      `app.ssc`, but actually RUNNING the compiled native binary (not just
+      typechecking it) surfaced a chain of real, previously-unexercised
+      `SwiftRuntime.scala` `method()`-dispatch gaps — found and fixed
+      one-by-one against the real file (2026-07-13, worktree
+      `feature/v2-swift-option-getorelse`), each mirroring the exact
+      semantics of the corresponding case already working in the general
+      interpreter (`v2/src/Runtime.scala`): `None`/`Some.getOrElse`,
+      `List.filter`, `List.flatMap`, `String.replace`, `String.contains`,
+      `String.startsWith`/`endsWith`. Verified via a fast standalone
+      `swiftc`-only harness (bypassing sbt/SwiftPM) rather than slow
+      one-at-a-time sbt cycles, plus a full `v2SwiftBackend/test` run before
+      landing.
+      Next, deeper blocker found (NOT yet fixed): busi's own `tt(key, base):
+      Any = computedSignal(() => translateIn(...))` — explicitly commented
+      "reactive translated STRING signal — for column titles / action
+      labels" — passes a live `NativeUiSignal` value into
+      `fieldColumn(tt(...), "field")`, whose Swift-side native binding
+      (`column()` in `SwiftNativeUiHost.scala`) only accepts a plain
+      `String` (`nativeUiString(args[0], ...)`), so it fails "textColumn
+      title must be String, got data(NativeUiSignal, [...])" at runtime.
+      This is intentional, working behavior on busi's real (browser/JS)
+      production frontend, not a bug in busi's source — the Swift backend
+      needs equivalent support for signal-valued column titles (and likely
+      action-button labels, given the same `tt()` helper's doc comment),
+      mirroring the existing `SignalHeadingNode`/`SignalTextNode`/
+      `SignalButtonNode`/`SignalLabelButtonNode` reactive-variant pattern
+      already established for other node kinds — both in
+      `SwiftNativeUiHost.scala`'s descriptor construction AND
+      `SwiftNativeUiApple.scala`'s renderer. Not a quick 1-line fix;
+      needs a real design pass before implementing (mirrors this
+      session's earlier "flag foundational work before starting" norm).
+      Until this lands, busi's real native app compiles and starts but does
+      not reach a fully-rendered UI — the original ask (compile busi's
+      client as a runnable native iPhone app) remains open.
 
 ## perf-jit-asm — investigation (2026-07-10, Sergiy: "заняться бенчмарками перфоменсом и jit asm")
 
