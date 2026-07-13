@@ -498,6 +498,10 @@ def lastParamVarargCell = #cell.new(false)
 -- (the VM's __isTag__ is an exact tag test; sealed-trait membership must be
 -- expanded at lower time, mirroring the scalameta bridge).
 def subtypeRegCell = #cell.new(Nil)
+-- Typeclass/trait nominal hierarchy: [Pair(childTC, parentTC)] from `trait Child extends Parent`.
+-- ssc1-lower reads it (shared process) so a `given X: Child[T]` also satisfies `Parent[T]` lookups
+-- (e.g. a Monoid[Int] given resolves a Semigroup[Int] context bound).
+def tcExtendsCell = #cell.new(Nil)
 -- Case-class BODY methods: [Pair(tag, Pair(fields, defs))] where defs are the
 -- captured `def` nodes (e.g. `override def toString`). ssc1-lower emits each as a
 -- `Tag_method(self, …)` global (fields bound from self) + registers it so the VM's
@@ -2215,6 +2219,43 @@ def parseOneStmt = (toks) =>
     else if #seq(v, "abstract") then
       pr(Pair("sealed", ""), skipToStmt(advance(toks)))
     else if #seq(v, "trait") then
+      -- Capture `trait Child extends Parent` into the TC hierarchy before skipping (givens under a
+      -- child TC must satisfy a parent-TC context bound). Scan from the trait name to the first
+      -- `extends <UID>` (stop at the body `{`/`:`/EOF).
+      let tsAfterKw = advance(toks) in
+      let childTC = if kindIs("uid", tsAfterKw) then tokVal(peek(tsAfterKw)) else "" in
+      -- Stop at the trait-header boundary (body `{`, `:`, `;`, EOF, or a following stmt keyword) so a
+      -- bodyless `trait Foo` never captures a later statement's `extends`.
+      let rec scanExtends = (ts) =>
+        if kindIs("EOF", ts) then Pair("sealed", "")
+        else if kindIs("{", ts) then Pair("sealed", "")
+        else if kindIs(":", ts) then Pair("sealed", "")
+        else if kindIs(";", ts) then Pair("sealed", "")
+        else if kwIs("extends", ts) then
+          let pt = peek(advance(ts)) in
+          if #seq(tokKind(pt), "uid") then Pair("uid", tokVal(pt)) else Pair("sealed", "")
+        else if kindIs("kw", ts) then
+          if kwIs("def", ts) then Pair("sealed", "")
+          else if kwIs("val", ts) then Pair("sealed", "")
+          else if kwIs("var", ts) then Pair("sealed", "")
+          else if kwIs("case", ts) then Pair("sealed", "")
+          else if kwIs("sealed", ts) then Pair("sealed", "")
+          else if kwIs("trait", ts) then Pair("sealed", "")
+          else if kwIs("given", ts) then Pair("sealed", "")
+          else if kwIs("object", ts) then Pair("sealed", "")
+          else if kwIs("abstract", ts) then Pair("sealed", "")
+          else if kwIs("class", ts) then Pair("sealed", "")
+          else if kwIs("enum", ts) then Pair("sealed", "")
+          else if kwIs("type", ts) then Pair("sealed", "")
+          else scanExtends(advance(ts))
+        else scanExtends(advance(ts)) in
+      let _regExt = match scanExtends(tsAfterKw) {
+        case Pair(ptag, parent) =>
+          if #seq(ptag, "uid") then
+            (if #seq(childTC, "") then 0
+             else #cell.set(tcExtendsCell, Cons(Pair(childTC, parent), #cell.get(tcExtendsCell))))
+          else 0
+      } in
       -- Skip trait declarations entirely (abstract, no impl to lower).
       -- Use a stmt-keyword-aware skip so we don't eat following case class declarations.
       -- If a body `{...}` is encountered, skip it; otherwise stop at the next statement.

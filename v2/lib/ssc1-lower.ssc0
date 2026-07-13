@@ -451,6 +451,35 @@ def caseGeneratedGivenEntries = (typeName, derives) =>
   Cons(Pair(Pair("deriving.Mirror.ProductOf", typeName), mirrorName),
     derivedGivenEntries(typeName, derives)))))
 
+-- Ancestor TCs of `tc` via the shared trait hierarchy (tcExtendsCell), fuel-bounded against cycles.
+def tcAncestors = (tc) =>
+  let rec lookupParent = (pairs, t) =>
+    match pairs {
+      case Nil => None
+      case Cons(p, rest) =>
+        match p { case Pair(child, parent) => if #seq(child, t) then Some(parent) else lookupParent(rest, t) }
+    } in
+  let rec go = (t, acc, fuel) =>
+    if #i.lt(fuel, 1) then acc
+    else match lookupParent(#cell.get(tcExtendsCell), t) {
+      case None => acc
+      case Some(parent) => go(parent, Cons(parent, acc), #i.sub(fuel, 1))
+    } in
+  go(tc, Nil, 16)
+
+-- Given-table entries for one given: (TC, T)->name PLUS (ancestorTC, T)->name for each ancestor TC,
+-- so a `given X: Monoid[Int]` also resolves a `Semigroup[Int]` context bound.
+def givenEntriesFor = (tcType, gname) =>
+  match tcType {
+    case Pair(tc, t) =>
+      let rec ancEntries = (ancs) =>
+        match ancs {
+          case Nil => Nil
+          case Cons(a, rest) => Cons(Pair(Pair(a, t), gname), ancEntries(rest))
+        } in
+      Cons(Pair(tcType, gname), ancEntries(tcAncestors(tc)))
+  }
+
 -- Build given table from parsed stmts — "given" and "given_obj" tags
 def buildGivenTable = (stmts) =>
   match stmts {
@@ -464,7 +493,7 @@ def buildGivenTable = (stmts) =>
               case Pair(gname, rest2) =>
                 match rest2 {
                   case Pair(typeStr, body) =>
-                    Cons(Pair(parseGivenType(typeStr), gname), more)
+                    appendL(givenEntriesFor(parseGivenType(typeStr), gname), more)
                 }
             }
           else if #seq(tag, "given_obj") then
@@ -472,7 +501,7 @@ def buildGivenTable = (stmts) =>
               case Pair(gname, rest2) =>
                 match rest2 {
                   case Pair(typeStr, stmts2) =>
-                    Cons(Pair(parseGivenType(typeStr), gname), more)
+                    appendL(givenEntriesFor(parseGivenType(typeStr), gname), more)
                 }
             }
           else if #seq(tag, "casecls") then
@@ -624,7 +653,12 @@ def typeOfExpr = (e) =>
       else if #seq(tag, "bool") then "Bool"
       else if #seq(tag, "ctorap") then
         match data {
-          case Pair(cname, cargs) => if #seq(cname, "Cons") then "List" else (if #seq(cname, "Nil") then "List" else "?")
+          case Pair(cname, cargs) =>
+            -- List[elem]: recurse into the head so the key matches a `TC[List[Int]]` given.
+            if #seq(cname, "Cons") then
+              match cargs { case Nil => "List" case Cons(h, t) => #sconcat("List[", #sconcat(typeOfExpr(h), "]")) }
+            else if #seq(cname, "Nil") then "List"
+            else "?"
         }
       else "?"
   }
