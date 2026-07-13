@@ -1,6 +1,0 @@
-feature/native-front-spa-arity 2026-07-13T07:39:55Z
-agent: claude-ucc
-heartbeat: 2026-07-13T07:39:55Z
-status: in-progress
-done-so-far: computedSignal collision already fixed (dc9814521). Now closing BUGS.md native-front-spa-arity-gap: rich native-ui SPAs (rozum center.ssc AND in-repo examples/control-center-live.ssc) fail `ssc run` with "arity: 2 expected, 1 given" (Runtime.scala:178) after the collision is unblocked.
-next: Isolate which std/ui primitive (fetchUrlSignal/fetchAction*/fieldColumn/incSignal/…) is applied with the wrong arity on the native VM path, fix the native-front lowering/registration, make ssc run examples/control-center-live.ssc emit HTML, then rozum center.ssc.
