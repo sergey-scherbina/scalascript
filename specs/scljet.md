@@ -1735,8 +1735,10 @@ reasons, never silent substitution by JDBC/sql.js.
   on the `__mk_method_obj__` import primitive — tracked with the v2 work.)
 - [x] In-memory VFS implements random access, lock identity, shared regions,
   sync trace, and fault injection deterministically.
-- [ ] The in-memory VFS golden is exact on JS; 31/33 lines currently match,
-  with the two-handle SHM shared/exclusive transition still divergent.
+- [x] The in-memory VFS golden is exact on JS: `scljet-memory-vfs` now passes
+  `[JS]` (the two-handle SHM shared/exclusive transition matches) and the case
+  is declared `backends: [int, js]` so CI locks the parity. Re-verified
+  2026-07-13; the earlier 31/33 divergence was a stale-binary artifact.
 - [x] JVM host VFS lives in a std plugin and passes cross-process lock tests.
 
 ### M2 — read-only SQLite files
@@ -1891,9 +1893,10 @@ M1 verification on 2026-07-12:
 - `bin/ssc-tools run --v1 examples/scljet-jvm-vfs.ssc` autoloaded the assembled
   plugin and completed open/write/sync/read/lock/unlock/close/delete.
 - Focused JsGen regressions for imported explicit companions and native-array
-  `Nil`/`Cons` both pass on Node. The byte golden now executes all 31 lines but
-  retains three Long/bitwise differences; the memory VFS matches 31/33 lines
-  with the SHM transition gap recorded in `BUGS.md`.
+  `Nil`/`Cons` both pass on Node. (At M1 time the byte golden retained three
+  Long/bitwise differences and the memory VFS matched 31/33 lines; both were
+  **fully resolved** by `70dfb5a1f` — as of 2026-07-13 `scljet-byte-codec` and
+  `scljet-memory-vfs` pass `[JS]` exactly and are declared `backends: [int, js]`.)
 
 The JVM adapter guarantees SclJet-to-SclJet coordination inside one JVM and
 reference SQLite interoperability across processes. Same-JVM Xerial mixing

@@ -64,22 +64,22 @@ are plain bullets without checkboxes so agents do not claim them as build work.
       SQLite GIGO source of truth and prove interpreter/VM/ASM/JS parity before
       the M4 value API depends on this projection.
 
-- [ ] **scljet-js-m1-parity** — the byte-codec golden is DONE (2026-07-13):
-      `scljet-byte-codec` and `scljet-page-record-codec` now pass `[JS]` with a
-      current build — the exact signed-64-bit Long/shift/bitwise + real lowering
-      landed in `70dfb5a1f`; the earlier "diverges on JS" reports were stale-binary
-      artifacts (rebuild `installBin` before re-checking JS codegen). Remaining M1
-      JS gates: (a) the two-handle SHM shared/exclusive transition in the 33-line
-      memory-VFS golden (`scljet-memory-vfs` is `backends: [int]` today — enabling
-      the JS lane needs the SHM transition fixed; 31/33 lines matched at last
-      check); (b) the v2 self-hosted JS path's `__mk_method_obj__` import primitive.
-
-- [ ] **scljet-js-m2-cursor-parity** — fix the Node-only corruption result for
-      the valid cached two-level table/index fixture: interpreter, native VM,
-      and ASM preserve one common leaf depth, while `run-js` loses the cursor's
-      `leafDepth` state before the sibling leaf. Reduce the immutable
-      stack/`Option[Int]` transition and require the full three-line M2 pure
-      cursor golden to match all four lanes; exact repro is in `BUGS.md`.
+- [ ] **scljet-js-m1-parity** — the v1 M1 JS gates are DONE (2026-07-13): a
+      current-build re-verification showed the earlier "diverges on JS" reports
+      were all stale-binary artifacts (the fixes had landed in `70dfb5a1f` and
+      later). `scljet-byte-codec`, `scljet-page-record-codec`, `scljet-memory-vfs`
+      (incl. the two-handle SHM shared/exclusive transition), `scljet-module-contract`,
+      and `scljet-readonly-btree-pure` all pass `[JS]` and are now declared
+      `backends: [int, js]` so CI locks the parity (5 of 6 scljet cases). The only
+      remaining v1 JS gap is **`scljet-readonly-pager-btree`**: it dispatches
+      `fullPath` on a user-defined `FixtureVfs`, and `run-js` throws
+      `Method not found: fullPath on FixtureVfs` — the JS backend cannot dispatch a
+      trait method on a user VFS value (a codegen limitation, not a Long/precision
+      issue). Fixing that unlocks the last scljet JS lane. Separately, the v2
+      self-hosted JS path is still gated on the `__mk_method_obj__` import primitive
+      (`BUGS.md` `v2-js-imported-method-object-primitive`) — tracked with the v2 work.
+      NOTE: always rebuild `installBin` before re-checking JS codegen; stale bins
+      masked all of the above as failures.
 
 - [ ] **scljet-same-jvm-reference-lock-bridge** — before SclJet may replace the
       existing `sqlite:` provider, make SclJet locks conflict with an official
