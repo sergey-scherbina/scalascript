@@ -398,11 +398,21 @@ against reference-produced files) and by reopening with the SclJet reader.
       transitively proves the SclJet reader reads our output (it already reads that
       fixture). `SqlReal` record encoding (Double → IEEE-754 bits) is the one queued
       follow-up. Multi-row-on-one-page works; overflow/page-split is m3d.
-- [ ] **scljet-m3d-btree-insert-balance** — general cell insertion with B-tree
-      balancing (page split, interior-cell promotion, rebalance siblings) and
-      overflow-page allocation for large payloads. Done-when a scripted sequence of
-      inserts across page boundaries yields a file byte-comparable in structure and
-      `integrity_check = ok`, differentially vs reference.
+- [x] **scljet-m3d-btree-insert-balance** — DONE 2026-07-13. `buildTableDatabase`
+      generalizes the single-page writer to a **multi-page rowid-table B-tree** via
+      bottom-up bulk build: rows are packed into leaf pages (`packLeaves`), and when
+      they overflow one leaf, page 2 becomes a table-interior root (12-byte header +
+      rightmost child) over the leaves on pages 3..N (`buildTableInteriorPage`,
+      `encodeInteriorCell` with each divider keyed by its left child's max rowid).
+      Verified with reference `PRAGMA integrity_check = ok` and full read-back: a
+      200-row table is 8 pages (interior + 6 leaves), `count = 200`, `sum(n) = 20100`;
+      a 60-row table is 4 pages; the 1-row case stays byte-identical to `page-512.db`.
+      Identical on int/VM/ASM/fallback and JS; conformance `scljet-write-btree`.
+      Found + worked around a real interpreter bug (`BUGS.md`
+      `interp-if-then-no-else-after-while`) that silently dropped the last leaf.
+      Follow-ups (`BACKLOG.md`): cell-overflow-page allocation for large payloads,
+      3+-level trees (interior root that itself overflows), incremental
+      insert-into-existing-DB (that is the pager/journal path, m3e), and `SqlReal`.
 - [ ] **scljet-m3e-rollback-journal** — the DELETE/PERSIST/TRUNCATE rollback
       journal: write page pre-images before mutation, commit/rollback, and
       hot-journal recovery on open. Done-when fault-injected aborts (via the memory

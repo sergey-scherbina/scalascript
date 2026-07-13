@@ -2065,7 +2065,18 @@ that fixture and for an independent `nums` table with three rows including a
 NULL. It works on int/VM/ASM/fallback, native `ssc run`, and JS (conformance
 `scljet-write-database`, examples `scljet-write-empty`/`scljet-write-table`).
 Byte-identity to `page-512.db` transitively proves the SclJet reader reads the
-writer's output, since that fixture is already in the read corpus. The M3
-behavior gates remain open pending balancing (m3d), the rollback journal (m3e),
-and delete/update (m3f); the change counter and schema cookie are caller-supplied
-because they belong to the pager/journal layer (m3e).
+writer's output, since that fixture is already in the read corpus.
+
+m3d added multi-page B-trees: `buildTableDatabase` generalizes the writer via a
+bottom-up bulk build — rows are packed into leaf pages, and when they overflow a
+single leaf, page 2 becomes a table-interior root (12-byte header with the
+rightmost child) over the leaf pages, each divider cell keyed by its left child's
+maximum rowid. Verified with reference `integrity_check = ok` and full read-back:
+a 200-row table is eight pages (interior root + six leaves) with all rows and the
+correct `sum`; a 60-row table is four pages; the single-row case stays
+byte-identical to `page-512.db`. Identical on int/VM/ASM/fallback and JS
+(conformance `scljet-write-btree`). Cell-overflow-page allocation for large
+payloads, trees deeper than two levels, and incremental insert-into-an-existing
+database (the pager path) are follow-ups. The M3 behavior gates remain open
+pending the rollback journal (m3e) and delete/update (m3f); the change counter and
+schema cookie are caller-supplied because they belong to the pager/journal layer.

@@ -1,5 +1,40 @@
 # Bug tracker
 
+## interp-if-then-no-else-after-while — a bare `if cond then stmt` before a return is skipped
+
+**Status:** open (found 2026-07-13). Interpreter (`ssc-tools run --v1`) bug;
+workaround in place.
+
+**Symptom:** a single-branch `if cond then <stmt>` (no `else`) that appears as a
+statement in a block — specifically after a `while` loop, followed by the block's
+result expression — is not evaluated. Minimal repro (returns **0**, must be 1):
+
+```scalascript
+def pack(xs: List[Int]): Int =
+  var remaining = xs
+  var curCount = 0
+  var leaves = 0
+  while remaining.nonEmpty do
+    curCount = curCount + 1
+    remaining = remaining.tail
+  if curCount > 0 then leaves = leaves + 1   // <-- skipped
+  leaves
+```
+
+Confirmed it is the `if` statement, not the loop: replacing that line with
+`leaves = curCount` yields 3 (so `curCount` IS 3 after the loop), but the
+`if curCount > 0 then leaves = leaves + 1` form leaves `leaves` at 0. A multi-line
+`if cond then\n  stmt` fails the same way. It bit SclJet's `packLeaves`, silently
+dropping the last B-tree leaf (last rows missing while `integrity_check` still
+passed).
+
+**Workaround:** use an `if/else` **expression** — `leaves = if cond then f(leaves)
+else leaves`. In `runtime/std/scljet/write.ssc` `packLeaves`.
+
+**Likely cause:** parser/interpreter treats the trailing result expression as the
+implicit `else`, or drops the `then` side of a no-`else` `if` used in statement
+position. Needs a fix in the interpreter's block/if lowering.
+
 ## js-caseclass-body-method-params-dropped — JS drops case-class body methods that take parameters
 
 **Status:** FIXED (2026-07-13, opus). `8204d588a`.
