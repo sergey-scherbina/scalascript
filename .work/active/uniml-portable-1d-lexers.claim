@@ -1,0 +1,4 @@
+agent: opus-continue
+slice: uniml-portable-1d-lexers
+started: 2026-07-13
+scope: rewrite internal lexers (Json/Yaml/Xml/Markdown) to drop mutable object fields; immutable state threading; behaviour-preserving
