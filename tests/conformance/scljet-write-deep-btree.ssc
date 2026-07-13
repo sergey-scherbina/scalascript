@@ -1,0 +1,50 @@
+---
+name: scljet-write-deep-btree
+description: SclJet M3 arbitrary-depth rowid-table B-tree — a real 3-level tree (root over interior over leaves), cross-backend
+backends: [int, js]
+---
+
+# SclJet arbitrary-depth (3-level) B-tree writer
+
+[ByteSlice, byteSliceGet, SqliteValue, SqlInteger, SqlText, buildDeepTableDatabase](std/scljet/index.ssc)
+
+```scalascript
+// Build "a" * n with log-depth recursion (JS has no TCO).
+def text(n: Int): String =
+  if n <= 0 then ""
+  else if n == 1 then "a"
+  else
+    val half = text(n / 2)
+    if n % 2 == 0 then half + half else half + half + "a"
+
+// ~250-byte values pack ~1 row per 512-byte leaf, so 76 rows → 76 leaves. That
+// exceeds one interior page (~72 dividers), forcing a SECOND interior level: a
+// three-level B-tree (root → interior → leaves), 80 pages. Verified out-of-band
+// against reference SQLite (integrity_check ok, depth 3, all rows exact); here we
+// fingerprint the whole file so int and JS must agree byte-for-byte. Adler-32 is
+// iterative (JS has no TCO) and stays bounded (no 64-bit wrap to reconcile).
+def rows(n: Int): List[List[SqliteValue]] =
+  var i = n
+  var acc: List[List[SqliteValue]] = Nil
+  while i >= 1 do
+    acc = List(SqlInteger(i.toLong), SqlText("row-" + i.toString + "-" + text(240))) :: acc
+    i = i - 1
+  acc
+
+def adler32(bytes: ByteSlice): Long =
+  var adI = 0
+  var adA = 1L
+  var adB = 0L
+  while adI < bytes.length do
+    byteSliceGet(bytes, adI) match
+      case Right(b) =>
+        adA = (adA + b.toLong) % 65521L
+        adB = (adB + adA) % 65521L
+      case Left(e) => adA = adA
+    adI = adI + 1
+  adB * 65536L + adA
+
+buildDeepTableDatabase(512, 7, 3, "big", "CREATE TABLE big(n INTEGER, v TEXT)", rows(76)) match
+  case Right(bytes) => println((bytes.length / 512).toString + ":" + bytes.length.toString + ":" + adler32(bytes).toString)
+  case Left(error) => println("ERROR:" + error.message)
+```

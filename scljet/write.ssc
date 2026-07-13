@@ -10,6 +10,7 @@ exports:
   - buildTableDatabase
   - buildOverflowTableDatabase
   - buildOverflowBtreeDatabase
+  - buildDeepTableDatabase
 ---
 
 # SclJet M3 write path
@@ -202,9 +203,21 @@ def cellsTotal(cells: List[List[Int]]): Int = cells match
   case Nil => 0
   case Cons(cell, tail) => cell.length + cellsTotal(tail)
 
-def cellsFlatten(cells: List[List[Int]]): List[Int] = cells match
-  case Nil => Nil
-  case Cons(cell, tail) => cell ++ cellsFlatten(tail)
+// Iterative (not `cell ++ cellsFlatten(tail)`): the recursive form grows the
+// stack with the number of pages, which overflows for tables with many leaves
+// (e.g. large-value rows at ~1 row/leaf). Prepend every byte then reverse once —
+// O(n), no recursion. Uniquely-named vars dodge the interpreter var-scope leak
+// (BUGS.md interp-var-scope-leak-across-calls).
+def cellsFlatten(cells: List[List[Int]]): List[Int] =
+  var cfCells = cells
+  var cfReversed: List[Int] = Nil
+  while cfCells.nonEmpty do
+    var cfCell = cfCells.head
+    while cfCell.nonEmpty do
+      cfReversed = cfCell.head :: cfReversed
+      cfCell = cfCell.tail
+    cfCells = cfCells.tail
+  cfReversed.reverse
 
 /** Big-endian u16 pointers to each cell, placed in order from `offset` upward. */
 def cellPointers(cells: List[List[Int]], offset: Int): List[Int] = cells match
@@ -446,15 +459,21 @@ def packLeaves(cells: List[RowCell], pageSize: Int): List[LeafPlan] =
   val allLeaves = if curCount > 0 then LeafPlan(curRev.reverse, curMax) :: leaves else leaves
   allLeaves.reverse
 
-def buildLeafPages(leaves: List[LeafPlan], pageSize: Int): Either[ByteError, List[List[Int]]] = leaves match
-  case Nil => Right(Nil)
-  case Cons(leaf, tail) =>
-    buildTableLeafPage(pageSize, 0, leaf.cells) match
-      case Left(error) => Left(error)
-      case Right(body) =>
-        buildLeafPages(tail, pageSize) match
-          case Left(error) => Left(error)
-          case Right(rest) => Right(body :: rest)
+// Iterative for the same reason as `cellsFlatten`: recursion depth = leaf count,
+// which overflows for many-leaf tables. Uniquely-named vars dodge the interpreter
+// var-scope leak (BUGS.md interp-var-scope-leak-across-calls).
+def buildLeafPages(leaves: List[LeafPlan], pageSize: Int): Either[ByteError, List[List[Int]]] =
+  var blRemaining = leaves
+  var blAcc: List[List[Int]] = Nil
+  var blFailure: Option[ByteError] = None
+  while blRemaining.nonEmpty && blFailure.isEmpty do
+    buildTableLeafPage(pageSize, 0, blRemaining.head.cells) match
+      case Left(error) => blFailure = Some(error)
+      case Right(body) => blAcc = body :: blAcc
+    blRemaining = blRemaining.tail
+  blFailure match
+    case Some(error) => Left(error)
+    case None => Right(blAcc.reverse)
 
 /** A table interior cell: `u32(leftChildPage) ++ varint(rowidKey)`. */
 def encodeInteriorCell(childPage: Int, rowid: Long): List[Int] =
@@ -604,4 +623,175 @@ def buildOverflowBtreeDatabase(pageSize: Int, changeCounter: Int, schemaCookie: 
                             val pageCount = 2 + leaves.length + built.overflowPages.length
                             val page1 = tableFileHeader(pageSize, pageCount, changeCounter, schemaCookie) ++ page1Body
                             ByteSlice.fromList(page1 ++ interiorBody ++ cellsFlatten(leafPages) ++ cellsFlatten(built.overflowPages))
+
+// ── Arbitrary-depth rowid-table B-tree (m3d follow-up (3): 3+ levels) ──
+//
+// `buildTableDatabase` stops at two levels — one interior root over the leaves —
+// and fails once the dividers no longer fit a single page. This builds the tree
+// bottom-up to ANY depth: leaves, then interior levels over them, until one page
+// (the root) remains. Pages are numbered top-down (root = 2, then each interior
+// level, then the leaves last) so a node's children always sit in a contiguous,
+// already-known page range.
+
+case class InteriorPlan(firstChild: Int, childMaxRowids: List[Long], maxRowid: Long)
+
+def varintLen(value: Long): Int = encodeVarint(value).length
+
+/** Extract each leaf's / interior node's max rowid (iteratively — the node lists
+ *  can be long). */
+def leafMaxRowids(leaves: List[LeafPlan]): List[Long] =
+  var remaining = leaves
+  var acc: List[Long] = Nil
+  while remaining.nonEmpty do
+    acc = remaining.head.maxRowid :: acc
+    remaining = remaining.tail
+  acc.reverse
+
+def interiorMaxRowids(nodes: List[InteriorPlan]): List[Long] =
+  var remaining = nodes
+  var acc: List[Long] = Nil
+  while remaining.nonEmpty do
+    acc = remaining.head.maxRowid :: acc
+    remaining = remaining.tail
+  acc.reverse
+
+/** Greedily group a level's children (given each child's max rowid, in order)
+ *  into interior pages. A group of `m` children holds `m-1` divider cells
+ *  (`4-byte child ++ varint(rowid)`, `+2` pointer) plus the 12-byte header with
+ *  the rightmost child — the exact fit test `buildTableInteriorPage` applies, so
+ *  every produced page fits. A `while` loop (not recursion) over the children. */
+def packInterior(childMaxRowids: List[Long], pageSize: Int): List[InteriorPlan] =
+  var remaining = childMaxRowids
+  var index = 0
+  var groupStart = 0
+  var groupRowidsRev: List[Long] = Nil
+  var groupCount = 0
+  var groupSize = 12
+  var groupsRev: List[InteriorPlan] = Nil
+  while remaining.nonEmpty do
+    val rowid = remaining.head
+    if groupCount == 0 then
+      groupRowidsRev = rowid :: Nil
+      groupCount = 1
+      groupStart = index
+      groupSize = 12
+    else
+      val prevLast = groupRowidsRev.head
+      val newSize = groupSize + 6 + varintLen(prevLast)
+      if newSize <= pageSize then
+        groupRowidsRev = rowid :: groupRowidsRev
+        groupCount = groupCount + 1
+        groupSize = newSize
+      else
+        groupsRev = InteriorPlan(groupStart, groupRowidsRev.reverse, prevLast) :: groupsRev
+        groupRowidsRev = rowid :: Nil
+        groupCount = 1
+        groupStart = index
+        groupSize = 12
+    index = index + 1
+    remaining = remaining.tail
+  // Close the final pending group with an if/else EXPRESSION (see BUGS.md
+  // scljet-if-then-no-else-after-while).
+  val groups = if groupCount > 0 then InteriorPlan(groupStart, groupRowidsRev.reverse, groupRowidsRev.head) :: groupsRev else groupsRev
+  groups.reverse
+
+/** Divider cells for one interior page: every child except the last (the
+ *  rightmost, carried in the header). Child `k` sits on page
+ *  `childStart + firstChild + k` and its divider key is that child's max rowid. */
+def buildInteriorDividers(childStart: Int, firstChild: Int, childMaxRowids: List[Long]): List[List[Int]] =
+  val bidLast = childMaxRowids.length - 1
+  var bidRemaining = childMaxRowids
+  var bidK = 0
+  var bidAcc: List[List[Int]] = Nil
+  while bidRemaining.nonEmpty do
+    bidAcc = if bidK == bidLast then bidAcc else encodeInteriorCell(childStart + firstChild + bidK, bidRemaining.head) :: bidAcc
+    bidK = bidK + 1
+    bidRemaining = bidRemaining.tail
+  bidAcc.reverse
+
+/** Build the page bodies for one interior level; its children begin at page
+ *  `childStart`. */
+def buildInteriorLevelPages(level: List[InteriorPlan], childStart: Int, pageSize: Int): Either[ByteError, List[List[Int]]] =
+  var ilRemaining = level
+  var ilAcc: List[List[Int]] = Nil
+  var ilFailure: Option[ByteError] = None
+  while ilRemaining.nonEmpty && ilFailure.isEmpty do
+    val ilNode = ilRemaining.head
+    val ilDividers = buildInteriorDividers(childStart, ilNode.firstChild, ilNode.childMaxRowids)
+    val ilRightmost = childStart + ilNode.firstChild + ilNode.childMaxRowids.length - 1
+    buildTableInteriorPage(pageSize, 0, ilDividers, ilRightmost) match
+      case Left(error) => ilFailure = Some(error)
+      case Right(body) => ilAcc = body :: ilAcc
+    ilRemaining = ilRemaining.tail
+  ilFailure match
+    case Some(error) => Left(error)
+    case None => Right(ilAcc.reverse)
+
+/** Build every interior level's pages in top-down order. `startPage` is where the
+ *  head (top) level begins; its children start immediately after it, which is
+ *  also the next level's start — so recursion threads the page numbers. */
+def buildInteriorLevels(levels: List[List[InteriorPlan]], startPage: Int, pageSize: Int): Either[ByteError, List[List[Int]]] = levels match
+  case Nil => Right(Nil)
+  case Cons(level, tail) =>
+    val childStart = startPage + level.length
+    buildInteriorLevelPages(level, childStart, pageSize) match
+      case Left(error) => Left(error)
+      case Right(thisPages) =>
+        buildInteriorLevels(tail, childStart, pageSize) match
+          case Left(error) => Left(error)
+          case Right(rest) => Right(thisPages ++ rest)
+
+def totalInteriorPages(levels: List[List[InteriorPlan]]): Int =
+  var remaining = levels
+  var total = 0
+  while remaining.nonEmpty do
+    total = total + remaining.head.length
+    remaining = remaining.tail
+  total
+
+/** Assemble a rowid-table database of ANY B-tree depth. Two levels reduce to the
+ *  exact bytes `buildTableDatabase` produces; beyond that, interior levels stack
+ *  until a single-page root. Byte-verified against reference `integrity_check`.
+ *  (Cell overflow is orthogonal — combine via `buildOverflowBtreeDatabase` for a
+ *  shallow tree; deep + overflow together is a further follow-up.) */
+def buildDeepTableDatabase(pageSize: Int, changeCounter: Int, schemaCookie: Int,
+    tableName: String, createSql: String, rows: List[List[SqliteValue]]): Either[ByteError, ByteSlice] =
+  val schemaValues = List(SqlText("table"), SqlText(tableName), SqlText(tableName),
+    SqlInteger(2L), SqlText(createSql))
+  encodeRecord(schemaValues) match
+    case Left(error) => Left(error)
+    case Right(schemaRecord) =>
+      encodeRowCellsWithRowid(rows, 1L) match
+        case Left(error) => Left(error)
+        case Right(rowCells) =>
+          val leaves = packLeaves(rowCells, pageSize)
+          buildTableLeafPage(pageSize, 100, List(encodeTableLeafCell(1L, schemaRecord))) match
+            case Left(error) => Left(error)
+            case Right(page1Body) =>
+              if leaves.length <= 1 then
+                val leafCells = leaves match
+                  case Nil => Nil
+                  case Cons(leaf, _) => leaf.cells
+                buildTableLeafPage(pageSize, 0, leafCells) match
+                  case Left(error) => Left(error)
+                  case Right(page2Body) =>
+                    val page1 = tableFileHeader(pageSize, 2, changeCounter, schemaCookie) ++ page1Body
+                    ByteSlice.fromList(page1 ++ page2Body)
+              else
+                var levels: List[List[InteriorPlan]] = Nil
+                var childRowids = leafMaxRowids(leaves)
+                while childRowids.length > 1 do
+                  val level = packInterior(childRowids, pageSize)
+                  levels = level :: levels
+                  childRowids = interiorMaxRowids(level)
+                val interiorCount = totalInteriorPages(levels)
+                buildInteriorLevels(levels, 2, pageSize) match
+                  case Left(error) => Left(error)
+                  case Right(interiorBodies) =>
+                    buildLeafPages(leaves, pageSize) match
+                      case Left(error) => Left(error)
+                      case Right(leafBodies) =>
+                        val pageCount = 1 + interiorCount + leaves.length
+                        val page1 = tableFileHeader(pageSize, pageCount, changeCounter, schemaCookie) ++ page1Body
+                        ByteSlice.fromList(page1 ++ cellsFlatten(interiorBodies) ++ cellsFlatten(leafBodies))
 ```

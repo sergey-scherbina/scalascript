@@ -51,16 +51,33 @@ case class ByteSlice(chunks: Map[Int, List[Int]], start: Int, length: Int)
 def byteError(code: String, message: String, offset: Int): ByteError =
   ByteError(code, message, offset)
 
-def validateBytes(values: List[Int], offset: Int): Either[ByteError, Unit] = values match
-  case Nil => Right(())
-  case Cons(value, tail) =>
-    if value < 0 || value > 255 then
-      Left(byteError("invalid-byte", "byte must be between 0 and 255", offset))
-    else validateBytes(tail, offset + 1)
+// Iterative (was tail-recursive): the interpreter TCOs it, but JS has no TCO, so
+// the recursive form overflowed node's stack for large byte lists (a whole DB
+// page-image). A `while` loop is safe on every backend.
+def validateBytes(values: List[Int], offset: Int): Either[ByteError, Unit] =
+  var vbRemaining = values
+  var vbOffset = offset
+  var vbError: Option[ByteError] = None
+  while vbRemaining.nonEmpty && vbError.isEmpty do
+    val vbValue = vbRemaining.head
+    if vbValue < 0 || vbValue > 255 then
+      vbError = Some(byteError("invalid-byte", "byte must be between 0 and 255", vbOffset))
+    else
+      vbOffset = vbOffset + 1
+    vbRemaining = vbRemaining.tail
+  vbError match
+    case Some(error) => Left(error)
+    case None => Right(())
 
 def buildChunks(values: List[Int], chunk: Int, acc: Map[Int, List[Int]]): Map[Int, List[Int]] =
-  if values.isEmpty then acc
-  else buildChunks(values.drop(64), chunk + 1, acc.updated(chunk, values.take(64)))
+  var bcRemaining = values
+  var bcChunk = chunk
+  var bcAcc = acc
+  while bcRemaining.nonEmpty do
+    bcAcc = bcAcc.updated(bcChunk, bcRemaining.take(64))
+    bcRemaining = bcRemaining.drop(64)
+    bcChunk = bcChunk + 1
+  bcAcc
 
 def byteSliceUnsafe(values: List[Int]): ByteSlice =
   ByteSlice(buildChunks(values, 0, Map()), 0, values.length)
@@ -68,8 +85,15 @@ def byteSliceUnsafe(values: List[Int]): ByteSlice =
 def byteSliceWindow(chunks: Map[Int, List[Int]], start: Int, length: Int): ByteSlice =
   ByteSlice(chunks, start, length)
 
+// Iterative so `ByteSlice.zeros(large)` (e.g. a 16384-byte page) does not overflow
+// node's stack (JS has no TCO).
 def zerosList(length: Int, acc: List[Int]): List[Int] =
-  if length <= 0 then acc.reverse else zerosList(length - 1, 0 :: acc)
+  var zlLength = length
+  var zlAcc = acc
+  while zlLength > 0 do
+    zlAcc = 0 :: zlAcc
+    zlLength = zlLength - 1
+  zlAcc.reverse
 
 def chunkValue(values: List[Int], index: Int): Int =
   values.drop(index).head
@@ -112,9 +136,15 @@ object ByteSlice:
     if length < 0 then Left(byteError("negative-length", "length must be non-negative", length))
     else Right(byteSliceUnsafe(zerosList(length, Nil)))
 
+// Iterative so `byteSliceToList` on a whole DB image does not overflow node's
+// stack (JS has no TCO).
 def collectBytes(bytes: ByteSlice, index: Int, acc: List[Int]): List[Int] =
-  if index >= bytes.length then acc.reverse
-  else collectBytes(bytes, index + 1, rawGet(bytes, index) :: acc)
+  var cbIndex = index
+  var cbAcc = acc
+  while cbIndex < bytes.length do
+    cbAcc = rawGet(bytes, cbIndex) :: cbAcc
+    cbIndex = cbIndex + 1
+  cbAcc.reverse
 
 def byteSliceToList(bytes: ByteSlice): List[Int] = collectBytes(bytes, 0, Nil)
 
