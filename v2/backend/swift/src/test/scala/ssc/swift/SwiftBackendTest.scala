@@ -504,6 +504,37 @@ public enum SessionProbe {
       assert(stdout == "header=1|body=2|cols=2|child=rejected|cell=rejected", stdout)
     finally deleteRecursively(root)
 
+  test("reactive semantic attributes bind live SwiftUI modifiers and stay strict for unmapped or malformed signals"):
+    assume(xcrunSwiftAvailable, "xcrun Swift toolchain is not available")
+    val root = Files.createTempDirectory("ssc-swiftui-reactive-attr-")
+    val errors = root.resolve("swift.stderr")
+    try
+      val generated = SwiftBackend.generate(nativeUiReactiveAttrProgram(), "NativeReactiveAttr")
+      generated.writeTo(root)
+      val probe = root.resolve("ReactiveAttrProbe.swift")
+      val binary = root.resolve("ReactiveAttrProbe")
+      Files.writeString(probe, nativeUiReactiveAttrProbe, StandardCharsets.UTF_8)
+      val sources = generated.files.collect {
+        case (path, _) if path.startsWith("Sources/AppCore/") ||
+            (path.startsWith("AppleApp/") && !path.endsWith("App.swift")) =>
+          root.resolve(path).toString
+      }
+      val compile = new ProcessBuilder((List(
+        "xcrun", "swiftc", "-parse-as-library", "-swift-version", "6",
+        "-strict-concurrency=complete", "-warnings-as-errors",
+      ) ++ sources ++ List(probe.toString, "-o", binary.toString))*).redirectError(errors.toFile).start()
+      val compileOut = new String(compile.getInputStream.readAllBytes(), StandardCharsets.UTF_8)
+      val compileExit = compile.waitFor()
+      val compileErr = Files.readString(errors, StandardCharsets.UTF_8)
+      assert(compileExit == 0, s"Swift reactive-attr compile failed ($compileExit):\n$compileErr\n$compileOut")
+      val run = new ProcessBuilder(binary.toString).redirectError(errors.toFile).start()
+      val stdout = new String(run.getInputStream.readAllBytes(), StandardCharsets.UTF_8).trim
+      val runExit = run.waitFor()
+      val stderr = Files.readString(errors, StandardCharsets.UTF_8)
+      assert(runExit == 0, s"Swift reactive-attr probe failed ($runExit):\n$stderr\n$stdout")
+      assert(stdout == "mapped=ok|unmapped=rejected|live=true->false|malformed=rejected", stdout)
+    finally deleteRecursively(root)
+
   test("trusted HTML WebKit adapter isolates content navigation and lifecycle"):
     assume(xcrunSwiftAvailable, "xcrun Swift toolchain is not available")
     assert(runNativeHtmlProbe() == "html")
@@ -1339,6 +1370,29 @@ public enum SessionProbe {
     val root = Term.App(Term.Global("fragment"),
       List(list(List(validTable, malformedChild, malformedCell))))
     Program(Nil, Term.App(Term.Global("emit"), List(root, str("out"))))
+
+  private def nativeUiReactiveAttrProgram(): Program =
+    def pair(key: Term, value: Term): Term = Term.Ctor("Tuple2", List(key, value))
+    def txt(s: String): Term = Term.App(Term.Global("textNode"), List(str(s)))
+    def el(tag: String, attrs: List[(String, Term)], child: Term): Term =
+      Term.App(Term.Global("element"), List(
+        str(tag),
+        list(attrs.map((key, value) => pair(str(key), value))),
+        list(Nil),
+        list(List(child)),
+      ))
+    // Let(List(flag, count), body): inside body flag=Local(1), count=Local(0).
+    val flag = Term.App(Term.Global("signal"), List(str("flag"), Term.Lit(Const.CBool(true))))
+    val count = Term.App(Term.Global("signal"), List(str("count"), Term.Lit(Const.CInt(5))))
+    // <div disabled={flag}>: mapped reactive attribute -> real .disabled() binding.
+    val mapped = el("div", List("disabled" -> Term.Local(1)), txt("mapped"))
+    // <div id={flag}>: id has no faithful reactive mapping -> strict Unsupported.
+    val unmapped = el("div", List("id" -> Term.Local(1)), txt("unmapped"))
+    // <div disabled={count}>: mapped name, but an Int signal is a malformed value.
+    val malformed = el("div", List("disabled" -> Term.Local(0)), txt("malformed"))
+    val root = Term.App(Term.Global("fragment"), List(list(List(mapped, unmapped, malformed))))
+    Program(Nil, Term.Let(List(flag, count),
+      Term.App(Term.Global("emit"), List(root, str("out")))))
 
   private def nativeUiTableProgram(): Program =
     val emptyMap = Term.Prim("map.new", Nil)
@@ -4332,6 +4386,85 @@ struct SemanticTableProbe {
             fatalError("malformed table cell was not rejected")
         }
         Swift.print("header=\(model.headerRows.count)|body=\(model.bodyRows.count)|cols=\(model.columns)|child=rejected|cell=rejected")
+    }
+}
+"""
+
+  private val nativeUiReactiveAttrProbe = """
+import Foundation
+import SwiftUI
+
+@main
+struct ReactiveAttrProbe {
+    static func properList(_ value: SscValue) -> [SscValue] {
+        var current = value, result: [SscValue] = []
+        while true {
+            switch current {
+            case let .data("Cons", fields) where fields.count == 2:
+                result.append(fields[0]); current = fields[1]
+            case .data("Nil", _): return result
+            default: fatalError("expected proper list")
+            }
+        }
+    }
+    static func fields(_ value: SscValue, _ tag: String) -> [SscValue] {
+        guard case let .data(actual, fields) = value, actual == tag else { fatalError("expected \(tag)") }
+        return fields.asArray()
+    }
+    @MainActor static func main() async {
+        let store = NativeUiStore()
+        let abi = fields(store.root, "NativeUiAbi")
+        let roots = properList(fields(abi[1], "NativeUiFragment")[0])
+        guard roots.count == 3 else { fatalError("expected three elements, got \(roots.count)") }
+
+        func attrs(_ element: SscValue) -> SscMap {
+            guard case let .map(map) = fields(element, "NativeUiElement")[2] else {
+                fatalError("element attrs must be a Map")
+            }
+            return map
+        }
+        let mappedAttrs = attrs(roots[0])
+        let unmappedAttrs = attrs(roots[1])
+        let malformedAttrs = attrs(roots[2])
+        let mappedSite = store.string(fields(roots[0], "NativeUiElement")[0])
+        let malformedSite = store.string(fields(roots[2], "NativeUiElement")[0])
+
+        // (a) A mapped reactive attribute is accepted — NOT the strict Unsupported stub.
+        guard NativeUiRenderer.reactiveAttributeDiagnostic(mappedAttrs, source: "probe") == nil else {
+            fatalError("mapped reactive `disabled` was wrongly rejected")
+        }
+        // (c) An unmapped reactive attribute stays a strict, sourced Unsupported.
+        guard NativeUiRenderer.reactiveAttributeDiagnostic(unmappedAttrs, source: "probe")
+            == "reactive attribute id is not mapped at probe" else {
+            fatalError("unmapped reactive `id` was not rejected")
+        }
+
+        // (b) The live modifier reflects the signal's current value — before and after a write.
+        guard let flag = mappedAttrs.get(.string("disabled")) else { fatalError("missing disabled signal") }
+        let before = NativeUiStyles.resolvedAttributes(mappedAttrs, store: store).get(.string("disabled")) ?? .unit
+        guard case .bool(true) = before else { fatalError("initial disabled did not resolve to the live true") }
+        // The resolved plain value maps to a real modifier — no Unsupported diagnostic.
+        guard NativeUiStyles.diagnostic(
+            attrs: NativeUiStyles.resolvedAttributes(mappedAttrs, store: store),
+            store: store, siteId: mappedSite) == nil else {
+            fatalError("resolved `disabled` produced an Unsupported diagnostic")
+        }
+        store.write(flag, .bool(false))
+        let after = NativeUiStyles.resolvedAttributes(mappedAttrs, store: store).get(.string("disabled")) ?? .unit
+        guard case .bool(false) = after else { fatalError("disabled did not track the signal write") }
+
+        // The reactive SwiftUI view constructs under strict concurrency.
+        _ = NativeUiRenderer(store: store, value: roots[0]).body
+
+        // A malformed reactive value (an Int signal bound to a Bool attribute) stays Unsupported.
+        let malformed = NativeUiStyles.diagnostic(
+            attrs: NativeUiStyles.resolvedAttributes(malformedAttrs, store: store),
+            store: store, siteId: malformedSite)
+        guard let malformed, malformed.contains("invalid native disabled value") else {
+            fatalError("malformed reactive `disabled` was not rejected: \(String(describing: malformed))")
+        }
+
+        Swift.print("mapped=ok|unmapped=rejected|live=true->false|malformed=rejected")
     }
 }
 """

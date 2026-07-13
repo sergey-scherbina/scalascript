@@ -3124,6 +3124,23 @@ rollback probe and announced to `@scalascript` /
 
 ## v2-swiftui-fake-native-fallbacks — deferred semantics render misleading content
 
+**Reactive-attribute slice landed (opus, 2026-07-13).** `renderElement` bound only 3
+reactive (signal-bound) attributes — `style`/`value`/`checked` — so ANY other
+`NativeUiSignal`-bound attribute fell into the `"reactive attribute X is not mapped"`
+Unsupported stub. Extended the reactive allowlist to the accessibility/state attributes
+with a faithful SwiftUI mapping: `disabled`→`.disabled()`, `aria-disabled`, `title`→`.help()`,
+`aria-label`→`.accessibilityLabel`, `required`, `aria-modal` (via a new
+`reactiveAttributes` set + `reactiveAttributeDiagnostic`; each is read as the signal's LIVE
+value and re-applied on change, reusing the existing style/value/checked plumbing).
+STRICT preserved: an attribute with no faithful native mapping, or a malformed signal
+(e.g. an Int bound to `disabled`), still yields a sourced `NativeUiUnsupported`. Renderer-only
+(`SwiftNativeUiApple.scala` + test) — did NOT touch `SwiftRuntime`/`SwiftNativeUiHost`/
+content-toolkit/WebKit (the sibling's active files). Verified under
+`swiftc -swift-version 6 -strict-concurrency=complete -warnings-as-errors`: `<div disabled={flag}>`
+resolves the live `true` and applies `.disabled()`; a still-unmapped / Int-valued reactive
+attribute stays Unsupported. `v2SwiftBackend/test` 58/58, 0 regressions.
+
+
 **Semantic-table slice landed (opus, 2026-07-13).** The last inventoried element still
 rendering as an Unsupported stub was the semantic HTML `<table>` family
 (`table/thead/tbody/tr/th/td` — returned `unsupported("semantic table adapter pending")`).

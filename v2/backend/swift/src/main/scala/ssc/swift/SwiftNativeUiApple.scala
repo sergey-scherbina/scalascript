@@ -2630,12 +2630,8 @@ struct NativeUiRenderer: View {
         if let issue = Self.validate(events, names: Self.supportedEventSlots, kind: "event slot") {
             return unsupported(issue + " at " + source)
         }
-        for (key, value) in attrs.entries {
-            guard case let .string(name) = key else { continue }
-            if case .data("NativeUiSignal", _) = value,
-               name != "style", name != "value", name != "checked" {
-                return unsupported("reactive attribute " + name + " is not mapped at " + source)
-            }
+        if let issue = Self.reactiveAttributeDiagnostic(attrs, source: source) {
+            return unsupported(issue)
         }
         let content: AnyView
         switch tag {
@@ -2913,6 +2909,22 @@ struct NativeUiRenderer: View {
     static func inventoryDiagnostic(attrs: SscMap, events: SscMap) -> String? {
         validate(attrs, names: supportedAttributes, kind: "attribute") ??
             validate(events, names: supportedEventSlots, kind: "event slot")
+    }
+
+    // A reactive (signal-bound) attribute is honored only when it has a faithful
+    // native binding: the two-way input controls (`value`/`checked`) or one of the
+    // one-way modifiers resolved by `NativeUiStyles` (see `reactiveAttributes`).
+    // Any other signal-bound attribute has no faithful SwiftUI mapping and stays a
+    // strict, sourced Unsupported rather than a silent no-op.
+    static func reactiveAttributeDiagnostic(_ attrs: SscMap, source: String) -> String? {
+        for (key, value) in attrs.entries {
+            guard case let .string(name) = key,
+                  case .data("NativeUiSignal", _) = value else { continue }
+            if name == "value" || name == "checked" ||
+                NativeUiStyles.reactiveAttributes.contains(name) { continue }
+            return "reactive attribute " + name + " is not mapped at " + source
+        }
+        return nil
     }
 
     static func structuralDiagnostic(_ value: SscValue, store: NativeUiStore) -> String? {
@@ -3484,6 +3496,34 @@ enum NativeUiStyles {
         "box-sizing", "border-collapse", "cursor", "user-select"
     ]
 
+    // Attributes whose signal-bound (reactive) form has a faithful native mapping
+    // resolved by `applyResolved`: the CSS `style` string plus the semantic
+    // accessibility/state modifiers. Each is read as a live value and re-applied on
+    // change; a signal-bound attribute NOT listed here is rejected upstream
+    // (`NativeUiRenderer.reactiveAttributeDiagnostic`). `value`/`checked` are handled
+    // separately as two-way input controls and are intentionally absent.
+    static let reactiveAttributes: Set<String> = [
+        "style", "disabled", "aria-disabled", "title", "aria-label", "required", "aria-modal"
+    ]
+
+    // Clone `attrs`, replacing every reactive attribute's signal with its current
+    // live value so `applyResolved` sees a plain resolved value (a String/Bool) and
+    // applies the real SwiftUI modifier. This is the single resolution both the live
+    // `NativeUiReactiveView` and its tests share.
+    @MainActor
+    static func resolvedAttributes(_ attrs: SscMap, store: NativeUiStore) -> SscMap {
+        let resolved = SscMap()
+        for (key, value) in attrs.entries {
+            if case let .string(name) = key, case .data("NativeUiSignal", _) = value,
+               reactiveAttributes.contains(name) {
+                resolved.put(key, store.read(value))
+            } else {
+                resolved.put(key, value)
+            }
+        }
+        return resolved
+    }
+
     @MainActor
     static func apply(
         _ content: AnyView,
@@ -3491,12 +3531,18 @@ enum NativeUiStyles {
         store: NativeUiStore,
         siteId: String
     ) -> AnyView {
-        if let style = attrs.get(.string("style")), case .data("NativeUiSignal", _) = style {
-            return AnyView(NativeUiSignalStyleView(
-                content: content, attrs: attrs, signal: style, store: store, siteId: siteId
-            ))
+        var reactive: [SscValue] = []
+        for (key, value) in attrs.entries {
+            guard case let .string(name) = key, reactiveAttributes.contains(name),
+                  case .data("NativeUiSignal", _) = value else { continue }
+            reactive.append(value)
         }
-        return applyResolved(content, attrs: attrs, store: store, siteId: siteId)
+        if reactive.isEmpty {
+            return applyResolved(content, attrs: attrs, store: store, siteId: siteId)
+        }
+        return AnyView(NativeUiReactiveView(
+            content: content, attrs: attrs, pending: reactive, store: store, siteId: siteId
+        ))
     }
 
     @MainActor
@@ -3917,19 +3963,29 @@ enum NativeUiStyles {
     }
 }
 
+// Live binding for reactive (signal-bound) attributes — `style` plus the semantic
+// modifiers in `NativeUiStyles.reactiveAttributes`. Each level observes one signal's
+// cell (re-rendering when it changes) and subscribes/unsubscribes on appear/disappear,
+// exactly as the former style-only view did; chaining one level per pending signal
+// keeps that proven single-cell plumbing while supporting several reactive attributes
+// on one element. The innermost level resolves every reactive attribute to its live
+// value (`NativeUiStyles.resolvedAttributes`) and hands plain values to `applyResolved`,
+// which applies the real modifier — or a strict Unsupported for a malformed value.
 @MainActor
-private struct NativeUiSignalStyleView: View {
+private struct NativeUiReactiveView: View {
     let content: AnyView
     let attrs: SscMap
+    let pending: [SscValue]
     @ObservedObject var cell: NativeUiObservableCell
     @ObservedObject var store: NativeUiStore
     let siteId: String
     @State private var token: NativeUiSubscriptionToken?
 
-    init(content: AnyView, attrs: SscMap, signal: SscValue, store: NativeUiStore, siteId: String) {
+    init(content: AnyView, attrs: SscMap, pending: [SscValue], store: NativeUiStore, siteId: String) {
         self.content = content
         self.attrs = attrs
-        self.cell = store.cell(for: signal)
+        self.pending = pending
+        self.cell = store.cell(for: pending[0])
         self.store = store
         self.siteId = siteId
     }
@@ -3940,10 +3996,15 @@ private struct NativeUiSignalStyleView: View {
             rendered = AnyView(Text(diagnostic).foregroundStyle(.red)
                 .accessibilityLabel("Unsupported native UI: " + diagnostic))
         } else {
-            let resolved = SscMap()
-            for (key, value) in attrs.entries { resolved.put(key, value) }
-            resolved.put(.string("style"), cell.read())
-            rendered = NativeUiStyles.applyResolved(content, attrs: resolved, store: store, siteId: siteId)
+            let rest = Array(pending.dropFirst())
+            if rest.isEmpty {
+                rendered = NativeUiStyles.applyResolved(
+                    content, attrs: NativeUiStyles.resolvedAttributes(attrs, store: store),
+                    store: store, siteId: siteId)
+            } else {
+                rendered = AnyView(NativeUiReactiveView(
+                    content: content, attrs: attrs, pending: rest, store: store, siteId: siteId))
+            }
         }
         return rendered
             .onAppear { if token == nil { token = store.subscribe(cell) } }
