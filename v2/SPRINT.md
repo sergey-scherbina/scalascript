@@ -1622,3 +1622,29 @@ Further native TEST-greening requires the v2.1 extension-dispatch lane (coordina
       v2NativeReactivePlugin (Test). PROVED signals.ssc is a native FULL MATCH under run-ir-native
       (was a run-ir "MISMATCH" = audit artifact of the wrong plugin system). V2ConformanceTest
       126/128 unchanged (2 pre-existing reds verified on clean main). Closes #1 accurately.
+
+## native-front parity — session 2026-07-12/13 (opus): 11 fixes + remaining plan
+
+Full-plugin run-ir-native audit established TRUE native parity ≈ run-ir-batch + 3 artifacts.
+Every gate below = v2/conformance native 406/0 + native run-ir audit zero-regression +
+V2ConformanceTest (3 pre-existing scalameta-lane reds: companion-case-class-order, scljet-*).
+
+### Landed this session (all origin/main, all gates green)
+- [x] list runtime handlers — headOption/lastOption/indexWhere/span/sliding/scanLeft + foldRight curry (d85a1e903)
+- [x] native effect-HANDLER parsing — `handle {body}{case Op(a,resume)=>…}` (e83d3be0c) — 4 tests
+- [x] `_sel_<field>` runtime field-by-name fallback — plugin records e.g. ProcessResult (34a12c839) — 5 tests
+- [x] enum companion — `EnumName.Case`→`(ctor Case)`, `.values` (e29aca5ba) — 3 tests
+- [x] comma enum-cases + sealed-trait/enum type-ascription expansion (afe991dc8) — v2-type-ascription-pattern
+- [x] directory imports — `[names](./dir)`→`dir/index.ssc` (920150b80) — import-dir
+- [x] case-class BODY methods — custom `override def toString` (in 2df8f6e3c) — dsl-multi-pass
+- [x] object-level `var` members — cell-backed reads/writes (5f6c377ac) — unblocks distributed `entries`
+- [x] expression-position effect-CPS — lift Ops over fast arith/cmp + `if` (1e0131569) — js-applyunary-effect-cps + head-field-effect-shadow
+- [x] `:=` DSL operator — infix method not a var-store (04ab6d88e) — correctness (greens 0, DSL-runtime-blocked)
+- [x] REVERTED pair-render (fff5231b8) — it broke 19 v2/conformance kernel-demo tests hardcoding `Pair(a,b)`
+
+### Remaining — planned (native GREENING lane essentially complete; these are correctness-only or need other lanes)
+- [ ] **0-param empty-parens object method** — `def f(): T` in an `object` lowers as a static property not a fn, so `O.f()` → "app: not a function". Distinguish empty-parens (method → lam) from no-parens (property → value) in ssc1-lower object prefixDefs. Correctness (greens 0 in corpus).
+- [ ] **tuple-rendering split** — re-apply pair-render (Show/anyStr: `Pair` 2-field → `(a,b)`) AND update v2/conformance/check.sh's ~19 hardcoded `want [Pair(…)]` → `(…)` in the same commit (else the kernel-demo lane re-reds). Greens rest-validate; makes native tuple rendering Scala-correct + consistent with scalameta. Touches shared check.sh — do atomically + run BOTH gates.
+- [ ] **distributed actors-runtime scope** (5: distributed-failure-*/heterogeneous/map/shuffle) — object-var unblocked `entries`; now blocked on `IllegalStateException: receive` = the actors RUNTIME scope not wired into the run-ir path. Runtime/plugin lane (not native-front). Investigate whether run-ir can host an actor context, else it's a NativePlugin concern.
+- [ ] **sql tests** (sql-basic/browser-basic/transaction) — `Op("Db.sql", …)` unhandled: need the `databases:` front-matter parsed + a DB registered in the run path. Plugin/runtime lane.
+- [ ] **dataset tests** (dataset-agg/error/from-generator/shape) — `unbound global: try` (try/catch) + `Dataset.fromGenerator requires the standard generator plugin` + content module-context. try/catch is a native-front gap but the tests are multi-blocked by the dataset plugin. Plugin/runtime lane.
