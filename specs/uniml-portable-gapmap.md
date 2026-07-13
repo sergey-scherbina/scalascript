@@ -44,8 +44,16 @@ Confirmed by isolated `.ssc` probes (each a real v2 crash/miss, not a guess):
 | `Character.getType`/`isSpaceChar`/`digit` | unresolved `Op(...)` | `MdChars` (CommonMark flanking), `YamlSemanticParser` hex | UniML-side portable Unicode table (**the hard one**) OR v2-side `Character` |
 | mutable `var` field in case class | v2 object-model wall | `JsonStructure.Frame`, similar | UniML-side: immutable state (copy-on-transition) |
 
-Note: v2 supports `Vector`/`List` `:+` `.mkString` `.head` `.last` `.dropRight`(added) `.copy` — so the
-`StringBuilder`→`Vector` and `ArrayBuffer`→`Vector` swaps compile on v2.
+Two more v2 collection gaps surfaced probing YamlStructure:
+- **`.indices`** → `no dispatch for .indices on <foreign>`. FIXED v2-side (additive `isList` case in
+  `Runtime.scala`, mirroring `dropRight`).
+- **`.groupBy`** → returns a **list of `(key, values)` pairs, not a `Map`**, so `m.getOrElse(k, …)`
+  yields `Stub`. `.sortBy`/`.filter`/`.map`/`.exists` work. Two shapes of use: `groupBy(_.k).getOrElse`
+  (Map — INCOMPATIBLE, rewrite to `.filter`) vs `groupBy(_.k).toVector.sortBy(_._1).foreach{(k,v)=>}`
+  (iterate pairs — COMPATIBLE with v2's list-of-pairs).
+
+Note: v2 supports `Vector`/`List` `:+` `.mkString` `.head` `.last` `.dropRight`(added) `.indices`(added)
+`.copy` `.sortBy` `.filter` `.map` — so `StringBuilder`→`Vector` and `ArrayBuffer`→`Vector` compile on v2.
 
 **JSON dialect — 1c DONE (this commit).** JSON's only gaps were `StringBuilder` (JsonLexer) +
 `ArrayBuffer`/mutable-`Frame.state` (JsonStructure) — no regex/Character/plain-class. Both rewritten
@@ -53,8 +61,18 @@ immutably with v2-supported constructs (JsonLexer buffer → `Vector[String]`; J
 defs + `Vector` stack, `Frame` states → immutable case classes, transitions via `dropRight`+`:+`
 copy). Green unimlJson 16/16 JVM+JS. So core + JSON dialect are now v2-construct-free. (Gold-standard
 full-concatenation v2 run of the JSON dialect deferred — every construct used is already v2-probed.)
-Remaining dialects: YAML (plain class + regex + ArrayBuffer + StringBuilder), Markdown (StringBuilder
-+ Character-table).
+**YAML dialect — parse-path structure done (this commit).** YamlLexer was already offset-based/clean.
+`YamlStructure` rewritten immutable: plain `class BlockFrame(var last)` → immutable `case class`
+(`last` advances via `frames.map(_.copy(last = …))`); three `mutable.ArrayBuffer`s → `Vector`
+(push `:+`, pop `dropRight`); `Vector.newBuilder` → `Vector`; the Map-incompatible
+`ranges.groupBy(_.start).getOrElse(index)` → `ranges.filter(_.start == index)`. Green unimlYaml 18/17
+JVM+JS. (The `byLine` groupBy uses the pairs-iteration pattern, kept; a few functional-API constructs
+`.toVector`/`Option.when`/tuple-key `.sortBy` remain to be probed — full v2 verification deferred, as
+for JSON.) Remaining YAML = the OPTIONAL semantic/projection layers (`YamlSemanticParser` plain classes
++ 7 regexes + `Character.digit`; `YamlProjection` mutable) — not the parse path.
+
+Remaining dialects: Markdown (StringBuilder in lexer/inlines + the hard `MdChars` Character Unicode
+table for CommonMark flanking).
 
 ## Method
 

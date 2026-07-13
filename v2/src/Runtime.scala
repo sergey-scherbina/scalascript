@@ -2674,6 +2674,7 @@ object Prims:
         case (ls, "drop", List(IntV(n))) if isList(ls) => listOf(unlist(ls).drop(n.toInt))
         case (ls, "takeRight", List(IntV(n))) if isList(ls) => listOf(unlist(ls).takeRight(n.toInt))
         case (ls, "dropRight", List(IntV(n))) if isList(ls) => listOf(unlist(ls).dropRight(n.toInt))
+        case (ls, "indices", Nil) if isList(ls) => listOf(unlist(ls).indices.map(i => IntV(i.toLong): Value))
         case (ls, "slice", List(IntV(a), IntV(b))) if isList(ls) => listOf(unlist(ls).slice(a.toInt, b.toInt))
         case (ls, "takeWhile", List(fn: Value.ClosV)) if isList(ls) =>
           listOf(unlist(ls).takeWhile(x => callClos(fn, Array(x)) == Value.BoolV(true)))

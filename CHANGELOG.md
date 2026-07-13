@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-13 — UniML YAML parse-path structure immutable + v2 `.indices` (uniml-portable Phase 1c)
+
+Probing YamlStructure surfaced two more v2 collection gaps: `.indices` → `no dispatch` (fixed v2-side,
+an additive `isList` case in `Runtime.scala` mirroring `dropRight`), and `.groupBy` → returns a list of
+`(key, values)` pairs rather than a `Map` (so `getOrElse` gives `Stub`). Then rewrote `YamlStructure`
+(the YAML parse path; YamlLexer was already offset-based) to be immutable and v2-construct-free: the
+plain `class BlockFrame(var last)` → an immutable `case class` whose `last` advances by replacing the
+frame in the stack (`frames.map(_.copy(last = …))`); three `mutable.ArrayBuffer`s → `Vector`s; the
+`Vector.newBuilder`s → `Vector`; and the Map-incompatible `groupBy(_.start).getOrElse(index)` →
+`filter(_.start == index)`. Behaviour-preserving: unimlYaml 18/17 JVM+JS. Remaining YAML work is the
+optional semantic/projection layers (plain classes + regex + `Character`), not the parse path.
+
 ## 2026-07-13 — UniML JSON dialect v2-construct-free + full dialect-gap map (uniml-portable Phase 1c)
 
 Probed every dialect-level construct against v2 and mapped the complete 1c-compat surface (gapmap

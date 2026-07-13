@@ -100,8 +100,12 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
       - [x] **JSON**: JsonLexer `StringBuilder`→`Vector[String]`; JsonStructure `ArrayBuffer`→immutable
             `Vector` + `Frame.state` immutable (copy-on-transition), nested-def pattern. Green
             unimlJson 16/16 JVM+JS. Uses only v2-probed constructs. Core+JSON now v2-construct-free.
-      - [ ] **YAML**: `YamlLexer` StringBuilder, plain classes (Parser/FlowParser/BlockFrame), 7 regexes,
-            `Character.digit`, local ArrayBuffer/LinkedHashMap in structure/semantic/projection.
+      - [~] **YAML**: parse-path structure DONE. YamlLexer already offset-based/clean. YamlStructure
+            rewritten immutable: `BlockFrame(var last)`→case class (advance via `map(_.copy)`), 3
+            `ArrayBuffer`→`Vector`, `Vector.newBuilder`→`Vector`, `groupBy(_.start).getOrElse`→`filter`.
+            Green unimlYaml 18/17. Also v2-side: added `.indices` (was no-dispatch) mirroring dropRight.
+            REMAINING = optional semantic/projection layers: `YamlSemanticParser` plain classes
+            (Parser/FlowParser) + 7 regexes + `Character.digit`; `YamlProjection` mutable — NOT parse path.
       - [ ] **Markdown**: lexer/MdLine/inlines StringBuilder; `MdChars` `Character.getType`/`isSpaceChar`
             portable-Unicode-table (CommonMark flanking — conformance-sensitive); projection mutable.
       - [ ] Gold-standard: full-concatenation v2 run per dialect (core+dialect → one `.ssc`), + probe
