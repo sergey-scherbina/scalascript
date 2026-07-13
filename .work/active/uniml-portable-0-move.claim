@@ -1,5 +1,0 @@
-feature/uniml-portable-move 2026-07-13T13:51:06Z
-agent: opus-continue
-heartbeat: 2026-07-13T13:51:06Z
-status: in-progress
-next: Phase 0 of uniml-portable program — relocate pure uniml (core/json/yaml/markdown) v1/lang -> top-level uniml/ with its OWN sbt build (cd uniml && sbt test independent of ScalaScript); root build keeps building via path update; v1 bindings (xml/markdown-bridge) unchanged; keep all suites green. Full plan in SPRINT.md
