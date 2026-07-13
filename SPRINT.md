@@ -121,9 +121,16 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
       shrinks. Likely remaining: **multi-file `package`/`import`** (UniML is multi-file) and maybe an
       immutable `Map` primitive. **Anonymous trait instances** stay a nice-to-have for v2 (Sergiy:
       "анонимные трейты хорошо бы сделать в scalascript") but are no longer required by UniML.
-- [ ] **uniml-portable-2-subset** — constrain UniML to the Scala3∩v2 subset per the gap map; add a
-      lint that fails on out-of-subset constructs. Set up mechanism (b): canonical `.scala` + `.ssc`
-      mirror (symlink or generation) so both compilers see identical content.
+- [~] **uniml-portable-2-subset** — RUNTIME-subset lint DONE: `uniml/lint-portable-subset.sh` scans
+      core+dialects for mutable collections / regex / `java.lang.Character` / `StringBuilder` /
+      `ArrayBuffer` / `newBuilder` / Char-Unicode methods (`.isLetter` etc.) / `new Array` and fails on
+      any. It immediately caught 2 misses (core `Tree.sourceTokens` `Vector.newBuilder`; `JsonLexer`
+      `.isLetter`) — both fixed (→ `Vector` accumulation; ASCII-letter). Now passes; guards regressions.
+      Deliberately does NOT flag frontend-only-blocked idiomatic Scala (companion `val`s, first-class
+      objects, nested types, modifiers, `Set.empty`) — those are v2.2-frontend, not UniML violations.
+      REMAINING: mechanism (b) `.scala`↔`.ssc` generation/mirror (deferred — blocked on the v2 frontend
+      gaps in the gapmap handoff; the generator would strip modifiers + hoist, but companion-`val` /
+      object-value / `Set.empty` need frontend support first).
 - [~] **uniml-portable-3-v2compile** — [v2-side] drive v2 to compile UniML, module by module. Re-probed
       the *immutable* core (Phase 1/1d) against v2 2026-07-13 — the Phase-0.5 asks are now MOOT for
       UniML (no `new Array`, no anon-trait, no mutable fields after the rewrite). Findings + status:

@@ -12,13 +12,13 @@ enum UniNode:
 
 object UniNode:
   def sourceTokens(root: UniNode): Vector[SourceToken] =
-    val result = Vector.newBuilder[SourceToken]
+    var result: Vector[SourceToken] = Vector.empty
     var pending = List(root)
     while pending.nonEmpty do
       pending.head match
         case UniNode.Token(value) =>
-          result += value
+          result = result :+ value
           pending = pending.tail
         case UniNode.Branch(_, edges, _, _) =>
-          pending = edges.iterator.map(_.child).toList ::: pending.tail
-    result.result()
+          pending = edges.map(_.child).toList ::: pending.tail
+    result

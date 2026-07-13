@@ -110,8 +110,20 @@ are v2-side, the active v2.2-self-hosted-dialect track — NOT UniML constructs)
   `Set`). `DialectAdapter`'s default `def aliases: Set[String] = Set.empty` hits this. (Adding `Set`
   needs front-end companion recognition, not just a runtime `case` — bigger than the additive
   `.dropRight`/`.indices` fixes.)
-- The earlier unpinpointed `unbound global: extends` is likely downstream of one of the above in the
-  large flattened file (parser state after a mis-resolved `Set.empty`/object reference).
+- **Companion-object `val` members are not accessible** (`object Lim: val default = …` → `Lim.default`
+  gives `unbound global: Lim_default`, even direct access; `object.def` members DO work). This is
+  pervasive — `Limits.default`, `SourcePosition.Start`, `JsonLimits.default`, `DialectRegistry.empty`
+  all use it. Bisected: with `JsonDialect` removed, `core + JsonLexer + JsonStructure` fails here on
+  `Limits.default` (used as a case-class default-param value).
+- The `unbound global: extends` is isolated to `JsonDialect.scala` specifically (removing it changes the
+  error to the companion-`val` one above); the exact form is still to pinpoint but it is a
+  `JsonDialect`-local declaration, a v2-frontend parse issue.
+
+**Precise handoff to the v2.2 track — the `.ssc` frontend must support, in priority order:**
+`final`/`sealed`/`private` modifiers · type declarations nested in object bodies · companion-object
+`val` members · first-class object values · `Set`/`Map` companion factories (`Set.empty`) · the
+`JsonDialect` `extends` form. (`.dropRight`/`.takeRight`/`.indices` were the additive runtime fixes and
+are already landed + conformance-green.)
 
 So end-to-end dual-compilation is gated on **v2 `.ssc`-frontend maturity** — specifically: parse the
 `final`/`sealed`/`private` modifiers, type declarations nested in objects, first-class object values,

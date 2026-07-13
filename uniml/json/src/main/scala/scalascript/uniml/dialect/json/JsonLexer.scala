@@ -233,7 +233,12 @@ private object JsonLexer:
       lexeme == "]" || lexeme == ":" || lexeme == ","
 
   private def startsAtom(lexeme: String): Boolean =
-    startsNumber(lexeme) || (lexeme.nonEmpty && lexeme.charAt(0).isLetter)
+    // JSON literals (true/false/null) are ASCII; a non-ASCII leading char is
+    // handled by the invalid-character path either way.
+    startsNumber(lexeme) || (lexeme.nonEmpty && isAsciiLetter(lexeme.charAt(0)))
+
+  private def isAsciiLetter(char: Char): Boolean =
+    (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z')
 
   private def startsNumber(value: String): Boolean =
     value.nonEmpty && (value.charAt(0) == '-' || isAsciiDigit(value.charAt(0)))

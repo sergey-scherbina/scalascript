@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-13 — UniML portable-subset lint + 2 caught misses; complete v2-frontend handoff (uniml-portable Phase 2/3)
+
+Added `uniml/lint-portable-subset.sh`, a guard that scans the dual-compilable UniML sources
+(core + json/yaml/markdown) for RUNTIME constructs that don't run on v2 — `scala.collection.mutable`,
+`ArrayBuffer`/`StringBuilder`/`newBuilder`/`LinkedHashMap`/`HashSet`, regex `.r`/`.matches`,
+`java.lang.Character`, Char-Unicode methods (`.isLetter`/`.isWhitespace`/…), `new Array` — and fails on
+any (comments stripped first). It immediately caught two constructs the earlier passes missed: core
+`Tree.sourceTokens`' `Vector.newBuilder` and `JsonLexer`'s `.isLetter`; both fixed (immutable `Vector`
+accumulation; ASCII-letter check — JSON literals are ASCII). The lint now passes and guards against
+regressions. It intentionally does NOT flag idiomatic Scala that is blocked only by the immature v2
+`.ssc` frontend (companion `val` members, first-class object values, nested types in objects,
+`final`/`sealed` modifiers, `Set.empty`) — those are standard Scala 3 and are the v2.2 track's to
+support. Also probed and added to the gapmap the pervasive **companion-object `val` member** gap
+(`Lim.default` → `unbound global: Lim_default`; only `def` members resolve) and isolated the remaining
+`extends` gap to `JsonDialect`. The gapmap now carries the complete, prioritized v2.2-frontend handoff.
+
 ## 2026-07-13 — UniML optional layers immutable + portable: the whole library is construct-clean (uniml-portable Phase 1c complete)
 
 Finished the UniML-side portability by rewriting the remaining optional semantic/projection layers to
