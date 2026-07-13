@@ -1,26 +1,30 @@
 ---
 name: scljet-mutate
-description: SclJet read-modify-rewrite — delete/keep rows in an existing single-table database
+description: SclJet read-modify-rewrite — delete/keep/update rows in an existing single-table database
 exports:
   - reconstructRecordBytes
   - readTableRawRows
   - readSchemaRawRecord
   - deleteRowids
   - keepRowids
+  - updateRowValues
 ---
 
 # SclJet mutate — read-modify-rewrite
 
-Delete (or keep) rows in an existing single-table rowid database. The database is
-opened read-only over its own bytes, every surviving row is read back as its raw
-record payload (reconstructed from the reader's `DecodedRecord`, so text needs no
-code-point→String rebuild), and the table is rebuilt through `buildFromRawSchema`
-with the original `sqlite_schema` record preserved verbatim. Rowids are kept as-is
-(no renumbering). The table is assumed to be the single table rooted at page 2 —
-the shape SclJet's writers produce.
+Delete, keep, or update rows in an existing single-table rowid database. The
+database is opened read-only over its own bytes, every surviving row is read back
+as its raw record payload (reconstructed from the reader's `DecodedRecord`, so
+text needs no code-point→String rebuild), and the table is rebuilt through
+`buildFromRawSchema` with the original `sqlite_schema` record preserved verbatim.
+`updateRowValues` re-encodes only the changed row from a caller-supplied
+`List[SqliteValue]` (again no code-point→String — the new value is given, not
+decoded) and passes the rest through raw. Rowids are kept as-is (no renumbering).
+The table is assumed to be the single table rooted at page 2 — the shape SclJet's
+writers produce.
 
 ```scalascript
-[KeyedRawRow, buildFromRawSchema, DecodedRecord, RecordField, ByteSlice, byteSliceToList, encodeVarint, ByteError, SqliteError, SqliteOpenOptions, SqliteLimits, OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, SqliteVfs, SqliteFile, VfsError, VfsRead, VfsWrite, FileKind, MainDatabaseFile, MainJournalFile, WalFile, OpenFlags, LockLevel, SyncFlags, DeviceCharacteristic, ShmLockMode, SharedRegion, byteSliceSlice, RowidTableTree, StorageRecord, ReadonlyDatabase, ReadonlyBtreeCursor, ReadonlyCursorStep, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly](index.ssc)
+[KeyedRawRow, buildFromRawSchema, encodeRecord, SqliteValue, DecodedRecord, RecordField, ByteSlice, byteSliceToList, encodeVarint, ByteError, SqliteError, SqliteOpenOptions, SqliteLimits, OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, SqliteVfs, SqliteFile, VfsError, VfsRead, VfsWrite, FileKind, MainDatabaseFile, MainJournalFile, WalFile, OpenFlags, LockLevel, SyncFlags, DeviceCharacteristic, ShmLockMode, SharedRegion, byteSliceSlice, RowidTableTree, StorageRecord, ReadonlyDatabase, ReadonlyBtreeCursor, ReadonlyCursorStep, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly](index.ssc)
 
 // ── Read-only VFS over a single in-memory database image ──
 
@@ -192,4 +196,46 @@ def keepRowids(dbBytes: ByteSlice, changeCounter: Int, schemaCookie: Int, rowids
                   buildFromRawSchema(pageSize, changeCounter, schemaCookie, schemaRecord, krAcc.reverse) match
                     case Left(byteError) => Left(byteError.message)
                     case Right(bytes) => Right(bytes)
+
+/** Replace the record of the row whose rowid is `rowid` with `newRecord`; other
+ *  rows pass through as-is. */
+def replaceRecord(rows: List[KeyedRawRow], rowid: Long, newRecord: List[Int]): List[KeyedRawRow] =
+  var upRemaining = rows
+  var upAcc: List[KeyedRawRow] = Nil
+  while upRemaining.nonEmpty do
+    val upRow = upRemaining.head
+    upAcc = (if upRow.rowid == rowid then KeyedRawRow(rowid, newRecord) else upRow) :: upAcc
+    upRemaining = upRemaining.tail
+  upAcc.reverse
+
+/** Update one row in place (by value): set the row with `rowid` to `newValues`,
+ *  keeping every other row byte-for-byte and all rowids unchanged. The new value
+ *  is supplied by the caller (a normal `List[SqliteValue]`), so — unlike reading
+ *  existing text back — no code-point→String rebuild is needed; only the changed
+ *  row is re-encoded, the rest pass through as raw records. `changeCounter` should
+ *  be the old file-change counter + 1. */
+def updateRowValues(dbBytes: ByteSlice, changeCounter: Int, schemaCookie: Int, rowid: Long, newValues: List[SqliteValue]): Either[String, ByteSlice] =
+  encodeRecord(newValues) match
+    case Left(byteError) => Left(byteError.message)
+    case Right(newRecordSlice) =>
+      val newRecord = byteSliceToList(newRecordSlice)
+      openReadonly(ImageVfs(dbBytes), "image.db", mutateOptions()) match
+        case Left(error) => Left(error.message)
+        case Right(database) =>
+          val pageSize = database.pager.header.pageSize
+          val rootPage = database.schema.entries.head.rootPage match
+            case Some(value) => value
+            case None => 2L
+          readSchemaRawRecord(database) match
+            case Left(message) => Left(message)
+            case Right(schemaRecord) =>
+              openReadonlyRoot(database, rootPage, RowidTableTree) match
+                case Left(error) => Left(error.message)
+                case Right(cursor) =>
+                  readTableRawRows(database, cursor) match
+                    case Left(error) => Left(error.message)
+                    case Right(rows) =>
+                      buildFromRawSchema(pageSize, changeCounter, schemaCookie, schemaRecord, replaceRecord(rows, rowid, newRecord)) match
+                        case Left(byteError) => Left(byteError.message)
+                        case Right(bytes) => Right(bytes)
 ```

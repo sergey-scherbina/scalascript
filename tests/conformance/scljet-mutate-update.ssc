@@ -1,0 +1,35 @@
+---
+name: scljet-mutate-update
+description: SclJet read-modify-rewrite — update one row's value in place, keeping other rows and all rowids, cross-backend
+backends: [int, js]
+---
+
+# SclJet update (read-modify-rewrite)
+
+[ByteSlice, byteSliceToList, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[updateRowValues](std/scljet/mutate.ssc)
+
+```scalascript
+def text(n: Int): String =
+  if n <= 0 then ""
+  else if n == 1 then "a"
+  else
+    val half = text(n / 2)
+    if n % 2 == 0 then half + half else half + half + "a"
+
+def mkRows(i: Int, n: Int, acc: List[List[SqliteValue]]): List[List[SqliteValue]] =
+  if i > n then acc.reverse
+  else mkRows(i + 1, n, List(SqlInteger(i.toLong), SqlText("val" + i.toString)) :: acc)
+
+// Build a 5-row table, then set row 3 to a NEW value — a 1016-char string that
+// spills onto an overflow chain. The caller supplies the new value directly (no
+// code-point→String), only row 3 is re-encoded, the other rows pass through as
+// raw records, and every rowid is preserved. Reference integrity_check accepts
+// the result; int and JS produce the same bytes.
+buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(n INTEGER, v TEXT)", mkRows(1, 5, Nil)) match
+  case Right(db) =>
+    updateRowValues(db, 2, 1, 3L, List(SqlInteger(300L), SqlText(text(1016)))) match
+      case Right(newDb) => println((newDb.length / 512).toString + ":" + byteSliceToList(newDb).toString)
+      case Left(message) => println("UPDATE-ERROR:" + message)
+  case Left(error) => println("BUILD-ERROR:" + error.message)
+```
