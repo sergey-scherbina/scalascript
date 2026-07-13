@@ -4,6 +4,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-13 — UniML Markdown: behavioral CommonMark conformance (M4.1)
+
+Closed the behavioral edge cases the initial M4 pass deferred, each gated behind tests and keeping
+the lossless CST and chunk-invariance intact:
+- **Tight/loose list classification** — `ListBlock.tight` is now computed from blank-line placement in
+  the CST (loose if items are blank-separated or an item holds two blank-separated blocks; a trailing
+  blank stays tight) instead of the hardcoded `true`.
+- **Lazy paragraph continuation** — a marker-less line of plain paragraph text continues an open
+  paragraph inside a block quote or list item instead of closing the container; laziness stops at a
+  blank line or any block start.
+- **Full HTML-block type table (1–7)** — each type now uses its correct start and end conditions:
+  type 1 (script/pre/style/textarea) ends at its close tag and spans blank lines; types 2–5 end at
+  `-->`/`?>`/`>`/`]]>`; types 6–7 end before a blank line; type 7 requires a bare complete tag and
+  cannot interrupt a paragraph. A stricter complete-tag check keeps autolinks (`<https://x>`) from
+  being misread as tags.
+Leaf 30/30 on JVM and Scala.js; bridge 11/11. The last tail (multi-line inline across a continuation
+marker; deep/mixed nesting) is queued as `uniml-markdown-m41-tail` in `BACKLOG.md`.
+
 ## 2026-07-13 — UniML Markdown: full HTML4/XHTML entity decoding (M4.1)
 
 `MarkdownProjection`'s named-entity table grew from ~15 entries to the complete HTML4/XHTML set

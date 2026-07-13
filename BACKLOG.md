@@ -45,11 +45,15 @@ are plain bullets without checkboxes so agents do not claim them as build work.
       cases and keep JVM/Scala.js behavior identical. This is explicitly deferred from M3 rather than
       silently counted as compatibility already delivered.
 
-- [ ] **uniml-markdown-m41-conformance** — extend the M4 CommonMark 0.31.2 profile through the
-      productions deferred from M4 (CST stays lossless meanwhile): lazy paragraph continuation, full
-      tight/loose list classification, multi-line inline spans that cross a block-quote/list
-      continuation marker, deep/mixed container nesting, and the full CommonMark HTML-block type
-      table. Grow the pinned example corpus beyond the curated 34 and keep JVM/Scala.js identical.
+- [x] **uniml-markdown-m41-conformance** — ✓ Landed (2026-07-13). Lazy paragraph continuation,
+      tight/loose list classification and the full CommonMark HTML-block type table (1–7 with correct
+      start/end conditions) all implemented and tested (leaf 30/30 JVM+JS); the example corpus was
+      grown (curated 34 + ~70 adversarial edge cases). Remaining tail (multi-line inline spans across
+      a continuation marker; deep/mixed container nesting) is tracked in `uniml-markdown-m41-tail`.
+- [ ] **uniml-markdown-m41-tail** — the last CommonMark edge cases the M4.1 pass left: multi-line
+      inline spans (emphasis/links) that cross a block-quote/list continuation marker (single-line
+      content is fully resolved today), and deep/mixed container nesting beyond the common cases. The
+      CST stays lossless meanwhile; keep JVM/Scala.js identical.
 - [x] **uniml-markdown-m41-doccontent-bridge** — ✓ Landed (2026-07-13). `unimlMarkdownBridge`
       (JVM-only, depends on `core` + the Markdown leaf) projects a compatible `MarkdownDocument` into
       `DocumentContent` (headings→sections, paragraphs/lists/images/tables→content blocks,

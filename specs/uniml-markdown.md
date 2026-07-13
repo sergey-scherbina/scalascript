@@ -97,9 +97,9 @@ model is not the canonical Markdown representation and never becomes a dependenc
 - [x] Backslash escapes, character/entity references, code spans, emphasis/strong delimiter runs,
       links/images, reference links, autolinks, raw inline HTML, soft breaks and hard breaks retain
       exact tokens while projecting CommonMark semantics.
-- [~] Tab expansion, fence indentation/info strings, delimiter flanking (incl. the rule of three) and
-      reference-label normalization follow CommonMark 0.31.2. Lazy continuation and full tight/loose
-      list classification are M4.1 follow-ups (see Results); the CST stays lossless meanwhile.
+- [x] Tab expansion, fence indentation/info strings, delimiter flanking (incl. the rule of three),
+      reference-label normalization, lazy paragraph continuation, tight/loose list classification and
+      the full HTML-block type table (1–7) follow CommonMark 0.31.2 (all landed by M4.1).
 
 ### Explicit profiles
 
@@ -256,16 +256,15 @@ invariance by construction). Emphasis is resolved with a CommonMark-faithful del
 structure uses a container stack whose transitions are `Reframe` instructions, with dangling frames
 closed on the last token to avoid spurious end-of-input diagnostics.
 
-**Landed in M4.1:** the optional `DocumentContent` bridge (`unimlMarkdownBridge`, 2026-07-13); a fix so
-a sibling list of a different marker type is no longer nested in the previous list frame; and the full
-HTML4/XHTML named-entity set in projection (Latin-1 block generated from its contiguous code points,
-plus Greek/punctuation/arrow/math references).
+**Landed in M4.1:** the optional `DocumentContent` bridge (`unimlMarkdownBridge`); a fix so a sibling
+list of a different marker type is no longer nested in the previous list frame; the full HTML4/XHTML
+named-entity set in projection; an adversarial edge-case corpus; and (2026-07-13) the behavioral
+conformance items — lazy paragraph continuation, tight/loose list classification, and the full
+CommonMark HTML-block type table (types 1–7 with their correct start and end conditions).
 
 **Still scoped for M4.1** (queued in `BACKLOG.md`, CST stays lossless meanwhile):
 
-- Lazy paragraph continuation and full tight/loose list classification (`tight` is reported `true`).
 - Multi-line inline spans that cross a block-quote/list continuation marker (single-line content is
   fully resolved; continuation markers are preserved as trivia).
-- Deep/mixed container nesting beyond the common cases, and the full CommonMark HTML-block type table
-  (types 6/7 plus comment/PI/declaration are recognized as a block; others fall back to paragraphs).
+- Deep/mixed container nesting beyond the common cases.
 - The exotic HTML5-only named entities beyond the HTML4/XHTML set (unknown names stay literal, lossless).
