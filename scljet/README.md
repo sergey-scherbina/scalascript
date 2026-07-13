@@ -36,10 +36,12 @@ all five value types incl. IEEE-754 reals), single- and multi-page rowid-table
 writers (`buildSingleTableDatabase` / `buildTableDatabase`, producing files that
 pass reference `PRAGMA integrity_check`), cell-overflow writers that spill large
 payloads onto overflow-page chains — single-leaf (`buildOverflowTableDatabase`)
-and multi-leaf over a table-interior root (`buildOverflowBtreeDatabase`) — and the
-rollback journal (`writeRollbackJournal` + hot-journal `applyRollbackJournal`,
-byte-identical to SQLite's journal). The mutable pager, pager recover-on-open,
-3+-level B-trees, and delete/update remain.
+and multi-leaf over a table-interior root (`buildOverflowBtreeDatabase`), an
+arbitrary-depth B-tree writer (`buildDeepTableDatabase`, stacking interior levels
+to any depth — verified on a real 3-level tree), and the rollback journal
+(`writeRollbackJournal` + hot-journal `applyRollbackJournal`, byte-identical to
+SQLite's journal). The mutable pager, pager recover-on-open, and delete/update
+remain.
 
 ## Modules
 

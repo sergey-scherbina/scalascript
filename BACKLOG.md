@@ -100,24 +100,32 @@ are plain bullets without checkboxes so agents do not claim them as build work.
       appended after the leaves — a two-pass build (probe to fix the leaf count,
       then number the overflow pages from `3+L`); byte-exact vs reference SQLite,
       byte-identical to `buildTableDatabase` for non-overflow input, int==js
-      (conformance `scljet-write-btree-overflow`). Remaining: (3) B-trees deeper
-      than two levels — an interior root that itself overflows needs a recursive
-      interior level; (4) incremental
-      insert/update into an existing database file (mutating pages in place), which
-      is really the pager/journal path (m3e) rather than bulk build.
+      (conformance `scljet-write-btree-overflow`). Arbitrary-depth (3+ level)
+      trees are DONE too (2026-07-13): `buildDeepTableDatabase` stacks interior
+      levels bottom-up until a single-page root, numbering pages top-down so each
+      node's children sit in a known contiguous range — verified on a real
+      3-level tree (80 pages, `integrity_check` ok, depth 3, all rows exact),
+      byte-identical to `buildTableDatabase` for a two-level tree, int==js
+      (conformance `scljet-write-deep-btree`, fingerprinted since the file exceeds
+      the byte-list size). This required making the page assembly iterative
+      (`cellsFlatten`/`buildLeafPages`) — see the byteslice-zeros item below.
+      Remaining: (4) incremental insert/update into an existing database file
+      (mutating pages in place), which is really the pager/journal path (m3e)
+      rather than bulk build; cell-overflow combined with a 3+-level tree (deep +
+      overflow together — each is done separately).
 
-- [ ] **scljet-byteslice-zeros-js-recursion** — `ByteSlice.zeros`/`zerosList` in
-      `runtime/std/scljet/bytes.ssc` build the zero list by linear recursion. The v1
-      interpreter TCOs it, but the JS backend does not, so `emptyDatabase(pageSize)` (M3
-      writer) — and any `ByteSlice.zeros(large)` — overflows node's call stack for page
-      sizes ≥ ~16384 (`RangeError: Maximum call stack size exceeded`). `scljet-write-empty`
-      conformance therefore covers 512..8192 on `[int, js]`; int/VM/ASM cover all legal
-      sizes byte-exactly. Fix options: JS-backend TCO for self-tail-recursive functions, or
-      make `zerosList` non-linear-depth (build 64-byte chunks directly / doubling). Unblocks
-      full-size empty-DB writes on JS and any large zero-fill in the write path.
-      The same JS no-TCO limit hits `ByteSlice.fromList`'s `validateBytes`/`buildChunks`
-      recursion: constructing a slice from a list of more than a few thousand bytes
-      overflows node (so the journal-recovery conformance embeds only a 1024-byte DB).
+- [x] **scljet-byteslice-zeros-js-recursion** — DONE 2026-07-13. The core list
+      helpers in `scljet/bytes.ssc` were made iterative (`while`+`var`, not linear
+      recursion): `zerosList` (`ByteSlice.zeros`), `validateBytes`/`buildChunks`
+      (`ByteSlice.fromList`), and `collectBytes` (`byteSliceToList`). The v1
+      interpreter TCO'd these, but the JS backend does not, so they overflowed
+      node's stack for large byte lists (`RangeError: Maximum call stack size
+      exceeded`) — blocking full-size empty-DB writes and any 3+-level / large
+      table on JS. Now a 40 KB three-level DB builds and round-trips identically on
+      `[int, js]` (conformance `scljet-write-deep-btree`), and all 14 scljet cases
+      stay green `--no-memo` on both backends. NB the interpreter-side var-scope
+      leak (BUGS.md `interp-var-scope-leak-across-calls`) means the new iterative
+      helpers use uniquely-prefixed var names.
 
 - [ ] **scljet-m2d-hardening-overflow-traversal** — the last M2d corpus hardening
       item after `scljet-m2d-hardening` slices 1-2 landed (2026-07-13). Index-btree

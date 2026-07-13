@@ -134,6 +134,49 @@ else leaves`. In `runtime/std/scljet/write.ssc` `packLeaves`.
 implicit `else`, or drops the `then` side of a no-`else` `if` used in statement
 position. Needs a fix in the interpreter's block/if lowering.
 
+## interp-var-scope-leak-across-calls — a callee's `var` clobbers a caller's live `var` of the same name
+
+**Status:** open (found 2026-07-13). Interpreter (`ssc-tools run --v1`) correctness
+bug; workaround = use distinct `var` names across the call hierarchy.
+
+**Symptom:** when a function `F` has a `var X` live (e.g. a `while` loop counter)
+and, inside that scope, calls a function `G` that also declares `var X`, `G`'s
+final value of `X` **overwrites** `F`'s `X` — as if `var`s share one environment
+keyed by name instead of per-call frames. Minimal repro:
+
+```scalascript
+def page(): List[Int] =
+  var acc: List[Int] = Nil
+  var i = 0
+  while i < 512 do
+    acc = 0 :: acc
+    i = i + 1
+  acc
+
+def mkpages(n: Int): List[List[Int]] =
+  var acc: List[List[Int]] = Nil
+  var i = 0                       // <-- same name as page()'s `i`
+  while i < n do
+    acc = page() :: acc           // page() sets i = 512; that leaks back here
+    i = i + 1                     // 513 ≥ n → loop exits after ONE iteration
+  acc
+
+// mkpages(84).length is 1 (must be 84). Rename page()'s vars to pi/pacc → 84.
+```
+
+Verified: identical code with distinct var names (`pi`/`pacc` vs `mi`/`macc`)
+gives the correct 84; the only change is the name collision. The clobber can
+cause either early loop exit (as above) or a wrong result, silently.
+
+**Workaround:** give `var`s unique (e.g. function-prefixed) names when a callee
+might reuse them — see the `cf`/`bl`/`il`/`bid`/`vb`/`bc` prefixes in
+`scljet/bytes.ssc` and `scljet/write.ssc`. It did NOT bite the existing SclJet
+builders only because they happened to use distinct names down each call chain.
+
+**Likely cause:** the interpreter stores `var` bindings in a scope that is not
+properly pushed/popped (or shadowed) per function invocation, so same-named
+`var`s alias. Needs a fix in the interpreter's local-variable frame handling.
+
 ## js-caseclass-body-method-params-dropped — JS drops case-class body methods that take parameters
 
 **Status:** FIXED (2026-07-13, opus). `8204d588a`.
