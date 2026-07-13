@@ -99,7 +99,15 @@ private[cli] object SwiftV2Cli:
       else
         val bytes = _root_.ssc.plugin.NativeContentCodec.encode(compiled.contentModules)
         Some(java.util.Base64.getEncoder.encodeToString(bytes))
-    catch case _: Exception => None
+    catch
+      // Best-effort: a Swift-targeted source that never imports std/ui/content must
+      // never fail to emit because of this second, independent compile. StackOverflowError
+      // (real, hit on a large real-world source — the self-hosted tower's own dedicated
+      // 64MB-stack thread can still be exceeded) is an Error, not an Exception; catching
+      // only Exception let it escape and crash the whole emit. OutOfMemoryError is
+      // deliberately NOT caught here — recovering from it is not safe.
+      case _: Exception => None
+      case _: StackOverflowError => None
 
   def requireSwift(command: String): String =
     val executable = sys.props.getOrElse("ssc.swift.command", "swift")

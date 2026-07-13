@@ -84,6 +84,7 @@ object SwiftBackend:
     "contentMetadata", "contentPlainText", "contentToMarkdown", "contentModules", "contentModule",
     "contentModuleSection", "contentModuleBlock", "contentModuleData", "contentModuleMetadata",
     "contentToolkitNode", "contentToolkitBlock", "contentToolkitSection",
+    "installLocalAssets", "publishLocalLocale", "webauthnRegister", "webauthnAssert",
   )
   private val nativeUiPublicGlobals = Set(
     "signal", "seedSignal", "computedSignal", "eqSignal", "hashSignal", "emptyHeaders",
@@ -385,6 +386,36 @@ object SwiftBackend:
     val definitions = defNames ++ registeredNames
     program.defs.foreach(d => validateTerm(d.body, definitions))
     validateTerm(program.entry, definitions)
+
+  /** Diagnostic (not used by generate/validate): collects every unsupported global and
+   *  primitive the whole program references, in one pass, instead of validate's
+   *  fail-fast single-error behavior. Useful for scoping a real, large source's full
+   *  gap list up front rather than discovering it one failure at a time. */
+  def findAllGaps(program: Program): (Set[String], Set[String]) =
+    val defNames = program.defs.map(_.name).toSet
+    val registeredNames = collectEntryRegisteredGlobals(program.entry)
+    val definitions = defNames ++ registeredNames
+    var globals = Set.empty[String]
+    var prims = Set.empty[String]
+    def walk(term: Term): Unit = term match
+      case Term.Lit(_) | Term.Local(_) => ()
+      case Term.Global(name) => if !(definitions(name) || builtinGlobals(name)) then globals += name
+      case Term.Lam(_, body) => walk(body)
+      case Term.App(fn, args) => walk(fn); args.foreach(walk)
+      case Term.Let(rhs, body) => rhs.foreach(walk); walk(body)
+      case Term.LetRec(lams, body) => lams.foreach(walk); walk(body)
+      case Term.If(c, t, e) => List(c, t, e).foreach(walk)
+      case Term.Ctor(_, fields) => fields.foreach(walk)
+      case Term.Match(scrut, arms, default) =>
+        walk(scrut); arms.foreach(a => walk(a.body)); default.foreach(walk)
+      case Term.Prim(op, args) =>
+        if !supportedPrimitives(op) then prims += op
+        args.foreach(walk)
+      case Term.While(c, body) => walk(c); walk(body)
+      case Term.Seq(terms) => terms.foreach(walk)
+    program.defs.foreach(d => walk(d.body))
+    walk(program.entry)
+    (globals, prims)
 
   private def validateTerm(term: Term, definitions: Set[String]): Unit = term match
     case Term.Lit(_) | Term.Local(_) => ()

@@ -704,6 +704,22 @@ private final class Machine {
             }
             return sscContentToolkitSectionNode(section, options)
         })
+        // installLocalAssets/publishLocalLocale (std/ui app shell): @js(...) browser-only
+        // externs — service-worker/manifest bootstrapping and syncing the locale into a
+        // browser JS global. Neither concept applies to a native app; true no-ops.
+        globals["installLocalAssets"] = .closure(SscClosure(arity: 0) { _ in .unit })
+        globals["publishLocalLocale"] = .closure(SscClosure(arity: 1) { _ in .unit })
+        // webauthnRegister/webauthnAssert (std/ui/webauthn.ssc): browser navigator.credentials
+        // passkey flow. A real native equivalent (ASAuthorizationPlatformPublicKeyCredential
+        // Provider / Face ID via LocalAuthentication) is a separate, not-yet-started feature —
+        // this is a placeholder EventHandler (a no-arg closure) so a native build compiles and
+        // runs; tapping the button currently does nothing rather than performing enrollment.
+        globals["webauthnRegister"] = .closure(SscClosure(arity: -1) { _ in
+            .closure(SscClosure(arity: 0) { _ in .unit })
+        })
+        globals["webauthnAssert"] = .closure(SscClosure(arity: -1) { _ in
+            .closure(SscClosure(arity: 0) { _ in .unit })
+        })
     }
 
     private func installDefinitions() {

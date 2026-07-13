@@ -866,17 +866,39 @@ object FrontendBridge:
       sourcesByDefinition = sourceRefs,
       entrySource = ssc.NativeUiSites.SourceRef("<entry>")))
 
+  private val externBareAnnotation = """^@[A-Za-z_][A-Za-z0-9_]*\s*(\(.*\))?\s*$""".r
+
   /** Strip ScalaScript-specific `extern` declarations that scalameta cannot parse.
    *  Handles extern def/val (single or multi-line via open parens) and
-   *  extern class/trait/object (strip until indentation returns to base level). */
+   *  extern class/trait/object (strip until indentation returns to base level).
+   *
+   *  Also strips a bare backend-hint annotation (`@js(...)`, `@jvm(...)`, ...) that
+   *  immediately precedes one of these — those annotations exist to tell a specific
+   *  backend how to implement the extern, and scalameta never sees the extern decl
+   *  itself (stripped below) for it to attach to. Left unstripped, ONE such orphaned
+   *  annotation happens to parse anyway (it silently attaches to whatever real
+   *  definition follows), but a SECOND orphaned annotation later in the same file has
+   *  no real definition between it and the first — "expected start of definition".
+   *  Reproduced minimally: two `@jvm("...") extern def foo(): Unit` pairs in one file
+   *  fail; the same pair once, or two bare (unannotated) extern defs, both parse fine. */
   private def stripExternDecls(code: String): String =
     val lines = code.linesWithSeparators.toArray
     val sb = new java.lang.StringBuilder(code.length)
     var i = 0
+    def nextNonBlankIsExtern(from: Int): Boolean =
+      var j = from
+      while j < lines.length && lines(j).isBlank do j += 1
+      j < lines.length && {
+        val s = lines(j).stripLeading()
+        s.startsWith("extern def") || s.startsWith("extern val") ||
+        s.startsWith("extern class") || s.startsWith("extern trait") || s.startsWith("extern object")
+      }
     while i < lines.length do
       val line = lines(i)
       val t = line.stripLeading()
-      if t.startsWith("extern def") || t.startsWith("extern val") then
+      if externBareAnnotation.matches(t) && nextNonBlankIsExtern(i + 1) then
+        sb.append("//").append(line); i += 1
+      else if t.startsWith("extern def") || t.startsWith("extern val") then
         sb.append("//").append(line)
         val depth0 = line.count(_ == '(') - line.count(_ == ')')
         // Collect 0-arg extern defs: `extern def foo: T` with NO parens (not just balanced).
