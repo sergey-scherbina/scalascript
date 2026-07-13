@@ -1,5 +1,0 @@
-feature/scljet-js-vfs-dispatch 2026-07-13T11:01:00Z
-agent: claude-code
-heartbeat: 2026-07-13T11:15:00Z
-status: in-progress
-next: fix + land the last scljet JS gap — JsGen dropped case-class body methods WITH parameters (only zero-param registered), so run-js threw "Method not found: fullPath on FixtureVfs". Fixed JsGen to register parameterized body methods as extensions (reserved-word-safe). scljet now 6/6 on JS.
