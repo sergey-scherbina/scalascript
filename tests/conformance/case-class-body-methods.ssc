@@ -1,0 +1,22 @@
+---
+name: case-class-body-methods
+backends: [int, v2]
+---
+
+# Case-class body methods dispatch on the native lane
+
+Regression for `v2-imported-receiver-methods-not-linked` (gap 2): a `:`-indented
+case-class body with 2+ methods must all dispatch — earlier only the first did (the
+rest leaked as top-level defs → `Stub`). Built-in names on other receivers (List.size)
+must NOT be hijacked.
+
+```scalascript
+case class ByteSlice(data: List[Int]):
+  def get(i: Int): Int = data(i)
+  def size(): Int = data.length
+
+val base = ByteSlice(List(10, 20, 30, 40, 50))
+println(base.get(4))
+println(base.size())
+println(List(1, 2, 3).size)
+```

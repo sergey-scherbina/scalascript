@@ -2677,8 +2677,19 @@ def layout = (toks) =>
                  else if #seq(v, "effect") then true
                  else declHead)
               else declHead in
-            let declColon = if #seq(k, ":") then inDeclHead else false in
-            let nextDeclHead = if #seq(k, ":") then false else inDeclHead in
+            -- A `:` INSIDE a paren/bracket/ext-receiver frame (P/S/X) is a type
+            -- annotation (`x: Int`, `[A: TC]`, `(self: X)`), NOT a declaration-body
+            -- opener — it must not consume the declHead bit, so the OUTER body colon
+            -- after `)`/`]` still opens the virtual `{ … }` block. Without this,
+            -- `case class X(f: T):` leaves declHead=false at the body colon → the
+            -- body is unframed and its member defs leak as top-level `;`-separated
+            -- defs (only the first is captured; the rest never dispatch → Stub).
+            let inParenLike =
+              if topStackIs("P", stack) then true
+              else if topStackIs("S", stack) then true
+              else topStackIs("X", stack) in
+            let declColon = if #seq(k, ":") then (if inParenLike then false else inDeclHead) else false in
+            let nextDeclHead = if #seq(k, ":") then (if inParenLike then inDeclHead else false) else inDeclHead in
             let nextExtensionHead =
               if #seq(k, "id") then (if #seq(v, "extension") then true else extensionHead)
               else extensionHead in

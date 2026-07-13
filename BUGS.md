@@ -682,25 +682,28 @@ independent of that fix (which is Scala-only).
 
 ## v2-imported-receiver-methods-not-linked — native imports cannot execute receiver operations
 
-**Status:** PARTIAL (2026-07-12, opus) — re-scoped after root-cause. This was TWO
-independent gaps, NOT an import bug (both reproduce same-file):
+**Status:** FIXED (2026-07-13, opus) — was TWO independent gaps, NOT an import bug
+(both reproduce same-file):
 1. **`List.slice` missing intrinsic — FIXED.** The v2 native runtime had `take`/`drop`
    but no `slice` arm, so `xs.slice(a, b)` → `Stub` on VM/ASM. Added the arm at
    `v2/src/Runtime.scala` (next to take/drop). Verified + conformance `list-slice`
    [int, v2]. This was the actual cause of the `slice`-named symptoms (an extension
    literally named `slice` also recursed into the Stub → StackOverflow).
-2. **Case-class BODY methods never lowered as receiver methods — STILL OPEN** (the core
-   gap). `case class ByteSlice(data): def get(i) = data(i)` then `base.get(4)` → `Stub`
-   even in a SINGLE file (v1 → 50). Root cause: `parseCaseClass` (`ssc1-front.ssc0:1894`)
-   `skipExt` stops at the first body `def` and `mkCaseCls` records only name/params/
-   types/derives — no method bodies. The body `def` then leaks to the top-level stmt
-   stream as a global whose bare field refs (`data`) are unbound (proof: bare `get(4)`
-   → `unbound global: data`, not `get`). At the call site `base.get(4)` lowers to
-   `__method__("get", base, …)`, and the runtime dispatch (`Runtime.scala:3011`) looks
-   `get` up only as a FIELD name via `lookupFieldNames` → not found → `DataV("Stub")`
-   (`Runtime.scala:3038`), which then poisons a downstream `match`. Extension methods,
-   by contrast, work (same-file + imported) — they register in `extensionMethodsCell`
-   and route through `__methodOrExt__`.
+2. **Case-class BODY methods dispatch — FIXED.** Done in two parts: a sibling landed the
+   dispatch machinery (`2df8f6e3c`) — front `caseMethodsCell` capture + lower mangled
+   `Tag__method` globals + `__regmethod__` regs + `Runtime.registerTaggedMethod`, keyed by
+   `(tag, method)` and consulted in the `__method__` `DataV(tag,fields)` arm AFTER built-in
+   `methodOp` and BEFORE the `Stub` (so `List.size` etc. are never hijacked — the collision-free
+   Part-3 design). But it only dispatched the FIRST method of a `:`-indented body: the layout
+   pass let the inner type-annotation colon in `(data: List[Int])` consume the `declHead` bit,
+   so the OUTER body colon never opened the virtual `{ }` block and 2nd+ member defs leaked as
+   top-level defs. Completed (opus): in `layout` (`ssc1-front.ssc0`), a `:` inside a P/S/X
+   (paren/bracket/ext-receiver) frame is a TYPE colon and must not consume `declHead`, so the
+   body colon frames the body → routes through `captureBraced` (which already loops over all
+   members). Verified on the DEPLOYED binary: `base.get(4)/base.size()` → `50/5` on native +
+   ASM; `collide.ssc` → `5, 2` (List.size not hijacked); conformance `case-class-body-methods`
+   [int, v2]; native corpus 192 identical + 1 FIX (`scljet-readonly-pager-btree`, multi-method
+   bodies, now golden-exact); 171 conformance / V2 lane 13/13, zero regressions.
 - **Fix plan for gap 2 (focused follow-up, bootstrap-frontend change):** in
   `parseCaseClass`, instead of skipping/leaking body defs, parse each `def m(ps) = body`
   and re-emit it through the existing extension machinery as `extension (self: X) def
