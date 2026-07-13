@@ -144,6 +144,20 @@ final class MarkdownDialectSpec extends AnyFunSuite:
       case other => fail(s"expected block quote, got $other")
   }
 
+  test("tight vs loose list classification follows CommonMark") {
+    def tightOf(text: String): Boolean =
+      projectDoc(text).blocks.collectFirst { case l: MarkdownBlock.ListBlock => l.tight }.getOrElse(fail(s"no list in $text"))
+    // tight: no blank lines between items
+    assert(tightOf("- a\n- b\n"))
+    assert(tightOf("1. x\n2. y\n"))
+    // tight: a blank line merely trailing the final item
+    assert(tightOf("- a\n- b\n\n"))
+    // loose: items separated by a blank line
+    assert(!tightOf("- a\n\n- b\n"))
+    // loose: an item directly contains two blocks separated by a blank line
+    assert(!tightOf("- a\n\n  second para\n"))
+  }
+
   test("bullet and ordered lists project items") {
     val bullet = projectDoc("- a\n- b\n")
     bullet.blocks.head match

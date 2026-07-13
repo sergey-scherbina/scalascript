@@ -77,7 +77,7 @@ object MarkdownProjection:
             case UniEdge(_, UniNode.Branch(MdBranch.ListItem, itemEdges, _, _)) =>
               ListItem(itemEdges.flatMap(e => projectBlock(e.child, refs)), taskState(itemEdges))
           }
-          Some(MarkdownBlock.ListBlock(listOrdered(edges), listStart(edges), tight = true, items))
+          Some(MarkdownBlock.ListBlock(listOrdered(edges), listStart(edges), tight = !listLoose(edges), items))
         case MdBranch.CodeBlock =>
           Some(MarkdownBlock.CodeBlock(codeInfo(edges), codeLiteral(edges), fenced = hasFence(edges)))
         case MdBranch.FrontMatter =>
@@ -95,6 +95,23 @@ object MarkdownProjection:
           if t.lexeme.trim.startsWith("=") then 1 else 2
       })
       .getOrElse(1)
+
+  /** CommonMark looseness: a list is loose if two of its items are separated by
+    * a blank line, or an item directly contains two blocks separated by a blank
+    * line. A blank line merely trailing the final item does not make it loose.
+    * Blank lines surface in the CST as `markdown.blank` tokens inside items. */
+  private def listLoose(edges: Vector[UniEdge]): Boolean =
+    val items = edges.collect { case UniEdge(_, b @ UniNode.Branch(MdBranch.ListItem, _, _, _)) => b }
+    items.iterator.zipWithIndex.exists { (item, idx) =>
+      val itemEdges = item.edges
+      val blankIdx = itemEdges.indexWhere {
+        case UniEdge(_, UniNode.Token(t)) => t.kind == MdKind.Blank
+        case _                            => false
+      }
+      if blankIdx < 0 then false
+      else if idx < items.size - 1 then true // a blank in a non-final item separates items
+      else itemEdges.drop(blankIdx + 1).exists { case UniEdge(_, _: UniNode.Branch) => true; case _ => false }
+    }
 
   private def listOrdered(edges: Vector[UniEdge]): Boolean =
     firstMarker(edges).exists(m => m.nonEmpty && MdChars.isAsciiDigit(m.charAt(0)))
