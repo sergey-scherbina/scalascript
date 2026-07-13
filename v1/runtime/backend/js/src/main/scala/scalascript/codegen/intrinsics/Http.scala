@@ -40,9 +40,12 @@ val JsHttpIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
   QualifiedName("uploadDir")           -> RuntimeCall("uploadDir"),
   // Middleware
   QualifiedName("use")                 -> RuntimeCall("use"),
-  // HTTP client config
-  QualifiedName("httpTimeout")         -> RuntimeCall("httpTimeout"),
-  QualifiedName("httpRetry")           -> RuntimeCall("httpRetry"),
+  // HTTP client config. Target the non-shadowed `_`-aliases (ws-server.mjs) so a
+  // namespace import (`std.http.httpTimeout`) resolves the real preamble function
+  // instead of `undefined` — the identity name is shadowed by the generated
+  // namespace `const httpTimeout`. (js-http-config-namespace-tdz.)
+  QualifiedName("httpTimeout")         -> RuntimeCall("_httpTimeout"),
+  QualifiedName("httpRetry")           -> RuntimeCall("_httpRetry"),
   // WebSocket server
   QualifiedName("onWebSocket")         -> RuntimeCall("onWebSocket"),
   QualifiedName("onWebSocketAuth")     -> RuntimeCall("onWebSocketAuth"),

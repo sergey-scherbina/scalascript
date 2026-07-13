@@ -1,0 +1,24 @@
+---
+name: js-http-client-config
+backends: [int, js]
+---
+
+# httpClient block with httpTimeout/httpRetry on JS (js-http-config-namespace-tdz)
+
+`httpTimeout`/`httpRetry` imported from std/http were emitted as a namespace member
+that resolved to `undefined` on JS (the identity intrinsic target is shadowed by the
+generated namespace `const httpTimeout`), so calling them inside an `httpClient { }`
+block threw "not callable: ()". The intrinsics now target non-shadowed `_`-aliases.
+This exercises only the config side (no real network I/O), so output is deterministic.
+
+[httpClient, httpTimeout, httpRetry](std/http.ssc)
+
+```scalascript
+def main(): Unit =
+  httpClient("http://example.invalid") {
+    println("inside-block")
+    httpTimeout(2000)
+    httpRetry(2, 500)
+  }
+  println("after")
+```

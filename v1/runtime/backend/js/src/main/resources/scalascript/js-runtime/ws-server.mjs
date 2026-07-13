@@ -521,6 +521,14 @@ let _httpRetryDelay = 1_000;
 
 function httpTimeout(ms) { _httpTimeoutMs = ms; }
 function httpRetry(n, delayMs) { _httpMaxRetries = n; if (delayMs !== undefined) _httpRetryDelay = delayMs; }
+// Non-shadowed aliases: when std/http is imported as a namespace, the generated
+// `_ssc_mergeDeep` IIFE declares `const httpTimeout`/`const httpRetry`, which shadow
+// the functions above throughout that scope (so an identity fallback would hit the
+// declaration's own TDZ). The JS Http intrinsic points these two names at the `_`
+// aliases, which the namespace fallback can reference without shadowing.
+// (js-http-config-namespace-tdz.)
+const _httpTimeout = httpTimeout;
+const _httpRetry   = httpRetry;
 
 function _httpGuardUrl(url) {
   // H2: opt-in SSRF guard. Literal-host check only (no sync DNS in the worker), so a
