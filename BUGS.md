@@ -1,5 +1,59 @@
 # Bug tracker
 
+## custom-jsemitter-signal-list-literal — `StaticJsEmitter.jsLiteral` can't encode a List-valued signal registered from an event handler
+
+**Status:** open (found 2026-07-13, claude-sonnet-5, while building the
+`select-from-signal` slice, `specs/std-ui-select.md` § "Reactive options
+(selectFrom)"). Pre-existing, unrelated to that slice's own code — not fixed
+here (out of scope: it's a `frontend/custom/StaticJsEmitter.scala` gap, not
+UI-widget-specific, and a real fix means deciding how `jsLiteral` should
+recursively encode `List`/`InstanceV`/`Map` values, which is its own slice).
+
+**Symptom:** `ssc run <file>.ssc` (both the documented default — v2 VM,
+`custom` frontend — and `--v1`) throws
+`jsLiteral: unsupported value type ... List(...). Supported: String / Int /
+Long / Double / Float / Boolean / null.` at startup for **any** program
+where a `Signal[List[_]]` (of scalars OR case-class instances) is referenced
+by an event handler compiled by `frontend/custom/StaticJsEmitter.scala`
+(`CustomFrameworkBackend`/`serve(...)`'s pipeline). `registerSignal`
+(`StaticJsEmitter.scala:222`) calls `jsLiteral(signal())` to seed the
+signal's initial JS value whenever `compileEventHandler` needs to register
+the signal a handler targets (e.g. `SetSignalLiteral` from a `signalButton`)
+— and `jsLiteral` (`StaticJsEmitter.scala:1220`) has no `List`/`Seq` case at
+all, only bare scalars.
+
+**Reproduce:** this is not new/introduced by `select-from-signal` — it
+already affects a previously-shipped example unrelated to this slice:
+
+```
+bin/ssc-tools run examples/frontend/keyed-for-demo/keyed-for-demo.ssc
+```
+
+throws immediately (before serving anything) with the error above, because
+`rows` is a `Signal[List[String]]` referenced by
+`signalButton(rows, ["gamma", "alpha", "delta", "beta"], "Reorder + insert")`.
+That example's own docstring claims `ssc run … then open
+<http://localhost:8080>` works — it currently does not, on either the
+default v2-VM/`custom`-frontend path or `--v1`.
+
+**Scope note:** this only affects `serve(...)`'s live-interpreter +
+`frontend/custom/StaticJsEmitter.scala` pipeline (pipeline A). The
+**production** static-compile pipeline (`bin/ssc-tools emit-js` /
+`emit-spa`, `JsGen.scala` + `signals.mjs` — pipeline B, what busi's real
+build uses) is unaffected: it compiles `.ssc` source to JS syntactically
+(list/case-class literals become JS array/object literals in source text),
+never needing to re-encode a *runtime* value back into a JS literal the way
+`registerSignal` does. Confirmed empirically: `examples/frontend/keyed-for-demo/keyed-for-demo.ssc`
+and `examples/frontend/select-reactive-demo/select-reactive-demo.ssc` (this
+slice's own demo, which hits the identical error via `ssc run` for the same
+underlying reason — its `contracts: Signal[List[Contract]]` referenced by a
+`signalButton`) both emit clean, runnable JS via `bin/ssc-tools emit-js`.
+
+**Notes for a future fix:** `jsLiteral` would need a recursive case for
+`List`/`Seq` (encode each element, wrap in `[...]`) and probably `InstanceV`
+(case-class values, encode fields, wrap in `{...}`) to close this — scoped
+as its own follow-up, not attempted here.
+
 ## JS examples differential sweep — 2026-07-13 (opus)
 
 Ran an INT-vs-JS differential over the top-level examples corpus (205 cases:
