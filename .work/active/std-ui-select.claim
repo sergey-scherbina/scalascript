@@ -1,0 +1,6 @@
+feature/std-ui-select 2026-07-13T18:50:13Z
+agent: claude-sonnet-5
+heartbeat: 2026-07-13T18:50:13Z
+status: in-progress
+done-so-far: worktree ready, claim filed
+next: write specs/std-ui-select.md
