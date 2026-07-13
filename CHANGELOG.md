@@ -4,6 +4,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-13 — UniML relocated to a standalone library (uniml-portable Phase 0)
+
+First step of the **uniml-portable** program (make UniML a standalone library whose single Scala 3
+source compiles both with scalac and with the self-hosted ScalaScript v2 compiler). The version-
+neutral modules (core/json/yaml/markdown) moved from `v1/lang/uniml*` to a top-level `uniml/` with
+its **own** sbt build, so `cd uniml && sbt test` builds and tests them (all 8 suites, JVM+JS) with
+zero dependency on the ScalaScript trees. The root build references the same sources (path update
+only); the two v1 bindings that stay behind — `uniml-xml → Markup` and `uniml-markdown-bridge →
+DocumentContent` — keep working unchanged (13/13, 11/11). Full program (compat layer, Scala3∩v2
+subset, driving v2 to compile UniML, and ultimately the v2.2 parser on UniML) is planned in
+`SPRINT.md`.
+
 ## 2026-07-13 — UniML Markdown: continuation-marker trivia + nesting (M4.1 tail)
 
 Closes the last CommonMark edge cases of the M4.1 pass. Paragraphs are now buffered as per-line

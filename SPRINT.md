@@ -30,12 +30,12 @@ parser. Design decisions already agreed with Sergiy:
 
 Lead: opus-continue; phases are open to other agents (esp. the v2-side track uniml-portable-3).
 
-- [ ] **uniml-portable-0-move** — [SHIPPABLE FIRST STEP] relocate the pure UniML modules
-      (core/json/yaml/markdown) from `v1/lang/uniml*` to a top-level `uniml/` with its **own** sbt
-      build so `cd uniml && sbt test` builds independently of ScalaScript. Root `build.sbt` keeps
-      building them (path update only) and the v1 bindings (`uniml-xml`, `uniml-markdown-bridge`) keep
-      depending on them — nothing breaks. Keep all suites green (leaf 32/32 JVM+JS, bridge 11/11).
-      Follow-up (later, at true extraction): collapse the dual build to `publishLocal`.
+- [x] **uniml-portable-0-move** — ✓ DONE 2026-07-13. Moved core/json/yaml/markdown to top-level
+      `uniml/` with its own sbt build (`uniml/build.sbt` + `uniml/project/`). `cd uniml && sbt test` =
+      all 8 suites green (4 modules × JVM+JS), zero ScalaScript dependency. Root `build.sbt` updated
+      (4 `.in(file(...))` paths only); v1 bindings `uniml-xml` (13/13) + `uniml-markdown-bridge`
+      (11/11) unchanged and green. History preserved (git renames). Follow-up (at true extraction):
+      collapse the dual build to `publishLocal`.
 - [ ] **uniml-portable-0.5-gapmap** — run UniML-shape source through the v2 compiler; record the
       **primitive floor** (which `Array`/`String`/`Int`/`Char` APIs v2 gives identically to scalac)
       and the **language gaps** (generics+variance, traits-with-HOF, multi-file `.ssc`,
