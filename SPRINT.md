@@ -7246,17 +7246,20 @@ JS `1410065408` = mod 2^32; JVM emits Scala's 32-bit `Int`). Huge blast radius
           `combineAll[A: Monoid](List(1,2,3))`→6 (intSum), `List("a","b","c")`→"abc" (stringConcat,
           correctly selected — was "0abc"). (The +3 sweep cases predate this fix; the mono is now
           genuinely functional for INLINE typeclass fns.)
-    - [ ] **A1-mono SLICE 2 (imported typeclass fns)** — BLOCKER PINNED: markdown-link imports
-          `[combineAll](./mod.ssc)` are a PARSE-ONLY NO-OP (ssc1-front.ssc0:2160) — imported names
-          resolve via the registry/globals, so the imported `combineAll` DEF is NOT in the user
-          program's stmts (the givens are visible via a separate path, hence findAnyGiven still returns
-          intSum). So buildSigTable/findDefStmt/monoInstanceFor can't see it and can't re-lower its body
-          per instance. The whole std typeclass cluster (~10: std-semigroup-monoid, std-functor/monad/…,
-          tagless-*) is imported → blocked here (unchanged, not regressed). FIX (module-loading change,
-          a separate subsystem): load imported typeclass-fn (sig-fn) SOURCE into the user program's
-          stmts so lowerProg re-lowers + monomorphises them (avoiding duplicate-def collisions with the
-          linked std) — OR runtime dicts for the linked-std path. Then: transitivity, multi-ctx-param,
-          non-List containers (each falls back to today's behaviour = no regression until done).
+    - [x] **A1-mono SLICE 2 (imported typeclass fns + TC subtyping)** `599ab81b8`/`e9ffd4ee6` — DONE.
+          The "imports are the blocker" theory (prev bullet) was WRONG: a PROBE showed mono ALREADY
+          fires for the imported `combineAll` (its sig/def ARE visible to lowerProg via the shared
+          globals). The two real gaps, now fixed:
+          (1) List[elem] instance key — typeOfExpr recurses into the `ctorap(Cons,..)` head so the key
+              is "List[Int]" not bare "List", so combineAll specialises per element type.
+          (2) Typeclass/trait SUBTYPING for context bounds — `combineAllOption[A: Semigroup]` needs a
+              Semigroup[A] but std only has `given intSum: Monoid[Int]` (Monoid extends Semigroup). New
+              shared `tcExtendsCell` (ssc1-front captures `trait Child extends Parent` at the trait-parse
+              hook, header-bounded scan) + buildGivenTable emits each given under its TC AND every
+              ancestor TC (tcAncestors/givenEntriesFor). std-semigroup-monoid now 6/6.
+          VERIFIED: v2 bytecode sweep 102 → 103, 0 regressions. REMAINING (each falls back to today's
+          behaviour = no regression until done): transitivity (follow calls inside specialised bodies to
+          a fixpoint), multi-ctx-param mono, non-List containers (Option[A], Map) via real unification.
 
 ### ▶ ssc-toolkit-v2 (2026-07-07, owner-directed via busi: the busi SPA must move React→ScalaScript)
 
