@@ -330,6 +330,55 @@ final class MarkdownDialectSpec extends AnyFunSuite:
     assert(projected == examples.size, s"only $projected/${examples.size} projected")
   }
 
+  test("extended CommonMark/GFM edge-case corpus stays lossless and chunk-invariant") {
+    // Edge cases across every family — the ones most likely to drop a character
+    // or diverge on a chunk split. Losslessness + no-throw is the universal check.
+    val edge = Vector(
+      // whitespace / tabs / blank structure
+      "\t\tfoo\n", "   \n\tcode\n", "foo  \n", "  \n  \n  \n", "\n\n\n",
+      // ATX / setext headings
+      "#\n", "####### seven\n", "## closed ##\n", "##no-space\n", "### with # inside ###\n",
+      "foo\nbar\n===\n", "> quoted\n---\n", "Foo\n----\n",
+      // thematic breaks vs setext vs list
+      "___\n", " - - -\n", "***\n***\n", "- - - - -\n",
+      // fenced / indented code
+      "~~~~\n``` inside\n~~~~\n", "```\n```\n", "    \tindented\n", "```info string here\ncode\n```\n", "~~~ ~~~\n",
+      // block quotes
+      ">\n", ">foo\n", "> > > deep\n", ">     code in quote\n", "> a\n> \n> b\n",
+      // lists
+      "1) one\n2) two\n", "10. ten\n", "- \n- item\n", "+ a\n+ b\n", "*\tfoo\n", "- a\n\n- b\n",
+      // emphasis edge cases (delimiter algorithm stress)
+      "**foo*bar**\n", "*foo**bar*\n", "***foo***\n", "foo******bar\n", "a * b * c\n",
+      "_ _ _\n", "**a *b* c**\n", "*(*foo*)*\n", "__underscore__\n", "a_b_c\n",
+      // code spans
+      "`` foo ` bar ``\n", "`foo``bar`\n", "``\n``\n", "` ` `\n", "`unclosed\n",
+      // links / images / autolinks
+      "[foo](<my url>)\n", "[foo](/u (paren title))\n", "[]()\n", "[a][b]\n\n[b]: /u\n",
+      "[foo](/url \"ti\\\"tle\")\n", "[[nested]](/u)\n", "![](/img)\n", "<>\n", "<http://>\n", "<a+b-c.d:x>\n",
+      // raw HTML + entities
+      "<a href=\"x\" data-y='z'>\n", "<!-- c --> text\n", "<?pi?> x\n", "</div>\n",
+      "&nbsp; &notreal; &#; &#x; &#99999999;\n", "AT&T and R&amp;D\n",
+      // hard/soft breaks and backslashes
+      "foo\\\nbar\n", "foo\\\n", "\\\n", "a\\\\b\n", "text\\",
+      // unicode / surrogates / combining
+      "café ☕ 𝕏 👨‍👩‍👧 ́combining\n", "emoji: 😀\r\nnext\r\n",
+    )
+    edge.foreach { ex =>
+      Vector(MarkdownProfile.CommonMark, MarkdownProfile.Gfm).foreach { profile =>
+        val result = Markdown.parse(SourceInput.fromString(source, ex), profile)
+        val recon = allTokens(result).map(_.lexeme).mkString
+        assert(recon == ex, s"[$profile] lossless failed for ${ex.replace("\n", "\\n")}")
+        Markdown.project(result, profile) // must not throw
+        // chunk-split invariance on a representative split (midpoint)
+        if ex.length > 1 then
+          val mid = ex.length / 2
+          val chunked = Markdown.parse(
+            SourceInput(source, Vector(SourceChunk(ex.substring(0, mid)), SourceChunk(ex.substring(mid)))), profile)
+          assert(chunked == result, s"[$profile] chunk split changed parse of ${ex.replace("\n", "\\n")}")
+      }
+    }
+  }
+
   // ── helpers ────────────────────────────────────────────────────────────
 
   private def firstBranch(result: ParseResult, kind: String): Option[UniNode.Branch] =
