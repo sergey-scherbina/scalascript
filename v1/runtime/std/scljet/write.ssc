@@ -1,0 +1,68 @@
+---
+name: scljet-write
+version: 0.1.0
+description: SclJet M3 database file writer — byte-exact serializers for the write path
+package: scljet
+exports:
+  - emptyDatabase
+---
+
+# SclJet M3 write path
+
+M3 builds the write path from the bottom up. The first slice serializes a
+freshly-created empty database, byte-identical to reference SQLite's
+`PRAGMA page_size=N; VACUUM` output: the 100-byte file header followed by a
+single empty page-1 table-leaf B-tree header, zero-padded to the page size.
+An empty database uses schema format 0 and text encoding 0 (the encoding is
+fixed only when the first object is created), a change counter of 1, one page,
+and the writer's SQLite version number (3.53.3 → 3053003), matching the
+committed `empty-encoding-zero.db` fixture exactly.
+
+[ByteSlice, ByteError, byteSliceZeroExtend](bytes.ssc)
+
+```scalascript
+// Big-endian fixed-width encoders. Division/modulo keeps them exact on every
+// backend (no reliance on shift width).
+def writeBe16(value: Int): List[Int] = List((value / 256) % 256, value % 256)
+
+def writeBe32(value: Int): List[Int] =
+  List((value / 16777216) % 256, (value / 65536) % 256, (value / 256) % 256, value % 256)
+
+def writeZeros(count: Int): List[Int] = if count <= 0 then Nil else 0 :: writeZeros(count - 1)
+
+/** Bytes of a freshly-created empty SQLite database for `pageSize`.
+ *
+ *  Byte-identical to reference SQLite's `PRAGMA page_size=N; VACUUM` output:
+ *  a page size of 65536 is stored as the special value 1, the cell content
+ *  start is the page size (0 for 65536), schema format and text encoding are 0,
+ *  and the single page-1 leaf-table B-tree header has zero cells. The result is
+ *  the 108 header bytes zero-extended to a full page. */
+def emptyDatabase(pageSize: Int): Either[ByteError, ByteSlice] =
+  val pageSizeField = if pageSize == 65536 then 1 else pageSize
+  val contentStart = if pageSize == 65536 then 0 else pageSize
+  val header: List[Int] =
+    List(83, 81, 76, 105, 116, 101, 32, 102, 111, 114, 109, 97, 116, 32, 51, 0) ++  // "SQLite format 3\0"
+    writeBe16(pageSizeField) ++      // 16-17 page size
+    List(1, 1, 0, 64, 32, 32) ++     // 18-23 write/read version, reserved, payload fractions 64/32/32
+    writeBe32(1) ++                  // 24-27 file change counter
+    writeBe32(1) ++                  // 28-31 database page count
+    writeBe32(0) ++                  // 32-35 first freelist trunk page
+    writeBe32(0) ++                  // 36-39 freelist page count
+    writeBe32(1) ++                  // 40-43 schema cookie
+    writeBe32(0) ++                  // 44-47 schema format number (0 = empty database)
+    writeBe32(0) ++                  // 48-51 default page cache size
+    writeBe32(0) ++                  // 52-55 largest root b-tree page (auto-vacuum)
+    writeBe32(0) ++                  // 56-59 text encoding (0 = unset)
+    writeBe32(0) ++                  // 60-63 user version
+    writeBe32(0) ++                  // 64-67 incremental-vacuum mode
+    writeBe32(0) ++                  // 68-71 application id
+    writeZeros(20) ++                // 72-91 reserved for expansion
+    writeBe32(1) ++                  // 92-95 version-valid-for number
+    writeBe32(3053003) ++            // 96-99 SQLite version number (3.53.3)
+    List(13, 0, 0, 0, 0) ++          // 100 leaf-table kind, 101-102 first freeblock, 103-104 cell count
+    writeBe16(contentStart) ++       // 105-106 cell content area start
+    List(0)                          // 107 fragmented free bytes
+  ByteSlice.fromList(header) match
+    case Left(error) => Left(error)
+    case Right(prefix) => byteSliceZeroExtend(prefix, pageSize)
+```

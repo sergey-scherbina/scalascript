@@ -1,0 +1,34 @@
+#!/usr/bin/env ssc
+---
+name: scljet-write-empty
+description: Serialize a freshly-created empty SQLite database with SclJet's M3 writer
+---
+
+# SclJet empty-database writer
+
+The first M3 write-path slice serializes the bytes of a brand-new empty
+database, byte-identical to reference SQLite's `PRAGMA page_size=N; VACUUM`
+output: a 100-byte file header plus one empty page-1 table-leaf B-tree header,
+zero-padded to the page size. The result decodes back through SclJet's own
+`decodeDatabaseHeader` reader.
+
+[ByteSlice, byteSliceSlice, decodeDatabaseHeader, emptyDatabase](std/scljet/index.ssc)
+
+```scalascript
+def show(pageSize: Int): Unit =
+  emptyDatabase(pageSize) match
+    case Left(error) => println("write-error:" + error.message)
+    case Right(bytes) =>
+      byteSliceSlice(bytes, 0, 100) match
+        case Left(error) => println("slice-error:" + error.message)
+        case Right(head) =>
+          decodeDatabaseHeader(head) match
+            case Left(failure) => println("decode-error:" + failure.message)
+            case Right(header) =>
+              println("empty database: " + bytes.length.toString + " bytes, page size " +
+                header.pageSize.toString + ", schema format " + header.schemaFormat.toString +
+                ", " + header.headerPageCount.toString + " page")
+
+show(512)
+show(4096)
+```
