@@ -63,6 +63,13 @@ final class ScalaSpikeSpec extends AnyFunSuite:
     assert(left.kind == "spike.infix" && opOf(left) == "*")
   }
 
+  test("prefix (-e), range (a to b) and typed pattern (p: T) parse to the right nodes") {
+    assert(defBody(parse("def main(): Int = -5")).asInstanceOf[UniNode.Branch].kind == "spike.pre")
+    assert(defBody(parse("def main(): Int = 1 to 5")).asInstanceOf[UniNode.Branch].kind == "spike.rangeop")
+    val m = defBody(parse("def main(): Int = 5 match\n  case x: Int => x\n  case _ => 0")).asInstanceOf[UniNode.Branch]
+    assert(childWithRole(arms(m).head, "case.pat").get.asInstanceOf[UniNode.Branch].kind == "spike.tpat")
+  }
+
   test("cons `::` (right-associative) and arrow `->` operators") {
     val cons = defBody(parse("def main(): Int = 1 :: 2 :: Nil")).asInstanceOf[UniNode.Branch]
     assert(cons.kind == "spike.infix" && opOf(cons) == "::")
@@ -360,7 +367,11 @@ final class ScalaSpikeSpec extends AnyFunSuite:
       "pat-bind" -> "def main(): Int = Some(9) match\n  case n @ Some(v) => v\n  case _ => 0",
       // P6.2i — special operators: `::` (cons, right-assoc) and `->` (pair)
       "op-cons"  -> "def main(): Int = (1 :: 2 :: Nil) match\n  case Cons(h, t) => h\n  case Nil => 0",
-      "op-arrow" -> "def main(): Int = (1 -> 2) match\n  case (a, b) => a + b\n  case _ => 0"
+      "op-arrow" -> "def main(): Int = (1 -> 2) match\n  case (a, b) => a + b\n  case _ => 0",
+      // P6.2j — prefix ops, to/until ranges, typed patterns
+      "op-prefix" -> "def main(): Int = -5 + 3",
+      "op-range"  -> "def main(): Int = (1 until 5) match\n  case _ => 7",
+      "pat-typed" -> "def main(): Int = 5 match\n  case x: Int => x\n  case _ => 0"
     )
     // broken — no oracle; the harness proves containment (`main` still runs).
     val broken = Seq(

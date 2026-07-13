@@ -382,9 +382,18 @@ object SpikeParse:
     val base =
       if altList.length > 1 then Node.Frame("spike.apat", None, altList.map(_.withRole("apat.alt")))
       else first
+    // type ascription `p: T` → tpat
+    val typed =
+      if c.peekKind == "spike.colon" then
+        c.advance() // `:`
+        val tk = Vector.newBuilder[Node]
+        tk += base.withRole("tpat.pat")
+        expectType(c, "tpat.type").foreach(tk += _)
+        Node.Frame("spike.tpat", None, tk.result())
+      else base
     bindAlias match
-      case Some(a) => Node.Frame("spike.bpat", None, Vector(Node.Leaf(a, Some("bpat.alias")), base.withRole("bpat.inner")))
-      case None    => base
+      case Some(a) => Node.Frame("spike.bpat", None, Vector(Node.Leaf(a, Some("bpat.alias")), typed.withRole("bpat.inner")))
+      case None    => typed
 
   // patterns: int literal (lpat) / `_` (wpat) / lowercase binder (vpat) / ctor `Name(subpats)`
   // (cpat) / tuple `(a, b)` (→ cpat "Pair"/"TupleN"). Recursive for sub-patterns.
@@ -427,17 +436,26 @@ object SpikeParse:
       case None => None
       case Some(first) =>
         var left = first
-        var p = c.peekPrec
-        while p >= minPrec && p > 0 do
-          val op = c.advance().get // spike.op
-          val rightMin = if op.lexeme == "::" then p else p + 1 // `::` is right-associative
-          val kids = parseExpr(c, rightMin) match
-            case Some(r) => Vector(left.withRole("bin.left"), Node.Leaf(op, Some("bin.op")), r.withRole("bin.right"))
-            case None =>
-              c.report("spike.missing-operand", s"missing right operand after '${op.lexeme}'")
-              Vector(left.withRole("bin.left"), Node.Leaf(op, Some("bin.op")))
-          left = Node.Frame("spike.infix", None, kids)
-          p = c.peekPrec
+        var more = true
+        while more do
+          val p = c.peekPrec
+          // `to`/`until` are id-infix range words that bind loosest (only at the outer level)
+          val isRange = minPrec <= 1 && c.peekKind == "spike.id" && (c.peekLexeme == "to" || c.peekLexeme == "until")
+          if p >= minPrec && p > 0 then
+            val op = c.advance().get // spike.op
+            val rightMin = if op.lexeme == "::" then p else p + 1 // `::` is right-associative
+            val kids = parseExpr(c, rightMin) match
+              case Some(r) => Vector(left.withRole("bin.left"), Node.Leaf(op, Some("bin.op")), r.withRole("bin.right"))
+              case None =>
+                c.report("spike.missing-operand", s"missing right operand after '${op.lexeme}'")
+                Vector(left.withRole("bin.left"), Node.Leaf(op, Some("bin.op")))
+            left = Node.Frame("spike.infix", None, kids)
+          else if isRange then
+            val word = c.advance().get
+            val rhs = parsePostfix(c).getOrElse(Node.Frame("spike.error", None, Vector.empty))
+            left = Node.Frame("spike.rangeop", None,
+              Vector(left.withRole("range.lhs"), Node.Leaf(word, Some("range.op")), rhs.withRole("range.rhs")))
+          else more = false
         Some(left)
 
   private def parseAtom(c: Cur): Option[Node] =
@@ -445,6 +463,7 @@ object SpikeParse:
       case "spike.int"    => c.advance().map(t => Node.Leaf(t, Some("int")))
       case "spike.lparen" => parseParen(c)
       case "spike.kw" if c.peekLexeme == "if" => parseIf(c)
+      case "spike.op" if c.peekLexeme == "-" || c.peekLexeme == "!" || c.peekLexeme == "~" => Some(parsePrefix(c))
       case "spike.id" if c.peekLexeme == "summon" => Some(parseSummon(c))
       case "spike.id" | "spike.uid" => parseIdOrCall(c) // uid = uppercase ctor/type ref → mkUVar
       case "spike.junk" =>
@@ -453,6 +472,12 @@ object SpikeParse:
       case _ => None // eof / kw boundary / operator / `)` / `=` / `:` / `,` — not an atom
 
   // `( e )` is grouping (spike.paren); `( a, b, … )` and `()` are tuple literals (spike.tuple).
+  // prefix operator `- e` / `! e` / `~ e` → mkPre(op, e). Binds at the atom level.
+  private def parsePrefix(c: Cur): Node =
+    val op = c.advance().get
+    val sub = parseAtom(c).getOrElse(Node.Frame("spike.error", None, Vector.empty))
+    Node.Frame("spike.pre", None, Vector(Node.Leaf(op, Some("pre.op")), sub.withRole("pre.sub")))
+
   private def parseParen(c: Cur): Option[Node] =
     val kids = Vector.newBuilder[Node]
     c.advance().foreach(t => kids += Node.Leaf(t, Some("group.open")))
@@ -629,6 +654,15 @@ object SpikeProject:
       case "spike.sel"   => sel(b)
       case "spike.summon" =>
         s"""Pair("summon", "${esc(kids(b).collectFirst { case (Some("summon.type"), c) => lexeme(c) }.getOrElse("_"))}")"""
+      case "spike.pre" =>
+        val op  = kids(b).collectFirst { case (Some("pre.op"), c) => lexeme(c) }.getOrElse("-")
+        val sub = kids(b).collectFirst { case (Some("pre.sub"), c) => expr(c) }.getOrElse(hole)
+        s"""mkPre("${esc(op)}", $sub)"""
+      case "spike.rangeop" =>
+        val word = kids(b).collectFirst { case (Some("range.op"), c) => lexeme(c) }.getOrElse("to")
+        val lhs  = kids(b).collectFirst { case (Some("range.lhs"), c) => expr(c) }.getOrElse(hole)
+        val rhs  = kids(b).collectFirst { case (Some("range.rhs"), c) => expr(c) }.getOrElse(hole)
+        s"""mkApp(mkSel($lhs, "${esc(word)}"), ${consList(Vector(rhs))})"""
       case "spike.error" => hole
       case _             => hole
     case _ => hole
@@ -664,6 +698,10 @@ object SpikeProject:
       val alias = kids(b).collectFirst { case (Some("bpat.alias"), c) => lexeme(c) }.getOrElse("_")
       val inner = kids(b).collectFirst { case (Some("bpat.inner"), c) => patProj(c) }.getOrElse("""Pair("wpat", "")""")
       s"""Pair("bpat", Pair("${esc(alias)}", $inner))"""
+    case b: UniNode.Branch if b.kind == "spike.tpat"                  =>
+      val pat = kids(b).collectFirst { case (Some("tpat.pat"), c) => patProj(c) }.getOrElse("""Pair("wpat", "")""")
+      val ty  = kids(b).collectFirst { case (Some("tpat.type"), c) => lexeme(c) }.getOrElse("_")
+      s"""Pair("tpat", Pair($pat, "${esc(ty)}"))"""
     case _ => """Pair("wpat", "")"""
 
   // ctor pattern → Pair("cpat", Pair(name, [subpats])); mirrors ssc1-front finishCtorPat.
