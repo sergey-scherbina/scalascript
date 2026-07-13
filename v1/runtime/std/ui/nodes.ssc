@@ -22,6 +22,7 @@ exports:
   - TextFieldRNode
   - CheckboxNode
   - SelectNode
+  - SelectFromNode
   - SignalButtonNode
   - ActionButtonNode
   - SignalLabelButtonNode
@@ -100,6 +101,19 @@ case class SelectNode(options: List[(String, String)],
                       label: String,
                       placeholder: String,
                       disabled: Boolean)                extends TkNode
+// SelectFromNode — like SelectNode, but `items` is a Signal[List[A]] (a
+// reactive source, e.g. a fetched contracts list) instead of a static
+// options list. `key` gives each item a stable identity for reconciliation
+// (mirrors KeyedForNode's own `key`); `optionFn` maps each item to the
+// (value, label) pair SelectNode takes statically. See
+// specs/std-ui-select.md § "Reactive options (selectFrom)".
+case class SelectFromNode[A](items: Any,
+                             key: A => String,
+                             optionFn: A => (String, String),
+                             selected: Any,
+                             label: String,
+                             placeholder: String,
+                             disabled: Boolean)          extends TkNode
 case class SignalButtonNode(signal: Any,
                             value: Any,
                             label: String,

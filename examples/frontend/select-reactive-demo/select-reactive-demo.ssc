@@ -1,0 +1,88 @@
+---
+name: select-reactive-demo
+version: 1.0.0
+description: A <select> whose <option> list tracks a Signal[List[A]] reactively — item added without a page reload (std/ui/input.ssc selectFrom, specs/std-ui-select.md § "Reactive options (selectFrom)").
+frontend: custom
+---
+
+# select-reactive-demo — a dropdown that grows when new data arrives
+
+busi's motivating case: pick the active contract from a dropdown whose
+option list comes from a fetched/mutable source — e.g. the owner signs a
+new contract mid-session and it should show up in the dropdown without a
+reload. This demo simulates that with a button instead of a real fetch (see
+`fetchUrlSignalTo` for the real-fetch shape), so the same reactivity is
+visible without a backend.
+
+**How to actually see the reactivity** (this is the important part — the
+`selectFrom` `<option>` list is reactive on the real JS runtime lane only;
+`ssc run`'s live-`serve()` path renders the `<select>` once via the
+interpreter, same as any other `forKeyedView`-backed widget — see
+specs/std-ui-select.md § "Reactive options (selectFrom)" for why). Use
+`emit-js`/`emit-spa`, not `ssc run`: this demo's `contracts` signal also
+currently trips a pre-existing, unrelated `ssc run`-only gap (`BUGS.md` §
+`custom-jsemitter-signal-list-literal` — `StaticJsEmitter.jsLiteral` can't
+encode a `List`-valued signal referenced by an event handler; the
+previously-shipped `keyed-for-demo.ssc` hits the identical error for the
+same reason). `emit-js`/`emit-spa` are unaffected — they compile `.ssc`
+source to JS syntactically and never hit that code path:
+
+```
+ssc emit-spa examples/frontend/select-reactive-demo/select-reactive-demo.ssc > select-reactive-demo.html
+```
+
+then open `select-reactive-demo.html` in a real browser: the dropdown starts
+with 2 contracts; click "Sign new contract" and a 3rd option appears in the
+dropdown immediately, with the first two options' identity untouched (no
+flicker/rebuild) — verified the same way by `JsRuntimeSelectFromTest.scala`
+(this repo's own regression test) via a headless Node run of the identical
+runtime.
+
+[signal, computedSignal, serve](std/ui/primitives.ssc)
+[selectFrom, signalButton](std/ui/input.ssc)
+[vstack, hstack](std/ui/layout.ssc)
+[heading, text](std/ui/typography.ssc)
+[signalText_](std/ui/reactive.ssc)
+[TkNode](std/ui/nodes.ssc)
+[lower](std/ui/lower.ssc)
+[Theme, defaultTheme](std/ui/theme.ssc)
+
+```scalascript
+case class Contract(id: String, title: String)
+
+// The reactive source — in a real app this would be a fetchUrlSignalTo-backed
+// signal, refetched when the owner bumps a shared "refresh" tick (see
+// fetchUrlSignalTo's own docs). Here it starts with 2 contracts.
+val contracts = signal("contracts", [
+  Contract("c-1001", "Acme Corp — retainer"),
+  Contract("c-1002", "Northwind — Q3 project")
+])
+
+val activeContract = signal("activeContract", "c-1002")
+
+// Derive the picked contract's title reactively, purely from the signals —
+// no rebuild of the dropdown needed when the selection (or the list) changes.
+val activeTitle = computedSignal(() =>
+  contracts().find { c => c.id == activeContract() }
+    .map { c => c.title }
+    .getOrElse("(none)"))
+
+val tree = vstack(gap = 16)(
+  heading(1, "Active contract"),
+  selectFrom(contracts, (c) => c.id, (c) => (c.id, c.title), activeContract,
+             label = "Active contract", placeholder = "Choose a contract..."),
+  hstack(gap = 4)(text("Picked:"), signalText_(activeTitle)),
+  // Simulates "the owner signs a new contract" — appends a 3rd item to the
+  // SAME reactive source the dropdown above is already watching. A real
+  // fetch-driven build would instead re-set `contracts` from an HTTP
+  // response; the dropdown side doesn't care which — it only watches the
+  // signal.
+  signalButton(contracts,
+    [Contract("c-1001", "Acme Corp — retainer"),
+     Contract("c-1002", "Northwind — Q3 project"),
+     Contract("c-1003", "Globex — support plan")],
+    "Sign new contract")
+)
+
+serve(lower(tree, defaultTheme), 8080)
+```

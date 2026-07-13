@@ -1,0 +1,59 @@
+---
+name: tkv2-select-reactive
+version: 1.0.0
+backends: [int, js]
+---
+
+# tkv2 - select-reactive: reactive-options variant of std-ui-select
+
+Slice `select-from-signal` (`specs/std-ui-select.md` § "Reactive options
+(selectFrom)"): `selectFrom` builds a `<select>` `TkNode` over a
+`Signal[List[A]]` source (busi's motivating case: a fetched contracts list)
+instead of a static `List[(String,String)]`. DOM serialization (the reactive
+`<option>` reconciliation itself — item added/removed/reordered without a
+page reload, preserving DOM node identity) is covered by
+`JsRuntimeSelectFromTest.scala` (a real Node + real `signals.mjs` runtime
+test, mirroring `JsRuntimeKeyedForTest.scala`'s method — conformance has no
+DOM available on either lane, same as the base `select()`'s own
+`tkv2-select.ssc`). This conformance file keeps the public API and the
+`lower()` path live on both lanes, and exercises that mutating the source
+signal (`items.set(...)`) and re-lowering does not throw.
+
+[signal](std/ui/primitives.ssc)
+[selectFrom](std/ui/input.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
+
+```scalascript
+case class Contract(id: String, title: String)
+
+val items = signal("tkv2SelectReactiveItems", [Contract("c1", "Alpha"), Contract("c2", "Beta")])
+val picked = signal("tkv2SelectReactivePicked", "c2")
+
+println(picked())
+picked.set("c1")
+println(picked())
+
+// Safe named-arg calling convention (see specs/std-ui-select.md "Known
+// limitation" — a bin/ssc-run-only standard-tier bug, not this lane).
+val node = selectFrom(items, (c) => c.id, (c) => (c.id, c.title), picked,
+                       label = "Pick a contract", placeholder = "Choose...", disabled = false)
+val view = lower(node, defaultTheme)
+println("select-from-built")
+
+// The source signal changes after the tree is built — item appended. Proves
+// the .ssc-level plumbing (constructing the reactive source, re-lowering)
+// survives a list mutation without throwing; the actual DOM reconciliation
+// this enables is verified by JsRuntimeSelectFromTest.scala (real DOM, real
+// Node), not reachable from a conformance println-diff.
+items.set([Contract("c1", "Alpha"), Contract("c2", "Beta"), Contract("c3", "Gamma")])
+val view2 = lower(node, defaultTheme)
+println("select-from-relowered")
+
+// placeholder-only path: empty initial selection, disabled render.
+val empty = signal("tkv2SelectReactiveEmpty", "")
+val node2 = selectFrom(items, (c) => c.id, (c) => (c.id, c.title), empty,
+                        label = "", placeholder = "Nothing yet", disabled = true)
+val view3 = lower(node2, defaultTheme)
+println("select-from-disabled-built")
+```

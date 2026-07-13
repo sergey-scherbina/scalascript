@@ -15,6 +15,7 @@ exports:
   - showSignal
   - fragment
   - forKeyedView
+  - selectFromView
   - setSignal
   - inputChange
   - toggleSignal
@@ -90,6 +91,21 @@ extern def signalText[T](s: Signal[T]): View
 extern def showSignal(cond: Signal[Boolean], whenTrue: View, whenFalse: View): View
 extern def fragment(children: List[View]): View
 extern def forKeyedView[A](items: Signal[List[A]], key: A => String, render: A => View): View
+
+// selectFromView — a <select> whose <option> children track `items`
+// reactively (specs/std-ui-select.md § "Reactive options (selectFrom)").
+// Unlike forKeyedView, this owns the WHOLE <select> element (attrs, events,
+// AND the option children) rather than being embedded as a generic child:
+// <select>'s HTML content model only allows <option>/<optgroup>/<hr>, so
+// forKeyedView's generic <span data-ssc-key> row wrapper would be silently
+// dropped by the browser's "in select" HTML parsing, losing the key. `key`
+// gives each item a stable identity for reconciliation (same convention as
+// forKeyedView's own `key`); `optionFn` maps each item to the (value, label)
+// pair the base `select()` takes statically; `style` is the pre-computed
+// CSS string (lower.ssc computes it the same way SelectNode does).
+extern def selectFromView[A](items: Signal[List[A]], key: A => String,
+                             optionFn: A => (String, String), selected: Signal[String],
+                             style: String, placeholder: String, disabled: Boolean): View
 
 // ── Event handler constructors ────────────────────────────────────────────
 // SetSignalLiteral — JS-translatable; use instead of a raw closure for

@@ -136,6 +136,50 @@ object FrontendIntrinsics:
         case _ => PluginError.raise("forKeyedView(items, key, render)")
     },
 
+    // ── selectFromView[A](items, key, optionFn, selected, style, placeholder, disabled): View ──
+    // Interpreter/JVM fallback: like forKeyedView above, render the current
+    // signal list ONCE (no dynamic reconciliation here — that lives in the JS
+    // emit-spa runtime's `_ssc_ui_selectFromView`/`_mountSelectFrom`, see
+    // specs/std-ui-select.md § "Reactive options (selectFrom)"). Builds the
+    // whole <select> element directly (mirrors SelectNode's own
+    // element()-composed shape) rather than delegating to `element(...)`,
+    // since this extern owns attrs/events/children together.
+    QualifiedName("selectFromView") -> PluginNative.evalLegacy { (ctx, args) =>
+      args match
+        case List(Foreign("ReactiveSignal", rs: ReactiveSignal[?]), Fn(_), Fn(optionFn),
+                  Foreign("ReactiveSignal", selRs: ReactiveSignal[?]),
+                  style: String, placeholder: String, disabled: Boolean) =>
+          val rows = rs.apply() match
+            case xs: Iterable[?] => xs.toList
+            case _               => Nil
+          val cur = String.valueOf(selRs.apply())
+          val optionEls: List[View[Nothing]] = rows.flatMap { item =>
+            PluginValue.wrap(ctx.invokeCallback(optionFn, List(item))).asTuple match
+              case Some(List(v, l)) =>
+                val value    = v.asString.getOrElse("")
+                val optLabel = l.asString.getOrElse("")
+                Some(View.Element("option",
+                  Map("value" -> AttrValue.Str(value), "selected" -> AttrValue.Bool(value == cur)),
+                  Map.empty, Seq(View.TextNode(() => optLabel))))
+              case _ => None
+          }
+          val placeholderEl: List[View[Nothing]] =
+            if placeholder.isEmpty then Nil
+            else List(View.Element("option",
+              Map("value" -> AttrValue.Str(""), "selected" -> AttrValue.Bool(cur == ""),
+                  "disabled" -> AttrValue.Bool(true), "hidden" -> AttrValue.Bool(true)),
+              Map.empty, Seq(View.TextNode(() => placeholder))))
+          val events: Map[String, EventHandler] =
+            if disabled then Map.empty
+            else Map("change" -> EventHandler.InputChange(selRs.asInstanceOf[ReactiveSignal[String]]))
+          val attrs = Map(
+            "style"    -> AttrValue.Str(style),
+            "disabled" -> AttrValue.Bool(disabled),
+            "value"    -> AttrValue.Reactive(selRs))
+          PluginValue.foreign("View", View.Element("select", attrs, events, placeholderEl ++ optionEls))
+        case _ => PluginError.raise("selectFromView(items, key, optionFn, selected, style, placeholder, disabled)")
+    },
+
     // ── setSignal[T](s: Signal[T], v: T): EventHandler ──────────────────────
     // `raw` arrives already unwrapped by installNativeIntrinsics (String/Boolean/Long/Double
     // for primitives; Value unchanged for complex types).

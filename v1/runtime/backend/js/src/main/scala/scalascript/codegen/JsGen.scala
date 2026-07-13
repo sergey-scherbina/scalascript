@@ -1312,7 +1312,8 @@ class JsGen(
       "validateField", "fieldError", "formErrors", "formValid", "formField",
       "submitGate", "ctxSignal", "ctxSeedSignal",
       "textNode", "signalText", "showSignal", "fragment(", "forKeyed",
-      "rawText", "rawHtml", "vstack", "hstack", "heading(", "lower("
+      "rawText", "rawHtml", "vstack", "hstack", "heading(", "lower(",
+      "selectFrom"
     ).exists(allText.contains)
     val hasSignals = allText.contains("signal(") || allText.contains("Signal(") ||
                     allText.contains("computed(") || allText.contains("Computed(") ||
