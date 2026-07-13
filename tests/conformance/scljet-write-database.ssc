@@ -1,0 +1,31 @@
+---
+name: scljet-write-database
+description: SclJet M3 single-table database assembly — byte-exact, cross-backend
+backends: [int, js]
+---
+
+# SclJet single-table database writer
+
+[ByteSlice, byteSliceToList, SqliteValue, SqlNull, SqlInteger, SqlText, SqlBlob, buildSingleTableDatabase](std/scljet/index.ssc)
+
+```scalascript
+def blob(values: List[Int]): ByteSlice = ByteSlice.fromList(values) match
+  case Right(bytes) => bytes
+  case Left(_) => ByteSlice.empty
+
+def out(label: String, result: Either[Any, ByteSlice]): Unit = result match
+  case Right(bytes) => println(label + ":" + byteSliceToList(bytes).toString)
+  case Left(_) => println(label + ":ERROR")
+
+// Byte-identical to the pinned page-512.db (change counter 3, schema cookie 2 —
+// the values SQLite writes for CREATE TABLE followed by one INSERT).
+out("page512", buildSingleTableDatabase(512, 3, 2, "t",
+  "CREATE TABLE t(a INTEGER, b TEXT, c BLOB)",
+  List(List(SqlInteger(-2L), SqlText("Hi"), SqlBlob(blob(List(0, 255)))))))
+
+// A different table with three rows including a NULL, on a 1024-byte page.
+out("nums", buildSingleTableDatabase(1024, 1, 1, "nums",
+  "CREATE TABLE nums(n INTEGER, label TEXT)",
+  List(List(SqlInteger(10L), SqlText("ten")), List(SqlInteger(20L), SqlText("twenty")),
+    List(SqlNull, SqlText("nil")))))
+```
