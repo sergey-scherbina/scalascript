@@ -150,6 +150,19 @@ def topValsCell = #cell.new(Nil)
 def mapVarsCell = #cell.new(Nil)
 -- List variable name registry (for .length dispatch to _sel_length vs slen)
 def listVarsCell = #cell.new(Nil)
+-- Summon-value alias registry: [Pair(localName, tc)] for `val m = summon[TC[A]]` where the given is
+-- abstract (poly body). m has no value representation; m.method/m.field dispatch to the active-ctx
+-- instance for tc. Reset per def body (block-local aliases are consumed during resolveBlock).
+def summonAliasCell = #cell.new(Nil)
+def registerSummonAlias = (name, tc) =>
+  #cell.set(summonAliasCell, Cons(Pair(name, tc), #cell.get(summonAliasCell)))
+def summonAliasTC = (name) =>
+  let rec go = (xs) =>
+    match xs {
+      case Nil => None
+      case Cons(p, rest) => match p { case Pair(n, tc) => if #seq(n, name) then Some(tc) else go(rest) }
+    } in
+  go(#cell.get(summonAliasCell))
 -- Total arity of assembled top-level definitions. Source parameter clauses are
 -- flattened in def nodes but calls retain nested App clauses; this table lets
 -- resolveE reconcile only a known full curried call without relaxing CoreIR.
@@ -1056,9 +1069,26 @@ def resolveMethodCall = (robj, method, rargs) =>
            else
              Pair("prim", Pair("__method__",
                Cons(Pair("str", method), Cons(Pair("ctorap", Pair(rname, Nil)), rargs)))))
+        else if #seq(rtag, "summon_tc") then
+          -- summon[TC].method → the active-ctx instance for THIS tc (rname), fallback first given
+          let gopt = match lookupActiveCtx(rname) { case Some(g) => Some(g) case None => firstActiveGiven(0) } in
+          match gopt {
+            case None => selMethodOr(method, robj, rargs)
+            case Some(gname) =>
+              Pair("app", Pair(Pair("var", #sconcat(gname, #sconcat("_", method))), rargs))
+          }
         else if #seq(rtag, "var") then
+          match summonAliasTC(rname) {
+            case Some(aliasTC) =>
+              -- m from `val m = summon[aliasTC[A]]`: dispatch m.method via the active-ctx instance
+              let gopt = match lookupActiveCtx(aliasTC) { case Some(g) => Some(g) case None => firstActiveGiven(0) } in
+              match gopt {
+                case None => selMethodOr(method, robj, rargs)
+                case Some(gname) => Pair("app", Pair(Pair("var", #sconcat(gname, #sconcat("_", method))), rargs))
+              }
+            case None =>
           if #seq(rname, "summon") then
-            -- summon[TC].method → static dispatch via active ctx cell
+            -- summon[TC].method → static dispatch via active ctx cell (untyped fallback)
             match firstActiveGiven(0) {
               case None => selMethodOr(method, robj, rargs)
               case Some(gname) =>
@@ -1075,6 +1105,7 @@ def resolveMethodCall = (robj, method, rargs) =>
               Pair("prim", Pair("__method__", Cons(Pair("str", method), Cons(robj, rargs))))
           else
             Pair("prim", Pair("__method__", Cons(Pair("str", method), Cons(robj, rargs))))
+          }
         else
           selMethodOr(method, robj, rargs)
     }
@@ -1215,9 +1246,25 @@ def resolveField = (robj, field) =>
     -- KC7b: static dispatch for known given-object vars
     match robj {
       case Pair(rtag, rname) =>
-        if #seq(rtag, "var") then
+        if #seq(rtag, "summon_tc") then
+          -- summon[TC].field → the active-ctx instance for THIS tc (rname), fallback first given
+          let gopt = match lookupActiveCtx(rname) { case Some(g) => Some(g) case None => firstActiveGiven(0) } in
+          match gopt {
+            case None => selOrMethod(field, robj)
+            case Some(gname) => Pair("var", #sconcat(gname, #sconcat("_", field)))
+          }
+        else if #seq(rtag, "var") then
+          match summonAliasTC(rname) {
+            case Some(aliasTC) =>
+              -- m from `val m = summon[aliasTC[A]]`: dispatch m.field via the active-ctx instance
+              let gopt = match lookupActiveCtx(aliasTC) { case Some(g) => Some(g) case None => firstActiveGiven(0) } in
+              match gopt {
+                case None => selOrMethod(field, robj)
+                case Some(gname) => Pair("var", #sconcat(gname, #sconcat("_", field)))
+              }
+            case None =>
           if #seq(rname, "summon") then
-            -- summon[TC].field → static dispatch via active ctx cell
+            -- summon[TC].field → static dispatch via active ctx cell (untyped fallback)
             match firstActiveGiven(0) {
               case None => selOrMethod(field, robj)
               case Some(gname) =>
@@ -1228,6 +1275,7 @@ def resolveField = (robj, field) =>
             Pair("var", #sconcat(rname, #sconcat("_", field)))
           else
             selOrMethod(field, robj)
+          }
         else if #seq(rtag, "uid") then
           if isEnumUid(rname) then
             -- Enum companion: `EnumName.Case` → `(ctor Case)` (nullary), `EnumName.values`
@@ -1502,7 +1550,10 @@ def resolveE = (expr) =>
           case Pair(tc, typeName) =>
             match findGiven(#cell.get(kc5GivenCell), tc, typeName) {
               case Some(gname) => Pair("var", gname)
-              case None => Pair("var", "summon")
+              -- Abstract type param (e.g. summon[Pretty[A]] in a poly body): defer to the active
+              -- ctx, carrying the TC so `.method`/`.field` dispatch resolves THIS tc's instance
+              -- (not just the first active given — wrong when a body has 2+ context bounds).
+              case None => Pair("summon_tc", tc)
             }
         }
       else if #seq(tag, "uid") then
@@ -1743,6 +1794,11 @@ def resolveE = (expr) =>
                         let _reg2 = if isListConstruction(rb) then
                           #cell.set(listVarsCell, Cons(name, #cell.get(listVarsCell)))
                         else () in
+                        -- `val m = summon[TC[A]]` (abstract given): register m as a summon alias so the
+                        -- rest of the block dispatches m.method/m.field via the active ctx for tc.
+                        let _reg3 = match rb {
+                          case Pair(rbt, rbtc) => if #seq(rbt, "summon_tc") then registerSummonAlias(name, rbtc) else ()
+                        } in
                         Cons(Pair("val", Pair(name, rb)), resolveBlock(rest))
                     }
                   else if #seq(stag, "var") then
@@ -1870,6 +1926,10 @@ def lowerE = (scope, rawExpr) =>
         IrLit(IrBool(if #seq(data, "true") then true else false))
       else if #seq(tag, "parameterless_app") then
         IrApp(IrGlobal(data), Nil)
+      else if #seq(tag, "summon_tc") then
+        -- summon[TC] in VALUE position (val m = summon[TC]) — a given is a set of globals, not a
+        -- single value; emit a loud unbound so it fails visibly rather than silently miscompiling.
+        IrGlobal(#sconcat("__summon_value_", data))
       else if #seq(tag, "var") then
         -- KC10: check for mutable var ("@name" or "@@name" in scope → cell.get/lcell.get)
         let plain = lookupVar(scope, data) in
@@ -2919,10 +2979,17 @@ def lowerBlock = (scope, stmts) =>
               case Pair(name, expr) =>
                 -- Track array/vector variables for indexed-read lowering
                 let rb = resolveE(expr) in
-                let _reg = if isArrayConstruction(rb) then
-                  #cell.set(arrVarsCell, Cons(name, #cell.get(arrVarsCell)))
-                else () in
-                IrLet(Cons(lowerE(scope, expr), Nil), lowerBlock(Cons(name, scope), rest))
+                -- `val m = summon[TC[A]]` (abstract given) has no value; its m.method/m.field uses were
+                -- already rewritten to <instance>_<member> during resolveBlock. Drop the binding.
+                match rb {
+                  case Pair(rbt, rbd) =>
+                    if #seq(rbt, "summon_tc") then lowerBlock(scope, rest)
+                    else
+                      let _reg = if isArrayConstruction(rb) then
+                        #cell.set(arrVarsCell, Cons(name, #cell.get(arrVarsCell)))
+                      else () in
+                      IrLet(Cons(lowerE(scope, expr), Nil), lowerBlock(Cons(name, scope), rest))
+                }
             }
           else if #seq(tag, "var") then
             -- KC10: mutable var x = e → cell.new(e), bound as "@x" in scope
@@ -3095,6 +3162,7 @@ def lowerStmtToList = (stmt) =>
                 -- KC5b: set active ctx for summon dispatch within this def body
                 let prevCtx = #cell.get(kc5ActiveCtxCell) in
                 let _setCtx = #cell.set(kc5ActiveCtxCell, computeActiveCtx(params)) in
+                let _resetAlias = #cell.set(summonAliasCell, Nil) in
                 let resolvedBody = resolveE(body) in
                 let ir = match resolvedBody {
                   case Pair(btag, bdata) =>
@@ -4152,6 +4220,7 @@ def emitOneMonoDef = (stmts, fnName, instance, tc) =>
           let scope = revL(params) in
           let prevCtx = #cell.get(kc5ActiveCtxCell) in
           let _set = #cell.set(kc5ActiveCtxCell, Cons(Pair(instance, tc), Nil)) in
+          let _resetAlias = #cell.set(summonAliasCell, Nil) in
           let resolvedBody = resolveE(body) in
           let ir = match resolvedBody {
             case Pair(btag, bdata) =>

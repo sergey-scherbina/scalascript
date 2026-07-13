@@ -1412,15 +1412,22 @@ def parseTypeParams = (toks) =>
         let tv = tokVal(peek(ts)) in
         let ts2 = advance(ts) in
         if kindIs(":", ts2) then
-          -- bounded: read TC name (next id or uid token)
-          let ts3 = advance(ts2) in
-          let tc = tokVal(peek(ts3)) in
-          let ts4 = advance(ts3) in
-          -- skip optional [TypeArg] after TC name
-          let ts5 = skipTypeArgs(ts4) in
-          let acc2 = Cons(Pair(tv, tc), acc) in
-          if kindIs(",", ts5) then go(advance(ts5), acc2)
-          else go(ts5, acc2)
+          -- bounded: read one OR MORE chained TC bounds for this tv (`A: Monoid: Pretty`).
+          -- Each `: TC[optArg]` yields a Pair(tv, TC); loop while another `:` follows.
+          let rec readBounds = (bts, bacc) =>
+            -- bts points AT a `:`
+            let bts1 = advance(bts) in
+            let btc = tokVal(peek(bts1)) in
+            let bts2 = advance(bts1) in
+            let bts3 = skipTypeArgs(bts2) in
+            let bacc2 = Cons(Pair(tv, btc), bacc) in
+            if kindIs(":", bts3) then readBounds(bts3, bacc2)
+            else pr(bacc2, bts3) in
+          match readBounds(ts2, acc) {
+            case Pair(acc2, ts5) =>
+              if kindIs(",", ts5) then go(advance(ts5), acc2)
+              else go(ts5, acc2)
+          }
         else
           -- unbounded type var: skip
           if kindIs(",", ts2) then go(advance(ts2), acc)
