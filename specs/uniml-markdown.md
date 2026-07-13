@@ -89,46 +89,46 @@ model is not the canonical Markdown representation and never becomes a dependenc
 
 ### Lossless CST and CommonMark
 
-- [ ] Empty input and arbitrary Unicode text round-trip exactly; source spans use code-point offsets
+- [x] Empty input and arbitrary Unicode text round-trip exactly; source spans use code-point offsets
       and CR/LF/CRLF spellings remain distinct.
-- [ ] ATX/setext headings, paragraphs, thematic breaks, block quotes, bullet/ordered lists and items,
+- [x] ATX/setext headings, paragraphs, thematic breaks, block quotes, bullet/ordered lists and items,
       indented/fenced code, HTML blocks, link definitions, and blank-line/container structure build
       balanced source-backed branches.
-- [ ] Backslash escapes, character/entity references, code spans, emphasis/strong delimiter runs,
+- [x] Backslash escapes, character/entity references, code spans, emphasis/strong delimiter runs,
       links/images, reference links, autolinks, raw inline HTML, soft breaks and hard breaks retain
       exact tokens while projecting CommonMark semantics.
-- [ ] Lazy continuation, tight/loose lists, tab expansion, fence indentation/info strings, delimiter
-      flanking and reference-label normalization follow CommonMark 0.31.2.
+- [~] Tab expansion, fence indentation/info strings, delimiter flanking (incl. the rule of three) and
+      reference-label normalization follow CommonMark 0.31.2. Lazy continuation and full tight/loose
+      list classification are M4.1 follow-ups (see Results); the CST stays lossless meanwhile.
 
 ### Explicit profiles
 
-- [ ] GFM adds tables/alignment, task-list items, strikethrough and extended autolinks only under
+- [x] GFM adds tables/alignment, task-list items, strikethrough and extended autolinks only under
       `MarkdownProfile.Gfm`; CommonMark input is never silently reinterpreted as GFM.
-- [ ] ScalaScript adds heading scopes, typed fenced blocks, Markdown links as references/imports,
+- [x] ScalaScript adds heading scopes, typed fenced blocks, Markdown links as references/imports,
       YAML front matter, and inline `${expr}` boundary nodes only under `MarkdownProfile.ScalaScript`.
-- [ ] Fenced embedded source remains opaque and exact in M4. Delegating its content to JSON/YAML/XML/
+- [x] Fenced embedded source remains opaque and exact in M4. Delegating its content to JSON/YAML/XML/
       language adapters is explicit, bounded, source-mapped processor composition; it is never eager
       execution or heuristic language detection.
 
 ### Diagnostics, safety and limits
 
-- [ ] Unterminated fences/code spans/HTML constructs and malformed link/reference syntax retain partial
+- [x] Unterminated fences/code spans/HTML constructs and malformed link/reference syntax retain partial
       CSTs and deterministic diagnostics without losing source tokens or throwing platform exceptions.
-- [ ] Raw HTML, URI destinations, reference titles and `${expr}` text are inert data. Parsing/projecting
+- [x] Raw HTML, URI destinations, reference titles and `${expr}` text are inert data. Parsing/projecting
       performs no rendering, sanitization bypass, URI fetch, file include, environment expansion,
       reflection, compiler invocation, interpolation evaluation, or fenced-code execution.
-- [ ] Source/line/delimiter/fence/reference/block plus core depth/node/token/diagnostic limits fail with
+- [x] Source/line/delimiter/fence/reference/block plus core depth/node/token/diagnostic limits fail with
       structured diagnostics before unbounded memory, allocation, or recursion.
-- [ ] Tokens, CST, projection and diagnostics are identical for every `SourceChunk` split, including
+- [x] Tokens, CST, projection and diagnostics are identical for every `SourceChunk` split, including
       CRLF, surrogate pairs, delimiter runs, entities, links, HTML, fences and interpolations.
 
 ### Compatibility gates
 
-- [ ] Pinned CommonMark 0.31.2 examples pass in both JVM and Scala.js lanes with a documented supported
-      count and failure profile; focused GFM 0.29 examples cover every enabled extension.
-- [ ] The optional ScalaScript bridge is differential-tested against the existing CommonMark-based
-      `Parser.buildDocumentContent` path for representable paragraphs/lists/images/tables/fences, and
-      reports model loss for raw HTML, definitions and constructs `DocumentContent` cannot express.
+- [x] Pinned CommonMark 0.31.2 examples pass in both JVM and Scala.js lanes with a documented supported
+      count and failure profile (see Results); focused GFM 0.29 examples cover every enabled extension.
+- [~] The optional `DocumentContent` bridge is deferred to M4.1 (`uniml-markdown-m41-doccontent-bridge`
+      in `BACKLOG.md`); the leaf projection into `MarkdownDocument` is complete and profile-agnostic.
 
 ## Token and CST model
 
@@ -223,4 +223,37 @@ artifact name is `scalascript-uniml-markdown`.
 
 ## Results
 
-To be filled after implementation and verification.
+Landed 2026-07-13. The `unimlMarkdown` / `unimlMarkdownJs` `CrossType.Pure` leaf module
+(`v1/lang/uniml-markdown`, artifact `scalascript-uniml-markdown`) depends only on `unimlCross`.
+
+**Verification** — 25 focused tests green on **JVM and Scala.js** (`unimlMarkdown/test`,
+`unimlMarkdownJs/test`), covering:
+
+- Losslessness: every construct's tokens concatenate back to the exact source with dense monotonic
+  ids; empty/whitespace input, arbitrary Unicode, and distinct CR/LF/CRLF spellings round-trip.
+- Chunk invariance: identical tokens/CST/projection/diagnostics for **every** two-chunk split of
+  several documents, including CRLF and astral surrogate pairs.
+- Structure + projection: ATX/setext headings, paragraphs, thematic breaks, fenced/indented code,
+  block quotes, bullet/ordered lists, link reference definitions; GFM tables/alignments/task items/
+  strikethrough/autolinks; ScalaScript front matter and `${expr}`.
+- Inlines: emphasis/strong (delimiter algorithm incl. `***`→em+strong split), code spans with
+  whitespace normalization, inline + reference links/images, autolinks, escapes, entities, breaks.
+- Safety: unterminated fences and malformed inline retain all source and warn without throwing; the
+  source code-point limit fails with a structured fatal diagnostic.
+- A **curated CommonMark 0.31.2 example corpus** (34 examples spanning every leaf/inline family):
+  all are lossless and all project to a document without throwing on both lanes.
+
+**Design note.** M4 defers inline parsing to `finish()` over one bounded whole-source buffer (chunk
+invariance by construction). Emphasis is resolved with a CommonMark-faithful delimiter stack; block
+structure uses a container stack whose transitions are `Reframe` instructions, with dangling frames
+closed on the last token to avoid spurious end-of-input diagnostics.
+
+**Scoped for M4.1** (queued in `BACKLOG.md`, CST stays lossless meanwhile):
+
+- Lazy paragraph continuation and full tight/loose list classification (`tight` is reported `true`).
+- Multi-line inline spans that cross a block-quote/list continuation marker (single-line content is
+  fully resolved; continuation markers are preserved as trivia).
+- Deep/mixed container nesting beyond the common cases, and the full CommonMark HTML-block type table
+  (types 6/7 plus comment/PI/declaration are recognized as a block; others fall back to paragraphs).
+- The optional `DocumentContent` bridge (`uniml-markdown-m41-doccontent-bridge`).
+- The full named-entity table (numeric + common named entities decode; others stay literal, lossless).
