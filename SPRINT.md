@@ -161,9 +161,12 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
           `ssc1-front` `opPrec` (left-assoc) via one generic `spike.infix` frame. 16/16 tests; the
           operator corpus (prec/assoc/shift/cmp/bool/bit) is **Core IR byte-identical to ssc1-front**.
           Notes: `specs/v2.2-p6.0-spike-notes.md` §P6.2.
-    - [ ] **P6.2b offside layout** — significant indentation → `Reframe` (UniML's YAML indent
-          machinery applies); Scala-3 optional-braces + semicolon inference (mirror ssc1-front
-          `layout`). The big one.
+    - [x] **P6.2b offside layout ✓ Landed 2026-07-13** — indented def body → `spike.block` of
+          `val` bindings + final expr; block structure computed from token COLUMNS in the RD parser
+          (no synthetic tokens → lossless CST), leading-operator continuation lines glued (matches
+          ssc1-front `isCont`). Projection `Pair("block",[mkVal…,mkSExpr])` → unchanged `lowerBlock`
+          → nested `IrLet`s. 20/20 tests; block-vals/single/cont are **Core IR byte-identical to
+          ssc1-front**. Notes §P6.2b. Deferred: nested/if-layout blocks, `var`, full continuation matrix.
     - [ ] **P6.2c** `::`/`->`/`to`/`until` + prefix ops; then patterns/`match`/`given`-`using`/decls.
   - [ ] **P6.3 injection + registry** — interpolator injection (s/f/md) via registry; registry hook
         (built-in set, user-closed).

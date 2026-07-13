@@ -33,6 +33,9 @@ final class ScalaSpikeSpec extends AnyFunSuite:
   private def childWithRole(b: UniNode.Branch, role: String): Option[UniNode] =
     b.edges.collectFirst { case UniEdge(Some(r), c) if r == role => c }
 
+  private def childKinds(b: UniNode.Branch): Vector[String] =
+    b.edges.collect { case UniEdge(_, c: UniNode.Branch) => c.kind }
+
   /** the operator lexeme of a `spike.infix` node */
   private def opOf(b: UniNode.Branch): String =
     childWithRole(b, "bin.op").collect { case UniNode.Token(t) => t.lexeme }.getOrElse("?")
@@ -121,6 +124,33 @@ final class ScalaSpikeSpec extends AnyFunSuite:
       assert(top.kind == "spike.infix" && opOf(top) == op, s"$code → ${opOf(top)}")
   }
 
+  // ══ P6.2b — offside layout (indented def-body blocks) ═════════════════════════
+
+  test("offside: indented def body is a block(val, val, exprStmt)") {
+    val pr = parse("def main(): Int =\n  val a = 1\n  val b = 2\n  a + b")
+    assert(pr.status == CompletionStatus.Complete, pr.diagnostics)
+    val body = defBody(pr).asInstanceOf[UniNode.Branch]
+    assert(body.kind == "spike.block")
+    assert(childKinds(body) == Vector("spike.val", "spike.val", "spike.exprStmt"))
+  }
+
+  test("offside: inline body stays a bare expr (no block)") {
+    assert(defBody(parse("def main(): Int = 1 + 2")).asInstanceOf[UniNode.Branch].kind == "spike.infix")
+  }
+
+  test("offside: a leading-operator continuation line stays one statement") {
+    // `val a = 1 +` ⏎ (deeper) `2` → RHS is `1 + 2`; then `a` is the final expr stmt
+    val body = defBody(parse("def main(): Int =\n  val a = 1 +\n    2\n  a")).asInstanceOf[UniNode.Branch]
+    assert(body.kind == "spike.block")
+    assert(childKinds(body) == Vector("spike.val", "spike.exprStmt"))
+  }
+
+  test("offside: a dedent to a top-level `def` ends the block; both defs survive") {
+    val pr = parse("def a(): Int =\n  val x = 1\n  x\ndef main(): Int = 2")
+    assert(allBranches(pr.roots.head, "spike.def").size == 2)
+    assert(allBranches(pr.roots.head, "spike.block").size == 1) // only `a` has a block
+  }
+
   // ══ P6.1 — total, error-resilient pipeline ════════════════════════════════════
 
   test("parser + projection are TOTAL — never throw on garbage") {
@@ -188,7 +218,11 @@ final class ScalaSpikeSpec extends AnyFunSuite:
       "ops-shift" -> "def main(): Int = 1 + 2 << 3 - 1",
       "ops-cmp"   -> "def main(): Int = 1 + 2 * 3 < 4 + 5",
       "ops-bool"  -> "def main(): Int = 1 < 2 && 3 > 4 || 5 == 5",
-      "ops-bit"   -> "def main(): Int = 10 % 3 + 4 & 6 | 1"
+      "ops-bit"   -> "def main(): Int = 10 % 3 + 4 & 6 | 1",
+      // P6.2b offside — indented def-body blocks (val bindings + final expr)
+      "block-vals"   -> "def main(): Int =\n  val a = 1 + 2\n  val b = a * 3\n  a + b",
+      "block-single" -> "def main(): Int =\n  1 + 2",
+      "block-cont"   -> "def main(): Int =\n  val a = 1 +\n    2\n  a * 10"
     )
     // broken — no oracle; the harness proves containment (`main` still runs).
     val broken = Seq(
