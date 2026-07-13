@@ -7186,6 +7186,16 @@ JS `1410065408` = mod 2^32; JVM emits Scala's 32-bit `Int`). Huge blast radius
         access to field/value access, not a mangled global). BOTH are MAJOR v2-lowering architecture
         changes, not a patch — a dedicated design+build effort. This diagnostic pass pinned the exact
         wall; no code landed (kernel reverted clean).
+  - [ ] **A1-mono (chosen 2026-07-13) — DESIGN DONE, build is the next dedicated effort** →
+        `specs/v2-typeclass-monomorphization.md`. Decision: MONOMORPHISATION over runtime dicts (fits
+        the static `<given>_<method>` model, REUSES `computeActiveCtx` — emit one specialised copy of
+        the polymorphic body per needed instance, each lowered with active ctx = the CONCRETE instance;
+        rewrite calls to `f$<instanceKey>(args)`). Phased plan in the spec: Collect (call sites →
+        (fn,instance) set, by the List-element type rule) → Emit (specialised defs, memoised) → Rewrite
+        → Transitivity (worklist to fixpoint). Fallback = today's first-instance for unknown types (no
+        regression). VERIFY: v2 bytecode sweep must hold 99 + recover the ~12 typeclass cluster; land
+        per-slice (direct case first, then transitivity), revert on any regression. Build NOT started —
+        a major kernel change deserving its own focused session with the design in hand.
 
 ### ▶ ssc-toolkit-v2 (2026-07-07, owner-directed via busi: the busi SPA must move React→ScalaScript)
 
