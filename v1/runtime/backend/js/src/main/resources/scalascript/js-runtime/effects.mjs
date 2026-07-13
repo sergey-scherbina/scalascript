@@ -21,7 +21,8 @@ function _loggerJsonStr(s) {
 function _loggerMakeHandlers(fmt) {
   function makeHandler(level) {
     return function(args) {
-      const msg = args[0];
+      const raw = args[0];
+      const msg = typeof raw === 'string' ? raw : _show(raw);
       if (fmt === 'json') {
         process.stdout.write('{"level":"' + level + '","msg":' + _loggerJsonStr(msg) + '}\n');
       } else {
@@ -30,30 +31,39 @@ function _loggerMakeHandlers(fmt) {
       return args[args.length - 1](undefined);
     };
   }
+  // `log` is included alongside the four standard levels: the interpreter's
+  // runLogger (LoggerEffectPlugin) discharges the whole `Logger` effect for ANY op
+  // — a program that declares its own `effect Logger: def log(msg)` and runs it
+  // under the stdlib `runLogger` printed `[LOG] <msg>` on INT but `[object Object]`
+  // on JS (the op was unhandled). (js-algebraic-effects-residual.)
   return {
     'Logger.info':  makeHandler('info'),
     'Logger.warn':  makeHandler('warn'),
     'Logger.error': makeHandler('error'),
     'Logger.debug': makeHandler('debug'),
+    'Logger.log':   makeHandler('log'),
   };
 }
 
+const _loggerOps = ['Logger.info', 'Logger.warn', 'Logger.error', 'Logger.debug', 'Logger.log'];
+
 function runLogger(bodyFn) {
-  const handled = new Set(['Logger.info', 'Logger.warn', 'Logger.error', 'Logger.debug']);
-  return _handle(bodyFn, handled, _loggerMakeHandlers('text'));
+  return _handle(bodyFn, new Set(_loggerOps), _loggerMakeHandlers('text'));
 }
 
 function runLoggerJson(bodyFn) {
-  const handled = new Set(['Logger.info', 'Logger.warn', 'Logger.error', 'Logger.debug']);
-  return _handle(bodyFn, handled, _loggerMakeHandlers('json'));
+  return _handle(bodyFn, new Set(_loggerOps), _loggerMakeHandlers('json'));
 }
 
 function runLoggerToList(bodyFn) {
   const log = [];
   const handlers = {};
-  for (const level of ['info', 'warn', 'error', 'debug']) {
+  for (const level of ['info', 'warn', 'error', 'debug', 'log']) {
     handlers['Logger.' + level] = function(args) {
-      log.push([level, String(args[0])]);
+      // (level, msg) is a Tuple2, not a List — mark it so it renders `(a, b)`.
+      // (js-algebraic-effects-residual.)
+      const _p = [level, String(args[0])]; _p._isTuple = true;
+      log.push(_p);
       return args[args.length - 1](undefined);
     };
   }
@@ -439,11 +449,16 @@ function runAuthWith(user) {
 // The CPS path (_bind chains) still works: _bind(undefined, k) → k(undefined).
 
 let _streamBuf = null;
+// Side-channel termination flag: `Stream.emit` buffers directly into `_streamBuf`
+// (fast path), so it must also observe a `Stream.complete()`/`error()` — otherwise
+// an `emit` AFTER `complete()` still buffered (List(1,2,3) instead of List(1,2)).
+// (js-algebraic-effects-residual.)
+let _streamDone = false;
 
 const Stream = {
-  emit:     (x)   => { if (_streamBuf !== null) { _streamBuf.push(x); return undefined; } return _perform('Stream', 'emit', [x]); },
-  complete: ()    => _perform('Stream', 'complete',  []),
-  error:    (msg) => _perform('Stream', 'error',    [msg]),
+  emit:     (x)   => { if (_streamBuf !== null) { if (!_streamDone) _streamBuf.push(x); return undefined; } return _perform('Stream', 'emit', [x]); },
+  complete: ()    => { if (_streamBuf !== null) { _streamDone = true; return undefined; } return _perform('Stream', 'complete',  []); },
+  error:    (msg) => { if (_streamBuf !== null) { _streamDone = true; return undefined; } return _perform('Stream', 'error',    [msg]); },
   request:  (n)   => _perform('Stream', 'request',  [n]),
 };
 
@@ -459,6 +474,7 @@ function _mkStreamSource(data) {
 function runStream(bodyFn) {
   const emitted = [];
   _streamBuf = emitted;
+  _streamDone = false;
   let terminated = false;
   let errorMsg = null;
   let bodyResult;
@@ -484,6 +500,7 @@ function runStream(bodyFn) {
     bodyResult = _handle(bodyFn, new Set(['Stream.emit','Stream.complete','Stream.error','Stream.request']), handlers);
   } finally {
     _streamBuf = null;
+    _streamDone = false;
   }
   if (errorMsg !== null) throw new Error(String(errorMsg));
   const _t = [_mkStreamSource(emitted), bodyResult]; _t._isTuple = true; return _t;

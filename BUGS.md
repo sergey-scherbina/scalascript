@@ -81,15 +81,22 @@ Remaining (categorized; not yet fixed):
   unchanged). This surfaced a second gap — `String.matchPrefix(pat)` (Java
   `Matcher.lookingAt` regex prefix match, used by the `PRegex` primitive) had no JS
   runtime impl; added it. dsl-calc-parser + dsl-json-parser now match INT end-to-end.
-- **js-http-config-namespace-tdz** (open) — `std.http.httpTimeout`/`httpRetry`
-  imported into a namespace resolve to the absent `_ssc_ui_*` UI stub instead of
-  the real preamble function (`function httpTimeout` exists) — the identity-
-  RuntimeCall fallback is skipped to avoid a TDZ self-reference. `_bug1b/_bug1c`
-  now parse but hit "not callable: ()".
-- **js-algebraic-effects-residual** (open) — `examples/algebraic-effects.ssc` still
-  diverges on: a user-declared `effect Logger` interleaved with State prints
-  `[object Object]`; inner `(level, msg)` pairs from `runLoggerToList` render as
-  `List(…)`; `Stream.complete()` does not stop emission (partial list wrong).
+- **js-http-config-namespace-tdz** (FIXED) — `std.http.httpTimeout`/`httpRetry`
+  imported into a namespace resolved to `undefined` (the identity intrinsic target
+  is shadowed by the generated namespace `const httpTimeout`, so the fallback can't
+  reference it without hitting TDZ). Added non-shadowed `_httpTimeout`/`_httpRetry`
+  aliases in the preamble and pointed the JS Http intrinsics at them. `_bug1b`/
+  `_bug1c`/`_bug1_httpclient` now match INT end-to-end.
+- **js-algebraic-effects-residual** (FIXED) — three effects.mjs bugs; `examples/
+  algebraic-effects.ssc` now matches INT end-to-end. (1) `Stream.complete()` didn't
+  stop emission: `Stream.emit` buffers directly into the `_streamBuf` side-channel
+  while `complete()` set a *local* flag the side-channel couldn't see — added a
+  shared `_streamDone` flag both observe. (2) `runLoggerToList` pairs `(level, msg)`
+  were bare arrays (rendered `List(…)`) — marked `_isTuple`. (3) the stdlib
+  `runLogger` handled only info/warn/error/debug, so a user `effect Logger: def
+  log` run under it printed `[object Object]` — added `log` to the handled ops
+  (the interpreter's plugin discharges the whole Logger effect) + `_show` non-string
+  messages.
 - **Genuine JS feature gaps (not bugs)** — spark, PDF (`htmlToPdfBase64`), JDBC/SQL,
   native crypto (`aesGenKey`/`verifyEd`), `DatasetCodec`, `oauth`, quoted macros,
   `mcpServer`, scljet VFS: unsupported on the JS/Node lane by design.

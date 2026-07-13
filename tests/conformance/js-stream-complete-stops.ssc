@@ -1,0 +1,26 @@
+---
+name: js-stream-complete-stops
+backends: [int, js]
+---
+
+# Stream.complete() stops emission on JS (js-algebraic-effects-residual)
+
+`runStream`'s `Stream.emit` buffers directly into a side-channel that didn't observe
+`Stream.complete()` (which set a separate local flag), so an `emit` after `complete()`
+still landed in the collected source — `List(1, 2, 3)` instead of `List(1, 2)`. A
+shared `_streamDone` flag now stops the side-channel too.
+
+```scalascript
+def readNumbers(shouldStop: Boolean): Int ! Stream[Int] =
+  Stream.emit(1)
+  Stream.emit(2)
+  if shouldStop then Stream.complete()
+  Stream.emit(3)
+  3
+
+val (full, c1) = runStream { readNumbers(false) }
+println(full.runToList())
+
+val (partial, c2) = runStream { readNumbers(true) }
+println(partial.runToList())
+```
