@@ -7588,6 +7588,20 @@ JS `1410065408` = mod 2^32; JVM emits Scala's 32-bit `Int`). Huge blast radius
           DataV. → **dataset-agg, http-client** (sweep 122 → 124, 0 regr). LIMIT: a brace-less indented
           def body `def f =\n try{}\n catch{}` still splits (layout).
           - `tagless-program` → `TYPEERR: cannot unify Tuple with non-Tuple` (typer/tuple, distinct).
+    - [x] **optics — .index/.at + rendering + mixed-arg copy** `982ea9952` — (1) OpticsNativePlugin
+          step/setPath/modifyAll gained OIndex(i) (bounds-checked List) + OAt(k) (Map key) — get/set/
+          modify now work; (2) the optic renders its source path (`Lens(_.x)`), and Show.show consults a
+          NamedMethodObj's `_show` before `<foreign>`; (3) mixed positional+named `.copy(10, z=99)` encodes
+          positionals as `#i` (was stripping labels → z applied to y). → optic-polish, optics-index-at,
+          signal-id-bridged (sweep 126→129).
+    - [x] **actors — supervision + cluster/phi + scientific floats** `7ad97307e`/`c78268db1` — added the
+          Erlang supervision layer (link/monitor/trapExit/exit → Exit/Down propagation; propagate BEFORE
+          `dead` so quiescence can't end the scope early; queue.offer not put; io.println made atomic for
+          concurrent actors) + single-node cluster stubs (joinCluster/broadcastHealth no-op, clusterIsDown
+          ⇒false, phiOf⇒+Inf, isSuspect⇒true) + scientific-notation float lexing (`1.0e100`). → actors-
+          supervision, actors-cluster-discovery, actors-cluster-isdown, actors-phi-accrual (sweep 129→136).
+          NOTE: actors-supervision is virtual-thread-heavy — passes serially; can flake under 8-way parallel
+          sweep CPU contention (the official runner is serial).
 
 ### ▶ ssc-toolkit-v2 (2026-07-07, owner-directed via busi: the busi SPA must move React→ScalaScript)
 
