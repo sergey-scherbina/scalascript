@@ -152,12 +152,27 @@ private[markdown] final class MarkdownBlocks(
     if matched >= containers.size then
       // full match: hand a continuation prefix to appendParagraph, if buffering
       if buffering then paragraphPendingPrefix = prefix.result()
+    else if buffering && isLazyContinuation(rest) then
+      // lazy paragraph continuation: a plain paragraph-text line continues the
+      // open paragraph even though a container marker is missing; keep the
+      // unmatched containers open so the paragraph stays inside them
+      paragraphPendingPrefix = prefix.result()
     else
       // fewer containers matched — the paragraph (if any) ends here
       finishParagraph()
       if prefix.nonEmpty then flushPending(MdKind.Indent, prefix.result(), Vector.empty, Some("continuation"), TokenChannel.Trivia)
       scheduleContainerClose(matched)
     rest
+
+  /** A line that, in the context of an open paragraph, continues it even without
+    * the enclosing container markers — i.e. non-blank paragraph text that does
+    * not itself begin an interrupting block. */
+  private def isLazyContinuation(rest: String): Boolean =
+    if rest.forall(c => c == ' ' || c == '\t') then false
+    else
+      val t = rest.substring(MdChars.indentPrefixLength(rest))
+      !(startsAtxHeading(t) || isThematicBreak(t) || startsFence(t).isDefined ||
+        startsBlockquote(t) || startsListItem(t).isDefined || startsHtmlBlock(t) || isSetextUnderline(t))
 
   private def scheduleContainerClose(keep: Int): Unit =
     finishParagraph()

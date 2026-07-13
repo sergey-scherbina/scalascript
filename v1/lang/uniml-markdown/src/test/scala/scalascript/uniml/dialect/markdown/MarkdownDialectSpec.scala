@@ -144,6 +144,29 @@ final class MarkdownDialectSpec extends AnyFunSuite:
       case other => fail(s"expected block quote, got $other")
   }
 
+  test("lazy paragraph continuation keeps text inside its container") {
+    // a marker-less line continues the block quote's paragraph
+    projectDoc("> foo\nbar\n").blocks.head match
+      case MarkdownBlock.BlockQuote(Vector(MarkdownBlock.Paragraph(inlines))) =>
+        assert(inlines.contains(MarkdownInline.Text("foo")) && inlines.contains(MarkdownInline.Text("bar")))
+      case other => fail(s"expected block quote with one continued paragraph, got $other")
+    // a marker-less line continues a list item's paragraph
+    projectDoc("- foo\nbar\n").blocks.head match
+      case MarkdownBlock.ListBlock(_, _, _, items) =>
+        val inlines = items.head.blocks.collectFirst { case MarkdownBlock.Paragraph(is) => is }.get
+        assert(inlines.contains(MarkdownInline.Text("foo")) && inlines.contains(MarkdownInline.Text("bar")))
+      case other => fail(s"expected list with continued item, got $other")
+    // laziness stops at a blank line: quote then a separate top-level paragraph
+    projectDoc("> foo\n\nbar\n").blocks match
+      case Vector(MarkdownBlock.BlockQuote(_), MarkdownBlock.Paragraph(is)) =>
+        assert(is == Vector(MarkdownInline.Text("bar")))
+      case other => fail(s"expected quote then paragraph, got $other")
+    // laziness stops at a block start (heading interrupts)
+    projectDoc("> foo\n# bar\n").blocks match
+      case Vector(MarkdownBlock.BlockQuote(_), MarkdownBlock.Heading(1, _, _)) => ()
+      case other => fail(s"expected quote then heading, got $other")
+  }
+
   test("tight vs loose list classification follows CommonMark") {
     def tightOf(text: String): Boolean =
       projectDoc(text).blocks.collectFirst { case l: MarkdownBlock.ListBlock => l.tight }.getOrElse(fail(s"no list in $text"))
