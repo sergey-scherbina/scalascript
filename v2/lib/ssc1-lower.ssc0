@@ -887,6 +887,22 @@ def focusStep = (field) =>
   else if #seq(field, "each") then Pair("ctorap", Pair("OEach", Nil))
   else Pair("ctorap", Pair("OField", Cons(Pair("str", field), Nil)))
 
+-- `.index(i)` / `.at(k)` pointwise steps (List index, Map key). The plugin's
+-- optics.focus already interprets OIndex/OAt; the front just has to emit them.
+-- The index/key argument is resolved so a non-literal (a captured var) lowers.
+def focusMethodStep = (mname, args) =>
+  match args {
+    case Cons(arg, rest) =>
+      match rest {
+        case Nil =>
+          if #seq(mname, "index") then Pair("__ok__", Pair("ctorap", Pair("OIndex", Cons(resolveE(arg), Nil))))
+          else if #seq(mname, "at") then Pair("__ok__", Pair("ctorap", Pair("OAt", Cons(resolveE(arg), Nil))))
+          else Pair("__bad__", Nil)
+        case _ => Pair("__bad__", Nil)
+      }
+    case Nil => Pair("__bad__", Nil)
+  }
+
 def isFocusMarker = (expr) =>
   match expr { case Pair(tag, data) => #seq(tag, "focus_marker") }
 
@@ -902,6 +918,30 @@ def focusPathSteps = (expr, param) =>
               case Pair(status, steps) =>
                 if #seq(status, "__ok__") then
                   Pair("__ok__", appendL(steps, Cons(focusStep(field), Nil)))
+                else Pair("__bad__", Nil)
+            }
+        }
+      else if #seq(tag, "app") then
+        -- method-call steps: app(sel(base, method), [arg]) for .index(i) / .at(k)
+        match data {
+          case Pair(callee, args) =>
+            match callee {
+              case Pair(ctag, cdata) =>
+                if #seq(ctag, "sel") then
+                  match cdata {
+                    case Pair(base, mname) =>
+                      match focusMethodStep(mname, args) {
+                        case Pair(sok, step) =>
+                          if #seq(sok, "__ok__") then
+                            match focusPathSteps(base, param) {
+                              case Pair(status, steps) =>
+                                if #seq(status, "__ok__") then
+                                  Pair("__ok__", appendL(steps, Cons(step, Nil)))
+                                else Pair("__bad__", Nil)
+                            }
+                          else Pair("__bad__", Nil)
+                      }
+                  }
                 else Pair("__bad__", Nil)
             }
         }
@@ -1904,7 +1944,11 @@ def resolveE = (expr) =>
 def lowerArgs = (scope, args) =>
   match args { case Nil => Nil case Cons(e, rest) => Cons(lowerE(scope, e), lowerArgs(scope, rest)) }
 
--- Lower a tuple literal to nested IrCtor("Pair", ...) nodes
+-- Lower a tuple literal. A source 2-tuple `(a, b)` is tagged "Tuple2" to match
+-- the scalameta bridge (which uses TupleN) and Scala's `(a, b)` rendering — the
+-- shared VM Show renders any "TupleN" as `(a, b)`. The "Pair" tag is reserved for
+-- `a -> b` arrows and mira's own tuples, which keep their `Pair(a, b)` rendering.
+-- 3+ tuples are flat Tuple${N} (line below). Tuple2/Pair pattern arms accept both.
 def lowerTuple = (scope, elems) =>
   match elems {
     case Nil => IrLit(IrUnit)
@@ -1914,7 +1958,7 @@ def lowerTuple = (scope, elems) =>
         case Cons(b, rest2) =>
           match rest2 {
             case Nil =>
-              IrCtor("Pair", Cons(lowerE(scope, a), Cons(lowerE(scope, b), Nil)))
+              IrCtor("Tuple2", Cons(lowerE(scope, a), Cons(lowerE(scope, b), Nil)))
             case Cons(c, rest3) =>
               -- K62.20: 3+ tuples are FLAT Tuple${N} ctors (matching the front's Tuple${N}
               -- patterns from parsePat AND the scalameta bridge's Tuple${N}), NOT nested

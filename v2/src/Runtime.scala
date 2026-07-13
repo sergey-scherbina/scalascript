@@ -2118,6 +2118,9 @@ object Prims:
       val num = (v: Value) => v match { case IntV(_) | FloatV(_) | BigV(_) => true; case _ => false }
       BoolV(num(a(0)) && num(a(1)))
     case "__effect__" => resolve("__method__")   // alias: effect-receiver ops (FastCode declines it)
+    // Scala Predef.??? — a valid, resolvable prim that throws only when actually
+    // evaluated (e.g. an untaken `else ???` branch never fires).
+    case "__notImplemented__" => _ => throw new NotImplementedError("an implementation is missing")
     case "__mdStrip__" => a => a(0) match
       case StrV(s) =>
         // v1 Interpreter.stripIndent: drop blank edge lines, remove the
@@ -3654,7 +3657,7 @@ object Prims:
     // verbatim (mirrors the v1 HttpIntrinsics `_Raw` → fields("html") behaviour and
     // the scalameta path), not the default `_Raw(<…>)` constructor form.
     case DataV("_Raw", fields) if fields.nonEmpty => anyStr(fields.head)
-    case DataV(tag, fields) if (tag.startsWith("Tuple") || (tag == "Pair" && fields.length == 2)) && fields.nonEmpty =>
+    case DataV(tag, fields) if tag.startsWith("Tuple") && fields.nonEmpty =>
       s"(${fields.map(anyStr).mkString(", ")})"
     case DataV(tag, fields) if fields.nonEmpty && tag != "Op" && tag != "Stub" =>
       s"$tag(${fields.map(anyStr).mkString(", ")})"
@@ -3870,9 +3873,10 @@ object Show:
         case DataV("Cons", Seq(h, t)) => h :: ul(t)
         case _ => Nil
       s"List(${ul(v).map(show).mkString(", ")})"
-    // The native front tags 2-tuples (and `a -> b` arrows) "Pair"; render like TupleN.
     case DataV("_Raw", fs) if fs.nonEmpty => fs.head match { case StrV(s) => s; case v => show(v) }
-    case DataV(t, fs) if t.matches("Tuple\\d+") || (t == "Pair" && fs.length == 2) => s"(${fs.map(show).mkString(", ")})"
+    // Source tuples are TupleN → `(a, b)`. "Pair" (a -> b arrows, mira's own tuples)
+    // keeps its `Pair(a, b)` rendering via the generic ctor case below.
+    case DataV(t, fs) if t.matches("Tuple\\d+") => s"(${fs.map(show).mkString(", ")})"
     case DataV(t, fs) => if fs.isEmpty then t else s"$t(${fs.map(show).mkString(", ")})"
     case MapV(entries) =>
       s"Map(${entries.iterator.map((k, value) => s"${show(k)} -> ${show(value)}").mkString(", ")})"
