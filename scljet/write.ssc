@@ -9,6 +9,7 @@ exports:
   - buildSingleTableDatabase
   - buildTableDatabase
   - buildOverflowTableDatabase
+  - buildOverflowBtreeDatabase
 ---
 
 # SclJet M3 write path
@@ -517,4 +518,90 @@ def buildTableDatabase(pageSize: Int, changeCounter: Int, schemaCookie: Int,
                       case Right(interiorBody) =>
                         val page1 = tableFileHeader(pageSize, 2 + leaves.length, changeCounter, schemaCookie) ++ page1Body
                         ByteSlice.fromList(page1 ++ interiorBody ++ cellsFlatten(leafPages))
+
+// ── Multi-leaf B-tree WITH cell overflow (m3d follow-up (2)) ──
+//
+// Generalizes `buildOverflowTableDatabase` past a single leaf: rows are packed
+// into leaves (and, on overflow, a table-interior root) exactly as
+// `buildTableDatabase`, and any cell whose record exceeds the local threshold
+// spills onto an overflow chain. An overflow cell's LEAF footprint is
+// `local + 4-byte pointer`, which is independent of the pointer VALUE, so the
+// leaf/interior layout can be fixed before the overflow pages are numbered.
+
+case class OverflowBtreeRows(cells: List[RowCell], overflowPages: List[List[Int]])
+
+/** Encode rows into leaf `RowCell`s (rowid-tagged for packing) plus a flat,
+ *  page-numbered overflow chain rooted at `startPage`. `while`+`var` so a large
+ *  row set never grows the stack. */
+def encodeOverflowRowCells(rows: List[List[SqliteValue]], startRowid: Long, pageSize: Int, usableSize: Int, startPage: Int): Either[ByteError, OverflowBtreeRows] =
+  var remaining = rows
+  var rowid = startRowid
+  var nextPage = startPage
+  var cellsRev: List[RowCell] = Nil
+  var pagesRev: List[List[Int]] = Nil
+  var failure: Option[ByteError] = None
+  while remaining.nonEmpty && failure.isEmpty do
+    encodeRecord(remaining.head) match
+      case Left(error) => failure = Some(error)
+      case Right(recordSlice) =>
+        val cell = encodeOverflowCell(rowid, byteSliceToList(recordSlice), pageSize, usableSize, nextPage)
+        cellsRev = RowCell(rowid, cell.cell) :: cellsRev
+        pagesRev = prependOverflowPages(cell.overflowPages, pagesRev)
+        nextPage = nextPage + cell.overflowPages.length
+        rowid = rowid + 1L
+        remaining = remaining.tail
+  failure match
+    case Some(error) => Left(error)
+    case None => Right(OverflowBtreeRows(cellsRev.reverse, pagesRev.reverse))
+
+/** Like `buildTableDatabase`, but records larger than the leaf local threshold
+ *  spill onto overflow-page chains. Page layout: page 1 = schema, page 2 = table
+ *  root (leaf if it all fits one page, else a table-interior over leaves on
+ *  pages 3..2+L), then the overflow chains on pages 3+L..N. Byte-verified against
+ *  reference `integrity_check`; reads back exact. Non-overflowing inputs are
+ *  byte-identical to `buildTableDatabase`. (Trees deeper than two levels are still
+ *  a follow-up — a very large row set fails in `buildTableInteriorPage`.) */
+def buildOverflowBtreeDatabase(pageSize: Int, changeCounter: Int, schemaCookie: Int,
+    tableName: String, createSql: String, rows: List[List[SqliteValue]]): Either[ByteError, ByteSlice] =
+  val usableSize = pageSize
+  val schemaValues = List(SqlText("table"), SqlText(tableName), SqlText(tableName),
+    SqlInteger(2L), SqlText(createSql))
+  encodeRecord(schemaValues) match
+    case Left(error) => Left(error)
+    case Right(schemaRecord) =>
+      // Pass 1: placeholder cells (pointer value irrelevant) fix the leaf count L.
+      encodeOverflowRowCells(rows, 1L, pageSize, usableSize, 0) match
+        case Left(error) => Left(error)
+        case Right(probe) =>
+          val leafCount = packLeaves(probe.cells, pageSize).length
+          val overflowStart = if leafCount <= 1 then 3 else 3 + leafCount
+          // Pass 2: real cells + overflow chains numbered from overflowStart.
+          encodeOverflowRowCells(rows, 1L, pageSize, usableSize, overflowStart) match
+            case Left(error) => Left(error)
+            case Right(built) =>
+              val leaves = packLeaves(built.cells, pageSize)
+              buildTableLeafPage(pageSize, 100, List(encodeTableLeafCell(1L, schemaRecord))) match
+                case Left(error) => Left(error)
+                case Right(page1Body) =>
+                  if leaves.length <= 1 then
+                    val leafCells = leaves match
+                      case Nil => Nil
+                      case Cons(leaf, _) => leaf.cells
+                    buildTableLeafPage(pageSize, 0, leafCells) match
+                      case Left(error) => Left(error)
+                      case Right(page2Body) =>
+                        val pageCount = 2 + built.overflowPages.length
+                        val page1 = tableFileHeader(pageSize, pageCount, changeCounter, schemaCookie) ++ page1Body
+                        ByteSlice.fromList(page1 ++ page2Body ++ cellsFlatten(built.overflowPages))
+                  else
+                    buildLeafPages(leaves, pageSize) match
+                      case Left(error) => Left(error)
+                      case Right(leafPages) =>
+                        val rightChild = 2 + leaves.length
+                        buildTableInteriorPage(pageSize, 0, interiorDividers(leaves, 3), rightChild) match
+                          case Left(error) => Left(error)
+                          case Right(interiorBody) =>
+                            val pageCount = 2 + leaves.length + built.overflowPages.length
+                            val page1 = tableFileHeader(pageSize, pageCount, changeCounter, schemaCookie) ++ page1Body
+                            ByteSlice.fromList(page1 ++ interiorBody ++ cellsFlatten(leafPages) ++ cellsFlatten(built.overflowPages))
 ```

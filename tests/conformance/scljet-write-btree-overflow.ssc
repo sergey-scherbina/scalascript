@@ -1,0 +1,34 @@
+---
+name: scljet-write-btree-overflow
+description: SclJet M3 multi-leaf B-tree WITH cell overflow — large payloads spill across a table-interior root (cross-backend)
+backends: [int, js]
+---
+
+# SclJet multi-leaf B-tree with cell overflow
+
+[ByteSlice, byteSliceToList, SqliteValue, SqlInteger, SqlText, buildOverflowBtreeDatabase](std/scljet/index.ssc)
+
+```scalascript
+// Build "a" * n with log-depth recursion (JS has no TCO).
+def text(n: Int): String =
+  if n <= 0 then ""
+  else if n == 1 then "a"
+  else
+    val half = text(n / 2)
+    if n % 2 == 0 then half + half else half + half + "a"
+
+// 28 rows overflow a single 512-byte leaf, so page 2 becomes a table-interior
+// root over two leaves (pages 3-4). Row 12 carries a 475-char payload that spills
+// onto a one-page overflow chain (page 5) — proving overflow and multi-leaf
+// packing compose. 5 pages total; reference integrity_check accepts it and every
+// value reads back byte-exact.
+def mkRows(i: Int, n: Int, acc: List[List[SqliteValue]]): List[List[SqliteValue]] =
+  if i > n then acc.reverse
+  else
+    val v = if i == 12 then text(475) else "row-value-" + i.toString
+    mkRows(i + 1, n, List(SqlInteger(i.toLong), SqlText(v)) :: acc)
+
+buildOverflowBtreeDatabase(512, 1, 1, "t", "CREATE TABLE t(n INTEGER, v TEXT)", mkRows(1, 28, Nil)) match
+  case Right(bytes) => println((bytes.length / 512).toString + ":" + byteSliceToList(bytes).toString)
+  case Left(error) => println("ERROR:" + error.message)
+```
