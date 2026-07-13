@@ -14,7 +14,7 @@ Pure function, no DOM, no async — safe for SSR.
 Import this + a Theme, build your tree with widget constructors,
 then call `serve(lower(tree, defaultTheme), 8080)`.
 
-[TkNode, VStackNode, HStackNode, DividerNode, SpacerNode, HeadingNode, TextNode_, SignalHeadingNode, ShowWhenNode, SignalTextNode, FragmentNode, KeyedForNode, RawTextNode, RawHtmlNode, TextFieldNode, TextFieldRNode, CheckboxNode, SignalButtonNode, ActionButtonNode, SignalLabelButtonNode, SignalActionButtonNode, BadgeNode, SpinnerNode, SignalPreNode, CardNode, ModalNode, TableColumn, TableNode, RouteEntry, RouterNode, LinkNode, DataTableNode, StyledNode, TagNode, PillNode, KpiCardNode, Tab, TabBarNode, BoxNode, AnchorNode](nodes.ssc)
+[TkNode, VStackNode, HStackNode, DividerNode, SpacerNode, HeadingNode, TextNode_, SignalHeadingNode, ShowWhenNode, SignalTextNode, FragmentNode, KeyedForNode, RawTextNode, RawHtmlNode, TextFieldNode, TextFieldRNode, CheckboxNode, SelectNode, SignalButtonNode, ActionButtonNode, SignalLabelButtonNode, SignalActionButtonNode, BadgeNode, SpinnerNode, SignalPreNode, CardNode, ModalNode, TableColumn, TableNode, RouteEntry, RouterNode, LinkNode, DataTableNode, StyledNode, TagNode, PillNode, KpiCardNode, Tab, TabBarNode, BoxNode, AnchorNode](nodes.ssc)
 
 [Theme, TypographyItem](theme.ssc)
 
@@ -245,6 +245,42 @@ def lower(n: TkNode, theme: Theme): View = n match
       ["style" -> s"display:flex; flex-direction:row; align-items:center; gap:${sp.sm}px; cursor:pointer; font-size:${t.fontSize}px; font-family:${t.fontFamily}; color:${theme.colors.onSurface}"],
       Map(),
       [cbEl, textNode(label)])
+
+  case SelectNode(options, selected, label, placeholder, disabled) =>
+    val sp    = theme.spacing
+    val base  = s"font-size:${theme.typography.body.fontSize}px; font-family:${theme.typography.body.fontFamily}; " +
+                s"padding:${sp.sm}px ${sp.sm}px; border:1px solid ${theme.colors.muted}; " +
+                s"border-radius:${theme.radii.sm}px; width:100%; box-sizing:border-box; background:#fff"
+    val style = if disabled then base + "; background:#f3f4f6; color:#9ca3af; cursor:not-allowed" else base + "; cursor:pointer"
+    // Read the bound signal's CURRENT value once, at build time, to mark the
+    // matching <option> "selected" directly (order-independent). The generic
+    // element() codegen sets attrs (incl. the "value" Reactive binding below)
+    // BEFORE appending children, so relying on that alone to pick the initial
+    // <option> would be a no-op (no options exist yet when it runs) — see
+    // specs/std-ui-select.md "The <select>-specific ordering wrinkle".
+    val cur = selected()
+    val placeholderOpt =
+      if placeholder == "" then []
+      else [element("option",
+             ["value" -> "", "selected" -> (cur == ""), "disabled" -> true, "hidden" -> true],
+             Map(), [textNode(placeholder)])]
+    val optionEls = options.map { (value, optLabel) =>
+      element("option", ["value" -> value, "selected" -> (cur == value)], Map(), [textNode(optLabel)])
+    }
+    val selectEl = element("select",
+      ["style" -> style, "disabled" -> disabled, "value" -> selected],
+      if disabled then Map() else ["change" -> inputChange(selected)],
+      placeholderOpt ++ optionEls)
+    if label == "" then selectEl
+    else
+      val labelEl = element("label",
+        ["style" -> s"font-size:${theme.typography.body.fontSize}px; font-family:${theme.typography.body.fontFamily}; color:${theme.colors.onSurface}"],
+        Map(),
+        [textNode(label)])
+      element("div",
+        ["style" -> s"display:flex; flex-direction:column; gap:${sp.xs}px"],
+        Map(),
+        [labelEl, selectEl])
 
   case SignalButtonNode(sig, value, label, disabled) =>
     val sp   = theme.spacing

@@ -1,0 +1,62 @@
+---
+name: select-demo
+version: 1.0.0
+description: Dropdown over a list of (value, label) pairs, two-way bound to a signal (std/ui/input.ssc select, specs/std-ui-select.md).
+frontend: custom
+---
+
+# select-demo — pick a contract from a dropdown
+
+busi's motivating case: pick the active contract from a list instead of a
+free-text field. Picking a different option updates the bound signal live;
+the derived "Picked:" line below reflects the current selection without a
+page reload. Build with
+`ssc emit-spa --frontend custom examples/frontend/select-demo/select-demo.ssc > select-demo.html`,
+or run `ssc run examples/frontend/select-demo/select-demo.ssc`.
+
+[signal, computedSignal, serve](std/ui/primitives.ssc)
+[select](std/ui/input.ssc)
+[vstack, hstack](std/ui/layout.ssc)
+[heading, text](std/ui/typography.ssc)
+[signalText_](std/ui/reactive.ssc)
+[TkNode](std/ui/nodes.ssc)
+[lower](std/ui/lower.ssc)
+[Theme, defaultTheme](std/ui/theme.ssc)
+
+```scalascript
+// (value, label) pairs — in a real app these would come from a
+// server-rendered query at page-build time (see specs/std-ui-select.md
+// "Out of Scope" for why a live-fetched options list is a separate,
+// not-yet-built follow-up).
+val contracts = [
+  ("c-1001", "Acme Corp — retainer"),
+  ("c-1002", "Northwind — Q3 project"),
+  ("c-1003", "Globex — support plan")
+]
+
+val activeContract = signal("activeContract", "c-1002")
+
+// Derive the picked contract's label reactively, purely from the signal —
+// no rebuild of the select needed when the selection changes.
+val activeLabel = computedSignal(() =>
+  contracts.find { (value, _) => value == activeContract() }
+    .map { (_, label) => label }
+    .getOrElse("(none)"))
+
+// A second, disabled dropdown (empty placeholder-only state) shows the
+// unselected/disabled render. `disabled` is a plain Boolean baked in at
+// build time here, same as textField/checkbox — see specs/std-ui-select.md.
+val archivedContract = signal("archivedContract", "")
+
+val tree = vstack(gap = 16)(
+  heading(1, "Active contract"),
+  select(contracts, activeContract,
+    label = "Active contract", placeholder = "Choose a contract..."),
+  hstack(gap = 4)(text("Picked:"), signalText_(activeLabel)),
+  select(contracts, archivedContract,
+    label = "Archived contract (read-only)", placeholder = "None",
+    disabled = true)
+)
+
+serve(lower(tree, defaultTheme), 8080)
+```

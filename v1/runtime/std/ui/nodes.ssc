@@ -21,6 +21,7 @@ exports:
   - TextFieldNode
   - TextFieldRNode
   - CheckboxNode
+  - SelectNode
   - SignalButtonNode
   - ActionButtonNode
   - SignalLabelButtonNode
@@ -89,6 +90,16 @@ case class TextFieldRNode(value: Any,
 case class CheckboxNode(checked: Any,
                         label: String,
                         disabled: Boolean)              extends TkNode
+// SelectNode — dropdown over (value, label) pairs. `selected` is a
+// Signal[String] (two-way bound: initial value picks the pre-selected
+// option; user selection writes back). `placeholder`, when non-empty, is a
+// disabled/hidden leading option shown while `selected() == ""`. `options`
+// is static — built once when the tree is constructed, like TabBarNode.tabs.
+case class SelectNode(options: List[(String, String)],
+                      selected: Any,
+                      label: String,
+                      placeholder: String,
+                      disabled: Boolean)                extends TkNode
 case class SignalButtonNode(signal: Any,
                             value: Any,
                             label: String,

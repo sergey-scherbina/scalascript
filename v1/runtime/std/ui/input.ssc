@@ -7,6 +7,7 @@ exports:
   - textField
   - textFieldR
   - checkbox
+  - select
   - signalButton
   - actionButton
   - signalLabelButton
@@ -15,7 +16,7 @@ exports:
 
 # `std.ui.input` — input constructors
 
-[TkNode, TextFieldNode, TextFieldRNode, CheckboxNode, SignalButtonNode, ActionButtonNode, SignalLabelButtonNode, SignalActionButtonNode](nodes.ssc)
+[TkNode, TextFieldNode, TextFieldRNode, CheckboxNode, SelectNode, SignalButtonNode, ActionButtonNode, SignalLabelButtonNode, SignalActionButtonNode](nodes.ssc)
 
 ```scalascript
 def textField(value: Any,
@@ -36,6 +37,24 @@ def checkbox(checked: Any,
              label: String = "",
              disabled: Boolean = false): TkNode =
   CheckboxNode(checked, label, disabled)
+
+// select — dropdown over (value, label) pairs. `selected` must be a
+// Signal[String] (two-way bound, like `checked`/`value` above). `placeholder`
+// is a disabled/hidden leading option shown while nothing is selected;
+// `label` is an optional field caption (like textField's), not a placeholder.
+// NOTE: when overriding a trailing default by name, name every one from the
+// first you override onward (e.g. `select(o, s, label = "L", disabled =
+// true)`, not `select(o, s, disabled = true)` alone) — a pre-existing bug in
+// `bin/ssc run`'s self-hosted standard-tier pipeline (BUGS.md:
+// standard-tier-named-arg-skip-default) mis-binds a named arg that skips an
+// earlier default. Unaffected: `bin/ssc-tools run` (v1) and `emit-js`/
+// `emit-spa` (the production lane).
+def select(options: List[(String, String)],
+           selected: Any,
+           label: String = "",
+           placeholder: String = "",
+           disabled: Boolean = false): TkNode =
+  SelectNode(options, selected, label, placeholder, disabled)
 
 def signalButton(signal: Any,
                  value: Any,
