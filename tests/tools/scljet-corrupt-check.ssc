@@ -55,6 +55,11 @@ List(
   CorruptCase("bad-freelist-head", "tests/fixtures/scljet/m2/corrupt/bad-freelist-head.db", "freelist page is outside"),
   CorruptCase("freelist-trunk-cycle", "tests/fixtures/scljet/m2/corrupt/freelist-trunk-cycle.db", "freelist trunk chain contains a cycle"),
   CorruptCase("freelist-too-many-leaves", "tests/fixtures/scljet/m2/corrupt/freelist-too-many-leaves.db", "freelist.trunk.leafCount"),
-  CorruptCase("freelist-duplicate-leaf", "tests/fixtures/scljet/m2/corrupt/freelist-duplicate-leaf.db", "freelist contains a duplicate page")
+  CorruptCase("freelist-duplicate-leaf", "tests/fixtures/scljet/m2/corrupt/freelist-duplicate-leaf.db", "freelist contains a duplicate page"),
+  CorruptCase("bad-record-serial-type", "tests/fixtures/scljet/m2/corrupt/bad-record-serial-type.db", "serial types 10 and 11"),
+  CorruptCase("bad-schema-type", "tests/fixtures/scljet/m2/corrupt/bad-schema-type.db", "type is unknown"),
+  CorruptCase("bad-schema-rootpage", "tests/fixtures/scljet/m2/corrupt/bad-schema-rootpage.db", "outside the logical database"),
+  CorruptCase("bad-schema-rootpage-negative", "tests/fixtures/scljet/m2/corrupt/bad-schema-rootpage-negative.db", "rootpage must be non-negative"),
+  CorruptCase("bad-page-freeblock", "tests/fixtures/scljet/m2/corrupt/bad-page-freeblock.db", "freeblock")
 ).foreach(check)
 ```

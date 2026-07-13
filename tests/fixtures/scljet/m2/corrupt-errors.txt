@@ -23,3 +23,8 @@ bad-freelist-head:true:freelist page is outside the database
 freelist-trunk-cycle:true:freelist trunk chain contains a cycle
 freelist-too-many-leaves:true:freelist.trunk.leafCount: freelist trunk has too many leaves
 freelist-duplicate-leaf:true:freelist contains a duplicate page
+bad-record-serial-type:true:record.serialType: serial types 10 and 11 are invalid in a persistent database
+bad-schema-type:true:sqlite_schema type is unknown
+bad-schema-rootpage:true:page is outside the logical database
+bad-schema-rootpage-negative:true:sqlite_schema rootpage must be non-negative
+bad-page-freeblock:true:page.freeblock: freeblock chain is not increasing and in range

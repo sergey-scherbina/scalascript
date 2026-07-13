@@ -84,4 +84,4 @@ run_tier default ""
 run_tier asm "SSC_JIT_BACKEND=asm"
 run_tier fallback "SSC_JIT_BYTECODE=off SSC_FASTTIER=off"
 
-echo 'PASS scljet-m2-corpus-smoke (25 valid + 25 corrupt pinned files, 643 exact lines + 32 bounded mutations; VM/ASM/fallback tiers identical)'
+echo 'PASS scljet-m2-corpus-smoke (25 valid + 30 corrupt pinned files, 643 exact lines + 32 bounded mutations; VM/ASM/fallback tiers identical)'

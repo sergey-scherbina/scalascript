@@ -24,3 +24,8 @@ bad-freelist-head	tests/fixtures/scljet/m2/corrupt/bad-freelist-head.db	2c6dd584
 freelist-trunk-cycle	tests/fixtures/scljet/m2/corrupt/freelist-trunk-cycle.db	ff3dff20f58776d8e93b6a151ef6ec7e19054b9c542908be24fe7c40fb5a3ea7	freelist trunk chain contains a cycle
 freelist-too-many-leaves	tests/fixtures/scljet/m2/corrupt/freelist-too-many-leaves.db	d29d04f3e3d89e6065540afa055739edb89db15c549afa3c956de46dd8f520bf	freelist.trunk.leafCount
 freelist-duplicate-leaf	tests/fixtures/scljet/m2/corrupt/freelist-duplicate-leaf.db	07b9e7251736a4abf61c381a34c454161fda176147013b63dfe1d3b73e41282d	freelist contains a duplicate page
+bad-record-serial-type	tests/fixtures/scljet/m2/corrupt/bad-record-serial-type.db	e5d5d8748a8482100da14752501e2dffaeb91f0e2d74e3b092949d254b6c4f4e	serial types 10 and 11
+bad-schema-type	tests/fixtures/scljet/m2/corrupt/bad-schema-type.db	8bec612797874ea2723d0845cdf22519aab30c6ca2f7b3f95896cd33c0438928	type is unknown
+bad-schema-rootpage	tests/fixtures/scljet/m2/corrupt/bad-schema-rootpage.db	aaf8e670915d11e0a0e9a7a606f9d5136e7917e04327e1e4ad79a4a63f5f3212	outside the logical database
+bad-schema-rootpage-negative	tests/fixtures/scljet/m2/corrupt/bad-schema-rootpage-negative.db	b0e3e411bab54b281544fffc5966670752ae05f3e4bd28957de1ac44779f4d05	rootpage must be non-negative
+bad-page-freeblock	tests/fixtures/scljet/m2/corrupt/bad-page-freeblock.db	db57f4e6253c8655002c37c223763b8a113bba207f484b71dc669390dd5ac977	freeblock

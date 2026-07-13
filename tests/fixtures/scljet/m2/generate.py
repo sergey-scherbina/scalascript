@@ -346,6 +346,53 @@ def put_u32(data: bytearray, offset: int, value: int) -> None:
     data[offset:offset + 4] = struct.pack(">I", value)
 
 
+def read_varint(data: bytes, offset: int) -> tuple[int, int]:
+    """Decode a SQLite base-128 varint; return (value, next_offset)."""
+    result = 0
+    for i in range(9):
+        byte = data[offset + i]
+        if i == 8:
+            return (result << 8) | byte, offset + 9
+        result = (result << 7) | (byte & 0x7F)
+        if byte < 0x80:
+            return result, offset + i + 1
+    return result, offset + 9
+
+
+def serial_body_bytes(serial: int) -> int:
+    if serial == 0 or serial in (8, 9):
+        return 0
+    if 1 <= serial <= 4:
+        return serial
+    if serial == 5:
+        return 6
+    if serial in (6, 7):
+        return 8
+    return (serial - 12) // 2  # blob (even) or text (odd)
+
+
+def first_schema_record(data: bytes) -> tuple[int, list[int], list[int], int]:
+    """Locate page 1's first sqlite_schema record.
+
+    Returns (header_start, serial_offsets, serial_values, body_start): the byte
+    offset of the record header, each column serial varint's byte offset, its
+    decoded value, and the offset where the record body begins.  Page 1's
+    b-tree header is at offset 100; a single-row schema has its first (and only)
+    cell pointer at offset 108.
+    """
+    cell_offset = struct.unpack(">H", data[108:110])[0]
+    _, after_payload = read_varint(data, cell_offset)
+    _, header_start = read_varint(data, after_payload)  # skip the rowid varint
+    header_len, cursor = read_varint(data, header_start)
+    serial_offsets: list[int] = []
+    serial_values: list[int] = []
+    while cursor < header_start + header_len:
+        serial_offsets.append(cursor)
+        value, cursor = read_varint(data, cursor)
+        serial_values.append(value)
+    return header_start, serial_offsets, serial_values, header_start + header_len
+
+
 def corruptions(simple: Path, autovacuum: Path, freelist: Path) -> None:
     cases: list[tuple[str, bytes, str]] = []
     base = simple.read_bytes()
@@ -407,6 +454,31 @@ def corruptions(simple: Path, autovacuum: Path, freelist: Path) -> None:
         ("freelist-trunk-cycle", bytes(free_cycle), "freelist trunk chain contains a cycle"),
         ("freelist-too-many-leaves", bytes(free_too_many), "freelist.trunk.leafCount"),
         ("freelist-duplicate-leaf", bytes(free_duplicate), "freelist contains a duplicate page"),
+    ])
+
+    # Deep record/freeblock/schema mutations of the page-1 sqlite_schema record,
+    # which the reader decodes eagerly at open (unlike user-table pages).  Each
+    # damages one on-disk invariant the header/page-header checks above do not.
+    _, serial_offsets, serial_values, body_start = first_schema_record(base)
+    # sqlite_schema columns: type, name, tbl_name, rootpage, sql.
+    rootpage_body = body_start + sum(serial_body_bytes(s) for s in serial_values[:3])
+
+    bad_serial_type = bytearray(base)
+    bad_serial_type[serial_offsets[3]] = 10  # rootpage int serial -> reserved 10
+    bad_schema_type = bytearray(base)
+    bad_schema_type[body_start] = ord("x")  # "table" -> "xable"
+    bad_schema_rootpage_oob = bytearray(base)
+    bad_schema_rootpage_oob[rootpage_body] = 0x7F  # rootpage 127, far past the page count
+    bad_schema_rootpage_negative = bytearray(base)
+    bad_schema_rootpage_negative[rootpage_body] = 0xFF  # int8 -1 rootpage
+    bad_schema_freeblock = bytearray(base)
+    put_u16(bad_schema_freeblock, 101, 3)  # page-1 first-freeblock below the header
+    cases.extend([
+        ("bad-record-serial-type", bytes(bad_serial_type), "serial types 10 and 11"),
+        ("bad-schema-type", bytes(bad_schema_type), "type is unknown"),
+        ("bad-schema-rootpage", bytes(bad_schema_rootpage_oob), "outside the logical database"),
+        ("bad-schema-rootpage-negative", bytes(bad_schema_rootpage_negative), "rootpage must be non-negative"),
+        ("bad-page-freeblock", bytes(bad_schema_freeblock), "freeblock"),
     ])
     rows = ["id\tpath\tsha256\texpected"]
     for fixture_id, data, expected in cases:
