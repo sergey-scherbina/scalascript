@@ -1,0 +1,14 @@
+feature/v2-swift-coreir-sexpr-embed 2026-07-13T00:00:00Z
+agent: claude-code (bold-quail)
+heartbeat: 2026-07-13T00:00:00Z
+status: in-progress
+scope: fix Swift's 256-level expression-nesting-limit crash on real-world-sized
+  programs (found compiling busi's real production app.ssc as a native iPhone
+  app, Sergiy-directed). SPRINT item: v2-swift-coreir-sexpr-embed.
+next: replace SwiftBackend.emitProgram's giant nested-literal codegen with
+  ssc.Writer.program(...) text embedded as a Swift string constant, decoded at
+  runtime by a new Swift-side S-expr decoder mirroring ssc.Reader exactly.
+  Verify via v2SwiftBackend/test (existing real-swiftc/swift-run gates) plus a
+  new deep-nesting regression test, then re-run emit-swift --target ios +
+  swiftc -typecheck against busi's real app.ssc scratch copy, then attempt a
+  real xcodebuild/Simulator run.
