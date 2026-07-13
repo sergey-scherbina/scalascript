@@ -132,8 +132,13 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
         with BYTE-IDENTICAL Core IR vs `ssc1-front`; scalac dual-compile agrees (7 5 9 9). Dialect:
         `uniml/core/src/test/.../spike/ScalaSpike.scala`. Trivia-losslessness + error nodes + full
         grammar deferred to P6.1/P6.2 (do not block).
-  - [ ] **P6.1 error model** — CST `Error` nodes + structural-boundary resync; total projection +
-        typed holes into IR (generalize `__notImplemented__`); broken input → partial IR, no crash.
+  - [x] **P6.1 error model ✓ Landed 2026-07-13** — GREEN (11/11 spike tests + e2e). Total parser
+        (EOF-safe, never throws), `Diagnostic`s via `ProcessBatch` → `ParseResult.diagnostics`
+        (status Incomplete), resync to next `def` boundary, `spike.error` CST frames for junk, total
+        projection → `__notImplemented__` holes. Proven: containment — `def broken = 1 +` ⧺ `def main
+        = 2*3` compiles (broken body = hole) and `run-ir main` = 6; happy path still byte-identical
+        Core IR vs `ssc1-front`. Notes: `specs/v2.2-p6.0-spike-notes.md` §P6.1. Deferred (non-block):
+        trivia losslessness, typed-holes-proper (needs v2.2 typer), intra-def statement resync.
   - [ ] **P6.2 grow the dialect** to full front coverage (layout/precedence/given-using/patterns/
         for-match/decls), differential-tested vs `ssc1-front` across the corpus, until it replaces it.
   - [ ] **P6.3 injection + registry** — interpolator injection (s/f/md) via registry; registry hook
