@@ -117,6 +117,13 @@ object SscVm:
   //   into refStack(dst). Used to represent non-capturing lambda literals passed as
   //   HOF arguments — the FunV is created at VmCompiler time and stored in funVPool.
   final val LOADFV = 48
+  // LOADFVCAP dst, poolSlot, capBase: like LOADFV but materialises a CAPTURING lambda at runtime — a
+  //   new FunV from the pooled template funVPool(poolSlot) with a `closure` Map snapshotted from the
+  //   capture registers at capBase (names + kinds in funVCapturePool(poolSlot); kind 0=Int, 1=Double,
+  //   2=Ref). The captured body has free names so it never JIT-compiles → CALLREF always dispatches it
+  //   via interp.invoke, which reads the closure — matching the interpreter's own value-snapshot of
+  //   frame-local captures (EvalRuntime Term.Function).
+  final val LOADFVCAP = 54
   // RETREF r, 0, 0: return refStack(r) from the function (ref-typed return).
   //   Stores the ref in the TLS slot `lastRefResult` and returns 0L from `exec` so
   //   the caller (JitRuntime.runVm) can read it. Used when the function's declared
@@ -142,6 +149,10 @@ object SscVm:
   // LITERNXI dst, b, 0: l = refStack(b): List[Value]; stack(dst) = l.head.(IntV).v;
   //   refStack(b) = l.tail (advance the cursor in place).
   final val LITERNXI = 53
+
+  /** Per-capturing-lambda metadata for LOADFVCAP: the captured variable names and their VM kinds
+    * (0=Int/Long/Boolean, 1=Double, 2=Ref), parallel to [[CompiledFn.funVPool]] by pool slot. */
+  final class FunVCapture(val names: Array[String], val kinds: Array[Byte])
 
   /** A compiled function: parallel instruction arrays + pools.
    *  `op(i)` is the opcode; `a/b/c(i)` its operands (meaning per §4 of spec).
@@ -176,6 +187,9 @@ object SscVm:
     val retIsRef: Boolean = false,
     // Pool of non-capturing FunV constants for LOADFV opcode (Stage 3.3).
     val funVPool: Array[Value.FunV] = Array.empty,
+    // Parallel to funVPool: LOADFVCAP capture metadata per pool slot (null for a non-capturing
+    // LOADFV slot). Empty when the function materialises no capturing lambdas.
+    val funVCapturePool: Array[FunVCapture] = Array.empty,
     // Polymorphic inline cache for CALLREF (Stage 9, was monomorphic in 3.4).
     // Sized to `op.length * icStride`; for each pc we keep `icWays` (FunV,
     // CompiledFn) pairs. A non-null FunV slot with a null CompiledFn means
@@ -329,6 +343,21 @@ object SscVm:
           // is lost and a TRef destination reads null. (Mirror of RETREF/CALLREF.)
           if callee.retIsRef then refStack(base + a(pc)) = tlRefReturn.get()(0)
         case LOADFV  => refStack(base + a(pc)) = fn.funVPool(b(pc))
+        case LOADFVCAP =>
+          val tmpl    = fn.funVPool(b(pc))
+          val cap     = fn.funVCapturePool(b(pc))
+          val capBase = base + c(pc)
+          var m = Map.empty[String, Value]
+          var i = 0
+          while i < cap.names.length do
+            val r = capBase + i
+            val v: Value = (cap.kinds(i): @scala.annotation.switch) match
+              case 2 => refStack(r).asInstanceOf[Value]                        // ref capture
+              case 1 => Value.doubleV(jl.Double.longBitsToDouble(stack(r)))     // double
+              case _ => Value.intV(stack(r))                                    // int / long / boolean
+            m = m.updated(cap.names(i), v)
+            i += 1
+          refStack(base + a(pc)) = tmpl.copy(closure = m)
         case CALLREF =>
           val funV    = refStack(base + b(pc)).asInstanceOf[Value.FunV]
           val argBase = base + c(pc)

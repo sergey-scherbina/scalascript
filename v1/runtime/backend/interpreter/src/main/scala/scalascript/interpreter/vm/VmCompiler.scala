@@ -121,6 +121,33 @@ object VmCompiler:
       val before = tpe.substring(0, arrow).trim
       if before.startsWith("(") then before.count(_ == ',') + 1 else 1
 
+  /** wide-jit CL: the VM-kind of a function type's RETURN, as a single char encoded into the
+    * `FunV_<arity>_<char>` refType so a CALLREF can type its result (D=Double, R=ref, I=Int/Long/
+    * Boolean). Without this a CALLREF defaulted its result to TInt, so a `Double`/ref-returning HOF
+    * param produced a value whose register type disagreed with its physical bank/bits (e.g. C-4c then
+    * widened an already-double result). Returns 'I' when the return type is absent/unknown. */
+  private def funRetVmChar(tpe: String): Char =
+    val arrow = tpe.lastIndexOf("=>")
+    if arrow < 0 then 'I'
+    else
+      val ret = tpe.substring(arrow + 2).trim
+      if ret.isEmpty then 'I'
+      else if doubleTypes.contains(ret) then 'D'
+      else if ret == "Int" || ret == "Long" || ret == "Boolean" || ret == "Short" || ret == "Byte" || ret == "Char" then 'I'
+      else 'R'
+
+  /** wide-jit CL: the PARAMETER types of a function type string, so an UNANNOTATED lambda passed to a
+    * HOF (`applyD(x => x + 1.0, …)` where `applyD` expects `Double => Double`) infers its param types
+    * from the HOF's signature instead of defaulting to Int (which would mis-box a Double/ref arg at
+    * CALLREF). `"Double => Double"` → List("Double"); `"(Int, Double) => X"` → List("Int","Double"). */
+  private def funParamTypes(tpe: String): List[String] =
+    val arrow = tpe.indexOf("=>")
+    if arrow <= 0 then Nil
+    else
+      val before = tpe.substring(0, arrow).trim
+      val inner  = if before.startsWith("(") && before.endsWith(")") then before.substring(1, before.length - 1) else before
+      inner.split(",").iterator.map(_.trim).filter(_.nonEmpty).toList
+
   /** Pretty class name for scala.meta AST nodes: strips `_After_*` version
    *  suffixes and `Impl` endings, inserts a dot after the first capitalised
    *  component (`TermSelect` → `Term.Select`, `LitString` → `Lit.String`). */
@@ -195,6 +222,7 @@ object VmCompiler:
           retIsBool = jit.JitPredicates.isBoolReturning(fn.body),
           retIsRef = b.retIsRefOf,
           funVPool = b.funVArr,
+          funVCapturePool = b.funVCaptureArr,
           callRefCache = if hasCallRef then new Array[AnyRef](ops.length * SscVm.icStride) else Array.empty,
           icHead       = if hasCallRef then new Array[Byte](ops.length) else Array.empty
         )
@@ -328,9 +356,17 @@ object VmCompiler:
     def constArr: Array[Long]    = consts.toArray
     def strArr: Array[String]    = strs.toArray
 
-    // Non-capturing FunV constants for LOADFV (Stage 3.3).
+    // FunV constants for LOADFV / templates for LOADFVCAP (Stage 3.3 + wide-jit CL).
     private val funvs = mutable.ArrayBuffer.empty[Value.FunV]
     def funVArr: Array[Value.FunV] = funvs.toArray
+    // Parallel to `funvs`: capture metadata for a capturing lambda (LOADFVCAP), or null for a
+    // non-capturing lambda (LOADFV). Same index = pool slot.
+    private val captureInfos = mutable.ArrayBuffer.empty[SscVm.FunVCapture]
+    def funVCaptureArr: Array[SscVm.FunVCapture] = captureInfos.toArray
+    // wide-jit CL: expected param types for the NEXT lambda arg being compiled (set by the CALL arg
+    // loop from the callee's function-param type, consumed + cleared by the Term.Function compile),
+    // so an unannotated lambda infers its param types from the HOF signature. Null outside that window.
+    private var pendingLambdaParamTypes: List[String] | Null = null
 
     private def slotFor(callee: Value.FunV): Int =
       val s = calleeSlot.get(callee)
@@ -685,7 +721,14 @@ object VmCompiler:
             val argBase = freshRegs(args.length)
             var i = 0
             while i < args.length do
+              // wide-jit CL: if this arg is a lambda and the callee expects a function there, hand the
+              // lambda its expected param types (for unannotated params) via the pending-context field.
+              args(i) match
+                case _: Term.Function if i < callee.paramTypes.length && isFunType(callee.paramTypes(i)) =>
+                  pendingLambdaParamTypes = funParamTypes(callee.paramTypes(i))
+                case _ => ()
               val aT   = compileInto(args(i), argBase + i)   // emit each arg straight into its slot
+              pendingLambdaParamTypes = null
               val want = calleeParamType(callee, i)
               (want, aT) match
                 case (TDouble, TInt) =>
@@ -737,8 +780,16 @@ object VmCompiler:
                       compileInto(args(i), argBase + i)
                       i += 1
                     emit(CALLREF, dst, r, argBase)
-                    setType(dst, TInt)  // assume Long return (most HOF cases)
-                    return TInt         // explicit return from compileInto match
+                    // wide-jit CL: type a Double-returning HOF's result TDouble (the `FunV_<arity>_D`
+                    // refType), so it is not defaulted to TInt and then corrupted by C-4c/arith.
+                    // A concrete `Double` return can never be a numeric-in-disguise, so this is bank-
+                    // safe. We deliberately do NOT flip the result to TRef for a 'R' return: that char
+                    // also covers a generic/type-param return (`Int => B`) that may instantiate to a
+                    // numeric at runtime — typing it TRef would read the wrong bank (the litdoc rule).
+                    // 'R'/'I' stay TInt = the prior behaviour (no regression).
+                    val rrt = if tn.last == 'D' then TDouble else TInt
+                    setType(dst, rrt)
+                    return rrt          // explicit return from compileInto match
               case _ =>
             bail("call: no compilable target (free name, closure, or non-function)", Br.FreeNameUnresolvable("call-target"))
 
@@ -831,17 +882,40 @@ object VmCompiler:
           case n: Term.Name if !lambdaParamNames.contains(n.value) => freeNames += n.value
           case other2 => other2.children.foreach(collectFree)
         collectFree(fn.body)
-        val captured = freeNames.filter(locals.contains)
-        if captured.nonEmpty then bail(s"lambda: captures outer locals: ${captured.mkString(", ")}", Br.CapturedFreeName(captured.headOption.getOrElse("?")))
+        val captured = freeNames.filter(locals.contains).toList
         val lambdaParamNameList = lambdaParams.map(_.name.value)
-        val lambdaParamTypes = lambdaParams.map(p => p.decltpe match
-          case Some(tpe) => tpe.syntax
-          case None      => "Int"
-        )
+        // wide-jit CL: consume the pending expected-param-types (from the HOF call context) for
+        // unannotated params, so a Double/ref lambda param is not defaulted to Int (which would
+        // mis-box the arg at CALLREF). Cleared immediately so a nested lambda doesn't inherit it.
+        val pendTypes = pendingLambdaParamTypes; pendingLambdaParamTypes = null
+        val lambdaParamTypes = lambdaParams.zipWithIndex.map: (p, idx) =>
+          p.decltpe match
+            case Some(tpe) => tpe.syntax
+            case None      => if pendTypes != null && idx < pendTypes.length then pendTypes(idx) else "Int"
         val lambdaFunV = Value.FunV(lambdaParamNameList, fn.body, Map.empty, "",
           lambdaParamNameList.map(_ => None), lambdaParamTypes)
         val poolSlot = funvs.length; funvs += lambdaFunV
-        emit(LOADFV, dst, poolSlot, 0)
+        if captured.isEmpty then
+          captureInfos += null                          // non-capturing: LOADFV loads the constant
+          emit(LOADFV, dst, poolSlot, 0)
+        else
+          // wide-jit CL: a CAPTURING lambda. Snapshot the captured frame-locals into consecutive regs
+          // and record their names + kinds; LOADFVCAP builds a runtime FunV whose `closure` holds
+          // them. Matches the interpreter, which value-snapshots frame-local captures. The captured
+          // body never JIT-compiles (free names) → CALLREF dispatches it via interp.invoke + closure.
+          val capBase = freshRegs(captured.length)
+          val names   = new Array[String](captured.length)
+          val kinds   = new Array[Byte](captured.length)
+          var i = 0
+          captured.foreach { nm =>
+            val home = locals(nm)
+            emit(MOVE, capBase + i, home, 0)
+            names(i) = nm
+            kinds(i) = (typeOf(home) match { case TDouble => 1; case TRef => 2; case _ => 0 }).toByte
+            i += 1
+          }
+          captureInfos += new SscVm.FunVCapture(names, kinds)
+          emit(LOADFVCAP, dst, poolSlot, capBase)
         setType(dst, TRef); setRefType(dst, s"FunV_${lambdaParamNameList.length}"); TRef
 
       case other =>
@@ -1105,7 +1179,7 @@ object VmCompiler:
             case TInt    => ()
             case TRef    =>
               setType(i, TRef)
-              setRefType(i, if isFunType(pt) then s"FunV_${funArity(pt)}" else pt)
+              setRefType(i, if isFunType(pt) then s"FunV_${funArity(pt)}_${funRetVmChar(pt)}" else pt)
             case t       => setType(i, t)
         i += 1
       nextReg = arity; maxReg = arity

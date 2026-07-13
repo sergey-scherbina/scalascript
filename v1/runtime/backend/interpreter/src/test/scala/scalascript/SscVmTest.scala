@@ -2821,6 +2821,63 @@ class SscVmTest extends AnyFunSuite with Matchers:
     SscVm.runRef(cfn.get, Array.empty[Long], Array[AnyRef](box(-1), box(7)))  shouldBe 7L  // else → b
   }
 
+  // wide-jit CL: capturing lambdas. A lambda that captures an outer local no longer bails — it
+  // materialises a runtime FunV (LOADFVCAP) whose closure snapshots the captures (matching the
+  // interpreter's own value-snapshot of frame-locals). CALLREF dispatches it via interp.invoke.
+  private def clResolve(interp: Interpreter): VmCompiler.Resolve =
+    (_, name) => interp.globalsView.get(name) match { case Some(fv: Value.FunV) => fv; case _ => null }
+  private def clRun(interp: Interpreter, cf: SscVm.CompiledFn, a: Array[Long]): Long =
+    JitGlobals.withInterp(interp) { SscVm.run(cf, a) }
+
+  test("wide-jit CL: capturing lambda — Int capture over a HOF") {
+    val interp = interpOf(
+      """def applyIt(f: Int => Int, n: Int): Int = f(n)
+        |def g(k: Int): Int = applyIt(x => x + k, 10)""".stripMargin)
+    val g = interp.globalsView("g").asInstanceOf[Value.FunV]
+    val cfn = VmCompiler.compile(g, clResolve(interp)); cfn shouldBe defined
+    clRun(interp, cfn.get, Array(5L))   shouldBe 15L
+    clRun(interp, cfn.get, Array(100L)) shouldBe 110L
+  }
+
+  test("wide-jit CL: capturing lambda — multiple captures") {
+    val interp = interpOf(
+      """def applyIt(f: Int => Int, n: Int): Int = f(n)
+        |def g(a: Int, b: Int): Int = applyIt(x => x + a + b, 1)""".stripMargin)
+    val g = interp.globalsView("g").asInstanceOf[Value.FunV]
+    val cfn = VmCompiler.compile(g, clResolve(interp)); cfn shouldBe defined
+    clRun(interp, cfn.get, Array(10L, 20L)) shouldBe 31L
+  }
+
+  test("wide-jit CL: capturing lambda — Double capture + Double HOF result typing (annotated + inferred)") {
+    // Both the capture (k: Double) and the HOF result must be Double. The CALLREF result is typed
+    // TDouble from the `Double => Double` signature; the unannotated param `x` is inferred Double
+    // from the HOF context (so the arg is boxed as a Double, not mis-boxed as Int).
+    val interpA = interpOf(
+      """def applyD(f: Double => Double, n: Double): Double = f(n)
+        |def g(k: Double): Double = applyD((x: Double) => x + k, 2.5)""".stripMargin)
+    val gA = interpA.globalsView("g").asInstanceOf[Value.FunV]
+    val cA = VmCompiler.compile(gA, clResolve(interpA)); cA shouldBe defined
+    java.lang.Double.longBitsToDouble(clRun(interpA, cA.get, Array(java.lang.Double.doubleToRawLongBits(1.5)))) shouldBe 4.0
+
+    val interpB = interpOf(
+      """def applyD(f: Double => Double, n: Double): Double = f(n)
+        |def g(): Double = applyD(x => x + 1.0, 2.5)""".stripMargin)   // unannotated x → inferred Double
+    val gB = interpB.globalsView("g").asInstanceOf[Value.FunV]
+    val cB = VmCompiler.compile(gB, clResolve(interpB)); cB shouldBe defined
+    java.lang.Double.longBitsToDouble(clRun(interpB, cB.get, Array.empty)) shouldBe 3.5  // 2.5 + 1.0
+  }
+
+  test("wide-jit CL: capturing lambda — ref capture (String), boxed as a ref in the closure") {
+    val interp = interpOf(
+      """def applyIt(f: Int => Int, n: Int): Int = f(n)
+        |def g(prefix: String): Int = applyIt(x => x + prefix.length, 10)""".stripMargin)
+    val g = interp.globalsView("g").asInstanceOf[Value.FunV]
+    val cfn = VmCompiler.compile(g, clResolve(interp)); cfn shouldBe defined
+    JitGlobals.withInterp(interp) {
+      SscVm.runRef(cfn.get, Array.empty[Long], Array[AnyRef](Value.StringV("abcd"))) shouldBe 14L  // 10 + 4
+    }
+  }
+
   test("wide-jit C-3: FunV.body is identity-keyed in the Typer's nodeTypes; the map threads to VmCompiler") {
     // Parse ONCE; run it (→ FunV) and typecheck it (→ nodeTypes) from the SAME parse, so the
     // FunV.body Term the JIT compiles is the exact object the Typer recorded a type for.
