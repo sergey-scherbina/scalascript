@@ -67,6 +67,16 @@ are plain bullets without checkboxes so agents do not claim them as build work.
 
 ## SclJet interoperability follow-ups (2026-07-12)
 
+- [ ] **scljet-byteslice-zeros-js-recursion** — `ByteSlice.zeros`/`zerosList` in
+      `runtime/std/scljet/bytes.ssc` build the zero list by linear recursion. The v1
+      interpreter TCOs it, but the JS backend does not, so `emptyDatabase(pageSize)` (M3
+      writer) — and any `ByteSlice.zeros(large)` — overflows node's call stack for page
+      sizes ≥ ~16384 (`RangeError: Maximum call stack size exceeded`). `scljet-write-empty`
+      conformance therefore covers 512..8192 on `[int, js]`; int/VM/ASM cover all legal
+      sizes byte-exactly. Fix options: JS-backend TCO for self-tail-recursive functions, or
+      make `zerosList` non-linear-depth (build 64-byte chunks directly / doubling). Unblocks
+      full-size empty-DB writes on JS and any large zero-fill in the write path.
+
 - [ ] **scljet-m2d-hardening-overflow-traversal** — the last M2d corpus hardening
       item after `scljet-m2d-hardening` slices 1-2 landed (2026-07-13). Index-btree
       payload thresholds (`index-overflow-thresholds.db`) and deep page-1
