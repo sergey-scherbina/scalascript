@@ -314,6 +314,7 @@ def lexFrom = (s, i) =>
     else if #i.eq(c, 58) then
       if #i.eq(n, 58) then Cons(mkTok("::", ""), lexFrom(s, #i.add(i2, 2)))     -- ::
       else if #i.eq(n, 43) then Cons(mkTok("op", ":+"), lexFrom(s, #i.add(i2, 2))) -- :+
+      else if #i.eq(n, 61) then Cons(mkTok("op", ":="), lexFrom(s, #i.add(i2, 2))) -- := (DSL op)
       else Cons(mkTok(":", ""), lexFrom(s, #i.add(i2, 1)))                       -- :
     else if #i.eq(c, 46) then
       if #i.eq(n, 46) then Cons(mkTok("op", ".."), lexFrom(s, #i.add(i2, 2)))   -- ..
@@ -1271,6 +1272,7 @@ def opPrec = (op) =>
   else if #seq(op, "<<") then 6     -- shifts
   else if #seq(op, ">>") then 6
   else if #seq(op, ">>>") then 6
+  else if #seq(op, ":=") then 1     -- DSL assign operator (attr.x := v; SBT-style setting)
   else 0
 
 def isInfixOp = (toks) =>

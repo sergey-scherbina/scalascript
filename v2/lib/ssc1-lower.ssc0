@@ -1863,6 +1863,10 @@ def lowerE = (scope, rawExpr) =>
                   IrPrim("__arith__", Cons(IrLit(IrStr(">")), Cons(lv, Cons(rv, Nil))))
                 else if #seq(op, ">=") then
                   IrPrim("__arith__", Cons(IrLit(IrStr(">=")), Cons(lv, Cons(rv, Nil))))
+                else if #seq(op, ":=") then
+                  -- DSL assign operator: `a := b` is Scala `a.:=(b)` (a method on the
+                  -- LHS building a setting/attr), NOT a var store. Route to __method__.
+                  IrPrim("__method__", Cons(IrLit(IrStr(":=")), Cons(lv, Cons(rv, Nil))))
                 else
                   -- User-defined symbolic operator. Receiver-aware extension
                   -- dispatch is a later slice; an explicit global call keeps
