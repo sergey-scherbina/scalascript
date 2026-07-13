@@ -4227,6 +4227,7 @@ hstack(gap = 12)(
 |-------------|-------------|
 | `textField(value, label, disabled, required)` | Labeled text input; `value` must be `Signal[String]`; two-way bound |
 | `checkbox(checked, label, disabled)` | Checkbox; `checked` must be `Signal[Boolean]`; two-way bound |
+| `select(options, selected, label, placeholder, disabled)` | Dropdown over `(value, label)` pairs; `selected` must be `Signal[String]`; two-way bound. `options` is static (built once, like `columns`/`tabs` elsewhere in the toolkit — see `specs/std-ui-select.md`); `placeholder`, when non-empty, is a disabled/hidden leading option shown while nothing is selected |
 | `signalButton(signal, value, label, disabled)` | Button that sets `signal` to `value` on click |
 | `actionButton(handler, label, disabled)` | Button wired to an `EventHandler` (`fetchAction`, `incSignal`, …) |
 
@@ -4234,13 +4235,26 @@ hstack(gap = 12)(
 val name    = signal[String]("name", "")
 val agreed  = signal[Boolean]("agreed", false)
 val submitted = signal[Boolean]("submitted", false)
+val contract  = signal[String]("contract", "c-1002")
 
 vstack(gap = 12)(
   textField(value = name, label = "Your name"),
   checkbox(checked = agreed, label = "I accept the terms"),
+  select([("c-1001", "Acme Corp"), ("c-1002", "Northwind")], contract,
+    label = "Active contract", placeholder = "Choose a contract..."),
   signalButton(submitted, true, "Submit", disabled = !agreed)
 )
 ```
+
+Calling `select` with a named argument that skips an earlier default (e.g.
+`select(options, selected, disabled = true)` alone, without also naming
+`label`/`placeholder`) hits a known `bin/ssc run` standard-tier bug — name
+every trailing parameter from the first one you override onward instead
+(`select(options, selected, label = "", placeholder = "", disabled =
+true)`), or call fully positionally. See `BUGS.md` §
+`standard-tier-named-arg-skip-default`.
+
+Runnable example: `examples/frontend/select-demo/select-demo.ssc`.
 
 #### Reactive helpers
 

@@ -14,6 +14,26 @@ Status hygiene (2026-06-23): open `[ ]` rows below are intentionally still open,
 explicitly `BLOCKED` or `DEFERRED` product/external-decision items. History-only / wontfix notes
 are plain bullets without checkboxes so agents do not claim them as build work.
 
+## std/ui follow-ups (2026-07-13)
+
+- [ ] **select-from-signal** — `std.ui.input.select` (`specs/std-ui-select.md`,
+      landed `84187250b`) takes a static `List[(String, String)]` for
+      `options`, built once when the tree is constructed. busi's actual
+      motivating case (a dropdown of active contracts fetched from an API)
+      wants a reactive `Signal[List[(String, String)]]` instead, so the
+      option list can populate/update after a client-side fetch resolves.
+      No existing `std/ui` mechanism does this generically today —
+      `forKeyedView` (`primitives.ssc`) is a render-once snapshot in the
+      interpreter path; only `dataTableView`/`fetchRowsSource` have genuine
+      fetch-then-rerender wiring, and that's bespoke, table-specific JS
+      runtime code. This needs either generalizing that machinery or a new
+      bespoke `<select>`-shaped fetch+rerender primitive — deliberately out
+      of scope for the initial `select` slice (kept minimal). Until this
+      lands, callers needing a fetched option list should query it
+      server-side before calling `select(...)` (this `std/ui` toolkit
+      already supports full-stack server-rendered pages — see tutorial 4)
+      or rebuild/re-serve the page after the fetch.
+
 ## Standard-tier compiler correctness (2026-07-13)
 
 - [ ] **standard-tier-named-arg-skip-default** — `bin/ssc run` (default, and

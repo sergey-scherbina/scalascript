@@ -282,4 +282,54 @@ JVM/Swing/SwiftUI native-frontend lowering.
 
 ## Results
 
-_(filled in after implementation and verification — see the feature commit.)_
+Implemented in `84187250b`.
+
+What landed:
+
+- `std.ui.nodes.SelectNode` and public `std.ui.input.select(options, selected,
+  label, placeholder, disabled): TkNode`.
+- `lower.ssc` lowers `SelectNode` to a real `<select>` with `<option>`
+  children (plus an optional leading placeholder option and an optional
+  wrapping `<label>`), reusing `element`/`textNode`/`inputChange` — no new
+  `extern def`, no changes to `FrontendIntrinsics.scala`,
+  `StaticJsEmitter.scala`, `CustomFrameworkBackend.scala`, or `JsGen.scala`.
+- `examples/frontend/std-ui/smoke-test.ssc` exercises `select` alongside the
+  other input widgets.
+- `examples/frontend/select-demo/select-demo.ssc` — runnable example (pick a
+  contract from a static list; a `computedSignal` derives and displays the
+  picked label reactively; a second, disabled `select` demonstrates the
+  disabled render).
+- `tests/conformance/tkv2-select.ssc` (+ `expected/tkv2-select.txt`).
+- `BUGS.md` § `standard-tier-named-arg-skip-default` + `BACKLOG.md` §
+  Standard-tier compiler correctness — a bug found in `bin/ssc run`'s
+  self-hosted standard-tier pipeline while building this slice (named args
+  that skip a non-first trailing default mis-bind); confirmed **not** to
+  affect `bin/ssc-tools run` (v1), `bin/ssc-tools run --v2`, or
+  `bin/ssc-tools emit-js` — not this repo's own conformance/test harness.
+  Not fixed here (out of scope); every `select(...)` call site in this
+  slice avoids the trigger shape.
+
+Verification:
+
+- `scripts/sbtc "installBin"` passed.
+- `tests/conformance/run.sh --only 'tkv2-select'` — **PASS [INT], PASS
+  [JS]** (JVM correctly SKIP — `backends: [int, js]`).
+- `tests/conformance/run.sh --only 'tkv2-*,std-ui-*' --no-memo` — **20
+  passed, 0 failed** (no regressions in the sibling toolkit-v2/std-ui
+  suite).
+- `scripts/sbtc 'backendInterpreterServer/testOnly scalascript.StdUiSmokeTest'`
+  — both tests green (`smoke:ok`, `lower-idempotent:ok`).
+- `bin/ssc-tools run examples/frontend/select-demo/select-demo.ssc` served a
+  real page; fetched the emitted `app.js` and confirmed by inspection:
+  `document.createElement('select')`, one `document.createElement('option')`
+  per entry (+ the placeholder), the option matching the signal's initial
+  value marked `.selected = true` and every other option `false`, `.value`
+  set + subscribed for future updates, and an `'input'` listener wired to
+  `__setSignal`. The disabled variant showed `.disabled = true` and no event
+  listener, matching `textField`/`checkbox`'s existing convention.
+- `git diff --check` passed.
+
+Follow-up recorded in `BACKLOG.md`: `select-from-signal` (reactive
+`Signal[List[(String,String)]]` options — needs DataTable-caliber
+fetch+re-render wiring, deliberately out of scope here) and
+`standard-tier-named-arg-skip-default` (the bug above).
