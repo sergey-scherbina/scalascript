@@ -7351,11 +7351,22 @@ JS `1410065408` = mod 2^32; JVM emits Scala's 32-bit `Int`). Huge blast radius
           in shared usingSigCell; ssc1-lower injectGivens appends buildUsingGivenArgs at the END (ctx
           givens still prepend), guarded by `len(args) < fullCount` so explicit `(using x)` isn't
           double-injected. → **tagless-resolution 5/5**. sweep 109→112 (+ 2 flaky scljet-write), 0 regr.
-    - [ ] **A1-mono REMAINING tagless cluster** — distinct features, all fall back safely today:
-          - `tagless-program` → `TYPEERR: cannot unify Tuple with non-Tuple` (typer/tuple).
-          - `tagless-multi-file` → multi-file typeclass resolution gap.
-          - ext-dispatch backlog: multi-param TC typeHead (MonadError[F,E] → first arg F; today takes the
-            whole `F, E` string — works for the cases that only dispatch single-param TCs).
+    - [x] **A1-mono SLICE 6 (higher-kinded type params + extension-after in given body)** `7a78f09cb`/
+          `1ea4f1720` — DONE. Closed the last two tagless cases, both PARSER bugs (not the checker/lowering):
+          - `tagless-program` → `def f[F[_]](…)` mis-parsed: parseTypeParams read tyvar `F` then stopped
+            at the INNER `]` of `[_]`, misaligning the signature → spurious tuple the Mira checker rejected
+            ("cannot unify Tuple with non-Tuple"). Fix: skipTypeArgs over a higher-kinded param's own
+            `[_]`/`[_,_]` before the bound/comma (unchanged for simple params + chained bounds).
+          - `tagless-multi-file` → a regular `def` AFTER an `extension` group in a `given … with` body was
+            dropped: parseObj closed the given at the extension's virtual E-frame `}` (an extension closes
+            `} extension_end`, the given closes bare `}`). Fix: on `}`, peek extension_end → reset
+            extensionParams, keep the marker, continue the body.
+    - [x] **✅ ENTIRE tagless/typeclass conformance cluster GREEN (10/10)** on the v2 bytecode lane:
+          std-semigroup-monoid, tagless-context-bounds, typeclass-extension, std-functor-applicative-monad,
+          std-selective, tagless-sealed-dispatch, tagless-resolution, tagless-program, tagless-multi-file,
+          tagless-direct-syntax. v2 bytecode sweep 102 → 114 across the session, 0 real regressions.
+          Backlog (not blocking any conformance case): mono transitivity, multi-ctx-param mono, non-List
+          containers, multi-param TC typeHead (MonadError[F,E]→first arg F).
           - `tagless-program` → `TYPEERR: cannot unify Tuple with non-Tuple` (typer/tuple, distinct).
 
 ### ▶ ssc-toolkit-v2 (2026-07-07, owner-directed via busi: the busi SPA must move React→ScalaScript)
