@@ -4307,12 +4307,28 @@ def extTypeTags = (typeHead) =>
   if #seq(typeHead, "List") then Cons("Cons", Cons("Nil", Nil))
   else if #seq(typeHead, "Option") then Cons("Some", Cons("None", Nil))
   else if #seq(typeHead, "Either") then Cons("Left", Cons("Right", Nil))
+  -- A tuple literal lowers to IrCtor("Pair", …); runtime ops (zip/map/groupBy) produce DataV("Tuple2", …).
+  else if #seq(typeHead, "Tuple2") then Cons("Pair", Cons("Tuple2", Nil))
   else
     let subs = subtypeChildren(typeHead) in
     match subs { case Nil => Cons(typeHead, Nil) case Cons(h, t) => subs }
 
 def extMemberStr = (x, xs) =>
   match xs { case Nil => false case Cons(h, t) => if #seq(h, x) then true else extMemberStr(x, t) }
+
+-- First top-level (depth-0) comma-separated component of a type-arg string: the CONTAINER type of a
+-- multi-param TC. "Option, Unit" → "Option" (MonadError[F, E]); "Map[K, V], E" → "Map[K, V]"; "List" → "List".
+def firstTypeArg = (t) =>
+  let len = #slen(t) in
+  let rec scan = (i, depth) =>
+    if #i.lt(i, len) then
+      let c = #sslice(t, i, #i.add(i, 1)) in
+      if #seq(c, "[") then scan(#i.add(i, 1), #i.add(depth, 1))
+      else if #seq(c, "]") then scan(#i.add(i, 1), #i.sub(depth, 1))
+      else if #seq(c, ",") then (if #i.eq(depth, 0) then i else scan(#i.add(i, 1), depth))
+      else scan(#i.add(i, 1), depth)
+    else i in
+  #sslice(t, 0, scan(0, 0))
 
 -- Extension methods declared at TOP LEVEL (not inside a given body). A method with BOTH a top-level
 -- extension AND given-body instances gets its top-level impl emitted under `m__ext_default`, and the
@@ -4362,7 +4378,7 @@ def collectExtDispatch = (stmts) =>
               case Pair(gname, rest2) =>
                 match rest2 {
                   case Pair(typeStr, gstmts) =>
-                    let typeHead = match parseGivenType(typeStr) { case Pair(tc, t) => t } in
+                    let typeHead = firstTypeArg(match parseGivenType(typeStr) { case Pair(tc, t) => t }) in
                     -- Track the extension group within the given body (extension_start/_end); a def
                     -- while active is an extension method implemented for `typeHead`.
                     let rec scan = (ss, active) =>
