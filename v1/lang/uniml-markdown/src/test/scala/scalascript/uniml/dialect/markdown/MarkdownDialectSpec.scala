@@ -168,6 +168,51 @@ final class MarkdownDialectSpec extends AnyFunSuite:
       case other => fail(s"expected a single paragraph, got $other")
   }
 
+  test("deep and mixed container nesting projects the right structure") {
+    // nested block quotes
+    projectDoc("> > foo\n").blocks.head match
+      case MarkdownBlock.BlockQuote(Vector(MarkdownBlock.BlockQuote(Vector(MarkdownBlock.Paragraph(_))))) => ()
+      case other => fail(s"expected nested block quotes, got $other")
+    // block quote containing a list
+    projectDoc("> - a\n> - b\n").blocks.head match
+      case MarkdownBlock.BlockQuote(Vector(MarkdownBlock.ListBlock(_, _, _, items))) => assert(items.size == 2)
+      case other => fail(s"expected quote-of-list, got $other")
+    // list item containing a block quote
+    projectDoc("- > quote\n").blocks.head match
+      case MarkdownBlock.ListBlock(_, _, _, items) =>
+        assert(items.head.blocks.exists { case _: MarkdownBlock.BlockQuote => true; case _ => false })
+      case other => fail(s"expected list-of-quote, got $other")
+    // nested lists
+    projectDoc("- - x\n").blocks.head match
+      case MarkdownBlock.ListBlock(_, _, _, items) =>
+        assert(items.head.blocks.exists { case _: MarkdownBlock.ListBlock => true; case _ => false })
+      case other => fail(s"expected nested lists, got $other")
+    // an empty '>' line separates two paragraphs within one block quote
+    projectDoc("> foo\n>\n> bar\n").blocks.head match
+      case MarkdownBlock.BlockQuote(Vector(MarkdownBlock.Paragraph(_), MarkdownBlock.Paragraph(_))) => ()
+      case other => fail(s"expected one quote with two paragraphs, got $other")
+  }
+
+  test("continuation markers stay out of inline text; multi-line spans resolve across them") {
+    // block-quote continuation: the '> ' marker is trivia, not paragraph text
+    projectDoc("> a\n> b\n").blocks.head match
+      case MarkdownBlock.BlockQuote(Vector(MarkdownBlock.Paragraph(is))) =>
+        assert(is == Vector(MarkdownInline.Text("a"), MarkdownInline.SoftBreak, MarkdownInline.Text("b")))
+      case other => fail(s"expected clean two-line quote paragraph, got $other")
+    // emphasis that opens on one quoted line and closes on the next
+    projectDoc("> *foo\n> bar*\n").blocks.head match
+      case MarkdownBlock.BlockQuote(Vector(MarkdownBlock.Paragraph(Vector(MarkdownInline.Emphasis(children))))) =>
+        assert(children == Vector(MarkdownInline.Text("foo"), MarkdownInline.SoftBreak, MarkdownInline.Text("bar")))
+      case other => fail(s"expected multi-line emphasis across the '> ' marker, got $other")
+    // list-item continuation: the indent is trivia; emphasis spans both lines
+    projectDoc("- *x\n  y*\n").blocks.head match
+      case MarkdownBlock.ListBlock(_, _, _, items) =>
+        items.head.blocks.collectFirst { case MarkdownBlock.Paragraph(Vector(MarkdownInline.Emphasis(cs))) => cs } match
+          case Some(cs) => assert(cs == Vector(MarkdownInline.Text("x"), MarkdownInline.SoftBreak, MarkdownInline.Text("y")))
+          case None     => fail(s"expected emphasis in list item, got ${items.head.blocks}")
+      case other => fail(s"expected list with continued emphasis, got $other")
+  }
+
   test("lazy paragraph continuation keeps text inside its container") {
     // a marker-less line continues the block quote's paragraph
     projectDoc("> foo\nbar\n").blocks.head match

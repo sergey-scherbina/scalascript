@@ -215,40 +215,65 @@ private[markdown] final class MarkdownBlocks(
 
   // ── paragraphs ────────────────────────────────────────────────────────
 
-  private val paragraphContent = StringBuilder()
-  private var paragraphPendingEnding = ""
-  // container-continuation markers stripped on the current line, to be woven
-  // into the paragraph text in source order at the next append
+  // One physical paragraph line: the stripped container-continuation prefix (a
+  // `> ` marker or list indent; empty on the first line and lazy lines), the
+  // de-prefixed content, and the exact ending.
+  private final case class ParaSeg(prefix: String, content: String, ending: String)
+  private val paragraphSegs = ArrayBuffer.empty[ParaSeg]
+  // container-continuation prefix stripped on the current line (set by
+  // matchContainers), attached to the next appended segment
   private var paragraphPendingPrefix = ""
 
   private def appendParagraph(line: MdLine, content: String): Unit =
     if open != OpenLeaf.Paragraph then
       open = OpenLeaf.Paragraph
-      paragraphContent.clear()
-      paragraphContent.append(content)
+      paragraphSegs.clear()
+      // the first line's marker was already emitted by the container opener
+      paragraphSegs += ParaSeg("", content, line.ending)
     else
-      // preserve the previous line's exact ending, then the stripped
-      // continuation prefix (e.g. `> `), then this line's content — in order
-      paragraphContent.append(paragraphPendingEnding)
-      paragraphContent.append(paragraphPendingPrefix)
-      paragraphContent.append(content)
+      paragraphSegs += ParaSeg(paragraphPendingPrefix, content, line.ending)
     paragraphPendingPrefix = ""
-    paragraphPendingEnding = line.ending
 
   private def finishParagraph(): Unit =
     if open == OpenLeaf.Paragraph then
-      // include the final line's exact ending so nothing is lost
-      val content = paragraphContent.result() + paragraphPendingEnding
+      val segs = paragraphSegs.toVector
       open = OpenLeaf.None
-      paragraphContent.clear()
-      paragraphPendingEnding = ""
+      paragraphSegs.clear()
+      // inline content is the de-prefixed lines joined by their exact endings —
+      // no container markers, so multi-line inline spans resolve cleanly
+      val content = segs.iterator.map(s => s.content + s.ending).mkString
       val pieces = MarkdownInlines.parse(content, refs.toMap, profile)
-      emitInlineWrapped(MdBranch.Paragraph, pieces, Some("content"))
+      emitParagraphWithSegments(pieces, segs)
     // a continuation prefix buffered for a line that turned out to start a new
     // block (not continue the paragraph) is emitted here so nothing is lost
     if paragraphPendingPrefix.nonEmpty then
       flushPending(MdKind.Indent, paragraphPendingPrefix, Vector.empty, Some("continuation"), TokenChannel.Trivia)
       paragraphPendingPrefix = ""
+
+  /** Emits the paragraph's inline pieces wrapped in a paragraph frame, splicing
+    * each line's continuation prefix back in as trivia at its source position —
+    * i.e. right after the soft/hard break that ends the preceding line. The k-th
+    * break in the stream ends segment k, so segment k+1's prefix follows it. */
+  private def emitParagraphWithSegments(pieces: Vector[InlinePiece], segs: Vector[ParaSeg]): Unit =
+    if pieces.nonEmpty then
+      val n = pieces.size
+      var i = 0
+      var breakCount = 0
+      while i < n do
+        val piece = pieces(i)
+        if n == 1 then emitFirstLast(MdBranch.Paragraph, piece, Some("content"))
+        else if i == 0 then emitFirst(MdBranch.Paragraph, piece, Some("content"))
+        else if i == n - 1 then emitLast(MdBranch.Paragraph, piece)
+        else replay(piece)
+        if isBreakPiece(piece) then
+          breakCount += 1
+          if breakCount < segs.size && segs(breakCount).prefix.nonEmpty then
+            sink.leaf(MdKind.Indent, segs(breakCount).prefix, Some("continuation"), TokenChannel.Trivia)
+        i += 1
+
+  private def isBreakPiece(piece: InlinePiece): Boolean = piece match
+    case InlinePiece.Tok(kind, _, _, _) => kind == MdKind.SoftBreak || kind == MdKind.HardBreak
+    case _                              => false
 
   // ── ATX headings ────────────────────────────────────────────────────────
 
@@ -302,12 +327,18 @@ private[markdown] final class MarkdownBlocks(
       { val t = trimmed.trim; t.nonEmpty && (t.forall(_ == '=') || t.forall(_ == '-')) }
 
   private def emitSetextUnderline(line: MdLine): Unit =
-    // reinterpret the just-open paragraph as a setext heading
-    val content = paragraphContent.result()
-    val interior = paragraphPendingEnding
+    // reinterpret the just-open paragraph as a setext heading. Setext headings
+    // are almost always single-line; for the rare multi-line-in-container case
+    // the continuation prefix is woven into the text (kept lossless).
+    val segs = paragraphSegs.toVector
     open = OpenLeaf.None
-    paragraphContent.clear()
-    paragraphPendingEnding = ""
+    paragraphSegs.clear()
+    val content = segs.iterator.zipWithIndex.map { (s, idx) =>
+      val pfx = if idx == 0 then "" else s.prefix
+      val end = if idx == segs.size - 1 then "" else s.ending
+      pfx + s.content + end
+    }.mkString
+    val interior = segs.lastOption.map(_.ending).getOrElse("")
     val pieces = MarkdownInlines.parse(content, refs.toMap, profile)
     if pieces.isEmpty then
       flushPending(MdKind.SetextUnderline, line.content, Vector(FrameSpec(MdBranch.Heading)), Some("underline"), TokenChannel.Syntax)
@@ -703,21 +734,6 @@ private[markdown] final class MarkdownBlocks(
     else pendingClose = pendingClose :+ MdBranch.Definition
 
   // ── emission helpers ────────────────────────────────────────────────────
-
-  /** Emit `pieces` wrapped in `branch`: open on the first token, close on the
-    * last, folding any pending container closures into the first token. */
-  private def emitInlineWrapped(branch: String, pieces: Vector[InlinePiece], role: Option[String]): Unit =
-    if pieces.isEmpty then
-      // degenerate empty block: emit nothing
-      ()
-    else if pieces.size == 1 then
-      emitFirstLast(branch, pieces.head, role)
-    else
-      emitFirst(branch, pieces.head, role)
-      var i = 1
-      while i < pieces.size - 1 do
-        replay(pieces(i)); i += 1
-      emitLast(branch, pieces.last)
 
   /** Open `branch` on the first piece only (used by setext where the underline
     * closes the frame explicitly). */
