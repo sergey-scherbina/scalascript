@@ -30,14 +30,18 @@ parser. Design decisions already agreed with Sergiy:
 
 Lead: opus-continue; phases are open to other agents (esp. the v2-side track uniml-portable-3).
 
-**⚠️ STRATEGIC FORK (2026-07-13, from Phase 0.5 deep-probe — needs Sergiy's call).** v2's object model
-is **immutable**: only `case class`(constructor params) + methods. No mutable object fields (`var`
-*or* `val` in a class body), no plain `class`, no anonymous instances, no arrays — only local
-`var`/`while` in `def` bodies. UniML is pervasively imperative-stateful, so it is **far from
-compilable on v2 as-is** (even `1b` is blocked — named processors need a mutable `finished` field).
-The fork: **(A)** grow v2's imperative/OO surface (mutable fields, plain classes, anon instances,
-arrays); **(B)** rewrite UniML in a purely functional/immutable style (big); **(C)** rescope (e.g.
-scalac-only for now). See `specs/uniml-portable-gapmap.md` § "The wall".
+**✅ DECISION (Sergiy, 2026-07-13): the UniML side is an IMMUTABLE REWRITE (primary); v2 fixes shrink
+to whatever remains.** Phase 0.5 deep-probe found v2's object model is immutable: only `case
+class`(constructor params) + methods — no mutable object fields, no plain `class`, no anonymous
+instances, no arrays; only local `var`/`while` in `def` bodies. Sergiy: UniML being pervasively
+imperative-stateful (mutable lexer/VM fields, buffers) is **bad design** — rewrite it to something
+immutable. This is a win-win: an immutable UniML is cleaner **and** fits v2's model, so the v2-side
+fix list mostly evaporates. Key insight: **eliminate mutable OBJECT STATE (fields) and mutable
+collections; local `var`/`while` of immutable values inside functions stays (v2 supports it)** — so
+this is "immutable interfaces + immutable data with a local imperative shell", not "no `var` at all".
+After the rewrite, **re-measure the v2 gap** — likely only multi-file `package`/`import` (+ maybe an
+immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
+`specs/uniml-portable-gapmap.md` § "The wall".
 
 - [x] **uniml-portable-0-move** — ✓ DONE 2026-07-13. Moved core/json/yaml/markdown to top-level
       `uniml/` with its own sbt build (`uniml/build.sbt` + `uniml/project/`). `cd uniml && sbt test` =
@@ -52,23 +56,25 @@ scalac-only for now). See `specs/uniml-portable-gapmap.md` § "The wall".
       — most of UniML's surface. **Two blocking gaps:** (1) `new Array[T](n)` + indexed apply/update
       is broken (IndexOutOfBounds) — the compat-layer floor; (2) anonymous `new Trait[..]:` →
       `unbound global: _err`. Untested: variance `[+A]`, multi-file `package`/`import`.
-- [ ] **uniml-portable-1-compat** — write `uniml.compat` (Scala3∩v2 subset): mutable `Buffer[T]`,
-      ordered `LinkedMap`, `HashSet`, `StrBuilder`, int↔hex parse/format, and `CharClass` with a
-      **compact curated Unicode table** (whitespace/punct/symbol/letter/digit + P*/S* for markdown
-      flanking) + ASCII fast-path. Refactor core+dialects off `scala.collection.mutable` /
-      `Character.*` / `Integer.*` / `StringBuilder` onto `uniml.compat`. Keep scalac build + all tests
-      green (compat is a drop-in). This is the largest UniML-side slice. NOTE (from gapmap): compat's
-      mutable primitives need a **working mutable-array floor** — blocked on `uniml-portable-3`
-      fixing `new Array[T](n)` in v2, unless we build the floor on a v2-native buffer.
-- [~] **uniml-portable-1b-namedclasses** — BLOCKED by the object-model wall. Replacing the 2 anonymous
-      `new Processor[..]:` (in `Processor.andThen`/`stateless`) with named classes does not help v2:
-      those classes still need a mutable `finished` field, which v2 rejects. Gated by the strategic
-      fork. (The pure-scalac cleanup — anon→named — is trivial but low-value until the fork is decided.)
-- [ ] **uniml-portable-v2-objectmodel** — [v2-side; gated by fork option A] make ScalaScript v2 support
-      the object-model constructs UniML needs but v2 lacks today (per gapmap): **anonymous trait
-      instances** (Sergiy: "анонимные трейты хорошо бы сделать в scalascript"), **mutable object fields**
-      (`var`/`val` in class bodies), **plain (non-case) classes**, and **working mutable `Array[T]`**
-      (`new Array[T](n)` + indexed apply/update). Coordinate with the v2-frontend agents.
+- [ ] **uniml-portable-1-immutable** — [UniML-side, PRIMARY] rewrite UniML to eliminate mutable
+      object state. Sketch (being designed with Sergiy): drop the streaming `Processor[I,O]`
+      (`push`/`finish` + mutable `finished`) in favour of pure whole-input functions —
+      `parse(source, dialect): ParseResult` — with chunks just concatenated; make `TreeVm` a pure
+      fold over `Vector[VmToken]` with an immutable `VmState` (frame stack as `List`, counters,
+      roots, diagnostics); make lexers/block-engines pure functions returning token vectors (local
+      `var`/`while` over immutable values allowed — v2 supports it); replace mutable builders/buffers
+      with immutable `Vector`/`List` accumulation. Behaviour-preserving: keep scalac + all tests green
+      throughout. Largest UniML slice.
+- [ ] **uniml-portable-1c-compat** — the small platform-shim that survives the immutable rewrite:
+      `CharClass` with a **compact portable Unicode table** (whitespace/punct/symbol/letter/digit +
+      P*/S* for markdown flanking) + ASCII fast-path, hand-rolled int↔hex, and an immutable `Map`-like
+      structure **iff** v2 lacks one. No mutable `Buffer`/`StrBuilder`/`Array` needed once immutable.
+- [~] **uniml-portable-1b-namedclasses** — SUPERSEDED by `uniml-portable-1-immutable` (the immutable
+      rewrite removes the anonymous `Processor` instances entirely, along with all mutable fields).
+- [ ] **uniml-portable-v2-objectmodel** — [v2-side] RE-MEASURE after the immutable rewrite; the list
+      shrinks. Likely remaining: **multi-file `package`/`import`** (UniML is multi-file) and maybe an
+      immutable `Map` primitive. **Anonymous trait instances** stay a nice-to-have for v2 (Sergiy:
+      "анонимные трейты хорошо бы сделать в scalascript") but are no longer required by UniML.
 - [ ] **uniml-portable-2-subset** — constrain UniML to the Scala3∩v2 subset per the gap map; add a
       lint that fails on out-of-subset constructs. Set up mechanism (b): canonical `.scala` + `.ssc`
       mirror (symlink or generation) so both compilers see identical content.
