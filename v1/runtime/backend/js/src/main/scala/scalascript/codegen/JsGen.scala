@@ -98,7 +98,7 @@ object JsGen:
 
   private def sectionHas(s: Section): Boolean =
     s.content.exists {
-      case cb: Content.CodeBlock => Lang.isScalaScript(cb.lang)
+      case cb: Content.CodeBlock => Lang.isParseable(cb.lang)
       case _                     => false
     } || s.subsections.exists(sectionHas)
 
@@ -742,7 +742,7 @@ class JsGen(
     }
     def scanSection(section: Section): Unit =
       section.content.foreach {
-        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
           cb.tree.foreach { node =>
             ScalaNode.fold(node) {
               case Source(stats)     => collectDefs(stats)
@@ -815,7 +815,7 @@ class JsGen(
     }
     def scan(section: Section): Unit =
       section.content.foreach {
-        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
           cb.tree.foreach { node =>
             ScalaNode.fold(node) {
               case Source(stats)     => scanDefs(stats)
@@ -848,7 +848,7 @@ class JsGen(
     }
     def scan(section: Section): Unit =
       section.content.foreach {
-        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
           cb.tree.foreach { node =>
             ScalaNode.fold(node) {
               case Source(stats)     => deep(stats)
@@ -874,7 +874,7 @@ class JsGen(
 
     def scanSection(section: Section): Unit =
       section.content.foreach {
-        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
           cb.tree.foreach { node =>
             ScalaNode.fold(node) {
               case Source(stats)     => collectFuncs(stats)
@@ -1002,7 +1002,7 @@ class JsGen(
 
     def walkSection(section: Section): Unit =
       section.content.foreach {
-        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
           cb.tree.foreach(fromNode)
         case imp: Content.Import =>
           imp.bindings.foreach { b =>
@@ -1258,7 +1258,7 @@ class JsGen(
     // grep for capability markers without rebuilding the AST traversal.
     def collectSources(s: Section): List[String] =
       s.content.collect {
-        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) => cb.source
+        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) => cb.source
       } ++ s.subsections.flatMap(collectSources)
     def collectImports(s: Section): List[Content.Import] =
       s.content.collect { case imp: Content.Import => imp } ++ s.subsections.flatMap(collectImports)
@@ -1466,7 +1466,7 @@ class JsGen(
     }
     def scanSection(s: Section): Unit =
       s.content.foreach {
-        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
           cb.tree.foreach { node => ScalaNode.fold(node) {
             case Source(stats)     => scanStats(stats); ()
             case Term.Block(stats) => scanStats(stats); ()
@@ -1490,7 +1490,7 @@ class JsGen(
     }
     def scanSection(s: Section): Unit =
       s.content.foreach {
-        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
           cb.tree.foreach { node => ScalaNode.fold(node) {
             case Source(stats)     => scanStats(stats); ()
             case Term.Block(stats) => scanStats(stats); ()
@@ -1518,7 +1518,7 @@ class JsGen(
     }
     def scanSection(s: Section): Unit =
       s.content.foreach {
-        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
           cb.tree.foreach { node => ScalaNode.fold(node) {
             case Source(stats)     => scanStats(stats); ()
             case Term.Block(stats) => scanStats(stats); ()
@@ -1545,7 +1545,7 @@ class JsGen(
   private def foreachTopStats(module: Module)(f: List[scala.meta.Stat] => Unit): Unit =
     def scanSection(s: Section): Unit =
       s.content.foreach {
-        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
           cb.tree.foreach { node => ScalaNode.fold(node) {
             case Source(stats)     => f(stats)
             case Term.Block(stats) => f(stats)
@@ -1560,7 +1560,7 @@ class JsGen(
   private def moduleUsesMirror(module: Module): Boolean =
     def sectionHas(s: Section): Boolean =
       s.content.exists {
-        case cb: Content.CodeBlock => Lang.isScalaScript(cb.lang) && cb.source.contains("Mirror")
+        case cb: Content.CodeBlock => Lang.isParseable(cb.lang) && cb.source.contains("Mirror")
         case _ => false
       } || s.subsections.exists(sectionHas)
     module.sections.exists(sectionHas)
@@ -1673,7 +1673,7 @@ class JsGen(
     }
     def scanSection(s: Section): Unit =
       s.content.foreach {
-        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
           cb.tree.foreach { node => ScalaNode.fold(node) {
             case Source(stats)     => deep(stats); ()
             case Term.Block(stats) => deep(stats); ()
@@ -1865,7 +1865,7 @@ class JsGen(
 
     def collectTrees(s: Section): List[scala.meta.Tree] =
       s.content.collect {
-        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
           cb.tree.map(ScalaNode.fold(_)(identity))
       }.flatten ++ s.subsections.flatMap(collectTrees)
 
@@ -1912,7 +1912,7 @@ class JsGen(
   private def scanForRunAsyncParallel(module: Module): Unit =
     def collectTrees(s: Section): List[scala.meta.Tree] =
       s.content.collect {
-        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
           cb.tree.map(ScalaNode.fold(_)(identity))
       }.flatten ++ s.subsections.flatMap(collectTrees)
     usesRunAsyncParallel = module.sections.flatMap(collectTrees).exists { tree =>
@@ -1930,7 +1930,7 @@ class JsGen(
   private def scanForRunActors(module: Module): Unit =
     def collectTrees(s: Section): List[scala.meta.Tree] =
       s.content.collect {
-        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
           cb.tree.map(ScalaNode.fold(_)(identity))
       }.flatten ++ s.subsections.flatMap(collectTrees)
     usesRunActors = module.sections.flatMap(collectTrees).exists { tree =>
@@ -1946,7 +1946,7 @@ class JsGen(
     def collectTrees(s: Section): List[scala.meta.Tree] =
       s.content.collect {
         case cb: Content.CodeBlock
-            if Lang.isScalaScript(cb.lang) && !cb.attrs.get("side").contains("server") =>
+            if Lang.isParseable(cb.lang) && !cb.attrs.get("side").contains("server") =>
           cb.tree.map(ScalaNode.fold(_)(identity))
       }.flatten ++ s.subsections.flatMap(collectTrees)
     usesAwaitClient = module.sections.flatMap(collectTrees).exists { tree =>
@@ -1958,7 +1958,7 @@ class JsGen(
   private def scanForStreams(module: Module): Unit =
     def collectTrees(s: Section): List[scala.meta.Tree] =
       s.content.collect {
-        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
           cb.tree.map(ScalaNode.fold(_)(identity))
       }.flatten ++ s.subsections.flatMap(collectTrees)
     val terminalNames = Set("runForeach", "runToList", "runDrain", "runFold")
@@ -2028,9 +2028,9 @@ class JsGen(
         index
       }
       s.content.foreach {
-        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) && cb.attrs.get("side").contains("server") =>
+        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) && cb.attrs.get("side").contains("server") =>
           ()
-        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
           flushScala()
           withContentCurrentSection(sectionIndex) {
             cb.tree.foreach(genScalaNode)
@@ -2107,9 +2107,9 @@ class JsGen(
       index
     }
     section.content.foreach {
-      case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) && cb.attrs.get("side").contains("server") =>
+      case cb: Content.CodeBlock if Lang.isParseable(cb.lang) && cb.attrs.get("side").contains("server") =>
         ()
-      case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+      case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
         withContentCurrentSection(sectionIndex) {
           cb.tree.foreach(genScalaNode)
         }
@@ -2291,7 +2291,7 @@ class JsGen(
       // Emit only the definitions from the imported module (suppress top-level output)
       childModule.sections.foreach { section =>
         section.content.foreach {
-          case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+          case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
             cb.tree.foreach(childGen.genScalaNode)
           case nestedImp: Content.Import =>
             // Propagate transitive imports — e.g., std/selective.ssc

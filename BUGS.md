@@ -95,6 +95,12 @@ case, full `backendInterpreter/test` green):
   "Cannot mix BigInt and other types" whenever an Int (Number) met a Long (BigInt).
   Fixed both sites (recordDefTypeEvidence + rebindNumericEvidence) to pattern-match.
   Systemic — affects every Long param/return on JS, not just lang-split.
+- **js-scala-fence-emit** — FIXED (found via lang-split). The interpreter and JVM
+  backend run every `Lang.isParseable` block (`scalascript` OR plain `scala`), but
+  JsGen collected only `isScalaScript` blocks, so a ` ```scala ` fence ran on
+  INT/JVM but was silently dropped on JS (its output vanished). Switched all 25
+  block-filter sites across JsGen/JsGenContentEmit/TreeShaker to `isParseable`,
+  matching the other backends. lang-split.ssc now matches INT end-to-end.
 
 Remaining (categorized; not yet fixed):
 

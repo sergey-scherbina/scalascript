@@ -1,0 +1,23 @@
+---
+name: js-scala-fenced-block
+backends: [int, js]
+---
+
+# `scala`-fenced blocks are emitted to JS (js-scala-fence-emit)
+
+The interpreter and JVM backend run every `Lang.isParseable` block (`scalascript` OR
+`scala`), but JsGen collected only `isScalaScript` blocks — so a plain ` ```scala `
+block ran on INT/JVM but was silently dropped on JS (its output just vanished). JsGen
+now filters on `isParseable` too, matching the other backends.
+
+```scala
+case class Point(x: Double, y: Double):
+  def distanceTo(o: Point): Double = math.sqrt(math.pow(x - o.x, 2) + math.pow(y - o.y, 2))
+
+println(s"Distance: ${Point(0, 0).distanceTo(Point(3, 4))}")
+```
+
+```scalascript
+val evens = List(1, 2, 3, 4, 5, 6).filter(_ % 2 == 0)
+println(s"Evens: ${evens.mkString(", ")}")
+```

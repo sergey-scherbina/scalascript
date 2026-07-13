@@ -36,7 +36,7 @@ private[codegen] trait JsGenContentEmit:
 
     def sectionUsesContent(section: Section): Boolean =
       section.content.exists {
-        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
           cb.tree.exists(treeUsesContent) || contentIntrinsicNames.exists(cb.source.contains)
         case imp: Content.Import =>
           importUsesContent(imp)
