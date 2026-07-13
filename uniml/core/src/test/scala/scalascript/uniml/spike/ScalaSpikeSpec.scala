@@ -63,6 +63,12 @@ final class ScalaSpikeSpec extends AnyFunSuite:
     assert(left.kind == "spike.infix" && opOf(left) == "*")
   }
 
+  test("type parameters on defs are erased (plain [A])") {
+    val pr = parse("def useIt[A](x: A): Int = x")
+    assert(pr.status == CompletionStatus.Complete, pr.diagnostics)
+    assert(SpikeProject.program(pr.roots.head).contains("""mkDef("useIt", Cons("x", Nil)"""))
+  }
+
   test("prefix (-e), range (a to b) and typed pattern (p: T) parse to the right nodes") {
     assert(defBody(parse("def main(): Int = -5")).asInstanceOf[UniNode.Branch].kind == "spike.pre")
     assert(defBody(parse("def main(): Int = 1 to 5")).asInstanceOf[UniNode.Branch].kind == "spike.rangeop")
@@ -371,7 +377,9 @@ final class ScalaSpikeSpec extends AnyFunSuite:
       // P6.2j — prefix ops, to/until ranges, typed patterns
       "op-prefix" -> "def main(): Int = -5 + 3",
       "op-range"  -> "def main(): Int = (1 until 5) match\n  case _ => 7",
-      "pat-typed" -> "def main(): Int = 5 match\n  case x: Int => x\n  case _ => 0"
+      "pat-typed" -> "def main(): Int = 5 match\n  case x: Int => x\n  case _ => 0",
+      // P6.2k — type parameters on defs (plain [A], erased); summon a concrete given from a generic def
+      "tparam" -> "given g: Int = 99\ndef useIt[A](x: A): Int = summon[Int]\ndef main(): Int = useIt(5)"
     )
     // broken — no oracle; the harness proves containment (`main` still runs).
     val broken = Seq(

@@ -135,6 +135,18 @@ object SpikeParse:
       diags += Diagnostic(code, msg, Severity.Error, span, Some("scalascript.spike"))
 
   private def isDefStart(c: Cur): Boolean = c.peekKind == "spike.kw" && c.peekLexeme == "def"
+
+  // consume a `[ … ]` type-parameter clause (erased). Plain params only — a context bound
+  // `[A: TC]` would need the `__tc_TC`-param rewrite (deferred; finicky even in ssc1-front).
+  private def skipTypeParams(c: Cur): Unit =
+    if c.peekKind == "spike.lbracket" then
+      c.advance()
+      var depth = 1
+      while depth > 0 && !c.eof do
+        c.peekKind match
+          case "spike.lbracket" => depth += 1; c.advance()
+          case "spike.rbracket" => depth -= 1; c.advance()
+          case _                => c.advance()
   private def isKw(c: Cur, w: String): Boolean = c.peekKind == "spike.kw" && c.peekLexeme == w
 
   def parseProgram(toks: Vector[SourceToken]): Parsed =
@@ -167,6 +179,7 @@ object SpikeParse:
     val kids = Vector.newBuilder[Node]
     c.advance().foreach(t => kids += Node.Leaf(t, Some("def.kw"))) // `def`
     expect(c, "spike.id", "def.name", "def name").foreach(kids += _)
+    skipTypeParams(c) // plain `[A, B]` are erased (like ssc1-front); context bounds `[A: TC]` deferred
     // the `( … )` param clause is OPTIONAL — `def f: T = e` is a parameterless def.
     if c.peekKind == "spike.lparen" then
       c.advance().foreach(t => kids += Node.Leaf(t, Some("def.lparen")))
@@ -201,6 +214,7 @@ object SpikeParse:
     if isKw(c, "class") then c.advance().foreach(t => kids += Node.Leaf(t, Some("cc.class")))
     else c.report("spike.expected", "expected 'class' after 'case'")
     expect(c, "spike.uid", "cc.name", "class name").foreach(kids += _)
+    skipTypeParams(c) // `case class Box[A](…)`
     expect(c, "spike.lparen", "cc.lparen", "'('").foreach(kids += _)
     var more = c.peekKind != "spike.rparen" && !c.eof && !isDefStart(c) && !isKw(c, "case")
     while more do
@@ -221,6 +235,7 @@ object SpikeParse:
     val kids = Vector.newBuilder[Node]
     c.advance().foreach(t => kids += Node.Leaf(t, Some("enum.kw"))) // `enum`
     expect(c, "spike.uid", "enum.name", "enum name").foreach(kids += _)
+    skipTypeParams(c) // `enum Opt[A]: …`
     val braced = c.peekKind == "spike.lbrace"
     if c.peekKind == "spike.colon" then c.advance().foreach(t => kids += Node.Leaf(t, Some("enum.colon")))
     else if braced then c.advance().foreach(t => kids += Node.Leaf(t, Some("enum.lbrace")))
