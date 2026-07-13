@@ -50,24 +50,42 @@ latest v2.
   `NativeUiSiteAnnotationTest` (2), `NativeUiSitesTest` (7), `UiNativePluginTest` (14),
   std-ui conformance (7) all green.
 
-## native-front-spa-arity-gap — rich native-ui SPAs fail `ssc run` with `arity: 2 expected, 1 given`
+## native-front-curried-vararg-and-attrs-map — native `ssc run` broke curried/vararg calls + Map attrs
 
-**Status:** open (2026-07-12); found immediately after the collision above was fixed, while
-bringing rozum's control center up on the latest native frontend.
+**Status:** fixed (2026-07-13), awaiting Sergiy confirmation; found bringing rozum's control
+center up on the latest native frontend (was filed as `native-front-spa-arity-gap`).
 
-- **Real-harness repro:** `bin/ssc run examples/control-center-live.ssc` (an in-repo example)
-  fails with `ssc: arity: 2 expected, 1 given` (`Runtime.scala:178`). Reproduces WITH OR
-  WITHOUT the site-annotation fix and independent of the computedSignal collision — a bare
-  2-signal file runs fine, so the fault is in one of the richer primitives the SPA uses
-  (`fetchUrlSignal`/`fetchUrlSignalTo`/`fetchAction*`/`fieldColumn`/`incSignal`/`onBumpTick`).
-- **Impact:** blocks moving rozum's control center (and any comparably rich native-ui SPA)
-  to the latest v2 native frontend — the current UCC therefore keeps serving its
-  previously-built HTML. The native `ssc run` path is not yet SPA-complete for the full
-  std/ui surface.
-- **Plan/done-when:** identify which std/ui primitive is invoked with the wrong arity on the
-  native VM path (bisect `control-center-live.ssc`), fix the native-front lowering/registration
-  for it, and make `ssc run examples/control-center-live.ssc` emit its HTML. Overlaps the
-  active `v2-swift-nativeui-i18n-json` native-ui work — coordinate before broad edits.
+- **Real-harness repro:** `bin/ssc run` a file using a trailing-vararg std/ui primitive with 2+
+  varargs — `card(a, b, c)` → `arity: 1 expected, 3 given`; `vstack(gap = 16)(a, b)` →
+  `arity: 2 expected, 1 given` (`Runtime.scala:178`); then `element` attrs →
+  `NativeUiElement.attrs expected Map[String, Value], got List(("style", …))`.
+- **Root cause (two independent native-front bugs):**
+  1. **Varargs never packed.** A def whose last param is `T*` (e.g. `def card(body: T*)`,
+     `def vstack(gap)(children: T*)`) lowers to a lambda binding that param as ONE list value
+     (`children.toList`), but the parser flattened a call's clauses into individual args and
+     the call reconciliation compared the unpacked count to the def arity — so `card(a,b,c)`
+     (3 args vs arity 1) and `vstack(g)(a,b)` (curried, combined 3 vs arity 2) failed the
+     CoreIR arity check. The front never even recorded which params are varargs.
+  2. **Map literal → association list.** The native front lowers a `Map[String, Any]` literal
+     to a proper `(k, v)` Pair/Tuple2 association list, but `NativeUiPortable.stringMap` (ui
+     element attrs/events) only accepted a `MapV`.
+- **Fix/verification:**
+  1. Front (`ssc1-front.ssc0`) now detects a trailing `T*` param (`paramTypeIsVararg`) and
+     registers such defs in `varargDefsCell`; the lowerer (`ssc1-lower.ssc0`) packs a call's
+     trailing args into one Cons-list (`packVarargsArgs`) in both the direct and curried-flatten
+     paths so the flattened call matches arity.
+  2. `NativeUiPortable.stringMap` normalizes a Pair/Tuple2 association list to a String map
+     (left-to-right, duplicate key last-wins).
+  Validated: `card(a,b,c)`, `vstack(gap=16)(a,b)`, `cardWithHeader(h)(a,b)` all run; rozum
+  `center.ssc` and in-repo `control-center-live.ssc` now lower fully (past both errors). New
+  `UiNativePluginTest` stringMap case; `v2NativeUiPlugin/test` + std-ui conformance (7) green.
+- **Remaining native-`ssc run` SPA gaps (separate, NOT needed for the UCC, which builds via the
+  tools-tier `ssc-tools emit-spa`):** (a) `eqSignal` created at ONE lexical site inside
+  `std/ui/lower.ssc` but called per-row collides (`duplicate native UI signal
+  '__equality__<siteId>'`) — the `(owner, siteId, occurrence)` counter work owned by the active
+  `v2-swift-nativeui-i18n-json` claim; (b) `serve(view, port)` under `ssc run` tries to start a
+  real TLS server (`native TLS server requires a future server-host extension`) instead of
+  SSR-emitting. Track these for a fully SPA-complete standalone native `ssc run`.
 
 ## scljet-freelist-recursive-stack-overflow — valid large freelist crashes the interpreter
 
