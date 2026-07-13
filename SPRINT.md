@@ -198,8 +198,15 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
           IR byte-identical to ssc1-front (enum-nullary/params, ext-method→10, pat-alt→100/pat-bind→9,
           op-cons→1/op-arrow→3). Notes §P6.2f–i. **P6.2 core COMPLETE**: 9 grammatical families spanning
           the whole ssc1-front (2899 lines), 34-toy corpus all byte-identical — architecture validated
-          end-to-end. Deferred edge cases: to/until, prefix ops, typed patterns, named using +
-          trait-extends (hidden cells), full trait+with+context-bound dispatch loop (finicky in ssc1-front).
+          end-to-end.
+    - [x] **P6.2j–k ✓ Landed 2026-07-13** — prefix ops (-e/!e/~e), to/until ranges, typed patterns
+          (p: T), type parameters (plain [A] on def/case-class/enum, erased). All Core IR byte-identical
+          (op-prefix→-2, op-range→7, pat-typed→0, tparam→99). **Corpus now 38 programs, all Core IR
+          identical.** Notes §P6.2j–k + "honest boundary". **Remaining NOT byte-identically achievable:**
+          (1) full context-bound dispatch loop — errors inside ssc1-front itself for minimal forms;
+          (2) named `using` + `trait extends` — need the two hidden `#cell` channels (usingSigCell/
+          tcExtendsCell), a different integration than pure AST-node projection. **P6.2 grow-the-dialect
+          effectively COMPLETE** — everything the architecture can reach byte-identically is reached.
   - [ ] **P6.3 injection + registry** — interpolator injection (s/f/md) via registry; registry hook
         (built-in set, user-closed).
   - [ ] **P6.4 self-host proof** — compile v2.2 with itself (stage1→stage2 fixed point); scalac oracle.
