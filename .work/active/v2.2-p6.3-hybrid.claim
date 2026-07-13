@@ -1,0 +1,6 @@
+slug: v2.2-p6.3-hybrid
+scope: P6.3 unify-the-hybrid — compose UniML Markdown+YAML dialects with the ScalaScript spike
+       dialect so a whole .ssc (front-matter + prose + ```scalascript fences) parses as ONE lossless
+       UniML tree, and the code half projects to byte-identical CoreIR vs ssc1-front.
+files: uniml/build.sbt, uniml/scala/** (new module unimlScala, test-scope), specs/v2.2-*, SPRINT.md
+branch: feature/v2.2-p6.3-hybrid
