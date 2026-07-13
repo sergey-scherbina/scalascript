@@ -199,6 +199,33 @@ private[interpreter] object BlockRuntime:
     // patternMatch allocations) on every multi-statement block in a hot loop.
     val local     = localVar
     val localView = localViewVar
+    // The `var` names this block declares (empty for reusedView blocks — they declare
+    // none). Computed once here so BOTH `step` (the stale-local resync below) and the
+    // var-scope save/restore (further down) can use it. reusedView stays zero-overhead.
+    val blockDeclNames: Array[String] =
+      if reusedView then EmptyStringArray
+      else
+        val cached = interp.blockVarNamesCache.get(stats)
+        if cached != null then cached
+        else
+          val ns = collectVarDeclNames(stats)
+          interp.blockVarNamesCache.put(stats, ns)
+          ns
+    // interp-if-then-no-else-after-while: a statement-position control-flow term (an
+    // `if`/`while`/`match` with a NESTED `var X = e` assignment) evaluated via the
+    // `interp.eval` slow path writes only `interp.globals` (not this block's `local`
+    // map) — and once the block's `local` has been MATERIALISED (e.g. a preceding
+    // `while`'s syncCallerEnv writes each var into `local`), a later read via `local`
+    // (fastPrimitiveValue over localView) sees the STALE pre-statement value. After a
+    // slow-path statement, re-sync `local` from globals for the block's declared vars
+    // (globals is the source of truth for a declared var during the block). Bounded
+    // (declared vars, cached) and only on the already-slow monadic path.
+    def resyncDeclLocals(): Unit =
+      var di = 0
+      while di < blockDeclNames.length do
+        val g = interp.globals.getOrElse(blockDeclNames(di), null)
+        if g != null then local(blockDeclNames(di)) = g
+        di += 1
     def step(remaining: List[Stat], lastVal: Value): Computation = remaining match
       case Nil => Pure(lastVal)
       case s :: rest =>
@@ -310,9 +337,14 @@ private[interpreter] object BlockRuntime:
             // `perform` etc.) → unchanged monadic path, so no effect is dropped or reordered.
             val fv = EvalRuntime.fastPrimitiveValue(t, localView, interp)
             if fv != null then step(rest, fv)
-            else interp.eval(t, localView) match
+            else if rest.isEmpty then interp.eval(t, localView) match
               case Pure(v) => step(rest, v)
               case c       => FlatMap(c, v => step(rest, v))
+            // A non-last slow-path statement may nest a `var X = e` that wrote only
+            // globals (see resyncDeclLocals): re-sync `local` before the next read.
+            else interp.eval(t, localView) match
+              case Pure(v) => resyncDeclLocals(); step(rest, v)
+              case c       => FlatMap(c, v => { resyncDeclLocals(); step(rest, v) })
           case stat =>
             interp.execStat(stat, local)
             step(rest, Value.UnitV)
@@ -400,13 +432,7 @@ private[interpreter] object BlockRuntime:
     // reusedView blocks declare no vars (guarded above), so skip the scan entirely.
     if reusedView then runDispatch()
     else
-      val declNames: Array[String] =
-        val cached = interp.blockVarNamesCache.get(stats)
-        if cached != null then cached
-        else
-          val ns = collectVarDeclNames(stats)
-          interp.blockVarNamesCache.put(stats, ns)
-          ns
+      val declNames: Array[String] = blockDeclNames // hoisted above (same cached scan)
       if declNames.length == 0 then runDispatch()
       else
         // Snapshot only the OUTER (present-before) bindings this block shadows.
