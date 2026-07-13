@@ -381,12 +381,21 @@ against reference-produced files) and by reopening with the SclJet reader.
       NOTE: JS lane covers 512..8192; page sizes >=~16384 overflow node's stack in the
       recursive `ByteSlice.zeros`/`zerosList` (no JS TCO) — queued in BACKLOG as
       `scljet-byteslice-zeros-js-recursion`. int/VM/ASM cover all sizes byte-exactly.
-- [ ] **scljet-m3c-single-row-insert** — insert one row into a single-table
-      database with no page split (record encoder = inverse of `record.ssc`; append
-      a cell to page 2's cell array + content area; update header change counter and
-      page count). Done-when the file passes reference `integrity_check` and the row
-      round-trips through the SclJet reader on all tiers, differentially vs a
-      reference INSERT of the same values.
+- [~] **scljet-m3c-single-row-insert** — record encoder DONE 2026-07-13; page/DB
+      assembly remaining. `write.ssc`'s `encodeRecord(values): Either[ByteError, ByteSlice]`
+      is the exact inverse of `record.ssc`'s decoder: `varint(headerLen) ++ serial-type
+      varints ++ body`, with the narrowest signed integer serials (0/1 → the 8/9
+      storage-class serials), UTF-8 text (BMP; astral is a follow-up), blob, and NULL.
+      Verified **byte-identical** to both records inside `page-512.db` (the row
+      `(-2,'Hi',x'00ff')` and the 5-field schema record incl. the 41-char CREATE), it
+      round-trips through `decodeRecord`, and is identical on int/VM/ASM/fallback + JS.
+      Conformance `scljet-write-record` ([int, js]). SqlReal encoding needs Double→IEEE754
+      bits (no bits intrinsic yet) — returns a localized error, queued.
+      REMAINING m3c: assemble a 2-page single-table DB (page 1 schema cell + page 2 row
+      cell via a table-leaf page writer, header change counter/page count/schema cookie/
+      format 4/encoding 1), and verify with reference `integrity_check = ok` + a
+      differential row read (byte-identity of the page-1 file header is not required —
+      SQLite's change counter/schema cookie depend on the write sequence).
 - [ ] **scljet-m3d-btree-insert-balance** — general cell insertion with B-tree
       balancing (page split, interior-cell promotion, rebalance siblings) and
       overflow-page allocation for large payloads. Done-when a scripted sequence of

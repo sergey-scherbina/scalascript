@@ -2042,3 +2042,14 @@ Conformance `scljet-write-empty` (`[int, js]`, sizes 512..8192 — see the JS
 `examples/scljet-write-empty.ssc`. The M3 behavior gates below (mutation +
 integrity_check, rollback/recovery, cross-process locking) remain open pending
 slices m3c–m3f.
+
+The m3c record encoder landed next: `write.ssc`'s `encodeRecord(values)` is the
+exact inverse of `record.ssc`'s decoder — `varint(headerLen) ++ serial-type
+varints ++ body`, choosing the narrowest signed integer serial (0/1 use the 8/9
+storage-class serials), UTF-8 text, blob, and NULL. It is byte-identical to both
+records inside `page-512.db` (the row `(-2,'Hi',x'00ff')` and the five-field
+schema record including the 41-char `CREATE TABLE`), round-trips through
+`decodeRecord`, and is identical on int/VM/ASM/fallback and JS (conformance
+`scljet-write-record`). `SqlReal` encoding (Double → IEEE-754 bits) is a
+tracked follow-up. The remaining m3c work assembles the encoder into a two-page
+single-table database verified by reference `integrity_check`.
