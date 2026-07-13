@@ -3917,8 +3917,13 @@ object Show:
       s"Map(${entries.iterator.map((k, value) => s"${show(k)} -> ${show(value)}").mkString(", ")})"
     case _: ClosV     => "<closure>"
     case ForeignV(nmo: NamedMethodObj) =>
-      val r = tryForeign(nmo.underlying)
-      if r == null then "<foreign>" else r
+      // A NamedMethodObj may expose a `_show` field (optics: `Lens(_.x)`, `Prism[?, Circle]`); use it
+      // before the opaque foreign renderer / "<foreign>" fallback.
+      nmo.getField("_show") match
+        case Some(StrV(s)) => s
+        case _ =>
+          val r = tryForeign(nmo.underlying)
+          if r == null then "<foreign>" else r
     case ForeignV(h)  =>
       val r = tryForeign(h)
       if r == null then "<foreign>" else r

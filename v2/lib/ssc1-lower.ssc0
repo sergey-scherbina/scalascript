@@ -878,6 +878,36 @@ def desugarNamedCopy = (recv, args) =>
   Pair("block", Cons(Pair("val", Pair(recvName, recv)),
     namedCopyBindingStmts(args, recvName, Nil)))
 
+-- Copy with MIXED positional + named args: positional at position i → label `#i`, named → its label.
+-- The runtime copy maps `#i`/name overrides onto the case-class fields (unspecified kept from recv).
+def copyBindingStmts = (args, recvName, idx, encoded) =>
+  match args {
+    case Nil =>
+      Cons(Pair("expr", Pair("prim", Pair("__method__",
+        Cons(Pair("str", "copy"), Cons(Pair("var", recvName), encoded))))), Nil)
+    case Cons(h, t) =>
+      match h {
+        case Pair(tag, data) =>
+          if #seq(tag, "narg") then
+            match data {
+              case Pair(label, value) =>
+                let argName = freshCopyTemp("arg") in
+                Cons(Pair("val", Pair(argName, value)),
+                  copyBindingStmts(t, recvName, #i.add(idx, 1),
+                    appendL(encoded, Cons(Pair("str", label), Cons(Pair("var", argName), Nil)))))
+            }
+          else
+            let argName = freshCopyTemp("arg") in
+            Cons(Pair("val", Pair(argName, h)),
+              copyBindingStmts(t, recvName, #i.add(idx, 1),
+                appendL(encoded, Cons(Pair("str", #sconcat("#", #i->str(idx))), Cons(Pair("var", argName), Nil)))))
+      }
+  }
+def desugarCopy = (recv, args) =>
+  let recvName = freshCopyTemp("recv") in
+  Pair("block", Cons(Pair("val", Pair(recvName, recv)),
+    copyBindingStmts(args, recvName, 0, Nil)))
+
 -- ── bounded structural Focus/Prism lowering ─────────────────────────────────
 -- Extract selector chains before ordinary field/method resolution erases the
 -- source path. The only native steps are registered product fields, Option.some,
@@ -1725,9 +1755,10 @@ def resolveE = (expr) =>
                   match fdata {
                     case Pair(obj, method) =>
                       if #seq(method, "copy") then
-                        if hasNarg(rargs) then
-                          if allNargs(rargs) then desugarNamedCopy(resolveE(obj), rargs)
-                          else resolveMethodCall(resolveE(obj), method, stripNargs(rargs))
+                        -- Any named arg (mixed positional+named too): encode positionals as `#i` and
+                        -- named as their label so the runtime copy maps each to the right field. Stripping
+                        -- the labels (old mixed path) applied a named value positionally (z=99 → field y).
+                        if hasNarg(rargs) then desugarCopy(resolveE(obj), rargs)
                         else resolveMethodCall(resolveE(obj), method, rargs)
                       else resolveMethodCall(resolveE(obj), method, stripNargs(rargs))
                   }

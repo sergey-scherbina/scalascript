@@ -24,10 +24,26 @@ final class OpticsNativePlugin extends NativePlugin:
       }
     case _ => None
 
+  /** A NEW map (immutable-optics semantics) with `key` → `v`; preserves insertion order. */
+  private def mapWith(map: Value, key: Value, v: Value): Value = map match
+    case Value.MapV(entries) =>
+      val copy = collection.mutable.LinkedHashMap.from(entries)
+      copy(key) = v
+      Value.MapV.from(copy.toSeq)
+    case _ => map
+
   private def step(value: Value, pathStep: Value): Option[Value] = pathStep match
     case Value.DataV("OField", IndexedSeq(Value.StrV(name))) => field(value, name)
     case Value.DataV("OSome", IndexedSeq()) => value match
       case Value.DataV("Some", IndexedSeq(inner)) => Some(inner)
+      case _ => None
+    // `.index(i)` on a List — bounds-checked (out of range ⇒ None, an Optional focus).
+    case Value.DataV("OIndex", IndexedSeq(Value.IntV(i))) =>
+      val xs = unlist(value); val idx = i.toInt
+      if idx >= 0 && idx < xs.length then Some(xs(idx)) else None
+    // `.at(k)` on a Map — present key ⇒ Some(value), absent ⇒ None.
+    case Value.DataV("OAt", IndexedSeq(key)) => value match
+      case Value.MapV(entries) => entries.get(key)
       case _ => None
     case _ => None
 
@@ -56,6 +72,17 @@ final class OpticsNativePlugin extends NativePlugin:
       case Value.DataV("Some", IndexedSeq(inner)) =>
         Value.DataV("Some", Vector(setPath(inner, tail, replacement)))
       case _ => target
+    case Value.DataV("OIndex", IndexedSeq(Value.IntV(i))) :: tail =>
+      val xs = unlist(target); val idx = i.toInt
+      if idx >= 0 && idx < xs.length then
+        list(xs.updated(idx, setPath(xs(idx), tail, replacement)))
+      else target
+    case Value.DataV("OAt", IndexedSeq(key)) :: tail => target match
+      case Value.MapV(entries) => entries.get(key) match
+        case Some(cur)              => mapWith(target, key, setPath(cur, tail, replacement))
+        case None if tail.isEmpty   => mapWith(target, key, replacement)
+        case None                   => target
+      case _ => target
     case _ => target
 
   private def getAll(target: Value, steps: List[Value]): List[Value] = steps match
@@ -79,6 +106,16 @@ final class OpticsNativePlugin extends NativePlugin:
       case Value.DataV("Some", IndexedSeq(inner)) =>
         Value.DataV("Some", Vector(modifyAll(inner, tail, update)))
       case _ => target
+    case Value.DataV("OIndex", IndexedSeq(Value.IntV(i))) :: tail =>
+      val xs = unlist(target); val idx = i.toInt
+      if idx >= 0 && idx < xs.length then
+        list(xs.updated(idx, modifyAll(xs(idx), tail, update)))
+      else target
+    case Value.DataV("OAt", IndexedSeq(key)) :: tail => target match
+      case Value.MapV(entries) => entries.get(key) match
+        case Some(cur) => mapWith(target, key, modifyAll(cur, tail, update))
+        case None      => target
+      case _ => target
     case _ => target
 
   private def isTraversal(steps: List[Value]): Boolean = steps.exists {
@@ -87,7 +124,8 @@ final class OpticsNativePlugin extends NativePlugin:
   }
 
   private def isPartial(steps: List[Value]): Boolean = steps.exists {
-    case Value.DataV("OSome", _) | Value.DataV("OEach", _) => true
+    case Value.DataV("OSome", _) | Value.DataV("OEach", _)
+       | Value.DataV("OIndex", _) | Value.DataV("OAt", _) => true
     case _ => false
   }
 
@@ -96,16 +134,28 @@ final class OpticsNativePlugin extends NativePlugin:
     else if isPartial(steps) then "Optional"
     else "Lens"
 
+  /** Reconstruct the source-like path (`_.point.some.y`) from the step list for display. */
+  private def stepStr(s: Value): String = s match
+    case Value.DataV("OField", IndexedSeq(Value.StrV(name))) => "." + name
+    case Value.DataV("OSome", _)                             => ".some"
+    case Value.DataV("OEach", _)                             => ".each"
+    case Value.DataV("OIndex", IndexedSeq(Value.IntV(i)))    => s".index($i)"
+    case Value.DataV("OAt", IndexedSeq(Value.StrV(k)))       => s""".at("$k")"""
+    case Value.DataV("OAt", IndexedSeq(_))                   => ".at(_)"
+    case _                                                   => ""
+  private def label(steps: List[Value]): String =
+    s"${kind(steps)}(_${steps.map(stepStr).mkString})"
+
   private def closure(body: Array[Value] => Value): Value.ClosV =
     Value.ClosV(Runtime.emptyEnv, -1, env => Done(body(env)))
 
   private def optic(context: NativePluginContext, steps: List[Value]): Value =
     Value.ForeignV(new Value.NamedMethodObj:
       def underlying: AnyRef = new OpticSteps(steps)
-      override def toString: String = kind(steps)
+      override def toString: String = label(steps)
 
       def getField(name: String): Option[Value] = name match
-        case "_show" => Some(Value.StrV(kind(steps)))
+        case "_show" => Some(Value.StrV(label(steps)))
         case "get" => Some(closure { env =>
           getOption(env(0), steps).getOrElse(
             throw new IllegalArgumentException("optic.get: path missing"))
