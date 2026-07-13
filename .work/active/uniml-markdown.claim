@@ -1,6 +1,6 @@
 feature/uniml-markdown 2026-07-12T12:45:07Z
-agent: codex
-heartbeat: 2026-07-12T12:49:49Z
+agent: opus-continue
+heartbeat: 2026-07-13T09:17:49Z
 status: in-progress
-done-so-far: M4 plan and CommonMark/GFM/ScalaScript specification published before code
-next: scaffold unimlMarkdown cross-project and implement bounded lossless block scanner
+done-so-far: M4 plan and CommonMark/GFM/ScalaScript specification published before code (by codex)
+next: taken over from stale codex claim (20h). Implement slices 1-adapter, 2-projection, 3-verify.
