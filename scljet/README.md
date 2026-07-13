@@ -45,13 +45,14 @@ keep their own gapped rowids across a rewrite), and the rollback journal
 (`writeRollbackJournal` + hot-journal `applyRollbackJournal`, byte-identical to
 SQLite's journal).
 
-Row **delete** on an existing single-table database works end-to-end
-(`mutate.ssc`): `deleteRowids`/`keepRowids` open the file read-only over its own
-bytes, read every surviving row back as its raw record payload, and rebuild the
-table with the original `sqlite_schema` record and rowids preserved — verified
+Row **delete** and **update** on an existing single-table database work
+end-to-end (`mutate.ssc`): `deleteRowids`/`keepRowids`/`updateRowValues` open the
+file read-only over its own bytes, read every surviving row back as its raw record
+payload, and rebuild the table with the original `sqlite_schema` record and rowids
+preserved. `updateRowValues` re-encodes only the changed row (the caller supplies
+the new value, so no code-point→String is needed) and leaves the rest raw. Verified
 against reference `integrity_check` including overflow rows, int==js. The mutable
-pager, in-place page mutation (m3e), and value-changing `UPDATE` (blocked on
-code-point→String) remain.
+pager and true in-place page mutation (m3e) remain.
 
 ## Modules
 

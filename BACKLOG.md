@@ -171,11 +171,14 @@ are plain bullets without checkboxes so agents do not claim them as build work.
       no value/text round-trip), and rebuild via `buildFromRawSchema` preserving
       the raw `sqlite_schema` record and original rowids. Verified vs reference
       `integrity_check` incl. an overflow row, int==js (conformance
-      `scljet-mutate-delete`). Remaining: value-changing `UPDATE` (constructing a
-      NEW text value needs code-point→String — see BUGS.md
-      `portable-codepoint-string-construction`; rowid/structural updates are fine
-      via the raw path), multi-table / non-page-2 roots, and (4) true IN-PLACE
-      insert/update mutating pages (the separate pager/journal path, m3e).
+      `scljet-mutate-delete`). Row UPDATE is DONE too (2026-07-13):
+      `updateRowValues` re-encodes ONLY the changed row from a caller-supplied
+      `List[SqliteValue]` (the new value is given, not decoded — so NO
+      code-point→String needed; my earlier note here was wrong) and passes the
+      rest through as raw records; verified updating a row to a 1016-char overflow
+      value, int==js (conformance `scljet-mutate-update`). Remaining: INSERT into
+      an existing table (append a new rowid), multi-table / non-page-2 roots, and
+      (4) true IN-PLACE mutation of pages (the separate pager/journal path, m3e).
 
 - [x] **scljet-byteslice-zeros-js-recursion** — DONE 2026-07-13. The core list
       helpers in `scljet/bytes.ssc` were made iterative (`while`+`var`, not linear
