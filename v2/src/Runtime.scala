@@ -3650,6 +3650,10 @@ object Prims:
     // Constructors and tuples render with anyStr FIELDS in interpolation —
     // v1 shows Some(got delivered) / (42, List(…)) UNQUOTED; deferring to
     // Show.show quoted the strings ("got delivered") and broke parity.
+    // `_Raw(html)` is the HTML DSL's raw-markup wrapper — render its inner html
+    // verbatim (mirrors the v1 HttpIntrinsics `_Raw` → fields("html") behaviour and
+    // the scalameta path), not the default `_Raw(<…>)` constructor form.
+    case DataV("_Raw", fields) if fields.nonEmpty => anyStr(fields.head)
     case DataV(tag, fields) if (tag.startsWith("Tuple") || (tag == "Pair" && fields.length == 2)) && fields.nonEmpty =>
       s"(${fields.map(anyStr).mkString(", ")})"
     case DataV(tag, fields) if fields.nonEmpty && tag != "Op" && tag != "Stub" =>
@@ -3867,6 +3871,7 @@ object Show:
         case _ => Nil
       s"List(${ul(v).map(show).mkString(", ")})"
     // The native front tags 2-tuples (and `a -> b` arrows) "Pair"; render like TupleN.
+    case DataV("_Raw", fs) if fs.nonEmpty => fs.head match { case StrV(s) => s; case v => show(v) }
     case DataV(t, fs) if t.matches("Tuple\\d+") || (t == "Pair" && fs.length == 2) => s"(${fs.map(show).mkString(", ")})"
     case DataV(t, fs) => if fs.isEmpty then t else s"$t(${fs.map(show).mkString(", ")})"
     case MapV(entries) =>
