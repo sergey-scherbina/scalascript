@@ -2225,6 +2225,7 @@ object Prims:
           case FloatV(_) => expected == "Float" || expected == "Double"
           case StrV(_)   => expected == "String"
           case BytesV(_) => expected == "Bytes"
+          case MapV(_)   => expected == "Map"
           case _         => false
         BoolV(primitive && (arity < 0 || arity == 0))
     // Target-neutral insertion-ordered mutable MapV.
