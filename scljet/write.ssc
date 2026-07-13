@@ -8,6 +8,7 @@ exports:
   - encodeRecord
   - buildSingleTableDatabase
   - buildTableDatabase
+  - buildOverflowTableDatabase
 ---
 
 # SclJet M3 write path
@@ -21,7 +22,7 @@ fixed only when the first object is created), a change counter of 1, one page,
 and the writer's SQLite version number (3.53.3 → 3053003), matching the
 committed `empty-encoding-zero.db` fixture exactly.
 
-[ByteSlice, ByteError, byteSliceToList, byteSliceZeroExtend, encodeVarint](bytes.ssc)
+[ByteSlice, ByteError, byteSliceToList, byteSliceZeroExtend, encodeVarint, writeU32Be](bytes.ssc)
 [SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob](values.ssc)
 
 ```scalascript
@@ -276,6 +277,115 @@ def buildSingleTableDatabase(pageSize: Int, changeCounter: Int, schemaCookie: In
                 case Right(page2Body) =>
                   val page1 = tableFileHeader(pageSize, 2, changeCounter, schemaCookie) ++ page1Body
                   ByteSlice.fromList(page1 ++ page2Body)
+
+// ── Cell overflow (m3d follow-up: payloads larger than the leaf local threshold) ──
+//
+// A record whose serialized length P exceeds the table-leaf local threshold X is
+// stored as `local bytes ++ u32(firstOverflowPage)` inside the cell, with the
+// remainder spilled onto a chain of overflow pages `[u32 nextPage][content]`
+// (content capacity `usableSize - 4`, last page `nextPage == 0`). `local` is the
+// same SQLite formula the reader uses (page.ssc `localPayloadBytes`), so a written
+// overflow cell round-trips through the read path and passes `integrity_check`.
+
+case class OverflowCell(cell: List[Int], overflowPages: List[List[Int]])
+case class OverflowRows(cells: List[List[Int]], overflowPages: List[List[Int]])
+
+/** SQLite table-leaf local-payload size: how many bytes of a `payload`-byte
+ *  record stay in the cell before spilling to overflow. Mirrors the reader. */
+def tableLeafLocalBytes(usableSize: Int, payload: Int): Int =
+  val m = (usableSize - 12) * 32 / 255 - 23
+  val x = usableSize - 35
+  if payload <= x then payload
+  else
+    val k = m + (payload - m) % (usableSize - 4)
+    if k <= x then k else m
+
+/** Chain `content` onto overflow pages numbered `page`, `page+1`, … Each full
+ *  page is `[u32 nextPage][usableSize-4 content bytes]`; the final page carries
+ *  `nextPage == 0` and is zero-padded to `pageSize`. */
+def buildOverflowPages(content: List[Int], pageSize: Int, usableSize: Int, page: Int): List[List[Int]] =
+  val capacity = usableSize - 4
+  if content.length <= capacity then
+    List(byteSliceToList(writeU32Be(0L)) ++ content ++ writeZeros(pageSize - 4 - content.length))
+  else
+    val chunk = content.take(capacity)
+    (byteSliceToList(writeU32Be((page + 1).toLong)) ++ chunk) ::
+      buildOverflowPages(content.drop(capacity), pageSize, usableSize, page + 1)
+
+/** Encode one table-leaf cell, spilling to an overflow chain rooted at
+ *  `firstOverflowPage` when the record exceeds the local threshold. */
+def encodeOverflowCell(rowid: Long, record: List[Int], pageSize: Int, usableSize: Int, firstOverflowPage: Int): OverflowCell =
+  val payload = record.length
+  val local = tableLeafLocalBytes(usableSize, payload)
+  if payload <= local then
+    OverflowCell(byteSliceToList(encodeVarint(payload.toLong)) ++ byteSliceToList(encodeVarint(rowid)) ++ record, Nil)
+  else
+    val pages = buildOverflowPages(record.drop(local), pageSize, usableSize, firstOverflowPage)
+    val cell = byteSliceToList(encodeVarint(payload.toLong)) ++ byteSliceToList(encodeVarint(rowid)) ++
+      record.take(local) ++ byteSliceToList(writeU32Be(firstOverflowPage.toLong))
+    OverflowCell(cell, pages)
+
+// Prepend `pages` (in order) onto `acc`, leaving `acc` in reverse-of-input order;
+// a later single `reverse` restores forward order across all rows.
+def prependOverflowPages(pages: List[List[Int]], acc: List[List[Int]]): List[List[Int]] = pages match
+  case Nil => acc
+  case Cons(page, tail) => prependOverflowPages(tail, page :: acc)
+
+/** Encode all rows into leaf cells + a flat, page-numbered overflow chain.
+ *  Overflow pages are allocated consecutively from `startPage`. A `while`+`var`
+ *  loop (not recursion) so a large row set cannot overflow the stack. */
+def encodeOverflowRows(rows: List[List[SqliteValue]], pageSize: Int, usableSize: Int, startPage: Int): Either[ByteError, OverflowRows] =
+  var remaining = rows
+  var rowid = 1L
+  var nextPage = startPage
+  var cellsRev: List[List[Int]] = Nil
+  var pagesRev: List[List[Int]] = Nil
+  var failure: Option[ByteError] = None
+  while remaining.nonEmpty && failure.isEmpty do
+    encodeRecord(remaining.head) match
+      case Left(error) => failure = Some(error)
+      case Right(recordSlice) =>
+        val cell = encodeOverflowCell(rowid, byteSliceToList(recordSlice), pageSize, usableSize, nextPage)
+        cellsRev = cell.cell :: cellsRev
+        pagesRev = prependOverflowPages(cell.overflowPages, pagesRev)
+        nextPage = nextPage + cell.overflowPages.length
+        rowid = rowid + 1L
+        remaining = remaining.tail
+  failure match
+    case Some(error) => Left(error)
+    case None => Right(OverflowRows(cellsRev.reverse, pagesRev.reverse))
+
+/** Like `buildSingleTableDatabase`, but rows whose serialized record exceeds the
+ *  leaf local threshold spill onto overflow pages (page 1 = schema, page 2 = table
+ *  leaf, pages 3..N = the overflow chains). The result passes reference
+ *  `integrity_check` and reads back byte-exact. Small-row inputs are byte-identical
+ *  to `buildSingleTableDatabase`.
+ *
+ *  Single-leaf only: an overflow cell still keeps a local portion (up to the X
+ *  threshold, ~477 bytes on a 512-byte page) on the table leaf, so the local
+ *  portions of all rows must together fit one page. When they do not, the leaf
+ *  builder returns "leaf page cells do not fit (needs a split — m3d)". Combining
+ *  overflow with multi-leaf packing is a follow-up on `buildTableDatabase`. */
+def buildOverflowTableDatabase(pageSize: Int, changeCounter: Int, schemaCookie: Int,
+    tableName: String, createSql: String, rows: List[List[SqliteValue]]): Either[ByteError, ByteSlice] =
+  val usableSize = pageSize
+  val schemaValues = List(SqlText("table"), SqlText(tableName), SqlText(tableName),
+    SqlInteger(2L), SqlText(createSql))
+  encodeRecord(schemaValues) match
+    case Left(error) => Left(error)
+    case Right(schemaRecord) =>
+      encodeOverflowRows(rows, pageSize, usableSize, 3) match
+        case Left(error) => Left(error)
+        case Right(overflow) =>
+          buildTableLeafPage(pageSize, 100, List(encodeTableLeafCell(1L, schemaRecord))) match
+            case Left(error) => Left(error)
+            case Right(page1Body) =>
+              buildTableLeafPage(pageSize, 0, overflow.cells) match
+                case Left(error) => Left(error)
+                case Right(page2Body) =>
+                  val pageCount = 2 + overflow.overflowPages.length
+                  val page1 = tableFileHeader(pageSize, pageCount, changeCounter, schemaCookie) ++ page1Body
+                  ByteSlice.fromList(page1 ++ page2Body ++ cellsFlatten(overflow.overflowPages))
 
 // ── Multi-page rowid-table B-tree (m3d: balancing via bottom-up bulk build) ──
 
