@@ -2051,5 +2051,21 @@ records inside `page-512.db` (the row `(-2,'Hi',x'00ff')` and the five-field
 schema record including the 41-char `CREATE TABLE`), round-trips through
 `decodeRecord`, and is identical on int/VM/ASM/fallback and JS (conformance
 `scljet-write-record`). `SqlReal` encoding (Double → IEEE-754 bits) is a
-tracked follow-up. The remaining m3c work assembles the encoder into a two-page
-single-table database verified by reference `integrity_check`.
+tracked follow-up.
+
+m3c then completed with the page/database assembly:
+`buildSingleTableDatabase(pageSize, changeCounter, schemaCookie, tableName,
+createSql, rows)` writes a legal two-page single rowid-table database — page 1
+is `sqlite_schema` with one `CREATE TABLE` entry (root page 2), page 2 is the
+table root holding the rows (auto rowids). It is **byte-identical to the pinned
+`page-512.db`** with change counter 3 / schema cookie 2 (the values SQLite
+writes for `CREATE TABLE` followed by one `INSERT`), reference `PRAGMA
+integrity_check` returns `ok`, and reference SQLite reads the rows back — for
+that fixture and for an independent `nums` table with three rows including a
+NULL. It works on int/VM/ASM/fallback, native `ssc run`, and JS (conformance
+`scljet-write-database`, examples `scljet-write-empty`/`scljet-write-table`).
+Byte-identity to `page-512.db` transitively proves the SclJet reader reads the
+writer's output, since that fixture is already in the read corpus. The M3
+behavior gates remain open pending balancing (m3d), the rollback journal (m3e),
+and delete/update (m3f); the change counter and schema cookie are caller-supplied
+because they belong to the pager/journal layer (m3e).

@@ -381,21 +381,23 @@ against reference-produced files) and by reopening with the SclJet reader.
       NOTE: JS lane covers 512..8192; page sizes >=~16384 overflow node's stack in the
       recursive `ByteSlice.zeros`/`zerosList` (no JS TCO) — queued in BACKLOG as
       `scljet-byteslice-zeros-js-recursion`. int/VM/ASM cover all sizes byte-exactly.
-- [~] **scljet-m3c-single-row-insert** — record encoder DONE 2026-07-13; page/DB
-      assembly remaining. `write.ssc`'s `encodeRecord(values): Either[ByteError, ByteSlice]`
-      is the exact inverse of `record.ssc`'s decoder: `varint(headerLen) ++ serial-type
-      varints ++ body`, with the narrowest signed integer serials (0/1 → the 8/9
-      storage-class serials), UTF-8 text (BMP; astral is a follow-up), blob, and NULL.
-      Verified **byte-identical** to both records inside `page-512.db` (the row
-      `(-2,'Hi',x'00ff')` and the 5-field schema record incl. the 41-char CREATE), it
-      round-trips through `decodeRecord`, and is identical on int/VM/ASM/fallback + JS.
-      Conformance `scljet-write-record` ([int, js]). SqlReal encoding needs Double→IEEE754
-      bits (no bits intrinsic yet) — returns a localized error, queued.
-      REMAINING m3c: assemble a 2-page single-table DB (page 1 schema cell + page 2 row
-      cell via a table-leaf page writer, header change counter/page count/schema cookie/
-      format 4/encoding 1), and verify with reference `integrity_check = ok` + a
-      differential row read (byte-identity of the page-1 file header is not required —
-      SQLite's change counter/schema cookie depend on the write sequence).
+- [x] **scljet-m3c-single-row-insert** — DONE 2026-07-13. `write.ssc` gained the
+      record encoder `encodeRecord` (exact inverse of `record.ssc`: `varint(headerLen)
+      ++ serial varints ++ body`, narrowest signed int serial with 0/1 → the 8/9
+      storage-class serials, UTF-8 text via `charAt`, blob, NULL) and the table-leaf
+      page writer + `buildSingleTableDatabase(pageSize, changeCounter, schemaCookie,
+      tableName, createSql, rows)` — assembles a legal two-page single rowid-table DB
+      (page 1 `sqlite_schema` cell + page 2 row cells). Verified: **byte-identical to
+      the pinned `page-512.db`** with change counter 3 / schema cookie 2 (the values
+      SQLite writes for `CREATE TABLE` + one `INSERT`); reference
+      `PRAGMA integrity_check = ok` and correct row read for both that and an
+      independent `nums(n INTEGER, label TEXT)` table with three rows incl. a NULL;
+      identical on int/VM/ASM/fallback, native `ssc run`, and JS. Conformance
+      `scljet-write-record` + `scljet-write-database` ([int, js]); examples
+      `scljet-write-empty` + `scljet-write-table`. Byte-identity to page-512.db
+      transitively proves the SclJet reader reads our output (it already reads that
+      fixture). `SqlReal` record encoding (Double → IEEE-754 bits) is the one queued
+      follow-up. Multi-row-on-one-page works; overflow/page-split is m3d.
 - [ ] **scljet-m3d-btree-insert-balance** — general cell insertion with B-tree
       balancing (page split, interior-cell promotion, rebalance siblings) and
       overflow-page allocation for large payloads. Done-when a scripted sequence of
