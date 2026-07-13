@@ -1,0 +1,24 @@
+---
+name: if-then-no-else-after-while
+backends: [int]
+---
+
+# A statement-position `if cond then <stmt>` after a while loop runs
+
+Regression for `interp-if-then-no-else-after-while`: a single-branch `if` (no else)
+whose then-branch mutates a var, appearing after a (list-draining) while loop and before
+the block's result, was skipped — the var's local went stale after the while materialised
+it, and the if's nested assignment updated only globals. Bit SclJet's packLeaves.
+
+```scalascript
+def pack(xs: List[Int]): Int =
+  var remaining = xs
+  var curCount = 0
+  var leaves = 0
+  while remaining.nonEmpty do
+    curCount = curCount + 1
+    remaining = remaining.tail
+  if curCount > 0 then leaves = leaves + 1
+  leaves
+println(pack(List(1, 2, 3)))
+println(pack(Nil))

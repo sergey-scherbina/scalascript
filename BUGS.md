@@ -119,7 +119,24 @@ commit message repeats the wrong claim; disregard it.)
 
 ## interp-if-then-no-else-after-while — a bare `if cond then stmt` before a return is skipped
 
-**Status:** open (found 2026-07-13). Interpreter (`ssc-tools run --v1`) bug;
+**Status:** FIXED (2026-07-13, opus). ROOT CAUSE: a statement-position control-flow term
+(an `if`/`while`/`match` with a NESTED `var X = e` assignment) evaluated via `step`'s
+`interp.eval` slow path writes only `interp.globals`, NOT the block's `local` map. Normally
+the block reads a declared var from globals, but a preceding `while`'s `syncCallerEnv`
+MATERIALISES each var into `local` (`EvalRuntime` ~4276), so a later read via `local`
+(fastPrimitiveValue over localView) sees the STALE pre-if value — the `if`'s side effect is
+silently lost (`if curCount>0 then leaves=leaves+1` left `leaves` at 0). Confirmed base-path
+(fails with JIT+FastTier both off) and while-triggered (`if true then x=5; x` → 5 without a
+while, 0 after one). FIX (`BlockRuntime.step`): after a NON-LAST slow-path statement, re-sync
+`local` from globals for the block's declared vars (`resyncDeclLocals`, reusing the cached
+`blockDeclNames` scan from the var-scope fix; globals is the source of truth for a declared
+var during the block). Bounded + only on the already-slow monadic path; reusedView blocks
+(no decls) are zero-overhead. Verified: `pack(List(1,2,3))` → 1 (was 0), `pack(Nil)` → 0,
+`if-only` → 5, nested-if-in-while + multi-if-after → 110; new conformance
+`if-then-no-else-after-while` [int]; full `backendInterpreter/test` 1827 pass, 0 regressions
+(the 1 fail is the pre-existing js-effect-multishot-in-while-loop). Original report below.
+<details><summary>original report</summary>
+open (found 2026-07-13). Interpreter (`ssc-tools run --v1`) bug;
 workaround in place.
 
 **Symptom:** a single-branch `if cond then <stmt>` (no `else`) that appears as a
@@ -151,6 +168,7 @@ else leaves`. In `runtime/std/scljet/write.ssc` `packLeaves`.
 **Likely cause:** parser/interpreter treats the trailing result expression as the
 implicit `else`, or drops the `then` side of a no-`else` `if` used in statement
 position. Needs a fix in the interpreter's block/if lowering.
+</details>
 
 ## js-effect-multishot-in-while-loop — multi-shot effect handled inside a `while` crashes on JS
 
