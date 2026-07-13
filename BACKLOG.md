@@ -109,10 +109,16 @@ are plain bullets without checkboxes so agents do not claim them as build work.
       (conformance `scljet-write-deep-btree`, fingerprinted since the file exceeds
       the byte-list size). This required making the page assembly iterative
       (`cellsFlatten`/`buildLeafPages`) — see the byteslice-zeros item below.
-      Remaining: (4) incremental insert/update into an existing database file
-      (mutating pages in place), which is really the pager/journal path (m3e)
-      rather than bulk build; cell-overflow combined with a 3+-level tree (deep +
-      overflow together — each is done separately).
+      Deep + overflow together is DONE too (2026-07-13):
+      `buildDeepOverflowTableDatabase` builds a tree of any depth whose oversized
+      rows also spill onto chains numbered after the whole tree (two-pass: fix the
+      tree shape from placeholder cells, then number overflow from `2+T`) —
+      verified on an 88-page 3-level tree with overflow chains (integrity_check ok,
+      depth 3, all rows exact), int==js (conformance `scljet-write-deep-overflow`).
+      The bulk-build write matrix (single/multi-table × small/overflow ×
+      2-level/deep) is now complete. Remaining: (4) incremental insert/update into
+      an existing database file (mutating pages in place), which is really the
+      pager/journal path (m3e) rather than bulk build.
 
 - [x] **scljet-byteslice-zeros-js-recursion** — DONE 2026-07-13. The core list
       helpers in `scljet/bytes.ssc` were made iterative (`while`+`var`, not linear

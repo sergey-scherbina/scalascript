@@ -38,10 +38,11 @@ pass reference `PRAGMA integrity_check`), cell-overflow writers that spill large
 payloads onto overflow-page chains — single-leaf (`buildOverflowTableDatabase`)
 and multi-leaf over a table-interior root (`buildOverflowBtreeDatabase`), an
 arbitrary-depth B-tree writer (`buildDeepTableDatabase`, stacking interior levels
-to any depth — verified on a real 3-level tree), and the rollback journal
-(`writeRollbackJournal` + hot-journal `applyRollbackJournal`, byte-identical to
-SQLite's journal). The mutable pager, pager recover-on-open, and delete/update
-remain.
+to any depth — verified on a real 3-level tree), a combined deep-plus-overflow
+writer (`buildDeepOverflowTableDatabase`, a 3-level tree whose oversized rows also
+spill onto chains), and the rollback journal (`writeRollbackJournal` + hot-journal
+`applyRollbackJournal`, byte-identical to SQLite's journal). The mutable pager,
+pager recover-on-open, and delete/update remain.
 
 ## Modules
 
