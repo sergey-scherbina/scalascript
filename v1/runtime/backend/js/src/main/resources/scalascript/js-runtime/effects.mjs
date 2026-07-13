@@ -59,7 +59,7 @@ function runLoggerToList(bodyFn) {
   }
   const handled = new Set(Object.keys(handlers));
   const result = _handle(bodyFn, handled, handlers);
-  return [result, log];
+  const _t = [result, log]; _t._isTuple = true; return _t;
 }
 
 // ── v1.4 Random effect ──────────────────────────────────────────────────────
@@ -382,7 +382,7 @@ function runState(s0) {
     };
     const ops = new Set(['State.get', 'State.set', 'State.modify']);
     const result = _handle(bodyFn, ops, handlers);
-    return [state, result];
+    const _t = [state, result]; _t._isTuple = true; return _t;
   };
 }
 
@@ -486,5 +486,5 @@ function runStream(bodyFn) {
     _streamBuf = null;
   }
   if (errorMsg !== null) throw new Error(String(errorMsg));
-  return [_mkStreamSource(emitted), bodyResult];
+  const _t = [_mkStreamSource(emitted), bodyResult]; _t._isTuple = true; return _t;
 }

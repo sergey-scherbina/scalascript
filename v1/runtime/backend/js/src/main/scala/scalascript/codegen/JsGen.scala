@@ -1300,7 +1300,17 @@ class JsGen(
                  allText.contains("Auth.")   || allText.contains("runLogger") ||
                  allText.contains("runRandom") || allText.contains("runClock") ||
                  allText.contains("runEnv")  || allText.contains("runAuth")  ||
-                 allText.contains("Stream.") || allText.contains("runStream")
+                 allText.contains("Stream.") || allText.contains("runStream") ||
+                 // v1 effect runners/ops that also live in effects.mjs but were
+                 // missing from this trigger list — a program using only these
+                 // (e.g. a bare `runState(0){…}` with no Logger/Random) emitted
+                 // JS that referenced an undefined `runState`. (`run*` names
+                 // substring-cover their seeded/stub variants: runHttpStub,
+                 // runCacheBypass, runRetryNoSleep.) (js-effect-runner-preamble.)
+                 allText.contains("State.")   || allText.contains("runState") ||
+                 allText.contains("Http.")    || allText.contains("runHttp")  ||
+                 allText.contains("runCache") || allText.contains("runRetry") ||
+                 allText.contains("runTx")
     if hasV14 then caps += Effects
     // MCP — `JsRuntimeMcp`.
     val hasMcp = allText.contains("mcpServer") || allText.contains("serveMcp") ||
@@ -1819,7 +1829,18 @@ class JsGen(
       "Logger.info", "Logger.warn", "Logger.error", "Logger.debug",
       "Random.nextInt", "Random.nextDouble", "Random.uuid", "Random.pick",
       "Clock.now", "Clock.nowIso", "Clock.sleep",
-      "Env.get", "Env.set", "Env.required"
+      "Env.get", "Env.set", "Env.required",
+      // js-effect-runner-preamble: these stdlib effects also `_perform` at
+      // runtime (effects.mjs) but were absent from the builtin seed, so a
+      // function using only them (e.g. `def counter(): Int ! State[Int]`) was
+      // NOT recognised as effectful and got emitted as a PLAIN (non-CPS)
+      // function — `State.get()` returned the raw `_Perform` object instead of
+      // the threaded value and `State.set` ran eagerly and was discarded, so
+      // `runState` reported the initial state. (Tx.atomic/Auth.* are
+      // capability-style — they don't `_perform` — so they stay out.)
+      "State.get", "State.set", "State.modify",
+      "Http.get", "Http.post", "Http.request",
+      "Cache.memoize", "Retry.attempt"
     )
 
     def collectTrees(s: Section): List[scala.meta.Tree] =

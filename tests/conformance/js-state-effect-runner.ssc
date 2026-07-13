@@ -1,0 +1,27 @@
+---
+name: js-state-effect-runner
+backends: [int, js]
+---
+
+# State effect threads through runState on JS (js-effect-runner-preamble)
+
+Regression for the JS effect-runner gap: `State.get/set/modify` were absent from
+the JsGen effect-analysis builtin seed, so a `def counter(): Int ! State[Int]` using
+only State was NOT recognised as effectful and got emitted as a PLAIN (non-CPS)
+function — `State.get()` returned the raw Perform object and `State.set` ran eagerly
+and was discarded, so `runState` reported the initial state (`(0, 0)` instead of
+`(1, 0)`). Also the runner returned a bare JS array (rendered `List(…)`) rather than a
+tuple. Both are fixed: State ops are in the builtin seed (CPS-lowered) and the runner
+marks its `(state, result)` return as a tuple.
+
+```scalascript
+def counter(): Int ! State[Int] =
+  val n = State.get()
+  State.set(n + 1)
+  n
+
+val (finalState, value) = runState(0) { counter() }
+println(value)
+println(finalState)
+println(runState(10) { counter() })
+```
