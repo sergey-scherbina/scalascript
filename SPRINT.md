@@ -7297,12 +7297,23 @@ JS `1410065408` = mod 2^32; JVM emits Scala's 32-bit `Int`). Huge blast radius
               block-local summon-alias registry (summonAliasCell): the val registers m→tc in resolveBlock,
               m.method/m.field dispatch via active ctx, lowerBlock drops the vestigial binding, reset per
               def. An escaping summon value lowers to a loud `__summon_value_<TC>` (no silent miscompile).
-    - [ ] **A1-mono REMAINING tagless/typeclass cluster** — each needs a DISTINCT feature (all still
-          FALL BACK safely today; characterized 2026-07-13):
-          - `typeclass-extension`, `tagless-sealed-dispatch` → **extension methods** in `given … with`
-            bodies (`extension [A](fa: F[A]) def fmap …`) emit "Stub" — a whole unimplemented dispatch
-            feature (biggest lever: 2 cases). Would need per-instance extension-method resolution.
-          - `tagless-resolution` → `arity: 2 expected, 1 given` (distinct arity bug, not summon).
+    - [x] **A1-mono SLICE 4 (extension-method instance dispatch)** `9cdb260ca`/`99e63dbb4` — DONE.
+          `extension … def m` in a `given g: TC[T] with …` body is emitted prefixed `g_m`, but the call
+          `recv.m(args)` uses the BARE `m` (__methodOrExt__) → with 2+ instances no `m` bound → Stub.
+          Fixes: (a) collectExtensionMethods now DESCENDS into given bodies (else `recv.m` misroutes to
+          __method__); (b) new dispatch pass — collectExtDispatch records [method→(typeHead, g_method,
+          arity)] per given body, emitExtDispatchers emits a bare `m` dispatcher
+          `if <recv is T1> then g1_m(…) else … else <fallback>` (orTagTests + extTypeTags built-in tag
+          table); (c) a method with BOTH a top-level ext AND given-body instances gets its top-level
+          impl mangled to `m__ext_default` and the dispatcher falls back to it (handleError: Either
+          top-level + Option given). v2 bytecode sweep +4: typeclass-extension, std-functor-applicative-
+          monad, std-selective, tagless-sealed-dispatch. 0 regressions.
+    - [ ] **A1-mono REMAINING tagless cluster** — distinct features, all fall back safely today:
+          - `tagless-resolution` → `arity: 2 expected, 1 given` (distinct arity bug, not summon/ext).
+          - `tagless-program` → `TYPEERR: cannot unify Tuple with non-Tuple` (typer/tuple).
+          - `tagless-multi-file` → multi-file typeclass resolution gap.
+          - ext-dispatch backlog: multi-param TC typeHead (MonadError[F,E] → first arg F; today takes the
+            whole `F, E` string — works for the cases that only dispatch single-param TCs).
           - `tagless-program` → `TYPEERR: cannot unify Tuple with non-Tuple` (typer/tuple, distinct).
 
 ### ▶ ssc-toolkit-v2 (2026-07-07, owner-directed via busi: the busi SPA must move React→ScalaScript)
