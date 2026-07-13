@@ -78,6 +78,9 @@ lazy val unimlMarkdownCross =
       Test    / scalacOptions ++= sharedScalacOptions,
     )
     .jvmConfigure(_.withId("unimlMarkdown"))
+    .jvmSettings(
+      Test / unmanagedSourceDirectories += baseDirectory.value.getParentFile / "src" / "test-jvm" / "scala",
+    )
     .jsConfigure(_.withId("unimlMarkdownJs"))
     .jsSettings(Test / fork := false)
 

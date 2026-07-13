@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-13 — UniML Markdown parse path v2-construct-free + portable Unicode table (uniml-portable Phase 1c)
+
+Made the Markdown parse path (MarkdownLexer/MarkdownInlines/MarkdownBlocks/MdChars) free of v2's
+unbound-global constructs, completing all four dialect parse paths. Every `StringBuilder`/
+`Vector.newBuilder` token buffer → an immutable `Vector[String]` joined with `.mkString` (the inline
+`pending` buffer's hard-break `setLength(len-1)` becomes `dropRight(1)` — correct since a trailing
+backslash is always a single-char element). The hard part — `MdChars`' `Character.getType`/
+`isSpaceChar` used for CommonMark emphasis flanking — is replaced by a portable BMP range table (199
+ranges, binary search) plus an enumerated Unicode-whitespace set. The table is **generated from**
+`java.lang.Character.getType`, and a JVM-only `MdCharsParitySpec` proves it byte-for-byte equivalent
+across all 0x0000–0xFFFF, so there is no CommonMark-conformance risk and JVM/JS now share one
+classification. v2 handles the resulting 398-int `Vector[Int]` literal + binary search (probed).
+Behaviour-preserving: markdown 34/34 JVM (32 behavioural + 2 parity) / 32 JS + DocumentContent bridge
+11/11. Remaining Markdown work is the optional `MarkdownProjection` semantic layer.
+
 ## 2026-07-13 — UniML YAML parse-path structure immutable + v2 `.indices` (uniml-portable Phase 1c)
 
 Probing YamlStructure surfaced two more v2 collection gaps: `.indices` → `no dispatch` (fixed v2-side,

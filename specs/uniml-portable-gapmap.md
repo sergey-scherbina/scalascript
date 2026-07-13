@@ -71,8 +71,21 @@ JVM+JS. (The `byLine` groupBy uses the pairs-iteration pattern, kept; a few func
 for JSON.) Remaining YAML = the OPTIONAL semantic/projection layers (`YamlSemanticParser` plain classes
 + 7 regexes + `Character.digit`; `YamlProjection` mutable) — not the parse path.
 
-Remaining dialects: Markdown (StringBuilder in lexer/inlines + the hard `MdChars` Character Unicode
-table for CommonMark flanking).
+**Markdown dialect — parse path done (this commit).** The parse path (MarkdownLexer/MarkdownInlines/
+MarkdownBlocks/MdChars) is now v2-construct-free. All `StringBuilder`/`Vector.newBuilder` token buffers
+→ immutable `Vector[String]` + `.mkString` (the `pending` hard-break `setLength(len-1)` → `dropRight(1)`,
+correct because a trailing backslash is always a single-char element). The hard part — `MdChars`'
+`Character.getType`/`isSpaceChar` for CommonMark emphasis flanking — replaced by a portable BMP range
+table (199 ranges, binary search) + an enumerated Unicode-whitespace set. The table is **generated
+from `Character.getType`** and a JVM-only `MdCharsParitySpec` proves it EXACTLY equivalent for all
+0x0000–0xFFFF (so no conformance risk, and JVM/JS now share one impl). Green markdown 34/34 JVM (32
+behavioural + 2 parity) / 32 JS + bridge 11/11. (v2 handles the 398-int `Vector[Int]` literal + binary
+search — probed.) Remaining Markdown = the OPTIONAL `MarkdownProjection` semantic layer
+(`StringBuilder`/`Vector.newBuilder`/`Character.toChars`) — not the parse path.
+
+**All four dialect parse paths are now v2-construct-free** (core + JSON + YAML + Markdown). Remaining
+1c = the OPTIONAL semantic/projection layers (YAML `YamlSemanticParser` plain classes + regex +
+`Character.digit`; `*Projection` mutable collections) + a few unprobed functional-API constructs.
 
 ## Method
 

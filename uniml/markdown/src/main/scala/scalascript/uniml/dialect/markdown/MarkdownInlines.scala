@@ -25,16 +25,16 @@ private[markdown] object MarkdownInlines:
     * whitespace to a single space, case-fold (approximated by lower-casing). */
   def normalizeLabel(raw: String): String =
     val trimmed = raw.trim
-    val builder = StringBuilder()
+    var builder: Vector[String] = Vector.empty
     var inSpace = false
     trimmed.foreach { c =>
       if MdChars.isUnicodeWhitespace(c) then inSpace = true
       else
-        if inSpace && builder.nonEmpty then builder.append(' ')
+        if inSpace && builder.nonEmpty then builder = builder :+ " "
         inSpace = false
-        builder.append(c)
+        builder = builder :+ c.toString
     }
-    builder.result().toLowerCase
+    builder.mkString.toLowerCase
 
   def parse(content: String, refs: Map[String, LinkRef], profile: MarkdownProfile): Vector[InlinePiece] =
     val atoms = tokenize(content, refs, profile)
@@ -64,7 +64,7 @@ private[markdown] object MarkdownInlines:
 
   private def tokenize(content: String, refs: Map[String, LinkRef], profile: MarkdownProfile): Vector[WNode] =
     var nodes: Vector[WNode] = Vector.empty
-    val pending = StringBuilder()
+    var pending: Vector[String] = Vector.empty
     var i = 0
     val n = content.length
     val gfm = profile == MarkdownProfile.Gfm
@@ -72,8 +72,8 @@ private[markdown] object MarkdownInlines:
 
     def flushText(): Unit =
       if pending.nonEmpty then
-        nodes = nodes :+ text(pending.result())
-        pending.clear()
+        nodes = nodes :+ text(pending.mkString)
+        pending = Vector.empty
 
     while i < n do
       val c = content.charAt(i)
@@ -82,11 +82,11 @@ private[markdown] object MarkdownInlines:
           // line ending within a content unit: hard break if preceded by 2+ spaces or a backslash
           val ending =
             if c == '\r' && i + 1 < n && content.charAt(i + 1) == '\n' then "\r\n" else c.toString
-          val pend = pending.result()
+          val pend = pending.mkString
           val hard = pend.endsWith("  ") || pend.endsWith("\\")
           if hard && pend.endsWith("\\") then
             // strip the trailing backslash into a hard-break marker
-            pending.setLength(pending.length - 1)
+            pending = pending.dropRight(1)
             flushText()
             nodes = nodes :+ WFixed(Vector(Tok(MdKind.HardBreak, "\\" + ending, None, TokenChannel.Syntax)))
           else
@@ -100,7 +100,7 @@ private[markdown] object MarkdownInlines:
             nodes = nodes :+ WFixed(Vector(Tok(MdKind.Escape, content.substring(i, i + 2), None, TokenChannel.Syntax)))
             i += 2
           else
-            pending.append('\\')
+            pending = pending :+ "\\"
             i += 1
 
         case '`' =>
@@ -112,14 +112,14 @@ private[markdown] object MarkdownInlines:
               val openLex = content.substring(i, i + runLen)
               val inner = content.substring(i + runLen, start)
               val closeLex = content.substring(start, start + runLen)
-              val pieces = Vector.newBuilder[InlinePiece]
-              pieces += Open(MdBranch.CodeSpan, MdKind.BacktickRun, openLex, Some("delimiter.open"))
-              if inner.nonEmpty then pieces += Tok(MdKind.CodeContent, inner, Some("code"), TokenChannel.Embedded)
-              pieces += Close(MdBranch.CodeSpan, MdKind.BacktickRun, closeLex, Some("delimiter.close"))
-              nodes = nodes :+ WFixed(pieces.result())
+              var pieces: Vector[InlinePiece] = Vector.empty
+              pieces = pieces :+ Open(MdBranch.CodeSpan, MdKind.BacktickRun, openLex, Some("delimiter.open"))
+              if inner.nonEmpty then pieces = pieces :+ Tok(MdKind.CodeContent, inner, Some("code"), TokenChannel.Embedded)
+              pieces = pieces :+ Close(MdBranch.CodeSpan, MdKind.BacktickRun, closeLex, Some("delimiter.close"))
+              nodes = nodes :+ WFixed(pieces)
               i = start + runLen
             case None =>
-              pending.append(content.substring(i, i + runLen))
+              pending = pending :+ content.substring(i, i + runLen)
               i += runLen
 
         case '<' =>
@@ -133,7 +133,7 @@ private[markdown] object MarkdownInlines:
               nodes = nodes :+ WFixed(Vector(Tok(mdKind, lex, role, channel)))
               i = endEx
             case None =>
-              pending.append('<')
+              pending = pending :+ "<"
               i += 1
 
         case '&' =>
@@ -143,7 +143,7 @@ private[markdown] object MarkdownInlines:
               nodes = nodes :+ WFixed(Vector(Tok(MdKind.Entity, content.substring(i, endEx), Some("entity"), TokenChannel.Syntax)))
               i = endEx
             case None =>
-              pending.append('&')
+              pending = pending :+ "&"
               i += 1
 
         case '$' if scala && i + 1 < n && content.charAt(i + 1) == '{' =>
@@ -153,14 +153,14 @@ private[markdown] object MarkdownInlines:
               val open = content.substring(i, i + 2)
               val inner = content.substring(i + 2, endEx - 1)
               val close = content.substring(endEx - 1, endEx)
-              val pieces = Vector.newBuilder[InlinePiece]
-              pieces += Open(MdBranch.Expression, MdKind.ExpressionOpen, open, Some("delimiter.open"))
-              if inner.nonEmpty then pieces += Tok(MdKind.ExpressionContent, inner, Some("expression"), TokenChannel.Embedded)
-              pieces += Close(MdBranch.Expression, MdKind.ExpressionClose, close, Some("delimiter.close"))
-              nodes = nodes :+ WFixed(pieces.result())
+              var pieces: Vector[InlinePiece] = Vector.empty
+              pieces = pieces :+ Open(MdBranch.Expression, MdKind.ExpressionOpen, open, Some("delimiter.open"))
+              if inner.nonEmpty then pieces = pieces :+ Tok(MdKind.ExpressionContent, inner, Some("expression"), TokenChannel.Embedded)
+              pieces = pieces :+ Close(MdBranch.Expression, MdKind.ExpressionClose, close, Some("delimiter.close"))
+              nodes = nodes :+ WFixed(pieces)
               i = endEx
             case None =>
-              pending.append('$')
+              pending = pending :+ "$"
               i += 1
 
         case '!' if i + 1 < n && content.charAt(i + 1) == '[' =>
@@ -170,7 +170,7 @@ private[markdown] object MarkdownInlines:
               nodes = nodes :+ node
               i = endEx
             case None =>
-              pending.append('!')
+              pending = pending :+ "!"
               i += 1
 
         case '[' =>
@@ -180,7 +180,7 @@ private[markdown] object MarkdownInlines:
               nodes = nodes :+ node
               i = endEx
             case None =>
-              pending.append('[')
+              pending = pending :+ "["
               i += 1
 
         case '*' | '_' =>
@@ -194,7 +194,7 @@ private[markdown] object MarkdownInlines:
           i += runLength(content, i, c)
 
         case other =>
-          pending.append(other)
+          pending = pending :+ other.toString
           i += 1
     flushText()
     nodes
@@ -293,20 +293,20 @@ private[markdown] object MarkdownInlines:
       spans: DestTitleSpans, endEx: Int, refs: Map[String, LinkRef], profile: MarkdownProfile,
   ): WNode =
     val branch = if image then MdBranch.Image else MdBranch.Link
-    val pieces = Vector.newBuilder[InlinePiece]
+    var pieces: Vector[InlinePiece] = Vector.empty
     def slice(kind: String, from: Int, to: Int, role: String, ch: TokenChannel): Unit =
-      if from < to then pieces += Tok(kind, content.substring(from, to), Some(role), ch)
-    pieces += Open(branch, MdKind.LinkOpen, content.substring(start, labelStart), Some("delimiter.open"))
-    pieces ++= parse(labelText, refs, profile)
-    pieces += Tok(MdKind.LinkClose, content.substring(labelEnd, labelEnd + 1), Some("label.close"), TokenChannel.Syntax)
+      if from < to then pieces = pieces :+ Tok(kind, content.substring(from, to), Some(role), ch)
+    pieces = pieces :+ Open(branch, MdKind.LinkOpen, content.substring(start, labelStart), Some("delimiter.open"))
+    pieces = pieces ++ parse(labelText, refs, profile)
+    pieces = pieces :+ Tok(MdKind.LinkClose, content.substring(labelEnd, labelEnd + 1), Some("label.close"), TokenChannel.Syntax)
     // (dest "title") — every source slice is emitted so nothing is lost
     slice(MdKind.DestOpen, labelEnd + 1, spans.destStart, "dest.open", TokenChannel.Syntax)
     slice(MdKind.Destination, spans.destStart, spans.destEnd, "destination", TokenChannel.Syntax)
     slice(MdKind.Indent, spans.destEnd, spans.titleStart, "space", TokenChannel.Trivia)
     slice(MdKind.Title, spans.titleStart, spans.titleEnd, "title", TokenChannel.Syntax)
     slice(MdKind.Indent, spans.titleEnd, spans.closeStart, "space", TokenChannel.Trivia)
-    pieces += Close(branch, MdKind.DestClose, content.substring(spans.closeStart, endEx), Some("dest.close"))
-    WFixed(pieces.result())
+    pieces = pieces :+ Close(branch, MdKind.DestClose, content.substring(spans.closeStart, endEx), Some("dest.close"))
+    WFixed(pieces)
 
   private def buildRefLink(
       content: String, start: Int, labelStart: Int, labelEnd: Int,
@@ -314,11 +314,11 @@ private[markdown] object MarkdownInlines:
       refs: Map[String, LinkRef], profile: MarkdownProfile,
   ): WNode =
     val branch = if image then MdBranch.Image else MdBranch.Link
-    val pieces = Vector.newBuilder[InlinePiece]
-    pieces += Open(branch, MdKind.LinkOpen, content.substring(start, labelStart), Some("delimiter.open"))
-    pieces ++= parse(labelText, refs, profile)
-    pieces += Close(branch, MdKind.ReferenceLabel, content.substring(labelEnd, endEx), Some("reference"))
-    WFixed(pieces.result())
+    var pieces: Vector[InlinePiece] = Vector.empty
+    pieces = pieces :+ Open(branch, MdKind.LinkOpen, content.substring(start, labelStart), Some("delimiter.open"))
+    pieces = pieces ++ parse(labelText, refs, profile)
+    pieces = pieces :+ Close(branch, MdKind.ReferenceLabel, content.substring(labelEnd, endEx), Some("reference"))
+    WFixed(pieces)
 
   private final case class DestTitleSpans(
       destStart: Int, destEnd: Int, titleStart: Int, titleEnd: Int, closeStart: Int)
@@ -338,17 +338,17 @@ private[markdown] object MarkdownInlines:
       i = end + 1
     else
       var depth = 0
-      val sb = StringBuilder()
+      var sb: Vector[String] = Vector.empty
       var done = false
       while i < n && !done do
         val c = content.charAt(i)
-        if c == '\\' && i + 1 < n then { sb.append(c).append(content.charAt(i + 1)); i += 2 }
+        if c == '\\' && i + 1 < n then { sb = sb :+ c.toString :+ content.charAt(i + 1).toString; i += 2 }
         else if MdChars.isUnicodeWhitespace(c) then done = true
-        else if c == '(' then { depth += 1; sb.append(c); i += 1 }
+        else if c == '(' then { depth += 1; sb = sb :+ c.toString; i += 1 }
         else if c == ')' then
-          if depth == 0 then done = true else { depth -= 1; sb.append(c); i += 1 }
-        else { sb.append(c); i += 1 }
-      dest = sb.result()
+          if depth == 0 then done = true else { depth -= 1; sb = sb :+ c.toString; i += 1 }
+        else { sb = sb :+ c.toString; i += 1 }
+      dest = sb.mkString
     val destEnd = i
     while i < n && MdChars.isUnicodeWhitespace(content.charAt(i)) do i += 1
     var titleStart = i

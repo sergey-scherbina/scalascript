@@ -181,9 +181,9 @@ private[markdown] final class MarkdownBlocks(
       // emitted in source order *with* the deferred paragraph text, so we buffer
       // them here instead of emitting them ahead of the text.
       val buffering = open == OpenLeaf.Paragraph
-      val prefix = StringBuilder()
+      var prefix: Vector[String] = Vector.empty
       def consume(kind: String, lex: String): Unit =
-        if buffering then prefix.append(lex)
+        if buffering then prefix = prefix :+ lex
         else if kind == MdKind.BlockquoteMarker then emitContainerMarker(kind, lex)
         else emitContainerIndent(lex)
       while i < containers.size && !done do
@@ -206,16 +206,16 @@ private[markdown] final class MarkdownBlocks(
         i += 1
       if matched >= containers.size then
         // full match: hand a continuation prefix to appendParagraph, if buffering
-        if buffering then paragraphPendingPrefix = prefix.result()
+        if buffering then paragraphPendingPrefix = prefix.mkString
       else if buffering && isLazyContinuation(rest) then
         // lazy paragraph continuation: a plain paragraph-text line continues the
         // open paragraph even though a container marker is missing; keep the
         // unmatched containers open so the paragraph stays inside them
-        paragraphPendingPrefix = prefix.result()
+        paragraphPendingPrefix = prefix.mkString
       else
         // fewer containers matched — the paragraph (if any) ends here
         finishParagraph()
-        if prefix.nonEmpty then flushPending(MdKind.Indent, prefix.result(), Vector.empty, Some("continuation"), TokenChannel.Trivia)
+        if prefix.nonEmpty then flushPending(MdKind.Indent, prefix.mkString, Vector.empty, Some("continuation"), TokenChannel.Trivia)
         scheduleContainerClose(matched)
       rest
 

@@ -106,8 +106,12 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
             Green unimlYaml 18/17. Also v2-side: added `.indices` (was no-dispatch) mirroring dropRight.
             REMAINING = optional semantic/projection layers: `YamlSemanticParser` plain classes
             (Parser/FlowParser) + 7 regexes + `Character.digit`; `YamlProjection` mutable — NOT parse path.
-      - [ ] **Markdown**: lexer/MdLine/inlines StringBuilder; `MdChars` `Character.getType`/`isSpaceChar`
-            portable-Unicode-table (CommonMark flanking — conformance-sensitive); projection mutable.
+      - [~] **Markdown**: parse path DONE. All StringBuilder/Vector.newBuilder token buffers →
+            `Vector[String]`+`.mkString`. `MdChars.Character.getType`/`isSpaceChar` → portable BMP range
+            table (199 ranges, binary search) + enumerated whitespace, **generated from Character.getType
+            with a JVM-only `MdCharsParitySpec` proving exact 0x0–0xFFFF equivalence** (no conformance
+            risk; JVM/JS share one impl). Green md 34 JVM (32+2 parity)/32 JS + bridge 11. REMAINING =
+            OPTIONAL `MarkdownProjection` semantic layer (StringBuilder/newBuilder/Character.toChars).
       - [ ] Gold-standard: full-concatenation v2 run per dialect (core+dialect → one `.ssc`), + probe
             multi-file `package`/`import`.
 - [~] **uniml-portable-1b-namedclasses** — SUPERSEDED by `uniml-portable-1-immutable` (the immutable
