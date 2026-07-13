@@ -1,0 +1,103 @@
+---
+name: scljet-journal
+version: 0.1.0
+description: SclJet M3 rollback journal — hot-journal recovery
+package: scljet
+exports:
+  - rollbackJournalChecksum
+  - JournalRecovery
+  - applyRollbackJournal
+---
+
+# SclJet rollback journal recovery
+
+A rollback journal `<db>-journal` records, before a transaction mutates a page,
+that page's original content so an aborted transaction can be undone. The file
+is a header (magic `d9 d5 05 f9 20 a1 63 d7`, record count, checksum nonce,
+initial page count, sector size, page size) padded to the sector size, followed
+by page records `u32 pageNumber ++ page bytes ++ u32 checksum`. A *complete*
+journal is "hot": on open, its pre-images are restored and the database is
+truncated to the recorded size, undoing the interrupted transaction.
+
+[ByteSlice, ByteError, byteSliceGet, byteSliceSlice, byteSliceCopyTo, byteSliceZeroExtend, readU32Be, ByteRead](bytes.ssc)
+
+```scalascript
+case class JournalRecovery(database: ByteSlice, records: Int, pages: Int)
+
+// SQLite's sparse journal checksum: start at the nonce, then add the byte at
+// pageSize-200, pageSize-400, ... down to a positive index, in 32-bit arithmetic.
+def journalChecksumLoop(page: ByteSlice, index: Int, acc: Long): Long =
+  if index <= 0 then acc
+  else byteSliceGet(page, index) match
+    case Left(_) => acc
+    case Right(value) => journalChecksumLoop(page, index - 200, (acc + value.toLong) & 4294967295L)
+
+def rollbackJournalChecksum(page: ByteSlice, pageSize: Int, checksumInit: Long): Long =
+  journalChecksumLoop(page, pageSize - 200, checksumInit & 4294967295L)
+
+def readU32(bytes: ByteSlice, offset: Int): Either[ByteError, Long] = readU32Be(bytes, offset) match
+  case Left(error) => Left(error)
+  case Right(ByteRead(value, _)) => Right(value)
+
+def journalError(message: String): ByteError = ByteError("journal", message, 0)
+
+// Restore one page record's pre-image into the database, verifying the checksum.
+def restoreRecord(database: ByteSlice, journal: ByteSlice, offset: Int, pageSize: Int, checksumInit: Long): Either[ByteError, ByteSlice] =
+  readU32(journal, offset) match
+    case Left(error) => Left(error)
+    case Right(pageNumber) =>
+      byteSliceSlice(journal, offset + 4, pageSize) match
+        case Left(_) => Left(journalError("journal page record is truncated"))
+        case Right(page) =>
+          readU32(journal, offset + 4 + pageSize) match
+            case Left(error) => Left(error)
+            case Right(stored) =>
+              if rollbackJournalChecksum(page, pageSize, checksumInit) != stored then
+                Left(journalError("journal record checksum mismatch"))
+              else if pageNumber < 1L then Left(journalError("journal page number is zero"))
+              else byteSliceCopyTo(page, database, ((pageNumber - 1L) * pageSize.toLong).toInt) match
+                case Left(_) => Left(journalError("journal page is outside the database"))
+                case Right(updated) => Right(updated)
+
+def restoreRecords(database: ByteSlice, journal: ByteSlice, offset: Int, remaining: Int, pageSize: Int, checksumInit: Long): Either[ByteError, ByteSlice] =
+  if remaining <= 0 then Right(database)
+  else restoreRecord(database, journal, offset, pageSize, checksumInit) match
+    case Left(error) => Left(error)
+    case Right(updated) => restoreRecords(updated, journal, offset + 4 + pageSize + 4, remaining - 1, pageSize, checksumInit)
+
+/** Apply a hot rollback journal to a database image: restore every page
+ *  pre-image and truncate to the journal's recorded page count, undoing the
+ *  interrupted transaction. A journal without the complete-header magic is not
+ *  hot and the database is returned unchanged (`records = 0`). */
+def applyRollbackJournal(database: ByteSlice, journal: ByteSlice): Either[ByteError, JournalRecovery] =
+  if journal.length < 28 then Right(JournalRecovery(database, 0, database.length / 512))
+  else readU32(journal, 0) match
+    case Left(error) => Left(error)
+    case Right(magicHi) => readU32(journal, 4) match
+      case Left(error) => Left(error)
+      case Right(magicLo) =>
+        if magicHi != 3654616569L || magicLo != 547447767L then
+          Right(JournalRecovery(database, 0, database.length / 512))
+        else readU32(journal, 8) match
+          case Left(error) => Left(error)
+          case Right(headerRecords) => readU32(journal, 12) match
+            case Left(error) => Left(error)
+            case Right(checksumInit) => readU32(journal, 16) match
+              case Left(error) => Left(error)
+              case Right(dbSize) => readU32(journal, 20) match
+                case Left(error) => Left(error)
+                case Right(sectorSize) => readU32(journal, 24) match
+                  case Left(error) => Left(error)
+                  case Right(pageSize) =>
+                    val recordStride = pageSize.toInt + 8
+                    val available = (journal.length - sectorSize.toInt) / recordStride
+                    val count = if headerRecords == 0L || headerRecords == 4294967295L then available
+                                else if headerRecords.toInt < available then headerRecords.toInt else available
+                    restoreRecords(database, journal, sectorSize.toInt, count, pageSize.toInt, checksumInit) match
+                      case Left(error) => Left(error)
+                      case Right(restored) =>
+                        val truncated = dbSize.toInt * pageSize.toInt
+                        byteSliceSlice(restored, 0, truncated) match
+                          case Left(error) => Left(error)
+                          case Right(finalDb) => Right(JournalRecovery(finalDb, count, dbSize.toInt))
+```
