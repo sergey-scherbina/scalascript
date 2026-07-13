@@ -614,44 +614,37 @@ def firstActiveGiven = (dummy) =>
       match pair { case Pair(gname, tc) => Some(gname) }
   }
 
--- Best-effort type of a parsed expression (no full HM; literals + the List constructor)
+-- Best-effort type of a RESOLVED expression (no full HM). `List(..)` is resolved to
+-- `ctorap(Cons, [head, tail])` / `ctorap(Nil, [])` by the time we see it (resolveE runs first).
 def typeOfExpr = (e) =>
   match e {
     case Pair(tag, data) =>
       if #seq(tag, "int") then "Int"
       else if #seq(tag, "str") then "String"
       else if #seq(tag, "bool") then "Bool"
-      else if #seq(tag, "app") then
+      else if #seq(tag, "ctorap") then
         match data {
-          case Pair(fn, args) =>
-            match fn {
-              case Pair(ftag, fname) =>
-                if #seq(ftag, "var") then (if #seq(fname, "List") then "List" else "?")
-                else "?"
-            }
+          case Pair(cname, cargs) => if #seq(cname, "Cons") then "List" else (if #seq(cname, "Nil") then "List" else "?")
         }
       else "?"
   }
 
--- Is `e` a `List(...)` application?
+-- Is `e` a resolved cons-list `ctorap(Cons, ..)`?
 def isListApp = (e) =>
   match e {
     case Pair(tag, data) =>
-      if #seq(tag, "app") then
-        match data {
-          case Pair(fn, args) =>
-            match fn { case Pair(ftag, fname) => if #seq(ftag, "var") then #seq(fname, "List") else false }
-        }
+      if #seq(tag, "ctorap") then
+        match data { case Pair(cname, cargs) => #seq(cname, "Cons") }
       else false
   }
 
--- First element of a `List(...)` application, or None.
+-- Head element of a resolved cons-list `ctorap(Cons, [head, tail])`, or None.
 def listFirstElem = (e) =>
   match e {
     case Pair(tag, data) =>
       match data {
-        case Pair(fn, args) =>
-          match args { case Nil => None case Cons(h, t) => Some(h) }
+        case Pair(cname, cargs) =>
+          match cargs { case Nil => None case Cons(h, t) => Some(h) }
       }
   }
 
