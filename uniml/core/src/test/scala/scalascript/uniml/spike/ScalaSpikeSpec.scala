@@ -229,6 +229,16 @@ final class ScalaSpikeSpec extends AnyFunSuite:
     assert(e.edges.count { case UniEdge(_, UniNode.Branch("spike.enumcase", _, _, _)) => true; case _ => false } == 3)
   }
 
+  test("extension: receiver prepended to the method params; markers emitted") {
+    val pr = parse("extension (x: Int) def double: Int = x * 2\ndef main(): Int = 5.double")
+    assert(pr.status == CompletionStatus.Complete, pr.diagnostics)
+    assert(allBranches(pr.roots.head, "spike.extension").size == 1)
+    val proj = SpikeProject.program(pr.roots.head)
+    assert(proj.contains("""Pair("extension_start", "")"""), proj)
+    assert(proj.contains("""mkDef("double", Cons("x", Nil)"""), proj)
+    assert(proj.contains("""Pair("extension_end", "")"""), proj)
+  }
+
   test("tuple pattern parses to spike.tuppat; uid application projects to mkUVar/mkApp") {
     val m = defBody(parse("def main(): Int = Pair(1, 2) match\n  case (a, b) => a\n  case _ => 0")).asInstanceOf[UniNode.Branch]
     assert(childWithRole(arms(m).head, "case.pat").get.asInstanceOf[UniNode.Branch].kind == "spike.tuppat")
@@ -327,7 +337,9 @@ final class ScalaSpikeSpec extends AnyFunSuite:
       "given-summon2" -> "given g: Int = 7\ndef main(): Int = summon[Int] + 1",
       // P6.2f — enum (nullary comma-sugar + parametrized cases); lowerProg reuses the ctor path
       "enum-nullary" -> "enum Color:\n  case Red, Green, Blue\ndef main(): Int = Green match\n  case Red => 1\n  case Green => 2\n  case Blue => 3",
-      "enum-params"  -> "enum Opt:\n  case Sm(v: Int)\n  case Nn\ndef main(): Int = Sm(9) match\n  case Sm(v) => v\n  case Nn => 0"
+      "enum-params"  -> "enum Opt:\n  case Sm(v: Int)\n  case Nn\ndef main(): Int = Sm(9) match\n  case Sm(v) => v\n  case Nn => 0",
+      // P6.2g — extension methods (receiver prepended; `.m` dispatch via extensionMethodsCell)
+      "ext-method" -> "extension (x: Int)\n  def double: Int = x * 2\ndef main(): Int = 5.double"
     )
     // broken — no oracle; the harness proves containment (`main` still runs).
     val broken = Seq(

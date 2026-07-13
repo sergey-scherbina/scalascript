@@ -26,7 +26,7 @@ enum Node:
 
 // ── lexer ────────────────────────────────────────────────────────────────────
 object SpikeLex:
-  private val keywords = Set("def", "val", "if", "then", "else", "match", "case", "class", "given", "enum")
+  private val keywords = Set("def", "val", "if", "then", "else", "match", "case", "class", "given", "enum", "extension")
   private def isOpChar(c: Char): Boolean = "+-*/%<>=!&|^~:".indexOf(c.toInt) >= 0
 
   def scan(src: SourceId, text: String): Vector[SourceToken] =
@@ -142,6 +142,7 @@ object SpikeParse:
       else if isKw(c, "case") then defs += parseCaseClass(c)
       else if isKw(c, "given") then defs += parseGiven(c)
       else if isKw(c, "enum") then defs += parseEnum(c)
+      else if isKw(c, "extension") then defs += parseExtension(c)
       else
         c.report("spike.unexpected-toplevel", s"unexpected token '${c.peekLexeme}' at top level")
         val skipped = Vector.newBuilder[Node]
@@ -163,18 +164,21 @@ object SpikeParse:
     val kids = Vector.newBuilder[Node]
     c.advance().foreach(t => kids += Node.Leaf(t, Some("def.kw"))) // `def`
     expect(c, "spike.id", "def.name", "def name").foreach(kids += _)
-    expect(c, "spike.lparen", "def.lparen", "'('").foreach(kids += _)
-    var moreParams = c.peekKind != "spike.rparen" && !c.eof && !isDefStart(c)
-    while moreParams do
-      val name = expect(c, "spike.id", "def.param", "parameter name")
-      name.foreach(kids += _)
-      if name.isEmpty then moreParams = false
-      else
-        expect(c, "spike.colon", "def.paramColon", "':'").foreach(kids += _)
-        expectType(c, "def.paramType").foreach(kids += _)
-        if c.peekKind == "spike.comma" then c.advance().foreach(t => kids += Node.Leaf(t, Some("def.comma")))
-        else moreParams = false
-    expect(c, "spike.rparen", "def.rparen", "')'").foreach(kids += _)
+    // the `( … )` param clause is OPTIONAL — `def f: T = e` is a parameterless def.
+    if c.peekKind == "spike.lparen" then
+      c.advance().foreach(t => kids += Node.Leaf(t, Some("def.lparen")))
+      var moreParams = c.peekKind != "spike.rparen" && !c.eof && !isDefStart(c)
+      while moreParams do
+        val name = expect(c, "spike.id", "def.param", "parameter name")
+        name.foreach(kids += _)
+        if name.isEmpty then moreParams = false
+        else
+          expect(c, "spike.colon", "def.paramColon", "':'").foreach(kids += _)
+          expectType(c, "def.paramType").foreach(kids += _)
+          if c.peekKind == "spike.comma" then c.advance().foreach(t => kids += Node.Leaf(t, Some("def.comma")))
+          else moreParams = false
+      expect(c, "spike.rparen", "def.rparen", "')'").foreach(kids += _)
+    // no `(` → parameterless def; the projection detects it by the absent `def.lparen` child.
     expect(c, "spike.colon", "def.retColon", "':'").foreach(kids += _)
     expectType(c, "def.retType").foreach(kids += _)
     val eqLine = c.peekLine // line of `=` before consuming
@@ -246,6 +250,22 @@ object SpikeParse:
           else more = false
       expect(c, "spike.rparen", "ec.rparen", "')'").foreach(kids += _)
     Node.Frame("spike.enumcase", None, kids.result())
+
+  // `extension (recv: T) def m: R = body` — the receiver is prepended to the method's params
+  // (projected) and the group is bracketed by `extension_start`/`extension_end` markers, so
+  // lowerProg's collectExtensionMethods registers `m` for `.m` dispatch.
+  private def parseExtension(c: Cur): Node =
+    val kids = Vector.newBuilder[Node]
+    c.advance().foreach(t => kids += Node.Leaf(t, Some("ext.kw"))) // `extension`
+    expect(c, "spike.lparen", "ext.open", "'('").foreach(kids += _)
+    expect(c, "spike.id", "ext.recv", "receiver name").foreach(kids += _)
+    expect(c, "spike.colon", "ext.colon", "':'").foreach(kids += _)
+    expectType(c, "ext.recvType").foreach(kids += _)
+    expect(c, "spike.rparen", "ext.close", "')'").foreach(kids += _)
+    // a single inline method def (multi-method offside groups deferred)
+    if isDefStart(c) then kids += parseDef(c)
+    else c.report("spike.expected", "expected a method def in extension")
+    Node.Frame("spike.extension", None, kids.result())
 
   // `given name: T = expr` — a named typeclass instance (dictionary). lowerProg's resolve pass
   // does the dict-passing; the projection only emits the `("given", (name, typeStr, body))` node.
@@ -515,12 +535,21 @@ object SpikeProject:
     case _ => Vector.empty
 
   def program(root: UniNode): String =
-    consList(kids(root).collect {
-      case (_, c) if kindOf(c) == "spike.def"     => defNode(c)
-      case (_, c) if kindOf(c) == "spike.casecls" => caseClsNode(c)
-      case (_, c) if kindOf(c) == "spike.given"   => givenNode(c)
-      case (_, c) if kindOf(c) == "spike.enum"    => enumNode(c)
-    })
+    consList(kids(root).flatMap {
+      case (_, c) if kindOf(c) == "spike.def"       => Vector(defNode(c))
+      case (_, c) if kindOf(c) == "spike.casecls"   => Vector(caseClsNode(c))
+      case (_, c) if kindOf(c) == "spike.given"     => Vector(givenNode(c))
+      case (_, c) if kindOf(c) == "spike.enum"      => Vector(enumNode(c))
+      case (_, c) if kindOf(c) == "spike.extension" => extensionNodes(c)
+      case _                                        => Vector.empty[String]
+    }.toVector)
+
+  // an extension group → three statements: extension_start, the method def (receiver prepended
+  // to its params), extension_end. lowerProg's collectExtensionMethods registers it for `.m`.
+  private def extensionNodes(n: UniNode): Vector[String] =
+    val recv = kids(n).collectFirst { case (Some("ext.recv"), c) => lexeme(c) }.getOrElse("_")
+    val defs = kids(n).collect { case (_, c) if kindOf(c) == "spike.def" => defNode(c, Vector("\"" + esc(recv) + "\"")) }
+    (Vector("""Pair("extension_start", "")""") ++ defs ++ Vector("""Pair("extension_end", "")""")).toVector
 
   // Pair("enum", Pair(name, [Pair(caseName, [fieldNames])…])) — lowerProg makes each case a ctor.
   private def enumNode(n: UniNode): String =
@@ -554,12 +583,12 @@ object SpikeProject:
   private def consList(xs: Vector[String]): String =
     xs.foldRight("Nil")((h, acc) => s"Cons($h, $acc)")
 
-  private def defNode(n: UniNode): String =
+  private def defNode(n: UniNode, prefixParams: Vector[String] = Vector.empty): String =
     val ks = kids(n)
     val name = ks.collectFirst { case (Some("def.name"), c) => lexeme(c) }.getOrElse("main")
-    val params = ks.collect { case (Some("def.param"), c) => lexeme(c) }
+    val params = prefixParams ++ ks.collect { case (Some("def.param"), c) => "\"" + esc(lexeme(c)) + "\"" }.toVector
     val body = ks.collectFirst { case (role, c) if role.contains("def.body") => expr(c) }.getOrElse(hole)
-    s"""mkDef("${esc(name)}", ${consList(params.map(p => "\"" + esc(p) + "\"").toVector)}, $body)"""
+    s"""mkDef("${esc(name)}", ${consList(params)}, $body)"""
 
   private def expr(n: UniNode): String = n match
     case UniNode.Token(t) if t.kind == "spike.int" => s"""mkInt("${esc(t.lexeme)}")"""
