@@ -52,8 +52,9 @@ latest v2.
 
 ## native-front-curried-vararg-and-attrs-map — native `ssc run` broke curried/vararg calls + Map attrs
 
-**Status:** fixed (2026-07-13), awaiting Sergiy confirmation; found bringing rozum's control
-center up on the latest native frontend (was filed as `native-front-spa-arity-gap`).
+**Status:** fixed (2026-07-13); the vararg packing needed a follow-up correction (opus) —
+see Fix item 1. Found bringing rozum's control center up on the latest native frontend
+(was filed as `native-front-spa-arity-gap`).
 
 - **Real-harness repro:** `bin/ssc run` a file using a trailing-vararg std/ui primitive with 2+
   varargs — `card(a, b, c)` → `arity: 1 expected, 3 given`; `vstack(gap = 16)(a, b)` →
@@ -72,8 +73,15 @@ center up on the latest native frontend (was filed as `native-front-spa-arity-ga
 - **Fix/verification:**
   1. Front (`ssc1-front.ssc0`) now detects a trailing `T*` param (`paramTypeIsVararg`) and
      registers such defs in `varargDefsCell`; the lowerer (`ssc1-lower.ssc0`) packs a call's
-     trailing args into one Cons-list (`packVarargsArgs`) in both the direct and curried-flatten
-     paths so the flattened call matches arity.
+     trailing args into one Cons-list (`packVarargsArgs`) so the flattened call matches arity.
+     **Correction (opus, 2026-07-13):** the first landing (`3f5c06e98`) called `packVarargsArgs`
+     inside `resolveE`, but `lowerE` re-applies `resolveE` top-down at every recursion level, so
+     the non-idempotent pack compounded into a triply-nested list `[[[elems]]]` — any def that
+     READ the vararg (`xs.toList.length`) then saw a 1-element list (native `6/6/6`, `1/1/1` vs
+     v1 golden `6/7/8`, `1/2/3`; the original `= gap` test masked it). Fixed by moving the pack to
+     `lowerE`'s terminal `app→IrApp` step (once per Ir node, idempotent) and deleting the dead
+     `calleeName`. Verified: `wrap(5)(1,2,3)→8`, `sumv(1,2,3)→3` on native == v1; control-center-live
+     clears the arity error; native corpus (203 examples) byte-identical before/after; 9/9 v2 conformance.
   2. `NativeUiPortable.stringMap` normalizes a Pair/Tuple2 association list to a String map
      (left-to-right, duplicate key last-wins).
   Validated: `card(a,b,c)`, `vstack(gap=16)(a,b)`, `cardWithHeader(h)(a,b)` all run; rozum
