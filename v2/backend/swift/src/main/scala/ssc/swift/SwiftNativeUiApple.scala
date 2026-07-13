@@ -2704,8 +2704,10 @@ struct NativeUiRenderer: View {
             content = renderOrderedList(children, start: start, source: source)
         case "li":
             content = AnyView(HStack(alignment: .top) { Text("•"); renderChildren(children) })
-        case "table", "thead", "tbody", "tr", "th", "td":
-            return unsupported("semantic table adapter pending at " + store.source(store.string(fields[0])))
+        case "table":
+            content = renderSemanticTable(children, source: source, nodeOwnerPath: nodeOwnerPath)
+        case "thead", "tbody", "tr", "th", "td":
+            return unsupported("<" + tag + "> is only valid inside a <table> at " + source)
         default:
             return unsupported("unsupported element <" + tag + "> at " + store.source(store.string(fields[0])))
         }
@@ -2735,6 +2737,131 @@ struct NativeUiRenderer: View {
                 }
             }
         })
+    }
+
+    private func renderSemanticTable(_ children: [SscValue], source: String, nodeOwnerPath: String) -> AnyView {
+        let model: SemanticTableModel
+        do {
+            model = try Self.decodeSemanticTable(children, source: source, store: store)
+        } catch let error as SemanticTableInvalid {
+            return unsupported(error.message)
+        } catch {
+            return unsupported(String(describing: error))
+        }
+        return AnyView(ScrollView(.horizontal) {
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
+                ForEach(Array(model.headerRows.enumerated()), id: \.offset) { _, cells in
+                    GridRow {
+                        ForEach(Array(0..<model.columns), id: \.self) { column in
+                            semanticTableCell(
+                                column < cells.count ? cells[column] : nil,
+                                source: source, nodeOwnerPath: nodeOwnerPath)
+                        }
+                    }
+                }
+                if !model.headerRows.isEmpty { Divider() }
+                ForEach(Array(model.bodyRows.enumerated()), id: \.offset) { _, cells in
+                    GridRow {
+                        ForEach(Array(0..<model.columns), id: \.self) { column in
+                            semanticTableCell(
+                                column < cells.count ? cells[column] : nil,
+                                source: source, nodeOwnerPath: nodeOwnerPath)
+                        }
+                    }
+                }
+            }
+        })
+    }
+
+    private func semanticTableCell(_ cell: SscValue?, source: String, nodeOwnerPath: String) -> AnyView {
+        guard let cell else { return AnyView(Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])) }
+        guard case let .data("NativeUiElement", cellFields) = cell, cellFields.count == 5,
+              case let .map(attrs) = cellFields[2], case let .map(events) = cellFields[3],
+              let inline = properList(cellFields[4]) else {
+            return unsupported("malformed table cell at " + source)
+        }
+        let siteId = store.string(cellFields[0])
+        if let issue = Self.validate(attrs, names: Self.supportedAttributes, kind: "attribute") {
+            return unsupported(issue + " at " + store.source(siteId))
+        }
+        if let issue = Self.validate(events, names: Self.supportedEventSlots, kind: "event slot") {
+            return unsupported(issue + " at " + store.source(siteId))
+        }
+        let inner = VStack(alignment: .leading, spacing: 0) { renderChildren(inline) }
+        let content: AnyView = store.string(cellFields[1]) == "th" ? AnyView(inner.bold()) : AnyView(inner)
+        let styled = NativeUiStyles.apply(content, attrs: attrs, store: store, siteId: siteId)
+        if events.entries.isEmpty { return styled }
+        return AnyView(Button(action: {
+            runEvents(events, siteId: siteId, nodeOwnerPath: nodeOwnerPath)
+        }) { styled }.buttonStyle(.plain))
+    }
+
+    static func decodeSemanticTable(
+        _ children: [SscValue], source: String, store: NativeUiStore
+    ) throws -> SemanticTableModel {
+        func rows(of value: SscValue) -> [SscValue]? {
+            var current = value, result: [SscValue] = []
+            while true {
+                switch current {
+                case let .data("Cons", fields) where fields.count == 2:
+                    result.append(fields[0]); current = fields[1]
+                case .data("Nil", _): return result
+                default: return nil
+                }
+            }
+        }
+        func rowCells(_ row: SscValue) throws -> [SscValue] {
+            guard case let .data("NativeUiElement", rowFields) = row, rowFields.count == 5,
+                  store.string(rowFields[1]) == "tr", let cells = rows(of: rowFields[4]) else {
+                throw SemanticTableInvalid(message: "table row must be <tr> at " + source)
+            }
+            for cell in cells {
+                guard case let .data("NativeUiElement", cellFields) = cell, cellFields.count == 5,
+                      store.string(cellFields[1]) == "th" || store.string(cellFields[1]) == "td" else {
+                    throw SemanticTableInvalid(message: "table cell must be <th> or <td> at " + source)
+                }
+            }
+            return cells
+        }
+        var headerRows: [[SscValue]] = [], bodyRows: [[SscValue]] = []
+        for child in children {
+            guard case let .data("NativeUiElement", groupFields) = child, groupFields.count == 5 else {
+                throw SemanticTableInvalid(message: "table child must be <thead>, <tbody>, or <tr> at " + source)
+            }
+            let groupTag = store.string(groupFields[1])
+            switch groupTag {
+            case "thead", "tbody":
+                guard let sectionRows = rows(of: groupFields[4]) else {
+                    throw SemanticTableInvalid(message: "table section must be a proper List at " + source)
+                }
+                for row in sectionRows {
+                    let cells = try rowCells(row)
+                    if groupTag == "thead" { headerRows.append(cells) } else { bodyRows.append(cells) }
+                }
+            case "tr":
+                bodyRows.append(try rowCells(child))
+            default:
+                throw SemanticTableInvalid(message: "table child must be <thead>, <tbody>, or <tr> at " + source)
+            }
+        }
+        let columns = (headerRows + bodyRows).map(\.count).max() ?? 0
+        guard !headerRows.isEmpty || !bodyRows.isEmpty else {
+            throw SemanticTableInvalid(message: "semantic table requires at least one row at " + source)
+        }
+        guard columns > 0 else {
+            throw SemanticTableInvalid(message: "semantic table requires at least one cell at " + source)
+        }
+        return SemanticTableModel(headerRows: headerRows, bodyRows: bodyRows, columns: columns)
+    }
+
+    struct SemanticTableModel {
+        let headerRows: [[SscValue]]
+        let bodyRows: [[SscValue]]
+        let columns: Int
+    }
+
+    struct SemanticTableInvalid: Error {
+        let message: String
     }
 
     private func runEvents(_ events: SscMap, input: String? = nil, siteId: String, nodeOwnerPath: String) {

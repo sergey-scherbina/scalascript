@@ -3089,6 +3089,22 @@ rollback probe and announced to `@scalascript` /
 
 ## v2-swiftui-fake-native-fallbacks — deferred semantics render misleading content
 
+**Semantic-table slice landed (opus, 2026-07-13).** The last inventoried element still
+rendering as an Unsupported stub was the semantic HTML `<table>` family
+(`table/thead/tbody/tr/th/td` — returned `unsupported("semantic table adapter pending")`).
+Every other tag already rendered a real SwiftUI control (Text/heading, VStack/HStack,
+Button, TextField/Toggle, Link, img, List, reactive DataTable→Grid). Now `<table>` renders
+a real `ScrollView { Grid { GridRow … } }` (header row bold + `Divider`, cell CSS via the
+existing `NativeUiStyles.apply`, `<th>` click events via `runEvents`), with strict decode:
+malformed structure / a non-`th|td` cell / a bare `thead|tbody|tr|th|td` outside a table
+still yields a sourced `NativeUiUnsupported`, never fake success. Renderer-only
+(`SwiftNativeUiApple.scala`) — renders the `element("table", …, [thead,tbody])` shape both
+`std/ui/lower.ssc` and content-toolkit already emit, touching neither. Verified end-to-end
+under `swiftc -swift-version 6 -strict-concurrency=complete -warnings-as-errors`: the table
+DataV decodes to real header/body Grid rows; malformed variants throw the strict diagnostic.
+`v2SwiftBackend/test` 55/55 (was 54), 0 regressions.
+
+
 **Status:** LARGELY FIXED by swift-sibling work since the report; one residual slice
 closed by opus (2026-07-13). Audit (opus, 07-13, real Swift 6.3/Xcode 26.5): the fake
 "Native data table" string is gone; the `render`/`renderElement` dispatch now routes every
