@@ -1833,12 +1833,21 @@ Directed hunt for LATENT MISCOMPILES (silent wrong result, NOT a safe bail) in t
       callee retIsRef bank), C-4d, C-5 (fresh-dst pads traced correct), C-7/C-9 (naming-only, field
       access is by-name at runtime), C-8 (fold body into fresh reg, mixed ops via asDouble). No further
       latent miscompiles. ⇒ the C-1..C-9 line is now correctness-clean under adversarial audit.
-- [ ] **C-gate** — QUIET-MACHINE A/B (`scripts/bench interp patternMatch*|recursionFib`,
-      `scripts/bench cross`): wider coverage doesn't regress hot paths + ideally removes the
-      `recursionFib` bimodal variance. (The "(1)" timing work, deferred until load drops.)
-      NON-GOALS (separate programs, NOT C-1..4): closures/HOF (need a closure/heap model, the
-      dominant ~199 miss), effects (need ANF/handlers), Term.Function-as-value. Types widen
-      "all TYPED first-order code" — the large majority + the right foundation.
+- [~] **C-gate** — coarse hot-path A/B run 2026-07-13 at load ~8 (not fully quiet, but recursionFib
+      error tightened to ±10%, usable directionally). `scripts/bench cross interp_(recursionFib|
+      patternMatch|arithLoop)` with C-1..9 + CL all landed:
+        interp_arithLoop     4.313 ± 1.549 us/op   (baseline 7.6)
+        interp_patternMatch  114.2  ± 18.1  us/op   (baseline 122)
+        interp_recursionFib  1220.4 ± 122.9 us/op   (baseline 2667 ±4166, noise-dominated)
+      All COMPARABLE-OR-BETTER than the recorded baseline → NO hot-path regression; no bimodal
+      variance in this run. Consistent with the by-design argument: the hot benches use no HOF and hit
+      no bail-site widening, so the always-on widening slices can't touch them; the only always-on
+      change to a compiling path is CALLREF result typing (HOF calls only — absent from these benches,
+      and conformance-verified). REMAINING for a definitive gate: a same-machine A/B vs the pre-wide-jit
+      commit on a truly quiet box (load < ~3) — gold standard, not run (load/cost); design + this run
+      give high confidence.
+      NON-GOALS (separate programs): effects (need ANF/handlers), Term.Function-as-value. (closures/HOF
+      capturing-lambda subset now DONE, see above.)
 
 ## ScalaScript 2.1 — toolchain independence (2026-07-10)
 
