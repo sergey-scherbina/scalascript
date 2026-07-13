@@ -198,6 +198,28 @@ final class MarkdownDialectSpec extends AnyFunSuite:
     assert(paragraphInlines("&amp;&#65;") == Vector(MarkdownInline.Text("&A")))
   }
 
+  test("HTML4/XHTML named entities decode to the correct characters") {
+    val cases = Map(
+      // Latin-1 block (generated) — spot-checks pin the ordering
+      "&nbsp;" -> " ", "&copy;" -> "©", "&reg;" -> "®", "&deg;" -> "°",
+      "&times;" -> "×", "&divide;" -> "÷", "&eacute;" -> "é", "&Ouml;" -> "Ö",
+      "&szlig;" -> "ß", "&frac12;" -> "½", "&laquo;" -> "«", "&pound;" -> "£",
+      // punctuation / symbols / arrows / math / Greek
+      "&mdash;" -> "—", "&ndash;" -> "–", "&hellip;" -> "…", "&rarr;" -> "→",
+      "&larr;" -> "←", "&euro;" -> "€", "&trade;" -> "™", "&bull;" -> "•",
+      "&ldquo;" -> "“", "&rdquo;" -> "”", "&Alpha;" -> "Α", "&omega;" -> "ω",
+      "&pi;" -> "π", "&Sigma;" -> "Σ", "&infin;" -> "∞", "&ne;" -> "≠",
+      "&le;" -> "≤", "&ge;" -> "≥", "&sum;" -> "∑", "&radic;" -> "√",
+      "&amp;" -> "&", "&lt;" -> "<",
+    )
+    cases.foreach { case (entity, expected) =>
+      assert(paragraphInlines(entity) == Vector(MarkdownInline.Text(expected)), s"$entity should decode to $expected")
+    }
+    // unknown named entities stay literal (lossless); numeric references still decode
+    assert(paragraphInlines("&foobar;") == Vector(MarkdownInline.Text("&foobar;")))
+    assert(paragraphInlines("&#65;&#x41;") == Vector(MarkdownInline.Text("AA")))
+  }
+
   // ── GFM profile ────────────────────────────────────────────────────────
 
   test("GFM strikethrough only under the GFM profile") {

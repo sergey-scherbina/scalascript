@@ -290,12 +290,59 @@ object MarkdownProjection:
         else { sb.append(s.charAt(i)); i += 1 }
       sb.result()
 
-  private val namedEntities: Map[String, String] = Map(
-    "amp" -> "&", "lt" -> "<", "gt" -> ">", "quot" -> "\"", "apos" -> "'",
-    "nbsp" -> " ", "copy" -> "©", "reg" -> "®", "trade" -> "™",
-    "hellip" -> "…", "mdash" -> "—", "ndash" -> "–", "auml" -> "ä",
-    "ouml" -> "ö", "uuml" -> "ü", "szlig" -> "ß",
+  // The 96 Latin-1 Supplement entity names in U+00A0..U+00FF order — a
+  // contiguous block, so we generate their code points rather than hand-typing
+  // them (removes transcription risk for the largest group).
+  private val latin1Names: Vector[String] = Vector(
+    "nbsp", "iexcl", "cent", "pound", "curren", "yen", "brvbar", "sect", "uml", "copy", "ordf", "laquo", "not", "shy", "reg", "macr",
+    "deg", "plusmn", "sup2", "sup3", "acute", "micro", "para", "middot", "cedil", "sup1", "ordm", "raquo", "frac14", "frac12", "frac34", "iquest",
+    "Agrave", "Aacute", "Acirc", "Atilde", "Auml", "Aring", "AElig", "Ccedil", "Egrave", "Eacute", "Ecirc", "Euml", "Igrave", "Iacute", "Icirc", "Iuml",
+    "ETH", "Ntilde", "Ograve", "Oacute", "Ocirc", "Otilde", "Ouml", "times", "Oslash", "Ugrave", "Uacute", "Ucirc", "Uuml", "Yacute", "THORN", "szlig",
+    "agrave", "aacute", "acirc", "atilde", "auml", "aring", "aelig", "ccedil", "egrave", "eacute", "ecirc", "euml", "igrave", "iacute", "icirc", "iuml",
+    "eth", "ntilde", "ograve", "oacute", "ocirc", "otilde", "ouml", "divide", "oslash", "ugrave", "uacute", "ucirc", "uuml", "yacute", "thorn", "yuml",
   )
+
+  /** The common HTML4 / XHTML named character references (numeric references are
+    * decoded separately; unknown names stay literal, which remains lossless). */
+  private val namedEntities: Map[String, String] =
+    val latin1 = latin1Names.iterator.zipWithIndex.map((n, i) => n -> (0xA0 + i).toChar.toString).toMap
+    latin1 ++ Map(
+      "amp" -> "&", "lt" -> "<", "gt" -> ">", "quot" -> "\"", "apos" -> "'",
+      // Latin Extended-A and spacing-modifier letters
+      "OElig" -> "Œ", "oelig" -> "œ", "Scaron" -> "Š", "scaron" -> "š",
+      "Yuml" -> "Ÿ", "fnof" -> "ƒ", "circ" -> "ˆ", "tilde" -> "˜",
+      // Greek
+      "Alpha" -> "Α", "Beta" -> "Β", "Gamma" -> "Γ", "Delta" -> "Δ", "Epsilon" -> "Ε", "Zeta" -> "Ζ",
+      "Eta" -> "Η", "Theta" -> "Θ", "Iota" -> "Ι", "Kappa" -> "Κ", "Lambda" -> "Λ", "Mu" -> "Μ",
+      "Nu" -> "Ν", "Xi" -> "Ξ", "Omicron" -> "Ο", "Pi" -> "Π", "Rho" -> "Ρ", "Sigma" -> "Σ",
+      "Tau" -> "Τ", "Upsilon" -> "Υ", "Phi" -> "Φ", "Chi" -> "Χ", "Psi" -> "Ψ", "Omega" -> "Ω",
+      "alpha" -> "α", "beta" -> "β", "gamma" -> "γ", "delta" -> "δ", "epsilon" -> "ε", "zeta" -> "ζ",
+      "eta" -> "η", "theta" -> "θ", "iota" -> "ι", "kappa" -> "κ", "lambda" -> "λ", "mu" -> "μ",
+      "nu" -> "ν", "xi" -> "ξ", "omicron" -> "ο", "pi" -> "π", "rho" -> "ρ", "sigmaf" -> "ς",
+      "sigma" -> "σ", "tau" -> "τ", "upsilon" -> "υ", "phi" -> "φ", "chi" -> "χ", "psi" -> "ψ",
+      "omega" -> "ω", "thetasym" -> "ϑ", "upsih" -> "ϒ", "piv" -> "ϖ",
+      // General punctuation
+      "ensp" -> " ", "emsp" -> " ", "thinsp" -> " ", "zwnj" -> "‌", "zwj" -> "‍", "lrm" -> "‎", "rlm" -> "‏",
+      "ndash" -> "–", "mdash" -> "—", "lsquo" -> "‘", "rsquo" -> "’", "sbquo" -> "‚",
+      "ldquo" -> "“", "rdquo" -> "”", "bdquo" -> "„", "dagger" -> "†", "Dagger" -> "‡",
+      "bull" -> "•", "hellip" -> "…", "permil" -> "‰", "prime" -> "′", "Prime" -> "″",
+      "lsaquo" -> "‹", "rsaquo" -> "›", "oline" -> "‾", "frasl" -> "⁄", "euro" -> "€",
+      // Letterlike symbols and arrows
+      "weierp" -> "℘", "image" -> "ℑ", "real" -> "ℜ", "trade" -> "™", "alefsym" -> "ℵ",
+      "larr" -> "←", "uarr" -> "↑", "rarr" -> "→", "darr" -> "↓", "harr" -> "↔", "crarr" -> "↵",
+      "lArr" -> "⇐", "uArr" -> "⇑", "rArr" -> "⇒", "dArr" -> "⇓", "hArr" -> "⇔",
+      // Mathematical operators
+      "forall" -> "∀", "part" -> "∂", "exist" -> "∃", "empty" -> "∅", "nabla" -> "∇",
+      "isin" -> "∈", "notin" -> "∉", "ni" -> "∋", "prod" -> "∏", "sum" -> "∑",
+      "minus" -> "−", "lowast" -> "∗", "radic" -> "√", "prop" -> "∝", "infin" -> "∞",
+      "ang" -> "∠", "and" -> "∧", "or" -> "∨", "cap" -> "∩", "cup" -> "∪", "int" -> "∫",
+      "there4" -> "∴", "sim" -> "∼", "cong" -> "≅", "asymp" -> "≈", "ne" -> "≠",
+      "equiv" -> "≡", "le" -> "≤", "ge" -> "≥", "sub" -> "⊂", "sup" -> "⊃", "nsub" -> "⊄",
+      "sube" -> "⊆", "supe" -> "⊇", "oplus" -> "⊕", "otimes" -> "⊗", "perp" -> "⊥", "sdot" -> "⋅",
+      // Technical, geometric shapes and suits
+      "lceil" -> "⌈", "rceil" -> "⌉", "lfloor" -> "⌊", "rfloor" -> "⌋", "lang" -> "〈", "rang" -> "〉",
+      "loz" -> "◊", "spades" -> "♠", "clubs" -> "♣", "hearts" -> "♥", "diams" -> "♦",
+    )
 
   private def decodeEntity(lex: String): String =
     if !lex.startsWith("&") || !lex.endsWith(";") then lex
