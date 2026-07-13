@@ -2,7 +2,7 @@
 ---
 name: scljet-memory-vfs
 description: Deterministic immutable SclJet memory VFS transitions, locks, SHM, and faults
-backends: [int]
+backends: [int, js]
 ---
 
 # SclJet memory VFS M1

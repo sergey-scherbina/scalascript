@@ -2,7 +2,7 @@
 ---
 name: scljet-readonly-btree-pure
 description: SclJet M2 cached multi-level table/index B-tree traversal without a host VFS
-backends: [int]
+backends: [int, js]
 ---
 
 # SclJet M2 pure cached B-tree traversal

@@ -2,7 +2,7 @@
 ---
 name: scljet-module-contract
 description: M0 pure SclJet public values and contracts import without a host database provider
-backends: [int]
+backends: [int, js]
 ---
 
 # SclJet M0 contract scaffold
