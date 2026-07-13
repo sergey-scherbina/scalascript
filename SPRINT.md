@@ -30,6 +30,15 @@ parser. Design decisions already agreed with Sergiy:
 
 Lead: opus-continue; phases are open to other agents (esp. the v2-side track uniml-portable-3).
 
+**⚠️ STRATEGIC FORK (2026-07-13, from Phase 0.5 deep-probe — needs Sergiy's call).** v2's object model
+is **immutable**: only `case class`(constructor params) + methods. No mutable object fields (`var`
+*or* `val` in a class body), no plain `class`, no anonymous instances, no arrays — only local
+`var`/`while` in `def` bodies. UniML is pervasively imperative-stateful, so it is **far from
+compilable on v2 as-is** (even `1b` is blocked — named processors need a mutable `finished` field).
+The fork: **(A)** grow v2's imperative/OO surface (mutable fields, plain classes, anon instances,
+arrays); **(B)** rewrite UniML in a purely functional/immutable style (big); **(C)** rescope (e.g.
+scalac-only for now). See `specs/uniml-portable-gapmap.md` § "The wall".
+
 - [x] **uniml-portable-0-move** — ✓ DONE 2026-07-13. Moved core/json/yaml/markdown to top-level
       `uniml/` with its own sbt build (`uniml/build.sbt` + `uniml/project/`). `cd uniml && sbt test` =
       all 8 suites green (4 modules × JVM+JS), zero ScalaScript dependency. Root `build.sbt` updated
@@ -51,10 +60,15 @@ Lead: opus-continue; phases are open to other agents (esp. the v2-side track uni
       green (compat is a drop-in). This is the largest UniML-side slice. NOTE (from gapmap): compat's
       mutable primitives need a **working mutable-array floor** — blocked on `uniml-portable-3`
       fixing `new Array[T](n)` in v2, unless we build the floor on a v2-native buffer.
-- [ ] **uniml-portable-1b-namedclasses** — [UniML-side, no v2 change] replace anonymous
-      `new Trait[..]:` instances (in `Processor.andThen` etc.) with **named classes**, and drop
-      covariance annotations (`ProcessBatch[+A]` → invariant) if v2 can't parse them. Keeps scalac
-      green; removes two of the gapmap blockers on the UniML side.
+- [~] **uniml-portable-1b-namedclasses** — BLOCKED by the object-model wall. Replacing the 2 anonymous
+      `new Processor[..]:` (in `Processor.andThen`/`stateless`) with named classes does not help v2:
+      those classes still need a mutable `finished` field, which v2 rejects. Gated by the strategic
+      fork. (The pure-scalac cleanup — anon→named — is trivial but low-value until the fork is decided.)
+- [ ] **uniml-portable-v2-objectmodel** — [v2-side; gated by fork option A] make ScalaScript v2 support
+      the object-model constructs UniML needs but v2 lacks today (per gapmap): **anonymous trait
+      instances** (Sergiy: "анонимные трейты хорошо бы сделать в scalascript"), **mutable object fields**
+      (`var`/`val` in class bodies), **plain (non-case) classes**, and **working mutable `Array[T]`**
+      (`new Array[T](n)` + indexed apply/update). Coordinate with the v2-frontend agents.
 - [ ] **uniml-portable-2-subset** — constrain UniML to the Scala3∩v2 subset per the gap map; add a
       lint that fails on out-of-subset constructs. Set up mechanism (b): canonical `.scala` + `.ssc`
       mirror (symlink or generation) so both compilers see identical content.

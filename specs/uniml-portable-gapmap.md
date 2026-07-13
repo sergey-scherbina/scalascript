@@ -35,12 +35,45 @@ This is most of UniML's structural surface — the ADT/CST model, the `Processor
 generic-trait abstraction, and string scanning all fall inside what v2 already compiles. **v2 is far
 more capable than the `v2/examples/*.ssc` corpus (no enum/trait/generics there) suggested.**
 
-## Gaps (block compiling UniML) — the v2-side TODO
+## ⚠️ The wall: v2's object model is immutable (critical)
+
+Deeper probing revealed the real blocker — **v2 supports only immutable `case class`es with
+constructor params + methods.** Everything UniML relies on for stateful objects is unsupported:
+
+| Construct | Probe | Symptom |
+|---|---|---|
+| plain `class Foo(...)` (non-case) | `class Counter(start): var n = start` | `unbound global: class` |
+| mutable object field `var` in a (case) class body | `case class Inc(step): var calls = 0` | `unbound global: calls` |
+| **derived `val` field in a class body** | `case class C(x): val y = x + 1` | `unbound global: y` |
+| anonymous instance `new Trait[..]:` | `new Proc[Int,Int]: def push…` | `unbound global: _err` |
+| `new Array[T](n)` + indexed `apply`/`update` | `val a = new Array[Int](3); a(1)=…` | `IndexOutOfBounds` (mis-sized) |
+
+Only **local `var`/`while` inside `def` bodies** work; there is **no way to hold mutable state in an
+object**, no body fields at all (`val` or `var`), no plain classes, no anonymous instances, no arrays.
+This is essentially a **pure functional / immutable data model** (`data` + functions).
+
+**UniML is pervasively imperative-stateful** — mutable lexer/VM fields (`TreeVm` node counters and the
+frame `stack`, every dialect lexer's dozens of `var`s, `MarkdownBlocks`' open-leaf/segment state,
+`TokenSink`'s `pos`/`nextId`), growable buffers, and the two anonymous `Processor` instances. So it is
+**far from compilable on v2 as-is**, and even the small `1b` (anonymous→named) is blocked, because the
+named processors still need a mutable `finished` field.
+
+### The strategic fork (needs a decision — see SPRINT)
+
+- **(A) Grow v2's imperative/OO surface** — mutable object fields (`var`/`val` in class bodies), plain
+  classes, anonymous instances, working mutable arrays. Big v2-side effort, and it runs against v2's
+  functional/immutable core (the "compile-to-closures VM").
+- **(B) Rewrite UniML in a purely functional/immutable style** — thread all state explicitly through
+  returns instead of mutable fields, immutable persistent data structures. A large rewrite of the
+  whole library's internals (VM, lexers, block engine).
+- **(C) Rescope** — e.g. keep UniML dual-compilable only for a *pure* subset, or accept UniML as
+  scalac-only for now and revisit when v2's object model grows.
+
+## Other gaps (secondary to the object-model wall)
 
 | Gap | Symptom | UniML dependency | Resolution options |
 |---|---|---|---|
-| **Anonymous instances** `new Trait[..]:` `def …` | runtime `unbound global: _err` (lowered to an unsupported stub) | `Processor.andThen` and dialect processors create `new Processor[I,P]:` | **UniML-side:** refactor anonymous instances to **named classes** (cheap, keeps within the subset). **or v2-side:** support anonymous class instances. |
-| **Mutable `Array[T]`** (`new Array[Int](n)`, `a(i) = v`, `a(i)`) | `IndexOutOfBoundsException` — the array is not sized to `n`; indexed update/apply is broken | **The compat-layer floor.** `uniml.compat` (Phase 1) needs *some* growable/mutable primitive to build `Buffer`/`LinkedMap`/`StrBuilder` on. | **v2-side:** fix `new Array[T](n)` + indexed `apply`/`update` (the natural floor). **or** provide a v2-native mutable buffer primitive the compat layer can wrap. Until then, the compat layer has no floor on v2. |
+| **Mutable `Array[T]`** (`new Array[Int](n)`, `a(i) = v`) | `IndexOutOfBounds` — array not sized to `n` | the compat-layer floor | v2-side: fix `new Array[T](n)` + indexed apply/update; or a v2-native buffer primitive. |
 
 ## Untested / deferred
 
