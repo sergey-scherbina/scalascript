@@ -152,9 +152,35 @@ else leaves`. In `runtime/std/scljet/write.ssc` `packLeaves`.
 implicit `else`, or drops the `then` side of a no-`else` `if` used in statement
 position. Needs a fix in the interpreter's block/if lowering.
 
+## js-effect-multishot-in-while-loop — multi-shot effect handled inside a `while` crashes on JS
+
+**Status:** open (found 2026-07-13, opus, while regression-testing var-scope). A `multi
+effect` handled with a resuming continuation INSIDE a `while` loop body — the interpreter
+golden is 204 (`JsEffectLoopTest` "multi-shot effect handled inside a while-loop") — crashes
+the JS-generated code at runtime (Node error in the emitted `.cjs`), so the test is RED.
+PRE-EXISTING: fails identically on clean HEAD (confirmed by stashing an unrelated interp
+change and re-running). The interpreter (`--v1`) produces the correct 204; only the JsGen
+multi-shot-continuation-inside-while lowering is wrong. JsGen bug, separate from the interp
+var-scope work — filed for the JS-effects owner.
+
 ## interp-var-scope-leak-across-calls — a callee's `var` clobbers a caller's live `var` of the same name
 
-**Status:** open (found 2026-07-13). Interpreter (`ssc-tools run --v1`) correctness
+**Status:** FIXED (2026-07-13, opus). `var` decl/assign dual-write to the module-global
+`interp.globals` (keyed by name, load-bearing so a `while` body's fresh env sees mutations)
+had no per-call scoping, so a callee's `var X` clobbered a caller's live `var X`. Fix (block-
+scoped save/restore): `collectVarDeclNames` (cached per block-AST by `stats` identity in
+`blockVarNamesCache`) finds a block's globals-writing `Defn.Var` names; on block eval it
+snapshots ONLY the outer bindings the block SHADOWS (nothing shadowed → zero overhead, the
+common case) and restores them on block EXIT via a `FlatMap` continuation (fires on
+completion, not on effect suspension) + a `Throwable` restore-and-rethrow path. The loop
+counter lives in the enclosing block and is restored only at that block's exit (after the
+loop), so the JIT / fast-while paths read/write globals exactly as before during the loop;
+each recursion level snapshots its own shadow. Verified: repro `mkpages(84).length` → 84
+(was 1); recursion `sumfac(5)` → 153; new `VarScopeAcrossCallsTest` 8/8; full
+`backendInterpreter/test` **1827 pass, 0 regressions** (the 1 fail is the pre-existing
+js-effect-multishot-in-while-loop above, unrelated). Original report below.
+<details><summary>original report</summary>
+open (found 2026-07-13). Interpreter (`ssc-tools run --v1`) correctness
 bug; workaround = use distinct `var` names across the call hierarchy.
 
 **Symptom:** when a function `F` has a `var X` live (e.g. a `while` loop counter)
@@ -216,6 +242,7 @@ save/restores the `interp.globals` entries that its local `var` names shadow.
 Every fast path that reads/writes loop vars via `interp.globals(body.names(k))`
 (EvalRuntime `tryLong*While*`, FastTier) must move in lockstep. Until then the
 workaround stands: unique `var` names down each call chain.
+</details>
 
 ## js-caseclass-body-method-params-dropped — JS drops case-class body methods that take parameters
 
