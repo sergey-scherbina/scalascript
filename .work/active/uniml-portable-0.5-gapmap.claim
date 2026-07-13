@@ -1,0 +1,5 @@
+feature/uniml-portable-gapmap 2026-07-13T14:03:44Z
+agent: opus-continue
+heartbeat: 2026-07-13T14:03:44Z
+status: in-progress
+next: run UniML-shape .ssc probes through v2/ssc1; record primitive floor + language gaps (enum/trait/generics+variance/HOF/mutable/char-int APIs); write specs/uniml-portable-gapmap.md + a red v2-compile smoke as the v2-side TODO
