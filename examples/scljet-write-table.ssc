@@ -1,0 +1,42 @@
+#!/usr/bin/env ssc
+---
+name: scljet-write-table
+description: Assemble a single-table SQLite database with SclJet's M3 writer
+---
+
+# SclJet single-table database writer
+
+`buildSingleTableDatabase` assembles a legal two-page SQLite file from scratch:
+page 1 is `sqlite_schema` with one `CREATE TABLE` entry (root page 2), page 2 is
+the table root holding the given rows (auto rowids 1..n). The record encoder
+(`encodeRecord`) is the exact inverse of the reader's decoder, so the file is
+byte-identical to what reference SQLite writes and passes `PRAGMA
+integrity_check`. Reopening it through `decodeDatabaseHeader` confirms the
+header. `changeCounter`/`schemaCookie` are supplied by the caller (they depend
+on the write sequence, which the pager owns in later slices).
+
+[ByteSlice, byteSliceSlice, SqliteValue, SqlNull, SqlInteger, SqlText, SqlBlob, decodeDatabaseHeader, buildSingleTableDatabase](std/scljet/index.ssc)
+
+```scalascript
+def blob(values: List[Int]): ByteSlice = ByteSlice.fromList(values) match
+  case Right(bytes) => bytes
+  case Left(_) => ByteSlice.empty
+
+val rows = List(
+  List(SqlInteger(10L), SqlText("ten")),
+  List(SqlInteger(20L), SqlText("twenty")),
+  List(SqlNull, SqlText("nil")))
+
+buildSingleTableDatabase(512, 1, 1, "nums", "CREATE TABLE nums(n INTEGER, label TEXT)", rows) match
+  case Left(error) => println("write-error:" + error.message)
+  case Right(bytes) =>
+    byteSliceSlice(bytes, 0, 100) match
+      case Left(error) => println("slice-error:" + error.message)
+      case Right(head) =>
+        decodeDatabaseHeader(head) match
+          case Left(failure) => println("decode-error:" + failure.message)
+          case Right(header) =>
+            println("wrote " + bytes.length.toString + " bytes, " +
+              header.headerPageCount.toString + " pages, schema format " +
+              header.schemaFormat.toString + ", " + rows.length.toString + " rows in table nums")
+```

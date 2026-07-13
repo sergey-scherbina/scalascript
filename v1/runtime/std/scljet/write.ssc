@@ -6,6 +6,7 @@ package: scljet
 exports:
   - emptyDatabase
   - encodeRecord
+  - buildSingleTableDatabase
 ---
 
 # SclJet M3 write path
@@ -30,7 +31,12 @@ def writeBe16(value: Int): List[Int] = List((value / 256) % 256, value % 256)
 def writeBe32(value: Int): List[Int] =
   List((value / 16777216) % 256, (value / 65536) % 256, (value / 256) % 256, value % 256)
 
-def writeZeros(count: Int): List[Int] = if count <= 0 then Nil else 0 :: writeZeros(count - 1)
+// Tail-recursive so the interpreter can TCO the large zero-fills (a leaf page's
+// free space can be hundreds of bytes); order is irrelevant for zeros.
+def writeZerosLoop(count: Int, acc: List[Int]): List[Int] =
+  if count <= 0 then acc else writeZerosLoop(count - 1, 0 :: acc)
+
+def writeZeros(count: Int): List[Int] = writeZerosLoop(count, Nil)
 
 /** Bytes of a freshly-created empty SQLite database for `pageSize`.
  *
@@ -98,7 +104,14 @@ def utf8CodePoint(codePoint: Int): List[Int] =
   else if codePoint < 2048 then List(192 + codePoint / 64, 128 + codePoint % 64)
   else List(224 + codePoint / 4096, 128 + (codePoint / 64) % 64, 128 + codePoint % 64)
 
-def utf8Bytes(text: String): List[Int] = text.toList.flatMap(ch => utf8CodePoint(ch.toInt))
+// Uses `charAt` + `length` (portable to the native tier, unlike `.toList`).
+// `charAt(i).toInt` is a UTF-16 code unit — correct for BMP text; astral
+// (surrogate pairs) is a follow-up.
+def utf8BytesLoop(text: String, index: Int, acc: List[Int]): List[Int] =
+  if index >= text.length then acc
+  else utf8BytesLoop(text, index + 1, acc ++ utf8CodePoint(text.charAt(index).toInt))
+
+def utf8Bytes(text: String): List[Int] = utf8BytesLoop(text, 0, Nil)
 
 def encodeValue(value: SqliteValue): Either[ByteError, EncodedValue] = value match
   case SqlNull => Right(EncodedValue(0L, Nil))
@@ -142,4 +155,93 @@ def encodeRecord(values: List[SqliteValue]): Either[ByteError, ByteSlice] =
       val headerLen = recordHeaderLength(fields.serialBytes.length)
       val record = byteSliceToList(encodeVarint(headerLen.toLong)) ++ fields.serialBytes ++ fields.body
       ByteSlice.fromList(record)
+
+// ── Table-leaf page + single-table database assembly (m3c) ──────────────────
+
+/** A table-leaf cell (no overflow): `varint(payloadLen) ++ varint(rowid) ++ record`. */
+def encodeTableLeafCell(rowid: Long, record: ByteSlice): List[Int] =
+  val recordBytes = byteSliceToList(record)
+  byteSliceToList(encodeVarint(recordBytes.length.toLong)) ++
+    byteSliceToList(encodeVarint(rowid)) ++ recordBytes
+
+def cellsTotal(cells: List[List[Int]]): Int = cells match
+  case Nil => 0
+  case Cons(cell, tail) => cell.length + cellsTotal(tail)
+
+def cellsFlatten(cells: List[List[Int]]): List[Int] = cells match
+  case Nil => Nil
+  case Cons(cell, tail) => cell ++ cellsFlatten(tail)
+
+/** Big-endian u16 pointers to each cell, placed in order from `offset` upward. */
+def cellPointers(cells: List[List[Int]], offset: Int): List[Int] = cells match
+  case Nil => Nil
+  case Cons(cell, tail) => writeBe16(offset) ++ cellPointers(tail, offset + cell.length)
+
+/** Bytes of a table-leaf B-tree page after `headerOffset` (100 on page 1, else 0):
+ *  8-byte leaf header, the cell pointer array in key order, free space, then the
+ *  cell content area growing down from the page end. Cells must be in key order
+ *  and fit on the page (no overflow / split — that is m3d). */
+def buildTableLeafPage(pageSize: Int, headerOffset: Int, cells: List[List[Int]]): Either[ByteError, List[Int]] =
+  val count = cells.length
+  val total = cellsTotal(cells)
+  val contentStart = pageSize - total
+  val gap = contentStart - (headerOffset + 8 + 2 * count)
+  if gap < 0 then Left(ByteError("overflow", "leaf page cells do not fit (needs a split — m3d)", 0))
+  else
+    val csField = if contentStart == 65536 then 0 else contentStart
+    val header = List(13, 0, 0) ++ writeBe16(count) ++ writeBe16(csField) ++ List(0)
+    Right(header ++ cellPointers(cells, contentStart) ++ writeZeros(gap) ++ cellsFlatten(cells))
+
+/** The 100-byte file header for a rowid-table database: schema format 4, UTF-8
+ *  encoding, trusted page count. `changeCounter`/`schemaCookie` are supplied by
+ *  the caller (they depend on the write sequence, which the pager owns in m3e). */
+def tableFileHeader(pageSize: Int, pageCount: Int, changeCounter: Int, schemaCookie: Int): List[Int] =
+  val pageSizeField = if pageSize == 65536 then 1 else pageSize
+  List(83, 81, 76, 105, 116, 101, 32, 102, 111, 114, 109, 97, 116, 32, 51, 0) ++
+  writeBe16(pageSizeField) ++
+  List(1, 1, 0, 64, 32, 32) ++
+  writeBe32(changeCounter) ++       // 24-27 change counter
+  writeBe32(pageCount) ++           // 28-31 page count
+  writeBe32(0) ++ writeBe32(0) ++   // 32-39 freelist head + count
+  writeBe32(schemaCookie) ++        // 40-43 schema cookie
+  writeBe32(4) ++                   // 44-47 schema format 4
+  writeBe32(0) ++ writeBe32(0) ++   // 48-55 default cache + largest root
+  writeBe32(1) ++                   // 56-59 text encoding = UTF-8
+  writeBe32(0) ++ writeBe32(0) ++ writeBe32(0) ++  // 60-71 user version, incr-vacuum, app id
+  writeZeros(20) ++                 // 72-91 reserved
+  writeBe32(changeCounter) ++       // 92-95 version-valid-for (= change counter → trusted page count)
+  writeBe32(3053003)                // 96-99 SQLite version number
+
+def encodeRowCells(rows: List[List[SqliteValue]], rowid: Long): Either[ByteError, List[List[Int]]] = rows match
+  case Nil => Right(Nil)
+  case Cons(row, tail) =>
+    encodeRecord(row) match
+      case Left(error) => Left(error)
+      case Right(record) =>
+        encodeRowCells(tail, rowid + 1L) match
+          case Left(error) => Left(error)
+          case Right(rest) => Right(encodeTableLeafCell(rowid, record) :: rest)
+
+/** Assemble a two-page single rowid-table database: page 1 is `sqlite_schema`
+ *  (one `CREATE TABLE` entry with root page 2), page 2 is the table root holding
+ *  `rows` (auto rowids 1..n). Both must fit on one page. The result is a legal
+ *  SQLite file that reference `integrity_check` accepts. */
+def buildSingleTableDatabase(pageSize: Int, changeCounter: Int, schemaCookie: Int,
+    tableName: String, createSql: String, rows: List[List[SqliteValue]]): Either[ByteError, ByteSlice] =
+  val schemaValues = List(SqlText("table"), SqlText(tableName), SqlText(tableName),
+    SqlInteger(2L), SqlText(createSql))
+  encodeRecord(schemaValues) match
+    case Left(error) => Left(error)
+    case Right(schemaRecord) =>
+      encodeRowCells(rows, 1L) match
+        case Left(error) => Left(error)
+        case Right(rowCells) =>
+          buildTableLeafPage(pageSize, 100, List(encodeTableLeafCell(1L, schemaRecord))) match
+            case Left(error) => Left(error)
+            case Right(page1Body) =>
+              buildTableLeafPage(pageSize, 0, rowCells) match
+                case Left(error) => Left(error)
+                case Right(page2Body) =>
+                  val page1 = tableFileHeader(pageSize, 2, changeCounter, schemaCookie) ++ page1Body
+                  ByteSlice.fromList(page1 ++ page2Body)
 ```
