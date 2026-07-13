@@ -11,6 +11,7 @@ exports:
   - buildOverflowTableDatabase
   - buildOverflowBtreeDatabase
   - buildDeepTableDatabase
+  - buildDeepOverflowTableDatabase
 ---
 
 # SclJet M3 write path
@@ -794,4 +795,86 @@ def buildDeepTableDatabase(pageSize: Int, changeCounter: Int, schemaCookie: Int,
                         val pageCount = 1 + interiorCount + leaves.length
                         val page1 = tableFileHeader(pageSize, pageCount, changeCounter, schemaCookie) ++ page1Body
                         ByteSlice.fromList(page1 ++ cellsFlatten(interiorBodies) ++ cellsFlatten(leafBodies))
+
+// ── Deep tree WITH cell overflow (full matrix: 3+ levels AND overflow chains) ──
+
+case class TreeBodies(interiorBodies: List[List[Int]], leafBodies: List[List[Int]], treePages: Int)
+
+/** How many B-tree pages (interior + leaves) a multi-leaf table occupies, without
+ *  materializing them — used to place overflow pages after the whole tree. */
+def treePageCount(leaves: List[LeafPlan], pageSize: Int): Int =
+  if leaves.length <= 1 then 1
+  else
+    var tpcLevels: List[List[InteriorPlan]] = Nil
+    var tpcRowids = leafMaxRowids(leaves)
+    while tpcRowids.length > 1 do
+      val tpcLevel = packInterior(tpcRowids, pageSize)
+      tpcLevels = tpcLevel :: tpcLevels
+      tpcRowids = interiorMaxRowids(tpcLevel)
+    totalInteriorPages(tpcLevels) + leaves.length
+
+/** Build the interior-level + leaf page bodies for a multi-leaf tree (root on
+ *  page 2). Overflow-independent: a leaf cell's overflow pointer is part of its
+ *  bytes, not of the tree shape, so the same tree serves overflow and non-overflow
+ *  cells. */
+def buildTreeBodies(leaves: List[LeafPlan], pageSize: Int): Either[ByteError, TreeBodies] =
+  var tbLevels: List[List[InteriorPlan]] = Nil
+  var tbRowids = leafMaxRowids(leaves)
+  while tbRowids.length > 1 do
+    val tbLevel = packInterior(tbRowids, pageSize)
+    tbLevels = tbLevel :: tbLevels
+    tbRowids = interiorMaxRowids(tbLevel)
+  val tbInteriorCount = totalInteriorPages(tbLevels)
+  buildInteriorLevels(tbLevels, 2, pageSize) match
+    case Left(error) => Left(error)
+    case Right(interiorBodies) =>
+      buildLeafPages(leaves, pageSize) match
+        case Left(error) => Left(error)
+        case Right(leafBodies) => Right(TreeBodies(interiorBodies, leafBodies, tbInteriorCount + leaves.length))
+
+/** The full matrix: a rowid-table B-tree of ANY depth whose oversized records
+ *  ALSO spill onto overflow-page chains. Layout: page 1 = schema, pages 2..1+T =
+ *  the tree (leaf if it all fits one page, else interior levels over leaves),
+ *  then the overflow chains on pages 2+T..N. A two-pass build fixes the tree shape
+ *  from placeholder cells, then numbers the overflow pages from 2+T. Byte-verified
+ *  against reference `integrity_check`; reads back exact. */
+def buildDeepOverflowTableDatabase(pageSize: Int, changeCounter: Int, schemaCookie: Int,
+    tableName: String, createSql: String, rows: List[List[SqliteValue]]): Either[ByteError, ByteSlice] =
+  val usableSize = pageSize
+  val schemaValues = List(SqlText("table"), SqlText(tableName), SqlText(tableName),
+    SqlInteger(2L), SqlText(createSql))
+  encodeRecord(schemaValues) match
+    case Left(error) => Left(error)
+    case Right(schemaRecord) =>
+      // Pass 1: placeholder overflow pointers fix leaf packing + tree shape.
+      encodeOverflowRowCells(rows, 1L, pageSize, usableSize, 0) match
+        case Left(error) => Left(error)
+        case Right(probe) =>
+          val probeLeaves = packLeaves(probe.cells, pageSize)
+          val overflowStart = 2 + treePageCount(probeLeaves, pageSize)
+          // Pass 2: real overflow pages numbered after the whole tree.
+          encodeOverflowRowCells(rows, 1L, pageSize, usableSize, overflowStart) match
+            case Left(error) => Left(error)
+            case Right(built) =>
+              val leaves = packLeaves(built.cells, pageSize)
+              buildTableLeafPage(pageSize, 100, List(encodeTableLeafCell(1L, schemaRecord))) match
+                case Left(error) => Left(error)
+                case Right(page1Body) =>
+                  if leaves.length <= 1 then
+                    val leafCells = leaves match
+                      case Nil => Nil
+                      case Cons(leaf, _) => leaf.cells
+                    buildTableLeafPage(pageSize, 0, leafCells) match
+                      case Left(error) => Left(error)
+                      case Right(page2Body) =>
+                        val pageCount = 2 + built.overflowPages.length
+                        val page1 = tableFileHeader(pageSize, pageCount, changeCounter, schemaCookie) ++ page1Body
+                        ByteSlice.fromList(page1 ++ page2Body ++ cellsFlatten(built.overflowPages))
+                  else
+                    buildTreeBodies(leaves, pageSize) match
+                      case Left(error) => Left(error)
+                      case Right(tree) =>
+                        val pageCount = 1 + tree.treePages + built.overflowPages.length
+                        val page1 = tableFileHeader(pageSize, pageCount, changeCounter, schemaCookie) ++ page1Body
+                        ByteSlice.fromList(page1 ++ cellsFlatten(tree.interiorBodies) ++ cellsFlatten(tree.leafBodies) ++ cellsFlatten(built.overflowPages))
 ```
