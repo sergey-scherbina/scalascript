@@ -7541,6 +7541,16 @@ JS `1410065408` = mod 2^32; JVM emits Scala's 32-bit `Int`). Huge blast radius
           past shebang+front-matter when heading-less; doc-only when headings present). → fenceless-bare-
           code, parenless-def-value, user-request-shadow, predef-notimplemented (last needed a sibling's
           `notImplemented` fix `b77862d7f` too). v2 bytecode sweep 119 → 122, 0 regr.
+    - [x] **exception subsystem — try/catch/finally + throw on the native lane** `50bf0f89c` — the native
+          lane had NO exception support (`throw` → plugin global `__throw__` unbound on native; `try`/
+          `catch` didn't parse). Added: (front) `try BODY catch {case…} [finally F]` → prim
+          __tryCatch__/__tryCatchFinally__ (thunks + PF over the caught value); `throw e` → prim __throw__;
+          `catch`/`finally` as continuation tokens (isCont/canStartLine) so multi-line `try{}`\n`catch{}`
+          doesn't split. (Runtime/Prims) SscThrow(value); __tryCatch__ catches SscThrow (→ thrown value)
+          and host RuntimeException (→ DataV("RuntimeException",[msg])); getMessage on exception DataVs;
+          finally runs unconditionally. (lower) exception ctor prelude defs so `new RuntimeException(m)` →
+          DataV. → **dataset-agg, http-client** (sweep 122 → 124, 0 regr). LIMIT: a brace-less indented
+          def body `def f =\n try{}\n catch{}` still splits (layout).
           - `tagless-program` → `TYPEERR: cannot unify Tuple with non-Tuple` (typer/tuple, distinct).
 
 ### ▶ ssc-toolkit-v2 (2026-07-07, owner-directed via busi: the busi SPA must move React→ScalaScript)
