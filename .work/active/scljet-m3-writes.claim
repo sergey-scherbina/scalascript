@@ -1,6 +1,6 @@
 feature/scljet-m3-writes 2026-07-13T11:38:32Z
 agent: claude-code
-heartbeat: 2026-07-13T14:16:31Z
+heartbeat: 2026-07-13T14:28:52Z
 status: in-progress
-done-so-far: m3b/m3c/m3d done; m3e hot-journal RECOVERY done (120da8a9e) — journal.ssc applyRollbackJournal parses the official rollback-journal format + SQLite sparse checksum (confirmed vs a real journal), restores pre-images byte-identical, truncates to recorded size; verified page-512.db (1 rec) + comprehensive.db (2 recs) recover byte-identical, integrity_check=ok; not-hot + bad-checksum handled; int/VM/ASM/fallback/JS; conformance scljet-journal-recover. NOTE: corrected an earlier MISDIAGNOSIS — interp DOES TCO tail self-calls in match (verified 1M deep); BUGS.md interp-tco-tail-call-in-match = NOT a bug.
-next: finish m3e — journal WRITER (create <db>-journal from pre-images), wire recovery into pager.ssc open path (currently rejects non-empty journal), transactional begin/commit/rollback cycle (needs mutable pager). Then m3f delete/update.
+done-so-far: m3b/m3c/m3d done; m3e journal FORMAT (recover + write) done (668d24c45). journal.ssc: applyRollbackJournal (parse + SQLite sparse checksum, restore pre-images, truncate — byte-identical recovery verified) + writeRollbackJournal (exact inverse, byte-identical to SQLite's journal, round-trips). int/VM/ASM/fallback/JS; conformance scljet-journal-recover (write→recover round-trip). NOTE corrected misdiagnosis: interp DOES TCO tail self-calls in match (BUGS.md interp-tco-tail-call-in-match = NOT a bug).
+next: finish m3e — wire recovery into pager.ssc open path (currently rejects non-empty journal; needs writable-VFS write-back + journal delete), transactional begin/mutate/commit/rollback cycle (needs mutable pager). Then m3f delete/update.
