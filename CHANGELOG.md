@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-13 — UniML immutable Markdown engine (uniml-portable Phase 1d, complete)
+
+Finished the immutable rewrite of UniML's internal lexers by taking on the delicate Markdown engine
+(~1500 LOC), completing Phase 1d. The mutable `TokenSink` (used only by `MarkdownBlocks`) is folded
+into `MarkdownBlocks.parse` as local `var`s (token cursor `pos`/`nextId`/`out`/`frames`) with nested
+`def` emitters; `MarkdownBlocks`' eight mutable object fields become locals — the container stack an
+immutable `Vector`, the reference map an immutable `Map`, diagnostics/paragraph segments `Vector`s —
+while the pure classifiers stay class methods and the dead `ListFrame.lastBlank` field is dropped.
+`MarkdownInlines.WDelim` becomes an immutable `case class`: CommonMark's emphasis/delimiter algorithm,
+which mutated delimiter lexemes in place and spliced a mutable buffer, now rebuilds the node `Vector`
+by index (a reduced opener/closer is a fresh copy). Behaviour-preserving: Markdown 32/32 JVM + Scala.js
+and the DocumentContent bridge 11/11. The Markdown module now has no mutable object fields; remaining
+local builders and `MarkdownProjection`'s local mutable collections are a portability (1c-compat)
+concern, not the object-model wall.
+
 ## 2026-07-13 — UniML immutable lexers: JSON/YAML/XML (uniml-portable Phase 1d, part 1)
 
 Rewrote three of the four internal dialect lexers from mutable-object-field classes into pure `scan`

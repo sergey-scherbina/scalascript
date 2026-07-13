@@ -70,11 +70,11 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
       md 32) and the root bindings (unimlXml 13, unimlMarkdownBridge 11). Net −80 LOC. The
       after-`finish` "reject reuse" / `uniml.*.finished` diagnostic is gone (a pure `stop` is
       idempotent). Remaining internal-lexer mutability carved out → `uniml-portable-1d-lexers`.
-- [~] **uniml-portable-1d-lexers** — [UniML-side] internal lexers drop mutable **object fields**
-      (v2's object-model wall): rewrite each as a pure function returning a token `Vector` with a
-      local `var`/`while` shell + immutable `Vector` accumulation (mutating helpers = nested defs over
-      the locals, pure classifiers top-level). Behaviour-preserving; all tests green throughout.
-      Progress 2026-07-13:
+- [x] **uniml-portable-1d-lexers** — ✓ DONE 2026-07-13. [UniML-side] internal lexers drop mutable
+      **object fields** (v2's object-model wall): rewrite each as a pure function returning a token
+      `Vector` with a local `var`/`while` shell + immutable `Vector` accumulation (mutating helpers =
+      nested defs over the locals, pure classifiers top-level). Behaviour-preserving; all tests green
+      throughout. All four dialects done 2026-07-13:
       - [x] `JsonLexer` → pure `scan(source,text,limits): JsonLexResult` (was a class with 10+ mutable
             fields + 2 ArrayBuffers + push/finish/drain). unimlJson 16/16 JVM+JS.
       - [x] `YamlLexer` → inlined its inner mutable `Scanner` class (8 fields + 2 `Vector.newBuilder`)
@@ -82,12 +82,16 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
       - [x] `XmlScanner` → pure `scan` (3 ArrayBuffers + counters + local mutable HashSet → immutable
             `Vector` element-stack + immutable `Set` attr-dedup). unimlXml 13/13 JVM+JS. (XmlProjection
             namespace code left as-is — it's the ScalaScript-side →Markup binding, not the lexer.)
-      - [ ] **markdown** — the hard remainder (~1500 LOC, delicate/losslessness-critical): `TokenSink`
-            (MarkdownLexer, mechanical), `MarkdownBlocks` (stateful block parser: mutable container
-            stack incl. `ListFrame(var lastBlank)`, `diagnostics`/`refs`/`containers`/`paragraphSegs`),
-            and `MarkdownInlines.WDelim` (CommonMark's **in-place-mutated delimiter stack** — needs an
-            index/override-based algorithmic rewrite, NOT a mechanical field→local transform). Do as a
-            separate batch; keep md 32/32 JVM+JS.
+      - [x] **markdown** — the hard remainder (~1500 LOC, delicate/losslessness-critical), done as its
+            own batch. `TokenSink` (used only by `MarkdownBlocks`) folded into `MarkdownBlocks.parse`
+            as local vars + nested defs; `MarkdownBlocks`' 8 mutable fields → locals (`containers`
+            `Vector` stack, `refs` immutable `Map`, `diagnostics`/`paragraphSegs` `Vector`s); dead
+            `ListFrame.lastBlank` dropped; pure classifiers kept as class methods.
+            `MarkdownInlines.WDelim` → immutable `case class`, delimiter algorithm rewritten to rebuild
+            the node `Vector` by index (reduced opener/closer are fresh copies) instead of in-place
+            mutate/remove/insert; `tokenize`/`processEmphasis` return/thread `Vector` not `ArrayBuffer`.
+            Green md 32/32 JVM+JS + bridge 11/11. (Remaining local `StringBuilder`/`Vector.newBuilder`
+            + `MarkdownProjection`'s local `mutable` collections are not object fields → 1c-compat.)
 - [ ] **uniml-portable-1c-compat** — the small platform-shim that survives the immutable rewrite:
       `CharClass` with a **compact portable Unicode table** (whitespace/punct/symbol/letter/digit +
       P*/S* for markdown flanking) + ASCII fast-path, hand-rolled int↔hex, and an immutable `Map`-like

@@ -1,7 +1,6 @@
 package scalascript.uniml.dialect.markdown
 
 import scalascript.uniml.TokenChannel
-import scala.collection.mutable.ArrayBuffer
 
 /** Inline structure over a single contiguous content region. Emits a flat list
   * of `InlinePiece`s that the block emitter replays through the shared token
@@ -46,11 +45,13 @@ private[markdown] object MarkdownInlines:
 
   private sealed trait WNode
   private final case class WFixed(pieces: Vector[InlinePiece]) extends WNode
-  private final class WDelim(
-      var lexeme: String,
-      val ch: Char,
-      val canOpen: Boolean,
-      val canClose: Boolean,
+  // Immutable delimiter node: `processEmphasis` reduces a run's length by
+  // replacing the node in the vector with a new `WDelim`, never mutating it.
+  private final case class WDelim(
+      lexeme: String,
+      ch: Char,
+      canOpen: Boolean,
+      canClose: Boolean,
   ) extends WNode
 
   private def flatten(node: WNode): Vector[InlinePiece] = node match
@@ -61,8 +62,8 @@ private[markdown] object MarkdownInlines:
 
   // ── tokenization ──────────────────────────────────────────────────────
 
-  private def tokenize(content: String, refs: Map[String, LinkRef], profile: MarkdownProfile): ArrayBuffer[WNode] =
-    val nodes = ArrayBuffer.empty[WNode]
+  private def tokenize(content: String, refs: Map[String, LinkRef], profile: MarkdownProfile): Vector[WNode] =
+    var nodes: Vector[WNode] = Vector.empty
     val pending = StringBuilder()
     var i = 0
     val n = content.length
@@ -71,7 +72,7 @@ private[markdown] object MarkdownInlines:
 
     def flushText(): Unit =
       if pending.nonEmpty then
-        nodes += text(pending.result())
+        nodes = nodes :+ text(pending.result())
         pending.clear()
 
     while i < n do
@@ -87,16 +88,16 @@ private[markdown] object MarkdownInlines:
             // strip the trailing backslash into a hard-break marker
             pending.setLength(pending.length - 1)
             flushText()
-            nodes += WFixed(Vector(Tok(MdKind.HardBreak, "\\" + ending, None, TokenChannel.Syntax)))
+            nodes = nodes :+ WFixed(Vector(Tok(MdKind.HardBreak, "\\" + ending, None, TokenChannel.Syntax)))
           else
             flushText()
-            nodes += WFixed(Vector(Tok(if hard then MdKind.HardBreak else MdKind.SoftBreak, ending, None, if hard then TokenChannel.Syntax else TokenChannel.Trivia)))
+            nodes = nodes :+ WFixed(Vector(Tok(if hard then MdKind.HardBreak else MdKind.SoftBreak, ending, None, if hard then TokenChannel.Syntax else TokenChannel.Trivia)))
           i += ending.length
 
         case '\\' =>
           if i + 1 < n && MdChars.isAsciiPunctuation(content.charAt(i + 1)) then
             flushText()
-            nodes += WFixed(Vector(Tok(MdKind.Escape, content.substring(i, i + 2), None, TokenChannel.Syntax)))
+            nodes = nodes :+ WFixed(Vector(Tok(MdKind.Escape, content.substring(i, i + 2), None, TokenChannel.Syntax)))
             i += 2
           else
             pending.append('\\')
@@ -115,7 +116,7 @@ private[markdown] object MarkdownInlines:
               pieces += Open(MdBranch.CodeSpan, MdKind.BacktickRun, openLex, Some("delimiter.open"))
               if inner.nonEmpty then pieces += Tok(MdKind.CodeContent, inner, Some("code"), TokenChannel.Embedded)
               pieces += Close(MdBranch.CodeSpan, MdKind.BacktickRun, closeLex, Some("delimiter.close"))
-              nodes += WFixed(pieces.result())
+              nodes = nodes :+ WFixed(pieces.result())
               i = start + runLen
             case None =>
               pending.append(content.substring(i, i + runLen))
@@ -129,7 +130,7 @@ private[markdown] object MarkdownInlines:
               val (mdKind, role, channel) = kind match
                 case AngleKind.Autolink => (MdKind.Autolink, Some("autolink"), TokenChannel.Syntax)
                 case AngleKind.Html     => (MdKind.Html, Some("html"), TokenChannel.Embedded)
-              nodes += WFixed(Vector(Tok(mdKind, lex, role, channel)))
+              nodes = nodes :+ WFixed(Vector(Tok(mdKind, lex, role, channel)))
               i = endEx
             case None =>
               pending.append('<')
@@ -139,7 +140,7 @@ private[markdown] object MarkdownInlines:
           scanEntity(content, i) match
             case Some(endEx) =>
               flushText()
-              nodes += WFixed(Vector(Tok(MdKind.Entity, content.substring(i, endEx), Some("entity"), TokenChannel.Syntax)))
+              nodes = nodes :+ WFixed(Vector(Tok(MdKind.Entity, content.substring(i, endEx), Some("entity"), TokenChannel.Syntax)))
               i = endEx
             case None =>
               pending.append('&')
@@ -156,7 +157,7 @@ private[markdown] object MarkdownInlines:
               pieces += Open(MdBranch.Expression, MdKind.ExpressionOpen, open, Some("delimiter.open"))
               if inner.nonEmpty then pieces += Tok(MdKind.ExpressionContent, inner, Some("expression"), TokenChannel.Embedded)
               pieces += Close(MdBranch.Expression, MdKind.ExpressionClose, close, Some("delimiter.close"))
-              nodes += WFixed(pieces.result())
+              nodes = nodes :+ WFixed(pieces.result())
               i = endEx
             case None =>
               pending.append('$')
@@ -166,7 +167,7 @@ private[markdown] object MarkdownInlines:
           tryLink(content, i, image = true, refs, profile) match
             case Some((node, endEx)) =>
               flushText()
-              nodes += node
+              nodes = nodes :+ node
               i = endEx
             case None =>
               pending.append('!')
@@ -176,7 +177,7 @@ private[markdown] object MarkdownInlines:
           tryLink(content, i, image = false, refs, profile) match
             case Some((node, endEx)) =>
               flushText()
-              nodes += node
+              nodes = nodes :+ node
               i = endEx
             case None =>
               pending.append('[')
@@ -184,12 +185,12 @@ private[markdown] object MarkdownInlines:
 
         case '*' | '_' =>
           flushText()
-          nodes += delimiterRun(content, i, c)
+          nodes = nodes :+ delimiterRun(content, i, c)
           i += runLength(content, i, c)
 
         case '~' if gfm =>
           flushText()
-          nodes += delimiterRun(content, i, c)
+          nodes = nodes :+ delimiterRun(content, i, c)
           i += runLength(content, i, c)
 
         case other =>
@@ -483,7 +484,8 @@ private[markdown] object MarkdownInlines:
 
   // ── emphasis / strong / strikethrough (delimiter algorithm) ──────────────
 
-  private def processEmphasis(nodes: ArrayBuffer[WNode]): ArrayBuffer[WNode] =
+  private def processEmphasis(input: Vector[WNode]): Vector[WNode] =
+    var nodes = input
     var closerIdx = 0
     while closerIdx < nodes.size do
       nodes(closerIdx) match
@@ -505,16 +507,16 @@ private[markdown] object MarkdownInlines:
               else (MdBranch.Emphasis, MdKind.DelimiterRun)
             val openLex = opener.lexeme.substring(opener.lexeme.length - use)
             val closeLex = closer.lexeme.substring(0, use)
-            opener.lexeme = opener.lexeme.substring(0, opener.lexeme.length - use)
-            closer.lexeme = closer.lexeme.substring(use)
+            // reduce opener/closer by replacing them with shortened copies
+            val newOpener = WDelim(opener.lexeme.substring(0, opener.lexeme.length - use), opener.ch, opener.canOpen, opener.canClose)
+            val newCloser = WDelim(closer.lexeme.substring(use), closer.ch, closer.canOpen, closer.canClose)
             val inner = nodes.slice(found + 1, closerIdx).flatMap(flatten).toVector
             val wrap = WFixed(
               (Open(branch, kind, openLex, Some("delimiter.open")) +: inner) :+
                 Close(branch, kind, closeLex, Some("delimiter.close")))
-            // remove only the inner nodes (keep opener and closer with their
-            // possibly-reduced lexemes) and splice the wrap between them
-            nodes.remove(found + 1, closerIdx - found - 1)
-            nodes.insert(found + 1, wrap)
+            // splice: [..opener), reduced-opener, wrap, reduced-closer, (closer..]
+            // — dropping only the inner nodes between opener and closer
+            nodes = nodes.take(found) ++ Vector(newOpener, wrap, newCloser) ++ nodes.drop(closerIdx + 1)
             // reprocess from just after the opener to catch further matches
             closerIdx = found + 1
             // emptied delimiters are dropped lazily on flatten

@@ -1,7 +1,6 @@
 package scalascript.uniml.dialect.markdown
 
 import scalascript.uniml.*
-import scala.collection.mutable.ArrayBuffer
 
 /** Stable token kinds. All use the `markdown.` prefix so downstream tooling can
   * classify without parsing lexemes. */
@@ -108,74 +107,6 @@ private[markdown] object MdLine:
           index += 1
     if content.nonEmpty then lines += MdLine(content.result(), "")
     lines.result()
-
-/** Emits `VmToken`s strictly in source order via a single advancing cursor, so
-  * losslessness ("tokens concatenate to the source, ids are monotonic") holds by
-  * construction: every character is consumed exactly once, left to right. */
-private[markdown] final class TokenSink(source: SourceId):
-  private var pos = SourcePosition.Start
-  private var nextId = 0L
-  private val out = ArrayBuffer.empty[VmToken]
-  private val frames = ArrayBuffer.empty[String]
-
-  def position: SourcePosition = pos
-
-  /** Kinds of the frames currently open, outermost first. */
-  def openFrames: Vector[String] = frames.toVector
-
-  def emit(kind: String, lexeme: String, instruction: VmInstruction, channel: TokenChannel): Unit =
-    if lexeme.isEmpty then ()
-    else
-      val start = pos
-      pos = Unicode.advance(pos, lexeme)
-      val token = SourceToken(nextId, kind, lexeme, SourceSpan(source, start, pos), channel)
-      nextId += 1L
-      out += VmToken(token, instruction)
-      track(instruction)
-
-  private def track(instruction: VmInstruction): Unit = instruction match
-    case VmInstruction.Open(k, _) => frames += k
-    case VmInstruction.Close(expected, _) =>
-      if frames.nonEmpty && expected.forall(_ == frames.last) then frames.remove(frames.size - 1)
-    case VmInstruction.Reframe(closeBefore, open, closeAfter, _) =>
-      closeBefore.foreach(_ => if frames.nonEmpty then frames.remove(frames.size - 1))
-      open.foreach(spec => frames += spec.kind)
-      closeAfter.foreach(_ => if frames.nonEmpty then frames.remove(frames.size - 1))
-    case _ => ()
-
-  /** Rewrites the final token so it also closes every still-open frame
-    * (innermost first), avoiding the VM's end-of-input "unclosed node" errors for
-    * blocks that legitimately have no closing delimiter (e.g. a paragraph at EOF
-    * with no trailing newline). No-op for an empty document. */
-  def closeDangling(): Unit =
-    if frames.nonEmpty && out.nonEmpty then
-      val remaining = frames.reverse.toVector
-      val last = out.last
-      val rewritten = last.instruction match
-        case VmInstruction.Emit(role) =>
-          VmInstruction.Reframe(closeAfter = remaining, role = role)
-        case VmInstruction.Close(expected, role) =>
-          VmInstruction.Reframe(closeAfter = expected.toVector ++ remaining, role = role)
-        case VmInstruction.Reframe(cb, op, ca, role) =>
-          VmInstruction.Reframe(cb, op, ca ++ remaining, role)
-        case other => other
-      out(out.size - 1) = last.copy(instruction = rewritten)
-      frames.clear()
-
-  /** Emit a source-backed token as a leaf (`Emit`) with the given role/channel. */
-  def leaf(kind: String, lexeme: String, role: Option[String] = None, channel: TokenChannel = TokenChannel.Syntax): Unit =
-    emit(kind, lexeme, VmInstruction.Emit(role), channel)
-
-  def trivia(kind: String, lexeme: String, role: Option[String] = None): Unit =
-    emit(kind, lexeme, VmInstruction.Emit(role), TokenChannel.Trivia)
-
-  def open(branch: String, kind: String, lexeme: String, role: Option[String] = None, channel: TokenChannel = TokenChannel.Syntax): Unit =
-    emit(kind, lexeme, VmInstruction.Open(branch, role), channel)
-
-  def close(branch: String, kind: String, lexeme: String, role: Option[String] = None, channel: TokenChannel = TokenChannel.Syntax): Unit =
-    emit(kind, lexeme, VmInstruction.Close(Some(branch), role), channel)
-
-  def result: Vector[VmToken] = out.toVector
 
 /** Shared character classification following CommonMark 0.31.2 §2.1. */
 private[markdown] object MdChars:
