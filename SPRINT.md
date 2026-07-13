@@ -7194,8 +7194,20 @@ JS `1410065408` = mod 2^32; JVM emits Scala's 32-bit `Int`). Huge blast radius
         (fn,instance) set, by the List-element type rule) → Emit (specialised defs, memoised) → Rewrite
         → Transitivity (worklist to fixpoint). Fallback = today's first-instance for unknown types (no
         regression). VERIFY: v2 bytecode sweep must hold 99 + recover the ~12 typeclass cluster; land
-        per-slice (direct case first, then transitivity), revert on any regression. Build NOT started —
-        a major kernel change deserving its own focused session with the design in hand.
+        per-slice (direct case first, then transitivity), revert on any regression.
+    - [x] **A1-mono SLICE 1 (inline typeclass fns)** `4a6ba79d4` — DONE. monoInstanceFor (call-site
+          rewrite → `fn__mono__instance`, instance by List[A]-element type) + emitMonoDefs (re-lower the
+          fn body with active ctx = the CONCRETE instance, so `summon[TC].m` → `<instance>_m`) +
+          typeOfExpr List. Ctx param kept (unused) → arity unchanged. VERIFIED: v2 bytecode 99→102 PASS,
+          0 regressions (case-class-body-methods, scljet-readonly-pager-btree, std-ui-jobpanel now green,
+          stable). Works for typeclass fns DEFINED in the program.
+    - [ ] **A1-mono SLICE 2 (imported typeclass fns)** — the std cluster (combineAll etc., e.g.
+          std-semigroup-monoid) is IMPORTED, so it is NOT in the user program's sig/def tables that
+          buildSigTable/findDefStmt scan → monoInstanceFor/emit can't see it → call stays on the old
+          first-instance path (unchanged, not regressed). FIX: include imported modules' typeclass fns
+          in the sig/def/given tables (or resolve mono against the import). Then: transitivity (follow
+          calls in specialised bodies to a fixpoint), multi-ctx-param, non-List containers. Each falls
+          back to today's behaviour until done = no regression.
 
 ### ▶ ssc-toolkit-v2 (2026-07-07, owner-directed via busi: the busi SPA must move React→ScalaScript)
 
