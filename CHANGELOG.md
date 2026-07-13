@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-13 — UniML immutable lexers: JSON/YAML/XML (uniml-portable Phase 1d, part 1)
+
+Rewrote three of the four internal dialect lexers from mutable-object-field classes into pure `scan`
+functions, eliminating v2's object-model wall (no class-level `var`/`ArrayBuffer`). Each keeps a local
+`var`/`while` shell over immutable values with `Vector` accumulation; mutating helpers become nested
+`def`s over the locals and pure classifiers stay top-level. `JsonLexer` (was 10+ mutable fields + 2
+ArrayBuffers + push/finish/drain) → `JsonLexer.scan`; `YamlLexer`'s inner `Scanner` class (8 fields +
+2 `Vector.newBuilder`) inlined into `scan`; `XmlScanner` (3 ArrayBuffers + counters + a local mutable
+`HashSet`) → `XmlScanner.scan` with an immutable `Vector` element-stack and immutable `Set` attribute
+dedup. Behaviour-preserving: unimlJson 16/16, unimlYaml 18/17, unimlXml 13/13 (JVM+JS). The markdown
+block/inline engine (CommonMark's in-place delimiter stack) is the harder remainder, deferred to a
+separate batch.
+
 ## 2026-07-13 — UniML immutable core (uniml-portable Phase 1)
 
 Rewrote UniML's streaming core from a mutable-object-state design to a pure fold, per Sergiy's

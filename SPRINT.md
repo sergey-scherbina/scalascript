@@ -70,12 +70,24 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
       md 32) and the root bindings (unimlXml 13, unimlMarkdownBridge 11). Net −80 LOC. The
       after-`finish` "reject reuse" / `uniml.*.finished` diagnostic is gone (a pure `stop` is
       idempotent). Remaining internal-lexer mutability carved out → `uniml-portable-1d-lexers`.
-- [ ] **uniml-portable-1d-lexers** — [UniML-side] the internal lexers/block-engines (`JsonLexer`,
-      `YamlLexer`, `XmlScanner`, `MarkdownBlocks`) still use mutable object fields / `ArrayBuffer`,
-      now fully encapsulated inside a single pure `stop` call (no state escapes the `Processor`). For
-      full Scala3∩v2 compilability those must also drop mutable **object fields** (v2's object-model
-      wall) — rewrite each as a pure function returning a token `Vector` with a local `var`/`while`
-      shell over immutable values (allowed on v2). Behaviour-preserving; keep all tests green.
+- [~] **uniml-portable-1d-lexers** — [UniML-side] internal lexers drop mutable **object fields**
+      (v2's object-model wall): rewrite each as a pure function returning a token `Vector` with a
+      local `var`/`while` shell + immutable `Vector` accumulation (mutating helpers = nested defs over
+      the locals, pure classifiers top-level). Behaviour-preserving; all tests green throughout.
+      Progress 2026-07-13:
+      - [x] `JsonLexer` → pure `scan(source,text,limits): JsonLexResult` (was a class with 10+ mutable
+            fields + 2 ArrayBuffers + push/finish/drain). unimlJson 16/16 JVM+JS.
+      - [x] `YamlLexer` → inlined its inner mutable `Scanner` class (8 fields + 2 `Vector.newBuilder`)
+            into `scan`. unimlYaml 18/17 JVM+JS.
+      - [x] `XmlScanner` → pure `scan` (3 ArrayBuffers + counters + local mutable HashSet → immutable
+            `Vector` element-stack + immutable `Set` attr-dedup). unimlXml 13/13 JVM+JS. (XmlProjection
+            namespace code left as-is — it's the ScalaScript-side →Markup binding, not the lexer.)
+      - [ ] **markdown** — the hard remainder (~1500 LOC, delicate/losslessness-critical): `TokenSink`
+            (MarkdownLexer, mechanical), `MarkdownBlocks` (stateful block parser: mutable container
+            stack incl. `ListFrame(var lastBlank)`, `diagnostics`/`refs`/`containers`/`paragraphSegs`),
+            and `MarkdownInlines.WDelim` (CommonMark's **in-place-mutated delimiter stack** — needs an
+            index/override-based algorithmic rewrite, NOT a mechanical field→local transform). Do as a
+            separate batch; keep md 32/32 JVM+JS.
 - [ ] **uniml-portable-1c-compat** — the small platform-shim that survives the immutable rewrite:
       `CharClass` with a **compact portable Unicode table** (whitespace/punct/symbol/letter/digit +
       P*/S* for markdown flanking) + ASCII fast-path, hand-rolled int↔hex, and an immutable `Map`-like
