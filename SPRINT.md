@@ -7473,6 +7473,22 @@ JS `1410065408` = mod 2^32; JVM emits Scala's 32-bit `Int`). Huge blast radius
           bytecode sweep 102 → 117 across the session, 0 real regressions.
           Backlog (not blocking any conformance case): mono transitivity, multi-ctx-param mono, non-tuple
           multi-arg containers (Map).
+    - [x] **v2-bytecode effect threading over curried collection methods** `bb8b0230c` — `perform().foldLeft(z)(f)`
+          failed "no arm for Op/3": the self-hosted CURRIED `_sel_foldLeft` (IrLam(2,IrLam(1,…)))'s inner
+          go-match runs on a Local holding the Op, but the bytecode backend only A-normalizes/threads Op
+          scrutinees when `mayOp` is true, and `mayOp(Local)`=false (single helpers like `_sel_map` don't
+          hit this). Fix: route foldLeft/foldRight through runtime `__method__` (its methodOp threads an Op
+          receiver, Runtime:2728; handles List/ArrayBuffer/Map). → effect-imported-handler,
+          effect-transitive-handler. sweep 117 → 119, 0 regr.
+    - [ ] **v2-bytecode effects REMAINING** (head-field-effect-shadow, coroutine-basic/error,
+          js-applyunary-effect-cps) — perform in ARGUMENT position (`scoredGigs(GigSource.fetch())`, then
+          `if gigs.isEmpty`) leaks a raw Op; the bytecode backend threads Ops only in Match/Let/Seq
+          scrutinee + receiver/arith/fn positions, NOT function-argument position. LESSON: applying
+          `OpAnf.lift` (the v1-bridge arg-lifting pass) to the whole self-hosted program via runBytecode
+          REGRESSED the working effect cases — the self-hosted lane (like the Mira lane OpAnf excludes)
+          passes Ops to functions legitimately (resume/handle), so blanket arg-lifting forwards Ops past
+          their handlers. Needs SELECTIVE arg-lifting (only unresolved-perform args to non-handler
+          consumers) = effect analysis. Reverted.
           - `tagless-program` → `TYPEERR: cannot unify Tuple with non-Tuple` (typer/tuple, distinct).
 
 ### ▶ ssc-toolkit-v2 (2026-07-07, owner-directed via busi: the busi SPA must move React→ScalaScript)
