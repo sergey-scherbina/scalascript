@@ -4228,6 +4228,7 @@ hstack(gap = 12)(
 | `textField(value, label, disabled, required)` | Labeled text input; `value` must be `Signal[String]`; two-way bound |
 | `checkbox(checked, label, disabled)` | Checkbox; `checked` must be `Signal[Boolean]`; two-way bound |
 | `select(options, selected, label, placeholder, disabled)` | Dropdown over `(value, label)` pairs; `selected` must be `Signal[String]`; two-way bound. `options` is static (built once, like `columns`/`tabs` elsewhere in the toolkit — see `specs/std-ui-select.md`); `placeholder`, when non-empty, is a disabled/hidden leading option shown while nothing is selected |
+| `selectFrom(items, key, optionFn, selected, label, placeholder, disabled)` | Like `select`, but `items` is a `Signal[List[A]]` instead of a static list — the `<option>` children re-render (added/removed/reordered) when the signal's list changes, e.g. a fetched contracts list, without a page reload. `key: A => String` gives each item a stable identity (mirrors `forKeyed`'s own `key`); `optionFn: A => (String, String)` maps each item to the `(value, label)` pair `select`'s static `options` takes directly. Reactive on the JS runtime lane (`emit-js`/`emit-spa`) only — `ssc run`'s live-`serve()` path renders the list once, same as `forKeyed`/`dataTable` (see `specs/std-ui-select.md` § "Reactive options (selectFrom)") |
 | `signalButton(signal, value, label, disabled)` | Button that sets `signal` to `value` on click |
 | `actionButton(handler, label, disabled)` | Button wired to an `EventHandler` (`fetchAction`, `incSignal`, …) |
 
@@ -4255,6 +4256,9 @@ true)`), or call fully positionally. See `BUGS.md` §
 `standard-tier-named-arg-skip-default`.
 
 Runnable example: `examples/frontend/select-demo/select-demo.ssc`.
+Reactive-options runnable example (build via `emit-js`/`emit-spa`, not
+`ssc run` — see the example's own docstring):
+`examples/frontend/select-reactive-demo/select-reactive-demo.ssc`.
 
 #### Reactive helpers
 

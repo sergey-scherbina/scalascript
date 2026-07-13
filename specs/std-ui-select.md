@@ -601,6 +601,86 @@ on those backends either; `tests/conformance` cases declare
 
 ### Results
 
-Implemented in `<commit-sha-filled-in-after-implementation>`. See the
-top-level spec commit history for the exact SHAs (spec-update commit landed
-first, implementation commits follow).
+Spec landed in `b614ae3b9`; implementation in `9061aa26a`; the found,
+unrelated `custom`-backend bug tracked in `2d6a2b43d`.
+
+What landed:
+
+- `std.ui.nodes.SelectFromNode[A]` and public
+  `std.ui.input.selectFrom[A](items, key, optionFn, selected, label,
+  placeholder, disabled): TkNode`.
+- `std.ui.primitives.selectFromView[A]` — the one new `extern def` this
+  slice adds — plus its interpreter/JVM fallback (`FrontendIntrinsics.scala`,
+  snapshot-only, parity with `forKeyedView`'s own `int`-lane behavior) and
+  its real reactive implementation in the JS runtime (`signals.mjs`):
+  `_ssc_ui_selectFromView`, a `_SelectFrom` case in `_ssc_ui_renderBody`
+  (emits `<select data-ssc-forkeyed-options="seq">` with keyed `<option
+  data-ssc-key="...">` children directly, no wrapper), and `_mountSelectFrom`
+  (dispatched from the existing `_mountKeyed` by `_type`, reusing the exact
+  same reconcile algorithm shape).
+- `lower.ssc`'s `SelectFromNode` case, mirroring `SelectNode`'s own
+  style-computation and label-wrapper shape.
+- `examples/frontend/std-ui/smoke-test.ssc` exercises `selectFrom` alongside
+  the other input widgets.
+- `examples/frontend/select-reactive-demo/select-reactive-demo.ssc` —
+  runnable example: 2 contracts, a button simulating "sign a new contract"
+  (appends a 3rd to the same reactive source), built via `emit-js`/
+  `emit-spa` (documented in the example itself — `ssc run`'s live-`serve()`
+  path is snapshot-only for this widget, same as any other
+  `forKeyedView`-backed one).
+- `tests/conformance/tkv2-select-reactive.ssc` (+ expected) — API-level
+  check on `[int, js]`.
+- `v1/runtime/backend/interpreter/src/test/scala/scalascript/JsRuntimeSelectFromTest.scala`
+  — the real reactivity proof: the actual `signals.mjs` runtime
+  (`JsGen.generateRuntime`) executed under real Node against a DOM mock
+  (mirroring `JsRuntimeKeyedForTest.scala`'s method). Scenario: build a
+  `<select>` from a 2-item `Signal[List[Contract]]`; assert the container is
+  a real `<select>` whose children are real `<option>` tags; append a 3rd
+  item via `setSignal` (simulating the click handler) and assert 3
+  `<option>`s with the original 2 nodes' *exact* DOM identity preserved (not
+  torn down and recreated); reorder and assert identity again; remove one
+  and assert it is actually detached (`parentNode === null`) while survivors
+  keep identity; finally select a different option and assert the bound
+  `selected` signal updates.
+- `BUGS.md` § `custom-jsemitter-signal-list-literal` — a **pre-existing**,
+  unrelated bug found while building this slice:
+  `frontend/custom/StaticJsEmitter.scala`'s `jsLiteral` has no `List`/`Seq`
+  case, so any program with a `Signal[List[_]]` referenced by an event
+  handler crashes `ssc run` (both the default v2-VM/`custom`-frontend path
+  and `--v1`) — confirmed to already affect the previously-shipped
+  `examples/frontend/keyed-for-demo/keyed-for-demo.ssc` too (not new, not
+  fixed here, out of scope). `emit-js`/`emit-spa` (the production
+  static-compile pipeline, and what actually matters for reactive lists) are
+  unaffected — confirmed empirically for both that example and this slice's
+  own `select-reactive-demo.ssc`.
+- `README.md` capabilities-table row + `docs/user-guide.md` §17.5 widget
+  catalog row + runnable-example pointer.
+
+Verification:
+
+- `scripts/sbtc "frontendPlugin/compile"` and `scripts/sbtc "backendJs/compile"`
+  — both clean.
+- `scripts/sbtc "installBin"` passed.
+- `tests/conformance/run.sh --only 'tkv2-select-reactive'` — **PASS [INT],
+  PASS [JS]** (JVM correctly SKIP — `backends: [int, js]`).
+- `tests/conformance/run.sh --only 'tkv2-select*,std-ui-*,tkv2-keyed-for' --no-memo`
+  — **10 passed, 0 failed** (no regressions in the sibling
+  toolkit-v2/std-ui/keyed-for suite).
+- `scripts/sbtc 'backendInterpreterServer/testOnly scalascript.StdUiSmokeTest'`
+  — both tests green (`smoke:ok`, `lower-idempotent:ok`) with `selectFrom`
+  now exercised in the tree.
+- `scripts/sbtc 'backendInterpreter/testOnly scalascript.JsRuntimeSelectFromTest'`
+  — green: the real-reactivity proof described above.
+- `scripts/sbtc 'backendInterpreter/testOnly scalascript.JsRuntimeKeyedForTest'`
+  — still green (no regression to the shared `_mountKeyed` dispatch point).
+- `bin/ssc-tools run --v1` / `emit-js` + `node` on a standalone probe and on
+  `tests/conformance/tkv2-select-reactive.ssc` — identical output on both
+  lanes, no throw.
+- `bin/ssc-tools emit-spa examples/frontend/select-reactive-demo/select-reactive-demo.ssc`
+  — succeeds, embeds `_ssc_ui_selectFromView`/`_SelectFrom`/`_mountSelectFrom`
+  in the bundle.
+- `git diff --check` passed.
+
+Follow-up: none recorded — `select-from-signal` is closed by this slice.
+`custom-jsemitter-signal-list-literal` (the found bug above) remains open,
+tracked in `BUGS.md`, and is intentionally not fixed here.
