@@ -1,5 +1,26 @@
 # Bug tracker
 
+## js-char-int-eq-namescope-collision — Char `==` Int miscompiles to strict `===` on JS
+
+**Status:** FIXED (2026-07-13, opus); found by opus via a full conformance sweep
+(`json-deep-import` FAIL [JS]). Latent pre-existing JsGen bug, EXPOSED for std/json
+by the `registerImportedTypeEvidence` fix (`d034e2798`) extending it to imported
+modules. Root cause: `intVars`/`numericVars` are name-keyed and module-global, so a
+`Char`-valued local `val c = s.charAt(i)` inherits the "numeric" evidence of an
+Int param `c` from a SIBLING function (e.g. `def jsonCoreIsDigit(c: Int)` next to
+`jsonCoreParseValue`'s `val c`). The `==` numeric fast path (`JsGen.scala:~4715`)
+then emits `c === 34` — but JS `charAt` returns a boxed `_char`, and `===` never
+calls `valueOf`, so `_char === 34` is ALWAYS false (while `==`/`<` work via valueOf).
+Net effect: on JS the self-hosted json-core parser rejected every string/array/object
+(`unexpected token @0`), so `jsonValue`/`jsonParse`/`jsonRead` returned null/empty.
+Fix: `rebindNumericEvidence(name, rhs)` — a local `val`/`var` binding is now
+AUTHORITATIVE for its name, setting intVars/numericVars to match its RHS and REMOVING
+same-named leaked param evidence (applied at all 4 val/var binding sites in
+`genStat`/`genStatInline`). Verified: entry-module repro (`parse("\"x") → 1` not 99),
+`json-deep-import` green on INT/JS/V2, json roundtrips exact; JsGen 213/213; the
+`imported-int-division` fix still holds (its `absolute = bytes.start + index` RHS is
+numeric, so it stays in intVars).
+
 ## native-front-nativeui-site-annotation — anonymous computedSignal/eqSignal collide on `ssc run`
 
 **Status:** fixed (2026-07-12, `dc9814521`), awaiting Sergiy confirmation; found while

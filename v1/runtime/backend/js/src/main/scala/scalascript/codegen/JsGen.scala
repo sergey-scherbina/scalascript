@@ -2459,13 +2459,24 @@ class JsGen(
     s"(() => { const __st = (${genExpr(startT)}); const __n = (${genExpr(nT)}); let __acc = 0; let __k = 0; " +
     s"while (__k < __n) { $bodyJs __k += 1; } return __acc; })()"
 
+  /** A local `val`/`var` binding is AUTHORITATIVE for its name: set the numeric
+   *  evidence to match the RHS, overriding any same-named evidence that leaked in
+   *  from another function's param (intVars/numericVars are name-keyed and
+   *  module-global). Without the removal, a Char `val c = s.charAt(i)` inherits an
+   *  Int param `c` from a sibling function, so `c == 34` wrongly takes the numeric
+   *  fast path `c === 34` — which is always false on a boxed `_char` (=== does not
+   *  call valueOf). Returns true if the RHS was int/numeric (so callers can still
+   *  chain a tuple check). */
+  private def rebindNumericEvidence(name: String, rhs: Term): Boolean =
+    if isIntExpr(rhs) then { intVars += name; numericVars -= name; true }
+    else if isNumericExpr(rhs) then { numericVars += name; intVars -= name; true }
+    else { intVars -= name; numericVars -= name; false }
+
   private def genStat(stat: Stat): Unit = stat match
     case Defn.Val(_, pats, declT, rhs) =>
       pats match
         case List(Pat.Var(n)) =>
-          if isIntExpr(rhs) then intVars += n.value
-          else if isNumericExpr(rhs) then numericVars += n.value
-          else if isTupleExpr(rhs) then tupleVars += n.value
+          if !rebindNumericEvidence(n.value, rhs) && isTupleExpr(rhs) then tupleVars += n.value
           declT.flatMap(numericListElem).orElse(numericSeqCtorElem(rhs))
             .foreach(e => listElemType(n.value) = e)
           line(s"const ${emittedName(n.value)} = ${genExpr(rhs)};")
@@ -2477,8 +2488,7 @@ class JsGen(
           line(s"/* multi-pat val */")
 
     case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), declT, rhs) =>
-      if isIntExpr(rhs) then intVars += n.value
-      else if isNumericExpr(rhs) then numericVars += n.value
+      rebindNumericEvidence(n.value, rhs)
       declT.flatMap(numericListElem).orElse(numericSeqCtorElem(rhs))
         .foreach(e => listElemType(n.value) = e)
       line(s"let ${emittedName(n.value)} = ${genExpr(rhs)};")
@@ -3593,13 +3603,10 @@ class JsGen(
 
   private[codegen] def genStatInline(stat: Stat): String = stat match
     case Defn.Val(_, List(Pat.Var(n)), _, rhs) =>
-      if isIntExpr(rhs) then intVars += n.value
-      else if isNumericExpr(rhs) then numericVars += n.value
-      else if isTupleExpr(rhs) then tupleVars += n.value
+      if !rebindNumericEvidence(n.value, rhs) && isTupleExpr(rhs) then tupleVars += n.value
       s"const ${emittedName(n.value)} = ${genExpr(rhs)};"
     case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) =>
-      if isIntExpr(rhs) then intVars += n.value
-      else if isNumericExpr(rhs) then numericVars += n.value
+      rebindNumericEvidence(n.value, rhs)
       s"let ${emittedName(n.value)} = ${genExpr(rhs)};"
     case d: Defn.Def =>
       val params = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value)
