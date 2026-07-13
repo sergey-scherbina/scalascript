@@ -3066,7 +3066,18 @@ def lowerStmtToList = (stmt) =>
                                 let pfxName = #sconcat(prefix, dname) in
                                 let lowered =
                                   if #i.eq(lenL(dparams), 0) then
-                                    Cons(IrDef(pfxName, lowerE(Nil, dbody)), Nil)
+                                    -- `def f` (no parens → parseDef wraps the body
+                                    -- `parameterless`) is a static PROPERTY, eager. But
+                                    -- `def f()` (empty parens → normal body) is a 0-arg
+                                    -- METHOD that must be CALLED, not eager-eval'd — e.g.
+                                    -- `WorkerProtocol.handleMessages(): Unit = receive{…}`
+                                    -- must stay a fn (else `receive` runs at def time,
+                                    -- outside runActors). Emit IrLam(0,…) for the latter.
+                                    (match dbody { case Pair(btag, bdata) =>
+                                      if #seq(btag, "parameterless") then
+                                        Cons(IrDef(pfxName, lowerE(Nil, dbody)), Nil)
+                                      else
+                                        Cons(IrDef(pfxName, IrLam(0, lowerE(Nil, dbody))), Nil) })
                                   else
                                     let prefixed = Pair("def", Pair(pfxName, drest)) in
                                     lowerStmtToList(prefixed) in
