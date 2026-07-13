@@ -602,9 +602,20 @@ Chosen approaches (autonomous — non-breaking defaults):
       bug the shallow int cases missed — `..` popped the wrong stack element with `:+`-append; fixed to
       prepend+reverse. Also avoided a `case h :: t =>` binder the JS backend mis-binds.)
       → BACKLOG (full API): symlink-safe confinement needs an OS `realPath`/NOFOLLOW extern (JVM
-      toRealPath / Node realpathSync / Rust canonicalize) + `readFileWithin`/`readBytesWithin` — the
-      convenience wrappers hit the ssc-Int→Long codegen quirk on JVM (`List[Int]` mismatch), so they
-      wait on that + the realpath externs. resolveWithin is the lexical primitive; document remains.
+      toRealPath / Node realpathSync / Rust canonicalize) + `readFileWithin`/`readBytesWithin`.
+      INVESTIGATED 2026-07-13 (tried to add the read wrappers): each is blocked by a SEPARATE
+      pre-existing codegen bug, so they can't land cross-backend cleanly yet:
+        · `readBytesWithin` (`List[Int]`): v1 JVM/JS mis-type `readBytes`'s `List[Long]` return vs the
+          `List[Int]` annotation — the int-2 ssc-Int→Long gap. CONFIRMED the DECIDED resolution works:
+          `run --bytecode` (v2, natively 64-bit) reads `List[Int]` correctly (verified 2/104). So this
+          wrapper is v2-codegen-only until v2 is the default codegen — NOT a v1-fixable item.
+        · `readFileWithin` (`Option[String]`, no Int): compiles+runs on INT+JVM but the JS backend
+          binds the imported def to `()` → "not callable" at runtime (a std-def-import codegen bug,
+          distinct from Int→Long). Reverted; not landed.
+        · Bonus find: importing TWO `std.fs` members via separate `[x](std/fs.ssc)` links fails on the
+          v1 JVM codegen (`value writeFile is not a member`); a single link + direct intrinsic calls
+          works. Pre-existing literate-import codegen bug.
+      resolveWithin (the lexical primitive, `5786aac4a`) is landed + all-lanes-green; document remains.
 - [x] **L1 retry backoff/cap** — cap 10 + exp backoff·2^n ±20% jitter, all 4 clients. LANDED (git).
 - [x] **L3 env-scrub** — ProcessOptions.inheritEnv (JVM codegen + std/process.ssc). LANDED (git). VERIFIED scrub. + M5 interp-exec deadlock completed. (interp/Rust/JS opts-wiring → BACKLOG)
 - [x] **L4 mkdir TOCTOU** — Rust+JVM create directly, tolerate AlreadyExists. LANDED a2b11223b.
