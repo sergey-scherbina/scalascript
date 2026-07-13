@@ -167,11 +167,12 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
           ssc1-front `isCont`). Projection `Pair("block",[mkVal…,mkSExpr])` → unchanged `lowerBlock`
           → nested `IrLet`s. 20/20 tests; block-vals/single/cont are **Core IR byte-identical to
           ssc1-front**. Notes §P6.2b. Deferred: nested/if-layout blocks, `var`, full continuation matrix.
-    - [~] **P6.2c match + patterns** — [x] `match` + int-literal/`_`/var patterns + guard (offside &
-          braced) ✓ **Landed 2026-07-13**, Core IR byte-identical to ssc1-front (match-lit→42,
-          match-var→107, match-guard→16, match-braced→30). Notes §P6.2c. [ ] next: ctor/tuple patterns
-          (needs `uid` lexing) + block case bodies; then `::`/`->`/`to`/`until` + prefix ops;
-          `given`/`using`/extension; `enum`/`trait`/`object`/`type` decls.
+    - [~] **P6.2c match + patterns** — [x] `match` + literal/`_`/var + guard (offside & braced) ✓ and
+          [x] ctor/tuple patterns + `uid` lexing + tuple literals ✓ **Landed 2026-07-13**, all Core IR
+          byte-identical to ssc1-front (match-lit→42/var→107/guard→16/braced→30; ctor-some→5/none→42/
+          cons→3; tuple-pat `(4,5)`→9). Notes §P6.2c. [ ] next: alternative/typed/bind patterns +
+          block case bodies; then `::`/`->`/`to`/`until` + prefix ops; `given`/`using`/extension;
+          `enum`/`trait`/`object`/`type` decls.
   - [ ] **P6.3 injection + registry** — interpolator injection (s/f/md) via registry; registry hook
         (built-in set, user-closed).
   - [ ] **P6.4 self-host proof** — compile v2.2 with itself (stage1→stage2 fixed point); scalac oracle.

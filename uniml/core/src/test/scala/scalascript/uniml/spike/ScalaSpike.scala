@@ -59,7 +59,8 @@ object SpikeLex:
         val sb = new StringBuilder
         while i < n && (text.charAt(i).isLetterOrDigit || text.charAt(i) == '_') do { sb.append(text.charAt(i)); advance(text.charAt(i)) }
         val w = sb.toString
-        emit(if keywords(w) then "spike.kw" else "spike.id", start, w, TokenChannel.Syntax)
+        val idKind = if keywords(w) then "spike.kw" else if w.head.isUpper then "spike.uid" else "spike.id"
+        emit(idKind, start, w, TokenChannel.Syntax)
       else if isOpChar(c) then
         val sb = new StringBuilder
         while i < n && isOpChar(text.charAt(i)) do { sb.append(text.charAt(i)); advance(text.charAt(i)) }
@@ -142,6 +143,11 @@ object SpikeParse:
     if c.peekKind == kind then c.advance().map(t => Node.Leaf(t, Some(role)))
     else { c.report("spike.expected", s"expected $what, found '${c.peekLexeme}'"); None }
 
+  // a type name is an uppercase `uid` (Int, String) or a lowercase type param (`id`).
+  private def expectType(c: Cur, role: String): Option[Node] =
+    if c.peekKind == "spike.uid" || c.peekKind == "spike.id" then c.advance().map(t => Node.Leaf(t, Some(role)))
+    else { c.report("spike.expected", s"expected type, found '${c.peekLexeme}'"); None }
+
   private def parseDef(c: Cur): Node =
     val kids = Vector.newBuilder[Node]
     c.advance().foreach(t => kids += Node.Leaf(t, Some("def.kw"))) // `def`
@@ -154,12 +160,12 @@ object SpikeParse:
       if name.isEmpty then moreParams = false
       else
         expect(c, "spike.colon", "def.paramColon", "':'").foreach(kids += _)
-        expect(c, "spike.id", "def.paramType", "parameter type").foreach(kids += _)
+        expectType(c, "def.paramType").foreach(kids += _)
         if c.peekKind == "spike.comma" then c.advance().foreach(t => kids += Node.Leaf(t, Some("def.comma")))
         else moreParams = false
     expect(c, "spike.rparen", "def.rparen", "')'").foreach(kids += _)
     expect(c, "spike.colon", "def.retColon", "':'").foreach(kids += _)
-    expect(c, "spike.id", "def.retType", "return type").foreach(kids += _)
+    expectType(c, "def.retType").foreach(kids += _)
     val eqLine = c.peekLine // line of `=` before consuming
     expect(c, "spike.eq", "def.eq", "'='").foreach(kids += _)
     // offside: a body starting on a LATER line is an indented block (Scala optional-braces)
@@ -226,16 +232,41 @@ object SpikeParse:
       case None    => c.report("spike.missing-case-body", "missing case body")
     Node.Frame("spike.arm", None, kids.result())
 
-  // patterns: int literal (lpat) / `_` (wpat) / lowercase binder (vpat). Ctor patterns deferred.
+  // patterns: int literal (lpat) / `_` (wpat) / lowercase binder (vpat) / ctor `Name(subpats)`
+  // (cpat) / tuple `(a, b)` (→ cpat "Pair"/"TupleN"). Recursive for sub-patterns.
   private def parsePattern(c: Cur): Node =
     c.peekKind match
       case "spike.int" => c.advance().map(t => Node.Leaf(t, Some("pat.lit"))).get
       case "spike.id" if c.peekLexeme == "_" => c.advance().map(t => Node.Leaf(t, Some("pat.wild"))).get
-      case "spike.id" => c.advance().map(t => Node.Leaf(t, Some("pat.var"))).get
+      case "spike.id"  => c.advance().map(t => Node.Leaf(t, Some("pat.var"))).get
+      case "spike.uid" => parseCtorPat(c)
+      case "spike.lparen" => parseTuplePat(c)
       case _ =>
         c.report("spike.bad-pattern", s"unsupported pattern '${c.peekLexeme}'")
         c.advance().map(t => Node.Frame("spike.error", None, Vector(Node.Leaf(t, Some("error.token")))))
           .getOrElse(Node.Frame("spike.error", None, Vector.empty))
+
+  private def parseCtorPat(c: Cur): Node =
+    val kids = Vector.newBuilder[Node]
+    c.advance().foreach(t => kids += Node.Leaf(t, Some("cpat.name"))) // uid ctor name
+    if c.peekKind == "spike.lparen" then
+      c.advance().foreach(t => kids += Node.Leaf(t, Some("cpat.open")))
+      while c.peekKind != "spike.rparen" && !c.eof && !isKw(c, "case") do
+        kids += parsePattern(c).withRole("cpat.arg")
+        if c.peekKind == "spike.comma" then c.advance().foreach(t => kids += Node.Leaf(t, Some("cpat.comma")))
+      if c.peekKind == "spike.rparen" then c.advance().foreach(t => kids += Node.Leaf(t, Some("cpat.close")))
+      else c.report("spike.expected", "expected ')' in constructor pattern")
+    Node.Frame("spike.cpat", None, kids.result())
+
+  private def parseTuplePat(c: Cur): Node =
+    val kids = Vector.newBuilder[Node]
+    c.advance().foreach(t => kids += Node.Leaf(t, Some("tup.open")))
+    while c.peekKind != "spike.rparen" && !c.eof && !isKw(c, "case") do
+      kids += parsePattern(c).withRole("tup.arg")
+      if c.peekKind == "spike.comma" then c.advance().foreach(t => kids += Node.Leaf(t, Some("tup.comma")))
+    if c.peekKind == "spike.rparen" then c.advance().foreach(t => kids += Node.Leaf(t, Some("tup.close")))
+    else c.report("spike.expected", "expected ')' in tuple pattern")
+    Node.Frame("spike.tuppat", None, kids.result())
 
   private def parseExpr(c: Cur, minPrec: Int): Option[Node] =
     parsePostfix(c) match
@@ -259,19 +290,27 @@ object SpikeParse:
       case "spike.int"    => c.advance().map(t => Node.Leaf(t, Some("int")))
       case "spike.lparen" => parseParen(c)
       case "spike.kw" if c.peekLexeme == "if" => parseIf(c)
-      case "spike.id"     => parseIdOrCall(c)
+      case "spike.id" | "spike.uid" => parseIdOrCall(c) // uid = uppercase ctor/type ref → mkUVar
       case "spike.junk" =>
         c.report("spike.unexpected-expr", s"unexpected token '${c.peekLexeme}' in expression")
         c.advance().map(t => Node.Frame("spike.error", None, Vector(Node.Leaf(t, Some("error.token")))))
       case _ => None // eof / kw boundary / operator / `)` / `=` / `:` / `,` — not an atom
 
+  // `( e )` is grouping (spike.paren); `( a, b, … )` and `()` are tuple literals (spike.tuple).
   private def parseParen(c: Cur): Option[Node] =
     val kids = Vector.newBuilder[Node]
-    c.advance().foreach(t => kids += Node.Leaf(t, Some("paren.open")))
-    parseExpr(c, 1).foreach(i => kids += i.withRole("paren.inner"))
-    if c.peekKind == "spike.rparen" then c.advance().foreach(t => kids += Node.Leaf(t, Some("paren.close")))
-    else c.report("spike.expected", "expected ')' to close '('")
-    Some(Node.Frame("spike.paren", None, kids.result()))
+    c.advance().foreach(t => kids += Node.Leaf(t, Some("group.open")))
+    var elems = 0
+    var isTuple = false
+    if c.peekKind != "spike.rparen" then
+      parseExpr(c, 1).foreach { e => kids += e.withRole("group.elem"); elems += 1 }
+      while c.peekKind == "spike.comma" do
+        isTuple = true
+        c.advance().foreach(t => kids += Node.Leaf(t, Some("group.comma")))
+        parseExpr(c, 1).foreach { e => kids += e.withRole("group.elem"); elems += 1 }
+    if c.peekKind == "spike.rparen" then c.advance().foreach(t => kids += Node.Leaf(t, Some("group.close")))
+    else c.report("spike.expected", "expected ')'")
+    Some(Node.Frame(if isTuple || elems == 0 then "spike.tuple" else "spike.paren", None, kids.result()))
 
   private def parseIf(c: Cur): Option[Node] =
     val kids = Vector.newBuilder[Node]
@@ -379,9 +418,11 @@ object SpikeProject:
   private def expr(n: UniNode): String = n match
     case UniNode.Token(t) if t.kind == "spike.int" => s"""mkInt("${esc(t.lexeme)}")"""
     case UniNode.Token(t) if t.kind == "spike.id"  => s"""mkVar("${esc(t.lexeme)}")"""
+    case UniNode.Token(t) if t.kind == "spike.uid" => s"""mkUVar("${esc(t.lexeme)}")"""
     case b: UniNode.Branch => b.kind match
       case "spike.infix" => infix(b)
-      case "spike.paren" => kids(b).collectFirst { case (Some("paren.inner"), c) => expr(c) }.getOrElse(hole)
+      case "spike.paren" => kids(b).collectFirst { case (Some("group.elem"), c) => expr(c) }.getOrElse(hole)
+      case "spike.tuple" => s"""mkTup(${consList(kids(b).collect { case (Some("group.elem"), c) => expr(c) }.toVector)})"""
       case "spike.call"  => call(b)
       case "spike.if"    => ifExpr(b)
       case "spike.block" => block(b)
@@ -408,7 +449,24 @@ object SpikeProject:
     case UniNode.Token(t) if t.kind == "spike.int"                    => s"""Pair("lpat", Pair("int", "${esc(t.lexeme)}"))"""
     case UniNode.Token(t) if t.kind == "spike.id" && t.lexeme == "_"  => """Pair("wpat", "")"""
     case UniNode.Token(t) if t.kind == "spike.id"                     => s"""Pair("vpat", "${esc(t.lexeme)}")"""
+    case b: UniNode.Branch if b.kind == "spike.cpat"                  => cpatProj(b)
+    case b: UniNode.Branch if b.kind == "spike.tuppat"                => tuppatProj(b)
     case _ => """Pair("wpat", "")"""
+
+  // ctor pattern → Pair("cpat", Pair(name, [subpats])); mirrors ssc1-front finishCtorPat.
+  private def cpatProj(b: UniNode.Branch): String =
+    val name = kids(b).collectFirst { case (Some("cpat.name"), c) => lexeme(c) }.getOrElse("_")
+    val subs = kids(b).collect { case (Some("cpat.arg"), c) => patProj(c) }.toVector
+    s"""Pair("cpat", Pair("${esc(name)}", ${consList(subs)}))"""
+
+  // tuple pattern → ssc1-front lowers it to cpat "Pair" (2) / "TupleN" (≥3); 1 collapses.
+  private def tuppatProj(b: UniNode.Branch): String =
+    val subs = kids(b).collect { case (Some("tup.arg"), c) => patProj(c) }.toVector
+    subs.length match
+      case 0 => """Pair("wpat", "")"""
+      case 1 => subs.head
+      case 2 => s"""Pair("cpat", Pair("Pair", ${consList(subs)}))"""
+      case n => s"""Pair("cpat", Pair("Tuple$n", ${consList(subs)}))"""
 
   // Pair("block", [stmt…]) — mirrors ssc1-front; lowerBlock folds vals into nested lets.
   private def block(b: UniNode.Branch): String =

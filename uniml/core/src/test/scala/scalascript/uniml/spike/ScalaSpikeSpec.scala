@@ -68,7 +68,7 @@ final class ScalaSpikeSpec extends AnyFunSuite:
     assert(mul.kind == "spike.infix" && opOf(mul) == "*")
     val paren = childWithRole(mul, "bin.left").get.asInstanceOf[UniNode.Branch]
     assert(paren.kind == "spike.paren")
-    assert(kindOf(childWithRole(paren, "paren.inner").get) == "spike.infix")
+    assert(kindOf(childWithRole(paren, "group.elem").get) == "spike.infix")
   }
 
   test("source order of significant tokens is preserved (lossless up to trivia)") {
@@ -179,6 +179,21 @@ final class ScalaSpikeSpec extends AnyFunSuite:
     assert(childWithRole(a0, "case.guard").isDefined)
   }
 
+  test("ctor pattern: Some(x) / None parse to spike.cpat with the ctor name") {
+    val m = defBody(parse("def main(): Int = Some(5) match\n  case Some(x) => x\n  case None => 0")).asInstanceOf[UniNode.Branch]
+    val p0 = childWithRole(arms(m)(0), "case.pat").get.asInstanceOf[UniNode.Branch]
+    assert(p0.kind == "spike.cpat")
+    assert(childWithRole(p0, "cpat.name").exists { case UniNode.Token(t) => t.lexeme == "Some"; case _ => false })
+    assert(childWithRole(arms(m)(1), "case.pat").get.asInstanceOf[UniNode.Branch].kind == "spike.cpat") // None nullary
+  }
+
+  test("tuple pattern parses to spike.tuppat; uid application projects to mkUVar/mkApp") {
+    val m = defBody(parse("def main(): Int = Pair(1, 2) match\n  case (a, b) => a\n  case _ => 0")).asInstanceOf[UniNode.Branch]
+    assert(childWithRole(arms(m).head, "case.pat").get.asInstanceOf[UniNode.Branch].kind == "spike.tuppat")
+    val proj = SpikeProject.program(parse("def main(): Int = Some(5)").roots.head)
+    assert(proj.contains("""mkApp(mkUVar("Some")"""), proj)
+  }
+
   // ══ P6.1 — total, error-resilient pipeline ════════════════════════════════════
 
   test("parser + projection are TOTAL — never throw on garbage") {
@@ -255,7 +270,12 @@ final class ScalaSpikeSpec extends AnyFunSuite:
       "match-lit"    -> "def main(): Int = 5 match\n  case 5 => 42\n  case _ => 0",
       "match-var"    -> "def main(): Int = 7 match\n  case 0 => 1\n  case n => n + 100",
       "match-guard"  -> "def main(): Int = 8 match\n  case n if n > 5 => n * 2\n  case _ => 0",
-      "match-braced" -> "def main(): Int = 3 match { case 3 => 30 case _ => 0 }"
+      "match-braced" -> "def main(): Int = 3 match { case 3 => 30 case _ => 0 }",
+      // P6.2c part 2 — constructor / tuple patterns + uid (uppercase) ctor apps
+      "ctor-some" -> "def main(): Int = Some(5) match\n  case Some(x) => x\n  case None => 0",
+      "ctor-none" -> "def main(): Int = None match\n  case Some(x) => x\n  case None => 42",
+      "ctor-cons" -> "def main(): Int = Cons(3, Nil) match\n  case Cons(h, t) => h\n  case Nil => 0",
+      "tuple-pat" -> "def main(): Int = (4, 5) match\n  case (a, b) => a + b\n  case _ => 0"
     )
     // broken — no oracle; the harness proves containment (`main` still runs).
     val broken = Seq(
