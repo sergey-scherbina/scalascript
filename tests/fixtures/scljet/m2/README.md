@@ -9,7 +9,7 @@ localized SclJet results.
 The valid corpus is generated and checked with official SQLite 3.53.3 source
 id `2026-06-26 20:14:12
 d4c0e51e4aeb96955b99185ab9cde75c339e2c29c3f3f12428d364a10d782c62`.
-The current slice has 23 valid databases, 25 named corruptions, 619 exact
+The current slice has 24 valid databases, 25 named corruptions, 629 exact
 dump lines, and 32 deterministic bounded mutations. It covers every legal
 page size, UTF-8/UTF-16LE/UTF-16BE and empty encoding 0, rowid and WITHOUT
 ROWID trees, explicit/automatic indexes, multi-level B-trees, overflow,
@@ -19,6 +19,14 @@ serial/rowid edges, application/user versions, and reserved-byte counts 0, 1,
 covers every schema format 0 through 4: format 0 is the empty database,
 formats 1/2/3 come from canonical SQLite 3.2.0, and format 4 comes from the
 current oracle.
+
+`overflow-thresholds.db` pins table-leaf cells straddling SQLite's exact
+overflow boundary on a 512-byte page (usable `u = 512`, so `X = u - 35 = 477`
+and `m = 39`): total payloads `p = 476/477` stay fully local, `p = 478` is the
+sharp one-byte overflow that falls back to the `m`-byte residue because
+`K = m + ((p - m) % (u - 4)) > X`, `p = 900` exercises the `K <= X` branch that
+keeps `K` bytes local, and `p = 1100` spans a multi-page overflow chain. The
+reader reproduces every row byte-for-value across all interpreter tiers.
 
 `generate.py` requires a Python `sqlite3` module built from that exact source.
 Reserved bytes cannot be selected through SQL, so `generate-reserved.c` is
@@ -70,8 +78,9 @@ length, page size/read-write versions/reservation/payload fractions, schema
 format/encoding/reserved header region, incremental-vacuum and freelist header
 relations, trusted page count, B-tree kind/fragments/content offset/pointer
 array/cell pointer, pointer-map kind/ownership, and freelist range/cycle/count/
-duplicate invariants. Deep record/overflow/freeblock/schema mutations and the
-remaining exact payload-threshold vectors remain explicit M2d work.
+duplicate invariants. Exact table-leaf payload thresholds are now pinned by
+`overflow-thresholds.db`. Deep record/overflow/freeblock/schema mutations and
+index-btree payload-threshold vectors remain explicit M2d work.
 
 ## Original pure codec vector
 
