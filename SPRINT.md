@@ -7500,6 +7500,13 @@ JS `1410065408` = mod 2^32; JVM emits Scala's 32-bit `Int`). Huge blast radius
           passes Ops to functions legitimately (resume/handle), so blanket arg-lifting forwards Ops past
           their handlers. Needs SELECTIVE arg-lifting (only unresolved-perform args to non-handler
           consumers) = effect analysis. Reverted.
+    - [x] **fenceless bare .ssc on the native checker** `29a96effc` — a heading-less .ssc with no
+          ```scalascript fences is code in full ("код целиком"). The RUNNER (ssc1-run sscProgramSource)
+          already handled it, but the CHECKER (ssc1-check-run) extracted only fenced blocks → "no
+          scalascript blocks" → rejected before the runner ran. Fix: mira-md.bareCodeFallback (whole body
+          past shebang+front-matter when heading-less; doc-only when headings present). → fenceless-bare-
+          code, parenless-def-value, user-request-shadow, predef-notimplemented (last needed a sibling's
+          `notImplemented` fix `b77862d7f` too). v2 bytecode sweep 119 → 122, 0 regr.
           - `tagless-program` → `TYPEERR: cannot unify Tuple with non-Tuple` (typer/tuple, distinct).
 
 ### ▶ ssc-toolkit-v2 (2026-07-07, owner-directed via busi: the busi SPA must move React→ScalaScript)
