@@ -2,7 +2,7 @@
 ---
 name: scljet-readonly-pager-btree
 description: SclJet M2 immutable pager, B-tree cursor, schema, freelist, and pointer-map goldens
-backends: [int]
+backends: [int, js]
 ---
 
 # SclJet M2 read-only pager and B-tree
