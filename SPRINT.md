@@ -348,6 +348,53 @@ with extensions isolated behind an explicit non-default profile.
       now 30 files, all failing safely and identically on VM/ASM/tree-walk tiers.
       Only remaining item: user-table overflow-chain traversal corruption (needs a
       traversal-based negative check beyond open-time validation) — kept in BACKLOG.
+
+### SclJet M3 — writes and rollback journal (queued 2026-07-13)
+
+Large milestone; the design already exists in `specs/scljet.md` (M0 transaction
+protocols §"Engine/connection", pager transaction state §"M2 immutable read
+pager" → mutable extension, `journal.ssc` planned in the module layout). Build
+the write path from the bottom up; every slice keeps the read path green and
+produces files that reference SQLite `PRAGMA integrity_check` accepts. Verify
+each with the byte-exact SQLite 3.53.3 already on this machine (diff our output
+against reference-produced files) and by reopening with the SclJet reader.
+
+- [ ] **scljet-m3a-write-spec** — write the M3 implementation spec section
+      (`specs/scljet.md`): the mutable pager (dirty page set, page allocation from
+      freelist/EOF, truncate), the write API surface actually built in M3
+      (a minimal `WriteHandle` or `writeEmpty`/`insertRow` entry, NOT the full
+      SqlConnection — that is M4), the rollback-journal format (header, page
+      records, checksums, hot-journal recovery), and the exact slice ordering
+      below with done-when gates. Commit `spec:` before code.
+- [ ] **scljet-m3b-empty-db-writer** — a pure `.ssc` serializer that emits the
+      bytes of a freshly-created empty database (100-byte header + empty page-1
+      table-leaf b-tree header) for a given page size, byte-identical to reference
+      SQLite's empty DB (the inverse of the M1 `header.ssc` parser). Done-when it
+      reproduces the committed `empty-encoding-zero.db` bytes exactly, reference
+      `integrity_check = ok`, and the SclJet reader reopens it with an empty schema,
+      on VM/ASM/fallback. Add an `examples/scljet-write-empty.ssc` + conformance case.
+- [ ] **scljet-m3c-single-row-insert** — insert one row into a single-table
+      database with no page split (record encoder = inverse of `record.ssc`; append
+      a cell to page 2's cell array + content area; update header change counter and
+      page count). Done-when the file passes reference `integrity_check` and the row
+      round-trips through the SclJet reader on all tiers, differentially vs a
+      reference INSERT of the same values.
+- [ ] **scljet-m3d-btree-insert-balance** — general cell insertion with B-tree
+      balancing (page split, interior-cell promotion, rebalance siblings) and
+      overflow-page allocation for large payloads. Done-when a scripted sequence of
+      inserts across page boundaries yields a file byte-comparable in structure and
+      `integrity_check = ok`, differentially vs reference.
+- [ ] **scljet-m3e-rollback-journal** — the DELETE/PERSIST/TRUNCATE rollback
+      journal: write page pre-images before mutation, commit/rollback, and
+      hot-journal recovery on open. Done-when fault-injected aborts (via the memory
+      VFS fault rules) leave the main file either fully committed or fully rolled
+      back, each state `integrity_check = ok`.
+- [ ] **scljet-m3f-delete-update** — DELETE and UPDATE (cell removal + freeblock
+      management, cell resize/overflow transitions), completing the M3 mutation set.
+      Done-when insert/update/delete sequences match reference file state and the
+      two M3 write/rollback behavior gates in `specs/scljet.md` can be marked `[x]`.
+      (Cross-process lock interop with reference SQLite — the third M3 gate — depends
+      on `scljet-same-jvm-reference-lock-bridge` in BACKLOG and is tracked there.)
 ## v2-swift-nativeui-i18n-json — standard `lower/serve`, locale and JSON parity (2026-07-12)
 
 Claim: `.work/active/v2-swift-nativeui-i18n-json.claim`. Spec:
