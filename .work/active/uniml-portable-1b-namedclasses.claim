@@ -1,5 +1,0 @@
-feature/uniml-portable-1b 2026-07-13T14:23:26Z
-agent: opus-continue
-heartbeat: 2026-07-13T14:23:26Z
-status: in-progress
-next: replace the 2 anonymous new Processor[..]: instances in Processor.scala (andThen, stateless) with named private classes; keep scalac + all uniml tests green. Also add v2-side sprint item for anonymous-instance support in ScalaScript.
