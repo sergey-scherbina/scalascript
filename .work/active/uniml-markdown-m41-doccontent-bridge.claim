@@ -1,0 +1,6 @@
+feature/uniml-markdown-bridge 2026-07-13T10:27:40Z
+agent: opus-continue
+heartbeat: 2026-07-13T10:27:40Z
+status: in-progress
+done-so-far: nothing yet
+next: new JVM unimlMarkdownBridge module: MarkdownDocument -> DocumentContent with loss diagnostics + differential test vs Parser.parse(...).document
