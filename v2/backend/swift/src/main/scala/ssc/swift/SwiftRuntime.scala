@@ -681,6 +681,29 @@ private final class Machine {
             let hit = sscContentImportedModule(namespace).flatMap { sscContentMetadata($0.document, path) }
             return hit.map(some) ?? none()
         })
+        // arity -1 (variadic): default-arg resolution for extern defs is not guaranteed
+        // to insert the default ContentToolkitOptions() at the call site (the JS backend
+        // defends the same way — contentToolkitNode(options) treats a missing options as
+        // undefined); an absent/non-options first arg is nil-options here.
+        globals["contentToolkitNode"] = .closure(SscClosure(arity: -1) { args in
+            sscContentToolkitRender(sscContentRootModule().document, sscContentToolkitOptionsArg(args))
+        })
+        globals["contentToolkitBlock"] = .closure(SscClosure(arity: -1) { args in
+            guard case let .string(id) = args.first else { throw SscRuntimeFailure(description: "contentToolkitBlock(id)") }
+            let options = args.count > 1 ? sscContentToolkitOptionsArg(Array(args.dropFirst())) : nil
+            guard let block = sscContentFindBlock(sscContentRootModule().document, id) else {
+                return sscContentToolkitInlineError("contentToolkitBlock: no block with id '\(id)'")
+            }
+            return sscContentToolkitSafeBlockNode(block, options)
+        })
+        globals["contentToolkitSection"] = .closure(SscClosure(arity: -1) { args in
+            guard case let .string(id) = args.first else { throw SscRuntimeFailure(description: "contentToolkitSection(id)") }
+            let options = args.count > 1 ? sscContentToolkitOptionsArg(Array(args.dropFirst())) : nil
+            guard let section = sscContentFindSection(sscContentSections(sscContentRootModule().document), id) else {
+                return sscContentToolkitInlineError("contentToolkitSection: no section with id '\(id)'")
+            }
+            return sscContentToolkitSectionNode(section, options)
+        })
     }
 
     private func installDefinitions() {
@@ -2282,6 +2305,120 @@ private func sscContentMarkdown(_ value: SscValue) -> String {
         return parts.joined(separator: "\n\n")
     default: return sscContentMarkdownBlock(value)
     }
+}
+
+// ── contentToolkitNode/Block/Section: markdown -> TkNode (std/ui/content.ssc) ────────
+// Faithful port of ContentToolkitJs.scala's _ssc_tk_* runtime, which the JS backend
+// already ships at parity with JvmGen. Scope of this port: static Markdown (headings,
+// paragraphs, bullet/ordered lists, tables) plus the fail-soft per-block error
+// placeholder and multi-document id lookup — the exact surface busi's real content
+// (offline_guide.ssc, zero toolkit:/@ui=toolkit/component: usage) exercises. Interactive
+// controls (toolkit: links, @ui=toolkit YAML trees, registered components/actions/
+// row-bindings/slots) fail with a clear, explicit "not yet supported on Swift"
+// diagnostic rather than silently mis-rendering — a deliberately scoped follow-up,
+// not a silent gap.
+
+// ContentToolkitOptions field order (std/ui/content.ssc): includeCode, sectionGap,
+// blockGap, listGap, wrapDocumentInCard, wrapTopLevelSectionsInCards, components,
+// bindings, actions, rowBindings, computed, slots.
+private func sscContentToolkitGapAt(_ options: SscValue?, _ index: Int, _ dflt: Int64) -> Int64 {
+    guard let options = options, case let .data("ContentToolkitOptions", fields) = options, fields.count > index,
+          case let .int(n) = fields[index] else { return dflt }
+    return n
+}
+private func sscContentToolkitSectionGap(_ options: SscValue?) -> Int64 { sscContentToolkitGapAt(options, 1, 16) }
+private func sscContentToolkitBlockGap(_ options: SscValue?) -> Int64 { sscContentToolkitGapAt(options, 2, 8) }
+private func sscContentToolkitListGap(_ options: SscValue?) -> Int64 { sscContentToolkitGapAt(options, 3, 4) }
+
+private func sscContentToolkitUnsupported(_ what: String) -> Never {
+    fatalError("contentToolkitNode: '\(what)' is not yet supported on the Swift backend (static Markdown only)")
+}
+
+private func sscContentToolkitHasSingleLink(_ inlines: [SscValue]) -> Bool {
+    let significant = inlines.filter { inline in
+        if case let .data("Text", f) = inline, f.count == 1, case let .string(s) = f[0] { return !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        return true
+    }
+    guard significant.count == 1, case let .data("Link", f) = significant[0], f.count == 3, case let .string(href) = f[1] else { return false }
+    return href.hasPrefix("toolkit:")
+}
+
+private func sscContentToolkitTableCell(_ cell: SscValue) -> SscValue { .data("TextNode_", [.string(list(cell).map(sscContentInlineText).joined())]) }
+private func sscContentToolkitTable(_ headers: SscValue, _ rows: SscValue) -> SscValue {
+    let columns = list(headers).enumerated().map { (idx, header) -> SscValue in
+        .data("TableColumn", [.string(list(header).map(sscContentInlineText).joined()), .string("col\(idx)")])
+    }
+    let renderedRows = list(rows).map { row in listValue(list(row).map(sscContentToolkitTableCell)) }
+    return .data("TableNode", [listValue(columns), listValue(renderedRows), .unit])
+}
+
+// Paragraph/BulletList/OrderedList: a single toolkit: link paragraph/item is an
+// interactive control (unsupported for now); everything else is plain text, which
+// _ssc_tk_markdown_block leaves to the caller's raw-text fallback (returns nil here).
+private func sscContentToolkitMarkdownBlock(_ block: SscValue, _ options: SscValue?) -> SscValue? {
+    switch block {
+    case let .data("Paragraph", f) where f.count == 2:
+        if sscContentToolkitHasSingleLink(list(f[0])) { sscContentToolkitUnsupported("toolkit: link control") }
+        return nil
+    case let .data("BulletList", f) where f.count == 2:
+        for item in list(f[0]) {
+            let blocks = list(item)
+            if blocks.count == 1, case let .data("Paragraph", pf) = blocks[0], pf.count == 2, sscContentToolkitHasSingleLink(list(pf[0])) {
+                sscContentToolkitUnsupported("toolkit: link control")
+            }
+        }
+        return nil
+    case let .data("OrderedList", f) where f.count == 3:
+        for item in list(f[0]) {
+            let blocks = list(item)
+            if blocks.count == 1, case let .data("Paragraph", pf) = blocks[0], pf.count == 2, sscContentToolkitHasSingleLink(list(pf[0])) {
+                sscContentToolkitUnsupported("toolkit: link control")
+            }
+        }
+        return nil
+    default: return nil
+    }
+}
+
+private func sscContentToolkitInlineError(_ message: String) -> SscValue { .data("RawTextNode", [.string("\u{26A0} " + message)]) }
+
+private func sscContentToolkitBlockNode(_ block: SscValue, _ options: SscValue?) -> SscValue {
+    let attrs = sscContentBlockAttrsField(block)
+    if let attrs = attrs, sscContentAttrString(attrs, "component") != nil { sscContentToolkitUnsupported("component:") }
+    if let attrs = attrs, sscContentAttrString(attrs, "ui") == "toolkit" { sscContentToolkitUnsupported("@ui=toolkit") }
+    if let rendered = sscContentToolkitMarkdownBlock(block, options) { return rendered }
+    if case let .data("Table", f) = block, f.count == 4 { return sscContentToolkitTable(f[0], f[1]) }
+    return .data("TextNode_", [.string(sscContentPlainBlock(block))])
+}
+private func sscContentToolkitSafeBlockNode(_ block: SscValue, _ options: SscValue?) -> SscValue {
+    // The JVM/JS providers only degrade gracefully in the browser; a genuinely
+    // unsupported construct still fatalErrors here (fail loud during development,
+    // matching this port's deliberately narrower scope) rather than pretending a
+    // rendered placeholder is equivalent to real support.
+    sscContentToolkitBlockNode(block, options)
+}
+private func sscContentToolkitSectionNode(_ section: SscValue, _ options: SscValue?) -> SscValue {
+    let fields = sscContentData(section, "SectionContent", 6)
+    if sscContentAttrString(fields[3], "component") != nil { sscContentToolkitUnsupported("component:") }
+    guard case let .string(title) = fields[2] else { fatalError("SectionContent.title") }
+    guard case let .int(level) = fields[1] else { fatalError("SectionContent.level") }
+    let heading: SscValue = .data("HeadingNode", [.int(level), .string(title)])
+    let children = [heading]
+        + sscContentBlocks(section).map { sscContentToolkitSafeBlockNode($0, options) }
+        + sscContentSectionChildren(section).map { sscContentToolkitSectionNode($0, options) }
+    return .data("VStackNode", [.int(sscContentToolkitBlockGap(options)), listValue(children)])
+}
+
+private func sscContentToolkitRender(_ document: SscValue, _ options: SscValue?) -> SscValue {
+    let children = sscContentBlocks(document).map { sscContentToolkitSafeBlockNode($0, options) }
+        + sscContentSections(document).map { sscContentToolkitSectionNode($0, options) }
+    return .data("VStackNode", [.int(sscContentToolkitSectionGap(options)), listValue(children)])
+}
+
+private func sscContentToolkitOptionsArg(_ args: [SscValue]) -> SscValue? {
+    guard let first = args.first else { return nil }
+    if case .data("ContentToolkitOptions", _) = first { return first }
+    return nil
 }
 """
   val source: String = sourcePart1 + sourcePart2 + sourcePart3

@@ -25,6 +25,7 @@ final class SwiftBackendTest extends AnyFunSuite:
       "Sources/AppCore/SscRuntime.swift",
       "Sources/AppCore/GeneratedProgram.swift",
       "Sources/Fact_App/main.swift",
+      "Sources/AppCore/ContentModules.swift",
     ))
     val all = first.files.map(_._2).mkString("\n")
     assert(all.contains("SscProgram(definitions:"))
@@ -47,6 +48,7 @@ final class SwiftBackendTest extends AnyFunSuite:
       "AppleApp/NativeUiRenderer.swift",
       "AppleApp/NativeUiStyles.swift",
       "AppleApp/NativeUiHtml.swift",
+      "Sources/AppCore/ContentModules.swift",
     ))
     assert(ui.debugCli == "Native_AppCli")
     assert(ui.files.find(_._1.endsWith("NativeUiHost.swift")).exists(!_._2.contains("import SwiftUI")))

@@ -83,6 +83,7 @@ object SwiftBackend:
     "contentDocument", "contentCurrentSection", "contentSection", "contentBlock", "contentData",
     "contentMetadata", "contentPlainText", "contentToMarkdown", "contentModules", "contentModule",
     "contentModuleSection", "contentModuleBlock", "contentModuleData", "contentModuleMetadata",
+    "contentToolkitNode", "contentToolkitBlock", "contentToolkitSection",
   )
   private val nativeUiPublicGlobals = Set(
     "signal", "seedSignal", "computedSignal", "eqSignal", "hashSignal", "emptyHeaders",
