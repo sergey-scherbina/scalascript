@@ -84,6 +84,20 @@ lazy val unimlMarkdownCross =
     .jsConfigure(_.withId("unimlMarkdownJs"))
     .jsSettings(Test / fork := false)
 
+// P6.3 — "unify the hybrid": composes the Markdown + YAML dialects with the ScalaScript
+// spike dialect (core test scope) so a whole .ssc parses as ONE lossless UniML tree.
+// JVM-only: the composition spec is a differential harness that writes files (java.nio),
+// exactly like the core-test spike. `test->test` on core exposes SpikeDialect/SpikeProject.
+lazy val unimlScala = project
+  .in(file("scala"))
+  .dependsOn(unimlCross.jvm % "compile->compile;test->test", unimlMarkdownCross.jvm, unimlYamlCross.jvm)
+  .settings(
+    name := "scalascript-uniml-scala",
+    libraryDependencies ++= Seq("org.scalatest" %% "scalatest" % scalatestV % Test),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -91,6 +105,7 @@ lazy val root = project
     unimlJsonCross.jvm, unimlJsonCross.js,
     unimlYamlCross.jvm, unimlYamlCross.js,
     unimlMarkdownCross.jvm, unimlMarkdownCross.js,
+    unimlScala,
   )
   .settings(
     name := "uniml",
