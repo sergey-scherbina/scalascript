@@ -5,6 +5,32 @@ scalac **and** with the self-hosted ScalaScript v2 compiler. This document is th
 what v2's Scala-flavored `.ssc` frontend accepts today, and the concrete gaps that must close for it
 to compile UniML. It is the TODO for the v2-side track (`uniml-portable-3-v2compile`).
 
+## UPDATE 2026-07-13 (after the immutable rewrite, Phase 1 + 1d): the wall moved
+
+The Phase-0.5 "wall" below (mutable object fields → needs mutable-`Array`/anon-trait/plain-class v2
+support) is **obsolete for UniML**: Phase 1 + 1d rewrote all of UniML to be immutable, so the
+standalone lib (`uniml/core` + json/yaml/markdown) now uses **no** `new Array`, **no** anonymous
+`new Trait:`, and **no** mutable object fields. Re-probing the *immutable* core against v2 found:
+
+- **`uniml/core` is otherwise v2-ready.** v2 already accepts everything the immutable core uses:
+  generic `case class`es, a generic **3-param** `trait Proc[S,I,O]` + `object` impl + dispatch,
+  `enum` with payloads + nested `match`, case-class `.copy` (named arg), `Option.forall`,
+  `var`/`while`, and `Vector` literals + `:+` / `.last` / `.length` / `.size` / `.isEmpty` /
+  `.nonEmpty` / `.updated`. (Probes: `probe-core.ssc` and friends.)
+- **The one real blocker was `Vector`/`List` `.dropRight` (and `.takeRight`) — not implemented in v2**
+  (`no dispatch for .dropRight on <foreign>`). This matters because the immutable rewrite uses
+  `xs.dropRight(1)` as the **stack-pop idiom** everywhere (`TreeVm` frame stack, `XmlScanner` element
+  stack, `MarkdownBlocks` container stack). `.drop`/`.take`/`.init`/`.last` were already supported.
+- **Fixed v2-side (this commit):** added `dropRight`/`takeRight` to the `isList` method block in
+  `v2/src/Runtime.scala` (2 additive cases mirroring `drop`/`take`). The full core probe now runs
+  end-to-end on v2 (`run=a:2`, `merged=1,2,2`).
+
+**Remaining UniML-side for full dual-compilation** (the DIALECTS, not the core): plain `class`es in
+`YamlSemanticParser`/`YamlStructure` (v2 gap: plain class), regex `.matches` (YAML scalar typing),
+`java.lang.Character.getType`/`isSpaceChar` (CommonMark flanking) + `Character.digit`, and local
+`scala.collection.mutable` collections in the projection/structure/semantic layers. These are the
+`uniml-portable-1c-compat` scope; the core does **not** need them.
+
 ## Method
 
 Probes are small bare `.ssc` programs (`def main(): Unit = …`) exercising one or a few UniML-shape

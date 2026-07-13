@@ -105,13 +105,19 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
 - [ ] **uniml-portable-2-subset** — constrain UniML to the Scala3∩v2 subset per the gap map; add a
       lint that fails on out-of-subset constructs. Set up mechanism (b): canonical `.scala` + `.ssc`
       mirror (symlink or generation) so both compilers see identical content.
-- [ ] **uniml-portable-3-v2compile** — [v2-side, coordinate with v2 agents] drive v2 to compile
-      UniML, module by module (core→json→yaml→markdown); each gap = a v2 feature slice with UniML as
-      the test; `uniml/v2-smoke/run.sh` red→green. Concrete asks from the gapmap, by priority:
-      (1) **fix `new Array[T](n)` + indexed `apply`/`update`** (the floor everything builds on);
-      (2) **multi-file `package`/`import`** so UniML's modules compile together; (3) [optional]
-      anonymous class instances; (4) [optional] covariance annotations. See
-      `specs/uniml-portable-gapmap.md`.
+- [~] **uniml-portable-3-v2compile** — [v2-side] drive v2 to compile UniML, module by module. Re-probed
+      the *immutable* core (Phase 1/1d) against v2 2026-07-13 — the Phase-0.5 asks are now MOOT for
+      UniML (no `new Array`, no anon-trait, no mutable fields after the rewrite). Findings + status:
+      - [x] **`Vector`/`List` `.dropRight`/`.takeRight`** — was the ONE real core blocker (the immutable
+            stack-pop idiom `xs.dropRight(1)` used in TreeVm/XmlScanner/MarkdownBlocks). v2 crashed
+            `no dispatch for .dropRight on <foreign>`. FIXED v2-side: 2 additive cases in the `isList`
+            block of `v2/src/Runtime.scala` (mirror `drop`/`take`). Full core probe now runs on v2
+            (`uniml/v2-smoke/core-blocks.ssc` PASS). v2 already supports the rest of the core's surface
+            (generic 3-param trait, enum+match, `.copy`, `Option.forall`, Vector `:+`/`.last`/`.length`).
+      - [ ] **DIALECTS** (not core): plain `class` (Yaml Parser/FlowParser/BlockFrame), regex `.matches`
+            (YAML scalar typing), `java.lang.Character.getType`/`isSpaceChar`/`digit` (Markdown flanking)
+            → these are the `uniml-portable-1c-compat` scope. Multi-file `package`/`import` still to
+            probe (UniML is multi-file). See the gapmap's 2026-07-13 UPDATE.
 - [ ] **uniml-portable-4-parity** — a small set of **dual-compilable behavioral tests** (in the
       subset) run under both scalac and v2, proving v2-compiled UniML behaves identically
       (lossless/chunk-invariance agree on a handful of cases).

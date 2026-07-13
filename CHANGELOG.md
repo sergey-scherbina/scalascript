@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-13 — v2: Vector/List `.dropRight`/`.takeRight`; UniML core runs on v2 (uniml-portable Phase 3)
+
+Probed the now-immutable UniML core against the self-hosted v2 `.ssc` compiler and found the
+Phase-0.5 "wall" (mutable object fields → needs Array/anon-trait/plain-class support) is obsolete:
+after the Phase 1/1d immutable rewrite the standalone lib uses none of those. The one real blocker
+was `Vector`/`List` `.dropRight` (and `.takeRight`) — unimplemented in v2 (`no dispatch for
+.dropRight on <foreign>`) — which is exactly the immutable stack-pop idiom (`xs.dropRight(1)`) the
+rewrite uses in `TreeVm`/`XmlScanner`/`MarkdownBlocks`. Fixed v2-side with two additive cases in the
+`isList` method block of `v2/src/Runtime.scala` (mirroring the existing `drop`/`take`); no existing
+behavior changes (those calls previously crashed). The full immutable-core building-block probe now
+runs end-to-end on v2 — added as `uniml/v2-smoke/core-blocks.ssc` (PASS). Remaining dual-compilation
+work is in the dialects only (plain classes, regex, `java.lang.Character`) — the 1c-compat scope. See
+`specs/uniml-portable-gapmap.md` (2026-07-13 UPDATE).
+
 ## 2026-07-13 — UniML immutable Markdown engine (uniml-portable Phase 1d, complete)
 
 Finished the immutable rewrite of UniML's internal lexers by taking on the delicate Markdown engine

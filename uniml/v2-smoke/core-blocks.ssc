@@ -1,0 +1,69 @@
+// uniml-portable: immutable-core building blocks on v2 (Phase 1d follow-up).
+// PASSES since v2 gained Vector/List .dropRight/.takeRight (the immutable stack-pop idiom).
+// Exercises: generic case classes, generic 3-param trait + dispatch, enum+match, .copy,
+// Vector :+/.last/.dropRight/.length, Option.forall, var/while.
+
+// Probe: do v2's .ssc compiler + VM support the immutable-core building blocks?
+// Mirrors UniML core: generic case classes, a generic 3-param Processor trait,
+// enum-with-payload + match, case-class .copy, Vector ops, Option.forall, var/while.
+
+case class Diag(code: String, sev: Int)
+
+case class Batch[O](values: Vector[O], diags: Vector[Diag]):
+  def concat(other: Batch[O]): Batch[O] = Batch(values ++ other.values, diags ++ other.diags)
+
+case class Stepped[S, O](state: S, batch: Batch[O])
+
+trait Proc[S, I, O]:
+  def start: S
+  def step(state: S, input: I): Stepped[S, O]
+  def stop(state: S): Batch[O]
+
+enum Instr:
+  case Open(kind: String)
+  case Close(kind: String)
+  case Emit
+
+case class Frame(kind: String, edges: Vector[String])
+
+// a generic 3-param Processor implementation (dispatch test)
+object CountProc extends Proc[Int, String, Int]:
+  def start: Int = 0
+  def step(state: Int, input: String): Stepped[Int, Int] =
+    Stepped(state + 1, Batch(Vector(state + 1), Vector.empty))
+  def stop(state: Int): Batch[Int] = Batch(Vector(state), Vector.empty)
+
+// exercise .copy, Vector :+ / .dropRight / .last / .nonEmpty / .length, enum match
+def run(): String =
+  var stack: Vector[Frame] = Vector.empty
+  var out: Vector[String] = Vector.empty
+  val instrs = Vector(Instr.Open("a"), Instr.Emit, Instr.Emit, Instr.Close("a"))
+  var i = 0
+  while i < instrs.length do
+    instrs(i) match
+      case Instr.Open(k) => stack = stack :+ Frame(k, Vector.empty)
+      case Instr.Emit =>
+        if stack.nonEmpty then
+          val top = stack.last
+          stack = stack.dropRight(1) :+ top.copy(edges = top.edges :+ "x")
+      case Instr.Close(k) =>
+        if stack.nonEmpty then
+          val top = stack.last
+          stack = stack.dropRight(1)
+          out = out :+ (top.kind + ":" + top.edges.length.toString)
+    i = i + 1
+  out.mkString(",")
+
+def optForall(o: Option[String]): Boolean = o.forall(s => s == "a")
+
+def main(): Unit =
+  val r = run()
+  println("run=" + r)                            // expect a:2
+  println("forallNone=" + optForall(None))       // expect true
+  println("forallSome=" + optForall(Some("b")))  // expect false
+  // generic 3-param trait dispatch + .concat
+  val s1 = CountProc.step(CountProc.start, "x")
+  val s2 = CountProc.step(s1.state, "y")
+  val fin = CountProc.stop(s2.state)
+  val merged = s1.batch.concat(s2.batch).concat(fin)
+  println("merged=" + merged.values.mkString(","))  // expect 1,2,2
