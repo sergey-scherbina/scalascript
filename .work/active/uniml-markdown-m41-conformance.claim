@@ -1,0 +1,5 @@
+feature/uniml-markdown-conformance 2026-07-13T11:37:39Z
+agent: opus-continue
+heartbeat: 2026-07-13T11:37:39Z
+status: in-progress
+next: behavioral CommonMark edge cases in the leaf, each gated behind tests, keep 27/27 green: (1) tight/loose list classification, (2) lazy paragraph continuation, (3) full HTML-block type table
