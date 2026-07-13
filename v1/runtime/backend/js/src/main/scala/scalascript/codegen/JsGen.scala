@@ -478,6 +478,15 @@ class JsGen(
   private val emptyParamFns = scala.collection.mutable.Set.empty[String]
   // User-defined functions with :Int or :Long return type — their call sites can use isIntExpr.
   private val intFunctions = scala.collection.mutable.Set.empty[String]
+  // v1-js-long-precision-and-bitops: names/functions statically known to hold a
+  // `Long`. Longs are JS BigInt, Ints are JS Number, and mixing the two in a
+  // native JS operator throws — so any arithmetic/comparison touching a Long
+  // operand is routed through the BigInt-aware `_arith` (which coerces the Int
+  // side). Longs stay in `intVars` too (isIntExpr = true), so integer-division
+  // detection and `.toInt` handling keep working; `longVars`/isLongExpr only
+  // OVERRIDE the native-operator emission.
+  private val longVars = scala.collection.mutable.Set[String]()
+  private val longFunctions = scala.collection.mutable.Set.empty[String]
   // User-defined functions with :Double or :Float return type — their call sites can use isNumericExpr.
   private val numericFunctions = scala.collection.mutable.Set.empty[String]
   // v1.27 Phase 3 — sql block emission state.  Mirrors JvmGen's
@@ -754,7 +763,10 @@ class JsGen(
       case Some(Type.Name("Int" | "Long"))     => intFunctions     += d.name.value
       case Some(Type.Name("Double" | "Float")) => numericFunctions += d.name.value
       case _ => ()
+    // v1-js-long-precision-and-bitops: a Long-returning function's call sites are Long.
+    if d.decltpe.contains(Type.Name("Long")) then longFunctions += d.name.value
     d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).foreach { pv =>
+      if pv.decltpe.contains(Type.Name("Long")) then longVars += pv.name.value
       pv.decltpe match
         case Some(Type.Name("Int" | "Long"))         => intVars += pv.name.value
         case Some(Type.Name("Double" | "Float"))     => numericVars += pv.name.value
@@ -2466,8 +2478,11 @@ class JsGen(
    *  Int param `c` from a sibling function, so `c == 34` wrongly takes the numeric
    *  fast path `c === 34` — which is always false on a boxed `_char` (=== does not
    *  call valueOf). Returns true if the RHS was int/numeric (so callers can still
-   *  chain a tuple check). */
-  private def rebindNumericEvidence(name: String, rhs: Term): Boolean =
+   *  chain a tuple check). Also (authoritatively) tracks `longVars` — a Long-typed
+   *  binding is a JS BigInt (v1-js-long-precision-and-bitops) — with the same
+   *  name-shadowing so a leaked Long param can't misclassify a non-Long local. */
+  private def rebindNumericEvidence(name: String, rhs: Term, declT: Option[Type] = None): Boolean =
+    if isLongExpr(rhs) || declT.contains(Type.Name("Long")) then longVars += name else longVars -= name
     if isIntExpr(rhs) then { intVars += name; numericVars -= name; true }
     else if isNumericExpr(rhs) then { numericVars += name; intVars -= name; true }
     else { intVars -= name; numericVars -= name; false }
@@ -2476,7 +2491,7 @@ class JsGen(
     case Defn.Val(_, pats, declT, rhs) =>
       pats match
         case List(Pat.Var(n)) =>
-          if !rebindNumericEvidence(n.value, rhs) && isTupleExpr(rhs) then tupleVars += n.value
+          if !rebindNumericEvidence(n.value, rhs, declT) && isTupleExpr(rhs) then tupleVars += n.value
           declT.flatMap(numericListElem).orElse(numericSeqCtorElem(rhs))
             .foreach(e => listElemType(n.value) = e)
           line(s"const ${emittedName(n.value)} = ${genExpr(rhs)};")
@@ -2488,7 +2503,7 @@ class JsGen(
           line(s"/* multi-pat val */")
 
     case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), declT, rhs) =>
-      rebindNumericEvidence(n.value, rhs)
+      rebindNumericEvidence(n.value, rhs, declT)
       declT.flatMap(numericListElem).orElse(numericSeqCtorElem(rhs))
         .foreach(e => listElemType(n.value) = e)
       line(s"let ${emittedName(n.value)} = ${genExpr(rhs)};")
@@ -3864,7 +3879,11 @@ class JsGen(
 
     // Literals
     case Lit.Int(v)     => v.toString
-    case Lit.Long(v)    => v.toString
+    // v1-js-long-precision-and-bitops: a `Long` literal is emitted as a JS BigInt
+    // (`123n`) so 64-bit values above 2^53 keep full precision (a plain JS number
+    // rounds them at parse time) and Long arithmetic/bit-ops route through the
+    // runtime's exact BigInt paths. Int stays a JS number.
+    case Lit.Long(v)    => s"${v}n"
     case Lit.Double(v)  => v.toString
     case Lit.Float(v)   => v.toString
     case Lit.String(v)  =>
@@ -4102,7 +4121,12 @@ class JsGen(
         // Scala wraps), AND forces a V8 int32 so an array indexed/filled by it stays SMI-packed
         // instead of falling to the slow double-elements path (~2.4× on array-update). A Double
         // receiver keeps `Math.trunc` (truncate toward zero).
-        case "toInt" if isIntExpr(qual)                => s"($qualJs | 0)"
+        // v1-js-long-precision-and-bitops: the receiver may be a BigInt (a Long
+        // value — and not every Long is statically provable, e.g. a case-class
+        // field bound by a pattern), and `bigint | 0` throws in JS. `_toI32` does
+        // the 32-bit Int wrap for both a plain number (`x | 0`) and a BigInt, so
+        // it is used unconditionally for an integer receiver.
+        case "toInt" if isIntExpr(qual)                => s"_toI32($qualJs)"
         case "toInt" if isNumericExpr(qual)            => s"Math.trunc($qualJs)"
         // `.toLong` on an integer receiver is identity (already integral, no 32-bit wrap — Long is
         // 64-bit); a Double truncates toward zero.
@@ -4712,6 +4736,13 @@ class JsGen(
           case "!" => s"Actor.send($lhsJs, $rhsJs)"
           case "->" =>
             s"Object.assign([$lhsJs, $rhsJs], {_isTuple: true})"
+          // v1-js-long-precision-and-bitops: any arithmetic/comparison touching a
+          // Long operand (a JS BigInt) must go through the BigInt-aware `_arith`,
+          // which coerces an Int/Number operand — a native JS operator would mix
+          // BigInt with Number and throw. Placed before the Int/Double fast paths.
+          case "+" | "-" | "*" | "/" | "%" | "<" | ">" | "<=" | ">=" | "==" | "!="
+              if isLongExpr(lhs) || args.headOption.exists(isLongExpr) =>
+            s"_arith('${op.value}', $lhsJs, $rhsJs)"
           case "*" =>
             val rIsNum = args.headOption.exists(isNumericExpr)
             if isIntExpr(lhs) && args.headOption.exists(isIntExpr) then s"($lhsJs * $rhsJs)"
@@ -4745,6 +4776,13 @@ class JsGen(
               if !(isIntExpr(lhs) && args.headOption.exists(isIntExpr)) =>
             if isNumericExpr(lhs) && args.headOption.exists(isNumericExpr) then s"($lhsJs ${op.value} $rhsJs)"
             else s"_arith('${op.value}', $lhsJs, $rhsJs)"
+          // v1-js-long-precision-and-bitops: bitwise/shift operators. Native JS
+          // `& | ^ << >> >>>` are 32-bit (ToInt32/ToUint32, shift count mod 32),
+          // but ssc `Int`/`Long` are 64-bit. Route through the runtime `_bit`
+          // helper which coerces both operands to BigInt, applies the op, and
+          // masks to signed 64 bits — matching the interpreter/JVM exactly.
+          case "&" | "|" | "^" | "<<" | ">>" | ">>>" =>
+            s"_bit('${op.value}', $lhsJs, $rhsJs)"
           case other => s"($lhsJs $other $rhsJs)"
       }
 
@@ -4753,10 +4791,10 @@ class JsGen(
       // Constant folding for literal operands
       (t.op.value, t.arg) match
         case ("-", Lit.Int(n))     => (-n).toString
-        case ("-", Lit.Long(n))    => (-n).toString
+        case ("-", Lit.Long(n))    => s"${-n}n"
         case ("-", Lit.Double(ns)) => (-ns.toDouble).toString
         case ("+", Lit.Int(n))     => n.toString
-        case ("+", Lit.Long(n))    => n.toString
+        case ("+", Lit.Long(n))    => s"${n}n"
         case ("!", Lit.Boolean(b)) => (!b).toString
         case _ =>
           val argJs = genExpr(t.arg)
@@ -5255,6 +5293,27 @@ class JsGen(
       argClause.values.headOption.exists(r => isIntExpr(l) && isIntExpr(r))
     case _ => false
 
+  /** Returns true if the term is provably a `Long` (a JS BigInt at runtime), so
+   *  arithmetic/comparison on it must route through `_arith` rather than a native
+   *  JS operator (which would mix BigInt with Number and throw).
+   *  v1-js-long-precision-and-bitops. */
+  private[codegen] def isLongExpr(t: Term): Boolean = t match
+    case _: Lit.Long                                   => true
+    case Term.Name(n)                                  => longVars.contains(n)
+    case Term.Apply.After_4_6_0(Term.Name(n), _)       => longFunctions.contains(n)
+    // `.toLong` widens to Long; a bit-op result is a 64-bit BigInt (Long).
+    case Term.Select(_, Term.Name("toLong"))                                   => true
+    case Term.Apply.After_4_6_0(Term.Select(_, Term.Name("toLong")), _)        => true
+    // Long-typed case-class field: `v.x` where `case class C(x: Long)`.
+    case Term.Select(Term.Name(v), Term.Name(f)) =>
+      instanceVars.get(v).flatMap(caseClassFieldTypeMap.get).flatMap(_.get(f)).contains("Long")
+    // Arithmetic or bit-op that has a Long operand stays Long.
+    case Term.ApplyInfix.After_4_6_0(l, Term.Name(op), _, argClause)
+        if Set("+", "-", "*", "/", "%", "&", "|", "^", "<<", ">>", ">>>").contains(op) =>
+      isLongExpr(l) || argClause.values.headOption.exists(r => isLongExpr(r.asInstanceOf[Term]))
+    case Term.Ascribe(e, _)                            => isLongExpr(e)
+    case _                                             => false
+
   /** Returns true if the term is provably numeric (Int, Long, Double, or Float — never a String). */
   private[codegen] def isNumericExpr(t: Term): Boolean = isIntExpr(t) || (t match
     case _: Lit.Double | _: Lit.Float => true
@@ -5306,11 +5365,13 @@ class JsGen(
         case "!=" => Some((a != b).toString)
         case _    => None
       case (Lit.Long(a), Lit.Long(b)) => op match
-        case "+"  => Some((a + b).toString)
-        case "-"  => Some((a - b).toString)
-        case "*"  => Some((a * b).toString)
-        case "/"  if b != 0 => Some((a / b).toString)
-        case "%"  if b != 0 => Some((a % b).toString)
+        // Longs are BigInt in JS — fold to a BigInt literal so the result stays
+        // a Long (mixing a folded plain number with a BigInt would throw).
+        case "+"  => Some(s"${a + b}n")
+        case "-"  => Some(s"${a - b}n")
+        case "*"  => Some(s"${a * b}n")
+        case "/"  if b != 0 => Some(s"${a / b}n")
+        case "%"  if b != 0 => Some(s"${a % b}n")
         case "<"  => Some((a < b).toString)
         case ">"  => Some((a > b).toString)
         case "<=" => Some((a <= b).toString)

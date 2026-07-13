@@ -2,7 +2,7 @@
 ---
 name: scljet-page-record-codec
 description: SclJet M2 official SQLite header/cell record, page, overflow, and UTF goldens
-backends: [int]
+backends: [int, js]
 ---
 
 # SclJet M2 page and record codecs

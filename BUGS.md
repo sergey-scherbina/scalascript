@@ -277,7 +277,20 @@ differential after byte updates became portable.
 
 ## v1-js-long-precision-and-bitops — SQLite 64-bit codecs are not exact
 
-**Status:** open — root-caused + scoped (2026-07-12, opus); NOT a small fix.
+**Status:** FIXED (2026-07-13, opus). Approach A (Long-only): represent ssc `Long`
+as a JS **BigInt** (`Lit.Long` → `${v}n`) — the SclJet codecs type every 64-bit value
+`Long`, so Int can stay a JS number (far smaller blast radius than making all Int
+BigInt). Added a `longVars`/`isLongExpr`/`longFunctions` track (Long params/returns,
+Long-typed val/var bindings via `rebindNumericEvidence`, `.toLong`, bit-op/arith
+results, Long case-class fields); a dedicated infix case for `& | ^ << >> >>>` →
+`_bit('op', a, b)` (BigInt with `asIntN(64,…)` masking, `>>>` via `asUintN`); a
+Long-guarded infix case routing any Long-operand arithmetic/compare through `_arith`
+(so an Int operand is coerced, not mixed BigInt+Number); and `.toInt` → `_toI32(x)`
+(BigInt-safe). Verified through the real CLI: `1L<<40`=1099511627776, `255<<24`=
+4278190080, `0x…L & 0xffL`=240 (INT==JS); `scljet-byte-codec` + `scljet-page-record-codec`
+JS lanes exact vs golden (conformance now `[int, js]`). JsGen 248/248 (2 perf-test
+assertions updated to the new emission). Original scoping below is superseded.
+<details><summary>original scoping (superseded)</summary>
 ROOT CAUSE: JsGen emits ssc `Int`/`Long` as JS **`number`**, not BigInt
 (`Lit.Int`/`Lit.Long` → `v.toString`, JsGen.scala:~3800; no `longVars` set, no
 Long→BigInt path). So (a) any 64-bit value above 2^53 loses precision at JS parse
@@ -296,6 +309,7 @@ A bitwise-only patch would NOT close the done-when (SQLite codecs need exact 64-
 *literals + arithmetic*, not just bit ops). Needs a dedicated design decision, not a
 drive-by fix. _Original report:_ found by codex in the SclJet byte-codec Node
 differential.
+</details>
 
 - **Real-harness repro:** `bin/ssc-tools run-js
   tests/conformance/scljet-byte-codec.ssc` now executes all 31 lines, but
