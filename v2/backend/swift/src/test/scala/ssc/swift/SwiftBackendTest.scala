@@ -1717,7 +1717,8 @@ struct DeferredProbe {
         for invalid in [
             "display:banana", "flex-direction:banana", "gap:nope", "flex:2 bananas",
             "flex-grow:many", "text-align:sideways", "text-decoration:blink", "border:banana",
-            "border:1px solid red junk", "border:1px solid banana;border-color:red", "box-shadow:banana"
+            "border:1px solid red junk", "border:1px solid banana;border-color:red", "box-shadow:banana",
+            "box-sizing:banana", "border-collapse:banana", "cursor:banana", "user-select:banana"
         ] {
             let attrs = SscMap()
             attrs.put(.string("style"), .string(invalid))
@@ -1725,6 +1726,21 @@ struct DeferredProbe {
                 attrs: attrs, store: store, siteId: "deferred:action"
             )?.contains("deferred.ssc:20:3 [fetchAction]") == true else {
                 fatalError("recognized invalid CSS was silent: \(invalid)")
+            }
+        }
+        // The cosmetic no-op properties the real std/ui toolkit emits (with these
+        // exact values) must stay accepted — validating their value space must not
+        // regress busi's production buttons/links/tables into Unsupported.
+        for accepted in [
+            "box-sizing:border-box", "border-collapse:collapse",
+            "cursor:pointer", "cursor:not-allowed", "user-select:none"
+        ] {
+            let attrs = SscMap()
+            attrs.put(.string("style"), .string(accepted))
+            guard NativeUiStyles.diagnostic(
+                attrs: attrs, store: store, siteId: "deferred:action"
+            ) == nil else {
+                fatalError("shipped cosmetic no-op CSS became Unsupported: \(accepted)")
             }
         }
         let invalidAria = SscMap()

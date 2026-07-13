@@ -3612,8 +3612,31 @@ enum NativeUiStyles {
         if let value = values["justify-content"] {
             return "native CSS justify-content:" + value + " is not mapped"
         }
+        // Cosmetic no-op properties the real std/ui toolkit emits (box-sizing,
+        // border-collapse, cursor, user-select) have no SwiftUI analog, but —
+        // like overflow:visible — an unrecognized value must still surface as a
+        // sourced Unsupported diagnostic rather than being silently swallowed.
+        for (property, accepted) in cosmeticNoOpValues {
+            if let value = values[property], !accepted.contains(value) {
+                return "unsupported native CSS value " + property + ":" + value
+            }
+        }
         return nil
     }
+
+    private static let cosmeticNoOpValues: [(String, Set<String>)] = [
+        ("box-sizing", ["content-box", "border-box"]),
+        ("border-collapse", ["collapse", "separate"]),
+        ("user-select", ["none", "auto", "text", "all", "contain"]),
+        ("cursor", [
+            "auto", "default", "none", "context-menu", "help", "pointer", "progress",
+            "wait", "cell", "crosshair", "text", "vertical-text", "alias", "copy",
+            "move", "no-drop", "not-allowed", "grab", "grabbing", "e-resize", "n-resize",
+            "ne-resize", "nw-resize", "s-resize", "se-resize", "sw-resize", "w-resize",
+            "ew-resize", "ns-resize", "nesw-resize", "nwse-resize", "col-resize",
+            "row-resize", "all-scroll", "zoom-in", "zoom-out",
+        ]),
+    ]
 
     private static func pixels(_ value: String?) -> CGFloat? {
         guard let value else { return nil }

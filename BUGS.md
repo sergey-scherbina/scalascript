@@ -1941,7 +1941,16 @@ taxonomy. Provider implementation already landed in `608d63425`.
 
 ## v2-swift-xcode-contract-gaps — application metadata and product authority are ambiguous
 
-**Status:** open (2026-07-11); reported by `nativeui-reviewer` in the
+**Status:** CORE FIXED by swift-sibling work since the report; only the signed
+distribution-adapter slice remains (feature-scale). Verified end-to-end (opus, 07-13,
+real Xcode 26.5): `ssc-tools build --v2 --target macos examples/frontend/ios-hello/ios-hello.ssc`
+writes a real Swift package + `ios_hello.xcodeproj` + scheme; `xcodebuild -showBuildSettings`
+shows `PRODUCT_BUNDLE_PACKAGE_TYPE=APPL`, `PRODUCT_BUNDLE_IDENTIFIER=com.example.ios-hello`,
+`FULL_PRODUCT_NAME=ios_hello.app`; `xcodebuild build` → BUILD SUCCEEDED, producing
+`ios_hello.app` with a non-CLI `Contents/MacOS/ios_hello` and `Info.plist`
+`CFBundlePackageType=APPL` / correct id / executable. All three "can't prove it's a real
+.app" claims are satisfied. REMAINING: the named codesign/notarize/TestFlight distribution
+adapter (feature-scale, swift specialists). _Original report:_ reported by `nativeui-reviewer` in the
 `scalascript` Rozum room during the pre-code Xcode-project audit at seq/time
 20:55, after Trusted HTML closure `2c1db9f1d`.
 
@@ -3048,7 +3057,23 @@ rollback probe and announced to `@scalascript` /
 
 ## v2-swiftui-fake-native-fallbacks — deferred semantics render misleading content
 
-**Status:** open (2026-07-11); found by `nativeui-reviewer` during the first
+**Status:** LARGELY FIXED by swift-sibling work since the report; one residual slice
+closed by opus (2026-07-13). Audit (opus, 07-13, real Swift 6.3/Xcode 26.5): the fake
+"Native data table" string is gone; the `render`/`renderElement` dispatch now routes every
+unknown tag / malformed node / malformed list-map / unmapped reactive attr / unsupported
+role / unsupported semantic attribute to a sourced `NativeUiUnsupported` (red Text +
+accessibilityLabel), and `NativeUiStyles` validates unknown CSS keys AND invalid values.
+Residual silent-ignore closed: 4 cosmetic props the std/ui toolkit emits — `box-sizing`,
+`border-collapse`, `cursor`, `user-select` — were in `supportedProperties` but accepted ANY
+value with no diagnostic (`cursor: banana` → silently swallowed). Now value-validated against
+the standard keyword sets (else sourced Unsupported), mirroring the existing `overflow`
+pattern (`SwiftNativeUiApple.scala`). Verified end-to-end: `emit-swift` → the generated
+`NativeUiStyles.swift` carries `cosmeticNoOpValues`; compiled+run under
+`swiftc -swift-version 6 -strict-concurrency=complete -warnings-as-errors` — bogus values now
+diagnose, the 5 real toolkit values stay accepted; `v2SwiftBackend/test` 54/54, 0 regressions.
+REMAINING (feature-scale, swift specialists): real actions/tables/WKWebView semantics + fetch
+async lifecycle (the content-toolkit path deliberately `fatalError`s today — mid-refactor).
+_Original report:_ found by `nativeui-reviewer` during the first
 read-only Apple store/renderer review in Rozum.
 
 - **Real-harness repro:** generate a root containing trusted HTML, a data table,
@@ -3747,7 +3772,16 @@ Rozum room).
 
 ## v2-swift-swiftui-native — v2 has no proven native Swift/SwiftUI path for macOS and iOS
 
-**Status:** open (2026-07-10); reported by Sergiy in the Codex session.
+**Status:** CLI/BUILD LAYER FIXED by swift-sibling work since the report; the SwiftUI
+run/simulator/device/signing half remains (feature-scale). Verified (opus, 07-13, Swift
+6.3.2/Xcode 26.5): the CLI is now TIERED — `build`/`package`/`publish` are under `bin/ssc-tools`
+(`bin/ssc` correctly rejects them). `bin/ssc-tools build --v2 --target macos <ios-hello.ssc>`
+works and writes a real Swift package + xcodeproj (the old "`--v2 is not a directory`" and
+flag-order failures are gone — `BuildCmd` parses `--v2`; `run --target macos|ios` routing is
+present in Main.scala). The produced package builds to a real `.app` (see
+`v2-swift-xcode-contract-gaps`). REMAINING: SwiftUI simulator/device runs, code signing, and
+distribution — genuine multi-day feature work owned by the swift specialists. _Original report:_
+reported by Sergiy in the Codex session.
 
 - **Reported symptom:** ScalaScript 2.0 has a problem with both the Swift backend
   and the SwiftUI toolkit for desktop and mobile applications.
