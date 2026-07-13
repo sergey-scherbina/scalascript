@@ -7058,6 +7058,29 @@ JS `1410065408` = mod 2^32; JVM emits Scala's 32-bit `Int`). Huge blast radius
       class at a time (biggest lever = typeclass/given dispatch, ~12 cases), OR accept the documented v1
       Int-32-bit limitation + `codegen: v2` opt-in for the rare 64-bit-Int case (current: 1 case,
       deep-tail-recursion). Sweep artifact: scratch `sweep_v2bc.txt`.
+  - [ ] **A1-typeclass-resolution** (chosen 2026-07-13; biggest lever ~12 cases) — FULLY SCOPED +
+        DESIGNED, kernel change deferred to a deliberate pass. Gap is in the v2 SELF-HOSTED lowering
+        `v2/lib/ssc1-lower.ssc0` (rebuild: edit source → `installBin` → tower copy):
+          · buildGivenTable (:454) registers givens as (TC, TypeName)→name — Semigroup[Int]→intSum,
+            [String]→stringConcat, [List]→listConcat ARE registered with types. buildSigTable (:511)
+            maps a fn with `__tc_X` params → its TC list. So registration is FINE.
+          · buildGivenArgs (:628) resolves `findGiven(tc, typeOfExpr(firstArg))` then falls back to
+            findAnyGiven (:565, first-match). THE BUG: `typeOfExpr` (:618) is LITERAL-ONLY (returns "?"
+            for `List(1,2,3)`), and for `combineAll[A](xs: List[A])(using Semigroup[A])` the given is for
+            the ELEMENT type A, not the arg's own type. So the direct lookup returns "?"→None→
+            findAnyGiven picks intSum for EVERYTHING → the "0"/garbage output + `__missing_tc_` when a
+            TC has no given at all (combineAllOption).
+        FIX (bounded, additive — only fires where the current lookup already yields "?"/None, so low
+        kernel-regression risk): (1) extend `typeOfExpr` to return "List" for an "app" expr whose fn is
+        `var "List"` (else keep "?"); (2) in buildGivenArgs, when `findGiven(tc, argType)` is None AND
+        firstArg is a `List(...)` app, retry `findGiven(tc, typeOfExpr(firstElement))` (the element
+        type) before falling to findAnyGiven. Handles both direct `show(42)` (argType "Int") and
+        `combineAll(List[X])` (element type) without full HM. VERIFY: v2 bytecode sweep (99→?) MUST not
+        regress any of the current 99 pass + should recover the semigroup/monoid/functor cluster; run
+        the v2 kernel test suite too (self-hosted lowering is correctness-critical for ALL v2 codegen).
+        NON-general (documented limitation): nested/other containers (Option[A], Map) still need real
+        unification — a later slice. AST note: calls are tag "app" (:88); List(...) is an app of var
+        "List"; element extraction = first arg of that app.
 
 ### ▶ ssc-toolkit-v2 (2026-07-07, owner-directed via busi: the busi SPA must move React→ScalaScript)
 
