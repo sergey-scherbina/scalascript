@@ -9,6 +9,63 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## uniml-portable — dual-compilable standalone UniML library (Scala 3 ∩ ScalaScript v2) (2026-07-13, Sergiy)
+
+**Vision.** UniML is a **standalone library, independent of ScalaScript**. Its single Scala 3
+source must compile **both** with standard scalac **and** with the self-hosted ScalaScript v2
+compiler — so it is version-neutral (identical for v1 and v2) and can eventually host the v2.2
+parser. Design decisions already agreed with Sergiy:
+- UniML uses its **own minimal compat layer** (mutable `Buffer`/`Map`/`Set`/`StrBuilder`, int↔hex
+  parse, and a **compact portable Unicode table**) written in the Scala3∩v2 subset — **no JDK**
+  (`Character.*`, `Integer.*`, `java.*`) and **no `scala.collection.mutable`**. v2 supports
+  `var`/`while`/mutable, so the imperative style survives.
+- **`.ssc`/v2 must be Scala-3-compatible** (burden on v2, not on UniML). Mechanism **(b)**: one
+  source text, two extensions — `.scala` for scalac, `.ssc` for v2 (symlink/generation).
+- The target Scala-3 subset is **defined by what UniML uses** (UniML = living spec for v2); we
+  deliberately avoid heavy features (implicits/HKT/macros/match-types).
+- Bindings (`uniml-xml→Markup`, `uniml-markdown-bridge→DocumentContent`) stay ScalaScript-side,
+  **out of the portable core** (they depend on v1 models).
+- Verify: scalac build + a v2-compile smoke + a small set of **dual-compilable behavioral tests**
+  ("compiles under both" ≠ "behaves under both").
+
+Lead: opus-continue; phases are open to other agents (esp. the v2-side track uniml-portable-3).
+
+- [ ] **uniml-portable-0-move** — [SHIPPABLE FIRST STEP] relocate the pure UniML modules
+      (core/json/yaml/markdown) from `v1/lang/uniml*` to a top-level `uniml/` with its **own** sbt
+      build so `cd uniml && sbt test` builds independently of ScalaScript. Root `build.sbt` keeps
+      building them (path update only) and the v1 bindings (`uniml-xml`, `uniml-markdown-bridge`) keep
+      depending on them — nothing breaks. Keep all suites green (leaf 32/32 JVM+JS, bridge 11/11).
+      Follow-up (later, at true extraction): collapse the dual build to `publishLocal`.
+- [ ] **uniml-portable-0.5-gapmap** — run UniML-shape source through the v2 compiler; record the
+      **primitive floor** (which `Array`/`String`/`Int`/`Char` APIs v2 gives identically to scalac)
+      and the **language gaps** (generics+variance, traits-with-HOF, multi-file `.ssc`,
+      `package`/`import`). Produce a **red v2-compile smoke** enumerating the gaps → becomes the
+      spec/TODO for the v2-side track.
+- [ ] **uniml-portable-1-compat** — write `uniml.compat` (Scala3∩v2 subset): mutable `Buffer[T]`,
+      ordered `LinkedMap`, `HashSet`, `StrBuilder`, int↔hex parse/format, and `CharClass` with a
+      **compact curated Unicode table** (whitespace/punct/symbol/letter/digit + P*/S* for markdown
+      flanking) + ASCII fast-path. Refactor core+dialects off `scala.collection.mutable` /
+      `Character.*` / `Integer.*` / `StringBuilder` onto `uniml.compat`. Keep scalac build + all tests
+      green (compat is a drop-in). This is the largest UniML-side slice.
+- [ ] **uniml-portable-2-subset** — constrain UniML to the Scala3∩v2 subset per the gap map; add a
+      lint that fails on out-of-subset constructs. Set up mechanism (b): canonical `.scala` + `.ssc`
+      mirror (symlink or generation) so both compilers see identical content.
+- [ ] **uniml-portable-3-v2compile** — [v2-side, coordinate with v2 agents] drive v2 to compile
+      UniML, module by module (core→json→yaml→markdown); each gap = a v2 feature slice with UniML as
+      the test. v2-smoke red→green.
+- [ ] **uniml-portable-4-parity** — a small set of **dual-compilable behavioral tests** (in the
+      subset) run under both scalac and v2, proving v2-compiled UniML behaves identically
+      (lossless/chunk-invariance agree on a handful of cases).
+- [ ] **uniml-portable-5-binding** — formalize the binding module(s): →Markup, →DocumentContent,
+      and expose dialects as `std.json`/`std.yaml`/`std.markdown`; ScalaScript starts reading
+      data/documents via UniML instead of commonmark-java / ad-hoc readers.
+- [ ] **uniml-portable-6-language** — (research spike first) a UniML dialect for the ScalaScript
+      **language itself** (lossless CST of `.ssc` source) consumed by the v2.2 typer/lowering,
+      replacing the hand-written ssc0 parser. Assess whether UniML's model fits and whether a
+      grammar/PEG helper layer is needed. This is the endgame ("v2.2 parser on UniML").
+
+---
+
 ## uniml-markdown — lossless CommonMark/GFM and ScalaScript document adapter (2026-07-12, Sergiy: "продолжай дальше не останавливайся")
 
 Goal: complete UniML roadmap M4 with a standalone cross-platform Markdown reader pinned to
