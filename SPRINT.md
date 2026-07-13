@@ -100,20 +100,21 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
       - [x] **JSON**: JsonLexer `StringBuilder`→`Vector[String]`; JsonStructure `ArrayBuffer`→immutable
             `Vector` + `Frame.state` immutable (copy-on-transition), nested-def pattern. Green
             unimlJson 16/16 JVM+JS. Uses only v2-probed constructs. Core+JSON now v2-construct-free.
-      - [~] **YAML**: parse-path structure DONE. YamlLexer already offset-based/clean. YamlStructure
-            rewritten immutable: `BlockFrame(var last)`→case class (advance via `map(_.copy)`), 3
-            `ArrayBuffer`→`Vector`, `Vector.newBuilder`→`Vector`, `groupBy(_.start).getOrElse`→`filter`.
-            Green unimlYaml 18/17. Also v2-side: added `.indices` (was no-dispatch) mirroring dropRight.
-            REMAINING = optional semantic/projection layers: `YamlSemanticParser` plain classes
-            (Parser/FlowParser) + 7 regexes + `Character.digit`; `YamlProjection` mutable — NOT parse path.
-      - [~] **Markdown**: parse path DONE. All StringBuilder/Vector.newBuilder token buffers →
-            `Vector[String]`+`.mkString`. `MdChars.Character.getType`/`isSpaceChar` → portable BMP range
-            table (199 ranges, binary search) + enumerated whitespace, **generated from Character.getType
-            with a JVM-only `MdCharsParitySpec` proving exact 0x0–0xFFFF equivalence** (no conformance
-            risk; JVM/JS share one impl). Green md 34 JVM (32+2 parity)/32 JS + bridge 11. REMAINING =
-            OPTIONAL `MarkdownProjection` semantic layer (StringBuilder/newBuilder/Character.toChars).
-      - [ ] Gold-standard: full-concatenation v2 run per dialect (core+dialect → one `.ssc`), + probe
-            multi-file `package`/`import`.
+      - [x] **YAML**: parse-path structure DONE (YamlStructure immutable; +v2 `.indices`). Optional layers
+            DONE: `YamlProjection` mutable→immutable Vector/Map/Set; `YamlSemanticParser` plain classes
+            (Parser/FlowParser)→immutable nested-def shell + 7 regexes→exact hand-rolled predicates +
+            `Character.digit`→hexDigit + `.isWhitespace`→portable `isWs`. Green unimlYaml (incl.
+            YamlCoreDifferentialSpec vs snakeyaml).
+      - [x] **Markdown**: parse path DONE (StringBuilder→`Vector[String]`; `MdChars` Character→portable
+            BMP table generated from Character.getType + JVM `MdCharsParitySpec` proving exact
+            0x0–0xFFFF equivalence). Optional `MarkdownProjection` DONE (mutable→immutable;
+            `Character.toChars`→portable surrogate encoder). Green md 34/32 + bridge 11.
+      - [x] **All optional projection layers** (Json/Yaml/Markdown Projection) mutable→immutable — 0 gap
+            markers across all dialect files. UniML side is fully construct-clean.
+      - [~] Gold-standard: ran the ACTUAL JSON dialect flattened→one `.ssc` on v2 — UniML constructs all
+            pass, but the v2 `.ssc` FRONTEND can't parse the full module (modifiers, nested types in
+            objects, first-class object values, `Set`/`Map` companions). See gapmap "Gold-standard
+            finding" — the precise v2.2-frontend handoff. Multi-file `package`/`import` still to probe.
 - [~] **uniml-portable-1b-namedclasses** — SUPERSEDED by `uniml-portable-1-immutable` (the immutable
       rewrite removes the anonymous `Processor` instances entirely, along with all mutable fields).
 - [ ] **uniml-portable-v2-objectmodel** — [v2-side] RE-MEASURE after the immutable rewrite; the list

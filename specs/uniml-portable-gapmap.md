@@ -100,12 +100,25 @@ are v2-side, the active v2.2-self-hosted-dialect track — NOT UniML constructs)
   `unbound global: State`). UniML-side mitigation: hoist such types to top level (done for
   `JsonStructure` this commit — scalac-green, behaviour-preserving). Only `JsonStructure` had them; the
   core and other json files are already top-level.
-- **Some `extends` / declaration form in the large flattened file still fails** (`unbound global:
-  extends`) even after hoisting — not yet pinpointed; a v2-frontend parse issue in big multi-decl files.
+- **First-class objects: a bare `object` used as a VALUE is unbound** (`use(Foo)` where `object Foo
+  extends Bar` → `unbound global: Foo`, though `Foo.method` works). This blocks passing a dialect
+  object as a value — e.g. the core-only run `UniML.parse(src, Literal, limits)` fails on `Literal`.
+  (The `Json.parse` path passes a `ConfiguredJsonDialect` *instance*, not a bare object, so JSON dodges
+  this — but the core's `Literal`/base dialects hit it.)
+- **`Set.empty` / `Map.empty`-style companion factories on `Set`**: `Set("a","b")` literal works, but
+  `Set.empty` → `unbound global: Set` (v2 registers `List`/`Vector`/`Seq`/`Map` companions but not
+  `Set`). `DialectAdapter`'s default `def aliases: Set[String] = Set.empty` hits this. (Adding `Set`
+  needs front-end companion recognition, not just a runtime `case` — bigger than the additive
+  `.dropRight`/`.indices` fixes.)
+- The earlier unpinpointed `unbound global: extends` is likely downstream of one of the above in the
+  large flattened file (parser state after a mis-resolved `Set.empty`/object reference).
 
-So end-to-end dual-compilation is now gated on **v2 `.ssc`-frontend maturity** (the v2.2 track is
-actively building exactly this: offside layout, given/summon, CoreIR≡ssc1-front), not on UniML. The
-UniML-side 1c parse-path work is complete and verified; the isolated-construct probes all pass.
+So end-to-end dual-compilation is gated on **v2 `.ssc`-frontend maturity** — specifically: parse the
+`final`/`sealed`/`private` modifiers, type declarations nested in objects, first-class object values,
+and `Set`/`Map` companion factories. The v2.2 self-hosted-dialect track is actively building exactly
+this surface (offside layout, given/summon, CoreIR≡ssc1-front, native globals). **This list is the
+precise handoff.** The UniML side is done: all four dialect parse paths + all optional layers use only
+v2-supported runtime constructs, and every isolated construct passes on v2.
 
 ## Method
 

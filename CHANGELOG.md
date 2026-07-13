@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-13 — UniML optional layers immutable + portable: the whole library is construct-clean (uniml-portable Phase 1c complete)
+
+Finished the UniML-side portability by rewriting the remaining optional semantic/projection layers to
+be immutable and free of `scala.collection.mutable`, regex, and `java.lang.Character` — completing the
+immutable/portable rewrite for the ENTIRE library, not just the parse paths. `JsonProjection`,
+`YamlProjection`, and `MarkdownProjection`: all `Vector.newBuilder`/`ArrayBuffer`/`LinkedHashMap`/
+`HashSet`/`StringBuilder` → immutable `Vector`/`Map`/`Set`/`Vector[String]`+`.mkString`;
+`MarkdownProjection`'s `new String(Character.toChars(cp))` → a portable surrogate-pair encoder.
+`YamlSemanticParser` (the delicate keystone): the plain `Parser`/`FlowParser` classes → an immutable
+nested-def-over-local-vars shell; the 7 YAML core-schema scalar-type regexes (null/bool/int/float, JSON
+int/float) → exact hand-rolled char-scanning predicates; `Character.digit(_, 16)` → `hexDigit`;
+`char.isWhitespace` → a portable `isWs`. Behaviour-preserving across all modules (YAML incl. the
+differential spec vs snakeyaml). Every UniML dialect file now has zero mutable/regex/Character gap
+markers — the UniML side of dual-compilation is complete; the remaining blocker is the v2 `.ssc`
+frontend (see the gold-standard finding).
+
 ## 2026-07-13 — UniML gold-standard v2 finding: blocker is the `.ssc` frontend, not UniML (uniml-portable Phase 3)
 
 Ran the actual JSON dialect flattened to one `.ssc` (core + json, package/import stripped) through the
