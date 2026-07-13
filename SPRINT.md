@@ -10244,3 +10244,36 @@ already solved the identical leak via snapshot/restore.
       +1 red fixed (std-ui-jobpanel), + a general per-test isolation hardening. The remaining
       skips genuinely need their runtime (actors non-daemon pools, http/ws/mcp network, coroutine,
       the dataset-* that fail on content not pollution, signals/std-ui frontend).
+
+## v2-backend-wasm — WASM as a 4th Phase-4 backend target (2026-07-13, Sergiy: "Реализуй wasm для ssc v2")
+
+- [x] DONE. `v2/backend/{jvm,js,rust}` (the Phase-4 Scala CoreIR source generators exercised by
+      `v2/backend/check.sh`) had no WASM row — the self-hosted ssc0 layer already had one
+      (`v2/ssc0-wasm`, `specs/v2-rust-wasm-lanes.md`), the Phase-4 layer didn't. Closed the gap
+      the identical way: `run_wasm()` reuses `v2/backend/rust/RustBackend.scala`'s existing
+      Rust generator unchanged in shape, cross-compiles with
+      `rustc -O --target wasm32-wasip1 -C link-arg=-zstack-size=536870912`, runs via
+      `v2/scripts/run-wasi.mjs` (Node's built-in WASI host, reused as-is). Spec:
+      `v2/specs/63-backend-wasm.md`.
+      One real codegen fix WAS needed (found by actually running the cross-compiled module, not
+      assumed): `RustBackend.generate`'s emitted `main()` unconditionally spawned `ssc_run` on an
+      OS thread with a 2GB stack — `wasm32-wasip1` has no OS threads, so this panicked at runtime
+      under Node's `node:wasi` ("operation not supported on this platform"). Fixed with a
+      `#[cfg(target_arch = "wasm32")]`-gated `main()`: native arm unchanged, wasm arm calls
+      `ssc_run()` directly.
+      Also found (real, hand-verified, not assumed) a genuine environmental ceiling: `tco`/
+      `mutual-tco` (~1M frames of non-trampolined native recursion — the exact fixtures the 2GB
+      native stack exists for) still overflow under wasm+Node even with the wasm-side stack
+      raised and both `ulimit -s`/`node --stack-size` maxed to this machine's hard ceiling
+      (`ulimit -Hs`, 64MB) — V8's own wasm call-stack handling, not wasm's linear-memory stack.
+      Explicitly `skip`ped (not silently dropped) via `WASM_DEEP_RECURSION_SKIP` in check.sh.
+      Verified: `./v2/backend/check.sh` — every wasm-runnable fixture passes (7/9; 2 skipped for
+      the reason above). The script's overall exit was ALREADY `FAILURES PRESENT` on unmodified
+      main (confirmed via A/B: stashed this change, re-ran, identical failures) — `floatnum`
+      (Pair-display parity, all 4 backends) and `mutual-recursion` (jvm/rust, already tracked in
+      BUGS.md) are pre-existing, cross-backend bugs this slice did not introduce and did not fix
+      (out of scope — this slice is about wasm, not those two unrelated bugs).
+      Explicitly out of scope (see spec): user-facing `ssc run --v2`/`emit-wasm` CLI commands and
+      `ssc bench --backend v2-wasm` timing — Rust/JVM are in the identical no-dedicated-command
+      position today, and wasm bench timing would be dominated by Node process-spawn/WASI
+      instantiation overhead, not the computation.

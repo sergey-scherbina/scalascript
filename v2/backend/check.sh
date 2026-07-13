@@ -3,8 +3,12 @@
 #
 # Runs every conformance/*.coreir fixture — plus the two ssc1c regression
 # programs (bool-predicate / mutual-recursion, the T5.1 @count/@sum bug) —
-# through the v2 VM (run-ir) and each of the three source generators
-# (JVM / JS / Rust); all outputs must be byte-identical to the VM's.
+# through the v2 VM (run-ir) and each of the source generators
+# (JVM / JS / Rust / WASM); all outputs must be byte-identical to the VM's.
+# WASM reuses the Rust generator unchanged and cross-compiles its output to
+# wasm32-wasip1, run under Node's built-in WASI host (v2/specs/63-backend-wasm.md)
+# — toolchain-gated, skipped gracefully when `rustup target add wasm32-wasip1`
+# hasn't been run.
 #
 # Phase 2c/2d verification of these backends was manual; this script makes it
 # repeatable. It is intentionally standalone (slower than conformance/check.sh:
@@ -74,6 +78,34 @@ run_rust() { # $1=ir-file $2=out-file
   rustc -O "$TMP/gen.rs" -o "$TMP/gen-rust" 2>/dev/null || return 1
   "$TMP/gen-rust" > "$2" 2>/dev/null
 }
+# 512MB wasm-side stack (wasm-ld's default is ~1MB, far too small for this
+# backend's deep-native-recursion fixtures — see WASM_DEEP_RECURSION_SKIP
+# below for the ones even this isn't enough for).
+run_wasm() { # $1=ir-file $2=out-file — same Rust source as run_rust, cross-compiled
+  scli run "$DIR/rust" -q < "$1" > "$TMP/gen.rs" 2>/dev/null || return 1
+  rustc -O --target wasm32-wasip1 -C link-arg=-zstack-size=536870912 \
+    "$TMP/gen.rs" -o "$TMP/gen.wasm" 2>/dev/null || return 1
+  node --no-warnings "$V2/scripts/run-wasi.mjs" "$TMP/gen.wasm" > "$2" 2>/dev/null
+}
+
+# Fixtures needing ~1M frames of genuine (non-trampolined) native recursion —
+# the Phase-4 Rust backend leans on a 2GB native OS-thread stack for these
+# (RustBackend.scala's own comment: "real trampoline TCO is queued"). Under
+# wasm32-wasip1 there's no OS thread to spawn (main() calls ssc_run directly,
+# see RustBackend.scala's #[cfg(target_arch = "wasm32")] arm), and V8's own
+# wasm call-stack handling hits "Maximum call stack size exceeded" around
+# this depth even with `-zstack-size` maxed out AND both the OS thread stack
+# ulimit and `node --stack-size` raised to this machine's hard ceiling
+# (`ulimit -Hs`, 64MB) — confirmed by hand, not guessed. Every OTHER fixture
+# (shallow or properly-trampolined recursion) passes on wasm same as native.
+WASM_DEEP_RECURSION_SKIP=" tco mutual-tco "
+
+BACKENDS="jvm js rust"
+if rustup target list --installed 2>/dev/null | grep -q wasm32-wasip1; then
+  BACKENDS="$BACKENDS wasm"
+else
+  echo "note: wasm32-wasip1 not installed (rustup target add wasm32-wasip1) — skipping wasm row" >&2
+fi
 
 fail=0; ran=0
 for ir in "${IRS[@]}"; do
@@ -82,7 +114,11 @@ for ir in "${IRS[@]}"; do
   ran=$((ran+1))
   java -jar "$TMP/v2.jar" run-ir "$ir" > "$TMP/expected.txt" 2>/dev/null \
     || { echo "FAIL $name: run-ir failed"; fail=1; continue; }
-  for be in jvm js rust; do
+  for be in $BACKENDS; do
+    if [ "$be" = wasm ] && [[ "$WASM_DEEP_RECURSION_SKIP" == *" $name "* ]]; then
+      printf "skip %-20s %s (>64MB-deep native recursion; incompatible with wasm+V8's stack model)\n" "$name" "$be"
+      continue
+    fi
     if "run_$be" "$ir" "$TMP/out-$be.txt" && diff -q "$TMP/expected.txt" "$TMP/out-$be.txt" >/dev/null 2>&1; then
       printf "ok   %-20s %s\n" "$name" "$be"
     else
@@ -94,5 +130,6 @@ for ir in "${IRS[@]}"; do
 done
 
 [ "$ran" -gt 0 ] || { echo "no fixtures matched '$PATTERN'"; exit 1; }
-if [ "$fail" -eq 0 ]; then echo "ALL GREEN ($ran fixtures x 3 backends)"; else echo "FAILURES PRESENT"; fi
+nbackends=$(wc -w <<< "$BACKENDS")
+if [ "$fail" -eq 0 ]; then echo "ALL GREEN ($ran fixtures x $nbackends backends)"; else echo "FAILURES PRESENT"; fi
 exit "$fail"

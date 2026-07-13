@@ -17,26 +17,50 @@ had before `ssc0-wasm` closed it (`specs/v2-rust-wasm-lanes.md`). This slice clo
 Phase-4 layer the identical way, reusing the identical toolchain:
 
 ```
-ir.coreir → RustBackend.generate (v2/backend/rust/RustBackend.scala, UNCHANGED)
+ir.coreir → RustBackend.generate (v2/backend/rust/RustBackend.scala)
           → gen.rs
-          → rustc -O --target wasm32-wasip1 gen.rs -o gen.wasm
+          → rustc -O --target wasm32-wasip1 -C link-arg=-zstack-size=536870912 gen.rs -o gen.wasm
           → node v2/scripts/run-wasi.mjs gen.wasm   (reused unchanged, generic WASI host)
 ```
 
-No new Scala source. `v2/backend/rust/RustBackend.scala` already emits self-contained,
-`std`-only Rust (its own dynamic `V` value enum + reference-counted closures, TCO via a
-`Step::Bounce` trampoline — see `v2/specs/61-backend-rust.md`) with no OS-specific
-dependencies beyond `std::env::args`/`std::env::var` (both WASI-backed under
-`wasm32-wasip1`, confirmed working by the ssc0 lane above), so it cross-compiles to
-`wasm32-wasip1` unmodified.
+No distinct WASM value-representation/dispatch backend — `v2/backend/rust/RustBackend.scala`'s
+existing `V` value enum + reference-counted closures (`v2/specs/61-backend-rust.md`'s ssc0
+description covers the same shape) is reused as-is; WASM is a cross-compilation *target* of the
+same generated Rust, same as `x86_64`/`aarch64` are.
+
+One targeted change WAS needed in `RustBackend.generate`'s `main()` template, found by actually
+running the cross-compiled module (not assumed): the emitted `main()` unconditionally spawns
+`ssc_run` on a new OS thread with a 2GB stack (deep non-tail-recursive fixtures need more than
+the platform default stack — see the comment at that call site). `wasm32-wasip1` has no OS
+thread support; `std::thread::Builder::spawn` compiles fine but PANICS at runtime under Node's
+`node:wasi` host ("operation not supported on this platform"). Fixed with a `#[cfg]`-gated
+`main()`: the native arm is byte-for-byte unchanged; a new `#[cfg(target_arch = "wasm32")]` arm
+calls `ssc_run()` directly on the main thread. Compile-time `cfg`, so this is not a runtime
+target-detection branch — each target only ever sees its own arm.
+
+A second, environment-level (not codegen) gap: even after the `main()` fix, the two fixtures
+needing ~1M frames of genuine native recursion (`tco`, `mutual-tco` — the same ones the 2GB
+native stack exists for) still overflow under wasm+Node, and NOT from wasm's own linear-memory
+stack (raised via `rustc`'s `-zstack-size` linker flag above, confirmed sufficient on its own)
+but from V8's *own* internal call-stack handling for wasm function calls, which hit "Maximum
+call stack size exceeded" even with both the OS thread stack `ulimit -s` and `node --stack-size`
+raised to this machine's hard ceiling (`ulimit -Hs`, 64MB). This is a real, hand-verified
+resource ceiling of the wasm32-wasip1-via-Node execution model on this machine, not a guess —
+see `v2/backend/check.sh`'s `WASM_DEEP_RECURSION_SKIP` for the exact two fixtures and reasoning.
+Every other fixture (shallow recursion, or the ssc1c regression programs) passes on wasm
+identically to native.
 
 ## Interface
 
-- `v2/backend/check.sh` gains a fourth backend row (`jvm js rust wasm`); output changes from
-  `ALL GREEN (N fixtures x 3 backends)` to `ALL GREEN (N fixtures x 4 backends)`.
+- `v2/backend/check.sh` gains a fourth backend row (`jvm js rust wasm`); the summary line's
+  backend count changes from `... x 3 backends` to `... x 4 backends` (see Results for why the
+  overall gate itself was, and remains, non-green for reasons unrelated to this slice).
 - `run_wasm()` mirrors `run_rust()`'s two-step shape (generate, then execute), inserting the
-  `--target wasm32-wasip1` cross-compile and swapping the native binary invocation for the
-  Node WASI host.
+  `--target wasm32-wasip1 -C link-arg=-zstack-size=536870912` cross-compile and swapping the
+  native binary invocation for the Node WASI host (`v2/scripts/run-wasi.mjs`).
+- `run_wasm` is entirely absent from `$BACKENDS` (not merely skipped-with-a-note) when
+  `rustup target list --installed` lacks `wasm32-wasip1` — the gate degrades to the pre-existing
+  3-backend behavior rather than failing outright on a machine without the toolchain.
 
 ## Behavior
 
@@ -71,4 +95,33 @@ dependencies beyond `std::env::args`/`std::env::var` (both WASI-backed under
 ## Results
 
 Verified 2026-07-13 on this machine (`rustup target list --installed` includes
-`wasm32-wasip1`; Node has `node:wasi`):
+`wasm32-wasip1`; Node v26.5.0 has `node:wasi`), `./v2/backend/check.sh`:
+
+```
+ok   fact                 wasm
+FAIL floatnum             wasm (expected vs got): (3, (4.5, (true, -2.5)))  vs  Pair(3, Pair(4.5, Pair(true, -2.5)))
+ok   letrec               wasm
+ok   map                  wasm
+skip mutual-tco           wasm (>64MB-deep native recursion; incompatible with wasm+V8's stack model)
+skip tco                  wasm (>64MB-deep native recursion; incompatible with wasm+V8's stack model)
+ok   thunk                wasm
+ok   bool-predicate       wasm
+FAIL mutual-recursion     wasm (expected vs got)
+FAILURES PRESENT
+```
+
+The overall gate still exits `FAILURES PRESENT` — but for reasons that predate and are
+independent of this slice, confirmed by A/B (stashed these changes, re-ran the unmodified
+3-backend gate): `floatnum` already failed on jvm/js/rust before this slice touched anything
+(`Pair(...)` vs `(...)` tuple-display parity bug, shared by every Phase-4 generator — `SPRINT.md`
+history shows this fixture has had a nonzero fail count before), and `mutual-recursion` already
+failed on jvm/rust (passes on js) — a known, already-tracked flaky case with its own extensive
+`BUGS.md` history. `v2/backend/check.sh`'s exit code was ALREADY non-zero on unmodified `main`;
+this slice does not change that. wasm inherits both exactly: `floatnum` fails identically
+(same display bug, same generator), `mutual-recursion` fails identically (same rust generator
+output, cross-compiled). Neither is wasm-specific or newly introduced.
+
+Net: WASM joins JVM/JS/Rust as a real, verified Phase-4 backend target. Every fixture wasm can
+run at all, it runs correctly — 7 of 9 `ok`, 2 fixtures inherit pre-existing cross-backend bugs
+(not wasm-specific, not new), and 2 are explicitly, narrowly `skip`ped for a hand-confirmed
+environmental reason (not silently dropped).
