@@ -209,9 +209,21 @@ def sscSourceLines = (lines, heading, inFence, lang, curLines, sqlIndex, sqlSect
             if #i.eq(#slen(nextHeading), 0) then heading else nextHeading,
             false, "", Nil, sqlIndex, sqlSections, acc)
   }
+-- Whether any body line opens a ``` fence (distinguishes a literate .ssc from a
+-- fenceless BARE .ssc). Fences are OPTIONAL: a bare .ssc is code in its entirety.
+def sscHasFence = (lines) =>
+  match lines {
+    case Nil => false
+    case Cons(line, rest) => if startsWith3bt(strip(line)) then true else sscHasFence(rest)
+  }
 def sscProgramSource = (src) =>
   let lines = splitLines(stripBom(src), 0, Nil) in
-  sscSourceLines(skipYaml(frontmatterLines(lines)), "S0", false, "", Nil, 0, Nil, "")
+  let body = skipYaml(frontmatterLines(lines)) in
+  if sscHasFence(body) then
+    sscSourceLines(body, "S0", false, "", Nil, 0, Nil, "")
+  else
+    -- Fenceless bare .ssc: the whole body (after front-matter) is ScalaScript code.
+    joinLines(body)
 
 -- ── .ssc module loading (v2-native-front-ssc-module-loading) ─────────────────
 -- The parser treats `[names](path.ssc)` markdown-link imports as a parse-only
