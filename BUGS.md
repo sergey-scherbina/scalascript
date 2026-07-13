@@ -1,5 +1,30 @@
 # Bug tracker
 
+## v2-bridged-ui-emit-name-collision — `emit` resolves to the streams plugin, not the UI plugin, on `run --v2`
+
+**Status:** open — root-caused (2026-07-13, opus); DEEP, architectural, NOT a shim. Found
+running `examples/swift/appcore-nativeui.ssc` on `ssc-tools run --v2` (after fixing
+`v2-bridged-ui-signal-id-field`): `emit(tree, outDir)` crashes. Two nested causes:
+1. `NativeUiSites.annotate` (run by FrontendBridge on `run --v2`, `FrontendBridge.scala:864`)
+   rewrites the source-only std/ui symbols `emit`/`serve` to `__ssc_nativeui_v1.emit`/`serve`
+   with a hidden `NativeUiSourceRef` arg — but ONLY the NATIVE ui-plugin registers those
+   names, and `run --v2` loads the v1-COMPAT bridge (`PluginBridge.loadAll`, not the native
+   plugin set), so it crashes `unbound global: __ssc_nativeui_v1.emit`.
+2. The deeper blocker: `emit` is a NAME COLLISION — BOTH the frontend/UI plugin
+   (`FrontendIntrinsics:318`, `emit(tree: View, outDir): Unit`, error `"emit(tree, outDir)"`)
+   AND the streams plugin (`StreamsIntrinsics:643`, error `"emit(value)"`) register
+   `QualifiedName("emit")`. On the v1-compat bridge `V2PluginRegistry.registerGlobal` is
+   last-write-wins, so the UI `emit` is OVERWRITTEN by the streams `emit` and is UNREACHABLE.
+   A shim that delegates `__ssc_nativeui_v1.emit` → plain `emit` therefore hits the streams
+   emit → `emit(value)` (verified). The native lane solves this exactly via `annotate` + the
+   native ui-plugin owning `__ssc_nativeui_v1.emit`; the v1-compat bridge has no equivalent
+   disambiguation. Proper fix (FrontendBridge/plugin-namespacing owner): expose the UI `emit`
+   under an unambiguous handle on the bridge (e.g. register `__ssc_nativeui_v1.emit` from the
+   FRONTEND plugin specifically, dropping the hidden source arg), OR skip the `emit`/`serve`
+   annotate rewrite on the v1-compat lane and resolve the plain-`emit` collision by owner.
+NOT BLOCKING: `appcore-nativeui.ssc` runs end-to-end on `--native` (its real lane); only the
+`run --v2` v1-compat migration lane is affected.
+
 ## v2-bridged-ui-signal-id-field — std/ui `signal(...).id` crashes on the bridged VM lane
 
 **Status:** FIXED (2026-07-13, opus). `signal(name, default)` builds a
