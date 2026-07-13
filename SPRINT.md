@@ -329,17 +329,14 @@ with extensions isolated behind an explicit non-default profile.
       tracked as `scljet-js-m1-parity` / `scljet-js-m2-cursor-parity` in `BACKLOG.md`);
       no JDBC/sql.js substitution. Remaining M2d hardening (index-btree payload
       thresholds + deep record/overflow/freeblock/schema corruptions) moved to `BACKLOG.md`.
-- [ ] **scljet-m2d-hardening-1-index-thresholds** — add index-btree payload-threshold
-      vectors. Reader index X = `((u-12)*64/255)-23` (u=512 -> X=102), distinct from the
-      table-leaf `u-35`. Plan: (a) generalize `generate.py`'s hard-coded `idx_t_a` oracle
-      case to dump ANY index's key records in physical b-tree order via
-      `PRAGMA index_info` + `SELECT <cols>,rowid FROM <tbl> ORDER BY <cols>,rowid`
-      (matches how the SclJet dumper emits raw index record fields); (b) add
-      `index-overflow-thresholds.db` (blob-keyed index, keys straddling index X: local,
-      the K>X residue fall, K<=X, multi-page overflow); (c) append oracle/manifest via the
-      generator's own functions; (d) verify the reader reproduces every index row
-      byte-for-value on VM/ASM/fallback tiers. Done-when the corpus e2e is green on all
-      tiers with the index-overflow file and full regen reproduces it byte-identically.
+- [x] **scljet-m2d-hardening-1-index-thresholds** — DONE 2026-07-13. Generalized
+      `generate.py`'s hard-coded `idx_t_a` oracle case to dump ANY rowid-table index's
+      key records in physical b-tree order (`PRAGMA index_info` + `SELECT <cols>,rowid
+      ... ORDER BY`); verified output-preserving by recomputing all committed oracle
+      lines. Added `index-overflow-thresholds.db` (blob-keyed index, keys straddling
+      index X=102: p=101/102 local, p=103 sharp K>X fall to m=39, p=200, p=1100 K<=X
+      multi-page chain). Reader reproduces every index row byte-for-value on default
+      VM / ASM / tree-walk tiers. Corpus now 25 valid / 643 oracle lines.
 - [ ] **scljet-m2d-hardening-2-deep-corruptions** — add deep byte-mutation corruptions
       to `generate.py`'s `corruptions()` path: truncated/looped overflow chain, corrupt
       freeblock span, invalid/reserved serial-type header (10/11), and sqlite_schema row
