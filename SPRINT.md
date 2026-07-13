@@ -7260,6 +7260,26 @@ JS `1410065408` = mod 2^32; JVM emits Scala's 32-bit `Int`). Huge blast radius
           VERIFIED: v2 bytecode sweep 102 → 103, 0 regressions. REMAINING (each falls back to today's
           behaviour = no regression until done): transitivity (follow calls inside specialised bodies to
           a fixpoint), multi-ctx-param mono, non-List containers (Option[A], Map) via real unification.
+    - [x] **A1-mono SLICE 3 (chained bounds + TC-correct summon dispatch)** `3e772f6b2` — DONE.
+          Made `tagless-context-bounds` pass 7/7 via three fixes (v2 bytecode sweep 103 → 104, 0 regr):
+          (1) CHAINED context bounds `[A: Monoid: Pretty]` — ssc1-front parseTypeParams read only the
+              FIRST bound per type var, silently dropping the rest (no `__tc_Pretty` param). Now a
+              readBounds loop reads all chained `: TC` bounds.
+          (2) summon[TC].method / .field respect the EXPLICIT TC — both sites resolved to
+              `firstActiveGiven` (the first active ctx instance), a silent miscompile in any 2+-given
+              body (`summon[Pretty[A]].pretty` → `intSum_pretty`). Summon receiver now carries its TC as
+              a `summon_tc` node; dispatch resolves it via lookupActiveCtx (fallback firstActiveGiven).
+          (3) summon-as-value `val m = summon[TC[A]]` — a given is a set of globals, not a value. New
+              block-local summon-alias registry (summonAliasCell): the val registers m→tc in resolveBlock,
+              m.method/m.field dispatch via active ctx, lowerBlock drops the vestigial binding, reset per
+              def. An escaping summon value lowers to a loud `__summon_value_<TC>` (no silent miscompile).
+    - [ ] **A1-mono REMAINING tagless/typeclass cluster** — each needs a DISTINCT feature (all still
+          FALL BACK safely today; characterized 2026-07-13):
+          - `typeclass-extension`, `tagless-sealed-dispatch` → **extension methods** in `given … with`
+            bodies (`extension [A](fa: F[A]) def fmap …`) emit "Stub" — a whole unimplemented dispatch
+            feature (biggest lever: 2 cases). Would need per-instance extension-method resolution.
+          - `tagless-resolution` → `arity: 2 expected, 1 given` (distinct arity bug, not summon).
+          - `tagless-program` → `TYPEERR: cannot unify Tuple with non-Tuple` (typer/tuple, distinct).
 
 ### ▶ ssc-toolkit-v2 (2026-07-07, owner-directed via busi: the busi SPA must move React→ScalaScript)
 
