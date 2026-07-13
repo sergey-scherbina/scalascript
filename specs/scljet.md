@@ -2077,6 +2077,20 @@ correct `sum`; a 60-row table is four pages; the single-row case stays
 byte-identical to `page-512.db`. Identical on int/VM/ASM/fallback and JS
 (conformance `scljet-write-btree`). Cell-overflow-page allocation for large
 payloads, trees deeper than two levels, and incremental insert-into-an-existing
-database (the pager path) are follow-ups. The M3 behavior gates remain open
-pending the rollback journal (m3e) and delete/update (m3f); the change counter and
-schema cookie are caller-supplied because they belong to the pager/journal layer.
+database (the pager path) are follow-ups.
+
+m3e began the rollback journal with hot-journal recovery: `journal.ssc`'s
+`applyRollbackJournal(db, journal)` parses the official rollback-journal format
+(header magic, checksum nonce, initial page count, sector/page size; page records
+`u32 pageNo ++ page ++ u32 checksum`), verifies SQLite's sparse checksum
+(`nonce + Σ data[pageSize-200k]` in 32-bit arithmetic, confirmed against a real
+SQLite journal), restores each pre-image, and truncates to the recorded size — so
+an interrupted transaction is undone. Verified byte-identical recovery of a
+dirtied `page-512.db` (one record) and `comprehensive.db` (two records) with
+reference `integrity_check = ok`; a journal without the complete-header magic is
+correctly not hot; a corrupt checksum is rejected (conformance
+`scljet-journal-recover`, int/VM/ASM/fallback and JS). The journal writer, wiring
+recovery into the pager open path (which currently rejects a non-empty journal),
+and the transactional begin/commit/rollback cycle remain, along with m3f
+delete/update. The change counter and schema cookie are caller-supplied because
+they belong to the pager/journal layer.

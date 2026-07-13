@@ -89,6 +89,9 @@ are plain bullets without checkboxes so agents do not claim them as build work.
       sizes byte-exactly. Fix options: JS-backend TCO for self-tail-recursive functions, or
       make `zerosList` non-linear-depth (build 64-byte chunks directly / doubling). Unblocks
       full-size empty-DB writes on JS and any large zero-fill in the write path.
+      The same JS no-TCO limit hits `ByteSlice.fromList`'s `validateBytes`/`buildChunks`
+      recursion: constructing a slice from a list of more than a few thousand bytes
+      overflows node (so the journal-recovery conformance embeds only a 1024-byte DB).
 
 - [ ] **scljet-m2d-hardening-overflow-traversal** — the last M2d corpus hardening
       item after `scljet-m2d-hardening` slices 1-2 landed (2026-07-13). Index-btree
