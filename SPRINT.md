@@ -118,10 +118,28 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
 - [ ] **uniml-portable-5-binding** — formalize the binding module(s): →Markup, →DocumentContent,
       and expose dialects as `std.json`/`std.yaml`/`std.markdown`; ScalaScript starts reading
       data/documents via UniML instead of commonmark-java / ad-hoc readers.
-- [ ] **uniml-portable-6-language** — (research spike first) a UniML dialect for the ScalaScript
-      **language itself** (lossless CST of `.ssc` source) consumed by the v2.2 typer/lowering,
-      replacing the hand-written ssc0 parser. Assess whether UniML's model fits and whether a
-      grammar/PEG helper layer is needed. This is the endgame ("v2.2 parser on UniML").
+- **uniml-portable-6-language / ssc v2.2** — self-hosted Scala-3 subset dialect on UniML, the
+      endgame ("v2.2 parser on UniML"). Full design: **`specs/v2.2-self-hosted-dialect.md`**
+      (2026-07-13, co-led Sergiy). Triple invariant (impl-lang = object-lang = subset; Scala3 ⊇
+      subset = oracle+seed). 4 decisions settled: typed holes (total pipeline), design-for-injection
+      ship-composition-first, user-dialects deferred, resync-at-structural-boundary + only-Scala-
+      subset-executable. Spike-first sub-phases:
+  - [ ] **P6.0 spike (GATE)** — UniML sub-dialect for `def f(x:Int):Int = <expr>` over `+ - * ( )` +
+        call + if/then/else; project CST → `Pair(tag,data)` → existing `ssc1-lower` → run-ir; diff
+        vs `ssc1-front`; dual-compile the spike with scalac. Answers: precedence-through-UniML vs
+        Pratt helper. Do NOT proceed until green + answer recorded.
+  - [ ] **P6.1 error model** — CST `Error` nodes + structural-boundary resync; total projection +
+        typed holes into IR (generalize `__notImplemented__`); broken input → partial IR, no crash.
+  - [ ] **P6.2 grow the dialect** to full front coverage (layout/precedence/given-using/patterns/
+        for-match/decls), differential-tested vs `ssc1-front` across the corpus, until it replaces it.
+  - [ ] **P6.3 injection + registry** — interpolator injection (s/f/md) via registry; registry hook
+        (built-in set, user-closed).
+  - [ ] **P6.4 self-host proof** — compile v2.2 with itself (stage1→stage2 fixed point); scalac oracle.
+  - [ ] **P6.5 (follow-on, non-gate)** — port `ssc1-lower` from ssc0 into the subset (whole compiler
+        dual-compilable end to end).
+  - Prereqs: subset must hold — the one v2-side lift is **immutable indexed `Array`** (gapmap:76);
+        anon-trait + mutable-object-field stay out; multi-file `package`/`import` reconciliation
+        (gapmap:82-83) needed before the compiler's own multi-file source dual-compiles.
 
 ---
 
