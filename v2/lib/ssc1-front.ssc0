@@ -518,6 +518,12 @@ def registerCaseMethods = (name, fields, defs) =>
 -- ssc1-lower reads extensionMethodsCell in the same self-hosted process.
 def extensionParamsCell  = #cell.new(Nil)
 def extensionMethodsCell = #cell.new(Nil)
+-- Named `using` param resolution: `def f(a)(using s: Show[A])` needs the Show given auto-injected at
+-- the call site (like a context bound, but the given goes at the END, after regular args, and the
+-- param keeps its name `s`). usingSigCell maps defName → Pair([usingTypeStr], fullArgCount); ssc1-lower
+-- reads it in injectGivens (shared process). pendingUsingTypesCell is transient per parseUsingParams.
+def usingSigCell = #cell.new(Nil)
+def pendingUsingTypesCell = #cell.new(Nil)
 def dfltLookup = (nm, dflts) =>
   match dflts {
     case Nil => Pair("__nodflt__", "")
@@ -1466,17 +1472,30 @@ def readTypeStr = (toks) =>
 
 -- KC8: parse `using p: T, q: U)` (after the `using` keyword; closing `)` consumed)
 def parseUsingParams = (toks) =>
-  let rec goU = (ts, acc) =>
-    if kindIs(")", ts) then pr(reverse(acc), advance(ts))
-    else if kindIs("EOF", ts) then pr(reverse(acc), ts)
+  -- Capture the param NAMES (kept, for body reference) and each type's TC HEAD (first token after `:`,
+  -- e.g. `Show` from `Show[A]`) for auto-injection. Use skipTypeAnnot for advancement — it respects
+  -- nested []/() and stops at the depth-0 `,`/`)` (readTypeStr would over-read past the comma).
+  let rec goU = (ts, nacc, tacc) =>
+    if kindIs(")", ts) then Pair(Pair(reverse(nacc), reverse(tacc)), advance(ts))
+    else if kindIs("EOF", ts) then Pair(Pair(reverse(nacc), reverse(tacc)), ts)
     else
       let name = tokVal(peek(ts)) in
-      let ts2 = skipTypeAnnot(advance(ts)) in
-      let acc2 = Cons(name, acc) in
-      if kindIs(",", ts2) then goU(advance(ts2), acc2)
-      else if kindIs(")", ts2) then pr(reverse(acc2), advance(ts2))
-      else pr(reverse(acc2), ts2) in
-  goU(toks, Nil)
+      let tsColon = advance(ts) in
+      let tcHead = if kindIs(":", tsColon) then tokVal(peek(advance(tsColon))) else "" in
+      let ts2 = skipTypeAnnot(tsColon) in
+      let nacc2 = Cons(name, nacc) in
+      let tacc2 = Cons(tcHead, tacc) in
+      if kindIs(",", ts2) then goU(advance(ts2), nacc2, tacc2)
+      else if kindIs(")", ts2) then Pair(Pair(reverse(nacc2), reverse(tacc2)), advance(ts2))
+      else Pair(Pair(reverse(nacc2), reverse(tacc2)), ts2) in
+  match goU(toks, Nil, Nil) {
+    case Pair(nt, toksAfter) =>
+      match nt {
+        case Pair(names, tcHeads) =>
+          let _set = #cell.set(pendingUsingTypesCell, tcHeads) in
+          pr(names, toksAfter)
+      }
+  }
 
 def parseDef = (toks) =>
   -- name
@@ -1493,6 +1512,9 @@ def parseDef = (toks) =>
   -- (a nested def in the body clears it again before the outer def reads the body,
   -- so outer/inner never interfere).
   let _clr = #cell.set(paramDefaultsCell, Nil) in
+  -- Reset the transient using-types accumulator; only parseUsingParams sets it, so a def with no
+  -- `using` clause leaves it Nil (won't inherit a previous def's types).
+  let _clru = #cell.set(pendingUsingTypesCell, Nil) in
   -- Reset the trailing-vararg flag before parsing this def's clauses; parseParam
   -- overwrites it per param, so after the whole list it reflects the LAST param.
   let _clrv = #cell.set(lastParamVarargCell, false) in
@@ -1511,6 +1533,16 @@ def parseDef = (toks) =>
     else pr(Nil, toks4) in
   -- ctxParams first, then regular params, then using params
   let allParams = append(ctxParams, append(extensionParams, append(params, prV(rp2)))) in
+  -- Register named `using` params for call-site auto-injection: (defName → ([usingTypeStr], fullCount)).
+  -- fullCount = regular + using count (the arg count when using is passed EXPLICITLY); ssc1-lower's
+  -- injectGivens appends the using givens only when the call has fewer args than that.
+  let _regUsing = match #cell.get(pendingUsingTypesCell) {
+    case Nil => 0
+    case Cons(ut, uts) =>
+      let usingTypes = Cons(ut, uts) in
+      let fullCount = #i.add(lenLF(params), lenLF(prV(rp2))) in
+      #cell.set(usingSigCell, Cons(Pair(name, Pair(usingTypes, fullCount)), #cell.get(usingSigCell)))
+  } in
   -- K62.17: snapshot source-call defaults so the lower can synthesize omitted
   -- trailing args at call sites.
   -- Context dictionaries are injected separately by the lowerer and therefore

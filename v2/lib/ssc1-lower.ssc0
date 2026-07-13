@@ -762,15 +762,48 @@ def buildGivenArgs = (givenTab, tcNames, actualArgs) =>
       Cons(injArg, buildGivenArgs(givenTab, restTCs, actualArgs))
   }
 
--- At call site f(args): if f is a global with ctx params, inject givens
+-- Named `using` param registry (populated by the front's parseDef): defName → ([usingTypeStr], full).
+def lookupUsingSig = (name) =>
+  let rec go = (xs) =>
+    match xs {
+      case Nil => None
+      case Cons(e, r) => match e { case Pair(n, info) => if #seq(n, name) then Some(info) else go(r) }
+    } in
+  go(#cell.get(usingSigCell))
+
+-- Build the END-injected given args for named `using` params (one per using TC head, in source order).
+def buildUsingGivenArgs = (givenTab, tcNames, args) =>
+  match tcNames {
+    case Nil => Nil
+    case Cons(tc, rest) =>
+      let argType = match args { case Nil => "?" case Cons(fa, ra) => typeOfExpr(fa) } in
+      let injArg = match findGiven(givenTab, tc, argType) {
+        case None => match findAnyGiven(givenTab, tc) {
+          case None => Pair("var", #sconcat("__missing_using_", tc))
+          case Some(g) => Pair("var", g) }
+        case Some(g) => Pair("var", g) } in
+      Cons(injArg, buildUsingGivenArgs(givenTab, rest, args))
+  }
+
+-- At call site f(args): inject context-bound givens at the FRONT (prepend) and named `using` givens at
+-- the END (append), matching the param layout [ctxParams, regular, usingParams]. `using` givens are
+-- appended only when the call has fewer args than the full (regular+using) count — so an explicit
+-- `f(a)(using x)` (KC8-merged to f(a, x)) is not double-injected.
 def injectGivens = (fn, args) =>
   match fn {
     case Pair(ftag, fdata) =>
       if #seq(ftag, "var") then
-        match lookupSig(#cell.get(kc5SigCell), fdata) {
-          case None     => args
-          case Some(tcs) =>
-            buildGivenArgs(#cell.get(kc5GivenCell), tcs, args)
+        let ctxTCs = match lookupSig(#cell.get(kc5SigCell), fdata) { case None => Nil case Some(t) => t } in
+        let withCtx = buildGivenArgs(#cell.get(kc5GivenCell), ctxTCs, args) in
+        match lookupUsingSig(fdata) {
+          case None => withCtx
+          case Some(info) =>
+            match info {
+              case Pair(usingTypeStrs, fullCount) =>
+                if #i.lt(lenL(args), fullCount) then
+                  appendL(withCtx, buildUsingGivenArgs(#cell.get(kc5GivenCell), usingTypeStrs, args))
+                else withCtx
+            }
         }
       else args
   }
