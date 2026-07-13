@@ -64,12 +64,15 @@ are plain bullets without checkboxes so agents do not claim them as build work.
       SQLite GIGO source of truth and prove interpreter/VM/ASM/JS parity before
       the M4 value API depends on this projection.
 
-- [ ] **scljet-js-m1-parity** — close the explicit M1 JS behavior gates without
-      JDBC/sql.js substitution: exact signed-64-bit Long/shift/bitwise lowering
-      for the 31-line byte-codec golden, the two-handle SHM transition mismatch
-      in the 33-line memory-VFS golden, and the v2 JS `__mk_method_obj__` import
-      primitive. Repros and separated root causes are in `BUGS.md`; the v1
-      companion and native-array `Nil`/`Cons` blockers are already fixed.
+- [ ] **scljet-js-m1-parity** — the byte-codec golden is DONE (2026-07-13):
+      `scljet-byte-codec` and `scljet-page-record-codec` now pass `[JS]` with a
+      current build — the exact signed-64-bit Long/shift/bitwise + real lowering
+      landed in `70dfb5a1f`; the earlier "diverges on JS" reports were stale-binary
+      artifacts (rebuild `installBin` before re-checking JS codegen). Remaining M1
+      JS gates: (a) the two-handle SHM shared/exclusive transition in the 33-line
+      memory-VFS golden (`scljet-memory-vfs` is `backends: [int]` today — enabling
+      the JS lane needs the SHM transition fixed; 31/33 lines matched at last
+      check); (b) the v2 self-hosted JS path's `__mk_method_obj__` import primitive.
 
 - [ ] **scljet-js-m2-cursor-parity** — fix the Node-only corruption result for
       the valid cached two-level table/index fixture: interpreter, native VM,
