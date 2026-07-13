@@ -140,7 +140,12 @@ object RunNativeV2:
     // compileWithGlobals prepass is redundant and can take VM/plugin-specific
     // dispatch branches before the ASM class has installed its own globals.
     _root_.ssc.Emit.globalsRef = collection.mutable.HashMap.empty
-    val bytes = _root_.ssc.bytecode.JvmByteGen.emitProgram(prog)
+    // Op-ARGUMENT lifting for the self-hosted lane: bind App/Ctor/Prim args (and
+    // Match scrutinee / If condition) that may evaluate to a raw effect `Op` so
+    // the kernel's Let-threading defers them into the Op's continuation
+    // (head-field-effect-shadow / js-applyunary-effect-cps). Excludes
+    // effect.handle/perform/pure. See ssc.bytecode.OpAnfNative.
+    val bytes = _root_.ssc.bytecode.JvmByteGen.emitProgram(_root_.ssc.bytecode.OpAnfNative.lift(prog))
     val result =
       try _root_.ssc.bytecode.JvmByteGen.runProgram(bytes)
       catch case e: java.lang.reflect.InvocationTargetException =>

@@ -189,10 +189,13 @@ private[cli] object NativeJvmArtifact:
         _root_.ssc.plugin.NativeContentCodec.encode(
           artifactContentModules(config.contentModules, sourceUnits)),
         "generated structural content")
-    val sourceDebug = NativeJvmSourceMap.build(program, sourceUnits)
+    // Op-argument lifting: keep the AOT native artifact identical to the
+    // `run --bytecode` native lane (see ssc.bytecode.OpAnfNative).
+    val lifted = _root_.ssc.bytecode.OpAnfNative.lift(program)
+    val sourceDebug = NativeJvmSourceMap.build(lifted, sourceUnits)
     add(
       EntryClass,
-      _root_.ssc.bytecode.JvmByteGen.emitProgram(program, sourceDebug),
+      _root_.ssc.bytecode.JvmByteGen.emitProgram(lifted, sourceDebug),
       "generated CoreIR class")
 
     Option(output.getParentFile).foreach(parent => Files.createDirectories(parent.toPath))
