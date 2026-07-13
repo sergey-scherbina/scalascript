@@ -12,6 +12,8 @@ exports:
   - buildOverflowBtreeDatabase
   - buildDeepTableDatabase
   - buildDeepOverflowTableDatabase
+  - KeyedRow
+  - buildKeyedDatabase
 ---
 
 # SclJet M3 write path
@@ -857,24 +859,86 @@ def buildDeepOverflowTableDatabase(pageSize: Int, changeCounter: Int, schemaCook
             case Left(error) => Left(error)
             case Right(built) =>
               val leaves = packLeaves(built.cells, pageSize)
-              buildTableLeafPage(pageSize, 100, List(encodeTableLeafCell(1L, schemaRecord))) match
-                case Left(error) => Left(error)
-                case Right(page1Body) =>
-                  if leaves.length <= 1 then
-                    val leafCells = leaves match
-                      case Nil => Nil
-                      case Cons(leaf, _) => leaf.cells
-                    buildTableLeafPage(pageSize, 0, leafCells) match
-                      case Left(error) => Left(error)
-                      case Right(page2Body) =>
-                        val pageCount = 2 + built.overflowPages.length
-                        val page1 = tableFileHeader(pageSize, pageCount, changeCounter, schemaCookie) ++ page1Body
-                        ByteSlice.fromList(page1 ++ page2Body ++ cellsFlatten(built.overflowPages))
-                  else
-                    buildTreeBodies(leaves, pageSize) match
-                      case Left(error) => Left(error)
-                      case Right(tree) =>
-                        val pageCount = 1 + tree.treePages + built.overflowPages.length
-                        val page1 = tableFileHeader(pageSize, pageCount, changeCounter, schemaCookie) ++ page1Body
-                        ByteSlice.fromList(page1 ++ cellsFlatten(tree.interiorBodies) ++ cellsFlatten(tree.leafBodies) ++ cellsFlatten(built.overflowPages))
+              assembleOverflowTree(pageSize, changeCounter, schemaCookie, schemaRecord, leaves, built.overflowPages)
+
+// ── Assemble a tree (leaf/interior) + trailing overflow chains from packed leaves. ──
+//
+// Shared by the deep-overflow and keyed writers: page 1 = schema, pages 2..1+T =
+// the tree (a single leaf, or interior levels over leaves), then the overflow
+// chains on 2+T..N.
+def assembleOverflowTree(pageSize: Int, changeCounter: Int, schemaCookie: Int,
+    schemaRecord: ByteSlice, leaves: List[LeafPlan], overflowPages: List[List[Int]]): Either[ByteError, ByteSlice] =
+  buildTableLeafPage(pageSize, 100, List(encodeTableLeafCell(1L, schemaRecord))) match
+    case Left(error) => Left(error)
+    case Right(page1Body) =>
+      if leaves.length <= 1 then
+        val leafCells = leaves match
+          case Nil => Nil
+          case Cons(leaf, _) => leaf.cells
+        buildTableLeafPage(pageSize, 0, leafCells) match
+          case Left(error) => Left(error)
+          case Right(page2Body) =>
+            val pageCount = 2 + overflowPages.length
+            val page1 = tableFileHeader(pageSize, pageCount, changeCounter, schemaCookie) ++ page1Body
+            ByteSlice.fromList(page1 ++ page2Body ++ cellsFlatten(overflowPages))
+      else
+        buildTreeBodies(leaves, pageSize) match
+          case Left(error) => Left(error)
+          case Right(tree) =>
+            val pageCount = 1 + tree.treePages + overflowPages.length
+            val page1 = tableFileHeader(pageSize, pageCount, changeCounter, schemaCookie) ++ page1Body
+            ByteSlice.fromList(page1 ++ cellsFlatten(tree.interiorBodies) ++ cellsFlatten(tree.leafBodies) ++ cellsFlatten(overflowPages))
+
+// ── Explicit-rowid table writer (m3f foundation: preserve rowids across a rewrite) ──
+
+case class KeyedRow(rowid: Long, values: List[SqliteValue])
+
+/** Like `encodeOverflowRowCells`, but each row carries its OWN rowid (rather than
+ *  an auto 1..n counter). Rowids must be strictly ascending — the B-tree/rowid
+ *  order the reader and `integrity_check` require. */
+def encodeKeyedOverflowRowCells(rows: List[KeyedRow], pageSize: Int, usableSize: Int, startPage: Int): Either[ByteError, OverflowBtreeRows] =
+  var koRemaining = rows
+  var koNextPage = startPage
+  var koCellsRev: List[RowCell] = Nil
+  var koPagesRev: List[List[Int]] = Nil
+  var koFailure: Option[ByteError] = None
+  while koRemaining.nonEmpty && koFailure.isEmpty do
+    val koRow = koRemaining.head
+    encodeRecord(koRow.values) match
+      case Left(error) => koFailure = Some(error)
+      case Right(recordSlice) =>
+        val koCell = encodeOverflowCell(koRow.rowid, byteSliceToList(recordSlice), pageSize, usableSize, koNextPage)
+        koCellsRev = RowCell(koRow.rowid, koCell.cell) :: koCellsRev
+        koPagesRev = prependOverflowPages(koCell.overflowPages, koPagesRev)
+        koNextPage = koNextPage + koCell.overflowPages.length
+        koRemaining = koRemaining.tail
+  koFailure match
+    case Some(error) => Left(error)
+    case None => Right(OverflowBtreeRows(koCellsRev.reverse, koPagesRev.reverse))
+
+/** The most general bulk writer: rows with EXPLICIT (strictly ascending) rowids,
+ *  any B-tree depth, and cell overflow. This is what a rowid-preserving rewrite
+ *  (delete/update via read-modify-rewrite) builds on — the surviving rows keep
+ *  their original rowids instead of being renumbered 1..n. Byte-verified against
+ *  reference `integrity_check`; reads back exact including `rowid`. */
+def buildKeyedDatabase(pageSize: Int, changeCounter: Int, schemaCookie: Int,
+    tableName: String, createSql: String, rows: List[KeyedRow]): Either[ByteError, ByteSlice] =
+  val usableSize = pageSize
+  val schemaValues = List(SqlText("table"), SqlText(tableName), SqlText(tableName),
+    SqlInteger(2L), SqlText(createSql))
+  encodeRecord(schemaValues) match
+    case Left(error) => Left(error)
+    case Right(schemaRecord) =>
+      // Pass 1: placeholder overflow pointers fix leaf packing + tree shape.
+      encodeKeyedOverflowRowCells(rows, pageSize, usableSize, 0) match
+        case Left(error) => Left(error)
+        case Right(probe) =>
+          val probeLeaves = packLeaves(probe.cells, pageSize)
+          val overflowStart = 2 + treePageCount(probeLeaves, pageSize)
+          // Pass 2: real overflow pages numbered after the whole tree.
+          encodeKeyedOverflowRowCells(rows, pageSize, usableSize, overflowStart) match
+            case Left(error) => Left(error)
+            case Right(built) =>
+              val leaves = packLeaves(built.cells, pageSize)
+              assembleOverflowTree(pageSize, changeCounter, schemaCookie, schemaRecord, leaves, built.overflowPages)
 ```

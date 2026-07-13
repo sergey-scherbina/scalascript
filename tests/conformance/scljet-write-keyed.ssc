@@ -1,0 +1,34 @@
+---
+name: scljet-write-keyed
+description: SclJet M3 explicit-rowid table writer — rows keep their own (gapped) rowids across a rewrite, cross-backend
+backends: [int, js]
+---
+
+# SclJet explicit-rowid writer
+
+[ByteSlice, byteSliceToList, SqliteValue, SqlInteger, SqlText, KeyedRow, buildKeyedDatabase](std/scljet/index.ssc)
+
+```scalascript
+def text(n: Int): String =
+  if n <= 0 then ""
+  else if n == 1 then "a"
+  else
+    val half = text(n / 2)
+    if n % 2 == 0 then half + half else half + half + "a"
+
+// Explicit, non-contiguous rowids (10, 25, 100, 500, 1000) — the shape left after
+// deleting rows from a table — are preserved verbatim rather than renumbered
+// 1..n. Row 100 carries a 1016-char value that spills onto an overflow chain, so
+// the keyed writer composes with overflow. Reference integrity_check accepts the
+// file and every (rowid, value) reads back exact.
+val rows = List(
+  KeyedRow(10L, List(SqlInteger(10L), SqlText("ten"))),
+  KeyedRow(25L, List(SqlInteger(25L), SqlText("twentyfive"))),
+  KeyedRow(100L, List(SqlInteger(100L), SqlText(text(1016)))),
+  KeyedRow(500L, List(SqlInteger(500L), SqlText("fivehundred"))),
+  KeyedRow(1000L, List(SqlInteger(1000L), SqlText("thousand"))))
+
+buildKeyedDatabase(512, 7, 3, "t", "CREATE TABLE t(n INTEGER, v TEXT)", rows) match
+  case Right(bytes) => println((bytes.length / 512).toString + ":" + byteSliceToList(bytes).toString)
+  case Left(error) => println("ERROR:" + error.message)
+```
