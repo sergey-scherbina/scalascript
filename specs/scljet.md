@@ -1966,15 +1966,18 @@ M2d's first reference corpus slices landed in `17fd8238a`, `315e68d44`,
   tool compiled against the official 3.53.3 amalgamation. It invokes
   `SQLITE_FCNTL_RESERVE_BYTES` and `VACUUM`; no header bytes are fabricated.
 - `tests/e2e/scljet-m2-corpus-smoke.sh` passes through the assembled JVM VFS:
-  SclJet reproduces all 643 oracle lines, 25 pinned corrupt files produce
+  SclJet reproduces all 643 oracle lines, 30 pinned corrupt files produce
   their stable structured errors, and 32 bounded mutations yield only success
   or `SqliteError` (`32:30:2`). A valid 183-page freelist found and now guards
   the former recursive interpreter stack overflow.
-- The named corruption slice now spans all decoded header value invariants,
-  trusted page-count/file-size disagreement, B-tree header/pointer bounds,
-  pointer-map kind/ownership, and freelist range/cycle/count/duplicate checks.
-  Each input pins its SHA plus a stable field/message substring and produces no
-  platform exception or hang through the assembled runner.
+- The named corruption slice (30 files) spans all decoded header value
+  invariants, trusted page-count/file-size disagreement, B-tree header/pointer
+  bounds, pointer-map kind/ownership, freelist range/cycle/count/duplicate
+  checks, and deep page-1 sqlite_schema record damage: a reserved serial type
+  (10/11), an unknown schema object type, a negative or out-of-range rootpage,
+  and a page freeblock chain that is not increasing and in range. Each input
+  pins its SHA plus a stable field/message substring and produces no platform
+  exception or hang through the assembled runner, on all three interpreter tiers.
 - `tests/conformance/run.sh --only 'scljet-*' --no-memo` remains 6/6.
 
 Verification continued on 2026-07-13 (VM/ASM parity lock):
@@ -2009,6 +2012,9 @@ With the four executable tiers reproducing the reference oracle and the corrupt
 diagnostics, the byte-for-value corpus and safe-corruption M2 behavior gates are
 now covered on the interpreter, VM, ASM, and fallback lanes; JS exactness stays
 an explicit open gate. Exact table-leaf and index-btree payload thresholds are
-now pinned (`overflow-thresholds.db`, `index-overflow-thresholds.db`); deep
-record/overflow/freeblock/schema byte-mutation corruptions remain queued M2d
-hardening (`BACKLOG.md`).
+pinned (`overflow-thresholds.db`, `index-overflow-thresholds.db`), and deep
+page-1 record/freeblock/schema byte-mutation corruptions fail safely with
+localized diagnostics. The one remaining M2d hardening item is user-table
+overflow-chain traversal corruption (truncated/looped chains on non-schema
+pages), which needs a traversal-based negative check beyond the open-time
+`openReadonly` validation (`BACKLOG.md`).
