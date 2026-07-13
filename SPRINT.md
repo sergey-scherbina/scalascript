@@ -329,6 +329,24 @@ with extensions isolated behind an explicit non-default profile.
       tracked as `scljet-js-m1-parity` / `scljet-js-m2-cursor-parity` in `BACKLOG.md`);
       no JDBC/sql.js substitution. Remaining M2d hardening (index-btree payload
       thresholds + deep record/overflow/freeblock/schema corruptions) moved to `BACKLOG.md`.
+- [ ] **scljet-m2d-hardening-1-index-thresholds** — add index-btree payload-threshold
+      vectors. Reader index X = `((u-12)*64/255)-23` (u=512 -> X=102), distinct from the
+      table-leaf `u-35`. Plan: (a) generalize `generate.py`'s hard-coded `idx_t_a` oracle
+      case to dump ANY index's key records in physical b-tree order via
+      `PRAGMA index_info` + `SELECT <cols>,rowid FROM <tbl> ORDER BY <cols>,rowid`
+      (matches how the SclJet dumper emits raw index record fields); (b) add
+      `index-overflow-thresholds.db` (blob-keyed index, keys straddling index X: local,
+      the K>X residue fall, K<=X, multi-page overflow); (c) append oracle/manifest via the
+      generator's own functions; (d) verify the reader reproduces every index row
+      byte-for-value on VM/ASM/fallback tiers. Done-when the corpus e2e is green on all
+      tiers with the index-overflow file and full regen reproduces it byte-identically.
+- [ ] **scljet-m2d-hardening-2-deep-corruptions** — add deep byte-mutation corruptions
+      to `generate.py`'s `corruptions()` path: truncated/looped overflow chain, corrupt
+      freeblock span, invalid/reserved serial-type header (10/11), and sqlite_schema row
+      damage (bad rootpage/type). Pin each with its stable `SqliteError` field/message
+      substring; only commit mutations the reader demonstrably rejects (observe the real
+      localized error first — never fabricate). Extend `corrupt-manifest.tsv` /
+      `corrupt-errors.txt`; the corrupt-check e2e must stay green on all tiers.
 ## v2-swift-nativeui-i18n-json — standard `lower/serve`, locale and JSON parity (2026-07-12)
 
 Claim: `.work/active/v2-swift-nativeui-i18n-json.claim`. Spec:
