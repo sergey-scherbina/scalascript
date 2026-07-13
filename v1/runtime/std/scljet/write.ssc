@@ -7,6 +7,7 @@ exports:
   - emptyDatabase
   - encodeRecord
   - buildSingleTableDatabase
+  - buildTableDatabase
 ---
 
 # SclJet M3 write path
@@ -244,4 +245,132 @@ def buildSingleTableDatabase(pageSize: Int, changeCounter: Int, schemaCookie: In
                 case Right(page2Body) =>
                   val page1 = tableFileHeader(pageSize, 2, changeCounter, schemaCookie) ++ page1Body
                   ByteSlice.fromList(page1 ++ page2Body)
+
+// ── Multi-page rowid-table B-tree (m3d: balancing via bottom-up bulk build) ──
+
+case class RowCell(rowid: Long, bytes: List[Int])
+case class LeafPlan(cells: List[List[Int]], maxRowid: Long)
+
+// A `while` loop (not recursion): row counts reach the thousands, and the
+// interpreter does not TCO a self-call nested inside a `match`, so recursion
+// here overflows the stack around a hundred rows.
+def encodeRowCellsWithRowid(rows: List[List[SqliteValue]], startRowid: Long): Either[ByteError, List[RowCell]] =
+  var remaining = rows
+  var rowid = startRowid
+  var acc: List[RowCell] = Nil
+  var failure: Option[ByteError] = None
+  while remaining.nonEmpty && failure.isEmpty do
+    encodeRecord(remaining.head) match
+      case Left(error) => failure = Some(error)
+      case Right(record) =>
+        acc = RowCell(rowid, encodeTableLeafCell(rowid, record)) :: acc
+        rowid = rowid + 1L
+        remaining = remaining.tail
+  failure match
+    case Some(error) => Left(error)
+    case None => Right(acc.reverse)
+
+/** Greedily pack row cells (in rowid order) into leaf pages, each filled until
+ *  the next cell would exceed the page. A `while` loop (see the note above).
+ *  Assumes each cell fits on a page (no cell overflow — a separate follow-up). */
+def packLeaves(cells: List[RowCell], pageSize: Int): List[LeafPlan] =
+  var remaining = cells
+  var curRev: List[List[Int]] = Nil
+  var curBytes = 0
+  var curCount = 0
+  var curMax = 0L
+  var leaves: List[LeafPlan] = Nil
+  while remaining.nonEmpty do
+    val rc = remaining.head
+    val used = 8 + 2 * (curCount + 1) + curBytes + rc.bytes.length
+    if used <= pageSize || curCount == 0 then
+      curRev = rc.bytes :: curRev
+      curBytes = curBytes + rc.bytes.length
+      curCount = curCount + 1
+      curMax = rc.rowid
+      remaining = remaining.tail
+    else
+      leaves = LeafPlan(curRev.reverse, curMax) :: leaves
+      curRev = Nil
+      curBytes = 0
+      curCount = 0
+      curMax = 0L
+  // NB: a bare post-`while` `if cond then stmt` (no else) is mis-evaluated by the
+  // interpreter (see BUGS.md scljet-if-then-no-else-after-while) — use an
+  // if/else expression to finalize the last partial leaf.
+  val allLeaves = if curCount > 0 then LeafPlan(curRev.reverse, curMax) :: leaves else leaves
+  allLeaves.reverse
+
+def buildLeafPages(leaves: List[LeafPlan], pageSize: Int): Either[ByteError, List[List[Int]]] = leaves match
+  case Nil => Right(Nil)
+  case Cons(leaf, tail) =>
+    buildTableLeafPage(pageSize, 0, leaf.cells) match
+      case Left(error) => Left(error)
+      case Right(body) =>
+        buildLeafPages(tail, pageSize) match
+          case Left(error) => Left(error)
+          case Right(rest) => Right(body :: rest)
+
+/** A table interior cell: `u32(leftChildPage) ++ varint(rowidKey)`. */
+def encodeInteriorCell(childPage: Int, rowid: Long): List[Int] =
+  writeBe32(childPage) ++ byteSliceToList(encodeVarint(rowid))
+
+/** Divider cells for every leaf except the last (which becomes the rightmost
+ *  child); each key is that leaf's maximum rowid. */
+def interiorDividers(leaves: List[LeafPlan], page: Int): List[List[Int]] = leaves match
+  case Nil => Nil
+  case Cons(leaf, Nil) => Nil
+  case Cons(leaf, tail) => encodeInteriorCell(page, leaf.maxRowid) :: interiorDividers(tail, page + 1)
+
+/** A table-interior B-tree page (12-byte header with the rightmost child). */
+def buildTableInteriorPage(pageSize: Int, headerOffset: Int, cells: List[List[Int]], rightChild: Int): Either[ByteError, List[Int]] =
+  val count = cells.length
+  val total = cellsTotal(cells)
+  val contentStart = pageSize - total
+  val gap = contentStart - (headerOffset + 12 + 2 * count)
+  if gap < 0 then Left(ByteError("overflow", "interior page cells do not fit (needs another level — m3d+)", 0))
+  else
+    val csField = if contentStart == 65536 then 0 else contentStart
+    val header = List(5, 0, 0) ++ writeBe16(count) ++ writeBe16(csField) ++ List(0) ++ writeBe32(rightChild)
+    Right(header ++ cellPointers(cells, contentStart) ++ writeZeros(gap) ++ cellsFlatten(cells))
+
+/** Assemble a rowid-table database that may span many pages: page 1 is
+ *  `sqlite_schema`, page 2 is the table root. Rows are bulk-loaded bottom-up —
+ *  when they overflow one leaf, page 2 becomes a table-interior root over the
+ *  leaves on pages 3..N. Generalizes `buildSingleTableDatabase`; produces a
+ *  file reference `integrity_check` accepts. Deep (3+ level) trees and cell
+ *  overflow are follow-ups. */
+def buildTableDatabase(pageSize: Int, changeCounter: Int, schemaCookie: Int,
+    tableName: String, createSql: String, rows: List[List[SqliteValue]]): Either[ByteError, ByteSlice] =
+  val schemaValues = List(SqlText("table"), SqlText(tableName), SqlText(tableName),
+    SqlInteger(2L), SqlText(createSql))
+  encodeRecord(schemaValues) match
+    case Left(error) => Left(error)
+    case Right(schemaRecord) =>
+      encodeRowCellsWithRowid(rows, 1L) match
+        case Left(error) => Left(error)
+        case Right(rowCells) =>
+          val leaves = packLeaves(rowCells, pageSize)
+          buildTableLeafPage(pageSize, 100, List(encodeTableLeafCell(1L, schemaRecord))) match
+            case Left(error) => Left(error)
+            case Right(page1Body) =>
+              if leaves.length <= 1 then
+                val leafCells = leaves match
+                  case Nil => Nil
+                  case Cons(leaf, _) => leaf.cells
+                buildTableLeafPage(pageSize, 0, leafCells) match
+                  case Left(error) => Left(error)
+                  case Right(page2Body) =>
+                    val page1 = tableFileHeader(pageSize, 2, changeCounter, schemaCookie) ++ page1Body
+                    ByteSlice.fromList(page1 ++ page2Body)
+              else
+                buildLeafPages(leaves, pageSize) match
+                  case Left(error) => Left(error)
+                  case Right(leafPages) =>
+                    val rightChild = 2 + leaves.length
+                    buildTableInteriorPage(pageSize, 0, interiorDividers(leaves, 3), rightChild) match
+                      case Left(error) => Left(error)
+                      case Right(interiorBody) =>
+                        val page1 = tableFileHeader(pageSize, 2 + leaves.length, changeCounter, schemaCookie) ++ page1Body
+                        ByteSlice.fromList(page1 ++ interiorBody ++ cellsFlatten(leafPages))
 ```

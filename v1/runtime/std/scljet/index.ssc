@@ -123,6 +123,7 @@ exports:
   - emptyDatabase
   - encodeRecord
   - buildSingleTableDatabase
+  - buildTableDatabase
   - SqliteValue
   - SqlNull
   - SqlInteger
@@ -335,7 +336,7 @@ interfaces and prove compatibility through differential and crash testing.
 [SchemaObjectKind, SchemaTable, SchemaIndex, SchemaView, SchemaTrigger, SchemaStorageKind, SchemaRowidTable, SchemaWithoutRowidTable, SchemaIndexBtree, SchemaNoBtree, SchemaEntry, ReadonlySchema, ReadonlyDatabase](schema.ssc)
 
 [ReadonlyCursorStep, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly](readonly.ssc)
-[emptyDatabase, encodeRecord, buildSingleTableDatabase](write.ssc)
+[emptyDatabase, encodeRecord, buildSingleTableDatabase, buildTableDatabase](write.ssc)
 
 [FileKind, MainDatabaseFile, MainJournalFile, WalFile, ShmFile, TempDatabaseFile, TempJournalFile, TransientFile, OpenFlags, LockLevel, LockNone, LockShared, LockReserved, LockPending, LockExclusive, SyncFlags, DeviceCharacteristic, AtomicWrite, SafeAppend, SequentialWrite, PowersafeOverwrite, UndeletableWhenOpen, AtomicDelete, ShmLockMode, ShmSharedLock, ShmExclusiveLock, ShmSharedUnlock, ShmExclusiveUnlock, VfsError, VfsRead, VfsWrite, SharedRegion, SqliteFile, SqliteVfs](vfs.ssc)
 
