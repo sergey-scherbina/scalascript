@@ -1,5 +1,0 @@
-feature/uniml-markdown-tail 2026-07-13T12:17:44Z
-agent: opus-continue
-heartbeat: 2026-07-13T12:17:44Z
-status: in-progress
-next: (a) emit container continuation markers as trivia (not inline text) via paragraph SEGMENTS so multi-line inline spans resolve across a > / list marker; (b) assess deeper container nesting. Keep 30/30 + adversarial corpus green.
