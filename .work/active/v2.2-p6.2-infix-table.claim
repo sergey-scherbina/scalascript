@@ -1,6 +1,0 @@
-feature/v2.2-p6.2-infix-table 2026-07-13T16:52:04Z
-agent: claude-code (opus-continue)
-heartbeat: 2026-07-13T16:52:04Z
-status: implementing
-done-so-far: P6.0 gate + P6.1 error model landed. Starting P6.2 first slice: full infix precedence table (extend spike lexer+Pratt+projection to ssc1-front's operator set + precedence), CoreIR-diff against ssc1-front on an operator corpus. Offside-layout is the NEXT slice.
-next: match ssc1-front opPrec exactly for ops that map to mkInf(op,l,r); defer special-cased :: -> to/until.
