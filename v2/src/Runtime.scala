@@ -2295,7 +2295,9 @@ object Prims:
           case other     => other
         })
       UnitV
-    case "io.println" => a => out(a(0), Console.out); Console.out.println(); UnitV
+    // Atomic string+newline: concurrent actors printing at once must not interleave (else two
+    // `println`s produce "abcd\n\n" instead of "ab\ncd\n"). Sync on the shared stream.
+    case "io.println" => a => Console.out.synchronized { out(a(0), Console.out); Console.out.println() }; UnitV
     case "io.eprint"  => a => out(a(0), Console.err); UnitV
     case "io.args"   => _ => strList(Runtime.argv)
     case "io.nanoTime"  => _ => IntV(System.nanoTime())
