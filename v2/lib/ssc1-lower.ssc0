@@ -1204,6 +1204,14 @@ def selMethodOr = (method, robj, rargs) =>
     Pair("prim", Pair("__method__", Cons(Pair("str", "take"), Cons(robj, rargs))))
   else if #seq(method, "sum") then
     Pair("prim", Pair("__method__", Cons(Pair("str", "sum"), Cons(robj, rargs))))
+  -- foldLeft via the runtime __method__ (not the self-hosted _sel_foldLeft): its methodOp threads an
+  -- Op receiver (`perform().foldLeft(z)(f)`), which the curried _sel_foldLeft's inner Local-match does
+  -- NOT (the bytecode backend only A-normalizes mayOp Match/Let/Seq scrutinees, and a Local isn't one).
+  -- __method__ also handles a superset of receiver types (List/ArrayBuffer/Map). Same for foldRight.
+  else if #seq(method, "foldLeft") then
+    Pair("prim", Pair("__method__", Cons(Pair("str", "foldLeft"), Cons(robj, rargs))))
+  else if #seq(method, "foldRight") then
+    Pair("prim", Pair("__method__", Cons(Pair("str", "foldRight"), Cons(robj, rargs))))
   else if isKnownSelMethod(method) then
     Pair("app", Pair(Pair("var", #sconcat("_sel_", method)), Cons(robj, rargs)))
   else
