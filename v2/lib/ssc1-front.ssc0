@@ -2336,7 +2336,16 @@ def parseOneStmt = (toks) =>
             let ts4 = skipToBrace(advance(ts3)) in
             let rec parseObj = (ts, acc) =>
               let ts5 = skipSemis(ts) in
-              if kindIs("}", ts5) then pr(Pair("given_obj", Pair(gname, Pair(typeStr, reverse(acc)))), advance(ts5))
+              if kindIs("}", ts5) then
+                -- An `extension` group inside the body closes as `} extension_end` (a virtual E frame);
+                -- that ends the EXTENSION, not the given. Consume both, reset the extension params (so a
+                -- following regular `def` isn't given the receiver), keep the extension_end marker (so
+                -- ssc1-lower's extension tracking stops here), and continue the body.
+                let tsE = advance(ts5) in
+                if kindIs("extension_end", tsE) then
+                  let _clrExt = #cell.set(extensionParamsCell, Nil) in
+                  parseObj(advance(tsE), Cons(Pair("extension_end", ""), acc))
+                else pr(Pair("given_obj", Pair(gname, Pair(typeStr, reverse(acc)))), tsE)
               else if kindIs("EOF", ts5) then pr(Pair("given_obj", Pair(gname, Pair(typeStr, reverse(acc)))), ts5)
               else
                 let r = parseOneStmt(ts5) in
