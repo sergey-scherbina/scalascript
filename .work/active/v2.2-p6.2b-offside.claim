@@ -1,0 +1,6 @@
+feature/v2.2-p6.2b-offside 2026-07-13T17:02:48Z
+agent: claude-code (opus-continue)
+heartbeat: 2026-07-13T17:02:48Z
+status: implementing
+done-so-far: P6.0/P6.1/P6.2a landed (95d075acf). Starting P6.2b: offside layout — indented def-body blocks (val bindings + final expr) via significant indentation, matching ssc1-front AST for CoreIR-diff. Compute block boundaries from token columns in the RD parser; block frame wraps statements; emit uniform.
+next: match ssc1-front block/val AST exactly; CoreIR-diff a val-block corpus.
