@@ -121,11 +121,18 @@ are plain bullets without checkboxes so agents do not claim them as build work.
       rowids — preserved across a rewrite instead of renumbered 1..n — composing
       with overflow and any depth; verified rowids `[10,25,100,500,1000]` read back
       exact incl. a 1016-char overflow row, int==js (conformance
-      `scljet-write-keyed`). This is the write-side foundation for m3f. Remaining
-      for m3f delete/update: the READ-and-rewrite half — open the DB over a memory
-      VFS, cursor its rows to `(rowid, values)` (or raw record bytes), filter/edit,
-      and rebuild via `buildKeyedDatabase`. (4) True IN-PLACE insert/update
-      (mutating pages) is the separate pager/journal path (m3e).
+      `scljet-write-keyed`). This is the write-side foundation for m3f. Row DELETE
+      is DONE (2026-07-13): `mutate.ssc` `deleteRowids`/`keepRowids` open the DB
+      read-only over its own bytes (`ImageVfs`), read each surviving row as its raw
+      record payload (`reconstructRecordBytes` from the reader's `DecodedRecord` —
+      no value/text round-trip), and rebuild via `buildFromRawSchema` preserving
+      the raw `sqlite_schema` record and original rowids. Verified vs reference
+      `integrity_check` incl. an overflow row, int==js (conformance
+      `scljet-mutate-delete`). Remaining: value-changing `UPDATE` (constructing a
+      NEW text value needs code-point→String — see BUGS.md
+      `portable-codepoint-string-construction`; rowid/structural updates are fine
+      via the raw path), multi-table / non-page-2 roots, and (4) true IN-PLACE
+      insert/update mutating pages (the separate pager/journal path, m3e).
 
 - [x] **scljet-byteslice-zeros-js-recursion** — DONE 2026-07-13. The core list
       helpers in `scljet/bytes.ssc` were made iterative (`while`+`var`, not linear

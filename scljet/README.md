@@ -41,11 +41,17 @@ arbitrary-depth B-tree writer (`buildDeepTableDatabase`, stacking interior level
 to any depth — verified on a real 3-level tree), a combined deep-plus-overflow
 writer (`buildDeepOverflowTableDatabase`, a 3-level tree whose oversized rows also
 spill onto chains), a general explicit-rowid writer (`buildKeyedDatabase` — rows
-keep their own gapped rowids across a rewrite, the foundation for
-rowid-preserving delete/update), and the rollback journal (`writeRollbackJournal`
-+ hot-journal `applyRollbackJournal`, byte-identical to SQLite's journal). The
-mutable pager, pager recover-on-open, and the read-and-rewrite half of
-delete/update remain.
+keep their own gapped rowids across a rewrite), and the rollback journal
+(`writeRollbackJournal` + hot-journal `applyRollbackJournal`, byte-identical to
+SQLite's journal).
+
+Row **delete** on an existing single-table database works end-to-end
+(`mutate.ssc`): `deleteRowids`/`keepRowids` open the file read-only over its own
+bytes, read every surviving row back as its raw record payload, and rebuild the
+table with the original `sqlite_schema` record and rowids preserved — verified
+against reference `integrity_check` including overflow rows, int==js. The mutable
+pager, in-place page mutation (m3e), and value-changing `UPDATE` (blocked on
+code-point→String) remain.
 
 ## Modules
 
@@ -56,8 +62,9 @@ delete/update remain.
 | `freelist.ssc` / `btree.ssc` / `schema.ssc` | freelist/pointer-map validation, cursors, `sqlite_schema` |
 | `pager.ssc` / `readonly.ssc` | SHARED-locked immutable pager and the read-only facade |
 | `vfs.ssc` / `memory-vfs.ssc` / `jvm-vfs.ssc` | file-system abstraction (in-memory + real files) |
-| `write.ssc` | M3 write path: header/record encoders, table and multi-page B-tree writers |
+| `write.ssc` | M3 write path: header/record encoders, table and multi-page B-tree writers (incl. overflow, arbitrary depth, explicit rowids) |
 | `journal.ssc` | rollback-journal write + hot-journal recovery |
+| `mutate.ssc` | read-modify-rewrite: delete/keep rows in an existing single-table database |
 | `index.ssc` | the module manifest re-exporting the public API |
 
 The full specification and behavior gates are in
