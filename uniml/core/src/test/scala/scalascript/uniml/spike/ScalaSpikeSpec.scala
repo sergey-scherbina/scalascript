@@ -213,6 +213,22 @@ final class ScalaSpikeSpec extends AnyFunSuite:
     assert(proj.contains("""Pair("summon", "Int")"""), proj)
   }
 
+  test("enum: nullary + parametrized cases parse and project") {
+    val pr = parse("enum Opt:\n  case Sm(v: Int)\n  case Nn\ndef main(): Int = 0")
+    assert(pr.status == CompletionStatus.Complete, pr.diagnostics)
+    val e = allBranches(pr.roots.head, "spike.enum").head
+    assert(e.edges.count { case UniEdge(_, UniNode.Branch("spike.enumcase", _, _, _)) => true; case _ => false } == 2)
+    val proj = SpikeProject.program(pr.roots.head)
+    assert(proj.contains("""Pair("enum", Pair("Opt""""), proj)
+    assert(proj.contains("""Pair("Sm", Cons("v", Nil))"""), proj)
+  }
+
+  test("enum: comma-separated nullary cases (Scala sugar)") {
+    val pr = parse("enum Color:\n  case Red, Green, Blue\ndef main(): Int = 0")
+    val e = allBranches(pr.roots.head, "spike.enum").head
+    assert(e.edges.count { case UniEdge(_, UniNode.Branch("spike.enumcase", _, _, _)) => true; case _ => false } == 3)
+  }
+
   test("tuple pattern parses to spike.tuppat; uid application projects to mkUVar/mkApp") {
     val m = defBody(parse("def main(): Int = Pair(1, 2) match\n  case (a, b) => a\n  case _ => 0")).asInstanceOf[UniNode.Branch]
     assert(childWithRole(arms(m).head, "case.pat").get.asInstanceOf[UniNode.Branch].kind == "spike.tuppat")
@@ -308,7 +324,10 @@ final class ScalaSpikeSpec extends AnyFunSuite:
       "cc-match"  -> "case class Box(a: Int, b: Int)\ndef main(): Int = Box(10, 20) match\n  case Box(x, y) => x + y\n  case _ => 0",
       // P6.2e — given instance + summon (typeclass resolution core; lowerProg does dict-passing)
       "given-summon"  -> "given g: Int = 42\ndef main(): Int = summon[Int]",
-      "given-summon2" -> "given g: Int = 7\ndef main(): Int = summon[Int] + 1"
+      "given-summon2" -> "given g: Int = 7\ndef main(): Int = summon[Int] + 1",
+      // P6.2f — enum (nullary comma-sugar + parametrized cases); lowerProg reuses the ctor path
+      "enum-nullary" -> "enum Color:\n  case Red, Green, Blue\ndef main(): Int = Green match\n  case Red => 1\n  case Green => 2\n  case Blue => 3",
+      "enum-params"  -> "enum Opt:\n  case Sm(v: Int)\n  case Nn\ndef main(): Int = Sm(9) match\n  case Sm(v) => v\n  case Nn => 0"
     )
     // broken — no oracle; the harness proves containment (`main` still runs).
     val broken = Seq(

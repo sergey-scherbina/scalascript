@@ -26,7 +26,7 @@ enum Node:
 
 // ── lexer ────────────────────────────────────────────────────────────────────
 object SpikeLex:
-  private val keywords = Set("def", "val", "if", "then", "else", "match", "case", "class", "given")
+  private val keywords = Set("def", "val", "if", "then", "else", "match", "case", "class", "given", "enum")
   private def isOpChar(c: Char): Boolean = "+-*/%<>=!&|^~:".indexOf(c.toInt) >= 0
 
   def scan(src: SourceId, text: String): Vector[SourceToken] =
@@ -119,6 +119,11 @@ object SpikeParse:
     def peekLine: Int = peek.map(_.span.start.line).getOrElse(-1)
     def peekCol: Int = peek.map(_.span.start.column).getOrElse(-1)
     def peekPrec: Int = if peekKind == "spike.op" then opPrec(peekLexeme) else 0
+    def peek2Lexeme: String = // the second significant (non-trivia) token's lexeme
+      skipTrivia()
+      var q = p + 1
+      while q < toks.length && toks(q).kind == "spike.ws" do q += 1
+      if q < toks.length then toks(q).lexeme else ""
     def advance(): Option[SourceToken] = { skipTrivia(); if p < toks.length then { val t = toks(p); p += 1; Some(t) } else None }
     def skipSemis(): Unit = while peekKind == "spike.semi" do advance()
     def diagnostics: Vector[Diagnostic] = diags.result()
@@ -136,6 +141,7 @@ object SpikeParse:
       if isDefStart(c) then defs += parseDef(c)
       else if isKw(c, "case") then defs += parseCaseClass(c)
       else if isKw(c, "given") then defs += parseGiven(c)
+      else if isKw(c, "enum") then defs += parseEnum(c)
       else
         c.report("spike.unexpected-toplevel", s"unexpected token '${c.peekLexeme}' at top level")
         val skipped = Vector.newBuilder[Node]
@@ -201,6 +207,45 @@ object SpikeParse:
         else more = false
     expect(c, "spike.rparen", "cc.rparen", "')'").foreach(kids += _)
     Node.Frame("spike.casecls", None, kids.result())
+
+  // `enum E: case A; case B(x: Int); case Red, Green` (offside or `{ … }`). Emits
+  // ("enum", (name, [(caseName, [fieldNames])…])); lowerProg reuses the case-class ctor path.
+  private def parseEnum(c: Cur): Node =
+    val kids = Vector.newBuilder[Node]
+    c.advance().foreach(t => kids += Node.Leaf(t, Some("enum.kw"))) // `enum`
+    expect(c, "spike.uid", "enum.name", "enum name").foreach(kids += _)
+    val braced = c.peekKind == "spike.lbrace"
+    if c.peekKind == "spike.colon" then c.advance().foreach(t => kids += Node.Leaf(t, Some("enum.colon")))
+    else if braced then c.advance().foreach(t => kids += Node.Leaf(t, Some("enum.lbrace")))
+    c.skipSemis()
+    // a following top-level `case class` (peek2 == "class") is NOT an enum case
+    while isKw(c, "case") && c.peek2Lexeme != "class" do
+      c.advance().foreach(t => kids += Node.Leaf(t, Some("enum.casekw"))) // `case`
+      kids += parseEnumCase(c, allowParams = true)
+      while c.peekKind == "spike.comma" do
+        c.advance().foreach(t => kids += Node.Leaf(t, Some("enum.comma")))
+        kids += parseEnumCase(c, allowParams = false) // comma tail = nullary cases
+      c.skipSemis()
+    if braced && c.peekKind == "spike.rbrace" then c.advance().foreach(t => kids += Node.Leaf(t, Some("enum.rbrace")))
+    Node.Frame("spike.enum", None, kids.result())
+
+  private def parseEnumCase(c: Cur, allowParams: Boolean): Node =
+    val kids = Vector.newBuilder[Node]
+    expect(c, "spike.uid", "ec.name", "case name").foreach(kids += _)
+    if allowParams && c.peekKind == "spike.lparen" then
+      c.advance().foreach(t => kids += Node.Leaf(t, Some("ec.lparen")))
+      var more = c.peekKind != "spike.rparen" && !c.eof
+      while more do
+        val fn = expect(c, "spike.id", "ec.field", "field name")
+        fn.foreach(kids += _)
+        if fn.isEmpty then more = false
+        else
+          expect(c, "spike.colon", "ec.fieldColon", "':'").foreach(kids += _)
+          expectType(c, "ec.fieldType").foreach(kids += _)
+          if c.peekKind == "spike.comma" then c.advance().foreach(t => kids += Node.Leaf(t, Some("ec.comma")))
+          else more = false
+      expect(c, "spike.rparen", "ec.rparen", "')'").foreach(kids += _)
+    Node.Frame("spike.enumcase", None, kids.result())
 
   // `given name: T = expr` — a named typeclass instance (dictionary). lowerProg's resolve pass
   // does the dict-passing; the projection only emits the `("given", (name, typeStr, body))` node.
@@ -474,7 +519,20 @@ object SpikeProject:
       case (_, c) if kindOf(c) == "spike.def"     => defNode(c)
       case (_, c) if kindOf(c) == "spike.casecls" => caseClsNode(c)
       case (_, c) if kindOf(c) == "spike.given"   => givenNode(c)
+      case (_, c) if kindOf(c) == "spike.enum"    => enumNode(c)
     })
+
+  // Pair("enum", Pair(name, [Pair(caseName, [fieldNames])…])) — lowerProg makes each case a ctor.
+  private def enumNode(n: UniNode): String =
+    val ks = kids(n)
+    val name = ks.collectFirst { case (Some("enum.name"), c) => lexeme(c) }.getOrElse("_")
+    val cases = ks.collect { case (_, c) if kindOf(c) == "spike.enumcase" => enumCase(c.asInstanceOf[UniNode.Branch]) }
+    s"""Pair("enum", Pair("${esc(name)}", ${consList(cases)}))"""
+
+  private def enumCase(b: UniNode.Branch): String =
+    val cname = kids(b).collectFirst { case (Some("ec.name"), c) => lexeme(c) }.getOrElse("_")
+    val fields = kids(b).collect { case (Some("ec.field"), c) => "\"" + esc(lexeme(c)) + "\"" }.toVector
+    s"""Pair("${esc(cname)}", ${consList(fields)})"""
 
   // Pair("given", Pair(name, Pair(typeStr, body))) — lowerProg builds the given table + IrDef.
   private def givenNode(n: UniNode): String =
