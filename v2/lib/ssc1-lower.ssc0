@@ -3165,6 +3165,10 @@ def lowerStmtToList = (stmt) =>
             match rest {
               case Pair(params, body) =>
                 let scope = revL(params) in
+                -- A top-level extension method that ALSO has given-body instances is emitted under
+                -- `name__ext_default` so the bare `name` dispatcher can delegate to it (else it would
+                -- be clobbered by the dispatcher). Given-body defs are prefixed, so never match here.
+                let emitName = if extNeedsMangle(name) then #sconcat(name, "__ext_default") else name in
                 -- KC5b: set active ctx for summon dispatch within this def body
                 let prevCtx = #cell.get(kc5ActiveCtxCell) in
                 let _setCtx = #cell.set(kc5ActiveCtxCell, computeActiveCtx(params)) in
@@ -3173,9 +3177,9 @@ def lowerStmtToList = (stmt) =>
                 let ir = match resolvedBody {
                   case Pair(btag, bdata) =>
                     if #seq(btag, "block") then
-                      IrDef(name, IrLam(lenL(params), lowerBlock(scope, bdata)))
+                      IrDef(emitName, IrLam(lenL(params), lowerBlock(scope, bdata)))
                     else
-                      IrDef(name, IrLam(lenL(params), lowerE(scope, resolvedBody)))
+                      IrDef(emitName, IrLam(lenL(params), lowerE(scope, resolvedBody)))
                 } in
                 let _restCtx = #cell.set(kc5ActiveCtxCell, prevCtx) in
                 Cons(ir, Nil)
@@ -4277,6 +4281,35 @@ def extTypeTags = (typeHead) =>
 def extMemberStr = (x, xs) =>
   match xs { case Nil => false case Cons(h, t) => if #seq(h, x) then true else extMemberStr(x, t) }
 
+-- Extension methods declared at TOP LEVEL (not inside a given body). A method with BOTH a top-level
+-- extension AND given-body instances gets its top-level impl emitted under `m__ext_default`, and the
+-- bare `m` dispatcher falls back to it (instead of clobbering it / returning the receiver).
+def collectTopLevelExtMethods = (stmts) =>
+  let rec go = (ss, active) =>
+    match ss {
+      case Nil => Nil
+      case Cons(s, rest) =>
+        match s {
+          case Pair(tag, data) =>
+            if #seq(tag, "extension_start") then go(rest, true)
+            else if #seq(tag, "extension_end") then go(rest, false)
+            else if active then
+              (if #seq(tag, "def") then match data { case Pair(name, dr) => Cons(name, go(rest, active)) }
+               else go(rest, active))
+            else go(rest, active)
+        }
+    } in
+  go(stmts, false)
+
+def topLevelExtMethodsCell = #cell.new(Nil)
+def extDispatchMethodsCell = #cell.new(Nil)
+def hasTopLevelExt = (name) => extMemberStr(name, #cell.get(topLevelExtMethodsCell))
+-- `m` should have its top-level ext mangled iff it ALSO has given-body dispatch instances.
+def extNeedsMangle = (name) =>
+  if extMemberStr(name, #cell.get(topLevelExtMethodsCell)) then
+    extMemberStr(name, #cell.get(extDispatchMethodsCell))
+  else false
+
 -- Arg locals for an arity-N lambda, in source-param order [IrLocal(N-1) … IrLocal(0)] (param at
 -- source position k binds to IrLocal(N-1-k), so the first param/receiver is IrLocal(N-1)).
 def descLocals = (n) =>
@@ -4336,7 +4369,18 @@ def extInstancesFor = (m, entries) =>
       match e { case Pair(em, rst) => if #seq(em, m) then Cons(rst, extInstancesFor(m, r)) else extInstancesFor(m, r) }
   }
 
--- One bare dispatcher IrDef for extension method `m`: if <recv is T1> then g1_m(args…) else … else recv.
+-- Distinct extension-method names defined across given bodies.
+def extDispatchMethodNames = (stmts) =>
+  let rec uniq = (es, seen) =>
+    match es {
+      case Nil => Nil
+      case Cons(e, r) =>
+        match e { case Pair(mm, mrest) => if extMemberStr(mm, seen) then uniq(r, seen) else Cons(mm, uniq(r, Cons(mm, seen))) }
+    } in
+  uniq(collectExtDispatch(stmts), Nil)
+
+-- One bare dispatcher IrDef for extension method `m`: if <recv is T1> then g1_m(args…) else … else
+-- <fallback>, where fallback delegates to a top-level `m__ext_default` impl if one exists, else recv.
 def emitOneExtDispatcher = (m, insts) =>
   match insts {
     case Nil => Nil
@@ -4344,9 +4388,10 @@ def emitOneExtDispatcher = (m, insts) =>
       let arity = match first { case Pair(th, rr) => match rr { case Pair(impl, ar) => ar } } in
       let args = descLocals(arity) in
       let recvLocal = IrLocal(#i.sub(arity, 1)) in
+      let fallback = if hasTopLevelExt(m) then IrApp(IrGlobal(#sconcat(m, "__ext_default")), args) else recvLocal in
       let rec build = (is) =>
         match is {
-          case Nil => recvLocal
+          case Nil => fallback
           case Cons(i, r) =>
             match i { case Pair(th, rr) => match rr { case Pair(impl, ar) =>
               IrIf(orTagTests(recvLocal, extTypeTags(th)), IrApp(IrGlobal(impl), args), build(r)) } }
@@ -4357,23 +4402,21 @@ def emitOneExtDispatcher = (m, insts) =>
 -- Emit one dispatcher per distinct extension-method name defined across given bodies.
 def emitExtDispatchers = (stmts) =>
   let entries = collectExtDispatch(stmts) in
-  let rec uniq = (es, seen) =>
-    match es {
-      case Nil => Nil
-      case Cons(e, r) =>
-        match e { case Pair(mm, mrest) => if extMemberStr(mm, seen) then uniq(r, seen) else Cons(mm, uniq(r, Cons(mm, seen))) }
-    } in
   let rec emitAll = (ms) =>
     match ms {
       case Nil => Nil
       case Cons(mm, r) => appendL(emitOneExtDispatcher(mm, extInstancesFor(mm, entries)), emitAll(r))
     } in
-  emitAll(uniq(entries, Nil))
+  emitAll(extDispatchMethodNames(stmts))
 
 def lowerProg = (stmts) =>
   -- K62.18: imported extension identity is AST-owned, never transient parser
   -- state. This must run before resolveE classifies selected method calls.
   let _em = #cell.set(extensionMethodsCell, collectExtensionMethods(stmts)) in
+  -- Extension-dispatch registries: top-level extension methods + given-body dispatch names, so a
+  -- method with both gets its top-level impl mangled to `m__ext_default` (dispatcher fallback).
+  let _tle = #cell.set(topLevelExtMethodsCell, collectTopLevelExtMethods(stmts)) in
+  let _ede = #cell.set(extDispatchMethodsCell, extDispatchMethodNames(stmts)) in
   -- KC5: initialize given table and sig table from parsed stmts
   let _gt = #cell.set(kc5GivenCell, buildGivenTable(stmts)) in
   let _st = #cell.set(kc5SigCell, buildSigTable(stmts)) in
