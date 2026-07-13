@@ -1,5 +1,22 @@
 # Bug tracker
 
+## v2-bridged-ui-signal-id-field — std/ui `signal(...).id` crashes on the bridged VM lane
+
+**Status:** open (2026-07-13); found by opus running `examples/swift/appcore-nativeui.ssc`
+on `ssc-tools run --v2` (the FrontendBridge VM lane). `val m = signal("name","before"); m.id`
+crashes `__method__: no field 'id' on named-method-obj (None)` (`v2/src/Runtime.scala:2957`).
+The v1 std/ui `signal` (`extern def signal[T](name, default): Signal[T]`, primitives.ssc)
+is bridged into v2 as a `NamedMethodObj` that exposes `.set` (works) but whose
+`getField("id")` returns `None` — even though the NATIVE v2 ui-plugin represents a signal as
+`DataV("NativeUiSignal", [id, scope, kind, read, write, metadata])` WITH an `id` field +
+`registerTaggedMethod("NativeUiSignal","id")` (`UiNativePlugin.scala:417/451`). So the app's
+`textNode(message.id)` works on the native/Swift lane but crashes on the bridged VM lane —
+a cross-lane inconsistency in the v1-std/ui→v2 PluginBridge NamedMethodObj wrapper (shared
+bridge/kernel area, NOT Swift-specific). NOT-BLOCKING for the Swift lane (appcore-nativeui runs
+end-to-end via `run --v2 --target macos`). Fix belongs to the FrontendBridge/plugin-bridge
+owner: make the bridged std/ui signal's NamedMethodObj resolve `id` (and the other declared
+`NativeUiSignal` fields) from the underlying signal, mirroring the native ui-plugin.
+
 ## v2-swift-at-global-cell-vivification — mutated signals crash "unbound global: @x"
 
 **Status:** FIXED (2026-07-13, opus); found running the native-UI example apps
