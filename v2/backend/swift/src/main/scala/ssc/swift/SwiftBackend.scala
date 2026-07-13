@@ -378,7 +378,7 @@ object SwiftBackend:
     var prims = Set.empty[String]
     def walk(term: Term): Unit = term match
       case Term.Lit(_) | Term.Local(_) => ()
-      case Term.Global(name) => if !(definitions(name) || builtinGlobals(name)) then globals += name
+      case Term.Global(name) => if !(definitions(name) || builtinGlobals(name) || name.startsWith("@")) then globals += name
       case Term.Lam(_, body) => walk(body)
       case Term.App(fn, args) => walk(fn); args.foreach(walk)
       case Term.Let(rhs, body) => rhs.foreach(walk); walk(body)
@@ -399,6 +399,11 @@ object SwiftBackend:
   private def validateTerm(term: Term, definitions: Set[String]): Unit = term match
     case Term.Lit(_) | Term.Local(_) => ()
     case Term.Global(name) if definitions(name) || builtinGlobals(name) => ()
+    // `@`-prefixed globals are lazily-vivified cells (a `val x = Signal(0)`
+    // mutated via `x += 1` lowers to cell.set(Global("@x"), …) with no
+    // global.reg). The runtime auto-creates them on first access, mirroring
+    // v2/src/Runtime.scala:686-689, so they are not "unsupported".
+    case Term.Global(name) if name.startsWith("@") => ()
     case Term.Global(name) => fail(s"unsupported global '$name'")
     case Term.Lam(_, body) => validateTerm(body, definitions)
     case Term.App(fn, args) => validateTerm(fn, definitions); args.foreach(validateTerm(_, definitions))

@@ -163,6 +163,24 @@ final class SwiftBackendTest extends AnyFunSuite:
     val primitiveError = intercept[IllegalArgumentException](SwiftBackend.generate(badPrimitive))
     assert(primitiveError.getMessage == "swift backend: unsupported primitive 'host.secret'")
 
+  test("Swift validation authorizes @-prefixed cell globals as lazily-vivified cells"):
+    // Regression for the real gap found running examples/frontend/dashboard/dashboard.ssc
+    // natively: `val refreshTick = Signal(0)` mutated via `refreshTick += 1` inside a
+    // Button lambda lowers to cell.set(Global("@refreshTick"), …) with no matching
+    // global.reg. The general interpreter (v2/src/Runtime.scala:686-689) auto-creates
+    // `@`-cells on first access, so Swift generation must not reject them as unsupported.
+    val cellGlobal = Program(Nil, Term.Seq(List(
+      Term.Prim("cell.set", List(Term.Global("@refreshTick"), Term.Lit(Const.CInt(1)))),
+      Term.Prim("cell.get", List(Term.Global("@refreshTick"))),
+    )))
+    assert(SwiftBackend.generate(cellGlobal).files.nonEmpty)
+    // A bare (never-set) `@`-global reference is likewise authorized.
+    assert(SwiftBackend.generate(Program(Nil, Term.Global("@fresh"))).files.nonEmpty)
+    // But a non-`@` unbound global still fails.
+    assert(intercept[IllegalArgumentException](
+      SwiftBackend.generate(Program(Nil, Term.Global("host.secret")))).getMessage ==
+      "swift backend: unsupported global 'host.secret'")
+
   test("Swift validation authorizes only unconditional entry-spine registrations"):
     val registered = Program(Nil,
       Term.Let(List(str("en")), Term.Seq(List(
@@ -565,6 +583,19 @@ public enum SessionProbe {
     val program = Program(Nil, Term.Lit(Const.CStr(tricky)))
     val expected = "\"" + tricky.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
     assert(runSwift("sexpr-string-escape", program) == expected)
+
+  test("real swift run auto-vivifies @-prefixed cell globals like the general interpreter"):
+    assume(swiftAvailable, "Swift toolchain is not available")
+    // The dashboard.ssc `refreshTick += 1` shape: set an unregistered `@`-cell, then
+    // read-modify-write it, matching v2/src/Runtime.scala auto-vivify semantics.
+    def int(value: Long) = Term.Lit(Const.CInt(value))
+    def tick = Term.Global("@tick")
+    val program = Program(Nil, Term.Seq(List(
+      Term.Prim("cell.set", List(tick, int(41))),
+      Term.Prim("cell.set", List(tick, Term.Prim("i.add", List(Term.Prim("cell.get", List(tick)), int(1))))),
+      Term.Prim("cell.get", List(tick)),
+    )))
+    assert(runSwift("cell-global", program) == "42")
 
   test("real swift run matches VM structural fixtures fact tco and map"):
     assume(swiftAvailable, "Swift toolchain is not available")

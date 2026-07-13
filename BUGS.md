@@ -1,5 +1,21 @@
 # Bug tracker
 
+## v2-swift-at-global-cell-vivification — mutated signals crash "unbound global: @x"
+
+**Status:** FIXED (2026-07-13, opus); found running the native-UI example apps
+end-to-end on the Swift lane (continues the busi-app frontier). A `val x = Signal(0)`
+that is later mutated (`x += 1`) lowers to `cell.set(Global("@x"), …)` — but the `@x`
+cell is never `global.reg`'d, so the Swift runtime's `.global` resolution hit
+`fatalError("unbound global: @x")`. The general interpreter (`v2/src/Runtime.scala:686-689`)
+VIVIFIES such a cell on first access; the Swift runtime didn't. Fix (mirrors the
+interpreter exactly): `SwiftRuntime.scala` `.global(name)` now auto-creates a
+`SscCell(.unit)` for a missing `@`-prefixed name instead of crashing; and
+`SwiftBackend.scala` excludes `@`-prefixed names from the free-variable "unbound global"
+set and from the `validateTerm` "unsupported global" check (they are vivified cells, not
+external symbols). Verified under real swift-run: `refreshTick += 1` read-modify-writes the
+auto-vivified cell like the interpreter. `v2SwiftBackend/test` green (2 new tests: validation
+authorizes `@`-cells; real-swift auto-vivify).
+
 ## interp-tco-tail-call-in-match — NOT A BUG (investigated 2026-07-13)
 
 Claimed during m3d that "the interpreter does not TCO a tail self-call nested

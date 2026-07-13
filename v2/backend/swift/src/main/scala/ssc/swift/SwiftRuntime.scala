@@ -784,8 +784,18 @@ private final class Machine {
             guard environment.indices.contains(resolved) else { fatalError("local: index \(index) out of bounds") }
             return .value(environment[resolved])
         case let .global(name):
-            guard let result = globals[name] else { fatalError("unbound global: \(name)") }
-            return .value(result)
+            if let result = globals[name] { return .value(result) }
+            // Auto-create cells for @xxx globals on first access (lazy init),
+            // mirroring v2/src/Runtime.scala:686-689. A `val x = Signal(0)`
+            // mutated via `x += 1` lowers to cell.set(Global("@x"), …) but the
+            // `@x` cell is never global.reg'd — the general interpreter vivifies
+            // it on first touch, so the Swift runtime must too.
+            if name.hasPrefix("@") {
+                let created = SscValue.cell(SscCell(.unit))
+                globals[name] = created
+                return .value(created)
+            }
+            fatalError("unbound global: \(name)")
         case let .lambda(arity, body):
             return .value(.closure(SscClosure(arity: arity, environment: environment, body: body)))
         case let .apply(function, arguments):
