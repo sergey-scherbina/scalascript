@@ -7021,6 +7021,26 @@ JS `1410065408` = mod 2^32; JVM emits Scala's 32-bit `Int`). Huge blast radius
       regressions) BEFORE each push. Only push net-positive stages. deep-tail-recursion green
       on all 3 = done. WIP on feature/int64b (given+rewrite, ff8e90fc2, 84→11).
 
+### ▶ v1→v2 codegen migration — BASELINE + SCOPE REFRAMING (2026-07-13, chosen path A for Int→Long)
+- [~] **v2-codegen-migration-baseline** — measured the v2 bytecode lane (`ssc run --bytecode`) over the
+      whole conformance corpus vs `expected/`: **99 PASS / 76 FAIL / 20 SKIP**. KEY REFRAMING: making
+      v2 the default codegen (which resolves Int→Long, since CoreIR is natively 64-bit) is NOT an
+      Int→Long task — it is **v2-codegen FEATURE COMPLETENESS**. The 76 fails are dominated by v2
+      feature gaps, NOT Int: ~33 feature-ish (actors/http/ws/effect/distributed/ui/sql/…), and of the
+      ~40 first-order fails the clusters are:
+        · typeclass / tagless (~12: tagless-*, std-functor/monad/monaderror/selective/bifunctor/
+          semigroup-monoid, typeclass-extension) → v2 emits `__missing_tc_<Cls>` unbound global.
+        · case-class body methods (case-class-body-methods: no-arg `base.size()` → falls through to a
+          plugin-bridge `DataV("Stub")`, while `base.get(i)` works — a v2 method-dispatch gap for
+          empty-param-list methods).
+        · self-hosted std intrinsics on v2 (json-read → "jsonParse is self-hosted; import std/json.ssc").
+        · optics/datasets/content-projection/html-dsl each their own gap.
+      ⇒ The Int→Long *benefit* of v2 is incidental; the *cost* is closing ~76 v2 feature gaps, i.e. the
+      whole v2 codegen project (multi-quarter). DECISION NEEDED: commit to v2-feature-completeness one
+      class at a time (biggest lever = typeclass/given dispatch, ~12 cases), OR accept the documented v1
+      Int-32-bit limitation + `codegen: v2` opt-in for the rare 64-bit-Int case (current: 1 case,
+      deep-tail-recursion). Sweep artifact: scratch `sweep_v2bc.txt`.
+
 ### ▶ ssc-toolkit-v2 (2026-07-07, owner-directed via busi: the busi SPA must move React→ScalaScript)
 
 Requirements source: busi `src/v2/specs/frontend-on-scalascript.md` (owner 2026-07-06). busi is the
