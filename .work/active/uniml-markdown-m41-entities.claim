@@ -1,5 +1,0 @@
-feature/uniml-markdown-entities 2026-07-13T10:56:16Z
-agent: opus-continue
-heartbeat: 2026-07-13T10:56:16Z
-status: in-progress
-next: expand MarkdownProjection named-entity table to the common HTML4/XHTML set (Latin-1 + Greek + punctuation/symbols/arrows/math); numeric already decodes; unknown names stay literal (lossless)
