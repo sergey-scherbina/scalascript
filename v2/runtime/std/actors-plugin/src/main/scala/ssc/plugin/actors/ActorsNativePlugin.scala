@@ -332,6 +332,21 @@ final class ActorsNativePlugin extends NativePlugin:
       case _ => throw new IllegalArgumentException("globalWhereis(name)")
     }
 
+    // `register(name, pid)` binds a local name → actor ref; `whereis(name)`
+    // resolves it to `Some(ref)`/`None`. Both share the `namedRefs` table with
+    // `publishAs`/`globalWhereis` (single-node: local and cluster names coincide).
+    context.registerGlobal("register", 2) {
+      case Value.StrV(name) :: pid :: Nil => namedRefs.put(name, pid); Value.UnitV
+      case _ => throw new IllegalArgumentException("register(name, pid)")
+    }
+
+    context.registerGlobal("whereis", 1) {
+      case Value.StrV(name) :: Nil =>
+        Option(namedRefs.get(name)).map(value => Value.DataV("Some", Vector(value)))
+          .getOrElse(Value.DataV("None", Vector.empty))
+      case _ => throw new IllegalArgumentException("whereis(name)")
+    }
+
     context.registerGlobal("runActors", 1) {
       case body :: Nil =>
         behaviors.clear()
