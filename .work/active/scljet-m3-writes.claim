@@ -1,6 +1,6 @@
 feature/scljet-m3-writes 2026-07-13T11:38:32Z
 agent: claude-code
-heartbeat: 2026-07-13T13:13:36Z
+heartbeat: 2026-07-13T14:16:31Z
 status: in-progress
-done-so-far: m3b (empty-DB), m3c (single-table insert), m3d (multi-page B-tree balancing) all DONE (35f257521). buildTableDatabase bulk-builds multi-leaf/interior-root rowid trees; 200 rows→8 pages, integrity_check=ok, count 200/sum 20100; int/VM/ASM/native/JS; conformance scljet-write-btree. Found+worked-around a real interp bug (BUGS.md interp-if-then-no-else-after-while). Follow-ups in BACKLOG scljet-m3-write-followups (SqlReal, cell overflow, 3+ level trees, incremental insert).
-next: m3e — rollback journal (DELETE/PERSIST/TRUNCATE): write page pre-images before mutation, commit/rollback, hot-journal recovery on open. Verify fault-injected aborts leave the file fully committed or fully rolled back, each integrity_check=ok. Then m3f delete/update.
+done-so-far: m3b/m3c/m3d done; m3e hot-journal RECOVERY done (120da8a9e) — journal.ssc applyRollbackJournal parses the official rollback-journal format + SQLite sparse checksum (confirmed vs a real journal), restores pre-images byte-identical, truncates to recorded size; verified page-512.db (1 rec) + comprehensive.db (2 recs) recover byte-identical, integrity_check=ok; not-hot + bad-checksum handled; int/VM/ASM/fallback/JS; conformance scljet-journal-recover. NOTE: corrected an earlier MISDIAGNOSIS — interp DOES TCO tail self-calls in match (verified 1M deep); BUGS.md interp-tco-tail-call-in-match = NOT a bug.
+next: finish m3e — journal WRITER (create <db>-journal from pre-images), wire recovery into pager.ssc open path (currently rejects non-empty journal), transactional begin/commit/rollback cycle (needs mutable pager). Then m3f delete/update.
