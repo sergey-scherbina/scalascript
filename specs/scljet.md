@@ -2030,3 +2030,15 @@ localized diagnostics. The one remaining M2d hardening item is user-table
 overflow-chain traversal corruption (truncated/looped chains on non-schema
 pages), which needs a traversal-based negative check beyond the open-time
 `openReadonly` validation (`BACKLOG.md`).
+
+M3 progress (2026-07-13): the first write-path slice landed. `write.ssc`'s
+`emptyDatabase(pageSize)` serializes a freshly-created empty database — the
+inverse of the M1 header reader — byte-identical to reference SQLite 3.53.3
+(`PRAGMA page_size=N; VACUUM`) for page sizes 512/1024/4096/65536, identical on
+the VM/ASM/tree-walk tiers, round-tripping through `decodeDatabaseHeader`. An
+empty database is schema format 0, text encoding 0, one page, change counter 1.
+Conformance `scljet-write-empty` (`[int, js]`, sizes 512..8192 — see the JS
+`ByteSlice.zeros` recursion follow-up in `BACKLOG.md`) and example
+`examples/scljet-write-empty.ssc`. The M3 behavior gates below (mutation +
+integrity_check, rollback/recovery, cross-process locking) remain open pending
+slices m3c–m3f.
