@@ -952,10 +952,33 @@ def parseAtom = (toks) =>
     else if #seq(v, "???") then pr(Pair("prim", Pair("__notImplemented__", Nil)), advance(toks))  -- Scala Predef.??? → notImplemented prim
     else if #seq(v, "_") then pr(Pair("ph", ""), advance(toks))   -- K62.6c: underscore placeholder
     else if #seq(v, "throw") then
-      -- K62.18: `throw e` → __throw__(e), mirroring the scalameta bridge (Term.Throw).
-      -- __throw__ is registered by the plugin runtime (loadAll); the bare VM has none.
+      -- `throw e` → prim __throw__(e). A PRIM (not a plugin global) so it resolves on the native lane
+      -- (Prims.resolve) as well as the bridge lane; the runtime raises an SscThrow carrying the value.
       let r = parseExpr(advance(toks)) in
-      pr(mkApp(mkVar("__throw__"), Cons(prV(r), Nil)), prT(r))
+      pr(Pair("prim", Pair("__throw__", Cons(prV(r), Nil))), prT(r))
+    else if #seq(v, "try") then
+      -- `try BODY catch { case … } [finally F]` → prim __tryCatch__(() => BODY, {case…}) [/ …Finally].
+      -- BODY and F are 0-arg thunks so the runtime controls evaluation order; the catch is a partial
+      -- function over the caught value (thrown value, or a RuntimeException DataV for host errors).
+      let rBody = parseExpr(advance(toks)) in
+      let bodyThunk = mkLam(Nil, prV(rBody)) in
+      let ts2 = prT(rBody) in
+      if #seq(tokVal(peek(ts2)), "catch") then
+        let ts3 = advance(ts2) in
+        let rPf = if kindIs("{", ts3) then parseBlockArg(advance(ts3)) else parseExpr(ts3) in
+        let catchPf = prV(rPf) in
+        let ts4 = prT(rPf) in
+        if #seq(tokVal(peek(ts4)), "finally") then
+          let rFin = parseExpr(advance(ts4)) in
+          pr(Pair("prim", Pair("__tryCatchFinally__",
+               Cons(bodyThunk, Cons(catchPf, Cons(mkLam(Nil, prV(rFin)), Nil))))), prT(rFin))
+        else
+          pr(Pair("prim", Pair("__tryCatch__", Cons(bodyThunk, Cons(catchPf, Nil)))), ts4)
+      else if #seq(tokVal(peek(ts2)), "finally") then
+        let rFin = parseExpr(advance(ts2)) in
+        pr(Pair("prim", Pair("__tryFinally__", Cons(bodyThunk, Cons(mkLam(Nil, prV(rFin)), Nil)))), prT(rFin))
+      else
+        pr(prV(rBody), ts2)
     else pr(mkVar(v), advance(toks))
   else if #seq(k, "uid") then pr(mkUVar(v), advance(toks))
   else if #seq(k, "kw") then
@@ -2634,6 +2657,8 @@ def isCont = (ts) =>
         if #seq(k, "kw") then
           (if #seq(v, "else") then true else if #seq(v, "match") then true
            else if #seq(v, "yield") then true else false)
+        else if #seq(k, "id") then
+          (if #seq(v, "catch") then true else if #seq(v, "finally") then true else false)
         else if #seq(k, "op") then #i.gt(opPrec(v), 0)
         else if #seq(k, ".") then true
         else if #seq(k, "::") then true
@@ -2682,6 +2707,9 @@ def canStartLine = (ts) =>
         else if #seq(k, "kw") then
           (if #seq(v, "else") then false else if #seq(v, "match") then false
            else if #seq(v, "yield") then false else true)
+        -- `catch`/`finally` continue a `try` on the next line; they never START a statement.
+        else if #seq(k, "id") then
+          (if #seq(v, "catch") then false else if #seq(v, "finally") then false else true)
         else true }
   }
 

@@ -17,6 +17,9 @@ final case class Call(clos: Value.ClosV, args: Array[Value]) extends Step  // a 
   * exceptions remain outside this category and must reach the program boundary. */
 final class RecoverableError(message: String) extends RuntimeException(message)
 
+/** A ScalaScript `throw e` — carries the thrown VALUE so `try … catch { case … }` can bind it. */
+final class SscThrow(val value: Value) extends RuntimeException
+
 sealed trait Value
 object Value:
   case object UnitV                                    extends Value
@@ -2121,6 +2124,21 @@ object Prims:
     // Scala Predef.??? — a valid, resolvable prim that throws only when actually
     // evaluated (e.g. an untaken `else ???` branch never fires).
     case "__notImplemented__" => _ => throw new NotImplementedError("an implementation is missing")
+    // Exceptions: `throw e` and `try BODY catch { case … } [finally …]` (native front lowers these to
+    // these prims). The catch handler is a 1-arg closure receiving the caught VALUE — the thrown value
+    // for `throw e`, or DataV("RuntimeException", [message]) for a host RuntimeException so a
+    // `case e: RuntimeException => e.getMessage` arm works. Non-RuntimeException host errors propagate.
+    case "__throw__" => a => throw new SscThrow(a(0))
+    case "__tryCatch__" => a =>
+      val body = a(0).asInstanceOf[Value.ClosV]; val handler = a(1).asInstanceOf[Value.ClosV]
+      tryRun(body, handler)
+    case "__tryCatchFinally__" => a =>
+      val body = a(0).asInstanceOf[Value.ClosV]; val handler = a(1).asInstanceOf[Value.ClosV]
+      val fin = a(2).asInstanceOf[Value.ClosV]
+      try tryRun(body, handler) finally callClos(fin, Array.empty)
+    case "__tryFinally__" => a =>
+      val body = a(0).asInstanceOf[Value.ClosV]; val fin = a(1).asInstanceOf[Value.ClosV]
+      try callClos(body, Array.empty) finally callClos(fin, Array.empty)
     case "__mdStrip__" => a => a(0) match
       case StrV(s) =>
         // v1 Interpreter.stripIndent: drop blank edge lines, remove the
@@ -2583,6 +2601,12 @@ object Prims:
           IntV(unlist(recv).length.toLong)
         case (DataV("Cons", _), "length", Nil) | (DataV("Cons", _), "size", Nil) =>
           IntV(unlist(recv).length.toLong)
+        // Exception value (`try … catch { case e: RuntimeException => e.getMessage }`): the caught
+        // value is DataV("<...>Exception"/"<...>Error", [message]); getMessage returns the message.
+        case (DataV(tag, IndexedSeq(msg)), "getMessage", Nil)
+            if tag.endsWith("Exception") || tag.endsWith("Error") => msg
+        case (DataV(tag, IndexedSeq(msg)), "getLocalizedMessage", Nil)
+            if tag.endsWith("Exception") || tag.endsWith("Error") => msg
         case (DataV("Nil", _), "head", Nil)  => sys.error("head on empty list")
         case (DataV("Cons", f), "head", Nil) => f(0)
         case (DataV("Cons", f), "tail", Nil) => f(1)
@@ -3692,6 +3716,15 @@ object Prims:
     case _ => false
   private def callClos(fn: Value.ClosV, args: Array[Value]): Value =
     Runtime.run(fn.code, if args.isEmpty then fn.env else Runtime.extend(fn.env, args))
+  /** Run a `try` body thunk; on a ScalaScript `throw` or a host RuntimeException, invoke the catch
+    * handler with the caught value. Non-RuntimeException host errors propagate to the boundary. */
+  private def tryRun(body: Value.ClosV, handler: Value.ClosV): Value =
+    try callClos(body, Array.empty)
+    catch
+      case t: SscThrow         => callClos(handler, Array(t.value))
+      case e: RuntimeException =>
+        callClos(handler, Array(Value.DataV("RuntimeException",
+          Vector(Value.StrV(Option(e.getMessage).getOrElse(""))))))
   private val valueOrdering: Ordering[Value] = Ordering.fromLessThan {
     case (IntV(a), IntV(b))     => a < b
     case (FloatV(a), FloatV(b)) => a < b
