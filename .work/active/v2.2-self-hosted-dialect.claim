@@ -1,0 +1,6 @@
+feature/v2.2-self-hosted-dialect-spec 2026-07-13T15:50:55Z
+agent: claude-code (opus-continue)
+heartbeat: 2026-07-13T15:50:55Z
+status: writing-spec
+done-so-far: Design converged with Sergiy on ssc v2.2 — self-hosted Scala-3 subset dialect, parsed by UniML, compiled via ssc0 to any backend, dual-compilable with scalac. Four decisions settled: (1) typed holes — error nodes propagate to typed IR, total pipeline; (2) design for dialect injection (b) + registry, implement block-composition (a) + interpolator injection first; (3) user-extensible dialects = later (registry hook only); (4) resync at structural boundary, only Scala-subset executable in v2.2.
+next: Write specs/v2.2-self-hosted-dialect.md (spec-dev: new milestone), queue phases into SPRINT/BACKLOG. This is uniml-portable phase 6 (endgame). Co-led with Sergiy.
