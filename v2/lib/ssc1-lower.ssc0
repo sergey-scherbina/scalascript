@@ -1462,6 +1462,26 @@ def dfltRegLookup = (nm, reg) =>
       match h { case Pair(fnm, entry) =>
         if #seq(fnm, nm) then Pair("__some__", entry) else dfltRegLookup(nm, t) }
   }
+
+-- An `object O { def f(x, y = d) }` method is registered (by the front's parseDef)
+-- under the BARE name `f`, but the call `O.f(a)` lowers to `app(var O_f, …)` so the
+-- call-site default synthesis looks up the MANGLED `O_f` and misses. When an object
+-- is lowered, mirror each bare-name default entry under its `O_`-prefixed name.
+-- `funcDefaultsCell` is keyed by BARE name, so two objects' same-named methods
+-- (e.g. Tool.text/1 vs Resource.text/2) share one entry — only mirror it when its
+-- arity matches THIS method's own param count, else Tool_text would inherit
+-- Resource.text's 2-param default and over-apply.
+def aliasFuncDefault = (bareName, mangledName, arity) =>
+  match dfltRegLookup(bareName, #cell.get(funcDefaultsCell)) {
+    case Pair(found, entry) =>
+      if #seq(found, "__some__") then
+        match entry { case Pair(params, dflts) =>
+          if #i.eq(lenL(params), arity) then
+            #cell.set(funcDefaultsCell,
+              Cons(Pair(mangledName, entry), #cell.get(funcDefaultsCell)))
+          else 0 }
+      else 0
+  }
 def hasNamedDfltArg = (args) =>
   match args {
     case Nil => false
@@ -3367,6 +3387,9 @@ def lowerStmtToList = (stmt) =>
                                 -- while a declaration with parameters remains
                                 -- an owned function.
                                 let pfxName = #sconcat(prefix, dname) in
+                                -- Mirror `f`'s call-site default entry under `O_f` so
+                                -- `O.f(a)` with omitted trailing defaults synthesizes them.
+                                let _aliasDflt = aliasFuncDefault(dname, pfxName, lenL(dparams)) in
                                 let lowered =
                                   if #i.eq(lenL(dparams), 0) then
                                     -- `def f` (no parens → parseDef wraps the body
