@@ -2,7 +2,7 @@
 
 ## js-caseclass-body-method-params-dropped — JS drops case-class body methods that take parameters
 
-**Status:** FIXED (2026-07-13, opus). `SHA:pending`.
+**Status:** FIXED (2026-07-13, opus). `8204d588a`.
 
 **Symptom:** a `case class C(...) extends SomeTrait:` whose body defines trait
 methods *with parameters* — e.g. `scljet-readonly-pager-btree.ssc`'s
