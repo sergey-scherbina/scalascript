@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-13 — UniML Markdown: full HTML4/XHTML entity decoding (M4.1)
+
+`MarkdownProjection`'s named-entity table grew from ~15 entries to the complete HTML4/XHTML set
+(~250). The 96 Latin-1 Supplement names are generated from their contiguous U+00A0..U+00FF block
+(no transcription risk); Greek, general punctuation, arrows, mathematical operators, technical
+symbols and suits are listed explicitly. Also corrects the old table's `nbsp`, which mapped to a
+normal space rather than U+00A0. Numeric references already decoded; unknown names still stay
+literal (lossless). A new spot-check test pins the generated Latin-1 ordering and a representative
+sample of symbol decodings. Leaf 26/26 on JVM and Scala.js; exotic HTML5-only names remain deferred.
+
 ## 2026-07-13 — UniML Markdown → DocumentContent bridge (M4.1)
 
 New optional `unimlMarkdownBridge` module (JVM-only, depends on `core` and the Markdown leaf; the

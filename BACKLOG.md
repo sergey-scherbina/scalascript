@@ -35,9 +35,10 @@ are plain bullets without checkboxes so agents do not claim them as build work.
       fences→embedded), differential-tested against `Parser.buildDocumentContent`, reporting model
       loss for block quotes, thematic breaks, raw HTML, definitions, hard/soft-break distinction,
       task state, inline images and strikethrough. 11 tests green. The leaf does not depend on it.
-- [ ] **uniml-markdown-m41-entities** — replace the small named-entity table in `MarkdownProjection`
-      with the full CommonMark/HTML5 named-entity set (numeric entities already decode; unknown named
-      entities currently stay literal, which is lossless but under-decoded in projection).
+- [x] **uniml-markdown-m41-entities** — ✓ Landed (2026-07-13). Expanded `MarkdownProjection`'s
+      named-entity table to the full HTML4/XHTML set (~250: Latin-1 generated from its contiguous
+      block, plus Greek/punctuation/arrow/math). Numeric decode + unknown-stays-literal unchanged.
+      Remaining exotic HTML5-only names (obscure math/legacy no-semicolon forms) still deferred.
 
 ## SclJet interoperability follow-ups (2026-07-12)
 

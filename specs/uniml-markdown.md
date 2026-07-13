@@ -251,8 +251,10 @@ invariance by construction). Emphasis is resolved with a CommonMark-faithful del
 structure uses a container stack whose transitions are `Reframe` instructions, with dangling frames
 closed on the last token to avoid spurious end-of-input diagnostics.
 
-**Landed in M4.1:** the optional `DocumentContent` bridge (`unimlMarkdownBridge`, 2026-07-13) and a
-fix so a sibling list of a different marker type is no longer nested in the previous list frame.
+**Landed in M4.1:** the optional `DocumentContent` bridge (`unimlMarkdownBridge`, 2026-07-13); a fix so
+a sibling list of a different marker type is no longer nested in the previous list frame; and the full
+HTML4/XHTML named-entity set in projection (Latin-1 block generated from its contiguous code points,
+plus Greek/punctuation/arrow/math references).
 
 **Still scoped for M4.1** (queued in `BACKLOG.md`, CST stays lossless meanwhile):
 
@@ -261,4 +263,4 @@ fix so a sibling list of a different marker type is no longer nested in the prev
   fully resolved; continuation markers are preserved as trivia).
 - Deep/mixed container nesting beyond the common cases, and the full CommonMark HTML-block type table
   (types 6/7 plus comment/PI/declaration are recognized as a block; others fall back to paragraphs).
-- The full named-entity table (numeric + common named entities decode; others stay literal, lossless).
+- The exotic HTML5-only named entities beyond the HTML4/XHTML set (unknown names stay literal, lossless).
