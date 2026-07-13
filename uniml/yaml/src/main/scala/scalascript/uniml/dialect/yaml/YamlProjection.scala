@@ -1,7 +1,6 @@
 package scalascript.uniml.dialect.yaml
 
 import scalascript.uniml.*
-import scala.collection.mutable
 
 object YamlProjection:
   def project(result: ParseResult, options: YamlProjectionOptions): YamlProjectionResult =
@@ -26,9 +25,9 @@ object YamlProjection:
             case Right(value)             => YamlProjectionResult(Some(value), diagnostics)
 
   private def validate(stream: YamlValue.Stream): Vector[Diagnostic] =
-    val allDiagnostics = Vector.newBuilder[Diagnostic]
+    var allDiagnostics: Vector[Diagnostic] = Vector.empty
     stream.documents.foreach { document =>
-      val anchors = mutable.LinkedHashMap.empty[String, YamlValue]
+      var anchors: Map[String, YamlValue] = Map.empty
       var anchorCount = 0
       var aliasCount = 0
 
@@ -36,19 +35,20 @@ object YamlProjection:
         nodeAnchor(value).foreach { name =>
           anchorCount += 1
           if anchorCount > 1_000_000 then
-            allDiagnostics += diagnostic("uniml.yaml.limit.anchors", "YAML document exceeds the anchor limit", Severity.Fatal, span)
+            allDiagnostics = allDiagnostics :+ diagnostic("uniml.yaml.limit.anchors", "YAML document exceeds the anchor limit", Severity.Fatal, span)
           if anchors.contains(name) then
-            allDiagnostics += diagnostic("uniml.yaml.duplicate-anchor", s"duplicate YAML anchor '&$name' replaces its previous binding", Severity.Warning, span)
-          anchors.update(name, value)
+            allDiagnostics = allDiagnostics :+ diagnostic("uniml.yaml.duplicate-anchor", s"duplicate YAML anchor '&$name' replaces its previous binding", Severity.Warning, span)
+          anchors = anchors + (name -> value)
         }
         value match
           case YamlValue.Stream(_) => ()
           case YamlValue.Mapping(entries, _, _) =>
-            val seenKeys = mutable.HashSet.empty[String]
+            var seenKeys: Set[String] = Set.empty
             entries.foreach { entry =>
               val fingerprint = keyFingerprint(entry.key)
-              if !seenKeys.add(fingerprint) then
-                allDiagnostics += diagnostic("uniml.yaml.duplicate-key", "duplicate YAML mapping key is preserved", Severity.Warning, Some(entry.span))
+              if seenKeys.contains(fingerprint) then
+                allDiagnostics = allDiagnostics :+ diagnostic("uniml.yaml.duplicate-key", "duplicate YAML mapping key is preserved", Severity.Warning, Some(entry.span))
+              seenKeys = seenKeys + fingerprint
               visit(entry.key, Some(entry.span))
               visit(entry.value, Some(entry.span))
             }
@@ -57,20 +57,20 @@ object YamlProjection:
           case YamlValue.Alias(name) =>
             aliasCount += 1
             if aliasCount > 1_000_000 then
-              allDiagnostics += diagnostic("uniml.yaml.limit.aliases", "YAML document exceeds the alias limit", Severity.Fatal, span)
+              allDiagnostics = allDiagnostics :+ diagnostic("uniml.yaml.limit.aliases", "YAML document exceeds the alias limit", Severity.Fatal, span)
             if !anchors.contains(name) then
-              allDiagnostics += diagnostic("uniml.yaml.undefined-alias", s"alias '*$name' has no preceding anchor in this document", Severity.Error, span)
+              allDiagnostics = allDiagnostics :+ diagnostic("uniml.yaml.undefined-alias", s"alias '*$name' has no preceding anchor in this document", Severity.Error, span)
 
       document.value.foreach(value => visit(value, None))
     }
-    allDiagnostics.result()
+    allDiagnostics
 
   private def resolve(
       stream: YamlValue.Stream,
       options: YamlProjectionOptions,
   ): Either[Vector[Diagnostic], YamlValue.Stream] =
-    val diagnostics = Vector.newBuilder[Diagnostic]
-    val documents = Vector.newBuilder[YamlDocument]
+    var diagnostics: Vector[Diagnostic] = Vector.empty
+    var documents: Vector[YamlDocument] = Vector.empty
     var expansions = 0
     var nodes = 0
     stream.documents.foreach { document =>
@@ -79,7 +79,7 @@ object YamlProjection:
       def cloneValue(value: YamlValue, visiting: Set[String]): Option[YamlValue] =
         nodes += 1
         if nodes > options.maxExpandedNodes then
-          diagnostics += diagnostic(
+          diagnostics = diagnostics :+ diagnostic(
             "uniml.yaml.limit.expansion",
             s"resolved YAML graph exceeds ${options.maxExpandedNodes} nodes",
             Severity.Fatal,
@@ -91,7 +91,7 @@ object YamlProjection:
           case YamlValue.Alias(name) =>
             expansions += 1
             if expansions > options.maxAliasExpansions then
-              diagnostics += diagnostic(
+              diagnostics = diagnostics :+ diagnostic(
                 "uniml.yaml.limit.expansion",
                 s"YAML alias expansion exceeds ${options.maxAliasExpansions}",
                 Severity.Fatal,
@@ -99,51 +99,50 @@ object YamlProjection:
               )
               None
             else if visiting.contains(name) then
-              diagnostics += diagnostic("uniml.yaml.alias-cycle", s"YAML alias cycle reaches '*$name'", Severity.Error, None)
+              diagnostics = diagnostics :+ diagnostic("uniml.yaml.alias-cycle", s"YAML alias cycle reaches '*$name'", Severity.Error, None)
               None
             else anchors.get(name) match
               case None =>
-                diagnostics += diagnostic("uniml.yaml.undefined-alias", s"undefined YAML alias '*$name'", Severity.Error, None)
+                diagnostics = diagnostics :+ diagnostic("uniml.yaml.undefined-alias", s"undefined YAML alias '*$name'", Severity.Error, None)
                 None
               case Some(target) => cloneValue(target, visiting + name)
           case YamlValue.Scalar(value, tag, anchor) => Some(YamlValue.Scalar(value, tag, anchor))
           case YamlValue.Sequence(values, tag, anchor) =>
             sequence(values.map(child => cloneValue(child, visiting))).map(resolved => YamlValue.Sequence(resolved, tag, anchor))
           case YamlValue.Mapping(entries, tag, anchor) =>
-            val resolved = Vector.newBuilder[YamlEntry]
+            var resolved: Vector[YamlEntry] = Vector.empty
             var valid = true
             entries.foreach { entry =>
               (cloneValue(entry.key, visiting), cloneValue(entry.value, visiting)) match
-                case (Some(key), Some(value)) => resolved += YamlEntry(key, value, entry.span)
+                case (Some(key), Some(value)) => resolved = resolved :+ YamlEntry(key, value, entry.span)
                 case _                       => valid = false
             }
-            Option.when(valid)(YamlValue.Mapping(resolved.result(), tag, anchor))
+            Option.when(valid)(YamlValue.Mapping(resolved, tag, anchor))
 
       val resolved = document.value.flatMap(value => cloneValue(value, Set.empty))
-      documents += document.copy(value = resolved)
+      documents = documents :+ document.copy(value = resolved)
     }
-    val resultDiagnostics = diagnostics.result()
-    if resultDiagnostics.nonEmpty then Left(resultDiagnostics) else Right(YamlValue.Stream(documents.result()))
+    if diagnostics.nonEmpty then Left(diagnostics) else Right(YamlValue.Stream(documents))
 
   private def collectAnchors(value: Option[YamlValue]): Map[String, YamlValue] =
-    val result = mutable.LinkedHashMap.empty[String, YamlValue]
+    var result: Map[String, YamlValue] = Map.empty
     def visit(node: YamlValue): Unit =
-      nodeAnchor(node).foreach(name => result.update(name, node))
+      nodeAnchor(node).foreach(name => result = result + (name -> node))
       node match
         case YamlValue.Mapping(entries, _, _) => entries.foreach { entry => visit(entry.key); visit(entry.value) }
         case YamlValue.Sequence(values, _, _) => values.foreach(visit)
         case _                                => ()
     value.foreach(visit)
-    result.toMap
+    result
 
   private def sequence(values: Vector[Option[YamlValue]]): Option[Vector[YamlValue]] =
-    val result = Vector.newBuilder[YamlValue]
+    var result: Vector[YamlValue] = Vector.empty
     var valid = true
     values.foreach {
-      case Some(value) => result += value
+      case Some(value) => result = result :+ value
       case None        => valid = false
     }
-    Option.when(valid)(result.result())
+    Option.when(valid)(result)
 
   private def nodeAnchor(value: YamlValue): Option[String] = value match
     case YamlValue.Mapping(_, _, anchor) => anchor
