@@ -191,9 +191,31 @@ might reuse them — see the `cf`/`bl`/`il`/`bid`/`vb`/`bc` prefixes in
 `scljet/bytes.ssc` and `scljet/write.ssc`. It did NOT bite the existing SclJet
 builders only because they happened to use distinct names down each call chain.
 
-**Likely cause:** the interpreter stores `var` bindings in a scope that is not
-properly pushed/popped (or shadowed) per function invocation, so same-named
-`var`s alias. Needs a fix in the interpreter's local-variable frame handling.
+**Root cause (traced 2026-07-13):** `BlockRuntime.scala` writes every `var`
+declaration and assignment to **`interp.globals` keyed by name**, in addition to
+the local frame:
+- `Defn.Var` — line ~230: `local(n.value) = v; interp.globals(n.value) = v`
+- `Term.Assign` — line ~242: `local(x) = v; interp.globals(x) = v`
+- compound assign (`x += n`) — same dual write ~256-266
+
+This is deliberate (comment at ~233): a `while` loop evaluates its body in a
+`freshEnv`, so body mutations are propagated OUT to the enclosing loop via the
+shared `interp.globals` map rather than a frame reference. Consequence: a callee's
+`var i` writes `interp.globals("i")`, and after the call the caller's loop re-reads
+`i` from that clobbered global. Confirmed tier-independent — same wrong result on
+the bytecode VM, with `SSC_FASTTIER=off`, and with `SSC_FASTTIER=off
+SSC_JIT_BYTECODE=off` (pure tree-walk) — so it is base behavior, not a fast-path
+optimization.
+
+**Fix direction (architectural, broad blast radius — verify across the whole
+interpreter suite + all backends before landing):** make loop-visible mutable
+state per-frame instead of routing it through `interp.globals` by name — e.g. the
+`while`-loop body shares its parent frame's `MutableEnvView` by reference (so
+mutations are seen without the global write), or a user-function invocation
+save/restores the `interp.globals` entries that its local `var` names shadow.
+Every fast path that reads/writes loop vars via `interp.globals(body.names(k))`
+(EvalRuntime `tryLong*While*`, FastTier) must move in lockstep. Until then the
+workaround stands: unique `var` names down each call chain.
 
 ## js-caseclass-body-method-params-dropped — JS drops case-class body methods that take parameters
 
