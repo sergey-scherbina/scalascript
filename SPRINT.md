@@ -25,18 +25,20 @@ safe document semantics and a bounded bridge to the existing ScalaScript `Docume
       container stacks, line-ending/indentation ownership, references/links/images, raw HTML safety,
       fenced embedded-language delegation, diagnostics/recovery, limits, chunk invariance, semantic
       model, `DocumentContent` projection losses, corpus pins, targets, security and exclusions.
-- [ ] **uniml-markdown-1-adapter** — add `unimlMarkdown`/`unimlMarkdownJs` CrossType.Pure projects
-      over UniML; implement bounded chunk-invariant scanning and source-backed VM ranges for headings,
-      paragraphs, thematic breaks, block quotes, lists/items, indented/fenced code, HTML, links,
-      references, emphasis/code spans, breaks and exact trivia/comments.
-- [ ] **uniml-markdown-2-projection** — add an ordered Markdown semantic model plus explicit profiles
-      for CommonMark, GFM tables/task items/strikethrough/autolinks, and ScalaScript headings/fences/
-      `${expr}` boundaries. Keep raw HTML and link destinations inert; project compatible nodes into
-      existing `DocumentContent` without making that compiler model the canonical CST.
-- [ ] **uniml-markdown-3-verify** — run pinned CommonMark examples and focused GFM/ScalaScript cases,
-      every transport split, malformed delimiter/fence/reference/HTML/security/limit cases, unchanged
-      JVM+Scala.js suites, affected content conformance, spec verification, docs/bookkeeping, claim
-      release, then continue to M5 programming-language adapters.
+- [x] **uniml-markdown-1-adapter** — DONE 2026-07-13 (`c58d4187d`). Added `unimlMarkdown`/
+      `unimlMarkdownJs` CrossType.Pure projects over UniML; bounded chunk-invariant whole-source
+      scanner + container-stack block engine (Reframe transitions) with source-backed ranges for
+      headings, paragraphs, thematic breaks, block quotes, lists/items, indented/fenced code, HTML,
+      links, references, emphasis/code spans, breaks and exact trivia.
+- [x] **uniml-markdown-2-projection** — DONE 2026-07-13 (`c58d4187d`). Ordered `MarkdownDocument`
+      semantic model + profiles for CommonMark, GFM tables/task items/strikethrough/autolinks, and
+      ScalaScript front matter/fences/`${expr}`. Raw HTML + destinations stay inert; reference links
+      resolve from collected definitions. `DocumentContent` bridge deferred to M4.1 (BACKLOG).
+- [x] **uniml-markdown-3-verify** — DONE 2026-07-13 (`c58d4187d`, results `d295028ac`). 25 tests
+      green on JVM **and** Scala.js: losslessness, every two-chunk split (CRLF + surrogates),
+      profiles, malformed/limit cases, and a curated CommonMark 0.31.2 corpus (34 examples, all
+      lossless + projecting). Remaining productions profiled in the spec + queued in `BACKLOG.md`.
+      UniML roadmap M1–M4 now complete (JSON/XML/YAML/Markdown).
 
 ## uniml-yaml — lossless safe YAML 1.2 dialect (2026-07-12, Sergiy: "продолжай дальше не останавливайся")
 

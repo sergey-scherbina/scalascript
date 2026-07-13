@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-13 — UniML Markdown (M4) lossless CommonMark/GFM/ScalaScript adapter
+
+Completed UniML roadmap M4 (M1–M4 JSON/XML/YAML/Markdown now all done). The new
+`unimlMarkdown` / `unimlMarkdownJs` `CrossType.Pure` leaf (depends only on `unimlCross`)
+reads Markdown as a lossless presentation language through the token-as-instruction VM: a
+bounded, chunk-invariant whole-source scanner emits a lossless CST, and a separate semantic
+projection exposes `MarkdownDocument`. CommonMark 0.31.2 is the baseline; GFM 0.29 (tables,
+task items, strikethrough, extended autolinks) and ScalaScript (front matter, typed fences,
+`${expr}`) are explicit opt-in profiles. Emphasis uses the CommonMark delimiter algorithm;
+reference links resolve from collected definitions; raw HTML, destinations and expressions
+stay inert (never rendered, fetched, or evaluated). 25 tests green on JVM and Scala.js —
+losslessness, full two-chunk-split invariance (CRLF + surrogate pairs), profiles, malformed
+input, limits, and a curated CommonMark 0.31.2 corpus. M4.1 follow-ups (lazy continuation,
+deeper nesting, the `DocumentContent` bridge, full entity table) are queued in `BACKLOG.md`.
+
 ## 2026-07-13 — SclJet M2d read-only interop verification complete
 
 The pinned read-only SQLite corpus is verified across every interpreter

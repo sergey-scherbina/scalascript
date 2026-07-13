@@ -24,6 +24,21 @@ are plain bullets without checkboxes so agents do not claim them as build work.
       cases and keep JVM/Scala.js behavior identical. This is explicitly deferred from M3 rather than
       silently counted as compatibility already delivered.
 
+- [ ] **uniml-markdown-m41-conformance** — extend the M4 CommonMark 0.31.2 profile through the
+      productions deferred from M4 (CST stays lossless meanwhile): lazy paragraph continuation, full
+      tight/loose list classification, multi-line inline spans that cross a block-quote/list
+      continuation marker, deep/mixed container nesting, and the full CommonMark HTML-block type
+      table. Grow the pinned example corpus beyond the curated 34 and keep JVM/Scala.js identical.
+- [ ] **uniml-markdown-m41-doccontent-bridge** — add the optional bridge that projects a compatible
+      `MarkdownDocument` into the existing ScalaScript `DocumentContent` model (headings→sections,
+      paragraphs/lists/images/tables→content blocks, fences→embedded), differential-tested against
+      `Parser.buildDocumentContent`, and reporting model loss for block quotes, thematic breaks, raw
+      HTML, standalone definitions, hard/soft-break distinction and task state. The bridge lives in a
+      separate module and must not become a dependency of the `unimlMarkdown` leaf.
+- [ ] **uniml-markdown-m41-entities** — replace the small named-entity table in `MarkdownProjection`
+      with the full CommonMark/HTML5 named-entity set (numeric entities already decode; unknown named
+      entities currently stay literal, which is lossless but under-decoded in projection).
+
 ## SclJet interoperability follow-ups (2026-07-12)
 
 - [ ] **scljet-m2d-hardening-overflow-traversal** — the last M2d corpus hardening
