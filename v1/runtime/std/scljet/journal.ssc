@@ -7,6 +7,8 @@ exports:
   - rollbackJournalChecksum
   - JournalRecovery
   - applyRollbackJournal
+  - JournalPage
+  - writeRollbackJournal
 ---
 
 # SclJet rollback journal recovery
@@ -19,10 +21,12 @@ by page records `u32 pageNumber ++ page bytes ++ u32 checksum`. A *complete*
 journal is "hot": on open, its pre-images are restored and the database is
 truncated to the recorded size, undoing the interrupted transaction.
 
-[ByteSlice, ByteError, byteSliceGet, byteSliceSlice, byteSliceCopyTo, byteSliceZeroExtend, readU32Be, ByteRead](bytes.ssc)
+[ByteSlice, ByteError, byteSliceGet, byteSliceToList, byteSliceSlice, byteSliceCopyTo, byteSliceZeroExtend, readU32Be, writeU32Be, ByteRead](bytes.ssc)
 
 ```scalascript
 case class JournalRecovery(database: ByteSlice, records: Int, pages: Int)
+
+case class JournalPage(pageNumber: Int, page: ByteSlice)
 
 // SQLite's sparse journal checksum: start at the nonce, then add the byte at
 // pageSize-200, pageSize-400, ... down to a positive index, in 32-bit arithmetic.
@@ -100,4 +104,30 @@ def applyRollbackJournal(database: ByteSlice, journal: ByteSlice): Either[ByteEr
                         byteSliceSlice(restored, 0, truncated) match
                           case Left(error) => Left(error)
                           case Right(finalDb) => Right(JournalRecovery(finalDb, count, dbSize.toInt))
+
+// ── Rollback journal writer (inverse of applyRollbackJournal) ────────────────
+
+def journalU32(value: Long): List[Int] = byteSliceToList(writeU32Be(value))
+
+def journalZeros(count: Int, acc: List[Int]): List[Int] =
+  if count <= 0 then acc else journalZeros(count - 1, 0 :: acc)
+
+def journalRecordList(record: JournalPage, pageSize: Int, nonce: Long): List[Int] =
+  journalU32(record.pageNumber.toLong) ++ byteSliceToList(record.page) ++
+    journalU32(rollbackJournalChecksum(record.page, pageSize, nonce))
+
+def journalRecordsList(records: List[JournalPage], pageSize: Int, nonce: Long): List[Int] = records match
+  case Nil => Nil
+  case Cons(record, tail) => journalRecordList(record, pageSize, nonce) ++ journalRecordsList(tail, pageSize, nonce)
+
+/** Serialize a rollback journal: the complete header (with the hot-journal magic
+ *  `d9 d5 05 f9 20 a1 63 d7`) padded to `sectorSize`, then one page record per
+ *  pre-image. Byte-identical to what SQLite writes, and the exact inverse of
+ *  `applyRollbackJournal`. */
+def writeRollbackJournal(pageSize: Int, sectorSize: Int, dbSizePages: Int, nonce: Long, records: List[JournalPage]): Either[ByteError, ByteSlice] =
+  val header = List(217, 213, 5, 249, 32, 161, 99, 215) ++
+    journalU32(records.length.toLong) ++ journalU32(nonce) ++ journalU32(dbSizePages.toLong) ++
+    journalU32(sectorSize.toLong) ++ journalU32(pageSize.toLong)
+  val padded = header ++ journalZeros(sectorSize - header.length, Nil)
+  ByteSlice.fromList(padded ++ journalRecordsList(records, pageSize, nonce))
 ```
