@@ -1,0 +1,42 @@
+---
+name: scljet-write-record
+description: SclJet M3 record encoder — inverse of decodeRecord, cross-backend
+backends: [int, js]
+---
+
+# SclJet record encoder
+
+[ByteSlice, byteSliceToList, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, encodeRecord](std/scljet/index.ssc)
+[SqliteTextEncoding, EncodingUtf8, SqliteLimits, DecodedRecord, RecordField, decodeRecord](std/scljet/index.ssc)
+
+```scalascript
+def blob(values: List[Int]): ByteSlice = ByteSlice.fromList(values) match
+  case Right(bytes) => bytes
+  case Left(_) => ByteSlice.empty
+
+def enc(label: String, values: List[SqliteValue]): Unit =
+  encodeRecord(values) match
+    case Right(bytes) => println(label + ":" + byteSliceToList(bytes).toString)
+    case Left(error) => println(label + ":ERROR:" + error.message)
+
+// Byte-exact against the records inside the pinned `page-512.db` fixture.
+enc("row", List(SqlInteger(-2L), SqlText("Hi"), SqlBlob(blob(List(0, 255)))))
+enc("schema", List(SqlText("table"), SqlText("t"), SqlText("t"), SqlInteger(2L),
+  SqlText("CREATE TABLE t(a INTEGER, b TEXT, c BLOB)")))
+// Serial-type edges: NULLs, the 0/1 storage-class serials, signed narrowing.
+enc("nulls", List(SqlNull, SqlNull))
+enc("ints", List(SqlInteger(0L), SqlInteger(1L), SqlInteger(-1L), SqlInteger(300L),
+  SqlInteger(-32768L), SqlInteger(2147483648L)))
+enc("empty", List(SqlText(""), SqlBlob(blob(Nil))))
+
+def limits(): SqliteLimits = SqliteLimits(
+  10000000L, 10000, 1000, 1000, 1000, 10, 10000000L, 10000, 1000,
+  1000000L, 10000000L, 64, 100000L, 10000, 10000000L)
+
+// Round-trip: the encoder is the exact inverse of decodeRecord.
+encodeRecord(List(SqlInteger(-2L), SqlText("Hi"), SqlBlob(blob(List(0, 255))))) match
+  case Right(bytes) => decodeRecord(bytes, EncodingUtf8, 4, limits()) match
+    case Right(record) => println("roundtrip:" + record.fields.map(field => field.serialType.toString).toString)
+    case Left(error) => println("roundtrip-decode-error:" + error.message)
+  case Left(error) => println("roundtrip-encode-error:" + error.message)
+```
