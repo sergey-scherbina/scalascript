@@ -14,6 +14,14 @@ import JsGenStringUtils.*
  */
 object JsGen:
 
+  /** Native JS binary operators that the ApplyInfix `case other` fallback emits
+   *  as a RAW operator (the both-Int arithmetic/comparison fast path lands here).
+   *  Used to keep the symbolic-operator → `_dispatch` routing from swallowing
+   *  them: only operators OUTSIDE this set are treated as user extensions. */
+  private[codegen] val nativeInfixOps: Set[String] =
+    Set("+", "-", "*", "/", "%", "<", ">", "<=", ">=",
+        "==", "!=", "===", "!==", "<<", ">>", ">>>", "&", "|", "^", "&&", "||")
+
   enum Segment:
     case ScalaScriptJs(code: String)
     case ScalaSource(source: String)
@@ -2901,8 +2909,12 @@ class JsGen(
     val paramsStr  = (recvName :: mparamVals.map(formalWithDefault)).mkString(", ")
     // Encode receiver TYPE into the function name so that the same extension
     // method on different types (e.g., Functor[List].ap and Functor[Option].ap)
-    // does not collide and silently overwrite each other.
-    val fnName = s"_ext_${recvType}_${defn.name.value}"
+    // does not collide and silently overwrite each other.  A SYMBOLIC extension
+    // operator (`~`, `<~`, `~>`, `++`, `|` — common in parser-combinator DSLs)
+    // must be mangled: `~` is not a valid JS identifier char, so `_ext_Parser_~`
+    // was a parse-time SyntaxError. The `_registerExt` dispatch key below keeps
+    // the RAW symbol (it's a string), so only the function NAME needs mangling.
+    val fnName = s"_ext_${recvType}_${jsSafeOpName(defn.name.value)}"
     defn.body match
       case Term.Block(bodyStats) =>
         line(s"function $fnName($paramsStr) {")
@@ -3210,6 +3222,25 @@ class JsGen(
 
   private def safeJsParam(name: String): String =
     if jsReservedWords.contains(name) then s"${name}_p" else name
+
+  /** Mangle a (possibly symbolic) method/operator name into a valid JS
+   *  identifier fragment. Alphanumeric names pass through unchanged; symbolic
+   *  operators (`~`, `<~`, `++`, `|`, …) map each char to a `$word` token so the
+   *  result is a legal JS identifier. Used for extension-function names — the
+   *  runtime dispatch key keeps the original symbol, so this mapping only needs
+   *  to be injective, not reversible. */
+  private def jsSafeOpName(name: String): String =
+    if name.forall(c => c.isLetterOrDigit || c == '_' || c == '$') then name
+    else name.iterator.map {
+      case '~' => "$tilde";  case '+' => "$plus";  case '-' => "$minus"
+      case '*' => "$times";  case '/' => "$div";   case '%' => "$percent"
+      case '<' => "$less";   case '>' => "$greater"; case '=' => "$eq"
+      case '!' => "$bang";   case '&' => "$amp";    case '|' => "$bar"
+      case '^' => "$up";     case ':' => "$colon";  case '#' => "$hash"
+      case '@' => "$at";     case '?' => "$qmark";  case '\\' => "$bslash"
+      case c if c.isLetterOrDigit || c == '_' || c == '$' => c.toString
+      case c => "$u" + c.toInt.toHexString
+    }.mkString
 
   private def paramRenameMap(params: Seq[String]): Map[String, String] =
     params.collect {
@@ -4839,6 +4870,18 @@ class JsGen(
           // masks to signed 64 bits — matching the interpreter/JVM exactly.
           case "&" | "|" | "^" | "<<" | ">>" | ">>>" =>
             s"_bit('${op.value}', $lhsJs, $rhsJs)"
+          // A user-defined SYMBOLIC infix operator (`~>`, `<~`, `~`, `<*>`, … —
+          // parser-combinator / applicative DSLs) is a method call in ssc:
+          // `a ~> b` ≡ `a.~>(b)`. Emitting it as a raw JS operator `(a ~> b)` is
+          // a parse-time SyntaxError. Route it through `_dispatch`, which consults
+          // the `_extensions` registry keyed on the raw symbol (see `_registerExt`).
+          // The native arithmetic/comparison operators fall here too (their both-Int
+          // fast path emits a raw JS operator), so they are excluded — only genuine
+          // user operators dispatch. Alphanumeric infix keeps the raw lowering.
+          // (js-symbolic-infix-op.)
+          case other if !JsGen.nativeInfixOps.contains(other) &&
+                        other.exists(c => !(c.isLetterOrDigit || c == '_' || c == '$')) =>
+            s"_dispatch($lhsJs, '$other', [$rhsJs])"
           case other => s"($lhsJs $other $rhsJs)"
       }
 

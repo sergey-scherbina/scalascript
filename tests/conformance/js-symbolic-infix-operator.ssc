@@ -1,0 +1,25 @@
+---
+name: js-symbolic-infix-operator
+backends: [int, js]
+---
+
+# User-defined symbolic infix operators on JS (js-symbolic-infix-op)
+
+Regression for two JS codegen bugs found via the examples sweep (parser-combinator
+DSLs — dsl-ast-builder/dsl-calc-parser). A user-defined SYMBOLIC extension operator
+(`<~>`, `~~`, `~>`, `<~`, `++`, …) is a method call in ssc, but JsGen (1) named the
+extension function `_ext_T_<sym>` with the raw symbol — not a valid JS identifier, a
+parse-time SyntaxError — and (2) emitted the infix USE as a raw JS operator
+`(a <~> b)`, also a SyntaxError. Now the function name is mangled and the infix use
+dispatches through the extension registry (keyed on the raw symbol). Native
+arithmetic/comparison operators are unaffected (they keep their raw fast path).
+
+```scalascript
+extension (a: Int)
+  def <~>(b: Int): Int = a * 100 + b
+  def ~~(b: Int): String = s"$a~$b"
+
+println(3 <~> 4)
+println(5 ~~ 6)
+println(1 + 2)
+```

@@ -486,6 +486,13 @@ private[codegen] trait JsGenCpsCodegen:
             if isNumericExpr(lhs) && isNumericExpr(rhs) then s"($vl ${op.value} $vr)"
             else s"_arith('${op.value}', $vl, $vr)"
           case "&" | "|" | "^" | "<<" | ">>" | ">>>" => s"_bit('${op.value}', $vl, $vr)"
+          // Symbolic user infix operator (`~>`, `<~`, …) — a method call in ssc;
+          // dispatch instead of emitting a raw JS operator (mirrors the non-CPS
+          // ApplyInfix path). Native arithmetic/comparison ops are excluded so
+          // their raw both-Int fast path is preserved. (js-symbolic-infix-op.)
+          case other if !JsGen.nativeInfixOps.contains(other) &&
+                        other.exists(c => !(c.isLetterOrDigit || c == '_' || c == '$')) =>
+            s"_dispatch($vl, '$other', [$vr])"
           case other          => s"($vl $other $vr)"
         case _ => "/* infix arity mismatch */"
       }

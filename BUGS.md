@@ -1,5 +1,42 @@
 # Bug tracker
 
+## JS examples differential sweep — 2026-07-13 (opus)
+
+Ran an INT-vs-JS differential over the top-level examples corpus (205 cases:
+`ssc-tools run --v1` golden vs `run-js`). Result: 55 PASS, 11 DIVERGE, 44 JS-FAIL,
+95 SKIP-INT (INT itself non-deterministic — servers/actors/async/arg-requiring;
+out of scope). Fixed the clean, systemic bugs (each its own commit + conformance
+case, full `backendInterpreter/test` green):
+
+- **js-effect-multishot-in-while-loop** — FIXED. CPS-lowered `+` on a Long
+  (`foldLeft(0L)` under `handle`) emitted a raw JS `+` → BigInt+Number crash.
+- **js-effect-runner-preamble** — FIXED. State/Http/Cache/Retry weren't in the
+  JsGen effect builtin seed → not CPS-lowered (`runState` reported the initial
+  state) + preamble missing; effect-runner tuples rendered as `List(…)`.
+- **js-namespace-dup-const-serve** — FIXED. Overloaded externs sharing a JS name
+  (std/http `serve`/…) emitted duplicate `const` → parse-time SyntaxError.
+- **js-symbolic-infix-op** — FIXED. Symbolic user operators (`~`, `~>`, `<~`, `++`)
+  named the extension fn `_ext_T_<sym>` and emitted the infix use as a raw JS
+  operator → SyntaxError; now mangled + dispatched via the extension registry.
+
+Remaining (categorized; not yet fixed):
+
+- **js-parser-choice-pipe-bitwise** (open) — `p | q` on a non-Int (parser combinator
+  choice) lowers to the bitwise `_bit('|', …)`; needs type-directed disambiguation.
+  Blocks dsl-calc-parser/dsl-json-parser at runtime (they parse now, wrong output).
+- **js-http-config-namespace-tdz** (open) — `std.http.httpTimeout`/`httpRetry`
+  imported into a namespace resolve to the absent `_ssc_ui_*` UI stub instead of
+  the real preamble function (`function httpTimeout` exists) — the identity-
+  RuntimeCall fallback is skipped to avoid a TDZ self-reference. `_bug1b/_bug1c`
+  now parse but hit "not callable: ()".
+- **js-algebraic-effects-residual** (open) — `examples/algebraic-effects.ssc` still
+  diverges on: a user-declared `effect Logger` interleaved with State prints
+  `[object Object]`; inner `(level, msg)` pairs from `runLoggerToList` render as
+  `List(…)`; `Stream.complete()` does not stop emission (partial list wrong).
+- **Genuine JS feature gaps (not bugs)** — spark, PDF (`htmlToPdfBase64`), JDBC/SQL,
+  native crypto (`aesGenKey`/`verifyEd`), `DatasetCodec`, `oauth`, quoted macros,
+  `mcpServer`, scljet VFS: unsupported on the JS/Node lane by design.
+
 ## standard-tier-named-arg-skip-default — `bin/ssc run` (self-hosted standard-tier pipeline) mis-binds a named arg for a non-first trailing defaulted param
 
 **Status:** open (found 2026-07-13, claude-sonnet-5, while building `std-ui-select`
