@@ -1797,7 +1797,7 @@ there before changing this plan.
       real business logic essentially never nests one non-tail expression
       chain this deep; not a blocker for busi's real app.ssc, but a genuine
       gap worth a bounded-stack/CPS fix eventually).
-- [ ] **v2-swift-busi-real-app-runtime-gaps** — with `v2-swift-coreir-sexpr-embed`
+- [x] **v2-swift-busi-real-app-runtime-gaps** — DONE 2026-07-13. With `v2-swift-coreir-sexpr-embed`
       landed, `emit-swift`/`swiftc -typecheck` succeed on busi's real
       `app.ssc`, but actually RUNNING the compiled native binary (not just
       typechecking it) surfaced a chain of real, previously-unexercised
@@ -1827,12 +1827,37 @@ there before changing this plan.
       `SignalButtonNode`/`SignalLabelButtonNode` reactive-variant pattern
       already established for other node kinds — both in
       `SwiftNativeUiHost.scala`'s descriptor construction AND
-      `SwiftNativeUiApple.scala`'s renderer. Not a quick 1-line fix;
-      needs a real design pass before implementing (mirrors this
-      session's earlier "flag foundational work before starting" norm).
-      Until this lands, busi's real native app compiles and starts but does
-      not reach a fully-rendered UI — the original ask (compile busi's
-      client as a runnable native iPhone app) remains open.
+      `SwiftNativeUiApple.scala`'s renderer.
+      RESOLVED (worktree `feature/v2-swift-signal-column-title`): added
+      `stringOrSignalText()` in `column()` — when the title argument is a
+      `NativeUiSignal`, reads its CURRENT value via the existing
+      `readSignal()` machinery (the same mechanism `NativeUiSignal.apply`
+      already uses) instead of requiring a pre-resolved `String`. Small,
+      targeted, reuses existing infrastructure — no renderer changes needed.
+      With that landed, iterated through 6 MORE real runtime gaps the same
+      way (fix → rebuild → rerun busi's actual binary → repeat), each
+      mirroring the exact existing `v2/src/Runtime.scala` semantics:
+      `Map.updated`/`removed` (copy-on-write), a named record field holding
+      a `Map` being called like `record.field(key)` (std/ui/form.ssc's
+      `Form.drafts: Map[String, Any]` + `draft(f, name) = f.drafts(name)`),
+      a bare `Map` value called directly as a function (`someMap(key)`,
+      the general `App` term case — Scala's `Map.apply`), `List.head`/
+      `tail`, `String.trim`, and `String.matches` (`NSRegularExpression`
+      full-string match, mirroring Java's whole-string `Matcher.matches`
+      semantics, not `.find`).
+      **Result: busi's real 3305-line production `app.ssc` now runs
+      end-to-end natively** — `emit-swift --target macos`, real `swiftc`
+      compile+link (no SwiftPM), and running the binary directly all
+      succeed, printing a real `NativeUiAbi(version=1, root=NativeUiElement,
+      operation=serve)` root. `emit-swift --target ios` +
+      `swiftc -typecheck` against the iOS SDK also stay clean. The original
+      ask (compile busi's client as a native iPhone app) is now met at the
+      "runs correctly" level; NOT yet attempted: a real `xcodebuild`/
+      Simulator app-bundle launch (vs. a bare CLI binary), and this first
+      real end-to-end run took ~31s wall (pure tree-walking interpretation,
+      no bytecode/JIT) — fine for validating correctness, but a real phone
+      app would want that addressed as a follow-up performance pass, not
+      bundled into this correctness-focused item.
 
 ## perf-jit-asm — investigation (2026-07-10, Sergiy: "заняться бенчмарками перфоменсом и jit asm")
 

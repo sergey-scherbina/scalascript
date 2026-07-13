@@ -830,6 +830,20 @@ private final class Machine {
                     return .value(.unit)
                 }
             }
+            if case let .map(m) = functionValue {
+                do {
+                    guard values.count == 1 else {
+                        throw SscRuntimeFailure(description: "app: map apply requires exactly one key")
+                    }
+                    guard let found = m.get(values[0]) else {
+                        throw SscRuntimeFailure(description: "key not found: \(sscShow(values[0]))")
+                    }
+                    return .value(found)
+                } catch {
+                    recordFailure(error)
+                    return .value(.unit)
+                }
+            }
             do {
                 if let result = try nativeUiHost?.apply(functionValue, values) { return .value(result) }
             } catch {
@@ -1250,6 +1264,15 @@ private final class Machine {
            let index = names.firstIndex(of: name) {
             if args.isEmpty { return fields[index] }
             if case let .closure(fn) = fields[index] { return call(fn, args) }
+            // A named field holding a Map is called like `record.field(key)` — e.g.
+            // std/ui/form.ssc's `case class Form(specs: ..., drafts: Map[String, Any])`
+            // with `def draft(f: Form, name: String): Any = f.drafts(name)`. Mirrors
+            // Map's own "apply" primitive (m(k)), which also throws on a missing key.
+            if case let .map(m) = fields[index], args.count == 1 {
+                if let found = m.get(args[0]) { return found }
+                recordFailure(SscRuntimeFailure(description: "key not found: \(sscShow(args[0]))"))
+                return .unit
+            }
         }
         switch receiver {
         case let .decimal(value):
@@ -1284,6 +1307,16 @@ private final class Machine {
             case "get": return value.get(args[0]).map(some) ?? none()
             case "contains": return .bool(value.get(args[0]) != nil)
             case "size": return .int(Int64(value.entries.count))
+            case "updated":
+                let copy = SscMap()
+                copy.entries = value.entries
+                copy.put(args[0], args[1])
+                return .map(copy)
+            case "removed":
+                let copy = SscMap()
+                copy.entries = value.entries
+                copy.delete(args[0])
+                return .map(copy)
             default: break
             }
         case .data("Cons", _), .data("Nil", _):
@@ -1344,6 +1377,18 @@ private final class Machine {
             case "length", "size": return .int(Int64(values.count))
             case "isEmpty": return .bool(values.isEmpty)
             case "nonEmpty": return .bool(!values.isEmpty)
+            case "head":
+                guard let first = values.first else {
+                    recordFailure(SscRuntimeFailure(description: "head on empty list"))
+                    return .unit
+                }
+                return first
+            case "tail":
+                guard !values.isEmpty else {
+                    recordFailure(SscRuntimeFailure(description: "tail on empty list"))
+                    return .unit
+                }
+                return listValue(Array(values.dropFirst()))
             default: break
             }
         case let .string(value):
@@ -1364,6 +1409,25 @@ private final class Machine {
                     return .unit
                 }
                 return .string(String(decoding: units[from..<to], as: UTF16.self))
+            }
+            if name == "trim" {
+                let units = Array(value.utf16)
+                var start = 0, end = units.count
+                while start < end && units[start] <= 0x20 { start += 1 }
+                while end > start && units[end - 1] <= 0x20 { end -= 1 }
+                return .string(String(decoding: units[start..<end], as: UTF16.self))
+            }
+            if name == "matches", args.count == 1, case let .string(pattern) = args[0] {
+                // Java/Scala String.matches requires the WHOLE string to satisfy the
+                // pattern (Matcher.matches, not find) — check the match spans the
+                // entire input, not just that the pattern occurs somewhere in it.
+                guard let regex = try? NSRegularExpression(pattern: pattern) else {
+                    recordFailure(SscRuntimeFailure(description: "String.matches: invalid regex"))
+                    return .unit
+                }
+                let range = NSRange(value.startIndex..<value.endIndex, in: value)
+                let found = regex.firstMatch(in: value, range: range)
+                return .bool(found?.range == range)
             }
             if name == "toInt" {
                 let units = Array(value.utf16)

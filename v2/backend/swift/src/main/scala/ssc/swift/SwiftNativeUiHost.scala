@@ -650,10 +650,23 @@ final class NativeUiHost: SscRuntimeExtension {
             return try rowPayload(try nativeUiData("NativeUiRowPayload", [.string("fields"), args[0]]), "fieldsPayload")
         }
 
+        // busi's own tt(key, base): Any = computedSignal(() => translateIn(...)) is
+        // documented ("reactive translated STRING signal — for column titles / action
+        // labels") to pass a live NativeUiSignal wherever a plain String display value
+        // is expected, e.g. fieldColumn(tt("who", "Payee"), "payee"). Reading the
+        // signal's CURRENT value here (rather than requiring a pre-resolved String)
+        // makes that intentional pattern work instead of crashing "must be String".
+        func stringOrSignalText(_ value: SscValue, _ operation: String) throws -> String {
+            if case .data("NativeUiSignal", _) = value {
+                return try nativeUiString(try readSignal(value, operation), operation)
+            }
+            return try nativeUiString(value, operation)
+        }
+
         func column(_ kind: String, _ args: [SscValue], _ options: SscValue) throws -> SscValue {
             return try nativeUiData("NativeUiColumn", [
                 .string(kind),
-                .string(try nativeUiString(args[0], "\(kind)Column title")),
+                .string(try stringOrSignalText(args[0], "\(kind)Column title")),
                 .string(try nativeUiString(args[1], "\(kind)Column fieldPath")),
                 .string(args.count > 2 ? try nativeUiString(args[2], "\(kind)Column align") : ""),
                 options,
