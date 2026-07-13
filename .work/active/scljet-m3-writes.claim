@@ -1,0 +1,5 @@
+feature/scljet-m3-writes 2026-07-13T11:38:32Z
+agent: claude-code
+heartbeat: 2026-07-13T11:38:32Z
+status: in-progress
+next: M3 (writes + rollback journal). Slice m3b first — byte-exact empty-database writer (runtime/std/scljet/write.ssc), verified byte-identical to reference empty-encoding-zero.db (page 512). Then m3c single-row insert, etc. Plan + exact byte layout in SPRINT.
