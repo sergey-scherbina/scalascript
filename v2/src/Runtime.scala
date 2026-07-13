@@ -2257,6 +2257,17 @@ object Prims:
       val names = unlistPub(a(1)).map { case StrV(s) => s; case v => anyStr(v) }.toVector
       V2PluginRegistry.registerFieldNames(tag, names)
       UnitV
+    case "__regmethod__" => a =>
+      // (tag, methodName, closure): a case-class body method. Registered as a tagged
+      // method so the existing __method__ dispatch (lookupTaggedMethod) calls it with
+      // (self :: args), in place of the default DataV rendering.
+      val clos = a(2)
+      V2PluginRegistry.registerTaggedMethod(str(a, 0), str(a, 1),
+        (args: List[Value]) => clos match {
+          case fn: ClosV => callClos(fn, args.toArray)
+          case other     => other
+        })
+      UnitV
     case "io.println" => a => out(a(0), Console.out); Console.out.println(); UnitV
     case "io.eprint"  => a => out(a(0), Console.err); UnitV
     case "io.args"   => _ => strList(Runtime.argv)

@@ -3862,6 +3862,59 @@ def caseFieldRegs = (order) =>
              caseFieldRegs(rest)) }
   }
 
+-- Case-class BODY methods (caseMethodsCell = [Pair(tag, Pair(fields, defs))]).
+-- Each captured `def` becomes a `Tag_method(self, params…)` global whose body has
+-- the case-class fields bound from self (so bare field refs resolve as locals), and
+-- a `__regmethod__(tag, method, IrGlobal(Tag_method))` entry so __method__ dispatches.
+def lowerCaseMethodBody = (fields, scope, body) =>
+  match fields {
+    case Nil => lowerE(scope, body)
+    case Cons(f, rest) =>
+      IrLet(Cons(IrApp(IrGlobal(#sconcat("_sel_", f)),
+                   Cons(lookupVar(scope, "__self"), Nil)), Nil),
+            lowerCaseMethodBody(rest, Cons(f, scope), body))
+  }
+def caseMethodDefsFor = (tag, fields, defs) =>
+  match defs {
+    case Nil => Nil
+    case Cons(d, rest) =>
+      match d { case Pair(dtag, ddata) =>
+        match ddata { case Pair(mname, mrest) =>
+          match mrest { case Pair(mparams, mbody) =>
+            let selfAndParams = Cons("__self", mparams) in
+            let mdef = IrDef(#sconcat(tag, #sconcat("_", mname)),
+                         IrLam(lenL(selfAndParams),
+                           lowerCaseMethodBody(fields, revL(selfAndParams), mbody))) in
+            Cons(mdef, caseMethodDefsFor(tag, fields, rest)) } } }
+  }
+def caseMethodDefs = (regs) =>
+  match regs {
+    case Nil => Nil
+    case Cons(r, rest) =>
+      match r { case Pair(tag, fd) =>
+        match fd { case Pair(fields, defs) =>
+          appendL(caseMethodDefsFor(tag, fields, defs), caseMethodDefs(rest)) } }
+  }
+def caseMethodRegsFor = (tag, defs) =>
+  match defs {
+    case Nil => Nil
+    case Cons(d, rest) =>
+      match d { case Pair(dtag, ddata) =>
+        match ddata { case Pair(mname, mrest) =>
+          Cons(IrPrim("__regmethod__",
+                 Cons(IrLit(IrStr(tag)), Cons(IrLit(IrStr(mname)),
+                   Cons(IrGlobal(#sconcat(tag, #sconcat("_", mname))), Nil)))),
+               caseMethodRegsFor(tag, rest)) } }
+  }
+def caseMethodRegs = (regs) =>
+  match regs {
+    case Nil => Nil
+    case Cons(r, rest) =>
+      match r { case Pair(tag, fd) =>
+        match fd { case Pair(fields, defs) =>
+          appendL(caseMethodRegsFor(tag, defs), caseMethodRegs(rest)) } }
+  }
+
 def collectDefArities = (stmts) =>
   match stmts {
     case Nil => Nil
@@ -3939,7 +3992,8 @@ def lowerProg = (stmts) =>
   let accDefs = buildMergedAccessors(#cell.get(caseFieldOrderCell)) in
   let allDefs = appendL(defs,
     appendL(topVarCellDefs(stmts),
-    appendL(topValCellDefs(topValNames), appendL(accDefs, userDefs)))) in
+    appendL(topValCellDefs(topValNames),
+    appendL(caseMethodDefs(#cell.get(caseMethodsCell)), appendL(accDefs, userDefs))))) in
   -- T5.7: top-level expression statements ("expr") used to be silently dropped
   -- (~190/194 real .ssc files became no-ops). Collect them in document order into
   -- the entry: Seq(exprs..., main() if present). Defs are all registered before the
@@ -4014,7 +4068,8 @@ def lowerProg = (stmts) =>
             else topExprs(rest1)
         }
     } in
-  let entryExprs = appendL(caseFieldRegs(#cell.get(caseFieldOrderCell)), topExprs(stmts)) in
+  let entryExprs = appendL(caseFieldRegs(#cell.get(caseFieldOrderCell)),
+    appendL(caseMethodRegs(#cell.get(caseMethodsCell)), topExprs(stmts))) in
   let mainCall =
     if hasZeroArgMain(stmts) then Cons(IrApp(IrGlobal("main"), Nil), Nil)
     else Nil in

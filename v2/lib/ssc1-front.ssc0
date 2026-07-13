@@ -497,6 +497,18 @@ def lastParamVarargCell = #cell.new(false)
 -- (the VM's __isTag__ is an exact tag test; sealed-trait membership must be
 -- expanded at lower time, mirroring the scalameta bridge).
 def subtypeRegCell = #cell.new(Nil)
+-- Case-class BODY methods: [Pair(tag, Pair(fields, defs))] where defs are the
+-- captured `def` nodes (e.g. `override def toString`). ssc1-lower emits each as a
+-- `Tag_method(self, …)` global (fields bound from self) + registers it so the VM's
+-- __method__ dispatch calls it instead of the default DataV rendering/no-op.
+def caseMethodsCell = #cell.new(Nil)
+def registerCaseMethods = (name, fields, defs) =>
+  match defs {
+    case Nil => 0
+    case Cons(h, t) =>
+      #cell.set(caseMethodsCell,
+        Cons(Pair(name, Pair(fields, defs)), #cell.get(caseMethodsCell)))
+  }
 -- Active top-level extension group and the unique method names it declares.
 -- ssc1-lower reads extensionMethodsCell in the same self-hosted process.
 def extensionParamsCell  = #cell.new(Nil)
@@ -1970,13 +1982,37 @@ def parseCaseClass = (toks) =>
       else skipExt(advance(ts))
     else skipExt(advance(ts)) in
   let ts2 = skipExt(prT(rp)) in
-  let ts3 = if kindIs("{", ts2) then
-    let rec skipBody = (ts) =>
-      if kindIs("}", ts) then advance(ts)
-      else if kindIs("EOF", ts) then ts
-      else skipBody(advance(ts)) in
-    skipBody(advance(ts2))
-  else ts2 in
+  -- Capture body `def`s (methods like `override def toString`). Two body shapes:
+  --  • braced `{ … }` — skip non-defs to the closing `}` (same reach as the old skip);
+  --  • layout `case class X(…):` then indented members — skipExt already stopped at the
+  --    first member `def` (it skips `override`), so consume CONSECUTIVE member defs and
+  --    stop at the first non-member token (a new decl keyword / statement).
+  let ts3 =
+    if kindIs("{", ts2) then
+      let rec captureBraced = (ts, acc) =>
+        if kindIs("}", ts) then pr(reverse(acc), advance(ts))
+        else if kindIs("EOF", ts) then pr(reverse(acc), ts)
+        else if kwIs("override", ts) then captureBraced(advance(ts), acc)
+        else if kwIs("final", ts) then captureBraced(advance(ts), acc)
+        else if kwIs("private", ts) then captureBraced(advance(ts), acc)
+        else if kwIs("def", ts) then
+          let r = parseDef(advance(ts)) in captureBraced(prT(r), Cons(prV(r), acc))
+        else captureBraced(advance(ts), acc) in
+      let rc = captureBraced(advance(ts2), Nil) in
+      let _regM = registerCaseMethods(name, params, prV(rc)) in
+      prT(rc)
+    else if kwIs("def", ts2) then
+      let rec captureLayout = (ts, acc) =>
+        if kwIs("override", ts) then captureLayout(advance(ts), acc)
+        else if kwIs("final", ts) then captureLayout(advance(ts), acc)
+        else if kwIs("private", ts) then captureLayout(advance(ts), acc)
+        else if kwIs("def", ts) then
+          let r = parseDef(advance(ts)) in captureLayout(prT(r), Cons(prV(r), acc))
+        else pr(reverse(acc), ts) in
+      let rc = captureLayout(ts2, Nil) in
+      let _regM = registerCaseMethods(name, params, prV(rc)) in
+      prT(rc)
+    else ts2 in
   pr(mkCaseCls(name, params, types, derives), ts3)
 
 -- parseCaseObject: `case object Name [extends ...]` (keywords consumed).
