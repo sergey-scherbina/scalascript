@@ -1,0 +1,21 @@
+---
+name: scljet-write-btree
+description: SclJet M3 multi-page rowid-table B-tree (bulk build) — cross-backend
+backends: [int, js]
+---
+
+# SclJet multi-page table writer
+
+[ByteSlice, byteSliceToList, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+
+```scalascript
+def mkRows(n: Int, i: Int, acc: List[List[SqliteValue]]): List[List[SqliteValue]] =
+  if i > n then acc.reverse
+  else mkRows(n, i + 1, List(SqlInteger(i.toLong), SqlText("value" + i.toString)) :: acc)
+
+// 45 rows overflow a single 512-byte leaf, so page 2 becomes a table-interior
+// root over the leaf pages — a multi-level B-tree the reader/integrity_check accept.
+buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(n INTEGER, v TEXT)", mkRows(45, 1, Nil)) match
+  case Right(bytes) => println((bytes.length / 512).toString + ":" + byteSliceToList(bytes).toString)
+  case Left(error) => println("ERROR:" + error.message)
+```
