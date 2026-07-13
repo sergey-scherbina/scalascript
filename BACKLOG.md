@@ -69,19 +69,18 @@ are plain bullets without checkboxes so agents do not claim them as build work.
 
 ## SclJet interoperability follow-ups (2026-07-12)
 
-- [ ] **scljet-standalone-library** — make SclJet a standalone version-independent
-      `.ssc` library, not owned by `v1/`. Spec: `specs/scljet-standalone-library.md`.
-      The CODE already works on every tier (v1/VM/ASM/JS/native-v2 — verified); this
-      is organizational + import-resolution. A naive `git mv` + installBin staging
-      block was tried (2026-07-13) and REVERTED: it fixes the native/v2 bundle but
-      breaks the `--v1` `ImportResolver` (`Import not found: std/scljet/index.ssc`),
-      because the interpreter maps `std/*` → `runtime/std/*` (the `runtime` symlink →
-      `v1/runtime`). Must change together: build.sbt `installBin`, `ImportResolver`
-      (`v1/lang/core/.../imports/ImportResolver.scala`), native/JS + `check-stdlib-
-      interface-load` (`Main.scala`), and — for Option B — every consumer's
-      `std/scljet/index.ssc` import. Prefer Option A (teach all resolvers a standalone
-      `scljet/` root for `std/scljet`). Needs FULL conformance + native + JS
-      verification, so do it as a focused, well-verified change, not a rushed move.
+- [~] **scljet-standalone-library** — DONE 2026-07-13 via a compatibility symlink;
+      resolver-native decoupling remains. Spec: `specs/scljet-standalone-library.md`.
+      SclJet source now lives at the repo-root **`scljet/`** (standalone, not under
+      `v1/`); `v1/runtime/std/scljet` is a symlink to it, so `installBin`'s glob and
+      every `std/`-import resolver (interpreter `ImportResolver`, native/JS loaders)
+      find it unchanged. Verified: `scljet-*` 11/11 on `[int, js]`, native `ssc run`,
+      and a non-scljet std case still green. REMAINING polish: drop the symlink by
+      teaching the resolvers a first-class library root — build.sbt `installBin`
+      (stage from `scljet/` directly), `ImportResolver`
+      (`v1/lang/core/.../imports/ImportResolver.scala`), the native/JS +
+      `check-stdlib-interface-load` loaders (`Main.scala`) — all mapping `std/scljet`
+      → `scljet/`. Needs FULL conformance + native + JS verification.
 
 
 - [ ] **scljet-m3-write-followups** — edge cases beyond the m3b–m3d write path

@@ -7,6 +7,18 @@ must be a **standalone library** — not organizationally owned by `v1/` — and
 work on **every** ScalaScript tier (v1 interpreter, native VM, direct ASM, JS,
 and the v2 standard/native-front tier), independent of the compiler version.
 
+## Status: DONE via a compatibility symlink (2026-07-13)
+
+The library source now lives at the repo-root **`scljet/`** (standalone, not
+under `v1/`), with `v1/runtime/std/scljet` a **symlink** to it. Every tier finds
+it unchanged: `installBin`'s glob follows the symlink and bundles the 16 files
+into `bin/lib/native-front/runtime/std/scljet` (and thus `standard/native-front`),
+the interpreter `ImportResolver` and native/JS loaders resolve `std/scljet` via
+the symlink. Verified: full `scljet-*` conformance 11/11 on `[int, js]`, native
+`ssc run`, and a non-scljet std case (`content-binding`) still green. The one
+remaining polish is **dropping the symlink** by teaching the resolvers a
+first-class library root (Option A below); until then the symlink is the seam.
+
 ## Substantive requirement is already met
 
 The SclJet `.ssc` code is **already version-portable**: it runs on the v1
