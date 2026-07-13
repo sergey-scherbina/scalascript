@@ -191,24 +191,245 @@ private final case class XmlProcessor(source: SourceId, limits: XmlLimits) exten
         None,
         Some(XmlDialect.id),
       )))
-    else XmlScanner(source, state, limits).scan()
+    else XmlScanner.scan(source, state, limits)
 
+/** Pure XML scanner: a single fold over the whole source that emits VM tokens.
+  * All scanning state lives in local `var`s inside `scan` (no mutable object
+  * fields), with a local imperative shell and immutable `Vector` accumulation;
+  * the state-touching helpers are nested defs over those locals, pure classifiers
+  * stay top-level. */
 private object XmlScanner:
-  def apply(source: SourceId, input: String, limits: XmlLimits): XmlScanner =
-    new XmlScanner(source, input, limits)
+  def scan(source: SourceId, input: String, limits: XmlLimits): ProcessBatch[VmToken] =
+    var output: Vector[VmToken] = Vector.empty
+    var diagnostics: Vector[Diagnostic] = Vector.empty
+    var elements: Vector[String] = Vector.empty
+    var index = 0
+    var position = SourcePosition.Start
+    var nextTokenId = 0L
+    var rootCount = 0
+    var seenDoctype = false
+    var seenDeclaration = false
 
-private final class XmlScanner(source: SourceId, input: String, limits: XmlLimits):
-  private val output = ArrayBuffer.empty[VmToken]
-  private val diagnostics = ArrayBuffer.empty[Diagnostic]
-  private val elements = ArrayBuffer.empty[String]
-  private var index = 0
-  private var position = SourcePosition.Start
-  private var nextTokenId = 0L
-  private var rootCount = 0
-  private var seenDoctype = false
-  private var seenDeclaration = false
+    def eofDiagnostic(code: String, message: String): Diagnostic =
+      Diagnostic(code, message, Severity.Error, Some(SourceSpan(source, position, position)), Some(XmlDialect.id))
 
-  def scan(): ProcessBatch[VmToken] =
+    def emitKnownRange(startIndex: Int, lexeme: String, kind: String, channel: TokenChannel, instruction: VmInstruction): Unit =
+      val start = position
+      val end = Unicode.advance(start, lexeme)
+      position = end
+      val token = SourceToken(nextTokenId, kind, lexeme, SourceSpan(source, start, end), channel)
+      nextTokenId += 1
+      output = output :+ VmToken(token, instruction)
+      val _ = startIndex
+
+    def emitWhole(lexeme: String, kind: String, channel: TokenChannel, instruction: VmInstruction): Unit =
+      val start = index
+      index += lexeme.length
+      emitKnownRange(start, lexeme, kind, channel, instruction)
+
+    def emitRestError(code: String, message: String): Unit =
+      val lexeme = input.substring(index)
+      emitWhole(lexeme, "xml.invalid", TokenChannel.Error, VmInstruction.Report(code, message))
+
+    def scanDeclaration(): Unit =
+      val start = index
+      val end = input.indexOf("?>", index + 5)
+      if end < 0 then emitRestError("uniml.xml.invalid-declaration", "unterminated XML declaration")
+      else
+        val lexeme = input.substring(start, end + 2)
+        val valid = index == 0 && !seenDeclaration && lexeme.matches("<\\?xml\\s+version\\s*=\\s*(['\"])1\\.0\\1(?:\\s+encoding\\s*=\\s*(['\"])[A-Za-z][A-Za-z0-9._-]*\\2)?(?:\\s+standalone\\s*=\\s*(['\"])(?:yes|no)\\3)?\\s*\\?>")
+        seenDeclaration = true
+        emitWhole(lexeme, "xml.declaration", TokenChannel.Syntax,
+          if valid then VmInstruction.Emit(Some("document.declaration"))
+          else VmInstruction.Report(if start == 0 then "uniml.xml.invalid-declaration" else "uniml.xml.declaration-position", "invalid XML declaration"))
+
+    def scanDoctype(): Unit =
+      val start = index
+      var cursor = index + 9
+      var subsetDepth = 0
+      var quote: Char = 0.toChar
+      var done = false
+      while cursor < input.length && !done do
+        val char = input.charAt(cursor)
+        if quote != 0 then
+          if char == quote then quote = 0.toChar
+        else char match
+          case '\'' | '"' => quote = char
+          case '['         => subsetDepth += 1
+          case ']' if subsetDepth > 0 => subsetDepth -= 1
+          case '>' if subsetDepth == 0 => done = true
+          case _ => ()
+        cursor += 1
+      if !done then emitRestError("uniml.xml.invalid-doctype", "unterminated XML DOCTYPE")
+      else
+        val lexeme = input.substring(start, cursor)
+        val codePoints = Unicode.codePointCount(lexeme)
+        val validPosition = elements.isEmpty && rootCount == 0 && !seenDoctype
+        seenDoctype = true
+        val instruction =
+          if codePoints > limits.maxDoctypeCodePoints then VmInstruction.Report("uniml.xml.limit.doctype", "XML DOCTYPE exceeds configured limit", Severity.Fatal)
+          else if validPosition then VmInstruction.Emit(Some("document.doctype"))
+          else VmInstruction.Report("uniml.xml.doctype-position", "DOCTYPE must appear once before the root element")
+        emitWhole(lexeme, "xml.doctype", TokenChannel.Syntax, instruction)
+
+    def scanName(role: String): String =
+      val start = index
+      while index < input.length && !isNameDelimiter(input.charAt(index)) do index += 1
+      if index == start && index < input.length then index += 1
+      val lexeme = input.substring(start, index)
+      val tooLong = Unicode.codePointCount(lexeme) > limits.maxNameCodePoints
+      val valid = !tooLong && validXmlName(lexeme) && lexeme.count(_ == ':') <= 1
+      emitKnownRange(start, lexeme, if valid then "xml.name" else "xml.invalid", if valid then TokenChannel.Syntax else TokenChannel.Error,
+        if valid then VmInstruction.Emit(Some(role))
+        else if tooLong then VmInstruction.Report("uniml.xml.limit.name", "XML name exceeds configured limit", Severity.Fatal)
+        else VmInstruction.Report("uniml.xml.invalid-name", "invalid XML name"))
+      lexeme
+
+    def scanMarkupWhitespace(): Unit =
+      val start = index
+      while index < input.length && isXmlWhitespace(input.charAt(index)) do index += 1
+      emitKnownRange(start, input.substring(start, index), "xml.whitespace", TokenChannel.Trivia, VmInstruction.Emit(Some("markup.whitespace")))
+
+    def scanAttributeValue(): Unit =
+      if index >= input.length || (input.charAt(index) != '\'' && input.charAt(index) != '"') then
+        diagnostics = diagnostics :+ eofDiagnostic("uniml.xml.expected-attribute-value", "expected quoted XML attribute value")
+        if index < input.length && input.charAt(index) != '>' then
+          val lexeme = input.substring(index, index + 1)
+          emitWhole(lexeme, "xml.invalid", TokenChannel.Error,
+            VmInstruction.Report("uniml.xml.expected-attribute-value", "expected quoted XML attribute value"))
+      else
+        val start = index
+        val quote = input.charAt(index)
+        index += 1
+        while index < input.length && input.charAt(index) != quote do index += 1
+        if index < input.length then index += 1
+        val lexeme = input.substring(start, index)
+        val content = lexeme.substring(1, math.max(1, lexeme.length - 1))
+        val invalid = !lexeme.endsWith(quote.toString) || content.contains('<') || !validAttributeReferences(content)
+        val tooLong = Unicode.codePointCount(lexeme) > limits.maxAttributeCodePoints
+        emitKnownRange(start, lexeme, "xml.attribute-value", TokenChannel.Syntax,
+          if tooLong then VmInstruction.Report("uniml.xml.limit.attribute", "XML attribute value exceeds configured limit", Severity.Fatal)
+          else if invalid then VmInstruction.Report("uniml.xml.expected-attribute-value", "invalid XML attribute value")
+          else VmInstruction.Emit(Some("attribute.value")))
+
+    def scanStartTag(): Unit =
+      val parentOpen = elements.nonEmpty
+      emitWhole("<", "xml.start-open", TokenChannel.Syntax,
+        VmInstruction.Open("xml.element", Some(if parentOpen then "content.child" else "document.root")))
+      val name = scanName("element.name")
+      if !parentOpen then rootCount += 1
+      if rootCount > 1 && !parentOpen then diagnostics = diagnostics :+ tokenDiagnostic(output.last.token, "uniml.xml.multiple-roots", "XML document has multiple root elements")
+      elements = elements :+ name
+      var attributes: Set[String] = Set.empty
+      var attributeCount = 0
+      var closed = false
+      while index < input.length && !closed do
+        if input.startsWith("/>", index) then
+          emitWhole("/>", "xml.empty-close", TokenChannel.Syntax, VmInstruction.Close(Some("xml.element"), Some("empty-tag.close")))
+          elements = elements.dropRight(1)
+          closed = true
+        else if input.charAt(index) == '>' then
+          emitWhole(">", "xml.tag-close", TokenChannel.Syntax, VmInstruction.Emit(Some("start-tag.close")))
+          closed = true
+        else if isXmlWhitespace(input.charAt(index)) then scanMarkupWhitespace()
+        else
+          val attribute = scanName("attribute.name")
+          attributeCount += 1
+          if attributes.contains(attribute) then diagnostics = diagnostics :+ tokenDiagnostic(output.last.token, "uniml.xml.duplicate-attribute", s"duplicate XML attribute '$attribute'")
+          attributes = attributes + attribute
+          if attributeCount > limits.maxAttributesPerElement then diagnostics = diagnostics :+ tokenDiagnostic(output.last.token, "uniml.xml.limit.attribute", "too many XML attributes", Severity.Fatal)
+          if index < input.length && isXmlWhitespace(input.charAt(index)) then scanMarkupWhitespace()
+          if index < input.length && input.charAt(index) == '=' then emitWhole("=", "xml.equals", TokenChannel.Syntax, VmInstruction.Emit(Some("attribute.equals")))
+          else diagnostics = diagnostics :+ eofDiagnostic("uniml.xml.expected-equals", s"expected '=' after attribute '$attribute'")
+          if index < input.length && isXmlWhitespace(input.charAt(index)) then scanMarkupWhitespace()
+          scanAttributeValue()
+      if !closed then diagnostics = diagnostics :+ eofDiagnostic("uniml.xml.unexpected-eof", s"unterminated start tag <$name>")
+
+    def scanEndTag(): Unit =
+      emitWhole("</", "xml.end-open", TokenChannel.Syntax,
+        if elements.nonEmpty then VmInstruction.Emit(Some("end-tag.open"))
+        else VmInstruction.Report("uniml.xml.unexpected-end-tag", "end tag has no open element"))
+      val name = scanName("end-tag.name")
+      while index < input.length && isXmlWhitespace(input.charAt(index)) do scanMarkupWhitespace()
+      if index < input.length && input.charAt(index) == '>' then
+        val matches = elements.nonEmpty && elements.last == name
+        emitWhole(">", "xml.tag-close", TokenChannel.Syntax,
+          if matches then VmInstruction.Close(Some("xml.element"), Some("end-tag.close"))
+          else VmInstruction.Report("uniml.xml.mismatched-end-tag", s"end tag </$name> does not match the current element"))
+        if matches then elements = elements.dropRight(1)
+      else diagnostics = diagnostics :+ eofDiagnostic("uniml.xml.unexpected-eof", s"unterminated end tag </$name>")
+
+    def scanOpaque(
+        terminator: String,
+        kind: String,
+        channel: TokenChannel,
+        contentRole: String,
+        validate: String => Option[(String, String)],
+    ): Unit =
+      val end = input.indexOf(terminator, index + 2)
+      if end < 0 then emitRestError(s"uniml.${kind.replace('.', '-')}", s"unterminated $kind")
+      else
+        val lexeme = input.substring(index, end + terminator.length)
+        val role = if elements.nonEmpty then contentRole else "document.misc"
+        val instruction = validate(lexeme) match
+          case Some((code, message)) => VmInstruction.Report(code, message)
+          case None                  => VmInstruction.Emit(Some(role))
+        emitWhole(lexeme, kind, channel, instruction)
+
+    def scanCData(): Unit =
+      scanOpaque("]]>", "xml.cdata", TokenChannel.Syntax, "content.cdata", _ =>
+        if elements.isEmpty then Some("uniml.xml.invalid-cdata" -> "CDATA is only allowed inside element content") else None)
+
+    def scanReference(): Unit =
+      val end = input.indexOf(';', index + 1)
+      if end < 0 then emitRestError("uniml.xml.invalid-reference", "unterminated XML reference")
+      else
+        val lexeme = input.substring(index, end + 1)
+        val syntaxValid = lexeme.matches("&(?:lt|gt|amp|apos|quot|#[0-9]+|#x[0-9A-Fa-f]+|[A-Za-z_:][A-Za-z0-9_.:-]*);")
+        val valid = syntaxValid && numericReferenceValue(lexeme).forall(isLegalXmlCodePoint)
+        emitWhole(lexeme, "xml.reference", TokenChannel.Syntax,
+          if valid then VmInstruction.Emit(Some(if elements.nonEmpty then "content.reference" else "document.reference"))
+          else VmInstruction.Report("uniml.xml.invalid-reference", "invalid XML reference"))
+
+    def scanText(): Unit =
+      val start = index
+      while index < input.length && input.charAt(index) != '<' && input.charAt(index) != '&' do index += 1
+      val lexeme = input.substring(start, index)
+      val outside = elements.isEmpty
+      val whitespaceOnly = lexeme.forall(isXmlWhitespace)
+      val invalid = lexeme.contains("]]>")
+      val tooLong = Unicode.codePointCount(lexeme) > limits.maxTextCodePoints
+      val instruction =
+        if tooLong then VmInstruction.Report("uniml.xml.limit.text", "XML text exceeds configured limit", Severity.Fatal)
+        else if invalid then VmInstruction.Report("uniml.xml.invalid-character", "']]>' is forbidden in ordinary XML character data")
+        else if outside && !whitespaceOnly then VmInstruction.Report("uniml.xml.text-outside-root", "character data is not allowed outside the root element")
+        else VmInstruction.Emit(Some(if outside then "document.misc" else "content.text"))
+      emitKnownRange(start, lexeme, if outside && whitespaceOnly then "xml.whitespace" else "xml.text",
+        if outside && whitespaceOnly then TokenChannel.Trivia else TokenChannel.Syntax, instruction)
+
+    def validateSourceCharacters(): Unit =
+      var cursor = 0
+      var reported = false
+      while cursor < input.length do
+        val first = input.charAt(cursor)
+        val (codePoint, width, paired) =
+          if Unicode.isHighSurrogate(first) && cursor + 1 < input.length && Unicode.isLowSurrogate(input.charAt(cursor + 1)) then
+            val high = first.toInt - 0xD800
+            val low = input.charAt(cursor + 1).toInt - 0xDC00
+            (0x10000 + (high << 10) + low, 2, true)
+          else (first.toInt, 1, false)
+        val rawSurrogate = !paired && (Unicode.isHighSurrogate(first) || Unicode.isLowSurrogate(first))
+        if !reported && (!isLegalXmlCodePoint(codePoint) || rawSurrogate) then
+          diagnostics = diagnostics :+ Diagnostic(
+            "uniml.xml.invalid-character",
+            f"illegal XML 1.0 character U+$codePoint%04X",
+            Severity.Error,
+            None,
+            Some(XmlDialect.id),
+          )
+          reported = true
+        cursor += width
+
     validateSourceCharacters()
     while index < input.length do
       if input.startsWith("<?xml", index) then scanDeclaration()
@@ -220,184 +441,12 @@ private final class XmlScanner(source: SourceId, input: String, limits: XmlLimit
       else if input.charAt(index) == '<' then scanStartTag()
       else if input.charAt(index) == '&' then scanReference()
       else scanText()
-    if rootCount == 0 then diagnostics += eofDiagnostic("uniml.xml.missing-root", "XML document has no root element")
-    if elements.nonEmpty then diagnostics += eofDiagnostic("uniml.xml.unexpected-eof", s"unclosed XML element <${elements.last}>")
-    ProcessBatch(output.toVector, diagnostics.toVector)
+    if rootCount == 0 then diagnostics = diagnostics :+ eofDiagnostic("uniml.xml.missing-root", "XML document has no root element")
+    if elements.nonEmpty then diagnostics = diagnostics :+ eofDiagnostic("uniml.xml.unexpected-eof", s"unclosed XML element <${elements.last}>")
+    ProcessBatch(output, diagnostics)
 
-  private def scanDeclaration(): Unit =
-    val start = index
-    val end = input.indexOf("?>", index + 5)
-    if end < 0 then emitRestError("uniml.xml.invalid-declaration", "unterminated XML declaration")
-    else
-      val lexeme = input.substring(start, end + 2)
-      val valid = index == 0 && !seenDeclaration && lexeme.matches("<\\?xml\\s+version\\s*=\\s*(['\"])1\\.0\\1(?:\\s+encoding\\s*=\\s*(['\"])[A-Za-z][A-Za-z0-9._-]*\\2)?(?:\\s+standalone\\s*=\\s*(['\"])(?:yes|no)\\3)?\\s*\\?>")
-      seenDeclaration = true
-      emitWhole(lexeme, "xml.declaration", TokenChannel.Syntax,
-        if valid then VmInstruction.Emit(Some("document.declaration"))
-        else VmInstruction.Report(if start == 0 then "uniml.xml.invalid-declaration" else "uniml.xml.declaration-position", "invalid XML declaration"))
-
-  private def scanDoctype(): Unit =
-    val start = index
-    var cursor = index + 9
-    var subsetDepth = 0
-    var quote: Char = 0.toChar
-    var done = false
-    while cursor < input.length && !done do
-      val char = input.charAt(cursor)
-      if quote != 0 then
-        if char == quote then quote = 0.toChar
-      else char match
-        case '\'' | '"' => quote = char
-        case '['         => subsetDepth += 1
-        case ']' if subsetDepth > 0 => subsetDepth -= 1
-        case '>' if subsetDepth == 0 => done = true
-        case _ => ()
-      cursor += 1
-    if !done then emitRestError("uniml.xml.invalid-doctype", "unterminated XML DOCTYPE")
-    else
-      val lexeme = input.substring(start, cursor)
-      val codePoints = Unicode.codePointCount(lexeme)
-      val validPosition = elements.isEmpty && rootCount == 0 && !seenDoctype
-      seenDoctype = true
-      val instruction =
-        if codePoints > limits.maxDoctypeCodePoints then VmInstruction.Report("uniml.xml.limit.doctype", "XML DOCTYPE exceeds configured limit", Severity.Fatal)
-        else if validPosition then VmInstruction.Emit(Some("document.doctype"))
-        else VmInstruction.Report("uniml.xml.doctype-position", "DOCTYPE must appear once before the root element")
-      emitWhole(lexeme, "xml.doctype", TokenChannel.Syntax, instruction)
-
-  private def scanStartTag(): Unit =
-    val parentOpen = elements.nonEmpty
-    emitWhole("<", "xml.start-open", TokenChannel.Syntax,
-      VmInstruction.Open("xml.element", Some(if parentOpen then "content.child" else "document.root")))
-    val name = scanName("element.name")
-    if !parentOpen then rootCount += 1
-    if rootCount > 1 && !parentOpen then diagnostics += tokenDiagnostic(output.last.token, "uniml.xml.multiple-roots", "XML document has multiple root elements")
-    elements += name
-    val attributes = scala.collection.mutable.HashSet.empty[String]
-    var attributeCount = 0
-    var closed = false
-    while index < input.length && !closed do
-      if input.startsWith("/>", index) then
-        emitWhole("/>", "xml.empty-close", TokenChannel.Syntax, VmInstruction.Close(Some("xml.element"), Some("empty-tag.close")))
-        elements.remove(elements.size - 1)
-        closed = true
-      else if input.charAt(index) == '>' then
-        emitWhole(">", "xml.tag-close", TokenChannel.Syntax, VmInstruction.Emit(Some("start-tag.close")))
-        closed = true
-      else if isXmlWhitespace(input.charAt(index)) then scanMarkupWhitespace()
-      else
-        val attribute = scanName("attribute.name")
-        attributeCount += 1
-        if !attributes.add(attribute) then diagnostics += tokenDiagnostic(output.last.token, "uniml.xml.duplicate-attribute", s"duplicate XML attribute '$attribute'")
-        if attributeCount > limits.maxAttributesPerElement then diagnostics += tokenDiagnostic(output.last.token, "uniml.xml.limit.attribute", "too many XML attributes", Severity.Fatal)
-        if index < input.length && isXmlWhitespace(input.charAt(index)) then scanMarkupWhitespace()
-        if index < input.length && input.charAt(index) == '=' then emitWhole("=", "xml.equals", TokenChannel.Syntax, VmInstruction.Emit(Some("attribute.equals")))
-        else diagnostics += eofDiagnostic("uniml.xml.expected-equals", s"expected '=' after attribute '$attribute'")
-        if index < input.length && isXmlWhitespace(input.charAt(index)) then scanMarkupWhitespace()
-        scanAttributeValue()
-    if !closed then diagnostics += eofDiagnostic("uniml.xml.unexpected-eof", s"unterminated start tag <$name>")
-
-  private def scanEndTag(): Unit =
-    emitWhole("</", "xml.end-open", TokenChannel.Syntax,
-      if elements.nonEmpty then VmInstruction.Emit(Some("end-tag.open"))
-      else VmInstruction.Report("uniml.xml.unexpected-end-tag", "end tag has no open element"))
-    val name = scanName("end-tag.name")
-    while index < input.length && isXmlWhitespace(input.charAt(index)) do scanMarkupWhitespace()
-    if index < input.length && input.charAt(index) == '>' then
-      val matches = elements.nonEmpty && elements.last == name
-      emitWhole(">", "xml.tag-close", TokenChannel.Syntax,
-        if matches then VmInstruction.Close(Some("xml.element"), Some("end-tag.close"))
-        else VmInstruction.Report("uniml.xml.mismatched-end-tag", s"end tag </$name> does not match the current element"))
-      if matches then elements.remove(elements.size - 1)
-    else diagnostics += eofDiagnostic("uniml.xml.unexpected-eof", s"unterminated end tag </$name>")
-
-  private def scanAttributeValue(): Unit =
-    if index >= input.length || (input.charAt(index) != '\'' && input.charAt(index) != '"') then
-      diagnostics += eofDiagnostic("uniml.xml.expected-attribute-value", "expected quoted XML attribute value")
-      if index < input.length && input.charAt(index) != '>' then
-        val lexeme = input.substring(index, index + 1)
-        emitWhole(lexeme, "xml.invalid", TokenChannel.Error,
-          VmInstruction.Report("uniml.xml.expected-attribute-value", "expected quoted XML attribute value"))
-    else
-      val start = index
-      val quote = input.charAt(index)
-      index += 1
-      while index < input.length && input.charAt(index) != quote do index += 1
-      if index < input.length then index += 1
-      val lexeme = input.substring(start, index)
-      val content = lexeme.substring(1, math.max(1, lexeme.length - 1))
-      val invalid = !lexeme.endsWith(quote.toString) || content.contains('<') || !validAttributeReferences(content)
-      val tooLong = Unicode.codePointCount(lexeme) > limits.maxAttributeCodePoints
-      emitKnownRange(start, lexeme, "xml.attribute-value", TokenChannel.Syntax,
-        if tooLong then VmInstruction.Report("uniml.xml.limit.attribute", "XML attribute value exceeds configured limit", Severity.Fatal)
-        else if invalid then VmInstruction.Report("uniml.xml.expected-attribute-value", "invalid XML attribute value")
-        else VmInstruction.Emit(Some("attribute.value")))
-
-  private def scanCData(): Unit =
-    scanOpaque("]]>", "xml.cdata", TokenChannel.Syntax, "content.cdata", _ =>
-      if elements.isEmpty then Some("uniml.xml.invalid-cdata" -> "CDATA is only allowed inside element content") else None)
-
-  private def scanReference(): Unit =
-    val end = input.indexOf(';', index + 1)
-    if end < 0 then emitRestError("uniml.xml.invalid-reference", "unterminated XML reference")
-    else
-      val lexeme = input.substring(index, end + 1)
-      val syntaxValid = lexeme.matches("&(?:lt|gt|amp|apos|quot|#[0-9]+|#x[0-9A-Fa-f]+|[A-Za-z_:][A-Za-z0-9_.:-]*);")
-      val valid = syntaxValid && numericReferenceValue(lexeme).forall(isLegalXmlCodePoint)
-      emitWhole(lexeme, "xml.reference", TokenChannel.Syntax,
-        if valid then VmInstruction.Emit(Some(if elements.nonEmpty then "content.reference" else "document.reference"))
-        else VmInstruction.Report("uniml.xml.invalid-reference", "invalid XML reference"))
-
-  private def scanText(): Unit =
-    val start = index
-    while index < input.length && input.charAt(index) != '<' && input.charAt(index) != '&' do index += 1
-    val lexeme = input.substring(start, index)
-    val outside = elements.isEmpty
-    val whitespaceOnly = lexeme.forall(isXmlWhitespace)
-    val invalid = lexeme.contains("]]>")
-    val tooLong = Unicode.codePointCount(lexeme) > limits.maxTextCodePoints
-    val instruction =
-      if tooLong then VmInstruction.Report("uniml.xml.limit.text", "XML text exceeds configured limit", Severity.Fatal)
-      else if invalid then VmInstruction.Report("uniml.xml.invalid-character", "']]>' is forbidden in ordinary XML character data")
-      else if outside && !whitespaceOnly then VmInstruction.Report("uniml.xml.text-outside-root", "character data is not allowed outside the root element")
-      else VmInstruction.Emit(Some(if outside then "document.misc" else "content.text"))
-    emitKnownRange(start, lexeme, if outside && whitespaceOnly then "xml.whitespace" else "xml.text",
-      if outside && whitespaceOnly then TokenChannel.Trivia else TokenChannel.Syntax, instruction)
-
-  private def scanMarkupWhitespace(): Unit =
-    val start = index
-    while index < input.length && isXmlWhitespace(input.charAt(index)) do index += 1
-    emitKnownRange(start, input.substring(start, index), "xml.whitespace", TokenChannel.Trivia, VmInstruction.Emit(Some("markup.whitespace")))
-
-  private def scanName(role: String): String =
-    val start = index
-    while index < input.length && !isNameDelimiter(input.charAt(index)) do index += 1
-    if index == start && index < input.length then index += 1
-    val lexeme = input.substring(start, index)
-    val tooLong = Unicode.codePointCount(lexeme) > limits.maxNameCodePoints
-    val valid = !tooLong && validXmlName(lexeme) && lexeme.count(_ == ':') <= 1
-    emitKnownRange(start, lexeme, if valid then "xml.name" else "xml.invalid", if valid then TokenChannel.Syntax else TokenChannel.Error,
-      if valid then VmInstruction.Emit(Some(role))
-      else if tooLong then VmInstruction.Report("uniml.xml.limit.name", "XML name exceeds configured limit", Severity.Fatal)
-      else VmInstruction.Report("uniml.xml.invalid-name", "invalid XML name"))
-    lexeme
-
-  private def scanOpaque(
-      terminator: String,
-      kind: String,
-      channel: TokenChannel,
-      contentRole: String,
-      validate: String => Option[(String, String)],
-  ): Unit =
-    val end = input.indexOf(terminator, index + 2)
-    if end < 0 then emitRestError(s"uniml.${kind.replace('.', '-')}", s"unterminated $kind")
-    else
-      val lexeme = input.substring(index, end + terminator.length)
-      val role = if elements.nonEmpty then contentRole else "document.misc"
-      val instruction = validate(lexeme) match
-        case Some((code, message)) => VmInstruction.Report(code, message)
-        case None                  => VmInstruction.Emit(Some(role))
-      emitWhole(lexeme, kind, channel, instruction)
+  private def tokenDiagnostic(token: SourceToken, code: String, message: String, severity: Severity = Severity.Error): Diagnostic =
+    Diagnostic(code, message, severity, Some(token.span), Some(XmlDialect.id))
 
   private def validateComment(value: String): Option[(String, String)] =
     if value.substring(4, value.length - 3).contains("--") then Some("uniml.xml.invalid-comment" -> "XML comment contains '--'") else None
@@ -405,30 +454,6 @@ private final class XmlScanner(source: SourceId, input: String, limits: XmlLimit
   private def validatePi(value: String): Option[(String, String)] =
     val target = value.drop(2).takeWhile(char => !isXmlWhitespace(char) && char != '?')
     if target.isEmpty || target.equalsIgnoreCase("xml") then Some("uniml.xml.invalid-pi" -> "invalid XML processing-instruction target") else None
-
-  private def emitRestError(code: String, message: String): Unit =
-    val lexeme = input.substring(index)
-    emitWhole(lexeme, "xml.invalid", TokenChannel.Error, VmInstruction.Report(code, message))
-
-  private def emitWhole(lexeme: String, kind: String, channel: TokenChannel, instruction: VmInstruction): Unit =
-    val start = index
-    index += lexeme.length
-    emitKnownRange(start, lexeme, kind, channel, instruction)
-
-  private def emitKnownRange(startIndex: Int, lexeme: String, kind: String, channel: TokenChannel, instruction: VmInstruction): Unit =
-    val start = position
-    val end = Unicode.advance(start, lexeme)
-    position = end
-    val token = SourceToken(nextTokenId, kind, lexeme, SourceSpan(source, start, end), channel)
-    nextTokenId += 1
-    output += VmToken(token, instruction)
-    val _ = startIndex
-
-  private def tokenDiagnostic(token: SourceToken, code: String, message: String, severity: Severity = Severity.Error): Diagnostic =
-    Diagnostic(code, message, severity, Some(token.span), Some(XmlDialect.id))
-
-  private def eofDiagnostic(code: String, message: String): Diagnostic =
-    Diagnostic(code, message, Severity.Error, Some(SourceSpan(source, position, position)), Some(XmlDialect.id))
 
   private def isXmlWhitespace(char: Char): Boolean = char == ' ' || char == '\t' || char == '\n' || char == '\r'
 
@@ -464,29 +489,6 @@ private final class XmlScanner(source: SourceId, input: String, limits: XmlLimit
     isNameStartCodePoint(value) || value == '-' || value == '.' ||
       (value >= '0' && value <= '9') || value == 0xB7 ||
       (value >= 0x300 && value <= 0x36F) || (value >= 0x203F && value <= 0x2040)
-
-  private def validateSourceCharacters(): Unit =
-    var cursor = 0
-    var reported = false
-    while cursor < input.length do
-      val first = input.charAt(cursor)
-      val (codePoint, width, paired) =
-        if Unicode.isHighSurrogate(first) && cursor + 1 < input.length && Unicode.isLowSurrogate(input.charAt(cursor + 1)) then
-          val high = first.toInt - 0xD800
-          val low = input.charAt(cursor + 1).toInt - 0xDC00
-          (0x10000 + (high << 10) + low, 2, true)
-        else (first.toInt, 1, false)
-      val rawSurrogate = !paired && (Unicode.isHighSurrogate(first) || Unicode.isLowSurrogate(first))
-      if !reported && (!isLegalXmlCodePoint(codePoint) || rawSurrogate) then
-        diagnostics += Diagnostic(
-          "uniml.xml.invalid-character",
-          f"illegal XML 1.0 character U+$codePoint%04X",
-          Severity.Error,
-          None,
-          Some(XmlDialect.id),
-        )
-        reported = true
-      cursor += width
 
   private def numericReferenceValue(reference: String): Option[Int] =
     val digits =
