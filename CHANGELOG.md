@@ -4,6 +4,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-13 — SclJet M2d read-only interop verification complete
+
+The pinned read-only SQLite corpus is verified across every interpreter
+execution tier. `tests/e2e/scljet-m2-corpus-smoke.sh` now runs the pure-`.ssc`
+corpus dump, the 25 named corruption checks, and the 32 bounded fuzz mutations
+on the default bytecode VM, the ASM JIT backend, and the pure tree-walk
+fallback, requiring byte-identical results from each — closing the explicit
+VM/ASM corpus-execution requirement. A new `overflow-thresholds.db` pins exact
+table-leaf payload vectors straddling SQLite's overflow boundary (`p = X-1/X/X+1`,
+the sharp `K > X` fall to the `m`-byte residue, the `K <= X` branch, and a
+multi-page overflow chain), reproducible with the same byte-exact SQLite 3.53.3.
+Corpus is 24 valid files / 629 exact oracle lines. The two aggregate M2 behavior
+gates — byte-for-value corpus and safe-corruption diagnostics — are covered on
+the interpreter/VM/ASM/fallback lanes; the JS exactness boundary is recorded
+honestly (`scljet-js-m1/m2-parity`), with no JDBC/sql.js substitution.
+Remaining M2d hardening (index-btree thresholds + deep corruptions) is queued
+in `BACKLOG.md` as `scljet-m2d-hardening`.
+
 ## 2026-07-12 — ScalaScript 2.1 zero both-fail release closure
 
 The exhaustive 200-example release corpus now has no VM/direct-ASM `both-fail`,

@@ -26,6 +26,21 @@ are plain bullets without checkboxes so agents do not claim them as build work.
 
 ## SclJet interoperability follow-ups (2026-07-12)
 
+- [ ] **scljet-m2d-hardening** — remaining M2d corpus hardening after
+      `scljet-m2d-interop-verify` closed (2026-07-13). Two additive slices,
+      both reproducible with the already-pinned byte-exact SQLite 3.53.3
+      (`overflow-thresholds.db` is the template; no reserved-byte or historical
+      helper is needed): (1) index-btree payload-threshold vectors — mirror the
+      table-leaf `X/M/K` boundary cases for an index B-tree, which requires
+      generalizing `generate.py`'s hard-coded `idx_t_a` oracle case to dump any
+      index's key records in physical order (`SELECT <cols>,rowid ... ORDER BY
+      <cols>,rowid`); (2) deep record/overflow/freeblock/schema byte-mutation
+      corruptions (truncated overflow chains, corrupt freeblock spans, invalid
+      serial-type headers, sqlite_schema row damage), added to the byte-mutation
+      `corruptions()` path with stable `SqliteError` field evidence. Keep every
+      valid DB `integrity_check = ok`; extend the manifest/oracle via the same
+      generator functions so a full regeneration reproduces them byte-identically.
+
 - [ ] **scljet-portable-text-projection** — specify and implement a general
       target-neutral `code points/UTF-16 units -> String` construction API, then
       project SclJet `DecodedText` to `SqlText` without a host/JSON decoder.

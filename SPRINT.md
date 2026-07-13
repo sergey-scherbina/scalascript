@@ -308,32 +308,27 @@ with extensions isolated behind an explicit non-default profile.
       schema/row and public close releases the handle. The discovered imported-selector close bug
       is fixed and guarded. Node's false leaf-depth result is recorded for M2d/backend parity; no
       JDBC/sql.js fallback, planner, recovery, WAL overlay, or write path was added.
-- [ ] **scljet-m2d-interop-verify** — differential-read a pinned corpus across legal page sizes,
-      encodings, overflow/freelist/schema shapes and corrupt/truncated files; require VM/ASM parity,
-      JVM real-file execution, `integrity_check`/reference value agreement, spec verification,
-      examples, changelog, and explicit JS capability results. Execute as resume-cold slices:
-      (1) commit a reproducible host-only generator plus immutable manifest/SHA/oracle dumps for a
-      compact SQLite 3.53.3 matrix (all eight page sizes, three encodings, empty encoding-0, rowid,
-      WITHOUT ROWID/index-interior, overflow, auto/incremental-vacuum and freelist reuse); record
-      compile options and `integrity_check`; (2) add one pure `.ssc` corpus dumper and assembled JVM
-      harness that compare ordered physical schema/records without JDBC/sql.js; (3) add named
-      one-byte/truncation corruptions with stable `SqliteError` field/page evidence plus bounded fuzz
-      smoke; (4) rerun interpreter/VM/ASM and explicitly record Node results, then check only the M2
-      behavior gates actually covered. Historical schema-format 1/2/3 and non-zero reserved-byte
-      generation require pinned historical/amalgamation builds: if those tools are unavailable,
-      land the reproducible current-oracle slice and keep the remaining exact gates open rather than
-      fabricating coverage. Done-when ordinary tests consume committed bytes only, regeneration is
-      optional, every committed valid DB says `ok` under reference `integrity_check`, and manifest
-      SHA/value dumps match the SclJet reader. Corpus execution discovered
-      `scljet-freelist-recursive-stack-overflow`: fix the 183-page valid freelist with an explicit
-      bounded `while` traversal before accepting any corpus result; retain structured duplicate,
-      cycle and pointer-map failures. Current progress: 23 valid files / 619 exact lines now include
-      all page sizes, encodings, schema formats 0..4, serial/rowid/WAL edges and official reserve
-      counts 1/7/32. Historical formats 1/2/3 landed in `0c190aec8` from official canonical
-      `version-3.2.0` (Fossil UUID `debf40e8ffa35406685ec027ced1f147ef0487df`), with both creator
-      and 3.53.3 oracle identities pinned. Next: expand named corruptions across header/page/cell/
-      overflow/freelist/pointer-map/schema invariants and add exact M/K/X +/-1 table/index payload
-      vectors; then run the full corpus explicitly on VM/ASM and record the existing Node boundary.
+- [x] **scljet-m2d-interop-verify** — DONE 2026-07-13 (codex corpus slices +
+      claude-code VM/ASM parity `79fffb549`/`a93db2f11` and overflow thresholds
+      `814d5c2b4`/`46150acb6`). The pinned corpus is now 24 valid files / 629 exact
+      oracle lines + 25 named corruptions + 32 bounded fuzz mutations, all consumed
+      from committed bytes (regeneration optional), every valid DB `integrity_check = ok`,
+      and manifest SHA/value dumps match the SclJet reader. `tests/e2e/scljet-m2-corpus-smoke.sh`
+      now runs the dump + corrupt + fuzz checks on three interpreter execution tiers
+      (default bytecode VM + fast tier + javac JIT, ASM JIT `SSC_JIT_BACKEND=asm`, and
+      the pure tree-walk fallback `SSC_JIT_BYTECODE=off SSC_FASTTIER=off`) and requires
+      byte-identical results from each — closing the explicit VM/ASM corpus-execution
+      requirement. `overflow-thresholds.db` pins exact table-leaf payload vectors
+      (p = X-1/X/X+1, the sharp K>X fall to the m-byte residue, the K<=X branch, and a
+      multi-page overflow chain), reproducible with the same byte-exact SQLite 3.53.3.
+      The two aggregate M2 behavior gates (byte-for-value corpus + safe-corruption
+      diagnostics) are now `[x]` in `specs/scljet.md` for the interpreter/VM/ASM/fallback
+      lanes. `scljet-freelist-recursive-stack-overflow` fixed+guarded (`7399fad95`); the
+      183-page valid freelist retains structured duplicate/cycle/pointer-map failures.
+      Node boundary recorded honestly (byte/page-record codecs still diverge on JS —
+      tracked as `scljet-js-m1-parity` / `scljet-js-m2-cursor-parity` in `BACKLOG.md`);
+      no JDBC/sql.js substitution. Remaining M2d hardening (index-btree payload
+      thresholds + deep record/overflow/freeblock/schema corruptions) moved to `BACKLOG.md`.
 ## v2-swift-nativeui-i18n-json — standard `lower/serve`, locale and JSON parity (2026-07-12)
 
 Claim: `.work/active/v2-swift-nativeui-i18n-json.claim`. Spec:
