@@ -1,7 +1,0 @@
-feature/scljet-m2d-interop-verify 2026-07-12T14:39:48Z
-agent: claude-code
-heartbeat: 2026-07-13T09:21:52Z
-status: in-progress
-took-over-from: codex (orphaned, last heartbeat 2026-07-12T15:17:52Z)
-done-so-far: codex landed the full pinned M2 corpus (23 valid + 25 corrupt + 32 fuzz, 619 exact oracle lines) on origin/main; INT lane 6/6 conformance + corpus e2e green.
-next: (1) lock VM/ASM/fallback interpreter-tier parity of the corpus dump + corrupt/fuzz checks; (2) add a self-contained overflow/payload-threshold sub-corpus reproducible with byte-exact SQLite 3.53.3; record the JS boundary honestly; close the covered M2 gates.
