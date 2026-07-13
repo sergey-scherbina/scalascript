@@ -40,9 +40,12 @@ and multi-leaf over a table-interior root (`buildOverflowBtreeDatabase`), an
 arbitrary-depth B-tree writer (`buildDeepTableDatabase`, stacking interior levels
 to any depth — verified on a real 3-level tree), a combined deep-plus-overflow
 writer (`buildDeepOverflowTableDatabase`, a 3-level tree whose oversized rows also
-spill onto chains), and the rollback journal (`writeRollbackJournal` + hot-journal
-`applyRollbackJournal`, byte-identical to SQLite's journal). The mutable pager,
-pager recover-on-open, and delete/update remain.
+spill onto chains), a general explicit-rowid writer (`buildKeyedDatabase` — rows
+keep their own gapped rowids across a rewrite, the foundation for
+rowid-preserving delete/update), and the rollback journal (`writeRollbackJournal`
++ hot-journal `applyRollbackJournal`, byte-identical to SQLite's journal). The
+mutable pager, pager recover-on-open, and the read-and-rewrite half of
+delete/update remain.
 
 ## Modules
 

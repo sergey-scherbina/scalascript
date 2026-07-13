@@ -116,9 +116,16 @@ are plain bullets without checkboxes so agents do not claim them as build work.
       verified on an 88-page 3-level tree with overflow chains (integrity_check ok,
       depth 3, all rows exact), int==js (conformance `scljet-write-deep-overflow`).
       The bulk-build write matrix (single/multi-table × small/overflow ×
-      2-level/deep) is now complete. Remaining: (4) incremental insert/update into
-      an existing database file (mutating pages in place), which is really the
-      pager/journal path (m3e) rather than bulk build.
+      2-level/deep) is now complete. The explicit-rowid writer `buildKeyedDatabase`
+      is DONE too (2026-07-13): rows carry their OWN (strictly ascending, gapped)
+      rowids — preserved across a rewrite instead of renumbered 1..n — composing
+      with overflow and any depth; verified rowids `[10,25,100,500,1000]` read back
+      exact incl. a 1016-char overflow row, int==js (conformance
+      `scljet-write-keyed`). This is the write-side foundation for m3f. Remaining
+      for m3f delete/update: the READ-and-rewrite half — open the DB over a memory
+      VFS, cursor its rows to `(rowid, values)` (or raw record bytes), filter/edit,
+      and rebuild via `buildKeyedDatabase`. (4) True IN-PLACE insert/update
+      (mutating pages) is the separate pager/journal path (m3e).
 
 - [x] **scljet-byteslice-zeros-js-recursion** — DONE 2026-07-13. The core list
       helpers in `scljet/bytes.ssc` were made iterative (`while`+`var`, not linear
