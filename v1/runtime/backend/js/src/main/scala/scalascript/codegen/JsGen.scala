@@ -3723,12 +3723,15 @@ class JsGen(
     case Pat.Tuple(pats) =>
       "[" + pats.map(p => p match
         case Pat.Var(n) => n.value
-        case Pat.Wildcard() => "_"
+        // A `_` wildcard is a discard — emit a FRESH unique name, not the literal
+        // `_`. Two `val (a, _) = …` at the same scope both bound `const _` → JS
+        // "Identifier '_' has already been declared". (js-wildcard-destructure-dup.)
+        case Pat.Wildcard() => freshTmp()
         case inner => genPatDestructure(inner)
       ).mkString(", ") + "]"
     case Pat.Var(n) => n.value
-    case Pat.Wildcard() => "_"
-    case _ => "_"
+    case Pat.Wildcard() => freshTmp()
+    case _ => freshTmp()
 
   private[codegen] def patternNames(pat: Pat): List[String] = pat match
     case Pat.Var(n) => List(n.value)

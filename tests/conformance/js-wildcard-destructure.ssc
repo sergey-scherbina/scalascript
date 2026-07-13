@@ -1,0 +1,17 @@
+---
+name: js-wildcard-destructure
+backends: [int, js]
+---
+
+# `_` wildcard in tuple destructuring, used twice (js-wildcard-destructure-dup)
+
+A `_` wildcard in a `val (x, _) = …` binding was emitted as the literal JS identifier
+`_`, so two such bindings in one scope collided with "Identifier '_' has already been
+declared". Each wildcard now gets a fresh unique throwaway name.
+
+```scalascript
+val (a, _) = (1, 2)
+val (b, _) = (3, 4)
+val (_, c) = (5, 6)
+println(a + b + c)
+```

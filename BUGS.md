@@ -72,6 +72,16 @@ case, full `backendInterpreter/test` green):
 - **js-symbolic-infix-op** — FIXED. Symbolic user operators (`~`, `~>`, `<~`, `++`)
   named the extension fn `_ext_T_<sym>` and emitted the infix use as a raw JS
   operator → SyntaxError; now mangled + dispatched via the extension registry.
+- **js-parser-choice-pipe-bitwise** — FIXED (see below). `p | q` bitwise mis-lowering
+  + missing `String.matchPrefix`.
+- **js-http-config-namespace-tdz** — FIXED (see below). `httpTimeout`/`httpRetry`
+  namespace member resolved to `undefined`.
+- **js-algebraic-effects-residual** — FIXED (see below). Stream.complete + logger
+  pair render + user `Logger.log`.
+- **js-wildcard-destructure-dup** — FIXED. A `_` wildcard in `val (x, _) = …` was
+  emitted as the literal JS identifier `_`, so two such bindings in one scope threw
+  "Identifier '_' has already been declared". Each wildcard now gets a fresh unique
+  throwaway name. (Found while writing the Stream conformance case.)
 
 Remaining (categorized; not yet fixed):
 
