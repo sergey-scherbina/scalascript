@@ -5,7 +5,7 @@ trait DialectAdapter:
 
   def aliases: Set[String] = Set.empty
 
-  def instructions(source: SourceInput): Processor[SourceChunk, VmToken]
+  def instructions(source: SourceInput): Processor[String, SourceChunk, VmToken]
 
   def project(tree: UniNode): Projection = Projection.Identity(tree)
 

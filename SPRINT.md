@@ -56,15 +56,26 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
       — most of UniML's surface. **Two blocking gaps:** (1) `new Array[T](n)` + indexed apply/update
       is broken (IndexOutOfBounds) — the compat-layer floor; (2) anonymous `new Trait[..]:` →
       `unbound global: _err`. Untested: variance `[+A]`, multi-file `package`/`import`.
-- [ ] **uniml-portable-1-immutable** — [UniML-side, PRIMARY] rewrite UniML to eliminate mutable
-      object state. Sketch (being designed with Sergiy): drop the streaming `Processor[I,O]`
-      (`push`/`finish` + mutable `finished`) in favour of pure whole-input functions —
-      `parse(source, dialect): ParseResult` — with chunks just concatenated; make `TreeVm` a pure
-      fold over `Vector[VmToken]` with an immutable `VmState` (frame stack as `List`, counters,
-      roots, diagnostics); make lexers/block-engines pure functions returning token vectors (local
-      `var`/`while` over immutable values allowed — v2 supports it); replace mutable builders/buffers
-      with immutable `Vector`/`List` accumulation. Behaviour-preserving: keep scalac + all tests green
-      throughout. Largest UniML slice.
+- [x] **uniml-portable-1-immutable** — ✓ DONE 2026-07-13 (interfaces + VM + driver + dialect
+      wrappers). [UniML-side, PRIMARY] Eliminated the mutable-object-state design at the streaming
+      boundary. `Processor` is now the pure fold `trait Processor[S, I, O]: start / step(state,input):
+      Stepped[S,O] / stop(state): ProcessBatch[O]` — the `step(state, chunk)` fold Sergiy asked us to
+      keep for genuine incrementality — replacing the old `push`/`finish` + mutable `finished` flag.
+      `TreeVm` is a pure fold over an immutable `VmState` (frame stack as `Vector`, counters, roots,
+      diagnostics; a local `var`/`while` shell inside `step`/`stop` over immutable values, no object
+      fields). `UniML.parse` threads the dialect processor over chunks then folds tokens through the
+      VM — no shared mutable state. All 5 dialect processors (literal/json/yaml/markdown/xml) are pure
+      case classes `Processor[String, SourceChunk, VmToken]` that buffer the source in `step` and lex
+      once in `stop`. Behaviour-preserving: green on scalac across JVM+JS (core 15, json 16, yaml 18,
+      md 32) and the root bindings (unimlXml 13, unimlMarkdownBridge 11). Net −80 LOC. The
+      after-`finish` "reject reuse" / `uniml.*.finished` diagnostic is gone (a pure `stop` is
+      idempotent). Remaining internal-lexer mutability carved out → `uniml-portable-1d-lexers`.
+- [ ] **uniml-portable-1d-lexers** — [UniML-side] the internal lexers/block-engines (`JsonLexer`,
+      `YamlLexer`, `XmlScanner`, `MarkdownBlocks`) still use mutable object fields / `ArrayBuffer`,
+      now fully encapsulated inside a single pure `stop` call (no state escapes the `Processor`). For
+      full Scala3∩v2 compilability those must also drop mutable **object fields** (v2's object-model
+      wall) — rewrite each as a pure function returning a token `Vector` with a local `var`/`while`
+      shell over immutable values (allowed on v2). Behaviour-preserving; keep all tests green.
 - [ ] **uniml-portable-1c-compat** — the small platform-shim that survives the immutable rewrite:
       `CharClass` with a **compact portable Unicode table** (whitespace/punct/symbol/letter/digit +
       P*/S* for markdown flanking) + ASCII fast-path, hand-rolled int↔hex, and an immutable `Map`-like

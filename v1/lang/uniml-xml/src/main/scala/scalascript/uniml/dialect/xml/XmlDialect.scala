@@ -21,7 +21,7 @@ object XmlDialect extends DialectAdapter:
   val id: String = "xml.1.0"
   override val aliases: Set[String] = Set("xml", "application/xml", "text/xml")
 
-  def instructions(source: SourceInput): Processor[SourceChunk, VmToken] =
+  def instructions(source: SourceInput): Processor[String, SourceChunk, VmToken] =
     XmlProcessor(source.source, XmlLimits.default)
 
   def withLimits(limits: XmlLimits): DialectAdapter = ConfiguredXmlDialect(limits)
@@ -29,7 +29,7 @@ object XmlDialect extends DialectAdapter:
 private final case class ConfiguredXmlDialect(limits: XmlLimits) extends DialectAdapter:
   val id: String = XmlDialect.id
   override val aliases: Set[String] = XmlDialect.aliases
-  def instructions(source: SourceInput): Processor[SourceChunk, VmToken] = XmlProcessor(source.source, limits)
+  def instructions(source: SourceInput): Processor[String, SourceChunk, VmToken] = XmlProcessor(source.source, limits)
 
 final case class XmlValidationResult(
     roots: Vector[UniNode],
@@ -176,46 +176,22 @@ object Xml:
   private def namespaceDiagnostic(message: String): Diagnostic =
     Diagnostic("uniml.xml.invalid-namespace-binding", message, Severity.Error, None, Some(XmlDialect.id))
 
-private final class XmlProcessor(source: SourceId, limits: XmlLimits) extends Processor[SourceChunk, VmToken]:
-  private val input = StringBuilder()
-  private var sourceCodePoints = 0L
-  private var limitDiagnostic: Option[Diagnostic] = None
-  private var finished = false
+private final case class XmlProcessor(source: SourceId, limits: XmlLimits) extends Processor[String, SourceChunk, VmToken]:
+  def start: String = ""
 
-  def push(chunk: SourceChunk): ProcessBatch[VmToken] =
-    if finished then ProcessBatch(Vector.empty, Vector(finishedDiagnostic))
-    else if limitDiagnostic.nonEmpty then ProcessBatch.empty
-    else
-      sourceCodePoints += Unicode.codePointCount(chunk.text).toLong
-      if sourceCodePoints > limits.maxSourceCodePoints then
-        val diagnostic = Diagnostic(
-          "uniml.xml.limit.source",
-          s"XML source exceeds the ${limits.maxSourceCodePoints} code-point limit",
-          Severity.Fatal,
-          None,
-          Some(XmlDialect.id),
-        )
-        limitDiagnostic = Some(diagnostic)
-        ProcessBatch(Vector.empty, Vector(diagnostic))
-      else
-        input.append(chunk.text)
-        ProcessBatch.empty
+  def step(state: String, input: SourceChunk): Stepped[String, VmToken] =
+    Stepped(state + input.text, ProcessBatch.empty)
 
-  def finish(): ProcessBatch[VmToken] =
-    if finished then ProcessBatch(Vector.empty, Vector(finishedDiagnostic))
-    else
-      finished = true
-      limitDiagnostic match
-        case Some(_) => ProcessBatch.empty
-        case None    => XmlScanner(source, input.result(), limits).scan()
-
-  private val finishedDiagnostic = Diagnostic(
-    "uniml.xml.finished",
-    "XML dialect processor cannot accept input or finish more than once",
-    Severity.Error,
-    None,
-    Some(XmlDialect.id),
-  )
+  def stop(state: String): ProcessBatch[VmToken] =
+    if Unicode.codePointCount(state).toLong > limits.maxSourceCodePoints then
+      ProcessBatch(Vector.empty, Vector(Diagnostic(
+        "uniml.xml.limit.source",
+        s"XML source exceeds the ${limits.maxSourceCodePoints} code-point limit",
+        Severity.Fatal,
+        None,
+        Some(XmlDialect.id),
+      )))
+    else XmlScanner(source, state, limits).scan()
 
 private object XmlScanner:
   def apply(source: SourceId, input: String, limits: XmlLimits): XmlScanner =

@@ -3,27 +3,35 @@ package scalascript.uniml
 import org.scalatest.funsuite.AnyFunSuite
 
 final class ProcessorSpec extends AnyFunSuite:
-  test("processor composition forwards values, diagnostics, and finish output in order") {
-    val upstream = new Processor[Int, Int]:
-      def push(input: Int): ProcessBatch[Int] =
-        ProcessBatch(Vector(input, input + 1), Vector(diagnostic(s"up-$input")))
+  // A pure processor whose immutable state is a running count. Each input emits
+  // its running index; `stop` emits the final count.
+  private object Counter extends Processor[Int, String, Int]:
+    def start: Int = 0
+    def step(state: Int, input: String): Stepped[Int, Int] =
+      Stepped(state + 1, ProcessBatch(Vector(state + 1), Vector(diagnostic(s"in-$input"))))
+    def stop(state: Int): ProcessBatch[Int] = ProcessBatch(Vector(state), Vector(diagnostic("stop")))
 
-      def finish(): ProcessBatch[Int] = ProcessBatch(Vector(99), Vector(diagnostic("up-finish")))
+  test("a pure processor threads immutable state and emits batches") {
+    var s = Counter.start
+    val b1 = Counter.step(s, "a"); s = b1.state
+    val b2 = Counter.step(s, "b"); s = b2.state
+    val fin = Counter.stop(s)
 
-    val downstream = new Processor[Int, String]:
-      def push(input: Int): ProcessBatch[String] =
-        ProcessBatch(Vector(s"v$input"), Vector(diagnostic(s"down-$input")))
+    assert(b1.state == 1 && b1.batch.values == Vector(1))
+    assert(b2.state == 2 && b2.batch.values == Vector(2))
+    assert(fin.values == Vector(2))
+    assert((b1.batch.diagnostics ++ b2.batch.diagnostics ++ fin.diagnostics).map(_.code)
+      == Vector("in-a", "in-b", "stop"))
+  }
 
-      def finish(): ProcessBatch[String] = ProcessBatch(Vector("done"), Vector(diagnostic("down-finish")))
+  test("step is pure — the same state and input give the same result") {
+    assert(Counter.step(0, "a") == Counter.step(0, "a"))
+  }
 
-    val pipeline = upstream.andThen(downstream)
-    val first = pipeline.push(1)
-    assert(first.values == Vector("v1", "v2"))
-    assert(first.diagnostics.map(_.code) == Vector("up-1", "down-1", "down-2"))
-
-    val last = pipeline.finish()
-    assert(last.values == Vector("v99", "done"))
-    assert(last.diagnostics.map(_.code) == Vector("up-finish", "down-99", "down-finish"))
+  test("ProcessBatch.concat merges values then diagnostics in order") {
+    val a = ProcessBatch(Vector(1), Vector(diagnostic("a")))
+    val b = ProcessBatch(Vector(2, 3), Vector(diagnostic("b")))
+    assert(a.concat(b) == ProcessBatch(Vector(1, 2, 3), Vector(diagnostic("a"), diagnostic("b"))))
   }
 
   private def diagnostic(code: String): Diagnostic =

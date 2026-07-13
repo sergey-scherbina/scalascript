@@ -6,7 +6,7 @@ final class TreeVmSpec extends AnyFunSuite:
   private val source = SourceId("memory:test")
 
   test("balanced instructions build an ordered lossless branch") {
-    val vm = TreeVm()
+    val vm = VmDriver()
     assert(vm.push(vmToken(0, "{", VmInstruction.Open("json.object"))).values.isEmpty)
     assert(vm.push(vmToken(1, "name", VmInstruction.Emit(Some("member.key")))).values.isEmpty)
     val closed = vm.push(vmToken(2, "}", VmInstruction.Close(Some("json.object"), Some("delimiter.close"))))
@@ -23,7 +23,7 @@ final class TreeVmSpec extends AnyFunSuite:
   }
 
   test("a mismatched close is retained but does not close another frame") {
-    val vm = TreeVm()
+    val vm = VmDriver()
     vm.push(vmToken(0, "{", VmInstruction.Open("json.object")))
     val mismatch = vm.push(vmToken(1, "]", VmInstruction.Close(Some("json.array"))))
     assert(mismatch.values.isEmpty)
@@ -35,7 +35,7 @@ final class TreeVmSpec extends AnyFunSuite:
   }
 
   test("nested branches attach to their parent with the opening role") {
-    val vm = TreeVm()
+    val vm = VmDriver()
     vm.push(vmToken(0, "[", VmInstruction.Open("json.array")))
     vm.push(vmToken(1, "{", VmInstruction.Open("json.object", Some("item"))))
     vm.push(vmToken(2, "}", VmInstruction.Close(Some("json.object"))))
@@ -48,7 +48,7 @@ final class TreeVmSpec extends AnyFunSuite:
   }
 
   test("depth limit halts before opening an excessive frame") {
-    val vm = TreeVm(Limits(maxDepth = 1))
+    val vm = VmDriver(Limits(maxDepth = 1))
     vm.push(vmToken(0, "{", VmInstruction.Open("outer")))
     val rejected = vm.push(vmToken(1, "[", VmInstruction.Open("inner")))
 
@@ -60,26 +60,26 @@ final class TreeVmSpec extends AnyFunSuite:
   }
 
   test("node and token-size limits reject input with fatal diagnostics") {
-    val nodeLimited = TreeVm(Limits(maxNodes = 1))
+    val nodeLimited = VmDriver(Limits(maxNodes = 1))
     val nodeResult = nodeLimited.push(vmToken(0, "{", VmInstruction.Open("object")))
     assert(nodeResult.diagnostics.map(_.code) == Vector("uniml.limit.nodes"))
     assert(nodeResult.diagnostics.head.severity == Severity.Fatal)
 
-    val tokenLimited = TreeVm(Limits(maxTokenCodePoints = 1))
+    val tokenLimited = VmDriver(Limits(maxTokenCodePoints = 1))
     val tokenResult = tokenLimited.push(vmToken(0, "ab", VmInstruction.Emit()))
     assert(tokenResult.diagnostics.map(_.code) == Vector("uniml.limit.token"))
     assert(tokenResult.diagnostics.head.severity == Severity.Fatal)
   }
 
   test("report instructions retain their source token") {
-    val vm = TreeVm()
+    val vm = VmDriver()
     val batch = vm.push(vmToken(0, "?", VmInstruction.Report("test.problem", "problem")))
     assert(batch.diagnostics.map(_.code) == Vector("test.problem"))
     assert(batch.values.collect { case UniNode.Token(token) => token.lexeme } == Vector("?"))
   }
 
   test("reframe atomically closes, opens, emits once, and closes after the carrier") {
-    val vm = TreeVm()
+    val vm = VmDriver()
     vm.push(vmToken(0, "doc", VmInstruction.Open("yaml.document")))
     vm.push(vmToken(1, "a", VmInstruction.Open("yaml.mapping", Some("document.value"))))
     vm.push(vmToken(2, ":", VmInstruction.Emit(Some("mapping.colon"))))
@@ -105,7 +105,7 @@ final class TreeVmSpec extends AnyFunSuite:
   }
 
   test("invalid reframe is atomic and retains its carrier as an emit") {
-    val vm = TreeVm()
+    val vm = VmDriver()
     vm.push(vmToken(0, "{", VmInstruction.Open("outer")))
     val invalid = vm.push(vmToken(
       1,
@@ -129,7 +129,7 @@ final class TreeVmSpec extends AnyFunSuite:
   }
 
   test("reframe depth rejection leaves existing frames unchanged") {
-    val vm = TreeVm(Limits(maxDepth = 1))
+    val vm = VmDriver(Limits(maxDepth = 1))
     vm.push(vmToken(0, "{", VmInstruction.Open("outer")))
     val rejected = vm.push(vmToken(1, "x", VmInstruction.Reframe(open = Vector(FrameSpec("inner")))))
 
@@ -139,6 +139,17 @@ final class TreeVmSpec extends AnyFunSuite:
     assert(partial.kind == "outer")
     assert(UniNode.sourceTokens(partial).map(_.lexeme) == Vector("{"))
   }
+
+  /** Test-only stateful driver over the pure TreeVm fold, so the test bodies read
+    * as a sequence of pushes. (Production code threads VmState immutably.) */
+  private final class VmDriver(limits: Limits = Limits.default):
+    private val vm = TreeVm(limits)
+    private var state = vm.start
+    def push(token: VmToken): ProcessBatch[UniNode] =
+      val stepped = vm.step(state, token)
+      state = stepped.state
+      stepped.batch
+    def finish(): ProcessBatch[UniNode] = vm.stop(state)
 
   private def vmToken(id: Long, lexeme: String, instruction: VmInstruction): VmToken =
     val start = SourcePosition(id.toInt, 1, id.toInt + 1)

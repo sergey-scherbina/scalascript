@@ -20,7 +20,7 @@ object YamlDialect extends DialectAdapter:
 
   override val aliases: Set[String] = Set("yaml", "yml", "application/yaml")
 
-  def instructions(source: SourceInput): Processor[SourceChunk, VmToken] =
+  def instructions(source: SourceInput): Processor[String, SourceChunk, VmToken] =
     YamlInstructionProcessor(source.source, YamlLimits.default)
 
   def withLimits(limits: YamlLimits): DialectAdapter = ConfiguredYamlDialect(limits)
@@ -30,7 +30,7 @@ private final case class ConfiguredYamlDialect(limits: YamlLimits) extends Diale
 
   override val aliases: Set[String] = YamlDialect.aliases
 
-  def instructions(source: SourceInput): Processor[SourceChunk, VmToken] =
+  def instructions(source: SourceInput): Processor[String, SourceChunk, VmToken] =
     YamlInstructionProcessor(source.source, limits)
 
 object Yaml:
@@ -42,64 +42,42 @@ object Yaml:
       options: YamlProjectionOptions = YamlProjectionOptions.default,
   ): YamlProjectionResult = YamlProjection.project(result, options)
 
-private final class YamlInstructionProcessor(source: SourceId, limits: YamlLimits)
-    extends Processor[SourceChunk, VmToken]:
-  private val input = StringBuilder()
-  private var codePoints = 0L
-  private var finished = false
-  private var sourceLimitReported = false
+private final case class YamlInstructionProcessor(source: SourceId, limits: YamlLimits)
+    extends Processor[String, SourceChunk, VmToken]:
+  def start: String = ""
 
-  def push(chunk: SourceChunk): ProcessBatch[VmToken] =
-    if finished then ProcessBatch(Vector.empty, Vector(afterFinishDiagnostic))
+  def step(state: String, input: SourceChunk): Stepped[String, VmToken] =
+    Stepped(state + input.text, ProcessBatch.empty)
+
+  def stop(state: String): ProcessBatch[VmToken] =
+    if Unicode.codePointCount(state).toLong > limits.maxSourceCodePoints then
+      ProcessBatch(Vector.empty, Vector(Diagnostic(
+        code = "uniml.yaml.limit.source",
+        message = s"YAML source exceeds the ${limits.maxSourceCodePoints} code-point limit",
+        severity = Severity.Fatal,
+        span = None,
+        dialect = Some(YamlDialect.id),
+      )))
     else
-      val chunkPoints = Unicode.codePointCount(chunk.text).toLong
-      if codePoints + chunkPoints > limits.maxSourceCodePoints then
-        sourceLimitReported = true
-        ProcessBatch(Vector.empty, Vector(Diagnostic(
-          code = "uniml.yaml.limit.source",
-          message = s"YAML source exceeds the ${limits.maxSourceCodePoints} code-point limit",
-          severity = Severity.Fatal,
-          span = None,
-          dialect = Some(YamlDialect.id),
-        )))
-      else
-        input.append(chunk.text)
-        codePoints += chunkPoints
-        ProcessBatch.empty
-
-  def finish(): ProcessBatch[VmToken] =
-    if finished then ProcessBatch(Vector.empty, Vector(afterFinishDiagnostic))
-    else
-      finished = true
-      if sourceLimitReported then ProcessBatch.empty
-      else
-        val lexed = YamlLexer.scan(source, input.result(), limits)
-        val structured = YamlStructure.assign(lexed.tokens)
-        val countDiagnostics = Vector.newBuilder[Diagnostic]
-        val anchorCount = lexed.tokens.count(_.kind == "yaml.anchor")
-        val aliasCount = lexed.tokens.count(_.kind == "yaml.alias")
-        if anchorCount > limits.maxAnchors then
-          countDiagnostics += Diagnostic(
-            "uniml.yaml.limit.anchors",
-            s"YAML source contains $anchorCount anchors; limit is ${limits.maxAnchors}",
-            Severity.Fatal,
-            lexed.tokens.find(_.kind == "yaml.anchor").map(_.span),
-            Some(YamlDialect.id),
-          )
-        if aliasCount > limits.maxAliases then
-          countDiagnostics += Diagnostic(
-            "uniml.yaml.limit.aliases",
-            s"YAML source contains $aliasCount aliases; limit is ${limits.maxAliases}",
-            Severity.Fatal,
-            lexed.tokens.find(_.kind == "yaml.alias").map(_.span),
-            Some(YamlDialect.id),
-          )
-        ProcessBatch(structured.tokens, lexed.diagnostics ++ structured.diagnostics ++ countDiagnostics.result())
-
-  private val afterFinishDiagnostic = Diagnostic(
-    code = "uniml.yaml.finished",
-    message = "YAML dialect processor cannot accept input or finish more than once",
-    severity = Severity.Error,
-    span = None,
-    dialect = Some(YamlDialect.id),
-  )
+      val lexed = YamlLexer.scan(source, state, limits)
+      val structured = YamlStructure.assign(lexed.tokens)
+      var countDiagnostics: Vector[Diagnostic] = Vector.empty
+      val anchorCount = lexed.tokens.count(_.kind == "yaml.anchor")
+      val aliasCount = lexed.tokens.count(_.kind == "yaml.alias")
+      if anchorCount > limits.maxAnchors then
+        countDiagnostics = countDiagnostics :+ Diagnostic(
+          "uniml.yaml.limit.anchors",
+          s"YAML source contains $anchorCount anchors; limit is ${limits.maxAnchors}",
+          Severity.Fatal,
+          lexed.tokens.find(_.kind == "yaml.anchor").map(_.span),
+          Some(YamlDialect.id),
+        )
+      if aliasCount > limits.maxAliases then
+        countDiagnostics = countDiagnostics :+ Diagnostic(
+          "uniml.yaml.limit.aliases",
+          s"YAML source contains $aliasCount aliases; limit is ${limits.maxAliases}",
+          Severity.Fatal,
+          lexed.tokens.find(_.kind == "yaml.alias").map(_.span),
+          Some(YamlDialect.id),
+        )
+      ProcessBatch(structured.tokens, lexed.diagnostics ++ structured.diagnostics ++ countDiagnostics)

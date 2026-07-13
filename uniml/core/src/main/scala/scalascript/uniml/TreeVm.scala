@@ -1,7 +1,5 @@
 package scalascript.uniml
 
-import scala.collection.mutable.ArrayBuffer
-
 final case class FrameSpec(kind: String, role: Option[String] = None)
 
 enum VmInstruction:
@@ -28,52 +26,185 @@ final case class Limits(
 object Limits:
   val default: Limits = Limits()
 
-final class TreeVm(limits: Limits = Limits.default) extends Processor[VmToken, UniNode]:
-  private final class Frame(
-      val kind: String,
-      val role: Option[String],
-      val edges: ArrayBuffer[UniEdge],
-      val openingSpan: SourceSpan,
-  )
+/** One open branch on the VM's stack — immutable. The stack is a `Vector` with
+  * the top at the end. */
+final case class VmFrame(kind: String, role: Option[String], edges: Vector[UniEdge], openingSpan: SourceSpan)
 
-  private val stack = ArrayBuffer.empty[Frame]
-  private var nodeCount = 0L
-  private var lastTokenId: Option[Long] = None
-  private var diagnosticCount = 0
-  private var diagnosticLimitReported = false
-  private var finished = false
-  private var halted = false
+/** The whole VM state, threaded immutably by the driver — `TreeVm` itself has no
+  * mutable fields. */
+final case class VmState(
+    stack: Vector[VmFrame],
+    nodeCount: Long,
+    lastTokenId: Option[Long],
+    diagnosticCount: Int,
+    diagnosticLimitReported: Boolean,
+    finished: Boolean,
+    halted: Boolean,
+)
 
-  def push(input: VmToken): ProcessBatch[UniNode] =
-    if finished then ProcessBatch(Vector.empty, Vector(finishedDiagnostic))
-    else if halted then ProcessBatch.empty
+object VmState:
+  val initial: VmState = VmState(Vector.empty, 0L, None, 0, diagnosticLimitReported = false, finished = false, halted = false)
+
+/** The universal tree-building VM as a **pure incremental fold**: `step` folds one
+  * `VmToken` into the next `VmState` and any roots it completed; `stop` closes
+  * unclosed frames at end of input. No mutable object state — inside `step`/`stop`
+  * a local imperative shell mutates only local `var`s over immutable values. */
+final case class TreeVm(limits: Limits = Limits.default) extends Processor[VmState, VmToken, UniNode]:
+
+  def start: VmState = VmState.initial
+
+  def step(state: VmState, input: VmToken): Stepped[VmState, UniNode] =
+    if state.finished then Stepped(state, ProcessBatch(Vector.empty, Vector(TreeVm.finishedDiagnostic)))
+    else if state.halted then Stepped(state, ProcessBatch.empty)
     else
-      preflight(input) match
+      // local imperative shell over the immutable state
+      var stack = state.stack
+      var nodeCount = state.nodeCount
+      var lastTokenId = state.lastTokenId
+      var diagCount = state.diagnosticCount
+      var diagLimitReported = state.diagnosticLimitReported
+      var halted = state.halted
+      var roots: Vector[UniNode] = Vector.empty
+      var diags: Vector[Diagnostic] = Vector.empty
+
+      def record(d: Diagnostic): Unit =
+        if diagCount < limits.maxDiagnostics then
+          diagCount += 1
+          diags = diags :+ d
+        else if !diagLimitReported then
+          diagLimitReported = true
+          halted = true
+          diags = diags :+ Diagnostic(
+            code = "uniml.limit.diagnostics",
+            message = s"diagnostic count exceeds the ${limits.maxDiagnostics} limit",
+            severity = Severity.Fatal,
+            span = d.span,
+          )
+
+      def addTop(edge: UniEdge): Unit =
+        val top = stack.last
+        stack = stack.dropRight(1) :+ VmFrame(top.kind, top.role, top.edges :+ edge, top.openingSpan)
+
+      def attach(branch: UniNode.Branch, role: Option[String]): Unit =
+        if stack.nonEmpty then addTop(UniEdge(role, branch)) else roots = roots :+ branch
+
+      def closeFrame(): Unit =
+        val frame = stack.last
+        stack = stack.dropRight(1)
+        attach(TreeVm.buildBranch(frame, Origin.SourceBacked), frame.role)
+
+      preflight(stack, nodeCount, input) match
         case Some(diagnostic) =>
-          halted = diagnostic.severity == Severity.Fatal
-          ProcessBatch(Vector.empty, record(diagnostic))
-        case None => execute(input)
+          if diagnostic.severity == Severity.Fatal then halted = true
+          record(diagnostic)
+        case None =>
+          TreeVm.validateToken(lastTokenId, input.token).foreach(record)
+          lastTokenId = Some(input.token.id)
+          input.instruction match
+            case VmInstruction.Open(kind, role) =>
+              nodeCount += 2L
+              stack = stack :+ VmFrame(kind, role, Vector(UniEdge(None, UniNode.Token(input.token))), input.token.span)
 
-  def finish(): ProcessBatch[UniNode] =
-    if finished then ProcessBatch(Vector.empty, Vector(finishedDiagnostic))
+            case VmInstruction.Emit(role) =>
+              nodeCount += 1L
+              val tokenNode = UniNode.Token(input.token)
+              if stack.nonEmpty then addTop(UniEdge(role, tokenNode)) else roots = roots :+ tokenNode
+
+            case instruction @ VmInstruction.Reframe(closeBefore, open, closeAfter, role) =>
+              reframeProblem(stack, instruction) match
+                case Some(problem) =>
+                  nodeCount += 1L
+                  record(problem.copy(span = Some(input.token.span)))
+                  val tokenNode = UniNode.Token(input.token)
+                  if stack.nonEmpty then addTop(UniEdge(role, tokenNode)) else roots = roots :+ tokenNode
+                case None =>
+                  nodeCount += 1L + open.size
+                  closeBefore.foreach(_ => closeFrame())
+                  open.foreach(spec => stack = stack :+ VmFrame(spec.kind, spec.role, Vector.empty, input.token.span))
+                  val tokenNode = UniNode.Token(input.token)
+                  if stack.nonEmpty then addTop(UniEdge(role, tokenNode)) else roots = roots :+ tokenNode
+                  closeAfter.foreach(_ => closeFrame())
+
+            case VmInstruction.Report(code, message, severity) =>
+              nodeCount += 1L
+              val tokenNode = UniNode.Token(input.token)
+              record(Diagnostic(code, message, severity, Some(input.token.span)))
+              if severity == Severity.Fatal then halted = true
+              if stack.nonEmpty then addTop(UniEdge(None, tokenNode)) else roots = roots :+ tokenNode
+
+            case VmInstruction.Close(expectedKind, role) =>
+              nodeCount += 1L
+              val tokenNode = UniNode.Token(input.token)
+              if stack.isEmpty then
+                record(Diagnostic(
+                  code = "uniml.vm.orphan-close",
+                  message = "close instruction has no open node",
+                  severity = Severity.Error,
+                  span = Some(input.token.span),
+                ))
+                roots = roots :+ tokenNode
+              else
+                val frame = stack.last
+                addTop(UniEdge(role, tokenNode))
+                expectedKind match
+                  case Some(expected) if expected != frame.kind =>
+                    record(Diagnostic(
+                      code = "uniml.vm.mismatched-close",
+                      message = s"expected to close '$expected' but current node is '${frame.kind}'",
+                      severity = Severity.Error,
+                      span = Some(input.token.span),
+                      details = Vector("expected" -> expected, "actual" -> frame.kind),
+                    ))
+                  case _ =>
+                    // pop the frame we just extended
+                    val closed = stack.last
+                    stack = stack.dropRight(1)
+                    attach(TreeVm.buildBranch(closed, Origin.SourceBacked), closed.role)
+
+      Stepped(
+        VmState(stack, nodeCount, lastTokenId, diagCount, diagLimitReported, finished = false, halted = halted),
+        ProcessBatch(roots, diags),
+      )
+
+  def stop(state: VmState): ProcessBatch[UniNode] =
+    if state.finished then ProcessBatch(Vector.empty, Vector(TreeVm.finishedDiagnostic))
     else
-      finished = true
-      val roots = Vector.newBuilder[UniNode]
-      val diagnostics = Vector.newBuilder[Diagnostic]
+      var stack = state.stack
+      var diagCount = state.diagnosticCount
+      var diagLimitReported = state.diagnosticLimitReported
+      var roots: Vector[UniNode] = Vector.empty
+      var diags: Vector[Diagnostic] = Vector.empty
+
+      def record(d: Diagnostic): Unit =
+        if diagCount < limits.maxDiagnostics then
+          diagCount += 1
+          diags = diags :+ d
+        else if !diagLimitReported then
+          diagLimitReported = true
+          diags = diags :+ Diagnostic(
+            code = "uniml.limit.diagnostics",
+            message = s"diagnostic count exceeds the ${limits.maxDiagnostics} limit",
+            severity = Severity.Fatal,
+            span = d.span,
+          )
+
       while stack.nonEmpty do
-        val frame = stack.remove(stack.size - 1)
-        val diagnostic = Diagnostic(
+        val frame = stack.last
+        stack = stack.dropRight(1)
+        record(Diagnostic(
           code = "uniml.vm.unclosed-node",
           message = s"unclosed '${frame.kind}' node at end of input",
           severity = Severity.Error,
           span = Some(frame.openingSpan),
-        )
-        diagnostics ++= record(diagnostic)
-        val branch = buildBranch(frame, Origin.Synthetic(s"unclosed:${frame.kind}"))
-        attach(branch, frame.role, roots)
-      ProcessBatch(roots.result(), diagnostics.result())
+        ))
+        val branch = TreeVm.buildBranch(frame, Origin.Synthetic(s"unclosed:${frame.kind}"))
+        if stack.nonEmpty then
+          val top = stack.last
+          stack = stack.dropRight(1) :+ VmFrame(top.kind, top.role, top.edges :+ UniEdge(frame.role, branch), top.openingSpan)
+        else roots = roots :+ branch
+      ProcessBatch(roots, diags)
 
-  private def preflight(input: VmToken): Option[Diagnostic] =
+  private def preflight(stack: Vector[VmFrame], nodeCount: Long, input: VmToken): Option[Diagnostic] =
     val token = input.token
     if Unicode.codePointCount(token.lexeme) > limits.maxTokenCodePoints then
       Some(Diagnostic(
@@ -83,13 +214,22 @@ final class TreeVm(limits: Limits = Limits.default) extends Processor[VmToken, U
         span = Some(token.span),
       ))
     else
-      val (requiredNodes, peakDepth) = input.instruction match
-        case _: VmInstruction.Open => (2L, stack.size + 1)
-        case instruction: VmInstruction.Reframe =>
-          reframeProblem(instruction) match
-            case None          => (1L + instruction.open.size, stack.size - instruction.closeBefore.size + instruction.open.size)
-            case Some(_)       => (1L, stack.size)
-        case _ => (1L, stack.size)
+      val requiredNodes: Long =
+        input.instruction match
+          case _: VmInstruction.Open => 2L
+          case r: VmInstruction.Reframe =>
+            reframeProblem(stack, r) match
+              case None    => 1L + r.open.size
+              case Some(_) => 1L
+          case _ => 1L
+      val peakDepth: Int =
+        input.instruction match
+          case _: VmInstruction.Open => stack.size + 1
+          case r: VmInstruction.Reframe =>
+            reframeProblem(stack, r) match
+              case None    => stack.size - r.closeBefore.size + r.open.size
+              case Some(_) => stack.size
+          case _ => stack.size
       if peakDepth > limits.maxDepth then
         Some(Diagnostic(
           code = "uniml.limit.depth",
@@ -106,93 +246,7 @@ final class TreeVm(limits: Limits = Limits.default) extends Processor[VmToken, U
         ))
       else None
 
-  private def execute(input: VmToken): ProcessBatch[UniNode] =
-    val diagnostics = Vector.newBuilder[Diagnostic]
-    validateToken(input.token).foreach(diagnostics ++= record(_))
-    lastTokenId = Some(input.token.id)
-    input.instruction match
-      case VmInstruction.Open(kind, role) =>
-        nodeCount += 2L
-        val frame = Frame(kind, role, ArrayBuffer.empty, input.token.span)
-        stack += frame
-        frame.edges += UniEdge(None, UniNode.Token(input.token))
-        ProcessBatch(Vector.empty, diagnostics.result())
-
-      case VmInstruction.Emit(role) =>
-        nodeCount += 1L
-        val tokenNode = UniNode.Token(input.token)
-        if stack.nonEmpty then
-          stack.last.edges += UniEdge(role, tokenNode)
-          ProcessBatch(Vector.empty, diagnostics.result())
-        else ProcessBatch(Vector(tokenNode), diagnostics.result())
-
-      case instruction @ VmInstruction.Reframe(closeBefore, open, closeAfter, role) =>
-        reframeProblem(instruction) match
-          case Some(problem) =>
-            nodeCount += 1L
-            diagnostics ++= record(problem.copy(span = Some(input.token.span)))
-            val tokenNode = UniNode.Token(input.token)
-            if stack.nonEmpty then
-              stack.last.edges += UniEdge(role, tokenNode)
-              ProcessBatch(Vector.empty, diagnostics.result())
-            else ProcessBatch(Vector(tokenNode), diagnostics.result())
-
-          case None =>
-            nodeCount += 1L + open.size
-            val roots = Vector.newBuilder[UniNode]
-            closeBefore.foreach(expected => closeFrame(expected, roots))
-            open.foreach { spec =>
-              stack += Frame(spec.kind, spec.role, ArrayBuffer.empty, input.token.span)
-            }
-            val tokenNode = UniNode.Token(input.token)
-            if stack.nonEmpty then stack.last.edges += UniEdge(role, tokenNode)
-            else roots += tokenNode
-            closeAfter.foreach(expected => closeFrame(expected, roots))
-            ProcessBatch(roots.result(), diagnostics.result())
-
-      case VmInstruction.Report(code, message, severity) =>
-        nodeCount += 1L
-        val tokenNode = UniNode.Token(input.token)
-        val report = Diagnostic(code, message, severity, Some(input.token.span))
-        diagnostics ++= record(report)
-        if severity == Severity.Fatal then halted = true
-        if stack.nonEmpty then
-          stack.last.edges += UniEdge(None, tokenNode)
-          ProcessBatch(Vector.empty, diagnostics.result())
-        else ProcessBatch(Vector(tokenNode), diagnostics.result())
-
-      case VmInstruction.Close(expectedKind, role) =>
-        nodeCount += 1L
-        val tokenNode = UniNode.Token(input.token)
-        if stack.isEmpty then
-          diagnostics ++= record(Diagnostic(
-            code = "uniml.vm.orphan-close",
-            message = "close instruction has no open node",
-            severity = Severity.Error,
-            span = Some(input.token.span),
-          ))
-          ProcessBatch(Vector(tokenNode), diagnostics.result())
-        else
-          val frame = stack.last
-          frame.edges += UniEdge(role, tokenNode)
-          expectedKind match
-            case Some(expected) if expected != frame.kind =>
-              diagnostics ++= record(Diagnostic(
-                code = "uniml.vm.mismatched-close",
-                message = s"expected to close '$expected' but current node is '${frame.kind}'",
-                severity = Severity.Error,
-                span = Some(input.token.span),
-                details = Vector("expected" -> expected, "actual" -> frame.kind),
-              ))
-              ProcessBatch(Vector.empty, diagnostics.result())
-            case _ =>
-              stack.remove(stack.size - 1)
-              val branch = buildBranch(frame, Origin.SourceBacked)
-              val roots = Vector.newBuilder[UniNode]
-              attach(branch, frame.role, roots)
-              ProcessBatch(roots.result(), diagnostics.result())
-
-  private def reframeProblem(instruction: VmInstruction.Reframe): Option[Diagnostic] =
+  private def reframeProblem(stack: Vector[VmFrame], instruction: VmInstruction.Reframe): Option[Diagnostic] =
     val VmInstruction.Reframe(closeBefore, open, closeAfter, _) = instruction
     if closeBefore.exists(_.isEmpty) || closeAfter.exists(_.isEmpty) || open.exists(_.kind.isEmpty) then
       Some(Diagnostic(
@@ -202,43 +256,57 @@ final class TreeVm(limits: Limits = Limits.default) extends Processor[VmToken, U
         span = None,
       ))
     else
-      val kinds = ArrayBuffer.from(stack.iterator.map(_.kind))
-      def close(expected: String): Option[Diagnostic] =
-        if kinds.isEmpty then
-          Some(Diagnostic(
-            code = "uniml.vm.reframe-underflow",
-            message = s"reframe cannot close '$expected' because no frame is open",
-            severity = Severity.Error,
-            span = None,
-          ))
-        else if kinds.last != expected then
-          Some(Diagnostic(
-            code = "uniml.vm.mismatched-reframe",
-            message = s"expected to reframe '$expected' but current node is '${kinds.last}'",
-            severity = Severity.Error,
-            span = None,
-            details = Vector("expected" -> expected, "actual" -> kinds.last),
-          ))
-        else
-          kinds.remove(kinds.size - 1)
-          None
+      var kinds = stack.map(_.kind)
+      var problem: Option[Diagnostic] = None
+      def close(expected: String): Unit =
+        if problem.isEmpty then
+          if kinds.isEmpty then
+            problem = Some(Diagnostic(
+              code = "uniml.vm.reframe-underflow",
+              message = s"reframe cannot close '$expected' because no frame is open",
+              severity = Severity.Error,
+              span = None,
+            ))
+          else if kinds.last != expected then
+            problem = Some(Diagnostic(
+              code = "uniml.vm.mismatched-reframe",
+              message = s"expected to reframe '$expected' but current node is '${kinds.last}'",
+              severity = Severity.Error,
+              span = None,
+              details = Vector("expected" -> expected, "actual" -> kinds.last),
+            ))
+          else kinds = kinds.dropRight(1)
+      closeBefore.foreach(close)
+      if problem.isEmpty then
+        open.foreach(spec => kinds = kinds :+ spec.kind)
+        closeAfter.foreach(close)
+      problem
 
-      closeBefore.iterator.map(close).collectFirst { case Some(problem) => problem }
-        .orElse {
-          open.foreach(spec => kinds += spec.kind)
-          closeAfter.iterator.map(close).collectFirst { case Some(problem) => problem }
-        }
+object TreeVm:
+  private val finishedDiagnostic = Diagnostic(
+    code = "uniml.vm.finished",
+    message = "tree VM cannot accept input or finish more than once",
+    severity = Severity.Error,
+    span = None,
+  )
 
-  private def closeFrame(expected: String, roots: scala.collection.mutable.Builder[UniNode, Vector[UniNode]]): Unit =
-    val frame = stack.remove(stack.size - 1)
-    assert(frame.kind == expected)
-    attach(buildBranch(frame, Origin.SourceBacked), frame.role, roots)
+  private def buildBranch(frame: VmFrame, origin: Origin): UniNode.Branch =
+    val end = frame.edges.lastOption match
+      case Some(UniEdge(_, UniNode.Token(token)))          => token.span.end
+      case Some(UniEdge(_, UniNode.Branch(_, _, span, _))) => span.end
+      case None                                            => frame.openingSpan.end
+    UniNode.Branch(
+      kind = frame.kind,
+      edges = frame.edges,
+      span = SourceSpan(frame.openingSpan.source, frame.openingSpan.start, end),
+      origin = origin,
+    )
 
-  private def validateToken(token: SourceToken): Vector[Diagnostic] =
-    val diagnostics = Vector.newBuilder[Diagnostic]
+  private def validateToken(lastTokenId: Option[Long], token: SourceToken): Vector[Diagnostic] =
+    var diagnostics: Vector[Diagnostic] = Vector.empty
     lastTokenId.foreach { previous =>
       if token.id <= previous then
-        diagnostics += Diagnostic(
+        diagnostics = diagnostics :+ Diagnostic(
           code = "uniml.token.non-monotonic-id",
           message = s"token id ${token.id} must be greater than previous id $previous",
           severity = Severity.Error,
@@ -246,48 +314,10 @@ final class TreeVm(limits: Limits = Limits.default) extends Processor[VmToken, U
         )
     }
     if token.span.end.offset < token.span.start.offset then
-      diagnostics += Diagnostic(
+      diagnostics = diagnostics :+ Diagnostic(
         code = "uniml.token.invalid-span",
         message = "token span end precedes its start",
         severity = Severity.Error,
         span = Some(token.span),
       )
-    diagnostics.result()
-
-  private def buildBranch(frame: Frame, origin: Origin): UniNode.Branch =
-    val end = frame.edges.lastOption match
-      case Some(UniEdge(_, UniNode.Token(token)))       => token.span.end
-      case Some(UniEdge(_, UniNode.Branch(_, _, span, _))) => span.end
-      case None                                         => frame.openingSpan.end
-    UniNode.Branch(
-      kind = frame.kind,
-      edges = frame.edges.toVector,
-      span = SourceSpan(frame.openingSpan.source, frame.openingSpan.start, end),
-      origin = origin,
-    )
-
-  private def attach(branch: UniNode.Branch, role: Option[String], roots: scala.collection.mutable.Builder[UniNode, Vector[UniNode]]): Unit =
-    if stack.nonEmpty then stack.last.edges += UniEdge(role, branch)
-    else roots += branch
-
-  private def record(diagnostic: Diagnostic): Vector[Diagnostic] =
-    if diagnosticCount < limits.maxDiagnostics then
-      diagnosticCount += 1
-      Vector(diagnostic)
-    else if !diagnosticLimitReported then
-      diagnosticLimitReported = true
-      halted = true
-      Vector(Diagnostic(
-        code = "uniml.limit.diagnostics",
-        message = s"diagnostic count exceeds the ${limits.maxDiagnostics} limit",
-        severity = Severity.Fatal,
-        span = diagnostic.span,
-      ))
-    else Vector.empty
-
-  private val finishedDiagnostic = Diagnostic(
-    code = "uniml.vm.finished",
-    message = "tree VM cannot accept input or finish more than once",
-    severity = Severity.Error,
-    span = None,
-  )
+    diagnostics

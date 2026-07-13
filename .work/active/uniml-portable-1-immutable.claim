@@ -1,5 +1,0 @@
-feature/uniml-portable-immutable 2026-07-13T14:47:49Z
-agent: opus-continue
-heartbeat: 2026-07-13T14:47:49Z
-status: in-progress
-next: immutable core rewrite — pure streaming Processor[S,I,O] (start/step/stop, Stepped case class, no tuples), TreeVm as a pure fold over immutable VmState, UniML.parse immutable driver, Dialect interface; rewire 4 dialect instructions wrappers (lexer internals stay mutable-local for now, immutable per-dialect follows). Keep scalac + all uniml tests green.

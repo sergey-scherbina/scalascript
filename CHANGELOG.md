@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-13 — UniML immutable core (uniml-portable Phase 1)
+
+Rewrote UniML's streaming core from a mutable-object-state design to a pure fold, per Sergiy's
+direction ("нужно переписать uniml на чтото более иммутабельное", keeping the `step(state, chunk)`
+fold for genuine incrementality). `Processor` is now `trait Processor[S, I, O]: start /
+step(state, input): Stepped[S, O] / stop(state): ProcessBatch[O]` — replacing the old `push`/`finish`
++ mutable `finished` flag. `TreeVm` became a pure fold over an immutable `VmState` (frame stack,
+counters, roots, diagnostics; local `var`/`while` shell over immutable values, no object fields).
+`UniML.parse` threads the dialect processor over chunks then folds tokens through the VM with no
+shared mutable state. All five dialect processors (literal/json/yaml/markdown/xml) are pure case
+classes. Behaviour-preserving: green on scalac across JVM + Scala.js (core 15, json 16, yaml 18,
+markdown 32) and the ScalaScript-side bindings (unimlXml 13, unimlMarkdownBridge 11); net −80 LOC.
+Internal lexer mutability (now encapsulated inside a single pure `stop`) is carved out as
+`uniml-portable-1d-lexers`.
+
 ## 2026-07-13 — UniML × v2 compile gap map (uniml-portable Phase 0.5)
 
 Measured what the self-hosted ScalaScript v2 `.ssc` compiler accepts today, toward compiling UniML's

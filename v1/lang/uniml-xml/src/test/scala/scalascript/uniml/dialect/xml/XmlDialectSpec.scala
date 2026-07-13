@@ -91,12 +91,15 @@ final class XmlDialectSpec extends AnyFunSuite:
     assert(excluded.diagnostics.exists(_.code == "uniml.xml.invalid-name"))
   }
 
-  test("processor flushes once") {
+  test("processor buffers chunks and flushes once at stop") {
     val input = SourceInput.fromString(source, "<r/>")
     val processor = XmlDialect.instructions(input)
-    assert(processor.push(input.chunks.head).values.isEmpty)
-    assert(processor.finish().values.nonEmpty)
-    assert(processor.finish().diagnostics.map(_.code) == Vector("uniml.xml.finished"))
+    val stepped = processor.step(processor.start, input.chunks.head)
+    assert(stepped.batch.values.isEmpty)
+    val completed = processor.stop(stepped.state)
+    assert(completed.values.nonEmpty)
+    // stop is pure — re-running from the same state yields the same result.
+    assert(processor.stop(stepped.state) == completed)
   }
 
   private def parse(text: String): ParseResult = Xml.parse(SourceInput.fromString(source, text))

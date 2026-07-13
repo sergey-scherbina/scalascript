@@ -112,16 +112,16 @@ final class JsonDialectSpec extends AnyFunSuite:
     assert(embedded.diagnostics.exists(_.code == "uniml.json.invalid-character"))
   }
 
-  test("dialect processor flushes once and rejects reuse after completion") {
+  test("dialect processor buffers chunks and flushes once at stop") {
     val input = SourceInput.fromString(source, "{\"a\":1}")
     val processor = JsonDialect.instructions(input)
-    assert(processor.push(input.chunks.head).values.isEmpty)
-    val completed = processor.finish()
+    val stepped = processor.step(processor.start, input.chunks.head)
+    assert(stepped.batch.values.isEmpty)
+    val completed = processor.stop(stepped.state)
     assert(completed.values.nonEmpty)
     assert(completed.diagnostics.isEmpty)
-    val repeated = processor.finish()
-    assert(repeated.values.isEmpty)
-    assert(repeated.diagnostics.map(_.code) == Vector("uniml.json.finished"))
+    // stop is pure — re-running from the same state yields the same result.
+    assert(processor.stop(stepped.state) == completed)
   }
 
   test("enforces JSON and core resource limits") {

@@ -1,69 +1,29 @@
 package scalascript.uniml
 
-import scala.collection.mutable.ArrayBuffer
-
-final case class ProcessBatch[+A](values: Vector[A], diagnostics: Vector[Diagnostic]):
+/** A batch produced by one step of a processor: the emitted values plus any
+  * diagnostics. Immutable. */
+final case class ProcessBatch[A](values: Vector[A], diagnostics: Vector[Diagnostic]):
   def map[B](f: A => B): ProcessBatch[B] = ProcessBatch(values.map(f), diagnostics)
+
+  /** Concatenate two batches (values then values, diagnostics then diagnostics). */
+  def concat(other: ProcessBatch[A]): ProcessBatch[A] =
+    ProcessBatch(values ++ other.values, diagnostics ++ other.diagnostics)
 
 object ProcessBatch:
   def empty[A]: ProcessBatch[A] = ProcessBatch(Vector.empty, Vector.empty)
 
   def value[A](value: A): ProcessBatch[A] = ProcessBatch(Vector(value), Vector.empty)
 
-trait Processor[I, O]:
-  def push(input: I): ProcessBatch[O]
+/** The result of one `step`: the next (immutable) state and the batch it emitted. */
+final case class Stepped[S, O](state: S, batch: ProcessBatch[O])
 
-  def finish(): ProcessBatch[O]
-
-  final def andThen[P](next: Processor[O, P]): Processor[I, P] =
-    val upstream = this
-    new Processor[I, P]:
-      private var finished = false
-
-      def push(input: I): ProcessBatch[P] =
-        if finished then ProcessBatch(Vector.empty, Vector(Processor.afterFinishDiagnostic))
-        else forward(upstream.push(input))
-
-      def finish(): ProcessBatch[P] =
-        if finished then ProcessBatch(Vector.empty, Vector(Processor.afterFinishDiagnostic))
-        else
-          finished = true
-          val forwarded = forward(upstream.finish())
-          val downstream = next.finish()
-          ProcessBatch(
-            forwarded.values ++ downstream.values,
-            forwarded.diagnostics ++ downstream.diagnostics,
-          )
-
-      private def forward(batch: ProcessBatch[O]): ProcessBatch[P] =
-        val values = Vector.newBuilder[P]
-        val diagnostics = ArrayBuffer.empty[Diagnostic]
-        diagnostics ++= batch.diagnostics
-        batch.values.foreach { value =>
-          val nextBatch = next.push(value)
-          values ++= nextBatch.values
-          diagnostics ++= nextBatch.diagnostics
-        }
-        ProcessBatch(values.result(), diagnostics.toVector)
-
-object Processor:
-  private val afterFinishDiagnostic = Diagnostic(
-    code = "uniml.processor.finished",
-    message = "processor cannot accept input or finish more than once",
-    severity = Severity.Error,
-    span = None,
-  )
-
-  def stateless[I, O](f: I => ProcessBatch[O]): Processor[I, O] =
-    new Processor[I, O]:
-      private var finished = false
-
-      def push(input: I): ProcessBatch[O] =
-        if finished then ProcessBatch(Vector.empty, Vector(afterFinishDiagnostic))
-        else f(input)
-
-      def finish(): ProcessBatch[O] =
-        if finished then ProcessBatch(Vector.empty, Vector(afterFinishDiagnostic))
-        else
-          finished = true
-          ProcessBatch.empty
+/** A pure, incremental processor. All state is the immutable `S` value, threaded
+  * by the driver — there are **no mutable object fields**. `step` folds one input
+  * into the next state plus a batch; `stop` flushes the final state. This keeps a
+  * genuine streaming/incremental interface while staying purely functional (so the
+  * same source compiles both with scalac and with the ScalaScript v2 frontend —
+  * see specs/uniml-portable-gapmap.md). */
+trait Processor[S, I, O]:
+  def start: S
+  def step(state: S, input: I): Stepped[S, O]
+  def stop(state: S): ProcessBatch[O]
