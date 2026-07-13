@@ -7198,16 +7198,24 @@ JS `1410065408` = mod 2^32; JVM emits Scala's 32-bit `Int`). Huge blast radius
     - [x] **A1-mono SLICE 1 (inline typeclass fns)** `4a6ba79d4` — DONE. monoInstanceFor (call-site
           rewrite → `fn__mono__instance`, instance by List[A]-element type) + emitMonoDefs (re-lower the
           fn body with active ctx = the CONCRETE instance, so `summon[TC].m` → `<instance>_m`) +
-          typeOfExpr List. Ctx param kept (unused) → arity unchanged. VERIFIED: v2 bytecode 99→102 PASS,
-          0 regressions (case-class-body-methods, scljet-readonly-pager-btree, std-ui-jobpanel now green,
-          stable). Works for typeclass fns DEFINED in the program.
-    - [ ] **A1-mono SLICE 2 (imported typeclass fns)** — the std cluster (combineAll etc., e.g.
-          std-semigroup-monoid) is IMPORTED, so it is NOT in the user program's sig/def tables that
-          buildSigTable/findDefStmt scan → monoInstanceFor/emit can't see it → call stays on the old
-          first-instance path (unchanged, not regressed). FIX: include imported modules' typeclass fns
-          in the sig/def/given tables (or resolve mono against the import). Then: transitivity (follow
-          calls in specialised bodies to a fixpoint), multi-ctx-param, non-List containers. Each falls
-          back to today's behaviour until done = no regression.
+          typeOfExpr List. Ctx param kept (unused) → arity unchanged. v2 bytecode 99→102, 0 regressions.
+          CORRECTNESS FIX `21c11c7ae` — the mono hook is in lowerE (post-resolveE), where `List(1,2,3)`
+          is already `ctorap(Cons, [1, …])`, NOT `app(var "List")`; the helpers now read the ctorap/Cons
+          form (element = head of the outer Cons). VERIFIED the pass ACTUALLY FIRES inline now:
+          `combineAll[A: Monoid](List(1,2,3))`→6 (intSum), `List("a","b","c")`→"abc" (stringConcat,
+          correctly selected — was "0abc"). (The +3 sweep cases predate this fix; the mono is now
+          genuinely functional for INLINE typeclass fns.)
+    - [ ] **A1-mono SLICE 2 (imported typeclass fns)** — BLOCKER PINNED: markdown-link imports
+          `[combineAll](./mod.ssc)` are a PARSE-ONLY NO-OP (ssc1-front.ssc0:2160) — imported names
+          resolve via the registry/globals, so the imported `combineAll` DEF is NOT in the user
+          program's stmts (the givens are visible via a separate path, hence findAnyGiven still returns
+          intSum). So buildSigTable/findDefStmt/monoInstanceFor can't see it and can't re-lower its body
+          per instance. The whole std typeclass cluster (~10: std-semigroup-monoid, std-functor/monad/…,
+          tagless-*) is imported → blocked here (unchanged, not regressed). FIX (module-loading change,
+          a separate subsystem): load imported typeclass-fn (sig-fn) SOURCE into the user program's
+          stmts so lowerProg re-lowers + monomorphises them (avoiding duplicate-def collisions with the
+          linked std) — OR runtime dicts for the linked-std path. Then: transitivity, multi-ctx-param,
+          non-List containers (each falls back to today's behaviour = no regression until done).
 
 ### ▶ ssc-toolkit-v2 (2026-07-07, owner-directed via busi: the busi SPA must move React→ScalaScript)
 
