@@ -106,6 +106,8 @@ object SpikeParse:
     case "&&" | "^" | "|"                   => 4
     case "||"                               => 3
     case "!"                                => 2
+    case "::"                               => 5 // cons, right-associative (see parseExpr)
+    case "->"                               => 1 // pair
     case ":="                               => 1
     case _                                  => 0
 
@@ -428,7 +430,8 @@ object SpikeParse:
         var p = c.peekPrec
         while p >= minPrec && p > 0 do
           val op = c.advance().get // spike.op
-          val kids = parseExpr(c, p + 1) match
+          val rightMin = if op.lexeme == "::" then p else p + 1 // `::` is right-associative
+          val kids = parseExpr(c, rightMin) match
             case Some(r) => Vector(left.withRole("bin.left"), Node.Leaf(op, Some("bin.op")), r.withRole("bin.right"))
             case None =>
               c.report("spike.missing-operand", s"missing right operand after '${op.lexeme}'")
