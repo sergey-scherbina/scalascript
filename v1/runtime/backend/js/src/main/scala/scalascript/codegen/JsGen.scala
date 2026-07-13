@@ -772,11 +772,22 @@ class JsGen(
       case Some(Type.Name("Double" | "Float")) => numericFunctions += d.name.value
       case _ => ()
     // v1-js-long-precision-and-bitops: a Long-returning function's call sites are Long.
-    if d.decltpe.contains(Type.Name("Long")) then longFunctions += d.name.value
+    // NB: use a PATTERN match, not `decltpe.contains(Type.Name("Long"))` — scalameta
+    // tree equality includes source position, so a freshly-built `Type.Name("Long")`
+    // never equals the PARSED one and `.contains` always returned false. Long params
+    // and returns therefore never reached longVars/longFunctions, so `a + b` /
+    // `f() + 1` (Long ± Int) emitted a raw JS `+` and threw BigInt+Number at runtime.
+    // (js-long-param-evidence.)
+    d.decltpe match
+      case Some(Type.Name("Long")) => longFunctions += d.name.value
+      case _                       => ()
     d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).foreach { pv =>
-      if pv.decltpe.contains(Type.Name("Long")) then longVars += pv.name.value
       pv.decltpe match
-        case Some(Type.Name("Int" | "Long"))         => intVars += pv.name.value
+        // Long is tracked in BOTH sets: longVars (so isLongExpr → `_arith`) and
+        // intVars (the `.toInt`/int-division heuristics; the isLongExpr guard runs
+        // first so this is harmless).
+        case Some(Type.Name("Long"))                 => longVars += pv.name.value; intVars += pv.name.value
+        case Some(Type.Name("Int"))                  => intVars += pv.name.value
         case Some(Type.Name("Double" | "Float"))     => numericVars += pv.name.value
         // Any other simple named type: remember varName → typeName. The
         // direct-field decision is gated later on caseClassFieldsByType so a
@@ -2512,7 +2523,10 @@ class JsGen(
    *  binding is a JS BigInt (v1-js-long-precision-and-bitops) — with the same
    *  name-shadowing so a leaked Long param can't misclassify a non-Long local. */
   private def rebindNumericEvidence(name: String, rhs: Term, declT: Option[Type] = None): Boolean =
-    if isLongExpr(rhs) || declT.contains(Type.Name("Long")) then longVars += name else longVars -= name
+    // `declT.contains(Type.Name("Long"))` never matched a PARSED type (scalameta tree
+    // equality includes source position) — use a pattern check. (js-long-param-evidence.)
+    val declaredLong = declT.exists { case Type.Name("Long") => true; case _ => false }
+    if isLongExpr(rhs) || declaredLong then longVars += name else longVars -= name
     if isIntExpr(rhs) then { intVars += name; numericVars -= name; true }
     else if isNumericExpr(rhs) then { numericVars += name; intVars -= name; true }
     else { intVars -= name; numericVars -= name; false }

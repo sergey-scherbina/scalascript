@@ -1,0 +1,24 @@
+---
+name: js-long-param-arith
+backends: [int, js]
+---
+
+# Long params/returns mixed with Int on JS (js-long-param-evidence)
+
+JsGen recorded Long param/return evidence via `decltpe.contains(Type.Name("Long"))`,
+which never matched a PARSED type (scalameta tree equality includes source position),
+so Long params/returns never reached longVars/longFunctions. `a + b` on Long params,
+`f() + 1` on a Long-returning call, and a Long-accumulator TCO recursion all emitted a
+raw JS `+` and threw "Cannot mix BigInt and other types" whenever an Int (a JS Number)
+met a Long (a JS BigInt). Fixed by recording the evidence with a pattern match.
+
+```scalascript
+def add(a: Long, b: Long): Long = a + b
+def f(): Long = 5000000000L
+def sumTo(n: Long, acc: Long): Long =
+  if n <= 0 then acc else sumTo(n - 1, acc + n)
+
+println(add(0L, 100000).toString)
+println((f() + 1).toString)
+println(sumTo(100000, 0L).toString)
+```

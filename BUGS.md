@@ -86,6 +86,15 @@ case, full `backendInterpreter/test` green):
   returned a bespoke `{_isSome,_value}`/null shape (rendered `[object Object]`/`null`
   by `_show`, and unmatchable by `case Some(v)`); now returns a real `Option`. The
   one dependent site (the `Source.fromGenerator` async-stream bridge) was updated.
+- **js-long-param-evidence** — FIXED (found via lang-split). JsGen recorded Long
+  param/return evidence with `decltpe.contains(Type.Name("Long"))`, which NEVER
+  matched a parsed type — scalameta tree equality includes source position, so a
+  freshly-built `Type.Name("Long")` never equals the parsed one. Long params/returns
+  thus never reached `longVars`/`longFunctions`, so `a + b` (Long params), `f() + 1`
+  (Long return), and Long-accumulator TCO recursion emitted a raw JS `+` and threw
+  "Cannot mix BigInt and other types" whenever an Int (Number) met a Long (BigInt).
+  Fixed both sites (recordDefTypeEvidence + rebindNumericEvidence) to pattern-match.
+  Systemic — affects every Long param/return on JS, not just lang-split.
 
 Remaining (categorized; not yet fixed):
 
