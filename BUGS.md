@@ -1,5 +1,37 @@
 # Bug tracker
 
+## js-caseclass-body-method-params-dropped — JS drops case-class body methods that take parameters
+
+**Status:** FIXED (2026-07-13, opus). `SHA:pending`.
+
+**Symptom:** a `case class C(...) extends SomeTrait:` whose body defines trait
+methods *with parameters* — e.g. `scljet-readonly-pager-btree.ssc`'s
+`FixtureVfs.fullPath(path: String)` — throws on `run-js`:
+`Method not found: fullPath on FixtureVfs`. Only the class's **zero-parameter**
+body methods (`name`, `currentTimeMillis`) were emitted; every method with a
+parameter clause was silently dropped.
+
+**Root cause:** `JsGen.scala`'s `Defn.Class` case registered body methods via
+`_registerExt('m', (_self) => …, 'Type')` under a guard that only matched
+methods whose (non-implicit) parameter clauses were empty
+(`…flatMap(_.values).isEmpty`); parameterized methods fell to `case _ => ()`.
+`_dispatch` finds a case class's trait methods through
+`_extensions['Type:method']`, so a dropped method is unreachable.
+
+**Fix:** register body methods with ≤1 (non-implicit) parameter clause as
+`_registerExt('m', (_self, p1, p2, …) => { const {fields} = _self; return body; }, 'Type')`.
+Reserved-word params (`delete`) are escaped via `safeJsParam`/`paramRenameMap`
++ `withParamRenames` in both the lambda header and the body; a param that
+shadows a field is not re-destructured (a `const` redeclaration of a lambda
+param is a JS syntax error). Curried body methods (>1 clause) stay unregistered
+(their calling convention would not match `_dispatch`'s flat args). Zero-param
+emission is byte-identical to before. Verified: `scljet-readonly-pager-btree`
+passes `[JS]` (scljet now 6/6 on JS); JsGen suite 242/242; full conformance
+`--no-memo` 195/195 (exit 0).
+
+**Repro:** `bin/ssc-tools emit-js tests/conformance/scljet-readonly-pager-btree.ssc`
+then run under node — pre-fix it threw at the first `_dispatch(vfs, 'fullPath', …)`.
+
 ## js-char-int-eq-namescope-collision — Char `==` Int miscompiles to strict `===` on JS
 
 **Status:** FIXED (2026-07-13, opus); found by opus via a full conformance sweep

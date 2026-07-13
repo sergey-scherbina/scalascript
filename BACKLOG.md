@@ -65,22 +65,18 @@ are plain bullets without checkboxes so agents do not claim them as build work.
       SQLite GIGO source of truth and prove interpreter/VM/ASM/JS parity before
       the M4 value API depends on this projection.
 
-- [ ] **scljet-js-m1-parity** — the v1 M1 JS gates are DONE (2026-07-13): a
-      current-build re-verification showed the earlier "diverges on JS" reports
-      were all stale-binary artifacts (the fixes had landed in `70dfb5a1f` and
-      later). `scljet-byte-codec`, `scljet-page-record-codec`, `scljet-memory-vfs`
-      (incl. the two-handle SHM shared/exclusive transition), `scljet-module-contract`,
-      and `scljet-readonly-btree-pure` all pass `[JS]` and are now declared
-      `backends: [int, js]` so CI locks the parity (5 of 6 scljet cases). The only
-      remaining v1 JS gap is **`scljet-readonly-pager-btree`**: it dispatches
-      `fullPath` on a user-defined `FixtureVfs`, and `run-js` throws
-      `Method not found: fullPath on FixtureVfs` — the JS backend cannot dispatch a
-      trait method on a user VFS value (a codegen limitation, not a Long/precision
-      issue). Fixing that unlocks the last scljet JS lane. Separately, the v2
-      self-hosted JS path is still gated on the `__mk_method_obj__` import primitive
-      (`BUGS.md` `v2-js-imported-method-object-primitive`) — tracked with the v2 work.
-      NOTE: always rebuild `installBin` before re-checking JS codegen; stale bins
-      masked all of the above as failures.
+- [x] **scljet-js-m1-parity** — DONE 2026-07-13. All 6 scljet conformance cases
+      now pass `[JS]` and are declared `backends: [int, js]` (CI-locks the parity).
+      Two findings: (1) the byte-codec/page-record/memory-VFS/cursor "diverges on
+      JS" reports were all **stale-binary artifacts** — the fixes had landed in
+      `70dfb5a1f` and later (always rebuild `installBin` before re-checking JS
+      codegen). (2) `scljet-readonly-pager-btree` exposed a real JsGen bug —
+      case-class body methods **with parameters** were dropped (only zero-param
+      registered), so `_dispatch(vfs, 'fullPath', …)` threw
+      `Method not found: fullPath on FixtureVfs`; fixed in JsGen (`BUGS.md`
+      `js-caseclass-body-method-params-dropped`). Remaining scljet JS work is only
+      the v2 self-hosted path's `__mk_method_obj__` import primitive (`BUGS.md`
+      `v2-js-imported-method-object-primitive`) — tracked with the v2 work.
 
 - [ ] **scljet-same-jvm-reference-lock-bridge** — before SclJet may replace the
       existing `sqlite:` provider, make SclJet locks conflict with an official
