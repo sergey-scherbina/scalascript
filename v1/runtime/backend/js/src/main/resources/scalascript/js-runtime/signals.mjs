@@ -1064,13 +1064,13 @@ function _ssc_ui_mount(sigs, keyedRoots) {
     function resolvePayload(row, payload) {
       var checked = _ssc_ui_validateRowPayload(payload, 'rowPostAction');
       if (checked && typeof checked === 'object') {
-        if (checked._payload === 'wholeRow') return JSON.stringify(_ssc_ui_jsonValue(row, 'rowPostAction whole row', new Set()));
+        if (checked._payload === 'wholeRow') return JSON.stringify(_ssc_ui_rowJsonValue(row, 'rowPostAction whole row', new Set()));
         if (checked._payload === 'fields') {
           var obj = {};
           checked.names.forEach(function(n) {
             var value = _ssc_ui_dottedField(row, n);
             if (value === undefined) throw new Error('rowPostAction field ' + n + ' is missing');
-            obj[n] = _ssc_ui_jsonValue(value, 'rowPostAction field ' + n, new Set());
+            obj[n] = _ssc_ui_rowJsonValue(value, 'rowPostAction field ' + n, new Set());
           });
           return JSON.stringify(obj);
         }
@@ -1322,8 +1322,10 @@ function _ssc_ui_mount(sigs, keyedRoots) {
   _mountKeyed(document, keyedRoots || []);
 }
 
-// JSON embedded in an inline <script> must not carry a literal `</script>` or
-// `<`/`>`/`&`/U+2028/U+2029 (H1: SSR XSS via a request-derived signal value).
+// JSON embedded in an inline <script> must not carry a literal close-script tag
+// (`<\/script>` — written escaped HERE so this very comment cannot terminate the
+// inline script it ships inside) or `<`/`>`/`&`/U+2028/U+2029 (H1: SSR XSS via a
+// request-derived signal value).
 // Escape them to \uXXXX — valid JSON (decodes identically) and inert in HTML.
 function _ssc_json_html_safe(json) {
   return json.replace(/[<>&\u2028\u2029]/g, function (c) {
@@ -1592,7 +1594,7 @@ function _ssc_ui_rowScalar(value, operation) {
   if (typeof value === 'boolean') return value ? 'true' : 'false';
   throw new Error(operation + ' must resolve to a portable scalar');
 }
-function _ssc_ui_jsonValue(value, operation, seen) {
+function _ssc_ui_rowJsonValue(value, operation, seen) {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value !== 'object') throw new Error(operation + ' is not a JSON value');
@@ -1600,10 +1602,10 @@ function _ssc_ui_jsonValue(value, operation, seen) {
   seen.add(value);
   var result;
   if (Array.isArray(value)) {
-    result = value.map(function(item, index) { return _ssc_ui_jsonValue(item, operation + '[' + index + ']', seen); });
+    result = value.map(function(item, index) { return _ssc_ui_rowJsonValue(item, operation + '[' + index + ']', seen); });
   } else {
     result = {};
-    Object.keys(value).forEach(function(key) { result[key] = _ssc_ui_jsonValue(value[key], operation + '.' + key, seen); });
+    Object.keys(value).forEach(function(key) { result[key] = _ssc_ui_rowJsonValue(value[key], operation + '.' + key, seen); });
   }
   seen.delete(value);
   return result;

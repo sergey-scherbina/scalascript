@@ -1,0 +1,21 @@
+---
+name: curried-extern-import
+backends: [int]
+---
+
+# A curried block-form extern is importable by name
+
+Regression for `v2-httpclient-curried-extern-unbound`: `httpClient(base){ block }`
+is an eval-time special form (`EvalRuntime.reservedApplyHeads`), not a plugin
+native, so the v1 interpreter left it unbound and it never landed in
+`exportedGlobals`. That made `import [httpClient](http.ssc)` fail name resolution
+*at import time* ("'httpClient' not found in …"), even though the call itself works.
+StatRuntime now registers a placeholder global for such block-form externs so the
+import resolves; the call always takes the special-form path, never the placeholder.
+
+[httpClient, httpTimeout, httpRetry](../../v1/runtime/std/http.ssc)
+
+```scalascript
+def main(): Unit =
+  println("imported ok")
+```

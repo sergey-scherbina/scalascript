@@ -114,6 +114,29 @@ function _toBig(v) {
   if (typeof v === 'number' && Number.isInteger(v)) return BigInt(v);
   throw new Error('cannot use ' + _show(v) + ' as an integer');
 }
+// v1-js-long-precision-and-bitops: exact 64-bit bitwise/shift ops. ssc `Int`/`Long`
+// are 64-bit, but native JS `& | ^ << >> >>>` are 32-bit and mask shift counts mod 32.
+// Coerce both operands to BigInt, apply the op, and mask to signed 64 bits with
+// asIntN(64) — matching the interpreter/JVM. `>>>` is a logical (zero-fill) shift over
+// the 64-bit width; shift counts wrap mod 64 (JVM Long-shift semantics). The result is a
+// BigInt (a Long), so downstream arithmetic/comparison stays exact via _arith.
+function _bit(op, a, b) {
+  const x = _toBig(a);
+  switch (op) {
+    case '&':   return BigInt.asIntN(64, x & _toBig(b));
+    case '|':   return BigInt.asIntN(64, x | _toBig(b));
+    case '^':   return BigInt.asIntN(64, x ^ _toBig(b));
+    case '<<':  return BigInt.asIntN(64, x << (_toBig(b) & 63n));
+    case '>>':  return BigInt.asIntN(64, x >> (_toBig(b) & 63n));
+    case '>>>': return BigInt.asIntN(64, BigInt.asUintN(64, x) >> (_toBig(b) & 63n));
+    default: throw new Error('bad _bit op: ' + op);
+  }
+}
+// `.toInt` (32-bit Int wrap) on a receiver that may be a plain number OR a BigInt (Long).
+// `x | 0` throws on a BigInt, so branch: BigInt → signed 32-bit truncation via asIntN(32).
+function _toI32(v) {
+  return typeof v === 'bigint' ? Number(BigInt.asIntN(32, v)) : (v | 0);
+}
 // Coerce to Decimal; integer-valued Numbers/BigInt widen, fractional Numbers error.
 function _toDec(v) {
   if (v && v._type === '_Decimal') return v;

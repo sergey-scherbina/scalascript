@@ -2257,6 +2257,17 @@ object Prims:
       val names = unlistPub(a(1)).map { case StrV(s) => s; case v => anyStr(v) }.toVector
       V2PluginRegistry.registerFieldNames(tag, names)
       UnitV
+    case "__regmethod__" => a =>
+      // (tag, methodName, closure): a case-class body method. Registered as a tagged
+      // method so the existing __method__ dispatch (lookupTaggedMethod) calls it with
+      // (self :: args), in place of the default DataV rendering.
+      val clos = a(2)
+      V2PluginRegistry.registerTaggedMethod(str(a, 0), str(a, 1),
+        (args: List[Value]) => clos match {
+          case fn: ClosV => callClos(fn, args.toArray)
+          case other     => other
+        })
+      UnitV
     case "io.println" => a => out(a(0), Console.out); Console.out.println(); UnitV
     case "io.eprint"  => a => out(a(0), Console.err); UnitV
     case "io.args"   => _ => strList(Runtime.argv)
@@ -2346,7 +2357,10 @@ object Prims:
         case (IntV(n), "toLong", Nil)        => IntV(n)
         case (IntV(n), "toByte", Nil)        => IntV(n.toByte.toLong)
         case (IntV(n), "toShort", Nil)       => IntV(n.toShort.toLong)
-        case (IntV(n), "toChar", Nil)        => IntV(n & 0xffffL)
+        // The v2 VM has no Char value type; a char is a single-code-point StrV
+        // (same convention as toCharArray / sfromCodes). Returning IntV here made
+        // `65.toChar.toString` render "65" (portable-codepoint-string-construction).
+        case (IntV(n), "toChar", Nil)        => StrV((n & 0xffffL).toChar.toString)
         case (IntV(n), "toDouble", Nil)      => FloatV(n.toDouble)
         case (IntV(n), "toFloat", Nil)       => FloatV(n.toDouble)
         case (IntV(n), "abs", Nil)           => IntV(math.abs(n))
@@ -2623,6 +2637,7 @@ object Prims:
           listOf(unlist(ls).zipWithIndex.map { case (a, i) => DataV("Tuple2", collection.immutable.ArraySeq(a, IntV(i.toLong))) })
         case (ls, "take", List(IntV(n))) if isList(ls) => listOf(unlist(ls).take(n.toInt))
         case (ls, "drop", List(IntV(n))) if isList(ls) => listOf(unlist(ls).drop(n.toInt))
+        case (ls, "slice", List(IntV(a), IntV(b))) if isList(ls) => listOf(unlist(ls).slice(a.toInt, b.toInt))
         case (ls, "takeWhile", List(fn: Value.ClosV)) if isList(ls) =>
           listOf(unlist(ls).takeWhile(x => callClos(fn, Array(x)) == Value.BoolV(true)))
         case (ls, "dropWhile", List(fn: Value.ClosV)) if isList(ls) =>
@@ -3605,7 +3620,7 @@ object Prims:
     // Constructors and tuples render with anyStr FIELDS in interpolation —
     // v1 shows Some(got delivered) / (42, List(…)) UNQUOTED; deferring to
     // Show.show quoted the strings ("got delivered") and broke parity.
-    case DataV(tag, fields) if (tag.startsWith("Tuple") || (tag == "Pair" && fields.length == 2)) && fields.nonEmpty =>
+    case DataV(tag, fields) if tag.startsWith("Tuple") && fields.nonEmpty =>
       s"(${fields.map(anyStr).mkString(", ")})"
     case DataV(tag, fields) if fields.nonEmpty && tag != "Op" && tag != "Stub" =>
       s"$tag(${fields.map(anyStr).mkString(", ")})"
@@ -3821,8 +3836,7 @@ object Show:
         case DataV("Cons", Seq(h, t)) => h :: ul(t)
         case _ => Nil
       s"List(${ul(v).map(show).mkString(", ")})"
-    // The native front tags 2-tuples (and `a -> b` arrows) "Pair"; render like TupleN.
-    case DataV(t, fs) if t.matches("Tuple\\d+") || (t == "Pair" && fs.length == 2) => s"(${fs.map(show).mkString(", ")})"
+    case DataV(t, fs) if t.matches("Tuple\\d+") => s"(${fs.map(show).mkString(", ")})"
     case DataV(t, fs) => if fs.isEmpty then t else s"$t(${fs.map(show).mkString(", ")})"
     case MapV(entries) =>
       s"Map(${entries.iterator.map((k, value) => s"${show(k)} -> ${show(value)}").mkString(", ")})"

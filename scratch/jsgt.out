@@ -1,0 +1,51 @@
+[info] welcome to sbt 1.10.7 (Eclipse Adoptium Java 21.0.7)
+[info] loading global plugins from /Users/sergiy/.sbt/1.0/plugins
+[info] loading settings for project cli-fork-serialize-build from plugins.sbt...
+[info] loading project definition from /Users/sergiy/work/my/scalascript/.worktrees/feature/cli-fork-serialize/project
+[info] loading settings for project root from build.sbt...
+[info] resolving key references (218150 settings) ...
+[info] set current project to root (in build file:/Users/sergiy/work/my/scalascript/.worktrees/feature/cli-fork-serialize/)
+[info] JsGenStreamsTest:
+[info] - Async runtime declares collection sequencing helpers once
+[info] - full runtime has no duplicate top-level function declarations *** FAILED ***
+[info]   List("_ssc_ui_jsonValue") was not empty duplicate top-level functions: _ssc_ui_jsonValue (JsGenStreamsTest.scala:52)
+[info] - _makeAsyncStream runtime includes scan method
+[info] - _makeAsyncStream runtime includes merge method
+[info] - _makeAsyncStream runtime includes zipWith method
+[info] - _makeAsyncStream runtime includes broadcast method
+[info] - _makeAsyncStream runtime includes groupBy method
+[info] - _makeAsyncStream runtime includes mergeSubstreams method
+[info] - _makeAsyncStream runtime includes mapAsync method
+[info] - _makeAsyncStream runtime includes to and via routing methods
+[info] - _makeAsyncStream runtime includes recover and mapError
+[info] - _makeAsyncStream runtime includes cancellable method
+[info] - Source.tick(ms) generates infinite async stream with setTimeout
+[info] - Source.unfold(seed)(f) generates async unfolding stream
+[info] - Source.fromCallback(register) generates push-based stream
+[info] - Sink.foreach(f) generates run via runForeach
+[info] - Sink.fold(z)(f) generates run with accumulator
+[info] - Sink.ignore generates runDrain
+[info] - Sink.toList generates runToList
+[info] - Flow.map(f) generates apply via src.map(f)
+[info] - Flow.filter(p) generates apply via src.filter(p)
+[info] - scan(z)(f) call chain is present in generated JS
+[info] - JsRuntimeEffects contains Stream.emit _perform definition
+[info] - runStream body with Stream.emit: user code references Stream and runStream
+[info] - runStream body with Stream.complete: user code references Stream.complete
+[info] - runStream body with Stream.error: user code references Stream.error
+[info] - Core runtime includes _tupleConcat helper
+[info] - tuple-literal ++ tuple-literal flattens to a single array (no _tupleConcat)
+[info] - tuple-var ++ tuple still uses _tupleConcat (shape not a literal)
+[info] - ._N on a known tuple lowers to a direct index, not _dispatch
+[info] - list ++ also uses _tupleConcat (runtime polymorphism)
+[info] - _tupleConcat handles non-array values (bare ++ bare)
+[info] - tuple ++ bare value uses _tupleConcat
+[info] Run completed in 2 seconds, 632 milliseconds.
+[info] Total number of tests run: 33
+[info] Suites: completed 1, aborted 0
+[info] Tests: succeeded 32, failed 1, canceled 0, ignored 0, pending 0
+[info] *** 1 TEST FAILED ***
+[error] Failed tests:
+[error] 	scalascript.JsGenStreamsTest
+[error] (backendInterpreter / Test / testOnly) sbt.TestsFailedException: Tests unsuccessful
+[error] Total time: 8 s, completed Jul 12, 2026, 1:24:07 PM

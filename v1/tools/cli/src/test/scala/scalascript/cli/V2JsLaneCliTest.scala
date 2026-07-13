@@ -76,3 +76,39 @@ class V2JsLaneCliTest extends AnyFunSuite:
         s"run-js --v2 argv failed: exit=${withArgs.exitCode}\nstdout=${withArgs.out.text()}\nstderr=${withArgs.err.text()}")
       assert(withArgs.out.text().trim.linesIterator.toList == List("2", "one", "two"))
     finally os.remove.all(sandbox)
+
+  test("run-js --v2 dispatches an imported explicit companion (__mk_method_obj__)"):
+    // An imported case class with an explicit companion emits a __mk_method_obj__
+    // CoreIR primitive; the v2 JS backend had no lowering for it, so Node threw
+    // `unimplemented primitive: __mk_method_obj__` at module load.
+    // Regression for v2-js-imported-method-object-primitive.
+    requireNode()
+    val sandbox = os.temp.dir(prefix = "ssc-v2-js-methodobj-")
+    try
+      os.write(sandbox / "box.ssc",
+        """```scalascript
+          |case class Box(value: Int)
+          |
+          |object Box:
+          |  def zero: Box = Box(0)
+          |  def of(n: Int): Box = Box(n)
+          |  def add(a: Box, b: Int): Box = Box(a.value + b)
+          |```
+          |""".stripMargin)
+      os.write(sandbox / "main.ssc",
+        """[Box](box.ssc)
+          |
+          |```scalascript
+          |val z = Box.zero
+          |val a = Box.of(5)
+          |val b = Box.add(a, 3)
+          |println(z.value)
+          |println(a.value)
+          |println(b.value)
+          |```
+          |""".stripMargin)
+      val res = runSsc(sandbox, "run-js", "--v2", "main.ssc")
+      assert(res.exitCode == 0,
+        s"run-js --v2 companion failed: exit=${res.exitCode}\nstdout=${res.out.text()}\nstderr=${res.err.text()}")
+      assert(res.out.text().trim.linesIterator.toList == List("0", "5", "8"))
+    finally os.remove.all(sandbox)

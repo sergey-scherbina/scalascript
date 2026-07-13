@@ -478,6 +478,15 @@ class JsGen(
   private val emptyParamFns = scala.collection.mutable.Set.empty[String]
   // User-defined functions with :Int or :Long return type — their call sites can use isIntExpr.
   private val intFunctions = scala.collection.mutable.Set.empty[String]
+  // v1-js-long-precision-and-bitops: names/functions statically known to hold a
+  // `Long`. Longs are JS BigInt, Ints are JS Number, and mixing the two in a
+  // native JS operator throws — so any arithmetic/comparison touching a Long
+  // operand is routed through the BigInt-aware `_arith` (which coerces the Int
+  // side). Longs stay in `intVars` too (isIntExpr = true), so integer-division
+  // detection and `.toInt` handling keep working; `longVars`/isLongExpr only
+  // OVERRIDE the native-operator emission.
+  private val longVars = scala.collection.mutable.Set[String]()
+  private val longFunctions = scala.collection.mutable.Set.empty[String]
   // User-defined functions with :Double or :Float return type — their call sites can use isNumericExpr.
   private val numericFunctions = scala.collection.mutable.Set.empty[String]
   // v1.27 Phase 3 — sql block emission state.  Mirrors JvmGen's
@@ -711,23 +720,10 @@ class JsGen(
         if explicitGroups.isEmpty then zeroParamFns += d.name.value
         // def f(): T — one explicit empty param clause, no actual parameters
         if explicitGroups.size == 1 && params.isEmpty then emptyParamFns += d.name.value
-        // Track Int/Long/Double/Float return type for isIntExpr/isNumericExpr at call sites.
-        d.decltpe match
-          case Some(Type.Name("Int" | "Long"))     => intFunctions     += d.name.value
-          case Some(Type.Name("Double" | "Float")) => numericFunctions += d.name.value
-          case _ => ()
-        // Track Int/Long/Double/Float-typed parameters so arithmetic on them avoids _arith.
-        paramVals.foreach { pv =>
-          pv.decltpe match
-            case Some(Type.Name("Int" | "Long"))         => intVars += pv.name.value
-            case Some(Type.Name("Double" | "Float"))     => numericVars += pv.name.value
-            // Any other simple named type: remember varName → typeName. The
-            // direct-field decision is gated later on caseClassFieldsByType so a
-            // non-case-class type harmlessly falls back to _dispatch.
-            case Some(t) if numericListElem(t).isDefined => listElemType(pv.name.value) = numericListElem(t).get
-            case Some(Type.Name(tn))                     => instanceVars(pv.name.value) = tn
-            case _ => ()
-        }
+        // Record Int/Long/Double/Float return- and param-type evidence for the
+        // isIntExpr/isNumericExpr heuristics (shared with imported modules — see
+        // registerImportedTypeEvidence).
+        recordDefTypeEvidence(d)
       // Top-level `val xs: List[Int] = …` — track numeric-element collections for
       // HOF closure-param typing (e.g. bench `val xs: List[Int]`).
       case dv: Defn.Val =>
@@ -757,6 +753,61 @@ class JsGen(
     // This second pass descends into namespace objects and also records
     // case-class primary constructors.  See collectParamOrdersFromModule.
     collectParamOrdersFromModule(module)
+
+  /** Record Int/Long/Double/Float return- and param-type evidence for one def
+   *  into the isIntExpr/isNumericExpr heuristic sets. Shared by
+   *  collectFuncParamOrders (entry module) and registerImportedTypeEvidence
+   *  (imported modules, whose bodies the childGen emits directly). */
+  private def recordDefTypeEvidence(d: Defn.Def): Unit =
+    d.decltpe match
+      case Some(Type.Name("Int" | "Long"))     => intFunctions     += d.name.value
+      case Some(Type.Name("Double" | "Float")) => numericFunctions += d.name.value
+      case _ => ()
+    // v1-js-long-precision-and-bitops: a Long-returning function's call sites are Long.
+    if d.decltpe.contains(Type.Name("Long")) then longFunctions += d.name.value
+    d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).foreach { pv =>
+      if pv.decltpe.contains(Type.Name("Long")) then longVars += pv.name.value
+      pv.decltpe match
+        case Some(Type.Name("Int" | "Long"))         => intVars += pv.name.value
+        case Some(Type.Name("Double" | "Float"))     => numericVars += pv.name.value
+        // Any other simple named type: remember varName → typeName. The
+        // direct-field decision is gated later on caseClassFieldsByType so a
+        // non-case-class type harmlessly falls back to _dispatch.
+        case Some(t) if numericListElem(t).isDefined => listElemType(pv.name.value) = numericListElem(t).get
+        case Some(Type.Name(tn))                     => instanceVars(pv.name.value) = tn
+        case _ => ()
+    }
+
+  /** Populate the isIntExpr/isNumericExpr type-evidence sets and case-class
+   *  field-type maps for a module whose bodies THIS generator emits directly.
+   *  genModule runs the equivalent pre-pass for the entry module, but the
+   *  childGen in genImport emits imported bodies through genScalaNode, bypassing
+   *  it — without this, an imported `Int / Int` lowers to floating `_arith('/')`
+   *  instead of `Math.trunc(a / b)`, and imported case-class Int fields lose
+   *  their integer evidence (v1-js-imported-int-division-loses-type). Descends
+   *  into namespace/package `Defn.Object`s like collectParamOrdersFromModule. */
+  private def registerImportedTypeEvidence(module: Module): Unit =
+    caseClassFieldsByType = caseClassFieldsByType ++ caseClassFieldsInModule(module)
+    caseClassFieldTypeMap = caseClassFieldTypeMap ++ caseClassFieldTypesInModule(module)
+    def scanDefs(stats: List[Stat]): Unit = stats.foreach {
+      case d: Defn.Def    => recordDefTypeEvidence(d)
+      case o: Defn.Object => scanDefs(o.templ.body.stats)
+      case _              => ()
+    }
+    def scan(section: Section): Unit =
+      section.content.foreach {
+        case cb: Content.CodeBlock if Lang.isScalaScript(cb.lang) =>
+          cb.tree.foreach { node =>
+            ScalaNode.fold(node) {
+              case Source(stats)     => scanDefs(stats)
+              case Term.Block(stats) => scanDefs(stats)
+              case _                 => ()
+            }
+          }
+        case _ => ()
+      }
+      section.subsections.foreach(scan)
+    module.sections.foreach(scan)
 
   // Collect named-arg param orders (function defs + case-class primary ctors)
   // from a module into funcParamOrder, descending into namespace/package
@@ -2190,6 +2241,12 @@ class JsGen(
       // which collects trees across the entire import graph. So an effect-performing
       // function defined here — or one calling a transitively-imported effectful
       // function — is already recognised; no per-import re-analysis is needed.
+      // Give the childGen the imported module's Int/Long/case-class type evidence
+      // so its bodies get the same integer-arithmetic lowering the entry module
+      // gets — otherwise an imported `Int / Int` emits floating `_arith('/')`
+      // (v1-js-imported-int-division-loses-type). Nested imports recurse through
+      // childGen.genImport below, each populating its own grandchild gen.
+      childGen.registerImportedTypeEvidence(childModule)
       // Emit only the definitions from the imported module (suppress top-level output)
       childModule.sections.foreach { section =>
         section.content.foreach {
@@ -2414,13 +2471,27 @@ class JsGen(
     s"(() => { const __st = (${genExpr(startT)}); const __n = (${genExpr(nT)}); let __acc = 0; let __k = 0; " +
     s"while (__k < __n) { $bodyJs __k += 1; } return __acc; })()"
 
+  /** A local `val`/`var` binding is AUTHORITATIVE for its name: set the numeric
+   *  evidence to match the RHS, overriding any same-named evidence that leaked in
+   *  from another function's param (intVars/numericVars are name-keyed and
+   *  module-global). Without the removal, a Char `val c = s.charAt(i)` inherits an
+   *  Int param `c` from a sibling function, so `c == 34` wrongly takes the numeric
+   *  fast path `c === 34` — which is always false on a boxed `_char` (=== does not
+   *  call valueOf). Returns true if the RHS was int/numeric (so callers can still
+   *  chain a tuple check). Also (authoritatively) tracks `longVars` — a Long-typed
+   *  binding is a JS BigInt (v1-js-long-precision-and-bitops) — with the same
+   *  name-shadowing so a leaked Long param can't misclassify a non-Long local. */
+  private def rebindNumericEvidence(name: String, rhs: Term, declT: Option[Type] = None): Boolean =
+    if isLongExpr(rhs) || declT.contains(Type.Name("Long")) then longVars += name else longVars -= name
+    if isIntExpr(rhs) then { intVars += name; numericVars -= name; true }
+    else if isNumericExpr(rhs) then { numericVars += name; intVars -= name; true }
+    else { intVars -= name; numericVars -= name; false }
+
   private def genStat(stat: Stat): Unit = stat match
     case Defn.Val(_, pats, declT, rhs) =>
       pats match
         case List(Pat.Var(n)) =>
-          if isIntExpr(rhs) then intVars += n.value
-          else if isNumericExpr(rhs) then numericVars += n.value
-          else if isTupleExpr(rhs) then tupleVars += n.value
+          if !rebindNumericEvidence(n.value, rhs, declT) && isTupleExpr(rhs) then tupleVars += n.value
           declT.flatMap(numericListElem).orElse(numericSeqCtorElem(rhs))
             .foreach(e => listElemType(n.value) = e)
           line(s"const ${emittedName(n.value)} = ${genExpr(rhs)};")
@@ -2432,8 +2503,7 @@ class JsGen(
           line(s"/* multi-pat val */")
 
     case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), declT, rhs) =>
-      if isIntExpr(rhs) then intVars += n.value
-      else if isNumericExpr(rhs) then numericVars += n.value
+      rebindNumericEvidence(n.value, rhs, declT)
       declT.flatMap(numericListElem).orElse(numericSeqCtorElem(rhs))
         .foreach(e => listElemType(n.value) = e)
       line(s"let ${emittedName(n.value)} = ${genExpr(rhs)};")
@@ -3041,7 +3111,21 @@ class JsGen(
     namespaceMembers.getOrElseUpdate(path, mutable.Set.empty[String]) ++= thisMembers
     val body = rebindDecl + decls.mkString(" ")
     val ret  = names.mkString(", ")
-    s"(() => { $body return { $ret }; })()"
+    // A field-less `case object` must carry a `_type` discriminator (mirroring the
+    // enum-nullary / case-class emission) so the user-level `==` operator — which
+    // lowers to structural `_eq` — can tell distinct singletons apart. Without it a
+    // field-less case object lowers to a bare `{}`, and `_eq` finds two empty records
+    // with matching (undefined) `_type` equal, so EVERY field-less case object equals
+    // every other (v1-js-scljet-readonly-leaf-depth, v1-js-scljet-shm-lock-divergence).
+    // Pattern matching already keys on `._type === 'Name'`, so this is purely additive;
+    // namespace/package/companion objects (no `Mod.Case`) keep their plain member record.
+    val typeField =
+      if d.mods.exists(_.isInstanceOf[Mod.Case]) then
+        val tag = caseClassTagMap.get(objectName).map(t => s", _tag: $t").getOrElse("")
+        val sep = if ret.isEmpty then "" else ", "
+        s"_type: '$objectName'$tag$sep"
+      else ""
+    s"(() => { $body return { $typeField$ret }; })()"
 
   private def genDefAsMethod(dd: Defn.Def): String =
     val paramVals = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
@@ -3534,13 +3618,10 @@ class JsGen(
 
   private[codegen] def genStatInline(stat: Stat): String = stat match
     case Defn.Val(_, List(Pat.Var(n)), _, rhs) =>
-      if isIntExpr(rhs) then intVars += n.value
-      else if isNumericExpr(rhs) then numericVars += n.value
-      else if isTupleExpr(rhs) then tupleVars += n.value
+      if !rebindNumericEvidence(n.value, rhs) && isTupleExpr(rhs) then tupleVars += n.value
       s"const ${emittedName(n.value)} = ${genExpr(rhs)};"
     case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) =>
-      if isIntExpr(rhs) then intVars += n.value
-      else if isNumericExpr(rhs) then numericVars += n.value
+      rebindNumericEvidence(n.value, rhs)
       s"let ${emittedName(n.value)} = ${genExpr(rhs)};"
     case d: Defn.Def =>
       val params = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value)
@@ -3798,7 +3879,11 @@ class JsGen(
 
     // Literals
     case Lit.Int(v)     => v.toString
-    case Lit.Long(v)    => v.toString
+    // v1-js-long-precision-and-bitops: a `Long` literal is emitted as a JS BigInt
+    // (`123n`) so 64-bit values above 2^53 keep full precision (a plain JS number
+    // rounds them at parse time) and Long arithmetic/bit-ops route through the
+    // runtime's exact BigInt paths. Int stays a JS number.
+    case Lit.Long(v)    => s"${v}n"
     case Lit.Double(v)  => v.toString
     case Lit.Float(v)   => v.toString
     case Lit.String(v)  =>
@@ -4036,7 +4121,12 @@ class JsGen(
         // Scala wraps), AND forces a V8 int32 so an array indexed/filled by it stays SMI-packed
         // instead of falling to the slow double-elements path (~2.4× on array-update). A Double
         // receiver keeps `Math.trunc` (truncate toward zero).
-        case "toInt" if isIntExpr(qual)                => s"($qualJs | 0)"
+        // v1-js-long-precision-and-bitops: the receiver may be a BigInt (a Long
+        // value — and not every Long is statically provable, e.g. a case-class
+        // field bound by a pattern), and `bigint | 0` throws in JS. `_toI32` does
+        // the 32-bit Int wrap for both a plain number (`x | 0`) and a BigInt, so
+        // it is used unconditionally for an integer receiver.
+        case "toInt" if isIntExpr(qual)                => s"_toI32($qualJs)"
         case "toInt" if isNumericExpr(qual)            => s"Math.trunc($qualJs)"
         // `.toLong` on an integer receiver is identity (already integral, no 32-bit wrap — Long is
         // 64-bit); a Double truncates toward zero.
@@ -4646,6 +4736,13 @@ class JsGen(
           case "!" => s"Actor.send($lhsJs, $rhsJs)"
           case "->" =>
             s"Object.assign([$lhsJs, $rhsJs], {_isTuple: true})"
+          // v1-js-long-precision-and-bitops: any arithmetic/comparison touching a
+          // Long operand (a JS BigInt) must go through the BigInt-aware `_arith`,
+          // which coerces an Int/Number operand — a native JS operator would mix
+          // BigInt with Number and throw. Placed before the Int/Double fast paths.
+          case "+" | "-" | "*" | "/" | "%" | "<" | ">" | "<=" | ">=" | "==" | "!="
+              if isLongExpr(lhs) || args.headOption.exists(isLongExpr) =>
+            s"_arith('${op.value}', $lhsJs, $rhsJs)"
           case "*" =>
             val rIsNum = args.headOption.exists(isNumericExpr)
             if isIntExpr(lhs) && args.headOption.exists(isIntExpr) then s"($lhsJs * $rhsJs)"
@@ -4679,6 +4776,13 @@ class JsGen(
               if !(isIntExpr(lhs) && args.headOption.exists(isIntExpr)) =>
             if isNumericExpr(lhs) && args.headOption.exists(isNumericExpr) then s"($lhsJs ${op.value} $rhsJs)"
             else s"_arith('${op.value}', $lhsJs, $rhsJs)"
+          // v1-js-long-precision-and-bitops: bitwise/shift operators. Native JS
+          // `& | ^ << >> >>>` are 32-bit (ToInt32/ToUint32, shift count mod 32),
+          // but ssc `Int`/`Long` are 64-bit. Route through the runtime `_bit`
+          // helper which coerces both operands to BigInt, applies the op, and
+          // masks to signed 64 bits — matching the interpreter/JVM exactly.
+          case "&" | "|" | "^" | "<<" | ">>" | ">>>" =>
+            s"_bit('${op.value}', $lhsJs, $rhsJs)"
           case other => s"($lhsJs $other $rhsJs)"
       }
 
@@ -4687,10 +4791,10 @@ class JsGen(
       // Constant folding for literal operands
       (t.op.value, t.arg) match
         case ("-", Lit.Int(n))     => (-n).toString
-        case ("-", Lit.Long(n))    => (-n).toString
+        case ("-", Lit.Long(n))    => s"${-n}n"
         case ("-", Lit.Double(ns)) => (-ns.toDouble).toString
         case ("+", Lit.Int(n))     => n.toString
-        case ("+", Lit.Long(n))    => n.toString
+        case ("+", Lit.Long(n))    => s"${n}n"
         case ("!", Lit.Boolean(b)) => (!b).toString
         case _ =>
           val argJs = genExpr(t.arg)
@@ -5189,6 +5293,27 @@ class JsGen(
       argClause.values.headOption.exists(r => isIntExpr(l) && isIntExpr(r))
     case _ => false
 
+  /** Returns true if the term is provably a `Long` (a JS BigInt at runtime), so
+   *  arithmetic/comparison on it must route through `_arith` rather than a native
+   *  JS operator (which would mix BigInt with Number and throw).
+   *  v1-js-long-precision-and-bitops. */
+  private[codegen] def isLongExpr(t: Term): Boolean = t match
+    case _: Lit.Long                                   => true
+    case Term.Name(n)                                  => longVars.contains(n)
+    case Term.Apply.After_4_6_0(Term.Name(n), _)       => longFunctions.contains(n)
+    // `.toLong` widens to Long; a bit-op result is a 64-bit BigInt (Long).
+    case Term.Select(_, Term.Name("toLong"))                                   => true
+    case Term.Apply.After_4_6_0(Term.Select(_, Term.Name("toLong")), _)        => true
+    // Long-typed case-class field: `v.x` where `case class C(x: Long)`.
+    case Term.Select(Term.Name(v), Term.Name(f)) =>
+      instanceVars.get(v).flatMap(caseClassFieldTypeMap.get).flatMap(_.get(f)).contains("Long")
+    // Arithmetic or bit-op that has a Long operand stays Long.
+    case Term.ApplyInfix.After_4_6_0(l, Term.Name(op), _, argClause)
+        if Set("+", "-", "*", "/", "%", "&", "|", "^", "<<", ">>", ">>>").contains(op) =>
+      isLongExpr(l) || argClause.values.headOption.exists(r => isLongExpr(r.asInstanceOf[Term]))
+    case Term.Ascribe(e, _)                            => isLongExpr(e)
+    case _                                             => false
+
   /** Returns true if the term is provably numeric (Int, Long, Double, or Float — never a String). */
   private[codegen] def isNumericExpr(t: Term): Boolean = isIntExpr(t) || (t match
     case _: Lit.Double | _: Lit.Float => true
@@ -5240,11 +5365,13 @@ class JsGen(
         case "!=" => Some((a != b).toString)
         case _    => None
       case (Lit.Long(a), Lit.Long(b)) => op match
-        case "+"  => Some((a + b).toString)
-        case "-"  => Some((a - b).toString)
-        case "*"  => Some((a * b).toString)
-        case "/"  if b != 0 => Some((a / b).toString)
-        case "%"  if b != 0 => Some((a % b).toString)
+        // Longs are BigInt in JS — fold to a BigInt literal so the result stays
+        // a Long (mixing a folded plain number with a BigInt would throw).
+        case "+"  => Some(s"${a + b}n")
+        case "-"  => Some(s"${a - b}n")
+        case "*"  => Some(s"${a * b}n")
+        case "/"  if b != 0 => Some(s"${a / b}n")
+        case "%"  if b != 0 => Some(s"${a % b}n")
         case "<"  => Some((a < b).toString)
         case ">"  => Some((a > b).toString)
         case "<=" => Some((a <= b).toString)

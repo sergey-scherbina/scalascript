@@ -810,6 +810,40 @@ def buildListExpr = (args) =>
       Pair("ctorap", Pair("Cons", Cons(h, Cons(buildListExpr(rest), Nil))))
   }
 
+-- Trailing-vararg call packing. A def whose last parameter is `T*` (registered in
+-- varargDefsCell by the front) binds that param as ONE list value — the body does
+-- `xs.toList`. But the parser flattens a call's argument clauses into individual
+-- args, so `card(a, b)` (arity 1) and `vstack(g)(a, b)` (arity 2) arrive with too
+-- many args and fail the CoreIR arity check. Pack everything past the leading
+-- (arity-1) non-vararg params into a Cons-list so the flattened call matches arity.
+def isVarargDef = (name) =>
+  let rec go = (xs) =>
+    match xs { case Nil => false case Cons(n, rest) => if #seq(n, name) then true else go(rest) } in
+  go(#cell.get(varargDefsCell))
+
+def takeL = (n, xs) =>
+  if #i.lt(n, 1) then Nil
+  else match xs { case Nil => Nil case Cons(h, t) => Cons(h, takeL(#i.sub(n, 1), t)) }
+
+def dropL = (n, xs) =>
+  if #i.lt(n, 1) then xs
+  else match xs { case Nil => Nil case Cons(h, t) => dropL(#i.sub(n, 1), t) }
+
+-- Pack a call's (already-resolved) args for a trailing-vararg def; a no-op for
+-- non-vararg defs or when the def arity is unknown.
+def packVarargsArgs = (name, args) =>
+  if isVarargDef(name) then
+    match defArity(name) {
+      case Pair(found, arity) =>
+        if found then
+          let lead = #i.sub(arity, 1) in
+          if #i.ge(lenL(args), lead) then
+            append(takeL(lead, args), Cons(buildListExpr(dropL(lead, args)), Nil))
+          else args
+        else args
+    }
+  else args
+
 -- K62.6c: build a Map from (resolved) `k -> v` / (k, v) entries. `map.put` MUTATES
 -- and returns Unit, so use an IIFE: (fn __m => { map.put(__m,k,v); …; __m })(map.new).
 def buildMapExpr = (args) =>
@@ -1479,6 +1513,14 @@ def resolveE = (expr) =>
                             if found then
                               if #i.eq(lenL(combinedArgs), arity) then
                                 resolveE(Pair("app", Pair(innerFn, combinedArgs)))
+                              -- Trailing-vararg curried def (e.g. `vstack(g)(a, b)`): the last
+                              -- clause holds unpacked varargs so combinedArgs OVERFLOWS arity.
+                              -- Flatten and re-resolve as a direct call; the var-callee path
+                              -- below packs the trailing args into one list to match arity.
+                              else if isVarargDef(innerName) then
+                                if #i.ge(lenL(combinedArgs), #i.sub(arity, 1)) then
+                                  resolveE(Pair("app", Pair(innerFn, combinedArgs)))
+                                else Pair("app", Pair(resolveCallee(fn), stripNargs(rargs)))
                               else Pair("app", Pair(resolveCallee(fn), stripNargs(rargs)))
                             else Pair("app", Pair(resolveCallee(fn), stripNargs(rargs)))
                         }
@@ -1834,7 +1876,13 @@ def lowerE = (scope, rawExpr) =>
                       case _ =>
                         IrApp(lowerE(scope, fn), lowerArgs(scope, injArgs))
                     }
-                  else IrApp(lowerE(scope, fn), lowerArgs(scope, injArgs))
+                  -- Trailing-vararg packing runs HERE (once per Ir node), not in
+                  -- resolveE: resolveE is re-applied top-down by lowerE at every level,
+                  -- so packing there compounded into a nested list ([[[…]]]). lowerE's
+                  -- app→IrApp step is terminal (Ir nodes are never re-lowered), so a
+                  -- single pack is idempotent. packVarargsArgs is a no-op for non-vararg
+                  -- callees; for a `T*` def it folds the trailing args into one Cons-list.
+                  else IrApp(lowerE(scope, fn), lowerArgs(scope, packVarargsArgs(fname, injArgs)))
                 else IrApp(lowerE(scope, fn), lowerArgs(scope, injArgs))
             }
         }
@@ -3816,6 +3864,59 @@ def caseFieldRegs = (order) =>
              caseFieldRegs(rest)) }
   }
 
+-- Case-class BODY methods (caseMethodsCell = [Pair(tag, Pair(fields, defs))]).
+-- Each captured `def` becomes a `Tag_method(self, params…)` global whose body has
+-- the case-class fields bound from self (so bare field refs resolve as locals), and
+-- a `__regmethod__(tag, method, IrGlobal(Tag_method))` entry so __method__ dispatches.
+def lowerCaseMethodBody = (fields, scope, body) =>
+  match fields {
+    case Nil => lowerE(scope, body)
+    case Cons(f, rest) =>
+      IrLet(Cons(IrApp(IrGlobal(#sconcat("_sel_", f)),
+                   Cons(lookupVar(scope, "__self"), Nil)), Nil),
+            lowerCaseMethodBody(rest, Cons(f, scope), body))
+  }
+def caseMethodDefsFor = (tag, fields, defs) =>
+  match defs {
+    case Nil => Nil
+    case Cons(d, rest) =>
+      match d { case Pair(dtag, ddata) =>
+        match ddata { case Pair(mname, mrest) =>
+          match mrest { case Pair(mparams, mbody) =>
+            let selfAndParams = Cons("__self", mparams) in
+            let mdef = IrDef(#sconcat(tag, #sconcat("_", mname)),
+                         IrLam(lenL(selfAndParams),
+                           lowerCaseMethodBody(fields, revL(selfAndParams), mbody))) in
+            Cons(mdef, caseMethodDefsFor(tag, fields, rest)) } } }
+  }
+def caseMethodDefs = (regs) =>
+  match regs {
+    case Nil => Nil
+    case Cons(r, rest) =>
+      match r { case Pair(tag, fd) =>
+        match fd { case Pair(fields, defs) =>
+          appendL(caseMethodDefsFor(tag, fields, defs), caseMethodDefs(rest)) } }
+  }
+def caseMethodRegsFor = (tag, defs) =>
+  match defs {
+    case Nil => Nil
+    case Cons(d, rest) =>
+      match d { case Pair(dtag, ddata) =>
+        match ddata { case Pair(mname, mrest) =>
+          Cons(IrPrim("__regmethod__",
+                 Cons(IrLit(IrStr(tag)), Cons(IrLit(IrStr(mname)),
+                   Cons(IrGlobal(#sconcat(tag, #sconcat("_", mname))), Nil)))),
+               caseMethodRegsFor(tag, rest)) } }
+  }
+def caseMethodRegs = (regs) =>
+  match regs {
+    case Nil => Nil
+    case Cons(r, rest) =>
+      match r { case Pair(tag, fd) =>
+        match fd { case Pair(fields, defs) =>
+          appendL(caseMethodRegsFor(tag, defs), caseMethodRegs(rest)) } }
+  }
+
 def collectDefArities = (stmts) =>
   match stmts {
     case Nil => Nil
@@ -3893,7 +3994,8 @@ def lowerProg = (stmts) =>
   let accDefs = buildMergedAccessors(#cell.get(caseFieldOrderCell)) in
   let allDefs = appendL(defs,
     appendL(topVarCellDefs(stmts),
-    appendL(topValCellDefs(topValNames), appendL(accDefs, userDefs)))) in
+    appendL(topValCellDefs(topValNames),
+    appendL(caseMethodDefs(#cell.get(caseMethodsCell)), appendL(accDefs, userDefs))))) in
   -- T5.7: top-level expression statements ("expr") used to be silently dropped
   -- (~190/194 real .ssc files became no-ops). Collect them in document order into
   -- the entry: Seq(exprs..., main() if present). Defs are all registered before the
@@ -3968,7 +4070,8 @@ def lowerProg = (stmts) =>
             else topExprs(rest1)
         }
     } in
-  let entryExprs = appendL(caseFieldRegs(#cell.get(caseFieldOrderCell)), topExprs(stmts)) in
+  let entryExprs = appendL(caseFieldRegs(#cell.get(caseFieldOrderCell)),
+    appendL(caseMethodRegs(#cell.get(caseMethodsCell)), topExprs(stmts))) in
   let mainCall =
     if hasZeroArgMain(stmts) then Cons(IrApp(IrGlobal("main"), Nil), Nil)
     else Nil in

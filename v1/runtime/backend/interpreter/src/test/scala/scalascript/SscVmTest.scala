@@ -2611,6 +2611,19 @@ class SscVmTest extends AnyFunSuite with Matchers:
     assert(wrongOrBail, "expected the heuristic-only path to miss mid's Double return")
   }
 
+  test("wide-jit C-4c regression: RET-leaf widening must not corrupt a shared home register") {
+    // BUG (fixed): C-4c widened the RET leaf with an in-place `I2D r, r` + `setType(r, TDouble)`.
+    // `compileExpr` of a bare local/param returns its HOME register directly, so both the value and
+    // its compile-time type were corrupted for a sibling RET leaf. `if c then a else a` returned the
+    // else path's raw int bits as a double (5 → 2.5e-323). The fix widens into a FRESH reg (asDouble).
+    val g = funOf("g", "def g(a: Int, c: Int): Double = if c > 0 then a else a")
+    val cfn = VmCompiler.compile(g)
+    cfn shouldBe defined
+    java.lang.Double.longBitsToDouble(SscVm.run(cfn.get, Array(5L, 1L)))  shouldBe 5.0  // then path
+    java.lang.Double.longBitsToDouble(SscVm.run(cfn.get, Array(5L, -1L))) shouldBe 5.0  // else path (was garbage)
+    java.lang.Double.longBitsToDouble(SscVm.run(cfn.get, Array(9L, -1L))) shouldBe 9.0
+  }
+
   test("wide-jit C-4c: a Double-declared function's Int RET leaf is widened, not bailed on") {
     // `f` is DECLARED `: Double` but one branch yields the Int literal `2`. Scala widens it to `2.0`.
     // The JIT's unifyRet otherwise sees TDouble (1.5) then TInt (2) → MixedReturnType bail. The Typer
@@ -2709,6 +2722,37 @@ class SscVmTest extends AnyFunSuite with Matchers:
     java.lang.Double.longBitsToDouble(SscVm.runRef(cfn.get, Array.empty[Long], Array[AnyRef](e("C")))) shouldBe 7.0  // 3.5 * 2
   }
 
+  test("wide-jit C-6/C-5b regression: assigning a self-referencing if/match to a var must not corrupt it") {
+    // BUG (fixed): `y = if c then 5 else y` compiled the rhs straight into y's HOME reg. The `else y`
+    // branch self-aliases the home (no MOVE), so it read a compile-time type polluted by the `then`
+    // branch (TInt), the if reported TInt, and C-6's widen fired on the else path where y still held
+    // the Double 3.0 → garbage (f(false) → 4.6e18 instead of 3.0). Same for a self-referencing match
+    // arm (C-5b pad). FIX: a self-referencing rhs compiles into a FRESH temp, then moves to the home.
+    val fIf = interpOf(
+      """def f(c: Boolean): Double =
+        |  var y = 3.0
+        |  y = if c then 5 else y
+        |  y""".stripMargin).globalsView("f").asInstanceOf[Value.FunV]
+    val cIf = VmCompiler.compile(fIf); cIf shouldBe defined
+    java.lang.Double.longBitsToDouble(SscVm.run(cIf.get, Array(1L))) shouldBe 5.0  // c=true → 5→5.0
+    java.lang.Double.longBitsToDouble(SscVm.run(cIf.get, Array(0L))) shouldBe 3.0  // c=false → y unchanged
+
+    val interp = interpOf(
+      """sealed trait Opt
+        |case object A extends Opt
+        |case object B extends Opt
+        |def g(o: Opt): Double =
+        |  var y = 3.0
+        |  y = o match
+        |    case A => 5
+        |    case B => y
+        |  y""".stripMargin)
+    val g = interp.globalsView("g").asInstanceOf[Value.FunV]
+    val cG = VmCompiler.compile(g, globalsResolve(interp)); cG shouldBe defined
+    java.lang.Double.longBitsToDouble(SscVm.runRef(cG.get, Array.empty[Long], Array[AnyRef](Value.InstanceV("A", Map.empty)))) shouldBe 5.0
+    java.lang.Double.longBitsToDouble(SscVm.runRef(cG.get, Array.empty[Long], Array[AnyRef](Value.InstanceV("B", Map.empty)))) shouldBe 3.0
+  }
+
   test("wide-jit C-6: an Int assigned to a Double var is widened, not bailed on") {
     // `x` is a Double var (init 0.0); `x = c` assigns the Int param. Scala widens Int→Double, so the
     // assign widens `x` (I2D) rather than bailing on a false "var domain change".
@@ -2775,6 +2819,63 @@ class SscVmTest extends AnyFunSuite with Matchers:
     def box(v: Int) = Value.InstanceV("Box", Map("v" -> Value.intV(v.toLong)))
     SscVm.runRef(cfn.get, Array.empty[Long], Array[AnyRef](box(5), box(-3)))  shouldBe 5L  // a.v>0 → a
     SscVm.runRef(cfn.get, Array.empty[Long], Array[AnyRef](box(-1), box(7)))  shouldBe 7L  // else → b
+  }
+
+  // wide-jit CL: capturing lambdas. A lambda that captures an outer local no longer bails — it
+  // materialises a runtime FunV (LOADFVCAP) whose closure snapshots the captures (matching the
+  // interpreter's own value-snapshot of frame-locals). CALLREF dispatches it via interp.invoke.
+  private def clResolve(interp: Interpreter): VmCompiler.Resolve =
+    (_, name) => interp.globalsView.get(name) match { case Some(fv: Value.FunV) => fv; case _ => null }
+  private def clRun(interp: Interpreter, cf: SscVm.CompiledFn, a: Array[Long]): Long =
+    JitGlobals.withInterp(interp) { SscVm.run(cf, a) }
+
+  test("wide-jit CL: capturing lambda — Int capture over a HOF") {
+    val interp = interpOf(
+      """def applyIt(f: Int => Int, n: Int): Int = f(n)
+        |def g(k: Int): Int = applyIt(x => x + k, 10)""".stripMargin)
+    val g = interp.globalsView("g").asInstanceOf[Value.FunV]
+    val cfn = VmCompiler.compile(g, clResolve(interp)); cfn shouldBe defined
+    clRun(interp, cfn.get, Array(5L))   shouldBe 15L
+    clRun(interp, cfn.get, Array(100L)) shouldBe 110L
+  }
+
+  test("wide-jit CL: capturing lambda — multiple captures") {
+    val interp = interpOf(
+      """def applyIt(f: Int => Int, n: Int): Int = f(n)
+        |def g(a: Int, b: Int): Int = applyIt(x => x + a + b, 1)""".stripMargin)
+    val g = interp.globalsView("g").asInstanceOf[Value.FunV]
+    val cfn = VmCompiler.compile(g, clResolve(interp)); cfn shouldBe defined
+    clRun(interp, cfn.get, Array(10L, 20L)) shouldBe 31L
+  }
+
+  test("wide-jit CL: capturing lambda — Double capture + Double HOF result typing (annotated + inferred)") {
+    // Both the capture (k: Double) and the HOF result must be Double. The CALLREF result is typed
+    // TDouble from the `Double => Double` signature; the unannotated param `x` is inferred Double
+    // from the HOF context (so the arg is boxed as a Double, not mis-boxed as Int).
+    val interpA = interpOf(
+      """def applyD(f: Double => Double, n: Double): Double = f(n)
+        |def g(k: Double): Double = applyD((x: Double) => x + k, 2.5)""".stripMargin)
+    val gA = interpA.globalsView("g").asInstanceOf[Value.FunV]
+    val cA = VmCompiler.compile(gA, clResolve(interpA)); cA shouldBe defined
+    java.lang.Double.longBitsToDouble(clRun(interpA, cA.get, Array(java.lang.Double.doubleToRawLongBits(1.5)))) shouldBe 4.0
+
+    val interpB = interpOf(
+      """def applyD(f: Double => Double, n: Double): Double = f(n)
+        |def g(): Double = applyD(x => x + 1.0, 2.5)""".stripMargin)   // unannotated x → inferred Double
+    val gB = interpB.globalsView("g").asInstanceOf[Value.FunV]
+    val cB = VmCompiler.compile(gB, clResolve(interpB)); cB shouldBe defined
+    java.lang.Double.longBitsToDouble(clRun(interpB, cB.get, Array.empty)) shouldBe 3.5  // 2.5 + 1.0
+  }
+
+  test("wide-jit CL: capturing lambda — ref capture (String), boxed as a ref in the closure") {
+    val interp = interpOf(
+      """def applyIt(f: Int => Int, n: Int): Int = f(n)
+        |def g(prefix: String): Int = applyIt(x => x + prefix.length, 10)""".stripMargin)
+    val g = interp.globalsView("g").asInstanceOf[Value.FunV]
+    val cfn = VmCompiler.compile(g, clResolve(interp)); cfn shouldBe defined
+    JitGlobals.withInterp(interp) {
+      SscVm.runRef(cfn.get, Array.empty[Long], Array[AnyRef](Value.StringV("abcd"))) shouldBe 14L  // 10 + 4
+    }
   }
 
   test("wide-jit C-3: FunV.body is identity-keyed in the Typer's nodeTypes; the map threads to VmCompiler") {

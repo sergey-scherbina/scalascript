@@ -18,6 +18,7 @@ exports:
   - deleteFile
   - copyFile
   - moveFile
+  - resolveWithin
 ---
 
 # std.fs — File-system primitives
@@ -49,4 +50,39 @@ extern def listDir(path: String): List[String]
 extern def deleteFile(path: String): Unit
 extern def copyFile(src: String, dst: String): Unit
 extern def moveFile(src: String, dst: String): Unit
+
+// ── Confined access (M10) — LEXICAL path confinement for UNTRUSTED sub-paths ──
+// SECURITY: the raw helpers above take their `path` VERBATIM and do NOT confine it
+// — treat their input as TRUSTED. For UNTRUSTED (e.g. user-supplied) sub-paths,
+// resolve them under a fixed `root` with the *Within helpers: they reject `..`
+// traversal and absolute paths so the result stays under `root`.
+// LIMITATION: this is LEXICAL only — it does NOT resolve symlinks, so a symlink
+// *inside* `root` pointing outside is not caught. For symlink-safe confinement,
+// canonicalise `root` and the target with the OS realpath first (a NOFOLLOW/realpath
+// extern is tracked as security-hardening backlog).
+
+// Fold path segments into a REVERSED normalised stack (most-recent first), or None if
+// a `..` escapes above root. `stack` is reversed so `..` pops the most-recent segment
+// via `stack.tail` (an append + first-drop would remove the WRONG segment). Uses
+// head/tail rather than a `h :: t` binder — the JS backend mis-binds cons patterns here.
+def _normSegments(segs: List[String], stack: List[String]): Option[List[String]] =
+  if segs.isEmpty then Some(stack)
+  else
+    val h = segs.head
+    val t = segs.tail
+    if h == "" || h == "." then _normSegments(t, stack)
+    else if h == ".." then
+      if stack.isEmpty then None                 // `..` would escape above root
+      else _normSegments(t, stack.tail)
+    else _normSegments(t, h :: stack)            // prepend (stack stays reversed)
+
+// Lexically resolve `rel` under `root`. Some(joinedPath) iff `rel` stays within
+// `root` (no `..` escape, not absolute); None when it would escape. Compose with
+// the raw helpers, e.g. `resolveWithin(root, rel).map(readFile)`, to read/write only
+// paths that stay inside `root`.
+def resolveWithin(root: String, rel: String): Option[String] =
+  if rel.startsWith("/") then None
+  else _normSegments(rel.split("/").toList, List()).map(revParts =>
+    val parts = revParts.reverse                 // _normSegments returns the stack reversed
+    if parts.isEmpty then root else root + "/" + parts.mkString("/"))
 ```

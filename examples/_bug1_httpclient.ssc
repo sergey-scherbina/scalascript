@@ -1,0 +1,10 @@
+[httpClient, httpTimeout, httpRetry](../v1/runtime/std/http.ssc)
+
+```scalascript
+def main(): Unit =
+  httpClient("http://example.invalid") {
+    httpTimeout(2000)
+    httpRetry(2, 500)
+  }
+  println("done")
+```

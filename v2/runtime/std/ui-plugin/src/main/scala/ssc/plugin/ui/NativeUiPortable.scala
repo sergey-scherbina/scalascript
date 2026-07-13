@@ -135,6 +135,27 @@ private[ui] object NativeUiPortable:
           case key => throw new RuntimeException(s"$path requires String keys, got ${Show.show(key)}")
         }
         map
+      case list @ (Value.DataV("Cons", _) | Value.DataV("Nil", _)) =>
+        // The checked frontend lowers a `Map[String, Any]` literal to a proper
+        // association list of `(key, value)` (Pair/Tuple2) entries rather than a MapV
+        // — measured on the native `ssc run` path building ui element attrs/events via
+        // `Map("style" -> ...)`. Accept it as the equivalent String map (left-to-right,
+        // duplicate key last-wins) so both boundary shapes are honored.
+        val out = Value.MapV.empty
+        var cur: Value = list
+        var done = false
+        while !done do cur match
+          case Value.DataV("Nil", _) => done = true
+          case Value.DataV("Cons", Seq(head, tail)) =>
+            head match
+              case Value.DataV(tag, Seq(k, v)) if tag == "Pair" || tag == "Tuple2" =>
+                k match
+                  case _: Value.StrV => out.entries(k) = v
+                  case _ => throw new RuntimeException(s"$path requires String keys, got ${Show.show(k)}")
+              case _ => throw new RuntimeException(s"$path expected (String, Value) entries, got ${Show.show(head)}")
+            cur = tail
+          case _ => throw new RuntimeException(s"$path expected a proper association list, got ${Show.show(cur)}")
+        out
       case other => throw new RuntimeException(s"$path expected Map[String, Value], got ${Show.show(other)}")
 
   def portableEquals(left: Value, right: Value): Boolean =

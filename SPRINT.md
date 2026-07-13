@@ -595,8 +595,16 @@ Chosen approaches (autonomous — non-breaking defaults):
 - [x] **M2 response-body cap** — JVM+interp ofInputStream+bounded read (10MB, SSC_HTTP_MAX_BODY); Rust already 10MB. LANDED (git). JS lane too (byte-counted reader). ALL 4 BACKENDS.
 - [x] **M7 secure temp files** — Rust `create_new`+pid/nanos / JS `'wx' 0o600`+randomBytes. LANDED a2b11223b.
       (Bonus 921a5da7c: fixed BorrowedArgIntrinsics so &str fs/path intrinsics compile on Rust — E0308.)
-- [ ] **M10 confined fs variants** — `…Within(root, path)` normalize + `startsWith(root)` +
-      NOFOLLOW; document raw helpers as trusted-input-only.
+- [~] **M10 confined fs variants** — INLINE PART DONE 2026-07-13: `std.fs.resolveWithin(root, rel)`
+      (pure ssc, cross-backend) lexically normalises `rel` (drops `.`, pops `..`) and rejects `..`
+      escapes + absolute paths so the result stays under `root`; the raw helpers are now documented as
+      trusted-input-only. Conformance `fs-confined` PASSES INT/JS/JVM. (Found+fixed a real correctness
+      bug the shallow int cases missed — `..` popped the wrong stack element with `:+`-append; fixed to
+      prepend+reverse. Also avoided a `case h :: t =>` binder the JS backend mis-binds.)
+      → BACKLOG (full API): symlink-safe confinement needs an OS `realPath`/NOFOLLOW extern (JVM
+      toRealPath / Node realpathSync / Rust canonicalize) + `readFileWithin`/`readBytesWithin` — the
+      convenience wrappers hit the ssc-Int→Long codegen quirk on JVM (`List[Int]` mismatch), so they
+      wait on that + the realpath externs. resolveWithin is the lexical primitive; document remains.
 - [x] **L1 retry backoff/cap** — cap 10 + exp backoff·2^n ±20% jitter, all 4 clients. LANDED (git).
 - [x] **L3 env-scrub** — ProcessOptions.inheritEnv (JVM codegen + std/process.ssc). LANDED (git). VERIFIED scrub. + M5 interp-exec deadlock completed. (interp/Rust/JS opts-wiring → BACKLOG)
 - [x] **L4 mkdir TOCTOU** — Rust+JVM create directly, tolerate AlreadyExists. LANDED a2b11223b.
@@ -1785,15 +1793,69 @@ for in-process runs, and `inferType` already computes per-node `SType` (just dis
         ⇒ field-meta is now effectively closed on the SAFE side; the rest requires the unsafe flip.
 - [ ] **typeGateOk (164) = UsingParams** — `using`/context-bound typeclass dispatch; NOT a type-
       inference gap. Needs compile-time dictionary specialisation. Out of the C (typed-input) scope.
-- [ ] **closures / HOF (~199, DOMINANT) — HARD, explicit NON-GOAL of line C.** `call: no compilable
-      target (free name / closure / non-function)`. Needs a closure/heap model (capture env, indirect
-      dispatch) — a separate program, not typed-input widening.
-- [ ] **C-gate** — QUIET-MACHINE A/B (`scripts/bench interp patternMatch*|recursionFib`,
-      `scripts/bench cross`): wider coverage doesn't regress hot paths + ideally removes the
-      `recursionFib` bimodal variance. (The "(1)" timing work, deferred until load drops.)
-      NON-GOALS (separate programs, NOT C-1..4): closures/HOF (need a closure/heap model, the
-      dominant ~199 miss), effects (need ANF/handlers), Term.Function-as-value. Types widen
-      "all TYPED first-order code" — the large majority + the right foundation.
+- [x] **closures / HOF — capturing lambdas** `8f2b4a41f` DONE 2026-07-13. A lambda capturing outer
+      locals no longer bails; addresses the tractable subset of the dominant "call: no compilable
+      target (closure)" miss. SscVmTest 192/192; INT conformance no new fails (http-client delta is a
+      requires:HttpClient network dep — fails identically on the pre-closure binary).
+  - [x] **CL-1 (opcode)** — SscVm LOADFVCAP + FunVCapture + funVCapturePool: builds a runtime FunV from
+        the pooled template with a `closure` Map snapshotted from the capture regs (kinds 0=Int/1=Double/
+        2=Ref decide boxing exactly). Never compiles → interp.invoke slow path → snapshot = interp.
+  - [x] **CL-2 (emit)** — VmCompiler gathers captures into consecutive regs (MOVE copies both banks) +
+        emits LOADFVCAP instead of bailing at :835.
+  - [x] **CL-3 (verify)** — tests: Int / multi / Double(annotated+inferred) / ref captures.
+  - Two HOF-typing fixes were REQUIRED to make Double/ref HOFs correct (pre-existing gaps that became
+    miscompiles once more code compiled):
+    - CALLREF result typing: encode the return kind into FunV_<arity>_<char>; a concrete Double HOF
+      result → TDouble (was TInt → C-4c corrupted it). 'R' stays TInt — that char also covers a
+      generic/type-param return that may be numeric, so TRef would read the wrong bank (litdoc rule).
+    - Lambda param inference: an unannotated lambda param infers its type from the HOF's function-param
+      signature, so a Double/ref arg is not mis-boxed as Int at CALLREF.
+  NON-GOAL still: free-name calls to non-lambda targets; compiling the capturing body itself (it stays
+    interp-dispatched); typing a ref/generic HOF result TRef (needs concrete-ref vs type-param telling).
+
+### JIT correctness fixes — adversarial self-review pass (2026-07-12)
+Directed hunt for LATENT MISCOMPILES (silent wrong result, NOT a safe bail) in the C-3..C-9 changes.
+- [x] **C-4c home-register corruption** (fixed, commit pending) — C-4c widened a RET leaf with an
+      in-place `emit(I2D, r, r); setType(r, TDouble)`. `compileExpr` of a bare local/param returns its
+      HOME register directly (VmCompiler:464), so this corrupted BOTH the value and the compile-time
+      type for a sibling RET leaf. `def g(a: Int, c: Int): Double = if c > 0 then a else a` returned
+      the else path's raw int bits as a double (g(5,-1) → 2.5e-323 instead of 5.0). Conformance did NOT
+      catch it (no corpus case had the pattern) — an adversarial unit probe did. FIX: widen into a
+      FRESH reg via `asDouble(r0)` (the existing self-tail arg coercion at :882 already did this).
+      Regression test added. LESSON: never `I2D`/`setType` in place on a `compileExpr` result — it may
+      be a shared home reg; use `asDouble` (fresh).
+- [x] **C-6 / C-5b self-alias var-assign corruption** (fixed, commit pending) — found by the
+      INDEPENDENT review (it caught the flaw in my initial "C-5/C-5b/C-6 are safe" claim). `compileInto(
+      Term.Name, dst)` does NO move when the name's home IS `dst` (VmCompiler:602 `if r != dst`), so
+      assigning a value-position if/match that self-references the var (`var y = 3.0; y = if c then 5
+      else y`) compiled the rhs into y's HOME: the `then` branch clobbered the home's compile-time type
+      (→TInt), the self-aliasing `else y` read that polluted type, the if reported TInt, and C-6's widen
+      then fired on the else runtime path where y still physically held the Double 3.0 → f(false) →
+      4.6e18 instead of 3.0. Same via a self-referencing match arm (C-5b pad). Pre-C-6 this SAFELY
+      BAILED ("var domain change"); C-6/C-5b turned the bail into a silent wrong result. FIX (root
+      cause): `Term.Assign` compiles a rhs that references the var into a FRESH temp, then MOVEs to the
+      home — the var's home is never clobbered mid-compilation, so a self-aliasing branch reads its true
+      (unpolluted) type. Both if + match regression tests added. Conformance no new fails.
+- [x] **Independent adversarial review of C-3..C-9 COMPLETE** — confirmed C-4c (already fixed) + found
+      C-6/C-5b self-alias (fixed above). Verified SAFE: C-3 (map keyed on body expr type, matches
+      callee retIsRef bank), C-4d, C-5 (fresh-dst pads traced correct), C-7/C-9 (naming-only, field
+      access is by-name at runtime), C-8 (fold body into fresh reg, mixed ops via asDouble). No further
+      latent miscompiles. ⇒ the C-1..C-9 line is now correctness-clean under adversarial audit.
+- [~] **C-gate** — coarse hot-path A/B run 2026-07-13 at load ~8 (not fully quiet, but recursionFib
+      error tightened to ±10%, usable directionally). `scripts/bench cross interp_(recursionFib|
+      patternMatch|arithLoop)` with C-1..9 + CL all landed:
+        interp_arithLoop     4.313 ± 1.549 us/op   (baseline 7.6)
+        interp_patternMatch  114.2  ± 18.1  us/op   (baseline 122)
+        interp_recursionFib  1220.4 ± 122.9 us/op   (baseline 2667 ±4166, noise-dominated)
+      All COMPARABLE-OR-BETTER than the recorded baseline → NO hot-path regression; no bimodal
+      variance in this run. Consistent with the by-design argument: the hot benches use no HOF and hit
+      no bail-site widening, so the always-on widening slices can't touch them; the only always-on
+      change to a compiling path is CALLREF result typing (HOF calls only — absent from these benches,
+      and conformance-verified). REMAINING for a definitive gate: a same-machine A/B vs the pre-wide-jit
+      commit on a truly quiet box (load < ~3) — gold standard, not run (load/cost); design + this run
+      give high confidence.
+      NON-GOALS (separate programs): effects (need ANF/handlers), Term.Function-as-value. (closures/HOF
+      capturing-lambda subset now DONE, see above.)
 
 ## ScalaScript 2.1 — toolchain independence (2026-07-10)
 

@@ -1,0 +1,10 @@
+---
+name: app
+---
+# App
+
+[ByteSlice, rawGet](./b.ssc)
+
+```scalascript
+_println(rawGet(ByteSlice(131, 200), 0))
+```

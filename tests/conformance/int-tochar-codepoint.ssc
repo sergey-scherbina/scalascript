@@ -1,13 +1,14 @@
 ---
 name: int-tochar-codepoint
-backends: [int, js, jvm]
+backends: [int, js, jvm, v2]
 ---
 
 # Int.toChar constructs a UTF-16 code unit
 
 Regression for `portable-codepoint-string-construction`: `n.toChar` builds a Char
 from an Int code point (65 -> 'A', 8364 -> '€'), and Chars stringify as their
-character, not their numeric code. INT/JVM/JS agree.
+character, not their numeric code. INT/JVM/JS and the v2 VM agree (the v2 native
+lane matches too — verified manually via `ssc run --native`, no conformance label).
 
 ```scalascript
 val a = 65.toChar

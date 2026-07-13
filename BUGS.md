@@ -1,5 +1,100 @@
 # Bug tracker
 
+## js-char-int-eq-namescope-collision — Char `==` Int miscompiles to strict `===` on JS
+
+**Status:** FIXED (2026-07-13, opus); found by opus via a full conformance sweep
+(`json-deep-import` FAIL [JS]). Latent pre-existing JsGen bug, EXPOSED for std/json
+by the `registerImportedTypeEvidence` fix (`d034e2798`) extending it to imported
+modules. Root cause: `intVars`/`numericVars` are name-keyed and module-global, so a
+`Char`-valued local `val c = s.charAt(i)` inherits the "numeric" evidence of an
+Int param `c` from a SIBLING function (e.g. `def jsonCoreIsDigit(c: Int)` next to
+`jsonCoreParseValue`'s `val c`). The `==` numeric fast path (`JsGen.scala:~4715`)
+then emits `c === 34` — but JS `charAt` returns a boxed `_char`, and `===` never
+calls `valueOf`, so `_char === 34` is ALWAYS false (while `==`/`<` work via valueOf).
+Net effect: on JS the self-hosted json-core parser rejected every string/array/object
+(`unexpected token @0`), so `jsonValue`/`jsonParse`/`jsonRead` returned null/empty.
+Fix: `rebindNumericEvidence(name, rhs)` — a local `val`/`var` binding is now
+AUTHORITATIVE for its name, setting intVars/numericVars to match its RHS and REMOVING
+same-named leaked param evidence (applied at all 4 val/var binding sites in
+`genStat`/`genStatInline`). Verified: entry-module repro (`parse("\"x") → 1` not 99),
+`json-deep-import` green on INT/JS/V2, json roundtrips exact; JsGen 213/213; the
+`imported-int-division` fix still holds (its `absolute = bytes.start + index` RHS is
+numeric, so it stays in intVars).
+
+## native-front-nativeui-site-annotation — anonymous computedSignal/eqSignal collide on `ssc run`
+
+**Status:** fixed (2026-07-12, `dc9814521`), awaiting Sergiy confirmation; found while
+migrating rozum's control center (`clients/control/center.ssc`, 20+ computedSignals) to the
+latest v2.
+
+- **Real-harness repro:** `bin/ssc run` a file with two anonymous derived signals whose
+  computed defaults differ:
+  ```
+  import [signal, computedSignal](std/ui/primitives.ssc)
+  val a = signal("a", "x")
+  val b = computedSignal(() => a() + "1")
+  val c = computedSignal(() => a() + "2")
+  println(b()); println(c())
+  ```
+  Before the fix: `ssc: duplicate native UI signal '__computed__manual:computedSignal' in
+  scope 'root' has conflicting kind/default`. After: prints `x1` / `x2`.
+- **Root cause:** the self-hosted native frontend (`RunNativeV2`, the default `ssc run`
+  path) lowers std/ui primitive calls to PLAIN globals and — unlike the scalameta
+  `FrontendBridge` — never ran the `NativeUiSites.annotate` pass. So every anonymous
+  `computedSignal`/`eqSignal` reached the ui plugin's fallback registration
+  (`UiNativePlugin.siteNative`, id `manual:<name>`) with one shared id, and the second
+  distinct-default signal collided.
+- **Fix/verification:** `RunNativeV2.compile` now scans the structural CoreIR for the
+  anonymous derived-signal primitives actually called (`App(Global(name))`) and runs the
+  same `NativeUiSites.annotate` so each site gets a unique lexical id. New
+  `NativeUiSiteAnnotationTest` (2), `NativeUiSitesTest` (7), `UiNativePluginTest` (14),
+  std-ui conformance (7) all green.
+
+## native-front-curried-vararg-and-attrs-map — native `ssc run` broke curried/vararg calls + Map attrs
+
+**Status:** fixed (2026-07-13); the vararg packing needed a follow-up correction (opus) —
+see Fix item 1. Found bringing rozum's control center up on the latest native frontend
+(was filed as `native-front-spa-arity-gap`).
+
+- **Real-harness repro:** `bin/ssc run` a file using a trailing-vararg std/ui primitive with 2+
+  varargs — `card(a, b, c)` → `arity: 1 expected, 3 given`; `vstack(gap = 16)(a, b)` →
+  `arity: 2 expected, 1 given` (`Runtime.scala:178`); then `element` attrs →
+  `NativeUiElement.attrs expected Map[String, Value], got List(("style", …))`.
+- **Root cause (two independent native-front bugs):**
+  1. **Varargs never packed.** A def whose last param is `T*` (e.g. `def card(body: T*)`,
+     `def vstack(gap)(children: T*)`) lowers to a lambda binding that param as ONE list value
+     (`children.toList`), but the parser flattened a call's clauses into individual args and
+     the call reconciliation compared the unpacked count to the def arity — so `card(a,b,c)`
+     (3 args vs arity 1) and `vstack(g)(a,b)` (curried, combined 3 vs arity 2) failed the
+     CoreIR arity check. The front never even recorded which params are varargs.
+  2. **Map literal → association list.** The native front lowers a `Map[String, Any]` literal
+     to a proper `(k, v)` Pair/Tuple2 association list, but `NativeUiPortable.stringMap` (ui
+     element attrs/events) only accepted a `MapV`.
+- **Fix/verification:**
+  1. Front (`ssc1-front.ssc0`) now detects a trailing `T*` param (`paramTypeIsVararg`) and
+     registers such defs in `varargDefsCell`; the lowerer (`ssc1-lower.ssc0`) packs a call's
+     trailing args into one Cons-list (`packVarargsArgs`) so the flattened call matches arity.
+     **Correction (opus, 2026-07-13):** the first landing (`3f5c06e98`) called `packVarargsArgs`
+     inside `resolveE`, but `lowerE` re-applies `resolveE` top-down at every recursion level, so
+     the non-idempotent pack compounded into a triply-nested list `[[[elems]]]` — any def that
+     READ the vararg (`xs.toList.length`) then saw a 1-element list (native `6/6/6`, `1/1/1` vs
+     v1 golden `6/7/8`, `1/2/3`; the original `= gap` test masked it). Fixed by moving the pack to
+     `lowerE`'s terminal `app→IrApp` step (once per Ir node, idempotent) and deleting the dead
+     `calleeName`. Verified: `wrap(5)(1,2,3)→8`, `sumv(1,2,3)→3` on native == v1; control-center-live
+     clears the arity error; native corpus (203 examples) byte-identical before/after; 9/9 v2 conformance.
+  2. `NativeUiPortable.stringMap` normalizes a Pair/Tuple2 association list to a String map
+     (left-to-right, duplicate key last-wins).
+  Validated: `card(a,b,c)`, `vstack(gap=16)(a,b)`, `cardWithHeader(h)(a,b)` all run; rozum
+  `center.ssc` and in-repo `control-center-live.ssc` now lower fully (past both errors). New
+  `UiNativePluginTest` stringMap case; `v2NativeUiPlugin/test` + std-ui conformance (7) green.
+- **Remaining native-`ssc run` SPA gaps (separate, NOT needed for the UCC, which builds via the
+  tools-tier `ssc-tools emit-spa`):** (a) `eqSignal` created at ONE lexical site inside
+  `std/ui/lower.ssc` but called per-row collides (`duplicate native UI signal
+  '__equality__<siteId>'`) — the `(owner, siteId, occurrence)` counter work owned by the active
+  `v2-swift-nativeui-i18n-json` claim; (b) `serve(view, port)` under `ssc run` tries to start a
+  real TLS server (`native TLS server requires a future server-host extension`) instead of
+  SSR-emitting. Track these for a fully SPA-complete standalone native `ssc run`.
+
 ## scljet-freelist-recursive-stack-overflow — valid large freelist crashes the interpreter
 
 **Status:** fixed (2026-07-12, `7399fad95`), awaiting Sergiy confirmation;
@@ -30,7 +125,19 @@ found by codex in the pinned SclJet M2d SQLite 3.53.3 corpus.
 
 ## v1-js-scljet-readonly-leaf-depth — valid two-level B-tree fails common-depth validation
 
-**Status:** open (2026-07-12); found by codex during the SclJet M2c explicit
+**Status:** FIXED (2026-07-12, opus). SHARED root cause with
+v1-js-scljet-shm-lock-divergence: a field-less `case object` lowered to a bare
+`{}` with no `_type` discriminator (`genObjectAsExpr`, JsGen.scala), so the
+user-level `==` operator — structural `_eq` — found two empty records with
+matching (undefined) `_type` equal, making EVERY field-less case object `==`
+every other. Here `read.page.header.kind == TableLeafPage` was wrongly `true`
+for the interior root, so it was misclassified as a leaf and
+`cursorCheckLeafDepth` recorded `leafDepth=Some(1)`; the real first leaf at
+depth 2 then failed the common-depth check. Fix: `genObjectAsExpr` now emits
+`{_type: 'Name'[, _tag: N]}` for `case object`s (guarded on `Mod.Case`, so
+namespace/companion objects are untouched) — additive, since pattern matching
+already keys on `._type`. Guarded by a JsGenStdImportTest case; JsGen 213/213.
+_Original report:_ found by codex during the SclJet M2c explicit
 JavaScript capability probe.
 
 - **Real-harness repro:** run `bin/ssc-tools run-js
@@ -70,11 +177,17 @@ found by codex during the SclJet M2c assembled JVM VFS example.
 
 ## portable-codepoint-string-construction — v1 lacks Int.toChar, v2 renders Char numerically
 
-**Status:** open (partial, 2026-07-12); found by codex designing SclJet's decoder.
-INT/JVM/JS `Int.toChar` FIXED (opus, see git; conformance int-tochar-codepoint) — added
-`toChar` to the interp Int dispatch + JS number/bigint dispatch. REMAINING: v2-native still
-renders Char numerically (658364) — that lane's Char rep/stringify is separate; and the
-broader portable UTF-16 text API from checked code points (Done-when) is a design item.
+**Status:** FIXED for INT/JVM/JS/v2-VM/v2-native (2026-07-12, opus); the broader
+portable UTF-16 text API from checked code points (Done-when) remains a design item.
+INT/JVM/JS `Int.toChar` fixed earlier (interp Int dispatch + JS number/bigint dispatch).
+v2 lane fixed now: the v2 VM has no Char value type, so `case (IntV(n), "toChar", Nil)`
+in `v2/src/Runtime.scala` returned `IntV(n & 0xffff)` and `65.toChar.toString` rendered
+"65". Changed it to return a single-code-point `StrV` — the convention the VM already uses
+for chars (`toCharArray`, `sfromCodes`). Verified via a direct `Prims.resolve("__method__")`
+probe: `toChar(65)→"A"`, `toChar(8364)→"€"`, `.toString` chains render the character.
+Known edge: `65.toChar.toInt` (unusual round-trip) now parses the 1-char string rather
+than returning 65 — a real `CharV` type would be needed for full Scala parity (separate
+larger change, tracked under the Done-when text API).
 
 - **Real-harness repro:** in an `.ssc` module evaluate `val a = 65.toChar; val
   b = 0x20ac.toChar; println(a.toString + b.toString)`. `ssc-tools run --v1`
@@ -130,20 +243,35 @@ Swift NativeUi final release repeat after SclJet M1 landed; reported to
   implementation gap remains tracked independently.
 ## v2-js-imported-method-object-primitive — SclJet stops at __mk_method_obj__
 
-**Status:** open (2026-07-12); found by codex while probing the native v2 JS
-lane as an alternative SclJet M1 cross-backend gate.
-
+**Status:** FIXED (2026-07-12, opus). The v2 JS backend (`v2/backend/js/JsBackend.scala`)
+had no `genPrim` case for the `__mk_method_obj__` CoreIR primitive (emitted by
+FrontendBridge for an imported explicit companion / `object Foo { def m … }` /
+`given … with {…}`), so it fell to the `$prim` fallback → `throw unimplemented
+primitive`. And because it lowers to an eager top-level initializer, Node threw at
+module load. Fix mirrors the v2 NATIVE runtime (Runtime.scala:2222/2054): added a
+`__mk_method_obj__` genPrim case → `$mkMethodObj([...])` (flat name/lambda pairs →
+`{$mo:{name→fn}}`), plus a method-object dispatch branch in the `$method` runtime
+(look up name; call the fn with args, or return it as a reference when arity>0 and
+no args). Verified via a multi-file imported companion repro: `run-js --v2` now
+prints `0/5/8` matching `run --v1`. Regression: V2JsLaneCliTest "dispatches an
+imported explicit companion". (`scljet-byte-codec.ssc` gets past this primitive but
+then hits separate pre-existing gaps — `$method` List `.drop` + the tracked
+v1-js-long-precision-and-bitops — which are out of scope for this bug.)
 - **Real-harness repro:** run `bin/ssc-tools run-js --v2
-  tests/conformance/scljet-byte-codec.ssc`; Node exits at startup with
+  tests/conformance/scljet-byte-codec.ssc`; Node exited at startup with
   `unimplemented primitive: __mk_method_obj__`.
-- **Root cause (partial):** the v2 JS runtime/generator does not implement the
-  method-object primitive emitted for imported explicit companions/methods.
-- **Done-when:** the v2 JS runtime implements the primitive or lowers it away,
-  with a multi-file imported case-class/companion regression.
 
 ## v1-js-scljet-shm-lock-divergence — two shared owners are rejected
 
-**Status:** open (2026-07-12); found by codex in the SclJet memory-VFS Node
+**Status:** FIXED (2026-07-12, opus). SHARED root cause + fix with
+v1-js-scljet-readonly-leaf-depth (field-less `case object` → bare `{}` → all
+`==` equal under structural `_eq`; `genObjectAsExpr` now emits a `_type` tag).
+Here `mode == ShmExclusiveLock` was wrongly `true` for a `ShmSharedLock` acquire,
+so `exclusive` became true for a shared request → the availability check took the
+exclusive branch and rejected the 2nd shared lock (line 18), which then left the
+later exclusive request unblocked (line 19). Both restored to the INT golden;
+full 33-line memory-VFS output identical to `run --v1`. See that entry for detail.
+_Original report:_ found by codex in the SclJet memory-VFS Node
 differential after byte updates became portable.
 
 - **Real-harness repro:** compare `bin/ssc-tools run --v1` and `run-js` for
@@ -157,8 +285,39 @@ differential after byte updates became portable.
 
 ## v1-js-long-precision-and-bitops — SQLite 64-bit codecs are not exact
 
-**Status:** open (2026-07-12); found by codex in the SclJet byte-codec Node
+**Status:** FIXED (2026-07-13, opus). Approach A (Long-only): represent ssc `Long`
+as a JS **BigInt** (`Lit.Long` → `${v}n`) — the SclJet codecs type every 64-bit value
+`Long`, so Int can stay a JS number (far smaller blast radius than making all Int
+BigInt). Added a `longVars`/`isLongExpr`/`longFunctions` track (Long params/returns,
+Long-typed val/var bindings via `rebindNumericEvidence`, `.toLong`, bit-op/arith
+results, Long case-class fields); a dedicated infix case for `& | ^ << >> >>>` →
+`_bit('op', a, b)` (BigInt with `asIntN(64,…)` masking, `>>>` via `asUintN`); a
+Long-guarded infix case routing any Long-operand arithmetic/compare through `_arith`
+(so an Int operand is coerced, not mixed BigInt+Number); and `.toInt` → `_toI32(x)`
+(BigInt-safe). Verified through the real CLI: `1L<<40`=1099511627776, `255<<24`=
+4278190080, `0x…L & 0xffL`=240 (INT==JS); `scljet-byte-codec` + `scljet-page-record-codec`
+JS lanes exact vs golden (conformance now `[int, js]`). JsGen 248/248 (2 perf-test
+assertions updated to the new emission). Original scoping below is superseded.
+<details><summary>original scoping (superseded)</summary>
+ROOT CAUSE: JsGen emits ssc `Int`/`Long` as JS **`number`**, not BigInt
+(`Lit.Int`/`Lit.Long` → `v.toString`, JsGen.scala:~3800; no `longVars` set, no
+Long→BigInt path). So (a) any 64-bit value above 2^53 loses precision at JS parse
+time, and (b) the bitwise/shift operators `& | ^ << >> >>>` have no dedicated infix
+case — they fall through to the generic `($lhs $op $rhs)`, i.e. raw JS ops that are
+32-bit (ToInt32/ToUint32) and mask shift counts mod 32. Measured JS vs interp:
+`1L<<40` → 256 (want 1099511627776); `255<<24` → -16777216 (want 4278190080);
+`0x…L & 0xffL` → 0 (want 240). The runtime has exact BigInt paths (`_arith`/`_dispatch`
+bigint branches) but they only fire when an operand is already a BigInt, which
+Int/Long lowering never produces.
+WHY DEFERRED: ssc `Int` is itself 64-bit (interp: `255<<24 == 4278190080`), so the
+correct fix is to represent Int/Long as JS **BigInt** (`${v}n`) and mask 64-bit ops
+with `BigInt.asIntN(64,…)`/`asUintN(64,…)` — a backend-wide representation change
+with large blast radius (perf + every numeric codepath) and a genuine perf tradeoff.
+A bitwise-only patch would NOT close the done-when (SQLite codecs need exact 64-bit
+*literals + arithmetic*, not just bit ops). Needs a dedicated design decision, not a
+drive-by fix. _Original report:_ found by codex in the SclJet byte-codec Node
 differential.
+</details>
 
 - **Real-harness repro:** `bin/ssc-tools run-js
   tests/conformance/scljet-byte-codec.ssc` now executes all 31 lines, but
@@ -177,7 +336,21 @@ differential.
 
 ## v1-js-imported-int-division-loses-type — byte chunk index becomes fractional
 
-**Status:** open (2026-07-12); found by codex in the SclJet Node golden after
+**Status:** FIXED (2026-07-12, opus). Root cause: JsGen only emits truncating
+integer division (`Math.trunc(a / b)`) when it can statically prove both operands
+are Int — evidence held in `intVars`/`instanceVars`/`caseClassFieldTypeMap`,
+populated by `genModule`'s pre-pass (`collectFuncParamOrders`). Imported bodies
+are emitted by a fresh `childGen` via `genScalaNode`, which BYPASSES that pre-pass,
+so an imported `def rawGet(bytes: ByteSlice, index: Int)` had empty type evidence:
+`bytes.start` degraded to `_dispatch`, `absolute` never entered `intVars`, and `/`
+fell through to floating `_arith('/')` → `131/64 = 2.046875` → Map key miss → `()`.
+Fix: extracted the per-def type-evidence into `recordDefTypeEvidence`, added
+`registerImportedTypeEvidence(module)` (populates intVars/instanceVars/intFunctions
++ caseClassFieldTypeMap/caseClassFieldsByType, descending into namespace objects),
+and call `childGen.registerImportedTypeEvidence(childModule)` in `genImport` before
+emitting imported bodies; nested imports recurse. Guarded by `examples/js-imported-int-div`
++ a JsGenStdImportTest case (== "2"). Full JsGen suite 212/212 green.
+_Original report:_ found by codex in the SclJet Node golden after
 companion and list-pattern lowering were repaired.
 
 - **Real-harness repro:** `bin/ssc-tools run-js examples/scljet-bytes.ssc`
@@ -469,7 +642,18 @@ Rozum room.
 
 ## js-ssc-ui-jsonvalue-duplicate — two `_ssc_ui_jsonValue` in the assembled JS runtime
 
-**Status:** open (2026-07-12); found by opus while running `backendInterpreter/test`
+**Status:** FIXED (2026-07-12, opus). Root cause: `1ecbc80ca` (2026-07-11 17:53)
+added a 3-arg row-validator `_ssc_ui_jsonValue(value, operation, seen)` to
+`signals.mjs`, coincidentally reusing the name of the canonical 1-arg `jsonValue`
+intrinsic impl `_ssc_ui_jsonValue(s)` in `core-collections.mjs` (from `46571d5f8`,
+17h earlier). Any Signals+json bundle (`Capability.all`) had both top-level defs, so
+`JsGenStreamsTest` "no duplicate top-level function declarations" was RED — and JS
+function-hoisting silently let the 3-arg version win, breaking the `jsonValue`
+intrinsic. Fix: renamed the intruder (the internal 3-arg validator, only ever called
+from within signals.mjs) to `_ssc_ui_rowJsonValue` at all 5 sites, keeping the
+load-bearing `_ssc_ui_jsonValue` name for the extern-bound 1-arg intrinsic. Verified:
+`JsGenStreamsTest` + `JsGenStdImportTest` = 87/87 green.
+_Original report:_ found by opus while running `backendInterpreter/test`
 for an unrelated interp fix (v1-args-native-method-gap). Pre-existing on origin/main,
 independent of that fix (which is Scala-only).
 
@@ -498,24 +682,36 @@ independent of that fix (which is Scala-only).
 
 ## v2-imported-receiver-methods-not-linked — native imports cannot execute receiver operations
 
-**Status:** open (2026-07-12), found by codex while implementing SclJet M1;
-SclJet API is unblocked by exporting target-neutral top-level functions.
-
-- **Real-harness repro:** install the current std modules, define an exported
-  `extension (bytes: ByteSlice) def slice(offset: Int, length: Int)` in an
-  imported module, then call `base.slice(1, 3)` through `bin/ssc run --native`.
-  The standard launcher exits before user output with
-  `ssc: __method__: no column 'length' in row []`. Replacing the extension with
-  a real case-class method avoids that checker error, but calls such as
-  `base.get(4)` and `base.slice(1, 3)` evaluate to `Stub` in native VM/ASM; a
-  following match fails with `match: no arm for Stub/1`. The v1 interpreter
-  executes both forms.
-- **Root cause (partial):** the self-hosted import path loses receiver shape for
-  imported extensions and does not link imported case-class method bodies into
-  executable CoreIR. Top-level imported functions do link and execute.
-- **Done-when:** a multi-file native VM/direct-ASM conformance case imports both
-  an argument-taking extension and a case-class method, reads receiver fields,
-  and produces identical non-`Stub` output.
+**Status:** PARTIAL (2026-07-12, opus) — re-scoped after root-cause. This was TWO
+independent gaps, NOT an import bug (both reproduce same-file):
+1. **`List.slice` missing intrinsic — FIXED.** The v2 native runtime had `take`/`drop`
+   but no `slice` arm, so `xs.slice(a, b)` → `Stub` on VM/ASM. Added the arm at
+   `v2/src/Runtime.scala` (next to take/drop). Verified + conformance `list-slice`
+   [int, v2]. This was the actual cause of the `slice`-named symptoms (an extension
+   literally named `slice` also recursed into the Stub → StackOverflow).
+2. **Case-class BODY methods never lowered as receiver methods — STILL OPEN** (the core
+   gap). `case class ByteSlice(data): def get(i) = data(i)` then `base.get(4)` → `Stub`
+   even in a SINGLE file (v1 → 50). Root cause: `parseCaseClass` (`ssc1-front.ssc0:1894`)
+   `skipExt` stops at the first body `def` and `mkCaseCls` records only name/params/
+   types/derives — no method bodies. The body `def` then leaks to the top-level stmt
+   stream as a global whose bare field refs (`data`) are unbound (proof: bare `get(4)`
+   → `unbound global: data`, not `get`). At the call site `base.get(4)` lowers to
+   `__method__("get", base, …)`, and the runtime dispatch (`Runtime.scala:3011`) looks
+   `get` up only as a FIELD name via `lookupFieldNames` → not found → `DataV("Stub")`
+   (`Runtime.scala:3038`), which then poisons a downstream `match`. Extension methods,
+   by contrast, work (same-file + imported) — they register in `extensionMethodsCell`
+   and route through `__methodOrExt__`.
+- **Fix plan for gap 2 (focused follow-up, bootstrap-frontend change):** in
+  `parseCaseClass`, instead of skipping/leaking body defs, parse each `def m(ps) = body`
+  and re-emit it through the existing extension machinery as `extension (self: X) def
+  m(ps) = <body>` with the class fields bound at the top of the body (`let field =
+  self.field in …`, avoiding an AST field-rename walk). Reuses the proven extension
+  path (no runtime change). Higher-risk (touches the self-hosted tokenizer-layout +
+  parser that compiles ALL native programs) → needs full v2 conformance verification;
+  scoped separately rather than rushed. WORKAROUND meanwhile: export target-neutral
+  top-level functions or use `extension` methods (both link + execute on native).
+- **Done-when (gap 2):** a multi-file native VM/direct-ASM conformance case imports a
+  case class with a body method, reads receiver fields, and produces non-`Stub` output.
 
 ## v1-explicit-companion-shadows-case-constructor — later case-class construction resolves to the companion value
 
@@ -673,7 +869,18 @@ Rozum room from busi's production-shaped fixture and accepted by
   iPhone 16 Pro Simulator. `tkv2-*` conformance is 12/12.
 
 ## v2-httpclient-curried-extern-unbound — curried top-level `extern def` doesn't bind as a global on `ssc run`
-**Status:** open (2026-07-12), found by claude-code (rozum-ucc-test) while porting rozum's UCC
+**Status:** FIXED (2026-07-12, opus). The v2 VM + native lanes were already fixed by the v2.1
+native-curried-closures work (8df3e63a6/d85a1e903); the remaining failure was the **v1 interpreter**
+lane. Root cause: `httpClient(base){ block }` is not a plugin-native intrinsic — it's an eval-time
+special form matched by AST shape (`EvalRuntime.reservedApplyHeads`). StatRuntime's extern-def branch
+deliberately creates no binding (it relies on the intrinsic table for the global), so `httpClient`
+never entered `globals` → never entered `exportedGlobals` → `import [httpClient](http.ssc)` threw
+"'httpClient' not found" at import-resolution time (the *call* always worked, the import validation
+didn't). Fix: StatRuntime now registers a placeholder `NativeFnV` global when an extern name is a
+reserved block-form head and no plugin global exists (widened `reservedApplyHeads` to
+`private[interpreter]`); the placeholder is only ever consulted by import validation, never the call.
+Verified `run --v1` on the repro (now prints ok) + conformance `curried-extern-import` [INT].
+_Original report:_ found by claude-code (rozum-ucc-test) while porting rozum's UCC
 acceptance e2e test to native `.ssc`. Not blocking (single-param http externs work; the test uses those).
 - **Real-harness repro:** `ssc run` a `.ssc` importing `[httpClient](std/http.ssc)` that calls
   `httpClient("http://x"){ … }` → `RuntimeException: unbound global: httpClient`. Minimal:
@@ -2432,11 +2639,19 @@ expressions of arity three or greater to flat `TupleN` values.
 
 ## v21-imports-tuple2-collection-match — imported collection pipeline rejects `Tuple2/2`
 
-**Status:** open (2026-07-11); found by codex while refreshing native-entry
-after K62.19 tuple selector support advanced `examples/imports.ssc` beyond its
-former collection arity failure.
+**Status:** FIXED (verified 2026-07-12, opus) — already resolved on main by
+`579679058` "fix(v2.1): match imported two-element tuples" (+ `7a4cc0c00` rendering),
+which landed after this entry was filed. Root cause was a tag mismatch: the native
+front tags source 2-tuples / `a -> b` arrows `DataV("Pair", …)` while runtime
+collection ops (`zip`/`groupBy`/`->`/Map factory) build `DataV("Tuple2", …)`, and the
+VM `Match` does an exact `(tag, arity)` lookup with no normalization → a `Tuple2/2`
+scrutinee found no `Pair/2` arm. The fix expands a source tuple pattern into BOTH
+`Pair/2` and `Tuple2/2` arms (`ssc1-lower.ssc0:2189`; `_sel_` accessors got the same
+dual treatment). VERIFIED: `examples/imports.ssc` and `examples/extensions.ssc` are
+now byte-identical across `ssc-tools run --v1` / `ssc-standard run --native` /
+`--native --bytecode`.
 
-- **Real-harness repro:** `bin/ssc-standard run --native examples/imports.ssc`
+- **Real-harness repro (historical):** `bin/ssc-standard run --native examples/imports.ssc`
   prints the complete native math section and `distance (0,0)-(3,4) = 5`, then
   VM/ASM reach the classified collection pipeline and fail with `match: no arm
   for Tuple2/2`. `examples/extensions.ssc` now reaches the same boundary after

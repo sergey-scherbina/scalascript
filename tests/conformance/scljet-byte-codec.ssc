@@ -2,7 +2,7 @@
 ---
 name: scljet-byte-codec
 description: SclJet immutable byte slices, endian codecs, and exact SQLite varints
-backends: [int]
+backends: [int, js]
 ---
 
 # SclJet bytes and codec M1

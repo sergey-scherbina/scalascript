@@ -1,0 +1,17 @@
+---
+name: list-slice
+backends: [int, v2]
+---
+
+# List.slice on the native VM
+
+Regression for the `List.slice` arm of `v2-imported-receiver-methods-not-linked`:
+the v2 native runtime had `take`/`drop` but no `slice`, so `xs.slice(a, b)`
+returned `Stub` on the VM/ASM lanes while the interpreter computed it.
+
+```scalascript
+val xs = List(10, 20, 30, 40, 50)
+println(xs.slice(1, 4))
+println(xs.slice(0, 2))
+println(xs.slice(3, 99))
+```

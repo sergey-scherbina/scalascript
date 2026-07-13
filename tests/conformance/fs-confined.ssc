@@ -1,0 +1,29 @@
+#!/usr/bin/env ssc
+---
+name: fs-confined
+description: std.fs.resolveWithin lexical path confinement (M10) — rejects `..`/absolute escapes
+---
+
+# Confined filesystem paths
+
+`resolveWithin(root, rel)` lexically resolves `rel` under `root`, returning `None`
+when `rel` would escape via `..` or an absolute path. Symlinks are not resolved.
+
+[resolveWithin](std/fs.ssc)
+
+```scalascript
+def show(rel: String): Unit =
+  resolveWithin("/srv/data", rel) match
+    case Some(p) => println("ok: " + rel + " -> " + p)
+    case None    => println("blocked: " + rel)
+
+show("a/b.txt")
+show("a/./b.txt")
+show("a/../b.txt")
+show("a/b/../c")
+show("x/y/z/../../w")
+show("sub/dir/f")
+show("../etc/passwd")
+show("a/../../etc/passwd")
+show("/etc/passwd")
+```

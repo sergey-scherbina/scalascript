@@ -25,19 +25,22 @@ class JsCollectionPerfTest extends AnyFunSuite:
     assert(!js.contains("_call(a"), "should not _call a local Array val")
 
   test(".toInt/.toLong on a numeric receiver lower to Math.trunc (no _dispatch)"):
-    // Integer receiver: `.toInt` → `(x | 0)` (ToInt32 — Scala 32-bit wrap + V8 int32/SMI),
-    // `.toLong` → identity. A Double receiver → Math.trunc.
+    // Integer receiver: `.toInt` → `_toI32(x)` (ToInt32 — 32-bit wrap; BigInt-safe now
+    // that Long is a JS BigInt, v1-js-long-precision-and-bitops). A Double → Math.trunc.
     val js = gen("def f(n: Int): Int = (n % 16).toInt")
-    assert(js.contains("| 0)"), s"expected (x | 0) for integer .toInt, got:\n$js")
+    assert(js.contains("_toI32("), s"expected _toI32(x) for integer .toInt, got:\n$js")
     assert(!js.contains("'toInt'"), "numeric .toInt should not _dispatch")
     val jsD = gen("def g(d: Double): Int = d.toInt")
     assert(jsD.contains("Math.trunc"), s"expected Math.trunc for Double .toInt, got:\n$jsD")
 
-  test("seq(idx).toLong makes surrounding arithmetic native (no _arith / _dispatch)"):
+  test("seq(idx).toLong marks the surrounding arithmetic Long (routes through _arith)"):
+    // `.toLong` now produces a JS BigInt (v1-js-long-precision-and-bitops), so the add
+    // must go through `_arith` to coerce the Int operand — a native `+` would mix
+    // BigInt+Number and throw. The seq index itself still lowers to a native `v[...]`.
     val js = gen(
       "val v: Vector[Int] = Vector(1, 2, 3)\ndef f(s: Int): Int = s + v(s % 3).toLong")
     assert(js.contains("v[") && !js.contains("_call(v"), s"expected native v-index, got:\n$js")
-    assert(!js.contains("_arith"), "numeric add should be native")
+    assert(js.contains("_arith"), "Long (BigInt) add coerces the Int operand via _arith")
 
   test(".toInt on a String receiver still routes through the runtime (not Math.trunc)"):
     // A String's .toInt is parseInt — the numeric fast path must NOT fire here.
