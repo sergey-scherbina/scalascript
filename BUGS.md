@@ -102,33 +102,29 @@ case, full `backendInterpreter/test` green):
   block-filter sites across JsGen/JsGenContentEmit/TreeShaker to `isParseable`,
   matching the other backends. lang-split.ssc now matches INT end-to-end.
 
-Remaining (categorized; not yet fixed):
+The above `js-parser-choice-pipe-bitwise`, `js-http-config-namespace-tdz`, and
+`js-algebraic-effects-residual` were also all FIXED (details in their own bullets
+above). **Twelve JS bugs fixed total** this sweep, each with a conformance case and a
+green full `backendInterpreter/test`.
 
-- **js-parser-choice-pipe-bitwise** (FIXED) — `p | q` on a non-Int (parser combinator
-  choice) lowered to the bitwise `_bit('|', …)`. `_bit` now dispatches to the method/
-  extension registry when the receiver isn't a number/bigint (Int/Long bitwise
-  unchanged). This surfaced a second gap — `String.matchPrefix(pat)` (Java
-  `Matcher.lookingAt` regex prefix match, used by the `PRegex` primitive) had no JS
-  runtime impl; added it. dsl-calc-parser + dsl-json-parser now match INT end-to-end.
-- **js-http-config-namespace-tdz** (FIXED) — `std.http.httpTimeout`/`httpRetry`
-  imported into a namespace resolved to `undefined` (the identity intrinsic target
-  is shadowed by the generated namespace `const httpTimeout`, so the fallback can't
-  reference it without hitting TDZ). Added non-shadowed `_httpTimeout`/`_httpRetry`
-  aliases in the preamble and pointed the JS Http intrinsics at them. `_bug1b`/
-  `_bug1c`/`_bug1_httpclient` now match INT end-to-end.
-- **js-algebraic-effects-residual** (FIXED) — three effects.mjs bugs; `examples/
-  algebraic-effects.ssc` now matches INT end-to-end. (1) `Stream.complete()` didn't
-  stop emission: `Stream.emit` buffers directly into the `_streamBuf` side-channel
-  while `complete()` set a *local* flag the side-channel couldn't see — added a
-  shared `_streamDone` flag both observe. (2) `runLoggerToList` pairs `(level, msg)`
-  were bare arrays (rendered `List(…)`) — marked `_isTuple`. (3) the stdlib
-  `runLogger` handled only info/warn/error/debug, so a user `effect Logger: def
-  log` run under it printed `[object Object]` — added `log` to the handled ops
-  (the interpreter's plugin discharges the whole Logger effect) + `_show` non-string
-  messages.
-- **Genuine JS feature gaps (not bugs)** — spark, PDF (`htmlToPdfBase64`), JDBC/SQL,
-  native crypto (`aesGenKey`/`verifyEd`), `DatasetCodec`, `oauth`, quoted macros,
-  `mcpServer`, scljet VFS: unsupported on the JS/Node lane by design.
+**Remaining (NOT bugs) — the rest of the 43 JS-FAIL / 4 DIVERGE are one of:**
+
+- **Non-deterministic / environment-dependent** (correctly diverge): `uuid-v7` (random
+  UUIDs), `os-env` (platform/cwd/native).
+- **Code-GENERATION examples** whose `--v1` "output" is emitted source, not a program
+  result: `indexeddb-drafts`, `dsl-ast-builder` (pretty-printer), `typed-object-codec`,
+  `graph-codecs`.
+- **Large feature gaps — entire subsystems not implemented on the JS/Node lane by
+  design** (each is feature work, not a bug): Spark (`spark-*`, `word-count`), JDBC/SQL
+  (`object-store-jdbc`, `sql-h2-quickstart`, `typed-sql-crud`, `v2-http-sql-demo`), PDF
+  render (`htmlToPdfBase64` — invoice/pdf), native crypto (`aesGenKey`/`verifyEd25519`/
+  `totp`), `Dataset`/`DatasetCodec` + distributed-dataset, `Graph`/graph-storage,
+  quoted macros (`__ssc_macro__`), `oauth`, MCP servers + agents (`mcp-*`, `rozum-*` —
+  "not callable"), scljet VFS (`scljet-*`), scala.js APIs (`scala-js-demo`), actor
+  remote routing (`_routes`), NFC (`nfc-ndef`), browser UI signals (`fetchUrlSignal`),
+  `Sync`, `ConfigBlockInlineYAML`, and `javascript`-fence `${}` interpolation
+  (`js-glue-component`). These fail with a clear `ReferenceError`/`not callable` for the
+  missing capability rather than producing wrong output.
 
 ## standard-tier-named-arg-skip-default — `bin/ssc run` (self-hosted standard-tier pipeline) mis-binds a named arg for a non-first trailing defaulted param
 
