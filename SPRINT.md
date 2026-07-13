@@ -375,6 +375,35 @@ against reference-produced files) and by reopening with the SclJet reader.
       reproduces the committed `empty-encoding-zero.db` bytes exactly, reference
       `integrity_check = ok`, and the SclJet reader reopens it with an empty schema,
       on VM/ASM/fallback. Add an `examples/scljet-write-empty.ssc` + conformance case.
+      BUILD-LOOP GOTCHA: this is the first slice that adds `.ssc` MODULE code
+      (`runtime/std/scljet/write.ssc`), so — unlike the fixture/tool work in
+      m2d — the main checkout's bundled reader (`bin/lib`) will NOT see it. You
+      must run `scripts/sbtc "installBin"` in the worktree to rebuild
+      `bin/ssc-tools` + `bin/lib` before the corpus/example tools pick up the new
+      module; the `<main>/bin/ssc-tools`-from-worktree shortcut used in m2d only
+      works for fixture/tool changes, not new module code.
+      EXACT empty-DB byte layout (verified against `empty-encoding-zero.db`,
+      page 512; all multi-byte fields big-endian):
+        0-15   magic "SQLite format 3\0" = [83,81,76,105,116,101,32,102,111,114,109,97,116,32,51,0]
+        16-17  page size (u16; store 1 if pageSize==65536, else pageSize)
+        18     write version = 1        19  read version = 1
+        20     reserved bytes = 0
+        21     max payload fraction = 64  22 min = 32  23 leaf = 32
+        24-27  change counter = 1       28-31 page count = 1
+        32-35  freelist head = 0        36-39 freelist count = 0
+        40-43  schema cookie = 0        44-47 schema format = 1  (empty DB uses 1, NOT 4)
+        48-51  default cache = 0        52-55 largest-root/auto-vacuum = 0
+        56-59  text encoding = 0        (the encoding-0 quirk of a VACUUM'd empty DB)
+        60-63  user version = 0         64-67 incremental vacuum = 0
+        68-71  application id = 0       72-91 reserved (20 zero bytes)
+        92-95  version-valid-for = 1    96-99 sqlite version number = 3053003 (0x002e95cb)
+        100    b-tree kind = 0x0d (leaf table)
+        101-102 first freeblock = 0     103-104 cell count = 0
+        105-106 cell content start = pageSize (store 0 if pageSize==65536)  107 fragmented = 0
+        108..pageSize-1  zeros
+      Build with `writeU16Be`/`writeU32Be` + `byteSliceConcat` + `byteSliceZeroExtend`
+      (all in `bytes.ssc`), or a flat `byteSliceUnsafe(List[Int])`. Verify by dumping
+      `byteSliceToList` from a tool and diffing against the reference file's bytes.
 - [ ] **scljet-m3c-single-row-insert** — insert one row into a single-table
       database with no page split (record encoder = inverse of `record.ssc`; append
       a cell to page 2's cell array + content area; update header change counter and
