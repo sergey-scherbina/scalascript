@@ -2291,7 +2291,7 @@ object Prims:
     case "__mk_map__" => a =>
       val m = MapV.empty
       a.foreach {
-        case DataV("Tuple2", Seq(k, v)) => m.entries(k) = v
+        case DataV("Tuple2" | "Pair", Seq(k, v)) => m.entries(k) = v
         case DataV("->", Seq(k, v))     => m.entries(k) = v
         case pair => sys.error(s"Map factory: expected k->v pair, got ${Show.show(pair)}")
       }
@@ -2867,7 +2867,7 @@ object Prims:
           val out = MapV.from(m)
           out.entries.remove(k)
           out
-        case (MapV(m), "+", List(DataV("Tuple2", Seq(k, v)))) =>
+        case (MapV(m), "+", List(DataV("Tuple2" | "Pair", Seq(k, v)))) =>
           val out = MapV.from(m)
           out.entries.update(k, v)
           out
@@ -2895,7 +2895,7 @@ object Prims:
         case (ForeignV(m: collection.mutable.Map[?, ?]), "removed", List(k)) =>
           val nm = m.asInstanceOf[collection.mutable.Map[Value,Value]].clone()
           nm.remove(k); ForeignV(nm)
-        case (ForeignV(m: collection.mutable.Map[?, ?]), "+", List(DataV("Tuple2", Seq(k, v)))) =>
+        case (ForeignV(m: collection.mutable.Map[?, ?]), "+", List(DataV("Tuple2" | "Pair", Seq(k, v)))) =>
           val nm = m.asInstanceOf[collection.mutable.Map[Value,Value]].clone()
           nm.update(k, v); ForeignV(nm)
         case (ForeignV(m: collection.mutable.Map[?, ?]), "contains", List(k)) =>
@@ -3168,11 +3168,11 @@ object Prims:
       listOf(unlistPub(l).filterNot(_ == r))
     // Map + (k -> v): copy-on-write over the insertion-ordered MapV so the
     // v1 immutable-Map value semantics hold (`results + (partId -> result)`).
-    case (MapV(m), DataV("Tuple2", IndexedSeq(k, v))) if op == "+" =>
+    case (MapV(m), DataV("Tuple2" | "Pair", IndexedSeq(k, v))) if op == "+" =>
       val out = MapV.from(m)
       out.entries(k) = v
       out
-    case (ForeignV(m: collection.mutable.Map[?, ?]), DataV("Tuple2", IndexedSeq(k, v))) if op == "+" =>
+    case (ForeignV(m: collection.mutable.Map[?, ?]), DataV("Tuple2" | "Pair", IndexedSeq(k, v))) if op == "+" =>
       val nm = collection.mutable.HashMap.from(m.asInstanceOf[collection.mutable.Map[Value, Value]])
       nm(k) = v
       ForeignV(nm)
@@ -3221,11 +3221,11 @@ object Prims:
       listOf(unlistPub(l).filterNot(_ == r))
     // Map + (k -> v): copy-on-write over the insertion-ordered MapV so the
     // v1 immutable-Map value semantics hold (`results + (partId -> result)`).
-    case (MapV(m), DataV("Tuple2", IndexedSeq(k, v))) if op == "+" =>
+    case (MapV(m), DataV("Tuple2" | "Pair", IndexedSeq(k, v))) if op == "+" =>
       val out = MapV.from(m)
       out.entries(k) = v
       out
-    case (ForeignV(m: collection.mutable.Map[?, ?]), DataV("Tuple2", IndexedSeq(k, v))) if op == "+" =>
+    case (ForeignV(m: collection.mutable.Map[?, ?]), DataV("Tuple2" | "Pair", IndexedSeq(k, v))) if op == "+" =>
       val nm = collection.mutable.HashMap.from(m.asInstanceOf[collection.mutable.Map[Value, Value]])
       nm(k) = v
       ForeignV(nm)
