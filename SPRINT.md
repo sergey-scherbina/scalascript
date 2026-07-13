@@ -337,13 +337,17 @@ with extensions isolated behind an explicit non-default profile.
       index X=102: p=101/102 local, p=103 sharp K>X fall to m=39, p=200, p=1100 K<=X
       multi-page chain). Reader reproduces every index row byte-for-value on default
       VM / ASM / tree-walk tiers. Corpus now 25 valid / 643 oracle lines.
-- [ ] **scljet-m2d-hardening-2-deep-corruptions** — add deep byte-mutation corruptions
-      to `generate.py`'s `corruptions()` path: truncated/looped overflow chain, corrupt
-      freeblock span, invalid/reserved serial-type header (10/11), and sqlite_schema row
-      damage (bad rootpage/type). Pin each with its stable `SqliteError` field/message
-      substring; only commit mutations the reader demonstrably rejects (observe the real
-      localized error first — never fabricate). Extend `corrupt-manifest.tsv` /
-      `corrupt-errors.txt`; the corrupt-check e2e must stay green on all tiers.
+- [x] **scljet-m2d-hardening-2-deep-corruptions** — DONE 2026-07-13. Added 5 deep
+      page-1 sqlite_schema byte-mutation corruptions to `generate.py`'s `corruptions()`
+      (via real record parsing, not hard-coded offsets): reserved serial type 10
+      (`serial types 10 and 11`), unknown schema type (`type is unknown`), out-of-range
+      rootpage 127 (`outside the logical database`), negative int8 rootpage
+      (`rootpage must be non-negative`), and a page-1 freeblock below the header
+      (`freeblock chain is not increasing`). Each expected substring was confirmed
+      against the reader's real localized error (never fabricated); corrupt corpus is
+      now 30 files, all failing safely and identically on VM/ASM/tree-walk tiers.
+      Only remaining item: user-table overflow-chain traversal corruption (needs a
+      traversal-based negative check beyond open-time validation) — kept in BACKLOG.
 ## v2-swift-nativeui-i18n-json — standard `lower/serve`, locale and JSON parity (2026-07-12)
 
 Claim: `.work/active/v2-swift-nativeui-i18n-json.claim`. Spec:
