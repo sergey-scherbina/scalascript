@@ -1,0 +1,37 @@
+---
+name: scljet-mutate-delete
+description: SclJet read-modify-rewrite — delete rows from an existing table, preserving rowids and overflow, cross-backend
+backends: [int, js]
+---
+
+# SclJet delete (read-modify-rewrite)
+
+[ByteSlice, byteSliceToList, SqliteValue, SqlInteger, SqlText, buildOverflowBtreeDatabase](std/scljet/index.ssc)
+[deleteRowids](std/scljet/mutate.ssc)
+
+```scalascript
+def text(n: Int): String =
+  if n <= 0 then ""
+  else if n == 1 then "a"
+  else
+    val half = text(n / 2)
+    if n % 2 == 0 then half + half else half + half + "a"
+
+// Build a 6-row table where row 3 carries a 1016-char value (an overflow chain),
+// then delete rowids 2 and 5. The survivors (1, 3, 4, 6) keep their ORIGINAL
+// rowids — not renumbered — and the overflow row round-trips exact through the
+// raw-record read-modify-rewrite. Reference integrity_check accepts the result;
+// int and JS produce the same bytes.
+def rows(i: Int, n: Int, acc: List[List[SqliteValue]]): List[List[SqliteValue]] =
+  if i > n then acc.reverse
+  else
+    val v = if i == 3 then text(1016) else "row" + i.toString
+    rows(i + 1, n, List(SqlInteger(i.toLong), SqlText(v)) :: acc)
+
+buildOverflowBtreeDatabase(512, 1, 1, "t", "CREATE TABLE t(n INTEGER, v TEXT)", rows(1, 6, Nil)) match
+  case Right(db) =>
+    deleteRowids(db, 2, 1, List(2L, 5L)) match
+      case Right(newDb) => println((newDb.length / 512).toString + ":" + byteSliceToList(newDb).toString)
+      case Left(message) => println("DELETE-ERROR:" + message)
+  case Left(error) => println("BUILD-ERROR:" + error.message)
+```

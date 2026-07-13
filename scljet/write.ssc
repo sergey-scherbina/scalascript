@@ -14,6 +14,9 @@ exports:
   - buildDeepOverflowTableDatabase
   - KeyedRow
   - buildKeyedDatabase
+  - KeyedRawRow
+  - buildKeyedRawDatabase
+  - buildFromRawSchema
 ---
 
 # SclJet M3 write path
@@ -941,4 +944,63 @@ def buildKeyedDatabase(pageSize: Int, changeCounter: Int, schemaCookie: Int,
             case Right(built) =>
               val leaves = packLeaves(built.cells, pageSize)
               assembleOverflowTree(pageSize, changeCounter, schemaCookie, schemaRecord, leaves, built.overflowPages)
+
+// ── Raw-record keyed writer (rewrite an existing table from decoded records) ──
+//
+// Where `buildKeyedDatabase` re-encodes `List[SqliteValue]` per row,
+// `buildKeyedRawDatabase` takes the ALREADY-ENCODED record payload bytes for each
+// rowid. A read-modify-rewrite (delete/update) reconstructs those bytes from the
+// reader's `DecodedRecord` and hands them straight back — no value round-trip, so
+// text needs no code-point→String rebuild (see BUGS.md
+// portable-codepoint-string-construction).
+
+case class KeyedRawRow(rowid: Long, record: List[Int])
+
+def encodeKeyedRawOverflowRowCells(rows: List[KeyedRawRow], pageSize: Int, usableSize: Int, startPage: Int): OverflowBtreeRows =
+  var krRemaining = rows
+  var krNextPage = startPage
+  var krCellsRev: List[RowCell] = Nil
+  var krPagesRev: List[List[Int]] = Nil
+  while krRemaining.nonEmpty do
+    val krRow = krRemaining.head
+    val krCell = encodeOverflowCell(krRow.rowid, krRow.record, pageSize, usableSize, krNextPage)
+    krCellsRev = RowCell(krRow.rowid, krCell.cell) :: krCellsRev
+    krPagesRev = prependOverflowPages(krCell.overflowPages, krPagesRev)
+    krNextPage = krNextPage + krCell.overflowPages.length
+    krRemaining = krRemaining.tail
+  OverflowBtreeRows(krCellsRev.reverse, krPagesRev.reverse)
+
+/** Build a rowid table from rows given as `(rowid, raw-record-bytes)` — explicit
+ *  ascending rowids, overflow, any depth. Reference `integrity_check` ok. */
+def buildKeyedRawDatabase(pageSize: Int, changeCounter: Int, schemaCookie: Int,
+    tableName: String, createSql: String, rows: List[KeyedRawRow]): Either[ByteError, ByteSlice] =
+  val usableSize = pageSize
+  val schemaValues = List(SqlText("table"), SqlText(tableName), SqlText(tableName),
+    SqlInteger(2L), SqlText(createSql))
+  encodeRecord(schemaValues) match
+    case Left(error) => Left(error)
+    case Right(schemaRecord) =>
+      val probe = encodeKeyedRawOverflowRowCells(rows, pageSize, usableSize, 0)
+      val probeLeaves = packLeaves(probe.cells, pageSize)
+      val overflowStart = 2 + treePageCount(probeLeaves, pageSize)
+      val built = encodeKeyedRawOverflowRowCells(rows, pageSize, usableSize, overflowStart)
+      val leaves = packLeaves(built.cells, pageSize)
+      assembleOverflowTree(pageSize, changeCounter, schemaCookie, schemaRecord, leaves, built.overflowPages)
+
+/** Rebuild a single-table database from a RAW `sqlite_schema` record plus raw table
+ *  rows — the form a rewrite (delete/update) produces. Preserving the schema record
+ *  verbatim (rather than re-encoding it from a decoded name/SQL) avoids decoding
+ *  text back to a String at all. The table root stays page 2. */
+def buildFromRawSchema(pageSize: Int, changeCounter: Int, schemaCookie: Int,
+    schemaRecord: List[Int], rows: List[KeyedRawRow]): Either[ByteError, ByteSlice] =
+  val usableSize = pageSize
+  ByteSlice.fromList(schemaRecord) match
+    case Left(error) => Left(error)
+    case Right(schemaSlice) =>
+      val probe = encodeKeyedRawOverflowRowCells(rows, pageSize, usableSize, 0)
+      val probeLeaves = packLeaves(probe.cells, pageSize)
+      val overflowStart = 2 + treePageCount(probeLeaves, pageSize)
+      val built = encodeKeyedRawOverflowRowCells(rows, pageSize, usableSize, overflowStart)
+      val leaves = packLeaves(built.cells, pageSize)
+      assembleOverflowTree(pageSize, changeCounter, schemaCookie, schemaSlice, leaves, built.overflowPages)
 ```

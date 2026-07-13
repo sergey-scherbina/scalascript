@@ -1,0 +1,195 @@
+---
+name: scljet-mutate
+description: SclJet read-modify-rewrite — delete/keep rows in an existing single-table database
+exports:
+  - reconstructRecordBytes
+  - readTableRawRows
+  - readSchemaRawRecord
+  - deleteRowids
+  - keepRowids
+---
+
+# SclJet mutate — read-modify-rewrite
+
+Delete (or keep) rows in an existing single-table rowid database. The database is
+opened read-only over its own bytes, every surviving row is read back as its raw
+record payload (reconstructed from the reader's `DecodedRecord`, so text needs no
+code-point→String rebuild), and the table is rebuilt through `buildFromRawSchema`
+with the original `sqlite_schema` record preserved verbatim. Rowids are kept as-is
+(no renumbering). The table is assumed to be the single table rooted at page 2 —
+the shape SclJet's writers produce.
+
+```scalascript
+[KeyedRawRow, buildFromRawSchema, DecodedRecord, RecordField, ByteSlice, byteSliceToList, encodeVarint, ByteError, SqliteError, SqliteOpenOptions, SqliteLimits, OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, SqliteVfs, SqliteFile, VfsError, VfsRead, VfsWrite, FileKind, MainDatabaseFile, MainJournalFile, WalFile, OpenFlags, LockLevel, SyncFlags, DeviceCharacteristic, ShmLockMode, SharedRegion, byteSliceSlice, RowidTableTree, StorageRecord, ReadonlyDatabase, ReadonlyBtreeCursor, ReadonlyCursorStep, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly](index.ssc)
+
+// ── Read-only VFS over a single in-memory database image ──
+
+def mutateLimits(): SqliteLimits = SqliteLimits(
+  1000000L, 100, 100, 100, 100, 10, 1000000L, 100, 100,
+  1000L, 1000000L, 2, 1000L, 100, 1000000L)
+
+def mutateOptions(): SqliteOpenOptions = SqliteOpenOptions(
+  OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, 0L, 16, false, mutateLimits())
+
+case class ImageFile(bytes: ByteSlice) extends SqliteFile:
+  def readAt(offset: Long, length: Int): Either[VfsError, VfsRead] =
+    byteSliceSlice(bytes, offset.toInt, length) match
+      case Right(value) => Right(VfsRead(value, None))
+      case Left(_) => Left(VfsError("io", "read outside image", false))
+  def writeAt(offset: Long, value: ByteSlice): Either[VfsError, VfsWrite] = Left(VfsError("readonly", "image is read-only", false))
+  def truncate(size: Long): Either[VfsError, Unit] = Left(VfsError("readonly", "image is read-only", false))
+  def sync(flags: SyncFlags): Either[VfsError, Unit] = Right(())
+  def size(): Either[VfsError, Long] = Right(bytes.length.toLong)
+  def lock(level: LockLevel): Either[VfsError, Unit] = Right(())
+  def unlock(level: LockLevel): Either[VfsError, Unit] = Right(())
+  def checkReservedLock(): Either[VfsError, Boolean] = Right(false)
+  def sectorSize: Int = 512
+  def deviceCharacteristics: List[DeviceCharacteristic] = Nil
+  def shmMap(region: Int, size: Int, extend: Boolean): Either[VfsError, SharedRegion] = Left(VfsError("unsupported", "no shm", false))
+  def shmLock(offset: Int, count: Int, mode: ShmLockMode): Either[VfsError, Unit] = Left(VfsError("unsupported", "no shm", false))
+  def shmBarrier(): Unit = ()
+  def shmUnmap(delete: Boolean): Either[VfsError, Unit] = Right(())
+  def close(): Either[VfsError, Unit] = Right(())
+
+case class ImageVfs(main: ByteSlice) extends SqliteVfs:
+  def name: String = "image"
+  def open(path: String, kind: FileKind, flags: OpenFlags): Either[VfsError, SqliteFile] = kind match
+    case MainDatabaseFile => Right(ImageFile(main))
+    case _ => Left(VfsError("notfound", "no journal/wal in image", false))
+  def delete(path: String, syncDirectory: Boolean): Either[VfsError, Unit] = Left(VfsError("readonly", "image is read-only", false))
+  def exists(path: String): Either[VfsError, Boolean] = Right(path == "/image.db")
+  def fullPath(path: String): Either[VfsError, String] = Right("/image.db")
+  def randomness(length: Int): Either[VfsError, ByteSlice] = Right(ByteSlice.empty)
+  def sleep(millis: Long): Unit = ()
+  def currentTimeMillis(): Long = 0L
+
+// ── Reconstruct a record's raw payload from its decoded fields ──
+//
+// payload = varint(headerBytes) ++ per-field varint(serialType) ++ per-field body.
+// `headerBytes` is the full header length (incl. the length varint), so this
+// reproduces the exact on-disk record — no value round-trip, no text→String.
+
+def reconstructRecordBytes(record: DecodedRecord): List[Int] =
+  var rcFields = record.fields
+  var rcSerialsRev: List[Int] = Nil
+  var rcBodyRev: List[Int] = Nil
+  while rcFields.nonEmpty do
+    val rcField = rcFields.head
+    var rcSerial = byteSliceToList(encodeVarint(rcField.serialType))
+    while rcSerial.nonEmpty do
+      rcSerialsRev = rcSerial.head :: rcSerialsRev
+      rcSerial = rcSerial.tail
+    var rcBody = byteSliceToList(rcField.encoded)
+    while rcBody.nonEmpty do
+      rcBodyRev = rcBody.head :: rcBodyRev
+      rcBody = rcBody.tail
+    rcFields = rcFields.tail
+  byteSliceToList(encodeVarint(record.headerBytes.toLong)) ++ rcSerialsRev.reverse ++ rcBodyRev.reverse
+
+// ── Read all rows of a rowid tree as (rowid, raw-record-bytes) ──
+
+def readTableRawRows(database: ReadonlyDatabase, cursor: ReadonlyBtreeCursor): Either[SqliteError, List[KeyedRawRow]] =
+  readonlyFirst(database, cursor) match
+    case Left(error) => Left(error)
+    case Right(firstStep) =>
+      var rrDatabase = firstStep.database
+      var rrCursor = firstStep.cursor
+      var rrRow = firstStep.row
+      var rrAcc: List[KeyedRawRow] = Nil
+      var rrError: Option[SqliteError] = None
+      var rrDone = false
+      while !rrDone && rrError.isEmpty do
+        rrRow match
+          case None => rrDone = true
+          case Some(record) =>
+            val rrRowid = record.rowid match
+              case Some(value) => value
+              case None => 0L
+            rrAcc = KeyedRawRow(rrRowid, reconstructRecordBytes(record.record)) :: rrAcc
+            readonlyNext(rrDatabase, rrCursor) match
+              case Left(error) => rrError = Some(error)
+              case Right(step) =>
+                rrDatabase = step.database
+                rrCursor = step.cursor
+                rrRow = step.row
+      rrError match
+        case Some(error) => Left(error)
+        case None => Right(rrAcc.reverse)
+
+/** The raw `sqlite_schema` record for the first (only) table — page 1, rowid 1. */
+def readSchemaRawRecord(database: ReadonlyDatabase): Either[String, List[Int]] =
+  openReadonlyRoot(database, 1L, RowidTableTree) match
+    case Left(error) => Left(error.message)
+    case Right(cursor) =>
+      readonlyFirst(database, cursor) match
+        case Left(error) => Left(error.message)
+        case Right(step) => step.row match
+          case None => Left("database has no schema entry")
+          case Some(record) => Right(reconstructRecordBytes(record.record))
+
+def rowidMember(rowid: Long, ids: List[Long]): Boolean = ids match
+  case Nil => false
+  case Cons(head, tail) => head == rowid || rowidMember(rowid, tail)
+
+def filterRows(rows: List[KeyedRawRow], drop: List[Long]): List[KeyedRawRow] =
+  var frRemaining = rows
+  var frAcc: List[KeyedRawRow] = Nil
+  while frRemaining.nonEmpty do
+    val frRow = frRemaining.head
+    frAcc = if rowidMember(frRow.rowid, drop) then frAcc else frRow :: frAcc
+    frRemaining = frRemaining.tail
+  frAcc.reverse
+
+/** Rewrite the single table, keeping every row whose rowid is NOT in `rowids`.
+ *  Surviving rowids are preserved (not renumbered). `changeCounter` should be the
+ *  old file-change counter + 1. Returns the new database image, or an error
+ *  message. */
+def deleteRowids(dbBytes: ByteSlice, changeCounter: Int, schemaCookie: Int, rowids: List[Long]): Either[String, ByteSlice] =
+  openReadonly(ImageVfs(dbBytes), "image.db", mutateOptions()) match
+    case Left(error) => Left(error.message)
+    case Right(database) =>
+      val pageSize = database.pager.header.pageSize
+      val rootPage = database.schema.entries.head.rootPage match
+        case Some(value) => value
+        case None => 2L
+      readSchemaRawRecord(database) match
+        case Left(message) => Left(message)
+        case Right(schemaRecord) =>
+          openReadonlyRoot(database, rootPage, RowidTableTree) match
+            case Left(error) => Left(error.message)
+            case Right(cursor) =>
+              readTableRawRows(database, cursor) match
+                case Left(error) => Left(error.message)
+                case Right(rows) =>
+                  buildFromRawSchema(pageSize, changeCounter, schemaCookie, schemaRecord, filterRows(rows, rowids)) match
+                    case Left(byteError) => Left(byteError.message)
+                    case Right(bytes) => Right(bytes)
+
+/** Rewrite the single table, keeping ONLY the rows whose rowid is in `rowids`. */
+def keepRowids(dbBytes: ByteSlice, changeCounter: Int, schemaCookie: Int, rowids: List[Long]): Either[String, ByteSlice] =
+  openReadonly(ImageVfs(dbBytes), "image.db", mutateOptions()) match
+    case Left(error) => Left(error.message)
+    case Right(database) =>
+      val pageSize = database.pager.header.pageSize
+      val rootPage = database.schema.entries.head.rootPage match
+        case Some(value) => value
+        case None => 2L
+      readSchemaRawRecord(database) match
+        case Left(message) => Left(message)
+        case Right(schemaRecord) =>
+          openReadonlyRoot(database, rootPage, RowidTableTree) match
+            case Left(error) => Left(error.message)
+            case Right(cursor) =>
+              readTableRawRows(database, cursor) match
+                case Left(error) => Left(error.message)
+                case Right(rows) =>
+                  var krRemaining = rows
+                  var krAcc: List[KeyedRawRow] = Nil
+                  while krRemaining.nonEmpty do
+                    val krRow = krRemaining.head
+                    krAcc = if rowidMember(krRow.rowid, rowids) then krRow :: krAcc else krAcc
+                    krRemaining = krRemaining.tail
+                  buildFromRawSchema(pageSize, changeCounter, schemaCookie, schemaRecord, krAcc.reverse) match
+                    case Left(byteError) => Left(byteError.message)
+                    case Right(bytes) => Right(bytes)
+```
