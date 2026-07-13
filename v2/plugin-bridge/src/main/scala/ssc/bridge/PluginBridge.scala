@@ -3930,6 +3930,12 @@ object PluginBridge:
             Done(rawToV2(s.apply().asInstanceOf[Any]))))
           case "set" => Some(V2Value.ClosV(Runtime.emptyEnv, 1, env =>
             { s.asInstanceOf[scalascript.frontend.Signal[Any]].set(v2ToRaw(env.last)); Done(V2Value.UnitV) }))
+          // `signal(name, default)` builds a ReactiveSignal whose stable cross-backend
+          // id is its name — expose `.id` (the native ui-plugin's NativeUiSignal already
+          // has it; the trait Signal[T] doesn't, only ReactiveSignal). v2-bridged-ui-signal-id-field.
+          case "id" => s match
+            case rs: scalascript.frontend.ReactiveSignal[?] => Some(V2Value.StrV(rs.id))
+            case _ => None
           case "bind" => Some(V2Value.ClosV(Runtime.emptyEnv, 1, env =>
             V2PluginRegistry.lookupGlobal("ReactiveSignal.bind").collect { case c: V2Value.ClosV => c } match
               case Some(bindFn) =>

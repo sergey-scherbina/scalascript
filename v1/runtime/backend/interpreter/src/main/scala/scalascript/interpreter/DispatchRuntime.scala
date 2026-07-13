@@ -3224,6 +3224,12 @@ private[interpreter] object DispatchRuntime:
         else
           sig.asInstanceOf[scalascript.frontend.ReactiveSignal[Any]].set(interp.unwrapValueAsAny(args.head))
           Pure(Value.UnitV)
+      // ReactiveSignal.id — a signal's stable cross-backend name (its first ctor arg).
+      // The native v2 ui-plugin (NativeUiSignal) exposes it; the v1 interp + v2 bridge
+      // lanes did not, so `signal(name,_).id` crashed. v2-bridged-ui-signal-id-field.
+      case Value.Foreign("ReactiveSignal", sig: scalascript.frontend.ReactiveSignal[?])
+          if name == "id" && args.isEmpty =>
+        Pure(Value.StringV(sig.id))
       case _ =>
         interp.globals.get(s"$typeName.$name") match
           case Some(fn) => interp.callValuePrepend(fn, recv, args, env)

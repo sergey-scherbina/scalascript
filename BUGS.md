@@ -2,7 +2,20 @@
 
 ## v2-bridged-ui-signal-id-field — std/ui `signal(...).id` crashes on the bridged VM lane
 
-**Status:** open (2026-07-13); found by opus running `examples/swift/appcore-nativeui.ssc`
+**Status:** FIXED (2026-07-13, opus). `signal(name, default)` builds a
+`scalascript.frontend.ReactiveSignal` whose `id` (its stable cross-backend name) is the
+`name` arg. The native v2 ui-plugin (`NativeUiSignal`) exposed `.id`, but TWO other lanes
+didn't and crashed `No method 'id' / no field 'id' on (Reactive)Signal`: (1) the v2
+FrontendBridge lane — `PluginBridge.v1ToV2`'s `Value.Foreign(_, s: frontend.Signal)`
+NamedMethodObj wrapper handled `apply/get/set/bind` but not `id`; added
+`case "id" => rs.id` (guarded on `ReactiveSignal`; the bare `Signal[T]` trait has no id).
+(2) the v1 interpreter — `DispatchRuntime.dispatchForeign`'s `Foreign("ReactiveSignal", sig)`
+case handled `get`/`set` but not `id`; added `case name=="id" => StringV(sig.id)`. Verified:
+`signal("myid","before").id` → `myid` on INT, v2 bridged (`run --v2`), and v2 native (`--native`).
+Conformance `signal-id-bridged` [int, v2] green; PluginBridge 33/33. (Found running
+`appcore-nativeui.ssc` on `run --v2`; the app then hits a separate `emit`-unbound gap on that
+bridged lane — distinct, not this bug; the app runs end-to-end on `--native`.)
+_Original report:_ found by opus running `examples/swift/appcore-nativeui.ssc`
 on `ssc-tools run --v2` (the FrontendBridge VM lane). `val m = signal("name","before"); m.id`
 crashes `__method__: no field 'id' on named-method-obj (None)` (`v2/src/Runtime.scala:2957`).
 The v1 std/ui `signal` (`extern def signal[T](name, default): Signal[T]`, primitives.ssc)

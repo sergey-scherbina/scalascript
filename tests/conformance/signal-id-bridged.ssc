@@ -1,0 +1,17 @@
+---
+name: signal-id-bridged
+backends: [int, v2]
+---
+
+# std/ui signal(name, default).id resolves on the bridged v2 lane
+
+Regression for `v2-bridged-ui-signal-id-field`: on `run --v2` (FrontendBridge), a
+std/ui `signal` bridged from the v1 plugin as a NamedMethodObj exposed `.set` but not
+`.id`, crashing `__method__: no field 'id'`. The bridged ReactiveSignal now exposes its
+`id` (its stable name) like the native ui-plugin's NativeUiSignal.
+
+```scalascript
+val s = signal("myid", "before")
+s.set("after")
+println(s.id)
+```
