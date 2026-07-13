@@ -1785,9 +1785,25 @@ for in-process runs, and `inferType` already computes per-node `SType` (just dis
         ⇒ field-meta is now effectively closed on the SAFE side; the rest requires the unsafe flip.
 - [ ] **typeGateOk (164) = UsingParams** — `using`/context-bound typeclass dispatch; NOT a type-
       inference gap. Needs compile-time dictionary specialisation. Out of the C (typed-input) scope.
-- [ ] **closures / HOF (~199, DOMINANT) — HARD, explicit NON-GOAL of line C.** `call: no compilable
-      target (free name / closure / non-function)`. Needs a closure/heap model (capture env, indirect
-      dispatch) — a separate program, not typed-input widening.
+- [x] **closures / HOF — capturing lambdas** `8f2b4a41f` DONE 2026-07-13. A lambda capturing outer
+      locals no longer bails; addresses the tractable subset of the dominant "call: no compilable
+      target (closure)" miss. SscVmTest 192/192; INT conformance no new fails (http-client delta is a
+      requires:HttpClient network dep — fails identically on the pre-closure binary).
+  - [x] **CL-1 (opcode)** — SscVm LOADFVCAP + FunVCapture + funVCapturePool: builds a runtime FunV from
+        the pooled template with a `closure` Map snapshotted from the capture regs (kinds 0=Int/1=Double/
+        2=Ref decide boxing exactly). Never compiles → interp.invoke slow path → snapshot = interp.
+  - [x] **CL-2 (emit)** — VmCompiler gathers captures into consecutive regs (MOVE copies both banks) +
+        emits LOADFVCAP instead of bailing at :835.
+  - [x] **CL-3 (verify)** — tests: Int / multi / Double(annotated+inferred) / ref captures.
+  - Two HOF-typing fixes were REQUIRED to make Double/ref HOFs correct (pre-existing gaps that became
+    miscompiles once more code compiled):
+    - CALLREF result typing: encode the return kind into FunV_<arity>_<char>; a concrete Double HOF
+      result → TDouble (was TInt → C-4c corrupted it). 'R' stays TInt — that char also covers a
+      generic/type-param return that may be numeric, so TRef would read the wrong bank (litdoc rule).
+    - Lambda param inference: an unannotated lambda param infers its type from the HOF's function-param
+      signature, so a Double/ref arg is not mis-boxed as Int at CALLREF.
+  NON-GOAL still: free-name calls to non-lambda targets; compiling the capturing body itself (it stays
+    interp-dispatched); typing a ref/generic HOF result TRef (needs concrete-ref vs type-param telling).
 
 ### JIT correctness fixes — adversarial self-review pass (2026-07-12)
 Directed hunt for LATENT MISCOMPILES (silent wrong result, NOT a safe bail) in the C-3..C-9 changes.
