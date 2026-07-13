@@ -115,20 +115,11 @@ either way.
 
 ## Out of Scope
 
-- **Reactive/fetched options** (`Signal[List[(String, String)]]`). busi's real
-  motivating case is "dropdown of active contracts fetched from an API", but
-  `std/ui` has no existing primitive that re-renders an arbitrary child list
-  when a fetch signal resolves — `forKeyedView` (`primitives.ssc`) is a
-  render-once snapshot in the interpreter path (`FrontendIntrinsics.forKeyedView`
-  reads `rs.apply()` once and returns a `View.Fragment`); only `dataTableView`
-  has genuine fetch-then-rerender wiring, and that's bespoke, table-specific
-  JS runtime code, not a generic mechanism. Building true reactive options
-  would mean replicating DataTable-caliber machinery — not minimal. Recorded
-  as a BACKLOG follow-up (`select-from-signal`); until then, callers that
-  need a fetched option list must either query it server-side before calling
-  `select(...)` (busi's other full-stack pages already do this — see
-  tutorial 4) or rebuild/re-serve the page after the fetch, same as any other
-  static-config `std/ui` widget.
+- **Reactive/fetched options** (`Signal[List[(String, String)]]`) for the
+  BASE `select()` above — that primitive's `options` stays a static
+  `List[(String, String)]`, unchanged. A separate, additive variant
+  (`selectFrom`) now covers the reactive case — see § "Reactive options
+  (`selectFrom`)" below. `select()` itself is not touched.
 - Multi-select (`<select multiple>`).
 - `<optgroup>` grouping.
 - A reactive-label variant (`selectR`, mirroring `textFieldR`) — not
@@ -333,3 +324,283 @@ Follow-up recorded in `BACKLOG.md`: `select-from-signal` (reactive
 `Signal[List[(String,String)]]` options — needs DataTable-caliber
 fetch+re-render wiring, deliberately out of scope here) and
 `standard-tier-named-arg-skip-default` (the bug above).
+
+---
+
+## Reactive options (`selectFrom`)
+
+Follow-up to the base `select()` above, closing the `select-from-signal`
+BACKLOG entry. `select()` stays exactly as documented above — this is a new,
+additive sibling for the case the base slice deferred: a `<select>` whose
+`<option>` list tracks a `Signal[List[T]]` (busi's motivating case: a
+dropdown of active contracts, fetched from an API and re-fetched when the
+owner signs a new one — an item can be **added, removed, or reordered**
+after the page has already rendered).
+
+### Why the base `select()`'s own mechanism can't just take a `Signal`
+
+Simply changing `select`'s `options` parameter from `List[(String,String)]`
+to `Signal[List[(String,String)]]` would not deliver reactivity — it would
+only defer the "static snapshot" from tree-construction time to first-render
+time. Something has to actually **subscribe** to the signal and patch the
+DOM when it changes. `std/ui` already has exactly one primitive that does
+this generically for a list: `forKeyedView`/`KeyedForNode`
+(`primitives.ssc`/`nodes.ssc`, lowered by `lower.ssc`'s
+`case KeyedForNode(items, key, render) => forKeyedView(items, key, ...)`).
+Its two implementations split cleanly by backend:
+
+- **Interpreter fallback** (`FrontendIntrinsics.scala`, `int` conformance
+  lane, and `bin/ssc-tools run`'s live-`serve()` path): snapshot-only — reads
+  `rs.apply()` once and returns a `View.Fragment`. Confirmed by reading
+  `serve`'s own native impl (`QualifiedName("serve")` in
+  `FrontendIntrinsics.scala`): it evaluates the whole `View` tree via the
+  interpreter (erasing any per-list reactivity into a flat `Fragment`)
+  *before* handing it to `uiEmitToTempDir`/the `custom` JS emitter — so a
+  page served via `bin/ssc-tools run` is **never** reactive to a keyed
+  list's later changes, no matter what, matching this comment in
+  `FrontendIntrinsics.scala`: *"Dynamic keyed reconciliation is implemented
+  in the JS emit-spa runtime where the original render callback remains
+  available in the browser."*
+- **The real reactive mechanism** lives entirely in
+  `v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/signals.mjs`
+  — the runtime prelude that `bin/ssc-tools emit-js`
+  (`JsGen.scala`'s static `.ssc`→JS compiler, the "js" conformance lane, and
+  busi's production `emit-spa` build) embeds verbatim into every emitted
+  bundle. `_ssc_ui_forKeyedView(items, key, render)` returns a
+  `{_type:'_ForKeyed', ...}` marker; `_ssc_ui_renderBody`'s `walk()` renders
+  each row wrapped in `<span data-ssc-key="..." style="display:contents">`
+  inside an outer `<span data-ssc-forkeyed="seq">` container; `_ssc_ui_mount`
+  subscribes to the `items` signal and, on change, **reconciles by key**:
+  builds a map of existing DOM children keyed by `data-ssc-key`, then for
+  each new-list item either reuses the existing node (preserving its exact
+  DOM identity — the target this task's proof leans on) or creates a fresh
+  one, appends in the new order, and removes any node whose key dropped out.
+  This is proven live by `JsRuntimeKeyedForTest.scala`
+  (`v1/runtime/backend/interpreter/src/test/...`): reorder/remove/insert all
+  preserve untouched rows' exact DOM node identity.
+
+This confirms the premise stated in the task brief: `forKeyed`/`KeyedForNode`
+already has real, fine-grained reactive DOM reconciliation — for busi's
+production pipeline (`emit-spa`/`emit-js`), not for `bin/ssc-tools run`'s
+live-interpreter `serve()` path. `selectFrom` **reuses this same key-based
+reconcile algorithm** (existing-by-key map → keep-or-create → append in new
+order → remove stale) rather than inventing new list-diffing logic.
+
+### Why it can't be `forKeyedView` embedded as a `<select>` child, unmodified
+
+`forKeyedView`'s wrapper shape — a `<span data-ssc-key>` around each row,
+inside an outer `<span data-ssc-forkeyed>` — works for arbitrary containers
+(`<div>`, `<ul>`, ...) but **not** inside `<select>`. Per the HTML Living
+Standard's "in select" insertion mode, when the parser encounters a start
+tag it doesn't recognise (anything other than `option`/`optgroup`/`hr`/
+`script`/`template`/`select`), the rule is "parse error; ignore the token" —
+the tag is dropped, not treated as an element. Assigning
+`<select><span data-ssc-key="a"><option value="a">A</option></span>...
+</select>` via `.innerHTML` (which is exactly how `_ssc_ui_renderBody`'s
+output reaches the DOM) makes a real browser silently drop **both** the
+opening and closing `<span>` tags, flattening the `<option>` to a direct
+child of `<select>` — the visible content is fine, but the `data-ssc-key`
+attribute the reconcile algorithm needs was on the now-vanished span, not
+the option. Reusing `forKeyedView` verbatim as a `<select>` child would
+"work" only in a naive Node-mock DOM that does not enforce HTML5 content
+models (like the fake DOM in `JsRuntimeKeyedForTest.scala`) and silently
+break reconciliation in every real browser.
+
+The fix: the key must live directly on the `<option>` element (a `data-*`
+attribute is always legal there), and the reconcile *container* must be the
+`<select>` element itself — the only element in this shape that can validly
+carry a marker attribute at all (an `<optgroup>` wrapper was considered and
+rejected — see Decisions). Since a container marker attribute has to sit on
+the `<select>` tag itself, and the tag's own attrs/events are otherwise
+generic (`element()`-composed), the cleanest way to guarantee that
+coexistence is a **single dedicated View-level construct that owns the
+whole `<select>` element** — attrs, events, and reactive option children
+together — rather than composing `forKeyedView`'s existing View marker as
+one child inside a generic `element("select", ...)` call. This exactly
+mirrors the existing `dataTableView`/`_DataTableView` precedent (a bespoke,
+self-contained widget-level View case with its own fetch-and-rerender
+wiring, not composed from generic primitives) — not a new architectural
+pattern, an existing one applied to a second widget.
+
+### Interface
+
+```scalascript
+// runtime/std/ui/nodes.ssc
+case class SelectFromNode[A](items: Any,
+                             key: A => String,
+                             optionFn: A => (String, String),
+                             selected: Any,
+                             label: String,
+                             placeholder: String,
+                             disabled: Boolean) extends TkNode
+
+// runtime/std/ui/input.ssc
+def selectFrom[A](items: Signal[List[A]],
+                  key: A => String,
+                  optionFn: A => (String, String),
+                  selected: Any,
+                  label: String = "",
+                  placeholder: String = "",
+                  disabled: Boolean = false): TkNode
+
+// runtime/std/ui/primitives.ssc — new extern (the only new one this slice adds)
+extern def selectFromView[A](items: Signal[List[A]],
+                             key: A => String,
+                             optionFn: A => (String, String),
+                             selected: Signal[String],
+                             style: String,
+                             placeholder: String,
+                             disabled: Boolean): View
+```
+
+- `items` — `Signal[List[A]]`, the reactive source (e.g. a
+  `fetchUrlSignalTo`-backed contracts list, or any plain `signal(...)`
+  mutated later via `.set(...)`/`setSignal`).
+- `key: A => String` — stable per-item identity for reconciliation, exactly
+  matching `forKeyedView`/`KeyedForNode`'s own `key` parameter (same
+  convention: `item => item.id`-shaped).
+- `optionFn: A => (String, String)` — maps each item to the `(value, label)`
+  pair the base `select()` takes statically per-option. Kept as a narrow
+  `(String, String)`-returning function (not `A => View`, which is
+  `forKeyedView`/`KeyedForNode`'s own shape) deliberately — see Decisions.
+- `selected`, `label`, `placeholder`, `disabled` — identical semantics to
+  the base `select()` (two-way-bound `Signal[String]`, optional caption,
+  optional placeholder option, disabled render omits change wiring).
+- `style` (the `selectFromView` extern only, not user-facing) — the
+  pre-computed CSS string; `lower.ssc` computes it the same way `SelectNode`
+  does today (theme-driven, disabled variant included) and passes the
+  finished string down, keeping the extern theme-agnostic.
+
+### Behavior
+
+- [ ] `selectFrom(items, key, optionFn, selected)` lowers without throwing
+      on both the `int` and `js` conformance lanes.
+- [ ] Initial render: one `<option>` per current item in `items()`, in list
+      order, the one matching `selected()` marked as the current selection.
+- [ ] `placeholder`/`label`/`disabled` behave identically to the base
+      `select()` (same rendering, same omitted-change-wiring-when-disabled
+      rule).
+- [ ] **`js` lane only** (see "Why the base `select()`'s own mechanism
+      can't just take a `Signal`" above — the interpreter/`int` lane and
+      `bin/ssc-tools run` are snapshot-only, matching `forKeyedView`'s own
+      asymmetry): after `items.set(...)`/`setSignal(items, ...)` with an
+      appended, removed, or reordered list, the rendered `<select>`'s
+      `<option>` children update to match, without a page reload, and an
+      `<option>` whose key survives the change keeps its exact DOM node
+      identity (not torn down and recreated).
+- [ ] Selecting a different option still updates the bound `selected`
+      signal (same `inputChange` wiring as the base `select()`).
+- [ ] A runnable example under `examples/frontend/` demonstrates N options,
+      then an action that appends one to the source list, then N+1 options
+      — verified via `emit-js` + Node (not `bin/ssc-tools run`, see above).
+- [ ] A dedicated regression test (mirroring
+      `JsRuntimeKeyedForTest.scala`'s method: the real `signals.mjs` runtime
+      executed under real Node, not a conformance `.ssc` file — conformance
+      has no DOM available in either lane) proves the reconciliation is
+      real: initial N options, then an appended item, asserting N+1
+      `<option>`s with the original N nodes' DOM identity preserved.
+- [ ] Affected `tkv2-*` conformance cases pass before push.
+
+### Design
+
+#### The `<select>`-specific ordering wrinkle still applies, solved the same way as before, plus a rebuild-time re-application
+
+Same underlying issue as the base `select()`'s "ordering wrinkle" (setting
+`.value` before `<option>`s exist is a DOM no-op) — but now it recurs every
+time the option list is rebuilt, not only once at first render, because a
+list change replaces some `<option>` nodes. `selectFromView`'s JS-runtime
+reconcile function (mirroring `_mountKeyed`'s `reconcile`) sets
+`select.value = <selected signal's current value>` as the *last* step of
+every reconcile pass, after all `<option>` nodes for that pass already exist
+as real DOM children — the browser's `.value` setter then matches correctly
+regardless of whether this is the first pass (mount-time, immediate) or a
+later one (an actual list change). The base `select()`'s per-option
+`"selected"` HTML attribute trick is also kept at initial-HTML-string-render
+time (`_ssc_ui_renderBody`'s `_SelectFrom` case), for the same "correct even
+before any JS mounts" reason the base widget has it.
+
+#### Container/key placement (the concrete DOM shape)
+
+- `_ssc_ui_renderBody`'s new `_SelectFrom` case emits
+  `<select data-ssc-forkeyed-options="<seq>" style="..." ...>` — the marker
+  attribute lives directly on the `<select>` tag (not a wrapper), reusing
+  the same shared `keyed` array / `seq` numbering `_ForKeyed` already uses
+  (dispatched by `_type` inside `_mountKeyed`, so the existing call sites
+  and `_ssc_ui_mount(sigs, keyedRoots)` signature are untouched).
+- Each option renders as `<option value="..." data-ssc-key="...">label
+  </option>` — the key attribute directly on the option, no wrapper.
+- `_mountKeyed` gains one dispatch branch: when `kv._type === '_SelectFrom'`,
+  hand off to `_mountSelectFrom`, which finds the `<select>` via
+  `[data-ssc-forkeyed-options="seq"]`, subscribes to `items`, and reconciles
+  by the *identical* algorithm shape as `_mountKeyed`'s existing `reconcile`
+  (existing-by-`data-ssc-key` map on `select.children` → keep-or-create via
+  `document.createElement('option')` → `select.appendChild` in new order →
+  remove children whose key dropped out), then sets `select.value`. A
+  non-keyed placeholder `<option>` (no `data-ssc-key`) is untouched by
+  reconcile exactly as `_mountKeyed`'s own existing-children scan already
+  skips any child without the attribute — same mechanism, not a new rule.
+
+#### Backend scope
+
+Two backends implement `selectFromView`: the interpreter fallback
+(snapshot, parity with `forKeyedView`'s own `int`-lane behavior) and the JS
+runtime (`signals.mjs`, real reactivity). No JVM/Swing/SwiftUI-native
+lowering — unlike the base `select()`, this is not "zero new backend code
+needed" (a brand-new `extern def` is inherently backend-specific until each
+backend picks it up), but no existing test exercises `select`/`selectFrom`
+on those backends either; `tests/conformance` cases declare
+`backends: [int, js]`, matching the base slice's own precedent exactly.
+
+### Decisions
+
+- **A dedicated `_SelectFrom` View-level construct (mirroring
+  `dataTableView`), not `forKeyedView` embedded as a child of a generic
+  `element("select", ...)`** — chosen because `<select>`'s HTML content
+  model rejects a wrapping element around each option (see "Why it can't be
+  `forKeyedView` embedded... unmodified" above); the reconcile container
+  marker has nowhere legal to live except the `<select>` tag itself, which
+  requires the widget to own that tag's construction end-to-end. Rejected:
+  reusing `forKeyedView` unmodified (breaks in real browsers, only "works"
+  in a content-model-naive DOM mock); reusing `_ForKeyed`'s existing View
+  marker/JS functions in place with a special "no wrapper" mode threaded
+  through (would entangle the option-list-only special case into the
+  general-purpose list mechanism every other `KeyedForNode` caller depends
+  on — higher blast radius for no benefit, since the *algorithm* is what's
+  shared, and mirroring a small, self-contained function pair costs less
+  than a conditional inside the shared one).
+- **An `<optgroup>` wrapper (rejected)** — `<optgroup>` IS legal inside
+  `<select>` and can carry `data-*` attributes, so wrapping the whole
+  reactive option group in one unlabeled `<optgroup>` was considered as an
+  alternative to a bespoke View case. Rejected: an empty/unlabeled
+  `<optgroup>` is a real, semantically-visible grouping construct to
+  assistive technology (unlike the harmlessly-dropped generic `<span>`
+  wrapper elsewhere) — introducing one purely as an implementation-detail
+  DOM anchor risks a screen reader announcing a spurious group for every
+  reactive select, which is a worse trade than the small amount of new
+  JS-runtime code the dedicated-View-case approach costs instead.
+- **`optionFn: A => (String, String)`, not `A => View`** — `forKeyedView`/
+  `KeyedForNode`'s own `render: A => View` is fully generic (any child
+  markup per row), which is right for a general list but wrong here:
+  `<option>`'s content model is text-only, so a generic `A => View` render
+  function would silently invite call sites to build arbitrary nested
+  markup that can never legally render inside `<option>` in the first
+  place. Narrowing to `(String, String)` (matching the base `select()`'s
+  per-option shape exactly) makes the illegal case unrepresentable instead
+  of merely undocumented.
+- **`key: A => String` kept as a separate parameter from `optionFn`** (not
+  derived from the `value` half of the pair) — mirrors
+  `forKeyedView`/`KeyedForNode`'s own separation of key and render, and
+  keeps key stability independent of what's displayed (a caller can key by
+  a stable internal id while `optionFn`'s value differs, or the option
+  label changes without changing the key).
+- **`items`/`selected` typed `Any` in the node/ctor, matching `SelectNode`**
+  — same reasoning as the base spec's own `selected: Any` decision (opaque
+  `Signal[T] = Any`).
+- **No changes to the base `select()`/`SelectNode`/`select` at all** —
+  strictly additive; existing callers are unaffected.
+
+### Results
+
+Implemented in `<commit-sha-filled-in-after-implementation>`. See the
+top-level spec commit history for the exact SHAs (spec-update commit landed
+first, implementation commits follow).
