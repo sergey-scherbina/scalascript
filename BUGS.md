@@ -2,7 +2,24 @@
 
 ## v2-bridged-ui-emit-name-collision — `emit` resolves to the streams plugin, not the UI plugin, on `run --v2`
 
-**Status:** open — root-caused (2026-07-13, opus); DEEP, architectural, NOT a shim. Found
+**Status:** FIXED (2026-07-13, opus, Option 1 — mirror the native lane's UI-plugin
+ownership of the internal name). `PluginBridge.loadAll`'s plugin loop has per-plugin
+provenance (`backend.id`), so when bridging the frontend/UI plugin
+(`id == "scalascript-frontend-interpreter"`) it now ALSO registers each annotated std/ui
+symbol under its `__ssc_nativeui_v1.<name>` internal name — delegating to THAT iteration's
+`nativeFn` (the UI emit, captured unambiguously before the streams `emit` overwrites the
+plain global) and dropping `NativeUiSites.hiddenArgumentCount(name)` hidden args. Verified
+end-to-end: `ssc-tools run --v2 examples/swift/appcore-nativeui.ssc` now runs the FRONTEND
+emit (`[ui.emit] wrote swiftui app`, not the streams `emit(value)`) and produces a valid
+SwiftUI package whose `ContentView.swift` reflects the tree (`@State message = "after"`,
+`Text("message")` = `message.id`, `Text("\(message)")` = signalText). No regression: the
+NATIVE lane uses `NativePluginHost` (not `PluginBridge.loadAll`); the BATCH lane does NOT
+run `annotate` (so its plain-`emit` no-op stub is untouched); PluginBridge 33/33. (`--v2`
+emits SwiftUI while `--native` emits HTML for this app — a separate frontend-framework-default
+difference, not this bug.) Original root-cause below.
+
+<details><summary>original root-cause (root-caused before the Option-1 fix)</summary>
+open — root-caused (2026-07-13, opus); DEEP, architectural, NOT a shim. Found
 running `examples/swift/appcore-nativeui.ssc` on `ssc-tools run --v2` (after fixing
 `v2-bridged-ui-signal-id-field`): `emit(tree, outDir)` crashes. Two nested causes:
 1. `NativeUiSites.annotate` (run by FrontendBridge on `run --v2`, `FrontendBridge.scala:864`)
@@ -24,6 +41,7 @@ running `examples/swift/appcore-nativeui.ssc` on `ssc-tools run --v2` (after fix
    annotate rewrite on the v1-compat lane and resolve the plain-`emit` collision by owner.
 NOT BLOCKING: `appcore-nativeui.ssc` runs end-to-end on `--native` (its real lane); only the
 `run --v2` v1-compat migration lane is affected.
+</details>
 
 ## v2-bridged-ui-signal-id-field — std/ui `signal(...).id` crashes on the bridged VM lane
 

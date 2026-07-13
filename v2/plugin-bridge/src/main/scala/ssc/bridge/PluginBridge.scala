@@ -332,6 +332,17 @@ object PluginBridge:
               V2PluginRegistry.registerGlobal(op, V2Value.ClosV(Runtime.emptyEnv, -1, env => {
                 Done(nativeFn(env.toList))
               }))
+              // v2-bridged-ui-emit-name-collision: NativeUiSites.annotate (FrontendBridge,
+              // `run --v2`) rewrites the annotated std/ui symbols to `__ssc_nativeui_v1.<name>`
+              // with leading hidden source args, but only the NATIVE ui-plugin registers those
+              // names — and the plain `emit` COLLIDES with the streams plugin's `emit`
+              // (last-write-wins), so a plain-name delegation hits the wrong impl. Mirror the
+              // native lane's UI-plugin ownership: register the internal name FROM THE FRONTEND
+              // plugin (unambiguous — this iteration's `nativeFn`), dropping the hidden args.
+              if backend.id == "scalascript-frontend-interpreter" && ssc.NativeUiSites.annotatedSymbols(op) then
+                val hidden = ssc.NativeUiSites.hiddenArgumentCount(op)
+                V2PluginRegistry.registerGlobal(ssc.NativeUiSites.internalName(op),
+                  V2Value.ClosV(Runtime.emptyEnv, -1, env => Done(nativeFn(env.toList.drop(hidden)))))
               count += 1
             case _ => // InlineCode / RuntimeCall: compile-time only, skip
         }
