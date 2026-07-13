@@ -102,8 +102,10 @@ private[markdown] final class MarkdownBlocks(
       openBlockquoteAndReprocess(lines, index, line, content)
     else if startsListItem(trimmed).isDefined then
       openListItemAndReprocess(lines, index, line, content, startsListItem(trimmed).get)
-    else if open != OpenLeaf.Paragraph && startsHtmlBlock(trimmed) then
-      finishParagraph(); handleHtmlBlock(lines, index)
+    else if indentWidth < 4 && htmlBlockType(trimmed, open == OpenLeaf.Paragraph).isDefined then
+      // types 1-6 interrupt a paragraph; type 7 does not (returns None when open)
+      val ht = htmlBlockType(trimmed, open == OpenLeaf.Paragraph).get
+      finishParagraph(); handleHtmlBlock(lines, index, ht)
     else if open != OpenLeaf.Paragraph && isRefDefLine(content) then
       emitDefinition(line, content); index + 1
     else if gfm && open != OpenLeaf.Paragraph && isTableStart(lines, index, content) then
@@ -172,7 +174,8 @@ private[markdown] final class MarkdownBlocks(
     else
       val t = rest.substring(MdChars.indentPrefixLength(rest))
       !(startsAtxHeading(t) || isThematicBreak(t) || startsFence(t).isDefined ||
-        startsBlockquote(t) || startsListItem(t).isDefined || startsHtmlBlock(t) || isSetextUnderline(t))
+        startsBlockquote(t) || startsListItem(t).isDefined ||
+        htmlBlockType(t, paragraphOpen = true).isDefined || isSetextUnderline(t))
 
   private def scheduleContainerClose(keep: Int): Unit =
     finishParagraph()
@@ -378,33 +381,109 @@ private[markdown] final class MarkdownBlocks(
 
   // ── HTML blocks ────────────────────────────────────────────────────────
 
-  private def startsHtmlBlock(trimmed: String): Boolean =
-    if !trimmed.startsWith("<") then false
-    else if trimmed.startsWith("<!--") || trimmed.startsWith("<?") || trimmed.startsWith("<!") then true
-    else
-      // <tag / </tag where the name is a letter-led run followed by ws, >, /, or EOL
-      var i = 1
-      if i < trimmed.length && trimmed.charAt(i) == '/' then i += 1
-      if i >= trimmed.length || !MdChars.isAsciiLetter(trimmed.charAt(i)) then false
-      else
-        while i < trimmed.length && (MdChars.isAsciiAlnum(trimmed.charAt(i)) || trimmed.charAt(i) == '-') do i += 1
-        i >= trimmed.length || trimmed.charAt(i) == ' ' || trimmed.charAt(i) == '\t' ||
-          trimmed.charAt(i) == '>' || trimmed.charAt(i) == '/'
+  // CommonMark type-6 HTML block tag names.
+  private val htmlBlock6Tags: Set[String] = Set(
+    "address", "article", "aside", "base", "basefont", "blockquote", "body", "caption", "center",
+    "col", "colgroup", "dd", "details", "dialog", "dir", "div", "dl", "dt", "fieldset", "figcaption",
+    "figure", "footer", "form", "frame", "frameset", "h1", "h2", "h3", "h4", "h5", "h6", "head",
+    "header", "hr", "html", "iframe", "legend", "li", "link", "main", "menu", "menuitem", "nav",
+    "noframes", "ol", "optgroup", "option", "p", "param", "section", "summary", "table", "tbody",
+    "td", "tfoot", "th", "thead", "title", "tr", "track", "ul",
+  )
+  private val htmlType1Tags = Vector("script", "pre", "style", "textarea")
 
-  private def handleHtmlBlock(lines: Vector[MdLine], index: Int): Int =
-    // consume this and following lines until a blank line (HTML block type 6/7 approximation)
+  /** Classifies the CommonMark HTML block type (1..7) a line starts, or None.
+    * Type 7 (a bare complete tag) cannot interrupt a paragraph. */
+  private def htmlBlockType(trimmed: String, paragraphOpen: Boolean): Option[Int] =
+    if !trimmed.startsWith("<") then None
+    else
+      val lower = trimmed.toLowerCase
+      if htmlType1Start(lower) then Some(1)
+      else if trimmed.startsWith("<!--") then Some(2)
+      else if trimmed.startsWith("<?") then Some(3)
+      else if trimmed.startsWith("<![CDATA[") then Some(5)
+      else if trimmed.startsWith("<!") && trimmed.length > 2 && MdChars.isAsciiLetter(trimmed.charAt(2)) then Some(4)
+      else if htmlType6Start(trimmed) then Some(6)
+      else if !paragraphOpen && htmlType7Start(trimmed) then Some(7)
+      else None
+
+  private def htmlType1Start(lower: String): Boolean =
+    htmlType1Tags.exists { tag =>
+      lower.startsWith("<" + tag) && {
+        val next = 1 + tag.length
+        next >= lower.length || { val c = lower.charAt(next); c == ' ' || c == '\t' || c == '>' }
+      }
+    }
+
+  private def htmlTagName(t: String): (String, Int) =
+    var i = 1
+    if i < t.length && t.charAt(i) == '/' then i += 1
+    val start = i
+    while i < t.length && (MdChars.isAsciiAlnum(t.charAt(i)) || t.charAt(i) == '-') do i += 1
+    (t.substring(start, i).toLowerCase, i)
+
+  private def htmlType6Start(t: String): Boolean =
+    val (name, after) = htmlTagName(t)
+    htmlBlock6Tags.contains(name) && (after >= t.length || {
+      val c = t.charAt(after); c == ' ' || c == '\t' || c == '>' || c == '/'
+    })
+
+  private def htmlType7Start(t: String): Boolean =
+    val (name, _) = htmlTagName(t)
+    if name.isEmpty || htmlType1Tags.contains(name) then false
+    else completeTagLength(t) match
+      case Some(len) => t.substring(len).forall(c => c == ' ' || c == '\t')
+      case None      => false
+
+  /** Length of a single complete open/close HTML tag at position 0, else None. */
+  private def completeTagLength(t: String): Option[Int] =
+    val n = t.length
+    if n < 2 || t.charAt(0) != '<' then None
+    else
+      var i = 1
+      if i < n && t.charAt(i) == '/' then i += 1
+      if i >= n || !MdChars.isAsciiLetter(t.charAt(i)) then None
+      else
+        while i < n && (MdChars.isAsciiAlnum(t.charAt(i)) || t.charAt(i) == '-') do i += 1
+        // after the tag name only whitespace, '/', or '>' may follow (so e.g.
+        // an autolink "<https://x>" is not a tag: ':' is not valid here)
+        if i < n && !(t.charAt(i) == ' ' || t.charAt(i) == '\t' || t.charAt(i) == '/' || t.charAt(i) == '>') then None
+        else
+          var ok = true
+          while ok && i < n && t.charAt(i) != '>' do
+            if t.charAt(i) == '<' then ok = false else i += 1
+          if !ok || i >= n || t.charAt(i) != '>' then None else Some(i + 1)
+
+  private def handleHtmlBlock(lines: Vector[MdLine], index: Int, htmlType: Int): Int =
+    // types 1-5 end at (and include) a line containing their close marker;
+    // types 6-7 end before a blank line. End of input ends any block.
+    val endMarkers: Option[Vector[String]] = htmlType match
+      case 1 => Some(Vector("</script>", "</pre>", "</style>", "</textarea>"))
+      case 2 => Some(Vector("-->"))
+      case 3 => Some(Vector("?>"))
+      case 4 => Some(Vector(">"))
+      case 5 => Some(Vector("]]>"))
+      case _ => None
     var i = index
     var first = true
-    while i < lines.size && !lines(i).isBlank do
+    var done = false
+    while i < lines.size && !done do
       val l = lines(i)
-      if first then flushPending(MdKind.Html, l.content, Vector(FrameSpec(MdBranch.HtmlBlock)), Some("html"), TokenChannel.Embedded)
-      else if l.content.nonEmpty then sink.leaf(MdKind.Html, l.content, Some("html"), TokenChannel.Embedded)
-      if l.ending.nonEmpty then sink.leaf(MdKind.LineBreak, l.ending, Some("html"), TokenChannel.Embedded)
-      first = false
-      i += 1
-    // close the HTML block on the next structural token (or at EOF via closeDangling)
+      endMarkers match
+        case None =>
+          if l.isBlank then done = true
+          else { emitHtmlLine(l, first); first = false; i += 1 }
+        case Some(markers) =>
+          emitHtmlLine(l, first); first = false; i += 1
+          val lc = l.content.toLowerCase
+          if markers.exists(lc.contains) then done = true
     pendingClose = pendingClose :+ MdBranch.HtmlBlock
     i
+
+  private def emitHtmlLine(l: MdLine, first: Boolean): Unit =
+    if first then flushPending(MdKind.Html, l.content, Vector(FrameSpec(MdBranch.HtmlBlock)), Some("html"), TokenChannel.Embedded)
+    else if l.content.nonEmpty then sink.leaf(MdKind.Html, l.content, Some("html"), TokenChannel.Embedded)
+    if l.ending.nonEmpty then sink.leaf(MdKind.LineBreak, l.ending, Some("html"), TokenChannel.Embedded)
 
   // ── GFM tables ────────────────────────────────────────────────────────
 

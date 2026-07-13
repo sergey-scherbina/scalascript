@@ -144,6 +144,30 @@ final class MarkdownDialectSpec extends AnyFunSuite:
       case other => fail(s"expected block quote, got $other")
   }
 
+  test("HTML block types use the correct end conditions") {
+    // type 1 (pre/script/style/textarea) spans blank lines, ends at the close tag
+    val pre = projectDoc("<pre>\na\n\nb\n</pre>\n")
+    assert(pre.blocks.size == 1)
+    pre.blocks.head match
+      case MarkdownBlock.HtmlBlock(raw) => assert(raw.contains("a\n\nb") && raw.contains("</pre>"))
+      case other => fail(s"expected one html block, got $other")
+    // type 2 comment ends at the '-->' line; following text is a separate block
+    projectDoc("<!-- a\nb -->\nafter\n").blocks match
+      case Vector(MarkdownBlock.HtmlBlock(_), MarkdownBlock.Paragraph(is)) =>
+        assert(is == Vector(MarkdownInline.Text("after")))
+      case other => fail(s"expected html block then paragraph, got $other")
+    // type 4 declaration is a single line
+    assert(projectDoc("<!DOCTYPE html>\n\ntext\n").blocks.size == 2)
+    // type 6 ends before a blank line
+    projectDoc("<div>\nx\n</div>\n\nafter\n").blocks match
+      case Vector(MarkdownBlock.HtmlBlock(_), MarkdownBlock.Paragraph(_)) => ()
+      case other => fail(s"expected html block then paragraph, got $other")
+    // type 7 (a bare custom tag) does NOT interrupt an open paragraph
+    projectDoc("foo\n<x-widget>\nbar\n").blocks match
+      case Vector(MarkdownBlock.Paragraph(_)) => ()
+      case other => fail(s"expected a single paragraph, got $other")
+  }
+
   test("lazy paragraph continuation keeps text inside its container") {
     // a marker-less line continues the block quote's paragraph
     projectDoc("> foo\nbar\n").blocks.head match
