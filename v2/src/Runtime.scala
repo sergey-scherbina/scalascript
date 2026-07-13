@@ -700,6 +700,12 @@ object Compiler:
             (env: Env) => Runtime.value(cc, env) match              // condition: non-tail
               case BoolV(true)  => tc(env)                          // branch: tail (returns Step)
               case BoolV(false) => ec(env)
+              // Expression-position effect in the condition (`if performOp() then …`):
+              // lift the Op, deferring the chosen branch (run to a Value) into its
+              // continuation so the perform stays inside the enclosing handler.
+              case op @ DataV("Op", _) =>
+                Done(Prims.liftOverOp(op, cv =>
+                  if cv == BoolV(true) then Runtime.value(tc, env) else Runtime.value(ec, env)))
               case v => sys.error(s"if: condition not Bool: ${Show.show(v)}")
       case Let(rhs, body) =>
         val rcs = rhs.map(compile).toArray; val bc = compile(body)
@@ -1923,9 +1929,9 @@ object Prims:
       args => PortableDecimal.eval(portable, args)
     case portable if PortableEffects.primitiveNames.contains(portable) =>
       args => PortableEffects.eval(portable, args)
-    case "i.add" => a => numBin(a, _ + _, _ + _)
-    case "i.sub" => a => numBin(a, _ - _, _ - _)
-    case "i.mul" => a => numBin(a, _ * _, _ * _)
+    case "i.add" => a => liftArith("+", a, numBin(a, _ + _, _ + _))
+    case "i.sub" => a => liftArith("-", a, numBin(a, _ - _, _ - _))
+    case "i.mul" => a => liftArith("*", a, numBin(a, _ * _, _ * _))
     case "i.div" => a => numBin(a, _ / _, _ / _)
     case "i.mod" => a => numBin(a, _ % _, _ % _)
     case "i.neg" => a => numUn(a, -_, -_)
@@ -2308,7 +2314,7 @@ object Prims:
         case BoolV(b)  => op match { case "!" => BoolV(!b); case _ => sys.error(s"__unary__: $op on Bool") }
         case v => sys.error(s"__unary__: $op on ${Show.show(v)}")
     // __eq__(a, b): structural equality (works on all Value types including ADTs)
-    case "__eq__" => a => BoolV(a(0) == a(1))
+    case "__eq__" => a => liftArith("==", a, BoolV(a(0) == a(1)))
     // __method__(name, receiver, args...): method dispatch on receiver type
     case "__method__" => a =>
       val name = str(a, 0)
@@ -3453,25 +3459,25 @@ object Prims:
     // shapes — a fast path stricter than the general table silently diverges
     // (the sconcat/T5.4 and float-div/T5.6 lessons).
     case "i.add"    => Some { case (IntV(x),   IntV(y))   => IntV(x + y)
-                              case (a, b)                  => numBin(List(a, b), _ + _, _ + _) }
+                              case (a, b)                  => liftArith2("+", a, b, numBin(List(a, b), _ + _, _ + _)) }
     case "i.sub"    => Some { case (IntV(x),   IntV(y))   => IntV(x - y)
-                              case (a, b)                  => numBin(List(a, b), _ - _, _ - _) }
+                              case (a, b)                  => liftArith2("-", a, b, numBin(List(a, b), _ - _, _ - _)) }
     case "i.mul"    => Some { case (IntV(x),   IntV(y))   => IntV(x * y)
-                              case (a, b)                  => numBin(List(a, b), _ * _, _ * _) }
+                              case (a, b)                  => liftArith2("*", a, b, numBin(List(a, b), _ * _, _ * _)) }
     case "i.div"    => Some { case (IntV(x),   IntV(y))   => IntV(x / y)
-                              case (a, b)                  => numBin(List(a, b), _ / _, _ / _) }
+                              case (a, b)                  => liftArith2("/", a, b, numBin(List(a, b), _ / _, _ / _)) }
     case "i.mod"    => Some { case (IntV(x),   IntV(y))   => IntV(x % y)
-                              case (a, b)                  => numBin(List(a, b), _ % _, _ % _) }
+                              case (a, b)                  => liftArith2("%", a, b, numBin(List(a, b), _ % _, _ % _)) }
     case "i.eq"     => Some { case (IntV(x),   IntV(y))   => BoolV(x == y)
-                              case (a, b)                  => numCmp(List(a, b), _ == _, _ == _) }
+                              case (a, b)                  => liftArith2("==", a, b, numCmp(List(a, b), _ == _, _ == _)) }
     case "i.lt"     => Some { case (IntV(x),   IntV(y))   => BoolV(x < y)
-                              case (a, b)                  => numCmp(List(a, b), _ < _, _ < _) }
+                              case (a, b)                  => liftArith2("<", a, b, numCmp(List(a, b), _ < _, _ < _)) }
     case "i.le"     => Some { case (IntV(x),   IntV(y))   => BoolV(x <= y)
-                              case (a, b)                  => numCmp(List(a, b), _ <= _, _ <= _) }
+                              case (a, b)                  => liftArith2("<=", a, b, numCmp(List(a, b), _ <= _, _ <= _)) }
     case "i.gt"     => Some { case (IntV(x),   IntV(y))   => BoolV(x > y)
-                              case (a, b)                  => numCmp(List(a, b), _ > _, _ > _) }
+                              case (a, b)                  => liftArith2(">", a, b, numCmp(List(a, b), _ > _, _ > _)) }
     case "i.ge"     => Some { case (IntV(x),   IntV(y))   => BoolV(x >= y)
-                              case (a, b)                  => numCmp(List(a, b), _ >= _, _ >= _) }
+                              case (a, b)                  => liftArith2(">=", a, b, numCmp(List(a, b), _ >= _, _ >= _)) }
     case "i.and"    => Some { case (IntV(x),   IntV(y))   => IntV(x & y);  case (a,b) => IntV(asInt1(a) & asInt1(b)) }
     case "i.or"     => Some { case (IntV(x),   IntV(y))   => IntV(x | y);  case (a,b) => IntV(asInt1(a) | asInt1(b)) }
     case "i.xor"    => Some { case (IntV(x),   IntV(y))   => IntV(x ^ y);  case (a,b) => IntV(asInt1(a) ^ asInt1(b)) }
@@ -3539,7 +3545,7 @@ object Prims:
     case _          => None
 
   /** Lift a computation over an un-handled Op: Op(l, a, k) -> Op(l, a, x -> use(k(x))). */
-  private def liftOverOp(op: Value, use: Value => Value): Value = op match
+  def liftOverOp(op: Value, use: Value => Value): Value = op match
     case DataV("Op", IndexedSeq(l, a, k)) =>
       val kc = k.asInstanceOf[ClosV]
       DataV("Op", Vector(l, a, ClosV(Runtime.emptyEnv, 1, env2 => {
@@ -3554,6 +3560,24 @@ object Prims:
   private def asFloat1(v: Value): Double = v match { case FloatV(d) => d; case IntV(n) => n.toDouble; case x => sys.error(s"expected Double, got ${Show.show(x)}") }
 
   // numeric dispatch helpers: promote to Float when either operand is FloatV
+  // Expression-position effects: when an operand of a fast binary prim is an unhandled
+  // effect Op, thread it through arithOp (which lifts Ops into the op's continuation),
+  // else take the fast fallback. Hot path pays only two null-cheap tag tests.
+  private def liftArith(op: String, a: List[Value], fallback: => Value): Value =
+    a(0) match
+      case DataV("Op", _) => arithOp(op, a(0), a(1))
+      case _ => a(1) match
+        case DataV("Op", _) => arithOp(op, a(0), a(1))
+        case _              => fallback
+
+  // Two-arg (already-destructured) variant used by the binary fast-path table.
+  private def liftArith2(op: String, a: Value, b: Value, fallback: => Value): Value =
+    a match
+      case DataV("Op", _) => arithOp(op, a, b)
+      case _ => b match
+        case DataV("Op", _) => arithOp(op, a, b)
+        case _              => fallback
+
   private def numBin(a: List[Value], fi: (Long, Long) => Long, ff: (Double, Double) => Double): Value =
     (a(0), a(1)) match {
       case (FloatV(x), FloatV(y)) => FloatV(ff(x, y))
