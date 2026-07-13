@@ -1,0 +1,42 @@
+---
+name: tkv2-select
+version: 1.0.0
+backends: [int, js]
+---
+
+# tkv2 - select: dropdown primitive (std-ui-select)
+
+Slice `std-ui-select` (`specs/std-ui-select.md`): `select` builds a `<select>`
+`TkNode` over `(value, label)` pairs, two-way bound to a `Signal[String]`. DOM
+serialization (option/selected markup, the change→signal wiring) is covered
+by `examples/frontend/select-demo/select-demo.ssc`'s emitted bundle; this
+conformance file keeps the public API and the `lower()` path live on both
+lanes, and exercises the initial-selection read (`selected()`) that decides
+which `<option>` starts marked `selected`.
+
+[signal](std/ui/primitives.ssc)
+[select](std/ui/input.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
+
+```scalascript
+val opts = [("a", "Alpha"), ("b", "Beta"), ("c", "Gamma")]
+val picked = signal("tkv2SelectPicked", "b")
+
+println(picked())
+picked.set("c")
+println(picked())
+
+// Safe named-arg calling convention: name every trailing param from the
+// first one overridden onward (see specs/std-ui-select.md "Known
+// limitation" — a bin/ssc-run-only standard-tier bug, not this lane).
+val node = select(opts, picked, label = "Pick one", placeholder = "Choose...", disabled = false)
+val view = lower(node, defaultTheme)
+println("select-built")
+
+// placeholder-only path: empty initial selection, disabled render.
+val empty = signal("tkv2SelectEmpty", "")
+val node2 = select(opts, empty, label = "", placeholder = "Nothing yet", disabled = true)
+val view2 = lower(node2, defaultTheme)
+println("select-disabled-built")
+```

@@ -25,7 +25,7 @@ throwing and that `println("smoke:ok")` is reached.
 
 [heading, text](std/ui/typography.ssc)
 
-[textField, checkbox, signalButton](std/ui/input.ssc)
+[textField, checkbox, select, signalButton](std/ui/input.ssc)
 
 [showWhen, signalText_, fragment_](std/ui/reactive.ssc)
 
@@ -69,6 +69,7 @@ val inputSection = vstack(gap = 8)(
   heading(2, "Input"),
   textField(value = name, label = "Name"),
   checkbox(checked = signal("agree", false), label = "Agree"),
+  select([("a", "Option A"), ("b", "Option B")], signal("choice", "a"), label = "Choice"),
   signalButton(counter, 1, "Click me"),
   signalButton(counter, 0, "Reset", disabled = true)
 )
