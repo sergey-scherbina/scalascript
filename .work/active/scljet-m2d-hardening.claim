@@ -1,0 +1,5 @@
+feature/scljet-m2d-hardening 2026-07-13T09:52:40Z
+agent: claude-code
+heartbeat: 2026-07-13T09:52:40Z
+status: in-progress
+next: (1) index-btree payload-threshold vectors (generalize generate.py's idx_t_a oracle case to dump any index's key records in physical order); (2) deep record/overflow/freeblock/schema byte-mutation corruptions with stable SqliteError evidence. Additive to the read-only M2 corpus, reproducible with byte-exact SQLite 3.53.3.
