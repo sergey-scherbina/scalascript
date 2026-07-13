@@ -7078,6 +7078,17 @@ JS `1410065408` = mod 2^32; JVM emits Scala's 32-bit `Int`). Huge blast radius
         NON-general (documented limitation): nested/other containers (Option[A], Map) still need real
         unification — a later slice. AST note: calls are tag "app" (:88); List(...) is an app of var
         "List"; element extraction = first arg of that app.
+        ATTEMPTED 2026-07-13 (the buildGivenArgs element-fallback above) → INEFFECTIVE, REVERTED. Root
+        is DEEPER + MULTI-SITE: `combineAll`'s dict is resolved TYPE-BLIND at `computeActiveCtx` (:585)
+        — `findGiven(tc, "*")` (only matches wildcard-typed givens) → falls to `findAnyGiven` → the
+        FIRST given (intSum) for EVERYTHING. So `combineAll(List(...))` always gets intSum regardless of
+        element type (int case passes by luck; string/list give the "0"/garbage; a TC with no given at
+        all → `__missing_tc_`). The call-site `buildGivenArgs` fix never bites because the dict is
+        already bound blind at the def/ctx level. A CORRECT fix must thread the concrete element/arg
+        type from the CALL SITE into the dict selection at BOTH `computeActiveCtx` and the call-site
+        injection (i.e. real type-directed resolution / light unification), not a single-site heuristic.
+        That is a genuine multi-session type-inference slice — the "biggest lever" but also the deepest;
+        needs a deliberate design pass on the whole given-dict flow in ssc1-lower.ssc0, not a bolt-on.
 
 ### ▶ ssc-toolkit-v2 (2026-07-07, owner-directed via busi: the busi SPA must move React→ScalaScript)
 
