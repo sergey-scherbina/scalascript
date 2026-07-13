@@ -1,6 +1,6 @@
 feature/scljet-m3-writes 2026-07-13T11:38:32Z
 agent: claude-code
-heartbeat: 2026-07-13T15:46:38Z
+heartbeat: 2026-07-13T15:57:37Z
 status: in-progress
-done-so-far: m3b/m3c/m3d done; m3e journal FORMAT (recover + write) done (668d24c45). Cell-overflow (single-leaf) DONE: buildOverflowTableDatabase spills large payloads onto [u32 next][content] overflow-page chains (SQLite localPayloadBytes local-split); byte-exact vs reference SQLite 3.53.3, integrity_check ok, reads back exact, int==js; conformance scljet-write-overflow (12 scljet cases green). NOTE corrected misdiagnosis: interp DOES TCO tail self-calls in match (BUGS.md interp-tco-tail-call-in-match = NOT a bug). Standalone move done via symlink (kept — idiomatic).
-next: multi-leaf overflow (fold into buildTableDatabase); OR m3e pager recover-on-open (needs writable-VFS write-back + journal delete) / mutable pager; then m3f delete/update.
+done-so-far: m3b/m3c/m3d done; m3e journal FORMAT (recover + write) done (668d24c45). Cell-overflow DONE, both: single-leaf buildOverflowTableDatabase (scljet-write-overflow) + MULTI-LEAF buildOverflowBtreeDatabase (scljet-write-btree-overflow) — spill large payloads onto [u32 next][content] chains via SQLite localPayloadBytes local-split; multi-leaf = two-pass (probe fixes leaf count L, overflow pages numbered from 3+L, appended after leaves). Byte-exact vs reference SQLite 3.53.3, integrity_check ok, reads back exact, byte-identical to buildTableDatabase for non-overflow input, int==js; 13 scljet cases green. Standalone move done via symlink (kept — idiomatic).
+next: 3+-level B-trees (interior root that itself overflows → recursive level); OR m3e pager recover-on-open (needs writable-VFS write-back + journal delete) / mutable pager; then m3f delete/update.

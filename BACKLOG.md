@@ -94,11 +94,15 @@ are plain bullets without checkboxes so agents do not claim them as build work.
       (SQLite `localPayloadBytes` formula) and spills the remainder onto a chain
       of `[u32 next][content]` overflow pages — byte-exact vs reference SQLite,
       `integrity_check` ok, reads back exact, int==js (conformance
-      `scljet-write-overflow`). Remaining: (2) MULTI-LEAF overflow — fold overflow
-      into `buildTableDatabase` so large payloads work past a single leaf (needs
-      overflow-page allocation after the leaf/interior pages, referenced from
-      cells within leaves); (3) B-trees deeper than two levels — an interior root
-      that itself overflows needs a recursive interior level; (4) incremental
+      `scljet-write-overflow`). Multi-leaf overflow is DONE too (2026-07-13):
+      `buildOverflowBtreeDatabase` packs rows into leaves (and a table-interior
+      root) like `buildTableDatabase` while spilling overflowing cells onto chains
+      appended after the leaves — a two-pass build (probe to fix the leaf count,
+      then number the overflow pages from `3+L`); byte-exact vs reference SQLite,
+      byte-identical to `buildTableDatabase` for non-overflow input, int==js
+      (conformance `scljet-write-btree-overflow`). Remaining: (3) B-trees deeper
+      than two levels — an interior root that itself overflows needs a recursive
+      interior level; (4) incremental
       insert/update into an existing database file (mutating pages in place), which
       is really the pager/journal path (m3e) rather than bulk build.
 
