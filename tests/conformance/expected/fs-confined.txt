@@ -1,0 +1,9 @@
+ok: a/b.txt -> /srv/data/a/b.txt
+ok: a/./b.txt -> /srv/data/a/b.txt
+ok: a/../b.txt -> /srv/data/b.txt
+ok: a/b/../c -> /srv/data/a/c
+ok: x/y/z/../../w -> /srv/data/x/w
+ok: sub/dir/f -> /srv/data/sub/dir/f
+blocked: ../etc/passwd
+blocked: a/../../etc/passwd
+blocked: /etc/passwd

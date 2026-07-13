@@ -138,3 +138,20 @@ Third batch:
 Remaining (`SPRINT.md` Batches C): H2, H4, M1, M2, M10, L1, L3, L8, and the JS
 redirect policy (M3-JS). H2 (SSRF allow-list) and H4 (artifact signing) need a
 design decision (config surface / key management) before implementation.
+
+## M10 — confined filesystem access (partial, 2026-07-13)
+
+The raw `std.fs` helpers (`readFile`/`writeFile`/…) take their path **verbatim** and
+do not confine it — their input is TRUSTED. For UNTRUSTED (user-supplied) sub-paths,
+`std.fs.resolveWithin(root, rel): Option[String]` (pure ssc, cross-backend) lexically
+normalises `rel` — drops `.`, pops `..` — and returns `None` when it would escape
+`root` (a `..` above root, or an absolute path). Compose it: `resolveWithin(root,
+rel).map(readFile)`. Verified INT/JS/JVM (`tests/conformance/fs-confined`).
+
+**Limitation (by design):** this is LEXICAL only — it does **not** resolve symlinks,
+so a symlink *inside* `root` that points outside is not caught. Symlink-safe
+confinement (and the `readFileWithin`/`readBytesWithin` convenience wrappers) is
+BACKLOG: it needs an OS `realPath`/NOFOLLOW extern per backend (JVM `toRealPath`, Node
+`realpathSync`, Rust `canonicalize`), and the `List[Int]` wrappers additionally hit the
+ssc-`Int`→`Long` codegen mismatch on JVM (`int-2a`). Until then, callers that must be
+symlink-safe should canonicalise `root` + target via the platform before comparing.

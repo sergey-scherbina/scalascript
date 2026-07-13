@@ -595,8 +595,16 @@ Chosen approaches (autonomous — non-breaking defaults):
 - [x] **M2 response-body cap** — JVM+interp ofInputStream+bounded read (10MB, SSC_HTTP_MAX_BODY); Rust already 10MB. LANDED (git). JS lane too (byte-counted reader). ALL 4 BACKENDS.
 - [x] **M7 secure temp files** — Rust `create_new`+pid/nanos / JS `'wx' 0o600`+randomBytes. LANDED a2b11223b.
       (Bonus 921a5da7c: fixed BorrowedArgIntrinsics so &str fs/path intrinsics compile on Rust — E0308.)
-- [ ] **M10 confined fs variants** — `…Within(root, path)` normalize + `startsWith(root)` +
-      NOFOLLOW; document raw helpers as trusted-input-only.
+- [~] **M10 confined fs variants** — INLINE PART DONE 2026-07-13: `std.fs.resolveWithin(root, rel)`
+      (pure ssc, cross-backend) lexically normalises `rel` (drops `.`, pops `..`) and rejects `..`
+      escapes + absolute paths so the result stays under `root`; the raw helpers are now documented as
+      trusted-input-only. Conformance `fs-confined` PASSES INT/JS/JVM. (Found+fixed a real correctness
+      bug the shallow int cases missed — `..` popped the wrong stack element with `:+`-append; fixed to
+      prepend+reverse. Also avoided a `case h :: t =>` binder the JS backend mis-binds.)
+      → BACKLOG (full API): symlink-safe confinement needs an OS `realPath`/NOFOLLOW extern (JVM
+      toRealPath / Node realpathSync / Rust canonicalize) + `readFileWithin`/`readBytesWithin` — the
+      convenience wrappers hit the ssc-Int→Long codegen quirk on JVM (`List[Int]` mismatch), so they
+      wait on that + the realpath externs. resolveWithin is the lexical primitive; document remains.
 - [x] **L1 retry backoff/cap** — cap 10 + exp backoff·2^n ±20% jitter, all 4 clients. LANDED (git).
 - [x] **L3 env-scrub** — ProcessOptions.inheritEnv (JVM codegen + std/process.ssc). LANDED (git). VERIFIED scrub. + M5 interp-exec deadlock completed. (interp/Rust/JS opts-wiring → BACKLOG)
 - [x] **L4 mkdir TOCTOU** — Rust+JVM create directly, tolerate AlreadyExists. LANDED a2b11223b.
