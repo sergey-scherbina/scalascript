@@ -1,7 +1,6 @@
 package scalascript.uniml.dialect.json
 
 import scalascript.uniml.*
-import scala.collection.mutable
 
 object JsonProjection:
   def project(result: ParseResult): JsonProjectionResult =
@@ -41,8 +40,8 @@ object JsonProjection:
   private def projectNode(node: UniNode): Either[Diagnostic, (JsonValue, Vector[Diagnostic])] = node match
     case UniNode.Token(token) => projectToken(token).map(value => value -> stringWarnings(token))
     case UniNode.Branch("json.array", edges, _, _) =>
-      val values = Vector.newBuilder[JsonValue]
-      val warnings = Vector.newBuilder[Diagnostic]
+      var values: Vector[JsonValue] = Vector.empty
+      var warnings: Vector[Diagnostic] = Vector.empty
       var failure: Option[Diagnostic] = None
       var index = 0
       while index < edges.size && failure.isEmpty do
@@ -50,17 +49,17 @@ object JsonProjection:
           case UniEdge(Some("array.element"), child) =>
             projectNode(child) match
               case Right((value, childWarnings)) =>
-                values += value
-                warnings ++= childWarnings
+                values = values :+ value
+                warnings = warnings ++ childWarnings
               case Left(diagnostic) => failure = Some(diagnostic)
           case _ => ()
         index += 1
       failure match
         case Some(diagnostic) => Left(diagnostic)
-        case None             => Right(JsonValue.ArrayValue(values.result()) -> warnings.result())
+        case None             => Right(JsonValue.ArrayValue(values) -> warnings)
     case UniNode.Branch("json.object", edges, _, _) =>
-      val members = Vector.newBuilder[JsonMember]
-      val warnings = Vector.newBuilder[Diagnostic]
+      var members: Vector[JsonMember] = Vector.empty
+      var warnings: Vector[Diagnostic] = Vector.empty
       var pendingKey: Option[(String, SourceToken)] = None
       var failure: Option[Diagnostic] = None
       var index = 0
@@ -70,7 +69,7 @@ object JsonProjection:
             decodeString(token.lexeme) match
               case Some(name) =>
                 pendingKey = Some(name -> token)
-                warnings ++= stringWarnings(token)
+                warnings = warnings ++ stringWarnings(token)
               case None => failure = Some(invalidCst(token.span, "object key is not a valid JSON string token"))
           case UniEdge(Some("member.value"), child) =>
             pendingKey match
@@ -80,8 +79,8 @@ object JsonProjection:
                   case Left(diagnostic) => failure = Some(diagnostic)
                   case Right((value, childWarnings)) =>
                     val span = SourceSpan(keyToken.span.source, keyToken.span.start, nodeSpan(child).end)
-                    members += JsonMember(name, keyToken.lexeme, value, span)
-                    warnings ++= childWarnings
+                    members = members :+ JsonMember(name, keyToken.lexeme, value, span)
+                    warnings = warnings ++ childWarnings
                     pendingKey = None
           case _ => ()
         index += 1
@@ -90,9 +89,9 @@ object JsonProjection:
         case None => pendingKey match
           case Some((_, token)) => Left(invalidCst(token.span, "object key has no value"))
           case None =>
-            val result = members.result()
-            warnings ++= duplicateDiagnostics(result, Severity.Warning)
-            Right(JsonValue.ObjectValue(result) -> warnings.result())
+            val result = members
+            warnings = warnings ++ duplicateDiagnostics(result, Severity.Warning)
+            Right(JsonValue.ObjectValue(result) -> warnings)
     case UniNode.Branch(kind, _, span, _) => Left(invalidCst(span, s"unsupported JSON branch '$kind'"))
 
   private def projectToken(token: SourceToken): Either[Diagnostic, JsonValue] = token.kind match
@@ -108,32 +107,32 @@ object JsonProjection:
   private def decodeString(lexeme: String): Option[String] =
     if lexeme.length < 2 || lexeme.head != '"' || lexeme.last != '"' then None
     else
-      val result = StringBuilder()
+      var result: Vector[String] = Vector.empty
       var index = 1
       while index < lexeme.length - 1 do
         val char = lexeme.charAt(index)
         if char != '\\' then
-          result.append(char)
+          result = result :+ char.toString
           index += 1
         else
           if index + 1 >= lexeme.length - 1 then return None
           lexeme.charAt(index + 1) match
-            case '"' => result.append('"'); index += 2
-            case '\\' => result.append('\\'); index += 2
-            case '/' => result.append('/'); index += 2
-            case 'b' => result.append('\b'); index += 2
-            case 'f' => result.append('\f'); index += 2
-            case 'n' => result.append('\n'); index += 2
-            case 'r' => result.append('\r'); index += 2
-            case 't' => result.append('\t'); index += 2
+            case '"' => result = result :+ "\""; index += 2
+            case '\\' => result = result :+ "\\"; index += 2
+            case '/' => result = result :+ "/"; index += 2
+            case 'b' => result = result :+ "\b"; index += 2
+            case 'f' => result = result :+ "\f"; index += 2
+            case 'n' => result = result :+ "\n"; index += 2
+            case 'r' => result = result :+ "\r"; index += 2
+            case 't' => result = result :+ "\t"; index += 2
             case 'u' =>
               if index + 6 > lexeme.length then return None
               val hex = lexeme.substring(index + 2, index + 6)
               parseHex(hex) match
-                case Some(value) => result.append(value.toChar); index += 6
+                case Some(value) => result = result :+ value.toChar.toString; index += 6
                 case None        => return None
             case _ => return None
-      Some(result.result())
+      Some(result.mkString)
 
   private def parseHex(value: String): Option[Int] =
     var result = 0
@@ -154,14 +153,14 @@ object JsonProjection:
     decodeString(token.lexeme) match
       case None => Vector.empty
       case Some(value) =>
-        val warnings = Vector.newBuilder[Diagnostic]
+        var warnings: Vector[Diagnostic] = Vector.empty
         var index = 0
         while index < value.length do
           val char = value.charAt(index)
           if Unicode.isHighSurrogate(char) then
             if index + 1 < value.length && Unicode.isLowSurrogate(value.charAt(index + 1)) then index += 2
             else
-              warnings += Diagnostic(
+              warnings = warnings :+ Diagnostic(
                 "uniml.json.unpaired-surrogate",
                 "JSON string contains an unpaired surrogate escape",
                 Severity.Warning,
@@ -170,7 +169,7 @@ object JsonProjection:
               )
               index += 1
           else if Unicode.isLowSurrogate(char) then
-            warnings += Diagnostic(
+            warnings = warnings :+ Diagnostic(
               "uniml.json.unpaired-surrogate",
               "JSON string contains an unpaired surrogate escape",
               Severity.Warning,
@@ -179,22 +178,25 @@ object JsonProjection:
             )
             index += 1
           else index += 1
-        warnings.result()
+        warnings
 
   private def duplicateDiagnostics(members: Vector[JsonMember], severity: Severity): Vector[Diagnostic] =
-    val seen = mutable.HashSet.empty[String]
-    val diagnostics = Vector.newBuilder[Diagnostic]
-    members.foreach { member =>
-      if !seen.add(member.name) then
-        diagnostics += Diagnostic(
+    var seen: Set[String] = Set.empty
+    var diagnostics: Vector[Diagnostic] = Vector.empty
+    var index = 0
+    while index < members.size do
+      val member = members(index)
+      if seen.contains(member.name) then
+        diagnostics = diagnostics :+ Diagnostic(
           code = "uniml.json.duplicate-key",
           message = s"duplicate JSON object key '${member.name}'",
           severity = severity,
           span = Some(member.span),
           dialect = Some(JsonDialect.id),
         )
-    }
-    diagnostics.result()
+      else seen = seen + member.name
+      index += 1
+    diagnostics
 
   private def isTriviaNode(node: UniNode): Boolean = node match
     case UniNode.Token(token) => token.kind == "json.whitespace" || token.kind == "json.bom"
