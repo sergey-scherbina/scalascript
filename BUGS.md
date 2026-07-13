@@ -82,6 +82,10 @@ case, full `backendInterpreter/test` green):
   emitted as the literal JS identifier `_`, so two such bindings in one scope threw
   "Identifier '_' has already been declared". Each wildcard now gets a fresh unique
   throwaway name. (Found while writing the Stream conformance case.)
+- **js-generator-next-option** — FIXED. A pull-based `generator[T] { }`'s `next()`
+  returned a bespoke `{_isSome,_value}`/null shape (rendered `[object Object]`/`null`
+  by `_show`, and unmatchable by `case Some(v)`); now returns a real `Option`. The
+  one dependent site (the `Source.fromGenerator` async-stream bridge) was updated.
 
 Remaining (categorized; not yet fixed):
 

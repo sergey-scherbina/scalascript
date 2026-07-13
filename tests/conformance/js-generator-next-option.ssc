@@ -1,0 +1,28 @@
+---
+name: js-generator-next-option
+backends: [int, js]
+---
+
+# generator.next() returns a real Option on JS (js-generator-next-option)
+
+A pull-based `generator[T] { }`'s `next()` returned a bespoke `{_isSome,_value}`/null
+shape on JS, which `_show` rendered as `[object Object]`/`null` instead of
+`Some(v)`/`None` (and `next() match { case Some(v) => }` couldn't match it). It now
+returns a real `Option`, matching the interpreter.
+
+```scalascript
+val g = generator[Int] { () =>
+  suspend(10)
+  suspend(20)
+}
+println(g.next())
+println(g.next())
+println(g.next())
+
+val h = generator[Int] { () =>
+  suspend(7)
+}
+h.next() match
+  case Some(v) => println(s"got $v")
+  case None    => println("empty")
+```

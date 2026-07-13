@@ -2162,7 +2162,13 @@ function _makeGenerator(genFn) {
   const iter = genFn();
   function _wrap(iter2) {
     return {
-      next()    { const r = iter2.next(); return r.done ? null : { _isSome: true, _value: r.value }; },
+      // `next()` yields a real `Option` (Some(v)/None) — matching the interpreter —
+      // so `println(g.next())` renders `Some(10)`/`None` and `g.next() match { case
+      // Some(v) => … }` works. (Previously returned a bespoke `{_isSome,_value}`/null
+      // shape that `_show` rendered as `[object Object]`/`null`.) The
+      // fromGenerator→async-stream bridge (JsGen `_makeAsyncStream`) reads this same
+      // Option shape. (js-generator-next-option.)
+      next()    { const r = iter2.next(); return r.done ? _None : _Some(r.value); },
       nextOpt() { const r = iter2.next(); return r.done ? _None : _Some(r.value); },
       foreach(f) { for (const v of { [Symbol.iterator]() { return iter2; } }) f(v); },
       toList()  { const a = []; for (const v of { [Symbol.iterator]() { return iter2; } }) a.push(v); return a; },

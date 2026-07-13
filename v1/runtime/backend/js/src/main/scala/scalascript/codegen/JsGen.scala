@@ -4636,7 +4636,7 @@ class JsGen(
         Term.Select(Term.ApplyType.After_4_6_0(Term.Name("Source"), _) | Term.Name("Source"), Term.Name("fromGenerator")),
         argClause) if argClause.values.size == 1 =>
       val gen = genExpr(argClause.values.head.asInstanceOf[Term])
-      s"_makeAsyncStream((async function*(g) { for await (const v of { [Symbol.asyncIterator]() { return { async next() { const r = g.next(); return r === null ? { done: true } : { done: false, value: r._value }; } }; } }) yield v; })($gen))"
+      s"_makeAsyncStream((async function*(g) { for await (const v of { [Symbol.asyncIterator]() { return { async next() { const r = g.next(); return (r && r._type === '_None') ? { done: true } : { done: false, value: r.value }; } }; } }) yield v; })($gen))"
     // v1.51.1 Source.tick / Source.unfold / Source.fromCallback
     case Term.Apply.After_4_6_0(
         Term.Select(Term.ApplyType.After_4_6_0(Term.Name("Source"), _) | Term.Name("Source"), Term.Name("tick")),
