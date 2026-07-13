@@ -187,6 +187,21 @@ final class ScalaSpikeSpec extends AnyFunSuite:
     assert(childWithRole(arms(m)(1), "case.pat").get.asInstanceOf[UniNode.Branch].kind == "spike.cpat") // None nullary
   }
 
+  test("case class: declaration + field access project to mkCaseCls / mkSel") {
+    val pr = parse("case class Point(x: Int, y: Int)\ndef main(): Int = Point(3, 4).x")
+    assert(pr.status == CompletionStatus.Complete, pr.diagnostics)
+    val prog = pr.roots.head
+    val cc = allBranches(prog, "spike.casecls")
+    assert(cc.size == 1)
+    assert(childWithRole(cc.head, "cc.name").exists { case UniNode.Token(t) => t.lexeme == "Point"; case _ => false })
+    assert(cc.head.edges.count { case UniEdge(Some("cc.field"), _) => true; case _ => false } == 2)
+    val body = childWithRole(allBranches(prog, "spike.def").head, "def.body").get
+    assert(kindOf(body) == "spike.sel")
+    val proj = SpikeProject.program(prog)
+    assert(proj.contains("""mkCaseCls("Point""""), proj)
+    assert(proj.contains("mkSel("), proj)
+  }
+
   test("tuple pattern parses to spike.tuppat; uid application projects to mkUVar/mkApp") {
     val m = defBody(parse("def main(): Int = Pair(1, 2) match\n  case (a, b) => a\n  case _ => 0")).asInstanceOf[UniNode.Branch]
     assert(childWithRole(arms(m).head, "case.pat").get.asInstanceOf[UniNode.Branch].kind == "spike.tuppat")
@@ -275,7 +290,11 @@ final class ScalaSpikeSpec extends AnyFunSuite:
       "ctor-some" -> "def main(): Int = Some(5) match\n  case Some(x) => x\n  case None => 0",
       "ctor-none" -> "def main(): Int = None match\n  case Some(x) => x\n  case None => 42",
       "ctor-cons" -> "def main(): Int = Cons(3, Nil) match\n  case Cons(h, t) => h\n  case Nil => 0",
-      "tuple-pat" -> "def main(): Int = (4, 5) match\n  case (a, b) => a + b\n  case _ => 0"
+      "tuple-pat" -> "def main(): Int = (4, 5) match\n  case (a, b) => a + b\n  case _ => 0",
+      // P6.2d — case class declaration + construction + field access + ctor pattern
+      "cc-field"  -> "case class Point(x: Int, y: Int)\ndef main(): Int = Point(3, 4).x",
+      "cc-arith"  -> "case class Point(x: Int, y: Int)\ndef main(): Int = Point(3, 4).x + Point(3, 4).y",
+      "cc-match"  -> "case class Box(a: Int, b: Int)\ndef main(): Int = Box(10, 20) match\n  case Box(x, y) => x + y\n  case _ => 0"
     )
     // broken — no oracle; the harness proves containment (`main` still runs).
     val broken = Seq(

@@ -26,7 +26,7 @@ enum Node:
 
 // ── lexer ────────────────────────────────────────────────────────────────────
 object SpikeLex:
-  private val keywords = Set("def", "val", "if", "then", "else", "match", "case")
+  private val keywords = Set("def", "val", "if", "then", "else", "match", "case", "class")
   private def isOpChar(c: Char): Boolean = "+-*/%<>=!&|^~:".indexOf(c.toInt) >= 0
 
   def scan(src: SourceId, text: String): Vector[SourceToken] =
@@ -78,6 +78,7 @@ object SpikeLex:
           case '}' => "spike.rbrace"
           case ',' => "spike.comma"
           case ';' => "spike.semi"
+          case '.' => "spike.dot"
           case _   => "spike.junk"
         advance(c)
         emit(kind, start, c.toString, TokenChannel.Syntax)
@@ -131,6 +132,7 @@ object SpikeParse:
     val defs = Vector.newBuilder[Node]
     while !c.eof do
       if isDefStart(c) then defs += parseDef(c)
+      else if isKw(c, "case") then defs += parseCaseClass(c)
       else
         c.report("spike.unexpected-toplevel", s"unexpected token '${c.peekLexeme}' at top level")
         val skipped = Vector.newBuilder[Node]
@@ -175,6 +177,28 @@ object SpikeParse:
       case None    => c.report("spike.missing-body", "missing def body expression")
     Node.Frame("spike.def", None, kids.result())
 
+  // `case class Name(f1: T1, f2: T2)` — a top-level declaration. lowerProg does all the work
+  // (ctor def + Mirror + `_sel_<field>` accessors + `__regfields__`) from the `casecls` AST node.
+  private def parseCaseClass(c: Cur): Node =
+    val kids = Vector.newBuilder[Node]
+    c.advance().foreach(t => kids += Node.Leaf(t, Some("cc.case"))) // `case`
+    if isKw(c, "class") then c.advance().foreach(t => kids += Node.Leaf(t, Some("cc.class")))
+    else c.report("spike.expected", "expected 'class' after 'case'")
+    expect(c, "spike.uid", "cc.name", "class name").foreach(kids += _)
+    expect(c, "spike.lparen", "cc.lparen", "'('").foreach(kids += _)
+    var more = c.peekKind != "spike.rparen" && !c.eof && !isDefStart(c) && !isKw(c, "case")
+    while more do
+      val fname = expect(c, "spike.id", "cc.field", "field name")
+      fname.foreach(kids += _)
+      if fname.isEmpty then more = false
+      else
+        expect(c, "spike.colon", "cc.fieldColon", "':'").foreach(kids += _)
+        expectType(c, "cc.fieldType").foreach(kids += _)
+        if c.peekKind == "spike.comma" then c.advance().foreach(t => kids += Node.Leaf(t, Some("cc.comma")))
+        else more = false
+    expect(c, "spike.rparen", "cc.rparen", "')'").foreach(kids += _)
+    Node.Frame("spike.casecls", None, kids.result())
+
   // an indented block: statements at column >= blockCol; a dedent (col < blockCol),
   // EOF, or a top-level `def` ends it. parseStmt always consumes ≥1 token (progress).
   private def parseBlock(c: Cur, blockCol: Int): Node =
@@ -202,10 +226,22 @@ object SpikeParse:
       case None    => c.report("spike.missing-rhs", "missing val right-hand side")
     Node.Frame("spike.val", None, kids.result())
 
-  // postfix layer: an atom optionally followed by `match { … }` (match binds at atom level,
-  // mirroring ssc1-front's buildPostfix so precedence vs. infix ops matches exactly).
+  // postfix layer: an atom followed by chained `.field` selections and/or `match { … }`
+  // (mirroring ssc1-front's buildPostfix so precedence vs. infix ops matches exactly).
   private def parsePostfix(c: Cur): Option[Node] =
-    parseAtom(c).map(atom => if isKw(c, "match") then parseMatch(c, atom) else atom)
+    parseAtom(c).map(atom => postfix(c, atom))
+
+  private def postfix(c: Cur, atom: Node): Node =
+    if c.peekKind == "spike.dot" then
+      val kids = Vector.newBuilder[Node]
+      kids += atom.withRole("sel.obj")
+      c.advance().foreach(t => kids += Node.Leaf(t, Some("sel.dot"))) // `.`
+      c.advance() match
+        case Some(f) => kids += Node.Leaf(f, Some("sel.field"))
+        case None    => c.report("spike.expected", "expected field name after '.'")
+      postfix(c, Node.Frame("spike.sel", None, kids.result()))
+    else if isKw(c, "match") then parseMatch(c, atom)
+    else atom
 
   private def parseMatch(c: Cur, scrut: Node): Node =
     val kids = Vector.newBuilder[Node]
@@ -403,7 +439,19 @@ object SpikeProject:
     case _ => Vector.empty
 
   def program(root: UniNode): String =
-    consList(kids(root).collect { case (_, c) if kindOf(c) == "spike.def" => defNode(c) })
+    consList(kids(root).collect {
+      case (_, c) if kindOf(c) == "spike.def"     => defNode(c)
+      case (_, c) if kindOf(c) == "spike.casecls" => caseClsNode(c)
+    })
+
+  // Pair("casecls", Pair(name, Pair(fieldNames, Pair(fieldTypes, derives)))) via mkCaseCls;
+  // lowerProg generates the ctor def, Mirror, `_sel_<field>` accessors and `__regfields__`.
+  private def caseClsNode(n: UniNode): String =
+    val ks = kids(n)
+    val name  = ks.collectFirst { case (Some("cc.name"), c) => lexeme(c) }.getOrElse("_")
+    val names = ks.collect { case (Some("cc.field"), c) => "\"" + esc(lexeme(c)) + "\"" }.toVector
+    val types = ks.collect { case (Some("cc.fieldType"), c) => "\"" + esc(lexeme(c)) + "\"" }.toVector
+    s"""mkCaseCls("${esc(name)}", ${consList(names)}, ${consList(types)}, Nil)"""
 
   private def consList(xs: Vector[String]): String =
     xs.foldRight("Nil")((h, acc) => s"Cons($h, $acc)")
@@ -427,9 +475,15 @@ object SpikeProject:
       case "spike.if"    => ifExpr(b)
       case "spike.block" => block(b)
       case "spike.match" => matchExpr(b)
+      case "spike.sel"   => sel(b)
       case "spike.error" => hole
       case _             => hole
     case _ => hole
+
+  private def sel(b: UniNode.Branch): String =
+    val obj = kids(b).collectFirst { case (Some("sel.obj"), c) => expr(c) }.getOrElse(hole)
+    val field = kids(b).collectFirst { case (Some("sel.field"), c) => lexeme(c) }.getOrElse("_")
+    s"""mkSel($obj, "${esc(field)}")"""
 
   // Pair("match", Pair(scrut, [arm…])); arm = Pair(pattern, body); guard → Pair("gpat", …).
   private def matchExpr(b: UniNode.Branch): String =
