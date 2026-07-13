@@ -59,6 +59,9 @@ final class OsNativePlugin extends NativePlugin:
         .getOrElse(text(args, 1, "envOrElse")))
     }
     native(context, "exit")(exit)
+    // Monotonic clock nanoseconds (System.nanoTime parity with the interp core
+    // builtin). Used for job ids / elapsed timing; not wall-clock.
+    native(context, "nanoTime") { _ => Value.IntV(System.nanoTime()) }
     native(context, "pathJoin") { args =>
       pathParts(args) match
         case Nil => Value.StrV(".")
