@@ -347,6 +347,19 @@ final class ActorsNativePlugin extends NativePlugin:
       case _ => throw new IllegalArgumentException("whereis(name)")
     }
 
+    // `selfNode()` — local node identity (v1 ActorScheduler parity). A process
+    // that never `startNode`d a cluster id is single-node: the internal "local"
+    // sentinel reads back as the empty string. `clusterHealth()` — phi vector
+    // over connected peers; single-node has none, so an empty Map.
+    context.registerGlobal("selfNode", 0) { _ =>
+      val node = localNode.get()
+      Value.StrV(if node == "local" then "" else node)
+    }
+
+    context.registerGlobal("clusterHealth", 0) { _ =>
+      Value.MapV.from(Nil)
+    }
+
     context.registerGlobal("runActors", 1) {
       case body :: Nil =>
         behaviors.clear()
