@@ -108,7 +108,41 @@ final class EffectRunnersNativePlugin extends NativePlugin:
         if parallel then "runAsyncParallel(body)" else "runAsync(body)")
     }
 
+  /** RFC-4122 v4 UUID from `rng` (parity with the v1 RandomHandler). */
+  private def uuidV4(rng: java.util.Random): String =
+    val bytes = new Array[Byte](16)
+    rng.nextBytes(bytes)
+    bytes(6) = ((bytes(6) & 0x0f) | 0x40).toByte
+    bytes(8) = ((bytes(8) & 0x3f) | 0x80).toByte
+    def hex(b: Byte) = f"${b & 0xff}%02x"
+    val u = bytes.map(hex).mkString
+    s"${u.take(8)}-${u.slice(8, 12)}-${u.slice(12, 16)}-${u.slice(16, 20)}-${u.drop(20)}"
+
   def install(context: NativePluginContext): Unit =
+    // `Random` capability — ambient (root default) handler. On the v1
+    // interpreter/JS/JVM backends `Random` is a root-installed default handler,
+    // so a bare `Random.uuid()` with no explicit `runRandom { … }` resolves; the
+    // native lane otherwise leaks `unhandled runtime effect: Random.uuid`. These
+    // register as tag-qualified globals (`Random.uuid`), which the method-dispatch
+    // path (Runtime effectTag.name lookup) resolves IN PLACE — after any ACTIVE
+    // handler (`V2EffectContext.peek`) — so the value is produced at the call site
+    // and the surrounding dynamic scope (e.g. `runActors`) is preserved.
+    val rng = new java.util.Random()
+    context.register("Random.uuid") { _ => Value.StrV(uuidV4(rng)) }
+    context.register("Random.nextInt") {
+      case List(Value.IntV(n)) if n > 0 => Value.IntV(rng.nextInt(n.toInt).toLong)
+      case _ => throw new IllegalArgumentException("Random.nextInt(n: Int) — n must be > 0")
+    }
+    context.register("Random.nextDouble") { _ => Value.FloatV(rng.nextDouble()) }
+    context.register("Random.pick") {
+      case List(xs) =>
+        val items = Prims.unlistPub(xs)
+        if items.isEmpty then
+          throw new IllegalArgumentException("Random.pick(xs: List[A]) — list must be non-empty")
+        items(rng.nextInt(items.length))
+      case _ => throw new IllegalArgumentException("Random.pick(xs: List[A])")
+    }
+
     val loggerLevels = List("trace", "debug", "info", "warn", "error")
     loggerLevels.foreach { level =>
       context.registerGlobal(s"Logger_$level", 1) {
