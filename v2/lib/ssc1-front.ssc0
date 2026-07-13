@@ -481,6 +481,16 @@ def patternTypeHead = (toks) =>
 -- Pair("__nodflt__", "") sentinel. Constructors share the same registry.
 def paramDefaultsCell = #cell.new(Nil)
 def funcDefaultsCell  = #cell.new(Nil)
+-- Names of defs whose LAST parameter is a repeated (vararg) `T*` param. ssc1-lower
+-- reads it (same self-hosted process) to PACK a call's trailing arguments into a
+-- single Cons-list, since the def body binds that param as one list value
+-- (`children.toList`). Without packing, `card(a, b)` / `vstack(g)(a, b)` reach the
+-- def as N unpacked args and fail the CoreIR arity check ("N expected, M given").
+def varargDefsCell = #cell.new(Nil)
+-- Set by parseParam to the varargness of the parameter it just parsed; parseDef
+-- reads it after the whole (possibly multi-clause) parameter list to learn whether
+-- the trailing param was a vararg (Scala requires a vararg to be last).
+def lastParamVarargCell = #cell.new(false)
 -- Nominal subtype registry: [Pair(parentType, childTag)] captured from a case
 -- class's `extends Parent`. ssc1-lower reads it (same self-hosted process) to
 -- EXPAND a `case _: Parent` type-ascription into an OR over the child tags
@@ -519,9 +529,34 @@ def registerParamDflts = (name, params) =>
   else 0
 
 -- ── Parameter list parser ─────────────────────────────────────────────────────
+-- Whether a `: T*` type annotation ends in a bare `*` (repeated/vararg marker).
+-- Mirrors skipTypeAt's nesting/terminator discipline; `lastStar` tracks whether the
+-- most recent depth-0 type token was `*`, so nested `List[A]*` etc. report correctly.
+def typeStarScan = (depth, toks, lastStar) =>
+  let t = peek(toks) in
+  let k = tokKind(t) in
+  if #seq(k, "EOF") then lastStar
+  else if #seq(k, "[") then typeStarScan(#i.add(depth, 1), advance(toks), false)
+  else if #seq(k, "(") then typeStarScan(#i.add(depth, 1), advance(toks), false)
+  else if #seq(k, "]") then
+    if #i.eq(depth, 0) then lastStar else typeStarScan(#i.sub(depth, 1), advance(toks), false)
+  else if #seq(k, ")") then
+    if #i.eq(depth, 0) then lastStar else typeStarScan(#i.sub(depth, 1), advance(toks), false)
+  else if #i.gt(depth, 0) then typeStarScan(depth, advance(toks), false)
+  else if #seq(k, "=") then lastStar
+  else if #seq(k, ",") then lastStar
+  else if #seq(k, ";") then lastStar
+  else if #seq(k, "{") then lastStar
+  else if #seq(k, "}") then lastStar
+  else typeStarScan(depth, advance(toks),
+    if #seq(k, "op") then #seq(tokVal(t), "*") else false)
+def paramTypeIsVararg = (toks) =>
+  if kindIs(":", toks) then typeStarScan(0, advance(toks), false) else false
+
 def parseParam = (toks) =>
   if #seq(tokKind(peek(toks)), "id") then
     let name = tokVal(peek(toks)) in
+    let _vararg = #cell.set(lastParamVarargCell, paramTypeIsVararg(advance(toks))) in
     let ts1 = skipTypeAnnot(advance(toks)) in
     -- K62.6g/K62.17: default value `param: T = expr` — parse the default AND record it
     -- in paramDefaultsCell so parseDef can register it for call-site synthesis.
@@ -531,7 +566,9 @@ def parseParam = (toks) =>
                    Cons(Pair(name, prV(rd)), #cell.get(paramDefaultsCell))) in
       pr(name, prT(rd))
     else pr(name, ts1)
-  else pr("_", toks)
+  else
+    let _nv = #cell.set(lastParamVarargCell, false) in
+    pr("_", toks)
 
 def parseParamList = (toks) =>
   if kindIs("(", toks) then
@@ -1431,6 +1468,9 @@ def parseDef = (toks) =>
   -- (a nested def in the body clears it again before the outer def reads the body,
   -- so outer/inner never interfere).
   let _clr = #cell.set(paramDefaultsCell, Nil) in
+  -- Reset the trailing-vararg flag before parsing this def's clauses; parseParam
+  -- overwrites it per param, so after the whole list it reflects the LAST param.
+  let _clrv = #cell.set(lastParamVarargCell, false) in
   -- first parameter list. Remember whether a source clause was present before
   -- parseParamList erases both an absent clause and explicit `()` to Nil.
   let hasSourceParamClause = kindIs("(", toks3) in
@@ -1452,6 +1492,10 @@ def parseDef = (toks) =>
   -- are not part of the source-call arity/default registry.
   let callParams = append(params, prV(rp2)) in
   let _reg = registerParamDflts(name, callParams) in
+  -- Register a trailing-vararg def so the lowerer packs its call-site trailing args.
+  let _vreg = if #cell.get(lastParamVarargCell) then
+                #cell.set(varargDefsCell, Cons(name, #cell.get(varargDefsCell)))
+              else 0 in
   let _extReg = match extensionParams {
     case Nil => 0
     case Cons(h, t) =>

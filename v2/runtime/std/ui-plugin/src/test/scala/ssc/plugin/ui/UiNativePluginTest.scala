@@ -516,3 +516,23 @@ class UiNativePluginTest extends AnyFunSuite:
     output(sharedRoot, sharedOut)
     invoke(method(sharedItems, "set"), list(Value.StrV("a")))
     assert(output(sharedRoot, sharedOut).contains("0"))
+
+  test("stringMap accepts a proper (String, Value) association list, duplicate-key last-wins"):
+    // The native `ssc run` frontend lowers a `Map[String, Any]` literal (ui element
+    // attrs/events built via `Map("style" -> ...)`) to an association list of Pair/Tuple2
+    // entries rather than a MapV; the boundary must accept it as the equivalent String map.
+    val assoc = list(
+      Value.DataV("Pair", Vector(Value.StrV("style"), Value.StrV("a"))),
+      Value.DataV("Tuple2", Vector(Value.StrV("class"), Value.StrV("x"))),
+      Value.DataV("Pair", Vector(Value.StrV("style"), Value.StrV("b"))))
+    val m = NativeUiPortable.stringMap(assoc, "test.attrs")
+    assert(m.entries(Value.StrV("style")) == Value.StrV("b"), "duplicate key must take the last value")
+    assert(m.entries(Value.StrV("class")) == Value.StrV("x"))
+    assert(m.entries.size == 2)
+    assert(NativeUiPortable.stringMap(list(), "test.attrs").entries.isEmpty)
+    val realMap = Value.MapV.empty
+    realMap.entries(Value.StrV("k")) = Value.StrV("v")
+    assert(NativeUiPortable.stringMap(realMap, "test").entries(Value.StrV("k")) == Value.StrV("v"))
+    val badKey = list(Value.DataV("Pair", Vector(Value.IntV(1), Value.StrV("v"))))
+    assert(intercept[RuntimeException](NativeUiPortable.stringMap(badKey, "test.attrs"))
+      .getMessage.contains("String keys"))
