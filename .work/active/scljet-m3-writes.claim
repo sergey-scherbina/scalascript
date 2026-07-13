@@ -1,6 +1,6 @@
 feature/scljet-m3-writes 2026-07-13T11:38:32Z
 agent: claude-code
-heartbeat: 2026-07-13T11:52:15Z
+heartbeat: 2026-07-13T12:28:48Z
 status: in-progress
-done-so-far: m3b DONE (931df5bc2) — write.ssc emptyDatabase, byte-identical to reference SQLite 3.53.3 for 512/1024/4096/65536, VM/ASM/fallback + native + JS(≤8192); conformance scljet-write-empty + example.
-next: m3c — single-row insert into a single-table DB with no page split (record encoder = inverse of record.ssc; append a cell to page 2's cell array + content area; bump change counter + page count). Then m3d btree balancing, m3e rollback journal, m3f delete/update. Plan in SPRINT.
+done-so-far: m3b DONE (931df5bc2) empty-DB writer; m3c RECORD ENCODER DONE (9db4efb54) — encodeRecord byte-identical to both records in page-512.db, round-trips decodeRecord, int/VM/ASM/JS; conformance scljet-write-record. SqlReal encoding = follow-up (needs Double→IEEE754 bits).
+next: finish m3c — table-leaf page writer + assemble 2-page single-table DB (page1 schema cell + page2 row cell, header page-count 2/encoding 1/schema-format 4/change-counter/schema-cookie), verify reference integrity_check=ok + differential row read (page-1 file-header byte-identity NOT required — change counter/schema cookie depend on write sequence). Then m3d btree balancing, m3e rollback journal, m3f delete/update.
