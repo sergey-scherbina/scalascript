@@ -26,7 +26,7 @@ enum Node:
 
 // ── lexer ────────────────────────────────────────────────────────────────────
 object SpikeLex:
-  private val keywords = Set("def", "val", "if", "then", "else")
+  private val keywords = Set("def", "val", "if", "then", "else", "match", "case")
   private def isOpChar(c: Char): Boolean = "+-*/%<>=!&|^~:".indexOf(c.toInt) >= 0
 
   def scan(src: SourceId, text: String): Vector[SourceToken] =
@@ -73,7 +73,10 @@ object SpikeLex:
         val kind = c match
           case '(' => "spike.lparen"
           case ')' => "spike.rparen"
+          case '{' => "spike.lbrace"
+          case '}' => "spike.rbrace"
           case ',' => "spike.comma"
+          case ';' => "spike.semi"
           case _   => "spike.junk"
         advance(c)
         emit(kind, start, c.toString, TokenChannel.Syntax)
@@ -113,6 +116,7 @@ object SpikeParse:
     def peekCol: Int = peek.map(_.span.start.column).getOrElse(-1)
     def peekPrec: Int = if peekKind == "spike.op" then opPrec(peekLexeme) else 0
     def advance(): Option[SourceToken] = { skipTrivia(); if p < toks.length then { val t = toks(p); p += 1; Some(t) } else None }
+    def skipSemis(): Unit = while peekKind == "spike.semi" do advance()
     def diagnostics: Vector[Diagnostic] = diags.result()
     def report(code: String, msg: String): Unit =
       val span = peek.map(_.span).orElse(toks.lastOption.map(_.span))
@@ -192,8 +196,49 @@ object SpikeParse:
       case None    => c.report("spike.missing-rhs", "missing val right-hand side")
     Node.Frame("spike.val", None, kids.result())
 
+  // postfix layer: an atom optionally followed by `match { … }` (match binds at atom level,
+  // mirroring ssc1-front's buildPostfix so precedence vs. infix ops matches exactly).
+  private def parsePostfix(c: Cur): Option[Node] =
+    parseAtom(c).map(atom => if isKw(c, "match") then parseMatch(c, atom) else atom)
+
+  private def parseMatch(c: Cur, scrut: Node): Node =
+    val kids = Vector.newBuilder[Node]
+    kids += scrut.withRole("match.scrut")
+    c.advance().foreach(t => kids += Node.Leaf(t, Some("match.kw"))) // `match`
+    val braced = c.peekKind == "spike.lbrace"
+    if braced then c.advance().foreach(t => kids += Node.Leaf(t, Some("match.open")))
+    c.skipSemis()
+    while isKw(c, "case") do { kids += parseArm(c); c.skipSemis() }
+    if braced && c.peekKind == "spike.rbrace" then c.advance().foreach(t => kids += Node.Leaf(t, Some("match.close")))
+    Node.Frame("spike.match", None, kids.result())
+
+  private def parseArm(c: Cur): Node =
+    val kids = Vector.newBuilder[Node]
+    c.advance().foreach(t => kids += Node.Leaf(t, Some("case.kw"))) // `case`
+    kids += parsePattern(c).withRole("case.pat")
+    if isKw(c, "if") then
+      c.advance().foreach(t => kids += Node.Leaf(t, Some("case.ifkw")))
+      parseExpr(c, 1).foreach(g => kids += g.withRole("case.guard"))
+    if c.peekKind == "spike.op" && c.peekLexeme == "=>" then c.advance().foreach(t => kids += Node.Leaf(t, Some("case.arrow")))
+    else c.report("spike.expected", "expected '=>' in case arm")
+    parseExpr(c, 1) match
+      case Some(b) => kids += b.withRole("case.body")
+      case None    => c.report("spike.missing-case-body", "missing case body")
+    Node.Frame("spike.arm", None, kids.result())
+
+  // patterns: int literal (lpat) / `_` (wpat) / lowercase binder (vpat). Ctor patterns deferred.
+  private def parsePattern(c: Cur): Node =
+    c.peekKind match
+      case "spike.int" => c.advance().map(t => Node.Leaf(t, Some("pat.lit"))).get
+      case "spike.id" if c.peekLexeme == "_" => c.advance().map(t => Node.Leaf(t, Some("pat.wild"))).get
+      case "spike.id" => c.advance().map(t => Node.Leaf(t, Some("pat.var"))).get
+      case _ =>
+        c.report("spike.bad-pattern", s"unsupported pattern '${c.peekLexeme}'")
+        c.advance().map(t => Node.Frame("spike.error", None, Vector(Node.Leaf(t, Some("error.token")))))
+          .getOrElse(Node.Frame("spike.error", None, Vector.empty))
+
   private def parseExpr(c: Cur, minPrec: Int): Option[Node] =
-    parseAtom(c) match
+    parsePostfix(c) match
       case None => None
       case Some(first) =>
         var left = first
@@ -340,9 +385,30 @@ object SpikeProject:
       case "spike.call"  => call(b)
       case "spike.if"    => ifExpr(b)
       case "spike.block" => block(b)
+      case "spike.match" => matchExpr(b)
       case "spike.error" => hole
       case _             => hole
     case _ => hole
+
+  // Pair("match", Pair(scrut, [arm…])); arm = Pair(pattern, body); guard → Pair("gpat", …).
+  private def matchExpr(b: UniNode.Branch): String =
+    val scrut = kids(b).collectFirst { case (Some("match.scrut"), c) => expr(c) }.getOrElse(hole)
+    val arms  = kids(b).collect { case (_, c) if kindOf(c) == "spike.arm" => arm(c.asInstanceOf[UniNode.Branch]) }
+    s"""mkMatch($scrut, ${consList(arms)})"""
+
+  private def arm(b: UniNode.Branch): String =
+    val pat  = kids(b).collectFirst { case (Some("case.pat"), c) => patProj(c) }.getOrElse("""Pair("wpat", "")""")
+    val body = kids(b).collectFirst { case (Some("case.body"), c) => expr(c) }.getOrElse(hole)
+    val guarded = kids(b).collectFirst { case (Some("case.guard"), c) => expr(c) } match
+      case Some(g) => s"""Pair("gpat", Pair($pat, $g))"""
+      case None    => pat
+    s"""Pair($guarded, $body)"""
+
+  private def patProj(n: UniNode): String = n match
+    case UniNode.Token(t) if t.kind == "spike.int"                    => s"""Pair("lpat", Pair("int", "${esc(t.lexeme)}"))"""
+    case UniNode.Token(t) if t.kind == "spike.id" && t.lexeme == "_"  => """Pair("wpat", "")"""
+    case UniNode.Token(t) if t.kind == "spike.id"                     => s"""Pair("vpat", "${esc(t.lexeme)}")"""
+    case _ => """Pair("wpat", "")"""
 
   // Pair("block", [stmt…]) — mirrors ssc1-front; lowerBlock folds vals into nested lets.
   private def block(b: UniNode.Branch): String =

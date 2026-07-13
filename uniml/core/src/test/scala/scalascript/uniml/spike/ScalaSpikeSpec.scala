@@ -151,6 +151,34 @@ final class ScalaSpikeSpec extends AnyFunSuite:
     assert(allBranches(pr.roots.head, "spike.block").size == 1) // only `a` has a block
   }
 
+  // ══ P6.2c — match + patterns (int-literal / `_` / variable, + guard) ══════════
+
+  private def arms(m: UniNode.Branch): Vector[UniNode.Branch] =
+    m.edges.collect { case UniEdge(_, a @ UniNode.Branch("spike.arm", _, _, _)) => a }
+
+  test("match: offside literal + wildcard arms") {
+    val m = defBody(parse("def main(): Int = 5 match\n  case 5 => 42\n  case _ => 0")).asInstanceOf[UniNode.Branch]
+    assert(m.kind == "spike.match")
+    assert(childWithRole(m, "match.scrut").exists { case UniNode.Token(t) => t.lexeme == "5"; case _ => false })
+    val as = arms(m)
+    assert(as.size == 2)
+    assert(childWithRole(as(0), "case.pat").exists(kindOf(_) == "spike.int"))
+    assert(childWithRole(as(1), "case.pat").exists { case UniNode.Token(t) => t.lexeme == "_"; case _ => false })
+  }
+
+  test("match: braced form parses the same arms") {
+    val m = defBody(parse("def main(): Int = 3 match { case 3 => 30 case _ => 0 }")).asInstanceOf[UniNode.Branch]
+    assert(m.kind == "spike.match")
+    assert(arms(m).size == 2)
+  }
+
+  test("match: a variable pattern binds; a guard is captured") {
+    val m = defBody(parse("def main(): Int = 8 match\n  case n if n > 5 => n\n  case _ => 0")).asInstanceOf[UniNode.Branch]
+    val a0 = arms(m).head
+    assert(childWithRole(a0, "case.pat").exists { case UniNode.Token(t) => t.lexeme == "n"; case _ => false })
+    assert(childWithRole(a0, "case.guard").isDefined)
+  }
+
   // ══ P6.1 — total, error-resilient pipeline ════════════════════════════════════
 
   test("parser + projection are TOTAL — never throw on garbage") {
@@ -222,7 +250,12 @@ final class ScalaSpikeSpec extends AnyFunSuite:
       // P6.2b offside — indented def-body blocks (val bindings + final expr)
       "block-vals"   -> "def main(): Int =\n  val a = 1 + 2\n  val b = a * 3\n  a + b",
       "block-single" -> "def main(): Int =\n  1 + 2",
-      "block-cont"   -> "def main(): Int =\n  val a = 1 +\n    2\n  a * 10"
+      "block-cont"   -> "def main(): Int =\n  val a = 1 +\n    2\n  a * 10",
+      // P6.2c match — int-literal / `_` / variable patterns + guard
+      "match-lit"    -> "def main(): Int = 5 match\n  case 5 => 42\n  case _ => 0",
+      "match-var"    -> "def main(): Int = 7 match\n  case 0 => 1\n  case n => n + 100",
+      "match-guard"  -> "def main(): Int = 8 match\n  case n if n > 5 => n * 2\n  case _ => 0",
+      "match-braced" -> "def main(): Int = 3 match { case 3 => 30 case _ => 0 }"
     )
     // broken — no oracle; the harness proves containment (`main` still runs).
     val broken = Seq(
