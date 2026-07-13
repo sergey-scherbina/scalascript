@@ -1322,8 +1322,10 @@ function _ssc_ui_mount(sigs, keyedRoots) {
   _mountKeyed(document, keyedRoots || []);
 }
 
-// JSON embedded in an inline <script> must not carry a literal `</script>` or
-// `<`/`>`/`&`/U+2028/U+2029 (H1: SSR XSS via a request-derived signal value).
+// JSON embedded in an inline <script> must not carry a literal close-script tag
+// (`<\/script>` — written escaped HERE so this very comment cannot terminate the
+// inline script it ships inside) or `<`/`>`/`&`/U+2028/U+2029 (H1: SSR XSS via a
+// request-derived signal value).
 // Escape them to \uXXXX — valid JSON (decodes identically) and inert in HTML.
 function _ssc_json_html_safe(json) {
   return json.replace(/[<>&\u2028\u2029]/g, function (c) {
