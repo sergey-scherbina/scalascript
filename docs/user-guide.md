@@ -1639,6 +1639,87 @@ runReader("Alice")(greetUser())   // "Hello, Alice!"
 
 See [`specs/algebraic-effects.md`](algebraic-effects.md) for the full spec.
 
+### Scala 3 explicit control API (Tier 1)
+
+Ordinary Scala 3/JVM programs can use the compiler-independent
+`scalascript.control` API. The repository builds the publication-ready leaf as
+`io.scalascript:scalascript-control-api_3`; it is deliberately independent of
+CoreIR, UniML, backends, the CLI, and the legacy interop runtime. This coordinate
+describes the built artifact and is not a claim that a release has already been
+published to a Maven repository.
+
+```scala
+import scalascript.control.*
+
+object Input extends Effect:
+  val key: EffectKey[Input.type] =
+    EffectKey.named(EffectId("example.input"), this)
+
+case object Read extends Operation[Input.type, Int]:
+  val effect: EffectKey[Input.type] = Input.key
+  val id: OperationId = OperationId(effect.id, "read")
+
+val program: Eff[Input.type, Int] = perform(Read).map(_ + 1)
+
+val handled = handle[Input.type, Nothing, Int, Int](program)(
+  new Handler[Input.type, Nothing, Int, Int]:
+    val effect: EffectKey[Input.type] = Input.key
+
+    def onReturn(value: Int): Eff[Nothing, Int] = Eff.pure(value)
+
+    def onOperation[A](
+        operation: Operation[Input.type, A],
+        resumption: Resumption[A, Nothing, Int]
+    ): Eff[Nothing, Int] =
+      operation match
+        case Read =>
+          resumption match
+            case Resumption.Reusable(continuation) =>
+              continuation.resume(41)
+            case Resumption.OneShot(_) =>
+              throw new AssertionError("Read must be reusable")
+)
+
+assert(Eff.runPure(handled) == 42)
+```
+
+Prompts are fresh path-dependent values, so one `reset` cannot accidentally
+discharge another prompt. `shift` captures up to the nearest matching prompt and
+its rank-2 body sees the actual residual effect row:
+
+```scala
+val scoped = freshPrompt[Int]
+val prompt = scoped.prompt
+
+val shifted: Eff[Control[scoped.Key], Int] =
+  shift[scoped.Key, Int, Nothing, Int](prompt)(
+    [Residual >: Nothing <: Effect] =>
+      (continuation: Continuation[Int, Residual, Int]) =>
+        continuation.resume(21).map(_ * 2)
+  )
+
+val answer = reset[scoped.Key, Nothing, Int](prompt)(shifted)
+assert(Eff.runPure(answer) == 42)
+```
+
+Reusable continuations expose `resume`; one-shot continuations expose only atomic
+`tryResume`, whose second or concurrent loser returns typed `AlreadyResumed`.
+Tier 1 is local: `Continuation.save()` performs the typed
+`Save.Rejected(UnmanagedCapture)` operation because no post-X1 save plan exists.
+It does not serialize a JVM stack, replay a prefix, or fabricate a durable value.
+
+The complete runnable example prints `Vector(10, 20)` and `42`:
+
+```bash
+scripts/sbtc "scala3ControlApi/Test/runMain scalascript.controlapi.examples.effectsAndShift"
+```
+
+Source: [`ControlApiExample.scala`](../v1/lang/control-api/src/test/scala/scalascript/controlapi/examples/ControlApiExample.scala).
+Successful durable `save`/`run`, network transfer, Scala↔ScalaScript lowering and
+typed call/value bridges, managed callbacks and mixed tail SCCs, macros/plugin,
+admission, and exact/portable runners remain separate post-X1 milestones. See the
+[`Scala 3/JVM host profile`](../specs/scala3-bidirectional-control.md).
+
 ### Direct Syntax (Do-Notation)
 
 Write monadic code without `<-` arrows:
@@ -6253,6 +6334,7 @@ operations, native sum Mirrors, and broader generated-backend edge cases.
 - Algebraic effects: §4, `docs/architecture.md`
 - Direct syntax: [docs/direct-syntax.md](direct-syntax.md)
 - Coroutines + generators: [specs/coroutines.md](coroutines.md)
+- Scala 3 explicit control API: §4 above, [Scala/JVM host profile](../specs/scala3-bidirectional-control.md), [runnable Scala example](../v1/lang/control-api/src/test/scala/scalascript/controlapi/examples/ControlApiExample.scala)
 - DSL authoring: [specs/dsl.md](dsl.md)
 - Dataset / MapReduce: [specs/mapreduce.md](mapreduce.md)
 - **SQL databases + secret management: §6, §6.2, [secret-resolvers.md](../secret-resolvers.md)**

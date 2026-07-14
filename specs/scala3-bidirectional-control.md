@@ -1,6 +1,7 @@
 # Scala 3 ↔ ScalaScript bidirectional control profile
 
-Status: **normative host profile / implementation in progress** (2026-07-14).
+Status: **explicit Tier 1 implemented; remaining host profile planned**
+(2026-07-14).
 
 This document is the Scala 3/JVM host profile of
 [`control-interoperability.md`](control-interoperability.md). The target-neutral
@@ -325,6 +326,50 @@ body at its actual handler residual. This is sound by construction: the operatio
 entered as `Eff[Fx | Control[P], A]`, and covariance plus `flatMap` can only widen
 that row, so the residual at the matching reset is a supertype of `Fx`. The cast is
 not a second public row semantics and is covered by the negative widening vector.
+
+### 2.1 Tier-1 behavior and results
+
+The `ScalaExplicitControlApi` capability is implemented. This does not imply any
+other capability named in section 1.
+
+- [x] The `_3` leaf artifact and `scalascript.control` package have no dependency
+  on CoreIR, UniML, a backend, the CLI, or the legacy interop runtime.
+- [x] `Eff` and `StateMachine` are stackless across 1,000,000 binds and 1,000,000
+  state transitions.
+- [x] Deep handlers support zero, one, or many resumes, reinstall around a resumed
+  suffix, forward residual operations, and remain stackless across 100,000 handled
+  operations.
+- [x] Invariant singleton-owned effect keys reject `Nothing`, generic, and union
+  row widening; distinct owners remain distinct, while one owner cannot declare
+  conflicting descriptors.
+- [x] `perform` validates and snapshots operation identity before constructing a
+  request; null keys, changing key getters, and wrong descriptors are rejected or
+  made irrelevant to row elimination.
+- [x] Reusable and one-shot multiplicity is preserved through binds, forwarding,
+  and handlers. One-shot ownership is claimed eagerly and atomically; exactly one
+  of 64 concurrent attempts wins.
+- [x] Prompt keys are generative. Nearest-match reset, foreign-prompt forwarding,
+  true `shift` rather than `shift0`, rank-2 residual rows, nested shifts, and local
+  heap sharing are covered.
+- [x] Local continuations resume repeatedly. Unsupported local save performs typed
+  `Save.Rejected(UnmanagedCapture)`, and user code cannot forge a successful
+  `SavedContinuation`.
+- [x] The complete compiled-class `javap -public` inventory exposes no project
+  runtime, reflection, TLS, unguarded request/prompt constructor, or authority
+  issuer.
+- [x] Package/POM generation, the focused effect/coroutine/tail conformance slice,
+  and the independent portable-VM reference harness pass.
+
+Implementation: `528d73af3`; runnable ordinary-Scala example: `7f908e536`.
+`scala3ControlApi/test` passes 39 tests in six suites. The measured stress vectors
+are 1,000,000 left-associated binds, 1,000,000 mixed state-machine transitions,
+100,000 deeply handled operations, and a 64-way concurrent one-shot race. The
+focused conformance slice passes 10/10. `tests/interop-conformance/run.sh` passes
+all 9 currently measurable portable-VM axes and continues to report the codec and
+runtime-dependent axes as pending rather than treating this host leaf as proof for
+them. `packageBin` and `makePom` produce
+`io.scalascript:scalascript-control-api_3:0.1.0-SNAPSHOT`; the production
+classpath contains only the Scala libraries.
 
 ## 3. Canonical Scala value mapping
 
