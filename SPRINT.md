@@ -751,6 +751,21 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
       mechanical — no unknowns. Every primitive it needs (strings incl. charAt/length/concat/eq/substring,
       int↔string, tuples, Cons-lists, nested/tag patterns, recursion, closures, HOFs, executable Core IR
       emission incl. functions/recursion) is proven runnable on the bare VM and byte-identical to ssc1-front.
+  - [ ] **P6.6 — literal self-compilation fixpoint (NO quine)** — spec `specs/v2.2-p6.6-self-compilation.md`.
+        CORRECTION of an earlier note: there is no quine — the compiler reads its source FROM A FILE, exactly
+        like `v2/bin/ssc1-run.ssc0` (`match #io.args() { case Cons(path,_) => compile(#utf8->str(#io.readFile(
+        path))) }`). `#`-prims are ssc0 (not subset), so the file reading is an ssc0 DRIVER wrapping the
+        compiler's pure `compile: String→String`. The fixpoint: spike(C)=C0; stage1=C0(C_src); stage2=driver(
+        stage1)(C_src); **stage1==stage2**.
+    - [ ] **P6.6a — driver.** ssc0 driver reads a source file + calls an existing self-host compiler's
+          `compile` (dropLast the projection's hard-coded main + a file-reading main AST). Proves "compiler
+          reads its source from a file and compiles it". (File-read mechanism already proven end-to-end.)
+    - [ ] **P6.6b — F completeness.** Add var patterns in `match` (`case x => body`, binds the scrutinee) +
+          string escapes (`scanStr` decodes `\"`/`\\`; emit escapes `"`/`\`) to the compiler.
+    - [ ] **P6.6c — write C in F.** Rewrite the compiler using only F (no `let … in`; local bindings via
+          var-`match` or braced blocks; escaped string literals). Spike still compiles it byte-identically +
+          it emits correct executable Core IR.
+    - [ ] **P6.6d — fixpoint.** Bootstrap C0; run stage1/stage2; assert `stage1 == stage2`; add to the harness.
   - Prereqs: subset must hold — the one v2-side lift is **immutable indexed `Array`** (gapmap:76);
         anon-trait + mutable-object-field stay out; multi-file `package`/`import` reconciliation
         (gapmap:82-83) needed before the compiler's own multi-file source dual-compiles.
