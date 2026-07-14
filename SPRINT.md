@@ -1195,9 +1195,19 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
             d)))`); C_min parses arms left-to-right and only learns the default last, so correct threading is
             intricate and the pattern is rare (an explicit nested `case h :: t => t match { case h2 :: t2 => … }`
             is the idiomatic workaround, and works today).
-    - [ ] **P6.21 (optional) — CI protection of the self-host suite.** Wire `specs/v2.2-p6.6-fixpoint.sh` +
-          `p6.18-capstone.sh` + `p6.0-spike-verify.sh` into a CI job (build the ssc jar, run the scripts) so the
-          fixpoint / spike-byte-identity / capstone cannot silently regress. Infra task (jar-in-CI, timeouts).
+    - [~] **P6.21 — CI protection of the self-host (lightweight, in CI now; full jar-based still future).**
+          DONE: a `ScalaSpikeSpec` test (`"C_min … projects cleanly through the spike — no holes, every def"`)
+          reads the real `specs/v2.2-p6.6-cmin.L`, projects it through the spike, and asserts NO
+          `__notImplemented__` hole, `compile`/`lex`/`parseArmCtor`/`emitBin`/`parseMixedMatch`/… present, and
+          `#mkDef == #source-defs`. Needs no ssc jar, so it runs in CI (uniml tests) and catches any spike
+          regression that breaks the C_min bootstrap. The artifact is required (fallback resolves the repo-root
+          and `uniml/` CWDs; `CMIN_L` overrides).
+      - [ ] FULL jar-based CI still future: the byte-identity-vs-ssc1-front (`p6.0-spike-verify.sh`) and the
+            `stage1==stage2` fixpoint + capstone (`p6.6-fixpoint.sh` / `p6.18-capstone.sh`) need the ssc0 kernel
+            `run`/`run-ir`, which the standard-tier `bin/lib/ssc.jar` (from `install.sh`) does NOT provide —
+            they need the **tools-tier fat jar** (`sbt cli/assembly`, ~92 MB, run-ir-capable). Wiring: add a CI
+            step that builds that jar and runs the three scripts with `SSC_JAR=` it. Deferred as a heavier infra
+            change (fat-jar build time + timeouts).
     - [ ] **P6.22 (architectural, Sergiy-gated) — spike → production front.** The spike is byte-identical to
           `ssc1-front` across 119 constructs; consider it as an alternative/validation front. Big decision — do
           NOT act without Sergiy.

@@ -475,6 +475,35 @@ final class ScalaSpikeSpec extends AnyFunSuite:
     assert(!SpikeProject.program(parse("def x(): Int = 42").roots.head).contains("mkParameterlessBody"))
   }
 
+  // CI protection of the self-host bootstrap: if a spike change breaks parsing of C_min's source, the
+  // spike→C_min bootstrap (and hence the P6.6 fixpoint) silently regresses. This test — which needs no ssc
+  // jar, so it runs in CI — projects the real `specs/v2.2-p6.6-cmin.L` and asserts it is a clean, hole-free,
+  // complete program. (The byte-identity vs ssc1-front and the stage1==stage2 fixpoint still live in the
+  // jar-based scripts specs/v2.2-p6.6-fixpoint.sh / p6.0-spike-verify.sh; wiring those into CI needs the
+  // tools-tier fat jar — see SPRINT P6.21.)
+  test("C_min (specs/v2.2-p6.6-cmin.L) projects cleanly through the spike — no holes, every def (P6.21)") {
+    val srcOpt =
+      Seq(sys.env.get("CMIN_L"),
+          Some(sys.props("user.dir") + "/specs/v2.2-p6.6-cmin.L"),
+          Some(sys.props("user.dir") + "/../specs/v2.2-p6.6-cmin.L"))
+        .flatten.map(Paths.get(_)).filter(Files.exists(_)).headOption
+        .map(p => new String(Files.readAllBytes(p), "UTF-8"))
+    // require the artifact so this is a real check, not a vacuous no-op (the fallback covers the repo root and
+    // the uniml/ dir — the two CWDs sbt uses; set CMIN_L for any other layout).
+    assert(srcOpt.isDefined, "specs/v2.2-p6.6-cmin.L not found — set CMIN_L or run from the repo root / uniml dir")
+    srcOpt.foreach { src =>
+      val proj = SpikeProject.program(parse(src).roots.head)
+      assert(!proj.contains("__notImplemented__"),
+        "C_min projected with a __notImplemented__ hole — a spike regression broke the bootstrap")
+      assert(proj.contains("""mkDef("compile"""), "C_min's `compile` def missing from the projection")
+      for key <- Seq("lex", "parseArmCtor", "emitBin", "parseMixedMatch", "parseIntArm", "climbStep") do
+        assert(proj.contains(s"""mkDef("$key"""), s"C_min's `$key` def missing from the projection")
+      val srcDefs  = src.linesIterator.count(_.trim.startsWith("def "))
+      val projDefs = "mkDef\\(".r.findAllIn(proj).size
+      assert(projDefs == srcDefs, s"spike projected $projDefs defs but C_min's source has $srcDefs")
+    }
+  }
+
   test("function types are erased; chained application f(a)(b) applies twice; List[T] params erase") {
     assert(SpikeProject.program(parse("def mk(): Int => Int = x => x + 1").roots.head).contains("mkLam"))
     assert(SpikeProject.program(parse("def m(): Int = mk()(4)").roots.head)
