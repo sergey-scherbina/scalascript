@@ -1,0 +1,4 @@
+built: 2 pages
+after rollback unchanged: true
+commit applied both pages: true
+recovery undoes 2 pages, restores original: true

@@ -1,0 +1,56 @@
+---
+name: scljet-transaction
+description: SclJet write transaction — begin, stage several page writes, commit atomically (one journal) or rollback (discard)
+backends: [int, js]
+---
+
+# SclJet write transaction
+
+A transaction batches page writes and commits them **atomically**: one rollback
+journal covers every staged page, so a crash before the journal is deleted undoes
+all of them together. `rollbackTransaction` before commit discards the staged
+writes, leaving the database untouched.
+
+[ByteSlice, byteSliceToList, byteSliceSlice, byteSliceUpdated, byteSliceGet, SqliteValue, SqlInteger, SqlText, buildTableDatabase, beginTransaction, stagePage, commitTransaction, rollbackTransaction, applyRollbackJournal](std/scljet/index.ssc)
+
+```scalascript
+def byteAt(db: ByteSlice, offset: Int): Int =
+  byteSliceGet(db, offset) match
+    case Right(value) => value
+    case Left(_) => -1
+
+// Build a two-page table so there is more than one page to touch.
+buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(id INTEGER, v TEXT)",
+  List(List(SqlInteger(1L), SqlText("alpha")),
+       List(SqlInteger(2L), SqlText("beta")),
+       List(SqlInteger(3L), SqlText("gamma")))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db) =>
+    println("built: " + (db.length / 512).toString + " pages")
+    // Prepare two mutated pages (page 1 header area byte, page 2 payload byte).
+    byteSliceSlice(db, 0, 512) match
+      case Left(error) => println("slice1-error:" + error.message)
+      case Right(page1) => byteSliceUpdated(page1, 400, 7) match
+        case Left(error) => println("mk1-error:" + error.message)
+        case Right(newPage1) =>
+          byteSliceSlice(db, 512, 512) match
+            case Left(error) => println("slice2-error:" + error.message)
+            case Right(page2) => byteSliceUpdated(page2, 500, 9) match
+              case Left(error) => println("mk2-error:" + error.message)
+              case Right(newPage2) =>
+                // A transaction that we roll back changes nothing.
+                val txnA = stagePage(stagePage(beginTransaction(db, 512, 512), 1, newPage1), 2, newPage2)
+                val discarded = rollbackTransaction(txnA)
+                println("after rollback unchanged: " + (byteSliceToList(discarded).toString == byteSliceToList(db).toString).toString)
+                // The same two writes, committed atomically.
+                val txnB = stagePage(stagePage(beginTransaction(db, 512, 512), 1, newPage1), 2, newPage2)
+                commitTransaction(txnB, 999L) match
+                  case Left(error) => println("commit-error:" + error.message)
+                  case Right(jw) =>
+                    println("commit applied both pages: " + ((byteAt(jw.database, 400) == 7) && (byteAt(jw.database, 512 + 500) == 9)).toString)
+                    // A crash after commit but before the journal is deleted: recover.
+                    applyRollbackJournal(jw.database, jw.journal) match
+                      case Left(error) => println("recover-error:" + error.message)
+                      case Right(recovery) =>
+                        println("recovery undoes " + recovery.records.toString + " pages, restores original: " + (byteSliceToList(recovery.database).toString == byteSliceToList(db).toString).toString)
+```

@@ -11,6 +11,11 @@ exports:
   - writeRollbackJournal
   - JournaledWrite
   - writePagesJournaled
+  - WriteTransaction
+  - beginTransaction
+  - stagePage
+  - commitTransaction
+  - rollbackTransaction
 ---
 
 # SclJet rollback journal recovery
@@ -198,4 +203,31 @@ def writePagesJournaled(database: ByteSlice, pageSize: Int, sectorSize: Int, non
           applyPages(database, pageSize, changes) match
             case Left(error) => Left(error)
             case Right(mutated) => Right(JournaledWrite(mutated, journal))
+
+// ── Write transaction (deferred, atomic commit via the rollback journal) ──
+//
+// begin → stage page writes → commit (all pages journaled and applied atomically,
+// so a crash before the journal is deleted is recoverable) OR rollback (discard —
+// nothing was written yet). `pending` is newest-first; commit reverses it so later
+// stages of the same page win.
+
+case class WriteTransaction(database: ByteSlice, pageSize: Int, sectorSize: Int, pending: List[JournalPage])
+
+def beginTransaction(database: ByteSlice, pageSize: Int, sectorSize: Int): WriteTransaction =
+  WriteTransaction(database, pageSize, sectorSize, Nil)
+
+def stagePage(txn: WriteTransaction, pageNumber: Int, newPage: ByteSlice): WriteTransaction =
+  WriteTransaction(txn.database, txn.pageSize, txn.sectorSize, JournalPage(pageNumber, newPage) :: txn.pending)
+
+/** Commit every staged page atomically: one rollback journal covers all of them,
+ *  then all are applied in place. Returns the new database + its journal. */
+def commitTransaction(txn: WriteTransaction, nonce: Long): Either[ByteError, JournaledWrite] =
+  writePagesJournaled(txn.database, txn.pageSize, txn.sectorSize, nonce, listReverse(txn.pending, Nil))
+
+/** Discard the transaction — nothing was written, so the database is unchanged. */
+def rollbackTransaction(txn: WriteTransaction): ByteSlice = txn.database
+
+def listReverse(items: List[JournalPage], acc: List[JournalPage]): List[JournalPage] = items match
+  case Nil => acc
+  case Cons(head, tail) => listReverse(tail, head :: acc)
 ```
