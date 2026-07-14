@@ -72,6 +72,14 @@ compiler-plugin artifact. The leaf is aggregated by this repository's build but 
 not a dependency of CoreIR, UniML, the seed, the self-hosted compiler, any backend,
 or the legacy heavyweight `scalascript-interop` artifact.
 
+The canonical implementation home is `v2/host/scala/control-api`. The `v2/host`
+tree contains outer host-profile SDKs, bridges, transforms, and runners; it is not
+part of `v2/src`, the self-hosted compiler, the seed image, or the bootstrap
+dependency graph. “Compiler-independent” and “outside bootstrap” constrain the
+dependency graph, not the language generation: this API must not be placed under
+the legacy `v1/lang` tree. Future generated full-SDK surfaces may live beside this
+reference leaf without changing its artifact or package ABI.
+
 The following type bounds, names, and parameter order are the tier-1 ABI freeze.
 Method bodies may use private erasure to implement existential requests, but no
 API-declared payload or control member may expose that erasure:
