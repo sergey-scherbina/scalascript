@@ -9,6 +9,45 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## control-interoperability-spec-split — target-neutral control ABI and host/runner profiles (2026-07-14, Sergiy: "Делай")
+
+Goal: replace the Scala/JVM-shaped ownership boundary of
+`specs/scala3-bidirectional-control.md` with the joint Rozum `#interoperability`
+resolution: one target-neutral semantic owner, explicit host and runner profiles,
+and mandatory phased N→M interoperability without creating a second CoreIR/value
+semantics. This slice is specification and planning only; no frontend, codec, or
+runtime bytes change, and all post-X1 kernel gates remain binding.
+
+- [ ] **cis-1 — architecture audit.** Re-read `SPEC.md`, the current control spec,
+      v2.2/UniML/self-hosting/CoreIR/effects contracts, and the landed interop/FFI/
+      polyglot specs. Record every ownership/link/roadmap conflict against the joint
+      resolution before restructuring prose.
+- [ ] **cis-2 — canonical core spec.** Create
+      `specs/control-interoperability.md` as the sole normative owner of `Eff`,
+      multi-prompt `shift`/`reset`, managed callbacks/TCO, `save`/`run`, the
+      `CodeMode × FrameGate` model, `DurableValue`/`DurableRef`, admission/security,
+      deployment, and conformance laws. Preserve existing semantics unless the
+      joint resolution explicitly refined them; add no CoreIR continuation node.
+- [ ] **cis-3 — host and runner profiles.** Refactor
+      `specs/scala3-bidirectional-control.md` into the Scala 3 profile and add
+      JS/TypeScript, Rust, Swift, portable-VM reference, and WASM/WASI runner-profile
+      specifications. Host profiles require typed bidirectional value/call bridges;
+      runner-only profiles do not claim a host SDK. Keep direct-style transforms,
+      capture barriers, target-specific exact artifacts, and mixed-TCO guarantees
+      explicit per host.
+- [ ] **cis-4 — roadmap and satellite reconciliation.** Rewrite this section and the
+      saved-continuation BACKLOG tail so JVM/JS/Rust/Swift runners are mandatory
+      independently shippable milestones chosen by measured readiness, not optional
+      tail work. Update `scala-interop.md`, `arch-ffi.md`, `polyglot-libraries.md`,
+      effects/coroutine/self-hosting companions, README/spec indexes, and links so
+      they are satellites rather than competing semantic owners.
+- [ ] **cis-5 — verify and hand off.** Run Markdown lint/link checks plus focused
+      existing effect/control/coroutine/tail conformance. Verify the new specs state
+      the post-X1 byte gate, atomic admission vs typed resource-liveness failures,
+      no prefix/main replay, fresh multi-shot runs, and all negative matrix rows.
+      Publish the docs commits, release this claim/worktree, then hand the landed SHA
+      to `sunny-heron` for a separate portable-VM reference-profile/conformance claim.
+
 ## scala3-bidirectional-control — transparent Scala 3 ↔ ScalaScript control and durable save/run (2026-07-14, Sergiy)
 
 Goal: make Scala 3 and ScalaScript two source frontends of one **managed JVM execution lane** while
