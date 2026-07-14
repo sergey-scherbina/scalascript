@@ -992,19 +992,16 @@ writes + write transactions, and a **WAL writer** (`wal.ssc` `writeWal`/`markWal
 verified vs reference SQLite: recover/checksum/checkpoint + negative + multi-frame) are
 DONE (32 conformance cases green [int,js]). The honest remainder, each a real feature:
 
-- [ ] **scljet-m4a-deep-index** — 3+-level index B-trees. Generalize `write.ssc`
-      `buildIndexTree` (currently: single kind-10 leaf, or one kind-2 interior over
-      leaves) to STACK interior levels bottom-up until a single-page root — the
-      `buildDeepTableDatabase` pattern, but index interiors carry PROMOTED SEPARATORS
-      (a real entry lives in the interior between two children) rather than a copied
-      rowid. `packIndexTree` already promotes separators between leaves; recurse the
-      same packing over interior levels (each interior page = leftChild cells +
-      separators + rightmost child in the header). Done-when: a >3600-entry index builds
-      a real 3-level index tree that reference `integrity_check` cross-validates against
-      its table and the planner uses; single/two-level output stays byte-identical;
-      int==js (Adler-32 fingerprint — the DB is too big to print). Template:
-      `buildDeepTableDatabase` (top-down page numbering) + `packInterior`. Conformance
-      `scljet-write-index-deep`.
+- [x] **scljet-m4a-deep-index** — DONE 2026-07-14. Generalized `write.ssc`
+      `buildIndexTree` to stack index interior levels (kind 2) with PROMOTED SEPARATORS
+      until a single-page root (`packIdxLevel`/`buildIdxLevels`/`buildIdxLevelPages`/
+      `buildIdxDividers`/`totalIdxPages`/`IdxNode` — the `buildDeepTableDatabase`
+      top-down-numbering pattern, but interiors carry real separator records not copied
+      rowids). Verified vs reference SQLite 3.53.3: a 3000-row index builds a **depth-3**
+      tree (118 pages), `integrity_check` cross-validates it against the table, the
+      planner uses it (`SEARCH t USING COVERING INDEX`), point + ordered lookups exact.
+      Two-level output is byte-identical (existing scljet-write-index* stay green).
+      int==js (Adler-32 fingerprint); conformance `scljet-write-index-deep`.
 - [ ] **scljet-m4b-wal-recover** — parse a `-wal` file and reconstruct the frame map
       (the read-side inverse of `wal.ssc` `writeWal`). Validate the 32-byte header
       (magic, format, page size, salts, header checksum), then walk frames validating
