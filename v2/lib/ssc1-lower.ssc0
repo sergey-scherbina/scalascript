@@ -3471,6 +3471,25 @@ def lowerEnum = (name, cases) =>
 -- Blocks: { val x=e; def f(p)=b; sideEffect; result }
 -- val → IrLet; def → IrLetRec (with self-reference via letrec scope); expr → IrLet discard or result
 
+-- Names of a consecutive local-def group (each `Pair("def", Pair(name, Pair(params, body)))`).
+def defGroupNames = (defs) =>
+  match defs {
+    case Nil => Nil
+    case Cons(d, rest) =>
+      match d { case Pair(dt, dd) => match dd { case Pair(name, r) => Cons(name, defGroupNames(rest)) } }
+  }
+-- Lower each def in the group to its IrLam under the SHARED letrecScope (so every def
+-- in the group sees every other — mutual + forward references).
+def defGroupLams = (defs, letrecScope) =>
+  match defs {
+    case Nil => Nil
+    case Cons(d, rest) =>
+      match d { case Pair(dt, dd) => match dd { case Pair(name, r) =>
+        match r { case Pair(params, body) =>
+          Cons(IrLam(lenL(params), lowerE(appendL(revL(params), letrecScope), body)),
+               defGroupLams(rest, letrecScope)) } } }
+  }
+
 def lowerBlock = (scope, stmts) =>
   match stmts {
     case Nil => IrLit(IrUnit)
@@ -3589,19 +3608,25 @@ def lowerBlock = (scope, stmts) =>
                 }
             }
           else if #seq(tag, "def") then
-            -- Local def: IrLetRec so the function can reference itself (recursion)
-            -- Inside IrLetRec([IrLam(k, body)], rest2):
-            --   in body: local(0)=last param, ..., local(k-1)=first param, local(k)=fun itself
-            --   in rest2: local(0) = the letrec function
-            match data {
-              case Pair(name, rest2) =>
-                match rest2 {
-                  case Pair(params, body) =>
-                    let letrecScope = Cons(name, scope) in
-                    let defScope = appendL(revL(params), letrecScope) in
-                    let lam = IrLam(lenL(params), lowerE(defScope, body)) in
-                    IrLetRec(Cons(lam, Nil), lowerBlock(letrecScope, rest))
-                }
+            -- CONSECUTIVE local defs share ONE IrLetRec so they are MUTUALLY visible
+            -- (Scala local defs allow forward/mutual references). Each used to be its
+            -- own single-fn letrec, so `a` calling a later `b` was `unbound global: b`.
+            -- letrecScope = the group's names in reverse (runtime pushes them in order,
+            -- last = Local(0)); each lam body/scope adds its params on top.
+            let rec splitDefs = (ss, acc) =>
+              match ss {
+                case Nil => Pair(revL(acc), Nil)
+                case Cons(x, xs) =>
+                  match x { case Pair(xt, xd) =>
+                    if #seq(xt, "def") then splitDefs(xs, Cons(x, acc))
+                    else Pair(revL(acc), ss) }
+              } in
+            match splitDefs(Cons(s, rest), Nil) {
+              case Pair(defs, remaining) =>
+                let names = defGroupNames(defs) in
+                let letrecScope = appendL(revL(names), scope) in
+                let lams = defGroupLams(defs, letrecScope) in
+                IrLetRec(lams, lowerBlock(letrecScope, remaining))
             }
           else if #seq(tag, "return") then
             -- KC11: explicit return — value is the block result (ignore remaining stmts)

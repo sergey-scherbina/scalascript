@@ -2776,6 +2776,7 @@ object Prims:
         case (ls, "mkString", List(StrV(pre), StrV(sep), StrV(post))) if isList(ls) =>
           StrV(unlist(ls).map(anyStr).mkString(pre, sep, post))
         case (ls, "toList", Nil) if isList(ls) => ls
+        case (ls, "iterator", Nil) if isList(ls) => ls  // list ops work on the Cons-list directly
         case (ls, "toSet", Nil) if isList(ls) =>
           listOf(unlist(ls).distinct)  // approximate set as distinct list
         case (ls, "toVector", Nil) if isList(ls) => ls
