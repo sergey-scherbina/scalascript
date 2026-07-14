@@ -451,10 +451,38 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
           .emit file). Literal-self-host loop CLOSED + automated. Core IR target also runs functions+recursion
           (factorial(5)→120). Every compiler layer now proven in the subset (lex/parse/eval/closures/lower/
           emit-executable). **Corpus 78 programs, 0 fail.** Notes §P6.5.
-  - [ ] **P6.5 literal fixed point (follow-on, non-gate)** — the remaining work is bounded MECHANICAL BREADTH:
-        port ALL of the ~800-line spike front (SpikeLex/Parse/Project) + ~2000-line ssc1-lower into the
-        subset, covering every construct + Core IR form. No capability or design question remains — every
-        layer + Core IR form is proven runnable in the subset (selfhost-full/infix/eval/closures/compiler/emit).
+    - [x] **P6.5 Turing-complete milestone ✓ Landed 2026-07-14** (c5831c285): selfhost-rec — a compiler in
+          the subset for a language with FUNCTIONS + RECURSION + variables + control flow, emitting EXECUTABLE
+          Core IR. Compiles a recursive factorial from source text ("? < x 1 1 * x @ - x 1") into (def f (lam
+          1 …(app (global f)…))) + main→f(5); the emitted Core IR runs to **120**. Every compiler capability
+          now proven in the subset (lex/precedence-parse/eval/closures/lower-text/lower-executable/functions+
+          recursion+local-slots+global-refs+application). **Corpus 79 programs, 0 fail.**
+  - [ ] **P6.5 literal fixed point (follow-on, non-gate)** — the whole ScalaScript-subset compiler, written
+        in the subset, compiling itself. No capability/design question remains (every construct + Core IR form
+        is proven runnable in the subset). The remaining work is bounded MECHANICAL BREADTH, tracked here:
+    - [ ] **F1 — subset lexer in the subset.** Port `SpikeLex` (identifiers/keywords, ints, string literals +
+          escapes + interpolators, operator runs, punctuation, `//` + `/* */` comments) → a subset function
+          `lex(src): List[Token]`. Tokens as tagged tuples. Char-level lexing already proven (selfhost-full).
+    - [ ] **F2 — subset parser in the subset.** Port `SpikeParse` (offside layout + blocks, the full infix
+          precedence table + `::`/`->`/prefix/ranges, `if`/`match` with ALL pattern kinds, `def`/`val`/case-
+          class/enum/extension/given/summon/lambda, chained application, type-erasure) → `parse(toks): AST`
+          producing the `ssc1-front` `Pair(tag,data)` shape. Recursive-descent + precedence proven (selfhost-
+          infix); the AST is tuples/lists (proven).
+    - [ ] **F3 — projection in the subset.** Port `SpikeProject` (CST → the exact `mk*` `Pair(tag,data)` AST)
+          — or fold it into F2 so `parse` emits the AST directly. String building proven (selfhost-compiler).
+    - [ ] **L1 — lowerer in the subset.** Port `ssc1-lower` `lowerProg` (ctor/Mirror/`_sel_` accessors/
+          `__regfields__` for case classes; dict-passing for given/summon; enum ctor path; extension-method
+          registration; the whole AST→Core IR walk) → a subset function emitting executable Core IR. Lowering
+          to executable Core IR proven for arith+control-flow+functions+recursion (selfhost-emit/rec).
+    - [ ] **X1 — the fixpoint.** Feed the F1+F2+F3+L1 pipeline (compiled by the spike, running on the VM) its
+          OWN source; require the Core IR it produces for a program P to be byte-identical to what the spike +
+          `ssc1-lower` produce for P (the differential oracle stays the guard); then feed it its own source →
+          `stage1 == stage2` fixed point. `scalac` remains the outer oracle.
+    - Sequencing: F1 → F2/F3 → L1 → X1. Each stage is differential-tested against the spike/`ssc1-front` on
+      the growing corpus (same harness). Estimated ~1–3k lines of subset code; multi-session but purely
+      mechanical — no unknowns. Every primitive it needs (strings incl. charAt/length/concat/eq/substring,
+      int↔string, tuples, Cons-lists, nested/tag patterns, recursion, closures, HOFs, executable Core IR
+      emission incl. functions/recursion) is proven runnable on the bare VM and byte-identical to ssc1-front.
   - Prereqs: subset must hold — the one v2-side lift is **immutable indexed `Array`** (gapmap:76);
         anon-trait + mutable-object-field stay out; multi-file `package`/`import` reconciliation
         (gapmap:82-83) needed before the compiler's own multi-file source dual-compiles.
