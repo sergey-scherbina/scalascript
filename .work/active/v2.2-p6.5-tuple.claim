@@ -1,7 +1,0 @@
-slug: v2.2-p6.5-tuple
-scope: literal P6.5 — extend selfhost-match with TUPLES: literal (a,b) -> (ctor Tuple2 a b) (disambiguated
-       from grouping by a following comma), and tuple pattern `case (a,b) =>` -> (arm Tuple2 2 ..) with a,b
-       pushed onto the env. The compiler uses (value,rest) pairs everywhere → a step toward self-application.
-       def swap(p)=p match{case (a,b)=>(b,a)} ... -> exercises construct + destructure + nesting.
-files: uniml/core/src/test/.../spike/**, specs/v2.2-*, SPRINT.md
-branch: feature/v2.2-p6.5-tuple
