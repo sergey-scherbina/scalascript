@@ -193,12 +193,16 @@ def tokenize(sql: String): Either[String, List[Token]] =
 // ── Parser: SELECT (*|cols) FROM table [WHERE …] ──
 
 // Scalar expression tree over columns and literals — used both in projections and in WHERE.
+// SxBin's op covers arithmetic (+ - * /), concatenation (||) AND comparisons (= <> < > <= >=,
+// which yield 1/0/NULL like sqlite). SxCase is `CASE [operand] WHEN … THEN … [ELSE …] END`.
 sealed trait SxNode
 case class SxCol(name: String) extends SxNode
 case class SxLit(value: SqliteValue) extends SxNode
 case class SxNeg(inner: SxNode) extends SxNode
 case class SxBin(op: String, left: SxNode, right: SxNode) extends SxNode
 case class SxCall(func: String, args: List[SxNode]) extends SxNode
+case class SxWhen(cond: SxNode, result: SxNode)
+case class SxCase(operand: Option[SxNode], whens: List[SxWhen], elseExpr: Option[SxNode]) extends SxNode
 
 // A WHERE predicate. The left operand is a bare column (`column`, `leftExpr=None`) or a computed
 // expression (`leftExpr=Some`); the right operand of a scalar comparison is a literal (`value`,
@@ -263,7 +267,7 @@ def condColOf(node: SxNode): String = node match
 // `<expr> [NOT] IN ( … )`, or `<expr> [NOT] LIKE pat`. The left operand (and, for a scalar
 // comparison, the right operand) may be any arithmetic expression, a column, or a literal.
 def parseCondition(toks: List[Token]): Either[String, (Condition, List[Token])] =
-  parseExpr(toks) match
+  parseExprAdd(toks) match
     case Left(message) => Left(message)
     case Right(le) =>
       val lnode = le._1
@@ -277,15 +281,20 @@ def parseCondition(toks: List[Token]): Either[String, (Condition, List[Token])] 
           else Right((Condition(col, "notnull", SqlNull, Nil, lopt, None), afterIs.tail.tail))
         else if tkIsKw(afterIs, "NULL") then Right((Condition(col, "isnull", SqlNull, Nil, lopt, None), afterIs.tail))
         else Left("expected NULL after IS")
-      else if tkIsKw(after, "NOT") && tkIsKw(after.tail, "IN") then
-        parseValueList(after.tail.tail) match
-          case Left(message) => Left(message)
-          case Right(vl) => Right((Condition(col, "notin", SqlNull, vl._1, lopt, None), vl._2))
-      else if tkIsKw(after, "NOT") && tkIsKw(after.tail, "LIKE") then
-        if after.length < 3 then Left("NOT LIKE needs a pattern")
-        else litValue(after.tail.tail.head) match
-          case Left(message) => Left(message)
-          case Right(pat) => Right((Condition(col, "notlike", pat, Nil, lopt, None), after.tail.tail.tail))
+      else if tkIsKw(after, "NOT") then
+        // Nested (not `&&`): the interpreter's `&&` does NOT short-circuit, so
+        // `tkIsKw(after,"NOT") && tkIsKw(after.tail,…)` would evaluate `after.tail` on an
+        // empty list (e.g. a bare `WHERE <expr>`) and crash. Here after.tail is safe (after="NOT").
+        if tkIsKw(after.tail, "IN") then
+          parseValueList(after.tail.tail) match
+            case Left(message) => Left(message)
+            case Right(vl) => Right((Condition(col, "notin", SqlNull, vl._1, lopt, None), vl._2))
+        else if tkIsKw(after.tail, "LIKE") then
+          if after.length < 3 then Left("NOT LIKE needs a pattern")
+          else litValue(after.tail.tail.head) match
+            case Left(message) => Left(message)
+            case Right(pat) => Right((Condition(col, "notlike", pat, Nil, lopt, None), after.tail.tail.tail))
+        else Left("expected IN or LIKE after NOT")
       else if tkIsKw(after, "LIKE") then
         if after.length < 2 then Left("LIKE needs a pattern")
         else litValue(after.tail.head) match
@@ -303,10 +312,14 @@ def parseCondition(toks: List[Token]): Either[String, (Condition, List[Token])] 
           case Right(lo) => litValue(after.tail.tail.tail.head) match
             case Left(message) => Left(message)
             case Right(hi) => Right((Condition(col, "between", SqlNull, lo :: hi :: Nil, lopt, None), after.tail.tail.tail.tail))
-      else if tkKind(after) != "op" then Left("expected a comparison operator")
+      else if tkKind(after) != "op" then
+        // A bare boolean expression, e.g. `WHERE flag` or `WHERE CASE … END` — kept as a
+        // truthiness test (non-zero / numeric-looking); the tokens after it are left for the
+        // AND/OR chain. Only a compound left side lands here (a bare column is `col`, `leftExpr`).
+        Right((Condition(col, "truthy", SqlNull, Nil, lopt, None), after))
       else
         val op = after.head
-        parseExpr(after.tail) match
+        parseExprAdd(after.tail) match
           case Left(message) => Left(message)
           case Right(re) =>
             val rnode = re._1
@@ -527,9 +540,56 @@ def parseCallArgs(toks: List[Token]): Either[String, (List[SxNode], List[Token])
       case Some(message) => Left(message)
       case None => Right((reverseSxNodes(accRev, Nil), rest))
 
+def reverseWhens(items: List[SxWhen], acc: List[SxWhen]): List[SxWhen] =
+  var r = items
+  var out = acc
+  while r.nonEmpty do
+    out = r.head :: out
+    r = r.tail
+  out
+
+// `CASE [operand] WHEN cond THEN result [WHEN …]* [ELSE result] END`. `toks` starts after CASE.
+// With an operand each WHEN value is equality-compared to it (simple form); without, each WHEN
+// is a boolean condition (searched form). Conditions/results are full expressions.
+def parseCaseWhens(operand: Option[SxNode], toks: List[Token]): Either[String, (SxNode, List[Token])] =
+  var rest = toks
+  var accRev: List[SxWhen] = Nil
+  var err: Option[String] = None
+  var done = false
+  while !done && err.isEmpty do
+    if tkIsKw(rest, "WHEN") then
+      parseExpr(rest.tail) match
+        case Left(message) => err = Some(message)
+        case Right(cnd) =>
+          if !tkIsKw(cnd._2, "THEN") then err = Some("expected THEN in CASE")
+          else parseExpr(cnd._2.tail) match
+            case Left(message) => err = Some(message)
+            case Right(res) =>
+              accRev = SxWhen(cnd._1, res._1) :: accRev
+              rest = res._2
+    else done = true
+  err match
+    case Some(message) => Left(message)
+    case None =>
+      if accRev.isEmpty then Left("CASE needs at least one WHEN")
+      else if tkIsKw(rest, "ELSE") then
+        parseExpr(rest.tail) match
+          case Left(message) => Left(message)
+          case Right(e) =>
+            if !tkIsKw(e._2, "END") then Left("expected END in CASE")
+            else Right((SxCase(operand, reverseWhens(accRev, Nil), Some(e._1)), e._2.tail))
+      else if !tkIsKw(rest, "END") then Left("expected END in CASE")
+      else Right((SxCase(operand, reverseWhens(accRev, Nil), None), rest.tail))
+
+def parseCase(toks: List[Token]): Either[String, (SxNode, List[Token])] =
+  if tkIsKw(toks, "WHEN") then parseCaseWhens(None, toks)
+  else parseExprAdd(toks) match
+    case Left(message) => Left(message)
+    case Right(op) => parseCaseWhens(Some(op._1), op._2)
+
 def parseExprAtom(toks: List[Token]): Either[String, (SxNode, List[Token])] =
   if tkKind(toks) == "lparen" then
-    parseExprAdd(toks.tail) match
+    parseExpr(toks.tail) match
       case Left(message) => Left(message)
       case Right(inner) =>
         if tkKind(inner._2) != "rparen" then Left("expected ')' in expression")
@@ -538,6 +598,7 @@ def parseExprAtom(toks: List[Token]): Either[String, (SxNode, List[Token])] =
     parseExprAtom(toks.tail) match
       case Left(message) => Left(message)
       case Right(a) => Right((SxNeg(a._1), a._2))
+  else if tkIsKw(toks, "CASE") then parseCase(toks.tail)
   else if tkKind(toks) == "num" then Right((SxLit(SqlInteger(toks.head.num)), toks.tail))
   else if tkKind(toks) == "str" then Right((SxLit(SqlText(toks.head.text)), toks.tail))
   else if tkKind(toks) == "ident" then
@@ -616,7 +677,24 @@ def parseExprAdd(toks: List[Token]): Either[String, (SxNode, List[Token])] =
         case Some(message) => Left(message)
         case None => Right((acc, rest))
 
-def parseExpr(toks: List[Token]): Either[String, (SxNode, List[Token])] = parseExprAdd(toks)
+def isCompareOp(t: String): Boolean =
+  t == "=" || t == "==" || t == "<>" || t == "!=" || t == "<" || t == ">" || t == "<=" || t == ">="
+
+// The lowest expression precedence: a single comparison yielding 1/0/NULL (sqlite treats a
+// comparison as an expression). WHERE operands deliberately use parseExprAdd (below this) so
+// `WHERE a > b` is still parsed by parseCondition rather than swallowed as one expression.
+def parseExprCompare(toks: List[Token]): Either[String, (SxNode, List[Token])] =
+  parseExprAdd(toks) match
+    case Left(message) => Left(message)
+    case Right(first) =>
+      val rest0 = first._2
+      if tkKind(rest0) == "op" && isCompareOp(tkText(rest0)) then
+        parseExprAdd(rest0.tail) match
+          case Left(message) => Left(message)
+          case Right(second) => Right((SxBin(tkText(rest0), first._1, second._1), second._2))
+      else Right((first._1, rest0))
+
+def parseExpr(toks: List[Token]): Either[String, (SxNode, List[Token])] = parseExprCompare(toks)
 
 def parseProjItem(toks: List[Token]): Either[String, (ProjItem, List[Token])] =
   if isAggStart(toks) then
@@ -721,9 +799,16 @@ def parseJoin(toks: List[Token]): Either[String, (Option[JoinSpec], List[Token])
           else Right((Some(JoinSpec(jtable, l.text, o.text, rc.text, leftOuter)), afterOn.tail.tail.tail))
 
 // Parse optional `HAVING (agg|col) op literal` (evaluated per group after aggregation).
+// The HAVING left side is an aggregate or a bare column and must STOP before the comparison
+// operator (unlike a projection item, which now parses a full expression incl. comparisons).
+def parseHavingItem(toks: List[Token]): Either[String, (ProjItem, List[Token])] =
+  if isAggStart(toks) then parseProjItem(toks)
+  else if tkKind(toks) == "ident" then Right((ProjItem(false, "", toks.head.text, false, None), toks.tail))
+  else Left("expected a column or aggregate in HAVING")
+
 def parseHaving(toks: List[Token]): Either[String, (Option[HavingCond], List[Token])] =
   if !tkIsKw(toks, "HAVING") then Right((None, toks))
-  else parseProjItem(toks.tail) match
+  else parseHavingItem(toks.tail) match
     case Left(message) => Left(message)
     case Right(itemPair) =>
       val afterItem = itemPair._2
@@ -885,11 +970,26 @@ def concatValue(a: SqliteValue, b: SqliteValue): SqliteValue =
   if isNullValue(a) || isNullValue(b) then SqlNull
   else SqlText(coerceText(a) + coerceText(b))
 
+// A comparison as a value: 1/0, or NULL if either side is NULL (sqlite semantics).
+def compareValue(op: String, a: SqliteValue, b: SqliteValue): SqliteValue =
+  if isNullValue(a) || isNullValue(b) then SqlNull
+  else
+    val nop = if op == "==" then "=" else op
+    if condMatches(nop, sqlCompare(a, b)) then SqlInteger(1L) else SqlInteger(0L)
+
+// Truthiness for CASE searched WHEN / boolean context: non-zero number (or numeric-looking text).
+def isTruthy(v: SqliteValue): Boolean = v match
+  case SqlInteger(x) => x != 0L
+  case SqlReal(x) => x != 0.0
+  case SqlText(s) => parseIntStr(s) != 0
+  case _ => false
+
 // Arithmetic: integer result when both operands are integers (with truncating integer
 // division), otherwise real; NULL if either operand is NULL or on divide-by-zero (as sqlite).
-// `||` is handled first (text concatenation, distinct from numeric ops).
+// `||` (concat) and comparisons (→ 1/0/NULL) are handled first, before the numeric ops.
 def arithValue(op: String, a: SqliteValue, b: SqliteValue): SqliteValue =
   if op == "||" then concatValue(a, b)
+  else if isCompareOp(op) then compareValue(op, a, b)
   else if isNullValue(a) || isNullValue(b) then SqlNull
   else if isIntValue(a) && isIntValue(b) then
     val x = intPayload(a)
@@ -1063,12 +1163,34 @@ def evalArgs(args: List[SxNode], rec: StorageRecord, colNames: List[String]): Li
     r = r.tail
   reverseValues(accRev, Nil)
 
+// CASE over a single-table row: pick the first matching WHEN (operand-equality for the simple
+// form, truthiness for the searched form), else the ELSE result, else NULL.
+def evalCaseSingle(operand: Option[SxNode], whens: List[SxWhen], elseExpr: Option[SxNode], rec: StorageRecord, colNames: List[String]): SqliteValue =
+  var r = whens
+  var out: Option[SqliteValue] = None
+  operand match
+    case Some(opExpr) =>
+      val opVal = evalExpr(opExpr, rec, colNames)
+      while r.nonEmpty && out.isEmpty do
+        if sqlCompare(opVal, evalExpr(r.head.cond, rec, colNames)) == 0 then out = Some(evalExpr(r.head.result, rec, colNames))
+        r = r.tail
+    case None =>
+      while r.nonEmpty && out.isEmpty do
+        if isTruthy(evalExpr(r.head.cond, rec, colNames)) then out = Some(evalExpr(r.head.result, rec, colNames))
+        r = r.tail
+  out match
+    case Some(v) => v
+    case None => elseExpr match
+      case Some(e) => evalExpr(e, rec, colNames)
+      case None => SqlNull
+
 def evalExpr(e: SxNode, rec: StorageRecord, colNames: List[String]): SqliteValue = e match
   case SxCol(name) => rowValue(rec, colNames, name)
   case SxLit(v) => v
   case SxNeg(inner) => negateValue(evalExpr(inner, rec, colNames))
   case SxBin(op, l, r) => arithValue(op, evalExpr(l, rec, colNames), evalExpr(r, rec, colNames))
   case SxCall(func, args) => evalCall(func, evalArgs(args, rec, colNames))
+  case SxCase(operand, whens, elseExpr) => evalCaseSingle(operand, whens, elseExpr, rec, colNames)
 
 // Same evaluation over a join row: column references resolve across both tables (qualified or bare).
 def evalArgsJoin(args: List[SxNode], recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String): List[SqliteValue] =
@@ -1079,12 +1201,32 @@ def evalArgsJoin(args: List[SxNode], recA: StorageRecord, colsA: List[String], t
     r = r.tail
   reverseValues(accRev, Nil)
 
+def evalCaseJoin(operand: Option[SxNode], whens: List[SxWhen], elseExpr: Option[SxNode], recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String): SqliteValue =
+  var r = whens
+  var out: Option[SqliteValue] = None
+  operand match
+    case Some(opExpr) =>
+      val opVal = evalExprJoin(opExpr, recA, colsA, tableA, recBOpt, colsB, tableB)
+      while r.nonEmpty && out.isEmpty do
+        if sqlCompare(opVal, evalExprJoin(r.head.cond, recA, colsA, tableA, recBOpt, colsB, tableB)) == 0 then out = Some(evalExprJoin(r.head.result, recA, colsA, tableA, recBOpt, colsB, tableB))
+        r = r.tail
+    case None =>
+      while r.nonEmpty && out.isEmpty do
+        if isTruthy(evalExprJoin(r.head.cond, recA, colsA, tableA, recBOpt, colsB, tableB)) then out = Some(evalExprJoin(r.head.result, recA, colsA, tableA, recBOpt, colsB, tableB))
+        r = r.tail
+  out match
+    case Some(v) => v
+    case None => elseExpr match
+      case Some(e) => evalExprJoin(e, recA, colsA, tableA, recBOpt, colsB, tableB)
+      case None => SqlNull
+
 def evalExprJoin(e: SxNode, recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String): SqliteValue = e match
   case SxCol(name) => joinColValue(recA, colsA, tableA, recBOpt, colsB, tableB, name)
   case SxLit(v) => v
   case SxNeg(inner) => negateValue(evalExprJoin(inner, recA, colsA, tableA, recBOpt, colsB, tableB))
   case SxBin(op, l, r) => arithValue(op, evalExprJoin(l, recA, colsA, tableA, recBOpt, colsB, tableB), evalExprJoin(r, recA, colsA, tableA, recBOpt, colsB, tableB))
   case SxCall(func, args) => evalCall(func, evalArgsJoin(args, recA, colsA, tableA, recBOpt, colsB, tableB))
+  case SxCase(operand, whens, elseExpr) => evalCaseJoin(operand, whens, elseExpr, recA, colsA, tableA, recBOpt, colsB, tableB)
 
 // Compare two values for WHERE: numeric if both numeric, text if both text, else by
 // storage-class order (NULL < number < text < blob).
@@ -1184,7 +1326,8 @@ def likeMatch(textRaw: String, patRaw: String): Boolean =
 // (`rv` is the RHS of a scalar comparison, or the LIKE pattern; unused by IS/BETWEEN/IN).
 // Shared by single-table (condHolds) and join (joinCondHolds) evaluation.
 def predHolds(cond: Condition, v: SqliteValue, rv: SqliteValue): Boolean =
-  if cond.op == "isnull" then isNullValue(v)
+  if cond.op == "truthy" then isTruthy(v)
+  else if cond.op == "isnull" then isNullValue(v)
   else if cond.op == "notnull" then isNullValue(v) == false
   else if cond.op == "between" then
     if isNullValue(v) then false
@@ -2409,12 +2552,32 @@ def evalArgsValues(args: List[SxNode], values: List[SqliteValue], colNames: List
     r = r.tail
   reverseValues(accRev, Nil)
 
+def evalCaseValues(operand: Option[SxNode], whens: List[SxWhen], elseExpr: Option[SxNode], values: List[SqliteValue], colNames: List[String]): SqliteValue =
+  var r = whens
+  var out: Option[SqliteValue] = None
+  operand match
+    case Some(opExpr) =>
+      val opVal = evalExprValues(opExpr, values, colNames)
+      while r.nonEmpty && out.isEmpty do
+        if sqlCompare(opVal, evalExprValues(r.head.cond, values, colNames)) == 0 then out = Some(evalExprValues(r.head.result, values, colNames))
+        r = r.tail
+    case None =>
+      while r.nonEmpty && out.isEmpty do
+        if isTruthy(evalExprValues(r.head.cond, values, colNames)) then out = Some(evalExprValues(r.head.result, values, colNames))
+        r = r.tail
+  out match
+    case Some(v) => v
+    case None => elseExpr match
+      case Some(e) => evalExprValues(e, values, colNames)
+      case None => SqlNull
+
 def evalExprValues(e: SxNode, values: List[SqliteValue], colNames: List[String]): SqliteValue = e match
   case SxCol(name) => valueByName(values, colNames, name)
   case SxLit(v) => v
   case SxNeg(inner) => negateValue(evalExprValues(inner, values, colNames))
   case SxBin(op, l, r) => arithValue(op, evalExprValues(l, values, colNames), evalExprValues(r, values, colNames))
   case SxCall(func, args) => evalCall(func, evalArgsValues(args, values, colNames))
+  case SxCase(operand, whens, elseExpr) => evalCaseValues(operand, whens, elseExpr, values, colNames)
 
 def findAssignmentItem(assignments: List[Assignment], colName: String): Option[Assignment] =
   val target = upperStr(colName)

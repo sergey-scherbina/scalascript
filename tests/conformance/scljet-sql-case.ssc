@@ -1,0 +1,37 @@
+---
+name: scljet-sql-case
+description: SclJet SQL CASE expression (searched + simple) and comparison-as-value; matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet SQL CASE expression
+
+`CASE WHEN cond THEN r [WHEN …]* [ELSE r] END` (searched form) and `CASE operand WHEN v THEN r … END`
+(simple form). A comparison is itself an expression yielding `1`/`0`/NULL (as in sqlite), so `WHEN
+salary > 200` works and `SELECT salary > 200` returns 0/1. CASE composes with arithmetic (`THEN
+salary*2`), has no ELSE → NULL, and works in `WHERE`. Every result is byte-identical to reference
+sqlite3 running the same SQL on the same file (verified out-of-band); locked across backends.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER, name TEXT, salary INTEGER, dept INTEGER)",
+  List(List(SqlInteger(1L), SqlText("ann"), SqlInteger(100L), SqlInteger(10L)),
+       List(SqlInteger(2L), SqlText("bob"), SqlInteger(250L), SqlInteger(20L)),
+       List(SqlInteger(3L), SqlText("cat"), SqlInteger(300L), SqlInteger(10L)),
+       List(SqlInteger(4L), SqlText("dan"), SqlInteger(150L), SqlInteger(30L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db) =>
+    show(db, "SELECT id, CASE WHEN salary >= 250 THEN 'high' WHEN salary >= 150 THEN 'mid' ELSE 'low' END FROM emp")
+    show(db, "SELECT id, CASE dept WHEN 10 THEN 'eng' WHEN 20 THEN 'sales' ELSE 'other' END FROM emp")
+    show(db, "SELECT id, CASE WHEN salary > 200 THEN 'big' END FROM emp")
+    show(db, "SELECT id, CASE WHEN dept = 10 THEN salary * 2 ELSE salary END FROM emp")
+    show(db, "SELECT id, salary > 200 FROM emp")
+    show(db, "SELECT id FROM emp WHERE CASE WHEN dept = 10 THEN salary > 200 ELSE salary > 100 END")
+```
