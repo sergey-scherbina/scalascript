@@ -1,6 +1,6 @@
 feature/scala-control-path-shortening 2026-07-14T16:46:19Z
 agent: codex-interop
-heartbeat: 2026-07-14T16:46:19Z
+heartbeat: 2026-07-14T16:52:52Z
 status: in-progress
-done-so-far: Sergiy requested the canonical host source directory be named control, not control-api
-next: plan/spec the path-only rename, move the module, update every link, rerun gates
+done-so-far: plan and Scala/JVM profile now canonically select v2/host/scala/control plus scalascript-control_3; scala3ControlApi remains the sbt id
+next: rename the module directory and Maven name, update live links, rerun package/module/conformance gates
