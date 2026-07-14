@@ -30,6 +30,12 @@ for proj in "$OUT"/*.proj; do
         want=$(cat "$OUT/$name.emit")
         if [ "$stage2" = "$want" ]; then echo "ok   $name → CoreIR≡ssc1-front; the IR it EMITS runs → $stage2 (self-compile stage 2)"
         else echo "FAIL $name  emitted IR ran to [$stage2], expect [$want]"; fail=1; fi
+      elif [ -f "$OUT/$name.want" ]; then
+        # the toy's run-ir output (e.g. a rendered token stream) must equal an expected string
+        got=$(printf '%s' "$mine" | sed 's/^"//; s/"$//')
+        want=$(cat "$OUT/$name.want")
+        if [ "$got" = "$want" ]; then echo "ok   $name → CoreIR≡ssc1-front; output = expected"
+        else echo "FAIL $name  output [$got] != want [$want]"; fail=1; fi
       else echo "ok   $name → run-ir=$mine  CoreIR≡ssc1-front"; fi
     else echo "FAIL $name  CoreIR≠ssc1-front (run-ir mine=$mine)"; fail=1; fi
   else

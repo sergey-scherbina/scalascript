@@ -754,6 +754,48 @@ final class ScalaSpikeSpec extends AnyFunSuite:
          |  val body = lower(fst(parse(tokenize(src, 0, src.length))))
          |  "(program (defs (def f (lam 1 " + body + ")) (def main (lam 0 (app (global f) (lit (int 5)))))) (entry (app (global main))))"
          |def main(): String = compile("? < x 1 1 * x @ - x 1")""".stripMargin
+    // ══ P6.5 literal-port F1: a Scala-SUBSET LEXER written in the subset ═══════════════════════════
+    // A real port of SpikeLex's core: skip whitespace, scan multi-char identifiers (letter + alnum) and
+    // classify keyword vs id, scan integers, scan operator runs (+-*/%<>=!&|^~:), and single-char
+    // punctuation — rendering each token as `tag:lexeme`. Uses charAt/length/substring/== (all proven).
+    val selfhostLexer =
+      """|def isAl(c: Int): Int = if c >= 97 then (if c <= 122 then 1 else 0) else if c >= 65 then (if c <= 90 then 1 else 0) else if c == 95 then 1 else 0
+         |def isDig(c: Int): Int = if c >= 48 then (if c <= 57 then 1 else 0) else 0
+         |def isAlnum(c: Int): Int = if isAl(c) == 1 then 1 else isDig(c)
+         |def isOp(c: Int): Int =
+         |  if c == 43 then 1 else if c == 45 then 1 else if c == 42 then 1 else if c == 47 then 1
+         |  else if c == 37 then 1 else if c == 60 then 1 else if c == 62 then 1 else if c == 61 then 1
+         |  else if c == 33 then 1 else if c == 38 then 1 else if c == 124 then 1 else if c == 94 then 1
+         |  else if c == 126 then 1 else if c == 58 then 1 else 0
+         |def kw(s: String): Int =
+         |  if s == "def" then 1 else if s == "if" then 1 else if s == "then" then 1 else if s == "else" then 1
+         |  else if s == "val" then 1 else if s == "match" then 1 else if s == "case" then 1 else 0
+         |def scanWhile(s: String, i: Int, n: Int, kind: Int): Int =
+         |  if i >= n then i
+         |  else
+         |    val c = s.charAt(i)
+         |    val ok = if kind == 0 then isAlnum(c) else if kind == 1 then isDig(c) else isOp(c)
+         |    if ok == 1 then scanWhile(s, i + 1, n, kind) else i
+         |def lex(s: String, i: Int, n: Int): String =
+         |  if i >= n then ""
+         |  else
+         |    val c = s.charAt(i)
+         |    if c == 32 then lex(s, i + 1, n)
+         |    else if isAl(c) == 1 then
+         |      val j = scanWhile(s, i, n, 0)
+         |      val w = s.substring(i, j)
+         |      val tag = if kw(w) == 1 then "kw:" else "id:"
+         |      tag + w + " " + lex(s, j, n)
+         |    else if isDig(c) == 1 then
+         |      val j = scanWhile(s, i, n, 1)
+         |      "int:" + s.substring(i, j) + " " + lex(s, j, n)
+         |    else if isOp(c) == 1 then
+         |      val j = scanWhile(s, i, n, 2)
+         |      "op:" + s.substring(i, j) + " " + lex(s, j, n)
+         |    else "pn:" + s.substring(i, i + 1) + " " + lex(s, i + 1, n)
+         |def main(): String =
+         |  val src = "def f = if x then 1 else x + 2"
+         |  lex(src, 0, src.length)""".stripMargin
     // The hardest part of a real parser, in the subset: a PRECEDENCE-CLIMBING infix parser with
     // PARENTHESES — the same algorithm as the spike's own parseExpr (climb while the next operator binds
     // tighter than minPrec). Tokenises "2 * (1 + 3)" (with `(`=-3, `)`=-4), parses respecting `*` over `+`
@@ -805,6 +847,7 @@ final class ScalaSpikeSpec extends AnyFunSuite:
       "selfhost-compiler" -> selfhostCompiler,
       "selfhost-emit"     -> selfhostEmit,
       "selfhost-rec"      -> selfhostRec,
+      "selfhost-lexer"    -> selfhostLexer,
       "selfhost-infix"    -> selfhostInfix,
       "scale-prog"   -> scaleProg,
       "scale-decls"  -> scaleDecls,
@@ -909,6 +952,9 @@ final class ScalaSpikeSpec extends AnyFunSuite:
     Files.writeString(Paths.get(outDir, "selfhost-emit.emit"), "8")
     // selfhost-rec compiles a recursive factorial from source text; the Core IR it emits runs to 5! = 120.
     Files.writeString(Paths.get(outDir, "selfhost-rec.emit"), "120")
+    // selfhost-lexer (F1) tokenises subset source; the harness checks its rendered token stream equals this.
+    Files.writeString(Paths.get(outDir, "selfhost-lexer.want"),
+      "kw:def id:f op:= kw:if id:x kw:then int:1 kw:else id:x op:+ int:2 ")
     for (name, code, expect) <- broken do
       Files.writeString(Paths.get(outDir, s"$name.proj"), SpikeProject.program(parse(code).roots.head))
       Files.writeString(Paths.get(outDir, s"$name.expect"), expect)
