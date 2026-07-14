@@ -819,8 +819,13 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
           mk*/prim `Pair`s). C0 (the compiler, as Core IR with a `match #io.args()` entry) READS an object-
           language program from a FILE, compiles it, and the emitted Core IR runs -> 4. NO quine, NO hard-coded
           source — exactly like ssc1-run.ssc0.
-    - [ ] **P6.6b — F completeness.** Add var patterns in `match` (`case x => body`, binds the scrutinee) +
-          string escapes (`scanStr` decodes `\"`/`\\`; emit escapes `"`/`\`) to the compiler.
+    - [x] **P6.6b — F completeness DESIGN DE-RISKED 2026-07-14**: NO var-patterns, NO escapes needed. (1)
+          bindings via HELPER FUNCTIONS (`val x=e; body` -> `def h(..,x)=body; h(..,e)`). (2) escape-free
+          emission: bare quote-free prims (+->i.add, -->i.sub, *->i.mul, <->i.lt, ==->__eq__ polymorphic,
+          ++->sconcat, .length->slen, .charAt->scodeAt, .substring->sslice — all verified to run) + a `dq`
+          PARAMETER carrying the `"` char (`compile(src,dq)`; driver builds dq via #sfromCodes(Cons(34,Nil)),
+          verified). So C's source has NO `"`-inside-a-string literal -> scanStr compares code 34, emits
+          `dq++content++dq`; escStr = identity. Spec §"quote-free emission design".
     - [ ] **P6.6c — write C in F.** Rewrite the compiler using only F (no `let … in`; local bindings via
           var-`match` or braced blocks; escaped string literals). Spike still compiles it byte-identically +
           it emits correct executable Core IR.
