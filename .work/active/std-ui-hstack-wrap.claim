@@ -1,0 +1,5 @@
+feature/std-ui-hstack-wrap 2026-07-14T12:14:45Z
+agent: claude-code (hstack-wrap)
+heartbeat: 2026-07-14T12:14:45Z
+status: starting — spec then implementation for optional flex-wrap on hstack
+next: write specs/std-ui-hstack-wrap.md, then thread wrap param through layout.ssc/nodes.ssc/lower.ssc
