@@ -1,0 +1,29 @@
+---
+name: interop-05-capture-resume-same-host
+axis: capture-resume-same-host
+status: measurable-now
+---
+
+# Axis 5 — capture + resume, same host, state-threaded
+
+A deep handler whose arms return functions, threading an accumulator through
+`resume(())(s + v)` — the in-process precursor of the durable `save()`/`run()`
+idiom. Each `emit` suspends; the handler resumes with the running state. This is
+the same-host, same-process capture/resume the durable capsule generalises to
+cross-process and cross-host (both pending the DurableValue codec).
+
+```scalascript
+effect Yield:
+  def emit(v: Int): Unit
+
+def prog(): Int =
+  Yield.emit(10)
+  Yield.emit(20)
+  0
+
+val threaded = handle(prog()) {
+  case Yield.emit(v, resume) => (s: Int) => resume(())(s + v)
+  case Return(x) => (s: Int) => x + s
+}
+println(threaded(0))
+```

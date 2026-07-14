@@ -1,0 +1,19 @@
+---
+name: interop-03-deep-tco
+axis: cross-boundary-tco
+status: measurable-now-intra-lane
+---
+
+# Axis 3 — deep proper tail calls (intra-lane)
+
+Deep self-tail-recursion at depth 2,000,000 with no unbounded managed/native
+stack growth. This is the intra-lane (single portable-VM) form of the spec's
+"mixed-language proper tail calls" conformance (§9). The cross-language form
+(Scala↔ScalaScript N-function cycles at depth ≥1,000,000) belongs to the host
+profiles and is tracked as pending until the host value/call bridge lands.
+
+```scalascript
+def loop(n: Int, acc: Int): Int =
+  if n == 0 then acc else loop(n - 1, acc + 1)
+println(loop(2000000, 0))
+```

@@ -1,0 +1,7 @@
+axis: exact-artifact-and-codec-mismatch
+status: pending-codec
+needs: pinned versioned CoreIR codec + ExactArtifact target/toolchain pin
+expected: (a) A capsule pinning CoreIR codec ABI vN is rejected with a typed
+  error on a runtime with an incompatible codec version — never a silent
+  mis-decode. (b) An ExactArtifact whose target/toolchain/artifact pin does not
+  match the resuming host gives a typed Target/ArtifactUnavailable. Negative axes.

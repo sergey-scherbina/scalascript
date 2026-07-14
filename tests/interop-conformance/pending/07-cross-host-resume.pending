@@ -1,0 +1,9 @@
+axis: cross-host-resume
+status: pending-codec
+needs: DurableValue wire codec + a second runner (JVM↔JS/Swift/Rust)
+expected: A capsule saved on the portable-VM resumes on a DIFFERENT compatible
+  host (Portable CodeMode + Durable FrameGate), producing byte-identical
+  observable output. This is the axis the whole DurableValue/ExactArtifact model
+  exists to enable; the portable-VM spike currently reports this ✗ (no capsule).
+sketch: |
+  # capsule produced here, resumed by another runner profile's harness row.

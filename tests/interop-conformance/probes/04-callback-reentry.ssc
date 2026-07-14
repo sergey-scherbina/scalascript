@@ -1,0 +1,17 @@
+---
+name: interop-04-callback-reentry
+axis: callback-reentry
+status: measurable-now
+---
+
+# Axis 4 — callback re-entry
+
+A higher-order function receives a managed closure and re-enters it multiple
+times. At the interop boundary this is the "managed callback" case: a host
+callback is a terminal adapter over this managed-closure capability (never an
+alternate control semantics). Intra-lane baseline here.
+
+```scalascript
+def apply3(f: Int => Int, x: Int): Int = f(f(f(x)))
+println(apply3(n => n * 2, 1))
+```

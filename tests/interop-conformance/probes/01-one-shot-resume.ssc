@@ -1,0 +1,26 @@
+---
+name: interop-01-one-shot-resume
+axis: one-shot-resume
+status: measurable-now
+---
+
+# Axis 1 — one-shot resume
+
+A handler that resumes its continuation exactly once. This is the minimal
+control-interoperability capability: the portable-VM must suspend at the
+`perform` site and resume with a supplied value. Reference-row baseline.
+
+```scalascript
+effect Ask:
+  def ask(): Int
+
+def prog(): Int =
+  val x = Ask.ask()
+  x + 1
+
+val r = handle(prog()) {
+  case Ask.ask(resume) => resume(41)
+  case Return(x) => x
+}
+println(r)
+```

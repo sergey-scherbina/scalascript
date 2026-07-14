@@ -1,0 +1,28 @@
+---
+name: interop-02-multi-shot-resume
+axis: multi-shot-resume
+status: measurable-now
+---
+
+# Axis 2 — multi-shot resume
+
+The resume entry is invoked more than once from a single handler arm, and the
+results are combined. This is the hard in-process capability: the captured
+continuation must be reusable (N→M), not one-shot. The portable-VM reference
+runner supports it today; v2 JS does not yet implement `effect.*`, and the Rust
+runner's multi-shot is deferred (R.6) — hence "runner order by measured spike".
+
+```scalascript
+effect Choose:
+  def choose(): Boolean
+
+def prog(): List[Int] =
+  val b = Choose.choose()
+  if b then List(1) else List(2)
+
+val r = handle(prog()) {
+  case Choose.choose(resume) => resume(true) ++ resume(false)
+  case Return(x) => x
+}
+println(r)
+```
