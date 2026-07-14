@@ -70,13 +70,14 @@ optional policy, not the default continuation semantics.
 - [ ] **scala3-control-api** — add a small compiler-independent `_3` API containing typed
   `Eff[Fx,A]`, `Effect`/`Operation`, `Handler`, fresh typed `Prompt`, reusable typed continuations,
   `SavedContinuation[A,R]`, and iterative runner contracts. Local control works without macros/plugin;
-  save requires the public typed defunctionalized state-machine builder or a compiler-generated hidden
-  plan. No `ssc.Value`, `DataV`, `ClosV`, CoreIR node, plugin `SpiValue`, TLS, or global mutable registry
-  may cross the public ABI.
-  - [ ] **sca-1 — freeze the leaf ABI before code.** Refine the Scala/JVM profile with the exact
+  tier-1 local save produces typed `UnmanagedCapture`, while successful durable save waits for a post-X1
+  compiler-generated or typed defunctionalized plan. No `ssc.Value`, `DataV`, `ClosV`, CoreIR node,
+  plugin `SpiValue`, TLS, or global mutable registry may cross the public ABI.
+  - [x] **sca-1 — leaf ABI frozen before code** (`98e9645e1`). The Scala/JVM profile now fixes the exact
         `io.scalascript:scalascript-control-api_3` artifact, `scalascript.control` package, effect-row
-        bounds, public `Eff.Step`/handler/continuation/state-machine shapes, and the deliberate
-        `UnmanagedCapture` result of saving a local continuation without explicit `SavePlan` evidence.
+        bounds, a real nominal effect witness that keeps `Nothing` request-free, public
+        `Eff.Step`/handler/continuation/state-machine shapes, eager one-shot gates, sealed private
+        continuation capabilities, and the deliberate `UnmanagedCapture` result of local save.
   - [ ] **sca-2 — add the dependency-free module.** Add `v1/lang/control-api` as `scala3ControlApi`
         with no production dependencies and only root aggregation; do not connect it to v2Core,
         UniML, the seed, canonical codec, CLI, legacy `interop`, or any backend.
