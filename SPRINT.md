@@ -1180,9 +1180,21 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
           **CAPSTONE 2**: `specs/v2.2-p6.19-ast.L` — a tree-walking arithmetic AST evaluator (`Num`/`Add`/`Sub`/
           `Mul`) — is compiled by C_min via `p6.18-capstone.sh` (`(3*4)+(10-8)`→14, `(2+3)*4`→20). Fixpoint
           script gained `ctorpat`/`ctor3` L-tests.
-    - [ ] **P6.20 — nested cons `a :: b :: t` + mixed tuple patterns `case (0, v)`.** Nested cons needs nested
-          destructuring (`(arm Cons 2 (match tail …))` or a fresh binder + inner match); mixed literal+var tuple
-          patterns need an int-literal guard on a tuple field. Lets stack/token code read `case (0, v)` directly.
+    - [~] **P6.20 — mixed tuple patterns `case (0, v)` ✓ DONE 2026-07-14; nested cons `a :: b :: t` deferred.**
+          Mixed literal+var tuple patterns now work: a match whose first arm is `( <int> , …` is compiled to a
+          single `(arm Tuple2 2 <if-chain>)` — the tuple is destructured once (field0=`(local 1)` the tag,
+          field1=`(local 0)` the value), then an `if (prim __eq__ (local 1) (lit (int litN))) body <rest>`
+          chain ends in the `case _` default. Each arm's var-name is bound at the value slot via env
+          `vn :: "_" :: env` (a "_" placeholder for the tag), the default via `"_" :: "_" :: env` (shift by 2).
+          `isMixedFirst`/`parseMixedMatch`/`parseMixedArms`/`parseMixedArm` — a third dispatch in `postfixMatch`
+          alongside the int-literal and ctor paths. Verified externally (`(0,v)`→v, `(1,w)`→w+100, `(9,_)`→
+          default) — NOT self-used, so the fixpoint (`stage1 == stage2`, 32824 B) is untouched; C1 compiles a
+          mixed-tuple program → 77; `spike(cmin.L) ≡ ssc1-front` byte-identical (62131 B). C_min now 92 defs.
+      - [ ] nested cons `a :: b :: t` DEFERRED — it desugars to a NESTED match on the tail with the OUTER
+            match's default threaded into the inner match (`(arm Cons 2 (match tail ((arm Cons 2 body)) (default
+            d)))`); C_min parses arms left-to-right and only learns the default last, so correct threading is
+            intricate and the pattern is rare (an explicit nested `case h :: t => t match { case h2 :: t2 => … }`
+            is the idiomatic workaround, and works today).
     - [ ] **P6.21 (optional) — CI protection of the self-host suite.** Wire `specs/v2.2-p6.6-fixpoint.sh` +
           `p6.18-capstone.sh` + `p6.0-spike-verify.sh` into a CI job (build the ssc jar, run the scripts) so the
           fixpoint / spike-byte-identity / capstone cannot silently regress. Infra task (jar-in-CI, timeouts).
