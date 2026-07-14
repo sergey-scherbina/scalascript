@@ -65,14 +65,16 @@ another or report the whole profile complete from a partial facade.
 ## 2. Compiler-independent Scala API
 
 The first implementation tier is the dependency-free
-`io.scalascript:scalascript-control-api_3` artifact. Its public package is
+`io.scalascript:scalascript-control_3` artifact. Its public package is
 `scalascript.control`. It uses normal Scala 3 binary cross-versioning (`_3`), not
 `CrossVersion.full`; full compiler-version coupling belongs only to the later
 compiler-plugin artifact. The leaf is aggregated by this repository's build but is
 not a dependency of CoreIR, UniML, the seed, the self-hosted compiler, any backend,
 or the legacy heavyweight `scalascript-interop` artifact.
 
-The canonical implementation home is `v2/host/scala/control-api`. The `v2/host`
+The canonical implementation home is `v2/host/scala/control`. Its build-local sbt
+project id remains `scala3ControlApi`; that identifier is not a published coordinate
+and does not determine the Maven artifact name. The `v2/host`
 tree contains outer host-profile SDKs, bridges, transforms, and runners; it is not
 part of `v2/src`, the self-hosted compiler, the seed image, or the bootstrap
 dependency graph. “Compiler-independent” and “outside bootstrap” constrain the
@@ -376,7 +378,7 @@ focused conformance slice passes 10/10. `tests/interop-conformance/run.sh` passe
 all 9 currently measurable portable-VM axes and continues to report the codec and
 runtime-dependent axes as pending rather than treating this host leaf as proof for
 them. `packageBin` and `makePom` produce
-`io.scalascript:scalascript-control-api_3:0.1.0-SNAPSHOT`; the production
+`io.scalascript:scalascript-control_3:0.1.0-SNAPSHOT`; the production
 classpath contains only the Scala libraries.
 
 ## 3. Canonical Scala value mapping
