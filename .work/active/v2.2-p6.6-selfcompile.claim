@@ -1,8 +1,0 @@
-slug: v2.2-p6.6-selfcompile
-scope: P6.6 literal self-compilation fixpoint (NO quine). (1) ssc0 driver reads the compiler's source FILE
-       (#io.args/#io.readFile/#utf8->str) + calls its compile — like ssc1-run.ssc0. (2) a compiler C for a
-       Scala-subset fragment F, written in F (so C's source is a valid input to C), emitting executable
-       CoreIR. (3) fixpoint: spike(C)=C0; stage1=C0(C_src); stage2=driver(stage1)(C_src); stage1==stage2.
-       Spec: specs/v2.2-p6.6-self-compilation.md. + SPRINT.
-files: specs/v2.2-p6.6-self-compilation.md, uniml/core/src/test/.../spike/**, v2/bin/**, SPRINT.md
-branch: feature/v2.2-p6.6-selfcompile
