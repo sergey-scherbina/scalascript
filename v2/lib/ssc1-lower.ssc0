@@ -618,6 +618,14 @@ def selOrMethod = (field, robj) =>
     else base
   else if isTupleField(field) then
     Pair("app", Pair(Pair("var", #sconcat("_sel_", field)), Cons(robj, Nil)))
+  else if (match robj {
+             case Pair(rt, rn) =>
+               if #seq(rt, "uid") then (if #seq(rn, "Set") then #seq(field, "empty") else false)
+               else false }) then
+    -- `Set.empty` = `Set()` = `[].toSet` (empty DISTINCT list). Set is NOT a registered
+    -- ctor, so the generic companion path `ctorap(Set)` stays the Set closure and `.empty`
+    -- on it → `Op("Set.empty")`. Emit the empty-set construction directly.
+    Pair("prim", Pair("__method__", Cons(Pair("str", "toSet"), Cons(buildListExpr(Nil), Nil))))
   else
     -- K62.25: a bare companion static like `Array.empty` reaches here with robj = uid(Array),
     -- which lowers to an UNBOUND `global Array`. The applied path (Array.tabulate(…)) already

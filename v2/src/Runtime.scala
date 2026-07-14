@@ -3384,7 +3384,12 @@ object Prims:
       case _    => sys.error(s"__arith__: op $op not valid for Bool")
     // List :+ and ++ — bridge compiles infix ops as __arith__, but list ops live here too
     case (lv, rv) if op == ":+" && isList(lv) => listOf(unlist(lv) :+ rv)
-    case (lv, rv) if op == "++" && isList(lv) => listOf(unlist(lv) ++ unlist(rv))
+    // `list ++ list` = concat; but `set + stringElement` is lowered to `++` (the
+    // `+`→`++` string heuristic fires on a string operand), so a NON-list RHS is a
+    // Set element to ADD (distinct), not a collection to unlist.
+    case (lv, rv) if op == "++" && isList(lv) =>
+      if isList(rv) then listOf(unlist(lv) ++ unlist(rv))
+      else listOf((unlist(lv) :+ rv).distinct)
     // `+` on a list: `list ++ list` semantics when the RHS is itself a list, but
     // `set + element` (v2 sets are distinct lists — `retried = Set(); retried + partId`)
     // ADDS the element (distinct). A non-list RHS is an element, not a list to unlist.

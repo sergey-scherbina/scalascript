@@ -299,7 +299,16 @@ def lexFrom = (s, i) =>
     else if isHexStart(s, i2) then
       -- hex literal 0xFF: scan hex digits after `0x`, emit the decimal value token
       (match scanHexVal(s, #i.add(i2, 2), 0) {
-         case Pair(hv, hend) => Cons(mkTok("int", #i->str(hv)), lexFrom(s, hend))
+         case Pair(hv, hend) =>
+           -- strip a trailing Long suffix L/l (e.g. 0x10FFFFL) just like the decimal
+           -- path; without this the `L` lexed as a separate id → `unbound global: L`.
+           let hL = if #i.lt(hend, slen(s)) then
+             let lc = sget(s, hend) in
+             if #i.eq(lc, 76) then #i.add(hend, 1)
+             else if #i.eq(lc, 108) then #i.add(hend, 1)
+             else hend
+           else hend in
+           Cons(mkTok("int", #i->str(hv)), lexFrom(s, hL))
        })
     else if isDigit(c) then
       let e = scanDecEnd(s, i2) in
