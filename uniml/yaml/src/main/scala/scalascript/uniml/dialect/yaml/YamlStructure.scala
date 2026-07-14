@@ -142,16 +142,19 @@ private[yaml] object YamlStructure:
     tokens.indices.foreach { index =>
       tokens(index).lexeme match
         case "[" | "{" => stack = stack :+ (tokens(index).lexeme.charAt(0), index)
-        case "]" | "}" if stack.nonEmpty =>
-          val expected = if tokens(index).lexeme == "]" then '[' else '{'
-          if stack.last._1 == expected then
-            // `._1`/`._2` rather than a `val (open, start) = …` tuple-pattern binding:
-            // ScalaScript v2 does not destructure a tuple in a val pattern.
-            val open = stack.last._1
-            val start = stack.last._2
-            stack = stack.dropRight(1)
-            val kind = if open == '[' then "yaml.sequence.flow" else "yaml.mapping.flow"
-            result = result :+ Range(kind, Some(flowRole(stack.lastOption.map(_._1))), start, index, 100 + stack.size)
+        // Guard is INSIDE the body (not `case … if stack.nonEmpty`): ScalaScript v2
+        // does not support a guard on an alternation pattern (`A | B if …`).
+        case "]" | "}" =>
+          if stack.nonEmpty then
+            val expected = if tokens(index).lexeme == "]" then '[' else '{'
+            if stack.last._1 == expected then
+              // `._1`/`._2` rather than a `val (open, start) = …` tuple-pattern binding:
+              // ScalaScript v2 does not destructure a tuple in a val pattern.
+              val open = stack.last._1
+              val start = stack.last._2
+              stack = stack.dropRight(1)
+              val kind = if open == '[' then "yaml.sequence.flow" else "yaml.mapping.flow"
+              result = result :+ Range(kind, Some(flowRole(stack.lastOption.map(_._1))), start, index, 100 + stack.size)
         case _ => ()
     }
     result
