@@ -19,6 +19,8 @@ Host and runner profiles:
   profile;
 - [`swift-bidirectional-control.md`](swift-bidirectional-control.md) — Swift host
   profile;
+- [`control-interop-profile-portable-vm.md`](control-interop-profile-portable-vm.md)
+  — portable-VM reference runner profile;
 - [`wasm-wasi-control-runner.md`](wasm-wasi-control-runner.md) — hardened
   WASM/WASI runner profile.
 

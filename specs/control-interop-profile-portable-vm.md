@@ -31,10 +31,12 @@ of the conformance matrix — every host/runner profile (JVM, JS/TS, Rust, Swift
 WASM/WASI) is measured against the same axes, and "runner delivery order" is
 chosen by **measured readiness against this matrix**, not by presumed backend age.
 
-Empirically the portable VM is the most complete *in-process* control runner
-today — it already does reusable N→M multi-shot resume in-process — whereas the
-v2 JS runner does not yet implement `effect.*` and the Rust runner's multi-shot
-is deferred (R.6). Hence the reference row anchors the measured ordering.
+Empirically the portable VM is the most complete measured *in-process* reference
+row today and already does reusable N→M multi-shot resume. Other profiles have
+landed AOT/effect capabilities in different combinations (including Rust
+multi-shot), but none may infer host-bridge or dynamic-runner qualification from
+those backend tests. This reference row anchors measured ordering without making
+backend age or a stale feature inventory normative.
 
 ## 2. CodeMode × FrameGate on the portable VM
 
@@ -42,10 +44,12 @@ The core model classifies every capsule on two orthogonal axes. On this runner:
 
 - **CodeMode = Portable (closed CoreIR).** The VM *is* the CoreIR interpreter, so
   its code mode is always `Portable`; it has no `ExactArtifact` path (that mode is
-  for runners that capture native code segments). Control lowers to the **existing
-  CoreIR nodes** — the `Pure | Op` effect substrate with the `Perform`/`FlatMap`
-  trampoline — and adds **no new continuation node** (v2.2 gate, confirmed
-  empirically: effects/handlers/multi-shot/TCO all run without a CoreIR extension).
+  for runners that capture native code segments). Control lowers to **ordinary
+  existing CoreIR data, lambdas, calls, and tail recursion** implementing the
+  `Pure | Op` substrate, and adds **no new continuation node**. Runtime-private
+  `Perform`/`FlatMap` names or trampolines are implementation details, not CoreIR
+  term/value shapes (v2.2 gate, confirmed empirically: effects, handlers,
+  multi-shot resume, and TCO run without a CoreIR extension).
   An optional native accelerator/cache is out of scope for the portable runner and,
   when absent, CoreIR is the inherent fallback.
 - **FrameGate = Savable | Unsavable.** *(pending — see §4.)* A captured frame is

@@ -310,7 +310,7 @@ compiles them via Scala.js.
 |---------|--------|
 | Algebraic effects | `effect E:`, `handle(body) { case E.op(arg, resume) => ... }`, multi-shot |
 | Control interoperability (specified; implementation planned) | Typed multi-prompt `shift`/`reset`, managed callbacks/TCO, and reusable `save`/`run` with no prefix replay — one target-neutral contract in [`specs/control-interoperability.md`](specs/control-interoperability.md) |
-| Host/runner profiles (planned) | Native typed bidirectional bridges for [Scala/JVM](specs/scala3-bidirectional-control.md), [JS/TS](specs/javascript-typescript-bidirectional-control.md), [Rust](specs/rust-bidirectional-control.md), and [Swift](specs/swift-bidirectional-control.md), plus the [WASM/WASI runner](specs/wasm-wasi-control-runner.md) |
+| Host/runner profiles (planned) | Native typed bidirectional bridges for [Scala/JVM](specs/scala3-bidirectional-control.md), [JS/TS](specs/javascript-typescript-bidirectional-control.md), [Rust](specs/rust-bidirectional-control.md), and [Swift](specs/swift-bidirectional-control.md), measured against the [portable-VM reference runner](specs/control-interop-profile-portable-vm.md), plus the [WASM/WASI runner](specs/wasm-wasi-control-runner.md) |
 | Typed effect rows | `def foo(): A ! Logger` — effect appears in function type; closed row (no `!`) = total/pure |
 | `multi effect` | Multi-shot effects — continuation can be resumed many times |
 | `Reader[R]` capability | Context-injection effect: `Reader.get`, `runReader(value)(body)` |

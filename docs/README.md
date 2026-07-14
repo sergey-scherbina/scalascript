@@ -33,6 +33,7 @@ nested into topic subdirectories. This index is the map for both sets.
 - [../specs/javascript-typescript-bidirectional-control.md](../specs/javascript-typescript-bidirectional-control.md) — JavaScript/TypeScript control host profile
 - [../specs/rust-bidirectional-control.md](../specs/rust-bidirectional-control.md) — Rust control host profile
 - [../specs/swift-bidirectional-control.md](../specs/swift-bidirectional-control.md) — Swift control host profile
+- [../specs/control-interop-profile-portable-vm.md](../specs/control-interop-profile-portable-vm.md) — portable-VM reference runner profile and measured capability row
 - [../specs/wasm-wasi-control-runner.md](../specs/wasm-wasi-control-runner.md) — WASM/WASI saved-control runner profile
 - [direct-syntax.md](direct-syntax.md) — Direct-syntax do-notation
 - [error-handling.md](error-handling.md) — `throws[A, E]` + integration

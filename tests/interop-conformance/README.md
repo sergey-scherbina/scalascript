@@ -10,16 +10,19 @@ presumed backend age.
 
 Normative spec ownership (see the joint resolution):
 
-- `specs/control-interoperability.md` — target-neutral core (owner; in progress).
-- `specs/scala3-bidirectional-control.md` — the frozen control model + `save()`/
-  `run()` durable surface this harness targets.
-- This harness — the executable reference row + the axis inventory.
+- `specs/control-interoperability.md` — landed sole target-neutral semantic owner.
+- `specs/scala3-bidirectional-control.md` — Scala/JVM host profile only.
+- `specs/control-interop-profile-portable-vm.md` — portable-VM reference runner
+  profile and measured obligations.
+- This harness — executable evidence/status and the axis inventory; it never
+  redefines semantic laws.
 
 ## How to run
 
 ```bash
-sbt installBin                       # build ./bin/ssc if needed
-tests/interop-conformance/run.sh     # or: SSC=/path/to/ssc tests/interop-conformance/run.sh
+tests/interop-conformance/run.sh     # uses ./bin/ssc
+SSC=/path/to/ssc tests/interop-conformance/run.sh
+# only if no binary exists: scripts/sbtc "cli/installBin"
 ```
 
 Exit code is non-zero if any *measurable-now* axis regresses. Pending axes print
