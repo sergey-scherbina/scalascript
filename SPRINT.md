@@ -57,19 +57,19 @@ verify by probe + JVM dialect test + conformance 640ok. Detail: memory `project_
 - [ ] **v2-object-qualified-nested-ctor** — `O.Inner(…)` (qualified ext ref to a nested type) →
   `unbound global: O_Inner`. Bare `Inner(…)` inside the object works; dialects use bare, so low-pri.
 
-### Markdown — STARTED (largest dialect: Blocks 870 + Inlines 537 lines)
-Flattened 2287-line module (`scratchpad/flatten-md.py` → `md-flat.ssc`). First gap:
-- [ ] **v2-plain-class-instance-method** — `MarkdownBlocks(source, profile, limits).parse(text)` →
-  `Stub("MarkdownBlocks.parse")`. `MarkdownBlocks` is a PLAIN `final class` (not a case class) with
-  instance methods; v2 doesn't dispatch `.method` on a plain-class instance the way it does for case
-  classes (`__regmethod__`). Fix: register plain-class methods for `__method__` dispatch, OR (UniML)
-  make MarkdownBlocks a case class / free functions. This is the FIRST of likely several Markdown
-  gaps — a substantial sweep. Repro: scratchpad `md-flat.ssc`.
-- [ ] **markdown-remaining** — after plain-class methods, iterate the same construct-gap sweep
-  (nested enums InlinePiece/AngleKind/OpenLeaf — nested-enum support landed; likely more collection /
-  Char / pattern gaps) to `status=Complete` on CommonMark + GFM inputs.
+### Markdown — COMPLETE on v2 (all three dialects done!)
+- [x] **markdown-on-v2 COMPLETE** — heading/para/emphasis/list/blockquote/code/mixed →
+  roots=N Complete 0 diags; unimlMarkdown 34/34 JVM. Fixes: (v2, GENERAL) consecutive local `def`s
+  share ONE IrLetRec so they're mutually/forward visible (was `unbound global: b` for `a` calling a
+  later `b` — fundamental, real methods do this); `.iterator` on a list = identity. (UniML) hoist the
+  nested Container/OpenLeaf/ParaSeg out of the plain class `MarkdownBlocks` (v2 doesn't lower types
+  nested in a plain-class body, and attributes a nested case class's body method to the enclosing
+  class); rename Container `ListItem`→`ListItemFrame` (top-level name clash with MarkdownValue.ListItem);
+  pass all `Reframe` fields in field order (same enum-named-omit-default bug as YAML).
+- [ ] **markdown-hardening** (follow-up) — full v2-vs-JVM differential over a CommonMark/GFM corpus;
+  test GFM + ScalaScript profiles.
 
-### Markdown — NOT STARTED
+### Markdown — NOT STARTED (obsolete note below)
 - [ ] **markdown-on-v2** — flatten `markdown/` parse path (nested enums InlinePiece/AngleKind/OpenLeaf
   — nested-enum support already landed) → run → sweep the same construct gaps → `status=Complete`.
 ## corpus-contract — differential gate + v2 migration portability (2026-07-14, Sergiy: "усиливаем, разбираем, портируем" + "запиши в спеку, добавь в спринт")
