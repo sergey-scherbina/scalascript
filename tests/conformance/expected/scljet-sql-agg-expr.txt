@@ -1,0 +1,12 @@
+SELECT COUNT(*) + 1 FROM emp => 6
+SELECT MAX(salary) - MIN(salary) FROM emp => 200
+SELECT SUM(salary) / COUNT(*) FROM emp => 210
+SELECT dept, COUNT(*) * 10 FROM emp GROUP BY dept => 10|20
+20|20
+30|10
+SELECT dept, MAX(salary) - MIN(salary) FROM emp GROUP BY dept => 10|200
+20|0
+30|0
+SELECT dept FROM emp GROUP BY dept HAVING COUNT(*) * 100 > 150 => 10
+20
+SELECT 'total:' || SUM(salary) FROM emp => total:1050

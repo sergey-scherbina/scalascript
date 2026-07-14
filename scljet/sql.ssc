@@ -205,6 +205,8 @@ case class SxNeg(inner: SxNode) extends SxNode
 case class SxBin(op: String, left: SxNode, right: SxNode) extends SxNode
 case class SxCall(func: String, args: List[SxNode]) extends SxNode
 case class SxNot(inner: SxNode) extends SxNode
+// An aggregate embedded in an expression (COUNT(*)+1, MAX(x)-MIN(x)); evaluated over a group.
+case class SxAgg(func: String, arg: String, distinct: Boolean) extends SxNode
 case class SxWhen(cond: SxNode, result: SxNode)
 case class SxCase(operand: Option[SxNode], whens: List[SxWhen], elseExpr: Option[SxNode]) extends SxNode
 
@@ -607,13 +609,28 @@ def parseExprAtom(toks: List[Token]): Either[String, (SxNode, List[Token])] =
   else if tkKind(toks) == "num" then Right((SxLit(SqlInteger(toks.head.num)), toks.tail))
   else if tkKind(toks) == "str" then Right((SxLit(SqlText(toks.head.text)), toks.tail))
   else if tkKind(toks) == "ident" then
-    // `f( … )` = a scalar function call; otherwise a column reference.
+    // `COUNT(…)` etc. = an aggregate node; `f(…)` = a scalar function call; else a column.
     if tkKind(toks.tail) == "lparen" then
-      parseCallArgs(toks.tail.tail) match
+      if isAggFunc(toks.head.text) then parseAggNode(toks.head.text, toks.tail.tail)
+      else parseCallArgs(toks.tail.tail) match
         case Left(message) => Left(message)
         case Right(ap) => Right((SxCall(upperStr(toks.head.text), ap._1), ap._2))
     else Right((SxCol(toks.head.text), toks.tail))
   else Left("expected an expression operand")
+
+// `FUNC( [DISTINCT] (*|column) )` as an expression node; `toks` starts after the `(`.
+def parseAggNode(func: String, toks: List[Token]): Either[String, (SxNode, List[Token])] =
+  val distinct = tkIsKw(toks, "DISTINCT")
+  val afterD = if distinct then toks.tail else toks
+  val argRes: Option[(String, List[Token])] =
+    if tkKind(afterD) == "star" then Some(("*", afterD.tail))
+    else if tkKind(afterD) == "ident" then Some((afterD.head.text, afterD.tail))
+    else None
+  argRes match
+    case None => Left("expected a column or * inside the aggregate")
+    case Some(ap) =>
+      if tkKind(ap._2) != "rparen" then Left("expected ')' in the aggregate")
+      else Right((SxAgg(upperStr(func), ap._1, distinct), ap._2.tail))
 
 // `||` string concatenation binds tighter than `* /` (sqlite precedence), so it sits
 // between the multiplicative level and the atoms.
@@ -750,30 +767,16 @@ def parseExprOr(toks: List[Token]): Either[String, (SxNode, List[Token])] =
 def parseExpr(toks: List[Token]): Either[String, (SxNode, List[Token])] = parseExprOr(toks)
 
 def parseProjItem(toks: List[Token]): Either[String, (ProjItem, List[Token])] =
-  if isAggStart(toks) then
-    val func = toks.head.text
-    val afterOpen = toks.tail.tail
-    // `FUNC(DISTINCT col)` — aggregate over the distinct values of the argument.
-    val distinct = tkIsKw(afterOpen, "DISTINCT")
-    val afterParen = if distinct then afterOpen.tail else afterOpen
-    val argRes: Option[(String, List[Token])] =
-      if tkKind(afterParen) == "star" then Some(("*", afterParen.tail))
-      else if tkKind(afterParen) == "ident" then Some((afterParen.head.text, afterParen.tail))
-      else None
-    argRes match
-      case None => Left("expected a column or * inside the aggregate")
-      case Some(ap) =>
-        if tkKind(ap._2) != "rparen" then Left("expected ')' in the aggregate")
-        else Right((ProjItem(true, func, ap._1, distinct, None), ap._2.tail))
-  else
-    // A lone column keeps the plain form (name-based; GROUP BY / ORDER BY / DISTINCT still work);
-    // anything compound becomes a computed expression evaluated per row. parseExpr already
-    // reports "expected an expression operand" for anything that isn't a column/literal/aggregate.
-    parseExpr(toks) match
-      case Left(message) => Left(message)
-      case Right(ep) => ep._1 match
-        case SxCol(nm) => Right((ProjItem(false, "", nm, false, None), ep._2))
-        case other => Right((ProjItem(false, "", "", false, Some(other)), ep._2))
+  // Parse the whole item as an expression, then normalize the shape:
+  //   a lone column   → plain name-based item (GROUP BY / ORDER BY / DISTINCT still work);
+  //   a lone aggregate → the backward-compatible isAgg item (existing group execution);
+  //   anything else    → a computed expression (may contain aggregates → group-evaluated).
+  parseExpr(toks) match
+    case Left(message) => Left(message)
+    case Right(ep) => ep._1 match
+      case SxCol(nm) => Right((ProjItem(false, "", nm, false, None), ep._2))
+      case SxAgg(func, arg, distinct) => Right((ProjItem(true, func, arg, distinct, None), ep._2))
+      case other => Right((ProjItem(false, "", "", false, Some(other)), ep._2))
 
 def parseProjectionList(toks: List[Token]): Either[String, (List[ProjItem], List[Token])] =
   var rest = toks
@@ -855,9 +858,14 @@ def parseJoin(toks: List[Token]): Either[String, (Option[JoinSpec], List[Token])
 // The HAVING left side is an aggregate or a bare column and must STOP before the comparison
 // operator (unlike a projection item, which now parses a full expression incl. comparisons).
 def parseHavingItem(toks: List[Token]): Either[String, (ProjItem, List[Token])] =
-  if isAggStart(toks) then parseProjItem(toks)
-  else if tkKind(toks) == "ident" then Right((ProjItem(false, "", toks.head.text, false, None), toks.tail))
-  else Left("expected a column or aggregate in HAVING")
+  // Parse with parseExprAdd (aggregates + arithmetic, NO comparison) so the HAVING item stops
+  // before the comparison operator, then normalize its shape like parseProjItem.
+  parseExprAdd(toks) match
+    case Left(message) => Left(message)
+    case Right(ep) => ep._1 match
+      case SxCol(nm) => Right((ProjItem(false, "", nm, false, None), ep._2))
+      case SxAgg(func, arg, distinct) => Right((ProjItem(true, func, arg, distinct, None), ep._2))
+      case other => Right((ProjItem(false, "", "", false, Some(other)), ep._2))
 
 def parseHaving(toks: List[Token]): Either[String, (Option[HavingCond], List[Token])] =
   if !tkIsKw(toks, "HAVING") then Right((None, toks))
@@ -1287,6 +1295,7 @@ def evalExpr(e: SxNode, rec: StorageRecord, colNames: List[String]): SqliteValue
   case SxBin(op, l, r) => arithValue(op, evalExpr(l, rec, colNames), evalExpr(r, rec, colNames))
   case SxCall(func, args) => evalCall(func, evalArgs(args, rec, colNames))
   case SxNot(inner) => notValue(evalExpr(inner, rec, colNames))
+  case SxAgg(_, _, _) => SqlNull
   case SxCase(operand, whens, elseExpr) => evalCaseSingle(operand, whens, elseExpr, rec, colNames)
 
 // Same evaluation over a join row: column references resolve across both tables (qualified or bare).
@@ -1324,6 +1333,7 @@ def evalExprJoin(e: SxNode, recA: StorageRecord, colsA: List[String], tableA: St
   case SxBin(op, l, r) => arithValue(op, evalExprJoin(l, recA, colsA, tableA, recBOpt, colsB, tableB), evalExprJoin(r, recA, colsA, tableA, recBOpt, colsB, tableB))
   case SxCall(func, args) => evalCall(func, evalArgsJoin(args, recA, colsA, tableA, recBOpt, colsB, tableB))
   case SxNot(inner) => notValue(evalExprJoin(inner, recA, colsA, tableA, recBOpt, colsB, tableB))
+  case SxAgg(_, _, _) => SqlNull
   case SxCase(operand, whens, elseExpr) => evalCaseJoin(operand, whens, elseExpr, recA, colsA, tableA, recBOpt, colsB, tableB)
 
 // Compare two values for WHERE: numeric if both numeric, text if both text, else by
@@ -1504,11 +1514,48 @@ def projectRow(rec: StorageRecord, colNames: List[String], stmt: SelectStmt): Li
       r = r.tail
     reverseValues(accRev, Nil)
 
+// Does an expression tree contain an aggregate node anywhere?
+def anyExprHasAgg(items: List[SxNode]): Boolean =
+  var r = items
+  var found = false
+  while r.nonEmpty do
+    if exprHasAgg(r.head) then found = true
+    r = r.tail
+  found
+
+def whensHaveAgg(whens: List[SxWhen]): Boolean =
+  var r = whens
+  var found = false
+  while r.nonEmpty do
+    if exprHasAgg(r.head.cond) then found = true
+    if exprHasAgg(r.head.result) then found = true
+    r = r.tail
+  found
+
+def optHasAgg(o: Option[SxNode]): Boolean = o match
+  case Some(e) => exprHasAgg(e)
+  case None => false
+
+def exprHasAgg(e: SxNode): Boolean = e match
+  case SxAgg(_, _, _) => true
+  case SxNeg(inner) => exprHasAgg(inner)
+  case SxNot(inner) => exprHasAgg(inner)
+  case SxBin(_, l, r) => exprHasAgg(l) || exprHasAgg(r)
+  case SxCall(_, args) => anyExprHasAgg(args)
+  case SxCase(operand, whens, elseExpr) => optHasAgg(operand) || whensHaveAgg(whens) || optHasAgg(elseExpr)
+  case _ => false
+
+def projItemHasAgg(item: ProjItem): Boolean =
+  if item.isAgg then true
+  else item.expr match
+    case Some(e) => exprHasAgg(e)
+    case None => false
+
 def projHasAgg(items: List[ProjItem]): Boolean =
   var r = items
   var found = false
   while r.nonEmpty do
-    if r.head.isAgg then found = true
+    if projItemHasAgg(r.head) then found = true
     r = r.tail
   found
 
@@ -1553,14 +1600,54 @@ def groupPartition(sorted: List[StorageRecord], colNames: List[String], groupCol
 
 // One output row for a group: each projection item is either an aggregate over the group
 // or a bare column (the group's first row's value; NULL for an empty group).
+// Evaluate an expression over a GROUP: an aggregate node reduces the whole group, a bare column
+// takes the group's first row (sqlite's bare-column-in-aggregate rule), everything else recurses.
+def evalArgsGroup(args: List[SxNode], group: List[StorageRecord], colNames: List[String]): List[SqliteValue] =
+  var r = args
+  var accRev: List[SqliteValue] = Nil
+  while r.nonEmpty do
+    accRev = evalExprGroup(r.head, group, colNames) :: accRev
+    r = r.tail
+  reverseValues(accRev, Nil)
+
+def evalCaseGroup(operand: Option[SxNode], whens: List[SxWhen], elseExpr: Option[SxNode], group: List[StorageRecord], colNames: List[String]): SqliteValue =
+  var r = whens
+  var out: Option[SqliteValue] = None
+  operand match
+    case Some(opExpr) =>
+      val opVal = evalExprGroup(opExpr, group, colNames)
+      while r.nonEmpty && out.isEmpty do
+        if sqlCompare(opVal, evalExprGroup(r.head.cond, group, colNames)) == 0 then out = Some(evalExprGroup(r.head.result, group, colNames))
+        r = r.tail
+    case None =>
+      while r.nonEmpty && out.isEmpty do
+        if isTruthy(evalExprGroup(r.head.cond, group, colNames)) then out = Some(evalExprGroup(r.head.result, group, colNames))
+        r = r.tail
+  out match
+    case Some(v) => v
+    case None => elseExpr match
+      case Some(e) => evalExprGroup(e, group, colNames)
+      case None => SqlNull
+
+def evalExprGroup(e: SxNode, group: List[StorageRecord], colNames: List[String]): SqliteValue = e match
+  case SxCol(name) => if group.isEmpty then SqlNull else rowValue(group.head, colNames, name)
+  case SxLit(v) => v
+  case SxNeg(inner) => negateValue(evalExprGroup(inner, group, colNames))
+  case SxBin(op, l, r) => arithValue(op, evalExprGroup(l, group, colNames), evalExprGroup(r, group, colNames))
+  case SxCall(func, args) => evalCall(func, evalArgsGroup(args, group, colNames))
+  case SxNot(inner) => notValue(evalExprGroup(inner, group, colNames))
+  case SxAgg(func, arg, distinct) => computeAgg(AggItem(func, arg, distinct), group, colNames)
+  case SxCase(operand, whens, elseExpr) => evalCaseGroup(operand, whens, elseExpr, group, colNames)
+
 def projectGroupRow(group: List[StorageRecord], colNames: List[String], items: List[ProjItem]): List[SqliteValue] =
   var r = items
   var accRev: List[SqliteValue] = Nil
   while r.nonEmpty do
     val item = r.head
     val v = if item.isAgg then computeAgg(AggItem(item.func, item.name, item.distinct), group, colNames)
-      else if group.isEmpty then SqlNull
-      else rowValue(group.head, colNames, item.name)
+      else item.expr match
+        case Some(e) => evalExprGroup(e, group, colNames)
+        case None => if group.isEmpty then SqlNull else rowValue(group.head, colNames, item.name)
     accRev = v :: accRev
     r = r.tail
   reverseValues(accRev, Nil)
@@ -1642,8 +1729,9 @@ def havingHolds(having: Option[HavingCond], group: List[StorageRecord], colNames
   case None => true
   case Some(hc) =>
     val lv = if hc.item.isAgg then computeAgg(AggItem(hc.item.func, hc.item.name, hc.item.distinct), group, colNames)
-      else if group.isEmpty then SqlNull
-      else rowValue(group.head, colNames, hc.item.name)
+      else hc.item.expr match
+        case Some(e) => evalExprGroup(e, group, colNames)
+        case None => if group.isEmpty then SqlNull else rowValue(group.head, colNames, hc.item.name)
     condMatches(hc.op, sqlCompare(lv, hc.value))
 
 def filterGroups(groups: List[List[StorageRecord]], having: Option[HavingCond], colNames: List[String]): List[List[StorageRecord]] =
@@ -2078,15 +2166,57 @@ def extractPairValues(pairs: List[JoinPair], colsA: List[String], tableA: String
     r = r.tail
   reverseValues(accRev, Nil)
 
+def joinAggValue(func: String, arg: String, distinct: Boolean, pairs: List[JoinPair], colsA: List[String], tableA: String, colsB: List[String], tableB: String): SqliteValue =
+  val f = upperStr(func)
+  val vals = extractPairValues(pairs, colsA, tableA, colsB, tableB, arg)
+  if distinct then aggregateValues(f, dedupValues(vals))
+  else if f == "COUNT" && arg == "*" then SqlInteger(pairs.length.toLong)
+  else aggregateValues(f, vals)
+
+// Group evaluation over a join's matched pairs (the join analogue of evalExprGroup).
+def evalArgsGroupJoin(args: List[SxNode], pairs: List[JoinPair], colsA: List[String], tableA: String, colsB: List[String], tableB: String): List[SqliteValue] =
+  var r = args
+  var accRev: List[SqliteValue] = Nil
+  while r.nonEmpty do
+    accRev = evalExprGroupJoin(r.head, pairs, colsA, tableA, colsB, tableB) :: accRev
+    r = r.tail
+  reverseValues(accRev, Nil)
+
+def evalCaseGroupJoin(operand: Option[SxNode], whens: List[SxWhen], elseExpr: Option[SxNode], pairs: List[JoinPair], colsA: List[String], tableA: String, colsB: List[String], tableB: String): SqliteValue =
+  var r = whens
+  var out: Option[SqliteValue] = None
+  operand match
+    case Some(opExpr) =>
+      val opVal = evalExprGroupJoin(opExpr, pairs, colsA, tableA, colsB, tableB)
+      while r.nonEmpty && out.isEmpty do
+        if sqlCompare(opVal, evalExprGroupJoin(r.head.cond, pairs, colsA, tableA, colsB, tableB)) == 0 then out = Some(evalExprGroupJoin(r.head.result, pairs, colsA, tableA, colsB, tableB))
+        r = r.tail
+    case None =>
+      while r.nonEmpty && out.isEmpty do
+        if isTruthy(evalExprGroupJoin(r.head.cond, pairs, colsA, tableA, colsB, tableB)) then out = Some(evalExprGroupJoin(r.head.result, pairs, colsA, tableA, colsB, tableB))
+        r = r.tail
+  out match
+    case Some(v) => v
+    case None => elseExpr match
+      case Some(e) => evalExprGroupJoin(e, pairs, colsA, tableA, colsB, tableB)
+      case None => SqlNull
+
+def evalExprGroupJoin(e: SxNode, pairs: List[JoinPair], colsA: List[String], tableA: String, colsB: List[String], tableB: String): SqliteValue = e match
+  case SxCol(name) => if pairs.isEmpty then SqlNull else joinPairValue(pairs.head, colsA, tableA, colsB, tableB, name)
+  case SxLit(v) => v
+  case SxNeg(inner) => negateValue(evalExprGroupJoin(inner, pairs, colsA, tableA, colsB, tableB))
+  case SxBin(op, l, r) => arithValue(op, evalExprGroupJoin(l, pairs, colsA, tableA, colsB, tableB), evalExprGroupJoin(r, pairs, colsA, tableA, colsB, tableB))
+  case SxCall(func, args) => evalCall(func, evalArgsGroupJoin(args, pairs, colsA, tableA, colsB, tableB))
+  case SxNot(inner) => notValue(evalExprGroupJoin(inner, pairs, colsA, tableA, colsB, tableB))
+  case SxAgg(func, arg, distinct) => joinAggValue(func, arg, distinct, pairs, colsA, tableA, colsB, tableB)
+  case SxCase(operand, whens, elseExpr) => evalCaseGroupJoin(operand, whens, elseExpr, pairs, colsA, tableA, colsB, tableB)
+
 def computeJoinAgg(item: ProjItem, pairs: List[JoinPair], colsA: List[String], tableA: String, colsB: List[String], tableB: String): SqliteValue =
-  if !item.isAgg then
-    if pairs.isEmpty then SqlNull else joinPairValue(pairs.head, colsA, tableA, colsB, tableB, item.name)
-  else
-    val f = upperStr(item.func)
-    val vals = extractPairValues(pairs, colsA, tableA, colsB, tableB, item.name)
-    if item.distinct then aggregateValues(f, dedupValues(vals))
-    else if f == "COUNT" && item.name == "*" then SqlInteger(pairs.length.toLong)
-    else aggregateValues(f, vals)
+  if item.isAgg then joinAggValue(item.func, item.name, item.distinct, pairs, colsA, tableA, colsB, tableB)
+  else item.expr match
+    case Some(e) => evalExprGroupJoin(e, pairs, colsA, tableA, colsB, tableB)
+    case None =>
+      if pairs.isEmpty then SqlNull else joinPairValue(pairs.head, colsA, tableA, colsB, tableB, item.name)
 
 def computeJoinAggregates(projection: List[ProjItem], pairs: List[JoinPair], colsA: List[String], tableA: String, colsB: List[String], tableB: String): List[SqliteValue] =
   var r = projection
@@ -2676,6 +2806,7 @@ def evalExprValues(e: SxNode, values: List[SqliteValue], colNames: List[String])
   case SxBin(op, l, r) => arithValue(op, evalExprValues(l, values, colNames), evalExprValues(r, values, colNames))
   case SxCall(func, args) => evalCall(func, evalArgsValues(args, values, colNames))
   case SxNot(inner) => notValue(evalExprValues(inner, values, colNames))
+  case SxAgg(_, _, _) => SqlNull
   case SxCase(operand, whens, elseExpr) => evalCaseValues(operand, whens, elseExpr, values, colNames)
 
 def findAssignmentItem(assignments: List[Assignment], colName: String): Option[Assignment] =

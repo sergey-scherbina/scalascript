@@ -1,0 +1,38 @@
+---
+name: scljet-sql-agg-expr
+description: SclJet SQL aggregates inside expressions — COUNT(*)+1, MAX-MIN, SUM/COUNT, in GROUP BY / HAVING / concat; matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet SQL aggregate expressions
+
+Aggregates may be combined with arithmetic and other operators inside a single expression:
+`COUNT(*) + 1`, `MAX(salary) - MIN(salary)`, `SUM(salary) / COUNT(*)`, `COUNT(*) * 10` per GROUP BY
+group, `HAVING COUNT(*) * 100 > 150`, and `'total:' || SUM(salary)`. Every result is byte-identical to
+reference sqlite3 running the same SQL on the same file (verified out-of-band); locked across backends.
+
+[ByteSlice, SqliteValue, SqlInteger, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER, salary INTEGER, dept INTEGER)",
+  List(List(SqlInteger(1L), SqlInteger(100L), SqlInteger(10L)),
+       List(SqlInteger(2L), SqlInteger(250L), SqlInteger(20L)),
+       List(SqlInteger(3L), SqlInteger(300L), SqlInteger(10L)),
+       List(SqlInteger(4L), SqlInteger(150L), SqlInteger(30L)),
+       List(SqlInteger(5L), SqlInteger(250L), SqlInteger(20L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db) =>
+    show(db, "SELECT COUNT(*) + 1 FROM emp")
+    show(db, "SELECT MAX(salary) - MIN(salary) FROM emp")
+    show(db, "SELECT SUM(salary) / COUNT(*) FROM emp")
+    show(db, "SELECT dept, COUNT(*) * 10 FROM emp GROUP BY dept")
+    show(db, "SELECT dept, MAX(salary) - MIN(salary) FROM emp GROUP BY dept")
+    show(db, "SELECT dept FROM emp GROUP BY dept HAVING COUNT(*) * 100 > 150")
+    show(db, "SELECT 'total:' || SUM(salary) FROM emp")
+```
