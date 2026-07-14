@@ -320,10 +320,14 @@ verify by probe + JVM dialect test + conformance 640ok. Detail: memory `project_
   fixed ONE v2 gap: `String.indexWhere` / `String.count` (Char-predicate closures) unimplemented — hit by
   reference-definition parsing (740b3fe24). Harness: scratchpad `cmark_corpus.py`/`build_batch.py`/
   `harden_rest.sh`/`harden_gfm.sh` + `gen_diff.py` (now takes a `parse_extra` for the profile arg).
-- [ ] **2. Port XML to portable + v2 parity** — XML is single-file `v1/lang/uniml-xml/XmlDialect.scala`,
-  uses `mutable.ArrayBuffer` + couples to `scalascript.markup.Markup` (never got the immutable rewrite the
-  other 3 got). Immutable-rewrite the parse path (ArrayBuffer→Vector), isolate the Markup projection, run
-  the differential → 4th dialect at v2==JVM parity.
+- [x] **2. Port XML to portable + v2 parity DONE (566df747f)** — the XML PARSE path already used immutable
+  Vector (only the Markup/validate layer had ArrayBuffer/HashSet, and it's stripped). Made it dual-compile
+  with SOURCE-only portable rewrites (no v2 change; JVM unimlXml/test 13/13): 3 regex `.matches` (XML-decl +
+  entity-ref) → hand predicates; `0.toChar`→`' '`; attr-dup `Set[String]`→`Vector` (no `Set.empty` on v2;
+  dedup redundant); `quote.toString`→substring (no Char box); `0x10FFFFL`→`0x10FFFF` (v2 no hex+L suffix).
+  Differential over 31 XML inputs → **byte-identical v2==JVM**. 4th dialect at parity. Harness
+  `scratchpad/gen_xml_diff.py` (strips the Markup layer). NOTE: v2 gaps `Set.empty` + hex-`L`-suffix
+  remain (worked around source-side; general fixes deferred — Set(...) works, only `.empty` doesn't).
 
 ### Markdown — NOT STARTED (obsolete note below)
 - [ ] **markdown-on-v2** — flatten `markdown/` parse path (nested enums InlinePiece/AngleKind/OpenLeaf
