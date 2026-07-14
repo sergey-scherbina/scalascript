@@ -1160,7 +1160,7 @@ final class ScalaSpikeSpec extends AnyFunSuite:
          |    case (0, n) => ("(lit (int " + n + "))", rest)
          |    case (4, sv) => ("(lit (str \"" + sv + "\"))", rest)
          |    case (1, id) =>
-         |      if isLP(rest) == 1 then parseExpr(tl(rest), 0, env) match { case (arg, r2) => ("(app (global " + id + ") " + arg + ")", tl(r2)) }
+         |      if isLP(rest) == 1 then parseArgs(tl(rest), env, "") match { case (args, r2) => ("(app (global " + id + ")" + args + ")", r2) }
          |      else ("(local " + idxOf(env, id, 0) + ")", rest)
          |    case (3, cn) =>
          |      if isLP(rest) == 1 then parseExpr(tl(rest), 0, env) match { case (a, r2) => parseExpr(tl(r2), 0, env) match { case (b, r3) => ("(ctor " + cn + " " + a + " " + b + ")", tl(r3)) } }
@@ -1209,18 +1209,17 @@ final class ScalaSpikeSpec extends AnyFunSuite:
          |  case Nil => (left, ts)
          |}
          |def parseExpr(ts: List[Int], minPrec: Int, env: List[Int]): Int = parsePostfix(ts, env) match { case (l, r) => climb(l, r, minPrec, env) }
+         |def dlen(env: List[Int]): Int = env match { case Nil => 0 case Cons(h, t) => dlen(t) + 1 }
+         |def parseParams(ts: List[Int], acc: List[Int]): Int = hd(ts) match { case (1, pn) => hd(tl(ts)) match { case (2, 27) => parseParams(tl(tl(ts)), Cons(pn, acc)) case _ => parseParams(tl(ts), Cons(pn, acc)) } case _ => (acc, tl(ts)) }
+         |def parseArgs(ts: List[Int], env: List[Int], acc: String): Int = hd(ts) match { case (2, 22) => (acc, tl(ts)) case _ => parseExpr(ts, 0, env) match { case (a, r2) => hd(r2) match { case (2, 27) => parseArgs(tl(r2), env, acc + " " + a) case _ => parseArgs(r2, env, acc + " " + a) } } }
          |def parseDefs(ts: List[Int]): String = ts match {
          |  case Nil => ""
          |  case Cons(d, r1) =>
          |    val nm = snd(hd(r1))
-         |    val r3 = tl(tl(r1))
-         |    hd(r3) match {
-         |      case (2, 22) => parseExpr(tl(tl(r3)), 0, Nil) match { case (body, r6) => "(def main (lam 0 " + body + ")) " + parseDefs(r6) }
-         |      case _ => parseExpr(tl(tl(tl(r3))), 0, Cons(snd(hd(r3)), Nil)) match { case (body, r6) => "(def " + nm + " (lam 1 " + body + ")) " + parseDefs(r6) }
-         |    }
+         |    parseParams(tl(tl(r1)), Nil) match { case (env, afterP) => parseExpr(tl(afterP), 0, env) match { case (body, r6) => "(def " + nm + " (lam " + dlen(env) + " " + body + ")) " + parseDefs(r6) } }
          |}
          |def compile(src: String): String = "(program (defs " + parseDefs(lex(src, 0, src.length)) + ") (entry (app (global main))))"
-         |def main(): String = compile("def dbl(s) = s + s def ln(s) = s.length def main() = ln(dbl(\"ab\"))")""".stripMargin
+         |def main(): String = compile("def add(a, b) = a + b def dbl(s) = s + s def ln(s) = s.length def main() = ln(dbl(\"ab\")) + add(20, add(3, 0))")""".stripMargin
     // The hardest part of a real parser, in the subset: a PRECEDENCE-CLIMBING infix parser with
     // PARENTHESES — the same algorithm as the spike's own parseExpr (climb while the next operator binds
     // tighter than minPrec). Tokenises "2 * (1 + 3)" (with `(`=-3, `)`=-4), parses respecting `*` over `+`
@@ -1395,8 +1394,8 @@ final class ScalaSpikeSpec extends AnyFunSuite:
     Files.writeString(Paths.get(outDir, "selfhost-env.emit"), "25")
     // selfhost-match compiles a list-summing function via pattern match; sum([7,8,9]) = 24.
     Files.writeString(Paths.get(outDir, "selfhost-match.emit"), "24")
-    // selfhost-str compiles string ops; ln(dbl("ab")) = "abab".length = 4.
-    Files.writeString(Paths.get(outDir, "selfhost-str.emit"), "4")
+    // selfhost-str now also has MULTIPLE PARAMETERS; ln(dbl("ab")) + add(20, add(3, 0)) = 4 + 23 = 27.
+    Files.writeString(Paths.get(outDir, "selfhost-str.emit"), "27")
     for (name, code, expect) <- broken do
       Files.writeString(Paths.get(outDir, s"$name.proj"), SpikeProject.program(parse(code).roots.head))
       Files.writeString(Paths.get(outDir, s"$name.expect"), expect)
