@@ -1845,6 +1845,14 @@ ORDER BY / LIMIT / OFFSET, aggregates (COUNT/SUM/MIN/MAX/AVG/TOTAL), GROUP BY + 
 and inner + LEFT joins — every feature byte-verified against reference sqlite3, int==js.
 Remaining follow-ups (niche): multi-table (3+) joins, page-1 schema split, repeating-decimal %.15g.
 
+- [x] **scljet-m6h-orderby-expr** — DONE 2026-07-14. `ORDER BY <expression>` — an ORDER BY key may be
+      any scalar expression, not just a column: `ORDER BY salary * -1`, `ORDER BY UPPER(name)`,
+      `ORDER BY LENGTH(name), name`, `ORDER BY salary * 2 DESC LIMIT 3`. `OrderKey.column: String` →
+      `expr: SxNode`; `parseOrderLimit` parses each key with `parseExpr` (stops before ASC/DESC/comma/
+      LIMIT); `recCompare` (single) evaluates via `evalExpr`, `pairOrderCompare` (join) via
+      `evalExprJoin`; `groupKeysOf` wraps a group column as `SxCol`. Multi-key + per-key ASC/DESC +
+      stability preserved. Verified vs sqlite3, int==js; conformance `scljet-sql-orderby-expr`.
+
 - [x] **scljet-m6g-bool-ops** — DONE 2026-07-14. Boolean operators `AND`/`OR`/`NOT` in expressions
       (below comparison; sqlite precedence `OR < AND < NOT < comparison`). New `parseExprOr`/
       `parseExprAnd`/`parseExprNot` layers; `SxNot` AST node; `andValue`/`orValue`/`notValue` implement

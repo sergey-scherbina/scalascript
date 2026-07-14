@@ -1,4 +1,4 @@
 claim: scljet-m3-writes
 owner: opus
-heartbeat: 2026-07-14T17:01:09Z
-status: m6g boolean ops AND/OR/NOT in expressions done; 25/25 sql green
+heartbeat: 2026-07-14T17:06:01Z
+status: m6h ORDER BY expressions done; 26/26 sql green
