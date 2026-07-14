@@ -2520,6 +2520,12 @@ def parseOneStmt = (toks) =>
             parseEffect(prT(r), Cons(prV(r), acc)) in
         if kindIs("{", ts2) then parseEffect(advance(ts2), Nil)
         else pr(Pair("effect_decl", Pair(ename, Pair(false, Nil))), ts2)
+    else if #seq(v, "class") then
+      -- A plain (non-`case`) class reuses the case-class pipeline: same DataV
+      -- representation, positional field accessors, method dispatch (defs in the
+      -- body), and `new X(a)` == `X(a)` construction (the `new` atom is elided).
+      -- Mutable `var` fields are a separate gap (v2-class-var-fields).
+      parseCaseClass(advance(toks))
     else if #seq(v, "object") then
       -- KC7b: parse object body into ("object", (name, [stmts]))
       let ts1 = advance(toks) in
