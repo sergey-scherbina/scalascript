@@ -1468,6 +1468,13 @@ def finishAssignment = (r) =>
       if #seq(tag, "var") then
         let rr = parseExpr(advance(prT(r))) in
         pr(Pair("assign", Pair(data, prV(rr))), prT(rr))
+      else if #seq(tag, "sel") then
+        -- `obj.field = rhs` — a field write. The lowerer routes a mutable `var`
+        -- field to cell.set; a non-var field is an error there.
+        match data { case Pair(objE, fieldN) =>
+          let rr = parseExpr(advance(prT(r))) in
+          pr(Pair("sel_assign", Pair(objE, Pair(fieldN, prV(rr)))), prT(rr))
+        }
       else r
     }
   else

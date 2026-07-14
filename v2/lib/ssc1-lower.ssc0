@@ -2461,6 +2461,21 @@ def lowerE = (scope, rawExpr) =>
         lowerE(scope, data)
       else if #seq(tag, "block") then
         lowerBlock(scope, data)
+      else if #seq(tag, "sel_assign") then
+        -- `obj.field = rhs`: a mutable `var` field is a cell → cell.set on
+        -- `_sel_field(obj)`. A non-var field is an immutable-write error.
+        match data {
+          case Pair(objE, fr) =>
+            match fr {
+              case Pair(field, rhs) =>
+                if isAnyVarField(field) then
+                  IrPrim("cell.set",
+                    Cons(IrApp(IrGlobal(#sconcat("_sel_", field)),
+                           Cons(lowerE(scope, objE), Nil)),
+                      Cons(lowerE(scope, rhs), Nil)))
+                else IrGlobal("_err")
+            }
+        }
       else if #seq(tag, "assign") then
         -- assignment in expression position (e.g. then-branch of if-then)
         -- Mirrors the lowerBlock assign case: long cell (@@name) first, then @name.
@@ -3396,8 +3411,17 @@ def lowerBlock = (scope, stmts) =>
             -- For long cell vars (@@name), use lcell.set to avoid IntV boxing per store.
             match data {
               case Pair(name, expr) =>
-                let llName = #sconcat("@@", name) in
-                let setExpr = match lookupVarOpt(scope, llName) {
+                let setExpr =
+                  if isCurrentVarField(name) then
+                    -- Mutable `var` field write inside a method body: cell.set on
+                    -- `_sel_name(__self)`.
+                    IrPrim("cell.set",
+                      Cons(IrApp(IrGlobal(#sconcat("_sel_", name)),
+                             Cons(lookupVar(scope, "__self"), Nil)),
+                        Cons(lowerE(scope, expr), Nil)))
+                  else
+                  let llName = #sconcat("@@", name) in
+                  match lookupVarOpt(scope, llName) {
                   case Some(lcellRef) =>
                     -- Long cell: use lcell.set (body evaluated as raw Long in FastCode path)
                     IrPrim("lcell.set", Cons(lcellRef, Cons(lowerE(scope, expr), Nil)))
