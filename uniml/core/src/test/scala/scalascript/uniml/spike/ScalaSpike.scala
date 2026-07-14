@@ -1226,8 +1226,53 @@ object SpikeProject:
 
   private def call(b: UniNode.Branch): String =
     val fn = kids(b).collectFirst { case (Some("call.fn"), c) => expr(c) }.getOrElse(hole)
-    val args = kids(b).collect { case (Some("call.arg"), c) => expr(c) }
+    val args = kids(b).collect { case (Some("call.arg"), c) => wrapArg(c) }
     s"""mkApp($fn, ${consList(args.toVector)})"""
+
+  // ── underscore-placeholder lifting (mirrors ssc1-front wrapPhArg) ─────────────────────────────────────
+  // A `_` in a call ARGUMENT — reached through inf/pre/sel/app/paren but NOT a nested lambda — lifts the
+  // whole argument to an N-ary lambda: `_ + 1` → `x => x + 1`, `_ + _` → `(a, b) => a + b` (each `_` is a
+  // DISTINCT param left-to-right, __u0/__u1/…). A bare `_` argument is left unwrapped (ssc1-front returns it).
+  private def isBarePh(n: UniNode): Boolean = n match
+    case UniNode.Token(t) => t.kind == "spike.id" && t.lexeme == "_"
+    case _ => false
+  private def phDescend(b: UniNode.Branch): Boolean =
+    b.kind == "spike.infix" || b.kind == "spike.pre" || b.kind == "spike.sel" ||
+    b.kind == "spike.call" || b.kind == "spike.paren"
+  private def countPh(n: UniNode): Int = n match
+    case UniNode.Token(t) if t.kind == "spike.id" && t.lexeme == "_" => 1
+    case b: UniNode.Branch if phDescend(b) => kids(b).map((_, c) => countPh(c)).sum
+    case _ => 0
+  private def projectPh(n: UniNode, ctr: Array[Int]): String = n match
+    case UniNode.Token(t) if t.kind == "spike.id" && t.lexeme == "_" =>
+      val i = ctr(0); ctr(0) = i + 1; s"""mkVar("__u$i")"""
+    case b: UniNode.Branch if b.kind == "spike.infix" =>
+      val op = kids(b).collectFirst { case (Some("bin.op"), c) => lexeme(c) }.getOrElse("+")
+      val l  = kids(b).collectFirst { case (Some("bin.left"), c) => projectPh(c, ctr) }.getOrElse(hole)
+      val r  = kids(b).collectFirst { case (Some("bin.right"), c) => projectPh(c, ctr) }.getOrElse(hole)
+      s"""mkInf("${esc(op)}", $l, $r)"""
+    case b: UniNode.Branch if b.kind == "spike.pre" =>
+      val op  = kids(b).collectFirst { case (Some("pre.op"), c) => lexeme(c) }.getOrElse("-")
+      val sub = kids(b).collectFirst { case (Some("pre.sub"), c) => projectPh(c, ctr) }.getOrElse(hole)
+      s"""mkPre("${esc(op)}", $sub)"""
+    case b: UniNode.Branch if b.kind == "spike.sel" =>
+      val obj   = kids(b).collectFirst { case (Some("sel.obj"), c) => projectPh(c, ctr) }.getOrElse(hole)
+      val field = kids(b).collectFirst { case (Some("sel.field"), c) => lexeme(c) }.getOrElse("_")
+      s"""mkSel($obj, "${esc(field)}")"""
+    case b: UniNode.Branch if b.kind == "spike.call" =>
+      val fn   = kids(b).collectFirst { case (Some("call.fn"), c) => projectPh(c, ctr) }.getOrElse(hole)
+      val args = kids(b).collect { case (Some("call.arg"), c) => projectPh(c, ctr) }
+      s"""mkApp($fn, ${consList(args.toVector)})"""
+    case b: UniNode.Branch if b.kind == "spike.paren" =>
+      kids(b).collectFirst { case (Some("group.elem"), c) => projectPh(c, ctr) }.getOrElse(hole)
+    case _ => expr(n) // literals, vars, lambdas, blocks, ifs, matches: projected as-is (no placeholder descent)
+  private def wrapArg(n: UniNode): String =
+    if isBarePh(n) then expr(n)
+    else if countPh(n) > 0 then
+      val ctr = Array(0)
+      val body = projectPh(n, ctr)
+      s"""mkLam(${consList((0 until ctr(0)).map(i => s""""__u$i"""").toVector)}, $body)"""
+    else expr(n)
 
   private def ifExpr(b: UniNode.Branch): String =
     val cnd = kids(b).collectFirst { case (Some("if.cond"), c) => expr(c) }.getOrElse(hole)

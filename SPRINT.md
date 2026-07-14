@@ -1055,10 +1055,15 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
           (flatMap for each generator but the last). Regression caught+fixed: an offside `else` block needs
           `elseLine` = the `else` line (computed BEFORE consuming) or it de-nests (nested3). 3 unit tests; p6.0
           harness **115 ok / 0 FAIL**.
-    - [ ] **P6.12 (backlog) — underscore-placeholder lambdas.** `.map(_ + 1)` / `.filter(_ < 3)` / `_ + _`:
-          ssc1-front's `wrapPhArg` lifts a `_`-bearing argument expression to an N-ary lambda (count the `_`s,
-          replace each left-to-right with `__u<i>`, wrap in `mkLam`). Needs a placeholder scan/count/replace
-          traversal over the spike's argument node subtree before projecting — the one remaining common gap.
+    - [x] **P6.12 — underscore-placeholder lambdas ✓ DONE 2026-07-14.** `.map(_ + 1)` / `.filter(_ < 3)` /
+          `_ + _` / `_ * 10`: a `_` in a call ARGUMENT (reached through inf/pre/sel/app/paren, NOT a nested
+          lambda) lifts the whole arg to an N-ary lambda — `_ + 1` → `mkLam(["__u0"], __u0 + 1)`, `_ + _` →
+          `mkLam(["__u0","__u1"], __u0 + __u1)` (each `_` a distinct param left-to-right). A bare `_` arg is
+          left unwrapped. `call(b)` now wraps each arg via `wrapArg`; `countPh`/`projectPh` (a mutable counter,
+          stops at lambda boundaries) mirror ssc1-front's `wrapPhArg`/`countPh`/`replacePhSeq`. p6.0 harness
+          **119 ok / 0 FAIL**; 4 `u-*` toys + 1 unit test. **The spike now matches ssc1-front byte-for-byte
+          across the entire common ScalaScript subset** (functional + imperative + currying + comprehensions +
+          placeholder lambdas).
 
 ---
 

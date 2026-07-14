@@ -458,6 +458,17 @@ final class ScalaSpikeSpec extends AnyFunSuite:
     assert(mg.contains("""mkSel(mkVar("xs"), "flatMap")""") && mg.contains("""mkSel(mkVar("ys"), "map")"""), mg)
   }
 
+  test("underscore-placeholder lambdas: `_ + 1` → 1-ary, `_ + _` → 2-ary, distinct params L→R (P6.12)") {
+    // `.map(_ + 1)` → map(mkLam(["__u0"], __u0 + 1))
+    assert(SpikeProject.program(parse("def m(): List[Int] = xs.map(_ + 1)").roots.head)
+      .contains("""mkLam(Cons("__u0", Nil), mkInf("+", mkVar("__u0"), mkInt("1")))"""))
+    // `_ + _` → two distinct params, left-to-right
+    assert(SpikeProject.program(parse("def m(): Int = f(_ + _)").roots.head)
+      .contains("""mkLam(Cons("__u0", Cons("__u1", Nil)), mkInf("+", mkVar("__u0"), mkVar("__u1")))"""))
+    // a bare `_` argument is NOT lifted (ssc1-front returns it unchanged)
+    assert(SpikeProject.program(parse("def m(): Int = f(_)").roots.head).contains("""mkApp(mkVar("f"), Cons(mkVar("_")"""))
+  }
+
   test("parameterless `def x: T = e` (no param clause) wraps its body in mkParameterlessBody (P6.8)") {
     // `def x: Int = 42` → a bare `x` reference auto-applies; `def x(): Int = 42` (empty parens) does not.
     assert(SpikeProject.program(parse("def x: Int = 42").roots.head).contains("mkParameterlessBody"))
@@ -1395,6 +1406,11 @@ final class ScalaSpikeSpec extends AnyFunSuite:
       // `.map(_ + 1)` / `.filter(_ < 3)` (ssc1-front's wrapPhArg lifts `_`-expressions in arg positions to
       // N-ary lambdas) — deferred (SPRINT P6.12), needs placeholder scan/count/replace over the arg subtree.
       "s-fortuple"   -> "def main(): Int = { var s = 0  for (a, b) <- List((1, 2)) do s = a + b  s }",
+      // P6.12 — underscore-placeholder lambdas (the last common gap): _ lifts the whole call arg to a lambda.
+      "u-map"        -> "def main(): Int = List(1, 2, 3).map(_ + 1) match { case Cons(h, t) => h case _ => 0 }",
+      "u-filter"     -> "def main(): Int = List(1, 2, 3, 4).filter(_ < 3) match { case Cons(h, t) => h case _ => 0 }",
+      "u-binop"      -> "def main(): Int = List(1, 2, 3, 4).foldLeft(0)(_ + _)",
+      "u-mul"        -> "def main(): Int = List(2, 3).map(_ * 10) match { case Cons(h, t) => h case _ => 0 }",
       "s-formulti"   -> "def head(xs: List[Int]): Int = xs match { case Cons(h, t) => h case _ => 0 }\ndef main(): Int = head(for x <- List(1, 2); y <- List(10) yield x + y)",
       "s-chainsel"   -> "def main(): Int = List(1, 2, 3).tail.head",
       "s-ifnoelse"   -> "def f(n: Int): Int = { var r = 0  if n > 0 then r = n  r }\ndef main(): Int = f(5)",
