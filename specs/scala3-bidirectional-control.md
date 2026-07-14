@@ -203,10 +203,13 @@ def shift[P, A, Fx <: Effect, R](prompt: Prompt[P, R])(
 owner; there is no global effect registry. Both `EffectKey` and `Operation` are
 invariant in `Fx`. `named` retains only the owner's identity and returns
 `EffectKey[witness.type]`, even if its argument was statically widened. Repeating
-`named` for the same owner produces equivalent runtime keys; distinct owners have
-distinct singleton row types and runtime identity. Consequently a handler owns
-exactly one atomic row member. It cannot obtain a key for a union by covariance,
-and handling several effects is necessarily ordinary nesting.
+`named` with the same descriptor for the same owner produces equivalent runtime
+keys; a null owner is rejected. Reusing one owner with a different descriptor is a
+malformed declaration: a matching handler rejects it rather than forwarding it as
+a residual effect. Distinct owners have distinct singleton row types and runtime
+identity even when their descriptor strings are equal. Consequently a handler
+owns exactly one atomic row member. It cannot obtain a key for a union by
+covariance, and handling several effects is necessarily ordinary nesting.
 
 After exact owner identity the runtime may perform one private narrowing cast. That
 cast and the iterative bind stack are not part of the public ABI. No safe singleton
