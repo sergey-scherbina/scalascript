@@ -5,6 +5,11 @@
 three code backends — grown on top **in the language itself**. Isolated (own scala-cli build,
 zero dependency on the `ssc 1.0` tree). Architecture & decisions: [`specs/00-overview.md`](specs/00-overview.md).
 
+`host/` is the explicit outer integration layer for native host-profile SDKs,
+transforms, and runners. Nothing under `host/` is imported by the kernel, seed, or
+self-hosted compiler; co-location under `v2/` records feature ownership without
+expanding the trusted bootstrap graph.
+
 ## The one bet
 
 Scope the hand-written, **permanent Scala kernel** to *host the self-compiler* — not to run
@@ -76,6 +81,8 @@ v2/
   conformance/ ir fixtures + check.sh (one jar, 600+ checks across every layer & target)
   backend/    Core IR -> {Scala 3, JS, Rust} source generators + check.sh parity harness
               (every fixture through run-ir vs JVM vs JS vs Rust, byte-identical)
+  host/       outer host-profile SDKs/transforms/runners; currently
+              scala/control-api (compiler-independent Scala 3 control reference API)
   specs/      00-overview · 10-core-ir · 12-ir-format · 15-ssc0 · 20-bootstrap ·
               40-typer · 50-effects · 51-async · 52-typeclasses · 53-actors · 60/61-backends
 ```
