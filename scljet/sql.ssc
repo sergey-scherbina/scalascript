@@ -926,6 +926,101 @@ def firstNonNull(args: List[SqliteValue]): SqliteValue =
 
 def argAt(args: List[SqliteValue], idx: Int): SqliteValue = listNth(args, idx)
 
+// Numeric value as a plain Int for string indexing. We parse the digits from the TEXT form
+// with plain Int arithmetic (no BigInt): `Long.toInt` mislowers to `Math.trunc(BigInt)` and
+// `.toDouble` lowers unpredictably (identity vs dispatch) — both crash on JS since a DB int can
+// be a JS Number while a literal is a BigInt. `n = n*10 + digit` stays in JS Number arithmetic.
+def parseIntStr(s: String): Int =
+  var i = 0
+  var neg = false
+  if charCode(s, 0) == 45 then
+    neg = true
+    i = 1
+  var n = 0
+  var done = false
+  while i < s.length && !done do
+    val c = charCode(s, i)
+    if c >= 48 && c <= 57 then
+      n = n * 10 + (c - 48)
+      i = i + 1
+    else done = true
+  if neg then 0 - n else n
+
+def toIntVal(v: SqliteValue): Int = parseIntStr(coerceText(v))
+
+// chars 0-based [lo, hi) as a new string (empty if lo >= hi).
+def sliceStr(s: String, lo: Int, hi: Int): String =
+  var i = lo
+  var out = ""
+  while i < hi do
+    out = out + s.charAt(i).toString
+    i = i + 1
+  out
+
+// SUBSTR(s, y[, z]) — 1-based; y<0 counts from the right; the kept window is the 1-based
+// indices in [y, y+z) (or [y, n] with no z), clamped to the string. charCode is bounds-safe.
+def substrValue(s: String, yIn: Int, hasLen: Boolean, z: Int): String =
+  val n = s.length
+  val y = if yIn < 0 then n + yIn + 1 else yIn
+  val lo = if y < 1 then 1 else y
+  val hiRaw = if hasLen then y + z - 1 else n
+  val hi = if hiRaw > n then n else hiRaw
+  sliceStr(s, lo - 1, hi)
+
+def charInSet(c: Int, chars: String): Boolean =
+  var i = 0
+  var found = false
+  while i < chars.length && !found do
+    if charCode(chars, i) == c then found = true
+    i = i + 1
+  found
+
+def ltrimCount(s: String, chars: String): Int =
+  var i = 0
+  while i < s.length && charInSet(charCode(s, i), chars) do i = i + 1
+  i
+
+def rtrimEnd(s: String, chars: String): Int =
+  var j = s.length
+  while j > 0 && charInSet(charCode(s, j - 1), chars) do j = j - 1
+  j
+
+def matchesAt(s: String, at: Int, sub: String): Boolean =
+  var k = 0
+  var ok = true
+  while k < sub.length && ok do
+    if charCode(s, at + k) != charCode(sub, k) then ok = false
+    k = k + 1
+  ok
+
+def replaceStr(s: String, from: String, to: String): String =
+  if from.length == 0 then s
+  else
+    val n = s.length
+    val fn = from.length
+    var i = 0
+    var out = ""
+    while i < n do
+      if matchesAt(s, i, from) then
+        out = out + to
+        i = i + fn
+      else
+        out = out + s.charAt(i).toString
+        i = i + 1
+    out
+
+// TRIM / LTRIM / RTRIM with an optional trim-char set (default a single space).
+def trimFn(args: List[SqliteValue], doLeft: Boolean, doRight: Boolean): SqliteValue =
+  val a = argAt(args, 0)
+  if isNullValue(a) then SqlNull
+  else if args.length >= 2 && isNullValue(argAt(args, 1)) then SqlNull
+  else
+    val s = coerceText(a)
+    val chars = if args.length >= 2 then coerceText(argAt(args, 1)) else " "
+    val lo = if doLeft then ltrimCount(s, chars) else 0
+    val hi = if doRight then rtrimEnd(s, chars) else s.length
+    SqlText(sliceStr(s, lo, hi))
+
 // Scalar SQL functions over already-evaluated argument values. NULL argument → NULL
 // (except COALESCE, which returns the first non-null); `func` is upper-cased at parse time.
 def evalCall(func: String, args: List[SqliteValue]): SqliteValue =
@@ -941,6 +1036,23 @@ def evalCall(func: String, args: List[SqliteValue]): SqliteValue =
     if isNullValue(a) then SqlNull else SqlInteger(coerceText(a).length.toLong)
   else if f == "ABS" then absValue(argAt(args, 0))
   else if f == "COALESCE" then firstNonNull(args)
+  else if f == "SUBSTR" || f == "SUBSTRING" then
+    val a = argAt(args, 0)
+    if isNullValue(a) then SqlNull
+    else
+      val s = coerceText(a)
+      val y = toIntVal(argAt(args, 1))
+      if args.length >= 3 then SqlText(substrValue(s, y, true, toIntVal(argAt(args, 2))))
+      else SqlText(substrValue(s, y, false, 0))
+  else if f == "TRIM" then trimFn(args, true, true)
+  else if f == "LTRIM" then trimFn(args, true, false)
+  else if f == "RTRIM" then trimFn(args, false, true)
+  else if f == "REPLACE" then
+    val a = argAt(args, 0)
+    val b = argAt(args, 1)
+    val cc = argAt(args, 2)
+    if isNullValue(a) || isNullValue(b) || isNullValue(cc) then SqlNull
+    else SqlText(replaceStr(coerceText(a), coerceText(b), coerceText(cc)))
   else SqlNull
 
 def evalArgs(args: List[SxNode], rec: StorageRecord, colNames: List[String]): List[SqliteValue] =

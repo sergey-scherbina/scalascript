@@ -1,0 +1,39 @@
+---
+name: scljet-sql-strfunc
+description: SclJet SQL string functions — SUBSTR (1-based, negative-from-end), TRIM/LTRIM/RTRIM, REPLACE; matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet SQL string functions
+
+`SUBSTR(s, y[, z])` (1-based; `y<0` counts from the right; `z` clamps to the string), `TRIM`/`LTRIM`/
+`RTRIM` (default trims spaces, optional char set), and `REPLACE(s, from, to)` (all non-overlapping
+occurrences). They read from columns, compose with the other functions and `||`, and work in `WHERE`.
+Every result is byte-identical to reference sqlite3 running the same SQL on the same file (verified
+out-of-band), including the significant leading/trailing spaces of LTRIM/RTRIM; locked across backends.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "items", "CREATE TABLE items(id INTEGER, code TEXT, label TEXT)",
+  List(List(SqlInteger(1L), SqlText("  Widget  "), SqlText("A-B-C")),
+       List(SqlInteger(2L), SqlText("gadget"), SqlText("x_y_z")),
+       List(SqlInteger(3L), SqlText("Gizmo Pro"), SqlText("p-q")))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db) =>
+    show(db, "SELECT id, TRIM(code) FROM items")
+    show(db, "SELECT id, LENGTH(TRIM(code)) FROM items")
+    show(db, "SELECT id, SUBSTR(label, 1, 3) FROM items")
+    show(db, "SELECT id, SUBSTR(label, -3) FROM items")
+    show(db, "SELECT id, REPLACE(label, '-', '+') FROM items")
+    show(db, "SELECT id, LTRIM(code) FROM items")
+    show(db, "SELECT id, RTRIM(code) FROM items")
+    show(db, "SELECT UPPER(TRIM(code)) || '#' || SUBSTR(label, 1, 1) FROM items")
+    show(db, "SELECT id FROM items WHERE TRIM(code) = 'gadget'")
+```
