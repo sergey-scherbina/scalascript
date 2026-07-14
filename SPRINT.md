@@ -129,11 +129,12 @@ Confirmed by direct test — see also the documented constraint under uniml-port
   (mixed val/var + conditional withdraw), collision-safe. Full sweep 163, 0 regr (flag-off unchanged).
   This DELIBERATELY relaxes the immutable-only model as an OPT-IN (Sergiy's earlier "prefer immutable"
   stance stays the default).
-- [ ] **v2-object-var-read** — `object O: var f = 0; def m() = f = …` — the mutating method works, but
-  an EXTERNAL read `O.f` → `unbound global: O_f` (the static var-field read is not wired; the
-  `kc7bOwnerVarsCell`/owner-prefix path emits the cell setter but not a resolvable external getter for
-  `O.f`). Smaller than v2-class-var-fields (the cell already exists as `O_f__cell`; just wire the
-  `O.f` read to `cell.get(O_f__cell)`).
+- [x] **v2-object-var-read DONE (`70d87809f`)** — external `O.f` read of an object's `var` field now
+  resolves to `cell.get(O_f__cell)` (objectVarsCell registry + resolveObjProp/resolveObjMember at the 4
+  isKnownObject property/member sites). Object var fields are module-level singleton state, NOT
+  --mutable-gated. Verified + --mutable class hardening (instance independence, defaults, mutable
+  collections, mixed val/var, case-class var). Full sweep 171, 0 regr. The class object-model gaps
+  (plain class, method-self, class var fields, object var read) are now ALL closed.
 
 ### Effects / runtime providers
 - [ ] **v2-coroutine-provider** — coroutine-basic / coroutine-error: `unbound global: coroutineCreate`.
