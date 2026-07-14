@@ -1681,6 +1681,15 @@ ORDER BY / LIMIT / OFFSET, aggregates (COUNT/SUM/MIN/MAX/AVG/TOTAL), GROUP BY + 
 and inner + LEFT joins — every feature byte-verified against reference sqlite3, int==js.
 Remaining follow-ups (niche): multi-table (3+) joins, page-1 schema split, repeating-decimal %.15g.
 
+- [x] **scljet-m5v-where-between-in** — DONE 2026-07-14. WHERE range/set predicates: `col BETWEEN lo
+      AND hi` (inclusive; BETWEEN owns its inner AND, a trailing AND still chains), `col IN (v1, …)` and
+      `col NOT IN (…)` (membership over a literal list, text or integer). `Condition` gained a
+      `values: List[SqliteValue]` field carrying the multi-operand list (ops `between`/`in`/`notin`);
+      `parseCondition` recognizes the three forms (IN reuses `parseValueList`); a shared `predHolds(cond,
+      value)` evaluates every predicate and is reused by `condHolds` + `joinCondHolds`. NULL operand →
+      false for all three. Verified vs sqlite3 (ranges, int/text IN, NOT IN, BETWEEN+AND, IN+ORDER BY,
+      COUNT), int==js; conformance `scljet-sql-where-set`. Deferred: `LIKE` (wildcard match) = m5w.
+
 - [x] **scljet-m5u-where-and-or** — DONE 2026-07-14. Compound `WHERE` with `AND` / `OR`. `parseWhere`
       now parses a chain of comparisons into OR-of-ANDs (`List[List[Condition]]`), honoring SQL
       precedence (`AND` binds tighter than `OR`, no parens): `a AND b OR c AND d` = `(a AND b) OR
