@@ -9,6 +9,9 @@ final class ContentNativePlugin extends NativePlugin:
 
   private val nil: Value = Value.DataV("Nil", Vector.empty)
   private val none: Value = Value.DataV("None", Vector.empty)
+  // Captured at install; lets the toolkit engine build real signals via the ui plugin's
+  // `signal(name, default)` (cross-plugin), refreshed per loadAll (single-threaded run).
+  private var pluginCtx: NativePluginContext = null
 
   private def list(values: IterableOnce[Value]): Value =
     values.iterator.toList.foldRight(nil)((head, tail) => Value.DataV("Cons", Vector(head, tail)))
@@ -306,9 +309,9 @@ final class ContentNativePlugin extends NativePlugin:
     case Value.DataV("Str" | "Bool" | "Num", IndexedSeq(inner)) => inner
     case _ => Value.UnitV
 
-  /** A reactive signal is a mutable cell — ForeignV(Array[Value](initial)), matching the
-   *  v2 `signal(x)` representation. Built from a `signals:` YAML scalar default. */
-  private def reactiveSignal(cv: Value): Value =
+  /** A YAML-declared signal — built via the ui plugin's `signal(name, default)` (a real
+   *  NativeUiSignal the toolkit controls / formBody expect), resolved cross-plugin. */
+  private def reactiveSignal(name: String, cv: Value): Value =
     val initial = cv match
       case Value.DataV("Str", IndexedSeq(s @ Value.StrV(_)))    => s
       case Value.DataV("Bool", IndexedSeq(b @ Value.BoolV(_)))  => b
@@ -317,11 +320,13 @@ final class ContentNativePlugin extends NativePlugin:
       case Value.DataV("Num", IndexedSeq(Value.StrV(s))) =>
         s.toLongOption.map(Value.IntV(_)).orElse(s.toDoubleOption.map(Value.FloatV(_))).getOrElse(Value.StrV(s))
       case _ => Value.StrV("")
-    Value.ForeignV(Array[Value](initial))
+    Option(pluginCtx).flatMap(_.resolveGlobal("signal")) match
+      case Some(signalFn) => pluginCtx.invoke(signalFn, List(Value.StrV(name), initial))
+      case None => Value.ForeignV(Array[Value](initial))  // fallback if the ui plugin isn't loaded
 
   private def buildSignals(blockDataMap: collection.mutable.LinkedHashMap[Value, Value]): Map[String, Value] =
     mfield(blockDataMap, "signals").flatMap(cvMap) match
-      case Some(sigMap) => sigMap.iterator.collect { case (Value.StrV(name), cv) => name -> reactiveSignal(cv) }.toMap
+      case Some(sigMap) => sigMap.iterator.collect { case (Value.StrV(name), cv) => name -> reactiveSignal(name, cv) }.toMap
       case None => Map.empty
 
   private def signalByName(signals: Map[String, Value], name: String, context: String): Value =
@@ -426,6 +431,7 @@ final class ContentNativePlugin extends NativePlugin:
       case None => throw new IllegalArgumentException(s"contentToolkitSection: no section with id '$id'")
 
   def install(context: NativePluginContext): Unit =
+    pluginCtx = context
     val modules = context.contentModules
     def rootDocument: Value = current(modules).document
     def moduleDocument(namespace: String, fn: String): Option[Value] = imported(modules, namespace, fn).map(_.document)

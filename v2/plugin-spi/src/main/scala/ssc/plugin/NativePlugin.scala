@@ -35,6 +35,10 @@ trait NativePluginContext:
   def databases: Map[String, NativeDatabaseConfig]
   def contentModules: List[NativeContentModule]
   def invoke(fn: Value, args: List[Value]): Value
+  /** Resolve a registered global (e.g. another plugin's native) by name, for cross-plugin
+   *  construction — e.g. the content plugin building a real `signal(name, default)` via the
+   *  ui plugin. Defaults to None so existing/mock contexts stay source-compatible. */
+  def resolveGlobal(name: String): Option[Value] = None
   def withEffect(effectTag: String)(handler: (String, List[Value]) => Value)(body: => Value): Value
   def register(name: String)(fn: List[Value] => Value): Unit
   def registerGlobal(name: String, arity: Int)(fn: List[Value] => Value): Unit

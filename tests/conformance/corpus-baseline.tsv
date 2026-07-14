@@ -23,7 +23,6 @@ bureau-demo	*	SKIP
 cluster-capability	js	FAIL
 cluster-capability	v2	FAIL
 components-demo	*	SKIP
-content-form-submit	v2	FAIL
 content-introspection	v2	FAIL
 content-tables	v2	DIVERGE
 control-center-live	*	SKIP

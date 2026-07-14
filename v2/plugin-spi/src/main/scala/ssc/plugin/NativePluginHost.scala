@@ -49,6 +49,8 @@ object NativePluginHost:
               case None => throw new IllegalArgumentException("native callback value is not callable")
           case _ => throw new IllegalArgumentException("native callback value is not callable")
 
+        override def resolveGlobal(name: String): Option[Value] = V2PluginRegistry.lookupGlobal(name)
+
         def withEffect(effectTag: String)(handler: (String, List[Value]) => Value)(body: => Value): Value =
           V2EffectContext.push(effectTag, handler)
           try body
