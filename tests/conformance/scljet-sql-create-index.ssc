@@ -1,0 +1,29 @@
+---
+name: scljet-sql-create-index
+description: SclJet SQL CREATE INDEX on an existing table — builds a valid index B-tree that reference sqlite validates and uses (cross-backend byte-identical)
+backends: [int, js]
+---
+
+# SclJet SQL CREATE INDEX
+
+`CREATE INDEX idx ON t(col)` reads the table's rows, builds an index B-tree at a new root page
+appended at EOF (each entry = the key columns plus the row's real rowid), and appends the index's
+`sqlite_schema` row to page 1. Reference `integrity_check` cross-validates the index against the
+table (a passing file proves the index is correct) and the query planner uses it. int and JS produce
+byte-identical output; the exact bytes are locked here.
+
+[ByteSlice, byteSliceToList, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[executeMutation](std/scljet/sql.ssc)
+
+```scalascript
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER, name TEXT, dept INTEGER)",
+  List(List(SqlInteger(1L), SqlText("ann"), SqlInteger(20L)),
+       List(SqlInteger(2L), SqlText("bob"), SqlInteger(10L)),
+       List(SqlInteger(3L), SqlText("cat"), SqlInteger(30L)),
+       List(SqlInteger(4L), SqlText("dan"), SqlInteger(10L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db0) =>
+    executeMutation(db0, "CREATE INDEX idx_dept ON emp(dept)") match
+      case Left(m) => println("ERR:" + m)
+      case Right(db1) => println((db1.length / 512).toString + ":" + byteSliceToList(db1).toString)
+```

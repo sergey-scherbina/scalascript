@@ -42,7 +42,7 @@ rows, applies the filter, and projects the result. `queryImage(dbBytes, sql)` op
 database image and returns the result rows; `renderRows` formats them like the sqlite3
 CLI (`a|b|c` per row, NULL blank) for differential testing.
 
-[ByteSlice, ByteError, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, ReadonlyDatabase, SchemaEntry, StorageRecord, DecodedRecord, DecodedText, RowidTableTree, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly, ReadonlyCursorStep, ReadonlyBtreeCursor, SqliteError, SqliteOpenOptions, SqliteLimits, OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, encodeRecord, openMutablePager, mutableCommit, mutableGet, mutablePut, MutablePager, PagerCommit, pagerInsertBalanced, pagerDeleteBalanced, readLeafCells, leafInsertCell, rebuildLeafPage, LeafCell, byteSliceSlice, byteSliceToList, byteSliceGet, writeU32Be](index.ssc)
+[ByteSlice, ByteError, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, ReadonlyDatabase, SchemaEntry, StorageRecord, DecodedRecord, DecodedText, RowidTableTree, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly, ReadonlyCursorStep, ReadonlyBtreeCursor, SqliteError, SqliteOpenOptions, SqliteLimits, OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, encodeRecord, openMutablePager, mutableCommit, mutableGet, mutablePut, MutablePager, PagerCommit, pagerInsertBalanced, pagerDeleteBalanced, readLeafCells, leafInsertCell, rebuildLeafPage, LeafCell, byteSliceSlice, byteSliceToList, byteSliceGet, writeU32Be, IndexEntry, buildIndexTree, sortIndexEntries, IndexTreeBytes](index.ssc)
 [ImageVfs, fieldValueAt](mutate.ssc)
 
 ```scalascript
@@ -2958,6 +2958,190 @@ def parseCreate(toks: List[Token]): Either[String, String] =
  *  leaf and allocate an empty table root page. The original `sql` text is stored
  *  verbatim (so reference sqlite `.schema` matches). Assumes the page-1 schema leaf
  *  does not overflow (a page-1 split — balance at headerOffset 100 — is a follow-up). */
+// ── CREATE INDEX ──
+
+def reverseInts(items: List[Int], acc: List[Int]): List[Int] =
+  var r = items
+  var out = acc
+  while r.nonEmpty do
+    out = r.head :: out
+    r = r.tail
+  out
+
+def reverseIndexEntries(items: List[IndexEntry], acc: List[IndexEntry]): List[IndexEntry] =
+  var r = items
+  var out = acc
+  while r.nonEmpty do
+    out = r.head :: out
+    r = r.tail
+  out
+
+// Slice a List[Int] as (offset, length) — the List analogue of sliceList, iterative.
+def sliceInts(xs: List[Int], off: Int, len: Int): List[Int] =
+  var r = xs
+  var i = 0
+  while i < off && r.nonEmpty do
+    r = r.tail
+    i = i + 1
+  var taken = 0
+  var accRev: List[Int] = Nil
+  while taken < len && r.nonEmpty do
+    accRev = r.head :: accRev
+    r = r.tail
+    taken = taken + 1
+  reverseInts(accRev, Nil)
+
+case class CreateIndexStmt(indexName: String, tableName: String, columns: List[String])
+
+def parseIndexColumns(toks: List[Token]): Either[String, (List[String], List[Token])] =
+  var rest = toks
+  var accRev: List[String] = Nil
+  var err: Option[String] = None
+  var done = false
+  while !done && err.isEmpty do
+    if tkKind(rest) != "ident" then
+      err = Some("expected a column name in the index")
+      done = true
+    else
+      accRev = rest.head.text :: accRev
+      rest = rest.tail
+      if tkKind(rest) == "comma" then rest = rest.tail
+      else if tkKind(rest) == "rparen" then
+        rest = rest.tail
+        done = true
+      else
+        err = Some("expected ',' or ')' in the index columns")
+        done = true
+  err match
+    case Some(message) => Left(message)
+    case None => Right((reverseStrings(accRev, Nil), rest))
+
+// `CREATE INDEX name ON table ( col [, col]* )`
+def parseCreateIndex(toks: List[Token]): Either[String, CreateIndexStmt] =
+  if !tkIsKw(toks, "CREATE") then Left("expected CREATE")
+  else
+    val a1 = toks.tail
+    if !tkIsKw(a1, "INDEX") then Left("expected INDEX")
+    else if tkKind(a1.tail) != "ident" then Left("expected index name")
+    else
+      val indexName = a1.tail.head.text
+      val a2 = a1.tail.tail
+      if !tkIsKw(a2, "ON") then Left("expected ON")
+      else if tkKind(a2.tail) != "ident" then Left("expected table name")
+      else
+        val tableName = a2.tail.head.text
+        val a3 = a2.tail.tail
+        if tkKind(a3) != "lparen" then Left("expected '(' in CREATE INDEX")
+        else parseIndexColumns(a3.tail) match
+          case Left(message) => Left(message)
+          case Right(cp) => Right(CreateIndexStmt(indexName, tableName, cp._1))
+
+def indexColIndices(cols: List[String], colNames: List[String]): List[Int] =
+  var r = cols
+  var accRev: List[Int] = Nil
+  while r.nonEmpty do
+    accRev = columnIndex(colNames, r.head) :: accRev
+    r = r.tail
+  reverseInts(accRev, Nil)
+
+def keyValuesOfRecord(rec: StorageRecord, keyColumns: List[Int]): List[SqliteValue] =
+  var r = keyColumns
+  var accRev: List[SqliteValue] = Nil
+  while r.nonEmpty do
+    accRev = fieldValueAt(rec.record, r.head) :: accRev
+    r = r.tail
+  reverseValues(accRev, Nil)
+
+// Build one index entry per table row, preserving each row's ACTUAL rowid (the index
+// record is `keycols… ++ rowid`, exactly as sqlite lays it out).
+def buildIndexEntriesFromRecords(rows: List[StorageRecord], keyColumns: List[Int]): Either[String, List[IndexEntry]] =
+  var r = rows
+  var accRev: List[IndexEntry] = Nil
+  var err: Option[String] = None
+  while r.nonEmpty && err.isEmpty do
+    val rec = r.head
+    val rowid = rec.rowid match
+      case Some(id) => id
+      case None => 0L
+    val keyVals = keyValuesOfRecord(rec, keyColumns)
+    encodeRecord(keyVals ++ (SqlInteger(rowid) :: Nil)) match
+      case Left(error) => err = Some(error.message)
+      case Right(record) => accRev = IndexEntry(keyVals, rowid, byteSliceToList(record)) :: accRev
+    r = r.tail
+  err match
+    case Some(message) => Left(message)
+    case None => Right(reverseIndexEntries(accRev, Nil))
+
+// Stage each page of a freshly-built index tree (one ByteSlice.fromList per page keeps the
+// JS lists small — no page exceeds pageSize).
+def stageIndexPages(pager: MutablePager, bytes: List[Int], startPage: Int, pageCount: Int, pageSize: Int): Either[String, MutablePager] =
+  var p = pager
+  var i = 0
+  var err: Option[String] = None
+  while i < pageCount && err.isEmpty do
+    ByteSlice.fromList(sliceInts(bytes, i * pageSize, pageSize)) match
+      case Left(error) => err = Some(error.message)
+      case Right(slice) => p = mutablePut(p, startPage + i, slice)
+    i = i + 1
+  err match
+    case Some(message) => Left(message)
+    case None => Right(p)
+
+// Create an index on an existing database: read the table's rows, build the index B-tree at
+// a new root page appended at EOF, append its `sqlite_schema` row to page 1, and commit.
+// Reference `integrity_check` cross-validates the index against the table.
+def executeCreateIndex(dbBytes: ByteSlice, sql: String, stmt: CreateIndexStmt): Either[String, ByteSlice] =
+  val pageSize = pageSizeOf(dbBytes)
+  openReadonly(ImageVfs(dbBytes), "image.db", sqlOptions()) match
+    case Left(error) => Left(error.message)
+    case Right(db) => findTable(db, stmt.tableName) match
+      case None => Left("no such table: " + stmt.tableName)
+      case Some(entry) =>
+        val colNames = entry.sql match
+          case Some(text) => tableColumns(cpToString(text.codePoints))
+          case None => Nil
+        val root = entry.rootPage match
+          case Some(p) => p
+          case None => 0L
+        openReadonlyRoot(db, root, RowidTableTree) match
+          case Left(error) => Left(error.message)
+          case Right(cursor) => collectRows(db, cursor) match
+            case Left(error) => Left(error.message)
+            case Right(rows) =>
+              buildIndexEntriesFromRecords(rows, indexColIndices(stmt.columns, colNames)) match
+                case Left(message) => Left(message)
+                case Right(unsorted) =>
+                  val entries = sortIndexEntries(unsorted)
+                  val oldCount = dbBytes.length / pageSize
+                  val newRoot = oldCount + 1
+                  buildIndexTree(entries, pageSize, newRoot) match
+                    case Left(error) => Left(error.message)
+                    case Right(indexTree) =>
+                      val newPageCount = oldCount + indexTree.pageCount
+                      byteSliceSlice(dbBytes, 0, pageSize) match
+                        case Left(error) => Left(error.message)
+                        case Right(page1) => readLeafCells(page1, 100) match
+                          case Left(error) => Left(error.message)
+                          case Right(schemaCells) =>
+                            val newRowid = maxLeafRowid(schemaCells) + 1L
+                            encodeRecord(List(SqlText("index"), SqlText(stmt.indexName), SqlText(stmt.tableName), SqlInteger(newRoot.toLong), SqlText(sql))) match
+                              case Left(error) => Left(error.message)
+                              case Right(schemaRec) => leafInsertCell(schemaCells, newRowid, schemaRec) match
+                                case Left(message) => Left(message)
+                                case Right(newCells) => rebuildLeafPage(newCells, pageSize, 100) match
+                                  case Left(error) => Left(error.message)
+                                  case Right(leafPortion) =>
+                                    val newHeader = sliceList(page1, 0, 28) ++ byteSliceToList(writeU32Be(newPageCount.toLong)) ++ sliceList(page1, 32, 68)
+                                    ByteSlice.fromList(newHeader ++ leafPortion) match
+                                      case Left(error) => Left(error.message)
+                                      case Right(newPage1) =>
+                                        val pager0 = mutablePut(openMutablePager(dbBytes, pageSize, pageSize), 1, newPage1)
+                                        stageIndexPages(pager0, indexTree.bytes, newRoot, indexTree.pageCount, pageSize) match
+                                          case Left(message) => Left(message)
+                                          case Right(pager1) => mutableCommit(pager1, newRoot.toLong) match
+                                            case Left(error) => Left(error.message)
+                                            case Right(pc) => Right(pc.pager.image)
+
 def executeCreate(dbBytes: ByteSlice, sql: String, tableName: String): Either[String, ByteSlice] =
   val pageSize = pageSizeOf(dbBytes)
   byteSliceSlice(dbBytes, 0, pageSize) match
@@ -3004,10 +3188,14 @@ def executeMutation(dbBytes: ByteSlice, sql: String): Either[String, ByteSlice] 
       else if isKw(toks.head, "UPDATE") then parseUpdate(toks) match
         case Left(message) => Left(message)
         case Right(stmt) => executeUpdate(dbBytes, stmt)
-      else if isKw(toks.head, "CREATE") then parseCreate(toks) match
-        case Left(message) => Left(message)
-        case Right(tableName) => executeCreate(dbBytes, sql, tableName)
-      else Left("executeMutation expects INSERT, DELETE, UPDATE, or CREATE TABLE")
+      else if isKw(toks.head, "CREATE") then
+        if tkIsKw(toks.tail, "INDEX") then parseCreateIndex(toks) match
+          case Left(message) => Left(message)
+          case Right(stmt) => executeCreateIndex(dbBytes, sql, stmt)
+        else parseCreate(toks) match
+          case Left(message) => Left(message)
+          case Right(tableName) => executeCreate(dbBytes, sql, tableName)
+      else Left("executeMutation expects INSERT, DELETE, UPDATE, CREATE TABLE, or CREATE INDEX")
 
 // ── Rendering (sqlite3 CLI list format: `a|b|c` per row, NULL blank) ──
 

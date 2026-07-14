@@ -24,6 +24,9 @@ exports:
   - buildTableWithIndexDatabase
   - IndexEntry
   - buildTableWithIndexRaw
+  - buildIndexTree
+  - sortIndexEntries
+  - IndexTreeBytes
   - LeafCell
   - readLeafCells
   - leafInsertCell
