@@ -1,5 +1,30 @@
 # Bug tracker
 
+## v21-stage2-gate-ignores-symlinked-std-sources — CONFIRMED / open (2026-07-15, Codex)
+
+**Status:** open. Found while running the mandatory self-hosted fixed-point gate
+for `control-one-shot-guard`.
+
+**Symptom:** `scripts/v21-stage2-bootstrap-gate` rejects a freshly generated
+native-front image because all `runtime/std/scljet/*.ssc` files exist only in
+the staged manifest. `installBin` correctly follows the tracked
+`v1/runtime/std/scljet -> ../../../scljet` compatibility symlink, but the gate's
+source manifest silently omits that directory.
+
+**Reproduce:** run `scripts/sbtc "installBin"`, then
+`scripts/v21-stage2-bootstrap-gate`. The fixpoint compiler checks complete, but
+the source-exact comparison reports the 19 current SclJet `.ssc` files as staged
+additions. `find v1/runtime/std -type f -name '*.ssc'` counts 105 while the same
+command with `-L` and the installer both count 124.
+
+**Root cause:** the gate builds its source manifest with `find` without `-L`,
+unlike sbt's recursive glob used by `installBin`. The two sides therefore apply
+different source-tree semantics to a documented, tracked compatibility symlink.
+
+**Fix/verification:** pending — make the gate follow directory symlinks while
+building the source manifest, then require the full stage-2 fixpoint and
+source-exact checks to pass.
+
 ## scala-control-api-v1-placement — FIXED / awaiting confirmation (2026-07-14, Sergiy)
 
 **Status:** fixed in `9b477a128`; awaiting reporter confirmation. Reported by

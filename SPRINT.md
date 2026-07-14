@@ -46,6 +46,12 @@ portable-VM effect-runtime gaps in BUGS.md + as `pending-runtime` conformance ax
         repros, `tests/interop-conformance/run.sh`, native effect-handler e2e, and affected
         `tests/conformance/run.sh --only 'effects|effect-*'`; then mark BUGS fixed (not done
         until reporter confirmation), update spec behavior checkboxes/results, and bookkeeping.
+  - [ ] **Unblock the mandatory fixed-point gate**
+        (`BUGS.md v21-stage2-gate-ignores-symlinked-std-sources`): its source-manifest
+        `find` must follow the documented `runtime/std/scljet` compatibility symlink, matching
+        `installBin`'s recursive glob. Baseline after a fresh install: source manifest 105 files,
+        staged image 124, exactly the 19 SclJet `.ssc` files omitted. Fix with symlink-following
+        enumeration and rerun `scripts/v21-stage2-bootstrap-gate` to full green.
 - [ ] **stack-safe effect continuation** (`BUGS.md control-interop-effect-recursion-stack-unsafe`)
       — effect-performing recursion overflows the native stack ~500–2000 depth on both tiers
       (pure TCO fine to 2M). Needs a heap-allocated continuation. Conformance axis 20 stays pending-runtime.
