@@ -88,7 +88,8 @@ of it remains.
 The full specification and behavior gates are in
 [`../specs/scljet.md`](../specs/scljet.md). Runnable examples live in
 [`../examples/`](../examples/) (`scljet-bytes`, `scljet-readonly`,
-`scljet-memory-vfs`, `scljet-write-empty`, `scljet-write-table`, `scljet-crud`).
+`scljet-memory-vfs`, `scljet-write-empty`, `scljet-write-table`, `scljet-crud`,
+`scljet-full`).
 The JVM
 real-file host adapter is the separate `v1/runtime/std/scljet-vfs-plugin/`; the
 engine above `SqliteVfs` remains pure ScalaScript.

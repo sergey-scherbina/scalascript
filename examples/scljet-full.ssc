@@ -1,0 +1,59 @@
+#!/usr/bin/env ssc
+---
+name: scljet-full
+description: SclJet end-to-end — build a table with an index, index-maintaining delete/update, and a crash-safe journaled page write
+---
+
+# SclJet — the whole stack
+
+A single walkthrough of the pure-ScalaScript SQLite engine: create a rowid table
+with an index, mutate rows while keeping the index consistent, and perform a
+crash-safe in-place page write with rollback recovery. Every intermediate is a
+legal SQLite database that reference `PRAGMA integrity_check` accepts (including
+its cross-check of the index against the table).
+
+[ByteSlice, byteSliceToList, byteSliceSlice, byteSliceUpdated, SqliteValue, SqlInteger, SqlText, buildTableWithIndexDatabase, JournalPage, writePagesJournaled, applyRollbackJournal](std/scljet/index.ssc)
+[deleteRowidsIndexed, updateRowIndexed, readRowids](std/scljet/mutate.ssc)
+
+```scalascript
+def show(label: String, db: ByteSlice): Unit =
+  readRowids(db) match
+    case Right(ids) => println(label + ": rowids " + ids.toString + " (" + (db.length / 512).toString + " pages)")
+    case Left(message) => println(label + ": ERROR " + message)
+
+// 1. Build a table with an index on `name`.
+buildTableWithIndexDatabase(512, 1, 1, "people", "CREATE TABLE people(id INTEGER, name TEXT)",
+  "by_name", "CREATE INDEX by_name ON people(name)", List(1),
+  List(List(SqlInteger(1L), SqlText("carol")),
+       List(SqlInteger(2L), SqlText("alice")),
+       List(SqlInteger(3L), SqlText("dave")),
+       List(SqlInteger(4L), SqlText("bob")))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db0) =>
+    show("built", db0)
+    // 2. Delete a row — the index is kept consistent.
+    deleteRowidsIndexed(db0, 2, 1, List(1), List(3L)) match
+      case Left(message) => println("delete-error:" + message)
+      case Right(db1) =>
+        show("delete rowid 3", db1)
+        // 3. Update a row's indexed column — the index reflects the new key.
+        updateRowIndexed(db1, 3, 1, List(1), 1L, List(SqlInteger(1L), SqlText("aaron"))) match
+          case Left(message) => println("update-error:" + message)
+          case Right(db2) =>
+            show("update rowid 1 name→aaron", db2)
+            // 4. Crash-safe in-place page write: journal, mutate, then recover.
+            byteSliceSlice(db2, 512, 512) match
+              case Left(error) => println("slice-error:" + error.message)
+              case Right(page2) =>
+                byteSliceUpdated(page2, 300, 42) match
+                  case Left(error) => println("update-error:" + error.message)
+                  case Right(newPage2) =>
+                    writePagesJournaled(db2, 512, 512, 555L, List(JournalPage(2, newPage2))) match
+                      case Left(error) => println("journal-error:" + error.message)
+                      case Right(jw) =>
+                        applyRollbackJournal(jw.database, jw.journal) match
+                          case Left(error) => println("recover-error:" + error.message)
+                          case Right(recovery) =>
+                            val restored = byteSliceToList(recovery.database).toString == byteSliceToList(db2).toString
+                            println("journaled write: mutated " + jw.database.length.toString + " bytes, journal " + jw.journal.length.toString + " bytes, rollback restores original: " + restored.toString)
+```

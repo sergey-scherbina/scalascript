@@ -1,0 +1,4 @@
+built: rowids List(1, 2, 3, 4) (3 pages)
+delete rowid 3: rowids List(1, 2, 4) (3 pages)
+update rowid 1 name→aaron: rowids List(1, 2, 4) (3 pages)
+journaled write: mutated 1536 bytes, journal 1032 bytes, rollback restores original: true
