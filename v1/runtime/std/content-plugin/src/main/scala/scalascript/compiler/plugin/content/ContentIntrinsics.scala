@@ -2035,19 +2035,25 @@ object ContentIntrinsics:
       "disabled" -> PluginValue.bool(disabled)
     )
 
+  // `variant` is hardcoded "primary" here — the content-toolkit's markdown/YAML button
+  // control has no variant option (out of scope for std-ui-button-variant); this keeps
+  // the instance's field shape in sync with the 5-field SignalButtonNode/ActionButtonNode
+  // (specs/std-ui-button-variant.md) without changing content-toolkit's rendered output.
   private def signalButtonNode(signal: PluginValue, value: PluginValue, label: String, disabled: Boolean): PluginValue =
     instanceValue("SignalButtonNode",
       "signal" -> signal,
       "value" -> value,
       "label" -> PluginValue.string(label),
-      "disabled" -> PluginValue.bool(disabled)
+      "disabled" -> PluginValue.bool(disabled),
+      "variant" -> PluginValue.string("primary")
     )
 
   private def actionButtonNode(handler: PluginValue, label: String, disabled: Boolean): PluginValue =
     instanceValue("ActionButtonNode",
       "handler" -> handler,
       "label" -> PluginValue.string(label),
-      "disabled" -> PluginValue.bool(disabled)
+      "disabled" -> PluginValue.bool(disabled),
+      "variant" -> PluginValue.string("primary")
     )
 
   private def badgeNode(content: String, variant: String): PluginValue =

@@ -1,0 +1,12 @@
+Default:primary
+default-built
+Act:primary
+Act:secondary
+Act:danger
+Act:success
+Act:warning
+Act:bogus
+action-variants-built
+label-btn:danger
+action-sig-btn:success
+button-variant-built
