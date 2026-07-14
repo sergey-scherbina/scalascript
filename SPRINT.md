@@ -1002,7 +1002,12 @@ DONE (32 conformance cases green [int,js]). The honest remainder, each a real fe
       planner uses it (`SEARCH t USING COVERING INDEX`), point + ordered lookups exact.
       Two-level output is byte-identical (existing scljet-write-index* stay green).
       int==js (Adler-32 fingerprint); conformance `scljet-write-index-deep`.
-- [ ] **scljet-m4b-wal-recover** — parse a `-wal` file and reconstruct the frame map
+- [x] **scljet-m4b-wal-recover** — DONE 2026-07-14. `wal.ssc` `readWal(walBytes) →
+      WalIndex(pageSize, dbSizePages, frames)` validates the header checksum (endian per
+      the magic's low bit — reads both our 0x…83 and real SQLite's 0x…82), walks frames
+      chaining the running checksum, keeps frames up to the last commit (uncommitted tail
+      + first bad-checksum frame excluded), latest frame per page wins. int==js;
+      conformance `scljet-wal-recover`. ORIGINAL:
       (the read-side inverse of `wal.ssc` `writeWal`). Validate the 32-byte header
       (magic, format, page size, salts, header checksum), then walk frames validating
       each frame's running two-word checksum (chained from the header); build
@@ -1014,21 +1019,21 @@ DONE (32 conformance cases green [int,js]). The honest remainder, each a real fe
       the WAL my own `writeWal` produced yields the right frame for the changed page and
       the post-commit db size; a truncated/corrupt-checksum tail is excluded; int==js.
       Conformance `scljet-wal-recover`.
-- [ ] **scljet-m4c-wal-read-overlay** — a read path over base-DB + WAL. `readPageWal(base,
-      walIndex, pageNumber)` returns the page from the latest committed WAL frame if
-      present, else from the base DB (respecting the WAL's post-commit db size for the
-      page count). Wire it into the reader: `pager.ssc:82` currently REJECTS a non-empty
-      WAL ("requires an M5 snapshot") — instead, when a `-wal` sidecar is present and
-      valid, open over the overlay so `openReadonly`/cursors read WAL'd pages. Done-when:
-      SclJet reads a DB+WAL (built by our writer, the aaa→bbb scenario) and returns the
-      WAL'd value `bbb`, MATCHING what reference sqlite3 reads from the same two files;
-      integrity_check-equivalent read passes; int==js. Conformance `scljet-wal-read`.
-- [ ] **scljet-m4d-wal-checkpoint** — checkpoint: merge every committed WAL frame into
-      the base DB (produce a new base image with frames applied, truncated to the WAL's
-      db size) and reset the WAL to empty. `checkpointWal(base, walBytes) →
-      Either[…, ByteSlice]`. Done-when: the checkpointed image is byte-identical to what
-      reference sqlite3 produces via `PRAGMA wal_checkpoint(TRUNCATE)` on the same
-      inputs, integrity_check ok, int==js. Conformance `scljet-wal-checkpoint`.
+- [~] **scljet-m4c-wal-read-overlay** — overlay PRIMITIVE done 2026-07-14; pager wiring
+      remaining. `wal.ssc` `walReadPage(base, index, pageNumber, pageSize)` returns the
+      latest committed WAL frame for the page if present, else the base DB page; `walPage`
+      is the raw lookup. Verified int==js (conformance `scljet-wal-recover` reads page 2
+      from the WAL and page 1 from the base). REMAINING: wire into `pager.ssc:82` (which
+      still REJECTS a non-empty WAL) so `openReadonly`/cursors over a DB+`-wal` sidecar
+      read WAL'd pages via the overlay — needs the pager to load the sidecar and route
+      page reads through `walReadPage`. Cross-check: sqlite reads the same DB+WAL as the
+      overlay does.
+- [x] **scljet-m4d-wal-checkpoint** — DONE 2026-07-14. `wal.ssc` `checkpointWal(base,
+      walBytes)` applies every committed frame in file order then truncates to the WAL's
+      db size. Verified vs reference SQLite 3.53.3: **BYTE-IDENTICAL** to `PRAGMA
+      wal_checkpoint(TRUNCATE)` on the same base+WAL, and SQLite reads the checkpointed DB
+      as the WAL'd value with `integrity_check` ok. int==js; conformance
+      `scljet-wal-checkpoint`.
 - [ ] **scljet-m4e-mutable-pager** — a page-oriented mutable pager over a DB image:
       `openPager(bytes)` → get/read page N, `putPage`(stage a dirty page), page
       allocation (from EOF; freelist reuse is a follow-up), `beginWrite`/`commit`
