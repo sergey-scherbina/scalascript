@@ -945,8 +945,14 @@ against reference-produced files) and by reopening with the SclJet reader.
       Follow-ups (`BACKLOG.md`): cell-overflow-page allocation for large payloads,
       3+-level trees (interior root that itself overflows), incremental
       insert-into-existing-DB (that is the pager/journal path, m3e), and `SqlReal`.
-- [~] **scljet-m3e-rollback-journal** — journal FORMAT (write + recover) done
-      2026-07-13; pager integration + transactional cycle remaining. `journal.ssc`:
+- [x] **scljet-m3e-rollback-journal** — DONE 2026-07-14. Journal format + the
+      transactional in-place page write + write transactions all landed. `journal.ssc`
+      `writePagesJournaled` journals the pre-images of the changed pages then overwrites
+      them in place (recovery via `applyRollbackJournal` restores the original), and
+      `beginTransaction`/`stagePage`/`commitTransaction`/`rollbackTransaction` batch
+      several page writes into one atomic journaled commit (or discard). Conformance
+      `scljet-journal-write` + `scljet-transaction`, int==js. (Historic format detail
+      below.) `journal.ssc`:
       `applyRollbackJournal(db, journal)` parses the official rollback-journal
       format (header magic `d9d505f920a163d7`, nonce, initial page count, sector/
       page size; records `u32 pageNo ++ page ++ u32 checksum`), verifies SQLite's
@@ -963,12 +969,88 @@ against reference-produced files) and by reopening with the SclJet reader.
       journal — needs a writable VFS write-back + journal delete), and the
       transactional begin/mutate/commit/rollback cycle (needs the mutable pager) so
       fault-injected aborts leave the file fully committed or fully rolled back.
-- [ ] **scljet-m3f-delete-update** — DELETE and UPDATE (cell removal + freeblock
-      management, cell resize/overflow transitions), completing the M3 mutation set.
-      Done-when insert/update/delete sequences match reference file state and the
-      two M3 write/rollback behavior gates in `specs/scljet.md` can be marked `[x]`.
-      (Cross-process lock interop with reference SQLite — the third M3 gate — depends
-      on `scljet-same-jvm-reference-lock-bridge` in BACKLOG and is tracked there.)
+- [x] **scljet-m3f-delete-update** — DONE 2026-07-14 via read-modify-rewrite.
+      `mutate.ssc` `insertRow`/`deleteRowids`/`keepRowids`/`updateRowValues` open the DB
+      read-only over its own bytes, read every surviving row as its raw record payload,
+      and rebuild the table with the original schema + rowids preserved. Works on
+      single- and multi-table files, and keeps a table's index consistent
+      (`deleteRowidsIndexed`/`updateRowIndexed`, integer + text keys — reference
+      `integrity_check`'s index cross-check passes). Conformance `scljet-mutate-*`,
+      `scljet-index-mutate*`, int==js. This is a COMPLETE, correct DML alternative to
+      in-place cell editing (correct, not byte-minimal). Byte-minimal cell-level editing
+      with B-tree rebalance is `scljet-m4-mutable-pager` below.
+
+### SclJet M4 — deep indexes, WAL, mutable pager (queued 2026-07-14, Sergiy: "запиши все в спринт. и делай. можешь не останавливаться пока не сделаешь всё")
+
+The write path (all table variants, overflow, deep trees, multi-table, indexes
+int/text single/multi-leaf/composite), full DML (CRUD single+multi-table,
+index-maintaining), rollback-journal write/recover, transactional in-place page
+writes + write transactions, and a **WAL writer** (`wal.ssc` `writeWal`/`markWalMode`,
+verified vs reference SQLite: recover/checksum/checkpoint + negative + multi-frame) are
+DONE (32 conformance cases green [int,js]). The honest remainder, each a real feature:
+
+- [ ] **scljet-m4a-deep-index** — 3+-level index B-trees. Generalize `write.ssc`
+      `buildIndexTree` (currently: single kind-10 leaf, or one kind-2 interior over
+      leaves) to STACK interior levels bottom-up until a single-page root — the
+      `buildDeepTableDatabase` pattern, but index interiors carry PROMOTED SEPARATORS
+      (a real entry lives in the interior between two children) rather than a copied
+      rowid. `packIndexTree` already promotes separators between leaves; recurse the
+      same packing over interior levels (each interior page = leftChild cells +
+      separators + rightmost child in the header). Done-when: a >3600-entry index builds
+      a real 3-level index tree that reference `integrity_check` cross-validates against
+      its table and the planner uses; single/two-level output stays byte-identical;
+      int==js (Adler-32 fingerprint — the DB is too big to print). Template:
+      `buildDeepTableDatabase` (top-down page numbering) + `packInterior`. Conformance
+      `scljet-write-index-deep`.
+- [ ] **scljet-m4b-wal-recover** — parse a `-wal` file and reconstruct the frame map
+      (the read-side inverse of `wal.ssc` `writeWal`). Validate the 32-byte header
+      (magic, format, page size, salts, header checksum), then walk frames validating
+      each frame's running two-word checksum (chained from the header); build
+      `pageNumber → latest committed frame` up to and INCLUDING the last frame whose
+      `dbSizeAfterCommit != 0` (a commit frame) — frames after the last commit are
+      uncommitted and ignored; a frame that fails its checksum ends the valid region.
+      New module `wal.ssc` reader half (or `wal-read.ssc`): `readWal(walBytes) →
+      Either[…, WalIndex(pageSize, frames: Map/List, dbSizePages)]`. Done-when: reading
+      the WAL my own `writeWal` produced yields the right frame for the changed page and
+      the post-commit db size; a truncated/corrupt-checksum tail is excluded; int==js.
+      Conformance `scljet-wal-recover`.
+- [ ] **scljet-m4c-wal-read-overlay** — a read path over base-DB + WAL. `readPageWal(base,
+      walIndex, pageNumber)` returns the page from the latest committed WAL frame if
+      present, else from the base DB (respecting the WAL's post-commit db size for the
+      page count). Wire it into the reader: `pager.ssc:82` currently REJECTS a non-empty
+      WAL ("requires an M5 snapshot") — instead, when a `-wal` sidecar is present and
+      valid, open over the overlay so `openReadonly`/cursors read WAL'd pages. Done-when:
+      SclJet reads a DB+WAL (built by our writer, the aaa→bbb scenario) and returns the
+      WAL'd value `bbb`, MATCHING what reference sqlite3 reads from the same two files;
+      integrity_check-equivalent read passes; int==js. Conformance `scljet-wal-read`.
+- [ ] **scljet-m4d-wal-checkpoint** — checkpoint: merge every committed WAL frame into
+      the base DB (produce a new base image with frames applied, truncated to the WAL's
+      db size) and reset the WAL to empty. `checkpointWal(base, walBytes) →
+      Either[…, ByteSlice]`. Done-when: the checkpointed image is byte-identical to what
+      reference sqlite3 produces via `PRAGMA wal_checkpoint(TRUNCATE)` on the same
+      inputs, integrity_check ok, int==js. Conformance `scljet-wal-checkpoint`.
+- [ ] **scljet-m4e-mutable-pager** — a page-oriented mutable pager over a DB image:
+      `openPager(bytes)` → get/read page N, `putPage`(stage a dirty page), page
+      allocation (from EOF; freelist reuse is a follow-up), `beginWrite`/`commit`
+      (journal the dirty set via `writePagesJournaled`/transactions, apply) / `rollback`
+      (drop the dirty set). This gives crash-safe page-granular mutation composed from
+      the primitives already built, without rewriting the whole file. Done-when: a
+      mutate-via-pager sequence (dirty two pages, commit) yields a valid DB reference
+      integrity_check accepts, a fault-injected abort (commit journal but not the delete)
+      is recovered by `applyRollbackJournal`, and rollback-before-commit leaves the file
+      unchanged; int==js. Conformance `scljet-pager-mutate`.
+- [ ] **scljet-m4f-cell-inplace-balance** — (LARGE, SQLite `balance()` equivalent)
+      cell-level in-place insert/delete/update WITHIN a leaf: edit the cell-pointer array
+      + cell-content area + freeblock chain, and split/merge/redistribute pages
+      (balance_nonroot / balance_deeper) when a page overflows or underflows, updating
+      parent dividers. This is the one genuinely huge remaining routine; read-modify-
+      rewrite (m3f) already provides correct DML, so this is byte-minimality only.
+      Attempt only after m4a–m4e; may be split further. Done-when: an in-place insert
+      that triggers a leaf split produces the SAME file state as reference SQLite (or is
+      honestly scoped to the no-split case first). Conformance `scljet-cell-inplace`.
+
+Execution order (value × tractability): m4a (template exists) → m4b → m4c → m4d →
+m4e → m4f. Keep every scljet conformance case green [int,js] --no-memo after each.
 ## v2-swift-nativeui-i18n-json — standard `lower/serve`, locale and JSON parity (2026-07-12)
 
 Claim: `.work/active/v2-swift-nativeui-i18n-json.claim`. Spec:
