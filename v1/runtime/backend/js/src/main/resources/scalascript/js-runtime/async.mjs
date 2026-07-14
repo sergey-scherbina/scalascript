@@ -487,9 +487,12 @@ async function _runActors(bodyFn) {
   function _raftAdoptLeader(newLeader) {
     const prev = _currentLeader;
     _currentLeader = newLeader;
+    // Record every accepted claim (mirror ActorScheduler.raftAdoptLeader):
+    // single-node mode has both prev and newLeader empty, so the prev-changed
+    // guard would drop the initial entry. _fireLeaderEvent stays guarded.
+    _recordLeaderHist(newLeader);
     if (prev !== newLeader) {
       _fireLeaderEvent("LeaderElected", newLeader);
-      _recordLeaderHist(newLeader);
     }
   }
   function _startRaftElection() {
@@ -872,7 +875,11 @@ async function _runActors(bodyFn) {
   function _startElection() {
     if (!_localNodeId) {
       const prev = _currentLeader; _currentLeader = _localNodeId;
-      if (prev !== _localNodeId) { _fireLeaderEvent("LeaderElected", _localNodeId); _recordLeaderHist(_localNodeId); }
+      // Record every accepted claim (mirror ActorScheduler.startElection):
+      // single-node mode has empty _localNodeId, so the prev-changed guard
+      // would drop the initial entry. Notification stays guarded.
+      _recordLeaderHist(_localNodeId);
+      if (prev !== _localNodeId) { _fireLeaderEvent("LeaderElected", _localNodeId); }
       return;
     }
     const higher = [];
@@ -883,7 +890,10 @@ async function _runActors(bodyFn) {
       if (_hasQuorum()) {
         const prev = _currentLeader; _currentLeader = _localNodeId;
         _broadcastCoordinator();
-        if (prev !== _localNodeId) { _fireLeaderEvent("LeaderElected", _localNodeId); _recordLeaderHist(_localNodeId); }
+        // Record on every accepted claim (symmetric with the empty-id branch
+        // above + the Raft / coordinator paths); _fireLeaderEvent stays guarded.
+        _recordLeaderHist(_localNodeId);
+        if (prev !== _localNodeId) { _fireLeaderEvent("LeaderElected", _localNodeId); }
       }
     } else {
       _electionInProgress = true;
@@ -1773,9 +1783,12 @@ async function _runActors(bodyFn) {
               _coordIsLeader = true;
               const prev = _currentLeader;
               _currentLeader = _localNodeId;
+              // Record every accepted claim (mirror ActorScheduler): single-node
+              // mode has empty _localNodeId, so the prev-changed guard would skip
+              // the initial history entry. Only _fireLeaderEvent stays guarded.
+              _recordLeaderHist(_localNodeId);
               if (prev !== _localNodeId) {
                 _fireLeaderEvent("LeaderElected", _localNodeId);
-                _recordLeaderHist(_localNodeId);
               }
             }
             _ensureCoordTickThread();
