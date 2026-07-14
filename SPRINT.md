@@ -385,6 +385,28 @@ The contract's `v2` lane runs `bin/ssc run --v2`. Traced end-to-end (do NOT re-d
 + native-plugin registration (actor-cluster, derived codecs). There is NO launcher/packaging shortcut —
 this is the `v2-native-conformance` / `uniml-portable` deep track, actively built by the sibling arc.
 
+#### native-front ambient-prelude — LANDED 2026-07-14 (975e06c5b)
+- [x] **ambient std-module prelude** (RunNativeV2.ambientPrelude): INT/JS expose plugin globals (jsonRead…)
+  without an import; the native tier's are self-hosted std modules. RunNativeV2 now injects a known-clean
+  ambient std module as a leading prelude source file when the program references a DISTINCTIVE exported name
+  and doesn't already import it (the runner merges all source files into one scope). **Closes json-lookup.**
+  Mechanism confirmed by `bin/ssc run --v2 std/json.ssc <user>.ssc` → jsonRead resolves. Grow `ambientModules`
+  as more std modules are confirmed clean.
+- [ ] **json-value / json-read** — now RUN (prelude resolves jsonRead) but DIVERGE on a deeper native-JsonValue
+  REPRESENTATION gap: INT renders json objects as `Map(name -> Ada, …)` (native Map values); v2's JsonBox is a
+  `ForeignV NamedMethodObj` that renders `<foreign>` (Show has no renderer hook on the native tier; `Show.foreignRenderer`
+  is null there). Fix = make JsonBox render like v1 (`Map(...)`/`List(...)`) — either a `_show` field on JsonBox
+  (Show checks `getField("_show")` first) producing INT's Map/List textual form, or set Show.foreignRenderer on
+  the native tier. ALSO json-read has asX-of-null divergences (`asInt(null)`→0 vs `()`). LESSON: DON'T change
+  JsonBox `get` to return Option — measured +json-value/-json-deep-import/-ui-typed-json (they use `v.get(k).asX`
+  as apply-with-default); `get` semantics are apply-like, not Option, on this runtime.
+- [ ] **content-toolkit NOT prelude-injectable** — std/ui/content.ssc as a root trips the content plugin's
+  "structural ABI root identity" check; contentToolkitSection is an extern the v2 content NativePlugin doesn't
+  register. Needs native-plugin work, not a prelude.
+- NOTE (sibling): `scljet/write.ssc` (tracked, native-front staged copy) currently has an UNTERMINATED fenced
+  block → breaks scljet-bytes/full/write-table + content-to-markdown on the v2 lane. Pre-existing on main
+  (sibling's scljet-SQL arc), NOT from the prelude — flag to the scljet owner.
+
 ### v2 (bridge lane `--v2`) — wire plugins (ROOT-CAUSE FOUND 2026-07-14: two plugin systems)
 **Mechanism (investigated):** `ssc run --v2` calls `PluginBridge.loadAll()` which ServiceLoads every v1
 `Backend`-SPI plugin on the classpath and AUTO-bridges each `NativeImpl` intrinsic to the v2 VM as both a
