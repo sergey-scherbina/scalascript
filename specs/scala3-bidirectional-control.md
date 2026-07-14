@@ -1,6 +1,6 @@
 # Scala 3 ↔ ScalaScript bidirectional control profile
 
-Status: **normative host profile / implementation planned** (2026-07-14).
+Status: **normative host profile / implementation in progress** (2026-07-14).
 
 This document is the Scala 3/JVM host profile of
 [`control-interoperability.md`](control-interoperability.md). The target-neutral
@@ -63,35 +63,116 @@ another or report the whole profile complete from a partial facade.
 
 ## 2. Compiler-independent Scala API
 
-The `_3` library exposes a small, typed, compiler-independent API. Exact package
-names and type-parameter order are frozen by the implementation slice; the following
-expressiveness is normative:
+The first implementation tier is the dependency-free
+`io.scalascript:scalascript-control-api_3` artifact. Its public package is
+`scalascript.control`. It uses normal Scala 3 binary cross-versioning (`_3`), not
+`CrossVersion.full`; full compiler-version coupling belongs only to the later
+compiler-plugin artifact. The leaf is aggregated by this repository's build but is
+not a dependency of CoreIR, UniML, the seed, the self-hosted compiler, any backend,
+or the legacy heavyweight `scalascript-interop` artifact.
+
+The following type bounds, names, and parameter order are the tier-1 ABI freeze.
+Method bodies may use private erasure to implement existential requests, but no
+API-declared payload or control member may expose that erasure:
 
 ```scala
 trait Effect
-trait Operation[+Fx, A]
-trait Handler[Handled, Residual, A, B]
+final class EffectKey[+Fx <: Effect] private (val id: EffectId)
 
-sealed trait Eff[+Fx, +A]:
-  def flatMap[Fx2 >: Fx, B](f: A => Eff[Fx2, B]): Eff[Fx2, B]
+object EffectKey:
+  def named[Fx <: Effect](id: EffectId, witness: Fx): EffectKey[Fx]
+
+final case class EffectId(value: String)
+final case class OperationId(effect: EffectId, name: String)
+
+enum ResumeMultiplicity:
+  case Reusable, OneShot
+
+enum ResumeRejected:
+  case AlreadyResumed(operation: OperationId)
+
+trait Operation[+Fx <: Effect, A]:
+  def effect: EffectKey[Fx]
+  def id: OperationId
+  def multiplicity: ResumeMultiplicity = ResumeMultiplicity.Reusable
+
+sealed trait Eff[+Fx <: Effect, +A]:
+  def flatMap[Fx2 >: Fx <: Effect, B](f: A => Eff[Fx2, B]): Eff[Fx2, B]
   def map[B](f: A => B): Eff[Fx, B]
+  def step: Eff.Step[Fx, A]
 
-def perform[Fx, A](operation: Operation[Fx, A]): Eff[Fx, A]
+object Eff:
+  def pure[A](value: A): Eff[Nothing, A]
+  def defer[Fx <: Effect, A](body: => Eff[Fx, A]): Eff[Fx, A]
+  def runPure[A](body: Eff[Nothing, A]): A
 
-def handle[Handled, Residual, A, B](
+  sealed trait Step[+Fx <: Effect, +A]
+  object Step:
+    final case class Done[A](value: A) extends Step[Nothing, A]
+    sealed trait Request[+Fx <: Effect, +A] extends Step[Fx, A]:
+      type OpFx <: Effect
+      type Result
+      def operation: Operation[OpFx, Result]
+      def resumption: Resumption[Result, Fx, A]
+
+def perform[Fx <: Effect, A](operation: Operation[Fx, A]): Eff[Fx, A]
+
+trait Handler[Handled <: Effect, Residual <: Effect, A, B]:
+  def effect: EffectKey[Handled]
+  def onReturn(value: A): Eff[Residual, B]
+  def onOperation[X](
+    operation: Operation[Handled, X],
+    resumption: Resumption[X, Residual, B]
+  ): Eff[Residual, B]
+
+def handle[Handled <: Effect, Residual <: Effect, A, B](
   body: Eff[Handled | Residual, A]
 )(handler: Handler[Handled, Residual, A, B]): Eff[Residual, B]
 
-trait Continuation[A, Fx, R]:
+sealed trait Resumption[-A, +Fx <: Effect, +R]
+object Resumption:
+  final case class Reusable[A, Fx <: Effect, R] private[control] (
+    continuation: Continuation[A, Fx, R]
+  ) extends Resumption[A, Fx, R]
+  final case class OneShot[A, Fx <: Effect, R] private[control] (
+    continuation: OneShotContinuation[A, Fx, R]
+  ) extends Resumption[A, Fx, R]
+
+sealed abstract class Continuation[-A, Fx <: Effect, +R] private ():
   def resume(value: A): Eff[Fx, R]
   def save(): Eff[Save, SavedContinuation.Aux[A, Fx, R]]
 
-trait SavedContinuation[A, R]:
-  type Effects
+sealed abstract class OneShotContinuation[-A, +Fx <: Effect, +R] private ():
+  def tryResume(value: A): Either[ResumeRejected, Eff[Fx, R]]
+
+sealed abstract class SavedContinuation[-A, +R] private ():
+  type Effects <: Effect
   def run(value: A): Eff[Effects | Restore, R]
 
 object SavedContinuation:
-  type Aux[A, Fx, R] = SavedContinuation[A, R] { type Effects = Fx }
+  type Aux[A, Fx <: Effect, R] = SavedContinuation[A, R] { type Effects = Fx }
+
+sealed trait Save extends Effect
+sealed trait Restore extends Effect
+sealed trait Control[P] extends Effect
+
+enum CaptureFailure:
+  case UnmanagedCapture(site: String)
+  case CaptureBarrier(site: String, detail: String)
+  case OneShotSource(site: String)
+  case MissingCodec(site: String, typeId: String)
+  case UnsupportedGraph(site: String, detail: String)
+
+object Save extends Save:
+  val key: EffectKey[Save]
+
+  final case class Rejected(failure: CaptureFailure)
+      extends Operation[Save, Nothing]:
+    val effect: EffectKey[Save] = Save.key
+    val id: OperationId = OperationId(effect.id, "rejected")
+    override val multiplicity: ResumeMultiplicity = ResumeMultiplicity.OneShot
+
+final class Prompt[P, R] private ()
 
 trait ScopedPrompt[R]:
   type Key
@@ -99,25 +180,94 @@ trait ScopedPrompt[R]:
 
 def freshPrompt[R]: ScopedPrompt[R]
 
-def reset[P, Fx, R](prompt: Prompt[P, R])(
+def reset[P, Fx <: Effect, R](prompt: Prompt[P, R])(
   body: => Eff[Fx | Control[P], R]
 ): Eff[Fx, R]
 
-def shift[P, A, Fx, R](prompt: Prompt[P, R])(
+def shift[P, A, Fx <: Effect, R](prompt: Prompt[P, R])(
   body: Continuation[A, Fx, R] => Eff[Fx | Control[P], R]
 ): Eff[Fx | Control[P], A]
 ```
 
-This is a semantic shape, not a requirement to encode rows as Scala unions if a
-different representation preserves static precision and binary compatibility. No
-public type may expose `Any`, interpreter `Value`, `DataV`, `ClosV`, VM frames,
-`SpiValue`, reflection, or hidden exception control.
+`EffectKey` combines a stable descriptor identity with a private per-runtime token;
+there is no global effect registry. A handler owns exactly one nominal effect key;
+handling several effects is ordinary nesting. After token equality the runtime may
+perform one private narrowing cast. That cast and the iterative bind stack are not
+part of the public ABI. `EffectKey.named` requires a real nominal `Fx` witness but
+does not retain or expose it. A conventional effect companion is both that inert
+witness and the owner of its key. No safe value of `Nothing` exists, including
+through a generic wrapper, so the bottom effect row can never acquire an operation
+key and `Eff.runPure` cannot encounter a request constructed through the safe API.
+
+`Eff.Step.Request.resumption` preserves the operation's declared multiplicity. A
+reusable request carries `Resumption.Reusable`; a one-shot request carries
+`Resumption.OneShot`, and the latter deliberately exposes neither reusable `resume`
+nor `save`. `OneShotContinuation.tryResume` atomically claims its concurrency-safe
+gate **and invokes the captured continuation before returning** `Right(next)`. A
+second or concurrent invocation returns
+`Left(ResumeRejected.AlreadyResumed(operation))`. The gate must not be deferred into
+the returned `Eff`: interpreting an already-produced `next` again may repeat that
+description's effects, but it does not invoke the one-shot continuation again.
+Forwarding and deep handling preserve the original gate rather than minting a new
+one. This preserves multiplicity without exception-based control.
+
+The public defunctionalized builder is also part of the leaf API:
+
+```scala
+trait StateMachine[S, Fx <: Effect, A]:
+  def step(state: S): MachineStep[S, Fx, A]
+
+enum MachineStep[S, Fx <: Effect, A]:
+  case Continue(next: S)
+  case Evaluate(next: Eff[Fx, S])
+  case Done(value: A)
+
+trait ResumeStateMachine[S, A, Fx <: Effect, R]:
+  def resume(state: S, input: A): Eff[Fx, R]
+
+object StateMachine:
+  def run[S, Fx <: Effect, A](
+    initial: S,
+    machine: StateMachine[S, Fx, A]
+  ): Eff[Fx, A]
+
+object Continuation:
+  def local[S, A, Fx <: Effect, R](
+    state: S,
+    machine: ResumeStateMachine[S, A, Fx, R]
+  ): Continuation[A, Fx, R]
+```
+
+The builder executes only typed state transitions. It neither reflects over `S`
+nor claims that arbitrary `S` is durable. `Continuation.local(...).save()` produces
+the typed, one-shot `Save.Rejected(UnmanagedCapture(...))` operation. Its operation
+result is `Nothing`, so a handler cannot resume the rejection with a fabricated
+saved value; `Eff` result covariance widens that non-returning request to the
+declared `save()` result. The tier-1
+artifact intentionally exposes no `SavePlan`, successful `SavedContinuation`
+constructor, byte codec, capsule, or admission service. `Continuation`,
+`OneShotContinuation`, and `SavedContinuation` are library-controlled sealed
+abstract classes with private constructors, so declaring the same package does not
+let user code manufacture a false durable result. A
+later post-X1 slice may add a typed defunctionalized save-plan descriptor and a
+library-controlled factory without changing the contracts above; successful save
+is not part of the tier-1 capability claim.
+
+No API-declared payload or control member may expose `Any`, `AnyRef`, interpreter
+`Value`, `DataV`, `ClosV`, VM frames, `SpiValue`, reflection, TLS, host stack
+objects, or hidden exception control. The unavoidable universal members inherited
+from Scala (`equals`, `Product.productElement`, and analogous compiler-generated
+members) are outside this rule; the ABI leak check examines the members declared by
+this library and rejects project/runtime erasure types. Cancellation metadata
+remains descriptor work: its public state transitions are not invented by this
+first API slice.
 
 The explicit API is always usable without macros or compiler plugins. A
-continuation is locally resumable by construction. `save` succeeds only when it
-carries compiler-generated save evidence or was constructed by the public typed
-defunctionalized/state-machine builder. Absence of evidence is
-`UnmanagedCapture`, never reflective stack discovery.
+continuation is locally resumable by construction. In the complete profile, `save`
+succeeds only when a post-X1 compiler-generated or typed defunctionalized save plan
+supplies evidence. In tier 1, absence of such evidence deterministically performs
+`Save.Rejected(UnmanagedCapture(...))`; it never triggers reflective stack
+discovery.
 
 The path-dependent prompt key prevents prompt forgery or accidental discharge.
 Runtime prompt identity is private managed state and is freshly alpha-renamed for
@@ -225,8 +375,9 @@ rejected before class loading or user initialization.
 
 Scala integration has three cumulative tiers:
 
-1. **Explicit API.** Stackless local effects/control and typed state-machine save
-   plans without compiler integration.
+1. **Explicit API.** Stackless local effects/control and typed state machines
+   without compiler integration. Tier 1 reports unmanaged `save` explicitly; the
+   successful durable save-plan builder is added only after X1 defines its evidence.
 2. **Inline macros.** Lexically visible direct-style reset regions lowered to the
    explicit protocol with precise source positions.
 3. **Compiler plugin.** Cross-method state-machine/CPS transformation, managed
