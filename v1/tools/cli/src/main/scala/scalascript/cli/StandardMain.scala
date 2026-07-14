@@ -33,20 +33,22 @@ object StandardMain:
       if separator < 0 then args -> Nil
       else args.take(separator) -> args.drop(separator + 1)
     var bytecode = false
+    var mutable = false
     val files = collection.mutable.ListBuffer.empty[String]
     if beforeArgs.exists(arg => arg == "--v1" || arg == "--compat-frontend") then
       toolsRequired("run with the compatibility frontend")
     beforeArgs.foreach {
       case "--native" | "--v2" => ()
       case "--bytecode"         => bytecode = true
+      case "--mutable"          => mutable = true
       case flag if flag.startsWith("-") =>
         throw new IllegalArgumentException(s"unknown standard run option: $flag")
       case file => files += file
     }
     if files.isEmpty then
       throw new IllegalArgumentException(
-        "usage: ssc run [--native] [--bytecode] file.ssc [more.ssc ...] -- [args ...]")
-    RunNativeV2.run(files.toList, programArgs, bytecode)
+        "usage: ssc run [--native] [--bytecode] [--mutable] file.ssc [more.ssc ...] -- [args ...]")
+    RunNativeV2.run(files.toList, programArgs, bytecode, mutable)
 
   private def printExecutionPlan(args: List[String]): Unit =
     val bytecode = args.contains("--bytecode")

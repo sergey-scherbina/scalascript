@@ -609,6 +609,8 @@ def sscNativeArgs = (args) =>
             let z = #cell.set(sscStdRootCell, sscNormalize(root)) in sscNativeArgs(paths)
           case Nil => Nil
         }
+      else if #seq(flag, "--mutable") then
+        let z = #cell.set(mutableFlagCell, true) in sscNativeArgs(rest)
       else (if #seq(flag, "--structural") then
         let z = #cell.set(sscStructuralCell, true) in sscNativeArgs(rest)
       else args)

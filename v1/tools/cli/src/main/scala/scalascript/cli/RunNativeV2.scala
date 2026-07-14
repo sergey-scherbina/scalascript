@@ -4,8 +4,11 @@ package scalascript.cli
  *  reference to the Scalameta frontend or v1 PluginBridge. */
 object RunNativeV2:
   def run(files: List[String], argv: List[String], bytecode: Boolean): Unit =
+    run(files, argv, bytecode, mutable = false)
+
+  def run(files: List[String], argv: List[String], bytecode: Boolean, mutable: Boolean): Unit =
     val previousArgv = _root_.ssc.Runtime.argv
-    val compilation = compile(files)
+    val compilation = compile(files, mutable)
     try
       _root_.ssc.Runtime.argv = argv
       _root_.ssc.plugin.NativePluginHost.loadAll(compilation.config)
@@ -13,7 +16,15 @@ object RunNativeV2:
     finally _root_.ssc.Runtime.argv = previousArgv
 
   private[cli] def compile(files: List[String]): NativeV2Compilation =
+    compile(files, mutable = false)
+
+  private[cli] def compile(files: List[String], mutable: Boolean): NativeV2Compilation =
     val layout = nativeFrontLayout()
+    // The `--mutable` compiler flag (opt-in mutable class `var` fields) is passed
+    // to BOTH tower invocations; the self-hosted frontend rejects a mutable field
+    // without it. `mutableFlag` is prepended so both mains can strip it before the
+    // file path.
+    val mutableFlag = if mutable then List("--mutable") else Nil
     val canonicalFiles = files.map { file =>
       val f = new java.io.File(file).getCanonicalFile
       if !f.isFile then
@@ -26,13 +37,17 @@ object RunNativeV2:
     val previousArgv = _root_.ssc.Runtime.argv
     try
       sourceFiles.foreach { source =>
-        val checked = runTower(layout.checker, source :: Nil, "ssc-native-checker")
+        val checked = runTower(layout.checker, mutableFlag ++ (source :: Nil), "ssc-native-checker")
         if checked.exitCode != 0 || checked.output != "OK" then
           val detail = if checked.output.nonEmpty then checked.output else s"checker exit ${checked.exitCode}"
           throw new IllegalArgumentException(detail)
       }
 
-      val structural = lowerNative(layout.runner, layout.stdRoot, sourceFiles, canonicalFiles)
+      val structural = lowerNative(layout.runner, layout.stdRoot, sourceFiles, canonicalFiles, mutableFlag)
+      if mutableFieldSentinel(structural.program) then
+        throw new IllegalArgumentException(
+          "mutable class fields (a `var` field in a class) are disabled by default; " +
+            "pass the --mutable flag to enable them (e.g. `ssc run --mutable <file>`)")
       if containsErrorSentinel(structural.program) then
         val inputs = sourceFiles.mkString(", ")
         throw new RuntimeException(
@@ -80,10 +95,11 @@ object RunNativeV2:
       runner: java.io.File,
       stdRoot: java.io.File,
       sourceFiles: List[String],
-      canonicalFiles: List[java.io.File]): NativeStructuralFrontend =
+      canonicalFiles: List[java.io.File],
+      mutableFlag: List[String]): NativeStructuralFrontend =
     val result = runTower(
       runner,
-      "--structural" :: "--std-root" :: portablePath(stdRoot.getCanonicalFile) :: sourceFiles,
+      mutableFlag ++ ("--structural" :: "--std-root" :: portablePath(stdRoot.getCanonicalFile) :: sourceFiles),
       "ssc-native-frontend")
     if result.exitCode != 0 then
       throw new RuntimeException(s"native frontend exited with ${result.exitCode}")
@@ -176,6 +192,35 @@ object RunNativeV2:
     case _root_.ssc.Term.While(cond, body) =>
       containsErrorSentinel(cond) || containsErrorSentinel(body)
     case _root_.ssc.Term.Seq(terms) => terms.exists(containsErrorSentinel)
+    case _ => false
+
+  /** The self-hosted frontend emits `Global("_err_mutable_fields")` when a class
+   *  uses a mutable `var` field without the --mutable flag — surface a specific,
+   *  actionable message (distinct from the generic parser `_err`). */
+  private def mutableFieldSentinel(program: _root_.ssc.Program): Boolean =
+    program.defs.exists(definition => mutableFieldSentinel(definition.body)) ||
+      mutableFieldSentinel(program.entry)
+
+  private def mutableFieldSentinel(term: _root_.ssc.Term): Boolean = term match
+    case _root_.ssc.Term.Global("_err_mutable_fields") => true
+    case _root_.ssc.Term.Lam(_, body) => mutableFieldSentinel(body)
+    case _root_.ssc.Term.App(fn, args) =>
+      mutableFieldSentinel(fn) || args.exists(mutableFieldSentinel)
+    case _root_.ssc.Term.Let(rhs, body) =>
+      rhs.exists(mutableFieldSentinel) || mutableFieldSentinel(body)
+    case _root_.ssc.Term.LetRec(lams, body) =>
+      lams.exists(mutableFieldSentinel) || mutableFieldSentinel(body)
+    case _root_.ssc.Term.If(cond, yes, no) =>
+      mutableFieldSentinel(cond) || mutableFieldSentinel(yes) || mutableFieldSentinel(no)
+    case _root_.ssc.Term.Ctor(_, fields) => fields.exists(mutableFieldSentinel)
+    case _root_.ssc.Term.Match(scrutinee, arms, default) =>
+      mutableFieldSentinel(scrutinee) ||
+        arms.exists(arm => mutableFieldSentinel(arm.body)) ||
+        default.exists(mutableFieldSentinel)
+    case _root_.ssc.Term.Prim(_, args) => args.exists(mutableFieldSentinel)
+    case _root_.ssc.Term.While(cond, body) =>
+      mutableFieldSentinel(cond) || mutableFieldSentinel(body)
+    case _root_.ssc.Term.Seq(terms) => terms.exists(mutableFieldSentinel)
     case _ => false
 
   /** Names of std/ui site-native primitives that appear in APPLIED position

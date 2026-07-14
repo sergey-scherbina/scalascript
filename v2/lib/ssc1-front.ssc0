@@ -575,6 +575,16 @@ def tcExtendsCell = #cell.new(Nil)
 -- captured `def` nodes (e.g. `override def toString`). ssc1-lower emits each as a
 -- `Tag_method(self, …)` global (fields bound from self) + registers it so the VM's
 -- __method__ dispatch calls it instead of the default DataV rendering/no-op.
+-- --mutable compiler flag: enables mutable `var` fields in classes. Set from argv
+-- by the tower mains (ssc1-run / ssc1-check-run). `mutableViolationCell` records a
+-- `var` field seen while the flag is OFF, so parseCaseClass can emit the specific
+-- `_err_mutable_fields` sentinel. `mutableFieldsCell` records, per class tag, the
+-- names of `var` fields (flag ON) so the lowerer can cell-back them.
+def mutableFlagCell      = #cell.new(false)
+def mutableViolationCell = #cell.new(false)
+def mutableFieldsCell    = #cell.new(Nil)
+def pendingVarFieldsCell = #cell.new(Nil)
+
 def caseMethodsCell = #cell.new(Nil)
 def registerCaseMethods = (name, fields, defs) =>
   match defs {
@@ -2047,9 +2057,20 @@ def readCaseParamTypeAt = (depth, toks, acc) =>
     readCaseParamTypeAt(depth, advance(toks), Cons(sv, acc))
 
 def parseCaseParam = (toks) =>
-  if #seq(tokKind(peek(toks)), "id") then
-    let name = tokVal(peek(toks)) in
-    let ts1 = advance(toks) in
+  -- `var`/`val` field modifiers. `val` is the default (immutable) — just skip it.
+  -- `var` is a MUTABLE field: record a violation when the --mutable flag is off (so
+  -- parseCaseClass emits `_err_mutable_fields`), and record the field name (flag on)
+  -- for the lowerer to cell-back.
+  let isVar = kwIs("var", toks) in
+  let toks0 = if isVar then advance(toks)
+              else if kwIs("val", toks) then advance(toks)
+              else toks in
+  if #seq(tokKind(peek(toks0)), "id") then
+    let name = tokVal(peek(toks0)) in
+    let _vrec = if isVar then
+                  #cell.set(pendingVarFieldsCell, Cons(name, #cell.get(pendingVarFieldsCell)))
+                else 0 in
+    let ts1 = advance(toks0) in
     let rt = if kindIs(":", ts1) then
       readCaseParamTypeAt(0, advance(ts1), Nil)
     else pr("Any", ts1) in
@@ -2061,7 +2082,7 @@ def parseCaseParam = (toks) =>
                    Cons(Pair(name, prV(rd)), #cell.get(paramDefaultsCell))) in
       pr(Pair(name, fieldType), prT(rd))
     else pr(Pair(name, fieldType), ts2)
-  else pr(Pair("_", "Any"), toks)
+  else pr(Pair("_", "Any"), toks0)
 
 def parseCaseParamList = (toks) =>
   if kindIs("(", toks) then
@@ -2126,6 +2147,7 @@ def parseCaseClass = (toks) =>
   let name = tokVal(peek(toks)) in
   let ts1  = skipTypeParams(advance(toks)) in
   let _clr = #cell.set(paramDefaultsCell, Nil) in
+  let _clrv = #cell.set(pendingVarFieldsCell, Nil) in
   let rp   = parseCaseParamList(ts1) in
   let params = caseParamNames(prV(rp)) in
   let types = caseParamTypes(prV(rp)) in
@@ -2188,7 +2210,22 @@ def parseCaseClass = (toks) =>
       let _regM = registerCaseMethods(name, params, prV(rc)) in
       prT(rc)
     else ts2 in
-  pr(mkCaseCls(name, params, types, derives), ts3)
+  -- Mutable `var` field gate: any recorded var field in this class requires the
+  -- --mutable flag. Off → emit the `_err_mutable_fields` sentinel (CLI surfaces a
+  -- specific message). On → register the var fields under this class tag so the
+  -- lowerer can cell-back them.
+  let thisVars = #cell.get(pendingVarFieldsCell) in
+  match thisVars {
+    case Nil => pr(mkCaseCls(name, params, types, derives), ts3)
+    case Cons(vh, vt) =>
+      if #cell.get(mutableFlagCell) then
+        let _reg = #cell.set(mutableFieldsCell,
+                     Cons(Pair(name, thisVars), #cell.get(mutableFieldsCell))) in
+        pr(mkCaseCls(name, params, types, derives), ts3)
+      else
+        let _v = #cell.set(mutableViolationCell, true) in
+        pr(mkSExpr(mkVar("_err_mutable_fields")), ts3)
+  }
 
 -- parseCaseObject: `case object Name [extends ...]` (keywords consumed).
 -- The native route represents the declaration as one stable nullary value.

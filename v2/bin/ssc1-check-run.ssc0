@@ -22,8 +22,19 @@ def joinScalaScript = (blocks) =>
     } in
   go(blocks, "")
 
+-- Strip a leading `--mutable` compiler flag (set by the CLI), enabling mutable
+-- `var` class fields for this check; the remaining args are the file path(s).
+def stripMutableFlag = (args) =>
+  match args {
+    case Nil => Nil
+    case Cons(a, rest) =>
+      if #seq(a, "--mutable") then
+        let z = #cell.set(mutableFlagCell, true) in rest
+      else args
+  }
+
 def main = () =>
-  match #io.args() {
+  match stripMutableFlag(#io.args()) {
     case Cons(path, rest) =>
       let fileStr = #utf8->str(#io.readFile(path)) in
       let blocks = extractFences(fileStr) in
@@ -35,6 +46,12 @@ def main = () =>
         #io.exit(2)
       else
         let stmts = parse(src) in
+        -- Mutable `var` class field without --mutable: surface the specific,
+        -- actionable message at the first gate (the parser recorded a violation).
+        if #cell.get(mutableViolationCell) then
+          let z = #io.print("TYPEERR: mutable class fields (a `var` field in a class) are disabled by default; pass the --mutable flag to enable them (e.g. `ssc run --mutable <file>`)") in
+          #io.exit(1)
+        else
         match ssc1TypeCheck(stmts) {
           case Err(msg) =>
             let z = #io.print(#sconcat("TYPEERR: ", msg)) in
