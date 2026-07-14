@@ -3156,7 +3156,16 @@ object Prims:
                       else DataV("Stub", Vector(StrV(s"$tag.$name")))
                     case None => DataV("Stub", Vector(StrV(s"$tag.$name")))
                 case _ =>
-                  sys.error(s"__method__: no dispatch for .$name on ${Show.show(recv)}")
+                  // ETA-EXPANSION: a method SELECTED on a value but NOT applied
+                  // (`list.exists(lc.contains)`) reaches here with zero args after no
+                  // nullary dispatch matched (a real field/nullary method would have
+                  // matched earlier). Treat it as the function value `x => recv.name(x)`
+                  // — v2 is untyped so this is decided at dispatch time, not by the
+                  // frontend. HOFs then call it per element.
+                  if margs.isEmpty then
+                    ClosV(Runtime.emptyEnv, 1, env => Done(methodOp(name, recv, List(env.last))))
+                  else
+                    sys.error(s"__method__: no dispatch for .$name on ${Show.show(recv)}")
     case op =>
       V2PluginRegistry.lookup(op) match
         case Some(fn) => fn
