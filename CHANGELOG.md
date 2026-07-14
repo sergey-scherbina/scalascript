@@ -4,6 +4,19 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-14 — Scala control host module canonical naming
+
+Simplified the Scala host leaf to the canonical source home
+`v2/host/scala/control` and Maven coordinate
+`io.scalascript:scalascript-control_3:0.1.0-SNAPSHOT`. The build-local sbt project
+id remains `scala3ControlApi`, and the public package remains
+`scalascript.control`, so Scala source and class ABI are unchanged. The normative
+profile landed in `3402aa949`, the directory/build rename in `9883214d7`, and live
+documentation links in `add2a0b78`. Verification passed 39/39 module tests, the
+runnable example (`Vector(10, 20)` and `42`), JAR/POM coordinate inspection,
+10/10 focused effect/coroutine/tail conformance, and 9/9 measurable portable-VM
+interop axes.
+
 ## 2026-07-14 — Scala control API moved to the v2 host layer
 
 Corrected the initial ownership error identified by Sergiy: the

@@ -9,17 +9,6 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-## scala-control-path-shortening — canonical directory and artifact are `control` (2026-07-14, Sergiy)
-
-- [ ] Rename the Scala host source home from `v2/host/scala/control-api` to
-  `v2/host/scala/control` and the published Maven artifact from
-  `io.scalascript:scalascript-control-api_3` to
-  `io.scalascript:scalascript-control_3`, without changing the public Scala package,
-  sbt project id, or behavior. Update the host profile, build, layout docs, and every
-  live coordinate/link; prove both old names are absent from live contracts, rerun
-  module/example/package and both conformance gates, then close bookkeeping and
-  release the worktree.
-
 ## control-vectors-audit-followup — reproduce + record codex-interop audit findings (2026-07-14, claude)
 
 Done (this claim): fixed the Rust-multi-shot-deferred drift in
@@ -28,7 +17,7 @@ portable-VM effect-runtime gaps in BUGS.md + as `pending-runtime` conformance ax
 
 - [ ] **one-shot-violation guard** (`BUGS.md control-interop-portable-vm-oneshot-guard-absent`)
       — resume-twice on a non-`multi` effect is silently allowed on both portable-VM tiers
-      (interp + bytecode). Fix home: `scala3-control-api` reference runner (one-shot tracking +
+      (interp + bytecode). Fix home: Scala control reference runner (one-shot tracking +
       typed diagnostic), or the VM effect runtime. Conformance axis 21 stays pending-runtime.
 - [ ] **stack-safe effect continuation** (`BUGS.md control-interop-effect-recursion-stack-unsafe`)
       — effect-performing recursion overflows the native stack ~500–2000 depth on both tiers
