@@ -1,0 +1,11 @@
+SELECT id, name, dept FROM emp => 1|ann|10
+2|bob|20
+3|cat|10
+4|dan|30
+5|eve|
+6|flo|
+SELECT COUNT(*) FROM emp => 6
+SELECT id FROM emp WHERE dept IS NULL => 5
+6
+SELECT name FROM emp WHERE dept = 10 ORDER BY id => ann
+cat

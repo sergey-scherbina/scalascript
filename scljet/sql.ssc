@@ -1580,7 +1580,7 @@ def queryImage(dbBytes: ByteSlice, sql: String): Either[String, List[List[Sqlite
 
 // ── DML: INSERT and DELETE through the balanced write path ──
 
-case class InsertStmt(table: String, columns: List[String], values: List[SqliteValue])
+case class InsertStmt(table: String, columns: List[String], rows: List[List[SqliteValue]])
 case class DeleteStmt(table: String, where: List[List[Condition]])
 
 def reverseValues(items: List[SqliteValue], acc: List[SqliteValue]): List[SqliteValue] =
@@ -1639,6 +1639,35 @@ def parseInsertColumns(toks: List[Token]): Either[String, (List[String], List[To
       case Some(r) => r
       case None => Left("column list parse error")
 
+def reverseRows(items: List[List[SqliteValue]], acc: List[List[SqliteValue]]): List[List[SqliteValue]] =
+  var r = items
+  var out = acc
+  while r.nonEmpty do
+    out = r.head :: out
+    r = r.tail
+  out
+
+// One or more `( … )` tuples after VALUES, comma-separated (multi-row INSERT).
+def parseValueRows(toks: List[Token]): Either[String, (List[List[SqliteValue]], List[Token])] =
+  parseValueList(toks) match
+    case Left(message) => Left(message)
+    case Right(first) =>
+      var rowsRev: List[List[SqliteValue]] = first._1 :: Nil
+      var rest = first._2
+      var err: Option[String] = None
+      var done = false
+      while !done && err.isEmpty do
+        if tkKind(rest) == "comma" then
+          parseValueList(rest.tail) match
+            case Left(message) => err = Some(message)
+            case Right(nxt) =>
+              rowsRev = nxt._1 :: rowsRev
+              rest = nxt._2
+        else done = true
+      err match
+        case Some(message) => Left(message)
+        case None => Right((reverseRows(rowsRev, Nil), rest))
+
 def parseInsert(toks: List[Token]): Either[String, InsertStmt] =
   if !tkIsKw(toks, "INSERT") then Left("expected INSERT")
   else
@@ -1654,7 +1683,7 @@ def parseInsert(toks: List[Token]): Either[String, InsertStmt] =
           case Right(colPair) =>
             val afterCols = colPair._2
             if !tkIsKw(afterCols, "VALUES") then Left("expected VALUES")
-            else parseValueList(afterCols.tail) match
+            else parseValueRows(afterCols.tail) match
               case Left(message) => Left(message)
               case Right(valPair) => Right(InsertStmt(table, colPair._1, valPair._1))
 
@@ -1731,6 +1760,27 @@ def reorderInsertValues(insertCols: List[String], values: List[SqliteValue], col
     r = r.tail
   reverseValues(accRev, Nil)
 
+// Insert each row (rowid = start, start+1, …) into one pager; returns the pager + last rowid used.
+def insertRowsLoop(pager: MutablePager, root: Int, startRowid: Long, rows: List[List[SqliteValue]], columns: List[String], colNames: List[String], pageSize: Int): Either[String, (MutablePager, Long)] =
+  var p = pager
+  var rid = startRowid
+  var r = rows
+  var err: Option[String] = None
+  while r.nonEmpty && err.isEmpty do
+    val insertValues = if columns.isEmpty then r.head else reorderInsertValues(columns, r.head, colNames)
+    encodeRecord(insertValues) match
+      case Left(error) => err = Some(error.message)
+      case Right(record) =>
+        pagerInsertBalanced(p, root, rid, record, pageSize) match
+          case Left(error) => err = Some(error.message)
+          case Right(np) =>
+            p = np
+            rid = rid + 1L
+    r = r.tail
+  err match
+    case Some(message) => Left(message)
+    case None => Right((p, rid - 1L))
+
 def executeInsert(dbBytes: ByteSlice, stmt: InsertStmt): Either[String, ByteSlice] =
   tableContext(dbBytes, stmt.table) match
     case Left(message) => Left(message)
@@ -1744,16 +1794,14 @@ def executeInsert(dbBytes: ByteSlice, stmt: InsertStmt): Either[String, ByteSlic
         case Right(cursor) => collectRows(db, cursor) match
           case Left(error) => Left(error.message)
           case Right(rows) =>
-            val rowid = maxRowidOf(rows) + 1L
-            val insertValues = if stmt.columns.isEmpty then stmt.values else reorderInsertValues(stmt.columns, stmt.values, colNames)
-            encodeRecord(insertValues) match
-              case Left(error) => Left(error.message)
-              case Right(record) =>
-                pagerInsertBalanced(openMutablePager(dbBytes, pageSize, pageSize), root, rowid, record, pageSize) match
+            if stmt.rows.isEmpty then Right(dbBytes)
+            else
+              val rowid0 = maxRowidOf(rows) + 1L
+              insertRowsLoop(openMutablePager(dbBytes, pageSize, pageSize), root, rowid0, stmt.rows, stmt.columns, colNames, pageSize) match
+                case Left(message) => Left(message)
+                case Right(pr) => mutableCommit(pr._1, pr._2) match
                   case Left(error) => Left(error.message)
-                  case Right(pager) => mutableCommit(pager, rowid) match
-                    case Left(error) => Left(error.message)
-                    case Right(pc) => Right(pc.pager.image)
+                  case Right(pc) => Right(pc.pager.image)
 
 def deleteRowidLoop(pager: MutablePager, root: Int, rowids: List[Long], pageSize: Int): Either[String, MutablePager] =
   var p = pager

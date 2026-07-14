@@ -1,0 +1,41 @@
+---
+name: scljet-sql-insert-multi
+description: SclJet SQL multi-row INSERT — VALUES (…),(…),(…) in one statement, plain and with a column list, matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet SQL multi-row INSERT
+
+`INSERT INTO t VALUES (…), (…), (…)` inserts several rows in one statement; consecutive rowids are
+assigned (maxRowid+1, +2, …) and all rows land in a single commit through the balanced B-tree writer.
+Works with a column list too (`INSERT INTO t (a, b) VALUES (…),(…)` — unlisted columns become NULL).
+Every result is byte-identical to reference sqlite3 running the same SQL on the same file (verified
+out-of-band); locked here across backends.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, renderRows, executeMutation](std/scljet/sql.ssc)
+
+```scalascript
+def apply(db: ByteSlice, sql: String): ByteSlice =
+  executeMutation(db, sql) match
+    case Left(m) =>
+      println(sql + " => ERR:" + m)
+      db
+    case Right(next) => next
+
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER, name TEXT, dept INTEGER)",
+  List(List(SqlInteger(1L), SqlText("ann"), SqlInteger(10L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db0) =>
+    val db1 = apply(db0, "INSERT INTO emp VALUES (2,'bob',20),(3,'cat',10),(4,'dan',30)")
+    val db2 = apply(db1, "INSERT INTO emp (id, name) VALUES (5,'eve'),(6,'flo')")
+    show(db2, "SELECT id, name, dept FROM emp")
+    show(db2, "SELECT COUNT(*) FROM emp")
+    show(db2, "SELECT id FROM emp WHERE dept IS NULL")
+    show(db2, "SELECT name FROM emp WHERE dept = 10 ORDER BY id")
+```
