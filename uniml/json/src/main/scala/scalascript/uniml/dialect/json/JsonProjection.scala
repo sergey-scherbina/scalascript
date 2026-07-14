@@ -112,7 +112,8 @@ object JsonProjection:
       while index < lexeme.length - 1 do
         val char = lexeme.charAt(index)
         if char != '\\' then
-          result = result :+ char.toString
+          // substring slice, not `char.toString` (v2 has no Char box → decimal code)
+          result = result :+ lexeme.substring(index, index + 1)
           index += 1
         else
           if index + 1 >= lexeme.length - 1 then return None

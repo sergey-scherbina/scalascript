@@ -2546,6 +2546,13 @@ object Prims:
         case (StrV(s), "substring", List(IntV(i)))      => StrV(s.substring(i.toInt))
         case (StrV(s), "substring", List(IntV(i), IntV(j))) => StrV(s.substring(i.toInt, j.toInt))
         case (StrV(s), "charAt", List(IntV(i)))         => IntV(s.charAt(i.toInt).toLong)
+        // String head/last return a Char (an IntV code, like charAt); tail/init a String.
+        case (StrV(s), "head", Nil) if s.nonEmpty       => IntV(s.charAt(0).toLong)
+        case (StrV(s), "last", Nil) if s.nonEmpty       => IntV(s.charAt(s.length - 1).toLong)
+        case (StrV(s), "headOption", Nil)               => if s.isEmpty then none else some(IntV(s.charAt(0).toLong))
+        case (StrV(s), "lastOption", Nil)               => if s.isEmpty then none else some(IntV(s.charAt(s.length - 1).toLong))
+        case (StrV(s), "tail", Nil)                     => StrV(s.drop(1))
+        case (StrV(s), "init", Nil)                     => StrV(s.dropRight(1))
         case (StrV(s), "indexOf", List(StrV(sub)))      => IntV(s.indexOf(sub).toLong)
         case (StrV(s), "indexOf", List(IntV(ch)))       => IntV(s.indexOf(ch.toInt).toLong)
         case (StrV(s), "indexOf", List(StrV(sub), IntV(from))) => IntV(s.indexOf(sub, from.toInt).toLong)
