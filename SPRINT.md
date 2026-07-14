@@ -1338,9 +1338,15 @@ order, so `SELECT *` matches without ORDER BY), and int==js.
       imports reader types from index.ssc + `ImageVfs`/`fieldValueAt` from mutate.ssc; NOT
       re-exported by index.ssc (would cycle) — conformance imports it as `std/scljet/sql.ssc`.
 - [ ] **scljet-m5b-sql-orderby-limit** — `ORDER BY col [ASC|DESC]`, `LIMIT n [OFFSET m]`.
-- [ ] **scljet-m5c-sql-insert** — `INSERT INTO t [(cols)] VALUES (…)` → encode the record and
-      `pagerInsertBalanced` (rowid = explicit or max+1), commit, return the new image.
-- [ ] **scljet-m5d-sql-delete** — `DELETE FROM t WHERE …` → find matching rowids, `pagerDeleteBalanced`.
+- [x] **scljet-m5c-sql-insert** — DONE 2026-07-14. `sql.ssc` `parseInsert`/`executeInsert` +
+      `executeMutation` dispatcher: `INSERT INTO t VALUES (…)` encodes the record and inserts via
+      `pagerInsertBalanced` (rowid = max existing + 1, matching sqlite), commits, returns the new
+      image. Verified vs sqlite3 (same statements → identical table, integrity ok), int==js.
+      Column-list form `INSERT INTO t(cols) VALUES` is a follow-up.
+- [x] **scljet-m5d-sql-delete** — DONE 2026-07-14. `sql.ssc` `parseDelete`/`executeDelete`:
+      `DELETE FROM t [WHERE col op literal]` finds matching rowids (WHERE reused from SELECT) and
+      deletes each via `pagerDeleteBalanced`, commits. Verified vs sqlite3, int==js. Conformance
+      `scljet-sql-dml` covers INSERT + DELETE + re-query, matching sqlite after the same sequence.
 - [ ] **scljet-m5e-sql-update** — `UPDATE t SET col=… WHERE …` → re-encode the row in place.
 - [ ] **scljet-m5f-sql-create-table** — `CREATE TABLE t(…)` → build an empty table + schema row.
 - [ ] **scljet-m5g-sql-aggregates-join** — `COUNT/SUM/MIN/MAX`, `GROUP BY`, simple inner joins (later).

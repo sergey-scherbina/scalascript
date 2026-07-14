@@ -117,8 +117,14 @@ lexes and parses `SELECT (*|cols) FROM table [WHERE col op literal]` (comparator
 `= <> != < > <= >=`, integer or `'string'` literals, plus the implicit `rowid`), resolves
 the columns from the table's `CREATE TABLE` text, cursors the rows, filters, and projects —
 returning result rows that `renderRows` formats like the sqlite3 CLI. Every query is
-byte-identical to reference sqlite3 running the same SQL on the same file. `ORDER BY`/`LIMIT`,
-`INSERT`/`DELETE`/`UPDATE`/`CREATE TABLE`, and aggregates/joins are the M5 follow-ups.
+byte-identical to reference sqlite3 running the same SQL on the same file.
+
+Data-modifying SQL runs too: `executeMutation(dbBytes, sql)` handles `INSERT INTO t VALUES (…)`
+(record encoded and inserted via the balanced write path, rowid = max + 1) and
+`DELETE FROM t [WHERE …]` (matching rows deleted through the pager), returning the new database
+image — after a sequence of statements the table matches sqlite3 running the same SQL, with
+`integrity_check` ok. `UPDATE`, `CREATE TABLE`, `ORDER BY`/`LIMIT`, column-list inserts, and
+aggregates/joins are the remaining M5 follow-ups.
 
 ## Modules
 
