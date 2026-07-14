@@ -1100,6 +1100,23 @@ def packVarargsArgs = (name, args) =>
     }
   else args
 
+-- Object-method trailing-vararg pack. `O.f(a, b, c)` with `def f(xs: T*)`:
+-- `isVarargDef` is keyed by the BARE method name (front's parse registry) while
+-- the emitted arity lives under the MANGLED `O_f` (defArity, via
+-- collectObjMethodArities). Pack the trailing args into one list.
+def packObjVarargs = (bareMethod, mangled, args) =>
+  if isVarargDef(bareMethod) then
+    match defArity(mangled) {
+      case Pair(found, arity) =>
+        if found then
+          let lead = #i.sub(arity, 1) in
+          if #i.ge(lenL(args), lead) then
+            append(takeL(lead, args), Cons(buildListExpr(dropL(lead, args)), Nil))
+          else args
+        else args
+    }
+  else args
+
 -- K62.6c: build a Map from (resolved) `k -> v` / (k, v) entries. `map.put` MUTATES
 -- and returns Unit, so use an IIFE: (fn __m => { map.put(__m,k,v); …; __m })(map.new).
 def buildMapExpr = (args) =>
@@ -1175,7 +1192,7 @@ def resolveMethodCall = (robj, method, rargs) =>
           -- the bare-selector enum intercept; this covers the applied parametrized form.
           (if isEnumUid(rname) then
              (if enumHasCase(enumCasesOf(rname), method) then
-                Pair("ctorap", Pair(method, rargs))
+                Pair("ctorap", Pair(method, ctorApplyDefaults(method, rargs)))
               else
                 Pair("prim", Pair("__method__",
                   Cons(Pair("str", method), Cons(Pair("ctorap", Pair(rname, Nil)), rargs)))))
@@ -1183,7 +1200,8 @@ def resolveMethodCall = (robj, method, rargs) =>
            -- uppercase object (Dataset.of, Graph.vertices) → __method__ dispatch,
            -- resolved by the plugin runtime's __fallback__.<Name>.<method>.
            else if isKnownObject(rname) then
-             Pair("app", Pair(Pair("var", #sconcat(rname, #sconcat("_", method))), rargs))
+             let mangled = #sconcat(rname, #sconcat("_", method)) in
+             Pair("app", Pair(Pair("var", mangled), packObjVarargs(method, mangled, rargs)))
            else
              Pair("prim", Pair("__method__",
                Cons(Pair("str", method), Cons(Pair("ctorap", Pair(rname, Nil)), rargs)))))
@@ -1498,6 +1516,37 @@ def hasNamedDfltArg = (args) =>
       match h { case Pair(tag, data) =>
         if #seq(tag, "narg") then true else hasNamedDfltArg(t) }
   }
+-- Enum-case constructor with a trailing default param, e.g. `Transport.Http(8080)`
+-- where `case Http(port: Int, path: String = "/mcp")`. Case-class ctors pick up
+-- defaults via the app path (expandDefaultCall); enum cases lower straight to
+-- `ctorap`, so synthesize the missing trailing defaults here. `rargs` are already
+-- resolved, so the appended default exprs (raw AST from funcDefaultsCell) are too.
+def resolveDfltTail = (ds) =>
+  match ds {
+    case Nil => Nil
+    case Cons(d, rest) => Cons(resolveE(d), resolveDfltTail(rest))
+  }
+def allDfltReal = (ds) =>
+  match ds {
+    case Nil => true
+    case Cons(d, rest) => if dfltIsNone(d) then false else allDfltReal(rest)
+  }
+def ctorApplyDefaults = (name, args) =>
+  match dfltRegLookup(name, #cell.get(funcDefaultsCell)) {
+    case Pair(found, entry) =>
+      if #seq(found, "__some__") then
+        match entry {
+          case Pair(params, dflts) =>
+            let provided = lenL(args) in
+            if #i.lt(provided, lenL(params)) then
+              let tail = dropL(provided, dflts) in
+              if allDfltReal(tail) then append(args, resolveDfltTail(tail))
+              else args
+            else args
+        }
+      else args
+  }
+
 def buildDfltBindings = (params, dflts, args) =>
   match params {
     case Nil =>
@@ -4338,6 +4387,28 @@ def caseMethodRegs = (regs) =>
           appendL(caseMethodRegsFor(tag, defs), caseMethodRegs(rest)) } }
   }
 
+-- Object methods are emitted under mangled `O_method` names; register their
+-- arities under that same mangled key so call-site arity queries (vararg packing,
+-- curried-call matching) resolve `O.method(...)` → `O_method`.
+def collectObjMethodArities = (oname, stmts) =>
+  match stmts {
+    case Nil => Nil
+    case Cons(stmt, rest) =>
+      match stmt {
+        case Pair(tag, data) =>
+          if #seq(tag, "def") then
+            match data {
+              case Pair(name, defRest) =>
+                match defRest {
+                  case Pair(params, body) =>
+                    Cons(Pair(#sconcat(oname, #sconcat("_", name)), lenL(params)),
+                      collectObjMethodArities(oname, rest))
+                }
+            }
+          else collectObjMethodArities(oname, rest)
+      }
+  }
+
 def collectDefArities = (stmts) =>
   match stmts {
     case Nil => Nil
@@ -4351,6 +4422,11 @@ def collectDefArities = (stmts) =>
                   case Pair(params, body) =>
                     Cons(Pair(name, lenL(params)), collectDefArities(rest))
                 }
+            }
+          else if #seq(tag, "object") then
+            match data {
+              case Pair(oname, ostmts) =>
+                appendL(collectObjMethodArities(oname, ostmts), collectDefArities(rest))
             }
           else collectDefArities(rest)
       }
