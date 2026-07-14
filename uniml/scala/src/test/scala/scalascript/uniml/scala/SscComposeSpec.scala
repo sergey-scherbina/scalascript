@@ -2,8 +2,17 @@ package scalascript.uniml.scala
 
 import org.scalatest.funsuite.AnyFunSuite
 import scalascript.uniml.*
-import scalascript.uniml.spike.SpikeProject
+import scalascript.uniml.dialect.markdown.CommonMarkDialect
+import scalascript.uniml.spike.{SpikeDialect, SpikeProject}
 import java.nio.file.{Files, Paths}
+
+/** a fresh-named dialect used only to prove a user can extend the built-in registry set.
+  * It delegates parsing to CommonMark — the point is the registry drives injection by name. */
+private object MermaidDialect extends DialectAdapter:
+  def id: String = "diagram.mermaid"
+  override val aliases: Set[String] = Set("mermaid")
+  def instructions(source: SourceInput): Processor[String, SourceChunk, VmToken] =
+    CommonMarkDialect.instructions(source)
 
 /** P6.3 — "unify the hybrid". Proves a whole `.ssc` (YAML front-matter + Markdown
   * prose + fenced ScalaScript) parses as ONE lossless UniML tree, and emits the
@@ -90,20 +99,62 @@ final class SscComposeSpec extends AnyFunSuite:
     assert(c.scalaSource == "case class Point(x: Int, y: Int)\ndef main(): Int = Point(3, 4).x")
   }
 
-  test("a foreign fence is left inert — no dialect reinterprets another's bytes") {
+  test("a fence naming no registered dialect stays inert — no dialect reinterprets its bytes") {
     val mixed =
-      """|```json
-         |{"a": 1}
+      """|```python
+         |print("hi")
          |```
          |```scalascript
          |def main(): Int = 1
          |```
          |""".stripMargin
     val c = SscCompose.parse(mixed)
-    assert(c.fences.count(_.injected) == 1)
-    assert(c.fences.count(f => !f.injected) == 1)
-    val foreign = allBranches(c.root, "markdown.code-block").find(b => childWithRole(b, "scalascript").isEmpty)
-    assert(foreign.nonEmpty, "the json fence stays a plain markdown.code-block")
+    assert(c.fences.count(_.injected) == 1, "only the scalascript fence is injected")
+    assert(c.fences.count(f => !f.injected) == 1, "the unregistered python fence stays inert")
+    assert(c.fences.exists(f => f.lang == "python" && f.dialectId.isEmpty))
+    // the inert fence keeps its raw code leaves (nothing spliced under it)
+    val pyBlock = allBranches(c.root, "markdown.code-block").find(b => childWithRole(b, "scalascript").isEmpty).get
+    assert(pyBlock.edges.exists(_.role.contains("code")), "inert fence still carries its markdown code leaves")
+  }
+
+  // ── the registry hook: fence language → dialect is resolved through DialectRegistry ─────────
+
+  test("registry hook: a built-in ```json fence is injected via the registry (a json subtree)") {
+    val c = SscCompose.parse(
+      """|```json
+         |{"a": 1}
+         |```
+         |""".stripMargin
+    )
+    val block = findBranch(c.root, "markdown.code-block").get
+    assert(childWithRole(block, "json").exists(_.isInstanceOf[UniNode.Branch]), "json subtree spliced in")
+    assert(c.fences.exists(f => f.dialectId.contains("json.rfc8259") && f.injected && !f.isScala))
+  }
+
+  test("registry hook: builtins resolve the four built-in languages, and only those") {
+    val r = SscCompose.builtins
+    assert(r.get("scalascript").exists(_.id == "scalascript.spike"))
+    assert(r.get("scala").exists(_.id == "scalascript.spike"))
+    assert(r.get("yaml").exists(_.id == "yaml.1.2.2"))
+    assert(r.get("json").exists(_.id == "json.rfc8259"))
+    assert(r.get("markdown").exists(_.id == "markdown.commonmark.0.31.2"))
+    assert(r.get("python").isEmpty, "an unregistered language does not resolve")
+  }
+
+  test("user-closed: a built-in name cannot be overridden, but a fresh dialect extends the set") {
+    // re-registering a built-in (same names) is rejected — the built-in set is closed.
+    assert(SscCompose.registryWith(SpikeDialect).isLeft, "cannot re-register a built-in name")
+    // a fresh-named dialect registers and then drives fence injection.
+    val r = SscCompose.registryWith(MermaidDialect)
+    assert(r.isRight)
+    val c = SscCompose.parse(
+      """|```mermaid
+         |graph TD; A-->B
+         |```
+         |""".stripMargin,
+      r.toOption.get,
+    )
+    assert(c.fences.exists(f => f.lang == "mermaid" && f.dialectId.contains("diagram.mermaid") && f.injected))
   }
 
   // ── emit differential-harness files for the composed .ssc toys ──────────────

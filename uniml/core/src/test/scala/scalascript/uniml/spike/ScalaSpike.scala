@@ -566,6 +566,8 @@ object SpikeEmit:
 object SpikeDialect extends DialectAdapter:
   def id: String = "scalascript.spike"
 
+  override val aliases: Set[String] = Set("scalascript", "scala", "ssc")
+
   def instructions(source: SourceInput): Processor[String, SourceChunk, VmToken] =
     new Processor[String, SourceChunk, VmToken]:
       def start: String = ""

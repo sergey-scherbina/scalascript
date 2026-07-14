@@ -90,7 +90,7 @@ lazy val unimlMarkdownCross =
 // exactly like the core-test spike. `test->test` on core exposes SpikeDialect/SpikeProject.
 lazy val unimlScala = project
   .in(file("scala"))
-  .dependsOn(unimlCross.jvm % "compile->compile;test->test", unimlMarkdownCross.jvm, unimlYamlCross.jvm)
+  .dependsOn(unimlCross.jvm % "compile->compile;test->test", unimlMarkdownCross.jvm, unimlYamlCross.jvm, unimlJsonCross.jvm)
   .settings(
     name := "scalascript-uniml-scala",
     libraryDependencies ++= Seq("org.scalatest" %% "scalatest" % scalatestV % Test),
