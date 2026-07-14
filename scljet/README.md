@@ -128,9 +128,10 @@ same rowid), returning the new database image — after a sequence of statements
 sqlite3 running the same SQL, with `integrity_check` ok. SQL **CRUD is complete** (SELECT / INSERT / UPDATE / DELETE, including column-list inserts).
 SELECT also does `ORDER BY` (multi-column, ASC/DESC) / `LIMIT` / `OFFSET`, aggregates
 (`COUNT`/`SUM`/`MIN`/`MAX`/`AVG`/`TOTAL`), and `GROUP BY`. `CREATE TABLE t(…)` appends a table
-(schema row + empty root) that reference sqlite reads and `.schema` shows. Reals render like the
-sqlite3 CLI. Remaining M5 follow-ups: joins, `HAVING`, a page-1 schema split, and repeating-decimal
-`%.15g` parity.
+(schema row + empty root) that reference sqlite reads and `.schema` shows. Inner joins
+(`FROM a JOIN b ON a.x = b.y [WHERE …]`, nested-loop, qualified or bare columns) work too. Reals
+render like the sqlite3 CLI. Remaining M5 follow-ups: `HAVING`, LEFT/OUTER and multi-table joins,
+aggregates over a join, a page-1 schema split, and repeating-decimal `%.15g` parity.
 
 ## Modules
 

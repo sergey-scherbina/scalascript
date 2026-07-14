@@ -9,6 +9,7 @@ exports:
   - OrderKey
   - AggItem
   - ProjItem
+  - JoinSpec
   - SelectStmt
   - tokenize
   - parseSelect
@@ -93,6 +94,13 @@ def tokenize(sql: String): Either[String, List[Token]] =
       while i < n && isAlnum(charCode(sql, i)) do
         word = word + sql.charAt(i).toString
         i = i + 1
+      // qualified name `a.b` becomes one ident token "a.b"
+      if charCode(sql, i) == 46 && isAlpha(charCode(sql, i + 1)) then
+        word = word + "."
+        i = i + 1
+        while i < n && isAlnum(charCode(sql, i)) do
+          word = word + sql.charAt(i).toString
+          i = i + 1
       toksRev = Token("ident", word, 0L) :: toksRev
     else if c == 39 then
       // '…' string literal, '' is an escaped quote
@@ -160,7 +168,8 @@ def tokenize(sql: String): Either[String, List[Token]] =
 // ── Parser: SELECT (*|cols) FROM table [WHERE col op literal] ──
 
 case class Condition(column: String, op: String, value: SqliteValue)
-case class SelectStmt(star: Boolean, projection: List[ProjItem], table: String, where: Option[Condition], orderBy: List[OrderKey], limit: Int, offset: Int, groupBy: List[String])
+case class JoinSpec(table: String, leftCol: String, op: String, rightCol: String)
+case class SelectStmt(star: Boolean, projection: List[ProjItem], table: String, where: Option[Condition], orderBy: List[OrderKey], limit: Int, offset: Int, groupBy: List[String], join: Option[JoinSpec])
 
 def isKw(token: Token, word: String): Boolean = token.kind == "ident" && upperStr(token.text) == word
 
@@ -405,6 +414,29 @@ def parseGroupBy(toks: List[Token]): Either[String, (List[String], List[Token])]
         case Some(message) => Left(message)
         case None => Right((reverseStrings(accRev, Nil), rest))
 
+// Optional `[INNER] JOIN ident ON col op col`; returns the join spec (or None) + rest.
+def parseJoin(toks: List[Token]): Either[String, (Option[JoinSpec], List[Token])] =
+  val afterInner = if tkIsKw(toks, "INNER") then toks.tail else toks
+  if !tkIsKw(afterInner, "JOIN") then Right((None, toks))
+  else
+    val afterJoin = afterInner.tail
+    if tkKind(afterJoin) != "ident" then Left("expected a table after JOIN")
+    else
+      val jtable = afterJoin.head.text
+      val afterJt = afterJoin.tail
+      if !tkIsKw(afterJt, "ON") then Left("expected ON after the JOIN table")
+      else
+        val afterOn = afterJt.tail
+        if afterOn.length < 3 then Left("ON needs: col op col")
+        else
+          val l = afterOn.head
+          val o = afterOn.tail.head
+          val rc = afterOn.tail.tail.head
+          if l.kind != "ident" then Left("expected a column in ON")
+          else if o.kind != "op" then Left("expected a comparison operator in ON")
+          else if rc.kind != "ident" then Left("expected a column in ON")
+          else Right((Some(JoinSpec(jtable, l.text, o.text, rc.text)), afterOn.tail.tail.tail))
+
 def parseSelect(toks: List[Token]): Either[String, SelectStmt] =
   if !tkIsKw(toks, "SELECT") then Left("expected SELECT")
   else
@@ -417,13 +449,15 @@ def parseSelect(toks: List[Token]): Either[String, SelectStmt] =
         else
           val afterFrom = afterCols.tail
           if tkKind(afterFrom) != "ident" then Left("expected table name")
-          else parseWhere(afterFrom.tail) match
+          else parseJoin(afterFrom.tail) match
             case Left(message) => Left(message)
-            case Right(wpair) => parseGroupBy(wpair._2) match
+            case Right(jpair) => parseWhere(jpair._2) match
               case Left(message) => Left(message)
-              case Right(gpair) => parseOrderLimit(gpair._2) match
+              case Right(wpair) => parseGroupBy(wpair._2) match
                 case Left(message) => Left(message)
-                case Right(ol) => Right(SelectStmt(proj._1, proj._2, afterFrom.head.text, wpair._1, ol._1, ol._2, ol._3, gpair._1))
+                case Right(gpair) => parseOrderLimit(gpair._2) match
+                  case Left(message) => Left(message)
+                  case Right(ol) => Right(SelectStmt(proj._1, proj._2, afterFrom.head.text, wpair._1, ol._1, ol._2, ol._3, gpair._1, jpair._1))
 
 // ── Column names from the table's CREATE TABLE text ──
 
@@ -853,7 +887,110 @@ def computeAggregates(aggs: List[AggItem], rows: List[StorageRecord], colNames: 
     r = r.tail
   reverseValues(accRev, Nil)
 
+// ── Inner join (nested loop, qualified column resolution) ──
+
+def substr(s: String, from: Int, to: Int): String =
+  var i = from
+  var out = ""
+  while i < to do
+    out = out + s.charAt(i).toString
+    i = i + 1
+  out
+
+// Split `a.b` into ("a","b"); a bare name gives (name, "").
+def dotSplit(name: String): (String, String) =
+  var i = 0
+  var pos = -1
+  while i < name.length && pos < 0 do
+    if name.charAt(i).toInt == 46 then pos = i
+    i = i + 1
+  if pos < 0 then (name, "")
+  else (substr(name, 0, pos), substr(name, pos + 1, name.length))
+
+def joinColValue(recA: StorageRecord, colsA: List[String], tableA: String, recB: StorageRecord, colsB: List[String], tableB: String, name: String): SqliteValue =
+  val parts = dotSplit(name)
+  if parts._2 != "" then
+    if upperStr(parts._1) == upperStr(tableA) then rowValue(recA, colsA, parts._2)
+    else if upperStr(parts._1) == upperStr(tableB) then rowValue(recB, colsB, parts._2)
+    else SqlNull
+  else
+    if columnIndex(colsA, name) >= 0 then rowValue(recA, colsA, name)
+    else if columnIndex(colsB, name) >= 0 then rowValue(recB, colsB, name)
+    else if upperStr(name) == "ROWID" then rowValue(recA, colsA, name)
+    else SqlNull
+
+def joinWhereHolds(where: Option[Condition], recA: StorageRecord, colsA: List[String], tableA: String, recB: StorageRecord, colsB: List[String], tableB: String): Boolean = where match
+  case None => true
+  case Some(cond) => condMatches(cond.op, sqlCompare(joinColValue(recA, colsA, tableA, recB, colsB, tableB, cond.column), cond.value))
+
+def joinProjectRow(recA: StorageRecord, colsA: List[String], tableA: String, recB: StorageRecord, colsB: List[String], tableB: String, stmt: SelectStmt): List[SqliteValue] =
+  var accRev: List[SqliteValue] = Nil
+  if stmt.star then
+    var ca = colsA
+    while ca.nonEmpty do
+      accRev = rowValue(recA, colsA, ca.head) :: accRev
+      ca = ca.tail
+    var cb = colsB
+    while cb.nonEmpty do
+      accRev = rowValue(recB, colsB, cb.head) :: accRev
+      cb = cb.tail
+  else
+    var r = projItemNames(stmt.projection)
+    while r.nonEmpty do
+      accRev = joinColValue(recA, colsA, tableA, recB, colsB, tableB, r.head) :: accRev
+      r = r.tail
+  reverseValues(accRev, Nil)
+
+def joinTableRows(db: ReadonlyDatabase, table: String): Either[String, (List[String], List[StorageRecord])] =
+  findTable(db, table) match
+    case None => Left("no such table: " + table)
+    case Some(entry) =>
+      val cols = entry.sql match
+        case Some(text) => tableColumns(cpToString(text.codePoints))
+        case None => Nil
+      val root = entry.rootPage match
+        case Some(p) => p
+        case None => 0L
+      openReadonlyRoot(db, root, RowidTableTree) match
+        case Left(error) => Left(error.message)
+        case Right(cursor) => collectRows(db, cursor) match
+          case Left(error) => Left(error.message)
+          case Right(rows) => Right((cols, rows))
+
+def joinExecute(db: ReadonlyDatabase, stmt: SelectStmt, spec: JoinSpec): Either[String, List[List[SqliteValue]]] =
+  joinTableRows(db, stmt.table) match
+    case Left(message) => Left(message)
+    case Right(a) => joinTableRows(db, spec.table) match
+      case Left(message) => Left(message)
+      case Right(b) =>
+        val colsA = a._1
+        val rowsA = a._2
+        val colsB = b._1
+        val rowsB = b._2
+        var ra = rowsA
+        var resultRev: List[List[SqliteValue]] = Nil
+        while ra.nonEmpty do
+          var rb = rowsB
+          while rb.nonEmpty do
+            val lv = joinColValue(ra.head, colsA, stmt.table, rb.head, colsB, spec.table, spec.leftCol)
+            val rv = joinColValue(ra.head, colsA, stmt.table, rb.head, colsB, spec.table, spec.rightCol)
+            if condMatches(spec.op, sqlCompare(lv, rv)) then
+              if joinWhereHolds(stmt.where, ra.head, colsA, stmt.table, rb.head, colsB, spec.table) then
+                resultRev = joinProjectRow(ra.head, colsA, stmt.table, rb.head, colsB, spec.table, stmt) :: resultRev
+            rb = rb.tail
+          ra = ra.tail
+        var out: List[List[SqliteValue]] = Nil
+        while resultRev.nonEmpty do
+          out = resultRev.head :: out
+          resultRev = resultRev.tail
+        Right(limitValueRows(out, stmt.limit, stmt.offset))
+
 def executeSelect(db: ReadonlyDatabase, stmt: SelectStmt): Either[String, List[List[SqliteValue]]] =
+  stmt.join match
+    case Some(spec) => joinExecute(db, stmt, spec)
+    case None => executeSelectSingle(db, stmt)
+
+def executeSelectSingle(db: ReadonlyDatabase, stmt: SelectStmt): Either[String, List[List[SqliteValue]]] =
   findTable(db, stmt.table) match
     case None => Left("no such table: " + stmt.table)
     case Some(entry) =>

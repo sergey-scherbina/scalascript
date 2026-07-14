@@ -1559,8 +1559,18 @@ order, so `SELECT *` matches without ORDER BY), and int==js.
       ORDER on the new tables match sqlite. int==js; conformance `scljet-sql-create-table`. LIMITATION:
       the page-1 schema leaf must not overflow (a page-1 split — balance at headerOffset 100 — is the
       follow-up); `CREATE TABLE IF NOT EXISTS`, indexes, and constraints not parsed.
-- [ ] **scljet-m5m-join** — simple inner join `SELECT … FROM a JOIN b ON a.x = b.y [WHERE …]`
-      (nested-loop). Later; needs qualified column names + a two-table row model.
+- [x] **scljet-m5m-join** — DONE 2026-07-14. Inner join `SELECT … FROM a [INNER] JOIN b ON a.x op b.y
+      [WHERE …]`, nested-loop. Lexer now emits qualified names (`a.b`) as one ident; `parseJoin` reads
+      the JOIN + ON; `JoinSpec` on `SelectStmt`; `joinExecute` nested-loops rowsA × rowsB, keeps pairs
+      where ON (and WHERE) hold, and projects via `joinColValue` (qualified `a.col` → that table, bare
+      col → whichever table has it; `SELECT *` = all A cols then all B cols). Verified vs sqlite3
+      (qualified + bare projection, WHERE on qualified/bare, `SELECT *`, filter on join): byte-identical
+      (join order = nested loop = sqlite's), int==js; conformance `scljet-sql-join`. Follow-ups:
+      multi-table joins, LEFT/OUTER, aggregates/GROUP BY/ORDER BY over a join, `a.*`.
+
+**SclJet SQL is now broad**: full CRUD (incl. column-list INSERT), SELECT with multi-column
+ORDER BY / LIMIT / OFFSET, aggregates (COUNT/SUM/MIN/MAX/AVG/TOTAL), GROUP BY, CREATE TABLE, and
+inner joins — every feature byte-verified against reference sqlite3, int==js.
 
 Execution order (value × tractability): m4a (template exists) → m4b → m4c → m4d →
 m4e → m4f → m4g. Keep every scljet conformance case green [int,js] --no-memo after each.

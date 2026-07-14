@@ -1,0 +1,12 @@
+SELECT emp.name, dept.dname FROM emp JOIN dept ON emp.dept = dept.did => ann|eng
+bob|sales
+cat|eng
+SELECT name, dname FROM emp JOIN dept ON emp.dept = dept.did WHERE dname = 'eng' => ann|eng
+cat|eng
+SELECT emp.id, emp.name FROM emp JOIN dept ON emp.dept = dept.did WHERE emp.id >= 2 => 2|bob
+3|cat
+SELECT * FROM emp JOIN dept ON emp.dept = dept.did => 1|ann|10|10|eng
+2|bob|20|20|sales
+3|cat|10|10|eng
+SELECT emp.name FROM emp JOIN dept ON emp.dept = dept.did WHERE emp.dept < 20 => ann
+cat
