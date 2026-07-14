@@ -1,0 +1,5 @@
+claim: v2.2-p6.13-cmin-operators
+branch: feature/v2.2-p6.13-cmin-operators
+what: P6.13 — extend C_min's language L with comparison (> >= <=) + short-circuit (&& ||) operators; rewrite
+      C_min's char-classification/bounds code idiomatically; keep stage1==stage2 fixpoint + spike byte-identity.
+started: 2026-07-14
