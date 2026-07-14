@@ -22,11 +22,11 @@ Durable control uses the simple reusable **save/run** idiom, not replay: `contin
 the continuation as an immutable `SavedContinuation`; every `saved.run(value)` starts a fresh
 execution directly at the capture point. The prefix is never re-executed, while the suffix runs once
 per explicit `run`, preserving the multi-shot semantics of `shift/reset`. Semantically the saved value
-is a closed, typed CoreIR continuation capsule (`A => Eff[Fx,R]`) built only from the current canonical
-CoreIR plus codec-safe captured data; no continuation-specific CoreIR node is added. The public value
-is an opaque, serializable reference/capsule that may cross a process or network boundary. An optional
-`runOnce` operation adds an atomic claim and `Unknown`-after-crash state for queue/workflow use cases;
-one-shot consumption is not the default continuation semantics.
+is a typed envelope around a closed CoreIR continuation capsule (`A => Eff[Fx,R]`) built only from the
+current canonical CoreIR plus codec-safe captured data; no continuation-specific CoreIR node is added.
+The public value is an opaque, serializable reference/capsule that may cross a process or network
+boundary. Atomic one-shot workflow execution is an optional policy, not the default continuation
+semantics and not part of the base save/run milestone.
 
 ### Specification and contract freeze
 
@@ -34,14 +34,18 @@ one-shot consumption is not the default continuation semantics.
   against `v2.2-self-hosted-dialect`, UniML portable-source rules, frozen CoreIR, self-hosting,
   corpus differential semantics, existing Scala interop, and polyglot host libraries. Pin the public
   control ABI, structured API metadata, managed/foreign boundary, exact `shift/reset` laws,
-  mixed-language callbacks/TCO, reusable portable save/run, optional atomic `runOnce`, diagnostics,
-  security,
+  mixed-language callbacks/TCO, reusable portable save/run, diagnostics, security,
   conformance matrix, non-goals, and phased implementation. Cross-link companion specs and record
   optional enterprise extensions in BACKLOG rather than silently expanding the base milestone.
 - [ ] **coreir-canonical-contract-reconcile** — reconcile the frozen-count/no-loop claims in
   `v2/specs/10-core-ir.md` with the current canonical Reader/Writer and `CoreIR.scala`, which already
   serialize `While` and `Seq`. Pin one canonical node/value inventory before freezing the capsule
   encoding; this is documentation/contract drift, not permission to add a continuation node.
+- [ ] **coreir-canonical-codec-hardening** — make the canonical codec match its contract before it is
+  used for untrusted persisted capsules: preserve floating-point bit identity including `-0.0`, add
+  `IrBytes` encode parity, reconcile `coreir.encode`'s promised Bytes with its actual String, provide
+  the specified text/bytes decode path, validate symbols/closed globals/arities, and enforce bounded
+  decoding. Add encode/decode/canonicalization vectors for every node and constant.
 
 ### Public ABI and portable semantic baseline
 
@@ -110,13 +114,15 @@ frontend or lowering begin only after the active UniML P6.5 literal-fixed-point 
   reusable source continuation; every `run` gets an independent reconstruction of the immutable
   captured environment, and executes the suffix exactly once for that invocation without replaying
   the prefix. The opaque value has a portable codec and may be sent over HTTP, a queue, or ordinary
-  data serialization. Add optional `saved.runOnce(value)` with atomic
-  `Ready → Claimed → Completed|Unknown` semantics and no automatic retry after an unknown result.
+  data serialization. Saving never strengthens multiplicity: a one-shot coroutine suspension cannot
+  be converted into this reusable type and retains a separately typed one-shot resume contract.
 - [ ] **continuation-artifact-drain** — validate the capsule's exact CoreIR/control ABI and intrinsic
   manifest. A fully packed capsule may run on any compatible machine; a compact content-addressed
   capsule may refer to its exact `artifactDigest`, in which case old artifacts/workers stay drain-only
-  or launch on demand until no references remain. No base cross-version frame migration, effect
-  journal, automatic retry, or exactly-once claim about external systems.
+  or launch on demand until all reusable handles are explicitly revoked/expired and active runs end.
+  Mixed Scala/JVM frames use this artifact-bound fallback; fully portable `.ssc` capsules do not need
+  the old application worker. No base cross-version frame migration, effect journal, automatic retry,
+  or exactly-once claim about external systems.
 
 ### End-to-end completion gate
 
@@ -125,7 +131,7 @@ frontend or lowering begin only after the active UniML P6.5 literal-fixed-point 
   written on either side, separate compilation, mixed TCO, save→network transfer→remote run,
   save→process restart→many runs, concurrent multi-shot runs with isolated captured data, repeated
   suffix effects, wrong ABI/intrinsic manifest, compact-capsule wrong artifact, capture barrier,
-  runOnce duplicate/concurrent claim, and crash-after-runOnce-claim=`Unknown`.
+  one-shot-source rejection, revoke/expiry, and tampered/cross-tenant capsule rejection.
 - [ ] **scala-sdk-feature-coverage** — derive a CI-enforced matrix from existing feature/capability and
   module metadata. Every ScalaScript capability must declare one Scala exposure form: native API,
   generated facade, macro, compiler plugin, tooling-only, platform-specific, or intentionally
