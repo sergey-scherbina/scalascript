@@ -711,6 +711,19 @@ lazy val core = project
     Test    / scalacOptions ++= sharedScalacOptions
   )
 
+// Compiler-independent explicit effects and delimited-control API for ordinary
+// Scala 3 programs. This is deliberately a production dependency-free leaf: it
+// must not couple host control semantics to CoreIR, a backend, or the legacy
+// interop runtime.
+lazy val scala3ControlApi = project
+  .in(file("v1/lang/control-api"))
+  .settings(
+    name := "scalascript-control-api",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 // v2.0 / Tier 2 of Scala ↔ ScalaScript interop — see specs/scala-interop.md.
 //
 // A small Scala 3 library that lets regular Scala projects consume
@@ -4650,7 +4663,7 @@ lazy val root = project
     v2NativeDistributedPlugin, v2NativeGraphPlugin, v2NativeOpticsPlugin, v2NativePdfPlugin,
     v2NativeNfcPlugin, v2NativeMcpPlugin, v2NativeGraphRdf4jPlugin, v2NativeSwiftPlugin,
     v2PluginBridge, v2FrontendBridge, v2JvmBytecode, v2JsBackend, v2SwiftBackend,
-    valueData, backendSpi, pluginApi, ir, logger, yaml, uniml, unimlJs, unimlJson, unimlJsonJs, unimlXml, unimlXmlJs, unimlYaml, unimlYamlJs, unimlMarkdown, unimlMarkdownJs, unimlMarkdownBridge, core, interop, testUtils, pluginHost, wireCore,
+    valueData, backendSpi, pluginApi, ir, logger, yaml, uniml, unimlJs, unimlJson, unimlJsonJs, unimlXml, unimlXmlJs, unimlYaml, unimlYamlJs, unimlMarkdown, unimlMarkdownJs, unimlMarkdownBridge, core, scala3ControlApi, interop, testUtils, pluginHost, wireCore,
 
     runtimeServerCommon, runtimeServerSpi, runtimeServerJvm,
     runtimeServerJvmJetty, runtimeServerJvmNetty, httpFastEngine, runtimeServerJvmFast, mcpCommon,
