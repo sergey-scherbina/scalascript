@@ -426,6 +426,11 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
         compiler's source. Not literal spike-compiles-spike (needs spike front ported to subset, P6.5-adj);
         proves the prerequisite: subset hosts a compiler + spike compiles it faithfully. **Corpus 62
         programs, 0 fail.** Notes §P6.4.
+    - [x] **P6.5-step block-in-arm gap + closures interpreter ✓ Landed 2026-07-14** (b456ae8f5): closed the
+          block-body-in-match-arm gap (parseArm→branchExpr/parseBlock; parseBlock stops at case/}); added
+          selfhost-closures — a higher-order interpreter with CLOSURES (lambda→closure capturing env,
+          application extends it; (λf. f(f(3)))(λx. x*2)→**12**), byte-identical + runs. Three self-host
+          artifacts now (compiler→23, scoped interp→56, closures→12). **Corpus 64 programs, 0 fail.**
   - [ ] **P6.5 (follow-on, non-gate)** — port `ssc1-lower` AND the spike front (SpikeLex/Parse/Project)
         from ssc0/Scala into the subset → whole compiler dual-compilable = the literal self-compilation
         fixed point.
