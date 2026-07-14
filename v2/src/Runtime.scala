@@ -616,6 +616,25 @@ object Compiler:
     // (perf-neutral for the const-captured hot path) while making concurrent first-touch safe.
     val globals = scala.collection.concurrent.TrieMap[String, Value]()
     val c = new C(globals, topDefs)
+    // pass 0: register case-class field names BEFORE any eager value def evaluates.
+    // `__regfields__` prims live in the entry, which runs AFTER value defs (pass 2);
+    // an eager global (a parameterless `def`/object `val`) that does UNTYPED field
+    // access (`__method__("field", …)`) then saw an empty registry and Stub'd. Run
+    // the registrations upfront — they only populate name metadata, no dependencies.
+    def collectRegfields(t: Term): List[Term] = t match
+      case p @ Prim("__regfields__", _) => List(p)
+      case Prim(_, args)                => args.flatMap(collectRegfields)
+      case App(fn, args)                => collectRegfields(fn) ++ args.flatMap(collectRegfields)
+      case Lam(_, b)                    => collectRegfields(b)
+      case Let(rhs, b)                  => rhs.flatMap(collectRegfields) ++ collectRegfields(b)
+      case LetRec(ls, b)                => ls.flatMap(collectRegfields) ++ collectRegfields(b)
+      case If(cc, th, el)               => collectRegfields(cc) ++ collectRegfields(th) ++ collectRegfields(el)
+      case Ctor(_, fs)                  => fs.flatMap(collectRegfields)
+      case Match(s, arms, d)            => collectRegfields(s) ++ arms.flatMap(a => collectRegfields(a.body)) ++ d.toList.flatMap(collectRegfields)
+      case While(cc, b)                 => collectRegfields(cc) ++ collectRegfields(b)
+      case Seq(ts)                      => ts.flatMap(collectRegfields)
+      case _                            => Nil
+    for rf <- collectRegfields(p.entry) do Runtime.run(c.compile(rf), Array.empty[Value])
     // pass 1: lambda defs -> closures (recursion resolves via Global at call time)
     for d <- p.defs do d.body match
       case Lam(ar, b) =>

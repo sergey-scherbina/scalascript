@@ -31,11 +31,11 @@ verify by probe + JVM dialect test + conformance 640ok. Detail: memory `project_
   <foreign>". Now Cons-lists (indexed access `v(i)` + all list ops). Fixed the map-placeholder-copy.
 - [x] **v2-untyped-field-access DONE** — `__method__(field, DataV)` resolves a by-name field via the
   registry (mirrors `__methodOrExt__`); `localVar.method().field` was Stub'd.
-- [ ] **v2-eager-global-regfields-order** — a parameterless `def run = …` (no parens) that does UNTYPED
-  case-class field access is an EAGER global evaluated during global-init, BEFORE the entry's
-  `__regfields__` run → field registry empty → Stub. Repro `p-varlast.ssc`. Not on YAML's path (its
-  field access is inside 1-arg methods, run after the entry). Fix: register field metadata before
-  eager globals evaluate.
+- [x] **v2-eager-global-regfields-order DONE** — a parameterless `def run = …` doing UNTYPED
+  case-class field access was an eager global evaluated BEFORE the entry's `__regfields__` → registry
+  empty → Stub. Fixed: `compileWithGlobals` now runs a pass-0 that registers all `__regfields__` from
+  the entry before evaluating value defs. Repro `p-varlast.ssc` now `kind=seq`. (Did NOT fix the YAML
+  kind-on-string — that receiver is a StrV, unrelated.)
 - [ ] **v2-yaml-kind-on-string** — CURRENT YAML blocker: `__method__: no dispatch for .kind on
   "yaml.sequence"` (receiver is a STRING kind-value, not a case class, so the field-access fallback
   doesn't apply). In `YamlStructure.blockRanges`; the `role` lambda's `parent.kind` works (DBG: parent
