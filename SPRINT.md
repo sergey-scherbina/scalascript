@@ -38,6 +38,55 @@ verify by probe + JVM dialect test + conformance 640ok. Detail: memory `project_
 ### Markdown — NOT STARTED
 - [ ] **markdown-on-v2** — flatten `markdown/` parse path (nested enums InlinePiece/AngleKind/OpenLeaf
   — nested-enum support already landed) → run → sweep the same construct gaps → `status=Complete`.
+## corpus-contract — differential gate + v2 migration portability (2026-07-14, Sergiy: "усиливаем, разбираем, портируем" + "запиши в спеку, добавь в спринт")
+
+Spec: `specs/corpus-contract.md`. Mechanism: `tests/conformance/CONTRACT.md`. Gap map: `tests/conformance/V2-GAP.md`.
+Gate: `scala-cli tests/conformance/contract.sc`. Baseline: `tests/conformance/corpus-baseline.tsv` (int golden = 0;
+**js ~60, v2 ~67 non-PASS** = the migration progress bar). After a fix that closes a gap, remove its baseline line
+(or `contract.sc -- --update-baseline`). `--v2` = the v1-frontend→v2-VM BRIDGE lane; the self-hosted `--bytecode`
+lane is the separate `v2-native-conformance` section below.
+
+### DONE this arc
+- [x] **contract.sc** — differential gate (both corpora × int/js/v2, golden = expected-or-live-INT, frozen baseline),
+  `CONTRACT.md`, nightly `corpus-contract.yml`. усиливаем: bounded parallelism (≤4) + retry-on-timeout → ~8-10 min, stable.
+- [x] **V2-GAP.md** — 67 v2 failures clustered (разбираем): the gap is INTEGRATION, not language (~57% = wire an
+  existing v1 plugin/intrinsic into v2; ~19% = frontend parse gaps; rest = small tail).
+- [x] **js-parenless-def-value** — a bare parenless-def reference now evaluates (`f`→`f()`), not passed uncalled.
+- [x] **js-user-operator-dispatch** — overloaded operators on user types (`++`/`/`/…) dispatch to their extension
+  (`_tupleConcat`/`_arith` → `_dispatch` for `_type` objects); fixed dsl-ast-builder.
+- [x] **KEY FINDING** — effect runners can't be portable `.ssc` (handle only catches a *syntactic inline* effectful
+  call, never a param-passed body). So "портируем runtime" = eliminate cross-backend divergences, NOT rewrite.
+
+### Strengthen — promote to per-PR
+- [ ] Add memo (F2: skip cases whose source + jar identity are unchanged since last green) + batch lanes
+  (F4: `run-batch --v1 / --emit-js / v2`) to `contract.sc`, per `conformance-perf.md`; then move `corpus-contract.yml`
+  from nightly to a per-PR gate.
+- [ ] Add the `jvm` lane (and later native/rust) to the default set once fast enough.
+
+### js divergences (remaining, root-caused)
+- [ ] **js-imported-def-int-division-loses-truncation** (BUGS.md) — closes the 6 `scljet-write-*`. An Int-param
+  `value / N` in a TRANSITIVELY-imported namespace-member def (`std/scljet/write.ssc` `writeBe32`) lowers to the float
+  `_arith('/')` instead of `Math.trunc` because the param's Int evidence doesn't reach the emitting childGen (3+
+  def-emission paths; a genObjectAsExpr `withParamTypeEvidence` wrap was a confirmed no-op for these). Fix the exact
+  childGen/grandchild path that emits transitively-imported namespace-member defs to apply param evidence.
+- [ ] **actors-cluster js DIVERGE ×3** (actors-cluster-coordinator, actors-cluster-raft, actors-leader-protocol) —
+  `hist=1` vs `hist=0`: leader-history not tracked on the JS actor runtime.
+
+### v2 (bridge lane `--v2`) — wire plugins (V2-GAP.md order, highest leverage first)
+- [ ] **actor-cluster methods → v2 scope (10)** — electLeader / useRaftLeaderElection / clusterConfigSet /
+  requestGossip / … ("Actors scope failed: unbound global").
+- [ ] **content-toolkit → v2 (8)** — contentToolkitSection / contentToolkitBlock ("unbound global"); also closes the
+  `content-tables` v2 DIVERGE.
+- [ ] **derived codecs in v2 (6)** — JsonCodec_derived / ObjectCodec_derived.
+- [ ] **native effect handlers in v2 (3)** — SeedResolver.staticList, IndexedDb.*.
+- [ ] **plugin singles** — htmlToPdfBase64 (PDF ×3), mcpServer (×2), NFC, oauth, Widget, fetchUrlSignal, Sync,
+  ConfigBlockInlineYAML. Several are the same feature-gaps as the JS/Node lane.
+- [ ] **dsl-calc-parser v2 DIVERGE** — parser yields an empty value (`1 + 2 => ` vs `=> 1`); a v2 parser-combinator
+  bug (matchPrefix in v2/src/Runtime.scala is correct — the issue is deeper).
+- [ ] **v2 frontend parse gaps (13)** — "native frontend rejected" / "checker exit"; the UniML / frontend track
+  (see `uniml-portable`).
+
+---
 
 ## v2-native-conformance — remaining self-hosted native-lane gaps (2026-07-14, Sergiy: "запиши в спринт все что осталось")
 
