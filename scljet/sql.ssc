@@ -1155,6 +1155,60 @@ def computeJoinAggregates(projection: List[ProjItem], pairs: List[JoinPair], col
     r = r.tail
   reverseValues(accRev, Nil)
 
+def takePairs(pairs: List[JoinPair], n: Int): List[JoinPair] =
+  var r = pairs
+  var i = 0
+  var accRev: List[JoinPair] = Nil
+  while i < n && r.nonEmpty do
+    accRev = r.head :: accRev
+    r = r.tail
+    i = i + 1
+  reversePairs(accRev, Nil)
+
+def dropPairs(pairs: List[JoinPair], n: Int): List[JoinPair] =
+  var r = pairs
+  var i = 0
+  while i < n && r.nonEmpty do
+    r = r.tail
+    i = i + 1
+  r
+
+def pairOrderCompare(a: JoinPair, b: JoinPair, colsA: List[String], tableA: String, colsB: List[String], tableB: String, keys: List[OrderKey]): Int =
+  var r = keys
+  var result = 0
+  while r.nonEmpty && result == 0 do
+    val ok = r.head
+    val cmp = sqlCompare(joinPairValue(a, colsA, tableA, colsB, tableB, ok.column), joinPairValue(b, colsA, tableA, colsB, tableB, ok.column))
+    result = if ok.desc then 0 - cmp else cmp
+    r = r.tail
+  result
+
+def mergePairs(a: List[JoinPair], b: List[JoinPair], colsA: List[String], tableA: String, colsB: List[String], tableB: String, keys: List[OrderKey]): List[JoinPair] =
+  var ra = a
+  var rb = b
+  var accRev: List[JoinPair] = Nil
+  while ra.nonEmpty && rb.nonEmpty do
+    if pairOrderCompare(ra.head, rb.head, colsA, tableA, colsB, tableB, keys) <= 0 then
+      accRev = ra.head :: accRev
+      ra = ra.tail
+    else
+      accRev = rb.head :: accRev
+      rb = rb.tail
+  while ra.nonEmpty do
+    accRev = ra.head :: accRev
+    ra = ra.tail
+  while rb.nonEmpty do
+    accRev = rb.head :: accRev
+    rb = rb.tail
+  reversePairs(accRev, Nil)
+
+def sortPairsBy(pairs: List[JoinPair], colsA: List[String], tableA: String, colsB: List[String], tableB: String, keys: List[OrderKey]): List[JoinPair] =
+  val n = pairs.length
+  if n <= 1 then pairs
+  else
+    val half = n / 2
+    mergePairs(sortPairsBy(takePairs(pairs, half), colsA, tableA, colsB, tableB, keys), sortPairsBy(dropPairs(pairs, half), colsA, tableA, colsB, tableB, keys), colsA, tableA, colsB, tableB, keys)
+
 def joinExecute(db: ReadonlyDatabase, stmt: SelectStmt, spec: JoinSpec): Either[String, List[List[SqliteValue]]] =
   joinTableRows(db, stmt.table) match
     case Left(message) => Left(message)
@@ -1187,7 +1241,7 @@ def joinExecute(db: ReadonlyDatabase, stmt: SelectStmt, spec: JoinSpec): Either[
         val pairs = reversePairs(pairsRev, Nil)
         if projHasAgg(stmt.projection) then Right(computeJoinAggregates(stmt.projection, pairs, colsA, stmt.table, colsB, spec.table) :: Nil)
         else
-          var pp = pairs
+          var pp = if stmt.orderBy.isEmpty then pairs else sortPairsBy(pairs, colsA, stmt.table, colsB, spec.table, stmt.orderBy)
           var resultRev: List[List[SqliteValue]] = Nil
           while pp.nonEmpty do
             resultRev = joinProjectRow(pp.head.recA, colsA, stmt.table, pp.head.recBOpt, colsB, spec.table, stmt) :: resultRev

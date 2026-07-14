@@ -25,3 +25,8 @@ SELECT COUNT(*) FROM emp LEFT JOIN dept ON emp.dept = dept.did => 4
 SELECT COUNT(dept.did) FROM emp LEFT JOIN dept ON emp.dept = dept.did => 3
 SELECT DISTINCT dept.dname FROM emp JOIN dept ON emp.dept = dept.did => eng
 sales
+SELECT emp.name, dept.dname FROM emp JOIN dept ON emp.dept = dept.did ORDER BY dept.dname, emp.id DESC => cat|eng
+ann|eng
+bob|sales
+SELECT emp.name FROM emp JOIN dept ON emp.dept = dept.did ORDER BY emp.id DESC LIMIT 2 => cat
+bob

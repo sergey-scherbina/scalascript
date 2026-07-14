@@ -1635,7 +1635,14 @@ order, so `SELECT *` matches without ORDER BY), and int==js.
 **SclJet SQL is now broad**: full CRUD (incl. column-list INSERT), SELECT with DISTINCT, multi-column
 ORDER BY / LIMIT / OFFSET, aggregates (COUNT/SUM/MIN/MAX/AVG/TOTAL), GROUP BY + HAVING, CREATE TABLE,
 and inner + LEFT joins — every feature byte-verified against reference sqlite3, int==js.
-Remaining follow-ups (niche): multi-table joins, page-1 schema split, repeating-decimal %.15g.
+Remaining follow-ups (niche): multi-table joins, GROUP BY over a join, page-1 schema split,
+repeating-decimal %.15g.
+
+- [x] **scljet-m5r-join-orderby** — DONE 2026-07-14. ORDER BY over a join: `sortPairsBy` stable
+      merge-sorts the matched `JoinPair`s by the order keys (`pairOrderCompare` via `joinPairValue`,
+      per-key ASC/DESC) before projection, so `ORDER BY` on any qualified/bare column of either table
+      works with LIMIT/OFFSET. Verified vs sqlite3 (`ORDER BY a.col`, `ORDER BY b.col, a.col DESC`,
+      `ORDER BY … DESC LIMIT`), int==js; folded into `scljet-sql-join` (14 queries).
 
 - [x] **scljet-m5q-join-aggregate** — DONE 2026-07-14. Aggregates + DISTINCT over a join. `joinExecute`
       now collects the matched `JoinPair`s, then if the projection has an aggregate computes it over the

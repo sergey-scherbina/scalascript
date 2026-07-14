@@ -51,4 +51,6 @@ buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER, name TEXT, de
     show(db4, "SELECT COUNT(*) FROM emp LEFT JOIN dept ON emp.dept = dept.did")
     show(db4, "SELECT COUNT(dept.did) FROM emp LEFT JOIN dept ON emp.dept = dept.did")
     show(db4, "SELECT DISTINCT dept.dname FROM emp JOIN dept ON emp.dept = dept.did")
+    show(db4, "SELECT emp.name, dept.dname FROM emp JOIN dept ON emp.dept = dept.did ORDER BY dept.dname, emp.id DESC")
+    show(db4, "SELECT emp.name FROM emp JOIN dept ON emp.dept = dept.did ORDER BY emp.id DESC LIMIT 2")
 ```
