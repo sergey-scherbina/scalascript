@@ -777,6 +777,24 @@ private[codegen] trait JsGenCpsCodegen:
       val bindings = subConditions.flatMap(_._2)
       (if cond.isEmpty then "true" else cond, bindings)
 
+    // `h :: t` cons infix pattern — identical shape to Cons(h, t): a non-empty
+    // list (JS array or Cons DataV). genPattern lacked this case, so any `::`
+    // pattern — a plain `case h :: t =>` and especially one nested inside a Tuple
+    // pattern like `case (ah :: at, bh :: _) =>` — fell through to the "true"
+    // default, emitting no structural test and binding neither head nor tail.
+    // (js-cons-infix-pattern.)
+    case Pat.ExtractInfix.After_4_6_0(headPat, Term.Name("::"), tailClause)
+        if tailClause.values.length == 1 =>
+      val isArray = s"(Array.isArray($scrutVar) && $scrutVar.length > 0)"
+      val isData  = s"($scrutVar && $scrutVar._type === 'Cons')"
+      val head = s"(Array.isArray($scrutVar) ? $scrutVar[0] : Object.values($scrutVar).slice(1)[0])"
+      val tail = s"(Array.isArray($scrutVar) ? $scrutVar.slice(1) : Object.values($scrutVar).slice(1)[1])"
+      val subConds  = List(genPattern(head, headPat), genPattern(tail, tailClause.values.head))
+      val subCond   = subConds.map(_._1).filter(_ != "true").mkString(" && ")
+      val bindings  = subConds.flatMap(_._2)
+      val cond = s"($isArray || $isData)" + (if subCond.nonEmpty then s" && $subCond" else "")
+      (cond, bindings)
+
     case Pat.Extract.After_4_6_0(fn, argClause) =>
       val typeName = fn match
         case Term.Name(n)                 => n
