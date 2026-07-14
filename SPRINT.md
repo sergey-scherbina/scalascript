@@ -400,9 +400,13 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
           source text, in the subset. **Corpus 71 programs, 0 fail.** Notes §P6.5-step.
     - [x] **P6.5-step precedence parser ✓ Landed 2026-07-14** (06f45b8fe): selfhost-infix — a precedence-
           climbing parser with parentheses (SAME algorithm as the spike's parseExpr), reading source text:
-          compile("2 * (1 + 3)")→**8** (precedence + grouping), byte-identical + runs. Six self-host
-          artifacts now; the spike's lex→precedence-parse→eval front shape is proven expressible+runnable in
-          the subset. **Corpus 72 programs, 0 fail.** Notes §P6.5-step.
+          compile("2 * (1 + 3)")→**8** (precedence + grouping), byte-identical + runs. Notes §P6.5-step.
+    - [x] **P6.5-step full pipeline (lower to IR text) ✓ Landed 2026-07-14** (940b8f172): string-return/
+          building/int→string all run byte-identically; selfhost-compiler = the FULL pipeline in the subset
+          (source text → lexer → tokens → parser → AST → LOWERER emitting CoreIR-like S-expr text):
+          compile("+ 1 * 2 3")→**"(add (int 1) (mul (int 2) (int 3)))"**, byte-identical + runs. Seven self-
+          host artifacts cover every compiler phase (lex/parse/eval/closures/lower). **Corpus 77 programs, 0
+          fail.** Literal P6.5 now purely mechanical breadth — no capability gap remains. Notes §P6.5-step.
   - [ ] **P6.5 (follow-on, non-gate)** — port `ssc1-lower` AND the spike front (SpikeLex/Parse/Project)
         from ssc0/Scala into the subset → whole compiler dual-compilable = the literal self-compilation
         fixed point. Remaining work is mechanical BREADTH (all node kinds), not a capability question —
