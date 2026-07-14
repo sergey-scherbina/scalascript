@@ -636,7 +636,13 @@ def parseParamList = (toks) =>
         let r = parseParam(ts) in
         let acc2 = Cons(prV(r), acc) in
         let ts2 = prT(r) in
-        if kindIs(",", ts2) then goParams(advance(ts2), acc2)
+        if kindIs(",", ts2) then
+          -- Trailing comma before `)` in a multi-line `def` param list must NOT start
+          -- another param (parseParam on `)` falls to its `_` fallback → phantom param
+          -- → def lowered at arity N+1, so a full call fails "arity N+1 expected, N given").
+          let tsAfterComma = advance(ts2) in
+          if kindIs(")", tsAfterComma) then pr(reverse(acc2), tsAfterComma)
+          else goParams(tsAfterComma, acc2)
         else pr(reverse(acc2), ts2) in
       let r = goParams(toks2, Nil) in
       pr(prV(r), skipKind(")", prT(r)))
@@ -2839,7 +2845,15 @@ def layout = (toks) =>
                   if canStartLine(rest) then isCont(rest) else true
                 else true in
               match nlStep(v, stack, suppressSep) {
-                case Pair(emitted, ns) => append(emitted, go(rest, ns, false, false, false, false, false))
+                -- A continuation NL (suppressSep) must PRESERVE declHead: a class/
+                -- object/trait header may wrap before its `extends`/`with` clause
+                -- (`case class X(…)` NL `extends T[…]:`), and the body `:` sits on the
+                -- continuation line. Resetting declHead here left that `:` unframed, so
+                -- the body leaked as top-level defs and only the first member was
+                -- captured (the rest → Stub), same failure the inParenLike fix guards.
+                case Pair(emitted, ns) =>
+                  append(emitted, go(rest, ns, false, false,
+                    (if suppressSep then declHead else false), false, false))
               }
           else if #seq(k, "(") then
             if extensionReceiverParen(extensionHead, stack) then
