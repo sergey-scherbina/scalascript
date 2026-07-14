@@ -1,6 +1,6 @@
 feature/scala3-bidirectional-control-spec 2026-07-14T10:45:25Z
 agent: codex
-heartbeat: 2026-07-14T10:45:46Z
+heartbeat: 2026-07-14T11:02:21Z
 status: in-progress
-done-so-far: isolated worktree created from origin/main
-next: audit v2.2 plans and write the full SPRINT plan before the specification
+done-so-far: architecture audits and the complete implementation-slice plan are published on origin/main
+next: specify reusable SavedContinuation as a portable closed CoreIR capsule and reconcile companion contracts
