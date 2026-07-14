@@ -2,22 +2,22 @@
 
 Status: **draft (2026-07-14)** — the runner profile for the portable ScalaScript
 VM. Normative ownership of the model lives in the target-neutral core spec
-`control-interoperability.md` (authored by `codex-interop`; this profile upgrades
-the inline references below to hard links once that spec lands on `main`). This
-file is a **runner-target profile**, not a host-language SDK. It
+[`control-interoperability.md`](control-interoperability.md); this file is a
+**runner-target profile** (parallel to the WASM/WASI runner profile), not a
+host-language SDK. It
 records how the portable VM realises the core model, which axes it satisfies
 today (measured), and the obligations every other runner is checked against —
 because the portable VM is the **reference runner**.
 
-Companions: `control-interoperability.md` (core — link added on landing),
+Companions: [`control-interoperability.md`](control-interoperability.md) (core),
 [`scala3-bidirectional-control.md`](scala3-bidirectional-control.md) (Scala host
 profile + `save()`/`run()` durable surface),
 [`../tests/interop-conformance/README.md`](../tests/interop-conformance/README.md)
 (the executable conformance matrix this profile's reference row comes from).
 
-> This draft forward-references `control-interoperability.md`; it lands on `main`
-> only after that core spec lands, so the cross-reference resolves and shared
-> terminology is reconciled.
+> Terminology is aligned with the landed core spec: `CodeMode = Portable |
+> ExactArtifact` and `FrameGate = Savable | Unsavable(CaptureBarrier)` (core §8.3);
+> the portable VM is always `CodeMode = Portable`.
 
 ---
 

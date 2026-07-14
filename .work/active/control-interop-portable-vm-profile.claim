@@ -1,6 +1,0 @@
-feature/control-interop-portable-vm-profile 2026-07-14T13:09:13Z
-agent: claude (eager-raven)
-heartbeat: 2026-07-14T13:09:13Z
-status: in-progress
-done-so-far: portable-VM reference profile SHIPPED (09cf224d0) + harness (9aa579c28); standalone, no broken links
-next: upgrade 2 inline refs -> hard links to specs/control-interoperability.md AFTER codex lands it, then release
