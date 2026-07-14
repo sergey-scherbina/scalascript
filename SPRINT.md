@@ -1845,6 +1845,14 @@ ORDER BY / LIMIT / OFFSET, aggregates (COUNT/SUM/MIN/MAX/AVG/TOTAL), GROUP BY + 
 and inner + LEFT joins — every feature byte-verified against reference sqlite3, int==js.
 Remaining follow-ups (niche): multi-table (3+) joins, page-1 schema split, repeating-decimal %.15g.
 
+- [x] **scljet-m6k-no-from** — DONE 2026-07-14. `SELECT <exprs>` with no `FROM` → one computed row.
+      `parseSelect` builds a `SelectStmt` with `table = ""` when FROM is absent; `queryImage` routes
+      `table == ""` to new `executeNoFrom`, which evaluates each projection item's expr with
+      `evalExprValues(e, Nil, Nil)` (empty row) — the whole expression engine (arithmetic, `||`,
+      functions, `CASE`, `%`, comparisons) with no DB access. Verified vs sqlite3 (`SELECT 1+1`,
+      `UPPER('hello')`, `'a'||'b'||'c'`, `CASE …`, `10 % 3`, `SUBSTR(...)`, `5 > 3`), int==js;
+      conformance `scljet-sql-no-from`.
+
 - [x] **scljet-m6j-agg-expr** — DONE 2026-07-14. Aggregates inside expressions — `COUNT(*) + 1`,
       `MAX(salary) - MIN(salary)`, `SUM(salary) / COUNT(*)`, `COUNT(*) * 10` per GROUP BY group,
       `HAVING COUNT(*) * 100 > 150`, `'total:' || SUM(salary)`. New `SxAgg(func, arg, distinct)` AST

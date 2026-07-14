@@ -1,4 +1,4 @@
 claim: scljet-m3-writes
 owner: opus
-heartbeat: 2026-07-14T17:21:15Z
-status: m6j aggregate expressions done; 28/28 sql green
+heartbeat: 2026-07-14T17:26:13Z
+status: m6k SELECT without FROM done; 29/29 sql green
