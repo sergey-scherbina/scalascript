@@ -2445,6 +2445,17 @@ def lowerE = (scope, rawExpr) =>
           IrPrim("cell.get", Cons(IrGlobal(#sconcat(data, "__cell")), Nil))
         else if isTopVar(data) then
           IrPrim("cell.get", Cons(IrGlobal(#sconcat(data, "__cell")), Nil))
+        -- A CAPITALIZED bare reference to the enclosing object's own `val`/`def`
+        -- member (a constant like `VerticalTab`, `Start`, `Empty`) — mirror the `id`
+        -- case, which had these checks. Without them the uid fell straight to
+        -- `IrGlobal(data)` → `unbound global`. (Nested types / enum cases are NOT in
+        -- staticMemberNames, so they still resolve to their hoisted global.)
+        else if isActiveOwnerVar(data) then
+          IrPrim("cell.get",
+            Cons(IrGlobal(#sconcat(#cell.get(kc7bOwnerPrefixCell),
+              #sconcat(data, "__cell"))), Nil))
+        else if isActiveOwnerMember(data) then
+          IrGlobal(#sconcat(#cell.get(kc7bOwnerPrefixCell), data))
         else IrGlobal(data)
       else if #seq(tag, "tup") then
         lowerTuple(scope, data)

@@ -409,6 +409,10 @@ def lexFrom = (s, i) =>
     else if #i.eq(c, 43) then
       if #i.eq(n, 43) then Cons(mkTok("op", "++"), lexFrom(s, #i.add(i2, 2)))
       else if #i.eq(n, 61) then Cons(mkTok("op", "+="), lexFrom(s, #i.add(i2, 2)))
+      -- `+:` prepend. In v2 every Seq is a Cons-list, so `x +: xs` is exactly
+      -- `x :: xs`; reuse the `::` token's right-associativity and Cons lowering.
+      -- (Was unlexed → parsed as a bare `+` then `:` → `_err` unbound global.)
+      else if #i.eq(n, 58) then Cons(mkTok("::", ""), lexFrom(s, #i.add(i2, 2)))
       else Cons(mkTok("op", "+"), lexFrom(s, #i.add(i2, 1)))
     else if #i.eq(c, 42) then
       if #i.eq(n, 42) then Cons(mkTok("op", "**"), lexFrom(s, #i.add(i2, 2)))
@@ -2890,7 +2894,13 @@ def isCont = (ts) =>
           (if #seq(v, "catch") then true else if #seq(v, "finally") then true
            -- `case class X(…)` NL `derives TC` — same continuation case.
            else if #seq(v, "derives") then true else false)
-        else if #seq(k, "op") then #i.gt(opPrec(v), 0)
+        -- `!` is BOTH prefix unary-not and infix actor-send. A line that STARTS with
+        -- `!` (after a completable previous line) is a new unary-not statement, never a
+        -- wrapped `receiver ! msg` (actor sends stay on one line). Treating it as a
+        -- continuation glued `val t = e` NL `!f(t)` into `val t = (e ! f(t))`, so `t`
+        -- referenced its own not-yet-bound name → `unbound global: t`.
+        else if #seq(k, "op") then
+          (if #seq(v, "!") then false else #i.gt(opPrec(v), 0))
         else if #seq(k, ".") then true
         else if #seq(k, "::") then true
         else if #seq(k, "->") then true

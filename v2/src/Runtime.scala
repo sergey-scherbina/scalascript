@@ -2476,10 +2476,15 @@ object Prims:
         case (StrV(s), "contains", List(StrV(sub))) => BoolV(s.contains(sub))
         case (StrV(s), "startsWith", List(StrV(pfx))) => BoolV(s.startsWith(pfx))
         case (StrV(s), "startsWith", List(StrV(pfx), IntV(off))) => BoolV(s.startsWith(pfx, off.toInt))
+        // Pass each char as its code (IntV), consistent with `charAt`, char literals,
+        // and the sibling `filter`/`takeWhile`/`dropWhile` handlers below. Passing a
+        // 1-char StrV made `s.forall(_ == 'x')` (StrV vs IntV) always false and broke
+        // every char-literal / Char-predicate closure (fence detection, blank-line
+        // scans, setext underlines, …).
         case (StrV(s), "forall", List(fn: Value.ClosV)) =>
-          BoolV(s.forall(c => callClos(fn, Array(StrV(c.toString))) == BoolV(true)))
+          BoolV(s.forall(c => callClos(fn, Array(IntV(c.toLong))) == BoolV(true)))
         case (StrV(s), "exists", List(fn: Value.ClosV)) =>
-          BoolV(s.exists(c => callClos(fn, Array(StrV(c.toString))) == BoolV(true)))
+          BoolV(s.exists(c => callClos(fn, Array(IntV(c.toLong))) == BoolV(true)))
         case (StrV(s), "endsWith", List(StrV(sfx)))   => BoolV(s.endsWith(sfx))
         case (StrV(s), "take", List(IntV(n)))            => StrV(s.take(n.toInt))
         case (StrV(s), "drop", List(IntV(n)))            => StrV(s.drop(n.toInt))
@@ -2519,8 +2524,6 @@ object Prims:
         // the old _sel_takeWhile scodeAt path now that .takeWhile routes here via __method__).
         case (StrV(s), "takeWhile",   List(fn: ClosV))  => StrV(s.takeWhile(c => callClos(fn, Array(IntV(c.toLong))) == BoolV(true)))
         case (StrV(s), "dropWhile",   List(fn: ClosV))  => StrV(s.dropWhile(c => callClos(fn, Array(IntV(c.toLong))) == BoolV(true)))
-        case (StrV(s), "forall",      List(fn: ClosV))  => BoolV(s.forall(c => callClos(fn, Array(IntV(c.toLong))) == BoolV(true)))
-        case (StrV(s), "exists",      List(fn: ClosV))  => BoolV(s.exists(c => callClos(fn, Array(IntV(c.toLong))) == BoolV(true)))
         // ── scala.math object ──────────────────────────────────────────────────────
         case (ForeignV("__math__"), "Pi", Nil)         => FloatV(math.Pi)
         case (ForeignV("__math__"), "E", Nil)          => FloatV(math.E)
@@ -2715,6 +2718,9 @@ object Prims:
         case (ls, "dropRight", List(IntV(n))) if isList(ls) => listOf(unlist(ls).dropRight(n.toInt))
         case (ls, "indices", Nil) if isList(ls) => listOf(unlist(ls).indices.map(i => IntV(i.toLong): Value))
         case (ls, "slice", List(IntV(a), IntV(b))) if isList(ls) => listOf(unlist(ls).slice(a.toInt, b.toInt))
+        case (ls, "updated", List(IntV(i), x)) if isList(ls) => listOf(unlist(ls).updated(i.toInt, x))
+        case (ls, "patch", List(IntV(from), repl, IntV(rep))) if isList(ls) =>
+          listOf(unlist(ls).patch(from.toInt, unlist(repl), rep.toInt))
         case (ls, "takeWhile", List(fn: Value.ClosV)) if isList(ls) =>
           listOf(unlist(ls).takeWhile(x => callClos(fn, Array(x)) == Value.BoolV(true)))
         case (ls, "dropWhile", List(fn: Value.ClosV)) if isList(ls) =>
