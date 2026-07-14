@@ -261,17 +261,31 @@ verify by probe + JVM dialect test + conformance 640ok. Detail: memory `project_
 - [ ] **v2-object-qualified-nested-ctor** — `O.Inner(…)` (qualified ext ref to a nested type) →
   `unbound global: O_Inner`. Bare `Inner(…)` inside the object works; dialects use bare, so low-pri.
 
-### Markdown — COMPLETE on v2 (all three dialects done!)
-- [x] **markdown-on-v2 COMPLETE** — heading/para/emphasis/list/blockquote/code/mixed →
-  roots=N Complete 0 diags; unimlMarkdown 34/34 JVM. Fixes: (v2, GENERAL) consecutive local `def`s
-  share ONE IrLetRec so they're mutually/forward visible (was `unbound global: b` for `a` calling a
-  later `b` — fundamental, real methods do this); `.iterator` on a list = identity. (UniML) hoist the
-  nested Container/OpenLeaf/ParaSeg out of the plain class `MarkdownBlocks` (v2 doesn't lower types
-  nested in a plain-class body, and attributes a nested case class's body method to the enclosing
-  class); rename Container `ListItem`→`ListItemFrame` (top-level name clash with MarkdownValue.ListItem);
-  pass all `Reframe` fields in field order (same enum-named-omit-default bug as YAML).
-- [ ] **markdown-hardening** (follow-up) — full v2-vs-JVM differential over a CommonMark/GFM corpus;
-  test GFM + ScalaScript profiles.
+### Markdown — BLOCK layer at v2==JVM parity; inline layer gated by in-loop `return` (2026-07-14)
+- [x] **markdown block+emphasis at parity** — heading/para/list/blockquote/code-FENCE/table/thematic-
+  break/emphasis → v2==JVM byte-identical (deep tree digest). Earlier "COMPLETE" was point-example
+  only; the differential (below) found real bugs it missed.
+- [x] **differential harness** (scratchpad `gen_diff.py`/`run_diff.sh`) — concatenate the LIVE core+
+  dialect Scala into ONE dual-compilable program (strip package/import/access-mods, drop `*Projection.
+  project`, keep local companion imports), append a corpus loop emitting `IDX|status|roots|diags|<full
+  recursive tree serialization: branch kinds + edge roles + token kinds+lexemes>`, run on scalac (ref)
+  AND ssc1, diff. JSON 25/25 and YAML 42/42 rows byte-identical. Found 6 v2/portability bugs +1 gap:
+  - [x] `char.toString`→decimal code (no Char box): 10 markdown sites → `substring` slice (cba4c4a41)
+  - [x] `String.forall/exists` passed 1-char StrV → `_ == 'x'` always false; now IntV (0f06d4a64)
+  - [x] `Vector.updated/.patch` unimplemented on Cons-list → added
+  - [x] line-leading `!` glued as infix actor-send → `unbound t`; isCont excludes `!`
+  - [x] capitalized object-member val (`VerticalTab`) unbound internally; uid case checks owner members
+  - [x] `+:` unlexed → `_err`; lexed as `::` (identical in Cons-list model)
+- [ ] **in-loop `return` (v2 VM keystone gap)** — `return` INSIDE a `while` loop is a no-op: the lowerer's
+  early-return transform (ssc1-lower lowerBlock IrIf) can't unwind a loop, so `matchBracket`/
+  `findBacktickClose`/`scanAutolink` spin forever (`return Some(i)` never advances `i`). Blocks markdown
+  CODE-SPANS + links + images + autolinks + raw-HTML. JSON(10)/YAML(1) returns are STRAIGHT-LINE → work.
+  FIX DESIGN: non-local return via the VM's existing throw/catch — new `ReturnThrow(value)` + prims
+  `__throw_return__`(throws) / `__with_return__`(try thunk catch ReturnThrow→value); lower every `return e`
+  to `__throw_return__`, wrap ONLY named-def bodies that CONTAIN a return with `__with_return__` (NOT
+  lambdas — a `return` in a lambda must exit the enclosing def = correct Scala semantics; also avoids
+  breaking the TCO trampoline on return-free defs). Verify: p-return probe → markdown differential → FULL
+  conformance (watch TCO tests).
 
 ### Markdown — NOT STARTED (obsolete note below)
 - [ ] **markdown-on-v2** — flatten `markdown/` parse path (nested enums InlinePiece/AngleKind/OpenLeaf
