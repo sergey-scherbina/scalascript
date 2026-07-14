@@ -1,0 +1,7 @@
+slug: v2.2-p6.4-selfhost
+scope: P6.4 self-host proof — write real compiler/interpreter programs IN the subset (tokenizer→parser→
+       stack-machine compiler→VM, plus an evaluator with let/var/environments), compile them with the
+       spike, prove CoreIR byte-identical to ssc1-front AND that they execute to the correct result.
+       Demonstrates the subset hosts a compiler and the spike compiles it identically to the trusted front.
+files: uniml/core/src/test/.../spike/**, specs/v2.2-*, SPRINT.md
+branch: feature/v2.2-p6.4-selfhost
