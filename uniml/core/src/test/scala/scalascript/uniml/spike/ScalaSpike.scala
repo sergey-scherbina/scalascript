@@ -418,7 +418,11 @@ object SpikeParse:
     val braced = c.peekKind == "spike.lbrace"
     if braced then c.advance().foreach(t => kids += Node.Leaf(t, Some("match.open")))
     c.skipSemis()
-    while isKw(c, "case") do { kids += parseArm(c); c.skipSemis() }
+    // Non-braced arms are offside-bounded: a `case` dedented below the first arm's column, or a
+    // top-level `case class`, ends the match (else `def f = e match … / case class C` swallows C).
+    val armCol = if isKw(c, "case") then c.peekCol else 0
+    while isKw(c, "case") && c.peek2Lexeme != "class" && (braced || c.peekCol >= armCol) do
+      kids += parseArm(c); c.skipSemis()
     if braced && c.peekKind == "spike.rbrace" then c.advance().foreach(t => kids += Node.Leaf(t, Some("match.close")))
     Node.Frame("spike.match", None, kids.result())
 

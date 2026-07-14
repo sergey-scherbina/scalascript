@@ -419,8 +419,37 @@ final class ScalaSpikeSpec extends AnyFunSuite:
     val outDir = sys.env.getOrElse("SPIKE_OUT",
       "/private/tmp/claude-501/-Users-sergiy-work-my-scalascript/0ae59ae0-0693-4dfa-b393-87f68bf3d01b/scratchpad/p6.0")
     Files.createDirectories(Paths.get(outDir))
+    // a scale program: enum + match + case class + given/summon + if/else-if + interpolation +
+    // lambdas + blocks + recursion, all in one module — a "gold-standard" whole-front interaction test.
+    val scaleProg =
+      """|enum Expr:
+         |  case Num(v: Int)
+         |  case Add(l: Expr, r: Expr)
+         |  case Mul(l: Expr, r: Expr)
+         |def eval(e: Expr): Int = e match
+         |  case Num(v) => v
+         |  case Add(l, r) => eval(l) + eval(r)
+         |  case Mul(l, r) => eval(l) * eval(r)
+         |case class Point(x: Int, y: Int)
+         |def dist(p: Point): Int = p.x * p.x + p.y * p.y
+         |given base: Int = 10
+         |def scale(n: Int): Int =
+         |  val factor = summon[Int]
+         |  n * factor
+         |def describe(n: Int): String =
+         |  if n > 0 then s"positive:$n"
+         |  else if n < 0 then s"negative:$n"
+         |  else "zero"
+         |def twice(n: Int): Int =
+         |  val f = x => x + x
+         |  f(n)
+         |def main(): Int =
+         |  val e = Add(Num(3), Mul(Num(4), Num(5)))
+         |  val d = dist(Point(3, 4))
+         |  eval(e) + d + scale(2) + twice(5)""".stripMargin
     // well-formed — the harness requires byte-identical Core IR vs ssc1-front.
     val wellFormed = Seq(
+      "scale-prog" -> scaleProg,
       "add-mul"   -> "def main(): Int = 1 + 2 * 3",
       "mul-add"   -> "def main(): Int = 1 * 2 + 3",
       "paren"     -> "def main(): Int = (1 + 2) * 3",
