@@ -383,14 +383,19 @@ this is the `v2-native-conformance` / `uniml-portable` deep track, actively buil
   and doesn't already import it (the runner merges all source files into one scope). **Closes json-lookup.**
   Mechanism confirmed by `bin/ssc run --v2 std/json.ssc <user>.ssc` → jsonRead resolves. Grow `ambientModules`
   as more std modules are confirmed clean.
-- [ ] **json-value / json-read** — now RUN (prelude resolves jsonRead) but DIVERGE on a deeper native-JsonValue
-  REPRESENTATION gap: INT renders json objects as `Map(name -> Ada, …)` (native Map values); v2's JsonBox is a
-  `ForeignV NamedMethodObj` that renders `<foreign>` (Show has no renderer hook on the native tier; `Show.foreignRenderer`
-  is null there). Fix = make JsonBox render like v1 (`Map(...)`/`List(...)`) — either a `_show` field on JsonBox
-  (Show checks `getField("_show")` first) producing INT's Map/List textual form, or set Show.foreignRenderer on
-  the native tier. ALSO json-read has asX-of-null divergences (`asInt(null)`→0 vs `()`). LESSON: DON'T change
-  JsonBox `get` to return Option — measured +json-value/-json-deep-import/-ui-typed-json (they use `v.get(k).asX`
-  as apply-with-default); `get` semantics are apply-like, not Option, on this runtime.
+- [x] **json-value CLOSED** (32e3040bc) — the native JsonValue needed an OPTIONAL-JsonBox for `.get`: renders
+  `Some(inner)`/`None` like INT YET keeps every JsonValue method (asString on an absent key → "", `.map` →
+  Some/None). This RECONCILES json-value's Option usage (`v.get(k).map(...)`, prints Some/None) with
+  json-deep-import/ui-typed-json's apply usage (`v.get(k).asString`) — INT's `get` returns exactly such a rich
+  optional (v1 `navJson`). Plus JsonBox `_show` = `NativeJsonCodec.interpShow` rendering objects as
+  `Map(k -> v)` / arrays `List(...)` (unquoted, matching INT) instead of `<foreign>`. LESSON: `get` is NEITHER
+  plain-Option NOR plain-apply — it's an optional-with-methods; a plain-Option `get` measured
+  +json-value/−json-deep-import/−ui-typed-json before the optional-box reconciled all.
+- [ ] **json-read** (1 case) — 2 remaining jsonParse REPRESENTATION nuances, both finicky/risky (deferred):
+  (a) `jsonParse("null")` → INT `None`, v2 `()` (toRaw JsonCoreNull → UnitV; toRaw is broadly used → risky to
+  change); (b) `jsonParse("0.0")` → INT `0`, v2 `0.0` (rawNumber keeps `DecimalV("0.0")`; INT normalizes whole
+  decimals to int — BigDecimal zero-normalization is finicky, risks other number renders). Needs a targeted,
+  gate-verified pass; not worth the regression risk for 1 case at the tail of a large sweep.
 - [ ] **content-toolkit NOT prelude-injectable** — std/ui/content.ssc as a root trips the content plugin's
   "structural ABI root identity" check; contentToolkitSection is an extern the v2 content NativePlugin doesn't
   register. Needs native-plugin work, not a prelude.
