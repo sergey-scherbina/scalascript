@@ -1,6 +1,0 @@
-claim: v2.2-p6.19-cmin-ctorpat
-branch: feature/v2.2-p6.19-cmin-ctorpat
-what: P6.19 — close C_min pattern-matching gaps: arbitrary ctor patterns `case Name(a,b,...)` + variable-arity
-      ctor construction `Name(a,b,c)`. Capstone: a tree-walking ADT evaluator (Num/Add/Mul) compiled by C_min.
-      Keep stage1==stage2 fixpoint + spike byte-identity.
-started: 2026-07-14
