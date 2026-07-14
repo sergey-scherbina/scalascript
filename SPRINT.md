@@ -78,9 +78,9 @@ optional policy, not the default continuation semantics.
         bounds, a real nominal effect witness that keeps `Nothing` request-free, public
         `Eff.Step`/handler/continuation/state-machine shapes, eager one-shot gates, sealed private
         continuation capabilities, and the deliberate `UnmanagedCapture` result of local save.
-  - [ ] **sca-2 — add the dependency-free module.** Add `v1/lang/control-api` as `scala3ControlApi`
-        with no production dependencies and only root aggregation; do not connect it to v2Core,
-        UniML, the seed, canonical codec, CLI, legacy `interop`, or any backend.
+  - [x] **sca-2 — dependency-free module added** (`e97312d96`). `v1/lang/control-api` is the
+        `scala3ControlApi` leaf with only a test-scoped ScalaTest dependency and root aggregation; it
+        has no edge to v2Core, UniML, the seed, canonical codec, CLI, legacy `interop`, or any backend.
   - [ ] **sca-3 — implement the executable reference model.** Implement a private-erasure,
         public-typed stackless `Pure | Op`/bind/defer machine, iterative `step`/pure runner, deep
         residual-forwarding handlers, operation multiplicity, generative prompts, exact multi-prompt
