@@ -1,0 +1,7 @@
+slug: v2.2-p6.5-str
+scope: literal P6.5 — add STRINGS to the compiler (the last data type): string literals "..." -> (lit
+       (str ..)); method calls s.length/s.charAt(i)/s.substring(a,b) -> __method__/scodeAt/sslice prims;
+       == -> __eq__; polymorphic arithmetic via __arith__ (so + is int-add OR string-concat). Completes the
+       object language's data types (ints/lists/tuples/strings). def dbl(s)=s+s def ln(s)=s.length ... -> 4.
+files: uniml/core/src/test/.../spike/**, specs/v2.2-*, SPRINT.md
+branch: feature/v2.2-p6.5-str
