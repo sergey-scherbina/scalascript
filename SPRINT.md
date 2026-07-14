@@ -363,8 +363,14 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
           Fixed: match arms are offside-bounded (dedent or `case class` ends the match). scale-prog→CoreIR≡
           ssc1-front. **Corpus now 50 programs, 0 fail.** LESSON: whole-module scale tests surface
           interaction bugs the per-feature corpus can't. Notes §P6.4b.
+    - [x] **P6.4c/d more scale tests + edge probes ✓ Landed 2026-07-14** (259bf166b/08759e349): 4 more
+          whole-module scale programs (decl-boundaries, nested match+lambda, ${field} holes, recursion+HOF)
+          all pass; 3 edge probes caught 3 MORE real gaps — offside if/else branches (branchExpr→parseBlock),
+          function types A=>B in return/param position (skipTypeTail, also closes latent List[T] param gap),
+          chained application f(a)(b) (postfix applyArgs). **Corpus now 57 programs, 0 fail.** Probe-and-fix
+          loop keeps surfacing real gaps the prior corpus missed. Notes §P6.4c/d.
   - [ ] **P6.4 self-host proof** — compile v2.2 with itself (stage1→stage2 fixed point); scalac oracle.
-        Grammar coverage is now comprehensive (50-program byte-identical corpus incl. a whole-module test).
+        Grammar coverage now very comprehensive (57-program byte-identical corpus incl. whole-module tests).
   - [ ] **P6.5 (follow-on, non-gate)** — port `ssc1-lower` from ssc0 into the subset (whole compiler
         dual-compilable end to end).
   - Prereqs: subset must hold — the one v2-side lift is **immutable indexed `Array`** (gapmap:76);
