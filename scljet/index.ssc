@@ -145,6 +145,8 @@ exports:
   - applyRollbackJournal
   - JournalPage
   - writeRollbackJournal
+  - JournaledWrite
+  - writePagesJournaled
   - SqliteValue
   - SqlNull
   - SqlInteger
@@ -358,7 +360,7 @@ interfaces and prove compatibility through differential and crash testing.
 
 [ReadonlyCursorStep, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly](readonly.ssc)
 [emptyDatabase, encodeRecord, buildSingleTableDatabase, buildTableDatabase, buildOverflowTableDatabase, buildOverflowBtreeDatabase, buildDeepTableDatabase, buildDeepOverflowTableDatabase, KeyedRow, buildKeyedDatabase, KeyedRawRow, buildKeyedRawDatabase, buildFromRawSchema, TableSpec, buildMultiTableDatabase, RawTable, buildMultiTableRaw, buildTableWithIndexDatabase, IndexEntry, buildTableWithIndexRaw](write.ssc)
-[rollbackJournalChecksum, JournalRecovery, applyRollbackJournal, JournalPage, writeRollbackJournal](journal.ssc)
+[rollbackJournalChecksum, JournalRecovery, applyRollbackJournal, JournalPage, writeRollbackJournal, JournaledWrite, writePagesJournaled](journal.ssc)
 
 [FileKind, MainDatabaseFile, MainJournalFile, WalFile, ShmFile, TempDatabaseFile, TempJournalFile, TransientFile, OpenFlags, LockLevel, LockNone, LockShared, LockReserved, LockPending, LockExclusive, SyncFlags, DeviceCharacteristic, AtomicWrite, SafeAppend, SequentialWrite, PowersafeOverwrite, UndeletableWhenOpen, AtomicDelete, ShmLockMode, ShmSharedLock, ShmExclusiveLock, ShmSharedUnlock, ShmExclusiveUnlock, VfsError, VfsRead, VfsWrite, SharedRegion, SqliteFile, SqliteVfs](vfs.ssc)
 

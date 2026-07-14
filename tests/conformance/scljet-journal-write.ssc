@@ -1,0 +1,37 @@
+---
+name: scljet-journal-write
+description: SclJet transactional in-place page write (m3e) — journal pre-images, mutate pages, recovery restores the original (cross-backend)
+backends: [int, js]
+---
+
+# SclJet transactional page write
+
+[ByteSlice, byteSliceToList, byteSliceSlice, byteSliceUpdated, SqliteValue, SqlInteger, SqlText, buildTableDatabase, JournalPage, writePagesJournaled, applyRollbackJournal](std/scljet/index.ssc)
+
+```scalascript
+// Build a database, change one byte of page 2 through the transactional writer
+// (which journals page 2's pre-image, then overwrites it in place), then recover
+// from the journal. The mutated database differs from the original, and recovery
+// restores it exactly — the crash-safety guarantee. int and JS agree.
+buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(n INTEGER, v TEXT)",
+  List(List(SqlInteger(1L), SqlText("one")), List(SqlInteger(2L), SqlText("two")))) match
+  case Right(db) =>
+    byteSliceSlice(db, 512, 512) match
+      case Right(page2) =>
+        byteSliceUpdated(page2, 300, 123) match
+          case Right(newPage2) =>
+            writePagesJournaled(db, 512, 512, 987654L, List(JournalPage(2, newPage2))) match
+              case Right(jw) =>
+                applyRollbackJournal(jw.database, jw.journal) match
+                  case Right(recovery) =>
+                    val origStr = byteSliceToList(db).toString
+                    val mutStr = byteSliceToList(jw.database).toString
+                    val recStr = byteSliceToList(recovery.database).toString
+                    println("differs:" + (mutStr != origStr).toString + " restores:" + (recStr == origStr).toString + " journalPages:" + (jw.journal.length / 512).toString)
+                    println(mutStr)
+                  case Left(error) => println("RECOVER-ERROR:" + error.message)
+              case Left(error) => println("WRITE-ERROR:" + error.message)
+          case Left(error) => println("UPDATE-ERROR:" + error.message)
+      case Left(error) => println("SLICE-ERROR:" + error.message)
+  case Left(error) => println("BUILD-ERROR:" + error.message)
+```

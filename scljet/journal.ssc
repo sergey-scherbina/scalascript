@@ -9,6 +9,8 @@ exports:
   - applyRollbackJournal
   - JournalPage
   - writeRollbackJournal
+  - JournaledWrite
+  - writePagesJournaled
 ---
 
 # SclJet rollback journal recovery
@@ -21,7 +23,7 @@ by page records `u32 pageNumber ++ page bytes ++ u32 checksum`. A *complete*
 journal is "hot": on open, its pre-images are restored and the database is
 truncated to the recorded size, undoing the interrupted transaction.
 
-[ByteSlice, ByteError, byteSliceGet, byteSliceToList, byteSliceSlice, byteSliceCopyTo, byteSliceZeroExtend, readU32Be, writeU32Be, ByteRead](bytes.ssc)
+[ByteSlice, ByteError, byteSliceGet, byteSliceToList, byteSliceSlice, byteSliceConcat, byteSliceCopyTo, byteSliceZeroExtend, readU32Be, writeU32Be, ByteRead](bytes.ssc)
 
 ```scalascript
 case class JournalRecovery(database: ByteSlice, records: Int, pages: Int)
@@ -130,4 +132,70 @@ def writeRollbackJournal(pageSize: Int, sectorSize: Int, dbSizePages: Int, nonce
     journalU32(sectorSize.toLong) ++ journalU32(pageSize.toLong)
   val padded = header ++ journalZeros(sectorSize - header.length, Nil)
   ByteSlice.fromList(padded ++ journalRecordsList(records, pageSize, nonce))
+
+// ── Transactional in-place page write (m3e: journal, then mutate the pages) ──
+//
+// The crash-safe write primitive: capture the OLD content of every page about to
+// change (the journal's pre-images), then overwrite those pages in the database.
+// After a crash — new pages written but the journal not yet deleted (uncommitted)
+// — `applyRollbackJournal(result.database, result.journal)` restores the original.
+// Committing is simply discarding the journal.
+
+case class JournaledWrite(database: ByteSlice, journal: ByteSlice)
+
+/** Overwrite page `pageNumber` (1-based) of `database` with `newPage`. */
+def overwritePage(database: ByteSlice, pageSize: Int, pageNumber: Int, newPage: ByteSlice): Either[ByteError, ByteSlice] =
+  val start = (pageNumber - 1) * pageSize
+  byteSliceSlice(database, 0, start) match
+    case Left(error) => Left(error)
+    case Right(prefix) =>
+      byteSliceSlice(database, start + pageSize, database.length - start - pageSize) match
+        case Left(error) => Left(error)
+        case Right(suffix) => Right(byteSliceConcat(byteSliceConcat(prefix, newPage), suffix))
+
+/** Pre-images (old content) of each page a change set touches, as journal pages. */
+def preImages(database: ByteSlice, pageSize: Int, changes: List[JournalPage]): Either[ByteError, List[JournalPage]] =
+  var piRemaining = changes
+  var piAcc: List[JournalPage] = Nil
+  var piFailure: Option[ByteError] = None
+  while piRemaining.nonEmpty && piFailure.isEmpty do
+    val piChange = piRemaining.head
+    byteSliceSlice(database, (piChange.pageNumber - 1) * pageSize, pageSize) match
+      case Left(error) => piFailure = Some(error)
+      case Right(oldPage) =>
+        piAcc = JournalPage(piChange.pageNumber, oldPage) :: piAcc
+        piRemaining = piRemaining.tail
+  piFailure match
+    case Some(error) => Left(error)
+    case None => Right(piAcc.reverse)
+
+def applyPages(database: ByteSlice, pageSize: Int, changes: List[JournalPage]): Either[ByteError, ByteSlice] =
+  var apCurrent = database
+  var apRemaining = changes
+  var apFailure: Option[ByteError] = None
+  while apRemaining.nonEmpty && apFailure.isEmpty do
+    val apChange = apRemaining.head
+    overwritePage(apCurrent, pageSize, apChange.pageNumber, apChange.page) match
+      case Left(error) => apFailure = Some(error)
+      case Right(next) =>
+        apCurrent = next
+        apRemaining = apRemaining.tail
+  apFailure match
+    case Some(error) => Left(error)
+    case None => Right(apCurrent)
+
+/** Journal the pre-images of the changed pages, then apply the new page contents
+ *  in place. `changes` are the NEW page bytes per page number. Returns the mutated
+ *  database and the rollback journal; recovery undoes the change. */
+def writePagesJournaled(database: ByteSlice, pageSize: Int, sectorSize: Int, nonce: Long, changes: List[JournalPage]): Either[ByteError, JournaledWrite] =
+  val dbSizePages = database.length / pageSize
+  preImages(database, pageSize, changes) match
+    case Left(error) => Left(error)
+    case Right(images) =>
+      writeRollbackJournal(pageSize, sectorSize, dbSizePages, nonce, images) match
+        case Left(error) => Left(error)
+        case Right(journal) =>
+          applyPages(database, pageSize, changes) match
+            case Left(error) => Left(error)
+            case Right(mutated) => Right(JournaledWrite(mutated, journal))
 ```
