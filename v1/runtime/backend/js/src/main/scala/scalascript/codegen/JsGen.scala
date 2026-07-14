@@ -3754,6 +3754,11 @@ class JsGen(
     case Defn.Val(_, List(Pat.Var(n)), _, rhs) =>
       if !rebindNumericEvidence(n.value, rhs) && isTupleExpr(rhs) then tupleVars += n.value
       s"const ${emittedName(n.value)} = ${genExpr(rhs)};"
+    // Destructuring val inside a block/IIFE: `val (left, right) = e`. Mirrors the
+    // top-level genStat handler; without this it fell to the `/* stat */` default
+    // and the pattern's binders silently vanished. (js-destructure-val-in-block.)
+    case Defn.Val(_, List(pat), _, rhs) =>
+      s"const ${genPatDestructure(pat)} = ${genExpr(rhs)};"
     case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) =>
       rebindNumericEvidence(n.value, rhs)
       s"let ${emittedName(n.value)} = ${genExpr(rhs)};"

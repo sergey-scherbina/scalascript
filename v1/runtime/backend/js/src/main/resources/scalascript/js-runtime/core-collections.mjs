@@ -193,6 +193,7 @@ function _dispatch(obj, method, args) {
       // "Match failure" (the emitted PF closure), so skip those. (jsgen-collect-partial.)
       case 'collect': { const out=[]; for (const x of obj) { try { out.push(args[0](x)); } catch (e) { if (!(e instanceof Error && typeof e.message === 'string' && e.message.indexOf('Match failure:') === 0)) throw e; } } return out; }
       case 'span': { let i=0; while(i<obj.length&&args[0](obj[i]))i++; return [obj.slice(0,i), obj.slice(i)]; }
+      case 'splitAt': { const t = [obj.slice(0, args[0]), obj.slice(args[0])]; t._isTuple=true; return t; }
       case 'reduceLeft': return obj.reduce(args[0]);
       case 'foldLeft':  return (f) => _seqFoldLeft(obj, args[0], f);
       case 'foldRight': return (f) => _seqFoldLeft([...obj].reverse(), args[0], (acc, x) => f(x, acc));
