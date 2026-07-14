@@ -3732,14 +3732,27 @@ object Prims:
       case e: RuntimeException =>
         callClos(handler, Array(Value.DataV("RuntimeException",
           Vector(Value.StrV(Option(e.getMessage).getOrElse(""))))))
-  private val valueOrdering: Ordering[Value] = Ordering.fromLessThan {
+  private val valueOrdering: Ordering[Value] = Ordering.fromLessThan(valueLessThan)
+  // Lexicographic less-than over scalars AND tuples, so `sortBy(x => (k1, k2))`
+  // (common for multi-key sorts) orders correctly instead of leaving the list
+  // untouched (tuples used to fall to `case _ => false` = never-less-than).
+  private def valueLessThan(x: Value, y: Value): Boolean = (x, y) match
     case (IntV(a), IntV(b))     => a < b
     case (FloatV(a), FloatV(b)) => a < b
     case (StrV(a), StrV(b))     => a < b
     case (IntV(a), FloatV(b))   => a.toDouble < b
     case (FloatV(a), IntV(b))   => a < b.toDouble
+    case (DataV("Tuple2", Seq(a1, b1)), DataV("Tuple2", Seq(a2, b2))) =>
+      if valueLessThan(a1, a2) then true
+      else if valueLessThan(a2, a1) then false
+      else valueLessThan(b1, b2)
+    case (DataV("Tuple3", Seq(a1, b1, c1)), DataV("Tuple3", Seq(a2, b2, c2))) =>
+      if valueLessThan(a1, a2) then true
+      else if valueLessThan(a2, a1) then false
+      else if valueLessThan(b1, b2) then true
+      else if valueLessThan(b2, b1) then false
+      else valueLessThan(c1, c2)
     case _                      => false
-  }
   private def listOf(vs: Seq[Value]): Value =
     var acc: Value = DataV("Nil", IndexedSeq.empty)
     val it = vs.reverseIterator
