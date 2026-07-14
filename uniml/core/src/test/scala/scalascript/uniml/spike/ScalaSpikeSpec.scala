@@ -607,6 +607,41 @@ final class ScalaSpikeSpec extends AnyFunSuite:
          |def fst(p: Int): Int = p match { case (a, b) => a }
          |def compile(src: String): Int = eval(fst(parse(tokenize(src, 0, src.length))))
          |def main(): Int = compile("+ 1 * 2 3")""".stripMargin
+    // The full compiler pipeline, in the subset: source TEXT → tokens → AST → CoreIR-like S-EXPRESSION
+    // TEXT. Unlike selfhost-full (which evaluates), this LOWERS — emitting the same shape of nested
+    // S-expression a real Core IR is, built with string concatenation + int→string. lexer + parser +
+    // lowerer, all in the subset.  "+ 1 * 2 3"  →  "(add (int 1) (mul (int 2) (int 3)))".
+    val selfhostCompiler =
+      """|def isDigit(c: Int): Int = if c >= 48 then (if c <= 57 then 1 else 0) else 0
+         |def scanNum(s: String, i: Int, n: Int, acc: Int): Int =
+         |  if i >= n then (acc, i)
+         |  else
+         |    val c = s.charAt(i)
+         |    if isDigit(c) == 1 then scanNum(s, i + 1, n, acc * 10 + (c - 48))
+         |    else (acc, i)
+         |def tokenize(s: String, i: Int, n: Int): List[Int] =
+         |  if i >= n then Nil
+         |  else
+         |    val c = s.charAt(i)
+         |    if c == 43 then Cons(-1, tokenize(s, i + 1, n))
+         |    else if c == 42 then Cons(-2, tokenize(s, i + 1, n))
+         |    else if c == 32 then tokenize(s, i + 1, n)
+         |    else if isDigit(c) == 1 then scanNum(s, i, n, 0) match { case (v, j) => Cons(v, tokenize(s, j, n)) }
+         |    else tokenize(s, i + 1, n)
+         |def parseBin(tag: Int, r0: Int): Int = r0 match { case (l, r1) => parse(r1) match { case (r, r2) => ((tag, (l, r)), r2) } }
+         |def parse(ts: List[Int]): Int = ts match {
+         |  case Cons(t, rest) => if t == -1 then parseBin(2, parse(rest)) else if t == -2 then parseBin(3, parse(rest)) else ((0, t), rest)
+         |  case Nil => ((0, 0), Nil)
+         |}
+         |def lower(e: Int): String = e match {
+         |  case (0, n) => "(int " + n + ")"
+         |  case (2, lr) => lr match { case (l, r) => "(add " + lower(l) + " " + lower(r) + ")" }
+         |  case (3, lr) => lr match { case (l, r) => "(mul " + lower(l) + " " + lower(r) + ")" }
+         |  case _ => "(err)"
+         |}
+         |def fst(p: Int): Int = p match { case (a, b) => a }
+         |def compile(src: String): String = lower(fst(parse(tokenize(src, 0, src.length))))
+         |def main(): String = compile("+ 1 * 2 3")""".stripMargin
     // The hardest part of a real parser, in the subset: a PRECEDENCE-CLIMBING infix parser with
     // PARENTHESES — the same algorithm as the spike's own parseExpr (climb while the next operator binds
     // tighter than minPrec). Tokenises "2 * (1 + 3)" (with `(`=-3, `)`=-4), parses respecting `*` over `+`
@@ -655,6 +690,7 @@ final class ScalaSpikeSpec extends AnyFunSuite:
       "selfhost-eval"     -> selfhostEval,
       "selfhost-closures" -> selfhostClosures,
       "selfhost-full"     -> selfhostFull,
+      "selfhost-compiler" -> selfhostCompiler,
       "selfhost-infix"    -> selfhostInfix,
       "scale-prog"   -> scaleProg,
       "scale-decls"  -> scaleDecls,
@@ -670,6 +706,11 @@ final class ScalaSpikeSpec extends AnyFunSuite:
       "tag-pat"    -> "def f(e: Int): Int = e match\n  case (0, n) => n\n  case (2, lr) => 99\n  case _ => 0\ndef main(): Int = f((0, 42))",
       "neg-tup"    -> "def main(): Int =\n  val e = (2, ((0, 3), (0, 4)))\n  e match\n    case (2, lr) => lr match\n      case (l, r) => 3\n    case _ => 0",
       "block-arm"  -> "def f(n: Int): Int = n match\n  case 0 => 0\n  case m =>\n    val a = m + 1\n    val b = a * 2\n    a + b\ndef main(): Int = f(3)",
+      // string-return / building / int->string probes (for a mini-lowerer)
+      "strret"    -> "def main(): String = \"ab\"",
+      "strconc3"  -> "def f(): String = \"(\" + \"x\" + \")\"\ndef main(): String = f()",
+      "intstr"    -> "def main(): String = \"v\" + 5",
+      "strbuild"  -> "def rep(s: String, n: Int): String = if n == 0 then \"\" else s + rep(s, n - 1)\ndef main(): String = rep(\"x\", 3)",
       // string-op probes (do they RUN on the VM?)
       "strlen"    -> "def main(): Int = \"hello\".length",
       "streq"     -> "def main(): Int = if \"abc\" == \"abc\" then 1 else 0",
