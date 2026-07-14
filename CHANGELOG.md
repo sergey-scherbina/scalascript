@@ -4,6 +4,23 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-14 — Scala 3 explicit control API (Tier 1)
+
+Implemented the compiler-independent `io.scalascript:scalascript-control-api_3`
+leaf and its `scalascript.control` package (`528d73af3`): typed stackless `Eff`,
+invariant singleton-owned effects and operations, deep residual-forwarding handlers,
+eager reusable/one-shot continuations, generative rank-2 multi-prompt `shift`/`reset`,
+typed local-save rejection, and public state-machine builders. A complete JVM ABI
+audit guards every capability constructor and rejects project runtime, reflection,
+TLS, and erasure leaks. The runnable ordinary-Scala example landed in `7f908e536`;
+the verified Tier-1 capability and explicit post-X1 boundary are documented in
+`6cef4ee3c`. Verification: 39/39 ScalaTests (1,000,000 binds, 1,000,000 state
+transitions, 100,000 handled operations, and a 64-way one-shot race), package/POM,
+10/10 focused effect/coroutine/tail conformance, and 9/9 currently measurable
+portable-VM interop axes. Successful durable save/run, Scala↔ScalaScript lowering
+and bridges, macros/plugin, mixed tail SCCs, and remote runners remain separate
+post-X1 milestones.
+
 ## 2026-07-14 — control-interop §14.1 semantic vectors (impl wave-1)
 
 First implementation wave of the control-interoperability model (split with

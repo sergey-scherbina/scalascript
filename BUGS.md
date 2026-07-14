@@ -1,8 +1,8 @@
 # Bug tracker
 
-## scala3-control-operation-key-snapshot — CONFIRMED / open (2026-07-14, Codex)
+## scala3-control-operation-key-snapshot — FIXED / awaiting confirmation (2026-07-14, Codex)
 
-**Status:** open (tier-1 effect-row soundness blocker). Found during the final
+**Status:** fixed in `528d73af3`; awaiting reporter confirmation. Found during the final
 black-box review of the uncommitted `scala3ControlApi` reference model; reported
 by codex-interop in the `scalascript` rozum room.
 
@@ -18,15 +18,15 @@ is still a request.
 draft forwards the request despite the empty result row. A getter that changes
 between `perform` and `handle` has the same failure mode.
 
-**Fix/verification:** not fixed yet. `perform` must validate and snapshot a
-non-null key and descriptor before constructing the private request; pending and
-public step views must preserve that snapshot through bind and forwarding, and
-handlers must match against it rather than re-reading user code. Add null and
-mutable-getter regressions before committing the runtime.
+**Fix/verification:** `perform` now validates the operation, key, id, descriptor,
+and multiplicity once. The private pending node and every forwarded/public step
+retain the key snapshot, and handlers match it without re-running `effect`.
+Regression tests cover a null key, a changing getter read exactly once, and an
+operation id owned by another descriptor; the full 39-test suite is green.
 
-## scala3-control-effect-key-row-elimination — CONFIRMED / open (2026-07-14, Codex)
+## scala3-control-effect-key-row-elimination — FIXED / awaiting confirmation (2026-07-14, Codex)
 
-**Status:** open (tier-1 type-safety blocker). Found by the `api_type_design`
+**Status:** fixed in `528d73af3`; awaiting reporter confirmation. Found by the `api_type_design`
 implementation audit against the uncommitted `scala3ControlApi` reference model;
 reported by codex-interop in the `scalascript` rozum room.
 
@@ -41,13 +41,15 @@ member.
 the accepted result to `Eff.runPure`. The current implementation reaches the
 forwarded request despite the empty static row.
 
-**Fix/verification:** not fixed yet. Effect rows need invariant keys and operations
-owned by one exact singleton witness; constructing or widening a key for a union
-must fail. Add compile/runtime regressions before committing the handler.
+**Fix/verification:** `EffectKey` and `Operation` are invariant, each public key is
+owned by one exact singleton witness, and runtime matching uses that owner identity.
+The same owner with a conflicting descriptor is rejected. Compile-time regressions
+reject `Nothing`, generic-wrapper, and union-key narrowing; runtime regressions prove
+same-owner equivalence and distinct-owner forwarding. The full 39-test suite is green.
 
-## scala3-control-capability-jvm-visibility — CONFIRMED / open (2026-07-14, Codex)
+## scala3-control-capability-jvm-visibility — FIXED / awaiting confirmation (2026-07-14, Codex)
 
-**Status:** open (tier-1 ABI/capability blocker). Found by `api_type_design` with
+**Status:** fixed in `528d73af3`; awaiting reporter confirmation. Found by `api_type_design` with
 `javap -public` against the uncommitted leaf; reported by codex-interop in the
 `scalascript` rozum room.
 
@@ -60,10 +62,12 @@ so Java or same-package Scala could bypass the intended construction boundary.
 `Continuation.runtime`, `OneShotContinuation.runtime/delegate`, and public JVM
 constructors for `EffectKey`, `Continuation`, and `Prompt`.
 
-**Fix/verification:** not fixed yet. Remove raw pending-request construction from
-the external JVM surface, use genuinely private nested implementations or a
-validated unforgeable authority for constructors that Scala emits public, and make
-`javap -public` part of the ABI gate.
+**Fix/verification:** raw pending-request construction is absent. Private nested
+implementations are used where possible; every unavoidable JVM-visible constructor
+or factory requires an identity-validated private authority, and null/freshly forged
+tokens fail before construction. The complete compiled-class `javap -public`
+inventory is an executable test and reports no unguarded request, prompt, key,
+resumption gate, authority issuer, or successful saved-continuation constructor.
 
 ## scala3-control-shift-row-widening — DONE (2026-07-14, Codex)
 

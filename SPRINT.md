@@ -67,52 +67,6 @@ optional policy, not the default continuation semantics.
 
 ### Common ABI and portable semantic baseline
 
-- [ ] **scala3-control-api** — add a small compiler-independent `_3` API containing typed
-  `Eff[Fx,A]`, `Effect`/`Operation`, `Handler`, fresh typed `Prompt`, reusable typed continuations,
-  `SavedContinuation[A,R]`, and iterative runner contracts. Local control works without macros/plugin;
-  tier-1 local save produces typed `UnmanagedCapture`, while successful durable save waits for a post-X1
-  compiler-generated or typed defunctionalized plan. No `ssc.Value`, `DataV`, `ClosV`, CoreIR node,
-  plugin `SpiValue`, TLS, or global mutable registry may cross the public ABI.
-  - [x] **sca-1 — leaf ABI frozen before code** (`98e9645e1`). The Scala/JVM profile now fixes the exact
-        `io.scalascript:scalascript-control-api_3` artifact, `scalascript.control` package, effect-row
-        bounds, a real nominal effect witness that keeps `Nothing` request-free, public
-        `Eff.Step`/handler/continuation/state-machine shapes, eager one-shot gates, sealed private
-        continuation capabilities, and the deliberate `UnmanagedCapture` result of local save.
-  - [x] **sca-2 — dependency-free module added** (`e97312d96`). `v1/lang/control-api` is the
-        `scala3ControlApi` leaf with only a test-scoped ScalaTest dependency and root aggregation; it
-        has no edge to v2Core, UniML, the seed, canonical codec, CLI, legacy `interop`, or any backend.
-  - [x] **sca-2a — shift row-widening hole closed** (`06b4e4be1`). `ShiftBody` is rank-2 over
-        every `Residual >: Fx`; Scala 3.8.3 accepts ordinary and nested prompt programs but rejects
-        the old `Fx = Nothing` + later-effect `runPure(k.resume(...))` exploit. The reporting audit
-        confirmed both probes and `BUGS.md scala3-control-shift-row-widening` is done.
-  - [ ] **sca-2b — make effect-key elimination sound.** Replace covariant broad-marker keys with
-        invariant singleton-owned keys/operations; reject duplicate-key mismatch and union-key
-        widening repros, update the frozen profile, and close
-        `BUGS.md scala3-control-effect-key-row-elimination` before committing handlers.
-  - [ ] **sca-2c — close JVM capability construction.** Remove raw `Eff.request` from the public
-        bytecode surface; protect unavoidable Scala-public JVM constructors with private nested
-        implementations or validated authority, run `javap -public`, update the profile, and close
-        `BUGS.md scala3-control-capability-jvm-visibility` before committing the reference model.
-  - [ ] **sca-2d — snapshot operation identity at `perform`.** Reject a null/malformed operation key,
-        retain the validated key in the private pending/request node, and make handlers match that
-        snapshot rather than re-running a user-defined mutable getter. Add null + changing-getter
-        regressions and close `BUGS.md scala3-control-operation-key-snapshot` before runtime commit.
-  - [ ] **sca-3 — implement the executable reference model.** Implement a private-erasure,
-        public-typed stackless `Pure | Op`/bind/defer machine, iterative `step`/pure runner, deep
-        residual-forwarding handlers, operation multiplicity, generative prompts, exact multi-prompt
-        `shift`/`reset`, reusable local continuations, typed save contracts, and an iterative public
-        defunctionalized state-machine builder. Never use stack inspection, reflection, TLS, hidden
-        exception control, prefix replay, or a second CoreIR/value semantics.
-  - [ ] **sca-4 — prove semantics and ABI.** Add ScalaTest vectors for 1,000,000 binds/state steps,
-        zero/one/many resume, handler reinstall and residual forwarding, nearest/fresh prompts,
-        `shift` rather than `shift0`, local heap-sharing, one-shot rejection, and `save` without
-        evidence. Add compile-time negative checks for prompt/effect-row separation and a public ABI
-        leak scan for `Any`/VM/interpreter/plugin/reflection types.
-  - [ ] **sca-5 — publish and hand off.** Run `scala3ControlApi/test`, package/publication sanity,
-        focused effect/coroutine/tail conformance, and `tests/interop-conformance/run.sh`; update the
-        profile/README/example and behavior checkboxes with exact results in separate docs/bookkeeping
-        commits, push each green slice to `origin/main`, release the claim/worktree, and hand the API
-        artifact/signatures to the macros/descriptors and host-bridge milestones.
 - [ ] **ssc-api-descriptor-v3** — replace best-effort string-only interop signatures with an additive,
   versioned pre-body `ApiDescriptor`, post-body `ControlSummary`, and post-link `ArtifactManifest`:
   canonical types/generics/effect rows, callback convention + invocation/escape/thread policy,
