@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-14 — Scala control API moved to the v2 host layer
+
+Corrected the initial ownership error identified by Sergiy: the
+`ScalaExplicitControlApi` is a v2.2 Scala/JVM host-profile capability, not a v1
+language/compiler feature. The canonical source home is now
+`v2/host/scala/control-api`; `v2/host` is explicitly an outer SDK/transform/runner
+layer and remains outside the seed, compiler, CoreIR, UniML, and bootstrap graph.
+The move is a 100% rename with no source or ABI change (`9b477a128`); package
+`scalascript.control`, artifact `scalascript-control-api_3`, and sbt id
+`scala3ControlApi` are unchanged. The profile correction landed in `5b24876ca`
+and links/layout in `b692338e7`. Verification reran 39/39 tests, the runnable
+example, package/POM dependencies, 10/10 focused conformance, and 9/9 measurable
+portable-VM interop axes.
+
 ## 2026-07-14 — Scala 3 explicit control API (Tier 1)
 
 Implemented the compiler-independent `io.scalascript:scalascript-control-api_3`

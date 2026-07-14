@@ -9,24 +9,6 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-## scala-control-api-relocation — move the Scala host SDK out of v1 (2026-07-14, Codex)
-
-The implemented `ScalaExplicitControlApi` is a v2 control-interoperability host
-capability, not a v1 compiler/runtime component. Sergiy caught that the initial
-module path `v1/lang/control-api` contradicts that ownership. Preserve the frozen
-artifact/package ABI while moving the source home to
-`v2/host/scala/control-api`, a host-SDK leaf outside the v2 bootstrap graph.
-
-- [ ] **scar-1 — freeze the corrected ownership.** Update the Scala host profile
-  before moving code; record why “outside bootstrap” does not mean “inside v1”.
-- [ ] **scar-2 — relocate atomically.** Move all main/test/example sources, update
-  the sbt project path and every tracked link/reference, and prove that no tracked
-  `v1/lang/control-api` reference or file remains.
-- [ ] **scar-3 — rerun the release gates.** Run 39/39 module tests, the runnable
-  example, package/POM/dependency checks, focused effect/coroutine/tail conformance,
-  and the independent interop harness; then update docs/BUGS/CHANGELOG, push each
-  separate commit, hand off the corrected path in Rozum, release the claim/worktree.
-
 ## control-vectors-audit-followup — reproduce + record codex-interop audit findings (2026-07-14, claude)
 
 Done (this claim): fixed the Rust-multi-shot-deferred drift in

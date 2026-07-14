@@ -1,19 +1,18 @@
 # Bug tracker
 
-## scala-control-api-v1-placement — CONFIRMED / open (2026-07-14, Sergiy)
+## scala-control-api-v1-placement — FIXED / awaiting confirmation (2026-07-14, Sergiy)
 
-**Status:** open (host-SDK architecture blocker). Reported by Sergiy immediately
-after the Tier-1 implementation landed.
+**Status:** fixed in `9b477a128`; awaiting reporter confirmation. Reported by
+Sergiy immediately after the Tier-1 implementation landed.
 
 **Symptom:** the compiler-independent Scala 3 control SDK was added at
-`v1/lang/control-api`. The API implements the v2.2 bidirectional-control host
-profile and is intended to compose with every future backend; placing it under
-`v1/lang` falsely assigns semantic and lifecycle ownership to the legacy v1
-language/compiler tree.
+the legacy v1 language tree. The API implements the v2.2 bidirectional-control
+host profile and is intended to compose with every future backend; that placement
+falsely assigned semantic and lifecycle ownership to the v1 compiler/runtime.
 
-**Reproduce:** `build.sbt` points `scala3ControlApi` at
-`v1/lang/control-api`, and README/user-guide example links expose the same path.
-The Scala host profile requires only that the leaf remain outside the bootstrap
+**Reproduce:** before the fix, `build.sbt` pointed `scala3ControlApi` into the v1
+language tree and README/user-guide example links exposed the same ownership. The
+Scala host profile requires only that the leaf remain outside the bootstrap
 dependency graph; it never assigns the module to v1.
 
 **Root cause:** “compiler-independent and outside bootstrap” was incorrectly
@@ -21,9 +20,13 @@ translated into “put it beside the legacy v1 language libraries.” Those are
 independent decisions: this is a v2 host-SDK capability whose source tree must
 state that ownership while its sbt dependency graph stays a leaf.
 
-**Fix/verification:** move the unchanged artifact/package ABI to
-`v2/host/scala/control-api`, update build/docs/spec/example references, prove no
-tracked old-path reference remains, and rerun the complete Tier-1 release gates.
+**Fix/verification:** the canonical ownership is frozen in `5b24876ca`; the
+unchanged artifact/package ABI moved to `v2/host/scala/control-api` in
+`9b477a128`; build/docs/layout links were corrected in `b692338e7`. No tracked
+file or live reference remains at the old exact path. Verification reran 39/39
+module tests, the runnable example (`Vector(10, 20)` / `42`), package/POM and
+production dependency checks, focused conformance 10/10, and the independent
+interop harness 9/9 measurable axes.
 
 ## scala3-control-operation-key-snapshot — FIXED / awaiting confirmation (2026-07-14, Codex)
 
