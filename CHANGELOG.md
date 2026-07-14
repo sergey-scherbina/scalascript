@@ -4,6 +4,35 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-14 — std-ui-button-size: sm/md/lg sizing for std/ui button primitives
+
+busi wants 4 nav buttons per row on a 390px-wide phone screen instead of 2 —
+at the current fixed font-size/padding, four Cyrillic labels overflow the
+row (confirmed via a real browser screenshot). Added `size: String = "md"`
+(`sm|md|lg`, unrecognized → `md`, no crash) as the new last param (after
+`variant`) on `signalButton`/`actionButton`/`signalLabelButton`/
+`signalActionButton` (`runtime/std/ui/input.ssc`), a matching field on their
+node case classes (`nodes.ssc`), and `_buttonFontSize`/`_buttonPadding`
+resolvers in `lower.ssc`. Both resolvers reuse existing `Theme` tokens
+instead of inventing new magic numbers — font-size maps to
+`typography.{caption,body,heading}.fontSize` (`md` == the pre-slice
+hardcoded default, byte-for-byte); padding shifts the `SpacingScale`
+(vertical, horizontal) pair one step per size (`specs/std-ui-button-size.md`,
+mirrors the `std-ui-button-variant` precedent, commit `136e6f6bb`). No new
+`extern def`/backend change, except the same three call sites `variant`
+needed to keep in sync with the node field count (`ContentIntrinsics.scala`,
+`JvmGenContentEmit.scala`, `std-ui-jobpanel.ssc`) plus one the task brief
+didn't enumerate: `tkv2-button-variant.ssc`'s own five node-deconstruction
+patterns, which silently degraded to `"?"` output (caught by the sibling
+conformance run before push, not a compile error). `tests/conformance/
+tkv2-button-size.ssc` + `ButtonSizeTest.scala` (Scala-level proof the
+rendered CSS font-size/padding genuinely differ: sm 12px/4px 8px, md 16px/
+8px 16px, lg 24px/16px 24px) + `examples/frontend/button-variants/` extended
+with a size row. Busi-side wiring (which button gets `size="sm"`) is a
+separate, not-yet-done follow-up.
+
+---
+
 ## 2026-07-14 — std-ui-button-variant: colour selection for std/ui button primitives
 
 busi UX audit: every button ("Refresh" and "Prepare a real payment" alike) rendered in the same
