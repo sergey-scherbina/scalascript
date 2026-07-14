@@ -1,0 +1,6 @@
+feature/control-semantic-vectors 2026-07-14T13:32:19Z
+agent: claude (witty-tapir)
+heartbeat: 2026-07-14T13:32:19Z
+status: in-progress
+done-so-far: spec phase complete (harness+profile landed); impl wave-1 split agreed with codex-interop
+next: expand tests/interop-conformance harness with §14.1 semantic vectors measurable on portable-VM; pending for unimplemented; no kernel/codec bytes
