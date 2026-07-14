@@ -1,0 +1,102 @@
+---
+name: scljet-wal
+version: 0.1.0
+description: SclJet WAL writer — write-ahead log frames with SQLite frame checksums
+package: scljet
+exports:
+  - WalChecksum
+  - WalWrite
+  - walChecksumWords
+  - writeWal
+  - markWalMode
+---
+
+# SclJet write-ahead log (WAL) writer
+
+A `-wal` file holds page images written *ahead* of the main database. Its 32-byte
+header is `magic, format(3007000), pageSize, checkpointSeq, salt1, salt2, cksum1,
+cksum2`; then one frame per changed page, each a 24-byte frame header (`pageNumber,
+dbSizeAfterCommit, salt1, salt2, cksum1, cksum2`) followed by the page. The last
+frame of a committed transaction carries the database size in pages as its
+`dbSizeAfterCommit`; the others carry 0.
+
+The checksum is a two-word running sum: over pairs of 32-bit words `w0,w1`,
+`s1 += w0 + s2; s2 += w1 + s1` (mod 2^32). It seeds at `(0,0)` for the header
+(first 24 bytes) and then chains frame to frame, each frame covering its first 8
+header bytes plus the page. We pick magic `0x377f0683` — its low bit declares the
+big-endian word order we read, so any reader (little- or big-endian) reproduces
+the same checksum and accepts the file.
+
+[ByteSlice, ByteError, ByteRead, byteSliceToList, byteSliceUpdated, readU32Be, writeU32Be](bytes.ssc)
+[JournalPage](journal.ssc)
+
+```scalascript
+case class WalChecksum(s1: Long, s2: Long)
+
+case class WalWrite(bytes: ByteSlice, frames: Int)
+
+def walU32(value: Long): List[Int] = byteSliceToList(writeU32Be(value))
+
+// Fold big-endian 32-bit word pairs from data[offset, endOffset) into the running
+// checksum. Iterative (no recursion) so a 4 KiB page does not overflow JS's stack.
+def walChecksumWords(data: ByteSlice, offset: Int, endOffset: Int, acc: WalChecksum): WalChecksum =
+  var cs1 = acc.s1
+  var cs2 = acc.s2
+  var ci = offset
+  var cfail = false
+  while ci + 8 <= endOffset && !cfail do
+    readU32Be(data, ci) match
+      case Left(_) => cfail = true
+      case Right(ByteRead(w1, _)) =>
+        readU32Be(data, ci + 4) match
+          case Left(_) => cfail = true
+          case Right(ByteRead(w2, _)) =>
+            cs1 = (cs1 + w1 + cs2) & 4294967295L
+            cs2 = (cs2 + w2 + cs1) & 4294967295L
+            ci = ci + 8
+  WalChecksum(cs1, cs2)
+
+// Serialize one frame and advance the running checksum. The last frame of the
+// transaction (index == total-1) commits with `dbSizePages`; others carry 0.
+def walBuildFrames(frames: List[JournalPage], index: Int, total: Int, dbSizePages: Int, salt1: Long, salt2: Long, pageSize: Int, running: WalChecksum): Either[ByteError, List[Int]] =
+  frames match
+    case Nil => Right(Nil)
+    case Cons(frame, rest) =>
+      val commitSize = if index == total - 1 then dbSizePages else 0
+      val framePrefix = walU32(frame.pageNumber.toLong) ++ walU32(commitSize.toLong)
+      val pageList = byteSliceToList(frame.page)
+      ByteSlice.fromList(framePrefix ++ pageList) match
+        case Left(error) => Left(error)
+        case Right(content) =>
+          val ck = walChecksumWords(content, 0, 8 + pageSize, running)
+          val frameBytes = framePrefix ++ walU32(salt1) ++ walU32(salt2) ++ walU32(ck.s1) ++ walU32(ck.s2) ++ pageList
+          walBuildFrames(rest, index + 1, total, dbSizePages, salt1, salt2, pageSize, ck) match
+            case Left(error) => Left(error)
+            case Right(restBytes) => Right(frameBytes ++ restBytes)
+
+/** Serialize a WAL for one transaction: the header, then a frame per changed page
+ *  with `dbSizePages` on the final (commit) frame. Byte-compatible with what
+ *  SQLite writes, so reference SQLite reconstructs the WAL index from it and reads
+ *  the framed pages. `frames` are the NEW page images, in write order. */
+def writeWal(pageSize: Int, salt1: Long, salt2: Long, checkpointSeq: Long, dbSizePages: Int, frames: List[JournalPage]): Either[ByteError, WalWrite] =
+  val headerPrefix = walU32(931071619L) ++ walU32(3007000L) ++ walU32(pageSize.toLong) ++
+    walU32(checkpointSeq) ++ walU32(salt1) ++ walU32(salt2)
+  ByteSlice.fromList(headerPrefix) match
+    case Left(error) => Left(error)
+    case Right(headerSlice) =>
+      val hck = walChecksumWords(headerSlice, 0, 24, WalChecksum(0L, 0L))
+      val header = headerPrefix ++ walU32(hck.s1) ++ walU32(hck.s2)
+      walBuildFrames(frames, 0, frames.length, dbSizePages, salt1, salt2, pageSize, hck) match
+        case Left(error) => Left(error)
+        case Right(frameBytes) =>
+          ByteSlice.fromList(header ++ frameBytes) match
+            case Left(error) => Left(error)
+            case Right(bytes) => Right(WalWrite(bytes, frames.length))
+
+/** Set the database header's file-format read/write versions (bytes 18, 19) to 2,
+ *  so reference SQLite opens the file in WAL mode and honors the `-wal` sidecar. */
+def markWalMode(db: ByteSlice): Either[ByteError, ByteSlice] =
+  byteSliceUpdated(db, 18, 2) match
+    case Left(error) => Left(error)
+    case Right(d1) => byteSliceUpdated(d1, 19, 2)
+```

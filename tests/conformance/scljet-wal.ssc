@@ -1,0 +1,46 @@
+---
+name: scljet-wal
+description: SclJet WAL writer — frame a changed page into a -wal file (reference SQLite reads the framed page; verified out-of-band)
+backends: [int, js]
+---
+
+# SclJet write-ahead log
+
+Frame a new image of page 2 into a `-wal` file over a base database. Reference
+SQLite (3.53.3), given this exact byte sequence, recovers the WAL, validates every
+frame checksum, and reads the framed page — verified out-of-band, including the
+negative case (a single flipped checksum byte makes SQLite reject the WAL). Here we
+lock the writer's output deterministically across backends: frame count, byte
+length, the database's WAL-mode marker, and a two-word fingerprint of the WAL bytes
+(computed with the very checksum SQLite uses).
+
+[ByteSlice, byteSliceToList, byteSliceSlice, byteSliceGet, SqliteValue, SqlInteger, SqlText, buildTableDatabase, JournalPage, writeWal, markWalMode, WalChecksum, walChecksumWords](std/scljet/index.ssc)
+
+```scalascript
+def byteAt(db: ByteSlice, offset: Int): Int =
+  byteSliceGet(db, offset) match
+    case Right(value) => value
+    case Left(_) => -1
+
+buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(id INTEGER, v TEXT)",
+  List(List(SqlInteger(1L), SqlText("aaa")))) match
+  case Left(error) => println("old-error:" + error.message)
+  case Right(dbOld) =>
+    buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(id INTEGER, v TEXT)",
+      List(List(SqlInteger(1L), SqlText("bbb")))) match
+      case Left(error) => println("new-error:" + error.message)
+      case Right(dbNew) =>
+        byteSliceSlice(dbNew, 512, 512) match
+          case Left(error) => println("slice-error:" + error.message)
+          case Right(page2New) =>
+            markWalMode(dbOld) match
+              case Left(error) => println("mark-error:" + error.message)
+              case Right(dbWal) =>
+                writeWal(512, 305419896L, 2596069104L, 0L, 2, List(JournalPage(2, page2New))) match
+                  case Left(error) => println("wal-error:" + error.message)
+                  case Right(wal) =>
+                    println("db wal-mode bytes 18,19: " + byteAt(dbWal, 18).toString + "," + byteAt(dbWal, 19).toString)
+                    println("frames: " + wal.frames.toString + ", wal bytes: " + wal.bytes.length.toString)
+                    val fp = walChecksumWords(wal.bytes, 0, wal.bytes.length, WalChecksum(0L, 0L))
+                    println("wal fingerprint: " + fp.s1.toString + " " + fp.s2.toString)
+```
