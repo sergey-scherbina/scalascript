@@ -1,0 +1,15 @@
+SELECT name FROM emp WHERE name LIKE 'a%' => Ann
+anna
+SELECT name FROM emp WHERE name LIKE '_a%' => Cat
+dan
+SELECT name FROM emp WHERE name LIKE '%n' => Ann
+dan
+SELECT name FROM emp WHERE name NOT LIKE 'a%' => bob
+Cat
+dan
+SELECT id FROM emp WHERE dept LIKE '1%' => 1
+3
+4
+SELECT name FROM emp WHERE name LIKE 'ANN' => Ann
+SELECT name FROM emp WHERE name LIKE 'a%' AND dept = 10 => Ann
+anna

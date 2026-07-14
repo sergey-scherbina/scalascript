@@ -1,0 +1,39 @@
+---
+name: scljet-sql-where-like
+description: SclJet SQL WHERE LIKE / NOT LIKE — %/_ wildcards, ASCII case-insensitive, numeric coercion, matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet SQL WHERE LIKE / NOT LIKE
+
+`col LIKE pattern` / `col NOT LIKE pattern`: `%` matches any run (including empty), `_` matches one
+character; matching is ASCII case-insensitive (`'Ann' LIKE 'ANN'`), and a non-text column is coerced
+to its text form (`dept LIKE '1%'` matches 10, 100). LIKE is a single predicate, so it composes with
+`AND`/`OR`. Every result is byte-identical to reference sqlite3 running the same SQL on the same file
+(verified out-of-band); locked here across backends.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER, name TEXT, dept INTEGER)",
+  List(List(SqlInteger(1L), SqlText("Ann"), SqlInteger(10L)),
+       List(SqlInteger(2L), SqlText("bob"), SqlInteger(20L)),
+       List(SqlInteger(3L), SqlText("Cat"), SqlInteger(100L)),
+       List(SqlInteger(4L), SqlText("anna"), SqlInteger(10L)),
+       List(SqlInteger(5L), SqlText("dan"), SqlInteger(30L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db) =>
+    show(db, "SELECT name FROM emp WHERE name LIKE 'a%'")
+    show(db, "SELECT name FROM emp WHERE name LIKE '_a%'")
+    show(db, "SELECT name FROM emp WHERE name LIKE '%n'")
+    show(db, "SELECT name FROM emp WHERE name NOT LIKE 'a%'")
+    show(db, "SELECT id FROM emp WHERE dept LIKE '1%'")
+    show(db, "SELECT name FROM emp WHERE name LIKE 'ANN'")
+    show(db, "SELECT name FROM emp WHERE name LIKE 'a%' AND dept = 10")
+```
