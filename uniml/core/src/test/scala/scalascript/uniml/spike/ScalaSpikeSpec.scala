@@ -550,10 +550,33 @@ final class ScalaSpikeSpec extends AnyFunSuite:
          |  case _ => 0
          |}
          |def main(): Int = eval((4, ((2, ((0, 3), (0, 4))), (3, ((1, 0), (2, ((1, 0), (0, 1))))))), Nil)""".stripMargin
+    // A third self-host artifact: a HIGHER-ORDER interpreter with CLOSURES — the meta-circular heart.
+    // Values are tagged: (0,n)=int, (1,(body,env))=closure capturing its defining environment. A lambda
+    // (tag 7) evaluates to a closure; application (tag 8) extends the closure's captured env with the arg.
+    // (λf. f(f(3))) (λx. x*2)  →  double(double(3))  →  12.  This is first-class functions + lexical
+    // capture — the core of any real compiler — written entirely in the subset, and it runs.
+    val selfhostClosures =
+      """|def lookup(env: List[Int], id: Int): Int = env match { case Nil => (0, 0) case Cons(v, rest) => if id == 0 then v else lookup(rest, id - 1) }
+         |def asInt(v: Int): Int = v match { case (0, n) => n case _ => 0 }
+         |def apply1(fv: Int, av: Int): Int = fv match { case (1, be) => be match { case (body, cenv) => eval(body, Cons(av, cenv)) } case _ => (0, 0) }
+         |def eval(e: Int, env: List[Int]): Int = e match {
+         |  case (0, n) => (0, n)
+         |  case (1, id) => lookup(env, id)
+         |  case (2, lr) => lr match { case (l, r) => (0, asInt(eval(l, env)) + asInt(eval(r, env))) }
+         |  case (3, lr) => lr match { case (l, r) => (0, asInt(eval(l, env)) * asInt(eval(r, env))) }
+         |  case (7, body) => (1, (body, env))
+         |  case (8, fa) => fa match { case (f, a) => apply1(eval(f, env), eval(a, env)) }
+         |  case _ => (0, 0)
+         |}
+         |def main(): Int =
+         |  val dbl = (7, (3, ((1, 0), (0, 2))))
+         |  val twice = (7, (8, ((1, 0), (8, ((1, 0), (0, 3))))))
+         |  asInt(eval((8, (twice, dbl)), Nil))""".stripMargin
     // well-formed — the harness requires byte-identical Core IR vs ssc1-front.
     val wellFormed = Seq(
-      "selfhost-arith" -> selfhostArith,
-      "selfhost-eval"  -> selfhostEval,
+      "selfhost-arith"    -> selfhostArith,
+      "selfhost-eval"     -> selfhostEval,
+      "selfhost-closures" -> selfhostClosures,
       "scale-prog"   -> scaleProg,
       "scale-decls"  -> scaleDecls,
       "scale-nested" -> scaleNested,
@@ -567,6 +590,7 @@ final class ScalaSpikeSpec extends AnyFunSuite:
       "nested-pat" -> "def f(xs: List[Int]): Int = xs match\n  case Cons(b, Cons(a, s)) => a + b\n  case _ => 0\ndef main(): Int = f(1 :: 2 :: Nil)",
       "tag-pat"    -> "def f(e: Int): Int = e match\n  case (0, n) => n\n  case (2, lr) => 99\n  case _ => 0\ndef main(): Int = f((0, 42))",
       "neg-tup"    -> "def main(): Int =\n  val e = (2, ((0, 3), (0, 4)))\n  e match\n    case (2, lr) => lr match\n      case (l, r) => 3\n    case _ => 0",
+      "block-arm"  -> "def f(n: Int): Int = n match\n  case 0 => 0\n  case m =>\n    val a = m + 1\n    val b = a * 2\n    a + b\ndef main(): Int = f(3)",
       "add-mul"   -> "def main(): Int = 1 + 2 * 3",
       "mul-add"   -> "def main(): Int = 1 * 2 + 3",
       "paren"     -> "def main(): Int = (1 + 2) * 3",

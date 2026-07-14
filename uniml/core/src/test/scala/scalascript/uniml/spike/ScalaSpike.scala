@@ -396,7 +396,9 @@ object SpikeParse:
   // EOF, or a top-level `def` ends it. parseStmt always consumes ≥1 token (progress).
   private def parseBlock(c: Cur, blockCol: Int): Node =
     val stmts = Vector.newBuilder[Node]
-    while !c.eof && c.peekCol >= blockCol && !isDefStart(c) do stmts += parseStmt(c)
+    // a block ends at a dedent, a def, the next `case` (an arm-body block), or a `}` (a braced match)
+    while !c.eof && c.peekCol >= blockCol && !isDefStart(c) && !isKw(c, "case") && c.peekKind != "spike.rbrace" do
+      stmts += parseStmt(c)
     Node.Frame("spike.block", None, stmts.result())
 
   private def parseStmt(c: Cur): Node =
@@ -459,11 +461,11 @@ object SpikeParse:
     if isKw(c, "if") then
       c.advance().foreach(t => kids += Node.Leaf(t, Some("case.ifkw")))
       parseExpr(c, 1).foreach(g => kids += g.withRole("case.guard"))
+    val arrowLine = c.peekLine
     if c.peekKind == "spike.op" && c.peekLexeme == "=>" then c.advance().foreach(t => kids += Node.Leaf(t, Some("case.arrow")))
     else c.report("spike.expected", "expected '=>' in case arm")
-    parseExpr(c, 1) match
-      case Some(b) => kids += b.withRole("case.body")
-      case None    => c.report("spike.missing-case-body", "missing case body")
+    // an arm body on a LATER line than `=>` is an indented block (like a def/if branch)
+    kids += branchExpr(c, arrowLine).withRole("case.body")
     Node.Frame("spike.arm", None, kids.result())
 
   // a full arm pattern: `alias @ PAT` (bind, bpat) around `PAT | PAT | …` (alternatives, apat).
