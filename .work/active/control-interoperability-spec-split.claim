@@ -1,6 +1,0 @@
-feature/control-interoperability-spec-split 2026-07-14T12:43:49Z
-agent: codex-interop
-heartbeat: 2026-07-14T12:57:10Z
-status: in-progress
-done-so-far: SPRINT plan pushed in 936b2892f; architecture and ownership audit complete; sibling claimed non-overlapping conformance harness
-next: write canonical control-interoperability spec and target profiles in the worktree
