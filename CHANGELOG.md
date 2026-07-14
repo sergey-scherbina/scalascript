@@ -4,6 +4,20 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-14 — control-interop §14.1 semantic vectors (impl wave-1)
+
+First implementation wave of the control-interoperability model (split with
+codex-interop; pre-X1, no kernel/codec bytes). Empirically measured each §14.1
+semantic vector on the portable VM and expanded `tests/interop-conformance/`:
+measurable-now grew 5→9 (added zero-resume/early-return, deep handler reinstall,
+return-clause transform, nondeterminism many-resume product). Recorded four
+`pending-runtime` gaps with exact measured evidence (distinct from the `pending-codec`
+durable axes): delimited `shift`/`reset` unbound; no residual forwarding from inner
+to outer handler; effect-performing recursion overflows the native stack ~500–2000
+depth (pure TCO unaffected); one-shot violation silently allowed. `run.sh` now
+prints each pending axis's own status/reason. These need effect-runtime support
+(codex's `scala3-control-api` reference runner), not the codec.
+
 ## 2026-07-14 — target-neutral control interoperability and host/runner profiles
 
 Replaced the former Scala/JVM-shaped semantic owner with
