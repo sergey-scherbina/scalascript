@@ -35,7 +35,6 @@ content-linked-namespaces	v2	FAIL
 content-live-rows	v2	FAIL
 content-slot	v2	FAIL
 content-tables	v2	DIVERGE
-content-to-markdown	v2	DIVERGE
 content-toolkit-yaml-controls	v2	FAIL
 control-center-live	*	SKIP
 crypto-encrypt-demo	js	FAIL
@@ -79,8 +78,6 @@ graphql-hello	*	SKIP
 graphql-typed-resolvers	*	SKIP
 health-defaults	*	SKIP
 html-dsl	v2	FAIL
-indexeddb-drafts	js	DIVERGE
-indexeddb-drafts	v2	FAIL
 indexeddb-sync-client	js	FAIL
 indexeddb-sync-client	v2	FAIL
 international-bank-rails	*	SKIP
@@ -121,8 +118,6 @@ object-store-sync-routes	*	SKIP
 oidc-idp	*	SKIP
 oidc-login-flow	*	SKIP
 openapi-annotation	*	SKIP
-os-env	js	DIVERGE
-os-env	v2	DIVERGE
 paginated-typed-client	*	SKIP
 pdf-extract-demo	js	FAIL
 pdf-extract-demo	v2	FAIL

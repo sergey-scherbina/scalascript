@@ -20,3 +20,5 @@ http-client
 graph-fullstack
 actors-supervision
 v2-http-sql-demo
+os-env
+indexeddb-drafts
