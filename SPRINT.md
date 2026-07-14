@@ -407,10 +407,17 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
           compile("+ 1 * 2 3")→**"(add (int 1) (mul (int 2) (int 3)))"**, byte-identical + runs. Seven self-
           host artifacts cover every compiler phase (lex/parse/eval/closures/lower). **Corpus 77 programs, 0
           fail.** Literal P6.5 now purely mechanical breadth — no capability gap remains. Notes §P6.5-step.
-  - [ ] **P6.5 (follow-on, non-gate)** — port `ssc1-lower` AND the spike front (SpikeLex/Parse/Project)
-        from ssc0/Scala into the subset → whole compiler dual-compilable = the literal self-compilation
-        fixed point. Remaining work is mechanical BREADTH (all node kinds), not a capability question —
-        char-lexing + precedence-parsing + AST-eval all proven runnable in the subset (selfhost-full/infix).
+    - [x] **P6.5 two-stage self-compilation ✓ Landed 2026-07-14** (8fe916eb2+fc2d7d422): selfhost-emit — a
+          compiler in the subset that emits REAL EXECUTABLE Core IR (arith + comparison + control flow:
+          i.add/i.mul/i.sub/i.lt/if, wrapped in program/defs/entry). Harness verifies END-TO-END: stage 1 =
+          spike compiles it BYTE-IDENTICAL to ssc1-front; stage 2 = the Core IR it EMITS runs to **8** (via a
+          .emit file). Literal-self-host loop CLOSED + automated. Core IR target also runs functions+recursion
+          (factorial(5)→120). Every compiler layer now proven in the subset (lex/parse/eval/closures/lower/
+          emit-executable). **Corpus 78 programs, 0 fail.** Notes §P6.5.
+  - [ ] **P6.5 literal fixed point (follow-on, non-gate)** — the remaining work is bounded MECHANICAL BREADTH:
+        port ALL of the ~800-line spike front (SpikeLex/Parse/Project) + ~2000-line ssc1-lower into the
+        subset, covering every construct + Core IR form. No capability or design question remains — every
+        layer + Core IR form is proven runnable in the subset (selfhost-full/infix/eval/closures/compiler/emit).
   - Prereqs: subset must hold — the one v2-side lift is **immutable indexed `Array`** (gapmap:76);
         anon-trait + mutable-object-field stay out; multi-file `package`/`import` reconciliation
         (gapmap:82-83) needed before the compiler's own multi-file source dual-compiles.
