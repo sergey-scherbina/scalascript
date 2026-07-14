@@ -1,0 +1,21 @@
+# Corpus-contract skip-list — inherently non-hermetic cases excluded from the
+# differential gate (they'd flap and cause false regressions). One glob per line.
+# See CONTRACT.md. Prefer fixing/gating a case over adding it here.
+
+# Apache Spark: each downloads/starts Spark (cold=timeout, warm=runs) + writes temp files.
+spark-*
+word-count
+dataset-word-count
+distributed-word-count
+distributed-streams
+
+# Databases (native SQLite / DuckDB / JDBC / browser SQL) — download/native deps,
+# temp files, cold=timeout warm=runs → flaky.
+*sqlite*
+*duckdb*
+sql-browser-*
+v2-db-*
+# Network / server / timing — non-hermetic (real sockets, wall-clock).
+http-client
+graph-fullstack
+actors-supervision

@@ -1,0 +1,76 @@
+name: Corpus Contract
+
+# The always-on differential gate (tests/conformance/contract.sc): both corpora
+# × lanes {int, js, v2} diffed against the golden, compared to corpus-baseline.tsv.
+# Runs nightly + on demand rather than per-PR because the full corpus (~415 cases ×
+# 3 lanes, no memo/batch yet) takes ~25 min. It is RED on any regression or on a
+# closed gap that wasn't recorded in the baseline. See tests/conformance/CONTRACT.md.
+#
+# TODO: add memo (F2) + batch lanes (F4) like run.sc, then promote to a per-PR gate.
+
+on:
+  schedule:
+    - cron: '0 4 * * *'   # nightly, 04:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  contract:
+    name: Corpus Contract (int/js/v2 differential)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Scala CLI
+        uses: VirtusLab/scala-cli-setup@v1
+        with:
+          power: true
+          jvm: temurin:21
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup sbt
+        uses: sbt/setup-sbt@v1
+
+      - name: Cache Coursier/sbt
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/coursier
+            ~/.ivy2/cache
+            ~/.sbt
+          key: ${{ runner.os }}-sbt-${{ hashFiles('**/build.sbt', '**/project/*.sbt', '**/project/build.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-sbt-
+
+      # Distinct cache prefix (…-v2-contract-) from the conformance/sbt jobs: their
+      # zinc analyses are built with different sbt invocations and are not
+      # interchangeable (sharing re-creates the crypto-spi "not a member" poison).
+      - name: Restore compiled classes (zinc)
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            **/target/scala-*/classes
+            **/target/scala-*/test-classes
+            **/target/scala-*/zinc
+            **/target/streams
+          key: ${{ runner.os }}-classes-v2-contract-${{ hashFiles('**/build.sbt', '**/project/*.sbt', '**/project/build.properties') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-classes-v2-contract-${{ hashFiles('**/build.sbt', '**/project/*.sbt', '**/project/build.properties') }}-
+
+      - name: Build ssc launcher (sbt-assembly)
+        run: bash install.sh --dev
+
+      - name: Run corpus contract
+        run: scala-cli tests/conformance/contract.sc -- --timeout 20
