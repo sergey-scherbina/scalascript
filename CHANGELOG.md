@@ -4,6 +4,26 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-14 — std-ui-button-variant: colour selection for std/ui button primitives
+
+busi UX audit: every button ("Refresh" and "Prepare a real payment" alike) rendered in the same
+hardcoded primary-blue, no visual hierarchy for stakes. Added `variant: String = "primary"`
+(`primary|secondary|danger|success|warning`, unrecognized → `primary`, no crash) as the last param
+on `signalButton`/`actionButton`/`signalLabelButton`/`signalActionButton` (`runtime/std/ui/
+input.ssc`), a matching field on their node case classes (`nodes.ssc`), and a `_buttonColor`
+resolver in `lower.ssc` (mirrors the existing `_colorOf`/`_statusColor`/`_linkColor` fallback
+shape). Text colour reuses `theme.colors.onPrimary` uniformly for every variant — the same
+white-on-accent trade `BadgeNode`/`TagNode`/`PillNode` already make, contrast measured not assumed
+(`specs/std-ui-button-variant.md`). No new `extern def`/backend change (mirrors `std-ui-select`)
+except three pre-existing call sites outside `input.ssc` that construct these node types
+(content-toolkit's interpreter + JVM-codegen paths, `std-ui-jobpanel.ssc`'s pattern match) that
+needed to stay in sync with the new field. `tests/conformance/tkv2-button-variant.ssc` +
+`ButtonVariantColorTest.scala` (a Scala-level test proving the rendered CSS background genuinely
+differs per variant, since `View` is opaque to `.ssc`) + `examples/frontend/button-variants/`.
+Busi-side wiring (which button gets which variant) is a separate, not-yet-done follow-up.
+
+---
+
 ## 2026-07-13 — v2 front: companion-object `val` members (unblocks UniML `Limits.default` etc.)
 
 Fixed the first of the v2 `.ssc`-frontend gaps blocking UniML from compiling on v2: a companion-object

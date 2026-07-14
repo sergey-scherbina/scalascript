@@ -1,5 +1,0 @@
-feature/std-ui-button-variant 2026-07-14T00:00:00Z
-agent: claude-code (button-variant-agent)
-heartbeat: 2026-07-14T00:00:00Z
-status: starting — add `variant` param to std/ui button primitives (signalButton, actionButton, signalLabelButton, signalActionButton) so callers can pick a color other than the hardcoded primary blue. Requested by busi UX audit (owner-facing app: every button same color, no stakes hierarchy).
-next: spec first (specs/std-ui-button-variant.md), then nodes.ssc + input.ssc + lower.ssc, example, conformance test.
