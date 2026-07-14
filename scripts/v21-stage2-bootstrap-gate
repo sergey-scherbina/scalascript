@@ -90,7 +90,11 @@ append_source 'tower/lib/ssc1-check.ssc0' "$ROOT/v2/lib/ssc1-check.ssc0"
 while IFS= read -r source; do
   relative=${source#"$ROOT/v1/runtime/std"/}
   append_source "runtime/std/$relative" "$source"
-done < <(find "$ROOT/v1/runtime/std" -type f -name '*.ssc' -print | sort)
+# `runtime/std/scljet` is a tracked compatibility symlink to the standalone
+# root library. installBin's recursive glob follows it, so the source-side
+# manifest must use the same traversal semantics or a fresh staged image can
+# never be source-exact.
+done < <(find -L "$ROOT/v1/runtime/std" -type f -name '*.ssc' -print | sort)
 sort -o "$source_manifest" "$source_manifest"
 
 while IFS= read -r staged; do
