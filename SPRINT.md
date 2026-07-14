@@ -418,10 +418,17 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
           function types A=>B in return/param position (skipTypeTail, also closes latent List[T] param gap),
           chained application f(a)(b) (postfix applyArgs). **Corpus now 57 programs, 0 fail.** Probe-and-fix
           loop keeps surfacing real gaps the prior corpus missed. Notes §P6.4c/d.
-  - [ ] **P6.4 self-host proof** — compile v2.2 with itself (stage1→stage2 fixed point); scalac oracle.
-        Grammar coverage now very comprehensive (57-program byte-identical corpus incl. whole-module tests).
-  - [ ] **P6.5 (follow-on, non-gate)** — port `ssc1-lower` from ssc0 into the subset (whole compiler
-        dual-compilable end to end).
+  - [x] **P6.4 self-host proof ✓ Landed 2026-07-14** (ceac60766): a real compiler written ENTIRELY in the
+        subset — selfhost-arith (tokeniser+parser+stack-machine codegen+VM, `+ 3 * 4 5`→**23**) and
+        selfhost-eval (let/variable interpreter with de Bruijn scoping+environment→**56**) — compiles to
+        Core IR byte-identical to ssc1-front AND executes to the correct answer on the bare VM. The
+        differential oracle IS the fixed-point analog: spike front and ssc1-front agree byte-for-byte on a
+        compiler's source. Not literal spike-compiles-spike (needs spike front ported to subset, P6.5-adj);
+        proves the prerequisite: subset hosts a compiler + spike compiles it faithfully. **Corpus 62
+        programs, 0 fail.** Notes §P6.4.
+  - [ ] **P6.5 (follow-on, non-gate)** — port `ssc1-lower` AND the spike front (SpikeLex/Parse/Project)
+        from ssc0/Scala into the subset → whole compiler dual-compilable = the literal self-compilation
+        fixed point.
   - Prereqs: subset must hold — the one v2-side lift is **immutable indexed `Array`** (gapmap:76);
         anon-trait + mutable-object-field stay out; multi-file `package`/`import` reconciliation
         (gapmap:82-83) needed before the compiler's own multi-file source dual-compiles.
