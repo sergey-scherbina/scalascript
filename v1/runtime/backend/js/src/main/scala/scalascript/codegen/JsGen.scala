@@ -4225,7 +4225,10 @@ class JsGen(
               // (a Type.Select) maps to the registered `Mirror_T` key.
               val tc = ta.tpe match
                 case n: Type.Name => n.value
-                case Type.Select(Type.Name("Mirror"), Type.Name(of))
+                // `Type.Select`'s qualifier is a `Term.Ref` (`Term.Name`), NOT a
+                // `Type.Name` — the old `Type.Name("Mirror")` pattern never matched,
+                // so `Mirror.Of[T]` fell to the "?" fallback and emitted `?_T`.
+                case Type.Select(Term.Name("Mirror"), Type.Name(of))
                     if of == "Of" || of == "ProductOf" || of == "SumOf" => "Mirror"
                 case _ => "?"
               val arg = ta.argClause.values match { case List(n: Type.Name) => n.value; case _ => "_" }

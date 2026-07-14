@@ -80,8 +80,11 @@ lane is the separate `v2-native-conformance` section below.
   `_arith('/')` instead of `Math.trunc` because the param's Int evidence doesn't reach the emitting childGen (3+
   def-emission paths; a genObjectAsExpr `withParamTypeEvidence` wrap was a confirmed no-op for these). Fix the exact
   childGen/grandchild path that emits transitively-imported namespace-member defs to apply param evidence.
-- [ ] **actors-cluster js DIVERGE ×3** (actors-cluster-coordinator, actors-cluster-raft, actors-leader-protocol) —
-  `hist=1` vs `hist=0`: leader-history not tracked on the JS actor runtime.
+- [x] **actors-cluster js DIVERGE ×3** (actors-cluster-coordinator, actors-cluster-raft, actors-leader-protocol) —
+  `hist=1` vs `hist=0`: JS gated the leaderHistory write behind `prev !== _localNodeId`, so single-node mode (empty
+  `_localNodeId`) dropped the initial entry. Fixed by recording every accepted claim unconditionally in all three
+  single-node self-claim paths (useExternalCoordinator / _raftAdoptLeader / _startElection empty-id + quorum),
+  mirroring ActorScheduler; `_fireLeaderEvent` stays guarded. (f89e5f708)
 
 ### v2 (bridge lane `--v2`) — wire plugins (V2-GAP.md order, highest leverage first)
 - [ ] **actor-cluster methods → v2 scope (10)** — electLeader / useRaftLeaderElection / clusterConfigSet /

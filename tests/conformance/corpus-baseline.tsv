@@ -36,7 +36,6 @@ content-toolkit-yaml-controls	v2	FAIL
 control-center-live	*	SKIP
 crypto-encrypt-demo	js	FAIL
 crypto-verify-demo	js	FAIL
-custom-derives-mirror	js	FAIL
 dataset-from-generator	js	FAIL
 dataset-from-generator	v2	FAIL
 dataset-typed-mapping	js	FAIL
