@@ -28,13 +28,16 @@ runtime bytes change, and all post-X1 kernel gates remain binding.
       compiler fixed point. Therefore prose/descriptors/vectors may proceed now,
       while frontend/lowering/canonical-codec and all byte-affecting implementation
       remain gated on X1 plus CoreIR inventory/codec reconciliation.
-- [ ] **cis-2 — canonical core spec.** Create
+- [x] **cis-2 — canonical core spec.** Create
       `specs/control-interoperability.md` as the sole normative owner of `Eff`,
       multi-prompt `shift`/`reset`, managed callbacks/TCO, `save`/`run`, the
       `CodeMode × FrameGate` model, `DurableValue`/`DurableRef`, admission/security,
       deployment, and conformance laws. Preserve existing semantics unless the
       joint resolution explicitly refined them; add no CoreIR continuation node.
-- [ ] **cis-3 — host and runner profiles.** Refactor
+      Result: `specs/control-interoperability.md` now owns the complete common
+      contract, including the independent code/frame axes and phased admission,
+      restore, and run failures.
+- [x] **cis-3 — host and runner profiles.** Refactor
       `specs/scala3-bidirectional-control.md` into the Scala 3 profile and add
       JS/TypeScript, Rust, Swift, and WASM/WASI runner-profile
       specifications. Host profiles require typed bidirectional value/call bridges;
@@ -42,7 +45,9 @@ runtime bytes change, and all post-X1 kernel gates remain binding.
       capture barriers, target-specific exact artifacts, and mixed-TCO guarantees
       explicit per host. `sunny-heron` owns the non-overlapping portable-VM reference
       profile and empirical conformance/readiness matrix under the separate
-      `control-interop-conformance-harness` claim.
+      `control-interop-conformance-harness` claim. Result: Scala/JVM, JS/TS, Rust,
+      Swift, and WASM/WASI documents now refine the core without duplicating semantic
+      ownership; the portable-VM harness landed independently in `a9c354262`.
 - [ ] **cis-4 — roadmap and satellite reconciliation.** Rewrite this section and the
       saved-continuation BACKLOG tail so JVM/JS/Rust/Swift runners are mandatory
       independently shippable milestones chosen by measured readiness, not optional
