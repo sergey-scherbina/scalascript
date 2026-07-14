@@ -1300,6 +1300,32 @@ planner, evaluator, and function registry are ScalaScript code; only the abstrac
 touches a host filesystem. Compatibility is pinned to SQLite 3 file format and observable behavior,
 with extensions isolated behind an explicit non-default profile.
 
+- [ ] **scljet-typed-sql-api** — FUTURE (idea, 2026-07-14, Sergiy: "typed SQL API — которое
+      компилируется непосредственно в план выполнения операций над BTree деревьями базы данных …
+      занести в спринт и потом написать спецификацию когда начнем"). A typed, embedded query API
+      (ScalaScript values, not SQL strings) that lowers **directly to a physical execution plan over
+      the database B-trees** — no runtime SQL-string parse. Envisioned shape:
+      - **Typed relations & columns.** A table is described by a typed schema (column name → SQL type);
+        queries are built from typed column/table values so column references, comparisons, projections
+        and aggregates are checked at ScalaScript compile time (ill-typed predicates don't compile).
+      - **Query algebra → logical plan.** Typed combinators (`from`/`where`/`select`/`join`/`groupBy`/
+        `orderBy`/`limit`, plus `insert`/`update`/`delete`) build a logical plan; the current
+        string SQL front end (`sql.ssc`) becomes one *optional* parser that produces the same plan.
+      - **Physical plan over B-trees.** A planner lowers the logical plan to explicit B-tree operations:
+        `SeekRowid`, `RangeScan(lo,hi)`, `FullScan`, `IndexSeek`/`IndexRangeScan` (once CREATE INDEX
+        lands), `Filter`, `Project`, `Aggregate`, `Sort`, `NestedLoopJoin`, and the write ops
+        `InsertCell`/`DeleteCell`/`UpdateCell` with `Balance`. Plan nodes operate on the existing
+        pager/cursor/`pagerInsertBalanced` layer — reusing the storage engine already built (M1–M5).
+      - **Why:** compile-time safety, zero string-parse at query time, index-aware access paths
+        (rowid/range/index seeks instead of always full-scanning), and a clean seam for a cost-based
+        planner later. The reused evaluator is the `SxNode`/`evalExpr` expression layer.
+      - **NEXT when we start:** write `specs/scljet-typed-sql.md` (typed schema representation, the
+        query-algebra surface, the logical→physical plan IR and its operators, the mapping onto the
+        current B-tree/pager primitives, and a differential test plan against both the SQL-string path
+        and reference sqlite3). Then implement planner + physical ops incrementally, each byte/row
+        verified vs sqlite3 on `[int, js]` like the rest of scljet. Depends on: CREATE INDEX (for index
+        access paths) and the current SQL executor (as the reference semantics).
+
 - [x] **scljet-0-plan-and-spec** — DONE 2026-07-12. Created `specs/scljet.md`
       after reconciling `SPEC.md`,
       existing SQL runtimes, and the official SQLite file/WAL/VFS/locking/SQL contracts. Specify the
