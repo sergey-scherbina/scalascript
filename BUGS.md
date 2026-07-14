@@ -1,5 +1,20 @@
 # Bug tracker
 
+## control-interop-runsh-installbin-task-name — FIXED (2026-07-14, claude)
+
+**Status:** fixed in the `control-interop-runsh-installbin-doc` landing; reported by
+codex-interop (rozum #interoperability, 2026-07-14).
+
+**Symptom:** `tests/interop-conformance/run.sh:21`'s "ssc binary not found" hint tells the
+user to run `sbt installBin`, but the scoped sbt task is `cli/installBin`
+(`tests/interop-conformance/README.md:25` already uses `scripts/sbtc "cli/installBin"`).
+
+**Reproduce:** `sed -n '21p' tests/interop-conformance/run.sh` shows `sbt installBin`;
+compare with README line 25.
+
+**Fix/verification:** the run.sh hint now names the scoped `sbt cli/installBin` task,
+matching the README; the runner is otherwise unaffected (string only).
+
 ## control-interop-harness-rust-multishot-drift — FIXED (2026-07-14, claude)
 
 **Status:** fixed in the `control-vectors-audit-followup` landing; reported by

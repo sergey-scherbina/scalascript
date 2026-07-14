@@ -18,7 +18,7 @@ ROOT="$(cd "$DIR/../.." && pwd)"
 SSC="${SSC:-$ROOT/bin/ssc}"
 
 if [ ! -x "$SSC" ] && ! command -v "$SSC" >/dev/null 2>&1; then
-  echo "error: ssc binary not found at '$SSC' (set SSC=/path/to/ssc or run 'sbt installBin')" >&2
+  echo "error: ssc binary not found at '$SSC' (set SSC=/path/to/ssc or run 'sbt cli/installBin')" >&2
   exit 2
 fi
 
