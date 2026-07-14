@@ -77,6 +77,8 @@ t wildonly  5       'def f(x) = x match { case _ => 5 } def main() = f(3)'
 t litpat    20      'def f(n) = n match { case 0 => 10 case 1 => 20 case _ => 99 } def main() = f(1)'
 t litdef    99      'def f(n) = n match { case 0 => 10 case 1 => 20 case _ => 99 } def main() = f(7)'
 t consinfix 6       'def sum(xs) = xs match { case Nil => 0 case h :: t => h + sum(t) } def main() = sum(1 :: 2 :: 3 :: Nil)'
+t ctorpat   14      'def eval(e) = e match { case Num(v) => v case Add(l, r) => eval(l) + eval(r) case Mul(l, r) => eval(l) * eval(r) case _ => 0 } def main() = eval(Add(Num(2), Mul(Num(3), Num(4))))'
+t ctor3     6       'def s3(t) = t match { case Tri(a, b, c) => a + b + c case _ => 0 } def main() = s3(Tri(1, 2, 3))'
 t comment    7       'def add(a, b) = a + b def main() = add(3, 4) // trailing comment skipped to EOL'
 
 echo "--- self-compilation fixpoint ---"

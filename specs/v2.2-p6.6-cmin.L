@@ -52,8 +52,8 @@ def parseBlockVal(ts, env, dq, nm) = parseExpr(tl(tl(tl(ts))), 0, env, dq) match
 def parseBlockEnd(ts, env, dq) = parseExpr(ts, 0, env, dq) match { case (e, r2) => (e, tl(r2)) }
 def parseVarOrCall(id, rest, env, dq) = if id == "true" then ("(lit true)", rest) else (if id == "false" then ("(lit false)", rest) else (if isLP(rest) then parseVarOrCall2(id, tl(rest), env, dq) else ("(local " ++ idxOf(env, id, 0) ++ ")", rest)))
 def parseVarOrCall2(id, ts, env, dq) = parseArgs(ts, env, "", dq) match { case (args, r2) => ("(app (global " ++ id ++ ")" ++ args ++ ")", r2) }
-def parseCtor(cn, rest, env, dq) = if isLP(rest) then parseCtorArgs(cn, tl(rest), env, dq) else ("(ctor " ++ cn ++ ")", rest)
-def parseCtorArgs(cn, ts, env, dq) = parseExpr(ts, 0, env, dq) match { case (a, r2) => parseExpr(tl(r2), 0, env, dq) match { case (b, r3) => ("(ctor " ++ cn ++ " " ++ a ++ " " ++ b ++ ")", tl(r3)) } }
+def parseCtor(cn, rest, env, dq) = if isLP(rest) then parseCtorArgs(cn, tl(rest), env, dq, "") else ("(ctor " ++ cn ++ ")", rest)
+def parseCtorArgs(cn, ts, env, dq, acc) = if isRP(ts) then ("(ctor " ++ cn ++ acc ++ ")", tl(ts)) else parseExpr(ts, 0, env, dq) match { case (a, r2) => if isComma(r2) then parseCtorArgs(cn, tl(r2), env, dq, acc ++ " " ++ a) else parseCtorArgs(cn, r2, env, dq, acc ++ " " ++ a) }
 def parseParenOrTuple(rest, env, dq) = parseExpr(rest, 0, env, dq) match { case (e, r2) => if isComma(r2) then parseTupleRest(e, tl(r2), env, dq) else (e, tl(r2)) }
 def parseTupleRest(e, ts, env, dq) = parseExpr(ts, 0, env, dq) match { case (e2, r3) => ("(ctor Tuple2 " ++ e ++ " " ++ e2 ++ ")", tl(r3)) }
 def parseIf(rest, env, dq) = parseExpr(rest, 0, env, dq) match { case (c, r2) => parseExpr(tl(r2), 0, env, dq) match { case (th, r3) => parseExpr(tl(r3), 0, env, dq) match { case (el, r4) => ("(if " ++ c ++ " " ++ th ++ " " ++ el ++ ")", r4) } } }
@@ -63,11 +63,13 @@ def parseParams(ts, acc) = if isKind1(hd(ts)) then parseParams2(ts, acc) else (a
 def parseParams2(ts, acc) = if isComma(tl(ts)) then parseParams(tl(tl(ts)), Cons(snd(hd(ts)), acc)) else parseParams(tl(ts), Cons(snd(hd(ts)), acc))
 def parseArms(ts, env, dq) = if isTok(hd(ts), 2, 6) then parseArm(tl(ts), env, dq) else ("", ("", tl(ts)))
 def isConsInfix(rest) = if fst(hd(rest)) == 1 then isTok(hd(tl(rest)), 2, 46) else false
-def parseArm(rest, env, dq) = if isTok(hd(rest), 2, 45) then parseArmDefault(rest, env, dq) else (if isConsInfix(rest) then parseArmConsInfix(rest, env, dq) else (if isTok(hd(rest), 2, 21) then parseArmTup(rest, env, dq) else (if isLP(tl(rest)) then parseArmCons(rest, env, dq) else parseArmNil(rest, env, dq))))
+def parseArm(rest, env, dq) = if isTok(hd(rest), 2, 45) then parseArmDefault(rest, env, dq) else (if isConsInfix(rest) then parseArmConsInfix(rest, env, dq) else (if isTok(hd(rest), 2, 21) then parseArmTup(rest, env, dq) else (if isLP(tl(rest)) then parseArmCtor(rest, env, dq) else parseArmNil(rest, env, dq))))
+def envApp(vars, env) = vars match { case Nil => env case h :: t => h :: envApp(t, env) }
+def parseCtorPatVars(ts, acc) = if isRP(ts) then (acc, tl(ts)) else (if isComma(ts) then parseCtorPatVars(tl(ts), acc) else parseCtorPatVars(tl(ts), snd(hd(ts)) :: acc))
+def parseArmCtor(rest, env, dq) = { val cn = snd(hd(rest))  parseCtorPatVars(tl(tl(rest)), Nil) match { case (vars, afterP) => parseExpr(tl(afterP), 0, envApp(vars, env), dq) match { case (body, r2) => parseArms(r2, env, dq) match { case (more, dr) => ("(arm " ++ cn ++ " " ++ dlen(vars) ++ " " ++ body ++ ") " ++ more, dr) } } } }
 def parseArmConsInfix(rest, env, dq) = { val hv = snd(hd(rest))  val tv = snd(hd(tl(tl(rest))))  parseExpr(tl(tl(tl(tl(rest)))), 0, tv :: hv :: env, dq) match { case (body, r2) => parseArms(r2, env, dq) match { case (more, dr) => ("(arm Cons 2 " ++ body ++ ") " ++ more, dr) } } }
 def parseArmDefault(rest, env, dq) = parseExpr(tl(tl(rest)), 0, env, dq) match { case (body, r2) => ("", (" (default " ++ body ++ ")", tl(r2))) }
 def parseArmTup(rest, env, dq) = { val av = snd(hd(tl(rest)))  val bv = snd(hd(tl(tl(tl(rest)))))  parseExpr(tl(tl(tl(tl(tl(tl(rest)))))), 0, bv :: av :: env, dq) match { case (body, r2) => parseArms(r2, env, dq) match { case (more, dr) => ("(arm Tuple2 2 " ++ body ++ ") " ++ more, dr) } } }
-def parseArmCons(rest, env, dq) = { val hv = snd(hd(tl(tl(rest))))  val tv = snd(hd(tl(tl(tl(tl(rest))))))  parseExpr(tl(tl(tl(tl(tl(tl(tl(rest))))))), 0, tv :: hv :: env, dq) match { case (body, r2) => parseArms(r2, env, dq) match { case (more, dr) => ("(arm Cons 2 " ++ body ++ ") " ++ more, dr) } } }
 def parseArmNil(rest, env, dq) = parseExpr(tl(tl(rest)), 0, env, dq) match { case (body, r2) => parseArms(r2, env, dq) match { case (more, dr) => ("(arm Nil 0 " ++ body ++ ") " ++ more, dr) } }
 def postfix(recv, ts, env, dq) = if isTok(hd(ts), 2, 5) then postfixMatch(recv, ts, env, dq) else (if isTok(hd(ts), 2, 31) then postfixDot(recv, ts, env, dq) else (recv, ts))
 def postfixMatch(recv, ts, env, dq) = if fst(hd(tl(tl(tl(ts))))) == 0 then parseIntMatch(recv, tl(tl(ts)), env, dq) else parseArms(tl(tl(ts)), env, dq) match { case (arms, dr) => dr match { case (defStr, r2) => postfix("(match " ++ recv ++ " (" ++ arms ++ ")" ++ defStr ++ ")", r2, env, dq) } }

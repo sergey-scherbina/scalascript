@@ -1166,6 +1166,29 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
           compiling itself) is the proof that it is a general-purpose compiler for L, closing the P6.6→P6.18
           self-host arc: a self-compiling compiler (fixpoint) for an idiomatic Scala-subset language, byte-
           identically bootstrappable by the UniML spike front.
+  - **P6.19+ — C_min pattern-matching COMPLETENESS (make everything work).** The self-host arc is proven; this
+    sub-arc closes C_min's real object-language gaps so it can compile ADT-based programs, each verified by the
+    fixpoint + spike + a capstone. All follow the established loop (emitter/lexer/parser edit → self-use where
+    natural → fixpoint(fast, ssc1-front) → spike byte-identity → land).
+    - [x] **P6.19 — arbitrary ctor patterns + variable-arity construction ✓ DONE 2026-07-14.** `case Name(a,
+          b, …) => …` now emits `(arm Name k body)` — `parseArmCtor`/`parseCtorPatVars`/`envApp` read the ctor
+          name + collect a variable number of var-patterns (arity `k`, env = `reverse(vars) ++ env`), replacing
+          the `Cons`/arity-2 hard-code. `Name(a, b, c)` construction: `parseCtorArgs` now collects args until
+          `)` → `(ctor Name a b c)` (any arity; `Cons(a,b)`/`Num(v)`/`Tri(a,b,c)` all work). C_min now 88 defs
+          (`idxOf` still uses `case Cons(h,t)`, now via the general path). Fixpoint holds (`stage1 == stage2`,
+          30583 B; C1 compiles an ADT program → 42); `spike(cmin.L) ≡ ssc1-front` byte-identical (58049 B).
+          **CAPSTONE 2**: `specs/v2.2-p6.19-ast.L` — a tree-walking arithmetic AST evaluator (`Num`/`Add`/`Sub`/
+          `Mul`) — is compiled by C_min via `p6.18-capstone.sh` (`(3*4)+(10-8)`→14, `(2+3)*4`→20). Fixpoint
+          script gained `ctorpat`/`ctor3` L-tests.
+    - [ ] **P6.20 — nested cons `a :: b :: t` + mixed tuple patterns `case (0, v)`.** Nested cons needs nested
+          destructuring (`(arm Cons 2 (match tail …))` or a fresh binder + inner match); mixed literal+var tuple
+          patterns need an int-literal guard on a tuple field. Lets stack/token code read `case (0, v)` directly.
+    - [ ] **P6.21 (optional) — CI protection of the self-host suite.** Wire `specs/v2.2-p6.6-fixpoint.sh` +
+          `p6.18-capstone.sh` + `p6.0-spike-verify.sh` into a CI job (build the ssc jar, run the scripts) so the
+          fixpoint / spike-byte-identity / capstone cannot silently regress. Infra task (jar-in-CI, timeouts).
+    - [ ] **P6.22 (architectural, Sergiy-gated) — spike → production front.** The spike is byte-identical to
+          `ssc1-front` across 119 constructs; consider it as an alternative/validation front. Big decision — do
+          NOT act without Sergiy.
 
 ---
 

@@ -59,5 +59,20 @@ tv "100 20 30 + -"       50
 tv "2 3 + 4 5 + *"       45
 tv "7"                    7
 
-[ "$fail" = "0" ] && echo "*** CAPSTONE: C_min is a general-purpose compiler — it compiles an independent RPN calculator ***"
+# A second independent program: a tree-walking arithmetic AST evaluator over an algebraic data type
+# (Num/Add/Sub/Mul) — exercises C_min's arbitrary-constructor construction + `case Name(...)` patterns (P6.19).
+AST="$HERE/v2.2-p6.19-ast.L"
+if [ -f "$AST" ]; then
+  runir "$WORK/C0.ir" "$AST" > "$WORK/ast.ir"
+  g=$(runir "$WORK/ast.ir" | head -1)
+  [ "$g" = "14" ] && echo "ok   C_min compiled ast.L; eval(Add(Mul(Num 3, Num 4), Sub(Num 10, Num 8))) -> $g" \
+    || { echo "FAIL ast.L got [$g] want 14"; fail=1; }
+  # a variant: change the whole expression to Mul(Add(Num(2), Num(3)), Num(4)) = 20
+  sed 's|Add(Mul(Num(3), Num(4)), Sub(Num(10), Num(8)))|Mul(Add(Num(2), Num(3)), Num(4))|' "$AST" > "$WORK/ast2.L"
+  g2=$(runir "$WORK/C0.ir" "$WORK/ast2.L" | runir /dev/stdin | head -1)
+  [ "$g2" = "20" ] && echo "ok   C_min-compiled AST: Mul(Add(Num 2, Num 3), Num 4) -> $g2" \
+    || { echo "FAIL ast variant got [$g2] want 20"; fail=1; }
+fi
+
+[ "$fail" = "0" ] && echo "*** CAPSTONE: C_min is a general-purpose compiler — it compiles an independent RPN calculator AND an AST evaluator ***"
 exit $fail
