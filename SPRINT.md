@@ -1928,6 +1928,19 @@ ORDER BY / LIMIT / OFFSET, aggregates (COUNT/SUM/MIN/MAX/AVG/TOTAL), GROUP BY + 
 and inner + LEFT joins — every feature byte-verified against reference sqlite3, int==js.
 Remaining follow-ups (niche): multi-table (3+) joins, page-1 schema split, repeating-decimal %.15g.
 
+- [x] **scljet-m6p-subquery** — DONE 2026-07-15 (Sergiy "еще что-то? … тоже нужно сделать"). Non-
+      correlated subqueries via a token-substitution PRE-PASS (`resolveSubqueries`, wired into both
+      `queryImage` and `executeMutation`): find a `( SELECT … )`, `evalSubquery` it once, and splice its
+      first-column result back as tokens — a value list `( v1, v2, … )` when the `(` follows `IN`, else a
+      single scalar value. Recurses so nested subqueries resolve. Supports `WHERE col IN (SELECT …)`,
+      `NOT IN`, and scalar `col op (SELECT agg …)`, plus subqueries in DELETE/UPDATE WHERE. Non-invasive
+      to the AST (no Condition/SelectStmt change). Verified vs sqlite3 (IN, NOT IN, `= (SELECT MAX)`,
+      `> (SELECT AVG)`, COUNT with IN), int==js; conformance `scljet-sql-subquery`. SCOPE: non-correlated,
+      integer/text results (real→truncated, empty-scalar→0 are edges). RE-HIT the interpreter bug
+      `interp-if-then-no-else`: a bare `if !first then accRev = comma :: accRev` inside the value-list
+      builder was SILENTLY SKIPPED (only 4 of 5 tokens produced) → use the if/else EXPRESSION form
+      `accRev = if first then accRev else …`. Follow-up: correlated subqueries, EXISTS, FROM-subqueries.
+
 - [x] **scljet-m6o-join3** — DONE 2026-07-15 (Sergiy "joins тоже нужно сделать"). 3+ table inner joins
       (`FROM a JOIN b ON … JOIN c ON …`). `SelectStmt.join: Option[JoinSpec]` → `joins: List[JoinSpec]`;
       `parseJoins` chains JOIN clauses; `executeSelect` routes 0→single, 1→existing full-featured 2-table
