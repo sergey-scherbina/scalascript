@@ -381,6 +381,11 @@ function _dispatch(obj, method, args) {
       case 'substring': return obj.substring(args[0], args[1]);
       case 'take': return obj.slice(0, args[0]);
       case 'drop': return obj.slice(args[0]);
+      // takeWhile/dropWhile/span box each char as a _Char for the predicate,
+      // like forall/filter above. (js-string-takewhile.)
+      case 'takeWhile': { let i=0; while (i<obj.length && args[0](_char(obj.charCodeAt(i)))) i++; return obj.slice(0,i); }
+      case 'dropWhile': { let i=0; while (i<obj.length && args[0](_char(obj.charCodeAt(i)))) i++; return obj.slice(i); }
+      case 'span':      { let i=0; while (i<obj.length && args[0](_char(obj.charCodeAt(i)))) i++; return [obj.slice(0,i), obj.slice(i)]; }
       // padTo(len, ch) — a Char arg arrives as a char-code number or a boxed _Char.
       // (jsgen-string-padto.)
       case 'padTo': { const ch = typeof args[1] === 'number' ? String.fromCharCode(args[1]) : args[1]; let s = obj; while (s.length < args[0]) s += ch; return s; }
