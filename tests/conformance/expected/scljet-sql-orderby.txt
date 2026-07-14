@@ -1,0 +1,24 @@
+SELECT name FROM t ORDER BY name => alice
+bob
+carol
+dave
+SELECT name, age FROM t ORDER BY age DESC => dave|45
+carol|31
+bob|29
+alice|27
+SELECT id, age FROM t ORDER BY age ASC => 2|27
+4|29
+1|31
+3|45
+SELECT name FROM t ORDER BY age LIMIT 2 => alice
+bob
+SELECT id FROM t ORDER BY id DESC LIMIT 2 OFFSET 1 => 3
+2
+SELECT name FROM t WHERE age >= 29 ORDER BY name => bob
+carol
+dave
+SELECT id FROM t LIMIT 3 => 1
+2
+3
+SELECT id FROM t ORDER BY age LIMIT 10 OFFSET 2 => 1
+3

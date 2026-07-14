@@ -1,0 +1,39 @@
+---
+name: scljet-sql-orderby
+description: SclJet SQL ORDER BY / LIMIT / OFFSET — sorted, limited SELECT results (matches reference sqlite3)
+backends: [int, js]
+---
+
+# SclJet SQL ORDER BY / LIMIT
+
+`SELECT … [WHERE …] [ORDER BY col [ASC|DESC]] [LIMIT n [OFFSET m]]` filters, then sorts the
+rows (stable merge sort by the order column, on the full row so an ORDER BY column need not be
+projected), then applies OFFSET/LIMIT, then projects. Every result is byte-identical to
+reference sqlite3 running the same SQL on the same file (verified out-of-band); locked here
+across backends.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def run(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(id INTEGER, name TEXT, age INTEGER)",
+  List(List(SqlInteger(1L), SqlText("carol"), SqlInteger(31L)),
+       List(SqlInteger(2L), SqlText("alice"), SqlInteger(27L)),
+       List(SqlInteger(3L), SqlText("dave"), SqlInteger(45L)),
+       List(SqlInteger(4L), SqlText("bob"), SqlInteger(29L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db) =>
+    run(db, "SELECT name FROM t ORDER BY name")
+    run(db, "SELECT name, age FROM t ORDER BY age DESC")
+    run(db, "SELECT id, age FROM t ORDER BY age ASC")
+    run(db, "SELECT name FROM t ORDER BY age LIMIT 2")
+    run(db, "SELECT id FROM t ORDER BY id DESC LIMIT 2 OFFSET 1")
+    run(db, "SELECT name FROM t WHERE age >= 29 ORDER BY name")
+    run(db, "SELECT id FROM t LIMIT 3")
+    run(db, "SELECT id FROM t ORDER BY age LIMIT 10 OFFSET 2")
+```

@@ -6,6 +6,7 @@ package: scljet
 exports:
   - Token
   - Condition
+  - OrderKey
   - SelectStmt
   - tokenize
   - parseSelect
@@ -155,7 +156,7 @@ def tokenize(sql: String): Either[String, List[Token]] =
 // ── Parser: SELECT (*|cols) FROM table [WHERE col op literal] ──
 
 case class Condition(column: String, op: String, value: SqliteValue)
-case class SelectStmt(star: Boolean, columns: List[String], table: String, where: Option[Condition])
+case class SelectStmt(star: Boolean, columns: List[String], table: String, where: Option[Condition], orderBy: Option[OrderKey], limit: Int, offset: Int)
 
 def isKw(token: Token, word: String): Boolean = token.kind == "ident" && upperStr(token.text) == word
 
@@ -195,9 +196,11 @@ def litValue(token: Token): Either[String, SqliteValue] =
   else if token.kind == "str" then Right(SqlText(token.text))
   else Left("expected a literal in WHERE")
 
-def parseWhere(toks: List[Token]): Either[String, Option[Condition]] =
-  if toks.isEmpty then Right(None)
-  else if isKw(toks.head, "WHERE") then
+// Parse an optional `WHERE col op literal`; returns the condition (or None) and the
+// tokens after it (for a trailing ORDER BY / LIMIT). A non-WHERE token is left in place.
+def parseWhere(toks: List[Token]): Either[String, (Option[Condition], List[Token])] =
+  if toks.isEmpty then Right((None, Nil))
+  else if tkIsKw(toks, "WHERE") then
     val rest = toks.tail
     if rest.length < 3 then Left("WHERE needs: column op value")
     else
@@ -208,8 +211,49 @@ def parseWhere(toks: List[Token]): Either[String, Option[Condition]] =
       else if op.kind != "op" then Left("expected a comparison operator")
       else litValue(lit) match
         case Left(message) => Left(message)
-        case Right(value) => Right(Some(Condition(col.text, op.text, value)))
-  else Left("expected WHERE")
+        case Right(value) => Right((Some(Condition(col.text, op.text, value)), rest.tail.tail.tail))
+  else Right((None, toks))
+
+case class OrderKey(column: String, desc: Boolean)
+
+// Parse optional `ORDER BY col [ASC|DESC]` then optional `LIMIT n [OFFSET m]`.
+def parseOrderLimit(toks: List[Token]): Either[String, (Option[OrderKey], Int, Int)] =
+  var rest = toks
+  var orderBy: Option[OrderKey] = None
+  var limit = -1
+  var offset = 0
+  var err: Option[String] = None
+  if tkIsKw(rest, "ORDER") then
+    rest = rest.tail
+    if !tkIsKw(rest, "BY") then err = Some("expected BY after ORDER")
+    else
+      rest = rest.tail
+      if tkKind(rest) != "ident" then err = Some("expected column after ORDER BY")
+      else
+        val col = rest.head.text
+        rest = rest.tail
+        if tkIsKw(rest, "DESC") then
+          orderBy = Some(OrderKey(col, true))
+          rest = rest.tail
+        else if tkIsKw(rest, "ASC") then
+          orderBy = Some(OrderKey(col, false))
+          rest = rest.tail
+        else orderBy = Some(OrderKey(col, false))
+  if err.isEmpty && tkIsKw(rest, "LIMIT") then
+    rest = rest.tail
+    if tkKind(rest) != "num" then err = Some("expected a number after LIMIT")
+    else
+      limit = rest.head.num.toInt
+      rest = rest.tail
+      if tkIsKw(rest, "OFFSET") then
+        rest = rest.tail
+        if tkKind(rest) != "num" then err = Some("expected a number after OFFSET")
+        else
+          offset = rest.head.num.toInt
+          rest = rest.tail
+  err match
+    case Some(message) => Left(message)
+    case None => Right((orderBy, limit, offset))
 
 def parseSelect(toks: List[Token]): Either[String, SelectStmt] =
   if !tkIsKw(toks, "SELECT") then Left("expected SELECT")
@@ -230,7 +274,9 @@ def parseSelect(toks: List[Token]): Either[String, SelectStmt] =
           if tkKind(afterFrom) != "ident" then Left("expected table name")
           else parseWhere(afterFrom.tail) match
             case Left(message) => Left(message)
-            case Right(where) => Right(SelectStmt(cols._1, cols._2, afterFrom.head.text, where))
+            case Right(wpair) => parseOrderLimit(wpair._2) match
+              case Left(message) => Left(message)
+              case Right(ol) => Right(SelectStmt(cols._1, cols._2, afterFrom.head.text, wpair._1, ol._1, ol._2, ol._3))
 
 // ── Column names from the table's CREATE TABLE text ──
 
@@ -393,6 +439,76 @@ def findTable(db: ReadonlyDatabase, name: String): Option[SchemaEntry] =
     r = r.tail
   found
 
+def reverseStorage(items: List[StorageRecord], acc: List[StorageRecord]): List[StorageRecord] =
+  var r = items
+  var out = acc
+  while r.nonEmpty do
+    out = r.head :: out
+    r = r.tail
+  out
+
+def takeStorage(rows: List[StorageRecord], n: Int): List[StorageRecord] =
+  var r = rows
+  var i = 0
+  var accRev: List[StorageRecord] = Nil
+  while i < n && r.nonEmpty do
+    accRev = r.head :: accRev
+    r = r.tail
+    i = i + 1
+  reverseStorage(accRev, Nil)
+
+def dropStorage(rows: List[StorageRecord], n: Int): List[StorageRecord] =
+  var r = rows
+  var i = 0
+  while i < n && r.nonEmpty do
+    r = r.tail
+    i = i + 1
+  r
+
+def filterRows(rows: List[StorageRecord], where: Option[Condition], colNames: List[String]): List[StorageRecord] =
+  var r = rows
+  var accRev: List[StorageRecord] = Nil
+  while r.nonEmpty do
+    if whereHolds(where, r.head, colNames) then accRev = r.head :: accRev
+    r = r.tail
+  reverseStorage(accRev, Nil)
+
+def recCompare(a: StorageRecord, b: StorageRecord, colNames: List[String], ok: OrderKey): Int =
+  val cmp = sqlCompare(rowValue(a, colNames, ok.column), rowValue(b, colNames, ok.column))
+  if ok.desc then 0 - cmp else cmp
+
+// Iterative merge (stable: left wins ties).
+def mergeStorage(a: List[StorageRecord], b: List[StorageRecord], colNames: List[String], ok: OrderKey): List[StorageRecord] =
+  var ra = a
+  var rb = b
+  var accRev: List[StorageRecord] = Nil
+  while ra.nonEmpty && rb.nonEmpty do
+    if recCompare(ra.head, rb.head, colNames, ok) <= 0 then
+      accRev = ra.head :: accRev
+      ra = ra.tail
+    else
+      accRev = rb.head :: accRev
+      rb = rb.tail
+  while ra.nonEmpty do
+    accRev = ra.head :: accRev
+    ra = ra.tail
+  while rb.nonEmpty do
+    accRev = rb.head :: accRev
+    rb = rb.tail
+  reverseStorage(accRev, Nil)
+
+// Stable merge sort; recursion depth is log(n).
+def sortStorage(rows: List[StorageRecord], colNames: List[String], ok: OrderKey): List[StorageRecord] =
+  val n = rows.length
+  if n <= 1 then rows
+  else
+    val half = n / 2
+    mergeStorage(sortStorage(takeStorage(rows, half), colNames, ok), sortStorage(dropStorage(rows, half), colNames, ok), colNames, ok)
+
+def applyLimitOffset(rows: List[StorageRecord], limit: Int, offset: Int): List[StorageRecord] =
+  val afterOffset = dropStorage(rows, offset)
+  if limit < 0 then afterOffset else takeStorage(afterOffset, limit)
+
 def executeSelect(db: ReadonlyDatabase, stmt: SelectStmt): Either[String, List[List[SqliteValue]]] =
   findTable(db, stmt.table) match
     case None => Left("no such table: " + stmt.table)
@@ -408,10 +524,15 @@ def executeSelect(db: ReadonlyDatabase, stmt: SelectStmt): Either[String, List[L
         case Right(cursor) => collectRows(db, cursor) match
           case Left(error) => Left(error.message)
           case Right(rows) =>
-            var r = rows
+            val filtered = filterRows(rows, stmt.where, colNames)
+            val sorted = stmt.orderBy match
+              case None => filtered
+              case Some(ok) => sortStorage(filtered, colNames, ok)
+            val limited = applyLimitOffset(sorted, stmt.limit, stmt.offset)
+            var r = limited
             var accRev: List[List[SqliteValue]] = Nil
             while r.nonEmpty do
-              if whereHolds(stmt.where, r.head, colNames) then accRev = projectRow(r.head, colNames, stmt) :: accRev
+              accRev = projectRow(r.head, colNames, stmt) :: accRev
               r = r.tail
             var out: List[List[SqliteValue]] = Nil
             while accRev.nonEmpty do
@@ -494,7 +615,7 @@ def parseDelete(toks: List[Token]): Either[String, DeleteStmt] =
       if tkKind(afterFrom) != "ident" then Left("expected table name")
       else parseWhere(afterFrom.tail) match
         case Left(message) => Left(message)
-        case Right(where) => Right(DeleteStmt(afterFrom.head.text, where))
+        case Right(wpair) => Right(DeleteStmt(afterFrom.head.text, wpair._1))
 
 def maxRowidOf(rows: List[StorageRecord]): Long =
   var r = rows
@@ -642,7 +763,7 @@ def parseUpdate(toks: List[Token]): Either[String, UpdateStmt] =
         case Left(message) => Left(message)
         case Right(pair) => parseWhere(pair._2) match
           case Left(message) => Left(message)
-          case Right(where) => Right(UpdateStmt(table, pair._1, where))
+          case Right(wpair) => Right(UpdateStmt(table, pair._1, wpair._1))
 
 def extractValues(rec: StorageRecord, count: Int): List[SqliteValue] =
   var i = 0
