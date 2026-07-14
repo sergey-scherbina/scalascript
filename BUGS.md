@@ -1,5 +1,30 @@
 # Bug tracker
 
+## scala-control-api-v1-placement — CONFIRMED / open (2026-07-14, Sergiy)
+
+**Status:** open (host-SDK architecture blocker). Reported by Sergiy immediately
+after the Tier-1 implementation landed.
+
+**Symptom:** the compiler-independent Scala 3 control SDK was added at
+`v1/lang/control-api`. The API implements the v2.2 bidirectional-control host
+profile and is intended to compose with every future backend; placing it under
+`v1/lang` falsely assigns semantic and lifecycle ownership to the legacy v1
+language/compiler tree.
+
+**Reproduce:** `build.sbt` points `scala3ControlApi` at
+`v1/lang/control-api`, and README/user-guide example links expose the same path.
+The Scala host profile requires only that the leaf remain outside the bootstrap
+dependency graph; it never assigns the module to v1.
+
+**Root cause:** “compiler-independent and outside bootstrap” was incorrectly
+translated into “put it beside the legacy v1 language libraries.” Those are
+independent decisions: this is a v2 host-SDK capability whose source tree must
+state that ownership while its sbt dependency graph stays a leaf.
+
+**Fix/verification:** move the unchanged artifact/package ABI to
+`v2/host/scala/control-api`, update build/docs/spec/example references, prove no
+tracked old-path reference remains, and rerun the complete Tier-1 release gates.
+
 ## scala3-control-operation-key-snapshot — FIXED / awaiting confirmation (2026-07-14, Codex)
 
 **Status:** fixed in `528d73af3`; awaiting reporter confirmation. Found during the final
