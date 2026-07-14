@@ -1,4 +1,4 @@
 claim: scljet-m3-writes
 owner: opus
-heartbeat: 2026-07-14T15:55:29Z
-status: recorded typed-SQL-API future milestone; starting WHERE expressions
+heartbeat: 2026-07-14T16:03:22Z
+status: m6a WHERE expressions done; 19/19 sql green; recorded typed-SQL-API + JDBC futures

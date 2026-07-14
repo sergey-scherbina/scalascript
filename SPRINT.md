@@ -1290,6 +1290,31 @@ with extensions isolated behind an explicit non-default profile.
         verified vs sqlite3 on `[int, js]` like the rest of scljet. Depends on: CREATE INDEX (for index
         access paths) and the current SQL executor (as the reference semantics).
 
+- [ ] **scljet-jdbc-api** — FUTURE (idea, 2026-07-14, Sergiy: "нужно чтобы было API для работы с
+      базой через JDBC"). A JDBC-shaped API so scljet can be driven through the standard
+      `Connection`/`Statement`/`PreparedStatement`/`ResultSet` surface (JVM primarily; a portable
+      façade with the same method names for int/js where a real `java.sql.*` isn't available).
+      Envisioned shape:
+      - **Driver + Connection.** `jdbc:scljet:<path>` URL → open the file through the scljet VFS/pager;
+        `Connection` owns the write transaction (autocommit on/off → the journal/WAL commit already
+        built), `commit`/`rollback` map to `mutableCommit`/`mutableRollback`.
+      - **Statement / PreparedStatement.** `executeQuery(sql)` runs `queryImage` and wraps rows in a
+        `ResultSet`; `executeUpdate(sql)` runs `executeMutation` and returns the affected-row count.
+        Prepared statements bind `?` parameters to `SqliteValue`s (reuse the lexer/parser; a bound
+        param becomes an `SxLit`), so no string interpolation.
+      - **ResultSet.** Forward cursor over the result rows with `getInt`/`getLong`/`getString`/
+        `getDouble`/`getObject`/`wasNull` mapping `SqliteValue` → JDBC types; `ResultSetMetaData` from the
+        projection/`CREATE TABLE` columns.
+      - **Why:** lets existing JVM tools, connection pools, and ORMs talk to a scljet file with no code
+        changes, and gives a familiar imperative API next to the (future) typed SQL API and the SQL
+        string front end — three front doors onto the same executor/storage engine.
+      - **NEXT when we start:** decide the split between a real `java.sql.Driver` (JVM, via a thin
+        interop shim) and a portable `scljet.jdbc` façade (int/js), then `specs/scljet-jdbc.md`
+        (URL grammar, the supported `Connection`/`Statement`/`ResultSet` subset, the SqliteValue↔JDBC
+        type map, transaction/autocommit semantics, and a conformance plan diffing `ResultSet` reads
+        against reference sqlite3/JDBC). Depends on: the SQL executor (done) and the mutable pager /
+        transaction layer (done); the typed SQL API can share the same `ResultSet`/value mapping.
+
 - [x] **scljet-0-plan-and-spec** — DONE 2026-07-12. Created `specs/scljet.md`
       after reconciling `SPEC.md`,
       existing SQL runtimes, and the official SQLite file/WAL/VFS/locking/SQL contracts. Specify the
@@ -1750,6 +1775,18 @@ order, so `SELECT *` matches without ORDER BY), and int==js.
 ORDER BY / LIMIT / OFFSET, aggregates (COUNT/SUM/MIN/MAX/AVG/TOTAL), GROUP BY + HAVING, CREATE TABLE,
 and inner + LEFT joins — every feature byte-verified against reference sqlite3, int==js.
 Remaining follow-ups (niche): multi-table (3+) joins, page-1 schema split, repeating-decimal %.15g.
+
+- [x] **scljet-m6a-where-expr** — DONE 2026-07-14. Scalar expressions in `WHERE`. Either side of a
+      comparison may now be an arithmetic expression, a column, or a literal: `salary * 2 > 400`,
+      `salary > cost * 2`, column-to-column (`salary > cost`), literal LHS (`250 >= salary`), composed
+      with `AND`/`OR`, and across a join (`emp.salary > dept.base * 2`). `Condition` gained
+      `leftExpr`/`rightExpr: Option[SxNode]` (a bare column/literal keeps the name/`value` fields so the
+      join path's `joinColValue` still works; anything compound is carried as an `SxNode`).
+      `parseCondition` now parses each side with `parseExpr`; `predHolds` takes resolved (left, right)
+      values; `condHolds` resolves via `evalExpr`, `joinCondHolds` via new `evalExprJoin` (columns
+      resolve across both tables). Reuses the `arithValue` BigInt-safe helpers from m5z (no new JS
+      issues). Verified vs sqlite3 (both-side arithmetic, column-to-column, literal LHS, AND, integer
+      division, join with cross-table expression), int==js; conformance `scljet-sql-where-expr`.
 
 - [x] **scljet-m5z-projection-expr** — DONE 2026-07-14. Scalar expressions in the projection:
       `SELECT salary * 12`, `(salary + 50) * 2`, `salary * 2 + 1`, `-salary`, `salary / 100`. Lexer
