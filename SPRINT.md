@@ -306,7 +306,11 @@ verify by probe + JVM dialect test + conformance 640ok. Detail: memory `project_
     throws; a named-def body is wrapped ONLY if it contains a return (cell-detected, save/restored around
     nested defs) so TCO on return-free defs is untouched (all tco/mutual-tco/wasm-tco tests still green); a
     `return` in a lambda propagates to the enclosing def. Covers top-level/object/local-nested/class-method.
-  - [x] `String.contains(Char)` unimplemented (56f7cd170); `obj.method` eta-expansion → explicit lambda (9b26bd888)
+  - [x] `String.contains(Char)` unimplemented (56f7cd170)
+  - [x] **`obj.method` eta-expansion GENERAL FIX (691334d4e)** — v2 now eta-expands a method selected on a
+    value (`list.exists(lc.contains)`) at the __method__ zero-arg fallthrough → `x => recv.name(x)` (native
+    1-arg ClosV re-dispatching via methodOp; untyped-safe — a real field/nullary method matches earlier).
+    Reverted both markdown shims to idiomatic method refs (dd1a57c7a); differential still 48/48. conformance 640ok.
 
 ### Markdown — NOT STARTED (obsolete note below)
 - [ ] **markdown-on-v2** — flatten `markdown/` parse path (nested enums InlinePiece/AngleKind/OpenLeaf
