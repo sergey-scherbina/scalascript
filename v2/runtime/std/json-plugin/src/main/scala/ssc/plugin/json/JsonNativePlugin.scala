@@ -28,11 +28,19 @@ final class JsonNativePlugin extends NativePlugin:
   private def closure(arity: Int)(fn: List[Value] => Value): Value.ClosV =
     Value.ClosV(Runtime.emptyEnv, arity, env => Done(fn(env.toList)))
 
-  private final class JsonBox(val core: Value, context: NativePluginContext)
+  private final class JsonBox(val core: Value, context: NativePluginContext,
+      optional: Boolean = false, present: Boolean = true)
       extends Value.NamedMethodObj, NativeJsonValue:
     def underlying: AnyRef = core
 
     private def boxed(value: Value): Value = Value.ForeignV(JsonBox(value, context))
+    // `get` returns an OPTIONAL JsonValue: it renders Some(inner)/None like INT yet keeps
+    // every JsonValue method (asString on an absent key → "", `.map` → Some/None). This
+    // reconciles json-value's Option usage (`v.get(k).map(...)`, prints Some/None) with
+    // json-deep-import / ui-typed-json's apply usage (`v.get(k).asString`). (v2-json-optional.)
+    private def boxedOpt(v: Option[Value]): Value =
+      Value.ForeignV(JsonBox(v.getOrElse(NativeJsonCodec.nullCore), context,
+        optional = true, present = v.isDefined))
 
     private def argText(args: List[Value], index: Int): Option[String] = args.lift(index) match
       case Some(Value.StrV(text)) => Some(text)
@@ -57,9 +65,20 @@ final class JsonNativePlugin extends NativePlugin:
         case Some(Value.IntV(index)) => boxed(atCore(index).getOrElse(NativeJsonCodec.nullCore))
         case _ => boxed(NativeJsonCodec.nullCore)
       })
-      case "get" => Some(closure(1) { args =>
-        boxed(argText(args, 0).flatMap(getCore).getOrElse(NativeJsonCodec.nullCore))
+      case "get" => Some(closure(1) { args => boxedOpt(argText(args, 0).flatMap(getCore)) })
+      // `.map(f): Option` — present → Some(f(innerJsonValue)); absent → None. Lets
+      // `v.get(k).map(jv => jv.asString)` print `Some(Ada)` / `None` like INT.
+      case "map" if optional => Some(closure(1) { args =>
+        if present then Value.DataV("Some", Vector(context.invoke(args.head, List(boxed(core)))))
+        else Value.DataV("None", Vector.empty)
       })
+      // `_show` — println/anyStr renders a JsonBox (a NamedMethodObj ForeignV) via this
+      // field before the `<foreign>` fallback. An OPTIONAL box renders Some(inner)/None;
+      // a plain box renders INT's native Map/List/scalar form.
+      case "_show" => Some(Value.StrV(
+        if optional && !present then "None"
+        else if optional then s"Some(${NativeJsonCodec.interpShow(core)})"
+        else NativeJsonCodec.interpShow(core)))
       case "at" => Some(closure(1) { args => args.headOption match
         case Some(Value.IntV(index)) => boxed(atCore(index).getOrElse(NativeJsonCodec.nullCore))
         case _ => boxed(NativeJsonCodec.nullCore)

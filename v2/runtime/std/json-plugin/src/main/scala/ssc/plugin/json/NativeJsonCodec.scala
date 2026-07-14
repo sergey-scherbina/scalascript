@@ -140,6 +140,28 @@ private[plugin] object NativeJsonCodec:
     case Value.DataV("JsonCoreErr", _) => toRaw(unwrapStrict(core))
     case _ => Value.UnitV
 
+  /** Render a JsonCore in the interpreter's `println`/toString format (matching v1's
+   *  native Map/List/scalar `Value.show`): objects → `Map(k -> v, …)`, arrays →
+   *  `List(…)`, strings UNQUOTED. Used by JsonBox's `_show` field so a JsonValue nested
+   *  in a `Some(…)` / collection renders like INT instead of the `<foreign>` fallback.
+   *  (v2-json-interp-show.) */
+  def interpShow(core: Value): String = anyStrLike(toRaw(core))
+
+  private def anyStrLike(v: Value): String = v match
+    case Value.StrV(s)     => s
+    case Value.IntV(n)     => n.toString
+    case Value.BigV(n)     => n.toString
+    case Value.FloatV(d)   => ssc.Writer.floatStr(d)
+    case Value.BoolV(b)    => b.toString
+    case Value.DecimalV(t) => t
+    case Value.UnitV       => "null"
+    case Value.MapV(entries) =>
+      s"Map(${entries.iterator.map((k, x) => s"${anyStrLike(k)} -> ${anyStrLike(x)}").mkString(", ")})"
+    case Value.DataV("Nil", _)  => "List()"
+    case cons @ Value.DataV("Cons", _) =>
+      s"List(${unlist(cons).map(anyStrLike).mkString(", ")})"
+    case other => ssc.Show.show(other)
+
   def isNull(core: Value): Boolean = core match
     case Value.DataV("JsonCoreNull", _) => true
     case _ => false
