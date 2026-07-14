@@ -1,5 +1,34 @@
 # Bug tracker
 
+## coreir-spec-node-inventory-drift — frozen CoreIR spec omits canonical `While` and `Seq`
+
+**Status:** open (found 2026-07-14, Codex, during the Scala 3 bidirectional-control
+architecture audit; observed at `3ae003279`; introduced by at least `975f8dce4`).
+
+**Symptom:** `v2/specs/10-core-ir.md` still freezes a ten-value/eleven-node kernel,
+states that no loop node is needed, and explicitly says that `Seq` is dropped. The
+canonical implementation and its Reader/Writer instead define, parse, and serialize
+both `Term.While` and `Term.Seq`. A new portable artifact such as a saved-continuation
+CoreIR capsule therefore cannot name one authoritative node inventory or format version.
+
+**Reproduce:** on the repository source used to build the real v2 compiler/runtime, run:
+
+```sh
+rg -n "10 shapes|11 nodes|no loop node|Seq a b.*dropped" v2/specs/10-core-ir.md
+rg -n "case (While|Seq)|case \"(while|seq)\"" v2/src/CoreIR.scala
+git show --stat 975f8dce4 -- v2/src/CoreIR.scala v2/specs/10-core-ir.md
+```
+
+The first command shows the frozen contract excluding the nodes; the second shows the
+canonical AST plus decoder/encoder accepting them; the introducing optimization commit
+changed `CoreIR.scala` without changing the spec.
+
+**Notes:** tracked as `coreir-canonical-contract-reconcile` in `SPRINT.md`. The fix must
+audit `v2/specs/12-ir-format.md`, the seed, evaluator, and every backend, then either
+version and specify the two canonical nodes or lower them before canonical serialization.
+It must not add a continuation-specific CoreIR node. This task only records the drift;
+status remains open until the dedicated reconciliation is implemented and verified.
+
 ## js-imported-def-int-division-loses-truncation — FIXED (2026-07-14, opus)
 
 **Status:** FIXED. Root cause was NOT the emission path — it was NAME-KEYED evidence
