@@ -2257,6 +2257,17 @@ def parseExprOrAssign = (toks) =>
     }
   else pr(mkSExpr(prV(re)), prT(re))
 
+-- `final`/`private` are not lexer keywords (they lex as `id`), so a leading
+-- `final case class …` / `private object …` would fall through to parseExpr as
+-- a bare variable (→ "unbound global: final"). Recognize them as no-op leading
+-- modifiers: consume one and re-dispatch on the underlying declaration. Chains
+-- (`private final case class`) fold through the recursion. Unlike `sealed`/
+-- `abstract`, we must NOT skip the declaration — the class/object is real.
+def isLeadModTok = (k, v) =>
+  if #seq(k, "id") then
+    (if #seq(v, "final") then true else if #seq(v, "private") then true else false)
+  else false
+
 def parseOneStmt = (toks) =>
   let t = peek(toks) in
   let k = tokKind(t) in
@@ -2264,7 +2275,8 @@ def parseOneStmt = (toks) =>
   -- Receiver lifetime is owned by the extension layout/brace frame. Nested
   -- member bodies also call parseOneStmt, so statement kind cannot safely
   -- clear the shared receiver cell.
-  if #seq(k, "@") then
+  if isLeadModTok(k, v) then parseOneStmt(advance(toks))
+  else if #seq(k, "@") then
     -- annotation(s): @Name / @Name("args") before a def/class/val — no runtime
     -- effect in the native path, so skip them and parse the annotated statement.
     let rec skipAnn = (ts) =>
