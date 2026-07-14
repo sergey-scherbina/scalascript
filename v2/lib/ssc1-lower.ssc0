@@ -2210,6 +2210,13 @@ def lowerE = (scope, rawExpr) =>
                           #sconcat(data, "__cell"))), Nil))
                     else if isActiveOwnerMember(data) then
                       IrGlobal(#sconcat(#cell.get(kc7bOwnerPrefixCell), data))
+                    else if #i.gt(#slen(caseSiblingGlobal(scope, data)), 0) then
+                      -- A bare reference to a NULLARY sibling method inside a
+                      -- (case-)class body (`def describe = area.toString`) calls it
+                      -- with `__self` — the applied form `sibling(args)` is handled
+                      -- in the app case.
+                      IrApp(IrGlobal(caseSiblingGlobal(scope, data)),
+                        Cons(lookupVar(scope, "__self"), Nil))
                     else IrGlobal(data)
                 }
             }
