@@ -308,12 +308,12 @@ compiles them via Scala.js.
 
 | Feature | Syntax |
 |---------|--------|
-| Algebraic effects | `effect E:`, `handle(body) { case E.op(arg, resume) => ... }`, multi-shot |
+| Algebraic effects | `effect E:` has an atomically enforced one-shot `resume`; a second call fails as `ONESHOT_VIOLATION`. Use `multi effect E:` for reusable resume. VM, direct ASM, and Swift share this contract |
 | Scala 3 explicit control API (Tier 1 implemented) | Publication-ready `_3` leaf in `scalascript.control`: typed `Eff`, deep handlers, generative multi-prompt `shift`/`reset`, reusable and one-shot local continuations, and stackless state machines. Local `save()` rejects with typed `UnmanagedCapture`; see the [runnable Scala example](v2/host/scala/control/src/test/scala/scalascript/controlapi/examples/ControlApiExample.scala) and [Scala/JVM profile](specs/scala3-bidirectional-control.md) |
 | Full control interoperability (in progress) | One target-neutral contract in [`specs/control-interoperability.md`](specs/control-interoperability.md). Successful durable `save`/`run`, network transfer, Scala↔ScalaScript typed bridges, managed callbacks/TCO, macros/plugin, admission, and exact/portable runners remain post-X1 work |
 | Host/runner profiles (planned) | Native typed bidirectional bridges for [Scala/JVM](specs/scala3-bidirectional-control.md), [JS/TS](specs/javascript-typescript-bidirectional-control.md), [Rust](specs/rust-bidirectional-control.md), and [Swift](specs/swift-bidirectional-control.md), measured against the [portable-VM reference runner](specs/control-interop-profile-portable-vm.md), plus the [WASM/WASI runner](specs/wasm-wasi-control-runner.md) |
 | Typed effect rows | `def foo(): A ! Logger` — effect appears in function type; closed row (no `!`) = total/pure |
-| `multi effect` | Multi-shot effects — continuation can be resumed many times |
+| `multi effect` | Explicit multi-shot effects — continuation can be resumed many times; raw CoreIR `effect.perform` also remains reusable |
 | `Reader[R]` capability | Context-injection effect: `Reader.get`, `runReader(value)(body)` |
 | `NonDet` multi-shot | Nondeterministic branching via multi-shot continuations |
 | `EffectAnalysis` | Compile-time error for unhandled effects (not just a warning) |
@@ -553,7 +553,7 @@ Dataset/MapReduce typed wire calls can select `wireFormat = "msgpack" | "cbor"` 
 | [content-slot.ssc](examples/content-slot.ssc) | A `@ui=toolkit` panel with a `{type: slot, id: <id>}` **escape hatch** filled by a code-built `TkNode` registered with `contentSlot(id, node)` — when the declarative vocabulary can't express a widget, the author drops a ScalaScript-authored one into the panel by id (declarative-ui Scope B.6) |
 | [markdown-native-controls.ssc](examples/frontend/markdown-native-controls/markdown-native-controls.ssc) | Same Markdown/YAML-declared controls rendered through native clients: `ssc run-jvm --frontend swing|javafx` for JVM desktop or `ssc emit --frontend swiftui` for SwiftUI source |
 | [recursion.ssc](examples/recursion.ssc) | Self-TCO, mutual TCO, Collatz — deep recursion without overflow |
-| [effects.ssc](examples/effects.ssc) | Algebraic effects — Console routing, nondeterminism, early return |
+| [effects.ssc](examples/effects.ssc) | Algebraic effects — one-shot Console/Fail operations, explicit multi-shot nondeterminism, early return |
 | [std-effects-demo.ssc](examples/std-effects-demo.ssc) | Logger, Random, Clock, State, Env standard effects |
 | [direct-demo.ssc](examples/direct-demo.ssc) | `direct[M]` do-notation, `.!` postfix bind, effect-row unions |
 | [async-demo.ssc](examples/async-demo.ssc) | Built-in `Async` effect — `runAsync`, `async`, `await`, `parallel`, `delay` |

@@ -1,10 +1,12 @@
 # Pending conformance axes
 
 These axes are part of the normative conformance matrix (joint `#interoperability`
-resolution, point 7) but are **not yet measurable** on any runner: they require
-the `DurableValue` wire codec, the `save()`/`run()` durable surface, and the
-atomic admission layer. Per the v2.2 gate, byte-affecting codec work starts only
-**after the X1 self-compilation fixed-point**, so these stay `pending-codec`.
+resolution, point 7) but are **not yet measurable** on the portable-VM runner.
+Axes 10–17 require the `DurableValue` wire codec, the `save()`/`run()` durable
+surface, and the atomic admission layer. Per the v2.2 gate, byte-affecting codec
+work starts only **after the X1 self-compilation fixed-point**, so these stay
+`pending-codec`. Axes 18–20 are independent runtime gaps and stay
+`pending-runtime`.
 
 Each `*.pending` file records the axis name, what it needs, and the exact
 behaviour it must verify — so that when the codec lands, converting a stub into a
@@ -14,8 +16,11 @@ reported as fully green.
 
 Grouping:
 
-- **durable / cross-host** — `06` same-process save/run, `07` cross-host resume,
-  `08` concurrent multi-shot, `09` no prefix/main replay.
+- **durable / cross-host** — `14` same-process save/run, `15` cross-host resume,
+  `16` concurrent multi-shot, `17` no prefix/main replay.
 - **negative (must reject)** — `10` raw ForeignV → Unsavable, `11` missing
   resolver → admission reject, `12` codec/artifact mismatch → typed reject,
   `13` signature/audience/tenant/quota → admission reject.
+- **runtime** — `18` delimited shift/reset, `19` residual forwarding, and `20`
+  stack-safe deep effect recursion. Axis `21` is now a runnable expected-negative
+  probe with an exact one-shot diagnostic.

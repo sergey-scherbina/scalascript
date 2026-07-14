@@ -21,7 +21,7 @@ effect Console:
   def writeLine(s: String): Unit
   def readLine(): String
 
-effect Choose:
+multi effect Choose:
   def pick(opts: List[Int]): Int
 
 effect Fail:

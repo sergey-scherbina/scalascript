@@ -1608,6 +1608,13 @@ runRandom   : (seed: Long)(body: A ! Random) => A
 Ordinary effects are single-shot (the continuation is invoked at most once).
 `multi effect` allows the handler to resume the continuation many times:
 
+The one-shot rule is enforced at runtime with one atomic claim shared by deep
+handler and forwarding wrappers. A second sequential or concurrent `resume`
+aborts the run as
+`error [ONESHOT_VIOLATION]: One-shot violation: <Effect>.<op> resumed more than once`;
+ordinary ScalaScript `try/catch` cannot intercept this control-contract failure.
+Low-level CoreIR `effect.perform` remains reusable for free-monad/Mira programs.
+
 ```scalascript
 multi effect NonDet:
   def choose[A](options: List[A]): A

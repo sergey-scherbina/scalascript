@@ -1669,6 +1669,11 @@ Ordinary effects are single-shot: each operation resumes its continuation
 exactly once.  `multi effect` allows a handler to resume many times — enabling
 nondeterminism, search, and backtracking.
 
+Single-shot is a checked runtime contract, not a convention. The first
+`resume` atomically claims the continuation; another call aborts with
+`ONESHOT_VIOLATION` before its suffix can run. Declare `multi effect` whenever a
+handler intentionally invokes `resume` more than once.
+
 ```scalascript
 multi effect NonDet:
   def choose[A](options: List[A]): A
