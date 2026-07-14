@@ -1004,6 +1004,98 @@ final class ScalaSpikeSpec extends AnyFunSuite:
          |}
          |def compile(src: String): String = "(program (defs " + parseDefs(lex(src, 0, src.length)) + ") (entry (app (global main))))"
          |def main(): String = compile("def f(x) = let y = x + 1 in y * y def main() = f(4)")""".stripMargin
+    // ══ P6.5: a compiler with pattern MATCH + list/constructor DATA (the self-application core) ═════
+    // Uppercase idents are constructors: `Nil` → (ctor Nil), `Cons(a, b)` → (ctor Cons a b). A postfix
+    // `scrut match { case Nil => e1 case Cons(h, t) => e2 }` lowers to (match scrut ((arm Nil 0 e1)
+    // (arm Cons 2 e2))), with the Cons pattern vars pushed onto the env (reversed: t → local 0, h →
+    // local 1) — building directly on the selfhost-env model. This is the data-manipulation heart of a
+    // self-applicable compiler. `def sum(xs) = xs match {…} ; sum(Cons(7, Cons(8, Cons(9, Nil))))` = 24.
+    val selfhostMatch =
+      """|def isLo(c: Int): Int = if c >= 97 then (if c <= 122 then 1 else 0) else 0
+         |def isUp(c: Int): Int = if c >= 65 then (if c <= 90 then 1 else 0) else 0
+         |def isLet(c: Int): Int = if isLo(c) == 1 then 1 else isUp(c)
+         |def isDig(c: Int): Int = if c >= 48 then (if c <= 57 then 1 else 0) else 0
+         |def scanId(s: String, i: Int, n: Int): Int = if i >= n then i else if isLet(s.charAt(i)) == 1 then scanId(s, i + 1, n) else i
+         |def scanNum(s: String, i: Int, n: Int, acc: Int): Int = if i >= n then (acc, i) else if isDig(s.charAt(i)) == 1 then scanNum(s, i + 1, n, acc * 10 + (s.charAt(i) - 48)) else (acc, i)
+         |def kwCode(s: String): Int = if s == "def" then 1 else if s == "if" then 2 else if s == "then" then 3 else if s == "else" then 4 else if s == "let" then 5 else if s == "in" then 6 else if s == "match" then 7 else if s == "case" then 8 else 0
+         |def lex(s: String, i: Int, n: Int): List[Int] =
+         |  if i >= n then Nil
+         |  else
+         |    val c = s.charAt(i)
+         |    if c == 32 then lex(s, i + 1, n)
+         |    else if isLet(c) == 1 then
+         |      val j = scanId(s, i, n)
+         |      val w = s.substring(i, j)
+         |      if kwCode(w) > 0 then Cons((2, kwCode(w)), lex(s, j, n)) else if isUp(c) == 1 then Cons((3, w), lex(s, j, n)) else Cons((1, w), lex(s, j, n))
+         |    else if isDig(c) == 1 then scanNum(s, i, n, 0) match { case (v, j) => Cons((0, v), lex(s, j, n)) }
+         |    else if c == 61 then (if s.charAt(i + 1) == 62 then Cons((2, 30), lex(s, i + 2, n)) else Cons((2, 20), lex(s, i + 1, n)))
+         |    else if c == 40 then Cons((2, 21), lex(s, i + 1, n))
+         |    else if c == 41 then Cons((2, 22), lex(s, i + 1, n))
+         |    else if c == 43 then Cons((2, 23), lex(s, i + 1, n))
+         |    else if c == 45 then Cons((2, 24), lex(s, i + 1, n))
+         |    else if c == 42 then Cons((2, 25), lex(s, i + 1, n))
+         |    else if c == 60 then Cons((2, 26), lex(s, i + 1, n))
+         |    else if c == 44 then Cons((2, 27), lex(s, i + 1, n))
+         |    else if c == 123 then Cons((2, 28), lex(s, i + 1, n))
+         |    else if c == 125 then Cons((2, 29), lex(s, i + 1, n))
+         |    else lex(s, i + 1, n)
+         |def prec(t: Int): Int = t match { case (2, 26) => 1 case (2, 23) => 2 case (2, 24) => 2 case (2, 25) => 3 case _ => 0 }
+         |def opStr(k: Int): String = if k == 23 then "i.add" else if k == 24 then "i.sub" else if k == 25 then "i.mul" else "i.lt"
+         |def hd(ts: List[Int]): Int = ts match { case Cons(h, t) => h case Nil => (0, 0) }
+         |def tl(ts: List[Int]): List[Int] = ts match { case Cons(h, t) => t case Nil => Nil }
+         |def snd(p: Int): Int = p match { case (a, b) => b }
+         |def fst(p: Int): Int = p match { case (a, b) => a }
+         |def isLP(ts: List[Int]): Int = hd(ts) match { case (2, 21) => 1 case _ => 0 }
+         |def idxOf(env: List[Int], name: String, i: Int): Int = env match { case Nil => 0 case Cons(h, t) => if h == name then i else idxOf(t, name, i + 1) }
+         |def parseAtom(ts: List[Int], env: List[Int]): Int = ts match {
+         |  case Cons(t, rest) => t match {
+         |    case (0, n) => ("(lit (int " + n + "))", rest)
+         |    case (1, id) =>
+         |      if isLP(rest) == 1 then parseExpr(tl(rest), 0, env) match { case (arg, r2) => ("(app (global " + id + ") " + arg + ")", tl(r2)) }
+         |      else ("(local " + idxOf(env, id, 0) + ")", rest)
+         |    case (3, cn) =>
+         |      if isLP(rest) == 1 then parseExpr(tl(rest), 0, env) match { case (a, r2) => parseExpr(tl(r2), 0, env) match { case (b, r3) => ("(ctor " + cn + " " + a + " " + b + ")", tl(r3)) } }
+         |      else ("(ctor " + cn + ")", rest)
+         |    case (2, 21) => parseExpr(rest, 0, env) match { case (e, r2) => (e, tl(r2)) }
+         |    case (2, 2) => parseExpr(rest, 0, env) match { case (c, r2) => parseExpr(tl(r2), 0, env) match { case (th, r3) => parseExpr(tl(r3), 0, env) match { case (el, r4) => ("(if " + c + " " + th + " " + el + ")", r4) } } }
+         |    case (2, 5) => parseExpr(tl(tl(rest)), 0, env) match { case (e1, r3) => parseExpr(tl(r3), 0, Cons(snd(hd(rest)), env)) match { case (e2, r4) => ("(app (lam 1 " + e2 + ") " + e1 + ")", r4) } }
+         |    case _ => ("(lit (int 0))", rest)
+         |  }
+         |  case Nil => ("(lit (int 0))", Nil)
+         |}
+         |def parseArms(ts: List[Int], env: List[Int]): Int = hd(ts) match {
+         |  case (2, 8) =>
+         |    val rest = tl(ts)
+         |    if isLP(tl(rest)) == 1 then
+         |      val hv = snd(hd(tl(tl(rest))))
+         |      val tv = snd(hd(tl(tl(tl(tl(rest))))))
+         |      parseExpr(tl(tl(tl(tl(tl(tl(tl(rest))))))), 0, Cons(tv, Cons(hv, env))) match { case (body, r2) => parseArms(r2, env) match { case (more, r3) => ("(arm Cons 2 " + body + ") " + more, r3) } }
+         |    else parseExpr(tl(tl(rest)), 0, env) match { case (body, r2) => parseArms(r2, env) match { case (more, r3) => ("(arm Nil 0 " + body + ") " + more, r3) } }
+         |  case _ => ("", tl(ts))
+         |}
+         |def parsePostfix(ts: List[Int], env: List[Int]): Int = parseAtom(ts, env) match { case (a, r) => hd(r) match { case (2, 7) => parseArms(tl(tl(r)), env) match { case (arms, r2) => ("(match " + a + " (" + arms + "))", r2) } case _ => (a, r) } }
+         |def climb(left: String, ts: List[Int], minPrec: Int, env: List[Int]): Int = ts match {
+         |  case Cons(t, rest) =>
+         |    val p = prec(t)
+         |    if p >= minPrec then
+         |      if p > 0 then parseExpr(rest, p + 1, env) match { case (right, r2) => t match { case (2, k) => climb("(prim " + opStr(k) + " " + left + " " + right + ")", r2, minPrec, env) case _ => (left, ts) } }
+         |      else (left, ts)
+         |    else (left, ts)
+         |  case Nil => (left, ts)
+         |}
+         |def parseExpr(ts: List[Int], minPrec: Int, env: List[Int]): Int = parsePostfix(ts, env) match { case (l, r) => climb(l, r, minPrec, env) }
+         |def parseDefs(ts: List[Int]): String = ts match {
+         |  case Nil => ""
+         |  case Cons(d, r1) =>
+         |    val nm = snd(hd(r1))
+         |    val r3 = tl(tl(r1))
+         |    hd(r3) match {
+         |      case (2, 22) => parseExpr(tl(tl(r3)), 0, Nil) match { case (body, r6) => "(def main (lam 0 " + body + ")) " + parseDefs(r6) }
+         |      case _ => parseExpr(tl(tl(tl(r3))), 0, Cons(snd(hd(r3)), Nil)) match { case (body, r6) => "(def " + nm + " (lam 1 " + body + ")) " + parseDefs(r6) }
+         |    }
+         |}
+         |def compile(src: String): String = "(program (defs " + parseDefs(lex(src, 0, src.length)) + ") (entry (app (global main))))"
+         |def main(): String = compile("def sum(xs) = xs match { case Nil => 0 case Cons(h, t) => h + sum(t) } def main() = sum(Cons(7, Cons(8, Cons(9, Nil))))")""".stripMargin
     // The hardest part of a real parser, in the subset: a PRECEDENCE-CLIMBING infix parser with
     // PARENTHESES — the same algorithm as the spike's own parseExpr (climb while the next operator binds
     // tighter than minPrec). Tokenises "2 * (1 + 3)" (with `(`=-3, `)`=-4), parses respecting `*` over `+`
@@ -1059,6 +1151,7 @@ final class ScalaSpikeSpec extends AnyFunSuite:
       "selfhost-scala"    -> selfhostScala,
       "selfhost-multi"    -> selfhostMulti,
       "selfhost-env"      -> selfhostEnv,
+      "selfhost-match"    -> selfhostMatch,
       "selfhost-infix"    -> selfhostInfix,
       "scale-prog"   -> scaleProg,
       "scale-decls"  -> scaleDecls,
@@ -1174,6 +1267,8 @@ final class ScalaSpikeSpec extends AnyFunSuite:
     Files.writeString(Paths.get(outDir, "selfhost-multi.emit"), "17")
     // selfhost-env compiles let-bindings with a proper lexical environment; f(4) = let y=5 in y*y = 25.
     Files.writeString(Paths.get(outDir, "selfhost-env.emit"), "25")
+    // selfhost-match compiles a list-summing function via pattern match; sum([7,8,9]) = 24.
+    Files.writeString(Paths.get(outDir, "selfhost-match.emit"), "24")
     for (name, code, expect) <- broken do
       Files.writeString(Paths.get(outDir, s"$name.proj"), SpikeProject.program(parse(code).roots.head))
       Files.writeString(Paths.get(outDir, s"$name.expect"), expect)
