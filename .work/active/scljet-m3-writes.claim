@@ -1,4 +1,4 @@
 claim: scljet-m3-writes
 owner: opus
-heartbeat: 2026-07-14T16:32:58Z
-status: m6e string functions (SUBSTR/TRIM/REPLACE) done; 23/23 sql green
+heartbeat: 2026-07-14T16:55:56Z
+status: m6f CASE + comparisons-as-expressions done; 24/24 sql green

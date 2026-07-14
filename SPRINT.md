@@ -1845,6 +1845,20 @@ ORDER BY / LIMIT / OFFSET, aggregates (COUNT/SUM/MIN/MAX/AVG/TOTAL), GROUP BY + 
 and inner + LEFT joins — every feature byte-verified against reference sqlite3, int==js.
 Remaining follow-ups (niche): multi-table (3+) joins, page-1 schema split, repeating-decimal %.15g.
 
+- [x] **scljet-m6f-case** — DONE 2026-07-14. `CASE` expression — searched (`CASE WHEN cond THEN r …
+      [ELSE r] END`) and simple (`CASE operand WHEN v THEN r … END`). To support it, comparisons became
+      first-class expressions: new lowest-precedence `parseExprCompare` makes `a op b` an `SxBin` that
+      yields `1`/`0`/NULL (so `SELECT salary > 200` returns 0/1, like sqlite); WHERE operands stay on
+      `parseExprAdd` so `parseCondition` still splits `WHERE a > b`. New `SxCase`/`SxWhen` AST +
+      `parseCase`/`parseCaseWhens`; `evalCase{Single,Join,Values}` pick the first matching WHEN
+      (operand-equality or truthiness) then ELSE/NULL — wired into all three evaluators. Also `WHERE
+      <expr>` (a bare boolean expression, e.g. `WHERE CASE…END`) is now a `truthy` predicate.
+      Verified vs sqlite3 (searched/simple, no-ELSE→NULL, arithmetic results, bare comparison, CASE in
+      WHERE), int==js; conformance `scljet-sql-case`. BUG FIXED en route: parseCondition's
+      `tkIsKw(after,"NOT") && tkIsKw(after.tail,…)` crashed the interpreter on an empty `after` (bare
+      CASE-WHERE) because interp `&&` doesn't short-circuit — nested the checks so `after.tail` is only
+      reached when `after` is non-empty (BUGS.md `interp-boolean-operators-no-short-circuit`).
+
 - [x] **scljet-m6e-string-functions** — DONE 2026-07-14. String functions `SUBSTR(s,y[,z])` (1-based,
       `y<0` counts from the right, window clamped), `TRIM`/`LTRIM`/`RTRIM` (default trims spaces,
       optional char set), `REPLACE(s,from,to)` (all non-overlapping). Added to `evalCall` with
