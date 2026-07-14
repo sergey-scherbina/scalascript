@@ -3999,6 +3999,16 @@ class JsGen(
     case Lit.Unit()     => "undefined"
     case Lit.Null()     => "null"
 
+    // A parenless `def f: T = …` is re-evaluated on every reference (Scala
+    // semantics), so a BARE reference to it — as a value or argument, NOT a call
+    // (genApply handles `f(x)` → `f()(x)`) — must invoke it: `f` → `f()`. Without
+    // this, `useIt(mkAdd)` passed the function object `mkAdd` itself instead of its
+    // value, so `f(10)` returned a function. `zeroParamFns` holds only top-level
+    // parenless defs (vals / multi-param defs are unaffected); the paramRenames
+    // guard skips a renamed local that shadows the name. (js-parenless-def-value.)
+    case Term.Name(name) if zeroParamFns(name) && !paramRenames.contains(name) =>
+      s"${mapName(name)}()"
+
     // Name lookup
     case Term.Name(name) => mapName(name)
 

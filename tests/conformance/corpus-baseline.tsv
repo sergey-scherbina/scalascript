@@ -125,7 +125,6 @@ openapi-annotation	*	SKIP
 os-env	js	DIVERGE
 os-env	v2	DIVERGE
 paginated-typed-client	*	SKIP
-parenless-def-value	js	DIVERGE
 pdf-extract-demo	js	FAIL
 pdf-extract-demo	v2	FAIL
 pg-listen-notify	*	SKIP
