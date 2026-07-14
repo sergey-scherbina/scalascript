@@ -27,6 +27,8 @@ exports:
   - UpdateStmt
   - parseUpdate
   - executeUpdate
+  - parseCreate
+  - executeCreate
 ---
 
 # SclJet SQL query layer
@@ -38,7 +40,7 @@ rows, applies the filter, and projects the result. `queryImage(dbBytes, sql)` op
 database image and returns the result rows; `renderRows` formats them like the sqlite3
 CLI (`a|b|c` per row, NULL blank) for differential testing.
 
-[ByteSlice, ByteError, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, ReadonlyDatabase, SchemaEntry, StorageRecord, DecodedRecord, DecodedText, RowidTableTree, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly, ReadonlyCursorStep, ReadonlyBtreeCursor, SqliteError, SqliteOpenOptions, SqliteLimits, OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, encodeRecord, openMutablePager, mutableCommit, MutablePager, PagerCommit, pagerInsertBalanced, pagerDeleteBalanced](index.ssc)
+[ByteSlice, ByteError, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, ReadonlyDatabase, SchemaEntry, StorageRecord, DecodedRecord, DecodedText, RowidTableTree, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly, ReadonlyCursorStep, ReadonlyBtreeCursor, SqliteError, SqliteOpenOptions, SqliteLimits, OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, encodeRecord, openMutablePager, mutableCommit, mutableGet, mutablePut, MutablePager, PagerCommit, pagerInsertBalanced, pagerDeleteBalanced, readLeafCells, leafInsertCell, rebuildLeafPage, LeafCell, byteSliceSlice, byteSliceToList, byteSliceGet, writeU32Be](index.ssc)
 [ImageVfs, fieldValueAt](mutate.ssc)
 
 ```scalascript
@@ -1255,7 +1257,76 @@ def executeUpdate(dbBytes: ByteSlice, stmt: UpdateStmt): Either[String, ByteSlic
                   case Left(error) => Left(error.message)
                   case Right(pc) => Right(pc.pager.image)
 
-/** Run an INSERT, DELETE, or UPDATE against a database image; return the new image. */
+// ── CREATE TABLE (append a schema row on page 1 + an empty table root) ──
+
+def byteAt(bytes: ByteSlice, off: Int): Int = byteSliceGet(bytes, off) match
+  case Right(b) => b
+  case Left(_) => 0
+
+def pageSizeOf(bytes: ByteSlice): Int =
+  val ps = byteAt(bytes, 16) * 256 + byteAt(bytes, 17)
+  if ps == 1 then 65536 else ps
+
+def maxLeafRowid(cells: List[LeafCell]): Long =
+  var r = cells
+  var m = 0L
+  while r.nonEmpty do
+    if r.head.rowid > m then m = r.head.rowid
+    r = r.tail
+  m
+
+def sliceList(bytes: ByteSlice, off: Int, len: Int): List[Int] =
+  byteSliceSlice(bytes, off, len) match
+    case Right(s) => byteSliceToList(s)
+    case Left(_) => Nil
+
+/** `CREATE TABLE ident ( … )` — returns the table name. */
+def parseCreate(toks: List[Token]): Either[String, String] =
+  if !tkIsKw(toks, "CREATE") then Left("expected CREATE")
+  else
+    val afterCreate = toks.tail
+    if !tkIsKw(afterCreate, "TABLE") then Left("expected TABLE")
+    else
+      val afterTable = afterCreate.tail
+      if tkKind(afterTable) != "ident" then Left("expected table name")
+      else Right(afterTable.head.text)
+
+/** Create a table in an existing database: append its `sqlite_schema` row to page 1's
+ *  leaf and allocate an empty table root page. The original `sql` text is stored
+ *  verbatim (so reference sqlite `.schema` matches). Assumes the page-1 schema leaf
+ *  does not overflow (a page-1 split — balance at headerOffset 100 — is a follow-up). */
+def executeCreate(dbBytes: ByteSlice, sql: String, tableName: String): Either[String, ByteSlice] =
+  val pageSize = pageSizeOf(dbBytes)
+  byteSliceSlice(dbBytes, 0, pageSize) match
+    case Left(error) => Left(error.message)
+    case Right(page1) => readLeafCells(page1, 100) match
+      case Left(error) => Left(error.message)
+      case Right(schemaCells) =>
+        val newRoot = (dbBytes.length / pageSize) + 1
+        val newRowid = maxLeafRowid(schemaCells) + 1L
+        encodeRecord(List(SqlText("table"), SqlText(tableName), SqlText(tableName), SqlInteger(newRoot.toLong), SqlText(sql))) match
+          case Left(error) => Left(error.message)
+          case Right(schemaRec) => leafInsertCell(schemaCells, newRowid, schemaRec) match
+            case Left(message) => Left(message)
+            case Right(newCells) => rebuildLeafPage(newCells, pageSize, 100) match
+              case Left(error) => Left(error.message)
+              case Right(leafPortion) =>
+                val emptyCells: List[LeafCell] = Nil
+                rebuildLeafPage(emptyCells, pageSize, 0) match
+                  case Left(error) => Left(error.message)
+                  case Right(emptyRoot) =>
+                    val newHeader = sliceList(page1, 0, 28) ++ byteSliceToList(writeU32Be(newRoot.toLong)) ++ sliceList(page1, 32, 68)
+                    ByteSlice.fromList(newHeader ++ leafPortion) match
+                      case Left(error) => Left(error.message)
+                      case Right(newPage1) => ByteSlice.fromList(emptyRoot) match
+                        case Left(error) => Left(error.message)
+                        case Right(emptyRootSlice) =>
+                          val staged = mutablePut(mutablePut(openMutablePager(dbBytes, pageSize, pageSize), 1, newPage1), newRoot, emptyRootSlice)
+                          mutableCommit(staged, newRoot.toLong) match
+                            case Left(error) => Left(error.message)
+                            case Right(pc) => Right(pc.pager.image)
+
+/** Run an INSERT, DELETE, UPDATE, or CREATE TABLE against a database image; return the new image. */
 def executeMutation(dbBytes: ByteSlice, sql: String): Either[String, ByteSlice] =
   tokenize(sql) match
     case Left(message) => Left(message)
@@ -1270,7 +1341,10 @@ def executeMutation(dbBytes: ByteSlice, sql: String): Either[String, ByteSlice] 
       else if isKw(toks.head, "UPDATE") then parseUpdate(toks) match
         case Left(message) => Left(message)
         case Right(stmt) => executeUpdate(dbBytes, stmt)
-      else Left("executeMutation expects INSERT, DELETE, or UPDATE")
+      else if isKw(toks.head, "CREATE") then parseCreate(toks) match
+        case Left(message) => Left(message)
+        case Right(tableName) => executeCreate(dbBytes, sql, tableName)
+      else Left("executeMutation expects INSERT, DELETE, UPDATE, or CREATE TABLE")
 
 // ── Rendering (sqlite3 CLI list format: `a|b|c` per row, NULL blank) ──
 

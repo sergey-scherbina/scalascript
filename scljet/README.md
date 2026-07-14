@@ -125,11 +125,12 @@ Data-modifying SQL runs too: `executeMutation(dbBytes, sql)` handles `INSERT INT
 `DELETE FROM t [WHERE …]` (matching rows deleted through the pager), and
 `UPDATE t SET col = literal [, …] [WHERE …]` (each matching row re-encoded and replaced at the
 same rowid), returning the new database image — after a sequence of statements the table matches
-sqlite3 running the same SQL, with `integrity_check` ok. SQL **CRUD is complete**
-(SELECT / INSERT / UPDATE / DELETE). SELECT also does `ORDER BY`/`LIMIT`/`OFFSET` and
-aggregates (`COUNT`/`SUM`/`MIN`/`MAX`, also `AVG`/`TOTAL`) over the filtered rows. `CREATE TABLE`,
-`GROUP BY`, joins, column-list inserts, and sqlite-exact real formatting are the remaining
-M5 follow-ups.
+sqlite3 running the same SQL, with `integrity_check` ok. SQL **CRUD is complete** (SELECT / INSERT / UPDATE / DELETE, including column-list inserts).
+SELECT also does `ORDER BY` (multi-column, ASC/DESC) / `LIMIT` / `OFFSET`, aggregates
+(`COUNT`/`SUM`/`MIN`/`MAX`/`AVG`/`TOTAL`), and `GROUP BY`. `CREATE TABLE t(…)` appends a table
+(schema row + empty root) that reference sqlite reads and `.schema` shows. Reals render like the
+sqlite3 CLI. Remaining M5 follow-ups: joins, `HAVING`, a page-1 schema split, and repeating-decimal
+`%.15g` parity.
 
 ## Modules
 

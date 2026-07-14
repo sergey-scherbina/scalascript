@@ -1508,12 +1508,16 @@ order, so `SELECT *` matches without ORDER BY), and int==js.
       COUNT/SUM/MIN/MAX, WHERE+GROUP, distinct via `GROUP BY col`, group-by-int, whole-table agg),
       int==js; conformance `scljet-sql-group-by`. AVG-per-group excluded (repeating-decimal `%.15g`
       follow-up). REMAINING: `HAVING`, ORDER BY over grouped output, joins.
-- [ ] **scljet-m5l-create-table** — `CREATE TABLE t(col type, …)`: append a `sqlite_schema` row for
-      the new table + allocate an empty table root. Inserting into the page-1 schema B-tree needs
-      balance at `headerOffset = 100` (the 100-byte file header on page 1) — generalize the balance
-      leaf/interior builders to a page-1 offset, or special-case a single-cell schema insert. Verify
-      the resulting file: reference sqlite `.schema` + `integrity_check` accept it, and INSERT/SELECT
-      on the new table work. Larger — may split.
+- [x] **scljet-m5l-create-table** — DONE 2026-07-14. `sql.ssc` `parseCreate`/`executeCreate`:
+      `CREATE TABLE t(…)` reads page 1's schema leaf (`readLeafCells` at headerOffset 100), inserts a
+      new `(type='table', name, tbl_name, rootpage, sql)` cell (`leafInsertCell`, sql stored verbatim),
+      rebuilds the leaf portion (`rebuildLeafPage` at 100) spliced onto the file header with the page
+      count bumped, allocates an empty table root (`rebuildLeafPage(Nil)` at 0), and commits both pages
+      via the mutable pager. Verified vs reference sqlite3: `integrity_check` ok, `.schema` shows every
+      table with exact SQL, roots assigned in order, and INSERT (incl. column-list) / SELECT / GROUP /
+      ORDER on the new tables match sqlite. int==js; conformance `scljet-sql-create-table`. LIMITATION:
+      the page-1 schema leaf must not overflow (a page-1 split — balance at headerOffset 100 — is the
+      follow-up); `CREATE TABLE IF NOT EXISTS`, indexes, and constraints not parsed.
 - [ ] **scljet-m5m-join** — simple inner join `SELECT … FROM a JOIN b ON a.x = b.y [WHERE …]`
       (nested-loop). Later; needs qualified column names + a two-table row model.
 
