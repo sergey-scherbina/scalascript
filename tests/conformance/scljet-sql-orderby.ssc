@@ -36,4 +36,6 @@ buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(id INTEGER, name TEXT, age IN
     run(db, "SELECT name FROM t WHERE age >= 29 ORDER BY name")
     run(db, "SELECT id FROM t LIMIT 3")
     run(db, "SELECT id FROM t ORDER BY age LIMIT 10 OFFSET 2")
+    run(db, "SELECT id, age FROM t ORDER BY age DESC, id ASC")
+    run(db, "SELECT id FROM t ORDER BY name, id LIMIT 3")
 ```

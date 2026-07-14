@@ -157,7 +157,7 @@ def tokenize(sql: String): Either[String, List[Token]] =
 // ── Parser: SELECT (*|cols) FROM table [WHERE col op literal] ──
 
 case class Condition(column: String, op: String, value: SqliteValue)
-case class SelectStmt(star: Boolean, columns: List[String], table: String, where: Option[Condition], orderBy: Option[OrderKey], limit: Int, offset: Int, aggregates: List[AggItem])
+case class SelectStmt(star: Boolean, columns: List[String], table: String, where: Option[Condition], orderBy: List[OrderKey], limit: Int, offset: Int, aggregates: List[AggItem])
 
 def isKw(token: Token, word: String): Boolean = token.kind == "ident" && upperStr(token.text) == word
 
@@ -217,10 +217,19 @@ def parseWhere(toks: List[Token]): Either[String, (Option[Condition], List[Token
 
 case class OrderKey(column: String, desc: Boolean)
 
-// Parse optional `ORDER BY col [ASC|DESC]` then optional `LIMIT n [OFFSET m]`.
-def parseOrderLimit(toks: List[Token]): Either[String, (Option[OrderKey], Int, Int)] =
+def reverseKeys(items: List[OrderKey], acc: List[OrderKey]): List[OrderKey] =
+  var r = items
+  var out = acc
+  while r.nonEmpty do
+    out = r.head :: out
+    r = r.tail
+  out
+
+// Parse optional `ORDER BY col [ASC|DESC] [, col [ASC|DESC]]*` then optional
+// `LIMIT n [OFFSET m]`. Returns the order keys (empty = none), limit (-1 = none), offset.
+def parseOrderLimit(toks: List[Token]): Either[String, (List[OrderKey], Int, Int)] =
   var rest = toks
-  var orderBy: Option[OrderKey] = None
+  var keysRev: List[OrderKey] = Nil
   var limit = -1
   var offset = 0
   var err: Option[String] = None
@@ -229,17 +238,23 @@ def parseOrderLimit(toks: List[Token]): Either[String, (Option[OrderKey], Int, I
     if !tkIsKw(rest, "BY") then err = Some("expected BY after ORDER")
     else
       rest = rest.tail
-      if tkKind(rest) != "ident" then err = Some("expected column after ORDER BY")
-      else
-        val col = rest.head.text
-        rest = rest.tail
-        if tkIsKw(rest, "DESC") then
-          orderBy = Some(OrderKey(col, true))
+      var moreKeys = true
+      while moreKeys && err.isEmpty do
+        if tkKind(rest) != "ident" then
+          err = Some("expected column after ORDER BY")
+          moreKeys = false
+        else
+          val col = rest.head.text
           rest = rest.tail
-        else if tkIsKw(rest, "ASC") then
-          orderBy = Some(OrderKey(col, false))
-          rest = rest.tail
-        else orderBy = Some(OrderKey(col, false))
+          var desc = false
+          if tkIsKw(rest, "DESC") then
+            desc = true
+            rest = rest.tail
+          else if tkIsKw(rest, "ASC") then rest = rest.tail
+          else desc = false
+          keysRev = OrderKey(col, desc) :: keysRev
+          if tkKind(rest) == "comma" then rest = rest.tail
+          else moreKeys = false
   if err.isEmpty && tkIsKw(rest, "LIMIT") then
     rest = rest.tail
     if tkKind(rest) != "num" then err = Some("expected a number after LIMIT")
@@ -254,7 +269,7 @@ def parseOrderLimit(toks: List[Token]): Either[String, (Option[OrderKey], Int, I
           rest = rest.tail
   err match
     case Some(message) => Left(message)
-    case None => Right((orderBy, limit, offset))
+    case None => Right((reverseKeys(keysRev, Nil), limit, offset))
 
 // ── Aggregate projection: COUNT(*) / COUNT(col) / SUM / MIN / MAX / AVG / TOTAL ──
 
@@ -534,17 +549,24 @@ def filterRows(rows: List[StorageRecord], where: Option[Condition], colNames: Li
     r = r.tail
   reverseStorage(accRev, Nil)
 
-def recCompare(a: StorageRecord, b: StorageRecord, colNames: List[String], ok: OrderKey): Int =
-  val cmp = sqlCompare(rowValue(a, colNames, ok.column), rowValue(b, colNames, ok.column))
-  if ok.desc then 0 - cmp else cmp
+// Lexicographic comparison over the ORDER BY key list (per-key ASC/DESC).
+def recCompare(a: StorageRecord, b: StorageRecord, colNames: List[String], keys: List[OrderKey]): Int =
+  var r = keys
+  var result = 0
+  while r.nonEmpty && result == 0 do
+    val ok = r.head
+    val cmp = sqlCompare(rowValue(a, colNames, ok.column), rowValue(b, colNames, ok.column))
+    result = if ok.desc then 0 - cmp else cmp
+    r = r.tail
+  result
 
 // Iterative merge (stable: left wins ties).
-def mergeStorage(a: List[StorageRecord], b: List[StorageRecord], colNames: List[String], ok: OrderKey): List[StorageRecord] =
+def mergeStorage(a: List[StorageRecord], b: List[StorageRecord], colNames: List[String], keys: List[OrderKey]): List[StorageRecord] =
   var ra = a
   var rb = b
   var accRev: List[StorageRecord] = Nil
   while ra.nonEmpty && rb.nonEmpty do
-    if recCompare(ra.head, rb.head, colNames, ok) <= 0 then
+    if recCompare(ra.head, rb.head, colNames, keys) <= 0 then
       accRev = ra.head :: accRev
       ra = ra.tail
     else
@@ -559,12 +581,12 @@ def mergeStorage(a: List[StorageRecord], b: List[StorageRecord], colNames: List[
   reverseStorage(accRev, Nil)
 
 // Stable merge sort; recursion depth is log(n).
-def sortStorage(rows: List[StorageRecord], colNames: List[String], ok: OrderKey): List[StorageRecord] =
+def sortStorage(rows: List[StorageRecord], colNames: List[String], keys: List[OrderKey]): List[StorageRecord] =
   val n = rows.length
   if n <= 1 then rows
   else
     val half = n / 2
-    mergeStorage(sortStorage(takeStorage(rows, half), colNames, ok), sortStorage(dropStorage(rows, half), colNames, ok), colNames, ok)
+    mergeStorage(sortStorage(takeStorage(rows, half), colNames, keys), sortStorage(dropStorage(rows, half), colNames, keys), colNames, keys)
 
 def applyLimitOffset(rows: List[StorageRecord], limit: Int, offset: Int): List[StorageRecord] =
   val afterOffset = dropStorage(rows, offset)
@@ -674,9 +696,7 @@ def executeSelect(db: ReadonlyDatabase, stmt: SelectStmt): Either[String, List[L
             val filtered = filterRows(rows, stmt.where, colNames)
             if stmt.aggregates.nonEmpty then Right(computeAggregates(stmt.aggregates, filtered, colNames) :: Nil)
             else
-              val sorted = stmt.orderBy match
-                case None => filtered
-                case Some(ok) => sortStorage(filtered, colNames, ok)
+              val sorted = if stmt.orderBy.isEmpty then filtered else sortStorage(filtered, colNames, stmt.orderBy)
               val limited = applyLimitOffset(sorted, stmt.limit, stmt.offset)
               var r = limited
               var accRev: List[List[SqliteValue]] = Nil

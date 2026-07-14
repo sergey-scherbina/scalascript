@@ -1462,8 +1462,10 @@ order, so `SELECT *` matches without ORDER BY), and int==js.
       sqlite differential — all 10 aggregate queries (incl `AVG`/`TOTAL`, clean + WHERE + empty-set)
       byte-identical to sqlite3, int==js (`scljet-sql-aggregate`). Repeating-decimal `%.15g` parity
       (e.g. 1/3) is a further note.
-- [ ] **scljet-m5i-orderby-multi** — multi-column `ORDER BY a [DESC], b [DESC], …`: parse a list of
-      OrderKeys, compare lexicographically in `recCompare`. Verify vs sqlite3 with tie-breaking.
+- [x] **scljet-m5i-orderby-multi** — DONE 2026-07-14. `parseOrderLimit` parses a list of OrderKeys
+      (per-key ASC/DESC); `SelectStmt.orderBy: List[OrderKey]`; `recCompare` compares lexicographically
+      over the key list. Verified vs sqlite3 (`ORDER BY age DESC, id ASC`, `ORDER BY name, id LIMIT`),
+      int==js; folded into `scljet-sql-orderby`.
 - [ ] **scljet-m5j-insert-columns** — `INSERT INTO t (c1, c2) VALUES (…)`: parse the optional column
       list, map values to declared-column order (missing columns → NULL). Verify vs sqlite3.
 - [ ] **scljet-m5k-group-by** — `SELECT col, AGG(col2) FROM t [WHERE …] GROUP BY col [ORDER BY …]`:
