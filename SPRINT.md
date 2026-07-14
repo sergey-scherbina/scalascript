@@ -393,9 +393,14 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
           selfhost-closures — a higher-order interpreter with CLOSURES (lambda→closure capturing env,
           application extends it; (λf. f(f(3)))(λx. x*2)→**12**), byte-identical + runs. Three self-host
           artifacts now (compiler→23, scoped interp→56, closures→12). **Corpus 64 programs, 0 fail.**
+    - [x] **P6.5-step string ops + source-text compiler ✓ Landed 2026-07-14** (03febbe42): probed string ops
+          (length/==/+/substring/charAt) — ALL run on the VM byte-identically. selfhost-full = a COMPLETE
+          compiler from source TEXT (lexer reads s.charAt/s.length → tokens → recursive-descent parse → AST
+          → eval; compile("+ 1 * 2 3")→**7**), byte-identical + runs. A genuine front component consuming
+          source text, in the subset. **Corpus 71 programs, 0 fail.** Notes §P6.5-step.
   - [ ] **P6.5 (follow-on, non-gate)** — port `ssc1-lower` AND the spike front (SpikeLex/Parse/Project)
         from ssc0/Scala into the subset → whole compiler dual-compilable = the literal self-compilation
-        fixed point.
+        fixed point. (Lexing shape now proven runnable in the subset via selfhost-full.)
   - Prereqs: subset must hold — the one v2-side lift is **immutable indexed `Array`** (gapmap:76);
         anon-trait + mutable-object-field stay out; multi-file `package`/`import` reconciliation
         (gapmap:82-83) needed before the compiler's own multi-file source dual-compiles.
