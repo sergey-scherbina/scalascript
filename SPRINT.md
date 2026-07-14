@@ -173,12 +173,19 @@ So `class C(a): val y = a*2` → `c.y` = `Stub` / internal `y` = unbound; `var y
 params ++ body-field names; the generated constructor (lowerCaseCls @ 3340) computes body inits in a
 let-chain (each sees ctor params + earlier fields) before IrCtor. Hook: constructor generator already
 emits `def C(a) = IrCtor(C, [a])`; extend to `def C(a) = let y=a*2 in IrCtor(C, [a, y])`.
-- [ ] **scala-body-val** — body `val y = expr`: capture + synthesized-constructor init + field registry
-  (caseFieldsCell/caseFieldOrderCell include body fields). Internal `y` + external `c.y`.
-- [ ] **scala-body-var** — body `var y = expr` (--mutable): same, cell-backed (cell.new in the synthesized
-  ctor at the body-var position; read/write already handled by the var-field machinery once registered).
-- [ ] **scala-lazy-val** — `lazy val z = expr`: memoized — the field stores a cell with an uncomputed
-  sentinel; first access computes `expr` (a thunk) and caches. Needs a lazy accessor + runtime memo.
+- [x] **scala-body-val DONE (`1dca4677a`)** — body `val y = expr` → nullary method desugar (pure computed
+  field ≡ recomputed method; reuses method dispatch). Braced + layout; following top-level `val` not
+  mis-captured.
+- [x] **scala-body-var + scala-lazy-val DONE (`1d42de036`)** — synthesized constructor (lowerCaseCls):
+  body fields captured to classBodyFieldsCell, DataV field list = params ++ body names, ctor binds each
+  init in a let-chain then IrCtor. `var` → cell (reuses var machinery); `lazy val` → cell holding
+  `__lazyThunk__(() => init)`, forced+memoized via new `__lazyForce__` prim (internal + external access
+  routed; NOT bound as a method local so the cache persists). GOTCHA: `lazy` lexes as an ID (not a kw) —
+  `kwIs("lazy")` silently fails; use an id-value check. Verified full field spectrum + laziness
+  (`before,computing,6,6`). ALL Scala class field forms now work; non-scljet sweep 142, 0 regr.
+  NOTE: scljet-* sweep cases (~30) fail on a PRE-EXISTING main bug (`scljet/write.ssc` unterminated fence
+  — 1 opening ``` , no close), CONFIRMED independent of this work (fails with these files reverted to
+  pre-commit main); scljet is main's active M4 WIP, left untouched.
 
 ### Effects / runtime providers
 - [ ] **v2-coroutine-provider** — coroutine-basic / coroutine-error: `unbound global: coroutineCreate`.
