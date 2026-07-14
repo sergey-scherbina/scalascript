@@ -1,6 +1,0 @@
-slug: v2.2-p6.5-multi
-scope: literal P6.5 — a GENERAL multi-function compiler in the subset reading real Scala syntax: several
-       single-param `def`s + helper calls + nested application + a 0-param main, string-named globals,
-       name resolution → executable CoreIR. `def sq(n)=n*n def inc(n)=n+1 def main()=inc(sq(4))` → 17.
-files: uniml/core/src/test/.../spike/**, specs/v2.2-*, SPRINT.md
-branch: feature/v2.2-p6.5-multi
