@@ -197,20 +197,25 @@ private object JsonLexer:
     var index = 0
     while index < text.length && !halted do
       val char = text.charAt(index)
+      // Build lexemes by SLICING the source, never `char.toString` / s"$char":
+      // a `Char` code point kept only for classification is portable, but turning
+      // it back into text via `.toString`/interpolation is not (ScalaScript v2 has
+      // no Char box, so `char.toString` yields the decimal code). `substring`
+      // returns the actual character(s) on both scalac and v2.
       if Unicode.isHighSurrogate(char) then
         if index + 1 < text.length then
           val next = text.charAt(index + 1)
           if Unicode.isLowSurrogate(next) then
-            feedCodePoint(s"$char$next", rawSurrogate = false)
+            feedCodePoint(text.substring(index, index + 2), rawSurrogate = false)
             index += 2
           else
-            feedCodePoint(char.toString, rawSurrogate = true)
+            feedCodePoint(text.substring(index, index + 1), rawSurrogate = true)
             index += 1
         else
-          feedCodePoint(char.toString, rawSurrogate = true)
+          feedCodePoint(text.substring(index, index + 1), rawSurrogate = true)
           index += 1
       else
-        feedCodePoint(char.toString, rawSurrogate = Unicode.isLowSurrogate(char))
+        feedCodePoint(text.substring(index, index + 1), rawSurrogate = Unicode.isLowSurrogate(char))
         index += 1
 
     // Finalize any token left open at end of input.
