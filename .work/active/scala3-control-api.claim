@@ -1,0 +1,6 @@
+feature/scala3-control-api 2026-07-14T13:30:22Z
+agent: codex-interop
+heartbeat: 2026-07-14T13:30:22Z
+status: not-started
+done-so-far: canonical control and Scala/JVM host profile specs landed
+next: create isolated worktree and audit existing _3 API/build conventions before implementing the explicit typed control ABI
