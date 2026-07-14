@@ -48,13 +48,18 @@ verify by probe + JVM dialect test + conformance 640ok. Detail: memory `project_
   above: enum-case named construction doesn't reorder/fill an omitted non-trailing default because
   enum cases aren't in `caseFieldOrderCell` the way case classes are (`lookupFields(caseName)`=Nil).
   Fix: register enum-case field order so `resolveCtorArgs` reorders them too. Repro `p-enumnamed.ssc`.
-- [ ] **v2-yaml-flow-err** — flow-style `[1,2,3]`/`{a:1}` → `unbound global: _err` (an unparseable
-  construct in the flow path, only reached for flow input; `_ => body`, `case Some('[')`, `.charAt(0)`
-  all verified fine). Block-style unaffected. Repro: scratchpad `yaml-flat.ssc` with `[1,2,3]`.
+- [x] **v2-yaml-flow-err FIXED — YAML NOW FULLY COMPLETE (block + flow) on v2.** The flow `_err` was
+  `case "]" | "}" if stack.nonEmpty =>` — v2 does not support a GUARD on an ALTERNATION pattern
+  (`A | B if …`). Fixed UniML-side: move the guard into the body. Flow-seq `[1,2,3]` / flow-map
+  `{a:1}` → roots=1 Complete 0 diags; invalid `[1,2` → Incomplete+diag. unimlYaml 18/18.
+- [ ] **v2-alternation-pattern-guard** (v2 fix, deferred) — general bug: `case A | B if guard` →
+  `_err`. Front doesn't parse a guard on an alternation pattern. Repro `p-altguard.ssc`.
 - [ ] **v2-object-qualified-nested-ctor** — `O.Inner(…)` (qualified ext ref to a nested type) →
   `unbound global: O_Inner`. Bare `Inner(…)` inside the object works; dialects use bare, so low-pri.
-- [ ] **yaml-flow-remaining** — fix flow-err, iterate to Complete on flow inputs; then a v2-vs-JVM
-  differential over a YAML corpus.
+
+### Markdown — NEXT (after JSON + YAML complete)
+- [ ] Re-checked: with JSON + YAML both fully compiling+running correctly on v2, Markdown is the
+  last dialect. Flatten `markdown/` parse path → run → sweep the same construct gaps → Complete.
 
 ### Markdown — NOT STARTED
 - [ ] **markdown-on-v2** — flatten `markdown/` parse path (nested enums InlinePiece/AngleKind/OpenLeaf
