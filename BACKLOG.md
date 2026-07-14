@@ -215,9 +215,16 @@ are plain bullets without checkboxes so agents do not claim them as build work.
       (`buildInteriorPageKind`/`indexInteriorCell`); verified a 100-row two-leaf
       index — reference integrity_check cross-validates it and the planner uses it
       (conformance `scljet-write-index-multileaf`); single-leaf stays byte-identical.
-      Remaining: 3+-level indexes, index maintenance on mutate, and (4) true IN-PLACE
-      mutation of pages (the separate pager/journal path, m3e). (JIT codegen bug
-      found on the way — BUGS.md `interp-jit-nested-match-duplicate-var`.)
+      Index maintenance on mutate is DONE (2026-07-14): `mutate.ssc`
+      `deleteRowidsIndexed`/`updateRowIndexed` (via `rebuildIndexed` + write.ssc
+      `buildTableWithIndexRaw`) read a table+index DB's rows, apply the edit, and
+      rebuild BOTH the table and the index from the surviving rows so the index
+      never goes stale — reference `integrity_check`'s index cross-check passes
+      after delete AND update; the caller supplies the integer key columns
+      (conformance `scljet-index-mutate`). Remaining: 3+-level indexes, text/blob
+      index keys during mutate (needs raw key fields + codepoint compare), and (4)
+      true IN-PLACE mutation of pages (the separate pager/journal path, m3e). (JIT
+      codegen bug found on the way — BUGS.md `interp-jit-nested-match-duplicate-var`.)
 
 - [x] **scljet-byteslice-zeros-js-recursion** — DONE 2026-07-13. The core list
       helpers in `scljet/bytes.ssc` were made iterative (`while`+`var`, not linear

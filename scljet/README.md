@@ -58,9 +58,12 @@ row back as its raw record payload, and rebuild the table with the original
 `sqlite_schema` record and rowids preserved. `insertRow` adds a row at an explicit
 (ascending, non-duplicate) rowid; `updateRowValues` re-encodes only the changed
 row (the caller supplies the new value, so no code-point→String is needed); the
-untouched rows pass through as raw records. Verified against reference
-`integrity_check` including overflow rows, int==js. The mutable pager and true
-in-place page mutation (m3e) remain.
+untouched rows pass through as raw records. Delete/update on a table-plus-index
+database keep the index consistent (`deleteRowidsIndexed` / `updateRowIndexed`
+rebuild both trees from the surviving rows, so `integrity_check`'s index
+cross-check still passes). Verified against reference `integrity_check` including
+overflow rows, int==js. The mutable pager and true in-place page mutation (m3e)
+remain.
 
 ## Modules
 
