@@ -9,6 +9,107 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## scala3-bidirectional-control — transparent Scala 3 ↔ ScalaScript control and durable handoff (2026-07-14, Sergiy)
+
+Goal: make Scala 3 and ScalaScript two source frontends of one **managed JVM execution lane** while
+preserving the target-independent ScalaScript contract. Pure values, typed effects, handlers,
+multi-prompt `shift`/`reset`, callbacks, and mixed-language tail calls cross the boundary without
+`Any`, reflection, hidden exceptions, or interpreter runtime types. The normative semantics remain
+the language specs + portable CoreIR lowering + differential conformance; this work does **not** put
+Scala/JVM types into frozen CoreIR and does not make the Scala SDK the semantic owner of v2.
+
+Durable control uses simple one-shot **handoff**, not replay: `Continuation.handoff(k)` consumes the
+live continuation and returns an opaque `ContinuationTicket`; `Continuation.resume(ticket, value)`
+atomically claims it once. A `ContinuationRegistry` owns `issue/claim/countByArtifact`; exact
+`artifactHash` matching plus drain/on-demand old workers replaces cross-version frame migration in
+the base design. Crash after claim is `Unknown` and is never retried automatically.
+
+### Specification and contract freeze
+
+- [ ] **scala3-bidirectional-control-spec** — write `specs/scala3-bidirectional-control.md` and audit it
+  against `v2.2-self-hosted-dialect`, UniML portable-source rules, frozen CoreIR, self-hosting,
+  corpus differential semantics, existing Scala interop, and polyglot host libraries. Pin the public
+  control ABI, structured API metadata, managed/foreign boundary, exact `shift/reset` laws,
+  mixed-language callbacks/TCO, one-shot durable handoff, artifact draining, diagnostics, security,
+  conformance matrix, non-goals, and phased implementation. Cross-link companion specs and record
+  optional enterprise extensions in BACKLOG rather than silently expanding the base milestone.
+
+### Public ABI and portable semantic baseline
+
+- [ ] **scala3-control-api** — add a small compiler-independent `_3` API containing typed
+  `Eff[Fx,A]`, `Effect`/`Operation`, `Handler`, fresh typed `Prompt`, reusable `Cont`, and iterative
+  control runner contracts. No `ssc.Value`, `DataV`, `ClosV`, CoreIR node, plugin `SpiValue`, TLS, or
+  global mutable registry may cross the public ABI. Explicit API is the reference behavior and works
+  without macros/plugin.
+- [ ] **ssc-api-descriptor-v3** — replace best-effort string-only interop signatures with an additive,
+  versioned structured descriptor shared by `.scim` and Scala exports: nominal symbols/types,
+  generics/variance, effect rows, pure/effectful callback calling convention, prompt/control metadata,
+  capabilities, givens/extensions/defaults, API hash, and tail-call/SCC metadata. Reconcile surface
+  `Int`/`Long` semantics before freezing host mappings.
+- [ ] **control-semantic-vectors** — add target-neutral vectors for nested/fresh prompts, nearest-match
+  `reset`, zero/one/many resume, deep handler reinstall, residual effects, mutation (control copied;
+  heap shared), stack safety, cancellation, managed-boundary negatives, and exact diagnostics. Run the
+  same vectors on explicit API, v2 VM/direct ASM, generated JVM, and later Scala direct style.
+
+### ScalaScript and Scala 3 frontends
+
+- [ ] **ssc-shift-reset-lowering** — add compiler-known `std.control` typing and outer lowering of
+  `reset`/`shift` to the existing `Pure | Op(..., reusable-k)` protocol. Keep frozen CoreIR unchanged;
+  `reset` is a syntactic lowering (not a parameter-passed runner) because handlers catch only inline
+  syntactic bodies in the current corpus contract.
+- [ ] **scala3-control-macros** — publish `_3` inline macros for local direct-style `reset` regions;
+  lower to the same explicit ABI and reject a `shift` crossing an untransformed callback/resource
+  frame. Preserve exact source positions and make explicit-vs-macro differential tests mandatory.
+- [ ] **scala3-control-plugin** — publish a `CrossVersion.full` compiler plugin for cross-method CPS,
+  managed callback propagation, effect metadata, and generated ABI entrypoints. Precompiled Scala/Java
+  code remains callable but is a deterministic control-capture barrier while active on the stack.
+
+### Bidirectional modules, build graph, and TCO
+
+- [ ] **scala-to-ssc-exports** — support explicitly selected typed Scala exports (provisional surface
+  `@sscExport`) by emitting the shared descriptor plus JVM glue and generated `.ssc` declarations.
+  Portable signatures import naturally; Scala/JVM-only types require an explicit adapter/codec or
+  backend-specific boundary and never weaken the platform-type ban in portable `.ssc`.
+- [ ] **ssc-to-scala-effectful-exports** — generalize natural-FQN/JAR facades so pure exports expose
+  host-native Scala types and effectful exports expose the public `Eff` ABI. `Future`/`Either`/throwing
+  forms are terminal runner adapters only; remove the thunk/catch-by-class-name and actor stubs from
+  the correctness path.
+- [ ] **mixed-build-interface-first** — extend sbt/scala-cli integration to extract both interface sets,
+  generate facades/stubs, compile bodies, and link one managed runtime scope. Start with a module DAG;
+  reserve a two-phase interface graph for later same-module Scala↔SSC source cycles.
+- [ ] **mixed-global-tail-scc** — build a typed mixed-language call graph and rewrite instrumented
+  Scala↔SSC tail SCCs through a JVM tail-call ABI/dispatcher. Keep this ABI separate from `Eff/Op`;
+  an uninstrumented foreign call is a tail-guarantee boundary. Verify 1e6-depth two- and three-function
+  alternating-language recursion.
+
+### One-shot durable continuation handoff
+
+- [ ] **durable-continuation-image** — add `DurableCont`/`ContinuationImage` as a compiler-generated,
+  defunctionalized control representation (`codeId + stateId + frame schema + live slots + prompt/
+  durable-handler context`). A durable region requires `DurableCodec` for every live value and rejects
+  active foreign frames, arbitrary host lambdas, mutable host objects, files/sockets/threads/futures,
+  locks, and transactions. No Java serialization and no raw copyable bytes in the primary API.
+- [ ] **continuation-handoff-registry** — implement the minimal `ContinuationRegistry` SPI with opaque
+  `ContinuationTicket`, atomic `issue/claim`, `Ready → Claimed → Completed|Unknown`, and exact
+  artifact/control-ABI validation. `handoff` invalidates every alias of the live continuation;
+  `resume` is at-most-once and never automatically replays a claimed/unknown continuation.
+- [ ] **continuation-artifact-drain** — route each ticket to its exact `artifactHash`; new work uses the
+  new artifact while old artifacts/workers are drain-only or launched on demand. Retire an artifact
+  when its outstanding-ticket count reaches zero (or retention expires). No base cross-version frame
+  migrations, effect journal, retry, or exactly-once claim.
+
+### End-to-end completion gate
+
+- [ ] **scala-ssc-control-interop-matrix** — prove Scala `reset`→SSC `shift`, SSC `reset`→managed Scala
+  `shift`, capture on one side/resume on the other, Scala→SSC→Scala→SSC callback ping-pong, handlers
+  written on either side, separate compilation, mixed TCO, handoff→process restart→one resume, wrong
+  artifact, duplicate ticket, capture barrier, and crash-after-claim=`Unknown`.
+- [ ] **scala-sdk-feature-coverage** — derive a CI-enforced matrix from existing feature/capability and
+  module metadata. Every ScalaScript capability must declare one Scala exposure form: native API,
+  generated facade, macro, compiler plugin, tooling-only, platform-specific, or intentionally
+  unavailable with a normative reason. Generalize `emit-lib --host jvm` from the optics pilot instead
+  of building a parallel hand-maintained standard library.
+
 ## uniml-portable — dual-compile UniML dialects on v2 (2026-07-14, Sergiy: "продолжай, записывай в спринт, пуш")
 
 Goal: the SAME UniML source compiles on scalac AND self-hosted ssc v2, so v2's parser can be written
