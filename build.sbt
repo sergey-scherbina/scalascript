@@ -716,9 +716,9 @@ lazy val core = project
 // must not couple host control semantics to CoreIR, a backend, or the legacy
 // interop runtime.
 lazy val scala3ControlApi = project
-  .in(file("v2/host/scala/control-api"))
+  .in(file("v2/host/scala/control"))
   .settings(
-    name := "scalascript-control-api",
+    name := "scalascript-control",
     libraryDependencies ++= Seq(scalatestTest),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
