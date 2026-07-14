@@ -1,4 +1,4 @@
 claim: scljet-m3-writes
 owner: opus
-heartbeat: 2026-07-14T23:19:45Z
-status: m6m SQL index maintenance done (reference-validated); full scljet 70/70
+heartbeat: 2026-07-14T23:25:24Z
+status: m6n DROP INDEX + multi-index done; 32/32 sql green
