@@ -93,6 +93,10 @@ optional policy, not the default continuation semantics.
         bytecode surface; protect unavoidable Scala-public JVM constructors with private nested
         implementations or validated authority, run `javap -public`, update the profile, and close
         `BUGS.md scala3-control-capability-jvm-visibility` before committing the reference model.
+  - [ ] **sca-2d — snapshot operation identity at `perform`.** Reject a null/malformed operation key,
+        retain the validated key in the private pending/request node, and make handlers match that
+        snapshot rather than re-running a user-defined mutable getter. Add null + changing-getter
+        regressions and close `BUGS.md scala3-control-operation-key-snapshot` before runtime commit.
   - [ ] **sca-3 — implement the executable reference model.** Implement a private-erasure,
         public-typed stackless `Pure | Op`/bind/defer machine, iterative `step`/pure runner, deep
         residual-forwarding handlers, operation multiplicity, generative prompts, exact multi-prompt

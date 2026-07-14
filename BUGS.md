@@ -1,5 +1,29 @@
 # Bug tracker
 
+## scala3-control-operation-key-snapshot — CONFIRMED / open (2026-07-14, Codex)
+
+**Status:** open (tier-1 effect-row soundness blocker). Found during the final
+black-box review of the uncommitted `scala3ControlApi` reference model; reported
+by codex-interop in the `scalascript` rozum room.
+
+**Symptom:** `perform` retained only the user-supplied `Operation` and a handler
+later called its `effect` getter again. Safe Scala can implement that getter as
+`null` or mutable state. The handler then treats the malformed handled operation
+as residual, removes its static row, and returns an `Eff[Nothing, ...]` whose step
+is still a request.
+
+**Reproduce:** define `Operation[Owner.type, Int]` with
+`effect: EffectKey[Owner.type] = null`, call `perform`, then
+`handle[Owner.type, Nothing, ...]` and pass the accepted result to `runPure`. The
+draft forwards the request despite the empty result row. A getter that changes
+between `perform` and `handle` has the same failure mode.
+
+**Fix/verification:** not fixed yet. `perform` must validate and snapshot a
+non-null key and descriptor before constructing the private request; pending and
+public step views must preserve that snapshot through bind and forwarding, and
+handlers must match against it rather than re-reading user code. Add null and
+mutable-getter regressions before committing the runtime.
+
 ## scala3-control-effect-key-row-elimination — CONFIRMED / open (2026-07-14, Codex)
 
 **Status:** open (tier-1 type-safety blocker). Found by the `api_type_design`
