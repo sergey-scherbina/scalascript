@@ -1,5 +1,0 @@
-claim: v2.2-p6.14-cmin-wildcard
-branch: feature/v2.2-p6.14-cmin-wildcard
-what: P6.14 — extend C_min's L with match wildcard `case _ =>` and var `case x =>` patterns (→ CoreIR default
-      arm); rewrite some C_min if-chain dispatch as match; keep stage1==stage2 fixpoint + spike byte-identity.
-started: 2026-07-14
