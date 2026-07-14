@@ -68,6 +68,15 @@ def upperStr(s: String): String =
     i = i + 1
   out
 
+def lowerStr(s: String): String =
+  var i = 0
+  var out = ""
+  while i < s.length do
+    val c = charCode(s, i)
+    out = out + (if c >= 65 && c <= 90 then (c + 32).toChar.toString else s.charAt(i).toString)
+    i = i + 1
+  out
+
 def reverseTokens(items: List[Token], acc: List[Token]): List[Token] =
   var r = items
   var out = acc
@@ -183,6 +192,7 @@ case class SxCol(name: String) extends SxNode
 case class SxLit(value: SqliteValue) extends SxNode
 case class SxNeg(inner: SxNode) extends SxNode
 case class SxBin(op: String, left: SxNode, right: SxNode) extends SxNode
+case class SxCall(func: String, args: List[SxNode]) extends SxNode
 
 // A WHERE predicate. The left operand is a bare column (`column`, `leftExpr=None`) or a computed
 // expression (`leftExpr=Some`); the right operand of a scalar comparison is a literal (`value`,
@@ -479,6 +489,38 @@ def reverseProj(items: List[ProjItem], acc: List[ProjItem]): List[ProjItem] =
 
 // ── Scalar expression parser (precedence: unary -, then * /, then + -) ──
 
+def reverseSxNodes(items: List[SxNode], acc: List[SxNode]): List[SxNode] =
+  var r = items
+  var out = acc
+  while r.nonEmpty do
+    out = r.head :: out
+    r = r.tail
+  out
+
+// Parse a comma-separated argument list; `toks` starts just after the `(` and the closing
+// `)` is consumed. An empty list (`f()`) is allowed here; each argument is a full expression.
+def parseCallArgs(toks: List[Token]): Either[String, (List[SxNode], List[Token])] =
+  if tkKind(toks) == "rparen" then Right((Nil, toks.tail))
+  else
+    var rest = toks
+    var accRev: List[SxNode] = Nil
+    var err: Option[String] = None
+    var done = false
+    while !done && err.isEmpty do
+      parseExpr(rest) match
+        case Left(message) => err = Some(message)
+        case Right(ep) =>
+          accRev = ep._1 :: accRev
+          rest = ep._2
+          if tkKind(rest) == "comma" then rest = rest.tail
+          else if tkKind(rest) == "rparen" then
+            rest = rest.tail
+            done = true
+          else err = Some("expected ',' or ')' in function arguments")
+    err match
+      case Some(message) => Left(message)
+      case None => Right((reverseSxNodes(accRev, Nil), rest))
+
 def parseExprAtom(toks: List[Token]): Either[String, (SxNode, List[Token])] =
   if tkKind(toks) == "lparen" then
     parseExprAdd(toks.tail) match
@@ -492,7 +534,13 @@ def parseExprAtom(toks: List[Token]): Either[String, (SxNode, List[Token])] =
       case Right(a) => Right((SxNeg(a._1), a._2))
   else if tkKind(toks) == "num" then Right((SxLit(SqlInteger(toks.head.num)), toks.tail))
   else if tkKind(toks) == "str" then Right((SxLit(SqlText(toks.head.text)), toks.tail))
-  else if tkKind(toks) == "ident" then Right((SxCol(toks.head.text), toks.tail))
+  else if tkKind(toks) == "ident" then
+    // `f( … )` = a scalar function call; otherwise a column reference.
+    if tkKind(toks.tail) == "lparen" then
+      parseCallArgs(toks.tail.tail) match
+        case Left(message) => Left(message)
+        case Right(ap) => Right((SxCall(upperStr(toks.head.text), ap._1), ap._2))
+    else Right((SxCol(toks.head.text), toks.tail))
   else Left("expected an expression operand")
 
 def parseExprMul(toks: List[Token]): Either[String, (SxNode, List[Token])] =
@@ -825,18 +873,71 @@ def arithValue(op: String, a: SqliteValue, b: SqliteValue): SqliteValue =
     else if y == 0.0 then SqlNull
     else SqlReal(x / y)
 
+def absValue(v: SqliteValue): SqliteValue = v match
+  case SqlInteger(x) => if x < 0L then SqlInteger(0L - x) else SqlInteger(x)
+  case SqlReal(x) => if x < 0.0 then SqlReal(0.0 - x) else SqlReal(x)
+  case _ => SqlNull
+
+def firstNonNull(args: List[SqliteValue]): SqliteValue =
+  var r = args
+  var found: SqliteValue = SqlNull
+  var done = false
+  while r.nonEmpty && !done do
+    if isNullValue(r.head) then r = r.tail
+    else
+      found = r.head
+      done = true
+  found
+
+def argAt(args: List[SqliteValue], idx: Int): SqliteValue = listNth(args, idx)
+
+// Scalar SQL functions over already-evaluated argument values. NULL argument → NULL
+// (except COALESCE, which returns the first non-null); `func` is upper-cased at parse time.
+def evalCall(func: String, args: List[SqliteValue]): SqliteValue =
+  val f = upperStr(func)
+  if f == "UPPER" then
+    val a = argAt(args, 0)
+    if isNullValue(a) then SqlNull else SqlText(upperStr(coerceText(a)))
+  else if f == "LOWER" then
+    val a = argAt(args, 0)
+    if isNullValue(a) then SqlNull else SqlText(lowerStr(coerceText(a)))
+  else if f == "LENGTH" then
+    val a = argAt(args, 0)
+    if isNullValue(a) then SqlNull else SqlInteger(coerceText(a).length.toLong)
+  else if f == "ABS" then absValue(argAt(args, 0))
+  else if f == "COALESCE" then firstNonNull(args)
+  else SqlNull
+
+def evalArgs(args: List[SxNode], rec: StorageRecord, colNames: List[String]): List[SqliteValue] =
+  var r = args
+  var accRev: List[SqliteValue] = Nil
+  while r.nonEmpty do
+    accRev = evalExpr(r.head, rec, colNames) :: accRev
+    r = r.tail
+  reverseValues(accRev, Nil)
+
 def evalExpr(e: SxNode, rec: StorageRecord, colNames: List[String]): SqliteValue = e match
   case SxCol(name) => rowValue(rec, colNames, name)
   case SxLit(v) => v
   case SxNeg(inner) => negateValue(evalExpr(inner, rec, colNames))
   case SxBin(op, l, r) => arithValue(op, evalExpr(l, rec, colNames), evalExpr(r, rec, colNames))
+  case SxCall(func, args) => evalCall(func, evalArgs(args, rec, colNames))
 
 // Same evaluation over a join row: column references resolve across both tables (qualified or bare).
+def evalArgsJoin(args: List[SxNode], recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String): List[SqliteValue] =
+  var r = args
+  var accRev: List[SqliteValue] = Nil
+  while r.nonEmpty do
+    accRev = evalExprJoin(r.head, recA, colsA, tableA, recBOpt, colsB, tableB) :: accRev
+    r = r.tail
+  reverseValues(accRev, Nil)
+
 def evalExprJoin(e: SxNode, recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String): SqliteValue = e match
   case SxCol(name) => joinColValue(recA, colsA, tableA, recBOpt, colsB, tableB, name)
   case SxLit(v) => v
   case SxNeg(inner) => negateValue(evalExprJoin(inner, recA, colsA, tableA, recBOpt, colsB, tableB))
   case SxBin(op, l, r) => arithValue(op, evalExprJoin(l, recA, colsA, tableA, recBOpt, colsB, tableB), evalExprJoin(r, recA, colsA, tableA, recBOpt, colsB, tableB))
+  case SxCall(func, args) => evalCall(func, evalArgsJoin(args, recA, colsA, tableA, recBOpt, colsB, tableB))
 
 // Compare two values for WHERE: numeric if both numeric, text if both text, else by
 // storage-class order (NULL < number < text < blob).
@@ -2153,11 +2254,20 @@ def valueByName(values: List[SqliteValue], colNames: List[String], name: String)
 
 // Evaluate an expression against a row given as its already-extracted column `values` (used
 // for UPDATE SET, where the RHS reads the pre-update row without a StorageRecord).
+def evalArgsValues(args: List[SxNode], values: List[SqliteValue], colNames: List[String]): List[SqliteValue] =
+  var r = args
+  var accRev: List[SqliteValue] = Nil
+  while r.nonEmpty do
+    accRev = evalExprValues(r.head, values, colNames) :: accRev
+    r = r.tail
+  reverseValues(accRev, Nil)
+
 def evalExprValues(e: SxNode, values: List[SqliteValue], colNames: List[String]): SqliteValue = e match
   case SxCol(name) => valueByName(values, colNames, name)
   case SxLit(v) => v
   case SxNeg(inner) => negateValue(evalExprValues(inner, values, colNames))
   case SxBin(op, l, r) => arithValue(op, evalExprValues(l, values, colNames), evalExprValues(r, values, colNames))
+  case SxCall(func, args) => evalCall(func, evalArgsValues(args, values, colNames))
 
 def findAssignmentItem(assignments: List[Assignment], colName: String): Option[Assignment] =
   val target = upperStr(colName)

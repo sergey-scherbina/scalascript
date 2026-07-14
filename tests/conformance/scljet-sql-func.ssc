@@ -1,0 +1,38 @@
+---
+name: scljet-sql-func
+description: SclJet SQL scalar functions — UPPER/LOWER/LENGTH/ABS/COALESCE in projections and WHERE; matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet SQL scalar functions
+
+Scalar functions inside expressions: `UPPER`/`LOWER` (ASCII case), `LENGTH` (character count of the
+text form), `ABS`, and `COALESCE` (first non-null). They compose with arithmetic and appear both in the
+projection and in `WHERE` (`WHERE LENGTH(name) > 3`, `WHERE UPPER(name) = 'BOB'`). A NULL argument gives
+NULL (except COALESCE). Every result is byte-identical to reference sqlite3 running the same SQL on the
+same file (verified out-of-band); locked here across backends.
+
+[ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "people", "CREATE TABLE people(id INTEGER, name TEXT, age INTEGER, nick TEXT)",
+  List(List(SqlInteger(1L), SqlText("Ann"), SqlInteger(30L), SqlNull),
+       List(SqlInteger(2L), SqlText("bob"), SqlInteger(25L), SqlText("Bobby")),
+       List(SqlInteger(3L), SqlText("CHARLIE"), SqlInteger(40L), SqlNull))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db) =>
+    show(db, "SELECT id, UPPER(name) FROM people")
+    show(db, "SELECT id, LOWER(name) FROM people")
+    show(db, "SELECT id, LENGTH(name) FROM people")
+    show(db, "SELECT id, ABS(age - 30) FROM people")
+    show(db, "SELECT id, COALESCE(nick, name) FROM people")
+    show(db, "SELECT id FROM people WHERE LENGTH(name) > 3")
+    show(db, "SELECT id FROM people WHERE UPPER(name) = 'BOB'")
+    show(db, "SELECT UPPER(name) FROM people WHERE age >= 30 ORDER BY id")
+```
