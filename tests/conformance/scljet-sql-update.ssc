@@ -1,0 +1,45 @@
+---
+name: scljet-sql-update
+description: SclJet SQL UPDATE — SET col=… [WHERE …] via delete+reinsert on the balanced path (matches reference sqlite3)
+backends: [int, js]
+---
+
+# SclJet SQL UPDATE
+
+`UPDATE t SET col = literal [, col = literal] [WHERE …]` re-encodes each matching row (its
+current values with the assignments applied) and replaces it at the same rowid through the
+balanced write path, so a value that grows or shrinks is handled. After a sequence of updates
+the table matches reference sqlite3 running the same statements (verified out-of-band,
+integrity_check ok); results are locked across backends here.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, renderRows, executeMutation](std/scljet/sql.ssc)
+
+```scalascript
+def apply(db: ByteSlice, sql: String): ByteSlice =
+  executeMutation(db, sql) match
+    case Left(m) =>
+      println(sql + " => ERR:" + m)
+      db
+    case Right(next) => next
+
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(id INTEGER, name TEXT, age INTEGER)",
+  List(List(SqlInteger(1L), SqlText("carol"), SqlInteger(31L)),
+       List(SqlInteger(2L), SqlText("alice"), SqlInteger(27L)),
+       List(SqlInteger(3L), SqlText("dave"), SqlInteger(45L)),
+       List(SqlInteger(4L), SqlText("bob"), SqlInteger(27L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db0) =>
+    val db1 = apply(db0, "UPDATE t SET name = 'zoe' WHERE id = 2")
+    val db2 = apply(db1, "UPDATE t SET age = 99, name = 'BOB' WHERE name = 'bob'")
+    val db3 = apply(db2, "UPDATE t SET age = 40 WHERE age = 27")
+    show(db3, "SELECT * FROM t")
+    show(db3, "SELECT name FROM t WHERE age >= 40")
+    val db4 = apply(db3, "UPDATE t SET name = 'everyone'")
+    show(db4, "SELECT id, name FROM t")
+```

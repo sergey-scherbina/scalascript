@@ -1,0 +1,11 @@
+SELECT * FROM t => 1|carol|31
+2|zoe|40
+3|dave|45
+4|BOB|99
+SELECT name FROM t WHERE age >= 40 => zoe
+dave
+BOB
+SELECT id, name FROM t => 1|everyone
+2|everyone
+3|everyone
+4|everyone

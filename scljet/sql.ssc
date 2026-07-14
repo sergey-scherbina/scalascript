@@ -20,6 +20,10 @@ exports:
   - executeInsert
   - executeDelete
   - executeMutation
+  - Assignment
+  - UpdateStmt
+  - parseUpdate
+  - executeUpdate
 ---
 
 # SclJet SQL query layer
@@ -155,6 +159,13 @@ case class SelectStmt(star: Boolean, columns: List[String], table: String, where
 
 def isKw(token: Token, word: String): Boolean = token.kind == "ident" && upperStr(token.text) == word
 
+// Bounds-safe token inspection. The interpreter's `&&`/`||` do NOT short-circuit, so
+// guards like `toks.nonEmpty && toks.head.kind == …` would index `.head` on an empty
+// list — these never touch `.head` when the list is empty.
+def tkKind(toks: List[Token]): String = if toks.isEmpty then "" else toks.head.kind
+def tkText(toks: List[Token]): String = if toks.isEmpty then "" else toks.head.text
+def tkIsKw(toks: List[Token], word: String): Boolean = if toks.isEmpty then false else isKw(toks.head, word)
+
 def reverseStrings(items: List[String], acc: List[String]): List[String] =
   var r = items
   var out = acc
@@ -169,11 +180,11 @@ def parseColumnList(toks: List[String], remaining: List[Token]): Either[String, 
   var done = false
   var result: Option[Either[String, (List[String], List[Token])]] = None
   while !done && result.isEmpty do
-    if rest.isEmpty || rest.head.kind != "ident" then result = Some(Left("expected column name"))
+    if tkKind(rest) != "ident" then result = Some(Left("expected column name"))
     else
       accRev = rest.head.text :: accRev
       rest = rest.tail
-      if rest.nonEmpty && rest.head.kind == "comma" then rest = rest.tail
+      if tkKind(rest) == "comma" then rest = rest.tail
       else done = true
   result match
     case Some(r) => r
@@ -201,11 +212,11 @@ def parseWhere(toks: List[Token]): Either[String, Option[Condition]] =
   else Left("expected WHERE")
 
 def parseSelect(toks: List[Token]): Either[String, SelectStmt] =
-  if toks.isEmpty || !isKw(toks.head, "SELECT") then Left("expected SELECT")
+  if !tkIsKw(toks, "SELECT") then Left("expected SELECT")
   else
     val afterSelect = toks.tail
     val colResult: Either[String, (Boolean, List[String], List[Token])] =
-      if afterSelect.nonEmpty && afterSelect.head.kind == "star" then Right((true, Nil, afterSelect.tail))
+      if tkKind(afterSelect) == "star" then Right((true, Nil, afterSelect.tail))
       else parseColumnList(Nil, afterSelect) match
         case Left(message) => Left(message)
         case Right(pair) => Right((false, pair._1, pair._2))
@@ -213,10 +224,10 @@ def parseSelect(toks: List[Token]): Either[String, SelectStmt] =
       case Left(message) => Left(message)
       case Right(cols) =>
         val afterCols = cols._3
-        if afterCols.isEmpty || !isKw(afterCols.head, "FROM") then Left("expected FROM")
+        if !tkIsKw(afterCols, "FROM") then Left("expected FROM")
         else
           val afterFrom = afterCols.tail
-          if afterFrom.isEmpty || afterFrom.head.kind != "ident" then Left("expected table name")
+          if tkKind(afterFrom) != "ident" then Left("expected table name")
           else parseWhere(afterFrom.tail) match
             case Left(message) => Left(message)
             case Right(where) => Right(SelectStmt(cols._1, cols._2, afterFrom.head.text, where))
@@ -231,7 +242,7 @@ def tableColumns(sql: String): List[String] =
     case Right(toks) =>
       var r = toks
       // advance to the first '('
-      while r.nonEmpty && r.head.kind != "lparen" do r = r.tail
+      while r.nonEmpty && tkKind(r) != "lparen" do r = r.tail
       if r.isEmpty then Nil
       else
         r = r.tail
@@ -433,7 +444,7 @@ def reverseValues(items: List[SqliteValue], acc: List[SqliteValue]): List[Sqlite
 
 /** Parse `( literal [, literal]* )` starting at `toks`; returns the values + the rest. */
 def parseValueList(toks: List[Token]): Either[String, (List[SqliteValue], List[Token])] =
-  if toks.isEmpty || toks.head.kind != "lparen" then Left("expected '(' before VALUES list")
+  if tkKind(toks) != "lparen" then Left("expected '(' before VALUES list")
   else
     var rest = toks.tail
     var accRev: List[SqliteValue] = Nil
@@ -458,29 +469,29 @@ def parseValueList(toks: List[Token]): Either[String, (List[SqliteValue], List[T
       case None => Left("VALUES parse error")
 
 def parseInsert(toks: List[Token]): Either[String, InsertStmt] =
-  if toks.isEmpty || !isKw(toks.head, "INSERT") then Left("expected INSERT")
+  if !tkIsKw(toks, "INSERT") then Left("expected INSERT")
   else
     val afterInsert = toks.tail
-    if afterInsert.isEmpty || !isKw(afterInsert.head, "INTO") then Left("expected INTO")
+    if !tkIsKw(afterInsert, "INTO") then Left("expected INTO")
     else
       val afterInto = afterInsert.tail
-      if afterInto.isEmpty || afterInto.head.kind != "ident" then Left("expected table name")
+      if tkKind(afterInto) != "ident" then Left("expected table name")
       else
         val table = afterInto.head.text
         val afterTable = afterInto.tail
-        if afterTable.isEmpty || !isKw(afterTable.head, "VALUES") then Left("expected VALUES (column lists are a follow-up)")
+        if !tkIsKw(afterTable, "VALUES") then Left("expected VALUES (column lists are a follow-up)")
         else parseValueList(afterTable.tail) match
           case Left(message) => Left(message)
           case Right(pair) => Right(InsertStmt(table, pair._1))
 
 def parseDelete(toks: List[Token]): Either[String, DeleteStmt] =
-  if toks.isEmpty || !isKw(toks.head, "DELETE") then Left("expected DELETE")
+  if !tkIsKw(toks, "DELETE") then Left("expected DELETE")
   else
     val afterDelete = toks.tail
-    if afterDelete.isEmpty || !isKw(afterDelete.head, "FROM") then Left("expected FROM")
+    if !tkIsKw(afterDelete, "FROM") then Left("expected FROM")
     else
       val afterFrom = afterDelete.tail
-      if afterFrom.isEmpty || afterFrom.head.kind != "ident" then Left("expected table name")
+      if tkKind(afterFrom) != "ident" then Left("expected table name")
       else parseWhere(afterFrom.tail) match
         case Left(message) => Left(message)
         case Right(where) => Right(DeleteStmt(afterFrom.head.text, where))
@@ -581,7 +592,155 @@ def executeDelete(dbBytes: ByteSlice, stmt: DeleteStmt): Either[String, ByteSlic
                 case Left(error) => Left(error.message)
                 case Right(pc) => Right(pc.pager.image)
 
-/** Run an INSERT or DELETE against a database image and return the new image. */
+// ── UPDATE (delete + reinsert at the same rowid — handles any size change) ──
+
+case class Assignment(column: String, value: SqliteValue)
+case class UpdateStmt(table: String, assignments: List[Assignment], where: Option[Condition])
+case class EditRow(rowid: Long, record: ByteSlice)
+
+def reverseAssignments(items: List[Assignment], acc: List[Assignment]): List[Assignment] =
+  var r = items
+  var out = acc
+  while r.nonEmpty do
+    out = r.head :: out
+    r = r.tail
+  out
+
+def parseAssignments(toks: List[Token]): Either[String, (List[Assignment], List[Token])] =
+  var rest = toks
+  var accRev: List[Assignment] = Nil
+  var result: Option[Either[String, (List[Assignment], List[Token])]] = None
+  while result.isEmpty do
+    if rest.length < 3 then result = Some(Left("SET needs column = value"))
+    else
+      val col = rest.head
+      val op = rest.tail.head
+      val lit = rest.tail.tail.head
+      if col.kind != "ident" then result = Some(Left("expected column in SET"))
+      else if op.kind != "op" || op.text != "=" then result = Some(Left("expected '=' in SET"))
+      else litValue(lit) match
+        case Left(message) => result = Some(Left(message))
+        case Right(value) =>
+          accRev = Assignment(col.text, value) :: accRev
+          rest = rest.tail.tail.tail
+          if tkKind(rest) == "comma" then rest = rest.tail
+          else result = Some(Right((reverseAssignments(accRev, Nil), rest)))
+  result match
+    case Some(r) => r
+    case None => Left("SET parse error")
+
+def parseUpdate(toks: List[Token]): Either[String, UpdateStmt] =
+  if !tkIsKw(toks, "UPDATE") then Left("expected UPDATE")
+  else
+    val afterUpdate = toks.tail
+    if tkKind(afterUpdate) != "ident" then Left("expected table name")
+    else
+      val table = afterUpdate.head.text
+      val afterTable = afterUpdate.tail
+      if !tkIsKw(afterTable, "SET") then Left("expected SET")
+      else parseAssignments(afterTable.tail) match
+        case Left(message) => Left(message)
+        case Right(pair) => parseWhere(pair._2) match
+          case Left(message) => Left(message)
+          case Right(where) => Right(UpdateStmt(table, pair._1, where))
+
+def extractValues(rec: StorageRecord, count: Int): List[SqliteValue] =
+  var i = 0
+  var accRev: List[SqliteValue] = Nil
+  while i < count do
+    accRev = fieldValueAt(rec.record, i) :: accRev
+    i = i + 1
+  reverseValues(accRev, Nil)
+
+def findAssignment(assignments: List[Assignment], colName: String): Option[SqliteValue] =
+  val target = upperStr(colName)
+  var r = assignments
+  var found: Option[SqliteValue] = None
+  while r.nonEmpty do
+    if upperStr(r.head.column) == target then found = Some(r.head.value)
+    r = r.tail
+  found
+
+def applyAssignments(values: List[SqliteValue], colNames: List[String], assignments: List[Assignment]): List[SqliteValue] =
+  var vs = values
+  var names = colNames
+  var accRev: List[SqliteValue] = Nil
+  while vs.nonEmpty do
+    val name = if names.nonEmpty then names.head else ""
+    findAssignment(assignments, name) match
+      case Some(v) => accRev = v :: accRev
+      case None => accRev = vs.head :: accRev
+    vs = vs.tail
+    if names.nonEmpty then names = names.tail
+  reverseValues(accRev, Nil)
+
+def reverseEdits(items: List[EditRow], acc: List[EditRow]): List[EditRow] =
+  var r = items
+  var out = acc
+  while r.nonEmpty do
+    out = r.head :: out
+    r = r.tail
+  out
+
+/** Build (rowid, new record) for every row the WHERE selects. */
+def buildUpdateEdits(rows: List[StorageRecord], colNames: List[String], stmt: UpdateStmt): Either[String, List[EditRow]] =
+  var r = rows
+  var accRev: List[EditRow] = Nil
+  var err: Option[String] = None
+  while r.nonEmpty && err.isEmpty do
+    val rec = r.head
+    if whereHolds(stmt.where, rec, colNames) then
+      val newValues = applyAssignments(extractValues(rec, colNames.length), colNames, stmt.assignments)
+      encodeRecord(newValues) match
+        case Left(error) => err = Some(error.message)
+        case Right(record) =>
+          rec.rowid match
+            case Some(id) => accRev = EditRow(id, record) :: accRev
+            case None => accRev = accRev
+    r = r.tail
+  err match
+    case Some(message) => Left(message)
+    case None => Right(reverseEdits(accRev, Nil))
+
+def applyUpdates(pager: MutablePager, root: Int, edits: List[EditRow], pageSize: Int): Either[String, MutablePager] =
+  var p = pager
+  var r = edits
+  var err: Option[String] = None
+  while r.nonEmpty && err.isEmpty do
+    val edit = r.head
+    pagerDeleteBalanced(p, root, edit.rowid, pageSize) match
+      case Left(error) => err = Some(error.message)
+      case Right(afterDelete) => pagerInsertBalanced(afterDelete, root, edit.rowid, edit.record, pageSize) match
+        case Left(error) => err = Some(error.message)
+        case Right(afterInsert) => p = afterInsert
+    r = r.tail
+  err match
+    case Some(message) => Left(message)
+    case None => Right(p)
+
+def executeUpdate(dbBytes: ByteSlice, stmt: UpdateStmt): Either[String, ByteSlice] =
+  tableContext(dbBytes, stmt.table) match
+    case Left(message) => Left(message)
+    case Right(ctx) =>
+      val db = ctx._1
+      val root = ctx._2
+      val colNames = ctx._3
+      val pageSize = ctx._4
+      openReadonlyRoot(db, root.toLong, RowidTableTree) match
+        case Left(error) => Left(error.message)
+        case Right(cursor) => collectRows(db, cursor) match
+          case Left(error) => Left(error.message)
+          case Right(rows) => buildUpdateEdits(rows, colNames, stmt) match
+            case Left(message) => Left(message)
+            case Right(edits) =>
+              if edits.isEmpty then Right(dbBytes)
+              else applyUpdates(openMutablePager(dbBytes, pageSize, pageSize), root, edits, pageSize) match
+                case Left(message) => Left(message)
+                case Right(pager) => mutableCommit(pager, 1L) match
+                  case Left(error) => Left(error.message)
+                  case Right(pc) => Right(pc.pager.image)
+
+/** Run an INSERT, DELETE, or UPDATE against a database image; return the new image. */
 def executeMutation(dbBytes: ByteSlice, sql: String): Either[String, ByteSlice] =
   tokenize(sql) match
     case Left(message) => Left(message)
@@ -593,7 +752,10 @@ def executeMutation(dbBytes: ByteSlice, sql: String): Either[String, ByteSlice] 
       else if isKw(toks.head, "DELETE") then parseDelete(toks) match
         case Left(message) => Left(message)
         case Right(stmt) => executeDelete(dbBytes, stmt)
-      else Left("executeMutation expects INSERT or DELETE")
+      else if isKw(toks.head, "UPDATE") then parseUpdate(toks) match
+        case Left(message) => Left(message)
+        case Right(stmt) => executeUpdate(dbBytes, stmt)
+      else Left("executeMutation expects INSERT, DELETE, or UPDATE")
 
 // ── Rendering (sqlite3 CLI list format: `a|b|c` per row, NULL blank) ──
 
