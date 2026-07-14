@@ -4202,7 +4202,7 @@ browser` to the error signal. Runnable full-stack example:
 | Constructor | Description |
 |-------------|-------------|
 | `vstack(gap = 0)(children*)` | Vertical flex column; `gap` is pixel spacing between children |
-| `hstack(gap = 0)(children*)` | Horizontal flex row |
+| `hstack(gap = 0, wrap = false)(children*)` | Horizontal flex row; `wrap = true` sets `flex-wrap: wrap` so children flow onto additional lines once they exceed the container's width instead of overflowing/shrinking on one (`specs/std-ui-hstack-wrap.md`) |
 | `divider()` | Horizontal rule styled with `theme.colors.muted` |
 | `spacer(grow = false)` | Fixed 8 px gap; `grow = true` fills remaining space (use inside `hstack` to right-align) |
 

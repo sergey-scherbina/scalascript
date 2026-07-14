@@ -275,4 +275,94 @@ JVM/Swing/SwiftUI native-frontend lowering — same reasoning as
 
 ## Results
 
-_Filled in after implementation and verification._
+What landed:
+
+- `v1/runtime/std/ui/nodes.ssc` — `wrap: Boolean` field appended as the new
+  last field on `HStackNode`.
+- `v1/runtime/std/ui/layout.ssc` — `wrap: Boolean = false` appended to
+  `hstack`'s first (non-curried) parameter group, before the curried
+  `(children: TkNode*)` group; threaded unchanged into the node:
+  `def hstack(gap: Int = 0, wrap: Boolean = false)(children: TkNode*): TkNode`.
+- `v1/runtime/std/ui/lower.ssc` — the `HStackNode` case computes
+  `wrapCss = if wrap then "; flex-wrap:wrap" else ""` and appends it to the
+  interpolated `style` string; `wrap = false` produces the exact pre-slice
+  string, `wrap = true` appends `; flex-wrap:wrap`.
+- `v1/runtime/std/ui/i18n.ssc` — `localeSwitcher`'s direct `HStackNode(8,
+  ...)` construction updated to pass `false` for the new field.
+- `examples/frontend/hstack-wrap/hstack-wrap.ssc` — runnable example: a
+  15-button row with mixed short/long Cyrillic labels (mirroring busi's
+  owner-nav case, from `"Сейф"` to `"Корпоративное закрытие"`) rendered
+  once with `wrap = true` and once with `wrap = false`, both inside
+  `box(maxWidth = 480)` so the wrap is visible without resizing a real
+  browser window.
+- `tests/conformance/tkv2-hstack-wrap.ssc` (+ `expected/`) — mirrors
+  `tkv2-button-variant.ssc`'s TkNode-field-assertion style: asserts `wrap`
+  threads from `hstack(...)` to `HStackNode` unchanged (no argument,
+  explicit `false`, `true`) and that `lower()` does not throw for any of
+  them, on both `[int, js]` lanes.
+- `v1/runtime/backend/interpreter-server/src/test/scala/scalascript/HStackWrapTest.scala`
+  — closes the gap `View`'s opacity leaves in the `.ssc`-level conformance
+  test: runs the interpreter, extracts the real
+  `frontend.core.View.Element`'s `"style"` attribute string, and asserts
+  the byte-for-byte shape. Actual output observed:
+
+  ```
+  no-arg / wrap=false: display:flex; flex-direction:row; align-items:center; gap:8px; box-sizing:border-box
+  wrap=true:           display:flex; flex-direction:row; align-items:center; gap:8px; box-sizing:border-box; flex-wrap:wrap
+  ```
+
+  The no-argument and explicit-`false` cases are identical to each other
+  and to the pinned pre-slice literal; `wrap = true` is exactly that same
+  string plus `; flex-wrap:wrap` — nothing else in the style string moved
+  or changed.
+- Found, fixed as a required consequence of adding a field to an existing
+  node (not new scope): two other call sites construct `HStackNode`
+  outside `layout.ssc` and needed to stay in sync —
+  `v1/runtime/std/content-plugin/.../ContentIntrinsics.scala`'s
+  `hstackNode` helper (interpreter-side content-toolkit `{type: hstack}`
+  support) now also sets `"wrap" -> PluginValue.bool(false)`;
+  `v1/runtime/backend/jvm/.../JvmGenContentEmit.scala`'s generated-Scala
+  `std.ui.nodes.HStackNode(...)` call site (JVM-codegen content-toolkit
+  support) now passes `false` as the 3rd positional arg — a genuine
+  compile-time requirement (the JVM-compiled case class has no
+  field-level default, matching the button-node precedent). Confirmed
+  `v1/runtime/backend/js/.../ContentToolkitJs.scala`'s hand-crafted
+  `{ _type: 'HStackNode', ... }` JS object literal needs **no** change —
+  verified by reading `JsGenCpsCodegen.genPattern`'s case-class `Extract`
+  branch: field access compiles to plain `scrutVar.fieldName` property
+  access, `undefined` (not a throw) for a genuinely absent JS property, and
+  the lowered `if wrap then ... else ""` conditional treats `undefined` as
+  falsy — content-toolkit `hstack` controls render exactly as they did
+  before this slice, on every backend.
+- `README.md` capabilities-table row; `docs/user-guide.md` `hstack`
+  widget-catalog row.
+
+Verification:
+
+- `scripts/sbtc "installBin"` — clean, no compile errors (confirms
+  `nodes.ssc`/`layout.ssc`/`lower.ssc`/`i18n.ssc` and the two Scala-side
+  fixes all compile together).
+- `scripts/sbtc "backendJvm/compile"` and `scripts/sbtc "contentPlugin/compile"`
+  — both clean.
+- `tests/conformance/run.sh --only 'tkv2-hstack-wrap,tkv2-*,std-ui-*'` —
+  **24 passed, 0 failed** (`tkv2-hstack-wrap` PASS `[INT]`/PASS `[JS]`; no
+  regressions across the sibling toolkit-v2/std-ui suite, including
+  `std-ui-i18n`'s `localeSwitcher`-exercising case).
+- `scripts/sbtc "backendInterpreterServer/testOnly scalascript.HStackWrapTest"`
+  — green; the actual style-string proof above.
+- `scripts/sbtc "contentPlugin/testOnly scalascript.compiler.plugin.content.ContentPluginInterpreterTest"`
+  — **29 passed, 0 failed** (content-toolkit tests unaffected by the
+  `ContentIntrinsics.scala` field addition).
+- `scripts/sbtc "backendInterpreterServer/testOnly scalascript.StdUiSmokeTest"`
+  — both tests green (`smoke:ok`, `lower-idempotent:ok`) — the pre-existing
+  `hstack` calls in `examples/frontend/std-ui/smoke-test.ssc` (no `wrap`
+  arg) are unaffected.
+- `bin/ssc-tools emit-spa --frontend custom
+  examples/frontend/hstack-wrap/hstack-wrap.ssc` — succeeds (exit 0),
+  produces a real HTML+JS bundle containing exactly one `flex-wrap:wrap`
+  occurrence (the `wrap = true` row; the `wrap = false` row emits none).
+
+Follow-ups recorded in `SPRINT.md`/spec Out-of-Scope: busi-side nav wiring
+(un-grouping the fixed-4-per-row `hstack` calls into one flat list with
+`wrap = true` — not this repo's decision, a separate busi-side follow-up
+once this slice's pin is bumped).
