@@ -73,4 +73,4 @@ jobs:
         run: bash install.sh --dev
 
       - name: Run corpus contract
-        run: scala-cli tests/conformance/contract.sc -- --timeout 20
+        run: scala-cli tests/conformance/contract.sc

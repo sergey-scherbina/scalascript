@@ -124,10 +124,15 @@ def laneCmd(lane: String, file: os.Path): Seq[String] = lane match
   case other => sys.error(s"unknown lane: $other")
 
 // Run a lane with a hard timeout; returns (stdout, exitCode). 124 = timed out.
+// Retries ONCE on timeout so parallel JVM contention (a normally-fast case pushed
+// past the timeout) doesn't flap the gate — only a genuine hang times out twice.
 def runLane(lane: String, file: os.Path): (String, Int) =
-  val cmd = Seq("timeout", timeoutS.toString) ++ laneCmd(lane, file)
-  val r = os.proc(cmd).call(stdin = "", stderr = os.Pipe, check = false)
-  (r.out.text().stripTrailing(), r.exitCode)
+  def once(): (String, Int) =
+    val cmd = Seq("timeout", timeoutS.toString) ++ laneCmd(lane, file)
+    val r = os.proc(cmd).call(stdin = "", stderr = os.Pipe, check = false)
+    (r.out.text().stripTrailing(), r.exitCode)
+  val res = once()
+  if res._2 == 124 then once() else res
 
 // PASS / DIVERGE / FAIL / TIMEOUT for a lane's (out, rc) against a golden.
 def classify(out: String, rc: Int, golden: String): String =
@@ -149,28 +154,50 @@ def golden(c: Case): Either[String, String] = c.expected match
       if rc2 != 0 || o1 != o2 then Left("nondeterministic")
       else Right(o1)
 
-// ── compute the live matrix ──────────────────────────────────────────────────
-// statuses(name)(lane) = status; skips(name) = reason
-val statuses = collection.mutable.Map.empty[String, collection.mutable.Map[String, String]]
-val skips    = collection.mutable.Map.empty[String, String]
-
-println(s"Corpus contract: ${cases.length} cases × lanes [${lanes.mkString(", ")}] (timeout ${timeoutS}s)")
-var done = 0
-for c <- cases do
+// One case → (name, Left(skip-reason) | Right(lane→status)). Pure per-case work
+// (each `runLane` is its own timeout-bounded subprocess), so cases run in parallel.
+def processCase(c: Case): (String, Either[String, Map[String, String]]) =
   val gate = parseBackends(os.read(c.file))
   golden(c) match
-    case Left(reason) => skips(c.name) = reason
+    case Left(reason) => (c.name, Left(reason))
     case Right(g) =>
-      val row = collection.mutable.Map.empty[String, String]
-      for lane <- lanes if gate.forall(_.contains(lane)) do
-        // For an expected-file golden we still diff INT; for a live golden INT == golden.
-        if lane == "int" && c.expected.isEmpty then row(lane) = "PASS"
-        else
-          val (o, rc) = runLane(lane, c.file)
-          row(lane) = classify(o, rc, g)
-      statuses(c.name) = row
-  done += 1
-  if done % 25 == 0 then System.err.println(s"  … $done/${cases.length}")
+      val row =
+        for lane <- lanes if gate.forall(_.contains(lane)) yield
+          // For an expected-file golden we still diff INT; for a live golden INT == golden.
+          if lane == "int" && c.expected.isEmpty then lane -> "PASS"
+          else
+            val (o, rc) = runLane(lane, c.file)
+            lane -> classify(o, rc, g)
+      (c.name, Right(row.toMap))
+
+println(s"Corpus contract: ${cases.length} cases × lanes [${lanes.mkString(", ")}] (timeout ${timeoutS}s)")
+
+// Bounded parallelism: each case runs `lanes` sequentially in its own worker, so at
+// most `workers` subprocess JVMs are live at once. ~4× faster than serial; hang-safe
+// (a hung case only ties up its own worker until its per-run timeout fires). Capped
+// at 4 (with the 30s default timeout) so heavy JVM contention doesn't push a slow
+// case past the timeout and flap the gate — a flaky contract is worse than a slow one.
+val workers = flagVal("--workers").map(_.toInt)
+  .getOrElse(math.min(4, math.max(2, Runtime.getRuntime.availableProcessors - 2)))
+val pool    = java.util.concurrent.Executors.newFixedThreadPool(workers)
+val counter = java.util.concurrent.atomic.AtomicInteger(0)
+val futures = cases.map { c =>
+  pool.submit(new java.util.concurrent.Callable[(String, Either[String, Map[String, String]])] {
+    def call() =
+      val r = processCase(c)
+      val n = counter.incrementAndGet()
+      if n % 25 == 0 then System.err.println(s"  … $n/${cases.length}")
+      r
+  })
+}
+val results = futures.map(_.get())
+pool.shutdown()
+
+val statuses = collection.mutable.Map.empty[String, collection.mutable.Map[String, String]]
+val skips    = collection.mutable.Map.empty[String, String]
+for (name, res) <- results do res match
+  case Left(reason) => skips(name) = reason
+  case Right(row)   => statuses(name) = collection.mutable.Map.from(row)
 
 // Current non-PASS entries: "name\tlane\tstatus". A skipped case records
 // "name\t*\tSKIP" WITHOUT the reason — the reason (int-timeout / int-nonzero /
