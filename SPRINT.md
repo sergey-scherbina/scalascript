@@ -263,19 +263,58 @@ JDBC (h2 — inherently jvm), MCP/rozum/nfc/pdf/invoice, dataset/codec typeddata
 plugin port, not a codegen fix — track under v2/js plugin-wiring, lower priority than the divergence class above.
 Follow-ups still open: js-glue-component (`${…}` template leak), the `backend: jvm` typeddata-codec family.
 
-### v2 (bridge lane `--v2`) — wire plugins (V2-GAP.md order, highest leverage first)
-- [ ] **actor-cluster methods → v2 scope (10)** — electLeader / useRaftLeaderElection / clusterConfigSet /
-  requestGossip / … ("Actors scope failed: unbound global").
-- [ ] **content-toolkit → v2 (8)** — contentToolkitSection / contentToolkitBlock ("unbound global"); also closes the
-  `content-tables` v2 DIVERGE.
-- [ ] **derived codecs in v2 (6)** — JsonCodec_derived / ObjectCodec_derived.
-- [ ] **native effect handlers in v2 (3)** — SeedResolver.staticList, IndexedDb.*.
-- [ ] **plugin singles** — htmlToPdfBase64 (PDF ×3), mcpServer (×2), NFC, oauth, Widget, fetchUrlSignal, Sync,
-  ConfigBlockInlineYAML. Several are the same feature-gaps as the JS/Node lane.
-- [ ] **dsl-calc-parser v2 DIVERGE** — parser yields an empty value (`1 + 2 => ` vs `=> 1`); a v2 parser-combinator
-  bug (matchPrefix in v2/src/Runtime.scala is correct — the issue is deeper).
-- [ ] **v2 frontend parse gaps (13)** — "native frontend rejected" / "checker exit"; the UniML / frontend track
-  (see `uniml-portable`).
+### js feature-gap ports (remaining js baseline = 34; ROOT-CAUSED 2026-07-14 sweep #2)
+The divergence/codegen class is CLOSED (see above). Every remaining js FAIL is a **missing plugin/
+intrinsic on the js runtime** (`ReferenceError: X is not defined` / `Method not found`), not a codegen
+bug — each is a genuine port. Clustered by shared root (do the multi-case ones first):
+- [ ] **DatasetCodec (5)** — dataset-typed-mapping, distributed-dataset-{codec,typed-helpers,wire-protocol,
+  wire-shuffle}. `ReferenceError: DatasetCodec is not defined`. These are `backend: jvm` typeddata examples;
+  needs the typeddata derived-codec runtime (`ObjectCodec`/`DatasetCodec`/`VertexCodec`) ported to js — the
+  same subsystem as `typed-object-codec` + `graph-codecs`. Biggest single lever (5+3 cases). LARGE.
+- [ ] **htmlToPdfBase64 / PDF (3)** — invoice-email, invoice-pdf, pdf-extract-demo. Needs a js PDF impl (or a
+  documented js-unsupported skip — PDF gen is arguably jvm/native-only).
+- [ ] **JDBC / h2 (3)** — object-store-jdbc, sql-h2-quickstart, typed-sql-crud. `UnsupportedJdbcUrl` — h2 is a
+  JVM library; these are inherently jvm-only. Recommend SKIP-listing (not a js target). CHEAP (skip-list).
+- [ ] **actor-plugin js gaps** — cluster-capability (`SeedResolver.staticList`), actors-typed-remote-spawn
+  (`registerBehavior`). NOTE: the `_routes`-crash prefix is FIXED (actors-only bundle no longer throws on
+  startNode, commit above), but each still needs its remaining actor globals ported. MEDIUM.
+- [ ] **singles** — crypto-encrypt (`aesGenKey`), crypto-verify (`verifyEd25519`), totp-shamir (`totp`),
+  quoted-macro-interpreter (`__ssc_macro__`), yaml-parse (`ConfigBlockInlineYAML`), ui-fetch-json
+  (`fetchUrlSignal`), sync-todo (`Sync`), tls-smoke (`tls`), graph-storage×2 (`Graph`), js-glue-component
+  (`${…}` template leak — a JS-glue codegen quirk, possibly a real fix), indexeddb-sync-client, mcp-agent /
+  mcp-filesystem-server, nfc-ndef, rozum-agent×3, dataset-from-generator. Each = one plugin port.
+
+### v2 (bridge lane `--v2`) — wire plugins (ROOT-CAUSE FOUND 2026-07-14: two plugin systems)
+**Mechanism (investigated):** `ssc run --v2` calls `PluginBridge.loadAll()` which ServiceLoads every v1
+`Backend`-SPI plugin on the classpath and AUTO-bridges each `NativeImpl` intrinsic to the v2 VM as both a
+prim and a `registerGlobal` (`v2/plugin-bridge/.../PluginBridge.scala:315-353`). So "unbound global" means
+EITHER (a) the providing plugin's jar/`Backend` service isn't on the `--v2` classpath, OR (b) the intrinsic
+isn't a `NativeImpl` (InlineCode/RuntimeCall are compile-time only, skipped at line 347), OR (c) it's provided
+by the **v2-NATIVE** plugin set (`NativePluginHost` / `NativePlugin` SPI — the bundled
+`scalascript-v2-native-{json,content}-plugin` jars) which is MUTUALLY EXCLUSIVE with PluginBridge. `jsonRead`
+(json-plugin `stableNative`→NativeImpl) and `contentToolkitSection` (content-plugin `evalLegacy`→NativeImpl)
+BOTH return NativeImpl and BOTH declare a Backend service — so the gap is classpath/loader selection, not the
+intrinsic kind. **First step for this track: add a debug to `--v2` PluginBridge.loadAll to log which Backends
+ServiceLoader actually finds, and check whether the json/content/actor plugin jars are on the `bin/ssc --v2`
+classpath.** If they're absent, the fix is bundling/classpath (bounded); if present-but-not-registering, the
+intrinsics need marshaling review. Order (V2-GAP.md leverage):
+- [ ] **content-toolkit → v2 (10)** — content-{slot,tables,data-source,form-submit,introspection,
+  linked-namespaces,live-rows,action-onsuccess,toolkit-yaml-controls} + std-ui-*. `unbound global:
+  contentToolkitSection` (evalLegacy/NativeImpl, has Backend service). Highest single lever.
+- [ ] **actor-cluster methods → v2 scope (10)** — actors-cluster-* + actors-leader-protocol. electLeader /
+  useRaftLeaderElection / clusterConfigSet / useExternalCoordinator ("Actors scope failed: unbound global").
+  Needs the ActorScheduler logic reachable from the v2 VM (bridge or reimpl) — the hardest cluster.
+- [ ] **json → v2 (3)** — json-read/value/lookup (`unbound global: jsonRead`). stableNative→NativeImpl + has
+  Backend service → likely the v2-native-vs-Backend loader selection; probe first (may be cheapest).
+- [ ] **derived codecs in v2 (6)** — dataset/typed-object/graph codecs (same typeddata subsystem as the js gap).
+- [ ] **std-ui aggregator (5)** — std-index, std-ui-{aggregator,extended-a/b/c/d}: UI toolkit on v2.
+- [ ] **wasm-* (5)** — wasm-{collections,http,matrix,scalascript,sorting}: "native frontend rejected incomplete
+  parse" — a FRONTEND PARSE gap, not a plugin (the UniML/frontend track, see `uniml-portable`).
+- [ ] **dsl (2)** — dsl-ast-builder (partial output), dsl-calc-parser (empty value; v2 parser-combinator bug).
+- [ ] **plugin singles** — html-dsl (`div`), rest-validate (`validate`), htmlToPdfBase64 (PDF ×3), mcpServer
+  (×2), NFC, oauth, Widget, fetchUrlSignal, Sync, ConfigBlockInlineYAML, indexeddb, rozum ×3 — mostly the SAME
+  feature-gaps as the js lane; a shared typeddata/plugin port closes both lanes at once.
+- [ ] **v2 frontend parse gaps (13)** — "native frontend rejected" / "checker exit"; the UniML/frontend track.
 
 ---
 
