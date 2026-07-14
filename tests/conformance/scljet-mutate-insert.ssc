@@ -1,0 +1,27 @@
+---
+name: scljet-mutate-insert
+description: SclJet read-modify-rewrite — insert a new row at an explicit rowid, kept in ascending order, cross-backend
+backends: [int, js]
+---
+
+# SclJet insert (read-modify-rewrite)
+
+[ByteSlice, byteSliceToList, SqliteValue, SqlInteger, SqlText, KeyedRow, buildKeyedDatabase](std/scljet/index.ssc)
+[insertRow](std/scljet/mutate.ssc)
+
+```scalascript
+// A table with gapped rowids (10, 20, 30). Insert a new row at rowid 25 — it lands
+// between 20 and 30, existing rows pass through as raw records, and every rowid is
+// preserved. Reference integrity_check accepts the result; int and JS agree.
+val rows = List(
+  KeyedRow(10L, List(SqlInteger(10L), SqlText("ten"))),
+  KeyedRow(20L, List(SqlInteger(20L), SqlText("twenty"))),
+  KeyedRow(30L, List(SqlInteger(30L), SqlText("thirty"))))
+
+buildKeyedDatabase(512, 1, 1, "t", "CREATE TABLE t(n INTEGER, v TEXT)", rows) match
+  case Right(db) =>
+    insertRow(db, 2, 1, 25L, List(SqlInteger(25L), SqlText("twentyfive"))) match
+      case Right(newDb) => println((newDb.length / 512).toString + ":" + byteSliceToList(newDb).toString)
+      case Left(message) => println("INSERT-ERROR:" + message)
+  case Left(error) => println("BUILD-ERROR:" + error.message)
+```

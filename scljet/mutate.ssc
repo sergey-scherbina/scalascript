@@ -1,6 +1,6 @@
 ---
 name: scljet-mutate
-description: SclJet read-modify-rewrite — delete/keep/update rows in an existing single-table database
+description: SclJet read-modify-rewrite — insert/delete/keep/update rows in an existing single-table database
 exports:
   - reconstructRecordBytes
   - readTableRawRows
@@ -8,11 +8,14 @@ exports:
   - deleteRowids
   - keepRowids
   - updateRowValues
+  - insertRow
 ---
 
 # SclJet mutate — read-modify-rewrite
 
-Delete, keep, or update rows in an existing single-table rowid database. The
+Insert, delete, keep, or update rows in an existing single-table rowid database.
+`insertRow` adds a new row at an explicit rowid (kept in ascending order; errors
+on a duplicate rowid). The
 database is opened read-only over its own bytes, every surviving row is read back
 as its raw record payload (reconstructed from the reader's `DecodedRecord`, so
 text needs no code-point→String rebuild), and the table is rebuilt through
@@ -238,4 +241,55 @@ def updateRowValues(dbBytes: ByteSlice, changeCounter: Int, schemaCookie: Int, r
                       buildFromRawSchema(pageSize, changeCounter, schemaCookie, schemaRecord, replaceRecord(rows, rowid, newRecord)) match
                         case Left(byteError) => Left(byteError.message)
                         case Right(bytes) => Right(bytes)
+
+/** Insert `newRow` into a rowid-ordered row list, keeping it strictly ascending.
+ *  Left("...") if a row with the same rowid already exists. */
+def insertSorted(rows: List[KeyedRawRow], newRow: KeyedRawRow): Either[String, List[KeyedRawRow]] =
+  var inRemaining = rows
+  var inAcc: List[KeyedRawRow] = Nil
+  var inPlaced = false
+  var inDup = false
+  while inRemaining.nonEmpty && !inDup do
+    val inRow = inRemaining.head
+    if inRow.rowid == newRow.rowid then inDup = true
+    else
+      val inPlace = (!inPlaced) && (newRow.rowid < inRow.rowid)
+      inAcc = if inPlace then inRow :: newRow :: inAcc else inRow :: inAcc
+      inPlaced = inPlaced || inPlace
+      inRemaining = inRemaining.tail
+  if inDup then Left("rowid " + newRow.rowid.toString + " already exists")
+  else
+    val inFinal = if inPlaced then inAcc else newRow :: inAcc
+    Right(inFinal.reverse)
+
+/** Insert one new row with an explicit `rowid` (strictly ascending; must not
+ *  already exist) and `values`. Existing rows pass through as raw records, all
+ *  rowids preserved. `changeCounter` should be the old file-change counter + 1. */
+def insertRow(dbBytes: ByteSlice, changeCounter: Int, schemaCookie: Int, rowid: Long, values: List[SqliteValue]): Either[String, ByteSlice] =
+  encodeRecord(values) match
+    case Left(byteError) => Left(byteError.message)
+    case Right(recordSlice) =>
+      val newRow = KeyedRawRow(rowid, byteSliceToList(recordSlice))
+      openReadonly(ImageVfs(dbBytes), "image.db", mutateOptions()) match
+        case Left(error) => Left(error.message)
+        case Right(database) =>
+          val pageSize = database.pager.header.pageSize
+          val rootPage = database.schema.entries.head.rootPage match
+            case Some(value) => value
+            case None => 2L
+          readSchemaRawRecord(database) match
+            case Left(message) => Left(message)
+            case Right(schemaRecord) =>
+              openReadonlyRoot(database, rootPage, RowidTableTree) match
+                case Left(error) => Left(error.message)
+                case Right(cursor) =>
+                  readTableRawRows(database, cursor) match
+                    case Left(error) => Left(error.message)
+                    case Right(rows) =>
+                      insertSorted(rows, newRow) match
+                        case Left(message) => Left(message)
+                        case Right(merged) =>
+                          buildFromRawSchema(pageSize, changeCounter, schemaCookie, schemaRecord, merged) match
+                            case Left(byteError) => Left(byteError.message)
+                            case Right(bytes) => Right(bytes)
 ```
