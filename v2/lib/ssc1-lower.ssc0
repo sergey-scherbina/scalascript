@@ -1353,7 +1353,11 @@ def resolveMethodCall = (robj, method, rargs) =>
           -- the bare-selector enum intercept; this covers the applied parametrized form.
           (if isEnumUid(rname) then
              (if enumHasCase(enumCasesOf(rname), method) then
-                Pair("ctorap", Pair(method, ctorApplyDefaults(method, rargs)))
+                -- resolveCtorArgs reorders an all-named construction to field order and
+                -- fills omitted defaults (incl. a NON-trailing/leading one like
+                -- `Reframe(open=…, closeAfter=…)` omitting `closeBefore`); ctorApplyDefaults
+                -- then fills any trailing positional defaults for the non-named case.
+                Pair("ctorap", Pair(method, ctorApplyDefaults(method, resolveCtorArgs(method, rargs))))
               else
                 Pair("prim", Pair("__method__",
                   Cons(Pair("str", method), Cons(Pair("ctorap", Pair(rname, Nil)), rargs)))))
@@ -2006,7 +2010,22 @@ def resolveE = (expr) =>
                         -- the labels (old mixed path) applied a named value positionally (z=99 → field y).
                         if hasNarg(rargs) then desugarCopy(resolveE(obj), rargs)
                         else resolveMethodCall(resolveE(obj), method, rargs)
-                      else resolveMethodCall(resolveE(obj), method, stripNargs(rargs))
+                      else
+                        -- KEEP the named-arg labels for an ENUM-CASE construction
+                        -- (`E.Case(field = …)`) so resolveMethodCall's enum branch can
+                        -- REORDER them to field order + fill omitted defaults. Every other
+                        -- method uses its args positionally, so strip the labels there.
+                        let rObjE = resolveE(obj) in
+                        match rObjE {
+                          case Pair(rtag, rname) =>
+                            if #seq(rtag, "uid") then
+                              (if isEnumUid(rname) then
+                                 (if enumHasCase(enumCasesOf(rname), method) then
+                                    resolveMethodCall(rObjE, method, rargs)
+                                  else resolveMethodCall(rObjE, method, stripNargs(rargs)))
+                               else resolveMethodCall(rObjE, method, stripNargs(rargs)))
+                            else resolveMethodCall(rObjE, method, stripNargs(rargs))
+                        }
                   }
                 else if #seq(ftag, "app") then
                   -- Explicit portable handler: retain both the computation and

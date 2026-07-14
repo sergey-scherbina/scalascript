@@ -191,10 +191,13 @@ verify by probe + JVM dialect test + conformance 640ok. Detail: memory `project_
   explicitly, in field order (YamlStructure). Plus `.lexeme.head`→`.charAt(0)` (no `String.head` on v2)
   and `val (open,start)=…`→`._1`/`._2` (no tuple-pattern val). **YAML BLOCK-STYLE NOW COMPLETE on v2**
   (scalar/map/seq/nested → roots=1 Complete 0 diags; unimlYaml 18/18).
-- [ ] **v2-enum-named-nonleading-default** (deeper v2 fix, deferred) — the general bug behind the
-  above: enum-case named construction doesn't reorder/fill an omitted non-trailing default because
-  enum cases aren't in `caseFieldOrderCell` the way case classes are (`lookupFields(caseName)`=Nil).
-  Fix: register enum-case field order so `resolveCtorArgs` reorders them too. Repro `p-enumnamed.ssc`.
+- [x] **v2-enum-named-nonleading-default FIXED** — the real cause was NOT missing field order (enum
+  cases ARE in caseFieldOrderCell): the `.method` call site (ssc1-lower ~2013) `stripNargs(rargs)`
+  BEFORE calling resolveMethodCall, so the enum-case construction lost its labels before it could
+  reorder. Fix: keep the named-arg labels for the enum-case path so resolveMethodCall routes them
+  through resolveCtorArgs (reorder + fill); every other method still strips/positional. Verified all
+  variants (`p-enumvar.ssc`). The YAML/Markdown explicit-field-order Reframe workarounds can now be
+  reverted (left in place; harmless — the v2 fix is additive).
 - [x] **v2-yaml-flow-err FIXED — YAML NOW FULLY COMPLETE (block + flow) on v2.** The flow `_err` was
   `case "]" | "}" if stack.nonEmpty =>` — v2 does not support a GUARD on an ALTERNATION pattern
   (`A | B if …`). Fixed UniML-side: move the guard into the body. Flow-seq `[1,2,3]` / flow-map
