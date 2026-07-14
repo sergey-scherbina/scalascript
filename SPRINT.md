@@ -243,7 +243,18 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
           trailing-EOL tolerance + string literals + all four interpolators (s/f/raw/md). **44-program corpus,
           all Core IR byte-identical to ssc1-front, 0 fail.** Remaining edge cases (f-arg bare `_`, brace in
           a ${…} nested string) = future polish. Next roadmap phase: **P6.4 self-host proof.**
+    - [x] **P6.4a grammar completeness ✓ Landed 2026-07-14** (e0bf9aa25): comments (//, /* */ → trivia),
+          booleans (true/false→mkBool), floats (1.5→mkFloat; 1.field stays sel), lambdas (x=>e, (a,b)=>e→
+          mkLam; paren form via Cur.mark/reset backtrack). bool→1/comment→3/float→0/lambda1→5/lambda2→7,
+          all CoreIR≡ssc1-front. Notes §P6.4a.
+    - [x] **P6.4b gold-standard scale test ✓ Landed 2026-07-14** (8a70bee5a): a 27-line module (enum+match+
+          case class+given/summon+if/else-if+interpolation+lambdas+blocks+recursion) CAUGHT A REAL BUG no
+          isolated toy hit — non-braced match arms greedily swallowed a following top-level `case class`.
+          Fixed: match arms are offside-bounded (dedent or `case class` ends the match). scale-prog→CoreIR≡
+          ssc1-front. **Corpus now 50 programs, 0 fail.** LESSON: whole-module scale tests surface
+          interaction bugs the per-feature corpus can't. Notes §P6.4b.
   - [ ] **P6.4 self-host proof** — compile v2.2 with itself (stage1→stage2 fixed point); scalac oracle.
+        Grammar coverage is now comprehensive (50-program byte-identical corpus incl. a whole-module test).
   - [ ] **P6.5 (follow-on, non-gate)** — port `ssc1-lower` from ssc0 into the subset (whole compiler
         dual-compilable end to end).
   - Prereqs: subset must hold — the one v2-side lift is **immutable indexed `Array`** (gapmap:76);
