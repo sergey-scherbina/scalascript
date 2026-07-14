@@ -180,9 +180,16 @@ are plain bullets without checkboxes so agents do not claim them as build work.
       through raw; verified middle-insert, append, duplicate rejection, and an
       inserted 1016-char overflow value, int==js (conformance
       `scljet-mutate-insert`). `mutate.ssc` now does the full row-level CRUD
-      (insert/delete/keep/update) on an existing DB. Remaining: multi-table /
-      non-page-2 roots, and (4) true IN-PLACE mutation of pages (the separate
-      pager/journal path, m3e).
+      (insert/delete/keep/update) on an existing DB. Multi-table WRITE is DONE
+      (2026-07-14): `buildMultiTableDatabase` lays out several rowid tables in one
+      file — page 1 = `sqlite_schema` with a CREATE TABLE entry per table (each with
+      its own root page), then each table's B-tree in declaration order (interiors
+      built root-page-relative via `buildTableTreeAt`/`buildInteriorLevels`);
+      verified 3 tables incl. a multi-leaf table at a non-page-2 root, all read back
+      exact, int==js (conformance `scljet-write-multitable`). Remaining: multi-table
+      MUTATE (delete/update in ONE table of a multi-table DB — rebuild that table's
+      tree, renumber pages, and rewrite ALL schema rootpages), and (4) true IN-PLACE
+      mutation of pages (the separate pager/journal path, m3e).
 
 - [x] **scljet-byteslice-zeros-js-recursion** — DONE 2026-07-13. The core list
       helpers in `scljet/bytes.ssc` were made iterative (`while`+`var`, not linear
