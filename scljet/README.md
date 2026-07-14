@@ -64,12 +64,24 @@ rebuild both trees from the surviving rows, so `integrity_check`'s index
 cross-check still passes). Verified against reference `integrity_check` including
 overflow rows, int==js.
 
-Crash-safe in-place writes have their core primitive too (`journal.ssc`
-`writePagesJournaled`): it journals the pre-images of the pages about to change,
+Crash-safe in-place writes are transactional (`journal.ssc`). The core primitive
+`writePagesJournaled` journals the pre-images of the pages about to change,
 overwrites them in place, and returns the mutated database plus its rollback
-journal — so a crash before commit is undone by `applyRollbackJournal`. A full
-mutable pager (dirty-page tracking, transactions, cell-level in-place edits) on top
-of it remains.
+journal — so a crash before commit is undone by `applyRollbackJournal`. On top of it
+a **write transaction** (`beginTransaction` / `stagePage` / `commitTransaction` /
+`rollbackTransaction`) batches several page writes and commits them atomically under
+one journal, or discards them before commit.
+
+**Write-ahead logging** is supported on the write side (`wal.ssc`): `writeWal`
+serializes a `-wal` file — the 32-byte header and one frame per changed page, with
+SQLite's two-word running frame checksums — and `markWalMode` flips the database
+header into WAL mode. Reference SQLite 3.53.3 recovers the resulting `-wal`,
+validates every checksum, reads the framed pages, and checkpoints them into the
+main database; a single flipped checksum byte makes it reject the WAL, confirming
+the checksums are byte-exact. Multi-frame transactions (last-frame-wins) verify too.
+
+A full mutable pager (dirty-page tracking, cell-level in-place edits) and WAL
+*reading* (the M5 read-side snapshot) remain.
 
 ## Modules
 
@@ -81,7 +93,8 @@ of it remains.
 | `pager.ssc` / `readonly.ssc` | SHARED-locked immutable pager and the read-only facade |
 | `vfs.ssc` / `memory-vfs.ssc` / `jvm-vfs.ssc` | file-system abstraction (in-memory + real files) |
 | `write.ssc` | M3 write path: header/record encoders, table and multi-page B-tree writers (incl. overflow, arbitrary depth, explicit rowids) |
-| `journal.ssc` | rollback-journal write + hot-journal recovery + transactional in-place page write |
+| `journal.ssc` | rollback-journal write + hot-journal recovery + transactional in-place page write + write transactions |
+| `wal.ssc` | write-ahead log writer: `-wal` frames with SQLite frame checksums + WAL-mode header marker |
 | `mutate.ssc` | read-modify-rewrite: delete/keep rows in an existing single-table database |
 | `index.ssc` | the module manifest re-exporting the public API |
 
