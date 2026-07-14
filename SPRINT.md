@@ -867,11 +867,20 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
             `= ( ) + - * < , { } => . == ++`; kinds int/lower/Upper/str).
       - [ ] c2 — parser+emitter (Pratt climb; atoms int/str(dq)/local/call/ctor/tuple/if/match; postfix method
             + match; arms Cons/Nil/tuple; multi-param def loop). Emits bare-prim Core IR.
-      - [ ] c3 — add as toy `cmin` in ScalaSpikeSpec → `.proj` (spike compiles it byte-clean) + `.src` (its own
-            source, for self-compilation input). VERIFY it compiles small L programs correctly via the file-driver.
-    - [ ] **P6.6d — fixpoint.** Bootstrap `C0 = driver(spike(cmin.proj))` (file-reading main + `dq`); `stage1 =
-          C0(cmin.src)`; `C1 = driver(stage1)`; `stage2 = C1(cmin.src)`; assert **`stage1 == stage2`**. Add a
-          `specs/v2.2-p6.6-fixpoint.sh` check + wire into the harness.
+      - [x] c1/c2 ✓ DONE 2026-07-14 — `specs/v2.2-p6.6-cmin.L` (74 defs). VERIFIED: C_min compiles a spread of
+            L programs correctly (arith, calls, if, recursion, bool, strings+`.charAt/.substring/.length`, `==`,
+            `++`, match Cons/Nil/tuple) via the ssc1-front file-driver → each result runs to the expected value.
+            Bug found+fixed: C_min must emit `true`/`false` as `(lit true)`/`(lit false)` (else `false`→unbound
+            local→`(local 0)`=a char code → "if condition not Bool"; ssc1-front had masked it).
+    - [x] **P6.6d — FIXPOINT ✓ DONE 2026-07-14.** `specs/v2.2-p6.6-fixpoint.sh` (self-contained, ssc1-front
+          bootstrap — no sbt/spike). `C0 = driver(ssc1-front(cmin.L))` (file-reading main + `dq` as a string
+          literal via `#sfromCodes(Cons(34,Nil))`, `#coreir.encode` escapes it to `\"`); `stage1 = C0(cmin.L)`
+          (C_min compiles its OWN source, balanced 22085 B); `C1 = stage1 + the same file-main`; `C1` proven a
+          WORKING compiler (compiles fac(5)→120); `stage2 = C1(cmin.L)`. **`stage1 == stage2` byte-identical.**
+          The literal self-compilation fixpoint — no quine (reads source from a FILE), no source-embedding.
+      - [ ] c3 (capstone, OPTIONAL) — the SPIKE bootstraps C_min: verify `spike(cmin.L) ≡ ssc1-front(cmin.L)`
+            byte-identical (ties to the p6.0 differential invariant; may surface spike gaps on untyped
+            multi-param defs / scale).
   - Prereqs: subset must hold — the one v2-side lift is **immutable indexed `Array`** (gapmap:76);
         anon-trait + mutable-object-field stay out; multi-file `package`/`import` reconciliation
         (gapmap:82-83) needed before the compiler's own multi-file source dual-compiles.

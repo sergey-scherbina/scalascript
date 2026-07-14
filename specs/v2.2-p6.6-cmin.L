@@ -1,0 +1,74 @@
+def atEnd(i, n) = n < i + 1
+def isLo(c) = if 96 < c then c < 123 else false
+def isUp(c) = if 64 < c then c < 91 else false
+def isDig(c) = if 47 < c then c < 58 else false
+def isLet(c) = if isLo(c) then true else isUp(c)
+def isAlnum(c) = if isLet(c) then true else isDig(c)
+def scanId(s, i, n) = if atEnd(i, n) then i else (if isAlnum(s.charAt(i)) then scanId(s, i + 1, n) else i)
+def scanStr(s, i, n) = if atEnd(i, n) then i else (if s.charAt(i) == 34 then i else scanStr(s, i + 1, n))
+def scanNumV(s, i, n, acc) = if atEnd(i, n) then acc else (if isDig(s.charAt(i)) then scanNumV(s, i + 1, n, acc * 10 + (s.charAt(i) - 48)) else acc)
+def scanNumE(s, i, n) = if atEnd(i, n) then i else (if isDig(s.charAt(i)) then scanNumE(s, i + 1, n) else i)
+def kwCode(w) = if w == "def" then 1 else (if w == "if" then 2 else (if w == "then" then 3 else (if w == "else" then 4 else (if w == "match" then 5 else (if w == "case" then 6 else 0)))))
+def lex(s, i, n) = if atEnd(i, n) then Nil else lexDispatch(s, i, n, s.charAt(i))
+def lexDispatch(s, i, n, c) = if c == 32 then lex(s, i + 1, n) else (if c == 10 then lex(s, i + 1, n) else (if c == 9 then lex(s, i + 1, n) else (if c == 13 then lex(s, i + 1, n) else (if isLet(c) then lexWord(s, i, n, scanId(s, i, n)) else (if isDig(c) then lexNum(s, i, n) else (if c == 34 then lexStr(s, i, n, scanStr(s, i + 1, n)) else (if c == 61 then lexEq(s, i, n) else (if c == 43 then lexPlus(s, i, n) else lexOp1(s, i, n, c)))))))))
+def lexWord(s, i, n, j) = lexWord2(s, i, n, j, s.substring(i, j))
+def lexWord2(s, i, n, j, w) = if 0 < kwCode(w) then Cons((2, kwCode(w)), lex(s, j, n)) else (if isUp(s.charAt(i)) then Cons((3, w), lex(s, j, n)) else Cons((1, w), lex(s, j, n)))
+def lexNum(s, i, n) = Cons((0, scanNumV(s, i, n, 0)), lex(s, scanNumE(s, i, n), n))
+def lexStr(s, i, n, j) = Cons((4, s.substring(i + 1, j)), lex(s, j + 1, n))
+def lexEq(s, i, n) = if s.charAt(i + 1) == 62 then Cons((2, 30), lex(s, i + 2, n)) else (if s.charAt(i + 1) == 61 then Cons((2, 32), lex(s, i + 2, n)) else Cons((2, 20), lex(s, i + 1, n)))
+def lexPlus(s, i, n) = if s.charAt(i + 1) == 43 then Cons((2, 33), lex(s, i + 2, n)) else Cons((2, 23), lex(s, i + 1, n))
+def lexOp1(s, i, n, c) = if c == 40 then Cons((2, 21), lex(s, i + 1, n)) else (if c == 41 then Cons((2, 22), lex(s, i + 1, n)) else (if c == 45 then Cons((2, 24), lex(s, i + 1, n)) else (if c == 42 then Cons((2, 25), lex(s, i + 1, n)) else (if c == 60 then Cons((2, 26), lex(s, i + 1, n)) else (if c == 44 then Cons((2, 27), lex(s, i + 1, n)) else (if c == 123 then Cons((2, 28), lex(s, i + 1, n)) else (if c == 125 then Cons((2, 29), lex(s, i + 1, n)) else (if c == 46 then Cons((2, 31), lex(s, i + 1, n)) else lex(s, i + 1, n)))))))))
+def hd(ts) = ts match { case Cons(h, t) => h case Nil => (0, 0) }
+def tl(ts) = ts match { case Cons(h, t) => t case Nil => Nil }
+def fst(p) = p match { case (a, b) => a }
+def snd(p) = p match { case (a, b) => b }
+def isEmpty(ts) = ts match { case Nil => true case Cons(h, t) => false }
+def isTok(t, k, c) = if fst(t) == k then snd(t) == c else false
+def isLP(ts) = isTok(hd(ts), 2, 21)
+def isComma(ts) = isTok(hd(ts), 2, 27)
+def isRP(ts) = isTok(hd(ts), 2, 22)
+def isKind1(t) = fst(t) == 1
+def dlen(env) = env match { case Nil => 0 case Cons(h, t) => dlen(t) + 1 }
+def idxOf(env, name, i) = env match { case Nil => 0 case Cons(h, t) => if h == name then i else idxOf(t, name, i + 1) }
+def arithBare(k) = if k == 23 then "i.add" else (if k == 24 then "i.sub" else (if k == 25 then "i.mul" else "i.lt"))
+def emitBin(k, l, r) = if k == 32 then "(prim __eq__ " ++ l ++ " " ++ r ++ ")" else (if k == 33 then "(prim sconcat " ++ l ++ " " ++ r ++ ")" else "(prim " ++ arithBare(k) ++ " " ++ l ++ " " ++ r ++ ")")
+def binPrec(c) = if c == 26 then 1 else (if c == 32 then 1 else (if c == 23 then 2 else (if c == 24 then 2 else (if c == 33 then 2 else (if c == 25 then 3 else 0)))))
+def prec(t) = if fst(t) == 2 then binPrec(snd(t)) else 0
+def emitMethod(mn, recv, a0, a1) = if mn == "length" then "(prim slen " ++ recv ++ ")" else (if mn == "charAt" then "(prim scodeAt " ++ recv ++ " " ++ a0 ++ ")" else "(prim sslice " ++ recv ++ " " ++ a0 ++ " " ++ a1 ++ ")")
+def parseAtom(ts, env, dq) = if isEmpty(ts) then ("(lit (int 0))", Nil) else parseAtom1(hd(ts), tl(ts), env, dq)
+def parseAtom1(t, rest, env, dq) = if fst(t) == 0 then ("(lit (int " ++ snd(t) ++ "))", rest) else (if fst(t) == 4 then ("(lit (str " ++ dq ++ snd(t) ++ dq ++ "))", rest) else (if fst(t) == 1 then parseVarOrCall(snd(t), rest, env, dq) else (if fst(t) == 3 then parseCtor(snd(t), rest, env, dq) else (if isTok(t, 2, 21) then parseParenOrTuple(rest, env, dq) else (if isTok(t, 2, 2) then parseIf(rest, env, dq) else ("(lit (int 0))", rest))))))
+def parseVarOrCall(id, rest, env, dq) = if id == "true" then ("(lit true)", rest) else (if id == "false" then ("(lit false)", rest) else (if isLP(rest) then parseVarOrCall2(id, tl(rest), env, dq) else ("(local " ++ idxOf(env, id, 0) ++ ")", rest)))
+def parseVarOrCall2(id, ts, env, dq) = parseArgs(ts, env, "", dq) match { case (args, r2) => ("(app (global " ++ id ++ ")" ++ args ++ ")", r2) }
+def parseCtor(cn, rest, env, dq) = if isLP(rest) then parseCtorArgs(cn, tl(rest), env, dq) else ("(ctor " ++ cn ++ ")", rest)
+def parseCtorArgs(cn, ts, env, dq) = parseExpr(ts, 0, env, dq) match { case (a, r2) => parseExpr(tl(r2), 0, env, dq) match { case (b, r3) => ("(ctor " ++ cn ++ " " ++ a ++ " " ++ b ++ ")", tl(r3)) } }
+def parseParenOrTuple(rest, env, dq) = parseExpr(rest, 0, env, dq) match { case (e, r2) => if isComma(r2) then parseTupleRest(e, tl(r2), env, dq) else (e, tl(r2)) }
+def parseTupleRest(e, ts, env, dq) = parseExpr(ts, 0, env, dq) match { case (e2, r3) => ("(ctor Tuple2 " ++ e ++ " " ++ e2 ++ ")", tl(r3)) }
+def parseIf(rest, env, dq) = parseExpr(rest, 0, env, dq) match { case (c, r2) => parseExpr(tl(r2), 0, env, dq) match { case (th, r3) => parseExpr(tl(r3), 0, env, dq) match { case (el, r4) => ("(if " ++ c ++ " " ++ th ++ " " ++ el ++ ")", r4) } } }
+def parseArgs(ts, env, acc, dq) = if isRP(ts) then (acc, tl(ts)) else parseArgs2(ts, env, acc, dq)
+def parseArgs2(ts, env, acc, dq) = parseExpr(ts, 0, env, dq) match { case (a, r2) => if isComma(r2) then parseArgs(tl(r2), env, acc ++ " " ++ a, dq) else parseArgs(r2, env, acc ++ " " ++ a, dq) }
+def parseParams(ts, acc) = if isKind1(hd(ts)) then parseParams2(ts, acc) else (acc, tl(ts))
+def parseParams2(ts, acc) = if isComma(tl(ts)) then parseParams(tl(tl(ts)), Cons(snd(hd(ts)), acc)) else parseParams(tl(ts), Cons(snd(hd(ts)), acc))
+def parseArms(ts, env, dq) = if isTok(hd(ts), 2, 6) then parseArm(tl(ts), env, dq) else ("", tl(ts))
+def parseArm(rest, env, dq) = if isTok(hd(rest), 2, 21) then parseArmTup(rest, env, dq) else (if isLP(tl(rest)) then parseArmCons(rest, env, dq) else parseArmNil(rest, env, dq))
+def parseArmTup(rest, env, dq) = parseArmTup2(rest, env, dq, snd(hd(tl(rest))), snd(hd(tl(tl(tl(rest))))))
+def parseArmTup2(rest, env, dq, av, bv) = parseExpr(tl(tl(tl(tl(tl(tl(rest)))))), 0, Cons(bv, Cons(av, env)), dq) match { case (body, r2) => parseArms(r2, env, dq) match { case (more, r3) => ("(arm Tuple2 2 " ++ body ++ ") " ++ more, r3) } }
+def parseArmCons(rest, env, dq) = parseArmCons2(rest, env, dq, snd(hd(tl(tl(rest)))), snd(hd(tl(tl(tl(tl(rest)))))))
+def parseArmCons2(rest, env, dq, hv, tv) = parseExpr(tl(tl(tl(tl(tl(tl(tl(rest))))))), 0, Cons(tv, Cons(hv, env)), dq) match { case (body, r2) => parseArms(r2, env, dq) match { case (more, r3) => ("(arm Cons 2 " ++ body ++ ") " ++ more, r3) } }
+def parseArmNil(rest, env, dq) = parseExpr(tl(tl(rest)), 0, env, dq) match { case (body, r2) => parseArms(r2, env, dq) match { case (more, r3) => ("(arm Nil 0 " ++ body ++ ") " ++ more, r3) } }
+def postfix(recv, ts, env, dq) = if isTok(hd(ts), 2, 5) then postfixMatch(recv, ts, env, dq) else (if isTok(hd(ts), 2, 31) then postfixDot(recv, ts, env, dq) else (recv, ts))
+def postfixMatch(recv, ts, env, dq) = parseArms(tl(tl(ts)), env, dq) match { case (arms, r2) => postfix("(match " ++ recv ++ " (" ++ arms ++ "))", r2, env, dq) }
+def postfixDot(recv, ts, env, dq) = postfixDot2(recv, ts, env, dq, snd(hd(tl(ts))))
+def postfixDot2(recv, ts, env, dq, mn) = if isLP(tl(tl(ts))) then postfixDotArgs(recv, tl(tl(tl(ts))), env, dq, mn) else postfix(emitMethod(mn, recv, "", ""), tl(tl(ts)), env, dq)
+def postfixDotArgs(recv, ts, env, dq, mn) = parseExpr(ts, 0, env, dq) match { case (a0, r2) => if isComma(r2) then postfixDotArgs2(recv, tl(r2), env, dq, mn, a0) else postfix(emitMethod(mn, recv, a0, ""), tl(r2), env, dq) }
+def postfixDotArgs2(recv, ts, env, dq, mn, a0) = parseExpr(ts, 0, env, dq) match { case (a1, r3) => postfix(emitMethod(mn, recv, a0, a1), tl(r3), env, dq) }
+def parsePostfix(ts, env, dq) = parseAtom(ts, env, dq) match { case (a, r) => postfix(a, r, env, dq) }
+def notLess(p, minPrec) = minPrec < p + 1
+def climbable(ts, minPrec) = if isEmpty(ts) then false else (if 0 < prec(hd(ts)) then notLess(prec(hd(ts)), minPrec) else false)
+def climb(left, ts, minPrec, env, dq) = if climbable(ts, minPrec) then climbStep(left, ts, minPrec, env, dq) else (left, ts)
+def climbStep(left, ts, minPrec, env, dq) = climbStep2(left, ts, minPrec, env, dq, prec(hd(ts)), snd(hd(ts)))
+def climbStep2(left, ts, minPrec, env, dq, p, k) = parseExpr(tl(ts), p + 1, env, dq) match { case (right, r2) => climb(emitBin(k, left, right), r2, minPrec, env, dq) }
+def parseExpr(ts, minPrec, env, dq) = parsePostfix(ts, env, dq) match { case (l, r) => climb(l, r, minPrec, env, dq) }
+def parseDefs(ts, dq) = if isEmpty(ts) then "" else parseOneDef(tl(ts), dq)
+def parseOneDef(r1, dq) = parseOneDef2(r1, dq, snd(hd(r1)))
+def parseOneDef2(r1, dq, nm) = parseParams(tl(tl(r1)), Nil) match { case (env, afterP) => parseExpr(tl(afterP), 0, env, dq) match { case (body, r6) => "(def " ++ nm ++ " (lam " ++ dlen(env) ++ " " ++ body ++ ")) " ++ parseDefs(r6, dq) } }
+def compile(src, dq) = "(program (defs " ++ parseDefs(lex(src, 0, src.length), dq) ++ ") (entry (app (global main))))"
