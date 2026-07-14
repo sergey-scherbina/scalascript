@@ -20,6 +20,11 @@ final class RecoverableError(message: String) extends RuntimeException(message)
 /** A ScalaScript `throw e` — carries the thrown VALUE so `try … catch { case … }` can bind it. */
 final class SscThrow(val value: Value) extends RuntimeException
 
+/** A non-local `return e` — unwinds to the nearest enclosing `__with_return__` (a wrapped
+ *  named-def body). Control flow, not an error: no stack trace, and user `try`/`catch`
+ *  re-throws it (a `return` inside a `try` exits the method, it is not "caught"). */
+final class ReturnThrow(val value: Value) extends RuntimeException(null, null, false, false)
+
 sealed trait Value
 object Value:
   case object UnitV                                    extends Value
@@ -2148,6 +2153,12 @@ object Prims:
     // for `throw e`, or DataV("RuntimeException", [message]) for a host RuntimeException so a
     // `case e: RuntimeException => e.getMessage` arm works. Non-RuntimeException host errors propagate.
     case "__throw__" => a => throw new SscThrow(a(0))
+    // Non-local return: `__throw_return__` unwinds to the nearest `__with_return__`
+    // (a wrapped named-def body), which returns the carried value.
+    case "__throw_return__" => a => throw new ReturnThrow(a(0))
+    case "__with_return__"  => a =>
+      val thunk = a(0).asInstanceOf[Value.ClosV]
+      try callClos(thunk, Array.empty[Value]) catch { case r: ReturnThrow => r.value }
     case "__tryCatch__" => a =>
       val body = a(0).asInstanceOf[Value.ClosV]; val handler = a(1).asInstanceOf[Value.ClosV]
       tryRun(body, handler)
@@ -2474,6 +2485,8 @@ object Prims:
           parts.foldRight(nilV)((x, acc) => DataV("Cons", collection.immutable.ArraySeq(StrV(x), acc)))
         }
         case (StrV(s), "contains", List(StrV(sub))) => BoolV(s.contains(sub))
+        // `s.contains('c')` — a Char arg is an IntV code (v2 has no Char box).
+        case (StrV(s), "contains", List(IntV(ch))) => BoolV(s.contains(ch.toChar))
         case (StrV(s), "startsWith", List(StrV(pfx))) => BoolV(s.startsWith(pfx))
         case (StrV(s), "startsWith", List(StrV(pfx), IntV(off))) => BoolV(s.startsWith(pfx, off.toInt))
         // Pass each char as its code (IntV), consistent with `charAt`, char literals,
@@ -3781,6 +3794,9 @@ object Prims:
   private def tryRun(body: Value.ClosV, handler: Value.ClosV): Value =
     try callClos(body, Array.empty)
     catch
+      // A non-local `return` inside a `try` exits the method — it is NOT caught by
+      // the user's `catch`. Re-throw so it unwinds to the enclosing __with_return__.
+      case r: ReturnThrow      => throw r
       case t: SscThrow         => callClos(handler, Array(t.value))
       case e: RuntimeException =>
         callClos(handler, Array(Value.DataV("RuntimeException",

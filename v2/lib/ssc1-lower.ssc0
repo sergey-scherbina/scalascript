@@ -130,6 +130,11 @@ def enumCasesCell = #cell.new(Nil)
 -- locals still win because lowerE consults its lexical scope first.
 def kc7bOwnerPrefixCell  = #cell.new("")
 def kc7bOwnerMembersCell = #cell.new(Nil)
+-- Set true while lowering a def body whenever a `return` is lowered to a non-local
+-- throw. Read after the body to decide whether to wrap it in `__with_return__`
+-- (only defs that CONTAIN a return are wrapped, so return-free/TCO defs are untouched).
+def defHasReturnCell = #cell.new(false)
+def wrapReturn = (body) => IrPrim("__with_return__", Cons(IrLam(0, body), Nil))
 -- Active case-class body-method context: `Pair(tag, siblingMethodNames)` while a
 -- case class's method body is being lowered, else `Nil`. Lets a bare sibling call
 -- inside a method (`def run() = helper(5)`) resolve to the mangled `Tag_helper`
@@ -2602,8 +2607,11 @@ def lowerE = (scope, rawExpr) =>
             IrLam(n, lowerE(lamScope, body))
         }
       else if #seq(tag, "return") then
-        -- KC11: return e  →  just evaluate e (early-exit semantics handled in lowerBlock)
-        lowerE(scope, data)
+        -- `return e` in EXPRESSION position (e.g. `if c then return x else y`, inside a
+        -- while/match). Evaluating the value in place can't unwind the enclosing loop —
+        -- throw a non-local return caught by the def-body's `__with_return__` wrap.
+        let _mark = #cell.set(defHasReturnCell, true) in
+        IrPrim("__throw_return__", Cons(lowerE(scope, data), Nil))
       else if #seq(tag, "block") then
         lowerBlock(scope, data)
       else if #seq(tag, "sel_assign") then
@@ -3594,7 +3602,16 @@ def defGroupLams = (defs, letrecScope) =>
     case Cons(d, rest) =>
       match d { case Pair(dt, dd) => match dd { case Pair(name, r) =>
         match r { case Pair(params, body) =>
-          Cons(IrLam(lenL(params), lowerE(appendL(revL(params), letrecScope), body)),
+          -- Wrap a local nested def in `__with_return__` iff it uses a non-local `return`
+          -- (same save/reset/restore as top-level defs; local defs like MarkdownBlocks'
+          -- `parseReferenceDefinition` reach here via the shared-IrLetRec group path).
+          let prevHR = #cell.get(defHasReturnCell) in
+          let _rstHR = #cell.set(defHasReturnCell, false) in
+          let bodyIr = lowerE(appendL(revL(params), letrecScope), body) in
+          let hadRet = #cell.get(defHasReturnCell) in
+          let _rst2HR = #cell.set(defHasReturnCell, prevHR) in
+          let finalBody = if hadRet then wrapReturn(bodyIr) else bodyIr in
+          Cons(IrLam(lenL(params), finalBody),
                defGroupLams(rest, letrecScope)) } } }
   }
 
@@ -3737,8 +3754,11 @@ def lowerBlock = (scope, stmts) =>
                 IrLetRec(lams, lowerBlock(letrecScope, remaining))
             }
           else if #seq(tag, "return") then
-            -- KC11: explicit return — value is the block result (ignore remaining stmts)
-            lowerE(scope, data)
+            -- A bare `return e` statement. As a non-local throw it exits the def even
+            -- when this block is a loop/branch body (a plain value would just be the
+            -- discarded body value and the loop would continue).
+            let _mark = #cell.set(defHasReturnCell, true) in
+            IrPrim("__throw_return__", Cons(lowerE(scope, data), Nil))
           else if #seq(tag, "expr") then
             match rest {
               case Nil =>
@@ -3757,8 +3777,12 @@ def lowerBlock = (scope, stmts) =>
                               match thn {
                                 case Pair(rtag, retVal) =>
                                   if #seq(rtag, "return") then
-                                    -- if cond then return e; rest  →  IrIf(cond, e, rest)
-                                    IrIf(lowerE(scope, cond), lowerE(scope, retVal), lowerBlock(scope, rest))
+                                    -- `if cond then return e; rest` → when cond, throw a
+                                    -- non-local return (unwinds loops correctly); else `rest`.
+                                    let _mark = #cell.set(defHasReturnCell, true) in
+                                    IrIf(lowerE(scope, cond),
+                                      IrPrim("__throw_return__", Cons(lowerE(scope, retVal), Nil)),
+                                      lowerBlock(scope, rest))
                                   else
                                     IrLet(Cons(lowerE(scope, data), Nil), lowerBlock(Cons("_blk_", scope), rest))
                               }
@@ -3813,13 +3837,21 @@ def lowerStmtToList = (stmt) =>
                 let _setCtx = #cell.set(kc5ActiveCtxCell, computeActiveCtx(params)) in
                 let _resetAlias = #cell.set(summonAliasCell, Nil) in
                 let resolvedBody = resolveE(body) in
-                let ir = match resolvedBody {
+                -- Reset the return flag, lower this body, then wrap it in
+                -- `__with_return__` iff a non-local `return` was emitted (save/restore so
+                -- a nested def's returns don't leak; a return in a LAMBDA within this def
+                -- DOES set the flag → this def catches it = correct non-local semantics).
+                let prevHR = #cell.get(defHasReturnCell) in
+                let _rstHR = #cell.set(defHasReturnCell, false) in
+                let bodyIr = match resolvedBody {
                   case Pair(btag, bdata) =>
-                    if #seq(btag, "block") then
-                      IrDef(emitName, IrLam(lenL(params), lowerBlock(scope, bdata)))
-                    else
-                      IrDef(emitName, IrLam(lenL(params), lowerE(scope, resolvedBody)))
+                    if #seq(btag, "block") then lowerBlock(scope, bdata)
+                    else lowerE(scope, resolvedBody)
                 } in
+                let hadRet = #cell.get(defHasReturnCell) in
+                let _rst2HR = #cell.set(defHasReturnCell, prevHR) in
+                let finalBody = if hadRet then wrapReturn(bodyIr) else bodyIr in
+                let ir = IrDef(emitName, IrLam(lenL(params), finalBody)) in
                 let _restCtx = #cell.set(kc5ActiveCtxCell, prevCtx) in
                 Cons(ir, Nil)
             }
@@ -4829,9 +4861,17 @@ def caseMethodDefsFor = (tag, fields, defs) =>
         match ddata { case Pair(mname, mrest) =>
           match mrest { case Pair(mparams, mbody) =>
             let selfAndParams = Cons("__self", mparams) in
+            -- Wrap a (case-)class method in `__with_return__` iff it uses a non-local
+            -- `return` (MarkdownBlocks is a plain class → its methods reach here, not the
+            -- object-method path).
+            let prevHR = #cell.get(defHasReturnCell) in
+            let _rstHR = #cell.set(defHasReturnCell, false) in
+            let mbodyIr = lowerCaseMethodBody(fields, revL(selfAndParams), mbody) in
+            let hadRet = #cell.get(defHasReturnCell) in
+            let _rst2HR = #cell.set(defHasReturnCell, prevHR) in
+            let mbodyFinal = if hadRet then wrapReturn(mbodyIr) else mbodyIr in
             let mdef = IrDef(#sconcat(tag, #sconcat("_", mname)),
-                         IrLam(lenL(selfAndParams),
-                           lowerCaseMethodBody(fields, revL(selfAndParams), mbody))) in
+                         IrLam(lenL(selfAndParams), mbodyFinal)) in
             Cons(mdef, caseMethodDefsFor(tag, fields, rest)) } } }
   }
 def methodNamesOf = (defs) =>
