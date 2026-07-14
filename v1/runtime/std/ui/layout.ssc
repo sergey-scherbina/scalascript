@@ -19,8 +19,12 @@ exports:
 def vstack(gap: Int = 0)(children: TkNode*): TkNode =
   VStackNode(gap, children.toList)
 
-def hstack(gap: Int = 0)(children: TkNode*): TkNode =
-  HStackNode(gap, children.toList)
+// `wrap` — when true, the row's children flow onto additional lines once they
+// exceed the container's available width (CSS flex-wrap:wrap), instead of
+// shrinking/overflowing on one line. Default false is byte-identical to the
+// pre-existing nowrap render. See specs/std-ui-hstack-wrap.md.
+def hstack(gap: Int = 0, wrap: Boolean = false)(children: TkNode*): TkNode =
+  HStackNode(gap, children.toList, wrap)
 
 def divider(): TkNode = DividerNode()
 

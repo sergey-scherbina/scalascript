@@ -1,0 +1,56 @@
+---
+name: tkv2-hstack-wrap
+version: 1.0.0
+backends: [int, js]
+---
+
+# tkv2 - hstack wrap: optional flex-wrap for the horizontal-row layout primitive (std-ui-hstack-wrap)
+
+Slice `std-ui-hstack-wrap` (`specs/std-ui-hstack-wrap.md`): `hstack` accepts a new
+`wrap: Boolean = false` parameter (in its first, non-curried parameter group, before the
+curried `(children: TkNode*)` group) that `lower.ssc` resolves to an extra `flex-wrap:wrap`
+CSS fragment. `View` is opaque to `.ssc` (see `specs/std-ui-select.md` "Why no new extern
+def"), so — mirroring `tests/conformance/tkv2-button-variant.ssc`'s own TkNode-field-
+assertion style — this conformance test asserts the `wrap` field threads from `hstack(...)`
+to `HStackNode` unchanged (including the no-argument default and an explicit `false`), and
+that `lower()` does not throw for either value, on both lanes. The actual rendered CSS
+`flex-wrap:wrap` fragment (that it appears only when `wrap = true`, and that the `wrap =
+false` style string is byte-identical to pre-slice output) was verified at the Scala level;
+see `HStackWrapTest.scala` and `specs/std-ui-hstack-wrap.md` § Results.
+
+[hstack](std/ui/layout.ssc)
+[HStackNode, TkNode](std/ui/nodes.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
+[text](std/ui/typography.ssc)
+
+```scalascript
+val a = text("a")
+val b = text("b")
+
+// No `wrap` argument at all — stays the pre-existing default (false), backward
+// compatible with every call site that predates this slice.
+val defaultRow = hstack(gap = 8)(a, b)
+defaultRow match
+  case HStackNode(gap, kids, wrap) => println(gap.toString + ":" + kids.length.toString + ":" + wrap.toString)
+  case _                           => println("?")
+val defaultView = lower(defaultRow, defaultTheme)
+println("default-built")
+
+// wrap = true threads through unchanged and lowers without throwing.
+val wrapRow = hstack(gap = 8, wrap = true)(a, b)
+wrapRow match
+  case HStackNode(gap, kids, wrap) => println(gap.toString + ":" + kids.length.toString + ":" + wrap.toString)
+  case _                           => println("?")
+val wrapView = lower(wrapRow, defaultTheme)
+println("wrap-built")
+
+// wrap = false explicitly threads through identically to the default (no
+// separate "explicit false" code path).
+val noWrapRow = hstack(gap = 8, wrap = false)(a, b)
+noWrapRow match
+  case HStackNode(gap, kids, wrap) => println(gap.toString + ":" + kids.length.toString + ":" + wrap.toString)
+  case _                           => println("?")
+val noWrapView = lower(noWrapRow, defaultTheme)
+println("hstack-wrap-built")
+```

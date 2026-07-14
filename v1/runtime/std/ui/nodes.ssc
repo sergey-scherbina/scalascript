@@ -59,7 +59,11 @@ sealed trait TkNode
 
 // ── Layout ───────────────────────────────────────────────────────────────
 case class VStackNode(gap: Int, children: List[TkNode]) extends TkNode
-case class HStackNode(gap: Int, children: List[TkNode]) extends TkNode
+// `wrap` — a plain runtime Boolean. `false` (the default in hstack()) keeps the
+// pre-existing nowrap render byte-identical; `true` sets flex-wrap:wrap in lower.ssc
+// so children flow onto additional lines instead of overflowing/shrinking. See
+// specs/std-ui-hstack-wrap.md.
+case class HStackNode(gap: Int, children: List[TkNode], wrap: Boolean) extends TkNode
 case class DividerNode()                                extends TkNode
 case class SpacerNode(grow: Boolean)                    extends TkNode
 

@@ -913,7 +913,7 @@ private[codegen] trait JvmGenContentEmit:
        |    case "vstack" =>
        |      std.ui.nodes.VStackNode(_ssc_tk_opt_int(obj, "gap", 8), _ssc_tk_children(obj, env))
        |    case "hstack" =>
-       |      std.ui.nodes.HStackNode(_ssc_tk_opt_int(obj, "gap", 8), _ssc_tk_children(obj, env))
+       |      std.ui.nodes.HStackNode(_ssc_tk_opt_int(obj, "gap", 8), _ssc_tk_children(obj, env), false)
        |    case "fragment" =>
        |      std.ui.nodes.FragmentNode(_ssc_tk_children(obj, env))
        |    case "divider" =>

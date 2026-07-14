@@ -137,9 +137,10 @@ def lower(n: TkNode, theme: Theme): View = n match
       Map(),
       kids.map(lower(_, theme)))
 
-  case HStackNode(gap, kids) =>
+  case HStackNode(gap, kids, wrap) =>
+    val wrapCss = if wrap then "; flex-wrap:wrap" else ""
     element("div",
-      ["style" -> s"display:flex; flex-direction:row; align-items:center; gap:${gap}px; box-sizing:border-box"],
+      ["style" -> s"display:flex; flex-direction:row; align-items:center; gap:${gap}px; box-sizing:border-box${wrapCss}"],
       Map(),
       kids.map(lower(_, theme)))
 
