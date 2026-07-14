@@ -2537,6 +2537,8 @@ object Prims:
         // the old _sel_takeWhile scodeAt path now that .takeWhile routes here via __method__).
         case (StrV(s), "takeWhile",   List(fn: ClosV))  => StrV(s.takeWhile(c => callClos(fn, Array(IntV(c.toLong))) == BoolV(true)))
         case (StrV(s), "dropWhile",   List(fn: ClosV))  => StrV(s.dropWhile(c => callClos(fn, Array(IntV(c.toLong))) == BoolV(true)))
+        case (StrV(s), "indexWhere",  List(fn: ClosV))  => IntV(s.indexWhere(c => callClos(fn, Array(IntV(c.toLong))) == BoolV(true)).toLong)
+        case (StrV(s), "count",       List(fn: ClosV))  => IntV(s.count(c => callClos(fn, Array(IntV(c.toLong))) == BoolV(true)).toLong)
         // ── scala.math object ──────────────────────────────────────────────────────
         case (ForeignV("__math__"), "Pi", Nil)         => FloatV(math.Pi)
         case (ForeignV("__math__"), "E", Nil)          => FloatV(math.E)
