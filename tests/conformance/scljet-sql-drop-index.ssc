@@ -1,0 +1,36 @@
+---
+name: scljet-sql-drop-index
+description: SclJet SQL DROP INDEX (and multi-index) — build two indexes, drop one; reference sqlite validates; cross-backend byte-identical
+backends: [int, js]
+---
+
+# SclJet SQL DROP INDEX
+
+A table may carry several indexes (`buildSingleTableIndexed` lays them out at successive roots).
+`DROP INDEX name` rebuilds the database with the remaining indexes — the dropped index's schema row
+and pages are gone with no orphans, so reference `integrity_check` stays ok, the remaining index is
+still used by the planner, and the dropped column falls back to a table scan. int and JS produce
+byte-identical output; the exact bytes are locked here.
+
+[ByteSlice, byteSliceToList, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[executeMutation](std/scljet/sql.ssc)
+
+```scalascript
+def apply(db: ByteSlice, sql: String): ByteSlice =
+  executeMutation(db, sql) match
+    case Left(m) =>
+      println("ERR:" + m)
+      db
+    case Right(next) => next
+
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER, name TEXT, dept INTEGER, age INTEGER)",
+  List(List(SqlInteger(1L), SqlText("ann"), SqlInteger(20L), SqlInteger(30L)),
+       List(SqlInteger(2L), SqlText("bob"), SqlInteger(10L), SqlInteger(25L)),
+       List(SqlInteger(3L), SqlText("cat"), SqlInteger(10L), SqlInteger(40L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db0) =>
+    val db1 = apply(db0, "CREATE INDEX idx_dept ON emp(dept)")
+    val db2 = apply(db1, "CREATE INDEX idx_age ON emp(age)")
+    val db3 = apply(db2, "DROP INDEX idx_dept")
+    println((db3.length / 512).toString + ":" + byteSliceToList(db3).toString)
+```

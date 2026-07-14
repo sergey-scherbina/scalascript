@@ -2668,8 +2668,11 @@ def indexSqlColumns(sqlText: String): List[String] =
       case Left(_) => Nil
       case Right(ci) => ci.columns
 
-def tableIndexInfos(db: ReadonlyDatabase, tableName: String, colNames: List[String]): List[IndexInfo] =
+// Indexes on a table, optionally excluding one by name (for DROP INDEX). `exceptName == ""`
+// keeps all of them.
+def tableIndexInfosExcept(db: ReadonlyDatabase, tableName: String, colNames: List[String], exceptName: String): List[IndexInfo] =
   val target = upperStr(tableName)
+  val skip = upperStr(exceptName)
   var r = db.schema.entries
   var accRev: List[IndexInfo] = Nil
   while r.nonEmpty do
@@ -2677,13 +2680,30 @@ def tableIndexInfos(db: ReadonlyDatabase, tableName: String, colNames: List[Stri
     val isIndex = e.kind match
       case SchemaIndex => true
       case _ => false
-    if isIndex && upperStr(cpToString(e.tableName.codePoints)) == target then
+    val nm = upperStr(cpToString(e.name.codePoints))
+    if isIndex && upperStr(cpToString(e.tableName.codePoints)) == target && !(skip != "" && nm == skip) then
       val cols = e.sql match
         case Some(t) => indexSqlColumns(cpToString(t.codePoints))
         case None => Nil
       accRev = IndexInfo(e.rawRecord, indexColIndices(cols, colNames)) :: accRev
     r = r.tail
   accRev.reverse
+
+def tableIndexInfos(db: ReadonlyDatabase, tableName: String, colNames: List[String]): List[IndexInfo] =
+  tableIndexInfosExcept(db, tableName, colNames, "")
+
+def findIndexEntry(db: ReadonlyDatabase, name: String): Option[SchemaEntry] =
+  val target = upperStr(name)
+  var r = db.schema.entries
+  var found: Option[SchemaEntry] = None
+  while r.nonEmpty && found.isEmpty do
+    val e = r.head
+    val isIndex = e.kind match
+      case SchemaIndex => true
+      case _ => false
+    if isIndex && upperStr(cpToString(e.name.codePoints)) == target then found = Some(e)
+    r = r.tail
+  found
 
 def countTables(db: ReadonlyDatabase): Int =
   var r = db.schema.entries
@@ -3362,6 +3382,42 @@ def executeCreate(dbBytes: ByteSlice, sql: String, tableName: String): Either[St
                             case Right(pc) => Right(pc.pager.image)
 
 /** Run an INSERT, DELETE, UPDATE, or CREATE TABLE against a database image; return the new image. */
+// `DROP INDEX [IF EXISTS] name` — returns the index name.
+def parseDropIndex(toks: List[Token]): Either[String, String] =
+  if !tkIsKw(toks, "DROP") then Left("expected DROP")
+  else if !tkIsKw(toks.tail, "INDEX") then Left("expected INDEX after DROP")
+  else
+    val afterIndex = toks.tail.tail
+    val afterIf = if tkIsKw(afterIndex, "IF") && tkIsKw(afterIndex.tail, "EXISTS") then afterIndex.tail.tail else afterIndex
+    if tkKind(afterIf) != "ident" then Left("expected index name")
+    else Right(afterIf.head.text)
+
+// Drop an index by rebuilding the (single-table) database with the remaining indexes; the
+// dropped index's schema row and pages are gone (compact, no orphans → integrity_check ok).
+def executeDropIndex(dbBytes: ByteSlice, indexName: String): Either[String, ByteSlice] =
+  openReadonly(ImageVfs(dbBytes), "image.db", sqlOptions()) match
+    case Left(error) => Left(error.message)
+    case Right(db) => findIndexEntry(db, indexName) match
+      case None => Left("no such index: " + indexName)
+      case Some(idxEntry) =>
+        val tableName = cpToString(idxEntry.tableName.codePoints)
+        findTable(db, tableName) match
+          case None => Left("no such table: " + tableName)
+          case Some(tableEntry) =>
+            if countTables(db) != 1 then Left("DROP INDEX on a multi-table database is not yet supported")
+            else
+              val colNames = tableEntry.sql match
+                case Some(t) => tableColumns(cpToString(t.codePoints))
+                case None => Nil
+              val root = tableEntry.rootPage match
+                case Some(p) => p
+                case None => 0L
+              openReadonlyRoot(db, root, RowidTableTree) match
+                case Left(error) => Left(error.message)
+                case Right(cursor) => collectRows(db, cursor) match
+                  case Left(error) => Left(error.message)
+                  case Right(rows) => reindexTable(dbBytes, db, tableName, storageToSqlRows(rows, colNames.length), tableIndexInfosExcept(db, tableName, colNames, indexName))
+
 def executeMutation(dbBytes: ByteSlice, sql: String): Either[String, ByteSlice] =
   tokenize(sql) match
     case Left(message) => Left(message)
@@ -3376,6 +3432,9 @@ def executeMutation(dbBytes: ByteSlice, sql: String): Either[String, ByteSlice] 
       else if isKw(toks.head, "UPDATE") then parseUpdate(toks) match
         case Left(message) => Left(message)
         case Right(stmt) => executeUpdate(dbBytes, stmt)
+      else if isKw(toks.head, "DROP") then parseDropIndex(toks) match
+        case Left(message) => Left(message)
+        case Right(indexName) => executeDropIndex(dbBytes, indexName)
       else if isKw(toks.head, "CREATE") then
         if tkIsKw(toks.tail, "INDEX") then parseCreateIndex(toks) match
           case Left(message) => Left(message)
@@ -3383,7 +3442,7 @@ def executeMutation(dbBytes: ByteSlice, sql: String): Either[String, ByteSlice] 
         else parseCreate(toks) match
           case Left(message) => Left(message)
           case Right(tableName) => executeCreate(dbBytes, sql, tableName)
-      else Left("executeMutation expects INSERT, DELETE, UPDATE, CREATE TABLE, or CREATE INDEX")
+      else Left("executeMutation expects INSERT, DELETE, UPDATE, DROP INDEX, CREATE TABLE, or CREATE INDEX")
 
 // ── Rendering (sqlite3 CLI list format: `a|b|c` per row, NULL blank) ──
 
