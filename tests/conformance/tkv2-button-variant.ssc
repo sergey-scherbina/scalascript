@@ -19,6 +19,11 @@ rendered CSS background-colour swap (that the resolved colour genuinely
 differs per variant) was verified empirically via `emit-js`; see
 `specs/std-ui-button-variant.md` § Results.
 
+(`std-ui-button-size` appended a 6th `size` field to each node after this
+test was written; every pattern below binds it as `_` — unused here, this
+file only asserts `variant` — see `tkv2-button-size.ssc` for the `size`
+equivalent.)
+
 [signal, setSignal](std/ui/primitives.ssc)
 [signalButton, actionButton, signalLabelButton, signalActionButton](std/ui/input.ssc)
 [SignalButtonNode, ActionButtonNode, SignalLabelButtonNode, SignalActionButtonNode](std/ui/nodes.ssc)
@@ -34,8 +39,8 @@ val handler  = setSignal(sig, "clicked")
 // backward compatible with every call site that predates this slice.
 val defaultBtn = signalButton(sig, "x", "Default")
 defaultBtn match
-  case SignalButtonNode(_, _, label, _, variant) => println(label + ":" + variant)
-  case _                                         => println("?")
+  case SignalButtonNode(_, _, label, _, variant, _) => println(label + ":" + variant)
+  case _                                            => println("?")
 val defaultView = lower(defaultBtn, defaultTheme)
 println("default-built")
 
@@ -43,32 +48,32 @@ println("default-built")
 // node unchanged, and lowers without throwing.
 val bPrimary = actionButton(handler, "Act", false, "primary")
 bPrimary match
-  case ActionButtonNode(_, label, _, variant) => println(label + ":" + variant)
-  case _                                      => println("?")
+  case ActionButtonNode(_, label, _, variant, _) => println(label + ":" + variant)
+  case _                                         => println("?")
 val vPrimary = lower(bPrimary, defaultTheme)
 
 val bSecondary = actionButton(handler, "Act", false, "secondary")
 bSecondary match
-  case ActionButtonNode(_, label, _, variant) => println(label + ":" + variant)
-  case _                                      => println("?")
+  case ActionButtonNode(_, label, _, variant, _) => println(label + ":" + variant)
+  case _                                         => println("?")
 val vSecondary = lower(bSecondary, defaultTheme)
 
 val bDanger = actionButton(handler, "Act", false, "danger")
 bDanger match
-  case ActionButtonNode(_, label, _, variant) => println(label + ":" + variant)
-  case _                                      => println("?")
+  case ActionButtonNode(_, label, _, variant, _) => println(label + ":" + variant)
+  case _                                         => println("?")
 val vDanger = lower(bDanger, defaultTheme)
 
 val bSuccess = actionButton(handler, "Act", false, "success")
 bSuccess match
-  case ActionButtonNode(_, label, _, variant) => println(label + ":" + variant)
-  case _                                      => println("?")
+  case ActionButtonNode(_, label, _, variant, _) => println(label + ":" + variant)
+  case _                                         => println("?")
 val vSuccess = lower(bSuccess, defaultTheme)
 
 val bWarning = actionButton(handler, "Act", false, "warning")
 bWarning match
-  case ActionButtonNode(_, label, _, variant) => println(label + ":" + variant)
-  case _                                      => println("?")
+  case ActionButtonNode(_, label, _, variant, _) => println(label + ":" + variant)
+  case _                                         => println("?")
 val vWarning = lower(bWarning, defaultTheme)
 
 // An unrecognized variant string threads through unchanged (the fallback to
@@ -76,8 +81,8 @@ val vWarning = lower(bWarning, defaultTheme)
 // not crash either the node build or the lowering.
 val bBogus = actionButton(handler, "Act", false, "bogus")
 bBogus match
-  case ActionButtonNode(_, label, _, variant) => println(label + ":" + variant)
-  case _                                      => println("?")
+  case ActionButtonNode(_, label, _, variant, _) => println(label + ":" + variant)
+  case _                                         => println("?")
 val vBogus = lower(bBogus, defaultTheme)
 println("action-variants-built")
 
@@ -85,14 +90,14 @@ println("action-variants-built")
 // same way.
 val lb = signalLabelButton(sig, "x", labelSig, false, "danger")
 lb match
-  case SignalLabelButtonNode(_, _, _, _, variant) => println("label-btn:" + variant)
-  case _                                          => println("?")
+  case SignalLabelButtonNode(_, _, _, _, variant, _) => println("label-btn:" + variant)
+  case _                                              => println("?")
 val vLb = lower(lb, defaultTheme)
 
 val sab = signalActionButton(handler, labelSig, false, "success")
 sab match
-  case SignalActionButtonNode(_, _, _, variant) => println("action-sig-btn:" + variant)
-  case _                                        => println("?")
+  case SignalActionButtonNode(_, _, _, variant, _) => println("action-sig-btn:" + variant)
+  case _                                           => println("?")
 val vSab = lower(sab, defaultTheme)
 
 println("button-variant-built")
