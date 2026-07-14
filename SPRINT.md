@@ -1274,8 +1274,36 @@ DONE (32 conformance cases green [int,js]). The honest remainder, each a real fe
       `mutate.ssc` read-modify-rewrite already provides correct DML for it. Also
       no-overflow-cell assumption in `readLeafCells` (spilled payloads = follow-up).
 
+### SclJet M4g — incremental B-tree balance() (2026-07-14, Sergiy: "так берись")
+
+- [x] **scljet-m4g-balance-insert** — DONE 2026-07-14. `write.ssc` `pagerInsertBalanced`
+      descends to the leaf, inserts, and balances on the way up: `finishLeaf`/`finishInterior`
+      split an overflowing node (`packLeafChunks`/`packInteriorChunks`, first chunk keeps the
+      page, rest allocated at EOF), `replaceChild` swaps the parent's slot for the pieces with
+      new dividers (interior split promotes a divider via `readInteriorNode`), and `balanceDeeper`
+      grows the tree a level at the root (root page preserved). `patchHeaderPageCount` keeps the
+      file header's page count in range. Verified vs reference SQLite 3.53.3: in-place inserts
+      grow a one-leaf table through a 2-level (depth 2 at 20 rows) and a **3-level** tree (depth 3
+      at 160 rows, 84 pages) — every intermediate `integrity_check` ok with exact ordered rows.
+      int==js (conformance `scljet-balance-insert`, tree-walk + fingerprint). NB: this needed
+      `journal.ssc` fixes — `overwritePage` copies into the chunk map (no whole-image concat that
+      overflowed the interpreter's `++`) and `mutableCommit` dedups staged pages to one journal
+      pre-image per page. ORIGINAL:
+- [x] **scljet-m4g-balance-delete** — DONE 2026-07-14. `write.ssc` `pagerDeleteBalanced`
+      descends to the leaf and rewrites it with the cell removed (`descendToLeaf` + `leafDeleteCell`
+      + `rebuildLeafPage`). No rebalance is needed for validity — an underfull leaf and a stale-but-
+      still-covering divider key remain a legal B-tree. Verified int==js in `scljet-balance-insert`
+      (delete rowids from a multi-level tree; the remaining rows read back exact). Sibling
+      merge/compaction stays an optional follow-up.
+
+**M4g DONE — SclJet now has a real incremental B-tree `balance()`, the last remaining piece.**
+`mutate.ssc` read-modify-rewrite still exists for whole-table DML; the balanced path mutates
+one root-to-leaf spine per insert. Optional follow-ups only: freelist-page reuse on alloc,
+overflow-cell decode in `readLeafCells`, and delete-time sibling merge (compaction, not
+correctness).
+
 Execution order (value × tractability): m4a (template exists) → m4b → m4c → m4d →
-m4e → m4f. Keep every scljet conformance case green [int,js] --no-memo after each.
+m4e → m4f → m4g. Keep every scljet conformance case green [int,js] --no-memo after each.
 ## v2-swift-nativeui-i18n-json — standard `lower/serve`, locale and JSON parity (2026-07-12)
 
 Claim: `.work/active/v2-swift-nativeui-i18n-json.claim`. Spec:

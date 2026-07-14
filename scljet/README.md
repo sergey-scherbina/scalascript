@@ -97,11 +97,18 @@ discards.
 
 **Cell-level in-place edits** (`write.ssc` `readLeafCells` / `leafInsertCell` /
 `leafDeleteCell` / `leafUpdateCell` / `rebuildLeafPage`) change a single table-leaf
-page's cells and, through the mutable pager, move only that page — an in-place insert
-+ delete produces a file reference `integrity_check` accepts and reads correctly.
-Multi-page split/merge rebalancing (SQLite's `balance()`) when a leaf overflows is the
-remaining piece; the whole-file read-modify-rewrite in `mutate.ssc` already provides
-correct insert/delete/update for that case today.
+page's cells and, through the mutable pager, move only that page.
+
+**Incremental B-tree `balance()`** (`pagerInsertBalanced` / `pagerDeleteBalanced`)
+completes the write side: an in-place insert descends to the leaf and, on the way back
+up, splits any overflowing node into sibling pages, hands the parent new dividers (an
+interior split promotes a divider), and grows the tree a level at the root
+(`balance_deeper`) with the root page number preserved — to any depth. Verified against
+reference SQLite 3.53.3: repeated in-place inserts grow a one-leaf table through 2-level
+and 3-level trees (depth 3 at 160 rows, 84 pages), every intermediate `integrity_check`
+ok with exact ordered rows. Delete rewrites the target leaf (an underfull leaf stays a
+valid B-tree). The whole-file read-modify-rewrite in `mutate.ssc` remains for bulk DML;
+delete-time sibling merge (compaction, not correctness) is the one optional follow-up.
 
 ## Modules
 
