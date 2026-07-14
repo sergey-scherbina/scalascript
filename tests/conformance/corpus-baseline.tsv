@@ -1,4 +1,3 @@
-actors-cluster-config	js	FAIL
 actors-cluster-config	v2	FAIL
 actors-cluster-coordinator	v2	FAIL
 actors-cluster-drain	v2	FAIL
@@ -118,7 +117,6 @@ paginated-typed-client	*	SKIP
 pdf-extract-demo	js	FAIL
 pdf-extract-demo	v2	FAIL
 pg-listen-notify	*	SKIP
-predef-notimplemented	js	FAIL
 quoted-macro-constfold	v2	FAIL
 quoted-macro-interpreter	js	FAIL
 quoted-macro-interpreter	v2	FAIL

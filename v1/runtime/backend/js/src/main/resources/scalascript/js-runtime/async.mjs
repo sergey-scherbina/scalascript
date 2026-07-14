@@ -1407,7 +1407,7 @@ async function _runActors(bodyFn) {
         const status   = ts.blocked ? 'blocked' : 'running';
         const info = { _type: 'ProcessInfo', mailboxSize: ts.mailbox.length,
                        links: linkList, status };
-        return { suspend: false, next: k({ _type: 'Some', value: info }) };
+        return { suspend: false, next: k({ _type: '_Some', value: info }) };
       }
       case 'send': {
         const target = args[0];
@@ -1640,8 +1640,8 @@ async function _runActors(bodyFn) {
       case 'whereis': {
         const lookName = args[0];
         const found = _nodeRegistry.has(lookName)
-          ? { _type: 'Some', value: Pid(_localNodeId, _nodeRegistry.get(lookName)) }
-          : { _type: 'None' };
+          ? { _type: '_Some', value: Pid(_localNodeId, _nodeRegistry.get(lookName)) }
+          : { _type: '_None' };
         return { suspend: false, next: k(found) };
       }
       case 'globalRegister': {
@@ -1663,7 +1663,7 @@ async function _runActors(bodyFn) {
       case 'globalWhereis': {
         const gwName = args[0];
         const gwPid  = _globalRegistry.get(gwName);
-        const found  = gwPid ? { _type: 'Some', value: gwPid } : { _type: 'None' };
+        const found  = gwPid ? { _type: '_Some', value: gwPid } : { _type: '_None' };
         return { suspend: false, next: k(found) };
       }
       // v1.23 — cluster visibility
@@ -1744,8 +1744,8 @@ async function _runActors(bodyFn) {
           if (_coordHolderFn) {
             try {
               const opt = _coordHolderFn();
-              // Option emits as { _type: 'Some', value } or { _type: 'None' }.
-              if (opt && opt._type === 'Some') held = String(opt.value || "");
+              // Option emits as { _type: '_Some', value } or { _type: '_None' }.
+              if (opt && opt._type === '_Some') held = String(opt.value || "");
             } catch (_) {}
           }
           return { suspend: false, next: k(held) };
@@ -1852,7 +1852,7 @@ async function _runActors(bodyFn) {
       }
       case 'clusterConfigGet': {
         const entry = _clusterConfig.get(String(args[0]));
-        const result = entry ? { _type: 'Some', value: entry.value } : { _type: 'None' };
+        const result = entry ? { _type: '_Some', value: entry.value } : { _type: '_None' };
         return { suspend: false, next: k(result) };
       }
       case 'clusterConfigKeys': {

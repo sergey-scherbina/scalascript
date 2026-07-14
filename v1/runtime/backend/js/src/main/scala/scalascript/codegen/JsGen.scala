@@ -4041,6 +4041,13 @@ class JsGen(
     case Term.Name(name) if zeroParamFns(name) && !paramRenames.contains(name) =>
       s"${mapName(name)}()"
 
+    // Scala Predef `???` — a placeholder that throws NotImplementedError when
+    // evaluated. Emitting the literal `???` is a JS SyntaxError (fails to parse
+    // the whole file even when the branch is never taken), so lower it to an IIFE
+    // that throws only when the expression is actually reached.
+    case Term.Name("???") =>
+      "((()=>{ throw new Error('scala.NotImplementedError: an implementation is missing'); })())"
+
     // Name lookup
     case Term.Name(name) => mapName(name)
 
