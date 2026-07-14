@@ -214,6 +214,31 @@ lane is the separate `v2-native-conformance` section below.
   single-node self-claim paths (useExternalCoordinator / _raftAdoptLeader / _startElection empty-id + quorum),
   mirroring ActorScheduler; `_fireLeaderEvent` stays guarded. (f89e5f708)
 
+### js codegen/runtime bugs closed this arc (2026-07-14 sweep #2)
+All found via the corpus contract; each is a class that also lurks in the other backends.
+- [x] **js-cons-infix-pattern** — `case h :: t =>` was a SILENT NO-OP. genPattern had no `Pat.ExtractInfix` case →
+  fell to the `("true", Nil)` default → no shape test, no head/tail binder (`h` undefined). A `::` nested in a Tuple
+  pattern (`case (ah :: at, bh :: _) if g`) lost both. Added the ExtractInfix `::` case (modeled on Cons extract).
+  **The big one** — cons patterns are idiomatic and were wholesale broken. (9f5815200)
+- [x] **js-summon-mirror** — `summon[Mirror.Of[T]]` matched `Type.Select(Type.Name("Mirror"),…)` but the qualifier
+  is a `Term.Ref` (`Term.Name`), so it never matched → emitted invalid `const m = ?_T;` (SyntaxError). (8dad1a549)
+- [x] **js-notimplemented** — `???` was emitted literally (whole-file SyntaxError even when never reached) → throwing
+  IIFE. (025772318)
+- [x] **js-actor-option-tag** — actor intrinsics returned `{_type:'Some'}` not the canonical `_Some`, so every
+  `case Some(v)` on clusterConfigGet/whereis/processInfo/gateway/coordHolder failed "Match failure". (025772318)
+- [x] **js-string-takewhile** — `String.takeWhile/dropWhile/span` were missing from _dispatch. (4cce01156)
+- [x] **js-f-interp-format-spec** — `f"${x}%.2f"` leaked the spec as literal text; added `_fmtSpec` (Java-format
+  in JS, all reachable conversions/flags/width/precision) + look-ahead wiring on both f-interp paths. (7a4a594d7)
+- [x] **js-destructure-val-in-block + splitAt** — a block-scoped `val (a,b) = e` fell to `/* stat */` (binders
+  dropped); `List.splitAt` was missing from _dispatch. Closes scala-js-demo. (a5ea021b2)
+- [x] **stale baseline** — 8 scljet cases were already PASS (js-imported-def-int-division), lines removed. (dfac0581f)
+
+Remaining js baseline = genuine feature-gaps (missing plugins on js), NOT portability bugs: Graph/graph-storage,
+totp/shamir, crypto (aesGenKey/verifyEd25519), fetchUrlSignal, quoted-macro (`__ssc_macro__`), yaml ConfigBlockInlineYAML,
+JDBC (h2 — inherently jvm), MCP/rozum/nfc/pdf/invoice, dataset/codec typeddata (`backend: jvm` examples). Each is a
+plugin port, not a codegen fix — track under v2/js plugin-wiring, lower priority than the divergence class above.
+Follow-ups still open: js-glue-component (`${…}` template leak), the `backend: jvm` typeddata-codec family.
+
 ### v2 (bridge lane `--v2`) — wire plugins (V2-GAP.md order, highest leverage first)
 - [ ] **actor-cluster methods → v2 scope (10)** — electLeader / useRaftLeaderElection / clusterConfigSet /
   requestGossip / … ("Actors scope failed: unbound global").

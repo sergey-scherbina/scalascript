@@ -66,7 +66,14 @@ no primitive dependency.
 
 ## Open work — see SPRINT `corpus-contract`
 
-The baseline (int golden = 0; **js ~60, v2 ~67** non-PASS) is the migration progress
-bar; it shrinks case-by-case. Highest-leverage next: v2 plugin wiring (V2-GAP order),
-the `js-imported-def-int-division` root-caused bug (closes 6 scljet cases), and
-promoting the contract to a per-PR gate (memo F2 + batch F4, per `conformance-perf.md`).
+The baseline (int golden = 0; **js 34, v2 64** non-PASS) is the migration progress
+bar; it shrinks case-by-case. The 2026-07-14 sweep #2 closed **26 js cases** — the
+entire remaining *divergence/codegen* class: cons-infix patterns (`case h :: t`, the
+big one — was wholesale broken), block-scoped destructuring `val (a,b)=e`, f-string
+format specs, `summon[Mirror.Of[T]]`, `???`, actor-Option tags, `String.takeWhile`,
+`List.splitAt`, actor leaderHistory, and 8 stale scljet entries (see SPRINT
+`corpus-contract` → "js codegen/runtime bugs closed"). The **remaining 34 js entries
+are genuine feature-gaps** (missing plugins on js: Graph, totp, crypto, fetchUrlSignal,
+quoted-macro, JDBC/h2, MCP, typeddata codecs) — plugin ports, not codegen fixes.
+Highest-leverage next: v2 plugin wiring (V2-GAP order) and promoting the contract to a
+per-PR gate (memo F2 + batch F4, per `conformance-perf.md`).
