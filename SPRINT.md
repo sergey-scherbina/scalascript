@@ -1845,6 +1845,15 @@ ORDER BY / LIMIT / OFFSET, aggregates (COUNT/SUM/MIN/MAX/AVG/TOTAL), GROUP BY + 
 and inner + LEFT joins — every feature byte-verified against reference sqlite3, int==js.
 Remaining follow-ups (niche): multi-table (3+) joins, page-1 schema split, repeating-decimal %.15g.
 
+- [x] **scljet-m6g-bool-ops** — DONE 2026-07-14. Boolean operators `AND`/`OR`/`NOT` in expressions
+      (below comparison; sqlite precedence `OR < AND < NOT < comparison`). New `parseExprOr`/
+      `parseExprAnd`/`parseExprNot` layers; `SxNot` AST node; `andValue`/`orValue`/`notValue` implement
+      three-valued logic (NULL-aware: `0 AND NULL = 0`, `1 OR NULL = 1`, else NULL). `AND`/`OR` route
+      through `arithValue`, `SxNot` handled in all three evaluators. Works in the projection
+      (`SELECT salary > 200 AND dept = 10` → 0/1), inside `CASE WHEN` (`WHEN a AND b`), and — via the
+      existing WHERE condition chain — with bare truthy columns (`WHERE active AND salary > 100`).
+      Verified vs sqlite3, int==js; conformance `scljet-sql-bool`.
+
 - [x] **scljet-m6f-case** — DONE 2026-07-14. `CASE` expression — searched (`CASE WHEN cond THEN r …
       [ELSE r] END`) and simple (`CASE operand WHEN v THEN r … END`). To support it, comparisons became
       first-class expressions: new lowest-precedence `parseExprCompare` makes `a op b` an `SxBin` that
