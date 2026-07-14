@@ -2210,6 +2210,14 @@ def lowerE = (scope, rawExpr) =>
                           #sconcat(data, "__cell"))), Nil))
                     else if isActiveOwnerMember(data) then
                       IrGlobal(#sconcat(#cell.get(kc7bOwnerPrefixCell), data))
+                    else if #seq(data, "this") then
+                      -- `this` inside a (case-)class method body is the receiver
+                      -- DataV, bound as `__self`; `this.field`/`this.method` then
+                      -- flow through the normal sel/method dispatch.
+                      match lookupVarOpt(scope, "__self") {
+                        case Some(s) => s
+                        case None => IrGlobal(data)
+                      }
                     else if #i.gt(#slen(caseSiblingGlobal(scope, data)), 0) then
                       -- A bare reference to a NULLARY sibling method inside a
                       -- (case-)class body (`def describe = area.toString`) calls it
