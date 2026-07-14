@@ -9,7 +9,7 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-## scala3-bidirectional-control — transparent Scala 3 ↔ ScalaScript control and durable handoff (2026-07-14, Sergiy)
+## scala3-bidirectional-control — transparent Scala 3 ↔ ScalaScript control and durable save/run (2026-07-14, Sergiy)
 
 Goal: make Scala 3 and ScalaScript two source frontends of one **managed JVM execution lane** while
 preserving the target-independent ScalaScript contract. Pure values, typed effects, handlers,
@@ -18,11 +18,13 @@ multi-prompt `shift`/`reset`, callbacks, and mixed-language tail calls cross the
 the language specs + portable CoreIR lowering + differential conformance; this work does **not** put
 Scala/JVM types into frozen CoreIR and does not make the Scala SDK the semantic owner of v2.
 
-Durable control uses simple one-shot **handoff**, not replay: `Continuation.handoff(k)` consumes the
-live continuation and returns an opaque `ContinuationTicket`; `Continuation.resume(ticket, value)`
-atomically claims it once. A `ContinuationRegistry` owns `issue/claim/countByArtifact`; exact
-`artifactHash` matching plus drain/on-demand old workers replaces cross-version frame migration in
-the base design. Crash after claim is `Unknown` and is never retried automatically.
+Durable control uses the simple one-shot **save/run** idiom, not replay: `continuation.save()`
+consumes the live continuation and returns an opaque `SavedContinuation`; `saved.run(value)`
+atomically consumes the saved continuation once. Persistence records, atomic claims, and serialized
+frames are runtime-private details rather than public `Ticket`/`Registry`/`Image` types. Exact
+`artifactDigest` matching plus drain/on-demand old workers replaces cross-version frame migration in
+the base design. Crash after `run` claims the saved state is `Unknown` and is never retried
+automatically.
 
 ### Specification and contract freeze
 
@@ -30,7 +32,7 @@ the base design. Crash after claim is `Unknown` and is never retried automatical
   against `v2.2-self-hosted-dialect`, UniML portable-source rules, frozen CoreIR, self-hosting,
   corpus differential semantics, existing Scala interop, and polyglot host libraries. Pin the public
   control ABI, structured API metadata, managed/foreign boundary, exact `shift/reset` laws,
-  mixed-language callbacks/TCO, one-shot durable handoff, artifact draining, diagnostics, security,
+  mixed-language callbacks/TCO, one-shot durable save/run, artifact draining, diagnostics, security,
   conformance matrix, non-goals, and phased implementation. Cross-link companion specs and record
   optional enterprise extensions in BACKLOG rather than silently expanding the base milestone.
 
@@ -82,28 +84,30 @@ the base design. Crash after claim is `Unknown` and is never retried automatical
   an uninstrumented foreign call is a tail-guarantee boundary. Verify 1e6-depth two- and three-function
   alternating-language recursion.
 
-### One-shot durable continuation handoff
+### One-shot durable continuation save/run
 
-- [ ] **durable-continuation-image** — add `DurableCont`/`ContinuationImage` as a compiler-generated,
-  defunctionalized control representation (`codeId + stateId + frame schema + live slots + prompt/
+- [ ] **saved-continuation-format** — add a runtime-private, compiler-generated defunctionalized
+  control representation (`codeId + stateId + frame schema + live slots + prompt/
   durable-handler context`). A durable region requires `DurableCodec` for every live value and rejects
   active foreign frames, arbitrary host lambdas, mutable host objects, files/sockets/threads/futures,
   locks, and transactions. No Java serialization and no raw copyable bytes in the primary API.
-- [ ] **continuation-handoff-registry** — implement the minimal `ContinuationRegistry` SPI with opaque
-  `ContinuationTicket`, atomic `issue/claim`, `Ready → Claimed → Completed|Unknown`, and exact
-  artifact/control-ABI validation. `handoff` invalidates every alias of the live continuation;
-  `resume` is at-most-once and never automatically replays a claimed/unknown continuation.
-- [ ] **continuation-artifact-drain** — route each ticket to its exact `artifactHash`; new work uses the
+- [ ] **continuation-save-run** — implement `continuation.save(): SavedContinuation[A,R]` and
+  `saved.run(value)` over a runtime-private persistence SPI with atomic save/claim/complete,
+  `Ready → Claimed → Completed|Unknown`, and exact artifact/control-ABI validation. `save` invalidates
+  every alias of the live continuation; `run` is at-most-once and never automatically replays a
+  claimed/unknown continuation.
+- [ ] **continuation-artifact-drain** — route each saved continuation to its exact `artifactDigest`;
+  new work uses the
   new artifact while old artifacts/workers are drain-only or launched on demand. Retire an artifact
-  when its outstanding-ticket count reaches zero (or retention expires). No base cross-version frame
+  when its outstanding saved-continuation count reaches zero (or retention expires). No base cross-version frame
   migrations, effect journal, retry, or exactly-once claim.
 
 ### End-to-end completion gate
 
 - [ ] **scala-ssc-control-interop-matrix** — prove Scala `reset`→SSC `shift`, SSC `reset`→managed Scala
   `shift`, capture on one side/resume on the other, Scala→SSC→Scala→SSC callback ping-pong, handlers
-  written on either side, separate compilation, mixed TCO, handoff→process restart→one resume, wrong
-  artifact, duplicate ticket, capture barrier, and crash-after-claim=`Unknown`.
+  written on either side, separate compilation, mixed TCO, save→process restart→one run, wrong
+  artifact, duplicate run, capture barrier, and crash-after-claim=`Unknown`.
 - [ ] **scala-sdk-feature-coverage** — derive a CI-enforced matrix from existing feature/capability and
   module metadata. Every ScalaScript capability must declare one Scala exposure form: native API,
   generated facade, macro, compiler plugin, tooling-only, platform-specific, or intentionally
