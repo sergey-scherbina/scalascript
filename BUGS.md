@@ -1,5 +1,32 @@
 # Bug tracker
 
+## swift-effect-handler-implicit-return-fallback — CONFIRMED / open (2026-07-15, Codex)
+
+**Status:** open. Found by the real Swift checked-source regression while
+implementing the portable one-shot guard.
+
+**Symptom:** a Swift AOT handler that omits `case Return(value)` fails on its
+first `resume` with `match: no arm for Return(1)`. JVM VM/ASM implement the
+documented convenience semantics: if the handler has no `Return` arm, a normal
+returned value passes through unchanged. The mismatch prevents the exact same
+minimal handler source from reaching a second resume on Swift.
+
+**Reproduce:** compile and run on Swift:
+`handle(One.op()) { case One.op(resume) => resume(1) + resume(2) }`. With a
+plain one-shot effect, Swift reports the missing `Return` arm before testing the
+second claim; adding `case Return(value) => value` reaches the intended stable
+`ONESHOT_VIOLATION`. The same source without a Return arm reaches that violation
+on JVM VM/ASM.
+
+**Root cause:** generated Swift `handleEffect` directly calls the handler with
+`Return(value)`, while a no-match in the generic Swift evaluator is an immediate
+`fatalError`. JVM `PortableEffects.handle` recognizes only a missing Return arm
+and returns the value; Swift has no equivalent recoverable no-arm signal.
+
+**Fix/verification:** pending. Preserve real handler failures while representing
+the missing-Return case explicitly enough for `handleEffect` to apply the same
+identity fallback; add the identical no-Return fixture to JVM and Swift tests.
+
 ## v21-stage2-gate-ignores-symlinked-std-sources — CONFIRMED / open (2026-07-15, Codex)
 
 **Status:** open. Found while running the mandatory self-hosted fixed-point gate

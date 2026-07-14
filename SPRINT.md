@@ -55,6 +55,11 @@ portable-VM effect-runtime gaps in BUGS.md + as `pending-runtime` conformance ax
 - [ ] **stack-safe effect continuation** (`BUGS.md control-interop-effect-recursion-stack-unsafe`)
       — effect-performing recursion overflows the native stack ~500–2000 depth on both tiers
       (pure TCO fine to 2M). Needs a heap-allocated continuation. Conformance axis 20 stays pending-runtime.
+- [ ] **swift-effect-handler-implicit-return-fallback**
+      (`BUGS.md swift-effect-handler-implicit-return-fallback`) — Swift AOT currently requires an
+      explicit `case Return(value) => value`; without it the first resume terminates at `match: no arm
+      for Return`, while JVM VM/ASM use the specified identity fallback. Represent a missing Return arm
+      without swallowing real handler failures, then run the identical no-Return fixture across Swift/JVM.
 - Cancellation public transitions are underspecified (codex-interop) — no vector contract
       invented; report as a spec gap to the core owner, not a harness axis.
 
