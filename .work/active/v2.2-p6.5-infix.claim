@@ -1,6 +1,0 @@
-slug: v2.2-p6.5-infix
-scope: toward P6.5 — a precedence-climbing parser + parentheses written in the subset (mirrors the spike's
-       own parseExpr), reading source text: tokenize "2 * (1 + 3)" → precedence parse → 8. The hard part
-       of a real parser, in the subset, byte-identical + runs.
-files: uniml/core/src/test/.../spike/**, specs/v2.2-*, SPRINT.md
-branch: feature/v2.2-p6.5-infix
