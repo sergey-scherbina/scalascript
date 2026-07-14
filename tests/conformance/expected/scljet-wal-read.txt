@@ -1,0 +1,2 @@
+page2 from WAL frame: true, differs from base: true
+page1 from base: true

@@ -21,6 +21,7 @@ exports:
 [SqliteErrorCode, SqliteBusy, SqliteIo, SqliteCorrupt, SqliteCannotOpen, SqliteMisuse, SqliteNotADatabase, SqliteTooBig, SqliteUnsupportedCapability, SqliteError, SqliteOpenMode, OpenReadOnly, ReadOnlySalvage, SqliteLimits, SqliteOpenOptions](values.ssc)
 [FileKind, MainDatabaseFile, MainJournalFile, WalFile, OpenFlags, LockNone, LockShared, VfsError, VfsRead, SqliteFile, SqliteVfs](vfs.ssc)
 [DatabaseHeader, DecodeFailure, decodeDatabaseHeader, databasePageOffset](header.ssc)
+[WalIndex, readWal, walPage](wal.ssc)
 
 ```scalascript
 case class ReadonlyPager(
@@ -34,7 +35,8 @@ case class ReadonlyPager(
   lruOldestFirst: List[Long],
   cacheCapacity: Int,
   limits: SqliteLimits,
-  closed: Boolean
+  closed: Boolean,
+  walIndex: Option[WalIndex] = None
 )
 
 case class DatabasePage(pageNumber: Long, bytes: ByteSlice)
@@ -74,27 +76,66 @@ def sidecarNonEmpty(vfs: SqliteVfs, path: String, kind: FileKind): Either[Sqlite
           file.close()
           Right(size > 0L)
 
+// A non-empty rollback journal still means "recover first" (M3); a WAL is now read
+// as an overlay (M5), so it is loaded rather than rejected.
 def validateSidecars(vfs: SqliteVfs, canonical: String): Either[SqliteError, Unit] =
   sidecarNonEmpty(vfs, canonical + "-journal", MainJournalFile) match
     case Left(error) => Left(error)
     case Right(true) => Left(sqliteFailure(SqliteUnsupportedCapability,
       "non-empty rollback journal requires M3 recovery", None, None, None))
-    case Right(false) => sidecarNonEmpty(vfs, canonical + "-wal", WalFile) match
-      case Left(error) => Left(error)
-      case Right(true) => Left(sqliteFailure(SqliteUnsupportedCapability,
-        "non-empty WAL requires an M5 snapshot", None, None, None))
-      case Right(false) => Right(())
+    case Right(false) => Right(())
 
-def finishOpenPager(vfs: SqliteVfs, canonical: String, file: SqliteFile, options: SqliteOpenOptions, fileSize: Long, header: DatabaseHeader): Either[SqliteError, ReadonlyPager] =
+/** Read a whole sidecar file into memory, or None if it is absent/empty/short. */
+def readWholeSidecar(vfs: SqliteVfs, path: String, kind: FileKind): Either[SqliteError, Option[ByteSlice]] =
+  vfs.exists(path) match
+    case Left(error) => Left(pagerVfsError(error, "exists"))
+    case Right(false) => Right(None)
+    case Right(true) => vfs.open(path, kind, OpenFlags(true, false, false, false, false)) match
+      case Left(error) => Left(pagerVfsError(error, "open"))
+      case Right(file) => file.size() match
+        case Left(error) =>
+          file.close()
+          Left(pagerVfsError(error, "size"))
+        case Right(size) =>
+          if size <= 0L || size > 1073741824L then
+            file.close()
+            Right(None)
+          else file.readAt(0L, size.toInt) match
+            case Left(error) =>
+              file.close()
+              Left(pagerVfsError(error, "read"))
+            case Right(VfsRead(bytes, warning)) =>
+              file.close()
+              if warning.isDefined then Right(None) else Right(Some(bytes))
+
+/** Load and validate the `-wal` sidecar as a read overlay. An absent, empty, or
+ *  invalid WAL (bad header/frame checksum) yields None → the base file is read
+ *  directly, exactly as SQLite ignores an unreadable WAL. */
+def loadWal(vfs: SqliteVfs, canonical: String): Either[SqliteError, Option[WalIndex]] =
+  readWholeSidecar(vfs, canonical + "-wal", WalFile) match
+    case Left(error) => Left(error)
+    case Right(None) => Right(None)
+    case Right(Some(bytes)) => readWal(bytes) match
+      case Left(_) => Right(None)
+      case Right(index) => if index.frames.isEmpty then Right(None) else Right(Some(index))
+
+def finishOpenPager(vfs: SqliteVfs, canonical: String, file: SqliteFile, options: SqliteOpenOptions, fileSize: Long, header: DatabaseHeader, walOpt: Option[WalIndex]): Either[SqliteError, ReadonlyPager] =
   val pageSize = header.pageSize.toLong
   val physical = fileSize / pageSize
   val remainder = fileSize % pageSize
-  val logical = if header.headerPageCountTrusted then header.headerPageCount else physical
+  val baseLogical = if header.headerPageCountTrusted then header.headerPageCount else physical
+  // A committed WAL determines the effective database size; its frames may also
+  // extend the database past the base file, so the physical-bound check is skipped
+  // when a WAL is present (WAL-only pages are served from the frame map, not the file).
+  val walSize = walOpt match
+    case Some(index) => index.dbSizePages.toLong
+    case None => 0L
+  val logical = if walSize > 0L then walSize else baseLogical
   val capacity = if options.pageCachePages < options.limits.cachePages then options.pageCachePages else options.limits.cachePages
   if remainder != 0L && options.compatibility != ReadOnlySalvage then
     pagerCloseFailed(file)
     Left(pagerCorrupt("database has a partial trailing page", Some(fileSize - remainder), None))
-  else if physical < 1L || logical < 1L || logical > physical then
+  else if physical < 1L || logical < 1L || (walOpt.isEmpty && logical > physical) then
     pagerCloseFailed(file)
     Left(pagerCorrupt("logical database page count is inconsistent with file size", Some(28L), None))
   else if logical > 4294967294L || logical > options.limits.pageCount then
@@ -104,9 +145,9 @@ def finishOpenPager(vfs: SqliteVfs, canonical: String, file: SqliteFile, options
     pagerCloseFailed(file)
     Left(sqliteFailure(SqliteMisuse, "page cache capacity must be positive", None, None, None))
   else Right(ReadonlyPager(vfs.name, canonical, file, header, physical, logical,
-    Map(), Nil, capacity, options.limits, false))
+    Map(), Nil, capacity, options.limits, false, walOpt))
 
-def readOpenHeader(vfs: SqliteVfs, canonical: String, file: SqliteFile, options: SqliteOpenOptions): Either[SqliteError, ReadonlyPager] =
+def readOpenHeader(vfs: SqliteVfs, canonical: String, file: SqliteFile, options: SqliteOpenOptions, walOpt: Option[WalIndex]): Either[SqliteError, ReadonlyPager] =
   file.size() match
     case Left(error) =>
       pagerCloseFailed(file)
@@ -127,7 +168,7 @@ def readOpenHeader(vfs: SqliteVfs, canonical: String, file: SqliteFile, options:
             case Left(error) =>
               pagerCloseFailed(file)
               Left(pagerDecodeError(error))
-            case Right(header) => finishOpenPager(vfs, canonical, file, options, size, header)
+            case Right(header) => finishOpenPager(vfs, canonical, file, options, size, header, walOpt)
 
 def openLockedPager(vfs: SqliteVfs, canonical: String, file: SqliteFile, options: SqliteOpenOptions): Either[SqliteError, ReadonlyPager] =
   file.lock(LockShared) match
@@ -138,7 +179,11 @@ def openLockedPager(vfs: SqliteVfs, canonical: String, file: SqliteFile, options
       case Left(error) =>
         pagerCloseFailed(file)
         Left(error)
-      case Right(_) => readOpenHeader(vfs, canonical, file, options)
+      case Right(_) => loadWal(vfs, canonical) match
+        case Left(error) =>
+          pagerCloseFailed(file)
+          Left(error)
+        case Right(walOpt) => readOpenHeader(vfs, canonical, file, options, walOpt)
 
 def openReadonlyPager(vfs: SqliteVfs, path: String, options: SqliteOpenOptions): Either[SqliteError, ReadonlyPager] =
   if options.mode != OpenReadOnly then
@@ -183,17 +228,29 @@ def pagerReadMiss(pager: ReadonlyPager, pageNumber: Long): Either[SqliteError, P
           val next = pagerTouch(pager, pageNumber, bytes)
           Right(PagerPageRead(next, DatabasePage(pageNumber, bytes)))
 
+// The latest committed WAL image of a page, if the overlay has one.
+def pagerWalPage(pager: ReadonlyPager, pageNumber: Long): Option[ByteSlice] = pager.walIndex match
+  case None => None
+  case Some(index) => walPage(index, pageNumber.toInt)
+
 def pagerReadPage(pager: ReadonlyPager, pageNumber: Long): Either[SqliteError, PagerPageRead] =
   if pager.closed then Left(sqliteFailure(SqliteMisuse, "pager is closed", None, Some(pageNumber), None))
   else if pageNumber < 1L || pageNumber > pager.logicalPageCount then
     Left(sqliteFailure(SqliteCorrupt, "page number is outside the logical database", None, Some(pageNumber), None))
   else if pageNumber == 1073741824L / pager.header.pageSize.toLong + 1L then
     Left(sqliteFailure(SqliteCorrupt, "lock-byte page cannot be read as database content", None, Some(pageNumber), None))
-  else pager.cache.get(pageNumber) match
-    case Some(bytes) =>
-      val next = pagerTouch(pager, pageNumber, bytes)
-      Right(PagerPageRead(next, DatabasePage(pageNumber, bytes)))
-    case None => pagerReadMiss(pager, pageNumber)
+  else pagerWalPage(pager, pageNumber) match
+    // A WAL frame overrides the base file for this page (and is the only source for
+    // pages the WAL added past the base file). Served without disturbing the cache.
+    case Some(walBytes) =>
+      if walBytes.length != pager.header.pageSize then
+        Left(pagerCorrupt("WAL frame page size disagrees with the database header", None, Some(pageNumber)))
+      else Right(PagerPageRead(pager, DatabasePage(pageNumber, walBytes)))
+    case None => pager.cache.get(pageNumber) match
+      case Some(bytes) =>
+        val next = pagerTouch(pager, pageNumber, bytes)
+        Right(PagerPageRead(next, DatabasePage(pageNumber, bytes)))
+      case None => pagerReadMiss(pager, pageNumber)
 
 def closeReadonlyPager(pager: ReadonlyPager): Either[SqliteError, Unit] =
   pager.file.unlock(LockNone) match

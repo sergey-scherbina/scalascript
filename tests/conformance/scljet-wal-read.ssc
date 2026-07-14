@@ -1,0 +1,91 @@
+---
+name: scljet-wal-read
+description: SclJet reader serves WAL'd pages — the pager overlays a -wal sidecar so a read returns the framed page, not the base
+backends: [int, js]
+---
+
+# SclJet WAL overlay read
+
+Open a read-only pager over a base database plus a `-wal` sidecar (served from a
+two-file in-memory VFS). Page 2 was overwritten by a committed WAL frame, so the
+pager returns the framed page; page 1 has no frame and reads from the base. Reference
+SQLite reads the same two files identically (verified out-of-band).
+
+[ByteSlice, byteSliceToList, byteSliceSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase, JournalPage, writeWal, markWalMode, openReadonlyPager, pagerReadPage, closeReadonlyPager, ReadonlyPager, PagerPageRead, DatabasePage, SqliteOpenOptions, SqliteLimits, OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, SqliteVfs, SqliteFile, VfsError, VfsRead, VfsWrite, FileKind, MainDatabaseFile, OpenFlags, LockLevel, SyncFlags, DeviceCharacteristic, ShmLockMode, SharedRegion](std/scljet/index.ssc)
+
+```scalascript
+case class OverlayFile(bytes: ByteSlice) extends SqliteFile:
+  def readAt(offset: Long, length: Int): Either[VfsError, VfsRead] =
+    byteSliceSlice(bytes, offset.toInt, length) match
+      case Right(value) => Right(VfsRead(value, None))
+      case Left(_) => Left(VfsError("io", "read outside image", false))
+  def writeAt(offset: Long, value: ByteSlice): Either[VfsError, VfsWrite] = Left(VfsError("readonly", "read-only", false))
+  def truncate(size: Long): Either[VfsError, Unit] = Left(VfsError("readonly", "read-only", false))
+  def sync(flags: SyncFlags): Either[VfsError, Unit] = Right(())
+  def size(): Either[VfsError, Long] = Right(bytes.length.toLong)
+  def lock(level: LockLevel): Either[VfsError, Unit] = Right(())
+  def unlock(level: LockLevel): Either[VfsError, Unit] = Right(())
+  def checkReservedLock(): Either[VfsError, Boolean] = Right(false)
+  def sectorSize: Int = 512
+  def deviceCharacteristics: List[DeviceCharacteristic] = Nil
+  def shmMap(region: Int, size: Int, extend: Boolean): Either[VfsError, SharedRegion] = Left(VfsError("unsupported", "no shm", false))
+  def shmLock(offset: Int, count: Int, mode: ShmLockMode): Either[VfsError, Unit] = Left(VfsError("unsupported", "no shm", false))
+  def shmBarrier(): Unit = ()
+  def shmUnmap(delete: Boolean): Either[VfsError, Unit] = Right(())
+  def close(): Either[VfsError, Unit] = Right(())
+
+case class OverlayVfs(db: ByteSlice, wal: ByteSlice) extends SqliteVfs:
+  def name: String = "walimage"
+  def open(path: String, kind: FileKind, flags: OpenFlags): Either[VfsError, SqliteFile] =
+    if path == "/db.sqlite" then Right(OverlayFile(db))
+    else if path == "/db.sqlite-wal" then Right(OverlayFile(wal))
+    else Left(VfsError("notfound", "no such file: " + path, false))
+  def delete(path: String, syncDirectory: Boolean): Either[VfsError, Unit] = Left(VfsError("readonly", "read-only", false))
+  def exists(path: String): Either[VfsError, Boolean] = Right(path == "/db.sqlite" || path == "/db.sqlite-wal")
+  def fullPath(path: String): Either[VfsError, String] = Right("/db.sqlite")
+  def randomness(length: Int): Either[VfsError, ByteSlice] = Right(ByteSlice.empty)
+  def sleep(millis: Long): Unit = ()
+  def currentTimeMillis(): Long = 0L
+
+def readOptions(): SqliteOpenOptions = SqliteOpenOptions(OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, 0L, 16, false,
+  SqliteLimits(1000000L, 100, 100, 100, 100, 10, 1000000L, 100, 100, 1000L, 1000000L, 2, 1000L, 100, 1000000L))
+
+def same(a: ByteSlice, b: ByteSlice): Boolean =
+  byteSliceToList(a).toString == byteSliceToList(b).toString
+
+def readPage(pager: ReadonlyPager, n: Long): Either[String, ByteSlice] =
+  pagerReadPage(pager, n) match
+    case Left(error) => Left(error.message)
+    case Right(read) => Right(read.page.bytes)
+
+buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(id INTEGER, v TEXT)",
+  List(List(SqlInteger(1L), SqlText("aaa")))) match
+  case Left(error) => println("base-error:" + error.message)
+  case Right(baseRaw) =>
+    buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(id INTEGER, v TEXT)",
+      List(List(SqlInteger(1L), SqlText("bbb")))) match
+      case Left(error) => println("new-error:" + error.message)
+      case Right(dbNew) => byteSliceSlice(dbNew, 512, 512) match
+        case Left(error) => println("slice-error:" + error.message)
+        case Right(pB) => markWalMode(baseRaw) match
+          case Left(error) => println("mark-error:" + error.message)
+          case Right(base) => writeWal(512, 111L, 222L, 0L, 2, List(JournalPage(2, pB))) match
+            case Left(error) => println("wal-error:" + error.message)
+            case Right(wal) => byteSliceSlice(base, 0, 512) match
+              case Left(error) => println("bp1-error:" + error.message)
+              case Right(basePage1) => byteSliceSlice(base, 512, 512) match
+                case Left(error) => println("bp2-error:" + error.message)
+                case Right(basePage2) =>
+                  openReadonlyPager(OverlayVfs(base, wal.bytes), "/db.sqlite", readOptions()) match
+                    case Left(error) => println("open-error:" + error.message)
+                    case Right(pager) =>
+                      readPage(pager, 2L) match
+                        case Left(m) => println("read2-error:" + m)
+                        case Right(page2) => readPage(pager, 1L) match
+                          case Left(m) => println("read1-error:" + m)
+                          case Right(page1) =>
+                            println("page2 from WAL frame: " + same(page2, pB).toString + ", differs from base: " + (same(page2, basePage2) == false).toString)
+                            println("page1 from base: " + same(page1, basePage1).toString)
+                      closeReadonlyPager(pager)
+                      ()
+```

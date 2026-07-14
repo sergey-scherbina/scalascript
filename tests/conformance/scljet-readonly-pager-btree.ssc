@@ -140,11 +140,11 @@ val page2 = pagerReadPage(page1, 2L).toOption.get.pager
 println(page2.cache.keys.toList.sorted.toString + ":" + page2.lruOldestFirst.toString)
 println(closeReadonlyPager(page2).isRight)
 
-val hotWalVfs = FixtureVfs(databaseBytes, ByteSlice.empty, mustBytes(List(1)))
-def sidecarLine(result: Either[SqliteError, ReadonlyDatabase]): String = result match
-  case Left(error) => (error.code == SqliteUnsupportedCapability).toString
-  case Right(_) => "false"
-println(sidecarLine(openReadonly(hotWalVfs, "fixture.db", options(2))))
+// A `-wal` shorter than its 32-byte header carries no frames and is ignored, so the
+// base database opens normally. WAL reading is now implemented — a valid WAL overlay
+// is exercised end-to-end in scljet-wal-read.
+val shortWalVfs = FixtureVfs(databaseBytes, ByteSlice.empty, mustBytes(List(1)))
+println(openReadonly(shortWalVfs, "fixture.db", options(2)).isRight)
 
 val wrongMode = options(2).copy(mode = OpenReadWrite)
 println(openReadonly(cleanVfs, "fixture.db", wrongMode).isLeft)
