@@ -607,12 +607,55 @@ final class ScalaSpikeSpec extends AnyFunSuite:
          |def fst(p: Int): Int = p match { case (a, b) => a }
          |def compile(src: String): Int = eval(fst(parse(tokenize(src, 0, src.length))))
          |def main(): Int = compile("+ 1 * 2 3")""".stripMargin
+    // The hardest part of a real parser, in the subset: a PRECEDENCE-CLIMBING infix parser with
+    // PARENTHESES — the same algorithm as the spike's own parseExpr (climb while the next operator binds
+    // tighter than minPrec). Tokenises "2 * (1 + 3)" (with `(`=-3, `)`=-4), parses respecting `*` over `+`
+    // and grouping, evaluates.  2 * (1 + 3)  →  2 * 4  →  8.  (Uses block-bodied match arms, just fixed.)
+    val selfhostInfix =
+      """|def isDigit(c: Int): Int = if c >= 48 then (if c <= 57 then 1 else 0) else 0
+         |def scanNum(s: String, i: Int, n: Int, acc: Int): Int =
+         |  if i >= n then (acc, i)
+         |  else
+         |    val c = s.charAt(i)
+         |    if isDigit(c) == 1 then scanNum(s, i + 1, n, acc * 10 + (c - 48))
+         |    else (acc, i)
+         |def tokenize(s: String, i: Int, n: Int): List[Int] =
+         |  if i >= n then Nil
+         |  else
+         |    val c = s.charAt(i)
+         |    if c == 43 then Cons(-1, tokenize(s, i + 1, n))
+         |    else if c == 42 then Cons(-2, tokenize(s, i + 1, n))
+         |    else if c == 40 then Cons(-3, tokenize(s, i + 1, n))
+         |    else if c == 41 then Cons(-4, tokenize(s, i + 1, n))
+         |    else if c == 32 then tokenize(s, i + 1, n)
+         |    else if isDigit(c) == 1 then scanNum(s, i, n, 0) match { case (v, j) => Cons(v, tokenize(s, j, n)) }
+         |    else tokenize(s, i + 1, n)
+         |def prec(op: Int): Int = if op == -1 then 1 else if op == -2 then 2 else 0
+         |def drop1(ts: List[Int]): List[Int] = ts match { case Cons(t, rest) => rest case Nil => Nil }
+         |def parseAtom(ts: List[Int]): Int = ts match {
+         |  case Cons(t, rest) => if t == -3 then parseExpr(rest, 0) match { case (v, r2) => (v, drop1(r2)) } else (t, rest)
+         |  case Nil => (0, Nil)
+         |}
+         |def climb(left: Int, ts: List[Int], minPrec: Int): Int = ts match {
+         |  case Cons(op, rest) =>
+         |    val p = prec(op)
+         |    if p >= minPrec then
+         |      if p > 0 then parseExpr(rest, p + 1) match { case (right, r2) => climb(if op == -1 then left + right else left * right, r2, minPrec) }
+         |      else (left, ts)
+         |    else (left, ts)
+         |  case Nil => (left, ts)
+         |}
+         |def parseExpr(ts: List[Int], minPrec: Int): Int = parseAtom(ts) match { case (left, rest) => climb(left, rest, minPrec) }
+         |def fst(p: Int): Int = p match { case (a, b) => a }
+         |def compile(src: String): Int = fst(parseExpr(tokenize(src, 0, src.length), 0))
+         |def main(): Int = compile("2 * (1 + 3)")""".stripMargin
     // well-formed — the harness requires byte-identical Core IR vs ssc1-front.
     val wellFormed = Seq(
       "selfhost-arith"    -> selfhostArith,
       "selfhost-eval"     -> selfhostEval,
       "selfhost-closures" -> selfhostClosures,
       "selfhost-full"     -> selfhostFull,
+      "selfhost-infix"    -> selfhostInfix,
       "scale-prog"   -> scaleProg,
       "scale-decls"  -> scaleDecls,
       "scale-nested" -> scaleNested,
