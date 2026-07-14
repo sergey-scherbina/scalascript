@@ -837,6 +837,12 @@ async function _runActors(bodyFn) {
   }
   function _installClusterRoutes() {
     if (_clusterRoutesInstalled) return;
+    // The cluster status/drain/events/metrics endpoints live in the HTTP-server
+    // runtime (`_routes`/`_parsePath`, http-server.mjs, HtmlDsl capability). An
+    // actors-only bundle (startNode without `serve`) omits that module, so these
+    // routes can never be served — installing them would throw on the undefined
+    // `_routes`. No-op when the server runtime is absent. (js-cluster-routes-no-server.)
+    if (typeof _routes === 'undefined') { _clusterRoutesInstalled = true; return; }
     _clusterRoutesInstalled = true;
     _registerClusterStatusRoute();
     _registerClusterDrainRoute();
