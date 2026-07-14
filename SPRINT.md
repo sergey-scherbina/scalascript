@@ -1845,6 +1845,13 @@ ORDER BY / LIMIT / OFFSET, aggregates (COUNT/SUM/MIN/MAX/AVG/TOTAL), GROUP BY + 
 and inner + LEFT joins — every feature byte-verified against reference sqlite3, int==js.
 Remaining follow-ups (niche): multi-table (3+) joins, page-1 schema split, repeating-decimal %.15g.
 
+- [x] **scljet-m6i-modulo** — DONE 2026-07-14. `%` modulo operator (multiplicative precedence, with
+      `* /`). Lexer emits a `%` op token; `parseExprMul` handles it; `arithValue` computes integer
+      modulo (operands → Long via `toLongVal` — exact for integers, truncating for reals, matching
+      sqlite; NULL on a zero divisor) via BigInt-safe `longMod` (`0L`-seeded → `_arith('%',…)`,
+      truncates toward zero). Works in projection and WHERE. Verified vs sqlite3 (`n%3`, `n%3+1`,
+      `20%n`, `WHERE n%2=0`), int==js; conformance `scljet-sql-modulo`.
+
 - [x] **scljet-m6h-orderby-expr** — DONE 2026-07-14. `ORDER BY <expression>` — an ORDER BY key may be
       any scalar expression, not just a column: `ORDER BY salary * -1`, `ORDER BY UPPER(name)`,
       `ORDER BY LENGTH(name), name`, `ORDER BY salary * 2 DESC LIMIT 3`. `OrderKey.column: String` →
