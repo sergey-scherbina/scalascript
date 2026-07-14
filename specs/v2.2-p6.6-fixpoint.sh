@@ -76,6 +76,7 @@ t wildcard  99      'def f(xs) = xs match { case Cons(h, t) => h case _ => 99 } 
 t wildonly  5       'def f(x) = x match { case _ => 5 } def main() = f(3)'
 t litpat    20      'def f(n) = n match { case 0 => 10 case 1 => 20 case _ => 99 } def main() = f(1)'
 t litdef    99      'def f(n) = n match { case 0 => 10 case 1 => 20 case _ => 99 } def main() = f(7)'
+t consinfix 6       'def sum(xs) = xs match { case Nil => 0 case h :: t => h + sum(t) } def main() = sum(1 :: 2 :: 3 :: Nil)'
 
 echo "--- self-compilation fixpoint ---"
 # stage1 = C0(C_min): C_min compiles its own source.

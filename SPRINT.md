@@ -1076,6 +1076,17 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
           holds (`stage1 == stage2`, 27586 B; C1 compiles fac(6)→720 AND an int-literal program→1), and
           `spike(cmin.L) ≡ ssc1-front(cmin.L)` byte-identical (52138 B). Fixpoint script gained
           `litpat`/`litdef` L-tests.
+    - [x] **P6.16 — C_min language extension: `::` cons-infix ✓ DONE 2026-07-14.** L gained `::` in EXPRESSIONS
+          (`a :: b` → `(ctor Cons a b)`, RIGHT-associative — `1 :: 2 :: Nil` = `Cons(1, Cons(2, Nil))`) and in
+          simple PATTERNS (`case h :: t => …` → the same `(arm Cons 2 …)` as `case Cons(h, t)`). Lexer gained
+          `lexColon` (`:` + `:` → code 46); `binPrec` renumbered to Scala order (`||`1 `&&`2 cmp 3 `::`4 `+ -
+          ++`5 `*`6); `climbStep` uses `rightMin` (right-assoc parses the RHS at prec `p`, not `p+1`); `emitBin`
+          46 → `(ctor Cons …)`; `parseArm` gained `isConsInfix`/`parseArmConsInfix`. **C_min self-uses it**:
+          `hd`/`tl`/`dlen` now pattern-match `case h :: t`, and env building uses `tv :: hv :: env` /
+          `bv :: av :: env` instead of nested `Cons(…)`. C_min now 84 defs; the fixpoint STILL holds
+          (`stage1 == stage2`, 29293 B; C1 compiles a `::` program→60), and `spike(cmin.L) ≡ ssc1-front(cmin.L)`
+          byte-identical (54779 B). Scope: only simple `h :: t` patterns (nested `a :: b :: t` would need
+          nested destructuring — not used by C_min). Fixpoint script gained a `consinfix` L-test.
 
 ---
 
