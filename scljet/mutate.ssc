@@ -13,6 +13,8 @@ exports:
   - readAllTables
   - deleteRowidsInTable
   - updateRowInTable
+  - deleteRowidsIndexed
+  - updateRowIndexed
 ---
 
 # SclJet mutate — read-modify-rewrite
@@ -31,7 +33,7 @@ The table is assumed to be the single table rooted at page 2 — the shape SclJe
 writers produce.
 
 ```scalascript
-[KeyedRawRow, buildFromRawSchema, encodeRecord, SqliteValue, SqlInteger, RawTable, buildMultiTableRaw, DecodedRecord, RecordField, ByteSlice, byteSliceToList, encodeVarint, ByteError, SqliteError, SqliteOpenOptions, SqliteLimits, OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, SqliteVfs, SqliteFile, VfsError, VfsRead, VfsWrite, FileKind, MainDatabaseFile, MainJournalFile, WalFile, OpenFlags, LockLevel, SyncFlags, DeviceCharacteristic, ShmLockMode, SharedRegion, byteSliceSlice, RowidTableTree, StorageRecord, ReadonlyDatabase, ReadonlyBtreeCursor, ReadonlyCursorStep, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly](index.ssc)
+[KeyedRawRow, buildFromRawSchema, encodeRecord, SqliteValue, SqlInteger, SqlNull, RawTable, buildMultiTableRaw, IndexEntry, buildTableWithIndexRaw, DecodedRecord, RecordField, ByteSlice, byteSliceToList, encodeVarint, ByteError, SqliteError, SqliteOpenOptions, SqliteLimits, OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, SqliteVfs, SqliteFile, VfsError, VfsRead, VfsWrite, FileKind, MainDatabaseFile, MainJournalFile, WalFile, OpenFlags, LockLevel, SyncFlags, DeviceCharacteristic, ShmLockMode, SharedRegion, byteSliceSlice, RowidTableTree, StorageRecord, ReadonlyDatabase, ReadonlyBtreeCursor, ReadonlyCursorStep, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly](index.ssc)
 
 // ── Read-only VFS over a single in-memory database image ──
 
@@ -433,4 +435,153 @@ def updateRowInTable(dbBytes: ByteSlice, changeCounter: Int, schemaCookie: Int, 
               buildMultiTableRaw(pageSize, changeCounter, schemaCookie, mapTableRows(tables, tableIndex, rows => replaceRecord(rows, rowid, newRecord))) match
                 case Left(byteError) => Left(byteError.message)
                 case Right(bytes) => Right(bytes)
+
+// ── Index-maintaining mutate (table + index kept consistent) ──
+//
+// For a database of one table plus one index on it, delete/update rebuild BOTH:
+// the table from the surviving rows and the index from those same rows, so the
+// index never goes stale. The caller supplies the index key columns (integer
+// columns; text keys are a follow-up via raw key fields). Schema records for the
+// table and index are preserved verbatim, only their rootpages re-encoded.
+
+case class TableAndIndex(tableRows: List[KeyedRawRow], indexEntries: List[IndexEntry])
+
+/** Every row of a rowid tree as a StorageRecord (rowid + decoded record). */
+def readStorageRecords(database: ReadonlyDatabase, cursor: ReadonlyBtreeCursor): Either[SqliteError, List[StorageRecord]] =
+  readonlyFirst(database, cursor) match
+    case Left(error) => Left(error)
+    case Right(firstStep) =>
+      var rsDatabase = firstStep.database
+      var rsCursor = firstStep.cursor
+      var rsRow = firstStep.row
+      var rsAcc: List[StorageRecord] = Nil
+      var rsError: Option[SqliteError] = None
+      var rsDone = false
+      while !rsDone && rsError.isEmpty do
+        rsRow match
+          case None => rsDone = true
+          case Some(record) =>
+            rsAcc = record :: rsAcc
+            readonlyNext(rsDatabase, rsCursor) match
+              case Left(error) => rsError = Some(error)
+              case Right(step) =>
+                rsDatabase = step.database
+                rsCursor = step.cursor
+                rsRow = step.row
+      rsError match
+        case Some(error) => Left(error)
+        case None => Right(rsAcc.reverse)
+
+/** The value of column `col` in a decoded record (`SqlNull` if absent or a text
+ *  field, which is out of scope for integer index keys). */
+def fieldValueAt(record: DecodedRecord, col: Int): SqliteValue =
+  fieldAt(record.fields, col) match
+    case Some(field) => field.value.getOrElse(SqlNull)
+    case None => SqlNull
+
+def indexKeyValues(record: DecodedRecord, keyColumns: List[Int]): List[SqliteValue] =
+  var ikvRemaining = keyColumns
+  var ikvAcc: List[SqliteValue] = Nil
+  while ikvRemaining.nonEmpty do
+    ikvAcc = fieldValueAt(record, ikvRemaining.head) :: ikvAcc
+    ikvRemaining = ikvRemaining.tail
+  ikvAcc.reverse
+
+def indexEntryFor(record: DecodedRecord, rowid: Long, keyColumns: List[Int]): Either[String, IndexEntry] =
+  val keyVals = indexKeyValues(record, keyColumns)
+  encodeRecord(keyVals ++ List(SqlInteger(rowid))) match
+    case Left(byteError) => Left(byteError.message)
+    case Right(indexRecord) => Right(IndexEntry(keyVals, rowid, byteSliceToList(indexRecord)))
+
+def storageRowid(record: StorageRecord): Long = record.rowid match
+  case Some(value) => value
+  case None => 0L
+
+def valueAt(values: List[SqliteValue], index: Int): SqliteValue =
+  if index <= 0 then values match
+    case Cons(head, _) => head
+    case Nil => SqlNull
+  else values match
+    case Cons(_, tail) => valueAt(tail, index - 1)
+    case Nil => SqlNull
+
+def keyValuesFrom(values: List[SqliteValue], keyColumns: List[Int]): List[SqliteValue] =
+  var kvfRemaining = keyColumns
+  var kvfAcc: List[SqliteValue] = Nil
+  while kvfRemaining.nonEmpty do
+    kvfAcc = valueAt(values, kvfRemaining.head) :: kvfAcc
+    kvfRemaining = kvfRemaining.tail
+  kvfAcc.reverse
+
+/** Build the surviving table rows + fresh index entries: keep rows whose rowid is
+ *  NOT in `drop`; for `editRowid` (`< 0` = none) use `editRecord` as the table row
+ *  and `editKeyValues` as its index key. */
+def buildTableAndIndex(records: List[StorageRecord], drop: List[Long], keyColumns: List[Int], editRowid: Long, editRecord: List[Int], editKeyValues: List[SqliteValue]): Either[String, TableAndIndex] =
+  var btiRemaining = records
+  var btiTableRev: List[KeyedRawRow] = Nil
+  var btiIndexRev: List[IndexEntry] = Nil
+  var btiError: Option[String] = None
+  while btiRemaining.nonEmpty && btiError.isEmpty do
+    val btiRec = btiRemaining.head
+    val btiRowid = storageRowid(btiRec)
+    if rowidMember(btiRowid, drop) then
+      btiRemaining = btiRemaining.tail
+    else if btiRowid == editRowid then
+      encodeRecord(editKeyValues ++ List(SqlInteger(btiRowid))) match
+        case Left(byteError) => btiError = Some(byteError.message)
+        case Right(indexRecord) =>
+          btiTableRev = KeyedRawRow(btiRowid, editRecord) :: btiTableRev
+          btiIndexRev = IndexEntry(editKeyValues, btiRowid, byteSliceToList(indexRecord)) :: btiIndexRev
+          btiRemaining = btiRemaining.tail
+    else
+      indexEntryFor(btiRec.record, btiRowid, keyColumns) match
+        case Left(message) => btiError = Some(message)
+        case Right(entry) =>
+          btiTableRev = KeyedRawRow(btiRowid, reconstructRecordBytes(btiRec.record)) :: btiTableRev
+          btiIndexRev = entry :: btiIndexRev
+          btiRemaining = btiRemaining.tail
+  btiError match
+    case Some(message) => Left(message)
+    case None => Right(TableAndIndex(btiTableRev.reverse, btiIndexRev.reverse))
+
+def secondRecord(records: List[DecodedRecord]): DecodedRecord = records match
+  case Cons(_, Cons(second, _)) => second
+  case _ => records.head
+
+/** Read a table+index database's schema records + table rows, apply the edit, and
+ *  rebuild both trees. `keyColumns` are the index's key columns. */
+def rebuildIndexed(dbBytes: ByteSlice, changeCounter: Int, schemaCookie: Int, keyColumns: List[Int], drop: List[Long], editRowid: Long, editRecord: List[Int], editKeyValues: List[SqliteValue]): Either[String, ByteSlice] =
+  openReadonly(ImageVfs(dbBytes), "image.db", mutateOptions()) match
+    case Left(error) => Left(error.message)
+    case Right(database) =>
+      val pageSize = database.pager.header.pageSize
+      openReadonlyRoot(database, 1L, RowidTableTree) match
+        case Left(error) => Left(error.message)
+        case Right(schemaCursor) =>
+          readDecodedRecords(database, schemaCursor) match
+            case Left(error) => Left(error.message)
+            case Right(schemaRecords) =>
+              openReadonlyRoot(database, rootpageOf(schemaRecords.head), RowidTableTree) match
+                case Left(error) => Left(error.message)
+                case Right(tableCursor) =>
+                  readStorageRecords(database, tableCursor) match
+                    case Left(error) => Left(error.message)
+                    case Right(storageRecords) =>
+                      buildTableAndIndex(storageRecords, drop, keyColumns, editRowid, editRecord, editKeyValues) match
+                        case Left(message) => Left(message)
+                        case Right(built) =>
+                          buildTableWithIndexRaw(pageSize, changeCounter, schemaCookie, schemaRecords.head, secondRecord(schemaRecords), built.tableRows, built.indexEntries) match
+                            case Left(byteError) => Left(byteError.message)
+                            case Right(bytes) => Right(bytes)
+
+/** Delete rows from a one-table-one-index database, keeping the index consistent. */
+def deleteRowidsIndexed(dbBytes: ByteSlice, changeCounter: Int, schemaCookie: Int, keyColumns: List[Int], rowids: List[Long]): Either[String, ByteSlice] =
+  rebuildIndexed(dbBytes, changeCounter, schemaCookie, keyColumns, rowids, -1L, Nil, Nil)
+
+/** Update one row (by rowid) in a one-table-one-index database to `newValues`,
+ *  keeping the index consistent (the index entry uses the NEW key). */
+def updateRowIndexed(dbBytes: ByteSlice, changeCounter: Int, schemaCookie: Int, keyColumns: List[Int], rowid: Long, newValues: List[SqliteValue]): Either[String, ByteSlice] =
+  encodeRecord(newValues) match
+    case Left(byteError) => Left(byteError.message)
+    case Right(recordSlice) => rebuildIndexed(dbBytes, changeCounter, schemaCookie, keyColumns, Nil, rowid, byteSliceToList(recordSlice), keyValuesFrom(newValues, keyColumns))
 ```

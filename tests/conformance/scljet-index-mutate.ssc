@@ -1,0 +1,31 @@
+---
+name: scljet-index-mutate
+description: SclJet index-maintaining delete — deleting a table row also updates its index, so integrity_check still passes (cross-backend)
+backends: [int, js]
+---
+
+# SclJet index-maintaining mutate
+
+[ByteSlice, byteSliceToList, SqliteValue, SqlInteger, SqlText, buildTableWithIndexDatabase](std/scljet/index.ssc)
+[deleteRowidsIndexed](std/scljet/mutate.ssc)
+
+```scalascript
+// Build a table with an index on `n`, then delete rowid 3 (n=20). The table AND the
+// index are rebuilt from the surviving rows, so reference integrity_check (which
+// cross-checks the index against the table) still passes and the index no longer
+// references the deleted row. int and JS agree.
+val rows = List(
+  List(SqlInteger(30L), SqlText("thirty")),
+  List(SqlInteger(10L), SqlText("ten")),
+  List(SqlInteger(20L), SqlText("twenty")),
+  List(SqlInteger(5L), SqlText("five")),
+  List(SqlInteger(25L), SqlText("twentyfive")))
+
+buildTableWithIndexDatabase(512, 1, 1, "t", "CREATE TABLE t(n INTEGER, v TEXT)",
+  "idx", "CREATE INDEX idx ON t(n)", List(0), rows) match
+  case Right(db) =>
+    deleteRowidsIndexed(db, 2, 1, List(0), List(3L)) match
+      case Right(newDb) => println((newDb.length / 512).toString + ":" + byteSliceToList(newDb).toString)
+      case Left(message) => println("MUTATE-ERROR:" + message)
+  case Left(error) => println("BUILD-ERROR:" + error.message)
+```

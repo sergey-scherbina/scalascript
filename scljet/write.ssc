@@ -22,6 +22,8 @@ exports:
   - RawTable
   - buildMultiTableRaw
   - buildTableWithIndexDatabase
+  - IndexEntry
+  - buildTableWithIndexRaw
 ---
 
 # SclJet M3 write path
@@ -1499,4 +1501,32 @@ def buildTableWithIndexDatabase(pageSize: Int, changeCounter: Int, schemaCookie:
                               val pageCount = 1 + tablePages + indexTree.pageCount
                               val page1 = tableFileHeader(pageSize, pageCount, changeCounter, schemaCookie) ++ page1Body
                               ByteSlice.fromList(page1 ++ tableTree ++ indexTree.bytes)
+
+/** Rebuild a table + index database from raw table rows and freshly-built index
+ *  entries, preserving the two raw `sqlite_schema` records (table + index) and
+ *  reassigning their root pages. This is what index-maintaining delete/update
+ *  produces — the index is regenerated from the surviving rows so it never goes
+ *  stale. Byte-verified against reference `integrity_check`. */
+def buildTableWithIndexRaw(pageSize: Int, changeCounter: Int, schemaCookie: Int,
+    tableSchema: DecodedRecord, indexSchema: DecodedRecord,
+    tableRows: List[KeyedRawRow], indexEntries: List[IndexEntry]): Either[ByteError, ByteSlice] =
+  val tableLeaves = packLeaves(rawRowCells(tableRows), pageSize)
+  val tablePages = treePageCount(tableLeaves, pageSize)
+  val indexRoot = 2 + tablePages
+  val tableSchemaBytes = patchSchemaRootpage(tableSchema, 2L)
+  val indexSchemaBytes = patchSchemaRootpage(indexSchema, indexRoot.toLong)
+  val schemaCell1 = byteSliceToList(encodeVarint(tableSchemaBytes.length.toLong)) ++ byteSliceToList(encodeVarint(1L)) ++ tableSchemaBytes
+  val schemaCell2 = byteSliceToList(encodeVarint(indexSchemaBytes.length.toLong)) ++ byteSliceToList(encodeVarint(2L)) ++ indexSchemaBytes
+  buildTableLeafPage(pageSize, 100, List(schemaCell1, schemaCell2)) match
+    case Left(error) => Left(error)
+    case Right(page1Body) =>
+      buildTableTreeAt(tableLeaves, pageSize, 2) match
+        case Left(error) => Left(error)
+        case Right(tableTree) =>
+          buildIndexTree(sortIndexEntries(indexEntries), pageSize, indexRoot) match
+            case Left(error) => Left(error)
+            case Right(indexTree) =>
+              val pageCount = 1 + tablePages + indexTree.pageCount
+              val page1 = tableFileHeader(pageSize, pageCount, changeCounter, schemaCookie) ++ page1Body
+              ByteSlice.fromList(page1 ++ tableTree ++ indexTree.bytes)
 ```
