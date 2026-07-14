@@ -2029,7 +2029,13 @@ def parseCaseParamList = (toks) =>
         let r = parseCaseParam(ts) in
         let acc2 = Cons(prV(r), acc) in
         let ts2 = prT(r) in
-        if kindIs(",", ts2) then goParams(advance(ts2), acc2)
+        if kindIs(",", ts2) then
+          -- A trailing comma before `)` (common in multi-line param lists) must NOT
+          -- start another param: parseCaseParam on `)` would fall to its `_`/`Any`
+          -- fallback and inject a phantom 5th field (→ ctor arity off-by-one).
+          let tsAfterComma = advance(ts2) in
+          if kindIs(")", tsAfterComma) then pr(reverse(acc2), tsAfterComma)
+          else goParams(tsAfterComma, acc2)
         else pr(reverse(acc2), ts2) in
       let r = goParams(toks2, Nil) in
       pr(prV(r), skipKind(")", prT(r)))
@@ -2712,9 +2718,17 @@ def isCont = (ts) =>
       match t { case Pair(k, v) =>
         if #seq(k, "kw") then
           (if #seq(v, "else") then true else if #seq(v, "match") then true
-           else if #seq(v, "yield") then true else false)
+           else if #seq(v, "yield") then true
+           -- A class/object/trait header may wrap before its `extends`/`with`
+           -- clause (`case class X(…)` NL `extends T[…]:`). Treat a line that
+           -- STARTS with `extends`/`with` as a continuation of the declaration,
+           -- else the NL splits the header and `extends` parses as a bare stmt.
+           else if #seq(v, "extends") then true
+           else if #seq(v, "with") then true else false)
         else if #seq(k, "id") then
-          (if #seq(v, "catch") then true else if #seq(v, "finally") then true else false)
+          (if #seq(v, "catch") then true else if #seq(v, "finally") then true
+           -- `case class X(…)` NL `derives TC` — same continuation case.
+           else if #seq(v, "derives") then true else false)
         else if #seq(k, "op") then #i.gt(opPrec(v), 0)
         else if #seq(k, ".") then true
         else if #seq(k, "::") then true

@@ -1038,6 +1038,28 @@ def reorderByFields = (fields, args) =>
     case Nil => Nil
     case Cons(f, rest) => Cons(findNarg(f, args), reorderByFields(rest, args))
   }
+-- Like findNarg, but when a field's named arg is omitted, fall back to its REGISTERED
+-- default expr (resolved) instead of a __missing_named_arg sentinel. A `__nodflt__`
+-- default means the field is genuinely required, so the sentinel still fires.
+def findNargD = (label, args, dflt) =>
+  match args {
+    case Nil =>
+      if dfltIsNone(dflt) then Pair("var", #sconcat("__missing_named_arg_", label))
+      else resolveE(dflt)
+    case Cons(h, t) => if #seq(nargLabel(h), label) then nargVal(h) else findNargD(label, t, dflt)
+  }
+-- reorderByFields with per-field defaults (aligned with `fields`). Used for all-named
+-- case-class construction so omitted default-valued fields (e.g. Diagnostic's
+-- `dialect = None`, `details = Vector.empty`) are filled from the registry.
+def reorderByFieldsD = (fields, dflts, args) =>
+  match fields {
+    case Nil => Nil
+    case Cons(f, frest) =>
+      match dflts {
+        case Nil => Cons(findNarg(f, args), reorderByFieldsD(frest, Nil, args))
+        case Cons(d, drest) => Cons(findNargD(f, args, d), reorderByFieldsD(frest, drest, args))
+      }
+  }
 def lookupFields = (name) =>
   let rec go = (xs) =>
     match xs {
@@ -1053,7 +1075,16 @@ def resolveCtorArgs = (name, rargs) =>
       let fs = lookupFields(name) in
       match fs {
         case Nil => stripNargs(rargs)
-        case Cons(h, t) => reorderByFields(fs, rargs)
+        case Cons(h, t) =>
+          -- Fill omitted default-valued fields from the registry; without it a defaulted
+          -- field not passed by name becomes a __missing_named_arg sentinel (unbound at
+          -- runtime). `dparams` is aligned with `dflts`, both from the case-class decl.
+          match dfltRegLookup(name, #cell.get(funcDefaultsCell)) {
+            case Pair(found, entry) =>
+              if #seq(found, "__some__") then
+                match entry { case Pair(dparams, dflts) => reorderByFieldsD(dparams, dflts, rargs) }
+              else reorderByFields(fs, rargs)
+          }
       }
     else stripNargs(rargs)
   else rargs
@@ -3482,9 +3513,7 @@ def lowerStmtToList = (stmt) =>
                         -- Immutable value member → an eager owner-prefixed global
                         -- (`Owner_name`), like a `given` or a parameterless `def`
                         -- property. Fixes `Owner.name` value access (e.g.
-                        -- `SourcePosition.Start`, `DialectRegistry.empty`). (A val whose
-                        -- body is an all-defaults constructor call, e.g. `val d = X()`,
-                        -- still needs default synthesis at this eager site — separate gap.)
+                        -- `SourcePosition.Start`, `DialectRegistry.empty`).
                         match sdata {
                           case Pair(vname, vbody) =>
                             appendL(Cons(IrDef(#sconcat(prefix, vname), lowerE(Nil, vbody)), Nil),
