@@ -796,6 +796,71 @@ final class ScalaSpikeSpec extends AnyFunSuite:
          |def main(): String =
          |  val src = "def f = if x then 1 else x + 2"
          |  lex(src, 0, src.length)""".stripMargin
+    // ══ P6.5 literal-port F1+F2+L1: a compiler that reads REAL Scala-subset SYNTAX ═════════════════
+    // Not prefix/toy syntax — actual `def f(x) = if x < 1 then 1 else x * f(x - 1)`. A lexer produces
+    // tagged tokens ((0,n)=int, (1,ch)=ident, (2,k)=keyword/op/punct); a precedence-climbing parser with
+    // `if`/`then`/`else`, function calls `f(e)`, parens, and variables builds the body; name resolution
+    // maps the param → (local 0) and the function → (global f); the lowerer emits EXECUTABLE Core IR.
+    // The emitted Core IR runs to factorial(5) = 120 (two-stage self-compilation).
+    val selfhostScala =
+      """|def isAl(c: Int): Int = if c >= 97 then (if c <= 122 then 1 else 0) else 0
+         |def isDig(c: Int): Int = if c >= 48 then (if c <= 57 then 1 else 0) else 0
+         |def scanId(s: String, i: Int, n: Int): Int = if i >= n then i else if isAl(s.charAt(i)) == 1 then scanId(s, i + 1, n) else i
+         |def scanNum(s: String, i: Int, n: Int, acc: Int): Int = if i >= n then (acc, i) else if isDig(s.charAt(i)) == 1 then scanNum(s, i + 1, n, acc * 10 + (s.charAt(i) - 48)) else (acc, i)
+         |def kwCode(s: String): Int = if s == "def" then 1 else if s == "if" then 2 else if s == "then" then 3 else if s == "else" then 4 else 0
+         |def lex(s: String, i: Int, n: Int): List[Int] =
+         |  if i >= n then Nil
+         |  else
+         |    val c = s.charAt(i)
+         |    if c == 32 then lex(s, i + 1, n)
+         |    else if isAl(c) == 1 then
+         |      val j = scanId(s, i, n)
+         |      val kc = kwCode(s.substring(i, j))
+         |      if kc > 0 then Cons((2, kc), lex(s, j, n)) else Cons((1, c), lex(s, j, n))
+         |    else if isDig(c) == 1 then scanNum(s, i, n, 0) match { case (v, j) => Cons((0, v), lex(s, j, n)) }
+         |    else if c == 61 then Cons((2, 5), lex(s, i + 1, n))
+         |    else if c == 40 then Cons((2, 6), lex(s, i + 1, n))
+         |    else if c == 41 then Cons((2, 7), lex(s, i + 1, n))
+         |    else if c == 43 then Cons((2, 8), lex(s, i + 1, n))
+         |    else if c == 45 then Cons((2, 9), lex(s, i + 1, n))
+         |    else if c == 42 then Cons((2, 10), lex(s, i + 1, n))
+         |    else if c == 60 then Cons((2, 11), lex(s, i + 1, n))
+         |    else lex(s, i + 1, n)
+         |def prec(t: Int): Int = t match { case (2, 11) => 1 case (2, 8) => 2 case (2, 9) => 2 case (2, 10) => 3 case _ => 0 }
+         |def opStr(k: Int): String = if k == 8 then "i.add" else if k == 9 then "i.sub" else if k == 10 then "i.mul" else "i.lt"
+         |def hd(ts: List[Int]): Int = ts match { case Cons(h, t) => h case Nil => (0, 0) }
+         |def tl(ts: List[Int]): List[Int] = ts match { case Cons(h, t) => t case Nil => Nil }
+         |def snd(p: Int): Int = p match { case (a, b) => b }
+         |def fst(p: Int): Int = p match { case (a, b) => a }
+         |def parseAtom(ts: List[Int], pch: Int, fch: Int): Int = ts match {
+         |  case Cons(t, rest) => t match {
+         |    case (0, n) => ("(lit (int " + n + "))", rest)
+         |    case (1, ch) =>
+         |      if ch == fch then parseExpr(tl(rest), 0, pch, fch) match { case (arg, r3) => ("(app (global f) " + arg + ")", tl(r3)) }
+         |      else ("(local 0)", rest)
+         |    case (2, 6) => parseExpr(rest, 0, pch, fch) match { case (e, r2) => (e, tl(r2)) }
+         |    case (2, 2) => parseExpr(rest, 0, pch, fch) match { case (c, r2) => parseExpr(tl(r2), 0, pch, fch) match { case (th, r3) => parseExpr(tl(r3), 0, pch, fch) match { case (el, r4) => ("(if " + c + " " + th + " " + el + ")", r4) } } }
+         |    case _ => ("(lit (int 0))", rest)
+         |  }
+         |  case Nil => ("(lit (int 0))", Nil)
+         |}
+         |def climb(left: String, ts: List[Int], minPrec: Int, pch: Int, fch: Int): Int = ts match {
+         |  case Cons(t, rest) =>
+         |    val p = prec(t)
+         |    if p >= minPrec then
+         |      if p > 0 then parseExpr(rest, p + 1, pch, fch) match { case (right, r2) => t match { case (2, k) => climb("(prim " + opStr(k) + " " + left + " " + right + ")", r2, minPrec, pch, fch) case _ => (left, ts) } }
+         |      else (left, ts)
+         |    else (left, ts)
+         |  case Nil => (left, ts)
+         |}
+         |def parseExpr(ts: List[Int], minPrec: Int, pch: Int, fch: Int): Int = parseAtom(ts, pch, fch) match { case (l, r) => climb(l, r, minPrec, pch, fch) }
+         |def compile(src: String): String =
+         |  val toks = lex(src, 0, src.length)
+         |  val fch = snd(hd(tl(toks)))
+         |  val pch = snd(hd(tl(tl(tl(toks)))))
+         |  val body = fst(parseExpr(tl(tl(tl(tl(tl(tl(toks)))))), 0, pch, fch))
+         |  "(program (defs (def f (lam 1 " + body + ")) (def main (lam 0 (app (global f) (lit (int 5)))))) (entry (app (global main))))"
+         |def main(): String = compile("def f(x) = if x < 1 then 1 else x * f(x - 1)")""".stripMargin
     // The hardest part of a real parser, in the subset: a PRECEDENCE-CLIMBING infix parser with
     // PARENTHESES — the same algorithm as the spike's own parseExpr (climb while the next operator binds
     // tighter than minPrec). Tokenises "2 * (1 + 3)" (with `(`=-3, `)`=-4), parses respecting `*` over `+`
@@ -848,6 +913,7 @@ final class ScalaSpikeSpec extends AnyFunSuite:
       "selfhost-emit"     -> selfhostEmit,
       "selfhost-rec"      -> selfhostRec,
       "selfhost-lexer"    -> selfhostLexer,
+      "selfhost-scala"    -> selfhostScala,
       "selfhost-infix"    -> selfhostInfix,
       "scale-prog"   -> scaleProg,
       "scale-decls"  -> scaleDecls,
@@ -955,6 +1021,9 @@ final class ScalaSpikeSpec extends AnyFunSuite:
     // selfhost-lexer (F1) tokenises subset source; the harness checks its rendered token stream equals this.
     Files.writeString(Paths.get(outDir, "selfhost-lexer.want"),
       "kw:def id:f op:= kw:if id:x kw:then int:1 kw:else id:x op:+ int:2 ")
+    // selfhost-scala reads REAL Scala-subset syntax (def f(x) = if x < 1 then 1 else x * f(x-1)) and emits
+    // executable Core IR; the harness runs it → factorial(5) = 120.
+    Files.writeString(Paths.get(outDir, "selfhost-scala.emit"), "120")
     for (name, code, expect) <- broken do
       Files.writeString(Paths.get(outDir, s"$name.proj"), SpikeProject.program(parse(code).roots.head))
       Files.writeString(Paths.get(outDir, s"$name.expect"), expect)
