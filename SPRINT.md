@@ -219,8 +219,18 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
         (front-matter + prose + fenced code) parses as ONE lossless UniML tree by injection (each dialect
         sees only its own bytes; foreign fences inert). 7/7 tests + harness: hybrid-basic→14, hybrid-cc,
         both Core IR byte-identical to ssc1-front on the extracted bare source; precedence survives the
-        hybrid pipeline; extraction lossless. Notes §P6.3. **Remaining P6.3:** inline interpolator
-        injection (s/f/md — same mechanism inside a token) + user-closed registry hook.
+        hybrid pipeline; extraction lossless. Notes §P6.3.
+    - [x] **P6.3b registry hook ✓ Landed 2026-07-13** (6af752e85): fence/front-matter language resolved via
+          `DialectRegistry`, not hardcoded. `SscCompose.builtins` = closed set (ScalaScript/Markdown/YAML/
+          JSON); `registryWith(extra*)` extends but a built-in name can't be overridden (user-closed);
+          unregistered language → inert. 10/10 tests (```json injected via registry; builtins resolve the
+          4 langs; re-register built-in fails; fresh MermaidDialect drives injection). Notes §P6.3b.
+    - [x] **P6.3c trailing-EOL tolerance ✓ Landed 2026-07-13** (970e56fc9): raw lossless fence body fed to
+          the dialect (trailing EOL is spike.ws Trivia → skipped); scalaSource = clean accessor; test
+          proves projection byte-identical w/ & w/o trailing \n/\n\n/\r\n. Notes §P6.3c.
+    - [ ] **P6.3 remaining: inline interpolator injection (s/f/md)** — a real grammar extension (add spike
+          string literals + replicate ssc1-front's interpParts/buildSInterp/f-format/md-routing byte-
+          identically); sits on the registry hook. Next slice.
   - [ ] **P6.4 self-host proof** — compile v2.2 with itself (stage1→stage2 fixed point); scalac oracle.
   - [ ] **P6.5 (follow-on, non-gate)** — port `ssc1-lower` from ssc0 into the subset (whole compiler
         dual-compilable end to end).
