@@ -301,8 +301,8 @@ object MarkdownProjection:
       var i = 0
       while i < s.length do
         if s.charAt(i) == '\\' && i + 1 < s.length && MdChars.isAsciiPunctuation(s.charAt(i + 1)) then
-          buf = buf :+ s.charAt(i + 1).toString; i += 2
-        else { buf = buf :+ s.charAt(i).toString; i += 1 }
+          buf = buf :+ s.substring(i + 1, i + 2); i += 2
+        else { buf = buf :+ s.substring(i, i + 1); i += 1 }
       buf.mkString
 
   // The 96 Latin-1 Supplement entity names in U+00A0..U+00FF order — a

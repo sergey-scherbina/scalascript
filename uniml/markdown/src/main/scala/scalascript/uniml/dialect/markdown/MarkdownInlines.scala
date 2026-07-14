@@ -27,13 +27,18 @@ private[markdown] object MarkdownInlines:
     val trimmed = raw.trim
     var builder: Vector[String] = Vector.empty
     var inSpace = false
-    trimmed.foreach { c =>
+    // Index loop + `substring` slice, not `foreach`/`c.toString`: ScalaScript v2 has
+    // no Char box, so `c.toString` yields the code point's decimal digits — slicing
+    // the source is exactly `charAt(i).toString` on the JVM (surrogates included).
+    var li = 0
+    while li < trimmed.length do
+      val c = trimmed.charAt(li)
       if MdChars.isUnicodeWhitespace(c) then inSpace = true
       else
         if inSpace && builder.nonEmpty then builder = builder :+ " "
         inSpace = false
-        builder = builder :+ c.toString
-    }
+        builder = builder :+ trimmed.substring(li, li + 1)
+      li += 1
     builder.mkString.toLowerCase
 
   def parse(content: String, refs: Map[String, LinkRef], profile: MarkdownProfile): Vector[InlinePiece] =
@@ -81,7 +86,7 @@ private[markdown] object MarkdownInlines:
         case '\n' | '\r' =>
           // line ending within a content unit: hard break if preceded by 2+ spaces or a backslash
           val ending =
-            if c == '\r' && i + 1 < n && content.charAt(i + 1) == '\n' then "\r\n" else c.toString
+            if c == '\r' && i + 1 < n && content.charAt(i + 1) == '\n' then "\r\n" else content.substring(i, i + 1)
           val pend = pending.mkString
           val hard = pend.endsWith("  ") || pend.endsWith("\\")
           if hard && pend.endsWith("\\") then
@@ -194,7 +199,7 @@ private[markdown] object MarkdownInlines:
           i += runLength(content, i, c)
 
         case other =>
-          pending = pending :+ other.toString
+          pending = pending :+ content.substring(i, i + 1)
           i += 1
     flushText()
     nodes
@@ -342,12 +347,12 @@ private[markdown] object MarkdownInlines:
       var done = false
       while i < n && !done do
         val c = content.charAt(i)
-        if c == '\\' && i + 1 < n then { sb = sb :+ c.toString :+ content.charAt(i + 1).toString; i += 2 }
+        if c == '\\' && i + 1 < n then { sb = sb :+ content.substring(i, i + 1) :+ content.substring(i + 1, i + 2); i += 2 }
         else if MdChars.isUnicodeWhitespace(c) then done = true
-        else if c == '(' then { depth += 1; sb = sb :+ c.toString; i += 1 }
+        else if c == '(' then { depth += 1; sb = sb :+ content.substring(i, i + 1); i += 1 }
         else if c == ')' then
-          if depth == 0 then done = true else { depth -= 1; sb = sb :+ c.toString; i += 1 }
-        else { sb = sb :+ c.toString; i += 1 }
+          if depth == 0 then done = true else { depth -= 1; sb = sb :+ content.substring(i, i + 1); i += 1 }
+        else { sb = sb :+ content.substring(i, i + 1); i += 1 }
       dest = sb.mkString
     val destEnd = i
     while i < n && MdChars.isUnicodeWhitespace(content.charAt(i)) do i += 1
