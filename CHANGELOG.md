@@ -4,6 +4,29 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-14 — std-ui-hstack-wrap: optional flex-wrap for std/ui `hstack`
+
+busi nav-bar follow-up: up to 15 owner nav buttons with varying Cyrillic label widths were
+hand-grouped into fixed-size `hstack` rows (e.g. "always 4 per row"), which either overflowed or
+left rows visibly ragged; `runtime/std/ui/lower.ssc`'s `hstack` case never set `flex-wrap`
+(implicit `nowrap`), so there was no way to let children flow/wrap naturally. Added `wrap: Boolean
+= false` to `hstack`'s first (non-curried) parameter group, before the curried `(children:
+TkNode*)` group — `def hstack(gap: Int = 0, wrap: Boolean = false)(children: TkNode*): TkNode` — and
+a matching last field on `HStackNode` (`nodes.ssc`). `lower.ssc` appends `; flex-wrap:wrap` to the
+emitted style only when `wrap = true`; the default/`false` case's style string stays byte-for-byte
+identical to the pre-slice output (flexbox `gap` already spaces wrapped lines evenly, no new
+`align-content` param needed). Mirrors `std-ui-button-variant`/`std-ui-button-size`'s scope
+discipline: one boolean, additive, JS-custom-frontend-only, no backend churn
+(`specs/std-ui-hstack-wrap.md`). Two pre-existing call sites outside `layout.ssc` that construct
+`HStackNode` (content-toolkit's interpreter + JVM-codegen paths) needed to stay in sync with the
+new field; `ContentToolkitJs.scala`'s hand-written JS object literal verified to need no change.
+`tests/conformance/tkv2-hstack-wrap.ssc` + `HStackWrapTest.scala` (a Scala-level test proving the
+rendered CSS `flex-wrap` value genuinely differs, since `View` is opaque to `.ssc`) +
+`examples/frontend/hstack-wrap/`. Busi-side nav wiring (un-grouping the fixed-4-per-row calls into
+one flat `wrap = true` row) is a separate, not-yet-done follow-up.
+
+---
+
 ## 2026-07-14 — Scala 3 ↔ ScalaScript bidirectional-control design freeze
 
 Published the normative architecture in `specs/scala3-bidirectional-control.md`
