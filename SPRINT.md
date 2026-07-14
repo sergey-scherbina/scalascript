@@ -856,10 +856,22 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
           PARAMETER carrying the `"` char (`compile(src,dq)`; driver builds dq via #sfromCodes(Cons(34,Nil)),
           verified). So C's source has NO `"`-inside-a-string literal -> scanStr compares code 34, emits
           `dq++content++dq`; escStr = identity. Spec §"quote-free emission design".
-    - [ ] **P6.6c — write C in F.** Rewrite the compiler using only F (no `let … in`; local bindings via
-          var-`match` or braced blocks; escaped string literals). Spike still compiles it byte-identically +
-          it emits correct executable Core IR.
-    - [ ] **P6.6d — fixpoint.** Bootstrap C0; run stage1/stage2; assert `stage1 == stage2`; add to the harness.
+    - [ ] **P6.6c — write C_min in L (self-compiling).** A compiler `compile(src, dq): String` for language L,
+          WRITTEN in L, whose OWN source is entirely within L (so it can compile itself). Design decisions that
+          shrink L to the minimum: **match only for `Cons(h,t)`/`Nil`/`(a,b)`** — ALL token-kind dispatch via
+          `if`-chains + `fst/snd/hd/tl` (NO int-literal patterns `(2,26)`, NO wildcards `case _`, NO nested
+          non-trivial matches); **helper-function bindings** (no `val`-blocks); **escape-free** (`dq` param for
+          `"`, bare prims); **`++`→sconcat / `+`→i.add** distinguished (i.add is NOT polymorphic on strings);
+          **only `<` and `==`** for numeric compare (`a>=b` ≡ `b<a+1`, `a<=b` ≡ `a<b+1`, `a>b` ≡ `b<a`).
+      - [ ] c1 — lexer (helper-fn bindings; scanStr compares code 34; tokens: def/if/then/else/match/case +
+            `= ( ) + - * < , { } => . == ++`; kinds int/lower/Upper/str).
+      - [ ] c2 — parser+emitter (Pratt climb; atoms int/str(dq)/local/call/ctor/tuple/if/match; postfix method
+            + match; arms Cons/Nil/tuple; multi-param def loop). Emits bare-prim Core IR.
+      - [ ] c3 — add as toy `cmin` in ScalaSpikeSpec → `.proj` (spike compiles it byte-clean) + `.src` (its own
+            source, for self-compilation input). VERIFY it compiles small L programs correctly via the file-driver.
+    - [ ] **P6.6d — fixpoint.** Bootstrap `C0 = driver(spike(cmin.proj))` (file-reading main + `dq`); `stage1 =
+          C0(cmin.src)`; `C1 = driver(stage1)`; `stage2 = C1(cmin.src)`; assert **`stage1 == stage2`**. Add a
+          `specs/v2.2-p6.6-fixpoint.sh` check + wire into the harness.
   - Prereqs: subset must hold — the one v2-side lift is **immutable indexed `Array`** (gapmap:76);
         anon-trait + mutable-object-field stay out; multi-file `package`/`import` reconciliation
         (gapmap:82-83) needed before the compiler's own multi-file source dual-compiles.
