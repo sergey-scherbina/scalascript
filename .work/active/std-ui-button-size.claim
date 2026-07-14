@@ -1,0 +1,9 @@
+feature/std-ui-button-size 2026-07-14T00:00:00Z
+agent: claude (subagent)
+status: in-progress
+scope: add size param ("sm"/"md"/"lg") to std/ui button primitives (signalButton,
+  actionButton, signalLabelButton, signalActionButton) mirroring the variant
+  param precedent (136e6f6bb). Requested by busi to fit 4 nav buttons/row on
+  390px phone screens.
+next: write specs/std-ui-button-size.md, implement input.ssc -> nodes.ssc ->
+  lower.ssc, add conformance + Scala test, docs, push.
