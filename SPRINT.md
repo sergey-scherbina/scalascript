@@ -228,9 +228,18 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
     - [x] **P6.3c trailing-EOL tolerance ✓ Landed 2026-07-13** (970e56fc9): raw lossless fence body fed to
           the dialect (trailing EOL is spike.ws Trivia → skipped); scalaSource = clean accessor; test
           proves projection byte-identical w/ & w/o trailing \n/\n\n/\r\n. Notes §P6.3c.
-    - [ ] **P6.3 remaining: inline interpolator injection (s/f/md)** — a real grammar extension (add spike
-          string literals + replicate ssc1-front's interpParts/buildSInterp/f-format/md-routing byte-
-          identically); sits on the registry hook. Next slice.
+    - [x] **P6.3d string literals ✓ Landed 2026-07-13** (1d691ae57): spike lexes "…" → spike.str with the
+          decoded value (buildStr semantics: \n→NL, \t→TAB, \<c>→c) + raw triple-quote; projects mkStr via
+          escStr (round-trips ssc0). str-plain→5, str-escape→6, Core IR byte-identical. Notes §P6.3d.
+    - [x] **P6.3e string interpolation ✓ Landed 2026-07-14** (f223c584d): s / ${expr} / md byte-identical to
+          ssc1-front. Detection = s/f/raw/md id before a str token → spike.interp. Projection mirrors
+          interpParts/partsToExpr: literal→mkStr, $name→mkVar, ${expr}→RE-PARSED by the spike's own front
+          (wrap-as-def, lift body), folded right-assoc into ++; md→Pair(prim,__mdStrip__). scanInterpEnd/
+          scanNestedStr balance ${…}. 41 tests + harness: interp-var/interp-expr(inner x+1 re-parsed)/
+          interp-md, all CoreIR≡ssc1-front. **Corpus now 43 programs, 0 fail.** Notes §P6.3e.
+    - [ ] **P6.3 remaining: only f"…"** (printf format specifiers → __fInterpolate__) — projected to a hole
+          for now; small follow-on. Everything else in P6.3 (hybrid composition + registry hook + strings +
+          s/${expr}/md interpolation) is done and byte-identical.
   - [ ] **P6.4 self-host proof** — compile v2.2 with itself (stage1→stage2 fixed point); scalac oracle.
   - [ ] **P6.5 (follow-on, non-gate)** — port `ssc1-lower` from ssc0 into the subset (whole compiler
         dual-compilable end to end).
