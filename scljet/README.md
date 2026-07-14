@@ -43,8 +43,10 @@ writer (`buildDeepOverflowTableDatabase`, a 3-level tree whose oversized rows al
 spill onto chains), a general explicit-rowid writer (`buildKeyedDatabase` — rows
 keep their own gapped rowids across a rewrite), a multi-table writer
 (`buildMultiTableDatabase` — several rowid tables in one file, each at its own root
-page), and the rollback journal (`writeRollbackJournal` + hot-journal
-`applyRollbackJournal`, byte-identical to SQLite's journal).
+page), an index writer (`buildTableWithIndexDatabase` — a table plus a single-column
+index B-tree that reference SQLite validates and uses for query planning), and the
+rollback journal (`writeRollbackJournal` + hot-journal `applyRollbackJournal`,
+byte-identical to SQLite's journal).
 
 Full row-level **insert / delete / update** on an existing database works
 end-to-end (`mutate.ssc`) — on single-table files, and on one table of a

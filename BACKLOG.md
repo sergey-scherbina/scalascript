@@ -193,8 +193,14 @@ are plain bullets without checkboxes so agents do not claim them as build work.
       which reassigns root pages and re-encodes each schema record's rootpage field
       (`patchSchemaRootpage`, keeping name/tbl_name/sql byte-for-byte, so no text is
       decoded to a String). Verified deleting/updating one table of three, others
-      preserved, int==js (conformance `scljet-multitable-mutate`). Remaining:
-      indexes + non-table schema objects, and (4) true IN-PLACE mutation of pages
+      preserved, int==js (conformance `scljet-multitable-mutate`). Index WRITE is
+      DONE (2026-07-14): `buildTableWithIndexDatabase` writes a rowid table plus a
+      single-leaf index B-tree (page kind 10) of `(column, rowid)` records sorted by
+      `(value, rowid)` — reference `integrity_check` cross-validates the index
+      against the table AND the query planner uses it (`SEARCH t USING INDEX idx`),
+      int==js (conformance `scljet-write-index`). Remaining: multi-leaf indexes
+      (interior index cells carry a full key record), multi-column / text-collation
+      keys, index maintenance on mutate, and (4) true IN-PLACE mutation of pages
       (the separate pager/journal path, m3e).
 
 - [x] **scljet-byteslice-zeros-js-recursion** — DONE 2026-07-13. The core list
