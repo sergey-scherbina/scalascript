@@ -1,0 +1,40 @@
+---
+name: scljet-sql-expr
+description: SclJet SQL scalar expressions in the projection — + - * / with precedence, parens, unary minus, integer division; matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet SQL projection expressions
+
+A projection item may be a computed scalar expression over columns and integer literals: `+ - * /`
+with the usual precedence (`* /` before `+ -`), parentheses, and unary minus. Integer operands give an
+integer result (division truncates: `250/100 = 2`); a NULL operand or divide-by-zero yields NULL, as
+in sqlite. A lone column keeps its plain form, so `WHERE` / `ORDER BY` on real columns still work.
+Every result is byte-identical to reference sqlite3 running the same SQL on the same file (verified
+out-of-band); locked here across backends.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER, name TEXT, salary INTEGER)",
+  List(List(SqlInteger(1L), SqlText("ann"), SqlInteger(100L)),
+       List(SqlInteger(2L), SqlText("bob"), SqlInteger(250L)),
+       List(SqlInteger(3L), SqlText("cat"), SqlInteger(300L)),
+       List(SqlInteger(4L), SqlText("dan"), SqlInteger(150L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db) =>
+    show(db, "SELECT id, salary, salary * 12 FROM emp")
+    show(db, "SELECT id, salary + 10 FROM emp")
+    show(db, "SELECT id, salary - 50 FROM emp")
+    show(db, "SELECT salary / 100 FROM emp")
+    show(db, "SELECT id, (salary + 50) * 2 FROM emp")
+    show(db, "SELECT id, salary * 2 + 1 FROM emp")
+    show(db, "SELECT id, -salary FROM emp")
+    show(db, "SELECT salary * 12 FROM emp WHERE salary >= 200 ORDER BY id")
+```

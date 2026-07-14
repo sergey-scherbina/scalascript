@@ -159,6 +159,15 @@ def tokenize(sql: String): Either[String, List[Token]] =
         toksRev = Token("op", "!=", 0L) :: toksRev
         i = i + 2
       else err = Some("unexpected '!' without '='")
+    else if c == 43 then
+      toksRev = Token("op", "+", 0L) :: toksRev
+      i = i + 1
+    else if c == 45 then
+      toksRev = Token("op", "-", 0L) :: toksRev
+      i = i + 1
+    else if c == 47 then
+      toksRev = Token("op", "/", 0L) :: toksRev
+      i = i + 1
     else if c == 59 then
       i = i + 1
     else err = Some("unexpected character '" + sql.charAt(i).toString + "'")
@@ -426,10 +435,18 @@ def parseAggregates(toks: List[Token]): Either[String, (List[AggItem], List[Toke
     case Some(message) => Left(message)
     case None => Right((reverseAggs(accRev, Nil), rest))
 
-// Parse the projection: `*`, an aggregate list, or a plain column list.
-// A projection item: a plain column (`isAgg=false`, `name` = column) or an aggregate
-// (`isAgg=true`, `func` = COUNT/SUM/…, `name` = its argument column or `*`).
-case class ProjItem(isAgg: Boolean, func: String, name: String, distinct: Boolean)
+// Scalar expression tree for computed projections (arithmetic over columns/literals).
+sealed trait SxNode
+case class SxCol(name: String) extends SxNode
+case class SxLit(value: SqliteValue) extends SxNode
+case class SxNeg(inner: SxNode) extends SxNode
+case class SxBin(op: String, left: SxNode, right: SxNode) extends SxNode
+
+// Parse the projection: `*`, an aggregate list, or a plain column / expression list.
+// A projection item: a plain column (`isAgg=false`, `name` = column, `expr=None`), an aggregate
+// (`isAgg=true`, `func` = COUNT/SUM/…, `name` = its argument column or `*`), or a computed scalar
+// expression (`expr=Some(e)`, evaluated per row).
+case class ProjItem(isAgg: Boolean, func: String, name: String, distinct: Boolean, expr: Option[SxNode])
 
 def reverseProj(items: List[ProjItem], acc: List[ProjItem]): List[ProjItem] =
   var r = items
@@ -438,6 +455,71 @@ def reverseProj(items: List[ProjItem], acc: List[ProjItem]): List[ProjItem] =
     out = r.head :: out
     r = r.tail
   out
+
+// ── Scalar expression parser (precedence: unary -, then * /, then + -) ──
+
+def parseExprAtom(toks: List[Token]): Either[String, (SxNode, List[Token])] =
+  if tkKind(toks) == "lparen" then
+    parseExprAdd(toks.tail) match
+      case Left(message) => Left(message)
+      case Right(inner) =>
+        if tkKind(inner._2) != "rparen" then Left("expected ')' in expression")
+        else Right((inner._1, inner._2.tail))
+  else if tkKind(toks) == "op" && tkText(toks) == "-" then
+    parseExprAtom(toks.tail) match
+      case Left(message) => Left(message)
+      case Right(a) => Right((SxNeg(a._1), a._2))
+  else if tkKind(toks) == "num" then Right((SxLit(SqlInteger(toks.head.num)), toks.tail))
+  else if tkKind(toks) == "str" then Right((SxLit(SqlText(toks.head.text)), toks.tail))
+  else if tkKind(toks) == "ident" then Right((SxCol(toks.head.text), toks.tail))
+  else Left("expected an expression operand")
+
+def parseExprMul(toks: List[Token]): Either[String, (SxNode, List[Token])] =
+  parseExprAtom(toks) match
+    case Left(message) => Left(message)
+    case Right(first) =>
+      var acc = first._1
+      var rest = first._2
+      var err: Option[String] = None
+      var done = false
+      while !done && err.isEmpty do
+        val k = tkKind(rest)
+        val t = tkText(rest)
+        if k == "star" || (k == "op" && t == "/") then
+          val opStr = if k == "star" then "*" else "/"
+          parseExprAtom(rest.tail) match
+            case Left(message) => err = Some(message)
+            case Right(nx) =>
+              acc = SxBin(opStr, acc, nx._1)
+              rest = nx._2
+        else done = true
+      err match
+        case Some(message) => Left(message)
+        case None => Right((acc, rest))
+
+def parseExprAdd(toks: List[Token]): Either[String, (SxNode, List[Token])] =
+  parseExprMul(toks) match
+    case Left(message) => Left(message)
+    case Right(first) =>
+      var acc = first._1
+      var rest = first._2
+      var err: Option[String] = None
+      var done = false
+      while !done && err.isEmpty do
+        val k = tkKind(rest)
+        val t = tkText(rest)
+        if k == "op" && (t == "+" || t == "-") then
+          parseExprMul(rest.tail) match
+            case Left(message) => err = Some(message)
+            case Right(nx) =>
+              acc = SxBin(t, acc, nx._1)
+              rest = nx._2
+        else done = true
+      err match
+        case Some(message) => Left(message)
+        case None => Right((acc, rest))
+
+def parseExpr(toks: List[Token]): Either[String, (SxNode, List[Token])] = parseExprAdd(toks)
 
 def parseProjItem(toks: List[Token]): Either[String, (ProjItem, List[Token])] =
   if isAggStart(toks) then
@@ -454,9 +536,16 @@ def parseProjItem(toks: List[Token]): Either[String, (ProjItem, List[Token])] =
       case None => Left("expected a column or * inside the aggregate")
       case Some(ap) =>
         if tkKind(ap._2) != "rparen" then Left("expected ')' in the aggregate")
-        else Right((ProjItem(true, func, ap._1, distinct), ap._2.tail))
-  else if tkKind(toks) == "ident" then Right((ProjItem(false, "", toks.head.text, false), toks.tail))
-  else Left("expected a column or aggregate in the projection")
+        else Right((ProjItem(true, func, ap._1, distinct, None), ap._2.tail))
+  else
+    // A lone column keeps the plain form (name-based; GROUP BY / ORDER BY / DISTINCT still work);
+    // anything compound becomes a computed expression evaluated per row. parseExpr already
+    // reports "expected an expression operand" for anything that isn't a column/literal/aggregate.
+    parseExpr(toks) match
+      case Left(message) => Left(message)
+      case Right(ep) => ep._1 match
+        case SxCol(nm) => Right((ProjItem(false, "", nm, false, None), ep._2))
+        case other => Right((ProjItem(false, "", "", false, Some(other)), ep._2))
 
 def parseProjectionList(toks: List[Token]): Either[String, (List[ProjItem], List[Token])] =
   var rest = toks
@@ -638,6 +727,89 @@ def rowValue(rec: StorageRecord, colNames: List[String], name: String): SqliteVa
     val idx = columnIndex(colNames, name)
     if idx < 0 then SqlNull else fieldValueAt(rec.record, idx)
 
+// ── Scalar expression evaluation (SQL numeric arithmetic) ──
+
+def isIntValue(v: SqliteValue): Boolean = v match
+  case SqlInteger(_) => true
+  case _ => false
+
+def intPayload(v: SqliteValue): Long = v match
+  case SqlInteger(x) => x
+  case _ => 0L
+
+// Long arithmetic seeded from a `0L`/`1L` literal so the ssc→JS backend emits its BigInt-safe
+// `_arith` path (native `x op y` would fail when a DB-decoded small int is a JS Number and the
+// other operand a BigInt literal — the same reason SUM accumulates via `intSum + x`).
+def longAdd(a: Long, b: Long): Long =
+  var s = 0L
+  s = s + a
+  s = s + b
+  s
+
+def longSub(a: Long, b: Long): Long =
+  var s = 0L
+  s = s + a
+  s = s - b
+  s
+
+def longMul(a: Long, b: Long): Long =
+  var s = 1L
+  s = s * a
+  s = s * b
+  s
+
+def longDiv(a: Long, b: Long): Long =
+  var s = 0L
+  s = s + a
+  s = s / b
+  s
+
+def longIsZero(a: Long): Boolean =
+  var s = 0L
+  s = s + a
+  s == 0L
+
+// Value → Double via the same accumulation the working AVG/SUM use (`d + x.toDouble`).
+def realOf(v: SqliteValue): Double =
+  var d = 0.0
+  v match
+    case SqlInteger(x) => d = d + x.toDouble
+    case SqlReal(x) => d = d + x
+    case _ => d = d
+  d
+
+def negateValue(v: SqliteValue): SqliteValue = v match
+  case SqlInteger(x) => SqlInteger(0L - x)
+  case SqlReal(x) => SqlReal(0.0 - x)
+  case _ => SqlNull
+
+// Arithmetic: integer result when both operands are integers (with truncating integer
+// division), otherwise real; NULL if either operand is NULL or on divide-by-zero (as sqlite).
+def arithValue(op: String, a: SqliteValue, b: SqliteValue): SqliteValue =
+  if isNullValue(a) || isNullValue(b) then SqlNull
+  else if isIntValue(a) && isIntValue(b) then
+    val x = intPayload(a)
+    val y = intPayload(b)
+    if op == "+" then SqlInteger(longAdd(x, y))
+    else if op == "-" then SqlInteger(longSub(x, y))
+    else if op == "*" then SqlInteger(longMul(x, y))
+    else if longIsZero(y) then SqlNull
+    else SqlInteger(longDiv(x, y))
+  else
+    val x = realOf(a)
+    val y = realOf(b)
+    if op == "+" then SqlReal(x + y)
+    else if op == "-" then SqlReal(x - y)
+    else if op == "*" then SqlReal(x * y)
+    else if y == 0.0 then SqlNull
+    else SqlReal(x / y)
+
+def evalExpr(e: SxNode, rec: StorageRecord, colNames: List[String]): SqliteValue = e match
+  case SxCol(name) => rowValue(rec, colNames, name)
+  case SxLit(v) => v
+  case SxNeg(inner) => negateValue(evalExpr(inner, rec, colNames))
+  case SxBin(op, l, r) => arithValue(op, evalExpr(l, rec, colNames), evalExpr(r, rec, colNames))
+
 // Compare two values for WHERE: numeric if both numeric, text if both text, else by
 // storage-class order (NULL < number < text < blob).
 def valueClassOf(v: SqliteValue): Int = v match
@@ -780,15 +952,27 @@ def projItemNames(items: List[ProjItem]): List[String] =
     r = r.tail
   reverseStrings(accRev, Nil)
 
-// Project a plain (non-aggregate) row: `*` = all columns, else each projection item's column.
+// Project a plain (non-aggregate) row: `*` = all columns, else each projection item —
+// a bare column by name or a computed scalar expression evaluated against the row.
 def projectRow(rec: StorageRecord, colNames: List[String], stmt: SelectStmt): List[SqliteValue] =
-  val names = if stmt.star then colNames else projItemNames(stmt.projection)
-  var r = names
-  var accRev: List[SqliteValue] = Nil
-  while r.nonEmpty do
-    accRev = rowValue(rec, colNames, r.head) :: accRev
-    r = r.tail
-  reverseValues(accRev, Nil)
+  if stmt.star then
+    var r = colNames
+    var accRev: List[SqliteValue] = Nil
+    while r.nonEmpty do
+      accRev = rowValue(rec, colNames, r.head) :: accRev
+      r = r.tail
+    reverseValues(accRev, Nil)
+  else
+    var r = stmt.projection
+    var accRev: List[SqliteValue] = Nil
+    while r.nonEmpty do
+      val item = r.head
+      val v = item.expr match
+        case Some(e) => evalExpr(e, rec, colNames)
+        case None => rowValue(rec, colNames, item.name)
+      accRev = v :: accRev
+      r = r.tail
+    reverseValues(accRev, Nil)
 
 def projHasAgg(items: List[ProjItem]): Boolean =
   var r = items

@@ -707,6 +707,26 @@ provably both plain Int, using the original `lhs`/`rhs` terms for the `isLongExp
 both `run-js` and `run --v1`; new conformance `js-effect-multishot-long-fold` [int, js] → 204;
 full `backendInterpreter/test` **1828 pass, 0 failed** (was 1827 pass + this 1 fail).
 
+## js-userspace-long-arith-native-operator-mixes-bigint — CONFIRMED / worked-around (2026-07-14, opus)
+
+**Status:** WORKED AROUND in userspace (`scljet/sql.ssc` `arithValue`). When a plain (non-effectful)
+`def` does Long arithmetic like `val x = f(a); val y = f(b); x * y` and the compiler cannot *prove*
+both operands are `Long`, the ssc→JS backend emits a **native** `(x * y)` / `Math.trunc(x / y)`
+rather than the BigInt-safe `_arith('*', x, y)`. That is fine when both are BigInt, but scljet decodes
+small table integers to JS **Numbers** (`record.ssc` `signedByte`'s `.toLong` compiles to identity),
+while integer literals are **BigInt** — so `Number * BigInt` throws `TypeError: Cannot mix BigInt and
+other types`. What defeats the compiler's Long proof here is a helper with a mixed body: an
+`asLong`-style function whose `SqlReal` branch emits `Math.trunc(x)` (Number) and `SqlInteger`/`_`
+branches emit BigInt makes the *result* look non-Long, so downstream `x op y` uses native operators.
+**Workaround (reliable):** accumulate through a `var` seeded from a `0L`/`1L` **literal** — exactly what
+`sumValues` does (`var s = 0L; s = s + a; s = s + b`) — which forces the `_arith` path (`_arith('+', s,
+a)`), and `_arith` coerces Number↔BigInt. `longAdd`/`longSub`/`longMul`/`longDiv`/`longIsZero` in
+`sql.ssc` do this; `_arith('/', …)` truncates toward zero (matches sqlite integer division). Also
+`.toLong`/`.toDouble` on a value can compile to a no-op, so convert via the same `var d = 0.0; d = d +
+x.toDouble` accumulation (as AVG does), not a bare `x.toDouble`. Verified: conformance
+`scljet-sql-expr` [int, js] green (incl. `250/100 = 2`). Proper fix belongs in JsGen (prove Long across
+helper returns, or emit `_arith` for any not-provably-Int operand as the non-CPS path already does).
+
 ## interp-var-scope-leak-across-calls — a callee's `var` clobbers a caller's live `var` of the same name
 
 **Status:** FIXED (2026-07-13, opus). `var` decl/assign dual-write to the module-global

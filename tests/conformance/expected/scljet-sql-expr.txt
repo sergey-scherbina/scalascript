@@ -1,0 +1,30 @@
+SELECT id, salary, salary * 12 FROM emp => 1|100|1200
+2|250|3000
+3|300|3600
+4|150|1800
+SELECT id, salary + 10 FROM emp => 1|110
+2|260
+3|310
+4|160
+SELECT id, salary - 50 FROM emp => 1|50
+2|200
+3|250
+4|100
+SELECT salary / 100 FROM emp => 1
+2
+3
+1
+SELECT id, (salary + 50) * 2 FROM emp => 1|300
+2|600
+3|700
+4|400
+SELECT id, salary * 2 + 1 FROM emp => 1|201
+2|501
+3|601
+4|301
+SELECT id, -salary FROM emp => 1|-100
+2|-250
+3|-300
+4|-150
+SELECT salary * 12 FROM emp WHERE salary >= 200 ORDER BY id => 3000
+3600
