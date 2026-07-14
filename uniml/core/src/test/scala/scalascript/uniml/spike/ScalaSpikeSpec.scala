@@ -397,6 +397,18 @@ final class ScalaSpikeSpec extends AnyFunSuite:
     assert(withC == without, s"comments changed the projection:\n$withC\n$without")
   }
 
+  test("if/else branches may be indented blocks (offside), not just inline expressions") {
+    val proj = SpikeProject.program(parse("def f(n: Int): Int =\n  if n > 0 then\n    val b = 2\n    n + b\n  else\n    0").roots.head)
+    assert(proj.contains("mkIf") && proj.contains("mkVal"), proj) // the then-branch block carries a val
+  }
+
+  test("function types are erased; chained application f(a)(b) applies twice; List[T] params erase") {
+    assert(SpikeProject.program(parse("def mk(): Int => Int = x => x + 1").roots.head).contains("mkLam"))
+    assert(SpikeProject.program(parse("def m(): Int = mk()(4)").roots.head)
+      .contains("""mkApp(mkApp(mkVar("mk"), Nil), Cons(mkInt("4"), Nil))"""))
+    assert(SpikeProject.program(parse("def len(xs: List[Int]): Int = 0").roots.head).contains("""mkDef("len""""))
+  }
+
   // ══ trailing-newline tolerance: a trailing EOL is trivia, never a projection change ═══════════
 
   test("a trailing newline is trivia — the projection (hence Core IR) is invariant to it") {
@@ -499,6 +511,10 @@ final class ScalaSpikeSpec extends AnyFunSuite:
       "scale-nested" -> scaleNested,
       "scale-interp" -> scaleInterp,
       "scale-hof"    -> scaleHof,
+      // edge probes — likely gaps
+      "funret"    -> "def mk(): Int => Int = x => x + 1\ndef main(): Int = mk()(4)",
+      "interp-if" -> "def f(n: Int): String = s\"${if n > 0 then \"p\" else \"n\"}\"\ndef main(): Int = 0",
+      "nested3"   -> "def f(n: Int): Int =\n  val a = 1\n  if n > 0 then\n    val b = 2\n    a + b\n  else\n    val c = 3\n    a + c\ndef main(): Int = f(1)",
       "add-mul"   -> "def main(): Int = 1 + 2 * 3",
       "mul-add"   -> "def main(): Int = 1 * 2 + 3",
       "paren"     -> "def main(): Int = (1 + 2) * 3",

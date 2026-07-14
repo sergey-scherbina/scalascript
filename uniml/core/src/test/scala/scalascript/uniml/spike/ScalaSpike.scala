@@ -202,6 +202,27 @@ object SpikeParse:
           case "spike.lbracket" => depth += 1; c.advance()
           case "spike.rbracket" => depth -= 1; c.advance()
           case _                => c.advance()
+
+  private def skipBalancedParens(c: Cur): Unit =
+    if c.peekKind == "spike.lparen" then
+      c.advance()
+      var depth = 1
+      while depth > 0 && !c.eof do
+        c.peekKind match
+          case "spike.lparen" => depth += 1; c.advance()
+          case "spike.rparen" => depth -= 1; c.advance()
+          case _              => c.advance()
+
+  // after a base type name, consume its `[T]` args and any `=> Codomain` function-type tail
+  // (all erased). Handles `List[Int]`, `Int => Int`, `Int => List[A]`, `A => B => C`, `(A, B) => C`.
+  private def skipTypeTail(c: Cur): Unit =
+    if c.peekKind == "spike.lbracket" then skipTypeParams(c)
+    if c.peekKind == "spike.op" && c.peekLexeme == "=>" then
+      c.advance()
+      if c.peekKind == "spike.lparen" then skipBalancedParens(c)
+      else if c.peekKind == "spike.uid" || c.peekKind == "spike.id" then c.advance()
+      skipTypeTail(c)
+
   private def isKw(c: Cur, w: String): Boolean = c.peekKind == "spike.kw" && c.peekLexeme == w
 
   def parseProgram(toks: Vector[SourceToken]): Parsed =
@@ -245,13 +266,17 @@ object SpikeParse:
         if name.isEmpty then moreParams = false
         else
           expect(c, "spike.colon", "def.paramColon", "':'").foreach(kids += _)
-          expectType(c, "def.paramType").foreach(kids += _)
+          if c.peekKind == "spike.lparen" then skipBalancedParens(c)
+          else expectType(c, "def.paramType").foreach(kids += _)
+          skipTypeTail(c) // generic `List[T]` / function `A => B` param types (erased)
           if c.peekKind == "spike.comma" then c.advance().foreach(t => kids += Node.Leaf(t, Some("def.comma")))
           else moreParams = false
       expect(c, "spike.rparen", "def.rparen", "')'").foreach(kids += _)
     // no `(` → parameterless def; the projection detects it by the absent `def.lparen` child.
     expect(c, "spike.colon", "def.retColon", "':'").foreach(kids += _)
-    expectType(c, "def.retType").foreach(kids += _)
+    if c.peekKind == "spike.lparen" then skipBalancedParens(c) // `(A, B) => C` domain
+    else expectType(c, "def.retType").foreach(kids += _)
+    skipTypeTail(c) // function return type `: A => B` (the `=>` is part of the type; `=` ends it)
     val eqLine = c.peekLine // line of `=` before consuming
     expect(c, "spike.eq", "def.eq", "'='").foreach(kids += _)
     // offside: a body starting on a LATER line is an indented block (Scala optional-braces)
@@ -408,6 +433,7 @@ object SpikeParse:
         case Some(f) => kids += Node.Leaf(f, Some("sel.field"))
         case None    => c.report("spike.expected", "expected field name after '.'")
       postfix(c, Node.Frame("spike.sel", None, kids.result()))
+    else if c.peekKind == "spike.lparen" then postfix(c, applyArgs(c, atom)) // chained application f(a)(b)
     else if isKw(c, "match") then parseMatch(c, atom)
     else atom
 
@@ -540,10 +566,11 @@ object SpikeParse:
       first = false
     if ok && c.peekKind == "spike.rparen" then { c.advance(); Some(params.result()) } else None
 
-  // skip a simple type reference after `:` in a lambda param (`Int`, `List[Int]`, `A => B`).
+  // skip a type reference after `:` in a lambda param (`Int`, `List[Int]`, `A => B`).
   private def skipTypeRef(c: Cur): Unit =
-    if c.peekKind == "spike.uid" || c.peekKind == "spike.id" then c.advance()
-    if c.peekKind == "spike.lbracket" then skipTypeParams(c)
+    if c.peekKind == "spike.lparen" then skipBalancedParens(c)
+    else if c.peekKind == "spike.uid" || c.peekKind == "spike.id" then c.advance()
+    skipTypeTail(c)
 
   private def parseExpr(c: Cur, minPrec: Int): Option[Node] =
     val lam = if minPrec <= 1 then tryParseLambda(c) else None
@@ -625,35 +652,47 @@ object SpikeParse:
     else c.report("spike.expected", "expected ')'")
     Some(Node.Frame(if isTuple || elems == 0 then "spike.tuple" else "spike.paren", None, kids.result()))
 
+  // a branch that starts on a LATER line than its keyword is an indented block (Scala optional-braces),
+  // exactly like a def body — else it is a single inline expression.
+  private def branchExpr(c: Cur, kwLine: Int): Node =
+    if !c.eof && c.peekLine > kwLine then parseBlock(c, c.peekCol)
+    else parseExpr(c, 1).getOrElse(Node.Frame("spike.error", None, Vector.empty))
+
   private def parseIf(c: Cur): Option[Node] =
     val kids = Vector.newBuilder[Node]
     c.advance().foreach(t => kids += Node.Leaf(t, Some("if.kw")))
     parseExpr(c, 1).foreach(e => kids += e.withRole("if.cond"))
+    val thenLine = c.peekLine
     if isKw(c, "then") then c.advance().foreach(t => kids += Node.Leaf(t, Some("if.then")))
     else c.report("spike.expected", "expected 'then'")
-    parseExpr(c, 1).foreach(e => kids += e.withRole("if.thenE"))
+    kids += branchExpr(c, thenLine).withRole("if.thenE")
+    val elseLine = c.peekLine
     if isKw(c, "else") then c.advance().foreach(t => kids += Node.Leaf(t, Some("if.else")))
     else c.report("spike.expected", "expected 'else'")
-    parseExpr(c, 1).foreach(e => kids += e.withRole("if.elseE"))
+    kids += branchExpr(c, elseLine).withRole("if.elseE")
     Some(Node.Frame("spike.if", None, kids.result()))
 
   private def parseIdOrCall(c: Cur): Option[Node] =
     val id = c.advance().get
     if c.peekKind != "spike.lparen" then Some(Node.Leaf(id, Some("var")))
-    else
-      val kids = Vector.newBuilder[Node]
-      kids += Node.Leaf(id, Some("call.fn"))
-      c.advance().foreach(t => kids += Node.Leaf(t, Some("call.open")))
-      while c.peekKind != "spike.rparen" && !c.eof && !isDefStart(c) do
-        parseExpr(c, 1) match
-          case Some(a) => kids += a.withRole("call.arg")
-          case None =>
-            c.report("spike.expected", "expected call argument")
-            if c.peekKind != "spike.rparen" && !c.eof then c.advance()
-        if c.peekKind == "spike.comma" then c.advance().foreach(t => kids += Node.Leaf(t, Some("call.comma")))
-      if c.peekKind == "spike.rparen" then c.advance().foreach(t => kids += Node.Leaf(t, Some("call.close")))
-      else c.report("spike.expected", "expected ')' to close call")
-      Some(Node.Frame("spike.call", None, kids.result()))
+    else Some(applyArgs(c, Node.Leaf(id, None)))
+
+  // apply `fn` to the argument list at the cursor's `(` → a spike.call. Shared by `f(a)` and, via
+  // postfix, chained/curried application `f(a)(b)` (the fn is itself a call).
+  private def applyArgs(c: Cur, fn: Node): Node =
+    val kids = Vector.newBuilder[Node]
+    kids += fn.withRole("call.fn")
+    c.advance().foreach(t => kids += Node.Leaf(t, Some("call.open")))
+    while c.peekKind != "spike.rparen" && !c.eof && !isDefStart(c) do
+      parseExpr(c, 1) match
+        case Some(a) => kids += a.withRole("call.arg")
+        case None =>
+          c.report("spike.expected", "expected call argument")
+          if c.peekKind != "spike.rparen" && !c.eof then c.advance()
+      if c.peekKind == "spike.comma" then c.advance().foreach(t => kids += Node.Leaf(t, Some("call.comma")))
+    if c.peekKind == "spike.rparen" then c.advance().foreach(t => kids += Node.Leaf(t, Some("call.close")))
+    else c.report("spike.expected", "expected ')' to close call")
+    Node.Frame("spike.call", None, kids.result())
 
 // ── serialise the Node tree → VmTokens (open on first token, closeAfter on last) ──
 object SpikeEmit:
