@@ -19,7 +19,7 @@ the language specs + portable CoreIR lowering + differential conformance; this w
 Scala/JVM types into frozen CoreIR and does not make the Scala SDK the semantic owner of v2.
 
 Durable control uses the simple reusable **save/run** idiom, not replay:
-`continuation.save(): Eff[Save,SavedContinuation[A,R]]` freezes a compiler-managed continuation;
+`continuation.save(): Eff[Save,SavedContinuation.Aux[A,Fx,R]]` freezes a compiler-managed continuation;
 every admitted `saved.run(value)` invokes its resume entry once directly at the capture point. The
 prefix is never re-executed; the suffix then follows its own effects/loops/multi-shot behavior. The
 opaque transport envelope contains either a portable closed CoreIR resume program
@@ -40,6 +40,9 @@ execution remains an optional policy, not the default continuation semantics.
 - [ ] **control-companion-link-repair** — repair the broken pre-existing relative links from
   `specs/algebraic-effects.md` and `specs/coroutines.md` to `docs/direct-syntax.md` and
   `docs/error-handling.md`; verify every local link touched by the control-spec cross-links.
+- [ ] **backlog-active-queue-link-repair** — replace the stale nonexistent `ACTIVE.md` link in
+  `BACKLOG.md` with the actual `SPRINT.md` + `.work/active/*.claim` queue contract and verify the
+  changed local documentation links.
 - [ ] **coreir-canonical-contract-reconcile — BLOCKED on P6.5 X1 green/frozen** — reconcile the frozen-count/no-loop claims in
   `v2/specs/10-core-ir.md` with the current canonical Reader/Writer and `CoreIR.scala`, which already
   serialize `While` and `Seq`. Pin one canonical node/value inventory before freezing the capsule
@@ -131,7 +134,7 @@ every later compiler/kernel change re-runs the literal fixed point.
   initialization. Provider references use expiry/removal; inline exact-artifact values require finite
   `notAfter` so retention is bounded.
 - [ ] **continuation-save-run** — implement `continuation.save()` as typed
-  `Eff[Save,SavedContinuation[A,R]]` plus reusable local/remote `saved.run(value)`. Each run
+  `Eff[Save,SavedContinuation.Aux[A,Fx,R]]` plus reusable local/remote `saved.run(value)`. Each run
   decodes an isolated frame, freshens captured prompt ids, and invokes the resume entry once; no prefix
   or automatic admitted-run retry. External redelivery is a distinct run; post-admission disconnect is
   `RunOutcomeUnknown`. Remote residual effects require a closed row or explicit authenticated

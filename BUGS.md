@@ -1,5 +1,20 @@
 # Bug tracker
 
+## backlog-active-queue-link — OPEN (2026-07-14, Codex)
+
+**Status:** open; found by `final_control_spec_audit` while verifying local links
+in the bidirectional-control planning slice.
+
+**Symptom:** `BACKLOG.md` links active work to nonexistent `ACTIVE.md`, while the
+repository's binding workflow and `SPRINT.md` define the active queue as
+`SPRINT.md` plus authoritative `.work/active/*.claim` files on `origin/main`.
+
+**Reproduce:** `test -e ACTIVE.md` fails; compare `BACKLOG.md` lines 3–4 with
+`SPRINT.md` lines 3–5 and `AGENTS.md`'s claiming protocol.
+
+**Plan/verification:** link to `SPRINT.md`, name the claim-file authority, run
+Markdown lint/local-link validation, and record the landed SHA here.
+
 ## control-companion-relative-links — OPEN (2026-07-14, Codex)
 
 **Status:** open; found by `final_control_spec_audit` while checking the Scala 3
