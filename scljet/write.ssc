@@ -27,6 +27,8 @@ exports:
   - buildIndexTree
   - sortIndexEntries
   - IndexTreeBytes
+  - buildSingleTableIndexed
+  - KeyedRawRow
   - LeafCell
   - readLeafCells
   - leafInsertCell
@@ -1668,6 +1670,69 @@ def buildTableWithIndexRaw(pageSize: Int, changeCounter: Int, schemaCookie: Int,
               val pageCount = 1 + tablePages + indexTree.pageCount
               val page1 = tableFileHeader(pageSize, pageCount, changeCounter, schemaCookie) ++ page1Body
               ByteSlice.fromList(page1 ++ tableTree ++ indexTree.bytes)
+
+// ── Single table with N indexes (rebuild for SQL index maintenance) ──
+
+case class IndexSeqResult(bytes: List[Int], roots: List[Int], totalPages: Int)
+
+// Build each index B-tree at a running root page (leaf/interior pages laid out contiguously);
+// returns the concatenated bytes, each index's root page, and the total page count.
+def buildIndexTreesSeq(perIndex: List[List[IndexEntry]], pageSize: Int, startRoot: Int): Either[ByteError, IndexSeqResult] =
+  var rest = perIndex
+  var root = startRoot
+  var bytesAcc: List[Int] = Nil
+  var rootsRev: List[Int] = Nil
+  var totalPages = 0
+  var err: Option[ByteError] = None
+  while rest.nonEmpty && err.isEmpty do
+    buildIndexTree(sortIndexEntries(rest.head), pageSize, root) match
+      case Left(error) => err = Some(error)
+      case Right(tree) =>
+        bytesAcc = bytesAcc ++ tree.bytes
+        rootsRev = root :: rootsRev
+        root = root + tree.pageCount
+        totalPages = totalPages + tree.pageCount
+    rest = rest.tail
+  err match
+    case Some(error) => Left(error)
+    case None => Right(IndexSeqResult(bytesAcc, rootsRev.reverse, totalPages))
+
+def schemaCellFor(schema: DecodedRecord, root: Long, rowid: Long): List[Int] =
+  val bytes = patchSchemaRootpage(schema, root)
+  byteSliceToList(encodeVarint(bytes.length.toLong)) ++ byteSliceToList(encodeVarint(rowid)) ++ bytes
+
+def indexSchemaCells(schemas: List[DecodedRecord], roots: List[Int], startRowid: Long): List[List[Int]] =
+  var ss = schemas
+  var rr = roots
+  var rid = startRowid
+  var accRev: List[List[Int]] = Nil
+  while ss.nonEmpty && rr.nonEmpty do
+    accRev = schemaCellFor(ss.head, rr.head.toLong, rid) :: accRev
+    ss = ss.tail
+    rr = rr.tail
+    rid = rid + 1L
+  accRev.reverse
+
+/** Rebuild a single-table database that has N indexes: the table's B-tree at page 2 and each
+ *  index's B-tree at a successive root, all schema records preserved with reassigned root pages.
+ *  This is a compact rebuild (no orphaned pages), so reference `integrity_check` passes; it is
+ *  what SQL INSERT/UPDATE/DELETE use to keep the indexes consistent. */
+def buildSingleTableIndexed(pageSize: Int, changeCounter: Int, schemaCookie: Int,
+    tableSchema: DecodedRecord, indexSchemas: List[DecodedRecord],
+    tableRows: List[KeyedRawRow], indexEntriesPerIndex: List[List[IndexEntry]]): Either[ByteError, ByteSlice] =
+  val tableLeaves = packLeaves(rawRowCells(tableRows), pageSize)
+  val tablePages = treePageCount(tableLeaves, pageSize)
+  buildIndexTreesSeq(indexEntriesPerIndex, pageSize, 2 + tablePages) match
+    case Left(error) => Left(error)
+    case Right(idxSeq) =>
+      buildTableLeafPage(pageSize, 100, schemaCellFor(tableSchema, 2L, 1L) :: indexSchemaCells(indexSchemas, idxSeq.roots, 2L)) match
+        case Left(error) => Left(error)
+        case Right(page1Body) =>
+          buildTableTreeAt(tableLeaves, pageSize, 2) match
+            case Left(error) => Left(error)
+            case Right(tableTree) =>
+              val pageCount = 1 + tablePages + idxSeq.totalPages
+              ByteSlice.fromList((tableFileHeader(pageSize, pageCount, changeCounter, schemaCookie) ++ page1Body) ++ tableTree ++ idxSeq.bytes)
 
 // ── Cell-level in-place edits on a single table-leaf page ──
 //

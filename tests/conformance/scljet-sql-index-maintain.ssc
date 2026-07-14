@@ -1,0 +1,38 @@
+---
+name: scljet-sql-index-maintain
+description: SclJet SQL index maintenance — INSERT/DELETE/UPDATE keep the index consistent (reference sqlite validates); cross-backend byte-identical
+backends: [int, js]
+---
+
+# SclJet SQL index maintenance on DML
+
+After `CREATE INDEX`, `INSERT`/`DELETE`/`UPDATE` on the table rebuild the database compactly (table +
+index, roots reassigned) so the index never goes stale — new rows are indexed, deleted rows are removed
+from the index, and updating an indexed column moves its entry. Reference `integrity_check`
+cross-validates the index against the table (a passing file proves consistency) and the planner uses
+it. int and JS produce byte-identical output; the exact bytes are locked here.
+
+[ByteSlice, byteSliceToList, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[executeMutation](std/scljet/sql.ssc)
+
+```scalascript
+def apply(db: ByteSlice, sql: String): ByteSlice =
+  executeMutation(db, sql) match
+    case Left(m) =>
+      println("ERR:" + m)
+      db
+    case Right(next) => next
+
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER, name TEXT, dept INTEGER)",
+  List(List(SqlInteger(1L), SqlText("ann"), SqlInteger(20L)),
+       List(SqlInteger(2L), SqlText("bob"), SqlInteger(10L)),
+       List(SqlInteger(3L), SqlText("cat"), SqlInteger(30L)),
+       List(SqlInteger(4L), SqlText("dan"), SqlInteger(10L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db0) =>
+    val db1 = apply(db0, "CREATE INDEX idx_dept ON emp(dept)")
+    val db2 = apply(db1, "INSERT INTO emp VALUES (5, 'eve', 10)")
+    val db3 = apply(db2, "DELETE FROM emp WHERE id = 2")
+    val db4 = apply(db3, "UPDATE emp SET dept = 99 WHERE id = 4")
+    println((db4.length / 512).toString + ":" + byteSliceToList(db4).toString)
+```

@@ -42,7 +42,7 @@ rows, applies the filter, and projects the result. `queryImage(dbBytes, sql)` op
 database image and returns the result rows; `renderRows` formats them like the sqlite3
 CLI (`a|b|c` per row, NULL blank) for differential testing.
 
-[ByteSlice, ByteError, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, ReadonlyDatabase, SchemaEntry, StorageRecord, DecodedRecord, DecodedText, RowidTableTree, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly, ReadonlyCursorStep, ReadonlyBtreeCursor, SqliteError, SqliteOpenOptions, SqliteLimits, OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, encodeRecord, openMutablePager, mutableCommit, mutableGet, mutablePut, MutablePager, PagerCommit, pagerInsertBalanced, pagerDeleteBalanced, readLeafCells, leafInsertCell, rebuildLeafPage, LeafCell, byteSliceSlice, byteSliceToList, byteSliceGet, writeU32Be, IndexEntry, buildIndexTree, sortIndexEntries, IndexTreeBytes](index.ssc)
+[ByteSlice, ByteError, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, ReadonlyDatabase, SchemaEntry, StorageRecord, DecodedRecord, DecodedText, RowidTableTree, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly, ReadonlyCursorStep, ReadonlyBtreeCursor, SqliteError, SqliteOpenOptions, SqliteLimits, OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, encodeRecord, openMutablePager, mutableCommit, mutableGet, mutablePut, MutablePager, PagerCommit, pagerInsertBalanced, pagerDeleteBalanced, readLeafCells, leafInsertCell, rebuildLeafPage, LeafCell, byteSliceSlice, byteSliceToList, byteSliceGet, writeU32Be, IndexEntry, buildIndexTree, sortIndexEntries, IndexTreeBytes, buildSingleTableIndexed, KeyedRawRow, SchemaIndex, SchemaTable](index.ssc)
 [ImageVfs, fieldValueAt](mutate.ssc)
 
 ```scalascript
@@ -2652,6 +2652,132 @@ def insertRowsLoop(pager: MutablePager, root: Int, startRowid: Long, rows: List[
     case Some(message) => Left(message)
     case None => Right((p, rid - 1L))
 
+// ── Index maintenance for SQL DML (single-table databases with 1+ indexes) ──
+// After an INSERT/UPDATE/DELETE on an indexed table, the whole database is rebuilt compactly
+// (table + every index, roots reassigned) so no page is orphaned and reference integrity_check
+// stays ok. Scoped to single-table databases; a table with no index keeps the fast incremental
+// path, and a multi-table database with indexes errors (a documented follow-up).
+
+case class SqlRow(rowid: Long, values: List[SqliteValue])
+case class IndexInfo(rawRecord: DecodedRecord, keyColumns: List[Int])
+
+def indexSqlColumns(sqlText: String): List[String] =
+  tokenize(sqlText) match
+    case Left(_) => Nil
+    case Right(toks) => parseCreateIndex(toks) match
+      case Left(_) => Nil
+      case Right(ci) => ci.columns
+
+def tableIndexInfos(db: ReadonlyDatabase, tableName: String, colNames: List[String]): List[IndexInfo] =
+  val target = upperStr(tableName)
+  var r = db.schema.entries
+  var accRev: List[IndexInfo] = Nil
+  while r.nonEmpty do
+    val e = r.head
+    val isIndex = e.kind match
+      case SchemaIndex => true
+      case _ => false
+    if isIndex && upperStr(cpToString(e.tableName.codePoints)) == target then
+      val cols = e.sql match
+        case Some(t) => indexSqlColumns(cpToString(t.codePoints))
+        case None => Nil
+      accRev = IndexInfo(e.rawRecord, indexColIndices(cols, colNames)) :: accRev
+    r = r.tail
+  accRev.reverse
+
+def countTables(db: ReadonlyDatabase): Int =
+  var r = db.schema.entries
+  var n = 0
+  while r.nonEmpty do
+    r.head.kind match
+      case SchemaTable => n = n + 1
+      case _ => n = n
+    r = r.tail
+  n
+
+def indexRawRecords(infos: List[IndexInfo]): List[DecodedRecord] =
+  var r = infos
+  var accRev: List[DecodedRecord] = Nil
+  while r.nonEmpty do
+    accRev = r.head.rawRecord :: accRev
+    r = r.tail
+  accRev.reverse
+
+def pickColumns(values: List[SqliteValue], keyColumns: List[Int]): List[SqliteValue] =
+  var r = keyColumns
+  var accRev: List[SqliteValue] = Nil
+  while r.nonEmpty do
+    accRev = listNth(values, r.head) :: accRev
+    r = r.tail
+  reverseValues(accRev, Nil)
+
+def sqlRowsToKeyed(rows: List[SqlRow]): Either[String, List[KeyedRawRow]] =
+  var r = rows
+  var accRev: List[KeyedRawRow] = Nil
+  var err: Option[String] = None
+  while r.nonEmpty && err.isEmpty do
+    encodeRecord(r.head.values) match
+      case Left(error) => err = Some(error.message)
+      case Right(rec) => accRev = KeyedRawRow(r.head.rowid, byteSliceToList(rec)) :: accRev
+    r = r.tail
+  err match
+    case Some(message) => Left(message)
+    case None => Right(accRev.reverse)
+
+def indexEntriesForRows(rows: List[SqlRow], keyColumns: List[Int]): Either[String, List[IndexEntry]] =
+  var r = rows
+  var accRev: List[IndexEntry] = Nil
+  var err: Option[String] = None
+  while r.nonEmpty && err.isEmpty do
+    val kv = pickColumns(r.head.values, keyColumns)
+    encodeRecord(kv ++ (SqlInteger(r.head.rowid) :: Nil)) match
+      case Left(error) => err = Some(error.message)
+      case Right(rec) => accRev = IndexEntry(kv, r.head.rowid, byteSliceToList(rec)) :: accRev
+    r = r.tail
+  err match
+    case Some(message) => Left(message)
+    case None => Right(reverseIndexEntries(accRev, Nil))
+
+def indexEntriesAll(rows: List[SqlRow], infos: List[IndexInfo]): Either[String, List[List[IndexEntry]]] =
+  var r = infos
+  var accRev: List[List[IndexEntry]] = Nil
+  var err: Option[String] = None
+  while r.nonEmpty && err.isEmpty do
+    indexEntriesForRows(rows, r.head.keyColumns) match
+      case Left(message) => err = Some(message)
+      case Right(entries) => accRev = entries :: accRev
+    r = r.tail
+  err match
+    case Some(message) => Left(message)
+    case None => Right(accRev.reverse)
+
+// Rebuild the whole (single-table) database from the new full row set + its indexes.
+def reindexTable(dbBytes: ByteSlice, db: ReadonlyDatabase, tableName: String, newRows: List[SqlRow], infos: List[IndexInfo]): Either[String, ByteSlice] =
+  val pageSize = db.pager.header.pageSize
+  val cc = toIntVal(SqlInteger(db.pager.header.changeCounter))
+  val sc = toIntVal(SqlInteger(db.schema.cookie))
+  findTable(db, tableName) match
+    case None => Left("no such table: " + tableName)
+    case Some(entry) => sqlRowsToKeyed(newRows) match
+      case Left(message) => Left(message)
+      case Right(keyed) => indexEntriesAll(newRows, infos) match
+        case Left(message) => Left(message)
+        case Right(entriesPerIndex) => buildSingleTableIndexed(pageSize, cc, sc, entry.rawRecord, indexRawRecords(infos), keyed, entriesPerIndex) match
+          case Left(error) => Left(error.message)
+          case Right(bytes) => Right(bytes)
+
+def storageToSqlRows(rows: List[StorageRecord], ncols: Int): List[SqlRow] =
+  var r = rows
+  var accRev: List[SqlRow] = Nil
+  while r.nonEmpty do
+    val rec = r.head
+    val rowid = rec.rowid match
+      case Some(id) => id
+      case None => 0L
+    accRev = SqlRow(rowid, extractValues(rec, ncols)) :: accRev
+    r = r.tail
+  accRev.reverse
+
 def executeInsert(dbBytes: ByteSlice, stmt: InsertStmt): Either[String, ByteSlice] =
   tableContext(dbBytes, stmt.table) match
     case Left(message) => Left(message)
@@ -2668,11 +2794,27 @@ def executeInsert(dbBytes: ByteSlice, stmt: InsertStmt): Either[String, ByteSlic
             if stmt.rows.isEmpty then Right(dbBytes)
             else
               val rowid0 = maxRowidOf(rows) + 1L
-              insertRowsLoop(openMutablePager(dbBytes, pageSize, pageSize), root, rowid0, stmt.rows, stmt.columns, colNames, pageSize) match
-                case Left(message) => Left(message)
-                case Right(pr) => mutableCommit(pr._1, pr._2) match
-                  case Left(error) => Left(error.message)
-                  case Right(pc) => Right(pc.pager.image)
+              val infos = tableIndexInfos(db, stmt.table, colNames)
+              if infos.isEmpty then
+                insertRowsLoop(openMutablePager(dbBytes, pageSize, pageSize), root, rowid0, stmt.rows, stmt.columns, colNames, pageSize) match
+                  case Left(message) => Left(message)
+                  case Right(pr) => mutableCommit(pr._1, pr._2) match
+                    case Left(error) => Left(error.message)
+                    case Right(pc) => Right(pc.pager.image)
+              else if countTables(db) != 1 then Left("index maintenance on a multi-table database is not yet supported")
+              else reindexTable(dbBytes, db, stmt.table, storageToSqlRows(rows, colNames.length) ++ insertedSqlRows(stmt.rows, stmt.columns, colNames, rowid0), infos)
+
+// Rows to be inserted, as SqlRows with assigned sequential rowids (unlisted columns → NULL).
+def insertedSqlRows(valueRows: List[List[SqliteValue]], columns: List[String], colNames: List[String], startRowid: Long): List[SqlRow] =
+  var r = valueRows
+  var rid = startRowid
+  var accRev: List[SqlRow] = Nil
+  while r.nonEmpty do
+    val vals = if columns.isEmpty then r.head else reorderInsertValues(columns, r.head, colNames)
+    accRev = SqlRow(rid, vals) :: accRev
+    rid = rid + 1L
+    r = r.tail
+  accRev.reverse
 
 def deleteRowidLoop(pager: MutablePager, root: Int, rowids: List[Long], pageSize: Int): Either[String, MutablePager] =
   var p = pager
@@ -2702,11 +2844,37 @@ def executeDelete(dbBytes: ByteSlice, stmt: DeleteStmt): Either[String, ByteSlic
           case Right(rows) =>
             val victims = matchingRowids(rows, stmt.where, colNames)
             if victims.isEmpty then Right(dbBytes)
-            else deleteRowidLoop(openMutablePager(dbBytes, pageSize, pageSize), root, victims, pageSize) match
-              case Left(message) => Left(message)
-              case Right(pager) => mutableCommit(pager, 1L) match
-                case Left(error) => Left(error.message)
-                case Right(pc) => Right(pc.pager.image)
+            else
+              val infos = tableIndexInfos(db, stmt.table, colNames)
+              if infos.isEmpty then
+                deleteRowidLoop(openMutablePager(dbBytes, pageSize, pageSize), root, victims, pageSize) match
+                  case Left(message) => Left(message)
+                  case Right(pager) => mutableCommit(pager, 1L) match
+                    case Left(error) => Left(error.message)
+                    case Right(pc) => Right(pc.pager.image)
+              else if countTables(db) != 1 then Left("index maintenance on a multi-table database is not yet supported")
+              else reindexTable(dbBytes, db, stmt.table, keepSqlRows(rows, colNames.length, victims), infos)
+
+def longInList(x: Long, xs: List[Long]): Boolean =
+  var r = xs
+  var found = false
+  while r.nonEmpty && !found do
+    if r.head == x then found = true
+    r = r.tail
+  found
+
+// Existing rows minus the given rowids, as SqlRows (for index-maintaining DELETE).
+def keepSqlRows(rows: List[StorageRecord], ncols: Int, victims: List[Long]): List[SqlRow] =
+  var r = rows
+  var accRev: List[SqlRow] = Nil
+  while r.nonEmpty do
+    val rec = r.head
+    val rowid = rec.rowid match
+      case Some(id) => id
+      case None => 0L
+    if !longInList(rowid, victims) then accRev = SqlRow(rowid, extractValues(rec, ncols)) :: accRev
+    r = r.tail
+  accRev.reverse
 
 // ── UPDATE (delete + reinsert at the same rowid — handles any size change) ──
 
@@ -2910,15 +3078,35 @@ def executeUpdate(dbBytes: ByteSlice, stmt: UpdateStmt): Either[String, ByteSlic
         case Left(error) => Left(error.message)
         case Right(cursor) => collectRows(db, cursor) match
           case Left(error) => Left(error.message)
-          case Right(rows) => buildUpdateEdits(rows, colNames, stmt) match
-            case Left(message) => Left(message)
-            case Right(edits) =>
-              if edits.isEmpty then Right(dbBytes)
-              else applyUpdates(openMutablePager(dbBytes, pageSize, pageSize), root, edits, pageSize) match
-                case Left(message) => Left(message)
-                case Right(pager) => mutableCommit(pager, 1L) match
-                  case Left(error) => Left(error.message)
-                  case Right(pc) => Right(pc.pager.image)
+          case Right(rows) =>
+            val infos = tableIndexInfos(db, stmt.table, colNames)
+            if infos.isEmpty then buildUpdateEdits(rows, colNames, stmt) match
+              case Left(message) => Left(message)
+              case Right(edits) =>
+                if edits.isEmpty then Right(dbBytes)
+                else applyUpdates(openMutablePager(dbBytes, pageSize, pageSize), root, edits, pageSize) match
+                  case Left(message) => Left(message)
+                  case Right(pager) => mutableCommit(pager, 1L) match
+                    case Left(error) => Left(error.message)
+                    case Right(pc) => Right(pc.pager.image)
+            else if countTables(db) != 1 then Left("index maintenance on a multi-table database is not yet supported")
+            else reindexTable(dbBytes, db, stmt.table, updatedSqlRows(rows, colNames, stmt), infos)
+
+// Existing rows with WHERE-matched rows' values replaced by the SET assignments (for
+// index-maintaining UPDATE — the index entry uses each row's new key).
+def updatedSqlRows(rows: List[StorageRecord], colNames: List[String], stmt: UpdateStmt): List[SqlRow] =
+  var r = rows
+  var accRev: List[SqlRow] = Nil
+  while r.nonEmpty do
+    val rec = r.head
+    val rowid = rec.rowid match
+      case Some(id) => id
+      case None => 0L
+    val vals = extractValues(rec, colNames.length)
+    val newVals = if whereHolds(stmt.where, rec, colNames) then applyAssignments(vals, colNames, stmt.assignments) else vals
+    accRev = SqlRow(rowid, newVals) :: accRev
+    r = r.tail
+  accRev.reverse
 
 // ── CREATE TABLE (append a schema row on page 1 + an empty table root) ──
 
