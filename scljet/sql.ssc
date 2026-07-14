@@ -1209,6 +1209,60 @@ def sortPairsBy(pairs: List[JoinPair], colsA: List[String], tableA: String, cols
     val half = n / 2
     mergePairs(sortPairsBy(takePairs(pairs, half), colsA, tableA, colsB, tableB, keys), sortPairsBy(dropPairs(pairs, half), colsA, tableA, colsB, tableB, keys), colsA, tableA, colsB, tableB, keys)
 
+def reversePairGroups(items: List[List[JoinPair]], acc: List[List[JoinPair]]): List[List[JoinPair]] =
+  var r = items
+  var out = acc
+  while r.nonEmpty do
+    out = r.head :: out
+    r = r.tail
+  out
+
+def pairGroupEqual(a: JoinPair, b: JoinPair, colsA: List[String], tableA: String, colsB: List[String], tableB: String, groupCols: List[String]): Boolean =
+  var r = groupCols
+  var eq = true
+  while r.nonEmpty && eq do
+    if sqlCompare(joinPairValue(a, colsA, tableA, colsB, tableB, r.head), joinPairValue(b, colsA, tableA, colsB, tableB, r.head)) != 0 then eq = false
+    r = r.tail
+  eq
+
+def partitionPairs(sorted: List[JoinPair], colsA: List[String], tableA: String, colsB: List[String], tableB: String, groupCols: List[String]): List[List[JoinPair]] =
+  var r = sorted
+  var curRev: List[JoinPair] = Nil
+  var groupsRev: List[List[JoinPair]] = Nil
+  while r.nonEmpty do
+    if curRev.isEmpty then curRev = r.head :: Nil
+    else if pairGroupEqual(curRev.head, r.head, colsA, tableA, colsB, tableB, groupCols) then curRev = r.head :: curRev
+    else
+      groupsRev = reversePairs(curRev, Nil) :: groupsRev
+      curRev = r.head :: Nil
+    r = r.tail
+  val groups = if curRev.nonEmpty then reversePairs(curRev, Nil) :: groupsRev else groupsRev
+  reversePairGroups(groups, Nil)
+
+def havingHoldsPairs(having: Option[HavingCond], group: List[JoinPair], colsA: List[String], tableA: String, colsB: List[String], tableB: String): Boolean = having match
+  case None => true
+  case Some(hc) => condMatches(hc.op, sqlCompare(computeJoinAgg(hc.item, group, colsA, tableA, colsB, tableB), hc.value))
+
+def filterPairGroups(groups: List[List[JoinPair]], having: Option[HavingCond], colsA: List[String], tableA: String, colsB: List[String], tableB: String): List[List[JoinPair]] =
+  var r = groups
+  var accRev: List[List[JoinPair]] = Nil
+  while r.nonEmpty do
+    if havingHoldsPairs(having, r.head, colsA, tableA, colsB, tableB) then accRev = r.head :: accRev
+    r = r.tail
+  reversePairGroups(accRev, Nil)
+
+def mapPairGroups(groups: List[List[JoinPair]], projection: List[ProjItem], colsA: List[String], tableA: String, colsB: List[String], tableB: String): List[List[SqliteValue]] =
+  var r = groups
+  var accRev: List[List[SqliteValue]] = Nil
+  while r.nonEmpty do
+    accRev = computeJoinAggregates(projection, r.head, colsA, tableA, colsB, tableB) :: accRev
+    r = r.tail
+  var out: List[List[SqliteValue]] = Nil
+  while accRev.nonEmpty do
+    out = accRev.head :: out
+    accRev = accRev.tail
+  out
+
 def joinExecute(db: ReadonlyDatabase, stmt: SelectStmt, spec: JoinSpec): Either[String, List[List[SqliteValue]]] =
   joinTableRows(db, stmt.table) match
     case Left(message) => Left(message)
@@ -1239,7 +1293,11 @@ def joinExecute(db: ReadonlyDatabase, stmt: SelectStmt, spec: JoinSpec): Either[
               pairsRev = JoinPair(ra.head, noneB) :: pairsRev
           ra = ra.tail
         val pairs = reversePairs(pairsRev, Nil)
-        if projHasAgg(stmt.projection) then Right(computeJoinAggregates(stmt.projection, pairs, colsA, stmt.table, colsB, spec.table) :: Nil)
+        if stmt.groupBy.nonEmpty then
+          val sortedForGroup = sortPairsBy(pairs, colsA, stmt.table, colsB, spec.table, groupKeysOf(stmt.groupBy))
+          val groups = filterPairGroups(partitionPairs(sortedForGroup, colsA, stmt.table, colsB, spec.table, stmt.groupBy), stmt.having, colsA, stmt.table, colsB, spec.table)
+          Right(limitValueRows(mapPairGroups(groups, stmt.projection, colsA, stmt.table, colsB, spec.table), stmt.limit, stmt.offset))
+        else if projHasAgg(stmt.projection) then Right(computeJoinAggregates(stmt.projection, pairs, colsA, stmt.table, colsB, spec.table) :: Nil)
         else
           var pp = if stmt.orderBy.isEmpty then pairs else sortPairsBy(pairs, colsA, stmt.table, colsB, spec.table, stmt.orderBy)
           var resultRev: List[List[SqliteValue]] = Nil

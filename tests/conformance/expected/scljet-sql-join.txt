@@ -30,3 +30,6 @@ ann|eng
 bob|sales
 SELECT emp.name FROM emp JOIN dept ON emp.dept = dept.did ORDER BY emp.id DESC LIMIT 2 => cat
 bob
+SELECT dept.dname, COUNT(*), SUM(emp.id) FROM emp JOIN dept ON emp.dept = dept.did GROUP BY dept.dname => eng|2|4
+sales|1|2
+SELECT dept.dname, COUNT(*) FROM emp JOIN dept ON emp.dept = dept.did GROUP BY dept.dname HAVING COUNT(*) >= 2 => eng|2

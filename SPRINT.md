@@ -1635,8 +1635,16 @@ order, so `SELECT *` matches without ORDER BY), and int==js.
 **SclJet SQL is now broad**: full CRUD (incl. column-list INSERT), SELECT with DISTINCT, multi-column
 ORDER BY / LIMIT / OFFSET, aggregates (COUNT/SUM/MIN/MAX/AVG/TOTAL), GROUP BY + HAVING, CREATE TABLE,
 and inner + LEFT joins — every feature byte-verified against reference sqlite3, int==js.
-Remaining follow-ups (niche): multi-table joins, GROUP BY over a join, page-1 schema split,
-repeating-decimal %.15g.
+Remaining follow-ups (niche): multi-table (3+) joins, page-1 schema split, repeating-decimal %.15g.
+
+- [x] **scljet-m5s-join-group-by** — DONE 2026-07-14. GROUP BY (+ HAVING) over a join — joins now at
+      full SELECT parity. `joinExecute`, when GROUP BY is present, sorts the matched `JoinPair`s by the
+      group key (`sortPairsBy`), partitions into consecutive runs (`partitionPairs`/`pairGroupEqual`),
+      drops groups failing HAVING (`filterPairGroups`/`havingHoldsPairs` via `computeJoinAgg`), and emits
+      one row per group (`mapPairGroups` → `computeJoinAggregates`). Verified vs sqlite3 (`GROUP BY b.col`
+      with COUNT/SUM/MIN over qualified columns, `GROUP BY … HAVING COUNT(*) >= n`), int==js; folded into
+      `scljet-sql-join` (16 queries). **JOINS COMPLETE**: inner + LEFT, aggregates, DISTINCT, ORDER BY,
+      GROUP BY, HAVING — all byte-verified vs sqlite3.
 
 - [x] **scljet-m5r-join-orderby** — DONE 2026-07-14. ORDER BY over a join: `sortPairsBy` stable
       merge-sorts the matched `JoinPair`s by the order keys (`pairOrderCompare` via `joinPairValue`,

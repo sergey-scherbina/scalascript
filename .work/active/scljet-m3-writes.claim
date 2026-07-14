@@ -1,6 +1,6 @@
 feature/scljet-m3-writes 2026-07-13T11:38:32Z
 agent: claude-code
-heartbeat: 2026-07-14T13:32:34Z
+heartbeat: 2026-07-14T13:37:08Z
 status: in-progress
 done-so-far: m3b/m3c/m3d + m3e journal FORMAT done. Cell-overflow DONE (single-leaf buildOverflowTableDatabase + multi-leaf buildOverflowBtreeDatabase). ARBITRARY-DEPTH (3+ level) B-tree DONE: buildDeepTableDatabase stacks interior levels bottom-up until a single-page root, pages numbered top-down — real 3-level tree verified (80 pages, integrity ok, depth 3, rows exact), byte-identical to buildTableDatabase for 2-level, int==js (conformance scljet-write-deep-btree, fingerprinted). Required iterative page assembly (cellsFlatten/buildLeafPages) + CLOSED scljet-byteslice-zeros-js-recursion (made zerosList/validateBytes/buildChunks/collectBytes iterative in bytes.ssc). FOUND interpreter bug interp-var-scope-leak-across-calls (BUGS.md): callee var clobbers caller's same-named live var → use unique prefixed var names. 14 scljet cases green [int,js] --no-memo. Standalone move via symlink (kept).
 DEEP+OVERFLOW combined DONE (buildDeepOverflowTableDatabase; 88-page 3-level tree w/ overflow chains, integrity ok, int==js; conformance scljet-write-deep-overflow). Bulk-build write matrix COMPLETE. Interp var-scope bug root-caused (BlockRuntime:230,242 write vars to globals by name) in BUGS.md — NOT fixed (architectural, broad blast radius).
