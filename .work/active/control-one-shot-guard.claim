@@ -1,6 +1,6 @@
 feature/control-one-shot-guard 2026-07-14T18:35:06Z
 agent: codex-interop
-heartbeat: 2026-07-14T18:35:06Z
-status: not-started
-done-so-far: selected the first open control interoperability runtime gap from SPRINT.md
-next: create a worktree, reproduce both portable-VM lanes, spec the typed one-shot violation contract, then implement and verify
+heartbeat: 2026-07-14T18:35:43Z
+status: in-progress
+done-so-far: claimed the first open control interoperability runtime gap and created the isolated feature worktree
+next: reproduce both portable-VM lanes, spec the typed one-shot violation contract, then implement and verify
