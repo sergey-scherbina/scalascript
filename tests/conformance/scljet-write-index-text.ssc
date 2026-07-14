@@ -1,0 +1,26 @@
+---
+name: scljet-write-index-text
+description: SclJet index writer on a TEXT column — BINARY-collation index B-tree that reference SQLite validates and uses (cross-backend)
+backends: [int, js]
+---
+
+# SclJet text-column index
+
+[ByteSlice, byteSliceToList, SqliteValue, SqlInteger, SqlText, buildTableWithIndexDatabase](std/scljet/index.ssc)
+
+```scalascript
+// Index on a TEXT column with out-of-order and duplicate values. Entries sort by
+// (name, rowid) in BINARY order; reference integrity_check validates the index and
+// the query planner uses it. int and JS agree.
+val rows = List(
+  List(SqlInteger(1L), SqlText("carol")),
+  List(SqlInteger(2L), SqlText("alice")),
+  List(SqlInteger(3L), SqlText("dave")),
+  List(SqlInteger(4L), SqlText("bob")),
+  List(SqlInteger(5L), SqlText("alice")))
+
+buildTableWithIndexDatabase(512, 1, 1, "t", "CREATE TABLE t(id INTEGER, name TEXT)",
+  "byname", "CREATE INDEX byname ON t(name)", 1, rows) match
+  case Right(bytes) => println((bytes.length / 512).toString + ":" + byteSliceToList(bytes).toString)
+  case Left(error) => println("ERROR:" + error.message)
+```

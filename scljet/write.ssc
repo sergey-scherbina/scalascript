@@ -1238,7 +1238,41 @@ def buildMultiTableRaw(pageSize: Int, changeCounter: Int, schemaCookie: Int, tab
 // the record's last field). Reference `integrity_check` cross-checks the index
 // against its table, so a passing file proves the index is correct.
 
-case class IndexEntry(key: Long, rowid: Long, record: List[Int])
+case class IndexEntry(key: SqliteValue, rowid: Long, record: List[Int])
+
+/** SQLite's cross-type sort order: NULL < numeric < TEXT < BLOB. */
+def valueClass(value: SqliteValue): Int = value match
+  case SqlNull => 0
+  case SqlInteger(_) => 1
+  case SqlReal(_) => 1
+  case SqlText(_) => 2
+  case SqlBlob(_) => 3
+
+def integerOf(value: SqliteValue): Long = value match
+  case SqlInteger(x) => x
+  case _ => 0L
+
+def textOf(value: SqliteValue): String = value match
+  case SqlText(x) => x
+  case _ => ""
+
+/** Compare two index-key values: by storage class first, then numeric value /
+ *  BINARY text order (codepoint = byte order for ASCII/BMP). Single-level matches
+ *  only (via `integerOf`/`textOf`) — a nested `match` here miscompiles on the
+ *  interpreter's JIT (BUGS.md interp-jit-nested-match-duplicate-var). */
+def compareKeys(a: SqliteValue, b: SqliteValue): Int =
+  val ca = valueClass(a)
+  val cb = valueClass(b)
+  if ca != cb then (if ca < cb then -1 else 1)
+  else if ca == 1 then
+    val x = integerOf(a)
+    val y = integerOf(b)
+    if x < y then -1 else if x > y then 1 else 0
+  else if ca == 2 then
+    val x = textOf(a)
+    val y = textOf(b)
+    if x < y then -1 else if x > y then 1 else 0
+  else 0
 
 /** A leaf B-tree page with an explicit page kind (13 = table leaf, 10 = index
  *  leaf). Same body layout as `buildTableLeafPage`. */
@@ -1261,10 +1295,6 @@ def nthValue(values: List[SqliteValue], index: Int): SqliteValue =
     case Cons(_, tail) => nthValue(tail, index - 1)
     case Nil => SqlNull
 
-def integerKey(value: SqliteValue): Long = value match
-  case SqlInteger(v) => v
-  case _ => 0L
-
 /** Build one index entry per row: record = `[key column value, rowid]`. */
 def buildIndexEntries(rows: List[List[SqliteValue]], keyColumn: Int, startRowid: Long): Either[ByteError, List[IndexEntry]] =
   var bieRemaining = rows
@@ -1276,7 +1306,7 @@ def buildIndexEntries(rows: List[List[SqliteValue]], keyColumn: Int, startRowid:
     encodeRecord(List(bieKey, SqlInteger(bieRowid))) match
       case Left(error) => bieFailure = Some(error)
       case Right(record) =>
-        bieAcc = IndexEntry(integerKey(bieKey), bieRowid, byteSliceToList(record)) :: bieAcc
+        bieAcc = IndexEntry(bieKey, bieRowid, byteSliceToList(record)) :: bieAcc
         bieRowid = bieRowid + 1L
         bieRemaining = bieRemaining.tail
   bieFailure match
@@ -1286,7 +1316,8 @@ def buildIndexEntries(rows: List[List[SqliteValue]], keyColumn: Int, startRowid:
 def insertIndexEntry(sorted: List[IndexEntry], entry: IndexEntry): List[IndexEntry] = sorted match
   case Nil => entry :: Nil
   case Cons(head, tail) =>
-    if entry.key < head.key || (entry.key == head.key && entry.rowid < head.rowid) then entry :: sorted
+    val cmp = compareKeys(entry.key, head.key)
+    if cmp < 0 || (cmp == 0 && entry.rowid < head.rowid) then entry :: sorted
     else head :: insertIndexEntry(tail, entry)
 
 def sortIndexEntries(entries: List[IndexEntry]): List[IndexEntry] =
