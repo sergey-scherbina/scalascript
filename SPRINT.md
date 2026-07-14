@@ -11,47 +11,9 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ## control-vectors-audit-followup — reproduce + record codex-interop audit findings (2026-07-14, claude)
 
-Done (this claim): fixed the Rust-multi-shot-deferred drift in
-`tests/interop-conformance/probes/02-multi-shot-resume.ssc`; reproduced and recorded two open
-portable-VM effect-runtime gaps in BUGS.md + as `pending-runtime` conformance axes.
+The audit's Rust multi-shot drift and portable one-shot guard are complete and
+recorded in `CHANGELOG.md`. The remaining active control-runtime follow-ups are:
 
-- [ ] **one-shot-violation guard** (`BUGS.md control-interop-portable-vm-oneshot-guard-absent`)
-      — resume-twice on a non-`multi` effect is silently allowed on both portable-VM tiers
-      (interp + bytecode). The raw/Mira `Pure | Op` substrate remains reusable; the typed
-      `.ssc` declaration surface lowers plain `effect` to one-shot and `multi effect` to
-      reusable without adding a CoreIR continuation/effect node or changing the 3-field Op.
-      Baseline (assembled `bin/ssc`, 2026-07-14): both `run` and `run --bytecode` return `3`;
-      legacy `bin/ssc-tools run --v1` reports `One-shot violation: One.op resumed more than once`.
-  - [x] **Spec freeze:** reconciled and landed in `1ce890611`: `SPEC.md`,
-        `specs/control-interoperability.md`, the portable
-        profile, and the v2 raw-Comp specs. Added target-neutral `AlreadyResumed(operation)`;
-        froze the `.ssc` projection as non-user-catchable
-        `ControlRunFailure(AlreadyResumed(operation))` with separate stable code
-        `ONESHOT_VIOLATION` and legacy-compatible message, while Scala host `tryResume` keeps
-        returning `Left(ResumeRejected.AlreadyResumed(operation))`; documented additive
-        `effect.perform.oneshot@1` ABI/allowlist and unchanged CoreIR codec.
-  - [ ] **Multiplicity-preserving lowering:** retain the parser Boolean in the self-hosted
-        lowerer and compatibility bridge; emit an explicit one-shot perform path for plain
-        `.ssc effect`, keep raw `effect.perform` and `multi effect` reusable, and preserve
-        current CoreIR/`Op(label,arg,k)` shapes; run the affected ssc1 fixed-point gate.
-  - [ ] **Shared runtime guard:** put one atomic CAS gate on the base continuation so VM/ASM
-        bind, sequence, deep-handler, and forwarding wrappers all share it; the second or
-        concurrent caller loses deterministically before executing the suffix.
-  - [ ] **Regressions and stale fixtures:** add direct runtime + lowerer checks, VM/ASM e2e
-        negative and positive controls, promote interop axis 21, change axis 02 and the native
-        effect-handler fixture plus `examples/effects.ssc` to explicit `multi effect`, and cover
-        Swift AOT (the only currently advertised generated typed-effect lane) in the same slice;
-        new v2 JS/Rust/WASM remain explicitly unsupported for the whole `effect.*` family.
-  - [ ] **Verify and close:** run focused Scala tests, assembled `installBin`, exact VM/ASM
-        repros, `tests/interop-conformance/run.sh`, native effect-handler e2e, and affected
-        `tests/conformance/run.sh --only 'effects|effect-*'`; then mark BUGS fixed (not done
-        until reporter confirmation), update spec behavior checkboxes/results, and bookkeeping.
-  - [ ] **Unblock the mandatory fixed-point gate**
-        (`BUGS.md v21-stage2-gate-ignores-symlinked-std-sources`): its source-manifest
-        `find` must follow the documented `runtime/std/scljet` compatibility symlink, matching
-        `installBin`'s recursive glob. Baseline after a fresh install: source manifest 105 files,
-        staged image 124, exactly the 19 SclJet `.ssc` files omitted. Fix with symlink-following
-        enumeration and rerun `scripts/v21-stage2-bootstrap-gate` to full green.
 - [ ] **stack-safe effect continuation** (`BUGS.md control-interop-effect-recursion-stack-unsafe`)
       — effect-performing recursion overflows the native stack ~500–2000 depth on both tiers
       (pure TCO fine to 2M). Needs a heap-allocated continuation. Conformance axis 20 stays pending-runtime.

@@ -4,6 +4,27 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-15 — Portable one-shot effect continuations
+
+Implemented the typed `.ssc effect` multiplicity contract across the v2
+self-hosted and compatibility lowerers, shared JVM VM/direct-ASM runtime, CLI
+boundary, and Swift AOT (`cbdc4791a`). Plain effects now own one linearizable
+base-continuation claim and fail a second resume with structured
+`AlreadyResumed(OperationId)` / stable `ONESHOT_VIOLATION`; `.ssc try/catch`
+cannot intercept it. Raw CoreIR/Mira `effect.perform` and `multi effect` remain
+reusable, and the three-field `Op` plus canonical CoreIR encoding are unchanged.
+User docs landed in `f92594ff3`; verified specification and bug statuses in
+`695a7f69e`.
+
+Verification passed 4/4 direct JVM runtime tests (including a 64-way race), 3/3
+compatibility-lowering checks, 3/3 real Swift tests (including its 64-way native
+race), exact assembled VM/ASM negative and multi=`3` controls, native e2e, 10/10
+measurable interop axes, and 6/6 affected conformance cases. The self-hosted
+single/multi fixed points and 131-file source-exact image also pass; the gate's
+previous symlink-blind manifest was corrected in `13b29852e`. Residual forwarding
+(axis 19), stack-safe deep effect recursion (axis 20), and Swift implicit-`Return`
+fallback remain explicit follow-ups rather than being reported as completed.
+
 ## 2026-07-14 — Scala control host module canonical naming
 
 Simplified the Scala host leaf to the canonical source home
