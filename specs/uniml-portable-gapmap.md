@@ -254,4 +254,41 @@ probes and **GREEN** on the rest; it becomes fully green as the gaps close.
 
 ## Results
 
-To be updated as gaps close (Phase 3).
+### 2026-07-14 — MILESTONE: the JSON dialect compiles AND runs correctly on v2
+
+Driving the *actual* flattened JSON module (core 7 files + json 4 files → one `.ssc`, via
+`scratchpad/flatten-json.py`) through `v2/ssc1`, root-causing each blocker from the IR and verifying
+every fix with an isolated probe, then re-running the whole module. Final result for
+`{"a": 1, "b": [true, null]}`: **`roots=1`, `status=Complete`, 0 diagnostics** — a correct CST that
+matches scalac semantics. unimlJson stays 16/16 on the JVM (incl. the ujson differential).
+
+Ten root-caused bugs, all landed (conformance-gated; UniML side JVM-gated):
+
+**v2 frontend parse (`ssc1-front.ssc0`):**
+1. Leading `final`/`private` modifiers weren't keywords → parsed as bare vars (`isLeadModTok`).
+2. Trailing comma in a case-class param list injected a phantom field (arity N+1) — stop at `,` before `)`.
+3. Same trailing-comma bug in **`def`** param lists (`parseParamList`).
+4. A header wrapping before `extends`/`with`/`derives` split at the NL — added those to `isCont`.
+5. A continuation-line header reset the layout `declHead`, so the body `:` never framed → only the
+   first member captured (rest → Stub). Preserve declHead across a continuation NL.
+6. `\r`/`\b`/`\f` missing from string-escape decoding; `\uXXXX` unhandled in BOTH string and char
+   literals (decoded to "u" + stray tokens → false "surrogate" errors). Added hex4/hexDigit.
+
+**v2 lowering (`ssc1-lower.ssc0`):**
+7. All-named case-class construction omitting a defaulted field emitted a `__missing_named_arg`
+   sentinel instead of the default (`reorderByFieldsD`).
+8. Case-class body methods couldn't call sibling methods — a bare `helper(x)` didn't resolve to
+   `Tag_helper` nor prepend `self`. Added `caseSelfCtxCell` + app-path rewrite. (Core to any stateful
+   processor written as an immutable case class — UniML's `TreeVm`, `JsonInstructionProcessor`.)
+
+**UniML side (portable subset):**
+9. Lexer built lexemes via `char.toString`/`s"$char"` — not portable (v2 has no Char box → decimal
+   codes). Switched to `text.substring(i, i+1)` (behaviour-identical on JVM).
+
+Remaining for full dual-compile: the OTHER dialects (YAML/Markdown lexers likely share the same
+`char.toString`/escape idioms — sweep them the same way) and a full multi-input v2-vs-JVM differential
+across the JSON corpus. The hard self-hosted-compiler gaps are now closed; what's left is mechanical.
+
+The old Phase-3 asks below (Array floor, multi-file package/import, anon instances) are OBSOLETE —
+the immutable rewrite removed the need for a mutable-array floor, and the flattened-module approach
+sidesteps multi-file import. The real gaps were the 8 frontend/lowering bugs above.
