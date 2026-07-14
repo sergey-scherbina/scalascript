@@ -1,7 +1,0 @@
-slug: v2.2-p6.4-scale
-scope: harden the spike via more gold-standard scale tests — diverse whole-module programs stressing
-       feature-interaction boundaries (sequential/nested matches, extension+given+enum boundaries,
-       interpolation with method-access holes, lambdas in blocks, deep recursion). Fix any byte-identity
-       bugs the combinations expose; all must reach CoreIR≡ssc1-front.
-files: uniml/core/src/test/.../spike/**, specs/v2.2-*, SPRINT.md
-branch: feature/v2.2-p6.4-scale
