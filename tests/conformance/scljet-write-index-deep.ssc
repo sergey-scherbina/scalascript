@@ -1,0 +1,46 @@
+---
+name: scljet-write-index-deep
+description: SclJet 3-level index B-tree — interior level itself overflows, so interior levels stack with promoted separators (cross-backend)
+backends: [int, js]
+---
+
+# SclJet deep (3-level) index
+
+3000 rows with a descending key `k`, index on `k`. The index needs ~60 leaves and
+their separators overflow one interior page, so interior levels stack until a
+single-page root — a genuine **3-level** index B-tree (root interior kind 2 → an
+interior level → leaves kind 10). Verified out-of-band against reference SQLite
+3.53.3: `integrity_check` cross-validates the multi-level index against the table,
+the planner uses it (`SEARCH t USING COVERING INDEX`), and walking rightmost
+children gives depth 3. Two-level output stays byte-identical to before.
+Fingerprinted (iterative Adler-32) so int and JS must agree byte-for-byte.
+
+[ByteSlice, byteSliceGet, SqliteValue, SqlInteger, buildTableWithIndexDatabase](std/scljet/index.ssc)
+
+```scalascript
+def buildRows(n: Int): List[List[SqliteValue]] =
+  var brI = 0
+  var brAcc: List[List[SqliteValue]] = Nil
+  while brI < n do
+    brAcc = List(SqlInteger((n - brI).toLong)) :: brAcc
+    brI = brI + 1
+  brAcc.reverse
+
+def adler32(bytes: ByteSlice): Long =
+  var adI = 0
+  var adA = 1L
+  var adB = 0L
+  while adI < bytes.length do
+    byteSliceGet(bytes, adI) match
+      case Right(b) =>
+        adA = (adA + b.toLong) % 65521L
+        adB = (adB + adA) % 65521L
+      case Left(e) => adA = adA
+    adI = adI + 1
+  adB * 65536L + adA
+
+buildTableWithIndexDatabase(512, 1, 1, "t", "CREATE TABLE t(k INTEGER)",
+  "by_k", "CREATE INDEX by_k ON t(k)", List(0), buildRows(3000)) match
+  case Right(bytes) => println((bytes.length / 512).toString + ":" + bytes.length.toString + ":" + adler32(bytes).toString)
+  case Left(error) => println("ERROR:" + error.message)
+```

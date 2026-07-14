@@ -1374,7 +1374,7 @@ def buildInteriorPageKind(pageSize: Int, headerOffset: Int, cells: List[List[Int
   val total = cellsTotal(cells)
   val contentStart = pageSize - total
   val gap = contentStart - (headerOffset + 12 + 2 * count)
-  if gap < 0 then Left(ByteError("overflow", "interior index cells do not fit (3-level index is a follow-up)", 0))
+  if gap < 0 then Left(ByteError("overflow", "interior index cells do not fit one page", 0))
   else
     val csField = if contentStart == 65536 then 0 else contentStart
     val header = List(kind, 0, 0) ++ writeBe16(count) ++ writeBe16(csField) ++ List(0) ++ writeBe32(rightChild)
@@ -1448,22 +1448,147 @@ def indexInteriorCells(separators: List[IndexEntry], firstChild: Int): List[List
     iicRemaining = iicRemaining.tail
   iicAcc.reverse
 
-/** Build the whole index tree rooted at `indexRoot`. Single leaf (kind 10) when
- *  it all fits one page; otherwise an interior root (kind 2) over the leaves. */
+// ── Arbitrary-depth index B-tree (stacked interior levels, promoted separators) ──
+//
+// When even the interior separators overflow one page, interior levels stack like
+// a table's deep tree (buildDeepTableDatabase) — but an index interior carries
+// PROMOTED SEPARATOR RECORDS (a real entry between two children), so splitting a
+// level promotes the between-page separator up to the parent.
+
+case class IdxNode(childCount: Int, separators: List[IndexEntry])
+case class IdxLevelPlan(nodes: List[IdxNode], promoted: List[IndexEntry])
+
+/** Interior index cell footprint incl. its 2-byte pointer:
+ *  `2 (pointer) + 4 (leftChild) + varint(payloadLen) + record`. */
+def idxCellCost(record: List[Int]): Int = 6 + varintLen(record.length.toLong) + record.length
+
+/** Pack one interior level: `childCount` children (in order) with the
+ *  `childCount-1` separators between adjacent children. Group children into
+ *  interior pages — each holds a run of children with their in-between separators
+ *  as divider cells; the separator between two pages is PROMOTED to the parent.
+ *  `12 + Σ idxCellCost` is exactly what `buildInteriorPageKind` checks, so every
+ *  produced node fits one page. `while`+`var` (not recursion). */
+def packIdxLevel(childCount: Int, separators: List[IndexEntry], pageSize: Int): IdxLevelPlan =
+  var pilSeps = separators
+  var pilChild = 0
+  var pilNodeCount = 0
+  var pilNodeSepsRev: List[IndexEntry] = Nil
+  var pilNodeSize = 12
+  var pilNodesRev: List[IdxNode] = Nil
+  var pilPromotedRev: List[IndexEntry] = Nil
+  while pilChild < childCount do
+    if pilNodeCount == 0 then
+      pilNodeCount = 1
+      pilNodeSepsRev = Nil
+      pilNodeSize = 12
+      pilChild = pilChild + 1
+    else
+      val pilSep = pilSeps.head
+      val pilCost = idxCellCost(pilSep.record)
+      if pilNodeSize + pilCost <= pageSize then
+        pilNodeSepsRev = pilSep :: pilNodeSepsRev
+        pilNodeSize = pilNodeSize + pilCost
+        pilNodeCount = pilNodeCount + 1
+        pilSeps = pilSeps.tail
+        pilChild = pilChild + 1
+      else
+        pilNodesRev = IdxNode(pilNodeCount, pilNodeSepsRev.reverse) :: pilNodesRev
+        pilPromotedRev = pilSep :: pilPromotedRev
+        pilSeps = pilSeps.tail
+        pilNodeCount = 1
+        pilNodeSepsRev = Nil
+        pilNodeSize = 12
+        pilChild = pilChild + 1
+  val pilNodes = if pilNodeCount > 0 then IdxNode(pilNodeCount, pilNodeSepsRev.reverse) :: pilNodesRev else pilNodesRev
+  IdxLevelPlan(pilNodes.reverse, pilPromotedRev.reverse)
+
+/** Divider cells of one interior node: separator `i` sits between the node's child
+ *  `i` (at `childStart + firstChild + i`) and child `i+1`. */
+def buildIdxDividers(childStart: Int, firstChild: Int, separators: List[IndexEntry]): List[List[Int]] =
+  var bidRemaining = separators
+  var bidI = 0
+  var bidAcc: List[List[Int]] = Nil
+  while bidRemaining.nonEmpty do
+    bidAcc = indexInteriorCell(childStart + firstChild + bidI, bidRemaining.head.record) :: bidAcc
+    bidI = bidI + 1
+    bidRemaining = bidRemaining.tail
+  bidAcc.reverse
+
+/** Build one interior level's page bodies; its children begin at `childStart`. */
+def buildIdxLevelPages(level: List[IdxNode], childStart: Int, pageSize: Int): Either[ByteError, List[List[Int]]] =
+  var bilpRemaining = level
+  var bilpFirstChild = 0
+  var bilpAcc: List[List[Int]] = Nil
+  var bilpFailure: Option[ByteError] = None
+  while bilpRemaining.nonEmpty && bilpFailure.isEmpty do
+    val bilpNode = bilpRemaining.head
+    val bilpDividers = buildIdxDividers(childStart, bilpFirstChild, bilpNode.separators)
+    val bilpRightmost = childStart + bilpFirstChild + bilpNode.childCount - 1
+    buildInteriorPageKind(pageSize, 0, bilpDividers, bilpRightmost, 2) match
+      case Left(error) => bilpFailure = Some(error)
+      case Right(body) => bilpAcc = body :: bilpAcc
+    bilpFirstChild = bilpFirstChild + bilpNode.childCount
+    bilpRemaining = bilpRemaining.tail
+  bilpFailure match
+    case Some(error) => Left(error)
+    case None => Right(bilpAcc.reverse)
+
+/** Build every index interior level top-down, threading page numbers like
+ *  `buildInteriorLevels`: the head level begins at `startPage`, its children (the
+ *  next level, or the leaves) begin right after it. */
+def buildIdxLevels(levels: List[List[IdxNode]], startPage: Int, pageSize: Int): Either[ByteError, List[List[Int]]] = levels match
+  case Nil => Right(Nil)
+  case Cons(level, tail) =>
+    val bilChildStart = startPage + level.length
+    buildIdxLevelPages(level, bilChildStart, pageSize) match
+      case Left(error) => Left(error)
+      case Right(bilThis) =>
+        buildIdxLevels(tail, bilChildStart, pageSize) match
+          case Left(error) => Left(error)
+          case Right(bilRest) => Right(bilThis ++ bilRest)
+
+def totalIdxPages(levels: List[List[IdxNode]]): Int =
+  var tipRemaining = levels
+  var tipTotal = 0
+  while tipRemaining.nonEmpty do
+    tipTotal = tipTotal + tipRemaining.head.length
+    tipRemaining = tipRemaining.tail
+  tipTotal
+
+/** Build the whole index tree rooted at `indexRoot`, to ANY depth. One kind-10 leaf
+ *  if it all fits; else interior levels (kind 2, promoted separators) stacked
+ *  bottom-up until a single-page root, numbered top-down (root, interior levels,
+ *  then the leaves). Two-level output is byte-identical to the earlier single
+ *  interior over the leaves. */
 def buildIndexTree(entries: List[IndexEntry], pageSize: Int, indexRoot: Int): Either[ByteError, IndexTreeBytes] =
   val plan = packIndexTree(entries, pageSize)
-  if plan.leafGroups.length <= 1 then
+  val leafCount = plan.leafGroups.length
+  if leafCount <= 1 then
     buildLeafPageKind(pageSize, 0, indexLeafCells(entries), 10) match
       case Left(error) => Left(error)
       case Right(leaf) => Right(IndexTreeBytes(leaf, 1))
   else
-    buildIndexLeaves(plan.leafGroups, pageSize) match
+    var bitLevels: List[List[IdxNode]] = Nil
+    var bitCount = leafCount
+    var bitSeps = plan.separators
+    var bitDone = false
+    while !bitDone do
+      val bitPlan = packIdxLevel(bitCount, bitSeps, pageSize)
+      bitLevels = bitPlan.nodes :: bitLevels
+      // Stop at a single-page root; the `>= bitCount` guard avoids a non-reducing
+      // loop for pathological oversized keys.
+      if bitPlan.nodes.length <= 1 || bitPlan.nodes.length >= bitCount then bitDone = true
+      else
+        bitCount = bitPlan.nodes.length
+        bitSeps = bitPlan.promoted
+    val bitInteriorPages = totalIdxPages(bitLevels)
+    buildIdxLevels(bitLevels, indexRoot, pageSize) match
       case Left(error) => Left(error)
-      case Right(leaves) =>
-        val rightChild = indexRoot + plan.leafGroups.length
-        buildInteriorPageKind(pageSize, 0, indexInteriorCells(plan.separators, indexRoot + 1), rightChild, 2) match
+      case Right(bitInterior) =>
+        buildIndexLeaves(plan.leafGroups, pageSize) match
           case Left(error) => Left(error)
-          case Right(interior) => Right(IndexTreeBytes(interior ++ cellsFlatten(leaves), 1 + plan.leafGroups.length))
+          case Right(bitLeaves) =>
+            Right(IndexTreeBytes(cellsFlatten(bitInterior) ++ cellsFlatten(bitLeaves), bitInteriorPages + leafCount))
 
 /** Assemble a database with one rowid table and one single-leaf index on a single
  *  integer column of it. Page 1 = schema (table entry root 2, index entry root
