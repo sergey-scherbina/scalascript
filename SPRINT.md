@@ -237,9 +237,12 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
           (wrap-as-def, lift body), folded right-assoc into ++; md→Pair(prim,__mdStrip__). scanInterpEnd/
           scanNestedStr balance ${…}. 41 tests + harness: interp-var/interp-expr(inner x+1 re-parsed)/
           interp-md, all CoreIR≡ssc1-front. **Corpus now 43 programs, 0 fail.** Notes §P6.3e.
-    - [ ] **P6.3 remaining: only f"…"** (printf format specifiers → __fInterpolate__) — projected to a hole
-          for now; small follow-on. Everything else in P6.3 (hybrid composition + registry hook + strings +
-          s/${expr}/md interpolation) is done and byte-identical.
+    - [x] **P6.3e+ f-interpolation ✓ Landed 2026-07-14** (7393c406f): f"…" printf specs → __fInterpolate__,
+          byte-identical (fInterp mirrors buildFInterp/goFArgs/splitFFormatPrefix). interp-f→CoreIR≡ssc1-front.
+    - [x] **P6.3 injection + registry COMPLETE** — hybrid composition + registry hook (closed/user-closed) +
+          trailing-EOL tolerance + string literals + all four interpolators (s/f/raw/md). **44-program corpus,
+          all Core IR byte-identical to ssc1-front, 0 fail.** Remaining edge cases (f-arg bare `_`, brace in
+          a ${…} nested string) = future polish. Next roadmap phase: **P6.4 self-host proof.**
   - [ ] **P6.4 self-host proof** — compile v2.2 with itself (stage1→stage2 fixed point); scalac oracle.
   - [ ] **P6.5 (follow-on, non-gate)** — port `ssc1-lower` from ssc0 into the subset (whole compiler
         dual-compilable end to end).
