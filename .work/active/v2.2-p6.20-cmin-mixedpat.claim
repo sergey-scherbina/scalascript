@@ -1,5 +1,0 @@
-claim: v2.2-p6.20-cmin-mixedpat
-branch: feature/v2.2-p6.20-cmin-mixedpat
-what: P6.20 — close remaining C_min pattern gaps: mixed tuple patterns `case (0, v)` (int-lit + var) and
-      nested cons `a :: b :: t`. Keep stage1==stage2 fixpoint + spike byte-identity.
-started: 2026-07-14
