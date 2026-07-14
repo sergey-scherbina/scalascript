@@ -2253,6 +2253,12 @@ object Prims:
     case "__math_obj__" => _ => ForeignV("__math__")
     case "cell.new" => a => ForeignV(scala.Array[Value](a(0)))
     case "cell.get" => a => asCell(a(0))(0)
+    // Safe cell read: a mutable `var` class field is stored as a cell, but the
+    // same field name may be a plain field in another class (dynamic dispatch),
+    // so external `obj.field` reads unwrap ONLY when the value is actually a cell.
+    case "cell.getOr" => a => a(0) match
+      case ForeignV(arr: scala.Array[?]) if arr.length == 1 => arr(0).asInstanceOf[Value]
+      case v => v
     // Generic resolve is the path used by Emit.prim* in direct ASM. Keep it
     // effect-safe like resolve2 below: top-level vals are initialized through
     // cell.set, so storing a raw Op would make a following statement observe

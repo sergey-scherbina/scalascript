@@ -140,6 +140,73 @@ def memberOfL = (x, xs) =>
     case Nil => false
     case Cons(h, t) => if #seq(h, x) then true else memberOfL(x, t)
   }
+
+-- Mutable class `var` fields (--mutable flag; mutableFieldsCell = [Pair(tag, [names])]).
+-- A var field is stored as a CELL in the object's DataV, so reads/writes inside a
+-- method route through cell.get / cell.set on `_sel_<field>(__self)`.
+def classVarFields = (tag) =>
+  let rec go = (rs) =>
+    match rs {
+      case Nil => Nil
+      case Cons(r, rest) =>
+        match r { case Pair(t, vs) => if #seq(t, tag) then vs else go(rest) }
+    } in
+  go(#cell.get(mutableFieldsCell))
+-- Is `name` a var field of the CURRENT method's class (caseSelfCtxCell tag)?
+def isCurrentVarField = (name) =>
+  match #cell.get(caseSelfCtxCell) {
+    case Nil => false
+    case Pair(tag, sibs) => memberOfL(name, classVarFields(tag))
+  }
+-- Is `name` a `var` field of ANY class? Used to unwrap an external `obj.field`
+-- read (the receiver's class is not known statically); the unwrap is SAFE
+-- (cell.getOr) so a same-named non-var field elsewhere is unaffected.
+def isAnyVarField = (name) =>
+  let rec go = (rs) =>
+    match rs {
+      case Nil => false
+      case Cons(r, rest) =>
+        match r { case Pair(t, vs) => if memberOfL(name, vs) then true else go(rest) }
+    } in
+  go(#cell.get(mutableFieldsCell))
+-- Already a `cell.new(...)` wrap? resolveE can revisit the ctor args, so the wrap
+-- must be idempotent (else `cell.new(cell.new(5))`).
+def isCellNewWrap = (e) =>
+  match e {
+    case Pair(t, d) =>
+      if #seq(t, "prim") then (match d { case Pair(op, xs) => #seq(op, "cell.new") })
+      else false
+  }
+def classFieldOrder = (tag) =>
+  let rec go = (rs) =>
+    match rs {
+      case Nil => Nil
+      case Cons(r, rest) =>
+        match r { case Pair(t, fs) => if #seq(t, tag) then fs else go(rest) }
+    } in
+  go(#cell.get(caseFieldOrderCell))
+-- Wrap the (positional) ctor args of a mutable class at var-field positions in a
+-- `cell.new` so the DataV stores a cell for each `var` field.
+def cellWrapCtorArgs = (cname, args) =>
+  let vars = classVarFields(cname) in
+  match vars {
+    case Nil => args
+    case Cons(vh, vt) =>
+      let rec go = (fields, as) =>
+        match as {
+          case Nil => Nil
+          case Cons(a, arest) =>
+            match fields {
+              case Cons(f, frest) =>
+                let a2 = if memberOfL(f, vars) then
+                           (if isCellNewWrap(a) then a else Pair("prim", Pair("cell.new", Cons(a, Nil))))
+                         else a in
+                Cons(a2, go(frest, arest))
+              case Nil => Cons(a, go(Nil, arest))
+            }
+        } in
+      go(classFieldOrder(cname), args)
+  }
 -- Names of MUTABLE `var` members of the object being lowered. A read/write of such
 -- a name inside the object's methods routes to the owner-prefixed global cell
 -- (`Owner_name__cell`), like a top-level var — objects with mutable state
@@ -437,7 +504,10 @@ def isTupleField = (name) =>
 -- plugin field — _sel_<field> was an unbound global otherwise).
 def selOrMethod = (field, robj) =>
   if isCaseField(field) then
-    Pair("app", Pair(Pair("var", #sconcat("_sel_", field)), Cons(robj, Nil)))
+    let base = Pair("app", Pair(Pair("var", #sconcat("_sel_", field)), Cons(robj, Nil))) in
+    -- A mutable `var` field is stored as a cell; an external `obj.field` read
+    -- unwraps it (safely — cell.getOr is a no-op on non-cells).
+    if isAnyVarField(field) then Pair("prim", Pair("cell.getOr", Cons(base, Nil))) else base
   else if isTupleField(field) then
     Pair("app", Pair(Pair("var", #sconcat("_sel_", field)), Cons(robj, Nil)))
   else
@@ -1869,7 +1939,7 @@ def resolveE = (expr) =>
                             }
                         }
                     }
-                  else Pair("app", Pair(fn, resolveCtorArgs(fdata, rargs)))
+                  else Pair("app", Pair(fn, cellWrapCtorArgs(fdata, resolveCtorArgs(fdata, rargs))))
                 else if #seq(ftag, "sel") then
                   match fdata {
                     case Pair(obj, method) =>
@@ -2144,7 +2214,7 @@ def lowerE = (scope, rawExpr) =>
     case Pair(tag, data) =>
       if #seq(tag, "ctorap") then
         match data {
-          case Pair(name, args) => IrCtor(name, lowerArgs(scope, args))
+          case Pair(name, args) => IrCtor(name, lowerArgs(scope, cellWrapCtorArgs(name, args)))
         }
       else if #seq(tag, "prim") then
         match data {
@@ -2218,6 +2288,12 @@ def lowerE = (scope, rawExpr) =>
                         case Some(s) => s
                         case None => IrGlobal(data)
                       }
+                    else if isCurrentVarField(data) then
+                      -- A mutable `var` field read inside a method: the field stores
+                      -- a cell, so read its current value via cell.get(_sel_f(__self)).
+                      IrPrim("cell.get",
+                        Cons(IrApp(IrGlobal(#sconcat("_sel_", data)),
+                               Cons(lookupVar(scope, "__self"), Nil)), Nil))
                     else if #i.gt(#slen(caseSiblingGlobal(scope, data)), 0) then
                       -- A bare reference to a NULLARY sibling method inside a
                       -- (case-)class body (`def describe = area.toString`) calls it
@@ -2391,6 +2467,14 @@ def lowerE = (scope, rawExpr) =>
         -- (Missing @@ check here emitted a bogus IrGlobal("@x") — the T5.1 bug.)
         match data {
           case Pair(name, expr) =>
+            if isCurrentVarField(name) then
+              -- Write to a mutable `var` field inside a method: cell.set on the
+              -- field's cell (`_sel_name(__self)`).
+              IrPrim("cell.set",
+                Cons(IrApp(IrGlobal(#sconcat("_sel_", name)),
+                       Cons(lookupVar(scope, "__self"), Nil)),
+                  Cons(lowerE(scope, expr), Nil)))
+            else
             let llName = #sconcat("@@", name) in
             match lookupVarOpt(scope, llName) {
               case Some(lcellRef) =>
@@ -4435,9 +4519,16 @@ def lowerCaseMethodBody = (fields, scope, body) =>
   match fields {
     case Nil => lowerE(scope, body)
     case Cons(f, rest) =>
-      IrLet(Cons(IrApp(IrGlobal(#sconcat("_sel_", f)),
-                   Cons(lookupVar(scope, "__self"), Nil)), Nil),
-            lowerCaseMethodBody(rest, Cons(f, scope), body))
+      -- A mutable `var` field is NOT bound as a local: it is stored as a cell in
+      -- the DataV, so a read routes to `cell.get(_sel_f(__self))` and a write to
+      -- `cell.set(...)` (handled in lowerE's var branch / assign lowering). Binding
+      -- it as a local would snapshot the cell and lose mutation across reads.
+      if isCurrentVarField(f) then
+        lowerCaseMethodBody(rest, scope, body)
+      else
+        IrLet(Cons(IrApp(IrGlobal(#sconcat("_sel_", f)),
+                     Cons(lookupVar(scope, "__self"), Nil)), Nil),
+              lowerCaseMethodBody(rest, Cons(f, scope), body))
   }
 def caseMethodDefsFor = (tag, fields, defs) =>
   match defs {
