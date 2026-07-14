@@ -1093,6 +1093,15 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
           fixpoint holds (`stage1 == stage2`, 29954 B; C1 compiles → 42), and `spike(cmin.L) ≡ ssc1-front(
           cmin.L)` byte-identical (55520 B) — the spike already treats `//`/`/* */` as trivia (p6.0). Fixpoint
           script gained a `comment` L-test (trailing `// …` skipped to EOL).
+    - [x] **P6.18 — CAPSTONE: C_min compiles an INDEPENDENT program ✓ DONE 2026-07-14.**
+          `specs/v2.2-p6.18-rpn.L` is a Reverse-Polish-Notation calculator written in L — a string tokenizer +
+          a stack machine (~20 defs using match on lists/tuples, `::`, if-chain kind-dispatch, `.charAt`/
+          `.length`, recursion, `>=`/`<=`/`&&`). `specs/v2.2-p6.18-capstone.sh` builds C_min, uses it to compile
+          rpn.L to Core IR, and runs it on several RPN expressions: `2 3 4 * +`→14, `3 4 + 5 *`→35, `100 20 30
+          + -`→50, `2 3 + 4 5 + *`→45, etc. — all correct. C_min compiling a real independent program (beyond
+          compiling itself) is the proof that it is a general-purpose compiler for L, closing the P6.6→P6.18
+          self-host arc: a self-compiling compiler (fixpoint) for an idiomatic Scala-subset language, byte-
+          identically bootstrappable by the UniML spike front.
 
 ---
 
