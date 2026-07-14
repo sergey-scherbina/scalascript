@@ -1801,6 +1801,17 @@ ORDER BY / LIMIT / OFFSET, aggregates (COUNT/SUM/MIN/MAX/AVG/TOTAL), GROUP BY + 
 and inner + LEFT joins — every feature byte-verified against reference sqlite3, int==js.
 Remaining follow-ups (niche): multi-table (3+) joins, page-1 schema split, repeating-decimal %.15g.
 
+- [x] **scljet-m6c-scalar-functions** — DONE 2026-07-14. Scalar functions inside expressions:
+      `UPPER`/`LOWER` (ASCII), `LENGTH` (char count of the text form), `ABS`, `COALESCE` (first
+      non-null). New `SxCall(func, args)` AST node; `parseExprAtom` parses `ident(` as a call (via
+      `parseCallArgs`, comma-separated `parseExpr`), else a column — so functions compose with
+      arithmetic and work in both projection and `WHERE` (`WHERE LENGTH(name) > 3`,
+      `WHERE UPPER(name) = 'BOB'`). `evalCall` runs over evaluated args (NULL arg → NULL, except
+      COALESCE); wired into all three evaluators (`evalExpr`/`evalExprJoin`/`evalExprValues`). Does not
+      collide with aggregate parsing (aggregates are caught earlier by `isAggStart`). Verified vs
+      sqlite3, int==js; conformance `scljet-sql-func`. Next candidates: `||` concat, more functions
+      (SUBSTR/ROUND/TRIM), `CASE WHEN`.
+
 - [x] **scljet-m6b-update-set-expr** — DONE 2026-07-14. `UPDATE t SET col = <expr>` — the assignment
       RHS may be a scalar expression over the row: self-reference (`salary = salary + 100`,
       `salary = salary * 2`), cross-column (`salary = salary - bonus`, `bonus = salary / 10`), and a
