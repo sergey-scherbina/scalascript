@@ -1478,9 +1478,15 @@ order, so `SELECT *` matches without ORDER BY), and int==js.
       optional `( col, … )` before VALUES; `InsertStmt.columns`; `executeInsert` maps the values to
       declared-column order (`reorderInsertValues`, unnamed columns → NULL). Verified vs sqlite3 (full,
       reordered, partial), int==js; conformance `scljet-sql-insert-cols`.
-- [ ] **scljet-m5k-group-by** — `SELECT col, AGG(col2) FROM t [WHERE …] GROUP BY col [ORDER BY …]`:
-      partition filtered rows by the group key, compute aggregates per group, emit one row per group.
-      Verify vs sqlite3 (group counts/sums, group + ORDER BY).
+- [x] **scljet-m5k-group-by** — DONE 2026-07-14. Refactored the projection to a unified `ProjItem`
+      list (column OR aggregate, mixed) — `parseProjItem`/`parseProjectionList`; `SelectStmt.projection:
+      List[ProjItem]` + `groupBy: List[String]` (parsed by `parseGroupBy` after WHERE). `executeSelect`:
+      GROUP BY → sort filtered rows by the group key, `groupPartition` into consecutive runs, one row
+      per group via `projectGroupRow` (aggregate over the group, or the group's first-row value for a
+      bare column); whole-table aggregate (no GROUP BY) = one group. Verified vs sqlite3 (per-group
+      COUNT/SUM/MIN/MAX, WHERE+GROUP, distinct via `GROUP BY col`, group-by-int, whole-table agg),
+      int==js; conformance `scljet-sql-group-by`. AVG-per-group excluded (repeating-decimal `%.15g`
+      follow-up). REMAINING: `HAVING`, ORDER BY over grouped output, joins.
 - [ ] **scljet-m5l-create-table** — `CREATE TABLE t(col type, …)`: append a `sqlite_schema` row for
       the new table + allocate an empty table root. Inserting into the page-1 schema B-tree needs
       balance at `headerOffset = 100` (the 100-byte file header on page 1) — generalize the balance

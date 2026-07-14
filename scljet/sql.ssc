@@ -8,6 +8,7 @@ exports:
   - Condition
   - OrderKey
   - AggItem
+  - ProjItem
   - SelectStmt
   - tokenize
   - parseSelect
@@ -157,7 +158,7 @@ def tokenize(sql: String): Either[String, List[Token]] =
 // ── Parser: SELECT (*|cols) FROM table [WHERE col op literal] ──
 
 case class Condition(column: String, op: String, value: SqliteValue)
-case class SelectStmt(star: Boolean, columns: List[String], table: String, where: Option[Condition], orderBy: List[OrderKey], limit: Int, offset: Int, aggregates: List[AggItem])
+case class SelectStmt(star: Boolean, projection: List[ProjItem], table: String, where: Option[Condition], orderBy: List[OrderKey], limit: Int, offset: Int, groupBy: List[String])
 
 def isKw(token: Token, word: String): Boolean = token.kind == "ident" && upperStr(token.text) == word
 
@@ -327,14 +328,80 @@ def parseAggregates(toks: List[Token]): Either[String, (List[AggItem], List[Toke
     case None => Right((reverseAggs(accRev, Nil), rest))
 
 // Parse the projection: `*`, an aggregate list, or a plain column list.
-def parseProjection(toks: List[Token]): Either[String, (Boolean, List[String], List[AggItem], List[Token])] =
-  if tkKind(toks) == "star" then Right((true, Nil, Nil, toks.tail))
-  else if isAggStart(toks) then parseAggregates(toks) match
+// A projection item: a plain column (`isAgg=false`, `name` = column) or an aggregate
+// (`isAgg=true`, `func` = COUNT/SUM/…, `name` = its argument column or `*`).
+case class ProjItem(isAgg: Boolean, func: String, name: String)
+
+def reverseProj(items: List[ProjItem], acc: List[ProjItem]): List[ProjItem] =
+  var r = items
+  var out = acc
+  while r.nonEmpty do
+    out = r.head :: out
+    r = r.tail
+  out
+
+def parseProjItem(toks: List[Token]): Either[String, (ProjItem, List[Token])] =
+  if isAggStart(toks) then
+    val func = toks.head.text
+    val afterParen = toks.tail.tail
+    val argRes: Option[(String, List[Token])] =
+      if tkKind(afterParen) == "star" then Some(("*", afterParen.tail))
+      else if tkKind(afterParen) == "ident" then Some((afterParen.head.text, afterParen.tail))
+      else None
+    argRes match
+      case None => Left("expected a column or * inside the aggregate")
+      case Some(ap) =>
+        if tkKind(ap._2) != "rparen" then Left("expected ')' in the aggregate")
+        else Right((ProjItem(true, func, ap._1), ap._2.tail))
+  else if tkKind(toks) == "ident" then Right((ProjItem(false, "", toks.head.text), toks.tail))
+  else Left("expected a column or aggregate in the projection")
+
+def parseProjectionList(toks: List[Token]): Either[String, (List[ProjItem], List[Token])] =
+  var rest = toks
+  var accRev: List[ProjItem] = Nil
+  var err: Option[String] = None
+  var done = false
+  while !done && err.isEmpty do
+    parseProjItem(rest) match
+      case Left(message) => err = Some(message)
+      case Right(pair) =>
+        accRev = pair._1 :: accRev
+        rest = pair._2
+        if tkKind(rest) == "comma" then rest = rest.tail
+        else done = true
+  err match
+    case Some(message) => Left(message)
+    case None => Right((reverseProj(accRev, Nil), rest))
+
+def parseProjection(toks: List[Token]): Either[String, (Boolean, List[ProjItem], List[Token])] =
+  if tkKind(toks) == "star" then Right((true, Nil, toks.tail))
+  else parseProjectionList(toks) match
     case Left(message) => Left(message)
-    case Right(aggPair) => Right((false, Nil, aggPair._1, aggPair._2))
-  else parseColumnList(Nil, toks) match
-    case Left(message) => Left(message)
-    case Right(colPair) => Right((false, colPair._1, Nil, colPair._2))
+    case Right(pair) => Right((false, pair._1, pair._2))
+
+// Parse optional `GROUP BY col [, col]*`; returns the group columns (empty = none).
+def parseGroupBy(toks: List[Token]): Either[String, (List[String], List[Token])] =
+  if !tkIsKw(toks, "GROUP") then Right((Nil, toks))
+  else
+    val afterGroup = toks.tail
+    if !tkIsKw(afterGroup, "BY") then Left("expected BY after GROUP")
+    else
+      var rest = afterGroup.tail
+      var accRev: List[String] = Nil
+      var err: Option[String] = None
+      var more = true
+      while more && err.isEmpty do
+        if tkKind(rest) != "ident" then
+          err = Some("expected column after GROUP BY")
+          more = false
+        else
+          accRev = rest.head.text :: accRev
+          rest = rest.tail
+          if tkKind(rest) == "comma" then rest = rest.tail
+          else more = false
+      err match
+        case Some(message) => Left(message)
+        case None => Right((reverseStrings(accRev, Nil), rest))
 
 def parseSelect(toks: List[Token]): Either[String, SelectStmt] =
   if !tkIsKw(toks, "SELECT") then Left("expected SELECT")
@@ -343,16 +410,18 @@ def parseSelect(toks: List[Token]): Either[String, SelectStmt] =
     parseProjection(afterSelect) match
       case Left(message) => Left(message)
       case Right(proj) =>
-        val afterCols = proj._4
+        val afterCols = proj._3
         if !tkIsKw(afterCols, "FROM") then Left("expected FROM")
         else
           val afterFrom = afterCols.tail
           if tkKind(afterFrom) != "ident" then Left("expected table name")
           else parseWhere(afterFrom.tail) match
             case Left(message) => Left(message)
-            case Right(wpair) => parseOrderLimit(wpair._2) match
+            case Right(wpair) => parseGroupBy(wpair._2) match
               case Left(message) => Left(message)
-              case Right(ol) => Right(SelectStmt(proj._1, proj._2, afterFrom.head.text, wpair._1, ol._1, ol._2, ol._3, proj._3))
+              case Right(gpair) => parseOrderLimit(gpair._2) match
+                case Left(message) => Left(message)
+                case Right(ol) => Right(SelectStmt(proj._1, proj._2, afterFrom.head.text, wpair._1, ol._1, ol._2, ol._3, gpair._1))
 
 // ── Column names from the table's CREATE TABLE text ──
 
@@ -461,18 +530,122 @@ def whereHolds(where: Option[Condition], rec: StorageRecord, colNames: List[Stri
   case None => true
   case Some(cond) => condMatches(cond.op, sqlCompare(rowValue(rec, colNames, cond.column), cond.value))
 
+def projItemNames(items: List[ProjItem]): List[String] =
+  var r = items
+  var accRev: List[String] = Nil
+  while r.nonEmpty do
+    accRev = r.head.name :: accRev
+    r = r.tail
+  reverseStrings(accRev, Nil)
+
+// Project a plain (non-aggregate) row: `*` = all columns, else each projection item's column.
 def projectRow(rec: StorageRecord, colNames: List[String], stmt: SelectStmt): List[SqliteValue] =
-  val names = if stmt.star then colNames else stmt.columns
+  val names = if stmt.star then colNames else projItemNames(stmt.projection)
   var r = names
   var accRev: List[SqliteValue] = Nil
   while r.nonEmpty do
     accRev = rowValue(rec, colNames, r.head) :: accRev
     r = r.tail
-  var out: List[SqliteValue] = Nil
+  reverseValues(accRev, Nil)
+
+def projHasAgg(items: List[ProjItem]): Boolean =
+  var r = items
+  var found = false
+  while r.nonEmpty do
+    if r.head.isAgg then found = true
+    r = r.tail
+  found
+
+def groupKeysOf(groupCols: List[String]): List[OrderKey] =
+  var r = groupCols
+  var accRev: List[OrderKey] = Nil
+  while r.nonEmpty do
+    accRev = OrderKey(r.head, false) :: accRev
+    r = r.tail
+  reverseKeys(accRev, Nil)
+
+def groupKeyEqual(a: StorageRecord, b: StorageRecord, colNames: List[String], groupCols: List[String]): Boolean =
+  var r = groupCols
+  var eq = true
+  while r.nonEmpty && eq do
+    if sqlCompare(rowValue(a, colNames, r.head), rowValue(b, colNames, r.head)) != 0 then eq = false
+    r = r.tail
+  eq
+
+def reverseGroups(items: List[List[StorageRecord]], acc: List[List[StorageRecord]]): List[List[StorageRecord]] =
+  var r = items
+  var out = acc
+  while r.nonEmpty do
+    out = r.head :: out
+    r = r.tail
+  out
+
+// Partition sorted rows into consecutive same-group runs.
+def groupPartition(sorted: List[StorageRecord], colNames: List[String], groupCols: List[String]): List[List[StorageRecord]] =
+  var r = sorted
+  var curRev: List[StorageRecord] = Nil
+  var groupsRev: List[List[StorageRecord]] = Nil
+  while r.nonEmpty do
+    if curRev.isEmpty then curRev = r.head :: Nil
+    else if groupKeyEqual(curRev.head, r.head, colNames, groupCols) then curRev = r.head :: curRev
+    else
+      groupsRev = reverseStorage(curRev, Nil) :: groupsRev
+      curRev = r.head :: Nil
+    r = r.tail
+  val groups = if curRev.nonEmpty then reverseStorage(curRev, Nil) :: groupsRev else groupsRev
+  reverseGroups(groups, Nil)
+
+// One output row for a group: each projection item is either an aggregate over the group
+// or a bare column (the group's first row's value; NULL for an empty group).
+def projectGroupRow(group: List[StorageRecord], colNames: List[String], items: List[ProjItem]): List[SqliteValue] =
+  var r = items
+  var accRev: List[SqliteValue] = Nil
+  while r.nonEmpty do
+    val item = r.head
+    val v = if item.isAgg then computeAgg(AggItem(item.func, item.name), group, colNames)
+      else if group.isEmpty then SqlNull
+      else rowValue(group.head, colNames, item.name)
+    accRev = v :: accRev
+    r = r.tail
+  reverseValues(accRev, Nil)
+
+def mapGroups(groups: List[List[StorageRecord]], colNames: List[String], items: List[ProjItem]): List[List[SqliteValue]] =
+  var r = groups
+  var accRev: List[List[SqliteValue]] = Nil
+  while r.nonEmpty do
+    accRev = projectGroupRow(r.head, colNames, items) :: accRev
+    r = r.tail
+  var out: List[List[SqliteValue]] = Nil
   while accRev.nonEmpty do
     out = accRev.head :: out
     accRev = accRev.tail
   out
+
+def dropValueRows(rows: List[List[SqliteValue]], n: Int): List[List[SqliteValue]] =
+  var r = rows
+  var i = 0
+  while i < n && r.nonEmpty do
+    r = r.tail
+    i = i + 1
+  r
+
+def takeValueRows(rows: List[List[SqliteValue]], n: Int): List[List[SqliteValue]] =
+  var r = rows
+  var i = 0
+  var accRev: List[List[SqliteValue]] = Nil
+  while i < n && r.nonEmpty do
+    accRev = r.head :: accRev
+    r = r.tail
+    i = i + 1
+  var out: List[List[SqliteValue]] = Nil
+  while accRev.nonEmpty do
+    out = accRev.head :: out
+    accRev = accRev.tail
+  out
+
+def limitValueRows(rows: List[List[SqliteValue]], limit: Int, offset: Int): List[List[SqliteValue]] =
+  val afterOffset = dropValueRows(rows, offset)
+  if limit < 0 then afterOffset else takeValueRows(afterOffset, limit)
 
 def collectRows(db: ReadonlyDatabase, cursor: ReadonlyBtreeCursor): Either[SqliteError, List[StorageRecord]] =
   readonlyFirst(db, cursor) match
@@ -694,7 +867,11 @@ def executeSelect(db: ReadonlyDatabase, stmt: SelectStmt): Either[String, List[L
           case Left(error) => Left(error.message)
           case Right(rows) =>
             val filtered = filterRows(rows, stmt.where, colNames)
-            if stmt.aggregates.nonEmpty then Right(computeAggregates(stmt.aggregates, filtered, colNames) :: Nil)
+            if stmt.groupBy.nonEmpty then
+              val sortedForGroup = sortStorage(filtered, colNames, groupKeysOf(stmt.groupBy))
+              val groups = groupPartition(sortedForGroup, colNames, stmt.groupBy)
+              Right(limitValueRows(mapGroups(groups, colNames, stmt.projection), stmt.limit, stmt.offset))
+            else if projHasAgg(stmt.projection) then Right(projectGroupRow(filtered, colNames, stmt.projection) :: Nil)
             else
               val sorted = if stmt.orderBy.isEmpty then filtered else sortStorage(filtered, colNames, stmt.orderBy)
               val limited = applyLimitOffset(sorted, stmt.limit, stmt.offset)

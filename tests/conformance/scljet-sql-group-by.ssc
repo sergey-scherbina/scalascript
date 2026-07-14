@@ -1,0 +1,38 @@
+---
+name: scljet-sql-group-by
+description: SclJet SQL GROUP BY — per-group aggregates, one row per group (matches reference sqlite3)
+backends: [int, js]
+---
+
+# SclJet SQL GROUP BY
+
+`SELECT col, AGG(col2) FROM t [WHERE …] GROUP BY col` partitions the WHERE-filtered rows by the
+group key (rows sorted by the key, then consecutive runs), computes each aggregate per group, and
+emits one row per group (groups in key order). Every result is byte-identical to reference sqlite3
+running the same SQL on the same file (verified out-of-band); locked here across backends.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def run(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(id INTEGER, dept TEXT, age INTEGER)",
+  List(List(SqlInteger(1L), SqlText("eng"), SqlInteger(30L)),
+       List(SqlInteger(2L), SqlText("sales"), SqlInteger(40L)),
+       List(SqlInteger(3L), SqlText("eng"), SqlInteger(25L)),
+       List(SqlInteger(4L), SqlText("hr"), SqlInteger(50L)),
+       List(SqlInteger(5L), SqlText("sales"), SqlInteger(35L)),
+       List(SqlInteger(6L), SqlText("eng"), SqlInteger(45L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db) =>
+    run(db, "SELECT dept, COUNT(*) FROM t GROUP BY dept")
+    run(db, "SELECT dept, COUNT(*), SUM(age), MIN(age), MAX(age) FROM t GROUP BY dept")
+    run(db, "SELECT dept, COUNT(*) FROM t WHERE age > 30 GROUP BY dept")
+    run(db, "SELECT dept FROM t GROUP BY dept")
+    run(db, "SELECT age, COUNT(*) FROM t GROUP BY age")
+    run(db, "SELECT COUNT(*), MAX(age) FROM t")
+```
