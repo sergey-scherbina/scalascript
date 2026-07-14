@@ -1,9 +1,9 @@
 # Bug tracker
 
-## spec-grammar-schema-links — OPEN (2026-07-14, Codex)
+## spec-grammar-schema-links — FIXED (2026-07-14, Codex)
 
-**Status:** open; found while mechanically checking local links after the
-bidirectional-control update to canonical `SPEC.md`.
+**Status:** fixed in `96fc5adfb`; found while mechanically checking local links
+after the bidirectional-control update to canonical `SPEC.md`.
 
 **Symptom:** `SPEC.md` links to `grammar/scalascript.ebnf` twice and
 `schemas/frontmatter.yaml` once, but the tracked files now live under
@@ -12,13 +12,13 @@ bidirectional-control update to canonical `SPEC.md`.
 **Reproduce:** both old targets fail `test -e`; `rg --files` finds the grammar and
 schema only at the `v1/lang/` paths.
 
-**Plan/verification:** update the three Markdown targets, assert both destination
-files exist, run Markdown lint, and record the landed SHA here.
+**Fix/verification:** all three links now target the tracked `v1/lang/` files;
+both destinations exist and the changed documentation passes Markdown lint.
 
-## backlog-active-queue-link — OPEN (2026-07-14, Codex)
+## backlog-active-queue-link — FIXED (2026-07-14, Codex)
 
-**Status:** open; found by `final_control_spec_audit` while verifying local links
-in the bidirectional-control planning slice.
+**Status:** fixed in `37c1a69c8`; found by `final_control_spec_audit` while
+verifying local links in the bidirectional-control planning slice.
 
 **Symptom:** `BACKLOG.md` links active work to nonexistent `ACTIVE.md`, while the
 repository's binding workflow and `SPRINT.md` define the active queue as
@@ -27,13 +27,14 @@ repository's binding workflow and `SPRINT.md` define the active queue as
 **Reproduce:** `test -e ACTIVE.md` fails; compare `BACKLOG.md` lines 3–4 with
 `SPRINT.md` lines 3–5 and `AGENTS.md`'s claiming protocol.
 
-**Plan/verification:** link to `SPRINT.md`, name the claim-file authority, run
-Markdown lint/local-link validation, and record the landed SHA here.
+**Fix/verification:** the header now links to `SPRINT.md` and names
+`.work/active/*.claim` on `origin/main` as the ownership authority; Markdown lint
+and the target-existence check pass.
 
-## control-companion-relative-links — OPEN (2026-07-14, Codex)
+## control-companion-relative-links — FIXED (2026-07-14, Codex)
 
-**Status:** open; found by `final_control_spec_audit` while checking the Scala 3
-bidirectional-control companion documents.
+**Status:** fixed in `96fc5adfb`; found by `final_control_spec_audit` while
+checking the Scala 3 bidirectional-control companion documents.
 
 **Symptom:** links in `specs/algebraic-effects.md` and `specs/coroutines.md` target
 `../direct-syntax.md` and, in the former, `../error-handling.md`. Those files are
@@ -43,15 +44,13 @@ under `docs/`, so rendered navigation from both specs is broken.
 `test -e specs/../direct-syntax.md` and `test -e specs/../error-handling.md` fail,
 while the corresponding `docs/` paths exist.
 
-**Plan/verification:** change the targets to `../docs/direct-syntax.md` and
-`../docs/error-handling.md`, run Markdown lint, and mechanically verify all local
-links in the changed companion/control specs. Record the landed SHA here.
+**Fix/verification:** the targets now use `../docs/`; both destination files
+exist, the changed companion/control links resolve, and Markdown lint passes.
 
 ## spec-effect-example-platform-type — FIXED (2026-07-14, Codex)
 
-**Status:** fixed in the Scala 3 bidirectional-control specification slice; found
-and confirmed by the reporter during the architecture audit, observed at
-`93962e590`.
+**Status:** fixed in `96fc5adfb`; found during the architecture audit, observed
+at `93962e590`.
 
 **Symptom:** canonical `SPEC.md` showed ordinary ScalaScript code implementing an
 effect clause with `scala.io.StdIn.readLine()`. Binding project architecture makes
@@ -62,7 +61,7 @@ platform-isolation contract.
 **Reproduce:** `rg -n "scala\.io\.StdIn" SPEC.md` at `93962e590` finds the invalid
 reference in §7.2.1.
 
-**Fix/verification:** the example is now a portable deterministic handler that
+**Fix/verification:** in `96fc5adfb` the example is a portable deterministic handler that
 resumes with `"Ada"`; the changed spec contains no `scala.io.StdIn`, and the control
 spec separately requires `std.*`, plugin, annotation, or backend-fence isolation for
 platform work. This was documentation-only; no runtime behavior changed.

@@ -4,6 +4,23 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-14 — Scala 3 ↔ ScalaScript bidirectional-control design freeze
+
+Published the normative architecture in `specs/scala3-bidirectional-control.md`
+(`96fc5adfb`) and synchronized the global effects contract plus Scala interop,
+coroutine, polyglot, v2.2 self-hosting, and v2 effect companions. The frozen design
+defines one typed `Pure | Op` semantics for ordinary Scala 3 and ScalaScript,
+generative multi-prompt `shift`/`reset`, descriptor-driven callbacks and mixed tail
+SCCs, and reusable `save`/`run` without prefix replay. Portable saves are closed
+CoreIR resume programs plus isolated frozen frames; mixed Scala/JVM saves are a
+separate exact-artifact representation launched by a new compatible runner; no
+existing application process is retained. The implementation remains explicitly planned in
+`SPRINT.md`, exact-artifact JVM first and packed CoreIR second, behind the P6.5/X1
+kernel gate. Focused conformance is green: effects/deep-handler/coroutine/tail
+4/4 (memoized); Markdown lint and touched-link checks pass.
+
+---
+
 ## 2026-07-14 — std-ui-button-size: sm/md/lg sizing for std/ui button primitives
 
 busi wants 4 nav buttons per row on a 390px-wide phone screen instead of 2 —
