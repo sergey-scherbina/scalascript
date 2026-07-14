@@ -460,9 +460,12 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
   - [ ] **P6.5 literal fixed point (follow-on, non-gate)** — the whole ScalaScript-subset compiler, written
         in the subset, compiling itself. No capability/design question remains (every construct + Core IR form
         is proven runnable in the subset). The remaining work is bounded MECHANICAL BREADTH, tracked here:
-    - [ ] **F1 — subset lexer in the subset.** Port `SpikeLex` (identifiers/keywords, ints, string literals +
-          escapes + interpolators, operator runs, punctuation, `//` + `/* */` comments) → a subset function
-          `lex(src): List[Token]`. Tokens as tagged tuples. Char-level lexing already proven (selfhost-full).
+    - [~] **F1 — subset lexer in the subset.** ✓ *Core landed 2026-07-14* (538b8e2c6): `selfhost-lexer` ports
+          SpikeLex's core — whitespace-skip, multi-char identifiers + keyword classification, integers,
+          operator runs (+-*/%<>=!&|^~:), single-char punctuation → a rendered `tag:lexeme` token stream,
+          byte-identical + runs (verified via a new harness `.want` check). Remaining F1 breadth: string
+          literals + escapes + interpolators, `//` + `/* */` comments (all individually proven runnable), and
+          returning tagged-tuple tokens instead of a rendered string (for F2 to consume).
     - [ ] **F2 — subset parser in the subset.** Port `SpikeParse` (offside layout + blocks, the full infix
           precedence table + `::`/`->`/prefix/ranges, `if`/`match` with ALL pattern kinds, `def`/`val`/case-
           class/enum/extension/given/summon/lambda, chained application, type-erasure) → `parse(toks): AST`
