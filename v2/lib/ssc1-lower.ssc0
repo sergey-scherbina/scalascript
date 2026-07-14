@@ -3547,6 +3547,17 @@ def lowerStmtToList = (stmt) =>
                             appendL(Cons(IrDef(#sconcat(prefix, vname), lowerE(Nil, vbody)), Nil),
                                     prefixDefs(rest))
                         }
+                      -- A TYPE declaration nested in the object body (`object O: case
+                      -- class Inner(…)` / `enum E: …`). v2 types are global and
+                      -- tag-based, so lower it as a top-level type — the object prefix
+                      -- doesn't apply to a nested type; `Inner(…)`/`.field` resolve
+                      -- globally. Without this the decl was dropped → `unbound global`.
+                      else if #seq(stag, "casecls") then
+                        appendL(lowerStmtToList(s), prefixDefs(rest))
+                      else if #seq(stag, "enum") then
+                        appendL(lowerStmtToList(s), prefixDefs(rest))
+                      else if #seq(stag, "caseobj") then
+                        appendL(lowerStmtToList(s), prefixDefs(rest))
                       else prefixDefs(rest)
                   }
               } in
@@ -4180,6 +4191,10 @@ def collectEnums = (stmts) =>
         case Pair(tag, data) =>
           if #seq(tag, "enum") then
             match data { case Pair(ename, cases) => Cons(Pair(ename, cases), collectEnums(rest)) }
+          else if #seq(tag, "object") then
+            -- Nested enums (`object O: enum E: …`) must register too, so `E.Case`
+            -- resolves to the case ctor rather than an unbound `E` global.
+            match data { case Pair(oname, obody) => append(collectEnums(obody), collectEnums(rest)) }
           else collectEnums(rest)
       }
   }
@@ -4247,6 +4262,12 @@ def collectCaseClassOrder = (stmts) =>
                 Cons(Pair(name, params), collectCaseClassOrder(rest)) } }
           else if #seq(tag, "enum") then
             match data { case Pair(ename, cases) => append(enumCaseOrder(cases), collectCaseClassOrder(rest)) }
+          else if #seq(tag, "object") then
+            -- Descend into the object body so TYPE decls nested in it (case class /
+            -- enum) get field/case order registered → accessors are generated
+            -- (prefixDefs lowers their ctors globally; without this the fields Stub).
+            match data { case Pair(oname, obody) =>
+              append(collectCaseClassOrder(obody), collectCaseClassOrder(rest)) }
           else collectCaseClassOrder(rest)
       }
   }

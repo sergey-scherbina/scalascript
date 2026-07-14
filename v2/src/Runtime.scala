@@ -2438,6 +2438,7 @@ object Prims:
         }
         case (StrV(s), "contains", List(StrV(sub))) => BoolV(s.contains(sub))
         case (StrV(s), "startsWith", List(StrV(pfx))) => BoolV(s.startsWith(pfx))
+        case (StrV(s), "startsWith", List(StrV(pfx), IntV(off))) => BoolV(s.startsWith(pfx, off.toInt))
         case (StrV(s), "forall", List(fn: Value.ClosV)) =>
           BoolV(s.forall(c => callClos(fn, Array(StrV(c.toString))) == BoolV(true)))
         case (StrV(s), "exists", List(fn: Value.ClosV)) =>
