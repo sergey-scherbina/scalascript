@@ -1,5 +1,41 @@
 # Bug tracker
 
+## coreir-canonical-codec-contract — canonical encoder/decoder violates the frozen wire contract
+
+**Status:** open (found 2026-07-14, Codex + `audit_coreir_control`, while validating
+CoreIR as the persisted `SavedContinuation` capsule format; observed at `638d3f5fe`).
+
+**Symptom:** the format documented as a bit-preserving canonical on-wire round trip is
+not currently one:
+
+- `Writer.floatStr(-0.0)` emits `0`, losing the sign bit, and integral finite doubles
+  emit integer syntax although `12-ir-format.md` requires a decimal point or exponent;
+- `IrEncode.const` has no `IrBytes` case although `Const.CBytes`, the canonical Writer,
+  and `IrDecode` support bytes;
+- the `coreir.encode` primitive returns `StrV`, while `10-core-ir.md` promises `Bytes`;
+- the documented text/bytes `coreir.decode` primitive does not exist: `coreir.eval`
+  consumes an already-built in-memory `IrProg`, and the textual `Reader` is a JVM API;
+- emitted names/tags/opcodes are not checked against the documented `SYMBOL` grammar.
+
+**Reproduce:** inspect the exact compiler/runtime sources and contract:
+
+```sh
+sed -n '195,207p' v2/src/CoreIR.scala
+sed -n '40,105p' v2/specs/12-ir-format.md
+sed -n '2342,2351p' v2/src/Runtime.scala
+sed -n '3840,3950p' v2/src/Runtime.scala
+```
+
+The behavior follows directly from the production Writer/primitive/IrEncode match
+tables used by the v2 runtime; in particular, `-0.0 == 0.0` takes the integral branch,
+`IrBytes` reaches `bad const`, and `coreir.encode` constructs `StrV`.
+
+**Notes:** tracked as `coreir-canonical-codec-hardening` in `SPRINT.md`. The dedicated
+fix needs real assembled-runtime round-trip fixtures for every value/node, signed zero,
+non-canonical inputs, invalid symbols, malformed/untrusted depth and size, plus parity
+across the seed and every loader. This design task does not opportunistically change the
+format; status remains open until that slice lands and is verified.
+
 ## coreir-spec-node-inventory-drift — frozen CoreIR spec omits canonical `While` and `Seq`
 
 **Status:** open (found 2026-07-14, Codex, during the Scala 3 bidirectional-control
