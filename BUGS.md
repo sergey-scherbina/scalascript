@@ -1,5 +1,20 @@
 # Bug tracker
 
+## spec-grammar-schema-links — OPEN (2026-07-14, Codex)
+
+**Status:** open; found while mechanically checking local links after the
+bidirectional-control update to canonical `SPEC.md`.
+
+**Symptom:** `SPEC.md` links to `grammar/scalascript.ebnf` twice and
+`schemas/frontmatter.yaml` once, but the tracked files now live under
+`v1/lang/grammar/` and `v1/lang/schemas/`.
+
+**Reproduce:** both old targets fail `test -e`; `rg --files` finds the grammar and
+schema only at the `v1/lang/` paths.
+
+**Plan/verification:** update the three Markdown targets, assert both destination
+files exist, run Markdown lint, and record the landed SHA here.
+
 ## backlog-active-queue-link — OPEN (2026-07-14, Codex)
 
 **Status:** open; found by `final_control_spec_audit` while verifying local links

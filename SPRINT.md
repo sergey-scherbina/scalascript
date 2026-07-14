@@ -43,6 +43,8 @@ execution remains an optional policy, not the default continuation semantics.
 - [ ] **backlog-active-queue-link-repair** — replace the stale nonexistent `ACTIVE.md` link in
   `BACKLOG.md` with the actual `SPRINT.md` + `.work/active/*.claim` queue contract and verify the
   changed local documentation links.
+- [ ] **spec-grammar-schema-link-repair** — update canonical `SPEC.md` grammar/front-matter links
+  after their files moved under `v1/lang/`; verify both targets exist and Markdown lint stays green.
 - [ ] **coreir-canonical-contract-reconcile — BLOCKED on P6.5 X1 green/frozen** — reconcile the frozen-count/no-loop claims in
   `v2/specs/10-core-ir.md` with the current canonical Reader/Writer and `CoreIR.scala`, which already
   serialize `While` and `Seq`. Pin one canonical node/value inventory before freezing the capsule
