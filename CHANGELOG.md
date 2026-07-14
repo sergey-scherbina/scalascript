@@ -4,6 +4,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-14 — target-neutral control interoperability and host/runner profiles
+
+Replaced the former Scala/JVM-shaped semantic owner with
+`specs/control-interoperability.md` (`6f5f0a53a`): one target-neutral contract for
+`Eff`, multi-prompt `shift`/`reset`, managed callbacks/TCO, reusable `save`/`run`,
+independent `CodeMode × FrameGate`, `DurableValue`/`DurableRef`, atomic admission,
+security, and N→M conformance. The Scala document is now a JVM host profile, joined
+by mandatory JS/TS, Rust, Swift, portable-VM, and WASM/WASI profiles
+(`92ddecc17`, `92d853d4a`, integration `41e499f3a`). Satellite ownership and indexes
+were reconciled in `1769a4bf5`; SPRINT/BACKLOG now make JVM/JS/TS/Rust/Swift runners
+mandatory readiness-ordered milestones instead of optional tail work (`7f2be38b3`).
+No CoreIR node, compiler, codec, or runtime byte changed; byte-affecting work remains
+gated on full P6.5 X1 despite the landed P6.6 `C_min` proof. Verification: Markdown
+lint and changed control-link checks pass; focused effect/coroutine/tail conformance
+is 12/12 green; the independent portable-VM harness (`a9c354262`) reports 5/5
+measurable axes green and 8 durable/cross-host/negative axes explicitly pending
+post-X1 rather than falsely green.
+
 ## 2026-07-14 — control-interop portable-VM reference runner profile
 
 `specs/control-interop-profile-portable-vm.md`: the runner-target profile for the
