@@ -207,10 +207,17 @@ are plain bullets without checkboxes so agents do not claim them as build work.
       records are `[keycols…, rowid]` sorted lexicographically (`compareKeyList`);
       a two-column index validates and the planner uses it for `a=? AND b=?`
       (conformance `scljet-write-index-composite`; single-column via `List(col)` is
-      byte-identical). Remaining: multi-leaf indexes (interior index cells carry a
-      full key record), index maintenance on mutate, and (4) true IN-PLACE mutation
-      of pages (the separate pager/journal path, m3e). (Found + worked around a JIT
-      codegen bug on the way — BUGS.md `interp-jit-nested-match-duplicate-var`.)
+      byte-identical). Multi-leaf indexes work too (2026-07-14): when the entries
+      exceed one leaf, `packIndexTree` packs them into leaves with a PROMOTED
+      separator entry between each pair (the separator lives in the interior, not a
+      leaf — unlike a table interior which copies a rowid), and `buildIndexTree`
+      builds an index-interior root (page kind 2) over the leaves
+      (`buildInteriorPageKind`/`indexInteriorCell`); verified a 100-row two-leaf
+      index — reference integrity_check cross-validates it and the planner uses it
+      (conformance `scljet-write-index-multileaf`); single-leaf stays byte-identical.
+      Remaining: 3+-level indexes, index maintenance on mutate, and (4) true IN-PLACE
+      mutation of pages (the separate pager/journal path, m3e). (JIT codegen bug
+      found on the way — BUGS.md `interp-jit-nested-match-duplicate-var`.)
 
 - [x] **scljet-byteslice-zeros-js-recursion** — DONE 2026-07-13. The core list
       helpers in `scljet/bytes.ssc` were made iterative (`while`+`var`, not linear
