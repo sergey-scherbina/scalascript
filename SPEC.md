@@ -16,7 +16,9 @@ ScalaScript is a hybrid language that unifies Markdown document structure with S
 
 ### 1.2 Notation
 
-This specification uses EBNF notation. See [grammar/scalascript.ebnf](grammar/scalascript.ebnf) for the complete formal grammar.
+This specification uses EBNF notation. See
+[v1/lang/grammar/scalascript.ebnf](v1/lang/grammar/scalascript.ebnf) for the complete
+formal grammar.
 
 ## 2. Lexical Structure
 
@@ -90,7 +92,8 @@ Recognized front-matter keys:
 
 `routes:` entries are equivalent to writing `route(method, path) { req => handler(req) }` inline.
 
-See [schemas/frontmatter.yaml](schemas/frontmatter.yaml) for the complete schema.
+See [v1/lang/schemas/frontmatter.yaml](v1/lang/schemas/frontmatter.yaml) for the
+complete schema.
 
 ### 2.4 Comments
 
@@ -921,18 +924,23 @@ diagnostic rather than reconstructing partial content from execution sections.
 ScalaScript supports algebraic effects and handlers — a structured mechanism
 for defining, performing, and intercepting side effects.
 
-Implementation: a **trampolined Free Monad** (`Pure | Perform | FlatMap`) with
-constant-time `flatMap`. `resume(v)` invokes the captured continuation directly;
+Reference semantics use the stack-safe outer protocol `Pure | Op(operation, k)`;
+an implementation may retain `FlatMap` or another private iterative form for
+performance. `resume(v)` invokes the captured semantic continuation directly;
 multi-shot handlers interpret each `resume` branch independently.
 
-The target-neutral CoreIR boundary is `effect.perform(label, args...)` and
-`effect.handle(computation, handler)`. An unhandled operation remains an
-explicit computation value until the nearest enclosing handler can consume it;
+`effect.perform` and `effect.handle` are outer-language operations/lowering
+markers, not dedicated CoreIR term nodes. A lane may lower them completely to
+ordinary constructor data and lambdas, or emit calls through the kernel's generic
+`Prim("effect.perform"/"effect.handle", ...)` node; those primitives must produce
+and fold the same `Pure | Op` data/lambda protocol. An unhandled operation remains
+an explicit computation value until the nearest enclosing handler can consume it;
 top-level reporting must not pre-empt that handler. Operation argument packing,
 deep resume, `Return` handling, and multi-shot reuse are identical on VM and
-compiled backends.
+compiled backends. CoreIR itself remains effect-node-free.
 
-Supported on all three backends.
+Supported by every backend that advertises the algebraic-effects capability;
+claiming the capability requires the shared semantic vectors to pass.
 
 #### 7.2.1 Effect Declaration and Use
 
@@ -951,7 +959,7 @@ handle(program()) {
     println(msg)
     resume(())
   case Console.readLine(resume) =>
-    resume(scala.io.StdIn.readLine())
+    resume("Ada")
 }
 ```
 
@@ -983,6 +991,25 @@ Pre-built effect modules in `std/effects/`:
 | `Cache` | `Cache.getOrSet(key)(body)` | `runCache` | `runMockCache` |
 | `Tx` | `Tx.begin/commit/rollback` | `runTx` | `runTestTx` |
 | `Auth` | `Auth.check(claims)` | `runAuth(verifier)` | `runTestAuth` |
+
+#### 7.2.4 Delimited Control and Saved Continuations
+
+Typed generative prompts provide multi-prompt `shift`/`reset`. A matching reset
+captures only the delimited continuation up to the nearest reset for that prompt;
+the continuation is reusable and deep handlers are reinstalled around every
+resume. `callCC` is not part of the language contract.
+
+A reusable continuation may be frozen with `save` and executed with `run`.
+`SavedContinuation.run` may be called repeatedly, including after transfer to a
+different process or machine. Each call begins at the capture point: the prefix is
+never replayed, and one suffix execution starts per explicit call; effects inside
+that suffix follow its own loops and nested multi-shot control flow.
+Portable saved code is a typed envelope around a closed ordinary CoreIR program;
+mixed Scala/JVM frames use an exact-artifact fallback.
+
+The normative laws, Scala 3 ABI, CoreIR capsule, capture barriers, security model,
+and conformance matrix are specified in
+[`specs/scala3-bidirectional-control.md`](specs/scala3-bidirectional-control.md).
 
 ### 7.3 Direct Syntax (Do-Notation)
 
@@ -2306,7 +2333,8 @@ the highest symbolic-infix tier below unary operators.
 
 ## Appendix C: Grammar Summary
 
-See [grammar/scalascript.ebnf](grammar/scalascript.ebnf) for the complete EBNF grammar.
+See [v1/lang/grammar/scalascript.ebnf](v1/lang/grammar/scalascript.ebnf) for the
+complete EBNF grammar.
 
 ## Appendix D: CLI Reference
 

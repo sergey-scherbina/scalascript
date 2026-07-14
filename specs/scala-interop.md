@@ -24,6 +24,14 @@ Status:
 
 Tracking: see "Scala ↔ ScalaScript interop" milestone in `MILESTONES.md`.
 
+Control-plane extension: the landed natural-FQN, JAR, `.scim`, facade, and
+build-tool tiers remain valid. For typed effects, handlers, `shift`/`reset`,
+managed callbacks, mixed tail calls, and saved continuations,
+[`scala3-bidirectional-control.md`](scala3-bidirectional-control.md) defines an
+additive structured descriptor and managed ABI. It supersedes only the legacy
+effect/actor correctness path based on reflective calls, thunks, `AnyRef`, and
+catching runtime exceptions by class name; pure interop is unchanged.
+
 This document specifies how a regular Scala 3 project (sbt, Mill, Maven,
 plain `scala-cli`) consumes code that was authored and compiled in
 ScalaScript (`.ssc` source → `.scjvm` / linked JAR via the v2.0

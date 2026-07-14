@@ -2,9 +2,15 @@
 
 Status: **design / planning**. Implementation tracked starting from v1.12.
 Companion to [`specs/coroutines.md`](coroutines.md) (coroutine primitive and
-one-shot fast path), [`docs/direct-syntax.md`](../direct-syntax.md) (monadic
-`for`/`yield` surface), and [`docs/error-handling.md`](../error-handling.md)
+one-shot fast path), [`docs/direct-syntax.md`](../docs/direct-syntax.md) (monadic
+`for`/`yield` surface), and [`docs/error-handling.md`](../docs/error-handling.md)
 (`throws[A,E]` and `MonadError`).
+
+[`scala3-bidirectional-control.md`](scala3-bidirectional-control.md) extends
+this design with typed multi-prompt `shift`/`reset`, the shared Scala 3 control
+ABI, and reusable portable `save`/`run`. Where the older v1.12 scope below says
+that all first-class continuations or `shift`/`reset` are non-goals, the newer
+spec supersedes it for delimited control only; `callCC` remains a non-goal.
 
 This document is the source of truth for the typed algebraic-effect system:
 why it exists, how effects appear in types and declarations, how handlers
@@ -518,7 +524,10 @@ flag in the resume closure). Static detection is future work.
 ## 10. Non-goals for v1.12
 
 - **Explicit row variables in user signatures.** `def map[A, B, e](f: A => B ! (| e))(xs: List[A]): List[B] ! (| e)` — users can write this today without any special support (implicit tail covers the common case). Naming the tail variable is a future ergonomic upgrade for library authors.
-- **First-class `Cont[A,B]` values.** No `shift`/`reset` or `callCC` in source.
+- **Undelimited continuations.** `callCC` remains outside the language contract.
+  Typed delimited `shift`/`reset` and reusable saved continuations are specified
+  separately in [`scala3-bidirectional-control.md`](scala3-bidirectional-control.md)
+  and therefore are no longer covered by this historical v1.12 non-goal.
 - **Effect inference.** Functions must declare their effect row explicitly (`! Eff` or `! (E1, E2, …)`). Inference from the body is future work.
 - **Context modification and return.** Functions that both receive and return a modified context (see §11 Future Work).
 - **Structured concurrency as an effect.** `Async` is in scope as a named effect (§7), but a full structured-concurrency effect algebra is its own milestone.

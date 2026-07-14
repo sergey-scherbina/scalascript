@@ -154,6 +154,12 @@ trait BlockForm:
   def result(bodyResult: SpiValue, handler: EffectHandler): SpiValue      // e.g. (result, collectedLogs)
 ```
 
+This remains deliberately a one-reply plugin SPI. It is not the managed
+continuation ABI from
+[`scala3-bidirectional-control.md`](scala3-bidirectional-control.md): plugins
+using this contract never receive a continuation and cannot make a one-shot
+`SpiValue` reply multi-shot by saving or copying it.
+
 The `EffectsRuntime` `Perform`/`FlatMap` loop (which stays core) gains one fallback: for a
 `Perform(name, op, args)` it doesn't handle built-in, look up `BackendRegistry.effectHandlers(name)`
 and call `handler.reply(...)`, resuming with the returned `Value`. `EvalRuntime` replaces the
@@ -235,6 +241,13 @@ Emitting code is solved; the design problem is the **public API contract**:
    `_Char`; rust tagless-final effects). The library boundary must expose *host-native*
    types at the edge (`java.util.List`, JS arrays, Rust `Vec`) and convert at the seam,
    not leak the internal representation (`{_isTuple:true}` arrays, `_Char` boxes).
+
+   **Compatibility note (2026-07-14):** the 64-bit statement describes the current
+   v1/v2 runtime representation and is not the new cross-language public ABI.
+   [`scala3-bidirectional-control.md`](scala3-bidirectional-control.md) requires
+   canonical `I32`/`I64` descriptor types (`Int`/`Long` at the language boundary),
+   explicit v2 normalization, and rejection of ambiguous legacy exports until width
+   evidence is retained.
 2. **Effects at the boundary.** A pure/`Logger`-style effectful def must be callable from
    the host with the host supplying the handler (a Java `Logger`, a JS callback, a Rust
    `impl Trait`). The tagless-final rust design (§ `rust-effects.md`) and the

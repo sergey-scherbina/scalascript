@@ -3,10 +3,17 @@
 Status: **design / planning**.  Implementation tracked across four
 milestones — v1.9 (coroutine primitive), v1.10 (generators), v1.11
 (continuation-based `Async`), v1.12 (algebraic-effects feasibility).
-Companion to [`docs/direct-syntax.md`](../direct-syntax.md) (which
+Companion to [`docs/direct-syntax.md`](../docs/direct-syntax.md) (which
 gives the *surface* for monadic code) and
 [`specs/backend-spi.md`](backend-spi.md) §8 (the intrinsic mechanism
 that makes coroutines a single primitive across three backends).
+
+Relationship to
+[`scala3-bidirectional-control.md`](scala3-bidirectional-control.md): the
+mutable coroutine handle in this document is an asymmetric one-shot primitive
+and may be used as a proven fast path. It is not the reference semantics for
+reusable `shift` continuations or `SavedContinuation`; those use the stackless
+`Pure | Op` protocol and preserve multiplicity.
 
 This document is the source of truth for the runtime primitive,
 the orthogonal components built on top of it, the surface APIs
