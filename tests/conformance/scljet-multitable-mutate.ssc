@@ -1,0 +1,31 @@
+---
+name: scljet-multitable-mutate
+description: SclJet delete a row from one table of a multi-table database, preserving the others and reassigning root pages (cross-backend)
+backends: [int, js]
+---
+
+# SclJet multi-table mutate
+
+[ByteSlice, byteSliceToList, SqliteValue, SqlInteger, SqlText, TableSpec, buildMultiTableDatabase](std/scljet/index.ssc)
+[deleteRowidsInTable](std/scljet/mutate.ssc)
+
+```scalascript
+// Three tables in one file. Delete rowid 2 (the sku=200 row) from table index 1
+// (products): that table's tree is rebuilt, the other tables pass through as raw
+// records, and every table's schema-record rootpage is re-encoded for the new
+// layout. Reference integrity_check accepts the result; int and JS agree.
+val tables = List(
+  TableSpec("users", "CREATE TABLE users(id INTEGER, name TEXT)",
+    List(List(SqlInteger(1L), SqlText("alice")), List(SqlInteger(2L), SqlText("bob")))),
+  TableSpec("products", "CREATE TABLE products(sku INTEGER, title TEXT)",
+    List(List(SqlInteger(100L), SqlText("widget")), List(SqlInteger(200L), SqlText("gadget")), List(SqlInteger(300L), SqlText("gizmo")))),
+  TableSpec("orders", "CREATE TABLE orders(oid INTEGER, total INTEGER)",
+    List(List(SqlInteger(1L), SqlInteger(4200L)))))
+
+buildMultiTableDatabase(512, 1, 1, tables) match
+  case Right(db) =>
+    deleteRowidsInTable(db, 2, 1, 1, List(2L)) match
+      case Right(newDb) => println((newDb.length / 512).toString + ":" + byteSliceToList(newDb).toString)
+      case Left(message) => println("MUTATE-ERROR:" + message)
+  case Left(error) => println("BUILD-ERROR:" + error.message)
+```

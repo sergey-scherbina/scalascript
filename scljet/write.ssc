@@ -19,6 +19,8 @@ exports:
   - buildFromRawSchema
   - TableSpec
   - buildMultiTableDatabase
+  - RawTable
+  - buildMultiTableRaw
 ---
 
 # SclJet M3 write path
@@ -34,6 +36,7 @@ committed `empty-encoding-zero.db` fixture exactly.
 
 [ByteSlice, ByteError, byteSliceToList, byteSliceZeroExtend, encodeVarint, writeU32Be](bytes.ssc)
 [SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob](values.ssc)
+[DecodedRecord, RecordField](record.ssc)
 
 ```scalascript
 // Big-endian fixed-width encoders. Division/modulo keeps them exact on every
@@ -1114,4 +1117,115 @@ def buildMultiTableDatabase(pageSize: Int, changeCounter: Int, schemaCookie: Int
               val pageCount = 1 + sumTreePages(plans)
               val page1 = tableFileHeader(pageSize, pageCount, changeCounter, schemaCookie) ++ page1Body
               ByteSlice.fromList(page1 ++ cellsFlatten(treeBlocks))
+
+// ── Multi-table REWRITE from raw records (m3f: mutate one table of a multi-table DB) ──
+//
+// Rebuilds a whole multi-table database from each table's raw `sqlite_schema`
+// record + raw rows, reassigning root pages by size. Because a rewrite shifts the
+// page layout, every table's schema-record rootpage field (column index 3) is
+// re-encoded with `encodeInteger`, keeping the other fields (type/name/tbl_name/
+// sql) byte-for-byte — so no text is decoded to a String. Non-overflow.
+
+case class RawTable(schemaRecord: DecodedRecord, rows: List[KeyedRawRow])
+case class RawTablePlan(rootPage: Int, treePages: Int, leaves: List[LeafPlan], schemaBytes: List[Int])
+
+/** Re-encode a `sqlite_schema` record with a new rootpage (field index 3),
+ *  keeping every other field's raw serial type + body. */
+def patchSchemaRootpage(record: DecodedRecord, newRoot: Long): List[Int] =
+  var psFields = record.fields
+  var psIndex = 0
+  var psSerialRev: List[Int] = Nil
+  var psBodyRev: List[Int] = Nil
+  while psFields.nonEmpty do
+    val psField = psFields.head
+    val psEncoded = if psIndex == 3 then encodeInteger(newRoot) else EncodedValue(psField.serialType, byteSliceToList(psField.encoded))
+    var psSerial = byteSliceToList(encodeVarint(psEncoded.serialType))
+    while psSerial.nonEmpty do
+      psSerialRev = psSerial.head :: psSerialRev
+      psSerial = psSerial.tail
+    var psBody = psEncoded.body
+    while psBody.nonEmpty do
+      psBodyRev = psBody.head :: psBodyRev
+      psBody = psBody.tail
+    psIndex = psIndex + 1
+    psFields = psFields.tail
+  val psSerialBytes = psSerialRev.reverse
+  val psHeaderLen = recordHeaderLength(psSerialBytes.length)
+  byteSliceToList(encodeVarint(psHeaderLen.toLong)) ++ psSerialBytes ++ psBodyRev.reverse
+
+/** Table-leaf cells for raw rows (rowid + already-encoded record), no overflow. */
+def rawRowCells(rows: List[KeyedRawRow]): List[RowCell] =
+  var rcRemaining = rows
+  var rcAcc: List[RowCell] = Nil
+  while rcRemaining.nonEmpty do
+    val rcRow = rcRemaining.head
+    val rcCell = byteSliceToList(encodeVarint(rcRow.record.length.toLong)) ++
+      byteSliceToList(encodeVarint(rcRow.rowid)) ++ rcRow.record
+    rcAcc = RowCell(rcRow.rowid, rcCell) :: rcAcc
+    rcRemaining = rcRemaining.tail
+  rcAcc.reverse
+
+def planRawTables(tables: List[RawTable], pageSize: Int, firstRoot: Int): List[RawTablePlan] =
+  var prtRemaining = tables
+  var prtRoot = firstRoot
+  var prtAcc: List[RawTablePlan] = Nil
+  while prtRemaining.nonEmpty do
+    val prtTable = prtRemaining.head
+    val prtLeaves = packLeaves(rawRowCells(prtTable.rows), pageSize)
+    val prtPages = treePageCount(prtLeaves, pageSize)
+    prtAcc = RawTablePlan(prtRoot, prtPages, prtLeaves, patchSchemaRootpage(prtTable.schemaRecord, prtRoot.toLong)) :: prtAcc
+    prtRoot = prtRoot + prtPages
+    prtRemaining = prtRemaining.tail
+  prtAcc.reverse
+
+def rawSchemaCells(plans: List[RawTablePlan], startRowid: Long): List[List[Int]] =
+  var rscRemaining = plans
+  var rscRowid = startRowid
+  var rscAcc: List[List[Int]] = Nil
+  while rscRemaining.nonEmpty do
+    val rscBytes = rscRemaining.head.schemaBytes
+    val rscCell = byteSliceToList(encodeVarint(rscBytes.length.toLong)) ++
+      byteSliceToList(encodeVarint(rscRowid)) ++ rscBytes
+    rscAcc = rscCell :: rscAcc
+    rscRowid = rscRowid + 1L
+    rscRemaining = rscRemaining.tail
+  rscAcc.reverse
+
+def buildAllRawTrees(plans: List[RawTablePlan], pageSize: Int): Either[ByteError, List[List[Int]]] =
+  var artRemaining = plans
+  var artAcc: List[List[Int]] = Nil
+  var artFailure: Option[ByteError] = None
+  while artRemaining.nonEmpty && artFailure.isEmpty do
+    val artPlan = artRemaining.head
+    buildTableTreeAt(artPlan.leaves, pageSize, artPlan.rootPage) match
+      case Left(error) => artFailure = Some(error)
+      case Right(bytes) =>
+        artAcc = bytes :: artAcc
+        artRemaining = artRemaining.tail
+  artFailure match
+    case Some(error) => Left(error)
+    case None => Right(artAcc.reverse)
+
+def sumRawTreePages(plans: List[RawTablePlan]): Int =
+  var srtRemaining = plans
+  var srtTotal = 0
+  while srtRemaining.nonEmpty do
+    srtTotal = srtTotal + srtRemaining.head.treePages
+    srtRemaining = srtRemaining.tail
+  srtTotal
+
+/** Rebuild a multi-table database from raw schema records + raw rows, reassigning
+ *  root pages. The rewrite behind multi-table delete/update. Byte-verified against
+ *  reference `integrity_check`. */
+def buildMultiTableRaw(pageSize: Int, changeCounter: Int, schemaCookie: Int, tables: List[RawTable]): Either[ByteError, ByteSlice] =
+  val plans = planRawTables(tables, pageSize, 2)
+  buildTableLeafPage(pageSize, 100, rawSchemaCells(plans, 1L)) match
+    case Left(error) => Left(error)
+    case Right(page1Body) =>
+      buildAllRawTrees(plans, pageSize) match
+        case Left(error) => Left(error)
+        case Right(treeBlocks) =>
+          val pageCount = 1 + sumRawTreePages(plans)
+          val page1 = tableFileHeader(pageSize, pageCount, changeCounter, schemaCookie) ++ page1Body
+          ByteSlice.fromList(page1 ++ cellsFlatten(treeBlocks))
 ```

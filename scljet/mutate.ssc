@@ -1,6 +1,6 @@
 ---
 name: scljet-mutate
-description: SclJet read-modify-rewrite — insert/delete/keep/update rows in an existing single-table database
+description: SclJet read-modify-rewrite — insert/delete/keep/update rows in a single- or multi-table database
 exports:
   - reconstructRecordBytes
   - readTableRawRows
@@ -10,6 +10,9 @@ exports:
   - updateRowValues
   - insertRow
   - readRowids
+  - readAllTables
+  - deleteRowidsInTable
+  - updateRowInTable
 ---
 
 # SclJet mutate — read-modify-rewrite
@@ -28,7 +31,7 @@ The table is assumed to be the single table rooted at page 2 — the shape SclJe
 writers produce.
 
 ```scalascript
-[KeyedRawRow, buildFromRawSchema, encodeRecord, SqliteValue, DecodedRecord, RecordField, ByteSlice, byteSliceToList, encodeVarint, ByteError, SqliteError, SqliteOpenOptions, SqliteLimits, OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, SqliteVfs, SqliteFile, VfsError, VfsRead, VfsWrite, FileKind, MainDatabaseFile, MainJournalFile, WalFile, OpenFlags, LockLevel, SyncFlags, DeviceCharacteristic, ShmLockMode, SharedRegion, byteSliceSlice, RowidTableTree, StorageRecord, ReadonlyDatabase, ReadonlyBtreeCursor, ReadonlyCursorStep, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly](index.ssc)
+[KeyedRawRow, buildFromRawSchema, encodeRecord, SqliteValue, SqlInteger, RawTable, buildMultiTableRaw, DecodedRecord, RecordField, ByteSlice, byteSliceToList, encodeVarint, ByteError, SqliteError, SqliteOpenOptions, SqliteLimits, OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, SqliteVfs, SqliteFile, VfsError, VfsRead, VfsWrite, FileKind, MainDatabaseFile, MainJournalFile, WalFile, OpenFlags, LockLevel, SyncFlags, DeviceCharacteristic, ShmLockMode, SharedRegion, byteSliceSlice, RowidTableTree, StorageRecord, ReadonlyDatabase, ReadonlyBtreeCursor, ReadonlyCursorStep, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly](index.ssc)
 
 // ── Read-only VFS over a single in-memory database image ──
 
@@ -317,4 +320,117 @@ def readRowids(dbBytes: ByteSlice): Either[String, List[Long]] =
           readTableRawRows(database, cursor) match
             case Left(error) => Left(error.message)
             case Right(rows) => Right(rowidsOf(rows))
+
+// ── Multi-table read-modify-rewrite (delete/update within one table of many) ──
+
+/** Read every row of a rowid tree as its decoded record (for the schema table). */
+def readDecodedRecords(database: ReadonlyDatabase, cursor: ReadonlyBtreeCursor): Either[SqliteError, List[DecodedRecord]] =
+  readonlyFirst(database, cursor) match
+    case Left(error) => Left(error)
+    case Right(firstStep) =>
+      var drDatabase = firstStep.database
+      var drCursor = firstStep.cursor
+      var drRow = firstStep.row
+      var drAcc: List[DecodedRecord] = Nil
+      var drError: Option[SqliteError] = None
+      var drDone = false
+      while !drDone && drError.isEmpty do
+        drRow match
+          case None => drDone = true
+          case Some(record) =>
+            drAcc = record.record :: drAcc
+            readonlyNext(drDatabase, drCursor) match
+              case Left(error) => drError = Some(error)
+              case Right(step) =>
+                drDatabase = step.database
+                drCursor = step.cursor
+                drRow = step.row
+      drError match
+        case Some(error) => Left(error)
+        case None => Right(drAcc.reverse)
+
+def fieldAt(fields: List[RecordField], index: Int): Option[RecordField] =
+  if index <= 0 then fields match
+    case Nil => None
+    case Cons(head, _) => Some(head)
+  else fields match
+    case Nil => None
+    case Cons(_, tail) => fieldAt(tail, index - 1)
+
+/** The root page recorded in a `sqlite_schema` record (column index 3). */
+def rootpageOf(record: DecodedRecord): Long =
+  fieldAt(record.fields, 3) match
+    case Some(field) => field.value match
+      case Some(SqlInteger(value)) => value
+      case _ => 0L
+    case None => 0L
+
+def buildRawTables(database: ReadonlyDatabase, schemaRecords: List[DecodedRecord], acc: List[RawTable]): Either[String, List[RawTable]] = schemaRecords match
+  case Nil => Right(acc.reverse)
+  case Cons(record, tail) =>
+    openReadonlyRoot(database, rootpageOf(record), RowidTableTree) match
+      case Left(error) => Left(error.message)
+      case Right(cursor) =>
+        readTableRawRows(database, cursor) match
+          case Left(error) => Left(error.message)
+          case Right(rows) => buildRawTables(database, tail, RawTable(record, rows) :: acc)
+
+/** Every table in the file as its raw `sqlite_schema` record + raw rows (in schema
+ *  order). Assumes a tables-only database (no indexes). */
+def readAllTables(dbBytes: ByteSlice): Either[String, List[RawTable]] =
+  openReadonly(ImageVfs(dbBytes), "image.db", mutateOptions()) match
+    case Left(error) => Left(error.message)
+    case Right(database) =>
+      openReadonlyRoot(database, 1L, RowidTableTree) match
+        case Left(error) => Left(error.message)
+        case Right(schemaCursor) =>
+          readDecodedRecords(database, schemaCursor) match
+            case Left(error) => Left(error.message)
+            case Right(schemaRecords) => buildRawTables(database, schemaRecords, Nil)
+
+def mapTableRows(tables: List[RawTable], index: Int, newRows: List[KeyedRawRow] => List[KeyedRawRow]): List[RawTable] =
+  var mtRemaining = tables
+  var mtIndex = 0
+  var mtAcc: List[RawTable] = Nil
+  while mtRemaining.nonEmpty do
+    val mtTable = mtRemaining.head
+    val mtNew = if mtIndex == index then RawTable(mtTable.schemaRecord, newRows(mtTable.rows)) else mtTable
+    mtAcc = mtNew :: mtAcc
+    mtIndex = mtIndex + 1
+    mtRemaining = mtRemaining.tail
+  mtAcc.reverse
+
+/** Delete rows (by rowid) from the table at 0-based schema `tableIndex` in a
+ *  multi-table database, rebuilding every table and reassigning root pages. Other
+ *  tables are preserved byte-for-byte (raw records) with only their rootpage
+ *  updated. `changeCounter` should be the old file-change counter + 1. */
+def deleteRowidsInTable(dbBytes: ByteSlice, changeCounter: Int, schemaCookie: Int, tableIndex: Int, rowids: List[Long]): Either[String, ByteSlice] =
+  readAllTables(dbBytes) match
+    case Left(message) => Left(message)
+    case Right(tables) =>
+      openReadonly(ImageVfs(dbBytes), "image.db", mutateOptions()) match
+        case Left(error) => Left(error.message)
+        case Right(database) =>
+          val pageSize = database.pager.header.pageSize
+          buildMultiTableRaw(pageSize, changeCounter, schemaCookie, mapTableRows(tables, tableIndex, rows => filterRows(rows, rowids))) match
+            case Left(byteError) => Left(byteError.message)
+            case Right(bytes) => Right(bytes)
+
+/** Update one row (by rowid) in the table at 0-based schema `tableIndex` to
+ *  `newValues`, rebuilding every table and reassigning root pages. */
+def updateRowInTable(dbBytes: ByteSlice, changeCounter: Int, schemaCookie: Int, tableIndex: Int, rowid: Long, newValues: List[SqliteValue]): Either[String, ByteSlice] =
+  encodeRecord(newValues) match
+    case Left(byteError) => Left(byteError.message)
+    case Right(recordSlice) =>
+      val newRecord = byteSliceToList(recordSlice)
+      readAllTables(dbBytes) match
+        case Left(message) => Left(message)
+        case Right(tables) =>
+          openReadonly(ImageVfs(dbBytes), "image.db", mutateOptions()) match
+            case Left(error) => Left(error.message)
+            case Right(database) =>
+              val pageSize = database.pager.header.pageSize
+              buildMultiTableRaw(pageSize, changeCounter, schemaCookie, mapTableRows(tables, tableIndex, rows => replaceRecord(rows, rowid, newRecord))) match
+                case Left(byteError) => Left(byteError.message)
+                case Right(bytes) => Right(bytes)
 ```
