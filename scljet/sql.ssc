@@ -175,12 +175,20 @@ def tokenize(sql: String): Either[String, List[Token]] =
     case Some(message) => Left(message)
     case None => Right(reverseTokens(toksRev, Nil))
 
-// ── Parser: SELECT (*|cols) FROM table [WHERE col op literal] ──
+// ── Parser: SELECT (*|cols) FROM table [WHERE …] ──
 
-// `value` carries the single operand for scalar ops (=, <, LIKE, …); `values` carries
-// the multi-operand list for `BETWEEN lo AND hi` (op "between", [lo, hi]) and
-// `IN (…)` / `NOT IN (…)` (op "in"/"notin", the membership list). `value` = SqlNull then.
-case class Condition(column: String, op: String, value: SqliteValue, values: List[SqliteValue])
+// Scalar expression tree over columns and literals — used both in projections and in WHERE.
+sealed trait SxNode
+case class SxCol(name: String) extends SxNode
+case class SxLit(value: SqliteValue) extends SxNode
+case class SxNeg(inner: SxNode) extends SxNode
+case class SxBin(op: String, left: SxNode, right: SxNode) extends SxNode
+
+// A WHERE predicate. The left operand is a bare column (`column`, `leftExpr=None`) or a computed
+// expression (`leftExpr=Some`); the right operand of a scalar comparison is a literal (`value`,
+// `rightExpr=None`) or an expression / another column (`rightExpr=Some`). `values` carries the
+// multi-operand list for BETWEEN/IN; `value` also holds the LIKE pattern.
+case class Condition(column: String, op: String, value: SqliteValue, values: List[SqliteValue], leftExpr: Option[SxNode], rightExpr: Option[SxNode])
 case class JoinSpec(table: String, leftCol: String, op: String, rightCol: String, leftOuter: Boolean)
 case class HavingCond(item: ProjItem, op: String, value: SqliteValue)
 case class SelectStmt(star: Boolean, projection: List[ProjItem], table: String, where: List[List[Condition]], orderBy: List[OrderKey], limit: Int, offset: Int, groupBy: List[String], join: Option[JoinSpec], having: Option[HavingCond], distinct: Boolean)
@@ -225,54 +233,74 @@ def litValue(token: Token): Either[String, SqliteValue] =
 
 // Parse an optional `WHERE col op literal`; returns the condition (or None) and the
 // tokens after it (for a trailing ORDER BY / LIMIT). A non-WHERE token is left in place.
-// One predicate on a column: `col op literal`, `col IS [NOT] NULL`,
-// `col BETWEEN lo AND hi`, or `col [NOT] IN ( v1, v2, … )`.
+// A bare column stays name-based (so the join path resolves it via joinColValue); any
+// compound expression is carried as an SxNode. Returns (column, leftExpr).
+def condLeftOf(node: SxNode): Option[SxNode] = node match
+  case SxCol(_) => None
+  case _ => Some(node)
+
+def condColOf(node: SxNode): String = node match
+  case SxCol(n) => n
+  case _ => ""
+
+// One predicate: `<expr> op <expr>`, `<expr> IS [NOT] NULL`, `<expr> BETWEEN lo AND hi`,
+// `<expr> [NOT] IN ( … )`, or `<expr> [NOT] LIKE pat`. The left operand (and, for a scalar
+// comparison, the right operand) may be any arithmetic expression, a column, or a literal.
 def parseCondition(toks: List[Token]): Either[String, (Condition, List[Token])] =
-  if tkKind(toks) != "ident" then Left("expected a column in the condition")
-  else
-    val col = toks.head
-    val after = toks.tail
-    if tkIsKw(after, "IS") then
-      val afterIs = after.tail
-      if tkIsKw(afterIs, "NOT") then
-        if !tkIsKw(afterIs.tail, "NULL") then Left("expected NULL after IS NOT")
-        else Right((Condition(col.text, "notnull", SqlNull, Nil), afterIs.tail.tail))
-      else if tkIsKw(afterIs, "NULL") then Right((Condition(col.text, "isnull", SqlNull, Nil), afterIs.tail))
-      else Left("expected NULL after IS")
-    else if tkIsKw(after, "NOT") && tkIsKw(after.tail, "IN") then
-      parseValueList(after.tail.tail) match
-        case Left(message) => Left(message)
-        case Right(vl) => Right((Condition(col.text, "notin", SqlNull, vl._1), vl._2))
-    else if tkIsKw(after, "NOT") && tkIsKw(after.tail, "LIKE") then
-      if after.length < 3 then Left("NOT LIKE needs a pattern")
-      else litValue(after.tail.tail.head) match
-        case Left(message) => Left(message)
-        case Right(pat) => Right((Condition(col.text, "notlike", pat, Nil), after.tail.tail.tail))
-    else if tkIsKw(after, "LIKE") then
-      if after.length < 2 then Left("LIKE needs a pattern")
-      else litValue(after.tail.head) match
-        case Left(message) => Left(message)
-        case Right(pat) => Right((Condition(col.text, "like", pat, Nil), after.tail.tail))
-    else if tkIsKw(after, "IN") then
-      parseValueList(after.tail) match
-        case Left(message) => Left(message)
-        case Right(vl) => Right((Condition(col.text, "in", SqlNull, vl._1), vl._2))
-    else if tkIsKw(after, "BETWEEN") then
-      if after.length < 4 then Left("BETWEEN needs: col BETWEEN lo AND hi")
-      else if !tkIsKw(after.tail.tail, "AND") then Left("expected AND in BETWEEN")
-      else litValue(after.tail.head) match
-        case Left(message) => Left(message)
-        case Right(lo) => litValue(after.tail.tail.tail.head) match
+  parseExpr(toks) match
+    case Left(message) => Left(message)
+    case Right(le) =>
+      val lnode = le._1
+      val after = le._2
+      val col = condColOf(lnode)
+      val lopt = condLeftOf(lnode)
+      if tkIsKw(after, "IS") then
+        val afterIs = after.tail
+        if tkIsKw(afterIs, "NOT") then
+          if !tkIsKw(afterIs.tail, "NULL") then Left("expected NULL after IS NOT")
+          else Right((Condition(col, "notnull", SqlNull, Nil, lopt, None), afterIs.tail.tail))
+        else if tkIsKw(afterIs, "NULL") then Right((Condition(col, "isnull", SqlNull, Nil, lopt, None), afterIs.tail))
+        else Left("expected NULL after IS")
+      else if tkIsKw(after, "NOT") && tkIsKw(after.tail, "IN") then
+        parseValueList(after.tail.tail) match
           case Left(message) => Left(message)
-          case Right(hi) => Right((Condition(col.text, "between", SqlNull, lo :: hi :: Nil), after.tail.tail.tail.tail))
-    else if after.length < 2 then Left("condition needs: column op value")
-    else
-      val op = after.head
-      val lit = after.tail.head
-      if op.kind != "op" then Left("expected a comparison operator")
-      else litValue(lit) match
-        case Left(message) => Left(message)
-        case Right(value) => Right((Condition(col.text, op.text, value, Nil), after.tail.tail))
+          case Right(vl) => Right((Condition(col, "notin", SqlNull, vl._1, lopt, None), vl._2))
+      else if tkIsKw(after, "NOT") && tkIsKw(after.tail, "LIKE") then
+        if after.length < 3 then Left("NOT LIKE needs a pattern")
+        else litValue(after.tail.tail.head) match
+          case Left(message) => Left(message)
+          case Right(pat) => Right((Condition(col, "notlike", pat, Nil, lopt, None), after.tail.tail.tail))
+      else if tkIsKw(after, "LIKE") then
+        if after.length < 2 then Left("LIKE needs a pattern")
+        else litValue(after.tail.head) match
+          case Left(message) => Left(message)
+          case Right(pat) => Right((Condition(col, "like", pat, Nil, lopt, None), after.tail.tail))
+      else if tkIsKw(after, "IN") then
+        parseValueList(after.tail) match
+          case Left(message) => Left(message)
+          case Right(vl) => Right((Condition(col, "in", SqlNull, vl._1, lopt, None), vl._2))
+      else if tkIsKw(after, "BETWEEN") then
+        if after.length < 4 then Left("BETWEEN needs: col BETWEEN lo AND hi")
+        else if !tkIsKw(after.tail.tail, "AND") then Left("expected AND in BETWEEN")
+        else litValue(after.tail.head) match
+          case Left(message) => Left(message)
+          case Right(lo) => litValue(after.tail.tail.tail.head) match
+            case Left(message) => Left(message)
+            case Right(hi) => Right((Condition(col, "between", SqlNull, lo :: hi :: Nil, lopt, None), after.tail.tail.tail.tail))
+      else if tkKind(after) != "op" then Left("expected a comparison operator")
+      else
+        val op = after.head
+        parseExpr(after.tail) match
+          case Left(message) => Left(message)
+          case Right(re) =>
+            val rnode = re._1
+            val rval = rnode match
+              case SxLit(v) => v
+              case _ => SqlNull
+            val ropt = rnode match
+              case SxLit(_) => None
+              case _ => Some(rnode)
+            Right((Condition(col, op.text, rval, Nil, lopt, ropt), re._2))
 
 def reverseConds(items: List[Condition], acc: List[Condition]): List[Condition] =
   var r = items
@@ -434,13 +462,6 @@ def parseAggregates(toks: List[Token]): Either[String, (List[AggItem], List[Toke
   err match
     case Some(message) => Left(message)
     case None => Right((reverseAggs(accRev, Nil), rest))
-
-// Scalar expression tree for computed projections (arithmetic over columns/literals).
-sealed trait SxNode
-case class SxCol(name: String) extends SxNode
-case class SxLit(value: SqliteValue) extends SxNode
-case class SxNeg(inner: SxNode) extends SxNode
-case class SxBin(op: String, left: SxNode, right: SxNode) extends SxNode
 
 // Parse the projection: `*`, an aggregate list, or a plain column / expression list.
 // A projection item: a plain column (`isAgg=false`, `name` = column, `expr=None`), an aggregate
@@ -810,6 +831,13 @@ def evalExpr(e: SxNode, rec: StorageRecord, colNames: List[String]): SqliteValue
   case SxNeg(inner) => negateValue(evalExpr(inner, rec, colNames))
   case SxBin(op, l, r) => arithValue(op, evalExpr(l, rec, colNames), evalExpr(r, rec, colNames))
 
+// Same evaluation over a join row: column references resolve across both tables (qualified or bare).
+def evalExprJoin(e: SxNode, recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String): SqliteValue = e match
+  case SxCol(name) => joinColValue(recA, colsA, tableA, recBOpt, colsB, tableB, name)
+  case SxLit(v) => v
+  case SxNeg(inner) => negateValue(evalExprJoin(inner, recA, colsA, tableA, recBOpt, colsB, tableB))
+  case SxBin(op, l, r) => arithValue(op, evalExprJoin(l, recA, colsA, tableA, recBOpt, colsB, tableB), evalExprJoin(r, recA, colsA, tableA, recBOpt, colsB, tableB))
+
 // Compare two values for WHERE: numeric if both numeric, text if both text, else by
 // storage-class order (NULL < number < text < blob).
 def valueClassOf(v: SqliteValue): Int = v match
@@ -904,9 +932,10 @@ def likeMatch(textRaw: String, patRaw: String): Boolean =
     while charCode(p, jj) == 37 do jj = jj + 1
     jj == m
 
-// Evaluate one predicate against an already-resolved column value `v`. Shared by
-// single-table (condHolds) and join (joinCondHolds) evaluation.
-def predHolds(cond: Condition, v: SqliteValue): Boolean =
+// Evaluate one predicate given the already-resolved left value `v` and right value `rv`
+// (`rv` is the RHS of a scalar comparison, or the LIKE pattern; unused by IS/BETWEEN/IN).
+// Shared by single-table (condHolds) and join (joinCondHolds) evaluation.
+def predHolds(cond: Condition, v: SqliteValue, rv: SqliteValue): Boolean =
   if cond.op == "isnull" then isNullValue(v)
   else if cond.op == "notnull" then isNullValue(v) == false
   else if cond.op == "between" then
@@ -917,13 +946,25 @@ def predHolds(cond: Condition, v: SqliteValue): Boolean =
   else if cond.op == "notin" then
     if isNullValue(v) then false else valueInList(v, cond.values) == false
   else if cond.op == "like" then
-    if isNullValue(v) then false else likeMatch(coerceText(v), coerceText(cond.value))
+    if isNullValue(v) then false else likeMatch(coerceText(v), coerceText(rv))
   else if cond.op == "notlike" then
-    if isNullValue(v) then false else likeMatch(coerceText(v), coerceText(cond.value)) == false
-  else condMatches(cond.op, sqlCompare(v, cond.value))
+    if isNullValue(v) then false else likeMatch(coerceText(v), coerceText(rv)) == false
+  else condMatches(cond.op, sqlCompare(v, rv))
+
+// The right-hand value of a scalar comparison / LIKE: an expression is evaluated, otherwise
+// the parsed literal in `value`.
+def condRightSingle(cond: Condition, rec: StorageRecord, colNames: List[String]): SqliteValue =
+  cond.rightExpr match
+    case Some(e) => evalExpr(e, rec, colNames)
+    case None => cond.value
+
+def condLeftSingle(cond: Condition, rec: StorageRecord, colNames: List[String]): SqliteValue =
+  cond.leftExpr match
+    case Some(e) => evalExpr(e, rec, colNames)
+    case None => rowValue(rec, colNames, cond.column)
 
 def condHolds(cond: Condition, rec: StorageRecord, colNames: List[String]): Boolean =
-  predHolds(cond, rowValue(rec, colNames, cond.column))
+  predHolds(cond, condLeftSingle(cond, rec, colNames), condRightSingle(cond, rec, colNames))
 
 def andGroupHolds(group: List[Condition], rec: StorageRecord, colNames: List[String]): Boolean =
   var r = group
@@ -1385,8 +1426,18 @@ def joinColValue(recA: StorageRecord, colsA: List[String], tableA: String, recBO
     else if upperStr(name) == "ROWID" then rowValue(recA, colsA, name)
     else SqlNull
 
+def joinCondLeft(cond: Condition, recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String): SqliteValue =
+  cond.leftExpr match
+    case Some(e) => evalExprJoin(e, recA, colsA, tableA, recBOpt, colsB, tableB)
+    case None => joinColValue(recA, colsA, tableA, recBOpt, colsB, tableB, cond.column)
+
+def joinCondRight(cond: Condition, recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String): SqliteValue =
+  cond.rightExpr match
+    case Some(e) => evalExprJoin(e, recA, colsA, tableA, recBOpt, colsB, tableB)
+    case None => cond.value
+
 def joinCondHolds(cond: Condition, recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String): Boolean =
-  predHolds(cond, joinColValue(recA, colsA, tableA, recBOpt, colsB, tableB, cond.column))
+  predHolds(cond, joinCondLeft(cond, recA, colsA, tableA, recBOpt, colsB, tableB), joinCondRight(cond, recA, colsA, tableA, recBOpt, colsB, tableB))
 
 def joinAndGroupHolds(group: List[Condition], recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String): Boolean =
   var r = group

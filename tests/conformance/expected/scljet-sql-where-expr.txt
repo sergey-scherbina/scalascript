@@ -1,0 +1,17 @@
+SELECT id FROM emp WHERE salary * 2 > 400 => 2
+3
+5
+SELECT id FROM emp WHERE salary > cost * 2 => 3
+SELECT id FROM emp WHERE salary > cost => 1
+2
+3
+5
+SELECT id, salary - cost FROM emp WHERE salary - cost > 100 => 3|200
+5|130
+SELECT id FROM emp WHERE salary + cost >= 400 AND salary < 300 => 2
+SELECT id FROM emp WHERE salary / 100 = 2 => 2
+5
+SELECT id FROM emp WHERE 250 >= salary => 1
+2
+4
+SELECT emp.id FROM emp JOIN dept ON emp.id = dept.did WHERE emp.salary > dept.base * 2 => 3
