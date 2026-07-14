@@ -1004,12 +1004,14 @@ final class ScalaSpikeSpec extends AnyFunSuite:
          |}
          |def compile(src: String): String = "(program (defs " + parseDefs(lex(src, 0, src.length)) + ") (entry (app (global main))))"
          |def main(): String = compile("def f(x) = let y = x + 1 in y * y def main() = f(4)")""".stripMargin
-    // ══ P6.5: a compiler with pattern MATCH + list/constructor DATA (the self-application core) ═════
-    // Uppercase idents are constructors: `Nil` → (ctor Nil), `Cons(a, b)` → (ctor Cons a b). A postfix
-    // `scrut match { case Nil => e1 case Cons(h, t) => e2 }` lowers to (match scrut ((arm Nil 0 e1)
-    // (arm Cons 2 e2))), with the Cons pattern vars pushed onto the env (reversed: t → local 0, h →
-    // local 1) — building directly on the selfhost-env model. This is the data-manipulation heart of a
-    // self-applicable compiler. `def sum(xs) = xs match {…} ; sum(Cons(7, Cons(8, Cons(9, Nil))))` = 24.
+    // ══ P6.5: a compiler with pattern MATCH + list/constructor/TUPLE DATA (the self-application core) ═
+    // Uppercase idents are constructors: `Nil` → (ctor Nil), `Cons(a, b)` → (ctor Cons a b). Tuple
+    // literals `(a, b)` → (ctor Tuple2 a b) (disambiguated from grouping by a following comma). A postfix
+    // `scrut match { case Nil => e1 case Cons(h, t) => e2 case (a, b) => e3 }` lowers to (match scrut
+    // ((arm Nil 0 e1) (arm Cons 2 e2) (arm Tuple2 2 e3))), with the pattern vars pushed onto the env
+    // (reversed slots) — building directly on the selfhost-env model. This is the data-manipulation heart
+    // of a self-applicable compiler (which itself uses (value, rest) pairs and Cons-lists everywhere).
+    // `def fst(p)=p match{case (a,b)=>a} def sum(xs)=xs match{…} ; sum(Cons(fst((7,0)),Cons(8,Cons(9,Nil))))` = 24.
     val selfhostMatch =
       """|def isLo(c: Int): Int = if c >= 97 then (if c <= 122 then 1 else 0) else 0
          |def isUp(c: Int): Int = if c >= 65 then (if c <= 90 then 1 else 0) else 0
@@ -1056,7 +1058,7 @@ final class ScalaSpikeSpec extends AnyFunSuite:
          |    case (3, cn) =>
          |      if isLP(rest) == 1 then parseExpr(tl(rest), 0, env) match { case (a, r2) => parseExpr(tl(r2), 0, env) match { case (b, r3) => ("(ctor " + cn + " " + a + " " + b + ")", tl(r3)) } }
          |      else ("(ctor " + cn + ")", rest)
-         |    case (2, 21) => parseExpr(rest, 0, env) match { case (e, r2) => (e, tl(r2)) }
+         |    case (2, 21) => parseExpr(rest, 0, env) match { case (e, r2) => hd(r2) match { case (2, 27) => parseExpr(tl(r2), 0, env) match { case (e2, r3) => ("(ctor Tuple2 " + e + " " + e2 + ")", tl(r3)) } case _ => (e, tl(r2)) } }
          |    case (2, 2) => parseExpr(rest, 0, env) match { case (c, r2) => parseExpr(tl(r2), 0, env) match { case (th, r3) => parseExpr(tl(r3), 0, env) match { case (el, r4) => ("(if " + c + " " + th + " " + el + ")", r4) } } }
          |    case (2, 5) => parseExpr(tl(tl(rest)), 0, env) match { case (e1, r3) => parseExpr(tl(r3), 0, Cons(snd(hd(rest)), env)) match { case (e2, r4) => ("(app (lam 1 " + e2 + ") " + e1 + ")", r4) } }
          |    case _ => ("(lit (int 0))", rest)
@@ -1066,11 +1068,18 @@ final class ScalaSpikeSpec extends AnyFunSuite:
          |def parseArms(ts: List[Int], env: List[Int]): Int = hd(ts) match {
          |  case (2, 8) =>
          |    val rest = tl(ts)
-         |    if isLP(tl(rest)) == 1 then
-         |      val hv = snd(hd(tl(tl(rest))))
-         |      val tv = snd(hd(tl(tl(tl(tl(rest))))))
-         |      parseExpr(tl(tl(tl(tl(tl(tl(tl(rest))))))), 0, Cons(tv, Cons(hv, env))) match { case (body, r2) => parseArms(r2, env) match { case (more, r3) => ("(arm Cons 2 " + body + ") " + more, r3) } }
-         |    else parseExpr(tl(tl(rest)), 0, env) match { case (body, r2) => parseArms(r2, env) match { case (more, r3) => ("(arm Nil 0 " + body + ") " + more, r3) } }
+         |    hd(rest) match {
+         |      case (2, 21) =>
+         |        val av = snd(hd(tl(rest)))
+         |        val bv = snd(hd(tl(tl(tl(rest)))))
+         |        parseExpr(tl(tl(tl(tl(tl(tl(rest)))))), 0, Cons(bv, Cons(av, env))) match { case (body, r2) => parseArms(r2, env) match { case (more, r3) => ("(arm Tuple2 2 " + body + ") " + more, r3) } }
+         |      case _ =>
+         |        if isLP(tl(rest)) == 1 then
+         |          val hv = snd(hd(tl(tl(rest))))
+         |          val tv = snd(hd(tl(tl(tl(tl(rest))))))
+         |          parseExpr(tl(tl(tl(tl(tl(tl(tl(rest))))))), 0, Cons(tv, Cons(hv, env))) match { case (body, r2) => parseArms(r2, env) match { case (more, r3) => ("(arm Cons 2 " + body + ") " + more, r3) } }
+         |        else parseExpr(tl(tl(rest)), 0, env) match { case (body, r2) => parseArms(r2, env) match { case (more, r3) => ("(arm Nil 0 " + body + ") " + more, r3) } }
+         |    }
          |  case _ => ("", tl(ts))
          |}
          |def parsePostfix(ts: List[Int], env: List[Int]): Int = parseAtom(ts, env) match { case (a, r) => hd(r) match { case (2, 7) => parseArms(tl(tl(r)), env) match { case (arms, r2) => ("(match " + a + " (" + arms + "))", r2) } case _ => (a, r) } }
@@ -1095,7 +1104,7 @@ final class ScalaSpikeSpec extends AnyFunSuite:
          |    }
          |}
          |def compile(src: String): String = "(program (defs " + parseDefs(lex(src, 0, src.length)) + ") (entry (app (global main))))"
-         |def main(): String = compile("def sum(xs) = xs match { case Nil => 0 case Cons(h, t) => h + sum(t) } def main() = sum(Cons(7, Cons(8, Cons(9, Nil))))")""".stripMargin
+         |def main(): String = compile("def fst(p) = p match { case (a, b) => a } def sum(xs) = xs match { case Nil => 0 case Cons(h, t) => h + sum(t) } def main() = sum(Cons(fst((7, 0)), Cons(8, Cons(9, Nil))))")""".stripMargin
     // The hardest part of a real parser, in the subset: a PRECEDENCE-CLIMBING infix parser with
     // PARENTHESES — the same algorithm as the spike's own parseExpr (climb while the next operator binds
     // tighter than minPrec). Tokenises "2 * (1 + 3)" (with `(`=-3, `)`=-4), parses respecting `*` over `+`
