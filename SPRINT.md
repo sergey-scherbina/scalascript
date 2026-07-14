@@ -1030,15 +1030,16 @@ DONE (32 conformance cases green [int,js]). The honest remainder, each a real fe
       the WAL my own `writeWal` produced yields the right frame for the changed page and
       the post-commit db size; a truncated/corrupt-checksum tail is excluded; int==js.
       Conformance `scljet-wal-recover`.
-- [~] **scljet-m4c-wal-read-overlay** — overlay PRIMITIVE done 2026-07-14; pager wiring
-      remaining. `wal.ssc` `walReadPage(base, index, pageNumber, pageSize)` returns the
-      latest committed WAL frame for the page if present, else the base DB page; `walPage`
-      is the raw lookup. Verified int==js (conformance `scljet-wal-recover` reads page 2
-      from the WAL and page 1 from the base). REMAINING: wire into `pager.ssc:82` (which
-      still REJECTS a non-empty WAL) so `openReadonly`/cursors over a DB+`-wal` sidecar
-      read WAL'd pages via the overlay — needs the pager to load the sidecar and route
-      page reads through `walReadPage`. Cross-check: sqlite reads the same DB+WAL as the
-      overlay does.
+- [x] **scljet-m4c-wal-read-overlay** — DONE 2026-07-14. `pager.ssc` now LOADS the `-wal`
+      sidecar on open (`loadWal`/`readWholeSidecar`, replacing the old M5 rejection),
+      parses it with `readWal`, stores the `WalIndex` on `ReadonlyPager` (new `walIndex`
+      field, defaulted so external constructions are unaffected), sets the logical page
+      count from the WAL's post-commit size, and serves any page with a committed frame
+      from the overlay (`pagerWalPage`) before touching the file — so `openReadonly`/
+      cursors read WAL'd pages. Verified int==js: a read-only pager over base+`-wal`
+      returns page 2 from the WAL frame and page 1 from the base (conformance
+      `scljet-wal-read`, two-file in-memory VFS); reference SQLite reads the same two
+      files identically. `walReadPage`/`walPage` are the standalone overlay primitives.
 - [x] **scljet-m4d-wal-checkpoint** — DONE 2026-07-14. `wal.ssc` `checkpointWal(base,
       walBytes)` applies every committed frame in file order then truncates to the WAL's
       db size. Verified vs reference SQLite 3.53.3: **BYTE-IDENTICAL** to `PRAGMA

@@ -72,16 +72,22 @@ a **write transaction** (`beginTransaction` / `stagePage` / `commitTransaction` 
 `rollbackTransaction`) batches several page writes and commits them atomically under
 one journal, or discards them before commit.
 
-**Write-ahead logging** is supported on the write side (`wal.ssc`): `writeWal`
+**Write-ahead logging** is supported on both sides (`wal.ssc`). Writing: `writeWal`
 serializes a `-wal` file — the 32-byte header and one frame per changed page, with
 SQLite's two-word running frame checksums — and `markWalMode` flips the database
 header into WAL mode. Reference SQLite 3.53.3 recovers the resulting `-wal`,
 validates every checksum, reads the framed pages, and checkpoints them into the
 main database; a single flipped checksum byte makes it reject the WAL, confirming
 the checksums are byte-exact. Multi-frame transactions (last-frame-wins) verify too.
+Reading: `readWal` recovers the committed frame map (word order per the magic's low
+bit, so it reads both our and real SQLite's WALs), the pager overlays it so
+`openReadonly`/cursors return WAL'd pages (page from the latest committed frame, else
+the base file), and `checkpointWal` folds committed frames back into the base —
+**byte-identical** to `PRAGMA wal_checkpoint(TRUNCATE)`.
 
-A full mutable pager (dirty-page tracking, cell-level in-place edits) and WAL
-*reading* (the M5 read-side snapshot) remain.
+Indexes stack to any depth (a 3-level index B-tree with promoted separators is
+verified against reference `integrity_check`). A full mutable pager (dirty-page
+tracking, cell-level in-place edits) remains.
 
 ## Modules
 
@@ -94,7 +100,7 @@ A full mutable pager (dirty-page tracking, cell-level in-place edits) and WAL
 | `vfs.ssc` / `memory-vfs.ssc` / `jvm-vfs.ssc` | file-system abstraction (in-memory + real files) |
 | `write.ssc` | M3 write path: header/record encoders, table and multi-page B-tree writers (incl. overflow, arbitrary depth, explicit rowids) |
 | `journal.ssc` | rollback-journal write + hot-journal recovery + transactional in-place page write + write transactions |
-| `wal.ssc` | write-ahead log writer: `-wal` frames with SQLite frame checksums + WAL-mode header marker |
+| `wal.ssc` | write-ahead log: `-wal` frame writer + WAL-mode marker + reader (recover frame map, overlay read, checkpoint) |
 | `mutate.ssc` | read-modify-rewrite: delete/keep rows in an existing single-table database |
 | `index.ssc` | the module manifest re-exporting the public API |
 
