@@ -9,6 +9,116 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## v2-native-conformance — remaining self-hosted native-lane gaps (2026-07-14, Sergiy: "запиши в спринт все что осталось")
+
+Metric: `bin/ssc run --bytecode` over `tests/conformance/*.ssc` (the self-hosted ssc1 frontend →
+CoreIR → v2 VM/bytecode). This multi-session sweep took the lane 102 → ~148 PASS. Landed this arc:
+OpAnfNative (effect arg-position), ambient `Random`, actor globals (register/whereis/selfNode/
+clusterHealth), `case m: Map` MapV type-test, `nanoTime`, compound-assign `+=/-=/*=`, imported-enum
+registration, object-method default params + varargs, enum-case ctor defaults (→ **mcp-types**),
+Dataset user-exception propagation (→ **dataset-error**). ~44 failures remain, categorized below.
+Harness: scratch per-case `sweep.sh` (compares `expected/<name>.txt`), `xargs -P 6`; `rm -rf
+tests/conformance/.ssc-artifacts` before re-testing a compiler change (the `.scjvm` cache keys on
+SOURCE, not the compiler).
+
+### Object model — plain classes & mutable fields (Sergiy asked 2026-07-14; EMPIRICALLY VERIFIED)
+The native frontend's object model is currently immutable-only: `case class`(ctor params) + methods.
+Confirmed by direct test — see also the documented constraint under uniml-portable below.
+- [ ] **v2-plain-class** — a plain (non-`case`) `class X(params): def m` FAILS TO PARSE. `ssc1-front`
+  has `parseCaseClass` but no `parseClass`; a bare `class` at top level is not dispatched in
+  `parseOneStmt` → falls through to `parseExpr` → `_err` sentinel. Add plain-class parse + lowering
+  (runtime representation, `new`/no-`new` construction, method dispatch). Case classes DO work
+  (incl. methods, default params).
+- [ ] **v2-class-var-fields** — a `var` field FAILS TO PARSE both in a case-class ctor
+  (`case class Box(var v: Int)`) and in a case-class body (`case class C(x): var y = 0`). Mutable
+  object state is unsupported.
+- [ ] **v2-object-var-read** — `object O: var f = 0; def m() = f = …` — the mutating method works, but
+  an EXTERNAL read `O.f` → `unbound global: O_f` (the static var-field read is not wired; the
+  `kc7bOwnerVarsCell`/owner-prefix path emits the setter but not a resolvable external getter).
+  WHAT WORKS TODAY (verified): top-level `var` + mutation, local `var`/`while` in `def` bodies,
+  `case class .copy(...)` immutable update, compound-assign `+=/-=/*=`.
+
+### Effects / runtime providers
+- [ ] **v2-coroutine-provider** — coroutine-basic / coroutine-error: `unbound global: coroutineCreate`.
+- [ ] **v2-generator-provider** — dataset-from-generator: `Dataset.fromGenerator requires the standard
+  generator provider` (parses now that compound-assign landed; needs the native generator provider).
+- [ ] **v2-distributed-failure-retry** — advances past `Random.uuid`, then emits `Stub` in the
+  kill-worker/retry path (failure-recovery dispatch gap).
+- [ ] **v2-callback-exc-parity-followups** — distributed-plugin (:53) + generator-plugin (:120) carry
+  the SAME user-exception-wrapping anti-pattern fixed in dataset-plugin (`catch case e: ssc.SscThrow
+  => throw e` before the diagnostic wrap). Known 3-line fix; apply if/when a case exercises it.
+
+### Actor features (medium; some timing-flaky)
+- [ ] **v2-actors-bounded-mailbox** — `spawnBounded(n, Overflow.X, thunk)` + `Overflow` enum
+  (DropOldest/DropNewest/Block) bounded-mailbox with overflow strategy.
+- [ ] **v2-actors-process-info** — `processInfo(pid)` (ProcessInfo record: mailboxSize/links) +
+  `spawn_link`. TIMING-SENSITIVE: asserts `mailboxSize=2` before the worker consumes → needs a
+  cooperative-scheduler ordering a thread-per-actor model can't guarantee; likely flaky.
+- [ ] **v2-actors-receive-timeout** — cluster-connect: advances past register/whereis (landed), needs
+  `receiveWithTimeout`.
+- [ ] **v2-actors-supervision-flake** — actors-supervision is a KNOWN parallel-contention flake
+  (passes serially every time); not a real failure.
+
+### Typeclass
+- [ ] **v2-typeclass-explicit-instance** — std-index: `combineAll(xs, intSum)` (explicit typeclass
+  instance passed positionally) → `arity: 2 expected, 3 given`. The IMPLICIT path works (mono
+  monomorphizes `combineAll(xs)` → `combineAll__mono__intSum`); the explicit path falls to
+  injectGivens which prepends a given (ctx-first layout) → arg count AND order wrong. Fix is in the
+  mono/injection core — RISKY to the 12 passing tagless/typeclass cases; needs an explicit-instance
+  detection + reorder/re-route, verified against the full cluster.
+
+### Content / literate (bespoke rendering)
+- [ ] **v2-content-current-section** — content-introspection: `contentCurrentSection() unavailable on
+  native 2.1 without source-aware call identity`.
+- [ ] **v2-content-linked-namespaces** — root-relative import `tests/conformance/lib/x.ssc` resolves
+  in `NativeSourceClosure` (importer-relative doubles the prefix → CWD-relative fallback), but a
+  SECOND resolver (content/lowerer) re-doubles the display path; plus content-module features
+  (`contentModule`/`contentModuleSection`). Multi-resolver + plugin gap.
+- [ ] **v2-content-markdown-render** — content-tables / content-to-markdown: markdown rendering parity
+  (bold `**…**`, links `[t](u)`, `@meta` comments) + frontmatter/heading-attribute detection.
+- [ ] **v2-named-literate-sections** — sql-transaction (`Transfer.sql`) / sql-browser-basic
+  (`Update.sql`) resolve named `## Section` blocks to `Stub`; sql-browser also `.count on 1` dispatch.
+- [ ] **v2-graph-edge-display** — custom Show/toString (reordered fields, unquoted strings) not
+  produced by the default case-class rendering.
+
+### Missing plugin globals / features
+- [ ] **v2-validate-blockform** — rest-validate: `validate { … }` accumulator block-form.
+- [ ] **v2-html-dsl** — html-dsl: `attr.cls := …` HTML DSL (attr namespace + element builders
+  div/a/img with `:=` attributes and escaping).
+- [ ] **v2-exec-subprocess** — std-process-import / v2-native-result-unregistered-field: `exec(cmd,
+  args, ProcessOptions)` subprocess runner returning `{stdout, exitCode}`. SECURITY-SENSITIVE (drain
+  stdout+stderr on separate threads — see security-hardening).
+- [ ] **v2-webauthn** — webauthn-server-verify (`webauthnChallenge`) / tkv2-webauthn
+  (`webauthnRegister`).
+- [ ] **v2-extern-ffi** — node-basic: `extern def add(...)` FFI (JS/native target concept; out of
+  native-VM scope).
+- [ ] **v2-scljet-varint** — scljet-write-record: `expected Int, got 2251799813685248` (2^51) in the
+  SQLite varint encoder (deep plugin numeric).
+- [ ] **v2-scljet-journal-recover** — StackOverflowError (deep recursion in journal recovery).
+
+### tkv2 UI runtime (deep — needs the component/form/draft/signal runtime)
+- [ ] **v2-tkv2-parse-err** — tkv2-component / tkv2-forms / tkv2-busi-home: parser `_err` on an
+  UNIDENTIFIED construct (verified NOT compound-assign / `[…]` bracket-list / named-args / curried
+  calls — those all parse). Bisect the remaining construct.
+- [ ] **v2-tkv2-ui-runtime** — the tkv2 cases (component/form/draft/fieldError/formErrors/formValid/
+  ctxSignal/childCtx) need the full native UI-component runtime; tkv2-offline (`duplicate native UI
+  signal 'draft'`), tkv2-pwa (`unbound global: pwa`), tkv2-tri-state / tkv2-typed-client-derived /
+  tkv2-select-reactive.
+
+### Not compiler bugs (fixture / design / out-of-scope)
+- [ ] **v2-std-ui-missing-fixture** — std-ui-aggregator / std-ui-extended{,-b,-c,-d} import
+  `../examples/std-ui` = `tests/examples/std-ui/index.ssc`, which DOES NOT EXIST. Restore the fixture
+  dir or re-scope these tests (fails on ALL backends without it).
+- [ ] **v2-json-self-hosted** — json-read / json-value / json-lookup: `jsonParse`/`jsonRead`/`lookup`
+  are INTENTIONALLY self-hosted (`jsonParse` native stub throws "import std/json.ssc"); the cases
+  don't import it. Decide: auto-load `std/json.ssc`, or update the cases.
+- [ ] **v2-js-only-tests** — js-cps-intrinsic-rewrite (`nowMillis`) / js-state-effect-runner /
+  js-symbolic-infix-operator (custom multi-char operators `<~>`/`~~` — a real lexer gap but the test
+  is `backends: [int, js]`) / if-then-no-else-after-while (`backends: [int]` AND the test file is
+  genuinely missing its closing ``` fence). All out of the native/v2 backend set by their frontmatter.
+
+---
+
 ## uniml-portable — dual-compilable standalone UniML library (Scala 3 ∩ ScalaScript v2) (2026-07-13, Sergiy)
 
 **Vision.** UniML is a **standalone library, independent of ScalaScript**. Its single Scala 3
