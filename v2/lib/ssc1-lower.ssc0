@@ -130,6 +130,16 @@ def enumCasesCell = #cell.new(Nil)
 -- locals still win because lowerE consults its lexical scope first.
 def kc7bOwnerPrefixCell  = #cell.new("")
 def kc7bOwnerMembersCell = #cell.new(Nil)
+-- Active case-class body-method context: `Pair(tag, siblingMethodNames)` while a
+-- case class's method body is being lowered, else `Nil`. Lets a bare sibling call
+-- inside a method (`def run() = helper(5)`) resolve to the mangled `Tag_helper`
+-- global WITH `__self` prepended (case-class methods are `Tag_m(self, params…)`).
+def caseSelfCtxCell = #cell.new(Nil)
+def memberOfL = (x, xs) =>
+  match xs {
+    case Nil => false
+    case Cons(h, t) => if #seq(h, x) then true else memberOfL(x, t)
+  }
 -- Names of MUTABLE `var` members of the object being lowered. A read/write of such
 -- a name inside the object's methods routes to the owner-prefixed global cell
 -- (`Owner_name__cell`), like a top-level var — objects with mutable state
@@ -2114,6 +2124,19 @@ def lowerTuple = (scope, elems) =>
       }
   }
 
+-- A bare application `f(args)` inside a case-class method body is a SIBLING call
+-- when `f` names another method of the same case class and isn't shadowed by a
+-- local/param. Returns the mangled `Tag_f` global name, else "" (not a sibling call).
+def caseSiblingGlobal = (scope, fname) =>
+  match #cell.get(caseSelfCtxCell) {
+    case Nil => ""
+    case Pair(tag, siblings) =>
+      match lookupVarOpt(scope, fname) {
+        case Some(shadow) => ""
+        case None => if memberOfL(fname, siblings) then #sconcat(tag, #sconcat("_", fname)) else ""
+      }
+  }
+
 -- Lower a single expression node; first resolves known KC6 intrinsics
 def lowerE = (scope, rawExpr) =>
   let expr = resolveE(rawExpr) in
@@ -2292,7 +2315,12 @@ def lowerE = (scope, rawExpr) =>
             match fnM {
               case Pair(ftag, fname) =>
                 if #seq(ftag, "var") then
-                  if #seq(fname, "println") then
+                  if #i.gt(#slen(caseSiblingGlobal(scope, fname)), 0) then
+                    -- Sibling method call inside a case-class body: dispatch to the
+                    -- mangled `Tag_method` global with `__self` prepended.
+                    IrApp(IrGlobal(caseSiblingGlobal(scope, fname)),
+                      Cons(lookupVar(scope, "__self"), lowerArgs(scope, injArgs)))
+                  else if #seq(fname, "println") then
                     match injArgs {
                       case Nil => IrPrim("io.println", Cons(IrLit(IrStr("")), Nil))
                       case _ => IrApp(lowerE(scope, fn), lowerArgs(scope, injArgs))
@@ -4388,13 +4416,25 @@ def caseMethodDefsFor = (tag, fields, defs) =>
                            lowerCaseMethodBody(fields, revL(selfAndParams), mbody))) in
             Cons(mdef, caseMethodDefsFor(tag, fields, rest)) } } }
   }
+def methodNamesOf = (defs) =>
+  match defs {
+    case Nil => Nil
+    case Cons(d, rest) =>
+      match d { case Pair(dtag, ddata) =>
+        match ddata { case Pair(mname, mrest) => Cons(mname, methodNamesOf(rest)) } }
+  }
 def caseMethodDefs = (regs) =>
   match regs {
     case Nil => Nil
     case Cons(r, rest) =>
       match r { case Pair(tag, fd) =>
         match fd { case Pair(fields, defs) =>
-          appendL(caseMethodDefsFor(tag, fields, defs), caseMethodDefs(rest)) } }
+          -- Activate the sibling-call context for THIS tag's method bodies, lower
+          -- them (eager — `let` is strict), then clear before the next tag.
+          let _set = #cell.set(caseSelfCtxCell, Pair(tag, methodNamesOf(defs))) in
+          let ds = caseMethodDefsFor(tag, fields, defs) in
+          let _clr = #cell.set(caseSelfCtxCell, Nil) in
+          appendL(ds, caseMethodDefs(rest)) } }
   }
 def caseMethodRegsFor = (tag, defs) =>
   match defs {
