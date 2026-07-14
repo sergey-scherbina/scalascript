@@ -54,8 +54,10 @@ private[yaml] object YamlStructure:
         token.channel == TokenChannel.Syntax && token.kind != "yaml.directive"
       )
       val starts =
-        if meaningfulBeforeFirst then 0 +: documentStarts
-        else 0 +: documentStarts.tail
+        // `Vector(0) ++ …` rather than `0 +: …`: the `+:` prepend operator is not
+        // portable to ScalaScript v2. Behaviour-identical.
+        if meaningfulBeforeFirst then Vector(0) ++ documentStarts
+        else Vector(0) ++ documentStarts.tail
       starts.indices.foreach { position =>
         val start = starts(position)
         val end = if position + 1 < starts.size then starts(position + 1) - 1 else tokens.size - 1
@@ -74,7 +76,10 @@ private[yaml] object YamlStructure:
       frames = frames.dropRight(1)
       result = result :+ Range(frame.kind, frame.role, frame.start, math.max(frame.start, end), 2 + frames.size)
 
-    byLine.foreach { (_, rawIndices) =>
+    byLine.foreach { pair =>
+      // `pair._2` rather than a `(_, rawIndices)` destructuring lambda param:
+      // ScalaScript v2 does not auto-destructure a tuple lambda parameter.
+      val rawIndices = pair._2
       val indices = rawIndices.sorted
       val lineEnd = indices.last
       val significant = indices.filter { index =>
@@ -121,7 +126,9 @@ private[yaml] object YamlStructure:
           if token.kind == "yaml.flow-close" then flowDepth = math.max(0, flowDepth - 1)
           isColon
         }
-        Option.when(hasBlockColon)("yaml.mapping")
+        // `if … then Some … else None` rather than `Option.when(…)(…)`: the curried
+        // `Option.when` companion is not portable to ScalaScript v2. Same result.
+        if hasBlockColon then Some("yaml.mapping") else None
     }
 
   private def flowRanges(tokens: Vector[SourceToken]): Vector[Range] =
@@ -160,7 +167,11 @@ private[yaml] object YamlStructure:
           else stack = stack.dropRight(1)
         case _ => ()
     }
-    stack.foreach { (delimiter, token) =>
+    stack.foreach { pair =>
+      // `pair._1`/`._2` rather than a `(delimiter, token)` destructuring lambda
+      // param — v2 does not auto-destructure a tuple lambda parameter.
+      val delimiter = pair._1
+      val token = pair._2
       diagnostics = diagnostics :+ Diagnostic(
         "uniml.yaml.unclosed-flow",
         s"unclosed YAML flow delimiter '$delimiter'",
