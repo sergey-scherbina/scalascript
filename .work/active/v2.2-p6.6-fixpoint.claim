@@ -1,0 +1,8 @@
+slug: v2.2-p6.6-fixpoint
+scope: P6.6b/c/d — the literal stage1==stage2 self-compilation fixpoint. (b) string escapes in the
+       compiler's object language L (scanStr decodes \" \\, emit escapes " \). (c) rewrite the compiler in
+       L∩subset (val-blocks → helper functions taking the bound value as a param — no var-patterns needed;
+       escaped string literals). (d) bootstrap C0 = driver(spike(C)); stage1=C0(C_src); stage2=driver(
+       stage1)(C_src); assert stage1==stage2. Incremental, verified at each step.
+files: uniml/core/src/test/.../spike/**, specs/v2.2-p6.6-*, SPRINT.md
+branch: feature/v2.2-p6.6-fixpoint
