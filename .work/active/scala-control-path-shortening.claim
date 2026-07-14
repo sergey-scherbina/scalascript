@@ -1,0 +1,6 @@
+feature/scala-control-path-shortening 2026-07-14T16:46:19Z
+agent: codex-interop
+heartbeat: 2026-07-14T16:46:19Z
+status: in-progress
+done-so-far: Sergiy requested the canonical host source directory be named control, not control-api
+next: plan/spec the path-only rename, move the module, update every link, rerun gates
