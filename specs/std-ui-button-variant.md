@@ -299,4 +299,100 @@ native-frontend lowering — same reasoning as `select`'s own Design section.
 
 ## Results
 
-_(filled in after implementation and verification)_
+What landed:
+
+- `runtime/std/ui/nodes.ssc` — `variant: String` field appended as the last
+  field on `SignalButtonNode`, `ActionButtonNode`, `SignalLabelButtonNode`,
+  `SignalActionButtonNode`.
+- `runtime/std/ui/input.ssc` — `variant: String = "primary"` appended as the
+  last param on all four constructors, threaded unchanged into the node.
+- `runtime/std/ui/lower.ssc` — `_buttonColor(variant, theme)` resolver
+  (`secondary|danger|success|warning` → that `Theme.colors` field, else
+  `theme.colors.primary`); all four button-lowering cases swap
+  `theme.colors.primary` → `_buttonColor(variant, theme)` for `background`
+  and keep `theme.colors.onPrimary` for `color`, unchanged.
+- `examples/frontend/button-variants/button-variants.ssc` — runnable example:
+  a row of five `actionButton`s (one per accepted variant), a default-variant
+  button (no `variant` arg), and an unrecognized-string button, all wired to
+  a shared click counter.
+- `tests/conformance/tkv2-button-variant.ssc` (+ `expected/`) — mirrors
+  `std-ui-jobpanel.ssc`'s TkNode-field-assertion style: asserts `variant`
+  threads from each of the four constructors to its node unchanged
+  (including the no-`variant`-arg default and an unrecognized string), and
+  that `lower()` does not throw for any of them, on both `[int, js]` lanes.
+- `v1/runtime/backend/interpreter-server/src/test/scala/scalascript/ButtonVariantColorTest.scala`
+  — closes the gap `View`'s opacity leaves in the `.ssc`-level conformance
+  test: runs the interpreter, extracts the real
+  `frontend.core.View.Element`'s `"style"` attribute string for each
+  variant, and asserts the background colour literal genuinely differs.
+  Actual output observed:
+
+  ```
+  primary:   background:#2563eb; color:#ffffff; ...
+  secondary: background:#7c3aed; color:#ffffff; ...
+  danger:    background:#dc2626; color:#ffffff; ...
+  success:   background:#16a34a; color:#ffffff; ...
+  warning:   background:#d97706; color:#ffffff; ...
+  bogus:     background:#2563eb; color:#ffffff; ...   (== primary, byte-for-byte)
+  ```
+
+  All five accepted variants produce distinct style strings; the
+  unrecognized string (`"some-typo"`) produces the identical string to
+  `"primary"` — the fallback is exact, not merely "doesn't crash".
+- Found, fixed as a required consequence of adding a field to an existing
+  node (not new scope): three other call sites construct these same node
+  types outside `input.ssc` and needed to stay in sync —
+  `v1/runtime/std/content-plugin/.../ContentIntrinsics.scala`'s
+  `signalButtonNode`/`actionButtonNode` helpers (interpreter-side content-
+  toolkit `{type: button}` support) now also set `"variant" ->
+  PluginValue.string("primary")`; `v1/runtime/backend/jvm/.../
+  JvmGenContentEmit.scala`'s four generated-Scala-source call sites
+  (JVM-codegen content-toolkit support) now pass `"primary"` as the 5th
+  positional arg — this one was a genuine compile-time requirement (the
+  JVM-compiled `std.ui.nodes.SignalButtonNode` case class has no default on
+  the node-level field, matching `BadgeNode`'s own precedent); and
+  `tests/conformance/std-ui-jobpanel.ssc`'s `ActionButtonNode(_, label,
+  disabled)` pattern became `ActionButtonNode(_, label, disabled, variant)`
+  (+ matching `expected/std-ui-jobpanel.txt` update). Confirmed
+  `v1/runtime/backend/js/.../ContentToolkitJs.scala`'s hand-crafted
+  `{ _type: 'ActionButtonNode', ... }` JS object literals need **no**
+  change — verified by reading `JsGenCpsCodegen.genPattern`'s case-class
+  Extract branch: field access compiles to plain `scrutVar.fieldName`
+  property access, which is `undefined` (not a throw) for a genuinely
+  absent JS property, and `_buttonColor`'s compiled `match` treats
+  `undefined` the same as any other unmatched value — falls through to the
+  `primary` case. Content-toolkit buttons render exactly as they did before
+  this slice, on every backend.
+- `README.md` capabilities-table row; `docs/user-guide.md` widget-catalog
+  rows for `signalButton`/`actionButton`.
+
+Verification:
+
+- `scripts/sbtc "installBin"` — clean, no compile errors (confirms
+  `nodes.ssc`/`input.ssc`/`lower.ssc` and the two Scala-side fixes all
+  compile together).
+- `scripts/sbtc "backendJvm/compile"` and `scripts/sbtc "contentPlugin/compile"`
+  — both clean.
+- `tests/conformance/run.sh --only 'tkv2-button-variant'` — **PASS [INT],
+  PASS [JS]** (JVM correctly SKIP — `backends: [int, js]`).
+- `tests/conformance/run.sh --only 'tkv2-*,std-ui-*' --no-memo` — **22
+  passed, 0 failed** (no regressions across the sibling toolkit-v2/std-ui
+  suite, including `std-ui-jobpanel`'s updated pattern arity).
+- `scripts/sbtc "contentPlugin/testOnly scalascript.compiler.plugin.content.ContentPluginInterpreterTest"`
+  — **29 passed, 0 failed** (content-toolkit button-related tests
+  unaffected by the `ContentIntrinsics.scala` field addition).
+- `scripts/sbtc "backendInterpreterServer/testOnly scalascript.StdUiSmokeTest"`
+  — both tests green (`smoke:ok`, `lower-idempotent:ok`) — the pre-existing
+  `signalButton` calls in `examples/frontend/std-ui/smoke-test.ssc` (no
+  `variant` arg) are unaffected.
+- `scripts/sbtc "backendInterpreterServer/testOnly scalascript.ButtonVariantColorTest"`
+  — green; the actual per-variant background-colour proof above.
+- `bin/ssc-tools emit-spa --frontend custom
+  examples/frontend/button-variants/button-variants.ssc` — succeeds (exit
+  0), produces a real HTML+JS bundle with no throw.
+
+Follow-ups recorded in `SPRINT.md`/spec Out-of-Scope: busi-side variant
+wiring (which button gets which variant — not this repo's decision); new
+`onSecondary`/`onDanger`/`onSuccess`/`onWarning` `ColorPalette` tokens (only
+if the measured white-on-`success`/`warning` contrast trade turns out to
+matter for a real dark-theme button in practice).
