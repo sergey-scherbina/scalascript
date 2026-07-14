@@ -202,11 +202,15 @@ are plain bullets without checkboxes so agents do not claim them as build work.
       (2026-07-14): `compareKeys`/`valueClass` sort by SQLite storage class then
       numeric / BINARY-text order (String `<`, ASCII/BMP-exact), so an index on a
       TEXT column validates and the planner uses it (conformance
-      `scljet-write-index-text`). Remaining: multi-leaf indexes (interior index
-      cells carry a full key record), multi-column keys, index maintenance on
-      mutate, and (4) true IN-PLACE mutation of pages (the separate pager/journal
-      path, m3e). (Found + worked around a JIT codegen bug on the way — BUGS.md
-      `interp-jit-nested-match-duplicate-var`.)
+      `scljet-write-index-text`). Multi-column (composite) index keys work too
+      (2026-07-14): `buildTableWithIndexDatabase` takes `keyColumns: List[Int]`,
+      records are `[keycols…, rowid]` sorted lexicographically (`compareKeyList`);
+      a two-column index validates and the planner uses it for `a=? AND b=?`
+      (conformance `scljet-write-index-composite`; single-column via `List(col)` is
+      byte-identical). Remaining: multi-leaf indexes (interior index cells carry a
+      full key record), index maintenance on mutate, and (4) true IN-PLACE mutation
+      of pages (the separate pager/journal path, m3e). (Found + worked around a JIT
+      codegen bug on the way — BUGS.md `interp-jit-nested-match-duplicate-var`.)
 
 - [x] **scljet-byteslice-zeros-js-recursion** — DONE 2026-07-13. The core list
       helpers in `scljet/bytes.ssc` were made iterative (`while`+`var`, not linear

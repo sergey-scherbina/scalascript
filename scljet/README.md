@@ -43,9 +43,9 @@ writer (`buildDeepOverflowTableDatabase`, a 3-level tree whose oversized rows al
 spill onto chains), a general explicit-rowid writer (`buildKeyedDatabase` — rows
 keep their own gapped rowids across a rewrite), a multi-table writer
 (`buildMultiTableDatabase` — several rowid tables in one file, each at its own root
-page), an index writer (`buildTableWithIndexDatabase` — a table plus a single-column
-index B-tree, on an integer or text column, that reference SQLite validates and
-uses for query planning), and the
+page), an index writer (`buildTableWithIndexDatabase` — a table plus an index B-tree on
+one or more integer/text columns, that reference SQLite validates and uses for
+query planning), and the
 rollback journal (`writeRollbackJournal` + hot-journal `applyRollbackJournal`,
 byte-identical to SQLite's journal).
 
