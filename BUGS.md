@@ -324,9 +324,19 @@ platform work. This was documentation-only; no runtime behavior changed.
 
 ## interp-boolean-operators-no-short-circuit — `&&`/`||` evaluate both operands in the interpreter
 
-**Status:** open (found 2026-07-14 while building `scljet/sql.ssc`; interpreter-only,
-all tiers). The interpreter evaluates BOTH operands of `&&` and `||`, unlike Scala and
-the JS backend, so a guarded access on the right crashes when the guard is meant to
+**Status:** FIXED 2026-07-15 (`EvalRuntime.scala`, commit `14d707653`). `Term.ApplyInfix`
+for `&&`/`||` is now intercepted BEFORE the general infix case (which eagerly evaluated
+the arg clause) and lowered to short-circuiting control flow: `a && b` ≡ `if a then b
+else false`, `a || b` ≡ `if a then true else b`. Non-Boolean left operands (overloaded
+`&&`/`||`) fall back to the general two-arg dispatch, so their behaviour is unchanged.
+Because control flow is owned by the shared `EvalRuntime.eval`, the fix covers all
+non-JIT tiers (tree-walk + bytecode/dispatch VM funnel through the same intercept); the
+JIT already short-circuited independently via `LAnd`/`LOr`. Verified: repro below prints
+`other`; full interpreter suite 1829/0.
+
+**Original report (found 2026-07-14 while building `scljet/sql.ssc`; interpreter-only,
+all tiers).** The interpreter evaluated BOTH operands of `&&` and `||`, unlike Scala and
+the JS backend, so a guarded access on the right crashed when the guard was meant to
 short-circuit.
 
 **Symptom / reproduce:**
@@ -338,12 +348,11 @@ println(test(Nil))
 - interpreter (all tiers: tree-walk, bytecode VM, JavaC/ASM JIT): `head on Nil`.
 - JS backend (`emit-js | node`): `other` (correct — JS short-circuits).
 
-So idioms like `while r.nonEmpty && r.head.kind == …`, `if toks.isEmpty || toks.head…`,
-`i < n && isDigit(s.charAt(i))` are UNSAFE on the interpreter. Workarounds until fixed:
-bounds-safe accessors that never touch the guarded element on the empty/OOB case
-(`sql.ssc` `charCode` returns -1 past end; `tkKind`/`tkIsKw` return ""/false on `Nil`),
-or nest the guards (`if a then (if b …)`). NOT yet fixed in the interpreter (would need
-`&&`/`||` lowered to short-circuiting control flow, not a two-arg boolean primitive).
+Idioms like `while r.nonEmpty && r.head.kind == …`, `if toks.isEmpty || toks.head…`,
+`i < n && isDigit(s.charAt(i))` are now SAFE on the interpreter. (Pre-fix workarounds —
+bounds-safe accessors that never touch the guarded element, e.g. `sql.ssc` `charCode`
+returns -1 past end and `tkKind`/`tkIsKw` return ""/false on `Nil` — remain correct but
+are no longer required for short-circuit safety.)
 
 ## coreir-canonical-codec-contract — canonical encoder/decoder violates the frozen wire contract
 

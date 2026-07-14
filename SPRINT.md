@@ -11987,10 +11987,13 @@ already solved the identical leak via snapshot/restore.
 
 ## compiler-bug-sweep (Sergiy 2026-07-15: "бери це усе у спринт і роби")
 Working through the open compiler bugs + differential extension. Each landed with a gate.
-- [ ] **&&/|| short-circuit in interpreter** (BUGS.md interp-boolean-operators-no-short-circuit) — v1
-  interp (all tiers: tree-walk Interpreter.scala/EvalRuntime, bytecode VM DispatchRuntime, JIT LAnd/LOr)
-  evaluates BOTH operands → guarded access crashes. v2 VM already short-circuits (verified). Fix each tier
-  to short-circuit; gate on the repro (`if Nil.nonEmpty && Nil.head>0` → "other") + conformance.
+- [x] **&&/|| short-circuit in interpreter** (BUGS.md interp-boolean-operators-no-short-circuit) — DONE
+  `14d707653`. One intercept in `EvalRuntime.scala` at `Term.ApplyInfix`, BEFORE the general infix case
+  (which eagerly evaluated the arg clause): `a && b` ≡ `if a then b else false`, `a || b` ≡ `if a then true
+  else b`; non-Boolean left operands fall back to the general two-arg dispatch unchanged. Covers all non-JIT
+  tiers (tree-walk + bytecode/dispatch VM both funnel control flow through the shared `EvalRuntime.eval`; the
+  dispatch VM has no separate `&&`/`||` lowering); the JIT already short-circuited via `LAnd`/`LOr`. Gated:
+  repro (`if Nil.nonEmpty && Nil.head>0` → `other`) ✓ + full interpreter suite 1829/0 ✓.
 - [ ] **interp/JS bug sweep** — var-scope-leak-across-calls; if-then-no-else-after-while; JIT
   nested-match-duplicate-var; js-effect-multishot-in-while; js-caseclass-body-method-params-dropped;
   v2-bridged-ui (emit collision, signal.id). One at a time, gated.
