@@ -1,0 +1,46 @@
+---
+name: scljet-sql-dml
+description: SclJet SQL INSERT/DELETE — data-modifying SQL through the balanced write path (matches reference sqlite3)
+backends: [int, js]
+---
+
+# SclJet SQL INSERT / DELETE
+
+`executeMutation` runs `INSERT INTO t VALUES (…)` and `DELETE FROM t WHERE …` against a
+database image, threading the new image through the balanced write path. After a sequence
+of inserts and deletes the table is byte-for-value identical to reference sqlite3 running
+the same statements (verified out-of-band, integrity_check ok); here the query results are
+locked across backends.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, renderRows, executeMutation](std/scljet/sql.ssc)
+
+```scalascript
+def apply(db: ByteSlice, sql: String): ByteSlice =
+  executeMutation(db, sql) match
+    case Left(m) =>
+      println(sql + " => ERR:" + m)
+      db
+    case Right(next) => next
+
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(id INTEGER, name TEXT)",
+  List(List(SqlInteger(1L), SqlText("a")),
+       List(SqlInteger(2L), SqlText("b")))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db0) =>
+    val db1 = apply(db0, "INSERT INTO t VALUES (3, 'c')")
+    val db2 = apply(db1, "INSERT INTO t VALUES (4, 'd')")
+    val db3 = apply(db2, "INSERT INTO t VALUES (5, 'e')")
+    show(db3, "SELECT * FROM t")
+    val db4 = apply(db3, "DELETE FROM t WHERE id = 2")
+    val db5 = apply(db4, "DELETE FROM t WHERE name = 'd'")
+    show(db5, "SELECT * FROM t")
+    show(db5, "SELECT name FROM t WHERE id >= 3")
+    val db6 = apply(db5, "INSERT INTO t VALUES (6, 'f')")
+    show(db6, "SELECT id, name FROM t")
+```

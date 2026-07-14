@@ -13,6 +13,13 @@ exports:
   - queryImage
   - renderRows
   - tableColumns
+  - InsertStmt
+  - DeleteStmt
+  - parseInsert
+  - parseDelete
+  - executeInsert
+  - executeDelete
+  - executeMutation
 ---
 
 # SclJet SQL query layer
@@ -24,7 +31,7 @@ rows, applies the filter, and projects the result. `queryImage(dbBytes, sql)` op
 database image and returns the result rows; `renderRows` formats them like the sqlite3
 CLI (`a|b|c` per row, NULL blank) for differential testing.
 
-[ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, ReadonlyDatabase, SchemaEntry, StorageRecord, DecodedRecord, DecodedText, RowidTableTree, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly, ReadonlyCursorStep, ReadonlyBtreeCursor, SqliteError, SqliteOpenOptions, SqliteLimits, OpenReadOnly, StrictSqlite, JournalDelete, SyncFull](index.ssc)
+[ByteSlice, ByteError, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, ReadonlyDatabase, SchemaEntry, StorageRecord, DecodedRecord, DecodedText, RowidTableTree, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly, ReadonlyCursorStep, ReadonlyBtreeCursor, SqliteError, SqliteOpenOptions, SqliteLimits, OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, encodeRecord, openMutablePager, mutableCommit, MutablePager, PagerCommit, pagerInsertBalanced, pagerDeleteBalanced](index.ssc)
 [ImageVfs, fieldValueAt](mutate.ssc)
 
 ```scalascript
@@ -410,6 +417,183 @@ def queryImage(dbBytes: ByteSlice, sql: String): Either[String, List[List[Sqlite
       case Right(stmt) => openReadonly(ImageVfs(dbBytes), "image.db", sqlOptions()) match
         case Left(error) => Left(error.message)
         case Right(db) => executeSelect(db, stmt)
+
+// ── DML: INSERT and DELETE through the balanced write path ──
+
+case class InsertStmt(table: String, values: List[SqliteValue])
+case class DeleteStmt(table: String, where: Option[Condition])
+
+def reverseValues(items: List[SqliteValue], acc: List[SqliteValue]): List[SqliteValue] =
+  var r = items
+  var out = acc
+  while r.nonEmpty do
+    out = r.head :: out
+    r = r.tail
+  out
+
+/** Parse `( literal [, literal]* )` starting at `toks`; returns the values + the rest. */
+def parseValueList(toks: List[Token]): Either[String, (List[SqliteValue], List[Token])] =
+  if toks.isEmpty || toks.head.kind != "lparen" then Left("expected '(' before VALUES list")
+  else
+    var rest = toks.tail
+    var accRev: List[SqliteValue] = Nil
+    var result: Option[Either[String, (List[SqliteValue], List[Token])]] = None
+    var expectValue = true
+    while result.isEmpty do
+      if rest.isEmpty then result = Some(Left("unterminated VALUES list"))
+      else if rest.head.kind == "rparen" then result = Some(Right((reverseValues(accRev, Nil), rest.tail)))
+      else if expectValue then
+        litValue(rest.head) match
+          case Left(message) => result = Some(Left(message))
+          case Right(value) =>
+            accRev = value :: accRev
+            rest = rest.tail
+            expectValue = false
+      else if rest.head.kind == "comma" then
+        rest = rest.tail
+        expectValue = true
+      else result = Some(Left("expected ',' or ')' in VALUES list"))
+    result match
+      case Some(r) => r
+      case None => Left("VALUES parse error")
+
+def parseInsert(toks: List[Token]): Either[String, InsertStmt] =
+  if toks.isEmpty || !isKw(toks.head, "INSERT") then Left("expected INSERT")
+  else
+    val afterInsert = toks.tail
+    if afterInsert.isEmpty || !isKw(afterInsert.head, "INTO") then Left("expected INTO")
+    else
+      val afterInto = afterInsert.tail
+      if afterInto.isEmpty || afterInto.head.kind != "ident" then Left("expected table name")
+      else
+        val table = afterInto.head.text
+        val afterTable = afterInto.tail
+        if afterTable.isEmpty || !isKw(afterTable.head, "VALUES") then Left("expected VALUES (column lists are a follow-up)")
+        else parseValueList(afterTable.tail) match
+          case Left(message) => Left(message)
+          case Right(pair) => Right(InsertStmt(table, pair._1))
+
+def parseDelete(toks: List[Token]): Either[String, DeleteStmt] =
+  if toks.isEmpty || !isKw(toks.head, "DELETE") then Left("expected DELETE")
+  else
+    val afterDelete = toks.tail
+    if afterDelete.isEmpty || !isKw(afterDelete.head, "FROM") then Left("expected FROM")
+    else
+      val afterFrom = afterDelete.tail
+      if afterFrom.isEmpty || afterFrom.head.kind != "ident" then Left("expected table name")
+      else parseWhere(afterFrom.tail) match
+        case Left(message) => Left(message)
+        case Right(where) => Right(DeleteStmt(afterFrom.head.text, where))
+
+def maxRowidOf(rows: List[StorageRecord]): Long =
+  var r = rows
+  var m = 0L
+  while r.nonEmpty do
+    r.head.rowid match
+      case Some(id) => if id > m then m = id
+      case None => m = m
+    r = r.tail
+  m
+
+def matchingRowids(rows: List[StorageRecord], where: Option[Condition], colNames: List[String]): List[Long] =
+  var r = rows
+  var accRev: List[Long] = Nil
+  while r.nonEmpty do
+    if whereHolds(where, r.head, colNames) then
+      r.head.rowid match
+        case Some(id) => accRev = id :: accRev
+        case None => accRev = accRev
+    r = r.tail
+  var out: List[Long] = Nil
+  while accRev.nonEmpty do
+    out = accRev.head :: out
+    accRev = accRev.tail
+  out
+
+// Resolve (rootPage, column names, page size) for a table; open the image read-only.
+def tableContext(dbBytes: ByteSlice, table: String): Either[String, (ReadonlyDatabase, Int, List[String], Int)] =
+  openReadonly(ImageVfs(dbBytes), "image.db", sqlOptions()) match
+    case Left(error) => Left(error.message)
+    case Right(db) => findTable(db, table) match
+      case None => Left("no such table: " + table)
+      case Some(entry) =>
+        val root = entry.rootPage match
+          case Some(p) => p.toInt
+          case None => 0
+        val colNames = entry.sql match
+          case Some(text) => tableColumns(cpToString(text.codePoints))
+          case None => Nil
+        Right((db, root, colNames, db.pager.header.pageSize))
+
+def executeInsert(dbBytes: ByteSlice, stmt: InsertStmt): Either[String, ByteSlice] =
+  tableContext(dbBytes, stmt.table) match
+    case Left(message) => Left(message)
+    case Right(ctx) =>
+      val db = ctx._1
+      val root = ctx._2
+      val pageSize = ctx._4
+      openReadonlyRoot(db, root.toLong, RowidTableTree) match
+        case Left(error) => Left(error.message)
+        case Right(cursor) => collectRows(db, cursor) match
+          case Left(error) => Left(error.message)
+          case Right(rows) =>
+            val rowid = maxRowidOf(rows) + 1L
+            encodeRecord(stmt.values) match
+              case Left(error) => Left(error.message)
+              case Right(record) =>
+                pagerInsertBalanced(openMutablePager(dbBytes, pageSize, pageSize), root, rowid, record, pageSize) match
+                  case Left(error) => Left(error.message)
+                  case Right(pager) => mutableCommit(pager, rowid) match
+                    case Left(error) => Left(error.message)
+                    case Right(pc) => Right(pc.pager.image)
+
+def deleteRowidLoop(pager: MutablePager, root: Int, rowids: List[Long], pageSize: Int): Either[String, MutablePager] =
+  var p = pager
+  var r = rowids
+  var err: Option[String] = None
+  while r.nonEmpty && err.isEmpty do
+    pagerDeleteBalanced(p, root, r.head, pageSize) match
+      case Left(error) => err = Some(error.message)
+      case Right(next) => p = next
+    r = r.tail
+  err match
+    case Some(message) => Left(message)
+    case None => Right(p)
+
+def executeDelete(dbBytes: ByteSlice, stmt: DeleteStmt): Either[String, ByteSlice] =
+  tableContext(dbBytes, stmt.table) match
+    case Left(message) => Left(message)
+    case Right(ctx) =>
+      val db = ctx._1
+      val root = ctx._2
+      val colNames = ctx._3
+      val pageSize = ctx._4
+      openReadonlyRoot(db, root.toLong, RowidTableTree) match
+        case Left(error) => Left(error.message)
+        case Right(cursor) => collectRows(db, cursor) match
+          case Left(error) => Left(error.message)
+          case Right(rows) =>
+            val victims = matchingRowids(rows, stmt.where, colNames)
+            if victims.isEmpty then Right(dbBytes)
+            else deleteRowidLoop(openMutablePager(dbBytes, pageSize, pageSize), root, victims, pageSize) match
+              case Left(message) => Left(message)
+              case Right(pager) => mutableCommit(pager, 1L) match
+                case Left(error) => Left(error.message)
+                case Right(pc) => Right(pc.pager.image)
+
+/** Run an INSERT or DELETE against a database image and return the new image. */
+def executeMutation(dbBytes: ByteSlice, sql: String): Either[String, ByteSlice] =
+  tokenize(sql) match
+    case Left(message) => Left(message)
+    case Right(toks) =>
+      if toks.isEmpty then Left("empty statement")
+      else if isKw(toks.head, "INSERT") then parseInsert(toks) match
+        case Left(message) => Left(message)
+        case Right(stmt) => executeInsert(dbBytes, stmt)
+      else if isKw(toks.head, "DELETE") then parseDelete(toks) match
+        case Left(message) => Left(message)
+        case Right(stmt) => executeDelete(dbBytes, stmt)
+      else Left("executeMutation expects INSERT or DELETE")
 
 // ── Rendering (sqlite3 CLI list format: `a|b|c` per row, NULL blank) ──
 

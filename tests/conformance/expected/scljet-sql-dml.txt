@@ -1,0 +1,14 @@
+SELECT * FROM t => 1|a
+2|b
+3|c
+4|d
+5|e
+SELECT * FROM t => 1|a
+3|c
+5|e
+SELECT name FROM t WHERE id >= 3 => c
+e
+SELECT id, name FROM t => 1|a
+3|c
+5|e
+6|f
