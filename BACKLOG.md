@@ -15,12 +15,14 @@ Status hygiene (2026-06-23): open `[ ]` rows below are intentionally still open,
 explicitly `BLOCKED` or `DEFERRED` product/external-decision items. History-only / wontfix notes
 are plain bullets without checkboxes so agents do not claim them as build work.
 
-## Saved-continuation optional policies and portability tail (2026-07-14)
+## Saved-continuation optional policies (2026-07-14)
 
 The base contract is deliberately small: a reusable `SavedContinuation` is a typed opaque
-envelope around a closed portable CoreIR capsule (or an exact-artifact fallback for managed
-Scala/JVM frames), and every explicit `run` starts a fresh suffix execution without replaying
-the prefix. These additions are useful but are not prerequisites for base save/run:
+envelope around a closed portable CoreIR capsule (or a target/toolchain-pinned exact artifact for
+managed host code), and every explicit `run` starts a fresh suffix execution without replaying
+the prefix. JS/TS, Rust, Swift, and JVM host/runners plus the WASM/WASI runner are mandatory
+SPRINT milestones, not optional tail work. These policy additions are useful but are not
+prerequisites for base save/run:
 
 - [ ] **saved-continuation-once-policy** — add an explicitly selected one-shot workflow mode
       with a linearizable cross-machine claim. The mode must be chosen before any reusable run
@@ -30,17 +32,13 @@ the prefix. These additions are useful but are not prerequisites for base save/r
       CoreIR/control ABI, frame, codec, and plugin versions. Base behavior rejects a mismatch and
       retains/loads the exact artifact when the payload is not a fully portable capsule.
 - [ ] **saved-continuation-durable-state-graph** — extend the baseline immutable/codec-safe
-      captured graph with explicit alias-preserving codecs for cyclic mutable state and selected
-      resource rehydration. Never infer serialization of arbitrary JVM objects or live resources.
+      captured graph with richer explicit alias-preserving codecs for selected cyclic mutable
+      state. The base `DurableRef` contract remains available for explicit resolvers; neither
+      mechanism infers serialization of arbitrary host objects or live resources.
 - [ ] **saved-continuation-effect-delivery** — optional idempotency keys, outcome persistence,
       transactional outbox/inbox, and effect journals for applications that need stronger delivery
       protocols. These remain application/runtime protocols, not a claim that continuation resume
       itself makes external effects exactly once.
-- [ ] **saved-continuation-dynamic-backends** — load and execute a portable CoreIR capsule on JS,
-      WASM, Rust, and Swift runners once those backends have a versioned dynamic CoreIR loader and
-      the required primitive/plugin manifests. The first implementation remains managed JVM; mixed
-      Scala continuations remain JVM-specific unless their Scala segments are separately packaged.
-
 ## Control and mixed-build extensions deferred from the base milestone (2026-07-14)
 
 The first milestone deliberately keeps answer types stable, builds a module DAG, supports only

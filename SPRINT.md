@@ -48,12 +48,16 @@ runtime bytes change, and all post-X1 kernel gates remain binding.
       `control-interop-conformance-harness` claim. Result: Scala/JVM, JS/TS, Rust,
       Swift, and WASM/WASI documents now refine the core without duplicating semantic
       ownership; the portable-VM harness landed independently in `a9c354262`.
-- [ ] **cis-4 — roadmap and satellite reconciliation.** Rewrite this section and the
+- [x] **cis-4 — roadmap and satellite reconciliation.** Rewrite this section and the
       saved-continuation BACKLOG tail so JVM/JS/Rust/Swift runners are mandatory
       independently shippable milestones chosen by measured readiness, not optional
       tail work. Update `scala-interop.md`, `arch-ffi.md`, `polyglot-libraries.md`,
       effects/coroutine/self-hosting companions, README/spec indexes, and links so
-      they are satellites rather than competing semantic owners.
+      they are satellites rather than competing semantic owners. Result: ownership
+      now flows from `SPEC.md` and indexes to the canonical core; ordinary FFI,
+      plugin `SpiValue`, coroutines, and terminal async/error adapters are explicit
+      partial/barrier paths. JVM/JS/TS/Rust/Swift and N→M runners are mandatory
+      SPRINT work; only delivery/migration/graph-policy extensions remain optional.
 - [ ] **cis-5 — verify and hand off.** Run Markdown lint/link checks plus focused
       existing effect/control/coroutine/tail conformance. Verify the new specs state
       the post-X1 byte gate, atomic admission vs typed resource-liveness failures,
@@ -62,14 +66,16 @@ runtime bytes change, and all post-X1 kernel gates remain binding.
       to `sunny-heron` so the already-running portable-VM/conformance work can link
       the canonical contract without duplicating its laws.
 
-## scala3-bidirectional-control — transparent Scala 3 ↔ ScalaScript control and durable save/run (2026-07-14, Sergiy)
+## control-interoperability — target-neutral control ABI plus mandatory host/runner milestones (2026-07-14, Sergiy)
 
-Goal: make Scala 3 and ScalaScript two source frontends of one **managed JVM execution lane** while
-preserving the target-independent ScalaScript contract. Pure values, typed effects, handlers,
-multi-prompt `shift`/`reset`, callbacks, and mixed-language tail calls cross the boundary without
-`Any`, reflection, hidden exceptions, or interpreter runtime types. The normative semantics remain
-the language specs + portable CoreIR lowering + differential conformance; this work does **not** put
-Scala/JVM types into frozen CoreIR and does not make the Scala SDK the semantic owner of v2.
+Goal: implement [`specs/control-interoperability.md`](specs/control-interoperability.md)
+once, then expose it through native typed bidirectional value-and-call bridges for
+Scala/JVM, JavaScript/TypeScript, Rust, and Swift, plus independently qualified
+portable runners (including WASM/WASI). Pure values, effects, handlers, multi-prompt
+`shift`/`reset`, callbacks, mixed tail calls, and saved continuations retain one
+observable semantics across every lane. Host profiles never put platform types into
+CoreIR or become semantic owners; runner delivery order is selected by measured
+readiness, while all four host families and the N→M matrix remain mandatory.
 
 Durable control uses the simple reusable **save/run** idiom, not replay:
 `continuation.save(): Eff[Save,SavedContinuation.Aux[A,Fx,R]]` freezes a compiler-managed continuation;
@@ -77,9 +83,10 @@ every admitted `saved.run(value)` invokes its resume entry once directly at the 
 prefix is never re-executed; the suffix then follows its own effects/loops/multi-shot behavior. The
 opaque transport envelope contains either a portable closed CoreIR resume program
 `(FrozenFrame,input) => Eff` plus a separately hashed frame, or exact-artifact
-`artifactDigest + resumePointId + frame` state for mixed Scala/JVM code. The second representation is
-not CoreIR and is only required to satisfy the same public control laws. Atomic one-shot workflow
-execution remains an optional policy, not the default continuation semantics.
+`target + toolchain + artifactDigest + resumePointId + frame` state for managed host
+code. `CodeMode` is independent from `FrameGate`: exact artifacts never rescue raw
+foreign values or live resources. Atomic one-shot workflow execution remains an
+optional policy, not the default continuation semantics.
 
 ### Specification and contract freeze
 
@@ -99,7 +106,7 @@ execution remains an optional policy, not the default continuation semantics.
   wrapping-64 CoreIR value. Add per-backend wrap/round-trip/overload vectors and reject legacy
   ambiguous exports; this is semantic lowering work, not descriptor-only mapping.
 
-### Public ABI and portable semantic baseline
+### Common ABI and portable semantic baseline
 
 - [ ] **scala3-control-api** — add a small compiler-independent `_3` API containing typed
   `Eff[Fx,A]`, `Effect`/`Operation`, `Handler`, fresh typed `Prompt`, reusable typed continuations,
@@ -121,7 +128,7 @@ execution remains an optional policy, not the default continuation semantics.
   same vectors on explicit API, v2 VM/direct ASM, generated JVM, JS, Rust, WASM, and Swift as those
   portable lanes become available, plus the managed Scala direct-style lane.
 
-### ScalaScript and Scala 3 frontends
+### ScalaScript lowering and Scala/JVM host profile
 
 Planning, descriptors, reference API, and semantic vectors may proceed now. Changes to the v2
 frontend/lowering, canonical CoreIR codec/loader, or any byte-affecting kernel contract begin only
@@ -139,6 +146,33 @@ every later compiler/kernel change re-runs the literal fixed point.
 - [ ] **scala3-control-plugin** — publish a `CrossVersion.full` compiler plugin for cross-method CPS,
   managed callback propagation, effect metadata, and generated ABI entrypoints. Precompiled Scala/Java
   code remains callable but is a deterministic control-capture barrier while active on the stack.
+
+### Mandatory host and runner profiles (delivery order by measured readiness)
+
+- [ ] **javascript-typescript-control-host-runner** — deliver the ESM/npm + `.d.ts`
+  typed bidirectional value/call bridge, explicit `Eff`, managed source transform,
+  callback/event-loop policies, static-SCC dispatcher, init-free exact bundle runner,
+  and hardened dynamic portable runner from
+  `specs/javascript-typescript-bidirectional-control.md`. Promise/async/generators
+  remain adapters or barriers; I64 uses `bigint`.
+- [ ] **rust-control-host-runner** — deliver the Cargo host facade, stable-Rust
+  explicit `Eff`, proc-macro/generated state machines, ownership/borrow/RAII barrier
+  checks, typed mixed-SCC dispatcher, target/toolchain-pinned exact runner, and
+  hardened portable runner from `specs/rust-bidirectional-control.md`. `Future`,
+  `FnOnce`, borrows, pointers, and active `Drop` frames never become reusable/durable.
+- [ ] **swift-control-host-runner** — deliver the SwiftPM facade, explicit `SscEff`,
+  generated managed state machine, actor/`Sendable`/affinity policies, mixed-SCC
+  dispatcher, installed/signed init-free exact entry, and a hardened portable runner
+  where platform policy permits, per `specs/swift-bidirectional-control.md`.
+- [ ] **wasm-wasi-control-runner** — qualify the runner-only profile in
+  `specs/wasm-wasi-control-runner.md`: bounded atomic admission, explicit
+  WASI/WIT capability imports, stackless portable CoreIR execution, fresh memory per
+  run, and rejection of `_start`, linear-memory/table/ref/resource snapshots. This
+  does not claim a host SDK.
+
+Each host milestone is independently shippable but none is optional. Passing an
+existing AOT backend suite proves code generation only, not the typed host bridge or
+dynamic saved-capsule runner.
 
 ### Bidirectional modules, build graph, and TCO
 
@@ -159,16 +193,19 @@ every later compiler/kernel change re-runs the literal fixed point.
   Indirect/virtual/foreign/finalizer edges are deterministic barriers. Verify 1e6-depth two- and
   three-function alternating-language recursion with no unbounded JVM stack.
 
-### Reusable continuation save/run — exact artifact first, packed CoreIR second
+### Reusable continuation save/run — common capsule, then profile runners
 
 - [ ] **saved-continuation-format** — after X1/CoreIR reconciliation, define the versioned self-hosted
-  envelope + durable-frame codec/verifier as an explicit tagged union:
+  envelope + durable-frame codec/verifier with independent axes
+  `CodeMode = Portable | ExactArtifact` and `FrameGate = Savable | Unsavable`:
   `Portable(resumeCodeDigest, closed Program((frame,input)=>Eff))` or
   `ExactArtifact(artifactDigest,target,resumePointId)`, both with `FrozenFrame`, A/R codec schemas,
-  dependency profile, lifecycle, bounded policy, domain-separated hashes, and signature. The
+  exact resolver/plugin implementation profile, lifecycle, bounded policy,
+  domain-separated hashes, and signature. `DurableRef` decodes inertly and resolves
+  only as a typed post-admission effect. The
   exact-artifact form is not required to decode into CoreIR. Canonical CoreIR encoding stays
   kernel-owned; no Java serialization or application-visible frame bytes.
-- [ ] **continuation-exact-artifact-runner** — implement the practical managed-JVM path first:
+- [ ] **continuation-exact-artifact-runner-jvm** — implement the practical managed-JVM path first:
   compiler-generated resume point + codec-safe transitive frame + exact JAR/runtime bundle binding;
   run in a fresh/on-demand exact-artifact runner without calling `main` or effectful/static application
   initialization. Provider references use expiry/removal; inline exact-artifact values require finite
@@ -182,32 +219,39 @@ every later compiler/kernel change re-runs the literal fixed point.
 - [ ] **portable-coreir-capsule-runner-jvm** — after the exact-artifact proof, closure-convert/link a
   state-abstracted `(FrozenFrame,input)=>Eff` CoreIR resume Program, materialize every application
   Global, and run the packed capsule on a generic managed-JVM CoreIR runner with no application JAR.
-  Reject target-specific/unavailable plugin profiles. Dynamic JS/Rust/WASM/Swift loaders stay backlog.
+  Reject target-specific/unavailable plugin profiles. This establishes the first
+  dynamic row; JS/TS, Rust, Swift, and WASM/WASI dynamic rows are mandatory profile
+  milestones above rather than optional backlog work.
 - [ ] **continuation-artifact-retention** — keep exact JAR/runtime bundles addressable only while a
   provider-backed identity/finite inline lease may still run; start a compatible exact-artifact runner
   on demand. Packed portable capsules pin no application artifact. No base cross-version frame
   migration, effect journal, automatic retry, or exactly-once external-effect claim.
 
-### End-to-end completion gate
+### End-to-end completion gates
 
-- [ ] **scala-ssc-control-interop-matrix** — prove Scala `reset`→SSC `shift`, SSC `reset`→managed Scala
-  `shift`, capture on one side/resume on the other, Scala→SSC→Scala→SSC callback ping-pong, handlers
-  written on either side, separate compilation, mixed TCO, save→network transfer→remote run,
+- [ ] **control-interop-nxm-matrix** — for Scala/JVM, JS/TS, Rust, and Swift,
+  prove host `reset`→SSC `shift`, SSC `reset`→managed host `shift`, capture on one
+  side/resume on the other, host→SSC→host→SSC callback ping-pong, handlers
+  written on either side, separate compilation, mixed TCO, and every portable
+  producer N→qualified runner M direction. Include save→network transfer→remote run,
   save→process restart→many runs, concurrent multi-shot runs with isolated captured data, repeated
   suffix effects, true-shift-vs-shift0, prompt isolation, wrong ABI/A-R-codec/plugin/artifact,
   exact-runner no-main/initializer replay, capture/transitive-mutable-global barriers,
   pre-admission unavailable vs post-admission unknown, residual remote handler placement,
-  one-shot-source rejection, lifecycle expiry/revocation, and tampered/cross-tenant rejection.
-- [ ] **scala-ssc-control-examples** — ship runnable examples and README/user-guide links for
-  ScalaScript typed multi-prompt shift/reset, save→run twice with a prefix counter proving no replay,
-  and an ordinary Scala 3↔ScalaScript managed-control callback. Run them through the assembled CLI/JAR
-  paths and reference them from this specification; user-facing feature closure requires examples.
-- [ ] **scala-sdk-feature-coverage** — derive a CI-enforced matrix from existing feature/capability and
-  module metadata. Every ScalaScript capability must declare one Scala exposure form: native API,
-  generated facade, macro, compiler plugin, tooling-only, or platform-specific. “Unavailable” is
-  permitted only for source-document/tooling or target-inapplicable platform features, never to waive
-  a portable runtime/library capability. Generalize `emit-lib --host jvm` from the optics pilot instead
-  of building a parallel hand-maintained standard library.
+  missing resolver vs unavailable resource, raw foreign rejection, one-shot-source
+  rejection, lifecycle expiry/revocation, signature/quota, and tampered/cross-tenant
+  rejection. The portable-VM is the reference evidence row; it does not own laws.
+- [ ] **control-interop-examples** — ship runnable ScalaScript typed multi-prompt
+  shift/reset and save→run-twice examples with a prefix counter proving no replay,
+  plus one ordinary managed callback example for each qualified host profile. Run
+  through assembled package/artifact paths and link from the common/profile specs.
+- [ ] **host-sdk-feature-coverage** — derive a CI-enforced matrix from existing
+  feature/capability/module metadata. Every portable ScalaScript capability declares,
+  for Scala/JVM, JS/TS, Rust, and Swift, one exposure form: native API, generated
+  facade, managed transform, tooling-only, or target-specific. “Unavailable” is
+  permitted only with a normative target-inapplicable reason; it cannot waive a
+  portable runtime/library capability. Reuse existing `emit-lib` pilots rather than
+  building parallel hand-maintained standard libraries.
 
 ## uniml-portable — dual-compile UniML dialects on v2 (2026-07-14, Sergiy: "продолжай, записывай в спринт, пуш")
 
