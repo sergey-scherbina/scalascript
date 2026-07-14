@@ -21,7 +21,16 @@ for proj in "$OUT"/*.proj; do
   rm -f "$drv"
   if [ -f "$OUT/$name.toy.ssc" ]; then
     refir=$(java -Xss512m -jar "$JAR" run bin/ssc1-run.ssc0 "$OUT/$name.toy.ssc" 2>/dev/null)
-    if [ "$myir" = "$refir" ] && [ -n "$myir" ]; then echo "ok   $name → run-ir=$mine  CoreIR≡ssc1-front"
+    if [ "$myir" = "$refir" ] && [ -n "$myir" ]; then
+      if [ -f "$OUT/$name.emit" ]; then
+        # two-stage self-compilation: the toy is a COMPILER (in the subset) that EMITS executable Core IR.
+        # stage 1 (above): the spike compiles it byte-identically. stage 2: run the Core IR it emitted.
+        emitted=$(printf '%s' "$mine" | sed 's/^"//; s/"$//')
+        stage2=$(printf '%s' "$emitted" | java -Xss512m -jar "$JAR" run-ir /dev/stdin 2>/dev/null)
+        want=$(cat "$OUT/$name.emit")
+        if [ "$stage2" = "$want" ]; then echo "ok   $name → CoreIR≡ssc1-front; the IR it EMITS runs → $stage2 (self-compile stage 2)"
+        else echo "FAIL $name  emitted IR ran to [$stage2], expect [$want]"; fail=1; fi
+      else echo "ok   $name → run-ir=$mine  CoreIR≡ssc1-front"; fi
     else echo "FAIL $name  CoreIR≠ssc1-front (run-ir mine=$mine)"; fail=1; fi
   else
     expect=$(cat "$OUT/$name.expect")

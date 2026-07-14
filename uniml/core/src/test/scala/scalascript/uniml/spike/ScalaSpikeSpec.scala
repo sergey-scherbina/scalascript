@@ -642,6 +642,44 @@ final class ScalaSpikeSpec extends AnyFunSuite:
          |def fst(p: Int): Int = p match { case (a, b) => a }
          |def compile(src: String): String = lower(fst(parse(tokenize(src, 0, src.length))))
          |def main(): String = compile("+ 1 * 2 3")""".stripMargin
+    // THE literal-self-host capstone: a compiler in the subset that emits REAL, EXECUTABLE Core IR. The
+    // lowerer produces `(prim i.add …)` / `(prim i.mul …)` / `(lit (int n))` wrapped in a runnable
+    // `(program (defs (def main (lam 0 …))) (entry (app (global main))))`. Two-stage self-compilation: the
+    // spike compiles THIS compiler byte-identically to ssc1-front; running it EMITS Core IR text; that text
+    // runs on `run-ir` to the arithmetic answer. Verified end-to-end by the harness (see the emit check).
+    val selfhostEmit =
+      """|def isDigit(c: Int): Int = if c >= 48 then (if c <= 57 then 1 else 0) else 0
+         |def scanNum(s: String, i: Int, n: Int, acc: Int): Int =
+         |  if i >= n then (acc, i)
+         |  else
+         |    val c = s.charAt(i)
+         |    if isDigit(c) == 1 then scanNum(s, i + 1, n, acc * 10 + (c - 48))
+         |    else (acc, i)
+         |def tokenize(s: String, i: Int, n: Int): List[Int] =
+         |  if i >= n then Nil
+         |  else
+         |    val c = s.charAt(i)
+         |    if c == 43 then Cons(-1, tokenize(s, i + 1, n))
+         |    else if c == 42 then Cons(-2, tokenize(s, i + 1, n))
+         |    else if c == 32 then tokenize(s, i + 1, n)
+         |    else if isDigit(c) == 1 then scanNum(s, i, n, 0) match { case (v, j) => Cons(v, tokenize(s, j, n)) }
+         |    else tokenize(s, i + 1, n)
+         |def parseBin(tag: Int, r0: Int): Int = r0 match { case (l, r1) => parse(r1) match { case (r, r2) => ((tag, (l, r)), r2) } }
+         |def parse(ts: List[Int]): Int = ts match {
+         |  case Cons(t, rest) => if t == -1 then parseBin(2, parse(rest)) else if t == -2 then parseBin(3, parse(rest)) else ((0, t), rest)
+         |  case Nil => ((0, 0), Nil)
+         |}
+         |def lower(e: Int): String = e match {
+         |  case (0, n) => "(lit (int " + n + "))"
+         |  case (2, lr) => lr match { case (l, r) => "(prim i.add " + lower(l) + " " + lower(r) + ")" }
+         |  case (3, lr) => lr match { case (l, r) => "(prim i.mul " + lower(l) + " " + lower(r) + ")" }
+         |  case _ => "(lit (int 0))"
+         |}
+         |def fst(p: Int): Int = p match { case (a, b) => a }
+         |def compile(src: String): String =
+         |  val body = lower(fst(parse(tokenize(src, 0, src.length))))
+         |  "(program (defs (def main (lam 0 " + body + "))) (entry (app (global main))))"
+         |def main(): String = compile("+ 1 * 2 3")""".stripMargin
     // The hardest part of a real parser, in the subset: a PRECEDENCE-CLIMBING infix parser with
     // PARENTHESES — the same algorithm as the spike's own parseExpr (climb while the next operator binds
     // tighter than minPrec). Tokenises "2 * (1 + 3)" (with `(`=-3, `)`=-4), parses respecting `*` over `+`
@@ -691,6 +729,7 @@ final class ScalaSpikeSpec extends AnyFunSuite:
       "selfhost-closures" -> selfhostClosures,
       "selfhost-full"     -> selfhostFull,
       "selfhost-compiler" -> selfhostCompiler,
+      "selfhost-emit"     -> selfhostEmit,
       "selfhost-infix"    -> selfhostInfix,
       "scale-prog"   -> scaleProg,
       "scale-decls"  -> scaleDecls,
@@ -789,6 +828,9 @@ final class ScalaSpikeSpec extends AnyFunSuite:
       Files.writeString(Paths.get(outDir, s"$name.proj"), SpikeProject.program(parse(code).roots.head))
       Files.writeString(Paths.get(outDir, s"$name.toy.ssc"), code + "\n")
       Files.deleteIfExists(Paths.get(outDir, s"$name.expect"))
+    // selfhost-emit is a COMPILER (in the subset) that emits executable Core IR; the harness runs the IR
+    // it emits and checks it evaluates to this (two-stage self-compilation: 1 + 2*3).
+    Files.writeString(Paths.get(outDir, "selfhost-emit.emit"), "7")
     for (name, code, expect) <- broken do
       Files.writeString(Paths.get(outDir, s"$name.proj"), SpikeProject.program(parse(code).roots.head))
       Files.writeString(Paths.get(outDir, s"$name.expect"), expect)
