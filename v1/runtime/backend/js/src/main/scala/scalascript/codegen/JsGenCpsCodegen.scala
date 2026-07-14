@@ -66,13 +66,26 @@ private[codegen] trait JsGenCpsCodegen:
     case Term.Interpolate(Term.Name(prefix), parts, args)
         if prefix == "s" || prefix == "f" || prefix == "md" =>
       bindArgsCps(args.map(_.asInstanceOf[Term])) { vs =>
+        // f"…" format specs: see the twin in genExpr (js-f-interp-format-spec).
+        val fmtRe = "^%[-+# 0,(]*\\d*(?:\\.\\d+)?[bBhHsScCdoxXeEfgGaAtT%]".r
+        def fSpecAt(i: Int): Option[String] =
+          if prefix == "f" && i >= 0 && i < parts.length then
+            fmtRe.findFirstIn(parts(i).asInstanceOf[Lit.String].value)
+          else None
         val sb2 = StringBuilder()
         sb2.append("`")
         for i <- parts.indices do
-          val part = parts(i).asInstanceOf[Lit.String].value
+          val partRaw = parts(i).asInstanceOf[Lit.String].value
+          val part = fSpecAt(i) match
+            case Some(spec) if i > 0 => partRaw.substring(spec.length)
+            case _                   => partRaw
           // Backslash first — see twin in genExpr.
           sb2.append(part.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$"))
-          if i < args.length then sb2.append("${_show(").append(vs(i)).append(")}")
+          if i < args.length then
+            val wrapped = fSpecAt(i + 1) match
+              case Some(spec) => s"""_fmtSpec(${JsGenStringUtils.jsQuote(spec)}, ${vs(i)})"""
+              case None       => s"_show(${vs(i)})"
+            sb2.append("${").append(wrapped).append("}")
         sb2.append("`")
         val templateLiteral = sb2.toString
         if prefix == "md" then s"_md($templateLiteral)" else templateLiteral

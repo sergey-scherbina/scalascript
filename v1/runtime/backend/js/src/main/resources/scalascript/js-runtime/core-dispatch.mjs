@@ -287,6 +287,56 @@ function _show(v) {
   return String(v);
 }
 
+// Java/printf-style `f"…%…"` format spec applied to one interpolated value.
+// Mirrors the interpreter's `String.format(spec, boxed)` for the conversions the
+// corpus/users actually reach: d f e E g G x X o s S c b and %%. On any spec it
+// can't parse it falls back to `_show(value)` (never throws, matching the
+// interpreter's IllegalFormatException guard). (js-f-interp-format-spec.)
+function _fmtSpec(spec, value) {
+  const m = /^%([-+ 0,(]*)(\d+)?(?:\.(\d+))?([a-zA-Z%])$/.exec(spec);
+  if (!m) return _show(value);
+  const flags = m[1], width = m[2] ? parseInt(m[2], 10) : 0,
+        prec = m[3] !== undefined ? parseInt(m[3], 10) : undefined, conv = m[4];
+  const left = flags.includes('-'), zero = flags.includes('0') && !left,
+        plus = flags.includes('+'), space = flags.includes(' '), comma = flags.includes(',');
+  // Unbox a boxed _Char to its string form up front.
+  let v = value;
+  if (v instanceof _Char) v = v.toString();
+  const group = s => comma ? s.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : s;
+  const sign = neg => neg ? '-' : (plus ? '+' : (space ? ' ' : ''));
+  // Pad `sgn+body` to width; zero-pad inserts zeros between the sign and body.
+  const pad = (sgn, body) => {
+    let s = sgn + body;
+    if (width <= s.length) return s;
+    if (left)  return s + ' '.repeat(width - s.length);
+    if (zero)  return sgn + '0'.repeat(width - s.length) + body;
+    return ' '.repeat(width - s.length) + s;
+  };
+  const toBig = x => typeof x === 'bigint' ? x : BigInt(Math.trunc(Number(x)));
+  switch (conv) {
+    case '%': return '%';
+    case 'd': { const n = toBig(v), neg = n < 0n; return pad(sign(neg), group((neg ? -n : n).toString())); }
+    case 'f': { const n = Number(v), p = prec === undefined ? 6 : prec, neg = n < 0 || Object.is(n, -0);
+                const b = Math.abs(n).toFixed(p); const [ip, fp] = b.split('.');
+                return pad(sign(neg), group(ip) + (fp ? '.' + fp : '')); }
+    case 'e': case 'E': { const n = Number(v), p = prec === undefined ? 6 : prec;
+                let s = Math.abs(n).toExponential(p).replace(/e([+-])(\d)$/, 'e$10$2');
+                if (conv === 'E') s = s.toUpperCase();
+                return pad(sign(n < 0), s); }
+    case 'g': case 'G': { const n = Number(v), p = prec === undefined || prec === 0 ? 6 : prec;
+                let s = n.toPrecision(p); if (conv === 'G') s = s.toUpperCase(); return pad('', s); }
+    case 'x': return pad('', toBig(v).toString(16));
+    case 'X': return pad('', toBig(v).toString(16).toUpperCase());
+    case 'o': return pad('', toBig(v).toString(8));
+    case 'b': return pad('', (v === null || v === undefined || v === false) ? 'false' : 'true');
+    case 'c': return pad('', String(v));
+    case 's': case 'S': { let s = typeof v === 'string' ? v : _show(v);
+                if (prec !== undefined) s = s.slice(0, prec);
+                if (conv === 'S') s = s.toUpperCase(); return pad('', s); }
+    default: return _show(value);
+  }
+}
+
 const None = {_type: '_None'};
 const _None = {_type: '_None'};
 function Some(v) { return {_type: '_Some', value: v}; }

@@ -4076,10 +4076,24 @@ class JsGen(
     case Term.Interpolate(Term.Name(prefix), parts, args)
         if prefix == "s" || prefix == "f" || prefix == "md"
         || prefix == "html" || prefix == "css" =>
+      // f"…" semantics: the literal following each ${} may start with a Java
+      // printf-style format spec applied to the PRECEDING arg (same grammar the
+      // interpreter uses). The spec for arg(i) lives at the start of parts(i+1);
+      // we look ahead for it, wrap the arg in `_fmtSpec`, and strip it from the
+      // literal text when that part is emitted. (js-f-interp-format-spec.)
+      val fmtRe = "^%[-+# 0,(]*\\d*(?:\\.\\d+)?[bBhHsScCdoxXeEfgGaAtT%]".r
+      def fSpecAt(i: Int): Option[String] =
+        if prefix == "f" && i >= 0 && i < parts.length then
+          fmtRe.findFirstIn(parts(i).asInstanceOf[Lit.String].value)
+        else None
       val sb2 = StringBuilder()
       sb2.append("`")
       for i <- parts.indices do
-        val part = parts(i).asInstanceOf[Lit.String].value
+        val partRaw = parts(i).asInstanceOf[Lit.String].value
+        // Drop a spec belonging to the previous arg (it was consumed there).
+        val part = fSpecAt(i) match
+          case Some(spec) if i > 0 => partRaw.substring(spec.length)
+          case _                   => partRaw
         // Backslash first — replacing `\\` AFTER `` ` `` would double-escape
         // the backslash inserted by the `` ` `` step, breaking the JS
         // template literal.
@@ -4090,7 +4104,9 @@ class JsGen(
           // html"..." escapes interpolated values unless they're a raw() marker.
           val wrapped =
             if prefix == "html" then s"_html_interp($argJs)"
-            else                     s"_show($argJs)"
+            else fSpecAt(i + 1) match
+              case Some(spec) => s"""_fmtSpec(${jsQuote(spec)}, $argJs)"""
+              case None       => s"_show($argJs)"
           sb2.append("${").append(wrapped).append("}")
       sb2.append("`")
       val templateLiteral = sb2.toString

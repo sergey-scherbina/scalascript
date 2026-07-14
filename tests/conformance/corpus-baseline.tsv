@@ -138,7 +138,6 @@ seed-signal	*	SKIP
 spa-demo	*	SKIP
 sql-h2-quickstart	js	FAIL
 sse-typed-client	*	SKIP
-standard-scala-multifence	js	FAIL
 std-index	v2	FAIL
 std-ui-aggregator	v2	FAIL
 std-ui-extended	v2	FAIL
