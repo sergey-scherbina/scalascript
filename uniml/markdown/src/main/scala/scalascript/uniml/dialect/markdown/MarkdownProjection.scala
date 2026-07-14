@@ -117,7 +117,7 @@ object MarkdownProjection:
 
   private def listStart(edges: Vector[UniEdge]): Option[Long] =
     firstMarker(edges).flatMap { m =>
-      val digits = m.takeWhile(c => MdChars.isAsciiDigit(c))
+      val digits = m.takeWhile(MdChars.isAsciiDigit)
       if digits.isEmpty then None else digits.toLongOption
     }
 

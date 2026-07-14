@@ -421,9 +421,7 @@ private[markdown] final class MarkdownBlocks(
           case Some(markers) =>
             emitHtmlLine(l, first); first = false; i += 1
             val lc = l.content.toLowerCase
-            // explicit lambda, not the method value `lc.contains`: ScalaScript v2 does
-            // not eta-expand a method SELECTED on a value (`obj.method` as a function).
-            if markers.exists(m => lc.contains(m)) then done = true
+            if markers.exists(lc.contains) then done = true
       pendingClose = pendingClose :+ MdBranch.HtmlBlock
       i
 
