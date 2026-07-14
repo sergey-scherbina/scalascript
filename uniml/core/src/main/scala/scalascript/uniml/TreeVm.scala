@@ -247,7 +247,11 @@ final case class TreeVm(limits: Limits = Limits.default) extends Processor[VmSta
       else None
 
   private def reframeProblem(stack: Vector[VmFrame], instruction: VmInstruction.Reframe): Option[Diagnostic] =
-    val VmInstruction.Reframe(closeBefore, open, closeAfter, _) = instruction
+    // Field access rather than `val Reframe(...) = instruction` destructuring:
+    // a val-pattern binding of an enum case is not portable to ScalaScript v2.
+    val closeBefore = instruction.closeBefore
+    val open = instruction.open
+    val closeAfter = instruction.closeAfter
     if closeBefore.exists(_.isEmpty) || closeAfter.exists(_.isEmpty) || open.exists(_.kind.isEmpty) then
       Some(Diagnostic(
         code = "uniml.vm.invalid-reframe",
