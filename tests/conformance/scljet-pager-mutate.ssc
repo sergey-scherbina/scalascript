@@ -1,0 +1,64 @@
+---
+name: scljet-pager-mutate
+description: SclJet page-oriented mutable pager — stage dirty pages, commit atomically with a journal (recoverable), allocate, and roll back
+backends: [int, js]
+---
+
+# SclJet mutable pager
+
+A page-granular mutation layer: read a page, stage a dirty page, allocate a fresh
+page, then commit (all dirty pages journaled + applied) or roll back. Because an
+`aaa`-database and a `bbb`-database built the same way differ only in page 2,
+staging page 2 = `bbb`'s page 2 over the `aaa` image and committing must reproduce
+the `bbb` database byte-for-byte (a known-valid file). The commit's journal recovers
+the original; allocation grows the file and is undone on recovery; rollback discards.
+
+[ByteSlice, byteSliceToList, byteSliceSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase, openMutablePager, mutablePageCount, mutableGet, mutablePut, mutableAllocate, mutableCommit, mutableRollback, applyRollbackJournal, JournalRecovery](std/scljet/index.ssc)
+
+```scalascript
+def same(a: ByteSlice, b: ByteSlice): Boolean =
+  byteSliceToList(a).toString == byteSliceToList(b).toString
+
+def zeros(n: Int): ByteSlice = ByteSlice.zeros(n) match
+  case Right(z) => z
+  case Left(_) => ByteSlice.empty
+
+def build(v: String): Either[String, ByteSlice] =
+  buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(id INTEGER, v TEXT)",
+    List(List(SqlInteger(1L), SqlText(v)))) match
+    case Left(error) => Left(error.message)
+    case Right(db) => Right(db)
+
+build("aaa") match
+  case Left(m) => println("aaa-error:" + m)
+  case Right(aaaDb) => build("bbb") match
+    case Left(m) => println("bbb-error:" + m)
+    case Right(bbbDb) => byteSliceSlice(bbbDb, 512, 512) match
+      case Left(error) => println("slice-error:" + error.message)
+      case Right(pB) =>
+        val pager = openMutablePager(aaaDb, 512, 512)
+        // Stage page 2 = bbb's page 2, commit.
+        val staged = mutablePut(pager, 2, pB)
+        mutableCommit(staged, 777L) match
+          case Left(error) => println("commit-error:" + error.message)
+          case Right(pc) =>
+            println("commit == bbb database: " + same(pc.pager.image, bbbDb).toString)
+            println("get page2 after commit reflects edit: " + (mutableGet(pc.pager, 2) match
+              case Right(p) => same(p, pB).toString
+              case Left(_) => "err"))
+            applyRollbackJournal(pc.pager.image, pc.journal) match
+              case Left(error) => println("recover-error:" + error.message)
+              case Right(recovery) => println("journal recovers original: " + same(recovery.database, aaaDb).toString)
+        // Rollback discards staged pages.
+        println("rollback leaves image unchanged: " + same(mutableRollback(staged).image, aaaDb).toString)
+        // Allocate a fresh page at the end, commit, then recover.
+        val allocN = mutableAllocate(pager)
+        val grown = mutablePut(pager, allocN, zeros(512))
+        mutableCommit(grown, 888L) match
+          case Left(error) => println("alloc-commit-error:" + error.message)
+          case Right(gc) =>
+            println("allocated page number: " + allocN.toString + ", new page count: " + mutablePageCount(gc.pager).toString)
+            applyRollbackJournal(gc.pager.image, gc.journal) match
+              case Left(error) => println("alloc-recover-error:" + error.message)
+              case Right(recovery) => println("allocation undone by recovery: " + same(recovery.database, aaaDb).toString)
+```

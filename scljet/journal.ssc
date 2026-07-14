@@ -17,6 +17,15 @@ exports:
   - stagePage
   - commitTransaction
   - rollbackTransaction
+  - MutablePager
+  - PagerCommit
+  - openMutablePager
+  - mutablePageCount
+  - mutableGet
+  - mutablePut
+  - mutableAllocate
+  - mutableCommit
+  - mutableRollback
 ---
 
 # SclJet rollback journal recovery
@@ -231,4 +240,90 @@ def rollbackTransaction(txn: WriteTransaction): ByteSlice = txn.database
 def listReverse(items: List[JournalPage], acc: List[JournalPage]): List[JournalPage] = items match
   case Nil => acc
   case Cons(head, tail) => listReverse(tail, head :: acc)
+
+// ── Page-oriented mutable pager (dirty-page tracking + journaled commit) ──
+//
+// A crash-safe, page-granular mutation layer over a database image, composed from
+// the journal primitives above: read a page (staged dirty page wins over the file),
+// stage a dirty page, allocate a fresh page at the end, then commit (all dirty pages
+// journaled + applied atomically) or roll back (drop the dirty set). Unlike the
+// whole-file read-modify-rewrite in `mutate.ssc`, only the touched pages move.
+
+case class MutablePager(image: ByteSlice, pageSize: Int, sectorSize: Int, pending: List[JournalPage])
+case class PagerCommit(pager: MutablePager, journal: ByteSlice)
+
+def openMutablePager(image: ByteSlice, pageSize: Int, sectorSize: Int): MutablePager =
+  MutablePager(image, pageSize, sectorSize, Nil)
+
+def mutablePageCount(pager: MutablePager): Int = pager.image.length / pager.pageSize
+
+// The newest staged image of a page (pending is newest-first, so the first match wins).
+def mutableStaged(pending: List[JournalPage], pageNumber: Int): Option[ByteSlice] =
+  var msRemaining = pending
+  var msFound: Option[ByteSlice] = None
+  while msRemaining.nonEmpty && msFound.isEmpty do
+    if msRemaining.head.pageNumber == pageNumber then msFound = Some(msRemaining.head.page)
+    msRemaining = msRemaining.tail
+  msFound
+
+/** Read page `pageNumber` (1-based): the staged dirty page if any, else the file. */
+def mutableGet(pager: MutablePager, pageNumber: Int): Either[ByteError, ByteSlice] =
+  mutableStaged(pager.pending, pageNumber) match
+    case Some(bytes) => Right(bytes)
+    case None => byteSliceSlice(pager.image, (pageNumber - 1) * pager.pageSize, pager.pageSize)
+
+/** Stage a new image for `pageNumber` (does not touch the file until commit). */
+def mutablePut(pager: MutablePager, pageNumber: Int, page: ByteSlice): MutablePager =
+  MutablePager(pager.image, pager.pageSize, pager.sectorSize, JournalPage(pageNumber, page) :: pager.pending)
+
+/** The next free page number at the end (current count + any already-staged new page). */
+def mutableAllocate(pager: MutablePager): Int =
+  var maRemaining = pager.pending
+  var maMax = mutablePageCount(pager)
+  while maRemaining.nonEmpty do
+    if maRemaining.head.pageNumber > maMax then maMax = maRemaining.head.pageNumber
+    maRemaining = maRemaining.tail
+  maMax + 1
+
+def mutableExistingChanges(changes: List[JournalPage], origCount: Int): List[JournalPage] =
+  var mecRemaining = changes
+  var mecAccRev: List[JournalPage] = Nil
+  while mecRemaining.nonEmpty do
+    if mecRemaining.head.pageNumber <= origCount then mecAccRev = mecRemaining.head :: mecAccRev
+    mecRemaining = mecRemaining.tail
+  listReverse(mecAccRev, Nil)
+
+def mutableMaxPage(changes: List[JournalPage], base: Int): Int =
+  var mmpRemaining = changes
+  var mmpMax = base
+  while mmpRemaining.nonEmpty do
+    if mmpRemaining.head.pageNumber > mmpMax then mmpMax = mmpRemaining.head.pageNumber
+    mmpRemaining = mmpRemaining.tail
+  mmpMax
+
+/** Commit the staged pages atomically. Pre-images of the pages that already existed
+ *  are journaled under the ORIGINAL page count, so `applyRollbackJournal` restores
+ *  them and truncates back — undoing both edits and allocations. The image grows to
+ *  fit any newly allocated pages, then every staged page is applied. Returns a fresh
+ *  pager over the new image plus the rollback journal. */
+def mutableCommit(pager: MutablePager, nonce: Long): Either[ByteError, PagerCommit] =
+  val mcChanges = listReverse(pager.pending, Nil)
+  val mcOrigCount = mutablePageCount(pager)
+  val mcMaxPage = mutableMaxPage(mcChanges, mcOrigCount)
+  preImages(pager.image, pager.pageSize, mutableExistingChanges(mcChanges, mcOrigCount)) match
+    case Left(error) => Left(error)
+    case Right(images) =>
+      writeRollbackJournal(pager.pageSize, pager.sectorSize, mcOrigCount, nonce, images) match
+        case Left(error) => Left(error)
+        case Right(journal) =>
+          byteSliceZeroExtend(pager.image, mcMaxPage * pager.pageSize) match
+            case Left(error) => Left(error)
+            case Right(extended) =>
+              applyPages(extended, pager.pageSize, mcChanges) match
+                case Left(error) => Left(error)
+                case Right(mutated) => Right(PagerCommit(MutablePager(mutated, pager.pageSize, pager.sectorSize, Nil), journal))
+
+/** Drop every staged page — the image is untouched. */
+def mutableRollback(pager: MutablePager): MutablePager =
+  MutablePager(pager.image, pager.pageSize, pager.sectorSize, Nil)
 ```

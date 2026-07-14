@@ -1,0 +1,6 @@
+commit == bbb database: true
+get page2 after commit reflects edit: true
+journal recovers original: true
+rollback leaves image unchanged: true
+allocated page number: 3, new page count: 3
+allocation undone by recovery: true
