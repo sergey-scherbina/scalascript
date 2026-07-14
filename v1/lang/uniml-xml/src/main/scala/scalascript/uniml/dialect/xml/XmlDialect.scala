@@ -237,7 +237,7 @@ private object XmlScanner:
       if end < 0 then emitRestError("uniml.xml.invalid-declaration", "unterminated XML declaration")
       else
         val lexeme = input.substring(start, end + 2)
-        val valid = index == 0 && !seenDeclaration && lexeme.matches("<\\?xml\\s+version\\s*=\\s*(['\"])1\\.0\\1(?:\\s+encoding\\s*=\\s*(['\"])[A-Za-z][A-Za-z0-9._-]*\\2)?(?:\\s+standalone\\s*=\\s*(['\"])(?:yes|no)\\3)?\\s*\\?>")
+        val valid = index == 0 && !seenDeclaration && isValidDeclaration(lexeme)
         seenDeclaration = true
         emitWhole(lexeme, "xml.declaration", TokenChannel.Syntax,
           if valid then VmInstruction.Emit(Some("document.declaration"))
@@ -247,12 +247,12 @@ private object XmlScanner:
       val start = index
       var cursor = index + 9
       var subsetDepth = 0
-      var quote: Char = 0.toChar
+      var quote: Char = ' '
       var done = false
       while cursor < input.length && !done do
         val char = input.charAt(cursor)
-        if quote != 0 then
-          if char == quote then quote = 0.toChar
+        if quote != ' ' then
+          if char == quote then quote = ' '
         else char match
           case '\'' | '"' => quote = char
           case '['         => subsetDepth += 1
@@ -305,7 +305,10 @@ private object XmlScanner:
         if index < input.length then index += 1
         val lexeme = input.substring(start, index)
         val content = lexeme.substring(1, math.max(1, lexeme.length - 1))
-        val invalid = !lexeme.endsWith(quote.toString) || content.contains('<') || !validAttributeReferences(content)
+        // `input.substring(start, start + 1)` (the opening quote) rather than
+        // `quote.toString`: v2 has no Char box, so `quote.toString` yields the code
+        // point's decimal digits. Identical on the JVM (start holds the same quote char).
+        val invalid = !lexeme.endsWith(input.substring(start, start + 1)) || content.contains('<') || !validAttributeReferences(content)
         val tooLong = Unicode.codePointCount(lexeme) > limits.maxAttributeCodePoints
         emitKnownRange(start, lexeme, "xml.attribute-value", TokenChannel.Syntax,
           if tooLong then VmInstruction.Report("uniml.xml.limit.attribute", "XML attribute value exceeds configured limit", Severity.Fatal)
@@ -320,7 +323,10 @@ private object XmlScanner:
       if !parentOpen then rootCount += 1
       if rootCount > 1 && !parentOpen then diagnostics = diagnostics :+ tokenDiagnostic(output.last.token, "uniml.xml.multiple-roots", "XML document has multiple root elements")
       elements = elements :+ name
-      var attributes: Set[String] = Set.empty
+      // Vector (with the preceding contains-check) instead of Set: v2 has no
+      // Set.empty companion, and dedup is redundant here (a duplicate is reported
+      // before the add, so the Vector never actually holds a duplicate).
+      var attributes: Vector[String] = Vector.empty
       var attributeCount = 0
       var closed = false
       while index < input.length && !closed do
@@ -336,7 +342,7 @@ private object XmlScanner:
           val attribute = scanName("attribute.name")
           attributeCount += 1
           if attributes.contains(attribute) then diagnostics = diagnostics :+ tokenDiagnostic(output.last.token, "uniml.xml.duplicate-attribute", s"duplicate XML attribute '$attribute'")
-          attributes = attributes + attribute
+          attributes = attributes :+ attribute
           if attributeCount > limits.maxAttributesPerElement then diagnostics = diagnostics :+ tokenDiagnostic(output.last.token, "uniml.xml.limit.attribute", "too many XML attributes", Severity.Fatal)
           if index < input.length && isXmlWhitespace(input.charAt(index)) then scanMarkupWhitespace()
           if index < input.length && input.charAt(index) == '=' then emitWhole("=", "xml.equals", TokenChannel.Syntax, VmInstruction.Emit(Some("attribute.equals")))
@@ -385,7 +391,7 @@ private object XmlScanner:
       if end < 0 then emitRestError("uniml.xml.invalid-reference", "unterminated XML reference")
       else
         val lexeme = input.substring(index, end + 1)
-        val syntaxValid = lexeme.matches("&(?:lt|gt|amp|apos|quot|#[0-9]+|#x[0-9A-Fa-f]+|[A-Za-z_:][A-Za-z0-9_.:-]*);")
+        val syntaxValid = isValidReference(lexeme)
         val valid = syntaxValid && numericReferenceValue(lexeme).forall(isLegalXmlCodePoint)
         emitWhole(lexeme, "xml.reference", TokenChannel.Syntax,
           if valid then VmInstruction.Emit(Some(if elements.nonEmpty then "content.reference" else "document.reference"))
@@ -460,6 +466,118 @@ private object XmlScanner:
   private def isNameDelimiter(char: Char): Boolean =
     isXmlWhitespace(char) || char == '/' || char == '>' || char == '=' || char == '\'' || char == '"' || char == '<'
 
+  /** Portable equivalent of the XML-declaration regex (no regex, no java.*): validates
+    * `<?xml WS+ version WS* = WS* Q 1.0 Q ( WS+ encoding WS* = WS* Q name Q )? ( WS+ standalone WS* = WS* Q (yes|no) Q )? WS* ?>`
+    * over the whole lexeme. Cursor helpers thread a position and use -1 as a failure sentinel. */
+  private def isValidDeclaration(lexeme: String): Boolean =
+    var cursor = matchLiteral(lexeme, 0, "<?xml")
+    cursor = matchRequiredWhitespace(lexeme, cursor)
+    cursor = matchLiteral(lexeme, cursor, "version")
+    cursor = matchEquals(lexeme, cursor)
+    cursor = matchQuotedLiteral(lexeme, cursor, "1.0")
+    cursor = matchOptionalEncoding(lexeme, cursor)
+    cursor = matchOptionalStandalone(lexeme, cursor)
+    cursor = skipXmlWhitespace(lexeme, cursor)
+    cursor = matchLiteral(lexeme, cursor, "?>")
+    cursor == lexeme.length
+
+  /** Portable equivalent of the reference regex `&(?:#[0-9]+|#x[0-9A-Fa-f]+|[A-Za-z_:][A-Za-z0-9_.:-]*);`.
+    * The named entities lt/gt/amp/apos/quot are subsumed by the entity-name form. */
+  private def isValidReference(reference: String): Boolean =
+    val length = reference.length
+    if length < 3 || reference.charAt(0) != '&' || reference.charAt(length - 1) != ';' then false
+    else
+      val inner = reference.substring(1, length - 1)
+      isNumericReferenceBody(inner) || isEntityName(inner)
+
+  private def matchLiteral(s: String, from: Int, literal: String): Int =
+    if from >= 0 && s.startsWith(literal, from) then from + literal.length else -1
+
+  private def skipXmlWhitespace(s: String, from: Int): Int =
+    if from < 0 then -1
+    else
+      var cursor = from
+      while cursor < s.length && isXmlWhitespace(s.charAt(cursor)) do cursor += 1
+      cursor
+
+  private def matchRequiredWhitespace(s: String, from: Int): Int =
+    val next = skipXmlWhitespace(s, from)
+    if next > from then next else -1
+
+  private def matchEquals(s: String, from: Int): Int =
+    val atEquals = skipXmlWhitespace(s, from)
+    if atEquals < 0 || atEquals >= s.length || s.charAt(atEquals) != '=' then -1
+    else skipXmlWhitespace(s, atEquals + 1)
+
+  private def matchQuotedLiteral(s: String, from: Int, value: String): Int =
+    if from < 0 || from >= s.length then -1
+    else
+      val quote = s.charAt(from)
+      if (quote != '\'' && quote != '"') || !s.startsWith(value, from + 1) then -1
+      else
+        val after = from + 1 + value.length
+        if after < s.length && s.charAt(after) == quote then after + 1 else -1
+
+  private def matchOptionalEncoding(s: String, from: Int): Int =
+    if from < 0 then -1
+    else
+      val afterWhitespace = skipXmlWhitespace(s, from)
+      if afterWhitespace > from && s.startsWith("encoding", afterWhitespace) then
+        matchQuotedEncoding(s, matchEquals(s, afterWhitespace + "encoding".length))
+      else from
+
+  private def matchOptionalStandalone(s: String, from: Int): Int =
+    if from < 0 then -1
+    else
+      val afterWhitespace = skipXmlWhitespace(s, from)
+      if afterWhitespace > from && s.startsWith("standalone", afterWhitespace) then
+        matchQuotedEnum(s, matchEquals(s, afterWhitespace + "standalone".length))
+      else from
+
+  private def matchQuotedEncoding(s: String, from: Int): Int =
+    if from < 0 || from >= s.length then -1
+    else
+      val quote = s.charAt(from)
+      if quote != '\'' && quote != '"' then -1
+      else if from + 1 >= s.length || !isAsciiLetter(s.charAt(from + 1)) then -1
+      else
+        var cursor = from + 2
+        while cursor < s.length && isEncodingNameChar(s.charAt(cursor)) do cursor += 1
+        if cursor < s.length && s.charAt(cursor) == quote then cursor + 1 else -1
+
+  private def matchQuotedEnum(s: String, from: Int): Int =
+    val yes = matchQuotedLiteral(s, from, "yes")
+    if yes >= 0 then yes else matchQuotedLiteral(s, from, "no")
+
+  private def isNumericReferenceBody(inner: String): Boolean =
+    if inner.startsWith("#x") then
+      val digits = inner.substring(2)
+      digits.nonEmpty && digits.forall(isHexDigit)
+    else if inner.startsWith("#") then
+      val digits = inner.substring(1)
+      digits.nonEmpty && digits.forall(isAsciiDigit)
+    else false
+
+  private def isEntityName(inner: String): Boolean =
+    inner.nonEmpty && isEntityNameStart(inner.charAt(0)) && inner.substring(1).forall(isEntityNameChar)
+
+  private def isAsciiDigit(char: Char): Boolean = char >= '0' && char <= '9'
+
+  private def isAsciiLetter(char: Char): Boolean =
+    (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z')
+
+  private def isHexDigit(char: Char): Boolean =
+    isAsciiDigit(char) || (char >= 'a' && char <= 'f') || (char >= 'A' && char <= 'F')
+
+  private def isEntityNameStart(char: Char): Boolean =
+    isAsciiLetter(char) || char == '_' || char == ':'
+
+  private def isEntityNameChar(char: Char): Boolean =
+    isEntityNameStart(char) || isAsciiDigit(char) || char == '.' || char == '-'
+
+  private def isEncodingNameChar(char: Char): Boolean =
+    isAsciiLetter(char) || isAsciiDigit(char) || char == '.' || char == '_' || char == '-'
+
   private def validXmlName(value: String): Boolean =
     var cursor = 0
     var first = true
@@ -509,7 +627,7 @@ private object XmlScanner:
         if digit < 0 then valid = false
         else
           result = result * radix + digit
-          if result > 0x10FFFFL then valid = false
+          if result > 0x10FFFF then valid = false
         cursor += 1
       if valid then Some(result.toInt) else Some(-1)
     }
@@ -529,7 +647,7 @@ private object XmlScanner:
         if end < 0 then valid = false
         else
           val reference = value.substring(cursor, end + 1)
-          val syntaxValid = reference.matches("&(?:lt|gt|amp|apos|quot|#[0-9]+|#x[0-9A-Fa-f]+|[A-Za-z_:][A-Za-z0-9_.:-]*);")
+          val syntaxValid = isValidReference(reference)
           valid = syntaxValid && numericReferenceValue(reference).forall(isLegalXmlCodePoint)
           cursor = end
       cursor += 1
