@@ -2074,7 +2074,9 @@ def executeDelete(dbBytes: ByteSlice, stmt: DeleteStmt): Either[String, ByteSlic
 
 // ── UPDATE (delete + reinsert at the same rowid — handles any size change) ──
 
-case class Assignment(column: String, value: SqliteValue)
+// `SET column = value|expr`: a bare literal keeps `value` (`expr=None`); any compound RHS
+// (e.g. `n + 1`, another column) is carried as an SxNode evaluated against the pre-update row.
+case class Assignment(column: String, value: SqliteValue, expr: Option[SxNode])
 case class UpdateStmt(table: String, assignments: List[Assignment], where: List[List[Condition]])
 case class EditRow(rowid: Long, record: ByteSlice)
 
@@ -2095,14 +2097,19 @@ def parseAssignments(toks: List[Token]): Either[String, (List[Assignment], List[
     else
       val col = rest.head
       val op = rest.tail.head
-      val lit = rest.tail.tail.head
       if col.kind != "ident" then result = Some(Left("expected column in SET"))
       else if op.kind != "op" || op.text != "=" then result = Some(Left("expected '=' in SET"))
-      else litValue(lit) match
+      else parseExpr(rest.tail.tail) match
         case Left(message) => result = Some(Left(message))
-        case Right(value) =>
-          accRev = Assignment(col.text, value) :: accRev
-          rest = rest.tail.tail.tail
+        case Right(ep) =>
+          val value = ep._1 match
+            case SxLit(x) => x
+            case _ => SqlNull
+          val eopt = ep._1 match
+            case SxLit(_) => None
+            case _ => Some(ep._1)
+          accRev = Assignment(col.text, value, eopt) :: accRev
+          rest = ep._2
           if tkKind(rest) == "comma" then rest = rest.tail
           else result = Some(Right((reverseAssignments(accRev, Nil), rest)))
   result match
@@ -2132,23 +2139,49 @@ def extractValues(rec: StorageRecord, count: Int): List[SqliteValue] =
     i = i + 1
   reverseValues(accRev, Nil)
 
-def findAssignment(assignments: List[Assignment], colName: String): Option[SqliteValue] =
+def listNth(xs: List[SqliteValue], idx: Int): SqliteValue =
+  var r = xs
+  var i = idx
+  while i > 0 && r.nonEmpty do
+    r = r.tail
+    i = i - 1
+  if r.isEmpty then SqlNull else r.head
+
+def valueByName(values: List[SqliteValue], colNames: List[String], name: String): SqliteValue =
+  val idx = columnIndex(colNames, name)
+  if idx < 0 then SqlNull else listNth(values, idx)
+
+// Evaluate an expression against a row given as its already-extracted column `values` (used
+// for UPDATE SET, where the RHS reads the pre-update row without a StorageRecord).
+def evalExprValues(e: SxNode, values: List[SqliteValue], colNames: List[String]): SqliteValue = e match
+  case SxCol(name) => valueByName(values, colNames, name)
+  case SxLit(v) => v
+  case SxNeg(inner) => negateValue(evalExprValues(inner, values, colNames))
+  case SxBin(op, l, r) => arithValue(op, evalExprValues(l, values, colNames), evalExprValues(r, values, colNames))
+
+def findAssignmentItem(assignments: List[Assignment], colName: String): Option[Assignment] =
   val target = upperStr(colName)
   var r = assignments
-  var found: Option[SqliteValue] = None
+  var found: Option[Assignment] = None
   while r.nonEmpty do
-    if upperStr(r.head.column) == target then found = Some(r.head.value)
+    if upperStr(r.head.column) == target then found = Some(r.head)
     r = r.tail
   found
 
+// Assignment RHS values are all evaluated against the ORIGINAL row (`values`), so
+// `SET a = b, b = a` swaps and `SET n = n + 1` increments, matching sqlite.
 def applyAssignments(values: List[SqliteValue], colNames: List[String], assignments: List[Assignment]): List[SqliteValue] =
   var vs = values
   var names = colNames
   var accRev: List[SqliteValue] = Nil
   while vs.nonEmpty do
     val name = if names.nonEmpty then names.head else ""
-    findAssignment(assignments, name) match
-      case Some(v) => accRev = v :: accRev
+    findAssignmentItem(assignments, name) match
+      case Some(assign) =>
+        val nv = assign.expr match
+          case Some(e) => evalExprValues(e, values, colNames)
+          case None => assign.value
+        accRev = nv :: accRev
       case None => accRev = vs.head :: accRev
     vs = vs.tail
     if names.nonEmpty then names = names.tail

@@ -1,0 +1,47 @@
+---
+name: scljet-sql-update-expr
+description: SclJet SQL UPDATE ... SET col = expr — self-reference, arithmetic, column swap; matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet SQL UPDATE with expression assignments
+
+`UPDATE t SET col = <expr>` where the RHS is a scalar expression over the row: self-reference
+(`salary = salary + 100`, `salary = salary * 2`), cross-column (`salary = salary - bonus`,
+`bonus = salary / 10`), and a multi-assignment column swap (`SET salary = bonus, bonus = salary`) —
+all RHS are evaluated against the pre-update row, so the swap works. Every result is byte-identical to
+reference sqlite3 running the same SQL on the same file (verified out-of-band); locked across backends.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, renderRows, executeMutation](std/scljet/sql.ssc)
+
+```scalascript
+def apply(db: ByteSlice, sql: String): ByteSlice =
+  executeMutation(db, sql) match
+    case Left(m) =>
+      println(sql + " => ERR:" + m)
+      db
+    case Right(next) => next
+
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER, name TEXT, salary INTEGER, bonus INTEGER)",
+  List(List(SqlInteger(1L), SqlText("ann"), SqlInteger(100L), SqlInteger(10L)),
+       List(SqlInteger(2L), SqlText("bob"), SqlInteger(250L), SqlInteger(20L)),
+       List(SqlInteger(3L), SqlText("cat"), SqlInteger(300L), SqlInteger(30L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db0) =>
+    val db1 = apply(db0, "UPDATE emp SET salary = salary + 100")
+    show(db1, "SELECT id, salary FROM emp ORDER BY id")
+    val db2 = apply(db1, "UPDATE emp SET salary = salary * 2 WHERE id = 2")
+    show(db2, "SELECT salary FROM emp WHERE id = 2")
+    val db3 = apply(db2, "UPDATE emp SET bonus = salary / 10 WHERE id = 3")
+    show(db3, "SELECT bonus FROM emp WHERE id = 3")
+    val db4 = apply(db3, "UPDATE emp SET salary = salary - bonus WHERE id = 1")
+    show(db4, "SELECT salary FROM emp WHERE id = 1")
+    val db5 = apply(db4, "UPDATE emp SET salary = bonus, bonus = salary WHERE id = 2")
+    show(db5, "SELECT id, salary, bonus FROM emp ORDER BY id")
+```
