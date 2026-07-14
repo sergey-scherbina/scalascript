@@ -1845,6 +1845,20 @@ ORDER BY / LIMIT / OFFSET, aggregates (COUNT/SUM/MIN/MAX/AVG/TOTAL), GROUP BY + 
 and inner + LEFT joins — every feature byte-verified against reference sqlite3, int==js.
 Remaining follow-ups (niche): multi-table (3+) joins, page-1 schema split, repeating-decimal %.15g.
 
+- [x] **scljet-m6j-agg-expr** — DONE 2026-07-14. Aggregates inside expressions — `COUNT(*) + 1`,
+      `MAX(salary) - MIN(salary)`, `SUM(salary) / COUNT(*)`, `COUNT(*) * 10` per GROUP BY group,
+      `HAVING COUNT(*) * 100 > 150`, `'total:' || SUM(salary)`. New `SxAgg(func, arg, distinct)` AST
+      node; `parseExprAtom` parses an aggregate function call as `SxAgg` (via `parseAggNode`), so
+      `parseProjItem`/`parseHavingItem` now parse the whole item as an expression and unwrap a lone
+      `SxAgg` to the backward-compatible isAgg `ProjItem` (parseHavingItem uses `parseExprAdd` to stop
+      before the comparison). `exprHasAgg`/`projHasAgg` detect aggregates anywhere in an expr tree.
+      New group-aware evaluators `evalExprGroup` (single) + `evalExprGroupJoin` (join) reduce `SxAgg`
+      over the group/pairs (bare column → group's first row) — wired into `projectGroupRow`,
+      `havingHolds`, and `computeJoinAgg` (refactored via `joinAggValue`). Per-row evaluators return
+      NULL for a stray `SxAgg`. Verified vs sqlite3 (standalone, per-group, HAVING, concat), int==js;
+      conformance `scljet-sql-agg-expr`; full scljet-sql suite 28/28 (no regressions across the
+      existing aggregate/group/having/join-agg tests).
+
 - [x] **scljet-m6i-modulo** — DONE 2026-07-14. `%` modulo operator (multiplicative precedence, with
       `* /`). Lexer emits a `%` op token; `parseExprMul` handles it; `arithValue` computes integer
       modulo (operands → Long via `toLongVal` — exact for integers, truncating for reals, matching

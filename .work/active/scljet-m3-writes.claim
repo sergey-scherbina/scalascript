@@ -1,4 +1,4 @@
 claim: scljet-m3-writes
 owner: opus
-heartbeat: 2026-07-14T17:12:35Z
-status: m6i modulo done; 27/27 sql green
+heartbeat: 2026-07-14T17:21:15Z
+status: m6j aggregate expressions done; 28/28 sql green
