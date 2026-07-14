@@ -174,9 +174,15 @@ are plain bullets without checkboxes so agents do not claim them as build work.
       `List[SqliteValue]` (the new value is given, not decoded — so NO
       code-point→String needed; my earlier note here was wrong) and passes the
       rest through as raw records; verified updating a row to a 1016-char overflow
-      value, int==js (conformance `scljet-mutate-update`). Remaining: INSERT into
-      an existing table (append a new rowid), multi-table / non-page-2 roots, and
-      (4) true IN-PLACE mutation of pages (the separate pager/journal path, m3e).
+      value, int==js (conformance `scljet-mutate-update`). Row INSERT is DONE too
+      (2026-07-14): `insertRow` adds a row at an explicit rowid kept in ascending
+      order (`insertSorted`; errors on a duplicate rowid), existing rows pass
+      through raw; verified middle-insert, append, duplicate rejection, and an
+      inserted 1016-char overflow value, int==js (conformance
+      `scljet-mutate-insert`). `mutate.ssc` now does the full row-level CRUD
+      (insert/delete/keep/update) on an existing DB. Remaining: multi-table /
+      non-page-2 roots, and (4) true IN-PLACE mutation of pages (the separate
+      pager/journal path, m3e).
 
 - [x] **scljet-byteslice-zeros-js-recursion** — DONE 2026-07-13. The core list
       helpers in `scljet/bytes.ssc` were made iterative (`while`+`var`, not linear
