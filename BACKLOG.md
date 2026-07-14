@@ -1,7 +1,8 @@
 # Backlog
 
 Open and planned milestones — what still needs to be done.
-Active in-progress work is in [ACTIVE.md](ACTIVE.md).
+Active pending work is in [SPRINT.md](SPRINT.md); ownership is authoritative only
+through `.work/active/*.claim` on `origin/main`.
 Completed work is in [CHANGELOG.md](CHANGELOG.md).
 
 ## Open work — what's left (2026-06-15)
