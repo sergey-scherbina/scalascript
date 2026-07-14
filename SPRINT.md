@@ -339,27 +339,32 @@ bug — each is a genuine port. Clustered by shared root (do the multi-case ones
   (`${…}` template leak — a JS-glue codegen quirk, possibly a real fix), indexeddb-sync-client, mcp-agent /
   mcp-filesystem-server, nfc-ndef, rozum-agent×3, dataset-from-generator. Each = one plugin port.
 
-### v2 lane — THE root cause (measured 2026-07-14): the --v2 lane loads the WRONG plugin system
-**Definitive finding (empirically measured, not guessed).** `ssc run --v2` → `RunV2.run` →
-`PluginBridge.loadAll()` which loads v1 `Backend`-SPI plugins. But the bundle ships **v2-NATIVE**
-`NativePlugin`-SPI plugins (20 jars: json/content/graph/crypto/dataset/actors/…), which PluginBridge
-NEVER loads. So the 20 v2-native plugins are **dead weight** on the --v2 classpath. Two consequences:
-- `bin/ssc` (--v2, standard tier, 0 external Backend jars): relies on PluginBridge's BUILT-IN
-  registrations + self-hosted stdlib. Passes dataset/actors/signals (built-ins); FAILS
-  json/content/graph (`unbound global: jsonRead / contentToolkitSection`).
-- `bin/ssc-tools` (--v2, full tier, +12 v1 Backend jars): those v1 Backend plugins ADD
-  json/content/graph (**+36 cases pass**) but their dataset/actors/signals impls OVERRIDE the working
-  built-ins and break on the v2 VM (**−23 regressions**: 10 dataset, 3 actors, signals, ui-*, …).
-  Measured via a full v2 gate run: swapping the launcher = +36/−23. NOT a clean win → reverted.
-- **THE fix (high-leverage, deep):** wire the --v2 lane to the **v2-native** plugin set
-  (`NativePluginHost.loadAll`, the `NativePlugin` SPI) instead of / alongside PluginBridge, so
-  json/content/graph (native) AND dataset/actors (native) all work with no v1-Backend conflicts.
-  BLOCKER: `NativePluginHost.loadAll` calls `V2PluginRegistry.clear()` (mutually exclusive), so it
-  must first absorb PluginBridge's built-ins (sys/ambient-effects/remote/xml/currency/optics). This is
-  the real v2 integration project — turns "64 mystery gaps" into one loader-unification + built-in port.
-  Remaining TRUE v2-VM gaps (survive even the full launcher): derived-codec effects
-  (`unhandled runtime effect: VertexCodec/ObjectCodec/DatasetCodec`, 6), actor-cluster methods
-  (`unbound: clusterConfigSet`, 10), frontend parse gaps (`std-ui-aggregator: ] expected`, 13).
+### v2 lane — DEFINITIVE architecture map (measured 2026-07-14, corrects earlier partial finding)
+The contract's `v2` lane runs `bin/ssc run --v2`. Traced end-to-end (do NOT re-derive — this is measured):
+- `bin/ssc` = the **STANDARD/NATIVE tier**: launcher runs `scalascript.cli.StandardMain` (a physical
+  class-level allowlist jar — `RunV2` is NOT even included) → `RunNativeV2.run` → the **native ssc1
+  frontend** (scalameta-free) → CoreIR → v2 VM, with `NativePluginHost.loadAll` (the v2-NATIVE
+  `NativePlugin` SPI, 20 plugins). `"frontend":"native"`, NO PluginBridge, NO FrontendBridge.
+- `bin/ssc-tools run --v2` = a DIFFERENT tier: `Main` → `RunV2.run` → v1-frontend → `FrontendBridge` →
+  v2 VM, with `PluginBridge.loadAll` (v1 `Backend` SPI). The contract does NOT use this lane. (My earlier
+  "two-plugin-system / swap the launcher = +36/−23" note measured THIS tier — not comparable; ignore it.)
+
+**So the v2 baseline failures are NATIVE-TIER gaps, in 3 kinds:**
+1. **native-front std-import resolution (largest).** `jsonRead`/`contentToolkitSection`/`div`/… are
+   `unbound` because they're SELF-HOSTED in `bin/lib/standard/native-front/runtime/std/*.ssc` (e.g.
+   std/json.ssc defines `def jsonRead(s) = __jsonCoreWrap(jsonCoreParseTolerant(s))` over `extern
+   __jsonCore*` the json NativePlugin provides) — and the native frontend is NOT pulling in
+   `import std.json.*`. Fixing native-front std-import resolution closes json/content/graph/html-dsl/…
+   at once. This is the `uniml-portable` / native-frontend track.
+2. **true v2-VM gaps** — derived-codec effects (`unhandled runtime effect: VertexCodec/ObjectCodec/
+   DatasetCodec`, 6), actor-cluster methods (`unbound: clusterConfigSet`, 10 — the ActorsNativePlugin
+   doesn't register the cluster surface).
+3. **native-frontend PARSE gaps** — `std-ui-aggregator: ] expected but identifier found`, wasm-* "native
+   frontend rejected incomplete parse" (13) — the same frontend track.
+
+**Takeaway:** the v2 lane is the NATIVE tier; its 64 gaps = native-frontend completion (std-import + parse)
++ native-plugin registration (actor-cluster, derived codecs). There is NO launcher/packaging shortcut —
+this is the `v2-native-conformance` / `uniml-portable` deep track, actively built by the sibling arc.
 
 ### v2 (bridge lane `--v2`) — wire plugins (ROOT-CAUSE FOUND 2026-07-14: two plugin systems)
 **Mechanism (investigated):** `ssc run --v2` calls `PluginBridge.loadAll()` which ServiceLoads every v1

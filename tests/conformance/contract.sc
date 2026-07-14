@@ -120,14 +120,15 @@ def laneCmd(lane: String, file: os.Path): Seq[String] = lane match
   case "int" => Seq(sscToolsBin.toString, "run", "--v1", file.toString)
   case "js"  => Seq(sscToolsBin.toString, "run-js", file.toString)
   case "jvm" => Seq(sscToolsBin.toString, "run-jvm", file.toString)
-  // v2 lane runs the ACTUAL minimal v2.2 product (`bin/ssc`, standard tier).
-  // NOTE (investigated 2026-07-14): switching this to `sscToolsBin` (full tier, +12
-  // v1 Backend plugins) is a +36/-23 TRADE, not a win — the full tier's v1 Backend
-  // dataset/actors/signals plugins OVERRIDE the working v2-native/built-in impls and
-  // break 23 cases (10 dataset, 3 actors, …) while adding json/content/graph (36).
-  // The real fix is unifying the --v2 lane on the v2-NATIVE plugin set
-  // (NativePluginHost, not PluginBridge/Backend) so BOTH sets work — a RunV2 change.
-  // Until then keep `bin/ssc`: it's the product, and its plugin gaps are honest.
+  // v2 lane = `bin/ssc run --v2` = the STANDARD/NATIVE tier (StandardMain →
+  // RunNativeV2 → native ssc1 frontend → v2 VM + NativePluginHost). This is the real
+  // v2.2 product. Do NOT switch to `sscToolsBin run --v2`: that's a DIFFERENT tier
+  // (Main → RunV2 → v1-frontend/FrontendBridge + PluginBridge) — a different frontend
+  // AND plugin system, so its results aren't comparable. The v2 failures here are
+  // native-tier gaps (native-front std-import resolution — jsonRead et al. are
+  // self-hosted in native-front/std/*.ssc; native-front parse gaps; native-plugin
+  // registration for actor-cluster/derived-codecs). See SPRINT "v2 lane — DEFINITIVE
+  // architecture map". (v2-lane-is-native-tier.)
   case "v2"  => Seq(sscBin.toString, "run", "--v2", file.toString)
   case other => sys.error(s"unknown lane: $other")
 
