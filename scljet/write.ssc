@@ -17,6 +17,8 @@ exports:
   - KeyedRawRow
   - buildKeyedRawDatabase
   - buildFromRawSchema
+  - TableSpec
+  - buildMultiTableDatabase
 ---
 
 # SclJet M3 write path
@@ -1003,4 +1005,113 @@ def buildFromRawSchema(pageSize: Int, changeCounter: Int, schemaCookie: Int,
       val built = encodeKeyedRawOverflowRowCells(rows, pageSize, usableSize, overflowStart)
       val leaves = packLeaves(built.cells, pageSize)
       assembleOverflowTree(pageSize, changeCounter, schemaCookie, schemaSlice, leaves, built.overflowPages)
+
+// ── Multi-table database (several rowid tables in one file) ──
+//
+// Page 1 is `sqlite_schema` with one `CREATE TABLE` entry per table (each with its
+// own root page); each table's B-tree then occupies a contiguous page range, in
+// declaration order, immediately after page 1. Root pages are assigned bottom-up
+// from the tables' sizes, so an interior page can reference its children by
+// absolute page number. Non-overflow, and the schema itself must fit page 1 (a
+// handful of tables) — deeper generalizations are follow-ups.
+
+case class TableSpec(name: String, createSql: String, rows: List[List[SqliteValue]])
+case class TablePlan(rootPage: Int, treePages: Int, leaves: List[LeafPlan], schemaRecord: ByteSlice)
+
+/** Plan each table: pack its rows into leaves, size its tree, assign its root page
+ *  (cumulative from `firstRoot`), and build its `sqlite_schema` record. */
+def planTables(tables: List[TableSpec], pageSize: Int, firstRoot: Int): Either[ByteError, List[TablePlan]] =
+  var ptRemaining = tables
+  var ptRoot = firstRoot
+  var ptAcc: List[TablePlan] = Nil
+  var ptFailure: Option[ByteError] = None
+  while ptRemaining.nonEmpty && ptFailure.isEmpty do
+    val ptTable = ptRemaining.head
+    encodeRowCellsWithRowid(ptTable.rows, 1L) match
+      case Left(error) => ptFailure = Some(error)
+      case Right(rowCells) =>
+        val ptLeaves = packLeaves(rowCells, pageSize)
+        val ptPages = treePageCount(ptLeaves, pageSize)
+        encodeRecord(List(SqlText("table"), SqlText(ptTable.name), SqlText(ptTable.name),
+            SqlInteger(ptRoot.toLong), SqlText(ptTable.createSql))) match
+          case Left(error) => ptFailure = Some(error)
+          case Right(schemaRecord) =>
+            ptAcc = TablePlan(ptRoot, ptPages, ptLeaves, schemaRecord) :: ptAcc
+            ptRoot = ptRoot + ptPages
+            ptRemaining = ptRemaining.tail
+  ptFailure match
+    case Some(error) => Left(error)
+    case None => Right(ptAcc.reverse)
+
+/** Build one table's B-tree pages rooted at `rootPage` (a single leaf, or interior
+ *  levels over leaves). Non-overflow. */
+def buildTableTreeAt(leaves: List[LeafPlan], pageSize: Int, rootPage: Int): Either[ByteError, List[Int]] =
+  if leaves.length <= 1 then
+    val leafCells = leaves match
+      case Nil => Nil
+      case Cons(leaf, _) => leaf.cells
+    buildTableLeafPage(pageSize, 0, leafCells)
+  else
+    var bttLevels: List[List[InteriorPlan]] = Nil
+    var bttRowids = leafMaxRowids(leaves)
+    while bttRowids.length > 1 do
+      val bttLevel = packInterior(bttRowids, pageSize)
+      bttLevels = bttLevel :: bttLevels
+      bttRowids = interiorMaxRowids(bttLevel)
+    buildInteriorLevels(bttLevels, rootPage, pageSize) match
+      case Left(error) => Left(error)
+      case Right(interiorBodies) =>
+        buildLeafPages(leaves, pageSize) match
+          case Left(error) => Left(error)
+          case Right(leafBodies) => Right(cellsFlatten(interiorBodies) ++ cellsFlatten(leafBodies))
+
+def schemaCellsOf(plans: List[TablePlan], startRowid: Long): List[List[Int]] =
+  var scRemaining = plans
+  var scRowid = startRowid
+  var scAcc: List[List[Int]] = Nil
+  while scRemaining.nonEmpty do
+    scAcc = encodeTableLeafCell(scRowid, scRemaining.head.schemaRecord) :: scAcc
+    scRowid = scRowid + 1L
+    scRemaining = scRemaining.tail
+  scAcc.reverse
+
+def buildAllTrees(plans: List[TablePlan], pageSize: Int): Either[ByteError, List[List[Int]]] =
+  var atRemaining = plans
+  var atAcc: List[List[Int]] = Nil
+  var atFailure: Option[ByteError] = None
+  while atRemaining.nonEmpty && atFailure.isEmpty do
+    val atPlan = atRemaining.head
+    buildTableTreeAt(atPlan.leaves, pageSize, atPlan.rootPage) match
+      case Left(error) => atFailure = Some(error)
+      case Right(bytes) =>
+        atAcc = bytes :: atAcc
+        atRemaining = atRemaining.tail
+  atFailure match
+    case Some(error) => Left(error)
+    case None => Right(atAcc.reverse)
+
+def sumTreePages(plans: List[TablePlan]): Int =
+  var stRemaining = plans
+  var stTotal = 0
+  while stRemaining.nonEmpty do
+    stTotal = stTotal + stRemaining.head.treePages
+    stRemaining = stRemaining.tail
+  stTotal
+
+/** Assemble a database holding several rowid tables. Byte-verified against
+ *  reference `integrity_check`; every table reads back exact. */
+def buildMultiTableDatabase(pageSize: Int, changeCounter: Int, schemaCookie: Int,
+    tables: List[TableSpec]): Either[ByteError, ByteSlice] =
+  planTables(tables, pageSize, 2) match
+    case Left(error) => Left(error)
+    case Right(plans) =>
+      buildTableLeafPage(pageSize, 100, schemaCellsOf(plans, 1L)) match
+        case Left(error) => Left(error)
+        case Right(page1Body) =>
+          buildAllTrees(plans, pageSize) match
+            case Left(error) => Left(error)
+            case Right(treeBlocks) =>
+              val pageCount = 1 + sumTreePages(plans)
+              val page1 = tableFileHeader(pageSize, pageCount, changeCounter, schemaCookie) ++ page1Body
+              ByteSlice.fromList(page1 ++ cellsFlatten(treeBlocks))
 ```

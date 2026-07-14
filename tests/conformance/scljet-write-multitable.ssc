@@ -1,0 +1,27 @@
+---
+name: scljet-write-multitable
+description: SclJet multi-table database — several rowid tables in one file, each at its own root page (cross-backend)
+backends: [int, js]
+---
+
+# SclJet multi-table writer
+
+[ByteSlice, byteSliceToList, SqliteValue, SqlInteger, SqlText, TableSpec, buildMultiTableDatabase](std/scljet/index.ssc)
+
+```scalascript
+// Three rowid tables in one file. Page 1 is sqlite_schema with a CREATE TABLE
+// entry per table (each with its own root page), then each table's B-tree occupies
+// a contiguous page range in declaration order. Reference integrity_check accepts
+// the file and every table reads back exact; int and JS produce the same bytes.
+val tables = List(
+  TableSpec("users", "CREATE TABLE users(id INTEGER, name TEXT)",
+    List(List(SqlInteger(1L), SqlText("alice")), List(SqlInteger(2L), SqlText("bob")))),
+  TableSpec("products", "CREATE TABLE products(sku INTEGER, title TEXT)",
+    List(List(SqlInteger(100L), SqlText("widget")), List(SqlInteger(200L), SqlText("gadget")), List(SqlInteger(300L), SqlText("gizmo")))),
+  TableSpec("orders", "CREATE TABLE orders(oid INTEGER, total INTEGER)",
+    List(List(SqlInteger(1L), SqlInteger(4200L)))))
+
+buildMultiTableDatabase(512, 1, 1, tables) match
+  case Right(bytes) => println((bytes.length / 512).toString + ":" + byteSliceToList(bytes).toString)
+  case Left(error) => println("ERROR:" + error.message)
+```
