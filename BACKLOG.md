@@ -225,9 +225,15 @@ are plain bullets without checkboxes so agents do not claim them as build work.
       (2026-07-14): `fieldToValue` rebuilds a text key from its code points
       (`codepointsToString` via `Int.toChar` — which works now, contrary to the old
       note), so a TEXT index stays consistent on delete/update (conformance
-      `scljet-index-mutate-text`). Remaining: 3+-level indexes, and (4) true IN-PLACE
-      mutation of pages (the separate pager/journal path, m3e). (JIT codegen bug
-      found on the way — BUGS.md `interp-jit-nested-match-duplicate-var`.)
+      `scljet-index-mutate-text`). The m3e CORE — transactional in-place
+      page write — is DONE (2026-07-14): `journal.ssc` `writePagesJournaled` journals
+      the pre-images of the pages about to change, overwrites them in place, and
+      returns the mutated database + rollback journal; `applyRollbackJournal` undoes
+      it, so a crash before commit is recoverable (conformance
+      `scljet-journal-write`, verified differs+restores int==js). Remaining: 3+-level
+      indexes, and a full mutable pager (dirty-page tracking, transactions,
+      cell-level in-place edits) built ON TOP of `writePagesJournaled`. (JIT codegen
+      bug found on the way — BUGS.md `interp-jit-nested-match-duplicate-var`.)
 
 - [x] **scljet-byteslice-zeros-js-recursion** — DONE 2026-07-13. The core list
       helpers in `scljet/bytes.ssc` were made iterative (`while`+`var`, not linear

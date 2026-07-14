@@ -62,8 +62,14 @@ untouched rows pass through as raw records. Delete/update on a table-plus-index
 database keep the index consistent (`deleteRowidsIndexed` / `updateRowIndexed`
 rebuild both trees from the surviving rows, so `integrity_check`'s index
 cross-check still passes). Verified against reference `integrity_check` including
-overflow rows, int==js. The mutable pager and true in-place page mutation (m3e)
-remain.
+overflow rows, int==js.
+
+Crash-safe in-place writes have their core primitive too (`journal.ssc`
+`writePagesJournaled`): it journals the pre-images of the pages about to change,
+overwrites them in place, and returns the mutated database plus its rollback
+journal — so a crash before commit is undone by `applyRollbackJournal`. A full
+mutable pager (dirty-page tracking, transactions, cell-level in-place edits) on top
+of it remains.
 
 ## Modules
 
@@ -75,7 +81,7 @@ remain.
 | `pager.ssc` / `readonly.ssc` | SHARED-locked immutable pager and the read-only facade |
 | `vfs.ssc` / `memory-vfs.ssc` / `jvm-vfs.ssc` | file-system abstraction (in-memory + real files) |
 | `write.ssc` | M3 write path: header/record encoders, table and multi-page B-tree writers (incl. overflow, arbitrary depth, explicit rowids) |
-| `journal.ssc` | rollback-journal write + hot-journal recovery |
+| `journal.ssc` | rollback-journal write + hot-journal recovery + transactional in-place page write |
 | `mutate.ssc` | read-modify-rewrite: delete/keep rows in an existing single-table database |
 | `index.ssc` | the module manifest re-exporting the public API |
 
