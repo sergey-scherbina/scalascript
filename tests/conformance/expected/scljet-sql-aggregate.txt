@@ -1,0 +1,7 @@
+SELECT COUNT(*) FROM t => 4
+SELECT COUNT(*), SUM(age), MIN(age), MAX(age) FROM t => 4|132|27|45
+SELECT SUM(age) FROM t WHERE age > 28 => 105
+SELECT MIN(name), MAX(name) FROM t => alice|dave
+SELECT COUNT(age) FROM t WHERE name >= 'bob' => 3
+SELECT COUNT(*) FROM t WHERE age > 100 => 0
+SELECT MAX(age) FROM t WHERE age > 100 => 

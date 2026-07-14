@@ -7,6 +7,7 @@ exports:
   - Token
   - Condition
   - OrderKey
+  - AggItem
   - SelectStmt
   - tokenize
   - parseSelect
@@ -156,7 +157,7 @@ def tokenize(sql: String): Either[String, List[Token]] =
 // ── Parser: SELECT (*|cols) FROM table [WHERE col op literal] ──
 
 case class Condition(column: String, op: String, value: SqliteValue)
-case class SelectStmt(star: Boolean, columns: List[String], table: String, where: Option[Condition], orderBy: Option[OrderKey], limit: Int, offset: Int)
+case class SelectStmt(star: Boolean, columns: List[String], table: String, where: Option[Condition], orderBy: Option[OrderKey], limit: Int, offset: Int, aggregates: List[AggItem])
 
 def isKw(token: Token, word: String): Boolean = token.kind == "ident" && upperStr(token.text) == word
 
@@ -255,19 +256,79 @@ def parseOrderLimit(toks: List[Token]): Either[String, (Option[OrderKey], Int, I
     case Some(message) => Left(message)
     case None => Right((orderBy, limit, offset))
 
+// ── Aggregate projection: COUNT(*) / COUNT(col) / SUM / MIN / MAX / AVG / TOTAL ──
+
+case class AggItem(func: String, column: String)
+
+def isAggFunc(name: String): Boolean =
+  val u = upperStr(name)
+  u == "COUNT" || u == "SUM" || u == "MIN" || u == "MAX" || u == "AVG" || u == "TOTAL"
+
+def isAggStart(toks: List[Token]): Boolean =
+  if toks.isEmpty then false
+  else if toks.head.kind != "ident" then false
+  else if !isAggFunc(toks.head.text) then false
+  else tkKind(toks.tail) == "lparen"
+
+def reverseAggs(items: List[AggItem], acc: List[AggItem]): List[AggItem] =
+  var r = items
+  var out = acc
+  while r.nonEmpty do
+    out = r.head :: out
+    r = r.tail
+  out
+
+def parseAggregates(toks: List[Token]): Either[String, (List[AggItem], List[Token])] =
+  var rest = toks
+  var accRev: List[AggItem] = Nil
+  var err: Option[String] = None
+  var done = false
+  while !done && err.isEmpty do
+    if tkKind(rest) != "ident" then err = Some("expected an aggregate function")
+    else
+      val func = rest.head.text
+      val afterFunc = rest.tail
+      if tkKind(afterFunc) != "lparen" then err = Some("expected '(' after " + func)
+      else
+        val afterParen = afterFunc.tail
+        val argResult: Option[(String, List[Token])] =
+          if tkKind(afterParen) == "star" then Some(("*", afterParen.tail))
+          else if tkKind(afterParen) == "ident" then Some((afterParen.head.text, afterParen.tail))
+          else None
+        argResult match
+          case None => err = Some("expected a column or * inside the aggregate")
+          case Some(argPair) =>
+            val afterArg = argPair._2
+            if tkKind(afterArg) != "rparen" then err = Some("expected ')' in the aggregate")
+            else
+              accRev = AggItem(func, argPair._1) :: accRev
+              val afterRparen = afterArg.tail
+              if tkKind(afterRparen) == "comma" then rest = afterRparen.tail
+              else
+                rest = afterRparen
+                done = true
+  err match
+    case Some(message) => Left(message)
+    case None => Right((reverseAggs(accRev, Nil), rest))
+
+// Parse the projection: `*`, an aggregate list, or a plain column list.
+def parseProjection(toks: List[Token]): Either[String, (Boolean, List[String], List[AggItem], List[Token])] =
+  if tkKind(toks) == "star" then Right((true, Nil, Nil, toks.tail))
+  else if isAggStart(toks) then parseAggregates(toks) match
+    case Left(message) => Left(message)
+    case Right(aggPair) => Right((false, Nil, aggPair._1, aggPair._2))
+  else parseColumnList(Nil, toks) match
+    case Left(message) => Left(message)
+    case Right(colPair) => Right((false, colPair._1, Nil, colPair._2))
+
 def parseSelect(toks: List[Token]): Either[String, SelectStmt] =
   if !tkIsKw(toks, "SELECT") then Left("expected SELECT")
   else
     val afterSelect = toks.tail
-    val colResult: Either[String, (Boolean, List[String], List[Token])] =
-      if tkKind(afterSelect) == "star" then Right((true, Nil, afterSelect.tail))
-      else parseColumnList(Nil, afterSelect) match
-        case Left(message) => Left(message)
-        case Right(pair) => Right((false, pair._1, pair._2))
-    colResult match
+    parseProjection(afterSelect) match
       case Left(message) => Left(message)
-      case Right(cols) =>
-        val afterCols = cols._3
+      case Right(proj) =>
+        val afterCols = proj._4
         if !tkIsKw(afterCols, "FROM") then Left("expected FROM")
         else
           val afterFrom = afterCols.tail
@@ -276,7 +337,7 @@ def parseSelect(toks: List[Token]): Either[String, SelectStmt] =
             case Left(message) => Left(message)
             case Right(wpair) => parseOrderLimit(wpair._2) match
               case Left(message) => Left(message)
-              case Right(ol) => Right(SelectStmt(cols._1, cols._2, afterFrom.head.text, wpair._1, ol._1, ol._2, ol._3))
+              case Right(ol) => Right(SelectStmt(proj._1, proj._2, afterFrom.head.text, wpair._1, ol._1, ol._2, ol._3, proj._3))
 
 // ── Column names from the table's CREATE TABLE text ──
 
@@ -509,6 +570,92 @@ def applyLimitOffset(rows: List[StorageRecord], limit: Int, offset: Int): List[S
   val afterOffset = dropStorage(rows, offset)
   if limit < 0 then afterOffset else takeStorage(afterOffset, limit)
 
+def countNonNull(rows: List[StorageRecord], colNames: List[String], col: String): Long =
+  var r = rows
+  var cnt = 0L
+  while r.nonEmpty do
+    rowValue(r.head, colNames, col) match
+      case SqlNull => cnt = cnt
+      case _ => cnt = cnt + 1L
+    r = r.tail
+  cnt
+
+def sumColumn(rows: List[StorageRecord], colNames: List[String], col: String, alwaysReal: Boolean): SqliteValue =
+  var r = rows
+  var intSum = 0L
+  var realSum = 0.0
+  var hasReal = false
+  var cnt = 0
+  while r.nonEmpty do
+    rowValue(r.head, colNames, col) match
+      case SqlInteger(x) =>
+        intSum = intSum + x
+        realSum = realSum + x.toDouble
+        cnt = cnt + 1
+      case SqlReal(x) =>
+        realSum = realSum + x
+        hasReal = true
+        cnt = cnt + 1
+      case _ => cnt = cnt
+    r = r.tail
+  if alwaysReal then SqlReal(realSum)
+  else if cnt == 0 then SqlNull
+  else if hasReal then SqlReal(realSum) else SqlInteger(intSum)
+
+def avgColumn(rows: List[StorageRecord], colNames: List[String], col: String): SqliteValue =
+  var r = rows
+  var realSum = 0.0
+  var cnt = 0
+  while r.nonEmpty do
+    rowValue(r.head, colNames, col) match
+      case SqlInteger(x) =>
+        realSum = realSum + x.toDouble
+        cnt = cnt + 1
+      case SqlReal(x) =>
+        realSum = realSum + x
+        cnt = cnt + 1
+      case _ => cnt = cnt
+    r = r.tail
+  if cnt == 0 then SqlNull else SqlReal(realSum / cnt.toDouble)
+
+def minMaxColumn(rows: List[StorageRecord], colNames: List[String], col: String, wantMax: Boolean): SqliteValue =
+  var r = rows
+  var best: Option[SqliteValue] = None
+  while r.nonEmpty do
+    val v = rowValue(r.head, colNames, col)
+    v match
+      case SqlNull => best = best
+      case _ => best match
+        case None => best = Some(v)
+        case Some(cur) =>
+          val cmp = sqlCompare(v, cur)
+          val take = if wantMax then cmp > 0 else cmp < 0
+          if take then best = Some(v)
+    r = r.tail
+  best match
+    case Some(v) => v
+    case None => SqlNull
+
+def computeAgg(agg: AggItem, rows: List[StorageRecord], colNames: List[String]): SqliteValue =
+  val f = upperStr(agg.func)
+  if f == "COUNT" then
+    if agg.column == "*" then SqlInteger(rows.length.toLong)
+    else SqlInteger(countNonNull(rows, colNames, agg.column))
+  else if f == "SUM" then sumColumn(rows, colNames, agg.column, false)
+  else if f == "TOTAL" then sumColumn(rows, colNames, agg.column, true)
+  else if f == "AVG" then avgColumn(rows, colNames, agg.column)
+  else if f == "MIN" then minMaxColumn(rows, colNames, agg.column, false)
+  else if f == "MAX" then minMaxColumn(rows, colNames, agg.column, true)
+  else SqlNull
+
+def computeAggregates(aggs: List[AggItem], rows: List[StorageRecord], colNames: List[String]): List[SqliteValue] =
+  var r = aggs
+  var accRev: List[SqliteValue] = Nil
+  while r.nonEmpty do
+    accRev = computeAgg(r.head, rows, colNames) :: accRev
+    r = r.tail
+  reverseValues(accRev, Nil)
+
 def executeSelect(db: ReadonlyDatabase, stmt: SelectStmt): Either[String, List[List[SqliteValue]]] =
   findTable(db, stmt.table) match
     case None => Left("no such table: " + stmt.table)
@@ -525,20 +672,22 @@ def executeSelect(db: ReadonlyDatabase, stmt: SelectStmt): Either[String, List[L
           case Left(error) => Left(error.message)
           case Right(rows) =>
             val filtered = filterRows(rows, stmt.where, colNames)
-            val sorted = stmt.orderBy match
-              case None => filtered
-              case Some(ok) => sortStorage(filtered, colNames, ok)
-            val limited = applyLimitOffset(sorted, stmt.limit, stmt.offset)
-            var r = limited
-            var accRev: List[List[SqliteValue]] = Nil
-            while r.nonEmpty do
-              accRev = projectRow(r.head, colNames, stmt) :: accRev
-              r = r.tail
-            var out: List[List[SqliteValue]] = Nil
-            while accRev.nonEmpty do
-              out = accRev.head :: out
-              accRev = accRev.tail
-            Right(out)
+            if stmt.aggregates.nonEmpty then Right(computeAggregates(stmt.aggregates, filtered, colNames) :: Nil)
+            else
+              val sorted = stmt.orderBy match
+                case None => filtered
+                case Some(ok) => sortStorage(filtered, colNames, ok)
+              val limited = applyLimitOffset(sorted, stmt.limit, stmt.offset)
+              var r = limited
+              var accRev: List[List[SqliteValue]] = Nil
+              while r.nonEmpty do
+                accRev = projectRow(r.head, colNames, stmt) :: accRev
+                r = r.tail
+              var out: List[List[SqliteValue]] = Nil
+              while accRev.nonEmpty do
+                out = accRev.head :: out
+                accRev = accRev.tail
+              Right(out)
 
 /** Run a SELECT against a database image and return the result rows. */
 def queryImage(dbBytes: ByteSlice, sql: String): Either[String, List[List[SqliteValue]]] =

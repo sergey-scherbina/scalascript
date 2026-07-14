@@ -1,0 +1,38 @@
+---
+name: scljet-sql-aggregate
+description: SclJet SQL aggregates — COUNT / SUM / MIN / MAX over a (filtered) table (matches reference sqlite3)
+backends: [int, js]
+---
+
+# SclJet SQL aggregates
+
+`SELECT COUNT(*|col), SUM(col), MIN(col), MAX(col) FROM t [WHERE …]` computes the aggregate(s)
+over the WHERE-filtered rows and returns one row. Every result is byte-identical to reference
+sqlite3 running the same SQL on the same file (verified out-of-band); locked here across
+backends. (`AVG`/`TOTAL` are parsed and computed too but omitted from this differential — they
+return reals whose textual format does not yet match sqlite's — a follow-up.)
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def run(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(id INTEGER, name TEXT, age INTEGER)",
+  List(List(SqlInteger(1L), SqlText("carol"), SqlInteger(31L)),
+       List(SqlInteger(2L), SqlText("alice"), SqlInteger(27L)),
+       List(SqlInteger(3L), SqlText("dave"), SqlInteger(45L)),
+       List(SqlInteger(4L), SqlText("bob"), SqlInteger(29L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db) =>
+    run(db, "SELECT COUNT(*) FROM t")
+    run(db, "SELECT COUNT(*), SUM(age), MIN(age), MAX(age) FROM t")
+    run(db, "SELECT SUM(age) FROM t WHERE age > 28")
+    run(db, "SELECT MIN(name), MAX(name) FROM t")
+    run(db, "SELECT COUNT(age) FROM t WHERE name >= 'bob'")
+    run(db, "SELECT COUNT(*) FROM t WHERE age > 100")
+    run(db, "SELECT MAX(age) FROM t WHERE age > 100")
+```
