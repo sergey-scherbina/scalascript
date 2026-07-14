@@ -1063,6 +1063,15 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
           **119 ok / 0 FAIL**; 4 `u-*` toys + 1 unit test. **The spike now matches ssc1-front byte-for-byte
           across the entire common ScalaScript subset** (functional + imperative + currying + comprehensions +
           placeholder lambdas).
+    - [x] **P6.13 — C_min language extension: comparison + boolean operators ✓ DONE 2026-07-14.** Extended the
+          self-compiling compiler's object language L with `>`/`>=`/`<=` (→ bare `i.gt`/`i.ge`/`i.le`) and
+          short-circuit `&&`/`||` (→ `(if L R (lit false))` / `(if L (lit true) R)`, desugared in emitBin).
+          Lexer gained `lexLt`/`lexGt`/`lexAmp`/`lexPipe`; precedence renumbered (`||`1 `&&`2 cmp 3 `+ -`4
+          `*`5). **C_min self-uses them**: its char-classification is now idiomatic — `isLo(c) = c >= 97 && c
+          <= 122` (was `if 96 < c then c < 123 else false`), `atEnd(i, n) = i >= n`. C_min now 76 defs; the
+          fixpoint STILL holds (`stage1 == stage2`, 25234 B; C1 compiles fac(6)→720), and `spike(cmin.L) ≡
+          ssc1-front(cmin.L)` byte-identical (46697 B) — the spike already lowered these operators, so no
+          spike change was needed. Fixpoint script gained `cmp`/`andor` L-tests.
 
 ---
 

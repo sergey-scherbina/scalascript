@@ -1,7 +1,7 @@
-def atEnd(i, n) = n < i + 1
-def isLo(c) = if 96 < c then c < 123 else false
-def isUp(c) = if 64 < c then c < 91 else false
-def isDig(c) = if 47 < c then c < 58 else false
+def atEnd(i, n) = i >= n
+def isLo(c) = c >= 97 && c <= 122
+def isUp(c) = c >= 65 && c <= 90
+def isDig(c) = c >= 48 && c <= 57
 def isLet(c) = if isLo(c) then true else isUp(c)
 def isAlnum(c) = if isLet(c) then true else isDig(c)
 def scanId(s, i, n) = if atEnd(i, n) then i else (if isAlnum(s.charAt(i)) then scanId(s, i + 1, n) else i)
@@ -10,14 +10,18 @@ def scanNumV(s, i, n, acc) = if atEnd(i, n) then acc else (if isDig(s.charAt(i))
 def scanNumE(s, i, n) = if atEnd(i, n) then i else (if isDig(s.charAt(i)) then scanNumE(s, i + 1, n) else i)
 def kwCode(w) = if w == "def" then 1 else (if w == "if" then 2 else (if w == "then" then 3 else (if w == "else" then 4 else (if w == "match" then 5 else (if w == "case" then 6 else (if w == "val" then 7 else 0))))))
 def lex(s, i, n) = if atEnd(i, n) then Nil else lexDispatch(s, i, n, s.charAt(i))
-def lexDispatch(s, i, n, c) = if c == 32 then lex(s, i + 1, n) else (if c == 10 then lex(s, i + 1, n) else (if c == 9 then lex(s, i + 1, n) else (if c == 13 then lex(s, i + 1, n) else (if isLet(c) then lexWord(s, i, n, scanId(s, i, n)) else (if isDig(c) then lexNum(s, i, n) else (if c == 34 then lexStr(s, i, n, scanStr(s, i + 1, n)) else (if c == 61 then lexEq(s, i, n) else (if c == 43 then lexPlus(s, i, n) else lexOp1(s, i, n, c)))))))))
+def lexDispatch(s, i, n, c) = if c == 32 then lex(s, i + 1, n) else (if c == 10 then lex(s, i + 1, n) else (if c == 9 then lex(s, i + 1, n) else (if c == 13 then lex(s, i + 1, n) else (if isLet(c) then lexWord(s, i, n, scanId(s, i, n)) else (if isDig(c) then lexNum(s, i, n) else (if c == 34 then lexStr(s, i, n, scanStr(s, i + 1, n)) else (if c == 61 then lexEq(s, i, n) else (if c == 43 then lexPlus(s, i, n) else (if c == 60 then lexLt(s, i, n) else (if c == 62 then lexGt(s, i, n) else (if c == 38 then lexAmp(s, i, n) else (if c == 124 then lexPipe(s, i, n) else lexOp1(s, i, n, c)))))))))))))
+def lexLt(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 44), lex(s, i + 2, n)) else Cons((2, 26), lex(s, i + 1, n))
+def lexGt(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 43), lex(s, i + 2, n)) else Cons((2, 42), lex(s, i + 1, n))
+def lexAmp(s, i, n) = if s.charAt(i + 1) == 38 then Cons((2, 40), lex(s, i + 2, n)) else lex(s, i + 1, n)
+def lexPipe(s, i, n) = if s.charAt(i + 1) == 124 then Cons((2, 41), lex(s, i + 2, n)) else lex(s, i + 1, n)
 def lexWord(s, i, n, j) = lexWord2(s, i, n, j, s.substring(i, j))
 def lexWord2(s, i, n, j, w) = if 0 < kwCode(w) then Cons((2, kwCode(w)), lex(s, j, n)) else (if isUp(s.charAt(i)) then Cons((3, w), lex(s, j, n)) else Cons((1, w), lex(s, j, n)))
 def lexNum(s, i, n) = Cons((0, scanNumV(s, i, n, 0)), lex(s, scanNumE(s, i, n), n))
 def lexStr(s, i, n, j) = Cons((4, s.substring(i + 1, j)), lex(s, j + 1, n))
 def lexEq(s, i, n) = if s.charAt(i + 1) == 62 then Cons((2, 30), lex(s, i + 2, n)) else (if s.charAt(i + 1) == 61 then Cons((2, 32), lex(s, i + 2, n)) else Cons((2, 20), lex(s, i + 1, n)))
 def lexPlus(s, i, n) = if s.charAt(i + 1) == 43 then Cons((2, 33), lex(s, i + 2, n)) else Cons((2, 23), lex(s, i + 1, n))
-def lexOp1(s, i, n, c) = if c == 40 then Cons((2, 21), lex(s, i + 1, n)) else (if c == 41 then Cons((2, 22), lex(s, i + 1, n)) else (if c == 45 then Cons((2, 24), lex(s, i + 1, n)) else (if c == 42 then Cons((2, 25), lex(s, i + 1, n)) else (if c == 60 then Cons((2, 26), lex(s, i + 1, n)) else (if c == 44 then Cons((2, 27), lex(s, i + 1, n)) else (if c == 123 then Cons((2, 28), lex(s, i + 1, n)) else (if c == 125 then Cons((2, 29), lex(s, i + 1, n)) else (if c == 46 then Cons((2, 31), lex(s, i + 1, n)) else lex(s, i + 1, n)))))))))
+def lexOp1(s, i, n, c) = if c == 40 then Cons((2, 21), lex(s, i + 1, n)) else (if c == 41 then Cons((2, 22), lex(s, i + 1, n)) else (if c == 45 then Cons((2, 24), lex(s, i + 1, n)) else (if c == 42 then Cons((2, 25), lex(s, i + 1, n)) else (if c == 44 then Cons((2, 27), lex(s, i + 1, n)) else (if c == 123 then Cons((2, 28), lex(s, i + 1, n)) else (if c == 125 then Cons((2, 29), lex(s, i + 1, n)) else (if c == 46 then Cons((2, 31), lex(s, i + 1, n)) else lex(s, i + 1, n))))))))
 def hd(ts) = ts match { case Cons(h, t) => h case Nil => (0, 0) }
 def tl(ts) = ts match { case Cons(h, t) => t case Nil => Nil }
 def fst(p) = p match { case (a, b) => a }
@@ -30,9 +34,9 @@ def isRP(ts) = isTok(hd(ts), 2, 22)
 def isKind1(t) = fst(t) == 1
 def dlen(env) = env match { case Nil => 0 case Cons(h, t) => dlen(t) + 1 }
 def idxOf(env, name, i) = env match { case Nil => 0 case Cons(h, t) => if h == name then i else idxOf(t, name, i + 1) }
-def arithBare(k) = if k == 23 then "i.add" else (if k == 24 then "i.sub" else (if k == 25 then "i.mul" else "i.lt"))
-def emitBin(k, l, r) = if k == 32 then "(prim __eq__ " ++ l ++ " " ++ r ++ ")" else (if k == 33 then "(prim sconcat " ++ l ++ " " ++ r ++ ")" else "(prim " ++ arithBare(k) ++ " " ++ l ++ " " ++ r ++ ")")
-def binPrec(c) = if c == 26 then 1 else (if c == 32 then 1 else (if c == 23 then 2 else (if c == 24 then 2 else (if c == 33 then 2 else (if c == 25 then 3 else 0)))))
+def arithBare(k) = if k == 23 then "i.add" else (if k == 24 then "i.sub" else (if k == 25 then "i.mul" else (if k == 26 then "i.lt" else (if k == 42 then "i.gt" else (if k == 43 then "i.ge" else "i.le")))))
+def emitBin(k, l, r) = if k == 40 then "(if " ++ l ++ " " ++ r ++ " (lit false))" else (if k == 41 then "(if " ++ l ++ " (lit true) " ++ r ++ ")" else (if k == 32 then "(prim __eq__ " ++ l ++ " " ++ r ++ ")" else (if k == 33 then "(prim sconcat " ++ l ++ " " ++ r ++ ")" else "(prim " ++ arithBare(k) ++ " " ++ l ++ " " ++ r ++ ")")))
+def binPrec(c) = if c == 41 then 1 else (if c == 40 then 2 else (if c == 26 then 3 else (if c == 42 then 3 else (if c == 43 then 3 else (if c == 44 then 3 else (if c == 32 then 3 else (if c == 23 then 4 else (if c == 24 then 4 else (if c == 33 then 4 else (if c == 25 then 5 else 0))))))))))
 def prec(t) = if fst(t) == 2 then binPrec(snd(t)) else 0
 def emitMethod(mn, recv, a0, a1) = if mn == "length" then "(prim slen " ++ recv ++ ")" else (if mn == "charAt" then "(prim scodeAt " ++ recv ++ " " ++ a0 ++ ")" else "(prim sslice " ++ recv ++ " " ++ a0 ++ " " ++ a1 ++ ")")
 def parseAtom(ts, env, dq) = if isEmpty(ts) then ("(lit (int 0))", Nil) else parseAtom1(hd(ts), tl(ts), env, dq)
