@@ -24,6 +24,12 @@ exports:
   - buildTableWithIndexDatabase
   - IndexEntry
   - buildTableWithIndexRaw
+  - LeafCell
+  - readLeafCells
+  - leafInsertCell
+  - leafDeleteCell
+  - leafUpdateCell
+  - rebuildLeafPage
 ---
 
 # SclJet M3 write path
@@ -37,7 +43,7 @@ fixed only when the first object is created), a change counter of 1, one page,
 and the writer's SQLite version number (3.53.3 → 3053003), matching the
 committed `empty-encoding-zero.db` fixture exactly.
 
-[ByteSlice, ByteError, byteSliceToList, byteSliceZeroExtend, encodeVarint, writeU32Be](bytes.ssc)
+[ByteSlice, ByteError, ByteRead, VarintRead, byteSliceToList, byteSliceZeroExtend, byteSliceGet, byteSliceSlice, encodeVarint, decodeVarint, readU16Be, writeU32Be](bytes.ssc)
 [SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob](values.ssc)
 [DecodedRecord, RecordField](record.ssc)
 
@@ -1654,4 +1660,113 @@ def buildTableWithIndexRaw(pageSize: Int, changeCounter: Int, schemaCookie: Int,
               val pageCount = 1 + tablePages + indexTree.pageCount
               val page1 = tableFileHeader(pageSize, pageCount, changeCounter, schemaCookie) ++ page1Body
               ByteSlice.fromList(page1 ++ tableTree ++ indexTree.bytes)
-```
+
+// ── Cell-level in-place edits on a single table-leaf page ──
+//
+// Decode a leaf page's cells, insert/delete/replace one by rowid, and re-serialize
+// the page compactly (a defragmented page SQLite accepts). Combined with the mutable
+// pager this mutates a table one PAGE at a time — only the touched leaf changes —
+// rather than rewriting the whole file. No overflow (payload must be fully local) and
+// no split/merge: a page that would overflow returns an error (that is `balance()`,
+// the remaining follow-up); the read-modify-rewrite path in `mutate.ssc` handles the
+// general case today.
+
+case class LeafCell(rowid: Long, bytes: List[Int])
+
+/** Read one non-overflow table-leaf cell (`varint(payloadLen) varint(rowid) payload`). */
+def readLeafCellAt(page: ByteSlice, offset: Int): Either[ByteError, LeafCell] =
+  decodeVarint(page, offset) match
+    case Left(error) => Left(error)
+    case Right(VarintRead(payloadLen, plLen, afterPl)) =>
+      decodeVarint(page, afterPl) match
+        case Left(error) => Left(error)
+        case Right(VarintRead(rowid, ridLen, _)) =>
+          val cellTotal = plLen + ridLen + payloadLen.toInt
+          byteSliceSlice(page, offset, cellTotal) match
+            case Left(error) => Left(error)
+            case Right(cellSlice) => Right(LeafCell(rowid, byteSliceToList(cellSlice)))
+
+/** Decode every cell of a table-leaf page, in stored (key) order. `headerOffset` is
+ *  100 on page 1, else 0. */
+def readLeafCells(page: ByteSlice, headerOffset: Int): Either[ByteError, List[LeafCell]] =
+  readU16Be(page, headerOffset + 3) match
+    case Left(error) => Left(error)
+    case Right(ByteRead(count, _)) =>
+      var rlcI = 0
+      var rlcAcc: List[LeafCell] = Nil
+      var rlcFailure: Option[ByteError] = None
+      while rlcI < count.toInt && rlcFailure.isEmpty do
+        readU16Be(page, headerOffset + 8 + 2 * rlcI) match
+          case Left(error) => rlcFailure = Some(error)
+          case Right(ByteRead(cellOffset, _)) =>
+            readLeafCellAt(page, cellOffset.toInt) match
+              case Left(error) => rlcFailure = Some(error)
+              case Right(cell) => rlcAcc = cell :: rlcAcc
+        rlcI = rlcI + 1
+      rlcFailure match
+        case Some(error) => Left(error)
+        case None => Right(rlcAcc.reverse)
+
+def leafCellBytesList(cells: List[LeafCell]): List[List[Int]] =
+  var lcbRemaining = cells
+  var lcbAcc: List[List[Int]] = Nil
+  while lcbRemaining.nonEmpty do
+    lcbAcc = lcbRemaining.head.bytes :: lcbAcc
+    lcbRemaining = lcbRemaining.tail
+  lcbAcc.reverse
+
+/** Insert a cell in ascending rowid order; error on a duplicate rowid. */
+def leafInsertCell(cells: List[LeafCell], rowid: Long, record: ByteSlice): Either[String, List[LeafCell]] =
+  val newCell = LeafCell(rowid, encodeTableLeafCell(rowid, record))
+  var licRemaining = cells
+  var licBeforeRev: List[LeafCell] = Nil
+  var licDup = false
+  var licPlaced = false
+  var licTailAfter: List[LeafCell] = Nil
+  while licRemaining.nonEmpty && !licPlaced && !licDup do
+    val licHead = licRemaining.head
+    if licHead.rowid == rowid then licDup = true
+    else if licHead.rowid > rowid then
+      licPlaced = true
+      licTailAfter = licRemaining
+    else
+      licBeforeRev = licHead :: licBeforeRev
+      licRemaining = licRemaining.tail
+  if licDup then Left("duplicate rowid " + rowid.toString)
+  else
+    val licBefore = leafReverseCells(licBeforeRev, Nil)
+    val licTail = if licPlaced then licTailAfter else Nil
+    Right(leafAppendCells(licBefore, newCell :: licTail))
+
+def leafReverseCells(items: List[LeafCell], acc: List[LeafCell]): List[LeafCell] = items match
+  case Nil => acc
+  case Cons(head, tail) => leafReverseCells(tail, head :: acc)
+
+def leafAppendCells(front: List[LeafCell], back: List[LeafCell]): List[LeafCell] = front match
+  case Nil => back
+  case Cons(head, tail) => head :: leafAppendCells(tail, back)
+
+/** Remove the cell with `rowid` (no-op if absent). */
+def leafDeleteCell(cells: List[LeafCell], rowid: Long): List[LeafCell] =
+  var ldcRemaining = cells
+  var ldcAcc: List[LeafCell] = Nil
+  while ldcRemaining.nonEmpty do
+    if ldcRemaining.head.rowid != rowid then ldcAcc = ldcRemaining.head :: ldcAcc
+    ldcRemaining = ldcRemaining.tail
+  leafReverseCells(ldcAcc, Nil)
+
+/** Replace the payload of the cell with `rowid`, keeping its position. */
+def leafUpdateCell(cells: List[LeafCell], rowid: Long, record: ByteSlice): List[LeafCell] =
+  var lucRemaining = cells
+  var lucAcc: List[LeafCell] = Nil
+  while lucRemaining.nonEmpty do
+    val lucHead = lucRemaining.head
+    val lucNew = if lucHead.rowid == rowid then LeafCell(rowid, encodeTableLeafCell(rowid, record)) else lucHead
+    lucAcc = lucNew :: lucAcc
+    lucRemaining = lucRemaining.tail
+  leafReverseCells(lucAcc, Nil)
+
+/** Re-serialize a leaf page from its cells (compact — no freeblocks). Errors if the
+ *  cells no longer fit one page (a split is needed). */
+def rebuildLeafPage(cells: List[LeafCell], pageSize: Int, headerOffset: Int): Either[ByteError, List[Int]] =
+  buildTableLeafPage(pageSize, headerOffset, leafCellBytesList(cells))

@@ -1,0 +1,94 @@
+---
+name: scljet-cell-inplace
+description: SclJet cell-level in-place edits — insert/delete/update a cell within a leaf and commit only that page via the mutable pager
+backends: [int, js]
+---
+
+# SclJet cell-level in-place editing
+
+Edit a single table-leaf page's cells (decode → insert/delete/replace by rowid →
+re-serialize) and commit only that page through the mutable pager, so a row change
+moves one page instead of rewriting the file. Verified out-of-band against reference
+SQLite 3.53.3: after an in-place insert + delete the file has `integrity_check` ok and
+reads the expected rows. Here we lock the cell edits and the journaled commit across
+backends. (Single leaf, no page split — that is SQLite's `balance()`, the remaining
+follow-up; `mutate.ssc` handles the general case today.)
+
+[ByteSlice, byteSliceToList, byteSliceGet, SqliteValue, SqlInteger, SqlText, encodeRecord, buildTableDatabase, openMutablePager, mutableGet, mutablePut, mutableCommit, readLeafCells, leafInsertCell, leafDeleteCell, leafUpdateCell, rebuildLeafPage, LeafCell, applyRollbackJournal](std/scljet/index.ssc)
+
+```scalascript
+def rowids(cells: List[LeafCell]): List[Long] =
+  var rRemaining = cells
+  var rAcc: List[Long] = Nil
+  while rRemaining.nonEmpty do
+    rAcc = rRemaining.head.rowid :: rAcc
+    rRemaining = rRemaining.tail
+  var rOut: List[Long] = Nil
+  var rRev = rAcc
+  while rRev.nonEmpty do
+    rOut = rRev.head :: rOut
+    rRev = rRev.tail
+  rOut
+
+def cellFor(cells: List[LeafCell], rowid: Long): List[Int] =
+  var cRemaining = cells
+  var cOut: List[Int] = Nil
+  while cRemaining.nonEmpty do
+    if cRemaining.head.rowid == rowid then cOut = cRemaining.head.bytes
+    cRemaining = cRemaining.tail
+  cOut
+
+def adler32(bytes: ByteSlice): Long =
+  var adI = 0
+  var adA = 1L
+  var adB = 0L
+  while adI < bytes.length do
+    byteSliceGet(bytes, adI) match
+      case Right(b) =>
+        adA = (adA + b.toLong) % 65521L
+        adB = (adB + adA) % 65521L
+      case Left(e) => adA = adA
+    adI = adI + 1
+  adB * 65536L + adA
+
+buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(id INTEGER, v TEXT)",
+  List(List(SqlInteger(1L), SqlText("a")),
+       List(SqlInteger(2L), SqlText("b")),
+       List(SqlInteger(3L), SqlText("c")))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db) =>
+    val pager = openMutablePager(db, 512, 512)
+    mutableGet(pager, 2) match
+      case Left(error) => println("get-error:" + error.message)
+      case Right(page2) => readLeafCells(page2, 0) match
+        case Left(error) => println("read-error:" + error.message)
+        case Right(cells) =>
+          println("initial rowids: " + rowids(cells).toString)
+          encodeRecord(List(SqlInteger(4L), SqlText("d"))) match
+            case Left(error) => println("enc-error:" + error.message)
+            case Right(rec4) => leafInsertCell(cells, 4L, rec4) match
+              case Left(m) => println("insert-error:" + m)
+              case Right(inserted) =>
+                println("after insert rowids: " + rowids(inserted).toString)
+                val deleted = leafDeleteCell(inserted, 2L)
+                println("after delete rowids: " + rowids(deleted).toString)
+                println("dup insert rejected: " + (leafInsertCell(cells, 2L, rec4).isLeft).toString)
+                // update rowid 3's value, confirm its cell bytes changed but position held
+                encodeRecord(List(SqlInteger(3L), SqlText("ZZ"))) match
+                  case Left(error) => println("enc2-error:" + error.message)
+                  case Right(rec3) =>
+                    val updated = leafUpdateCell(deleted, 3L, rec3)
+                    println("update kept rowids: " + rowids(updated).toString + ", cell changed: " + (cellFor(updated, 3L).toString != cellFor(deleted, 3L).toString).toString)
+                    rebuildLeafPage(updated, 512, 0) match
+                      case Left(error) => println("rebuild-error:" + error.message)
+                      case Right(newPage) => ByteSlice.fromList(newPage) match
+                        case Left(error) => println("slice-error:" + error.message)
+                        case Right(newPage2) =>
+                          mutableCommit(mutablePut(pager, 2, newPage2), 321L) match
+                            case Left(error) => println("commit-error:" + error.message)
+                            case Right(pc) =>
+                              println("committed image fingerprint: " + adler32(pc.pager.image).toString)
+                              applyRollbackJournal(pc.pager.image, pc.journal) match
+                                case Left(error) => println("recover-error:" + error.message)
+                                case Right(recovery) => println("journal recovers original: " + (byteSliceToList(recovery.database).toString == byteSliceToList(db).toString).toString)
+```
