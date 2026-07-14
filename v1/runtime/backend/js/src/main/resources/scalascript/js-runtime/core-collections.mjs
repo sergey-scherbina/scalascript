@@ -9,6 +9,11 @@ function _forEach(xs, fn) {
 }
 
 function _tupleConcat(a, b) {
+  // `++` is also a user operator (e.g. a Doc pretty-printer's `def ++(r) =
+  // DocBeside(l, r)`). When the receiver is a user case-class/instance rather than
+  // a list/tuple, dispatch to its `++` extension instead of array-concatenating.
+  // (js-user-operator-dispatch.)
+  if (a && typeof a === 'object' && !Array.isArray(a) && a._type) return _dispatch(a, '++', [b]);
   const aArr = Array.isArray(a) ? a : [a];
   const bArr = Array.isArray(b) ? b : [b];
   const r = [...aArr, ...bArr];

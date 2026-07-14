@@ -19,3 +19,4 @@ v2-db-*
 http-client
 graph-fullstack
 actors-supervision
+v2-http-sql-demo

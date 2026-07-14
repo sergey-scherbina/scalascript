@@ -58,7 +58,6 @@ distributed-dataset-wire-shuffle	js	FAIL
 distributed-dataset-wire-shuffle	v2	FAIL
 distributed-join	*	SKIP
 distributed-log-aggregation	*	SKIP
-dsl-ast-builder	js	DIVERGE
 dsl-ast-builder	v2	DIVERGE
 dsl-calc-parser	v2	DIVERGE
 dsl-mini-language	*	SKIP
@@ -183,7 +182,6 @@ typed-sql-crud	js	FAIL
 ui-fetch-json	js	FAIL
 uploads	*	SKIP
 uuid-v7	*	SKIP
-v2-http-sql-demo	js	FAIL
 validation-demo	*	SKIP
 wallet-mpc-fireblocks	*	SKIP
 wasm-collections	v2	FAIL

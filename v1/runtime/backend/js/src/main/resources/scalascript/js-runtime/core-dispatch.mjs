@@ -223,6 +223,12 @@ function _arith(op, a, b) {
       case '==': return x===y; case '!=': return x!==y;
     }
   }
+  // A user case-class/instance with an operator extension (e.g. a Doc pretty-printer's
+  // `def /(r) = DocAbove(l, r)`). Dispatch the operator to it rather than computing JS
+  // `a / b` (= NaN / "[object Object]"). `==`/`!=` keep structural `_eq` below.
+  // (js-user-operator-dispatch.)
+  if (a && typeof a === 'object' && !Array.isArray(a) && a._type &&
+      a._type !== '_Decimal' && op !== '==' && op !== '!=') return _dispatch(a, op, [b]);
   switch (op) {
     case '+': return a + b; case '-': return a - b; case '*': return a * b; case '/': return a / b; case '%': return a % b;
     case '<': return a < b; case '>': return a > b; case '<=': return a <= b; case '>=': return a >= b;
