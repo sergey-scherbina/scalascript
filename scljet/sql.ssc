@@ -217,16 +217,25 @@ def parseWhere(toks: List[Token]): Either[String, (Option[Condition], List[Token
   if toks.isEmpty then Right((None, Nil))
   else if tkIsKw(toks, "WHERE") then
     val rest = toks.tail
-    if rest.length < 3 then Left("WHERE needs: column op value")
+    if tkKind(rest) != "ident" then Left("expected column after WHERE")
     else
       val col = rest.head
-      val op = rest.tail.head
-      val lit = rest.tail.tail.head
-      if col.kind != "ident" then Left("expected column after WHERE")
-      else if op.kind != "op" then Left("expected a comparison operator")
-      else litValue(lit) match
-        case Left(message) => Left(message)
-        case Right(value) => Right((Some(Condition(col.text, op.text, value)), rest.tail.tail.tail))
+      val after = rest.tail
+      if tkIsKw(after, "IS") then
+        val afterIs = after.tail
+        if tkIsKw(afterIs, "NOT") then
+          if !tkIsKw(afterIs.tail, "NULL") then Left("expected NULL after IS NOT")
+          else Right((Some(Condition(col.text, "notnull", SqlNull)), afterIs.tail.tail))
+        else if tkIsKw(afterIs, "NULL") then Right((Some(Condition(col.text, "isnull", SqlNull)), afterIs.tail))
+        else Left("expected NULL after IS")
+      else if after.length < 2 then Left("WHERE needs: column op value")
+      else
+        val op = after.head
+        val lit = after.tail.head
+        if op.kind != "op" then Left("expected a comparison operator")
+        else litValue(lit) match
+          case Left(message) => Left(message)
+          case Right(value) => Right((Some(Condition(col.text, op.text, value)), after.tail.tail))
   else Right((None, toks))
 
 case class OrderKey(column: String, desc: Boolean)
@@ -590,9 +599,16 @@ def condMatches(op: String, cmp: Int): Boolean =
   else if op == ">=" then cmp >= 0
   else false
 
+def isNullValue(v: SqliteValue): Boolean = v match
+  case SqlNull => true
+  case _ => false
+
 def whereHolds(where: Option[Condition], rec: StorageRecord, colNames: List[String]): Boolean = where match
   case None => true
-  case Some(cond) => condMatches(cond.op, sqlCompare(rowValue(rec, colNames, cond.column), cond.value))
+  case Some(cond) =>
+    if cond.op == "isnull" then isNullValue(rowValue(rec, colNames, cond.column))
+    else if cond.op == "notnull" then isNullValue(rowValue(rec, colNames, cond.column)) == false
+    else condMatches(cond.op, sqlCompare(rowValue(rec, colNames, cond.column), cond.value))
 
 def projItemNames(items: List[ProjItem]): List[String] =
   var r = items
@@ -1005,7 +1021,10 @@ def joinColValue(recA: StorageRecord, colsA: List[String], tableA: String, recBO
 
 def joinWhereHolds(where: Option[Condition], recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String): Boolean = where match
   case None => true
-  case Some(cond) => condMatches(cond.op, sqlCompare(joinColValue(recA, colsA, tableA, recBOpt, colsB, tableB, cond.column), cond.value))
+  case Some(cond) =>
+    if cond.op == "isnull" then isNullValue(joinColValue(recA, colsA, tableA, recBOpt, colsB, tableB, cond.column))
+    else if cond.op == "notnull" then isNullValue(joinColValue(recA, colsA, tableA, recBOpt, colsB, tableB, cond.column)) == false
+    else condMatches(cond.op, sqlCompare(joinColValue(recA, colsA, tableA, recBOpt, colsB, tableB, cond.column), cond.value))
 
 def joinProjectRow(recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String, stmt: SelectStmt): List[SqliteValue] =
   var accRev: List[SqliteValue] = Nil

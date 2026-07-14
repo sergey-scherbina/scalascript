@@ -1,0 +1,42 @@
+---
+name: scljet-sql-null
+description: SclJet SQL IS NULL / IS NOT NULL — null tests in WHERE, on a single table and a LEFT JOIN (matches reference sqlite3)
+backends: [int, js]
+---
+
+# SclJet SQL IS NULL / IS NOT NULL
+
+`WHERE col IS NULL` / `WHERE col IS NOT NULL` test for SQL NULL (columns left unset by a column-list
+INSERT, and the NULL-extended side of a LEFT JOIN). Every result is byte-identical to reference
+sqlite3 running the same SQL on the same file (verified out-of-band); locked here across backends.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, renderRows, executeMutation](std/scljet/sql.ssc)
+
+```scalascript
+def apply(db: ByteSlice, sql: String): ByteSlice =
+  executeMutation(db, sql) match
+    case Left(m) =>
+      println(sql + " => ERR:" + m)
+      db
+    case Right(next) => next
+
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER, name TEXT, dept INTEGER)",
+  List(List(SqlInteger(1L), SqlText("ann"), SqlInteger(10L)),
+       List(SqlInteger(2L), SqlText("bob"), SqlInteger(30L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db0) =>
+    val db1 = apply(db0, "INSERT INTO emp (id, name) VALUES (3, 'cat')")
+    val db2 = apply(db1, "CREATE TABLE dept(did INTEGER, dname TEXT)")
+    val db3 = apply(db2, "INSERT INTO dept VALUES (10, 'eng')")
+    show(db3, "SELECT id, name FROM emp WHERE dept IS NULL")
+    show(db3, "SELECT id FROM emp WHERE dept IS NOT NULL")
+    show(db3, "SELECT COUNT(*) FROM emp WHERE dept IS NULL")
+    show(db3, "SELECT emp.name FROM emp LEFT JOIN dept ON emp.dept = dept.did WHERE dept.did IS NULL")
+    show(db3, "SELECT emp.name, dept.dname FROM emp LEFT JOIN dept ON emp.dept = dept.did WHERE dept.dname IS NOT NULL")
+```

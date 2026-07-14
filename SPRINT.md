@@ -1654,6 +1654,11 @@ ORDER BY / LIMIT / OFFSET, aggregates (COUNT/SUM/MIN/MAX/AVG/TOTAL), GROUP BY + 
 and inner + LEFT joins — every feature byte-verified against reference sqlite3, int==js.
 Remaining follow-ups (niche): multi-table (3+) joins, page-1 schema split, repeating-decimal %.15g.
 
+- [x] **scljet-m5t-is-null** — DONE 2026-07-14. `WHERE col IS NULL` / `col IS NOT NULL`: `parseWhere`
+      recognizes the `IS [NOT] NULL` form (ops `isnull`/`notnull`); `whereHolds`/`joinWhereHolds` test
+      the value's nullness. Works on a single table (columns unset by a column-list INSERT) and on the
+      NULL-extended side of a LEFT JOIN. Verified vs sqlite3, int==js; conformance `scljet-sql-null`.
+
 - [x] **scljet-m5s-join-group-by** — DONE 2026-07-14. GROUP BY (+ HAVING) over a join — joins now at
       full SELECT parity. `joinExecute`, when GROUP BY is present, sorts the matched `JoinPair`s by the
       group key (`sortPairsBy`), partitions into consecutive runs (`partitionPairs`/`pairGroupEqual`),

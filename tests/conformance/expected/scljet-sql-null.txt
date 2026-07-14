@@ -1,0 +1,7 @@
+SELECT id, name FROM emp WHERE dept IS NULL => 3|cat
+SELECT id FROM emp WHERE dept IS NOT NULL => 1
+2
+SELECT COUNT(*) FROM emp WHERE dept IS NULL => 1
+SELECT emp.name FROM emp LEFT JOIN dept ON emp.dept = dept.did WHERE dept.did IS NULL => bob
+cat
+SELECT emp.name, dept.dname FROM emp LEFT JOIN dept ON emp.dept = dept.did WHERE dept.dname IS NOT NULL => ann|eng
