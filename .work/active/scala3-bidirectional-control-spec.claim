@@ -1,6 +1,6 @@
 feature/scala3-bidirectional-control-spec 2026-07-14T10:45:25Z
 agent: codex
-heartbeat: 2026-07-14T10:45:25Z
-status: not-started
-done-so-far:
-next: create an isolated worktree and write the SPRINT plan before the specification
+heartbeat: 2026-07-14T10:45:46Z
+status: in-progress
+done-so-far: isolated worktree created from origin/main
+next: audit v2.2 plans and write the full SPRINT plan before the specification
