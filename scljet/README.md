@@ -93,9 +93,15 @@ A **page-oriented mutable pager** (`journal.ssc` `openMutablePager` / `mutableGe
 database at page granularity without rewriting the whole file: staged dirty pages
 read back before commit, `mutableCommit` journals and applies them atomically (the
 journal recovers the pre-commit image, allocations included), and `mutableRollback`
-discards. Cell-level in-place editing with B-tree rebalancing (SQLite's `balance()`)
-is the remaining piece; the whole-file read-modify-rewrite in `mutate.ssc` already
-provides correct insert/delete/update today.
+discards.
+
+**Cell-level in-place edits** (`write.ssc` `readLeafCells` / `leafInsertCell` /
+`leafDeleteCell` / `leafUpdateCell` / `rebuildLeafPage`) change a single table-leaf
+page's cells and, through the mutable pager, move only that page — an in-place insert
++ delete produces a file reference `integrity_check` accepts and reads correctly.
+Multi-page split/merge rebalancing (SQLite's `balance()`) when a leaf overflows is the
+remaining piece; the whole-file read-modify-rewrite in `mutate.ssc` already provides
+correct insert/delete/update for that case today.
 
 ## Modules
 

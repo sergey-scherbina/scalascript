@@ -1061,15 +1061,19 @@ DONE (32 conformance cases green [int,js]). The honest remainder, each a real fe
       commit journal recovers the original; allocation grows the file and is undone by
       recovery; rollback leaves the image unchanged. Conformance `scljet-pager-mutate`.
       (Freelist-page reuse on alloc is a follow-up; alloc is EOF-only.)
-- [ ] **scljet-m4f-cell-inplace-balance** — (LARGE, SQLite `balance()` equivalent)
-      cell-level in-place insert/delete/update WITHIN a leaf: edit the cell-pointer array
-      + cell-content area + freeblock chain, and split/merge/redistribute pages
-      (balance_nonroot / balance_deeper) when a page overflows or underflows, updating
-      parent dividers. This is the one genuinely huge remaining routine; read-modify-
-      rewrite (m3f) already provides correct DML, so this is byte-minimality only.
-      Attempt only after m4a–m4e; may be split further. Done-when: an in-place insert
-      that triggers a leaf split produces the SAME file state as reference SQLite (or is
-      honestly scoped to the no-split case first). Conformance `scljet-cell-inplace`.
+- [~] **scljet-m4f-cell-inplace-balance** — single-leaf case DONE 2026-07-14; multi-page
+      split/merge (`balance()`) remaining. `write.ssc` `readLeafCells` decodes a table-leaf
+      page's cells; `leafInsertCell` (ordered, dup-rejected) / `leafDeleteCell` /
+      `leafUpdateCell` edit the cell list by rowid; `rebuildLeafPage` re-serializes the
+      page compactly. Combined with the mutable pager this mutates a table one PAGE at a
+      time. Verified vs reference SQLite 3.53.3: an in-place insert (rowid 4) + delete
+      (rowid 2) committed through the pager gives `integrity_check` ok and reads
+      `1|a, 3|c, 4|d`; int==js incl. journal recovery (conformance `scljet-cell-inplace`).
+      REMAINING (genuinely huge — SQLite `balance_nonroot`/`balance_deeper`): when the
+      edited leaf overflows/underflows, split/merge/redistribute pages and update parent
+      dividers, to any depth. `rebuildLeafPage` returns an error in that case today;
+      `mutate.ssc` read-modify-rewrite already provides correct DML for it. Also
+      no-overflow-cell assumption in `readLeafCells` (spilled payloads = follow-up).
 
 Execution order (value × tractability): m4a (template exists) → m4b → m4c → m4d →
 m4e → m4f. Keep every scljet conformance case green [int,js] --no-memo after each.
