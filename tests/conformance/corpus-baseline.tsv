@@ -1,15 +1,5 @@
-actors-cluster-config	v2	FAIL
-actors-cluster-coordinator	v2	FAIL
-actors-cluster-drain	v2	FAIL
-actors-cluster-drain-stepdown	v2	FAIL
-actors-cluster-gossip	v2	FAIL
-actors-cluster-leader	v2	FAIL
-actors-cluster-metrics	v2	FAIL
-actors-cluster-raft	v2	FAIL
-actors-cluster-reconnect	v2	FAIL
 actors-cluster-visibility	*	SKIP
 actors-global-registry	*	SKIP
-actors-leader-protocol	v2	FAIL
 actors-typed-remote-spawn	js	FAIL
 agent-mcp-server	*	SKIP
 agent-mcp-toolsource	*	SKIP

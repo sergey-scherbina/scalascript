@@ -63,6 +63,36 @@ final class ActorsNativePlugin extends NativePlugin:
   private val behaviors = ConcurrentHashMap[String, Value]()
   private val namedRefs = ConcurrentHashMap[String, Value]()
   private val localNode = AtomicReference[String]("local")
+
+  // v1.23 cluster/leader state — single-node semantics, mirroring ActorScheduler.
+  // Config: a string→value map. Leader election: protocol ("bully"/"raft"/"coord"),
+  // a leader-claim history (list of (term, leaderId, ts) tuples), and the current leader.
+  private val clusterConfig = new java.util.concurrent.ConcurrentHashMap[String, Value]()
+  private val leaderProtocolRef = AtomicReference[String]("bully")
+  private val leaderHist = new java.util.concurrent.ConcurrentLinkedDeque[Value]()
+  private val leaderTermSeq = new java.util.concurrent.atomic.AtomicLong(0L)
+  private val currentLeaderRef = AtomicReference[String]("")
+  private val coordHolderRef = AtomicReference[Value](Value.UnitV)
+  private val drainingRef = new java.util.concurrent.atomic.AtomicBoolean(false)
+  private val clusterMetrics = new java.util.concurrent.ConcurrentHashMap[String, Double]()
+
+  /** Reset per-run cluster/leader state (called from runActors alongside localNode). */
+  private def resetClusterState(): Unit =
+    clusterConfig.clear()
+    leaderProtocolRef.set("bully")
+    leaderHist.clear()
+    leaderTermSeq.set(0L)
+    currentLeaderRef.set("")
+    coordHolderRef.set(Value.UnitV)
+    drainingRef.set(false)
+    clusterMetrics.clear()
+  /** The local node id, single-node `""` (mirrors selfNode's `"local"`→`""` sentinel). */
+  private def clusterNodeId(): String =
+    val n = localNode.get(); if n == "local" then "" else n
+  private def recordLeaderHist(leaderId: String): Unit =
+    val term = leaderTermSeq.incrementAndGet()
+    leaderHist.offer(Value.DataV("Tuple3",
+      Vector(Value.IntV(term), Value.StrV(leaderId), Value.IntV(System.currentTimeMillis()))))
   private val timeoutCell = Array[Value](Value.IntV(-1))
 
   private def closure(arity: Int)(fn: List[Value] => Value): Value.ClosV =
@@ -297,6 +327,103 @@ final class ActorsNativePlugin extends NativePlugin:
     context.registerGlobal("phiOf", -1)(_ => Value.FloatV(Double.PositiveInfinity))
     context.registerGlobal("isSuspect", -1)(_ => Value.BoolV(true))
 
+    // v1.23 — cluster config registry (single-node). set/get/keys over a string map.
+    clusterConfig.clear()
+    context.registerGlobal("clusterConfigSet", 2) {
+      case Value.StrV(key) :: value :: Nil => clusterConfig.put(key, value); Value.UnitV
+      case _ => throw new IllegalArgumentException("clusterConfigSet(key, value)")
+    }
+    context.registerGlobal("clusterConfigGet", 1) {
+      case Value.StrV(key) :: Nil =>
+        Option(clusterConfig.get(key)) match
+          case Some(value) => Value.DataV("Some", Vector(value))
+          case None        => Value.DataV("None", Vector.empty)
+      case _ => throw new IllegalArgumentException("clusterConfigGet(key)")
+    }
+    context.registerGlobal("clusterConfigKeys", 0) { _ =>
+      import scala.jdk.CollectionConverters.*
+      clusterConfig.keySet().asScala.toList.sorted
+        .foldRight[Value](Value.DataV("Nil", Vector.empty))((k, acc) => Value.DataV("Cons", Vector(Value.StrV(k), acc)))
+    }
+
+    // v1.23 — leader election (bully / raft / external coordinator), single-node parity
+    // with ActorScheduler. A single node always wins its own election: `electLeader`
+    // records an accepted claim `(term, leaderId, ms)` unconditionally and becomes leader
+    // (self id is `""` when no `startNode` set a cluster id). `currentLeader` reflects the
+    // active protocol — raft/bully return the adopted id, coord defers to the holder fn.
+    context.registerGlobal("electLeader", -1) { _ =>
+      val id = clusterNodeId()
+      recordLeaderHist(id)
+      currentLeaderRef.set(id)
+      Value.UnitV
+    }
+    context.registerGlobal("leaderProtocol", 0)(_ => Value.StrV(leaderProtocolRef.get()))
+    context.registerGlobal("leaderHistory", 0) { _ =>
+      import scala.jdk.CollectionConverters.*
+      leaderHist.iterator().asScala.toList
+        .foldRight[Value](Value.DataV("Nil", Vector.empty))((e, acc) => Value.DataV("Cons", Vector(e, acc)))
+    }
+    context.registerGlobal("currentLeader", 0) { _ =>
+      leaderProtocolRef.get() match
+        case "coord" =>
+          val held = coordHolderRef.get() match
+            case Value.UnitV => ""
+            case fn => context.invoke(fn, Nil) match
+              case Value.DataV("Some", Vector(Value.StrV(s))) => s
+              case _                                          => ""
+          Value.StrV(held)
+        case _ => Value.StrV(currentLeaderRef.get())
+    }
+    context.registerGlobal("useRaftLeaderElection", -1) { _ =>
+      leaderProtocolRef.set("raft"); Value.UnitV
+    }
+    context.registerGlobal("useExternalCoordinator", -1) { args =>
+      leaderProtocolRef.set("coord")
+      args match
+        case acquire :: _ :: _ :: holder :: _ =>
+          coordHolderRef.set(holder)
+          val id = clusterNodeId()
+          val got = context.invoke(acquire, List(Value.StrV(id), Value.IntV(5000L))) match
+            case Value.BoolV(b) => b
+            case _              => false
+          if got then { recordLeaderHist(id); currentLeaderRef.set(id) }
+        case _ => ()
+      Value.UnitV
+    }
+
+    // v1.23 — drain / rolling-restart (single-node). `setDraining(true)` steps the
+    // node down as leader (single-node self is `""` so `currentLeader` stays empty);
+    // `drainingPeers` is the empty peer set. `requestGossip` / `setReconnectPolicy`
+    // are peer-directed no-ops with no peers.
+    context.registerGlobal("setDraining", 1) {
+      case Value.BoolV(b) :: Nil =>
+        drainingRef.set(b)
+        if b then currentLeaderRef.set("")
+        Value.UnitV
+      case _ => throw new IllegalArgumentException("setDraining(enabled)")
+    }
+    context.registerGlobal("isDraining", 0)(_ => Value.BoolV(drainingRef.get()))
+    context.registerGlobal("drainingPeers", 0)(_ => Value.DataV("Nil", Vector.empty))
+    context.registerGlobal("requestGossip", -1)(_ => Value.UnitV)
+    context.registerGlobal("setReconnectPolicy", -1)(_ => Value.UnitV)
+
+    // v1.23 — cluster metrics aggregation (single-node: sum over the one local node).
+    context.registerGlobal("clusterMetricSet", 2) {
+      case Value.StrV(name) :: Value.FloatV(v) :: Nil => clusterMetrics.put(name, v); Value.UnitV
+      case Value.StrV(name) :: Value.IntV(v) :: Nil   => clusterMetrics.put(name, v.toDouble); Value.UnitV
+      case _ => throw new IllegalArgumentException("clusterMetricSet(name, value)")
+    }
+    context.registerGlobal("clusterMetricSum", 1) {
+      case Value.StrV(name) :: Nil =>
+        Value.FloatV(if clusterMetrics.containsKey(name) then clusterMetrics.get(name) else 0.0)
+      case _ => throw new IllegalArgumentException("clusterMetricSum(name)")
+    }
+    context.registerGlobal("clusterMetricNames", 0) { _ =>
+      import scala.jdk.CollectionConverters.*
+      clusterMetrics.keySet().asScala.toList.sorted
+        .foldRight[Value](Value.DataV("Nil", Vector.empty))((k, acc) => Value.DataV("Cons", Vector(Value.StrV(k), acc)))
+    }
+
     context.register("actor.send") {
       case Value.ForeignV(mailbox: Mailbox) :: message :: Nil =>
         deliver(mailbox, message)
@@ -365,6 +492,7 @@ final class ActorsNativePlugin extends NativePlugin:
         behaviors.clear()
         namedRefs.clear()
         localNode.set("local")
+        resetClusterState()
         timeoutCell(0) = Value.IntV(-1)
         val scope = RunScope()
         val result = AtomicReference[Value](Value.UnitV)
