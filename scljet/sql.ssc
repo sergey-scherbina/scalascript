@@ -217,7 +217,7 @@ case class SxCase(operand: Option[SxNode], whens: List[SxWhen], elseExpr: Option
 case class Condition(column: String, op: String, value: SqliteValue, values: List[SqliteValue], leftExpr: Option[SxNode], rightExpr: Option[SxNode])
 case class JoinSpec(table: String, leftCol: String, op: String, rightCol: String, leftOuter: Boolean)
 case class HavingCond(item: ProjItem, op: String, value: SqliteValue)
-case class SelectStmt(star: Boolean, projection: List[ProjItem], table: String, where: List[List[Condition]], orderBy: List[OrderKey], limit: Int, offset: Int, groupBy: List[String], join: Option[JoinSpec], having: Option[HavingCond], distinct: Boolean)
+case class SelectStmt(star: Boolean, projection: List[ProjItem], table: String, where: List[List[Condition]], orderBy: List[OrderKey], limit: Int, offset: Int, groupBy: List[String], joins: List[JoinSpec], having: Option[HavingCond], distinct: Boolean)
 
 def isKw(token: Token, word: String): Boolean = token.kind == "ident" && upperStr(token.text) == word
 
@@ -854,6 +854,24 @@ def parseJoin(toks: List[Token]): Either[String, (Option[JoinSpec], List[Token])
           else if rc.kind != "ident" then Left("expected a column in ON")
           else Right((Some(JoinSpec(jtable, l.text, o.text, rc.text, leftOuter)), afterOn.tail.tail.tail))
 
+// A chain of JOIN clauses (0, 1, or more) — supports 2-, 3-, … table joins.
+def parseJoins(toks: List[Token]): Either[String, (List[JoinSpec], List[Token])] =
+  var rest = toks
+  var accRev: List[JoinSpec] = Nil
+  var err: Option[String] = None
+  var done = false
+  while !done && err.isEmpty do
+    parseJoin(rest) match
+      case Left(message) => err = Some(message)
+      case Right(jp) => jp._1 match
+        case None => done = true
+        case Some(spec) =>
+          accRev = spec :: accRev
+          rest = jp._2
+  err match
+    case Some(message) => Left(message)
+    case None => Right((accRev.reverse, rest))
+
 // Parse optional `HAVING (agg|col) op literal` (evaluated per group after aggregation).
 // The HAVING left side is an aggregate or a bare column and must STOP before the comparison
 // operator (unlike a projection item, which now parses a full expression incl. comparisons).
@@ -894,11 +912,11 @@ def parseSelect(toks: List[Token]): Either[String, SelectStmt] =
         val afterCols = proj._3
         if !tkIsKw(afterCols, "FROM") then
           // `SELECT <exprs>` with no FROM → a single computed row (table = "").
-          Right(SelectStmt(proj._1, proj._2, "", Nil, Nil, -1, 0, Nil, None, None, distinct))
+          Right(SelectStmt(proj._1, proj._2, "", Nil, Nil, -1, 0, Nil, Nil, None, distinct))
         else
           val afterFrom = afterCols.tail
           if tkKind(afterFrom) != "ident" then Left("expected table name")
-          else parseJoin(afterFrom.tail) match
+          else parseJoins(afterFrom.tail) match
             case Left(message) => Left(message)
             case Right(jpair) => parseWhere(jpair._2) match
               case Left(message) => Left(message)
@@ -2384,10 +2402,282 @@ def joinExecute(db: ReadonlyDatabase, stmt: SelectStmt, spec: JoinSpec): Either[
           val deduped = if stmt.distinct then dedupRows(out) else out
           Right(limitValueRows(deduped, stmt.limit, stmt.offset))
 
+// ── N-table inner join (3+ tables): a general list-of-rows model ──
+// A joined row is a list of StorageRecords, one per table, parallel to `tables`. Column
+// references resolve across all bound tables (qualified `t.col` → that table; bare → the first
+// table having the column). Supports projection / WHERE / ORDER BY / DISTINCT / LIMIT and inner
+// joins only; aggregates, GROUP BY, HAVING and outer joins over 3+ tables are a follow-up (the
+// full-featured 2-table path still handles single joins).
+
+case class JoinTable(cols: List[String], tableName: String, rows: List[StorageRecord])
+
+def indexOfDot(s: String): Int =
+  var i = 0
+  var found = -1
+  while i < s.length && found < 0 do
+    if charCode(s, i) == 46 then found = i
+    i = i + 1
+  found
+
+// The bound row for a table name (parallel walk of `tables` and `joinRow`).
+def multiColValue(joinRow: List[StorageRecord], tables: List[JoinTable], name: String): SqliteValue =
+  val dot = indexOfDot(name)
+  if dot >= 0 then
+    val tbl = upperStr(substr(name, 0, dot))
+    val col = substr(name, dot + 1, name.length)
+    var ts = tables
+    var rs = joinRow
+    var out = SqlNull
+    var done = false
+    while ts.nonEmpty && rs.nonEmpty && !done do
+      if upperStr(ts.head.tableName) == tbl then
+        val idx = columnIndex(ts.head.cols, col)
+        out = if idx < 0 then SqlNull else fieldValueAt(rs.head.record, idx)
+        done = true
+      ts = ts.tail
+      rs = rs.tail
+    out
+  else
+    var ts = tables
+    var rs = joinRow
+    var out = SqlNull
+    var done = false
+    while ts.nonEmpty && rs.nonEmpty && !done do
+      val idx = columnIndex(ts.head.cols, name)
+      if idx >= 0 then
+        out = fieldValueAt(rs.head.record, idx)
+        done = true
+      ts = ts.tail
+      rs = rs.tail
+    out
+
+def evalArgsMulti(args: List[SxNode], joinRow: List[StorageRecord], tables: List[JoinTable]): List[SqliteValue] =
+  var r = args
+  var accRev: List[SqliteValue] = Nil
+  while r.nonEmpty do
+    accRev = evalExprMulti(r.head, joinRow, tables) :: accRev
+    r = r.tail
+  reverseValues(accRev, Nil)
+
+def evalCaseMulti(operand: Option[SxNode], whens: List[SxWhen], elseExpr: Option[SxNode], joinRow: List[StorageRecord], tables: List[JoinTable]): SqliteValue =
+  var r = whens
+  var out: Option[SqliteValue] = None
+  operand match
+    case Some(opExpr) =>
+      val opVal = evalExprMulti(opExpr, joinRow, tables)
+      while r.nonEmpty && out.isEmpty do
+        if sqlCompare(opVal, evalExprMulti(r.head.cond, joinRow, tables)) == 0 then out = Some(evalExprMulti(r.head.result, joinRow, tables))
+        r = r.tail
+    case None =>
+      while r.nonEmpty && out.isEmpty do
+        if isTruthy(evalExprMulti(r.head.cond, joinRow, tables)) then out = Some(evalExprMulti(r.head.result, joinRow, tables))
+        r = r.tail
+  out match
+    case Some(v) => v
+    case None => elseExpr match
+      case Some(e) => evalExprMulti(e, joinRow, tables)
+      case None => SqlNull
+
+def evalExprMulti(e: SxNode, joinRow: List[StorageRecord], tables: List[JoinTable]): SqliteValue = e match
+  case SxCol(name) => multiColValue(joinRow, tables, name)
+  case SxLit(v) => v
+  case SxNeg(inner) => negateValue(evalExprMulti(inner, joinRow, tables))
+  case SxBin(op, l, r) => arithValue(op, evalExprMulti(l, joinRow, tables), evalExprMulti(r, joinRow, tables))
+  case SxCall(func, args) => evalCall(func, evalArgsMulti(args, joinRow, tables))
+  case SxNot(inner) => notValue(evalExprMulti(inner, joinRow, tables))
+  case SxAgg(_, _, _) => SqlNull
+  case SxCase(operand, whens, elseExpr) => evalCaseMulti(operand, whens, elseExpr, joinRow, tables)
+
+def multiCondHolds(cond: Condition, joinRow: List[StorageRecord], tables: List[JoinTable]): Boolean =
+  val lv = cond.leftExpr match
+    case Some(e) => evalExprMulti(e, joinRow, tables)
+    case None => multiColValue(joinRow, tables, cond.column)
+  val rv = cond.rightExpr match
+    case Some(e) => evalExprMulti(e, joinRow, tables)
+    case None => cond.value
+  predHolds(cond, lv, rv)
+
+def multiAndGroup(group: List[Condition], joinRow: List[StorageRecord], tables: List[JoinTable]): Boolean =
+  var r = group
+  var all = true
+  while r.nonEmpty && all do
+    if !multiCondHolds(r.head, joinRow, tables) then all = false
+    r = r.tail
+  all
+
+def multiWhereHolds(where: List[List[Condition]], joinRow: List[StorageRecord], tables: List[JoinTable]): Boolean =
+  if where.isEmpty then true
+  else
+    var r = where
+    var any = false
+    while r.nonEmpty && !any do
+      if multiAndGroup(r.head, joinRow, tables) then any = true
+      r = r.tail
+    any
+
+// ON `leftCol op rightCol` over the bound tables.
+def onHolds(joinRow: List[StorageRecord], tables: List[JoinTable], spec: JoinSpec): Boolean =
+  condMatches(spec.op, sqlCompare(multiColValue(joinRow, tables, spec.leftCol), multiColValue(joinRow, tables, spec.rightCol)))
+
+def wrapSingletons(rows: List[StorageRecord]): List[List[StorageRecord]] =
+  var r = rows
+  var accRev: List[List[StorageRecord]] = Nil
+  while r.nonEmpty do
+    accRev = (r.head :: Nil) :: accRev
+    r = r.tail
+  accRev.reverse
+
+// Extend each partial join-row with every row of the next table that satisfies the ON.
+def extendPartials(partials: List[List[StorageRecord]], nextRows: List[StorageRecord], boundTables: List[JoinTable], spec: JoinSpec): List[List[StorageRecord]] =
+  var ps = partials
+  var accRev: List[List[StorageRecord]] = Nil
+  while ps.nonEmpty do
+    var nr = nextRows
+    while nr.nonEmpty do
+      val candidate = ps.head ++ (nr.head :: Nil)
+      if onHolds(candidate, boundTables, spec) then accRev = candidate :: accRev
+      nr = nr.tail
+    ps = ps.tail
+  accRev.reverse
+
+def buildJoinRows(tables: List[JoinTable], joins: List[JoinSpec]): List[List[StorageRecord]] =
+  var partials = wrapSingletons(tables.head.rows)
+  var boundTables = tables.head :: Nil
+  var restTables = tables.tail
+  var restJoins = joins
+  while restTables.nonEmpty && restJoins.nonEmpty do
+    val nextTable = restTables.head
+    boundTables = boundTables ++ (nextTable :: Nil)
+    partials = extendPartials(partials, nextTable.rows, boundTables, restJoins.head)
+    restTables = restTables.tail
+    restJoins = restJoins.tail
+  partials
+
+// Project one joined row: `*` = every column of every table in order, else each projection item.
+def projectMultiRow(joinRow: List[StorageRecord], tables: List[JoinTable], stmt: SelectStmt): List[SqliteValue] =
+  if stmt.star then
+    var ts = tables
+    var rs = joinRow
+    var accRev: List[SqliteValue] = Nil
+    while ts.nonEmpty && rs.nonEmpty do
+      var i = 0
+      while i < ts.head.cols.length do
+        accRev = fieldValueAt(rs.head.record, i) :: accRev
+        i = i + 1
+      ts = ts.tail
+      rs = rs.tail
+    reverseValues(accRev, Nil)
+  else
+    var r = stmt.projection
+    var accRev: List[SqliteValue] = Nil
+    while r.nonEmpty do
+      val item = r.head
+      val v = item.expr match
+        case Some(e) => evalExprMulti(e, joinRow, tables)
+        case None => multiColValue(joinRow, tables, item.name)
+      accRev = v :: accRev
+      r = r.tail
+    reverseValues(accRev, Nil)
+
+def multiRowCompare(a: List[StorageRecord], b: List[StorageRecord], tables: List[JoinTable], keys: List[OrderKey]): Int =
+  var r = keys
+  var result = 0
+  while r.nonEmpty && result == 0 do
+    val ok = r.head
+    val cmp = sqlCompare(evalExprMulti(ok.expr, a, tables), evalExprMulti(ok.expr, b, tables))
+    result = if ok.desc then 0 - cmp else cmp
+    r = r.tail
+  result
+
+def mergeMultiRows(a: List[List[StorageRecord]], b: List[List[StorageRecord]], tables: List[JoinTable], keys: List[OrderKey]): List[List[StorageRecord]] =
+  var ra = a
+  var rb = b
+  var accRev: List[List[StorageRecord]] = Nil
+  while ra.nonEmpty && rb.nonEmpty do
+    if multiRowCompare(ra.head, rb.head, tables, keys) <= 0 then
+      accRev = ra.head :: accRev
+      ra = ra.tail
+    else
+      accRev = rb.head :: accRev
+      rb = rb.tail
+  while ra.nonEmpty do
+    accRev = ra.head :: accRev
+    ra = ra.tail
+  while rb.nonEmpty do
+    accRev = rb.head :: accRev
+    rb = rb.tail
+  accRev.reverse
+
+def sortMultiRows(rows: List[List[StorageRecord]], tables: List[JoinTable], keys: List[OrderKey]): List[List[StorageRecord]] =
+  if rows.isEmpty || rows.tail.isEmpty then rows
+  else
+    val half = rows.length / 2
+    mergeMultiRows(sortMultiRows(takeMultiRows(rows, half), tables, keys), sortMultiRows(dropMultiRows(rows, half), tables, keys), tables, keys)
+
+def takeMultiRows(rows: List[List[StorageRecord]], n: Int): List[List[StorageRecord]] =
+  var r = rows
+  var i = 0
+  var accRev: List[List[StorageRecord]] = Nil
+  while i < n && r.nonEmpty do
+    accRev = r.head :: accRev
+    r = r.tail
+    i = i + 1
+  accRev.reverse
+
+def dropMultiRows(rows: List[List[StorageRecord]], n: Int): List[List[StorageRecord]] =
+  var r = rows
+  var i = 0
+  while i < n && r.nonEmpty do
+    r = r.tail
+    i = i + 1
+  r
+
+def readJoinTables(db: ReadonlyDatabase, names: List[String]): Either[String, List[JoinTable]] =
+  var r = names
+  var accRev: List[JoinTable] = Nil
+  var err: Option[String] = None
+  while r.nonEmpty && err.isEmpty do
+    joinTableRows(db, r.head) match
+      case Left(message) => err = Some(message)
+      case Right(t) => accRev = JoinTable(t._1, r.head, t._2) :: accRev
+    r = r.tail
+  err match
+    case Some(message) => Left(message)
+    case None => Right(accRev.reverse)
+
+def joinTableNames(stmt: SelectStmt): List[String] =
+  var r = stmt.joins
+  var accRev: List[String] = Nil
+  while r.nonEmpty do
+    accRev = r.head.table :: accRev
+    r = r.tail
+  stmt.table :: accRev.reverse
+
+def multiJoinExecute(db: ReadonlyDatabase, stmt: SelectStmt): Either[String, List[List[SqliteValue]]] =
+  readJoinTables(db, joinTableNames(stmt)) match
+    case Left(message) => Left(message)
+    case Right(tables) =>
+      val allRows = buildJoinRows(tables, stmt.joins)
+      var jr = allRows
+      var keptRev: List[List[StorageRecord]] = Nil
+      while jr.nonEmpty do
+        if multiWhereHolds(stmt.where, jr.head, tables) then keptRev = jr.head :: keptRev
+        jr = jr.tail
+      val kept = keptRev.reverse
+      val ordered = if stmt.orderBy.isEmpty then kept else sortMultiRows(kept, tables, stmt.orderBy)
+      var r = ordered
+      var outRev: List[List[SqliteValue]] = Nil
+      while r.nonEmpty do
+        outRev = projectMultiRow(r.head, tables, stmt) :: outRev
+        r = r.tail
+      val projected = outRev.reverse
+      val deduped = if stmt.distinct then dedupRows(projected) else projected
+      Right(limitValueRows(deduped, stmt.limit, stmt.offset))
+
 def executeSelect(db: ReadonlyDatabase, stmt: SelectStmt): Either[String, List[List[SqliteValue]]] =
-  stmt.join match
-    case Some(spec) => joinExecute(db, stmt, spec)
-    case None => executeSelectSingle(db, stmt)
+  if stmt.joins.isEmpty then executeSelectSingle(db, stmt)
+  else if stmt.joins.length == 1 then joinExecute(db, stmt, stmt.joins.head)
+  else multiJoinExecute(db, stmt)
 
 def executeSelectSingle(db: ReadonlyDatabase, stmt: SelectStmt): Either[String, List[List[SqliteValue]]] =
   findTable(db, stmt.table) match

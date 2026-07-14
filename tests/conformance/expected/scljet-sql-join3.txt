@@ -1,0 +1,13 @@
+SELECT emp.name, dept.dname, loc.city FROM emp JOIN dept ON emp.dept_id = dept.did JOIN loc ON dept.loc_id = loc.lid => ann|eng|NYC
+bob|sales|SF
+cat|eng|NYC
+SELECT emp.name, loc.city FROM emp JOIN dept ON emp.dept_id = dept.did JOIN loc ON dept.loc_id = loc.lid WHERE loc.city = 'NYC' => ann|NYC
+cat|NYC
+SELECT emp.name FROM emp JOIN dept ON emp.dept_id = dept.did JOIN loc ON dept.loc_id = loc.lid ORDER BY emp.name DESC => cat
+bob
+ann
+SELECT DISTINCT dept.dname FROM emp JOIN dept ON emp.dept_id = dept.did JOIN loc ON dept.loc_id = loc.lid => eng
+sales
+SELECT emp.name, dept.dname || '@' || loc.city FROM emp JOIN dept ON emp.dept_id = dept.did JOIN loc ON dept.loc_id = loc.lid ORDER BY emp.id => ann|eng@NYC
+bob|sales@SF
+cat|eng@NYC

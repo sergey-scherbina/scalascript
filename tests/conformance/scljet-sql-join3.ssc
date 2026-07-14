@@ -1,0 +1,46 @@
+---
+name: scljet-sql-join3
+description: SclJet SQL 3+ table inner joins — chained JOIN … ON …, qualified columns, WHERE / ORDER BY / DISTINCT / expressions; matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet SQL 3-table inner joins
+
+`FROM a JOIN b ON … JOIN c ON …` chains inner joins over three (or more) tables via a general
+list-of-rows nested loop; columns resolve across all tables (`emp.name`, `dept.dname`, `loc.city`).
+Supports projection, `WHERE`, `ORDER BY`, `DISTINCT` and expressions (`dept.dname || '@' || loc.city`).
+Every result is byte-identical to reference sqlite3 running the same SQL on the same file (verified
+out-of-band); locked across backends.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, renderRows, executeMutation](std/scljet/sql.ssc)
+
+```scalascript
+def apply(db: ByteSlice, sql: String): ByteSlice =
+  executeMutation(db, sql) match
+    case Left(m) =>
+      println(sql + " => ERR:" + m)
+      db
+    case Right(next) => next
+
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER, name TEXT, dept_id INTEGER)",
+  List(List(SqlInteger(1L), SqlText("ann"), SqlInteger(10L)),
+       List(SqlInteger(2L), SqlText("bob"), SqlInteger(20L)),
+       List(SqlInteger(3L), SqlText("cat"), SqlInteger(10L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db0) =>
+    val d1 = apply(db0, "CREATE TABLE dept(did INTEGER, dname TEXT, loc_id INTEGER)")
+    val d2 = apply(d1, "INSERT INTO dept VALUES (10,'eng',100),(20,'sales',200)")
+    val d3 = apply(d2, "CREATE TABLE loc(lid INTEGER, city TEXT)")
+    val db = apply(d3, "INSERT INTO loc VALUES (100,'NYC'),(200,'SF')")
+    show(db, "SELECT emp.name, dept.dname, loc.city FROM emp JOIN dept ON emp.dept_id = dept.did JOIN loc ON dept.loc_id = loc.lid")
+    show(db, "SELECT emp.name, loc.city FROM emp JOIN dept ON emp.dept_id = dept.did JOIN loc ON dept.loc_id = loc.lid WHERE loc.city = 'NYC'")
+    show(db, "SELECT emp.name FROM emp JOIN dept ON emp.dept_id = dept.did JOIN loc ON dept.loc_id = loc.lid ORDER BY emp.name DESC")
+    show(db, "SELECT DISTINCT dept.dname FROM emp JOIN dept ON emp.dept_id = dept.did JOIN loc ON dept.loc_id = loc.lid")
+    show(db, "SELECT emp.name, dept.dname || '@' || loc.city FROM emp JOIN dept ON emp.dept_id = dept.did JOIN loc ON dept.loc_id = loc.lid ORDER BY emp.id")
+```
