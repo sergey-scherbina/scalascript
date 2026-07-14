@@ -25,7 +25,6 @@ cluster-capability	v2	FAIL
 components-demo	*	SKIP
 content-form-submit	v2	FAIL
 content-introspection	v2	FAIL
-content-linked-namespaces	v2	FAIL
 content-tables	v2	DIVERGE
 control-center-live	*	SKIP
 crypto-encrypt-demo	js	FAIL

@@ -464,16 +464,26 @@ intrinsics need marshaling review. Order (V2-GAP.md leverage):
 - **content-toolkit → v2** — FOUNDATION LANDED 2026-07-14 (0886bc43a): ported the core toolkit engine to
   ContentNativePlugin (`contentToolkitSection` → toolkitSectionNode → toolkitBlockNode → toolkitControl,
   building TkNode DataVs from `@ui=toolkit` YAML). Primitive controls done (vstack/hstack/heading/text/badge/
-  divider/fragment/slot). [x] **content-slot, content-live-rows CLOSED** (gate-verified). Remaining:
-  - [ ] **env-dependent controls (biggest)** — signalText/button/table/textField/checkbox/show need the toolkit
-    SIGNAL/ACTION/ROWBINDING ENVIRONMENT (v1 toolkitEnvFor/signalField/toolkitSignals/toolkitButton +
-    ContentToolkitOptions.{actions(8),rowBindings(9),computed(10)}). Blocks content-form-submit / data-source /
-    action-onsuccess / toolkit-yaml-controls / introspection.
-  - [ ] **contentToolkitBlock** — register (block-level variant); blocks content-tables + content-introspection.
-  - [ ] simple adds: `rawText`→RawTextNode, `card`→CardNode(header,children,footer).
-  - NOTE: v2 `Map(pair)` builds `{pair→pair}` not `{k→v}` (contentSlot workaround in resolveSlot); a real v2
-    kernel fix would remove the workaround + likely help other Map-from-pairs cases. TkNode DataV field order
-    must match std/ui/nodes.ssc. Port ref: v1 ContentIntrinsics.scala toolkitControl (line 870, ~17 kinds).
+  divider/fragment/slot). [x] **content-slot, content-live-rows CLOSED** (gate-verified).
+  [x] **signal ENV + table control** (94193448a) — threaded a signal env through toolkitControl; added
+  textField/checkbox/signalText/button(action+signal)/show/rawText/card + `table`(ContentRowBinding→DataTableNode).
+  **content-action-onsuccess / content-data-source / content-toolkit-yaml-controls CLOSED**; content-linked-
+  namespaces was stale-PASS (removed). **5 content-toolkit cases closed total.** Signals/actions/slots resolve
+  from a UNIFIED option registry (collects name→value across ALL ContentToolkitOptions Map fields).
+  - **KEY FINDING — v2 native-frontend NAMED-ARG bug**: `contentToolkitOptionsWithActions(actions, computed=…)`
+    field-SCRAMBLES ContentToolkitOptions (the named `computed=`/`rowBindings=` value lands in the wrong
+    positional slot — measured: `computed` at field 6 not 10). Worked around by the unified registry, but the
+    REAL fix is native-frontend named-arg-with-defaults binding — likely affects OTHER named-arg calls corpus-wide
+    (uniml/native-frontend track). Also v2 `Map(pair)`→`{pair→pair}` (Map(pair) doesn't destructure).
+  Remaining (3, each a distinct deeper blocker):
+  - [ ] **content-form-submit** — YAML `signals:` need a real `NativeUiSignal` (name/scope/kind + getter/setter
+    closures); only the reactive plugin's `signal()` builds those, and `NativePluginContext` has no `resolveGlobal`.
+    Needs an SPI hook (resolveGlobal/invokeGlobal) or a signal-creation callback exposed to the content plugin.
+  - [ ] **content-tables / content-introspection** — need `contentToolkitBlock` + REAL rendering (23/54 lines via
+    contentPlainText/contentToMarkdown) incl. `component=` block rendering (componentRenderer) — a higher bar than
+    the ":ok" cases. Port ref: v1 toolkitBlockById/toolkitBlockNode/componentRenderer.
+  - NOTE: TkNode DataV field order must match std/ui/nodes.ssc. Port ref: v1 ContentIntrinsics.scala toolkitControl
+    (line 870, ~17 kinds); a signal = `ForeignV(Array[Value](initial))` but the UI plugin wants a `NativeUiSignal`.
 - [ ] **actor-cluster methods → v2 scope (10)** — actors-cluster-* + actors-leader-protocol. electLeader /
   useRaftLeaderElection / clusterConfigSet / useExternalCoordinator ("Actors scope failed: unbound global").
   Needs the ActorScheduler logic reachable from the v2 VM (bridge or reimpl) — the hardest cluster.
