@@ -1,6 +1,0 @@
-feature/control-one-shot-guard 2026-07-14T18:35:06Z
-agent: codex-interop
-heartbeat: 2026-07-14T23:17:20Z
-status: in-progress
-done-so-far: JVM VM/ASM and Swift one-shot guards implemented locally; runtime/interop/e2e/conformance green, stage2 gate unblocked and green
-next: commit, rebase, rerun affected conformance, push implementation/spec verification, then release claim
