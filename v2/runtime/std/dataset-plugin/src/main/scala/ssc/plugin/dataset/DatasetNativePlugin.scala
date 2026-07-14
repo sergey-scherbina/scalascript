@@ -64,9 +64,14 @@ final class DatasetNativePlugin extends NativePlugin:
       fn: Value,
       args: Value*): Value =
     try invoke(context, fn, args*)
-    catch case error: Throwable =>
-      val rendered = args.map(Prims.display).mkString(", ")
-      throw new IllegalArgumentException(s"Dataset.$operation callback failed for [$rendered]", error)
+    catch
+      // A user `throw` inside the callback must propagate RAW so the caller's
+      // `catch case e: RuntimeException => e.getMessage` sees the original message
+      // (parity with the v1 backends). Only wrap genuine internal failures.
+      case error: ssc.SscThrow => throw error
+      case error: Throwable =>
+        val rendered = args.map(Prims.display).mkString(", ")
+        throw new IllegalArgumentException(s"Dataset.$operation callback failed for [$rendered]", error)
 
   private def pointwise(
       input: Vector[Value],
