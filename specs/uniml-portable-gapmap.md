@@ -121,10 +121,32 @@ are v2-side, the active v2.2-self-hosted-dialect track — NOT UniML constructs)
   `JsonDialect`-local declaration, a v2-frontend parse issue.
 
 **Precise handoff to the v2.2 track — the `.ssc` frontend must support, in priority order:**
-`final`/`sealed`/`private` modifiers · type declarations nested in object bodies · companion-object
-`val` members · first-class object values · `Set`/`Map` companion factories (`Set.empty`) · the
-`JsonDialect` `extends` form. (`.dropRight`/`.takeRight`/`.indices` were the additive runtime fixes and
-are already landed + conformance-green.)
+`final`/`sealed`/`private` modifiers · type declarations nested in object bodies ·
+~~companion-object `val` members~~ (**FIXED, b0d14bd9e**) · custom companion `apply` OVERLOAD with the
+case-class ctor · varargs `T*` · **lazy object-val init** (below) · first-class object values ·
+`Set`/`Map` companion factories (`Set.empty`) · the `JsonDialect` `extends` form.
+(`.dropRight`/`.takeRight`/`.indices` were the additive runtime fixes, landed + conformance-green.)
+
+### 2026-07-14: took on the front; companion-vals fixed, next layer mapped
+
+Fixed **companion-object `val` members** in `v2/lib/ssc1-lower.ssc0` (emit `val` as an eager static
+global like `given`/parameterless-`def`; conformance 640 ok — b0d14bd9e). That advanced the flattened
+JSON dialect past `Limits.default`/`SourcePosition.Start`, exposing the next layer:
+
+- **`DialectRegistry` — custom `apply` shadows the ctor + varargs.** `object DialectRegistry: val empty
+  = DialectRegistry(Map.empty)` — `DialectRegistry(Map.empty)` resolves to the CUSTOM
+  `def apply(adapters: DialectAdapter*)` (varargs, lowered arity-0) instead of the synthesized 1-arg
+  case-class ctor → `arity: 0 expected, 1 given`. Two v2 gaps: no type-based OVERLOAD resolution (v2
+  dispatch is untyped) + varargs `T*`. Both hard in the untyped front.
+- **Eager vs lazy object vals (the architectural one).** The companion-`val` fix evaluates every object
+  `val` eagerly at load. Scala object init is LAZY (on first access). So an UNUSED broken val
+  (`DialectRegistry.empty`, off the JSON path) kills the whole program at load. The proper fix is lazy
+  per-object val init — a real feature, not an additive patch.
+
+So getting even ONE dialect to *run* end-to-end on v2 is a chain of deep front features (overload
+resolution, varargs, lazy object vals, first-class object values, nested types, modifiers) — genuine
+v2.2 self-hosted-compiler work, escalating and self-hosting-breakage-risky. The UniML side is fully
+done + lint-locked; this is the honest remaining boundary.
 
 So end-to-end dual-compilation is gated on **v2 `.ssc`-frontend maturity** — specifically: parse the
 `final`/`sealed`/`private` modifiers, type declarations nested in objects, first-class object values,
