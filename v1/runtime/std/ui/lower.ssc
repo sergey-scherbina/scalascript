@@ -90,6 +90,25 @@ def _buttonColor(variant: String, theme: Theme): String = variant match
   case "warning"   => theme.colors.warning
   case _           => theme.colors.primary
 
+// button size (runtime String) → font-size, in px.  Reuses the existing
+// TypographyScale tokens (no new theme fields): "sm" = caption (already the
+// toolkit's small-text size), "md" = body (== the pre-slice hardcoded
+// default, unchanged), "lg" = heading.  Unknown → "md", never a throw.  See
+// specs/std-ui-button-size.md.
+def _buttonFontSize(size: String, theme: Theme): Int = size match
+  case "sm" => theme.typography.caption.fontSize
+  case "lg" => theme.typography.heading.fontSize
+  case _    => theme.typography.body.fontSize
+
+// button size → padding ("Ypx Xpx").  Reuses the existing SpacingScale
+// tokens by shifting the (vertical, horizontal) pair one step per size:
+// sm=(xs,sm), md=(sm,md) [== the pre-slice hardcoded default, unchanged],
+// lg=(md,lg).  Unknown → "md", never a throw.  See specs/std-ui-button-size.md.
+def _buttonPadding(size: String, theme: Theme): String = size match
+  case "sm" => s"${theme.spacing.xs}px ${theme.spacing.sm}px"
+  case "lg" => s"${theme.spacing.md}px ${theme.spacing.lg}px"
+  case _    => s"${theme.spacing.sm}px ${theme.spacing.md}px"
+
 // One style prop → CSS.  Token-resolved against the active Theme; unknown keys
 // drop out.  Nothing is hardcoded, so Theme.dark / Theme.mobile re-resolve.
 def _propCss(k: String, v: String, theme: Theme): String = k match
@@ -317,11 +336,10 @@ def lower(n: TkNode, theme: Theme): View = n match
         Map(),
         [labelEl, selectEl])
 
-  case SignalButtonNode(sig, value, label, disabled, variant) =>
-    val sp   = theme.spacing
-    val t    = theme.typography.body
+  case SignalButtonNode(sig, value, label, disabled, variant, size) =>
+    val t    = theme.typography.body   // fontFamily only — unaffected by size
     val base = s"background:${_buttonColor(variant, theme)}; color:${theme.colors.onPrimary}; border:none; " +
-               s"padding:${sp.sm}px ${sp.md}px; font-size:${t.fontSize}px; font-family:${t.fontFamily}; " +
+               s"padding:${_buttonPadding(size, theme)}; font-size:${_buttonFontSize(size, theme)}px; font-family:${t.fontFamily}; " +
                s"border-radius:${theme.radii.md}px; font-weight:500; cursor:pointer"
     if disabled then
       element("button",
@@ -336,11 +354,10 @@ def lower(n: TkNode, theme: Theme): View = n match
         ["click" -> setSignal(sig, value)],
         [textNode(label)])
 
-  case ActionButtonNode(handler, label, disabled, variant) =>
-    val sp   = theme.spacing
-    val t    = theme.typography.body
+  case ActionButtonNode(handler, label, disabled, variant, size) =>
+    val t    = theme.typography.body   // fontFamily only — unaffected by size
     val base = s"background:${_buttonColor(variant, theme)}; color:${theme.colors.onPrimary}; border:none; " +
-               s"padding:${sp.sm}px ${sp.md}px; font-size:${t.fontSize}px; font-family:${t.fontFamily}; " +
+               s"padding:${_buttonPadding(size, theme)}; font-size:${_buttonFontSize(size, theme)}px; font-family:${t.fontFamily}; " +
                s"border-radius:${theme.radii.md}px; font-weight:500; cursor:pointer"
     if disabled then
       element("button",
@@ -355,11 +372,10 @@ def lower(n: TkNode, theme: Theme): View = n match
         ["click" -> handler],
         [textNode(label)])
 
-  case SignalLabelButtonNode(sig, value, labelSig, disabled, variant) =>
-    val sp   = theme.spacing
-    val t    = theme.typography.body
+  case SignalLabelButtonNode(sig, value, labelSig, disabled, variant, size) =>
+    val t    = theme.typography.body   // fontFamily only — unaffected by size
     val base = s"background:${_buttonColor(variant, theme)}; color:${theme.colors.onPrimary}; border:none; " +
-               s"padding:${sp.sm}px ${sp.md}px; font-size:${t.fontSize}px; font-family:${t.fontFamily}; " +
+               s"padding:${_buttonPadding(size, theme)}; font-size:${_buttonFontSize(size, theme)}px; font-family:${t.fontFamily}; " +
                s"border-radius:${theme.radii.md}px; font-weight:500; cursor:pointer"
     if disabled then
       element("button",
@@ -374,11 +390,10 @@ def lower(n: TkNode, theme: Theme): View = n match
         ["click" -> setSignal(sig, value)],
         [signalText(labelSig)])
 
-  case SignalActionButtonNode(handler, labelSig, disabled, variant) =>
-    val sp   = theme.spacing
-    val t    = theme.typography.body
+  case SignalActionButtonNode(handler, labelSig, disabled, variant, size) =>
+    val t    = theme.typography.body   // fontFamily only — unaffected by size
     val base = s"background:${_buttonColor(variant, theme)}; color:${theme.colors.onPrimary}; border:none; " +
-               s"padding:${sp.sm}px ${sp.md}px; font-size:${t.fontSize}px; font-family:${t.fontFamily}; " +
+               s"padding:${_buttonPadding(size, theme)}; font-size:${_buttonFontSize(size, theme)}px; font-family:${t.fontFamily}; " +
                s"border-radius:${theme.radii.md}px; font-weight:500; cursor:pointer"
     if disabled then
       element("button",

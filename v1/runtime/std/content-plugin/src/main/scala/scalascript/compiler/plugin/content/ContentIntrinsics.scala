@@ -2035,17 +2035,20 @@ object ContentIntrinsics:
       "disabled" -> PluginValue.bool(disabled)
     )
 
-  // `variant` is hardcoded "primary" here — the content-toolkit's markdown/YAML button
-  // control has no variant option (out of scope for std-ui-button-variant); this keeps
-  // the instance's field shape in sync with the 5-field SignalButtonNode/ActionButtonNode
-  // (specs/std-ui-button-variant.md) without changing content-toolkit's rendered output.
+  // `variant`/`size` are hardcoded "primary"/"md" here — the content-toolkit's
+  // markdown/YAML button control has no variant/size option (out of scope for
+  // std-ui-button-variant / std-ui-button-size); this keeps the instance's field
+  // shape in sync with the 6-field SignalButtonNode/ActionButtonNode
+  // (specs/std-ui-button-variant.md, specs/std-ui-button-size.md) without changing
+  // content-toolkit's rendered output.
   private def signalButtonNode(signal: PluginValue, value: PluginValue, label: String, disabled: Boolean): PluginValue =
     instanceValue("SignalButtonNode",
       "signal" -> signal,
       "value" -> value,
       "label" -> PluginValue.string(label),
       "disabled" -> PluginValue.bool(disabled),
-      "variant" -> PluginValue.string("primary")
+      "variant" -> PluginValue.string("primary"),
+      "size" -> PluginValue.string("md")
     )
 
   private def actionButtonNode(handler: PluginValue, label: String, disabled: Boolean): PluginValue =
@@ -2053,7 +2056,8 @@ object ContentIntrinsics:
       "handler" -> handler,
       "label" -> PluginValue.string(label),
       "disabled" -> PluginValue.bool(disabled),
-      "variant" -> PluginValue.string("primary")
+      "variant" -> PluginValue.string("primary"),
+      "size" -> PluginValue.string("md")
     )
 
   private def badgeNode(content: String, variant: String): PluginValue =

@@ -81,23 +81,30 @@ def selectFrom[A](items: Signal[List[A]],
 // primary|secondary|danger|success|warning (default "primary" — unchanged
 // render for every pre-existing call site). Any other string falls back to
 // primary at lower() time, no crash. See specs/std-ui-button-variant.md.
+// `size` picks the button's font-size + padding: sm|md|lg (default "md" —
+// unchanged render, byte-for-byte, for every pre-existing call site). Any
+// other string falls back to md at lower() time, no crash. See
+// specs/std-ui-button-size.md.
 // Same named-arg caveat as `select` applies (BUGS.md:
-// standard-tier-named-arg-skip-default) since `variant` is a new trailing
-// default param: name every trailing param from the first one overridden
-// onward (e.g. `actionButton(h, "Go", disabled = true, variant = "danger")`,
-// not `actionButton(h, "Go", variant = "danger")` alone) on that pipeline.
+// standard-tier-named-arg-skip-default) since `variant`/`size` are new
+// trailing default params: name every trailing param from the first one
+// overridden onward (e.g. `actionButton(h, "Go", disabled = true, variant =
+// "danger", size = "sm")`, not `actionButton(h, "Go", size = "sm")` alone)
+// on that pipeline.
 def signalButton(signal: Any,
                  value: Any,
                  label: String = "Submit",
                  disabled: Boolean = false,
-                 variant: String = "primary"): TkNode =
-  SignalButtonNode(signal, value, label, disabled, variant)
+                 variant: String = "primary",
+                 size: String = "md"): TkNode =
+  SignalButtonNode(signal, value, label, disabled, variant, size)
 
 def actionButton(handler: Any,
                  label: String = "Submit",
                  disabled: Boolean = false,
-                 variant: String = "primary"): TkNode =
-  ActionButtonNode(handler, label, disabled, variant)
+                 variant: String = "primary",
+                 size: String = "md"): TkNode =
+  ActionButtonNode(handler, label, disabled, variant, size)
 
 // signalLabelButton — like signalButton but the label tracks a Signal[String]
 // (reactive, e.g. on a locale switch).
@@ -105,13 +112,15 @@ def signalLabelButton(signal: Any,
                       value: Any,
                       labelSig: Any,
                       disabled: Boolean = false,
-                      variant: String = "primary"): TkNode =
-  SignalLabelButtonNode(signal, value, labelSig, disabled, variant)
+                      variant: String = "primary",
+                      size: String = "md"): TkNode =
+  SignalLabelButtonNode(signal, value, labelSig, disabled, variant, size)
 
 // signalActionButton — like actionButton but the label tracks a Signal[String].
 def signalActionButton(handler: Any,
                        labelSig: Any,
                        disabled: Boolean = false,
-                       variant: String = "primary"): TkNode =
-  SignalActionButtonNode(handler, labelSig, disabled, variant)
+                       variant: String = "primary",
+                       size: String = "md"): TkNode =
+  SignalActionButtonNode(handler, labelSig, disabled, variant, size)
 ```

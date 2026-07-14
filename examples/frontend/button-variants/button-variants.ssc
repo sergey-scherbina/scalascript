@@ -1,19 +1,22 @@
 ---
 name: button-variants
 version: 1.0.0
-description: A row of buttons in every std/ui variant, side by side (runtime/std/ui/input.ssc `variant` param, specs/std-ui-button-variant.md).
+description: A row of buttons in every std/ui variant and size, side by side (runtime/std/ui/input.ssc `variant`/`size` params, specs/std-ui-button-variant.md, specs/std-ui-button-size.md).
 frontend: custom
 ---
 
-# button-variants — one button per colour variant
+# button-variants — one button per colour variant, one per size
 
 Every `std/ui` button constructor (`signalButton`, `actionButton`,
-`signalLabelButton`, `signalActionButton`) now accepts a `variant` param that
+`signalLabelButton`, `signalActionButton`) accepts a `variant` param that
 picks the background colour from the active `Theme.colors` — this is the
 concrete gap a busi UX audit found: every button rendered in the same
 primary-blue regardless of stakes ("Refresh" vs. "Prepare a real payment").
-This example shows all five accepted values side by side, plus the
-unrecognized-string fallback. Build with
+They also accept a `size` param (`"sm"`/`"md"`/`"lg"`) that picks a
+smaller/larger font-size + padding — the gap behind busi fitting four
+Cyrillic-labelled nav buttons on a 390px-wide phone row. This example shows
+all five accepted variants side by side, all three accepted sizes side by
+side, plus the unrecognized-string fallback for each. Build with
 `ssc emit-spa --frontend custom examples/frontend/button-variants/button-variants.ssc > button-variants.html`,
 or run `ssc run examples/frontend/button-variants/button-variants.ssc`.
 
@@ -46,12 +49,29 @@ val defaultBtn = actionButton(incSignal(clicks), "Default (no variant arg)")
 // An unrecognized variant string falls back to primary — no crash.
 val typoBtn = actionButton(incSignal(clicks), "Typo'd variant", false, "dangerous")
 
+// One actionButton per accepted size. `size` is the LAST parameter (after
+// `variant`), so this stays purely positional too.
+val sizeRow = hstack(gap = 8)(
+  actionButton(incSignal(clicks), "Small", false, "primary", "sm"),
+  actionButton(incSignal(clicks), "Medium", false, "primary", "md"),
+  actionButton(incSignal(clicks), "Large", false, "primary", "lg")
+)
+
+// No size argument at all — stays the pre-existing "md" render (backward
+// compatible default). An unrecognized size string falls back to "md" —
+// no crash.
+val sizeTypoBtn = actionButton(incSignal(clicks), "Typo'd size", false, "primary", "huge")
+
 val tree = vstack(gap = 16)(
   heading(1, "Button variants"),
   row,
   defaultBtn,
   typoBtn,
-  text("Every click increments a shared counter, regardless of variant.")
+  text("Every click increments a shared counter, regardless of variant."),
+  heading(1, "Button sizes"),
+  sizeRow,
+  sizeTypoBtn,
+  text("sm is meaningfully smaller than md; lg is meaningfully larger.")
 )
 
 serve(lower(tree, defaultTheme), 8080)

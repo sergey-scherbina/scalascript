@@ -1,0 +1,10 @@
+Default:primary:md
+default-built
+Act:sm
+Act:md
+Act:lg
+Act:bogus
+action-sizes-built
+label-btn:danger:sm
+action-sig-btn:success:lg
+button-size-built

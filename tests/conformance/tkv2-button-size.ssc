@@ -1,0 +1,89 @@
+---
+name: tkv2-button-size
+version: 1.0.0
+backends: [int, js]
+---
+
+# tkv2 - button size: compact/regular/large button sizing (std-ui-button-size)
+
+Slice `std-ui-button-size` (`specs/std-ui-button-size.md`): the four button
+constructors (`signalButton`, `actionButton`, `signalLabelButton`,
+`signalActionButton`) accept a new trailing `size` param (after `variant`)
+that `lower.ssc` resolves to a font-size + padding pair via
+`_buttonFontSize`/`_buttonPadding`. `View` is opaque to `.ssc` (see
+`specs/std-ui-select.md` "Why no new extern def"), so — mirroring
+`tests/conformance/tkv2-button-variant.ssc`'s own TkNode-field-assertion
+style — this conformance test asserts the `size` field threads from each
+constructor to its node unchanged, and that `lower()` does not throw for
+every accepted size plus an unrecognized string, on both lanes. The actual
+rendered CSS font-size/padding swap (that the resolved values genuinely
+differ per size) is verified at the Scala level; see
+`specs/std-ui-button-size.md` § Results.
+
+[signal, setSignal](std/ui/primitives.ssc)
+[signalButton, actionButton, signalLabelButton, signalActionButton](std/ui/input.ssc)
+[SignalButtonNode, ActionButtonNode, SignalLabelButtonNode, SignalActionButtonNode](std/ui/nodes.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
+
+```scalascript
+val sig      = signal("tkv2ButtonSizeSig", "")
+val labelSig = signal("tkv2ButtonSizeLabel", "Go")
+val handler  = setSignal(sig, "clicked")
+
+// No `variant`/`size` argument at all — stays the pre-existing default
+// ("primary"/"md"), backward compatible with every call site that predates
+// this slice.
+val defaultBtn = signalButton(sig, "x", "Default")
+defaultBtn match
+  case SignalButtonNode(_, _, label, _, variant, size) => println(label + ":" + variant + ":" + size)
+  case _                                                => println("?")
+val defaultView = lower(defaultBtn, defaultTheme)
+println("default-built")
+
+// Each accepted size threads through actionButton's constructor to the
+// node unchanged, and lowers without throwing.
+val bSm = actionButton(handler, "Act", false, "primary", "sm")
+bSm match
+  case ActionButtonNode(_, label, _, _, size) => println(label + ":" + size)
+  case _                                      => println("?")
+val vSm = lower(bSm, defaultTheme)
+
+val bMd = actionButton(handler, "Act", false, "primary", "md")
+bMd match
+  case ActionButtonNode(_, label, _, _, size) => println(label + ":" + size)
+  case _                                      => println("?")
+val vMd = lower(bMd, defaultTheme)
+
+val bLg = actionButton(handler, "Act", false, "primary", "lg")
+bLg match
+  case ActionButtonNode(_, label, _, _, size) => println(label + ":" + size)
+  case _                                      => println("?")
+val vLg = lower(bLg, defaultTheme)
+
+// An unrecognized size string threads through unchanged (the fallback to
+// md happens in lower.ssc's _buttonFontSize/_buttonPadding, not at
+// construction) and must not crash either the node build or the lowering.
+val bBogus = actionButton(handler, "Act", false, "primary", "bogus")
+bBogus match
+  case ActionButtonNode(_, label, _, _, size) => println(label + ":" + size)
+  case _                                      => println("?")
+val vBogus = lower(bBogus, defaultTheme)
+println("action-sizes-built")
+
+// signalLabelButton / signalActionButton accept and thread `size` the
+// same way, independent of `variant`.
+val lb = signalLabelButton(sig, "x", labelSig, false, "danger", "sm")
+lb match
+  case SignalLabelButtonNode(_, _, _, _, variant, size) => println("label-btn:" + variant + ":" + size)
+  case _                                                 => println("?")
+val vLb = lower(lb, defaultTheme)
+
+val sab = signalActionButton(handler, labelSig, false, "success", "lg")
+sab match
+  case SignalActionButtonNode(_, _, _, variant, size) => println("action-sig-btn:" + variant + ":" + size)
+  case _                                               => println("?")
+val vSab = lower(sab, defaultTheme)
+
+println("button-size-built")
+```

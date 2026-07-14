@@ -118,27 +118,34 @@ case class SelectFromNode[A](items: Any,
 // lower.ssc (same convention as BadgeNode/TagNode/PillNode's own `variant`
 // field below). Accepted: primary|secondary|danger|success|warning; any
 // other string falls back to primary at lower() time (specs/std-ui-button-variant.md).
+// `size` — a RUNTIME string resolved to a font-size + padding pair in
+// lower.ssc. Accepted: sm|md|lg; any other string falls back to md at
+// lower() time (specs/std-ui-button-size.md).
 case class SignalButtonNode(signal: Any,
                             value: Any,
                             label: String,
                             disabled: Boolean,
-                            variant: String)            extends TkNode
+                            variant: String,
+                            size: String)              extends TkNode
 // ActionButtonNode — button wired to an EventHandler directly (e.g. fetchAction).
 case class ActionButtonNode(handler: Any,
                              label: String,
                              disabled: Boolean,
-                             variant: String)           extends TkNode
+                             variant: String,
+                             size: String)              extends TkNode
 // Reactive-label buttons — the label tracks a Signal[String] (e.g. a locale switch),
 // otherwise identical to SignalButtonNode / ActionButtonNode.
 case class SignalLabelButtonNode(signal: Any,
                                  value: Any,
                                  labelSig: Any,
                                  disabled: Boolean,
-                                 variant: String)       extends TkNode
+                                 variant: String,
+                                 size: String)          extends TkNode
 case class SignalActionButtonNode(handler: Any,
                                   labelSig: Any,
                                   disabled: Boolean,
-                                  variant: String)      extends TkNode
+                                  variant: String,
+                                  size: String)         extends TkNode
 
 // ── Display ───────────────────────────────────────────────────────────────
 case class BadgeNode(content: String, variant: String)  extends TkNode
