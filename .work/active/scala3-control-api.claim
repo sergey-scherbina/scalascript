@@ -1,6 +1,6 @@
 feature/scala3-control-api 2026-07-14T13:30:22Z
 agent: codex-interop
-heartbeat: 2026-07-14T13:30:41Z
+heartbeat: 2026-07-14T13:48:41Z
 status: in-progress
-done-so-far: claim published and feature/scala3-control-api worktree created
-next: audit existing _3 API/build conventions and pin the smallest public ABI slice with executable semantic tests
+done-so-far: implementation sub-slices planned in ce3699379; module/runtime audits complete; exact leaf ABI drafted and under compile/semantic review
+next: land the reviewed Scala/JVM profile ABI freeze, then add the dependency-free module and executable reference model
