@@ -359,6 +359,13 @@ final class ScalaSpikeSpec extends AnyFunSuite:
     assert(proj.contains("""Pair("prim", Pair("__mdStrip__", Cons(mkInf("++", mkStr("# "), mkVar("t")), Nil)))"""), proj)
   }
 
+  test("f-interpolation: a %spec is peeled off the next literal → __fInterpolate__ (buildFInterp)") {
+    val proj = SpikeProject.program(parse("def f(x: Int): String = f\"n=$x%d!\"").roots.head)
+    assert(proj.contains(
+      """mkApp(mkVar("__fInterpolate__"), Cons(mkStr("n="), Cons(mkStr("%d"), Cons(mkVar("x"), Cons(mkStr("!"), Nil)))))"""
+    ), proj)
+  }
+
   // ══ trailing-newline tolerance: a trailing EOL is trivia, never a projection change ═══════════
 
   test("a trailing newline is trivia — the projection (hence Core IR) is invariant to it") {
@@ -434,10 +441,11 @@ final class ScalaSpikeSpec extends AnyFunSuite:
       // P6.3d — string literals: plain + \t/\n escapes (mkStr, buildStr semantics)
       "str-plain"  -> "def greet(): String = \"hello world\"\ndef main(): Int = 5",
       "str-escape" -> "def s(): String = \"a\\tb\\nc\"\ndef main(): Int = 6",
-      // P6.3e — string interpolation: s (var + ${expr}) and md, byte-identical to ssc1-front
+      // P6.3e — string interpolation: s (var + ${expr}), md, f (format specs), byte-identical to ssc1-front
       "interp-var"  -> "def greet(name: String): String = s\"hi $name!\"\ndef main(): Int = 0",
       "interp-expr" -> "def f(x: Int): String = s\"n=${x + 1}\"\ndef main(): Int = 0",
-      "interp-md"   -> "def h(t: String): String = md\"# $t\"\ndef main(): Int = 0"
+      "interp-md"   -> "def h(t: String): String = md\"# $t\"\ndef main(): Int = 0",
+      "interp-f"    -> "def f(x: Int): String = f\"n=$x%d!\"\ndef main(): Int = 0"
     )
     // broken — no oracle; the harness proves containment (`main` still runs).
     val broken = Seq(

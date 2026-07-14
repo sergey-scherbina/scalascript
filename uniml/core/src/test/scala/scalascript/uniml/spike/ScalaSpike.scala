@@ -707,6 +707,47 @@ object SpikeProject:
 
   private def sInterp(raw: String): String = partsToExpr(interpParts(raw))
 
+  // ── f-interpolation: printf specs → __fInterpolate__ (mirrors buildFInterp/goFArgs) ────────────
+  private def isFmtFlag(c: Char): Boolean = "-#+ 0,(<".indexOf(c.toInt) >= 0
+  private def isDigitC(c: Char): Boolean = c >= '0' && c <= '9'
+
+  /** peel a leading printf spec `%[flags][width][.prec]<letter>` off `part`; default `"%s"`. */
+  private def splitFFormatPrefix(part: String): (String, String) =
+    val len = part.length
+    if len == 0 || part.charAt(0) != '%' then ("%s", part)
+    else
+      var i = 1
+      while i < len && isFmtFlag(part.charAt(i)) do i += 1
+      while i < len && isDigitC(part.charAt(i)) do i += 1
+      if i < len && part.charAt(i) == '.' then { i += 1; while i < len && isDigitC(part.charAt(i)) do i += 1 }
+      if i < len && part.charAt(i).isLetter then (part.substring(0, i + 1), part.substring(i + 1, len))
+      else ("%s", part)
+
+  private def fArgExpr(part: (String, String)): String =
+    if part._1 == "expr" then exprOfSource(part._2) else s"""mkVar("${esc(part._2)}")"""
+
+  /** interleave [spec, arg, restLiteral] triples across the arg parts (goFArgs). */
+  private def goFArgs(parts: Vector[(String, String)]): Vector[String] =
+    if parts.isEmpty then Vector.empty
+    else
+      val ae = fArgExpr(parts.head)
+      val rest = parts.tail
+      if rest.isEmpty then Vector(s"""mkStr("%s")""", ae, """mkStr("")""")
+      else if rest.head._1 == "str" then
+        val (spec, r) = splitFFormatPrefix(rest.head._2)
+        Vector(s"""mkStr("${escStr(spec)}")""", ae, s"""mkStr("${escStr(r)}")""") ++ goFArgs(rest.tail)
+      else Vector(s"""mkStr("%s")""", ae, """mkStr("")""") ++ goFArgs(rest)
+
+  private def fInterp(raw: String): String =
+    val parts = interpParts(raw)
+    if parts.isEmpty then """mkStr("")"""
+    else
+      val p0 = parts.head
+      val args =
+        if p0._1 == "str" then Vector(s"""mkStr("${escStr(p0._2)}")""") ++ goFArgs(parts.tail)
+        else """mkStr("")""" +: goFArgs(parts)
+      s"""mkApp(mkVar("__fInterpolate__"), ${consList(args)})"""
+
   /** re-parse an inner `${…}` expression with the spike's own front and project it. Wrapping it
     * as a parameterless def yields a program the dialect parses; then lift the def body. */
   private def exprOfSource(src: String): String =
@@ -814,7 +855,7 @@ object SpikeProject:
         val raw = kids(b).collectFirst { case (Some("interp.raw"), c) => lexeme(c) }.getOrElse("")
         pfx match
           case "md" => s"""Pair("prim", Pair("__mdStrip__", Cons(${sInterp(raw)}, Nil)))"""
-          case "f"  => hole // f-interpolation (printf format specifiers) — deferred slice
+          case "f"  => fInterp(raw) // printf format specifiers → __fInterpolate__
           case _    => sInterp(raw) // s / raw
       case "spike.rangeop" =>
         val word = kids(b).collectFirst { case (Some("range.op"), c) => lexeme(c) }.getOrElse("to")
