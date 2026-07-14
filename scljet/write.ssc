@@ -2186,3 +2186,5 @@ def pagerDeleteBalanced(pager: MutablePager, rootPage: Int, rowid: Long, pageSiz
           case Right(body) => ByteSlice.fromList(body) match
             case Left(error) => Left(error)
             case Right(slice) => Right(mutablePut(pager, leafPage, slice))
+
+```
