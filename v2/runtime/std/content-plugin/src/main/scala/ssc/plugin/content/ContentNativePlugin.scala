@@ -272,52 +272,127 @@ final class ContentNativePlugin extends NativePlugin:
 
   /** ContentToolkitOptions is DataV("ContentToolkitOptions", [11 fields…, slots]) — slots
    *  (field index 11) is a MapV(slotId -> TkNode). Returns the slot map or empty. */
-  private def optionSlots(options: Value): collection.mutable.LinkedHashMap[Value, Value] = options match
-    case Value.DataV("ContentToolkitOptions", fields) if fields.length >= 12 =>
-      fields(11) match
-        case Value.MapV(entries) => entries
-        case _ => collection.mutable.LinkedHashMap.empty
-    case _ => collection.mutable.LinkedHashMap.empty
   private def optionBlockGap(options: Value): Int = options match
     case Value.DataV("ContentToolkitOptions", fields) if fields.length >= 3 =>
       fields(2) match { case Value.IntV(n) => n.toInt; case _ => 8 }
     case _ => 8
 
-  /** Resolve a registered slot node by id. `contentSlot(id, node)` is a Tuple2(id, node);
-   *  `Map(contentSlot(...))` currently builds `{pair -> pair}` on v2 (Map(pair) doesn't
-   *  destructure), so accept both the canonical `{StrV(id) -> node}` and that pair form. */
-  private def resolveSlot(options: Value, slotId: String): Option[Value] =
-    val slots = optionSlots(options)
-    slots.get(Value.StrV(slotId)).orElse {
-      slots.iterator.flatMap { case (k, v) =>
-        List(k, v).collectFirst {
-          case Value.DataV(t, IndexedSeq(Value.StrV(`slotId`), node)) if t.startsWith("Tuple") => node
-        }
-      }.nextOption()
-    }
+  /** Flatten a registry map to (name -> value), tolerating both the canonical
+   *  `{StrV -> v}` and v2's `{pair -> pair}` form (Map(pair) doesn't destructure). */
+  private def pairMapPairs(entries: collection.mutable.LinkedHashMap[Value, Value]): List[(String, Value)] =
+    entries.iterator.flatMap { case (k, v) =>
+      List(k, v).collectFirst { case Value.DataV(t, IndexedSeq(Value.StrV(name), node)) if t.startsWith("Tuple") => name -> node }
+        .orElse(k match { case Value.StrV(name) => Some(name -> v); case _ => None })
+    }.toList
 
-  /** Build a TkNode from a `@ui=toolkit` control (a ContentValue map with a `type`). */
-  private def toolkitControl(cv: Value, options: Value): Value =
+  /** All name->value entries across EVERY option Map field (slots / actions / computed /
+   *  rowBindings), merged into one registry. Robust to a v2 native-frontend named-arg bug
+   *  that field-SCRAMBLES ContentToolkitOptions (a named `computed=`/`rowBindings=` arg lands
+   *  in the wrong positional slot); registry NAMES are distinct across kinds, so collecting
+   *  from all fields recovers slots/actions/signals regardless of which slot the map ended up
+   *  in. (v2-content-toolkit; the real fix is the native-frontend named-arg default-fill.) */
+  private def optionRegistry(options: Value): Map[String, Value] = options match
+    case Value.DataV("ContentToolkitOptions", fields) =>
+      fields.toList.flatMap { case Value.MapV(e) => pairMapPairs(e); case _ => Nil }.toMap
+    case _ => Map.empty
+
+  private def resolveSlot(options: Value, slotId: String): Option[Value] =
+    optionRegistry(options).get(slotId)
+
+  private def cvBool(cv: Value): Option[Boolean] = cv match
+    case Value.DataV("Bool", IndexedSeq(Value.BoolV(b))) => Some(b)
+    case _ => None
+  private def cvToRuntime(cv: Value): Value = cv match
+    case Value.DataV("Str" | "Bool" | "Num", IndexedSeq(inner)) => inner
+    case _ => Value.UnitV
+
+  /** A reactive signal is a mutable cell — ForeignV(Array[Value](initial)), matching the
+   *  v2 `signal(x)` representation. Built from a `signals:` YAML scalar default. */
+  private def reactiveSignal(cv: Value): Value =
+    val initial = cv match
+      case Value.DataV("Str", IndexedSeq(s @ Value.StrV(_)))    => s
+      case Value.DataV("Bool", IndexedSeq(b @ Value.BoolV(_)))  => b
+      case Value.DataV("Num", IndexedSeq(n @ Value.IntV(_)))    => n
+      case Value.DataV("Num", IndexedSeq(d @ Value.FloatV(_)))  => d
+      case Value.DataV("Num", IndexedSeq(Value.StrV(s))) =>
+        s.toLongOption.map(Value.IntV(_)).orElse(s.toDoubleOption.map(Value.FloatV(_))).getOrElse(Value.StrV(s))
+      case _ => Value.StrV("")
+    Value.ForeignV(Array[Value](initial))
+
+  private def buildSignals(blockDataMap: collection.mutable.LinkedHashMap[Value, Value]): Map[String, Value] =
+    mfield(blockDataMap, "signals").flatMap(cvMap) match
+      case Some(sigMap) => sigMap.iterator.collect { case (Value.StrV(name), cv) => name -> reactiveSignal(cv) }.toMap
+      case None => Map.empty
+
+  private def signalByName(signals: Map[String, Value], name: String, context: String): Value =
+    signals.getOrElse(name, throw new IllegalArgumentException(
+      s"contentToolkitNode: $context signal '$name' is not declared (available: ${if signals.isEmpty then "<none>" else signals.keys.toList.sorted.mkString(",")})"))
+
+  private def toolkitButton(m: collection.mutable.LinkedHashMap[Value, Value], options: Value,
+      signals: Map[String, Value], label: String, disabled: Boolean): Value =
+    mfield(m, "action").flatMap(cvString) match
+      case Some(actionId) =>
+        val handler = optionRegistry(options).get(actionId).getOrElse(
+          throw new IllegalArgumentException(s"contentToolkitNode: button action '$actionId' is not registered"))
+        Value.DataV("ActionButtonNode", Vector(handler, Value.StrV(label), Value.BoolV(disabled), Value.StrV("primary"), Value.StrV("md")))
+      case None =>
+        val sig = signalByName(signals, mString(m, "signal", ""), "button")
+        val value = mfield(m, "value").map(cvToRuntime).getOrElse(Value.BoolV(true))
+        Value.DataV("SignalButtonNode", Vector(sig, value, Value.StrV(label), Value.BoolV(disabled), Value.StrV("primary"), Value.StrV("md")))
+
+  /** Build a TkNode from a `@ui=toolkit` control. `signals` is the block's declared signal env. */
+  private def toolkitControl(cv: Value, options: Value, signals: Map[String, Value]): Value =
     cv match
       case Value.DataV("ListV", IndexedSeq(inner)) =>
-        fragmentNodeV(unlist(inner).map(toolkitControl(_, options)))
+        fragmentNodeV(unlist(inner).map(toolkitControl(_, options, signals)))
       case _ =>
         val m = cvMap(cv).getOrElse(throw new IllegalArgumentException("contentToolkitNode: control must be a map"))
         val kind = mString(m, "type", "").trim.toLowerCase
         def children: List[Value] =
-          mfield(m, "children").map(cvList).getOrElse(Nil).map(toolkitControl(_, options))
+          mfield(m, "children").map(cvList).getOrElse(Nil).map(toolkitControl(_, options, signals))
+        def sigRef(names: String*): Value =
+          val nm = names.iterator.flatMap(k => mfield(m, k).flatMap(cvString)).nextOption()
+            .getOrElse(throw new IllegalArgumentException(s"contentToolkitNode: $kind requires ${names.mkString(" or ")}"))
+          signalByName(signals, nm, kind)
+        val label = mString(m, "label", "")
+        val disabled = mfield(m, "disabled").flatMap(cvBool).getOrElse(false)
         kind match
-          case "vstack"           => vstackNodeV(mInt(m, "gap", optionBlockGap(options)), children)
-          case "hstack"           => hstackNodeV(mInt(m, "gap", optionBlockGap(options)), children, false)
-          case "fragment"         => fragmentNodeV(children)
-          case "divider"          => dividerNodeV
-          case "heading"          => headingNodeV(mInt(m, "level", 2), mString(m, "text", ""))
-          case "text" | "paragraph" => textNodeV(mString(m, "text", ""))
-          case "badge"            => badgeNodeV(mStringFirst(m, "content", "text").getOrElse(""), mString(m, "variant", "default"))
+          case "vstack"              => vstackNodeV(mInt(m, "gap", optionBlockGap(options)), children)
+          case "hstack"              => hstackNodeV(mInt(m, "gap", optionBlockGap(options)), children, false)
+          case "fragment"            => fragmentNodeV(children)
+          case "divider"             => dividerNodeV
+          case "heading"             => headingNodeV(mInt(m, "level", 2), mString(m, "text", ""))
+          case "text" | "paragraph"  => textNodeV(mString(m, "text", ""))
+          case "rawtext"             => Value.DataV("RawTextNode", Vector(Value.StrV(mString(m, "text", ""))))
+          case "badge"               => badgeNodeV(mStringFirst(m, "content", "text").getOrElse(""), mString(m, "variant", "default"))
+          case "signaltext"          => Value.DataV("SignalTextNode", Vector(sigRef("signal", "value")))
+          case "textfield" | "input" =>
+            Value.DataV("TextFieldNode", Vector(sigRef("signal", "value"), Value.StrV(label), Value.BoolV(disabled),
+              Value.BoolV(mfield(m, "required").flatMap(cvBool).getOrElse(false))))
+          case "checkbox" =>
+            Value.DataV("CheckboxNode", Vector(sigRef("signal", "checked"), Value.StrV(label), Value.BoolV(disabled)))
+          case "button" | "signalbutton" => toolkitButton(m, options, signals, label, disabled)
+          case "show" | "showwhen" =>
+            Value.DataV("ShowWhenNode", Vector(
+              sigRef("signal", "condition"),
+              mfield(m, "then").orElse(mfield(m, "whenTrue")).map(toolkitControl(_, options, signals)).getOrElse(fragmentNodeV(Nil)),
+              mfield(m, "else").orElse(mfield(m, "whenFalse")).map(toolkitControl(_, options, signals)).getOrElse(fragmentNodeV(Nil))))
+          case "card" =>
+            Value.DataV("CardNode", Vector(list(Nil), list(children), list(Nil)))
           case "slot" =>
             val slotId = mString(m, "id", "")
             resolveSlot(options, slotId).getOrElse(
               throw new IllegalArgumentException(s"contentToolkitNode: slot '$slotId' is not registered"))
+          case "table" =>
+            // {type: table, source: <id>} binds to a ContentRowBinding(rows, columns, actions)
+            // registered under <id> → DataTableNode(rows, columns, actions, rowKeyPath="id").
+            val regionId = mStringFirst(m, "source", "rows").getOrElse(
+              throw new IllegalArgumentException("contentToolkitNode: table requires source or rows"))
+            optionRegistry(options).get(regionId) match
+              case Some(Value.DataV("ContentRowBinding", fs)) if fs.length >= 2 =>
+                Value.DataV("DataTableNode", Vector(fs(0), fs(1), if fs.length >= 3 then fs(2) else list(Nil), Value.StrV("id")))
+              case _ =>
+                throw new IllegalArgumentException(s"contentToolkitNode: table source '$regionId' is not registered")
           case other =>
             throw new IllegalArgumentException(s"contentToolkitNode: unsupported control type '$other'")
 
@@ -329,7 +404,12 @@ final class ContentNativePlugin extends NativePlugin:
 
   private def toolkitBlockNode(block: Value, options: Value): Option[Value] =
     if isToolkitUiBlock(block) then
-      blockData(block).flatMap(cvMap).flatMap(mfield(_, "controls")).map(toolkitControl(_, options))
+      blockData(block).flatMap(cvMap).map { bd =>
+        // YAML-declared signals override code-registered `computed` signals (from the merged
+        // option registry); slot/action nodes in the registry are harmless here (name-keyed).
+        val signals = optionRegistry(options) ++ buildSignals(bd)
+        mfield(bd, "controls").map(toolkitControl(_, options, signals)).getOrElse(fragmentNodeV(Nil))
+      }
     else None  // non-toolkit blocks are omitted from the toolkit tree by default (includeCode=false)
 
   private def toolkitSectionNode(section: Value, options: Value): Value =

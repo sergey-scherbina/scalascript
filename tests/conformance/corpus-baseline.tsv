@@ -23,13 +23,10 @@ bureau-demo	*	SKIP
 cluster-capability	js	FAIL
 cluster-capability	v2	FAIL
 components-demo	*	SKIP
-content-action-onsuccess	v2	FAIL
-content-data-source	v2	FAIL
 content-form-submit	v2	FAIL
 content-introspection	v2	FAIL
 content-linked-namespaces	v2	FAIL
 content-tables	v2	DIVERGE
-content-toolkit-yaml-controls	v2	FAIL
 control-center-live	*	SKIP
 crypto-encrypt-demo	js	FAIL
 crypto-verify-demo	js	FAIL
