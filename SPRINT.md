@@ -22,12 +22,13 @@ portable-VM effect-runtime gaps in BUGS.md + as `pending-runtime` conformance ax
       reusable without adding a CoreIR continuation/effect node or changing the 3-field Op.
       Baseline (assembled `bin/ssc`, 2026-07-14): both `run` and `run --bytecode` return `3`;
       legacy `bin/ssc-tools run --v1` reports `One-shot violation: One.op resumed more than once`.
-  - [ ] **Spec freeze:** reconcile `SPEC.md`, `specs/control-interoperability.md`, the portable
-        profile, and the v2 raw-Comp specs. Add target-neutral `AlreadyResumed(operation)`;
-        freeze the `.ssc` projection as non-user-catchable
+  - [x] **Spec freeze:** reconciled and landed in `1ce890611`: `SPEC.md`,
+        `specs/control-interoperability.md`, the portable
+        profile, and the v2 raw-Comp specs. Added target-neutral `AlreadyResumed(operation)`;
+        froze the `.ssc` projection as non-user-catchable
         `ControlRunFailure(AlreadyResumed(operation))` with separate stable code
         `ONESHOT_VIOLATION` and legacy-compatible message, while Scala host `tryResume` keeps
-        returning `Left(ResumeRejected.AlreadyResumed(operation))`; document additive
+        returning `Left(ResumeRejected.AlreadyResumed(operation))`; documented additive
         `effect.perform.oneshot@1` ABI/allowlist and unchanged CoreIR codec.
   - [ ] **Multiplicity-preserving lowering:** retain the parser Boolean in the self-hosted
         lowerer and compatibility bridge; emit an explicit one-shot perform path for plain
