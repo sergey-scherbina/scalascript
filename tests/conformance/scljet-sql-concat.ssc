@@ -1,0 +1,36 @@
+---
+name: scljet-sql-concat
+description: SclJet SQL || string concatenation — NULL-propagating, numeric coercion, with functions and in WHERE; matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet SQL `||` string concatenation
+
+`a || b` joins the text forms of both operands; a NULL operand makes the whole result NULL, and a
+numeric operand is coerced to its text form (`id || ':' || first`, `first || age`). It chains, composes
+with scalar functions (`UPPER(first) || '-' || LOWER(last)`), and works in `WHERE`. Every result is
+byte-identical to reference sqlite3 running the same SQL on the same file (verified out-of-band);
+locked here across backends.
+
+[ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "people", "CREATE TABLE people(id INTEGER, first TEXT, last TEXT, age INTEGER)",
+  List(List(SqlInteger(1L), SqlText("John"), SqlText("Smith"), SqlInteger(30L)),
+       List(SqlInteger(2L), SqlText("jane"), SqlText("Doe"), SqlInteger(25L)),
+       List(SqlInteger(3L), SqlText("Bob"), SqlNull, SqlInteger(40L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db) =>
+    show(db, "SELECT id, first || ' ' || last FROM people")
+    show(db, "SELECT id || ':' || first FROM people")
+    show(db, "SELECT first || age FROM people")
+    show(db, "SELECT UPPER(first) || '-' || LOWER(last) FROM people")
+    show(db, "SELECT first || COALESCE(last, '?') FROM people")
+    show(db, "SELECT id FROM people WHERE first || last = 'JohnSmith'")
+```

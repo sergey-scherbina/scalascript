@@ -177,6 +177,12 @@ def tokenize(sql: String): Either[String, List[Token]] =
     else if c == 47 then
       toksRev = Token("op", "/", 0L) :: toksRev
       i = i + 1
+    else if c == 124 then
+      // `||` string concatenation
+      if i + 1 < n && charCode(sql, i + 1) == 124 then
+        toksRev = Token("op", "||", 0L) :: toksRev
+        i = i + 2
+      else err = Some("unexpected '|' (did you mean '||'?)")
     else if c == 59 then
       i = i + 1
     else err = Some("unexpected character '" + sql.charAt(i).toString + "'")
@@ -543,8 +549,30 @@ def parseExprAtom(toks: List[Token]): Either[String, (SxNode, List[Token])] =
     else Right((SxCol(toks.head.text), toks.tail))
   else Left("expected an expression operand")
 
-def parseExprMul(toks: List[Token]): Either[String, (SxNode, List[Token])] =
+// `||` string concatenation binds tighter than `* /` (sqlite precedence), so it sits
+// between the multiplicative level and the atoms.
+def parseExprConcat(toks: List[Token]): Either[String, (SxNode, List[Token])] =
   parseExprAtom(toks) match
+    case Left(message) => Left(message)
+    case Right(first) =>
+      var acc = first._1
+      var rest = first._2
+      var err: Option[String] = None
+      var done = false
+      while !done && err.isEmpty do
+        if tkKind(rest) == "op" && tkText(rest) == "||" then
+          parseExprAtom(rest.tail) match
+            case Left(message) => err = Some(message)
+            case Right(nx) =>
+              acc = SxBin("||", acc, nx._1)
+              rest = nx._2
+        else done = true
+      err match
+        case Some(message) => Left(message)
+        case None => Right((acc, rest))
+
+def parseExprMul(toks: List[Token]): Either[String, (SxNode, List[Token])] =
+  parseExprConcat(toks) match
     case Left(message) => Left(message)
     case Right(first) =>
       var acc = first._1
@@ -556,7 +584,7 @@ def parseExprMul(toks: List[Token]): Either[String, (SxNode, List[Token])] =
         val t = tkText(rest)
         if k == "star" || (k == "op" && t == "/") then
           val opStr = if k == "star" then "*" else "/"
-          parseExprAtom(rest.tail) match
+          parseExprConcat(rest.tail) match
             case Left(message) => err = Some(message)
             case Right(nx) =>
               acc = SxBin(opStr, acc, nx._1)
@@ -852,10 +880,17 @@ def negateValue(v: SqliteValue): SqliteValue = v match
   case SqlReal(x) => SqlReal(0.0 - x)
   case _ => SqlNull
 
+// `||` string concatenation: NULL if either side is NULL, else the text forms joined.
+def concatValue(a: SqliteValue, b: SqliteValue): SqliteValue =
+  if isNullValue(a) || isNullValue(b) then SqlNull
+  else SqlText(coerceText(a) + coerceText(b))
+
 // Arithmetic: integer result when both operands are integers (with truncating integer
 // division), otherwise real; NULL if either operand is NULL or on divide-by-zero (as sqlite).
+// `||` is handled first (text concatenation, distinct from numeric ops).
 def arithValue(op: String, a: SqliteValue, b: SqliteValue): SqliteValue =
-  if isNullValue(a) || isNullValue(b) then SqlNull
+  if op == "||" then concatValue(a, b)
+  else if isNullValue(a) || isNullValue(b) then SqlNull
   else if isIntValue(a) && isIntValue(b) then
     val x = intPayload(a)
     val y = intPayload(b)

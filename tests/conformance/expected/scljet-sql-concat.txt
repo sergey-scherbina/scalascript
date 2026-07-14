@@ -1,0 +1,16 @@
+SELECT id, first || ' ' || last FROM people => 1|John Smith
+2|jane Doe
+3|
+SELECT id || ':' || first FROM people => 1:John
+2:jane
+3:Bob
+SELECT first || age FROM people => John30
+jane25
+Bob40
+SELECT UPPER(first) || '-' || LOWER(last) FROM people => JOHN-smith
+JANE-doe
+
+SELECT first || COALESCE(last, '?') FROM people => JohnSmith
+janeDoe
+Bob?
+SELECT id FROM people WHERE first || last = 'JohnSmith' => 1
