@@ -2201,6 +2201,15 @@ def parseCaseClass = (toks) =>
         else if kwIs("private", ts) then captureBraced(advance(ts), acc)
         else if kwIs("def", ts) then
           let r = parseDef(advance(ts)) in captureBraced(prT(r), Cons(prV(r), acc))
+        else if kwIs("val", ts) then
+          -- A body `val y = expr` (not a ctor param) is captured as a NULLARY method
+          -- `def y = expr` — a pure computed field is observationally identical, and
+          -- reuses method dispatch (`c.y` external, bare `y` internal). NOTE: recomputed
+          -- per access, so a val with side effects differs (rare); `lazy val` is separate.
+          let r = parseVal(advance(ts)) in
+          let defNode = match prV(r) { case Pair(vt, vd) =>
+            match vd { case Pair(vn, vrhs) => Pair("def", Pair(vn, Pair(Nil, vrhs))) } } in
+          captureBraced(prT(r), Cons(defNode, acc))
         else captureBraced(advance(ts), acc) in
       let rc = captureBraced(advance(ts2), Nil) in
       let _regM = registerCaseMethods(name, params, prV(rc)) in
@@ -2212,6 +2221,12 @@ def parseCaseClass = (toks) =>
         else if kwIs("private", ts) then captureLayout(advance(ts), acc)
         else if kwIs("def", ts) then
           let r = parseDef(advance(ts)) in captureLayout(prT(r), Cons(prV(r), acc))
+        else if kwIs("val", ts) then
+          -- Layout body `val y = expr` → nullary `def y = expr` (see captureBraced).
+          let r = parseVal(advance(ts)) in
+          let defNode = match prV(r) { case Pair(vt, vd) =>
+            match vd { case Pair(vn, vrhs) => Pair("def", Pair(vn, Pair(Nil, vrhs))) } } in
+          captureLayout(prT(r), Cons(defNode, acc))
         else pr(reverse(acc), ts) in
       let rc = captureLayout(ts2, Nil) in
       let _regM = registerCaseMethods(name, params, prV(rc)) in
