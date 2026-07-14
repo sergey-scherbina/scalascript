@@ -961,6 +961,15 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
         byte-identical to ssc1-front (before: braced block → `__notImplemented__`; spike only did offside).
         Regression: `braced-block`/`braced-nest` toys + unit test; p6.0 harness **88 ok / 0 FAIL**; `spike(
         cmin.L) ≡ ssc1-front(cmin.L)` byte-identical (43898 B). Fixpoint script gained 2 val-block L-tests.
+  - [x] **P6.8 — spike gap-scan: 2 byte-identity gaps found + fixed ✓ DONE 2026-07-14.** Probed 8 common
+        ScalaScript constructs (all valid subset) through spike vs ssc1-front; 6 were already byte-identical
+        (guard/lamblock/listlit/neglit/ormatch/blockarg), **2 were real spike gaps, fixed**: (1) **cons-infix
+        pattern** `case h :: t =>` — the spike parsed it to garbage `(ctor Cons (let…__notImplemented__)…)`;
+        added `parseConsPattern` (right-assoc) + a `spike.conspat` node → `Pair("cpat", Pair("Cons", …))`.
+        (2) **parameterless `def x: T = e`** (no param clause) — a bare `x` reference did not auto-apply
+        (`(global x)` vs ssc1-front's `(app (global x))`); `defNode` now wraps the body in
+        `mkParameterlessBody` when there is no `def.lparen`. Regression: 8 `gap-*` toys + 2 unit tests; p6.0
+        harness **96 ok / 0 FAIL**. Makes the UniML ScalaScript dialect a more complete front.
 
 ---
 

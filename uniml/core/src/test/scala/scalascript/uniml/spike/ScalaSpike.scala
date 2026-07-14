@@ -489,12 +489,12 @@ object SpikeParse:
       if c.peekKind == "spike.id" && c.peekLexeme != "_" && c.peek2Lexeme == "@" then
         val a = c.advance().get; c.advance(); Some(a) // consume name + `@`
       else None
-    val first = parsePattern(c)
+    val first = parseConsPattern(c)
     val alts = Vector.newBuilder[Node]
     alts += first
     while c.peekKind == "spike.op" && c.peekLexeme == "|" do
       c.advance() // `|`
-      alts += parsePattern(c)
+      alts += parseConsPattern(c)
     val altList = alts.result()
     val base =
       if altList.length > 1 then Node.Frame("spike.apat", None, altList.map(_.withRole("apat.alt")))
@@ -511,6 +511,16 @@ object SpikeParse:
     bindAlias match
       case Some(a) => Node.Frame("spike.bpat", None, Vector(Node.Leaf(a, Some("bpat.alias")), typed.withRole("bpat.inner")))
       case None    => typed
+
+  // cons-infix pattern: `h :: t` → Cons(h, t), right-associative (`a :: b :: c` = `a :: (b :: c)`), binding
+  // tighter than `|` alternatives and `: T` ascription. Projects to the same cpat "Cons" as ssc1-front.
+  private def parseConsPattern(c: Cur): Node =
+    val head = parsePattern(c)
+    if c.peekKind == "spike.op" && c.peekLexeme == "::" then
+      c.advance() // `::`
+      val tail = parseConsPattern(c)
+      Node.Frame("spike.conspat", None, Vector(head.withRole("conspat.arg"), tail.withRole("conspat.arg")))
+    else head
 
   // patterns: int literal (lpat) / `_` (wpat) / lowercase binder (vpat) / ctor `Name(subpats)`
   // (cpat) / tuple `(a, b)` (→ cpat "Pair"/"TupleN"). Recursive for sub-patterns.
@@ -953,7 +963,11 @@ object SpikeProject:
     val ks = kids(n)
     val name = ks.collectFirst { case (Some("def.name"), c) => lexeme(c) }.getOrElse("main")
     val params = prefixParams ++ ks.collect { case (Some("def.param"), c) => "\"" + esc(lexeme(c)) + "\"" }.toVector
-    val body = ks.collectFirst { case (role, c) if role.contains("def.body") => expr(c) }.getOrElse(hole)
+    val bodyRaw = ks.collectFirst { case (role, c) if role.contains("def.body") => expr(c) }.getOrElse(hole)
+    // `def x: T = e` (no param clause) is parameterless — a bare `x` auto-applies. `def x(): T = e` (empty
+    // parens) is a method — a bare `x` is the closure. ssc1-front marks the former with mkParameterlessBody.
+    val hasParamClause = ks.exists { case (Some("def.lparen"), _) => true; case _ => false }
+    val body = if hasParamClause || prefixParams.nonEmpty then bodyRaw else s"mkParameterlessBody($bodyRaw)"
     s"""mkDef("${esc(name)}", ${consList(params)}, $body)"""
 
   private def expr(n: UniNode): String = n match
@@ -1023,6 +1037,8 @@ object SpikeProject:
     case UniNode.Token(t) if t.kind == "spike.id" && t.lexeme == "_"  => """Pair("wpat", "")"""
     case UniNode.Token(t) if t.kind == "spike.id"                     => s"""Pair("vpat", "${esc(t.lexeme)}")"""
     case b: UniNode.Branch if b.kind == "spike.cpat"                  => cpatProj(b)
+    case b: UniNode.Branch if b.kind == "spike.conspat"               =>
+      s"""Pair("cpat", Pair("Cons", ${consList(kids(b).collect { case (Some("conspat.arg"), c) => patProj(c) }.toVector)}))"""
     case b: UniNode.Branch if b.kind == "spike.tuppat"                => tuppatProj(b)
     case b: UniNode.Branch if b.kind == "spike.apat"                  =>
       s"""Pair("apat", ${consList(kids(b).collect { case (Some("apat.alt"), c) => patProj(c) }.toVector)})"""

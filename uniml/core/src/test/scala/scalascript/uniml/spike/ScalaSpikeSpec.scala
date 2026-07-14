@@ -409,6 +409,20 @@ final class ScalaSpikeSpec extends AnyFunSuite:
     assert(braced == offside, s"braced != offside\nbraced : $braced\noffside: $offside")
   }
 
+  test("cons-infix pattern `h :: t` projects to cpat Cons, right-associative (P6.8)") {
+    val p1 = SpikeProject.program(parse("def f(xs: List[Int]): Int = xs match { case h :: t => h case _ => 0 }").roots.head)
+    assert(p1.contains("""Pair("cpat", Pair("Cons""""), p1) // h :: t → Cons(h, t)
+    val p2 = SpikeProject.program(parse("def f(xs: List[Int]): Int = xs match { case a :: b :: t => a case _ => 0 }").roots.head)
+    // a :: b :: t = a :: (b :: t) → Cons(a, Cons(b, t)) — a nested cpat in the tail slot
+    assert(p2.contains("""Pair("cpat", Pair("Cons", Cons(Pair("vpat", "a"), Cons(Pair("cpat", Pair("Cons""""), p2)
+  }
+
+  test("parameterless `def x: T = e` (no param clause) wraps its body in mkParameterlessBody (P6.8)") {
+    // `def x: Int = 42` → a bare `x` reference auto-applies; `def x(): Int = 42` (empty parens) does not.
+    assert(SpikeProject.program(parse("def x: Int = 42").roots.head).contains("mkParameterlessBody"))
+    assert(!SpikeProject.program(parse("def x(): Int = 42").roots.head).contains("mkParameterlessBody"))
+  }
+
   test("function types are erased; chained application f(a)(b) applies twice; List[T] params erase") {
     assert(SpikeProject.program(parse("def mk(): Int => Int = x => x + 1").roots.head).contains("mkLam"))
     assert(SpikeProject.program(parse("def m(): Int = mk()(4)").roots.head)
@@ -1304,6 +1318,18 @@ final class ScalaSpikeSpec extends AnyFunSuite:
       "scale-nested" -> scaleNested,
       "scale-interp" -> scaleInterp,
       "scale-hof"    -> scaleHof,
+      // P6.8 gap-scan — common constructs, all now byte-identical to ssc1-front. Two were real spike gaps,
+      // fixed this slice: `gap-consinfx` (cons-infix pattern `h :: t` → spike parsed it to garbage) and
+      // `gap-noparen` (parameterless `def x: T = e` → a bare `x` reference did not auto-apply). The other six
+      // (guard/lamblock/listlit/neglit/ormatch/blockarg) confirm already-correct coverage.
+      "gap-consinfx" -> "def f(xs: List[Int]): Int = xs match { case h :: t => h case Nil => 0 }\ndef main(): Int = f(1 :: 2 :: Nil)",
+      "gap-lamblock" -> "def m(): Int = { val f = (x: Int) => { val a = x + 1  a * 2 }  f(3) }\ndef main(): Int = m()",
+      "gap-guard"    -> "def f(n: Int): Int = n match { case m if m > 5 => 1 case _ => 0 }\ndef main(): Int = f(9)",
+      "gap-ormatch"  -> "def f(n: Int): Int = n match { case 1 | 2 => 10 case _ => 0 }\ndef main(): Int = f(2)",
+      "gap-neglit"   -> "def main(): Int = 0 - 5",
+      "gap-listlit"  -> "def main(): Int = List(1, 2, 3) match { case Cons(h, t) => h case _ => 0 }",
+      "gap-noparen"  -> "def x: Int = 42\ndef main(): Int = x",
+      "gap-blockarg" -> "def g(n: Int): Int = n + 1\ndef main(): Int = g({ val a = 2  a * 3 })",
       // edge probes — likely gaps
       "funret"    -> "def mk(): Int => Int = x => x + 1\ndef main(): Int = mk()(4)",
       "interp-if" -> "def f(n: Int): String = s\"${if n > 0 then \"p\" else \"n\"}\"\ndef main(): Int = 0",
