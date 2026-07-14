@@ -1,0 +1,6 @@
+slug: v2.2-p6.5-lowerer
+scope: toward P6.5 — probe string-return + string-building on the VM; then write a mini-LOWERER in the
+       subset that emits CoreIR-like S-expression TEXT for a small AST (the "port ssc1-lower" direction),
+       completing the lex+parse+lower pipeline in the subset. Byte-identical + runs.
+files: uniml/core/src/test/.../spike/**, specs/v2.2-*, SPRINT.md
+branch: feature/v2.2-p6.5-lowerer
