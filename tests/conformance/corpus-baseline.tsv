@@ -82,9 +82,8 @@ invoice-pdf	js	FAIL
 invoice-pdf	v2	FAIL
 js-glue-component	js	FAIL
 js-glue-component	v2	FAIL
-json-lookup	v2	FAIL
-json-read	v2	FAIL
-json-value	v2	FAIL
+json-read	v2	DIVERGE
+json-value	v2	DIVERGE
 markdown-toolkit-links	*	SKIP
 mcp-agent	js	FAIL
 mcp-agent	v2	FAIL

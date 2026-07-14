@@ -25,12 +25,21 @@ object RunNativeV2:
     // without it. `mutableFlag` is prepended so both mains can strip it before the
     // file path.
     val mutableFlag = if mutable then List("--mutable") else Nil
-    val canonicalFiles = files.map { file =>
+    val userFiles = files.map { file =>
       val f = new java.io.File(file).getCanonicalFile
       if !f.isFile then
         throw new java.io.FileNotFoundException(s"native frontend input not found: $file")
       f
     }
+    // Ambient prelude: INT and JS expose certain plugin globals (jsonRead,
+    // contentToolkitSection, …) WITHOUT an explicit import. On the native tier those
+    // are SELF-HOSTED std modules, so a program that uses them but doesn't import them
+    // fails at runtime with "unbound global". Inject each known-clean ambient std
+    // module as a leading prelude source file when the program references one of its
+    // distinctive exported names and doesn't already import it — the runner combines
+    // all source files into one program scope, restoring parity with INT/JS.
+    // (v2-native-ambient-prelude.)
+    val canonicalFiles = ambientPrelude(userFiles, layout.stdRoot) ++ userFiles
     val sourceFiles = canonicalFiles.map(portablePath)
     val sourceUnits = NativeSourceClosure.resolve(canonicalFiles, layout.stdRoot)
 
@@ -278,6 +287,48 @@ object RunNativeV2:
    *  `java.nio.file.Path` accepts that spelling on Windows as well. */
   private def portablePath(file: java.io.File): String =
     file.getPath.replace(java.io.File.separatorChar, '/')
+
+  /** Curated ambient std modules: self-hosted, verified to compile standalone on the
+   *  native frontend, mirroring the plugin globals INT/JS expose without an import.
+   *  Keyed on DISTINCTIVE export names only (not common words like `lookup`/`jStr`)
+   *  so a user's own identifier never spuriously pulls a module in. Grow this list as
+   *  more std modules are confirmed clean + a case needs them. (v2-native-ambient-prelude.) */
+  private val ambientModules: List[(String, List[String])] = List(
+    "std/json.ssc" -> List("jsonRead", "jsonParse", "jsonStringify", "jsonValue")
+    // NOTE: content-toolkit is NOT prelude-injectable — std/ui/content.ssc as a root trips
+    // the content plugin's "structural ABI root identity" check, and contentToolkitSection is
+    // an extern the v2 content NativePlugin doesn't register yet. That's a native-plugin gap.
+  )
+
+  private def ambientPrelude(userFiles: List[java.io.File], stdRoot: java.io.File): List[java.io.File] =
+    val text =
+      try userFiles.map(f =>
+            java.nio.file.Files.readString(f.toPath, java.nio.charset.StandardCharsets.UTF_8)).mkString("\n")
+      catch case _: Throwable => return Nil
+    val userPaths = userFiles.map(_.getCanonicalPath).toSet
+    ambientModules.flatMap { case (rel, triggers) =>
+      val modFile = new java.io.File(stdRoot, rel).getCanonicalFile
+      if !modFile.isFile then None
+      else if userPaths.contains(modFile.getCanonicalPath) then None  // the module itself is a root
+      else if text.contains(rel) then None                            // already imported ([..](std/json.ssc))
+      else if triggers.exists(name => referencesWord(text, name)) then Some(modFile)
+      else None
+    }.distinct
+
+  /** Whole-identifier match: `word` must not be flanked by ident chars (so `jsonRead`
+   *  matches `jsonRead(...)` but not `myJsonReader`). */
+  private def referencesWord(text: String, word: String): Boolean =
+    val n = word.length
+    var i = text.indexOf(word)
+    while i >= 0 do
+      val beforeOk = i == 0 || !isIdentChar(text.charAt(i - 1))
+      val afterOk  = i + n >= text.length || !isIdentChar(text.charAt(i + n))
+      if beforeOk && afterOk then return true
+      i = text.indexOf(word, i + 1)
+    false
+
+  private def isIdentChar(c: Char): Boolean =
+    c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
 
 private[cli] final case class NativeV2Compilation(
     program: _root_.ssc.Program,
