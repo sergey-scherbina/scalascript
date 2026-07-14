@@ -1041,6 +1041,19 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
           `gen.filter` (a for-do body may be an assignment). `var`/`while`/`for`/`do` are dispatched by
           identifier value (like ssc1-front, not lexer keywords). Regression: 9 `i-*` toys + 3 unit tests;
           p6.0 harness **106 ok / 0 FAIL**.
+    - [x] **P6.11 — final completeness sweep: 3 more gaps fixed ✓ DONE 2026-07-14.** Probed 12 more constructs;
+          7 already byte-identical (block-lambda, bool ops, chained selection, offside arm bodies, nested tuple
+          patterns, unary `!`). 3 gaps FIXED: (a) **if-without-else** → else defaults to `mkTup(Nil)` (Unit),
+          and `then`/`else` branches may be assignments (`if c then r = n`); (b) **`for` tuple binder**
+          `for (a,b) <- gen` → a `__fp => { val a = __fp._1; val b = __fp._2; … }` destructuring binder-lambda
+          (detected by binder count > 1); (c) **`for` multi-generator** `for x <- xs; y <- ys` → flatMap chain
+          (flatMap for each generator but the last). Regression caught+fixed: an offside `else` block needs
+          `elseLine` = the `else` line (computed BEFORE consuming) or it de-nests (nested3). 3 unit tests; p6.0
+          harness **115 ok / 0 FAIL**.
+    - [ ] **P6.12 (backlog) — underscore-placeholder lambdas.** `.map(_ + 1)` / `.filter(_ < 3)` / `_ + _`:
+          ssc1-front's `wrapPhArg` lifts a `_`-bearing argument expression to an N-ary lambda (count the `_`s,
+          replace each left-to-right with `__u<i>`, wrap in `mkLam`). Needs a placeholder scan/count/replace
+          traversal over the spike's argument node subtree before projecting — the one remaining common gap.
 
 ---
 

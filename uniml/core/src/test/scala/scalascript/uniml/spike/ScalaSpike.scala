@@ -702,21 +702,39 @@ object SpikeParse:
     val e = parseExpr(c, 1).getOrElse(Node.Frame("spike.error", None, Vector.empty))
     Node.Frame("spike.throw", None, Vector(e.withRole("throw.expr")))
 
-  // `for x <- gen [if g] (do body | yield body)` — desugared (single binder) EXACTLY like ssc1-front's
-  // parseForFrom: `.foreach`/`.map` over gen (guard → `.filter` on gen first), body in a `x => …` lambda.
+  // `for g1 ; g2 ; … (do|yield) body` desugared EXACTLY like ssc1-front's parseForFrom: each generator
+  // `binder <- gen [if guard]` becomes `gen[.filter(binderLam(guard))].{flatMap|map|foreach}(binderLam(…))`
+  // — flatMap for every generator but the last, map (yield) / foreach (do) for the last. A tuple binder
+  // `(a,b)` desugars to a `__fp => { val a = __fp._1; … }` destructuring lambda (mkBinderLam).
   private def parseFor(c: Cur): Node =
     val kids = Vector.newBuilder[Node]
     c.advance() // `for`
     if c.peekKind == "spike.lparen" || c.peekKind == "spike.lbrace" then c.advance()
-    expect(c, "spike.id", "for.binder", "for binder").foreach(kids += _)
-    if c.peekKind == "spike.op" && c.peekLexeme == "<-" then c.advance()
-    parseExpr(c, 1).foreach(g => kids += g.withRole("for.gen"))
-    if isKw(c, "if") then { c.advance(); parseExpr(c, 1).foreach(g => kids += g.withRole("for.guard")) }
+    var more = true
+    while more do
+      kids += parseForGen(c).withRole("for.gen")
+      if c.peekKind == "spike.semi" then c.advance() else more = false
     if c.peekKind == "spike.rparen" || c.peekKind == "spike.rbrace" then c.advance()
     if isWord(c, "yield") then c.advance().foreach(t => kids += Node.Leaf(t, Some("for.yield")))
     else if isWord(c, "do") then c.advance()
     kids += parseForBody(c).withRole("for.body")
     Node.Frame("spike.for", None, kids.result())
+
+  // one generator: `binder <- gen [if guard]`. The binder is a single id, or a tuple `(a, b, …)` whose
+  // opening `(` was already consumed by parseFor (the leading `(`); a `,` after the first name marks a
+  // tuple, then the closing `)` is skipped — mirroring ssc1-front's parseForFrom.
+  private def parseForGen(c: Cur): Node =
+    val kids = Vector.newBuilder[Node]
+    expect(c, "spike.id", "gen.binder", "binder").foreach(kids += _) // name0
+    if c.peekKind == "spike.comma" then // ≥2 binders ⇒ a tuple binder (detected by count in the projection)
+      while c.peekKind == "spike.comma" do
+        c.advance()
+        expect(c, "spike.id", "gen.binder", "binder").foreach(kids += _)
+      if c.peekKind == "spike.rparen" then c.advance() // closing `)` of the tuple binder
+    if c.peekKind == "spike.op" && c.peekLexeme == "<-" then c.advance()
+    parseExpr(c, 1).foreach(g => kids += g.withRole("gen.gen"))
+    if isKw(c, "if") then { c.advance(); parseExpr(c, 1).foreach(g => kids += g.withRole("gen.guard")) }
+    Node.Frame("spike.forgen", None, kids.result())
 
   // a for-body may be an assignment (imperative `for … do s = …`) or a plain expression.
   private def parseForBody(c: Cur): Node =
@@ -758,6 +776,7 @@ object SpikeParse:
   // exactly like a def body — else it is a single inline expression.
   private def branchExpr(c: Cur, kwLine: Int): Node =
     if !c.eof && c.peekLine > kwLine then parseBlock(c, c.peekCol)
+    else if c.peekKind == "spike.id" && c.peek2Kind == "spike.eq" then parseAssign(c) // `then r = n` (Scala 3)
     else parseExpr(c, 1).getOrElse(Node.Frame("spike.error", None, Vector.empty))
 
   private def parseIf(c: Cur): Option[Node] =
@@ -768,10 +787,12 @@ object SpikeParse:
     if isKw(c, "then") then c.advance().foreach(t => kids += Node.Leaf(t, Some("if.then")))
     else c.report("spike.expected", "expected 'then'")
     kids += branchExpr(c, thenLine).withRole("if.thenE")
-    val elseLine = c.peekLine
-    if isKw(c, "else") then c.advance().foreach(t => kids += Node.Leaf(t, Some("if.else")))
-    else c.report("spike.expected", "expected 'else'")
-    kids += branchExpr(c, elseLine).withRole("if.elseE")
+    // `else` is OPTIONAL (`if c then e` is a statement whose else defaults to Unit) — see ifExpr projection.
+    // elseLine is the line of `else` itself (BEFORE consuming), so an offside else-branch block is detected.
+    if isKw(c, "else") then
+      val elseLine = c.peekLine
+      c.advance().foreach(t => kids += Node.Leaf(t, Some("if.else")))
+      kids += branchExpr(c, elseLine).withRole("if.elseE")
     Some(Node.Frame("spike.if", None, kids.result()))
 
   private def parseIdOrCall(c: Cur): Option[Node] =
@@ -1069,17 +1090,28 @@ object SpikeProject:
         val rhs  = kids(b).collectFirst { case (Some("assign.rhs"), c) => expr(c) }.getOrElse(hole)
         s"""Pair("assign", Pair("${esc(name)}", $rhs))"""
       case "spike.for" =>
-        val binder  = kids(b).collectFirst { case (Some("for.binder"), c) => lexeme(c) }.getOrElse("_")
-        val gen0    = kids(b).collectFirst { case (Some("for.gen"), c) => expr(c) }.getOrElse(hole)
-        val guardO  = kids(b).collectFirst { case (Some("for.guard"), c) => expr(c) }
+        val gens    = kids(b).collect { case (Some("for.gen"), g) => g }
         val body    = kids(b).collectFirst { case (Some("for.body"), c) => expr(c) }.getOrElse(hole)
         val isYield = kids(b).exists { case (Some("for.yield"), _) => true; case _ => false }
-        def binderLam(e: String) = s"""mkLam(Cons("${esc(binder)}", Nil), $e)"""
-        val gen    = guardO match
-          case Some(g) => s"""mkApp(mkSel($gen0, "filter"), Cons(${binderLam(g)}, Nil))"""
-          case None    => gen0
-        val method = if isYield then "map" else "foreach"
-        s"""mkApp(mkSel($gen, "$method"), Cons(${binderLam(body)}, Nil))"""
+        // mkBinderLam: a single binder → `x => inner`; a tuple `(a,b,…)` → `__fp => { val a = __fp._1; … }`.
+        def binderLam(g: UniNode, inner: String): String =
+          val binders = kids(g).collect { case (Some("gen.binder"), c) => esc(lexeme(c)) }.toVector
+          if binders.length > 1 then // a tuple binder `(a, b, …)`
+            val binds = binders.zipWithIndex.map((nm, i) => s"""mkVal("$nm", mkSel(mkVar("__fp"), "_${i + 1}"))""")
+            s"""mkLam(Cons("__fp", Nil), Pair("block", ${consList(binds :+ s"mkSExpr($inner)")}))"""
+          else s"""mkLam(Cons("${binders.headOption.getOrElse("_")}", Nil), $inner)"""
+        // gen[.filter(binderLam(guard))].method(binderLam(inner))
+        def genExpr(g: UniNode, method: String, inner: String): String =
+          val gen0 = kids(g).collectFirst { case (Some("gen.gen"), c) => expr(c) }.getOrElse(hole)
+          val gen  = kids(g).collectFirst { case (Some("gen.guard"), c) => expr(c) } match
+            case Some(guard) => s"""mkApp(mkSel($gen0, "filter"), Cons(${binderLam(g, guard)}, Nil))"""
+            case None        => gen0
+          s"""mkApp(mkSel($gen, "$method"), Cons(${binderLam(g, inner)}, Nil))"""
+        // flatMap for every generator but the last; map (yield) / foreach (do) for the last.
+        val n = gens.length
+        gens.zipWithIndex.foldRight(body) { case ((g, i), inner) =>
+          genExpr(g, if i == n - 1 then (if isYield then "map" else "foreach") else "flatMap", inner)
+        }
       case "spike.summon" =>
         s"""Pair("summon", "${esc(kids(b).collectFirst { case (Some("summon.type"), c) => lexeme(c) }.getOrElse("_"))}")"""
       case "spike.pre" =>
@@ -1200,5 +1232,6 @@ object SpikeProject:
   private def ifExpr(b: UniNode.Branch): String =
     val cnd = kids(b).collectFirst { case (Some("if.cond"), c) => expr(c) }.getOrElse(hole)
     val thn = kids(b).collectFirst { case (Some("if.thenE"), c) => expr(c) }.getOrElse(hole)
-    val els = kids(b).collectFirst { case (Some("if.elseE"), c) => expr(c) }.getOrElse(hole)
+    // a missing `else` defaults to Unit (`mkTup(Nil)`), exactly like ssc1-front's parseIfExpr.
+    val els = kids(b).collectFirst { case (Some("if.elseE"), c) => expr(c) }.getOrElse("mkTup(Nil)")
     s"""mkIf($cnd, $thn, $els)"""

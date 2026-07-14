@@ -446,6 +446,18 @@ final class ScalaSpikeSpec extends AnyFunSuite:
       .contains("""mkSel(mkVar("xs"), "filter")"""))
   }
 
+  test("if-without-else → Unit else; for tuple-binder destructures; multi-generator → flatMap chain (P6.11)") {
+    // missing else defaults to mkTup(Nil) (Unit)
+    assert(SpikeProject.program(parse("def m(): Int = { if x < 9 then r = 1  r }").roots.head)
+      .contains("mkTup(Nil)"))
+    // tuple binder (a, b) → __fp => { val a = __fp._1; val b = __fp._2; … }
+    assert(SpikeProject.program(parse("def m(): List[Int] = for (a, b) <- ps yield a").roots.head)
+      .contains("""mkLam(Cons("__fp", Nil), Pair("block", Cons(mkVal("a", mkSel(mkVar("__fp"), "_1")), Cons(mkVal("b", mkSel(mkVar("__fp"), "_2"))"""))
+    // multiple generators → the first uses flatMap, the last map (yield)
+    val mg = SpikeProject.program(parse("def m(): List[Int] = for x <- xs; y <- ys yield x").roots.head)
+    assert(mg.contains("""mkSel(mkVar("xs"), "flatMap")""") && mg.contains("""mkSel(mkVar("ys"), "map")"""), mg)
+  }
+
   test("parameterless `def x: T = e` (no param clause) wraps its body in mkParameterlessBody (P6.8)") {
     // `def x: Int = 42` → a bare `x` reference auto-applies; `def x(): Int = 42` (empty parens) does not.
     assert(SpikeProject.program(parse("def x: Int = 42").roots.head).contains("mkParameterlessBody"))
@@ -1377,6 +1389,20 @@ final class ScalaSpikeSpec extends AnyFunSuite:
       "i-for"        -> "def main(): Int = { var s = 0  for x <- List(1, 2, 3) do s = s + x  s }",
       "i-foryield"   -> "def head(xs: List[Int]): Int = xs match { case Cons(h, t) => h case _ => 0 }\ndef main(): Int = head(for x <- List(5, 6, 7) yield x + 10)",
       "i-forguard"   -> "def sum(xs: List[Int]): Int = xs match { case Cons(h, t) => h + sum(t) case Nil => 0 }\ndef main(): Int = sum(for x <- List(1, 2, 3, 4) if x < 3 yield x)",
+      // P6.11 — final completeness sweep. Of 12 probed constructs, 7 were already byte-identical (blocklam,
+      // boolops, chainsel, matchoff, nesttup, unarynot + ops-bool); 3 gaps FIXED this slice (if-without-else,
+      // for tuple-binder, for multi-generator). The one remaining KNOWN gap: underscore-placeholder lambdas
+      // `.map(_ + 1)` / `.filter(_ < 3)` (ssc1-front's wrapPhArg lifts `_`-expressions in arg positions to
+      // N-ary lambdas) — deferred (SPRINT P6.12), needs placeholder scan/count/replace over the arg subtree.
+      "s-fortuple"   -> "def main(): Int = { var s = 0  for (a, b) <- List((1, 2)) do s = a + b  s }",
+      "s-formulti"   -> "def head(xs: List[Int]): Int = xs match { case Cons(h, t) => h case _ => 0 }\ndef main(): Int = head(for x <- List(1, 2); y <- List(10) yield x + y)",
+      "s-chainsel"   -> "def main(): Int = List(1, 2, 3).tail.head",
+      "s-ifnoelse"   -> "def f(n: Int): Int = { var r = 0  if n > 0 then r = n  r }\ndef main(): Int = f(5)",
+      "s-blocklam"   -> "def main(): Int = { val f = (x: Int) => { val y = x + 1  y * 2 }  f(3) }",
+      "s-matchoff"   -> "def f(n: Int): Int = n match\n  case 0 => 0\n  case m =>\n    val a = m + 1\n    a * 2\ndef main(): Int = f(3)",
+      "s-nesttup"    -> "def main(): Int = ((1, 2), 3) match { case ((a, b), c) => a + b + c case _ => 0 }",
+      "s-boolops"    -> "def main(): Int = if 1 < 2 && 3 > 2 || false then 1 else 0",
+      "s-unarynot"   -> "def main(): Int = if !(1 > 2) then 1 else 0",
       // edge probes — likely gaps
       "funret"    -> "def mk(): Int => Int = x => x + 1\ndef main(): Int = mk()(4)",
       "interp-if" -> "def f(n: Int): String = s\"${if n > 0 then \"p\" else \"n\"}\"\ndef main(): Int = 0",
