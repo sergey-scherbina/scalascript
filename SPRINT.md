@@ -1048,6 +1048,16 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
           fixpoint STILL holds (`stage1 == stage2`, 25234 B; C1 compiles fac(6)→720), and `spike(cmin.L) ≡
           ssc1-front(cmin.L)` byte-identical (46697 B) — the spike already lowered these operators, so no
           spike change was needed. Fixpoint script gained `cmp`/`andor` L-tests.
+    - [x] **P6.14 — C_min language extension: match wildcard `case _` ✓ DONE 2026-07-14.** L's `match` gained a
+          wildcard/default arm `case _ => body` → CoreIR `(match scrut (arms) (default body))` (the default is
+          OUTSIDE the arm list). Lexer tokenizes `_` (code 95 → `(2,45)`); `parseArms` now returns `(arms,
+          (defStr, rest))` (a nested tuple — C_min can't 3-tuple), each arm helper threads the default; a
+          `case _` arm emits the `(default …)` and consumes the closing `}` (the bug that first leaked token
+          codes as def names). **C_min self-uses it**: `hd`/`tl`/`isEmpty` now dispatch with `case _` instead
+          of the redundant `Cons`/`Nil` second arm. C_min now 77 defs; the fixpoint STILL holds (`stage1 ==
+          stage2`, 25979 B; C1 compiles fac(6)→720), and `spike(cmin.L) ≡ ssc1-front(cmin.L)` byte-identical
+          (48663 B) — the spike already handled `case _` (match-lit toy). Fixpoint script gained
+          `wildcard`/`wildonly` L-tests.
 
 ---
 

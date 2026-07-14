@@ -21,12 +21,12 @@ def lexNum(s, i, n) = Cons((0, scanNumV(s, i, n, 0)), lex(s, scanNumE(s, i, n), 
 def lexStr(s, i, n, j) = Cons((4, s.substring(i + 1, j)), lex(s, j + 1, n))
 def lexEq(s, i, n) = if s.charAt(i + 1) == 62 then Cons((2, 30), lex(s, i + 2, n)) else (if s.charAt(i + 1) == 61 then Cons((2, 32), lex(s, i + 2, n)) else Cons((2, 20), lex(s, i + 1, n)))
 def lexPlus(s, i, n) = if s.charAt(i + 1) == 43 then Cons((2, 33), lex(s, i + 2, n)) else Cons((2, 23), lex(s, i + 1, n))
-def lexOp1(s, i, n, c) = if c == 40 then Cons((2, 21), lex(s, i + 1, n)) else (if c == 41 then Cons((2, 22), lex(s, i + 1, n)) else (if c == 45 then Cons((2, 24), lex(s, i + 1, n)) else (if c == 42 then Cons((2, 25), lex(s, i + 1, n)) else (if c == 44 then Cons((2, 27), lex(s, i + 1, n)) else (if c == 123 then Cons((2, 28), lex(s, i + 1, n)) else (if c == 125 then Cons((2, 29), lex(s, i + 1, n)) else (if c == 46 then Cons((2, 31), lex(s, i + 1, n)) else lex(s, i + 1, n))))))))
-def hd(ts) = ts match { case Cons(h, t) => h case Nil => (0, 0) }
-def tl(ts) = ts match { case Cons(h, t) => t case Nil => Nil }
+def lexOp1(s, i, n, c) = if c == 40 then Cons((2, 21), lex(s, i + 1, n)) else (if c == 41 then Cons((2, 22), lex(s, i + 1, n)) else (if c == 45 then Cons((2, 24), lex(s, i + 1, n)) else (if c == 42 then Cons((2, 25), lex(s, i + 1, n)) else (if c == 44 then Cons((2, 27), lex(s, i + 1, n)) else (if c == 123 then Cons((2, 28), lex(s, i + 1, n)) else (if c == 125 then Cons((2, 29), lex(s, i + 1, n)) else (if c == 46 then Cons((2, 31), lex(s, i + 1, n)) else (if c == 95 then Cons((2, 45), lex(s, i + 1, n)) else lex(s, i + 1, n)))))))))
+def hd(ts) = ts match { case Cons(h, t) => h case _ => (0, 0) }
+def tl(ts) = ts match { case Cons(h, t) => t case _ => Nil }
 def fst(p) = p match { case (a, b) => a }
 def snd(p) = p match { case (a, b) => b }
-def isEmpty(ts) = ts match { case Nil => true case Cons(h, t) => false }
+def isEmpty(ts) = ts match { case Nil => true case _ => false }
 def isTok(t, k, c) = if fst(t) == k then snd(t) == c else false
 def isLP(ts) = isTok(hd(ts), 2, 21)
 def isComma(ts) = isTok(hd(ts), 2, 27)
@@ -55,13 +55,14 @@ def parseArgs(ts, env, acc, dq) = if isRP(ts) then (acc, tl(ts)) else parseArgs2
 def parseArgs2(ts, env, acc, dq) = parseExpr(ts, 0, env, dq) match { case (a, r2) => if isComma(r2) then parseArgs(tl(r2), env, acc ++ " " ++ a, dq) else parseArgs(r2, env, acc ++ " " ++ a, dq) }
 def parseParams(ts, acc) = if isKind1(hd(ts)) then parseParams2(ts, acc) else (acc, tl(ts))
 def parseParams2(ts, acc) = if isComma(tl(ts)) then parseParams(tl(tl(ts)), Cons(snd(hd(ts)), acc)) else parseParams(tl(ts), Cons(snd(hd(ts)), acc))
-def parseArms(ts, env, dq) = if isTok(hd(ts), 2, 6) then parseArm(tl(ts), env, dq) else ("", tl(ts))
-def parseArm(rest, env, dq) = if isTok(hd(rest), 2, 21) then parseArmTup(rest, env, dq) else (if isLP(tl(rest)) then parseArmCons(rest, env, dq) else parseArmNil(rest, env, dq))
-def parseArmTup(rest, env, dq) = { val av = snd(hd(tl(rest)))  val bv = snd(hd(tl(tl(tl(rest)))))  parseExpr(tl(tl(tl(tl(tl(tl(rest)))))), 0, Cons(bv, Cons(av, env)), dq) match { case (body, r2) => parseArms(r2, env, dq) match { case (more, r3) => ("(arm Tuple2 2 " ++ body ++ ") " ++ more, r3) } } }
-def parseArmCons(rest, env, dq) = { val hv = snd(hd(tl(tl(rest))))  val tv = snd(hd(tl(tl(tl(tl(rest))))))  parseExpr(tl(tl(tl(tl(tl(tl(tl(rest))))))), 0, Cons(tv, Cons(hv, env)), dq) match { case (body, r2) => parseArms(r2, env, dq) match { case (more, r3) => ("(arm Cons 2 " ++ body ++ ") " ++ more, r3) } } }
-def parseArmNil(rest, env, dq) = parseExpr(tl(tl(rest)), 0, env, dq) match { case (body, r2) => parseArms(r2, env, dq) match { case (more, r3) => ("(arm Nil 0 " ++ body ++ ") " ++ more, r3) } }
+def parseArms(ts, env, dq) = if isTok(hd(ts), 2, 6) then parseArm(tl(ts), env, dq) else ("", ("", tl(ts)))
+def parseArm(rest, env, dq) = if isTok(hd(rest), 2, 45) then parseArmDefault(rest, env, dq) else (if isTok(hd(rest), 2, 21) then parseArmTup(rest, env, dq) else (if isLP(tl(rest)) then parseArmCons(rest, env, dq) else parseArmNil(rest, env, dq)))
+def parseArmDefault(rest, env, dq) = parseExpr(tl(tl(rest)), 0, env, dq) match { case (body, r2) => ("", (" (default " ++ body ++ ")", tl(r2))) }
+def parseArmTup(rest, env, dq) = { val av = snd(hd(tl(rest)))  val bv = snd(hd(tl(tl(tl(rest)))))  parseExpr(tl(tl(tl(tl(tl(tl(rest)))))), 0, Cons(bv, Cons(av, env)), dq) match { case (body, r2) => parseArms(r2, env, dq) match { case (more, dr) => ("(arm Tuple2 2 " ++ body ++ ") " ++ more, dr) } } }
+def parseArmCons(rest, env, dq) = { val hv = snd(hd(tl(tl(rest))))  val tv = snd(hd(tl(tl(tl(tl(rest))))))  parseExpr(tl(tl(tl(tl(tl(tl(tl(rest))))))), 0, Cons(tv, Cons(hv, env)), dq) match { case (body, r2) => parseArms(r2, env, dq) match { case (more, dr) => ("(arm Cons 2 " ++ body ++ ") " ++ more, dr) } } }
+def parseArmNil(rest, env, dq) = parseExpr(tl(tl(rest)), 0, env, dq) match { case (body, r2) => parseArms(r2, env, dq) match { case (more, dr) => ("(arm Nil 0 " ++ body ++ ") " ++ more, dr) } }
 def postfix(recv, ts, env, dq) = if isTok(hd(ts), 2, 5) then postfixMatch(recv, ts, env, dq) else (if isTok(hd(ts), 2, 31) then postfixDot(recv, ts, env, dq) else (recv, ts))
-def postfixMatch(recv, ts, env, dq) = parseArms(tl(tl(ts)), env, dq) match { case (arms, r2) => postfix("(match " ++ recv ++ " (" ++ arms ++ "))", r2, env, dq) }
+def postfixMatch(recv, ts, env, dq) = parseArms(tl(tl(ts)), env, dq) match { case (arms, dr) => dr match { case (defStr, r2) => postfix("(match " ++ recv ++ " (" ++ arms ++ ")" ++ defStr ++ ")", r2, env, dq) } }
 def postfixDot(recv, ts, env, dq) = { val mn = snd(hd(tl(ts)))  if isLP(tl(tl(ts))) then postfixDotArgs(recv, tl(tl(tl(ts))), env, dq, mn) else postfix(emitMethod(mn, recv, "", ""), tl(tl(ts)), env, dq) }
 def postfixDotArgs(recv, ts, env, dq, mn) = parseExpr(ts, 0, env, dq) match { case (a0, r2) => if isComma(r2) then postfixDotArgs2(recv, tl(r2), env, dq, mn, a0) else postfix(emitMethod(mn, recv, a0, ""), tl(r2), env, dq) }
 def postfixDotArgs2(recv, ts, env, dq, mn, a0) = parseExpr(ts, 0, env, dq) match { case (a1, r3) => postfix(emitMethod(mn, recv, a0, a1), tl(r3), env, dq) }

@@ -72,6 +72,8 @@ t valblock  40      'def f(a, b) = { val x = a + b  val y = x + a  y } def main(
 t valblockstr '"ab!"' 'def g(s) = { val t = s ++ "!"  t } def main() = g("ab")'
 t cmp       1       'def main() = if 5 > 3 then (if 3 >= 3 then (if 2 <= 2 then 1 else 0) else 0) else 0'
 t andor     1       'def inR(c) = c >= 97 && c <= 122 def main() = if inR(100) || false then 1 else 0'
+t wildcard  99      'def f(xs) = xs match { case Cons(h, t) => h case _ => 99 } def main() = f(Nil)'
+t wildonly  5       'def f(x) = x match { case _ => 5 } def main() = f(3)'
 
 echo "--- self-compilation fixpoint ---"
 # stage1 = C0(C_min): C_min compiles its own source.
