@@ -11,6 +11,7 @@ exports:
   - writeRollbackJournal
   - JournaledWrite
   - writePagesJournaled
+  - overwritePage
   - WriteTransaction
   - beginTransaction
   - stagePage

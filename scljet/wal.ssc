@@ -9,6 +9,12 @@ exports:
   - walChecksumWords
   - writeWal
   - markWalMode
+  - WalFrame
+  - WalIndex
+  - readWal
+  - walPage
+  - walReadPage
+  - checkpointWal
 ---
 
 # SclJet write-ahead log (WAL) writer
@@ -27,8 +33,8 @@ header bytes plus the page. We pick magic `0x377f0683` — its low bit declares 
 big-endian word order we read, so any reader (little- or big-endian) reproduces
 the same checksum and accepts the file.
 
-[ByteSlice, ByteError, ByteRead, byteSliceToList, byteSliceUpdated, readU32Be, writeU32Be](bytes.ssc)
-[JournalPage](journal.ssc)
+[ByteSlice, ByteError, ByteRead, byteSliceToList, byteSliceUpdated, byteSliceSlice, byteSliceConcat, readU32Be, readU32Le, writeU32Be](bytes.ssc)
+[JournalPage, overwritePage](journal.ssc)
 
 ```scalascript
 case class WalChecksum(s1: Long, s2: Long)
@@ -37,24 +43,32 @@ case class WalWrite(bytes: ByteSlice, frames: Int)
 
 def walU32(value: Long): List[Int] = byteSliceToList(writeU32Be(value))
 
-// Fold big-endian 32-bit word pairs from data[offset, endOffset) into the running
-// checksum. Iterative (no recursion) so a 4 KiB page does not overflow JS's stack.
-def walChecksumWords(data: ByteSlice, offset: Int, endOffset: Int, acc: WalChecksum): WalChecksum =
+def walReadWord(data: ByteSlice, offset: Int, bigEndian: Boolean): Either[ByteError, ByteRead] =
+  if bigEndian then readU32Be(data, offset) else readU32Le(data, offset)
+
+// Fold 32-bit word pairs from data[offset, endOffset) into the running checksum,
+// reading each word big- or little-endian per the WAL magic's declared order.
+// Iterative (no recursion) so a 4 KiB page does not overflow JS's stack.
+def walChecksumFold(data: ByteSlice, offset: Int, endOffset: Int, acc: WalChecksum, bigEndian: Boolean): WalChecksum =
   var cs1 = acc.s1
   var cs2 = acc.s2
   var ci = offset
   var cfail = false
   while ci + 8 <= endOffset && !cfail do
-    readU32Be(data, ci) match
+    walReadWord(data, ci, bigEndian) match
       case Left(_) => cfail = true
       case Right(ByteRead(w1, _)) =>
-        readU32Be(data, ci + 4) match
+        walReadWord(data, ci + 4, bigEndian) match
           case Left(_) => cfail = true
           case Right(ByteRead(w2, _)) =>
             cs1 = (cs1 + w1 + cs2) & 4294967295L
             cs2 = (cs2 + w2 + cs1) & 4294967295L
             ci = ci + 8
   WalChecksum(cs1, cs2)
+
+/** Big-endian checksum fold (the order our writer's magic 0x377f0683 declares). */
+def walChecksumWords(data: ByteSlice, offset: Int, endOffset: Int, acc: WalChecksum): WalChecksum =
+  walChecksumFold(data, offset, endOffset, acc, true)
 
 // Serialize one frame and advance the running checksum. The last frame of the
 // transaction (index == total-1) commits with `dbSizePages`; others carry 0.
@@ -99,4 +113,137 @@ def markWalMode(db: ByteSlice): Either[ByteError, ByteSlice] =
   byteSliceUpdated(db, 18, 2) match
     case Left(error) => Left(error)
     case Right(d1) => byteSliceUpdated(d1, 19, 2)
+
+// ── WAL reader: recover the committed frame map (inverse of writeWal) ──
+//
+// Validate the header (magic → checksum byte order; header checksum), then walk
+// frames chaining the running checksum. A frame is valid only if its salts match
+// the header and its checksum verifies; the first invalid frame ends the readable
+// region. Only frames up to and INCLUDING the last commit frame (dbSizeAfterCommit
+// != 0) are committed — later frames are an unfinished transaction and ignored.
+
+case class WalFrame(pageNumber: Int, page: ByteSlice)
+case class WalIndex(pageSize: Int, dbSizePages: Int, frames: List[WalFrame])
+
+def walReadBe32(data: ByteSlice, offset: Int): Long = readU32Be(data, offset) match
+  case Right(ByteRead(value, _)) => value
+  case Left(_) => -1L
+
+/** Parse a `-wal` image into its committed frame map. A too-short, wrong-magic, or
+ *  bad-header-checksum file yields an empty index (the WAL is ignored, as SQLite
+ *  does). Frames are returned in file order; a later frame for the same page wins. */
+def readWal(walBytes: ByteSlice): Either[ByteError, WalIndex] =
+  if walBytes.length < 32 then Right(WalIndex(0, 0, Nil))
+  else
+    val magic = walReadBe32(walBytes, 0)
+    val pageSize = walReadBe32(walBytes, 8).toInt
+    val salt1 = walReadBe32(walBytes, 16)
+    val salt2 = walReadBe32(walBytes, 20)
+    val storedHck1 = walReadBe32(walBytes, 24)
+    val storedHck2 = walReadBe32(walBytes, 28)
+    val bigEndian = (magic % 2L) == 1L
+    val hck = walChecksumFold(walBytes, 0, 24, WalChecksum(0L, 0L), bigEndian)
+    if (magic != 931071618L && magic != 931071619L) || hck.s1 != storedHck1 || hck.s2 != storedHck2 || pageSize <= 0 then
+      Right(WalIndex(0, 0, Nil))
+    else
+      var off = 32
+      var running = hck
+      var committedRev: List[WalFrame] = Nil
+      var pendingRev: List[WalFrame] = Nil
+      var dbSize = 0
+      var stop = false
+      while off + 24 + pageSize <= walBytes.length && !stop do
+        val pageNumber = walReadBe32(walBytes, off).toInt
+        val dbSizeAfter = walReadBe32(walBytes, off + 4).toInt
+        val fSalt1 = walReadBe32(walBytes, off + 8)
+        val fSalt2 = walReadBe32(walBytes, off + 12)
+        val fCk1 = walReadBe32(walBytes, off + 16)
+        val fCk2 = walReadBe32(walBytes, off + 20)
+        if fSalt1 != salt1 || fSalt2 != salt2 then stop = true
+        else
+          val c1 = walChecksumFold(walBytes, off, off + 8, running, bigEndian)
+          val c2 = walChecksumFold(walBytes, off + 24, off + 24 + pageSize, c1, bigEndian)
+          if c2.s1 != fCk1 || c2.s2 != fCk2 then stop = true
+          else byteSliceSlice(walBytes, off + 24, pageSize) match
+            case Left(_) => stop = true
+            case Right(page) =>
+              running = c2
+              pendingRev = WalFrame(pageNumber, page) :: pendingRev
+              if dbSizeAfter != 0 then
+                committedRev = walConcatFrames(pendingRev, committedRev)
+                pendingRev = Nil
+                dbSize = dbSizeAfter
+              off = off + 24 + pageSize
+      Right(WalIndex(pageSize, dbSize, walReverseFrames(committedRev, Nil)))
+
+// Prepend `front` (in its own order) ahead of `back`. Iterative: reverse `front`
+// onto a temp, then prepend each onto `back` — so a many-framed WAL never recurses.
+def walConcatFrames(front: List[WalFrame], back: List[WalFrame]): List[WalFrame] =
+  var tmp: List[WalFrame] = Nil
+  var r1 = front
+  while r1.nonEmpty do
+    tmp = r1.head :: tmp
+    r1 = r1.tail
+  var out = back
+  while tmp.nonEmpty do
+    out = tmp.head :: out
+    tmp = tmp.tail
+  out
+
+def walReverseFrames(items: List[WalFrame], acc: List[WalFrame]): List[WalFrame] =
+  var r = items
+  var out = acc
+  while r.nonEmpty do
+    out = r.head :: out
+    r = r.tail
+  out
+
+/** The latest committed WAL image of `pageNumber` (1-based), or None if the WAL has
+ *  no frame for it (read the page from the base database instead). */
+def walPage(index: WalIndex, pageNumber: Int): Option[ByteSlice] =
+  var remaining = index.frames
+  var found: Option[ByteSlice] = None
+  while remaining.nonEmpty do
+    if remaining.head.pageNumber == pageNumber then found = Some(remaining.head.page)
+    remaining = remaining.tail
+  found
+
+/** Read page `pageNumber` over a base DB + WAL overlay: the WAL frame if present,
+ *  else the base database page. */
+def walReadPage(base: ByteSlice, index: WalIndex, pageNumber: Int, pageSize: Int): Either[ByteError, ByteSlice] =
+  walPage(index, pageNumber) match
+    case Some(page) => Right(page)
+    case None => byteSliceSlice(base, (pageNumber - 1) * pageSize, pageSize)
+
+// ── WAL checkpoint: fold committed frames back into the base database ──
+
+def walApplyFrames(database: ByteSlice, pageSize: Int, frames: List[WalFrame]): Either[ByteError, ByteSlice] =
+  var current = database
+  var remaining = frames
+  var failure: Option[ByteError] = None
+  while remaining.nonEmpty && failure.isEmpty do
+    val frame = remaining.head
+    overwritePage(current, pageSize, frame.pageNumber, frame.page) match
+      case Left(error) => failure = Some(error)
+      case Right(next) =>
+        current = next
+        remaining = remaining.tail
+  failure match
+    case Some(error) => Left(error)
+    case None => Right(current)
+
+/** Checkpoint a WAL into its base database: apply every committed frame in file
+ *  order (later frames overwrite earlier), then truncate to the WAL's post-commit
+ *  page count. Byte-equivalent to `PRAGMA wal_checkpoint(TRUNCATE)`. An empty/invalid
+ *  WAL leaves the base unchanged. */
+def checkpointWal(base: ByteSlice, walBytes: ByteSlice): Either[ByteError, ByteSlice] =
+  readWal(walBytes) match
+    case Left(error) => Left(error)
+    case Right(index) =>
+      if index.frames.isEmpty then Right(base)
+      else walApplyFrames(base, index.pageSize, index.frames) match
+        case Left(error) => Left(error)
+        case Right(applied) =>
+          if index.dbSizePages <= 0 then Right(applied)
+          else byteSliceSlice(applied, 0, index.dbSizePages * index.pageSize)
 ```

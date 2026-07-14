@@ -1,0 +1,64 @@
+---
+name: scljet-wal-checkpoint
+description: SclJet WAL checkpoint — merge committed frames into the base DB (byte-identical to sqlite wal_checkpoint(TRUNCATE), verified out-of-band)
+backends: [int, js]
+---
+
+# SclJet WAL checkpoint
+
+Fold the committed WAL frames back into the base database. Verified out-of-band:
+the result is BYTE-IDENTICAL to reference SQLite's `PRAGMA wal_checkpoint(TRUNCATE)`
+on the same base+WAL, and SQLite reads it as the WAL'd value with `integrity_check`
+ok. Here we lock, cross-backend, that the checkpointed page 2 is exactly the framed
+page and page 1 is unchanged.
+
+[ByteSlice, byteSliceToList, byteSliceGet, byteSliceSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase, JournalPage, writeWal, markWalMode, checkpointWal](std/scljet/index.ssc)
+
+```scalascript
+def same(a: ByteSlice, b: ByteSlice): Boolean =
+  byteSliceToList(a).toString == byteSliceToList(b).toString
+
+def adler32(bytes: ByteSlice): Long =
+  var adI = 0
+  var adA = 1L
+  var adB = 0L
+  while adI < bytes.length do
+    byteSliceGet(bytes, adI) match
+      case Right(b) =>
+        adA = (adA + b.toLong) % 65521L
+        adB = (adB + adA) % 65521L
+      case Left(e) => adA = adA
+    adI = adI + 1
+  adB * 65536L + adA
+
+buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(id INTEGER, v TEXT)",
+  List(List(SqlInteger(1L), SqlText("aaa")))) match
+  case Left(error) => println("base-error:" + error.message)
+  case Right(baseRaw) =>
+    buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(id INTEGER, v TEXT)",
+      List(List(SqlInteger(1L), SqlText("bbb")))) match
+      case Left(error) => println("new-error:" + error.message)
+      case Right(dbNew) =>
+        byteSliceSlice(dbNew, 512, 512) match
+          case Left(error) => println("slice-error:" + error.message)
+          case Right(pB) => markWalMode(baseRaw) match
+            case Left(error) => println("mark-error:" + error.message)
+            case Right(base) =>
+              writeWal(512, 111L, 222L, 0L, 2, List(JournalPage(2, pB))) match
+                case Left(error) => println("wal-error:" + error.message)
+                case Right(wal) =>
+                  checkpointWal(base, wal.bytes) match
+                    case Left(error) => println("ckpt-error:" + error.message)
+                    case Right(ckpt) =>
+                      byteSliceSlice(ckpt, 512, 512) match
+                        case Left(error) => println("cp2-error:" + error.message)
+                        case Right(ckptPage2) =>
+                          byteSliceSlice(base, 0, 512) match
+                            case Left(error) => println("bp1-error:" + error.message)
+                            case Right(basePage1) =>
+                              byteSliceSlice(ckpt, 0, 512) match
+                                case Left(error) => println("cp1-error:" + error.message)
+                                case Right(ckptPage1) =>
+                                  println("len: " + ckpt.length.toString + ", page2=framed: " + same(ckptPage2, pB).toString + ", page1 unchanged: " + same(ckptPage1, basePage1).toString)
+                                  println("fingerprint: " + adler32(ckpt).toString)
+```

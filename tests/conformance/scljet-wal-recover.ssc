@@ -1,0 +1,60 @@
+---
+name: scljet-wal-recover
+description: SclJet WAL reader — recover the committed frame map, read the base+WAL overlay, exclude a corrupt frame
+backends: [int, js]
+---
+
+# SclJet WAL recover + overlay read
+
+Parse a `-wal` (the read-side inverse of `writeWal`): validate the header checksum,
+walk frames chaining the running checksum, and keep frames up to the last commit.
+A two-frame WAL for page 2 (`bbb` then committing `ccc`) recovers both frames with
+the latest (`ccc`) winning the overlay read; page 1 has no frame so it reads from
+the base. Flipping one frame-checksum byte drops the frame (empty index).
+
+[ByteSlice, byteSliceToList, byteSliceSlice, byteSliceUpdated, SqliteValue, SqlInteger, SqlText, buildTableDatabase, JournalPage, writeWal, readWal, walReadPage](std/scljet/index.ssc)
+
+```scalascript
+def same(a: ByteSlice, b: ByteSlice): Boolean =
+  byteSliceToList(a).toString == byteSliceToList(b).toString
+
+def page2Of(v: String): Either[String, ByteSlice] =
+  buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(id INTEGER, v TEXT)",
+    List(List(SqlInteger(1L), SqlText(v)))) match
+    case Left(error) => Left(error.message)
+    case Right(db) => byteSliceSlice(db, 512, 512) match
+      case Left(error) => Left(error.message)
+      case Right(p) => Right(p)
+
+buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(id INTEGER, v TEXT)",
+  List(List(SqlInteger(1L), SqlText("aaa")))) match
+  case Left(error) => println("base-error:" + error.message)
+  case Right(base) => page2Of("bbb") match
+    case Left(m) => println("bbb-error:" + m)
+    case Right(pB) => page2Of("ccc") match
+      case Left(m) => println("ccc-error:" + m)
+      case Right(pC) =>
+        writeWal(512, 111L, 222L, 0L, 2, List(JournalPage(2, pB), JournalPage(2, pC))) match
+          case Left(error) => println("wal-error:" + error.message)
+          case Right(wal) =>
+            readWal(wal.bytes) match
+              case Left(error) => println("read-error:" + error.message)
+              case Right(index) =>
+                println("frames: " + index.frames.length.toString + ", dbSize: " + index.dbSizePages.toString)
+                byteSliceSlice(base, 0, 512) match
+                  case Left(error) => println("p1-error:" + error.message)
+                  case Right(basePage1) =>
+                    walReadPage(base, index, 2, 512) match
+                      case Left(error) => println("rp2-error:" + error.message)
+                      case Right(page2) =>
+                        walReadPage(base, index, 1, 512) match
+                          case Left(error) => println("rp1-error:" + error.message)
+                          case Right(page1) =>
+                            println("page2 latest=ccc: " + same(page2, pC).toString + ", page1 from base: " + same(page1, basePage1).toString)
+                byteSliceUpdated(wal.bytes, 48, 200) match
+                  case Left(error) => println("flip-error:" + error.message)
+                  case Right(badWal) =>
+                    readWal(badWal) match
+                      case Left(error) => println("read2-error:" + error.message)
+                      case Right(bad) => println("corrupt frame dropped: " + (bad.frames.length == 0).toString)
+```

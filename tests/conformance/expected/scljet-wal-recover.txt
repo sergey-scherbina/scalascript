@@ -1,0 +1,3 @@
+frames: 2, dbSize: 2
+page2 latest=ccc: true, page1 from base: true
+corrupt frame dropped: true
