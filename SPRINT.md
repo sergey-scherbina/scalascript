@@ -1697,6 +1697,16 @@ ORDER BY / LIMIT / OFFSET, aggregates (COUNT/SUM/MIN/MAX/AVG/TOTAL), GROUP BY + 
 and inner + LEFT joins — every feature byte-verified against reference sqlite3, int==js.
 Remaining follow-ups (niche): multi-table (3+) joins, page-1 schema split, repeating-decimal %.15g.
 
+- [x] **scljet-m5w-where-like** — DONE 2026-07-14. `col LIKE pattern` / `col NOT LIKE pattern`:
+      `%` = any run (incl. empty), `_` = one char; ASCII case-insensitive (`upperStr` both sides),
+      non-text operand coerced to text (`dept LIKE '1%'`), no ESCAPE clause. `parseCondition` adds
+      the LIKE / NOT LIKE forms (ops `like`/`notlike`, pattern in `value`); `predHolds` calls new
+      `likeMatch` (iterative two-pointer wildcard match with `%`-backtracking, charCode bounds-safe so
+      it survives the interpreter's non-short-circuit `&&`) + `coerceText`. Verified vs sqlite3
+      (prefix/suffix/`_`/exact case-insensitive, NOT LIKE, integer LIKE, LIKE+AND), int==js;
+      conformance `scljet-sql-where-like`. WHERE predicate set now: =/<>/</>/<=/>=, IS [NOT] NULL,
+      BETWEEN, IN/NOT IN, LIKE/NOT LIKE — all composable with AND/OR.
+
 - [x] **scljet-m5v-where-between-in** — DONE 2026-07-14. WHERE range/set predicates: `col BETWEEN lo
       AND hi` (inclusive; BETWEEN owns its inner AND, a trailing AND still chains), `col IN (v1, …)` and
       `col NOT IN (…)` (membership over a literal list, text or integer). `Condition` gained a

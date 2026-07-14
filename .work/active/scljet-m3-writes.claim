@@ -1,4 +1,4 @@
 claim: scljet-m3-writes
 owner: opus
-heartbeat: 2026-07-14T13:58:57Z
-status: m5v WHERE BETWEEN/IN/NOT IN done; 14/14 sql green
+heartbeat: 2026-07-14T14:03:43Z
+status: m5w WHERE LIKE/NOT LIKE done; 15/15 sql green
