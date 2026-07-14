@@ -211,6 +211,14 @@ identity even when their descriptor strings are equal. Consequently a handler
 owns exactly one atomic row member. It cannot obtain a key for a union by
 covariance, and handling several effects is necessarily ordinary nesting.
 
+`perform` validates one non-null operation, key, operation id, and multiplicity;
+the operation id's effect component must equal the key descriptor. It snapshots
+those runtime fields before constructing `Op`. The private pending node and every
+forwarded/public step view retain the validated key snapshot, so a handler never
+re-runs a user-defined `operation.effect` getter to decide row elimination. A null
+or changing getter is therefore either rejected at `perform` or irrelevant after
+the snapshot; it cannot create a residual request under `Eff[Nothing,...]`.
+
 After exact owner identity the runtime may perform one private narrowing cast. That
 cast and the iterative bind stack are not part of the public ABI. No safe singleton
 owner of type `Nothing` exists, including through a generic wrapper, so the bottom
