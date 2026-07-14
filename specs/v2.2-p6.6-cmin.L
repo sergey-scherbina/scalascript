@@ -34,7 +34,7 @@ def isRP(ts) = isTok(hd(ts), 2, 22)
 def isKind1(t) = fst(t) == 1
 def dlen(env) = env match { case Nil => 0 case Cons(h, t) => dlen(t) + 1 }
 def idxOf(env, name, i) = env match { case Nil => 0 case Cons(h, t) => if h == name then i else idxOf(t, name, i + 1) }
-def arithBare(k) = if k == 23 then "i.add" else (if k == 24 then "i.sub" else (if k == 25 then "i.mul" else (if k == 26 then "i.lt" else (if k == 42 then "i.gt" else (if k == 43 then "i.ge" else "i.le")))))
+def arithBare(k) = k match { case 23 => "i.add" case 24 => "i.sub" case 25 => "i.mul" case 26 => "i.lt" case 42 => "i.gt" case 43 => "i.ge" case _ => "i.le" }
 def emitBin(k, l, r) = if k == 40 then "(if " ++ l ++ " " ++ r ++ " (lit false))" else (if k == 41 then "(if " ++ l ++ " (lit true) " ++ r ++ ")" else (if k == 32 then "(prim __eq__ " ++ l ++ " " ++ r ++ ")" else (if k == 33 then "(prim sconcat " ++ l ++ " " ++ r ++ ")" else "(prim " ++ arithBare(k) ++ " " ++ l ++ " " ++ r ++ ")")))
 def binPrec(c) = if c == 41 then 1 else (if c == 40 then 2 else (if c == 26 then 3 else (if c == 42 then 3 else (if c == 43 then 3 else (if c == 44 then 3 else (if c == 32 then 3 else (if c == 23 then 4 else (if c == 24 then 4 else (if c == 33 then 4 else (if c == 25 then 5 else 0))))))))))
 def prec(t) = if fst(t) == 2 then binPrec(snd(t)) else 0
@@ -62,7 +62,10 @@ def parseArmTup(rest, env, dq) = { val av = snd(hd(tl(rest)))  val bv = snd(hd(t
 def parseArmCons(rest, env, dq) = { val hv = snd(hd(tl(tl(rest))))  val tv = snd(hd(tl(tl(tl(tl(rest))))))  parseExpr(tl(tl(tl(tl(tl(tl(tl(rest))))))), 0, Cons(tv, Cons(hv, env)), dq) match { case (body, r2) => parseArms(r2, env, dq) match { case (more, dr) => ("(arm Cons 2 " ++ body ++ ") " ++ more, dr) } } }
 def parseArmNil(rest, env, dq) = parseExpr(tl(tl(rest)), 0, env, dq) match { case (body, r2) => parseArms(r2, env, dq) match { case (more, dr) => ("(arm Nil 0 " ++ body ++ ") " ++ more, dr) } }
 def postfix(recv, ts, env, dq) = if isTok(hd(ts), 2, 5) then postfixMatch(recv, ts, env, dq) else (if isTok(hd(ts), 2, 31) then postfixDot(recv, ts, env, dq) else (recv, ts))
-def postfixMatch(recv, ts, env, dq) = parseArms(tl(tl(ts)), env, dq) match { case (arms, dr) => dr match { case (defStr, r2) => postfix("(match " ++ recv ++ " (" ++ arms ++ ")" ++ defStr ++ ")", r2, env, dq) } }
+def postfixMatch(recv, ts, env, dq) = if fst(hd(tl(tl(tl(ts))))) == 0 then parseIntMatch(recv, tl(tl(ts)), env, dq) else parseArms(tl(tl(ts)), env, dq) match { case (arms, dr) => dr match { case (defStr, r2) => postfix("(match " ++ recv ++ " (" ++ arms ++ ")" ++ defStr ++ ")", r2, env, dq) } }
+def parseIntMatch(recv, ts, env, dq) = parseIntArms(recv, ts, env, dq) match { case (chain, r2) => postfix(chain, r2, env, dq) }
+def parseIntArms(recv, ts, env, dq) = if isTok(hd(ts), 2, 6) then (if isTok(hd(tl(ts)), 2, 45) then parseExpr(tl(tl(tl(ts))), 0, env, dq) match { case (body, r2) => (body, tl(r2)) } else parseIntArm(recv, ts, env, dq)) else ("(lit (int 0))", tl(ts))
+def parseIntArm(recv, ts, env, dq) = { val litN = snd(hd(tl(ts)))  parseExpr(tl(tl(tl(ts))), 0, env, dq) match { case (body, r2) => parseIntArms(recv, r2, env, dq) match { case (rest, r3) => ("(if (prim __eq__ " ++ recv ++ " (lit (int " ++ litN ++ "))) " ++ body ++ " " ++ rest ++ ")", r3) } } }
 def postfixDot(recv, ts, env, dq) = { val mn = snd(hd(tl(ts)))  if isLP(tl(tl(ts))) then postfixDotArgs(recv, tl(tl(tl(ts))), env, dq, mn) else postfix(emitMethod(mn, recv, "", ""), tl(tl(ts)), env, dq) }
 def postfixDotArgs(recv, ts, env, dq, mn) = parseExpr(ts, 0, env, dq) match { case (a0, r2) => if isComma(r2) then postfixDotArgs2(recv, tl(r2), env, dq, mn, a0) else postfix(emitMethod(mn, recv, a0, ""), tl(r2), env, dq) }
 def postfixDotArgs2(recv, ts, env, dq, mn, a0) = parseExpr(ts, 0, env, dq) match { case (a1, r3) => postfix(emitMethod(mn, recv, a0, a1), tl(r3), env, dq) }

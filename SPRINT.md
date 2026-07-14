@@ -1065,6 +1065,17 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
           stage2`, 25979 B; C1 compiles fac(6)→720), and `spike(cmin.L) ≡ ssc1-front(cmin.L)` byte-identical
           (48663 B) — the spike already handled `case _` (match-lit toy). Fixpoint script gained
           `wildcard`/`wildonly` L-tests.
+    - [x] **P6.15 — C_min language extension: int-literal match patterns `case N =>` ✓ DONE 2026-07-14.** L's
+          `match` gained integer-literal arms `n match { case 0 => … case 1 => … case _ => … }`. C_min detects
+          an int-literal match (first arm's pattern token is kind 0) in `postfixMatch` and emits an INLINE
+          if-chain `(if (prim __eq__ recv (lit (int N))) body <rest>)` ending in the `case _` default (vs
+          ssc1-front's let-bound if-chain — C_min emits its own bare-prim style, only self-consistency +
+          runnability matter). `parseIntMatch`/`parseIntArms`/`parseIntArm` are the new path; the ctor-match
+          path is unchanged. **C_min self-uses it**: `arithBare(k)` now dispatches token codes with `k match {
+          case 23 => "i.add" … case _ => "i.le" }` instead of an if-chain. C_min now 80 defs; the fixpoint STILL
+          holds (`stage1 == stage2`, 27586 B; C1 compiles fac(6)→720 AND an int-literal program→1), and
+          `spike(cmin.L) ≡ ssc1-front(cmin.L)` byte-identical (52138 B). Fixpoint script gained
+          `litpat`/`litdef` L-tests.
 
 ---
 
