@@ -402,6 +402,13 @@ final class ScalaSpikeSpec extends AnyFunSuite:
     assert(proj.contains("mkIf") && proj.contains("mkVal"), proj) // the then-branch block carries a val
   }
 
+  test("braced block `{ val x = e … final }` projects identically to the offside block (P6.7)") {
+    val braced  = SpikeProject.program(parse("def f(): Int = { val a = 2  val b = a + 3  a + b }").roots.head)
+    val offside = SpikeProject.program(parse("def f(): Int =\n  val a = 2\n  val b = a + 3\n  a + b").roots.head)
+    assert(braced.contains("""Pair("block"""") && braced.contains("mkVal"), braced)
+    assert(braced == offside, s"braced != offside\nbraced : $braced\noffside: $offside")
+  }
+
   test("function types are erased; chained application f(a)(b) applies twice; List[T] params erase") {
     assert(SpikeProject.program(parse("def mk(): Int => Int = x => x + 1").roots.head).contains("mkLam"))
     assert(SpikeProject.program(parse("def m(): Int = mk()(4)").roots.head)
@@ -1330,6 +1337,10 @@ final class ScalaSpikeSpec extends AnyFunSuite:
       "ops-bit"   -> "def main(): Int = 10 % 3 + 4 & 6 | 1",
       // P6.2b offside — indented def-body blocks (val bindings + final expr)
       "block-vals"   -> "def main(): Int =\n  val a = 1 + 2\n  val b = a * 3\n  a + b",
+      // P6.7 — BRACED block `{ val … final }` (Scala optional-braces): projects to the same spike.block as
+      // the offside form; lowerProg folds the vals into nested lets byte-identically to ssc1-front.
+      "braced-block"  -> "def f(): Int = { val a = 2  val b = a + 3  a + b }\ndef main(): Int = f()",
+      "braced-nest"   -> "def f(a: Int): Int = { val x = a * 2  x + 1 }\ndef main(): Int = f(10)",
       "block-single" -> "def main(): Int =\n  1 + 2",
       "block-cont"   -> "def main(): Int =\n  val a = 1 +\n    2\n  a * 10",
       // P6.2c match — int-literal / `_` / variable patterns + guard

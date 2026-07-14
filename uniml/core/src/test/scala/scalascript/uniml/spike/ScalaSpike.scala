@@ -401,6 +401,21 @@ object SpikeParse:
       stmts += parseStmt(c)
     Node.Frame("spike.block", None, stmts.result())
 
+  // `{ val x = e … finalExpr }` — a braced block at expression position (Scala optional-braces). Projects
+  // to the SAME spike.block as an offside def-body/branch block, so lowerProg folds the vals into nested
+  // lets byte-identically to ssc1-front (which treats braced and offside blocks alike). Note: a `match`
+  // scrutinee's `{ … }` is consumed by parseMatch, never reaching here — only a leading `{` is a block.
+  private def parseBracedBlock(c: Cur): Node =
+    val stmts = Vector.newBuilder[Node]
+    c.advance() // consume `{`
+    c.skipSemis()
+    while !c.eof && c.peekKind != "spike.rbrace" do
+      stmts += parseStmt(c)
+      c.skipSemis()
+    if c.peekKind == "spike.rbrace" then c.advance()
+    else c.report("spike.expected", "expected '}' to close block")
+    Node.Frame("spike.block", None, stmts.result())
+
   private def parseStmt(c: Cur): Node =
     if isKw(c, "val") then parseVal(c)
     else parseExpr(c, 1) match
@@ -611,6 +626,7 @@ object SpikeParse:
       case "spike.float"  => c.advance().map(t => Node.Leaf(t, Some("float")))
       case "spike.str"    => c.advance().map(t => Node.Leaf(t, Some("str")))
       case "spike.lparen" => parseParen(c)
+      case "spike.lbrace" => Some(parseBracedBlock(c)) // `{ val … ; expr }` braced block (non-match position)
       case "spike.kw" if c.peekLexeme == "if" => parseIf(c)
       case "spike.op" if c.peekLexeme == "-" || c.peekLexeme == "!" || c.peekLexeme == "~" => Some(parsePrefix(c))
       case "spike.id" if c.peekLexeme == "summon" => Some(parseSummon(c))

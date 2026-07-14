@@ -68,6 +68,8 @@ t substr    '"bc"'  'def main() = "abcd".substring(1, 3)'
 t streq     1       'def main() = if "def" == "def" then 1 else 0'
 t matchlist 3       'def len(xs) = xs match { case Nil => 0 case Cons(h, t) => 1 + len(t) } def main() = len(Cons(7, Cons(8, Cons(9, Nil))))'
 t matchtup  30      'def add(p) = p match { case (a, b) => a + b } def main() = add((10, 20))'
+t valblock  40      'def f(a, b) = { val x = a + b  val y = x + a  y } def main() = f(10, 20)'
+t valblockstr '"ab!"' 'def g(s) = { val t = s ++ "!"  t } def main() = g("ab")'
 
 echo "--- self-compilation fixpoint ---"
 # stage1 = C0(C_min): C_min compiles its own source.

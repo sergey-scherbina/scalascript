@@ -961,6 +961,15 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
   - Prereqs: subset must hold — the one v2-side lift is **immutable indexed `Array`** (gapmap:76);
         anon-trait + mutable-object-field stay out; multi-file `package`/`import` reconciliation
         (gapmap:82-83) needed before the compiler's own multi-file source dual-compiles.
+  - [x] **P6.7 — L gains `val`-blocks (let); C_min self-uses them ✓ DONE 2026-07-14.** Braced `{ val x = e …
+        final }` → nested `(let (E) BODY)`. (1) C_min compiles them (`parseBlock`/`parseBlockVal`/
+        `parseBlockEnd`, `{`(28) atom, `val`(7) kwCode). (2) C_min self-uses them — 5 `…2`-helpers merged back
+        into idiomatic blocks (parseArmTup/parseArmCons/postfixDot/climbStep/parseOneDef); C_min now 72 defs;
+        **fixpoint still holds** stage1==stage2 (22794 B), C1 compiles fac(6)→720. (3) The SPIKE parses them:
+        `ScalaSpike.parseAtom` gained a `spike.lbrace` case (`parseBracedBlock`) → same `spike.block` node →
+        byte-identical to ssc1-front (before: braced block → `__notImplemented__`; spike only did offside).
+        Regression: `braced-block`/`braced-nest` toys + unit test; p6.0 harness **88 ok / 0 FAIL**; `spike(
+        cmin.L) ≡ ssc1-front(cmin.L)` byte-identical (43898 B). Fixpoint script gained 2 val-block L-tests.
 
 ---
 
