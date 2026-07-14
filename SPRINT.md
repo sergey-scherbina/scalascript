@@ -202,8 +202,12 @@ verify by probe + JVM dialect test + conformance 640ok. Detail: memory `project_
   `case "]" | "}" if stack.nonEmpty =>` — v2 does not support a GUARD on an ALTERNATION pattern
   (`A | B if …`). Fixed UniML-side: move the guard into the body. Flow-seq `[1,2,3]` / flow-map
   `{a:1}` → roots=1 Complete 0 diags; invalid `[1,2` → Incomplete+diag. unimlYaml 18/18.
-- [ ] **v2-alternation-pattern-guard** (v2 fix, deferred) — general bug: `case A | B if guard` →
-  `_err`. Front doesn't parse a guard on an alternation pattern. Repro `p-altguard.ssc`.
+- [x] **v2-alternation-pattern-guard FIXED** — `case A | B if g =>` AND `case LIT if g =>` now work.
+  Three fixes: guardablePat accepts lpat/apat; expandAltArms distributes the guard over alternatives;
+  lowerOrderedGuardArms tests a literal base AND the guard (the `gpat(lpat)` else applied only the
+  guard — a pre-existing bug). Verified `p-altguard.ssc` / `p-litguard.ssc`.
+- [x] **v2-plain-class-instance-method — MISDIAGNOSIS** — basic plain-class methods work
+  (`Counter(5).add(3)`=8); MarkdownBlocks Stub was the nested-Container cascade (fixed by hoist).
 - [ ] **v2-object-qualified-nested-ctor** — `O.Inner(…)` (qualified ext ref to a nested type) →
   `unbound global: O_Inner`. Bare `Inner(…)` inside the object works; dialects use bare, so low-pri.
 

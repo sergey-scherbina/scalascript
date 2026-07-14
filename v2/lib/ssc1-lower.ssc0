@@ -3217,6 +3217,15 @@ def lowerOrderedGuardArms = (scope, scrutPos, arms) =>
                           lowerOrderedGuardArms(scope, scrutPos, rest))
                     }
                   }
+                else if #seq(btag, "lpat") then
+                  -- `case LIT if guard =>` — test the literal AND the guard (the
+                  -- old `else` applied only the guard, so any scrutinee matched).
+                  match bdata { case Pair(ty, v) =>
+                    IrIf(IrPrim("__eq__", Cons(IrLocal(scrutPos), Cons(litPatIr(ty, v), Nil))),
+                      IrIf(lowerE(scope, guard), lowerE(scope, body),
+                        lowerOrderedGuardArms(scope, scrutPos, rest)),
+                      lowerOrderedGuardArms(scope, scrutPos, rest))
+                  }
                 else
                   IrIf(lowerE(scope, guard), lowerE(scope, body),
                     lowerOrderedGuardArms(scope, scrutPos, rest))
@@ -3291,6 +3300,16 @@ def altPatArms = (pats, body) =>
     case Cons(pat, rest) => Cons(Pair(pat, body), altPatArms(rest, body))
   }
 
+-- Alternation under a guard: `A | B if g => body` → each alternative keeps the
+-- SAME guard (`A if g => body`, `B if g => body`). Alternatives are disjoint, so
+-- distributing the guard is equivalent to Scala's guard-after-alternation.
+def gAltPatArms = (alts, guard, body) =>
+  match alts {
+    case Nil => Nil
+    case Cons(pat, rest) =>
+      Cons(Pair(Pair("gpat", Pair(pat, guard)), body), gAltPatArms(rest, guard, body))
+  }
+
 def expandAltArms = (arms) =>
   match arms {
     case Nil => Nil
@@ -3299,6 +3318,12 @@ def expandAltArms = (arms) =>
         match pat { case Pair(ptag, pdata) =>
           if #seq(ptag, "apat") then
             appendL(altPatArms(pdata, body), expandAltArms(rest))
+          else if #seq(ptag, "gpat") then
+            match pdata { case Pair(basePat, guard) =>
+              match basePat { case Pair(btag, bdata) =>
+                if #seq(btag, "apat") then
+                  appendL(gAltPatArms(bdata, guard, body), expandAltArms(rest))
+                else Cons(arm, expandAltArms(rest)) } }
           else Cons(arm, expandAltArms(rest))
         }
       }
