@@ -1,0 +1,28 @@
+---
+name: scljet-write-index
+description: SclJet index writer — a rowid table plus a single-column index B-tree that reference SQLite validates and uses (cross-backend)
+backends: [int, js]
+---
+
+# SclJet index writer
+
+[ByteSlice, byteSliceToList, SqliteValue, SqlInteger, SqlText, buildTableWithIndexDatabase](std/scljet/index.ssc)
+
+```scalascript
+// A rowid table whose `n` column is out of order, plus an index on `n`. The index
+// is a separate B-tree (page kind 10) of (n, rowid) records sorted by (n, rowid).
+// Reference integrity_check cross-checks the index against the table — a passing
+// file proves the index is correct — and the query planner uses it. int and JS
+// produce the same bytes.
+val rows = List(
+  List(SqlInteger(30L), SqlText("thirty")),
+  List(SqlInteger(10L), SqlText("ten")),
+  List(SqlInteger(20L), SqlText("twenty")),
+  List(SqlInteger(5L), SqlText("five")),
+  List(SqlInteger(25L), SqlText("twentyfive")))
+
+buildTableWithIndexDatabase(512, 1, 1, "t", "CREATE TABLE t(n INTEGER, v TEXT)",
+  "idx", "CREATE INDEX idx ON t(n)", 0, rows) match
+  case Right(bytes) => println((bytes.length / 512).toString + ":" + byteSliceToList(bytes).toString)
+  case Left(error) => println("ERROR:" + error.message)
+```

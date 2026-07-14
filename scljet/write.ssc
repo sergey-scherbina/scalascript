@@ -21,6 +21,7 @@ exports:
   - buildMultiTableDatabase
   - RawTable
   - buildMultiTableRaw
+  - buildTableWithIndexDatabase
 ---
 
 # SclJet M3 write path
@@ -1228,4 +1229,118 @@ def buildMultiTableRaw(pageSize: Int, changeCounter: Int, schemaCookie: Int, tab
           val pageCount = 1 + sumRawTreePages(plans)
           val page1 = tableFileHeader(pageSize, pageCount, changeCounter, schemaCookie) ++ page1Body
           ByteSlice.fromList(page1 ++ cellsFlatten(treeBlocks))
+
+// ── Single-leaf index B-tree (CREATE INDEX on one integer column) ──
+//
+// An index is a separate B-tree (page kind 10 = index leaf) whose records are the
+// indexed column value followed by the row's rowid, sorted by (value, rowid). The
+// cell is `varint(payloadLen) ++ record` — no separate rowid varint (the rowid is
+// the record's last field). Reference `integrity_check` cross-checks the index
+// against its table, so a passing file proves the index is correct.
+
+case class IndexEntry(key: Long, rowid: Long, record: List[Int])
+
+/** A leaf B-tree page with an explicit page kind (13 = table leaf, 10 = index
+ *  leaf). Same body layout as `buildTableLeafPage`. */
+def buildLeafPageKind(pageSize: Int, headerOffset: Int, cells: List[List[Int]], kind: Int): Either[ByteError, List[Int]] =
+  val count = cells.length
+  val total = cellsTotal(cells)
+  val contentStart = pageSize - total
+  val gap = contentStart - (headerOffset + 8 + 2 * count)
+  if gap < 0 then Left(ByteError("overflow", "index leaf cells do not fit (multi-leaf index is a follow-up)", 0))
+  else
+    val csField = if contentStart == 65536 then 0 else contentStart
+    val header = List(kind, 0, 0) ++ writeBe16(count) ++ writeBe16(csField) ++ List(0)
+    Right(header ++ cellPointers(cells, contentStart) ++ writeZeros(gap) ++ cellsFlatten(cells))
+
+def nthValue(values: List[SqliteValue], index: Int): SqliteValue =
+  if index <= 0 then values match
+    case Cons(head, _) => head
+    case Nil => SqlNull
+  else values match
+    case Cons(_, tail) => nthValue(tail, index - 1)
+    case Nil => SqlNull
+
+def integerKey(value: SqliteValue): Long = value match
+  case SqlInteger(v) => v
+  case _ => 0L
+
+/** Build one index entry per row: record = `[key column value, rowid]`. */
+def buildIndexEntries(rows: List[List[SqliteValue]], keyColumn: Int, startRowid: Long): Either[ByteError, List[IndexEntry]] =
+  var bieRemaining = rows
+  var bieRowid = startRowid
+  var bieAcc: List[IndexEntry] = Nil
+  var bieFailure: Option[ByteError] = None
+  while bieRemaining.nonEmpty && bieFailure.isEmpty do
+    val bieKey = nthValue(bieRemaining.head, keyColumn)
+    encodeRecord(List(bieKey, SqlInteger(bieRowid))) match
+      case Left(error) => bieFailure = Some(error)
+      case Right(record) =>
+        bieAcc = IndexEntry(integerKey(bieKey), bieRowid, byteSliceToList(record)) :: bieAcc
+        bieRowid = bieRowid + 1L
+        bieRemaining = bieRemaining.tail
+  bieFailure match
+    case Some(error) => Left(error)
+    case None => Right(bieAcc.reverse)
+
+def insertIndexEntry(sorted: List[IndexEntry], entry: IndexEntry): List[IndexEntry] = sorted match
+  case Nil => entry :: Nil
+  case Cons(head, tail) =>
+    if entry.key < head.key || (entry.key == head.key && entry.rowid < head.rowid) then entry :: sorted
+    else head :: insertIndexEntry(tail, entry)
+
+def sortIndexEntries(entries: List[IndexEntry]): List[IndexEntry] =
+  var sieRemaining = entries
+  var sieSorted: List[IndexEntry] = Nil
+  while sieRemaining.nonEmpty do
+    sieSorted = insertIndexEntry(sieSorted, sieRemaining.head)
+    sieRemaining = sieRemaining.tail
+  sieSorted
+
+/** Index leaf cells: `varint(payloadLen) ++ record`, in sorted order. */
+def indexLeafCells(entries: List[IndexEntry]): List[List[Int]] =
+  var ilcRemaining = entries
+  var ilcAcc: List[List[Int]] = Nil
+  while ilcRemaining.nonEmpty do
+    val ilcRecord = ilcRemaining.head.record
+    ilcAcc = (byteSliceToList(encodeVarint(ilcRecord.length.toLong)) ++ ilcRecord) :: ilcAcc
+    ilcRemaining = ilcRemaining.tail
+  ilcAcc.reverse
+
+/** Assemble a database with one rowid table and one single-leaf index on a single
+ *  integer column of it. Page 1 = schema (table entry root 2, index entry root
+ *  N), page 2..1+T = the table's B-tree, page 2+T = the index leaf. Reference
+ *  `integrity_check` validates the index against the table. Non-overflow; the index
+ *  must fit one leaf. */
+def buildTableWithIndexDatabase(pageSize: Int, changeCounter: Int, schemaCookie: Int,
+    tableName: String, tableSql: String, indexName: String, indexSql: String,
+    keyColumn: Int, rows: List[List[SqliteValue]]): Either[ByteError, ByteSlice] =
+  encodeRowCellsWithRowid(rows, 1L) match
+    case Left(error) => Left(error)
+    case Right(rowCells) =>
+      val tableLeaves = packLeaves(rowCells, pageSize)
+      val tablePages = treePageCount(tableLeaves, pageSize)
+      val indexRoot = 2 + tablePages
+      buildIndexEntries(rows, keyColumn, 1L) match
+        case Left(error) => Left(error)
+        case Right(entries) =>
+          val indexCells = indexLeafCells(sortIndexEntries(entries))
+          encodeRecord(List(SqlText("table"), SqlText(tableName), SqlText(tableName), SqlInteger(2L), SqlText(tableSql))) match
+            case Left(error) => Left(error)
+            case Right(tableSchema) =>
+              encodeRecord(List(SqlText("index"), SqlText(indexName), SqlText(tableName), SqlInteger(indexRoot.toLong), SqlText(indexSql))) match
+                case Left(error) => Left(error)
+                case Right(indexSchema) =>
+                  buildTableLeafPage(pageSize, 100, List(encodeTableLeafCell(1L, tableSchema), encodeTableLeafCell(2L, indexSchema))) match
+                    case Left(error) => Left(error)
+                    case Right(page1Body) =>
+                      buildTableTreeAt(tableLeaves, pageSize, 2) match
+                        case Left(error) => Left(error)
+                        case Right(tableTree) =>
+                          buildLeafPageKind(pageSize, 0, indexCells, 10) match
+                            case Left(error) => Left(error)
+                            case Right(indexLeaf) =>
+                              val pageCount = 2 + tablePages
+                              val page1 = tableFileHeader(pageSize, pageCount, changeCounter, schemaCookie) ++ page1Body
+                              ByteSlice.fromList(page1 ++ tableTree ++ indexLeaf)
 ```
