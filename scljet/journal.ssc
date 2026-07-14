@@ -158,15 +158,12 @@ def writeRollbackJournal(pageSize: Int, sectorSize: Int, dbSizePages: Int, nonce
 
 case class JournaledWrite(database: ByteSlice, journal: ByteSlice)
 
-/** Overwrite page `pageNumber` (1-based) of `database` with `newPage`. */
+/** Overwrite page `pageNumber` (1-based) of `database` with `newPage`. Copies into
+ *  the target's chunk map in place — no whole-image concatenation, so it scales to
+ *  large databases (a rebuilt B-tree of hundreds of pages) without the interpreter's
+ *  `++` recursing over the entire image. */
 def overwritePage(database: ByteSlice, pageSize: Int, pageNumber: Int, newPage: ByteSlice): Either[ByteError, ByteSlice] =
-  val start = (pageNumber - 1) * pageSize
-  byteSliceSlice(database, 0, start) match
-    case Left(error) => Left(error)
-    case Right(prefix) =>
-      byteSliceSlice(database, start + pageSize, database.length - start - pageSize) match
-        case Left(error) => Left(error)
-        case Right(suffix) => Right(byteSliceConcat(byteSliceConcat(prefix, newPage), suffix))
+  byteSliceCopyTo(newPage, database, (pageNumber - 1) * pageSize)
 
 /** Pre-images (old content) of each page a change set touches, as journal pages. */
 def preImages(database: ByteSlice, pageSize: Int, changes: List[JournalPage]): Either[ByteError, List[JournalPage]] =
@@ -285,6 +282,29 @@ def mutableAllocate(pager: MutablePager): Int =
     maRemaining = maRemaining.tail
   maMax + 1
 
+def mutableSeen(seen: List[Int], page: Int): Boolean =
+  var r = seen
+  var found = false
+  while r.nonEmpty && !found do
+    if r.head == page then found = true
+    r = r.tail
+  found
+
+// Collapse the staged pages to one entry per page number (the newest value wins),
+// so the commit journals ONE pre-image per touched page and applies each page once —
+// not once per rewrite. `pending` is newest-first, so the first sighting is newest.
+def dedupChanges(pending: List[JournalPage]): List[JournalPage] =
+  var r = pending
+  var seen: List[Int] = Nil
+  var out: List[JournalPage] = Nil
+  while r.nonEmpty do
+    val ch = r.head
+    if !mutableSeen(seen, ch.pageNumber) then
+      seen = ch.pageNumber :: seen
+      out = ch :: out
+    r = r.tail
+  out
+
 def mutableExistingChanges(changes: List[JournalPage], origCount: Int): List[JournalPage] =
   var mecRemaining = changes
   var mecAccRev: List[JournalPage] = Nil
@@ -307,7 +327,7 @@ def mutableMaxPage(changes: List[JournalPage], base: Int): Int =
  *  fit any newly allocated pages, then every staged page is applied. Returns a fresh
  *  pager over the new image plus the rollback journal. */
 def mutableCommit(pager: MutablePager, nonce: Long): Either[ByteError, PagerCommit] =
-  val mcChanges = listReverse(pager.pending, Nil)
+  val mcChanges = dedupChanges(pager.pending)
   val mcOrigCount = mutablePageCount(pager)
   val mcMaxPage = mutableMaxPage(mcChanges, mcOrigCount)
   preImages(pager.image, pager.pageSize, mutableExistingChanges(mcChanges, mcOrigCount)) match

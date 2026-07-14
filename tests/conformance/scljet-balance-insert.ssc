@@ -1,0 +1,102 @@
+---
+name: scljet-balance-insert
+description: SclJet incremental B-tree balance — in-place inserts split leaves and grow the tree (balance_deeper), delete rewrites the leaf
+backends: [int, js]
+---
+
+# SclJet incremental B-tree balance()
+
+In-place inserts through the mutable pager: when a leaf overflows it splits and the
+parent gains dividers; when the root overflows the tree grows a level. Starting from
+a one-leaf table, inserting up to 24 rows (~2 per leaf) builds a 2-level tree. We walk
+the tree to confirm every rowid is present and ordered, delete a few (which just
+rewrites their leaves), and fingerprint the image (int==js byte-identical). Reference
+SQLite `integrity_check` accepts the result and reads the rows — verified out-of-band,
+including growth to a 3-level tree at larger sizes.
+
+[ByteSlice, byteSliceToList, byteSliceSlice, byteSliceGet, SqliteValue, SqlInteger, SqlText, encodeRecord, buildTableDatabase, openMutablePager, mutableCommit, MutablePager, pagerInsertBalanced, pagerDeleteBalanced, readLeafCells, readInteriorNode, LeafCell, InteriorNode](std/scljet/index.ssc)
+
+```scalascript
+def rowText(rowid: Int): String = "row-" + rowid.toString + "-padding-to-make-it-a-couple-hundred-bytes-so-a-leaf-holds-only-a-few-rows-and-splits-quickly-abcdefghijklmnopqrstuvwxyz0123456789-abcdefghijklmnopqrstuvwxyz"
+
+def mapRowids(cells: List[LeafCell]): List[Long] =
+  var r = cells
+  var accRev: List[Long] = Nil
+  while r.nonEmpty do
+    accRev = r.head.rowid :: accRev
+    r = r.tail
+  var out: List[Long] = Nil
+  while accRev.nonEmpty do
+    out = accRev.head :: out
+    accRev = accRev.tail
+  out
+
+def collectRowids(img: ByteSlice, pageNo: Int): List[Long] =
+  byteSliceSlice(img, (pageNo - 1) * 512, 512) match
+    case Left(_) => Nil
+    case Right(page) => byteSliceGet(page, 0) match
+      case Right(13) => readLeafCells(page, 0) match
+        case Right(cells) => mapRowids(cells)
+        case Left(_) => Nil
+      case Right(5) => readInteriorNode(page, 0) match
+        case Right(node) =>
+          var r = node.children
+          var acc: List[Long] = Nil
+          while r.nonEmpty do
+            acc = acc ++ collectRowids(img, r.head)
+            r = r.tail
+          acc
+        case Left(_) => Nil
+      case _ => Nil
+
+def insertRange(pager0: MutablePager, start: Int, endInclusive: Int): Either[String, MutablePager] =
+  var p = pager0
+  var i = start
+  var err: Option[String] = None
+  while i <= endInclusive && err.isEmpty do
+    encodeRecord(List(SqlInteger(i.toLong), SqlText(rowText(i)))) match
+      case Left(e) => err = Some(e.message)
+      case Right(rec) => pagerInsertBalanced(p, 2, i.toLong, rec, 512) match
+        case Left(e) => err = Some(e.message)
+        case Right(next) => p = next
+    i = i + 1
+  err match
+    case Some(m) => Left(m)
+    case None => Right(p)
+
+def adler32(bytes: ByteSlice): Long =
+  var adI = 0
+  var adA = 1L
+  var adB = 0L
+  while adI < bytes.length do
+    byteSliceGet(bytes, adI) match
+      case Right(b) =>
+        adA = (adA + b.toLong) % 65521L
+        adB = (adB + adA) % 65521L
+      case Left(e) => adA = adA
+    adI = adI + 1
+  adB * 65536L + adA
+
+buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(id INTEGER, v TEXT)",
+  List(List(SqlInteger(1L), SqlText(rowText(1))),
+       List(SqlInteger(2L), SqlText(rowText(2))))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db) => insertRange(openMutablePager(db, 512, 512), 3, 24) match
+    case Left(m) => println("insert-error:" + m)
+    case Right(inserted) => mutableCommit(inserted, 42L) match
+      case Left(error) => println("commit-error:" + error.message)
+      case Right(pc) =>
+        val img = pc.pager.image
+        println("pages: " + (img.length / 512).toString)
+        println("all rowids: " + collectRowids(img, 2).toString)
+        // delete a few — each just rewrites its leaf
+        pagerDeleteBalanced(openMutablePager(img, 512, 512), 2, 7L, 512) match
+          case Left(error) => println("del7-error:" + error.message)
+          case Right(d1) => pagerDeleteBalanced(d1, 2, 13L, 512) match
+            case Left(error) => println("del13-error:" + error.message)
+            case Right(d2) => mutableCommit(d2, 43L) match
+              case Left(error) => println("del-commit-error:" + error.message)
+              case Right(dpc) =>
+                println("after delete 7,13: " + collectRowids(dpc.pager.image, 2).toString)
+                println("fingerprint: " + adler32(dpc.pager.image).toString)
+```

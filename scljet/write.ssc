@@ -30,6 +30,10 @@ exports:
   - leafDeleteCell
   - leafUpdateCell
   - rebuildLeafPage
+  - InteriorNode
+  - readInteriorNode
+  - pagerInsertBalanced
+  - pagerDeleteBalanced
 ---
 
 # SclJet M3 write path
@@ -43,9 +47,10 @@ fixed only when the first object is created), a change counter of 1, one page,
 and the writer's SQLite version number (3.53.3 → 3053003), matching the
 committed `empty-encoding-zero.db` fixture exactly.
 
-[ByteSlice, ByteError, ByteRead, VarintRead, byteSliceToList, byteSliceZeroExtend, byteSliceGet, byteSliceSlice, encodeVarint, decodeVarint, readU16Be, writeU32Be](bytes.ssc)
+[ByteSlice, ByteError, ByteRead, VarintRead, byteSliceToList, byteSliceZeroExtend, byteSliceGet, byteSliceSlice, encodeVarint, decodeVarint, readU16Be, readU32Be, writeU32Be](bytes.ssc)
 [SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob](values.ssc)
 [DecodedRecord, RecordField](record.ssc)
+[MutablePager, mutableGet, mutablePut, mutablePageCount, mutableAllocate](journal.ssc)
 
 ```scalascript
 // Big-endian fixed-width encoders. Division/modulo keeps them exact on every
@@ -1770,3 +1775,414 @@ def leafUpdateCell(cells: List[LeafCell], rowid: Long, record: ByteSlice): List[
  *  cells no longer fit one page (a split is needed). */
 def rebuildLeafPage(cells: List[LeafCell], pageSize: Int, headerOffset: Int): Either[ByteError, List[Int]] =
   buildTableLeafPage(pageSize, headerOffset, leafCellBytesList(cells))
+
+// ── Incremental B-tree balance() on in-place insert/delete ──
+//
+// A real balance: descend to the target leaf, edit it, and on the way back up split
+// any node that overflows into sibling pages — the first chunk keeps the node's page,
+// the rest are allocated at EOF, and the parent's single child slot is replaced by
+// the pieces with new dividers (an interior split PROMOTES a divider). When the root
+// overflows the tree grows a level (`balance_deeper`) with the root page number kept.
+// Divider keys never change on insert (a routed rowid is <= its subtree's divider, or
+// lands in the rightmost child). Delete just rewrites the leaf: an underfull (even
+// empty) leaf and a slightly-stale divider key are still a valid B-tree. Assumes rows
+// with no per-cell overflow and tables rooted at page >= 2 (`headerOffset` 0).
+
+case class InteriorNode(children: List[Int], keys: List[Long])
+case class SplitPiece(page: Int, maxRowid: Long)
+case class NodeSplit(pieces: List[SplitPiece])
+case class BalanceState(pager: MutablePager, nextPage: Int)
+case class LeafChunk(cells: List[LeafCell], maxRowid: Long)
+case class InteriorChunk(children: List[Int], keys: List[Long], promoted: Long)
+
+def hoff(page: Int): Int = if page == 1 then 100 else 0
+def pageKindAt(page: ByteSlice, headerOffset: Int): Int = byteSliceGet(page, headerOffset) match
+  case Right(value) => value
+  case Left(_) => -1
+
+def intReverse(items: List[Int], acc: List[Int]): List[Int] =
+  var r = items
+  var out = acc
+  while r.nonEmpty do
+    out = r.head :: out
+    r = r.tail
+  out
+
+def longReverse(items: List[Long], acc: List[Long]): List[Long] =
+  var r = items
+  var out = acc
+  while r.nonEmpty do
+    out = r.head :: out
+    r = r.tail
+  out
+
+def intListGet(items: List[Int], index: Int): Int =
+  var r = items
+  var i = 0
+  var out = -1
+  while r.nonEmpty do
+    if i == index then out = r.head
+    i = i + 1
+    r = r.tail
+  out
+
+def intLast(items: List[Int]): Int =
+  var r = items
+  var out = -1
+  while r.nonEmpty do
+    out = r.head
+    r = r.tail
+  out
+
+def intTake(items: List[Int], n: Int): List[Int] =
+  var r = items
+  var i = 0
+  var accRev: List[Int] = Nil
+  while i < n && r.nonEmpty do
+    accRev = r.head :: accRev
+    r = r.tail
+    i = i + 1
+  intReverse(accRev, Nil)
+
+def intDrop(items: List[Int], n: Int): List[Int] =
+  var r = items
+  var i = 0
+  while i < n && r.nonEmpty do
+    r = r.tail
+    i = i + 1
+  r
+
+def longTake(items: List[Long], n: Int): List[Long] =
+  var r = items
+  var i = 0
+  var accRev: List[Long] = Nil
+  while i < n && r.nonEmpty do
+    accRev = r.head :: accRev
+    r = r.tail
+    i = i + 1
+  longReverse(accRev, Nil)
+
+def longDrop(items: List[Long], n: Int): List[Long] =
+  var r = items
+  var i = 0
+  while i < n && r.nonEmpty do
+    r = r.tail
+    i = i + 1
+  r
+
+def reverseCellList(items: List[List[Int]], acc: List[List[Int]]): List[List[Int]] =
+  var r = items
+  var out = acc
+  while r.nonEmpty do
+    out = r.head :: out
+    r = r.tail
+  out
+
+def reverseLeafChunks(items: List[LeafChunk], acc: List[LeafChunk]): List[LeafChunk] =
+  var r = items
+  var out = acc
+  while r.nonEmpty do
+    out = r.head :: out
+    r = r.tail
+  out
+
+def reverseInteriorChunks(items: List[InteriorChunk], acc: List[InteriorChunk]): List[InteriorChunk] =
+  var r = items
+  var out = acc
+  while r.nonEmpty do
+    out = r.head :: out
+    r = r.tail
+  out
+
+def reversePieces(items: List[SplitPiece], acc: List[SplitPiece]): List[SplitPiece] =
+  var r = items
+  var out = acc
+  while r.nonEmpty do
+    out = r.head :: out
+    r = r.tail
+  out
+
+/** Decode a table-interior page into children (m+1, rightmost last) + dividers (m). */
+def readInteriorNode(page: ByteSlice, headerOffset: Int): Either[ByteError, InteriorNode] =
+  readU16Be(page, headerOffset + 3) match
+    case Left(error) => Left(error)
+    case Right(ByteRead(count, _)) => readU32Be(page, headerOffset + 8) match
+      case Left(error) => Left(error)
+      case Right(ByteRead(rightChild, _)) =>
+        var rinI = 0
+        var rinChildrenRev: List[Int] = Nil
+        var rinKeysRev: List[Long] = Nil
+        var rinFailure: Option[ByteError] = None
+        while rinI < count.toInt && rinFailure.isEmpty do
+          readU16Be(page, headerOffset + 12 + 2 * rinI) match
+            case Left(error) => rinFailure = Some(error)
+            case Right(ByteRead(cellPtr, _)) => readU32Be(page, cellPtr.toInt) match
+              case Left(error) => rinFailure = Some(error)
+              case Right(ByteRead(leftChild, _)) => decodeVarint(page, cellPtr.toInt + 4) match
+                case Left(error) => rinFailure = Some(error)
+                case Right(VarintRead(key, _, _)) =>
+                  rinChildrenRev = leftChild.toInt :: rinChildrenRev
+                  rinKeysRev = key :: rinKeysRev
+          rinI = rinI + 1
+        rinFailure match
+          case Some(error) => Left(error)
+          case None => Right(InteriorNode(intReverse(rinChildrenRev, List(rightChild.toInt)), longReverse(rinKeysRev, Nil)))
+
+/** The child slot to follow for `rowid`: the first divider whose key >= rowid, else
+ *  the rightmost child. */
+def chooseChild(node: InteriorNode, rowid: Long): Int =
+  var ccKeys = node.keys
+  var ccI = 0
+  var ccFound = -1
+  while ccKeys.nonEmpty && ccFound < 0 do
+    if rowid <= ccKeys.head then ccFound = ccI
+    else
+      ccI = ccI + 1
+      ccKeys = ccKeys.tail
+  if ccFound >= 0 then ccFound else node.children.length - 1
+
+/** Greedily pack leaf cells into page-fitting chunks (each cell costs 2 + its bytes). */
+def packLeafChunks(cells: List[LeafCell], pageSize: Int): List[LeafChunk] =
+  val budget = pageSize - 8
+  var plcRemaining = cells
+  var plcCurRev: List[LeafCell] = Nil
+  var plcSize = 0
+  var plcChunksRev: List[LeafChunk] = Nil
+  while plcRemaining.nonEmpty do
+    val plcCell = plcRemaining.head
+    val plcCost = 2 + plcCell.bytes.length
+    if plcCurRev.isEmpty then
+      plcCurRev = plcCell :: Nil
+      plcSize = plcCost
+      plcRemaining = plcRemaining.tail
+    else if plcSize + plcCost <= budget then
+      plcCurRev = plcCell :: plcCurRev
+      plcSize = plcSize + plcCost
+      plcRemaining = plcRemaining.tail
+    else
+      plcChunksRev = LeafChunk(leafReverseCells(plcCurRev, Nil), plcCurRev.head.rowid) :: plcChunksRev
+      plcCurRev = plcCell :: Nil
+      plcSize = plcCost
+      plcRemaining = plcRemaining.tail
+  val plcChunks = if plcCurRev.nonEmpty then LeafChunk(leafReverseCells(plcCurRev, Nil), plcCurRev.head.rowid) :: plcChunksRev else plcChunksRev
+  reverseLeafChunks(plcChunks, Nil)
+
+/** Greedily pack an interior node's children into page-fitting chunks; the divider at
+ *  each chunk boundary is promoted (its key becomes a piece's `promoted` maxRowid). */
+def packInteriorChunks(children: List[Int], keys: List[Long], pageSize: Int): List[InteriorChunk] =
+  val budget = pageSize - 12
+  var picChildren = children.tail
+  var picKeys = keys
+  var picCurChildrenRev: List[Int] = children.head :: Nil
+  var picCurKeysRev: List[Long] = Nil
+  var picSize = 0
+  var picChunksRev: List[InteriorChunk] = Nil
+  while picChildren.nonEmpty do
+    val picNext = picChildren.head
+    val picKey = picKeys.head
+    val picCost = 6 + varintLen(picKey)
+    if picSize + picCost <= budget then
+      picCurKeysRev = picKey :: picCurKeysRev
+      picCurChildrenRev = picNext :: picCurChildrenRev
+      picSize = picSize + picCost
+      picChildren = picChildren.tail
+      picKeys = picKeys.tail
+    else
+      picChunksRev = InteriorChunk(intReverse(picCurChildrenRev, Nil), longReverse(picCurKeysRev, Nil), picKey) :: picChunksRev
+      picCurChildrenRev = picNext :: Nil
+      picCurKeysRev = Nil
+      picSize = 0
+      picChildren = picChildren.tail
+      picKeys = picKeys.tail
+  val picChunks = InteriorChunk(intReverse(picCurChildrenRev, Nil), longReverse(picCurKeysRev, Nil), 0L) :: picChunksRev
+  reverseInteriorChunks(picChunks, Nil)
+
+def buildInteriorCells(children: List[Int], keys: List[Long]): List[List[Int]] =
+  var bicKeys = keys
+  var bicI = 0
+  var bicAccRev: List[List[Int]] = Nil
+  while bicKeys.nonEmpty do
+    bicAccRev = encodeInteriorCell(intListGet(children, bicI), bicKeys.head) :: bicAccRev
+    bicI = bicI + 1
+    bicKeys = bicKeys.tail
+  reverseCellList(bicAccRev, Nil)
+
+def buildInteriorFrom(children: List[Int], keys: List[Long], pageSize: Int, headerOffset: Int): Either[ByteError, List[Int]] =
+  buildTableInteriorPage(pageSize, headerOffset, buildInteriorCells(children, keys), intLast(children))
+
+/** Serialize a split's leaf chunks: chunk 0 keeps `firstPage`, the rest are allocated. */
+def buildLeafChunks(state: BalanceState, firstPage: Int, chunks: List[LeafChunk], pageSize: Int): Either[ByteError, (BalanceState, NodeSplit)] =
+  var blcPager = state.pager
+  var blcNext = state.nextPage
+  var blcRemaining = chunks
+  var blcIndex = 0
+  var blcPiecesRev: List[SplitPiece] = Nil
+  var blcFailure: Option[ByteError] = None
+  while blcRemaining.nonEmpty && blcFailure.isEmpty do
+    val blcChunk = blcRemaining.head
+    val blcPage = if blcIndex == 0 then firstPage else blcNext
+    if blcIndex > 0 then blcNext = blcNext + 1
+    buildTableLeafPage(pageSize, hoff(blcPage), leafCellBytesList(blcChunk.cells)) match
+      case Left(error) => blcFailure = Some(error)
+      case Right(body) => ByteSlice.fromList(body) match
+        case Left(error) => blcFailure = Some(error)
+        case Right(slice) =>
+          blcPager = mutablePut(blcPager, blcPage, slice)
+          blcPiecesRev = SplitPiece(blcPage, blcChunk.maxRowid) :: blcPiecesRev
+    blcIndex = blcIndex + 1
+    blcRemaining = blcRemaining.tail
+  blcFailure match
+    case Some(error) => Left(error)
+    case None => Right((BalanceState(blcPager, blcNext), NodeSplit(reversePieces(blcPiecesRev, Nil))))
+
+def buildInteriorChunks(state: BalanceState, firstPage: Int, chunks: List[InteriorChunk], pageSize: Int): Either[ByteError, (BalanceState, NodeSplit)] =
+  var bicPager = state.pager
+  var bicNext = state.nextPage
+  var bicRemaining = chunks
+  var bicIndex = 0
+  var bicPiecesRev: List[SplitPiece] = Nil
+  var bicFailure: Option[ByteError] = None
+  while bicRemaining.nonEmpty && bicFailure.isEmpty do
+    val bicChunk = bicRemaining.head
+    val bicPage = if bicIndex == 0 then firstPage else bicNext
+    if bicIndex > 0 then bicNext = bicNext + 1
+    buildInteriorFrom(bicChunk.children, bicChunk.keys, pageSize, hoff(bicPage)) match
+      case Left(error) => bicFailure = Some(error)
+      case Right(body) => ByteSlice.fromList(body) match
+        case Left(error) => bicFailure = Some(error)
+        case Right(slice) =>
+          bicPager = mutablePut(bicPager, bicPage, slice)
+          bicPiecesRev = SplitPiece(bicPage, bicChunk.promoted) :: bicPiecesRev
+    bicIndex = bicIndex + 1
+    bicRemaining = bicRemaining.tail
+  bicFailure match
+    case Some(error) => Left(error)
+    case None => Right((BalanceState(bicPager, bicNext), NodeSplit(reversePieces(bicPiecesRev, Nil))))
+
+def splitPiecePages(pieces: List[SplitPiece]): List[Int] =
+  var r = pieces
+  var accRev: List[Int] = Nil
+  while r.nonEmpty do
+    accRev = r.head.page :: accRev
+    r = r.tail
+  intReverse(accRev, Nil)
+
+def splitPieceKeysExceptLast(pieces: List[SplitPiece]): List[Long] =
+  var r = pieces
+  var accRev: List[Long] = Nil
+  while r.nonEmpty do
+    if r.tail.nonEmpty then accRev = r.head.maxRowid :: accRev
+    r = r.tail
+  longReverse(accRev, Nil)
+
+/** Replace `node`'s child at `slot` with the split's pieces, inserting the first
+ *  (pieces-1) piece maxRowids as new dividers at `slot`. */
+def replaceChild(node: InteriorNode, slot: Int, split: NodeSplit): InteriorNode =
+  val newChildren = intTake(node.children, slot) ++ splitPiecePages(split.pieces) ++ intDrop(node.children, slot + 1)
+  val newKeys = longTake(node.keys, slot) ++ splitPieceKeysExceptLast(split.pieces) ++ longDrop(node.keys, slot)
+  InteriorNode(newChildren, newKeys)
+
+/** Rewrite a leaf's page (single chunk) or split it into sibling pages. */
+def finishLeaf(state: BalanceState, pageNumber: Int, cells: List[LeafCell], pageSize: Int): Either[ByteError, (BalanceState, NodeSplit)] =
+  buildLeafChunks(state, pageNumber, packLeafChunks(cells, pageSize), pageSize)
+
+/** Rewrite an interior page or split it into sibling interior pages. */
+def finishInterior(state: BalanceState, pageNumber: Int, node: InteriorNode, pageSize: Int): Either[ByteError, (BalanceState, NodeSplit)] =
+  buildInteriorChunks(state, pageNumber, packInteriorChunks(node.children, node.keys, pageSize), pageSize)
+
+/** Insert `rowid`/`record` into the subtree at `pageNumber`, balancing on the way up.
+ *  Returns the updated state and this node's split result (1 piece = it did not split). */
+def balanceInsertNode(state: BalanceState, pageNumber: Int, rowid: Long, record: ByteSlice, pageSize: Int, depth: Int): Either[ByteError, (BalanceState, NodeSplit)] =
+  val bho = hoff(pageNumber)
+  if depth > 64 then Left(ByteError("cycle", "balance descent exceeded 64 levels at page " + pageNumber.toString, pageNumber))
+  else mutableGet(state.pager, pageNumber) match
+    case Left(error) => Left(error)
+    case Right(page) =>
+      val kind = pageKindAt(page, bho)
+      if kind == 13 then
+        readLeafCells(page, bho) match
+          case Left(error) => Left(error)
+          case Right(cells) => leafInsertCell(cells, rowid, record) match
+            case Left(msg) => Left(ByteError("duplicate", msg, 0))
+            case Right(newCells) => finishLeaf(state, pageNumber, newCells, pageSize)
+      else if kind == 5 then
+        readInteriorNode(page, bho) match
+          case Left(error) => Left(error)
+          case Right(node) =>
+            val slot = chooseChild(node, rowid)
+            balanceInsertNode(state, intListGet(node.children, slot), rowid, record, pageSize, depth + 1) match
+              case Left(error) => Left(error)
+              case Right(childResult) =>
+                val childState = childResult._1
+                val childSplit = childResult._2
+                if childSplit.pieces.length == 1 then Right((childState, NodeSplit(List(SplitPiece(pageNumber, 0L)))))
+                else finishInterior(childState, pageNumber, replaceChild(node, slot, childSplit), pageSize)
+      else Left(ByteError("kind", "unexpected page kind " + kind.toString + " at page " + pageNumber.toString, pageNumber))
+
+/** Grow the tree a level: the overflowing root's content moves to a fresh page and
+ *  the root page becomes an interior over the split pieces (root page number kept). */
+def balanceDeeper(state: BalanceState, rootPage: Int, split: NodeSplit, pageSize: Int): Either[ByteError, MutablePager] =
+  val newPage = state.nextPage
+  mutableGet(state.pager, rootPage) match
+    case Left(error) => Left(error)
+    case Right(rootContent) =>
+      val pager2 = mutablePut(state.pager, newPage, rootContent)
+      val childPages = newPage :: intDrop(splitPiecePages(split.pieces), 1)
+      buildInteriorFrom(childPages, splitPieceKeysExceptLast(split.pieces), pageSize, hoff(rootPage)) match
+        case Left(error) => Left(error)
+        case Right(body) => ByteSlice.fromList(body) match
+          case Left(error) => Left(error)
+          case Right(slice) => Right(mutablePut(pager2, rootPage, slice))
+
+/** Set the file header's database size in pages (bytes 28..31 of page 1) to
+ *  `totalPages`, so a grown tree's new child pages are in range for the reader and
+ *  reference `integrity_check`. */
+def patchHeaderPageCount(pager: MutablePager, totalPages: Int): Either[ByteError, MutablePager] =
+  mutableGet(pager, 1) match
+    case Left(error) => Left(error)
+    case Right(page1) => byteSliceSlice(page1, 0, 28) match
+      case Left(error) => Left(error)
+      case Right(prefix) => byteSliceSlice(page1, 32, page1.length - 32) match
+        case Left(error) => Left(error)
+        case Right(suffix) =>
+          ByteSlice.fromList(byteSliceToList(prefix) ++ byteSliceToList(writeU32Be(totalPages.toLong)) ++ byteSliceToList(suffix)) match
+            case Left(error) => Left(error)
+            case Right(newPage1) => Right(mutablePut(pager, 1, newPage1))
+
+/** Insert one row in place with full B-tree balancing, staged on the mutable pager
+ *  (commit it with `mutableCommit`). `rootPage` is the table's root page. */
+def pagerInsertBalanced(pager: MutablePager, rootPage: Int, rowid: Long, record: ByteSlice, pageSize: Int): Either[ByteError, MutablePager] =
+  balanceInsertNode(BalanceState(pager, mutableAllocate(pager)), rootPage, rowid, record, pageSize, 0) match
+    case Left(error) => Left(error)
+    case Right(result) =>
+      val finalState = result._1
+      val split = result._2
+      val balanced = if split.pieces.length == 1 then Right(finalState.pager)
+        else balanceDeeper(finalState, rootPage, split, pageSize)
+      balanced match
+        case Left(error) => Left(error)
+        case Right(pagerAfter) => patchHeaderPageCount(pagerAfter, mutableAllocate(pagerAfter) - 1)
+
+def descendToLeaf(pager: MutablePager, pageNumber: Int, rowid: Long): Either[ByteError, Int] =
+  mutableGet(pager, pageNumber) match
+    case Left(error) => Left(error)
+    case Right(page) =>
+      if pageKindAt(page, hoff(pageNumber)) == 13 then Right(pageNumber)
+      else readInteriorNode(page, hoff(pageNumber)) match
+        case Left(error) => Left(error)
+        case Right(node) => descendToLeaf(pager, intListGet(node.children, chooseChild(node, rowid)), rowid)
+
+/** Delete a row in place: rewrite the leaf holding `rowid` with the cell removed.
+ *  No rebalance is needed for validity. Staged on the pager. */
+def pagerDeleteBalanced(pager: MutablePager, rootPage: Int, rowid: Long, pageSize: Int): Either[ByteError, MutablePager] =
+  descendToLeaf(pager, rootPage, rowid) match
+    case Left(error) => Left(error)
+    case Right(leafPage) => mutableGet(pager, leafPage) match
+      case Left(error) => Left(error)
+      case Right(page) => readLeafCells(page, hoff(leafPage)) match
+        case Left(error) => Left(error)
+        case Right(cells) => rebuildLeafPage(leafDeleteCell(cells, rowid), pageSize, hoff(leafPage)) match
+          case Left(error) => Left(error)
+          case Right(body) => ByteSlice.fromList(body) match
+            case Left(error) => Left(error)
+            case Right(slice) => Right(mutablePut(pager, leafPage, slice))
