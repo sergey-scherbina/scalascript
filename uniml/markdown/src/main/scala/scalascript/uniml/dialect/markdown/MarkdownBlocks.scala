@@ -20,6 +20,32 @@ private[markdown] final case class MarkdownBlockResult(
   * `var`s inside `parse`, with immutable `Vector`/`Map` accumulation and a local
   * imperative shell; the state-touching helpers are nested defs over those
   * locals and the pure classifiers stay class methods. */
+// container stack: each entry is a frame kept open across continuation lines.
+// Hoisted to TOP LEVEL (from inside MarkdownBlocks): ScalaScript v2 attributes a
+// NESTED case class's body method to the enclosing class (`Bq.frame` was registered
+// as `MarkdownBlocks.frame`), so `container.frame` dispatch Stub'd. Top-level
+// case-class body methods dispatch correctly; file-private, so scalac is unchanged.
+private[markdown] sealed trait Container:
+  def frame: String
+private[markdown] final case class Blockquote() extends Container:
+  def frame = MdBranch.Blockquote
+private[markdown] final case class ListFrame(ordered: Boolean) extends Container:
+  def frame = MdBranch.List
+private[markdown] final case class ListItemFrame(ordered: Boolean, contentIndent: Int) extends Container:
+  def frame = MdBranch.ListItem
+
+// Hoisted from inside MarkdownBlocks (a plain class) — v2 doesn't lower type decls
+// nested in a plain-class body. File-private, so scalac is unchanged.
+private[markdown] enum OpenLeaf:
+  case None
+  case Paragraph
+  case FencedCode(char: Char, len: Int)
+
+// One physical paragraph line: the stripped container-continuation prefix (a `> `
+// marker or list indent; empty on the first line and lazy lines), the de-prefixed
+// content, and the exact ending.
+private[markdown] final case class ParaSeg(prefix: String, content: String, ending: String)
+
 private[markdown] final class MarkdownBlocks(
     source: SourceId,
     profile: MarkdownProfile,
@@ -27,26 +53,6 @@ private[markdown] final class MarkdownBlocks(
 ):
   private val gfm = profile == MarkdownProfile.Gfm
   private val scala = profile == MarkdownProfile.ScalaScript
-
-  // container stack: each entry is a frame kept open across continuation lines
-  private sealed trait Container:
-    def frame: String
-  private final case class Blockquote() extends Container:
-    def frame = MdBranch.Blockquote
-  private final case class ListFrame(ordered: Boolean) extends Container:
-    def frame = MdBranch.List
-  private final case class ListItem(ordered: Boolean, contentIndent: Int) extends Container:
-    def frame = MdBranch.ListItem
-
-  private enum OpenLeaf:
-    case None
-    case Paragraph
-    case FencedCode(char: Char, len: Int)
-
-  // One physical paragraph line: the stripped container-continuation prefix (a
-  // `> ` marker or list indent; empty on the first line and lazy lines), the
-  // de-prefixed content, and the exact ending.
-  private final case class ParaSeg(prefix: String, content: String, ending: String)
 
   def parse(text: String): MarkdownBlockResult =
     // ── token cursor state (was TokenSink) ──────────────────────────────────
@@ -99,9 +105,11 @@ private[markdown] final class MarkdownBlocks(
         val last = out.last
         val rewritten = last.instruction match
           case VmInstruction.Emit(role) =>
-            VmInstruction.Reframe(closeAfter = remaining, role = role)
+            // closeBefore/open passed explicitly in field order: v2 does not reorder an
+            // all-named enum-case construction that omits leading defaults.
+            VmInstruction.Reframe(closeBefore = Vector.empty, open = Vector.empty, closeAfter = remaining, role = role)
           case VmInstruction.Close(expected, role) =>
-            VmInstruction.Reframe(closeAfter = expected.toVector ++ remaining, role = role)
+            VmInstruction.Reframe(closeBefore = Vector.empty, open = Vector.empty, closeAfter = expected.toVector ++ remaining, role = role)
           case VmInstruction.Reframe(cb, op, ca, role) =>
             VmInstruction.Reframe(cb, op, ca ++ remaining, role)
           case other => other
@@ -195,7 +203,7 @@ private[markdown] final class MarkdownBlocks(
                 rest = remainder
                 matched += 1
               case None => done = true
-          case item: ListItem =>
+          case item: ListItemFrame =>
             if MdChars.indentWidth(rest) >= item.contentIndent || rest.forall(c => c == ' ' || c == '\t') then
               val take = consumeIndent(rest, item.contentIndent)
               if take.nonEmpty then consume(MdKind.Indent, take)
@@ -479,7 +487,7 @@ private[markdown] final class MarkdownBlocks(
         opens = opens :+ FrameSpec(MdBranch.List)
         containers = containers :+ ListFrame(ordered)
       opens = opens :+ FrameSpec(MdBranch.ListItem)
-      containers = containers :+ ListItem(ordered, contentIndent + lead)
+      containers = containers :+ ListItemFrame(ordered, contentIndent + lead)
       val body = content.substring(lead)
       val markerLex = body.substring(0, marker.length)
       flushPending(MdKind.ListMarker, markerLex, opens, Some("marker"), TokenChannel.Syntax)
@@ -594,20 +602,20 @@ private[markdown] final class MarkdownBlocks(
 
     def emitLast(branch: String, piece: InlinePiece): Unit = piece match
       case InlinePiece.Tok(kind, lex, r, ch) =>
-        emit(kind, lex, VmInstruction.Reframe(closeAfter = Vector(branch), role = r), ch)
+        emit(kind, lex, VmInstruction.Reframe(closeBefore = Vector.empty, open = Vector.empty, closeAfter = Vector(branch), role = r), ch)
       case InlinePiece.Close(b2, kind, lex, r) =>
-        emit(kind, lex, VmInstruction.Reframe(closeAfter = Vector(b2, branch), role = r), TokenChannel.Syntax)
+        emit(kind, lex, VmInstruction.Reframe(closeBefore = Vector.empty, open = Vector.empty, closeAfter = Vector(b2, branch), role = r), TokenChannel.Syntax)
       case InlinePiece.Open(b2, kind, lex, r) =>
         // degenerate trailing open; open then rely on closeDangling
         emit(kind, lex, VmInstruction.Open(b2, r), TokenChannel.Syntax)
 
     def emitFirstLast(branch: String, piece: InlinePiece, role: Option[String]): Unit = piece match
       case InlinePiece.Tok(kind, lex, r, ch) =>
-        emit(kind, lex, foldPending(VmInstruction.Reframe(open = Vector(FrameSpec(branch)), closeAfter = Vector(branch), role = r.orElse(role))), ch)
+        emit(kind, lex, foldPending(VmInstruction.Reframe(closeBefore = Vector.empty, open = Vector(FrameSpec(branch)), closeAfter = Vector(branch), role = r.orElse(role))), ch)
       case InlinePiece.Open(b2, kind, lex, r) =>
-        emit(kind, lex, foldPending(VmInstruction.Reframe(open = Vector(FrameSpec(branch), FrameSpec(b2)), closeAfter = Vector(b2, branch), role = r)), TokenChannel.Syntax)
+        emit(kind, lex, foldPending(VmInstruction.Reframe(closeBefore = Vector.empty, open = Vector(FrameSpec(branch), FrameSpec(b2)), closeAfter = Vector(b2, branch), role = r)), TokenChannel.Syntax)
       case InlinePiece.Close(b2, kind, lex, r) =>
-        emit(kind, lex, foldPending(VmInstruction.Reframe(open = Vector(FrameSpec(branch)), closeAfter = Vector(b2, branch), role = r)), TokenChannel.Syntax)
+        emit(kind, lex, foldPending(VmInstruction.Reframe(closeBefore = Vector.empty, open = Vector(FrameSpec(branch)), closeAfter = Vector(b2, branch), role = r)), TokenChannel.Syntax)
 
     /** Replay a resolved inline piece as its plain VM instruction. */
     def replay(piece: InlinePiece): Unit = piece match
@@ -624,7 +632,7 @@ private[markdown] final class MarkdownBlocks(
       else if pendingClose.isEmpty && opens.isEmpty then
         leaf(kind, lexeme, role, channel)
       else
-        val instr = VmInstruction.Reframe(closeBefore = pendingClose, open = opens, role = role)
+        val instr = VmInstruction.Reframe(closeBefore = pendingClose, open = opens, closeAfter = Vector.empty, role = role)
         pendingClose = Vector.empty
         emit(kind, lexeme, instr, channel)
 
