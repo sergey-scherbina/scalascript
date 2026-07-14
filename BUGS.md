@@ -1,5 +1,46 @@
 # Bug tracker
 
+## scala3-control-effect-key-row-elimination — CONFIRMED / open (2026-07-14, Codex)
+
+**Status:** open (tier-1 type-safety blocker). Found by the `api_type_design`
+implementation audit against the uncommitted `scala3ControlApi` reference model;
+reported by codex-interop in the `scalascript` rozum room.
+
+**Symptom:** `EffectKey[+Fx]` and public `named[Fx](id, witness)` permit distinct
+runtime keys for the same static `Fx`. `handle[Fx, Nothing, ...]` matches one key,
+forwards an operation using the other, yet returns `Eff[Nothing, ...]`. Covariance
+also permits one key to masquerade as a key for a union row and falsely remove every
+member.
+
+**Reproduce:** create `k1` and `k2` for one effect type, perform an operation whose
+`effect = k2`, handle that effect type with `k1` and `Residual = Nothing`, then pass
+the accepted result to `Eff.runPure`. The current implementation reaches the
+forwarded request despite the empty static row.
+
+**Fix/verification:** not fixed yet. Effect rows need invariant keys and operations
+owned by one exact singleton witness; constructing or widening a key for a union
+must fail. Add compile/runtime regressions before committing the handler.
+
+## scala3-control-capability-jvm-visibility — CONFIRMED / open (2026-07-14, Codex)
+
+**Status:** open (tier-1 ABI/capability blocker). Found by `api_type_design` with
+`javap -public` against the uncommitted leaf; reported by codex-interop in the
+`scalascript` rozum room.
+
+**Symptom:** Scala `private[control]` and several plain-private cross-companion
+bridges compile to public JVM methods/constructors. The draft exposed
+`Eff.request`, continuation factories, key/prompt constructors and prompt internals,
+so Java or same-package Scala could bypass the intended construction boundary.
+
+**Reproduce:** run `javap -public` on the draft classes; it lists `Eff.request`,
+`Continuation.runtime`, `OneShotContinuation.runtime/delegate`, and public JVM
+constructors for `EffectKey`, `Continuation`, and `Prompt`.
+
+**Fix/verification:** not fixed yet. Remove raw pending-request construction from
+the external JVM surface, use genuinely private nested implementations or a
+validated unforgeable authority for constructors that Scala emits public, and make
+`javap -public` part of the ABI gate.
+
 ## scala3-control-shift-row-widening — DONE (2026-07-14, Codex)
 
 **Status:** done in `06b4e4be1` (tier-1 API type-safety blocker). Found by the

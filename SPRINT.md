@@ -85,6 +85,14 @@ optional policy, not the default continuation semantics.
         every `Residual >: Fx`; Scala 3.8.3 accepts ordinary and nested prompt programs but rejects
         the old `Fx = Nothing` + later-effect `runPure(k.resume(...))` exploit. The reporting audit
         confirmed both probes and `BUGS.md scala3-control-shift-row-widening` is done.
+  - [ ] **sca-2b — make effect-key elimination sound.** Replace covariant broad-marker keys with
+        invariant singleton-owned keys/operations; reject duplicate-key mismatch and union-key
+        widening repros, update the frozen profile, and close
+        `BUGS.md scala3-control-effect-key-row-elimination` before committing handlers.
+  - [ ] **sca-2c — close JVM capability construction.** Remove raw `Eff.request` from the public
+        bytecode surface; protect unavoidable Scala-public JVM constructors with private nested
+        implementations or validated authority, run `javap -public`, update the profile, and close
+        `BUGS.md scala3-control-capability-jvm-visibility` before committing the reference model.
   - [ ] **sca-3 — implement the executable reference model.** Implement a private-erasure,
         public-typed stackless `Pure | Op`/bind/defer machine, iterative `step`/pure runner, deep
         residual-forwarding handlers, operation multiplicity, generative prompts, exact multi-prompt
