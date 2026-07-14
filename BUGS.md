@@ -27,10 +27,10 @@ and returns the value; Swift has no equivalent recoverable no-arm signal.
 the missing-Return case explicitly enough for `handleEffect` to apply the same
 identity fallback; add the identical no-Return fixture to JVM and Swift tests.
 
-## v21-stage2-gate-ignores-symlinked-std-sources — CONFIRMED / open (2026-07-15, Codex)
+## v21-stage2-gate-ignores-symlinked-std-sources — FIXED / awaiting confirmation (2026-07-15, Codex)
 
-**Status:** open. Found while running the mandatory self-hosted fixed-point gate
-for `control-one-shot-guard`.
+**Status:** fixed in `13b29852e`; awaiting reporter confirmation. Found while
+running the mandatory self-hosted fixed-point gate for `control-one-shot-guard`.
 
 **Symptom:** `scripts/v21-stage2-bootstrap-gate` rejects a freshly generated
 native-front image because all `runtime/std/scljet/*.ssc` files exist only in
@@ -48,9 +48,10 @@ command with `-L` and the installer both count 124.
 unlike sbt's recursive glob used by `installBin`. The two sides therefore apply
 different source-tree semantics to a documented, tracked compatibility symlink.
 
-**Fix/verification:** pending — make the gate follow directory symlinks while
-building the source manifest, then require the full stage-2 fixpoint and
-source-exact checks to pass.
+**Fix/verification:** the gate now uses symlink-following enumeration for the
+source manifest, matching `installBin`. After a fresh install on current `main`,
+`scripts/v21-stage2-bootstrap-gate` reports both single/multi fixed points true,
+131 compiler-image files, and `compiler.image.source-exact=true`.
 
 ## scala-control-api-v1-placement — FIXED / awaiting confirmation (2026-07-14, Sergiy)
 
@@ -203,12 +204,12 @@ comment line.
 **Fix/verification:** the probe comment now states Rust R.6 multi-shot has landed while
 v2 JS still lacks `effect.*`; harness 9/9 measurable-now still green.
 
-## control-interop-portable-vm-oneshot-guard-absent — CONFIRMED / open (2026-07-14, claude)
+## control-interop-portable-vm-oneshot-guard-absent — FIXED / awaiting confirmation (2026-07-14, claude)
 
-**Status:** open (runtime gap). Tracked as conformance axis
-`tests/interop-conformance/pending/21-one-shot-violation-diagnostic.pending`. Reported by
-codex-interop (rozum #interoperability, 2026-07-14): "generated JVM effect runtime appears
-to lack the one-shot repeated-resume guard present in JS/interpreter paths".
+**Status:** fixed in `cbdc4791a`; awaiting reporter confirmation. Formerly tracked
+as pending conformance axis 21, now promoted to the measurable suite. Reported by
+codex-interop (rozum #interoperability, 2026-07-14): "generated JVM effect runtime
+appears to lack the one-shot repeated-resume guard present in JS/interpreter paths".
 
 **Symptom:** resuming twice from a handler over a plain (non-`multi`) `effect` runs
 silently and returns a value instead of a typed one-shot-violation diagnostic.
@@ -226,11 +227,16 @@ constructs the same reusable 3-field `Op(label,arg,k)` for both declarations. VM
 correctly agree because both dispatch through this single runtime; the lost metadata is
 upstream, not an ASM-specific bug.
 
-**Fix/verification:** not fixed — needs one-shot vs multi-shot tracking + a typed diagnostic
-in the shared portable effect runtime. The spec-first plan keeps raw/Mira `Comp` reusable,
-maps typed `.ssc effect` to an atomic gated base continuation, and maps `multi effect` to the
-existing reusable path without a CoreIR node or Op-arity change. Conformance axis stays
-`pending-runtime` until the VM/ASM regression lands.
+**Fix/verification:** both lowering paths now preserve declaration multiplicity;
+plain typed effects use `effect.perform.oneshot`, while raw/Mira and `multi effect`
+retain reusable `effect.perform`. The shared base continuation owns one atomic
+claim without changing CoreIR or the three-field `Op`. VM and ASM now reject the
+second resume with the same exact structured diagnostic and no suffix; their
+multi-shot controls both return `3`. Direct runtime tests pass 4/4, real Swift
+focused tests pass 3/3, native e2e passes, interop reports 10/10 measurable axes,
+and affected conformance reports 6/6. The independently found Swift implicit-
+`Return` fallback and residual-forwarding/stack-safety axes remain open; they do
+not reopen this original portable-VM guard bug.
 
 ## control-interop-effect-recursion-stack-unsafe — CONFIRMED / open (2026-07-14, claude)
 

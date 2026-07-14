@@ -1,6 +1,8 @@
 # Portable one-shot resumption guard
 
-> Status: **specified; implementation pending** (2026-07-14).
+> Status: **implemented and verified for the one-shot primitive scope**
+> (2026-07-15). Residual forwarding and Swift's implicit-`Return` parity are
+> separately tracked runtime gaps and are not claimed by this result.
 > Normative owners: [`control-interoperability.md`](control-interoperability.md),
 > [`../SPEC.md`](../SPEC.md), and the source declaration rules in
 > [`algebraic-effects.md`](algebraic-effects.md).
@@ -92,24 +94,28 @@ class name/message are not an ABI and user exception handling must rethrow it.
 
 ## Behavior
 
-- [ ] A plain `.ssc effect` continuation may be resumed zero or one time; its
+- [x] A plain `.ssc effect` continuation may be resumed zero or one time; its
       second sequential invocation fails with `AlreadyResumed` before the suffix
       executes.
-- [ ] Concurrent invocations have exactly one winner, selected by an atomic claim;
+- [x] Concurrent invocations have exactly one winner, selected by an atomic claim;
       every loser observes the same operation identity and no losing suffix runs.
-- [ ] `multi effect` and raw `effect.perform` remain reusable and may resume zero,
+- [x] `multi effect` and raw `effect.perform` remain reusable and may resume zero,
       one, or many times. Concurrent reusable execution/isolation remains a
       separate saved-continuation/profile obligation.
-- [ ] Deep handling, bind/sequence lifting, residual forwarding, and VM/ASM
-      wrappers preserve the original one-shot gate instead of allocating a new one.
-- [ ] VM and direct ASM produce the same structured failure and stable message for
+- [x] Existing deep handling, bind/sequence lifting, and VM/ASM wrappers preserve
+      the original one-shot gate instead of allocating a new one. Residual
+      forwarding itself remains the separate unsupported axis 19; when introduced,
+      it must delegate to this same base gate.
+- [x] VM and direct ASM produce the same structured failure and stable message for
       the reporter's `resume(1) + resume(2)` shape; the same `multi effect` program
       returns `3` on both.
-- [ ] The self-hosted lowerer and compatibility frontend preserve declaration
-      multiplicity; every generated backend in the delivery matrix that already
-      advertises typed algebraic effects implements the one-shot primitive with
-      the same observable contract.
-- [ ] Existing raw/Mira `Comp` tests remain reusable, and every stale typed `.ssc`
+- [x] The self-hosted lowerer and compatibility frontend preserve declaration
+      multiplicity. Swift AOT, the generated backend in this delivery matrix that
+      already advertises typed algebraic effects, implements the same atomic
+      rejection, operation identity, stable diagnostic, and non-user-catchable
+      one-shot contract. Its independent implicit-`Return` fallback mismatch is
+      still tracked and is not hidden by this checkbox.
+- [x] Existing raw/Mira `Comp` tests remain reusable, and every stale typed `.ssc`
       multi-shot fixture explicitly declares `multi effect`.
 
 ## Design
@@ -206,6 +212,8 @@ honestly rather than becoming dummy values.
 - Changing raw/Mira effect-row `Comp` semantics.
 - Durable `SavedContinuation` admission, serialization, or one-shot workflow policy.
 - The separate stack-safety and residual-forwarding gaps in conformance axes 20/19.
+  Any later residual-forwarding wrapper remains obligated to preserve the base
+  one-shot gate rather than minting a fresh claim.
 - Implementing the currently unsupported v2 JS/Rust/WASM `effect.*` primitive family.
 - `callCC` or a new CoreIR continuation/effect node.
 
@@ -219,11 +227,42 @@ The implementation closes only when all of these are green:
 3. Assembled `bin/ssc run` and `bin/ssc run --bytecode` negative/positive e2e.
 4. Promoted interop axis 21 plus existing multi-shot axes 02 and 09.
 5. Native effect-handler smoke and affected `effects`/`effect-*` conformance.
-6. Any generated backend currently advertising typed algebraic effects.
+6. Any generated backend currently advertising typed algebraic effects. In this
+   delivery matrix that is Swift AOT; the checked-source vector uses an explicit
+   `Return` arm while the independently tracked implicit-`Return` fallback gap is
+   repaired.
 
 ## Results
 
-Baseline on 2026-07-14, assembled launcher:
+### Verified implementation (2026-07-15)
+
+- Runtime/lowering landed in `cbdc4791a`; the stage-2 manifest gate correction
+  required to verify the self-hosted image landed in `13b29852e`; user-facing
+  documentation landed in `f92594ff3`.
+- `PortableEffectsOneShotTest`: 4/4, covering structured sequential rejection,
+  raw reusable perform, a 64-way linearizable race with exactly one suffix, and
+  non-catchability by `.ssc try/catch`.
+- Compatibility frontend dispatch tests: 3/3, covering plain, bare/curried, and
+  `multi effect` lowering/ANF classification.
+- Real Swift focused tests: 3/3, covering stable sequential failure, a 64-way
+  native race (one winner and 63 identical losers), and checked-source plain vs
+  multi multiplicity. The checked-source vector uses an explicit `Return` arm;
+  `BUGS.md swift-effect-handler-implicit-return-fallback` remains open.
+- Assembled VM and direct ASM both exit non-zero with empty stdout and exactly
+  `error [ONESHOT_VIOLATION]: One-shot violation: One.op resumed more than once`;
+  the corresponding `multi effect` program returns `3` on both. IR dumps select
+  `effect.perform.oneshot` only for the plain declaration and `effect.perform`
+  only for the multi declaration.
+- `tests/e2e/v21-native-effect-handlers-smoke.sh`: PASS;
+  `tests/interop-conformance/run.sh`: 10 measurable axes PASS, 0 FAIL (axis 21
+  promoted); affected conformance: 6/6 PASS across available lanes.
+- `scripts/v21-stage2-bootstrap-gate`: both single/multi fixed points true and
+  `compiler.image.source-exact=true` after a fresh `installBin` (131 image files).
+- Residual forwarding (axis 19), stack-safe deep effect recursion (axis 20), and
+  Swift's implicit-`Return` fallback remain explicitly open follow-ups; none is
+  represented as completed by this feature result.
+
+### Pre-implementation baseline (2026-07-14)
 
 - plain `effect One`, `resume(1) + resume(2)` returns `3` in both VM and ASM;
 - legacy v1 rejects it as `One-shot violation: One.op resumed more than once`;
