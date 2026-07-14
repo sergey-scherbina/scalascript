@@ -175,12 +175,39 @@ def scanTripleEnd = (s, i) =>
     else scanTripleEnd(s, #i.add(i, 1))
   else scanTripleEnd(s, #i.add(i, 1))
 
+-- Hex-digit value (0-9 A-F a-f); non-hex → 0. Used to decode `\uXXXX` escapes.
+def hexDigit = (c) =>
+  if #i.ge(c, 48) then
+    (if #i.le(c, 57) then #i.sub(c, 48)
+     else if #i.ge(c, 65) then (if #i.le(c, 70) then #i.sub(c, 55)
+       else if #i.ge(c, 97) then (if #i.le(c, 102) then #i.sub(c, 87) else 0) else 0)
+     else 0)
+  else 0
+-- Decode 4 hex digits at `i` → code point (d0*4096 + d1*256 + d2*16 + d3).
+def hex4 = (s, i) =>
+  #i.add(#i.mul(hexDigit(sget(s, i)), 4096),
+    #i.add(#i.mul(hexDigit(sget(s, #i.add(i, 1))), 256),
+      #i.add(#i.mul(hexDigit(sget(s, #i.add(i, 2))), 16),
+        hexDigit(sget(s, #i.add(i, 3))))))
+
 def buildStr = (s, i, end, acc) =>
   if #i.ge(i, end) then acc
   else let c = sget(s, i) in
     if #i.eq(c, 92) then
       let e = nget(s, #i.add(i, 1)) in
+      -- `\uXXXX` → the code-point char (advance past the 6-char escape).
+      if #i.eq(e, 117) then
+        buildStr(s, #i.add(i, 6), end, scat(acc, #sfromCodes(Cons(hex4(s, #i.add(i, 2)), Nil))))
+      else
+      -- Control-char escapes: \n \t \r \b \f. Others (\" \\ \' \/) fall to the
+      -- else branch, which yields the literal char — correct for those. \r/\b/\f
+      -- were missing, so `"\r"` decoded to the letter "r" (e.g. isWhitespace("\r")
+      -- wrongly matched a bare "r"). Use #sfromCodes so this doesn't depend on the
+      -- host lexer decoding \r/\b/\f in its own literals.
       let ec = if #i.eq(e, 110) then "\n" else if #i.eq(e, 116) then "\t"
+               else if #i.eq(e, 114) then #sfromCodes(Cons(13, Nil))
+               else if #i.eq(e, 98) then #sfromCodes(Cons(8, Nil))
+               else if #i.eq(e, 102) then #sfromCodes(Cons(12, Nil))
                else #sfromCodes(Cons(e, Nil)) in
       buildStr(s, #i.add(i, 2), end, scat(acc, ec))
     else buildStr(s, #i.add(i, 1), end, scat(acc, #sfromCodes(Cons(c, Nil))))
@@ -327,6 +354,10 @@ def lexFrom = (s, i) =>
       -- chars as codes (scodeAt, comparisons), so 'a' == c works.
       if #i.eq(sget(s, #i.add(i2, 1)), 92) then
         let e = sget(s, #i.add(i2, 2)) in
+        -- '\uXXXX' → code point; the literal is 8 chars ('\uXXXX' + closing quote).
+        if #i.eq(e, 117) then
+          Cons(mkTok("int", #i->str(hex4(s, #i.add(i2, 3)))), lexFrom(s, #i.add(i2, 8)))
+        else
         let code = if #i.eq(e, 110) then 10 else if #i.eq(e, 116) then 9
                    else if #i.eq(e, 114) then 13 else if #i.eq(e, 48) then 0 else e in
         Cons(mkTok("int", #i->str(code)), lexFrom(s, #i.add(i2, 4)))
