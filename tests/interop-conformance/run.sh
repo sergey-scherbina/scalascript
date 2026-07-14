@@ -49,7 +49,9 @@ if [ -d "$DIR/pending" ]; then
   for p in "$DIR"/pending/*.pending; do
     [ -e "$p" ] || continue
     axis="$(sed -n 's/^axis:[[:space:]]*//p' "$p" | head -1)"
-    printf '%-34s %-10s %s\n' "${axis:-$(basename "$p")}" "PENDING" "needs DurableValue codec + admission (post-X1)"
+    st="$(sed -n 's/^status:[[:space:]]*//p' "$p" | head -1)"
+    need="$(sed -n 's/^needs:[[:space:]]*//p' "$p" | head -1)"
+    printf '%-40s %-16s %s\n' "${axis:-$(basename "$p")}" "${st:-PENDING}" "${need}"
   done
 fi
 

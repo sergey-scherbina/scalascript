@@ -43,28 +43,48 @@ host, those two gates.
 | 03 | deep proper tail calls (intra-lane) | measurable-now | ✓ 2000000 |
 | 04 | callback re-entry (managed closure) | measurable-now | ✓ 8 |
 | 05 | capture + resume, same host | measurable-now | ✓ 30 |
-| 06 | durable save/run, same process | pending-codec | needs DurableValue codec |
-| 07 | cross-host resume | pending-codec | ✗ today (no capsule) |
-| 08 | concurrent multi-shot | pending-codec | needs SavedContinuation |
-| 09 | no prefix/main replay | pending-codec | needs init-free resume entry |
+| 06 | zero-resume (early return / abort) | measurable-now | ✓ -1 |
+| 07 | deep handler reinstall over recursion | measurable-now | ✓ 3 |
+| 08 | return-clause transform (Int→List) | measurable-now | ✓ List(42, 42) |
+| 09 | nondeterminism (many-resume product) | measurable-now | ✓ List(11, 21, 12, 22) |
 | 10 | raw ForeignV → Unsavable (neg.) | pending-codec | FrameGate discriminator |
 | 11 | missing resolver → reject (neg.) | pending-codec | atomic admission |
 | 12 | codec / ExactArtifact mismatch (neg.) | pending-codec | versioned-codec + pin |
 | 13 | signature / quota (neg.) | pending-codec | untrusted-capsule admission |
+| 14 | durable save/run, same process | pending-codec | needs DurableValue codec |
+| 15 | cross-host resume | pending-codec | ✗ today (no capsule) |
+| 16 | concurrent multi-shot | pending-codec | needs SavedContinuation |
+| 17 | no prefix/main replay | pending-codec | needs init-free resume entry |
+| 18 | delimited shift/reset (multi-prompt) | pending-runtime | `reset` unbound on VM |
+| 19 | residual forwarding (nested handlers) | pending-runtime | inner ⇏ outer (no arm) |
+| 20 | stack-safety, deep effect recursion | pending-runtime | overflow ~2k depth |
+| 21 | one-shot violation diagnostic | pending-runtime | not enforced (multi silent) |
 
-Measurable-now axes (01–05) are the **in-process** control semantics, which the
+Measurable-now axes (01–09) are the **in-process** control semantics the
 portable-VM implements today via `handle(prog()) { case Eff.op(args, resume) => … }`
-(validated against `tests/conformance/effect-deep-handler-state.ssc`). They are
-the reference baseline every host profile must also pass.
+and `multi effect` (validated against `tests/conformance/effects.ssc` and
+`effect-deep-handler-state.ssc`). They are the reference baseline every host
+profile must also pass, and cover §14.1 semantic vectors that run on the VM:
+one/many/zero-resume, deep handler reinstall, and return-clause transform.
 
-Axes 06–13 require the durable capsule surface (`continuation.save()` /
-`SavedContinuation.run()`), the `DurableValue` wire codec, and the atomic
-admission layer. Per the v2.2 gate, byte-affecting codec work begins only **after
-the X1 self-compilation fixed-point**; until then these are `pending-codec` and
-recorded in `pending/` so each converts mechanically to a runnable probe when the
-codec lands. The single ✗ the model exists to close is **07 (cross-host
-resume)**: the portable-VM already does N→M resume in-process (02, 05); only the
-durable serialization to cross a host boundary is missing.
+Two distinct pending groups — never silently green:
+
+- **`pending-codec` (10–17)** require the durable capsule surface
+  (`continuation.save()` / `SavedContinuation.run()`), the `DurableValue` wire
+  codec, and the atomic admission layer. Per the v2.2 gate, byte-affecting codec
+  work begins only **after the X1 self-compilation fixed point**. The single ✗ the
+  whole model exists to close is **15 (cross-host resume)**: the portable-VM
+  already does N→M resume in-process (02, 05, 09); only the durable serialization
+  to cross a host boundary is missing.
+- **`pending-runtime` (18–21)** are §14.1 semantic vectors the portable-VM
+  effect runtime does **not** support yet, found empirically (2026-07-14, each
+  `pending/` file records the exact measured evidence): delimited `shift`/`reset`
+  is unbound; an inner handler does not forward an unhandled operation to an outer
+  handler (`no arm for wr/2`); effect-performing recursion overflows the native
+  stack between depth 500 and 2000 (pure TCO is unaffected — axis 03 ✓ at 2,000,000);
+  a one-shot effect resumed twice is silently allowed. These need effect-runtime
+  support, **not** the codec — the compiler-independent `scala3-control-api`
+  reference runner is the natural first home before any VM lowering.
 
 ## Layout
 

@@ -1,0 +1,25 @@
+---
+name: interop-08-return-clause-transform
+axis: return-clause-transform
+status: measurable-now
+---
+
+# Axis 8 — return-clause placement / transform
+
+The `Return` arm transforms the pure result (here `Int → List[Int]`), so the
+handler's overall type differs from the body's (§14.1 "return-clause placement").
+Verifies the return clause runs on the final value and can change the result type.
+
+```scalascript
+effect Get:
+  def get(): Int
+
+val r = handle {
+  val x = Get.get()
+  x * 2
+} {
+  case Get.get(resume) => resume(21)
+  case Return(x) => List(x, x)
+}
+println(r)
+```

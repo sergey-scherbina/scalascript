@@ -1,0 +1,26 @@
+---
+name: interop-06-zero-resume-early-return
+axis: zero-resume-early-return
+status: measurable-now
+---
+
+# Axis 6 — zero-resume (early return / abort)
+
+A handler arm that returns WITHOUT invoking `resume` — the exception-like case
+(§14.1 "zero-, one-, and many-resume handlers"). The suffix after the perform
+(`x + 100`) never runs; the handler's value replaces the whole computation.
+
+```scalascript
+effect Fail:
+  def raise(): Int
+
+def prog(): Int =
+  val x = Fail.raise()
+  x + 100
+
+val r = handle(prog()) {
+  case Fail.raise(resume) => -1
+  case Return(x) => x
+}
+println(r)
+```

@@ -1,0 +1,28 @@
+---
+name: interop-07-handler-reinstall-recursion
+axis: handler-reinstall-recursion
+status: measurable-now
+---
+
+# Axis 7 — deep handler reinstall over recursion
+
+A single handler is re-entered on every recursive step: each `Amb.flip()` in the
+recursion suspends to the same handler and resumes (§14.1 "deep handler
+reinstall"). Verifies the handler stays installed across the recursive suffix and
+each perform routes to it.
+
+```scalascript
+effect Amb:
+  def flip(): Boolean
+
+def prog(n: Int): Int =
+  if n == 0 then 0 else
+    val b = Amb.flip()
+    (if b then 1 else 0) + prog(n - 1)
+
+val r = handle(prog(3)) {
+  case Amb.flip(resume) => resume(true)
+  case Return(x) => x
+}
+println(r)
+```

@@ -1,0 +1,26 @@
+---
+name: interop-09-nondeterminism-product
+axis: nondeterminism-product
+status: measurable-now
+---
+
+# Axis 9 — nondeterminism (many-resume product)
+
+A `multi effect` whose handler resumes once per choice and combines the results
+with `flatMap`, producing the full product of two choice points (§14.1
+"many-resume handlers"). The deepest in-process use of reusable resumption: the
+continuation after each `pick` is invoked once per option.
+
+```scalascript
+multi effect Ch:
+  def pick(xs: List[Int]): Int
+
+val r = handle {
+  val x = Ch.pick(List(1, 2))
+  val y = Ch.pick(List(10, 20))
+  x + y
+} {
+  case Ch.pick(xs, resume) => xs.flatMap(o => resume(o))
+}
+println(r)
+```
