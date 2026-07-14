@@ -5,3 +5,6 @@ SELECT MIN(name), MAX(name) FROM t => alice|dave
 SELECT COUNT(age) FROM t WHERE name >= 'bob' => 3
 SELECT COUNT(*) FROM t WHERE age > 100 => 0
 SELECT MAX(age) FROM t WHERE age > 100 => 
+SELECT AVG(age), TOTAL(age) FROM t => 33.0|132.0
+SELECT AVG(age) FROM t WHERE age > 28 => 35.0
+SELECT TOTAL(age) FROM t WHERE age > 100 => 0.0

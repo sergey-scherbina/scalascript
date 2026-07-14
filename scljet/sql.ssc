@@ -1029,10 +1029,23 @@ def executeMutation(dbBytes: ByteSlice, sql: String): Either[String, ByteSlice] 
 
 // ── Rendering (sqlite3 CLI list format: `a|b|c` per row, NULL blank) ──
 
+// A real is rendered like the sqlite3 CLI: an integer-valued real still shows a
+// decimal (`35` → `35.0`); other values keep the shortest round-trip form (matches
+// sqlite for up to ~15 significant digits — repeating decimals may differ).
+def renderReal(x: Double): String =
+  val s = x.toString
+  var i = 0
+  var hasDot = false
+  while i < s.length do
+    val c = s.charAt(i).toInt
+    if c == 46 || c == 101 || c == 69 then hasDot = true
+    i = i + 1
+  if hasDot then s else s + ".0"
+
 def renderValue(v: SqliteValue): String = v match
   case SqlNull => ""
   case SqlInteger(x) => x.toString
-  case SqlReal(x) => x.toString
+  case SqlReal(x) => renderReal(x)
   case SqlText(s) => s
   case SqlBlob(_) => ""
 

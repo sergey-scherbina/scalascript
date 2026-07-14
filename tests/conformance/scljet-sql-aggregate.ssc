@@ -6,11 +6,11 @@ backends: [int, js]
 
 # SclJet SQL aggregates
 
-`SELECT COUNT(*|col), SUM(col), MIN(col), MAX(col) FROM t [WHERE …]` computes the aggregate(s)
-over the WHERE-filtered rows and returns one row. Every result is byte-identical to reference
-sqlite3 running the same SQL on the same file (verified out-of-band); locked here across
-backends. (`AVG`/`TOTAL` are parsed and computed too but omitted from this differential — they
-return reals whose textual format does not yet match sqlite's — a follow-up.)
+`SELECT COUNT(*|col), SUM(col), MIN(col), MAX(col), AVG(col), TOTAL(col) FROM t [WHERE …]`
+computes the aggregate(s) over the WHERE-filtered rows and returns one row. Every result is
+byte-identical to reference sqlite3 running the same SQL on the same file (verified
+out-of-band); locked here across backends. Reals render like the sqlite3 CLI (integer-valued
+reals keep a trailing `.0`).
 
 [ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
 [queryImage, renderRows](std/scljet/sql.ssc)
@@ -35,4 +35,7 @@ buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(id INTEGER, name TEXT, age IN
     run(db, "SELECT COUNT(age) FROM t WHERE name >= 'bob'")
     run(db, "SELECT COUNT(*) FROM t WHERE age > 100")
     run(db, "SELECT MAX(age) FROM t WHERE age > 100")
+    run(db, "SELECT AVG(age), TOTAL(age) FROM t")
+    run(db, "SELECT AVG(age) FROM t WHERE age > 28")
+    run(db, "SELECT TOTAL(age) FROM t WHERE age > 100")
 ```
