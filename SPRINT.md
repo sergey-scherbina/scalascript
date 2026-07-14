@@ -1707,6 +1707,14 @@ ORDER BY / LIMIT / OFFSET, aggregates (COUNT/SUM/MIN/MAX/AVG/TOTAL), GROUP BY + 
 and inner + LEFT joins — every feature byte-verified against reference sqlite3, int==js.
 Remaining follow-ups (niche): multi-table (3+) joins, page-1 schema split, repeating-decimal %.15g.
 
+- [x] **scljet-m5y-insert-multi** — DONE 2026-07-14. Multi-row `INSERT INTO t VALUES (…),(…),(…)`
+      (plain and with a column list). `InsertStmt.values: List[SqliteValue]` → `rows:
+      List[List[SqliteValue]]`; new `parseValueRows` loops `parseValueList` over comma-separated
+      tuples; new `insertRowsLoop` inserts every row (rowid = maxRowid+1, +2, …) into ONE mutable
+      pager via `pagerInsertBalanced`, then a single `mutableCommit`. Unlisted columns fill NULL per
+      row (reuses `reorderInsertValues`). Verified vs sqlite3 (3-tuple plain + 2-tuple column-list,
+      then SELECT/COUNT/IS NULL/ORDER BY), int==js; conformance `scljet-sql-insert-multi`.
+
 - [x] **scljet-m5x-agg-distinct** — DONE 2026-07-14. Aggregate `DISTINCT`: `COUNT(DISTINCT col)`,
       `SUM(DISTINCT col)`, `AVG(DISTINCT col)` (and MIN/MAX/TOTAL) aggregate over the distinct non-null
       argument values. `AggItem`/`ProjItem` gained a `distinct: Boolean`; `parseProjItem` recognizes
