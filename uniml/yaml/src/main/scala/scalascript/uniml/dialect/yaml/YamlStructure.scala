@@ -35,6 +35,11 @@ private[yaml] object YamlStructure:
         val instruction =
           if opening.nonEmpty || closing.nonEmpty then
             VmInstruction.Reframe(
+              // `closeBefore` (a leading defaulted field) is passed EXPLICITLY, in
+              // field order: ScalaScript v2 does not reorder an all-named enum-case
+              // construction that omits a non-trailing default — it places the named
+              // values positionally, shifting every field. Same result on scalac.
+              closeBefore = Vector.empty,
               open = opening.map(range => FrameSpec(range.kind, range.role)),
               closeAfter = closing.map(_.kind),
               role = tokenRole(tokens(index)),
@@ -136,11 +141,14 @@ private[yaml] object YamlStructure:
     var stack: Vector[(Char, Int)] = Vector.empty
     tokens.indices.foreach { index =>
       tokens(index).lexeme match
-        case "[" | "{" => stack = stack :+ (tokens(index).lexeme.head, index)
+        case "[" | "{" => stack = stack :+ (tokens(index).lexeme.charAt(0), index)
         case "]" | "}" if stack.nonEmpty =>
           val expected = if tokens(index).lexeme == "]" then '[' else '{'
           if stack.last._1 == expected then
-            val (open, start) = stack.last
+            // `._1`/`._2` rather than a `val (open, start) = …` tuple-pattern binding:
+            // ScalaScript v2 does not destructure a tuple in a val pattern.
+            val open = stack.last._1
+            val start = stack.last._2
             stack = stack.dropRight(1)
             val kind = if open == '[' then "yaml.sequence.flow" else "yaml.mapping.flow"
             result = result :+ Range(kind, Some(flowRole(stack.lastOption.map(_._1))), start, index, 100 + stack.size)
@@ -153,7 +161,7 @@ private[yaml] object YamlStructure:
     var stack: Vector[(Char, SourceToken)] = Vector.empty
     tokens.foreach { token =>
       token.lexeme match
-        case "[" | "{" => stack = stack :+ (token.lexeme.head, token)
+        case "[" | "{" => stack = stack :+ (token.lexeme.charAt(0), token)
         case "]" | "}" =>
           val expected = if token.lexeme == "]" then '[' else '{'
           if stack.isEmpty || stack.last._1 != expected then

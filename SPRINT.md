@@ -36,15 +36,25 @@ verify by probe + JVM dialect test + conformance 640ok. Detail: memory `project_
   empty → Stub. Fixed: `compileWithGlobals` now runs a pass-0 that registers all `__regfields__` from
   the entry before evaluating value defs. Repro `p-varlast.ssc` now `kind=seq`. (Did NOT fix the YAML
   kind-on-string — that receiver is a StrV, unrelated.)
-- [ ] **v2-yaml-kind-on-string** — CURRENT YAML blocker: `__method__: no dispatch for .kind on
-  "yaml.sequence"` (receiver is a STRING kind-value, not a case class, so the field-access fallback
-  doesn't apply). In `YamlStructure.blockRanges`; the `role` lambda's `parent.kind` works (DBG: parent
-  is a valid BlockFrame), so it's a different `.kind` call — instrument `frames.last.kind` (line 968)
-  / the Range flow. Repro: scratchpad `yaml-flat.ssc` / `yaml-flat-dbg2.ssc`.
+- [x] **v2-yaml-kind-on-string ROOT-CAUSED + fixed** — was NOT a `.kind` bug per se: an all-named
+  enum-case construction that omits a LEADING default (`Reframe(open=…, closeAfter=…)` omitting
+  `closeBefore`) places the named values POSITIONALLY without reorder/fill (v2 gap: enum-case
+  `lookupFields` is empty, so `resolveCtorArgs` can't reorder). `open` then held the `closeAfter`
+  kind-strings → `spec.kind` on a string. Fixed UniML-side: pass `closeBefore = Vector.empty`
+  explicitly, in field order (YamlStructure). Plus `.lexeme.head`→`.charAt(0)` (no `String.head` on v2)
+  and `val (open,start)=…`→`._1`/`._2` (no tuple-pattern val). **YAML BLOCK-STYLE NOW COMPLETE on v2**
+  (scalar/map/seq/nested → roots=1 Complete 0 diags; unimlYaml 18/18).
+- [ ] **v2-enum-named-nonleading-default** (deeper v2 fix, deferred) — the general bug behind the
+  above: enum-case named construction doesn't reorder/fill an omitted non-trailing default because
+  enum cases aren't in `caseFieldOrderCell` the way case classes are (`lookupFields(caseName)`=Nil).
+  Fix: register enum-case field order so `resolveCtorArgs` reorders them too. Repro `p-enumnamed.ssc`.
+- [ ] **v2-yaml-flow-err** — flow-style `[1,2,3]`/`{a:1}` → `unbound global: _err` (an unparseable
+  construct in the flow path, only reached for flow input; `_ => body`, `case Some('[')`, `.charAt(0)`
+  all verified fine). Block-style unaffected. Repro: scratchpad `yaml-flat.ssc` with `[1,2,3]`.
 - [ ] **v2-object-qualified-nested-ctor** — `O.Inner(…)` (qualified ext ref to a nested type) →
   `unbound global: O_Inner`. Bare `Inner(…)` inside the object works; dialects use bare, so low-pri.
-- [ ] **yaml-flat-remaining** — after the kind-on-string fix, re-run `scratchpad/yaml-flat.ssc` for
-  the next gap; iterate to `status=Complete`. Then a v2-vs-JVM differential over a YAML corpus.
+- [ ] **yaml-flow-remaining** — fix flow-err, iterate to Complete on flow inputs; then a v2-vs-JVM
+  differential over a YAML corpus.
 
 ### Markdown — NOT STARTED
 - [ ] **markdown-on-v2** — flatten `markdown/` parse path (nested enums InlinePiece/AngleKind/OpenLeaf
