@@ -399,6 +399,54 @@ def ownerVarNames = (stmts) =>
       }
   }
 
+-- Registry of each object's `var` fields (`[Pair(objName, [varNames])]`), so an
+-- EXTERNAL read `O.f` of an object's mutable field resolves to `cell.get(O_f__cell)`
+-- (internal reads already route via isActiveOwnerVar). Objects are module-level
+-- singletons — their `var` fields are like top-level vars and are NOT --mutable-gated.
+def objectVarsCell = #cell.new(Nil)
+def collectObjectVars = (stmts) =>
+  match stmts {
+    case Nil => Nil
+    case Cons(s, rest) =>
+      match s {
+        case Pair(tag, data) =>
+          if #seq(tag, "object") then
+            match data { case Pair(oname, ostmts) =>
+              Cons(Pair(oname, ownerVarNames(ostmts)), collectObjectVars(rest)) }
+          else collectObjectVars(rest)
+      }
+  }
+def objectVarFields = (oname) =>
+  let rec go = (rs) =>
+    match rs {
+      case Nil => Nil
+      case Cons(r, rest) =>
+        match r { case Pair(o, vs) => if #seq(o, oname) then vs else go(rest) }
+    } in
+  go(#cell.get(objectVarsCell))
+-- Resolve `O.member(rargs)` on a known object: a no-arg read of a mutable `var`
+-- field is `cell.get(O_member__cell)`; everything else is the static `O_member`.
+def resolveObjMember = (rname, method, rargs) =>
+  if memberOfL(method, objectVarFields(rname)) then
+    match rargs {
+      case Nil =>
+        Pair("prim", Pair("cell.get",
+          Cons(Pair("var", #sconcat(rname, #sconcat("_", #sconcat(method, "__cell")))), Nil)))
+      case _ =>
+        let mangled = #sconcat(rname, #sconcat("_", method)) in
+        Pair("app", Pair(Pair("var", mangled), packObjVarargs(method, mangled, rargs)))
+    }
+  else
+    let mangled = #sconcat(rname, #sconcat("_", method)) in
+    Pair("app", Pair(Pair("var", mangled), packObjVarargs(method, mangled, rargs)))
+-- Property read `O.field` (no call): a mutable `var` field is `cell.get(O_field__cell)`,
+-- otherwise the static `O_field` global.
+def resolveObjProp = (rname, field) =>
+  if memberOfL(field, objectVarFields(rname)) then
+    Pair("prim", Pair("cell.get",
+      Cons(Pair("var", #sconcat(rname, #sconcat("_", #sconcat(field, "__cell")))), Nil)))
+  else Pair("var", #sconcat(rname, #sconcat("_", field)))
+
 def staticMemberNames = (stmts) =>
   match stmts {
     case Nil => Nil
@@ -1311,8 +1359,7 @@ def resolveMethodCall = (robj, method, rargs) =>
            -- uppercase object (Dataset.of, Graph.vertices) → __method__ dispatch,
            -- resolved by the plugin runtime's __fallback__.<Name>.<method>.
            else if isKnownObject(rname) then
-             let mangled = #sconcat(rname, #sconcat("_", method)) in
-             Pair("app", Pair(Pair("var", mangled), packObjVarargs(method, mangled, rargs)))
+             resolveObjMember(rname, method, rargs)
            else
              Pair("prim", Pair("__method__",
                Cons(Pair("str", method), Cons(Pair("ctorap", Pair(rname, Nil)), rargs)))))
@@ -1342,7 +1389,7 @@ def resolveMethodCall = (robj, method, rargs) =>
                 Pair("app", Pair(Pair("var", #sconcat(gname, #sconcat("_", method))), rargs))
             }
           else if isKnownObject(rname) then
-            Pair("app", Pair(Pair("var", #sconcat(rname, #sconcat("_", method))), rargs))
+            resolveObjMember(rname, method, rargs)
           else if isMapVar(rname) then
             if #seq(method, "updated") then
               Pair("app", Pair(Pair("var", "_sel_mapUpdated"), Cons(robj, rargs)))
@@ -1526,8 +1573,8 @@ def resolveField = (robj, field) =>
                 Pair("var", #sconcat(gname, #sconcat("_", field)))
             }
           else if isKnownObject(rname) then
-            -- 0-param method accessed as a value; return the global directly
-            Pair("var", #sconcat(rname, #sconcat("_", field)))
+            -- 0-param method / property accessed as a value (var field → cell.get)
+            resolveObjProp(rname, field)
           else
             selOrMethod(field, robj)
           }
@@ -1542,8 +1589,8 @@ def resolveField = (robj, field) =>
             else selOrMethod(field, robj)
           else if isKnownObject(rname) then
             -- User objects parse as uid receivers; properties use the same
-            -- deterministic owner prefix as method calls.
-            Pair("var", #sconcat(rname, #sconcat("_", field)))
+            -- deterministic owner prefix (var field → cell.get).
+            resolveObjProp(rname, field)
           else
             selOrMethod(field, robj)
         else
@@ -4906,6 +4953,7 @@ def lowerProg = (stmts) =>
   let _st = #cell.set(kc5SigCell, buildSigTable(stmts)) in
   -- KC7b: reset known-objects registry (lower-case given instances)
   let _ko = #cell.set(kc7bObjectsCell, collectObjects(stmts)) in
+  let _kov = #cell.set(objectVarsCell, collectObjectVars(stmts)) in
   let _ke = #cell.set(enumCasesCell, collectEnums(stmts)) in
   let _kop = #cell.set(kc7bOwnerPrefixCell, "") in
   let _kom = #cell.set(kc7bOwnerMembersCell, Nil) in
