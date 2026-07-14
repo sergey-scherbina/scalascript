@@ -1,0 +1,5 @@
+claim: v2.2-p6.8-spike-gapscan
+branch: feature/v2.2-p6.8-spike-gapscan
+what: P6.8 — systematic spike gap-scan: probe common ScalaScript constructs through spike vs ssc1-front,
+      find + fix the next byte-identity gaps (like braced-block -> __notImplemented__ in P6.7).
+started: 2026-07-14
