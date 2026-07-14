@@ -17,8 +17,31 @@ portable-VM effect-runtime gaps in BUGS.md + as `pending-runtime` conformance ax
 
 - [ ] **one-shot-violation guard** (`BUGS.md control-interop-portable-vm-oneshot-guard-absent`)
       — resume-twice on a non-`multi` effect is silently allowed on both portable-VM tiers
-      (interp + bytecode). Fix home: Scala control reference runner (one-shot tracking +
-      typed diagnostic), or the VM effect runtime. Conformance axis 21 stays pending-runtime.
+      (interp + bytecode). The raw/Mira `Pure | Op` substrate remains reusable; the typed
+      `.ssc` declaration surface lowers plain `effect` to one-shot and `multi effect` to
+      reusable without adding a CoreIR continuation/effect node or changing the 3-field Op.
+      Baseline (assembled `bin/ssc`, 2026-07-14): both `run` and `run --bytecode` return `3`;
+      legacy `bin/ssc-tools run --v1` reports `One-shot violation: One.op resumed more than once`.
+  - [ ] **Spec freeze:** reconcile `SPEC.md`, `specs/control-interoperability.md`, the portable
+        profile, and the v2 raw-Comp specs. Add target-neutral `AlreadyResumed(operation)`;
+        freeze the `.ssc` projection as typed `OneShotViolation(operation)` with stable code
+        `ONESHOT_VIOLATION` and legacy-compatible message, while Scala host `tryResume` keeps
+        returning `Left(ResumeRejected.AlreadyResumed(operation))`.
+  - [ ] **Multiplicity-preserving lowering:** retain the parser Boolean in the self-hosted
+        lowerer and compatibility bridge; emit an explicit one-shot perform path for plain
+        `.ssc effect`, keep raw `effect.perform` and `multi effect` reusable, and preserve
+        current CoreIR/`Op(label,arg,k)` shapes.
+  - [ ] **Shared runtime guard:** put one atomic CAS gate on the base continuation so VM/ASM
+        bind, sequence, deep-handler, and forwarding wrappers all share it; the second or
+        concurrent caller loses deterministically before executing the suffix.
+  - [ ] **Regressions and stale fixtures:** add direct runtime + lowerer checks, VM/ASM e2e
+        negative and positive controls, promote interop axis 21, change axis 02 and the native
+        effect-handler fixture to explicit `multi effect`, and cover any currently advertised
+        generated backend whose primitive allowlist consumes the new lowering.
+  - [ ] **Verify and close:** run focused Scala tests, assembled `installBin`, exact VM/ASM
+        repros, `tests/interop-conformance/run.sh`, native effect-handler e2e, and affected
+        `tests/conformance/run.sh --only 'effects|effect-*'`; then mark BUGS fixed (not done
+        until reporter confirmation), update spec behavior checkboxes/results, and bookkeeping.
 - [ ] **stack-safe effect continuation** (`BUGS.md control-interop-effect-recursion-stack-unsafe`)
       — effect-performing recursion overflows the native stack ~500–2000 depth on both tiers
       (pure TCO fine to 2M). Needs a heap-allocated continuation. Conformance axis 20 stays pending-runtime.

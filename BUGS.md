@@ -166,9 +166,19 @@ silently and returns a value instead of a typed one-shot-violation diagnostic.
 Cross-lane per codex-interop: the guard IS present in the v1 interpreter / JS paths and
 ABSENT in generated JVM — confirmed absent on the portable-VM native lane here.
 
+**Root cause:** both v2 frontends erase declaration multiplicity before the shared effect
+runtime. The self-hosted parser records `effect_decl(name, false|true, ops)`, but
+`ssc1-lower.ssc0` binds it as `ignoredMulti` and always emits reusable `effect.perform`;
+the compatibility bridge rewrites `multi effect` to `effect`. `PortableEffects` therefore
+constructs the same reusable 3-field `Op(label,arg,k)` for both declarations. VM and ASM
+correctly agree because both dispatch through this single runtime; the lost metadata is
+upstream, not an ASM-specific bug.
+
 **Fix/verification:** not fixed — needs one-shot vs multi-shot tracking + a typed diagnostic
-in the effect runtime (natural home: the compiler-independent Scala control reference
-runner). Conformance axis stays `pending-runtime`.
+in the shared portable effect runtime. The spec-first plan keeps raw/Mira `Comp` reusable,
+maps typed `.ssc effect` to an atomic gated base continuation, and maps `multi effect` to the
+existing reusable path without a CoreIR node or Op-arity change. Conformance axis stays
+`pending-runtime` until the VM/ASM regression lands.
 
 ## control-interop-effect-recursion-stack-unsafe — CONFIRMED / open (2026-07-14, claude)
 
