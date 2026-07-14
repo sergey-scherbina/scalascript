@@ -1355,6 +1355,114 @@ def indexLeafCells(entries: List[IndexEntry]): List[List[Int]] =
     ilcRemaining = ilcRemaining.tail
   ilcAcc.reverse
 
+// ── Multi-leaf index B-tree (interior index cells carry a full key record) ──
+//
+// When the entries do not fit one leaf they are packed into several leaves with a
+// SEPARATOR entry PROMOTED between each adjacent pair — the separator lives in the
+// interior (not a leaf), unlike a table interior which only copies a rowid. Index
+// interior cell = `u32(leftChild) ++ varint(payloadLen) ++ record`; page kind 2.
+
+case class IndexTreePlan(leafGroups: List[List[IndexEntry]], separators: List[IndexEntry])
+case class IndexTreeBytes(bytes: List[Int], pageCount: Int)
+
+/** An interior B-tree page with an explicit kind (5 = table interior, 2 = index
+ *  interior). Same layout as `buildTableInteriorPage`. */
+def buildInteriorPageKind(pageSize: Int, headerOffset: Int, cells: List[List[Int]], rightChild: Int, kind: Int): Either[ByteError, List[Int]] =
+  val count = cells.length
+  val total = cellsTotal(cells)
+  val contentStart = pageSize - total
+  val gap = contentStart - (headerOffset + 12 + 2 * count)
+  if gap < 0 then Left(ByteError("overflow", "interior index cells do not fit (3-level index is a follow-up)", 0))
+  else
+    val csField = if contentStart == 65536 then 0 else contentStart
+    val header = List(kind, 0, 0) ++ writeBe16(count) ++ writeBe16(csField) ++ List(0) ++ writeBe32(rightChild)
+    Right(header ++ cellPointers(cells, contentStart) ++ writeZeros(gap) ++ cellsFlatten(cells))
+
+def indexInteriorCell(childPage: Int, record: List[Int]): List[Int] =
+  writeBe32(childPage) ++ byteSliceToList(encodeVarint(record.length.toLong)) ++ record
+
+/** Greedily pack sorted index entries into leaves, promoting one entry as a
+ *  separator between each adjacent pair. `while`+`var` (not recursion). */
+def packIndexTree(entries: List[IndexEntry], pageSize: Int): IndexTreePlan =
+  var pitRemaining = entries
+  var pitCurRev: List[IndexEntry] = Nil
+  var pitBytes = 8
+  var pitCount = 0
+  var pitLeaves: List[List[IndexEntry]] = Nil
+  var pitSeparators: List[IndexEntry] = Nil
+  while pitRemaining.nonEmpty do
+    val pitEntry = pitRemaining.head
+    val pitCellSize = 2 + varintLen(pitEntry.record.length.toLong) + pitEntry.record.length
+    if pitCount == 0 then
+      pitCurRev = pitEntry :: Nil
+      pitBytes = 8 + pitCellSize
+      pitCount = 1
+      pitRemaining = pitRemaining.tail
+    else if pitBytes + pitCellSize <= pageSize then
+      pitCurRev = pitEntry :: pitCurRev
+      pitBytes = pitBytes + pitCellSize
+      pitCount = pitCount + 1
+      pitRemaining = pitRemaining.tail
+    else if pitRemaining.tail.nonEmpty then
+      // leaf full, entries remain after this one → promote this entry as separator
+      pitLeaves = pitCurRev.reverse :: pitLeaves
+      pitSeparators = pitEntry :: pitSeparators
+      pitCurRev = Nil
+      pitBytes = 8
+      pitCount = 0
+      pitRemaining = pitRemaining.tail
+    else
+      // leaf full and this is the LAST entry → give it its own leaf (no separator)
+      pitLeaves = pitCurRev.reverse :: pitLeaves
+      pitCurRev = pitEntry :: Nil
+      pitBytes = 8 + pitCellSize
+      pitCount = 1
+      pitRemaining = pitRemaining.tail
+  val pitAll = if pitCount > 0 then pitCurRev.reverse :: pitLeaves else pitLeaves
+  IndexTreePlan(pitAll.reverse, pitSeparators.reverse)
+
+def buildIndexLeaves(groups: List[List[IndexEntry]], pageSize: Int): Either[ByteError, List[List[Int]]] =
+  var bilRemaining = groups
+  var bilAcc: List[List[Int]] = Nil
+  var bilFailure: Option[ByteError] = None
+  while bilRemaining.nonEmpty && bilFailure.isEmpty do
+    buildLeafPageKind(pageSize, 0, indexLeafCells(bilRemaining.head), 10) match
+      case Left(error) => bilFailure = Some(error)
+      case Right(leaf) =>
+        bilAcc = leaf :: bilAcc
+        bilRemaining = bilRemaining.tail
+  bilFailure match
+    case Some(error) => Left(error)
+    case None => Right(bilAcc.reverse)
+
+/** Interior cells: separator `i` has left child = leaf `firstChild + i`. */
+def indexInteriorCells(separators: List[IndexEntry], firstChild: Int): List[List[Int]] =
+  var iicRemaining = separators
+  var iicIndex = 0
+  var iicAcc: List[List[Int]] = Nil
+  while iicRemaining.nonEmpty do
+    iicAcc = indexInteriorCell(firstChild + iicIndex, iicRemaining.head.record) :: iicAcc
+    iicIndex = iicIndex + 1
+    iicRemaining = iicRemaining.tail
+  iicAcc.reverse
+
+/** Build the whole index tree rooted at `indexRoot`. Single leaf (kind 10) when
+ *  it all fits one page; otherwise an interior root (kind 2) over the leaves. */
+def buildIndexTree(entries: List[IndexEntry], pageSize: Int, indexRoot: Int): Either[ByteError, IndexTreeBytes] =
+  val plan = packIndexTree(entries, pageSize)
+  if plan.leafGroups.length <= 1 then
+    buildLeafPageKind(pageSize, 0, indexLeafCells(entries), 10) match
+      case Left(error) => Left(error)
+      case Right(leaf) => Right(IndexTreeBytes(leaf, 1))
+  else
+    buildIndexLeaves(plan.leafGroups, pageSize) match
+      case Left(error) => Left(error)
+      case Right(leaves) =>
+        val rightChild = indexRoot + plan.leafGroups.length
+        buildInteriorPageKind(pageSize, 0, indexInteriorCells(plan.separators, indexRoot + 1), rightChild, 2) match
+          case Left(error) => Left(error)
+          case Right(interior) => Right(IndexTreeBytes(interior ++ cellsFlatten(leaves), 1 + plan.leafGroups.length))
+
 /** Assemble a database with one rowid table and one single-leaf index on a single
  *  integer column of it. Page 1 = schema (table entry root 2, index entry root
  *  N), page 2..1+T = the table's B-tree, page 2+T = the index leaf. Reference
@@ -1372,7 +1480,7 @@ def buildTableWithIndexDatabase(pageSize: Int, changeCounter: Int, schemaCookie:
       buildIndexEntries(rows, keyColumns, 1L) match
         case Left(error) => Left(error)
         case Right(entries) =>
-          val indexCells = indexLeafCells(sortIndexEntries(entries))
+          val sortedEntries = sortIndexEntries(entries)
           encodeRecord(List(SqlText("table"), SqlText(tableName), SqlText(tableName), SqlInteger(2L), SqlText(tableSql))) match
             case Left(error) => Left(error)
             case Right(tableSchema) =>
@@ -1385,10 +1493,10 @@ def buildTableWithIndexDatabase(pageSize: Int, changeCounter: Int, schemaCookie:
                       buildTableTreeAt(tableLeaves, pageSize, 2) match
                         case Left(error) => Left(error)
                         case Right(tableTree) =>
-                          buildLeafPageKind(pageSize, 0, indexCells, 10) match
+                          buildIndexTree(sortedEntries, pageSize, indexRoot) match
                             case Left(error) => Left(error)
-                            case Right(indexLeaf) =>
-                              val pageCount = 2 + tablePages
+                            case Right(indexTree) =>
+                              val pageCount = 1 + tablePages + indexTree.pageCount
                               val page1 = tableFileHeader(pageSize, pageCount, changeCounter, schemaCookie) ++ page1Body
-                              ByteSlice.fromList(page1 ++ tableTree ++ indexLeaf)
+                              ByteSlice.fromList(page1 ++ tableTree ++ indexTree.bytes)
 ```

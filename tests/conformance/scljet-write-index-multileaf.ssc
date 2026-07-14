@@ -1,0 +1,38 @@
+---
+name: scljet-write-index-multileaf
+description: SclJet multi-leaf index B-tree — index too big for one page becomes an interior root over leaves with promoted separators (cross-backend)
+backends: [int, js]
+---
+
+# SclJet multi-leaf index
+
+[ByteSlice, byteSliceGet, SqliteValue, SqlInteger, SqlText, buildTableWithIndexDatabase](std/scljet/index.ssc)
+
+```scalascript
+// 60 rows with a descending `n` — the index on `n` needs more than one leaf, so it
+// becomes an interior root (page kind 2) over index leaves (kind 10) with promoted
+// separator entries. Verified out-of-band against reference SQLite (integrity_check
+// cross-validates the index; the planner uses it). Fingerprinted (iterative
+// Adler-32) so int and JS must agree byte-for-byte.
+def mkRows(i: Int, n: Int, acc: List[List[SqliteValue]]): List[List[SqliteValue]] =
+  if i > n then acc.reverse
+  else mkRows(i + 1, n, List(SqlInteger((n - i + 1).toLong), SqlText("v" + i.toString)) :: acc)
+
+def adler32(bytes: ByteSlice): Long =
+  var adI = 0
+  var adA = 1L
+  var adB = 0L
+  while adI < bytes.length do
+    byteSliceGet(bytes, adI) match
+      case Right(b) =>
+        adA = (adA + b.toLong) % 65521L
+        adB = (adB + adA) % 65521L
+      case Left(e) => adA = adA
+    adI = adI + 1
+  adB * 65536L + adA
+
+buildTableWithIndexDatabase(512, 1, 1, "t", "CREATE TABLE t(n INTEGER, v TEXT)",
+  "idx", "CREATE INDEX idx ON t(n)", List(0), mkRows(1, 100, Nil)) match
+  case Right(bytes) => println((bytes.length / 512).toString + ":" + bytes.length.toString + ":" + adler32(bytes).toString)
+  case Left(error) => println("ERROR:" + error.message)
+```
