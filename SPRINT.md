@@ -757,9 +757,11 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
         path))) }`). `#`-prims are ssc0 (not subset), so the file reading is an ssc0 DRIVER wrapping the
         compiler's pure `compile: String→String`. The fixpoint: spike(C)=C0; stage1=C0(C_src); stage2=driver(
         stage1)(C_src); **stage1==stage2**.
-    - [ ] **P6.6a — driver.** ssc0 driver reads a source file + calls an existing self-host compiler's
-          `compile` (dropLast the projection's hard-coded main + a file-reading main AST). Proves "compiler
-          reads its source from a file and compiles it". (File-read mechanism already proven end-to-end.)
+    - [x] **P6.6a — driver ✓ DONE 2026-07-14**: `specs/v2.2-p6.6-selfcompile-demo.sh` wraps selfhost-str's
+          `compile` in an ssc0 file-reading driver (dropLast the hard-coded main + a file-reading main AST via
+          mk*/prim `Pair`s). C0 (the compiler, as Core IR with a `match #io.args()` entry) READS an object-
+          language program from a FILE, compiles it, and the emitted Core IR runs -> 4. NO quine, NO hard-coded
+          source — exactly like ssc1-run.ssc0.
     - [ ] **P6.6b — F completeness.** Add var patterns in `match` (`case x => body`, binds the scrutinee) +
           string escapes (`scanStr` decodes `\"`/`\\`; emit escapes `"`/`\`) to the compiler.
     - [ ] **P6.6c — write C in F.** Rewrite the compiler using only F (no `let … in`; local bindings via
