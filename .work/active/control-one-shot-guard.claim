@@ -1,6 +1,6 @@
 feature/control-one-shot-guard 2026-07-14T18:35:06Z
 agent: codex-interop
-heartbeat: 2026-07-14T18:35:43Z
+heartbeat: 2026-07-14T18:48:10Z
 status: in-progress
-done-so-far: claimed the first open control interoperability runtime gap and created the isolated feature worktree
-next: reproduce both portable-VM lanes, spec the typed one-shot violation contract, then implement and verify
+done-so-far: reproduced VM/ASM; traced multiplicity loss to both v2 lowerers and resolved raw-Comp versus typed-.ssc spec drift
+next: commit the resume-cold plan, freeze the portable AlreadyResumed projection, then implement the shared atomic gate
