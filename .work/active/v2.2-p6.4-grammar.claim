@@ -1,0 +1,6 @@
+slug: v2.2-p6.4-grammar
+scope: spike grammar completeness — close constructs ssc1-front handles that the spike lacks:
+       comments (// and /* */), booleans (true/false→mkBool), lambdas (id=>e, (ps)=>e→mkLam),
+       float literals (mkFloat). All byte-identical to ssc1-front via the differential harness.
+files: uniml/core/src/test/.../spike/**, specs/v2.2-*, SPRINT.md
+branch: feature/v2.2-p6.4-grammar
