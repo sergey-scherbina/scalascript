@@ -342,6 +342,23 @@ final class ScalaSpikeSpec extends AnyFunSuite:
     assert(proj.contains("""mkStr("a\\tb")"""), proj) // \t stays two chars: backslash, t
   }
 
+  // ══ string interpolation — s / ${expr} / md, mirroring ssc1-front interpParts/partsToExpr ═══════
+
+  test("s-interpolation: literals + $name fold into a right-assoc ++ concatenation") {
+    val proj = SpikeProject.program(parse("def g(name: String): String = s\"hi $name!\"").roots.head)
+    assert(proj.contains("""mkInf("++", mkStr("hi "), mkInf("++", mkVar("name"), mkStr("!")))"""), proj)
+  }
+
+  test("s-interpolation: ${expr} re-parses the inner expression with the spike front itself") {
+    val proj = SpikeProject.program(parse("def f(x: Int): String = s\"n=${x + 1}\"").roots.head)
+    assert(proj.contains("""mkInf("++", mkStr("n="), mkInf("+", mkVar("x"), mkInt("1")))"""), proj)
+  }
+
+  test("md-interpolation routes the s-interpolated string through __mdStrip__") {
+    val proj = SpikeProject.program(parse("def h(t: String): String = md\"# $t\"").roots.head)
+    assert(proj.contains("""Pair("prim", Pair("__mdStrip__", Cons(mkInf("++", mkStr("# "), mkVar("t")), Nil)))"""), proj)
+  }
+
   // ══ trailing-newline tolerance: a trailing EOL is trivia, never a projection change ═══════════
 
   test("a trailing newline is trivia — the projection (hence Core IR) is invariant to it") {
@@ -416,7 +433,11 @@ final class ScalaSpikeSpec extends AnyFunSuite:
       "tparam" -> "given g: Int = 99\ndef useIt[A](x: A): Int = summon[Int]\ndef main(): Int = useIt(5)",
       // P6.3d — string literals: plain + \t/\n escapes (mkStr, buildStr semantics)
       "str-plain"  -> "def greet(): String = \"hello world\"\ndef main(): Int = 5",
-      "str-escape" -> "def s(): String = \"a\\tb\\nc\"\ndef main(): Int = 6"
+      "str-escape" -> "def s(): String = \"a\\tb\\nc\"\ndef main(): Int = 6",
+      // P6.3e — string interpolation: s (var + ${expr}) and md, byte-identical to ssc1-front
+      "interp-var"  -> "def greet(name: String): String = s\"hi $name!\"\ndef main(): Int = 0",
+      "interp-expr" -> "def f(x: Int): String = s\"n=${x + 1}\"\ndef main(): Int = 0",
+      "interp-md"   -> "def h(t: String): String = md\"# $t\"\ndef main(): Int = 0"
     )
     // broken — no oracle; the harness proves containment (`main` still runs).
     val broken = Seq(

@@ -87,6 +87,16 @@ object SpikeLex:
               val e = text.charAt(i + 1)
               sb.append(if e == 'n' then '\n' else if e == 't' then '\t' else e)
               advance('\\'); advance(e)
+            else if text.charAt(i) == '$' && i + 1 < n && text.charAt(i + 1) == '{' then
+              // copy a balanced `${ … }` verbatim so its inner quotes don't end the string
+              // (matches ssc1-front scanStr → scanInterpEnd); the parts split later, in projection.
+              sb.append('$'); advance('$')
+              sb.append('{'); advance('{')
+              var depth = 1
+              while depth > 0 && i < n do
+                val ch = text.charAt(i)
+                if ch == '{' then depth += 1 else if ch == '}' then depth -= 1
+                sb.append(ch); advance(ch)
             else { sb.append(text.charAt(i)); advance(text.charAt(i)) }
           if i < n then advance('"')
         emit("spike.str", start, sb.toString, TokenChannel.Syntax)
@@ -147,6 +157,11 @@ object SpikeParse:
       var q = p + 1
       while q < toks.length && toks(q).kind == "spike.ws" do q += 1
       if q < toks.length then toks(q).lexeme else ""
+    def peek2Kind: String = // the second significant (non-trivia) token's kind
+      skipTrivia()
+      var q = p + 1
+      while q < toks.length && toks(q).kind == "spike.ws" do q += 1
+      if q < toks.length then toks(q).kind else "spike.eof"
     def advance(): Option[SourceToken] = { skipTrivia(); if p < toks.length then { val t = toks(p); p += 1; Some(t) } else None }
     def skipSemis(): Unit = while peekKind == "spike.semi" do advance()
     def diagnostics: Vector[Diagnostic] = diags.result()
@@ -501,11 +516,23 @@ object SpikeParse:
       case "spike.kw" if c.peekLexeme == "if" => parseIf(c)
       case "spike.op" if c.peekLexeme == "-" || c.peekLexeme == "!" || c.peekLexeme == "~" => Some(parsePrefix(c))
       case "spike.id" if c.peekLexeme == "summon" => Some(parseSummon(c))
+      // interpolator: an `s`/`f`/`raw`/`md` prefix immediately before a string token (ssc1-front
+      // detects interpolation the same way — id value + following str, no adjacency check).
+      case "spike.id" if isInterpPrefix(c.peekLexeme) && c.peek2Kind == "spike.str" => Some(parseInterp(c))
       case "spike.id" | "spike.uid" => parseIdOrCall(c) // uid = uppercase ctor/type ref → mkUVar
       case "spike.junk" =>
         c.report("spike.unexpected-expr", s"unexpected token '${c.peekLexeme}' in expression")
         c.advance().map(t => Node.Frame("spike.error", None, Vector(Node.Leaf(t, Some("error.token")))))
       case _ => None // eof / kw boundary / operator / `)` / `=` / `:` / `,` — not an atom
+
+  private def isInterpPrefix(w: String): Boolean = w == "s" || w == "f" || w == "raw" || w == "md"
+
+  // `s"a $x b ${e}"` → spike.interp holding the prefix + the (decoded) string token. The parts
+  // split + concatenation happen in the projection (mirroring ssc1-front interpParts/partsToExpr).
+  private def parseInterp(c: Cur): Node =
+    val pfx = c.advance().get
+    val str = c.advance().get
+    Node.Frame("spike.interp", None, Vector(Node.Leaf(pfx, Some("interp.prefix")), Node.Leaf(str, Some("interp.raw"))))
 
   // `( e )` is grouping (spike.paren); `( a, b, … )` and `()` are tuple literals (spike.tuple).
   // prefix operator `- e` / `! e` / `~ e` → mkPre(op, e). Binds at the atom level.
@@ -610,6 +637,87 @@ object SpikeProject:
     * (ssc0 buildStr decodes `\n`/`\t`; `\`/`"` are escaped by `esc`). */
   private def escStr(s: String): String = esc(s).replace("\n", "\\n").replace("\t", "\\t")
 
+  // ── string interpolation (mirrors ssc1-front interpParts / partsToExpr, KC12) ──────────────────
+  private def isAlpha(c: Char): Boolean = c.isLetter || c == '_'
+  private def isAlphaNum(c: Char): Boolean = c.isLetterOrDigit || c == '_'
+
+  /** skip a nested `"…"` inside a `${…}` body; returns the index just after the closing quote. */
+  private def scanNestedStr(s: String, i0: Int): Int =
+    var i = i0
+    val n = s.length
+    var res = -1
+    while res < 0 && i < n do
+      if s.charAt(i) == '"' then res = i + 1
+      else if s.charAt(i) == '\\' then i += 2
+      else i += 1
+    if res >= 0 then res else i
+
+  /** index just after the `}` that matches a `${` opened at depth `depth0`; balances nested
+    * braces and string literals; malformed input returns EOF. */
+  private def scanInterpEnd(s: String, i0: Int, depth0: Int): Int =
+    var i = i0
+    var depth = depth0
+    val n = s.length
+    var res = -1
+    while res < 0 && i < n do
+      s.charAt(i) match
+        case '"' => i = scanNestedStr(s, i + 1)
+        case '{' => depth += 1; i += 1
+        case '}' => if depth == 1 then res = i + 1 else { depth -= 1; i += 1 }
+        case _   => i += 1
+    if res >= 0 then res else i
+
+  /** split a decoded interpolated string into ("str",lit) | ("var",name) | ("expr",src) parts. */
+  private def interpParts(raw: String): Vector[(String, String)] =
+    val n = raw.length
+    var out = Vector.empty[(String, String)]
+    var i = 0
+    var litStart = 0
+    def flush(end: Int): Unit = if end > litStart then out = out :+ (("str", raw.substring(litStart, end)))
+    while i < n do
+      if raw.charAt(i) == '$' && i + 1 < n then
+        val c2 = raw.charAt(i + 1)
+        if c2 == '{' then
+          val iAfter  = scanInterpEnd(raw, i + 2, 1)
+          val exprEnd = if iAfter > i + 2 && iAfter <= n && raw.charAt(iAfter - 1) == '}' then iAfter - 1 else n
+          flush(i)
+          out = out :+ (("expr", raw.substring(i + 2, exprEnd)))
+          i = iAfter; litStart = iAfter
+        else if isAlpha(c2) then
+          flush(i)
+          var endId = i + 1
+          while endId < n && isAlphaNum(raw.charAt(endId)) do endId += 1
+          out = out :+ (("var", raw.substring(i + 1, endId)))
+          i = endId; litStart = endId
+        else i += 1 // a literal `$`
+      else i += 1
+    flush(n)
+    out
+
+  /** fold parts into the right-associative `++` concatenation partsToExpr builds. */
+  private def partsToExpr(parts: Vector[(String, String)]): String =
+    if parts.isEmpty then """mkStr("")"""
+    else
+      val (tag, v) = parts.head
+      val pe = tag match
+        case "str"  => s"""mkStr("${escStr(v)}")"""
+        case "expr" => exprOfSource(v)
+        case _      => s"""mkVar("${esc(v)}")"""
+      if parts.tail.isEmpty then pe else s"""mkInf("++", $pe, ${partsToExpr(parts.tail)})"""
+
+  private def sInterp(raw: String): String = partsToExpr(interpParts(raw))
+
+  /** re-parse an inner `${…}` expression with the spike's own front and project it. Wrapping it
+    * as a parameterless def yields a program the dialect parses; then lift the def body. */
+  private def exprOfSource(src: String): String =
+    val pr = UniML.parse(SourceInput.fromString(SourceId("interp:expr"), s"def __e__ = $src"), SpikeDialect)
+    val body = for
+      prog <- pr.roots.headOption
+      defn <- kids(prog).collectFirst { case (_, c) if kindOf(c) == "spike.def" => c }
+      b    <- kids(defn).collectFirst { case (Some("def.body"), c) => c }
+    yield expr(b)
+    body.getOrElse(hole)
+
   private def lexeme(n: UniNode): String = n match
     case UniNode.Token(t) => t.lexeme
     case _                => ""
@@ -701,6 +809,13 @@ object SpikeProject:
         val op  = kids(b).collectFirst { case (Some("pre.op"), c) => lexeme(c) }.getOrElse("-")
         val sub = kids(b).collectFirst { case (Some("pre.sub"), c) => expr(c) }.getOrElse(hole)
         s"""mkPre("${esc(op)}", $sub)"""
+      case "spike.interp" =>
+        val pfx = kids(b).collectFirst { case (Some("interp.prefix"), c) => lexeme(c) }.getOrElse("s")
+        val raw = kids(b).collectFirst { case (Some("interp.raw"), c) => lexeme(c) }.getOrElse("")
+        pfx match
+          case "md" => s"""Pair("prim", Pair("__mdStrip__", Cons(${sInterp(raw)}, Nil)))"""
+          case "f"  => hole // f-interpolation (printf format specifiers) — deferred slice
+          case _    => sInterp(raw) // s / raw
       case "spike.rangeop" =>
         val word = kids(b).collectFirst { case (Some("range.op"), c) => lexeme(c) }.getOrElse("to")
         val lhs  = kids(b).collectFirst { case (Some("range.lhs"), c) => expr(c) }.getOrElse(hole)
