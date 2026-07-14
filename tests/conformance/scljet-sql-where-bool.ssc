@@ -1,0 +1,38 @@
+---
+name: scljet-sql-where-bool
+description: SclJet SQL compound WHERE — AND / OR with correct precedence (AND binds tighter than OR), matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet SQL compound WHERE (AND / OR)
+
+`WHERE` accepts a chain of comparisons joined by `AND` / `OR`. As in SQL, `AND` binds tighter than
+`OR`, so `a AND b OR c AND d` means `(a AND b) OR (c AND d)`. A row is kept when any OR-group holds
+and, within a group, every AND condition holds. Every result is byte-identical to reference sqlite3
+running the same SQL on the same file (verified out-of-band); locked here across backends.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER, name TEXT, dept INTEGER, salary INTEGER)",
+  List(List(SqlInteger(1L), SqlText("ann"), SqlInteger(10L), SqlInteger(100L)),
+       List(SqlInteger(2L), SqlText("bob"), SqlInteger(20L), SqlInteger(250L)),
+       List(SqlInteger(3L), SqlText("cat"), SqlInteger(10L), SqlInteger(300L)),
+       List(SqlInteger(4L), SqlText("dan"), SqlInteger(30L), SqlInteger(150L)),
+       List(SqlInteger(5L), SqlText("eve"), SqlInteger(20L), SqlInteger(250L)),
+       List(SqlInteger(6L), SqlText("flo"), SqlInteger(10L), SqlInteger(120L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db) =>
+    show(db, "SELECT id, name FROM emp WHERE dept = 10 AND salary > 100")
+    show(db, "SELECT id FROM emp WHERE dept = 10 OR dept = 30")
+    show(db, "SELECT id, dept, salary FROM emp WHERE dept = 10 AND salary >= 120 OR dept = 30")
+    show(db, "SELECT name FROM emp WHERE salary >= 120 AND salary <= 250 ORDER BY id")
+    show(db, "SELECT COUNT(*) FROM emp WHERE dept = 10 AND salary > 100")
+    show(db, "SELECT id FROM emp WHERE dept = 20 AND name = 'bob' OR dept = 30 AND salary = 150")
+```

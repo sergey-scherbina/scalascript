@@ -171,7 +171,7 @@ def tokenize(sql: String): Either[String, List[Token]] =
 case class Condition(column: String, op: String, value: SqliteValue)
 case class JoinSpec(table: String, leftCol: String, op: String, rightCol: String, leftOuter: Boolean)
 case class HavingCond(item: ProjItem, op: String, value: SqliteValue)
-case class SelectStmt(star: Boolean, projection: List[ProjItem], table: String, where: Option[Condition], orderBy: List[OrderKey], limit: Int, offset: Int, groupBy: List[String], join: Option[JoinSpec], having: Option[HavingCond], distinct: Boolean)
+case class SelectStmt(star: Boolean, projection: List[ProjItem], table: String, where: List[List[Condition]], orderBy: List[OrderKey], limit: Int, offset: Int, groupBy: List[String], join: Option[JoinSpec], having: Option[HavingCond], distinct: Boolean)
 
 def isKw(token: Token, word: String): Boolean = token.kind == "ident" && upperStr(token.text) == word
 
@@ -213,30 +213,77 @@ def litValue(token: Token): Either[String, SqliteValue] =
 
 // Parse an optional `WHERE col op literal`; returns the condition (or None) and the
 // tokens after it (for a trailing ORDER BY / LIMIT). A non-WHERE token is left in place.
-def parseWhere(toks: List[Token]): Either[String, (Option[Condition], List[Token])] =
-  if toks.isEmpty then Right((None, Nil))
-  else if tkIsKw(toks, "WHERE") then
-    val rest = toks.tail
-    if tkKind(rest) != "ident" then Left("expected column after WHERE")
+// One comparison: `col op literal` or `col IS [NOT] NULL`.
+def parseCondition(toks: List[Token]): Either[String, (Condition, List[Token])] =
+  if tkKind(toks) != "ident" then Left("expected a column in the condition")
+  else
+    val col = toks.head
+    val after = toks.tail
+    if tkIsKw(after, "IS") then
+      val afterIs = after.tail
+      if tkIsKw(afterIs, "NOT") then
+        if !tkIsKw(afterIs.tail, "NULL") then Left("expected NULL after IS NOT")
+        else Right((Condition(col.text, "notnull", SqlNull), afterIs.tail.tail))
+      else if tkIsKw(afterIs, "NULL") then Right((Condition(col.text, "isnull", SqlNull), afterIs.tail))
+      else Left("expected NULL after IS")
+    else if after.length < 2 then Left("condition needs: column op value")
     else
-      val col = rest.head
-      val after = rest.tail
-      if tkIsKw(after, "IS") then
-        val afterIs = after.tail
-        if tkIsKw(afterIs, "NOT") then
-          if !tkIsKw(afterIs.tail, "NULL") then Left("expected NULL after IS NOT")
-          else Right((Some(Condition(col.text, "notnull", SqlNull)), afterIs.tail.tail))
-        else if tkIsKw(afterIs, "NULL") then Right((Some(Condition(col.text, "isnull", SqlNull)), afterIs.tail))
-        else Left("expected NULL after IS")
-      else if after.length < 2 then Left("WHERE needs: column op value")
-      else
-        val op = after.head
-        val lit = after.tail.head
-        if op.kind != "op" then Left("expected a comparison operator")
-        else litValue(lit) match
-          case Left(message) => Left(message)
-          case Right(value) => Right((Some(Condition(col.text, op.text, value)), after.tail.tail))
-  else Right((None, toks))
+      val op = after.head
+      val lit = after.tail.head
+      if op.kind != "op" then Left("expected a comparison operator")
+      else litValue(lit) match
+        case Left(message) => Left(message)
+        case Right(value) => Right((Condition(col.text, op.text, value), after.tail.tail))
+
+def reverseConds(items: List[Condition], acc: List[Condition]): List[Condition] =
+  var r = items
+  var out = acc
+  while r.nonEmpty do
+    out = r.head :: out
+    r = r.tail
+  out
+
+def reverseCondGroups(items: List[List[Condition]], acc: List[List[Condition]]): List[List[Condition]] =
+  var r = items
+  var out = acc
+  while r.nonEmpty do
+    out = r.head :: out
+    r = r.tail
+  out
+
+// A chain of conditions joined by AND / OR → OR-of-ANDs (AND binds tighter than OR).
+def parseConditionChain(toks: List[Token]): Either[String, (List[List[Condition]], List[Token])] =
+  parseCondition(toks) match
+    case Left(message) => Left(message)
+    case Right(first) =>
+      var groupsRev: List[List[Condition]] = Nil
+      var curRev: List[Condition] = first._1 :: Nil
+      var rest = first._2
+      var err: Option[String] = None
+      var done = false
+      while !done && err.isEmpty do
+        if tkIsKw(rest, "AND") then
+          parseCondition(rest.tail) match
+            case Left(message) => err = Some(message)
+            case Right(next) =>
+              curRev = next._1 :: curRev
+              rest = next._2
+        else if tkIsKw(rest, "OR") then
+          groupsRev = reverseConds(curRev, Nil) :: groupsRev
+          parseCondition(rest.tail) match
+            case Left(message) => err = Some(message)
+            case Right(next) =>
+              curRev = next._1 :: Nil
+              rest = next._2
+        else done = true
+      err match
+        case Some(message) => Left(message)
+        case None => Right((reverseCondGroups(reverseConds(curRev, Nil) :: groupsRev, Nil), rest))
+
+// Optional `WHERE <condition chain>`; an empty result means no filter.
+def parseWhere(toks: List[Token]): Either[String, (List[List[Condition]], List[Token])] =
+  if !tkIsKw(toks, "WHERE") then Right((Nil, toks))
+  else parseConditionChain(toks.tail)
 
 case class OrderKey(column: String, desc: Boolean)
 
@@ -603,12 +650,29 @@ def isNullValue(v: SqliteValue): Boolean = v match
   case SqlNull => true
   case _ => false
 
-def whereHolds(where: Option[Condition], rec: StorageRecord, colNames: List[String]): Boolean = where match
-  case None => true
-  case Some(cond) =>
-    if cond.op == "isnull" then isNullValue(rowValue(rec, colNames, cond.column))
-    else if cond.op == "notnull" then isNullValue(rowValue(rec, colNames, cond.column)) == false
-    else condMatches(cond.op, sqlCompare(rowValue(rec, colNames, cond.column), cond.value))
+def condHolds(cond: Condition, rec: StorageRecord, colNames: List[String]): Boolean =
+  if cond.op == "isnull" then isNullValue(rowValue(rec, colNames, cond.column))
+  else if cond.op == "notnull" then isNullValue(rowValue(rec, colNames, cond.column)) == false
+  else condMatches(cond.op, sqlCompare(rowValue(rec, colNames, cond.column), cond.value))
+
+def andGroupHolds(group: List[Condition], rec: StorageRecord, colNames: List[String]): Boolean =
+  var r = group
+  var all = true
+  while r.nonEmpty && all do
+    if !condHolds(r.head, rec, colNames) then all = false
+    r = r.tail
+  all
+
+// where = OR-of-ANDs; an empty clause means no filter (always true).
+def whereHolds(where: List[List[Condition]], rec: StorageRecord, colNames: List[String]): Boolean =
+  if where.isEmpty then true
+  else
+    var r = where
+    var any = false
+    while r.nonEmpty && !any do
+      if andGroupHolds(r.head, rec, colNames) then any = true
+      r = r.tail
+    any
 
 def projItemNames(items: List[ProjItem]): List[String] =
   var r = items
@@ -845,7 +909,7 @@ def dropStorage(rows: List[StorageRecord], n: Int): List[StorageRecord] =
     i = i + 1
   r
 
-def filterRows(rows: List[StorageRecord], where: Option[Condition], colNames: List[String]): List[StorageRecord] =
+def filterRows(rows: List[StorageRecord], where: List[List[Condition]], colNames: List[String]): List[StorageRecord] =
   var r = rows
   var accRev: List[StorageRecord] = Nil
   while r.nonEmpty do
@@ -1019,12 +1083,28 @@ def joinColValue(recA: StorageRecord, colsA: List[String], tableA: String, recBO
     else if upperStr(name) == "ROWID" then rowValue(recA, colsA, name)
     else SqlNull
 
-def joinWhereHolds(where: Option[Condition], recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String): Boolean = where match
-  case None => true
-  case Some(cond) =>
-    if cond.op == "isnull" then isNullValue(joinColValue(recA, colsA, tableA, recBOpt, colsB, tableB, cond.column))
-    else if cond.op == "notnull" then isNullValue(joinColValue(recA, colsA, tableA, recBOpt, colsB, tableB, cond.column)) == false
-    else condMatches(cond.op, sqlCompare(joinColValue(recA, colsA, tableA, recBOpt, colsB, tableB, cond.column), cond.value))
+def joinCondHolds(cond: Condition, recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String): Boolean =
+  if cond.op == "isnull" then isNullValue(joinColValue(recA, colsA, tableA, recBOpt, colsB, tableB, cond.column))
+  else if cond.op == "notnull" then isNullValue(joinColValue(recA, colsA, tableA, recBOpt, colsB, tableB, cond.column)) == false
+  else condMatches(cond.op, sqlCompare(joinColValue(recA, colsA, tableA, recBOpt, colsB, tableB, cond.column), cond.value))
+
+def joinAndGroupHolds(group: List[Condition], recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String): Boolean =
+  var r = group
+  var all = true
+  while r.nonEmpty && all do
+    if !joinCondHolds(r.head, recA, colsA, tableA, recBOpt, colsB, tableB) then all = false
+    r = r.tail
+  all
+
+def joinWhereHolds(where: List[List[Condition]], recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String): Boolean =
+  if where.isEmpty then true
+  else
+    var r = where
+    var any = false
+    while r.nonEmpty && !any do
+      if joinAndGroupHolds(r.head, recA, colsA, tableA, recBOpt, colsB, tableB) then any = true
+      r = r.tail
+    any
 
 def joinProjectRow(recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String, stmt: SelectStmt): List[SqliteValue] =
   var accRev: List[SqliteValue] = Nil
@@ -1383,7 +1463,7 @@ def queryImage(dbBytes: ByteSlice, sql: String): Either[String, List[List[Sqlite
 // ── DML: INSERT and DELETE through the balanced write path ──
 
 case class InsertStmt(table: String, columns: List[String], values: List[SqliteValue])
-case class DeleteStmt(table: String, where: Option[Condition])
+case class DeleteStmt(table: String, where: List[List[Condition]])
 
 def reverseValues(items: List[SqliteValue], acc: List[SqliteValue]): List[SqliteValue] =
   var r = items
@@ -1482,7 +1562,7 @@ def maxRowidOf(rows: List[StorageRecord]): Long =
     r = r.tail
   m
 
-def matchingRowids(rows: List[StorageRecord], where: Option[Condition], colNames: List[String]): List[Long] =
+def matchingRowids(rows: List[StorageRecord], where: List[List[Condition]], colNames: List[String]): List[Long] =
   var r = rows
   var accRev: List[Long] = Nil
   while r.nonEmpty do
@@ -1594,7 +1674,7 @@ def executeDelete(dbBytes: ByteSlice, stmt: DeleteStmt): Either[String, ByteSlic
 // ── UPDATE (delete + reinsert at the same rowid — handles any size change) ──
 
 case class Assignment(column: String, value: SqliteValue)
-case class UpdateStmt(table: String, assignments: List[Assignment], where: Option[Condition])
+case class UpdateStmt(table: String, assignments: List[Assignment], where: List[List[Condition]])
 case class EditRow(rowid: Long, record: ByteSlice)
 
 def reverseAssignments(items: List[Assignment], acc: List[Assignment]): List[Assignment] =
