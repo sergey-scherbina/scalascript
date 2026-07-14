@@ -1677,6 +1677,15 @@ ORDER BY / LIMIT / OFFSET, aggregates (COUNT/SUM/MIN/MAX/AVG/TOTAL), GROUP BY + 
 and inner + LEFT joins — every feature byte-verified against reference sqlite3, int==js.
 Remaining follow-ups (niche): multi-table (3+) joins, page-1 schema split, repeating-decimal %.15g.
 
+- [x] **scljet-m5u-where-and-or** — DONE 2026-07-14. Compound `WHERE` with `AND` / `OR`. `parseWhere`
+      now parses a chain of comparisons into OR-of-ANDs (`List[List[Condition]]`), honoring SQL
+      precedence (`AND` binds tighter than `OR`, no parens): `a AND b OR c AND d` = `(a AND b) OR
+      (c AND d)`. New `parseCondition` (one comparison incl. `IS [NOT] NULL`) + `parseConditionChain`
+      (the AND/OR loop). `whereHolds`/`joinWhereHolds` became `condHolds`→`andGroupHolds`→any-OR-group;
+      `SelectStmt`/`DeleteStmt`/`UpdateStmt.where` retyped `Option[Condition]` → `List[List[Condition]]`
+      (empty = no filter). Verified vs sqlite3 (AND, OR, mixed-precedence, ranges, over COUNT + ORDER BY),
+      int==js; conformance `scljet-sql-where-bool`. WHERE now applies uniformly to SELECT/DELETE/UPDATE.
+
 - [x] **scljet-m5t-is-null** — DONE 2026-07-14. `WHERE col IS NULL` / `col IS NOT NULL`: `parseWhere`
       recognizes the `IS [NOT] NULL` form (ops `isnull`/`notnull`); `whereHolds`/`joinWhereHolds` test
       the value's nullness. Works on a single table (columns unset by a column-list INSERT) and on the
