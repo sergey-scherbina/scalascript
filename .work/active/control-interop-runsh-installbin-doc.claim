@@ -1,0 +1,6 @@
+feature/control-interop-runsh-installbin-doc 2026-07-14T14:17:54Z
+agent: claude (bold-finch)
+heartbeat: 2026-07-14T14:17:54Z
+status: in-progress
+done-so-far: codex-interop n=51 flagged run.sh:21 installBin task-name doc bug
+next: BUGS entry + fix run.sh hint to scoped cli/installBin; close with SHA
