@@ -9,6 +9,17 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## scala-control-path-shortening — canonical directory and artifact are `control` (2026-07-14, Sergiy)
+
+- [ ] Rename the Scala host source home from `v2/host/scala/control-api` to
+  `v2/host/scala/control` and the published Maven artifact from
+  `io.scalascript:scalascript-control-api_3` to
+  `io.scalascript:scalascript-control_3`, without changing the public Scala package,
+  sbt project id, or behavior. Update the host profile, build, layout docs, and every
+  live coordinate/link; prove both old names are absent from live contracts, rerun
+  module/example/package and both conformance gates, then close bookkeeping and
+  release the worktree.
+
 ## control-vectors-audit-followup — reproduce + record codex-interop audit findings (2026-07-14, claude)
 
 Done (this claim): fixed the Rust-multi-shot-deferred drift in
