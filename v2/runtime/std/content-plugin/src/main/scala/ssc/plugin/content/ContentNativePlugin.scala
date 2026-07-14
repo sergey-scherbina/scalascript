@@ -140,15 +140,76 @@ final class ContentNativePlugin extends NativePlugin:
       case (Value.StrV(key), Value.DataV("Str", IndexedSeq(Value.StrV(text)))) => key -> text
     }.toList
 
-  private def headingAttrs(value: Value): String =
-    val entries = attrEntries(value)
-    if entries.isEmpty then ""
-    else
-      val rendered = entries.map {
-        case ("id", text) => s"#$text"
-        case (key, text) => s"$key=$text"
-      }.mkString(" ")
-      s" {$rendered}"
+  // Heading attr group `{#id k=v ...}` — the section id (SectionContent field 0)
+  // is authoritative; fall back to an `id` attr entry when it was carried in the
+  // attrs map (explicit `{#id}` headings). Remaining attrs sort by key, matching
+  // v1 ContentIntrinsics.headingAttrGroup. (@meta-derived component/source attrs
+  // attach to the section, so a `## Plans` with `<!-- @meta ... -->` renders
+  // `## Plans {#plans component=... source=...}`.)
+  private def headingAttrs(idField: String, attrsValue: Value): String =
+    val entries = attrEntries(attrsValue)
+    val id = if idField.nonEmpty then idField else entries.collectFirst { case ("id", text) => text }.getOrElse("")
+    val rest = entries.filterNot(_._1 == "id").sortBy(_._1)
+    val tokens = (if id.nonEmpty then List(s"#$id") else Nil) ++ rest.map { case (key, text) => s"$key=$text" }
+    if tokens.isEmpty then "" else tokens.mkString(" {", " ", "}")
+
+  // ── YAML front-matter (DocumentContent.manifest → `---\n…\n---`) ──────────────
+  private def numberString(d: Double): String =
+    if d.isWhole && d >= Long.MinValue.toDouble && d <= Long.MaxValue.toDouble then d.toLong.toString
+    else d.toString
+
+  private def isSafeBareScalar(v: String): Boolean =
+    v.nonEmpty &&
+      !Set("true", "false", "null").contains(v.toLowerCase(java.util.Locale.ROOT)) &&
+      v.forall(ch => ch.isLetterOrDigit || ch == '-' || ch == '_' || ch == '.' || ch == '/' || ch == ':' || ch == '@')
+
+  private def quoteYaml(v: String): String =
+    "\"" + v.flatMap {
+      case '\\' => "\\\\"; case '"' => "\\\""; case '\n' => "\\n"
+      case '\r' => "\\r"; case '\t' => "\\t"; case ch => ch.toString
+    } + "\""
+
+  private def yamlScalar(v: String): String = if isSafeBareScalar(v) then v else quoteYaml(v)
+
+  private def yamlValueScalar(value: Value): String = value match
+    case Value.DataV("Str", IndexedSeq(Value.StrV(s)))    => yamlScalar(s)
+    case Value.DataV("Bool", IndexedSeq(Value.BoolV(b)))  => b.toString
+    case Value.DataV("Num", IndexedSeq(Value.IntV(n)))    => n.toString
+    case Value.DataV("Num", IndexedSeq(Value.FloatV(d)))  => numberString(d)
+    case Value.DataV("NullV", _)                          => "null"
+    case _                                                => quoteYaml(Show.show(value))
+
+  private def yamlMapLines(entries: collection.mutable.LinkedHashMap[Value, Value], indent: Int): List[String] =
+    val pad = " " * indent
+    entries.toList.collect { case (Value.StrV(k), v) => k -> v }.sortBy(_._1).flatMap {
+      case (key, Value.DataV("MapV", IndexedSeq(Value.MapV(inner)))) =>
+        if inner.isEmpty then List(s"$pad${yamlScalar(key)}: {}")
+        else s"$pad${yamlScalar(key)}:" :: yamlMapLines(inner, indent + 2)
+      case (key, Value.DataV("ListV", IndexedSeq(inner))) =>
+        val items = unlist(inner)
+        if items.isEmpty then List(s"$pad${yamlScalar(key)}: []")
+        else s"$pad${yamlScalar(key)}:" :: yamlListLines(items, indent + 2)
+      case (key, value) => List(s"$pad${yamlScalar(key)}: ${yamlValueScalar(value)}")
+    }
+
+  private def yamlListLines(items: List[Value], indent: Int): List[String] =
+    val pad = " " * indent
+    items.flatMap {
+      case Value.DataV("MapV", IndexedSeq(Value.MapV(inner))) =>
+        if inner.isEmpty then List(s"$pad- {}")
+        else s"$pad-" :: yamlMapLines(inner, indent + 2)
+      case Value.DataV("ListV", IndexedSeq(inner)) =>
+        val nested = unlist(inner)
+        if nested.isEmpty then List(s"$pad- []")
+        else s"$pad-" :: yamlListLines(nested, indent + 2)
+      case value => List(s"$pad- ${yamlValueScalar(value)}")
+    }
+
+  private def manifestMarkdown(manifest: Value): Option[String] =
+    contentMap(manifest) match
+      case Some(entries) if entries.nonEmpty =>
+        Some("---\n" + yamlMapLines(entries, 0).mkString("\n") + "\n---")
+      case _ => None
 
   private def metadataPrefix(value: Value): String =
     val entries = attrEntries(value)
@@ -214,12 +275,14 @@ final class ContentNativePlugin extends NativePlugin:
 
   private def markdown(value: Value): String = value match
     case Value.DataV("SectionContent", fields) if fields.length == 6 =>
+      val id = fields(0) match { case Value.StrV(s) => s; case _ => "" }
       val level = fields(1).asInstanceOf[Value.IntV].n.toInt
       val title = fields(2).asInstanceOf[Value.StrV].s
-      val heading = "#" * level + " " + title + headingAttrs(fields(3))
+      val heading = "#" * level + " " + title + headingAttrs(id, fields(3))
       (heading :: blocks(value).map(markdownBlock) ++ sectionChildren(value).map(markdown)).mkString("\n\n")
-    case Value.DataV("DocumentContent", _) =>
-      (blocks(value).map(markdownBlock) ++ sections(value).map(markdown)).mkString("\n\n")
+    case Value.DataV("DocumentContent", fields) if fields.length == 6 =>
+      val front = manifestMarkdown(fields(0)).toList
+      (front ++ blocks(value).map(markdownBlock) ++ sections(value).map(markdown)).filter(_.nonEmpty).mkString("\n\n")
     case _ => markdownBlock(value)
 
   private def native(context: NativePluginContext, name: String, arity: Int)(fn: List[Value] => Value): Unit =

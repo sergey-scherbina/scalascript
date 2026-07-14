@@ -49,7 +49,7 @@ case class NativeContentModule(
   document: Any
 )
 
-case class ContentBlockCollect(values: List[Any], remaining: List[Any])
+case class ContentBlockCollect(values: List[Any], remaining: List[Any], pending: Map[String, Any])
 case class ContentSectionCollect(values: List[Any], remaining: List[Any])
 
 def contentMapPut(values: Map[String, Any], key: String, value: Any): Map[String, Any] =
@@ -212,22 +212,22 @@ def contentBlock(value: Any, attrs: Map[String, Any]): Option[Any] = value match
   case _ => None
 
 def contentCollectBlocks(values: List[Any], pending: Map[String, Any], reversed: List[Any]): ContentBlockCollect = values match
-  case Nil => ContentBlockCollect(reversed.reverse, Nil)
-  case Cons(MarkdownHeading(_, _, _, _), _) => ContentBlockCollect(reversed.reverse, values)
+  case Nil => ContentBlockCollect(reversed.reverse, Nil, pending)
+  case Cons(MarkdownHeading(_, _, _, _), _) => ContentBlockCollect(reversed.reverse, values, pending)
   case Cons(MarkdownMetadata(raw, _), tail) => contentCollectBlocks(tail, contentAttrs(raw), reversed)
   case Cons(head, tail) => contentBlock(head, pending) match
     case Some(block) => contentCollectBlocks(tail, Map(), block :: reversed)
     case None => contentCollectBlocks(tail, pending, reversed)
 
-def contentFlatSections(values: List[Any], reversed: List[Any]): List[Any] = values match
+def contentFlatSections(values: List[Any], pending: Map[String, Any], reversed: List[Any]): List[Any] = values match
   case Nil => reversed.reverse
   case Cons(MarkdownHeading(level, title, rawAttrs, _), tail) =>
-    val attrs = contentAttrs(rawAttrs)
+    val attrs = contentAttrsWords(contentWords(rawAttrs, 0), pending)
     contentCollectBlocks(tail, Map(), Nil) match
-      case ContentBlockCollect(blocks, remaining) =>
+      case ContentBlockCollect(blocks, remaining, nextPending) =>
         val section = SectionContent(contentHeadingId(title, attrs), level, title, attrs, blocks, Nil)
-        contentFlatSections(remaining, section :: reversed)
-  case Cons(_, tail) => contentFlatSections(tail, reversed)
+        contentFlatSections(remaining, nextPending, section :: reversed)
+  case Cons(_, tail) => contentFlatSections(tail, pending, reversed)
 
 def contentNestSections(values: List[Any], parentLevel: Int, reversed: List[Any]): ContentSectionCollect = values match
   case Nil => ContentSectionCollect(reversed.reverse, Nil)
@@ -239,11 +239,11 @@ def contentNestSections(values: List[Any], parentLevel: Int, reversed: List[Any]
         contentNestSections(remaining, parentLevel, section :: reversed)
   case Cons(_, tail) => contentNestSections(tail, parentLevel, reversed)
 
-def contentSections(values: List[Any]): List[Any] = contentNestSections(contentFlatSections(values, Nil), 0, Nil) match
+def contentSections(values: List[Any]): List[Any] = contentNestSections(contentFlatSections(values, Map(), Nil), 0, Nil) match
   case ContentSectionCollect(sections, _) => sections
 
 def contentRootBlocks(values: List[Any]): List[Any] = contentCollectBlocks(values, Map(), Nil) match
-  case ContentBlockCollect(blocks, _) => blocks
+  case ContentBlockCollect(blocks, _, _) => blocks
 
 def contentTitle(values: List[Any]): Option[String] = values match
   case Nil => None
