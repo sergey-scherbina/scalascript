@@ -1,0 +1,442 @@
+---
+name: scljet-sql
+version: 0.1.0
+description: SclJet SQL layer — lexer, SELECT parser, and executor over the read path
+package: scljet
+exports:
+  - Token
+  - Condition
+  - SelectStmt
+  - tokenize
+  - parseSelect
+  - executeSelect
+  - queryImage
+  - renderRows
+  - tableColumns
+---
+
+# SclJet SQL query layer
+
+A small SQL front end over the storage engine. `tokenize` lexes SQL text; `parseSelect`
+builds a `SelectStmt` AST for `SELECT (*|cols) FROM table [WHERE col op literal]`;
+`executeSelect` resolves the columns from the table's `CREATE TABLE` text, cursors the
+rows, applies the filter, and projects the result. `queryImage(dbBytes, sql)` opens a
+database image and returns the result rows; `renderRows` formats them like the sqlite3
+CLI (`a|b|c` per row, NULL blank) for differential testing.
+
+[ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, ReadonlyDatabase, SchemaEntry, StorageRecord, DecodedRecord, DecodedText, RowidTableTree, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly, ReadonlyCursorStep, ReadonlyBtreeCursor, SqliteError, SqliteOpenOptions, SqliteLimits, OpenReadOnly, StrictSqlite, JournalDelete, SyncFull](index.ssc)
+[ImageVfs, fieldValueAt](mutate.ssc)
+
+```scalascript
+// ── Lexer ──
+
+case class Token(kind: String, text: String, num: Long)
+
+// Bounds-safe: returns -1 past the end, so loop conditions like
+// `i < n && isDigit(charCode(s, i))` are safe even though `&&` does not
+// short-circuit in the interpreter.
+def charCode(s: String, i: Int): Int = if i >= 0 && i < s.length then s.charAt(i).toInt else -1
+def isWs(c: Int): Boolean = c == 32 || c == 9 || c == 10 || c == 13
+def isDigit(c: Int): Boolean = c >= 48 && c <= 57
+def isAlpha(c: Int): Boolean = (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 95
+def isAlnum(c: Int): Boolean = isAlpha(c) || isDigit(c)
+
+def upperStr(s: String): String =
+  var i = 0
+  var out = ""
+  while i < s.length do
+    val c = charCode(s, i)
+    out = out + (if c >= 97 && c <= 122 then (c - 32).toChar.toString else s.charAt(i).toString)
+    i = i + 1
+  out
+
+def reverseTokens(items: List[Token], acc: List[Token]): List[Token] =
+  var r = items
+  var out = acc
+  while r.nonEmpty do
+    out = r.head :: out
+    r = r.tail
+  out
+
+def tokenize(sql: String): Either[String, List[Token]] =
+  var i = 0
+  val n = sql.length
+  var toksRev: List[Token] = Nil
+  var err: Option[String] = None
+  while i < n && err.isEmpty do
+    val c = charCode(sql, i)
+    if isWs(c) then i = i + 1
+    else if isDigit(c) then
+      var num = 0L
+      while i < n && isDigit(charCode(sql, i)) do
+        num = num * 10L + (charCode(sql, i) - 48).toLong
+        i = i + 1
+      toksRev = Token("num", "", num) :: toksRev
+    else if isAlpha(c) then
+      var word = ""
+      while i < n && isAlnum(charCode(sql, i)) do
+        word = word + sql.charAt(i).toString
+        i = i + 1
+      toksRev = Token("ident", word, 0L) :: toksRev
+    else if c == 39 then
+      // '…' string literal, '' is an escaped quote
+      i = i + 1
+      var str = ""
+      var closed = false
+      while i < n && !closed do
+        if charCode(sql, i) == 39 then
+          if i + 1 < n && charCode(sql, i + 1) == 39 then
+            str = str + "'"
+            i = i + 2
+          else
+            closed = true
+            i = i + 1
+        else
+          str = str + sql.charAt(i).toString
+          i = i + 1
+      if !closed then err = Some("unterminated string literal")
+      else toksRev = Token("str", str, 0L) :: toksRev
+    else if c == 42 then
+      toksRev = Token("star", "*", 0L) :: toksRev
+      i = i + 1
+    else if c == 44 then
+      toksRev = Token("comma", ",", 0L) :: toksRev
+      i = i + 1
+    else if c == 40 then
+      toksRev = Token("lparen", "(", 0L) :: toksRev
+      i = i + 1
+    else if c == 41 then
+      toksRev = Token("rparen", ")", 0L) :: toksRev
+      i = i + 1
+    else if c == 61 then
+      toksRev = Token("op", "=", 0L) :: toksRev
+      i = i + 1
+    else if c == 60 then
+      // < , <= , <>
+      if i + 1 < n && charCode(sql, i + 1) == 61 then
+        toksRev = Token("op", "<=", 0L) :: toksRev
+        i = i + 2
+      else if i + 1 < n && charCode(sql, i + 1) == 62 then
+        toksRev = Token("op", "<>", 0L) :: toksRev
+        i = i + 2
+      else
+        toksRev = Token("op", "<", 0L) :: toksRev
+        i = i + 1
+    else if c == 62 then
+      if i + 1 < n && charCode(sql, i + 1) == 61 then
+        toksRev = Token("op", ">=", 0L) :: toksRev
+        i = i + 2
+      else
+        toksRev = Token("op", ">", 0L) :: toksRev
+        i = i + 1
+    else if c == 33 then
+      if i + 1 < n && charCode(sql, i + 1) == 61 then
+        toksRev = Token("op", "!=", 0L) :: toksRev
+        i = i + 2
+      else err = Some("unexpected '!' without '='")
+    else if c == 59 then
+      i = i + 1
+    else err = Some("unexpected character '" + sql.charAt(i).toString + "'")
+  err match
+    case Some(message) => Left(message)
+    case None => Right(reverseTokens(toksRev, Nil))
+
+// ── Parser: SELECT (*|cols) FROM table [WHERE col op literal] ──
+
+case class Condition(column: String, op: String, value: SqliteValue)
+case class SelectStmt(star: Boolean, columns: List[String], table: String, where: Option[Condition])
+
+def isKw(token: Token, word: String): Boolean = token.kind == "ident" && upperStr(token.text) == word
+
+def reverseStrings(items: List[String], acc: List[String]): List[String] =
+  var r = items
+  var out = acc
+  while r.nonEmpty do
+    out = r.head :: out
+    r = r.tail
+  out
+
+def parseColumnList(toks: List[String], remaining: List[Token]): Either[String, (List[String], List[Token])] =
+  var accRev = toks
+  var rest = remaining
+  var done = false
+  var result: Option[Either[String, (List[String], List[Token])]] = None
+  while !done && result.isEmpty do
+    if rest.isEmpty || rest.head.kind != "ident" then result = Some(Left("expected column name"))
+    else
+      accRev = rest.head.text :: accRev
+      rest = rest.tail
+      if rest.nonEmpty && rest.head.kind == "comma" then rest = rest.tail
+      else done = true
+  result match
+    case Some(r) => r
+    case None => Right((reverseStrings(accRev, Nil), rest))
+
+def litValue(token: Token): Either[String, SqliteValue] =
+  if token.kind == "num" then Right(SqlInteger(token.num))
+  else if token.kind == "str" then Right(SqlText(token.text))
+  else Left("expected a literal in WHERE")
+
+def parseWhere(toks: List[Token]): Either[String, Option[Condition]] =
+  if toks.isEmpty then Right(None)
+  else if isKw(toks.head, "WHERE") then
+    val rest = toks.tail
+    if rest.length < 3 then Left("WHERE needs: column op value")
+    else
+      val col = rest.head
+      val op = rest.tail.head
+      val lit = rest.tail.tail.head
+      if col.kind != "ident" then Left("expected column after WHERE")
+      else if op.kind != "op" then Left("expected a comparison operator")
+      else litValue(lit) match
+        case Left(message) => Left(message)
+        case Right(value) => Right(Some(Condition(col.text, op.text, value)))
+  else Left("expected WHERE")
+
+def parseSelect(toks: List[Token]): Either[String, SelectStmt] =
+  if toks.isEmpty || !isKw(toks.head, "SELECT") then Left("expected SELECT")
+  else
+    val afterSelect = toks.tail
+    val colResult: Either[String, (Boolean, List[String], List[Token])] =
+      if afterSelect.nonEmpty && afterSelect.head.kind == "star" then Right((true, Nil, afterSelect.tail))
+      else parseColumnList(Nil, afterSelect) match
+        case Left(message) => Left(message)
+        case Right(pair) => Right((false, pair._1, pair._2))
+    colResult match
+      case Left(message) => Left(message)
+      case Right(cols) =>
+        val afterCols = cols._3
+        if afterCols.isEmpty || !isKw(afterCols.head, "FROM") then Left("expected FROM")
+        else
+          val afterFrom = afterCols.tail
+          if afterFrom.isEmpty || afterFrom.head.kind != "ident" then Left("expected table name")
+          else parseWhere(afterFrom.tail) match
+            case Left(message) => Left(message)
+            case Right(where) => Right(SelectStmt(cols._1, cols._2, afterFrom.head.text, where))
+
+// ── Column names from the table's CREATE TABLE text ──
+
+/** Column names of a `CREATE TABLE t(col type, …)` statement: the first identifier of
+ *  each top-level (paren-depth 1) comma group after the opening `(`. */
+def tableColumns(sql: String): List[String] =
+  tokenize(sql) match
+    case Left(_) => Nil
+    case Right(toks) =>
+      var r = toks
+      // advance to the first '('
+      while r.nonEmpty && r.head.kind != "lparen" do r = r.tail
+      if r.isEmpty then Nil
+      else
+        r = r.tail
+        var depth = 1
+        var expectName = true
+        var accRev: List[String] = Nil
+        while r.nonEmpty && depth > 0 do
+          val t = r.head
+          if t.kind == "lparen" then depth = depth + 1
+          else if t.kind == "rparen" then depth = depth - 1
+          else if t.kind == "comma" && depth == 1 then expectName = true
+          else if depth == 1 && expectName && t.kind == "ident" then
+            accRev = t.text :: accRev
+            expectName = false
+          if depth > 0 then r = r.tail
+        reverseStrings(accRev, Nil)
+
+// ── Executor ──
+
+def sqlOptions(): SqliteOpenOptions = SqliteOpenOptions(OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, 0L, 16, false,
+  SqliteLimits(1000000L, 100, 100, 100, 100, 10, 1000000L, 100, 100, 1000L, 1000000L, 2, 1000L, 100, 1000000L))
+
+def cpToString(cps: List[Int]): String =
+  var r = cps
+  var s = ""
+  while r.nonEmpty do
+    s = s + r.head.toChar.toString
+    r = r.tail
+  s
+
+def columnIndex(colNames: List[String], name: String): Int =
+  val target = upperStr(name)
+  var r = colNames
+  var i = 0
+  var found = -1
+  while r.nonEmpty && found < 0 do
+    if upperStr(r.head) == target then found = i
+    i = i + 1
+    r = r.tail
+  found
+
+/** The value of column `name` in a row (`rowid` is the implicit rowid). */
+def rowValue(rec: StorageRecord, colNames: List[String], name: String): SqliteValue =
+  if upperStr(name) == "ROWID" then
+    rec.rowid match
+      case Some(id) => SqlInteger(id)
+      case None => SqlNull
+  else
+    val idx = columnIndex(colNames, name)
+    if idx < 0 then SqlNull else fieldValueAt(rec.record, idx)
+
+// Compare two values for WHERE: numeric if both numeric, text if both text, else by
+// storage-class order (NULL < number < text < blob).
+def valueClassOf(v: SqliteValue): Int = v match
+  case SqlNull => 0
+  case SqlInteger(_) => 1
+  case SqlReal(_) => 1
+  case SqlText(_) => 2
+  case SqlBlob(_) => 3
+
+def numOf(v: SqliteValue): Double = v match
+  case SqlInteger(x) => x.toDouble
+  case SqlReal(x) => x
+  case _ => 0.0
+
+def textOf(v: SqliteValue): String = v match
+  case SqlText(s) => s
+  case _ => ""
+
+def sqlCompare(a: SqliteValue, b: SqliteValue): Int =
+  val ca = valueClassOf(a)
+  val cb = valueClassOf(b)
+  if ca != cb then (if ca < cb then -1 else 1)
+  else if ca == 1 then
+    val na = numOf(a)
+    val nb = numOf(b)
+    if na < nb then -1 else if na > nb then 1 else 0
+  else if ca == 2 then
+    val ta = textOf(a)
+    val tb = textOf(b)
+    if ta < tb then -1 else if ta > tb then 1 else 0
+  else 0
+
+def condMatches(op: String, cmp: Int): Boolean =
+  if op == "=" then cmp == 0
+  else if op == "<>" || op == "!=" then cmp != 0
+  else if op == "<" then cmp < 0
+  else if op == ">" then cmp > 0
+  else if op == "<=" then cmp <= 0
+  else if op == ">=" then cmp >= 0
+  else false
+
+def whereHolds(where: Option[Condition], rec: StorageRecord, colNames: List[String]): Boolean = where match
+  case None => true
+  case Some(cond) => condMatches(cond.op, sqlCompare(rowValue(rec, colNames, cond.column), cond.value))
+
+def projectRow(rec: StorageRecord, colNames: List[String], stmt: SelectStmt): List[SqliteValue] =
+  val names = if stmt.star then colNames else stmt.columns
+  var r = names
+  var accRev: List[SqliteValue] = Nil
+  while r.nonEmpty do
+    accRev = rowValue(rec, colNames, r.head) :: accRev
+    r = r.tail
+  var out: List[SqliteValue] = Nil
+  while accRev.nonEmpty do
+    out = accRev.head :: out
+    accRev = accRev.tail
+  out
+
+def collectRows(db: ReadonlyDatabase, cursor: ReadonlyBtreeCursor): Either[SqliteError, List[StorageRecord]] =
+  readonlyFirst(db, cursor) match
+    case Left(error) => Left(error)
+    case Right(firstStep) =>
+      var d = firstStep.database
+      var c = firstStep.cursor
+      var row = firstStep.row
+      var accRev: List[StorageRecord] = Nil
+      var err: Option[SqliteError] = None
+      var done = false
+      while !done && err.isEmpty do
+        row match
+          case None => done = true
+          case Some(rec) =>
+            accRev = rec :: accRev
+            readonlyNext(d, c) match
+              case Left(error) => err = Some(error)
+              case Right(step) =>
+                d = step.database
+                c = step.cursor
+                row = step.row
+      err match
+        case Some(error) => Left(error)
+        case None =>
+          var out: List[StorageRecord] = Nil
+          var rr = accRev
+          while rr.nonEmpty do
+            out = rr.head :: out
+            rr = rr.tail
+          Right(out)
+
+def findTable(db: ReadonlyDatabase, name: String): Option[SchemaEntry] =
+  val target = upperStr(name)
+  var r = db.schema.entries
+  var found: Option[SchemaEntry] = None
+  while r.nonEmpty && found.isEmpty do
+    val e = r.head
+    if e.rootPage.isDefined && upperStr(cpToString(e.name.codePoints)) == target then found = Some(e)
+    r = r.tail
+  found
+
+def executeSelect(db: ReadonlyDatabase, stmt: SelectStmt): Either[String, List[List[SqliteValue]]] =
+  findTable(db, stmt.table) match
+    case None => Left("no such table: " + stmt.table)
+    case Some(entry) =>
+      val colNames = entry.sql match
+        case Some(text) => tableColumns(cpToString(text.codePoints))
+        case None => Nil
+      val root = entry.rootPage match
+        case Some(p) => p
+        case None => 0L
+      openReadonlyRoot(db, root, RowidTableTree) match
+        case Left(error) => Left(error.message)
+        case Right(cursor) => collectRows(db, cursor) match
+          case Left(error) => Left(error.message)
+          case Right(rows) =>
+            var r = rows
+            var accRev: List[List[SqliteValue]] = Nil
+            while r.nonEmpty do
+              if whereHolds(stmt.where, r.head, colNames) then accRev = projectRow(r.head, colNames, stmt) :: accRev
+              r = r.tail
+            var out: List[List[SqliteValue]] = Nil
+            while accRev.nonEmpty do
+              out = accRev.head :: out
+              accRev = accRev.tail
+            Right(out)
+
+/** Run a SELECT against a database image and return the result rows. */
+def queryImage(dbBytes: ByteSlice, sql: String): Either[String, List[List[SqliteValue]]] =
+  tokenize(sql) match
+    case Left(message) => Left(message)
+    case Right(toks) => parseSelect(toks) match
+      case Left(message) => Left(message)
+      case Right(stmt) => openReadonly(ImageVfs(dbBytes), "image.db", sqlOptions()) match
+        case Left(error) => Left(error.message)
+        case Right(db) => executeSelect(db, stmt)
+
+// ── Rendering (sqlite3 CLI list format: `a|b|c` per row, NULL blank) ──
+
+def renderValue(v: SqliteValue): String = v match
+  case SqlNull => ""
+  case SqlInteger(x) => x.toString
+  case SqlReal(x) => x.toString
+  case SqlText(s) => s
+  case SqlBlob(_) => ""
+
+def renderRow(row: List[SqliteValue]): String =
+  var r = row
+  var s = ""
+  var first = true
+  while r.nonEmpty do
+    s = if first then renderValue(r.head) else s + "|" + renderValue(r.head)
+    first = false
+    r = r.tail
+  s
+
+def renderRows(rows: List[List[SqliteValue]]): String =
+  var r = rows
+  var s = ""
+  var first = true
+  while r.nonEmpty do
+    s = if first then renderRow(r.head) else s + "\n" + renderRow(r.head)
+    first = false
+    r = r.tail
+  s
+```

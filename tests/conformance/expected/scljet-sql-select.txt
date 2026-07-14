@@ -1,0 +1,20 @@
+SELECT * FROM people => 1|carol|31
+2|alice|27
+3|dave|45
+4|bob|27
+SELECT name FROM people => carol
+alice
+dave
+bob
+SELECT id, name FROM people WHERE id = 3 => 3|dave
+SELECT name, age FROM people WHERE age >= 31 => carol|31
+dave|45
+SELECT name FROM people WHERE age = 27 => alice
+bob
+SELECT * FROM people WHERE name = 'bob' => 4|bob|27
+SELECT rowid, name FROM people WHERE name <> 'alice' => 1|carol
+3|dave
+4|bob
+SELECT name FROM people WHERE name >= 'c' => carol
+dave
+SELECT count FROM missing => ERR:no such table: missing

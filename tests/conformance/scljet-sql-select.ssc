@@ -1,0 +1,39 @@
+---
+name: scljet-sql-select
+description: SclJet SQL SELECT — lexer + parser + executor answer queries over a table (matches reference sqlite3)
+backends: [int, js]
+---
+
+# SclJet SQL SELECT
+
+Run SQL `SELECT` queries against a database the writer built: projection, `*`, and a
+`WHERE col op literal` filter over integer and text columns, plus the implicit `rowid`.
+Every query's result is byte-identical to reference sqlite3 running the same SQL on the
+same file (verified out-of-band); here it is locked across backends.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def run(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "people", "CREATE TABLE people(id INTEGER, name TEXT, age INTEGER)",
+  List(List(SqlInteger(1L), SqlText("carol"), SqlInteger(31L)),
+       List(SqlInteger(2L), SqlText("alice"), SqlInteger(27L)),
+       List(SqlInteger(3L), SqlText("dave"), SqlInteger(45L)),
+       List(SqlInteger(4L), SqlText("bob"), SqlInteger(27L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db) =>
+    run(db, "SELECT * FROM people")
+    run(db, "SELECT name FROM people")
+    run(db, "SELECT id, name FROM people WHERE id = 3")
+    run(db, "SELECT name, age FROM people WHERE age >= 31")
+    run(db, "SELECT name FROM people WHERE age = 27")
+    run(db, "SELECT * FROM people WHERE name = 'bob'")
+    run(db, "SELECT rowid, name FROM people WHERE name <> 'alice'")
+    run(db, "SELECT name FROM people WHERE name >= 'c'")
+    run(db, "SELECT count FROM missing")
+```

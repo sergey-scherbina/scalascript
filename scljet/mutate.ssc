@@ -15,6 +15,10 @@ exports:
   - updateRowInTable
   - deleteRowidsIndexed
   - updateRowIndexed
+  - ImageVfs
+  - ImageFile
+  - fieldToValue
+  - fieldValueAt
 ---
 
 # SclJet mutate — read-modify-rewrite
