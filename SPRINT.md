@@ -1087,6 +1087,12 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
           (`stage1 == stage2`, 29293 B; C1 compiles a `::` program→60), and `spike(cmin.L) ≡ ssc1-front(cmin.L)`
           byte-identical (54779 B). Scope: only simple `h :: t` patterns (nested `a :: b :: t` would need
           nested destructuring — not used by C_min). Fixpoint script gained a `consinfix` L-test.
+    - [x] **P6.17 — C_min language extension: `//` line comments ✓ DONE 2026-07-14.** L's lexer gained `//`
+          line comments (skip to the next newline) via `lexSlash`/`scanLineEnd` (`/` code 47). **C_min self-uses
+          it**: cmin.L now opens with a 3-line documenting header comment. C_min now 84 defs (+ header); the
+          fixpoint holds (`stage1 == stage2`, 29954 B; C1 compiles → 42), and `spike(cmin.L) ≡ ssc1-front(
+          cmin.L)` byte-identical (55520 B) — the spike already treats `//`/`/* */` as trivia (p6.0). Fixpoint
+          script gained a `comment` L-test (trailing `// …` skipped to EOL).
 
 ---
 

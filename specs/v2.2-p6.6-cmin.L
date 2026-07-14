@@ -1,3 +1,6 @@
+// C_min: a self-compiling compiler for language L, written in L. compile(src, dq): String -> String.
+// It lexes, Pratt-parses, and emits Core IR for L (def/if/match/val-blocks/strings/arith/lists/comments).
+// Escape-free: the `"` char is the `dq` parameter, so this source never contains a "-inside-a-string.
 def atEnd(i, n) = i >= n
 def isLo(c) = c >= 97 && c <= 122
 def isUp(c) = c >= 65 && c <= 90
@@ -10,8 +13,10 @@ def scanNumV(s, i, n, acc) = if atEnd(i, n) then acc else (if isDig(s.charAt(i))
 def scanNumE(s, i, n) = if atEnd(i, n) then i else (if isDig(s.charAt(i)) then scanNumE(s, i + 1, n) else i)
 def kwCode(w) = if w == "def" then 1 else (if w == "if" then 2 else (if w == "then" then 3 else (if w == "else" then 4 else (if w == "match" then 5 else (if w == "case" then 6 else (if w == "val" then 7 else 0))))))
 def lex(s, i, n) = if atEnd(i, n) then Nil else lexDispatch(s, i, n, s.charAt(i))
-def lexDispatch(s, i, n, c) = if c == 32 then lex(s, i + 1, n) else (if c == 10 then lex(s, i + 1, n) else (if c == 9 then lex(s, i + 1, n) else (if c == 13 then lex(s, i + 1, n) else (if isLet(c) then lexWord(s, i, n, scanId(s, i, n)) else (if isDig(c) then lexNum(s, i, n) else (if c == 34 then lexStr(s, i, n, scanStr(s, i + 1, n)) else (if c == 61 then lexEq(s, i, n) else (if c == 43 then lexPlus(s, i, n) else (if c == 60 then lexLt(s, i, n) else (if c == 62 then lexGt(s, i, n) else (if c == 38 then lexAmp(s, i, n) else (if c == 124 then lexPipe(s, i, n) else (if c == 58 then lexColon(s, i, n) else lexOp1(s, i, n, c))))))))))))))
+def lexDispatch(s, i, n, c) = if c == 32 then lex(s, i + 1, n) else (if c == 10 then lex(s, i + 1, n) else (if c == 9 then lex(s, i + 1, n) else (if c == 13 then lex(s, i + 1, n) else (if isLet(c) then lexWord(s, i, n, scanId(s, i, n)) else (if isDig(c) then lexNum(s, i, n) else (if c == 34 then lexStr(s, i, n, scanStr(s, i + 1, n)) else (if c == 61 then lexEq(s, i, n) else (if c == 43 then lexPlus(s, i, n) else (if c == 60 then lexLt(s, i, n) else (if c == 62 then lexGt(s, i, n) else (if c == 38 then lexAmp(s, i, n) else (if c == 124 then lexPipe(s, i, n) else (if c == 58 then lexColon(s, i, n) else (if c == 47 then lexSlash(s, i, n) else lexOp1(s, i, n, c)))))))))))))))
 def lexColon(s, i, n) = if s.charAt(i + 1) == 58 then Cons((2, 46), lex(s, i + 2, n)) else lex(s, i + 1, n)
+def scanLineEnd(s, i, n) = if atEnd(i, n) then i else (if s.charAt(i) == 10 then i else scanLineEnd(s, i + 1, n))
+def lexSlash(s, i, n) = if s.charAt(i + 1) == 47 then lex(s, scanLineEnd(s, i + 2, n), n) else lex(s, i + 1, n)
 def lexLt(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 44), lex(s, i + 2, n)) else Cons((2, 26), lex(s, i + 1, n))
 def lexGt(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 43), lex(s, i + 2, n)) else Cons((2, 42), lex(s, i + 1, n))
 def lexAmp(s, i, n) = if s.charAt(i + 1) == 38 then Cons((2, 40), lex(s, i + 2, n)) else lex(s, i + 1, n)
