@@ -26,6 +26,7 @@ object SscCompose:
   /** info-strings that mark a fence as ScalaScript code (empty = an untyped fence). */
   val ScalaLangs: Set[String] = Set("scalascript", "scala", "ssc", "")
 
+  /** `code` is the raw, lossless fence body (including its trailing line terminator). */
   final case class Fence(lang: String, code: String, injected: Boolean)
 
   final case class Composed(
@@ -35,9 +36,11 @@ object SscCompose:
       diagnostics: Vector[Diagnostic],
       status: CompletionStatus,
   ):
-    /** the injected ScalaScript fences, in source order, joined as one program —
-      * i.e. the bare `.ssc0` equivalent of the file's code half. */
-    def scalaSource: String = fences.filter(_.injected).map(_.code).mkString("\n")
+    /** the injected ScalaScript fences, in source order, joined as one program — the bare
+      * `.ssc0` the file's code half carries. Each fence's trailing line terminator is a fence
+      * artifact and pure trivia to both the ScalaScript dialect and `ssc1-front`, so this
+      * accessor drops it: presentation, never a correctness crutch (see the tolerance test). */
+    def scalaSource: String = fences.filter(_.injected).map(f => stripTrailingEol(f.code)).mkString("\n")
 
   /** concat the lexemes of the direct edges carrying `role`, in order — lossless. */
   private def textOfRole(b: UniNode.Branch, role: String): String =
@@ -74,10 +77,10 @@ object SscCompose:
     def transform(n: UniNode): UniNode = n match
       case b: UniNode.Branch if b.kind == "markdown.code-block" =>
         val lang = infoOf(b)
-        val code = stripTrailingEol(textOfRole(b, "code"))
+        val code = textOfRole(b, "code") // raw, lossless fence body — trailing EOL included
         if ScalaLangs(lang) then
           fences = fences :+ Fence(lang, code, injected = true)
-          inject(b, "code", code, SpikeDialect, "scalascript", "ssc:fence")
+          inject(b, "code", code, SpikeDialect, "scalascript", "ssc:fence") // trailing EOL is tolerated
         else
           fences = fences :+ Fence(lang, code, injected = false)
           b // a foreign fence stays inert — no dialect reinterprets it

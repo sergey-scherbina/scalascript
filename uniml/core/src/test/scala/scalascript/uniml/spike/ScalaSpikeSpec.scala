@@ -324,6 +324,22 @@ final class ScalaSpikeSpec extends AnyFunSuite:
     assert(d.span.isDefined)
   }
 
+  // ══ trailing-newline tolerance: a trailing EOL is trivia, never a projection change ═══════════
+
+  test("a trailing newline is trivia — the projection (hence Core IR) is invariant to it") {
+    val bare = SpikeProject.program(parse("def main(): Int = 1 + 2 * 3").roots.head)
+    val one  = SpikeProject.program(parse("def main(): Int = 1 + 2 * 3\n").roots.head)
+    val many = SpikeProject.program(parse("def main(): Int = 1 + 2 * 3\n\n").roots.head)
+    val crlf = SpikeProject.program(parse("def main(): Int = 1 + 2 * 3\r\n").roots.head)
+    assert(bare == one, "one trailing \\n must not change the projection")
+    assert(bare == many, "trailing blank lines must not change the projection")
+    assert(bare == crlf, "a trailing CRLF must not change the projection")
+    // multi-statement bodies too: the fence body a composer feeds always ends in a newline
+    val ccBare = SpikeProject.program(parse("case class P(x: Int)\ndef main(): Int = P(1).x").roots.head)
+    val ccNl   = SpikeProject.program(parse("case class P(x: Int)\ndef main(): Int = P(1).x\n").roots.head)
+    assert(ccBare == ccNl)
+  }
+
   // ══ emit projections + toys for the end-to-end run-ir / Core IR diff harness ═══
 
   test("emit projections + toys for the diff harness") {
