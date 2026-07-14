@@ -1,0 +1,5 @@
+claim: v2.2-p6.15-cmin-litpat
+branch: feature/v2.2-p6.15-cmin-litpat
+what: P6.15 — extend C_min's L with int-literal match patterns `case N =>`; let C_min dispatch token codes
+      via match; keep stage1==stage2 fixpoint + spike byte-identity.
+started: 2026-07-14
