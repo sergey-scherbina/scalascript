@@ -1975,10 +1975,15 @@ def guardablePat = (pat) =>
   match pat { case Pair(ptag, pdata) =>
     if #seq(ptag, "vpat") then true
     else if #seq(ptag, "wpat") then true
+    else if #seq(ptag, "lpat") then true   -- literal pattern binds nothing → guard-safe
     else if #seq(ptag, "tpat") then
       match pdata { case Pair(basePat, typeHead) => guardablePat(basePat) }
     else if #seq(ptag, "cpat") then
       match pdata { case Pair(ctorName, fields) => flatGuardFields(fields) }
+    -- An alternation `A | B | …` binds nothing (or the SAME vars in every branch,
+    -- per Scala), so a guard only reads OUTER scope → always safe. Without this,
+    -- `case "]" | "}" if cond =>` left the `if …` unparsed → `_err`.
+    else if #seq(ptag, "apat") then true
     else false }
 
 -- Flat constructor alternatives: `case A(_) | B(_) => body`. The lowerer
