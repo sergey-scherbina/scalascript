@@ -142,7 +142,6 @@ wasm-collections	v2	FAIL
 wasm-http	v2	FAIL
 wasm-matrix	v2	FAIL
 wasm-scalascript	v2	FAIL
-wasm-sorting	v2	FAIL
 webauthn-demo	*	SKIP
 ws-chat	*	SKIP
 ws-client	*	SKIP

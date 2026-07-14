@@ -369,7 +369,12 @@ def lexFrom = (s, i) =>
       else if #i.eq(n, 61) then Cons(mkTok("op", "=="), lexFrom(s, #i.add(i2, 2))) -- ==
       else Cons(mkTok("=", ""), lexFrom(s, #i.add(i2, 1)))                       -- =
     else if #i.eq(c, 58) then
-      if #i.eq(n, 58) then Cons(mkTok("::", ""), lexFrom(s, #i.add(i2, 2)))     -- ::
+      -- `:::` list concat. In v2 every Seq is a Cons-list, so `xs ::: ys` is exactly
+      -- `xs ++ ys` (concatenation; the result is identical regardless of associativity).
+      -- Reuse the `++` op lowering. (Was lexed as `::` + a bare `:` → `_err`.)
+      if #i.eq(n, 58) then
+        (if #i.eq(nget(s, #i.add(i2, 2)), 58) then Cons(mkTok("op", "++"), lexFrom(s, #i.add(i2, 3)))  -- :::
+         else Cons(mkTok("::", ""), lexFrom(s, #i.add(i2, 2))))     -- ::
       else if #i.eq(n, 43) then Cons(mkTok("op", ":+"), lexFrom(s, #i.add(i2, 2))) -- :+
       else if #i.eq(n, 61) then Cons(mkTok("op", ":="), lexFrom(s, #i.add(i2, 2))) -- := (DSL op)
       else Cons(mkTok(":", ""), lexFrom(s, #i.add(i2, 1)))                       -- :
