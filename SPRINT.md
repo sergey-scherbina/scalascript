@@ -24,7 +24,9 @@ atomically consumes the saved continuation once. Persistence records, atomic cla
 frames are runtime-private details rather than public `Ticket`/`Registry`/`Image` types. Exact
 `artifactDigest` matching plus drain/on-demand old workers replaces cross-version frame migration in
 the base design. Crash after `run` claims the saved state is `Unknown` and is never retried
-automatically.
+automatically. `SavedContinuation` is a codec-safe opaque reference that may cross a process or
+network boundary; a shared persistence provider keeps the actual saved state and arbitrates the
+single successful `run` across all copies and machines.
 
 ### Specification and contract freeze
 
@@ -95,19 +97,22 @@ automatically.
   `saved.run(value)` over a runtime-private persistence SPI with atomic save/claim/complete,
   `Ready → Claimed → Completed|Unknown`, and exact artifact/control-ABI validation. `save` invalidates
   every alias of the live continuation; `run` is at-most-once and never automatically replays a
-  claimed/unknown continuation.
+  claimed/unknown continuation. The opaque saved reference has a portable codec and may be sent over
+  HTTP, a queue, or ordinary data serialization; local and shared persistence providers implement the
+  same contract, and raw saved-frame bytes never enter the application API.
 - [ ] **continuation-artifact-drain** — route each saved continuation to its exact `artifactDigest`;
-  new work uses the
-  new artifact while old artifacts/workers are drain-only or launched on demand. Retire an artifact
-  when its outstanding saved-continuation count reaches zero (or retention expires). No base cross-version frame
-  migrations, effect journal, retry, or exactly-once claim.
+  new work uses the new artifact while old artifacts/workers are drain-only or launched on demand,
+  including on a different machine. Retire an artifact when its outstanding saved-continuation count
+  reaches zero (or retention expires). No base cross-version frame migrations, effect journal, retry,
+  or exactly-once external-effect claim.
 
 ### End-to-end completion gate
 
 - [ ] **scala-ssc-control-interop-matrix** — prove Scala `reset`→SSC `shift`, SSC `reset`→managed Scala
   `shift`, capture on one side/resume on the other, Scala→SSC→Scala→SSC callback ping-pong, handlers
-  written on either side, separate compilation, mixed TCO, save→process restart→one run, wrong
-  artifact, duplicate run, capture barrier, and crash-after-claim=`Unknown`.
+  written on either side, separate compilation, mixed TCO, save→network transfer→remote run,
+  save→process restart→one run, wrong artifact, duplicate/concurrent run, capture barrier, and
+  crash-after-claim=`Unknown`.
 - [ ] **scala-sdk-feature-coverage** — derive a CI-enforced matrix from existing feature/capability and
   module metadata. Every ScalaScript capability must declare one Scala exposure form: native API,
   generated facade, macro, compiler plugin, tooling-only, platform-specific, or intentionally
