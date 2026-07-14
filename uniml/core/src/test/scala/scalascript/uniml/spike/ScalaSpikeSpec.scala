@@ -504,8 +504,56 @@ final class ScalaSpikeSpec extends AnyFunSuite:
          |  val sum = fold(5, 0)
          |  val mul = (a, b) => a * b
          |  sum + mul(2, 3)""".stripMargin
+    // ══ P6.4 SELF-HOST PROOF ══════════════════════════════════════════════════════════════════
+    // A real compiler, written entirely in the subset: a prefix-notation arithmetic language is
+    // tokenised (Cons-list of ints; -1=+, -2=*, ≥0=literal), parsed into an AST (int-tagged tuples),
+    // COMPILED to a stack-machine program, and executed by a stack VM. If the spike compiles THIS
+    // to Core IR byte-identical to ssc1-front AND it runs to the right answer, the subset hosts a
+    // compiler and the spike compiles it exactly as the trusted front does.  + 3 * 4 5  →  3+(4*5) = 23.
+    val selfhostArith =
+      """|def parseBin(tag: Int, r0: Int): Int = r0 match { case (l, r1) => parse(r1) match { case (r, r2) => ((tag, (l, r)), r2) } }
+         |def parse(ts: List[Int]): Int = ts match {
+         |  case Cons(t, rest) => if t == -1 then parseBin(2, parse(rest)) else if t == -2 then parseBin(3, parse(rest)) else ((0, t), rest)
+         |  case Nil => ((0, 0), Nil)
+         |}
+         |def compile(e: Int, acc: List[Int]): List[Int] = e match {
+         |  case (0, n) => Cons((0, n), acc)
+         |  case (2, lr) => lr match { case (l, r) => Cons((1, 0), compile(r, compile(l, acc))) }
+         |  case (3, lr) => lr match { case (l, r) => Cons((2, 0), compile(r, compile(l, acc))) }
+         |  case _ => acc
+         |}
+         |def rev(xs: List[Int], acc: List[Int]): List[Int] = xs match { case Nil => acc case Cons(h, t) => rev(t, Cons(h, acc)) }
+         |def exec(ops: List[Int], stack: List[Int]): List[Int] = ops match {
+         |  case Nil => stack
+         |  case Cons(op, rest) => op match {
+         |    case (0, n) => exec(rest, Cons(n, stack))
+         |    case (k, u) => stack match { case Cons(b, Cons(a, s)) => exec(rest, Cons(if k == 1 then a + b else a * b, s)) case _ => exec(rest, stack) }
+         |  }
+         |}
+         |def top(s: List[Int]): Int = s match { case Cons(h, t) => h case Nil => 0 }
+         |def fst(p: Int): Int = p match { case (a, b) => a }
+         |def run(ts: List[Int]): Int =
+         |  val ast = fst(parse(ts))
+         |  val prog = rev(compile(ast, Nil), Nil)
+         |  top(exec(prog, Nil))
+         |def main(): Int = run(Cons(-1, Cons(3, Cons(-2, Cons(4, Cons(5, Nil))))))""".stripMargin
+    // A second self-host artifact: an interpreter for a let/variable language (de Bruijn indices +
+    // an environment) — scoping, the heart of a real compiler.  let x = 3+4 in x*(x+1)  →  7*8 = 56.
+    val selfhostEval =
+      """|def lookup(env: List[Int], id: Int): Int = env match { case Nil => 0 case Cons(v, rest) => if id == 0 then v else lookup(rest, id - 1) }
+         |def eval(e: Int, env: List[Int]): Int = e match {
+         |  case (0, n) => n
+         |  case (1, id) => lookup(env, id)
+         |  case (2, lr) => lr match { case (l, r) => eval(l, env) + eval(r, env) }
+         |  case (3, lr) => lr match { case (l, r) => eval(l, env) * eval(r, env) }
+         |  case (4, vb) => vb match { case (value, body) => eval(body, Cons(eval(value, env), env)) }
+         |  case _ => 0
+         |}
+         |def main(): Int = eval((4, ((2, ((0, 3), (0, 4))), (3, ((1, 0), (2, ((1, 0), (0, 1))))))), Nil)""".stripMargin
     // well-formed — the harness requires byte-identical Core IR vs ssc1-front.
     val wellFormed = Seq(
+      "selfhost-arith" -> selfhostArith,
+      "selfhost-eval"  -> selfhostEval,
       "scale-prog"   -> scaleProg,
       "scale-decls"  -> scaleDecls,
       "scale-nested" -> scaleNested,
@@ -515,6 +563,10 @@ final class ScalaSpikeSpec extends AnyFunSuite:
       "funret"    -> "def mk(): Int => Int = x => x + 1\ndef main(): Int = mk()(4)",
       "interp-if" -> "def f(n: Int): String = s\"${if n > 0 then \"p\" else \"n\"}\"\ndef main(): Int = 0",
       "nested3"   -> "def f(n: Int): Int =\n  val a = 1\n  if n > 0 then\n    val b = 2\n    a + b\n  else\n    val c = 3\n    a + c\ndef main(): Int = f(1)",
+      // building blocks for the self-host compiler (de-risk before the full programs)
+      "nested-pat" -> "def f(xs: List[Int]): Int = xs match\n  case Cons(b, Cons(a, s)) => a + b\n  case _ => 0\ndef main(): Int = f(1 :: 2 :: Nil)",
+      "tag-pat"    -> "def f(e: Int): Int = e match\n  case (0, n) => n\n  case (2, lr) => 99\n  case _ => 0\ndef main(): Int = f((0, 42))",
+      "neg-tup"    -> "def main(): Int =\n  val e = (2, ((0, 3), (0, 4)))\n  e match\n    case (2, lr) => lr match\n      case (l, r) => 3\n    case _ => 0",
       "add-mul"   -> "def main(): Int = 1 + 2 * 3",
       "mul-add"   -> "def main(): Int = 1 * 2 + 3",
       "paren"     -> "def main(): Int = (1 + 2) * 3",
