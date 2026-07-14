@@ -1,0 +1,99 @@
+---
+name: hstack-wrap
+version: 1.0.0
+description: A row of varying-width buttons flowing and wrapping onto multiple lines (runtime/std/ui/layout.ssc `hstack`'s new `wrap` param, specs/std-ui-hstack-wrap.md).
+frontend: custom
+---
+
+# hstack-wrap — a nav-style button row that wraps naturally
+
+`hstack` accepts a `wrap` param (`hstack(gap = 8, wrap = true)(children*)`)
+that sets `flex-wrap: wrap` on the row, so children flow left-to-right and
+wrap onto additional lines once they exceed the container's available
+width — real browser-computed wrapping, not a caller-side pre-split into
+fixed-size row groups. This is the concrete gap behind busi's owner nav bar:
+up to 15 buttons with varying Cyrillic label widths (from `"Сейф"` ~48px to
+`"Корпоративное закрытие"` ~171px), today hand-grouped into fixed "4 per
+row" chunks that either overflow or leave rows visibly ragged. This example
+lists the same kind of varying-width labels in one flat `hstack`, in natural
+order, and lets the browser wrap them — resize the window narrower to see
+the row reflow live. A second, `wrap = false` row (the pre-existing default)
+is shown for contrast: on a narrow viewport its children shrink/overflow
+instead of wrapping.
+
+Build with `ssc emit-spa --frontend custom
+examples/frontend/hstack-wrap/hstack-wrap.ssc > hstack-wrap.html` (then open
+in a browser and resize narrower than ~500px to see the wrap), or run `ssc
+run examples/frontend/hstack-wrap/hstack-wrap.ssc`.
+
+[signal, incSignal, serve](std/ui/primitives.ssc)
+[actionButton](std/ui/input.ssc)
+[vstack, hstack, box](std/ui/layout.ssc)
+[heading, text](std/ui/typography.ssc)
+[TkNode](std/ui/nodes.ssc)
+[lower](std/ui/lower.ssc)
+[Theme, defaultTheme](std/ui/theme.ssc)
+
+```scalascript
+val clicks = signal("hstackWrapClicks", 0)
+
+// One actionButton per label, mixed short/long — same shape as busi's owner-nav
+// buttons (from a short "Сейф"-length label up to a long "Корпоративное
+// закрытие"-length one), listed flat in natural order (no manual row grouping).
+
+// wrap = true: flex-wrap:wrap — the browser flows buttons left-to-right and
+// wraps onto as many lines as the container's width requires.
+val wrappingRow = box(maxWidth = 480)(
+  hstack(gap = 8, wrap = true)(
+    actionButton(incSignal(clicks), "Сейф"),
+    actionButton(incSignal(clicks), "Задачи"),
+    actionButton(incSignal(clicks), "Клиенты"),
+    actionButton(incSignal(clicks), "Договоры"),
+    actionButton(incSignal(clicks), "Счета"),
+    actionButton(incSignal(clicks), "Проекты"),
+    actionButton(incSignal(clicks), "Корпоративное закрытие"),
+    actionButton(incSignal(clicks), "Настройки"),
+    actionButton(incSignal(clicks), "Отчёты"),
+    actionButton(incSignal(clicks), "Архив"),
+    actionButton(incSignal(clicks), "Персонал"),
+    actionButton(incSignal(clicks), "Аналитика"),
+    actionButton(incSignal(clicks), "Поддержка"),
+    actionButton(incSignal(clicks), "Интеграции"),
+    actionButton(incSignal(clicks), "Журнал операций")
+  )
+)
+
+// wrap = false (the default — no wrap argument needed, shown explicit here
+// for contrast): the pre-existing nowrap render, same width cap, so the row
+// overflows/shrinks instead of wrapping. Same labels, same order.
+val nowrapRow = box(maxWidth = 480)(
+  hstack(gap = 8)(
+    actionButton(incSignal(clicks), "Сейф"),
+    actionButton(incSignal(clicks), "Задачи"),
+    actionButton(incSignal(clicks), "Клиенты"),
+    actionButton(incSignal(clicks), "Договоры"),
+    actionButton(incSignal(clicks), "Счета"),
+    actionButton(incSignal(clicks), "Проекты"),
+    actionButton(incSignal(clicks), "Корпоративное закрытие"),
+    actionButton(incSignal(clicks), "Настройки"),
+    actionButton(incSignal(clicks), "Отчёты"),
+    actionButton(incSignal(clicks), "Архив"),
+    actionButton(incSignal(clicks), "Персонал"),
+    actionButton(incSignal(clicks), "Аналитика"),
+    actionButton(incSignal(clicks), "Поддержка"),
+    actionButton(incSignal(clicks), "Интеграции"),
+    actionButton(incSignal(clicks), "Журнал операций")
+  )
+)
+
+val tree = vstack(gap = 16)(
+  heading(1, "hstack wrap"),
+  heading(2, "wrap = true — flows onto multiple lines"),
+  wrappingRow,
+  heading(2, "wrap = false (default) — stays on one line, may overflow"),
+  nowrapRow,
+  text("Every click increments a shared counter, regardless of row.")
+)
+
+serve(lower(tree, defaultTheme), 8080)
+```

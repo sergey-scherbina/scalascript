@@ -60,5 +60,5 @@ def localePlural(catalog: Map[String, Map[String, String]], keyBase: String, nSi
 // missing labels fall back to the locale code.
 def localeSwitcher(locales: List[String], labels: Map[String, String]): TkNode =
   HStackNode(8, locales.map(loc =>
-    signalButton(localeSignal, loc, if labels.contains(loc) then labels.getOrElse(loc, loc) else loc, false)))
+    signalButton(localeSignal, loc, if labels.contains(loc) then labels.getOrElse(loc, loc) else loc, false)), false)
 ```

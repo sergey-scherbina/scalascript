@@ -1961,10 +1961,15 @@ object ContentIntrinsics:
       "children" -> PluginValue.list(children)
     )
 
+  // `wrap` is hardcoded false here — content-toolkit's markdown/YAML hstack control has no
+  // wrap option (out of scope for std-ui-hstack-wrap); this keeps the instance's field shape
+  // in sync with the 3-field HStackNode (specs/std-ui-hstack-wrap.md) without changing
+  // content-toolkit's rendered output.
   private def hstackNode(gap: Int, children: List[PluginValue]): PluginValue =
     instanceValue("HStackNode",
       "gap" -> PluginValue.int(gap.toLong),
-      "children" -> PluginValue.list(children)
+      "children" -> PluginValue.list(children),
+      "wrap" -> PluginValue.bool(false)
     )
 
   private def dividerNode(): PluginValue =
