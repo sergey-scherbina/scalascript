@@ -1319,6 +1319,32 @@ one root-to-leaf spine per insert. Optional follow-ups only: freelist-page reuse
 overflow-cell decode in `readLeafCells`, and delete-time sibling merge (compaction, not
 correctness).
 
+### SclJet M5 — SQL query layer (2026-07-14, Sergiy: "продолжай"; original scljet vision named a "sql интерпретатора")
+
+The storage engine is complete; M5 puts SQL on top of it. Each slice verifies against
+reference sqlite3 running the SAME SQL on the SAME file (default row order = cursor = rowid
+order, so `SELECT *` matches without ORDER BY), and int==js.
+
+- [x] **scljet-m5a-sql-select** — DONE 2026-07-14. New module `scljet/sql.ssc`: `tokenize`
+      (lexer), `parseSelect` (→ `SelectStmt` AST), `executeSelect`, `queryImage(dbBytes, sql)`,
+      `renderRows` (sqlite3 CLI format). Parses `SELECT (*|cols) FROM table [WHERE col op literal]`
+      (op ∈ `= <> != < > <= >=`, literal = integer or `'string'`), resolves columns from the
+      table's `CREATE TABLE` text (+ implicit `rowid`), cursors the rows, filters, projects.
+      VERIFIED: 8 SELECTs (star, projection, int/text WHERE across every comparator, rowid,
+      missing-table error) over a writer-built DB are BYTE-IDENTICAL to reference sqlite3
+      running the same SQL on the same file; int==js. Conformance `scljet-sql-select`. GOTCHA:
+      the interpreter's `&&` does NOT short-circuit — made `charCode` bounds-safe (returns -1
+      past end) so `i < n && isDigit(charCode(s,i))` can't index out of bounds. NB: sql.ssc
+      imports reader types from index.ssc + `ImageVfs`/`fieldValueAt` from mutate.ssc; NOT
+      re-exported by index.ssc (would cycle) — conformance imports it as `std/scljet/sql.ssc`.
+- [ ] **scljet-m5b-sql-orderby-limit** — `ORDER BY col [ASC|DESC]`, `LIMIT n [OFFSET m]`.
+- [ ] **scljet-m5c-sql-insert** — `INSERT INTO t [(cols)] VALUES (…)` → encode the record and
+      `pagerInsertBalanced` (rowid = explicit or max+1), commit, return the new image.
+- [ ] **scljet-m5d-sql-delete** — `DELETE FROM t WHERE …` → find matching rowids, `pagerDeleteBalanced`.
+- [ ] **scljet-m5e-sql-update** — `UPDATE t SET col=… WHERE …` → re-encode the row in place.
+- [ ] **scljet-m5f-sql-create-table** — `CREATE TABLE t(…)` → build an empty table + schema row.
+- [ ] **scljet-m5g-sql-aggregates-join** — `COUNT/SUM/MIN/MAX`, `GROUP BY`, simple inner joins (later).
+
 Execution order (value × tractability): m4a (template exists) → m4b → m4c → m4d →
 m4e → m4f → m4g. Keep every scljet conformance case green [int,js] --no-memo after each.
 ## v2-swift-nativeui-i18n-json — standard `lower/serve`, locale and JSON parity (2026-07-12)

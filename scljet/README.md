@@ -110,6 +110,16 @@ ok with exact ordered rows. Delete rewrites the target leaf (an underfull leaf s
 valid B-tree). The whole-file read-modify-rewrite in `mutate.ssc` remains for bulk DML;
 delete-time sibling merge (compaction, not correctness) is the one optional follow-up.
 
+## SQL
+
+A SQL query layer (`sql.ssc`) sits on top of the storage engine. `queryImage(dbBytes, sql)`
+lexes and parses `SELECT (*|cols) FROM table [WHERE col op literal]` (comparators
+`= <> != < > <= >=`, integer or `'string'` literals, plus the implicit `rowid`), resolves
+the columns from the table's `CREATE TABLE` text, cursors the rows, filters, and projects —
+returning result rows that `renderRows` formats like the sqlite3 CLI. Every query is
+byte-identical to reference sqlite3 running the same SQL on the same file. `ORDER BY`/`LIMIT`,
+`INSERT`/`DELETE`/`UPDATE`/`CREATE TABLE`, and aggregates/joins are the M5 follow-ups.
+
 ## Modules
 
 | File | Role |
@@ -123,6 +133,7 @@ delete-time sibling merge (compaction, not correctness) is the one optional foll
 | `journal.ssc` | rollback-journal write + hot-journal recovery + transactional in-place page write + write transactions |
 | `wal.ssc` | write-ahead log: `-wal` frame writer + WAL-mode marker + reader (recover frame map, overlay read, checkpoint) |
 | `mutate.ssc` | read-modify-rewrite: delete/keep rows in an existing single-table database |
+| `sql.ssc` | SQL layer: lexer, `SELECT` parser, and executor over the read path |
 | `index.ssc` | the module manifest re-exporting the public API |
 
 The full specification and behavior gates are in
