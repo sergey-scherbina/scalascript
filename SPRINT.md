@@ -1783,6 +1783,16 @@ ORDER BY / LIMIT / OFFSET, aggregates (COUNT/SUM/MIN/MAX/AVG/TOTAL), GROUP BY + 
 and inner + LEFT joins — every feature byte-verified against reference sqlite3, int==js.
 Remaining follow-ups (niche): multi-table (3+) joins, page-1 schema split, repeating-decimal %.15g.
 
+- [x] **scljet-m6b-update-set-expr** — DONE 2026-07-14. `UPDATE t SET col = <expr>` — the assignment
+      RHS may be a scalar expression over the row: self-reference (`salary = salary + 100`,
+      `salary = salary * 2`), cross-column (`salary = salary - bonus`, `bonus = salary / 10`), and a
+      multi-assignment column **swap** (`SET salary = bonus, bonus = salary`). `Assignment` gained
+      `expr: Option[SxNode]` (bare literal keeps `value`); `parseAssignments` parses the RHS with
+      `parseExpr`; `applyAssignments` evaluates every assignment's RHS against the **pre-update** row
+      values via new `evalExprValues` (values+colNames, no StorageRecord needed) — so the swap and
+      `n = n + 1` are correct, matching sqlite. Verified vs sqlite3 (5-step sequence incl. swap and
+      integer division), int==js; conformance `scljet-sql-update-expr`.
+
 - [x] **scljet-m6a-where-expr** — DONE 2026-07-14. Scalar expressions in `WHERE`. Either side of a
       comparison may now be an arithmetic expression, a column, or a literal: `salary * 2 > 400`,
       `salary > cost * 2`, column-to-column (`salary > cost`), literal LHS (`250 >= salary`), composed
