@@ -376,4 +376,104 @@ again, this time for `size`:
 
 ## Results
 
-_(filled in after implementation)_
+What landed:
+
+- `runtime/std/ui/nodes.ssc` — `size: String` field appended as the last
+  field (after `variant`) on `SignalButtonNode`, `ActionButtonNode`,
+  `SignalLabelButtonNode`, `SignalActionButtonNode`.
+- `runtime/std/ui/input.ssc` — `size: String = "md"` appended as the last
+  param (after `variant`) on all four constructors, threaded unchanged into
+  the node.
+- `runtime/std/ui/lower.ssc` — `_buttonFontSize(size, theme)` (sm→
+  `typography.caption.fontSize`, lg→`typography.heading.fontSize`, else→
+  `typography.body.fontSize`) and `_buttonPadding(size, theme)` (sm→`xs/sm`,
+  lg→`md/lg`, else→`sm/md` from `SpacingScale`) resolvers, placed next to
+  `_buttonColor`; all four button-lowering cases swap the hardcoded
+  `padding:${sp.sm}px ${sp.md}px`/`font-size:${t.fontSize}px` for calls to
+  the two resolvers.
+- `examples/frontend/button-variants/button-variants.ssc` — extended with a
+  `sizeRow` (`sm`/`md`/`lg` `actionButton`s) and a `sizeTypoBtn`
+  (unrecognized-size fallback), alongside the pre-existing variant demo.
+- `tests/conformance/tkv2-button-size.ssc` (+ `expected/`) — mirrors
+  `tkv2-button-variant.ssc`'s TkNode-field-assertion style: asserts `size`
+  threads from each of the four constructors to its node unchanged
+  (including the no-`size`-arg default and an unrecognized string), and
+  that `lower()` does not throw for any of them, on both `[int, js]` lanes.
+- `v1/runtime/backend/interpreter-server/src/test/scala/scalascript/ButtonSizeTest.scala`
+  — closes the gap `View`'s opacity leaves in the `.ssc`-level conformance
+  test: runs the interpreter, extracts the real
+  `frontend.core.View.Element`'s `"style"` attribute string for each size,
+  and asserts the font-size/padding literals genuinely differ. Actual
+  output observed (via the `defaultTheme` values baked into the assertions):
+
+  ```
+  sm:    padding:4px 8px;   font-size:12px
+  md:    padding:8px 16px;  font-size:16px
+  lg:    padding:16px 24px; font-size:24px
+  bogus: padding:8px 16px;  font-size:16px   (== md, byte-for-byte)
+  ```
+
+  All three accepted sizes produce distinct style strings; the unrecognized
+  string (`"some-typo"`) produces the identical string to `"md"` — the
+  fallback is exact, not merely "doesn't crash".
+- Found, fixed as a required consequence of adding a field to an existing
+  node (not new scope, same class of fix `variant`'s own slice made): three
+  call sites outside `input.ssc` construct/deconstruct these same node
+  types and needed to stay in sync — `ContentIntrinsics.scala`'s
+  `signalButtonNode`/`actionButtonNode` helpers now also set `"size" ->
+  PluginValue.string("md")` (appended after `"variant"`, order matters —
+  `PluginValue.orderedInstance` is array-backed); `JvmGenContentEmit.scala`'s
+  four generated-Scala-source call sites now pass `"md"` as a 6th positional
+  arg (a genuine compile-time requirement, same as `variant`'s own
+  precedent); `tests/conformance/std-ui-jobpanel.ssc`'s
+  `ActionButtonNode(_, label, disabled, variant)` pattern became
+  `ActionButtonNode(_, label, disabled, variant, size)` (+ matching
+  `expected/std-ui-jobpanel.txt` update). **Additionally found** (not
+  enumerated in the originating task brief, but the identical class of
+  required sync): `tests/conformance/tkv2-button-variant.ssc` itself
+  pattern-matches on all five pre-slice node fields in five places — adding
+  `size` as a 6th field broke every one of those patterns (silently, via
+  the existing catch-all `case _ => "?"`, not a compile error), causing a
+  real conformance regression (`tkv2-button-variant` INT lane went from 12
+  expected lines to 9 `"?"` mismatches) that the sibling-suite run caught
+  before push. Fixed by adding a trailing `_` for the new `size` field to
+  each of the five patterns; confirmed `ContentToolkitJs.scala`'s
+  hand-crafted JS object literals need **no** change (re-verified for this
+  slice — they never included a `variant` key either, so the existing
+  "missing property → undefined → falls through to default" reasoning
+  extends unchanged to `size`).
+- `README.md` capabilities-table row; `docs/user-guide.md` widget-catalog
+  rows for `signalButton`/`actionButton`.
+
+Verification:
+
+- `scripts/sbtc "installBin"` — clean, no compile errors.
+- `scripts/sbtc "backendJvm/compile"` and `scripts/sbtc "contentPlugin/compile"`
+  — both clean.
+- `tests/conformance/run.sh --only 'tkv2-button-size'` — **PASS [INT], PASS
+  [JS]** (JVM correctly SKIP — `backends: [int, js]`).
+- `tests/conformance/run.sh --only 'tkv2-*,std-ui-*' --no-memo` — **23
+  passed, 0 failed** (no regressions across the sibling toolkit-v2/std-ui
+  suite, including `tkv2-button-variant`'s updated pattern arity and
+  `std-ui-jobpanel`'s updated pattern arity).
+- `scripts/sbtc "backendInterpreterServer/testOnly scalascript.ButtonSizeTest"`
+  — green; the actual per-size font-size/padding proof above.
+- `scripts/sbtc "backendInterpreterServer/testOnly scalascript.ButtonVariantColorTest scalascript.StdUiSmokeTest"`
+  — 3 tests, all green (no regression to the `variant` slice or the
+  pre-existing `std/ui` smoke test).
+- `scripts/sbtc "contentPlugin/testOnly scalascript.compiler.plugin.content.ContentPluginInterpreterTest"`
+  — 29 passed, 0 failed (content-toolkit button-related tests unaffected by
+  the `ContentIntrinsics.scala` field addition).
+- `bin/ssc-tools emit-spa --frontend custom
+  examples/frontend/button-variants/button-variants.ssc` — succeeds (exit
+  0); the emitted JS bundle contains the compiled `_buttonFontSize`/
+  `_buttonPadding` resolvers wired into all four button-lowering branches
+  (confirmed by grepping the bundle).
+
+Follow-ups recorded in this spec's Out-of-Scope section: busi-side
+`size="sm"` wiring (which button gets `size="sm"` — not this repo's
+decision, someone else bumps busi's submodule pin); shortening button label
+text (busi-side content decision). No `SPRINT.md`/`BACKLOG.md` entry was
+needed — this slice was claimed and completed within a single
+`.work/active/std-ui-button-size.claim` cycle, closed via the claim removal
++ `CHANGELOG.md` entry in the bookkeeping commit.
