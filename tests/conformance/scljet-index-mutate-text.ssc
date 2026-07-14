@@ -1,0 +1,29 @@
+---
+name: scljet-index-mutate-text
+description: SclJet index-maintaining delete on a TEXT-key index — the text index is rebuilt from the surviving rows (cross-backend)
+backends: [int, js]
+---
+
+# SclJet index-maintaining mutate (text key)
+
+[ByteSlice, byteSliceToList, SqliteValue, SqlInteger, SqlText, buildTableWithIndexDatabase](std/scljet/index.ssc)
+[deleteRowidsIndexed](std/scljet/mutate.ssc)
+
+```scalascript
+// Delete rowid 3 (name="dave") from a table with a TEXT index on `name`. The text
+// key is reconstructed from its code points, so the index is rebuilt correctly and
+// reference integrity_check (which cross-checks the index) still passes. int==js.
+val rows = List(
+  List(SqlInteger(1L), SqlText("carol")),
+  List(SqlInteger(2L), SqlText("alice")),
+  List(SqlInteger(3L), SqlText("dave")),
+  List(SqlInteger(4L), SqlText("bob")))
+
+buildTableWithIndexDatabase(512, 1, 1, "t", "CREATE TABLE t(id INTEGER, name TEXT)",
+  "byname", "CREATE INDEX byname ON t(name)", List(1), rows) match
+  case Right(db) =>
+    deleteRowidsIndexed(db, 2, 1, List(1), List(3L)) match
+      case Right(newDb) => println((newDb.length / 512).toString + ":" + byteSliceToList(newDb).toString)
+      case Left(message) => println("MUTATE-ERROR:" + message)
+  case Left(error) => println("BUILD-ERROR:" + error.message)
+```
