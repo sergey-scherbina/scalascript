@@ -572,11 +572,47 @@ final class ScalaSpikeSpec extends AnyFunSuite:
          |  val dbl = (7, (3, ((1, 0), (0, 2))))
          |  val twice = (7, (8, ((1, 0), (8, ((1, 0), (0, 3))))))
          |  asInt(eval((8, (twice, dbl)), Nil))""".stripMargin
+    // The strongest self-host artifact: a COMPLETE compiler from SOURCE TEXT. It reads actual characters
+    // — a real lexer (s.charAt / s.length, digits, `+`/`*`, spaces) turns a prefix-arithmetic string into
+    // a token list, a recursive-descent parser builds an AST, and an evaluator computes the result. Lexer
+    // + parser + evaluator over a `String`, all in the subset.  "+ 1 * 2 3"  →  1 + (2*3)  →  7.
+    val selfhostFull =
+      """|def isDigit(c: Int): Int = if c >= 48 then (if c <= 57 then 1 else 0) else 0
+         |def scanNum(s: String, i: Int, n: Int, acc: Int): Int =
+         |  if i >= n then (acc, i)
+         |  else
+         |    val c = s.charAt(i)
+         |    if isDigit(c) == 1 then scanNum(s, i + 1, n, acc * 10 + (c - 48))
+         |    else (acc, i)
+         |def tokenize(s: String, i: Int, n: Int): List[Int] =
+         |  if i >= n then Nil
+         |  else
+         |    val c = s.charAt(i)
+         |    if c == 43 then Cons(-1, tokenize(s, i + 1, n))
+         |    else if c == 42 then Cons(-2, tokenize(s, i + 1, n))
+         |    else if c == 32 then tokenize(s, i + 1, n)
+         |    else if isDigit(c) == 1 then scanNum(s, i, n, 0) match { case (v, j) => Cons(v, tokenize(s, j, n)) }
+         |    else tokenize(s, i + 1, n)
+         |def parseBin(tag: Int, r0: Int): Int = r0 match { case (l, r1) => parse(r1) match { case (r, r2) => ((tag, (l, r)), r2) } }
+         |def parse(ts: List[Int]): Int = ts match {
+         |  case Cons(t, rest) => if t == -1 then parseBin(2, parse(rest)) else if t == -2 then parseBin(3, parse(rest)) else ((0, t), rest)
+         |  case Nil => ((0, 0), Nil)
+         |}
+         |def eval(e: Int): Int = e match {
+         |  case (0, n) => n
+         |  case (2, lr) => lr match { case (l, r) => eval(l) + eval(r) }
+         |  case (3, lr) => lr match { case (l, r) => eval(l) * eval(r) }
+         |  case _ => 0
+         |}
+         |def fst(p: Int): Int = p match { case (a, b) => a }
+         |def compile(src: String): Int = eval(fst(parse(tokenize(src, 0, src.length))))
+         |def main(): Int = compile("+ 1 * 2 3")""".stripMargin
     // well-formed — the harness requires byte-identical Core IR vs ssc1-front.
     val wellFormed = Seq(
       "selfhost-arith"    -> selfhostArith,
       "selfhost-eval"     -> selfhostEval,
       "selfhost-closures" -> selfhostClosures,
+      "selfhost-full"     -> selfhostFull,
       "scale-prog"   -> scaleProg,
       "scale-decls"  -> scaleDecls,
       "scale-nested" -> scaleNested,
@@ -591,6 +627,13 @@ final class ScalaSpikeSpec extends AnyFunSuite:
       "tag-pat"    -> "def f(e: Int): Int = e match\n  case (0, n) => n\n  case (2, lr) => 99\n  case _ => 0\ndef main(): Int = f((0, 42))",
       "neg-tup"    -> "def main(): Int =\n  val e = (2, ((0, 3), (0, 4)))\n  e match\n    case (2, lr) => lr match\n      case (l, r) => 3\n    case _ => 0",
       "block-arm"  -> "def f(n: Int): Int = n match\n  case 0 => 0\n  case m =>\n    val a = m + 1\n    val b = a * 2\n    a + b\ndef main(): Int = f(3)",
+      // string-op probes (do they RUN on the VM?)
+      "strlen"    -> "def main(): Int = \"hello\".length",
+      "streq"     -> "def main(): Int = if \"abc\" == \"abc\" then 1 else 0",
+      "strne"     -> "def main(): Int = if \"abc\" == \"xyz\" then 1 else 0",
+      "strcat"    -> "def main(): Int = (\"ab\" + \"cde\").length",
+      "strsub"    -> "def main(): Int = \"hello\".substring(1, 3).length",
+      "strcharat" -> "def main(): Int = \"abc\".charAt(1)",
       "add-mul"   -> "def main(): Int = 1 + 2 * 3",
       "mul-add"   -> "def main(): Int = 1 * 2 + 3",
       "paren"     -> "def main(): Int = (1 + 2) * 3",
