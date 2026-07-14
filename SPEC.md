@@ -1007,9 +1007,12 @@ that suffix follow its own loops and nested multi-shot control flow.
 Portable saved code is a typed envelope around a closed ordinary CoreIR program;
 mixed Scala/JVM frames use an exact-artifact fallback.
 
-The normative laws, Scala 3 ABI, CoreIR capsule, capture barriers, security model,
-and conformance matrix are specified in
-[`specs/scala3-bidirectional-control.md`](specs/scala3-bidirectional-control.md).
+The target-neutral laws, capsule, capture barriers, security model, and common
+conformance contract are specified in
+[`specs/control-interoperability.md`](specs/control-interoperability.md). Concrete
+Scala/JVM API and artifact mappings are the
+[`Scala 3 host profile`](specs/scala3-bidirectional-control.md); JS/TypeScript,
+Rust, Swift, and WASM/WASI profiles refine the same contract without redefining it.
 
 ### 7.3 Direct Syntax (Do-Notation)
 

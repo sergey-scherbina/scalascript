@@ -9,11 +9,13 @@ gives the *surface* for monadic code) and
 that makes coroutines a single primitive across three backends).
 
 Relationship to
-[`scala3-bidirectional-control.md`](scala3-bidirectional-control.md): the
-mutable coroutine handle in this document is an asymmetric one-shot primitive
-and may be used as a proven fast path. It is not the reference semantics for
-reusable `shift` continuations or `SavedContinuation`; those use the stackless
-`Pure | Op` protocol and preserve multiplicity.
+[`control-interoperability.md`](control-interoperability.md): the mutable
+coroutine handle in this document is an asymmetric one-shot primitive and may be
+used as a target-private fast path. It is not the reference semantics for reusable
+`shift` continuations or `SavedContinuation`; those use the stackless `Pure | Op`
+protocol and preserve multiplicity. The
+[`Scala 3 profile`](scala3-bidirectional-control.md) describes one concrete host
+mapping without changing this boundary.
 
 This document is the source of truth for the runtime primitive,
 the orthogonal components built on top of it, the surface APIs
@@ -102,8 +104,10 @@ Two consequences:
   and resumed later from a different scheduler tick attach to that
   scheduler's coroutine.
 
-`Coroutine[Y, R, T]` is a value — assignable, storable, passable to
-functions.  It does **not** participate in `Async` until something
+`Coroutine[Y, R, T]` is a process-local value — assignable, storable in memory,
+and passable to functions. The mutable handle is a `CaptureBarrier` and
+`Unsavable`; it is not a `SavedContinuation` and has no durable/network codec.
+It does **not** participate in `Async` until something
 explicitly schedules it.  A coroutine that never gets resumed sits
 in memory until GC'd.
 
@@ -298,9 +302,13 @@ Both are useful, both stay — but for different things.
 | Concern | "How do we pause execution?" | "How do we represent an effectful program as a value?" |
 | Form | Runtime primitive (3 intrinsics) | Pure ScalaScript data structure (no intrinsics) |
 | Optimisation by user | Impossible — opaque handle | Possible — `cata`/fusion over the value tree |
-| Inspection / serialization | No | Yes — tree of `Pure`/`Suspend`/`FlatMap` nodes |
-| Re-run / replay with different handler | No | Yes — `foldMap(nt)` per handler |
+| Inspection / serialization | No | Only explicitly data-coded nodes; native closures/handles do not become durable |
+| Re-run with different handler | No | Yes — `foldMap(nt)` branches from the explicit data tree; unrelated to durable no-prefix-replay `save`/`run` |
 | Execution speed | Direct — no per-bind allocation | Slower — walks the value tree (acceptable cost for the data view) |
+
+Serialization in this table applies only when every node and captured field has an
+explicit data/graph codec. A `FlatMap` host closure, native coroutine handle, or live
+resource never becomes durable merely because the surrounding program uses `Free`.
 
 **Synergy**:
 

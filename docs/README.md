@@ -1,9 +1,8 @@
 # ScalaScript documentation index
 
-All documents live flat in `docs/` — the spec-driven workflow references each
-spec by its stable path `docs/<feature>.md`, so files are intentionally **not**
-nested into subdirectories. This index is the map; use it to find the right
-document by topic.
+Guide documents live flat in `docs/`; normative feature contracts live in
+`specs/` and are linked here with their stable paths. Files are intentionally not
+nested into topic subdirectories. This index is the map for both sets.
 
 > New feature specs land here first (see `AGENTS.md` → *Spec-driven
 > development*), then implementation PRs reference them by path.
@@ -27,15 +26,21 @@ document by topic.
 - [markdown-as-syntax.md](markdown-as-syntax.md) — Markdown as Syntax
 - [../specs/markdown-content-introspection.md](../specs/markdown-content-introspection.md) — Markdown-to-frontend content layer and metadata introspection
 - [dsl.md](dsl.md) — Defining domain-specific languages
-- [algebraic-effects.md](algebraic-effects.md) — Algebraic Effects
-- [coroutines.md](coroutines.md) — Coroutines
+- [../specs/algebraic-effects.md](../specs/algebraic-effects.md) — Algebraic Effects
+- [../specs/coroutines.md](../specs/coroutines.md) — Coroutines
+- [../specs/control-interoperability.md](../specs/control-interoperability.md) — target-neutral effects, multi-prompt `shift`/`reset`, managed callbacks/TCO, and durable `save`/`run` laws
+- [../specs/scala3-bidirectional-control.md](../specs/scala3-bidirectional-control.md) — Scala 3/JVM control host profile
+- [../specs/javascript-typescript-bidirectional-control.md](../specs/javascript-typescript-bidirectional-control.md) — JavaScript/TypeScript control host profile
+- [../specs/rust-bidirectional-control.md](../specs/rust-bidirectional-control.md) — Rust control host profile
+- [../specs/swift-bidirectional-control.md](../specs/swift-bidirectional-control.md) — Swift control host profile
+- [../specs/wasm-wasi-control-runner.md](../specs/wasm-wasi-control-runner.md) — WASM/WASI saved-control runner profile
 - [direct-syntax.md](direct-syntax.md) — Direct-syntax do-notation
 - [error-handling.md](error-handling.md) — `throws[A, E]` + integration
 - [exact-numerics.md](exact-numerics.md) — BigInt, Decimal, Money
 - [final-tagless.md](final-tagless.md) — Final Tagless / typeclass UX
 - [metaprogramming.md](metaprogramming.md) — `inline` + `derives` MVP
 - [tuple-monoid.md](tuple-monoid.md) — Tuple Monoid
-- [scala-interop.md](scala-interop.md) — Scala ↔ ScalaScript Interop
+- [../specs/scala-interop.md](../specs/scala-interop.md) — Scala ↔ ScalaScript Interop
 - [streams.md](streams.md) — Streams with Backpressure
 - [saga.md](saga.md) — Coordinated multi-actor state changes with compensation
 
@@ -56,9 +61,9 @@ document by topic.
 - [interpreter-perf-findings-2026-06.md](interpreter-perf-findings-2026-06.md) — JFR profiling findings (2026-06-02)
 - [arch-metaprogramming-v2.md](arch-metaprogramming-v2.md) — Metaprogramming v2.x Roadmap
 - [arch-dsl-hooks.md](arch-dsl-hooks.md) — DSL Platform Hooks
-- [arch-ffi.md](arch-ffi.md) — Lightweight FFI (@jvm / @js)
-- [separate-compilation-plan.md](separate-compilation-plan.md) — v2.0 Separate Compilation Plan
-- [v2.0-artifact-format.md](v2.0-artifact-format.md) — v2.0 Artifact Format wire spec
+- [../specs/arch-ffi.md](../specs/arch-ffi.md) — Lightweight FFI (@jvm / @js / @rust / @wasm)
+- [../specs/separate-compilation-plan.md](../specs/separate-compilation-plan.md) — v2.0 Separate Compilation Plan
+- [../specs/v2.0-artifact-format.md](../specs/v2.0-artifact-format.md) — v2.0 Artifact Format wire spec
 - [v2.0-scale-benchmark.md](v2.0-scale-benchmark.md) — v2.0 Scale Benchmark
 - [v1.20-plan.md](v1.20-plan.md) — v1.20 DSL primitives + `std/parsing`
 

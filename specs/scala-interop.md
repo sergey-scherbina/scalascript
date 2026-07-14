@@ -26,11 +26,13 @@ Tracking: see "Scala ↔ ScalaScript interop" milestone in `MILESTONES.md`.
 
 Control-plane extension: the landed natural-FQN, JAR, `.scim`, facade, and
 build-tool tiers remain valid. For typed effects, handlers, `shift`/`reset`,
-managed callbacks, mixed tail calls, and saved continuations,
-[`scala3-bidirectional-control.md`](scala3-bidirectional-control.md) defines an
-additive structured descriptor and managed ABI. It supersedes only the legacy
-effect/actor correctness path based on reflective calls, thunks, `AnyRef`, and
-catching runtime exceptions by class name; pure interop is unchanged.
+managed callbacks, mixed tail calls, and saved continuations, the target-neutral
+semantics live in [`control-interoperability.md`](control-interoperability.md),
+while [`scala3-bidirectional-control.md`](scala3-bidirectional-control.md) defines
+the Scala/JVM host mapping and additive structured descriptor bindings. This file
+owns only the landed natural-FQN/JAR/`.scim`/build-tool interop. The managed profile
+supersedes the legacy effect/actor correctness path based on reflective calls,
+thunks, `AnyRef`, and exception class names; pure interop is unchanged.
 
 This document specifies how a regular Scala 3 project (sbt, Mill, Maven,
 plain `scala-cli`) consumes code that was authored and compiled in
@@ -99,11 +101,11 @@ removes the friction without changing the compiler's output ABI.
 4. **Match Scala 3 idioms.**  Re-export everything via `export`, not
    `def x = _ssc_runtime.x` shims.  Typeclasses use `given` re-exports.
    Effect helpers use context functions / `using`-clauses.
-5. **No ScalaScript-specific runtime types leak.**  The Scala consumer
-   only sees regular Scala types (`Int`, `String`, case classes,
-   typeclasses).  Internal runtime types (`_ssc_runtime.Cont`,
-   `_handle`) are bridged to standard Scala equivalents
-   (`Future`, `Either`, etc.) where possible.
+5. **No ScalaScript-specific runtime types leak.** The Scala consumer sees
+   regular Scala types and, for managed control, the public typed `Eff` ABI.
+   Internal runtime types (`_ssc_runtime.Cont`, `_handle`) never cross. `Future`,
+   `Either`, and throwing forms are explicit terminal compatibility adapters; they
+   do not preserve `shift`/`reset` and are not the managed correctness path.
 
 ---
 
@@ -265,6 +267,11 @@ object Actors:
 
 Internally these wrap `_ssc_runtime._handle`, `_ssc_runtime.runActors`,
 `_ssc_runtime.spawn` with appropriate Scala-friendly result types.
+
+These landed helpers are legacy one-run terminal adapters. Full bidirectional
+effects/control uses the typed API and descriptors in the Scala host profile;
+`runEffects`, `Future`, and `Either` do not constitute that control ABI and cannot
+capture through a surrounding managed reset.
 
 ### 5.3 `scalascript.interop.loader`
 
@@ -462,7 +469,8 @@ needed, no metadata downloads, no version coordination.
   generator using `type` aliases + `val` shims.  Defer until demand.
 - **JS-side interop.**  Linked `out.js` is already classpath-free;
   consumers `require`/`import` it like any UMD bundle.  No facade
-  needed in JS; a separate doc would cover ergonomic patterns.
+  needed for this JVM artifact spec. Full typed JS/TS control interop is specified
+  separately in [`javascript-typescript-bidirectional-control.md`](javascript-typescript-bidirectional-control.md).
 - **Cross-compilation type-checking via TASTy.**  Our JVM bytecode
   ships `.tasty`, but our `.scim` doesn't carry enough type info for
   the Scala 3 compiler to type-check against a `.ssc` without
@@ -487,13 +495,11 @@ needed, no metadata downloads, no version coordination.
    exported symbols.  Confirmed implicit; pin with an
    `InterfaceExtractor` test.
 
-3. **Effect-runtime API surface.**  `runEffects[A]` must decide what
-   to do when the user's body performs an effect that the wrapper
-   doesn't handle.  Options: re-throw as `UnhandledEffect` (current
-   internal behaviour); convert to `Left(UnhandledEffect)`; require
-   the caller to register handlers explicitly via `runEffectsWith`.
-   Conservative default: `Left(UnhandledEffect)` so Scala consumers
-   can't get a hard crash from purity-broken `.ssc` code.
+3. **Legacy effect-adapter surface.** The managed ABI has resolved this question:
+   failures remain typed effects/data under the canonical control contract.
+   `runEffects[A]` still needs a compatibility policy for callers that deliberately
+   choose the terminal adapter; its conservative legacy default remains
+   `Left(UnhandledEffect)`, never an implicit definition of managed semantics.
 
 4. **Anonymous given identity stability.**  Stage 5.7 made
    `given Eq[Int] with { … }` produce `given_Eq_Int`.  The facade

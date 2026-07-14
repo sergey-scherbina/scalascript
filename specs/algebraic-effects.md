@@ -6,11 +6,13 @@ one-shot fast path), [`docs/direct-syntax.md`](../docs/direct-syntax.md) (monadi
 `for`/`yield` surface), and [`docs/error-handling.md`](../docs/error-handling.md)
 (`throws[A,E]` and `MonadError`).
 
-[`scala3-bidirectional-control.md`](scala3-bidirectional-control.md) extends
-this design with typed multi-prompt `shift`/`reset`, the shared Scala 3 control
-ABI, and reusable portable `save`/`run`. Where the older v1.12 scope below says
-that all first-class continuations or `shift`/`reset` are non-goals, the newer
-spec supersedes it for delimited control only; `callCC` remains a non-goal.
+[`control-interoperability.md`](control-interoperability.md) extends this design
+with the target-neutral laws for typed multi-prompt `shift`/`reset`, managed host
+control, and reusable portable `save`/`run`. The
+[`Scala 3 profile`](scala3-bidirectional-control.md) is one host realization, not
+the semantic owner. Where the historical v1.12 scope below excludes all first-class
+continuations, the common control specification supersedes it for delimited control
+only; `callCC` remains a non-goal.
 
 This document is the source of truth for the typed algebraic-effect system:
 why it exists, how effects appear in types and declarations, how handlers
@@ -193,8 +195,9 @@ multi effect NonDet {
 
 `multi effect Foo { … }` means: handler may call `resume` **any number of
 times** per invocation (including zero — abort). At runtime, the Free-monad
-`Computation`-tree path is used on all backends because the continuation must
-be re-walkable.
+`Computation`-tree path is used on all backends because a captured continuation
+node must support multiple explicit branches. Each branch starts at that captured
+node; durable `save`/`run` never reconstructs it by replaying the computation prefix.
 
 The `multi` prefix is a **parser-level keyword** on the `effect` declaration.
 `Parser.preprocessEffects` (`lang/core/src/main/scala/scalascript/parser/Parser.scala:928-958`)
@@ -475,7 +478,9 @@ The identity law `() ++ v = v` holds for bare values too — `() ++ 42 = 42`, no
 The `Computation = Pure | Perform | FlatMap` Free monad
 (`runtime/backend/interpreter/src/main/scala/scalascript/interpreter/Value.scala:240-306`)
 is the runtime representation for multi-shot effects and the cross-backend
-reference. It does not change shape in v1.12. The type system sits above it.
+reference fold. It does not change shape in v1.12. The type system sits above it.
+This runtime-private ADT is neither a CoreIR node nor a durable frame/capsule wire
+representation; the control-interoperability contract owns those boundaries.
 
 ---
 
@@ -526,7 +531,7 @@ flag in the resume closure). Static detection is future work.
 - **Explicit row variables in user signatures.** `def map[A, B, e](f: A => B ! (| e))(xs: List[A]): List[B] ! (| e)` — users can write this today without any special support (implicit tail covers the common case). Naming the tail variable is a future ergonomic upgrade for library authors.
 - **Undelimited continuations.** `callCC` remains outside the language contract.
   Typed delimited `shift`/`reset` and reusable saved continuations are specified
-  separately in [`scala3-bidirectional-control.md`](scala3-bidirectional-control.md)
+  separately in [`control-interoperability.md`](control-interoperability.md)
   and therefore are no longer covered by this historical v1.12 non-goal.
 - **Effect inference.** Functions must declare their effect row explicitly (`! Eff` or `! (E1, E2, …)`). Inference from the body is future work.
 - **Context modification and return.** Functions that both receive and return a modified context (see §11 Future Work).

@@ -21,8 +21,8 @@ This spec unifies two sprint directives from Sergiy:
   signals, http, sql, ui, …) out of core into self-contained modules behind an SPI.
 - **B — Make everything reusable from any host language.** Each ScalaScript feature
   should be consumable as a *native library* in each host ecosystem — from Scala and
-  Java (a JVM jar), from JavaScript (an npm package), from Rust (a crate) — not only
-  from a `.ssc` program.
+  Java (a JVM jar), from JavaScript/TypeScript (an npm package), from Rust (a crate),
+  and from Swift (a Swift package) — not only from a `.ssc` program.
 
 They are one program. **A self-contained module is the unit of reuse.** Once a feature
 is extracted behind a stable SPI (A), packaging it as a per-host library (B) is the
@@ -131,11 +131,13 @@ the plugin to interpreter internals** — defeating the point.
 (`effect.rs`: `Handler = Box<dyn Fn(&[EffArg]) -> EffArg>` + a `run_with` driver that owns the
 loop). Concretely:
 
-The values crossing the boundary are typed — **not `Any`** — via a host-neutral, closed
-`SpiValue` ADT defined in the spi module (the interp converts its runtime `Value` ↔
-`SpiValue`). Effect ops are almost all primitives, so the closed cases cover them; an
-`Opaque(AnyRef)` case round-trips a closure/case-class unchanged. (Landed 2026-06-22 —
-`SpiValue.scala`.) The contract (also in the spi module, depends only on `SpiValue`):
+The values crossing this **in-process, JVM-shaped plugin boundary** are typed rather
+than unstructured `Any`, via `SpiValue` in the SPI module (the interpreter converts
+its runtime `Value` ↔ `SpiValue`). The data cases are lossless for the supported
+adapter path, while `Opaque(AnyRef)` deliberately round-trips a process-local
+closure/object. Therefore `SpiValue` is not a target-neutral transport, durable
+value, or managed control ABI; `Opaque` is always unsavable. (Landed 2026-06-22 —
+`SpiValue.scala`.) The contract is:
 
 ```scala
 enum SpiValue:
@@ -156,9 +158,11 @@ trait BlockForm:
 
 This remains deliberately a one-reply plugin SPI. It is not the managed
 continuation ABI from
-[`scala3-bidirectional-control.md`](scala3-bidirectional-control.md): plugins
-using this contract never receive a continuation and cannot make a one-shot
-`SpiValue` reply multi-shot by saving or copying it.
+[`control-interoperability.md`](control-interoperability.md): plugins using this
+contract never receive a continuation and cannot make a one-shot `SpiValue` reply
+multi-shot by saving or copying it. This limitation is scoped to the plugin SPI;
+multi-shot behavior remains required by the language/control ABI and is realized by
+managed host profiles such as the [Scala/JVM profile](scala3-bidirectional-control.md).
 
 The `EffectsRuntime` `Perform`/`FlatMap` loop (which stays core) gains one fallback: for a
 `Perform(name, op, args)` it doesn't handle built-in, look up `BackendRegistry.effectHandlers(name)`
@@ -172,7 +176,8 @@ What this buys:
   per-host library boundary in §4 (a Java/JS/Rust host supplies the same reply function).
 - It covers **all one-shot-reply standard effects** (Logger.info→Unit, Random.nextInt→Int,
   Clock.now→Long, Env.get→Option, State.get/put). **Multi-shot** (NonDet) and handlers that
-  inspect the *continuation* stay core/out-of-scope (same R.6 boundary as rust effects).
+  inspect the *continuation* stay outside this plugin SPI and use the managed control
+  ABI instead.
 - **Syntactic forms** (`Focus[T]`, `.copy`, `effect`/`handle`) are *language* forms, not feature
   runners — they stay core. Optics' value-builders (`lensGet`/`lensSet`/`buildPrism`) can still
   move to a plugin as plain `Value`-returning intrinsics; only the `Focus[T](_.a.b)` *path-syntax*
@@ -230,6 +235,7 @@ The unit is the module. For each module `M` and each host target, the build prod
 | **Java (JVM)** | same `.jar` | a Java-friendly facade (no Scala-isms: `java.util.List`, no implicits, overloads for defaults) generated from the same module signatures | a `JavaFacadeEmitter` over the module's exported signatures |
 | **JavaScript** | an npm package (ESM + `.d.ts`) | the module's emitted JS + its `runtimePreamble`, wrapped as a tree-shakeable ES module with a hand-stable export map + generated TypeScript types | `JsGen` already emits ESM + tree-shakes; add a `package.json`/`.d.ts` emit + a stable export surface |
 | **Rust** | a crate | the module's `RustRuntimeTemplates` + emitted `pub fn`s, packaged as a `Cargo` library crate (`[lib]`) with a stable `pub` API | `RustGen` already emits a crate; the `emit-rust --lib` path (`src/lib.rs`) exists — add `Cargo.toml` metadata + a curated `pub` surface |
+| **Swift** | a Swift package/framework | generated nominal Swift APIs over the module's checked emission | the checked CoreIR→Swift lane supplies AOT evidence; add a SwiftPM library facade and stable public signature |
 
 ### 4.1 The hard part — a stable, idiomatic host API
 
@@ -243,15 +249,18 @@ Emitting code is solved; the design problem is the **public API contract**:
    not leak the internal representation (`{_isTuple:true}` arrays, `_Char` boxes).
 
    **Compatibility note (2026-07-14):** the 64-bit statement describes the current
-   v1/v2 runtime representation and is not the new cross-language public ABI.
-   [`scala3-bidirectional-control.md`](scala3-bidirectional-control.md) requires
-   canonical `I32`/`I64` descriptor types (`Int`/`Long` at the language boundary),
+   v1/v2 runtime representation and is not the cross-language public ABI.
+   [`control-interoperability.md`](control-interoperability.md) requires canonical
+   `I32`/`I64` descriptor types (`Int`/`Long` at the ScalaScript language boundary),
    explicit v2 normalization, and rejection of ambiguous legacy exports until width
    evidence is retained.
 2. **Effects at the boundary.** A pure/`Logger`-style effectful def must be callable from
    the host with the host supplying the handler (a Java `Logger`, a JS callback, a Rust
    `impl Trait`). The tagless-final rust design (§ `rust-effects.md`) and the
    effect-handler SPI (2b) generalise to "host provides the handler struct/closure."
+   That is a one-reply adapter. Full effects/control requires the corresponding host
+   profile's typed value-and-call bridge, `Eff`, prompts, callback multiplicity, managed
+   capture regions, and barriers.
 3. **Stability.** Generated internals churn; the *public facade* must be curated +
    versioned (semver per module), with a golden API-signature test per host so a codegen
    change can't silently break the published surface.
@@ -262,9 +271,9 @@ Emitting code is solved; the design problem is the **public API contract**:
 
 ### 4.2 What's reusable vs. backend-specific
 
-- **Reusable across all hosts:** pure value logic, collections, optics, typeclasses,
-  effects-as-handlers, crypto, json/codecs, math, string ops. These should publish to all
-  four hosts.
+- **Reusable across supported host families:** pure value logic, collections, optics,
+  typeclasses, effects-as-handlers, crypto, json/codecs, math, and string ops. These
+  should publish to JVM (Scala/Java), JavaScript/TypeScript, Rust, and Swift.
 - **Host/backend-specific:** anything tied to one runtime (JVM Spark, JS IndexedDb/DOM,
   rust hyper-serve). These publish only to their host. The module's `Capability`
   declaration already encodes this; the library build just filters by host support.
@@ -302,7 +311,8 @@ packaging (B) read the *same* per-backend emission + signature metadata.
 - **Phase 1 — prove A.** Land the keystone SPIs via `logger-effect-plugin` (smallest,
   deterministic). Parity test green.
 - **Phase 2 — prove B.** Take one *pure* module (proposal: **optics** — zero effects,
-  zero host coupling) and publish it to all four hosts (jar + Java facade + npm + crate)
+  zero host coupling) and publish it to JVM (Scala/Java), JavaScript/TypeScript, Rust,
+  and Swift (jar + Java facade + npm + crate + Swift package)
   with a golden API-signature test per host. This validates the value-mapping + stable-API
   design end-to-end on the easy case before effects/actors.
 - **Phase 3 — widen A.** Effects (clock/random/env/state), storage, signals.
@@ -329,7 +339,8 @@ built-in until its plugin lands; loud failure if a needed plugin is absent).
 - **JS/Rust effect handlers from the host.** The host-provides-the-handler model is proven
   for rust (tagless-final) and for JS (callback); the Scala/Java boundary needs a small
   handler-interface convention.
-- **Versioning.** Per-module semver across four ecosystems is real release engineering;
+- **Versioning.** Per-module semver across JVM, JavaScript/TypeScript, Rust, and Swift
+  ecosystems is real release engineering;
   start with one module (optics) to shake out the pipeline.
 
 ## 7a. Decided direction (2026-06-22, with Sergiy)
@@ -421,3 +432,6 @@ heavy, peripheral, deployment-oriented, or UI/platform-specific: `swing`, `auth`
 - [`arch-registry.md`](arch-registry.md) — `BackendRegistry` discovery.
 - [`rust-effects.md`](rust-effects.md) — the tagless-final effect boundary (the host-handler model for rust).
 - [`arch-sbt-plugin.md`](arch-sbt-plugin.md) — the JVM publish lever for Task B.
+- [`control-interoperability.md`](control-interoperability.md) — sole owner of managed effects/control, durable values, and `save`/`run`.
+- [`scala3-bidirectional-control.md`](scala3-bidirectional-control.md), [`javascript-typescript-bidirectional-control.md`](javascript-typescript-bidirectional-control.md), [`rust-bidirectional-control.md`](rust-bidirectional-control.md), and [`swift-bidirectional-control.md`](swift-bidirectional-control.md) — native host profiles.
+- [`wasm-wasi-control-runner.md`](wasm-wasi-control-runner.md) — runner-only WASM/WASI profile; not another host-library facade.

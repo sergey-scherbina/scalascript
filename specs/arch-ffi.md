@@ -13,8 +13,10 @@ the WASM backend (`runtime/backend/wasm`, Scala.js → `.wasm` via
 `WasmGen` lowers `@wasm("expr")` externs to a real `def` (`$0`/`$1` substitution, FFI
 annotations stripped) and drops unimplemented externs; it also inlines local `.ssc` imports
 (transitively, deduped) and expands quoted macros, so cross-module wasm compiles
-(`WasmBackendTest`, incl. a `@wasm`-extern end-to-end to a real `.wasm`). Algebraic effects /
-handlers stay out of scope (need CPS codegen). **Residual:**
+(`WasmBackendTest`, incl. a `@wasm`-extern end-to-end to a real `.wasm`). Inline FFI
+does not own effect/control semantics: managed effects, handlers, capture, and saved
+continuations are governed by [`control-interoperability.md`](control-interoperability.md)
+and its target profiles. **Residual:**
 `@wasmExport` / `@wasmImport` (the raw **WASM ABI** import/export boundary) remain out of
 scope **by design** — the backend routes through Scala.js, which *owns* the wasm ABI, so a
 hand-controlled `@wasmExport`/`@wasmImport` doesn't map onto this path (it would need a
@@ -23,7 +25,9 @@ Companion: [`specs/arch-library-modularity.md`](arch-library-modularity.md),
 [`specs/arch-stable-spi.md`](arch-stable-spi.md),
 [`specs/backend-specific-blocks.md`](backend-specific-blocks.md)
 (full backend-block + FFI-annotation layering, including `@rust`, `@wasm`,
-`@wasmExport`, `@wasmImport`).
+`@wasmExport`, `@wasmImport`), and
+[`wasm-wasi-control-runner.md`](wasm-wasi-control-runner.md) (runner-only saved
+control; it does not imply a raw WASM host ABI).
 
 ---
 
@@ -55,6 +59,13 @@ Companion: [`specs/arch-library-modularity.md`](arch-library-modularity.md),
 - Type-safe mapping between Java types and ScalaScript types — Tier 1 is
   deliberately untyped (string expressions); Tier 2 lets the glue JAR handle
   type conversion.
+
+Consequently this FFI cannot by itself satisfy a host control profile's typed
+bidirectional value-and-call bridge. Raw `@jvm`/`@js`/`@rust`/`@wasm` frames and
+glue callbacks are `ForeignBarrier` unless the relevant host profile adopts them
+through a generated managed descriptor/transform. Opaque host values are
+`Unsavable`; exact artifact mode never makes them durable. `NativeImpl`, glue, and
+`SpiValue`/`AnyRef` paths are adapters, not capsule or wire representations.
 
 ## 3. Current state — the privilege gap
 

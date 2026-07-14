@@ -5,11 +5,13 @@
 > no `call/cc`. This is the design promise (D7): the kernel is strict, untyped, effect-node
 > free; effects "lower" to ordinary data + closures, in the language.
 
-[`../../specs/scala3-bidirectional-control.md`](../../specs/scala3-bidirectional-control.md)
-builds typed multi-prompt `shift`/`reset` and reusable `save`/`run` on this exact
-`Pure | Op` semantic substrate. It does not replace this representation or add a
-CoreIR continuation node; a saved portable continuation is a compiler-generated
-closed CoreIR resume program, never a serialized current runtime closure.
+[`../../specs/control-interoperability.md`](../../specs/control-interoperability.md)
+builds target-neutral typed multi-prompt `shift`/`reset` and reusable `save`/`run`
+on this exact `Pure | Op` semantic substrate. Host profiles, including
+[`Scala 3/JVM`](../../specs/scala3-bidirectional-control.md), refine physical APIs
+without replacing this representation or adding a CoreIR continuation node. A
+saved portable continuation is a compiler-generated closed CoreIR resume program,
+never a serialized current runtime closure.
 
 ## Representation
 
