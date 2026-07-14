@@ -1635,8 +1635,15 @@ order, so `SELECT *` matches without ORDER BY), and int==js.
 **SclJet SQL is now broad**: full CRUD (incl. column-list INSERT), SELECT with DISTINCT, multi-column
 ORDER BY / LIMIT / OFFSET, aggregates (COUNT/SUM/MIN/MAX/AVG/TOTAL), GROUP BY + HAVING, CREATE TABLE,
 and inner + LEFT joins — every feature byte-verified against reference sqlite3, int==js.
-Remaining follow-ups (niche): multi-table joins, aggregates over a join, page-1 schema split,
-repeating-decimal %.15g.
+Remaining follow-ups (niche): multi-table joins, page-1 schema split, repeating-decimal %.15g.
+
+- [x] **scljet-m5q-join-aggregate** — DONE 2026-07-14. Aggregates + DISTINCT over a join. `joinExecute`
+      now collects the matched `JoinPair`s, then if the projection has an aggregate computes it over the
+      pairs (`computeJoinAggregates`/`computeJoinAgg` + `aggregateValues` over a pre-extracted value
+      list; COUNT(*), COUNT(col non-null), SUM/MIN/MAX/AVG/TOTAL, bare column = first pair), else
+      projects each pair with DISTINCT dedupe + LIMIT. Verified vs sqlite3 (`COUNT(*)` over inner/LEFT
+      join, `COUNT(qualified)` counting non-NULL of the outer side, multi-aggregate, `DISTINCT` over a
+      join), int==js; folded into `scljet-sql-join` (12 queries). Follow-up: GROUP BY over a join.
 
 Execution order (value × tractability): m4a (template exists) → m4b → m4c → m4d →
 m4e → m4f → m4g. Keep every scljet conformance case green [int,js] --no-memo after each.

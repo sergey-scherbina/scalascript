@@ -1041,6 +1041,120 @@ def joinTableRows(db: ReadonlyDatabase, table: String): Either[String, (List[Str
           case Left(error) => Left(error.message)
           case Right(rows) => Right((cols, rows))
 
+case class JoinPair(recA: StorageRecord, recBOpt: Option[StorageRecord])
+
+def reversePairs(items: List[JoinPair], acc: List[JoinPair]): List[JoinPair] =
+  var r = items
+  var out = acc
+  while r.nonEmpty do
+    out = r.head :: out
+    r = r.tail
+  out
+
+// ── Aggregate over a pre-extracted value list (used by the join aggregate path) ──
+
+def countNonNullValues(vals: List[SqliteValue]): Long =
+  var r = vals
+  var cnt = 0L
+  while r.nonEmpty do
+    r.head match
+      case SqlNull => cnt = cnt
+      case _ => cnt = cnt + 1L
+    r = r.tail
+  cnt
+
+def sumValues(vals: List[SqliteValue], alwaysReal: Boolean): SqliteValue =
+  var r = vals
+  var intSum = 0L
+  var realSum = 0.0
+  var hasReal = false
+  var cnt = 0
+  while r.nonEmpty do
+    r.head match
+      case SqlInteger(x) =>
+        intSum = intSum + x
+        realSum = realSum + x.toDouble
+        cnt = cnt + 1
+      case SqlReal(x) =>
+        realSum = realSum + x
+        hasReal = true
+        cnt = cnt + 1
+      case _ => cnt = cnt
+    r = r.tail
+  if alwaysReal then SqlReal(realSum)
+  else if cnt == 0 then SqlNull
+  else if hasReal then SqlReal(realSum) else SqlInteger(intSum)
+
+def avgValues(vals: List[SqliteValue]): SqliteValue =
+  var r = vals
+  var realSum = 0.0
+  var cnt = 0
+  while r.nonEmpty do
+    r.head match
+      case SqlInteger(x) =>
+        realSum = realSum + x.toDouble
+        cnt = cnt + 1
+      case SqlReal(x) =>
+        realSum = realSum + x
+        cnt = cnt + 1
+      case _ => cnt = cnt
+    r = r.tail
+  if cnt == 0 then SqlNull else SqlReal(realSum / cnt.toDouble)
+
+def minMaxValues(vals: List[SqliteValue], wantMax: Boolean): SqliteValue =
+  var r = vals
+  var best: Option[SqliteValue] = None
+  while r.nonEmpty do
+    val v = r.head
+    v match
+      case SqlNull => best = best
+      case _ => best match
+        case None => best = Some(v)
+        case Some(cur) =>
+          val cmp = sqlCompare(v, cur)
+          val take = if wantMax then cmp > 0 else cmp < 0
+          if take then best = Some(v)
+    r = r.tail
+  best match
+    case Some(v) => v
+    case None => SqlNull
+
+def aggregateValues(func: String, vals: List[SqliteValue]): SqliteValue =
+  if func == "COUNT" then SqlInteger(countNonNullValues(vals))
+  else if func == "SUM" then sumValues(vals, false)
+  else if func == "TOTAL" then sumValues(vals, true)
+  else if func == "AVG" then avgValues(vals)
+  else if func == "MIN" then minMaxValues(vals, false)
+  else if func == "MAX" then minMaxValues(vals, true)
+  else SqlNull
+
+def joinPairValue(pair: JoinPair, colsA: List[String], tableA: String, colsB: List[String], tableB: String, name: String): SqliteValue =
+  joinColValue(pair.recA, colsA, tableA, pair.recBOpt, colsB, tableB, name)
+
+def extractPairValues(pairs: List[JoinPair], colsA: List[String], tableA: String, colsB: List[String], tableB: String, col: String): List[SqliteValue] =
+  var r = pairs
+  var accRev: List[SqliteValue] = Nil
+  while r.nonEmpty do
+    accRev = joinPairValue(r.head, colsA, tableA, colsB, tableB, col) :: accRev
+    r = r.tail
+  reverseValues(accRev, Nil)
+
+def computeJoinAgg(item: ProjItem, pairs: List[JoinPair], colsA: List[String], tableA: String, colsB: List[String], tableB: String): SqliteValue =
+  if !item.isAgg then
+    if pairs.isEmpty then SqlNull else joinPairValue(pairs.head, colsA, tableA, colsB, tableB, item.name)
+  else
+    val f = upperStr(item.func)
+    if f == "COUNT" && item.name == "*" then SqlInteger(pairs.length.toLong)
+    else aggregateValues(f, extractPairValues(pairs, colsA, tableA, colsB, tableB, item.name))
+
+def computeJoinAggregates(projection: List[ProjItem], pairs: List[JoinPair], colsA: List[String], tableA: String, colsB: List[String], tableB: String): List[SqliteValue] =
+  var r = projection
+  var accRev: List[SqliteValue] = Nil
+  while r.nonEmpty do
+    accRev = computeJoinAgg(r.head, pairs, colsA, tableA, colsB, tableB) :: accRev
+    r = r.tail
+  reverseValues(accRev, Nil)
+
 def joinExecute(db: ReadonlyDatabase, stmt: SelectStmt, spec: JoinSpec): Either[String, List[List[SqliteValue]]] =
   joinTableRows(db, stmt.table) match
     case Left(message) => Left(message)
@@ -1052,7 +1166,7 @@ def joinExecute(db: ReadonlyDatabase, stmt: SelectStmt, spec: JoinSpec): Either[
         val colsB = b._1
         val rowsB = b._2
         var ra = rowsA
-        var resultRev: List[List[SqliteValue]] = Nil
+        var pairsRev: List[JoinPair] = Nil
         while ra.nonEmpty do
           var rb = rowsB
           var matched = false
@@ -1063,18 +1177,27 @@ def joinExecute(db: ReadonlyDatabase, stmt: SelectStmt, spec: JoinSpec): Either[
             if condMatches(spec.op, sqlCompare(lv, rv)) then
               matched = true
               if joinWhereHolds(stmt.where, ra.head, colsA, stmt.table, rbOpt, colsB, spec.table) then
-                resultRev = joinProjectRow(ra.head, colsA, stmt.table, rbOpt, colsB, spec.table, stmt) :: resultRev
+                pairsRev = JoinPair(ra.head, rbOpt) :: pairsRev
             rb = rb.tail
           if spec.leftOuter && !matched then
             val noneB: Option[StorageRecord] = None
             if joinWhereHolds(stmt.where, ra.head, colsA, stmt.table, noneB, colsB, spec.table) then
-              resultRev = joinProjectRow(ra.head, colsA, stmt.table, noneB, colsB, spec.table, stmt) :: resultRev
+              pairsRev = JoinPair(ra.head, noneB) :: pairsRev
           ra = ra.tail
-        var out: List[List[SqliteValue]] = Nil
-        while resultRev.nonEmpty do
-          out = resultRev.head :: out
-          resultRev = resultRev.tail
-        Right(limitValueRows(out, stmt.limit, stmt.offset))
+        val pairs = reversePairs(pairsRev, Nil)
+        if projHasAgg(stmt.projection) then Right(computeJoinAggregates(stmt.projection, pairs, colsA, stmt.table, colsB, spec.table) :: Nil)
+        else
+          var pp = pairs
+          var resultRev: List[List[SqliteValue]] = Nil
+          while pp.nonEmpty do
+            resultRev = joinProjectRow(pp.head.recA, colsA, stmt.table, pp.head.recBOpt, colsB, spec.table, stmt) :: resultRev
+            pp = pp.tail
+          var out: List[List[SqliteValue]] = Nil
+          while resultRev.nonEmpty do
+            out = resultRev.head :: out
+            resultRev = resultRev.tail
+          val deduped = if stmt.distinct then dedupRows(out) else out
+          Right(limitValueRows(deduped, stmt.limit, stmt.offset))
 
 def executeSelect(db: ReadonlyDatabase, stmt: SelectStmt): Either[String, List[List[SqliteValue]]] =
   stmt.join match

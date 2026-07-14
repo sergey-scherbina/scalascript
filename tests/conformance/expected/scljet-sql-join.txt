@@ -20,3 +20,8 @@ cat|10
 dan|
 SELECT emp.name FROM emp LEFT JOIN dept ON emp.dept = dept.did WHERE dept.did = 10 => ann
 cat
+SELECT COUNT(*), MAX(emp.id) FROM emp JOIN dept ON emp.dept = dept.did => 3|3
+SELECT COUNT(*) FROM emp LEFT JOIN dept ON emp.dept = dept.did => 4
+SELECT COUNT(dept.did) FROM emp LEFT JOIN dept ON emp.dept = dept.did => 3
+SELECT DISTINCT dept.dname FROM emp JOIN dept ON emp.dept = dept.did => eng
+sales
