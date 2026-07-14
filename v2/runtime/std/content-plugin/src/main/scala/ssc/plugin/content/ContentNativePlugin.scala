@@ -223,6 +223,128 @@ final class ContentNativePlugin extends NativePlugin:
     context.register(name)(fn)
     context.registerGlobal(name, arity)(fn)
 
+  // ── content-toolkit: @ui=toolkit YAML controls → TkNode tree (v2-native port) ──
+  // Ported from v1 ContentIntrinsics.{toolkitControl,toolkitSectionNode,toolkitBlockNode}.
+  // Builds the self-hosted TkNode case-class DataVs (std/ui/nodes.ssc) from a section's
+  // controls. Covers the primitive controls; unsupported ones raise a clear error (same
+  // as v1). Slots come from ContentToolkitOptions (field index 11). (v2-content-toolkit.)
+
+  // TkNode builders — field order MUST match std/ui/nodes.ssc case classes.
+  private def vstackNodeV(gap: Int, children: List[Value]): Value =
+    Value.DataV("VStackNode", Vector(Value.IntV(gap), list(children)))
+  private def hstackNodeV(gap: Int, children: List[Value], wrap: Boolean): Value =
+    Value.DataV("HStackNode", Vector(Value.IntV(gap), list(children), Value.BoolV(wrap)))
+  private def headingNodeV(level: Int, text: String): Value =
+    Value.DataV("HeadingNode", Vector(Value.IntV(level), Value.StrV(text)))
+  private def textNodeV(text: String): Value =
+    Value.DataV("TextNode_", Vector(Value.StrV(text)))
+  private def badgeNodeV(content: String, variant: String): Value =
+    Value.DataV("BadgeNode", Vector(Value.StrV(content), Value.StrV(variant)))
+  private def dividerNodeV: Value = Value.DataV("DividerNode", Vector.empty)
+  private def fragmentNodeV(children: List[Value]): Value =
+    Value.DataV("FragmentNode", Vector(list(children)))
+
+  // ContentValue decode: a parsed YAML value is DataV("Str"|"Num"|"Bool"|"MapV"|"ListV", …).
+  private def cvMap(cv: Value): Option[collection.mutable.LinkedHashMap[Value, Value]] = cv match
+    case Value.DataV("MapV", IndexedSeq(Value.MapV(entries))) => Some(entries)
+    case _ => None
+  private def cvList(cv: Value): List[Value] = cv match
+    case Value.DataV("ListV", IndexedSeq(inner)) => unlist(inner)
+    case _ => Nil
+  private def cvString(cv: Value): Option[String] = cv match
+    case Value.DataV("Str", IndexedSeq(Value.StrV(s))) => Some(s)
+    case Value.DataV("Num", IndexedSeq(Value.StrV(s))) => Some(s)
+    case _ => None
+  private def cvInt(cv: Value): Option[Int] = cv match
+    case Value.DataV("Num", IndexedSeq(Value.IntV(n)))   => Some(n.toInt)
+    case Value.DataV("Num", IndexedSeq(Value.FloatV(d))) => Some(d.toInt)
+    case Value.DataV("Num", IndexedSeq(Value.StrV(s)))   => s.toDoubleOption.map(_.toInt)
+    case Value.DataV("Str", IndexedSeq(Value.StrV(s)))   => s.toIntOption
+    case _ => None
+  private def mfield(m: collection.mutable.LinkedHashMap[Value, Value], key: String): Option[Value] =
+    m.get(Value.StrV(key))
+  private def mString(m: collection.mutable.LinkedHashMap[Value, Value], key: String, default: String): String =
+    mfield(m, key).flatMap(cvString).getOrElse(default)
+  private def mStringFirst(m: collection.mutable.LinkedHashMap[Value, Value], keys: String*): Option[String] =
+    keys.iterator.flatMap(k => mfield(m, k).flatMap(cvString)).nextOption()
+  private def mInt(m: collection.mutable.LinkedHashMap[Value, Value], key: String, default: Int): Int =
+    mfield(m, key).flatMap(cvInt).getOrElse(default)
+
+  /** ContentToolkitOptions is DataV("ContentToolkitOptions", [11 fields…, slots]) — slots
+   *  (field index 11) is a MapV(slotId -> TkNode). Returns the slot map or empty. */
+  private def optionSlots(options: Value): collection.mutable.LinkedHashMap[Value, Value] = options match
+    case Value.DataV("ContentToolkitOptions", fields) if fields.length >= 12 =>
+      fields(11) match
+        case Value.MapV(entries) => entries
+        case _ => collection.mutable.LinkedHashMap.empty
+    case _ => collection.mutable.LinkedHashMap.empty
+  private def optionBlockGap(options: Value): Int = options match
+    case Value.DataV("ContentToolkitOptions", fields) if fields.length >= 3 =>
+      fields(2) match { case Value.IntV(n) => n.toInt; case _ => 8 }
+    case _ => 8
+
+  /** Resolve a registered slot node by id. `contentSlot(id, node)` is a Tuple2(id, node);
+   *  `Map(contentSlot(...))` currently builds `{pair -> pair}` on v2 (Map(pair) doesn't
+   *  destructure), so accept both the canonical `{StrV(id) -> node}` and that pair form. */
+  private def resolveSlot(options: Value, slotId: String): Option[Value] =
+    val slots = optionSlots(options)
+    slots.get(Value.StrV(slotId)).orElse {
+      slots.iterator.flatMap { case (k, v) =>
+        List(k, v).collectFirst {
+          case Value.DataV(t, IndexedSeq(Value.StrV(`slotId`), node)) if t.startsWith("Tuple") => node
+        }
+      }.nextOption()
+    }
+
+  /** Build a TkNode from a `@ui=toolkit` control (a ContentValue map with a `type`). */
+  private def toolkitControl(cv: Value, options: Value): Value =
+    cv match
+      case Value.DataV("ListV", IndexedSeq(inner)) =>
+        fragmentNodeV(unlist(inner).map(toolkitControl(_, options)))
+      case _ =>
+        val m = cvMap(cv).getOrElse(throw new IllegalArgumentException("contentToolkitNode: control must be a map"))
+        val kind = mString(m, "type", "").trim.toLowerCase
+        def children: List[Value] =
+          mfield(m, "children").map(cvList).getOrElse(Nil).map(toolkitControl(_, options))
+        kind match
+          case "vstack"           => vstackNodeV(mInt(m, "gap", optionBlockGap(options)), children)
+          case "hstack"           => hstackNodeV(mInt(m, "gap", optionBlockGap(options)), children, false)
+          case "fragment"         => fragmentNodeV(children)
+          case "divider"          => dividerNodeV
+          case "heading"          => headingNodeV(mInt(m, "level", 2), mString(m, "text", ""))
+          case "text" | "paragraph" => textNodeV(mString(m, "text", ""))
+          case "badge"            => badgeNodeV(mStringFirst(m, "content", "text").getOrElse(""), mString(m, "variant", "default"))
+          case "slot" =>
+            val slotId = mString(m, "id", "")
+            resolveSlot(options, slotId).getOrElse(
+              throw new IllegalArgumentException(s"contentToolkitNode: slot '$slotId' is not registered"))
+          case other =>
+            throw new IllegalArgumentException(s"contentToolkitNode: unsupported control type '$other'")
+
+  /** A `@ui=toolkit` embedded block: attrs carry `ui=toolkit`; its parsed data has `controls`. */
+  private def isToolkitUiBlock(block: Value): Boolean = block match
+    case Value.DataV("Embedded", IndexedSeq(_, _, _, _, blockAttrs)) =>
+      attrString(blockAttrs, "ui").contains("toolkit")
+    case _ => false
+
+  private def toolkitBlockNode(block: Value, options: Value): Option[Value] =
+    if isToolkitUiBlock(block) then
+      blockData(block).flatMap(cvMap).flatMap(mfield(_, "controls")).map(toolkitControl(_, options))
+    else None  // non-toolkit blocks are omitted from the toolkit tree by default (includeCode=false)
+
+  private def toolkitSectionNode(section: Value, options: Value): Value =
+    val fields = data(section, "SectionContent", 6)
+    val level  = fields(1) match { case Value.IntV(n) => n.toInt; case _ => 2 }
+    val title  = fields(2) match { case Value.StrV(s) => s; case _ => "" }
+    val blockNodes = unlist(fields(4)).flatMap(b => toolkitBlockNode(b, options))
+    val childNodes = unlist(fields(5)).map(s => toolkitSectionNode(s, options))
+    vstackNodeV(optionBlockGap(options), headingNodeV(level, title) :: (blockNodes ++ childNodes))
+
+  private def toolkitSectionById(document: Value, id: String, options: Value): Value =
+    findSection(sections(document), id) match
+      case Some(section) => toolkitSectionNode(section, options)
+      case None => throw new IllegalArgumentException(s"contentToolkitSection: no section with id '$id'")
+
   def install(context: NativePluginContext): Unit =
     val modules = context.contentModules
     def rootDocument: Value = current(modules).document
@@ -238,6 +360,13 @@ final class ContentNativePlugin extends NativePlugin:
     native(context, "contentSection", 1) {
       case Value.StrV(id) :: Nil => option(findSection(sections(rootDocument), id))
       case _ => throw new IllegalArgumentException("contentSection(id)")
+    }
+    // contentToolkitSection(id, options): builds the section's @ui=toolkit control tree
+    // into a TkNode (v2-content-toolkit). Options carries the slot registry.
+    native(context, "contentToolkitSection", 2) {
+      case Value.StrV(id) :: options :: Nil => toolkitSectionById(rootDocument, id, options)
+      case Value.StrV(id) :: Nil            => toolkitSectionById(rootDocument, id, Value.UnitV)
+      case _ => throw new IllegalArgumentException("contentToolkitSection(id, options)")
     }
     native(context, "contentBlock", 1) {
       case Value.StrV(id) :: Nil => option(findBlock(rootDocument, id))

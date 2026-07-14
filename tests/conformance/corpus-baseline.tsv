@@ -28,8 +28,6 @@ content-data-source	v2	FAIL
 content-form-submit	v2	FAIL
 content-introspection	v2	FAIL
 content-linked-namespaces	v2	FAIL
-content-live-rows	v2	FAIL
-content-slot	v2	FAIL
 content-tables	v2	DIVERGE
 content-toolkit-yaml-controls	v2	FAIL
 control-center-live	*	SKIP
