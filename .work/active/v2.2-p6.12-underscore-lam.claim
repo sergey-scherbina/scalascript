@@ -1,0 +1,5 @@
+claim: v2.2-p6.12-underscore-lam
+branch: feature/v2.2-p6.12-underscore-lam
+what: P6.12 — spike underscore-placeholder lambdas (_ + 1 / _ < 3 / _ + _): mirror ssc1-front wrapPhArg
+      (count _ in inf/pre/app/sel, replace __u<i>, wrap mkLam) at the call-argument level. Last common gap.
+started: 2026-07-14
