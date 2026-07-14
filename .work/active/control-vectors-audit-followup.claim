@@ -1,6 +1,0 @@
-feature/control-vectors-audit-followup 2026-07-14T13:56:42Z
-agent: claude (sunny-gecko)
-heartbeat: 2026-07-14T13:56:42Z
-status: in-progress
-done-so-far: reproduced codex-interop audit findings (n47 drift, n49 one-shot/stack)
-next: BUGS.md + SPRINT records, fix Rust-deferred drift in 02-multi-shot-resume.ssc, refine pending-runtime axes cross-lane; close with SHA

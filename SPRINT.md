@@ -9,6 +9,22 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## control-vectors-audit-followup — reproduce + record codex-interop audit findings (2026-07-14, claude)
+
+Done (this claim): fixed the Rust-multi-shot-deferred drift in
+`tests/interop-conformance/probes/02-multi-shot-resume.ssc`; reproduced and recorded two open
+portable-VM effect-runtime gaps in BUGS.md + as `pending-runtime` conformance axes.
+
+- [ ] **one-shot-violation guard** (`BUGS.md control-interop-portable-vm-oneshot-guard-absent`)
+      — resume-twice on a non-`multi` effect is silently allowed on both portable-VM tiers
+      (interp + bytecode). Fix home: `scala3-control-api` reference runner (one-shot tracking +
+      typed diagnostic), or the VM effect runtime. Conformance axis 21 stays pending-runtime.
+- [ ] **stack-safe effect continuation** (`BUGS.md control-interop-effect-recursion-stack-unsafe`)
+      — effect-performing recursion overflows the native stack ~500–2000 depth on both tiers
+      (pure TCO fine to 2M). Needs a heap-allocated continuation. Conformance axis 20 stays pending-runtime.
+- Cancellation public transitions are underspecified (codex-interop) — no vector contract
+      invented; report as a spec gap to the core owner, not a harness axis.
+
 ## control-interoperability — target-neutral control ABI plus mandatory host/runner milestones (2026-07-14, Sergiy)
 
 Goal: implement [`specs/control-interoperability.md`](specs/control-interoperability.md)
