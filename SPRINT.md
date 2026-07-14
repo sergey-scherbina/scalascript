@@ -302,6 +302,28 @@ bug — each is a genuine port. Clustered by shared root (do the multi-case ones
   (`${…}` template leak — a JS-glue codegen quirk, possibly a real fix), indexeddb-sync-client, mcp-agent /
   mcp-filesystem-server, nfc-ndef, rozum-agent×3, dataset-from-generator. Each = one plugin port.
 
+### v2 lane — THE root cause (measured 2026-07-14): the --v2 lane loads the WRONG plugin system
+**Definitive finding (empirically measured, not guessed).** `ssc run --v2` → `RunV2.run` →
+`PluginBridge.loadAll()` which loads v1 `Backend`-SPI plugins. But the bundle ships **v2-NATIVE**
+`NativePlugin`-SPI plugins (20 jars: json/content/graph/crypto/dataset/actors/…), which PluginBridge
+NEVER loads. So the 20 v2-native plugins are **dead weight** on the --v2 classpath. Two consequences:
+- `bin/ssc` (--v2, standard tier, 0 external Backend jars): relies on PluginBridge's BUILT-IN
+  registrations + self-hosted stdlib. Passes dataset/actors/signals (built-ins); FAILS
+  json/content/graph (`unbound global: jsonRead / contentToolkitSection`).
+- `bin/ssc-tools` (--v2, full tier, +12 v1 Backend jars): those v1 Backend plugins ADD
+  json/content/graph (**+36 cases pass**) but their dataset/actors/signals impls OVERRIDE the working
+  built-ins and break on the v2 VM (**−23 regressions**: 10 dataset, 3 actors, signals, ui-*, …).
+  Measured via a full v2 gate run: swapping the launcher = +36/−23. NOT a clean win → reverted.
+- **THE fix (high-leverage, deep):** wire the --v2 lane to the **v2-native** plugin set
+  (`NativePluginHost.loadAll`, the `NativePlugin` SPI) instead of / alongside PluginBridge, so
+  json/content/graph (native) AND dataset/actors (native) all work with no v1-Backend conflicts.
+  BLOCKER: `NativePluginHost.loadAll` calls `V2PluginRegistry.clear()` (mutually exclusive), so it
+  must first absorb PluginBridge's built-ins (sys/ambient-effects/remote/xml/currency/optics). This is
+  the real v2 integration project — turns "64 mystery gaps" into one loader-unification + built-in port.
+  Remaining TRUE v2-VM gaps (survive even the full launcher): derived-codec effects
+  (`unhandled runtime effect: VertexCodec/ObjectCodec/DatasetCodec`, 6), actor-cluster methods
+  (`unbound: clusterConfigSet`, 10), frontend parse gaps (`std-ui-aggregator: ] expected`, 13).
+
 ### v2 (bridge lane `--v2`) — wire plugins (ROOT-CAUSE FOUND 2026-07-14: two plugin systems)
 **Mechanism (investigated):** `ssc run --v2` calls `PluginBridge.loadAll()` which ServiceLoads every v1
 `Backend`-SPI plugin on the classpath and AUTO-bridges each `NativeImpl` intrinsic to the v2 VM as both a
