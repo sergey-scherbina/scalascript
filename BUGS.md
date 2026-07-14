@@ -1,5 +1,27 @@
 # Bug tracker
 
+## js-imported-def-int-division-loses-truncation — open (2026-07-14, opus)
+
+**Status:** open. Root cause found; the fix is deep (import-emission), deferred.
+
+The 6 `scljet-write-*` cases are js DIVERGE in the corpus contract: their B-tree page
+serialization emits `2^-k` FLOATS (`5.96e-8`, `0.0039`) where the interpreter emits the
+integer bytes (`0`, `1`). Root cause: `std/scljet/write.ssc`'s `def writeBe32(value:
+Int) = List((value / 16777216) % 256, …)` uses integer division, but for THIS imported
+def JsGen lowers `value / N` to the float `_arith('/', value, N)` instead of
+`Math.trunc(value / N)` — because `value` isn't in `intVars` at the point the def's body
+is emitted. Inline and 1-/2-level direct imports lower it correctly (`Math.trunc`), and
+`registerImportedTypeEvidence` is called per imported module; but for `writeBe32`
+(defined in write.ssc, pulled in TRANSITIVELY via std/scljet/index.ssc and emitted as a
+`const writeBe32 = (value) => …` namespace-member const-arrow) the Int-param evidence
+does not reach the emitting gen. There are 3+ def-emission paths (top-level `function`,
+genObjectAsExpr `const … =>`, genStat CPS); a `withParamTypeEvidence` wrap on
+genObjectAsExpr was a confirmed no-op for these, so the fix needs the exact
+childGen/grandchild path that emits transitively-imported namespace-member defs to apply
+the param evidence. Not a semantic bug — a type-evidence-plumbing bug in the JS import
+graph. (Found via the портируем DIVERGE sweep; the contract's js column tracks it.)
+
+
 ## custom-jsemitter-signal-list-literal — `StaticJsEmitter.jsLiteral` can't encode a List-valued signal registered from an event handler
 
 **Status:** open (found 2026-07-13, claude-sonnet-5, while building the
