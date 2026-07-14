@@ -26,14 +26,25 @@ verify by probe + JVM dialect test + conformance 640ok. Detail: memory `project_
 - [x] type decls nested in object bodies (accessors + enum cases); `startsWith(prefix,offset)`;
   `||=`/`&&=`; lexicographic Tuple2/3 Ordering (sortBy tuple key); UniML rewrites (val-destructure,
   `+:`, `Option.when`, tuple-destructuring lambda). unimlYaml 18/18.
-- [ ] **v2-map-placeholder-copy** — `xs.map(_.copy(field = v))` returns a raw `<foreign>` (later
-  `.head`/`.kind` no-dispatch). Explicit `f.copy(...)` works; the placeholder-`_.copy`-in-map is the
-  bug. CURRENT YAML blocker (YamlStructure:110 `frames.map(_.copy(last = lineEnd))`). Repro:
-  scratchpad `p-mapcopy.ssc`.
+- [x] **v2-vector-cons-list DONE** — `Vector(a,b,…)`/`Seq(…)` were `_arr_fill` mutable ArrayBuffers
+  (no `.head`/`.tail`; `.map` returned another ArrayBuffer) → `Vector(1,2,3).map(f).head` = ".head on
+  <foreign>". Now Cons-lists (indexed access `v(i)` + all list ops). Fixed the map-placeholder-copy.
+- [x] **v2-untyped-field-access DONE** — `__method__(field, DataV)` resolves a by-name field via the
+  registry (mirrors `__methodOrExt__`); `localVar.method().field` was Stub'd.
+- [ ] **v2-eager-global-regfields-order** — a parameterless `def run = …` (no parens) that does UNTYPED
+  case-class field access is an EAGER global evaluated during global-init, BEFORE the entry's
+  `__regfields__` run → field registry empty → Stub. Repro `p-varlast.ssc`. Not on YAML's path (its
+  field access is inside 1-arg methods, run after the entry). Fix: register field metadata before
+  eager globals evaluate.
+- [ ] **v2-yaml-kind-on-string** — CURRENT YAML blocker: `__method__: no dispatch for .kind on
+  "yaml.sequence"` (receiver is a STRING kind-value, not a case class, so the field-access fallback
+  doesn't apply). In `YamlStructure.blockRanges`; the `role` lambda's `parent.kind` works (DBG: parent
+  is a valid BlockFrame), so it's a different `.kind` call — instrument `frames.last.kind` (line 968)
+  / the Range flow. Repro: scratchpad `yaml-flat.ssc` / `yaml-flat-dbg2.ssc`.
 - [ ] **v2-object-qualified-nested-ctor** — `O.Inner(…)` (qualified ext ref to a nested type) →
   `unbound global: O_Inner`. Bare `Inner(…)` inside the object works; dialects use bare, so low-pri.
-- [ ] **yaml-flat-remaining** — after map-copy, re-run `scratchpad/yaml-flat.ssc` for the next gap;
-  iterate to `status=Complete`. Then verify v2-vs-JVM differential over a YAML corpus.
+- [ ] **yaml-flat-remaining** — after the kind-on-string fix, re-run `scratchpad/yaml-flat.ssc` for
+  the next gap; iterate to `status=Complete`. Then a v2-vs-JVM differential over a YAML corpus.
 
 ### Markdown — NOT STARTED
 - [ ] **markdown-on-v2** — flatten `markdown/` parse path (nested enums InlinePiece/AngleKind/OpenLeaf

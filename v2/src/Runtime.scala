@@ -3019,6 +3019,15 @@ object Prims:
           ClosV(Runtime.emptyEnv, 1, env => Done(callClos(g, Array(callClos(f, Array(env.last))))))
         case (f: ClosV, "compose", List(g: ClosV)) =>
           ClosV(Runtime.emptyEnv, 1, env => Done(callClos(f, Array(callClos(g, Array(env.last))))))
+        // By-name field access on a case-class value reached through an UNTYPED path
+        // (e.g. `localVar.method().field`, where the front can't prove the receiver's
+        // type and emits `__method__("field", …)` instead of the `_sel_field`
+        // accessor). Resolve via the registered field names, matching the
+        // `__methodOrExt__` field path. Without this the access returned a Stub.
+        case (DataV(tag, fields), fieldName, Nil)
+            if V2PluginRegistry.lookupFieldNames(tag, fields.length).exists(ns =>
+                 ns.indexOf(fieldName) >= 0 && ns.indexOf(fieldName) < fields.length) =>
+          fields(V2PluginRegistry.lookupFieldNames(tag, fields.length).get.indexOf(fieldName))
         case (v, "toString", Nil) => StrV(anyStr(v))
         case _ =>
           // An ACTIVE effect handler on an empty-DataV receiver wins over the

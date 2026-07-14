@@ -1961,7 +1961,15 @@ def resolveE = (expr) =>
                   else if #seq(fdata, "Array") then
                     Pair("app", Pair(Pair("var", "_arr_fill"), Cons(buildListExpr(rargs), Nil)))
                   else if #seq(fdata, "Vector") then
-                    Pair("app", Pair(Pair("var", "_arr_fill"), Cons(buildListExpr(rargs), Nil)))
+                    -- `Vector(a, b, …)` is IMMUTABLE → a Cons-list (like `List(…)`), NOT
+                    -- the mutable `_arr_fill` ArrayBuffer. The ArrayBuffer form has no
+                    -- `.head`/`.tail` dispatch and `.map` on it returns another
+                    -- ArrayBuffer, so `Vector(…).map(f).head` failed with
+                    -- ".head on <foreign>". Cons-lists support indexed access `v(i)`
+                    -- and all list ops, so this is strictly more capable.
+                    buildListExpr(rargs)
+                  else if #seq(fdata, "Seq") then
+                    buildListExpr(rargs)
                   else if #seq(fdata, "Map") then
                     buildMapExpr(rargs)
                   else if #seq(fdata, "BigInt") then
