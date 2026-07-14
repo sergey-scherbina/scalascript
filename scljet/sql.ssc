@@ -382,7 +382,8 @@ def parseWhere(toks: List[Token]): Either[String, (List[List[Condition]], List[T
   if !tkIsKw(toks, "WHERE") then Right((Nil, toks))
   else parseConditionChain(toks.tail)
 
-case class OrderKey(column: String, desc: Boolean)
+// An ORDER BY key: a scalar expression (a bare column is just `SxCol`) and its direction.
+case class OrderKey(expr: SxNode, desc: Boolean)
 
 def reverseKeys(items: List[OrderKey], acc: List[OrderKey]): List[OrderKey] =
   var r = items
@@ -407,21 +408,21 @@ def parseOrderLimit(toks: List[Token]): Either[String, (List[OrderKey], Int, Int
       rest = rest.tail
       var moreKeys = true
       while moreKeys && err.isEmpty do
-        if tkKind(rest) != "ident" then
-          err = Some("expected column after ORDER BY")
-          moreKeys = false
-        else
-          val col = rest.head.text
-          rest = rest.tail
-          var desc = false
-          if tkIsKw(rest, "DESC") then
-            desc = true
-            rest = rest.tail
-          else if tkIsKw(rest, "ASC") then rest = rest.tail
-          else desc = false
-          keysRev = OrderKey(col, desc) :: keysRev
-          if tkKind(rest) == "comma" then rest = rest.tail
-          else moreKeys = false
+        parseExpr(rest) match
+          case Left(message) =>
+            err = Some(message)
+            moreKeys = false
+          case Right(ep) =>
+            rest = ep._2
+            var desc = false
+            if tkIsKw(rest, "DESC") then
+              desc = true
+              rest = rest.tail
+            else if tkIsKw(rest, "ASC") then rest = rest.tail
+            else desc = false
+            keysRev = OrderKey(ep._1, desc) :: keysRev
+            if tkKind(rest) == "comma" then rest = rest.tail
+            else moreKeys = false
   if err.isEmpty && tkIsKw(rest, "LIMIT") then
     rest = rest.tail
     if tkKind(rest) != "num" then err = Some("expected a number after LIMIT")
@@ -1493,7 +1494,7 @@ def groupKeysOf(groupCols: List[String]): List[OrderKey] =
   var r = groupCols
   var accRev: List[OrderKey] = Nil
   while r.nonEmpty do
-    accRev = OrderKey(r.head, false) :: accRev
+    accRev = OrderKey(SxCol(r.head), false) :: accRev
     r = r.tail
   reverseKeys(accRev, Nil)
 
@@ -1712,7 +1713,7 @@ def recCompare(a: StorageRecord, b: StorageRecord, colNames: List[String], keys:
   var result = 0
   while r.nonEmpty && result == 0 do
     val ok = r.head
-    val cmp = sqlCompare(rowValue(a, colNames, ok.column), rowValue(b, colNames, ok.column))
+    val cmp = sqlCompare(evalExpr(ok.expr, a, colNames), evalExpr(ok.expr, b, colNames))
     result = if ok.desc then 0 - cmp else cmp
     r = r.tail
   result
@@ -2096,7 +2097,7 @@ def pairOrderCompare(a: JoinPair, b: JoinPair, colsA: List[String], tableA: Stri
   var result = 0
   while r.nonEmpty && result == 0 do
     val ok = r.head
-    val cmp = sqlCompare(joinPairValue(a, colsA, tableA, colsB, tableB, ok.column), joinPairValue(b, colsA, tableA, colsB, tableB, ok.column))
+    val cmp = sqlCompare(evalExprJoin(ok.expr, a.recA, colsA, tableA, a.recBOpt, colsB, tableB), evalExprJoin(ok.expr, b.recA, colsA, tableA, b.recBOpt, colsB, tableB))
     result = if ok.desc then 0 - cmp else cmp
     r = r.tail
   result

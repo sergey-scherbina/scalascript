@@ -1,0 +1,36 @@
+---
+name: scljet-sql-orderby-expr
+description: SclJet SQL ORDER BY expressions — arithmetic, functions, multi-key with DESC, expr+LIMIT; matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet SQL ORDER BY expressions
+
+An `ORDER BY` key may be any scalar expression, not just a column: `ORDER BY salary * -1`,
+`ORDER BY UPPER(name)`, `ORDER BY LENGTH(name), name`, and `ORDER BY salary * 2 DESC LIMIT 3`. Keys
+still compose (multi-key, per-key ASC/DESC) and the sort is stable. Every result is byte-identical to
+reference sqlite3 running the same SQL on the same file (verified out-of-band); locked across backends.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER, name TEXT, salary INTEGER, dept INTEGER)",
+  List(List(SqlInteger(1L), SqlText("ann"), SqlInteger(100L), SqlInteger(10L)),
+       List(SqlInteger(2L), SqlText("Bob"), SqlInteger(250L), SqlInteger(20L)),
+       List(SqlInteger(3L), SqlText("charlie"), SqlInteger(300L), SqlInteger(10L)),
+       List(SqlInteger(4L), SqlText("dan"), SqlInteger(150L), SqlInteger(30L)),
+       List(SqlInteger(5L), SqlText("ed"), SqlInteger(250L), SqlInteger(20L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db) =>
+    show(db, "SELECT id FROM emp ORDER BY salary * -1")
+    show(db, "SELECT name FROM emp ORDER BY UPPER(name)")
+    show(db, "SELECT id FROM emp ORDER BY dept, salary DESC")
+    show(db, "SELECT id, salary FROM emp ORDER BY salary * 2 DESC LIMIT 3")
+    show(db, "SELECT name FROM emp ORDER BY LENGTH(name), name")
+```
