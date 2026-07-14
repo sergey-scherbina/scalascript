@@ -1,0 +1,5 @@
+claim: v2.2-p6.7-val-blocks
+branch: feature/v2.2-p6.7-val-blocks
+what: P6.7 — L gains braced val-blocks (let). C_min parses+emits `{ val x = e ... final }` -> (let (e) body);
+      rewrite part of C_min's own source in val-blocks; keep stage1==stage2 fixpoint + spike≡ssc1-front byte-id.
+started: 2026-07-14
