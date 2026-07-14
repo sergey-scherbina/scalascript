@@ -2727,17 +2727,108 @@ def executeNoFrom(stmt: SelectStmt): Either[String, List[List[SqliteValue]]] =
     r = r.tail
   Right(reverseValues(accRev, Nil) :: Nil)
 
+// ── Non-correlated subqueries: evaluate `( SELECT … )` and splice its result back as tokens ──
+// A `( SELECT … )` after IN becomes a value list `( v1, v2, … )`; anywhere else it is a scalar
+// (the first value of the first row). The subquery must not reference the outer query
+// (non-correlated); integer/text results only. Runs as a pre-pass before parse, and recurses so
+// nested subqueries resolve too.
+
+// Split the paren group whose opening `(` was just consumed: returns (inner tokens, tokens after
+// the matching `)`), or None if unbalanced.
+def splitParenGroup(afterLparen: List[Token]): Option[(List[Token], List[Token])] =
+  var r = afterLparen
+  var depth = 0
+  var innerRev: List[Token] = Nil
+  var result: Option[(List[Token], List[Token])] = None
+  while r.nonEmpty && result.isEmpty do
+    val t = r.head
+    if t.kind == "rparen" && depth == 0 then result = Some((innerRev, r.tail))
+    else
+      if t.kind == "lparen" then depth = depth + 1
+      else if t.kind == "rparen" then depth = depth - 1
+      innerRev = t :: innerRev
+      r = r.tail
+  result match
+    case Some(pair) => Some((pair._1.reverse, pair._2))
+    case None => None
+
+def valueToken(v: SqliteValue): Token = v match
+  case SqlInteger(x) => Token("num", "", x)
+  case SqlText(s) => Token("str", s, 0L)
+  case SqlReal(x) => Token("num", "", x.toLong)
+  case _ => Token("num", "", 0L)
+
+def valueListTokens(values: List[SqliteValue]): List[Token] =
+  var r = values
+  var accRev: List[Token] = Nil
+  var first = true
+  while r.nonEmpty do
+    // if/else EXPRESSION, not a bare `if … then <assign>` (the interpreter skips that form).
+    accRev = if first then accRev else Token("comma", ",", 0L) :: accRev
+    accRev = valueToken(r.head) :: accRev
+    first = false
+    r = r.tail
+  (Token("lparen", "(", 0L) :: Nil) ++ accRev.reverse ++ (Token("rparen", ")", 0L) :: Nil)
+
+def scalarValueTokens(values: List[SqliteValue]): List[Token] =
+  if values.isEmpty then Token("num", "", 0L) :: Nil
+  else valueToken(values.head) :: Nil
+
+def firstColumn(rows: List[List[SqliteValue]]): List[SqliteValue] =
+  var r = rows
+  var accRev: List[SqliteValue] = Nil
+  while r.nonEmpty do
+    accRev = (if r.head.isEmpty then SqlNull else r.head.head) :: accRev
+    r = r.tail
+  accRev.reverse
+
+def evalSubquery(dbBytes: ByteSlice, inner: List[Token]): Either[String, List[SqliteValue]] =
+  resolveSubqueries(dbBytes, inner) match
+    case Left(message) => Left(message)
+    case Right(resolved) => parseSelect(resolved) match
+      case Left(message) => Left(message)
+      case Right(stmt) =>
+        if stmt.table == "" then executeNoFrom(stmt) match
+          case Left(message) => Left(message)
+          case Right(rows) => Right(firstColumn(rows))
+        else openReadonly(ImageVfs(dbBytes), "image.db", sqlOptions()) match
+          case Left(error) => Left(error.message)
+          case Right(db) => executeSelect(db, stmt) match
+            case Left(message) => Left(message)
+            case Right(rows) => Right(firstColumn(rows))
+
+def resolveSubqueries(dbBytes: ByteSlice, toks: List[Token]): Either[String, List[Token]] =
+  var prefixRev: List[Token] = Nil
+  var r = toks
+  var atSpan = false
+  while r.nonEmpty && !atSpan do
+    if r.head.kind == "lparen" && tkIsKw(r.tail, "SELECT") then atSpan = true
+    else
+      prefixRev = r.head :: prefixRev
+      r = r.tail
+  if !atSpan then Right(toks)
+  else splitParenGroup(r.tail) match
+    case None => Left("unbalanced parentheses in a subquery")
+    case Some(sp) => evalSubquery(dbBytes, sp._1) match
+      case Left(message) => Left(message)
+      case Right(values) =>
+        val inCtx = if prefixRev.isEmpty then false else isKw(prefixRev.head, "IN")
+        val subst = if inCtx then valueListTokens(values) else scalarValueTokens(values)
+        resolveSubqueries(dbBytes, prefixRev.reverse ++ subst ++ sp._2)
+
 /** Run a SELECT against a database image and return the result rows. */
 def queryImage(dbBytes: ByteSlice, sql: String): Either[String, List[List[SqliteValue]]] =
   tokenize(sql) match
     case Left(message) => Left(message)
-    case Right(toks) => parseSelect(toks) match
+    case Right(toks0) => resolveSubqueries(dbBytes, toks0) match
       case Left(message) => Left(message)
-      case Right(stmt) =>
-        if stmt.table == "" then executeNoFrom(stmt)
-        else openReadonly(ImageVfs(dbBytes), "image.db", sqlOptions()) match
-          case Left(error) => Left(error.message)
-          case Right(db) => executeSelect(db, stmt)
+      case Right(toks) => parseSelect(toks) match
+        case Left(message) => Left(message)
+        case Right(stmt) =>
+          if stmt.table == "" then executeNoFrom(stmt)
+          else openReadonly(ImageVfs(dbBytes), "image.db", sqlOptions()) match
+            case Left(error) => Left(error.message)
+            case Right(db) => executeSelect(db, stmt)
 
 // ── DML: INSERT and DELETE through the balanced write path ──
 
@@ -3711,7 +3802,9 @@ def executeDropIndex(dbBytes: ByteSlice, indexName: String): Either[String, Byte
 def executeMutation(dbBytes: ByteSlice, sql: String): Either[String, ByteSlice] =
   tokenize(sql) match
     case Left(message) => Left(message)
-    case Right(toks) =>
+    case Right(toks0) => resolveSubqueries(dbBytes, toks0) match
+     case Left(message) => Left(message)
+     case Right(toks) =>
       if toks.isEmpty then Left("empty statement")
       else if isKw(toks.head, "INSERT") then parseInsert(toks) match
         case Left(message) => Left(message)

@@ -1,0 +1,45 @@
+---
+name: scljet-sql-subquery
+description: SclJet SQL non-correlated subqueries — WHERE col IN (SELECT …), NOT IN, scalar = / > (SELECT agg …); matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet SQL subqueries
+
+Non-correlated subqueries in `WHERE`: `col IN (SELECT y FROM t2 WHERE …)` (and `NOT IN`), and a scalar
+`col op (SELECT agg FROM …)`. A pre-pass evaluates each `(SELECT …)` once and splices its result back
+(a value list after IN, a single value elsewhere), so the outer query then runs normally. Every result
+is byte-identical to reference sqlite3 running the same SQL on the same file (verified out-of-band);
+locked across backends.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, renderRows, executeMutation](std/scljet/sql.ssc)
+
+```scalascript
+def apply(db: ByteSlice, sql: String): ByteSlice =
+  executeMutation(db, sql) match
+    case Left(m) =>
+      println(sql + " => ERR:" + m)
+      db
+    case Right(next) => next
+
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER, name TEXT, dept INTEGER, salary INTEGER)",
+  List(List(SqlInteger(1L), SqlText("ann"), SqlInteger(10L), SqlInteger(100L)),
+       List(SqlInteger(2L), SqlText("bob"), SqlInteger(20L), SqlInteger(250L)),
+       List(SqlInteger(3L), SqlText("cat"), SqlInteger(10L), SqlInteger(300L)),
+       List(SqlInteger(4L), SqlText("dan"), SqlInteger(30L), SqlInteger(150L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db0) =>
+    val d1 = apply(db0, "CREATE TABLE dept(did INTEGER, dname TEXT, active INTEGER)")
+    val db = apply(d1, "INSERT INTO dept VALUES (10,'eng',1),(20,'sales',0),(30,'ops',1)")
+    show(db, "SELECT name FROM emp WHERE dept IN (SELECT did FROM dept WHERE active = 1)")
+    show(db, "SELECT name FROM emp WHERE dept NOT IN (SELECT did FROM dept WHERE active = 1)")
+    show(db, "SELECT name FROM emp WHERE salary = (SELECT MAX(salary) FROM emp)")
+    show(db, "SELECT name FROM emp WHERE salary > (SELECT AVG(salary) FROM emp) ORDER BY id")
+    show(db, "SELECT COUNT(*) FROM emp WHERE dept IN (SELECT did FROM dept WHERE active = 1)")
+```

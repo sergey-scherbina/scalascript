@@ -1,0 +1,8 @@
+SELECT name FROM emp WHERE dept IN (SELECT did FROM dept WHERE active = 1) => ann
+cat
+dan
+SELECT name FROM emp WHERE dept NOT IN (SELECT did FROM dept WHERE active = 1) => bob
+SELECT name FROM emp WHERE salary = (SELECT MAX(salary) FROM emp) => cat
+SELECT name FROM emp WHERE salary > (SELECT AVG(salary) FROM emp) ORDER BY id => bob
+cat
+SELECT COUNT(*) FROM emp WHERE dept IN (SELECT did FROM dept WHERE active = 1) => 3
