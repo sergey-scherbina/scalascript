@@ -83,7 +83,7 @@ Two distinct pending groups — never silently green:
   handler (`no arm for wr/2`); effect-performing recursion overflows the native
   stack between depth 500 and 2000 (pure TCO is unaffected — axis 03 ✓ at 2,000,000);
   a one-shot effect resumed twice is silently allowed. These need effect-runtime
-  support, **not** the codec — the compiler-independent `scala3-control-api`
+  support, **not** the codec — the compiler-independent Scala control
   reference runner is the natural first home before any VM lowering.
 
 ## Layout

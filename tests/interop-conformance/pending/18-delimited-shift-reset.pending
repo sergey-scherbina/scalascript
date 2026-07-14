@@ -6,5 +6,5 @@ measured: `reset { 1 + shift { k => k(k(10)) } }` → `ssc: unbound global: rese
   not delimited `shift`/`reset`.
 expected: fresh/nested prompts with nearest-matching `reset`, same-prompt `shift`
   inside the shift body, and `shift` vs `shift0` distinction (core §4, §14.1). The
-  compiler-independent `scala3-control-api` local runner is the natural first home
+  compiler-independent Scala control local runner is the natural first home
   for these before any VM lowering.

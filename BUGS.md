@@ -167,7 +167,7 @@ Cross-lane per codex-interop: the guard IS present in the v1 interpreter / JS pa
 ABSENT in generated JVM — confirmed absent on the portable-VM native lane here.
 
 **Fix/verification:** not fixed — needs one-shot vs multi-shot tracking + a typed diagnostic
-in the effect runtime (natural home: the compiler-independent `scala3-control-api` reference
+in the effect runtime (natural home: the compiler-independent Scala control reference
 runner). Conformance axis stays `pending-runtime`.
 
 ## control-interop-effect-recursion-stack-unsafe — CONFIRMED / open (2026-07-14, claude)

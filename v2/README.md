@@ -82,7 +82,7 @@ v2/
   backend/    Core IR -> {Scala 3, JS, Rust} source generators + check.sh parity harness
               (every fixture through run-ir vs JVM vs JS vs Rust, byte-identical)
   host/       outer host-profile SDKs/transforms/runners; currently
-              scala/control-api (compiler-independent Scala 3 control reference API)
+              scala/control (compiler-independent Scala 3 control reference API)
   specs/      00-overview · 10-core-ir · 12-ir-format · 15-ssc0 · 20-bootstrap ·
               40-typer · 50-effects · 51-async · 52-typeclasses · 53-actors · 60/61-backends
 ```

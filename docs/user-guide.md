@@ -1643,7 +1643,7 @@ See [`specs/algebraic-effects.md`](algebraic-effects.md) for the full spec.
 
 Ordinary Scala 3/JVM programs can use the compiler-independent
 `scalascript.control` API. The repository builds the publication-ready leaf as
-`io.scalascript:scalascript-control-api_3`; it is deliberately independent of
+`io.scalascript:scalascript-control_3`; it is deliberately independent of
 CoreIR, UniML, backends, the CLI, and the legacy interop runtime. This coordinate
 describes the built artifact and is not a claim that a release has already been
 published to a Maven repository.
@@ -1714,7 +1714,7 @@ The complete runnable example prints `Vector(10, 20)` and `42`:
 scripts/sbtc "scala3ControlApi/Test/runMain scalascript.controlapi.examples.effectsAndShift"
 ```
 
-Source: [`ControlApiExample.scala`](../v2/host/scala/control-api/src/test/scala/scalascript/controlapi/examples/ControlApiExample.scala).
+Source: [`ControlApiExample.scala`](../v2/host/scala/control/src/test/scala/scalascript/controlapi/examples/ControlApiExample.scala).
 Successful durable `save`/`run`, network transfer, Scala↔ScalaScript lowering and
 typed call/value bridges, managed callbacks and mixed tail SCCs, macros/plugin,
 admission, and exact/portable runners remain separate post-X1 milestones. See the
@@ -6334,7 +6334,7 @@ operations, native sum Mirrors, and broader generated-backend edge cases.
 - Algebraic effects: §4, `docs/architecture.md`
 - Direct syntax: [docs/direct-syntax.md](direct-syntax.md)
 - Coroutines + generators: [specs/coroutines.md](coroutines.md)
-- Scala 3 explicit control API: §4 above, [Scala/JVM host profile](../specs/scala3-bidirectional-control.md), [runnable Scala example](../v2/host/scala/control-api/src/test/scala/scalascript/controlapi/examples/ControlApiExample.scala)
+- Scala 3 explicit control API: §4 above, [Scala/JVM host profile](../specs/scala3-bidirectional-control.md), [runnable Scala example](../v2/host/scala/control/src/test/scala/scalascript/controlapi/examples/ControlApiExample.scala)
 - DSL authoring: [specs/dsl.md](dsl.md)
 - Dataset / MapReduce: [specs/mapreduce.md](mapreduce.md)
 - **SQL databases + secret management: §6, §6.2, [secret-resolvers.md](../secret-resolvers.md)**
