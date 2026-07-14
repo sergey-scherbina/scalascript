@@ -1,0 +1,99 @@
+---
+name: tkv2-button-variant
+version: 1.0.0
+backends: [int, js]
+---
+
+# tkv2 - button variant: colour selection for button primitives (std-ui-button-variant)
+
+Slice `std-ui-button-variant` (`specs/std-ui-button-variant.md`): the four button
+constructors (`signalButton`, `actionButton`, `signalLabelButton`,
+`signalActionButton`) accept a new trailing `variant` param that `lower.ssc`
+resolves to a themed background colour via `_buttonColor`. `View` is opaque to
+`.ssc` (see `specs/std-ui-select.md` "Why no new extern def"), so — mirroring
+`tests/conformance/std-ui-jobpanel.ssc`'s own TkNode-field-assertion style —
+this conformance test asserts the `variant` field threads from each
+constructor to its node unchanged, and that `lower()` does not throw for
+every accepted variant plus an unrecognized string, on both lanes. The actual
+rendered CSS background-colour swap (that the resolved colour genuinely
+differs per variant) was verified empirically via `emit-js`; see
+`specs/std-ui-button-variant.md` § Results.
+
+[signal, setSignal](std/ui/primitives.ssc)
+[signalButton, actionButton, signalLabelButton, signalActionButton](std/ui/input.ssc)
+[SignalButtonNode, ActionButtonNode, SignalLabelButtonNode, SignalActionButtonNode](std/ui/nodes.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
+
+```scalascript
+val sig      = signal("tkv2ButtonVariantSig", "")
+val labelSig = signal("tkv2ButtonVariantLabel", "Go")
+val handler  = setSignal(sig, "clicked")
+
+// No `variant` argument at all — stays the pre-existing default ("primary"),
+// backward compatible with every call site that predates this slice.
+val defaultBtn = signalButton(sig, "x", "Default")
+defaultBtn match
+  case SignalButtonNode(_, _, label, _, variant) => println(label + ":" + variant)
+  case _                                         => println("?")
+val defaultView = lower(defaultBtn, defaultTheme)
+println("default-built")
+
+// Each accepted variant threads through actionButton's constructor to the
+// node unchanged, and lowers without throwing.
+val bPrimary = actionButton(handler, "Act", false, "primary")
+bPrimary match
+  case ActionButtonNode(_, label, _, variant) => println(label + ":" + variant)
+  case _                                      => println("?")
+val vPrimary = lower(bPrimary, defaultTheme)
+
+val bSecondary = actionButton(handler, "Act", false, "secondary")
+bSecondary match
+  case ActionButtonNode(_, label, _, variant) => println(label + ":" + variant)
+  case _                                      => println("?")
+val vSecondary = lower(bSecondary, defaultTheme)
+
+val bDanger = actionButton(handler, "Act", false, "danger")
+bDanger match
+  case ActionButtonNode(_, label, _, variant) => println(label + ":" + variant)
+  case _                                      => println("?")
+val vDanger = lower(bDanger, defaultTheme)
+
+val bSuccess = actionButton(handler, "Act", false, "success")
+bSuccess match
+  case ActionButtonNode(_, label, _, variant) => println(label + ":" + variant)
+  case _                                      => println("?")
+val vSuccess = lower(bSuccess, defaultTheme)
+
+val bWarning = actionButton(handler, "Act", false, "warning")
+bWarning match
+  case ActionButtonNode(_, label, _, variant) => println(label + ":" + variant)
+  case _                                      => println("?")
+val vWarning = lower(bWarning, defaultTheme)
+
+// An unrecognized variant string threads through unchanged (the fallback to
+// primary happens in lower.ssc's _buttonColor, not at construction) and must
+// not crash either the node build or the lowering.
+val bBogus = actionButton(handler, "Act", false, "bogus")
+bBogus match
+  case ActionButtonNode(_, label, _, variant) => println(label + ":" + variant)
+  case _                                      => println("?")
+val vBogus = lower(bBogus, defaultTheme)
+println("action-variants-built")
+
+// signalLabelButton / signalActionButton accept and thread `variant` the
+// same way.
+val lb = signalLabelButton(sig, "x", labelSig, false, "danger")
+lb match
+  case SignalLabelButtonNode(_, _, _, _, variant) => println("label-btn:" + variant)
+  case _                                          => println("?")
+val vLb = lower(lb, defaultTheme)
+
+val sab = signalActionButton(handler, labelSig, false, "success")
+sab match
+  case SignalActionButtonNode(_, _, _, variant) => println("action-sig-btn:" + variant)
+  case _                                        => println("?")
+val vSab = lower(sab, defaultTheme)
+
+println("button-variant-built")
+```

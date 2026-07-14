@@ -1,0 +1,58 @@
+---
+name: button-variants
+version: 1.0.0
+description: A row of buttons in every std/ui variant, side by side (runtime/std/ui/input.ssc `variant` param, specs/std-ui-button-variant.md).
+frontend: custom
+---
+
+# button-variants — one button per colour variant
+
+Every `std/ui` button constructor (`signalButton`, `actionButton`,
+`signalLabelButton`, `signalActionButton`) now accepts a `variant` param that
+picks the background colour from the active `Theme.colors` — this is the
+concrete gap a busi UX audit found: every button rendered in the same
+primary-blue regardless of stakes ("Refresh" vs. "Prepare a real payment").
+This example shows all five accepted values side by side, plus the
+unrecognized-string fallback. Build with
+`ssc emit-spa --frontend custom examples/frontend/button-variants/button-variants.ssc > button-variants.html`,
+or run `ssc run examples/frontend/button-variants/button-variants.ssc`.
+
+[signal, incSignal, serve](std/ui/primitives.ssc)
+[actionButton, signalButton](std/ui/input.ssc)
+[vstack, hstack](std/ui/layout.ssc)
+[heading, text](std/ui/typography.ssc)
+[TkNode](std/ui/nodes.ssc)
+[lower](std/ui/lower.ssc)
+[Theme, defaultTheme](std/ui/theme.ssc)
+
+```scalascript
+val clicks = signal("buttonVariantsClicks", 0)
+
+// One actionButton per accepted variant. `variant` is the LAST parameter on
+// every button constructor, so this stays purely positional — no named-arg
+// skip-a-default caveat (specs/std-ui-select.md "Known limitation") applies.
+val row = hstack(gap = 8)(
+  actionButton(incSignal(clicks), "Primary", false, "primary"),
+  actionButton(incSignal(clicks), "Secondary", false, "secondary"),
+  actionButton(incSignal(clicks), "Danger", false, "danger"),
+  actionButton(incSignal(clicks), "Success", false, "success"),
+  actionButton(incSignal(clicks), "Warning", false, "warning")
+)
+
+// No variant argument at all — stays the pre-existing primary-blue render
+// (backward compatible default).
+val defaultBtn = actionButton(incSignal(clicks), "Default (no variant arg)")
+
+// An unrecognized variant string falls back to primary — no crash.
+val typoBtn = actionButton(incSignal(clicks), "Typo'd variant", false, "dangerous")
+
+val tree = vstack(gap = 16)(
+  heading(1, "Button variants"),
+  row,
+  defaultBtn,
+  typoBtn,
+  text("Every click increments a shared counter, regardless of variant.")
+)
+
+serve(lower(tree, defaultTheme), 8080)
+```

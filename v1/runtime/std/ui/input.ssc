@@ -77,28 +77,41 @@ def selectFrom[A](items: Signal[List[A]],
                   disabled: Boolean = false): TkNode =
   SelectFromNode(items, key, optionFn, selected, label, placeholder, disabled)
 
+// `variant` picks the button's background colour from Theme.colors:
+// primary|secondary|danger|success|warning (default "primary" — unchanged
+// render for every pre-existing call site). Any other string falls back to
+// primary at lower() time, no crash. See specs/std-ui-button-variant.md.
+// Same named-arg caveat as `select` applies (BUGS.md:
+// standard-tier-named-arg-skip-default) since `variant` is a new trailing
+// default param: name every trailing param from the first one overridden
+// onward (e.g. `actionButton(h, "Go", disabled = true, variant = "danger")`,
+// not `actionButton(h, "Go", variant = "danger")` alone) on that pipeline.
 def signalButton(signal: Any,
                  value: Any,
                  label: String = "Submit",
-                 disabled: Boolean = false): TkNode =
-  SignalButtonNode(signal, value, label, disabled)
+                 disabled: Boolean = false,
+                 variant: String = "primary"): TkNode =
+  SignalButtonNode(signal, value, label, disabled, variant)
 
 def actionButton(handler: Any,
                  label: String = "Submit",
-                 disabled: Boolean = false): TkNode =
-  ActionButtonNode(handler, label, disabled)
+                 disabled: Boolean = false,
+                 variant: String = "primary"): TkNode =
+  ActionButtonNode(handler, label, disabled, variant)
 
 // signalLabelButton — like signalButton but the label tracks a Signal[String]
 // (reactive, e.g. on a locale switch).
 def signalLabelButton(signal: Any,
                       value: Any,
                       labelSig: Any,
-                      disabled: Boolean = false): TkNode =
-  SignalLabelButtonNode(signal, value, labelSig, disabled)
+                      disabled: Boolean = false,
+                      variant: String = "primary"): TkNode =
+  SignalLabelButtonNode(signal, value, labelSig, disabled, variant)
 
 // signalActionButton — like actionButton but the label tracks a Signal[String].
 def signalActionButton(handler: Any,
                        labelSig: Any,
-                       disabled: Boolean = false): TkNode =
-  SignalActionButtonNode(handler, labelSig, disabled)
+                       disabled: Boolean = false,
+                       variant: String = "primary"): TkNode =
+  SignalActionButtonNode(handler, labelSig, disabled, variant)
 ```

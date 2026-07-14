@@ -842,10 +842,10 @@ private[codegen] trait JvmGenContentEmit:
        |        case Some(name) =>
        |          std.ui.nodes.ShowWhenNode(
        |            _ssc_tk_signal(env, name, "toolkit:button.enabledWhen"),
-       |            std.ui.nodes.SignalButtonNode(signal, value, _ssc_tk_link_label(link), disabled),
-       |            std.ui.nodes.SignalButtonNode(signal, value, _ssc_tk_link_label(link), true))
+       |            std.ui.nodes.SignalButtonNode(signal, value, _ssc_tk_link_label(link), disabled, "primary"),
+       |            std.ui.nodes.SignalButtonNode(signal, value, _ssc_tk_link_label(link), true, "primary"))
        |        case None =>
-       |          std.ui.nodes.SignalButtonNode(signal, value, _ssc_tk_link_label(link), disabled)
+       |          std.ui.nodes.SignalButtonNode(signal, value, _ssc_tk_link_label(link), disabled, "primary")
        |    case "signaltext" =>
        |      std.ui.nodes.SignalTextNode(_ssc_tk_signal(env, _ssc_tk_required_query(link, "signal"), "toolkit:signalText"))
        |    case "badge" =>
@@ -941,7 +941,7 @@ private[codegen] trait JvmGenContentEmit:
        |    case "button" =>
        |      val name = _ssc_tk_str(_ssc_tk_field(obj, "signal", "button"), "button.signal")
        |      val value = obj.get("value").map(_ssc_tk_scalar(_, "button.value")).getOrElse(true)
-       |      std.ui.nodes.SignalButtonNode(_ssc_tk_signal(env, name, "button"), value, _ssc_tk_str(_ssc_tk_field(obj, "label", "button"), "button.label"), _ssc_tk_opt_bool(obj, "disabled"))
+       |      std.ui.nodes.SignalButtonNode(_ssc_tk_signal(env, name, "button"), value, _ssc_tk_str(_ssc_tk_field(obj, "label", "button"), "button.label"), _ssc_tk_opt_bool(obj, "disabled"), "primary")
        |    case "badge" =>
        |      std.ui.nodes.BadgeNode(_ssc_tk_str(_ssc_tk_field(obj, "text", "badge"), "badge.text"), _ssc_tk_opt_str(obj, "variant").getOrElse("default"))
        |    case "card" =>

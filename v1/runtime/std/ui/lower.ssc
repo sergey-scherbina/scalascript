@@ -80,6 +80,16 @@ def _linkColor(variant: String, theme: Theme): String = variant match
   case "primary" => theme.colors.primary
   case _         => theme.colors.onSurface
 
+// button variant (runtime String) → themed background colour.  Unknown
+// (typo, empty string, future variant not yet added to ColorPalette) → the
+// pre-existing primary render, never a throw.  See specs/std-ui-button-variant.md.
+def _buttonColor(variant: String, theme: Theme): String = variant match
+  case "secondary" => theme.colors.secondary
+  case "danger"    => theme.colors.danger
+  case "success"   => theme.colors.success
+  case "warning"   => theme.colors.warning
+  case _           => theme.colors.primary
+
 // One style prop → CSS.  Token-resolved against the active Theme; unknown keys
 // drop out.  Nothing is hardcoded, so Theme.dark / Theme.mobile re-resolve.
 def _propCss(k: String, v: String, theme: Theme): String = k match
@@ -307,10 +317,10 @@ def lower(n: TkNode, theme: Theme): View = n match
         Map(),
         [labelEl, selectEl])
 
-  case SignalButtonNode(sig, value, label, disabled) =>
+  case SignalButtonNode(sig, value, label, disabled, variant) =>
     val sp   = theme.spacing
     val t    = theme.typography.body
-    val base = s"background:${theme.colors.primary}; color:${theme.colors.onPrimary}; border:none; " +
+    val base = s"background:${_buttonColor(variant, theme)}; color:${theme.colors.onPrimary}; border:none; " +
                s"padding:${sp.sm}px ${sp.md}px; font-size:${t.fontSize}px; font-family:${t.fontFamily}; " +
                s"border-radius:${theme.radii.md}px; font-weight:500; cursor:pointer"
     if disabled then
@@ -326,10 +336,10 @@ def lower(n: TkNode, theme: Theme): View = n match
         ["click" -> setSignal(sig, value)],
         [textNode(label)])
 
-  case ActionButtonNode(handler, label, disabled) =>
+  case ActionButtonNode(handler, label, disabled, variant) =>
     val sp   = theme.spacing
     val t    = theme.typography.body
-    val base = s"background:${theme.colors.primary}; color:${theme.colors.onPrimary}; border:none; " +
+    val base = s"background:${_buttonColor(variant, theme)}; color:${theme.colors.onPrimary}; border:none; " +
                s"padding:${sp.sm}px ${sp.md}px; font-size:${t.fontSize}px; font-family:${t.fontFamily}; " +
                s"border-radius:${theme.radii.md}px; font-weight:500; cursor:pointer"
     if disabled then
@@ -345,10 +355,10 @@ def lower(n: TkNode, theme: Theme): View = n match
         ["click" -> handler],
         [textNode(label)])
 
-  case SignalLabelButtonNode(sig, value, labelSig, disabled) =>
+  case SignalLabelButtonNode(sig, value, labelSig, disabled, variant) =>
     val sp   = theme.spacing
     val t    = theme.typography.body
-    val base = s"background:${theme.colors.primary}; color:${theme.colors.onPrimary}; border:none; " +
+    val base = s"background:${_buttonColor(variant, theme)}; color:${theme.colors.onPrimary}; border:none; " +
                s"padding:${sp.sm}px ${sp.md}px; font-size:${t.fontSize}px; font-family:${t.fontFamily}; " +
                s"border-radius:${theme.radii.md}px; font-weight:500; cursor:pointer"
     if disabled then
@@ -364,10 +374,10 @@ def lower(n: TkNode, theme: Theme): View = n match
         ["click" -> setSignal(sig, value)],
         [signalText(labelSig)])
 
-  case SignalActionButtonNode(handler, labelSig, disabled) =>
+  case SignalActionButtonNode(handler, labelSig, disabled, variant) =>
     val sp   = theme.spacing
     val t    = theme.typography.body
-    val base = s"background:${theme.colors.primary}; color:${theme.colors.onPrimary}; border:none; " +
+    val base = s"background:${_buttonColor(variant, theme)}; color:${theme.colors.onPrimary}; border:none; " +
                s"padding:${sp.sm}px ${sp.md}px; font-size:${t.fontSize}px; font-family:${t.fontFamily}; " +
                s"border-radius:${theme.radii.md}px; font-weight:500; cursor:pointer"
     if disabled then

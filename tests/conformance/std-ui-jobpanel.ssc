@@ -62,8 +62,8 @@ children.tail.tail.head match
           case TextNode_(t) => println(t)
           case _            => println("?")
         inner.tail.head match
-          case ActionButtonNode(_, label, disabled) => println(label + ":" + disabled.toString)
-          case _                                    => println("?")
+          case ActionButtonNode(_, label, disabled, variant) => println(label + ":" + disabled.toString + ":" + variant)
+          case _                                              => println("?")
       }
       case _ => println("?")
   case _ => println("?")
