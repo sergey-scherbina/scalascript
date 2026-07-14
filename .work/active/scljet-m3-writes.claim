@@ -1,4 +1,4 @@
 claim: scljet-m3-writes
 owner: opus
-heartbeat: 2026-07-14T16:13:36Z
-status: m6c scalar functions done; 21/21 sql green
+heartbeat: 2026-07-14T16:21:34Z
+status: m6d || concat done; 22/22 sql green

@@ -1794,6 +1794,14 @@ ORDER BY / LIMIT / OFFSET, aggregates (COUNT/SUM/MIN/MAX/AVG/TOTAL), GROUP BY + 
 and inner + LEFT joins — every feature byte-verified against reference sqlite3, int==js.
 Remaining follow-ups (niche): multi-table (3+) joins, page-1 schema split, repeating-decimal %.15g.
 
+- [x] **scljet-m6d-concat** — DONE 2026-07-14. `||` string concatenation. Lexer emits a `||` op token;
+      new `parseExprConcat` precedence level sits between `* /` and the atoms (sqlite binds `||` tighter
+      than `*`); `arithValue` handles op `||` first via `concatValue` (NULL if either side NULL, else the
+      `coerceText` forms joined, so numeric operands coerce to text). Works everywhere `SxBin` is
+      evaluated (projection / WHERE / UPDATE SET) and chains + composes with scalar functions
+      (`UPPER(first) || '-' || LOWER(last)`). Verified vs sqlite3 (chained, numeric coercion, NULL
+      propagation, with functions, in WHERE), int==js; conformance `scljet-sql-concat`.
+
 - [x] **scljet-m6c-scalar-functions** — DONE 2026-07-14. Scalar functions inside expressions:
       `UPPER`/`LOWER` (ASCII), `LENGTH` (char count of the text form), `ABS`, `COALESCE` (first
       non-null). New `SxCall(func, args)` AST node; `parseExprAtom` parses `ident(` as a call (via
