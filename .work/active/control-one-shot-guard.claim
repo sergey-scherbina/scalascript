@@ -1,6 +1,6 @@
 feature/control-one-shot-guard 2026-07-14T18:35:06Z
 agent: codex-interop
-heartbeat: 2026-07-14T18:48:10Z
+heartbeat: 2026-07-14T22:48:37Z
 status: in-progress
-done-so-far: reproduced VM/ASM; traced multiplicity loss to both v2 lowerers and resolved raw-Comp versus typed-.ssc spec drift
-next: commit the resume-cold plan, freeze the portable AlreadyResumed projection, then implement the shared atomic gate
+done-so-far: reproduced VM/ASM; committed the resume-cold plan; drafted and reviewed the cross-backend one-shot guard specification
+next: freeze and push the canonical failure/primitive ABI spec, then implement JVM VM/ASM and Swift with focused conformance
