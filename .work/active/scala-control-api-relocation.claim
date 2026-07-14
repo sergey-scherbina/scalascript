@@ -1,6 +1,0 @@
-feature/scala-control-api-relocation 2026-07-14T16:01:51Z
-agent: codex-interop
-heartbeat: 2026-07-14T16:01:51Z
-status: in-progress
-done-so-far: user identified that v1/lang/control-api violates the v2 host-profile architecture
-next: plan/spec the canonical v2 host-SDK path, relocate the module and every reference, rerun all gates
