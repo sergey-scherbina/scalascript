@@ -40,6 +40,26 @@ the prefix. These additions are useful but are not prerequisites for base save/r
       the required primitive/plugin manifests. The first implementation remains managed JVM; mixed
       Scala continuations remain JVM-specific unless their Scala segments are separately packaged.
 
+## Control and mixed-build extensions deferred from the base milestone (2026-07-14)
+
+The first milestone deliberately keeps answer types stable, builds a module DAG, supports only
+direct statically resolved mixed-tail SCCs, closes captured prompt binders, and executes residual
+effects at the destination. The following extensions require separate designs and conformance:
+
+- [ ] **control-answer-type-modification** — design answer-type-modifying `shift`/`reset` only after
+      the answer-type-preserving ABI is stable; do not weaken the initial `Prompt[P,R]` laws.
+- [ ] **mixed-build-same-module-cycles** — add a two-phase interface/body graph for Scala↔ScalaScript
+      source cycles inside one module. The base build accepts an acyclic inter-module graph.
+- [ ] **mixed-tail-advanced-call-shapes** — extend mixed global TCO to proven-safe
+      curried/default-argument/polymorphic and indirect call shapes. The base transform rejects such
+      SCCs instead of offering a partial stack guarantee.
+- [ ] **saved-continuation-durable-external-prompts** — define an explicit durable prompt capability
+      for a saved continuation with a free prompt reference. The base format saves only closed prompt
+      binders and alpha-renames them independently per run.
+- [ ] **saved-continuation-distributed-residual-forwarding** — optionally route an unhandled residual
+      `Op` from a remote runner back to the originating caller/handler. The base remote API instead
+      requires a closed effect row or an authenticated destination `RemoteRunEnvironment[Fx]`.
+
 ## Standard-tier compiler correctness (2026-07-13)
 
 - [ ] **standard-tier-named-arg-skip-default** — `bin/ssc run` (default, and

@@ -18,15 +18,15 @@ multi-prompt `shift`/`reset`, callbacks, and mixed-language tail calls cross the
 the language specs + portable CoreIR lowering + differential conformance; this work does **not** put
 Scala/JVM types into frozen CoreIR and does not make the Scala SDK the semantic owner of v2.
 
-Durable control uses the simple reusable **save/run** idiom, not replay: `continuation.save()` freezes
-the continuation as an immutable `SavedContinuation`; every `saved.run(value)` starts a fresh
-execution directly at the capture point. The prefix is never re-executed, while the suffix runs once
-per explicit `run`, preserving the multi-shot semantics of `shift/reset`. Semantically the saved value
-is a typed envelope around a closed CoreIR continuation capsule (`A => Eff[Fx,R]`) built only from the
-current canonical CoreIR plus codec-safe captured data; no continuation-specific CoreIR node is added.
-The public value is an opaque, serializable reference/capsule that may cross a process or network
-boundary. Atomic one-shot workflow execution is an optional policy, not the default continuation
-semantics and not part of the base save/run milestone.
+Durable control uses the simple reusable **save/run** idiom, not replay:
+`continuation.save(): Eff[Save,SavedContinuation[A,R]]` freezes a compiler-managed continuation;
+every admitted `saved.run(value)` invokes its resume entry once directly at the capture point. The
+prefix is never re-executed; the suffix then follows its own effects/loops/multi-shot behavior. The
+opaque transport envelope contains either a portable closed CoreIR resume program
+`(FrozenFrame,input) => Eff` plus a separately hashed frame, or exact-artifact
+`artifactDigest + resumePointId + frame` state for mixed Scala/JVM code. The second representation is
+not CoreIR and is only required to satisfy the same public control laws. Atomic one-shot workflow
+execution remains an optional policy, not the default continuation semantics.
 
 ### Specification and contract freeze
 
@@ -37,28 +37,41 @@ semantics and not part of the base save/run milestone.
   mixed-language callbacks/TCO, reusable portable save/run, diagnostics, security,
   conformance matrix, non-goals, and phased implementation. Cross-link companion specs and record
   optional enterprise extensions in BACKLOG rather than silently expanding the base milestone.
-- [ ] **coreir-canonical-contract-reconcile** — reconcile the frozen-count/no-loop claims in
+- [ ] **control-companion-link-repair** — repair the broken pre-existing relative links from
+  `specs/algebraic-effects.md` and `specs/coroutines.md` to `docs/direct-syntax.md` and
+  `docs/error-handling.md`; verify every local link touched by the control-spec cross-links.
+- [ ] **coreir-canonical-contract-reconcile — BLOCKED on P6.5 X1 green/frozen** — reconcile the frozen-count/no-loop claims in
   `v2/specs/10-core-ir.md` with the current canonical Reader/Writer and `CoreIR.scala`, which already
   serialize `While` and `Seq`. Pin one canonical node/value inventory before freezing the capsule
-  encoding; this is documentation/contract drift, not permission to add a continuation node.
-- [ ] **coreir-canonical-codec-hardening** — make the canonical codec match its contract before it is
+  encoding; this is documentation/contract drift, not permission to add a continuation node. After
+  landing, re-run and re-freeze the literal stage1==stage2 fixed point against the reconciled bytes.
+- [ ] **coreir-canonical-codec-hardening — BLOCKED on P6.5 X1 green/frozen** — make the canonical codec match its contract before it is
   used for untrusted persisted capsules: preserve floating-point bit identity including `-0.0`, add
   `IrBytes` encode parity, reconcile `coreir.encode`'s promised Bytes with its actual String, provide
   the specified text/bytes decode path, validate symbols/closed globals/arities, and enforce bounded
-  decoding. Add encode/decode/canonicalization vectors for every node and constant.
+  decoding. Add encode/decode/canonicalization vectors for every node and constant, then re-run the
+  literal fixed point. Canonical Reader/Writer remains kernel-owned.
+- [ ] **numeric-width-reconciliation — BLOCKED on P6.5 X1 green/frozen** — retain source `Int`/`Long`
+  width evidence and implement canonical public `I32`/`I64` semantics over the current signed
+  wrapping-64 CoreIR value. Add per-backend wrap/round-trip/overload vectors and reject legacy
+  ambiguous exports; this is semantic lowering work, not descriptor-only mapping.
 
 ### Public ABI and portable semantic baseline
 
 - [ ] **scala3-control-api** — add a small compiler-independent `_3` API containing typed
-  `Eff[Fx,A]`, `Effect`/`Operation`, `Handler`, fresh typed `Prompt`, reusable typed continuations, and iterative
-  control runner contracts. No `ssc.Value`, `DataV`, `ClosV`, CoreIR node, plugin `SpiValue`, TLS, or
-  global mutable registry may cross the public ABI. Explicit API is the reference behavior and works
-  without macros/plugin.
+  `Eff[Fx,A]`, `Effect`/`Operation`, `Handler`, fresh typed `Prompt`, reusable typed continuations,
+  `SavedContinuation[A,R]`, and iterative runner contracts. Local control works without macros/plugin;
+  save requires the public typed defunctionalized state-machine builder or a compiler-generated hidden
+  plan. No `ssc.Value`, `DataV`, `ClosV`, CoreIR node, plugin `SpiValue`, TLS, or global mutable registry
+  may cross the public ABI.
 - [ ] **ssc-api-descriptor-v3** — replace best-effort string-only interop signatures with an additive,
-  versioned structured descriptor shared by `.scim` and Scala exports: nominal symbols/types,
-  generics/variance, effect rows, pure/effectful callback calling convention, prompt/control metadata,
-  capabilities, givens/extensions/defaults, API hash, and tail-call/SCC metadata. Reconcile surface
-  `Int`/`Long` semantics before freezing host mappings.
+  versioned pre-body `ApiDescriptor`, post-body `ControlSummary`, and post-link `ArtifactManifest`:
+  canonical types/generics/effect rows, callback convention + invocation/escape/thread policy,
+  prompt metadata, stable overload IDs/JVM entrypoints, `apiHash`, control/save/tail summaries,
+  `programDigest`, `artifactDigest`, and dependency-profile binding. Preserve old `.scim` meanings.
+- [ ] **plugin-capability-profile-v1** — extend the current id/install-only plugin SPI with stable
+  semantic ABI/schema ids plus target implementation digests/capabilities so a capsule dependency
+  profile can be verified before execution. Human versions alone are insufficient.
 - [ ] **control-semantic-vectors** — add target-neutral vectors for nested/fresh prompts, nearest-match
   `reset`, zero/one/many resume, deep handler reinstall, residual effects, mutation (control copied;
   heap shared), stack safety, cancellation, managed-boundary negatives, and exact diagnostics. Run the
@@ -67,14 +80,16 @@ semantics and not part of the base save/run milestone.
 
 ### ScalaScript and Scala 3 frontends
 
-Planning, descriptors, reference laws, and semantic vectors may proceed now. Changes to the v2
-frontend or lowering begin only after the active UniML P6.5 literal-fixed-point sequence
-`F1 → F2/F3 → L1 → X1` is green and frozen, so this milestone does not move the self-hosting target.
+Planning, descriptors, reference API, and semantic vectors may proceed now. Changes to the v2
+frontend/lowering, canonical CoreIR codec/loader, or any byte-affecting kernel contract begin only
+after the active UniML P6.5 literal-fixed-point sequence `F1 → F2/F3 → L1 → X1` is green and frozen;
+every later compiler/kernel change re-runs the literal fixed point.
 
 - [ ] **ssc-shift-reset-lowering** — add compiler-known `std.control` typing and outer lowering of
-  `reset`/`shift` to the existing `Pure | Op(..., reusable-k)` protocol. Keep frozen CoreIR unchanged;
-  `reset` is a syntactic lowering (not a parameter-passed runner) because handlers catch only inline
-  syntactic bodies in the current corpus contract.
+  direct `reset`/`shift` regions to the existing `Pure | Op(..., reusable-k)` protocol, either through
+  `Ctor`/`Lam` or the equivalent stable generic `effect.*` Prim ABI. Direct syntax needs a compiler-known
+  capture boundary because current compatibility handlers see only inline bodies; this is not a
+  semantic restriction on first-class explicit `Eff` values or the explicit reset fold.
 - [ ] **scala3-control-macros** — publish `_3` inline macros for local direct-style `reset` regions;
   lower to the same explicit ABI and reject a `shift` crossing an untransformed callback/resource
   frame. Preserve exact source positions and make explicit-vs-macro differential tests mandatory.
@@ -97,32 +112,38 @@ frontend or lowering begin only after the active UniML P6.5 literal-fixed-point 
   reserve a two-phase interface graph for later same-module Scala↔SSC source cycles.
 - [ ] **mixed-global-tail-scc** — build a typed mixed-language call graph and rewrite instrumented
   Scala↔SSC tail SCCs through a JVM tail-call ABI/dispatcher. Keep this ABI separate from `Eff/Op`;
-  an uninstrumented foreign call is a tail-guarantee boundary. Verify 1e6-depth two- and three-function
-  alternating-language recursion.
+  every SCC member/direct edge must be instrumented and the generated `TailStep` never leaks `Any`.
+  Indirect/virtual/foreign/finalizer edges are deterministic barriers. Verify 1e6-depth two- and
+  three-function alternating-language recursion with no unbounded JVM stack.
 
-### Portable reusable continuation save/run
+### Reusable continuation save/run — exact artifact first, packed CoreIR second
 
-- [ ] **saved-continuation-format** — define a canonical typed envelope around a closed CoreIR term of
-  shape `A => Eff[Fx,R]`: control-ABI/type fingerprints, content hash, required intrinsic/capability
-  manifest, and codec-safe captured values expressed as CoreIR data. Closure conversion or
-  defunctionalization may physically deduplicate this as `artifactDigest + entry/state id + frame
-  data`, but decoding must be observationally equivalent to the closed capsule and must not add new
-  CoreIR nodes. Reject active foreign frames, arbitrary host lambdas, mutable host objects,
-  files/sockets/threads/futures, locks, and transactions. No Java serialization.
-- [ ] **continuation-save-run** — implement `continuation.save(): SavedContinuation[A,R]` and
-  reusable `saved.run(value)` on local or remote compatible runtimes. `save` does not consume a
-  reusable source continuation; every `run` gets an independent reconstruction of the immutable
-  captured environment, and executes the suffix exactly once for that invocation without replaying
-  the prefix. The opaque value has a portable codec and may be sent over HTTP, a queue, or ordinary
-  data serialization. Saving never strengthens multiplicity: a one-shot coroutine suspension cannot
-  be converted into this reusable type and retains a separately typed one-shot resume contract.
-- [ ] **continuation-artifact-drain** — validate the capsule's exact CoreIR/control ABI and intrinsic
-  manifest. A fully packed capsule may run on any compatible machine; a compact content-addressed
-  capsule may refer to its exact `artifactDigest`, in which case old artifacts/workers stay drain-only
-  or launch on demand until all reusable handles are explicitly revoked/expired and active runs end.
-  Mixed Scala/JVM frames use this artifact-bound fallback; fully portable `.ssc` capsules do not need
-  the old application worker. No base cross-version frame migration, effect journal, automatic retry,
-  or exactly-once claim about external systems.
+- [ ] **saved-continuation-format** — after X1/CoreIR reconciliation, define the versioned self-hosted
+  envelope + durable-frame codec/verifier as an explicit tagged union:
+  `Portable(resumeCodeDigest, closed Program((frame,input)=>Eff))` or
+  `ExactArtifact(artifactDigest,target,resumePointId)`, both with `FrozenFrame`, A/R codec schemas,
+  dependency profile, lifecycle, bounded policy, domain-separated hashes, and signature. The
+  exact-artifact form is not required to decode into CoreIR. Canonical CoreIR encoding stays
+  kernel-owned; no Java serialization or application-visible frame bytes.
+- [ ] **continuation-exact-artifact-runner** — implement the practical managed-JVM path first:
+  compiler-generated resume point + codec-safe transitive frame + exact JAR/runtime bundle binding;
+  run in a fresh/on-demand exact-artifact runner without calling `main` or effectful/static application
+  initialization. Provider references use expiry/removal; inline exact-artifact values require finite
+  `notAfter` so retention is bounded.
+- [ ] **continuation-save-run** — implement `continuation.save()` as typed
+  `Eff[Save,SavedContinuation[A,R]]` plus reusable local/remote `saved.run(value)`. Each run
+  decodes an isolated frame, freshens captured prompt ids, and invokes the resume entry once; no prefix
+  or automatic admitted-run retry. External redelivery is a distinct run; post-admission disconnect is
+  `RunOutcomeUnknown`. Remote residual effects require a closed row or explicit authenticated
+  `RemoteRunEnvironment[Fx]`. One-shot sources remain one-shot.
+- [ ] **portable-coreir-capsule-runner-jvm** — after the exact-artifact proof, closure-convert/link a
+  state-abstracted `(FrozenFrame,input)=>Eff` CoreIR resume Program, materialize every application
+  Global, and run the packed capsule on a generic managed-JVM CoreIR runner with no application JAR.
+  Reject target-specific/unavailable plugin profiles. Dynamic JS/Rust/WASM/Swift loaders stay backlog.
+- [ ] **continuation-artifact-retention** — keep exact JAR/runtime bundles addressable only while a
+  provider-backed identity/finite inline lease may still run; start a compatible exact-artifact runner
+  on demand. Packed portable capsules pin no application artifact. No base cross-version frame
+  migration, effect journal, automatic retry, or exactly-once external-effect claim.
 
 ### End-to-end completion gate
 
@@ -130,12 +151,19 @@ frontend or lowering begin only after the active UniML P6.5 literal-fixed-point 
   `shift`, capture on one side/resume on the other, Scala→SSC→Scala→SSC callback ping-pong, handlers
   written on either side, separate compilation, mixed TCO, save→network transfer→remote run,
   save→process restart→many runs, concurrent multi-shot runs with isolated captured data, repeated
-  suffix effects, wrong ABI/intrinsic manifest, compact-capsule wrong artifact, capture barrier,
-  one-shot-source rejection, revoke/expiry, and tampered/cross-tenant capsule rejection.
+  suffix effects, true-shift-vs-shift0, prompt isolation, wrong ABI/A-R-codec/plugin/artifact,
+  exact-runner no-main/initializer replay, capture/transitive-mutable-global barriers,
+  pre-admission unavailable vs post-admission unknown, residual remote handler placement,
+  one-shot-source rejection, lifecycle expiry/revocation, and tampered/cross-tenant rejection.
+- [ ] **scala-ssc-control-examples** — ship runnable examples and README/user-guide links for
+  ScalaScript typed multi-prompt shift/reset, save→run twice with a prefix counter proving no replay,
+  and an ordinary Scala 3↔ScalaScript managed-control callback. Run them through the assembled CLI/JAR
+  paths and reference them from this specification; user-facing feature closure requires examples.
 - [ ] **scala-sdk-feature-coverage** — derive a CI-enforced matrix from existing feature/capability and
   module metadata. Every ScalaScript capability must declare one Scala exposure form: native API,
-  generated facade, macro, compiler plugin, tooling-only, platform-specific, or intentionally
-  unavailable with a normative reason. Generalize `emit-lib --host jvm` from the optics pilot instead
+  generated facade, macro, compiler plugin, tooling-only, or platform-specific. “Unavailable” is
+  permitted only for source-document/tooling or target-inapplicable platform features, never to waive
+  a portable runtime/library capability. Generalize `emit-lib --host jvm` from the optics pilot instead
   of building a parallel hand-maintained standard library.
 
 ## uniml-portable — dual-compile UniML dialects on v2 (2026-07-14, Sergiy: "продолжай, записывай в спринт, пуш")

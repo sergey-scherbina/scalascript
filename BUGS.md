@@ -1,5 +1,42 @@
 # Bug tracker
 
+## control-companion-relative-links — OPEN (2026-07-14, Codex)
+
+**Status:** open; found by `final_control_spec_audit` while checking the Scala 3
+bidirectional-control companion documents.
+
+**Symptom:** links in `specs/algebraic-effects.md` and `specs/coroutines.md` target
+`../direct-syntax.md` and, in the former, `../error-handling.md`. Those files are
+under `docs/`, so rendered navigation from both specs is broken.
+
+**Reproduce:** resolve each local Markdown target relative to its containing file;
+`test -e specs/../direct-syntax.md` and `test -e specs/../error-handling.md` fail,
+while the corresponding `docs/` paths exist.
+
+**Plan/verification:** change the targets to `../docs/direct-syntax.md` and
+`../docs/error-handling.md`, run Markdown lint, and mechanically verify all local
+links in the changed companion/control specs. Record the landed SHA here.
+
+## spec-effect-example-platform-type — FIXED (2026-07-14, Codex)
+
+**Status:** fixed in the Scala 3 bidirectional-control specification slice; found
+and confirmed by the reporter during the architecture audit, observed at
+`93962e590`.
+
+**Symptom:** canonical `SPEC.md` showed ordinary ScalaScript code implementing an
+effect clause with `scala.io.StdIn.readLine()`. Binding project architecture makes
+any direct `scala.*` reference in a regular `scalascript` block a compile-time
+error, so the language specification's own primary effect example contradicted the
+platform-isolation contract.
+
+**Reproduce:** `rg -n "scala\.io\.StdIn" SPEC.md` at `93962e590` finds the invalid
+reference in §7.2.1.
+
+**Fix/verification:** the example is now a portable deterministic handler that
+resumes with `"Ada"`; the changed spec contains no `scala.io.StdIn`, and the control
+spec separately requires `std.*`, plugin, annotation, or backend-fence isolation for
+platform work. This was documentation-only; no runtime behavior changed.
+
 ## coreir-canonical-codec-contract — canonical encoder/decoder violates the frozen wire contract
 
 **Status:** open (found 2026-07-14, Codex + `audit_coreir_control`, while validating
