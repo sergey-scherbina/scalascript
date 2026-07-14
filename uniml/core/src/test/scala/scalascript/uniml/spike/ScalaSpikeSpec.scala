@@ -696,6 +696,64 @@ final class ScalaSpikeSpec extends AnyFunSuite:
          |  val body = lower(fst(parse(tokenize(src, 0, src.length))))
          |  "(program (defs (def main (lam 0 " + body + "))) (entry (app (global main))))"
          |def main(): String = compile("? < 3 5 - 10 2 + 100 200")""".stripMargin
+    // The Turing-complete milestone: a compiler in the subset for a language with FUNCTIONS + RECURSION +
+    // variables + control flow, emitting EXECUTABLE Core IR. The object language is one recursive function
+    // f(x): `x`→(local 0), `@ e`→f(e) = (app (global f) …), `?`=if, `< + - *`=prims. It compiles the body
+    // of a recursive factorial from source text into `(def f (lam 1 …)) (def main (lam 0 (app (global f)
+    // (lit (int 5)))))`; the emitted Core IR runs on run-ir to factorial(5) = 120. Two-stage self-compile.
+    val selfhostRec =
+      """|def isDigit(c: Int): Int = if c >= 48 then (if c <= 57 then 1 else 0) else 0
+         |def scanNum(s: String, i: Int, n: Int, acc: Int): Int =
+         |  if i >= n then (acc, i)
+         |  else
+         |    val c = s.charAt(i)
+         |    if isDigit(c) == 1 then scanNum(s, i + 1, n, acc * 10 + (c - 48))
+         |    else (acc, i)
+         |def tokenize(s: String, i: Int, n: Int): List[Int] =
+         |  if i >= n then Nil
+         |  else
+         |    val c = s.charAt(i)
+         |    if c == 43 then Cons(-1, tokenize(s, i + 1, n))
+         |    else if c == 42 then Cons(-2, tokenize(s, i + 1, n))
+         |    else if c == 45 then Cons(-5, tokenize(s, i + 1, n))
+         |    else if c == 63 then Cons(-6, tokenize(s, i + 1, n))
+         |    else if c == 60 then Cons(-7, tokenize(s, i + 1, n))
+         |    else if c == 64 then Cons(-8, tokenize(s, i + 1, n))
+         |    else if c == 120 then Cons(-10, tokenize(s, i + 1, n))
+         |    else if c == 32 then tokenize(s, i + 1, n)
+         |    else if isDigit(c) == 1 then scanNum(s, i, n, 0) match { case (v, j) => Cons(v, tokenize(s, j, n)) }
+         |    else tokenize(s, i + 1, n)
+         |def parseBin(tag: Int, r0: Int): Int = r0 match { case (l, r1) => parse(r1) match { case (r, r2) => ((tag, (l, r)), r2) } }
+         |def parseTri(r0: Int): Int = r0 match { case (c, r1) => parse(r1) match { case (t, r2) => parse(r2) match { case (e, r3) => ((4, (c, (t, e))), r3) } } }
+         |def parseApp(r0: Int): Int = r0 match { case (a, r1) => ((8, a), r1) }
+         |def parse(ts: List[Int]): Int = ts match {
+         |  case Cons(t, rest) =>
+         |    if t == -1 then parseBin(2, parse(rest))
+         |    else if t == -2 then parseBin(3, parse(rest))
+         |    else if t == -5 then parseBin(5, parse(rest))
+         |    else if t == -7 then parseBin(6, parse(rest))
+         |    else if t == -6 then parseTri(parse(rest))
+         |    else if t == -8 then parseApp(parse(rest))
+         |    else if t == -10 then ((10, 0), rest)
+         |    else ((0, t), rest)
+         |  case Nil => ((0, 0), Nil)
+         |}
+         |def lower(e: Int): String = e match {
+         |  case (0, n) => "(lit (int " + n + "))"
+         |  case (10, z) => "(local 0)"
+         |  case (2, lr) => lr match { case (l, r) => "(prim i.add " + lower(l) + " " + lower(r) + ")" }
+         |  case (3, lr) => lr match { case (l, r) => "(prim i.mul " + lower(l) + " " + lower(r) + ")" }
+         |  case (5, lr) => lr match { case (l, r) => "(prim i.sub " + lower(l) + " " + lower(r) + ")" }
+         |  case (6, lr) => lr match { case (l, r) => "(prim i.lt " + lower(l) + " " + lower(r) + ")" }
+         |  case (4, cte) => cte match { case (c, te) => te match { case (t, e) => "(if " + lower(c) + " " + lower(t) + " " + lower(e) + ")" } }
+         |  case (8, a) => "(app (global f) " + lower(a) + ")"
+         |  case _ => "(lit (int 0))"
+         |}
+         |def fst(p: Int): Int = p match { case (a, b) => a }
+         |def compile(src: String): String =
+         |  val body = lower(fst(parse(tokenize(src, 0, src.length))))
+         |  "(program (defs (def f (lam 1 " + body + ")) (def main (lam 0 (app (global f) (lit (int 5)))))) (entry (app (global main))))"
+         |def main(): String = compile("? < x 1 1 * x @ - x 1")""".stripMargin
     // The hardest part of a real parser, in the subset: a PRECEDENCE-CLIMBING infix parser with
     // PARENTHESES — the same algorithm as the spike's own parseExpr (climb while the next operator binds
     // tighter than minPrec). Tokenises "2 * (1 + 3)" (with `(`=-3, `)`=-4), parses respecting `*` over `+`
@@ -746,6 +804,7 @@ final class ScalaSpikeSpec extends AnyFunSuite:
       "selfhost-full"     -> selfhostFull,
       "selfhost-compiler" -> selfhostCompiler,
       "selfhost-emit"     -> selfhostEmit,
+      "selfhost-rec"      -> selfhostRec,
       "selfhost-infix"    -> selfhostInfix,
       "scale-prog"   -> scaleProg,
       "scale-decls"  -> scaleDecls,
@@ -848,6 +907,8 @@ final class ScalaSpikeSpec extends AnyFunSuite:
     // it emits and checks it evaluates to this. Program: "? < 3 5 - 10 2 + 100 200" = if 3<5 then 10-2
     // else 100+200 = 8 (two-stage self-compilation: arithmetic + comparison + control flow).
     Files.writeString(Paths.get(outDir, "selfhost-emit.emit"), "8")
+    // selfhost-rec compiles a recursive factorial from source text; the Core IR it emits runs to 5! = 120.
+    Files.writeString(Paths.get(outDir, "selfhost-rec.emit"), "120")
     for (name, code, expect) <- broken do
       Files.writeString(Paths.get(outDir, s"$name.proj"), SpikeProject.program(parse(code).roots.head))
       Files.writeString(Paths.get(outDir, s"$name.expect"), expect)
