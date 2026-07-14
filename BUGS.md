@@ -328,6 +328,34 @@ branches and the original non-accumulator `encodeRowCellsWithRowid`
 `write.ssc`. No interpreter change is needed. (The `feat(scljet): M3 multi-page`
 commit message repeats the wrong claim; disregard it.)
 
+## interp-jit-nested-match-duplicate-var — a nested `match` binding the same value-type miscompiles on the JIT
+
+**Status:** open (found 2026-07-14). Interpreter JIT (JavaC backend, the default
+tier) codegen bug; workaround = avoid the nested match.
+
+**Symptom:** a function whose body has a `match` nested inside another `match`'s
+case, where BOTH scrutinees are cast to the same runtime `Value` subtype (e.g.
+`InstanceV`), makes the JIT emit two `InstanceV inst = (InstanceV) …;` locals in one
+Java method → `javac` fails with `variable inst is already defined in method …`, so
+the whole call errors out (`/GenJit_<fn>_<n>.java:…: error: variable inst is already
+defined`). Minimal repro (SclJet `SqliteValue` = a sealed trait of case classes):
+
+```scalascript
+def cmp(a: SqliteValue, b: SqliteValue): Int =
+  a match
+    case SqlInteger(x) => b match      // <-- inner match on `b`, same subtype family
+      case SqlInteger(y) => 0
+      case _ => 1
+    case _ => 2
+```
+
+**Workaround:** split each match into its own single-level helper so no method has
+two same-subtype casts — see `integerOf`/`textOf` used by `compareKeys` in
+`scljet/write.ssc`. The tree-walk tier (`SSC_JIT_BYTECODE=off`) is unaffected.
+
+**Likely cause:** the JIT emits a fixed local name (`inst`) per pattern cast
+without uniquifying across nested match scopes in the same method.
+
 ## interp-if-then-no-else-after-while — a bare `if cond then stmt` before a return is skipped
 
 **Status:** FIXED (2026-07-13, opus). ROOT CAUSE: a statement-position control-flow term

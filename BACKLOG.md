@@ -198,10 +198,15 @@ are plain bullets without checkboxes so agents do not claim them as build work.
       single-leaf index B-tree (page kind 10) of `(column, rowid)` records sorted by
       `(value, rowid)` — reference `integrity_check` cross-validates the index
       against the table AND the query planner uses it (`SEARCH t USING INDEX idx`),
-      int==js (conformance `scljet-write-index`). Remaining: multi-leaf indexes
-      (interior index cells carry a full key record), multi-column / text-collation
-      keys, index maintenance on mutate, and (4) true IN-PLACE mutation of pages
-      (the separate pager/journal path, m3e).
+      int==js (conformance `scljet-write-index`). Text-column index keys work too
+      (2026-07-14): `compareKeys`/`valueClass` sort by SQLite storage class then
+      numeric / BINARY-text order (String `<`, ASCII/BMP-exact), so an index on a
+      TEXT column validates and the planner uses it (conformance
+      `scljet-write-index-text`). Remaining: multi-leaf indexes (interior index
+      cells carry a full key record), multi-column keys, index maintenance on
+      mutate, and (4) true IN-PLACE mutation of pages (the separate pager/journal
+      path, m3e). (Found + worked around a JIT codegen bug on the way — BUGS.md
+      `interp-jit-nested-match-duplicate-var`.)
 
 - [x] **scljet-byteslice-zeros-js-recursion** — DONE 2026-07-13. The core list
       helpers in `scljet/bytes.ssc` were made iterative (`while`+`var`, not linear
