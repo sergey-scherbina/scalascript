@@ -34,15 +34,22 @@ Confirmed by direct test — see also the documented constraint under uniml-port
   was only consulted in the app case (`helper(5)`); added it to the lowerE var branch. And `this` resolves
   to `__self` inside a method body (`this.field`/`this.method`). BOTH also fixed the pre-existing case-class
   gap. Verified.
-- [ ] **v2-class-var-fields** — mutable `var` fields still FAIL: `case class Box(var v: Int)` (ctor `var`)
-  and `class C(x): var y = 0` (body `var`) don't parse (`parseCaseParamList` rejects `var`/`val`
-  modifiers; body-capture takes only `def`s, skips `var` members). SUBSTANTIAL: needs a mutable-object
-  representation (cell-backed fields: construct → `cell.new`, read `o.f` → `cell.get`, write `o.f = x` /
-  bare `f = x` in a method → `cell.set`), the field registry to mark var fields, and the accessors to
-  route through cells. NOTE: this CONFLICTS with the documented immutable-object-model decision (Sergiy,
-  2026-07-13: mutable OBJECT STATE is "bad design", prefer immutable + `.copy`) — decide direction before
-  building. WHAT WORKS TODAY (verified): top-level `var` + mutation, local `var`/`while` in `def` bodies,
-  `case class .copy(...)` immutable update, compound-assign `+=/-=/*=`, plain/case class immutable fields.
+- [x] **v2-class-var-fields DONE — opt-in via `--mutable` flag** (Sergiy 2026-07-14: "мутабельность
+  опциональной флаг ... по умолчанию выключен ... в ошибке написано какой флаг"). Commits: flag+error
+  (`9e89c3ef7`), cell-backed mutation internal+external-read (`8dc4b3e75`), external-write + multi-stmt
+  (`4b9a17f8f`). Design: a `var` field is stored as a CELL in the object DataV. **Flag OFF (default)**: a
+  `var` field → specific error "mutable class fields … disabled by default; pass the --mutable flag"
+  (`mutableFlagCell`/`mutableViolationCell` in ssc1-front; checker TYPEERR + RunNativeV2 mutableFieldSentinel;
+  `_err_mutable_fields`). **Flag ON** (`ssc run --mutable`): construction wraps var-position ctor args in
+  `cell.new` (cellWrapCtorArgs @ resolveCtorArgs, idempotent); method-internal read → `cell.get(_sel_f(__self))`
+  + write → `cell.set` (lowerCaseMethodBody skips var fields; lowerE var branch + assign + block-assign);
+  external read `o.f` → safe `cell.getOr` (new Runtime prim; no-op on non-cells so a same-named plain field
+  elsewhere is unaffected); external write `o.f = x` → `sel_assign` parse → `cell.set`. Plumbing:
+  StandardMain `--mutable` → RunNativeV2 → both tower invocations → sscNativeArgs / checker strip it →
+  `mutableFlagCell`. Verified: Counter.inc, multi-field moveBy, while-loop accumulator, BankAccount
+  (mixed val/var + conditional withdraw), collision-safe. Full sweep 163, 0 regr (flag-off unchanged).
+  This DELIBERATELY relaxes the immutable-only model as an OPT-IN (Sergiy's earlier "prefer immutable"
+  stance stays the default).
 - [ ] **v2-object-var-read** — `object O: var f = 0; def m() = f = …` — the mutating method works, but
   an EXTERNAL read `O.f` → `unbound global: O_f` (the static var-field read is not wired; the
   `kc7bOwnerVarsCell`/owner-prefix path emits the cell setter but not a resolvable external getter for
