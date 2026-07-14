@@ -11971,3 +11971,17 @@ already solved the identical leak via snapshot/restore.
       `ssc bench --backend v2-wasm` timing — Rust/JVM are in the identical no-dedicated-command
       position today, and wasm bench timing would be dominated by Node process-spawn/WASI
       instantiation overhead, not the computation.
+
+## compiler-bug-sweep (Sergiy 2026-07-15: "бери це усе у спринт і роби")
+Working through the open compiler bugs + differential extension. Each landed with a gate.
+- [ ] **&&/|| short-circuit in interpreter** (BUGS.md interp-boolean-operators-no-short-circuit) — v1
+  interp (all tiers: tree-walk Interpreter.scala/EvalRuntime, bytecode VM DispatchRuntime, JIT LAnd/LOr)
+  evaluates BOTH operands → guarded access crashes. v2 VM already short-circuits (verified). Fix each tier
+  to short-circuit; gate on the repro (`if Nil.nonEmpty && Nil.head>0` → "other") + conformance.
+- [ ] **interp/JS bug sweep** — var-scope-leak-across-calls; if-then-no-else-after-while; JIT
+  nested-match-duplicate-var; js-effect-multishot-in-while; js-caseclass-body-method-params-dropped;
+  v2-bridged-ui (emit collision, signal.id). One at a time, gated.
+- [ ] **extend v2-vs-JVM differential** — broader real-.ssc corpus through the deep-tree-digest harness to
+  find more v2 divergences; fix each.
+- [ ] **make non-running examples run** — DatasetCodec/distributed-dataset; PDF (htmlToPdfBase64); JDBC/h2;
+  crypto singles (aesGenKey/verifyEd25519/totp).
