@@ -447,9 +447,58 @@ final class ScalaSpikeSpec extends AnyFunSuite:
          |  val e = Add(Num(3), Mul(Num(4), Num(5)))
          |  val d = dist(Point(3, 4))
          |  eval(e) + d + scale(2) + twice(5)""".stripMargin
+    // more gold-standard scale programs, each stressing a different interaction boundary.
+    val scaleDecls = // declaration boundaries: enum → match-def → extension → given → match-def → main
+      """|enum Color:
+         |  case Red, Green, Blue
+         |def rank(c: Color): Int = c match
+         |  case Red => 1
+         |  case Green => 2
+         |  case Blue => 3
+         |extension (n: Int)
+         |  def bump: Int = n + 10
+         |given base: Int = 100
+         |def classify(n: Int): Int = n match
+         |  case 0 => 0
+         |  case x if x > 0 => 1
+         |  case _ => 2
+         |def main(): Int =
+         |  val a = rank(Green).bump
+         |  a + classify(5) + summon[Int]""".stripMargin
+    val scaleNested = // nested match inside a match arm, lambda in a block, deep offside
+      """|def process(n: Int): Int =
+         |  val transform = x => x + 1
+         |  n match
+         |    case 0 => 0
+         |    case m =>
+         |      m match
+         |        case 1 => transform(10)
+         |        case _ => transform(m)
+         |def main(): Int = process(1)""".stripMargin
+    val scaleInterp = // interpolation with ${field} holes + nested interpolation in blocks
+      """|case class User(name: String, age: Int)
+         |def greet(u: User): String = s"${u.name}=${u.age}"
+         |def wrap(u: User): String =
+         |  val g = greet(u)
+         |  s"[$g]"
+         |def main(): Int =
+         |  val u = User("Al", 30)
+         |  wrap(u).size""".stripMargin
+    val scaleHof = // recursion + multi-param lambda + operators + if
+      """|def fold(n: Int, acc: Int): Int =
+         |  if n == 0 then acc
+         |  else fold(n - 1, acc + n)
+         |def main(): Int =
+         |  val sum = fold(5, 0)
+         |  val mul = (a, b) => a * b
+         |  sum + mul(2, 3)""".stripMargin
     // well-formed — the harness requires byte-identical Core IR vs ssc1-front.
     val wellFormed = Seq(
-      "scale-prog" -> scaleProg,
+      "scale-prog"   -> scaleProg,
+      "scale-decls"  -> scaleDecls,
+      "scale-nested" -> scaleNested,
+      "scale-interp" -> scaleInterp,
+      "scale-hof"    -> scaleHof,
       "add-mul"   -> "def main(): Int = 1 + 2 * 3",
       "mul-add"   -> "def main(): Int = 1 * 2 + 3",
       "paren"     -> "def main(): Int = (1 + 2) * 3",
