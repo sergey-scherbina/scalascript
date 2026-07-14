@@ -413,6 +413,31 @@ this is the `v2-native-conformance` / `uniml-portable` deep track, actively buil
   block → breaks scljet-bytes/full/write-table + content-to-markdown on the v2 lane. Pre-existing on main
   (sibling's scljet-SQL arc), NOT from the prelude — flag to the scljet owner.
 
+### v2 lane — REMAINING CLUSTERS surveyed 2026-07-14 (55 non-PASS; all tractable ones CLOSED)
+The clean/tractable clusters are DONE this arc: json (4/5), content-toolkit (6/8), scljet-fence (+4).
+The remaining 55 are each a DEEP subsystem effort (surveyed + root-caused, none quick):
+- **typeddata codecs — JVM-ONLY (6)**: `unbound global: JsonCodec_derived/ObjectCodec_derived` on
+  dataset-typed-mapping / distributed-dataset-* / object-store-jdbc. They `import scalascript.typeddata`
+  (a JVM package, `backend: jvm`). NOT portable to the native tier without porting the whole typeddata
+  codec runtime to v2-native — out of scope; these are jvm-target examples.
+- **std-ui-* (5)** — std-ui-aggregator/extended-a/b/c/d all fail on the SAME import: `[…](../examples/std-ui)`
+  resolves to `tests/examples/std-ui/index.ssc` (missing) on the native front, but v1's ImportResolver has a
+  LIBRARY FALLBACK (`stdPath/../examples` = repo-root `examples/`, ImportResolver.scala:138) the native ssc1
+  runner (`v2/bin/ssc1-run.ssc0` sscResolve/sscLoadMod) lacks. Fix = add the fallback there, but it needs a
+  new `#io.fileExists` prim (readFile THROWS on miss) AND the native-front stdRoot is `bin/lib/standard/
+  native-front/runtime` (not repo `runtime/`), so the fallback base differs — fiddly + high-risk in the
+  component underpinning the WHOLE v2 lane. Frontend track.
+- **std-index (+ typeclass agg)** — `arity: 2 expected, 3 given` on `combineAll(list, monoid)`: a context-bound
+  `[A: Monoid]` + curried `foldLeft(z)(op)` VM-lowering mismatch on the native VM. Frontend/VM lowering.
+- **feature ports** — htmlToPdfBase64 (PDF ×3), mcpServer (×2), nfcCapabilities (nfc), awaitClient (sync-todo),
+  SeedResolver.staticList (cluster-capability), IndexedDb (indexeddb-sync-client), quoted-macro (×2), Widget
+  (js-glue), validate (rest-validate), div (html-dsl). Each = a real per-plugin/feature port.
+- **wasm-* (5)** — "native frontend rejected incomplete parse" — native-front PARSE gaps (uniml/frontend track).
+- **actor-cluster (10)** — clusterConfigSet/electLeader/… need the ActorScheduler surface in the v2-native
+  actors plugin (deep).
+- **content-tables/introspection (2)** — kernel `null`→`None` rendering + inlineText Code/Link (see above).
+- **scljet-crud/scljet-full** — sibling B-tree mutable-pager divergence on v2 (`0 pages`, rollback); their area.
+
 ### v2 (bridge lane `--v2`) — wire plugins (ROOT-CAUSE FOUND 2026-07-14: two plugin systems)
 **Mechanism (investigated):** `ssc run --v2` calls `PluginBridge.loadAll()` which ServiceLoads every v1
 `Backend`-SPI plugin on the classpath and AUTO-bridges each `NativeImpl` intrinsic to the v2 VM as both a
