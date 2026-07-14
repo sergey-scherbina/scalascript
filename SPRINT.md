@@ -18,15 +18,15 @@ multi-prompt `shift`/`reset`, callbacks, and mixed-language tail calls cross the
 the language specs + portable CoreIR lowering + differential conformance; this work does **not** put
 Scala/JVM types into frozen CoreIR and does not make the Scala SDK the semantic owner of v2.
 
-Durable control uses the simple one-shot **save/run** idiom, not replay: `continuation.save()`
-consumes the live continuation and returns an opaque `SavedContinuation`; `saved.run(value)`
-atomically consumes the saved continuation once. Persistence records, atomic claims, and serialized
-frames are runtime-private details rather than public `Ticket`/`Registry`/`Image` types. Exact
-`artifactDigest` matching plus drain/on-demand old workers replaces cross-version frame migration in
-the base design. Crash after `run` claims the saved state is `Unknown` and is never retried
-automatically. `SavedContinuation` is a codec-safe opaque reference that may cross a process or
-network boundary; a shared persistence provider keeps the actual saved state and arbitrates the
-single successful `run` across all copies and machines.
+Durable control uses the simple reusable **save/run** idiom, not replay: `continuation.save()` freezes
+the continuation as an immutable `SavedContinuation`; every `saved.run(value)` starts a fresh
+execution directly at the capture point. The prefix is never re-executed, while the suffix runs once
+per explicit `run`, preserving the multi-shot semantics of `shift/reset`. Semantically the saved value
+is a closed, typed CoreIR continuation capsule (`A => Eff[Fx,R]`) built only from the current canonical
+CoreIR plus codec-safe captured data; no continuation-specific CoreIR node is added. The public value
+is an opaque, serializable reference/capsule that may cross a process or network boundary. An optional
+`runOnce` operation adds an atomic claim and `Unknown`-after-crash state for queue/workflow use cases;
+one-shot consumption is not the default continuation semantics.
 
 ### Specification and contract freeze
 
@@ -34,14 +34,19 @@ single successful `run` across all copies and machines.
   against `v2.2-self-hosted-dialect`, UniML portable-source rules, frozen CoreIR, self-hosting,
   corpus differential semantics, existing Scala interop, and polyglot host libraries. Pin the public
   control ABI, structured API metadata, managed/foreign boundary, exact `shift/reset` laws,
-  mixed-language callbacks/TCO, one-shot durable save/run, artifact draining, diagnostics, security,
+  mixed-language callbacks/TCO, reusable portable save/run, optional atomic `runOnce`, diagnostics,
+  security,
   conformance matrix, non-goals, and phased implementation. Cross-link companion specs and record
   optional enterprise extensions in BACKLOG rather than silently expanding the base milestone.
+- [ ] **coreir-canonical-contract-reconcile** — reconcile the frozen-count/no-loop claims in
+  `v2/specs/10-core-ir.md` with the current canonical Reader/Writer and `CoreIR.scala`, which already
+  serialize `While` and `Seq`. Pin one canonical node/value inventory before freezing the capsule
+  encoding; this is documentation/contract drift, not permission to add a continuation node.
 
 ### Public ABI and portable semantic baseline
 
 - [ ] **scala3-control-api** — add a small compiler-independent `_3` API containing typed
-  `Eff[Fx,A]`, `Effect`/`Operation`, `Handler`, fresh typed `Prompt`, reusable `Cont`, and iterative
+  `Eff[Fx,A]`, `Effect`/`Operation`, `Handler`, fresh typed `Prompt`, reusable typed continuations, and iterative
   control runner contracts. No `ssc.Value`, `DataV`, `ClosV`, CoreIR node, plugin `SpiValue`, TLS, or
   global mutable registry may cross the public ABI. Explicit API is the reference behavior and works
   without macros/plugin.
@@ -53,9 +58,14 @@ single successful `run` across all copies and machines.
 - [ ] **control-semantic-vectors** — add target-neutral vectors for nested/fresh prompts, nearest-match
   `reset`, zero/one/many resume, deep handler reinstall, residual effects, mutation (control copied;
   heap shared), stack safety, cancellation, managed-boundary negatives, and exact diagnostics. Run the
-  same vectors on explicit API, v2 VM/direct ASM, generated JVM, and later Scala direct style.
+  same vectors on explicit API, v2 VM/direct ASM, generated JVM, JS, Rust, WASM, and Swift as those
+  portable lanes become available, plus the managed Scala direct-style lane.
 
 ### ScalaScript and Scala 3 frontends
+
+Planning, descriptors, reference laws, and semantic vectors may proceed now. Changes to the v2
+frontend or lowering begin only after the active UniML P6.5 literal-fixed-point sequence
+`F1 → F2/F3 → L1 → X1` is green and frozen, so this milestone does not move the self-hosting target.
 
 - [ ] **ssc-shift-reset-lowering** — add compiler-known `std.control` typing and outer lowering of
   `reset`/`shift` to the existing `Pure | Op(..., reusable-k)` protocol. Keep frozen CoreIR unchanged;
@@ -86,33 +96,36 @@ single successful `run` across all copies and machines.
   an uninstrumented foreign call is a tail-guarantee boundary. Verify 1e6-depth two- and three-function
   alternating-language recursion.
 
-### One-shot durable continuation save/run
+### Portable reusable continuation save/run
 
-- [ ] **saved-continuation-format** — add a runtime-private, compiler-generated defunctionalized
-  control representation (`codeId + stateId + frame schema + live slots + prompt/
-  durable-handler context`). A durable region requires `DurableCodec` for every live value and rejects
-  active foreign frames, arbitrary host lambdas, mutable host objects, files/sockets/threads/futures,
-  locks, and transactions. No Java serialization and no raw copyable bytes in the primary API.
+- [ ] **saved-continuation-format** — define a canonical typed envelope around a closed CoreIR term of
+  shape `A => Eff[Fx,R]`: control-ABI/type fingerprints, content hash, required intrinsic/capability
+  manifest, and codec-safe captured values expressed as CoreIR data. Closure conversion or
+  defunctionalization may physically deduplicate this as `artifactDigest + entry/state id + frame
+  data`, but decoding must be observationally equivalent to the closed capsule and must not add new
+  CoreIR nodes. Reject active foreign frames, arbitrary host lambdas, mutable host objects,
+  files/sockets/threads/futures, locks, and transactions. No Java serialization.
 - [ ] **continuation-save-run** — implement `continuation.save(): SavedContinuation[A,R]` and
-  `saved.run(value)` over a runtime-private persistence SPI with atomic save/claim/complete,
-  `Ready → Claimed → Completed|Unknown`, and exact artifact/control-ABI validation. `save` invalidates
-  every alias of the live continuation; `run` is at-most-once and never automatically replays a
-  claimed/unknown continuation. The opaque saved reference has a portable codec and may be sent over
-  HTTP, a queue, or ordinary data serialization; local and shared persistence providers implement the
-  same contract, and raw saved-frame bytes never enter the application API.
-- [ ] **continuation-artifact-drain** — route each saved continuation to its exact `artifactDigest`;
-  new work uses the new artifact while old artifacts/workers are drain-only or launched on demand,
-  including on a different machine. Retire an artifact when its outstanding saved-continuation count
-  reaches zero (or retention expires). No base cross-version frame migrations, effect journal, retry,
-  or exactly-once external-effect claim.
+  reusable `saved.run(value)` on local or remote compatible runtimes. `save` does not consume a
+  reusable source continuation; every `run` gets an independent reconstruction of the immutable
+  captured environment, and executes the suffix exactly once for that invocation without replaying
+  the prefix. The opaque value has a portable codec and may be sent over HTTP, a queue, or ordinary
+  data serialization. Add optional `saved.runOnce(value)` with atomic
+  `Ready → Claimed → Completed|Unknown` semantics and no automatic retry after an unknown result.
+- [ ] **continuation-artifact-drain** — validate the capsule's exact CoreIR/control ABI and intrinsic
+  manifest. A fully packed capsule may run on any compatible machine; a compact content-addressed
+  capsule may refer to its exact `artifactDigest`, in which case old artifacts/workers stay drain-only
+  or launch on demand until no references remain. No base cross-version frame migration, effect
+  journal, automatic retry, or exactly-once claim about external systems.
 
 ### End-to-end completion gate
 
 - [ ] **scala-ssc-control-interop-matrix** — prove Scala `reset`→SSC `shift`, SSC `reset`→managed Scala
   `shift`, capture on one side/resume on the other, Scala→SSC→Scala→SSC callback ping-pong, handlers
   written on either side, separate compilation, mixed TCO, save→network transfer→remote run,
-  save→process restart→one run, wrong artifact, duplicate/concurrent run, capture barrier, and
-  crash-after-claim=`Unknown`.
+  save→process restart→many runs, concurrent multi-shot runs with isolated captured data, repeated
+  suffix effects, wrong ABI/intrinsic manifest, compact-capsule wrong artifact, capture barrier,
+  runOnce duplicate/concurrent claim, and crash-after-runOnce-claim=`Unknown`.
 - [ ] **scala-sdk-feature-coverage** — derive a CI-enforced matrix from existing feature/capability and
   module metadata. Every ScalaScript capability must declare one Scala exposure form: native API,
   generated facade, macro, compiler plugin, tooling-only, platform-specific, or intentionally
