@@ -59,10 +59,8 @@ private[yaml] object YamlStructure:
         token.channel == TokenChannel.Syntax && token.kind != "yaml.directive"
       )
       val starts =
-        // `Vector(0) ++ …` rather than `0 +: …`: the `+:` prepend operator is not
-        // portable to ScalaScript v2. Behaviour-identical.
-        if meaningfulBeforeFirst then Vector(0) ++ documentStarts
-        else Vector(0) ++ documentStarts.tail
+        if meaningfulBeforeFirst then 0 +: documentStarts
+        else 0 +: documentStarts.tail
       starts.indices.foreach { position =>
         val start = starts(position)
         val end = if position + 1 < starts.size then starts(position + 1) - 1 else tokens.size - 1
