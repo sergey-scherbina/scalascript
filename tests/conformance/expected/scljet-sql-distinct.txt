@@ -1,0 +1,22 @@
+SELECT DISTINCT dept FROM t => sales
+eng
+hr
+SELECT DISTINCT dept FROM t ORDER BY dept => eng
+hr
+sales
+SELECT DISTINCT age FROM t => 30
+40
+SELECT DISTINCT dept, age FROM t ORDER BY dept, age => eng|30
+eng|40
+hr|30
+sales|30
+sales|40
+SELECT DISTINCT dept FROM t WHERE age = 30 => sales
+eng
+hr
+SELECT DISTINCT age FROM t ORDER BY age DESC LIMIT 1 => 40
+SELECT ALL dept FROM t => sales
+eng
+sales
+hr
+eng

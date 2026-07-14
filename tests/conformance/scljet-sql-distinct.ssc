@@ -1,0 +1,38 @@
+---
+name: scljet-sql-distinct
+description: SclJet SQL SELECT DISTINCT — dedupe result rows keeping first appearance (matches reference sqlite3)
+backends: [int, js]
+---
+
+# SclJet SQL SELECT DISTINCT
+
+`SELECT DISTINCT …` removes duplicate result rows, keeping the first occurrence (with `ORDER BY`
+the rows are sorted first, so the distinct set comes out sorted — matching sqlite). NULLs compare
+equal. `SELECT ALL` is the default (no dedupe). Every result is byte-identical to reference sqlite3
+running the same SQL on the same file (verified out-of-band); locked here across backends.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def run(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(id INTEGER, dept TEXT, age INTEGER)",
+  List(List(SqlInteger(1L), SqlText("sales"), SqlInteger(30L)),
+       List(SqlInteger(2L), SqlText("eng"), SqlInteger(30L)),
+       List(SqlInteger(3L), SqlText("sales"), SqlInteger(40L)),
+       List(SqlInteger(4L), SqlText("hr"), SqlInteger(30L)),
+       List(SqlInteger(5L), SqlText("eng"), SqlInteger(40L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db) =>
+    run(db, "SELECT DISTINCT dept FROM t")
+    run(db, "SELECT DISTINCT dept FROM t ORDER BY dept")
+    run(db, "SELECT DISTINCT age FROM t")
+    run(db, "SELECT DISTINCT dept, age FROM t ORDER BY dept, age")
+    run(db, "SELECT DISTINCT dept FROM t WHERE age = 30")
+    run(db, "SELECT DISTINCT age FROM t ORDER BY age DESC LIMIT 1")
+    run(db, "SELECT ALL dept FROM t")
+```

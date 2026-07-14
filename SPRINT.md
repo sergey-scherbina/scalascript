@@ -1630,9 +1630,17 @@ order, so `SELECT *` matches without ORDER BY), and int==js.
       LEFT OUTER, unmatched → NULL, WHERE on B-column filtering unmatched rows) alongside the inner-join
       cases, int==js; conformance `scljet-sql-join`.
 
-**SclJet SQL is now broad**: full CRUD (incl. column-list INSERT), SELECT with multi-column
+- [x] **scljet-m5p-distinct** — DONE 2026-07-14. `SELECT DISTINCT` (and no-op `ALL`): `SelectStmt.distinct`;
+      the plain path projects all rows, `dedupRows` keeps first appearance (NULLs equal), then LIMIT.
+      With ORDER BY the rows sort first, so the distinct set matches sqlite's sorted output. Verified vs
+      sqlite3 (bare/appearance-order, ORDER BY, multi-column, WHERE, DISTINCT+ORDER+LIMIT, ALL), int==js;
+      conformance `scljet-sql-distinct`.
+
+**SclJet SQL is now broad**: full CRUD (incl. column-list INSERT), SELECT with DISTINCT, multi-column
 ORDER BY / LIMIT / OFFSET, aggregates (COUNT/SUM/MIN/MAX/AVG/TOTAL), GROUP BY + HAVING, CREATE TABLE,
 and inner + LEFT joins — every feature byte-verified against reference sqlite3, int==js.
+Remaining follow-ups (niche): multi-table joins, aggregates over a join, page-1 schema split,
+repeating-decimal %.15g.
 
 Execution order (value × tractability): m4a (template exists) → m4b → m4c → m4d →
 m4e → m4f → m4g. Keep every scljet conformance case green [int,js] --no-memo after each.
