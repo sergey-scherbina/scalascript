@@ -398,9 +398,15 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
           compiler from source TEXT (lexer reads s.charAt/s.length → tokens → recursive-descent parse → AST
           → eval; compile("+ 1 * 2 3")→**7**), byte-identical + runs. A genuine front component consuming
           source text, in the subset. **Corpus 71 programs, 0 fail.** Notes §P6.5-step.
+    - [x] **P6.5-step precedence parser ✓ Landed 2026-07-14** (06f45b8fe): selfhost-infix — a precedence-
+          climbing parser with parentheses (SAME algorithm as the spike's parseExpr), reading source text:
+          compile("2 * (1 + 3)")→**8** (precedence + grouping), byte-identical + runs. Six self-host
+          artifacts now; the spike's lex→precedence-parse→eval front shape is proven expressible+runnable in
+          the subset. **Corpus 72 programs, 0 fail.** Notes §P6.5-step.
   - [ ] **P6.5 (follow-on, non-gate)** — port `ssc1-lower` AND the spike front (SpikeLex/Parse/Project)
         from ssc0/Scala into the subset → whole compiler dual-compilable = the literal self-compilation
-        fixed point. (Lexing shape now proven runnable in the subset via selfhost-full.)
+        fixed point. Remaining work is mechanical BREADTH (all node kinds), not a capability question —
+        char-lexing + precedence-parsing + AST-eval all proven runnable in the subset (selfhost-full/infix).
   - Prereqs: subset must hold — the one v2-side lift is **immutable indexed `Array`** (gapmap:76);
         anon-trait + mutable-object-field stay out; multi-file `package`/`import` reconciliation
         (gapmap:82-83) needed before the compiler's own multi-file source dual-compiles.
