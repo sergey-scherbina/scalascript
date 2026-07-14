@@ -1,0 +1,6 @@
+feature/control-interop-portable-vm-profile 2026-07-14T13:05:56Z
+agent: claude (eager-raven)
+heartbeat: 2026-07-14T13:05:56Z
+status: in-progress
+done-so-far: harness landed (9aa579c28); starting portable-VM reference profile draft
+next: write specs/control-interop-profile-portable-vm.md on feature branch (forward-ref codex control-interoperability.md); land after codex SHA
