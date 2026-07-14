@@ -77,10 +77,13 @@ API-declared payload or control member may expose that erasure:
 
 ```scala
 trait Effect
-final class EffectKey[+Fx <: Effect] private (val id: EffectId)
+final class EffectKey[Fx <: Effect] private (val id: EffectId)
 
 object EffectKey:
-  def named[Fx <: Effect](id: EffectId, witness: Fx): EffectKey[Fx]
+  def named[Fx <: Effect & Singleton](
+    id: EffectId,
+    witness: Fx
+  ): EffectKey[witness.type]
 
 final case class EffectId(value: String)
 final case class OperationId(effect: EffectId, name: String)
@@ -91,7 +94,7 @@ enum ResumeMultiplicity:
 enum ResumeRejected:
   case AlreadyResumed(operation: OperationId)
 
-trait Operation[+Fx <: Effect, A]:
+trait Operation[Fx <: Effect, A]:
   def effect: EffectKey[Fx]
   def id: OperationId
   def multiplicity: ResumeMultiplicity = ResumeMultiplicity.Reusable
@@ -152,10 +155,6 @@ sealed abstract class SavedContinuation[-A, +R] private ():
 object SavedContinuation:
   type Aux[A, Fx <: Effect, R] = SavedContinuation[A, R] { type Effects = Fx }
 
-sealed trait Save extends Effect
-sealed trait Restore extends Effect
-sealed trait Control[P] extends Effect
-
 enum CaptureFailure:
   case UnmanagedCapture(site: String)
   case CaptureBarrier(site: String, detail: String)
@@ -163,14 +162,21 @@ enum CaptureFailure:
   case MissingCodec(site: String, typeId: String)
   case UnsupportedGraph(site: String, detail: String)
 
-object Save extends Save:
-  val key: EffectKey[Save]
+object Save extends Effect:
+  val key: EffectKey[Save.type]
 
   final case class Rejected(failure: CaptureFailure)
-      extends Operation[Save, Nothing]:
-    val effect: EffectKey[Save] = Save.key
+      extends Operation[Save.type, Nothing]:
+    val effect: EffectKey[Save.type] = Save.key
     val id: OperationId = OperationId(effect.id, "rejected")
     override val multiplicity: ResumeMultiplicity = ResumeMultiplicity.OneShot
+
+type Save = Save.type
+
+object Restore extends Effect
+type Restore = Restore.type
+
+sealed trait Control[P] extends Effect
 
 final class Prompt[P, R] private ()
 
@@ -193,15 +199,22 @@ def shift[P, A, Fx <: Effect, R](prompt: Prompt[P, R])(
 ): Eff[Fx | Control[P], A]
 ```
 
-`EffectKey` combines a stable descriptor identity with a private per-runtime token;
-there is no global effect registry. A handler owns exactly one nominal effect key;
-handling several effects is ordinary nesting. After token equality the runtime may
-perform one private narrowing cast. That cast and the iterative bind stack are not
-part of the public ABI. `EffectKey.named` requires a real nominal `Fx` witness but
-does not retain or expose it. A conventional effect companion is both that inert
-witness and the owner of its key. No safe value of `Nothing` exists, including
-through a generic wrapper, so the bottom effect row can never acquire an operation
-key and `Eff.runPure` cannot encounter a request constructed through the safe API.
+`EffectKey` combines a stable descriptor identity with one exact singleton effect
+owner; there is no global effect registry. Both `EffectKey` and `Operation` are
+invariant in `Fx`. `named` retains only the owner's identity and returns
+`EffectKey[witness.type]`, even if its argument was statically widened. Repeating
+`named` for the same owner produces equivalent runtime keys; distinct owners have
+distinct singleton row types and runtime identity. Consequently a handler owns
+exactly one atomic row member. It cannot obtain a key for a union by covariance,
+and handling several effects is necessarily ordinary nesting.
+
+After exact owner identity the runtime may perform one private narrowing cast. That
+cast and the iterative bind stack are not part of the public ABI. No safe singleton
+owner of type `Nothing` exists, including through a generic wrapper, so the bottom
+effect row can never acquire an operation key and `Eff.runPure` cannot encounter a
+request constructed through the safe API. `Control[P]` is the one internal
+non-singleton surface: its generative `P` is the atomic owner, and only the private
+`Prompt[P,R]` constructor may create its key.
 
 `Eff.Step.Request.resumption` preserves the operation's declared multiplicity. A
 reusable request carries `Resumption.Reusable`; a one-shot request carries
@@ -265,6 +278,16 @@ members) are outside this rule; the ABI leak check examines the members declared
 this library and rejects project/runtime erasure types. Cancellation metadata
 remains descriptor work: its public state transitions are not invented by this
 first API slice.
+
+Scala source visibility is not treated as JVM capability enforcement:
+`private[control]` may compile to public bytecode. Raw pending-request construction
+is therefore entirely absent from the external JVM surface. Closed capability
+constructors (`Continuation`, `OneShotContinuation`, `SavedContinuation`, and
+`Prompt`) use private nested implementations or validate a private authority token
+when Scala requires a JVM-visible constructor; a null or non-identical token is
+rejected before an object exists. The tier-1 ABI gate inspects `javap -public` and
+must not expose an unguarded request, key, prompt, resumption-gate, or successful
+saved-continuation constructor.
 
 The explicit API is always usable without macros or compiler plugins. A
 continuation is locally resumable by construction. In the complete profile, `save`
