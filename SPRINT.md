@@ -9,6 +9,40 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## std-ui-hstack-wrap — optional flex-wrap param on std/ui `hstack` (2026-07-14, busi nav follow-up)
+
+busi's owner nav bar has up to 15 buttons with varying Cyrillic label widths; busi currently
+hand-groups them into fixed-size `hstack` rows (e.g. "always 4 per row"), which either overflows
+or leaves rows visibly ragged. `v1/runtime/std/ui/layout.ssc`'s `hstack` never sets `flex-wrap`
+(defaults to `nowrap`), so there is no way to let children flow/wrap naturally. Owner wants real
+browser-computed `flex-wrap: wrap` behavior, additive and backward-compatible (default `false`
+must stay byte-identical to today's output). Small, additive, JS-custom-frontend-only slice —
+mirrors `std-ui-button-variant`/`std-ui-button-size` scope discipline.
+
+- [ ] Spec: `specs/std-ui-hstack-wrap.md` (written).
+- [ ] `nodes.ssc` — `wrap: Boolean` field appended last on `HStackNode`.
+- [ ] `layout.ssc` — `wrap: Boolean = false` param in `hstack`'s first (non-curried) group,
+      before the curried `(children: TkNode*)` group: `def hstack(gap: Int = 0, wrap: Boolean =
+      false)(children: TkNode*): TkNode`.
+- [ ] `lower.ssc` — `HStackNode` case emits `flex-wrap:wrap` only when `wrap = true`; `wrap =
+      false` output must diff byte-identical against pre-slice.
+- [ ] `i18n.ssc`'s `localeSwitcher` — update its direct `HStackNode(8, ...)` construction for the
+      new field arity.
+- [ ] `ContentIntrinsics.scala` (`hstackNode` helper) + `JvmGenContentEmit.scala` (`HStackNode(...)`
+      call site) — keep field-shape in sync (compile requirement); `ContentToolkitJs.scala`
+      verified to need no change (missing JS prop = undefined = falsy, same as button-variant's
+      own verified precedent).
+- [ ] `examples/frontend/hstack-wrap/` — runnable example, visible 2+-line wrap in a narrow
+      viewport.
+- [ ] `tests/conformance/tkv2-hstack-wrap.ssc` (+ expected) + Scala-level
+      `HStackWrapTest.scala` (mirrors `ButtonVariantColorTest.scala`) asserting the real rendered
+      `style` attribute contains `flex-wrap:wrap` only when `wrap = true`.
+- [ ] `README.md` / `docs/user-guide.md` widget-catalog row.
+- [ ] `tests/conformance/run.sh --only 'tkv2-hstack-wrap,tkv2-*,std-ui-*'` green before push.
+
+Explicitly out of scope: busi's own nav wiring (separate busi-side follow-up), `vstack` / other
+layout primitives, non-custom-JS backends, any `align-content`/`justify-content` param.
+
 ## scala3-bidirectional-control — transparent Scala 3 ↔ ScalaScript control and durable save/run (2026-07-14, Sergiy)
 
 Goal: make Scala 3 and ScalaScript two source frontends of one **managed JVM execution lane** while
