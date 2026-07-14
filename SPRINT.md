@@ -57,6 +57,29 @@ optional policy, not the default continuation semantics.
   save requires the public typed defunctionalized state-machine builder or a compiler-generated hidden
   plan. No `ssc.Value`, `DataV`, `ClosV`, CoreIR node, plugin `SpiValue`, TLS, or global mutable registry
   may cross the public ABI.
+  - [ ] **sca-1 — freeze the leaf ABI before code.** Refine the Scala/JVM profile with the exact
+        `io.scalascript:scalascript-control-api_3` artifact, `scalascript.control` package, effect-row
+        bounds, public `Eff.Step`/handler/continuation/state-machine shapes, and the deliberate
+        `UnmanagedCapture` result of saving a local continuation without explicit `SavePlan` evidence.
+  - [ ] **sca-2 — add the dependency-free module.** Add `v1/lang/control-api` as `scala3ControlApi`
+        with no production dependencies and only root aggregation; do not connect it to v2Core,
+        UniML, the seed, canonical codec, CLI, legacy `interop`, or any backend.
+  - [ ] **sca-3 — implement the executable reference model.** Implement a private-erasure,
+        public-typed stackless `Pure | Op`/bind/defer machine, iterative `step`/pure runner, deep
+        residual-forwarding handlers, operation multiplicity, generative prompts, exact multi-prompt
+        `shift`/`reset`, reusable local continuations, typed save contracts, and an iterative public
+        defunctionalized state-machine builder. Never use stack inspection, reflection, TLS, hidden
+        exception control, prefix replay, or a second CoreIR/value semantics.
+  - [ ] **sca-4 — prove semantics and ABI.** Add ScalaTest vectors for 1,000,000 binds/state steps,
+        zero/one/many resume, handler reinstall and residual forwarding, nearest/fresh prompts,
+        `shift` rather than `shift0`, local heap-sharing, one-shot rejection, and `save` without
+        evidence. Add compile-time negative checks for prompt/effect-row separation and a public ABI
+        leak scan for `Any`/VM/interpreter/plugin/reflection types.
+  - [ ] **sca-5 — publish and hand off.** Run `scala3ControlApi/test`, package/publication sanity,
+        focused effect/coroutine/tail conformance, and `tests/interop-conformance/run.sh`; update the
+        profile/README/example and behavior checkboxes with exact results in separate docs/bookkeeping
+        commits, push each green slice to `origin/main`, release the claim/worktree, and hand the API
+        artifact/signatures to the macros/descriptors and host-bridge milestones.
 - [ ] **ssc-api-descriptor-v3** — replace best-effort string-only interop signatures with an additive,
   versioned pre-body `ApiDescriptor`, post-body `ControlSummary`, and post-link `ArtifactManifest`:
   canonical types/generics/effect rows, callback convention + invocation/escape/thread policy,
