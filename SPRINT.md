@@ -64,7 +64,7 @@ lane is the separate `v2-native-conformance` section below.
 - [ ] Add the `jvm` lane (and later native/rust) to the default set once fast enough.
 
 ### js divergences (remaining, root-caused)
-- [ ] **js-imported-def-int-division-loses-truncation** (BUGS.md) — closes the 6 `scljet-write-*`. An Int-param
+- [x] **js-imported-def-int-division-loses-truncation** (BUGS.md) — closes the 6 `scljet-write-*`. An Int-param
   `value / N` in a TRANSITIVELY-imported namespace-member def (`std/scljet/write.ssc` `writeBe32`) lowers to the float
   `_arith('/')` instead of `Math.trunc` because the param's Int evidence doesn't reach the emitting childGen (3+
   def-emission paths; a genObjectAsExpr `withParamTypeEvidence` wrap was a confirmed no-op for these). Fix the exact

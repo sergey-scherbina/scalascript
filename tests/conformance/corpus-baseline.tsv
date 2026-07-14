@@ -146,13 +146,7 @@ scljet-mutate-crud	js	FAIL
 scljet-mutate-delete	js	FAIL
 scljet-mutate-insert	js	FAIL
 scljet-mutate-update	js	FAIL
-scljet-write-btree	js	DIVERGE
-scljet-write-btree-overflow	js	DIVERGE
-scljet-write-database	js	DIVERGE
 scljet-write-empty	js	FAIL
-scljet-write-keyed	js	DIVERGE
-scljet-write-multitable	js	DIVERGE
-scljet-write-overflow	js	DIVERGE
 scljet-write-table	js	FAIL
 seed-signal	*	SKIP
 spa-demo	*	SKIP

@@ -597,6 +597,36 @@ class JsGen(
     try thunk
     finally { if addedInt then intVars -= p; if addedNum then numericVars -= p }
 
+  /** SCOPE a def's declared-param numeric evidence for the duration of `f` (its body
+   *  emission), then restore exactly. Crucially this both SETS the param's own type and
+   *  REMOVES the wrong-set memberships: the intVars/longVars/numericVars sets are keyed
+   *  by NAME and populated globally by recordDefTypeEvidence, so a sibling function's
+   *  `value: Long` leaks `value` into longVars and makes an Int-param `value / 256` in
+   *  ANOTHER function take the Long `_arith('/')` path (→ `1/256` = 0.0039 float instead
+   *  of `Math.trunc`, corrupting serialized bytes — the 6 scljet-write-* js DIVERGEs).
+   *  (js-imported-def-int-division-loses-truncation.) */
+  private def withParamTypeEvidence[A](paramVals: Seq[Term.Param])(f: => A): A =
+    val saved = paramVals.map { pv =>
+      val n = pv.name.value
+      (n, intVars.contains(n), longVars.contains(n), numericVars.contains(n))
+    }
+    paramVals.foreach { pv =>
+      val n = pv.name.value
+      pv.decltpe match
+        case Some(Type.Name("Long"))             => longVars += n; intVars += n; numericVars -= n
+        case Some(Type.Name("Int"))              => intVars += n; longVars -= n; numericVars -= n
+        case Some(Type.Name("Double" | "Float")) => numericVars += n; intVars -= n; longVars -= n
+        // Any other declared type shadows a leaked numeric evidence of the same name.
+        case Some(_)                             => intVars -= n; longVars -= n; numericVars -= n
+        case None                                => ()
+    }
+    try f
+    finally saved.foreach { (n, wasInt, wasLong, wasNum) =>
+      if wasInt then intVars += n else intVars -= n
+      if wasLong then longVars += n else longVars -= n
+      if wasNum then numericVars += n else numericVars -= n
+    }
+
   /** Statically-known numeric type of a scalar expression, or None. */
   private def numericTypeOfExpr(t: Term): Option[String] =
     if isIntExpr(t) then Some("Int")
@@ -3036,7 +3066,8 @@ class JsGen(
         // `default` → `default_p`); the body must see the same renames or its
         // references emit the bare reserved word (SyntaxError on Node).
         val objDefRenames = paramRenameMap(allClauses.flatMap(_.values).map(_.name.value))
-        val bodyJsRaw = withParamRenames(objDefRenames) {
+        val bodyJsRaw = withParamTypeEvidence(allClauses.flatMap(_.values)) {
+         withParamRenames(objDefRenames) {
           dd.body match
             case Term.Block(bodyStats) =>
               if objCbGuards.isEmpty then genBlockAsIife(bodyStats)
@@ -3044,6 +3075,7 @@ class JsGen(
             case expr =>
               if objCbGuards.isEmpty then genExpr(expr)
               else s"{ ${objCbGuards.mkString(" ")} return ${genExpr(expr)}; }"
+         }
         }
         cbSummonMap.clear()
         cbSummonMap ++= savedCbMap2

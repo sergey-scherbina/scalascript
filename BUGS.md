@@ -1,8 +1,19 @@
 # Bug tracker
 
-## js-imported-def-int-division-loses-truncation — open (2026-07-14, opus)
+## js-imported-def-int-division-loses-truncation — FIXED (2026-07-14, opus)
 
-**Status:** open. Root cause found; the fix is deep (import-emission), deferred.
+**Status:** FIXED. Root cause was NOT the emission path — it was NAME-KEYED evidence
+pollution: intVars/longVars/numericVars are keyed by param NAME and populated globally
+by recordDefTypeEvidence, so bytes.ssc's many `value: Long` params leaked `value` into
+longVars, and write.ssc's `writeBe32(value: Int)`'s `value / 16777216` then took the
+isLongExpr `_arith('/')` path — but at runtime `value` is a plain JS Number, so `_arith`
+did FLOAT division (`1/16777216`=5.96e-8) instead of `Math.trunc`, serializing bytes as
+`2^-k` floats. Fix: a `withParamTypeEvidence` helper SCOPES each def's declared-param
+evidence per body (sets the param's own type AND removes wrong-set membership, restores
+after), applied at the genObjectAsExpr namespace-member def emission. All 6
+`scljet-write-*` now IDENTICAL int/js; JS/numeric/collection/import suites 372 pass.
+(genStat top-level/direct-import defs have the same latent pollution — a follow-up if
+it ever manifests; the scljet chain is imported → namespace-member.)
 
 The 6 `scljet-write-*` cases are js DIVERGE in the corpus contract: their B-tree page
 serialization emits `2^-k` FLOATS (`5.96e-8`, `0.0039`) where the interpreter emits the
