@@ -101,6 +101,12 @@ payload (handlers dispatch on it). `__effHandle` / `__effBind` / `__effRun` are 
 (once, when any effect is used) by `erase`; they are pure data folds, so multi-shot is just re-running an
 immutable `Comp`.
 
+This Mira/raw-`Comp` contract remains reusable even though typed `.ssc` uses
+similar declaration spelling. In typed `.ssc`, plain `effect E` explicitly means
+one-shot and `multi effect E` selects this reusable behavior. The two surfaces
+share `Pure | Op` representation but not an implicit multiplicity default; see
+[`../../specs/control-one-shot-guard.md`](../../specs/control-one-shot-guard.md).
+
 **Convenience built-ins.** Two common effects ship as built-ins: `getE` / `putE` +
 `runStateE comp s0 : Comp ρ (Pair a Int)`, and `logE` + `runLogE comp : Comp ρ (Pair a [Dyn])`. These are
 conveniences, **not** a fixed capability set — `examples/hm-eff-userstate.hm` re-implements `runState`

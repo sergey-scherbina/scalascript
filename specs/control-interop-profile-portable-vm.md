@@ -60,13 +60,18 @@ The core model classifies every capsule on two orthogonal axes. On this runner:
   presence in the frame is exactly the barrier. The durable `save()` surface that
   exercises this gate is not yet implemented (post-X1).
 
-## 3. Implemented control semantics — measurable now (reference row)
+## 3. In-process control semantics — reference row
 
-These are satisfied by the portable VM **today** and are the baseline every runner
-profile must also pass. Surface syntax (as accepted by the self-hosted frontend):
+The table records the portable VM's current evidence; an explicitly pending row
+is specified but not yet conforming. Every runner profile must pass the same
+vectors before it advertises typed algebraic effects. Surface syntax (as accepted
+by the self-hosted frontend):
 
 ```scalascript
-effect E:            //  multi effect E:  — marks a reusable (multi-shot) effect
+effect E:            // one-shot: zero or one resume per performed operation
+  def op(args): T
+
+multi effect M:      // reusable: zero, one, or many resumes
   def op(args): T
 
 handle(prog()) { case E.op(args, resume) => …; case Return(x) => … }
@@ -76,6 +81,7 @@ handle { block }  { case E.op(args, resume) => … }   // block form
 | Axis | Reference row | Notes |
 |------|---------------|-------|
 | one-shot resume | ✓ `42` | resume invoked once |
+| one-shot violation | **pending-runtime** | second/concurrent resume currently runs silently |
 | multi-shot resume (reusable N→M) | ✓ `List(1, 2)` | resume invoked ≥2×; `multi effect` |
 | nondeterminism (product of choices) | ✓ | `opts.flatMap(o => resume(o))` |
 | early return (non-resuming arm) | ✓ | handler arm returns without `resume` |
@@ -83,6 +89,17 @@ handle { block }  { case E.op(args, resume) => … }   // block form
 | effect performed inside a loop | ✓ | `resume` per iteration |
 | callback re-entry (managed closure) | ✓ `8` | HOF re-enters a managed closure |
 | capture + resume, same host (state-threaded) | ✓ `30` | handler arms return functions |
+
+The one-shot row is conforming only when a second sequential or concurrent
+resume is rejected as structured `AlreadyResumed(OperationId)` with portable
+diagnostic code `ONESHOT_VIOLATION`. Direct `.ssc resume` exposes that rejection
+as `ControlRunFailure(AlreadyResumed(operation))`, which user `.ssc try/catch`
+cannot intercept. The message is `One-shot violation: <Effect>.<op> resumed more
+than once`, rendered as `error [ONESHOT_VIOLATION]: <message>`. Merely running a
+continuation once does not prove that invariant.
+Raw CoreIR/Mira `effect.perform` remains reusable; the typed `.ssc effect`
+projection selects `effect.perform.oneshot(effectId, operationName, args...)`
+without adding a CoreIR node or changing `Op(label, argument, continuation)` arity.
 
 The runnable probes and expected outputs are in
 [`../tests/interop-conformance/probes/`](../tests/interop-conformance/probes);

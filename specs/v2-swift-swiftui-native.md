@@ -277,11 +277,18 @@ Op(label, argument, continuation)
 ```
 
 Handler application is a CoreIR/runtime loop over these values. `resume` invokes
-the captured continuation, and each multi-shot resume evaluates an independent
-branch. Nested handlers preserve nearest-handler selection and restore outer
-state after success or failure. Unhandled operations remain explicit `Op`
-values until the program boundary, where they produce the standard bounded
-diagnostic.
+the captured continuation. Raw `effect.perform` and typed `multi effect` use a
+reusable continuation, so each resume evaluates an independent branch. Typed
+plain `.ssc effect` uses `effect.perform.oneshot`; its base continuation owns one
+lock-protected linearizable claim, and a second/concurrent losing invocation
+returns `AlreadyResumed(OperationId)` before executing the suffix. The primitive
+receives the effect id and operation name as separate strings; Swift never splits
+the legacy dispatch label to reconstruct identity. Direct `.ssc resume` maps the
+rejection to `ControlRunFailure(AlreadyResumed(...))`, with stable code
+`ONESHOT_VIOLATION`, outside user `try/catch`. Nested handlers preserve the original continuation/gate, nearest-handler
+selection, and outer state after success or failure. Unhandled operations remain
+explicit `Op` values until the program boundary, where they produce the standard
+bounded diagnostic.
 
 The lowering pass is shared infrastructure. Swift is its first compiled target
 consumer; VM parity tests protect existing semantics and later JS/Rust/JVM
@@ -1482,6 +1489,11 @@ assembled macOS and iOS Xcode gates.
 - [x] Nested, transitive, and multi-shot effects lower to explicit `Pure`/`Op`
   computations and match VM output.
 - [x] Unhandled effects produce the same bounded program-boundary diagnostic.
+- [ ] Plain typed `.ssc effect` lowers through `effect.perform.oneshot`; real
+      Swift execution rejects a second/concurrent resume with the same structured
+      identity, non-user-catchable run failure, and stable diagnostic as VM/ASM,
+      while raw/`multi effect` remains reusable. The Swift primitive allowlist
+      includes semantic ABI `effect.perform.oneshot@1`.
 
 ### Swift core backend
 

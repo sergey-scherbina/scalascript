@@ -1,8 +1,8 @@
 # Algebraic Effects
 
 Status: **design / planning**. Implementation tracked starting from v1.12.
-Companion to [`specs/coroutines.md`](coroutines.md) (coroutine primitive and
-one-shot fast path), [`docs/direct-syntax.md`](../docs/direct-syntax.md) (monadic
+Companion to [`specs/coroutines.md`](coroutines.md) (coroutine primitive and an
+optional one-shot optimization), [`docs/direct-syntax.md`](../docs/direct-syntax.md) (monadic
 `for`/`yield` surface), and [`docs/error-handling.md`](../docs/error-handling.md)
 (`throws[A,E]` and `MonadError`).
 
@@ -18,6 +18,12 @@ This document is the source of truth for the typed algebraic-effect system:
 why it exists, how effects appear in types and declarations, how handlers
 discharge effects, and how the system sits over the existing runtime substrate
 without breaking what v1.16 already shipped.
+
+Historical v1 backend-path descriptions below are implementation notes, not a
+second semantic contract. The current reference semantics are the guarded
+three-field `Pure | Op` protocol: plain typed `.ssc effect` is one-shot,
+`multi effect` and raw CoreIR/Mira `effect.perform` are reusable, and a
+coroutine/generator lowering is an optional target-private optimization.
 
 ---
 
@@ -181,9 +187,12 @@ effect Logger {
 ```
 
 `effect Foo { … }` means: handler calls `resume` **at most once** per
-invocation. At runtime, the one-shot fast path is used (coroutine VT on JVM
-and interpreter; native `function*`/`yield` on JS). No `Computation`-tree
-allocation.
+invocation. Reference lowering uses `effect.perform.oneshot(effectId,
+operationName, args...)`, whose base continuation owns one linearizable claim.
+A backend may replace that guarded `Pure | Op` path with a coroutine, generator,
+or other allocation-saving fast path only when it preserves the same rejection,
+deep-handler, forwarding, and diagnostic behavior. Avoiding a computation-tree
+allocation is an optimization, not a semantic requirement.
 
 ### 4.2 Multi-shot effects
 
@@ -194,9 +203,9 @@ multi effect NonDet {
 ```
 
 `multi effect Foo { … }` means: handler may call `resume` **any number of
-times** per invocation (including zero — abort). At runtime, the Free-monad
-`Computation`-tree path is used on all backends because a captured continuation
-node must support multiple explicit branches. Each branch starts at that captured
+times** per invocation (including zero — abort). The reusable Free-monad
+`Computation`-tree path is the reference representation. A qualified backend may
+use any observationally equivalent encoding. Each branch starts at that captured
 node; durable `save`/`run` never reconstructs it by replaying the computation prefix.
 
 The `multi` prefix is a **parser-level keyword** on the `effect` declaration.
@@ -209,10 +218,10 @@ is extended to:
 
 ### 4.3 Effect declaration syntax summary
 
-| Form | Resume | Runtime path |
-|------|--------|-------------|
-| `effect Foo { … }` | At most once | Coroutine VT (JVM, INT) / `function*` (JS) |
-| `multi effect Foo { … }` | Any number | Free-monad `Computation` tree, all backends |
+| Form | Resume | Reference lowering |
+|------|--------|--------------------|
+| `effect Foo { … }` | At most once | guarded three-field `Pure | Op` via `effect.perform.oneshot` |
+| `multi effect Foo { … }` | Any number | reusable three-field `Pure | Op` via raw `effect.perform` |
 
 ---
 
@@ -263,9 +272,10 @@ handle[Foo](body) {
 ```
 
 `resume` is typed as a function from the op's result type to the handler body's
-result type under the residual effect row. For multi-shot effects the type is
-the same; the compiler emits no distinction — the difference is only the
-runtime path (see §4).
+result type under the residual effect row. For multi-shot effects the source type
+is the same, but lowering must preserve declaration multiplicity: plain effects
+select `effect.perform.oneshot`, while `multi effect` selects reusable raw
+`effect.perform` (see §4).
 
 ### 5.2.1 Return clause (`case Return(x) => …`)
 
@@ -292,8 +302,8 @@ continuation completion, not to op-case-body results** (so it composes once, nev
 twice). A handler **without** a return clause returns the pure value unchanged
 (backward-compatible). Implementation: a handler with a return clause uses a direct
 recursive evaluator (`EffectsRuntime.handleWithReturn`) where `resume` is an eager
-`x => handleWithReturn(continuation(x))`; the optimized one-shot loop is kept for the
-no-return-clause path.
+`x => handleWithReturn(continuation(x))`; a target may retain an optimized
+one-shot loop for the no-return-clause path when it preserves the reference laws.
 
 **Backend codegen (effect-handler-return-clause-codegen).** The return clause now
 lowers on every backend that has a Free-monad `handle`/`resume` codegen path:
@@ -313,22 +323,20 @@ completion exactly once. A handler with no `Return` arm keeps using the unchange
 
 ### 5.3 Runtime paths per backend
 
-| Backend | One-shot fast path | Multi-shot path |
-|---------|-------------------|-----------------|
-| **JVM** | Loom virtual thread + `SynchronousQueue` pair (`JvmGen.scala:6112-6265`) | `evalHandle` Free-monad tree walk (`EffectsRuntime.scala:33-96`) |
-| **Interpreter** | VT + queue pair (`CoroutineRuntime.scala:160-215`) | `evalHandle` |
-| **JS / Node** | Native ES2015 `function*` / `yield` / `iter.next(v)` (closes docs gap) | Free-monad path |
-| **Wasm, Spark, ScalaJs** | Free-monad path (conservative — no native continuation primitive) | Free-monad path |
+The guarded `Pure | Op` fold is the **reference semantics**. Qualified lanes may
+choose target-private encodings, but those choices are observable only through
+performance:
 
-**JS one-shot via `function*`.** `specs/coroutines.md:236-256` already promises
-this lowering; `JsGen.scala` currently emits the Free/CPS path instead. This
-spec commits to closing that gap: one-shot effect bodies are wrapped in
-`function*`, `perform` lowers to `yield`, and `resume(v)` lowers to
-`iter.next(v)`. Generator state is not cloneable in JS, so multi-shot remains
-on the Free-monad path — a hard JS-language limit, not a design choice.
+| Lane | Required effect path in the current delivery profile |
+|------|------------------------------------------------------|
+| **Portable v2 JVM VM + direct ASM** | shared `PortableEffects`; guarded generic `Op` for plain effects, reusable generic `Op` for raw/`multi effect` |
+| **Swift AOT** | generated equivalent `Pure | Op` runtime with a lock-protected one-shot base claim |
+| **Legacy v1 JVM/interpreter/JS** | existing coroutine/generator/Free paths may remain as compatible optimizations |
+| **New v2 JS/Rust/WASM CoreIR lanes** | typed `effect.*` remains unsupported until the complete primitive family and shared vectors qualify |
 
-The Free-monad path is the **reference semantics** across all backends. The
-fast paths are observable only through performance, never through behavior.
+A JS `function*` lowering is therefore optional. JS generator state is not
+cloneable, so it cannot implement a reusable continuation by itself; a reusable
+representation is still required for `multi effect`.
 
 ---
 
@@ -389,8 +397,8 @@ Both APIs coexist. The trade-off is documented in §2 and this section.
 |-----------|------------------------|
 | `throws[A, E] = Either[E, A]` | **Separate concern.** `throws` is a return-channel type (the value is wrapped in `Either`); effects are about *side operations* the function may invoke. Do not conflate. A function can be `A ! Logger throws DbError` — error in the return channel, log in the effect row. |
 | `Async[A]` | `Async` is itself an effect in the new model — performing it means "schedule this on the async runtime". Wrapping: `def fetch(url: String): Response ! Async`. The `runAsync` runner discharges `Async` from the row. |
-| `Coroutine[Y, R]` | The low-level primitive beneath one-shot effects. One-shot effect handlers *are* coroutines; the type system does not expose this — it's a codegen detail. |
-| `Free[F, A]` | The substrate beneath multi-shot effects. `Computation = Pure | Perform | FlatMap` is an instance of `Free`. The`Free[F, A]` in `runtime/std/free.ssc` is a user-facing variant for custom program-as-data interpreters, separate from the internal `Computation` ADT. |
+| `Coroutine[Y, R]` | An optional low-level optimization for one-shot effects. The type system does not expose or require that lowering. |
+| `Free[F, A]` | The reference substrate for reusable effects and a valid guarded representation for one-shot effects. `Computation = Pure | Perform | FlatMap` is an instance of `Free`. The `Free[F, A]` in `runtime/std/free.ssc` is a user-facing variant for custom program-as-data interpreters, separate from the internal `Computation` ADT. |
 | `MonadError[F, E]` | Orthogonal. `MonadError` is a typeclass over monads that can fail; effects are a separate tracking layer. Both can be used together. |
 
 ---
@@ -477,8 +485,9 @@ The identity law `() ++ v = v` holds for bare values too — `() ++ 42 = 42`, no
 
 The `Computation = Pure | Perform | FlatMap` Free monad
 (`runtime/backend/interpreter/src/main/scala/scalascript/interpreter/Value.scala:240-306`)
-is the runtime representation for multi-shot effects and the cross-backend
-reference fold. It does not change shape in v1.12. The type system sits above it.
+is the runtime representation for raw/reusable effects and the cross-backend
+reference fold; a guarded continuation gives the same shape one-shot behavior.
+It does not change shape in v1.12. The type system sits above it.
 This runtime-private ADT is neither a CoreIR node nor a durable frame/capsule wire
 representation; the control-interoperability contract owns those boundaries.
 
@@ -512,17 +521,22 @@ but the body has effect row { Random }
         add a Random runner to your effect stack
 ```
 
-### 9.3 Multi-shot violation (one-shot effect resumed twice)
+### 9.3 One-shot violation
 
 ```
-error [ONESHOT_VIOLATION]: effect 'FileIO' is declared one-shot
-but handler calls resume more than once
+error [ONESHOT_VIOLATION]: One-shot violation: FileIO.read resumed more than once
   → second resume at examples/io.ssc:34:7
   Hint: declare 'multi effect FileIO { … }' if multiple resumes are intended
 ```
 
-This error is a **dynamic check** in the v1.12.1 interpreter (cheap: set a
-flag in the resume closure). Static detection is future work.
+This error is a **dynamic check** implemented by an abstract linearizable claim
+in the base resume closure. Its semantic result is
+`Left(ResumeRejected.AlreadyResumed(OperationId(EffectId("FileIO"), "read")))`.
+Direct `.ssc resume` maps that rejection to
+`ControlRunFailure(AlreadyResumed(...))`; user `.ssc try/catch` does not intercept
+it. The runner renders separate code `ONESHOT_VIOLATION` and message
+`One-shot violation: FileIO.read resumed more than once` as the line above.
+Static detection is future work.
 
 ---
 
@@ -669,13 +683,13 @@ def runAll(): Unit =   // closed row; must discharge everything inside
 6. `EffectAnalysis` migrates to verifier mode (warn on divergence from typer).
 7. Diagnostics: wire §9 error messages.
 
-### v1.12.2 — Runtime fast paths
+### v1.12.2 — Optional runtime fast paths (historical plan)
 
 1. **JS**: emit `function*`/`yield`/`iter.next(v)` for one-shot effect bodies
    in `JsGen.scala` (closes the gap documented in `specs/coroutines.md:236-256`).
-2. **JVM / Interpreter**: wire the existing coroutine VT path as the one-shot
-   handler runtime; `evalHandle` remains for multi-shot.
-3. Add one-shot-violation dynamic check (flag in `resume` closure).
+2. **JVM / Interpreter**: optionally wire the existing coroutine VT path as a
+   one-shot optimization; guarded `evalHandle` remains valid reference semantics.
+3. Add the one-shot-violation dynamic check at the base continuation claim.
 4. Verify behavioral parity between fast path and Free-monad path by running
    the existing `StdEffectsTest` / `RestartableTest` under both paths.
 
@@ -743,16 +757,18 @@ node. Tracked as a required deliverable in v1.12.1.
 
 ## 15. Go / no-go recommendation
 
-**Go.** The architectural fit is unusually clean:
+**Historical v1.12 recommendation: Go.** The architectural fit remains clean,
+but the current portable implementation supersedes the old claim that a native
+coroutine/generator path is required:
 
 - The Free-monad substrate (`Computation = Pure | Perform | FlatMap`) gives
   multi-shot semantics for free — no new runtime needed, only a typed layer on
   top.
-- The coroutine VT substrate gives a one-shot fast path for free — already
-  implemented in the interpreter and JVM emitter, only wiring needed.
-- JS generators are a native one-shot continuation primitive that closes a
-  documented gap in `specs/coroutines.md`.
-- Every backend already advertises `Feature.AlgebraicEffects`.
+- The coroutine VT substrate can provide a one-shot optimization where qualified.
+- JS generators can provide a native one-shot optimization but cannot replace the
+  reusable representation.
+- A backend advertises typed algebraic effects only after the complete primitive
+  family and shared vectors qualify; new v2 JS/Rust/WASM do not yet advertise it.
 - The only genuinely new work is: `EffectRow` in `SType`, Rémy-style row
   unification in `Unifier`, a `!` token in `TypeParser` at one new precedence
   level, and a `multi effect` keyword in `preprocessEffects`.

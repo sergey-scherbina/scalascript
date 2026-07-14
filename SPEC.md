@@ -929,15 +929,37 @@ an implementation may retain `FlatMap` or another private iterative form for
 performance. `resume(v)` invokes the captured semantic continuation directly;
 multi-shot handlers interpret each `resume` branch independently.
 
+The raw `Pure | Op` library substrate is reusable. Typed `.ssc` declarations
+refine that substrate with explicit multiplicity: plain `effect E` is one-shot
+(zero or one resume per performed operation), while `multi effect E` is reusable
+(zero, one, or many resumes). A second or concurrent losing one-shot attempt is
+the structured `ResumeRejected.AlreadyResumed(OperationId)` failure. The semantic
+operation is `tryResume(value): Either[ResumeRejected, Next]`. The source-compatible
+`.ssc resume(value): R` projection maps `Left` to the non-user-catchable runner
+outcome `ControlRunFailure(AlreadyResumed(operation))`, rendered with stable code
+`ONESHOT_VIOLATION` and message `One-shot violation: <Effect>.<op> resumed more
+than once`. Multiplicity is preserved by the continuation itself through deep
+handling and forwarding; persistence and backend lowering never upgrade
+`OneShot` to `Reusable`.
+
 `effect.perform` and `effect.handle` are outer-language operations/lowering
 markers, not dedicated CoreIR term nodes. A lane may lower them completely to
 ordinary constructor data and lambdas, or emit calls through the kernel's generic
-`Prim("effect.perform"/"effect.handle", ...)` node; those primitives must produce
-and fold the same `Pure | Op` data/lambda protocol. An unhandled operation remains
-an explicit computation value until the nearest enclosing handler can consume it;
-top-level reporting must not pre-empt that handler. Operation argument packing,
-deep resume, `Return` handling, and multi-shot reuse are identical on VM and
-compiled backends. CoreIR itself remains effect-node-free.
+`Prim("effect.perform"/"effect.perform.oneshot"/"effect.handle", ...)` node;
+those primitives must produce and fold the same three-field `Pure | Op`
+data/lambda protocol. Raw `effect.perform(label, args...)` remains reusable for
+CoreIR/Mira library compatibility; typed plain `.ssc effect` lowers through
+`effect.perform.oneshot(effectId, operationName, args...)`, carrying structured
+identity without parsing the legacy display/dispatch label. The additive semantic
+ABI id is `effect.perform.oneshot@1`; generic `Prim` encoding and the CoreIR codec
+do not change, while runtime/AOT primitive tables and durable dependency manifests
+must name the implementation explicitly. An unhandled operation remains an explicit computation
+value until the nearest enclosing handler can consume it; top-level reporting
+must not pre-empt that handler. Operation argument packing, deep resume, `Return`
+handling, multiplicity, and diagnostics are identical on every capability-admitted
+lane. In the current v2 delivery that means portable JVM VM/direct ASM and Swift
+AOT; new v2 JS/Rust/WASM remain unsupported for the whole `effect.*` primitive
+family. CoreIR itself remains effect-node-free.
 
 Supported by every backend that advertises the algebraic-effects capability;
 claiming the capability requires the shared semantic vectors to pass.
@@ -966,7 +988,7 @@ handle(program()) {
 #### 7.2.2 Multi-shot Handlers (Nondeterminism)
 
 ```scalascript
-effect Choose:
+multi effect Choose:
   def pick[A](xs: List[A]): A
 
 handle(program()) {

@@ -114,10 +114,14 @@ runner never retries automatically.
 
 ## 6. Effects, imports, and durable references
 
-`Eff = Pure | Op` remains ordinary portable data and reusable semantic
-continuations. An operation dispatches only through its declared versioned
-capability implementation. WASI imports, WIT functions, and host callbacks are
-adapters for explicit effects, not ambient handlers.
+`Eff = Pure | Op` remains ordinary portable data; raw library continuations are
+reusable. A future admitted effect-capable WASM runner must preserve a typed
+one-shot gate (`.ssc effect`); encoding never upgrades `OneShot` to `Reusable`.
+The current v2 WASM CoreIR lane implements none of the `effect.*` primitive family,
+so `effect.perform.oneshot` remains an unsupported primitive and must reject rather
+than degrade to raw reusable behavior. Once qualified, an operation dispatches
+only through its declared versioned capability implementation. WASI imports, WIT
+functions, and host callbacks are adapters for explicit effects, not ambient handlers.
 
 `DurableRef` decodes as inert nominal data with resolver ABI, provider, audience,
 tenant, and policy. Decode/admission do not open a descriptor or invoke a resolver.

@@ -202,9 +202,52 @@ multiplicity : OneShot | Reusable
 ```
 
 A reusable operation may resume zero, one, or many times. A one-shot operation may
-resume at most once. Persistence never strengthens multiplicity. Asymmetric
-coroutines and checked/native one-shot continuations remain one-shot even if their
-frame is encodable.
+resume at most once. Persistence never upgrades `OneShot` to `Reusable`.
+Asymmetric coroutines and checked/native one-shot continuations remain one-shot
+even if their frame is encodable.
+
+The common rejection model is:
+
+```text
+EffectId(value: String)
+OperationId(effect: EffectId, name: String)
+ResumeRejected = AlreadyResumed(operation: OperationId)
+tryResume(value): Either[ResumeRejected, Next]
+```
+
+The one-shot claim is atomic and eager: exactly one concurrent caller wins, and
+every loser receives `AlreadyResumed` before it can invoke the continuation or
+execute any part of the suffix.
+
+### 3.1 Typed `.ssc` multiplicity projection
+
+The raw `Pure | Op`/CoreIR library constructor is reusable. The typed `.ssc`
+declaration surface supplies the missing operation metadata:
+
+```text
+effect E       => OneShot
+multi effect E => Reusable
+```
+
+The Scala host profile continues to use each `Operation.multiplicity` value
+directly (and its low-level default remains `Reusable`). A source-level `.ssc`
+one-shot `resume(value): R` cannot expose an `Either` without changing every
+handler result type, so it is defined as checked sugar over `tryResume`: success
+continues with `R`; rejection aborts the run with the structured boundary envelope
+`ControlRunFailure(AlreadyResumed(operation))`. This envelope is not a second
+rejection algebra and user `.ssc try/catch` does not intercept it. Its stable
+boundary projection keeps code and message separate:
+
+```text
+code     = "ONESHOT_VIOLATION"
+message  = "One-shot violation: <Effect>.<op> resumed more than once"
+rendered = "error [ONESHOT_VIOLATION]: One-shot violation: <Effect>.<op> resumed more than once"
+```
+
+The structured `OperationId` and rejection constructor, not exception class-name
+or message parsing, are the embedding contract. The Scala host API exposes the
+same law without raising by returning
+`Left(ResumeRejected.AlreadyResumed(operation))`.
 
 The existing plugin `reply(op, args): SpiValue` shape remains a one-reply
 in-process adapter. It does not receive a managed continuation and is not the
@@ -787,6 +830,7 @@ Failures are typed values/effects, never hidden exception class-name protocols:
 
 | Failure | Meaning |
 |---|---|
+| `AlreadyResumed` | a second or concurrent losing claim tried to invoke a one-shot continuation |
 | `UnmanagedCapture` | a frame lacks a stackless/compiler-managed representation |
 | `CaptureBarrier` | an active frame or live value forbids capture |
 | `OneShotSource` | reusable save was requested from a one-shot suspension |

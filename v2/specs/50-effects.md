@@ -29,9 +29,18 @@ Comp = Pure v | Op(label, arg, resume)        resume : reply -> Comp
   bind (Op l a k)      f = Op(l, a, (r) => bind (k r) f)
   ```
 
-A **handler** is a fold over this tree that interprets operations. Because `resume` (`k`) is
-an ordinary, **reusable** closure, a handler may call it **zero times** (abort), **once**
-(one-shot), or **many times** (multi-shot) — the full power of algebraic effects.
+A **raw library handler** is a fold over this tree that interprets operations.
+Because raw `resume` (`k`) is an ordinary, **reusable** closure, it may be called
+**zero times** (abort), **once**, or **many times** (multi-shot) — the full power
+of the untyped/Mira `Comp` substrate.
+
+This is deliberately not the multiplicity default of the typed `.ssc`
+declaration sugar. `effect E` lowers its initial continuation through
+`effect.perform.oneshot` and may resume at most once; `multi effect E` lowers
+through reusable raw `effect.perform`. Both still produce the same three-field
+`Op(label, argument, continuation)` data. The distinction lives in continuation
+behavior, never in a new kernel/CoreIR node or an extra `Op` field. See
+[`../../specs/control-one-shot-guard.md`](../../specs/control-one-shot-guard.md).
 
 ## Handlers (examples in the lib)
 
