@@ -184,8 +184,12 @@ def reset[P, Fx <: Effect, R](prompt: Prompt[P, R])(
   body: => Eff[Fx | Control[P], R]
 ): Eff[Fx, R]
 
+type ShiftBody[P, A, Fx <: Effect, R] =
+  [Residual >: Fx <: Effect] =>
+    Continuation[A, Residual, R] => Eff[Residual | Control[P], R]
+
 def shift[P, A, Fx <: Effect, R](prompt: Prompt[P, R])(
-  body: Continuation[A, Fx, R] => Eff[Fx | Control[P], R]
+  body: ShiftBody[P, A, Fx, R]
 ): Eff[Fx | Control[P], A]
 ```
 
@@ -272,6 +276,21 @@ discovery.
 The path-dependent prompt key prevents prompt forgery or accidental discharge.
 Runtime prompt identity is private managed state and is freshly alpha-renamed for
 every saved run as required by the common contract.
+
+`ShiftBody` is rank-2 in the actual residual row. `Fx` is the minimum effect row
+declared by the shift body; composing more effects after `shift` may widen it to
+`Residual`, so the body must accept `Continuation[A, Residual, R]` for every
+`Residual >: Fx`. A monomorphic continuation row is unsound: constructing a shift
+at `Fx = Nothing`, appending an effect before `reset`, and then calling `runPure` on
+the captured suffix would otherwise hide that appended request. The rank-2 form
+rejects this program statically.
+
+The private shift operation retains its minimum row. After exact prompt-token
+matching, `reset` may perform one quarantined narrowing to invoke the polymorphic
+body at its actual handler residual. This is sound by construction: the operation
+entered as `Eff[Fx | Control[P], A]`, and covariance plus `flatMap` can only widen
+that row, so the residual at the matching reset is a supertype of `Fx`. The cast is
+not a second public row semantics and is covered by the negative widening vector.
 
 ## 3. Canonical Scala value mapping
 
