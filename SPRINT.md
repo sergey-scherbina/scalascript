@@ -312,6 +312,19 @@ verify by probe + JVM dialect test + conformance 640ok. Detail: memory `project_
     1-arg ClosV re-dispatching via methodOp; untyped-safe — a real field/nullary method matches earlier).
     Reverted both markdown shims to idiomatic method refs (dd1a57c7a); differential still 48/48. conformance 640ok.
 
+### uniml-portable follow-ups (Sergiy 2026-07-14: "занеси у спринт і зроби, спочатку 1 потім 2")
+- [x] **1. Full CommonMark/GFM corpus differential (HARDENING) DONE** — fetched the REAL specs
+  (spec.commonmark.org 0.31.2 = 652 examples; cmark-gfm test/spec.txt under the Gfm profile). Ran ALL
+  through the v2-vs-JVM differential (batched ~130/run, deep tree digest). **Every single example parses
+  BYTE-IDENTICAL v2==JVM** (CommonMark: 334+386+339+145+282 rows; GFM: 385+272+277+145+280 rows). Found +
+  fixed ONE v2 gap: `String.indexWhere` / `String.count` (Char-predicate closures) unimplemented — hit by
+  reference-definition parsing (740b3fe24). Harness: scratchpad `cmark_corpus.py`/`build_batch.py`/
+  `harden_rest.sh`/`harden_gfm.sh` + `gen_diff.py` (now takes a `parse_extra` for the profile arg).
+- [ ] **2. Port XML to portable + v2 parity** — XML is single-file `v1/lang/uniml-xml/XmlDialect.scala`,
+  uses `mutable.ArrayBuffer` + couples to `scalascript.markup.Markup` (never got the immutable rewrite the
+  other 3 got). Immutable-rewrite the parse path (ArrayBuffer→Vector), isolate the Markup projection, run
+  the differential → 4th dialect at v2==JVM parity.
+
 ### Markdown — NOT STARTED (obsolete note below)
 - [ ] **markdown-on-v2** — flatten `markdown/` parse path (nested enums InlinePiece/AngleKind/OpenLeaf
   — nested-enum support already landed) → run → sweep the same construct gaps → `status=Complete`.
