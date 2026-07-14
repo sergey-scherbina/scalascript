@@ -1,6 +1,0 @@
-feature/scala3-bidirectional-control-spec 2026-07-14T10:45:25Z
-agent: codex
-heartbeat: 2026-07-14T11:28:54Z
-status: in-progress
-done-so-far: reusable save/run capsule design and companion-contract reconciliation are drafted in the feature worktree
-next: finish the terminology and architecture audit, verify docs and conformance, then publish the specification
