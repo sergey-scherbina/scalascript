@@ -424,10 +424,56 @@ def objectVarFields = (oname) =>
         match r { case Pair(o, vs) => if #seq(o, oname) then vs else go(rest) }
     } in
   go(#cell.get(objectVarsCell))
+-- Registry of each object's NESTED TYPE names — case class / case object / enum.
+-- prefixDefs hoists these to TOP-LEVEL UNqualified globals (v2 types are global and
+-- tag-based), so a qualified reference `O.Inner(…)`/`O.Singleton` must resolve to the
+-- unqualified `Inner`/`Singleton`, NOT `O_Inner` (which was never bound → `unbound
+-- global`). `[Pair(objName, [typeNames])]`.
+def objectNestedTypesCell = #cell.new(Nil)
+def nestedTypeNames = (stmts) =>
+  match stmts {
+    case Nil => Nil
+    case Cons(s, rest) =>
+      match s {
+        case Pair(tag, data) =>
+          if #seq(tag, "casecls") then
+            match data { case Pair(n, drest) => Cons(n, nestedTypeNames(rest)) }
+          else if #seq(tag, "caseobj") then
+            Cons(data, nestedTypeNames(rest))
+          else if #seq(tag, "enum") then
+            match data { case Pair(n, cs) => Cons(n, nestedTypeNames(rest)) }
+          else nestedTypeNames(rest)
+      }
+  }
+def collectObjectNestedTypes = (stmts) =>
+  match stmts {
+    case Nil => Nil
+    case Cons(s, rest) =>
+      match s {
+        case Pair(tag, data) =>
+          if #seq(tag, "object") then
+            match data { case Pair(oname, ostmts) =>
+              Cons(Pair(oname, nestedTypeNames(ostmts)), collectObjectNestedTypes(rest)) }
+          else collectObjectNestedTypes(rest)
+      }
+  }
+def objectNestedTypes = (oname) =>
+  let rec go = (rs) =>
+    match rs {
+      case Nil => Nil
+      case Cons(r, rest) =>
+        match r { case Pair(o, ts) => if #seq(o, oname) then ts else go(rest) }
+    } in
+  go(#cell.get(objectNestedTypesCell))
 -- Resolve `O.member(rargs)` on a known object: a no-arg read of a mutable `var`
 -- field is `cell.get(O_member__cell)`; everything else is the static `O_member`.
 def resolveObjMember = (rname, method, rargs) =>
-  if memberOfL(method, objectVarFields(rname)) then
+  if memberOfL(method, objectNestedTypes(rname)) then
+    -- `O.Inner(args)` where Inner is a nested type hoisted to top-level unqualified:
+    -- construct the bare ctor (reorder named args + fill defaults, exactly like a
+    -- direct `Inner(args)` call), NOT the unbound `O_Inner`.
+    Pair("ctorap", Pair(method, ctorApplyDefaults(method, resolveCtorArgs(method, rargs))))
+  else if memberOfL(method, objectVarFields(rname)) then
     match rargs {
       case Nil =>
         Pair("prim", Pair("cell.get",
@@ -442,7 +488,14 @@ def resolveObjMember = (rname, method, rargs) =>
 -- Property read `O.field` (no call): a mutable `var` field is `cell.get(O_field__cell)`,
 -- otherwise the static `O_field` global.
 def resolveObjProp = (rname, field) =>
-  if memberOfL(field, objectVarFields(rname)) then
+  if memberOfL(field, objectNestedTypes(rname)) then
+    -- A nested type hoisted to top-level unqualified. `O.Enum` only ever appears as
+    -- `O.Enum.Case` (an enum type isn't a value) → pass the bare enum name through as
+    -- a `uid` so the outer `.Case` select hits the normal enum-case machinery
+    -- (`Dir.North` → `North`). A `case object` reference is a real value → bare global.
+    if isEnumUid(field) then Pair("uid", field)
+    else Pair("var", field)
+  else if memberOfL(field, objectVarFields(rname)) then
     Pair("prim", Pair("cell.get",
       Cons(Pair("var", #sconcat(rname, #sconcat("_", #sconcat(field, "__cell")))), Nil)))
   else Pair("var", #sconcat(rname, #sconcat("_", field)))
@@ -5110,6 +5163,8 @@ def lowerProg = (stmts) =>
   -- KC7b: reset known-objects registry (lower-case given instances)
   let _ko = #cell.set(kc7bObjectsCell, collectObjects(stmts)) in
   let _kov = #cell.set(objectVarsCell, collectObjectVars(stmts)) in
+  -- Nested-type registry: `O.Inner(…)`/`O.Singleton` → unqualified hoisted global.
+  let _kont = #cell.set(objectNestedTypesCell, collectObjectNestedTypes(stmts)) in
   let _ke = #cell.set(enumCasesCell, collectEnums(stmts)) in
   let _kop = #cell.set(kc7bOwnerPrefixCell, "") in
   let _kom = #cell.set(kc7bOwnerMembersCell, Nil) in

@@ -2186,6 +2186,13 @@ def parseCaseClass = (toks) =>
     let k2  = tokKind(tok) in
     if #seq(k2, "EOF")  then ts
     else if #seq(k2, "{") then ts
+    -- A `}` after the param list closes the ENCLOSING block (e.g. the object body
+    -- when this case class is its LAST member) — a case class body can only START
+    -- with `{` or an on-line layout member, never past a `}`. Without this stop
+    -- `skipExt` walked through the object's `}` and captured the following
+    -- top-level `def` as a case-class body method (`object O { case class P(..) }`
+    -- then `def main` → main absorbed as `O_main`, entry never called).
+    else if #seq(k2, "}") then ts
     else if #seq(k2, ";") then ts
     else if #seq(k2, "kw") then
       if kwIs("def",      ts) then ts
