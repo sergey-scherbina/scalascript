@@ -441,15 +441,22 @@ intrinsics need marshaling review. Order (V2-GAP.md leverage):
     positional slot — measured: `computed` at field 6 not 10). Worked around by the unified registry, but the
     REAL fix is native-frontend named-arg-with-defaults binding — likely affects OTHER named-arg calls corpus-wide
     (uniml/native-frontend track). Also v2 `Map(pair)`→`{pair→pair}` (Map(pair) doesn't destructure).
-  Remaining (3, each a distinct deeper blocker):
-  - [ ] **content-form-submit** — YAML `signals:` need a real `NativeUiSignal` (name/scope/kind + getter/setter
-    closures); only the reactive plugin's `signal()` builds those, and `NativePluginContext` has no `resolveGlobal`.
-    Needs an SPI hook (resolveGlobal/invokeGlobal) or a signal-creation callback exposed to the content plugin.
-  - [ ] **content-tables / content-introspection** — need `contentToolkitBlock` + REAL rendering (23/54 lines via
-    contentPlainText/contentToMarkdown) incl. `component=` block rendering (componentRenderer) — a higher bar than
-    the ":ok" cases. Port ref: v1 toolkitBlockById/toolkitBlockNode/componentRenderer.
-  - NOTE: TkNode DataV field order must match std/ui/nodes.ssc. Port ref: v1 ContentIntrinsics.scala toolkitControl
-    (line 870, ~17 kinds); a signal = `ForeignV(Array[Value](initial))` but the UI plugin wants a `NativeUiSignal`.
+  [x] **content-form-submit CLOSED** (79f87a7ce) — added `NativePluginContext.resolveGlobal(name)` SPI hook
+  (default None; NativePluginHost → V2PluginRegistry.lookupGlobal); the content plugin now builds real
+  NativeUiSignals for YAML `signals:` by resolving+invoking the ui plugin's `signal(name,default)` cross-plugin.
+  **6 content-toolkit cases pass on v2.** The resolveGlobal hook is broadly reusable for cross-plugin construction.
+  Remaining 2 (content-tables / content-introspection) — REAL-rendering, MULTIPLE divergences (each measured):
+  - [ ] **contentToolkitBlock** — register the block-level variant (`findBlock`→TableNode for a markdown Table:
+    headers→TableColumn(inlineText,`col$i`), rows→TextNode_(inlineText(cell)); + component= rendering). Registerable.
+  - [ ] **v2 inlineText Code/Link gap** — the content plugin's `inlineText` drops link href (renders `buy` not
+    `buy (/buy)`) and inline-code backticks (`text` not `` `text` ``); v1 renders `label (href)` / `` `text` ``.
+    Fix is v1-matching but there's no PASSING case that exercises Code/Link plaintext to guard it in isolation.
+  - [ ] **v2 `null` literal renders `None` (KERNEL)** — `TableNode(…, null)` prints `null` on INT but `None` on v2
+    (measured: `val x: Any = null; println(x)` → `None`). No v2 Value renders `null`; content-tables' line 23 can't
+    match without a kernel null-literal-rendering change (broad risk). This gates content-tables independent of the
+    toolkit port. So content-tables/introspection = native-frontend/kernel work, not a content-plugin add.
+  - NOTE: TkNode DataV field order must match std/ui/nodes.ssc; a signal must be a real NativeUiSignal (ui plugin's
+    `signal()`), NOT a bare `ForeignV(Array)`. Port ref: v1 ContentIntrinsics.scala toolkitControl (line 870).
 - [ ] **actor-cluster methods → v2 scope (10)** — actors-cluster-* + actors-leader-protocol. electLeader /
   useRaftLeaderElection / clusterConfigSet / useExternalCoordinator ("Actors scope failed: unbound global").
   Needs the ActorScheduler logic reachable from the v2 VM (bridge or reimpl) — the hardest cluster.
