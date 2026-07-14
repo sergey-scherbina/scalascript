@@ -24,19 +24,30 @@ SOURCE, not the compiler).
 ### Object model — plain classes & mutable fields (Sergiy asked 2026-07-14; EMPIRICALLY VERIFIED)
 The native frontend's object model is currently immutable-only: `case class`(ctor params) + methods.
 Confirmed by direct test — see also the documented constraint under uniml-portable below.
-- [ ] **v2-plain-class** — a plain (non-`case`) `class X(params): def m` FAILS TO PARSE. `ssc1-front`
-  has `parseCaseClass` but no `parseClass`; a bare `class` at top level is not dispatched in
-  `parseOneStmt` → falls through to `parseExpr` → `_err` sentinel. Add plain-class parse + lowering
-  (runtime representation, `new`/no-`new` construction, method dispatch). Case classes DO work
-  (incl. methods, default params).
-- [ ] **v2-class-var-fields** — a `var` field FAILS TO PARSE both in a case-class ctor
-  (`case class Box(var v: Int)`) and in a case-class body (`case class C(x): var y = 0`). Mutable
-  object state is unsupported.
+- [x] **v2-plain-class DONE (`f01224d3a`)** — plain (non-`case`) `class X(params): <body>` now parses:
+  `parseOneStmt` routes a top-level `class` through `parseCaseClass`, so plain classes reuse the
+  case-class DataV representation, positional field accessors, method dispatch, and `new X(a)`==`X(a)`.
+  Verified: ctor+methods, `new`/no-`new`, field access, pattern match `case X(a,b)`, class-holding-class,
+  braced `{}` + layout `:` body, `extends Parent`. At full parity with case classes.
+- [x] **v2-class-method-self DONE (`bbaa2edfc`+`0b0a8a66f`)** — a class method calling a sibling NULLARY
+  method by bare name (`def describe = area.toString`) resolved `unbound global: area` — `caseSiblingGlobal`
+  was only consulted in the app case (`helper(5)`); added it to the lowerE var branch. And `this` resolves
+  to `__self` inside a method body (`this.field`/`this.method`). BOTH also fixed the pre-existing case-class
+  gap. Verified.
+- [ ] **v2-class-var-fields** — mutable `var` fields still FAIL: `case class Box(var v: Int)` (ctor `var`)
+  and `class C(x): var y = 0` (body `var`) don't parse (`parseCaseParamList` rejects `var`/`val`
+  modifiers; body-capture takes only `def`s, skips `var` members). SUBSTANTIAL: needs a mutable-object
+  representation (cell-backed fields: construct → `cell.new`, read `o.f` → `cell.get`, write `o.f = x` /
+  bare `f = x` in a method → `cell.set`), the field registry to mark var fields, and the accessors to
+  route through cells. NOTE: this CONFLICTS with the documented immutable-object-model decision (Sergiy,
+  2026-07-13: mutable OBJECT STATE is "bad design", prefer immutable + `.copy`) — decide direction before
+  building. WHAT WORKS TODAY (verified): top-level `var` + mutation, local `var`/`while` in `def` bodies,
+  `case class .copy(...)` immutable update, compound-assign `+=/-=/*=`, plain/case class immutable fields.
 - [ ] **v2-object-var-read** — `object O: var f = 0; def m() = f = …` — the mutating method works, but
   an EXTERNAL read `O.f` → `unbound global: O_f` (the static var-field read is not wired; the
-  `kc7bOwnerVarsCell`/owner-prefix path emits the setter but not a resolvable external getter).
-  WHAT WORKS TODAY (verified): top-level `var` + mutation, local `var`/`while` in `def` bodies,
-  `case class .copy(...)` immutable update, compound-assign `+=/-=/*=`.
+  `kc7bOwnerVarsCell`/owner-prefix path emits the cell setter but not a resolvable external getter for
+  `O.f`). Smaller than v2-class-var-fields (the cell already exists as `O_f__cell`; just wire the
+  `O.f` read to `cell.get(O_f__cell)`).
 
 ### Effects / runtime providers
 - [ ] **v2-coroutine-provider** — coroutine-basic / coroutine-error: `unbound global: coroutineCreate`.
