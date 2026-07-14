@@ -326,8 +326,13 @@ verify by probe + JVM dialect test + conformance 640ok. Detail: memory `project_
   entity-ref) → hand predicates; `0.toChar`→`' '`; attr-dup `Set[String]`→`Vector` (no `Set.empty` on v2;
   dedup redundant); `quote.toString`→substring (no Char box); `0x10FFFFL`→`0x10FFFF` (v2 no hex+L suffix).
   Differential over 31 XML inputs → **byte-identical v2==JVM**. 4th dialect at parity. Harness
-  `scratchpad/gen_xml_diff.py` (strips the Markup layer). NOTE: v2 gaps `Set.empty` + hex-`L`-suffix
-  remain (worked around source-side; general fixes deferred — Set(...) works, only `.empty` doesn't).
+  `scratchpad/gen_xml_diff.py` (strips the Markup layer).
+- [x] **`Set.empty` + hex-`L` general v2 fixes DONE (1cd903b5d)** — the two gaps XML surfaced, fixed
+  generally (conformance 640ok; markdown differential still 48/48). (1) hex `0x…L`: number lexer now strips
+  the `L`/`l` after a hex literal (was only after decimal). (2) `Set.empty` → emit `[].toSet` directly (Set
+  isn't a registered ctor so the companion path yielded a closure → `Op("Set.empty")`); and the `++`-on-list
+  runtime case adds a NON-list RHS as a distinct element (`set + "str"` lowers to `++` via the string
+  heuristic), so `Set.empty + a + b` builds a real set (with the existing `-`/`+`). Verified vs JVM.
 
 ### Markdown — NOT STARTED (obsolete note below)
 - [ ] **markdown-on-v2** — flatten `markdown/` parse path (nested enums InlinePiece/AngleKind/OpenLeaf
