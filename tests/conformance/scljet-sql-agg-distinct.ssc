@@ -1,0 +1,39 @@
+---
+name: scljet-sql-agg-distinct
+description: SclJet SQL aggregate DISTINCT — COUNT/SUM/AVG(DISTINCT col), plain and with GROUP BY, matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet SQL aggregate DISTINCT
+
+`COUNT(DISTINCT col)`, `SUM(DISTINCT col)`, `AVG(DISTINCT col)` aggregate over the distinct non-null
+values of the argument (nulls ignored, as in sqlite), both over the whole table and per GROUP BY
+group. Every result is byte-identical to reference sqlite3 running the same SQL on the same file
+(verified out-of-band); locked here across backends.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER, name TEXT, dept INTEGER, salary INTEGER)",
+  List(List(SqlInteger(1L), SqlText("ann"), SqlInteger(10L), SqlInteger(100L)),
+       List(SqlInteger(2L), SqlText("bob"), SqlInteger(20L), SqlInteger(250L)),
+       List(SqlInteger(3L), SqlText("cat"), SqlInteger(10L), SqlInteger(300L)),
+       List(SqlInteger(4L), SqlText("dan"), SqlInteger(30L), SqlInteger(150L)),
+       List(SqlInteger(5L), SqlText("eve"), SqlInteger(20L), SqlInteger(250L)),
+       List(SqlInteger(6L), SqlText("flo"), SqlInteger(10L), SqlInteger(120L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db) =>
+    show(db, "SELECT COUNT(DISTINCT dept) FROM emp")
+    show(db, "SELECT COUNT(dept) FROM emp")
+    show(db, "SELECT SUM(DISTINCT salary) FROM emp")
+    show(db, "SELECT SUM(salary) FROM emp")
+    show(db, "SELECT COUNT(DISTINCT salary) FROM emp")
+    show(db, "SELECT AVG(DISTINCT dept) FROM emp")
+    show(db, "SELECT dept, COUNT(DISTINCT salary) FROM emp GROUP BY dept")
+```

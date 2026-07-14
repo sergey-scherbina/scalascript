@@ -373,7 +373,7 @@ def parseOrderLimit(toks: List[Token]): Either[String, (List[OrderKey], Int, Int
 
 // ── Aggregate projection: COUNT(*) / COUNT(col) / SUM / MIN / MAX / AVG / TOTAL ──
 
-case class AggItem(func: String, column: String)
+case class AggItem(func: String, column: String, distinct: Boolean)
 
 def isAggFunc(name: String): Boolean =
   val u = upperStr(name)
@@ -416,7 +416,7 @@ def parseAggregates(toks: List[Token]): Either[String, (List[AggItem], List[Toke
             val afterArg = argPair._2
             if tkKind(afterArg) != "rparen" then err = Some("expected ')' in the aggregate")
             else
-              accRev = AggItem(func, argPair._1) :: accRev
+              accRev = AggItem(func, argPair._1, false) :: accRev
               val afterRparen = afterArg.tail
               if tkKind(afterRparen) == "comma" then rest = afterRparen.tail
               else
@@ -429,7 +429,7 @@ def parseAggregates(toks: List[Token]): Either[String, (List[AggItem], List[Toke
 // Parse the projection: `*`, an aggregate list, or a plain column list.
 // A projection item: a plain column (`isAgg=false`, `name` = column) or an aggregate
 // (`isAgg=true`, `func` = COUNT/SUM/…, `name` = its argument column or `*`).
-case class ProjItem(isAgg: Boolean, func: String, name: String)
+case class ProjItem(isAgg: Boolean, func: String, name: String, distinct: Boolean)
 
 def reverseProj(items: List[ProjItem], acc: List[ProjItem]): List[ProjItem] =
   var r = items
@@ -442,7 +442,10 @@ def reverseProj(items: List[ProjItem], acc: List[ProjItem]): List[ProjItem] =
 def parseProjItem(toks: List[Token]): Either[String, (ProjItem, List[Token])] =
   if isAggStart(toks) then
     val func = toks.head.text
-    val afterParen = toks.tail.tail
+    val afterOpen = toks.tail.tail
+    // `FUNC(DISTINCT col)` — aggregate over the distinct values of the argument.
+    val distinct = tkIsKw(afterOpen, "DISTINCT")
+    val afterParen = if distinct then afterOpen.tail else afterOpen
     val argRes: Option[(String, List[Token])] =
       if tkKind(afterParen) == "star" then Some(("*", afterParen.tail))
       else if tkKind(afterParen) == "ident" then Some((afterParen.head.text, afterParen.tail))
@@ -451,8 +454,8 @@ def parseProjItem(toks: List[Token]): Either[String, (ProjItem, List[Token])] =
       case None => Left("expected a column or * inside the aggregate")
       case Some(ap) =>
         if tkKind(ap._2) != "rparen" then Left("expected ')' in the aggregate")
-        else Right((ProjItem(true, func, ap._1), ap._2.tail))
-  else if tkKind(toks) == "ident" then Right((ProjItem(false, "", toks.head.text), toks.tail))
+        else Right((ProjItem(true, func, ap._1, distinct), ap._2.tail))
+  else if tkKind(toks) == "ident" then Right((ProjItem(false, "", toks.head.text, false), toks.tail))
   else Left("expected a column or aggregate in the projection")
 
 def parseProjectionList(toks: List[Token]): Either[String, (List[ProjItem], List[Token])] =
@@ -841,7 +844,7 @@ def projectGroupRow(group: List[StorageRecord], colNames: List[String], items: L
   var accRev: List[SqliteValue] = Nil
   while r.nonEmpty do
     val item = r.head
-    val v = if item.isAgg then computeAgg(AggItem(item.func, item.name), group, colNames)
+    val v = if item.isAgg then computeAgg(AggItem(item.func, item.name, item.distinct), group, colNames)
       else if group.isEmpty then SqlNull
       else rowValue(group.head, colNames, item.name)
     accRev = v :: accRev
@@ -924,7 +927,7 @@ def dedupRows(rows: List[List[SqliteValue]]): List[List[SqliteValue]] =
 def havingHolds(having: Option[HavingCond], group: List[StorageRecord], colNames: List[String]): Boolean = having match
   case None => true
   case Some(hc) =>
-    val lv = if hc.item.isAgg then computeAgg(AggItem(hc.item.func, hc.item.name), group, colNames)
+    val lv = if hc.item.isAgg then computeAgg(AggItem(hc.item.func, hc.item.name, hc.item.distinct), group, colNames)
       else if group.isEmpty then SqlNull
       else rowValue(group.head, colNames, hc.item.name)
     condMatches(hc.op, sqlCompare(lv, hc.value))
@@ -1121,9 +1124,29 @@ def minMaxColumn(rows: List[StorageRecord], colNames: List[String], col: String,
     case Some(v) => v
     case None => SqlNull
 
+// Distinct-preserving copy of `vals` (first occurrence kept; equality via sqlCompare).
+def dedupValues(vals: List[SqliteValue]): List[SqliteValue] =
+  var r = vals
+  var seenRev: List[SqliteValue] = Nil
+  while r.nonEmpty do
+    if !valueInList(r.head, seenRev) then seenRev = r.head :: seenRev
+    r = r.tail
+  reverseValues(seenRev, Nil)
+
+def extractColumnValues(rows: List[StorageRecord], colNames: List[String], col: String): List[SqliteValue] =
+  var r = rows
+  var accRev: List[SqliteValue] = Nil
+  while r.nonEmpty do
+    accRev = rowValue(r.head, colNames, col) :: accRev
+    r = r.tail
+  reverseValues(accRev, Nil)
+
 def computeAgg(agg: AggItem, rows: List[StorageRecord], colNames: List[String]): SqliteValue =
   val f = upperStr(agg.func)
-  if f == "COUNT" then
+  if agg.distinct then
+    // COUNT/SUM/AVG(DISTINCT col) aggregate over the distinct non-null values.
+    aggregateValues(f, dedupValues(extractColumnValues(rows, colNames, agg.column)))
+  else if f == "COUNT" then
     if agg.column == "*" then SqlInteger(rows.length.toLong)
     else SqlInteger(countNonNull(rows, colNames, agg.column))
   else if f == "SUM" then sumColumn(rows, colNames, agg.column, false)
@@ -1336,8 +1359,10 @@ def computeJoinAgg(item: ProjItem, pairs: List[JoinPair], colsA: List[String], t
     if pairs.isEmpty then SqlNull else joinPairValue(pairs.head, colsA, tableA, colsB, tableB, item.name)
   else
     val f = upperStr(item.func)
-    if f == "COUNT" && item.name == "*" then SqlInteger(pairs.length.toLong)
-    else aggregateValues(f, extractPairValues(pairs, colsA, tableA, colsB, tableB, item.name))
+    val vals = extractPairValues(pairs, colsA, tableA, colsB, tableB, item.name)
+    if item.distinct then aggregateValues(f, dedupValues(vals))
+    else if f == "COUNT" && item.name == "*" then SqlInteger(pairs.length.toLong)
+    else aggregateValues(f, vals)
 
 def computeJoinAggregates(projection: List[ProjItem], pairs: List[JoinPair], colsA: List[String], tableA: String, colsB: List[String], tableB: String): List[SqliteValue] =
   var r = projection

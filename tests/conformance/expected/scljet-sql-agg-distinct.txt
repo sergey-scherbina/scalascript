@@ -1,0 +1,9 @@
+SELECT COUNT(DISTINCT dept) FROM emp => 3
+SELECT COUNT(dept) FROM emp => 6
+SELECT SUM(DISTINCT salary) FROM emp => 920
+SELECT SUM(salary) FROM emp => 1170
+SELECT COUNT(DISTINCT salary) FROM emp => 5
+SELECT AVG(DISTINCT dept) FROM emp => 20.0
+SELECT dept, COUNT(DISTINCT salary) FROM emp GROUP BY dept => 10|3
+20|1
+30|1
