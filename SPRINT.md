@@ -878,9 +878,11 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
           (C_min compiles its OWN source, balanced 22085 B); `C1 = stage1 + the same file-main`; `C1` proven a
           WORKING compiler (compiles fac(5)→120); `stage2 = C1(cmin.L)`. **`stage1 == stage2` byte-identical.**
           The literal self-compilation fixpoint — no quine (reads source from a FILE), no source-embedding.
-      - [ ] c3 (capstone, OPTIONAL) — the SPIKE bootstraps C_min: verify `spike(cmin.L) ≡ ssc1-front(cmin.L)`
-            byte-identical (ties to the p6.0 differential invariant; may surface spike gaps on untyped
-            multi-param defs / scale).
+      - [x] c3 (capstone) ✓ DONE 2026-07-14 — **the SPIKE bootstraps C_min.** Added `cmin` toy to
+            ScalaSpikeSpec (reads `specs/v2.2-p6.6-cmin.L`); the p6.0 harness confirms **`spike(cmin.L) ≡
+            ssc1-front(cmin.L)` byte-identical** (both 42135 B) → the UniML ScalaScript dialect parses+projects
+            C_min's entire 74-def source identically to the reference front, so the spike is a valid bootstrap.
+            p6.0 harness: 86 ok / 0 FAIL (cmin: `CoreIR≡ssc1-front`; no runnable main, so run-ir display empty).
   - Prereqs: subset must hold — the one v2-side lift is **immutable indexed `Array`** (gapmap:76);
         anon-trait + mutable-object-field stay out; multi-file `package`/`import` reconciliation
         (gapmap:82-83) needed before the compiler's own multi-file source dual-compiles.

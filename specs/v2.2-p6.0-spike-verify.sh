@@ -8,6 +8,9 @@
 # this proves the parse (precedence, associativity, operator lexing) matches exactly. Broken toys
 # (no .toy.ssc, a <name>.expect instead) prove error CONTAINMENT: the partial IR compiles and
 # `main` still returns its value despite a sibling hole.
+# The `cmin` toy (P6.6) is C_min, the self-compiling compiler — it has NO runnable `main` (it IS a
+# compiler), so the gate is byte-identity only (CoreIR≡ssc1-front) and the run-ir display is empty; its
+# own compile→stage1==stage2 fixpoint lives in specs/v2.2-p6.6-fixpoint.sh.
 set -u
 JAR=${SSC_JAR:?}; V2=${V2_DIR:?}; OUT=${SPIKE_OUT:?}
 cd "$V2" || exit 2

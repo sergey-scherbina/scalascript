@@ -1262,8 +1262,22 @@ final class ScalaSpikeSpec extends AnyFunSuite:
          |def fst(p: Int): Int = p match { case (a, b) => a }
          |def compile(src: String): Int = fst(parseExpr(tokenize(src, 0, src.length), 0))
          |def main(): Int = compile("2 * (1 + 3)")""".stripMargin
+    // P6.6 — C_min, the self-compiling compiler (74 defs). Read from the repo spec artifact so there is a
+    // single source of truth (the same file the P6.6 fixpoint runs). Projected here only to prove the SPIKE
+    // bootstraps it byte-identically to ssc1-front (its own compile→fixpoint lives in specs/v2.2-p6.6-*).
+    // OPTIONAL: if the artifact is not found (unusual CWD), cmin is skipped — never a hard failure.
+    val cminToy: Seq[(String, String)] = {
+      val candidates = Seq(
+        sys.env.get("CMIN_L"),
+        Some(sys.props("user.dir") + "/specs/v2.2-p6.6-cmin.L"),
+        Some(sys.props("user.dir") + "/../specs/v2.2-p6.6-cmin.L")
+      ).flatten.map(Paths.get(_)).filter(Files.exists(_))
+      candidates.headOption
+        .map(p => Seq("cmin" -> new String(Files.readAllBytes(p), "UTF-8")))
+        .getOrElse(Seq.empty)
+    }
     // well-formed — the harness requires byte-identical Core IR vs ssc1-front.
-    val wellFormed = Seq(
+    val wellFormed = cminToy ++ Seq(
       "selfhost-arith"    -> selfhostArith,
       "selfhost-eval"     -> selfhostEval,
       "selfhost-closures" -> selfhostClosures,
