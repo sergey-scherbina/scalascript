@@ -150,6 +150,21 @@ Confirmed by direct test — see also the documented constraint under uniml-port
   collections, mixed val/var, case-class var). Full sweep 171, 0 regr. The class object-model gaps
   (plain class, method-self, class var fields, object var read) are now ALL closed.
 
+### scala-class-body-fields — body-declared fields (Sergiy 2026-07-14: "класс написанным на scala … мутабельные или lazy поля … проблем быть не должно")
+FOUND (empirically): ctor-param fields (`val x`/`var x`/plain) work, but a field declared in the class
+BODY is DROPPED — `parseCaseClass`'s body capture takes only `def`s, skipping `val`/`var`/`lazy val`.
+So `class C(a): val y = a*2` → `c.y` = `Stub` / internal `y` = unbound; `var y` (--mutable) = unbound;
+`lazy val` = Stub. Fix: capture body fields (name + init + kind); the DataV field list becomes ctor
+params ++ body-field names; the generated constructor (lowerCaseCls @ 3340) computes body inits in a
+let-chain (each sees ctor params + earlier fields) before IrCtor. Hook: constructor generator already
+emits `def C(a) = IrCtor(C, [a])`; extend to `def C(a) = let y=a*2 in IrCtor(C, [a, y])`.
+- [ ] **scala-body-val** — body `val y = expr`: capture + synthesized-constructor init + field registry
+  (caseFieldsCell/caseFieldOrderCell include body fields). Internal `y` + external `c.y`.
+- [ ] **scala-body-var** — body `var y = expr` (--mutable): same, cell-backed (cell.new in the synthesized
+  ctor at the body-var position; read/write already handled by the var-field machinery once registered).
+- [ ] **scala-lazy-val** — `lazy val z = expr`: memoized — the field stores a cell with an uncomputed
+  sentinel; first access computes `expr` (a thunk) and caches. Needs a lazy accessor + runtime memo.
+
 ### Effects / runtime providers
 - [ ] **v2-coroutine-provider** — coroutine-basic / coroutine-error: `unbound global: coroutineCreate`.
 - [ ] **v2-generator-provider** — dataset-from-generator: `Dataset.fromGenerator requires the standard
