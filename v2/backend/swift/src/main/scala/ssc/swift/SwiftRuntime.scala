@@ -424,6 +424,48 @@ struct SscRuntimeFailure: Error, CustomStringConvertible {
     let description: String
 }
 
+struct SscEffectId: Equatable, Sendable {
+    let value: String
+}
+
+struct SscOperationId: Equatable, Sendable {
+    let effect: SscEffectId
+    let name: String
+}
+
+enum SscResumeRejected: Equatable, Sendable {
+    case alreadyResumed(SscOperationId)
+}
+
+struct SscControlRunFailure: Error, CustomStringConvertible {
+    let rejection: SscResumeRejected
+
+    let code = "ONESHOT_VIOLATION"
+
+    var message: String {
+        switch rejection {
+        case let .alreadyResumed(operation):
+            return "One-shot violation: \(operation.effect.value).\(operation.name) resumed more than once"
+        }
+    }
+
+    var rendered: String { "error [\(code)]: \(message)" }
+    var description: String { rendered }
+}
+
+private final class SscOneShotClaim: @unchecked Sendable {
+    private let lock = NSLock()
+    private var claimed = false
+
+    func tryClaim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !claimed else { return false }
+        claimed = true
+        return true
+    }
+}
+
 private struct SscThrown: Error, @unchecked Sendable {
     let value: SscValue
 }
@@ -431,12 +473,14 @@ private struct SscThrown: Error, @unchecked Sendable {
 private enum SscPendingFailure {
     case thrown(SscValue)
     case runtime(SscRuntimeFailure)
+    case control(SscControlRunFailure)
     case host(SscRuntimeFailure)
 
     var terminal: SscRuntimeFailure {
         switch self {
         case let .thrown(value): return SscRuntimeFailure(description: "uncaught throw: \(sscPlain(value))")
         case let .runtime(error), let .host(error): return error
+        case let .control(error): return SscRuntimeFailure(description: error.rendered)
         }
     }
 }
@@ -541,6 +585,7 @@ private final class Machine {
         guard failure == nil else { return }
         switch error {
         case let thrown as SscThrown: failure = .thrown(thrown.value)
+        case let control as SscControlRunFailure: failure = .control(control)
         case let runtime as SscRuntimeFailure: failure = .runtime(runtime)
         default:
             failure = .host(SscRuntimeFailure(description: "unexpected host error: \(String(describing: error))"))
@@ -1008,13 +1053,17 @@ private final class Machine {
             guard !args.isEmpty, case let .string(label) = args[0] else {
                 fatalError("effect: effect.perform expects a String label")
             }
-            let operationArgs = Array(args.dropFirst())
-            let argument: SscValue
-            if operationArgs.isEmpty { argument = .unit }
-            else if operationArgs.count == 1 { argument = operationArgs[0] }
-            else { argument = .data("__EffArgs__", SscFields(operationArgs)) }
             let identity = SscClosure(arity: 1) { values in values[0] }
-            return .data("Op", [.string(label), argument, .closure(identity)])
+            return effectOperation(label, Array(args.dropFirst()), identity)
+        case "effect.perform.oneshot":
+            guard args.count >= 2,
+                  case let .string(effectId) = args[0],
+                  case let .string(operationName) = args[1] else {
+                fatalError("effect: effect.perform.oneshot expects effect id and operation name Strings")
+            }
+            let operation = SscOperationId(effect: SscEffectId(value: effectId), name: operationName)
+            let identity = oneShotContinuation(operation) { values in values[0] }
+            return effectOperation("\(effectId).\(operationName)", Array(args.dropFirst(2)), identity)
         case "effect.handle":
             guard args.count == 2 else { fatalError("effect: effect.handle expects 2 arguments") }
             return handleEffect(args[0], args[1])
@@ -1116,6 +1165,15 @@ private final class Machine {
         case "__method__", "__effect__":
             guard args.count >= 2 else { fatalError("__method__: missing receiver") }
             return method(string(args, 0), args[1], Array(args.dropFirst(2)))
+        case "__effect_oneshot__":
+            guard args.count >= 3,
+                  case let .string(effectId) = args[0],
+                  case let .string(operationName) = args[1] else {
+                fatalError("__effect_oneshot__: expected effect id, operation name, receiver, and arguments")
+            }
+            let dispatched = method(operationName, args[2], Array(args.dropFirst(3)))
+            if failure != nil { return .unit }
+            return guardOneShotOperation(dispatched, effectId, operationName)
         case "__arith__": return dynamicArithmetic(string(args, 0), args[1], args[2])
         case "__unary__":
             let op = string(args, 0)
@@ -1146,7 +1204,7 @@ private final class Machine {
             case let .runtime(error):
                 failure = nil
                 return call(handler, [.string(error.description)])
-            case .host:
+            case .control, .host:
                 return .unit
             }
         default: fatalError("swift runtime: unsupported primitive '\(operation)'")
@@ -1582,7 +1640,9 @@ private final class Machine {
             }
             let resume = SscClosure(arity: 1) { [weak self] values in
                 guard let self else { fatalError("effect: runtime released") }
-                return self.handleEffect(self.call(continuation, values), handlerValue)
+                let resumed = self.call(continuation, values)
+                if self.failure != nil { return .unit }
+                return self.handleEffect(resumed, handlerValue)
             }
             let eventArgs: [SscValue]
             switch fields[1] {
@@ -1603,9 +1663,51 @@ private final class Machine {
               case let .closure(continuation) = fields[2] else { fatalError("effect: malformed Op") }
         let lifted = SscClosure(arity: 1) { [weak self] values in
             guard let self else { fatalError("effect: runtime released") }
-            return transform(self.call(continuation, values))
+            let resumed = self.call(continuation, values)
+            if self.failure != nil { return .unit }
+            return transform(resumed)
         }
         return .data("Op", [fields[0], fields[1], .closure(lifted)])
+    }
+
+    private func effectOperation(_ label: String, _ arguments: [SscValue], _ continuation: SscClosure) -> SscValue {
+        let argument: SscValue
+        if arguments.isEmpty { argument = .unit }
+        else if arguments.count == 1 { argument = arguments[0] }
+        else { argument = .data("__EffArgs__", SscFields(arguments)) }
+        return .data("Op", [.string(label), argument, .closure(continuation)])
+    }
+
+    private func oneShotContinuation(
+        _ operation: SscOperationId,
+        _ continuation: @escaping ([SscValue]) throws -> SscValue
+    ) -> SscClosure {
+        let claim = SscOneShotClaim()
+        return SscClosure(arity: 1) { values in
+            guard claim.tryClaim() else {
+                throw SscControlRunFailure(rejection: .alreadyResumed(operation))
+            }
+            return try continuation(values)
+        }
+    }
+
+    private func guardOneShotOperation(
+        _ value: SscValue,
+        _ effectId: String,
+        _ operationName: String
+    ) -> SscValue {
+        let expectedLabel = "\(effectId).\(operationName)"
+        guard case let .data("Op", fields) = value,
+              fields.count == 3,
+              case let .string(label) = fields[0],
+              label == expectedLabel,
+              case let .closure(continuation) = fields[2] else { return value }
+        let operation = SscOperationId(effect: SscEffectId(value: effectId), name: operationName)
+        let guarded = oneShotContinuation(operation) { [weak self] values in
+            guard let self else { fatalError("effect: runtime released") }
+            return self.call(continuation, values)
+        }
+        return .data("Op", [fields[0], fields[1], .closure(guarded)])
     }
 
     private func intDiv(_ lhs: Int64, _ rhs: Int64) -> Int64 {

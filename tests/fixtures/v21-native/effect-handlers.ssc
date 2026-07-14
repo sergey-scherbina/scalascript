@@ -2,7 +2,7 @@
 name: v21-native-effect-handlers
 ---
 
-[Probe, afterDeclaration, zeroArgument, oneArgument, manyArguments, ignoredResume, deepResume, returnArm, multiShot](effect-handlers-lib.ssc)
+[Probe, MultiProbe, afterDeclaration, zeroArgument, oneArgument, manyArguments, ignoredResume, deepResume, returnArm, multiShot](effect-handlers-lib.ssc)
 
 # Imported portable effect handlers
 

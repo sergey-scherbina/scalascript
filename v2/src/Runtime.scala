@@ -25,6 +25,35 @@ final class SscThrow(val value: Value) extends RuntimeException
  *  re-throws it (a `return` inside a `try` exits the method, it is not "caught"). */
 final class ReturnThrow(val value: Value) extends RuntimeException(null, null, false, false)
 
+/** Target-neutral identity of an algebraic effect and one of its operations.
+  * Keep the two components structured: the legacy `Effect.operation` label is
+  * only a dispatch/display value and is never parsed to recover identity. */
+final case class EffectId(value: String)
+final case class OperationId(effect: EffectId, name: String):
+  def display: String = s"${effect.value}.$name"
+
+sealed trait ResumeRejected
+object ResumeRejected:
+  final case class AlreadyResumed(operation: OperationId) extends ResumeRejected
+
+/** A violated continuation contract crossing the ScalaScript run boundary.
+  *
+  * This is deliberately not a recoverable user exception: generated
+  * `try/catch` rethrows it and the CLI/embedding boundary projects the typed
+  * rejection to a stable diagnostic. */
+final class ControlRunFailure(val rejection: ResumeRejected)
+    extends RuntimeException(null, null, false, false):
+  val code: String = rejection match
+    case ResumeRejected.AlreadyResumed(_) => "ONESHOT_VIOLATION"
+
+  val diagnosticMessage: String = rejection match
+    case ResumeRejected.AlreadyResumed(operation) =>
+      s"One-shot violation: ${operation.display} resumed more than once"
+
+  val rendered: String = s"error [$code]: $diagnosticMessage"
+
+  override def getMessage: String = diagnosticMessage
+
 sealed trait Value
 object Value:
   case object UnitV                                    extends Value
@@ -2145,6 +2174,17 @@ object Prims:
       val num = (v: Value) => v match { case IntV(_) | FloatV(_) | BigV(_) => true; case _ => false }
       BoolV(num(a(0)) && num(a(1)))
     case "__effect__" => resolve("__method__")   // alias: effect-receiver ops (FastCode declines it)
+    case "__effect_oneshot__" => a =>
+      // Bridge-only marker: preserve ordinary effect/plugin/context dispatch,
+      // then guard only the matching free Op. Identity remains structured and
+      // is never recovered by parsing the legacy `Effect.operation` label.
+      a match
+        case StrV(effectId) :: StrV(operationName) :: receiver :: operationArgs =>
+          val result = resolve("__method__")(
+            StrV(operationName) :: receiver :: operationArgs)
+          PortableEffects.guardOperation(effectId, operationName, result)
+        case _ =>
+          sys.error("__effect_oneshot__: expected effect id, operation name, receiver, and arguments")
     // Scala Predef.??? — a valid, resolvable prim that throws only when actually
     // evaluated (e.g. an untaken `else ???` branch never fires).
     case "__notImplemented__" => _ => throw new NotImplementedError("an implementation is missing")
@@ -3813,6 +3853,7 @@ object Prims:
       // A non-local `return` inside a `try` exits the method — it is NOT caught by
       // the user's `catch`. Re-throw so it unwinds to the enclosing __with_return__.
       case r: ReturnThrow      => throw r
+      case c: ControlRunFailure => throw c
       case t: SscThrow         => callClos(handler, Array(t.value))
       case e: RuntimeException =>
         callClos(handler, Array(Value.DataV("RuntimeException",

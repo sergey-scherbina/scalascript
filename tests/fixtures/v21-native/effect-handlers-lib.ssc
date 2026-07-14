@@ -10,6 +10,9 @@ effect Probe:
   def one(value: Int): Int
   def many(left: Int, right: Int): Int
 
+multi effect MultiProbe:
+  def one(value: Int): Int
+
 def afterDeclaration(): String = "owned"
 
 def zeroArgument(): Int = handle(Probe.zero()) {
@@ -40,7 +43,7 @@ def returnArm(): Int = handle(41) {
   case Return(value) => value + 1
 }
 
-def multiShot(): List[Int] = handle(Probe.one(2)) {
-  case Probe.one(value, resume) => List(resume(value), resume(value + 10))
+def multiShot(): List[Int] = handle(MultiProbe.one(2)) {
+  case MultiProbe.one(value, resume) => List(resume(value), resume(value + 10))
 }
 ```

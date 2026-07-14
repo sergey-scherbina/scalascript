@@ -13,7 +13,7 @@ runner supports it today, and the Rust runner's multi-shot (R.6) has landed;
 v2 JS does not yet implement `effect.*` — hence "runner order by measured spike".
 
 ```scalascript
-effect Choose:
+multi effect Choose:
   def choose(): Boolean
 
 def prog(): List[Int] =

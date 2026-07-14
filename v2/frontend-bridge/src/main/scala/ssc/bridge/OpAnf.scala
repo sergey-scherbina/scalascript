@@ -22,8 +22,8 @@ import ssc.{Term as T, Arm, Def as CDef, Program}
  *  `Let`, and the kernel's existing Let-threading performs the deferral.
  *
  *  `mayOp` is conservative but shape-aware: only terms that can transitively
- *  reach an `App` or a `__method__` dispatch (the two Op sources in bridged
- *  code) are wrapped. Pure-arith call arguments (`loop(n - 1)`) stay untouched,
+ *  reach an `App` or a dynamic method/effect dispatch (the Op sources in
+ *  bridged code) are wrapped. Pure-arith call arguments (`loop(n - 1)`) stay untouched,
  *  preserving the compiler's syntactic TCO / while-fusion fast paths. `handle`
  *  applications need no special case: their arguments are Lams (thunk + handler),
  *  which are values and never wrapped. `While` is left alone entirely (its
@@ -40,16 +40,16 @@ object OpAnf:
     Program(p.defs.map(d => CDef(d.name, tx(d.body))), tx(p.entry))
 
   /** May evaluating this term return a raw `DataV("Op", …)`?
-   *  Op sources in bridged code: any function call (App) and `__method__`
-   *  dispatch (effect performs are method calls on the effect tag). Wrappers
+   *  Op sources in bridged code: any function call (App), ordinary/extension
+   *  dynamic dispatch, and reusable/one-shot effect dispatch. Wrappers
    *  that thread Ops (Let/Seq/If/Match) may RETURN a rewrapped Op when any
    *  constituent may. Lam/Ctor/Lit/Local/Global are values (a Ctor FIELD may
    *  hold an Op, but the Ctor itself is not one — fields are wrapped at their
    *  own position by `tx`). */
   private def mayOp(t: T): Boolean = t match
-    case T.App(_, _)             => true
-    case T.Prim("__method__", _) => true
-    case T.Prim(_, as)           => as.exists(mayOp)
+    case T.App(_, _) => true
+    case T.Prim("__method__" | "__methodOrExt__" | "__effect__" | "__effect_oneshot__", _) => true
+    case T.Prim(_, as) => as.exists(mayOp)
     case T.Let(rhs, b)           => rhs.exists(mayOp) || mayOp(b)
     case T.LetRec(_, b)          => mayOp(b)
     case T.If(c, x, y)           => mayOp(c) || mayOp(x) || mayOp(y)

@@ -278,7 +278,7 @@ object JvmByteGen:
     // App to a provably-pure top-level def is effect-free (e.g. `area(s)` in a
     // foreach body); other calls stay conservatively effectful.
     case Term.App(Term.Global(g), args) => pureDefs.contains(g) && args.forall(pureNoEffect(_, pureDefs))
-    case _ => false // other App, __method__/__effect__/__methodOrExt__, Lam, LetRec, While — conservatively effectful
+    case _ => false // other App, method/effect dispatch, Lam, LetRec, While — conservatively effectful
 
   /** Conservative may-produce-Op classifier (mirrors OpAnf.mayOp): only terms
    *  that can reach an App or a method/effect dispatch can yield an Op. */
@@ -286,7 +286,7 @@ object JvmByteGen:
     case Term.App(_, _) => true
     case Term.Prim(op, args) =>
       op == "__method__" || op == "__effect__" || op == "__methodOrExt__" ||
-        op == "__spliceUnwrap__" || args.exists(mayOp)
+        op == "__effect_oneshot__" || op == "__spliceUnwrap__" || args.exists(mayOp)
     case Term.If(c, a, b)    => mayOp(c) || mayOp(a) || mayOp(b)
     case Term.Seq(ts)        => ts.exists(mayOp)
     case Term.Let(r, b)      => r.exists(mayOp) || mayOp(b)

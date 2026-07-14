@@ -655,6 +655,121 @@ public enum SessionProbe {
     val program = Program(Nil, Term.Prim("effect.handle", List(computation, handler)))
     assert(runSwift("effects", program) == "30")
 
+  test("real swift rejects a second one-shot resume outside user try and before the suffix"):
+    assume(swiftAvailable, "Swift toolchain is not available")
+    def int(value: Long) = Term.Lit(Const.CInt(value))
+    def str(value: String) = Term.Lit(Const.CStr(value))
+    def resume(value: Long) = Term.App(Term.Local(0), List(int(value)))
+    val chooseBody = Term.Seq(List(
+      resume(10),
+      resume(20),
+      Term.Prim("io.println", List(str("LOSING-SUFFIX"))),
+      int(0),
+    ))
+    val handler = Term.Lam(1, Term.Match(
+      Term.Local(0),
+      List(
+        Arm("Choose", 2, chooseBody),
+        Arm("Return", 1, Term.Local(0)),
+      ),
+      None,
+    ))
+    val performed = Term.Prim("effect.perform.oneshot", List(str("Demo"), str("Choose"), int(1)))
+    val lifted = Term.Prim("__arith__", List(str("+"), performed, int(0)))
+    val handled = Term.Prim("effect.handle", List(lifted, handler))
+    val attempted = Term.Prim("__try__", List(
+      Term.Lam(0, handled),
+      Term.Lam(1, Term.Prim("io.println", List(str("CAUGHT")))),
+    ))
+    val result = runSwiftResult("oneShotFailure", Program(Nil, attempted))
+    assert(result.exit != 0)
+    assert(result.stderr.contains(
+      "error [ONESHOT_VIOLATION]: One-shot violation: Demo.Choose resumed more than once"), result.stderr)
+    assert(!result.stdout.contains("LOSING-SUFFIX"), result.stdout)
+    assert(!result.stdout.contains("CAUGHT"), result.stdout)
+
+  test("real swift one-shot claim is linearizable across concurrent native invocations"):
+    assume(swiftAvailable, "Swift toolchain is not available")
+    val operation = Term.Prim("effect.perform.oneshot", List(
+      Term.Lit(Const.CStr("Concurrent")),
+      Term.Lit(Const.CStr("claim")),
+    ))
+    val probe = """
+import Foundation
+import Dispatch
+
+private final class ContinuationBox: @unchecked Sendable {
+    let invoke: ([SscValue]) throws -> SscValue
+    init(_ continuation: SscClosure) {
+        guard let native = continuation.native else { fatalError("expected native one-shot continuation") }
+        invoke = native
+    }
+}
+
+private final class ClaimResults: @unchecked Sendable {
+    private let lock = NSLock()
+    private var wins = 0
+    private var losses = 0
+    private var others = 0
+    private var identities = Set<String>()
+    private var diagnostics = Set<String>()
+
+    func recordWin() {
+        lock.lock(); defer { lock.unlock() }
+        wins += 1
+    }
+
+    func recordLoss(_ failure: SscControlRunFailure) {
+        lock.lock(); defer { lock.unlock() }
+        losses += 1
+        diagnostics.insert(failure.rendered)
+        if case let .alreadyResumed(operation) = failure.rejection {
+            identities.insert("\(operation.effect.value).\(operation.name)")
+        }
+    }
+
+    func recordOther() {
+        lock.lock(); defer { lock.unlock() }
+        others += 1
+    }
+
+    func summary() -> String {
+        lock.lock(); defer { lock.unlock() }
+        return "wins=\(wins);losses=\(losses);others=\(others);ids=\(identities.sorted().joined(separator: ","));diagnostics=\(diagnostics.sorted().joined(separator: ","))"
+    }
+}
+
+public enum SessionProbe {
+    public static func run() {
+        let program = sscDecodeProgram(sscProgramSExpr, fieldLayouts: sscProgramFieldLayouts)
+        let value = SscRuntime.evaluate(program)
+        guard case let .data("Op", fields) = value,
+              fields.count == 3,
+              case let .closure(continuation) = fields[2] else {
+            fatalError("expected one-shot Op")
+        }
+        let box = ContinuationBox(continuation)
+        let results = ClaimResults()
+        DispatchQueue.concurrentPerform(iterations: 64) { index in
+            do {
+                _ = try box.invoke([.int(Int64(index))])
+                results.recordWin()
+            } catch let failure as SscControlRunFailure {
+                results.recordLoss(failure)
+            } catch {
+                results.recordOther()
+            }
+        }
+        Swift.print(results.summary())
+    }
+}
+"""
+    val result = runSwiftResult("oneShotConcurrent", Program(Nil, operation), probe = Some(probe))
+    assert(result.exit == 0, result.stderr)
+    assert(result.stdout ==
+      "wins=1;losses=63;others=0;ids=Concurrent.claim;diagnostics=" +
+      "error [ONESHOT_VIOLATION]: One-shot violation: Concurrent.claim resumed more than once", result.stdout)
+
   test("real swift run exposes executable arguments through io.args"):
     assume(swiftAvailable, "Swift toolchain is not available")
     val program = Program(Nil, Term.Prim("io.args", Nil))
@@ -1104,6 +1219,52 @@ public enum SessionProbe {
       StandardCharsets.UTF_8,
     ).trim
     assert(runSwift("transitiveEffects", program) == expected)
+
+  test("checked effect multiplicity preserves one-shot rejection and explicit multi-shot reuse on Swift"):
+    assume(swiftAvailable, "Swift toolchain is not available")
+    def checked(source: String): Program =
+      FrontendBridge.resetState()
+      PluginBridge.loadAll()
+      FrontendBridge.convertSource(
+        source,
+        Some(repoRoot.toFile),
+      )
+
+    val oneShotSource = """
+```scalascript
+effect One:
+  def op(): Int
+
+val result = handle(One.op()) {
+  case One.op(resume) => resume(1) + resume(2)
+  case Return(value)  => value
+}
+println(s"suffix: $result")
+```
+"""
+    val rejected = runSwiftResult(
+      "checkedOneShot",
+      checked(oneShotSource),
+    )
+    assert(rejected.exit != 0)
+    assert(rejected.stderr.contains(
+      "error [ONESHOT_VIOLATION]: One-shot violation: One.op resumed more than once"), rejected.stderr)
+    assert(!rejected.stdout.contains("suffix:"), rejected.stdout)
+
+    val multiShotSource = """
+```scalascript
+multi effect Many:
+  def op(): Int
+
+val result = handle(Many.op()) {
+  case Many.op(resume) => resume(1) + resume(2)
+  case Return(value)   => value
+}
+println(result)
+```
+"""
+    val reusable = checked(multiShotSource)
+    assert(runSwift("checkedMultiShot", reusable) == "3")
 
   test("checked std/ui source runs through FrontendBridge and Swift NativeUi host"):
     assume(swiftAvailable, "Swift toolchain is not available")

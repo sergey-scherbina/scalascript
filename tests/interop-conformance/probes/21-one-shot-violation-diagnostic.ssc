@@ -1,0 +1,23 @@
+---
+name: interop-21-one-shot-violation-diagnostic
+axis: one-shot-violation-diagnostic
+status: measurable-now
+expected-exit: nonzero
+expected-stream: stderr
+---
+
+# Axis 21 — one-shot violation diagnostic
+
+A plain effect has a one-shot continuation. The first `resume` claims it; the
+second must abort the run with the stable structured diagnostic. The print is an
+outer suffix and therefore must produce no stdout after the rejection.
+
+```scalascript
+effect One:
+  def op(): Int
+
+val result = handle(One.op()) {
+  case One.op(resume) => resume(1) + resume(2)
+}
+println(s"suffix: $result")
+```

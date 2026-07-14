@@ -543,6 +543,83 @@ class FrontendBridgeTest extends AnyFunSuite:
       Value.DataV("Tuple2", Vector(Value.IntV(1), Value.IntV(2))))
   }
 
+  test("bridge preserves plain and multi effect dispatch multiplicity") {
+    val source =
+      """effect Once:
+        |  def plain(value: Int): Int
+        |  def curried(left: Int)(right: Int): Int
+        |
+        |multi effect Many:
+        |  def plain(value: Int): Int
+        |  def curried(left: Int)(right: Int): Int
+        |
+        |val onePlain = Once.plain(1)
+        |val manyPlain = Many.plain(2)
+        |val oneCurried = Once.curried(3)(4)
+        |val manyCurried = Many.curried(5)(6)
+        |""".stripMargin
+
+    def collect(term: Term): List[(String, List[Term])] = term match
+      case p @ Term.Prim(name, args) => (name -> args) :: args.flatMap(collect)
+      case Term.Lam(_, body)         => collect(body)
+      case Term.App(fn, args)        => collect(fn) ++ args.flatMap(collect)
+      case Term.Let(rhs, body)       => rhs.flatMap(collect) ++ collect(body)
+      case Term.LetRec(lams, body)   => lams.flatMap(collect) ++ collect(body)
+      case Term.If(cond, yes, no)    => collect(cond) ++ collect(yes) ++ collect(no)
+      case Term.Ctor(_, fields)      => fields.flatMap(collect)
+      case Term.Match(scrut, arms, default) =>
+        collect(scrut) ++ arms.flatMap(arm => collect(arm.body)) ++ default.toList.flatMap(collect)
+      case Term.While(cond, body)    => collect(cond) ++ collect(body)
+      case Term.Seq(terms)           => terms.flatMap(collect)
+      case _                         => Nil
+
+    val program = FrontendBridge.convertSource(source)
+    val markers = program.defs.flatMap(d => collect(d.body)) ++ collect(program.entry)
+
+    assert(markers.exists {
+      case ("__effect_oneshot__",
+          Term.Lit(Const.CStr("Once")) :: Term.Lit(Const.CStr("plain")) :: _ ::
+            Term.Lit(Const.CInt(1)) :: Nil) => true
+      case _ => false
+    })
+    assert(markers.exists {
+      case ("__effect_oneshot__",
+          Term.Lit(Const.CStr("Once")) :: Term.Lit(Const.CStr("curried")) :: _ ::
+            Term.Lit(Const.CInt(3)) :: Term.Lit(Const.CInt(4)) :: Nil) => true
+      case _ => false
+    })
+    assert(markers.exists {
+      case ("__effect__",
+          Term.Lit(Const.CStr("plain")) :: Term.Ctor("Many", Nil) ::
+            Term.Lit(Const.CInt(2)) :: Nil) => true
+      case _ => false
+    })
+    assert(markers.exists {
+      case ("__effect__",
+          Term.Lit(Const.CStr("curried")) :: Term.Ctor("Many", Nil) ::
+            Term.Lit(Const.CInt(5)) :: Term.Lit(Const.CInt(6)) :: Nil) => true
+      case _ => false
+    })
+    assert(!markers.exists {
+      case ("__effect_oneshot__", Term.Lit(Const.CStr("Many")) :: _) => true
+      case _ => false
+    })
+  }
+
+  test("bridge Op ANF lifts every dynamic effect dispatch marker") {
+    val dynamicOps = List("__effect__", "__effect_oneshot__", "__methodOrExt__")
+
+    dynamicOps.foreach { op =>
+      val dispatch = Term.Prim(op, List(Term.Lit(Const.CStr("operation"))))
+      val input = Program(Nil, Term.App(Term.Global("consume"), List(dispatch)))
+      val expected = Term.Let(
+        List(dispatch),
+        Term.App(Term.Global("consume"), List(Term.Local(0))))
+
+      assert(OpAnf.lift(input).entry == expected, s"$op was not lifted")
+    }
+  }
+
   test("v2 VM effect handlers match free-monad Op values from ssc0") {
     assert(runSsc0File("v2/examples/effects-state.ssc0") ==
       Value.DataV("Pair", Vector(Value.IntV(2), Value.IntV(2))))

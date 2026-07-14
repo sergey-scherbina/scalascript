@@ -118,7 +118,7 @@ object SwiftBackend:
     "dec.div", "dec.rem", "dec.compare", "dec.set-scale", "dec.pow",
     "dec.abs", "dec.negate", "dec.signum", "dec.scale", "dec.unscaled",
     "dec.to-bigint", "dec.to-string",
-    "effect.pure", "effect.perform", "effect.handle",
+    "effect.pure", "effect.perform", "effect.perform.oneshot", "effect.handle",
     "f.add", "f.sub", "f.mul", "f.div", "f.neg",
     "f.sqrt", "f.floor", "f.ceil", "f.round", "f.trunc",
     "f.eq", "f.lt", "f.le", "f.gt", "f.ge", "f.isNaN", "f.isInf",
@@ -131,7 +131,7 @@ object SwiftBackend:
     "map.new", "map.get", "map.put", "map.has", "map.del", "map.keys", "map.size",
     "arr.new", "arr.len", "arr.get", "arr.set", "arr.push", "arr.pop", "arr.slice",
     "__mk_arr__", "__mk_map__", "__math_obj__", "__match_fail_prim__",
-    "__method__", "__effect__", "__arith__", "__unary__", "__try__",
+    "__method__", "__effect__", "__effect_oneshot__", "__arith__", "__unary__", "__try__",
     "io.print", "io.println", "io.nanoTime", "io.args", "global.reg",
   )
 

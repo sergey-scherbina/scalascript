@@ -12,6 +12,9 @@ object StandardMain:
   def main(rawArgs: Array[String]): Unit =
     try dispatch(rawArgs.toList.filterNot(_ == "--quiet"))
     catch
+      case failure: _root_.ssc.ControlRunFailure =>
+        System.err.println(failure.rendered)
+        System.exit(1)
       case NonFatal(error) =>
         System.err.println(s"ssc: ${Option(error.getMessage).getOrElse(error.getClass.getSimpleName)}")
         System.exit(1)

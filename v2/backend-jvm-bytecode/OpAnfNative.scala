@@ -18,8 +18,9 @@ import ssc.{Term as T, Arm, Def as CDef, Program}
  *  DELIBERATELY EXCLUDED (the same reason OpAnf carries `isHandle`):
  *   - `effect.handle(compute, handler)` — the computation must reach the handler
  *     RAW; letifying it threads the Op past its own handler.
- *   - `effect.perform` / `effect.pure` — the Op SOURCE / a pure lift; their args
- *     are already values (label + performed argument) and must not be deferred.
+ *   - `effect.perform` / `effect.perform.oneshot` / `effect.pure` — the Op
+ *     SOURCE / a pure lift; their args are already values (identity + performed
+ *     argument) and must not be deferred.
  *
  *  Applied by default on the native lane (RunNativeV2 / NativeJvmArtifact).
  *  Escape hatch `SSC_NO_OPANF=1` skips it; `SSC_DUMP_IR=<defname>` prints that
@@ -48,7 +49,7 @@ object OpAnfNative:
     case T.App(_, _) => true
     case T.Prim(op, as) =>
       op == "__method__" || op == "__effect__" || op == "__methodOrExt__" ||
-        op == "__spliceUnwrap__" || as.exists(mayOp)
+        op == "__effect_oneshot__" || op == "__spliceUnwrap__" || as.exists(mayOp)
     case T.Let(rhs, b)       => rhs.exists(mayOp) || mayOp(b)
     case T.LetRec(_, b)      => mayOp(b)
     case T.If(c, x, y)       => mayOp(c) || mayOp(x) || mayOp(y)
@@ -58,7 +59,8 @@ object OpAnfNative:
 
   /** Prims whose arguments must NOT be lifted (see class doc). */
   private def isEffectPrim(op: String): Boolean =
-    op == "effect.handle" || op == "effect.perform" || op == "effect.pure"
+    op == "effect.handle" || op == "effect.perform" ||
+      op == "effect.perform.oneshot" || op == "effect.pure"
 
   private def tx(t: T): T = t match
     case T.App(f, as) =>

@@ -1578,21 +1578,31 @@ final class RunCmd extends CliCommand:
     if nativeFlag then
       if fileArgs.isEmpty then { println("Error: No files specified"); System.exit(1) }
       try RunNativeV2.run(fileArgs.toList, programArgv, bytecodeFlag)
-      catch case e: Exception =>
-        System.err.println(s"run --native: ${Option(e.getMessage).getOrElse(e.getClass.getSimpleName)}")
-        System.exit(1)
+      catch
+        case failure: _root_.ssc.ControlRunFailure =>
+          System.err.println(failure.rendered)
+          System.exit(1)
+        case e: Exception =>
+          System.err.println(s"run --native: ${Option(e.getMessage).getOrElse(e.getClass.getSimpleName)}")
+          System.exit(1)
       return
 
     // `--v2`: force the ssc 2.0 VM (v1 frontend → FrontendBridge → v2 runtime).
     // Plain default-lane runs reach the same path below unless `--v1` is set.
     if bytecodeFlag then
       if fileArgs.isEmpty then { println("Error: No files specified"); System.exit(1) }
-      RunV2.runBytecode(fileArgs.toList, programArgv)
+      try RunV2.runBytecode(fileArgs.toList, programArgv)
+      catch case failure: _root_.ssc.ControlRunFailure =>
+        System.err.println(failure.rendered)
+        System.exit(1)
       return
 
     if (v2Flag || compatFrontendFlag) && !appleTarget then
       if fileArgs.isEmpty then { println("Error: No files specified"); System.exit(1) }
-      RunV2.run(fileArgs.toList, programArgv)
+      try RunV2.run(fileArgs.toList, programArgv)
+      catch case failure: _root_.ssc.ControlRunFailure =>
+        System.err.println(failure.rendered)
+        System.exit(1)
       return
 
     val runMode = modeFlag.map(_.trim.toLowerCase)
@@ -1732,7 +1742,10 @@ final class RunCmd extends CliCommand:
             scala.util.Try(shouldUseV2DefaultRunner(loadModule(path))).getOrElse(false)
         }
     then
-      RunV2.run(fileArgs.toList, programArgv)
+      try RunV2.run(fileArgs.toList, programArgv)
+      catch case failure: _root_.ssc.ControlRunFailure =>
+        System.err.println(failure.rendered)
+        System.exit(1)
       return
 
     rejectProgramArgs("the selected non-v2 runner")

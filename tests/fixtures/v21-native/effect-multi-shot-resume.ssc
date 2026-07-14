@@ -1,0 +1,15 @@
+---
+name: v21-native-effect-multi-shot-resume
+---
+
+# Explicit reusable resumption
+
+```scalascript
+multi effect Many:
+  def op(): Int
+
+val result = handle(Many.op()) {
+  case Many.op(resume) => resume(1) + resume(2)
+}
+println(result)
+```

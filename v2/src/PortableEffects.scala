@@ -2,8 +2,10 @@ package ssc
 
 /** Portable explicit algebraic-effect runtime.
  *
- * User effects are ordinary reusable-closure values: Pure(v) or
- * Op(label, argument, continuation). This object owns the target contract used
+ * Effects are ordinary closure values: Pure(v) or
+ * Op(label, argument, continuation). Raw `effect.perform` continuations are
+ * reusable; typed plain `.ssc effect` declarations use the explicitly gated
+ * `effect.perform.oneshot` primitive. This object owns the target contract used
  * by the VM and generated backends. V2EffectContext is deliberately separate:
  * it adapts legacy JVM BlockForm plugins and is not compiled-target semantics.
  */
@@ -11,7 +13,7 @@ object PortableEffects:
   import Value.*
 
   val primitiveNames: Set[String] = Set(
-    "effect.pure", "effect.perform", "effect.handle",
+    "effect.pure", "effect.perform", "effect.perform.oneshot", "effect.handle",
   )
 
   private def fail(message: String): Nothing =
@@ -28,6 +30,35 @@ object PortableEffects:
     val identity = ClosV(Runtime.emptyEnv, 1, env => Done(env.last))
     DataV("Op", Vector(StrV(label), packArgs(args), identity))
 
+  private def operationLabel(effectId: String, operationName: String): String =
+    s"$effectId.$operationName"
+
+  private def rejected(operation: OperationId): Nothing =
+    throw new ControlRunFailure(ResumeRejected.AlreadyResumed(operation))
+
+  /** Add one linearizable claim to the continuation of the exact operation.
+   * The identity is supplied separately and never reconstructed by splitting
+   * the legacy display/dispatch label. Non-matching dispatch results (for
+   * example an active plugin handler returning a value) pass through unchanged. */
+  def guardOperation(effectId: String, operationName: String, value: Value): Value =
+    val expectedLabel = operationLabel(effectId, operationName)
+    val operation = OperationId(EffectId(effectId), operationName)
+    value match
+      case DataV("Op", IndexedSeq(StrV(label), argument, continuation: ClosV))
+          if label == expectedLabel =>
+        val claimed = new java.util.concurrent.atomic.AtomicBoolean(false)
+        val guarded = ClosV(Array[Value](continuation), 1, env =>
+          if claimed.compareAndSet(false, true) then
+            Done(Prims.runClos1(env(0).asInstanceOf[ClosV], env.last))
+          else rejected(operation)
+        )
+        DataV("Op", Vector(StrV(label), argument, guarded))
+      case other => other
+
+  def performOneShot(effectId: String, operationName: String, args: List[Value]): Value =
+    guardOperation(effectId, operationName,
+      perform(operationLabel(effectId, operationName), args))
+
   private def call1(value: Value, argument: Value, label: String): Value = value match
     case closure: ClosV => Prims.runClos1(closure, argument)
     case other => fail(s"$label must be a one-argument closure, got ${Show.show(other)}")
@@ -36,9 +67,10 @@ object PortableEffects:
     val dot = label.lastIndexOf('.')
     if dot < 0 then label else label.substring(dot + 1)
 
-  /** Fold an explicit computation through a user handler. `resume` is a plain
-   * reusable closure, so invoking it more than once preserves multi-shot
-   * semantics without cloning a host stack. */
+  /** Fold an explicit computation through a user handler. The handler-facing
+   * `resume` delegates to the operation's original continuation: raw/multi
+   * continuations remain reusable while typed one-shot continuations retain
+   * their single base claim through every deep wrapper. */
   def handle(computation: Value, handler: Value): Value = computation match
     case DataV("Pure", IndexedSeq(value)) => handle(value, handler)
     case DataV("Op", IndexedSeq(StrV(label), argument, continuation: ClosV)) =>
@@ -66,6 +98,11 @@ object PortableEffects:
     case "effect.perform" => args match
       case StrV(label) :: operationArgs => perform(label, operationArgs)
       case _ => fail("effect.perform expects a String label followed by operation arguments")
+    case "effect.perform.oneshot" => args match
+      case StrV(effectId) :: StrV(operationName) :: operationArgs =>
+        performOneShot(effectId, operationName, operationArgs)
+      case _ => fail(
+        "effect.perform.oneshot expects String effect and operation names followed by operation arguments")
     case "effect.handle" => args match
       case List(computation, handler) => handle(computation, handler)
       case _ => fail(s"effect.handle expects 2 arguments, got ${args.length}")

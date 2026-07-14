@@ -189,7 +189,8 @@ object FrontendBridge:
     yamlSectionIds.clear()
     hoistedValNames.clear()
     curriedExternMethods.clear()
-    effectNames.clear()
+    oneShotEffectNames.clear()
+    multiEffectNames.clear()
     lastExtractDocOnly = false
     globalVarNames.clear()
     defParamNames.clear()
@@ -352,11 +353,15 @@ object FrontendBridge:
    *  second-step fn from the first application, so the call MUST stay two-step
    *  (merging feeds all args at once → the native's usage error). */
   private val knownCurriedNatives = Set("tool", "toolWithSchema", "resource", "prompt")
-  /** Declared effect names (`effect Foo:` / `multi effect Foo:`): ops on these
-   *  receivers emit the __effect__ prim so FastCode's long fast-tier declines
-   *  the containing tree — an un-handled Op must reach the lifting dispatch,
-   *  not an unboxing asInt seam. */
-  private val effectNames = collection.mutable.HashSet[String]()
+  /** Declared effect names retain their source multiplicity even though the
+   *  compatibility parser normalizes `multi effect` to `effect`. Plain effects
+   *  emit the bridge-private `__effect_oneshot__` marker with explicit effect
+   *  and operation identity; multi effects retain reusable `__effect__`
+   *  dispatch. Both markers also keep FastCode's long fast-tier away from
+   *  unresolved Ops so they reach the lifting dispatch rather than an unboxing
+   *  seam. */
+  private val oneShotEffectNames = collection.mutable.HashSet[String]()
+  private val multiEffectNames   = collection.mutable.HashSet[String]()
   /** Set when the last extractCode returned an EMPTY program because the
    *  source is a fence-less markdown document (doc-only). Run paths use it
    *  to print a note instead of a silent no-op. */
@@ -810,6 +815,8 @@ object FrontendBridge:
     curriedVarargDefs.clear()
     zeroArgDefs.clear()
     parenlessUserDefs.clear()
+    oneShotEffectNames.clear()
+    multiEffectNames.clear()
     PluginBridge.clearRemoteHandlers()
     pendingRemoteHandlers = Vector.empty
     curryFirstClauseDefaults.clear()
@@ -938,14 +945,18 @@ object FrontendBridge:
    *  `@openapi(args) route(...)` → `openapi(args)\nroute(...)`.
    *  The v1 parser has a dedicated preprocessor for this; we just strip the `@`. */
   private def preprocessAtAnnotations(code: String): String =
-    // `multi effect X:` — the multishot marker is a no-op for the bridge (the
-    // Free-monad Op lifting makes every effect resumable); `multi` alone would
-    // parse as an unbound ident.
+    // Preserve declaration multiplicity BEFORE normalizing the bridge input:
+    // ScalaMeta cannot parse the `multi` modifier, but runtime dispatch must not
+    // silently upgrade a plain effect to reusable. Anchoring the plain pattern
+    // at `effect` keeps `multi effect` out of the one-shot set.
     val noMulti =
-      val norm = if code.contains("multi effect ") then code.replace("multi effect ", "effect ") else code
-      """(?m)^\s*effect\s+([A-Za-z_][A-Za-z0-9_]*)\s*:""".r
-        .findAllMatchIn(norm).foreach(m => effectNames += m.group(1))
-      norm
+      val multiDecl = """(?m)^\s*multi\s+effect\s+([A-Za-z_][A-Za-z0-9_]*)\s*:""".r
+      val oneShotDecl = """(?m)^\s*effect\s+([A-Za-z_][A-Za-z0-9_]*)\s*:""".r
+      multiDecl.findAllMatchIn(code).foreach(m => multiEffectNames += m.group(1))
+      oneShotDecl.findAllMatchIn(code).foreach(m => oneShotEffectNames += m.group(1))
+      if !code.contains("multi") then code
+      else """(?m)^(\s*)multi\s+effect(\s+)""".r.replaceAllIn(code, m =>
+        s"${m.group(1)}effect${m.group(2)}")
     if !noMulti.contains("@openapi") then noMulti
     else noMulti.replace("@openapi(", "openapi(")
 
@@ -2096,7 +2107,9 @@ object FrontendBridge:
       else if qualIsTypeName && !qualIsMethodObject && isCtorName(name) && (!fieldRegistry.contains(name) || isZeroArgEnumCase) then CT.Ctor(name, Nil)
       else
         val q = convertExpr(qual, scope)
-        if extensionMethods.contains(name) then
+        if isEffectReceiver(qual) then
+          methodCallFor(qual, name, q, Nil)
+        else if extensionMethods.contains(name) then
           CT.App(CT.Global(name), List(q))
         else if caseClassMethodNames.contains(name) then
           CT.Prim("__methodOrExt__", List(CT.Lit(Const.CStr(name)), q, CT.Global(name)))
@@ -2227,13 +2240,26 @@ object FrontendBridge:
         CT.App(CT.Global(name), Nil)
       else CT.Global(name)
 
-  /** __effect__ for ops on DECLARED effect receivers (Bump.tick()): same
-   *  runtime semantics as __method__, but FastCode has no arm for it — the
-   *  long fast-tier declines the containing tree and un-handled Ops reach
-   *  the lifting dispatch instead of an unboxing asInt seam. */
-  private def methodPrimFor(qual: Term): String = qual match
-    case Term.Name(n) if effectNames.contains(n) => "__effect__"
-    case _                                       => "__method__"
+  private def isEffectReceiver(qual: Term): Boolean = qual match
+    case Term.Name(n) => oneShotEffectNames.contains(n) || multiEffectNames.contains(n)
+    case _            => false
+
+  /** Build dynamic dispatch while retaining typed-effect multiplicity.
+   *
+   *  `__effect_oneshot__` is intentionally bridge-private: Runtime first uses
+   *  ordinary method/effect dispatch (preserving active contexts and plugin
+   *  fallbacks), then wraps the matching Op continuation with PortableEffects'
+   *  shared one-shot gate. The explicit strings are the structured OperationId;
+   *  no runtime code needs to split the legacy display label. */
+  private def methodCallFor(qual: Term, method: String, receiver: CT, args: List[CT]): CT =
+    qual match
+      case Term.Name(effect) if oneShotEffectNames.contains(effect) =>
+        CT.Prim("__effect_oneshot__",
+          CT.Lit(Const.CStr(effect)) :: CT.Lit(Const.CStr(method)) :: receiver :: args)
+      case Term.Name(effect) if multiEffectNames.contains(effect) =>
+        CT.Prim("__effect__", CT.Lit(Const.CStr(method)) :: receiver :: args)
+      case _ =>
+        CT.Prim("__method__", CT.Lit(Const.CStr(method)) :: receiver :: args)
 
   private def convertAssign(a: Term.Assign, scope: List[String]): CT =
     a.lhs match
@@ -2444,7 +2470,9 @@ object FrontendBridge:
         else
           val q = convertExpr(qual, scope)
           // Extension method → global call with receiver as first arg
-          if (extensionMethods.contains(mname) || caseClassMethodNames.contains(mname)) &&
+          if isEffectReceiver(qual) then
+            methodCallFor(qual, mname, q, args)
+          else if (extensionMethods.contains(mname) || caseClassMethodNames.contains(mname)) &&
              !suppressExtName.contains(mname) then
             // Runtime-branching: a method-object receiver with its OWN `mname`
             // field wins over the extension global (a Prism's modify was hijacked
@@ -2454,9 +2482,9 @@ object FrontendBridge:
           else if args.isEmpty then
             fieldIndex(mname) match
               case Some(i) => CT.Prim("fieldAt", List(q, CT.Lit(Const.CInt(i)), CT.Lit(Const.CStr(mname))))
-              case None    => CT.Prim(methodPrimFor(qual), CT.Lit(Const.CStr(mname)) :: q :: args)
+              case None    => methodCallFor(qual, mname, q, args)
           else
-            CT.Prim(methodPrimFor(qual), CT.Lit(Const.CStr(mname)) :: q :: args)
+            methodCallFor(qual, mname, q, args)
       // Curried method application: qual.method(a)(b) — merge into one __method__ call
       case Term.Apply.After_4_6_0(Term.Select(qual, Term.Name(mname)), innerClause) if !isCtorName(mname) =>
         val q     = convertExpr(qual, scope)
@@ -2472,7 +2500,9 @@ object FrontendBridge:
             case _ => e
           convertExpr(eConv, scope)
         }
-        if curriedExternMethods.contains(mname) || knownCurriedNatives.contains(mname) then
+        if isEffectReceiver(qual) then
+          methodCallFor(qual, mname, q, inner ++ args)
+        else if curriedExternMethods.contains(mname) || knownCurriedNatives.contains(mname) then
           // extern `def m(a…)(b…)` OR a known curried plugin-native: the native
           // returns the SECOND-step fn from the first application — keep the
           // two-step (merging fed all args at once and the native raised its

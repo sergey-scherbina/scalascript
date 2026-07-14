@@ -4043,7 +4043,7 @@ def lowerStmtToList = (stmt) =>
         match data {
           case Pair(name, rest2) =>
             match rest2 {
-              case Pair(ignoredMulti, stmts) =>
+              case Pair(isMulti, stmts) =>
                 let rec lowerOps = (ss) =>
                   match ss {
                     case Nil => Nil
@@ -4062,8 +4062,15 @@ def lowerStmtToList = (stmt) =>
                                         case Cons(p, pt) => Cons(Pair("var", p), paramExprs(pt))
                                       } in
                                     let label = #sconcat(name, #sconcat(".", opName)) in
-                                    let body = IrPrim("effect.perform",
-                                      Cons(IrLit(IrStr(label)), lowerArgs(scope, paramExprs(params)))) in
+                                    let operationArgs = lowerArgs(scope, paramExprs(params)) in
+                                    let body =
+                                      if isMulti then
+                                        IrPrim("effect.perform",
+                                          Cons(IrLit(IrStr(label)), operationArgs))
+                                      else
+                                        IrPrim("effect.perform.oneshot",
+                                          Cons(IrLit(IrStr(name)),
+                                            Cons(IrLit(IrStr(opName)), operationArgs))) in
                                     Cons(IrDef(#sconcat(name, #sconcat("_", opName)),
                                       IrLam(lenL(params), body)), lowerOps(more))
                                 }
