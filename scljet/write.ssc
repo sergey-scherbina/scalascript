@@ -1238,7 +1238,15 @@ def buildMultiTableRaw(pageSize: Int, changeCounter: Int, schemaCookie: Int, tab
 // the record's last field). Reference `integrity_check` cross-checks the index
 // against its table, so a passing file proves the index is correct.
 
-case class IndexEntry(key: SqliteValue, rowid: Long, record: List[Int])
+case class IndexEntry(key: List[SqliteValue], rowid: Long, record: List[Int])
+
+/** Lexicographic comparison of composite index keys (single-level ops only, to
+ *  dodge the JIT nested-match bug). */
+def compareKeyList(a: List[SqliteValue], b: List[SqliteValue]): Int =
+  if a.isEmpty || b.isEmpty then 0
+  else
+    val c = compareKeys(a.head, b.head)
+    if c != 0 then c else compareKeyList(a.tail, b.tail)
 
 /** SQLite's cross-type sort order: NULL < numeric < TEXT < BLOB. */
 def valueClass(value: SqliteValue): Int = value match
@@ -1295,15 +1303,24 @@ def nthValue(values: List[SqliteValue], index: Int): SqliteValue =
     case Cons(_, tail) => nthValue(tail, index - 1)
     case Nil => SqlNull
 
-/** Build one index entry per row: record = `[key column value, rowid]`. */
-def buildIndexEntries(rows: List[List[SqliteValue]], keyColumn: Int, startRowid: Long): Either[ByteError, List[IndexEntry]] =
+/** The key-column values of a row, in `keyColumns` order. */
+def keyValues(row: List[SqliteValue], keyColumns: List[Int]): List[SqliteValue] =
+  var kvRemaining = keyColumns
+  var kvAcc: List[SqliteValue] = Nil
+  while kvRemaining.nonEmpty do
+    kvAcc = nthValue(row, kvRemaining.head) :: kvAcc
+    kvRemaining = kvRemaining.tail
+  kvAcc.reverse
+
+/** Build one index entry per row: record = `[key columns…, rowid]`. */
+def buildIndexEntries(rows: List[List[SqliteValue]], keyColumns: List[Int], startRowid: Long): Either[ByteError, List[IndexEntry]] =
   var bieRemaining = rows
   var bieRowid = startRowid
   var bieAcc: List[IndexEntry] = Nil
   var bieFailure: Option[ByteError] = None
   while bieRemaining.nonEmpty && bieFailure.isEmpty do
-    val bieKey = nthValue(bieRemaining.head, keyColumn)
-    encodeRecord(List(bieKey, SqlInteger(bieRowid))) match
+    val bieKey = keyValues(bieRemaining.head, keyColumns)
+    encodeRecord(bieKey ++ List(SqlInteger(bieRowid))) match
       case Left(error) => bieFailure = Some(error)
       case Right(record) =>
         bieAcc = IndexEntry(bieKey, bieRowid, byteSliceToList(record)) :: bieAcc
@@ -1316,7 +1333,7 @@ def buildIndexEntries(rows: List[List[SqliteValue]], keyColumn: Int, startRowid:
 def insertIndexEntry(sorted: List[IndexEntry], entry: IndexEntry): List[IndexEntry] = sorted match
   case Nil => entry :: Nil
   case Cons(head, tail) =>
-    val cmp = compareKeys(entry.key, head.key)
+    val cmp = compareKeyList(entry.key, head.key)
     if cmp < 0 || (cmp == 0 && entry.rowid < head.rowid) then entry :: sorted
     else head :: insertIndexEntry(tail, entry)
 
@@ -1345,14 +1362,14 @@ def indexLeafCells(entries: List[IndexEntry]): List[List[Int]] =
  *  must fit one leaf. */
 def buildTableWithIndexDatabase(pageSize: Int, changeCounter: Int, schemaCookie: Int,
     tableName: String, tableSql: String, indexName: String, indexSql: String,
-    keyColumn: Int, rows: List[List[SqliteValue]]): Either[ByteError, ByteSlice] =
+    keyColumns: List[Int], rows: List[List[SqliteValue]]): Either[ByteError, ByteSlice] =
   encodeRowCellsWithRowid(rows, 1L) match
     case Left(error) => Left(error)
     case Right(rowCells) =>
       val tableLeaves = packLeaves(rowCells, pageSize)
       val tablePages = treePageCount(tableLeaves, pageSize)
       val indexRoot = 2 + tablePages
-      buildIndexEntries(rows, keyColumn, 1L) match
+      buildIndexEntries(rows, keyColumns, 1L) match
         case Left(error) => Left(error)
         case Right(entries) =>
           val indexCells = indexLeafCells(sortIndexEntries(entries))

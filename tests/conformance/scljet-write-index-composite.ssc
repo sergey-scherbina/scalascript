@@ -1,0 +1,26 @@
+---
+name: scljet-write-index-composite
+description: SclJet composite (multi-column) index — an index B-tree keyed on two columns that reference SQLite validates and uses (cross-backend)
+backends: [int, js]
+---
+
+# SclJet composite index
+
+[ByteSlice, byteSliceToList, SqliteValue, SqlInteger, SqlText, buildTableWithIndexDatabase](std/scljet/index.ssc)
+
+```scalascript
+// A two-column index on (a, b). Entries are [a, b, rowid] records sorted
+// lexicographically by (a, b, rowid). Reference integrity_check validates the
+// index and the planner uses it for `a=? AND b=?`. int and JS agree.
+val rows = List(
+  List(SqlInteger(2L), SqlInteger(10L), SqlText("p")),
+  List(SqlInteger(1L), SqlInteger(20L), SqlText("q")),
+  List(SqlInteger(2L), SqlInteger(5L), SqlText("r")),
+  List(SqlInteger(1L), SqlInteger(10L), SqlText("s")),
+  List(SqlInteger(2L), SqlInteger(10L), SqlText("t")))
+
+buildTableWithIndexDatabase(512, 1, 1, "t", "CREATE TABLE t(a INTEGER, b INTEGER, v TEXT)",
+  "comp", "CREATE INDEX comp ON t(a, b)", List(0, 1), rows) match
+  case Right(bytes) => println((bytes.length / 512).toString + ":" + byteSliceToList(bytes).toString)
+  case Left(error) => println("ERROR:" + error.message)
+```

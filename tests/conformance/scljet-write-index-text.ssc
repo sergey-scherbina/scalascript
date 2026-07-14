@@ -20,7 +20,7 @@ val rows = List(
   List(SqlInteger(5L), SqlText("alice")))
 
 buildTableWithIndexDatabase(512, 1, 1, "t", "CREATE TABLE t(id INTEGER, name TEXT)",
-  "byname", "CREATE INDEX byname ON t(name)", 1, rows) match
+  "byname", "CREATE INDEX byname ON t(name)", List(1), rows) match
   case Right(bytes) => println((bytes.length / 512).toString + ":" + byteSliceToList(bytes).toString)
   case Left(error) => println("ERROR:" + error.message)
 ```
