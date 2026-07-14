@@ -1,6 +1,0 @@
-feature/scala3-control-api 2026-07-14T13:30:22Z
-agent: codex-interop
-heartbeat: 2026-07-14T15:43:44Z
-status: in-progress
-done-so-far: Tier-1 spec and leaf module landed; stackless Eff, handlers, continuations, shift/reset, key authority and ABI/type/runtime regression suites implemented in worktree
-next: run final 39-test/package/conformance verification, land code, then update docs and bookkeeping
