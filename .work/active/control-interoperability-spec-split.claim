@@ -1,6 +1,6 @@
 feature/control-interoperability-spec-split 2026-07-14T12:43:49Z
 agent: codex-interop
-heartbeat: 2026-07-14T12:43:49Z
-status: not-started
-done-so-far: joint Rozum design resolution reached
-next: create isolated worktree and write the resume-cold SPRINT plan
+heartbeat: 2026-07-14T12:44:22Z
+status: in-progress
+done-so-far: joint resolution reached; isolated worktree created
+next: write and commit the resume-cold SPRINT plan before editing specifications
