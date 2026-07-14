@@ -1004,12 +1004,16 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
         (both dispatched on the identifier in `parseAtom`, mirroring ssc1-front; a `spike.throw` node). p6.0
         harness **99 ok / 0 FAIL**; +1 unit test. **5 gaps found + scoped as KNOWN spike boundary** (deferred,
         below): they need a dedicated "imperative + currying" project.
-    - [ ] **P6.10 (backlog) — imperative + currying spike support.** Five constructs the spike does not yet
-          mirror byte-identically (all valid subset per ssc1-front): (a) curried `def f(a)(b)` — ssc1-front
-          FLATTENS to one param list `(lam 2 …)` and `f(2)(3)` → `(app (global f) 2 3)`; (b) nested `def` in a
-          block → `letrec`; (c) `var` + assignment `x = e`; (d) `while c do body`; (e) `for x <- xs do/yield`.
-          The spike currently targets the functional subset. Each is a parser+projection addition mirroring
-          ssc1-front; verify via `g2-*`-style toys + the p6.0 byte-diff.
+    - [x] **P6.10 — imperative + currying + comprehensions ✓ DONE 2026-07-14.** All FIVE P6.9 gaps now
+          byte-identical to ssc1-front (the spike is no longer functional-subset-only): (a) **curried**
+          `def f(a)(b)` — parseDef loops over param clauses, appending → one flat `(lam N)` (lowerProg flattens
+          the call by arity); (b) **nested `def`** in a block — parseStmt handles `def` → a block stmt →
+          lowerBlock's `letrec`; (c) **`var` + assignment** — `spike.var`/`spike.assign` → `Pair("var"/"assign",
+          …)`, backed by lcell in lowerProg; (d) **`while c do body`** → `Pair("while", (cond, body))`; (e)
+          **`for x <- gen do/yield e`** — desugared at parse time to `gen.foreach/map(x => e)`, guard →
+          `gen.filter` (a for-do body may be an assignment). `var`/`while`/`for`/`do` are dispatched by
+          identifier value (like ssc1-front, not lexer keywords). Regression: 9 `i-*` toys + 3 unit tests;
+          p6.0 harness **106 ok / 0 FAIL**.
 
 ---
 

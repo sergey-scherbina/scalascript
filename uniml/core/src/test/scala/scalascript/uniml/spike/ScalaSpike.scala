@@ -256,8 +256,11 @@ object SpikeParse:
     c.advance().foreach(t => kids += Node.Leaf(t, Some("def.kw"))) // `def`
     expect(c, "spike.id", "def.name", "def name").foreach(kids += _)
     skipTypeParams(c) // plain `[A, B]` are erased (like ssc1-front); context bounds `[A: TC]` deferred
-    // the `( … )` param clause is OPTIONAL — `def f: T = e` is a parameterless def.
-    if c.peekKind == "spike.lparen" then
+    // the `( … )` param clause is OPTIONAL — `def f: T = e` is a parameterless def. MULTIPLE clauses (curried
+    // `def f(a)(b)`) are FLATTENED into one param list — ssc1-front appends the 2nd clause's params, so the
+    // def lowers to a single `(lam N)` and lowerProg flattens the call by arity (all params share the
+    // `def.param` role, so defNode collects them in order across clauses).
+    while c.peekKind == "spike.lparen" do
       c.advance().foreach(t => kids += Node.Leaf(t, Some("def.lparen")))
       var moreParams = c.peekKind != "spike.rparen" && !c.eof && !isDefStart(c)
       while moreParams do
@@ -416,8 +419,15 @@ object SpikeParse:
     else c.report("spike.expected", "expected '}' to close block")
     Node.Frame("spike.block", None, stmts.result())
 
+  // `var`/`while`/`for`/`do` are not lexer keywords (like ssc1-front they are identifiers dispatched by value).
+  private def isWord(c: Cur, w: String): Boolean = c.peekKind == "spike.id" && c.peekLexeme == w
+
   private def parseStmt(c: Cur): Node =
     if isKw(c, "val") then parseVal(c)
+    else if isWord(c, "var") then parseVarStmt(c)                           // `var x [: T] = e`
+    else if isWord(c, "while") then parseWhile(c)                           // `while cond do body`
+    else if isDefStart(c) then parseDef(c)                                  // nested `def` in a block → letrec
+    else if c.peekKind == "spike.id" && c.peek2Kind == "spike.eq" then parseAssign(c) // `x = e`
     else parseExpr(c, 1) match
       case Some(e) => Node.Frame("spike.exprStmt", None, Vector(e.withRole("stmt.expr")))
       case None =>
@@ -435,6 +445,38 @@ object SpikeParse:
       case Some(e) => kids += e.withRole("val.rhs")
       case None    => c.report("spike.missing-rhs", "missing val right-hand side")
     Node.Frame("spike.val", None, kids.result())
+
+  // `var x [: T] = e` → Pair("var", (name, e)); lowerProg backs it with an lcell and rewrites reads/writes.
+  private def parseVarStmt(c: Cur): Node =
+    val kids = Vector.newBuilder[Node]
+    c.advance().foreach(t => kids += Node.Leaf(t, Some("var.kw"))) // `var`
+    expect(c, "spike.id", "var.name", "var name").foreach(kids += _)
+    if c.peekKind == "spike.colon" then { c.advance(); expectType(c, "var.type").foreach(kids += _) } // erased
+    expect(c, "spike.eq", "var.eq", "'='").foreach(kids += _)
+    parseExpr(c, 1) match
+      case Some(e) => kids += e.withRole("var.rhs")
+      case None    => c.report("spike.missing-rhs", "missing var right-hand side")
+    Node.Frame("spike.var", None, kids.result())
+
+  // `x = e` (assignment statement) → Pair("assign", (name, e)). Only reached in a block-statement position
+  // where the id is immediately followed by `=` (spike.eq, not `==`).
+  private def parseAssign(c: Cur): Node =
+    val kids = Vector.newBuilder[Node]
+    c.advance().foreach(t => kids += Node.Leaf(t, Some("assign.name"))) // id
+    c.advance() // `=`
+    parseExpr(c, 1) match
+      case Some(e) => kids += e.withRole("assign.rhs")
+      case None    => c.report("spike.missing-rhs", "missing assignment right-hand side")
+    Node.Frame("spike.assign", None, kids.result())
+
+  // `while cond [do] body` → Pair("while", (cond, body)); lowerProg emits a (while …) form.
+  private def parseWhile(c: Cur): Node =
+    val kids = Vector.newBuilder[Node]
+    c.advance().foreach(t => kids += Node.Leaf(t, Some("while.kw"))) // `while`
+    parseExpr(c, 1).foreach(cond => kids += cond.withRole("while.cond"))
+    if isWord(c, "do") then c.advance() // optional `do`
+    parseExpr(c, 1).foreach(body => kids += body.withRole("while.body"))
+    Node.Frame("spike.while", None, kids.result())
 
   // postfix layer: an atom followed by chained `.field` selections and/or `match { … }`
   // (mirroring ssc1-front's buildPostfix so precedence vs. infix ops matches exactly).
@@ -644,6 +686,7 @@ object SpikeParse:
       // these on the identifier value in parseAtom (not lexer keywords), so we mirror it here.
       case "spike.id" if c.peekLexeme == "throw" => Some(parseThrow(c))
       case "spike.id" if c.peekLexeme == "new"   => c.advance(); parseAtom(c)
+      case "spike.id" if c.peekLexeme == "for"   => Some(parseFor(c))
       // interpolator: an `s`/`f`/`raw`/`md` prefix immediately before a string token (ssc1-front
       // detects interpolation the same way — id value + following str, no adjacency check).
       case "spike.id" if isInterpPrefix(c.peekLexeme) && c.peek2Kind == "spike.str" => Some(parseInterp(c))
@@ -658,6 +701,27 @@ object SpikeParse:
     c.advance() // `throw`
     val e = parseExpr(c, 1).getOrElse(Node.Frame("spike.error", None, Vector.empty))
     Node.Frame("spike.throw", None, Vector(e.withRole("throw.expr")))
+
+  // `for x <- gen [if g] (do body | yield body)` — desugared (single binder) EXACTLY like ssc1-front's
+  // parseForFrom: `.foreach`/`.map` over gen (guard → `.filter` on gen first), body in a `x => …` lambda.
+  private def parseFor(c: Cur): Node =
+    val kids = Vector.newBuilder[Node]
+    c.advance() // `for`
+    if c.peekKind == "spike.lparen" || c.peekKind == "spike.lbrace" then c.advance()
+    expect(c, "spike.id", "for.binder", "for binder").foreach(kids += _)
+    if c.peekKind == "spike.op" && c.peekLexeme == "<-" then c.advance()
+    parseExpr(c, 1).foreach(g => kids += g.withRole("for.gen"))
+    if isKw(c, "if") then { c.advance(); parseExpr(c, 1).foreach(g => kids += g.withRole("for.guard")) }
+    if c.peekKind == "spike.rparen" || c.peekKind == "spike.rbrace" then c.advance()
+    if isWord(c, "yield") then c.advance().foreach(t => kids += Node.Leaf(t, Some("for.yield")))
+    else if isWord(c, "do") then c.advance()
+    kids += parseForBody(c).withRole("for.body")
+    Node.Frame("spike.for", None, kids.result())
+
+  // a for-body may be an assignment (imperative `for … do s = …`) or a plain expression.
+  private def parseForBody(c: Cur): Node =
+    if c.peekKind == "spike.id" && c.peek2Kind == "spike.eq" then parseAssign(c)
+    else parseExpr(c, 1).getOrElse(Node.Frame("spike.error", None, Vector.empty))
 
   private def isInterpPrefix(w: String): Boolean = w == "s" || w == "f" || w == "raw" || w == "md"
 
@@ -1000,6 +1064,22 @@ object SpikeProject:
       case "spike.throw" =>
         val e = kids(b).collectFirst { case (Some("throw.expr"), c) => expr(c) }.getOrElse(hole)
         s"""Pair("prim", Pair("__throw__", Cons($e, Nil)))"""
+      case "spike.assign" => // an assignment used as an expression (e.g. a for-do body) → same Pair("assign",…)
+        val name = kids(b).collectFirst { case (Some("assign.name"), c) => lexeme(c) }.getOrElse("_")
+        val rhs  = kids(b).collectFirst { case (Some("assign.rhs"), c) => expr(c) }.getOrElse(hole)
+        s"""Pair("assign", Pair("${esc(name)}", $rhs))"""
+      case "spike.for" =>
+        val binder  = kids(b).collectFirst { case (Some("for.binder"), c) => lexeme(c) }.getOrElse("_")
+        val gen0    = kids(b).collectFirst { case (Some("for.gen"), c) => expr(c) }.getOrElse(hole)
+        val guardO  = kids(b).collectFirst { case (Some("for.guard"), c) => expr(c) }
+        val body    = kids(b).collectFirst { case (Some("for.body"), c) => expr(c) }.getOrElse(hole)
+        val isYield = kids(b).exists { case (Some("for.yield"), _) => true; case _ => false }
+        def binderLam(e: String) = s"""mkLam(Cons("${esc(binder)}", Nil), $e)"""
+        val gen    = guardO match
+          case Some(g) => s"""mkApp(mkSel($gen0, "filter"), Cons(${binderLam(g)}, Nil))"""
+          case None    => gen0
+        val method = if isYield then "map" else "foreach"
+        s"""mkApp(mkSel($gen, "$method"), Cons(${binderLam(body)}, Nil))"""
       case "spike.summon" =>
         s"""Pair("summon", "${esc(kids(b).collectFirst { case (Some("summon.type"), c) => lexeme(c) }.getOrElse("_"))}")"""
       case "spike.pre" =>
@@ -1091,6 +1171,19 @@ object SpikeProject:
       s"""mkVal("${esc(name)}", $rhs)"""
     case b: UniNode.Branch if b.kind == "spike.exprStmt" =>
       s"""mkSExpr(${kids(b).collectFirst { case (Some("stmt.expr"), c) => expr(c) }.getOrElse(hole)})"""
+    case b: UniNode.Branch if b.kind == "spike.var" =>
+      val name = kids(b).collectFirst { case (Some("var.name"), c) => lexeme(c) }.getOrElse("_")
+      val rhs  = kids(b).collectFirst { case (Some("var.rhs"), c) => expr(c) }.getOrElse(hole)
+      s"""Pair("var", Pair("${esc(name)}", $rhs))"""
+    case b: UniNode.Branch if b.kind == "spike.assign" =>
+      val name = kids(b).collectFirst { case (Some("assign.name"), c) => lexeme(c) }.getOrElse("_")
+      val rhs  = kids(b).collectFirst { case (Some("assign.rhs"), c) => expr(c) }.getOrElse(hole)
+      s"""Pair("assign", Pair("${esc(name)}", $rhs))"""
+    case b: UniNode.Branch if b.kind == "spike.while" =>
+      val cond = kids(b).collectFirst { case (Some("while.cond"), c) => expr(c) }.getOrElse(hole)
+      val body = kids(b).collectFirst { case (Some("while.body"), c) => expr(c) }.getOrElse(hole)
+      s"""Pair("while", Pair($cond, $body))"""
+    case b: UniNode.Branch if b.kind == "spike.def" => defNode(b)
     case _ => s"""mkSExpr($hole)"""
 
   private def infix(b: UniNode.Branch): String =

@@ -423,6 +423,29 @@ final class ScalaSpikeSpec extends AnyFunSuite:
     assert(t.contains("""mkApp(mkUVar("RuntimeException")""") && !t.contains("\"new\""), t) // new stripped
   }
 
+  test("imperative block: `var`/assignment/`while` project to Pair(\"var\"/\"assign\"/\"while\") (P6.10)") {
+    val p = SpikeProject.program(parse("def main(): Int = { var x = 1  x = x + 2  while x < 9 do x = x + 1  x }").roots.head)
+    assert(p.contains("""Pair("var", Pair("x","""), p)
+    assert(p.contains("""Pair("assign", Pair("x","""), p)
+    assert(p.contains("""Pair("while", Pair("""), p)
+  }
+
+  test("nested `def` in a block, and curried `def f(a)(b)` flattened to one param list (P6.10)") {
+    val n = SpikeProject.program(parse("def outer(): Int = { def inner(x: Int): Int = x  inner(3) }").roots.head)
+    assert(n.contains("""mkDef("inner"""") && n.contains("""Pair("block"""), n) // nested def is a block stmt
+    val cu = SpikeProject.program(parse("def f(a: Int)(b: Int): Int = a + b").roots.head)
+    assert(cu.contains("""mkDef("f", Cons("a", Cons("b", Nil))"""), cu) // both clauses → one flat param list
+  }
+
+  test("`for x <- gen do/yield e` desugars to gen.foreach/map(x => e), guard → gen.filter (P6.10)") {
+    assert(SpikeProject.program(parse("def m(): Int = { for x <- xs do f(x)  0 }").roots.head)
+      .contains("""mkApp(mkSel(mkVar("xs"), "foreach"), Cons(mkLam(Cons("x", Nil)"""))
+    assert(SpikeProject.program(parse("def m(): List[Int] = for x <- xs yield x").roots.head)
+      .contains("""mkSel(mkVar("xs"), "map")"""))
+    assert(SpikeProject.program(parse("def m(): List[Int] = for x <- xs if x < 3 yield x").roots.head)
+      .contains("""mkSel(mkVar("xs"), "filter")"""))
+  }
+
   test("parameterless `def x: T = e` (no param clause) wraps its body in mkParameterlessBody (P6.8)") {
     // `def x: Int = 42` → a bare `x` reference auto-applies; `def x(): Int = 42` (empty parens) does not.
     assert(SpikeProject.program(parse("def x: Int = 42").roots.head).contains("mkParameterlessBody"))
@@ -1345,6 +1368,15 @@ final class ScalaSpikeSpec extends AnyFunSuite:
       "g2-tupleacc"  -> "def main(): Int = (3, 4)._1",
       "g2-multitp"   -> "def f[A, B](a: A, b: B): A = a\ndef main(): Int = f(7, 8)",
       "g2-throw"     -> "def f(n: Int): Int = if n < 0 then throw new RuntimeException(\"neg\") else n\ndef main(): Int = f(5)",
+      // P6.10 — imperative + currying + comprehensions (the five P6.9 KNOWN gaps, now ALL byte-identical to
+      // ssc1-front): var+assignment, while…do, nested def→letrec, curried def f(a)(b), for…do / for…yield / guard.
+      "i-var"        -> "def main(): Int = { var x = 1  x = x + 4  x }",
+      "i-while"      -> "def main(): Int = { var i = 0  var s = 0  while i < 5 do { s = s + i  i = i + 1 }  s }",
+      "i-nestfn"     -> "def outer(n: Int): Int = { def inner(x: Int): Int = x * 2  inner(n) + 1 }\ndef main(): Int = outer(5)",
+      "i-curried"    -> "def f(a: Int)(b: Int): Int = a + b\ndef main(): Int = f(2)(3)",
+      "i-for"        -> "def main(): Int = { var s = 0  for x <- List(1, 2, 3) do s = s + x  s }",
+      "i-foryield"   -> "def head(xs: List[Int]): Int = xs match { case Cons(h, t) => h case _ => 0 }\ndef main(): Int = head(for x <- List(5, 6, 7) yield x + 10)",
+      "i-forguard"   -> "def sum(xs: List[Int]): Int = xs match { case Cons(h, t) => h + sum(t) case Nil => 0 }\ndef main(): Int = sum(for x <- List(1, 2, 3, 4) if x < 3 yield x)",
       // edge probes — likely gaps
       "funret"    -> "def mk(): Int => Int = x => x + 1\ndef main(): Int = mk()(4)",
       "interp-if" -> "def f(n: Int): String = s\"${if n > 0 then \"p\" else \"n\"}\"\ndef main(): Int = 0",
