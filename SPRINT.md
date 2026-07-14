@@ -1697,6 +1697,14 @@ ORDER BY / LIMIT / OFFSET, aggregates (COUNT/SUM/MIN/MAX/AVG/TOTAL), GROUP BY + 
 and inner + LEFT joins — every feature byte-verified against reference sqlite3, int==js.
 Remaining follow-ups (niche): multi-table (3+) joins, page-1 schema split, repeating-decimal %.15g.
 
+- [x] **scljet-m5x-agg-distinct** — DONE 2026-07-14. Aggregate `DISTINCT`: `COUNT(DISTINCT col)`,
+      `SUM(DISTINCT col)`, `AVG(DISTINCT col)` (and MIN/MAX/TOTAL) aggregate over the distinct non-null
+      argument values. `AggItem`/`ProjItem` gained a `distinct: Boolean`; `parseProjItem` recognizes
+      `FUNC(DISTINCT arg)`; `computeAgg` + `computeJoinAgg`, when distinct, dedup the extracted values
+      (`dedupValues` via sqlCompare, `extractColumnValues`) before `aggregateValues`. Works standalone
+      and per GROUP BY group; nulls ignored, matching sqlite. Verified vs sqlite3 (COUNT/SUM/AVG DISTINCT
+      vs plain, GROUP BY COUNT(DISTINCT)), int==js; conformance `scljet-sql-agg-distinct`.
+
 - [x] **scljet-m5w-where-like** — DONE 2026-07-14. `col LIKE pattern` / `col NOT LIKE pattern`:
       `%` = any run (incl. empty), `_` = one char; ASCII case-insensitive (`upperStr` both sides),
       non-text operand coerced to text (`dept LIKE '1%'`), no ESCAPE clause. `parseCondition` adds
