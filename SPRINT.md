@@ -1046,16 +1046,18 @@ DONE (32 conformance cases green [int,js]). The honest remainder, each a real fe
       wal_checkpoint(TRUNCATE)` on the same base+WAL, and SQLite reads the checkpointed DB
       as the WAL'd value with `integrity_check` ok. int==js; conformance
       `scljet-wal-checkpoint`.
-- [ ] **scljet-m4e-mutable-pager** — a page-oriented mutable pager over a DB image:
-      `openPager(bytes)` → get/read page N, `putPage`(stage a dirty page), page
-      allocation (from EOF; freelist reuse is a follow-up), `beginWrite`/`commit`
-      (journal the dirty set via `writePagesJournaled`/transactions, apply) / `rollback`
-      (drop the dirty set). This gives crash-safe page-granular mutation composed from
-      the primitives already built, without rewriting the whole file. Done-when: a
-      mutate-via-pager sequence (dirty two pages, commit) yields a valid DB reference
-      integrity_check accepts, a fault-injected abort (commit journal but not the delete)
-      is recovered by `applyRollbackJournal`, and rollback-before-commit leaves the file
-      unchanged; int==js. Conformance `scljet-pager-mutate`.
+- [x] **scljet-m4e-mutable-pager** — DONE 2026-07-14. `journal.ssc` `MutablePager` +
+      `openMutablePager`/`mutableGet`/`mutablePut`/`mutableAllocate`/`mutableCommit`/
+      `mutableRollback`. Page-granular: `mutableGet` returns the staged dirty page over
+      the file, `mutablePut` stages, `mutableAllocate` gives the next EOF page number,
+      `mutableCommit` journals the pre-images of the pages that already existed (under the
+      ORIGINAL page count, so recovery restores + truncates back exactly), grows the image
+      for allocations, and applies every staged page atomically; `mutableRollback` drops
+      the dirty set. Verified int==js: staging page 2 = `bbb`'s page 2 over the `aaa` image
+      and committing reproduces the `bbb` database BYTE-FOR-BYTE (a known-valid file); the
+      commit journal recovers the original; allocation grows the file and is undone by
+      recovery; rollback leaves the image unchanged. Conformance `scljet-pager-mutate`.
+      (Freelist-page reuse on alloc is a follow-up; alloc is EOF-only.)
 - [ ] **scljet-m4f-cell-inplace-balance** — (LARGE, SQLite `balance()` equivalent)
       cell-level in-place insert/delete/update WITHIN a leaf: edit the cell-pointer array
       + cell-content area + freeblock chain, and split/merge/redistribute pages
