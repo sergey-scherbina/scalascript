@@ -516,17 +516,19 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
           byte-identical + runs (verified via a new harness `.want` check). Remaining F1 breadth: string
           literals + escapes + interpolators, `//` + `/* */` comments (all individually proven runnable), and
           returning tagged-tuple tokens instead of a rendered string (for F2 to consume).
-    - [ ] **F2 — subset parser in the subset.** Port `SpikeParse` (offside layout + blocks, the full infix
-          precedence table + `::`/`->`/prefix/ranges, `if`/`match` with ALL pattern kinds, `def`/`val`/case-
-          class/enum/extension/given/summon/lambda, chained application, type-erasure) → `parse(toks): AST`
-          producing the `ssc1-front` `Pair(tag,data)` shape. Recursive-descent + precedence proven (selfhost-
-          infix); the AST is tuples/lists (proven).
-    - [ ] **F3 — projection in the subset.** Port `SpikeProject` (CST → the exact `mk*` `Pair(tag,data)` AST)
-          — or fold it into F2 so `parse` emits the AST directly. String building proven (selfhost-compiler).
-    - [ ] **L1 — lowerer in the subset.** Port `ssc1-lower` `lowerProg` (ctor/Mirror/`_sel_` accessors/
-          `__regfields__` for case classes; dict-passing for given/summon; enum ctor path; extension-method
-          registration; the whole AST→Core IR walk) → a subset function emitting executable Core IR. Lowering
-          to executable Core IR proven for arith+control-flow+functions+recursion (selfhost-emit/rec).
+    - [~] **F2 — subset parser in the subset.** ✓ *Core landed 2026-07-14* (3ac411eb6): `selfhost-scala`
+          reads REAL Scala syntax `def f(x) = if x < 1 then 1 else x * f(x - 1)` — a precedence-climbing parser
+          (infix `< + - *`, `if`/`then`/`else`, function calls `f(e)`, parens, variables) over the F1 token
+          stream, same climb algorithm as `SpikeParse`. Remaining F2 breadth: `match`/all pattern kinds,
+          `val`/case-class/enum/extension/given/summon/lambda, offside blocks, the full infix table, multiple
+          defs/params.
+    - [~] **F3 + L1 — projection + lowerer in the subset.** ✓ *Core landed with F2* (3ac411eb6): `selfhost-
+          scala` folds parse→AST→Core IR directly, with **name resolution** (param → `(local 0)`, function →
+          `(global f)`) and a lowerer emitting **executable Core IR** (`(prim i.add/i.sub/i.mul/i.lt …)`,
+          `(if c t e)`, `(app (global f) …)`, `(local 0)`, `(lit (int n))`, `(def f (lam 1 …))` + main). The
+          emitted Core IR runs to factorial(5) = 120. Remaining breadth: multiple defs + arbitrary arity +
+          proper slot allocation (env → local i); case-class ctor/Mirror/`_sel_`/`__regfields__`; given/summon
+          dict-passing; enum ctor path; extension registration; the full `ssc1-lower` walk.
     - [ ] **X1 — the fixpoint.** Feed the F1+F2+F3+L1 pipeline (compiled by the spike, running on the VM) its
           OWN source; require the Core IR it produces for a program P to be byte-identical to what the spike +
           `ssc1-lower` produce for P (the differential oracle stays the guard); then feed it its own source →
