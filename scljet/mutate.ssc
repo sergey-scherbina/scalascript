@@ -9,6 +9,7 @@ exports:
   - keepRowids
   - updateRowValues
   - insertRow
+  - readRowids
 ---
 
 # SclJet mutate — read-modify-rewrite
@@ -292,4 +293,28 @@ def insertRow(dbBytes: ByteSlice, changeCounter: Int, schemaCookie: Int, rowid: 
                           buildFromRawSchema(pageSize, changeCounter, schemaCookie, schemaRecord, merged) match
                             case Left(byteError) => Left(byteError.message)
                             case Right(bytes) => Right(bytes)
+
+def rowidsOf(rows: List[KeyedRawRow]): List[Long] =
+  var roRemaining = rows
+  var roAcc: List[Long] = Nil
+  while roRemaining.nonEmpty do
+    roAcc = roRemaining.head.rowid :: roAcc
+    roRemaining = roRemaining.tail
+  roAcc.reverse
+
+/** The rowids of the single table, in ascending (physical) order — a small
+ *  convenience for confirming a mutation, using the engine's own read path. */
+def readRowids(dbBytes: ByteSlice): Either[String, List[Long]] =
+  openReadonly(ImageVfs(dbBytes), "image.db", mutateOptions()) match
+    case Left(error) => Left(error.message)
+    case Right(database) =>
+      val rootPage = database.schema.entries.head.rootPage match
+        case Some(value) => value
+        case None => 2L
+      openReadonlyRoot(database, rootPage, RowidTableTree) match
+        case Left(error) => Left(error.message)
+        case Right(cursor) =>
+          readTableRawRows(database, cursor) match
+            case Left(error) => Left(error.message)
+            case Right(rows) => Right(rowidsOf(rows))
 ```

@@ -1,0 +1,4 @@
+built:List(1, 2, 3)
+insert:List(1, 2, 3, 5)
+update:List(1, 2, 3, 5)
+delete:List(2, 5)

@@ -73,6 +73,7 @@ in-place page mutation (m3e) remain.
 The full specification and behavior gates are in
 [`../specs/scljet.md`](../specs/scljet.md). Runnable examples live in
 [`../examples/`](../examples/) (`scljet-bytes`, `scljet-readonly`,
-`scljet-memory-vfs`, `scljet-write-empty`, `scljet-write-table`). The JVM
+`scljet-memory-vfs`, `scljet-write-empty`, `scljet-write-table`, `scljet-crud`).
+The JVM
 real-file host adapter is the separate `v1/runtime/std/scljet-vfs-plugin/`; the
 engine above `SqliteVfs` remains pure ScalaScript.

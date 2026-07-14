@@ -1,0 +1,44 @@
+#!/usr/bin/env ssc
+---
+name: scljet-crud
+description: Full row-level CRUD on a SclJet database — build, insert, update, delete, read back
+---
+
+# SclJet row-level CRUD
+
+SclJet can not only *build* a SQLite file from scratch but also modify an existing
+one. The `mutate` module opens a database read-only over its own bytes, reads every
+row back as its raw record payload, applies the change, and rebuilds the table —
+preserving the original `sqlite_schema` record and all rowids (no renumbering).
+This example walks a table through the full lifecycle and confirms each step by
+reading the rowids back through the engine's own cursor. Every intermediate file is
+a legal SQLite database that passes reference `PRAGMA integrity_check`.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[insertRow, updateRowValues, deleteRowids, readRowids](std/scljet/mutate.ssc)
+
+```scalascript
+def showRowids(label: String, db: ByteSlice): Unit =
+  readRowids(db) match
+    case Right(ids) => println(label + ": rowids " + ids.toString + " (" + (db.length / 512).toString + " pages)")
+    case Left(message) => println(label + ": ERROR " + message)
+
+buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(n INTEGER, v TEXT)",
+  List(List(SqlInteger(1L), SqlText("one")),
+       List(SqlInteger(2L), SqlText("two")),
+       List(SqlInteger(3L), SqlText("three")))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db0) =>
+    showRowids("built", db0)
+    insertRow(db0, 2, 1, 5L, List(SqlInteger(5L), SqlText("five"))) match
+      case Left(message) => println("insert-error:" + message)
+      case Right(db1) =>
+        showRowids("insert 5", db1)
+        updateRowValues(db1, 3, 1, 2L, List(SqlInteger(20L), SqlText("TWO"))) match
+          case Left(message) => println("update-error:" + message)
+          case Right(db2) =>
+            showRowids("update 2", db2)
+            deleteRowids(db2, 4, 1, List(1L, 3L)) match
+              case Left(message) => println("delete-error:" + message)
+              case Right(db3) => showRowids("delete 1,3", db3)
+```

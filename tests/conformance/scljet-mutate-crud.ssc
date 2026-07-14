@@ -1,0 +1,39 @@
+---
+name: scljet-mutate-crud
+description: SclJet full row-level CRUD lifecycle — build, insert, update, delete, read rowids back (cross-backend)
+backends: [int, js]
+---
+
+# SclJet CRUD lifecycle
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[insertRow, updateRowValues, deleteRowids, readRowids](std/scljet/mutate.ssc)
+
+```scalascript
+// Walk a table through build → insert → update → delete, reading the rowids back
+// through the engine's own cursor after each step. Update keeps the rowid, delete
+// drops exactly the named ones, and every intermediate is a legal SQLite file.
+def rowidsLine(label: String, db: ByteSlice): String =
+  readRowids(db) match
+    case Right(ids) => label + ":" + ids.toString
+    case Left(message) => label + ":ERROR " + message
+
+buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(n INTEGER, v TEXT)",
+  List(List(SqlInteger(1L), SqlText("one")),
+       List(SqlInteger(2L), SqlText("two")),
+       List(SqlInteger(3L), SqlText("three")))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db0) =>
+    println(rowidsLine("built", db0))
+    insertRow(db0, 2, 1, 5L, List(SqlInteger(5L), SqlText("five"))) match
+      case Left(message) => println("insert-error:" + message)
+      case Right(db1) =>
+        println(rowidsLine("insert", db1))
+        updateRowValues(db1, 3, 1, 2L, List(SqlInteger(20L), SqlText("TWO"))) match
+          case Left(message) => println("update-error:" + message)
+          case Right(db2) =>
+            println(rowidsLine("update", db2))
+            deleteRowids(db2, 4, 1, List(1L, 3L)) match
+              case Left(message) => println("delete-error:" + message)
+              case Right(db3) => println(rowidsLine("delete", db3))
+```
