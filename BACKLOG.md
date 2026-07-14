@@ -186,10 +186,16 @@ are plain bullets without checkboxes so agents do not claim them as build work.
       its own root page), then each table's B-tree in declaration order (interiors
       built root-page-relative via `buildTableTreeAt`/`buildInteriorLevels`);
       verified 3 tables incl. a multi-leaf table at a non-page-2 root, all read back
-      exact, int==js (conformance `scljet-write-multitable`). Remaining: multi-table
-      MUTATE (delete/update in ONE table of a multi-table DB — rebuild that table's
-      tree, renumber pages, and rewrite ALL schema rootpages), and (4) true IN-PLACE
-      mutation of pages (the separate pager/journal path, m3e).
+      exact, int==js (conformance `scljet-write-multitable`). Multi-table MUTATE is
+      DONE too (2026-07-14): `mutate.ssc` `deleteRowidsInTable`/`updateRowInTable`
+      (+ `readAllTables`) read every table (raw schema record + raw rows), modify
+      the one at a given index, and rebuild via write.ssc `buildMultiTableRaw` —
+      which reassigns root pages and re-encodes each schema record's rootpage field
+      (`patchSchemaRootpage`, keeping name/tbl_name/sql byte-for-byte, so no text is
+      decoded to a String). Verified deleting/updating one table of three, others
+      preserved, int==js (conformance `scljet-multitable-mutate`). Remaining:
+      indexes + non-table schema objects, and (4) true IN-PLACE mutation of pages
+      (the separate pager/journal path, m3e).
 
 - [x] **scljet-byteslice-zeros-js-recursion** — DONE 2026-07-13. The core list
       helpers in `scljet/bytes.ssc` were made iterative (`while`+`var`, not linear
