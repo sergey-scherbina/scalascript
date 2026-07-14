@@ -1,6 +1,0 @@
-claim: v2.2-p6.21-selfhost-ci
-branch: feature/v2.2-p6.21-selfhost-ci
-what: P6.21 — lightweight CI protection of the self-host: a ScalaSpikeSpec test that projects cmin.L through
-      the spike and asserts it is a clean, hole-free, full program (catches spike regressions that break the
-      C_min bootstrap, no jar needed). Document full jar-based fixpoint/capstone CI-wiring as future work.
-started: 2026-07-14
