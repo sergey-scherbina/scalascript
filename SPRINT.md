@@ -47,7 +47,9 @@ runtime bytes change, and all post-X1 kernel gates remain binding.
       profile and empirical conformance/readiness matrix under the separate
       `control-interop-conformance-harness` claim. Result: Scala/JVM, JS/TS, Rust,
       Swift, and WASM/WASI documents now refine the core without duplicating semantic
-      ownership; the portable-VM harness landed independently in `a9c354262`.
+      ownership; the portable-VM harness landed independently in `a9c354262`, and
+      its reference runner profile landed in `92d853d4a` with a bidirectional core
+      link added during final integration.
 - [x] **cis-4 — roadmap and satellite reconciliation.** Rewrite this section and the
       saved-continuation BACKLOG tail so JVM/JS/Rust/Swift runners are mandatory
       independently shippable milestones chosen by measured readiness, not optional
