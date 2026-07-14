@@ -1425,7 +1425,13 @@ order, so `SELECT *` matches without ORDER BY), and int==js.
       rest.head.kind` on `Nil`; fixed with bounds-safe `tkKind`/`tkIsKw` accessors (JS was always
       fine). SQL CRUD (SELECT/INSERT/UPDATE/DELETE) is now complete and matches sqlite3.
 - [ ] **scljet-m5f-sql-create-table** — `CREATE TABLE t(…)` → build an empty table + schema row.
-- [ ] **scljet-m5g-sql-aggregates-join** — `COUNT/SUM/MIN/MAX`, `GROUP BY`, simple inner joins (later).
+- [~] **scljet-m5g-sql-aggregates-join** — aggregates DONE 2026-07-14. `sql.ssc` `parseProjection`
+      detects `FUNC(*|col)` (`parseAggregates`/`AggItem`); `executeSelect` computes over the filtered
+      rows and returns one row. `COUNT(*)`, `COUNT(col)` (non-null), `SUM`, `MIN`, `MAX` (also `AVG`,
+      `TOTAL`) — verified vs sqlite3 (multi-aggregate, WHERE, text MIN/MAX, empty-set→NULL), int==js;
+      conformance `scljet-sql-aggregate`. AVG/TOTAL computed but omitted from the differential —
+      SqlReal renders `35` not sqlite's `35.0` (real-formatting follow-up). REMAINING: `GROUP BY`,
+      inner joins, and sqlite-exact real formatting.
 
 Execution order (value × tractability): m4a (template exists) → m4b → m4c → m4d →
 m4e → m4f → m4g. Keep every scljet conformance case green [int,js] --no-memo after each.

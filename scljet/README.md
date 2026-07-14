@@ -126,8 +126,10 @@ Data-modifying SQL runs too: `executeMutation(dbBytes, sql)` handles `INSERT INT
 `UPDATE t SET col = literal [, …] [WHERE …]` (each matching row re-encoded and replaced at the
 same rowid), returning the new database image — after a sequence of statements the table matches
 sqlite3 running the same SQL, with `integrity_check` ok. SQL **CRUD is complete**
-(SELECT / INSERT / UPDATE / DELETE). `CREATE TABLE`, `ORDER BY`/`LIMIT`, column-list inserts, and
-aggregates/joins are the remaining M5 follow-ups.
+(SELECT / INSERT / UPDATE / DELETE). SELECT also does `ORDER BY`/`LIMIT`/`OFFSET` and
+aggregates (`COUNT`/`SUM`/`MIN`/`MAX`, also `AVG`/`TOTAL`) over the filtered rows. `CREATE TABLE`,
+`GROUP BY`, joins, column-list inserts, and sqlite-exact real formatting are the remaining
+M5 follow-ups.
 
 ## Modules
 
