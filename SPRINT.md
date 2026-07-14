@@ -258,13 +258,15 @@ verify by probe + JVM dialect test + conformance 640ok. Detail: memory `project_
   guard — a pre-existing bug). Verified `p-altguard.ssc` / `p-litguard.ssc`.
 - [x] **v2-plain-class-instance-method — MISDIAGNOSIS** — basic plain-class methods work
   (`Counter(5).add(3)`=8); MarkdownBlocks Stub was the nested-Container cascade (fixed by hoist).
-- [ ] **v2-object-qualified-nested-ctor** — `O.Inner(…)` (qualified ext ref to a nested type) →
-  `unbound global: O_Inner`. Bare `Inner(…)` inside the object works; dialects use bare, so low-pri.
+- [x] **v2-object-qualified-nested-ctor FIXED** (8426d606c) — `O.Inner(…)`/`O.Origin`/`O.Dir.Case` now
+  resolve (objectNestedTypes registry → unqualified hoisted global); also fixed a parser boundary bug
+  where a case class as an object's LAST member swallowed the following top-level `def` (skipExt stops at `}`).
 
-### Markdown — BLOCK layer at v2==JVM parity; inline layer gated by in-loop `return` (2026-07-14)
-- [x] **markdown block+emphasis at parity** — heading/para/list/blockquote/code-FENCE/table/thematic-
-  break/emphasis → v2==JVM byte-identical (deep tree digest). Earlier "COMPLETE" was point-example
-  only; the differential (below) found real bugs it missed.
+### Markdown — FULL v2==JVM parity (block + inline) (2026-07-14)
+- [x] **markdown at parity** — heading/para/list/blockquote/code-fence/table/thematic-break/emphasis
+  AND the full inline layer (code spans, links, images, autolinks, raw HTML) → v2==JVM byte-identical
+  (deep tree digest, 48 rows / 25-input corpus). Earlier "COMPLETE" was point-example only; the
+  differential (below) found 8 real bugs it missed — all fixed, conformance 640 ok.
 - [x] **differential harness** (scratchpad `gen_diff.py`/`run_diff.sh`) — concatenate the LIVE core+
   dialect Scala into ONE dual-compilable program (strip package/import/access-mods, drop `*Projection.
   project`, keep local companion imports), append a corpus loop emitting `IDX|status|roots|diags|<full
@@ -276,16 +278,12 @@ verify by probe + JVM dialect test + conformance 640ok. Detail: memory `project_
   - [x] line-leading `!` glued as infix actor-send → `unbound t`; isCont excludes `!`
   - [x] capitalized object-member val (`VerticalTab`) unbound internally; uid case checks owner members
   - [x] `+:` unlexed → `_err`; lexed as `::` (identical in Cons-list model)
-- [ ] **in-loop `return` (v2 VM keystone gap)** — `return` INSIDE a `while` loop is a no-op: the lowerer's
-  early-return transform (ssc1-lower lowerBlock IrIf) can't unwind a loop, so `matchBracket`/
-  `findBacktickClose`/`scanAutolink` spin forever (`return Some(i)` never advances `i`). Blocks markdown
-  CODE-SPANS + links + images + autolinks + raw-HTML. JSON(10)/YAML(1) returns are STRAIGHT-LINE → work.
-  FIX DESIGN: non-local return via the VM's existing throw/catch — new `ReturnThrow(value)` + prims
-  `__throw_return__`(throws) / `__with_return__`(try thunk catch ReturnThrow→value); lower every `return e`
-  to `__throw_return__`, wrap ONLY named-def bodies that CONTAIN a return with `__with_return__` (NOT
-  lambdas — a `return` in a lambda must exit the enclosing def = correct Scala semantics; also avoids
-  breaking the TCO trampoline on return-free defs). Verify: p-return probe → markdown differential → FULL
-  conformance (watch TCO tests).
+  - [x] non-local **`return`** (56f7cd170) — `return` inside a `while` was a no-op (lowerer's early-return
+    couldn't unwind a loop). Now `ReturnThrow` + prims `__throw_return__`/`__with_return__`; every `return e`
+    throws; a named-def body is wrapped ONLY if it contains a return (cell-detected, save/restored around
+    nested defs) so TCO on return-free defs is untouched (all tco/mutual-tco/wasm-tco tests still green); a
+    `return` in a lambda propagates to the enclosing def. Covers top-level/object/local-nested/class-method.
+  - [x] `String.contains(Char)` unimplemented (56f7cd170); `obj.method` eta-expansion → explicit lambda (9b26bd888)
 
 ### Markdown — NOT STARTED (obsolete note below)
 - [ ] **markdown-on-v2** — flatten `markdown/` parse path (nested enums InlinePiece/AngleKind/OpenLeaf
