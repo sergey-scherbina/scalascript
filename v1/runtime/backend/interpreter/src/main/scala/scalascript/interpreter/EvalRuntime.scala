@@ -3450,6 +3450,34 @@ private[interpreter] object EvalRuntime:
         })))
       }
 
+    // Short-circuiting `&&` / `||` — MUST intercept before the general infix
+    // case below (which eagerly evaluates the argClause).  Scala/JS semantics:
+    // the right operand is evaluated only when the left operand demands it, so
+    // a guarded access like `xs.nonEmpty && xs.head > 0` never touches `.head`
+    // on an empty list.  Lowered to control flow:
+    //   `a && b` ≡ `if a then b else false`
+    //   `a || b` ≡ `if a then true else b`
+    // (bug: interp-boolean-operators-no-short-circuit).
+    case app: Term.ApplyInfix
+        if (app.op.value == "&&" || app.op.value == "||")
+           && app.argClause.values.lengthCompare(1) == 0 =>
+      val isAnd   = app.op.value == "&&"
+      val rhsTerm = app.argClause.values.head
+      def afterLhs(lv: Value): Computation = lv match
+        case Value.BoolV(b) =>
+          // (true,&&)→rhs ; (false,||)→rhs ; (false,&&)→false ; (true,||)→true
+          if b == isAnd then eval(rhsTerm, env, interp)
+          else Computation.pureBool(b)
+        case other =>
+          // Non-Boolean left operand (a custom/overloaded `&&`/`||`): fall back
+          // to the general two-arg dispatch so behaviour is unchanged for it.
+          eval(rhsTerm, env, interp) match
+            case Pure(rv) => interp.infix2(other, app.op.value, rv, env)
+            case rhsC     => FlatMap(rhsC, rv => interp.infix2(other, app.op.value, rv, env))
+      eval(app.lhs, env, interp) match
+        case Pure(lv) => afterLhs(lv)
+        case lhsC     => FlatMap(lhsC, afterLhs)
+
     // Infix operators — handles both plain binary (a + b) and compound
     // assignment (x += e).  Using `case app: Term.ApplyInfix` avoids calling
     // Term.ApplyInfix.After_4_6_0.unapply, which allocates a Tuple4 even for
