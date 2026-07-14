@@ -113,10 +113,11 @@ delete-time sibling merge (compaction, not correctness) is the one optional foll
 ## SQL
 
 A SQL query layer (`sql.ssc`) sits on top of the storage engine. `queryImage(dbBytes, sql)`
-lexes and parses `SELECT (*|cols) FROM table [WHERE col op literal]` (comparators
-`= <> != < > <= >=`, integer or `'string'` literals, plus the implicit `rowid`), resolves
-the columns from the table's `CREATE TABLE` text, cursors the rows, filters, and projects —
-returning result rows that `renderRows` formats like the sqlite3 CLI. Every query is
+lexes and parses `SELECT (*|cols) FROM table [WHERE col op literal] [ORDER BY col [ASC|DESC]]
+[LIMIT n [OFFSET m]]` (comparators `= <> != < > <= >=`, integer or `'string'` literals, plus the
+implicit `rowid`), resolves the columns from the table's `CREATE TABLE` text, cursors the rows,
+filters, stable-sorts, applies offset/limit, and projects — returning result rows that
+`renderRows` formats like the sqlite3 CLI. Every query is
 byte-identical to reference sqlite3 running the same SQL on the same file.
 
 Data-modifying SQL runs too: `executeMutation(dbBytes, sql)` handles `INSERT INTO t VALUES (…)`

@@ -1394,7 +1394,13 @@ order, so `SELECT *` matches without ORDER BY), and int==js.
       past end) so `i < n && isDigit(charCode(s,i))` can't index out of bounds. NB: sql.ssc
       imports reader types from index.ssc + `ImageVfs`/`fieldValueAt` from mutate.ssc; NOT
       re-exported by index.ssc (would cycle) — conformance imports it as `std/scljet/sql.ssc`.
-- [ ] **scljet-m5b-sql-orderby-limit** — `ORDER BY col [ASC|DESC]`, `LIMIT n [OFFSET m]`.
+- [x] **scljet-m5b-sql-orderby-limit** — DONE 2026-07-14. `sql.ssc`: `parseWhere` now returns the
+      trailing tokens; `parseOrderLimit` parses `ORDER BY col [ASC|DESC]` then `LIMIT n [OFFSET m]`
+      into `SelectStmt(orderBy: Option[OrderKey], limit, offset)`; `executeSelect` filters → stable
+      merge-sorts by the order column (on the full row, so the sort key need not be projected) →
+      applies OFFSET/LIMIT → projects. Verified vs sqlite3 (ASC/DESC, LIMIT, OFFSET, WHERE+ORDER BY,
+      out-of-range LIMIT), int==js; conformance `scljet-sql-orderby`. Single ORDER BY column;
+      multi-column ORDER BY (`ORDER BY a, b`) silently uses only the first — a follow-up.
 - [x] **scljet-m5c-sql-insert** — DONE 2026-07-14. `sql.ssc` `parseInsert`/`executeInsert` +
       `executeMutation` dispatcher: `INSERT INTO t VALUES (…)` encodes the record and inserts via
       `pagerInsertBalanced` (rowid = max existing + 1, matching sqlite), commits, returns the new
