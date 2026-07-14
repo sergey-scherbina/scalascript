@@ -177,6 +177,9 @@ def tokenize(sql: String): Either[String, List[Token]] =
     else if c == 47 then
       toksRev = Token("op", "/", 0L) :: toksRev
       i = i + 1
+    else if c == 37 then
+      toksRev = Token("op", "%", 0L) :: toksRev
+      i = i + 1
     else if c == 124 then
       // `||` string concatenation
       if i + 1 < n && charCode(sql, i + 1) == 124 then
@@ -645,8 +648,8 @@ def parseExprMul(toks: List[Token]): Either[String, (SxNode, List[Token])] =
       while !done && err.isEmpty do
         val k = tkKind(rest)
         val t = tkText(rest)
-        if k == "star" || (k == "op" && t == "/") then
-          val opStr = if k == "star" then "*" else "/"
+        if k == "star" || (k == "op" && (t == "/" || t == "%")) then
+          val opStr = if k == "star" then "*" else t
           parseExprConcat(rest.tail) match
             case Left(message) => err = Some(message)
             case Right(nx) =>
@@ -996,10 +999,25 @@ def longDiv(a: Long, b: Long): Long =
   s = s / b
   s
 
+def longMod(a: Long, b: Long): Long =
+  var s = 0L
+  s = s + a
+  s = s % b
+  s
+
 def longIsZero(a: Long): Boolean =
   var s = 0L
   s = s + a
   s == 0L
+
+// Value → Long for integer modulo: exact for integers, truncating for reals (sqlite converts
+// `%` operands to integers). The real path parses the integer part of the text form (BigInt-safe).
+def toLongVal(v: SqliteValue): Long =
+  if isIntValue(v) then intPayload(v)
+  else
+    var s = 0L
+    s = s + parseIntStr(coerceText(v))
+    s
 
 // Value → Double via the same accumulation the working AVG/SUM use (`d + x.toDouble`).
 def realOf(v: SqliteValue): Double =
@@ -1065,6 +1083,10 @@ def arithValue(op: String, a: SqliteValue, b: SqliteValue): SqliteValue =
   else if op == "OR" then orValue(a, b)
   else if isCompareOp(op) then compareValue(op, a, b)
   else if isNullValue(a) || isNullValue(b) then SqlNull
+  else if op == "%" then
+    // Modulo is always integer in sqlite (operands converted); NULL on a zero divisor.
+    val y = toLongVal(b)
+    if longIsZero(y) then SqlNull else SqlInteger(longMod(toLongVal(a), y))
   else if isIntValue(a) && isIntValue(b) then
     val x = intPayload(a)
     val y = intPayload(b)

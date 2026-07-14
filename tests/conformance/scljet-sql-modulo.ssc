@@ -1,0 +1,36 @@
+---
+name: scljet-sql-modulo
+description: SclJet SQL % modulo operator — integer modulo, multiplicative precedence, in projection and WHERE; matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet SQL `%` modulo
+
+`a % b` is integer modulo (operands converted to integers, result truncates toward zero, `x % 0` =
+NULL), at the same precedence as `* /`. It works in the projection (`n % 3`, `n % 3 + 1`, `20 % n`)
+and in `WHERE` (`WHERE n % 2 = 0`). Every result is byte-identical to reference sqlite3 running the
+same SQL on the same file (verified out-of-band); locked across backends.
+
+[ByteSlice, SqliteValue, SqlInteger, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "nums", "CREATE TABLE nums(id INTEGER, n INTEGER)",
+  List(List(SqlInteger(1L), SqlInteger(7L)),
+       List(SqlInteger(2L), SqlInteger(10L)),
+       List(SqlInteger(3L), SqlInteger(15L)),
+       List(SqlInteger(4L), SqlInteger(8L)),
+       List(SqlInteger(5L), SqlInteger(3L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db) =>
+    show(db, "SELECT id, n % 3 FROM nums")
+    show(db, "SELECT id FROM nums WHERE n % 2 = 0")
+    show(db, "SELECT id, n % 3 + 1 FROM nums")
+    show(db, "SELECT id, 20 % n FROM nums")
+    show(db, "SELECT id FROM nums WHERE n % 5 = 0")
+```
