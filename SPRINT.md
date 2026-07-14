@@ -1955,6 +1955,24 @@ ORDER BY / LIMIT / OFFSET, aggregates (COUNT/SUM/MIN/MAX/AVG/TOTAL), GROUP BY + 
 and inner + LEFT joins — every feature byte-verified against reference sqlite3, int==js.
 Remaining follow-ups (niche): multi-table (3+) joins, page-1 schema split, repeating-decimal %.15g.
 
+- [x] **scljet-m6m-index-maintenance** — DONE 2026-07-15 (Sergiy "с индексами всё сделай"). SQL
+      `INSERT`/`UPDATE`/`DELETE` now keep a table's indexes consistent. Approach: for a single-table DB
+      whose table has 1+ indexes, each DML computes the NEW full row set (`SqlRow` = rowid + values) and
+      rebuilds the whole database compactly via new write-layer `buildSingleTableIndexed` (table B-tree
+      at page 2, each index B-tree at a successive root, all `sqlite_schema` roots reassigned) — no
+      orphaned pages, so reference `integrity_check` stays ok. `executeInsert` appends the inserted
+      SqlRows, `executeDelete` drops the victims (`keepSqlRows`), `executeUpdate` replaces WHERE-matched
+      rows' values (`updatedSqlRows`) — so updating an indexed column moves its entry. A table with NO
+      index keeps the fast incremental path; a MULTI-table DB with indexes errors (documented follow-up).
+      Helpers: `tableIndexInfos` (enumerate a table's indexes + parse their key columns from the CREATE
+      INDEX sql), `indexEntriesAll`/`sqlRowsToKeyed`, cc/sc read BigInt-safely via `toIntVal(SqlInteger
+      (header.changeCounter))`. Plumbing: `buildSingleTableIndexed`/`KeyedRawRow`/`SchemaIndex`/
+      `SchemaTable` exported write.ssc→index.ssc→sql.ssc. VERIFIED end-to-end vs reference sqlite3
+      (INSERT+DELETE+UPDATE-of-indexed-column sequence → integrity_check ok, planner `SEARCH … USING
+      INDEX`, new/updated/deleted keys all reflected). int==js byte-identical; conformance
+      `scljet-sql-index-maintain`; FULL scljet suite green. FOLLOW-UPS: DROP INDEX, multi-table-with-
+      indexes DML, multi-column-index maintenance is supported (keyColumns is a list).
+
 - [x] **scljet-m6l-create-index** — DONE 2026-07-14 (Sergiy chose CREATE INDEX as the next big item).
       `CREATE INDEX idx ON t(col [, col]*)` on an existing DB via `executeMutation`. `parseCreateIndex`
       → `CreateIndexStmt`; `executeCreateIndex` opens the table, reads its rows, builds one `IndexEntry`
