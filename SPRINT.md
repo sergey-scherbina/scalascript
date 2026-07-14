@@ -456,9 +456,19 @@ intrinsic kind. **First step for this track: add a debug to `--v2` PluginBridge.
 ServiceLoader actually finds, and check whether the json/content/actor plugin jars are on the `bin/ssc --v2`
 classpath.** If they're absent, the fix is bundling/classpath (bounded); if present-but-not-registering, the
 intrinsics need marshaling review. Order (V2-GAP.md leverage):
-- [ ] **content-toolkit → v2 (10)** — content-{slot,tables,data-source,form-submit,introspection,
-  linked-namespaces,live-rows,action-onsuccess,toolkit-yaml-controls} + std-ui-*. `unbound global:
-  contentToolkitSection` (evalLegacy/NativeImpl, has Backend service). Highest single lever.
+- **content-toolkit → v2** — FOUNDATION LANDED 2026-07-14 (0886bc43a): ported the core toolkit engine to
+  ContentNativePlugin (`contentToolkitSection` → toolkitSectionNode → toolkitBlockNode → toolkitControl,
+  building TkNode DataVs from `@ui=toolkit` YAML). Primitive controls done (vstack/hstack/heading/text/badge/
+  divider/fragment/slot). [x] **content-slot, content-live-rows CLOSED** (gate-verified). Remaining:
+  - [ ] **env-dependent controls (biggest)** — signalText/button/table/textField/checkbox/show need the toolkit
+    SIGNAL/ACTION/ROWBINDING ENVIRONMENT (v1 toolkitEnvFor/signalField/toolkitSignals/toolkitButton +
+    ContentToolkitOptions.{actions(8),rowBindings(9),computed(10)}). Blocks content-form-submit / data-source /
+    action-onsuccess / toolkit-yaml-controls / introspection.
+  - [ ] **contentToolkitBlock** — register (block-level variant); blocks content-tables + content-introspection.
+  - [ ] simple adds: `rawText`→RawTextNode, `card`→CardNode(header,children,footer).
+  - NOTE: v2 `Map(pair)` builds `{pair→pair}` not `{k→v}` (contentSlot workaround in resolveSlot); a real v2
+    kernel fix would remove the workaround + likely help other Map-from-pairs cases. TkNode DataV field order
+    must match std/ui/nodes.ssc. Port ref: v1 ContentIntrinsics.scala toolkitControl (line 870, ~17 kinds).
 - [ ] **actor-cluster methods → v2 scope (10)** — actors-cluster-* + actors-leader-protocol. electLeader /
   useRaftLeaderElection / clusterConfigSet / useExternalCoordinator ("Actors scope failed: unbound global").
   Needs the ActorScheduler logic reachable from the v2 VM (bridge or reimpl) — the hardest cluster.
