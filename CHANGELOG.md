@@ -4,6 +4,21 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-14 — control-interop conformance harness (portable-VM reference row)
+
+Executable conformance harness for the target-neutral control-interoperability model
+(Rozum `#interoperability` joint resolution) under `tests/interop-conformance/`. Runs a
+runner against the normative axis matrix; the portable-VM (`ssc run --bytecode`) is the
+reference runner. 5 measurable-now axes green (one-shot resume, reusable multi-shot N→M,
+deep intra-lane TCO, callback re-entry, capture+resume same-host); 8 pending-codec axes
+(durable save/run, cross-host resume, concurrent multi-shot, no prefix/main replay, and the
+negatives: raw-ForeignV reject, missing-resolver reject, codec/artifact mismatch,
+signature/quota) enumerated so the matrix is never silently reported fully green. `run.sh`
+prints the reference row + PENDING rows and exits non-zero on regression. The portable-VM
+already does N→M resume in-process; the one gap the model closes is cross-host resume
+(durable capsule). Companion to codex-interop's `specs/control-interoperability.md`; the
+portable-VM reference *profile* `.md` follows after that spec lands.
+
 ## 2026-07-14 — std-ui-hstack-wrap: optional flex-wrap for std/ui `hstack`
 
 busi nav-bar follow-up: up to 15 owner nav buttons with varying Cyrillic label widths were

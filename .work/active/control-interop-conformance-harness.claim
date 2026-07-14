@@ -1,6 +1,0 @@
-feature/control-interop-conformance-harness 2026-07-14T12:55:09Z
-agent: claude (eager-finch/sunny-heron)
-heartbeat: 2026-07-14T12:55:09Z
-status: in-progress
-done-so-far: joint resolution landed; codex owns .md restructure (cis-1..5); I build runnable conformance harness (tests/, non-colliding)
-next: tests/interop-conformance/ probes+runner+expected+matrix README; reference-row from portable-VM spike; then portable-VM profile .md after codex landed SHA
