@@ -1928,6 +1928,28 @@ ORDER BY / LIMIT / OFFSET, aggregates (COUNT/SUM/MIN/MAX/AVG/TOTAL), GROUP BY + 
 and inner + LEFT joins — every feature byte-verified against reference sqlite3, int==js.
 Remaining follow-ups (niche): multi-table (3+) joins, page-1 schema split, repeating-decimal %.15g.
 
+- [x] **scljet-m6o-join3** — DONE 2026-07-15 (Sergiy "joins тоже нужно сделать"). 3+ table inner joins
+      (`FROM a JOIN b ON … JOIN c ON …`). `SelectStmt.join: Option[JoinSpec]` → `joins: List[JoinSpec]`;
+      `parseJoins` chains JOIN clauses; `executeSelect` routes 0→single, 1→existing full-featured 2-table
+      path, 2+→new `multiJoinExecute`. The N-table path uses a general list-of-rows model (a joined row =
+      `List[StorageRecord]` parallel to the tables): `multiColValue` resolves a column across all tables
+      (qualified `t.col`→that table, bare→first table with it); an incremental nested loop
+      (`buildJoinRows`/`extendPartials`) applies each ON; `multiWhereHolds`/`projectMultiRow`/
+      `evalExprMulti` reuse the expression engine + `predHolds`; ORDER BY via `sortMultiRows`, plus
+      DISTINCT + LIMIT. Verified vs sqlite3 (3-table join with qualified cols, WHERE, ORDER BY DESC,
+      DISTINCT, `||` expression), int==js; conformance `scljet-sql-join3`. SCOPE: inner joins only for
+      3+ tables (aggregates/GROUP BY/HAVING/outer over 3+ tables = follow-up; the 2-table path keeps full
+      support). Remaining big: subqueries.
+
+- [x] **scljet-m6n-drop-index** — DONE 2026-07-15. `DROP INDEX [IF EXISTS] name` rebuilds the
+      single-table DB with the remaining indexes via `reindexTable` (dropped index's schema row + pages
+      gone, no orphans → integrity_check ok). `tableIndexInfosExcept` (exclude by name), `findIndexEntry`,
+      `executeMutation` routes DROP. Multi-index fully exercised (build 2 indexes, drop 1 — the remaining
+      one still used by the planner, dropped column → SCAN). Verified vs sqlite3, int==js; conformance
+      `scljet-sql-drop-index`. **INDEXES COMPLETE**: CREATE INDEX (m6l), maintenance on INSERT/UPDATE/
+      DELETE (m6m), DROP INDEX + multi-index (m6n), all single-table + reference-validated. Remaining
+      index follow-up: multi-table-with-indexes DML (currently errors).
+
 - [x] **scljet-m6m-index-maintenance** — DONE 2026-07-15 (Sergiy "с индексами всё сделай"). SQL
       `INSERT`/`UPDATE`/`DELETE` now keep a table's indexes consistent. Approach: for a single-table DB
       whose table has 1+ indexes, each DML computes the NEW full row set (`SqlRow` = rowid + values) and
