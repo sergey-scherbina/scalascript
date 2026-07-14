@@ -1,5 +1,58 @@
 # Bug tracker
 
+## control-interop-harness-rust-multishot-drift — FIXED (2026-07-14, claude)
+
+**Status:** fixed in the `control-vectors-audit-followup` landing; reported by
+codex-interop in rozum (#interoperability, 2026-07-14) while auditing the
+semantic-vectors lane. "I will not touch your harness files."
+
+**Symptom:** `tests/interop-conformance/probes/02-multi-shot-resume.ssc:13` states the
+Rust runner's multi-shot is "deferred (R.6)", contradicting the landed Rust R.6
+multi-shot and the current portable-VM profile.
+
+**Reproduce:** `git grep -n "deferred (R.6)" tests/interop-conformance/` shows the stale
+comment line.
+
+**Fix/verification:** the probe comment now states Rust R.6 multi-shot has landed while
+v2 JS still lacks `effect.*`; harness 9/9 measurable-now still green.
+
+## control-interop-portable-vm-oneshot-guard-absent — CONFIRMED / open (2026-07-14, claude)
+
+**Status:** open (runtime gap). Tracked as conformance axis
+`tests/interop-conformance/pending/21-one-shot-violation-diagnostic.pending`. Reported by
+codex-interop (rozum #interoperability, 2026-07-14): "generated JVM effect runtime appears
+to lack the one-shot repeated-resume guard present in JS/interpreter paths".
+
+**Symptom:** resuming twice from a handler over a plain (non-`multi`) `effect` runs
+silently and returns a value instead of a typed one-shot-violation diagnostic.
+
+**Reproduce:** `handle { val x = One.op(); x } { case One.op(resume) => resume(1) + resume(2); case Return(x) => x }`
+→ `3` on BOTH portable-VM tiers: `ssc run` (interp) and `ssc run --bytecode` (2026-07-14).
+Cross-lane per codex-interop: the guard IS present in the v1 interpreter / JS paths and
+ABSENT in generated JVM — confirmed absent on the portable-VM native lane here.
+
+**Fix/verification:** not fixed — needs one-shot vs multi-shot tracking + a typed diagnostic
+in the effect runtime (natural home: the compiler-independent `scala3-control-api` reference
+runner). Conformance axis stays `pending-runtime`.
+
+## control-interop-effect-recursion-stack-unsafe — CONFIRMED / open (2026-07-14, claude)
+
+**Status:** open (runtime gap). Tracked as conformance axis
+`tests/interop-conformance/pending/20-stack-safety-deep-effect-recursion.pending`. Reported by
+codex-interop (rozum #interoperability, 2026-07-14): "legacy deep-handler/return paths appear
+recursively stack-unsafe".
+
+**Symptom:** effect-performing recursion grows the native stack and overflows; pure tail
+recursion is unaffected.
+
+**Reproduce:** a recursion that performs one effect per frame overflows between depth 500 and
+2000 (`java.lang.StackOverflowError` at 2000) on BOTH portable-VM tiers (`ssc run` and `ssc
+run --bytecode`, 2026-07-14); the same shape with no effect (pure TCO) runs to 2,000,000
+(conformance axis 03 ✓).
+
+**Fix/verification:** not fixed — needs a stack-safe (heap-allocated) effect continuation.
+Conformance axis stays `pending-runtime`.
+
 ## spec-grammar-schema-links — FIXED (2026-07-14, Codex)
 
 **Status:** fixed in `96fc5adfb`; found while mechanically checking local links
