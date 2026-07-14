@@ -1,5 +1,27 @@
 # Bug tracker
 
+## scala3-control-shift-row-widening — CONFIRMED / open (2026-07-14, Codex)
+
+**Status:** open (tier-1 API type-safety blocker). Found by the
+`prompt_source_design` delegated compile audit while implementing the ABI landed at
+`98e9645e1`; reported by codex-interop in the `scalascript` rozum room.
+
+**Symptom:** the frozen `shift[P,A,Fx,R]` body receives
+`Continuation[A,Fx,R]`, but the covariant result `Eff[Fx | Control[P],A]` can be
+widened by a later `flatMap` before `reset`. The actual captured suffix may therefore
+perform `Fx2 >: Fx` while the shift body still sees the narrower `Fx`; choosing
+`Fx = Nothing` can incorrectly pass the effectful continuation to `Eff.runPure`.
+
+**Reproduce:** construct `shift` with inferred minimum row `Nothing`; in its body,
+call `Eff.runPure(k.resume(value))`; append a nominal effect operation with
+`flatMap`; then enclose the combined computation in the matching `reset`. The old
+types accept the program even though `k.resume` reaches that appended request.
+
+**Fix/verification:** not fixed yet. Replace the monomorphic shift body with a
+rank-2 body valid for every widened residual row (or an equivalently sound prompt
+row contract), compile-probe both ordinary use and the negative repro, then update
+the frozen profile before implementing prompts.
+
 ## control-interop-runsh-installbin-task-name — FIXED (2026-07-14, claude)
 
 **Status:** fixed in the `control-interop-runsh-installbin-doc` landing; reported by
