@@ -66,6 +66,29 @@ resumes with `"Ada"`; the changed spec contains no `scala.io.StdIn`, and the con
 spec separately requires `std.*`, plugin, annotation, or backend-fence isolation for
 platform work. This was documentation-only; no runtime behavior changed.
 
+## interp-boolean-operators-no-short-circuit — `&&`/`||` evaluate both operands in the interpreter
+
+**Status:** open (found 2026-07-14 while building `scljet/sql.ssc`; interpreter-only,
+all tiers). The interpreter evaluates BOTH operands of `&&` and `||`, unlike Scala and
+the JS backend, so a guarded access on the right crashes when the guard is meant to
+short-circuit.
+
+**Symptom / reproduce:**
+```
+def test(xs: List[Int]): String =
+  if xs.nonEmpty && xs.head > 0 then "pos" else "other"
+println(test(Nil))
+```
+- interpreter (all tiers: tree-walk, bytecode VM, JavaC/ASM JIT): `head on Nil`.
+- JS backend (`emit-js | node`): `other` (correct — JS short-circuits).
+
+So idioms like `while r.nonEmpty && r.head.kind == …`, `if toks.isEmpty || toks.head…`,
+`i < n && isDigit(s.charAt(i))` are UNSAFE on the interpreter. Workarounds until fixed:
+bounds-safe accessors that never touch the guarded element on the empty/OOB case
+(`sql.ssc` `charCode` returns -1 past end; `tkKind`/`tkIsKw` return ""/false on `Nil`),
+or nest the guards (`if a then (if b …)`). NOT yet fixed in the interpreter (would need
+`&&`/`||` lowered to short-circuiting control flow, not a two-arg boolean primitive).
+
 ## coreir-canonical-codec-contract — canonical encoder/decoder violates the frozen wire contract
 
 **Status:** open (found 2026-07-14, Codex + `audit_coreir_control`, while validating

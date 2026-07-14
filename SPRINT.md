@@ -1404,7 +1404,15 @@ order, so `SELECT *` matches without ORDER BY), and int==js.
       `DELETE FROM t [WHERE col op literal]` finds matching rowids (WHERE reused from SELECT) and
       deletes each via `pagerDeleteBalanced`, commits. Verified vs sqlite3, int==js. Conformance
       `scljet-sql-dml` covers INSERT + DELETE + re-query, matching sqlite after the same sequence.
-- [ ] **scljet-m5e-sql-update** — `UPDATE t SET col=… WHERE …` → re-encode the row in place.
+- [x] **scljet-m5e-sql-update** — DONE 2026-07-14. `sql.ssc` `parseUpdate`/`executeUpdate`:
+      `UPDATE t SET col=literal [, col=literal] [WHERE …]` re-encodes each matching row (current
+      values with assignments applied) and replaces it at the same rowid via delete+reinsert on
+      the balanced path (handles a value that grows or shrinks). Verified vs sqlite3 (multi-column
+      SET, int/text WHERE, update-all), int==js; conformance `scljet-sql-update`. Found + recorded
+      a real interpreter bug: **`&&`/`||` do NOT short-circuit in the interpreter** (BUGS.md
+      `interp-boolean-operators-no-short-circuit`) — a no-WHERE UPDATE hit `rest.nonEmpty &&
+      rest.head.kind` on `Nil`; fixed with bounds-safe `tkKind`/`tkIsKw` accessors (JS was always
+      fine). SQL CRUD (SELECT/INSERT/UPDATE/DELETE) is now complete and matches sqlite3.
 - [ ] **scljet-m5f-sql-create-table** — `CREATE TABLE t(…)` → build an empty table + schema row.
 - [ ] **scljet-m5g-sql-aggregates-join** — `COUNT/SUM/MIN/MAX`, `GROUP BY`, simple inner joins (later).
 

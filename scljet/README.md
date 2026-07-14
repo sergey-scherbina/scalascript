@@ -120,10 +120,12 @@ returning result rows that `renderRows` formats like the sqlite3 CLI. Every quer
 byte-identical to reference sqlite3 running the same SQL on the same file.
 
 Data-modifying SQL runs too: `executeMutation(dbBytes, sql)` handles `INSERT INTO t VALUES (…)`
-(record encoded and inserted via the balanced write path, rowid = max + 1) and
-`DELETE FROM t [WHERE …]` (matching rows deleted through the pager), returning the new database
-image — after a sequence of statements the table matches sqlite3 running the same SQL, with
-`integrity_check` ok. `UPDATE`, `CREATE TABLE`, `ORDER BY`/`LIMIT`, column-list inserts, and
+(record encoded and inserted via the balanced write path, rowid = max + 1),
+`DELETE FROM t [WHERE …]` (matching rows deleted through the pager), and
+`UPDATE t SET col = literal [, …] [WHERE …]` (each matching row re-encoded and replaced at the
+same rowid), returning the new database image — after a sequence of statements the table matches
+sqlite3 running the same SQL, with `integrity_check` ok. SQL **CRUD is complete**
+(SELECT / INSERT / UPDATE / DELETE). `CREATE TABLE`, `ORDER BY`/`LIMIT`, column-list inserts, and
 aggregates/joins are the remaining M5 follow-ups.
 
 ## Modules
