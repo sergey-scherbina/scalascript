@@ -70,6 +70,26 @@ object SpikeLex:
           case ":" => "spike.colon"
           case _   => "spike.op"
         emit(kind, start, op, TokenChannel.Syntax)
+      else if c == '"' then
+        // string literal → spike.str whose lexeme is the DECODED value (mirrors ssc1-front
+        // buildStr: `\n`→NL, `\t`→TAB, `\<c>`→c; triple-quoted is raw). Interpolation prefixes
+        // (s/f/md) are a separate slice — a bare string is a plain literal here.
+        val sb = new StringBuilder
+        if i + 2 < n && text.charAt(i + 1) == '"' && text.charAt(i + 2) == '"' then
+          advance('"'); advance('"'); advance('"')
+          while i < n && !(i + 2 < n && text.charAt(i) == '"' && text.charAt(i + 1) == '"' && text.charAt(i + 2) == '"') do
+            sb.append(text.charAt(i)); advance(text.charAt(i))
+          if i + 2 < n then { advance('"'); advance('"'); advance('"') }
+        else
+          advance('"')
+          while i < n && text.charAt(i) != '"' do
+            if text.charAt(i) == '\\' && i + 1 < n then
+              val e = text.charAt(i + 1)
+              sb.append(if e == 'n' then '\n' else if e == 't' then '\t' else e)
+              advance('\\'); advance(e)
+            else { sb.append(text.charAt(i)); advance(text.charAt(i)) }
+          if i < n then advance('"')
+        emit("spike.str", start, sb.toString, TokenChannel.Syntax)
       else
         val kind = c match
           case '(' => "spike.lparen"
@@ -476,6 +496,7 @@ object SpikeParse:
   private def parseAtom(c: Cur): Option[Node] =
     c.peekKind match
       case "spike.int"    => c.advance().map(t => Node.Leaf(t, Some("int")))
+      case "spike.str"    => c.advance().map(t => Node.Leaf(t, Some("str")))
       case "spike.lparen" => parseParen(c)
       case "spike.kw" if c.peekLexeme == "if" => parseIf(c)
       case "spike.op" if c.peekLexeme == "-" || c.peekLexeme == "!" || c.peekLexeme == "~" => Some(parsePrefix(c))
@@ -585,6 +606,10 @@ object SpikeProject:
 
   private def esc(s: String): String = s.replace("\\", "\\\\").replace("\"", "\\\"")
 
+  /** escape a decoded string VALUE back into an ssc0 string literal that round-trips to it
+    * (ssc0 buildStr decodes `\n`/`\t`; `\`/`"` are escaped by `esc`). */
+  private def escStr(s: String): String = esc(s).replace("\n", "\\n").replace("\t", "\\t")
+
   private def lexeme(n: UniNode): String = n match
     case UniNode.Token(t) => t.lexeme
     case _                => ""
@@ -658,6 +683,7 @@ object SpikeProject:
 
   private def expr(n: UniNode): String = n match
     case UniNode.Token(t) if t.kind == "spike.int" => s"""mkInt("${esc(t.lexeme)}")"""
+    case UniNode.Token(t) if t.kind == "spike.str" => s"""mkStr("${escStr(t.lexeme)}")"""
     case UniNode.Token(t) if t.kind == "spike.id"  => s"""mkVar("${esc(t.lexeme)}")"""
     case UniNode.Token(t) if t.kind == "spike.uid" => s"""mkUVar("${esc(t.lexeme)}")"""
     case b: UniNode.Branch => b.kind match

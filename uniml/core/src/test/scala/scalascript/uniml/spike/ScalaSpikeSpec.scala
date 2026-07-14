@@ -324,6 +324,24 @@ final class ScalaSpikeSpec extends AnyFunSuite:
     assert(d.span.isDefined)
   }
 
+  // ══ string literals — plain + escapes, mirroring ssc1-front buildStr ══════════════════════════
+
+  test("a plain string literal projects to mkStr with the decoded value") {
+    val proj = SpikeProject.program(parse("def greet(): String = \"hello world\"").roots.head)
+    assert(proj.contains("""mkStr("hello world")"""), proj)
+  }
+
+  test("string escapes: \\n and \\t decode, \\<other> is the bare char (ssc1-front buildStr)") {
+    // source: "a\tb\nc\"d\\e"  → value  a<TAB>b<NL>c"d\e  → re-encoded mkStr("a\tb\nc\"d\\e")
+    val proj = SpikeProject.program(parse("def s(): String = \"a\\tb\\nc\\\"d\\\\e\"").roots.head)
+    assert(proj.contains("""mkStr("a\tb\nc\"d\\e")"""), proj)
+  }
+
+  test("a triple-quoted string is raw — no escape processing") {
+    val proj = SpikeProject.program(parse("def s(): String = \"\"\"a\\tb\"\"\"").roots.head)
+    assert(proj.contains("""mkStr("a\\tb")"""), proj) // \t stays two chars: backslash, t
+  }
+
   // ══ trailing-newline tolerance: a trailing EOL is trivia, never a projection change ═══════════
 
   test("a trailing newline is trivia — the projection (hence Core IR) is invariant to it") {
@@ -395,7 +413,10 @@ final class ScalaSpikeSpec extends AnyFunSuite:
       "op-range"  -> "def main(): Int = (1 until 5) match\n  case _ => 7",
       "pat-typed" -> "def main(): Int = 5 match\n  case x: Int => x\n  case _ => 0",
       // P6.2k — type parameters on defs (plain [A], erased); summon a concrete given from a generic def
-      "tparam" -> "given g: Int = 99\ndef useIt[A](x: A): Int = summon[Int]\ndef main(): Int = useIt(5)"
+      "tparam" -> "given g: Int = 99\ndef useIt[A](x: A): Int = summon[Int]\ndef main(): Int = useIt(5)",
+      // P6.3d — string literals: plain + \t/\n escapes (mkStr, buildStr semantics)
+      "str-plain"  -> "def greet(): String = \"hello world\"\ndef main(): Int = 5",
+      "str-escape" -> "def s(): String = \"a\\tb\\nc\"\ndef main(): Int = 6"
     )
     // broken — no oracle; the harness proves containment (`main` still runs).
     val broken = Seq(
