@@ -366,6 +366,37 @@ final class ScalaSpikeSpec extends AnyFunSuite:
     ), proj)
   }
 
+  // ══ booleans, floats, lambdas, comments — closing ssc1-front grammar the spike lacked ══════════
+
+  test("true/false are boolean literals (mkBool), not variables") {
+    assert(SpikeProject.program(parse("def m(): Int = if true then 1 else 0").roots.head).contains("""mkBool("true")"""))
+    assert(SpikeProject.program(parse("def m(): Boolean = false").roots.head).contains("""mkBool("false")"""))
+  }
+
+  test("float literals project to mkFloat; `1.field` stays int + selector") {
+    assert(SpikeProject.program(parse("def m(): Double = 3.14").roots.head).contains("""mkFloat("3.14")"""))
+    val sel = SpikeProject.program(parse("def m(): Int = 1.toInt").roots.head)
+    assert(sel.contains("""mkInt("1")""") && sel.contains("toInt"), sel) // 1.toInt = sel, not a float
+  }
+
+  test("lambdas: `x => e` and `(a, b) => e` project to mkLam with the right param list") {
+    assert(SpikeProject.program(parse("def m(): Int = f(x => x + 1)").roots.head)
+      .contains("""mkLam(Cons("x", Nil), mkInf("+", mkVar("x"), mkInt("1")))"""))
+    assert(SpikeProject.program(parse("def m(): Int = g((a, b) => a + b)").roots.head)
+      .contains("""mkLam(Cons("a", Cons("b", Nil)), mkInf("+", mkVar("a"), mkVar("b")))"""))
+  }
+
+  test("`(a, b)` with no `=>` stays a tuple — the lambda lookahead backtracks") {
+    assert(SpikeProject.program(parse("def m(): Int = (1, 2) match\n  case (a, b) => a + b").roots.head)
+      .contains("mkTup"))
+  }
+
+  test("comments (// and /* */) are trivia — no effect on the projection") {
+    val withC = SpikeProject.program(parse("def m(): Int =\n  // pick\n  val a = 2 /* two */\n  a + 1").roots.head)
+    val without = SpikeProject.program(parse("def m(): Int =\n  val a = 2\n  a + 1").roots.head)
+    assert(withC == without, s"comments changed the projection:\n$withC\n$without")
+  }
+
   // ══ trailing-newline tolerance: a trailing EOL is trivia, never a projection change ═══════════
 
   test("a trailing newline is trivia — the projection (hence Core IR) is invariant to it") {
@@ -445,7 +476,13 @@ final class ScalaSpikeSpec extends AnyFunSuite:
       "interp-var"  -> "def greet(name: String): String = s\"hi $name!\"\ndef main(): Int = 0",
       "interp-expr" -> "def f(x: Int): String = s\"n=${x + 1}\"\ndef main(): Int = 0",
       "interp-md"   -> "def h(t: String): String = md\"# $t\"\ndef main(): Int = 0",
-      "interp-f"    -> "def f(x: Int): String = f\"n=$x%d!\"\ndef main(): Int = 0"
+      "interp-f"    -> "def f(x: Int): String = f\"n=$x%d!\"\ndef main(): Int = 0",
+      // P6.4 grammar completeness — booleans, floats, lambdas, comments (all byte-identical)
+      "bool"    -> "def main(): Int = if true && false then 0 else 1",
+      "float"   -> "def f(): Int =\n  val pi = 3.14\n  0\ndef main(): Int = f()",
+      "lambda1" -> "def main(): Int =\n  val f = x => x + 1\n  f(4)",
+      "lambda2" -> "def main(): Int =\n  val g = (a, b) => a + b\n  g(3, 4)",
+      "comment" -> "def main(): Int =\n  // pick two\n  val a = 2 /* the value */\n  a + 1"
     )
     // broken — no oracle; the harness proves containment (`main` still runs).
     val broken = Seq(

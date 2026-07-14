@@ -54,13 +54,31 @@ object SpikeLex:
       else if c.isDigit then
         val sb = new StringBuilder
         while i < n && text.charAt(i).isDigit do { sb.append(text.charAt(i)); advance(text.charAt(i)) }
-        emit("spike.int", start, sb.toString, TokenChannel.Syntax)
+        // `1.5` is a float; `1.field` (dot NOT followed by a digit) stays int + `.` + selector
+        if i + 1 < n && text.charAt(i) == '.' && text.charAt(i + 1).isDigit then
+          sb.append('.'); advance('.')
+          while i < n && text.charAt(i).isDigit do { sb.append(text.charAt(i)); advance(text.charAt(i)) }
+          emit("spike.float", start, sb.toString, TokenChannel.Syntax)
+        else emit("spike.int", start, sb.toString, TokenChannel.Syntax)
       else if c.isLetter || c == '_' then
         val sb = new StringBuilder
         while i < n && (text.charAt(i).isLetterOrDigit || text.charAt(i) == '_') do { sb.append(text.charAt(i)); advance(text.charAt(i)) }
         val w = sb.toString
         val idKind = if keywords(w) then "spike.kw" else if w.head.isUpper then "spike.uid" else "spike.id"
         emit(idKind, start, w, TokenChannel.Syntax)
+      else if c == '/' && i + 1 < n && text.charAt(i + 1) == '/' then
+        // line comment → trivia (parser skips it via skipTrivia); lossless, text kept in the token
+        val sb = new StringBuilder
+        while i < n && text.charAt(i) != '\n' do { sb.append(text.charAt(i)); advance(text.charAt(i)) }
+        emit("spike.ws", start, sb.toString, TokenChannel.Trivia)
+      else if c == '/' && i + 1 < n && text.charAt(i + 1) == '*' then
+        // block comment → trivia (non-nested, matches ssc1-front skipBlockComment)
+        val sb = new StringBuilder
+        sb.append('/'); advance('/'); sb.append('*'); advance('*')
+        while i < n && !(text.charAt(i) == '*' && i + 1 < n && text.charAt(i + 1) == '/') do
+          { sb.append(text.charAt(i)); advance(text.charAt(i)) }
+        if i + 1 < n then { sb.append('*'); advance('*'); sb.append('/'); advance('/') }
+        emit("spike.ws", start, sb.toString, TokenChannel.Trivia)
       else if isOpChar(c) then
         val sb = new StringBuilder
         while i < n && isOpChar(text.charAt(i)) do { sb.append(text.charAt(i)); advance(text.charAt(i)) }
@@ -144,6 +162,8 @@ object SpikeParse:
   private final class Cur(val toks: Vector[SourceToken]):
     private var p = 0
     private val diags = Vector.newBuilder[Diagnostic]
+    def mark: Int = p
+    def reset(m: Int): Unit = p = m
     private def skipTrivia(): Unit = while p < toks.length && toks(p).kind == "spike.ws" do p += 1
     def eof: Boolean = { skipTrivia(); p >= toks.length }
     def peek: Option[SourceToken] = { skipTrivia(); if p < toks.length then Some(toks(p)) else None }
@@ -481,7 +501,51 @@ object SpikeParse:
     else c.report("spike.expected", "expected ')' in tuple pattern")
     Node.Frame("spike.tuppat", None, kids.result())
 
+  // `x => body` and `(x, y) => body` are lambdas; they bind loosest, so only at the outer level
+  // (minPrec ≤ 1), mirroring ssc1-front parseExprCore. `(…)` may instead be a paren/tuple, so the
+  // paren form is tried with backtracking (mark/reset).
+  private def tryParseLambda(c: Cur): Option[Node] =
+    if c.peekKind == "spike.id" && c.peek2Lexeme == "=>" then
+      val name = c.advance().get
+      c.advance() // =>
+      val body = parseExpr(c, 1).getOrElse(Node.Frame("spike.error", None, Vector.empty))
+      Some(Node.Frame("spike.lambda", None, Vector(Node.Leaf(name, Some("lam.param")), body.withRole("lam.body"))))
+    else if c.peekKind == "spike.lparen" then
+      val m = c.mark
+      tryLambdaParams(c) match
+        case Some(ps) if c.peekLexeme == "=>" =>
+          c.advance() // =>
+          val body = parseExpr(c, 1).getOrElse(Node.Frame("spike.error", None, Vector.empty))
+          Some(Node.Frame("spike.lambda", None, ps.map(p => Node.Leaf(p, Some("lam.param"))) :+ body.withRole("lam.body")))
+        case _ => c.reset(m); None
+    else None
+
+  // scan `( id [: T] (, id [: T])* )` — the shape of a lambda parameter clause. Returns the param
+  // tokens on success (cursor left just after `)`), else None (caller resets).
+  private def tryLambdaParams(c: Cur): Option[Vector[SourceToken]] =
+    c.advance() // (
+    val params = Vector.newBuilder[SourceToken]
+    var ok = true
+    var first = true
+    while ok && c.peekKind != "spike.rparen" && !c.eof do
+      if !first then (if c.peekKind == "spike.comma" then c.advance() else ok = false)
+      if ok && c.peekKind == "spike.id" then
+        params += c.advance().get
+        if c.peekKind == "spike.colon" then { c.advance(); skipTypeRef(c) }
+      else ok = false
+      first = false
+    if ok && c.peekKind == "spike.rparen" then { c.advance(); Some(params.result()) } else None
+
+  // skip a simple type reference after `:` in a lambda param (`Int`, `List[Int]`, `A => B`).
+  private def skipTypeRef(c: Cur): Unit =
+    if c.peekKind == "spike.uid" || c.peekKind == "spike.id" then c.advance()
+    if c.peekKind == "spike.lbracket" then skipTypeParams(c)
+
   private def parseExpr(c: Cur, minPrec: Int): Option[Node] =
+    val lam = if minPrec <= 1 then tryParseLambda(c) else None
+    if lam.isDefined then lam else parseInfixExpr(c, minPrec)
+
+  private def parseInfixExpr(c: Cur, minPrec: Int): Option[Node] =
     parsePostfix(c) match
       case None => None
       case Some(first) =>
@@ -511,6 +575,7 @@ object SpikeParse:
   private def parseAtom(c: Cur): Option[Node] =
     c.peekKind match
       case "spike.int"    => c.advance().map(t => Node.Leaf(t, Some("int")))
+      case "spike.float"  => c.advance().map(t => Node.Leaf(t, Some("float")))
       case "spike.str"    => c.advance().map(t => Node.Leaf(t, Some("str")))
       case "spike.lparen" => parseParen(c)
       case "spike.kw" if c.peekLexeme == "if" => parseIf(c)
@@ -831,10 +896,13 @@ object SpikeProject:
     s"""mkDef("${esc(name)}", ${consList(params)}, $body)"""
 
   private def expr(n: UniNode): String = n match
-    case UniNode.Token(t) if t.kind == "spike.int" => s"""mkInt("${esc(t.lexeme)}")"""
-    case UniNode.Token(t) if t.kind == "spike.str" => s"""mkStr("${escStr(t.lexeme)}")"""
-    case UniNode.Token(t) if t.kind == "spike.id"  => s"""mkVar("${esc(t.lexeme)}")"""
-    case UniNode.Token(t) if t.kind == "spike.uid" => s"""mkUVar("${esc(t.lexeme)}")"""
+    case UniNode.Token(t) if t.kind == "spike.int"   => s"""mkInt("${esc(t.lexeme)}")"""
+    case UniNode.Token(t) if t.kind == "spike.float" => s"""mkFloat("${esc(t.lexeme)}")"""
+    case UniNode.Token(t) if t.kind == "spike.str"   => s"""mkStr("${escStr(t.lexeme)}")"""
+    // `true`/`false` are literal booleans, not variables (ssc1-front does the same)
+    case UniNode.Token(t) if t.kind == "spike.id" && (t.lexeme == "true" || t.lexeme == "false") => s"""mkBool("${t.lexeme}")"""
+    case UniNode.Token(t) if t.kind == "spike.id"    => s"""mkVar("${esc(t.lexeme)}")"""
+    case UniNode.Token(t) if t.kind == "spike.uid"   => s"""mkUVar("${esc(t.lexeme)}")"""
     case b: UniNode.Branch => b.kind match
       case "spike.infix" => infix(b)
       case "spike.paren" => kids(b).collectFirst { case (Some("group.elem"), c) => expr(c) }.getOrElse(hole)
@@ -850,6 +918,10 @@ object SpikeProject:
         val op  = kids(b).collectFirst { case (Some("pre.op"), c) => lexeme(c) }.getOrElse("-")
         val sub = kids(b).collectFirst { case (Some("pre.sub"), c) => expr(c) }.getOrElse(hole)
         s"""mkPre("${esc(op)}", $sub)"""
+      case "spike.lambda" =>
+        val ps   = kids(b).collect { case (Some("lam.param"), c) => "\"" + esc(lexeme(c)) + "\"" }.toVector
+        val body = kids(b).collectFirst { case (Some("lam.body"), c) => expr(c) }.getOrElse(hole)
+        s"""mkLam(${consList(ps)}, $body)"""
       case "spike.interp" =>
         val pfx = kids(b).collectFirst { case (Some("interp.prefix"), c) => lexeme(c) }.getOrElse("s")
         val raw = kids(b).collectFirst { case (Some("interp.raw"), c) => lexeme(c) }.getOrElse("")
