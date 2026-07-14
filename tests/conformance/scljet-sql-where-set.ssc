@@ -1,0 +1,40 @@
+---
+name: scljet-sql-where-set
+description: SclJet SQL WHERE set/range predicates — BETWEEN lo AND hi, IN (…), NOT IN (…), matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet SQL WHERE set/range predicates (BETWEEN, IN, NOT IN)
+
+`WHERE` predicates beyond scalar comparisons: `col BETWEEN lo AND hi` (inclusive range, the inner
+`AND` belongs to BETWEEN — a following `AND` still chains normally), `col IN (v1, v2, …)` and
+`col NOT IN (…)` (membership over a literal list; text or integer). Each is a single predicate, so it
+composes with `AND`/`OR` and `ORDER BY`. Every result is byte-identical to reference sqlite3 running
+the same SQL on the same file (verified out-of-band); locked here across backends.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER, name TEXT, dept INTEGER, salary INTEGER)",
+  List(List(SqlInteger(1L), SqlText("ann"), SqlInteger(10L), SqlInteger(100L)),
+       List(SqlInteger(2L), SqlText("bob"), SqlInteger(20L), SqlInteger(250L)),
+       List(SqlInteger(3L), SqlText("cat"), SqlInteger(10L), SqlInteger(300L)),
+       List(SqlInteger(4L), SqlText("dan"), SqlInteger(30L), SqlInteger(150L)),
+       List(SqlInteger(5L), SqlText("eve"), SqlInteger(20L), SqlInteger(250L)),
+       List(SqlInteger(6L), SqlText("flo"), SqlInteger(10L), SqlInteger(120L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db) =>
+    show(db, "SELECT id FROM emp WHERE salary BETWEEN 120 AND 250")
+    show(db, "SELECT name FROM emp WHERE dept IN (10, 30)")
+    show(db, "SELECT id FROM emp WHERE dept NOT IN (10, 20)")
+    show(db, "SELECT name FROM emp WHERE name IN ('ann', 'flo', 'zzz')")
+    show(db, "SELECT id FROM emp WHERE salary BETWEEN 120 AND 250 AND dept = 10")
+    show(db, "SELECT id, salary FROM emp WHERE dept IN (10, 20) AND salary > 120 ORDER BY id")
+    show(db, "SELECT COUNT(*) FROM emp WHERE dept NOT IN (20)")
+```

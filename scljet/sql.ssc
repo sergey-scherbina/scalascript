@@ -168,7 +168,10 @@ def tokenize(sql: String): Either[String, List[Token]] =
 
 // ── Parser: SELECT (*|cols) FROM table [WHERE col op literal] ──
 
-case class Condition(column: String, op: String, value: SqliteValue)
+// `value` carries the single operand for scalar ops (=, <, LIKE, …); `values` carries
+// the multi-operand list for `BETWEEN lo AND hi` (op "between", [lo, hi]) and
+// `IN (…)` / `NOT IN (…)` (op "in"/"notin", the membership list). `value` = SqlNull then.
+case class Condition(column: String, op: String, value: SqliteValue, values: List[SqliteValue])
 case class JoinSpec(table: String, leftCol: String, op: String, rightCol: String, leftOuter: Boolean)
 case class HavingCond(item: ProjItem, op: String, value: SqliteValue)
 case class SelectStmt(star: Boolean, projection: List[ProjItem], table: String, where: List[List[Condition]], orderBy: List[OrderKey], limit: Int, offset: Int, groupBy: List[String], join: Option[JoinSpec], having: Option[HavingCond], distinct: Boolean)
@@ -213,7 +216,8 @@ def litValue(token: Token): Either[String, SqliteValue] =
 
 // Parse an optional `WHERE col op literal`; returns the condition (or None) and the
 // tokens after it (for a trailing ORDER BY / LIMIT). A non-WHERE token is left in place.
-// One comparison: `col op literal` or `col IS [NOT] NULL`.
+// One predicate on a column: `col op literal`, `col IS [NOT] NULL`,
+// `col BETWEEN lo AND hi`, or `col [NOT] IN ( v1, v2, … )`.
 def parseCondition(toks: List[Token]): Either[String, (Condition, List[Token])] =
   if tkKind(toks) != "ident" then Left("expected a column in the condition")
   else
@@ -223,9 +227,25 @@ def parseCondition(toks: List[Token]): Either[String, (Condition, List[Token])] 
       val afterIs = after.tail
       if tkIsKw(afterIs, "NOT") then
         if !tkIsKw(afterIs.tail, "NULL") then Left("expected NULL after IS NOT")
-        else Right((Condition(col.text, "notnull", SqlNull), afterIs.tail.tail))
-      else if tkIsKw(afterIs, "NULL") then Right((Condition(col.text, "isnull", SqlNull), afterIs.tail))
+        else Right((Condition(col.text, "notnull", SqlNull, Nil), afterIs.tail.tail))
+      else if tkIsKw(afterIs, "NULL") then Right((Condition(col.text, "isnull", SqlNull, Nil), afterIs.tail))
       else Left("expected NULL after IS")
+    else if tkIsKw(after, "NOT") && tkIsKw(after.tail, "IN") then
+      parseValueList(after.tail.tail) match
+        case Left(message) => Left(message)
+        case Right(vl) => Right((Condition(col.text, "notin", SqlNull, vl._1), vl._2))
+    else if tkIsKw(after, "IN") then
+      parseValueList(after.tail) match
+        case Left(message) => Left(message)
+        case Right(vl) => Right((Condition(col.text, "in", SqlNull, vl._1), vl._2))
+    else if tkIsKw(after, "BETWEEN") then
+      if after.length < 4 then Left("BETWEEN needs: col BETWEEN lo AND hi")
+      else if !tkIsKw(after.tail.tail, "AND") then Left("expected AND in BETWEEN")
+      else litValue(after.tail.head) match
+        case Left(message) => Left(message)
+        case Right(lo) => litValue(after.tail.tail.tail.head) match
+          case Left(message) => Left(message)
+          case Right(hi) => Right((Condition(col.text, "between", SqlNull, lo :: hi :: Nil), after.tail.tail.tail.tail))
     else if after.length < 2 then Left("condition needs: column op value")
     else
       val op = after.head
@@ -233,7 +253,7 @@ def parseCondition(toks: List[Token]): Either[String, (Condition, List[Token])] 
       if op.kind != "op" then Left("expected a comparison operator")
       else litValue(lit) match
         case Left(message) => Left(message)
-        case Right(value) => Right((Condition(col.text, op.text, value), after.tail.tail))
+        case Right(value) => Right((Condition(col.text, op.text, value, Nil), after.tail.tail))
 
 def reverseConds(items: List[Condition], acc: List[Condition]): List[Condition] =
   var r = items
@@ -650,10 +670,30 @@ def isNullValue(v: SqliteValue): Boolean = v match
   case SqlNull => true
   case _ => false
 
+def valueInList(v: SqliteValue, values: List[SqliteValue]): Boolean =
+  var r = values
+  var found = false
+  while r.nonEmpty && !found do
+    if sqlCompare(v, r.head) == 0 then found = true
+    r = r.tail
+  found
+
+// Evaluate one predicate against an already-resolved column value `v`. Shared by
+// single-table (condHolds) and join (joinCondHolds) evaluation.
+def predHolds(cond: Condition, v: SqliteValue): Boolean =
+  if cond.op == "isnull" then isNullValue(v)
+  else if cond.op == "notnull" then isNullValue(v) == false
+  else if cond.op == "between" then
+    if isNullValue(v) then false
+    else sqlCompare(v, cond.values.head) >= 0 && sqlCompare(v, cond.values.tail.head) <= 0
+  else if cond.op == "in" then
+    if isNullValue(v) then false else valueInList(v, cond.values)
+  else if cond.op == "notin" then
+    if isNullValue(v) then false else valueInList(v, cond.values) == false
+  else condMatches(cond.op, sqlCompare(v, cond.value))
+
 def condHolds(cond: Condition, rec: StorageRecord, colNames: List[String]): Boolean =
-  if cond.op == "isnull" then isNullValue(rowValue(rec, colNames, cond.column))
-  else if cond.op == "notnull" then isNullValue(rowValue(rec, colNames, cond.column)) == false
-  else condMatches(cond.op, sqlCompare(rowValue(rec, colNames, cond.column), cond.value))
+  predHolds(cond, rowValue(rec, colNames, cond.column))
 
 def andGroupHolds(group: List[Condition], rec: StorageRecord, colNames: List[String]): Boolean =
   var r = group
@@ -1084,9 +1124,7 @@ def joinColValue(recA: StorageRecord, colsA: List[String], tableA: String, recBO
     else SqlNull
 
 def joinCondHolds(cond: Condition, recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String): Boolean =
-  if cond.op == "isnull" then isNullValue(joinColValue(recA, colsA, tableA, recBOpt, colsB, tableB, cond.column))
-  else if cond.op == "notnull" then isNullValue(joinColValue(recA, colsA, tableA, recBOpt, colsB, tableB, cond.column)) == false
-  else condMatches(cond.op, sqlCompare(joinColValue(recA, colsA, tableA, recBOpt, colsB, tableB, cond.column), cond.value))
+  predHolds(cond, joinColValue(recA, colsA, tableA, recBOpt, colsB, tableB, cond.column))
 
 def joinAndGroupHolds(group: List[Condition], recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String): Boolean =
   var r = group
