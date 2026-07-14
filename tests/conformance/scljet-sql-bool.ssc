@@ -1,0 +1,38 @@
+---
+name: scljet-sql-bool
+description: SclJet SQL boolean operators in expressions — AND / OR / NOT yielding 1/0, in projection, CASE and WHERE; matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet SQL boolean operators in expressions
+
+`AND` / `OR` / `NOT` are expression operators below comparison (sqlite precedence `OR < AND < NOT <
+comparison`), yielding `1`/`0`/NULL. They work in the projection (`SELECT salary > 200 AND dept = 10`),
+inside `CASE WHEN` conditions (`WHEN salary > 200 AND dept = 10`), and — via the WHERE condition chain —
+with bare truthy columns (`WHERE active AND salary > 100`). Every result is byte-identical to reference
+sqlite3 running the same SQL on the same file (verified out-of-band); locked across backends.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER, salary INTEGER, dept INTEGER, active INTEGER)",
+  List(List(SqlInteger(1L), SqlInteger(100L), SqlInteger(10L), SqlInteger(1L)),
+       List(SqlInteger(2L), SqlInteger(250L), SqlInteger(20L), SqlInteger(0L)),
+       List(SqlInteger(3L), SqlInteger(300L), SqlInteger(10L), SqlInteger(1L)),
+       List(SqlInteger(4L), SqlInteger(150L), SqlInteger(30L), SqlInteger(0L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db) =>
+    show(db, "SELECT id, salary > 200 AND dept = 10 FROM emp")
+    show(db, "SELECT id, salary > 200 OR dept = 30 FROM emp")
+    show(db, "SELECT id, NOT (dept = 10) FROM emp")
+    show(db, "SELECT id, NOT active FROM emp")
+    show(db, "SELECT id, CASE WHEN salary > 200 AND dept = 10 THEN 'topeng' ELSE 'other' END FROM emp")
+    show(db, "SELECT id FROM emp WHERE active AND salary > 100")
+    show(db, "SELECT id FROM emp WHERE dept = 10 OR dept = 30")
+```

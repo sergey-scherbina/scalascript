@@ -201,6 +201,7 @@ case class SxLit(value: SqliteValue) extends SxNode
 case class SxNeg(inner: SxNode) extends SxNode
 case class SxBin(op: String, left: SxNode, right: SxNode) extends SxNode
 case class SxCall(func: String, args: List[SxNode]) extends SxNode
+case class SxNot(inner: SxNode) extends SxNode
 case class SxWhen(cond: SxNode, result: SxNode)
 case class SxCase(operand: Option[SxNode], whens: List[SxWhen], elseExpr: Option[SxNode]) extends SxNode
 
@@ -694,7 +695,55 @@ def parseExprCompare(toks: List[Token]): Either[String, (SxNode, List[Token])] =
           case Right(second) => Right((SxBin(tkText(rest0), first._1, second._1), second._2))
       else Right((first._1, rest0))
 
-def parseExpr(toks: List[Token]): Either[String, (SxNode, List[Token])] = parseExprCompare(toks)
+// Boolean layers below comparison (sqlite precedence: OR < AND < NOT < comparison).
+def parseExprNot(toks: List[Token]): Either[String, (SxNode, List[Token])] =
+  if tkIsKw(toks, "NOT") then
+    parseExprNot(toks.tail) match
+      case Left(message) => Left(message)
+      case Right(inner) => Right((SxNot(inner._1), inner._2))
+  else parseExprCompare(toks)
+
+def parseExprAnd(toks: List[Token]): Either[String, (SxNode, List[Token])] =
+  parseExprNot(toks) match
+    case Left(message) => Left(message)
+    case Right(first) =>
+      var acc = first._1
+      var rest = first._2
+      var err: Option[String] = None
+      var done = false
+      while !done && err.isEmpty do
+        if tkIsKw(rest, "AND") then
+          parseExprNot(rest.tail) match
+            case Left(message) => err = Some(message)
+            case Right(nx) =>
+              acc = SxBin("AND", acc, nx._1)
+              rest = nx._2
+        else done = true
+      err match
+        case Some(message) => Left(message)
+        case None => Right((acc, rest))
+
+def parseExprOr(toks: List[Token]): Either[String, (SxNode, List[Token])] =
+  parseExprAnd(toks) match
+    case Left(message) => Left(message)
+    case Right(first) =>
+      var acc = first._1
+      var rest = first._2
+      var err: Option[String] = None
+      var done = false
+      while !done && err.isEmpty do
+        if tkIsKw(rest, "OR") then
+          parseExprAnd(rest.tail) match
+            case Left(message) => err = Some(message)
+            case Right(nx) =>
+              acc = SxBin("OR", acc, nx._1)
+              rest = nx._2
+        else done = true
+      err match
+        case Some(message) => Left(message)
+        case None => Right((acc, rest))
+
+def parseExpr(toks: List[Token]): Either[String, (SxNode, List[Token])] = parseExprOr(toks)
 
 def parseProjItem(toks: List[Token]): Either[String, (ProjItem, List[Token])] =
   if isAggStart(toks) then
@@ -984,11 +1033,35 @@ def isTruthy(v: SqliteValue): Boolean = v match
   case SqlText(s) => parseIntStr(s) != 0
   case _ => false
 
+// Three-valued boolean: -1 = NULL/unknown, 0 = false, 1 = true.
+def boolState(v: SqliteValue): Int =
+  if isNullValue(v) then -1 else if isTruthy(v) then 1 else 0
+
+def andValue(a: SqliteValue, b: SqliteValue): SqliteValue =
+  val af = boolState(a)
+  val bf = boolState(b)
+  if af == 0 || bf == 0 then SqlInteger(0L)
+  else if af < 0 || bf < 0 then SqlNull
+  else SqlInteger(1L)
+
+def orValue(a: SqliteValue, b: SqliteValue): SqliteValue =
+  val af = boolState(a)
+  val bf = boolState(b)
+  if af == 1 || bf == 1 then SqlInteger(1L)
+  else if af < 0 || bf < 0 then SqlNull
+  else SqlInteger(0L)
+
+def notValue(v: SqliteValue): SqliteValue =
+  if isNullValue(v) then SqlNull
+  else if isTruthy(v) then SqlInteger(0L) else SqlInteger(1L)
+
 // Arithmetic: integer result when both operands are integers (with truncating integer
 // division), otherwise real; NULL if either operand is NULL or on divide-by-zero (as sqlite).
 // `||` (concat) and comparisons (→ 1/0/NULL) are handled first, before the numeric ops.
 def arithValue(op: String, a: SqliteValue, b: SqliteValue): SqliteValue =
   if op == "||" then concatValue(a, b)
+  else if op == "AND" then andValue(a, b)
+  else if op == "OR" then orValue(a, b)
   else if isCompareOp(op) then compareValue(op, a, b)
   else if isNullValue(a) || isNullValue(b) then SqlNull
   else if isIntValue(a) && isIntValue(b) then
@@ -1190,6 +1263,7 @@ def evalExpr(e: SxNode, rec: StorageRecord, colNames: List[String]): SqliteValue
   case SxNeg(inner) => negateValue(evalExpr(inner, rec, colNames))
   case SxBin(op, l, r) => arithValue(op, evalExpr(l, rec, colNames), evalExpr(r, rec, colNames))
   case SxCall(func, args) => evalCall(func, evalArgs(args, rec, colNames))
+  case SxNot(inner) => notValue(evalExpr(inner, rec, colNames))
   case SxCase(operand, whens, elseExpr) => evalCaseSingle(operand, whens, elseExpr, rec, colNames)
 
 // Same evaluation over a join row: column references resolve across both tables (qualified or bare).
@@ -1226,6 +1300,7 @@ def evalExprJoin(e: SxNode, recA: StorageRecord, colsA: List[String], tableA: St
   case SxNeg(inner) => negateValue(evalExprJoin(inner, recA, colsA, tableA, recBOpt, colsB, tableB))
   case SxBin(op, l, r) => arithValue(op, evalExprJoin(l, recA, colsA, tableA, recBOpt, colsB, tableB), evalExprJoin(r, recA, colsA, tableA, recBOpt, colsB, tableB))
   case SxCall(func, args) => evalCall(func, evalArgsJoin(args, recA, colsA, tableA, recBOpt, colsB, tableB))
+  case SxNot(inner) => notValue(evalExprJoin(inner, recA, colsA, tableA, recBOpt, colsB, tableB))
   case SxCase(operand, whens, elseExpr) => evalCaseJoin(operand, whens, elseExpr, recA, colsA, tableA, recBOpt, colsB, tableB)
 
 // Compare two values for WHERE: numeric if both numeric, text if both text, else by
@@ -2577,6 +2652,7 @@ def evalExprValues(e: SxNode, values: List[SqliteValue], colNames: List[String])
   case SxNeg(inner) => negateValue(evalExprValues(inner, values, colNames))
   case SxBin(op, l, r) => arithValue(op, evalExprValues(l, values, colNames), evalExprValues(r, values, colNames))
   case SxCall(func, args) => evalCall(func, evalArgsValues(args, values, colNames))
+  case SxNot(inner) => notValue(evalExprValues(inner, values, colNames))
   case SxCase(operand, whens, elseExpr) => evalCaseValues(operand, whens, elseExpr, values, colNames)
 
 def findAssignmentItem(assignments: List[Assignment], colName: String): Option[Assignment] =
