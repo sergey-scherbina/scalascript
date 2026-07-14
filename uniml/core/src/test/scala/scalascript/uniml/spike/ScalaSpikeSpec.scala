@@ -417,6 +417,12 @@ final class ScalaSpikeSpec extends AnyFunSuite:
     assert(p2.contains("""Pair("cpat", Pair("Cons", Cons(Pair("vpat", "a"), Cons(Pair("cpat", Pair("Cons""""), p2)
   }
 
+  test("`throw e` → prim __throw__; `new C(args)` == `C(args)` (P6.9)") {
+    val t = SpikeProject.program(parse("def f(): Int = throw new RuntimeException(\"x\")").roots.head)
+    assert(t.contains("""Pair("prim", Pair("__throw__"""), t)          // throw → __throw__ prim
+    assert(t.contains("""mkApp(mkUVar("RuntimeException")""") && !t.contains("\"new\""), t) // new stripped
+  }
+
   test("parameterless `def x: T = e` (no param clause) wraps its body in mkParameterlessBody (P6.8)") {
     // `def x: Int = 42` → a bare `x` reference auto-applies; `def x(): Int = 42` (empty parens) does not.
     assert(SpikeProject.program(parse("def x: Int = 42").roots.head).contains("mkParameterlessBody"))
@@ -1330,6 +1336,15 @@ final class ScalaSpikeSpec extends AnyFunSuite:
       "gap-listlit"  -> "def main(): Int = List(1, 2, 3) match { case Cons(h, t) => h case _ => 0 }",
       "gap-noparen"  -> "def x: Int = 42\ndef main(): Int = x",
       "gap-blockarg" -> "def g(n: Int): Int = n + 1\ndef main(): Int = g({ val a = 2  a * 3 })",
+      // P6.9 gap-scan round 2 — probed 8 constructs; these 3 were already byte-identical, and `throw`/`new`
+      // was the one gap FIXED this slice (throw e → prim __throw__; new C(args) == C(args)). The other five
+      // gaps found (KNOWN spike boundary, tracked in SPRINT P6.9 as a follow-up "imperative + currying"
+      // project): `def f(a)(b)` curried defs (ssc1-front FLATTENS to one param list), nested `def` in a block
+      // (→ letrec), `var`+assignment, `while … do`, `for … do`. The spike targets the functional subset;
+      // these imperative/nested forms are deliberately not yet mirrored.
+      "g2-tupleacc"  -> "def main(): Int = (3, 4)._1",
+      "g2-multitp"   -> "def f[A, B](a: A, b: B): A = a\ndef main(): Int = f(7, 8)",
+      "g2-throw"     -> "def f(n: Int): Int = if n < 0 then throw new RuntimeException(\"neg\") else n\ndef main(): Int = f(5)",
       // edge probes — likely gaps
       "funret"    -> "def mk(): Int => Int = x => x + 1\ndef main(): Int = mk()(4)",
       "interp-if" -> "def f(n: Int): String = s\"${if n > 0 then \"p\" else \"n\"}\"\ndef main(): Int = 0",

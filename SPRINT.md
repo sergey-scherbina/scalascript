@@ -970,6 +970,18 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
         (`(global x)` vs ssc1-front's `(app (global x))`); `defNode` now wraps the body in
         `mkParameterlessBody` when there is no `def.lparen`. Regression: 8 `gap-*` toys + 2 unit tests; p6.0
         harness **96 ok / 0 FAIL**. Makes the UniML ScalaScript dialect a more complete front.
+  - [x] **P6.9 — spike gap-scan round 2: `throw`/`new` fixed; imperative/currying scoped ✓ DONE 2026-07-14.**
+        Probed 8 more constructs; 3 already byte-identical (tupleacc `._1`, multi-type-params, — kept as
+        toys), **1 gap FIXED**: `throw e` → `Pair("prim", Pair("__throw__", [e]))` + `new C(args)` == `C(args)`
+        (both dispatched on the identifier in `parseAtom`, mirroring ssc1-front; a `spike.throw` node). p6.0
+        harness **99 ok / 0 FAIL**; +1 unit test. **5 gaps found + scoped as KNOWN spike boundary** (deferred,
+        below): they need a dedicated "imperative + currying" project.
+    - [ ] **P6.10 (backlog) — imperative + currying spike support.** Five constructs the spike does not yet
+          mirror byte-identically (all valid subset per ssc1-front): (a) curried `def f(a)(b)` — ssc1-front
+          FLATTENS to one param list `(lam 2 …)` and `f(2)(3)` → `(app (global f) 2 3)`; (b) nested `def` in a
+          block → `letrec`; (c) `var` + assignment `x = e`; (d) `while c do body`; (e) `for x <- xs do/yield`.
+          The spike currently targets the functional subset. Each is a parser+projection addition mirroring
+          ssc1-front; verify via `g2-*`-style toys + the p6.0 byte-diff.
 
 ---
 

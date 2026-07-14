@@ -640,6 +640,10 @@ object SpikeParse:
       case "spike.kw" if c.peekLexeme == "if" => parseIf(c)
       case "spike.op" if c.peekLexeme == "-" || c.peekLexeme == "!" || c.peekLexeme == "~" => Some(parsePrefix(c))
       case "spike.id" if c.peekLexeme == "summon" => Some(parseSummon(c))
+      // `throw e` → prim __throw__(e); `new C(args)` == `C(args)` (new is stripped). ssc1-front dispatches
+      // these on the identifier value in parseAtom (not lexer keywords), so we mirror it here.
+      case "spike.id" if c.peekLexeme == "throw" => Some(parseThrow(c))
+      case "spike.id" if c.peekLexeme == "new"   => c.advance(); parseAtom(c)
       // interpolator: an `s`/`f`/`raw`/`md` prefix immediately before a string token (ssc1-front
       // detects interpolation the same way — id value + following str, no adjacency check).
       case "spike.id" if isInterpPrefix(c.peekLexeme) && c.peek2Kind == "spike.str" => Some(parseInterp(c))
@@ -648,6 +652,12 @@ object SpikeParse:
         c.report("spike.unexpected-expr", s"unexpected token '${c.peekLexeme}' in expression")
         c.advance().map(t => Node.Frame("spike.error", None, Vector(Node.Leaf(t, Some("error.token")))))
       case _ => None // eof / kw boundary / operator / `)` / `=` / `:` / `,` — not an atom
+
+  // `throw e` → spike.throw holding the operand (a full expr, like ssc1-front's `parseExpr(advance)`).
+  private def parseThrow(c: Cur): Node =
+    c.advance() // `throw`
+    val e = parseExpr(c, 1).getOrElse(Node.Frame("spike.error", None, Vector.empty))
+    Node.Frame("spike.throw", None, Vector(e.withRole("throw.expr")))
 
   private def isInterpPrefix(w: String): Boolean = w == "s" || w == "f" || w == "raw" || w == "md"
 
@@ -987,6 +997,9 @@ object SpikeProject:
       case "spike.block" => block(b)
       case "spike.match" => matchExpr(b)
       case "spike.sel"   => sel(b)
+      case "spike.throw" =>
+        val e = kids(b).collectFirst { case (Some("throw.expr"), c) => expr(c) }.getOrElse(hole)
+        s"""Pair("prim", Pair("__throw__", Cons($e, Nil)))"""
       case "spike.summon" =>
         s"""Pair("summon", "${esc(kids(b).collectFirst { case (Some("summon.type"), c) => lexeme(c) }.getOrElse("_"))}")"""
       case "spike.pre" =>
