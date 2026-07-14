@@ -4,6 +4,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-14 — control-interop portable-VM reference runner profile
+
+`specs/control-interop-profile-portable-vm.md`: the runner-target profile for the
+portable ScalaScript VM — the reference runner of the control-interoperability matrix.
+Records the VM's realisation of the core `CodeMode(Portable)/FrameGate` model, the
+control axes it satisfies today (measured reference row), the pending durable/cross-host
+axes (post-X1), the value/call-bridge prerequisite, and how other runners are measured
+against it. Links `tests/interop-conformance` as the executable reference row. Companion
+to codex-interop's forthcoming `specs/control-interoperability.md` (core; inline refs
+upgrade to hard links once it lands) and `scala3-bidirectional-control.md` (Scala host profile).
+
 ## 2026-07-14 — control-interop conformance harness (portable-VM reference row)
 
 Executable conformance harness for the target-neutral control-interoperability model
