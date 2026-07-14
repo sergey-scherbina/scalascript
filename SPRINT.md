@@ -18,10 +18,16 @@ and mandatory phased N→M interoperability without creating a second CoreIR/val
 semantics. This slice is specification and planning only; no frontend, codec, or
 runtime bytes change, and all post-X1 kernel gates remain binding.
 
-- [ ] **cis-1 — architecture audit.** Re-read `SPEC.md`, the current control spec,
+- [x] **cis-1 — architecture audit.** Re-read `SPEC.md`, the current control spec,
       v2.2/UniML/self-hosting/CoreIR/effects contracts, and the landed interop/FFI/
       polyglot specs. Record every ownership/link/roadmap conflict against the joint
-      resolution before restructuring prose.
+      resolution before restructuring prose. Audit result: control semantics belong
+      to the typed outer layer; UniML owns CST only; frozen CoreIR gains no control
+      node; explicit `Pure | Op` remains the portable lowering. The landed P6.6
+      C_min fixed point is evidence, but does not close the still-open full P6.5 X1
+      compiler fixed point. Therefore prose/descriptors/vectors may proceed now,
+      while frontend/lowering/canonical-codec and all byte-affecting implementation
+      remain gated on X1 plus CoreIR inventory/codec reconciliation.
 - [ ] **cis-2 — canonical core spec.** Create
       `specs/control-interoperability.md` as the sole normative owner of `Eff`,
       multi-prompt `shift`/`reset`, managed callbacks/TCO, `save`/`run`, the
@@ -30,11 +36,13 @@ runtime bytes change, and all post-X1 kernel gates remain binding.
       joint resolution explicitly refined them; add no CoreIR continuation node.
 - [ ] **cis-3 — host and runner profiles.** Refactor
       `specs/scala3-bidirectional-control.md` into the Scala 3 profile and add
-      JS/TypeScript, Rust, Swift, portable-VM reference, and WASM/WASI runner-profile
+      JS/TypeScript, Rust, Swift, and WASM/WASI runner-profile
       specifications. Host profiles require typed bidirectional value/call bridges;
       runner-only profiles do not claim a host SDK. Keep direct-style transforms,
       capture barriers, target-specific exact artifacts, and mixed-TCO guarantees
-      explicit per host.
+      explicit per host. `sunny-heron` owns the non-overlapping portable-VM reference
+      profile and empirical conformance/readiness matrix under the separate
+      `control-interop-conformance-harness` claim.
 - [ ] **cis-4 — roadmap and satellite reconciliation.** Rewrite this section and the
       saved-continuation BACKLOG tail so JVM/JS/Rust/Swift runners are mandatory
       independently shippable milestones chosen by measured readiness, not optional
@@ -46,7 +54,8 @@ runtime bytes change, and all post-X1 kernel gates remain binding.
       the post-X1 byte gate, atomic admission vs typed resource-liveness failures,
       no prefix/main replay, fresh multi-shot runs, and all negative matrix rows.
       Publish the docs commits, release this claim/worktree, then hand the landed SHA
-      to `sunny-heron` for a separate portable-VM reference-profile/conformance claim.
+      to `sunny-heron` so the already-running portable-VM/conformance work can link
+      the canonical contract without duplicating its laws.
 
 ## scala3-bidirectional-control — transparent Scala 3 ↔ ScalaScript control and durable save/run (2026-07-14, Sergiy)
 
