@@ -1,4 +1,4 @@
 claim: scljet-m3-writes
 owner: opus
-heartbeat: 2026-07-14T16:21:34Z
-status: m6d || concat done; 22/22 sql green
+heartbeat: 2026-07-14T16:32:58Z
+status: m6e string functions (SUBSTR/TRIM/REPLACE) done; 23/23 sql green

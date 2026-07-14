@@ -1805,6 +1805,18 @@ ORDER BY / LIMIT / OFFSET, aggregates (COUNT/SUM/MIN/MAX/AVG/TOTAL), GROUP BY + 
 and inner + LEFT joins — every feature byte-verified against reference sqlite3, int==js.
 Remaining follow-ups (niche): multi-table (3+) joins, page-1 schema split, repeating-decimal %.15g.
 
+- [x] **scljet-m6e-string-functions** — DONE 2026-07-14. String functions `SUBSTR(s,y[,z])` (1-based,
+      `y<0` counts from the right, window clamped), `TRIM`/`LTRIM`/`RTRIM` (default trims spaces,
+      optional char set), `REPLACE(s,from,to)` (all non-overlapping). Added to `evalCall` with
+      bounds-safe char helpers (`sliceStr`/`charInSet`/`ltrimCount`/`rtrimEnd`/`matchesAt`/`replaceStr`);
+      compose with the other functions and `||` and work in WHERE. Verified vs sqlite3 incl. the
+      significant leading/trailing spaces of LTRIM/RTRIM, int==js; conformance `scljet-sql-strfunc`.
+      JS GOTCHA (extends `js-userspace-long-arith-native-operator-mixes-bigint`): converting a
+      SqliteValue to a plain Int for char indexing — `Long.toInt` mislowers to `Math.trunc(BigInt)`
+      (crash) and `.toDouble` lowers unpredictably (identity `(x)` vs `_dispatch`); robust fix is to
+      parse the digits from the TEXT form (`coerceText`) with plain-Int `n=n*10+digit` arithmetic
+      (`parseIntStr`, no BigInt ever).
+
 - [x] **scljet-m6d-concat** — DONE 2026-07-14. `||` string concatenation. Lexer emits a `||` op token;
       new `parseExprConcat` precedence level sits between `* /` and the atoms (sqlite binds `||` tighter
       than `*`); `arithValue` handles op `||` first via `concatValue` (NULL if either side NULL, else the
