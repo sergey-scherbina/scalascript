@@ -1,4 +1,4 @@
 claim: scljet-m3-writes
 owner: opus
-heartbeat: 2026-07-14T17:26:13Z
-status: m6k SELECT without FROM done; 29/29 sql green
+heartbeat: 2026-07-14T19:00:54Z
+status: m6l CREATE INDEX done (reference-validated); full scljet 69/69 green

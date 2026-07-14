@@ -1907,6 +1907,22 @@ ORDER BY / LIMIT / OFFSET, aggregates (COUNT/SUM/MIN/MAX/AVG/TOTAL), GROUP BY + 
 and inner + LEFT joins — every feature byte-verified against reference sqlite3, int==js.
 Remaining follow-ups (niche): multi-table (3+) joins, page-1 schema split, repeating-decimal %.15g.
 
+- [x] **scljet-m6l-create-index** — DONE 2026-07-14 (Sergiy chose CREATE INDEX as the next big item).
+      `CREATE INDEX idx ON t(col [, col]*)` on an existing DB via `executeMutation`. `parseCreateIndex`
+      → `CreateIndexStmt`; `executeCreateIndex` opens the table, reads its rows, builds one `IndexEntry`
+      per row preserving the **real rowid** (`buildIndexEntriesFromRecords` → `encodeRecord(keycols ++
+      rowid)`), sorts them, builds the index B-tree at a new root page appended at EOF
+      (`buildIndexTree` — reused from the write layer), appends the index's `sqlite_schema` row to page 1
+      (mirrors `executeCreate`), patches the header page count, stages the index pages one-per-
+      `ByteSlice.fromList` (JS-safe), and commits. Plumbing: exported `buildIndexTree`/`sortIndexEntries`/
+      `IndexTreeBytes` from write.ssc → index.ssc → sql.ssc. VERIFIED end-to-end vs reference sqlite3
+      3.53.3: `PRAGMA integrity_check` = ok (cross-validates the index against the table), the index
+      appears in `sqlite_master`, and `EXPLAIN QUERY PLAN` shows `SEARCH emp USING INDEX idx_dept
+      (dept=?)` — the planner actually uses it. int==js byte-identical (exact bytes locked); conformance
+      `scljet-sql-create-index`. This is the storage-side prerequisite for the typed-SQL-API (index-seek
+      access paths). Follow-ups: DROP INDEX, index maintenance on INSERT/UPDATE/DELETE through the SQL
+      layer (the raw `deleteRowidsIndexed`/`updateRowIndexed` exist in mutate.ssc but aren't wired to SQL).
+
 - [x] **scljet-m6k-no-from** — DONE 2026-07-14. `SELECT <exprs>` with no `FROM` → one computed row.
       `parseSelect` builds a `SelectStmt` with `table = ""` when FROM is absent; `queryImage` routes
       `table == ""` to new `executeNoFrom`, which evaluates each projection item's expr with
