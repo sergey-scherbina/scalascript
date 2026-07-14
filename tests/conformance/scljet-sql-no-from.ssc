@@ -1,0 +1,35 @@
+---
+name: scljet-sql-no-from
+description: SclJet SQL SELECT without FROM — scalar expression evaluation (one computed row); matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet SQL SELECT without FROM
+
+`SELECT <exprs>` with no `FROM` returns a single computed row — the full expression engine evaluated
+against an empty row: arithmetic, `||`, functions, `CASE`, `%`, comparisons. Every result is
+byte-identical to reference sqlite3 running the same SQL (verified out-of-band); locked across backends.
+
+[ByteSlice, SqliteValue, SqlInteger, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(id INTEGER)",
+  List(List(SqlInteger(1L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db) =>
+    show(db, "SELECT 1 + 1")
+    show(db, "SELECT 2 * 3 + 4")
+    show(db, "SELECT UPPER('hello')")
+    show(db, "SELECT LENGTH('scljet')")
+    show(db, "SELECT 'a' || 'b' || 'c'")
+    show(db, "SELECT CASE WHEN 5 > 3 THEN 'yes' ELSE 'no' END")
+    show(db, "SELECT 10 % 3")
+    show(db, "SELECT SUBSTR('hello world', 7)")
+    show(db, "SELECT 5 > 3")
+```

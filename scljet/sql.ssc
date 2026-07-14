@@ -892,7 +892,9 @@ def parseSelect(toks: List[Token]): Either[String, SelectStmt] =
       case Left(message) => Left(message)
       case Right(proj) =>
         val afterCols = proj._3
-        if !tkIsKw(afterCols, "FROM") then Left("expected FROM")
+        if !tkIsKw(afterCols, "FROM") then
+          // `SELECT <exprs>` with no FROM → a single computed row (table = "").
+          Right(SelectStmt(proj._1, proj._2, "", Nil, Nil, -1, 0, Nil, None, None, distinct))
         else
           val afterFrom = afterCols.tail
           if tkKind(afterFrom) != "ident" then Left("expected table name")
@@ -2422,15 +2424,30 @@ def executeSelectSingle(db: ReadonlyDatabase, stmt: SelectStmt): Either[String, 
               val deduped = if stmt.distinct then dedupRows(projected) else projected
               Right(limitValueRows(deduped, stmt.limit, stmt.offset))
 
+// `SELECT <exprs>` with no FROM: evaluate each projection item against an empty row (no columns).
+def executeNoFrom(stmt: SelectStmt): Either[String, List[List[SqliteValue]]] =
+  var r = stmt.projection
+  var accRev: List[SqliteValue] = Nil
+  while r.nonEmpty do
+    val item = r.head
+    val v = item.expr match
+      case Some(e) => evalExprValues(e, Nil, Nil)
+      case None => SqlNull
+    accRev = v :: accRev
+    r = r.tail
+  Right(reverseValues(accRev, Nil) :: Nil)
+
 /** Run a SELECT against a database image and return the result rows. */
 def queryImage(dbBytes: ByteSlice, sql: String): Either[String, List[List[SqliteValue]]] =
   tokenize(sql) match
     case Left(message) => Left(message)
     case Right(toks) => parseSelect(toks) match
       case Left(message) => Left(message)
-      case Right(stmt) => openReadonly(ImageVfs(dbBytes), "image.db", sqlOptions()) match
-        case Left(error) => Left(error.message)
-        case Right(db) => executeSelect(db, stmt)
+      case Right(stmt) =>
+        if stmt.table == "" then executeNoFrom(stmt)
+        else openReadonly(ImageVfs(dbBytes), "image.db", sqlOptions()) match
+          case Left(error) => Left(error.message)
+          case Right(db) => executeSelect(db, stmt)
 
 // ── DML: INSERT and DELETE through the balanced write path ──
 
