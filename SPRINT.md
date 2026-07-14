@@ -1582,9 +1582,15 @@ order, so `SELECT *` matches without ORDER BY), and int==js.
       (join order = nested loop = sqlite's), int==js; conformance `scljet-sql-join`. Follow-ups:
       multi-table joins, LEFT/OUTER, aggregates/GROUP BY/ORDER BY over a join, `a.*`.
 
+- [x] **scljet-m5n-having** — DONE 2026-07-14. `HAVING (agg|col) op literal` after GROUP BY:
+      `parseHaving` (left = `parseProjItem`) → `SelectStmt.having`; `filterGroups`/`havingHolds`
+      evaluate the aggregate/column over each group and keep matching groups before projection.
+      Verified vs sqlite3 (`HAVING COUNT(*)>1`, `SUM>=`, column `HAVING dept=…`, `MAX<` + ORDER BY,
+      WHERE+GROUP+HAVING), int==js; conformance `scljet-sql-having`.
+
 **SclJet SQL is now broad**: full CRUD (incl. column-list INSERT), SELECT with multi-column
-ORDER BY / LIMIT / OFFSET, aggregates (COUNT/SUM/MIN/MAX/AVG/TOTAL), GROUP BY, CREATE TABLE, and
-inner joins — every feature byte-verified against reference sqlite3, int==js.
+ORDER BY / LIMIT / OFFSET, aggregates (COUNT/SUM/MIN/MAX/AVG/TOTAL), GROUP BY + HAVING, CREATE TABLE,
+and inner joins — every feature byte-verified against reference sqlite3, int==js.
 
 Execution order (value × tractability): m4a (template exists) → m4b → m4c → m4d →
 m4e → m4f → m4g. Keep every scljet conformance case green [int,js] --no-memo after each.

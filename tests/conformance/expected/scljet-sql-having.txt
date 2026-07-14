@@ -1,0 +1,9 @@
+SELECT dept, COUNT(*) FROM t GROUP BY dept HAVING COUNT(*) > 1 => eng|3
+sales|2
+SELECT dept, SUM(age) FROM t GROUP BY dept HAVING SUM(age) >= 75 => eng|100
+sales|75
+SELECT dept, COUNT(*) FROM t GROUP BY dept HAVING dept = 'eng' => eng|3
+SELECT dept, MAX(age) FROM t GROUP BY dept HAVING MAX(age) < 50 => eng|45
+sales|40
+SELECT dept, MIN(age) FROM t WHERE age > 26 GROUP BY dept HAVING COUNT(*) >= 2 => eng|30
+sales|35

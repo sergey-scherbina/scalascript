@@ -10,6 +10,7 @@ exports:
   - AggItem
   - ProjItem
   - JoinSpec
+  - HavingCond
   - SelectStmt
   - tokenize
   - parseSelect
@@ -169,7 +170,8 @@ def tokenize(sql: String): Either[String, List[Token]] =
 
 case class Condition(column: String, op: String, value: SqliteValue)
 case class JoinSpec(table: String, leftCol: String, op: String, rightCol: String)
-case class SelectStmt(star: Boolean, projection: List[ProjItem], table: String, where: Option[Condition], orderBy: List[OrderKey], limit: Int, offset: Int, groupBy: List[String], join: Option[JoinSpec])
+case class HavingCond(item: ProjItem, op: String, value: SqliteValue)
+case class SelectStmt(star: Boolean, projection: List[ProjItem], table: String, where: Option[Condition], orderBy: List[OrderKey], limit: Int, offset: Int, groupBy: List[String], join: Option[JoinSpec], having: Option[HavingCond])
 
 def isKw(token: Token, word: String): Boolean = token.kind == "ident" && upperStr(token.text) == word
 
@@ -437,6 +439,22 @@ def parseJoin(toks: List[Token]): Either[String, (Option[JoinSpec], List[Token])
           else if rc.kind != "ident" then Left("expected a column in ON")
           else Right((Some(JoinSpec(jtable, l.text, o.text, rc.text)), afterOn.tail.tail.tail))
 
+// Parse optional `HAVING (agg|col) op literal` (evaluated per group after aggregation).
+def parseHaving(toks: List[Token]): Either[String, (Option[HavingCond], List[Token])] =
+  if !tkIsKw(toks, "HAVING") then Right((None, toks))
+  else parseProjItem(toks.tail) match
+    case Left(message) => Left(message)
+    case Right(itemPair) =>
+      val afterItem = itemPair._2
+      if afterItem.length < 2 then Left("HAVING needs: expr op value")
+      else
+        val op = afterItem.head
+        val lit = afterItem.tail.head
+        if op.kind != "op" then Left("expected a comparison operator in HAVING")
+        else litValue(lit) match
+          case Left(message) => Left(message)
+          case Right(value) => Right((Some(HavingCond(itemPair._1, op.text, value)), afterItem.tail.tail))
+
 def parseSelect(toks: List[Token]): Either[String, SelectStmt] =
   if !tkIsKw(toks, "SELECT") then Left("expected SELECT")
   else
@@ -455,9 +473,11 @@ def parseSelect(toks: List[Token]): Either[String, SelectStmt] =
               case Left(message) => Left(message)
               case Right(wpair) => parseGroupBy(wpair._2) match
                 case Left(message) => Left(message)
-                case Right(gpair) => parseOrderLimit(gpair._2) match
+                case Right(gpair) => parseHaving(gpair._2) match
                   case Left(message) => Left(message)
-                  case Right(ol) => Right(SelectStmt(proj._1, proj._2, afterFrom.head.text, wpair._1, ol._1, ol._2, ol._3, gpair._1, jpair._1))
+                  case Right(hpair) => parseOrderLimit(hpair._2) match
+                    case Left(message) => Left(message)
+                    case Right(ol) => Right(SelectStmt(proj._1, proj._2, afterFrom.head.text, wpair._1, ol._1, ol._2, ol._3, gpair._1, jpair._1, hpair._1))
 
 // ── Column names from the table's CREATE TABLE text ──
 
@@ -682,6 +702,23 @@ def takeValueRows(rows: List[List[SqliteValue]], n: Int): List[List[SqliteValue]
 def limitValueRows(rows: List[List[SqliteValue]], limit: Int, offset: Int): List[List[SqliteValue]] =
   val afterOffset = dropValueRows(rows, offset)
   if limit < 0 then afterOffset else takeValueRows(afterOffset, limit)
+
+// HAVING: evaluate the aggregate/column expression over the group, compare to the literal.
+def havingHolds(having: Option[HavingCond], group: List[StorageRecord], colNames: List[String]): Boolean = having match
+  case None => true
+  case Some(hc) =>
+    val lv = if hc.item.isAgg then computeAgg(AggItem(hc.item.func, hc.item.name), group, colNames)
+      else if group.isEmpty then SqlNull
+      else rowValue(group.head, colNames, hc.item.name)
+    condMatches(hc.op, sqlCompare(lv, hc.value))
+
+def filterGroups(groups: List[List[StorageRecord]], having: Option[HavingCond], colNames: List[String]): List[List[StorageRecord]] =
+  var r = groups
+  var accRev: List[List[StorageRecord]] = Nil
+  while r.nonEmpty do
+    if havingHolds(having, r.head, colNames) then accRev = r.head :: accRev
+    r = r.tail
+  reverseGroups(accRev, Nil)
 
 def collectRows(db: ReadonlyDatabase, cursor: ReadonlyBtreeCursor): Either[SqliteError, List[StorageRecord]] =
   readonlyFirst(db, cursor) match
@@ -1008,7 +1045,7 @@ def executeSelectSingle(db: ReadonlyDatabase, stmt: SelectStmt): Either[String, 
             val filtered = filterRows(rows, stmt.where, colNames)
             if stmt.groupBy.nonEmpty then
               val sortedForGroup = sortStorage(filtered, colNames, groupKeysOf(stmt.groupBy))
-              val groups = groupPartition(sortedForGroup, colNames, stmt.groupBy)
+              val groups = filterGroups(groupPartition(sortedForGroup, colNames, stmt.groupBy), stmt.having, colNames)
               Right(limitValueRows(mapGroups(groups, colNames, stmt.projection), stmt.limit, stmt.offset))
             else if projHasAgg(stmt.projection) then Right(projectGroupRow(filtered, colNames, stmt.projection) :: Nil)
             else

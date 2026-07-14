@@ -1,0 +1,36 @@
+---
+name: scljet-sql-having
+description: SclJet SQL HAVING — filter GROUP BY groups by an aggregate or column condition (matches reference sqlite3)
+backends: [int, js]
+---
+
+# SclJet SQL HAVING
+
+`… GROUP BY col HAVING (agg|col) op literal` keeps only the groups whose aggregate (or group
+column) satisfies the condition, after aggregation. Every result is byte-identical to reference
+sqlite3 running the same SQL on the same file (verified out-of-band); locked here across backends.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def run(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(id INTEGER, dept TEXT, age INTEGER)",
+  List(List(SqlInteger(1L), SqlText("eng"), SqlInteger(30L)),
+       List(SqlInteger(2L), SqlText("sales"), SqlInteger(40L)),
+       List(SqlInteger(3L), SqlText("eng"), SqlInteger(25L)),
+       List(SqlInteger(4L), SqlText("hr"), SqlInteger(50L)),
+       List(SqlInteger(5L), SqlText("sales"), SqlInteger(35L)),
+       List(SqlInteger(6L), SqlText("eng"), SqlInteger(45L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db) =>
+    run(db, "SELECT dept, COUNT(*) FROM t GROUP BY dept HAVING COUNT(*) > 1")
+    run(db, "SELECT dept, SUM(age) FROM t GROUP BY dept HAVING SUM(age) >= 75")
+    run(db, "SELECT dept, COUNT(*) FROM t GROUP BY dept HAVING dept = 'eng'")
+    run(db, "SELECT dept, MAX(age) FROM t GROUP BY dept HAVING MAX(age) < 50")
+    run(db, "SELECT dept, MIN(age) FROM t WHERE age > 26 GROUP BY dept HAVING COUNT(*) >= 2")
+```
