@@ -553,9 +553,11 @@ def isTupleField = (name) =>
 def selOrMethod = (field, robj) =>
   if isCaseField(field) then
     let base = Pair("app", Pair(Pair("var", #sconcat("_sel_", field)), Cons(robj, Nil))) in
-    -- A mutable `var` field is stored as a cell; an external `obj.field` read
-    -- unwraps it (safely — cell.getOr is a no-op on non-cells).
-    if isAnyVarField(field) then Pair("prim", Pair("cell.getOr", Cons(base, Nil))) else base
+    -- A mutable `var` field is stored as a cell (unwrap via cell.getOr, a no-op on
+    -- non-cells); a `lazy val` field is a cell holding a thunk (force via __lazyForce__).
+    if isAnyVarField(field) then Pair("prim", Pair("cell.getOr", Cons(base, Nil)))
+    else if isAnyLazyField(field) then Pair("prim", Pair("__lazyForce__", Cons(base, Nil)))
+    else base
   else if isTupleField(field) then
     Pair("app", Pair(Pair("var", #sconcat("_sel_", field)), Cons(robj, Nil)))
   else
@@ -2349,6 +2351,11 @@ def lowerE = (scope, rawExpr) =>
                       IrPrim("cell.get",
                         Cons(IrApp(IrGlobal(#sconcat("_sel_", data)),
                                Cons(lookupVar(scope, "__self"), Nil)), Nil))
+                    else if isCurrentLazyField(data) then
+                      -- A `lazy val` field read inside a method: force+memoize.
+                      IrPrim("__lazyForce__",
+                        Cons(IrApp(IrGlobal(#sconcat("_sel_", data)),
+                               Cons(lookupVar(scope, "__self"), Nil)), Nil))
                     else if #i.gt(#slen(caseSiblingGlobal(scope, data)), 0) then
                       -- A bare reference to a NULLARY sibling method inside a
                       -- (case-)class body (`def describe = area.toString`) calls it
@@ -3337,14 +3344,82 @@ def lowerMatch = (scope, scrutinee, arms) =>
 -- Constructor: IrDef(name, IrLam(n, IrCtor(name, [IrLocal(n-1)..IrLocal(0)])))
 -- Accessor _sel_f: IrLam(1, IrMatch(IrLocal(0), [IrArm(name,n,IrLocal(fieldIdx))], None))
 -- In IrArm(name, n, body): last field = local0, first field = local(n-1)
+-- Body-declared var/lazy fields (classBodyFieldsCell = [Pair(tag,[Pair(nm,Pair(init,kind))])]).
+def classBodyFields = (tag) =>
+  let rec go = (rs) =>
+    match rs {
+      case Nil => Nil
+      case Cons(r, rest) => match r { case Pair(t, bf) => if #seq(t, tag) then bf else go(rest) }
+    } in
+  go(#cell.get(classBodyFieldsCell))
+def bodyFieldNames = (bfs) =>
+  match bfs {
+    case Nil => Nil
+    case Cons(bf, rest) => match bf { case Pair(nm, ik) => Cons(nm, bodyFieldNames(rest)) }
+  }
+-- Names of lazy body fields of a class (for memoized access routing).
+def classLazyFields = (tag) =>
+  let rec go = (bfs) =>
+    match bfs {
+      case Nil => Nil
+      case Cons(bf, rest) =>
+        match bf { case Pair(nm, ik) => match ik { case Pair(init, kind) =>
+          if #seq(kind, "lazy") then Cons(nm, go(rest)) else go(rest) } }
+    } in
+  go(classBodyFields(tag))
+def isAnyLazyField = (name) =>
+  let rec go = (rs) =>
+    match rs {
+      case Nil => false
+      case Cons(r, rest) => match r { case Pair(t, bf) =>
+        if memberOfL(name, classLazyFields(t)) then true else go(rest) }
+    } in
+  go(#cell.get(classBodyFieldsCell))
+def isCurrentLazyField = (name) =>
+  match #cell.get(caseSelfCtxCell) {
+    case Nil => false
+    case Pair(tag, sibs) => memberOfL(name, classLazyFields(tag))
+  }
+def mapLookupVar = (scope, names) =>
+  match names {
+    case Nil => Nil
+    case Cons(nm, rest) => Cons(lookupVar(scope, nm), mapLookupVar(scope, rest))
+  }
+-- Build the constructor body: bind each body field (in decl order, seeing ctor
+-- params + earlier fields) then IrCtor with all fields. A `var` field is a cell; a
+-- `lazy` field is a cell holding a `__lazyThunk__(() => init)` (forced+memoized on access).
+def synthCtorBody = (name, allFields, bodyFields, scope) =>
+  match bodyFields {
+    case Nil => IrCtor(name, mapLookupVar(scope, allFields))
+    case Cons(bf, rest) =>
+      match bf { case Pair(fname, ik) =>
+        match ik { case Pair(init, kind) =>
+          let initIR = lowerE(scope, init) in
+          let wrapped =
+            if #seq(kind, "var") then IrPrim("cell.new", Cons(initIR, Nil))
+            else if #seq(kind, "lazy") then
+              IrPrim("cell.new", Cons(IrCtor("__lazyThunk__", Cons(IrLam(0, initIR), Nil)), Nil))
+            else initIR in
+          IrLet(Cons(wrapped, Nil), synthCtorBody(name, allFields, rest, Cons(fname, scope)))
+        }
+      }
+  }
 def lowerCaseCls = (name, params) =>
   let n = lenL(params) in
-  let ctorArgs = buildCtorArgs(0, n, Nil) in
   -- K62.15: emit ONLY the constructor def here. The `_sel_<field>` accessors are generated
   -- ONCE per unique field name (merged across every ctor that shares it) in
   -- buildMergedAccessors, so two case classes with a common field (`Person(name,…)` +
   -- `Student(name,…)`) no longer overwrite each other's accessor → `.name` works on both.
-  Cons(IrDef(name, IrLam(n, IrCtor(name, ctorArgs))), Nil)
+  match classBodyFields(name) {
+    case Nil =>
+      let ctorArgs = buildCtorArgs(0, n, Nil) in
+      Cons(IrDef(name, IrLam(n, IrCtor(name, ctorArgs))), Nil)
+    case Cons(bfh, bft) =>
+      -- Body var/lazy fields: synthesize a constructor that computes them.
+      let bodyFields = Cons(bfh, bft) in
+      let allFields = append(params, bodyFieldNames(bodyFields)) in
+      Cons(IrDef(name, IrLam(n, synthCtorBody(name, allFields, bodyFields, revL(params)))), Nil)
+  }
 
 def derivedValueNames = (typeName, derives) =>
   match derives {
@@ -4420,7 +4495,7 @@ def collectCaseFields = (stmts) =>
           if #seq(tag, "casecls") then
             match data { case Pair(name, caseMeta) =>
               match caseMeta { case Pair(params, typeAndDerives) =>
-                append(params, collectCaseFields(rest)) } }
+                append(append(params, bodyFieldNames(classBodyFields(name))), collectCaseFields(rest)) } }
           else if #seq(tag, "enum") then
             match data { case Pair(ename, cases) => append(enumCaseFields(cases), collectCaseFields(rest)) }
           else collectCaseFields(rest)
@@ -4437,7 +4512,8 @@ def collectCaseClassOrder = (stmts) =>
           if #seq(tag, "casecls") then
             match data { case Pair(name, caseMeta) =>
               match caseMeta { case Pair(params, typeAndDerives) =>
-                Cons(Pair(name, params), collectCaseClassOrder(rest)) } }
+                Cons(Pair(name, append(params, bodyFieldNames(classBodyFields(name)))),
+                     collectCaseClassOrder(rest)) } }
           else if #seq(tag, "enum") then
             match data { case Pair(ename, cases) => append(enumCaseOrder(cases), collectCaseClassOrder(rest)) }
           else if #seq(tag, "object") then
@@ -4603,6 +4679,9 @@ def lowerCaseMethodBody = (fields, scope, body) =>
       -- `cell.set(...)` (handled in lowerE's var branch / assign lowering). Binding
       -- it as a local would snapshot the cell and lose mutation across reads.
       if isCurrentVarField(f) then
+        lowerCaseMethodBody(rest, scope, body)
+      else if isCurrentLazyField(f) then
+        -- lazy field: not bound as a local; a bare read forces via __lazyForce__.
         lowerCaseMethodBody(rest, scope, body)
       else
         IrLet(Cons(IrApp(IrGlobal(#sconcat("_sel_", f)),

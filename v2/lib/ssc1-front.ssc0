@@ -584,6 +584,11 @@ def mutableFlagCell      = #cell.new(false)
 def mutableViolationCell = #cell.new(false)
 def mutableFieldsCell    = #cell.new(Nil)
 def pendingVarFieldsCell = #cell.new(Nil)
+-- Body-declared `var`/`lazy val` fields of a class (a body `val` is desugared to a
+-- nullary method instead). classBodyFieldsCell = [Pair(className, [Pair(name, Pair(init, kind))])],
+-- kind ∈ {"var","lazy"}. The lowerer synthesizes a constructor that computes them.
+def classBodyFieldsCell   = #cell.new(Nil)
+def pendingBodyFieldsCell = #cell.new(Nil)
 
 def caseMethodsCell = #cell.new(Nil)
 def registerCaseMethods = (name, fields, defs) =>
@@ -2155,6 +2160,7 @@ def parseCaseClass = (toks) =>
   let ts1  = skipTypeParams(advance(toks)) in
   let _clr = #cell.set(paramDefaultsCell, Nil) in
   let _clrv = #cell.set(pendingVarFieldsCell, Nil) in
+  let _clrb = #cell.set(pendingBodyFieldsCell, Nil) in
   let rp   = parseCaseParamList(ts1) in
   let params = caseParamNames(prV(rp)) in
   let types = caseParamTypes(prV(rp)) in
@@ -2210,6 +2216,21 @@ def parseCaseClass = (toks) =>
           let defNode = match prV(r) { case Pair(vt, vd) =>
             match vd { case Pair(vn, vrhs) => Pair("def", Pair(vn, Pair(Nil, vrhs))) } } in
           captureBraced(prT(r), Cons(defNode, acc))
+        else if (if #seq(tokKind(peek(ts)), "id") then #seq(tokVal(peek(ts)), "lazy") else false) then
+          -- `lazy val z = expr` → a memoized body field (needs per-instance cell state).
+          let r = parseVal(advance(advance(ts))) in
+          let _bf = match prV(r) { case Pair(vt, vd) => match vd { case Pair(vn, vrhs) =>
+            #cell.set(pendingBodyFieldsCell,
+              Cons(Pair(vn, Pair(vrhs, "lazy")), #cell.get(pendingBodyFieldsCell))) } } in
+          captureBraced(prT(r), acc)
+        else if kwIs("var", ts) then
+          -- Body `var y = expr` → a mutable body field (cell). Gated by --mutable.
+          let r = parseVal(advance(ts)) in
+          let _bf = match prV(r) { case Pair(vt, vd) => match vd { case Pair(vn, vrhs) =>
+            let _pv = #cell.set(pendingVarFieldsCell, Cons(vn, #cell.get(pendingVarFieldsCell))) in
+            #cell.set(pendingBodyFieldsCell,
+              Cons(Pair(vn, Pair(vrhs, "var")), #cell.get(pendingBodyFieldsCell))) } } in
+          captureBraced(prT(r), acc)
         else captureBraced(advance(ts), acc) in
       let rc = captureBraced(advance(ts2), Nil) in
       let _regM = registerCaseMethods(name, params, prV(rc)) in
@@ -2227,6 +2248,19 @@ def parseCaseClass = (toks) =>
           let defNode = match prV(r) { case Pair(vt, vd) =>
             match vd { case Pair(vn, vrhs) => Pair("def", Pair(vn, Pair(Nil, vrhs))) } } in
           captureLayout(prT(r), Cons(defNode, acc))
+        else if (if #seq(tokKind(peek(ts)), "id") then #seq(tokVal(peek(ts)), "lazy") else false) then
+          let r = parseVal(advance(advance(ts))) in
+          let _bf = match prV(r) { case Pair(vt, vd) => match vd { case Pair(vn, vrhs) =>
+            #cell.set(pendingBodyFieldsCell,
+              Cons(Pair(vn, Pair(vrhs, "lazy")), #cell.get(pendingBodyFieldsCell))) } } in
+          captureLayout(prT(r), acc)
+        else if kwIs("var", ts) then
+          let r = parseVal(advance(ts)) in
+          let _bf = match prV(r) { case Pair(vt, vd) => match vd { case Pair(vn, vrhs) =>
+            let _pv = #cell.set(pendingVarFieldsCell, Cons(vn, #cell.get(pendingVarFieldsCell))) in
+            #cell.set(pendingBodyFieldsCell,
+              Cons(Pair(vn, Pair(vrhs, "var")), #cell.get(pendingBodyFieldsCell))) } } in
+          captureLayout(prT(r), acc)
         else pr(reverse(acc), ts) in
       let rc = captureLayout(ts2, Nil) in
       let _regM = registerCaseMethods(name, params, prV(rc)) in
@@ -2236,6 +2270,13 @@ def parseCaseClass = (toks) =>
   -- --mutable flag. Off → emit the `_err_mutable_fields` sentinel (CLI surfaces a
   -- specific message). On → register the var fields under this class tag so the
   -- lowerer can cell-back them.
+  -- Register this class's body-declared var/lazy fields (declaration order) so the
+  -- lowerer can synthesize a constructor that computes them.
+  let _regBody = match #cell.get(pendingBodyFieldsCell) {
+    case Nil => 0
+    case Cons(bh, bt) => #cell.set(classBodyFieldsCell,
+                 Cons(Pair(name, reverse(Cons(bh, bt))), #cell.get(classBodyFieldsCell)))
+  } in
   let thisVars = #cell.get(pendingVarFieldsCell) in
   match thisVars {
     case Nil => pr(mkCaseCls(name, params, types, derives), ts3)

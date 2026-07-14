@@ -2278,6 +2278,18 @@ object Prims:
     case "cell.getOr" => a => a(0) match
       case ForeignV(arr: scala.Array[?]) if arr.length == 1 => arr(0).asInstanceOf[Value]
       case v => v
+    // Force a `lazy val` field: the field is a cell holding either a
+    // `__lazyThunk__(() => init)` (uncomputed) or the memoized value. On first
+    // access, run the thunk, cache the result back into the cell, and return it.
+    case "__lazyForce__" => a => a(0) match
+      case ForeignV(_) =>
+        asCell(a(0))(0) match
+          case DataV("__lazyThunk__", IndexedSeq(thunk: ClosV)) =>
+            val result = callClos(thunk, scala.Array.empty[Value])
+            asCell(a(0))(0) = result
+            result
+          case computed => computed
+      case v => v
     // Generic resolve is the path used by Emit.prim* in direct ASM. Keep it
     // effect-safe like resolve2 below: top-level vals are initialized through
     // cell.set, so storing a raw Op would make a following statement observe
