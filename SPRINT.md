@@ -1508,8 +1508,10 @@ order, so `SELECT *` matches without ORDER BY), and int==js.
       (per-key ASC/DESC); `SelectStmt.orderBy: List[OrderKey]`; `recCompare` compares lexicographically
       over the key list. Verified vs sqlite3 (`ORDER BY age DESC, id ASC`, `ORDER BY name, id LIMIT`),
       int==js; folded into `scljet-sql-orderby`.
-- [ ] **scljet-m5j-insert-columns** — `INSERT INTO t (c1, c2) VALUES (…)`: parse the optional column
-      list, map values to declared-column order (missing columns → NULL). Verify vs sqlite3.
+- [x] **scljet-m5j-insert-columns** — DONE 2026-07-14. `sql.ssc` `parseInsertColumns` parses the
+      optional `( col, … )` before VALUES; `InsertStmt.columns`; `executeInsert` maps the values to
+      declared-column order (`reorderInsertValues`, unnamed columns → NULL). Verified vs sqlite3 (full,
+      reordered, partial), int==js; conformance `scljet-sql-insert-cols`.
 - [ ] **scljet-m5k-group-by** — `SELECT col, AGG(col2) FROM t [WHERE …] GROUP BY col [ORDER BY …]`:
       partition filtered rows by the group key, compute aggregates per group, emit one row per group.
       Verify vs sqlite3 (group counts/sums, group + ORDER BY).

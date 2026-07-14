@@ -1,0 +1,8 @@
+SELECT * FROM t => 1|a|20
+2|b|25
+3|c|
+4||40
+5|e|55
+SELECT id, name FROM t WHERE age >= 40 ORDER BY id => 4|
+5|e
+SELECT COUNT(*), COUNT(name) FROM t => 5|4
