@@ -1749,6 +1749,21 @@ ORDER BY / LIMIT / OFFSET, aggregates (COUNT/SUM/MIN/MAX/AVG/TOTAL), GROUP BY + 
 and inner + LEFT joins — every feature byte-verified against reference sqlite3, int==js.
 Remaining follow-ups (niche): multi-table (3+) joins, page-1 schema split, repeating-decimal %.15g.
 
+- [x] **scljet-m5z-projection-expr** — DONE 2026-07-14. Scalar expressions in the projection:
+      `SELECT salary * 12`, `(salary + 50) * 2`, `salary * 2 + 1`, `-salary`, `salary / 100`. Lexer
+      now emits `+ - /` op tokens; new `SxNode` AST (SxCol/SxLit/SxNeg/SxBin) + recursive-descent
+      `parseExpr` (precedence unary `-` → `* /` → `+ -`, parens); `evalExpr`/`arithValue` do SQL numeric
+      arithmetic (integer result + truncating division when both int, else real; NULL on null operand or
+      /0). A lone column stays the plain name-based ProjItem so GROUP BY / ORDER BY / DISTINCT are
+      unaffected; expressions run on the single-table non-aggregate path. Verified vs sqlite3 (precedence,
+      parens, unary minus, integer division, expr+WHERE+ORDER BY), int==js; conformance `scljet-sql-expr`.
+      TWO bugs found+fixed en route: (1) a dangling `else` after a `match` in `parseProjItem` aborted the
+      whole INT module load (JS miscompiled it); (2) native JS `x*y`/`x/y` on Long crashed with
+      `Cannot mix BigInt and other types` because scljet decodes small ints to JS Numbers while literals
+      are BigInt — routed integer arithmetic through `0L`/`1L`-seeded helpers that emit the BigInt-safe
+      `_arith` (BUGS.md `js-userspace-long-arith-native-operator-mixes-bigint`). SCOPE: single-table,
+      non-aggregate; expression in a join/aggregate/GROUP BY projection is not yet evaluated.
+
 - [x] **scljet-m5y-insert-multi** — DONE 2026-07-14. Multi-row `INSERT INTO t VALUES (…),(…),(…)`
       (plain and with a column list). `InsertStmt.values: List[SqliteValue]` → `rows:
       List[List[SqliteValue]]`; new `parseValueRows` loops `parseValueList` over comma-separated
