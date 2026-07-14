@@ -135,15 +135,7 @@ rozum-agent-schema-derived	*	SKIP
 rozum-agent-streaming	js	FAIL
 rozum-agent-streaming	v2	FAIL
 scala-js-demo	js	FAIL
-scljet-crud	js	FAIL
 scljet-crud	v2	FAIL
-scljet-multitable-mutate	js	FAIL
-scljet-mutate-crud	js	FAIL
-scljet-mutate-delete	js	FAIL
-scljet-mutate-insert	js	FAIL
-scljet-mutate-update	js	FAIL
-scljet-write-empty	js	FAIL
-scljet-write-table	js	FAIL
 seed-signal	*	SKIP
 spa-demo	*	SKIP
 sql-h2-quickstart	js	FAIL
