@@ -1610,9 +1610,16 @@ order, so `SELECT *` matches without ORDER BY), and int==js.
       Verified vs sqlite3 (`HAVING COUNT(*)>1`, `SUM>=`, column `HAVING dept=…`, `MAX<` + ORDER BY,
       WHERE+GROUP+HAVING), int==js; conformance `scljet-sql-having`.
 
+- [x] **scljet-m5o-left-join** — DONE 2026-07-14. `LEFT [OUTER] JOIN` — `parseJoin` recognizes LEFT,
+      `JoinSpec.leftOuter`; `joinExecute` tracks whether each outer row matched and, for LEFT with no
+      match, emits it once with the B-side columns NULL (`joinColValue`/`joinProjectRow`/`joinWhereHolds`
+      now take `Option[StorageRecord]` for B; `bValue` = NULL when absent). Verified vs sqlite3 (LEFT +
+      LEFT OUTER, unmatched → NULL, WHERE on B-column filtering unmatched rows) alongside the inner-join
+      cases, int==js; conformance `scljet-sql-join`.
+
 **SclJet SQL is now broad**: full CRUD (incl. column-list INSERT), SELECT with multi-column
 ORDER BY / LIMIT / OFFSET, aggregates (COUNT/SUM/MIN/MAX/AVG/TOTAL), GROUP BY + HAVING, CREATE TABLE,
-and inner joins — every feature byte-verified against reference sqlite3, int==js.
+and inner + LEFT joins — every feature byte-verified against reference sqlite3, int==js.
 
 Execution order (value × tractability): m4a (template exists) → m4b → m4c → m4d →
 m4e → m4f → m4g. Keep every scljet conformance case green [int,js] --no-memo after each.

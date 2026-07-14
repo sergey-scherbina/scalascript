@@ -44,4 +44,7 @@ buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER, name TEXT, de
     show(db4, "SELECT emp.id, emp.name FROM emp JOIN dept ON emp.dept = dept.did WHERE emp.id >= 2")
     show(db4, "SELECT * FROM emp JOIN dept ON emp.dept = dept.did")
     show(db4, "SELECT emp.name FROM emp JOIN dept ON emp.dept = dept.did WHERE emp.dept < 20")
+    show(db4, "SELECT emp.name, dept.dname FROM emp LEFT JOIN dept ON emp.dept = dept.did")
+    show(db4, "SELECT name, did FROM emp LEFT OUTER JOIN dept ON emp.dept = dept.did")
+    show(db4, "SELECT emp.name FROM emp LEFT JOIN dept ON emp.dept = dept.did WHERE dept.did = 10")
 ```

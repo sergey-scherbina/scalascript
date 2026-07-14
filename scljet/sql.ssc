@@ -169,7 +169,7 @@ def tokenize(sql: String): Either[String, List[Token]] =
 // ── Parser: SELECT (*|cols) FROM table [WHERE col op literal] ──
 
 case class Condition(column: String, op: String, value: SqliteValue)
-case class JoinSpec(table: String, leftCol: String, op: String, rightCol: String)
+case class JoinSpec(table: String, leftCol: String, op: String, rightCol: String, leftOuter: Boolean)
 case class HavingCond(item: ProjItem, op: String, value: SqliteValue)
 case class SelectStmt(star: Boolean, projection: List[ProjItem], table: String, where: Option[Condition], orderBy: List[OrderKey], limit: Int, offset: Int, groupBy: List[String], join: Option[JoinSpec], having: Option[HavingCond])
 
@@ -416,12 +416,18 @@ def parseGroupBy(toks: List[Token]): Either[String, (List[String], List[Token])]
         case Some(message) => Left(message)
         case None => Right((reverseStrings(accRev, Nil), rest))
 
-// Optional `[INNER] JOIN ident ON col op col`; returns the join spec (or None) + rest.
+// Optional `[INNER | LEFT [OUTER]] JOIN ident ON col op col`; returns the join spec + rest.
 def parseJoin(toks: List[Token]): Either[String, (Option[JoinSpec], List[Token])] =
-  val afterInner = if tkIsKw(toks, "INNER") then toks.tail else toks
-  if !tkIsKw(afterInner, "JOIN") then Right((None, toks))
+  var leftOuter = false
+  var afterKw = toks
+  if tkIsKw(afterKw, "LEFT") then
+    leftOuter = true
+    afterKw = afterKw.tail
+    if tkIsKw(afterKw, "OUTER") then afterKw = afterKw.tail
+  else if tkIsKw(afterKw, "INNER") then afterKw = afterKw.tail
+  if !tkIsKw(afterKw, "JOIN") then Right((None, toks))
   else
-    val afterJoin = afterInner.tail
+    val afterJoin = afterKw.tail
     if tkKind(afterJoin) != "ident" then Left("expected a table after JOIN")
     else
       val jtable = afterJoin.head.text
@@ -437,7 +443,7 @@ def parseJoin(toks: List[Token]): Either[String, (Option[JoinSpec], List[Token])
           if l.kind != "ident" then Left("expected a column in ON")
           else if o.kind != "op" then Left("expected a comparison operator in ON")
           else if rc.kind != "ident" then Left("expected a column in ON")
-          else Right((Some(JoinSpec(jtable, l.text, o.text, rc.text)), afterOn.tail.tail.tail))
+          else Right((Some(JoinSpec(jtable, l.text, o.text, rc.text, leftOuter)), afterOn.tail.tail.tail))
 
 // Parse optional `HAVING (agg|col) op literal` (evaluated per group after aggregation).
 def parseHaving(toks: List[Token]): Either[String, (Option[HavingCond], List[Token])] =
@@ -944,23 +950,28 @@ def dotSplit(name: String): (String, String) =
   if pos < 0 then (name, "")
   else (substr(name, 0, pos), substr(name, pos + 1, name.length))
 
-def joinColValue(recA: StorageRecord, colsA: List[String], tableA: String, recB: StorageRecord, colsB: List[String], tableB: String, name: String): SqliteValue =
+// The B-side value, or NULL when B is absent (an unmatched row of a LEFT JOIN).
+def bValue(recBOpt: Option[StorageRecord], colsB: List[String], col: String): SqliteValue = recBOpt match
+  case Some(rb) => rowValue(rb, colsB, col)
+  case None => SqlNull
+
+def joinColValue(recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String, name: String): SqliteValue =
   val parts = dotSplit(name)
   if parts._2 != "" then
     if upperStr(parts._1) == upperStr(tableA) then rowValue(recA, colsA, parts._2)
-    else if upperStr(parts._1) == upperStr(tableB) then rowValue(recB, colsB, parts._2)
+    else if upperStr(parts._1) == upperStr(tableB) then bValue(recBOpt, colsB, parts._2)
     else SqlNull
   else
     if columnIndex(colsA, name) >= 0 then rowValue(recA, colsA, name)
-    else if columnIndex(colsB, name) >= 0 then rowValue(recB, colsB, name)
+    else if columnIndex(colsB, name) >= 0 then bValue(recBOpt, colsB, name)
     else if upperStr(name) == "ROWID" then rowValue(recA, colsA, name)
     else SqlNull
 
-def joinWhereHolds(where: Option[Condition], recA: StorageRecord, colsA: List[String], tableA: String, recB: StorageRecord, colsB: List[String], tableB: String): Boolean = where match
+def joinWhereHolds(where: Option[Condition], recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String): Boolean = where match
   case None => true
-  case Some(cond) => condMatches(cond.op, sqlCompare(joinColValue(recA, colsA, tableA, recB, colsB, tableB, cond.column), cond.value))
+  case Some(cond) => condMatches(cond.op, sqlCompare(joinColValue(recA, colsA, tableA, recBOpt, colsB, tableB, cond.column), cond.value))
 
-def joinProjectRow(recA: StorageRecord, colsA: List[String], tableA: String, recB: StorageRecord, colsB: List[String], tableB: String, stmt: SelectStmt): List[SqliteValue] =
+def joinProjectRow(recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String, stmt: SelectStmt): List[SqliteValue] =
   var accRev: List[SqliteValue] = Nil
   if stmt.star then
     var ca = colsA
@@ -969,12 +980,12 @@ def joinProjectRow(recA: StorageRecord, colsA: List[String], tableA: String, rec
       ca = ca.tail
     var cb = colsB
     while cb.nonEmpty do
-      accRev = rowValue(recB, colsB, cb.head) :: accRev
+      accRev = bValue(recBOpt, colsB, cb.head) :: accRev
       cb = cb.tail
   else
     var r = projItemNames(stmt.projection)
     while r.nonEmpty do
-      accRev = joinColValue(recA, colsA, tableA, recB, colsB, tableB, r.head) :: accRev
+      accRev = joinColValue(recA, colsA, tableA, recBOpt, colsB, tableB, r.head) :: accRev
       r = r.tail
   reverseValues(accRev, Nil)
 
@@ -1008,13 +1019,20 @@ def joinExecute(db: ReadonlyDatabase, stmt: SelectStmt, spec: JoinSpec): Either[
         var resultRev: List[List[SqliteValue]] = Nil
         while ra.nonEmpty do
           var rb = rowsB
+          var matched = false
           while rb.nonEmpty do
-            val lv = joinColValue(ra.head, colsA, stmt.table, rb.head, colsB, spec.table, spec.leftCol)
-            val rv = joinColValue(ra.head, colsA, stmt.table, rb.head, colsB, spec.table, spec.rightCol)
+            val rbOpt: Option[StorageRecord] = Some(rb.head)
+            val lv = joinColValue(ra.head, colsA, stmt.table, rbOpt, colsB, spec.table, spec.leftCol)
+            val rv = joinColValue(ra.head, colsA, stmt.table, rbOpt, colsB, spec.table, spec.rightCol)
             if condMatches(spec.op, sqlCompare(lv, rv)) then
-              if joinWhereHolds(stmt.where, ra.head, colsA, stmt.table, rb.head, colsB, spec.table) then
-                resultRev = joinProjectRow(ra.head, colsA, stmt.table, rb.head, colsB, spec.table, stmt) :: resultRev
+              matched = true
+              if joinWhereHolds(stmt.where, ra.head, colsA, stmt.table, rbOpt, colsB, spec.table) then
+                resultRev = joinProjectRow(ra.head, colsA, stmt.table, rbOpt, colsB, spec.table, stmt) :: resultRev
             rb = rb.tail
+          if spec.leftOuter && !matched then
+            val noneB: Option[StorageRecord] = None
+            if joinWhereHolds(stmt.where, ra.head, colsA, stmt.table, noneB, colsB, spec.table) then
+              resultRev = joinProjectRow(ra.head, colsA, stmt.table, noneB, colsB, spec.table, stmt) :: resultRev
           ra = ra.tail
         var out: List[List[SqliteValue]] = Nil
         while resultRev.nonEmpty do

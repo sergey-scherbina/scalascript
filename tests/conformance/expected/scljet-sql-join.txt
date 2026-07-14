@@ -10,3 +10,13 @@ SELECT * FROM emp JOIN dept ON emp.dept = dept.did => 1|ann|10|10|eng
 3|cat|10|10|eng
 SELECT emp.name FROM emp JOIN dept ON emp.dept = dept.did WHERE emp.dept < 20 => ann
 cat
+SELECT emp.name, dept.dname FROM emp LEFT JOIN dept ON emp.dept = dept.did => ann|eng
+bob|sales
+cat|eng
+dan|
+SELECT name, did FROM emp LEFT OUTER JOIN dept ON emp.dept = dept.did => ann|10
+bob|20
+cat|10
+dan|
+SELECT emp.name FROM emp LEFT JOIN dept ON emp.dept = dept.did WHERE dept.did = 10 => ann
+cat
