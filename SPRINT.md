@@ -9,6 +9,36 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## uniml-portable — dual-compile UniML dialects on v2 (2026-07-14, Sergiy: "продолжай, записывай в спринт, пуш")
+
+Goal: the SAME UniML source compiles on scalac AND self-hosted ssc v2, so v2's parser can be written
+on UniML. Method: flatten a dialect's parse path (`scripts` in scratchpad `flatten-*.py`) → run via
+`v2/ssc1` → root-cause each blocker FROM THE IR → fix (v2 additive, or portable UniML rewrite) →
+verify by probe + JVM dialect test + conformance 640ok. Detail: memory `project_uniml_portable_program`.
+
+### JSON — DONE
+- [x] **json-on-v2 COMPLETE** — parses `{…}` to `roots=1 status=Complete 0 diags`; invalid → diags.
+  unimlJson 16/16 (ujson diff). 10 fixes: leading `final`/`private`; case-class+`def` trailing comma;
+  `extends`/`with`/`derives` continuation; continuation-header body capture (`declHead`); all-named
+  ctor default-fill; sibling method dispatch; `\r`+`\uXXXX` escapes; lexer `char.toString`→substring.
+
+### YAML — 8 fixes landed (87b88f393/45120d9b3/4ec3d0c54), NOT YET running end-to-end
+- [x] type decls nested in object bodies (accessors + enum cases); `startsWith(prefix,offset)`;
+  `||=`/`&&=`; lexicographic Tuple2/3 Ordering (sortBy tuple key); UniML rewrites (val-destructure,
+  `+:`, `Option.when`, tuple-destructuring lambda). unimlYaml 18/18.
+- [ ] **v2-map-placeholder-copy** — `xs.map(_.copy(field = v))` returns a raw `<foreign>` (later
+  `.head`/`.kind` no-dispatch). Explicit `f.copy(...)` works; the placeholder-`_.copy`-in-map is the
+  bug. CURRENT YAML blocker (YamlStructure:110 `frames.map(_.copy(last = lineEnd))`). Repro:
+  scratchpad `p-mapcopy.ssc`.
+- [ ] **v2-object-qualified-nested-ctor** — `O.Inner(…)` (qualified ext ref to a nested type) →
+  `unbound global: O_Inner`. Bare `Inner(…)` inside the object works; dialects use bare, so low-pri.
+- [ ] **yaml-flat-remaining** — after map-copy, re-run `scratchpad/yaml-flat.ssc` for the next gap;
+  iterate to `status=Complete`. Then verify v2-vs-JVM differential over a YAML corpus.
+
+### Markdown — NOT STARTED
+- [ ] **markdown-on-v2** — flatten `markdown/` parse path (nested enums InlinePiece/AngleKind/OpenLeaf
+  — nested-enum support already landed) → run → sweep the same construct gaps → `status=Complete`.
+
 ## v2-native-conformance — remaining self-hosted native-lane gaps (2026-07-14, Sergiy: "запиши в спринт все что осталось")
 
 Metric: `bin/ssc run --bytecode` over `tests/conformance/*.ssc` (the self-hosted ssc1 frontend →
