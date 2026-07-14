@@ -1,8 +1,8 @@
 # Bug tracker
 
-## scala3-control-shift-row-widening — CONFIRMED / open (2026-07-14, Codex)
+## scala3-control-shift-row-widening — DONE (2026-07-14, Codex)
 
-**Status:** open (tier-1 API type-safety blocker). Found by the
+**Status:** done in `06b4e4be1` (tier-1 API type-safety blocker). Found by the
 `prompt_source_design` delegated compile audit while implementing the ABI landed at
 `98e9645e1`; reported by codex-interop in the `scalascript` rozum room.
 
@@ -17,10 +17,11 @@ call `Eff.runPure(k.resume(value))`; append a nominal effect operation with
 `flatMap`; then enclose the combined computation in the matching `reset`. The old
 types accept the program even though `k.resume` reaches that appended request.
 
-**Fix/verification:** not fixed yet. Replace the monomorphic shift body with a
-rank-2 body valid for every widened residual row (or an equivalently sound prompt
-row contract), compile-probe both ordinary use and the negative repro, then update
-the frozen profile before implementing prompts.
+**Fix/verification:** `ShiftBody` is now rank-2 over every
+`Residual >: Fx`, so the shift body receives the actual widened continuation row.
+Scala 3.8.3 compile probes accept ordinary/nested prompt use and reject the old
+`runPure(k.resume(...))` repro at the typer. The reporting audit confirmed the
+positive and negative probes after the spec correction.
 
 ## control-interop-runsh-installbin-task-name — FIXED (2026-07-14, claude)
 

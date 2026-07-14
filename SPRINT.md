@@ -81,11 +81,10 @@ optional policy, not the default continuation semantics.
   - [x] **sca-2 — dependency-free module added** (`e97312d96`). `v1/lang/control-api` is the
         `scala3ControlApi` leaf with only a test-scoped ScalaTest dependency and root aggregation; it
         has no edge to v2Core, UniML, the seed, canonical codec, CLI, legacy `interop`, or any backend.
-  - [ ] **sca-2a — close the shift row-widening hole before prompt code.** Replace the monomorphic
-        `shift` body with a rank-2 contract (or an equivalently sound fixed prompt row), compile-probe
-        the ordinary API and the `Fx = Nothing` + later-effect negative repro, update
-        `specs/scala3-bidirectional-control.md`, and close
-        `BUGS.md scala3-control-shift-row-widening` before implementing `Prompt`.
+  - [x] **sca-2a — shift row-widening hole closed** (`06b4e4be1`). `ShiftBody` is rank-2 over
+        every `Residual >: Fx`; Scala 3.8.3 accepts ordinary and nested prompt programs but rejects
+        the old `Fx = Nothing` + later-effect `runPure(k.resume(...))` exploit. The reporting audit
+        confirmed both probes and `BUGS.md scala3-control-shift-row-widening` is done.
   - [ ] **sca-3 — implement the executable reference model.** Implement a private-erasure,
         public-typed stackless `Pure | Op`/bind/defer machine, iterative `step`/pure runner, deep
         residual-forwarding handlers, operation multiplicity, generative prompts, exact multi-prompt
