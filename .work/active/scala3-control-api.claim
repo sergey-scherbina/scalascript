@@ -1,6 +1,6 @@
 feature/scala3-control-api 2026-07-14T13:30:22Z
 agent: codex-interop
-heartbeat: 2026-07-14T13:48:41Z
+heartbeat: 2026-07-14T15:02:15Z
 status: in-progress
-done-so-far: implementation sub-slices planned in ce3699379; module/runtime audits complete; exact leaf ABI drafted and under compile/semantic review
-next: land the reviewed Scala/JVM profile ABI freeze, then add the dependency-free module and executable reference model
+done-so-far: Tier-1 ABI and leaf module landed; rank-2 shift soundness fixed; singleton-key and JVM capability blockers tracked; implementation draft compiles
+next: land singleton-owned invariant key spec update, then close capability construction and add runtime/type/ABI regression suites
