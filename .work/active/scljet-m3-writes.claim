@@ -1,4 +1,4 @@
 claim: scljet-m3-writes
 owner: opus
-heartbeat: 2026-07-15T04:25:00Z
-status: Typed SQL surface now full CRUD + joins + aggregates (m6w-m6y); JDBC façade (m6v); SQL polish (m6r/m6s). All green int==js vs sqlite3.
+heartbeat: 2026-07-15T04:40:00Z
+status: Typed SQL surface = full CRUD+joins+aggregates+GROUP BY+HAVING (m6w-m6y+having); JDBC façade (m6v); SQL polish (m6r/m6s). All green int==js. Final full gate running.

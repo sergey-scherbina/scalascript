@@ -2053,9 +2053,12 @@ alongside SQL polish (REAL literals m6s, LEFT-join-3 m6r). All three "парал
       `SelectStmt.joins` so the executor's join path runs it; `projColQ` gives qualified join projections.
       Inner join, LEFT join (NULL-extended unmatched rows), and aggregate/GROUP BY over a join verified
       byte-identical vs reference sqlite3, int==js; conformance `scljet-typedsql-join`; all 3 typed-SQL
-      cases green non-memoized. The typed surface now covers full CRUD + joins + aggregates/GROUP BY +
-      ORDER BY + DISTINCT + LIMIT. NEXT: HAVING in the typed surface; then the spec's LogicalPlan/
-      PhysicalOp IR with index-aware access paths (the perf win over always-full-scan).
+      cases green non-memoized. **Typed HAVING also landed** (`havingQ` + `havingCount`/`Sum`/`Max`/`Min`,
+      `TypedQuery.having`; conformance `scljet-typedsql-basic` q11). The typed surface now covers full
+      CRUD + joins (inner/LEFT) + aggregates + GROUP BY + HAVING + ORDER BY + DISTINCT + LIMIT — the
+      whole current executor. NEXT (deferred): the spec's LogicalPlan/PhysicalOp IR with index-aware
+      access paths (`cursorSeek`/`RangeScan`/`IndexSeek`) — the perf win over the always-full-scan
+      `executeSelectSingle`; and a typed row decoder (`Table[R]`/`Query[R]` → typed output records).
 
 - [x] **scljet-m6x-typed-sql-dml** — DONE 2026-07-15 (extends m6w). Typed SQL writes — the typed
       front door now has full CRUD. `insertRows`/`insertColsRows`, `updateSet`/`updateAllSet` with typed
