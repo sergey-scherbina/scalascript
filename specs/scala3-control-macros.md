@@ -17,7 +17,7 @@ not land until a new independent review approves the frozen checkpoint. Fresh
 independent review of `708dec2f1` then found three remaining owner graphs outside
 that evidence: captured result type `A`, nested/inferred types in moved terms, and
 forward/mutual compiler-lazy givens. The contract below covers those graphs, and
-feature commit `4821f824c` implements them with faithful source and packaged
+feature commit `2ee8527e1` implements them with faithful source and packaged
 regressions plus the full local gate. M1 remains unlanded until a new independent
 review approves the frozen checkpoint.
 
@@ -621,7 +621,7 @@ Changed Markdown is linted and the final branch must pass `git diff --check`.
   symbol-preserving `boundary.break` spellings/provenance forms and correction of
   the over-broad dependent-owner completion wording. These are pre-fix baselines;
   another independent review remains mandatory after implementation and full gates.
-- Post-`708dec2f1` owner remediation is implemented in feature commit `4821f824c`.
+- Post-`708dec2f1` owner remediation is implemented in feature commit `2ee8527e1`.
   Captured `A` is rebound before type opening; moved definition types and common
   prefix/suffix owner-dependent lambdas are rebuilt and stale-symbol audited; and
   supported crossing givens are allocated in two phases with `Given`/`Lazy` flags
