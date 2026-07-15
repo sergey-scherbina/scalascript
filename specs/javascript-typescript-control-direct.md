@@ -91,6 +91,8 @@ accidentally provide alternate runtime semantics.
 The `/transform` subpath exports:
 
 ```ts
+import type ts from "typescript"
+
 export type DirectDiagnosticCode =
   | "JS_DIRECT_OUTSIDE_RESET"
   | "JS_DIRECT_CAPTURE_BARRIER"
@@ -110,12 +112,12 @@ export interface DirectDiagnostic {
 export interface DirectTransform {
   readonly diagnostics: readonly DirectDiagnostic[]
   readonly transformedFiles: readonly string[]
-  readonly transformers: import("typescript").CustomTransformers
+  readonly transformers: ts.CustomTransformers
 }
 
 export function createDirectTransform(
-  typescript: typeof import("typescript"),
-  program: import("typescript").Program
+  typescript: typeof ts,
+  program: ts.Program
 ): DirectTransform
 
 export function formatDirectDiagnostic(diagnostic: DirectDiagnostic): string
