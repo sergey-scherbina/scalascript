@@ -12,15 +12,19 @@ bounded lexical ANF sequence and emits only the compiler-independent explicit
 `Eff`/`shift`/`reset` protocol, preserving prefix/suffix evaluation, sequential
 markers, reusable continuation semantics, residual rows, and shared heap state.
 Strict local values, contextual/pattern binds, and mutable closure cells retain
-their Scala ownership across capture. Dependent prompt keys, `owner.type`, and
-dependent mutable/given/pattern references are rebound with their fresh term
-owners; richer dependent binder graphs fail closed. A ShiftBody may use ordinary
-explicit control or a nested managed direct reset body; that nested reset's eager
-prompt is still audited by the enclosing ShiftBody. An exact nested direct marker,
+their Scala ownership across capture. Covered owner-bearing graphs are rebuilt and
+stale-symbol audited: captured `A` supports `owner.type` and
+`Prompt[inner.Key, R]`, prefix/suffix lambdas support `() => owner.type`, and
+crossing parameterless givens are allocated in two phases with their compiler
+flags preserved. Richer graphs that M1 cannot represent fail closed. A ShiftBody
+may use ordinary explicit control or a nested managed direct reset body; that
+nested reset's eager prompt is still audited by the enclosing ShiftBody. An exact
+nested direct marker,
 including one in that prompt, is rejected before it can survive lowering. Richer
 local definitions, lazy markers, inline wrapper applications, and every
 `scala.util.boundary.break` fail closed before code can be moved or evaluated;
-transparent-inline diagnostics point at the nearest wrapper invocation.
+method/module aliases, explicit labels, and transparent-inline provenance cannot
+hide a break, and inline diagnostics point at the nearest wrapper invocation.
 Unsupported expression shapes and callback/control barriers fail closed at compile
 time with stable `UNMANAGED_CAPTURE`, `CAPTURE_BARRIER`, or
 `DIRECT_STYLE_UNSUPPORTED` diagnostics; there is no exception/TLS/runtime capture
@@ -28,12 +32,15 @@ path and no CoreIR, UniML, seed, backend, or self-hosting change.
 
 The `scala-direct` semantic lane is now ready for vectors 18 and 23 plus catalog
 coverage (3/3), each differential against explicit Scala. The complete control
-leaf passes 101/101 tests (17 direct semantics, 22 exact diagnostics), the
-package/POM and packaged-JAR runnable example are green, catalog
+leaf passes 109/109 tests (21 direct semantics, 26 exact diagnostics), the
+package/POM and packaged-JAR positive/exact-negative consumers are green, catalog
 validation remains 26 vectors/9 lanes with 9/9 negative cases, and affected effect
 conformance passes 5/5. Cross-method capture, prompt forwarding across a nested
 different-prompt reset, managed callbacks, and saveable frames remain work for the
 compiler plugin.
+
+The post-review owner remediation is frozen in feature commit `4821f824c`; this
+checkpoint remains unlanded pending a fresh independent review.
 
 ## 2026-07-15 — JavaScript/TypeScript explicit local control API
 

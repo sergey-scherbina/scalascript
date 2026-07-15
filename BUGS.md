@@ -2,8 +2,10 @@
 
 ## scala-direct-captured-type-owner — captured A keeps a stale prefix owner
 
-**Status:** open; reported as P1 by the fresh independent review of frozen
-`scala3-control-macros` checkpoint `708dec2f1` (2026-07-15).
+**Status:** open; remediation is green in feature commit `4821f824c`, but fresh
+independent review and the landing SHA are pending. Reported as P1 by the fresh
+independent review of frozen `scala3-control-macros` checkpoint `708dec2f1`
+(2026-07-15).
 
 **Symptom/reproduce:** declare a local owner before capture and use its singleton
 type as the captured result, for example
@@ -28,10 +30,19 @@ unsupported type must reject at the source marker with stable
 `DIRECT_STYLE_UNSUPPORTED`, never a generated compiler error. Add faithful
 packaged-consumer semantics for both shapes and the explicit differential.
 
+**Implementation/verification:** the captured type is rebound through the active
+term/type replacement graph before `asType`, and the rebuilt type is used by the
+rank-2 body, explicit shift, and generated bind continuation. Source regressions
+cover both `owner.type` and `Prompt[inner.Key, Int]`; the packaged Scala CLI 3.8.3
+consumer executes their direct and explicit forms and prints `42` for each. These
+cases are part of the clean 21/21 semantics suite and the 109/109 full leaf gate.
+
 ## scala-direct-moved-term-type-owner — moved RHS and suffix symbols keep stale owners
 
-**Status:** open; reported as P1 by the fresh independent review of frozen
-`scala3-control-macros` checkpoint `708dec2f1` (2026-07-15).
+**Status:** open; remediation is green in feature commit `4821f824c`, but fresh
+independent review and the landing SHA are pending. Reported as P1 by the fresh
+independent review of frozen `scala3-control-macros` checkpoint `708dec2f1`
+(2026-07-15).
 
 **Symptom/reproduce:** before a direct marker, declare
 `val owner = new Object` and
@@ -55,10 +66,20 @@ reject it before constructing generated code with stable source-located
 explicit differential; no raw E007 path is acceptable. Correct the spec and
 CHANGELOG wording that currently claims dependent-owner completion too broadly.
 
+**Implementation/verification:** definition-type rebinding reconstructs supported
+method/poly binders and closure methods/parameters under the generated owner, then
+audits moved terms for every replaced term/type symbol. Prefix and suffix
+`() => owner.type` direct/explicit regressions all print `42` in the packaged
+consumer. Unrepresentable richer graphs reject before code construction with the
+stable unsupported diagnostic. These cases are green in feature commit
+`4821f824c`, the clean focused 47/47 gate, and the full 109/109 leaf gate.
+
 ## scala-direct-contextual-forward-reference — prefix cloning breaks lazy givens
 
-**Status:** open; reported as P1 by the fresh independent review of frozen
-`scala3-control-macros` checkpoint `708dec2f1` (2026-07-15).
+**Status:** open; remediation is green in feature commit `4821f824c`, but fresh
+independent review and the landing SHA are pending. Reported as P1 by the fresh
+independent review of frozen `scala3-control-macros` checkpoint `708dec2f1`
+(2026-07-15).
 
 **Symptom/reproduce:** put compiler-lazy parameterless givens before a later marker,
 including a forward/mutual pair such as `given first: TC = second` and
@@ -79,11 +100,18 @@ the current spec. Any dependent type cycle that cannot be allocated soundly must
 fail closed at its declaration. Add a real packaged consumer for forward/mutual
 givens and keep ordinary strict sequencing/shared mutable-cell regressions green.
 
+**Implementation/verification:** prefix lowering now allocates every supported
+fresh value symbol before moving any RHS, then moves initializers with the complete
+replacement map while retaining compiler `Given`/`Lazy` flags. The unused
+forward/mutual-given direct and explicit programs compile and each print `42` in
+the packaged consumer. The regression is green in feature commit `4821f824c`, the
+clean 21/21 semantics suite, and the full 109/109 leaf gate.
+
 ## scala-direct-nested-reset-prompt-marker — outer marker survives in eager nested-reset prompt
 
-**Status:** open; remediation is green in feature commit `fdde23d93`, but a fresh
-independent review and the landing SHA are pending. Reported by the root agent's
-adversarial pre-review of the `scala3-control-macros` feature checkpoint
+**Status:** open; remediation remains green at feature checkpoint `4821f824c`, but
+a fresh independent review and the landing SHA are pending. Reported by the root
+agent's adversarial pre-review of the `scala3-control-macros` feature checkpoint
 `9c6850904` (2026-07-15).
 
 **Symptom/reproduce:** inside an accepted outer `direct.shift` rank-2 `ShiftBody`,
@@ -124,9 +152,9 @@ fix lands.
 
 ## scala-direct-boundary-break-escape — boundary break can outlive its delimiter
 
-**Status:** open; behavior remediation is green on the feature branch, but fresh
-review of checkpoint `708dec2f1` found incomplete committed regression coverage for
-symbol-preserving aliases/provenance. The landing SHA is pending. Originally
+**Status:** open; behavior and the missing alias/provenance regressions are green at
+feature checkpoint `4821f824c`, but fresh independent review and the landing SHA
+are pending. Originally
 reported as P1 by the rereview of frozen `scala3-control-macros` checkpoint
 `ec4eb279e` (2026-07-15); regression gap reported as P2 on 2026-07-15.
 
@@ -148,17 +176,17 @@ leaks.
 **Implementation/verification:** the pre-lowering control audit recognizes the
 exact `scala.util.boundary.break` overload symbols both as ordinary calls and
 through inline provenance, then rejects at the invocation before `Eff.defer` is
-constructed. Pure-body and captured-suffix exact-diagnostic regressions pass in
-the clean-compiled diagnostics suite. Add committed exact regressions for an
-imported `break` alias, explicit label application, a module alias, and transparent-
-inline provenance; the review probes already reject, but that behavior must remain
-frozen in the suite. Keep this entry open until rereview approves and the fix lands.
+constructed. Pure-body, captured-suffix, imported method alias, explicit-label,
+module-alias, and transparent-inline provenance regressions are committed and pass
+in the clean 26/26 diagnostics suite; the full leaf is 109/109 and the complete
+package/catalog/conformance gate is green. Keep this entry open until rereview
+approves and the fix lands.
 
 ## scala-direct-transparent-inline-position — wrapper diagnostic points at reset
 
-**Status:** open; remediation is green in feature commit `a77651132`, but a fresh
-independent review and the landing SHA are pending. Reported as P1 by the rereview
-of frozen `scala3-control-macros` checkpoint `ec4eb279e` (2026-07-15).
+**Status:** open; remediation remains green at feature checkpoint `4821f824c`, but
+a fresh independent review and the landing SHA are pending. Reported as P1 by the
+rereview of frozen `scala3-control-macros` checkpoint `ec4eb279e` (2026-07-15).
 
 **Symptom/reproduce:** invoke a transparent-inline wrapper around
 `direct.shift` inside `direct.reset`. The transform correctly rejects the inline
@@ -182,9 +210,9 @@ approves and the fix lands.
 
 ## scala-direct-nested-shift-body-marker — direct marker survives inside ShiftBody
 
-**Status:** open; remediation is green in feature commit `a77651132`, but a fresh
-independent review and the landing SHA are pending. Reported as P1 by the rereview
-of frozen `scala3-control-macros` checkpoint `ec4eb279e` (2026-07-15).
+**Status:** open; remediation remains green at feature checkpoint `4821f824c`, but
+a fresh independent review and the landing SHA are pending. Reported as P1 by the
+rereview of frozen `scala3-control-macros` checkpoint `ec4eb279e` (2026-07-15).
 
 **Symptom/reproduce:** write an accepted block-level `direct.shift`, then place a
 second exact `direct.shift` inside the outer marker's rank-2 `ShiftBody`. The outer
@@ -209,9 +237,9 @@ entry open until rereview approves and the fix lands.
 
 ## scala-direct-dependent-prefix-type-owner — freshened values retain stale type refs
 
-**Status:** open; remediation is green in feature commit `a77651132`, but a fresh
-independent review and the landing SHA are pending. Reported as P1 by the rereview
-of frozen `scala3-control-macros` checkpoint `ec4eb279e` (2026-07-15).
+**Status:** open; remediation remains green at feature checkpoint `4821f824c`, but
+a fresh independent review and the landing SHA are pending. Reported as P1 by the
+rereview of frozen `scala3-control-macros` checkpoint `ec4eb279e` (2026-07-15).
 
 **Symptom/reproduce:** create a local prompt scope before capture, then declare a
 dependent value such as `Prompt[innerScope.Key, Int]` (or a value typed with
