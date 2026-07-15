@@ -20,8 +20,9 @@ type projection and must never become primitive `Bytes`. Regress a `Byte` binder
 both private and `@internal` local `Byte`, and public local `Byte`, while preserving
 the existing local-`Array` vectors.
 
-**Baseline:** frozen focused suite is 38/38 but all new shadowing repros return a
-successful descriptor containing primitive `Bytes`.
+**Baseline:** regression commit `387a10384`; the focused suite is 39/46 and all
+four new shadowing tests fail because the producer returns a successful descriptor
+containing primitive `Bytes`. The unshadowed built-in positive remains green.
 
 ## descriptor-v3-codeblock-source-bypass — documentless modules skip source/AST correspondence
 
@@ -46,8 +47,9 @@ document source for effect-header evidence only after agreement; otherwise fall 
 to the code-block source. Regress documentless stale source and dual-source header
 disagreement while keeping body-only invariance.
 
-**Baseline:** frozen focused suite is 38/38, but the faithful documentless stale
-`CodeBlock.source` repro returns `Right` from the old tree.
+**Baseline:** regression commit `387a10384`; both the faithful documentless stale
+`CodeBlock.source` repro and the dual-source disagreement repro return `Right` from
+the old tree. They account for two of seven failures in the exact 39/46 focused run.
 
 ## descriptor-v3-package-wrapper-header-forgery — wrapper names match while wrapper semantics differ
 
@@ -67,8 +69,9 @@ state, plus exactly one expected child wrapper until the leaf. Reject a forged w
 at the block path before inner declaration correspondence. Add the exact
 `extends Serializable` stored-AST regression.
 
-**Baseline:** frozen focused suite is 38/38, but the forged-wrapper repro returns
-`Right` and projects the inner API.
+**Baseline:** regression commit `387a10384`; the forged-wrapper repro returns
+`Right` and projects the inner API. It is one of seven failures in the exact 39/46
+focused run.
 
 ## descriptor-v3-mutable-export-loss — exported val and var collapse to one immutable descriptor
 

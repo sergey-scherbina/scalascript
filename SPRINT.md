@@ -270,6 +270,10 @@ optional policy, not the default continuation semantics.
       dual retained-source evidence, or the `Byte` side of `Array[Byte]` shadowing. Keep all six
       descriptor BUGS entries `open`; update the spec before implementation, then add faithful red
       vectors and preserve every earlier regression.
+    - Third-review red baseline (`387a10384`): exact focused result 39/46, with seven failures
+      returning `Right` — 1 non-plain wrapper, 2 code-block/document source-evidence, and 4
+      Array/Byte binder-or-local shadowing tests. All prior 38 regressions plus the new unshadowed
+      built-in `Array[Byte]` positive pass.
     - Done when the focused regressions and affected core/interop/conformance gates pass and a
       fresh independent read-only review returns APPROVE with no P1/P2 blocker.
   - [ ] **C — post-body summaries:** extract managed/foreign/tail edges, save sites, frame schemas,
