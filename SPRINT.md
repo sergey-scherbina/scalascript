@@ -306,6 +306,13 @@ every later compiler/kernel change re-runs the literal fixed point.
         `Function` as global-only JavaScript operations, then test each accepted and
         rejected form with stable spans. Track in
         `BUGS.md#js-control-direct-eval-capture-unsound`.
+      - [ ] **Pre-rereview repair: import-only direct eval.** Candidate `f7e76fc48`
+        removes an unused named marker import even with no marker call, but gates eval
+        scanning on `filesWithMarkerCalls`; `eval("typeof direct")` therefore observes
+        a changed lexical environment. Gate intrinsic direct eval on every candidate
+        file rewrite (including import-only erasure), retain eval-free unused-import
+        removal, and prove diagnostic + file-atomic ignored-diagnostic emit. Track in
+        `BUGS.md#js-control-direct-import-only-eval-erasure`.
       - [ ] **REJECT repair: real installed npm bin.** Replace the raw
         `import.meta.url === pathToFileURL(argv[1])` guard with deterministic realpath
         entry detection, including missing/unreadable argv handling. Build a tarball,

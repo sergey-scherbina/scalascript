@@ -1,5 +1,25 @@
 # Bug tracker
 
+## js-control-direct-import-only-eval-erasure — unused marker removal changes direct-eval scope
+
+**Status:** open. Found by parent adversarial pre-rereview on 2026-07-15 in repair
+candidate `f7e76fc48`; the original independent-review snapshot was
+`f6fa34fac`.
+
+**Symptom/reproduce:** compile a file that imports named `direct`, contains no
+`reset`/`shift`, and evaluates `eval("typeof direct")`. The repair candidate selects
+the file solely to erase the otherwise unused build-time marker import, but its
+direct-eval scan is gated on `filesWithMarkerCalls`. Emit therefore removes the
+lexical binding without a diagnostic and changes the eval result from `"object"` to
+`"undefined"`.
+
+**Required fix/verification:** intrinsic direct eval is a barrier for every source
+file that the transform would rewrite, including import-only marker erasure. Keep
+unused marker removal for eval-free files; do not reintroduce a production marker
+dependency. Add an exact import-only direct-eval regression proving one stable
+`JS_DIRECT_CAPTURE_BARRIER`, no `transformedFiles` entry, and byte-semantic
+file-atomic emit when a programmatic caller ignores diagnostics.
+
 ## js-control-direct-typescript-version-ungated — unsupported compiler APIs are accepted
 
 **Status:** open. Reported as P2 on 2026-07-15 by the independent
