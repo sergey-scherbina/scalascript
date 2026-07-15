@@ -1,6 +1,6 @@
-feature/control-semantic-vectors 2026-07-15T03:28:48Z
+feature/control-semantic-vectors 2026-07-15T03:42:29Z
 agent: codex-control-vectors
-heartbeat: 2026-07-15T03:28:48Z
+heartbeat: 2026-07-15T03:42:29Z
 status: in-progress
-done-so-far: feature spec committed; target-neutral vector and lane catalogs plus new semantic probes drafted in isolated worktree
-next: implement strict catalog validation, multi-lane process harness, and Scala explicit-API consumer
+done-so-far: 26-vector/9-lane catalog, strict validator, VM+ASM runner, Scala explicit consumer, and six negative validator regressions implemented; focused gates green
+next: integrate documentation, spec-verify results, rebase, rerun final gates, and push
