@@ -18,7 +18,11 @@ CoreIR node, a public value constructor, or a second VM/ASM semantics.
 
 ## Interface
 
-There is no new source or embedding API. Existing code keeps the same shape:
+There is no new ScalaScript source construct or supported host facade in this
+slice. The JVM runtime gains public bytecode methods `completeManaged(Value)`
+and `Runtime.runManaged(Code, Env)` because CLI/artifact packages cross Scala
+package boundaries; they are internal runtime ABI, not the future typed
+`scalascript-control` embedding API. Existing source keeps the same shape:
 
 ```scalascript
 effect Tick:
@@ -116,8 +120,9 @@ called only at a managed program or host-call boundary and is the identity for
 every value except an exact capability-backed private request. For a request it
 starts the same iterative driver in `Complete` mode, after the caller suffix has
 already been captured in `afterResume`. VM program roots, direct-ASM
-`runProgram`, and explicit host-to-ScalaScript managed invocation are mandatory
-hook sites. `Runtime.run` and `Emit.app` are deliberately not global hook sites:
+`runProgram`, and any future host-to-ScalaScript invocation explicitly declared
+managed are mandatory hook sites. `Runtime.run` and `Emit.app` are deliberately
+not global hook sites:
 draining there would be too early for surrounding effect-aware lifting and
 would add a semantic branch to every internal call. Concurrent managed calls
 run independent local drivers; the request and driver have no shared mutable
@@ -127,9 +132,9 @@ rejects losing calls before a request is returned.
 The JVM implementation uses this explicit hook inventory:
 
 1. `Runtime.runManaged(code, env)` wraps VM **program roots** (`ssc.Main`, the
-   installed compatibility/native runners, `BridgeCli`, and `BatchCli`) and
-   managed plugin/callback entry adapters (`NativePluginHost.invoke` and the
-   v1/v2 `PluginBridge` closure adapters).
+   installed compatibility/native runners, `BridgeCli`, and `BatchCli`). It is
+   also the explicit hook a future descriptor-qualified managed host adapter
+   must call.
 2. `JvmByteGen.runProgram` completes the unrolled generated `entry()` result;
    this is the direct-ASM program/library boundary used by installed runners and
    tests.
@@ -144,6 +149,14 @@ result is an ordinary value or public residual `Op`, for which every later call
 is identity. No installed VM/ASM/host boundary in this inventory may return an
 exact private request. Ordinary public values, including every public three-
 field `Op(label, argument, continuation)`, must cross unchanged.
+
+Generic raw callback paths such as `NativePluginHost.invoke` and the legacy
+v1/v2 `PluginBridge` adapters are deliberately not changed by this slice. They
+can run inside an effect-aware expression and have no `ManagedControl`
+descriptor proving that the callback boundary owns completion; draining there
+could consume a request before the caller suffix is lifted. Qualifying those
+host paths belongs to the host-profile/descriptor milestone and requires nested
+non-tail callback vectors first.
 
 `afterResume` starts as the identity continuation. Existing VM and ASM
 effect-aware lifting over `Op` composes the rest of the handler expression into
