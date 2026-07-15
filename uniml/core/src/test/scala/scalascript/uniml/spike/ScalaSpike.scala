@@ -384,12 +384,36 @@ object SpikeParse:
       if fname.isEmpty then more = false
       else
         expect(c, "spike.colon", "cc.fieldColon", "':'").foreach(kids += _)
-        expectType(c, "cc.fieldType").foreach(kids += _)
+        kids += captureFieldType(c) // full type TEXT incl generics (`List[User]`) for the mirror metadata
+        if c.peekKind == "spike.eq" then { c.advance(); parseExpr(c, 1) } // default value `= 10` — erased
         if c.peekKind == "spike.comma" then c.advance().foreach(t => kids += Node.Leaf(t, Some("cc.comma")))
         else more = false
     expect(c, "spike.rparen", "cc.rparen", "')'").foreach(kids += _)
     skipExtendsClause(c) // `case class Circle(r: Double) extends Shape` — the parent clause is erased
     Node.Frame("spike.casecls", None, kids.result())
+
+  // capture a case-class field type as its raw TOKENS (base + balanced `[…]` generics + `=> …` fn tails) in a
+  // spike.cctype frame, so the projection reproduces ssc1-front's full type string (`List[User]`,
+  // `Map[String,User]` — token lexemes concatenated with no spaces).
+  private def captureFieldType(c: Cur): Node =
+    val toks = Vector.newBuilder[Node]
+    def take(): Unit = c.advance().foreach(t => toks += Node.Leaf(t, Some("ct.tok")))
+    def takeBalanced(open: String, close: String): Unit =
+      var d = 1; take()
+      while d > 0 && !c.eof do
+        if c.peekKind == open then d += 1 else if c.peekKind == close then d -= 1
+        take()
+    if c.peekKind == "spike.lparen" then takeBalanced("spike.lparen", "spike.rparen") // `(A, B)` domain
+    else if c.peekKind == "spike.uid" || c.peekKind == "spike.id" then take()
+    var more = true
+    while more do
+      if c.peekKind == "spike.lbracket" then takeBalanced("spike.lbracket", "spike.rbracket")
+      else if c.peekKind == "spike.op" && c.peekLexeme == "=>" then
+        take()
+        if c.peekKind == "spike.lparen" then takeBalanced("spike.lparen", "spike.rparen")
+        else if c.peekKind == "spike.uid" || c.peekKind == "spike.id" then take()
+      else more = false
+    Node.Frame("spike.cctype", Some("cc.fieldType"), toks.result())
 
   // `enum E: case A; case B(x: Int); case Red, Green` (offside or `{ … }`). Emits
   // ("enum", (name, [(caseName, [fieldNames])…])); lowerProg reuses the case-class ctor path.
@@ -1364,8 +1388,13 @@ object SpikeProject:
     val ks = kids(n)
     val name  = ks.collectFirst { case (Some("cc.name"), c) => lexeme(c) }.getOrElse("_")
     val names = ks.collect { case (Some("cc.field"), c) => "\"" + esc(lexeme(c)) + "\"" }.toVector
-    val types = ks.collect { case (Some("cc.fieldType"), c) => "\"" + esc(lexeme(c)) + "\"" }.toVector
+    val types = ks.collect { case (Some("cc.fieldType"), c) => "\"" + esc(concatType(c)) + "\"" }.toVector
     s"""mkCaseCls("${esc(name)}", ${consList(names)}, ${consList(types)}, Nil)"""
+
+  // concatenate a spike.cctype frame's token lexemes (no spaces) → the full field type string
+  private def concatType(n: UniNode): String = n match
+    case b: UniNode.Branch => kids(b).map((_, c) => lexeme(c)).mkString
+    case UniNode.Token(t)  => t.lexeme
 
   private def consList(xs: Vector[String]): String =
     xs.foldRight("Nil")((h, acc) => s"Cons($h, $acc)")
