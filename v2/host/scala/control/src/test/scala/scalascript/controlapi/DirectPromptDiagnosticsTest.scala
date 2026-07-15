@@ -227,3 +227,49 @@ final class DirectPromptDiagnosticsTest extends AnyFunSuite:
       10
     )
   }
+
+  test("a pure reset body cannot defer a non-local return") {
+    val errors = typeCheckErrors("""
+      import scalascript.control.*
+
+      def escaped(): Eff[Nothing, Int] =
+        val scoped = freshPrompt[Int]
+        val prompt = scoped.prompt
+        direct.reset[scoped.Key, Nothing, Int](prompt) {
+          return Eff.pure(7)
+        }
+    """)
+
+    assertDiagnostic(
+      errors,
+      "error [DIRECT_STYLE_UNSUPPORTED]: direct.reset cannot defer a non-local return",
+      "          return Eff.pure(7)",
+      10
+    )
+  }
+
+  test("a captured suffix cannot contain a non-local return") {
+    val errors = typeCheckErrors("""
+      import scalascript.control.*
+
+      def escaped(): Eff[Nothing, Int] =
+        val scoped = freshPrompt[Int]
+        val prompt = scoped.prompt
+        direct.reset[scoped.Key, Nothing, Int](prompt) {
+          val selected =
+            direct.shift[scoped.Key, Int, Nothing, Int](prompt)(
+              [Residual >: Nothing <: Effect] =>
+                (continuation: Continuation[Int, Residual, Int]) =>
+                  continuation.resume(1)
+            )
+          return Eff.pure(selected)
+        }
+    """)
+
+    assertDiagnostic(
+      errors,
+      "error [DIRECT_STYLE_UNSUPPORTED]: direct.reset cannot defer a non-local return",
+      "          return Eff.pure(selected)",
+      10
+    )
+  }

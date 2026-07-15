@@ -71,6 +71,28 @@ private object DirectMacros:
     val directShiftSymbol =
       Symbol.requiredMethod("scalascript.control.direct.shift")
 
+    def rejectEscapingReturns(tree: Tree): Unit =
+      def isOwnedBy(symbol: Symbol, ancestor: Symbol): Boolean =
+        @annotation.tailrec
+        def loop(current: Symbol): Boolean =
+          if current == Symbol.noSymbol then false
+          else if current == ancestor then true
+          else loop(current.owner)
+        loop(symbol)
+
+      val traverser = new TreeTraverser:
+        override def traverseTree(current: Tree)(owner: Symbol): Unit =
+          current match
+            case returned: Return
+                if !isOwnedBy(returned.from, sourceOwner) =>
+              report.errorAndAbort(
+                "error [DIRECT_STYLE_UNSUPPORTED]: direct.reset cannot defer a non-local return",
+                returned.pos
+              )
+            case _ => traverseTreeChildren(current)(owner)
+
+      traverser.traverseTree(tree)(sourceOwner)
+
     def marker(term: Term): Option[Marker] =
       strip(term) match
         case whole @ Apply(
@@ -350,6 +372,8 @@ private object DirectMacros:
     val (statements, tail) = rawBody match
       case Block(values, result) => (values, result)
       case value                 => (Nil, value)
+
+    rejectEscapingReturns(rawBody)
 
     val lowered =
       lowerBlock(statements, tail, sourceOwner, Map.empty)
