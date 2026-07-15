@@ -2,9 +2,9 @@
 
 ## scala-direct-boundary-break-escape — boundary break can outlive its delimiter
 
-**Status:** open; reported as P1 by the fresh independent rereview of frozen
-`scala3-control-macros` checkpoint `ec4eb279e` (2026-07-15). Remediation must be
-reviewed independently before landing.
+**Status:** open; remediation is green in feature commit `eda7dcabf`, but a fresh
+independent review and the landing SHA are pending. Reported as P1 by the rereview
+of frozen `scala3-control-macros` checkpoint `ec4eb279e` (2026-07-15).
 
 **Symptom/reproduce:** place `scala.util.boundary.break(value)` in a
 `direct.reset` body, including a pure prefix before a later `direct.shift` or a
@@ -21,11 +21,18 @@ the exact break invocation. Keep returns local to a nested method accepted, and
 add pure-prefix/suffix negatives proving no raw boundary exception or quote error
 leaks.
 
+**Implementation/verification:** the pre-lowering control audit recognizes the
+exact `scala.util.boundary.break` overload symbols both as ordinary calls and
+through inline provenance, then rejects at the invocation before `Eff.defer` is
+constructed. Pure-body and captured-suffix exact-diagnostic regressions pass in
+the 21/21 clean-compiled diagnostics suite; keep this entry open until rereview
+approves and the fix lands.
+
 ## scala-direct-transparent-inline-position — wrapper diagnostic points at reset
 
-**Status:** open; reported as P1 by the fresh independent rereview of frozen
-`scala3-control-macros` checkpoint `ec4eb279e` (2026-07-15). Remediation must be
-reviewed independently before landing.
+**Status:** open; remediation is green in feature commit `eda7dcabf`, but a fresh
+independent review and the landing SHA are pending. Reported as P1 by the rereview
+of frozen `scala3-control-macros` checkpoint `ec4eb279e` (2026-07-15).
 
 **Symptom/reproduce:** invoke a transparent-inline wrapper around
 `direct.shift` inside `direct.reset`. The transform correctly rejects the inline
@@ -40,11 +47,18 @@ while descending and report `DIRECT_STYLE_UNSUPPORTED` there. Preserve the
 existing unexpanded-inline application path and freeze exact message, line
 content, and zero-based column for both shapes.
 
+**Implementation/verification:** inline traversal keeps only non-empty
+`Inlined.call` positions on a nearest-first stack and falls back to the marker when
+the compiler supplies no call span. The transparent-inline regression reports the
+wrapper invocation exactly; the earlier unexpanded-inline path remains unchanged.
+Both pass in the 21/21 clean diagnostic suite; keep this entry open until rereview
+approves and the fix lands.
+
 ## scala-direct-nested-shift-body-marker — direct marker survives inside ShiftBody
 
-**Status:** open; reported as P1 by the fresh independent rereview of frozen
-`scala3-control-macros` checkpoint `ec4eb279e` (2026-07-15). Remediation must be
-reviewed independently before landing.
+**Status:** open; remediation is green in feature commit `eda7dcabf`, but a fresh
+independent review and the landing SHA are pending. Reported as P1 by the rereview
+of frozen `scala3-control-macros` checkpoint `ec4eb279e` (2026-07-15).
 
 **Symptom/reproduce:** write an accepted block-level `direct.shift`, then place a
 second exact `direct.shift` inside the outer marker's rank-2 `ShiftBody`. The outer
@@ -60,11 +74,18 @@ managed direct markers and reject them at their source call with a stable
 explicit `scalascript.control.shift`/`Eff` code or a separately managed nested
 `direct.reset`; add all three regression shapes.
 
+**Implementation/verification:** every accepted marker now receives a narrow
+ShiftBody survival scan. It rejects only the exact nested `direct.shift`, skips a
+separately managed nested `direct.reset`, and leaves ordinary explicit
+`scalascript.control.shift`/`Eff` code untouched. Exact negative plus both positive
+families pass across the 16/16 semantics and 21/21 diagnostics suites; keep this
+entry open until rereview approves and the fix lands.
+
 ## scala-direct-dependent-prefix-type-owner — freshened values retain stale type refs
 
-**Status:** open; reported as P1 by the fresh independent rereview of frozen
-`scala3-control-macros` checkpoint `ec4eb279e` (2026-07-15). Remediation must be
-reviewed independently before landing.
+**Status:** open; remediation is green in feature commit `eda7dcabf`, but a fresh
+independent review and the landing SHA are pending. Reported as P1 by the rereview
+of frozen `scala3-control-macros` checkpoint `ec4eb279e` (2026-07-15).
 
 **Symptom/reproduce:** create a local prompt scope before capture, then declare a
 dependent value such as `Prompt[innerScope.Key, Int]` (or a value typed with
@@ -82,6 +103,15 @@ local nested-prompt case; if a type shape cannot be soundly rebound in M1, fail
 closed at the declaration with stable `DIRECT_STYLE_UNSUPPORTED`, never a raw
 quote/type error. Add semantic coverage for dependent prompt and owner-singleton
 flow plus diagnostics for any deliberately unsupported shape.
+
+**Implementation/verification:** prefix cloning now moves the initializer first,
+rebuilds affected `Select` and type trees, recursively rebinds supported
+dependent/singleton `TypeRepr` paths, and fails closed for a dependent lambda type
+whose binder graph M1 does not clone. The semantic regression carries a local
+prompt plus `owner.type`, dependent mutable/given/pattern values, and a suffix
+ascription across capture; the diagnostic regression freezes the unsupported
+polymorphic case. Focused suites pass 37/37 and the full leaf passes 99/99; keep
+this entry open until rereview approves and the fix lands.
 
 ## scala-direct-inline-wrapper-owner-escape — inline marker wrapper loses bindings and provenance
 

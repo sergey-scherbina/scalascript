@@ -248,8 +248,8 @@ every later compiler/kernel change re-runs the literal fixed point.
   an outer scope across a nested reset is rejected until the compiler-plugin tier can preserve the
   residual outer control row explicitly. Accordingly the direct lane claims vector 18/23 `shift-reset`;
   vector 22 also requires `prompt-isolation` and remains explicit/plugin evidence. Current pre-review
-  checkpoint: the bounded lexical transform emits only the existing explicit API; fourteen direct
-  semantic tests, sixteen exact diagnostic tests, and source-access guards pass inside the 92/92
+  checkpoint: the bounded lexical transform emits only the existing explicit API; sixteen direct
+  semantic tests, twenty-one exact diagnostic tests, and source-access guards pass inside the 99/99
   control leaf. The validated
   `scala-direct` lane runs vectors 18/23 plus coverage (3/3) with explicit differential oracles; package,
   POM, packaged-JAR runnable example, and five-case affected conformance gates are green. The tracked
@@ -266,18 +266,18 @@ every later compiler/kernel change re-runs the literal fixed point.
   - [ ] **Fresh-rereview remediation (`ec4eb279e`, four P1 families; resume cold):**
     update `specs/scala3-control-macros.md` first, then change only the existing Scala host leaf.
     Preserve the already-green 14 semantic + 16 diagnostic regressions and complete these in order:
-    - [ ] Rebind dependent/singleton references in cloned prefix `ValDef.tpt.tpe` as well as term
+    - [x] Rebind dependent/singleton references in cloned prefix `ValDef.tpt.tpe` as well as term
       trees, supporting the common local `freshPrompt` / `Prompt[scope.Key, R]` flow across capture.
       Audit `var`, parameterless `given`, and destructuring dependencies; any type shape that cannot
       be rebound soundly must fail closed with stable `DIRECT_STYLE_UNSUPPORTED`, never raw E007 or
       quote-owner output.
-    - [ ] Inspect the otherwise-opaque rank-2 `ShiftBody` for a surviving exact `direct.shift` and
+    - [x] Inspect the otherwise-opaque rank-2 `ShiftBody` for a surviving exact `direct.shift` and
       reject that nested marker at its call site. Ordinary explicit `Eff`/`shift` code and a nested
       managed `direct.reset` remain legal and need positive regressions.
-    - [ ] Report a transparent-inline expansion at the nearest provenance-bearing `Inlined.call`
+    - [x] Report a transparent-inline expansion at the nearest provenance-bearing `Inlined.call`
       wrapper invocation, with exact message/line/column; keep the separately compiled unexpanded-
       inline application path unchanged and covered.
-    - [ ] Reject every `scala.util.boundary.break` in M1 before `Eff.defer`/continuation movement,
+    - [x] Reject every `scala.util.boundary.break` in M1 before `Eff.defer`/continuation movement,
       with stable direct diagnostics in pure-prefix and captured-suffix shapes. Returns local to a
       nested method remain accepted; M1 conservatively treats all boundary breaks as outside scope.
     - [ ] Run clean focused semantic/diagnostic tests, then
@@ -288,7 +288,7 @@ every later compiler/kernel change re-runs the literal fixed point.
       refresh SPRINT/CHANGELOG counts in separate docs/bookkeeping commits, rebase only at a clean
       checkpoint, repeat critical gates, and freeze for a new independent review. Do not push/release.
   - [ ] Fresh independent read-only rereview of the frozen checkpoint. Expanded direct semantics
-    (14/14), diagnostics after clean compile (16/16), full leaf/package/POM (92/92), catalog validation
+    (16/16), diagnostics after clean compile (21/21), full leaf/package/POM (99/99), catalog validation
     (26/9), negatives (9/9), direct lane (3/3), affected conformance (5/5), and packaged-JAR compile/run
     are already green. Do not mark M1 done or push until rereview returns APPROVE.
 - [ ] **scala3-control-plugin** — publish a `CrossVersion.full` compiler plugin for cross-method CPS,
