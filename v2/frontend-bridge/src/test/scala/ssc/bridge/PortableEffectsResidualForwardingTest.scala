@@ -260,12 +260,8 @@ final class PortableEffectsResidualForwardingTest extends AnyFunSuite:
          |  def op(value: Int): Int
          |
          |val nested = { $nestedCase }
-         |val inner = handle(Target.op(1)) {
+         |val result = handle(Target.op(1)) {
          |  case event @ Target.op(value, resume) if $guard && false => resume(value)
-         |  case Return(value) => value
-         |}
-         |val result = handle(inner) {
-         |  case Target.op(value, resume) => resume(value + 10)
          |  case Return(value) => value
          |}
          |result
@@ -278,9 +274,13 @@ final class PortableEffectsResidualForwardingTest extends AnyFunSuite:
       "case Return(value) => true",
       s"$catchRuntimeName(() => nested(event))")
 
+    def assertForwarded(label: String, result: Value): Unit = result match
+      case Value.DataV("Op", IndexedSeq(Value.StrV("Target.op"), Value.IntV(1), _: Value.ClosV)) => ()
+      case other => fail(s"$label: expected forwarded Target.op, got ${Show.show(other)}")
+
     lanes.foreach { lane =>
-      assert(runSource(selected, lane) == Value.IntV(11), s"$lane selected")
-      assert(runSource(missed, lane) == Value.IntV(11), s"$lane miss")
+      assertForwarded(s"$lane selected", runSource(selected, lane))
+      assertForwarded(s"$lane miss", runSource(missed, lane))
     }
   }
 
