@@ -1,6 +1,6 @@
 feature/ssc-api-descriptor-v3-slice-b 2026-07-15T04:02:06Z
 agent: codex-descriptor-b
-heartbeat: 2026-07-15T05:11:15Z
+heartbeat: 2026-07-15T05:29:19Z
 status: in-progress
-done-so-far: spec-first P1 re-review corrections committed; dirty implementation loop is 21/25 focused regressions green (lost AST, nominal surface, ordinary-object/effect ownership)
-next: close four positional effect-header cases with owner-safe structural ordering, then clean commit, rebase, gates, and another independent review
+done-so-far: first re-review corrections reached 25/25, but fresh audit rejected source/AST correspondence, private/internal local-type leakage, and exported-var mutability; branch rebased
+next: record the three new P1s in BUGS/SPRINT, update spec first, then implement fail-closed checks and rerun full gates before another review
