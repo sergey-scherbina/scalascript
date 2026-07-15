@@ -1,10 +1,13 @@
 # Scala 3 lexical direct-style control macros
 
-Status: **M1 implementation and independent-review remediation verified locally;
-fresh rereview pending** (2026-07-15). The first review rejected owner splitting,
-lazy-marker lowering, and inline marker wrappers. The fail-closed and
-symbol-rebinding contract below is implemented and covered by the verification
-results below, but M1 does not land until a new independent review approves it.
+Status: **M1 second-rereview remediation specified; implementation pending**
+(2026-07-15). The first review rejected owner splitting, lazy-marker lowering,
+and inline marker wrappers. The next independent rereview found stale dependent
+types in freshened declarations, a direct marker hidden in `ShiftBody`, an
+incorrect transparent-inline primary position, and deferred
+`scala.util.boundary.break`. The contract below now covers all four; M1 does not
+land until implementation, full verification, and a new independent review approve
+the frozen checkpoint.
 
 This feature is the bounded inline-macro tier of
 [`scala3-bidirectional-control.md`](scala3-bidirectional-control.md). It translates
@@ -151,6 +154,18 @@ ANF/CPS sequence. M1 accepts:
 
 The strict-value rule includes dependencies between synthetic `ValDef`s emitted
 for a destructuring pattern and values declared between two sequential markers.
+A declaration's type participates in the same rebinding as its term initializer:
+singleton/path-dependent references to an earlier freshened local are rewritten to
+that local's generated symbol before the new declaration is created. Thus the
+common local prompt shape (`val inner = freshPrompt[R]`, followed by a value typed
+as `Prompt[inner.Key, R]`) and ordinary `owner.type` aliases remain accepted across
+capture. Rebinding must preserve an explicit source widening when possible and
+must never leave an old owner in `ValDef.tpt.tpe`. If an uncommon dependent type
+shape cannot be rebuilt soundly, M1 rejects its declaration with
+`DIRECT_STYLE_UNSUPPORTED`; it never delegates the failure to a raw E007/quote
+owner diagnostic. Ordinary mutable, contextual/given, and pattern-generated
+bindings retain the same rules, flags, and shared-cell behavior.
+
 A captured local `var` remains one Scala closure cell shared by every reusable
 resume; the transform must not copy its current value into each continuation.
 Scala may represent a parameterless source `given` with both `Given` and `Lazy`
@@ -159,7 +174,12 @@ is cloned with both flags intact. It does not admit an ordinary source `lazy val
 which remains the explicit fail-closed case below.
 
 The shift body's rank-2 lambda is an opaque argument of the marker. Its own lambda
-syntax is not classified as a crossed callback frame.
+syntax is not classified as a crossed callback frame. Opaque here means that its
+ordinary explicit `Eff`/`scalascript.control.shift` program is not transformed or
+rejected. It does not exempt the body from the marker-survival invariant: an exact
+`direct.shift` nested inside another marker's `ShiftBody` is outside M1 and is
+rejected at that inner call. A separately managed nested `direct.reset` still owns
+and lowers its own markers and is not rejected by the outer-region scan.
 
 M1 rejects a direct marker nested inside any of these boundaries:
 
@@ -168,6 +188,9 @@ M1 rejects a direct marker nested inside any of these boundaries:
 - `try`, `catch`, `finally`, `synchronized`, monitor/lock, transaction, resource,
   or finalizer scope;
 - `while`, `do`, `for`, non-local `return`, or another unsupported control tree;
+- any `scala.util.boundary.break`, even when a source `boundary` appears lexically
+  nearby; M1 does not prove that library-level boundary control remains dynamically
+  enclosed after `Eff.defer` or CPS movement;
 - an unknown inline expansion or application shape for which the transform cannot
   prove evaluation order and ownership;
 - a local method, class, type alias/declaration, or lazy value declared before a
@@ -194,6 +217,15 @@ pure body or a suffix after capture. Explicit `reset` defers its by-name body un
 `Eff.defer`; by the time that computation runs, the Scala method targeted by the
 source `return` has already completed. Moving such a return would therefore create
 exception-based escaped control rather than direct-style effect semantics.
+
+`scala.util.boundary.break` is conservatively outside M1 in every position. Unlike
+a `Return` tree, it is library/compiler control whose target is not represented by
+the direct transform's lexical owner test. The macro identifies the exact break
+symbol or its inline call provenance and rejects the invocation before lowering.
+This rule intentionally rejects even a shape that a future transform might prove
+safe; it prevents a source delimiter from returning before delayed code invokes
+the break. A return wholly local to a nested method remains accepted under the
+separate owner rule.
 
 These are fail-closed M1 limits, not claims that every shape is semantically
 impossible. The later compiler plugin may represent additional frames explicitly.
@@ -249,6 +281,16 @@ flags are preserved so implicit selection and destructuring dependencies keep
 their source meaning. A definition kind that M1 cannot freshen is rejected before
 constructing the continuation, never left for a raw quote-owner error.
 
+Cloning includes type ownership. Before `Symbol.newVal`, the transform moves the
+initializer using the current symbol map and rebinds every dependent/singleton path
+in the declared type to the corresponding fresh term reference. The rebuilt type
+is checked for stale old symbols. If the source type has no captured path, its exact
+ascription is retained; if it has a supported captured path, the ascription is
+rebuilt (or equivalently derived from the already-typed moved initializer when
+that preserves the accepted declaration contract). An unsupported path-dependent
+mutable/contextual/pattern shape fails at the source declaration with the stable
+unsupported diagnostic rather than being narrowed silently.
+
 Marker normalization may remove only ownership-neutral typing wrappers; it never
 removes an `Inlined` node. Even `Inlined(None, Nil, ...)` can retain references to
 owner-sensitive synthetic parameters after earlier compiler phases have erased
@@ -259,6 +301,19 @@ separately compiled expansion and prove it contains no marker or stale synthetic
 owner. The expansion/application is diagnosed before prompt/body movement, so
 wrapper arguments are neither dropped, duplicated, nor evaluated by the failed
 expansion.
+
+For an inline expansion, the diagnostic retains a stack of non-empty
+`Inlined.call` provenance and uses the nearest wrapper invocation as the primary
+position. It falls back to the marker only when the compiler supplied no call
+position. The separately compiled/unexpanded-inline application path continues to
+report the application itself.
+
+Before an accepted marker body is moved, a narrow survival scan enters its rank-2
+`ShiftBody`. It ignores ordinary explicit control calls, but rejects the exact
+`direct.shift` symbol unless the call belongs to a nested managed `direct.reset`
+expansion. This scan is independent from callback-barrier classification: the
+rank-2 body stays legal, while an unlowered direct marker can never reach emitted
+code.
 
 The generated bind continuation is an ordinary reusable explicit continuation.
 Zero, one, or many resumes and deep reset reinstallation therefore come from the
@@ -284,8 +339,10 @@ An out-of-region call is rejected by Scala's `implicitNotFound` path before any
 enclosing macro can inspect it. Scala 3 therefore owns that primary position and,
 for a multiline invocation, reports the missing contextual-argument insertion site
 (normally the closing delimiter). Structural errors found by `direct.reset` point at
-the `direct.shift` source line itself. Both position forms are frozen by tests; the
-macro does not forge a less truthful source span.
+the exact unsupported source construct: normally the `direct.shift` call, the
+nearest wrapper invocation for a transparent-inline expansion, or the declaration /
+`boundary.break` call named by the diagnostic. These position forms are frozen by
+tests; the macro does not forge a less truthful source span.
 
 If several markers fail, diagnostics are reported in deterministic source order.
 The first structural barrier from a marker outward is the one named.
@@ -301,6 +358,14 @@ The review-remediation diagnostics freeze these families:
   `DIRECT_STYLE_UNSUPPORTED` at the wrapper/application and tells the user to
   write `direct.shift` directly at block level or move the pure inline call outside
   the reset.
+- an exact `direct.shift` nested in another marker's `ShiftBody` uses
+  `DIRECT_STYLE_UNSUPPORTED` at the inner call and tells the user to use the
+  explicit `scalascript.control.shift` protocol or a separately managed nested
+  `direct.reset`;
+- an unsupported dependent prefix type uses `DIRECT_STYLE_UNSUPPORTED` at its
+  declaration and tells the user to move the declaration outside `direct.reset`;
+- `scala.util.boundary.break` uses `DIRECT_STYLE_UNSUPPORTED` at the break
+  invocation and tells the user to move boundary control outside `direct.reset`.
 
 ## Semantic-vector lane
 
@@ -350,6 +415,16 @@ save/run, callbacks, descriptors, runners, or cancellation.
 - [x] Lazy marker initializers, crossing local method/class/type/lazy
       declarations, and inline marker wrappers fail closed
       with the frozen diagnostic family and never execute rejected side effects.
+- [ ] Dependent/singleton types of freshened strict locals are rebound without old
+      owner references; local nested prompts and `owner.type` flow across capture,
+      while unsupported shapes fail closed without raw compiler errors.
+- [ ] An exact direct marker inside an outer `ShiftBody` fails at the inner call;
+      ordinary explicit control and nested managed `direct.reset` remain accepted.
+- [ ] Transparent-inline rejection reports the nearest wrapper invocation, while
+      the unexpanded-inline application diagnostic remains stable.
+- [ ] Every `scala.util.boundary.break` inside M1 fails before defer/CPS movement
+      with a stable source-located direct diagnostic; safe nested-method returns
+      remain accepted.
 
 ## Verification
 
@@ -398,6 +473,16 @@ Changed Markdown is linted and the final branch must pass `git diff --check`.
   preserving owner hygiene and multi-shot shared cells. Rejected: moving original
   symbols across generated lambdas, and cloning local methods/classes/types/lazy
   machinery without a complete ownership model.
+- **Types are ownership-bearing.** Chosen because a cloned term whose type still
+  names an old local is not a sound clone. Rejected: term-only substitution and
+  relying on the Scala compiler to surface a raw generated-tree E007.
+- **ShiftBody is opaque but marker-free.** Chosen to preserve arbitrary explicit
+  effect code while enforcing that every direct marker is consumed by its owning
+  transform. Rejected: skipping the body wholesale and allowing a compile-time
+  marker stub to escape.
+- **All boundary breaks fail closed in M1.** Chosen because inline/library boundary
+  targets are not represented in the bounded transform's owner model. Rejected:
+  assuming lexical source nesting survives `Eff.defer` and generated continuations.
 - **Direct marker shape only.** Chosen because inline expansion bindings and call
   provenance participate in evaluation and ownership. Rejected: stripping every
   `Inlined` wrapper and hoping the exposed marker remains well-owned.
@@ -425,5 +510,10 @@ Changed Markdown is linted and the final branch must pass `git diff --check`.
   and inline-wrapper bindings/provenance erased. The pre-fix suite remained 82/82,
   proving those original tests did not exercise the rejected shapes. Four new
   semantic and six new exact-diagnostic regressions now close those families, and
-  both focused suites pass after a clean test compilation; a fresh independent
-  rereview remains the landing gate.
+  both focused suites pass after a clean test compilation.
+- A fresh independent rereview of frozen pre-rebase checkpoint `ec4eb279e` rejected
+  four additional P1 families: stale dependent/singleton type owners, a direct
+  marker hidden in an outer `ShiftBody`, transparent-inline diagnostics anchored
+  at `direct.reset`, and `scala.util.boundary.break` escaping after defer. The
+  behavior items above remain unchecked until faithful regressions and the complete
+  verification matrix pass; another independent rereview remains the landing gate.
