@@ -1338,7 +1338,11 @@ object SpikeParse:
     val kids = Vector.newBuilder[Node]
     kids += fn.withRole("call.fn")
     c.advance().foreach(t => kids += Node.Leaf(t, Some("call.open")))
-    while c.peekKind != "spike.rparen" && !c.eof && !isDefStart(c) do
+    // args are `,`-separated: after each arg, only a comma continues the list. A NON-comma token ends the args
+    // (ssc1-front's moreArgs stops there too) — e.g. `f(html"…")` closes as `f(html)` and leaves `"…"`/`)` as
+    // trailing tokens, matching ssc1-front's unrecognised-interpolator recovery rather than reading two args.
+    var more = c.peekKind != "spike.rparen" && !c.eof && !isDefStart(c)
+    while more do
       // named argument `label = value` (single `=`, not `==` which lexes as spike.op) → spike.narg;
       // ssc1-lower reorders it by declared case-class field order (mkNArg, ssc1-front.ssc0:1357).
       if c.peekKind == "spike.id" && c.peek2Kind == "spike.eq" then
@@ -1352,7 +1356,10 @@ object SpikeParse:
         case None =>
           c.report("spike.expected", "expected call argument")
           if c.peekKind != "spike.rparen" && !c.eof then c.advance()
-      if c.peekKind == "spike.comma" then c.advance().foreach(t => kids += Node.Leaf(t, Some("call.comma")))
+      if c.peekKind == "spike.comma" then
+        c.advance().foreach(t => kids += Node.Leaf(t, Some("call.comma")))
+        more = c.peekKind != "spike.rparen" && !c.eof && !isDefStart(c) // tolerate a trailing comma before `)`
+      else more = false
     if c.peekKind == "spike.rparen" then c.advance().foreach(t => kids += Node.Leaf(t, Some("call.close")))
     else c.report("spike.expected", "expected ')' to close call")
     Node.Frame("spike.call", None, kids.result())
@@ -1810,7 +1817,7 @@ object SpikeProject:
       case "spike.prism" => // Prism[Super, Case](…) — the variant name (after the last comma) drives the lowering
         val ty = kids(b).collect { case (Some("ta.tok"), c) => lexeme(c) }.mkString
         s"""Pair("prism", "${esc(ty)}")"""
-      case "spike.error" => hole
+      case "spike.error" => """mkVar("_err")""" // error-recovery for a stray/unparseable token (ssc1-front _err)
       case _             => hole
     case _ => hole
 
@@ -1901,7 +1908,7 @@ object SpikeProject:
       val body = kids(b).collectFirst { case (Some("while.body"), c) => expr(c) }.getOrElse(hole)
       s"""Pair("while", Pair($cond, $body))"""
     case b: UniNode.Branch if b.kind == "spike.def" => defNode(b)
-    case _ => s"""mkSExpr($hole)"""
+    case n => s"""mkSExpr(${expr(n)})""" // unhandled stmt (e.g. an error-recovery node → `_err`) as a bare expr
 
   private def infix(b: UniNode.Branch): String =
     val op = kids(b).collectFirst { case (Some("bin.op"), c) => lexeme(c) }.getOrElse("+")
