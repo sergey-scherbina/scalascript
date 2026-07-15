@@ -1,6 +1,6 @@
 # Portable effect continuation stack safety
 
-Status: **normative implementation design / not yet verified** (2026-07-15).
+Status: **implemented / verified** (2026-07-15).
 
 ## Overview
 
@@ -48,57 +48,57 @@ that gate.
 
 ## Behavior
 
-- [ ] Effect-performing tail recursion at depth at least 100,000 completes on
+- [x] Effect-performing tail recursion at depth at least 100,000 completes on
       both installed portable VM and direct ASM with identical output and no
       unbounded native stack growth.
-- [ ] At least 100,000 performed operations separated by ordinary bindings and
+- [x] At least 100,000 performed operations separated by ordinary bindings and
       statement sequencing complete in order, without skipping or duplicating
       a performed operation.
-- [ ] A handler that composes after resume in non-tail position (for example
+- [x] A handler that composes after resume in non-tail position (for example
       `1 + resume(())`) completes at depth at least 20,000 and produces the exact
       accumulated result on both lanes.
-- [ ] Deep reinstall applies the matching handler around every resumed suffix;
+- [x] Deep reinstall applies the matching handler around every resumed suffix;
       the `Return` clause is applied exactly once at the terminal result.
-- [ ] A handler-facing continuation may escape its handler arm. Sequential and
+- [x] A handler-facing continuation may escape its handler arm. Sequential and
       concurrent managed calls to an escaped reusable continuation are drained
       by the managed-call boundary, return ordinary values, and never expose the
       private resume carrier; an escaped one-shot continuation still
       claims/rejects at the later call site.
-- [ ] A state-threaded chain in which every handler arm returns a closure that
+- [x] A state-threaded chain in which every handler arm returns a closure that
       invokes its captured `resume` later remains stack-safe at depth at least
       20,000; continuation escape must not move recursion back to the host stack.
-- [ ] VM value positions preserve the direct-ASM `OpAnfNative` contract:
+- [x] VM value positions preserve the direct-ASM `OpAnfNative` contract:
       primitive arguments, application function/arguments, and constructor
       fields evaluate left-to-right, thread each auto-thread operation before
       evaluating the remaining positions, and invoke/build their consumer
       exactly once. Focused raw-CoreIR vectors cover multiple
       operation-producing primitive arguments plus `App`/`Ctor` handler arms
       containing `resume`, with observable VM/direct-ASM ordering parity.
-- [ ] An arbitrary primitive supplied by a plugin may return an operation even
+- [x] An arbitrary primitive supplied by a plugin may return an operation even
       when every primitive argument is pure. Such a result is threaded in an
       application argument, constructor field, and non-final sequence position
       on VM/direct ASM. The VM witness registers before `Compiler.compile`; the
       saved/direct-ASM witness transforms and emits with that primitive absent
       from the registry, then registers it before artifact execution.
-- [ ] Effectful `While` conditions and bodies thread resume requests before
+- [x] Effectful `While` conditions and bodies thread resume requests before
       boolean dispatch, discard, or the next iteration. Deep effectful loops
       remain stack-safe on VM/direct ASM; FastCode may not bypass this path,
       and a suffix after the lowered loop observes the unchanged surrounding
       lexical frame.
-- [ ] A raw CoreIR `If` condition whose primitive result is a stored
+- [x] A raw CoreIR `If` condition whose primitive result is a stored
       auto-thread operation (for example `cell.get(cellHoldingOp)`) threads the
       operation before boolean dispatch on VM/direct ASM. `FastBoolCode` must
       decline the whole operation-producing condition instead of coercing the
       `Op` to `false`.
-- [ ] The first curried `App(Global("handle"), computation)` stage preserves
+- [x] The first curried `App(Global("handle"), computation)` stage preserves
       the computation as raw `Op/3`, while an effectful application function
       position completes before any argument is evaluated.
-- [ ] A nested outer handler still receives a residual operation with the same
+- [x] A nested outer handler still receives a residual operation with the same
       three fields and original base continuation/gate. The private resume
       protocol is never exposed as a residual user operation.
-- [ ] Zero-resume, one-shot rejection, reusable multi-shot branching, and
+- [x] Zero-resume, one-shot rejection, reusable multi-shot branching, and
       handler-arm failures retain their existing observable behavior.
-- [ ] Interoperability axis 20 is promoted from `pending-runtime` only after the
+- [x] Interoperability axis 20 is promoted from `pending-runtime` only after the
       tail, bind/sequence, non-tail, nested-handler, and Return-placement vectors
       pass on both installed execution lanes.
 
@@ -432,6 +432,28 @@ depth 2,000 (also at 8,000 and 50,000). Pure tail recursion remained green at
 
 ## Results
 
-Not yet implemented. Fill this section with the exact VM/ASM depths, focused
-test counts, interoperability row, and affected conformance results before
-checking the behavior items.
+Verified on 2026-07-15:
+
+- `scripts/sbtc "v2FrontendBridge/testOnly
+  ssc.bridge.PortableEffectsStackSafetyTest
+  ssc.bridge.PortableEffectsOneShotTest
+  ssc.bridge.PortableEffectsResidualForwardingTest -- -oD"`: 39/39 green
+  (17 stack-safety, 4 one-shot, 18 residual-forwarding). The combined VM/direct-
+  ASM regression distinguishes exact `Rehandle` ordering with inner
+  `Return(v) = v * 10 + 1`, outer `Return(v) = v * 10 + 2`, and result `312`;
+  it also proves public `Op` identity at `completeManaged`, eager one-shot claim
+  before drain, and no private carrier after a managed return.
+- A fresh `scripts/sbtc "cli/installBin"` succeeded. Both
+  `bin/ssc run tests/interop-conformance/probes/20-stack-safety-deep-effect-recursion.ssc`
+  and the same command with `--bytecode` exit zero with empty diagnostics and
+  exact output `100000`, `100000`, `20007`, `20000`. This covers 100,000 tail
+  resumes, 100,000 binding/sequence resumes, 20,000 non-tail additions, and a
+  20,000-step escaped state-thread continuation chain.
+- `tests/interop-conformance/run.sh`: 12 measurable axes PASS, 0 FAIL; axis 20
+  is measurable-now and its obsolete `pending-runtime` marker is removed.
+- `tests/conformance/run.sh --only
+  'effects,effect-*,head-field-effect-shadow' --no-memo`: 6/6 affected cases
+  PASS across their available INT/JS/JVM/V2 lanes.
+- `scripts/v21-stage2-bootstrap-gate`: single and multi fixed points are true;
+  the 133-file compiler image remains source-exact with SHA-256
+  `23bdb20dcd59953e25ecf7849db06ad6a5d332a075f36d6dd097a124212d280c`.

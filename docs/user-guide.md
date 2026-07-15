@@ -1615,6 +1615,15 @@ aborts the run as
 ordinary ScalaScript `try/catch` cannot intercept this control-contract failure.
 Low-level CoreIR `effect.perform` remains reusable for free-monad/Mira programs.
 
+On the standard portable VM and direct-ASM lanes, deep handler resumption is
+stack-safe in tail, binding/sequence, non-tail, and escaped-continuation
+positions. The shared runtime iterates the explicit effect computation rather
+than recursively folding handlers on the JVM stack; the
+[axis-20 probe](../tests/interop-conformance/probes/20-stack-safety-deep-effect-recursion.ssc)
+qualifies 100,000 tail/sequence operations and 20,000 non-tail/escaped resumes.
+This guarantee is lane-specific: other backends claim it only after running the
+same control vector.
+
 ```scalascript
 multi effect NonDet:
   def choose[A](options: List[A]): A
