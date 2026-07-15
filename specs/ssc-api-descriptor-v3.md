@@ -120,15 +120,26 @@ The source of truth is the parsed declaration header:
 
 - `def` parameter clauses, type-parameter clauses, declared result/effect row,
   modes, and default presence are read structurally; the body is ignored;
-- explicitly typed `val`/`var`, constructors, nominal types, aliases, objects,
-  enums, effects, and effect operations project from their declaration nodes;
+- explicitly typed immutable `val`, constructors, nominal types, aliases, objects,
+  enums, effects, and effect operations project from their declaration nodes.
+  A selected public/exported `var` rejects with
+  `UNSUPPORTED_PUBLIC_DECLARATION`: schema `3.0` has no mutability field, so
+  projecting it as `ApiSymbolKind.Value` would make a mutable and immutable API
+  descriptor-identical. Adding mutability is a future additive schema decision,
+  not a producer-local reinterpretation of the frozen Slice A model;
 - manifest `exports:` and `@internal`/private visibility select the public set;
 - lexical declaration environments are collected before the manifest export
-  filter. A non-exported public local type/effect/transparent alias may therefore
-  still supply the stable identity or callback shape used by an exported
-  signature, without itself becoming an exported symbol. Lexical local type
-  declarations shadow the frozen standard constructors; relative selections such
-  as `Domain.Value` normalize to their fully qualified local id;
+  filter. Every local type/effect/transparent-alias identity is indexed together
+  with effective visibility inherited through all enclosing owners. A non-exported
+  **public** local declaration may therefore still supply the stable identity or
+  callback shape used by an exported signature, without itself becoming an
+  exported symbol. A reference that resolves to a known private, protected, or
+  `@internal` local declaration/owner rejects before qualified-external fallback;
+  it must never become an external `AbiType.Named` or hide a function-shaped alias
+  from callback policy. Only a qualified non-platform name that is not any known
+  local identity may remain an external stable id. Lexical local type declarations
+  shadow the frozen standard constructors; relative selections such as
+  `Domain.Value` normalize to their fully qualified local id;
 - `Int` maps directly to `I32`, `Long` directly to `I64`, `Double` to `F64`,
   and no width is inferred from a literal, body result, lowered value, `SType.Any`,
   legacy `ExportedSymbol.tpe`, or `TypeEvidenceWire`;
@@ -169,11 +180,21 @@ The source of truth is the parsed declaration header:
   difference between `case A` and `case A()` are retained; generic or explicitly
   specialized enum cases reject;
 - every retained executable declaration-source block must have exactly one
-  corresponding parseable section code block. A non-empty block without an AST,
-  a retained document block whose section container was lost, a missing package
-  wrapper, or a manifest export without a local declaration header rejects with
-  `UNSUPPORTED_PUBLIC_DECLARATION`. Managed production never turns structural
-  source/AST loss into a valid empty descriptor;
+  corresponding parseable section code block, **and correspondence is semantic,
+  not count-only**. The producer canonically preprocesses and reparses each
+  retained block, removes the manifest package wrapper from the stored section
+  tree, and compares their ordered declaration-header witnesses before using the
+  stored AST. A witness retains owner nesting, declaration kind/name, ABI-relevant
+  modifiers (including `val` versus `var`, visibility, accessors, and effect
+  multiplicity/operation markers), type/constructor/parameter clauses, declared
+  types/effect rows, parent/self/export/member surface, and default presence. It
+  deliberately erases method/value bodies, initializer/default expressions, source
+  positions, comments, and formatting, so body-only edits remain descriptor/hash
+  invariant. A parse failure or witness mismatch, a non-empty block without an
+  AST, a retained document block whose section container was lost, a missing
+  package wrapper, or a manifest export without a local declaration header rejects
+  with `UNSUPPORTED_PUBLIC_DECLARATION`. Managed production never trusts stale
+  declaration AST or turns structural source/AST loss into a valid descriptor;
 - module `targets:` may populate `requiredTargets`; capabilities, prompt capture,
   and managed-control claims stay empty/false unless a future declared syntax
   supplies them. Body-derived facts belong only to Slice C.
@@ -250,6 +271,16 @@ a second wire model or route through legacy `tpe`.
 - [ ] Trait constructor clauses/self types, template exports, and constructor
       `val`/`var` accessors reject with stable paths until descriptor v3 has
       receiver/member metadata.
+- [ ] Retained source and stored section AST have exact declaration-header
+      correspondence, not merely equal block counts; changing retained
+      `effect Real` to remove an operation while preserving the old AST rejects,
+      while a body-only change does not affect descriptor bytes or `apiHash`.
+- [ ] A signature that resolves to a private/internal local owner or alias rejects
+      with `UNSUPPORTED_PUBLIC_TYPE` before external-name fallback. A non-public
+      callback alias cannot bypass the conservative callback-policy rule.
+- [ ] Selected public/exported `var` rejects until mutability is represented by an
+      additive schema; the equivalent explicitly typed `val` remains projectable,
+      and Slice A's model/canonical wire shape is unchanged.
 
 ## Versions
 
