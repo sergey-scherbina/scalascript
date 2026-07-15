@@ -1,7 +1,7 @@
 # JavaScript/TypeScript ↔ ScalaScript bidirectional control profile
 
-Status: **normative host profile / explicit local control slice implemented and
-pre-integration verified; remaining host/runner profile planned** (2026-07-15).
+Status: **normative host profile / explicit local control slice in second
+pre-integration hardening; remaining host/runner profile planned** (2026-07-15).
 
 This is the JavaScript/TypeScript host profile of
 [`control-interoperability.md`](control-interoperability.md). That specification
@@ -79,7 +79,10 @@ does not run install scripts, and publishes exactly these package subpaths:
 Its dry-run and published tarballs contain exactly `LICENSE`, `README.md`,
 `index.d.ts`, `index.js`, and `package.json`. The license is the repository's
 Apache 2.0 text. Development locks, tests, fixtures, and generated archives are
-not package payload.
+not package payload. The packed README links to this normative profile through the
+absolute canonical HTTPS source URL. Every relative Markdown link in that README
+must remain inside the package root and resolve to one of the five published files;
+an escaping or absent relative target is a packaging failure.
 
 The root runtime module exports exactly:
 
@@ -112,8 +115,11 @@ authority tokens are not public ABI.
 `defineEffect(id, owner)` returns an opaque runtime-unique `EffectKey`. `owner`
 is a JavaScript `symbol`; TypeScript callers must bind `Symbol(...)` to a named
 `const` first so its `unique symbol` type becomes the key's generative phantom
-owner. The declaration rejects an inline or otherwise widened `symbol`, because
-ordinary TypeScript function calls cannot synthesize a fresh type identity:
+owner. The declaration accepts exactly one non-union `unique symbol`; it rejects
+an inline/widened `symbol` and both inferred or explicitly supplied unions of
+unique symbols. Otherwise two runtime owners could be collapsed deliberately into
+one effect row even though ordinary TypeScript function calls cannot synthesize a
+fresh type identity:
 
 ```ts
 const ConsoleOwner = Symbol("example.Console")
@@ -228,12 +234,22 @@ export interface EffectKey<Fx extends Effect> {
     options?: Readonly<{ multiplicity?: ResumeMultiplicity }>
   ): OperationFactory<Fx, A, Args>
 }
+type IsUnion<T, Whole = T> =
+  T extends unknown ? ([Whole] extends [T] ? false : true) : never
+type SingleUniqueSymbol<T extends symbol> =
+  [T] extends [never]
+    ? never
+    : symbol extends T
+      ? never
+      : true extends IsUnion<T>
+        ? never
+        : T
 export function defineEffect<
   const Id extends string,
   const Owner extends symbol
 >(
   id: Id,
-  owner: symbol extends Owner ? never : Owner
+  owner: SingleUniqueSymbol<Owner>
 ): EffectKey<Effect<Id, Owner>>
 
 export interface Operation<
@@ -605,15 +621,18 @@ In addition to every common vector, this profile proves:
 
 ### 11.1 First-slice acceptance
 
-- [x] The package root and dry-run tarball expose only the frozen ESM files and
+- [ ] The package root and dry-run tarball expose only the frozen ESM files and
       subpaths, with no production dependency or lifecycle script.
-- [x] The published declarations accept typed effect/handler/state-machine and
+- [ ] The packed README uses the absolute canonical source link, and every
+      relative Markdown link stays inside and resolves within the exact payload.
+- [ ] The published declarations accept typed effect/handler/state-machine and
       prompt programs while rejecting prompt mixing, effectful `runPure`, forged
       branded values, reusable operations on one-shot continuations, and save on
       one-shot continuations.
-- [x] Two equal descriptor strings with different named owner symbols remain
+- [ ] Two equal descriptor strings with different named owner symbols remain
       different effect rows and runtime keys; a wrong-key handler leaves the
-      original effect residual, while one owner+descriptor pair is idempotent.
+      original effect residual, one owner+descriptor pair is idempotent, and
+      inferred/explicit union owners are rejected without a cast.
 - [x] `PromptKeyOf<Prompt<P, ConcreteAnswer>>` extracts exactly `P` without
       weakening prompt answer-type invariance.
 - [x] Opaque computations, continuations, and prompts expose no internal request,
@@ -630,7 +649,7 @@ In addition to every common vector, this profile proves:
 - [x] A losing one-shot attempt returns structured `AlreadyResumed` before suffix
       construction/execution; local `save` returns structured
       `UnmanagedCapture("Continuation.local")`.
-- [x] `npm test`, `npm run typecheck`, `npm pack --dry-run`, and the project
+- [ ] `npm test`, `npm run typecheck`, `npm pack --dry-run`, and the project
       `effect*,effects*` conformance slice pass from the isolated worktree.
 
 ### 11.2 First-slice results
@@ -662,6 +681,13 @@ Apache license; all four were corrected before integration. Verification on
 - `node --check index.js` and affected documentation markdownlint pass;
 - `tests/conformance/run.sh --no-memo --only 'effect*,effects*'`: 5/5 cases pass
   freshly across their declared INT/JS/JVM/V2 lanes.
+
+Independent second pre-integration review then rejected two remaining edges. A
+cast-free union of two named owner types bypassed the broad-symbol guard and again
+collapsed different runtime keys to one effect row. The five-file packed README
+also retained a repository-relative specification link whose target was absent
+from the npm payload. The affected acceptance items are reopened above; final
+single-owner and packaged-link evidence is pending implementation.
 
 Even after those items close, the evidence qualifies only the local explicit API
 in §2.1--§2.2. Generated facades and value/call bridges, managed direct-style
