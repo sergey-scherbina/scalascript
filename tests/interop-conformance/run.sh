@@ -117,9 +117,11 @@ validate_vector_catalog() {
       rows++
       if (NF != 8) { bad("expected 8 tab-separated fields, found " NF); next }
       if (index($0, "\r") != 0) bad("carriage returns are forbidden")
-      if ($1 !~ /^[0-9][0-9]$/) bad("id must be a two-digit decimal")
-      if (($1 + 0) <= previousId) bad("ids must be strictly increasing")
-      previousId = $1 + 0
+      numericId = $1 + 0
+      if ($1 !~ /^[0-9][0-9][0-9]*$/ || $1 != sprintf("%02d", numericId))
+        bad("id must be a zero-padded decimal")
+      if (numericId != rows)
+        bad("ids must be contiguous from 01; expected " sprintf("%02d", rows))
       if (seenId[$1]++) bad("duplicate id: " $1)
       if ($2 !~ /^[a-z0-9]+(-[a-z0-9]+)*$/) bad("invalid slug: " $2)
       if (seenSlug[$2]++) bad("duplicate slug: " $2)

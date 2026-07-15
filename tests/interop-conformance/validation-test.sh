@@ -41,6 +41,13 @@ duplicate="$(sed -n '2p' "$case_dir/vectors.tsv")"
 printf '%s\n' "$duplicate" >> "$case_dir/vectors.tsv"
 expect_rejected duplicate-vector "$case_dir"
 
+case_dir="$(fresh_case omitted-vector)"
+awk -F '\t' '$1 != "10"' "$case_dir/vectors.tsv" \
+  > "$case_dir/vectors.tsv.next"
+mv "$case_dir/vectors.tsv.next" "$case_dir/vectors.tsv"
+rm "$case_dir/pending/10-raw-foreignv-reject.pending"
+expect_rejected omitted-vector "$case_dir"
+
 case_dir="$(fresh_case duplicate-lane)"
 duplicate="$(sed -n '2p' "$case_dir/lanes.tsv")"
 printf '%s\n' "$duplicate" >> "$case_dir/lanes.tsv"
