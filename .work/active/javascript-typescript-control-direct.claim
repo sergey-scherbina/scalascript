@@ -1,6 +1,6 @@
 feature/javascript-typescript-control-direct 2026-07-15T05:29:19Z
 agent: codex-js-control-direct
-heartbeat: 2026-07-15T07:31:20Z
+heartbeat: 2026-07-15T07:39:54Z
 status: in-progress
-done-so-far: exact candidate 71ae452ea5 is clean; direct 35/35, explicit 31/31, exact packs, catalog 26/9, negatives 9/9, conformance 5/5 and syntax/type gates are green
-next: independent review of a488d38668..71ae452ea5 has confirmed two declaration/type-only emit blockers and is finishing the adjacent audit; repair spec-first after consolidated REJECT, no push/release
+done-so-far: fresh review rejected 71ae452ea5 on three P1 emit escapes; repair plan e9978283e and spec update 596fe2f53 are committed
+next: repair mixed type-only imports, specifier-level source re-exports, and external-module ImportEquals; run full direct/explicit/packed/type/syntax/conformance gates, freeze for fresh review; no push/release

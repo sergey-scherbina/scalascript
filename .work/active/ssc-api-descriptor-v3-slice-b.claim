@@ -1,6 +1,6 @@
 feature/ssc-api-descriptor-v3-slice-b 2026-07-15T04:02:06Z
 agent: codex-descriptor-b
-heartbeat: 2026-07-15T07:31:20Z
+heartbeat: 2026-07-15T07:39:54Z
 status: in-progress
-done-so-far: exact candidate 0cb46c3cd is clean; focused 75/75, descriptor 27/27, core 1111/1111, interop 36/36, IR, ABI 73/73 and conformance 2/2 plus effects 9/9 are green
-next: independent review of f63714680..0cb46c3cd has confirmed import-witness, duplicate-sentinel, and body-local-effect blockers and is finishing the adjacent audit; repair spec-first after consolidated REJECT
+done-so-far: fresh review rejected 0cb46c3cd on five P1 families; repair plan c458b4b22 and spec update 4ec5a7cd1 are committed, with a parallel resolver audit running
+next: repair declaration import witness, unified ordered import identities/callbacks, exact sentinels, declaration-scoped raw effects, and nested owner identities; run full descriptor/core/interop/IR/ABI/conformance gates and freeze for fresh review
