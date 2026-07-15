@@ -97,6 +97,7 @@ object SwiftBackend:
     "fieldPayload", "wholeRowPayload", "fieldsPayload",
     "fieldColumn", "dateColumn", "moneyColumn", "statusColumn", "linkColumn", "stackedColumn",
     "rowDeleteAction", "rowPostAction", "rowLinkAction", "rowEditAction", "dataTableView",
+    "selectFromView",
     "localStorageGet", "localStorageSet", "localStorageRemove", "onlineSignal", "persistedSignal",
     "componentScope", "emit", "serve",
   )
