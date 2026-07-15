@@ -2047,6 +2047,16 @@ Two new front doors are specced (typed-SQL-API cb94fd88c, JDBC-API f2d1372a0); *
 working first implementation** — the JDBC portable façade (m6v) and the typed SQL surface (m6w),
 alongside SQL polish (REAL literals m6s, LEFT-join-3 m6r). All three "параллельно" lanes advanced.
 
+- [x] **scljet-m6x-typed-sql-dml** — DONE 2026-07-15 (extends m6w). Typed SQL writes — the typed
+      front door now has full CRUD. `insertRows`/`insertColsRows`, `updateSet`/`updateAllSet` with typed
+      `setInt`/`setReal`/`setText`/`setExpr` assignments (value/expr type must match the column type),
+      `deleteWhere`/`deleteAll`, erasing to the existing `InsertStmt`/`UpdateStmt`/`DeleteStmt` and run
+      via `executeInsert`/`executeUpdate`/`executeDelete` (`runInsert`/`runUpdate`/`runDelete`). Verified
+      vs reference sqlite3 (INSERT rows, UPDATE with `setExpr` salary+10 and `setText`, DELETE by
+      predicate, read-after-write on the threaded image), int==js; conformance `scljet-typedsql-dml`;
+      full scljet gate 80/80 green non-memoized. NEXT (typed surface): joins (`joinOn`/`leftJoinOn`) +
+      HAVING; then the spec's LogicalPlan/PhysicalOp IR with index-aware access paths.
+
 - [x] **scljet-m6w-typed-sql-surface** — DONE 2026-07-15 (typed-SQL-API lane of "все три … параллельно";
       first stage of `specs/scljet-typed-sql.md`). `scljet/typedsql.ssc` — a typed embedded query API
       (ScalaScript values, not SQL strings). `Column[T]`/`Expr[T]` carry a compile-time SQL type so an

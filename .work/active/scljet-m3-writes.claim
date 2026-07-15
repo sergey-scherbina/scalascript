@@ -1,4 +1,4 @@
 claim: scljet-m3-writes
 owner: opus
-heartbeat: 2026-07-15T03:55:00Z
-status: All 3 "параллельно" lanes advanced — typed-SQL surface (m6w), JDBC façade (m6v), SQL polish (real literals/LEFT-join-3). Final full gate running.
+heartbeat: 2026-07-15T04:10:00Z
+status: All 3 lanes advanced + typed SQL CRUD complete (m6x). typedsql read+write, JDBC façade, SQL polish all green. Full gate 80/80 non-memoized.
