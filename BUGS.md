@@ -1,5 +1,75 @@
 # Bug tracker
 
+## descriptor-v3-array-byte-component-shadow — bytes shortcut ignores the `Byte` identity
+
+**Status:** open (2026-07-15). Reported as P1 by the fresh independent rereview of
+frozen checkpoint `8a8886557` (rebased as `28535c87d`); fix SHA pending.
+
+**Symptom/reproduce:** the producer recognizes the syntax `Array[Byte]` and emits
+primitive `Bytes` after checking only whether `Array` is a local type. It therefore
+also emits `Bytes` when `Byte` is a generic binder or a known `@internal`, private,
+or public local type, even though none of those names denotes the built-in byte
+element type.
+
+**Root cause/plan:** the bytes fast path pattern-matches the leaf spelling before
+normal lexical binder/local resolution of both components. Resolve/check both
+`Array` and `Byte` first (including binders and effective local visibility), and use
+the shortcut only when neither spelling is shadowed. A non-public component rejects
+with the ordinary stable visibility error; a public/bound component follows ordinary
+type projection and must never become primitive `Bytes`. Regress a `Byte` binder,
+both private and `@internal` local `Byte`, and public local `Byte`, while preserving
+the existing local-`Array` vectors.
+
+**Baseline:** frozen focused suite is 38/38 but all new shadowing repros return a
+successful descriptor containing primitive `Bytes`.
+
+## descriptor-v3-codeblock-source-bypass — documentless modules skip source/AST correspondence
+
+**Status:** open (2026-07-15). Reported as P1 by the fresh independent rereview of
+frozen checkpoint `8a8886557` (rebased as `28535c87d`); fix SHA pending.
+
+**Symptom/reproduce:** parse a packaged module, remove `document`, then change a
+retained `ast.Content.CodeBlock.source` declaration header while keeping its old
+tree. `topLevelStats` assigns `rawSource = None` to section code blocks when no
+document snapshot exists, so correspondence is skipped and the stale tree returns
+`Right`. When both document and code-block sources exist, the document source is
+paired by position and the code-block source is silently ignored, so the two retained
+sources can disagree without a deterministic rule.
+
+**Root cause/plan:** retained source evidence is collected only from `DocumentContent`.
+Always retain and verify every parseable executable `CodeBlock.source`, including
+legacy/documentless packaged modules. When both source carriers exist, neither may
+override the other silently: canonically reparse each, unwrap the manifest package
+chain where its parsed shape contains it, require equal body-erased declaration
+witnesses against the stored AST (and therefore against each other), then use the
+document source for effect-header evidence only after agreement; otherwise fall back
+to the code-block source. Regress documentless stale source and dual-source header
+disagreement while keeping body-only invariance.
+
+**Baseline:** frozen focused suite is 38/38, but the faithful documentless stale
+`CodeBlock.source` repro returns `Right` from the old tree.
+
+## descriptor-v3-package-wrapper-header-forgery — wrapper names match while wrapper semantics differ
+
+**Status:** open (2026-07-15). Reported as P1 by the fresh independent rereview of
+frozen checkpoint `8a8886557` (rebased as `28535c87d`); fix SHA pending.
+
+**Symptom/reproduce:** for manifest package `demo.api`, replace the stored synthetic
+wrapper with `object demo extends Serializable: object api: ...` while retained source
+still has the plain declaration. `unwrapPackage` requires only one object and the
+expected name, discards the wrapper header, and compares identical inner declarations,
+so strict production returns `Right`.
+
+**Root cause/plan:** the wrapper chain is structurally unique but not header-exact.
+At every manifest package segment require the exact plain synthetic wrapper shape:
+no modifiers, parents/inits, derives, self type, or any other non-body template/header
+state, plus exactly one expected child wrapper until the leaf. Reject a forged wrapper
+at the block path before inner declaration correspondence. Add the exact
+`extends Serializable` stored-AST regression.
+
+**Baseline:** frozen focused suite is 38/38, but the forged-wrapper repro returns
+`Right` and projects the inner API.
+
 ## descriptor-v3-mutable-export-loss — exported val and var collapse to one immutable descriptor
 
 **Status:** open (2026-07-15). Reported by the independent Slice B frozen-checkpoint

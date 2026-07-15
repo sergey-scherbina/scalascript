@@ -223,6 +223,18 @@ optional policy, not the default continuation semantics.
       `Given`, extension groups, and macros included); a product-prefix-only fallback is not exact,
       and unknown future definition forms must compare conservatively rather than accepting a
       changed header.
+    - [ ] Make every manifest package wrapper exact/plain before unwrapping: the expected name and
+      singleton child are insufficient if the stored object has modifiers, parents/inits, derives,
+      self type, or any other non-body header state. Preserve a faithful stored
+      `object demo extends Serializable: object api: ...` versus retained plain-source repro and
+      reject it at the section/block path.
+    - [ ] Treat parseable executable `ast.Content.CodeBlock.source` as mandatory retained evidence,
+      including when `module.document = None`; reparse it and unwrap manifest wrappers as required
+      before comparing body-erased headers with the stored tree. If both document and code-block
+      sources exist, verify both against the stored AST and fail closed on semantic header
+      disagreement; only after agreement prefer document source for effect-header evidence, else
+      use the code-block source. Regress the documentless packaged stale-source case and dual-source
+      disagreement without breaking stale body/RHS/default-expression invariance.
     - [ ] Index every known local type/alias with effective owner visibility. A public signature
       resolving to a private/internal local owner or alias must fail `UNSUPPORTED_PUBLIC_TYPE`
       before external `AbiType.Named` fallback or callback classification; regress relative and
@@ -231,6 +243,12 @@ optional policy, not the default continuation semantics.
       qualified private local effect row. The built-in bytes fast path applies only when no lexical
       local `Array` exists: a public local `Array` follows ordinary local-constructor projection,
       while a known non-public local `Array` rejects before the fast path.
+    - [ ] Gate the `Array[Byte]` → primitive `Bytes` shortcut on lexical resolution of both
+      components, not spelling alone. A binder named `Array` or `Byte`, and any known local
+      `Array`/`Byte`, shadows the built-ins; non-public locals reject normally, while public/bound
+      components take ordinary projection and never become `Bytes`. Regress generic `Byte`, private
+      and `@internal` local `Byte`, and public local `Byte`, preserving both existing local-`Array`
+      cases and the real built-in bytes positive.
     - [ ] Reject selected public/exported `Defn.Var` with
       `UNSUPPORTED_PUBLIC_DECLARATION` until an additive descriptor revision represents
       mutability. Keep equivalent `val` positive and do not change the frozen Slice A schema.
@@ -247,6 +265,11 @@ optional policy, not the default continuation semantics.
       interop 36/36, `ir/test` success, and affected `modules*,import-dir*` conformance 2/2.
       Keep all three BUGS entries `open` and this slice unchecked until a fresh independent
       read-only review returns APPROVE; do not push/release this checkpoint beforehand.
+    - Fresh rereview of frozen `8a8886557`/rebased `28535c87d`: REJECT, no P0 and three new P1
+      classes above. The 38/38 suite did not cover package-wrapper header forgery, documentless or
+      dual retained-source evidence, or the `Byte` side of `Array[Byte]` shadowing. Keep all six
+      descriptor BUGS entries `open`; update the spec before implementation, then add faithful red
+      vectors and preserve every earlier regression.
     - Done when the focused regressions and affected core/interop/conformance gates pass and a
       fresh independent read-only review returns APPROVE with no P1/P2 blocker.
   - [ ] **C — post-body summaries:** extract managed/foreign/tail edges, save sites, frame schemas,
