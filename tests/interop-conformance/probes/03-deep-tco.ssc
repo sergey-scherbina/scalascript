@@ -1,6 +1,6 @@
 ---
 name: interop-03-deep-tco
-axis: cross-boundary-tco
+axis: deep-tco
 status: measurable-now-intra-lane
 ---
 

@@ -1,0 +1,29 @@
+---
+name: interop-24-multi-shot-shared-heap
+axis: multi-shot-shared-heap
+status: measurable-now
+---
+
+# Axis 24 — multi-shot control copies control, not the heap
+
+The reusable continuation runs twice. Both resumes share the ordinary mutable
+cell captured by the suffix, so the branches observe `1` and then `2`; this is
+deliberately not an implicit heap snapshot.
+
+```scalascript
+multi effect Choose:
+  def choose(): Boolean
+
+var cell = 0
+
+val results = handle {
+  val ignored = Choose.choose()
+  cell = cell + 1
+  List(cell)
+} {
+  case Choose.choose(resume) => resume(true) ++ resume(false)
+}
+
+println(results)
+println(cell)
+```

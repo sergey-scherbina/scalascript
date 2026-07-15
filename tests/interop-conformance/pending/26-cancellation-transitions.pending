@@ -1,0 +1,7 @@
+axis: cancellation-transitions
+status: pending-spec
+needs: target-neutral public cancellation states, transition ordering, one-shot interaction, and exact diagnostic
+expected: Intentionally unspecified. The semantic owner requires cancellation evidence
+  but has not frozen whether cancellation races before/after a resume claim, how a
+  cancelled reusable continuation reports later resumes, or the portable diagnostic.
+  This harness must not become the accidental owner by inventing those rules.
