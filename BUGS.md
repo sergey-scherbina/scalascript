@@ -2,8 +2,10 @@
 
 ## scala-direct-nested-reset-prompt-marker — outer marker survives in eager nested-reset prompt
 
-**Status:** open; reported by the root agent's adversarial pre-review of the
-`scala3-control-macros` feature checkpoint `9c6850904` (2026-07-15).
+**Status:** open; remediation is green in feature commit `fdde23d93`, but a fresh
+independent review and the landing SHA are pending. Reported by the root agent's
+adversarial pre-review of the `scala3-control-macros` feature checkpoint
+`9c6850904` (2026-07-15).
 
 **Symptom/reproduce:** inside an accepted outer `direct.shift` rank-2 `ShiftBody`,
 use a second exact `direct.shift` targeting the outer scope as the prompt argument
@@ -29,6 +31,17 @@ body/expansion. Add an exact negative regression, while retaining positive cover
 for an ordinary nested managed reset body and explicit `scalascript.control.shift`.
 Run the clean focused/full/package/consumer/catalog/conformance gates and freeze a
 new checkpoint for independent review before landing.
+
+**Implementation/verification:** the survival audit now parses the exact curried
+nested-reset call, traverses its eager prompt, and skips only the contextual body
+owned by the nested transform; an unknown call shape fails closed. The faithful
+negative reports the inner marker's stable `DIRECT_STYLE_UNSUPPORTED`, while the
+ordinary nested managed body and explicit `scalascript.control.shift` positives
+remain executable. Clean focused suites pass 39/39, the full leaf passes 101/101,
+and the rebuilt packaged-JAR consumer no longer emits raw owner output. Package,
+POM, catalog 26/9, validator negatives 9/9, direct lane 3/3, and affected
+conformance 5/5 are green. Keep this entry open until rereview approves and the
+fix lands.
 
 ## scala-direct-boundary-break-escape — boundary break can outlive its delimiter
 

@@ -280,20 +280,22 @@ every later compiler/kernel change re-runs the literal fixed point.
     - [x] Reject every `scala.util.boundary.break` in M1 before `Eff.defer`/continuation movement,
       with stable direct diagnostics in pure-prefix and captured-suffix shapes. Returns local to a
       nested method remain accepted; M1 conservatively treats all boundary breaks as outside scope.
-    - [ ] Narrow the nested-managed-`direct.reset` exception in the enclosing `ShiftBody` audit:
+    - [x] Narrow the nested-managed-`direct.reset` exception in the enclosing `ShiftBody` audit:
       inspect its eager prompt/other call arguments and reject an exact outer-scope `direct.shift`
       there, but leave the nested reset's managed body/inline expansion to its own transform.
       Add the exact negative regression and retain positive regressions for an ordinary nested
       managed reset body and explicit `scalascript.control.shift`; update the spec before code.
+      Landed on the feature branch in `fdde23d93`; clean focused suites pass 39/39 and the rebuilt
+      packaged consumer reports the exact direct diagnostic instead of raw owner output.
     - [ ] Run clean focused semantic/diagnostic tests, then
       `scripts/sbtc "scala3ControlApi/test;scala3ControlApi/packageBin;scala3ControlApi/makePom"`,
       packaged-JAR consumer/example, catalog validation 26/9, negatives 9/9, direct lane 3/3,
       `tests/conformance/run.sh --only 'effect*,effects*'`, Markdown checks, and `git diff --check`.
-      Update spec checkboxes/results, leave the four BUGS entries open pending approval/landing,
+      Update spec checkboxes/results, leave the five BUGS entries open pending approval/landing,
       refresh SPRINT/CHANGELOG counts in separate docs/bookkeeping commits, rebase only at a clean
       checkpoint, repeat critical gates, and freeze for a new independent review. Do not push/release.
   - [ ] Fresh independent read-only rereview of the frozen checkpoint. Expanded direct semantics
-    (16/16), diagnostics after clean compile (21/21), full leaf/package/POM (99/99), catalog validation
+    (17/17), diagnostics after clean compile (22/22), full leaf/package/POM (101/101), catalog validation
     (26/9), negatives (9/9), direct lane (3/3), affected conformance (5/5), and packaged-JAR compile/run
     are already green. Do not mark M1 done or push until rereview returns APPROVE.
 - [ ] **scala3-control-plugin** — publish a `CrossVersion.full` compiler plugin for cross-method CPS,

@@ -15,11 +15,12 @@ Strict local values, contextual/pattern binds, and mutable closure cells retain
 their Scala ownership across capture. Dependent prompt keys, `owner.type`, and
 dependent mutable/given/pattern references are rebound with their fresh term
 owners; richer dependent binder graphs fail closed. A ShiftBody may use ordinary
-explicit control or a nested managed direct reset, but an exact nested direct
-marker is rejected before it can survive lowering. Richer local definitions, lazy
-markers, inline wrapper applications, and every `scala.util.boundary.break` fail
-closed before code can be moved or evaluated; transparent-inline diagnostics point
-at the nearest wrapper invocation.
+explicit control or a nested managed direct reset body; that nested reset's eager
+prompt is still audited by the enclosing ShiftBody. An exact nested direct marker,
+including one in that prompt, is rejected before it can survive lowering. Richer
+local definitions, lazy markers, inline wrapper applications, and every
+`scala.util.boundary.break` fail closed before code can be moved or evaluated;
+transparent-inline diagnostics point at the nearest wrapper invocation.
 Unsupported expression shapes and callback/control barriers fail closed at compile
 time with stable `UNMANAGED_CAPTURE`, `CAPTURE_BARRIER`, or
 `DIRECT_STYLE_UNSUPPORTED` diagnostics; there is no exception/TLS/runtime capture
@@ -27,7 +28,7 @@ path and no CoreIR, UniML, seed, backend, or self-hosting change.
 
 The `scala-direct` semantic lane is now ready for vectors 18 and 23 plus catalog
 coverage (3/3), each differential against explicit Scala. The complete control
-leaf passes 99/99 tests (16 direct semantics, 21 exact diagnostics), the
+leaf passes 101/101 tests (17 direct semantics, 22 exact diagnostics), the
 package/POM and packaged-JAR runnable example are green, catalog
 validation remains 26 vectors/9 lanes with 9/9 negative cases, and affected effect
 conformance passes 5/5. Cross-method capture, prompt forwarding across a nested
