@@ -20,6 +20,7 @@ final class PortableEffectsResidualForwardingTest extends AnyFunSuite:
     }
 
   private def runSource(source: String, lane: String): Value =
+    FrontendBridge.resetState()
     run(FrontendBridge.convertSource(source), lane)
 
   private def eachLane(program: => Program)(assertion: (String, Value) => Unit): Unit =
