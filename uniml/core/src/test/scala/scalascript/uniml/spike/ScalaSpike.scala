@@ -270,6 +270,8 @@ object SpikeParse:
   // after a base type name, consume its `[T]` args and any `=> Codomain` function-type tail
   // (all erased). Handles `List[Int]`, `Int => Int`, `Int => List[A]`, `A => B => C`, `(A, B) => C`.
   private def skipTypeTail(c: Cur): Unit =
+    // a fully-qualified type `a.b.C` — consume the `.segment` chain (the base name was already taken)
+    while c.peekKind == "spike.dot" && (c.peek2Kind == "spike.id" || c.peek2Kind == "spike.uid") do { c.advance(); c.advance() }
     if c.peekKind == "spike.lbracket" then skipTypeParams(c)
     if c.peekKind == "spike.op" && c.peekLexeme == "=>" then
       c.advance()
