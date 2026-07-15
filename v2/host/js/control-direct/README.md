@@ -49,6 +49,12 @@ root `direct` methods are authoring markers: if either reaches runtime without
 transformation it throws the stable `JS_DIRECT_UNTRANSFORMED` contract error rather
 than implementing a second control runtime.
 
+JavaScript cleanup is separate from declaration emit. In a mixed exact-module import,
+completed `direct` and type-only specifiers disappear from JavaScript while ordinary
+runtime specifiers remain; generated `.d.ts` keeps the authored type surface. The same
+rule removes an empty module-linked type-only source export, including with
+`verbatimModuleSyntax: true`, so erased syntax cannot retain a production dependency.
+
 T1 accepts only top-level `const`/`let` shift bindings inside a zero-parameter
 synchronous reset arrow. Async/generator/cleanup/loop/switch/branch/callback/class
 capture frames and arbitrary marker positions fail closed with source diagnostics.
@@ -62,7 +68,10 @@ indirect eval and `Function` remain global-only unmanaged operations.
 Declaration-level or specifier-level TypeScript type-only exports are erased uses,
 not runtime marker escapes, so forms such as `export type { direct as Marker }` and
 `export { type direct as Marker }` remain accepted. Changing them to runtime exports
-produces one file-atomic `JS_DIRECT_UNSUPPORTED` diagnostic.
+produces one file-atomic `JS_DIRECT_UNSUPPORTED` diagnostic. A runtime CommonJS
+`import markers = require("@scalascript/control-direct")` is likewise an unsupported
+namespace import; the explicit `import type markers = require(...)` form is accepted
+and erased.
 
 Each source file is atomic: one direct diagnostic leaves the whole file unchanged.
 Accepted lowering uses a fresh resume parameter followed by the original authored

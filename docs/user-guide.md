@@ -1851,11 +1851,22 @@ properties are not transformed.
 The authoring package is build-time-only. A clean file has every owned marker use
 lowered and its named `direct` import specifier removed; emitted JavaScript imports
 only `@scalascript/control` and runs after development dependencies are omitted.
-Other import declarations and non-marker specifiers are preserved. Any value use
-of the marker that would remain in JavaScript—including object shorthand and local
-runtime export aliases—is a diagnostic, and one diagnostic cancels every rewrite in
-that source file. TypeScript declaration-level and specifier-level type-only exports
-of the marker remain accepted because normal TypeScript emit erases them.
+In a mixed exact-module import, type-only specifiers are also removed from JavaScript
+while ordinary runtime specifiers remain. Declaration emit still sees the original
+TypeScript import and preserves its public types. Exact-module type-only source
+exports are normalized the same way: no empty `export {} from ...` module edge is
+left under either `verbatimModuleSyntax` mode, mixed runtime exports remain, and the
+original `.d.ts` export is retained. Other modules and runtime specifiers are not
+rewritten.
+
+Any value use of the marker that would remain in JavaScript—including object
+shorthand and local runtime export aliases—is a diagnostic, and one diagnostic
+cancels every rewrite in that source file. TypeScript declaration-level and
+specifier-level type-only exports of the marker remain accepted. A runtime
+CommonJS/Node10 `import markers = require("@scalascript/control-direct")` is treated
+as an unsupported namespace marker import whether used or unused; its explicit
+`import type markers = require(...)` counterpart is erased from JavaScript and kept
+in declaration output.
 
 Lowering does not replace an authored binding with a mutable callback parameter.
 It receives the resumed value under a collision-safe generated name and then emits
