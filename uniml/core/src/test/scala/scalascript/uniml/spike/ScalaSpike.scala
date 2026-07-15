@@ -1006,7 +1006,15 @@ object SpikeParse:
     kids += fn.withRole("call.fn")
     c.advance().foreach(t => kids += Node.Leaf(t, Some("call.open")))
     while c.peekKind != "spike.rparen" && !c.eof && !isDefStart(c) do
-      parseExpr(c, 1) match
+      // named argument `label = value` (single `=`, not `==` which lexes as spike.op) → spike.narg;
+      // ssc1-lower reorders it by declared case-class field order (mkNArg, ssc1-front.ssc0:1357).
+      if c.peekKind == "spike.id" && c.peek2Kind == "spike.eq" then
+        val nameTok = c.advance().get // label
+        c.advance()                   // `=`
+        val v = parseExpr(c, 1).getOrElse(Node.Frame("spike.error", None, Vector.empty))
+        kids += Node.Frame("spike.narg", None,
+          Vector(Node.Leaf(nameTok, Some("narg.name")), v.withRole("narg.val"))).withRole("call.arg")
+      else parseExpr(c, 1) match
         case Some(a) => kids += a.withRole("call.arg")
         case None =>
           c.report("spike.expected", "expected call argument")
@@ -1507,13 +1515,18 @@ object SpikeProject:
     case b: UniNode.Branch if b.kind == "spike.paren" =>
       kids(b).collectFirst { case (Some("group.elem"), c) => projectPh(c, ctr) }.getOrElse(hole)
     case _ => expr(n) // literals, vars, lambdas, blocks, ifs, matches: projected as-is (no placeholder descent)
-  private def wrapArg(n: UniNode): String =
-    if isBarePh(n) then expr(n)
-    else if countPh(n) > 0 then
-      val ctr = Array(0)
-      val body = projectPh(n, ctr)
-      s"""mkLam(${consList((0 until ctr(0)).map(i => s""""__u$i"""").toVector)}, $body)"""
-    else expr(n)
+  private def wrapArg(n: UniNode): String = n match
+    case b: UniNode.Branch if b.kind == "spike.narg" => // label = value → Pair("narg", Pair(label, value))
+      val name = kids(b).collectFirst { case (Some("narg.name"), c) => lexeme(c) }.getOrElse("_")
+      val v    = kids(b).collectFirst { case (Some("narg.val"), c) => wrapArg(c) }.getOrElse(hole)
+      s"""Pair("narg", Pair("${esc(name)}", $v))"""
+    case _ =>
+      if isBarePh(n) then expr(n)
+      else if countPh(n) > 0 then
+        val ctr = Array(0)
+        val body = projectPh(n, ctr)
+        s"""mkLam(${consList((0 until ctr(0)).map(i => s""""__u$i"""").toVector)}, $body)"""
+      else expr(n)
 
   private def ifExpr(b: UniNode.Branch): String =
     val cnd = kids(b).collectFirst { case (Some("if.cond"), c) => expr(c) }.getOrElse(hole)
