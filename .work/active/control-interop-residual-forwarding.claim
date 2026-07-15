@@ -1,6 +1,6 @@
 feature/control-interop-residual-forwarding 2026-07-15T00:56:18Z
 agent: codex-residual-control
-heartbeat: 2026-07-15T01:43:05Z
+heartbeat: 2026-07-15T01:56:38Z
 status: in-progress
-done-so-far: residual/general-pattern/plugin/guard/ABI and cross-backend marker specs committed; audit requires per-root owner token and JS/Rust/JVM-source/Swift fallbacks
-next: implement token-qualified nested/reentrant dispatch and all consumer fallbacks, isolate test hang, then run axis 19 and conformance gates
+done-so-far: residual forwarding implementation checkpoint rebased on ec0; per-invocation activation spec committed and owner/activation/event runtime wiring plus cross-backend marker fallbacks are in progress
+next: add same-closure reentry/TLS/FastCode regressions, checkpoint code, rebase current origin, then run axis 19 and cross-backend/conformance gates
