@@ -58,10 +58,11 @@ The root module exports exactly `DirectMarkerContractError` and `direct`:
 
 ```ts
 import type {
+  Continuation,
+  Control,
   Eff,
   Prompt,
-  PromptScope,
-  ShiftBody
+  PromptScope
 } from "@scalascript/control"
 
 export class DirectMarkerContractError extends Error {
@@ -76,7 +77,9 @@ export const direct: Readonly<{
   ): Eff<never, R>
   shift<P extends PromptScope, R, A>(
     prompt: Prompt<P, R>,
-    body: ShiftBody<P, A, never, R>
+    body: (
+      continuation: Continuation<A, Control<P>, R>
+    ) => Eff<Control<P>, R>
   ): A
 }>
 ```
@@ -175,6 +178,11 @@ shift body because that body already returns an explicit `Eff` computation.
 T1 is closed and local: the direct body contributes `Fx = never`; effectful host
 calls must already be explicit `Eff` code inside a shift body or outside the direct
 block. Cross-method managed frames and managed callbacks are later profile slices.
+The marker declaration therefore exposes the concrete closed body type
+`Continuation<A, Control<P>, R> => Eff<Control<P>, R>` rather than re-exporting
+the explicit API's residual-row-polymorphic `ShiftBody`. This keeps ordinary nested
+same-prompt shift bodies typeable without inventing an open residual row; lowering
+still calls the unchanged explicit `shift` implementation.
 
 ## Lowering
 
@@ -291,6 +299,11 @@ module produce no direct-transform diagnostic.
   multi-shot control while every accepted frame has an obvious `flatMap` lowering.
   Rejected: optimistic whole-JavaScript CPS, whose callbacks, abrupt completion,
   cleanup, and async frames need descriptors and a later managed transform.
+- **Concrete closed shift-body row at the marker.** The delimiter removes exactly
+  `Control<P>`, so the T1 authoring continuation and body name that row directly.
+  Rejected: exposing the explicit API's rank-2 residual `ShiftBody` on a closed
+  marker; nested same-prompt bodies trigger unrelated-generic TypeScript identities
+  even though no residual effect is admitted by this slice.
 - **No shared lane registration in T1.** Catalog-id differentials are package-local
   evidence. Rejected: marking `js-generated` ready before generated facade, bridge,
   and cross-language profile qualification exist.
