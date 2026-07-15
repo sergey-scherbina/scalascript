@@ -1,9 +1,10 @@
 # Scala 3 lexical direct-style control macros
 
-Status: **M1 implemented; independent-review remediation in progress**
-(2026-07-15). The first review rejected owner splitting, lazy-marker lowering,
-and inline marker wrappers. The fail-closed and symbol-rebinding
-contract below is normative before M1 may land.
+Status: **M1 implementation and independent-review remediation verified locally;
+fresh rereview pending** (2026-07-15). The first review rejected owner splitting,
+lazy-marker lowering, and inline marker wrappers. The fail-closed and
+symbol-rebinding contract below is implemented and covered by the verification
+results below, but M1 does not land until a new independent review approves it.
 
 This feature is the bounded inline-macro tier of
 [`scala3-bidirectional-control.md`](scala3-bidirectional-control.md). It translates
@@ -343,10 +344,10 @@ save/run, callbacks, descriptors, runners, or cancellation.
 - [x] The `scala-direct` catalog lane and the full `scala3ControlApi` suite pass,
       the POM keeps only Scala production libraries, and affected common
       conformance remains green.
-- [ ] Strict local `val`/`var`/`given` and pattern bindings remain owner-correct
+- [x] Strict local `val`/`var`/`given` and pattern bindings remain owner-correct
       across capture, including shift-body use and sequential markers; reusable
       resumes share one local mutable cell.
-- [ ] Lazy marker initializers, crossing local method/class/type/lazy
+- [x] Lazy marker initializers, crossing local method/class/type/lazy
       declarations, and inline marker wrappers fail closed
       with the frozen diagnostic family and never execute rejected side effects.
 
@@ -406,8 +407,8 @@ Changed Markdown is linted and the final branch must pass `git diff --check`.
 ## Results
 
 - `scripts/sbtc "scala3ControlApi/test;scala3ControlApi/packageBin;scala3ControlApi/makePom"`
-  passes 82/82 tests across ten suites. The direct slice contributes ten runtime
-  semantic tests, ten exact compile-time diagnostic tests, three catalog-lane
+  passes 92/92 tests across ten suites. The direct slice contributes fourteen runtime
+  semantic tests, sixteen exact compile-time diagnostic tests, three catalog-lane
   tests, and source-access safety checks.
 - `tests/interop-conformance/run.sh --validate` accepts 26 vectors and nine lanes;
   all nine validator-negative cases pass. `--lane scala-direct` passes vector 18,
@@ -415,11 +416,14 @@ Changed Markdown is linted and the final branch must pass `git diff --check`.
   differential result.
 - The generated POM has only `scala3-library_3` in production scope (ScalaTest is
   test scope). The runnable example prints `Vector(10, 20)`, `42`, and direct-style
-  `42`.
+  `42` both through the sbt test classpath and when Scala CLI compiles it against
+  only the packaged control JAR plus the Scala library.
 - `tests/conformance/run.sh --only 'effect*,effects*'` passes all five affected
   cases on every declared lane, and `git diff --check` is clean.
 - Independent review of frozen checkpoint `fa992fd92` rejected three P1 families:
   prefix declaration symbols split from their uses, lazy marker binds made eager,
   and inline-wrapper bindings/provenance erased. The pre-fix suite remained 82/82,
-  proving those original tests did not exercise the rejected shapes; the two
-  unchecked behavior items above are the required closure evidence.
+  proving those original tests did not exercise the rejected shapes. Four new
+  semantic and six new exact-diagnostic regressions now close those families, and
+  both focused suites pass after a clean test compilation; a fresh independent
+  rereview remains the landing gate.
