@@ -1,9 +1,10 @@
 # Bug tracker
 
-## jvm-bytegen-letrec-env-clobber — CONFIRMED / open (2026-07-15, Codex)
+## jvm-bytegen-letrec-env-clobber — FIXED / awaiting confirmation (2026-07-15, Codex)
 
-**Status:** open; found by the stack-safety focused VM/direct-ASM vector while
-qualifying effectful `While` lowering.
+**Status:** fixed in `ad73b3e49`; awaiting reporter confirmation. Found by the
+stack-safety focused VM/direct-ASM vector while qualifying effectful `While`
+lowering.
 
 **Symptom:** a non-tail local `LetRec` can corrupt a surrounding expression's
 lexical environment on direct ASM. The effectful-loop witness completes its
@@ -24,12 +25,13 @@ restores the runtime env array. A later argument or sequence chain therefore
 receives an extra closure at the end of its frame, changing every De Bruijn
 lookup.
 
-**Fix/verification:** pending. Save the caller env in a private JVM local,
-install the tied frame only for the LetRec body, then restore slot 0 while
-leaving the expression result on the operand stack. Verify both the generic
-non-tail regression and the 20,000-iteration effectful While vector on VM/direct
-ASM; preserve the concurrent residual-forwarding LetRec flag/target-map changes
-during integration.
+**Fix/verification:** direct ASM now saves the caller env in a private JVM local,
+installs the tied frame only for the `LetRec` body, and restores slot 0 while
+leaving the expression result on the operand stack. Both residual-forwarding
+handler-root filters remain on the pending and body target maps. The generic
+non-tail-`LetRec` outer-local regression and the 20,000-iteration effectful
+`While` vector pass on VM/direct ASM; the installed axis-20 ASM lane also returns
+exact `100000`, `100000`, `20007`, `20000`.
 
 ## v2-native-toDouble-toFloat-noop — `.toDouble`/`.toFloat` dropped by the native frontend → integer division
 
@@ -330,15 +332,16 @@ second resume with the same exact structured diagnostic and no suffix; their
 multi-shot controls both return `3`. Direct runtime tests pass 4/4, real Swift
 focused tests pass 3/3, native e2e passes, interop reports 10/10 measurable axes,
 and affected conformance reports 6/6. The independently found Swift implicit-
-`Return` fallback is fixed in `f21abfcc8`; residual-forwarding/stack-safety axes
-remain open and do not reopen this original portable-VM guard bug.
+`Return` fallback is fixed in `f21abfcc8`; residual-forwarding and stack-safety
+were tracked and closed independently and do not reopen this original portable-
+VM guard bug.
 
-## control-interop-effect-recursion-stack-unsafe — CONFIRMED / open (2026-07-14, claude)
+## control-interop-effect-recursion-stack-unsafe — FIXED / awaiting confirmation (2026-07-14, claude)
 
-**Status:** open (runtime gap). Tracked as conformance axis
-`tests/interop-conformance/pending/20-stack-safety-deep-effect-recursion.pending`. Reported by
-codex-interop (rozum #interoperability, 2026-07-14): "legacy deep-handler/return paths appear
-recursively stack-unsafe".
+**Status:** fixed by the shared driver in `d2f462a69` and completed by JVM
+lowering fixes in `ad73b3e49`; awaiting reporter confirmation. Reported by
+codex-interop (rozum #interoperability, 2026-07-14): "legacy deep-handler/return
+paths appear recursively stack-unsafe".
 
 **Symptom:** effect-performing recursion grows the native stack and overflows; pure tail
 recursion is unaffected.
@@ -348,8 +351,10 @@ recursion is unaffected.
 run --bytecode`, 2026-07-14); the same shape with no effect (pure TCO) runs to 2,000,000
 (conformance axis 03 ✓).
 
-**Fix/verification:** not fixed — needs a stack-safe (heap-allocated) effect continuation.
-Conformance axis stays `pending-runtime`.
+**Fix/verification:** handler-facing resume now returns an unforgeable private
+deferred request, and one iterative two-mode driver consumes typed heap frames.
+Only declared managed program/host boundaries drain escaped requests; public
+`Op/3`, one-shot gates, and residual handler ownership remain unchanged.
 
 **Secondary root cause found during the fix (2026-07-15):** after the private
 resume carrier was moved to a managed-boundary driver, the installed VM still
@@ -358,12 +363,11 @@ completed it. `Compiler.C.compile` evaluated every `Term.Prim` argument and
 invoked the primitive immediately; it did not mirror direct ASM's
 `OpAnfNative` argument lifting. Thus `println(escapedResume(0))` consumed the
 private `Op` before the managed program root could drain it. Spec update
-`513d9686a` requires left-to-right per-argument `Runtime.letThreadOp` for every
+`325cc927f` requires left-to-right per-argument `Runtime.letThreadOp` for every
 non-effect-substrate primitive, exact exclusions for `effect.handle`,
 `effect.perform`, `effect.perform.oneshot`, and `effect.pure`, and a FastCode
-guard plus VM/ASM multiple-Op ordering regression. Implementation verification
-is still in progress; the axis remains pending until the full combined gate is
-green.
+guard plus VM/ASM multiple-Op ordering regression. The combined implementation
+verification is complete and axis 20 is now measurable.
 
 **Additional correctness holes found during focused verification (2026-07-15):**
 
@@ -388,9 +392,12 @@ green.
   a nested request entering `Handle` mode (`Rehandle`), and exact inner/outer
   `Return` ordering together on VM/direct ASM.
 
-These remain part of this open stack-safety/classifier verification; axis 20 is
-not promoted until the focused raw-CoreIR regressions and installed VM/direct-
-ASM probe are green.
+All integration holes above are closed. Focused stack/one-shot/residual suites
+pass 39/39; installed VM and direct ASM both return exact `100000`, `100000`,
+`20007`, `20000`; full interop is 12/12, affected conformance is 6/6, and the
+133-file stage2 compiler image remains source-exact. Axis 20 is promoted from
+`pending-runtime`; the verified evidence is in
+`specs/control-effect-stack-safety.md`.
 
 ## spec-grammar-schema-links — FIXED (2026-07-14, Codex)
 
