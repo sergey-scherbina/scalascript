@@ -1,6 +1,6 @@
 feature/scala3-control-macros 2026-07-15T04:07:46Z
 agent: codex-scala-control-macros
-heartbeat: 2026-07-15T07:39:54Z
+heartbeat: 2026-07-15T07:49:54Z
 status: in-progress
 done-so-far: exact candidate 408f23c11 is frozen; focused 47/47, full module/package/POM 109/109, packaged positive/negative consumers, catalog 26/9, negatives 9/9, scala-direct 3/3, conformance 5/5 and hygiene are green
-next: run a fresh independent adversarial review of f4e860ed7..408f23c11, then repair or integrate current origin and repeat affected/full gates before landing; no push/release before APPROVE
+next: fresh independent review of f4e860ed7..408f23c11 is running; static pass has no confirmed P0/P1 and is probing whole-body inline provenance plus hidden ParamRef binder shapes before the full external/package/conformance gates

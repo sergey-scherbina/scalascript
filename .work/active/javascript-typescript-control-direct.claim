@@ -1,6 +1,6 @@
 feature/javascript-typescript-control-direct 2026-07-15T05:29:19Z
 agent: codex-js-control-direct
-heartbeat: 2026-07-15T07:39:54Z
+heartbeat: 2026-07-15T07:49:54Z
 status: in-progress
-done-so-far: fresh review rejected 71ae452ea5 on three P1 emit escapes; repair plan e9978283e and spec update 596fe2f53 are committed
-next: repair mixed type-only imports, specifier-level source re-exports, and external-module ImportEquals; run full direct/explicit/packed/type/syntax/conformance gates, freeze for fresh review; no push/release
+done-so-far: repair 542a5d2b6 closes all three P1 emit escapes; direct package 38/38, typecheck, node syntax, packed CLI JS/d.ts/no-marker and CommonJS ImportEquals checks are green
+next: finish checkpoint docs/spec/BUGS-SPRINT, integrate current origin, repeat full direct/explicit/packed/catalog/negative/conformance gates, freeze for a new independent review; no push/release
