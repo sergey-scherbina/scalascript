@@ -1,7 +1,7 @@
 # JavaScript/TypeScript ↔ ScalaScript bidirectional control profile
 
-Status: **normative host profile / explicit local control slice implemented;
-remaining host/runner profile planned** (2026-07-15).
+Status: **normative host profile / explicit local control slice in
+pre-integration hardening; remaining host/runner profile planned** (2026-07-15).
 
 This is the JavaScript/TypeScript host profile of
 [`control-interoperability.md`](control-interoperability.md). That specification
@@ -76,6 +76,11 @@ does not run install scripts, and publishes exactly these package subpaths:
 }
 ```
 
+Its dry-run and published tarballs contain exactly `LICENSE`, `README.md`,
+`index.d.ts`, `index.js`, and `package.json`. The license is the repository's
+Apache 2.0 text. Development locks, tests, fixtures, and generated archives are
+not package payload.
+
 The root runtime module exports exactly:
 
 ```text
@@ -104,13 +109,25 @@ shift
 `Pure`/`Op` nodes, request constructors, the iterative stepper, prompt ids, and
 authority tokens are not public ABI.
 
-`defineEffect(id)` returns an opaque runtime-unique `EffectKey`. Its stable
-descriptor id is the supplied non-empty string, while handler matching uses the
-unforgeable owner identity. `key.operation(name, options)` creates an exact
-`OperationFactory`; the factory snapshots the key, structured id, result type,
-argument tuple, and `Reusable` (default) or `OneShot` multiplicity. Two keys with
-the same descriptor string remain distinct owners and therefore do not handle one
-another accidentally.
+`defineEffect(id, owner)` returns an opaque runtime-unique `EffectKey`. `owner`
+is a JavaScript `symbol`; TypeScript callers must bind `Symbol(...)` to a named
+`const` first so its `unique symbol` type becomes the key's generative phantom
+owner. The declaration rejects an inline or otherwise widened `symbol`, because
+ordinary TypeScript function calls cannot synthesize a fresh type identity:
+
+```ts
+const ConsoleOwner = Symbol("example.Console")
+const Console = defineEffect("example.Console", ConsoleOwner)
+```
+
+The stable descriptor id remains the supplied non-empty string, while handler
+matching uses the unforgeable owner identity. Repeating `defineEffect` with the
+same owner symbol and descriptor returns the same key; reusing one owner symbol
+with a different descriptor is a programmer-contract error. Distinct symbols
+remain distinct runtime and declaration owners even when their descriptor strings
+are equal. `key.operation(name, options)` creates an exact `OperationFactory`;
+the factory snapshots the key, structured id, result type, argument tuple, and
+`Reusable` (default) or `OneShot` multiplicity.
 
 The `Eff` surface is deliberately small:
 
@@ -130,6 +147,17 @@ naming the unhandled structured operation. Such a misuse exception is not an
 effect, a handler escape channel, or a control failure ABI. Effect execution,
 resumption, and prompt capture themselves use no exceptions, Promise, async/await,
 generator, thread-local state, or stack inspection.
+
+Class-backed runtime capabilities carry no authority-bearing own properties or
+symbols. Public observations such as `EffectKey.id` and `Operation` fields may be
+implemented as prototype accessors, but `Eff` nodes, continuations, pending
+requests, and prompts keep their state in module-private weak storage. In
+particular a computation exposes neither `resumption` nor request/prompt keys, and
+a prompt exposes neither its effect key nor its shift operation. Every internal
+constructor reachable through an instance's standard `.constructor` property
+requires an unexported module authority token before registering the instance;
+constructor calls, prototype grafting, or cloned public observations cannot mint a
+value accepted by `perform`, `handle`, `reset`, `shift`, or `Eff.runPure`.
 
 `Continuation.local(state, machine)` creates a reusable local continuation backed
 by `ResumeStateMachine`. Its `resume` may be invoked repeatedly. This first slice
@@ -158,16 +186,21 @@ freshPrompt<R, A>(
 `Prompt`, its invariant `P`, and `Control<P>` carry private declaration brands.
 There is no prompt constructor. Nested callback binders have incompatible keys,
 and `reset` removes only the matching `Control<P>` member from the effect row.
+`PromptKeyOf<Prompt<P, R>>` extracts `P` while inferring the concrete invariant
+answer type `R`; it never tests an invariant prompt against `Prompt<P, unknown>`.
 `shift` exposes a reusable `Continuation` and implements the two-reset law from
 §4.2 of the target-neutral specification; the shift body therefore remains under
 the same delimiter and is observably `shift`, not `shift0`.
 
 The following is the normative declaration shape for this slice (private
-`unique symbol` brands are omitted from the listing but are required in the
-published declaration):
+`unique symbol` brands other than the owner markers shown below are omitted from
+the listing but are required in the published declaration):
 
 ```ts
-export interface Effect<Id extends string = string> {}
+export interface Effect<
+  Id extends string = string,
+  Owner extends symbol = symbol
+> {}
 export interface EffectId { readonly value: string }
 export interface OperationId {
   readonly effect: EffectId
@@ -195,9 +228,13 @@ export interface EffectKey<Fx extends Effect> {
     options?: Readonly<{ multiplicity?: ResumeMultiplicity }>
   ): OperationFactory<Fx, A, Args>
 }
-export function defineEffect<const Id extends string>(
-  id: Id
-): EffectKey<Effect<Id>>
+export function defineEffect<
+  const Id extends string,
+  const Owner extends symbol
+>(
+  id: Id,
+  owner: symbol extends Owner ? never : Owner
+): EffectKey<Effect<Id, Owner>>
 
 export interface Operation<
   Fx extends Effect,
@@ -291,21 +328,26 @@ export const CaptureFailure: Readonly<{
   UnsupportedGraph(site: string, detail: string): CaptureFailure
 }>
 
-export interface Save extends Effect<"scalascript.control.Save"> {}
+declare const saveEffectOwner: unique symbol
+declare const restoreEffectOwner: unique symbol
+declare const controlEffectOwner: unique symbol
+export interface Save
+  extends Effect<"scalascript.control.Save", typeof saveEffectOwner> {}
 export const Save: Readonly<{
   key: EffectKey<Save>
   Rejected: OperationFactory<Save, never, readonly [CaptureFailure]>
 }>
-export interface Restore extends Effect<"scalascript.control.Restore"> {}
+export interface Restore
+  extends Effect<"scalascript.control.Restore", typeof restoreEffectOwner> {}
 export interface SavedContinuation<A, Fx extends Effect, R> {
   run(value: A): Eff<Fx | Restore, R>
 }
 
 export interface PromptScope {}
 export type PromptKeyOf<T> =
-  T extends Prompt<infer P, unknown> ? P : never
+  T extends Prompt<infer P, infer _R> ? P : never
 export interface Control<P extends PromptScope>
-  extends Effect<"scalascript.control.Control"> {}
+  extends Effect<"scalascript.control.Control", typeof controlEffectOwner> {}
 export interface Prompt<P extends PromptScope, R> {}
 export type ShiftBody<
   P extends PromptScope,
@@ -563,12 +605,20 @@ In addition to every common vector, this profile proves:
 
 ### 11.1 First-slice acceptance
 
-- [x] The package root and dry-run tarball expose only the frozen ESM files and
+- [ ] The package root and dry-run tarball expose only the frozen ESM files and
       subpaths, with no production dependency or lifecycle script.
-- [x] The published declarations accept typed effect/handler/state-machine and
+- [ ] The published declarations accept typed effect/handler/state-machine and
       prompt programs while rejecting prompt mixing, effectful `runPure`, forged
       branded values, reusable operations on one-shot continuations, and save on
       one-shot continuations.
+- [ ] Two equal descriptor strings with different named owner symbols remain
+      different effect rows and runtime keys; a wrong-key handler leaves the
+      original effect residual, while one owner+descriptor pair is idempotent.
+- [ ] `PromptKeyOf<Prompt<P, ConcreteAnswer>>` extracts exactly `P` without
+      weakening prompt answer-type invariance.
+- [ ] Opaque computations, continuations, and prompts expose no internal request,
+      resumption, key, operation, or authority state; every reachable internal
+      constructor rejects calls without the module-private authority token.
 - [x] All 17 currently `specified` semantic vectors applicable to an explicit
       local host API produce the shared catalog oracle without changing the shared
       catalog or lane registry.
@@ -580,33 +630,25 @@ In addition to every common vector, this profile proves:
 - [x] A losing one-shot attempt returns structured `AlreadyResumed` before suffix
       construction/execution; local `save` returns structured
       `UnmanagedCapture("Continuation.local")`.
-- [x] `npm test`, `npm run typecheck`, `npm pack --dry-run`, and the project
+- [ ] `npm test`, `npm run typecheck`, `npm pack --dry-run`, and the project
       `effect*,effects*` conformance slice pass from the isolated worktree.
 
 ### 11.2 First-slice results
 
-The compiler-independent explicit package is implemented at
-`v2/host/js/control` as ESM-only `@scalascript/control` with no production
-dependencies or lifecycle scripts. Verification on 2026-07-15 produced:
+The initial implementation baseline produced 27/27 package tests, all 17
+applicable catalog vectors, the 1,000,000/1,000,000/100,000 stack-safety probes,
+green TypeScript fixtures, and 5/5 affected project conformance cases. Independent
+pre-integration review then found four qualification blockers: descriptor-only
+effect typing, invariant-answer prompt-key extraction, forgeable/leaking runtime
+capability state, and an omitted Apache license. The affected acceptance items are
+reopened above; final post-hardening package counts, tarball bytes, and verification
+evidence are pending implementation.
 
-- `npm test`: 27/27 tests pass, including all 17 applicable `specified`
-  catalog vectors without editing the shared catalog or lane registry;
-- iterative stress: 1,000,000 left-associated binds, 1,000,000 mixed
-  state-machine transitions, and 100,000 handled operations complete;
-- `npm run typecheck`: positive declarations and negative prompt/effect/brand/
-  multiplicity fixtures pass;
-- `npm pack --dry-run --json`: exactly `README.md`, `index.d.ts`, `index.js`, and
-  `package.json` (4 entries, 6,372 packed bytes, 26,193 unpacked bytes, no bundled
-  dependencies);
-- `tests/conformance/run.sh --only 'effect*,effects*'`: 5/5 cases pass on the
-  affected project slice (and remain 5/5 memoized after rebasing onto the final
-  `origin/main` checkpoint).
-
-This evidence qualifies only the local explicit API in §2.1--§2.2. Generated
-facades and value/call bridges, managed direct-style transformation, callback
-policies, mixed-language SCC dispatch, exact-artifact execution, portable runners,
-and shared lane wiring remain open delivery steps; the whole host/runner profile
-is not yet qualified.
+Even after those items close, the evidence qualifies only the local explicit API
+in §2.1--§2.2. Generated facades and value/call bridges, managed direct-style
+transformation, callback policies, mixed-language SCC dispatch, exact-artifact
+execution, portable runners, and shared lane wiring remain open delivery steps;
+the whole host/runner profile is not yet qualified.
 
 ## 12. Delivery and architecture gate
 
