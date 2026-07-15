@@ -31,7 +31,7 @@ nested into topic subdirectories. This index is the map for both sets.
 - [../specs/control-interoperability.md](../specs/control-interoperability.md) — target-neutral effects, multi-prompt `shift`/`reset`, managed callbacks/TCO, and durable `save`/`run` laws
 - [../specs/scala3-bidirectional-control.md](../specs/scala3-bidirectional-control.md) — Scala 3/JVM control host profile
 - [../specs/javascript-typescript-bidirectional-control.md](../specs/javascript-typescript-bidirectional-control.md) — JavaScript/TypeScript control host profile
-- [../specs/javascript-typescript-control-direct.md](../specs/javascript-typescript-control-direct.md) — bounded TypeScript lexical `shift`/`reset` transform and CLI
+- [../specs/javascript-typescript-control-direct.md](../specs/javascript-typescript-control-direct.md) — bounded TypeScript 5.9 lexical `shift`/`reset` transform, build-time marker erasure, and packed CLI
 - [../specs/rust-bidirectional-control.md](../specs/rust-bidirectional-control.md) — Rust control host profile
 - [../specs/swift-bidirectional-control.md](../specs/swift-bidirectional-control.md) — Swift control host profile
 - [../specs/control-interop-profile-portable-vm.md](../specs/control-interop-profile-portable-vm.md) — portable-VM reference runner profile and measured capability row

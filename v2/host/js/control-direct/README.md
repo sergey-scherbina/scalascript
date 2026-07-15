@@ -23,6 +23,11 @@ Compile it with the wrapper command:
 npx ssc-control-tsc --project tsconfig.json
 ```
 
+The wrapper supports the consumer's TypeScript 5.9.x compiler API (qualified with
+5.9.3), resolves it from the named project/config directory or current working
+directory, and works through the installed npm `.bin` symlink. It does not bundle
+or fall back to a compiler from the transform package's store location.
+
 or install the `before` transformer through the tooling API:
 
 ```js
@@ -37,15 +42,25 @@ if (direct.diagnostics.length === 0) {
 ```
 
 The package intentionally has no production dependencies. Applications install
-`typescript` and `@scalascript/control` explicitly. The root `direct` methods are
-authoring markers: if either reaches runtime without transformation it throws the
-stable `JS_DIRECT_UNTRANSFORMED` contract error rather than implementing a second
-control runtime.
+`typescript@5.9` for the build and `@scalascript/control` for the application.
+After every owned marker use is transformed, the named marker import is removed;
+the emitted JavaScript runs without `@scalascript/control-direct` installed. The
+root `direct` methods are authoring markers: if either reaches runtime without
+transformation it throws the stable `JS_DIRECT_UNTRANSFORMED` contract error rather
+than implementing a second control runtime.
 
 T1 accepts only top-level `const`/`let` shift bindings inside a zero-parameter
 synchronous reset arrow. Async/generator/cleanup/loop/switch/branch/callback/class
 capture frames and arbitrary marker positions fail closed with source diagnostics.
-Generated code uses only the explicit `Eff.pure`, `reset`, `shift`, and `flatMap`
+So do intrinsic direct `eval`, a shift body that captures its own or a later suffix
+binding, and any marker value use that would survive emit. Parentheses and
+TypeScript `as`/non-null/type assertions preserve marker ownership; indirect eval
+and `Function` remain global-only unmanaged operations.
+
+Each source file is atomic: one direct diagnostic leaves the whole file unchanged.
+Accepted lowering uses a fresh resume parameter followed by the original authored
+`const` or `let` declaration, preserving JavaScript declaration behavior. Generated
+code otherwise uses only the explicit `Eff.pure`, `reset`, `shift`, and `flatMap`
 surface.
 
 From this directory:

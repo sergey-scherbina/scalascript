@@ -1808,7 +1808,7 @@ alongside the explicit runtime and the consuming project's TypeScript compiler:
 
 ```bash
 npm install @scalascript/control
-npm install --save-dev @scalascript/control-direct typescript
+npm install --save-dev @scalascript/control-direct typescript@5.9
 ```
 
 Write `direct.reset` with top-level `const` or `let` shift bindings:
@@ -1834,6 +1834,12 @@ TypeScript diagnostics and source maps:
 npx ssc-control-tsc --project tsconfig.json
 ```
 
+T1 accepts the TypeScript 5.9.x compiler API and is qualified with 5.9.3. The CLI
+resolves that compiler from the named project/config directory or current working
+directory, including when the packed command is reached through an npm `.bin`
+symlink in an external store. It does not bundle a second compiler or use a global
+fallback.
+
 The transform emits the existing `@scalascript/control` `Eff.pure`, `reset`,
 `shift`, and `flatMap` protocol. Prefix statements run once; every reusable resume
 enters its suffix; sequential markers preserve source order; and ordinary local
@@ -1842,13 +1848,30 @@ enters its suffix; sequential markers preserve source order; and ordinary local
 `direct`, owns the marker. Shadowed names, comments, strings, and same-spelled
 properties are not transformed.
 
+The authoring package is build-time-only. A clean file has every owned marker use
+lowered and its named `direct` import specifier removed; emitted JavaScript imports
+only `@scalascript/control` and runs after development dependencies are omitted.
+Other import declarations and non-marker specifiers are preserved. Any value use
+of the marker that would remain in JavaScript is a diagnostic, and one diagnostic
+cancels every rewrite in that source file.
+
+Lowering does not replace an authored binding with a mutable callback parameter.
+It receives the resumed value under a collision-safe generated name and then emits
+the original `const` or `let` declaration initialized from it. This applies to real
+JavaScript under `allowJs: true, checkJs: false` as well as TypeScript.
+
 T1 deliberately fails closed for async/generator/await/yield, cleanup, loops,
 switch, a marker nested under a branch/callback/class, prompt mismatch, `var` or
-destructuring marker binds, and arbitrary marker positions. The stable diagnostics
-are `JS_DIRECT_OUTSIDE_RESET`, `JS_DIRECT_CAPTURE_BARRIER`,
-`JS_DIRECT_UNSUPPORTED`, and `JS_DIRECT_PROMPT_MISMATCH`. If a root marker reaches
-runtime without the transform, it throws `JS_DIRECT_UNTRANSFORMED`; it never acts
-as a second control implementation.
+destructuring marker binds, arbitrary marker positions, a shift body referencing its
+own or a later suffix binding, and intrinsic direct `eval` anywhere in a selected
+file. The binding checks follow TypeScript symbols through nested closures and do
+not confuse genuine shadowing. Parentheses plus `as`, non-null, and type assertions
+are transparent for marker/eval ownership; indirect eval and `Function` remain
+global-only unmanaged operations. The stable diagnostics are
+`JS_DIRECT_OUTSIDE_RESET`, `JS_DIRECT_CAPTURE_BARRIER`, `JS_DIRECT_UNSUPPORTED`,
+and `JS_DIRECT_PROMPT_MISMATCH`. If a root marker reaches runtime without the
+transform, it throws `JS_DIRECT_UNTRANSFORMED`; it never acts as a second control
+implementation.
 
 The exact accepted grammar and package/tooling API are in the
 [`direct-control specification`](../specs/javascript-typescript-control-direct.md).
