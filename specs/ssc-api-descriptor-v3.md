@@ -194,6 +194,26 @@ The source of truth is the parsed declaration header:
   `effect` into an object never erases an effect/object or multiplicity disagreement.
   A documentless CodeBlock still validates its raw evidence against the stored
   marked AST before production;
+
+  Package wrapping currently replaces `CodeBlock.source` with the already
+  preprocessed, package-nested Scala source. For a documentless packaged **empty**
+  effect, neither that source nor the ordinary ScalaMeta object node can otherwise
+  distinguish `effect Empty:` from `object Empty:`. The parser therefore preserves
+  exactly this erased origin evidence as reserved private type sentinels inside the
+  synthetic object: `private type __effectDecl__ = true` for every effect and
+  `private type __effectUnsupportedShape__ = true` when a generic/parent header was
+  erased. These are parser-internal compatibility evidence, not ScalaScript source
+  declarations, value fields, CoreIR terms, descriptor symbols, or effect/runtime
+  operations. The producer recognizes and filters them before nominal/member
+  projection; effect analysis and target backends continue to inspect only the
+  existing `__effectOp__` and `__multiShot__` contracts. A user declaration that
+  collides with either reserved sentinel fails strict correspondence instead of
+  impersonating an effect, and the raw Document witness prevents an ordinary object
+  containing sentinel-shaped text from becoming effect evidence. Rejected: adding a
+  new original-source field to `Content.CodeBlock` and every serialized/consumer
+  shape solely for this compatibility producer (a broader carrier/schema change);
+  using synthetic `val` sentinels (they would become observable object fields in the
+  interpreter);
 - nominal projection is deliberately lossless rather than optimistic: a public
   class/trait/enum with explicit parents or a self type, a trait constructor
   clause, a non-empty derives clause or early-initializer clause, a public instance
@@ -351,6 +371,10 @@ a second wire model or route through legacy `tpe`.
       before either supplies effect metadata. Empty effect versus object, plain versus
       multi, name/order, and unsupported generic/parent shape are observable while
       line offsets are not; documentless source remains independently checked.
+- [ ] Reserved private type effect sentinels preserve only parser-erased origin
+      evidence: they never become descriptor/runtime value members or alter
+      EffectAnalysis/backend behavior, and a user collision fails strict managed
+      correspondence instead of fabricating an effect.
 - [ ] Non-empty derives and early-initializer clauses participate in exact retained
       header correspondence and reject on real public nominal declarations until the
       descriptor represents them, across every parseable class/trait/enum/object form.
