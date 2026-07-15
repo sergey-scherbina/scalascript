@@ -1,6 +1,6 @@
 feature/scala3-control-macros 2026-07-15T04:07:46Z
 agent: codex-scala-control-macros
-heartbeat: 2026-07-15T04:08:08Z
+heartbeat: 2026-07-15T04:29:38Z
 status: in-progress
-done-so-far: isolated feature worktree created; explicit Scala control leaf and shared semantic-vector lane are verified dependencies
-next: commit the public inline direct-style API/diagnostic specification, then implement the bounded lexical macro slice
+done-so-far: macro specification committed; pure reset compiles and the exact typed direct.shift marker AST/ownership boundary is characterized
+next: implement bounded ANF/CPS lowering with exact symbol and Scope ownership checks, then run semantic and negative gates

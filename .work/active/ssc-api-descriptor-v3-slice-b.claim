@@ -1,6 +1,6 @@
 feature/ssc-api-descriptor-v3-slice-b 2026-07-15T04:02:06Z
 agent: codex-descriptor-b
-heartbeat: 2026-07-15T04:02:26Z
+heartbeat: 2026-07-15T04:29:38Z
 status: in-progress
-done-so-far: isolated feature worktree created from current origin/main; Slice A is the verified dependency
-next: audit pre-body producer paths and implement declaration-to-v3 projection with ambiguity rejection and focused gates
+done-so-far: Slice B producer seam audited; declaration-header projection is being implemented without legacy ExportedSymbol.tpe synthesis
+next: finish strict rejection/stability tests and return a clean verified branch for integration review

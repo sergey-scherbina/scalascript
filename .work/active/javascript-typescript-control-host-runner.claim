@@ -1,6 +1,6 @@
 feature/javascript-typescript-control-host-runner 2026-07-15T04:12:05Z
 agent: codex-js-control-explicit
-heartbeat: 2026-07-15T04:12:38Z
+heartbeat: 2026-07-15T04:29:38Z
 status: in-progress
-done-so-far: isolated worktree created from current origin/main; profile, shared vector catalog, and Scala explicit reference are verified inputs
-next: commit an exact ESM/.d.ts explicit-API spec, then implement stackless effects, handlers, prompts, multiplicity, and local vector gates
+done-so-far: spec, zero-dependency ESM runtime/types/tests, and docs committed; local runtime 27/27 and TypeScript gate are green
+next: finish pack/project conformance, report clean branch for independent integration review
