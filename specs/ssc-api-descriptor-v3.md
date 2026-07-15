@@ -1,8 +1,8 @@
 # SSC API descriptor v3
 
 Status: **slice A implemented and verified; slice B compatibility-producer fifth
-pre-integration review rejected with five P1 corrections specified but not yet
-implemented; self-hosted and consumer slices queued** (2026-07-15).
+correction implemented and locally verified, awaiting a fresh independent exact-
+checkpoint review; self-hosted and consumer slices queued** (2026-07-15).
 
 This specification refines the structured-descriptor contract in
 [`control-interoperability.md`](control-interoperability.md) without changing its
@@ -420,22 +420,22 @@ a second wire model or route through legacy `tpe`.
 - [x] Non-empty derives and early-initializer clauses participate in exact retained
       header correspondence and reject on real public nominal declarations until the
       descriptor represents them, across every parseable class/trait/enum/object form.
-- [ ] Ordered imports participate in exact declaration correspondence, including
+- [x] Ordered imports participate in exact declaration correspondence, including
       importer references and every selector kind; mutating only a Document import
       while retaining the CodeBlock/stored AST import rejects at the section path.
-- [ ] One source-ordered lexical identity resolver handles bare and selected paths,
+- [x] One source-ordered lexical identity resolver handles bare and selected paths,
       importer aliases/chains, platform/private/local identities, and transparent
       callback aliases. `jl.String`/chained `jl.Integer` cannot launder `java.*`, and
       an imported local function alias receives conservative callback policy.
-- [ ] Effect origin sentinels have exact parser-owned count and canonical private-
+- [x] Effect origin sentinels have exact parser-owned count and canonical private-
       type shape. Duplicate or malformed declaration/unsupported-shape markers,
       including a collision inside a real effect body, fail closed without becoming
       descriptor or runtime members.
-- [ ] Raw effect evidence is declaration-scope-aware and is bound once. A local
+- [x] Raw effect evidence is declaration-scope-aware and is bound once. A local
       effect appearing only in an exported method body is ignored for pre-body API
       correspondence and cannot change descriptor bytes or `apiHash`; genuine
       top-level effects retain their owner/multiplicity/shape evidence.
-- [ ] Local type/effect/alias inventories recurse through class, trait, enum, and
+- [x] Local type/effect/alias inventories recurse through class, trait, enum, and
       object owners with inherited visibility/representability. A nested identity
       below a private/internal/nonrepresentable nominal owner rejects before
       qualified-external fallback.
@@ -995,6 +995,33 @@ slice A must not mark that milestone complete.
 - loading classes/plugins or executing user code during descriptor decode.
 
 ## Results
+
+The fifth Slice B correction is implemented locally by the exact-import witness
+commit `9e73fb656`, the unified lexical resolver/recursive inventory commit
+`aebe41434`, and the single validated effect-binding commit `69e02ffe3`. The
+producer now anchors import targets in source order, snapshots the active import
+scope on transparent aliases, shares one identity path across bare/selected types,
+effect rows, callbacks, and later importer qualifiers, and records effective owner
+visibility plus receiver representability in one recursive declaration inventory.
+Effect sentinels are validated for exact count and canonical shape before they are
+filtered. Raw headers bind only to declaration-scope AST candidates, while body-
+local headers are ignored; the resulting carrier binding is retained and consumed
+without a second scan.
+
+The pre-rebase local checkpoint is green:
+
+- focused producer/parser/effect analysis passes 94/94 (producer 82/82, parser
+  preprocessing 8/8, effect analysis 4/4);
+- `v2InteropDescriptor/test` passes 27/27; `core/test` passes 1130/1130;
+  `interop/test` passes 36/36; `ir/test` succeeds; artifact ABI compatibility
+  passes 73/73;
+- `tests/conformance/run.sh --only 'modules*,import-dir*'` passes 2/2, and the
+  forced non-memoized effect slice passes 9/9 across supported lanes.
+
+This is verification evidence, not integration approval. The checkpoint must be
+rebased onto the latest `origin/main`, the affected/full gates repeated, and the
+result frozen for a fresh independent read-only review. All seventeen Slice B bug
+entries therefore remain `open`, and the Slice B sprint item remains unchecked.
 
 A fresh independent fifth review rejected exact frozen checkpoint `0cb46c3cd`
 with no P0, five P1 families, and no standalone P2. Exact correspondence omitted
