@@ -18,7 +18,7 @@ private[cli] final case class NativeSourceUnit(
 private[cli] object NativeSourceClosure:
   private val StandaloneImport = """^\s*\[[^]]+\]\(([^)]+[.]ssc)\)\s*$""".r
 
-  def resolve(roots: List[File], stdRoot: File): List[NativeSourceUnit] =
+  def resolve(roots: List[File], stdRoot: File, libRoot: File): List[NativeSourceUnit] =
     val seen = mutable.HashSet.empty[String]
     val result = mutable.ListBuffer.empty[NativeSourceUnit]
     val rootPrefix = roots.lengthCompare(1) > 0
@@ -28,7 +28,7 @@ private[cli] object NativeSourceClosure:
       val key = canonical.getPath
       if seen.add(key) then
         imports(canonical).foreach { relative =>
-          val (target, childDisplay) = resolveImport(canonical, displayPath, relative, stdRoot)
+          val (target, childDisplay) = resolveImport(canonical, displayPath, relative, stdRoot, libRoot)
           visitImported(target, childDisplay)
         }
         result += NativeSourceUnit(canonical, normalizeDisplay(displayPath), explicitRoot = false)
@@ -41,7 +41,7 @@ private[cli] object NativeSourceClosure:
       // seen set prevents an import from being loaded twice.
       seen += root.getPath
       imports(root).foreach { relative =>
-        val (target, childDisplay) = resolveImport(root, display, relative, stdRoot)
+        val (target, childDisplay) = resolveImport(root, display, relative, stdRoot, libRoot)
         visitImported(target, childDisplay)
       }
       result += NativeSourceUnit(root, normalizeDisplay(display), explicitRoot = true)
@@ -52,12 +52,23 @@ private[cli] object NativeSourceClosure:
       importer: File,
       importerDisplay: String,
       relative: String,
-      stdRoot: File): (File, String) =
+      stdRoot: File,
+      libRoot: File): (File, String) =
     val normalizedRelative = relative.replace('\\', '/')
+    // Path convention (mirrors ssc1-run.ssc0 `sscResolve` and v1 ImportResolver):
+    //   std/… → the std root;  ./… or ../… → relative to the importing file.
+    //   A BARE path is ambiguous (a sibling of the importer, e.g. std/http.ssc →
+    //   `json.ssc`, OR a repo-root-relative case import like
+    //   tests/conformance/lib/foo.ssc). Try the importer directory first and fall
+    //   back to the install/lib root (ssc.lib.path — the repo root in a checkout).
     val target =
       if normalizedRelative.startsWith("std/") then
         new File(stdRoot, normalizedRelative)
-      else new File(importer.getParentFile, normalizedRelative)
+      else if normalizedRelative.startsWith(".") then
+        new File(importer.getParentFile, normalizedRelative)
+      else
+        val sourceRel = new File(importer.getParentFile, normalizedRelative)
+        if sourceRel.isFile then sourceRel else new File(libRoot, normalizedRelative)
     val canonical = target.getCanonicalFile
     if !canonical.isFile then
       throw new java.io.FileNotFoundException(

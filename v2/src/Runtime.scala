@@ -2904,6 +2904,7 @@ object Prims:
     case "io.args"   => _ => strList(Runtime.argv)
     case "io.nanoTime"  => _ => IntV(System.nanoTime())
     case "io.readFile"  => a => BytesV(java.nio.file.Files.readAllBytes(java.nio.file.Path.of(str(a, 0))).toVector)
+    case "io.exists"    => a => BoolV(java.nio.file.Files.exists(java.nio.file.Path.of(str(a, 0))))
     case "io.writeFile" => a => java.nio.file.Files.write(java.nio.file.Path.of(str(a, 0)), bytes(a, 1).toArray); UnitV
     case "io.env"  => a => sys.env.get(str(a, 0)).fold(none)(s => some(StrV(s)))
     case "io.exit" => a => Runtime.exitHandler(int(a, 0).toInt); UnitV
