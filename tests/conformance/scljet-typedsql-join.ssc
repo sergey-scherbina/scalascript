@@ -1,0 +1,52 @@
+---
+name: scljet-typedsql-join
+description: SclJet typed SQL joins — joinOn/leftJoinOn built from typed combinators; matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet typed SQL joins
+
+`joinOn`/`leftJoinOn` append a `JoinSpec` (qualified column names from the columns' owners) to the
+typed query, which erases to the existing `SelectStmt.joins` and runs through the executor's join
+path (`joinExecute`/`multiJoinExecute`). Inner and LEFT joins, plus an aggregate/GROUP BY over a
+join, all produce rows byte-identical to reference sqlite3 running the equivalent SQL (verified
+out-of-band); locked across `[int, js]`.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, executeMutation, renderRows](std/scljet/sql.ssc)
+[Table, Column, IntType, TextType, col, projColQ, countStar, orderAsc, from, joinOn, leftJoinOn, selectCols, groupByQ, orderByQ, runTypedQuery](std/scljet/typedsql.ssc)
+
+```scalascript
+val emp: Table = Table("emp", List("id", "name", "dept_id"))
+val dept: Table = Table("dept", List("did", "dname"))
+val eId: Column[Long] = col("emp", "id", 0, IntType)
+val eName: Column[String] = col("emp", "name", 1, TextType)
+val eDept: Column[Long] = col("emp", "dept_id", 2, IntType)
+val dDid: Column[Long] = col("dept", "did", 0, IntType)
+val dName: Column[String] = col("dept", "dname", 1, TextType)
+
+def apply(db: ByteSlice, sql: String): ByteSlice =
+  executeMutation(db, sql) match
+    case Left(m) =>
+      println(sql + " => ERR:" + m)
+      db
+    case Right(next) => next
+
+def show(db: ByteSlice, tag: String, q: TypedQuery): Unit =
+  runTypedQuery(db, q) match
+    case Left(m) => println(tag + " => ERR:" + m)
+    case Right(rows) => println(tag + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER, name TEXT, dept_id INTEGER)",
+  List(List(SqlInteger(1L), SqlText("ann"), SqlInteger(10L)),
+       List(SqlInteger(2L), SqlText("bob"), SqlInteger(20L)),
+       List(SqlInteger(3L), SqlText("cat"), SqlInteger(10L)),
+       List(SqlInteger(4L), SqlText("dan"), SqlInteger(99L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db0) =>
+    val d1 = apply(db0, "CREATE TABLE dept(did INTEGER, dname TEXT)")
+    val db = apply(d1, "INSERT INTO dept VALUES (10,'eng'),(20,'sales')")
+    show(db, "inner", orderByQ(selectCols(joinOn(from(emp), dept, eDept, "=", dDid), projColQ(eName) :: projColQ(dName) :: Nil), orderAsc(eId) :: Nil))
+    show(db, "left", orderByQ(selectCols(leftJoinOn(from(emp), dept, eDept, "=", dDid), projColQ(eName) :: projColQ(dName) :: Nil), orderAsc(eId) :: Nil))
+    show(db, "agg", orderByQ(groupByQ(selectCols(joinOn(from(emp), dept, eDept, "=", dDid), projColQ(dName) :: countStar() :: Nil), "dept.dname" :: Nil), orderAsc(dName) :: Nil))
+```

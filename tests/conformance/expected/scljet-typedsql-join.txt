@@ -1,0 +1,9 @@
+inner => ann|eng
+bob|sales
+cat|eng
+left => ann|eng
+bob|sales
+cat|eng
+dan|
+agg => eng|2
+sales|1
