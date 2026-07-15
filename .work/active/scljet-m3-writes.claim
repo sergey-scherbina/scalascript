@@ -1,4 +1,4 @@
 claim: scljet-m3-writes
 owner: opus
-heartbeat: 2026-07-15T09:05:00Z
-status: PHYSICAL INDEX ACCESS-PATH COMPREHENSIVE — rowid/IPK seeks, O(log n) index descent, range seeks, multi-condition (m6z,m7c-m7h). FULL gate 92/92 green non-memoized [int, js]. NEXT (new SQL features): correlated subqueries/EXISTS, RIGHT/FULL joins.
+heartbeat: 2026-07-15T09:35:00Z
+status: correlated [NOT] EXISTS (m7i) landed — per-outer-row subquery eval + single-table qualified-ref resolution (t2.fk). 49/49 sql green; full gate confirming. NEXT: correlated IN/scalar subqueries, RIGHT/FULL joins.

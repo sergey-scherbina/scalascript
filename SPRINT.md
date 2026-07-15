@@ -2137,6 +2137,22 @@ Two new front doors are specced (typed-SQL-API cb94fd88c, JDBC-API f2d1372a0); *
 working first implementation** — the JDBC portable façade (m6v) and the typed SQL surface (m6w),
 alongside SQL polish (REAL literals m6s, LEFT-join-3 m6r). All three "параллельно" lanes advanced.
 
+- [x] **scljet-m7i-correlated-exists** — DONE 2026-07-15 (new SQL feature; Sergiy "Делай всё автономно").
+      Correlated `[NOT] EXISTS (subquery)` where the subquery references the outer row (`t2.fk = t1.id`),
+      evaluated PER OUTER ROW (not the non-correlated pre-pass). `Condition` gains a defaulted `subTokens`
+      field (op "exists"/"notexists"); `parseCondition` recognizes the EXISTS prefix; `resolveSubqueries`
+      skips a `(SELECT` preceded by EXISTS. Per row, `substituteOuterRefs` replaces qualified outer refs
+      with that row's value (bound literal token) and the subquery runs against the already-open `db` —
+      true iff it returns a row. The filter threads `db` (`finishRows`→`filterRowsCtx`→`whereHoldsCtx`→
+      `condHoldsCtx`→`existsHolds`); seek paths pass `db` too (EXISTS composes with an indexable
+      predicate); LIMIT-pushdown disabled when the WHERE has EXISTS. **Also fixed** a pre-existing gap the
+      natural syntax exposed: single-table column refs were bare-only, so `t2.fk` in `FROM t2` → NULL;
+      `rowValue` now drops a `t.col` qualifier (`stripQualifier`) so qualified refs work in single-table
+      WHERE/projection (join path unaffected). Verified vs sqlite3 (EXISTS, NOT EXISTS, EXISTS+range
+      predicate, COUNT over EXISTS, qualified inner+outer refs), int==js; conformance `scljet-sql-exists`;
+      49/49 sql green non-memoized. Scope: single-table outer, qualified outer refs. NEXT: correlated
+      `IN`/scalar subqueries (same per-row substitution), RIGHT/FULL joins.
+
 - [x] **scljet-m7h-index-multi-cond** — DONE 2026-07-15 (physical access-path perf; Sergiy "Делай всё").
       Use an index in a multi-condition AND WHERE. `pointLookup` previously only fired for a single
       condition; now a single AND-group with several conditions is index-driven when ANY condition is
