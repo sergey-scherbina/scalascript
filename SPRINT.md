@@ -2064,6 +2064,21 @@ Two new front doors are specced (typed-SQL-API cb94fd88c, JDBC-API f2d1372a0); *
 working first implementation** — the JDBC portable façade (m6v) and the typed SQL surface (m6w),
 alongside SQL polish (REAL literals m6s, LEFT-join-3 m6r). All three "параллельно" lanes advanced.
 
+- [x] **scljet-m6z-limit-pushdown** — DONE 2026-07-15 (first perf op of the physical-access-path
+      direction, Sergiy: "оба параллельно"). LIMIT pushdown / early scan termination. A single-table
+      `SELECT` with a `LIMIT` and no `ORDER BY`/aggregate/`GROUP BY`/`DISTINCT` keeps rows in scan
+      order, so only the first `offset+limit` matching rows are needed. `executeSelectSingle` split into
+      `executeSelectLimited` (new `collectRowsLimited` stops the cursor walk once that many WHERE-matching
+      rows are collected) + `executeSelectFullScan` (unchanged). Byte-identical to the full scan; the
+      table tail is never read (O(offset+limit) vs O(n)). Wins: pagination-without-sort, `LIMIT 1`
+      existence checks. Verified vs sqlite3 (LIMIT/OFFSET, filtered LIMIT, LIMIT 0, LIMIT beyond size,
+      ORDER BY LIMIT via full scan), int==js; conformance `scljet-sql-limit-pushdown`; 40/40 sql green.
+      NOTE on the bigger physical IR: a true index/rowid *seek* is a genuine multi-turn build (B-tree
+      descent + overflow-safe cell decode + decode params) that must be differential-tested (seek vs
+      full-scan vs sqlite oracle) before it can safely land — this LIMIT pushdown is the first safe,
+      verified perf op; the seek lands next on a differential-tested seam. Parallel small-feature lanes
+      (typed row decoder, JVM JDBC shim) delegated to sibling agents.
+
 - [x] **scljet-m6y-typed-sql-join** — DONE 2026-07-15 (extends m6w). Typed SQL joins. `TypedQuery`
       gains a `joins` field (defaulted Nil, threaded through every builder); `joinOn`/`leftJoinOn` append
       a `JoinSpec` with qualified column names (`owner.name`) from the joined columns, erasing to

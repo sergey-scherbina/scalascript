@@ -1,4 +1,4 @@
 claim: scljet-m3-writes
 owner: opus
-heartbeat: 2026-07-15T04:50:00Z
-status: All 3 lanes DONE + verified — typed SQL surface (CRUD+joins+aggregates+HAVING), JDBC portable façade, SQL polish (LEFT-join-3, REAL literals). Full scljet gate 82/82 green non-memoized on [int, js].
+heartbeat: 2026-07-15T05:10:00Z
+status: LIMIT pushdown (first perf op) landed, 40/40 sql green. Physical index-seek = next (multi-turn, differential-tested). 2 sibling agents on typed-decoder + JVM-JDBC-shim in parallel.
