@@ -1736,6 +1736,59 @@ typed call/value bridges, managed callbacks and mixed tail SCCs, macros/plugin,
 admission, and exact/portable runners remain separate post-X1 milestones. See the
 [`Scala 3/JVM host profile`](../specs/scala3-bidirectional-control.md).
 
+### JavaScript/TypeScript explicit control API (first slice)
+
+Ordinary ESM applications can use the zero-production-dependency
+`@scalascript/control` package from
+[`v2/host/js/control`](../v2/host/js/control). It is the compiler-independent
+local reference implementation of the same `Pure | Op` laws as the Scala API:
+`Eff` is iterative and reusable, handlers are deep, unmatched effects retain their
+resumptions, and one-shot ownership is claimed before the suffix is constructed.
+
+```js
+import {
+  Eff,
+  ResumeMultiplicity,
+  defineEffect,
+  handle,
+  perform
+} from "@scalascript/control"
+
+const Input = defineEffect("example.Input")
+const Read = Input.operation("read", {
+  multiplicity: ResumeMultiplicity.OneShot
+})
+
+const program = perform(Read()).map(value => value + 1)
+const handled = handle(program, {
+  effect: Input,
+  onReturn: value => Eff.pure(value),
+  onOperation(operation, resumption) {
+    if (!Read.is(operation) || resumption.kind !== "OneShot") {
+      return Eff.pure(-1)
+    }
+    const attempt = resumption.continuation.tryResume(41)
+    return attempt.ok ? attempt.computation : Eff.pure(-1)
+  }
+})
+
+console.log(Eff.runPure(handled)) // 42
+```
+
+`freshPrompt` uses a scoped generic callback, and its private declaration brands
+make nested prompt keys incompatible in TypeScript. `reset` discharges only its
+own `Control<P>` row; `shift` keeps its body under the same reset, rather than
+silently providing `shift0` behavior. `Continuation.local` may resume repeatedly,
+while its `save()` performs the typed
+`Save.Rejected(UnmanagedCapture("Continuation.local"))` operation.
+
+This package does not yet claim the complete JavaScript/TypeScript host profile.
+Generated descriptors/facades, ScalaScript↔JavaScript value and call bridges,
+managed source transforms and event-loop callbacks, mixed-language tail SCCs,
+successful durable save/run, and exact/portable runners remain later slices. The
+exact ESM and `.d.ts` ABI is frozen in the
+[`JS/TS host profile`](../specs/javascript-typescript-bidirectional-control.md).
+
 ### Direct Syntax (Do-Notation)
 
 Write monadic code without `<-` arrows:
