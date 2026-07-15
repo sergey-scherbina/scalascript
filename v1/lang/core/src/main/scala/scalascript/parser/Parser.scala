@@ -1569,6 +1569,47 @@ object Parser:
       while j + 2 < n && !(in(j) == '"' && in(j+1) == '"' && in(j+2) == '"') do j += 1
       if j + 2 < n then j + 3 else j
 
+    // Interpolation-aware string skip. For an interpolated string `s"…${expr}…"`, a
+    // `"` inside a `${…}` splice is NOT the terminator — the splice can embed its own
+    // string literals, e.g. `s"${xs.mkString("[", ", ", "]")}"`. Skipping the splice
+    // keeps that inner `"`, and any `[` inside it, from leaking out and being
+    // mis-rewritten as a list literal (bug: `[` in a nested interpolation string).
+    // `start` points at the opening quote; returns the index after the closing quote.
+    // Mutually recursive with `skipSpliceFrom` (splices may nest strings).
+    def skipInterpStringFrom(start: Int): Int =
+      var j = start + 1
+      var esc = false
+      var done = false
+      while j < n && !done do
+        val c = in(j)
+        if esc then { esc = false; j += 1 }
+        else if c == '\\' then { esc = true; j += 1 }
+        else if c == '"' then { j += 1; done = true }              // closing quote
+        else if c == '$' && j + 1 < n && in(j + 1) == '{' then
+          j = skipSpliceFrom(j + 1)                                 // skip `${ … }`
+        else j += 1
+      j
+
+    // `braceStart` points at the `{` of a `${…}` splice; returns the index after the
+    // matching `}`, skipping nested strings / char literals / braces within the splice.
+    def skipSpliceFrom(braceStart: Int): Int =
+      var j = braceStart + 1
+      var depth = 1
+      while j < n && depth > 0 do
+        in(j) match
+          case '"' if j + 2 < n && in(j+1) == '"' && in(j+2) == '"' => j = skipTripleFrom(j)
+          case '"'  => j = skipInterpStringFrom(j)   // nested string (may itself interpolate)
+          case '\'' => j = skipStringFrom(j, '\'')    // char literal
+          case '{'  => depth += 1; j += 1
+          case '}'  => depth -= 1; j += 1
+          case _    => j += 1
+      j
+
+    // A `"` at `idx` opens an interpolated string iff the preceding source char is an
+    // identifier char (`s"`, `f"`, `raw"`, `md"`, …) — Scala interpolation has no space.
+    def isInterpQuote(idx: Int): Boolean =
+      idx > 0 && { val p = in(idx - 1); p.isLetterOrDigit || p == '_' }
+
     // Find the closing `]` that matches the `[` whose opening was consumed before `from`.
     // Returns index of `]`, or -1 if not found. Handles nesting and strings/comments.
     def findClose(from: Int): Int =
@@ -1584,6 +1625,8 @@ object Parser:
             if j + 1 < n then j += 2
           case '"' if j + 2 < n && in(j+1) == '"' && in(j+2) == '"' =>
             j = skipTripleFrom(j) - 1; j += 1
+          case '"' if isInterpQuote(j) =>
+            j = skipInterpStringFrom(j)
           case q @ ('"' | '\'') =>
             j = skipStringFrom(j, q)
           case '(' | '{' | '[' => depth += 1; j += 1
@@ -1626,7 +1669,10 @@ object Parser:
         case '"' if i + 2 < n && in(i+1) == '"' && in(i+2) == '"' =>  // triple-quoted
           val end = skipTripleFrom(i)
           out.appendAll(in, i, end - i); i = end
-        case q @ ('"' | '\'') =>  // string/char literal
+        case '"' if isInterpQuote(i) =>  // interpolated string s"…${…}…"
+          val end = skipInterpStringFrom(i)
+          out.appendAll(in, i, end - i); i = end
+        case q @ ('"' | '\'') =>  // plain string / char literal
           val end = skipStringFrom(i, q)
           out.appendAll(in, i, end - i); i = end
         case '[' =>

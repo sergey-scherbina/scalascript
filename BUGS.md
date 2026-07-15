@@ -171,17 +171,24 @@ correct → the bug was purely the native frontend lowering. Verified via native
 
 ## interp-string-interp-open-bracket-in-nested-string — `[` in a string literal inside `${…}` mangles the interpolation
 
-**Status:** open (found 2026-07-15 by the v2-vs-v1 differential, task #16). The v1
-interpreter (`ssc-tools run --v1`) mis-evaluates a string interpolation whose `${…}`
-expression contains a string literal with an open bracket `[`. `xs.mkString("[", ", ", "]")`
-returns the correct `[1, 2, 3]` standalone, but inside `s"list: ${xs.mkString("[", ", ",
-"]")}"` it returns `List(1, 2, 3)` (the default `xs.toString`, i.e. the `.mkString(...)` is
-dropped). Even `s"${xs.mkString("[")}"` yields the garbled `1List(2List(3`. Trigger is
-specifically an open `[` inside a `${…}`-embedded string literal; `"<",",",">"`,
-`"(","-",")"`, and a lone `"]"` all work. The v2 native/bridge lanes render this case
-correctly, so the bug is v1-interpreter-only (its `${…}` boundary scanner appears to balance
-`[]` and mis-counts when a `[` occurs inside an embedded string). Workaround: avoid `[` in
-string literals inside `${…}`, or build the string in a `val` before interpolating.
+**Status:** FIXED (2026-07-15, `Parser.scala` `preprocessListLiterals`). ROOT CAUSE (not
+what the original report guessed): NOT the interpreter or scalameta, but the `.ssc`
+**preprocessor** that rewrites ScalaScript list-literal syntax `[1,2,3]` → `List(1,2,3)`.
+Its string-skipper `skipStringFrom` was not interpolation-aware: for `s"…${expr}…"` it
+stopped at the first `"` INSIDE a `${…}` splice, so a splice containing a string literal
+with `[` (e.g. `${xs.mkString("[", ", ", "]")}`) leaked its `[` back to the list-literal
+rewriter, which turned `"["` into `"List("` — corrupting the code so the interpolation
+rendered `List(1, 2, 3)` (fallback `xs.toString`) and `${xs.mkString("[")}` became the
+garbled `1List(2List(3`. FIX: `skipInterpStringFrom`/`skipSpliceFrom` skip `${…}` splices
+(and their nested strings/braces) when the `"` opens an interpolated string
+(`isInterpQuote`: preceded by an identifier char), used in the main scan loop and
+`findClose`. Verified: `preprocessListLiterals` leaves splice brackets untouched while still
+rewriting genuine `[…]` list literals (incl. `[s"${x.mkString("[")}", 2]` →
+`List(s"${x.mkString("[")}", 2)`); `InterpBracketTest` + core/test 1048/0 + interpreter
+suite green. Found by the v2-vs-v1 differential (task #16); the v2 lanes were already correct
+because they don't run this `.ssc` list-literal preprocessor. NOTE: sibling preprocessors
+that also skip strings non-interpolation-awarely (`preprocessBraceCharLiterals`, `hasArrow`)
+could have an analogous latent issue — not observed, left as-is.
 
 ## control-interop-residual-forwarding-absent — FIXED / awaiting confirmation (2026-07-15, Codex)
 
