@@ -5,6 +5,7 @@ import scala.annotation.implicitNotFound
 import scala.quoted.Expr
 import scala.quoted.Quotes
 import scala.quoted.Type
+import scala.util.control.NonFatal
 
 /** Lexically scoped direct-style lowering to the explicit control protocol. */
 object direct:
@@ -207,10 +208,18 @@ private object DirectMacros:
                 super.transformTerm(tree)(owner)
               )
             case selection: Select =>
-              Select(
-                transformTerm(selection.qualifier)(owner),
-                selection.symbol
-              )
+              val qualifier = transformTerm(selection.qualifier)(owner)
+              if selection.symbol == Symbol.noSymbol then
+                // Structural PolyFunction applications have no source symbol to
+                // reuse; resolve the member from the moved qualifier instead.
+                try Select.unique(qualifier, selection.name)
+                catch
+                  case NonFatal(_) =>
+                    report.errorAndAbort(
+                      "error [DIRECT_STYLE_UNSUPPORTED]: direct.shift cannot resolve a moved structural selection across capture; move the call outside direct.reset",
+                      selection.pos
+                    )
+              else Select(qualifier, selection.symbol)
             case _ => super.transformTerm(tree)(owner)
 
         override def transformTypeTree(
