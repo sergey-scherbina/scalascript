@@ -1,6 +1,6 @@
 feature/scala3-control-macros 2026-07-15T04:07:46Z
 agent: codex-scala-control-macros
-heartbeat: 2026-07-15T05:08:35Z
+heartbeat: 2026-07-15T05:24:50Z
 status: in-progress
-done-so-far: bounded macro plus deferred-return fail-closed fix committed; control leaf 82/82, direct lane 3/3, catalog 26/9 plus 9 negatives, affected conformance 5/5
-next: independent read-only macro review is running; on approval rebase, repeat critical gates, push origin/main, and release claim
+done-so-far: independent review rejected three P1 families (split-owner declarations, lazy-marker eagerness, unsafe inline wrappers); branch rebased and frozen audit complete
+next: record review bugs and SPRINT plan, update spec first, then implement owner-safe val rebinding and fail-closed lazy/definition/inline shapes with regressions
