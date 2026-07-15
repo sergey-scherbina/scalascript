@@ -50,6 +50,8 @@ object PreBodyApiDescriptorProducer:
   private final case class ParsedDeclarationBlock(
       path: String,
       stats: Vector[Stat],
+      sectionSource: String,
+      documentSource: Option[String],
       rawSource: Option[String],
       lineShift: Int
   )
@@ -133,29 +135,38 @@ object PreBodyApiDescriptorProducer:
       .flatMap(DescriptorCodec.encodeApi)
       .map(bytes => new String(bytes, StandardCharsets.UTF_8))
 
+  private def isPlainPackageWrapper(definition: Defn.Object): Boolean =
+    definition.mods.isEmpty &&
+      definition.templ.earlyClause.isEmpty &&
+      definition.templ.inits.isEmpty &&
+      definition.templ.derives.isEmpty &&
+      definition.templ.body.selfOpt.isEmpty
+
+  private def unwrapExactPackage(
+      stats: List[Stat],
+      remaining: List[String]
+  ): Option[List[Stat]] = remaining match
+    case Nil => Some(stats)
+    case head :: tail => stats match
+      case List(obj: Defn.Object)
+          if obj.name.value == head && isPlainPackageWrapper(obj) =>
+        unwrapExactPackage(obj.templ.body.stats, tail)
+      case _ => None
+
   private def topLevelStats(module: ast.Module): Either[DescriptorError, ParsedDeclarations] =
     val pkg = module.manifest.flatMap(_.pkg).getOrElse(Nil)
-
-    def unwrapPackage(stats: List[Stat], remaining: List[String]): Option[List[Stat]] =
-      remaining match
-        case Nil => Some(stats)
-        case head :: tail =>
-          stats match
-            case List(obj: Defn.Object) if obj.name.value == head =>
-              unwrapPackage(obj.templ.body.stats, tail)
-            case _ => None
 
     def statsFromTree(
         stats: List[Stat],
         path: String
     ): Either[DescriptorError, Vector[Stat]] =
       if pkg.isEmpty then Right(stats.toVector)
-      else unwrapPackage(stats, pkg)
+      else unwrapExactPackage(stats, pkg)
         .map(_.toVector)
         .toRight(error(
           "UNSUPPORTED_PUBLIC_DECLARATION",
           path,
-          s"parsed code block does not retain the declared package wrapper ${pkg.mkString(".")}"
+          s"parsed code block does not retain the exact plain package wrapper ${pkg.mkString(".")}"
         ))
 
     def sectionBlocks(
@@ -182,8 +193,10 @@ object PreBodyApiDescriptorProducer:
                       Vector(ParsedDeclarationBlock(
                         path = contentPath,
                         stats = stats,
-                        rawSource = if module.document.isEmpty && pkg.isEmpty then Some(block.source) else None,
-                        lineShift = pkg.size
+                        sectionSource = block.source,
+                        documentSource = None,
+                        rawSource = Some(block.source),
+                        lineShift = 0
                       ))
                     }
                   case termBlock: Term.Block =>
@@ -191,8 +204,10 @@ object PreBodyApiDescriptorProducer:
                       Vector(ParsedDeclarationBlock(
                         path = contentPath,
                         stats = stats,
-                        rawSource = if module.document.isEmpty && pkg.isEmpty then Some(block.source) else None,
-                        lineShift = pkg.size + 1
+                        sectionSource = block.source,
+                        documentSource = None,
+                        rawSource = Some(block.source),
+                        lineShift = 1
                       ))
                     }
                   case other => Left(error(
@@ -221,10 +236,14 @@ object PreBodyApiDescriptorProducer:
               s"retained executable source blocks (${retainedSources.size}) do not match parsed section blocks (${sectionBlocks.size})"
             ))
           else Right(sectionBlocks.zip(retainedSources).map { case (block, source) =>
-            block.copy(rawSource = Some(source))
+            block.copy(
+              documentSource = Some(source),
+              rawSource = Some(source),
+              lineShift = block.lineShift + pkg.size
+            )
           })
         case None => Right(sectionBlocks)
-      verifiedBlocks <- traverse(pairedBlocks)(verifyDeclarationCorrespondence)
+      verifiedBlocks <- traverse(pairedBlocks)(verifyDeclarationCorrespondence(_, pkg))
     yield ParsedDeclarations(
       stats = verifiedBlocks.flatMap(_.stats),
       blocks = verifiedBlocks
@@ -243,41 +262,64 @@ object PreBodyApiDescriptorProducer:
     fromBlocks(document.blocks) ++ document.sections.iterator.flatMap(fromSection).toVector
 
   private def verifyDeclarationCorrespondence(
-      block: ParsedDeclarationBlock
+      block: ParsedDeclarationBlock,
+      pkg: List[String]
   ): Either[DescriptorError, ParsedDeclarationBlock] =
-    block.rawSource match
-      case None => Right(block)
-      case Some(source) =>
-        val reparsed = Parser.parseScalaSource(source).toRight(error(
-          "UNSUPPORTED_PUBLIC_DECLARATION",
-          block.path,
-          "retained executable source cannot be reparsed for declaration correspondence"
-        ))
-        reparsed.flatMap { node =>
-          val reparsedStats = node.tree match
-            case parsed: Source => Right(parsed.stats.toVector)
-            case parsed: Term.Block => Right(parsed.stats.toVector)
-            case other => Left(error(
+    val normalizedStored = normalizeDeclarationStats(block.stats)
+    val storedWitness = declarationWitnesses(normalizedStored)
+
+    def reparse(
+        source: String,
+        carrier: String,
+        packageWrapped: Boolean
+    ): Either[DescriptorError, Vector[Stat]] =
+      Parser.parseScalaSource(source).toRight(error(
+        "UNSUPPORTED_PUBLIC_DECLARATION",
+        block.path,
+        s"retained $carrier source cannot be reparsed for declaration correspondence"
+      )).flatMap { node =>
+        val reparsedStats = node.tree match
+          case parsed: Source => Right(parsed.stats)
+          case parsed: Term.Block => Right(parsed.stats)
+          case other => Left(error(
+            "UNSUPPORTED_PUBLIC_DECLARATION",
+            block.path,
+            s"retained $carrier source reparsed as unsupported root ${other.productPrefix}"
+          ))
+        reparsedStats.flatMap { stats =>
+          if packageWrapped && pkg.nonEmpty then
+            unwrapExactPackage(stats, pkg).toRight(error(
               "UNSUPPORTED_PUBLIC_DECLARATION",
               block.path,
-              s"retained executable source reparsed as unsupported root ${other.productPrefix}"
+              s"retained $carrier source does not contain the exact plain package wrapper ${pkg.mkString(".")}"
             ))
-          reparsedStats.flatMap { stats =>
-            val normalizedRetained = normalizeDeclarationStats(stats)
-            val normalizedStored = normalizeDeclarationStats(block.stats)
-            val retainedWitness = declarationWitnesses(normalizedRetained)
-            val storedWitness = declarationWitnesses(normalizedStored)
-            Either.cond(
-              retainedWitness == storedWitness,
-              block.copy(stats = normalizedStored),
-              error(
-                "UNSUPPORTED_PUBLIC_DECLARATION",
-                block.path,
-                "retained executable source declaration headers do not match the stored section AST"
-              )
-            )
-          }
-        }
+          else Right(stats)
+        }.map(stats => normalizeDeclarationStats(stats.toVector))
+      }
+
+    def requireStoredWitness(
+        retained: Vector[Stat],
+        carrier: String
+    ): Either[DescriptorError, Unit] =
+      Either.cond(
+        declarationWitnesses(retained) == storedWitness,
+        (),
+        error(
+          "UNSUPPORTED_PUBLIC_DECLARATION",
+          block.path,
+          s"retained $carrier source declaration headers do not match the stored section AST"
+        )
+      )
+
+    for
+      sectionStats <- reparse(block.sectionSource, "code-block", packageWrapped = true)
+      _ <- requireStoredWitness(sectionStats, "code-block")
+      _ <- block.documentSource match
+        case Some(source) =>
+          reparse(source, "document", packageWrapped = false)
+            .flatMap(requireStoredWitness(_, "document"))
+        case None => Right(())
+    yield block.copy(stats = normalizedStored)
 
   private def normalizeDeclarationStats(stats: Vector[Stat]): Vector[Stat] =
     Parser.desugarTypeLambdaAliases(Source(stats.toList)) match
@@ -1352,6 +1394,29 @@ object PreBodyApiDescriptorProducer:
     case List(Type.Name("Byte")) => true
     case _ => false
 
+  private def hasLexicalTypeIdentity(
+      name: String,
+      binders: BinderStack,
+      path: String,
+      context: ProjectionContext
+  ): Either[DescriptorError, Boolean] =
+    if resolveBinder(name, binders).nonEmpty then Right(true)
+    else resolveLocalTypeForAbi(name, path, context).map(_.nonEmpty)
+
+  private def projectNamedApplication(
+      name: String,
+      arguments: Vector[Type],
+      binders: BinderStack,
+      path: String,
+      context: ProjectionContext
+  ): Either[DescriptorError, AbiType] =
+    for
+      projectedArguments <- traverse(arguments.zipWithIndex) { case (argument, index) =>
+        projectType(argument, binders, s"$path.arguments[$index]", context)
+      }
+      projected <- projectSimpleName(name, projectedArguments, binders, path, context)
+    yield projected
+
   private def projectType(
       sourceType: Type,
       binders: BinderStack,
@@ -1361,20 +1426,22 @@ object PreBodyApiDescriptorProducer:
     case Type.Name(name) => projectSimpleName(name, Vector.empty, binders, path, context)
     case Type.Apply.After_4_6_0(Type.Name("Array"), arguments)
         if isByteArgument(arguments.values.toList) =>
-      resolveLocalTypeForAbi("Array", path, context).flatMap {
-        case None => Right(AbiType.Primitive(AbiPrimitive.Bytes))
-        case Some(stableId) =>
-          traverse(arguments.values.toVector.zipWithIndex) { case (argument, index) =>
-            projectType(argument, binders, s"$path.arguments[$index]", context)
-          }.map(projectedArguments => AbiType.Named(stableId, projectedArguments))
-      }
-    case Type.Apply.After_4_6_0(Type.Name(name), arguments) =>
+      val sourceArguments = arguments.values.toVector
       for
-        projectedArguments <- traverse(arguments.values.toVector.zipWithIndex) { case (argument, index) =>
-          projectType(argument, binders, s"$path.arguments[$index]", context)
-        }
-        projected <- projectSimpleName(name, projectedArguments, binders, path, context)
+        arrayShadowed <- hasLexicalTypeIdentity("Array", binders, path, context)
+        byteShadowed <- hasLexicalTypeIdentity(
+          "Byte",
+          binders,
+          s"$path.arguments[0]",
+          context
+        )
+        projected <-
+          if !arrayShadowed && !byteShadowed then
+            Right(AbiType.Primitive(AbiPrimitive.Bytes))
+          else projectNamedApplication("Array", sourceArguments, binders, path, context)
       yield projected
+    case Type.Apply.After_4_6_0(Type.Name(name), arguments) =>
+      projectNamedApplication(name, arguments.values.toVector, binders, path, context)
     case Type.Apply.After_4_6_0(selected: Type.Select, arguments) =>
       for
         stableName <- showTypePath(selected, path)
