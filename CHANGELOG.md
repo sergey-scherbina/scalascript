@@ -4,6 +4,26 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-15 — Scala 3 lexical direct-style control macros (M1)
+
+Added `scalascript.control.direct.{Scope,reset,shift}` to the existing
+`io.scalascript:scalascript-control_3` artifact. The inline transform accepts a
+bounded lexical ANF sequence and emits only the compiler-independent explicit
+`Eff`/`shift`/`reset` protocol, preserving prefix/suffix evaluation, sequential
+markers, reusable continuation semantics, residual rows, and shared heap state.
+Unsupported expression shapes and callback/control barriers fail closed at compile
+time with stable `UNMANAGED_CAPTURE`, `CAPTURE_BARRIER`, or
+`DIRECT_STYLE_UNSUPPORTED` diagnostics; there is no exception/TLS/runtime capture
+path and no CoreIR, UniML, seed, backend, or self-hosting change.
+
+The `scala-direct` semantic lane is now ready for vectors 18 and 23 plus catalog
+coverage (3/3), each differential against explicit Scala. The complete control
+leaf passes 80/80 tests, the package/POM and runnable example are green, catalog
+validation remains 26 vectors/9 lanes with 9/9 negative cases, and affected effect
+conformance passes 5/5. Cross-method capture, prompt forwarding across a nested
+different-prompt reset, managed callbacks, and saveable frames remain work for the
+compiler plugin.
+
 ## 2026-07-15 — JavaScript/TypeScript explicit local control API
 
 Added the compiler-independent ESM-only `@scalascript/control` reference leaf at

@@ -234,7 +234,7 @@ every later compiler/kernel change re-runs the literal fixed point.
   `Ctor`/`Lam` or the equivalent stable generic `effect.*` Prim ABI. Direct syntax needs a compiler-known
   capture boundary because current compatibility handlers see only inline bodies; this is not a
   semantic restriction on first-class explicit `Eff` values or the explicit reset fold.
-- [ ] **scala3-control-macros** — publish `_3` inline macros for local direct-style `reset` regions;
+- [x] **scala3-control-macros** — publish `_3` inline macros for local direct-style `reset` regions;
   lower to the same explicit ABI and reject a `shift` crossing an untransformed callback/resource
   frame. Preserve exact source positions and make explicit-vs-macro differential tests mandatory.
   Resume-cold M1 contract: [`specs/scala3-control-macros.md`](specs/scala3-control-macros.md).
@@ -247,7 +247,11 @@ every later compiler/kernel change re-runs the literal fixed point.
   level. M1 nested resets lower only their own matching markers; a marker targeting
   an outer scope across a nested reset is rejected until the compiler-plugin tier can preserve the
   residual outer control row explicitly. Accordingly the direct lane claims vector 18/23 `shift-reset`;
-  vector 22 also requires `prompt-isolation` and remains explicit/plugin evidence.
+  vector 22 also requires `prompt-isolation` and remains explicit/plugin evidence. Landed 2026-07-15:
+  the bounded lexical transform emits only the existing explicit API; ten direct semantic tests, eight
+  exact diagnostic tests, and source-access guards pass inside the 80/80 control leaf. The validated
+  `scala-direct` lane runs vectors 18/23 plus coverage (3/3) with explicit differential oracles; package,
+  POM, runnable example, and five-case affected conformance gates are green.
 - [ ] **scala3-control-plugin** — publish a `CrossVersion.full` compiler plugin for cross-method CPS,
   managed callback propagation, effect metadata, and generated ABI entrypoints. Precompiled Scala/Java
   code remains callable but is a deterministic control-capture barrier while active on the stack.
