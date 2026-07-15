@@ -44,7 +44,9 @@ finds a known non-public local identity, fail with stable `UNSUPPORTED_PUBLIC_TY
 before external-name projection or callback classification. Regress both the private
 qualified-owner and internal callback-alias shapes, a public alias chain, absolute
 fully-qualified selection, the shadowed `Array[Byte]` fast path, and a private local
-effect row.
+effect row. The bytes shortcut is valid only when lexical lookup finds no local
+`Array`; a public local `Array` must retain ordinary local-constructor projection,
+while a non-public one rejects before the shortcut.
 
 **Baseline:** focused producer test accepts `Hidden.T` and `Callbacks.Hidden` as
 external `AbiType.Named` values; the latter has no callback policy. These are two
@@ -70,7 +72,10 @@ comments. Reject a mismatch with stable `UNSUPPORTED_PUBLIC_DECLARATION`; preser
 body-only descriptor/hash invariance and add the exact copy/tamper regression.
 Require a unique synthetic package-wrapper chain, normalize placeholder type aliases
 symmetrically on both trees, and prove that body/RHS/default-expression-only retained
-source changes remain accepted against the same stored declaration AST.
+source changes remain accepted against the same stored declaration AST. Witness all
+current ScalaMeta definition headers explicitly, including template/alias givens,
+extension groups, and macros; never use a product-prefix-only fallback that would
+accept a changed unsupported declaration header.
 
 **Baseline:** focused producer test returns `Right` and still exports
 `demo.api.Real.read` after retained source removes that operation; this is one of

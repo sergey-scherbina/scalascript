@@ -218,13 +218,19 @@ optional policy, not the default continuation semantics.
       and the stored section AST. Ignore bodies/comments, but reject the reviewer's tamper where
       retained `effect Real:` is paired with a stale AST still containing `read`; require one
       exact package-wrapper chain, normalize placeholder aliases on both sides, and keep stale
-      body/RHS/default-expression-only edits descriptor/hash invariant.
+      body/RHS/default-expression-only edits descriptor/hash invariant. Explicitly witness every
+      current ScalaMeta definition form whose header can survive parsing (`GivenAlias`, template
+      `Given`, extension groups, and macros included); a product-prefix-only fallback is not exact,
+      and unknown future definition forms must compare conservatively rather than accepting a
+      changed header.
     - [ ] Index every known local type/alias with effective owner visibility. A public signature
       resolving to a private/internal local owner or alias must fail `UNSUPPORTED_PUBLIC_TYPE`
       before external `AbiType.Named` fallback or callback classification; regress relative and
       absolute `private Hidden.T`, an `@internal` callback alias both directly and through a
       public wrapper alias, a private local `Array` shadowing the `Array[Byte]` fast path, and a
-      qualified private local effect row.
+      qualified private local effect row. The built-in bytes fast path applies only when no lexical
+      local `Array` exists: a public local `Array` follows ordinary local-constructor projection,
+      while a known non-public local `Array` rejects before the fast path.
     - [ ] Reject selected public/exported `Defn.Var` with
       `UNSUPPORTED_PUBLIC_DECLARATION` until an additive descriptor revision represents
       mutability. Keep equivalent `val` positive and do not change the frozen Slice A schema.
