@@ -176,7 +176,18 @@ validate_lane_catalog() {
     }
     BEGIN {
       required = "portable-vm portable-asm scala-explicit scala-direct jvm-generated js-generated rust-generated wasm-generated swift-generated"
-      split(required, requiredLane, " ")
+      requiredCount = split(required, requiredLane, " ")
+      for (i = 1; i <= requiredCount; i++) allowedLane[requiredLane[i]] = 1
+      expectedAdapter["portable-vm"] = "ssc-vm"
+      expectedAdapter["portable-asm"] = "ssc-asm"
+      expectedAdapter["scala-explicit"] = "scala3-control-test"
+      expectedStatus["portable-vm"] = "ready"
+      expectedStatus["portable-asm"] = "ready"
+      expectedStatus["scala-explicit"] = "ready"
+      for (i = 4; i <= requiredCount; i++) {
+        expectedAdapter[requiredLane[i]] = "none"
+        expectedStatus[requiredLane[i]] = "pending"
+      }
     }
     NR == 1 { next }
     {
@@ -185,17 +196,22 @@ validate_lane_catalog() {
       if (index($0, "\r") != 0) bad("carriage returns are forbidden")
       if ($1 !~ /^[a-z0-9]+(-[a-z0-9]+)*$/) bad("invalid lane id: " $1)
       if (seenLane[$1]++) bad("duplicate lane: " $1)
+      if (!allowedLane[$1]) bad("unknown lane: " $1)
       if ($2 != "ssc-vm" && $2 != "ssc-asm" && $2 != "scala3-control-test" && $2 != "none")
         bad("unknown adapter: " $2)
       if ($3 != "ready" && $3 != "optional" && $3 != "pending")
         bad("invalid status: " $3)
+      if (allowedLane[$1] && $2 != expectedAdapter[$1])
+        bad("lane " $1 " must use adapter " expectedAdapter[$1])
+      if (allowedLane[$1] && $3 != expectedStatus[$1])
+        bad("lane " $1 " must have status " expectedStatus[$1])
       check_caps($4, $3 == "pending")
       if ($3 == "pending" && $2 != "none") bad("pending lane adapter must be none")
       if ($3 != "pending" && $2 == "none") bad("ready/optional lane needs an adapter")
       if ($5 == "") bad("reason must not be empty")
     }
     END {
-      for (i in requiredLane)
+      for (i = 1; i <= requiredCount; i++)
         if (!seenLane[requiredLane[i]]) {
           print "lanes.tsv: missing mandatory lane: " requiredLane[i] > "/dev/stderr"
           errors++
@@ -223,9 +239,34 @@ process_lane_accepts_vector() {
   return 1
 }
 
+validate_ready_lane_coverage() {
+  while IFS= read -r lane; do
+    status="$(lane_field "$lane" 3)"
+    [ "$status" = "ready" ] || continue
+    adapter="$(lane_field "$lane" 2)"
+    lane_caps="$(lane_field "$lane" 4)"
+    eligible=0
+    while IFS= read -r key; do
+      phase="$(vector_field "$key" 5)"
+      [ "$phase" = "specified" ] || continue
+      required_caps="$(vector_field "$key" 4)"
+      capabilities_are_subset "$lane_caps" "$required_caps" || continue
+      stream="$(vector_field "$key" 7)"
+      case "$adapter:$stream" in
+        ssc-vm:stdout|ssc-vm:stderr|ssc-asm:stdout|ssc-asm:stderr|scala3-control-test:*)
+          eligible=$((eligible + 1))
+          ;;
+      esac
+    done < "$tmp/vector-keys"
+    [ "$eligible" -gt 0 ] || \
+      validation_error "ready lane $lane admits no executable specified vector"
+  done < "$tmp/lane-keys"
+}
+
 validate_files_and_adapters() {
   awk -F '\t' 'NR > 1 && NF == 8 { print $1 "-" $2 }' "$VECTORS" > "$tmp/vector-keys"
   awk -F '\t' 'NR > 1 && NF == 5 { print $1 }' "$LANES" > "$tmp/lane-keys"
+  validate_ready_lane_coverage
 
   while IFS= read -r key; do
     [ -n "$key" ] || continue
@@ -419,6 +460,10 @@ run_process_lane() {
   done < "$tmp/vector-keys"
 
   echo "$lane: $pass PASS, $fail FAIL"
+  if [ $((pass + fail)) -eq 0 ]; then
+    echo "LANE $lane FAIL: ready process lane executed no vectors" >&2
+    return 1
+  fi
   [ "$fail" -eq 0 ]
 }
 

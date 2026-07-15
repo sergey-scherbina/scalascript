@@ -10,7 +10,7 @@ id	slug	law	capabilities	phase	expectedExit	expectedStream	oracle
 09	nondeterminism-product	§3,§14.1	effects,multi-shot	specified	zero	stdout	11,21,12,22
 10	raw-foreignv-reject	§8.3,§9.1,§14.3	durable-save,foreign-barrier	pending-codec	pending	pending	CaptureBarrier
 11	missing-resolver-reject	§9.2,§11.1,§14.3	admission,durable-ref	pending-codec	pending	pending	MissingDependency
-12	exact-artifact-and-codec-mismatch	§8.3,§11.1,§14.3	admission,exact-artifact	pending-codec	pending	pending	AbiMismatch
+12	exact-artifact-and-codec-mismatch	§8.3,§11.1,§14.3	admission,exact-artifact	pending-codec	pending	pending	CodecMismatch|AbiMismatch|MissingDependency
 13	signature-quota-negative	§11.1,§12,§14.3	admission,security	pending-codec	pending	pending	TamperedCapsule|ResourceLimit
 14	durable-save-run-same-process	§8.1,§14.3	durable-save	pending-codec	pending	pending	reusable-run
 15	cross-host-resume	§8.1,§14.4	durable-save,remote-runner	pending-codec	pending	pending	portable-N-to-M

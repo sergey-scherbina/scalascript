@@ -53,6 +53,18 @@ duplicate="$(sed -n '2p' "$case_dir/lanes.tsv")"
 printf '%s\n' "$duplicate" >> "$case_dir/lanes.tsv"
 expect_rejected duplicate-lane "$case_dir"
 
+case_dir="$(fresh_case swapped-lane-adapter)"
+awk -F '\t' 'BEGIN { OFS = "\t" } $1 == "portable-vm" { $2 = "ssc-asm" } { print }' \
+  "$case_dir/lanes.tsv" > "$case_dir/lanes.tsv.next"
+mv "$case_dir/lanes.tsv.next" "$case_dir/lanes.tsv"
+expect_rejected swapped-lane-adapter "$case_dir"
+
+case_dir="$(fresh_case empty-ready-lane)"
+awk -F '\t' 'BEGIN { OFS = "\t" } $1 == "portable-vm" { $4 = "unused-capability" } { print }' \
+  "$case_dir/lanes.tsv" > "$case_dir/lanes.tsv.next"
+mv "$case_dir/lanes.tsv.next" "$case_dir/lanes.tsv"
+expect_rejected empty-ready-lane "$case_dir"
+
 case_dir="$(fresh_case missing-probe)"
 rm "$case_dir/probes/01-one-shot-resume.ssc"
 expect_rejected missing-probe "$case_dir"
