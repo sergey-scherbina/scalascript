@@ -298,10 +298,36 @@ every later compiler/kernel change re-runs the literal fixed point.
       the full leaf/package/POM pass 101/101, packaged positive and exact-negative consumers are
       green, catalog validation is 26 vectors/9 lanes, negatives are 9/9, direct is 3/3, and
       affected conformance is 5/5. Markdown and diff checks are the final freeze gate.
-  - [ ] Fresh independent read-only rereview of the frozen checkpoint. Expanded direct semantics
+  - [x] Fresh independent read-only rereview of frozen checkpoint `708dec2f1`. Expanded direct semantics
     (17/17), diagnostics after clean compile (22/22), full leaf/package/POM (101/101), catalog validation
     (26/9), negatives (9/9), direct lane (3/3), affected conformance (5/5), and packaged-JAR compile/run
-    are already green. Do not mark M1 done or push until rereview returns APPROVE.
+    were green, but review rejected the checkpoint with three P1 owner-safety gaps and P2 regression/
+    bookkeeping gaps. Do not mark M1 done or push.
+  - [ ] **Post-`708dec2f1` owner remediation (three P1 + P2; resume cold):** update and commit
+    `specs/scala3-control-macros.md` before code, then change only
+    `v2/host/scala/control` (`scala3ControlApi`, `scalascript-control_3`). Preserve the explicit ABI;
+    do not touch v1, CoreIR, UniML, backends, CLI, seed, or self-hosting. Complete in order:
+    - [ ] Rebind the captured result type `A` through the active prefix replacements before opening
+      it with `asType` or typing the moved rank-2 body. Support both `owner.type` and
+      `Prompt[inner.Key, Int]` captured values, with packaged direct-vs-explicit results of `42`;
+      otherwise fail closed at the marker, never raw E007/owner² output.
+    - [ ] Audit every owner-bearing type in moved prefix RHS and captured-suffix terms, including
+      nested lambda/result symbols. Support `val f: () => owner.type = () => owner` across capture
+      in both prefix and suffix declaration shapes, or reject an unrepresentable graph before code
+      construction with stable `DIRECT_STYLE_UNSUPPORTED`; add packaged explicit differentials.
+    - [ ] Make supported crossing contextual values two-phase: allocate all fresh `ValDef` symbols
+      before moving RHS trees, then move with the complete replacement map. Preserve compiler
+      `Given`/`Lazy` flags and accept unused forward/mutual parameterless givens whose explicit
+      equivalent prints `42`; fail closed only for an actually unsupported dependent type cycle.
+    - [ ] Commit exact diagnostic regressions for `scala.util.boundary.break` through an imported
+      method alias, explicit label application, module alias, and transparent-inline provenance.
+      Correct over-broad dependent-owner completion wording in the feature spec and CHANGELOG.
+    - [ ] Run clean focused semantics/diagnostics, full
+      `scala3ControlApi/test;scala3ControlApi/packageBin;scala3ControlApi/makePom`, packaged positive
+      and negative consumers, catalog validation 26/9, negatives 9/9, direct lane 3/3, affected
+      conformance 5/5, Markdown, and diff checks. Update spec verification/results and BUGS/SPRINT/
+      CHANGELOG in separate commits, rebase only while clean, repeat critical gates, freeze an exact
+      clean head, and require another independent review. Do not push or release the claim.
 - [ ] **scala3-control-plugin** — publish a `CrossVersion.full` compiler plugin for cross-method CPS,
   managed callback propagation, effect metadata, and generated ABI entrypoints. Precompiled Scala/Java
   code remains callable but is a deterministic control-capture barrier while active on the stack.

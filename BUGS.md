@@ -1,5 +1,84 @@
 # Bug tracker
 
+## scala-direct-captured-type-owner — captured A keeps a stale prefix owner
+
+**Status:** open; reported as P1 by the fresh independent review of frozen
+`scala3-control-macros` checkpoint `708dec2f1` (2026-07-15).
+
+**Symptom/reproduce:** declare a local owner before capture and use its singleton
+type as the captured result, for example
+`direct.shift[scope.Key, owner.type, Nothing, Int](...)`. The prefix owner is
+freshened, but the captured `A` used to type the generated explicit continuation
+still names the original owner. Scala emits raw E007/owner-versus-owner² output.
+The same failure occurs for `A = Prompt[inner.Key, Int]`; the equivalent explicit
+control program compiles and prints `42`.
+
+**Observed packaged baseline:** Scala CLI 3.8.3 against only the packaged control
+JAR fails the singleton case at the enclosing reset expansion with E007: found
+`(owner : Object)`, required `(owner² : Object)`. This confirms a generated-type
+owner split rather than a test-classpath artifact.
+
+**Root cause/plan:** `explicitShift` opens `found.typeArguments(1).tpe.asType`
+without applying the capture split's prefix replacement map, then moves and casts
+the rank-2 body against that stale type. Rebind the captured type through the same
+supported dependent/singleton type substitution used by prefix declarations and
+use the rebound type consistently for the explicit shift and moved continuation
+body. Prefer supporting both common singleton and local-prompt shapes; any truly
+unsupported type must reject at the source marker with stable
+`DIRECT_STYLE_UNSUPPORTED`, never a generated compiler error. Add faithful
+packaged-consumer semantics for both shapes and the explicit differential.
+
+## scala-direct-moved-term-type-owner — moved RHS and suffix symbols keep stale owners
+
+**Status:** open; reported as P1 by the fresh independent review of frozen
+`scala3-control-macros` checkpoint `708dec2f1` (2026-07-15).
+
+**Symptom/reproduce:** before a direct marker, declare
+`val owner = new Object` and
+`val f: () => owner.type = () => owner`, then use `f` after capture. Although the
+outer `ValDef.tpt` is rebound, an inferred/nested symbol type inside the moved RHS
+still points at the old owner and Scala reports raw E007/quote-owner output. A
+declaration in the captured suffix can retain the same stale owner graph. The
+equivalent explicit program compiles and prints `42`.
+
+**Observed packaged baseline:** Scala CLI 3.8.3 against only the packaged control
+JAR fails at the lambda RHS with E007: found `() => (owner : Object)`, required
+`() => (owner² : Object)`.
+
+**Root cause/plan:** term-reference substitution and the cloned declaration's top
+type do not cover every owner-bearing type attached to nested moved definitions or
+suffix terms. Audit the complete moved term after owner change, rebind the common
+function/lambda and suffix declaration symbol/type graphs, and verify no replaced
+old symbol remains. If Quotes cannot rebuild a particular graph soundly in M1,
+reject it before constructing generated code with stable source-located
+`DIRECT_STYLE_UNSUPPORTED`. Add prefix-RHS and suffix packaged regressions plus an
+explicit differential; no raw E007 path is acceptable. Correct the spec and
+CHANGELOG wording that currently claims dependent-owner completion too broadly.
+
+## scala-direct-contextual-forward-reference — prefix cloning breaks lazy givens
+
+**Status:** open; reported as P1 by the fresh independent review of frozen
+`scala3-control-macros` checkpoint `708dec2f1` (2026-07-15).
+
+**Symptom/reproduce:** put compiler-lazy parameterless givens before a later marker,
+including a forward/mutual pair such as `given first: TC = second` and
+`given second: TC = first`. The givens remain unused, so the equivalent explicit
+program compiles and prints `42`, but direct lowering moves the first RHS before a
+fresh symbol for `second` exists and leaks an old owner/reference.
+
+**Observed packaged baseline:** Scala CLI 3.8.3 against only the packaged control
+JAR fails at `given first: TC = second` with raw macro output: `a reference to
+given instance second was used outside the scope where it was defined`.
+
+**Root cause/plan:** `preparePrefix` allocates and records each fresh symbol only
+after moving that declaration's RHS, which is valid only for backward references.
+Allocate the supported crossing value symbols in a first phase, preserving flags
+and rebinding their types, then move every RHS with the complete replacement map.
+Support ordinary compiler-lazy given forward/mutual term references as promised by
+the current spec. Any dependent type cycle that cannot be allocated soundly must
+fail closed at its declaration. Add a real packaged consumer for forward/mutual
+givens and keep ordinary strict sequencing/shared mutable-cell regressions green.
+
 ## scala-direct-nested-reset-prompt-marker — outer marker survives in eager nested-reset prompt
 
 **Status:** open; remediation is green in feature commit `fdde23d93`, but a fresh
@@ -45,9 +124,11 @@ fix lands.
 
 ## scala-direct-boundary-break-escape — boundary break can outlive its delimiter
 
-**Status:** open; remediation is green in feature commit `a77651132`, but a fresh
-independent review and the landing SHA are pending. Reported as P1 by the rereview
-of frozen `scala3-control-macros` checkpoint `ec4eb279e` (2026-07-15).
+**Status:** open; behavior remediation is green on the feature branch, but fresh
+review of checkpoint `708dec2f1` found incomplete committed regression coverage for
+symbol-preserving aliases/provenance. The landing SHA is pending. Originally
+reported as P1 by the rereview of frozen `scala3-control-macros` checkpoint
+`ec4eb279e` (2026-07-15); regression gap reported as P2 on 2026-07-15.
 
 **Symptom/reproduce:** place `scala.util.boundary.break(value)` in a
 `direct.reset` body, including a pure prefix before a later `direct.shift` or a
@@ -68,8 +149,10 @@ leaks.
 exact `scala.util.boundary.break` overload symbols both as ordinary calls and
 through inline provenance, then rejects at the invocation before `Eff.defer` is
 constructed. Pure-body and captured-suffix exact-diagnostic regressions pass in
-the 21/21 clean-compiled diagnostics suite; keep this entry open until rereview
-approves and the fix lands.
+the clean-compiled diagnostics suite. Add committed exact regressions for an
+imported `break` alias, explicit label application, a module alias, and transparent-
+inline provenance; the review probes already reject, but that behavior must remain
+frozen in the suite. Keep this entry open until rereview approves and the fix lands.
 
 ## scala-direct-transparent-inline-position — wrapper diagnostic points at reset
 
