@@ -1,6 +1,0 @@
-feature/plugin-capability-profile-v1 2026-07-15T03:15:24Z
-agent: codex-plugin-profile
-heartbeat: 2026-07-15T03:48:17Z
-status: in-progress
-done-so-far: implemented the target-neutral profile leaf, checked descriptor projection, inventory preflight, and additive NativePlugin declaration; focused tests pass 23/23 plus 12/12 and plugin-* conformance is explicit 0/0; independent review findings fixed
-next: obtain final review approval, rebase latest origin/main, rerun gates, commit docs and bookkeeping separately, then push for root release
