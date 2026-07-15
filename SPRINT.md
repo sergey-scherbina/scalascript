@@ -135,6 +135,11 @@ recorded in `CHANGELOG.md`. The remaining active control-runtime follow-ups are:
       `LetRec` bodies (`BUGS.md jvm-bytegen-letrec-env-clobber`) and guard it with
       both a generic `LetRec`-then-outer-local raw-CoreIR test and the deep
       effectful-While test. Add VM/direct-ASM regressions for all three.
+      After integrating residual forwarding, route its escaped-continuation
+      multiplicity checks through an explicit managed call boundary and add one
+      combined VM/direct-ASM regression that proves residual forwarding enters
+      the private `Rehandle` path and applies inner/outer `Return` clauses in
+      exact order.
       Conformance axis 20 stays pending-runtime until focused tests plus the
       installed default VM and `--bytecode` deep probe are green.
 - Cancellation public transitions are underspecified (codex-interop) — no vector contract

@@ -379,8 +379,16 @@ green.
   lowering enqueued only an effect-aware `Let` emitted a call to `lam$1` but no
   corresponding method, failing with `NoSuchMethodError`. The queue must drain
   while any pending lambda, sequence chain, or let chain remains.
+- After residual forwarding was rebased onto the always-deferred resume driver,
+  its multiplicity test called an escaped forwarded continuation directly with
+  `Prims.runClos1` and observed the private request. That call models an
+  unmanaged host callback; the driver contract intentionally drains only at an
+  explicit managed boundary. The integrated regression must invoke those
+  continuations through `Runtime.runManaged`, then cover residual forwarding,
+  a nested request entering `Handle` mode (`Rehandle`), and exact inner/outer
+  `Return` ordering together on VM/direct ASM.
 
-Both remain part of this open stack-safety/classifier verification; axis 20 is
+These remain part of this open stack-safety/classifier verification; axis 20 is
 not promoted until the focused raw-CoreIR regressions and installed VM/direct-
 ASM probe are green.
 
