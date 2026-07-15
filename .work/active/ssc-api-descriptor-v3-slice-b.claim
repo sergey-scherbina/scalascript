@@ -1,6 +1,6 @@
 feature/ssc-api-descriptor-v3-slice-b 2026-07-15T04:02:06Z
 agent: codex-descriptor-b
-heartbeat: 2026-07-15T05:29:19Z
+heartbeat: 2026-07-15T05:49:38Z
 status: in-progress
-done-so-far: first re-review corrections reached 25/25, but fresh audit rejected source/AST correspondence, private/internal local-type leakage, and exported-var mutability; branch rebased
-next: record the three new P1s in BUGS/SPRINT, update spec first, then implement fail-closed checks and rerun full gates before another review
+done-so-far: second rereview fixes are in progress; design audit added exact source/AST witness, fully-qualified private locals, checked callback aliases, local Array, package-wrapper, placeholder-alias, and stale-body cases
+next: finish producer/tests, checkpoint, rebase current origin/main, rerun focused/full gates, then freeze for a new independent review; no push or release before approval
