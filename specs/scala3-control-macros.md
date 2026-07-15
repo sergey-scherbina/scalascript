@@ -1,7 +1,9 @@
 # Scala 3 lexical direct-style control macros
 
-Status: **M1 implemented and verified**
-(2026-07-15).
+Status: **M1 implemented; independent-review remediation in progress**
+(2026-07-15). The first review rejected owner splitting, lazy-marker lowering,
+and provenance-bearing inline wrappers. The fail-closed and symbol-rebinding
+contract below is normative before M1 may land.
 
 This feature is the bounded inline-macro tier of
 [`scala3-bidirectional-control.md`](scala3-bidirectional-control.md). It translates
@@ -131,7 +133,10 @@ ANF/CPS sequence. M1 accepts:
 
 - pure prefix and suffix statements with Scala's ordinary left-to-right strict
   evaluation;
-- immutable or mutable local declarations whose initializer contains no marker;
+- strict immutable, mutable, contextual/given, and pattern-generated local value
+  declarations whose initializer contains no marker; when such a value remains
+  live across capture, lowering freshens its symbol in declaration order and
+  rebinds every shift-body and suffix reference to that one generated binding;
 - `val name = direct.shift(...)(...)` at block level;
 - a tail-position `direct.shift(...)(...)` when its result type is the reset answer
   type;
@@ -142,6 +147,11 @@ ANF/CPS sequence. M1 accepts:
   `Scope`;
 - mutation of ordinary captured local/heap state, with the existing local
   multi-shot rule: control is copied, the current local heap is shared.
+
+The strict-value rule includes dependencies between synthetic `ValDef`s emitted
+for a destructuring pattern and values declared between two sequential markers.
+A captured local `var` remains one Scala closure cell shared by every reusable
+resume; the transform must not copy its current value into each continuation.
 
 The shift body's rank-2 lambda is an opaque argument of the marker. Its own lambda
 syntax is not classified as a crossed callback frame.
@@ -155,8 +165,19 @@ M1 rejects a direct marker nested inside any of these boundaries:
 - `while`, `do`, `for`, non-local `return`, or another unsupported control tree;
 - an unknown inline expansion or application shape for which the transform cannot
   prove evaluation order and ownership;
+- a local method, class, type alias/declaration, or lazy value declared before a
+  later marker when that declaration would cross the capture split; M1 does not
+  clone those definition graphs or lazy-cell machinery;
 - a marker whose contextual `Scope` belongs to no enclosing region handled by the
   current expansion.
+
+In particular, `lazy val selected = direct.shift(...)` is never an accepted bind:
+the marker is inside a lazy initializer and receives `CAPTURE_BARRIER` without
+forcing that initializer. A pure lazy value before a later shift is also rejected
+fail-closed rather than being made strict or copied across capture. An inline
+wrapper that expands to `direct.shift` with call provenance or local inline
+bindings is outside M1 and receives `DIRECT_STYLE_UNSUPPORTED`; the transform may
+not erase those bindings and then attempt to lower the exposed marker.
 
 A marker targeting an outer `Scope` from inside a nested `direct.reset` is rejected
 as `UNMANAGED_CAPTURE` in M1. It is not silently narrowed through the nested reset's
@@ -213,6 +234,21 @@ The implementation must:
    Promise/Future, or target-private continuation protocol;
 5. reject any marker not proven to be removed from the returned tree.
 
+At every capture split, the implementation clones each preceding strict
+`ValDef` under the current generated owner and extends one old-symbol to fresh-ref
+map before moving the next initializer, prompt, shift body, or suffix. This map is
+carried recursively through sequential markers. Mutable flags are preserved so
+normal Scala closure conversion owns the shared cell; given and synthetic/pattern
+flags are preserved so implicit selection and destructuring dependencies keep
+their source meaning. A definition kind that M1 cannot freshen is rejected before
+constructing the continuation, never left for a raw quote-owner error.
+
+Marker normalization may remove only ownership-neutral typing wrappers and an
+`Inlined` node with neither call provenance nor bindings. A provenance-bearing or
+binding-bearing inline expansion is not a direct M1 marker shape. Its exposed
+`direct.shift` is diagnosed before prompt/body movement, so wrapper arguments are
+neither dropped, duplicated, nor evaluated by the failed expansion.
+
 The generated bind continuation is an ordinary reusable explicit continuation.
 Zero, one, or many resumes and deep reset reinstallation therefore come from the
 same implementation already verified by the explicit API.
@@ -242,6 +278,17 @@ macro does not forge a less truthful source span.
 
 If several markers fail, diagnostics are reported in deterministic source order.
 The first structural barrier from a marker outward is the one named.
+
+The review-remediation diagnostics freeze these families:
+
+- a marker in a lazy initializer uses `CAPTURE_BARRIER` and names the
+  `lazy-initializer boundary`;
+- a strict capture preceded by a local method, class, type, or lazy declaration
+  uses `DIRECT_STYLE_UNSUPPORTED` at that declaration and tells the user to move
+  it outside `direct.reset` (or make a lazy value strict);
+- a binding/provenance-bearing inline wrapper uses
+  `DIRECT_STYLE_UNSUPPORTED` at the exposed marker/wrapper invocation and tells
+  the user to write `direct.shift` directly at block level.
 
 ## Semantic-vector lane
 
@@ -285,6 +332,12 @@ save/run, callbacks, descriptors, runners, or cancellation.
 - [x] The `scala-direct` catalog lane and the full `scala3ControlApi` suite pass,
       the POM keeps only Scala production libraries, and affected common
       conformance remains green.
+- [ ] Strict local `val`/`var`/`given` and pattern bindings remain owner-correct
+      across capture, including shift-body use and sequential markers; reusable
+      resumes share one local mutable cell.
+- [ ] Lazy marker initializers, crossing local method/class/type/lazy
+      declarations, and binding/provenance-bearing inline wrappers fail closed
+      with the frozen diagnostic family and never execute rejected side effects.
 
 ## Verification
 
@@ -309,6 +362,9 @@ Changed Markdown is linted and the final branch must pass `git diff --check`.
 - successful durable `save`, exact-artifact or portable runners;
 - undelimited `callCC`, answer-type modification, hidden exception control, or JVM
   stack capture.
+- cloning a local method/class/type definition graph or lazy-cell implementation
+  across a capture split in M1; move those definitions outside the reset or use a
+  supported strict value until the compiler-plugin tier represents them.
 
 ## Decisions
 
@@ -325,6 +381,14 @@ Changed Markdown is linted and the final branch must pass `git diff --check`.
 - **Bounded ANF/CPS M1.** Chosen because it has a small auditable evaluation-order
   surface and deterministic barriers. Rejected: claiming a whole-program async/CPS
   compiler from one inline macro.
+- **Fresh strict values, conservative rich definitions.** Chosen to support the
+  ordinary `val`/`var`/`given` and pattern state that lexical users expect while
+  preserving owner hygiene and multi-shot shared cells. Rejected: moving original
+  symbols across generated lambdas, and cloning local methods/classes/types/lazy
+  machinery without a complete ownership model.
+- **Direct marker shape only.** Chosen because inline expansion bindings and call
+  provenance participate in evaluation and ownership. Rejected: stripping every
+  `Inlined` wrapper and hoping the exposed marker remains well-owned.
 - **Fail closed.** Chosen because an untransformed direct marker is a semantic
   boundary violation. Rejected: runtime stubs, exceptions, or best-effort fallback.
 
@@ -343,3 +407,8 @@ Changed Markdown is linted and the final branch must pass `git diff --check`.
   `42`.
 - `tests/conformance/run.sh --only 'effect*,effects*'` passes all five affected
   cases on every declared lane, and `git diff --check` is clean.
+- Independent review of frozen checkpoint `fa992fd92` rejected three P1 families:
+  prefix declaration symbols split from their uses, lazy marker binds made eager,
+  and inline-wrapper bindings/provenance erased. The pre-fix suite remained 82/82,
+  proving those original tests did not exercise the rejected shapes; the two
+  unchecked behavior items above are the required closure evidence.
