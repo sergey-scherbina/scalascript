@@ -82,7 +82,9 @@ that gate.
       from the registry, then registers it before artifact execution.
 - [ ] Effectful `While` conditions and bodies thread resume requests before
       boolean dispatch, discard, or the next iteration. Deep effectful loops
-      remain stack-safe on VM/direct ASM; FastCode may not bypass this path.
+      remain stack-safe on VM/direct ASM; FastCode may not bypass this path,
+      and a suffix after the lowered loop observes the unchanged surrounding
+      lexical frame.
 - [ ] A raw CoreIR `If` condition whose primitive result is a stored
       auto-thread operation (for example `cell.get(cellHoldingOp)`) threads the
       operation before boolean dispatch on VM/direct ASM. `FastBoolCode` must
@@ -325,7 +327,12 @@ dispatch and an operation in the body captures discard plus the next
 iteration. Direct ASM lowers the same shape to a local tail-recursive
 `LetRec` whose condition is an effect-threaded `Let` and whose true branch is
 an effect-threaded `Seq(body, loop())`; existing local-tail code generation
-keeps arbitrary depth off the host stack.
+keeps arbitrary depth off the host stack. Generated `LetRec` may install its
+tied closure frame in the method's environment slot only while emitting that
+expression: it must restore the caller environment before a surrounding
+application argument, sequence suffix, or other value position runs. Otherwise
+the loop closure becomes a spurious outer local and changes De Bruijn lookup
+after the loop.
 
 FastCode must decline an `App`, `Ctor`, non-substrate `Prim`, or `While` whose
 consumed position can produce an operation, so the effect-aware compiler path
