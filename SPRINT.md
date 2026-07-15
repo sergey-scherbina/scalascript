@@ -1513,10 +1513,23 @@ with extensions isolated behind an explicit non-default profile.
         always full-scans); cursors are forward-only and need a new `cursorSeek`/`cursorSeekGe` primitive
         (reuse write-layer `descendToLeaf`/`chooseChild`) with a FullScan fallback until seeks are
         equivalence-tested.
-      - **NEXT (implement):** T0 — the typed surface that erases to today's `SxNode`/`Condition` and
-        runs through the existing executor (pure re-expression, no new access paths), byte/row verified
-        vs sqlite3 on `[int, js]`; then T1+ add the physical IR + index-aware seeks. Depends on: CREATE
-        INDEX (done, for index access paths) and the current SQL executor (reference semantics).
+      - **TYPED SURFACE DONE 2026-07-15** — `scljet/typedsql.ssc` (`2dfc2c939`, conformance
+        `scljet-typedsql-basic`). `Column[T]`/`Expr[T]` carry a compile-time SQL type (ill-typed
+        predicate → compile error; ssc generics verified to erase cleanly on both backends). Combinators
+        `from`/`whereQ`/`selectCols`/`selectStar`/`groupByQ`/`orderByQ`/`limitQ`/`distinctQ`,
+        `eqp`/`nep`/`ltp`/`lep`/`gtp`/`gep`/`betweenp`/`inp`/`likep`/`isNullp`/`andp`/`orp` (crossAnd
+        distribution), `projCol`/`countStar`/`sumCol`/`min`/`max`/`avgCol` erase to the existing
+        `SxNode`/`Condition`/`ProjItem`/`SelectStmt` and run through the same executor via a new additive
+        `runSelectStmt`. Verified byte-identical to reference sqlite3 for the equivalent SQL on `[int,
+        js]`. **Deviation from spec ordering:** I built the typed *surface* first (the user-facing
+        deliverable, additive/low-risk) rather than the spec's T0 IR-adapter (routing `queryImage`
+        through a new physical IR — internal refactor, regression risk, no user value). The phantom
+        row-record type `Table[R]`/`Query[R]` + typed row decoder is deferred (Table/TypedQuery are
+        non-generic here; safety lives on `Column[T]`/`Expr[T]`).
+      - **NEXT:** typed INSERT/UPDATE/DELETE builders; joins (`joinOn`/`leftJoinOn`) + HAVING in the
+        typed surface (executor already supports them); then the spec's `LogicalPlan`/`PhysicalOp` IR
+        with index-aware access paths (`cursorSeek`/`RangeScan`/`IndexSeek`) — the actual perf win over
+        the current always-full-scan `executeSelectSingle`. Depends on: CREATE INDEX (done).
 
 - [ ] **scljet-jdbc-api** — FUTURE (idea, 2026-07-14, Sergiy: "нужно чтобы было API для работы с
       базой через JDBC"). A JDBC-shaped API so scljet can be driven through the standard
@@ -2030,8 +2043,23 @@ and inner + LEFT joins over 2 *and* 3+ tables (incl. aggregates/GROUP BY/HAVING 
 non-correlated subqueries, CREATE/DROP INDEX with maintenance — every feature byte-verified against
 reference sqlite3, int==js. Remaining follow-ups (niche): RIGHT/FULL outer joins, correlated
 subqueries / EXISTS, multi-table-with-indexes DML, page-1 schema split, repeating-decimal %.15g.
-Two new front doors are specced (typed-SQL-API cb94fd88c, JDBC-API f2d1372a0); the JDBC portable lane
-is now implemented (see m6s–m6v below). REAL number literals in SQL text also landed (m6s).
+Two new front doors are specced (typed-SQL-API cb94fd88c, JDBC-API f2d1372a0); **both now have a
+working first implementation** — the JDBC portable façade (m6v) and the typed SQL surface (m6w),
+alongside SQL polish (REAL literals m6s, LEFT-join-3 m6r). All three "параллельно" lanes advanced.
+
+- [x] **scljet-m6w-typed-sql-surface** — DONE 2026-07-15 (typed-SQL-API lane of "все три … параллельно";
+      first stage of `specs/scljet-typed-sql.md`). `scljet/typedsql.ssc` — a typed embedded query API
+      (ScalaScript values, not SQL strings). `Column[T]`/`Expr[T]` carry a compile-time SQL type so an
+      ill-typed predicate (a `Column[Long]` vs a `textLit: Expr[String]`) does not compile; ssc generics
+      verified to erase cleanly on int+js. Combinators (`from`/`whereQ`/`selectCols`/`selectStar`/
+      `groupByQ`/`orderByQ`/`limitQ`/`distinctQ`; `eqp`/…/`gep`/`betweenp`/`inp`/`likep`/`isNullp`/`andp`/
+      `orp` with correct AND-over-OR distribution; `projCol`/`countStar`/`sumCol`/`min`/`max`/`avgCol`)
+      erase to the existing `SxNode`/`Condition`/`ProjItem`/`SelectStmt` and run through the same executor
+      via a new additive `runSelectStmt` — so a typed query and the equivalent SQL string give byte-
+      identical rows. Verified vs reference sqlite3 (star, comparisons, AND, IN, BETWEEN, LIKE, COUNT/SUM,
+      GROUP BY, ORDER BY, DISTINCT), int==js; conformance `scljet-typedsql-basic`. Built the surface
+      before the spec's T0 IR-adapter (user-facing deliverable first; the IR/physical-planner with index
+      access paths is the later perf stage). NEXT: typed DML + joins/HAVING; then the LogicalPlan/PhysicalOp IR.
 
 - [x] **scljet-m6v-jdbc-facade** — DONE 2026-07-15 (JDBC-API lane of "все три … параллельно"; J1 core
       of `specs/scljet-jdbc.md`). Portable `scljet/jdbc.ssc` — a `java.sql`-shaped front door in pure

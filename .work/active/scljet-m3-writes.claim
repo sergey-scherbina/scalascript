@@ -1,4 +1,4 @@
 claim: scljet-m3-writes
 owner: opus
-heartbeat: 2026-07-15T03:30:00Z
-status: JDBC portable façade (J1 core) DONE + real literals, executeMutationCounted, ?-param binding. Full scljet gate 79/79 green non-memoized on [int, js].
+heartbeat: 2026-07-15T03:55:00Z
+status: All 3 "параллельно" lanes advanced — typed-SQL surface (m6w), JDBC façade (m6v), SQL polish (real literals/LEFT-join-3). Final full gate running.
