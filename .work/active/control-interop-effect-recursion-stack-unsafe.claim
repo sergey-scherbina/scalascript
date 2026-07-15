@@ -1,6 +1,6 @@
 feature/control-interop-effect-recursion-stack-unsafe 2026-07-15T00:55:35Z
 agent: codex-stack-control
-heartbeat: 2026-07-15T01:56:38Z
+heartbeat: 2026-07-15T02:06:12Z
 status: in-progress
-done-so-far: managed driver/all-value-position specs and deep baselines committed; AOT plugin lifecycle audit selected single-sourced builtin detection with unknown primitives effectful
-next: commit corrected AOT classification spec, rebase current origin, finish Prim/App/Ctor/While and plugin regressions, then integrate after residual forwarding
+done-so-far: managed driver/all-value-position implementation checkpointed and rebased; saved-artifact classifier spec now requires single-sourced builtin detection plus unknown primitives effectful
+next: finish central result-source predicate and VM/AOT plugin regressions, then integrate after residual forwarding and rerun axis 20/install/conformance gates
