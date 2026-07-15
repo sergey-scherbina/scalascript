@@ -28,6 +28,13 @@ The wrapper supports the consumer's TypeScript 5.9.x compiler API (qualified wit
 directory, and works through the installed npm `.bin` symlink. It does not bundle
 or fall back to a compiler from the transform package's store location.
 
+The exact published manifest is repository-independent: its only development
+dependency is `typescript: 5.9.3`, and it contains no `file:`, `link:`, `workspace:`,
+absolute, or relative sibling dependency. An extracted tarball therefore supports an
+ordinary development install without a ScalaScript checkout beside it. The sibling
+`@scalascript/control` sources used by this repository's own tests are supplied only
+through test fixtures and TypeScript paths, not through the published package.
+
 or install the `before` transformer through the tooling API:
 
 ```js

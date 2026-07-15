@@ -1838,7 +1838,11 @@ T1 accepts the TypeScript 5.9.x compiler API and is qualified with 5.9.3. The CL
 resolves that compiler from the named project/config directory or current working
 directory, including when the packed command is reached through an npm `.bin`
 symlink in an external store. It does not bundle a second compiler or use a global
-fallback.
+fallback. The exact tarball's only development dependency is the registry pin
+`typescript: 5.9.3`; it publishes no repository-local `file:`, `link:`, `workspace:`,
+absolute, or relative sibling specification. Ordinary installation after clean
+extraction therefore does not require a neighboring ScalaScript checkout or create
+a dangling `@scalascript/control` link.
 
 The transform emits the existing `@scalascript/control` `Eff.pure`, `reset`,
 `shift`, and `flatMap` protocol. Prefix statements run once; every reusable resume
