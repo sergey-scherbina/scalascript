@@ -3245,11 +3245,33 @@ def indexRowidOf(record: DecodedRecord, numKeyCols: Int): Long =
     case SqlInteger(x) => x
     case _ => 0L
 
-// Ordered fallback: walk the whole index B-tree in key order, collecting the rowids whose first key
-// column == `key`; stop once a key sorts past `key` (indexes are BINARY-sorted, matching sqlCompare).
-// Used when the O(log n) descent bails (overflow divider/leaf, unexpected page). Equal-key entries
-// are sub-ordered by rowid (the record's tie-break field) = the table's scan order.
-def indexWalkRowids(db: ReadonlyDatabase, indexRoot: Long, numKeyCols: Int, key: SqliteValue): Either[String, List[Long]] =
+// A key predicate for an index seek: an equality (lo==hi, both inclusive) or an open/closed range.
+// `None` bound = unbounded on that side (`col > K` has hi = None; `col < K` has lo = None).
+case class IndexRange(lo: Option[SqliteValue], hi: Option[SqliteValue], loIncl: Boolean, hiIncl: Boolean)
+
+// Does a (non-NULL) key satisfy the range? NULL keys never match a comparison/range (SQL semantics).
+def keyInRange(key: SqliteValue, range: IndexRange): Boolean =
+  if isNullValue(key) then false
+  else
+    val loOk = range.lo match
+      case None => true
+      case Some(l) => if range.loIncl then sqlCompare(key, l) >= 0 else sqlCompare(key, l) > 0
+    val hiOk = range.hi match
+      case None => true
+      case Some(h) => if range.hiIncl then sqlCompare(key, h) <= 0 else sqlCompare(key, h) < 0
+    loOk && hiOk
+
+// True once the walk has passed the range's high bound (so the ordered walk can stop early).
+def pastHigh(key: SqliteValue, range: IndexRange): Boolean =
+  range.hi match
+    case None => false
+    case Some(h) => if range.hiIncl then sqlCompare(key, h) > 0 else sqlCompare(key, h) >= 0
+
+// Ordered fallback: walk the index B-tree in key order collecting the rowids whose first key column
+// is in `range`; stop once past the high bound (indexes are BINARY-sorted, matching sqlCompare).
+// Used when the O(log n) descent bails (overflow divider/leaf, unexpected page). Entries are visited
+// in (key, rowid) order.
+def indexWalkRowids(db: ReadonlyDatabase, indexRoot: Long, numKeyCols: Int, range: IndexRange): Either[String, List[Long]] =
   openReadonlyRoot(db, indexRoot, RecordKeyTree) match
     case Left(error) => Left(error.message)
     case Right(cursor) => readonlyFirst(db, cursor) match
@@ -3265,10 +3287,10 @@ def indexWalkRowids(db: ReadonlyDatabase, indexRoot: Long, numKeyCols: Int, key:
           row match
             case None => done = true
             case Some(rec) =>
-              val cmp = sqlCompare(fieldValueAt(rec.record, 0), key)
-              if cmp > 0 then done = true
+              val kv = fieldValueAt(rec.record, 0)
+              if pastHigh(kv, range) then done = true
               else
-                accRev = if cmp == 0 then indexRowidOf(rec.record, numKeyCols) :: accRev else accRev
+                accRev = if keyInRange(kv, range) then indexRowidOf(rec.record, numKeyCols) :: accRev else accRev
                 readonlyNext(d, c) match
                   case Left(error) => err = Some(error.message)
                   case Right(step) =>
@@ -3312,7 +3334,10 @@ def revIntAppend(xs: List[Int], acc: List[Int]): List[Int] =
 
 // One index-interior page → (child page numbers, divider first-column values). A divider payload
 // that overflows the local threshold → Left (caller falls back to the ordered walk).
-def readIndexInterior(pageBytes: ByteSlice, ho: Int, threshold: Int, db: ReadonlyDatabase): Either[String, (List[Int], List[SqliteValue])] =
+// Returns (child page numbers, divider first-columns, divider ROWIDS). In a SQLite index B-tree the
+// interior divider cells are REAL entries (each key appears once in the whole tree, not duplicated in
+// a leaf), so their rowids must be collected too — not only the leaves'.
+def readIndexInterior(pageBytes: ByteSlice, ho: Int, threshold: Int, numKeyCols: Int, db: ReadonlyDatabase): Either[String, (List[Int], List[SqliteValue], List[Long])] =
   readU16Be(pageBytes, ho + 3) match
     case Left(e) => Left(e.message)
     case Right(ByteRead(count, _)) => readU32Be(pageBytes, ho + 8) match
@@ -3321,6 +3346,7 @@ def readIndexInterior(pageBytes: ByteSlice, ho: Int, threshold: Int, db: Readonl
         var i = 0
         var childrenRev: List[Int] = Nil
         var dividersRev: List[SqliteValue] = Nil
+        var dividerRowidsRev: List[Long] = Nil
         var err: Option[String] = None
         while i < count.toInt && err.isEmpty do
           readU16Be(pageBytes, ho + 12 + 2 * i) match
@@ -3338,13 +3364,14 @@ def readIndexInterior(pageBytes: ByteSlice, ho: Int, threshold: Int, db: Readonl
                       case Right(rec) =>
                         childrenRev = leftChild.toInt :: childrenRev
                         dividersRev = fieldValueAt(rec, 0) :: dividersRev
+                        dividerRowidsRev = indexRowidOf(rec, numKeyCols) :: dividerRowidsRev
           i = i + 1
         err match
           case Some(m) => Left(m)
-          case None => Right((revIntAppend(childrenRev, rightChild.toInt :: Nil), reverseValues(dividersRev, Nil)))
+          case None => Right((revIntAppend(childrenRev, rightChild.toInt :: Nil), reverseValues(dividersRev, Nil), revLongAppend(dividerRowidsRev, Nil)))
 
-// One index-leaf page → the rowids whose first key column == `key`. Overflow payload → Left.
-def readIndexLeafRowids(pageBytes: ByteSlice, ho: Int, threshold: Int, numKeyCols: Int, key: SqliteValue, db: ReadonlyDatabase): Either[String, List[Long]] =
+// One index-leaf page → the rowids whose first key column is in `range`. Overflow payload → Left.
+def readIndexLeafRowids(pageBytes: ByteSlice, ho: Int, threshold: Int, numKeyCols: Int, range: IndexRange, db: ReadonlyDatabase): Either[String, List[Long]] =
   readU16Be(pageBytes, ho + 3) match
     case Left(e) => Left(e.message)
     case Right(ByteRead(count, _)) =>
@@ -3363,56 +3390,111 @@ def readIndexLeafRowids(pageBytes: ByteSlice, ho: Int, threshold: Int, numKeyCol
                 case Right(payload) => decodeRecord(payload, db.schema.encoding, db.schema.format, sqlLimits()) match
                   case Left(_) => err = Some("decode-leaf")
                   case Right(rec) =>
-                    accRev = if sqlCompare(fieldValueAt(rec, 0), key) == 0 then indexRowidOf(rec, numKeyCols) :: accRev else accRev
+                    accRev = if keyInRange(fieldValueAt(rec, 0), range) then indexRowidOf(rec, numKeyCols) :: accRev else accRev
         i = i + 1
       err match
         case Some(m) => Left(m)
         case None => Right(accRev.reverse)
 
-// Descend into child i only if `key` could lie in its divider range (conservative <= / >= on the
-// first column, so equal-key runs that straddle a divider are never missed).
-def childCouldContainKey(i: Int, nchildren: Int, dividers: List[SqliteValue], key: SqliteValue): Boolean =
-  val lowerOk = if i == 0 then true else sqlCompare(dividerAt(dividers, i - 1), key) <= 0
-  val upperOk = if i == nchildren - 1 then true else sqlCompare(dividerAt(dividers, i), key) >= 0
+// Descend into child i only if its divider range could overlap `range` (conservative bounds, so
+// key runs that straddle a divider are never missed). child i holds keys in (div[i-1], div[i]].
+def rangeChildCouldContain(i: Int, nchildren: Int, dividers: List[SqliteValue], range: IndexRange): Boolean =
+  val lowerOk =
+    if i == 0 then true
+    else range.hi match
+      case None => true
+      case Some(h) => sqlCompare(dividerAt(dividers, i - 1), h) <= 0
+  val upperOk =
+    if i == nchildren - 1 then true
+    else range.lo match
+      case None => true
+      case Some(l) => sqlCompare(dividerAt(dividers, i), l) >= 0
   lowerOk && upperOk
 
-def descendChildren(pager: MutablePager, children: List[Int], dividers: List[SqliteValue], threshold: Int, numKeyCols: Int, key: SqliteValue, db: ReadonlyDatabase): Either[String, List[Long]] =
+def longAt(xs: List[Long], idx: Int): Long =
+  var r = xs
+  var k = idx
+  while r.nonEmpty && k > 0 do
+    r = r.tail
+    k = k - 1
+  if r.isEmpty then 0L else r.head
+
+// Recurse into every child whose divider range could contain the query range, AND collect the
+// divider entries themselves (real entries in an index B-tree) whose key is in range. Order does not
+// matter — indexSeekRowids sorts the result into rowid order.
+def descendChildren(pager: MutablePager, children: List[Int], dividers: List[SqliteValue], dividerRowids: List[Long], threshold: Int, numKeyCols: Int, range: IndexRange, db: ReadonlyDatabase): Either[String, List[Long]] =
   var i = 0
   val nchildren = children.length
   var acc: List[Long] = Nil
   var err: Option[String] = None
   while i < nchildren && err.isEmpty do
-    if childCouldContainKey(i, nchildren, dividers, key) then
-      indexDescendCollect(pager, intAt(children, i), threshold, numKeyCols, key, db) match
-        case Left(m) => err = Some(m)
-        case Right(rowids) => acc = acc ++ rowids
+    val childRes: Either[String, List[Long]] =
+      if rangeChildCouldContain(i, nchildren, dividers, range) then indexDescendCollect(pager, intAt(children, i), threshold, numKeyCols, range, db)
+      else Right(Nil)
+    childRes match
+      case Left(m) => err = Some(m)
+      case Right(rowids) =>
+        val dividerPart = if i < nchildren - 1 && keyInRange(dividerAt(dividers, i), range) then longAt(dividerRowids, i) :: Nil else Nil
+        acc = acc ++ rowids ++ dividerPart
     i = i + 1
   err match
     case Some(m) => Left(m)
     case None => Right(acc)
 
-def indexDescendCollect(pager: MutablePager, pageNumber: Int, threshold: Int, numKeyCols: Int, key: SqliteValue, db: ReadonlyDatabase): Either[String, List[Long]] =
+def indexDescendCollect(pager: MutablePager, pageNumber: Int, threshold: Int, numKeyCols: Int, range: IndexRange, db: ReadonlyDatabase): Either[String, List[Long]] =
   mutableGet(pager, pageNumber) match
     case Left(e) => Left(e.message)
     case Right(pageBytes) =>
       val ho = if pageNumber == 1 then 100 else 0
       val kind = pageTypeByte(pageBytes, ho)
-      if kind == 10 then readIndexLeafRowids(pageBytes, ho, threshold, numKeyCols, key, db)
-      else if kind == 2 then readIndexInterior(pageBytes, ho, threshold, db) match
+      if kind == 10 then readIndexLeafRowids(pageBytes, ho, threshold, numKeyCols, range, db)
+      else if kind == 2 then readIndexInterior(pageBytes, ho, threshold, numKeyCols, db) match
         case Left(m) => Left(m)
-        case Right(ci) => descendChildren(pager, ci._1, ci._2, threshold, numKeyCols, key, db)
+        case Right(ci) => descendChildren(pager, ci._1, ci._2, ci._3, threshold, numKeyCols, range, db)
       else Left("unexpected index page kind")
 
-// Collect matching rowids via the O(log n) descent; on any bail (overflow / unexpected page) fall
-// back to the ordered walk. Both yield the same rowids in the same order.
-def indexSeekRowids(dbBytes: ByteSlice, db: ReadonlyDatabase, indexRoot: Long, numKeyCols: Int, key: SqliteValue, pageSize: Int): Either[String, List[Long]] =
+// Reverse `xs` onto `acc` (for the sorted-insert splice).
+def revLongAppend(xs: List[Long], acc: List[Long]): List[Long] =
+  var r = xs
+  var out = acc
+  while r.nonEmpty do
+    out = r.head :: out
+    r = r.tail
+  out
+
+// Insert x into an ascending list (non-recursive, so no interp stack overflow on long ranges).
+def insertSortedLong(x: Long, sorted: List[Long]): List[Long] =
+  var beforeRev: List[Long] = Nil
+  var rest = sorted
+  var placed = false
+  while rest.nonEmpty && !placed do
+    if x <= rest.head then placed = true
+    else
+      beforeRev = rest.head :: beforeRev
+      rest = rest.tail
+  revLongAppend(beforeRev, x :: rest)
+
+def sortLongsAsc(xs: List[Long]): List[Long] =
+  var r = xs
+  var out: List[Long] = Nil
+  while r.nonEmpty do
+    out = insertSortedLong(r.head, out)
+    r = r.tail
+  out
+
+// Collect the rowids matching `range` via the O(log n) descent; on any bail (overflow / unexpected
+// page) fall back to the ordered walk. The result is sorted into ascending rowid order so a range
+// seek (whose index order differs from rowid order) produces the same rows as the full scan.
+def indexSeekRowids(dbBytes: ByteSlice, db: ReadonlyDatabase, indexRoot: Long, numKeyCols: Int, range: IndexRange, pageSize: Int): Either[String, List[Long]] =
   val reserved = byteSliceGet(dbBytes, 20) match
     case Right(v) => v
     case Left(_) => 0
   val threshold = pageSize - reserved - 35
-  indexDescendCollect(openMutablePager(dbBytes, pageSize, pageSize), indexRoot.toInt, threshold, numKeyCols, key, db) match
-    case Right(rowids) => Right(rowids)
-    case Left(_) => indexWalkRowids(db, indexRoot, numKeyCols, key)
+  indexDescendCollect(openMutablePager(dbBytes, pageSize, pageSize), indexRoot.toInt, threshold, numKeyCols, range, db) match
+    case Right(rowids) => Right(sortLongsAsc(rowids))
+    case Left(_) => indexWalkRowids(db, indexRoot, numKeyCols, range) match
+      case Left(m) => Left(m)
+      case Right(rowids) => Right(sortLongsAsc(rowids))
 
 // Point-lookup each rowid → its row; None if any lookup must fall back (overflow) or is missing.
 def seekRowsForRowids(dbBytes: ByteSlice, db: ReadonlyDatabase, root: Int, pageSize: Int, rowids: List[Long]): Option[List[StorageRecord]] =
@@ -3433,22 +3515,56 @@ def rowidSeekResult(dbBytes: ByteSlice, db: ReadonlyDatabase, root: Int, pageSiz
     case SeekMiss => Some(finishRows(Nil, colNames, stmt))
     case SeekHit(rec) => Some(finishRows(rec :: Nil, colNames, stmt))
 
-def indexSeekResult(dbBytes: ByteSlice, db: ReadonlyDatabase, root: Int, pageSize: Int, colNames: List[String], stmt: SelectStmt, indexRoot: Long, numKeyCols: Int, value: SqliteValue): Option[Either[String, List[List[SqliteValue]]]] =
-  indexSeekRowids(dbBytes, db, indexRoot, numKeyCols, value, pageSize) match
+def indexSeekResult(dbBytes: ByteSlice, db: ReadonlyDatabase, root: Int, pageSize: Int, colNames: List[String], stmt: SelectStmt, indexRoot: Long, numKeyCols: Int, range: IndexRange): Option[Either[String, List[List[SqliteValue]]]] =
+  indexSeekRowids(dbBytes, db, indexRoot, numKeyCols, range, pageSize) match
     case Left(_) => None
     case Right(rowids) => seekRowsForRowids(dbBytes, db, root, pageSize, rowids) match
       case None => None
       case Some(rows) => Some(finishRows(rows, colNames, stmt))
 
-// If the query is a single-table `WHERE col = literal`, try an index access path: a rowid/IPK column
-// seeks the table B-tree; otherwise an indexed column is looked up through its index B-tree (collect
-// matching rowids, then point-lookup each row). None → "not applicable, use the full scan". Either
-// path feeds the same finishRows downstream as the full scan, so the output is byte-identical.
+// The index range for a single equality/comparison/BETWEEN condition on `col`; else None.
+def rangeOfCond(op: String, value: SqliteValue, values: List[SqliteValue]): Option[IndexRange] =
+  if op == "=" then Some(IndexRange(Some(value), Some(value), true, true))
+  else if op == ">" then Some(IndexRange(Some(value), None, false, true))
+  else if op == ">=" then Some(IndexRange(Some(value), None, true, true))
+  else if op == "<" then Some(IndexRange(None, Some(value), true, false))
+  else if op == "<=" then Some(IndexRange(None, Some(value), true, true))
+  else if op == "between" then
+    if values.length >= 2 then Some(IndexRange(Some(values.head), Some(values.tail.head), true, true))
+    else None
+  else None
+
+// A WHERE of exactly one indexable condition `col <op> literal(s)` → (column, IndexRange); else None.
+def extractColRange(where: List[List[Condition]]): Option[(String, IndexRange)] =
+  if where.length != 1 then None
+  else
+    val group = where.head
+    if group.length != 1 then None
+    else
+      val cond = group.head
+      if cond.leftExpr.isEmpty && cond.rightExpr.isEmpty then rangeOfCond(cond.op, cond.value, cond.values) match
+        case None => None
+        case Some(range) => Some((cond.column, range))
+      else None
+
+// If the range is an equality [v, v] (both inclusive), return v — used for the rowid/IPK seek, which
+// is equality-only (a rowid range still full-scans for now).
+def rangeEqualityValue(range: IndexRange): Option[SqliteValue] =
+  range.lo match
+    case None => None
+    case Some(l) => range.hi match
+      case None => None
+      case Some(h) => if range.loIncl && range.hiIncl && valEqual(l, h) then Some(l) else None
+
+// If the query is a single-table `WHERE col <op> literal` (=, <, <=, >, >=, BETWEEN), try an index
+// access path: a rowid/IPK column with an equality seeks the table B-tree; an indexed column is
+// looked up through its index B-tree over the range (collect matching rowids, then point-lookup each
+// row). None → "not applicable, use the full scan". Both feed the same finishRows downstream.
 def pointLookup(dbBytes: ByteSlice, stmt: SelectStmt): Option[Either[String, List[List[SqliteValue]]]] =
   if stmt.joins.nonEmpty then None
-  else extractColEq(stmt.where) match
+  else extractColRange(stmt.where) match
     case None => None
-    case Some(colV) =>
+    case Some(colR) =>
       tableContext(dbBytes, stmt.table) match
         case Left(_) => None
         case Right(ctx) =>
@@ -3457,14 +3573,17 @@ def pointLookup(dbBytes: ByteSlice, stmt: SelectStmt): Option[Either[String, Lis
           val colNames = ctx._3
           val pageSize = ctx._4
           val ipkIdx = tableIpkIndex(db, stmt.table)
-          val col = upperStr(colV._1)
+          val col = upperStr(colR._1)
+          val range = colR._2
           val isRowidCol = col == "ROWID" || (ipkIdx >= 0 && col == upperStr(nthName(colNames, ipkIdx)))
-          if isRowidCol then longOfValue(colV._2) match
-            case Some(k) => rowidSeekResult(dbBytes, db, root, pageSize, colNames, stmt, k)
+          if isRowidCol then rangeEqualityValue(range) match
             case None => None
-          else indexForColumn(db, stmt.table, colV._1) match
+            case Some(v) => longOfValue(v) match
+              case Some(k) => rowidSeekResult(dbBytes, db, root, pageSize, colNames, stmt, k)
+              case None => None
+          else indexForColumn(db, stmt.table, colR._1) match
             case None => None
-            case Some(idx) => indexSeekResult(dbBytes, db, root, pageSize, colNames, stmt, idx._1, idx._2, colV._2)
+            case Some(idx) => indexSeekResult(dbBytes, db, root, pageSize, colNames, stmt, idx._1, idx._2, range)
 
 /** Execute an already-built SelectStmt against a database image (the typed-SQL surface entry —
  *  skips tokenize/parse and runs the same executor path queryImage's tail uses). Tries a rowid
