@@ -957,17 +957,31 @@ object SpikeParse:
     if c.peekKind == "spike.lparen" then
       c.advance().foreach(t => kids += Node.Leaf(t, Some("cpat.open")))
       while c.peekKind != "spike.rparen" && !c.eof && !isKw(c, "case") do
-        kids += parsePattern(c).withRole("cpat.arg")
+        kids += parseSubPattern(c).withRole("cpat.arg")
         if c.peekKind == "spike.comma" then c.advance().foreach(t => kids += Node.Leaf(t, Some("cpat.comma")))
       if c.peekKind == "spike.rparen" then c.advance().foreach(t => kids += Node.Leaf(t, Some("cpat.close")))
       else c.report("spike.expected", "expected ')' in constructor pattern")
     Node.Frame("spike.cpat", None, kids.result())
 
+  // a sub-pattern inside a tuple/constructor pattern — a base pattern with an optional `: T` ascription
+  // (`(word: String, _: Int)`, `Foo(x: Int)`), mirroring parseArmPattern's tpat but at nesting depth. The
+  // type head is kept (one token, generics skipped) exactly like ssc1-front's patternTypeHead.
+  private def parseSubPattern(c: Cur): Node =
+    val base = parsePattern(c)
+    if c.peekKind == "spike.colon" then
+      c.advance()
+      val kids = Vector.newBuilder[Node]
+      kids += base.withRole("tpat.pat")
+      expectType(c, "tpat.type").foreach(kids += _)
+      skipTypeTail(c) // `: List[Int]` — generic args erased, head kept
+      Node.Frame("spike.tpat", None, kids.result())
+    else base
+
   private def parseTuplePat(c: Cur): Node =
     val kids = Vector.newBuilder[Node]
     c.advance().foreach(t => kids += Node.Leaf(t, Some("tup.open")))
     while c.peekKind != "spike.rparen" && !c.eof && !isKw(c, "case") do
-      kids += parsePattern(c).withRole("tup.arg")
+      kids += parseSubPattern(c).withRole("tup.arg")
       if c.peekKind == "spike.comma" then c.advance().foreach(t => kids += Node.Leaf(t, Some("tup.comma")))
     if c.peekKind == "spike.rparen" then c.advance().foreach(t => kids += Node.Leaf(t, Some("tup.close")))
     else c.report("spike.expected", "expected ')' in tuple pattern")
