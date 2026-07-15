@@ -9,22 +9,18 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 Added the compiler-independent ESM-only `@scalascript/control` reference leaf at
 `v2/host/js/control`, with typed reusable/one-shot continuations, deep handlers,
 generative prompts and true `shift`/`reset`, structured local-save rejection, and
-stackless explicit state machines (`2a34d7ed3`, verification `c53294fa7`). The
-private runtime ABI is paired with branded `.d.ts` declarations and has no
-production dependency or lifecycle script.
+stackless explicit state machines. The complete reviewed slice is reachable on
+`origin/main` as landing `cf8f96200`. Its private runtime ABI is paired with branded
+`.d.ts` declarations and has no production dependency or lifecycle script.
 
-Independent pre-integration review then drove authority hardening (`0d0ffcfd3`,
-verification `d143af497`): named `unique symbol` owners now separate stable effect
-descriptors from runtime identity, concrete-answer prompt-key extraction remains
-invariant, class-backed capabilities keep state in private WeakMaps, and every
-reachable internal constructor requires an unexported authority token. The exact
-five-file npm payload includes the repository Apache 2.0 license.
-
-Second review closed the remaining union-owner bypass (`5b5421880`) and packed
-README link (`1c2e150c3`, regression `6f19a9538`, verification `b81c526e0`).
-Inferred and explicit generic owner unions are rejected without casts, while the
-five-file payload points to the canonical HTTPS contract and validates every
-relative README target.
+Two independent pre-integration review rounds drove and confirmed the final
+hardening: named single `unique symbol` owners separate stable effect descriptors
+from runtime identity and reject inferred or explicit owner unions; concrete-answer
+prompt-key extraction remains invariant; class-backed capabilities keep state in
+private WeakMaps; and every reachable internal constructor requires unexported
+authority. The exact five-file npm payload includes the repository Apache 2.0
+license, points to the canonical HTTPS contract, and validates every relative
+README target. Both second-review bug entries are confirmed `done`.
 
 All 17 applicable shared semantic vectors pass without changing the catalog or
 lane registry; the complete package suite is 31/31, TypeScript positive/negative

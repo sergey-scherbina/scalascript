@@ -2,9 +2,9 @@
 
 ## js-control-direct-prefix-tdz-binding-escape — moved suffix exposes an outer binding
 
-**Status:** open. Confirmed by parent adversarial pre-rereview on 2026-07-15 in
-repair candidate `f7e76fc48`; the original independent-review snapshot was
-`f6fa34fac`.
+**Status:** open; repair candidate `a4635d0b8` is locally verified and awaits fresh
+independent review plus landing. Confirmed by parent adversarial pre-rereview on
+2026-07-15; the original independent-review snapshot was `f6fa34fac`.
 
 **Symptom/reproduce:** define outer `const later = 99`; inside a direct reset, read
 `later` in a pure prefix declaration before the first marker, then declare inner
@@ -23,11 +23,17 @@ genuine shadowing. Add a real-JavaScript outer-shadow/TDZ regression proving sta
 `JS_DIRECT_CAPTURE_BARRIER`, no transformed file, and unchanged emit when diagnostics
 are ignored; retain accepted preceding-binding evaluation order.
 
+**Root cause/fix candidate:** the first repair scanned only each marker's shift body,
+not the pure statements kept before that marker's generated continuation. The
+candidate now checks the complete marker layer by checker-symbol identity, reports
+the first crossing value reference, preserves type-only/shadowed references, and
+keeps ignored-diagnostic emit file-atomic. Direct package tests pass 31/31.
+
 ## js-control-direct-import-only-eval-erasure — unused marker removal changes direct-eval scope
 
-**Status:** open. Found by parent adversarial pre-rereview on 2026-07-15 in repair
-candidate `f7e76fc48`; the original independent-review snapshot was
-`f6fa34fac`.
+**Status:** open; repair candidate `a4635d0b8` is locally verified and awaits fresh
+independent review plus landing. Found by parent adversarial pre-rereview on
+2026-07-15; the original independent-review snapshot was `f6fa34fac`.
 
 **Symptom/reproduce:** compile a file that imports named `direct`, contains no
 `reset`/`shift`, and evaluates `eval("typeof direct")`. The repair candidate selects
@@ -43,11 +49,16 @@ dependency. Add an exact import-only direct-eval regression proving one stable
 `JS_DIRECT_CAPTURE_BARRIER`, no `transformedFiles` entry, and byte-semantic
 file-atomic emit when a programmatic caller ignores diagnostics.
 
+**Root cause/fix candidate:** eval scanning was gated by the presence of marker
+calls even though an import-only file was also a rewrite candidate. The candidate
+now scans every selected file, retains the original import on diagnostic, and has an
+executing regression proving that `eval("typeof direct")` still observes `"object"`.
+
 ## js-control-direct-typescript-version-ungated — unsupported compiler APIs are accepted
 
-**Status:** open. Reported as P2 on 2026-07-15 by the independent
-pre-integration review of frozen direct-transform snapshot `f6fa34fac` (rebased
-equivalent `1d45dcb3b`).
+**Status:** open; cumulative repair candidate `df11677b6` is locally verified and
+awaits fresh independent review plus landing. Reported as P2 on 2026-07-15 by the
+independent pre-integration review of frozen direct-transform snapshot `f6fa34fac`.
 
 **Symptom/reproduce:** `createDirectTransform` accepts any object with enough
 TypeScript-shaped members and the CLI loads any consumer `typescript` version.
@@ -60,11 +71,16 @@ version policy, both the programmatic entrypoint and CLI must reject an unsuppor
 version before transforming, and positive/negative version-gate tests must preserve
 an actionable stable failure. Keep the published package free of a bundled compiler.
 
+**Root cause/fix candidate:** the transform validated only a TypeScript-shaped
+object and never bounded compiler AST/factory compatibility. The candidate gates
+both programmatic and CLI entrypoints on `versionMajorMinor === "5.9"`, with 5.9.3
+as the qualification pin and deterministic rejection tests outside that line.
+
 ## js-control-direct-wrapped-marker-receiver-missed — transparent TS wrappers evade ownership
 
-**Status:** open. Reported as P2 on 2026-07-15 by the independent
-pre-integration review of frozen direct-transform snapshot `f6fa34fac` (rebased
-equivalent `1d45dcb3b`).
+**Status:** open; cumulative repair candidate `df11677b6` is locally verified and
+awaits fresh independent review plus landing. Reported as P2 on 2026-07-15 by the
+independent pre-integration review of frozen direct-transform snapshot `f6fa34fac`.
 
 **Symptom/reproduce:** exact-import marker calls written as `(direct).reset(...)`,
 `direct!.reset(...)`, or `(direct as typeof direct).reset(...)` are not consistently
@@ -77,11 +93,16 @@ parentheses, `as`, non-null, and type-assertion expressions before symbol owners
 checks. Positive reset/shift cases and negative unsupported cases must prove stable
 source spans and must leave no marker call in emitted JavaScript.
 
+**Root cause/fix candidate:** ownership recognition examined the raw receiver/callee
+node. The candidate recursively removes only parentheses, `as`, non-null, and type
+assertions before exact checker-symbol matching; positive and negative wrapper
+regressions prove that no owned marker call survives a clean emit.
+
 ## js-control-direct-consumer-typescript-resolution — CLI resolves the tool's compiler, not the consumer's
 
-**Status:** open. Reported as P1 on 2026-07-15 by the independent
-pre-integration review of frozen direct-transform snapshot `f6fa34fac` (rebased
-equivalent `1d45dcb3b`).
+**Status:** open; cumulative repair candidate `df11677b6` is locally verified and
+awaits fresh independent review plus landing. Reported as P1 on 2026-07-15 by the
+independent pre-integration review of frozen direct-transform snapshot `f6fa34fac`.
 
 **Symptom/reproduce:** place the published runtime files under an external
 tool/store path, install `typescript` only in a consuming project, and run the real
@@ -97,11 +118,16 @@ must keep TypeScript only under the consumer, invoke the installed CLI, succeed,
 also prove that an otherwise identical consumer without TypeScript gets a stable
 actionable error.
 
+**Root cause/fix candidate:** bare module import resolved from the tool package's
+location. The candidate uses `createRequire` from the explicit project/config
+directory or cwd, never falls back to the store/global environment, and exercises
+both present and missing consumer compilers through the packed installed bin.
+
 ## js-control-direct-marker-import-survives-emit — build-time marker becomes a production dependency
 
-**Status:** open. Reported as P1 on 2026-07-15 by the independent
-pre-integration review of frozen direct-transform snapshot `f6fa34fac` (rebased
-equivalent `1d45dcb3b`).
+**Status:** open; cumulative repair candidate `df11677b6` is locally verified and
+awaits fresh independent review plus landing. Reported as P1 on 2026-07-15 by the
+independent pre-integration review of frozen direct-transform snapshot `f6fa34fac`.
 
 **Symptom/reproduce:** transform a valid source importing named `direct` from
 `@scalascript/control-direct`, inspect the emitted JavaScript, then deploy it with
@@ -116,11 +142,17 @@ marker value use rather than emitting it. A packed production-consumer fixture m
 run emitted JavaScript with `@scalascript/control` present and
 `@scalascript/control-direct` absent.
 
+**Root cause/fix candidate:** lowering rewrote marker calls but did not prove that all
+owned value uses were consumed or update the corresponding import declaration. The
+candidate diagnoses surviving uses, removes only completed marker specifiers, keeps
+unrelated imports intact, and runs packed production output without the direct
+package.
+
 ## js-control-direct-cli-symlink-noop — installed npm bin exits successfully without compiling
 
-**Status:** open. Reported as P1 on 2026-07-15 by the independent
-pre-integration review of frozen direct-transform snapshot `f6fa34fac` (rebased
-equivalent `1d45dcb3b`).
+**Status:** open; cumulative repair candidate `df11677b6` is locally verified and
+awaits fresh independent review plus landing. Reported as P1 on 2026-07-15 by the
+independent pre-integration review of frozen direct-transform snapshot `f6fa34fac`.
 
 **Symptom/reproduce:** invoke `ssc-control-tsc` through the normal
 `node_modules/.bin` symlink. `cli.js` compares the real module `import.meta.url` to
@@ -134,11 +166,17 @@ realpath/inode-safe logic with deterministic handling of absent or unreadable
 `.bin/ssc-control-tsc`, and prove both successful emit and non-zero failure for an
 invalid compiler option.
 
+**Root cause/fix candidate:** entry detection compared a real module URL with an
+unresolved npm-bin symlink. The candidate compares deterministic realpath/filesystem
+identity with explicit missing/unreadable handling; the exact packed `.bin` now
+compiles and invalid options fail non-zero.
+
 ## js-control-direct-eval-capture-unsound — direct eval can observe rewritten lexical frames
 
-**Status:** open. Reported as P1 on 2026-07-15 by the independent
-pre-integration review of frozen direct-transform snapshot `f6fa34fac` (rebased
-equivalent `1d45dcb3b`).
+**Status:** open; cumulative repair candidate `df11677b6` plus selected-file closure
+`a4635d0b8` are locally verified and await fresh independent review plus landing.
+Reported as P1 on 2026-07-15 by the independent pre-integration review of frozen
+direct-transform snapshot `f6fa34fac`.
 
 **Symptom/reproduce:** a file containing an otherwise transformable direct reset can
 also contain direct `eval(...)`. The current region checks do not reject every
@@ -152,11 +190,16 @@ nothing for that file. The feature spec must explicitly pin indirect-eval and
 `Function`-constructor policy. Tests must cover top-level, reset-local, nested
 closure, wrapped, indirect, and `Function` cases with stable diagnostics.
 
+**Root cause/fix candidate:** analysis had no file-wide intrinsic-eval ownership
+pass. The repair resolves the unshadowed global binding through transparent wrappers
+and cancels every rewrite in that selected file; the follow-up extends the same gate
+to import-only erasure while leaving indirect eval and `Function` global-only.
+
 ## js-control-direct-js-marker-binding-semantics — lowering erases const/let declaration behavior
 
-**Status:** open. Reported as P1 on 2026-07-15 by the independent
-pre-integration review of frozen direct-transform snapshot `f6fa34fac` (rebased
-equivalent `1d45dcb3b`).
+**Status:** open; cumulative repair candidate `df11677b6` is locally verified and
+awaits fresh independent review plus landing. Reported as P1 on 2026-07-15 by the
+independent pre-integration review of frozen direct-transform snapshot `f6fa34fac`.
 
 **Symptom/reproduce:** compile real JavaScript with `allowJs: true` and
 `checkJs: false`, using `const` or `let x = direct.shift(...)`. Lowering replaces the
@@ -170,11 +213,17 @@ from it. A real `.js` fixture must exercise both declaration kinds and a name
 collision under `allowJs: true, checkJs: false`, preserving runtime behavior and
 source-map ownership.
 
+**Root cause/fix candidate:** the source binding itself became the generated callback
+parameter, erasing declaration kind and weakening lexical ownership. The candidate
+uses a collision-safe resume parameter followed by the original authored
+declaration; real JavaScript const/let/mutation/collision tests are green.
+
 ## js-control-direct-forward-lexical-capture — shift body escapes declarations moved into the suffix
 
-**Status:** open. Reported as P1 on 2026-07-15 by the independent
-pre-integration review of frozen direct-transform snapshot `f6fa34fac` (rebased
-equivalent `1d45dcb3b`).
+**Status:** open; cumulative repair candidate `df11677b6` with marker-layer closure
+`a4635d0b8` is locally verified and awaits fresh independent review plus landing.
+Reported as P1 on 2026-07-15 by the independent pre-integration review of frozen
+direct-transform snapshot `f6fa34fac`.
 
 **Symptom/reproduce:** inside `direct.reset`, let a shift body save a closure that
 reads `const later = 42`, with `later` declared after the marker. TypeScript and the
@@ -190,11 +239,17 @@ before emit. Cover forward and own-marker references, nested closures, shadowing
 and declaration-initializer evaluation order; the accepted cases must remain
 prefix-once/suffix-per-resume.
 
+**Root cause/fix candidate:** the closed grammar rejected structural frame barriers
+but did not compare value references with bindings moved across generated
+continuations. Checker-symbol scans now reject own/later references in each marker
+layer, including nested syntax, while retaining type-only, preceding, and shadowed
+cases.
+
 ## js-control-packed-readme-broken-spec-link — npm README links outside payload
 
-**Status:** fixed by `1c2e150c3` with regression `6f19a9538`; awaiting final
-independent reviewer confirmation. Reported as P2 on 2026-07-15 by the second
-pre-integration review; affected pre-land documentation commit `069e0204e`.
+**Status:** done in reachable `origin/main` landing `cf8f96200`; the independent
+rereviewer confirmed the packed README contract link. Reported as P2 on 2026-07-15
+by the second pre-integration review.
 
 **Symptom/reproduce:** `npm pack --dry-run --json` correctly emits only the frozen
 five-file payload, but its `README.md` ends with a relative
@@ -278,10 +333,9 @@ gates remain green.
 
 ## js-control-effect-owner-type-collision — descriptor ID is mistaken for owner identity
 
-**Status:** fixed in `5b5421880`; awaiting final independent reviewer
-confirmation. Reopened as P1 on 2026-07-15 after independent second
-pre-integration review rejected the first fix in `0d0ffcfd3`; the original report
-affected pre-land declaration commit `2a34d7ed3`.
+**Status:** done in reachable `origin/main` landing `cf8f96200`; the independent
+rereviewer confirmed both inferred and explicit union-owner rejection. Reopened as
+P1 on 2026-07-15 after the second pre-integration review rejected the first repair.
 
 **Symptom/reproduce:** two `defineEffect("same.id")` calls create distinct runtime
 owners, but both declarations currently produce `Effect<"same.id">`. TypeScript
