@@ -452,8 +452,9 @@ Transparent parentheses/`as`/non-null/type assertions preserve exact marker
 ownership. Shift-body references to their own marker or later suffix bindings fail
 closed by checker-symbol identity rather than moving declarations; accepted markers
 retain their authored `const`/`let` declaration behind a fresh resume parameter.
-Intrinsic direct eval anywhere in a selected file is a barrier, while shadowed or
-indirect eval and `Function` remain explicit global-only unmanaged operations.
+Intrinsic direct eval anywhere in a selected file is a barrier, including when the
+only planned rewrite is erasing an unused named marker import; shadowed or indirect
+eval and `Function` remain explicit global-only unmanaged operations.
 
 The bounded grammar, public transformer/CLI API, exact package allow-list,
 diagnostic codes/spans, source-map requirements, accepted barriers, and package-

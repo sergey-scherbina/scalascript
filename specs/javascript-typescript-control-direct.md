@@ -301,9 +301,11 @@ lowered and surviving marker semantics by ignoring diagnostics.
 
 The transform fails closed. It never emits a partially transformed reset or file.
 
-If a file contains at least one owned direct marker call, intrinsic direct eval is
-a file-wide capture barrier wherever it appears: top level, inside a reset, or in
-any nested function/class. The callee test recursively removes only parentheses,
+If a file is selected for any rewrite, including removal of an unused named marker
+import with no `reset`/`shift` call, intrinsic direct eval is a file-wide capture
+barrier wherever it appears: top level, inside a reset, or in any nested
+function/class. Otherwise erasing the import could change dynamic observation such
+as `eval("typeof direct")`. The callee test recursively removes only parentheses,
 `as`, non-null, and type assertions and then requires the unshadowed global `eval`
 binding; a locally declared `eval` is ordinary code. Indirect forms such as
 `(0, eval)(source)`, `eval?.(source)`, or an alias call, and the global `Function`
@@ -365,9 +367,10 @@ diagnostic.
 - [ ] Marker lowering uses collision-safe resume parameters followed by the original
       `const`/`let` declaration, including real JavaScript under
       `allowJs: true, checkJs: false`.
-- [ ] Intrinsic direct eval anywhere in a selected file fails file-atomically after
-      transparent-wrapper normalization; shadowed/indirect eval and `Function`
-      follow the explicit global-only policy above.
+- [ ] Intrinsic direct eval anywhere in a selected file, including an import-only
+      marker-erasure file, fails file-atomically after transparent-wrapper
+      normalization; shadowed/indirect eval and `Function` follow the explicit
+      global-only policy above.
 - [ ] Every owned marker value use is transformed or diagnosed, completed named
       marker specifiers are removed without changing unrelated imports, and emitted
       production JavaScript runs with no direct package installed.
