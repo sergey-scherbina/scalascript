@@ -179,9 +179,10 @@ In particular, `lazy val selected = direct.shift(...)` is never an accepted bind
 the marker is inside a lazy initializer and receives `CAPTURE_BARRIER` without
 forcing that initializer. A pure lazy value before a later shift is also rejected
 fail-closed rather than being made strict or copied across capture. An inline
-wrapper that expands to `direct.shift` is outside M1 and receives
-`DIRECT_STYLE_UNSUPPORTED`; the transform may not erase the expansion boundary
-and then attempt to lower the exposed marker.
+wrapper around `direct.shift` is outside M1. If Scala leaves the wrapper as an
+unexpanded inline application in the typed reset body, the reset transform rejects
+that application directly; if an expansion boundary is present, it rejects the
+boundary. Both paths use `DIRECT_STYLE_UNSUPPORTED` before moving the tree.
 
 A marker targeting an outer `Scope` from inside a nested `direct.reset` is rejected
 as `UNMANAGED_CAPTURE` in M1. It is not silently narrowed through the nested reset's
@@ -251,9 +252,12 @@ Marker normalization may remove only ownership-neutral typing wrappers; it never
 removes an `Inlined` node. Even `Inlined(None, Nil, ...)` can retain references to
 owner-sensitive synthetic parameters after earlier compiler phases have erased
 its visible call/binding metadata. Any inline expansion is therefore not a direct
-M1 marker shape. Its exposed `direct.shift` is diagnosed before prompt/body
-movement, so wrapper arguments are neither dropped, duplicated, nor evaluated by
-the failed expansion.
+M1 marker shape. Likewise, an unexpanded application whose callee symbol is
+`Inline` is not safe to move under `Eff.defer`: the transform cannot inspect a
+separately compiled expansion and prove it contains no marker or stale synthetic
+owner. The expansion/application is diagnosed before prompt/body movement, so
+wrapper arguments are neither dropped, duplicated, nor evaluated by the failed
+expansion.
 
 The generated bind continuation is an ordinary reusable explicit continuation.
 Zero, one, or many resumes and deep reset reinstallation therefore come from the
@@ -292,9 +296,10 @@ The review-remediation diagnostics freeze these families:
 - a strict capture preceded by a local method, class, type, or lazy declaration
   uses `DIRECT_STYLE_UNSUPPORTED` at that declaration and tells the user to move
   it outside `direct.reset` (or make a lazy value strict);
-- an inline marker wrapper uses
-  `DIRECT_STYLE_UNSUPPORTED` at the exposed marker/wrapper invocation and tells
-  the user to write `direct.shift` directly at block level.
+- an inline marker wrapper or other unexpanded inline application uses
+  `DIRECT_STYLE_UNSUPPORTED` at the wrapper/application and tells the user to
+  write `direct.shift` directly at block level or move the pure inline call outside
+  the reset.
 
 ## Semantic-vector lane
 
