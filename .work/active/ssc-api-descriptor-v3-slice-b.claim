@@ -1,6 +1,6 @@
 feature/ssc-api-descriptor-v3-slice-b 2026-07-15T04:02:06Z
 agent: codex-descriptor-b
-heartbeat: 2026-07-15T07:49:54Z
+heartbeat: 2026-07-15T08:00:17Z
 status: in-progress
-done-so-far: repair plan/spec/tests/audit are recorded; import-witness fix 9e73fb656 makes the ordered-carrier mutation green and focused producer is 64/70 with all prior 63 green
-next: close the six expected reds with the unified ordered resolver/alias import snapshot, exact sentinels, declaration-scoped raw effects and two-pass nested owner inventory; then full gates and fresh review
+done-so-far: import witness 9e73fb656 and unified resolver/inventory aebe41434 are committed; source-ordered imports, alias snapshots, callbacks/effects, wildcards, Decl.Type and receiver/owner cases are green at 76/78
+next: close exact reserved-sentinel cardinality and declaration-scoped raw-effect evidence structurally, then run focused plus descriptor/core/interop/IR/ABI/conformance gates and freeze for fresh review
