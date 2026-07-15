@@ -645,16 +645,17 @@ object SpikeParse:
 
   // an indented block: statements at column >= blockCol; a dedent (col < blockCol),
   // EOF, or a top-level `def` ends it. parseStmt always consumes ≥1 token (progress).
-  private def parseBlock(c: Cur, blockCol: Int): Node =
+  // stopAtParen: also end at a closing `)`/`]` of an ENCLOSING group — needed for a lambda-body block
+  // inside `foo(x => …)`, whose closing `)` sits (higher-column) on the body's last line so the col guard
+  // misses it. NOT wanted for def/branch bodies: there a dangling `)` (e.g. after an unsupported custom
+  // interpolator broke arg parsing) must fall through to parseStmt's `_err` to match ssc1-front's recovery.
+  private def parseBlock(c: Cur, blockCol: Int, stopAtParen: Boolean = false): Node =
     val stmts = Vector.newBuilder[Node]
-    // a block ends at a dedent (col < blockCol), the next `case` (an arm-body block), a `}` (a braced
-    // match), or a closing `)`/`]` of an ENCLOSING group — a lambda-body block inside `foo(x => …)` must
-    // stop at the call's `)` even when it sits (higher-column) on the body's last line. A bare `)`/`]` at
-    // statement position is always an enclosing closer (a parenthesised statement is consumed whole by
-    // parseExpr). A nested `def` at col >= blockCol is a LOCAL def (→ letrec via parseStmt), part of the
+    // a block ends at a dedent (col < blockCol), the next `case` (an arm-body block), or a `}` (a braced
+    // match). A nested `def` at col >= blockCol is a LOCAL def (→ letrec via parseStmt), part of the
     // block — NOT a terminator; a sibling `def` is dedented and already stopped by the col guard.
-    while !c.eof && c.peekCol >= blockCol && !isKw(c, "case")
-        && c.peekKind != "spike.rbrace" && c.peekKind != "spike.rparen" && c.peekKind != "spike.rbracket" do
+    def enclClose = stopAtParen && (c.peekKind == "spike.rparen" || c.peekKind == "spike.rbracket")
+    while !c.eof && c.peekCol >= blockCol && !isKw(c, "case") && c.peekKind != "spike.rbrace" && !enclClose do
       stmts += parseStmt(c)
     Node.Frame("spike.block", None, stmts.result())
 
@@ -1176,7 +1177,7 @@ object SpikeParse:
   // exactly like a def body — else a single inline expression. The block folds to nested lets in projection.
   private def parseLambdaBody(c: Cur, arrowLine: Int): Node =
     if !c.eof && c.peekLine > arrowLine then
-      parseBlock(c, c.peekCol) match
+      parseBlock(c, c.peekCol, stopAtParen = true) match
         // a single-expression body is NOT a block — unwrap it so it lowers to the bare expr; a one-stmt
         // block wraps the expr in a spurious `let`, unlike ssc1-front's inline body (see regression on
         // `head-field-effect-shadow` / `oauth-mcp-full-stack`: `lam N (if …)` vs `lam N (let ((if …)) …)`).
