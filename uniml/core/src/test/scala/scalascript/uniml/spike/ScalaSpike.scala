@@ -269,6 +269,23 @@ object SpikeParse:
 
   private def isKw(c: Cur, w: String): Boolean = c.peekKind == "spike.kw" && c.peekLexeme == w
 
+  // `: T` value/param type annotation — erased. Depth-based skip mirroring ssc1-front skipTypeAt
+  // (ssc1-front.ssc0): consume through balanced `[]`/`()` until a depth-0 terminator (`= , ; { }` or a
+  // depth-0 closing `]`/`)`), covering the whole generic/function/union/dotted type grammar without modelling it.
+  private def skipTypeAnnotation(c: Cur): Unit =
+    if c.peekKind == "spike.colon" then
+      c.advance() // `:`
+      var depth = 0
+      var go = true
+      while go && !c.eof do
+        c.peekKind match
+          case "spike.lbracket" | "spike.lparen" => depth += 1; c.advance()
+          case "spike.rbracket" | "spike.rparen" =>
+            if depth == 0 then go = false else { depth -= 1; c.advance() }
+          case _ if depth > 0 => c.advance()
+          case "spike.eq" | "spike.comma" | "spike.semi" | "spike.lbrace" | "spike.rbrace" => go = false
+          case _ => c.advance()
+
   def parseProgram(toks: Vector[SourceToken]): Parsed =
     val c = new Cur(toks)
     val defs = Vector.newBuilder[Node]
@@ -453,6 +470,22 @@ object SpikeParse:
   // to the SAME spike.block as an offside def-body/branch block, so lowerProg folds the vals into nested
   // lets byte-identically to ssc1-front (which treats braced and offside blocks alike). Note: a `match`
   // scrutinee's `{ … }` is consumed by parseMatch, never reaching here — only a leading `{` is a block.
+  // `[e1, e2, …, en]` in EXPRESSION position → List(e1, …, en) (ssc bracket sugar, ssc1-front.ssc0:1117).
+  // Statement-position `[names](path)` link-imports are handled earlier in parseStmt. `[]` → List().
+  private def parseListLiteral(c: Cur): Node =
+    val kids = Vector.newBuilder[Node]
+    // keep the `[`/`]` tokens as leaves so an EMPTY `[]` frame still has tokens to open/close on
+    // (an empty Frame does not survive the Node→UniNode emit — cf. the tuple empty-marker case).
+    c.advance().foreach(t => kids += Node.Leaf(t, Some("list.open")))
+    if c.peekKind != "spike.rbracket" then
+      var more = true
+      while more do
+        parseExpr(c, 1).foreach(e => kids += e.withRole("list.el"))
+        if c.peekKind == "spike.comma" then c.advance().foreach(t => kids += Node.Leaf(t, Some("list.comma"))) else more = false
+    if c.peekKind == "spike.rbracket" then c.advance().foreach(t => kids += Node.Leaf(t, Some("list.close")))
+    else c.report("spike.expected", "expected ']' to close list literal")
+    Node.Frame("spike.listlit", None, kids.result())
+
   private def parseBracedBlock(c: Cur): Node =
     val stmts = Vector.newBuilder[Node]
     c.advance() // consume `{`
@@ -517,6 +550,7 @@ object SpikeParse:
     val kids = Vector.newBuilder[Node]
     c.advance().foreach(t => kids += Node.Leaf(t, Some("val.kw"))) // `val`
     expect(c, "spike.id", "val.name", "val name").foreach(kids += _)
+    skipTypeAnnotation(c) // optional `: T` (erased)
     expect(c, "spike.eq", "val.eq", "'='").foreach(kids += _)
     parseExpr(c, 1) match
       case Some(e) => kids += e.withRole("val.rhs")
@@ -528,7 +562,7 @@ object SpikeParse:
     val kids = Vector.newBuilder[Node]
     c.advance().foreach(t => kids += Node.Leaf(t, Some("var.kw"))) // `var`
     expect(c, "spike.id", "var.name", "var name").foreach(kids += _)
-    if c.peekKind == "spike.colon" then { c.advance(); expectType(c, "var.type").foreach(kids += _) } // erased
+    skipTypeAnnotation(c) // optional `: T` (erased) — full generic/function type, not just one token
     expect(c, "spike.eq", "var.eq", "'='").foreach(kids += _)
     parseExpr(c, 1) match
       case Some(e) => kids += e.withRole("var.rhs")
@@ -793,6 +827,7 @@ object SpikeParse:
       case "spike.float"  => c.advance().map(t => Node.Leaf(t, Some("float")))
       case "spike.str"    => c.advance().map(t => Node.Leaf(t, Some("str")))
       case "spike.lparen" => parseParen(c)
+      case "spike.lbracket" => Some(parseListLiteral(c)) // `[e1, e2, …]` bracket sugar → List(e1, …) (K62.6f)
       case "spike.lbrace" => Some(parseBracedBlock(c)) // `{ val … ; expr }` braced block (non-match position)
       case "spike.kw" if c.peekLexeme == "if" => parseIf(c)
       case "spike.op" if c.peekLexeme == "-" || c.peekLexeme == "!" || c.peekLexeme == "~" => Some(parsePrefix(c))
@@ -1244,6 +1279,9 @@ object SpikeProject:
         val ps   = kids(b).collect { case (Some("lam.param"), c) => "\"" + esc(lexeme(c)) + "\"" }.toVector
         val body = kids(b).collectFirst { case (Some("lam.body"), c) => expr(c) }.getOrElse(hole)
         s"""mkLam(${consList(ps)}, $body)"""
+      case "spike.listlit" => // [e1, …, en] → List(e1, …, en)
+        val els = kids(b).collect { case (Some("list.el"), c) => expr(c) }
+        s"""mkApp(mkUVar("List"), ${consList(els.toVector)})"""
       case "spike.blockapp" => // e { body } → mkApp(e, [blockArg]) (ssc1-front consumeBlockArg)
         val fn  = kids(b).collectFirst { case (Some("blkapp.fn"), c) => expr(c) }.getOrElse(hole)
         val arg = kids(b).collectFirst { case (Some("blkapp.arg"), c) => expr(c) }.getOrElse(hole)
