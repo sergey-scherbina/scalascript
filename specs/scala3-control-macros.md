@@ -1,7 +1,7 @@
 # Scala 3 lexical direct-style control macros
 
-Status: **M1 third-review owner remediation implemented and locally green; fresh
-independent review pending** (2026-07-15). The first review rejected owner
+Status: **M1 fourth-review strict-polymorphic-value remediation specified;
+implementation pending** (2026-07-15). The first review rejected owner
 splitting, lazy-marker lowering,
 and inline marker wrappers. The next independent rereview found stale dependent
 types in freshened declarations, a direct marker hidden in `ShiftBody`, an
@@ -19,7 +19,12 @@ that evidence: captured result type `A`, nested/inferred types in moved terms, a
 forward/mutual compiler-lazy givens. The contract below covers those graphs, and
 feature commit `2ee8527e1` implements them with faithful source and packaged
 regressions plus the full local gate. M1 remains unlanded until a new independent
-review approves the frozen checkpoint.
+review approves the frozen checkpoint. Fresh review of candidate
+`f4e860ed7..408f23c11` then found an independent strict polymorphic function value
+whose structural `apply` selection retained an invalid `<none>` member after
+capture. The contract below now covers structural member resolution and complete
+method/poly binder closure; the new behavior item remains unchecked until the
+faithful packaged regression and full gate pass.
 
 This feature is the bounded inline-macro tier of
 [`scala3-bidirectional-control.md`](scala3-bidirectional-control.md). It translates
@@ -193,6 +198,18 @@ graph. The common `val f: () => owner.type = () => owner` shape is accepted both
 before capture and when declared in the suffix. Any richer moved definition graph
 that cannot be rebuilt is rejected before generated code is constructed.
 
+The accepted strict-value grammar includes independent polymorphic function values,
+for example `val identity: [A] => A => A = [A] => (a: A) => a`, and ordinary
+monomorphic structural function applications. Such a value may cross capture and
+be called in the prefix or captured suffix, using either `identity[Int](value)` or
+the explicit `identity.apply[Int](value)` spelling. Moving the call must preserve a
+callable member resolved from the moved qualifier's current type; an absent or
+structural `<none>` source selection is not a symbol that may be copied into the
+generated tree. Nested generic/polyfunction values whose result captures a local
+owner follow the same owner-rebinding rules. If Quotes cannot close a richer
+structural or dependent binder graph soundly, M1 rejects the source declaration or
+call with stable `DIRECT_STYLE_UNSUPPORTED`, never raw typer output.
+
 A captured local `var` remains one Scala closure cell shared by every reusable
 resume; the transform must not copy its current value into each continuation.
 Scala may represent a parameterless source `given` with both `Given` and `Lazy`
@@ -338,6 +355,17 @@ path, its exact ascription is retained; if it has a supported captured path, the
 ascription is rebuilt. An unsupported path-dependent mutable/contextual/pattern or
 nested term shape fails at its source declaration/marker with the stable unsupported
 diagnostic rather than being narrowed silently or delegated to the Scala compiler.
+
+Selection and binder ownership are rebuilt even when no captured term owner appears
+in the outer type. After replacing a qualifier, the transform resolves the selected
+member through that qualifier's current type/member graph instead of blindly
+copying the original `Select.symbol`; structural `PolyFunction.apply` therefore
+cannot emit an undefined `<none>` member. Every moved `MethodType` and `PolyType`
+is reconstructed with `ParamRef`s pointing to its current binder, including refs
+that occur only in result types or type bounds. Nested method/poly binder graphs
+must be closed before code construction and are included in the stale-symbol audit.
+Failure to resolve a callable member or close a binder graph is diagnosed at the
+source declaration/call with `DIRECT_STYLE_UNSUPPORTED`.
 
 Marker normalization may remove only ownership-neutral typing wrappers; it never
 removes an `Inlined` node. Even `Inlined(None, Nil, ...)` can retain references to
@@ -495,6 +523,11 @@ save/run, callbacks, descriptors, runners, or cancellation.
       with a stable source-located direct diagnostic through direct selection,
       imported alias, explicit label, module alias, and transparent-inline
       provenance; safe nested-method returns remain accepted.
+- [ ] Independent strict polymorphic function values and monomorphic structural
+      applications cross capture without undefined selections; prefix/suffix and
+      explicit `.apply` calls retain closed method/poly binders, while genuinely
+      unsupported structural or owner-dependent graphs fail with stable
+      `DIRECT_STYLE_UNSUPPORTED` instead of raw typer output.
 
 ## Verification
 
@@ -552,6 +585,11 @@ Changed Markdown is linted and the final branch must pass `git diff --check`.
   values may retain ordinary forward/mutual term references while all RHS trees
   move against a complete replacement map. Rejected: sequential move-then-allocate,
   which leaks an old owner for forward references, and eager evaluation of givens.
+- **Resolve moved selections and close every binder.** Chosen because a structural
+  selection may have no reusable source symbol, and a self-bound `PolyType` remains
+  owner-sensitive even without a captured term path. Rejected: rebuilding
+  `Select` with the original `<none>` symbol or skipping MethodType/PolyType
+  reconstruction when ParamRefs occur only in results or bounds.
 - **ShiftBody is opaque but marker-free.** Chosen to preserve arbitrary explicit
   effect code while enforcing that every direct marker is consumed by its owning
   transform. A nested managed reset protects only its contextual body, because its
@@ -633,3 +671,11 @@ Changed Markdown is linted and the final branch must pass `git diff --check`.
   catalog validation is 26 vectors/9 lanes with 9/9 validator negatives, the
   direct lane is 3/3, and affected conformance is 5/5. Fresh independent review
   remains the landing gate.
+- Fresh independent review of candidate `f4e860ed7..408f23c11` rejected the owner
+  remediation on one further P1. A Scala CLI 3.8.3 consumer compiled only against
+  the packaged JAR moves
+  `val identity: [A] => A => A = [A] => (a: A) => a` across capture and calls
+  `identity[Int](2)` in the suffix. Direct source fails twice with raw typer output
+  `undefined: identity.<none> ... TermRef(... val <none>)`; the explicit equivalent
+  compiles and prints `42`. This is the pre-fix baseline for the unchecked
+  structural-selection/binder-closure behavior above.
