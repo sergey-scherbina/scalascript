@@ -912,7 +912,12 @@ object SpikeParse:
     var more = true
     while more do
       kids += parseForGen(c).withRole("for.gen")
-      if c.peekKind == "spike.semi" then c.advance() else more = false
+      // generators are `;`-separated in the `( … )`/`{ … }` forms, but NEWLINE-separated in the braceless
+      // multiline form `for⏎ x <- … ⏎ y <- … ⏎ yield …` (newline is trivia here) — so also continue when the
+      // next token starts another generator (an id/`(` binder that is not the terminating `yield`/`do`).
+      if c.peekKind == "spike.semi" then c.advance()
+      else if (c.peekKind == "spike.id" || c.peekKind == "spike.lparen") && !isWord(c, "yield") && !isWord(c, "do") then ()
+      else more = false
     if c.peekKind == "spike.rparen" || c.peekKind == "spike.rbrace" then c.advance()
     if isWord(c, "yield") then c.advance().foreach(t => kids += Node.Leaf(t, Some("for.yield")))
     else if isWord(c, "do") then c.advance()
