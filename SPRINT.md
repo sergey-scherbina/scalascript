@@ -123,7 +123,17 @@ recorded in `CHANGELOG.md`. The remaining active control-runtime follow-ups are:
 
 - [ ] **stack-safe effect continuation** (`BUGS.md control-interop-effect-recursion-stack-unsafe`)
       — effect-performing recursion overflows the native stack ~500–2000 depth on both tiers
-      (pure TCO fine to 2M). Needs a heap-allocated continuation. Conformance axis 20 stays pending-runtime.
+      (pure TCO fine to 2M). Implement against
+      `specs/control-effect-stack-safety.md`: private deferred resume requests,
+      one iterative VM/ASM handler driver, managed-boundary completion, and
+      conservative value/result-position threading. Focused verifier follow-up:
+      make `FastCode.tryFBc` decline the complete
+      `Compiler.mayProduceAutoThreadOp(condition)` (raw repro:
+      `If(cell.get(cellHoldingAutoOp), yes, no)`), and keep the direct-ASM pending
+      fixpoint alive for `letChains` so curried `handle` does not emit a missing
+      `lam$N` target. Add VM/direct-ASM regressions for both. Conformance axis 20
+      stays pending-runtime until focused tests plus the installed default VM and
+      `--bytecode` deep probe are green.
 - Cancellation public transitions are underspecified (codex-interop) — no vector contract
       invented; report as a spec gap to the core owner, not a harness axis.
 

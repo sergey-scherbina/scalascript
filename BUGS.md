@@ -334,6 +334,25 @@ guard plus VM/ASM multiple-Op ordering regression. Implementation verification
 is still in progress; the axis remains pending until the full combined gate is
 green.
 
+**Additional correctness holes found during focused verification (2026-07-15):**
+
+- `FastCode.tryFBc` guarded only consumed value positions. A raw CoreIR
+  `If(Prim("cell.get", List(cellHoldingAutoOp)), yes, no)` therefore took the
+  specialized getter, received an `Op`, and coerced that non-`BoolV` value to
+  `false` instead of letting the normal `If` compiler thread it. The focused
+  fix is for `tryFBc` to decline any complete condition satisfying
+  `Compiler.mayProduceAutoThreadOp`; globally disabling `tryFC` is explicitly
+  not required.
+- The direct-ASM emitter's pending-method fixpoint omitted `letChains` from its
+  outer loop condition. A curried `handle(computation)(handler)` whose entry
+  lowering enqueued only an effect-aware `Let` emitted a call to `lam$1` but no
+  corresponding method, failing with `NoSuchMethodError`. The queue must drain
+  while any pending lambda, sequence chain, or let chain remains.
+
+Both remain part of this open stack-safety/classifier verification; axis 20 is
+not promoted until the focused raw-CoreIR regressions and installed VM/direct-
+ASM probe are green.
+
 ## spec-grammar-schema-links — FIXED (2026-07-14, Codex)
 
 **Status:** fixed in `96fc5adfb`; found while mechanically checking local links
