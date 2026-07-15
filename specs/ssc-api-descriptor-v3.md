@@ -147,11 +147,14 @@ The source of truth is the parsed declaration header:
   declaration source. The scan is Scala-lexical for this purpose: line/block
   comments, character literals, ordinary strings, and triple-quoted strings are
   blanked while line boundaries are retained, so text inside them cannot create
-  evidence. Each header binds to the parsed object at the corresponding source
-  position in the same code block, after the parser's deterministic package-wrap
-  line shift; the object's AST owner supplies the stable lexical owner. A global
-  bare-name queue is forbidden: an ordinary same-name object cannot consume a
-  later effect's header. Prose and non-Scala fences are never evidence. A missing
+  evidence. Each header binds inside the same code block: a preserved source
+  position is exact evidence; when deterministic preprocessing has inserted
+  lines, a structurally marked effect object is selected by declaration order.
+  An empty effect has no operation marker and therefore binds without a preserved
+  position only when the remaining same-name candidate is unique. The selected
+  object's AST owner supplies the stable lexical owner. A global bare-name queue
+  is forbidden: an ordinary unmarked same-name object cannot consume a later
+  marked effect's header. Prose and non-Scala fences are never evidence. A missing
   or ambiguous binding, an owner/multiplicity mismatch, or an AST whose package
   wrapper retained only the erased object fails closed instead of guessing;
 - nominal projection is deliberately lossless rather than optimistic: a public
