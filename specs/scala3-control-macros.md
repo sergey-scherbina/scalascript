@@ -162,6 +162,12 @@ A marker targeting an outer `Scope` from inside a nested `direct.reset` is rejec
 as `UNMANAGED_CAPTURE` in M1. It is not silently narrowed through the nested reset's
 declared `Fx`: doing so would make the generated explicit effect row unsound.
 
+A non-local `return` is rejected anywhere in a `direct.reset` body, including a
+pure body or a suffix after capture. Explicit `reset` defers its by-name body under
+`Eff.defer`; by the time that computation runs, the Scala method targeted by the
+source `return` has already completed. Moving such a return would therefore create
+exception-based escaped control rather than direct-style effect semantics.
+
 These are fail-closed M1 limits, not claims that every shape is semantically
 impossible. The later compiler plugin may represent additional frames explicitly.
 Grammar expansion is additive and must gain differential and diagnostic tests
@@ -219,7 +225,7 @@ Compile-time failures use stable codes and primary positions:
 |---|---|---|
 | `UNMANAGED_CAPTURE` | marker is outside a matching lexical scope or survived transformation | missing contextual-argument insertion site for a typer rejection; exact `direct.shift` call for a macro rejection |
 | `CAPTURE_BARRIER` | first enclosing callback/resource/control boundary forbids M1 capture | exact `direct.shift` call; detail names barrier kind and its line/column |
-| `DIRECT_STYLE_UNSUPPORTED` | tree is safe to reject but outside the accepted M1 ANF grammar | exact `direct.shift` call; detail gives an ANF rewrite hint |
+| `DIRECT_STYLE_UNSUPPORTED` | tree is safe to reject but outside the accepted M1 ANF grammar | exact unsupported tree; for a rejected marker shape, the `direct.shift` call; detail gives an ANF rewrite hint |
 
 Messages never contain an absolute source path. Fast macro-negative tests assert
 the exact message, `lineContent`, and zero-based column from
