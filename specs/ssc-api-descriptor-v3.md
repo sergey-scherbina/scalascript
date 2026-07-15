@@ -435,6 +435,15 @@ deeply nested hostile input cannot exhaust its call stack. The renderer enforces
 the same depth and item limits. Limit failures are structured descriptor errors,
 never parser stack overflows or incidental exceptions.
 
+The same limits apply to in-memory model values. Every public encoder, descriptor
+factory, and structured hash/identity helper performs a non-recursive raw preflight
+before recursive validation, alpha projection, normalization, hashing, or wire
+encoding. It rejects an ABI type nesting depth above `MaxDepth` and any vector above
+`MaxContainerItems` with a structured error. Thus a caller cannot bypass resource
+bounds by constructing a Scala model directly, and no public path turns such input
+into `StackOverflowError`. Raw program/artifact byte SHA-256 helpers are not model
+decoders and retain their ordinary streaming-byte semantics.
+
 ### Frozen descriptor JSON shape
 
 JCS freezes spelling and ordering but does not by itself define the model-to-JSON
