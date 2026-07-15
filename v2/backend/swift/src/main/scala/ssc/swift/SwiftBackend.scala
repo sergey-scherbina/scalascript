@@ -133,6 +133,8 @@ object SwiftBackend:
     "__mk_arr__", "__mk_map__", "__math_obj__", "__match_fail_prim__",
     "__method__", "__effect__", "__effect_oneshot__", "__arith__", "__unary__", "__try__",
     "io.print", "io.println", "io.nanoTime", "io.args", "global.reg",
+    // native-front lowering emits these where FrontendBridge lowered differently
+    "str->i", "str.split", "__eq__", "__throw__", "__tryCatch__", "__regfields__",
   )
 
   def generate(

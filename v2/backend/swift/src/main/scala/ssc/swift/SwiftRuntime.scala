@@ -1219,9 +1219,9 @@ private final class Machine {
         case "io.nanoTime": return .int(Int64(bitPattern: DispatchTime.now().uptimeNanoseconds))
         case "io.args": return listValue(CommandLine.arguments.dropFirst().map(SscValue.string))
         case "global.reg": globals[string(args, 0)] = args[1]; return .unit
-        case "__try__":
+        case "__try__", "__tryCatch__":
             guard case let .closure(thunk) = args[0], case let .closure(handler) = args[1] else {
-                fatalError("__try__(thunk, handler)")
+                fatalError("\(operation)(thunk, handler)")
             }
             let result = call(thunk, [])
             guard let caught = failure else { return result }
@@ -1235,6 +1235,22 @@ private final class Machine {
             case .control, .host:
                 return .unit
             }
+        // native-front lowering emits these (FrontendBridge lowered them differently).
+        case "str->i":
+            // `str->i` is Option[Int]: Some(n) if fully parseable, None otherwise.
+            if let n = Int64(string(args, 0)) { return some(.int(n)) } else { return none() }
+        case "str.split":
+            // Cons/Nil list of the separated parts (kernel keeps trailing empties).
+            return listValue(string(args, 0).components(separatedBy: string(args, 1)).map(SscValue.string))
+        case "__eq__":
+            return .bool(sscEqual(args[0], args[1]))
+        case "__throw__":
+            recordFailure(SscThrown(value: args[0]))
+            return .unit
+        case "__regfields__":
+            // Field name→index is resolved by the frontend (fieldAt is index-based), so
+            // the Swift runtime has no by-name registry to populate: a no-op.
+            return .unit
         default: fatalError("swift runtime: unsupported primitive '\(operation)'")
         }
     }
@@ -1417,6 +1433,16 @@ private final class Machine {
             }
         case .data("Cons", _), .data("Nil", _):
             if name == "toList" && args.isEmpty { return receiver }
+            // Curried z-then-op partial: the native front lowers `xs.foldLeft(z)(op)`
+            // to method(foldLeft, xs, [z]); return a 1-arg closure that completes the
+            // 2-arg call, mirroring v2 VM Runtime.scala:2619-2627.
+            if args.count == 1, name == "foldLeft" || name == "foldRight" || name == "scanLeft" {
+                let z = args[0]
+                return .closure(SscClosure(arity: 1, native: { [weak self] more in
+                    guard let self else { return .unit }
+                    return self.method(name, receiver, [z, more[0]])
+                }))
+            }
             let values = list(receiver)
             switch name {
             case "map":
