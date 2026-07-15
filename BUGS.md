@@ -31,8 +31,8 @@ string literals inside `${…}`, or build the string in a `val` before interpola
 
 ## control-interop-residual-forwarding-absent — FIXED / awaiting confirmation (2026-07-15, Codex)
 
-**Status:** fixed in `803e82a67`, with self-hosted frontend qualification in
-`2fcd5eff3` and selected-only total-handler hardening in `6cabe261c`; awaiting
+**Status:** fixed in `d764c2ebe`, with self-hosted frontend qualification in
+`84ad12651` and selected-only total-handler hardening in `9273ae0f6`; awaiting
 reporter confirmation after the feature branch lands.
 
 **Symptom:** an operation unhandled by the nearest inner handler is sent to that

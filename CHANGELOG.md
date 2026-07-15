@@ -13,8 +13,8 @@ around the original continuation. The JVM runtime uses a private structured
 provenance isolates concurrent, nested, and reentrant decisions, while the
 original one-shot or reusable base continuation remains authoritative. Matching
 arm failures stay fatal, missing `Return` remains identity, and no public CoreIR,
-wire value, or primitive-manifest ABI changed (`803e82a67`, `2fcd5eff3`,
-`6cabe261c`).
+wire value, or primitive-manifest ABI changed (`d764c2ebe`, `84ad12651`,
+`9273ae0f6`).
 
 Both compatibility and self-hosted frontends now qualify simple and general
 handler partial functions, including effectful guards and selected-only total
