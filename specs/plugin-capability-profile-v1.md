@@ -307,7 +307,15 @@ resource opening, or user code. It performs these checks:
    on the same target and also has an exact binding in the artifact dependency
    manifest, so a plugin cannot introduce a hidden dependency after admission;
 6. the returned vector is deterministic topological order (dependency before
-   consumer, plugin id as the stable tie-break); a cycle is a structured error.
+   consumer, plugin id ordered by unsigned lexicographic comparison of its
+   canonical framed UTF-8 bytes as the tie-break); a cycle is a structured error.
+
+Cycle detection uses the normalized `pluginId` edges after hidden-binding checks
+but before per-edge aggregate ABI/schema comparison. Aggregate ids commit the
+declared dependency ids; they are not recursively solved to a cryptographic fixed
+point. Cycles are invalid, so admission reports `PLUGIN_DEPENDENCY_CYCLE` directly
+instead of first reporting an arbitrary edge hash mismatch. Acyclic graphs are then
+checked edge-by-edge against the dependency profiles and bindings.
 
 Non-plugin descriptor bindings remain the responsibility of their own primitive,
 codec, resolver, capability, runtime, or artifact validators. This validator never
