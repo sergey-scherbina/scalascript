@@ -1,8 +1,8 @@
 # Portable one-shot resumption guard
 
 > Status: **implemented and verified for the one-shot primitive scope**
-> (2026-07-15). Residual forwarding and Swift's implicit-`Return` parity are
-> separately tracked runtime gaps and are not claimed by this result.
+> (2026-07-15). Swift's implicit-`Return` parity follow-up is now verified in
+> `f21abfcc8`; residual forwarding remains a separately tracked runtime gap.
 > Normative owners: [`control-interoperability.md`](control-interoperability.md),
 > [`../SPEC.md`](../SPEC.md), and the source declaration rules in
 > [`algebraic-effects.md`](algebraic-effects.md).
@@ -113,8 +113,9 @@ class name/message are not an ABI and user exception handling must rethrow it.
       multiplicity. Swift AOT, the generated backend in this delivery matrix that
       already advertises typed algebraic effects, implements the same atomic
       rejection, operation identity, stable diagnostic, and non-user-catchable
-      one-shot contract. Its independent implicit-`Return` fallback mismatch is
-      still tracked and is not hidden by this checkbox.
+      one-shot contract. A missing Swift `Return` arm now applies the same identity
+      fallback as JVM VM/direct ASM without converting failures inside a selected
+      handler arm into a missing-arm result.
 - [x] Existing raw/Mira `Comp` tests remain reusable, and every stale typed `.ssc`
       multi-shot fixture explicitly declares `multi effect`.
 
@@ -228,9 +229,8 @@ The implementation closes only when all of these are green:
 4. Promoted interop axis 21 plus existing multi-shot axes 02 and 09.
 5. Native effect-handler smoke and affected `effects`/`effect-*` conformance.
 6. Any generated backend currently advertising typed algebraic effects. In this
-   delivery matrix that is Swift AOT; the checked-source vector uses an explicit
-   `Return` arm while the independently tracked implicit-`Return` fallback gap is
-   repaired.
+   delivery matrix that is Swift AOT; the checked-source vector omits `Return` and
+   must therefore exercise the specified identity fallback on every qualified lane.
 
 ## Results
 
@@ -246,8 +246,10 @@ The implementation closes only when all of these are green:
   `multi effect` lowering/ANF classification.
 - Real Swift focused tests: 3/3, covering stable sequential failure, a 64-way
   native race (one winner and 63 identical losers), and checked-source plain vs
-  multi multiplicity. The checked-source vector uses an explicit `Return` arm;
-  `BUGS.md swift-effect-handler-implicit-return-fallback` remains open.
+  multi multiplicity. Follow-up `f21abfcc8` runs the shared checked-source fixtures
+  without an explicit `Return` arm on Swift and JVM VM/direct ASM; one-shot still
+  reaches the stable violation, reusable multi-shot returns `3`, and a nested
+  handler match failure remains a real failure rather than an identity fallback.
 - Assembled VM and direct ASM both exit non-zero with empty stdout and exactly
   `error [ONESHOT_VIOLATION]: One-shot violation: One.op resumed more than once`;
   the corresponding `multi effect` program returns `3` on both. IR dumps select
@@ -258,9 +260,9 @@ The implementation closes only when all of these are green:
   promoted); affected conformance: 6/6 PASS across available lanes.
 - `scripts/v21-stage2-bootstrap-gate`: both single/multi fixed points true and
   `compiler.image.source-exact=true` after a fresh `installBin` (131 image files).
-- Residual forwarding (axis 19), stack-safe deep effect recursion (axis 20), and
-  Swift's implicit-`Return` fallback remain explicitly open follow-ups; none is
-  represented as completed by this feature result.
+- Residual forwarding (axis 19) and stack-safe deep effect recursion (axis 20)
+  remain explicitly open follow-ups; neither is represented as completed by this
+  feature result.
 
 ### Pre-implementation baseline (2026-07-14)
 
