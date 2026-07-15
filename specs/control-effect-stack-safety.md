@@ -77,8 +77,8 @@ that gate.
 - [ ] An arbitrary primitive supplied by a plugin may return an operation even
       when every primitive argument is pure. Such a result is threaded in an
       application argument, constructor field, and non-final sequence position
-      on VM/direct ASM, including when the handler is registered only after the
-      CoreIR transformation has run.
+      on VM/direct ASM. The witness uses the supported plugin lifecycle: load
+      and register before CoreIR conversion/compilation.
 - [ ] Effectful `While` conditions and bodies thread resume requests before
       boolean dispatch, discard, or the next iteration. Deep effectful loops
       remain stack-safe on VM/direct ASM; FastCode may not bypass this path.
@@ -326,21 +326,24 @@ consumed position can produce an operation, so the effect-aware compiler path
 remains authoritative. The VM, `OpAnfNative`, and direct-ASM classifiers align
 on `App`, dynamic method/effect dispatch, and explicit `effect.perform`,
 `effect.perform.oneshot`, and `effect.handle` CoreIR sources used by raw
-`run-ir` tests. They must also treat a primitive which is not explicitly proven
-to have a non-operation result as operation-producing. In particular, this
-decision is based on the CoreIR primitive contract rather than the mutable
-contents of `V2PluginRegistry`: a saved/direct-ASM artifact may install its
-plugin handlers after transformation, and every registered handler has the
-unrestricted result type `List[Value] => Value`. A future plugin SPI may add an
-explicit non-suspending descriptor; absence of that descriptor remains
-effectful-by-default.
+`run-ir` tests. They must also treat every primitive currently registered in
+`V2PluginRegistry` as operation-producing: its unrestricted handler result type
+is `List[Value] => Value`, so pure arguments do not prove a pure result.
+
+This classification follows the existing plugin lifecycle. `PluginBridge` /
+`NativePluginHost` load handlers before frontend conversion, VM compilation,
+or native lowering; `Prims.resolve(op)` likewise captures the selected handler
+during VM compilation. Installing a previously unknown primitive after an
+artifact was transformed/compiled is therefore not supported by the current
+runtime and is not introduced by this slice. A future persistable plugin
+profile may replace the registry query with explicit suspending/non-suspending
+metadata, but must preserve effectful-by-default registration semantics.
 
 The VM predicate remains a conservative runtime-path selector: false positives
 only select the correct effect-aware path, and consumed values are checked at
 runtime before threading. Direct ASM uses the same predicate to select its
-effect-aware `Let`/sequence chains, so an unknown primitive remains safe even
-when no handler is present while the artifact is built. Focused tests register
-the witness handler after transformation and assert the required VM/ASM
+effect-aware `Let`/sequence chains. Focused tests register the witness handler
+before VM compilation and ASM transformation, then assert the required
 declines. This is an existing `Op/3` evaluation rule, not a new host or CoreIR
 ABI.
 
@@ -360,11 +363,11 @@ ABI.
 - **Preserve public `Op/3`** — the temporary request uses the existing private
   runtime carrier and is consumed before returning from the handler driver; no
   CoreIR/value/codec/ABI inventory changes.
-- **Unknown/plugin primitives are effectful by default** — selected because the
-  plugin handler result type permits `Op/3`, while registry membership at build
-  time is not stable for a saved artifact. Rejected: consulting the current
-  `V2PluginRegistry` during transformation, because a handler installed later
-  would reintroduce a backend-dependent buried operation.
+- **Registered plugin primitives are effectful by default** — selected because
+  the plugin handler result type permits `Op/3`, and every supported execution
+  path loads plugins before conversion/compilation. Rejected: treating pure
+  primitive arguments as proof of a pure plugin result. Late installation into
+  an already compiled artifact remains outside the current plugin lifecycle.
 - **Always defer; drain only at managed boundaries** — selected so lifting sees
   the complete post-resume suffix and both VM and ASM stay stack-safe for deep
   escaped state-thread chains. Rejected: forbidding continuation escape (not an
