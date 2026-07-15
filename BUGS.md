@@ -1,5 +1,36 @@
 # Bug tracker
 
+## jvm-bytegen-letrec-env-clobber — CONFIRMED / open (2026-07-15, Codex)
+
+**Status:** open; found by the stack-safety focused VM/direct-ASM vector while
+qualifying effectful `While` lowering.
+
+**Symptom:** a non-tail local `LetRec` can corrupt a surrounding expression's
+lexical environment on direct ASM. The effectful-loop witness completes its
+handler, then a sequence suffix reading the outer long cell fails with
+`ClassCastException: Value$ClosV cannot be cast to Value$LongCellV` at generated
+`Entry.lam$2`; the VM returns the expected cell value.
+
+**Reproduce:** generate direct ASM for an outer `Let(lcell.new(0), ...)` whose
+first non-tail expression contains a local `LetRec` and whose following suffix
+evaluates `lcell.get(Local(0))`. The effectful-While lowering in
+`PortableEffectsStackSafetyTest` is one faithful witness; add a smaller generic
+non-tail-`LetRec` plus outer-local-read regression as the independent guard.
+
+**Root cause:** `JvmByteGen.gen(Term.LetRec)` stores the tied
+`captured ++ closures` frame into JVM local slot 0 while generating the LetRec
+body. It restores the Scala emitter's slot/target metadata afterward, but never
+restores the runtime env array. A later argument or sequence chain therefore
+receives an extra closure at the end of its frame, changing every De Bruijn
+lookup.
+
+**Fix/verification:** pending. Save the caller env in a private JVM local,
+install the tied frame only for the LetRec body, then restore slot 0 while
+leaving the expression result on the operand stack. Verify both the generic
+non-tail regression and the 20,000-iteration effectful While vector on VM/direct
+ASM; preserve the concurrent residual-forwarding LetRec flag/target-map changes
+during integration.
+
 ## v2-native-toDouble-toFloat-noop — `.toDouble`/`.toFloat` dropped by the native frontend → integer division
 
 **Status:** FIXED (2026-07-15, `v2/lib/ssc1-lower.ssc0`). Found by the v2-vs-v1 differential

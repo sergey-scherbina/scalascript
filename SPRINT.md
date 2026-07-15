@@ -131,9 +131,12 @@ recorded in `CHANGELOG.md`. The remaining active control-runtime follow-ups are:
       `Compiler.mayProduceAutoThreadOp(condition)` (raw repro:
       `If(cell.get(cellHoldingAutoOp), yes, no)`), and keep the direct-ASM pending
       fixpoint alive for `letChains` so curried `handle` does not emit a missing
-      `lam$N` target. Add VM/direct-ASM regressions for both. Conformance axis 20
-      stays pending-runtime until focused tests plus the installed default VM and
-      `--bytecode` deep probe are green.
+      `lam$N` target. Preserve the caller env around generated non-tail
+      `LetRec` bodies (`BUGS.md jvm-bytegen-letrec-env-clobber`) and guard it with
+      both a generic `LetRec`-then-outer-local raw-CoreIR test and the deep
+      effectful-While test. Add VM/direct-ASM regressions for all three.
+      Conformance axis 20 stays pending-runtime until focused tests plus the
+      installed default VM and `--bytecode` deep probe are green.
 - Cancellation public transitions are underspecified (codex-interop) — no vector contract
       invented; report as a spec gap to the core owner, not a harness axis.
 
