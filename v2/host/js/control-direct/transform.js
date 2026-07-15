@@ -50,7 +50,6 @@ export function createDirectTransform(ts, program) {
   const diagnosticKeys = new Set()
   const candidateFiles = new Set()
   const filesWithPlans = new Set()
-  const filesWithMarkerCalls = new Set()
   const markerImportsByFile = new Map()
 
   function textRange(node) {
@@ -273,7 +272,7 @@ export function createDirectTransform(ts, program) {
   }
 
   function scanDirectEval(source) {
-    if (!filesWithMarkerCalls.has(source.fileName)) return
+    if (!candidateFiles.has(source.fileName)) return
     function visit(node) {
       if (intrinsicDirectEval(node)) {
         addDiagnostic(
@@ -316,18 +315,27 @@ export function createDirectTransform(ts, program) {
   }
 
   function checkMarkerLexicalCapture(statements, markers) {
+    let layerStart = 0
     for (const marker of markers) {
+      const nextLayerStart = marker.index + 1
       const forbidden = new Set()
       for (let index = marker.index; index < statements.length - 1; index += 1) {
         declarationSymbols(statements[index], forbidden)
       }
-      const reference = findForbiddenReference(marker.shiftBody, forbidden)
-      if (reference === undefined) continue
-      addDiagnostic(
-        Codes.CaptureBarrier,
-        "direct.shift body captures its own marker or a later continuation binding",
-        reference
-      )
+      let reference
+      for (let index = layerStart; index < marker.index; index += 1) {
+        reference = findForbiddenReference(statements[index], forbidden)
+        if (reference !== undefined) break
+      }
+      reference ??= findForbiddenReference(marker.shiftBody, forbidden)
+      if (reference !== undefined) {
+        addDiagnostic(
+          Codes.CaptureBarrier,
+          "direct marker layer references its own marker or a later continuation binding",
+          reference
+        )
+      }
+      layerStart = nextLayerStart
     }
   }
 
@@ -621,7 +629,6 @@ export function createDirectTransform(ts, program) {
 
   function walkForResets(node) {
     if (directCall(node, "reset")) {
-      filesWithMarkerCalls.add(node.getSourceFile().fileName)
       analyzeReset(node)
     }
     ts.forEachChild(node, walkForResets)
@@ -629,7 +636,6 @@ export function createDirectTransform(ts, program) {
 
   function walkForOutsideShifts(node) {
     if (directCall(node, "shift")) {
-      filesWithMarkerCalls.add(node.getSourceFile().fileName)
       if (!claimedShifts.has(node)) {
         addDiagnostic(
           Codes.OutsideReset,

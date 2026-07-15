@@ -451,6 +451,77 @@ test("shift bodies fail closed on own or forward lexical capture", () => {
   assert.equal(own.message.includes("own marker"), true)
 })
 
+test("real JavaScript prefix references cannot cross into a marker suffix binding", () => {
+  const source = `
+import { Eff, freshPrompt } from "@scalascript/control"
+import { direct } from "@scalascript/control-direct"
+const later = 99
+export function bad() {
+  return freshPrompt(prompt => Eff.runPure(direct.reset(prompt, () => {
+    const before = later
+    const selected = direct.shift(prompt, continuation => continuation.resume(1))
+    const later = 42
+    return before + selected + later
+  })))
+}
+`
+  const prepared = prepare(
+    source,
+    "prefix-tdz",
+    { allowJs: true, checkJs: false, verbatimModuleSyntax: true }
+  )
+  try {
+    const matching = prepared.transform.diagnostics.filter(
+      diagnostic => diagnostic.code === "JS_DIRECT_CAPTURE_BARRIER"
+    )
+    assert.equal(matching.length, 1)
+    const diagnostic = matching[0]
+    assert.equal(
+      source.slice(diagnostic.start, diagnostic.start + diagnostic.length),
+      "later"
+    )
+    assert.deepEqual(prepared.transform.transformedFiles, [])
+
+    const emit = prepared.program.emit(
+      undefined,
+      undefined,
+      undefined,
+      false,
+      prepared.transform.transformers
+    )
+    assert.equal(emit.emitSkipped, false)
+    const output = readFileSync(join(prepared.outDir, "prefix-tdz.js"), "utf8")
+    assert.match(output, /@scalascript\/control-direct/)
+    assert.match(output, /direct\.reset/)
+    assert.doesNotMatch(output, /__sscControl/)
+  } finally {
+    prepared.cleanup()
+  }
+})
+
+test("type-only prefix references do not create a runtime suffix capture", async () => {
+  const compiled = await compile(`
+    import { Eff, freshPrompt } from "@scalascript/control"
+    import { direct } from "@scalascript/control-direct"
+    export const answer = freshPrompt<number, number>(prompt => Eff.runPure(
+      direct.reset(prompt, (): number => {
+        const before: typeof later = 42
+        const selected: number = direct.shift(
+          prompt,
+          continuation => continuation.resume(1)
+        )
+        const later = 42
+        return before + selected + later
+      })
+    ))
+  `, "prefix-type-only")
+  try {
+    assert.equal(compiled.module.answer, 85)
+  } finally {
+    compiled.cleanup()
+  }
+})
+
 test("preceding and shadowed bindings retain source evaluation order", async () => {
   const compiled = await compile(`
     import { Eff, freshPrompt } from "@scalascript/control"
@@ -547,6 +618,42 @@ test("intrinsic direct eval is a transparent-wrapper-aware file barrier", () => 
     ${reset}`,
     "JS_DIRECT_CAPTURE_BARRIER"
   )
+})
+
+test("import-only marker erasure is also protected from intrinsic direct eval", async () => {
+  const source = `
+import { direct } from "@scalascript/control-direct"
+export const observed = eval("typeof direct")
+`
+  const prepared = prepare(
+    source,
+    "import-only-eval",
+    { verbatimModuleSyntax: true }
+  )
+  try {
+    assert.equal(prepared.transform.diagnostics.length, 1)
+    assert.equal(
+      prepared.transform.diagnostics[0].code,
+      "JS_DIRECT_CAPTURE_BARRIER"
+    )
+    assert.deepEqual(prepared.transform.transformedFiles, [])
+    const emit = prepared.program.emit(
+      undefined,
+      undefined,
+      undefined,
+      false,
+      prepared.transform.transformers
+    )
+    assert.equal(emit.emitSkipped, false)
+    const javascript = join(prepared.outDir, "import-only-eval.js")
+    const output = readFileSync(javascript, "utf8")
+    assert.match(output, /@scalascript\/control-direct/)
+    assert.match(output, /eval\("typeof direct"\)/)
+    const module = await import(`${pathToFileURL(javascript).href}?${Date.now()}`)
+    assert.equal(module.observed, "object")
+  } finally {
+    prepared.cleanup()
+  }
 })
 
 test("shadowed and indirect eval plus Function remain global-only ordinary code", () => {
