@@ -1,0 +1,220 @@
+---
+name: scljet-typedsql
+version: 0.1.0
+description: Typed SQL query surface — build a SelectStmt from generically-typed combinators and run it through the SclJet executor, for [int, js]
+package: scljet
+exports:
+  - SqlType
+  - IntType
+  - RealType
+  - TextType
+  - BoolType
+  - Table
+  - Column
+  - Expr
+  - Predicate
+  - TypedQuery
+  - col
+  - colExpr
+  - intLit
+  - realLit
+  - textLit
+  - plus
+  - minus
+  - times
+  - concatE
+  - eqp
+  - nep
+  - ltp
+  - lep
+  - gtp
+  - gep
+  - betweenp
+  - inp
+  - likep
+  - isNullp
+  - andp
+  - orp
+  - projCol
+  - countStar
+  - sumCol
+  - minCol
+  - maxCol
+  - avgCol
+  - orderAsc
+  - orderDesc
+  - from
+  - whereQ
+  - selectCols
+  - selectStar
+  - groupByQ
+  - orderByQ
+  - limitQ
+  - distinctQ
+  - toSelectStmt
+  - runTypedQuery
+---
+
+# SclJet typed SQL surface
+
+The first stage of `specs/scljet-typed-sql.md`: a typed, embedded query API built from ScalaScript
+values instead of SQL strings. Column references, literals, comparisons and projections carry a
+ScalaScript type parameter, so an ill-typed predicate — e.g. comparing a `Column[Long]` with a
+`textLit` (`Expr[String]`) — does not compile. The typed layer **erases** to the existing
+`SxNode` / `Condition` / `ProjItem` / `SelectStmt` AST and runs through the same executor
+(`runSelectStmt`) as the SQL-string front end, so a typed query and the equivalent SQL string produce
+byte-identical rows (verified against reference sqlite3). This stage keeps the executor's own access
+paths (full scan); index-aware physical planning is a later stage of the spec.
+
+[ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText](index.ssc)
+[SxNode, SxCol, SxLit, SxBin, Condition, ProjItem, OrderKey, SelectStmt, runSelectStmt, renderRows](sql.ssc)
+
+## Types, columns and expressions
+
+```scalascript
+// The SQL type a Column/Expr carries at compile time. Erases to nothing at runtime.
+sealed trait SqlType
+case object IntType extends SqlType
+case object RealType extends SqlType
+case object TextType extends SqlType
+case object BoolType extends SqlType
+
+// A table (name + resolved column names) and a typed column. The type safety lives on Column[T] /
+// Expr[T]: comparing a Column[Long] with an Expr[String] does not compile. (The spec's phantom
+// row-record type Table[R]/Query[R] is deferred to the stage that adds a typed row decoder.)
+case class Table(name: String, columns: List[String])
+case class Column[T](owner: String, name: String, index: Int, sqlType: SqlType)
+
+// A typed scalar expression. `T` constrains construction; once built it is an ordinary SxNode.
+case class Expr[T](node: SxNode, sqlType: SqlType)
+
+def col[T](t: String, name: String, index: Int, ty: SqlType): Column[T] = Column(t, name, index, ty)
+
+def colExpr[T](c: Column[T]): Expr[T] = Expr(SxCol(c.name), c.sqlType)
+def intLit(x: Long): Expr[Long] = Expr(SxLit(SqlInteger(x)), IntType)
+def realLit(x: Double): Expr[Double] = Expr(SxLit(SqlReal(x)), RealType)
+def textLit(s: String): Expr[String] = Expr(SxLit(SqlText(s)), TextType)
+
+// Arithmetic keeps both operands' type T; concat is String→String. Same SxBin the parser emits.
+def plus[T](a: Expr[T], b: Expr[T]): Expr[T] = Expr(SxBin("+", a.node, b.node), a.sqlType)
+def minus[T](a: Expr[T], b: Expr[T]): Expr[T] = Expr(SxBin("-", a.node, b.node), a.sqlType)
+def times[T](a: Expr[T], b: Expr[T]): Expr[T] = Expr(SxBin("*", a.node, b.node), a.sqlType)
+def concatE(a: Expr[String], b: Expr[String]): Expr[String] = Expr(SxBin("||", a.node, b.node), TextType)
+```
+
+## Typed predicates → the executor's OR-of-ANDs `where`
+
+```scalascript
+// One condition, built to mirror parseCondition exactly: a bare column on the left (name-based, so
+// the executor resolves it), and on the right either a literal (in `value`) or an SxNode expr.
+def condOf(colName: String, op: String, e: SxNode): Condition = e match
+  case SxLit(v) => Condition(colName, op, v, Nil, None, None)
+  case _ => Condition(colName, op, SqlNull, Nil, None, Some(e))
+
+// A single-condition predicate = one OR-group with one AND-term.
+def onePred(c: Condition): Predicate = Predicate((c :: Nil) :: Nil)
+
+case class Predicate(where: List[List[Condition]])
+
+def eqp[T](a: Column[T], b: Expr[T]): Predicate = onePred(condOf(a.name, "=", b.node))
+def nep[T](a: Column[T], b: Expr[T]): Predicate = onePred(condOf(a.name, "<>", b.node))
+def ltp[T](a: Column[T], b: Expr[T]): Predicate = onePred(condOf(a.name, "<", b.node))
+def lep[T](a: Column[T], b: Expr[T]): Predicate = onePred(condOf(a.name, "<=", b.node))
+def gtp[T](a: Column[T], b: Expr[T]): Predicate = onePred(condOf(a.name, ">", b.node))
+def gep[T](a: Column[T], b: Expr[T]): Predicate = onePred(condOf(a.name, ">=", b.node))
+
+// Literal values from a list of literal Exprs (for BETWEEN / IN).
+def litValuesOf(es: List[Expr[Long]]): List[SqliteValue] =
+  var r = es
+  var accRev: List[SqliteValue] = Nil
+  while r.nonEmpty do
+    val v = r.head.node match
+      case SxLit(x) => x
+      case _ => SqlNull
+    accRev = v :: accRev
+    r = r.tail
+  accRev.reverse
+
+def betweenp(a: Column[Long], lo: Expr[Long], hi: Expr[Long]): Predicate =
+  onePred(Condition(a.name, "between", SqlNull, litValuesOf(lo :: hi :: Nil), None, None))
+
+def inp(a: Column[Long], vs: List[Expr[Long]]): Predicate =
+  onePred(Condition(a.name, "in", SqlNull, litValuesOf(vs), None, None))
+
+def likep(a: Column[String], pat: String): Predicate =
+  onePred(Condition(a.name, "like", SqlText(pat), Nil, None, None))
+
+def isNullp[T](a: Column[T]): Predicate =
+  onePred(Condition(a.name, "isnull", SqlNull, Nil, None, None))
+
+// (x1 OR x2) AND (y1 OR y2) distributes to the cross product of AND-groups — exact SQL AND.
+def crossAnd(xs: List[List[Condition]], ys: List[List[Condition]]): List[List[Condition]] =
+  var rx = xs
+  var accRev: List[List[Condition]] = Nil
+  while rx.nonEmpty do
+    var ry = ys
+    while ry.nonEmpty do
+      accRev = (rx.head ++ ry.head) :: accRev
+      ry = ry.tail
+    rx = rx.tail
+  accRev.reverse
+
+def andp(x: Predicate, y: Predicate): Predicate = Predicate(crossAnd(x.where, y.where))
+def orp(x: Predicate, y: Predicate): Predicate = Predicate(x.where ++ y.where)
+```
+
+## Typed projection items
+
+```scalascript
+def projCol[T](c: Column[T]): ProjItem = ProjItem(false, "", c.name, false, None)
+def countStar(): ProjItem = ProjItem(true, "COUNT", "*", false, None)
+def sumCol[T](c: Column[T]): ProjItem = ProjItem(true, "SUM", c.name, false, None)
+def minCol[T](c: Column[T]): ProjItem = ProjItem(true, "MIN", c.name, false, None)
+def maxCol[T](c: Column[T]): ProjItem = ProjItem(true, "MAX", c.name, false, None)
+def avgCol[T](c: Column[T]): ProjItem = ProjItem(true, "AVG", c.name, false, None)
+
+def orderAsc[T](c: Column[T]): OrderKey = OrderKey(SxCol(c.name), false)
+def orderDesc[T](c: Column[T]): OrderKey = OrderKey(SxCol(c.name), true)
+```
+
+## Query builder (single table) → SelectStmt → executor
+
+```scalascript
+// Accumulates the fields of a SelectStmt.
+case class TypedQuery(table: String, star: Boolean, projection: List[ProjItem],
+  where: List[List[Condition]], groupBy: List[String], orderBy: List[OrderKey],
+  limit: Int, offset: Int, distinct: Boolean)
+
+def from(t: Table): TypedQuery =
+  TypedQuery(t.name, true, Nil, Nil, Nil, Nil, -1, 0, false)
+
+// Successive whereQ calls AND together (crossAnd of the OR-of-ANDs shapes).
+def whereQ(q: TypedQuery, p: Predicate): TypedQuery =
+  val merged = if q.where.isEmpty then p.where else crossAnd(q.where, p.where)
+  TypedQuery(q.table, q.star, q.projection, merged, q.groupBy, q.orderBy, q.limit, q.offset, q.distinct)
+
+def selectCols(q: TypedQuery, items: List[ProjItem]): TypedQuery =
+  TypedQuery(q.table, false, items, q.where, q.groupBy, q.orderBy, q.limit, q.offset, q.distinct)
+
+def selectStar(q: TypedQuery): TypedQuery =
+  TypedQuery(q.table, true, Nil, q.where, q.groupBy, q.orderBy, q.limit, q.offset, q.distinct)
+
+def groupByQ(q: TypedQuery, keys: List[String]): TypedQuery =
+  TypedQuery(q.table, q.star, q.projection, q.where, keys, q.orderBy, q.limit, q.offset, q.distinct)
+
+def orderByQ(q: TypedQuery, keys: List[OrderKey]): TypedQuery =
+  TypedQuery(q.table, q.star, q.projection, q.where, q.groupBy, keys, q.limit, q.offset, q.distinct)
+
+def limitQ(q: TypedQuery, n: Int, off: Int): TypedQuery =
+  TypedQuery(q.table, q.star, q.projection, q.where, q.groupBy, q.orderBy, n, off, q.distinct)
+
+def distinctQ(q: TypedQuery): TypedQuery =
+  TypedQuery(q.table, q.star, q.projection, q.where, q.groupBy, q.orderBy, q.limit, q.offset, true)
+
+// Erase to the existing SelectStmt (single table; joins/having are a later stage).
+def toSelectStmt(q: TypedQuery): SelectStmt =
+  SelectStmt(q.star, q.projection, q.table, q.where, q.orderBy, q.limit, q.offset, q.groupBy, Nil, None, q.distinct)
+
+def runTypedQuery(dbBytes: ByteSlice, q: TypedQuery): Either[String, List[List[SqliteValue]]] =
+  runSelectStmt(dbBytes, toSelectStmt(q))
+```

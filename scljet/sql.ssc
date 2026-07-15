@@ -12,9 +12,18 @@ exports:
   - JoinSpec
   - HavingCond
   - SelectStmt
+  - SxNode
+  - SxCol
+  - SxLit
+  - SxNeg
+  - SxBin
+  - SxCall
+  - SxNot
+  - SxAgg
   - tokenize
   - parseSelect
   - executeSelect
+  - runSelectStmt
   - queryImage
   - queryImageParams
   - bindParams
@@ -3017,6 +3026,14 @@ def resolveSubqueries(dbBytes: ByteSlice, toks: List[Token]): Either[String, Lis
         val inCtx = if prefixRev.isEmpty then false else isKw(prefixRev.head, "IN")
         val subst = if inCtx then valueListTokens(values) else scalarValueTokens(values)
         resolveSubqueries(dbBytes, prefixRev.reverse ++ subst ++ sp._2)
+
+/** Execute an already-built SelectStmt against a database image (the typed-SQL surface entry —
+ *  skips tokenize/parse and runs the same executor path queryImage's tail uses). */
+def runSelectStmt(dbBytes: ByteSlice, stmt: SelectStmt): Either[String, List[List[SqliteValue]]] =
+  if stmt.table == "" then executeNoFrom(stmt)
+  else openReadonly(ImageVfs(dbBytes), "image.db", sqlOptions()) match
+    case Left(error) => Left(error.message)
+    case Right(db) => executeSelect(db, stmt)
 
 /** Run a SELECT against a database image and return the result rows. */
 def queryImage(dbBytes: ByteSlice, sql: String): Either[String, List[List[SqliteValue]]] =

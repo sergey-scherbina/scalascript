@@ -1,0 +1,50 @@
+---
+name: scljet-typedsql-basic
+description: SclJet typed SQL surface — build queries from typed combinators; erased query runs identical to reference sqlite3
+backends: [int, js]
+---
+
+# SclJet typed SQL surface
+
+Builds queries from the typed combinators in `scljet/typedsql.ssc` (no SQL strings): typed columns
+and literals, comparison / AND / IN / BETWEEN / LIKE predicates, projections, aggregates, GROUP BY,
+ORDER BY, DISTINCT. Each typed query **erases** to the existing `SelectStmt` and runs through the
+same executor (`runTypedQuery` → `runSelectStmt`) as the SQL-string front end, so every result is
+byte-identical to reference sqlite3 running the equivalent SQL (verified out-of-band); locked across
+`[int, js]`. The compile-time safety (a `Column[Long]` cannot be compared with a `textLit`) is a
+property of the generic combinator signatures, exercised by the construction below.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[renderRows](std/scljet/sql.ssc)
+[SqlType, IntType, TextType, Table, Column, Expr, Predicate, TypedQuery, col, intLit, textLit, eqp, gep, lep, inp, betweenp, likep, andp, projCol, countStar, sumCol, orderAsc, from, whereQ, selectCols, selectStar, groupByQ, orderByQ, distinctQ, runTypedQuery](std/scljet/typedsql.ssc)
+
+```scalascript
+val emp: Table = Table("emp", List("id", "name", "salary", "dept"))
+val cId: Column[Long] = col("emp", "id", 0, IntType)
+val cName: Column[String] = col("emp", "name", 1, TextType)
+val cSalary: Column[Long] = col("emp", "salary", 2, IntType)
+val cDept: Column[String] = col("emp", "dept", 3, TextType)
+
+def show(db: ByteSlice, tag: String, q: TypedQuery): Unit =
+  runTypedQuery(db, q) match
+    case Left(m) => println(tag + " => ERR:" + m)
+    case Right(rows) => println(tag + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER, name TEXT, salary INTEGER, dept TEXT)",
+  List(List(SqlInteger(1L), SqlText("ann"), SqlInteger(100L), SqlText("eng")),
+       List(SqlInteger(2L), SqlText("bob"), SqlInteger(250L), SqlText("sales")),
+       List(SqlInteger(3L), SqlText("cat"), SqlInteger(300L), SqlText("eng")),
+       List(SqlInteger(4L), SqlText("dan"), SqlInteger(150L), SqlText("eng")))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db) =>
+    show(db, "star", orderByQ(selectStar(from(emp)), orderAsc(cId) :: Nil))
+    show(db, "q2", orderByQ(selectCols(whereQ(from(emp), gep(cSalary, intLit(200L))), projCol(cName) :: Nil), orderAsc(cId) :: Nil))
+    show(db, "q3", selectCols(whereQ(from(emp), eqp(cName, textLit("cat"))), projCol(cId) :: projCol(cSalary) :: Nil))
+    show(db, "q4", selectCols(from(emp), countStar() :: sumCol(cSalary) :: Nil))
+    show(db, "q5", orderByQ(selectCols(whereQ(from(emp), andp(gep(cSalary, intLit(150L)), lep(cSalary, intLit(300L)))), projCol(cId) :: Nil), orderAsc(cId) :: Nil))
+    show(db, "q6", orderByQ(selectCols(whereQ(from(emp), inp(cId, intLit(1L) :: intLit(3L) :: Nil)), projCol(cName) :: Nil), orderAsc(cId) :: Nil))
+    show(db, "q7", orderByQ(selectCols(whereQ(from(emp), betweenp(cSalary, intLit(150L), intLit(260L))), projCol(cName) :: Nil), orderAsc(cId) :: Nil))
+    show(db, "q8", selectCols(whereQ(from(emp), likep(cName, "a%")), projCol(cName) :: Nil))
+    show(db, "q9", orderByQ(groupByQ(selectCols(from(emp), projCol(cDept) :: countStar() :: Nil), "dept" :: Nil), orderAsc(cDept) :: Nil))
+    show(db, "q10", orderByQ(distinctQ(selectCols(from(emp), projCol(cDept) :: Nil)), orderAsc(cDept) :: Nil))
+```
