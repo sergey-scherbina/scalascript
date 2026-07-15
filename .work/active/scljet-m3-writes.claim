@@ -1,4 +1,4 @@
 claim: scljet-m3-writes
 owner: opus
-heartbeat: 2026-07-15T04:40:00Z
-status: Typed SQL surface = full CRUD+joins+aggregates+GROUP BY+HAVING (m6w-m6y+having); JDBC façade (m6v); SQL polish (m6r/m6s). All green int==js. Final full gate running.
+heartbeat: 2026-07-15T04:50:00Z
+status: All 3 lanes DONE + verified — typed SQL surface (CRUD+joins+aggregates+HAVING), JDBC portable façade, SQL polish (LEFT-join-3, REAL literals). Full scljet gate 82/82 green non-memoized on [int, js].
