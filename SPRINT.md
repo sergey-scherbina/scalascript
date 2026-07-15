@@ -263,6 +263,27 @@ every later compiler/kernel change re-runs the literal fixed point.
   - [ ] **Remaining host/runner profile** — generated facades and typed value/call
     bridges, managed source transformation and callback policies, mixed-language
     SCC dispatch, exact and portable runners, and shared lane wiring.
+    - [ ] **T1 — closed synchronous lexical direct transform (`javascript-typescript-control-direct`).**
+      Specify and ship the zero-runtime-side-effect package `v2/host/js/control-direct`
+      (`@scalascript/control-direct`, transformer subpath `/transform`, CLI
+      `ssc-control-tsc`) that lowers the bounded grammar
+      `direct.reset(prompt, () => { ... const/let x = direct.shift(prompt, body) ... })`
+      into the existing explicit `@scalascript/control` `Eff/reset/shift/flatMap` ABI.
+      This slice is deliberately local and closed (`Fx = never`): preserve exact-import
+      ownership, lexical shadowing, nearest resets, true shift, prompt isolation,
+      prefix-once/suffix-per-resume, sequential markers, and shared local mutable heap;
+      reject all asynchronous/generator and capture-barrier shapes with stable
+      `JS_DIRECT_*` codes and source spans. Use the TypeScript compiler API as the
+      established syntax/binding authority when it is already available, keep the
+      published package free of production dependencies, and leave descriptors,
+      CoreIR/frontends, runners, lane registration, and the rest of the host profile
+      open. Resume from `specs/javascript-typescript-control-direct.md`; done when its
+      behavior checklist is verified, catalog 18/22/23/24 differentials and negative
+      syntax/import/source-map/type-diagnostic/package tests are green, the existing
+      explicit package remains 31/31 plus typecheck, exact npm packs are audited, and
+      affected `effect*,effects*` conformance passes. Keep code, docs, spec verification,
+      and bookkeeping in separate commits and require an independent read-only review
+      before integration.
 - [ ] **rust-control-host-runner** — deliver the Cargo host facade, stable-Rust
   explicit `Eff`, proc-macro/generated state machines, ownership/borrow/RAII barrier
   checks, typed mixed-SCC dispatcher, target/toolchain-pinned exact runner, and
