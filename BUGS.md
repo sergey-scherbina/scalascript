@@ -1,5 +1,33 @@
 # Bug tracker
 
+## scala-direct-deferred-nonlocal-return — OPEN / fix planned (2026-07-15, Codex)
+
+**Status:** open; found by Codex during the pre-integration fail-closed audit of
+`scala3-control-macros`. The implementation has not been changed yet; update the
+specification and add regressions before touching the lowering.
+
+**Symptom:** a source `return` in a pure `direct.reset` body, or in the suffix
+after `direct.shift`, could be moved into the explicit reset's deferred
+computation. The enclosing Scala method has already returned when that `Eff`
+runs, so preserving the tree would turn source return into escaped exception-based
+control instead of the specified explicit effect semantics.
+
+**Reproduce:** compile a method returning `Eff[Nothing, Int]` whose
+`direct.reset` body executes `return Eff.pure(7)`, and a second method that first
+binds `direct.shift` and then executes `return Eff.pure(selected)`. Both shapes
+must fail at the exact `return` with `DIRECT_STYLE_UNSUPPORTED`; neither may
+produce a runnable `Eff`.
+
+**Root cause:** the bounded lowering validated markers under `Return` nodes, but
+did not independently reject a `Return` targeting a method outside the contextual
+reset body before moving that body under `Eff.defer` and generated continuations.
+
+**Fix/verification plan:** make `DirectMacros` inspect the typed body before
+lowering and reject only returns whose target is outside the lexical reset owner;
+returns local to a nested method must remain owned by that method. Add pure-body,
+captured-suffix, and safe local-return regressions, then run the full control leaf
+and packaged-jar compile path before independent review.
+
 ## js-control-packed-readme-broken-spec-link — npm README links outside payload
 
 **Status:** fixed by `1c2e150c3` with regression `6f19a9538`; awaiting final
