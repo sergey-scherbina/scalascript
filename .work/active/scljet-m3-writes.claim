@@ -1,4 +1,4 @@
 claim: scljet-m3-writes
 owner: opus
-heartbeat: 2026-07-15T09:45:00Z
-status: correlated [NOT] EXISTS (m7i) landed, FULL gate 93/93 green non-memoized [int, js]. NEXT (in progress): correlated IN/scalar subqueries (reuse EXISTS per-row substitution), then RIGHT/FULL joins.
+heartbeat: 2026-07-15T10:05:00Z
+status: correlated [NOT] IN (m7j) landed — detects correlation (outer-table ref), per-row eval. EXISTS+IN both done. 50/50 sql green; full gate confirming. NEXT (last list item): RIGHT/FULL joins.

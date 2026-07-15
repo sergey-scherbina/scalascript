@@ -2163,6 +2163,17 @@ Two new front doors are specced (typed-SQL-API cb94fd88c, JDBC-API f2d1372a0); *
 working first implementation** — the JDBC portable façade (m6v) and the typed SQL surface (m6w),
 alongside SQL polish (REAL literals m6s, LEFT-join-3 m6r). All three "параллельно" lanes advanced.
 
+- [x] **scljet-m7j-correlated-in** — DONE 2026-07-15 (new SQL feature; Sergiy "Делай всё автономно").
+      Correlated `[NOT] IN (subquery)` — extends the EXISTS per-row machinery. `resolveSubqueries` now
+      detects a correlated subquery (its tokens contain a qualified ref to the outer FROM table —
+      `firstFromTable` + `referencesOuterTable`) and skips the pre-pass, while non-correlated
+      `IN (SELECT …)` still resolves once. `parseCondition` captures `IN (SELECT …)`/`NOT IN (SELECT …)`
+      as `insubq`/`notinsubq` Conditions; per outer row `inSubqHolds` substitutes the outer refs, runs
+      the subquery against the open db, and tests the left value's membership in the first column. Verified
+      vs sqlite3 (correlated IN + NOT IN, and a non-correlated IN still pre-resolved), int==js; conformance
+      `scljet-sql-correlated-in`; 50/50 sql green. Correlated scalar `=(SELECT …)` is a follow-up.
+      NEXT (last list item): RIGHT/FULL joins.
+
 - [x] **scljet-m7i-correlated-exists** — DONE 2026-07-15 (new SQL feature; Sergiy "Делай всё автономно").
       Correlated `[NOT] EXISTS (subquery)` where the subquery references the outer row (`t2.fk = t1.id`),
       evaluated PER OUTER ROW (not the non-correlated pre-pass). `Condition` gains a defaulted `subTokens`
