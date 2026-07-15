@@ -18,7 +18,7 @@ path and no CoreIR, UniML, seed, backend, or self-hosting change.
 
 The `scala-direct` semantic lane is now ready for vectors 18 and 23 plus catalog
 coverage (3/3), each differential against explicit Scala. The complete control
-leaf passes 80/80 tests, the package/POM and runnable example are green, catalog
+leaf passes 82/82 tests, the package/POM and runnable example are green, catalog
 validation remains 26 vectors/9 lanes with 9/9 negative cases, and affected effect
 conformance passes 5/5. Cross-method capture, prompt forwarding across a nested
 different-prompt reset, managed callbacks, and saveable frames remain work for the

@@ -248,8 +248,8 @@ every later compiler/kernel change re-runs the literal fixed point.
   an outer scope across a nested reset is rejected until the compiler-plugin tier can preserve the
   residual outer control row explicitly. Accordingly the direct lane claims vector 18/23 `shift-reset`;
   vector 22 also requires `prompt-isolation` and remains explicit/plugin evidence. Landed 2026-07-15:
-  the bounded lexical transform emits only the existing explicit API; ten direct semantic tests, eight
-  exact diagnostic tests, and source-access guards pass inside the 80/80 control leaf. The validated
+  the bounded lexical transform emits only the existing explicit API; ten direct semantic tests, ten
+  exact diagnostic tests, and source-access guards pass inside the 82/82 control leaf. The validated
   `scala-direct` lane runs vectors 18/23 plus coverage (3/3) with explicit differential oracles; package,
   POM, runnable example, and five-case affected conformance gates are green. Before integration, close
   the tracked `scala-direct-deferred-nonlocal-return` fail-closed gap: specify and reject external
