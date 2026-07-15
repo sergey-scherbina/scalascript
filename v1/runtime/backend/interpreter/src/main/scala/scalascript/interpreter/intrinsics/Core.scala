@@ -118,6 +118,15 @@ val CoreIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
       case _                          => ()
   ),
 
+  // Integer.parseInt(s) / parseInt(s, radix) — the radix form is the common way to
+  // parse hex/binary (`.toInt` takes no radix). Returns a 64-bit Long (ssc Int).
+  QualifiedName("Integer.parseInt") -> NativeImpl((_, args) =>
+    args match
+      case List(s: String)          => java.lang.Long.parseLong(s.trim)
+      case List(s: String, r: Long) => java.lang.Long.parseLong(s.trim, r.toInt)
+      case _                        => ()
+  ),
+
   QualifiedName("math.floor") -> NativeImpl((_, args) =>
     args match
       case List(d: Double) => math.floor(d)

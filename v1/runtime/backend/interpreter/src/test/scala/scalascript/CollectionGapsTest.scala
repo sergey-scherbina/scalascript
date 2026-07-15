@@ -74,3 +74,24 @@ class CollectionGapsTest extends AnyFunSuite:
   test("List.sliding with step") {
     assert(captured("println(List(1,2,3,4,5).sliding(2,2).toList)") == "List(List(1, 2), List(3, 4), List(5))")
   }
+
+  test("Int radix renderings") {
+    assert(captured("println((255).toHexString)") == "ff")
+    assert(captured("println((255).toBinaryString)") == "11111111")
+    assert(captured("println((8).toOctalString)") == "10")
+    assert(captured("println((0).toHexString)") == "0")
+  }
+
+  test("Integer.parseInt") {
+    assert(captured("""println(Integer.parseInt("42"))""") == "42")
+    assert(captured("""println(Integer.parseInt("ff", 16))""") == "255")
+    assert(captured("""println(Integer.parseInt("1010", 2))""") == "10")
+    assert(captured("""println(Integer.parseInt("-17"))""") == "-17")
+  }
+
+  test("List.partitionMap") {
+    assert(captured("""println(List(Right(1), Left("e"), Right(3)).partitionMap(x => x))""")
+             == "(List(e), List(1, 3))")
+    assert(captured("println(List(1,2,3,4).partitionMap(n => if n % 2 == 0 then Right(n) else Left(n)))")
+             == "(List(1, 3), List(2, 4))")
+  }

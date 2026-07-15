@@ -568,6 +568,12 @@ private[interpreter] object BuiltinsRuntime:
       "E"     -> interp.globals("math.E")
     ))
 
+    // `Integer` object so `Integer.parseInt(s[, radix])` works via field dispatch
+    // (the `.toInt` string method takes no radix, so this is the way to parse hex/binary).
+    interp.globals("Integer") = Value.InstanceV("Integer", Map(
+      "parseInt" -> interp.globals("Integer.parseInt")
+    ))
+
     // v1.17.x — oauth namespace: standalone OAuth 2.1 Authorization Server.
     // Mirrors the `math` companion-object pattern: dotted QualifiedName
     // entries from `OAuthIntrinsics` get a sibling InstanceV bound to

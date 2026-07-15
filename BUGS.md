@@ -14,8 +14,12 @@ Vector too. Regression test `CollectionGapsTest`.
 **Second batch (2026-07-15):** `List.patch` / `zipAll` / `scanRight` / `distinctBy` / `sliding(size, step)`
 (the 2-arg form) added to `dispatchList` (+ whitelist); a `seqElems` helper lets `patch`/`zipAll` accept
 both `List(…)` and `Vector(…)` collection args (existing methods like `diff`/`intersect` only accept
-`ListV` — a broader pre-existing limitation left as-is). NOTE (still open): `String.padTo`, `permutations`,
-`combinations`, `Set.subsets`, and likely more — the common seq methods are now covered.
+`ListV` — a broader pre-existing limitation left as-is).
+**Third batch (2026-07-15):** `Int.toHexString`/`toBinaryString`/`toOctalString` (64-bit, via `java.lang.Long`,
+in `dispatchInt`); `Integer.parseInt(s[, radix])` (the radix form is the only way to parse hex/binary — `.toInt`
+takes no radix; `intrinsics/Core.scala` + an `Integer` object in `BuiltinsRuntime`); `List.partitionMap`
+(Left/Right = `InstanceV(_, "value" -> v)`). NOTE (still open): `String.padTo`, `String.map` (a v2-NATIVE gap,
+not v1), `permutations`, `combinations`, `Set.subsets` — the common methods are now covered.
 
 ## js-control-packed-readme-broken-spec-link — npm README links outside payload
 

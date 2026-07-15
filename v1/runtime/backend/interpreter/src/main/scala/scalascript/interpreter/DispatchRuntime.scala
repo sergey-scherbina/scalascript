@@ -57,7 +57,7 @@ private[interpreter] object DispatchRuntime:
               "drop" | "apply" | "grouped" | "sliding" | "scanLeft" |
               "reduceLeft" | "reduce" | "reduceRight" | "reduceOption" |
               "reduceLeftOption" | "transpose" | "patch" | "zipAll" | "scanRight" |
-              "distinctBy" | "partition" | "count" | "collect" | "span" |
+              "distinctBy" | "partition" | "partitionMap" | "count" | "collect" | "span" |
               "sortBy" | "sortWith" | "groupBy" | "mkString" | "zip" |
               "takeRight" | "dropRight" | "splitAt" | "intersect" | "diff" |
               "takeWhile" | "dropWhile" | "toList" | "toSeq" | "toIterable" |
@@ -2126,6 +2126,20 @@ private[interpreter] object DispatchRuntime:
       case "partition"    => args match
         case List(f) => Computation.partitionSequence(ls, item => interp.callValue1(f, item, env))
         case _       => dispatchFallback(recv, name, args, env, interp)
+      case "partitionMap" => args match
+        // f: A => Either[B, C]; collect Lefts and Rights into (List[B], List[C]).
+        case List(f) =>
+          val lefts  = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
+          val rights = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
+          def loop(remaining: List[Value]): Computation = remaining match
+            case Nil       => Pure(Value.TupleV(Value.ListV(lefts.toList) :: Value.ListV(rights.toList) :: Nil))
+            case h :: rest => FlatMap(interp.callValue1(f, h, env), {
+              case Value.InstanceV("Left",  fs) if fs.contains("value") => lefts  += fs("value"); loop(rest)
+              case Value.InstanceV("Right", fs) if fs.contains("value") => rights += fs("value"); loop(rest)
+              case _ => loop(rest)   // non-Either element (ill-typed) — skip
+            })
+          loop(ls)
+        case _       => dispatchFallback(recv, name, args, env, interp)
       case "groupBy"      => args match
         case List(f) =>
           val groups = scala.collection.mutable.LinkedHashMap.empty[Value, scala.collection.mutable.ArrayBuffer[Value]]
@@ -2807,6 +2821,10 @@ private[interpreter] object DispatchRuntime:
       case "toChar"    => Pure(Value.CharV(n.toChar))
       case "abs"       => Computation.pureIntV(math.abs(n))
       case "toString"  => Pure(Value.StringV(n.toString))
+      // 64-bit radix renderings (ssc Int is 64-bit → java.lang.Long.*).
+      case "toHexString"    => Pure(Value.StringV(java.lang.Long.toHexString(n)))
+      case "toBinaryString" => Pure(Value.StringV(java.lang.Long.toBinaryString(n)))
+      case "toOctalString"  => Pure(Value.StringV(java.lang.Long.toOctalString(n)))
       case "max"       => args match
         case List(Value.IntV(m))    => Computation.pureIntV(math.max(n, m))
         case List(Value.DoubleV(d)) => Pure(Value.doubleV(math.max(n.toDouble, d)))
