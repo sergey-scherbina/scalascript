@@ -1,5 +1,47 @@
 # Bug tracker
 
+## js-control-npm-license-omitted — package tarball lacks Apache license
+
+**Status:** open (2026-07-15, independent review of
+`javascript-typescript-control-host-runner`).
+
+**Symptom/reproduce:** run `npm pack --dry-run --json` in
+`v2/host/js/control`. The package contains only `README.md`, `index.d.ts`,
+`index.js`, and `package.json`; consumers do not receive the repository's Apache
+2.0 license text.
+
+**Plan/done-when:** include the Apache license in the published package, keep the
+explicit `files` allow-list exact, and update the normative manifest, package
+test, README/spec evidence, and dry-run pack oracle.
+
+## js-control-prompt-key-extraction-never — invariant answer type breaks PromptKeyOf
+
+**Status:** open (2026-07-15, independent review of
+`javascript-typescript-control-host-runner`).
+
+**Symptom/reproduce:** `PromptKeyOf<Prompt<P, ConcreteAnswer>>` evaluates to
+`never` because the conditional matches `Prompt<infer P, unknown>` while the
+private prompt brand intentionally makes the answer type invariant.
+
+**Plan/done-when:** extract the prompt key without weakening answer-type
+invariance, add a concrete-answer positive compile assertion, and retain the
+existing nested-prompt and forged-prompt negative gates.
+
+## js-control-effect-owner-type-collision — descriptor ID is mistaken for owner identity
+
+**Status:** open (2026-07-15, independent review of
+`javascript-typescript-control-host-runner`).
+
+**Symptom/reproduce:** two `defineEffect("same.id")` calls create distinct runtime
+owners, but both declarations currently produce `Effect<"same.id">`. TypeScript
+therefore accepts handling an operation from the first key with the second key as
+`Eff<never, A>`; runtime correctly forwards the request as unhandled.
+
+**Plan/done-when:** give each effect key explicit generative owner identity in the
+public declarations, preserve practical declaration/handler inference, add a
+negative TypeScript cross-owner case and a runtime same-descriptor/different-owner
+regression, and keep stable descriptor IDs separate from runtime authority.
+
 ## jvm-bytegen-letrec-env-clobber — FIXED / awaiting confirmation (2026-07-15, Codex)
 
 **Status:** fixed in `956b42539`; awaiting reporter confirmation. Found by the

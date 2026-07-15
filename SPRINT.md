@@ -232,12 +232,18 @@ every later compiler/kernel change re-runs the literal fixed point.
   and hardened dynamic portable runner from
   `specs/javascript-typescript-bidirectional-control.md`. Promise/async/generators
   remain adapters or barriers; I64 uses `bigint`.
-  - [x] **Explicit local control slice (2026-07-15)** — implemented and verified the
+  - [ ] **Explicit local control slice review hardening (2026-07-15)** — the
     compiler-independent ESM/`.d.ts` reference leaf `@scalascript/control`: 27/27
     package tests including all 17 applicable catalog vectors, 1,000,000-bind and
     1,000,000-state stress plus 100,000 handled operations, positive/negative
     TypeScript gates, an exact four-file dependency-free tarball, and 5/5 affected
-    project conformance cases (`d9222a55e`, spec evidence in §11).
+    project conformance cases (`d9222a55e`, spec evidence in §11). Before
+    integration, close the independent-review blockers recorded in `BUGS.md`:
+    generative effect-owner typing distinct from stable descriptor IDs,
+    answer-invariant `PromptKeyOf` extraction, and Apache `LICENSE` publication.
+    Freeze any declaration/manifest contract change in the feature spec first;
+    verify cross-owner runtime/type regressions, handler inference, exact pack
+    contents, all 27 existing tests, TypeScript gates, and affected conformance.
   - [ ] **Remaining host/runner profile** — generated facades and typed value/call
     bridges, managed source transformation and callback policies, mixed-language
     SCC dispatch, exact and portable runners, and shared lane wiring.
