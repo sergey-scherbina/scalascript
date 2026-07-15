@@ -568,10 +568,22 @@ object SpikeParse:
     expect(c, "spike.id", "ext.recv", "receiver name").foreach(kids += _)
     expect(c, "spike.colon", "ext.colon", "':'").foreach(kids += _)
     expectType(c, "ext.recvType").foreach(kids += _)
+    skipTypeTail(c) // a generic receiver `(xs: List[Int])` — the `[Int]` tail must be consumed before `)`
     expect(c, "spike.rparen", "ext.close", "')'").foreach(kids += _)
-    // a single inline method def (multi-method offside groups deferred)
-    if isDefStart(c) then kids += parseDef(c)
-    else c.report("spike.expected", "expected a method def in extension")
+    // the method group: `{ def m …; def n … }`, a single inline `def m …`, or an offside block of
+    // defs indented under the header. extensionNodes projects EVERY def child (receiver prepended),
+    // so consume them all — a group closes at a dedent (col < the first method's) or a non-def.
+    if c.peekKind == "spike.lbrace" then
+      c.advance() // `{`
+      c.skipSemis()
+      while isDefStart(c) && !c.eof do { kids += parseDef(c); c.skipSemis() }
+      if c.peekKind == "spike.rbrace" then c.advance() else c.report("spike.expected", "expected '}' to close extension")
+    else
+      var groupCol = -1
+      while isDefStart(c) && !c.eof && (groupCol < 0 || c.peekCol >= groupCol) do
+        if groupCol < 0 then groupCol = c.peekCol
+        kids += parseDef(c)
+      if groupCol < 0 then c.report("spike.expected", "expected a method def in extension")
     Node.Frame("spike.extension", None, kids.result())
 
   // `given name: T = expr` — a named typeclass instance (dictionary). lowerProg's resolve pass
