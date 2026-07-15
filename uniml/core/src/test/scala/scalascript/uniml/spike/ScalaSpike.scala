@@ -773,8 +773,10 @@ object SpikeParse:
     val kids = Vector.newBuilder[Node]
     c.advance().foreach(t => kids += Node.Leaf(t, Some("while.kw"))) // `while`
     parseExpr(c, 1).foreach(cond => kids += cond.withRole("while.cond"))
+    val doLine = c.peekLine
     if isWord(c, "do") then c.advance() // optional `do`
-    parseExpr(c, 1).foreach(body => kids += body.withRole("while.body"))
+    // an indented body on a LATER line is a block (`while c do⏎ s1⏎ s2`), not a single expr (like a def body)
+    kids += branchExpr(c, doLine).withRole("while.body")
     Node.Frame("spike.while", None, kids.result())
 
   // postfix layer: an atom followed by chained `.field` selections and/or `match { … }`
