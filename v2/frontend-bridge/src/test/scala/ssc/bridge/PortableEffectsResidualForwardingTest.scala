@@ -42,6 +42,39 @@ final class PortableEffectsResidualForwardingTest extends AnyFunSuite:
   private def handle(computation: Term, withHandler: Term): Term =
     Term.Prim("effect.handle", List(computation, withHandler))
 
+  private def directChildren(term: Term): List[Term] = term match
+    case Term.Lam(_, body)                   => List(body)
+    case Term.App(function, arguments)       => function :: arguments
+    case Term.Let(rhs, body)                 => rhs :+ body
+    case Term.LetRec(lambdas, body)          => lambdas :+ body
+    case Term.If(condition, yes, no)         => List(condition, yes, no)
+    case Term.Ctor(_, fields)                => fields
+    case Term.Match(scrutinee, arms, default) =>
+      scrutinee :: (arms.map(_.body) ++ default.toList)
+    case Term.Prim(_, arguments)             => arguments
+    case Term.While(condition, body)         => List(condition, body)
+    case Term.Seq(terms)                     => terms
+    case _                                   => Nil
+
+  private def containsOutsideNestedLambda(term: Term, primitive: String): Boolean =
+    term match
+      case Term.Prim(`primitive`, _) => true
+      case Term.Lam(_, _)            => false
+      case other                     =>
+        directChildren(other).exists(containsOutsideNestedLambda(_, primitive))
+
+  private def findSelectedOnlyHandlerRoot(program: Program): Option[(Int, Term)] =
+    def loop(term: Term): Option[(Int, Term)] = term match
+      case Term.Lam(arity, body)
+          if containsOutsideNestedLambda(body, HandlerDispatchShape.SelectedPrimitive) &&
+            !containsOutsideNestedLambda(body, HandlerDispatchShape.MissPrimitive) =>
+        Some((arity, body))
+      case other => directChildren(other).view.flatMap(loop).headOption
+
+    (program.defs.iterator.map(_.body) ++ Iterator.single(program.entry))
+      .flatMap(loop)
+      .nextOption()
+
   private def continuation(value: Value): Value.ClosV = value match
     case Value.DataV("Op", IndexedSeq(_, _, resume: Value.ClosV)) => resume
     case other => fail(s"expected Op continuation, got ${Show.show(other)}")
@@ -401,6 +434,40 @@ final class PortableEffectsResidualForwardingTest extends AnyFunSuite:
 
     lanes.foreach { lane =>
       assert(runSource(source, lane) == Value.IntV(112), lane)
+    }
+  }
+
+  test("effectful guard before total catch-all retains selected-only handler metadata") {
+    val source =
+      """effect Target:
+        |  def op(value: Int): Int
+        |
+        |multi effect Gate:
+        |  def allow(): Boolean
+        |
+        |def inner(): Int =
+        |  handle(Target.op(1)) {
+        |    case Target.op(value, resume) if Gate.allow() => resume(value + 100)
+        |    case Return(value) => value
+        |    case other => 7
+        |  }
+        |
+        |val result = handle(inner()) {
+        |  case Gate.allow(resume) => resume(false) + resume(true)
+        |  case Return(value) => value
+        |}
+        |result
+        |""".stripMargin
+
+    bridgeRuntimeLoaded
+    FrontendBridge.resetState()
+    val program = FrontendBridge.convertSource(source)
+    val (arity, body) = findSelectedOnlyHandlerRoot(program)
+      .getOrElse(fail("expected a selected-only general handler root"))
+    assert(HandlerDispatchShape.isRoot(arity, body))
+
+    lanes.foreach { lane =>
+      assert(run(program, lane) == Value.IntV(108), lane)
     }
   }
 
