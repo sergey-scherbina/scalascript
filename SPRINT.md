@@ -2137,6 +2137,24 @@ Two new front doors are specced (typed-SQL-API cb94fd88c, JDBC-API f2d1372a0); *
 working first implementation** — the JDBC portable façade (m6v) and the typed SQL surface (m6w),
 alongside SQL polish (REAL literals m6s, LEFT-join-3 m6r). All three "параллельно" lanes advanced.
 
+- [x] **scljet-m7g-range-index-seek** — DONE 2026-07-15 (physical access-path perf; Sergiy "Делай всё").
+      Range index-seeks — `WHERE indexedcol >/>=/</<= K` and `BETWEEN lo AND hi` now use the index. The
+      descent is generalized from an equality key to an `IndexRange` (lo/hi + inclusivity): `keyInRange`
+      tests membership, `rangeChildCouldContain` prunes interior children overlapping [lo,hi],
+      `readIndexLeafRowids` collects in-range rowids. Equality is `[K,K]`. Collected rowids sorted into
+      rowid order (non-recursive `sortLongsAsc`) so a range seek (index order ≠ rowid order) matches the
+      full scan. `rangeOfCond`/`extractColRange` map the WHERE; `pointLookup` dispatches equality→table
+      seek / range→index range seek. **Also fixed a latent m7f bug**: SQLite index B-tree interior
+      DIVIDER cells are REAL entries (each key appears once, not duplicated in a leaf), so
+      `readIndexInterior` now returns divider rowids and `descendChildren` collects the in-range ones —
+      m7f's k3/k0/k7 keys happened not to be dividers; the range test's k6 (rowid 22 = a divider) exposed
+      it. **The interp `if-then-no-else` drop bit again**: a bare `if cond then acc = …` followed by
+      another `acc = …` silently discarded the child-subtree rowids → restructured to one acc assignment
+      per loop. Verified vs sqlite3 (int/text ranges, all ops, multi-level index with interior pruning +
+      divider collection, no fallback), int==js; conformance `scljet-sql-range-seek` + `-range-descent`;
+      47/47 scljet-sql green non-memoized. NEXT candidates: composite indexes (`a=? AND b=?`), correlated
+      subqueries / EXISTS, RIGHT/FULL joins.
+
 - [x] **scljet-m7f-index-descent** — DONE 2026-07-15 (physical access-path perf; Sergiy "Ок берись").
       O(log n) index descent — `WHERE indexedcol=K` now **descends** the index B-tree instead of walking
       it in order. New index-aware page readers: `readIndexInterior` (each interior cell = left-child
