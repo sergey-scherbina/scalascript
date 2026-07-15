@@ -86,6 +86,19 @@ final class ScljetConnectionState(
     val kw = leadingKeyword(sql)
     kw == "SELECT" || kw == "WITH"
 
+  /** Does this statement generate a rowid `getGeneratedKeys` should report?
+   *  Only row-inserting statements do — SQLite's `last_insert_rowid()` is
+   *  unchanged by UPDATE/DELETE/DDL. */
+  def generatesKeys(sql: String): Boolean =
+    val kw = leadingKeyword(sql)
+    kw == "INSERT" || kw == "REPLACE"
+
+  /** The image a reader should see: the staged working image inside an open
+   *  transaction, else the committed one. Used by the catalog metadata. */
+  def currentImage: Value =
+    checkOpen()
+    ScljetEngine.call("jdbcCurrent", connValue)
+
   private def leadingKeyword(sql: String): String =
     val t = sql.dropWhile(_.isWhitespace)
     t.takeWhile(c => c.isLetter).toUpperCase

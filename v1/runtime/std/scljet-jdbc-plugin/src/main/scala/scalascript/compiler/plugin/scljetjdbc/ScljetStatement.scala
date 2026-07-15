@@ -2,7 +2,7 @@ package scalascript.compiler.plugin.scljetjdbc
 
 import scalascript.interpreter.Value
 
-import java.sql.{Connection, PreparedStatement, ResultSet, SQLException, Statement}
+import java.sql.{Connection, PreparedStatement, ResultSet, SQLException, Statement, Types}
 import scala.collection.mutable
 import ProxySupport.*
 
@@ -12,8 +12,40 @@ final class StatementState(val conn: ScljetConnectionState):
   var updateCount: Long = -1
   var maxRows: Int = 0
   var closed: Boolean = false
+  /** Rowid of the last row-generating statement run through THIS statement —
+   *  the backing store for `getGeneratedKeys`.  `None` once a statement that
+   *  generates no key (UPDATE/DELETE/DDL, or an INSERT that changed nothing)
+   *  runs, per the JDBC contract that the keys belong to the last execution. */
+  var generatedKey: Option[Long] = None
+
   def checkOpen(): Unit =
     if closed then throw SQLException("scljet JDBC: statement is closed")
+
+  /** The single write path for both Statement and PreparedStatement: threads the
+   *  affected-row count AND the last-insert rowid the façade already returns. */
+  def runUpdate(sql: String, params: List[Value]): Long =
+    checkOpen()
+    val (changes, rowid) = conn.executeUpdate(sql, params)
+    updateCount = changes; currentRs = null
+    generatedKey = if conn.generatesKeys(sql) && changes > 0 then Some(rowid) else None
+    changes
+
+  def runQuery(sql: String, params: List[Value], owner: Statement): ResultSet =
+    checkOpen()
+    val rs = conn.executeQuery(sql, params, owner)
+    currentRs = rs; updateCount = -1
+    rs
+
+  /** `getGeneratedKeys` — a one-column `ResultSet` of the last-insert rowid
+   *  (specs/scljet-jdbc.md §"Open decisions" #6; the label matches Xerial
+   *  `sqlite-jdbc`, which the test suite cross-checks against).  Empty when the
+   *  last execution generated no key. */
+  def generatedKeys(owner: Statement): ResultSet =
+    checkOpen()
+    ScljetStaticResultSet.make(
+      List(StaticColumn("last_insert_rowid()", Types.BIGINT)),
+      generatedKey.map(k => List[AnyRef](java.lang.Long.valueOf(k))).toList,
+      owner)
 
 /** Statement methods shared by both the plain and prepared handlers. */
 object StatementCommon:
@@ -24,16 +56,8 @@ object StatementCommon:
       label: String,
       name: String,
       args: Array[AnyRef]): AnyRef =
-    def runQuery(sql: String, params: List[Value]): ResultSet =
-      state.checkOpen()
-      val rs = state.conn.executeQuery(sql, params, owner)
-      state.currentRs = rs; state.updateCount = -1
-      rs
-    def runUpdate(sql: String, params: List[Value]): Long =
-      state.checkOpen()
-      val (changes, _) = state.conn.executeUpdate(sql, params)
-      state.updateCount = changes; state.currentRs = null
-      changes
+    def runQuery(sql: String, params: List[Value]): ResultSet = state.runQuery(sql, params, owner)
+    def runUpdate(sql: String, params: List[Value]): Long = state.runUpdate(sql, params)
     name match
       case "executeQuery"       => runQuery(argStr(args, 0), Nil)
       case "executeUpdate"      => boxI(runUpdate(argStr(args, 0), Nil).toInt)
@@ -74,7 +98,7 @@ object StatementCommon:
       case "closeOnCompletion"   => unit
       case "isCloseOnCompletion" => boxB(false)
       case "cancel"              => unit
-      case "getGeneratedKeys"    => throw ProxySupport.nse(s"$label.getGeneratedKeys")
+      case "getGeneratedKeys"    => state.generatedKeys(owner)
       case _                     => throw ProxySupport.nse(s"$label.$name")
 
 object ScljetStatement:
@@ -150,25 +174,16 @@ final class PreparedStatementHandler(state: StatementState, connProxy: Connectio
     case "clearParameters" => params.clear(); unit
     // Prepared execution (no SQL argument)
     case "executeQuery" if args.length == 0 =>
-      state.checkOpen()
-      val rs = state.conn.executeQuery(sql, boundParams(), proxy.asInstanceOf[java.sql.Statement])
-      state.currentRs = rs; state.updateCount = -1; rs
+      state.runQuery(sql, boundParams(), proxy.asInstanceOf[java.sql.Statement])
     case "executeUpdate" if args.length == 0 =>
-      state.checkOpen()
-      val (c, _) = state.conn.executeUpdate(sql, boundParams())
-      state.updateCount = c; state.currentRs = null; boxI(c.toInt)
+      boxI(state.runUpdate(sql, boundParams()).toInt)
     case "executeLargeUpdate" if args.length == 0 =>
-      state.checkOpen()
-      val (c, _) = state.conn.executeUpdate(sql, boundParams())
-      state.updateCount = c; state.currentRs = null; boxL(c)
+      boxL(state.runUpdate(sql, boundParams()))
     case "execute" if args.length == 0 =>
-      state.checkOpen()
       if state.conn.isQuery(sql) then
-        val rs = state.conn.executeQuery(sql, boundParams(), proxy.asInstanceOf[java.sql.Statement])
-        state.currentRs = rs; state.updateCount = -1; boxB(true)
+        state.runQuery(sql, boundParams(), proxy.asInstanceOf[java.sql.Statement]); boxB(true)
       else
-        val (c, _) = state.conn.executeUpdate(sql, boundParams())
-        state.updateCount = c; state.currentRs = null; boxB(false)
+        state.runUpdate(sql, boundParams()); boxB(false)
     // A PreparedStatement rejects the inherited Statement SQL-string overloads.
     case "executeQuery" | "executeUpdate" | "execute" | "executeLargeUpdate" =>
       throw SQLException(s"scljet JDBC: cannot call $name(String) on a PreparedStatement")
@@ -177,9 +192,7 @@ final class PreparedStatementHandler(state: StatementState, connProxy: Connectio
     case "clearBatch" => batch.clear(); unit
     case "executeBatch" =>
       state.checkOpen()
-      val counts = batch.map { p =>
-        val (c, _) = state.conn.executeUpdate(sql, p); c.toInt
-      }.toArray
+      val counts = batch.map(p => state.runUpdate(sql, p).toInt).toArray
       batch.clear()
       counts
     case "getParameterMetaData" => ScljetMeta.parameterMetaData(ScljetPreparedStatement.countParams(sql))
