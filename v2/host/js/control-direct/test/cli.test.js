@@ -208,13 +208,147 @@ test("packed installed bin uses the consumer compiler and emits production-only 
     assert.equal(existsSync(output), true)
     assert.doesNotMatch(readFileSync(output, "utf8"), /@scalascript\/control-direct/)
 
+    const productionOutputs = [{ path: output, expected: "42" }]
+    for (const verbatimModuleSyntax of [false, true]) {
+      const emitProject = join(consumer, `emit-channels-${verbatimModuleSyntax}`)
+      mkdirSync(emitProject, { recursive: true })
+      writeFileSync(join(emitProject, "input.ts"), `
+        import {
+          direct,
+          type DirectMarkerContractError as ErrorType
+        } from "@scalascript/control-direct"
+        export { type direct as Marker } from "@scalascript/control-direct"
+        export type PublicError = ErrorType
+        export const answer = 42
+        console.log(answer)
+      `)
+      writeFileSync(join(emitProject, "tsconfig.json"), JSON.stringify({
+        compilerOptions: {
+          target: "ES2022",
+          module: "NodeNext",
+          moduleResolution: "NodeNext",
+          strict: true,
+          declaration: true,
+          verbatimModuleSyntax,
+          rootDir: ".",
+          outDir: "out"
+        },
+        include: ["input.ts"]
+      }))
+      const emitted = spawnSync(
+        installedBin,
+        ["--project", join(emitProject, "tsconfig.json")],
+        { cwd: emitProject, encoding: "utf8" }
+      )
+      assert.equal(emitted.status, 0, emitted.stderr)
+      const emittedJavaScript = join(emitProject, "out", "input.js")
+      const emittedDeclaration = join(emitProject, "out", "input.d.ts")
+      const javascriptText = readFileSync(emittedJavaScript, "utf8")
+      assert.doesNotMatch(javascriptText, /@scalascript\/control-direct/)
+      const syntax = spawnSync(process.execPath, ["--check", emittedJavaScript], {
+        cwd: emitProject,
+        encoding: "utf8"
+      })
+      assert.equal(syntax.status, 0, syntax.stderr)
+      const declarationText = readFileSync(emittedDeclaration, "utf8")
+      assert.match(declarationText, /DirectMarkerContractError as ErrorType/)
+      assert.match(declarationText, /type direct as Marker/)
+      assert.match(declarationText, /PublicError = ErrorType/)
+      productionOutputs.push({ path: emittedJavaScript, expected: "42" })
+    }
+
+    const runtimeImportEquals = join(consumer, "runtime-import-equals")
+    mkdirSync(runtimeImportEquals, { recursive: true })
+    writeFileSync(join(runtimeImportEquals, "input.ts"), `
+      import markers = require("@scalascript/control-direct")
+      void markers
+    `)
+    writeFileSync(join(runtimeImportEquals, "tsconfig.json"), JSON.stringify({
+      compilerOptions: {
+        target: "ES2022",
+        module: "CommonJS",
+        moduleResolution: "Node10",
+        baseUrl: ".",
+        paths: {
+          "@scalascript/control-direct": [
+            "../node_modules/@scalascript/control-direct/index.d.ts"
+          ]
+        },
+        strict: true,
+        rootDir: ".",
+        outDir: "out"
+      },
+      include: ["input.ts"]
+    }))
+    const rejectedImportEquals = spawnSync(
+      installedBin,
+      ["--project", join(runtimeImportEquals, "tsconfig.json")],
+      { cwd: runtimeImportEquals, encoding: "utf8" }
+    )
+    assert.equal(rejectedImportEquals.status, 1)
+    assert.match(rejectedImportEquals.stderr, /JS_DIRECT_UNSUPPORTED/)
+    assert.equal(existsSync(join(runtimeImportEquals, "out", "input.js")), false)
+
+    for (const verbatimModuleSyntax of [false, true]) {
+      const typeImportEquals = join(
+        consumer,
+        `type-import-equals-${verbatimModuleSyntax}`
+      )
+      mkdirSync(typeImportEquals, { recursive: true })
+      writeFileSync(join(typeImportEquals, "input.ts"), `
+        import type markers = require("@scalascript/control-direct")
+        export type MarkerNamespace = typeof markers
+      `)
+      writeFileSync(join(typeImportEquals, "tsconfig.json"), JSON.stringify({
+        compilerOptions: {
+          target: "ES2022",
+          module: "CommonJS",
+          moduleResolution: "Node10",
+          baseUrl: ".",
+          paths: {
+            "@scalascript/control-direct": [
+              "../node_modules/@scalascript/control-direct/index.d.ts"
+            ]
+          },
+          strict: true,
+          declaration: true,
+          verbatimModuleSyntax,
+          rootDir: ".",
+          outDir: "out"
+        },
+        include: ["input.ts"]
+      }))
+      const acceptedImportEquals = spawnSync(
+        installedBin,
+        ["--project", join(typeImportEquals, "tsconfig.json")],
+        { cwd: typeImportEquals, encoding: "utf8" }
+      )
+      assert.equal(acceptedImportEquals.status, 0, acceptedImportEquals.stderr)
+      const typeJavaScript = join(typeImportEquals, "out", "input.js")
+      const typeDeclaration = join(typeImportEquals, "out", "input.d.ts")
+      assert.doesNotMatch(
+        readFileSync(typeJavaScript, "utf8"),
+        /@scalascript\/control-direct/
+      )
+      const syntax = spawnSync(process.execPath, ["--check", typeJavaScript], {
+        cwd: typeImportEquals,
+        encoding: "utf8"
+      })
+      assert.equal(syntax.status, 0, syntax.stderr)
+      const declarationText = readFileSync(typeDeclaration, "utf8")
+      assert.match(declarationText, /import type markers = require/)
+      assert.match(declarationText, /MarkerNamespace = typeof markers/)
+    }
+
     rmSync(join(consumerScope, "control-direct"), { recursive: true, force: true })
-    const production = spawnSync(process.execPath, [output], {
-      cwd: consumer,
-      encoding: "utf8"
-    })
-    assert.equal(production.status, 0, production.stderr)
-    assert.equal(production.stdout.trim(), "42")
+    for (const productionOutput of productionOutputs) {
+      const production = spawnSync(process.execPath, [productionOutput.path], {
+        cwd: consumer,
+        encoding: "utf8"
+      })
+      assert.equal(production.status, 0, production.stderr)
+      assert.equal(production.stdout.trim(), productionOutput.expected)
+    }
 
     const invalidOption = spawnSync(installedBin, ["--definitely-invalid"], {
       cwd: consumer,

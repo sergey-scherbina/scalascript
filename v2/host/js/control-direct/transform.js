@@ -86,6 +86,15 @@ export function createDirectTransform(ts, program) {
       importDeclaration.moduleSpecifier.text === DirectModule
   }
 
+  function directExternalImportEquals(declaration) {
+    if (!ts.isImportEqualsDeclaration(declaration)) return false
+    const reference = declaration.moduleReference
+    return ts.isExternalModuleReference(reference) &&
+      reference.expression !== undefined &&
+      ts.isStringLiteral(reference.expression) &&
+      reference.expression.text === DirectModule
+  }
+
   function runtimeValueSymbol(node) {
     if (ts.isExportSpecifier(node)) {
       try {
@@ -234,6 +243,16 @@ export function createDirectTransform(ts, program) {
   function collectMarkerImports(source) {
     const imports = []
     for (const statement of source.statements) {
+      if (directExternalImportEquals(statement)) {
+        candidateFiles.add(source.fileName)
+        if (!statement.isTypeOnly) {
+          unsupported(
+            statement.name,
+            "import-equals marker imports are outside the closed grammar"
+          )
+        }
+        continue
+      }
       if (
         !ts.isImportDeclaration(statement) ||
         !ts.isStringLiteral(statement.moduleSpecifier) ||
@@ -266,8 +285,8 @@ export function createDirectTransform(ts, program) {
         !ts.isStringLiteral(statement.moduleSpecifier) ||
         statement.moduleSpecifier.text !== DirectModule
       ) continue
-      if (statement.isTypeOnly) continue
       if (statement.exportClause === undefined) {
+        if (statement.isTypeOnly) continue
         candidateFiles.add(source.fileName)
         unsupported(statement, "star re-export of the marker package is outside the closed grammar")
         continue
@@ -278,10 +297,10 @@ export function createDirectTransform(ts, program) {
         continue
       }
       for (const specifier of statement.exportClause.elements) {
-        if (specifier.isTypeOnly) continue
         const importedName = specifier.propertyName ?? specifier.name
         if (importedName.text !== "direct") continue
         candidateFiles.add(source.fileName)
+        if (statement.isTypeOnly || specifier.isTypeOnly) continue
         unsupported(specifier, "re-export of the direct marker is outside the closed grammar")
       }
     }
@@ -886,17 +905,24 @@ export function createDirectTransform(ts, program) {
     }
 
     function rewriteMarkerImport(statement) {
+      if (directExternalImportEquals(statement)) {
+        return statement.isTypeOnly ? undefined : statement
+      }
       if (
         !ts.isImportDeclaration(statement) ||
         !ts.isStringLiteral(statement.moduleSpecifier) ||
         statement.moduleSpecifier.text !== DirectModule ||
-        statement.importClause === undefined ||
+        statement.importClause === undefined
+      ) return statement
+
+      if (statement.importClause.isTypeOnly) return undefined
+      if (
         statement.importClause.namedBindings === undefined ||
         !ts.isNamedImports(statement.importClause.namedBindings)
       ) return statement
 
       const retained = statement.importClause.namedBindings.elements.filter(
-        specifier => !directImportSpecifier(specifier)
+        specifier => !specifier.isTypeOnly && !directImportSpecifier(specifier)
       )
       if (retained.length === statement.importClause.namedBindings.elements.length) {
         return statement
@@ -917,6 +943,34 @@ export function createDirectTransform(ts, program) {
         statement,
         statement.modifiers,
         clause,
+        statement.moduleSpecifier,
+        statement.attributes
+      )
+    }
+
+    function rewriteMarkerExport(statement) {
+      if (
+        !ts.isExportDeclaration(statement) ||
+        statement.moduleSpecifier === undefined ||
+        !ts.isStringLiteral(statement.moduleSpecifier) ||
+        statement.moduleSpecifier.text !== DirectModule ||
+        statement.exportClause === undefined ||
+        !ts.isNamedExports(statement.exportClause)
+      ) return statement
+
+      if (statement.isTypeOnly) return undefined
+      if (!statement.exportClause.elements.some(specifier => specifier.isTypeOnly)) {
+        return statement
+      }
+      const retained = statement.exportClause.elements.filter(
+        specifier => !specifier.isTypeOnly
+      )
+      if (retained.length === 0) return undefined
+      return factory.updateExportDeclaration(
+        statement,
+        statement.modifiers,
+        false,
+        factory.updateNamedExports(statement.exportClause, retained),
         statement.moduleSpecifier,
         statement.attributes
       )
@@ -957,7 +1011,10 @@ export function createDirectTransform(ts, program) {
       const statements = []
       for (const statement of source.statements) {
         const visited = visitStatement(statement)
-        const rewritten = rewriteMarkerImport(visited)
+        const imported = rewriteMarkerImport(visited)
+        const rewritten = imported === undefined
+          ? undefined
+          : rewriteMarkerExport(imported)
         if (rewritten !== undefined) statements.push(rewritten)
       }
       return factory.updateSourceFile(

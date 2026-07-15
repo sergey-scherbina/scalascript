@@ -1,4 +1,5 @@
 import assert from "node:assert/strict"
+import { spawnSync } from "node:child_process"
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
@@ -884,6 +885,183 @@ test("completed marker specifiers are removed without rewriting other imports", 
     assert.doesNotMatch(output, /\{[^}]*\bdirect\b[^}]*\} from "@scalascript\/control-direct"/)
   } finally {
     compiled.cleanup()
+  }
+})
+
+test("mixed marker imports normalize JavaScript but preserve declarations", () => {
+  for (const verbatimModuleSyntax of [false, true]) {
+    const name = `mixed-type-import-${verbatimModuleSyntax}`
+    const prepared = prepare(`
+      import {
+        direct,
+        type DirectMarkerContractError as ErrorType
+      } from "@scalascript/control-direct"
+      export type PublicError = ErrorType
+      export const answer = 42
+    `, name, { declaration: true, verbatimModuleSyntax })
+    try {
+      assert.equal(formatTsDiagnostics(ts.getPreEmitDiagnostics(prepared.program)), "")
+      assert.deepEqual(prepared.transform.diagnostics, [])
+      const emit = prepared.program.emit(
+        undefined,
+        undefined,
+        undefined,
+        false,
+        prepared.transform.transformers
+      )
+      assert.equal(emit.emitSkipped, false)
+      assert.equal(formatTsDiagnostics(emit.diagnostics), "")
+      const javascript = join(prepared.outDir, `${name}.js`)
+      const declaration = join(prepared.outDir, `${name}.d.ts`)
+      const output = readFileSync(javascript, "utf8")
+      assert.doesNotMatch(output, /\btype\s+DirectMarkerContractError/)
+      assert.doesNotMatch(output, /@scalascript\/control-direct/)
+      const syntax = spawnSync(process.execPath, ["--check", javascript], {
+        encoding: "utf8"
+      })
+      assert.equal(syntax.status, 0, syntax.stderr)
+      const types = readFileSync(declaration, "utf8")
+      assert.match(types, /DirectMarkerContractError as ErrorType/)
+      assert.match(types, /PublicError = ErrorType/)
+    } finally {
+      prepared.cleanup()
+    }
+  }
+})
+
+test("type-only source exports drop empty runtime links and preserve mixed values", () => {
+  for (const verbatimModuleSyntax of [false, true]) {
+    const pureName = `type-source-export-${verbatimModuleSyntax}`
+    const pure = prepare(`
+      export { type direct as Marker } from "@scalascript/control-direct"
+      export const answer = 42
+    `, pureName, { declaration: true, verbatimModuleSyntax })
+    try {
+      assert.equal(formatTsDiagnostics(ts.getPreEmitDiagnostics(pure.program)), "")
+      assert.deepEqual(pure.transform.diagnostics, [])
+      const emit = pure.program.emit(
+        undefined,
+        undefined,
+        undefined,
+        false,
+        pure.transform.transformers
+      )
+      assert.equal(emit.emitSkipped, false)
+      assert.equal(formatTsDiagnostics(emit.diagnostics), "")
+      const output = readFileSync(join(pure.outDir, `${pureName}.js`), "utf8")
+      assert.doesNotMatch(output, /@scalascript\/control-direct/)
+      const types = readFileSync(join(pure.outDir, `${pureName}.d.ts`), "utf8")
+      assert.match(types, /type direct as Marker/)
+    } finally {
+      pure.cleanup()
+    }
+
+    const mixedName = `mixed-source-export-${verbatimModuleSyntax}`
+    const mixed = prepare(`
+      export {
+        type direct as Marker,
+        DirectMarkerContractError as RuntimeError
+      } from "@scalascript/control-direct"
+    `, mixedName, { declaration: true, verbatimModuleSyntax })
+    try {
+      assert.equal(formatTsDiagnostics(ts.getPreEmitDiagnostics(mixed.program)), "")
+      assert.deepEqual(mixed.transform.diagnostics, [])
+      const emit = mixed.program.emit(
+        undefined,
+        undefined,
+        undefined,
+        false,
+        mixed.transform.transformers
+      )
+      assert.equal(emit.emitSkipped, false)
+      assert.equal(formatTsDiagnostics(emit.diagnostics), "")
+      const output = readFileSync(join(mixed.outDir, `${mixedName}.js`), "utf8")
+      assert.match(output, /DirectMarkerContractError as RuntimeError/)
+      assert.doesNotMatch(output, /\btype\s+direct/)
+      const types = readFileSync(join(mixed.outDir, `${mixedName}.d.ts`), "utf8")
+      assert.match(types, /type direct as Marker/)
+      assert.match(types, /DirectMarkerContractError as RuntimeError/)
+    } finally {
+      mixed.cleanup()
+    }
+  }
+})
+
+test("external marker import-equals is fail-closed except when explicitly type-only", () => {
+  const moduleOptions = {
+    baseUrl: packageRoot,
+    declaration: true,
+    module: ts.ModuleKind.CommonJS,
+    moduleResolution: ts.ModuleResolutionKind.Node10,
+    paths: {
+      "@scalascript/control-direct": [join(packageRoot, "index.d.ts")]
+    },
+    sourceMap: false
+  }
+  const runtimeSources = [
+    `import markers = require("@scalascript/control-direct")\nexport const answer = 42`,
+    `import markers = require("@scalascript/control-direct")\nexport const marker = markers.direct`
+  ]
+  for (const [index, source] of runtimeSources.entries()) {
+    const name = `runtime-import-equals-${index}`
+    const prepared = prepare(source, name, moduleOptions)
+    try {
+      assert.equal(prepared.transform.diagnostics.length, 1)
+      assert.equal(prepared.transform.diagnostics[0].code, "JS_DIRECT_UNSUPPORTED")
+      assert.equal(
+        source.slice(
+          prepared.transform.diagnostics[0].start,
+          prepared.transform.diagnostics[0].start + prepared.transform.diagnostics[0].length
+        ),
+        "markers"
+      )
+      assert.deepEqual(prepared.transform.transformedFiles, [])
+      const emit = prepared.program.emit(
+        undefined,
+        undefined,
+        undefined,
+        false,
+        prepared.transform.transformers
+      )
+      assert.equal(emit.emitSkipped, false)
+      const output = readFileSync(join(prepared.outDir, `${name}.js`), "utf8")
+      if (index === 1) {
+        assert.match(output, /require\("@scalascript\/control-direct"\)/)
+      }
+      assert.doesNotMatch(output, /__sscControl/)
+    } finally {
+      prepared.cleanup()
+    }
+  }
+
+  for (const verbatimModuleSyntax of [false, true]) {
+    const name = `type-import-equals-${verbatimModuleSyntax}`
+    const prepared = prepare(`
+      import type markers = require("@scalascript/control-direct")
+      export type MarkerNamespace = typeof markers
+    `, name, { ...moduleOptions, verbatimModuleSyntax })
+    try {
+      assert.equal(formatTsDiagnostics(ts.getPreEmitDiagnostics(prepared.program)), "")
+      assert.deepEqual(prepared.transform.diagnostics, [])
+      const emit = prepared.program.emit(
+        undefined,
+        undefined,
+        undefined,
+        false,
+        prepared.transform.transformers
+      )
+      assert.equal(emit.emitSkipped, false)
+      assert.equal(formatTsDiagnostics(emit.diagnostics), "")
+      assert.doesNotMatch(
+        readFileSync(join(prepared.outDir, `${name}.js`), "utf8"),
+        /@scalascript\/control-direct/
+      )
+      const types = readFileSync(join(prepared.outDir, `${name}.d.ts`), "utf8")
+      assert.match(types, /import type markers = require/)
+      assert.match(types, /MarkerNamespace = typeof markers/)
+    } finally {
+      prepared.cleanup()
+    }
   }
 })
 
