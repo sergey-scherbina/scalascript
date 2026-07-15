@@ -613,40 +613,6 @@ final class DirectPromptSemanticsTest extends AnyFunSuite:
     assert(Eff.runPure(directResult) == Eff.runPure(explicitResult))
   }
 
-  test("nested polymorphic values close owner-dependent result binders") {
-    val scoped = freshPrompt[Int]
-    val prompt = scoped.prompt
-
-    val directResult = direct.reset[scoped.Key, Nothing, Int](prompt) {
-      val owner = new Object()
-      val nested: [A] => A => ([B] => B => owner.type) =
-        [A] => (_: A) => [B] => (_: B) => owner
-      val selected =
-        direct.shift[scoped.Key, Int, Nothing, Int](prompt)(
-          [Residual >: Nothing <: Effect] =>
-            (continuation: Continuation[Int, Residual, Int]) =>
-              continuation.resume(41)
-        )
-      selected + (if nested[Int](1)[String]("value") eq owner then 1 else 1000)
-    }
-
-    val explicitResult = reset[scoped.Key, Nothing, Int](prompt) {
-      val owner = new Object()
-      val nested: [A] => A => ([B] => B => owner.type) =
-        [A] => (_: A) => [B] => (_: B) => owner
-      shift[scoped.Key, Int, Nothing, Int](prompt)(
-        [Residual >: Nothing <: Effect] =>
-          (continuation: Continuation[Int, Residual, Int]) =>
-            continuation.resume(41)
-      ).map { selected =>
-        selected + (if nested[Int](1)[String]("value") eq owner then 1 else 1000)
-      }
-    }
-
-    assert(Eff.runPure(directResult) == 42)
-    assert(Eff.runPure(directResult) == Eff.runPure(explicitResult))
-  }
-
   test("polymorphic ParamRefs close when used only in results or bounds") {
     trait Bound[A]
     final class Token extends Bound[Token]

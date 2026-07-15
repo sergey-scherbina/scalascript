@@ -574,6 +574,34 @@ final class DirectPromptDiagnosticsTest extends AnyFunSuite:
     )
   }
 
+  test("a nested owner-dependent polymorphic value fails closed") {
+    val errors = typeCheckErrors("""
+      import scalascript.control.*
+
+      val scoped = freshPrompt[Int]
+      val prompt = scoped.prompt
+      val computation = direct.reset[scoped.Key, Nothing, Int](prompt) {
+        val owner = new Object()
+        val nested: [A] => A => ([B] => B => owner.type) =
+          [A] => (_: A) => [B] => (_: B) => owner
+        val selected =
+          direct.shift[scoped.Key, Int, Nothing, Int](prompt)(
+            [Residual >: Nothing <: Effect] =>
+              (continuation: Continuation[Int, Residual, Int]) =>
+                continuation.resume(41)
+          )
+        selected + (if nested[Int](1)[String]("value") eq owner then 1 else 1000)
+      }
+    """)
+
+    assertDiagnostic(
+      errors,
+      "error [DIRECT_STYLE_UNSUPPORTED]: direct.shift cannot rebind this dependent local type across capture; move the declaration outside direct.reset",
+      "        val nested: [A] => A => ([B] => B => owner.type) =",
+      12
+    )
+  }
+
   test("a pure reset body cannot defer boundary break") {
     val errors = typeCheckErrors("""
       import scalascript.control.*

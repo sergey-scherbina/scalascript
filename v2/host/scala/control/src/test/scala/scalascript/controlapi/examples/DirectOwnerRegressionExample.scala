@@ -157,31 +157,6 @@ private final class ParamToken extends ParamBound[ParamToken]
     ).map(selected => selected + prefix + identity.apply[Int](1) + plusOne(1))
   }
 
-  val nestedPolymorphicValue = direct.reset[scoped.Key, Nothing, Int](prompt) {
-    val owner = new Object()
-    val nested: [A] => A => ([B] => B => owner.type) =
-      [A] => (_: A) => [B] => (_: B) => owner
-    val selected =
-      direct.shift[scoped.Key, Int, Nothing, Int](prompt)(
-        [Residual >: Nothing <: Effect] =>
-          (continuation: Continuation[Int, Residual, Int]) =>
-            continuation.resume(41)
-      )
-    selected + (if nested[Int](1)[String]("value") eq owner then 1 else 1000)
-  }
-  val explicitNestedPolymorphicValue = reset[scoped.Key, Nothing, Int](prompt) {
-    val owner = new Object()
-    val nested: [A] => A => ([B] => B => owner.type) =
-      [A] => (_: A) => [B] => (_: B) => owner
-    shift[scoped.Key, Int, Nothing, Int](prompt)(
-      [Residual >: Nothing <: Effect] =>
-        (continuation: Continuation[Int, Residual, Int]) =>
-          continuation.resume(41)
-    ).map { selected =>
-      selected + (if nested[Int](1)[String]("value") eq owner then 1 else 1000)
-    }
-  }
-
   val resultAndBoundParamRefs = direct.reset[scoped.Key, Nothing, Int](prompt) {
     val resultOnly: [A] => () => Option[A] = [A] => () => Option.empty[A]
     val boundOnly: [A <: ParamBound[A]] => () => Int =
@@ -224,8 +199,6 @@ private final class ParamToken extends ParamBound[ParamToken]
     Eff.runPure(explicitPolymorphicValue),
     Eff.runPure(adjacentStructuralCalls),
     Eff.runPure(explicitAdjacentStructuralCalls),
-    Eff.runPure(nestedPolymorphicValue),
-    Eff.runPure(explicitNestedPolymorphicValue),
     Eff.runPure(resultAndBoundParamRefs),
     Eff.runPure(explicitResultAndBoundParamRefs)
   )
