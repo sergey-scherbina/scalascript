@@ -289,6 +289,12 @@ object SpikeParse:
 
   // after a base type name, consume its `[T]` args and any `=> Codomain` function-type tail
   // (all erased). Handles `List[Int]`, `Int => Int`, `Int => List[A]`, `A => B => C`, `(A, B) => C`.
+  // consume a type's `.segment` chain and generic `[…]` args ONLY — NOT a function `=>` arrow. Used where
+  // a following `=>` is a case arrow (arm pattern `case x: A.B =>`), so skipTypeTail would wrongly eat it.
+  private def skipTypeSegments(c: Cur): Unit =
+    while c.peekKind == "spike.dot" && (c.peek2Kind == "spike.id" || c.peek2Kind == "spike.uid") do { c.advance(); c.advance() }
+    if c.peekKind == "spike.lbracket" then skipTypeParams(c)
+
   private def skipTypeTail(c: Cur): Unit =
     // a fully-qualified type `a.b.C` — consume the `.segment` chain (the base name was already taken)
     while c.peekKind == "spike.dot" && (c.peek2Kind == "spike.id" || c.peek2Kind == "spike.uid") do { c.advance(); c.advance() }
@@ -1056,6 +1062,7 @@ object SpikeParse:
         val tk = Vector.newBuilder[Node]
         tk += base.withRole("tpat.pat")
         expectType(c, "tpat.type").foreach(tk += _)
+        skipTypeSegments(c) // qualified `case x: A.B =>` — consume `.B` (+ generics); the head is the tag
         Node.Frame("spike.tpat", None, tk.result())
       else base
     bindAlias match
