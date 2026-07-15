@@ -433,6 +433,21 @@ every later compiler/kernel change re-runs the literal fixed point.
         `BUGS.md#js-control-direct-import-equals-bypass`. Implemented in `3385574b8`;
         runtime used/unused forms receive one stable diagnostic while type-only forms
         emit no require edge and retain `.d.ts` under both verbatim modes.
+      - [ ] **Fresh-rereview P1: the exact tarball must not publish repository-local
+        dependency edges.** Exact reviewed range `445f7faf7..d66ed988df` includes
+        `devDependencies["@scalascript/control"] = "file:../control"` inside the
+        eight-file tarball manifest. Extracting that tarball outside the repository
+        and running ordinary `npm install --ignore-scripts` creates a dangling local
+        control link (or otherwise depends on the absent sibling); importing it fails
+        with `ERR_MODULE_NOT_FOUND`. Specify a self-contained manifest: keep the
+        qualified TypeScript tool pin, forbid `file:`, `link:`, `workspace:`, absolute,
+        and relative-local dependency specifications in every dependency/tooling map,
+        and retain the no production/peer dependency decision. Add a regression that
+        reads `package/package.json` from the exact tarball, then extracts and installs
+        it at a clean boundary with no sibling. Move local control resolution to test
+        fixtures/TypeScript paths or test-created symlinks and regenerate the lock
+        mechanically. Track in
+        `BUGS.md#js-control-direct-packed-local-dev-dependency`.
       - [ ] **Repair-cycle closure.** After spec-first and code commits, update package
         README/project docs, run direct package tests+typecheck+node checks+exact pack,
         existing explicit control 31/31+typecheck, catalog positive/negative validators,

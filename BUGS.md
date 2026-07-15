@@ -1,5 +1,39 @@
 # Bug tracker
 
+## js-control-direct-packed-local-dev-dependency — tarball escapes to repository sibling
+
+**Status:** open. Reported as P1 by the fresh independent read-only review of exact
+range `445f7faf7..d66ed988df` on 2026-07-15; the other semantic, JavaScript,
+declaration, source-map, and atomicity gates were clean.
+
+**Symptom/reproduce:** run `npm pack` for `v2/host/js/control-direct`, extract the
+result into a fresh directory with no `../control`, and inspect
+`package/package.json`. Its published `devDependencies` contains
+`"@scalascript/control": "file:../control"`. An ordinary
+`npm install --ignore-scripts` in the extracted package creates a control dependency
+pointing outside the payload (or otherwise relies on that missing sibling), and an
+ESM import fails with `ERR_MODULE_NOT_FOUND`. The existing packed-consumer test uses
+`--omit=dev`, so it never exercises the broken published development manifest.
+
+**Required fix/verification:** the exact tarball manifest—not merely the working-tree
+JSON—must contain no repository-local dependency specifier in any production,
+optional, peer, development, or override/resolution-style dependency field. Forbid
+`file:`, `link:`, `workspace:`, absolute paths, and relative local escapes; retain
+only the qualified non-local TypeScript development pin and preserve empty
+production/optional/peer dependency maps. Extract the exact tarball at a clean
+boundary, run ordinary install without a sibling checkout, and prove it does not
+create a dangling local control dependency. Existing packed CLI installation and
+production execution must remain green.
+
+**Root cause:** `package.json` and `package-lock.json` use the sibling explicit
+control package as a publishable `file:../control` development dependency for local
+tests/typechecking. npm includes `package.json` in the exact payload, so the repository
+topology leaks even though `npm pack --dry-run` reports no bundled dependencies.
+Local tests manually symlink control in their fixtures already; compile-time/local
+resolution must move fully to non-published test configuration instead of the
+manifest. No fix is recorded until the exact extracted-tar regression and full gates
+are green and a new independent reviewer approves.
+
 ## js-control-direct-import-equals-bypass — runtime marker require evades fail-closed import scan
 
 **Status:** open; repair candidate `3385574b8` is fully locally verified and awaits
