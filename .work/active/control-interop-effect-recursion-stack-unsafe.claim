@@ -1,6 +1,6 @@
 feature/control-interop-effect-recursion-stack-unsafe 2026-07-15T00:55:35Z
 agent: codex-stack-control
-heartbeat: 2026-07-15T02:44:13Z
+heartbeat: 2026-07-15T02:58:05Z
 status: in-progress
 done-so-far: managed driver/all-value-position checkpoint, classifier/AOT vectors, curried-handle preservation, FastBool stored-Op guard, and ASM LetRec caller-frame restoration implemented; focused stack/one-shot suites pass 21/21
 next: remain intentionally checkpointed until residual forwarding lands, then rebase and integrate both control paths before combined ordering, axis 20, install, stage2 and conformance gates

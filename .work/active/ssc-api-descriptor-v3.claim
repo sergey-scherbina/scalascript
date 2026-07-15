@@ -1,6 +1,6 @@
 feature/ssc-api-descriptor-v3 2026-07-15T02:10:53Z
 agent: codex-control-descriptor
-heartbeat: 2026-07-15T02:44:13Z
+heartbeat: 2026-07-15T02:58:05Z
 status: in-progress
-done-so-far: Slice A spec now freezes restricted JCS, exact wire/hash vectors, bounded byte APIs, raw admission, and schema-local frame type binders; explicit internal codec/model/hash/validator implementation is in progress under read-only audit
-next: complete explicit all-fields codec and bounded pre-scan, raw/binder/reference validation, legacy .scim carrier/goldens, focused compile/tests and final audit before push
+done-so-far: Slice A explicit wire codec, strict bounded JCS, raw-before-normalize validator, structural identities, frame-local binders and alpha erase-then-renormalize projection are implemented; non-recursive public preflight is being wired and compiled
+next: finish adversarial/golden tests and legacy .scim JSON+MsgPack carrier, then conformance, final audit, rebase and review before push
