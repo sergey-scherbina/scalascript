@@ -1,0 +1,5 @@
+claim: v3-newfront-p1-toplevel
+branch: feature/v3-newfront-p1-toplevel
+what: newfront Phase 1 #1 — spike handles TOP-LEVEL STATEMENTS (script-style println/val/exprs) so programs
+      no longer collapse to Nil. Byte-identical to ssc1-front. Rerun newfront-diff.sh, MATCH goes up.
+started: 2026-07-15
