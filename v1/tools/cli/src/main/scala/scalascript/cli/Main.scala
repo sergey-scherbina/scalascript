@@ -1488,7 +1488,7 @@ final class RunCmd extends CliCommand:
   def name = "run"
   override def summary = "Execute .ssc via the v2 VM by default"
   override def category = "Run & develop"
-  override def details = List("Flags: --frontend <custom|react|solid|vue|electron|swing|javafx|swiftui>", "       --mode <server|client> / --transport <http|in-process>", "       --host <addr> / --port <n> / --open-browser | --no-open-browser", "       --native  (self-hosted frontend -> CoreIR -> v2 VM; no compiler process)", "       --compat-frontend / --v2  (Scalameta FrontendBridge during migration)", "       --v1  (rollback to the v1 tree-walking interpreter)", "       --bytecode  (direct ASM execution; combines with --native)", "       -- separates source files from program args for v2 VM runners")
+  override def details = List("Flags: --frontend <custom|react|solid|vue|electron|swing|javafx|swiftui>", "       --mode <server|client> / --transport <http|in-process>", "       --host <addr> / --port <n> / --open-browser | --no-open-browser", "       --native  (self-hosted frontend -> CoreIR -> v2 VM; no compiler process)", "       --v2 / --compat-frontend  (self-hosted native front -> CoreIR -> v2 VM)", "       --v1  (rollback to the v1 tree-walking interpreter)", "       --bytecode  (direct ASM execution; combines with --native)", "       -- separates source files from program args for v2 VM runners")
   def run(args: List[String]): Unit =
     if args.isEmpty then { println("Error: No files specified"); System.exit(1) }
     // `--spark-version <v>` and `--spark-master <url>` plumb into
@@ -7811,6 +7811,13 @@ final class BenchCmd extends CliCommand:
       case other    => other
     val wrapper      = generateWrapper(userCode, warmup, reps, warmupTimeMs, wrapperTargetBackend)
 
+    // Native ssc1 front for the v2 bench lanes (the retired FrontendBridge tier's
+    // replacement): write the wrapper to a temp .ssc beside the source so its
+    // relative imports resolve, then compile through RunNativeV2.
+    def benchNativeCompile(): NativeV2Compilation =
+      val tmp = os.temp(wrapper, dir = path / os.up, prefix = "ssc-bench-", suffix = ".ssc")
+      try RunNativeV2.compile(List(tmp.toString)) finally os.remove(tmp)
+
     // Run interpreter in-process: parse wrapper, capture stdout, parse BENCH_MS.
     def timeInterp(): Option[Double] =
       val module = scalascript.parser.Parser.parse(wrapper)
@@ -7831,12 +7838,11 @@ final class BenchCmd extends CliCommand:
       // snapshots System.out at class-init; if that happens inside the swap,
       // every later println in this process goes to the dead buffer).
       try
-        RunV2.loadPluginJars()
-        _root_.ssc.bridge.PluginBridge.loadAll()
+        val compiled = benchNativeCompile()
+        _root_.ssc.plugin.NativePluginHost.loadAll(compiled.config)
         Console.withOut(outPs) {
-          val prog = _root_.ssc.bridge.FrontendBridge.convertSource(wrapper, Some((path / os.up).toIO))
           _root_.ssc.Runtime.runManaged(
-            _root_.ssc.Compiler.compile(prog),
+            _root_.ssc.Compiler.compile(compiled.program),
             Array.empty[_root_.ssc.Value],
           )
         }
@@ -7848,10 +7854,7 @@ final class BenchCmd extends CliCommand:
 
     def v2CoreIr(): Option[String] =
       try
-        RunV2.loadPluginJars()
-        _root_.ssc.bridge.PluginBridge.loadAll()
-        val prog = _root_.ssc.bridge.FrontendBridge.convertSource(wrapper, Some((path / os.up).toIO))
-        Some(_root_.ssc.Writer.program(prog))
+        Some(_root_.ssc.Writer.program(benchNativeCompile().program))
       catch case e: Throwable =>
         if System.getenv("SSC_BENCH_DEBUG") != null then
           System.err.println(s"[v2CoreIr] ${e.getClass.getSimpleName}: ${e.getMessage}")
@@ -7862,14 +7865,13 @@ final class BenchCmd extends CliCommand:
       val outBuf = new java.io.ByteArrayOutputStream()
       val outPs  = new java.io.PrintStream(outBuf, true, "UTF-8")
       try
-        RunV2.loadPluginJars()
+        val compiled = benchNativeCompile()
         _root_.ssc.Runtime.argv = Nil
-        _root_.ssc.bridge.PluginBridge.loadAll()
+        _root_.ssc.plugin.NativePluginHost.loadAll(compiled.config)
         Console.withOut(outPs) {
-          val prog = _root_.ssc.bridge.FrontendBridge.convertSource(wrapper, Some((path / os.up).toIO))
-          val (_, globals) = _root_.ssc.Compiler.compileWithGlobals(prog)
-          _root_.ssc.Emit.globalsRef = globals
-          val bytes = _root_.ssc.bytecode.JvmByteGen.emitProgram(prog)
+          val prog = compiled.program
+          _root_.ssc.Emit.globalsRef = collection.mutable.HashMap.empty
+          val bytes = _root_.ssc.bytecode.JvmByteGen.emitProgram(_root_.ssc.bytecode.OpAnfNative.lift(prog))
           val res =
             try _root_.ssc.bytecode.JvmByteGen.runProgram(bytes)
             catch case e: java.lang.reflect.InvocationTargetException =>
