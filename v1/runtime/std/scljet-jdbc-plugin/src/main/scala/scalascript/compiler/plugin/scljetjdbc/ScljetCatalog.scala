@@ -35,6 +35,10 @@ object ScljetCatalog:
    *  CREATE TABLE gives none) and the `java.sql.Types` its affinity implies. */
   final case class ColumnDef(name: String, declaredType: String, sqlType: Int)
 
+  /** An index over `table`: `unique` comes from `CREATE UNIQUE INDEX`, `columns`
+   *  from its `ON t(a, b)` list (in key order). */
+  final case class IndexDef(name: String, table: String, unique: Boolean, columns: List[String])
+
   /** Constraint keywords that end a declared type in a column definition. */
   private val ConstraintKeywords: Set[String] =
     Set("CONSTRAINT", "PRIMARY", "NOT", "NULL", "UNIQUE", "CHECK", "DEFAULT",
@@ -60,6 +64,51 @@ object ScljetCatalog:
         TableDef(decodedText(ScljetEngine.field(e, "name")), k, optionalText(ScljetEngine.field(e, "sql")))
       }
     }
+
+  /** The indexes of an image, in schema order.
+   *
+   *  `internal` entries (SQLite's own `sqlite_autoindex_*`, created for a
+   *  UNIQUE/PRIMARY KEY constraint) are skipped: they have no `CREATE INDEX`
+   *  text to read columns from, and the reference driver does not report them
+   *  either. */
+  def indexes(image: Value): List[IndexDef] =
+    schemaEntries(image).flatMap { e =>
+      ScljetEngine.field(e, "kind") match
+        case Value.InstanceV("SchemaIndex", _) =>
+          val internal = ScljetEngine.field(e, "internal") match
+            case Value.BoolV(b) => b
+            case _              => false
+          optionalText(ScljetEngine.field(e, "sql")).filter(_ => !internal).map { sql =>
+            IndexDef(
+              name    = decodedText(ScljetEngine.field(e, "name")),
+              table   = decodedText(ScljetEngine.field(e, "tableName")),
+              unique  = isUniqueIndex(sql),
+              columns = indexColumns(sql))
+          }
+        case _ => None
+    }
+
+  /** `CREATE UNIQUE INDEX …` — the qualifier sits between CREATE and INDEX. */
+  private def isUniqueIndex(sql: String): Boolean =
+    tokenize(sql).map((_, text) => text.toUpperCase).takeWhile(_ != "INDEX").contains("UNIQUE")
+
+  /** The `ON t(a, b)` key list: the idents at paren-depth 1 of the FIRST paren
+   *  group, which for a CREATE INDEX is the key list. */
+  private def indexColumns(sql: String): List[String] =
+    val body = tokenize(sql).dropWhile((kind, _) => kind != "lparen").drop(1)
+    val out = scala.collection.mutable.ArrayBuffer.empty[String]
+    var depth = 1
+    var expectName = true
+    var rest = body
+    while rest.nonEmpty && depth > 0 do
+      val (kind, text) = rest.head
+      if kind == "lparen" then depth += 1
+      else if kind == "rparen" then depth -= 1
+      else if kind == "comma" && depth == 1 then expectName = true
+      else if depth == 1 && expectName && kind == "ident" then
+        out += text; expectName = false
+      rest = rest.tail
+    out.toList
 
   private def schemaEntries(image: Value): List[Value] =
     val vfs  = Value.InstanceV("ImageVfs", Map("main" -> image))
@@ -87,51 +136,92 @@ object ScljetCatalog:
 
   // ── column definitions ────────────────────────────────────────────────────
 
+  /** A column definition before interpretation: its name and the words that
+   *  follow it (declared type + any column constraints). */
+  private final case class RawColumn(name: String, words: List[String])
+
   /** Columns of `table`, in declaration order — parsed from the `CREATE TABLE`
    *  text the schema entry already carries. */
   def columns(table: TableDef): List[ColumnDef] =
     table.sql match
       case None      => Nil
-      case Some(sql) => parseColumnDefs(sql)
+      case Some(sql) => parseTable(sql)._1.map(rc => columnDef(rc.name, rc.words))
+
+  /** The primary-key columns of `table` in KEY_SEQ order; empty when it has no
+   *  PK.  SQLite spells a PK two ways and both must work: on the column
+   *  (`id INTEGER PRIMARY KEY`) or as a table constraint (`PRIMARY KEY (a, b)`,
+   *  optionally named — `CONSTRAINT pk PRIMARY KEY (a, b)`).  A table
+   *  constraint wins; a table cannot have both. */
+  def primaryKeyColumns(table: TableDef): List[String] =
+    table.sql match
+      case None => Nil
+      case Some(sql) =>
+        val (cols, tablePk) = parseTable(sql)
+        if tablePk.nonEmpty then tablePk
+        else cols.filter(rc => mentionsPrimaryKey(rc.words)).map(_.name)
+
+  /** `PRIMARY` immediately followed by `KEY`, anywhere in a definition's words. */
+  private def mentionsPrimaryKey(words: List[String]): Boolean =
+    words.map(_.toUpperCase).sliding(2).exists {
+      case List("PRIMARY", "KEY") => true
+      case _                      => false
+    }
 
   /** Mirrors the engine's `tableColumns` scan, additionally keeping each
-   *  column's post-name type words. */
-  private def parseColumnDefs(sql: String): List[ColumnDef] =
+   *  column's post-name words and the table-level PRIMARY KEY column list.
+   *  Returns (column definitions, table-level PK columns). */
+  private def parseTable(sql: String): (List[RawColumn], List[String]) =
     val toks = tokenize(sql)
     // advance past the first '('
     val body = toks.dropWhile((kind, _) => kind != "lparen").drop(1)
-    val out  = scala.collection.mutable.ArrayBuffer.empty[ColumnDef]
+    val out  = scala.collection.mutable.ArrayBuffer.empty[RawColumn]
+    var tablePk: List[String] = Nil
     var depth = 1
     var expectName = true
     var name: String | Null = null
     var typeWords = scala.collection.mutable.ArrayBuffer.empty[String]
-    var skipDef = false   // inside a table-level constraint, not a column
+    // Non-null while inside a TABLE-level constraint: its depth-1 words (which
+    // tell PRIMARY KEY from FOREIGN KEY / UNIQUE / CHECK) and its parenthesised
+    // idents (the key list).
+    var constraintWords: scala.collection.mutable.ArrayBuffer[String] | Null = null
+    var constraintArgs = scala.collection.mutable.ArrayBuffer.empty[String]
 
     def flush(): Unit =
-      if name != null && !skipDef then out += columnDef(name.nn, typeWords.toList)
-      name = null; typeWords = scala.collection.mutable.ArrayBuffer.empty; skipDef = false
+      val cw = constraintWords
+      if cw != null then
+        if mentionsPrimaryKey(cw.toList) then tablePk = constraintArgs.toList
+      else if name != null then out += RawColumn(name.nn, typeWords.toList)
+      name = null
+      typeWords = scala.collection.mutable.ArrayBuffer.empty
+      constraintWords = null
+      constraintArgs = scala.collection.mutable.ArrayBuffer.empty
 
     var rest = body
     while rest.nonEmpty && depth > 0 do
       val (kind, text) = rest.head
       if kind == "lparen" then
         depth += 1
-        if name != null && !skipDef then typeWords += "("
+        if constraintWords == null && name != null then typeWords += "("
       else if kind == "rparen" then
         depth -= 1
-        if depth > 0 && name != null && !skipDef then typeWords += ")"
+        if depth > 0 && constraintWords == null && name != null then typeWords += ")"
       else if kind == "comma" && depth == 1 then
         flush(); expectName = true
       else if depth == 1 && expectName && kind == "ident" then
         // A table-level constraint (PRIMARY KEY(…), FOREIGN KEY…) is not a column.
-        if TableConstraintStarters.contains(text.toUpperCase) then skipDef = true
+        if TableConstraintStarters.contains(text.toUpperCase) then
+          constraintWords = scala.collection.mutable.ArrayBuffer(text)
         else name = text
         expectName = false
-      else if name != null && !skipDef then
-        typeWords += text
+      else
+        val cw = constraintWords
+        if cw != null then
+          if depth == 1 then cw += text
+          else if depth == 2 && kind == "ident" then constraintArgs += text
+        else if name != null then typeWords += text
       rest = rest.tail
     flush()
-    out.toList
+    (out.toList, tablePk)
 
   private def columnDef(name: String, words: List[String]): ColumnDef =
     val declared = declaredType(words)

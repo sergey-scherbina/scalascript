@@ -125,14 +125,19 @@ object ScljetStaticResultSet:
     case Types.DOUBLE   => "DOUBLE"
     case Types.VARCHAR  => "VARCHAR"
     case Types.BLOB     => "BLOB"
+    case Types.BOOLEAN  => "BOOLEAN"
+    case Types.NUMERIC  => "NUMERIC"
     case _              => "NULL"
 
   def className(t: Int): String = t match
     case Types.BIGINT   => "java.lang.Long"
-    case Types.INTEGER | Types.SMALLINT => "java.lang.Integer"
+    case Types.INTEGER  => "java.lang.Integer"
+    case Types.SMALLINT => "java.lang.Short"
     case Types.DOUBLE   => "java.lang.Double"
     case Types.VARCHAR  => "java.lang.String"
     case Types.BLOB     => "[B"
+    case Types.BOOLEAN  => "java.lang.Boolean"
+    case Types.NUMERIC  => "java.math.BigDecimal"
     case _              => "java.lang.Object"
 
 final class StaticResultSetHandler(state: StaticResultSetState) extends ProxyHandler("ResultSet"):
