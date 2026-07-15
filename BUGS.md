@@ -1,5 +1,35 @@
 # Bug tracker
 
+## scala-direct-nested-reset-prompt-marker — outer marker survives in eager nested-reset prompt
+
+**Status:** open; reported by the root agent's adversarial pre-review of the
+`scala3-control-macros` feature checkpoint `9c6850904` (2026-07-15).
+
+**Symptom/reproduce:** inside an accepted outer `direct.shift` rank-2 `ShiftBody`,
+use a second exact `direct.shift` targeting the outer scope as the prompt argument
+of a nested `direct.reset`, while keeping the nested reset body ordinary. The prompt
+expression is evaluated before entering the nested delimiter, but the current
+survival audit skips the whole nested-reset `Inlined`/`Apply` tree. The outer marker
+therefore survives macro lowering and can fail through a raw compile-time-only or
+quote-owner path instead of the stable M1 diagnostic.
+
+**Observed baseline:** a Scala CLI 3.8.3 compile against only the packaged
+`scalascript-control_3` JAR reproduces the prompt-argument shape and fails on the
+nested call's closing `)` with the raw compiler message `While expanding a macro,
+a reference to parameter contextual$2 was used outside the scope where it was
+defined`. This is a real packaged-consumer failure, not a source-inspection-only
+hypothesis.
+
+**Root cause/plan:** the nested-managed-reset exception is too broad. Refine the
+specification first: only the nested reset's managed body/inline expansion belongs to
+that nested transform; its eager prompt (and any other eager call arguments) remain
+inside the enclosing `ShiftBody` audit. Parse the exact nested-reset call shape,
+inspect those eager arguments for exact direct markers, and skip only the managed
+body/expansion. Add an exact negative regression, while retaining positive coverage
+for an ordinary nested managed reset body and explicit `scalascript.control.shift`.
+Run the clean focused/full/package/consumer/catalog/conformance gates and freeze a
+new checkpoint for independent review before landing.
+
 ## scala-direct-boundary-break-escape — boundary break can outlive its delimiter
 
 **Status:** open; remediation is green in feature commit `eda7dcabf`, but a fresh
