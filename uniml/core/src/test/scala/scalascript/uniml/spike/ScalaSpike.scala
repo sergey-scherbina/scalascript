@@ -156,6 +156,26 @@ object SpikeLex:
             else { sb.append(text.charAt(i)); advance(text.charAt(i)) }
           if i < n then advance('"')
         emit("spike.str", start, sb.toString, TokenChannel.Syntax)
+      else if c == '\'' then
+        // char literal 'x' / '\n' / '\uXXXX' → spike.int holding the char CODE — an EXACT
+        // mirror of ssc1-front.ssc0:361-374 (the VM treats chars as codes: scodeAt, `'a' == c`).
+        // Like ssc1-front, every `'` is assumed to open a char literal (fixed 3/4/8-char forms).
+        if i + 1 < n && text.charAt(i + 1) == '\\' then
+          val e = if i + 2 < n then text.charAt(i + 2) else ' '
+          if e == 'u' then
+            val code = (hexVal(text.charAt(i + 3)) << 12) | (hexVal(text.charAt(i + 4)) << 8) |
+                       (hexVal(text.charAt(i + 5)) << 4) | hexVal(text.charAt(i + 6))
+            var k = 0; while k < 8 && i < n do { advance(text.charAt(i)); k += 1 }
+            emit("spike.int", start, code.toString, TokenChannel.Syntax)
+          else
+            val code = if e == 'n' then 10L else if e == 't' then 9L
+                       else if e == 'r' then 13L else if e == '0' then 0L else e.toLong
+            var k = 0; while k < 4 && i < n do { advance(text.charAt(i)); k += 1 }
+            emit("spike.int", start, code.toString, TokenChannel.Syntax)
+        else
+          val code = if i + 1 < n then text.charAt(i + 1).toLong else 0L
+          var k = 0; while k < 3 && i < n do { advance(text.charAt(i)); k += 1 }
+          emit("spike.int", start, code.toString, TokenChannel.Syntax)
       else
         val kind = c match
           case '(' => "spike.lparen"
