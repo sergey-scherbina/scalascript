@@ -294,7 +294,11 @@ optional policy, not the default continuation semantics.
       2. compare a raw semantic effect-evidence witness for CodeBlock and Document
          carriers before selecting effect source: effect/object kind, name/order,
          multiplicity, and unsupported generic/parent shape matter; line offsets do not.
-         Cover empty effect/object, multi/ordinary, stale dual carriers, and documentless safety;
+         Because package wrapping otherwise erases an empty effect's origin, retain only
+         reserved `private type` parser sentinels (never runtime values/API members), reject
+         a packaged ordinary-object sentinel collision, and prove EffectAnalysis/backends remain
+         unchanged. Cover empty effect/object, multi/ordinary, stale dual carriers,
+         documentless safety, focused parser/analysis tests, and effect conformance;
       3. include `Template.derives` and `earlyClause` in exact header witnesses and
          reject them on real public nominal class/trait/enum/object declarations until
          representable. Cover direct parseable forms plus stale carrier mismatches.

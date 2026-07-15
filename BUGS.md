@@ -46,9 +46,14 @@ lose the raw effect-header distinction. Extract a deterministic semantic effect
 evidence witness from each raw executable carrier before choosing one: effect versus
 ordinary object kind, lexical name/order, plain versus multi multiplicity, and
 unsupported generic/parent header shape are significant; source line offsets are
-not. Require CodeBlock and optional Document evidence to agree after their ordinary
-declaration witnesses agree. Regress empty effect/object, multi/ordinary and stale
-carrier positives/negatives, and preserve documentless fail-closed safety.
+not. Package wrapping has already replaced `CodeBlock.source`, so preserve erased
+empty-effect origin with reserved parser-internal `private type` sentinels rather
+than runtime `val` fields or a broader new serialized source carrier. Require
+CodeBlock and optional Document evidence to agree after their ordinary declaration
+witnesses agree; filter the sentinels from API/runtime values and fail closed on a
+packaged ordinary-object collision. Regress empty effect/object, multi/ordinary,
+stale carrier positives/negatives, parser/EffectAnalysis invariance, and preserve
+documentless fail-closed safety.
 
 **Done when:** faithful red vectors fail on the current checkpoint, then pass with
 the full affected gates. Keep `open` until fresh independent approval and landing.
