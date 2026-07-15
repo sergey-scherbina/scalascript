@@ -1,7 +1,7 @@
 # JavaScript/TypeScript ↔ ScalaScript bidirectional control profile
 
-Status: **normative host profile / explicit local control slice in
-pre-integration hardening; remaining host/runner profile planned** (2026-07-15).
+Status: **normative host profile / explicit local control slice implemented and
+pre-integration verified; remaining host/runner profile planned** (2026-07-15).
 
 This is the JavaScript/TypeScript host profile of
 [`control-interoperability.md`](control-interoperability.md). That specification
@@ -605,18 +605,18 @@ In addition to every common vector, this profile proves:
 
 ### 11.1 First-slice acceptance
 
-- [ ] The package root and dry-run tarball expose only the frozen ESM files and
+- [x] The package root and dry-run tarball expose only the frozen ESM files and
       subpaths, with no production dependency or lifecycle script.
-- [ ] The published declarations accept typed effect/handler/state-machine and
+- [x] The published declarations accept typed effect/handler/state-machine and
       prompt programs while rejecting prompt mixing, effectful `runPure`, forged
       branded values, reusable operations on one-shot continuations, and save on
       one-shot continuations.
-- [ ] Two equal descriptor strings with different named owner symbols remain
+- [x] Two equal descriptor strings with different named owner symbols remain
       different effect rows and runtime keys; a wrong-key handler leaves the
       original effect residual, while one owner+descriptor pair is idempotent.
-- [ ] `PromptKeyOf<Prompt<P, ConcreteAnswer>>` extracts exactly `P` without
+- [x] `PromptKeyOf<Prompt<P, ConcreteAnswer>>` extracts exactly `P` without
       weakening prompt answer-type invariance.
-- [ ] Opaque computations, continuations, and prompts expose no internal request,
+- [x] Opaque computations, continuations, and prompts expose no internal request,
       resumption, key, operation, or authority state; every reachable internal
       constructor rejects calls without the module-private authority token.
 - [x] All 17 currently `specified` semantic vectors applicable to an explicit
@@ -630,19 +630,38 @@ In addition to every common vector, this profile proves:
 - [x] A losing one-shot attempt returns structured `AlreadyResumed` before suffix
       construction/execution; local `save` returns structured
       `UnmanagedCapture("Continuation.local")`.
-- [ ] `npm test`, `npm run typecheck`, `npm pack --dry-run`, and the project
+- [x] `npm test`, `npm run typecheck`, `npm pack --dry-run`, and the project
       `effect*,effects*` conformance slice pass from the isolated worktree.
 
 ### 11.2 First-slice results
 
-The initial implementation baseline produced 27/27 package tests, all 17
-applicable catalog vectors, the 1,000,000/1,000,000/100,000 stack-safety probes,
-green TypeScript fixtures, and 5/5 affected project conformance cases. Independent
-pre-integration review then found four qualification blockers: descriptor-only
-effect typing, invariant-answer prompt-key extraction, forgeable/leaking runtime
-capability state, and an omitted Apache license. The affected acceptance items are
-reopened above; final post-hardening package counts, tarball bytes, and verification
-evidence are pending implementation.
+The compiler-independent explicit package is implemented at
+`v2/host/js/control` as ESM-only `@scalascript/control`. Independent
+pre-integration review found descriptor-only effect typing, invariant-answer
+prompt-key extraction, forgeable/leaking runtime capability state, and an omitted
+Apache license; all four were corrected before integration. Verification on
+2026-07-15 produced:
+
+- `npm test`: 30/30 tests pass, including all 17 applicable `specified` catalog
+  vectors without editing the shared catalog or lane registry;
+- iterative stress: 1,000,000 left-associated binds, 1,000,000 mixed
+  state-machine transitions, and 100,000 handled operations complete;
+- owner regressions prove same-descriptor/different-symbol forwarding, same-owner
+  idempotence, conflicting-descriptor rejection, and correct handler inference;
+- opacity regressions prove empty authority-bearing own keys/symbols, absent
+  pending/prompt internals, successful post-inspection one-shot resume, rejected
+  prototype grafts, and constructor-token rejection for keys, operations,
+  computations, continuations, and prompts;
+- `npm run typecheck`: positive declarations and negative prompt/effect/brand/
+  owner/multiplicity fixtures pass, including concrete-answer `PromptKeyOf`,
+  inline/widened-owner rejection, and cross-owner residual preservation;
+- `npm pack --dry-run --json`: exactly `LICENSE`, `README.md`, `index.d.ts`,
+  `index.js`, and `package.json` (5 entries, 10,916 packed bytes, 42,034 unpacked
+  bytes, no bundled dependencies); the packaged 10,837-byte license is byte-equal
+  to the repository Apache 2.0 text;
+- `node --check index.js` and affected documentation markdownlint pass;
+- `tests/conformance/run.sh --no-memo --only 'effect*,effects*'`: 5/5 cases pass
+  freshly across their declared INT/JS/JVM/V2 lanes.
 
 Even after those items close, the evidence qualifies only the local explicit API
 in §2.1--§2.2. Generated facades and value/call bridges, managed direct-style
