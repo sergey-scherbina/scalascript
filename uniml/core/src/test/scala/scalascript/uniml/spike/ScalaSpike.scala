@@ -595,6 +595,11 @@ object SpikeParse:
         else
           expect(c, "spike.colon", "ec.fieldColon", "':'").foreach(kids += _)
           expectType(c, "ec.fieldType").foreach(kids += _)
+          skipTypeTail(c) // generic field type `List[T]` (erased, head kept)
+          // a field default `case Square(side: Int = 2)` — captured (ec.dflt) so the case's ctor can
+          // synthesise `Square()` → `Square(2)`; without consuming it the `= 2` leaked, ending the enum
+          // early and spuriously lowering the last case as a stray case class (a phantom `__mirror_*`).
+          if c.peekKind == "spike.eq" then { c.advance(); parseExpr(c, 1).foreach(e => kids += e.withRole("ec.dflt")) }
           if c.peekKind == "spike.comma" then c.advance().foreach(t => kids += Node.Leaf(t, Some("ec.comma")))
           else more = false
       expect(c, "spike.rparen", "ec.rparen", "')'").foreach(kids += _)
@@ -1690,7 +1695,7 @@ object SpikeProject:
       case (_, c) if kindOf(c) == "spike.given"     => Vector(givenNode(c))
       case (_, c) if kindOf(c) == "spike.givenobj"  => Vector(givenObjNode(c))
       case (_, c) if kindOf(c) == "spike.givenval"  => Vector(givenValNode(c))
-      case (_, c) if kindOf(c) == "spike.enum"      => Vector(enumNode(c))
+      case (_, c) if kindOf(c) == "spike.enum"      => enumNodes(c)
       case (_, c) if kindOf(c) == "spike.extension" => extensionNodes(c)
       case (_, c) if kindOf(c) == "spike.object"    => Vector(objectNode(c))
       case (_, c) if kindOf(c) == "spike.effectdecl" => Vector(effectDeclNode(c))
@@ -1734,6 +1739,29 @@ object SpikeProject:
     val name = ks.collectFirst { case (Some("enum.name"), c) => lexeme(c) }.getOrElse("_")
     val cases = ks.collect { case (_, c) if kindOf(c) == "spike.enumcase" => enumCase(c.asInstanceOf[UniNode.Branch]) }
     s"""Pair("enum", Pair("${esc(name)}", ${consList(cases)}))"""
+
+  // the enum decl plus, per parametrized case with field defaults, a companion `("funcdefaults", …)` node
+  // (variant-A: lowerProg's collectFuncDefaultsNodes unions it into funcDefaultsCell) so `Circle()` →
+  // `Circle(1)` synthesises like a case class with defaults (`case Square(side: Int = 2)`).
+  private def enumNodes(n: UniNode): Vector[String] =
+    val fdNodes = kids(n).collect { case (_, c) if kindOf(c) == "spike.enumcase" => c }.toVector.flatMap { ec =>
+      val eks = kids(ec)
+      val cname = eks.collectFirst { case (Some("ec.name"), c) => lexeme(c) }.getOrElse("_")
+      val fieldB = Vector.newBuilder[String]; val dfltB = Vector.newBuilder[String]; var hasDflt = false
+      var i = 0
+      while i < eks.length do
+        if eks(i)._1.contains("ec.field") then
+          fieldB += "\"" + esc(lexeme(eks(i)._2)) + "\""
+          var j = i + 1; var d = ""
+          while j < eks.length && !eks(j)._1.contains("ec.field") do
+            if eks(j)._1.contains("ec.dflt") then d = wrapArg(eks(j)._2)
+            j += 1
+          if d.nonEmpty then { dfltB += d; hasDflt = true } else dfltB += """Pair("__nodflt__", "")"""
+        i += 1
+      if hasDflt then Vector(s"""Pair("funcdefaults", Pair("${esc(cname)}", Pair(${consList(fieldB.result())}, ${consList(dfltB.result())})))""")
+      else Vector.empty[String]
+    }
+    Vector(enumNode(n)) ++ fdNodes
 
   private def enumCase(b: UniNode.Branch): String =
     val cname = kids(b).collectFirst { case (Some("ec.name"), c) => lexeme(c) }.getOrElse("_")
