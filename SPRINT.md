@@ -292,6 +292,15 @@ every later compiler/kernel change re-runs the literal fixed point.
         nested closures with checker symbol identity, and add forward/own/shadowing plus
         declaration-initializer order regressions. Track in
         `BUGS.md#js-control-direct-forward-lexical-capture`.
+      - [ ] **Pre-rereview repair: prefix TDZ/outer-binding escape.** Candidate
+        `f7e76fc48` checks only the shift body: a pure prefix read of a later block
+        binding is left outside the generated continuation and can resolve to an
+        outer name instead of throwing from the original TDZ (`99`/`141` reproduced,
+        no direct diagnostic). For each marker, scan its layer's prefix statements
+        plus shift body against own/later declaration symbols, ignoring type-only and
+        genuinely shadowed references; cover real `.js` with `checkJs: false` and
+        file-atomic ignored-diagnostic emit. Track in
+        `BUGS.md#js-control-direct-prefix-tdz-binding-escape`.
       - [ ] **REJECT repair: preserve JavaScript marker declarations.** Lower each
         accepted `const`/`let x = direct.shift(...)` to a collision-safe fresh resume
         parameter followed by the original declaration kind initialized from that

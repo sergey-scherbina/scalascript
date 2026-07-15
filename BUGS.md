@@ -1,5 +1,28 @@
 # Bug tracker
 
+## js-control-direct-prefix-tdz-binding-escape — moved suffix exposes an outer binding
+
+**Status:** open. Confirmed by parent adversarial pre-rereview on 2026-07-15 in
+repair candidate `f7e76fc48`; the original independent-review snapshot was
+`f6fa34fac`.
+
+**Symptom/reproduce:** define outer `const later = 99`; inside a direct reset, read
+`later` in a pure prefix declaration before the first marker, then declare inner
+`const later = 42` after the marker. The original block resolves the prefix read to
+the inner binding and throws from its temporal dead zone. Lowering moves that inner
+declaration into the continuation callback, so the unchanged prefix read resolves
+at runtime to the outer `99`; the reproduced candidate returned `141` with no
+direct diagnostic. TypeScript reports 2448/2454, but real JavaScript under
+`allowJs: true, checkJs: false` has the same runtime semantic change without a type
+gate.
+
+**Required fix/verification:** for every marker boundary, use checker symbol identity
+to reject value references from that boundary's pure prefix statements or shift body
+to the marker's own or any later suffix binding. Preserve type-only references and
+genuine shadowing. Add a real-JavaScript outer-shadow/TDZ regression proving stable
+`JS_DIRECT_CAPTURE_BARRIER`, no transformed file, and unchanged emit when diagnostics
+are ignored; retain accepted preceding-binding evaluation order.
+
 ## js-control-direct-import-only-eval-erasure — unused marker removal changes direct-eval scope
 
 **Status:** open. Found by parent adversarial pre-rereview on 2026-07-15 in repair
