@@ -2,8 +2,9 @@
 
 ## js-control-runtime-opacity-forgeable — public values leak and clone private authority
 
-**Status:** open (2026-07-15, independent review of
-`javascript-typescript-control-host-runner`).
+**Status:** open, P1 (2026-07-15, independent pre-integration review of
+`javascript-typescript-control-host-runner`; affects pre-land runtime commit
+`d9222a55e`).
 
 **Symptom/reproduce:** returned request/prompt objects expose enumerable internal
 state such as `resumption`, `key`, and `shiftOperation`; a caller can pre-claim a
@@ -22,8 +23,9 @@ keys/computations/operations/prompts are rejected by public APIs.
 
 ## js-control-npm-license-omitted — package tarball lacks Apache license
 
-**Status:** open (2026-07-15, independent review of
-`javascript-typescript-control-host-runner`).
+**Status:** open, P2 packaging defect (2026-07-15, independent pre-integration
+review of `javascript-typescript-control-host-runner`; affects pre-land package
+commit `d9222a55e` and verification `4f71b2770`).
 
 **Symptom/reproduce:** run `npm pack --dry-run --json` in
 `v2/host/js/control`. The package contains only `README.md`, `index.d.ts`,
@@ -36,8 +38,9 @@ test, README/spec evidence, and dry-run pack oracle.
 
 ## js-control-prompt-key-extraction-never — invariant answer type breaks PromptKeyOf
 
-**Status:** open (2026-07-15, independent review of
-`javascript-typescript-control-host-runner`).
+**Status:** open, P1 (2026-07-15, independent pre-integration review of
+`javascript-typescript-control-host-runner`; affects pre-land declaration commit
+`d9222a55e`).
 
 **Symptom/reproduce:** `PromptKeyOf<Prompt<P, ConcreteAnswer>>` evaluates to
 `never` because the conditional matches `Prompt<infer P, unknown>` while the
@@ -49,8 +52,9 @@ existing nested-prompt and forged-prompt negative gates.
 
 ## js-control-effect-owner-type-collision — descriptor ID is mistaken for owner identity
 
-**Status:** open (2026-07-15, independent review of
-`javascript-typescript-control-host-runner`).
+**Status:** open, P1 (2026-07-15, independent pre-integration review of
+`javascript-typescript-control-host-runner`; affects pre-land declaration commit
+`d9222a55e`).
 
 **Symptom/reproduce:** two `defineEffect("same.id")` calls create distinct runtime
 owners, but both declarations currently produce `Effect<"same.id">`. TypeScript
