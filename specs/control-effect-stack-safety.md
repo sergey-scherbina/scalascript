@@ -67,12 +67,14 @@ that gate.
 - [ ] A state-threaded chain in which every handler arm returns a closure that
       invokes its captured `resume` later remains stack-safe at depth at least
       20,000; continuation escape must not move recursion back to the host stack.
-- [ ] VM primitive arguments preserve the direct-ASM `OpAnfNative` contract:
-      every non-effect-substrate primitive evaluates arguments left-to-right,
-      threads each auto-thread operation before evaluating the remaining
-      arguments, and invokes the primitive exactly once. A focused CoreIR
-      vector covers multiple operation-producing arguments and observable
-      ordering on both VM and direct ASM; FastCode may not bypass this path.
+- [ ] VM value positions preserve the direct-ASM `OpAnfNative` contract:
+      primitive arguments, application function/arguments, and constructor
+      fields evaluate left-to-right, thread each auto-thread operation before
+      evaluating the remaining positions, and invoke/build their consumer
+      exactly once. Focused raw-CoreIR vectors cover multiple
+      operation-producing primitive arguments plus `App`/`Ctor` handler arms
+      containing `resume`, with observable VM/direct-ASM ordering parity;
+      FastCode may not bypass these paths.
 - [ ] A nested outer handler still receives a residual operation with the same
       three fields and original base continuation/gate. The private resume
       protocol is never exposed as a residual user operation.
@@ -248,12 +250,29 @@ operation to enter the private driver. Boundary tests additionally assert that
 ordinary public `Op` values still escape unchanged while exact private requests
 are never observable after a managed program/call returns.
 
-The VM compiler must also mirror direct ASM's primitive-argument lifting. For
-every primitive except the four effect-substrate operations below, it evaluates
-arguments left-to-right and applies `Runtime.letThreadOp` whenever an evaluated
-argument is an auto-thread operation. The continuation evaluates the remaining
-arguments before invoking the primitive, so multiple operation-producing
-arguments preserve order and the primitive is called exactly once:
+The VM compiler must also mirror direct ASM's positional lifting. Its complete
+CoreIR value-position audit is:
+
+| Position | Contract |
+|---|---|
+| `Let` right-hand sides | already threads each binding before later bindings/body |
+| non-final `Seq` terms | already threads before the remaining statements |
+| `If` condition | already threads before selecting a branch |
+| `Match` scrutinee | already threads before dispatching an arm |
+| `App` function and arguments | evaluate function, then arguments left-to-right; thread before remaining arguments and apply exactly once |
+| `Ctor` fields | evaluate left-to-right; thread before remaining fields and construct exactly once |
+| `Prim` arguments | evaluate left-to-right; thread before remaining arguments and invoke exactly once, except the substrate exclusions below |
+
+`Lam` and `LetRec` bindings are values whose bodies run only when called. A
+`While` is an optimization/control node rather than a value consumer; effectful
+loop condition/body semantics are not introduced by this stack-safety slice and
+must not be used to justify skipping any value position above.
+
+For every primitive except the four effect-substrate operations below, the VM
+applies `Runtime.letThreadOp` whenever an evaluated argument is an auto-thread
+operation. The continuation evaluates the remaining arguments before invoking
+the primitive, so multiple operation-producing arguments preserve order and the
+primitive is called exactly once:
 
 ```text
 effect.handle
@@ -264,13 +283,21 @@ effect.pure
 
 These exclusions exactly match `OpAnfNative.isEffectPrim`: those primitives
 intentionally receive the effect computation or substrate values without
-lifting them past their own handler/constructor. The VM uses specialized
-one/two/three-argument paths plus an immutable-prefix generic path; no mutable
-partially-filled argument array may be captured by a reusable continuation.
-FastCode must decline any primitive whose argument can produce an operation, so
-the effect-aware compiler path remains authoritative rather than calling the
-primitive directly. This is an existing `Op/3` evaluation rule, not a new host
-or CoreIR ABI.
+lifting them past their own handler/constructor. `App`, `Ctor`, and `Prim` use
+specialized pure paths plus an immutable-prefix effect path; no mutable
+partially-filled argument/field array may be captured by a reusable
+continuation. Application evaluates an effectful function position before any
+argument and preserves tail `Call` on the all-pure runtime path.
+
+FastCode must decline an `App`, `Ctor`, or non-substrate `Prim` whose consumed
+position can produce an operation, so the effect-aware compiler path remains
+authoritative. The VM classifier is deliberately a conservative superset of
+`OpAnfNative.mayOp`: in addition to `App` and dynamic method/effect dispatch, it
+recognizes explicit `effect.perform`, `effect.perform.oneshot`, and
+`effect.handle` CoreIR sources used by raw `run-ir` tests. False positives only
+select the correct effect-aware path; they never change a value. Focused tests
+assert the required declines. This is an existing `Op/3` evaluation rule, not a
+new host or CoreIR ABI.
 
 ## Decisions
 
