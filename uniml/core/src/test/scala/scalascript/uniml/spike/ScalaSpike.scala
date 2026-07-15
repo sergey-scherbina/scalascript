@@ -813,6 +813,7 @@ object SpikeParse:
     else if isWord(c, "while") then parseWhile(c)                           // `while cond do body`
     else if isDefStart(c) then parseDef(c)                                  // nested `def` in a block → letrec
     else if c.peekKind == "spike.id" && c.peek2Kind == "spike.eq" then parseAssign(c) // `x = e`
+    else if c.peekKind == "spike.id" && c.peek2Kind == "spike.op" && isCompoundAssign(c.peek2Lexeme) then parseCompoundAssign(c) // `x += e`
     else parseExpr(c, 1) match
       case Some(e) => Node.Frame("spike.exprStmt", None, Vector(e.withRole("stmt.expr")))
       case None =>
@@ -859,6 +860,18 @@ object SpikeParse:
 
   // `x = e` (assignment statement) → Pair("assign", (name, e)). Only reached in a block-statement position
   // where the id is immediately followed by `=` (spike.eq, not `==`).
+  // a compound-assignment operator `+=`/`-=`/`*=`/… — ends with `=` but is not a comparison (`==`,`!=`,`<=`,`>=`)
+  // or `:=` (a ref-set op). `x += e` desugars to `x = x + e` (ssc1-front.ssc0:1517).
+  private def isCompoundAssign(op: String): Boolean =
+    op.length >= 2 && op.last == '=' && op != "==" && op != "!=" && op != "<=" && op != ">=" && op != ":="
+
+  private def parseCompoundAssign(c: Cur): Node =
+    val kids = Vector.newBuilder[Node]
+    c.advance().foreach(t => kids += Node.Leaf(t, Some("ca.name"))) // id
+    c.advance().foreach(t => kids += Node.Leaf(t, Some("ca.op")))   // `+=` etc. (base op = lexeme minus `=`)
+    parseExpr(c, 1).foreach(e => kids += e.withRole("ca.rhs"))
+    Node.Frame("spike.compoundassign", None, kids.result())
+
   private def parseAssign(c: Cur): Node =
     val kids = Vector.newBuilder[Node]
     c.advance().foreach(t => kids += Node.Leaf(t, Some("assign.name"))) // id
@@ -1588,7 +1601,7 @@ object SpikeProject:
 
   private def isTopStmt(k: String): Boolean =
     k == "spike.val" || k == "spike.var" || k == "spike.assign" || k == "spike.while" ||
-    k == "spike.exprStmt" || k == "spike.sealed" || k == "spike.tuppatval"
+    k == "spike.exprStmt" || k == "spike.sealed" || k == "spike.tuppatval" || k == "spike.compoundassign"
 
   // an extension group → three statements: extension_start, the method def (receiver prepended
   // to its params), extension_end. lowerProg's collectExtensionMethods registers it for `.m`.
@@ -1905,6 +1918,11 @@ object SpikeProject:
       val name = kids(b).collectFirst { case (Some("assign.name"), c) => lexeme(c) }.getOrElse("_")
       val rhs  = kids(b).collectFirst { case (Some("assign.rhs"), c) => expr(c) }.getOrElse(hole)
       s"""Pair("assign", Pair("${esc(name)}", $rhs))"""
+    case b: UniNode.Branch if b.kind == "spike.compoundassign" => // `x += e` → Pair("assign", (x, x + e))
+      val name = kids(b).collectFirst { case (Some("ca.name"), c) => lexeme(c) }.getOrElse("_")
+      val op   = kids(b).collectFirst { case (Some("ca.op"), c) => lexeme(c) }.getOrElse("+=").dropRight(1)
+      val rhs  = kids(b).collectFirst { case (Some("ca.rhs"), c) => expr(c) }.getOrElse(hole)
+      s"""Pair("assign", Pair("${esc(name)}", mkInf("${esc(op)}", mkVar("${esc(name)}"), $rhs)))"""
     case b: UniNode.Branch if b.kind == "spike.while" =>
       val cond = kids(b).collectFirst { case (Some("while.cond"), c) => expr(c) }.getOrElse(hole)
       val body = kids(b).collectFirst { case (Some("while.body"), c) => expr(c) }.getOrElse(hole)
