@@ -1,5 +1,77 @@
 # Bug tracker
 
+## descriptor-v3-nominal-derives-early-loss — derives and early initializers disappear from nominal APIs
+
+**Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
+frozen checkpoint `4cd2a4aaa` (rebased as `05e498a72`); fix SHA pending.
+
+**Symptom/reproduce:** `templateHeaderWitness` and `rejectUnsupportedParents` do
+not inspect `Template.derives` or `Template.earlyClause`. A class, trait, enum, or
+object can therefore retain an unrepresentable derives/early-initializer surface,
+or one retained source carrier can change that surface, while strict production
+still returns `Right` or accepts stale source/AST correspondence.
+
+**Root cause/plan:** the declaration witness and nominal losslessness gate cover
+parents/self/members but omit two current ScalaMeta template-header fields. Include
+both fields in exact body-erased correspondence. Reject every actual public nominal
+declaration with a non-empty derives or early clause until descriptor metadata can
+represent it. Add direct class/trait/enum/object vectors for every shape that the
+parser accepts plus stale Document/CodeBlock mismatches; require stable
+`UNSUPPORTED_PUBLIC_DECLARATION` paths and retain all earlier wrapper/header tests.
+
+**Done when:** faithful red vectors fail on the current checkpoint, then pass with
+the full focused, descriptor/core/interop/IR/ABI, and affected conformance radius.
+Keep `open` until fresh independent approval and landing on `origin/main`.
+
+## descriptor-v3-dual-effect-evidence-mismatch — preprocessing hides effect/object carrier disagreement
+
+**Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
+frozen checkpoint `4cd2a4aaa` (rebased as `05e498a72`); fix SHA pending.
+
+**Symptom/reproduce:** canonical section preprocessing rewrites raw `effect` syntax
+into an object before correspondence. A CodeBlock containing an effect and a
+Document carrier containing an ordinary object can consequently produce the same
+stored declaration witness. The producer then silently chooses document text as
+`rawSource`, so empty effect/object and multi/ordinary disagreements can pass or
+change multiplicity evidence without the two retained carriers agreeing.
+
+**Root cause/plan:** declaration witnesses compare only post-preprocess trees and
+lose the raw effect-header distinction. Extract a deterministic semantic effect
+evidence witness from each raw executable carrier before choosing one: effect versus
+ordinary object kind, lexical name/order, plain versus multi multiplicity, and
+unsupported generic/parent header shape are significant; source line offsets are
+not. Require CodeBlock and optional Document evidence to agree after their ordinary
+declaration witnesses agree. Regress empty effect/object, multi/ordinary and stale
+carrier positives/negatives, and preserve documentless fail-closed safety.
+
+**Done when:** faithful red vectors fail on the current checkpoint, then pass with
+the full affected gates. Keep `open` until fresh independent approval and landing.
+
+## descriptor-v3-imported-builtin-shadow — imports are ignored before bare builtin projection
+
+**Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
+frozen checkpoint `4cd2a4aaa` (rebased as `05e498a72`); fix SHA pending.
+
+**Symptom/reproduce:** `projectStat` ignores imports. Sources such as
+`import foo.Byte` followed by `Array[Byte]` still project as primitive `Bytes`;
+renamed imports and wildcards can likewise make a bare spelling resolve somewhere
+else while the producer guesses a frozen builtin. The same gap affects every bare
+builtin mapping (`Int`, frozen collection constructors, and so on) and can bypass
+the platform-type isolation rule.
+
+**Root cause/plan:** lexical binder/local lookup is import-blind, so absence of a
+local identity is treated as proof of the builtin. Collect source-ordered import
+bindings at `projectStat` and fail closed before every bare builtin mapping whenever
+a direct import, rename-to-that-name, or wildcard could supply the spelling. Preserve
+renamed-away and unimport semantics only when absence is provable. Add direct,
+rename, wildcard and exclusion vectors for both Array/Byte components and at least
+representative `Int`/`List`; retain qualified builtin/external positives and assert
+stable declaration paths/codes, including platform-root cases.
+
+**Done when:** faithful red vectors fail on the current checkpoint, then pass with
+all prior 46 focused tests and the full affected gates. Keep `open` until fresh
+independent approval and landing on `origin/main`.
+
 ## descriptor-v3-array-byte-component-shadow — bytes shortcut ignores the `Byte` identity
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent rereview of

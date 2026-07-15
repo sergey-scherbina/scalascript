@@ -280,6 +280,28 @@ optional policy, not the default continuation semantics.
       73/73, and affected `modules*,import-dir*` conformance 2/2 are green. All nine
       Slice B BUGS entries remain `open`, and Slice B remains unchecked until a fresh
       independent read-only review approves the clean checkpoint; do not push/release first.
+    - Fresh review of exact frozen `4cd2a4aaa` (rebased as `05e498a72`): REJECT, no
+      P0 and three P1 fail-open classes. The reviewer confirmed the previous wrapper,
+      mandatory CodeBlock-source, and Array/Byte binder/local fixes, but found that
+      imports still bypass every bare builtin resolution, raw effect evidence can
+      disagree across dual carriers after preprocessing, and derives/early template
+      headers are absent from both correspondence and nominal losslessness gates.
+    - Fourth-correction resume-cold plan (spec-update before tests/code):
+      1. collect source-ordered import scope in `projectStat`; before every bare builtin
+         mapping, fail closed for direct, rename-to-name, or wildcard imports unless an
+         exclusion/rename-away proves the name unavailable. Cover both Array/Byte,
+         representative Int/List, qualified positives, platform isolation, stable paths;
+      2. compare a raw semantic effect-evidence witness for CodeBlock and Document
+         carriers before selecting effect source: effect/object kind, name/order,
+         multiplicity, and unsupported generic/parent shape matter; line offsets do not.
+         Cover empty effect/object, multi/ordinary, stale dual carriers, and documentless safety;
+      3. include `Template.derives` and `earlyClause` in exact header witnesses and
+         reject them on real public nominal class/trait/enum/object declarations until
+         representable. Cover direct parseable forms plus stale carrier mismatches.
+      Record the exact red baseline, preserve all prior vectors, run focused + descriptor/
+      core/interop/IR/ABI + `modules*,import-dir*` conformance, spec-verify/bookkeeping,
+      rebase current origin at a clean checkpoint, then request a new independent review.
+      Keep all 12 Slice B BUGS `open`; never push/release before APPROVE.
     - Done when the focused regressions and affected core/interop/conformance gates pass and a
       fresh independent read-only review returns APPROVE with no P1/P2 blocker.
   - [ ] **C — post-body summaries:** extract managed/foreign/tail edges, save sites, frame schemas,
