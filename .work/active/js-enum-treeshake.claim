@@ -1,6 +1,0 @@
-feature/js-enum-treeshake 2026-07-10T16:26:13Z
-agent: claude-code (jolly-raven)
-heartbeat: 2026-07-10T19:32:50Z
-status: DONE — ssc-check 172->0 (192/192 OK); running final regression
-done-so-far: examples step GREEN (enum treeshake + Red/toHex + lenses 'r' + JVM-lane sscc/run-jvm); v2 actor sendAfter quiescence race FIXED (verified via forced-window); ssc check 172->74 (broaden plugin prelude agg + no-owner pluginBuiltins + __ssc_macro__).
-next: verify typer/parser regression suites green, then release. All CI blockers addressed: poison, examples(4), v2-actor, 154 conformance, ssc-check 172->0 (last was scalameta brace-char-literal quote mis-lex, fixed via preprocessor).
