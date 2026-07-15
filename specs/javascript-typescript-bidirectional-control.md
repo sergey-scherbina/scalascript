@@ -1,7 +1,8 @@
 # JavaScript/TypeScript ↔ ScalaScript bidirectional control profile
 
-Status: **normative host profile / explicit local control slice in second
-pre-integration hardening; remaining host/runner profile planned** (2026-07-15).
+Status: **normative host profile / explicit local control slice implemented and
+verified; final independent confirmation pending; remaining profile planned**
+(2026-07-15).
 
 This is the JavaScript/TypeScript host profile of
 [`control-interoperability.md`](control-interoperability.md). That specification
@@ -621,15 +622,15 @@ In addition to every common vector, this profile proves:
 
 ### 11.1 First-slice acceptance
 
-- [ ] The package root and dry-run tarball expose only the frozen ESM files and
+- [x] The package root and dry-run tarball expose only the frozen ESM files and
       subpaths, with no production dependency or lifecycle script.
-- [ ] The packed README uses the absolute canonical source link, and every
+- [x] The packed README uses the absolute canonical source link, and every
       relative Markdown link stays inside and resolves within the exact payload.
-- [ ] The published declarations accept typed effect/handler/state-machine and
+- [x] The published declarations accept typed effect/handler/state-machine and
       prompt programs while rejecting prompt mixing, effectful `runPure`, forged
       branded values, reusable operations on one-shot continuations, and save on
       one-shot continuations.
-- [ ] Two equal descriptor strings with different named owner symbols remain
+- [x] Two equal descriptor strings with different named owner symbols remain
       different effect rows and runtime keys; a wrong-key handler leaves the
       original effect residual, one owner+descriptor pair is idempotent, and
       inferred/explicit union owners are rejected without a cast.
@@ -649,7 +650,7 @@ In addition to every common vector, this profile proves:
 - [x] A losing one-shot attempt returns structured `AlreadyResumed` before suffix
       construction/execution; local `save` returns structured
       `UnmanagedCapture("Continuation.local")`.
-- [ ] `npm test`, `npm run typecheck`, `npm pack --dry-run`, and the project
+- [x] `npm test`, `npm run typecheck`, `npm pack --dry-run`, and the project
       `effect*,effects*` conformance slice pass from the isolated worktree.
 
 ### 11.2 First-slice results
@@ -661,12 +662,13 @@ prompt-key extraction, forgeable/leaking runtime capability state, and an omitte
 Apache license; all four were corrected before integration. Verification on
 2026-07-15 produced:
 
-- `npm test`: 30/30 tests pass, including all 17 applicable `specified` catalog
+- `npm test`: 31/31 tests pass, including all 17 applicable `specified` catalog
   vectors without editing the shared catalog or lane registry;
 - iterative stress: 1,000,000 left-associated binds, 1,000,000 mixed
   state-machine transitions, and 100,000 handled operations complete;
 - owner regressions prove same-descriptor/different-symbol forwarding, same-owner
-  idempotence, conflicting-descriptor rejection, and correct handler inference;
+  idempotence, conflicting-descriptor rejection, correct handler inference, and
+  rejection of inferred or explicit union owners;
 - opacity regressions prove empty authority-bearing own keys/symbols, absent
   pending/prompt internals, successful post-inspection one-shot resume, rejected
   prototype grafts, and constructor-token rejection for keys, operations,
@@ -674,20 +676,23 @@ Apache license; all four were corrected before integration. Verification on
 - `npm run typecheck`: positive declarations and negative prompt/effect/brand/
   owner/multiplicity fixtures pass, including concrete-answer `PromptKeyOf`,
   inline/widened-owner rejection, and cross-owner residual preservation;
+- the published-README regression requires the absolute canonical profile URL and
+  rejects every escaping or absent relative payload target;
 - `npm pack --dry-run --json`: exactly `LICENSE`, `README.md`, `index.d.ts`,
-  `index.js`, and `package.json` (5 entries, 10,916 packed bytes, 42,034 unpacked
+  `index.js`, and `package.json` (5 entries, 11,059 packed bytes, 42,353 unpacked
   bytes, no bundled dependencies); the packaged 10,837-byte license is byte-equal
   to the repository Apache 2.0 text;
 - `node --check index.js` and affected documentation markdownlint pass;
 - `tests/conformance/run.sh --no-memo --only 'effect*,effects*'`: 5/5 cases pass
   freshly across their declared INT/JS/JVM/V2 lanes.
 
-Independent second pre-integration review then rejected two remaining edges. A
+Independent second pre-integration review rejected two remaining edges. A
 cast-free union of two named owner types bypassed the broad-symbol guard and again
-collapsed different runtime keys to one effect row. The five-file packed README
-also retained a repository-relative specification link whose target was absent
-from the npm payload. The affected acceptance items are reopened above; final
-single-owner and packaged-link evidence is pending implementation.
+collapsed different runtime keys to one effect row; `IsUnion` plus
+`SingleUniqueSymbol` now rejects both inferred and explicit forms. The five-file
+packed README retained a repository-relative absent target; it now uses the
+canonical HTTPS source URL and its link-policy regression passes. The acceptance
+items are closed above, pending the final independent read-only confirmation.
 
 Even after those items close, the evidence qualifies only the local explicit API
 in §2.1--§2.2. Generated facades and value/call bridges, managed direct-style
