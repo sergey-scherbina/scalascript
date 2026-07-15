@@ -1,6 +1,6 @@
 feature/javascript-typescript-control-direct 2026-07-15T05:29:19Z
 agent: codex-js-control-direct
-heartbeat: 2026-07-15T08:00:17Z
+heartbeat: 2026-07-15T08:10:15Z
 status: in-progress
-done-so-far: exact clean candidate 445f7faf7..d66ed988df closes the three emit escapes; direct 38/38, explicit 31/31, exact packs, catalog 26/9, negatives 9/9, conformance 5/5 and hygiene are green
-next: a new independent adversarial review of exact d66ed988df is running across runtime/declaration emit, symbols, atomicity, package and external consumers; no push/release before APPROVE
+done-so-far: fresh review rejected d66ed988df on one P1 package boundary: the exact tar manifest leaks devDependency `file:../control`; all semantic/emit/declaration/source-map gates were otherwise clean
+next: owner resumed with SPRINT/BUGS/spec-first exact packed-manifest and extracted-clean-install regressions; remove publishable repo-local specs, repeat full gates, freeze for another fresh review
