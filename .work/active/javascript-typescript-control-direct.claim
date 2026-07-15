@@ -1,0 +1,6 @@
+feature/javascript-typescript-control-direct 2026-07-15T05:29:19Z
+agent: codex-js-control-direct
+heartbeat: 2026-07-15T05:29:19Z
+status: not-started
+done-so-far: read-only dependency and collision audit selected an unblocked local TypeScript direct-style transform slice
+next: create isolated worktree, commit resume-cold SPRINT plan and feature spec before implementation
