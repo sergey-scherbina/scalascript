@@ -1,0 +1,22 @@
+SELECT id, name FROM t => 2|b
+5|a
+9|c
+SELECT rowid, id FROM t => 2|2
+5|5
+9|9
+SELECT id, name FROM t => 2|b
+5|a
+9|c
+10|d
+SELECT id, name FROM t ORDER BY id => 2|b
+3|e
+5|a
+9|c
+10|d
+SELECT name FROM t WHERE id = 9 => c
+INSERT INTO t VALUES (5,'x') => ERR:duplicate rowid 5
+SELECT id FROM t ORDER BY id => 2
+3
+5
+9
+10

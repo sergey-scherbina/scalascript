@@ -1049,6 +1049,57 @@ def tableColumns(sql: String): List[String] =
           if depth > 0 then r = r.tail
         reverseStrings(accRev, Nil)
 
+// A column whose declared type is exactly `INTEGER PRIMARY KEY [AUTOINCREMENT]` is an alias for the
+// rowid (SQLite semantics): its value IS the rowid. `INT`/`BIGINT PRIMARY KEY` do NOT qualify.
+def isIpkType(idents: List[String]): Boolean =
+  if idents.isEmpty then false
+  else if upperStr(idents.head) != "INTEGER" then false
+  else
+    val rest = idents.tail
+    if rest.isEmpty then false
+    else if upperStr(rest.head) != "PRIMARY" then false
+    else
+      val rest2 = rest.tail
+      if rest2.isEmpty then false
+      else upperStr(rest2.head) == "KEY"
+
+// 0-based index of the INTEGER PRIMARY KEY column in a CREATE TABLE, or -1 if none. Scans column
+// definitions like tableColumns, but also collects each column's post-name type/constraint idents.
+def ipkColumnIndex(sql: String): Int =
+  tokenize(sql) match
+    case Left(_) => -1
+    case Right(toks) =>
+      var r = toks
+      while r.nonEmpty && tkKind(r) != "lparen" do r = r.tail
+      if r.isEmpty then -1
+      else
+        r = r.tail
+        var depth = 1
+        var colIdx = -1
+        var expectName = true
+        var haveName = false
+        var typeRev: List[String] = Nil
+        var result = -1
+        while r.nonEmpty && depth > 0 && result < 0 do
+          val t = r.head
+          if t.kind == "lparen" then depth = depth + 1
+          else if t.kind == "rparen" then
+            depth = depth - 1
+            if depth == 0 && haveName && isIpkType(reverseStrings(typeRev, Nil)) then result = colIdx
+          else if t.kind == "comma" && depth == 1 then
+            if haveName && isIpkType(reverseStrings(typeRev, Nil)) then result = colIdx
+            expectName = true
+            haveName = false
+            typeRev = Nil
+          else if depth == 1 && expectName && t.kind == "ident" then
+            colIdx = colIdx + 1
+            expectName = false
+            haveName = true
+          else if depth == 1 && haveName && t.kind == "ident" then
+            typeRev = t.text :: typeRev
+          if depth > 0 then r = r.tail
+        result
+
 // ── Executor ──
 
 def sqlOptions(): SqliteOpenOptions = SqliteOpenOptions(OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, 0L, 16, false,
@@ -3467,6 +3518,70 @@ def storageToSqlRows(rows: List[StorageRecord], ncols: Int): List[SqlRow] =
     r = r.tail
   accRev.reverse
 
+// Replace the idx-th value of a row (0-based); used to write an auto-assigned rowid back into an
+// INTEGER PRIMARY KEY column so `SELECT ipk` reads the rowid.
+def setValueAt(vals: List[SqliteValue], idx: Int, v: SqliteValue): List[SqliteValue] =
+  var r = vals
+  var i = 0
+  var accRev: List[SqliteValue] = Nil
+  while r.nonEmpty do
+    accRev = (if i == idx then v else r.head) :: accRev
+    i = i + 1
+    r = r.tail
+  reverseValues(accRev, Nil)
+
+def valueIntOrNone(v: SqliteValue): Option[Long] = v match
+  case SqlInteger(x) => Some(x)
+  case _ => None
+
+// Assign a rowid to each inserted row. With an INTEGER PRIMARY KEY column (ipkIdx>=0), the rowid is
+// that column's integer value when supplied (SQLite's rowid alias); a NULL/absent IPK gets the next
+// auto rowid (max seen so far + 1) written back into the column. Without an IPK column, rowids are
+// sequential from startAuto (the historical behaviour). An explicit value advances the auto counter.
+def assignInsertRowids(valueRows: List[List[SqliteValue]], columns: List[String], colNames: List[String], ipkIdx: Int, startAuto: Long): List[SqlRow] =
+  var r = valueRows
+  var nextAuto = startAuto
+  var accRev: List[SqlRow] = Nil
+  while r.nonEmpty do
+    val reordered = if columns.isEmpty then r.head else reorderInsertValues(columns, r.head, colNames)
+    val explicit = if ipkIdx < 0 then None else valueIntOrNone(valueAtPos(reordered, ipkIdx))
+    val rowid = explicit match
+      case Some(v) => v
+      case None => nextAuto
+    val vals = explicit match
+      case Some(_) => reordered
+      case None => if ipkIdx < 0 then reordered else setValueAt(reordered, ipkIdx, SqlInteger(rowid))
+    nextAuto = if rowid >= nextAuto then longAdd(rowid, 1L) else nextAuto
+    accRev = SqlRow(rowid, vals) :: accRev
+    r = r.tail
+  accRev.reverse
+
+// Insert pre-assigned SqlRows (rowid from each row) into one pager; duplicate rowid → error
+// (matching a duplicate INTEGER PRIMARY KEY / rowid, via leafInsertCell).
+def insertSqlRowsLoop(pager: MutablePager, root: Int, sqlRows: List[SqlRow], pageSize: Int): Either[String, MutablePager] =
+  var p = pager
+  var r = sqlRows
+  var err: Option[String] = None
+  while r.nonEmpty && err.isEmpty do
+    encodeRecord(r.head.values) match
+      case Left(error) => err = Some(error.message)
+      case Right(record) =>
+        pagerInsertBalanced(p, root, r.head.rowid, record, pageSize) match
+          case Left(error) => err = Some(error.message)
+          case Right(np) => p = np
+    r = r.tail
+  err match
+    case Some(message) => Left(message)
+    case None => Right(p)
+
+// The INTEGER PRIMARY KEY column index for a table (from its CREATE TABLE), or -1.
+def tableIpkIndex(db: ReadonlyDatabase, table: String): Int =
+  findTable(db, table) match
+    case None => -1
+    case Some(e) => e.sql match
+      case Some(t) => ipkColumnIndex(cpToString(t.codePoints))
+      case None => -1
+
 def executeInsert(dbBytes: ByteSlice, stmt: InsertStmt): Either[String, ByteSlice] =
   tableContext(dbBytes, stmt.table) match
     case Left(message) => Left(message)
@@ -3483,15 +3598,17 @@ def executeInsert(dbBytes: ByteSlice, stmt: InsertStmt): Either[String, ByteSlic
             if stmt.rows.isEmpty then Right(dbBytes)
             else
               val rowid0 = maxRowidOf(rows) + 1L
+              val ipkIdx = tableIpkIndex(db, stmt.table)
+              val newRows = assignInsertRowids(stmt.rows, stmt.columns, colNames, ipkIdx, rowid0)
               val infos = tableIndexInfos(db, stmt.table, colNames)
               if infos.isEmpty then
-                insertRowsLoop(openMutablePager(dbBytes, pageSize, pageSize), root, rowid0, stmt.rows, stmt.columns, colNames, pageSize) match
+                insertSqlRowsLoop(openMutablePager(dbBytes, pageSize, pageSize), root, newRows, pageSize) match
                   case Left(message) => Left(message)
-                  case Right(pr) => mutableCommit(pr._1, pr._2) match
+                  case Right(pager) => mutableCommit(pager, 1L) match
                     case Left(error) => Left(error.message)
                     case Right(pc) => Right(pc.pager.image)
               else if countTables(db) != 1 then Left("index maintenance on a multi-table database is not yet supported")
-              else reindexTable(dbBytes, db, stmt.table, storageToSqlRows(rows, colNames.length) ++ insertedSqlRows(stmt.rows, stmt.columns, colNames, rowid0), infos)
+              else reindexTable(dbBytes, db, stmt.table, storageToSqlRows(rows, colNames.length) ++ newRows, infos)
 
 // Rows to be inserted, as SqlRows with assigned sequential rowids (unlisted columns → NULL).
 def insertedSqlRows(valueRows: List[List[SqliteValue]], columns: List[String], colNames: List[String], startRowid: Long): List[SqlRow] =

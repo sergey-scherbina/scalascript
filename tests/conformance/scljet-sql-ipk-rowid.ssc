@@ -1,0 +1,47 @@
+---
+name: scljet-sql-ipk-rowid
+description: SclJet INTEGER PRIMARY KEY aliases the rowid (SQLite semantics); matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet INTEGER PRIMARY KEY = rowid alias
+
+A column declared `INTEGER PRIMARY KEY` is an alias for the rowid: on `INSERT`, its value becomes the
+rowid (so rows scan in that column's order, not insertion order), a missing/NULL IPK gets the next
+auto rowid (max seen + 1), and `SELECT ipk`/`SELECT rowid` return the same value. A duplicate IPK is
+rejected (duplicate rowid). Every result matches reference sqlite3 running the same SQL (verified
+out-of-band); locked across `[int, js]`. This is the semantics that lets `WHERE ipk = K` become a
+rowid point-lookup.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, executeMutation, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def apply(db: ByteSlice, sql: String): ByteSlice =
+  executeMutation(db, sql) match
+    case Left(m) =>
+      println(sql + " => ERR:" + m)
+      db
+    case Right(next) => next
+
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(id INTEGER PRIMARY KEY, name TEXT)",
+  List(List(SqlInteger(1L), SqlText("seed")))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db0) =>
+    val db1 = apply(db0, "DELETE FROM t")
+    val db2 = apply(db1, "INSERT INTO t VALUES (5,'a'),(2,'b'),(9,'c')")
+    show(db2, "SELECT id, name FROM t")
+    show(db2, "SELECT rowid, id FROM t")
+    val db3 = apply(db2, "INSERT INTO t(name) VALUES ('d')")
+    show(db3, "SELECT id, name FROM t")
+    val db4 = apply(db3, "INSERT INTO t(name, id) VALUES ('e', 3)")
+    show(db4, "SELECT id, name FROM t ORDER BY id")
+    show(db4, "SELECT name FROM t WHERE id = 9")
+    val dbDup = apply(db4, "INSERT INTO t VALUES (5,'x')")
+    show(dbDup, "SELECT id FROM t ORDER BY id")
+```
