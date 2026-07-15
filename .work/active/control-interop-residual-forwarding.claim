@@ -1,6 +1,6 @@
 feature/control-interop-residual-forwarding 2026-07-15T00:56:18Z
 agent: codex-residual-control
-heartbeat: 2026-07-15T01:22:43Z
+heartbeat: 2026-07-15T01:32:12Z
 status: in-progress
-done-so-far: base spec and guarded/nested/plugin dispatch spec update committed; initial VM/direct-ASM exact-event protocol implemented locally
-next: implement general-pattern markers and structured plugin partial handlers, then run focused VM/ASM/plugin vectors
+done-so-far: residual, general-pattern/plugin, effectful-guard suspension, and persisted-letrec ABI specs committed; implementation compiles locally
+next: finish guarded/plugin/ABI regressions, axis 19 VM/ASM, native runner and affected conformance gates

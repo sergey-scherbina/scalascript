@@ -1,6 +1,6 @@
 feature/control-interop-effect-recursion-stack-unsafe 2026-07-15T00:55:35Z
 agent: codex-stack-control
-heartbeat: 2026-07-15T01:22:43Z
+heartbeat: 2026-07-15T01:32:12Z
 status: in-progress
-done-so-far: feature spec, failing probe, escape/deep-escape and typed Rehandle frame updates committed; initial iterative driver passes focused in-scope tests
-next: prove 20k escaped state-thread chain and place minimal managed-boundary drain before residual integration
+done-so-far: managed-boundary driver design committed; 12 focused tests and installBin green; ASM axis 20 reaches 100k/20k depths
+next: close VM primitive-argument Op threading parity, Rehandle regression, then rerun installed VM/ASM axis 20
