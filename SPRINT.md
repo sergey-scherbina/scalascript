@@ -123,10 +123,36 @@ error-resilient parser already byte-identical to ssc1-front on 119 constructs, t
          as `mkSExpr(assign)` in a block so lowerBlock let-folds it). Flipped rest-api/uploads/rest-api-fm/spa-demo/
          mcp-server-tool; HOLE 40→17. **LESSON: don't call a divergence "unmatchable" — the oracle's quirks are
          deterministic and reproducible.**
-      **Remaining ~17% is DEEP/BESPOKE:** symbolic operator methods `def <~>` + custom-op infix precedence, summon
-      resolution + given-body extension methods, `direct { }` marker, continuations/coroutines, misc block-fold +
-      arity edge cases, long-tail 1-program gaps. The **variant-A additive collect-node pattern** (lowerProg unions
-      AST-carried companion nodes into a parse-cell) is the reusable template for any remaining parse-cell gap.
+      9. [x] clean mechanical parser gaps — landed 2026-07-15 (→**422, 85%, 45 slices**; HOLE 17→4, of which 2 are
+         FALSE holes: legit `???`→__NI__ the harness pre-filters — predef-notimplemented actually MATCHES). The
+         "deep/unmatchable" claims were mostly wrong; +8 clean slices, all pushed origin/main:
+         - **`direct[F] { block }`** direct-style monadic — postfix `[T]`→directmarker (like Focus/Prism), next `{ }`
+           → `Pair("direct",(typeArgs,block))` → lowerProg flatMap chain (+3).
+         - **char literals** `'='`/`'\n'`/`'\uXXXX'` — the spike had NO `'` lexing; ssc1-front.ssc0:361-374 lexes each
+           to an INT token holding the char CODE (VM treats chars as codes). Mirror exactly: plain 3ch/escape 4ch/`\u` 8ch (+3).
+         - **local defs in braceless blocks** — parseBlock stopped at ANY `def` (`!isDefStart`), emptying a body whose
+           first stmt is a nested def and leaking it to top level; guard removed (parseStmt routes nested def→letrec;
+           col guard stops siblings). **cons `::` in tuple/ctor sub-patterns** — `(x::xs, y::ys)` split each `::` into a
+           junk wildcard (`Tuple6` not `Tuple2`); parseSubPattern folds `:: rest`→conspat. Together fix mergesort/fibonacci.
+         - **multi-method extension groups + generic receiver** `extension (xs: List[Int])` — parsed one inline method
+           (rest leaked) and left `[Int]` unconsumed; loop the def group + skipTypeTail (+1).
+         - **offside (multi-line) lambda bodies** `xs.map(x =>\n val d=…\n d*d)` — parseExpr dropped the block's vals;
+           parseLambdaBody parses a block (unwrap a lone exprStmt so a single-expr body stays bare, no spurious `let`),
+           with a **stopAtParen flag — LAMBDA-ONLY** so the block stops at the enclosing call's `)` (higher-column on the
+           body's last line); MUST be lambda-only — a def-body dangling `)` (from an unsupported `html"…"` interpolator
+           breaking arg parsing) must fall through to `_err` to match ssc1-front recovery (rest-api-fm). (+several:
+           imports/graphql-typed-resolvers/ws-typed-client/head-field-effect-shadow/oauth-mcp-full-stack).
+         - **qualified type in arm-pattern ascription** `case x: A.B =>` — captured only the head, left `.B` breaking the
+           arm; skipTypeSegments (like skipTypeTail but does NOT eat the case `=>`); ssc1-front tags on the HEAD (+1).
+      **Remaining ~65 DIFF + ~2 real HOLE is DEEP/BESPOKE/FRAGILE — mostly bug-reproduction, low architectural value:**
+      (a) **8× error-recovery** — REF `_err` vs spike real code; reproducing ssc1-front's OWN parse bugs (braceless-for
+      `foreach` mis-desugar, custom-interpolator recovery in auth-full/bank-rails/bureau-demo). (b) **~6× `derives` on
+      `@`-annotated fields** (graph-*) — ssc1-front error-recovers `case class C(@key id: …)` to a SINGLE synthetic
+      `_: Any` field (ctor 1-arg, mirror `["_"]`/`["Any"]`) + finds derives via a forward-scan (findCaseDerives), NOT
+      simple annotation-erase (investigated + reverted an erase attempt — it diverges without matching). (c) summon
+      resolution + given-body extension methods, symbolic-op precedence (opPrec tables already match), import-as-value
+      (x402), colon-lambda `foo.method: x=>` (wasm-collections), for-comp foreach/flatMap. The **variant-A additive
+      collect-node pattern** (lowerProg unions AST-carried companion nodes into a parse-cell) is the reusable template.
       Older remaining (88 DIFF + 70 HOLE):
       ~82 parse holes (custom string interpolators `html"…"`/`sql"…"` — actually ssc1-front ALSO parses these as
       `id`+raw-string, the divergence is arm-body block grouping; braceless-catch-at-top-level offside;
