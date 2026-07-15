@@ -111,8 +111,10 @@ overload because that could hide effects appended after capture.
 capability registry. It has no public constructor or user implementation. A nested
 `direct.reset` supplies a distinct scope; a shift selects the scope whose
 `P`, `Fx`, and `R` match its prompt and row. Thus an inner region cannot consume an
-outer marker accidentally, while a deliberately referenced outer prompt continues
-to select its outer scope.
+outer marker accidentally. M1 does not lower a marker across a nested
+`direct.reset`: the nested region is an effect-row boundary, and forwarding an outer
+prompt through it needs the later compiler-plugin transform to make that residual
+row explicit.
 
 The `implicitNotFound` diagnostic covers a call outside a matching region. The
 `compileTimeOnly` diagnostic is a second fail-closed guard: if a supported compiler
@@ -133,7 +135,8 @@ ANF/CPS sequence. M1 accepts:
 - multiple sequential block-level shift binds;
 - pure `if`, `match`, method application, construction, selection, and arithmetic
   subtrees that contain no direct marker;
-- nested `direct.reset` regions, each owning only its matching `Scope` markers;
+- nested `direct.reset` regions, each owning only markers for its own matching
+  `Scope`;
 - mutation of ordinary captured local/heap state, with the existing local
   multi-shot rule: control is copied, the current local heap is shared.
 
@@ -151,6 +154,10 @@ M1 rejects a direct marker nested inside any of these boundaries:
   prove evaluation order and ownership;
 - a marker whose contextual `Scope` belongs to no enclosing region handled by the
   current expansion.
+
+A marker targeting an outer `Scope` from inside a nested `direct.reset` is rejected
+as `UNMANAGED_CAPTURE` in M1. It is not silently narrowed through the nested reset's
+declared `Fx`: doing so would make the generated explicit effect row unsound.
 
 These are fail-closed M1 limits, not claims that every shape is semantically
 impossible. The later compiler plugin may represent additional frames explicitly.
@@ -275,7 +282,8 @@ Changed Markdown is linted and the final branch must pass `git diff --check`.
 
 - ScalaScript frontend/lowering or any CoreIR/codec/seed/self-hosting byte change;
 - cross-method control, arbitrary expression-position markers, transformed loops,
-  callbacks, resources, `try/finally`, async, or precompiled frames;
+  callbacks, resources, `try/finally`, async, precompiled frames, or an outer marker
+  crossing a nested `direct.reset`;
 - generated Scala↔ScalaScript value/call bridges and descriptor consumers;
 - compiler-plugin managed callbacks, saveable-frame metadata, or mixed tail SCCs;
 - successful durable `save`, exact-artifact or portable runners;
@@ -289,7 +297,9 @@ Changed Markdown is linted and the final branch must pass `git diff --check`.
   new macros artifact with an unnecessary version/installation axis.
 - **Lexical typed `Scope`.** Chosen to make ownership and nested regions explicit
   to the Scala typer and macro. Rejected: matching prompt source text or ambient
-  thread-local/compiler state.
+  thread-local/compiler state. An outer marker crossing a nested reset is deferred
+  because its residual row must be represented explicitly; M1 rejects it rather
+  than narrowing the row.
 - **Rank-2 `ShiftBody`.** Chosen to preserve residual-row soundness. Rejected: a
   monomorphic convenience continuation that could hide widened effects.
 - **Bounded ANF/CPS M1.** Chosen because it has a small auditable evaluation-order

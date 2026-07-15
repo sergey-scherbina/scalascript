@@ -243,7 +243,9 @@ every later compiler/kernel change re-runs the literal fixed point.
   explicit `reset`/`shift`/`flatMap`/`pure`, and fail closed with `UNMANAGED_CAPTURE`,
   `CAPTURE_BARRIER`, or `DIRECT_STYLE_UNSUPPORTED`. Done-when the `scala-direct` adapter executes the
   applicable shared vectors, the full control leaf/package/POM gates pass, and public ABI exposes no
-  quotes/compiler/runtime type.
+  quotes/compiler/runtime type. M1 nested resets lower only their own matching markers; a marker targeting
+  an outer scope across a nested reset is rejected until the compiler-plugin tier can preserve the
+  residual outer control row explicitly.
 - [ ] **scala3-control-plugin** — publish a `CrossVersion.full` compiler plugin for cross-method CPS,
   managed callback propagation, effect metadata, and generated ABI entrypoints. Precompiled Scala/Java
   code remains callable but is a deterministic control-capture barrier while active on the stack.
