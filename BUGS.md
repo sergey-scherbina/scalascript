@@ -1,5 +1,62 @@
 # Bug tracker
 
+## js-control-direct-type-only-export-false-positive — erased exports are rejected
+
+**Status:** open. Reported as P1 by fresh independent rereview of exact frozen HEAD
+`c4377fabb` on 2026-07-15 (rebased equivalent `e1f3cc204`).
+
+**Symptom/reproduce:** TypeScript files using local
+`export type { direct as Marker }`, direct
+`export type { direct } from "@scalascript/control-direct"`, or inline
+`export { type direct } from "@scalascript/control-direct"` receive
+`JS_DIRECT_UNSUPPORTED` even though all three forms are erased and cannot leave a
+runtime marker value in JavaScript.
+
+**Required fix/verification:** the accepted grammar must distinguish declaration-
+level and specifier-level type-only exports before runtime owned-marker checks. Keep
+the erased forms diagnostic-free, preserve normal TypeScript emit, and retain stable
+`JS_DIRECT_UNSUPPORTED` for local runtime exports/re-exports and aliases. Cover all
+three type-only spellings plus shadowing in the real compiler harness.
+
+## js-control-direct-marker-shorthand-export-survivor — owned values evade scanning
+
+**Status:** open. Reported as P1 by fresh independent rereview of exact frozen HEAD
+`c4377fabb` on 2026-07-15 (rebased equivalent `e1f3cc204`).
+
+**Symptom/reproduce:** place runtime shorthand `{ direct }`, local
+`export { direct }`, or `export { direct as alias }` in a file selected for marker
+transformation. Checker lookup at the shorthand/export identifier does not resolve
+to the imported runtime value under the current scan, so no direct diagnostic is
+reported; completed-import rewriting can then erase the import while emitted code
+retains an unbound shorthand or export.
+
+**Required fix/verification:** resolve the runtime value behind shorthand properties
+and local export specifiers (including aliases) through the TypeScript checker, then
+reuse exact owned-marker identity. Every surviving runtime use must receive one
+stable `JS_DIRECT_UNSUPPORTED` and cancel the entire source-file rewrite; ignored-
+diagnostic emit must retain the original import and marker syntax. Avoid duplicate
+diagnostics when an export node is reachable through more than one scan.
+
+## js-control-direct-shorthand-value-symbol-capture — property symbol hides suffix capture
+
+**Status:** open. Reported as P1 by fresh independent rereview of exact frozen HEAD
+`c4377fabb` on 2026-07-15 (rebased equivalent `e1f3cc204`).
+
+**Symptom/reproduce:** inside a shift body, save or evaluate a closure/expression
+reading `({ later }).later`, then declare suffix `const later = 42`. The current
+lexical scan calls `checker.getSymbolAtLocation` on the identifier in the shorthand
+property and receives the property symbol rather than the referenced value symbol.
+The crossing is missed; transformed execution throws `ReferenceError` instead of
+the original lexical behavior.
+
+**Required fix/verification:** centralize runtime-value symbol lookup and use
+`checker.getShorthandAssignmentValueSymbol` for shorthand property names, falling
+back to ordinary checker identity everywhere else. The shift-body shorthand must
+fail file-atomically with one `JS_DIRECT_CAPTURE_BARRIER` on the source identifier;
+ordinary property names, genuine shadowing, and type-only references remain
+accepted. Add assignment-initializer shorthand coverage where the compiler AST
+permits that form.
+
 ## js-control-direct-prefix-tdz-binding-escape — moved suffix exposes an outer binding
 
 **Status:** open; repair candidate `a4635d0b8` is locally verified and awaits fresh

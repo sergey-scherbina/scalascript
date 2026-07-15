@@ -361,6 +361,33 @@ every later compiler/kernel change re-runs the literal fixed point.
         that line without adding a bundled/production compiler. Track in
         `BUGS.md#js-control-direct-typescript-version-ungated`. Implemented in
         `df11677b6`.
+      - [ ] **Rereview repair: shorthand value-symbol capture.** Frozen reviewed HEAD
+        `c4377fabb` asks `checker.getSymbolAtLocation` for an identifier inside a
+        `ShorthandPropertyAssignment`, which returns the property symbol rather than
+        the referenced lexical value. A shift body such as `({ later }).later` can
+        therefore capture a suffix `const later = 42` and fail at runtime. Specify and
+        centralize runtime-value symbol resolution with
+        `checker.getShorthandAssignmentValueSymbol`, preserve ordinary/shadowed/type-
+        only identities, and cover shorthand plus assignment-initializer syntax where
+        TypeScript exposes it. Track in
+        `BUGS.md#js-control-direct-shorthand-value-symbol-capture`.
+      - [ ] **Rereview repair: surviving marker shorthand/local exports.** Runtime
+        shorthand `{ direct }` and local exports `export { direct }` or
+        `export { direct as alias }` currently evade owned-marker value scanning; the
+        import may then be erased while emitted code keeps an unbound value/export.
+        Reuse one central runtime-value symbol resolver, including
+        `getExportSpecifierLocalTargetSymbol` for local export aliases, diagnose each
+        surviving owned value once as `JS_DIRECT_UNSUPPORTED`, and cancel every rewrite
+        in the file. Track in
+        `BUGS.md#js-control-direct-marker-shorthand-export-survivor`.
+      - [ ] **Rereview repair: erased type-only exports.** The fail-closed re-export
+        scan currently rejects valid erased forms: local
+        `export type { direct as Marker }`, direct
+        `export type { direct } from "@scalascript/control-direct"`, and inline
+        `export { type direct } from ...`. Specify these as type-only/non-runtime uses,
+        preserve their normal TypeScript erasure without a direct diagnostic, and add
+        positive tests alongside runtime export aliases and shadowing. Track in
+        `BUGS.md#js-control-direct-type-only-export-false-positive`.
       - [ ] **Repair-cycle closure.** After spec-first and code commits, update package
         README/project docs, run direct package tests+typecheck+node checks+exact pack,
         existing explicit control 31/31+typecheck, catalog positive/negative validators,
