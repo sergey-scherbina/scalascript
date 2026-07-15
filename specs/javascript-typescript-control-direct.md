@@ -209,15 +209,19 @@ and a shift in an argument, condition, return, assignment, nested expression, or
 other arbitrary position are rejected. The final top-level statement is the one
 `return`; earlier returns and fallthrough are rejected.
 
-For a marker at statement index `i`, its shift body may reference lexical bindings
-declared before `i`. It must not reference, directly or through any nested closure,
-the marker binding itself or any block-scoped binding declared in statement `i` or
-the continuation suffix after it. Ownership is determined by TypeScript checker
-symbol identity, so a genuinely shadowed nested binding is unrelated. The first
-forbidden value reference receives `JS_DIRECT_CAPTURE_BARRIER` and the file is not
-transformed. T1 deliberately rejects this forward/own capture instead of hoisting
-or re-evaluating declarations: hidden motion would change temporal-dead-zone,
-initializer, and per-resume evaluation order.
+For a marker at statement index `i`, its current lowering layer consists of the pure
+prefix statements after the preceding marker (or block start) plus this marker's
+shift body. A value reference anywhere in that layer must not resolve to the marker
+binding itself or any block-scoped binding declared in statement `i` or the
+continuation suffix after it, directly or through nested syntax. Otherwise moving
+the declaration into `.flatMap` could make a temporal-dead-zone reference resolve to
+an outer binding, or make a captured binding disappear. Ownership is determined by
+TypeScript checker symbol identity, so type-only references and genuinely shadowed
+bindings are unrelated. The first forbidden value reference receives
+`JS_DIRECT_CAPTURE_BARRIER` and the file is not transformed. T1 deliberately rejects
+this crossing reference instead of hoisting or re-evaluating declarations: hidden
+motion would change temporal-dead-zone, initializer, and per-resume evaluation
+order.
 
 Reset and shift prompt expressions are identifiers resolving to the same
 TypeScript symbol. Textually equal but differently bound prompts fail. A nested
@@ -318,9 +322,10 @@ saveability status and remain barriers for later cross-frame/durable profiles.
 - `JS_DIRECT_CAPTURE_BARRIER` — a marker occurs under, or the reset region contains,
   `async`, generator, `await`, `yield`, `try`/`finally`, loop, `switch`, branch,
   callback/function, or class syntax that would require a managed frame not present
-  in T1; a shift body captures its own or a later suffix binding; or a selected file
-  contains intrinsic direct eval. A separately recognized nested direct reset is not
-  a barrier.
+  in T1; a marker layer's prefix or shift body references its own or a later suffix
+  binding across the generated continuation boundary; or a selected file contains
+  intrinsic direct eval. A separately recognized nested direct reset is not a
+  barrier.
 - `JS_DIRECT_UNSUPPORTED` — the reset or marker misses the closed grammar: wrong
   arity/callback form, `var`, destructuring, multiple declaration, arbitrary marker
   position, early/missing return, unsupported statement, marker aliasing, or any
@@ -360,10 +365,11 @@ diagnostic.
 - [x] The transformer preserves usable source maps and the CLI preserves ordinary
       TypeScript type diagnostics rather than laundering them through generated
       code.
-- [ ] Shift bodies that value-reference their own marker binding or any later
-      suffix binding, including through nested closures, fail file-atomically with
-      `JS_DIRECT_CAPTURE_BARRIER`; preceding and genuinely shadowed bindings remain
-      accepted without initializer reordering.
+- [ ] A marker layer's prefix statements and shift body fail file-atomically with
+      `JS_DIRECT_CAPTURE_BARRIER` when they value-reference the marker's own or any
+      later suffix binding, including through nested syntax; type-only, preceding,
+      and genuinely shadowed bindings remain accepted without initializer
+      reordering or TDZ-to-outer-name escape.
 - [ ] Marker lowering uses collision-safe resume parameters followed by the original
       `const`/`let` declaration, including real JavaScript under
       `allowJs: true, checkJs: false`.
@@ -398,10 +404,11 @@ diagnostic.
   stays a development dependency. Rejected: implementing a second runtime in the
   transform package or retaining a production guard import that contradicts the
   documented install boundary.
-- **Reject forward/own shift-body capture instead of moving declarations.** Checker
-  symbol identity catches nested closure references without confusing shadowing.
-  Rejected: hoisting or pre-evaluating suffix declarations, which changes TDZ,
-  prefix-once, and suffix-per-resume behavior.
+- **Reject any prefix/shift-body reference crossing a generated continuation.**
+  Checker symbol identity catches both captured forward references and a prefix TDZ
+  read that would otherwise resolve to an outer name after lowering, without
+  confusing type-only use or shadowing. Rejected: hoisting or pre-evaluating suffix
+  declarations, which changes TDZ, prefix-once, and suffix-per-resume behavior.
 - **Preserve authored JavaScript declaration semantics.** A fresh generated resume
   parameter feeds the original `const`/`let` declaration. Rejected: replacing that
   declaration with a callback parameter, which weakens `const` and can collide with

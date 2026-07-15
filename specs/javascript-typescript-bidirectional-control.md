@@ -450,7 +450,9 @@ completed named import specifier. It therefore runs with only
 `@scalascript/control` installed. Every surviving marker value use is a diagnostic.
 Transparent parentheses/`as`/non-null/type assertions preserve exact marker
 ownership. Shift-body references to their own marker or later suffix bindings fail
-closed by checker-symbol identity rather than moving declarations; accepted markers
+closed by checker-symbol identity rather than moving declarations. The same rule
+rejects a pure prefix reference that would cross the generated continuation and
+escape an original temporal-dead-zone binding to an outer name. Accepted markers
 retain their authored `const`/`let` declaration behind a fresh resume parameter.
 Intrinsic direct eval anywhere in a selected file is a barrier, including when the
 only planned rewrite is erasing an unused named marker import; shadowed or indirect
