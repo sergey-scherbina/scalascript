@@ -1,0 +1,6 @@
+feature/plugin-capability-profile-v1 2026-07-15T03:15:24Z
+agent: codex-plugin-profile
+heartbeat: 2026-07-15T03:15:24Z
+status: not-started
+done-so-far: task selected from the control-interoperability SPRINT; descriptor Slice A is still in final verification
+next: create isolated worktree, read global/control/plugin specs and current SPI, then commit a target-neutral profile spec before implementation
