@@ -310,7 +310,8 @@ object SpikeParse:
       else if isKw(c, "enum") then defs += parseEnum(c)
       else if isKw(c, "extension") then defs += parseExtension(c)
       else if isWord(c, "object") then defs += parseObject(c)
-      else if isWord(c, "effect") && (c.peek2Kind == "spike.uid" || c.peek2Kind == "spike.id") then defs += parseEffectDecl(c)
+      else if isWord(c, "effect") && (c.peek2Kind == "spike.uid" || c.peek2Kind == "spike.id") then defs += parseEffectDecl(c, false)
+      else if isWord(c, "multi") && c.peek2Lexeme == "effect" then defs += parseEffectDecl(c, true) // `multi effect`
       else if isWord(c, "extern") then defs += parseExtern(c)
       else if isWord(c, "trait") || isKw(c, "class") then defs += parseTraitOrClassNoop(c)
       // a top-level STATEMENT — script-style `println(…)`, top-level `val`/`var`/expr. ssc1-front keeps these
@@ -381,11 +382,8 @@ object SpikeParse:
       else parseExpr(c, 1) match
         case Some(b) => kids += b.withRole("def.body")
         case None    => c.report("spike.missing-body", "missing def body expression")
-    else
-      // abstract def signature (no `=`): a trait method or effect operation — the effect_decl/trait lowering
-      // ignores the body, so use a harmless unit placeholder (NOT __notImplemented__, which would mis-flag the
-      // whole program as an unparsed HOLE). Emitting it also stops the body parser swallowing the next decl.
-      kids += Node.Frame("spike.unitlit", Some("def.body"), Vector.empty)
+    // else: abstract def signature (no `=`, no body) — a trait method or effect op. No body is consumed (so the
+    // parser can't swallow the next decl); defNode gives it a harmless unit placeholder (the lowering ignores it).
     Node.Frame("spike.def", None, kids.result())
 
   // `case class Name(f1: T1, f2: T2)` — a top-level declaration. lowerProg does all the work
@@ -655,9 +653,10 @@ object SpikeParse:
   // `effect L:` / `effect L { ops }` → Pair("effect_decl", Pair(name, Pair(false, [op-defs]))); the lowerer
   // materializes E_op closures from the op SIGNATURES (ssc1-front.ssc0:2657, AST-derived — bodies ignored).
   // `effect { … }` (a brace right after `effect`, no name) is NOT a decl but the reactive call — left to exprs.
-  private def parseEffectDecl(c: Cur): Node =
+  private def parseEffectDecl(c: Cur, multi: Boolean): Node =
     val kids = Vector.newBuilder[Node]
-    c.advance() // `effect`
+    if multi then c.advance().foreach(t => kids += Node.Leaf(t, Some("eff.multi"))) // `multi` kept as a leaf so
+    c.advance()                                                                     // the flag survives the emit
     if c.peekKind == "spike.uid" || c.peekKind == "spike.id" then c.advance().foreach(t => kids += Node.Leaf(t, Some("eff.name")))
     skipTypeParams(c) // `effect State[S]`
     val braced = c.peekKind == "spike.lbrace"
@@ -1488,9 +1487,10 @@ object SpikeProject:
 
   // `effect L: ops` → Pair("effect_decl", Pair(name, Pair(false, [op-defs]))) — lowerer builds E_op closures.
   private def effectDeclNode(n: UniNode): String =
-    val name = kids(n).collectFirst { case (Some("eff.name"), c) => lexeme(c) }.getOrElse("_")
-    val ops  = kids(n).collect { case (Some("eff.op"), c) => memberNode(c) }
-    s"""Pair("effect_decl", Pair("${esc(name)}", Pair(false, ${consList(ops.toVector)})))"""
+    val name  = kids(n).collectFirst { case (Some("eff.name"), c) => lexeme(c) }.getOrElse("_")
+    val multi = kids(n).exists { case (Some("eff.multi"), _) => true; case _ => false } // `multi effect` = multi-shot
+    val ops   = kids(n).collect { case (Some("eff.op"), c) => memberNode(c) }
+    s"""Pair("effect_decl", Pair("${esc(name)}", Pair($multi, ${consList(ops.toVector)})))"""
 
   // `object X { members }` → Pair("object", Pair(name, [member-stmts])); the lowerer emits X_member globals.
   private def objectNode(n: UniNode): String =
@@ -1569,7 +1569,11 @@ object SpikeProject:
     val ks = kids(n)
     val name = ks.collectFirst { case (Some("def.name"), c) => lexeme(c) }.getOrElse("main")
     val params = prefixParams ++ ks.collect { case (Some("def.param"), c) => "\"" + esc(lexeme(c)) + "\"" }.toVector
-    val bodyRaw = ks.collectFirst { case (role, c) if role.contains("def.body") => expr(c) }.getOrElse(hole)
+    // an abstract def (no `=`, hence no def.eq leaf) is a trait method / effect op — the lowering ignores its
+    // body, so give it a harmless unit placeholder rather than __notImplemented__ (which mis-flags the program).
+    val hasEq   = ks.exists { case (Some("def.eq"), _) => true; case _ => false }
+    val bodyRaw = if !hasEq then "mkTup(Nil)"
+                  else ks.collectFirst { case (role, c) if role.contains("def.body") => expr(c) }.getOrElse(hole)
     // `def x: T = e` (no param clause) is parameterless — a bare `x` auto-applies. `def x(): T = e` (empty
     // parens) is a method — a bare `x` is the closure. ssc1-front marks the former with mkParameterlessBody.
     val hasParamClause = ks.exists { case (Some("def.lparen"), _) => true; case _ => false }
