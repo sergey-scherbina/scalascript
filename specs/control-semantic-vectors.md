@@ -61,10 +61,13 @@ catalog.
 lane  adapter  status  capabilities  reason
 ```
 
-`status` is `ready`, `optional`, or `pending`. A ready lane is part of the default
-gate. An optional lane runs under `--all-installed` when its adapter and external
-toolchain are available. A pending lane is always printed with its reason. Every
-named mandatory profile has a row even before it can execute a vector.
+`status` is `ready`, `optional`, or `pending`. Every ready process lane is part of
+the default shell gate. A ready host-test lane is mandatory in its owning project
+suite and runs through `--lane` or `--all-installed`; the default command does not
+silently count an unexecuted host suite green. An optional lane runs under
+`--all-installed` when its adapter and external toolchain are available. A pending
+lane is always printed with its reason. Every named mandatory profile has a row
+even before it can execute a vector.
 
 The stable lane ids are:
 
