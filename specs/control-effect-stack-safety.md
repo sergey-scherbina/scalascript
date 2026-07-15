@@ -77,8 +77,9 @@ that gate.
 - [ ] An arbitrary primitive supplied by a plugin may return an operation even
       when every primitive argument is pure. Such a result is threaded in an
       application argument, constructor field, and non-final sequence position
-      on VM/direct ASM. The witness uses the supported plugin lifecycle: load
-      and register before CoreIR conversion/compilation.
+      on VM/direct ASM. The VM witness registers before `Compiler.compile`; the
+      saved/direct-ASM witness transforms and emits with that primitive absent
+      from the registry, then registers it before artifact execution.
 - [ ] Effectful `While` conditions and bodies thread resume requests before
       boolean dispatch, discard, or the next iteration. Deep effectful loops
       remain stack-safe on VM/direct ASM; FastCode may not bypass this path.
@@ -326,26 +327,38 @@ consumed position can produce an operation, so the effect-aware compiler path
 remains authoritative. The VM, `OpAnfNative`, and direct-ASM classifiers align
 on `App`, dynamic method/effect dispatch, and explicit `effect.perform`,
 `effect.perform.oneshot`, and `effect.handle` CoreIR sources used by raw
-`run-ir` tests. They must also treat every primitive currently registered in
-`V2PluginRegistry` as operation-producing: its unrestricted handler result type
-is `List[Value] => Value`, so pure arguments do not prove a pure result.
+`run-ir` tests. They must additionally treat every non-builtin primitive as
+operation-producing, independently of the mutable `V2PluginRegistry`. This is
+required by `build-jvm`: native lowering and `OpAnfNative` run while the plugin
+registry is empty, whereas the packaged artifact installs its ServiceLoader
+plugins in `NativeArtifactRuntime.initialize` immediately before execution.
 
-This classification follows the existing plugin lifecycle. `PluginBridge` /
-`NativePluginHost` load handlers before frontend conversion, VM compilation,
-or native lowering; `Prims.resolve(op)` likewise captures the selected handler
-during VM compilation. Installing a previously unknown primitive after an
-artifact was transformed/compiled is therefore not supported by the current
-runtime and is not introduced by this slice. A future persistable plugin
-profile may replace the registry query with explicit suspending/non-suspending
-metadata, but must preserve effectful-by-default registration semantics.
+Builtin recognition is single-sourced from the existing primitive dispatcher,
+not a duplicated allowlist. `Prims.resolveBuiltin(op)` contains the builtin
+match and returns no implementation for its final non-builtin case;
+`Prims.isBuiltin(op)` queries that function, while public `Prims.resolve(op)`
+falls back to `V2PluginRegistry` or the existing unimplemented-primitive error.
+The shared classifier is therefore:
+
+```text
+primitiveMayProduceOp(op) =
+  operationProducingBuiltinNames.contains(op) || !Prims.isBuiltin(op)
+```
+
+The explicit builtin set includes the existing method/effect sources and every
+builtin that invokes user/plugin code or can return a stored computation, such
+as `__arithExt__`, return/try/finally helpers, `__lazyForce__`, and
+`coreir.eval`. Known non-suspending builtins stay on their current fast paths;
+unknown/unimplemented names conservatively select effect-aware lowering and
+still fail with the same runtime error if no handler is installed.
 
 The VM predicate remains a conservative runtime-path selector: false positives
 only select the correct effect-aware path, and consumed values are checked at
 runtime before threading. Direct ASM uses the same predicate to select its
-effect-aware `Let`/sequence chains. Focused tests register the witness handler
-before VM compilation and ASM transformation, then assert the required
-declines. This is an existing `Op/3` evaluation rule, not a new host or CoreIR
-ABI.
+effect-aware `Let`/sequence chains. Focused tests register the witness before VM
+compilation, but deliberately leave the registry empty during AOT transform and
+emission and install it only before generated-code execution. This is an
+existing `Op/3` evaluation rule, not a new host or CoreIR ABI.
 
 ## Decisions
 
@@ -363,11 +376,11 @@ ABI.
 - **Preserve public `Op/3`** — the temporary request uses the existing private
   runtime carrier and is consumed before returning from the handler driver; no
   CoreIR/value/codec/ABI inventory changes.
-- **Registered plugin primitives are effectful by default** — selected because
-  the plugin handler result type permits `Op/3`, and every supported execution
-  path loads plugins before conversion/compilation. Rejected: treating pure
-  primitive arguments as proof of a pure plugin result. Late installation into
-  an already compiled artifact remains outside the current plugin lifecycle.
+- **Non-builtin/plugin primitives are effectful by default** — selected because
+  plugin handlers may return `Op/3` and saved JVM artifacts install plugins
+  only at runtime. Rejected: consulting current registry membership during
+  lowering (empty in `build-jvm`) and treating every primitive as effectful
+  (would perturb known-pure UniML/fixed-point output and hot paths).
 - **Always defer; drain only at managed boundaries** — selected so lifting sees
   the complete post-resume suffix and both VM and ASM stay stack-safe for deep
   escaped state-thread chains. Rejected: forbidding continuation escape (not an
