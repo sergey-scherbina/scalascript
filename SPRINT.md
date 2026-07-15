@@ -94,18 +94,26 @@ error-resilient parser already byte-identical to ssc1-front on 119 constructs, t
          gap) — landed 2026-07-15: **string/bool/float literal patterns** `case "x"`/`case true`/`case 3.14`
          (parsePattern + patProj; int-only before → str/float errored, true/false→vpat); **named call args**
          `f(label = value)` → `Pair("narg", …)` (applyArgs id+`=` detect; +33 programs — pervasive in UI/config).
-      **MATCH trajectory (484 progs): 0 → 2 (top-level) → 93 (harness leak fix) → 165 (number lexer) → 203
-      (trailing block) → 211 (placeholder) → 241 (imports) → 269 (list+type) → 272 (try+annotations) → 288
-      (type application) → 293 (literal patterns) → 326 (named args) → 327 (for-comprehensions) → 330 (objects/
-      traits/modifiers) → 334 (case-class field defaults + generic field-type strings) → 342 (70%, uppercase
-      val/var names).** Remaining (76 DIFF + 67 HOLE) is now mostly SPECIALIZED or ARCHITECTURAL:
+      6. [x] more constructs — landed 2026-07-15 (all `derives`/objects/… AST-derived, no oracle change):
+         for-comprehensions (multiline generators), **objects/traits/modifiers** (`object X{…}`→Pair("object",…),
+         skipDeclModifiers/skipExtendsClause, bare trait/class no-op), **case-class field defaults + full generic
+         field-type strings** (captureFieldType), **uppercase val/var names** (expectName), **given instances**
+         `given x:T with{defs}`→given_obj + generic type + def `(using s:T)` params, **`derives A,B`** captured
+         → codec generation, **tuple-destructuring val** `val (a,b)=e`, **multiline while-do body** (branchExpr;
+         +14 — pervasive), **null→None**, **def-body assignment** `def f(x)=cell=t`→store, **extern signatures**
+         →no-op, **type ascriptions in tuple/ctor sub-patterns** `case (a:T, b:U)`.
+      **MATCH trajectory (→487 progs): 0→2→93 (harness leak fix)→165 (number lexer)→203 (trailing block)→211
+      (placeholder)→241 (imports)→269 (list+type)→272 (try+annot)→288 (type app)→293 (lit patterns)→326 (named
+      args)→330 (objects)→334 (field defaults+types)→342 (uppercase names)→346 (derives)→350 (tuple val)→364
+      (while, +14)→365 (null)→368 (extern+def-assign)→369 (75%, tuple-pat-ascription). 24 slices, all pushed.
+      **Remaining ~24% is SPECIALIZED or ARCHITECTURAL:**
       - **variant-A parser-cell gaps** (case-class body METHODS `Point_distanceTo`, call-site default SYNTHESIS
-        `Box()`→`Box(10,20)`) — caseMethodsCell/funcDefaultsCell are populated by ssc1-front's PARSE (not
-        AST-derived), which the spike bypasses; needs the Phase 4/5 clean lowerer or an oracle AST change.
-      - **bespoke DSLs**: optics `Focus[T](_.a.b)` → `optics.focus [OField…]` (5), custom string interpolators
-        `html"…"`/`sql"…"` (ssc1-front itself doesn't recognize them; position-dependent block grouping, 5),
-        `derives` codec generation.
-      - **tagless/typeclass givens** `given x: TC[T] with { def … }` (29 HOLE programs), extensions.
+        `Box()`→`Box(10,20)`, using-INJECTION `display(42)`→`display(42,g)`, summon) — caseMethodsCell/
+        funcDefaultsCell/usingSigCell are populated by ssc1-front's PARSE (mkCaseCls carries NO methods —
+        verified), which the spike bypasses. ONE oracle refactor (AST-derive these cells in lowerProg + carry the
+        info in the projected AST) unblocks the whole cluster; = deliberate Phase 4/5 decision, NOT a spike slice.
+      - **effect handlers** (`__handler_dispatch_selected__`), **optics** `Focus[T](_.a.b)`, **custom interpolators**
+        `html"…"` (ssc1-front itself mis-groups them), **continuations/coroutines** — bespoke/complex.
       Older remaining (88 DIFF + 70 HOLE):
       ~82 parse holes (custom string interpolators `html"…"`/`sql"…"` — actually ssc1-front ALSO parses these as
       `id`+raw-string, the divergence is arm-body block grouping; braceless-catch-at-top-level offside;
