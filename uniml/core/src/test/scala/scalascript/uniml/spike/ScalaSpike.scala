@@ -1014,7 +1014,10 @@ object SpikeParse:
     // `f(a)(using g)` merges the explicit using args INTO f(a) (KC8 flattening), not a curried apply.
     else if c.peekKind == "spike.lparen" && c.peek2Lexeme == "using" && roleKind(atom) == "spike.call" then
       postfix(c, mergeUsingArgs(c, atom))
-    else if c.peekKind == "spike.lparen" then postfix(c, applyArgs(c, atom)) // chained application f(a)(b)
+    // chained application `f(a)(b)` — ONLY when the `(` is on the same line as the preceding expression;
+    // a `(` on a LATER line is a fresh statement (ssc1-front's layout inserts `;` at the newline), so
+    // `val cols = line.split(",")\n  ("order", …)` must NOT apply the tuple to `split(",")`.
+    else if c.peekKind == "spike.lparen" && c.peekLine == c.prevEndLine then postfix(c, applyArgs(c, atom))
     // `e[T]` type application (`Array.empty[Int]`, `x.asInstanceOf[List[Int]]`, `foo[A](x)`) — the type
     // args are erased (ssc1-front buildPostfix readTypeApply); continue the chain with the same `e`. Guarded
     // to the SAME line as `e` so a following-line list-literal statement is not swallowed (newline = trivia).
