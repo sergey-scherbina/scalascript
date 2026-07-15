@@ -1293,3 +1293,118 @@ class PreBodyApiDescriptorProducerTest extends AnyFunSuite:
     ))))
     assert(error.code == "UNSUPPORTED_PUBLIC_DECLARATION")
     assert(error.path == "$.symbols[demo.api.current]")
+
+  test("ordered imports participate in retained source and AST correspondence"):
+    val input = source(
+      """import foo.Int
+        |def stable(value: Int): Int = value
+        |""".stripMargin,
+      List("stable")
+    )
+    val parsed = parse(input)
+    val staleDocument = mapDocumentExecutableSources(parsed)(
+      _.replace("import foo.Int", "import bar.Int")
+    )
+    val error = failure(PreBodyApiDescriptorProducer.descriptor(staleDocument))
+
+    assert(error.code == "UNSUPPORTED_PUBLIC_DECLARATION")
+    assert(error.path.startsWith("$.sections["))
+
+  test("an imported qualifier cannot launder a selected platform type"):
+    val input = source(
+      """import java.{lang as jl}
+        |def stable(value: jl.String): jl.String = value
+        |""".stripMargin,
+      List("stable")
+    )
+    val error = failure(PreBodyApiDescriptorProducer.descriptor(parse(input)))
+
+    assert(error.code == "PLATFORM_TYPE_FORBIDDEN")
+    assert(error.path == "$.symbols[demo.api.stable].parameterLists[0].parameters[0].tpe")
+
+  test("a chained importer alias cannot launder a bare platform type"):
+    val input = source(
+      """import java.{lang as jl}
+        |import jl.{Integer as Int}
+        |def stable(value: Int): Int = value
+        |""".stripMargin,
+      List("stable")
+    )
+    val error = failure(PreBodyApiDescriptorProducer.descriptor(parse(input)))
+
+    assert(error.code == "PLATFORM_TYPE_FORBIDDEN")
+    assert(error.path == "$.symbols[demo.api.stable].parameterLists[0].parameters[0].tpe")
+
+  test("an imported local callback alias receives conservative callback policy"):
+    val input = source(
+      """object Types:
+        |  type Callback = Int => Long
+        |import Types.Callback
+        |def stable(callback: Callback): Long = 0L
+        |""".stripMargin,
+      List("stable")
+    )
+    val definition = descriptor(input).symbols.head.definition
+
+    assert(definition.callbackPolicies.map(_.parameter) ==
+      Vector(CallbackParameterPath(0, 0)))
+    assert(definition.callbackPolicies.head.callingConvention ==
+      CallingConvention.ForeignBarrier)
+
+  test("a real effect cannot duplicate its parser-owned origin sentinel"):
+    val input = source(
+      """effect Stable:
+        |  private type __effectDecl__ = true
+        |""".stripMargin,
+      List("Stable")
+    )
+    val error = failure(PreBodyApiDescriptorProducer.descriptor(parse(input)))
+
+    assert(error.code == "UNSUPPORTED_PUBLIC_DECLARATION")
+    assert(error.path.startsWith("$.sections[") || error.path == "$.symbols[demo.api.Stable]")
+
+  test("body-local effects do not participate in pre-body descriptor evidence"):
+    val plain = source(
+      "def stable(value: Int): Int = value",
+      List("stable")
+    )
+    val withLocalEffect = source(
+      """def stable(value: Int): Int =
+        |  effect Local:
+        |    def read(): Int
+        |  value
+        |""".stripMargin,
+      List("stable")
+    )
+
+    val expectedJson = right(PreBodyApiDescriptorProducer.canonicalJson(parse(plain)))
+    val actualJson = right(PreBodyApiDescriptorProducer.canonicalJson(parse(withLocalEffect)))
+    assert(actualJson == expectedJson)
+    assert(descriptor(withLocalEffect).apiHash == descriptor(plain).apiHash)
+
+  test("nested identities under private nominal owners cannot fall back external"):
+    val declarations = Vector(
+      """private class Hidden:
+        |  type T = Int
+        |""".stripMargin,
+      """private trait Hidden:
+        |  type T = Int
+        |""".stripMargin,
+      """private enum Hidden:
+        |  case One
+        |  type T = Int
+        |""".stripMargin
+    )
+
+    declarations.foreach { declaration =>
+      val input = source(
+        s"""$declaration
+           |def leak(value: Hidden.T): Int = 0
+           |""".stripMargin,
+        List("leak")
+      )
+      val error = failure(PreBodyApiDescriptorProducer.descriptor(parse(input)))
+
+      assert(error.code == "UNSUPPORTED_PUBLIC_TYPE")
+      assert(error.path == "$.symbols[demo.api.leak].parameterLists[0].parameters[0].tpe")
+    }
