@@ -1,0 +1,52 @@
+---
+name: interop-20-stack-safety-deep-effect-recursion
+axis: stack-safety-deep-effect-recursion
+status: measurable-now
+---
+
+# Axis 20 — stack-safe deep effect recursion
+
+The first two runs perform 100,000 one-shot operations across a tail-recursive
+continuation and across statement/binding suffixes. The third run keeps
+`resume` in non-tail handler position; each handler frame adds one, and the
+`Return` arm adds seven exactly once.
+
+```scalascript
+effect Tick:
+  def step(): Int
+
+def tailLoop(n: Int, acc: Int): Int =
+  if n == 0 then acc else
+    val one = Tick.step()
+    tailLoop(n - 1, acc + one)
+
+var sequenceCount = 0
+
+def sequenceLoop(n: Int): Int =
+  if n == 0 then sequenceCount else
+    Tick.step()
+    sequenceCount = sequenceCount + 1
+    sequenceLoop(n - 1)
+
+def nonTailLoop(n: Int): Int =
+  if n == 0 then 0 else
+    Tick.step()
+    nonTailLoop(n - 1)
+
+val tailResult = handle(tailLoop(100000, 0)) {
+  case Tick.step(resume) => resume(1)
+}
+
+val sequenceResult = handle(sequenceLoop(100000)) {
+  case Tick.step(resume) => resume(1)
+}
+
+val nonTailResult = handle(nonTailLoop(20000)) {
+  case Tick.step(resume) => 1 + resume(1)
+  case Return(value) => value + 7
+}
+
+println(tailResult)
+println(sequenceResult)
+println(nonTailResult)
+```
