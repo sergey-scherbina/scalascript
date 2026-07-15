@@ -88,8 +88,22 @@ object RunNativeV2:
           structural.program,
           _root_.ssc.NativeUiSites.Config(eligibleSymbols = calledPrimitives))
 
+      // `main: <fn>` front-matter — a program whose behaviour lives entirely in a
+      // named entry function (no top-level statements) must still run it. INT/JS and
+      // FrontendBridge honour `main:`; the native front dropped it, so such programs
+      // (every SwiftUI/UI app: `main: run`) executed nothing. Append `fn()` to the
+      // entry when the root manifest names a `main` that the program actually defines.
+      // Skip `main: main` — the tower already auto-invokes a top-level `def main()`
+      // (the `ssc run` convention), so appending it would double-run.
+      val programWithMain = manifestMainName(structural.manifests, userFiles.lastOption) match
+        case Some(fn) if fn != "main" && annotatedProgram.defs.exists(_.name == fn) =>
+          val call = _root_.ssc.Term.App(_root_.ssc.Term.Global(fn), Nil)
+          _root_.ssc.Program(annotatedProgram.defs,
+            _root_.ssc.Term.Seq(List(annotatedProgram.entry, call)))
+        case _ => annotatedProgram
+
       NativeV2Compilation(
-        annotatedProgram,
+        programWithMain,
         structural.config,
         structural.manifests,
         structural.contentModules,
@@ -115,6 +129,18 @@ object RunNativeV2:
     val value = result.value
     if value == null then throw new RuntimeException("native frontend emitted no structural result")
     NativeV2Structural.decode(value, canonicalFiles)
+
+  /** The `main:` entry-function name from the root file's front-matter (if any). */
+  private def manifestMainName(
+      manifests: List[NativeSourceManifest],
+      rootFile: Option[java.io.File]): Option[String] =
+    val manifest = rootFile
+      .flatMap(root => manifests.find(_.source == root))
+      .orElse(manifests.lastOption)
+    manifest.flatMap(_.value).collect {
+      case NativeManifestObject(fields) =>
+        fields.collectFirst { case ("main", NativeManifestString(v)) if v.nonEmpty => v }
+    }.flatten
 
   private final case class TowerResult(
       output: String,
