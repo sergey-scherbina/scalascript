@@ -56,7 +56,8 @@ private[interpreter] object DispatchRuntime:
               "contains" | "indexOf" | "appended" | "prepended" | "take" |
               "drop" | "apply" | "grouped" | "sliding" | "scanLeft" |
               "reduceLeft" | "reduce" | "reduceRight" | "reduceOption" |
-              "reduceLeftOption" | "transpose" | "partition" | "count" | "collect" | "span" |
+              "reduceLeftOption" | "transpose" | "patch" | "zipAll" | "scanRight" |
+              "distinctBy" | "partition" | "count" | "collect" | "span" |
               "sortBy" | "sortWith" | "groupBy" | "mkString" | "zip" |
               "takeRight" | "dropRight" | "splitAt" | "intersect" | "diff" |
               "takeWhile" | "dropWhile" | "toList" | "toSeq" | "toIterable" |
@@ -1575,6 +1576,13 @@ private[interpreter] object DispatchRuntime:
 
   // ── List ────────────────────────────────────────────────────────────────────
 
+  /** Elements of a sequence-typed argument (List/Vector), or null if not a seq.
+   *  Lets methods that take a collection arg accept both `List(...)` and `Vector(...)`. */
+  private def seqElems(v: Value): List[Value] | Null = v match
+    case Value.ListV(xs)   => xs
+    case Value.VectorV(xs) => xs.toList
+    case _                 => null
+
   private def dispatchList(ls: List[Value], name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
     lazy val recv = Value.ListV(ls)
     name match
@@ -1873,7 +1881,16 @@ private[interpreter] object DispatchRuntime:
         case List(v)                  => Pure(Value.ListV(v +: ls))
         case _                        => dispatchFallback(recv, name, args, env, interp)
       case "sliding"      => args match
-        case List(Value.IntV(n))      => Pure(Value.ListV(ls.sliding(n.toInt).map(Value.ListV(_)).toList))
+        case List(Value.IntV(n))                   => Pure(Value.ListV(ls.sliding(n.toInt).map(Value.ListV(_)).toList))
+        case List(Value.IntV(n), Value.IntV(step)) => Pure(Value.ListV(ls.sliding(n.toInt, step.toInt).map(Value.ListV(_)).toList))
+        case _                        => dispatchFallback(recv, name, args, env, interp)
+      case "patch"        => args match
+        case List(Value.IntV(from), otherArg, Value.IntV(replaced)) if seqElems(otherArg) != null =>
+          Pure(Value.ListV(ls.patch(from.toInt, seqElems(otherArg).nn, replaced.toInt)))
+        case _                        => dispatchFallback(recv, name, args, env, interp)
+      case "zipAll"       => args match
+        case List(otherArg, thisElem, thatElem) if seqElems(otherArg) != null =>
+          Pure(Value.ListV(ls.zipAll(seqElems(otherArg).nn, thisElem, thatElem).map((a, b) => Value.TupleV(a :: b :: Nil))))
         case _                        => dispatchFallback(recv, name, args, env, interp)
       case "grouped"      => args match
         case List(Value.IntV(n))      => Pure(Value.ListV(ls.grouped(n.toInt).map(Value.ListV(_)).toList))
@@ -2146,6 +2163,33 @@ private[interpreter] object DispatchRuntime:
               loop(ls, init)
             case _ => throw InterpretError("scanLeft expects one function argument")
           }))
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "scanRight"    => args match
+        // result(i) = f(xs(i), result(i+1)), result(n) = init → build from the right.
+        case List(init) =>
+          Pure(Value.NativeFnV("scanRight", {
+            case List(f) =>
+              val buf = new scala.collection.mutable.ListBuffer[Value]()
+              buf.prepend(init)
+              def loop(remaining: List[Value], acc: Value): Computation = remaining match
+                case Nil       => Pure(Value.ListV(buf.toList))
+                case h :: rest => FlatMap(interp.callValue2(f, h, acc, env), { v => buf.prepend(v); loop(rest, v) })
+              loop(ls.reverse, init)
+            case _ => throw InterpretError("scanRight expects one function argument")
+          }))
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "distinctBy"   => args match
+        // Keep the first element for each distinct key `f(elem)`.
+        case List(f) =>
+          val seen = scala.collection.mutable.HashSet.empty[Value]
+          val buf  = new scala.collection.mutable.ArrayBuffer[Value](ls.length)
+          def loop(remaining: List[Value]): Computation = remaining match
+            case Nil       => Pure(Value.ListV(buf.toList))
+            case h :: rest => FlatMap(interp.callValue1(f, h, env), { k =>
+              if seen.add(k) then buf += h
+              loop(rest)
+            })
+          loop(ls)
         case _       => dispatchFallback(recv, name, args, env, interp)
       case "collect"      => args match
         case List(f) =>

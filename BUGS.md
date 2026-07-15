@@ -10,8 +10,12 @@ the builtin-vs-extension precedence whitelist `hasBuiltinMemberBeforeExtension`)
 `String.capitalize` (`DispatchRuntime` string dispatch, uppercases only the first char per
 Scala); `math.max` / `math.min` (Int/Double overloads in `intrinsics/Core.scala`, wired into
 the `math` object in `BuiltinsRuntime`). `Vector(…)` is a `ListV` in the interp so these cover
-Vector too. Regression test `CollectionGapsTest`. NOTE (still open): `Vector.patch`,
-`String.padTo` (v2-native), and likely more seq methods remain — this closes the common ones.
+Vector too. Regression test `CollectionGapsTest`.
+**Second batch (2026-07-15):** `List.patch` / `zipAll` / `scanRight` / `distinctBy` / `sliding(size, step)`
+(the 2-arg form) added to `dispatchList` (+ whitelist); a `seqElems` helper lets `patch`/`zipAll` accept
+both `List(…)` and `Vector(…)` collection args (existing methods like `diff`/`intersect` only accept
+`ListV` — a broader pre-existing limitation left as-is). NOTE (still open): `String.padTo`, `permutations`,
+`combinations`, `Set.subsets`, and likely more — the common seq methods are now covered.
 
 ## js-control-packed-readme-broken-spec-link — npm README links outside payload
 
