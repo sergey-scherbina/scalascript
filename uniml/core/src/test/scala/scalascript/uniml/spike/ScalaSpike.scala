@@ -27,7 +27,7 @@ enum Node:
 // ── lexer ────────────────────────────────────────────────────────────────────
 object SpikeLex:
   private val keywords = Set("def", "val", "if", "then", "else", "match", "case", "class", "given", "enum", "extension")
-  private def isOpChar(c: Char): Boolean = "+-*/%<>=!&|^~:".indexOf(c.toInt) >= 0
+  private def isOpChar(c: Char): Boolean = "+-*/%<>=!&|^~:?".indexOf(c.toInt) >= 0 // `?` only forms `???`
   private def isHexDigit(c: Char): Boolean =
     (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
   private def hexVal(c: Char): Long =
@@ -1155,6 +1155,7 @@ object SpikeParse:
       case "spike.lbracket" => Some(parseListLiteral(c)) // `[e1, e2, …]` bracket sugar → List(e1, …) (K62.6f)
       case "spike.lbrace" => Some(parseBracedBlock(c)) // `{ val … ; expr }` braced block (non-match position)
       case "spike.kw" if c.peekLexeme == "if" => parseIf(c)
+      case "spike.op" if c.peekLexeme == "???" => c.advance().map(t => Node.Leaf(t, Some("notimpl"))) // Predef.??? → __notImplemented__
       case "spike.op" if c.peekLexeme == "-" || c.peekLexeme == "!" || c.peekLexeme == "~" => Some(parsePrefix(c))
       case "spike.id" if c.peekLexeme == "summon" => Some(parseSummon(c))
       // `throw e` → prim __throw__(e); `new C(args)` == `C(args)` (new is stripped). ssc1-front dispatches
@@ -1726,6 +1727,7 @@ object SpikeProject:
     // `true`/`false` are literal booleans, not variables (ssc1-front does the same)
     case UniNode.Token(t) if t.kind == "spike.id" && (t.lexeme == "true" || t.lexeme == "false") => s"""mkBool("${t.lexeme}")"""
     case UniNode.Token(t) if t.kind == "spike.id" && t.lexeme == "null" => """mkUVar("None")""" // K62.18: null → None
+    case UniNode.Token(t) if t.lexeme == "???"       => hole // Predef.??? → prim __notImplemented__
     case UniNode.Token(t) if t.kind == "spike.id"    => s"""mkVar("${esc(t.lexeme)}")"""
     case UniNode.Token(t) if t.kind == "spike.uid"   => s"""mkUVar("${esc(t.lexeme)}")"""
     case b: UniNode.Branch => b.kind match
