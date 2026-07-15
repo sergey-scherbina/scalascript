@@ -234,3 +234,86 @@ final class DirectPromptSemanticsTest extends AnyFunSuite:
 
     assert(Eff.runPure(handled) == 42)
   }
+
+  test("strict local values, givens, and pattern binds cross capture") {
+    val scoped = freshPrompt[Int]
+    val prompt = scoped.prompt
+
+    val result = direct.reset[scoped.Key, Nothing, Int](prompt) {
+      val base = 9
+      val (left, right) = (20, 1)
+      given bonus: Int = 3
+      val selected =
+        direct.shift[scoped.Key, Int, Nothing, Int](prompt)(
+          [Residual >: Nothing <: Effect] =>
+            (continuation: Continuation[Int, Residual, Int]) =>
+              continuation.resume(base + summon[Int])
+        )
+      base + left + right + selected
+    }
+
+    assert(Eff.runPure(result) == 42)
+  }
+
+  test("a reusable continuation shares a local mutable prefix cell") {
+    val scoped = freshPrompt[Vector[Int]]
+    val prompt = scoped.prompt
+
+    val result = direct.reset[scoped.Key, Nothing, Vector[Int]](prompt) {
+      var cell = 0
+      val selected =
+        direct.shift[scoped.Key, Int, Nothing, Vector[Int]](prompt)(
+          [Residual >: Nothing <: Effect] =>
+            (continuation: Continuation[Int, Residual, Vector[Int]]) =>
+              continuation.resume(0).flatMap[Residual, Vector[Int]] { first =>
+                continuation.resume(0).map(second => first ++ second)
+              }
+        )
+      cell += 1
+      Vector(cell + selected)
+    }
+
+    assert(Eff.runPure(result) == Vector(1, 2))
+  }
+
+  test("a value between sequential captures is rebound in the next shift body") {
+    val scoped = freshPrompt[Int]
+    val prompt = scoped.prompt
+
+    val result = direct.reset[scoped.Key, Nothing, Int](prompt) {
+      val first =
+        direct.shift[scoped.Key, Int, Nothing, Int](prompt)(
+          [Residual >: Nothing <: Effect] =>
+            (continuation: Continuation[Int, Residual, Int]) =>
+              continuation.resume(10)
+        )
+      val between = first + 1
+      val second =
+        direct.shift[scoped.Key, Int, Nothing, Int](prompt)(
+          [Residual >: Nothing <: Effect] =>
+            (continuation: Continuation[Int, Residual, Int]) =>
+              continuation.resume(between + 10)
+        )
+      between + second
+    }
+
+    assert(Eff.runPure(result) == 32)
+  }
+
+  test("a return local to a suffix method keeps its local owner") {
+    val scoped = freshPrompt[Int]
+    val prompt = scoped.prompt
+
+    val result = direct.reset[scoped.Key, Nothing, Int](prompt) {
+      val selected =
+        direct.shift[scoped.Key, Int, Nothing, Int](prompt)(
+          [Residual >: Nothing <: Effect] =>
+            (continuation: Continuation[Int, Residual, Int]) =>
+              continuation.resume(1)
+        )
+      def local(): Int = return 41
+      selected + local()
+    }
+
+    assert(Eff.runPure(result) == 42)
+  }

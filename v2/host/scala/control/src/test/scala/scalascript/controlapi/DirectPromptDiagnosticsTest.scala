@@ -273,3 +273,167 @@ final class DirectPromptDiagnosticsTest extends AnyFunSuite:
       10
     )
   }
+
+  test("a marker in a lazy binding remains behind the lazy capture barrier") {
+    val errors = typeCheckErrors("""
+      import scalascript.control.*
+
+      val scoped = freshPrompt[Int]
+      val prompt = scoped.prompt
+      val computation = direct.reset[scoped.Key, Nothing, Int](prompt) {
+        lazy val selected =
+          direct.shift[scoped.Key, Int, Nothing, Int](prompt)(
+            [Residual >: Nothing <: Effect] =>
+              (continuation: Continuation[Int, Residual, Int]) =>
+                continuation.resume(41)
+          )
+        42
+      }
+    """)
+
+    assertDiagnostic(
+      errors,
+      "error [CAPTURE_BARRIER]: direct.shift crosses a lazy-initializer boundary at line 7, column 8",
+      "          direct.shift[scoped.Key, Int, Nothing, Int](prompt)(",
+      10
+    )
+  }
+
+  test("a lazy local cannot cross a later capture") {
+    val errors = typeCheckErrors("""
+      import scalascript.control.*
+
+      val scoped = freshPrompt[Int]
+      val prompt = scoped.prompt
+      val computation = direct.reset[scoped.Key, Nothing, Int](prompt) {
+        lazy val base = 40
+        val selected =
+          direct.shift[scoped.Key, Int, Nothing, Int](prompt)(
+            [Residual >: Nothing <: Effect] =>
+              (continuation: Continuation[Int, Residual, Int]) =>
+                continuation.resume(2)
+          )
+        base + selected
+      }
+    """)
+
+    assertDiagnostic(
+      errors,
+      "error [DIRECT_STYLE_UNSUPPORTED]: direct.shift cannot carry a lazy local across capture; move it outside direct.reset or make it strict",
+      "        lazy val base = 40",
+      17
+    )
+  }
+
+  test("a local method cannot cross capture") {
+    val errors = typeCheckErrors("""
+      import scalascript.control.*
+
+      val scoped = freshPrompt[Int]
+      val prompt = scoped.prompt
+      val computation = direct.reset[scoped.Key, Nothing, Int](prompt) {
+        def base(): Int = 40
+        val selected =
+          direct.shift[scoped.Key, Int, Nothing, Int](prompt)(
+            [Residual >: Nothing <: Effect] =>
+              (continuation: Continuation[Int, Residual, Int]) =>
+                continuation.resume(2)
+          )
+        base() + selected
+      }
+    """)
+
+    assertDiagnostic(
+      errors,
+      "error [DIRECT_STYLE_UNSUPPORTED]: direct.shift cannot carry a local method across capture; move it outside direct.reset",
+      "        def base(): Int = 40",
+      12
+    )
+  }
+
+  test("a local class cannot cross capture") {
+    val errors = typeCheckErrors("""
+      import scalascript.control.*
+
+      val scoped = freshPrompt[Int]
+      val prompt = scoped.prompt
+      val computation = direct.reset[scoped.Key, Nothing, Int](prompt) {
+        class Box(val value: Int)
+        val box = new Box(40)
+        val selected =
+          direct.shift[scoped.Key, Int, Nothing, Int](prompt)(
+            [Residual >: Nothing <: Effect] =>
+              (continuation: Continuation[Int, Residual, Int]) =>
+                continuation.resume(2)
+          )
+        box.value + selected
+      }
+    """)
+
+    assertDiagnostic(
+      errors,
+      "error [DIRECT_STYLE_UNSUPPORTED]: direct.shift cannot carry a local class across capture; move it outside direct.reset",
+      "        class Box(val value: Int)",
+      14
+    )
+  }
+
+  test("a local type cannot cross capture") {
+    val errors = typeCheckErrors("""
+      import scalascript.control.*
+
+      val scoped = freshPrompt[Int]
+      val prompt = scoped.prompt
+      val computation = direct.reset[scoped.Key, Nothing, Int](prompt) {
+        type Number = Int
+        val base: Number = 40
+        val selected =
+          direct.shift[scoped.Key, Int, Nothing, Int](prompt)(
+            [Residual >: Nothing <: Effect] =>
+              (continuation: Continuation[Int, Residual, Int]) =>
+                continuation.resume(2)
+          )
+        base + selected
+      }
+    """)
+
+    assertDiagnostic(
+      errors,
+      "error [DIRECT_STYLE_UNSUPPORTED]: direct.shift cannot carry a local type across capture; move it outside direct.reset",
+      "        type Number = Int",
+      13
+    )
+  }
+
+  test("an inline wrapper around a marker fails closed before prompt evaluation") {
+    val errors = typeCheckErrors("""
+      import scalascript.control.*
+
+      inline def wrapped[P, A, Fx <: Effect, R](prompt: Prompt[P, R])(
+          body: ShiftBody[P, A, Fx, R]
+      )(using direct.Scope[P, Fx, R]): A =
+        direct.shift[P, A, Fx, R](prompt)(body)
+
+      val scoped = freshPrompt[Int]
+      val prompt = scoped.prompt
+      var promptReads = 0
+      def readPrompt(): Prompt[scoped.Key, Int] =
+        promptReads += 1
+        prompt
+      val computation = direct.reset[scoped.Key, Nothing, Int](prompt) {
+        val selected = wrapped[scoped.Key, Int, Nothing, Int](readPrompt())(
+          [Residual >: Nothing <: Effect] =>
+            (continuation: Continuation[Int, Residual, Int]) =>
+              continuation.resume(41)
+        )
+        selected + 1
+      }
+    """)
+
+    assertDiagnostic(
+      errors,
+      "error [DIRECT_STYLE_UNSUPPORTED]: an unexpanded inline application is outside direct.reset M1; write direct.shift directly at block level or move the inline call outside direct.reset",
+      "        val selected = wrapped[scoped.Key, Int, Nothing, Int](readPrompt())(",
+      23
+    )
+  }

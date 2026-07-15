@@ -54,6 +54,11 @@ private object DirectMacros:
         case Typed(value, _)      => strip(value)
         case value                => value
 
+    def stripMarker(term: Term): Term =
+      term match
+        case Typed(value, _) => stripMarker(value)
+        case value           => value
+
     val (scopeSymbol, sourceOwner, rawBody) =
       strip(body.asTerm) match
         case Lambda(List(scopeParameter), value) =>
@@ -94,7 +99,7 @@ private object DirectMacros:
       traverser.traverseTree(tree)(sourceOwner)
 
     def marker(term: Term): Option[Marker] =
-      strip(term) match
+      stripMarker(term) match
         case whole @ Apply(
               Apply(
                 Apply(
@@ -143,8 +148,16 @@ private object DirectMacros:
     def rejectNestedMarker(tree: Tree): Unit =
       final case class Barrier(kind: String, position: Position)
 
+      def calledSymbol(term: Term): Symbol =
+        term match
+          case Apply(function, _)     => calledSymbol(function)
+          case TypeApply(function, _) => calledSymbol(function)
+          case Typed(function, _)     => calledSymbol(function)
+          case value                  => value.symbol
+
       val traverser = new TreeTraverser:
         private var barriers = List.empty[Barrier]
+        private var unsafeInlineDepth = 0
 
         private def within(
             kind: String,
@@ -155,7 +168,12 @@ private object DirectMacros:
           finally barriers = barriers.tail
 
         private def reject(found: Term): Unit =
-          barriers.headOption match
+          if unsafeInlineDepth > 0 then
+            report.errorAndAbort(
+              "error [DIRECT_STYLE_UNSUPPORTED]: direct.shift through an inline wrapper is outside M1; write direct.shift directly at block level",
+              found.pos
+            )
+          else barriers.headOption match
             case Some(Barrier(kind, position)) =>
               report.errorAndAbort(
                 s"error [CAPTURE_BARRIER]: direct.shift crosses $kind at line ${position.startLine + 1}, column ${position.startColumn}",
@@ -174,6 +192,10 @@ private object DirectMacros:
                 case Some(found) => reject(found.whole)
                 case None =>
                   term match
+                    case inlined: Inlined =>
+                      unsafeInlineDepth += 1
+                      try traverseTreeChildren(inlined)(owner)
+                      finally unsafeInlineDepth -= 1
                     case block: Block =>
                       Lambda.unapply(block) match
                         case Some((_, value)) =>
@@ -182,22 +204,28 @@ private object DirectMacros:
                           }
                         case None => traverseTreeChildren(term)(owner)
                     case application @ Apply(function, arguments) =>
-                      traverseTree(function)(owner)
-                      val parameterTypes =
-                        function.tpe.widenTermRefByName match
-                          case method: MethodType => method.paramTypes
-                          case _                  => Nil
-                      arguments.zipWithIndex.foreach { (argument, index) =>
-                        parameterTypes.lift(index) match
-                          case Some(_: ByNameType) =>
-                            within(
-                              "a by-name argument boundary",
-                              application.pos
-                            ) {
-                              traverseTree(argument)(owner)
-                            }
-                          case _ => traverseTree(argument)(owner)
-                      }
+                      if calledSymbol(function).flags.is(Flags.Inline) then
+                        report.errorAndAbort(
+                          "error [DIRECT_STYLE_UNSUPPORTED]: an unexpanded inline application is outside direct.reset M1; write direct.shift directly at block level or move the inline call outside direct.reset",
+                          application.pos
+                        )
+                      else
+                        traverseTree(function)(owner)
+                        val parameterTypes =
+                          function.tpe.widenTermRefByName match
+                            case method: MethodType => method.paramTypes
+                            case _                  => Nil
+                        arguments.zipWithIndex.foreach { (argument, index) =>
+                          parameterTypes.lift(index) match
+                            case Some(_: ByNameType) =>
+                              within(
+                                "a by-name argument boundary",
+                                application.pos
+                              ) {
+                                traverseTree(argument)(owner)
+                              }
+                            case _ => traverseTree(argument)(owner)
+                        }
                     case _: Try =>
                       within("a try/finally boundary", term.pos) {
                         traverseTreeChildren(term)(owner)
@@ -264,27 +292,68 @@ private object DirectMacros:
       val movedValue = move(value, owner, replacements).asExprOf[R]
       '{ Eff.pure[R]($movedValue) }.asTerm.changeOwner(owner)
 
-    def prefix(
+    def preparePrefix(
         statements: List[Statement],
-        result: Term,
         owner: Symbol,
         replacements: Map[Symbol, Term]
-    ): Term =
-      if statements.isEmpty then result
-      else
-        val moved =
-          move(
-            Block(statements, Literal(UnitConstant())),
-            owner,
-            replacements
-          )
-        moved match
-          case Block(movedStatements, _) => Block(movedStatements, result)
-          case _ =>
+    ): (List[Statement], Map[Symbol, Term]) =
+      var current = replacements
+      val moved = statements.map {
+        case definition: ValDef =>
+          if definition.symbol.flags.is(Flags.Lazy) &&
+            !definition.symbol.flags.is(Flags.Given)
+          then
             report.errorAndAbort(
-              "error [DIRECT_STYLE_UNSUPPORTED]: direct.reset prefix could not be normalized",
-              statements.head.pos
+              "error [DIRECT_STYLE_UNSUPPORTED]: direct.shift cannot carry a lazy local across capture; move it outside direct.reset or make it strict",
+              definition.pos
             )
+
+          val rightHandSide = definition.rhs.getOrElse {
+            report.errorAndAbort(
+              "error [DIRECT_STYLE_UNSUPPORTED]: direct.shift cannot carry an uninitialized local value across capture",
+              definition.pos
+            )
+          }
+          val fresh = Symbol.newVal(
+            owner,
+            definition.name,
+            definition.tpt.tpe,
+            definition.symbol.flags,
+            definition.symbol.privateWithin
+              .map(_.typeSymbol)
+              .getOrElse(Symbol.noSymbol)
+          )
+          val cloned = ValDef(fresh, Some(move(rightHandSide, owner, current)))
+          current = current.updated(definition.symbol, Ref(fresh))
+          cloned
+
+        case definition: DefDef =>
+          report.errorAndAbort(
+            "error [DIRECT_STYLE_UNSUPPORTED]: direct.shift cannot carry a local method across capture; move it outside direct.reset",
+            definition.pos
+          )
+
+        case definition: ClassDef =>
+          report.errorAndAbort(
+            "error [DIRECT_STYLE_UNSUPPORTED]: direct.shift cannot carry a local class across capture; move it outside direct.reset",
+            definition.pos
+          )
+
+        case definition: TypeDef =>
+          report.errorAndAbort(
+            "error [DIRECT_STYLE_UNSUPPORTED]: direct.shift cannot carry a local type across capture; move it outside direct.reset",
+            definition.pos
+          )
+
+        case term: Term => move(term, owner, current)
+
+        case statement =>
+          report.errorAndAbort(
+            "error [DIRECT_STYLE_UNSUPPORTED]: direct.reset prefix contains an unsupported statement across capture",
+            statement.pos
+          )
+      }
+      (moved, current)
 
     def lowerBlock(
         statements: List[Statement],
@@ -295,6 +364,7 @@ private object DirectMacros:
       val markerIndex = statements.indexWhere {
         case definition: ValDef =>
           !definition.symbol.flags.is(Flags.Mutable) &&
+          !definition.symbol.flags.is(Flags.Lazy) &&
           definition.rhs.exists(value => marker(value).nonEmpty)
         case _ => false
       }
@@ -302,6 +372,8 @@ private object DirectMacros:
       if markerIndex >= 0 then
         val before = statements.take(markerIndex)
         rejectNestedMarker(Block(before, Literal(UnitConstant())))
+        val (movedBefore, prefixReplacements) =
+          preparePrefix(before, owner, replacements)
 
         val definition = statements(markerIndex).asInstanceOf[ValDef]
         val found = marker(definition.rhs.get).get
@@ -323,7 +395,7 @@ private object DirectMacros:
                     after,
                     tail,
                     continuationOwner,
-                    replacements.updated(definition.symbol, value)
+                    prefixReplacements.updated(definition.symbol, value)
                   )
                 case _ =>
                   report.errorAndAbort(
@@ -332,7 +404,7 @@ private object DirectMacros:
                   )
           )
 
-        val shifted = explicitShift(found, owner, replacements)
+        val shifted = explicitShift(found, owner, prefixReplacements)
         val bound = capturedType.asType match
           case '[captured] =>
             val shiftedExpression =
@@ -347,7 +419,7 @@ private object DirectMacros:
               )
             }.asTerm.changeOwner(owner)
 
-        prefix(before, bound, owner, replacements)
+        if movedBefore.isEmpty then bound else Block(movedBefore, bound)
       else
         marker(tail) match
           case Some(found) =>
@@ -358,12 +430,11 @@ private object DirectMacros:
                 found.whole.pos
               )
             rejectNestedMarker(Block(statements, Literal(UnitConstant())))
-            prefix(
-              statements,
-              explicitShift(found, owner, replacements),
-              owner,
-              replacements
-            )
+            val (movedStatements, prefixReplacements) =
+              preparePrefix(statements, owner, replacements)
+            val shifted = explicitShift(found, owner, prefixReplacements)
+            if movedStatements.isEmpty then shifted
+            else Block(movedStatements, shifted)
           case None =>
             val source = Block(statements, tail)
             rejectNestedMarker(source)
