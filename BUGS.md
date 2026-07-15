@@ -2,9 +2,9 @@
 
 ## js-control-runtime-opacity-forgeable — public values leak and clone private authority
 
-**Status:** open, P1 (2026-07-15, independent pre-integration review of
-`javascript-typescript-control-host-runner`; affects pre-land runtime commit
-`d9222a55e`).
+**Status:** fixed in `a58610cf1`; awaiting independent reviewer confirmation.
+Reported as P1 on 2026-07-15 by independent pre-integration review; affected
+pre-land runtime commit `d9222a55e`.
 
 **Symptom/reproduce:** returned request/prompt objects expose enumerable internal
 state such as `resumption`, `key`, and `shiftOperation`; a caller can pre-claim a
@@ -14,57 +14,79 @@ so expressions such as `new key.constructor(...)`, `new computation.constructor(
 operation cloning, and `new prompt.constructor()` can mint objects that pass the
 module's WeakSet membership checks.
 
-**Plan/done-when:** move all request/prompt/internal node state behind WeakMaps or
-private fields and require one unexported module authority token in every reachable
-internal constructor. Add plain-JavaScript regressions proving returned values have
-no authority-bearing own keys/properties, one-shot continuations cannot be
-pre-claimed, prompt operations cannot be intercepted/forged, and constructor-based
-keys/computations/operations/prompts are rejected by public APIs.
+**Root cause:** class constructors registered instances in public-valid WeakSets
+without requiring private authority, while their state lived in ordinary own
+properties. Hiding class exports therefore did not hide either state or the
+constructor reached through the standard prototype chain.
+
+**Fix/verification:** every class-backed capability now stores state in a private
+WeakMap and every reachable internal constructor checks one unexported authority
+token before registration. Plain-JavaScript tests prove empty authority-bearing own
+keys/symbols, absent request/prompt properties, successful one-shot resume after
+inspection, and rejection of constructor calls, prototype grafts, operation clones,
+and forged prompts. The complete package suite passes 30/30.
 
 ## js-control-npm-license-omitted — package tarball lacks Apache license
 
-**Status:** open, P2 packaging defect (2026-07-15, independent pre-integration
-review of `javascript-typescript-control-host-runner`; affects pre-land package
-commit `d9222a55e` and verification `4f71b2770`).
+**Status:** fixed in `a58610cf1`; awaiting independent reviewer confirmation.
+Reported as a P2 packaging defect on 2026-07-15 by independent pre-integration
+review; affected pre-land package commit `d9222a55e` and verification
+`4f71b2770`.
 
 **Symptom/reproduce:** run `npm pack --dry-run --json` in
 `v2/host/js/control`. The package contains only `README.md`, `index.d.ts`,
 `index.js`, and `package.json`; consumers do not receive the repository's Apache
 2.0 license text.
 
-**Plan/done-when:** include the Apache license in the published package, keep the
-explicit `files` allow-list exact, and update the normative manifest, package
-test, README/spec evidence, and dry-run pack oracle.
+**Root cause:** the package's explicit `files` allow-list omitted a package-local
+copy of the repository license, and the original four-file pack oracle encoded the
+omission as success.
+
+**Fix/verification:** the repository Apache 2.0 text is copied byte-for-byte into
+the package and included in the exact allow-list. The package test compares both
+files; `npm pack --dry-run --json` reports exactly five entries, including the
+10,837-byte `LICENSE`, with no bundled dependency.
 
 ## js-control-prompt-key-extraction-never — invariant answer type breaks PromptKeyOf
 
-**Status:** open, P1 (2026-07-15, independent pre-integration review of
-`javascript-typescript-control-host-runner`; affects pre-land declaration commit
-`d9222a55e`).
+**Status:** fixed in `a58610cf1`; awaiting independent reviewer confirmation.
+Reported as P1 on 2026-07-15 by independent pre-integration review; affected
+pre-land declaration commit `d9222a55e`.
 
 **Symptom/reproduce:** `PromptKeyOf<Prompt<P, ConcreteAnswer>>` evaluates to
 `never` because the conditional matches `Prompt<infer P, unknown>` while the
 private prompt brand intentionally makes the answer type invariant.
 
-**Plan/done-when:** extract the prompt key without weakening answer-type
-invariance, add a concrete-answer positive compile assertion, and retain the
-existing nested-prompt and forged-prompt negative gates.
+**Root cause:** the conditional fixed the answer parameter to `unknown`; invariant
+branding makes `Prompt<P, ConcreteAnswer>` intentionally non-assignable to that
+shape, so inference never reached `P`.
+
+**Fix/verification:** `PromptKeyOf` now infers both `P` and the concrete answer
+parameter, then returns `P`. A concrete-answer positive compile assertion passes,
+while nested-prompt incompatibility, answer invariance, and forged-prompt negative
+gates remain green.
 
 ## js-control-effect-owner-type-collision — descriptor ID is mistaken for owner identity
 
-**Status:** open, P1 (2026-07-15, independent pre-integration review of
-`javascript-typescript-control-host-runner`; affects pre-land declaration commit
-`d9222a55e`).
+**Status:** fixed in `a58610cf1`; awaiting independent reviewer confirmation.
+Reported as P1 on 2026-07-15 by independent pre-integration review; affected
+pre-land declaration commit `d9222a55e`.
 
 **Symptom/reproduce:** two `defineEffect("same.id")` calls create distinct runtime
 owners, but both declarations currently produce `Effect<"same.id">`. TypeScript
 therefore accepts handling an operation from the first key with the second key as
 `Eff<never, A>`; runtime correctly forwards the request as unhandled.
 
-**Plan/done-when:** give each effect key explicit generative owner identity in the
-public declarations, preserve practical declaration/handler inference, add a
-negative TypeScript cross-owner case and a runtime same-descriptor/different-owner
-regression, and keep stable descriptor IDs separate from runtime authority.
+**Root cause:** `Effect` carried only its stable descriptor literal. TypeScript
+cannot generate a fresh phantom type for each ordinary function call, so distinct
+runtime keys collapsed to the same declaration type.
+
+**Fix/verification:** `Effect<Id, Owner>` now carries a named `unique symbol`
+owner supplied to `defineEffect(id, owner)`; inline and widened symbols are
+rejected. Runtime registration is idempotent for one owner+descriptor and rejects
+descriptor conflicts, aligning the phantom with authority. Positive handler
+inference, cross-owner negative/residual typing, and same-ID runtime forwarding all
+pass.
 
 ## jvm-bytegen-letrec-env-clobber — FIXED / awaiting confirmation (2026-07-15, Codex)
 

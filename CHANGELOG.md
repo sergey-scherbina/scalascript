@@ -13,12 +13,19 @@ stackless explicit state machines (`d9222a55e`, verification `4f71b2770`). The
 private runtime ABI is paired with branded `.d.ts` declarations and has no
 production dependency or lifecycle script.
 
+Independent pre-integration review then drove authority hardening (`a58610cf1`,
+verification `4cd07fbc8`): named `unique symbol` owners now separate stable effect
+descriptors from runtime identity, concrete-answer prompt-key extraction remains
+invariant, class-backed capabilities keep state in private WeakMaps, and every
+reachable internal constructor requires an unexported authority token. The exact
+five-file npm payload includes the repository Apache 2.0 license.
+
 All 17 applicable shared semantic vectors pass without changing the catalog or
-lane registry; the complete package suite is 27/27, TypeScript positive/negative
+lane registry; the complete package suite is 30/30, TypeScript positive/negative
 fixtures pass, 1,000,000-bind and 1,000,000-state stress plus 100,000 handled
-operations complete, the dry-run tarball contains exactly four files, and affected
-project conformance is 5/5. Generated bridges, managed transforms, mixed SCCs,
-exact/portable runners, and lane wiring remain open under the parent JS/TS profile.
+operations complete, and fresh affected project conformance is 5/5. Generated
+bridges, managed transforms, mixed SCCs, exact/portable runners, and lane wiring
+remain open under the parent JS/TS profile.
 
 ## 2026-07-15 — Target-neutral plugin capability profiles
 
