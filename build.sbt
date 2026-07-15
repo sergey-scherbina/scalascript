@@ -139,6 +139,21 @@ lazy val v2Core = project
     scalacOptions ++= Seq("-deprecation", "-feature"),
   )
 
+// Target-neutral, language-reproducible public ABI/control/artifact descriptors.
+// This is intentionally a leaf: no v1 compiler/runtime, CoreIR, backend, UniML,
+// or Scala-host control dependency may enter the canonical wire contract.
+lazy val v2InteropDescriptor = project
+  .in(file("v2/interop/descriptor"))
+  .settings(
+    name := "scalascript-interop-descriptor",
+    libraryDependencies ++= Seq(
+      "com.lihaoyi" %% "upickle" % upickleV,
+      scalatestTest,
+    ),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 // ── v2 plugin bridge — loads v1 Backend plugins into the v2 VM ────────────────
 // Bridges v1 Backend.intrinsics (NativeImpl) into v2's V2PluginRegistry so the
 // v2 VM can dispatch unknown Prim ops to v1 plugins.  Depends on both v2Core
@@ -4676,7 +4691,7 @@ lazy val bureauScheduler = project
 lazy val root = project
   .in(file("."))
   .aggregate(
-    v2Core, v2NativePluginSpi, v2NativeHostPlugin, v2NativeCryptoPlugin,
+    v2Core, v2InteropDescriptor, v2NativePluginSpi, v2NativeHostPlugin, v2NativeCryptoPlugin,
     v2NativeOsPlugin, v2NativeFsPlugin, v2NativeJsonPlugin, v2NativeHttpFastPlugin,
     v2NativeSqlPlugin, v2NativeUiPlugin, v2NativeStateEffectPlugin, v2NativeEffectRunnersPlugin,
     v2NativeStorageEffectPlugin, v2NativeReactivePlugin, v2NativeYamlPlugin,

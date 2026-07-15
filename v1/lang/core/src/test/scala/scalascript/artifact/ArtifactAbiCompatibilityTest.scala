@@ -1,7 +1,10 @@
 package scalascript.artifact
 
+import java.security.MessageDigest
+import java.util.Base64
 import org.scalatest.funsuite.AnyFunSuite
 import scalascript.ir.*
+import upickle.default.{ReadWriter, read, readBinary, writeBinary}
 
 /** v2.0 — forensic ABI / wire-format compatibility tests for all seven
  *  artifact formats:
@@ -29,6 +32,40 @@ import scalascript.ir.*
  *  Pair-reads with `docs/v2.0-artifact-format.md` (the prose wire-spec).
  */
 class ArtifactAbiCompatibilityTest extends AnyFunSuite:
+
+  private val canonicalApiDescriptorV3 =
+    "{\"apiHash\":{\"value\":\"b4786dafad1b156b0d9e86c430b71fe68c1e41883426f1847e3de779bbe3b1b2\"}," +
+      "\"controlAbiVersion\":\"ssc-control-v1\",\"moduleId\":\"legacy\"," +
+      "\"schemaVersion\":\"3.0\",\"symbols\":[]}"
+
+  /** Literal fixture emitted by the last schema before `apiDescriptorV3`.
+   *  It is intentionally not produced by the current test process. */
+  private val preV3JsonFixture =
+    """{"magic":"SSCART","abiVersion":"2.0","pkg":["legacy"],"moduleName":"pre-v3","moduleVersion":null,"sourceHash":"1111111111111111111111111111111111111111111111111111111111111111","exports":[]}"""
+
+  /** MessagePack for the same pre-v3 value, captured before adding the field.
+   *  SHA-256: a9436cdc278bda4c4da919e55da89a8986d477645fe31d35d0c8f99389c40c32. */
+  private val preV3MessagePackBase64 =
+    "h6VtYWdpY6ZTU0NBUlSqYWJpVmVyc2lvbqMyLjCjcGtnkaZsZWdhY3mqbW9kdWxlTmFtZaZwcmUtdjOtbW9kdWxlVmVyc2lvbsCqc291cmNlSGFzaNlAMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMadleHBvcnRzkA=="
+
+  /** Reader shape compiled against the schema immediately before v3. */
+  private case class LegacyModuleInterface(
+      magic: String,
+      abiVersion: String,
+      pkg: List[String],
+      moduleName: Option[String],
+      moduleVersion: Option[String],
+      sourceHash: String,
+      exports: List[ExportedSymbol],
+      instances: List[InstanceDecl] = Nil,
+      capabilities: List[CapabilityDecl] = Nil,
+      externDefs: List[ExportedSymbol] = Nil,
+      dependencies: Map[String, String] = Map.empty,
+      sectionHashes: Map[String, String] = Map.empty,
+      sectionOwnHashes: Map[String, String] = Map.empty,
+      sectionInterfaceHashes: Map[String, String] = Map.empty,
+      scalaFacade: Map[String, String] = Map.empty
+  ) derives ReadWriter
 
   // ── Canonical fixtures ────────────────────────────────────────────────
 
@@ -67,7 +104,8 @@ class ArtifactAbiCompatibilityTest extends AnyFunSuite:
         "org.example.ui.Button"       -> "org.example.ui.Button",
         "org.example.ui.Button.apply" -> "org.example.ui.Button.apply",
         "org.example.ui.render"       -> "org.example.ui.render"
-      )
+      ),
+      apiDescriptorV3 = Some(canonicalApiDescriptorV3)
     )
 
   private def sampleIr: NormalizedModule =
@@ -149,6 +187,58 @@ class ArtifactAbiCompatibilityTest extends AnyFunSuite:
       s"  if this fails, the canonical serialisation drifted; document the\n" +
       s"  diff or fix the writer.")
 
+  private def preV3Expected: ModuleInterface =
+    ModuleInterface(
+      magic = "SSCART",
+      abiVersion = "2.0",
+      pkg = List("legacy"),
+      moduleName = Some("pre-v3"),
+      moduleVersion = None,
+      sourceHash = "1" * 64,
+      exports = Nil
+    )
+
+  private def assertLegacyFields(actual: ModuleInterface, expected: ModuleInterface): Unit =
+    assert(actual.magic == expected.magic)
+    assert(actual.abiVersion == expected.abiVersion)
+    assert(actual.pkg == expected.pkg)
+    assert(actual.moduleName == expected.moduleName)
+    assert(actual.moduleVersion == expected.moduleVersion)
+    assert(actual.sourceHash == expected.sourceHash)
+    assert(actual.exports == expected.exports)
+    assert(actual.instances == expected.instances)
+    assert(actual.capabilities == expected.capabilities)
+    assert(actual.externDefs == expected.externDefs)
+    assert(actual.dependencies == expected.dependencies)
+    assert(actual.sectionHashes == expected.sectionHashes)
+    assert(actual.sectionOwnHashes == expected.sectionOwnHashes)
+    assert(actual.sectionInterfaceHashes == expected.sectionInterfaceHashes)
+    assert(actual.scalaFacade == expected.scalaFacade)
+
+  private def assertLegacyReaderFields(
+      actual: LegacyModuleInterface,
+      expected: ModuleInterface
+  ): Unit =
+    assert(actual.magic == expected.magic)
+    assert(actual.abiVersion == expected.abiVersion)
+    assert(actual.pkg == expected.pkg)
+    assert(actual.moduleName == expected.moduleName)
+    assert(actual.moduleVersion == expected.moduleVersion)
+    assert(actual.sourceHash == expected.sourceHash)
+    assert(actual.exports == expected.exports)
+    assert(actual.instances == expected.instances)
+    assert(actual.capabilities == expected.capabilities)
+    assert(actual.externDefs == expected.externDefs)
+    assert(actual.dependencies == expected.dependencies)
+    assert(actual.sectionHashes == expected.sectionHashes)
+    assert(actual.sectionOwnHashes == expected.sectionOwnHashes)
+    assert(actual.sectionInterfaceHashes == expected.sectionInterfaceHashes)
+    assert(actual.scalaFacade == expected.scalaFacade)
+
+  private def sha256Hex(bytes: Array[Byte]): String =
+    MessageDigest.getInstance("SHA-256").digest(bytes)
+      .iterator.map(byte => f"${byte & 0xff}%02x").mkString
+
   // =====================================================================
   //  1.  Round-trip is byte-stable.
   // =====================================================================
@@ -159,6 +249,51 @@ class ArtifactAbiCompatibilityTest extends AnyFunSuite:
     val read  = ArtifactIO.readInterface(json1).toOption.get
     val json2 = ArtifactIO.writeInterface(read)
     assertByteStableRoundtrip(".scim", json1, json2)
+
+  test(".scim literal pre-v3 JSON and MessagePack fixtures default apiDescriptorV3 to None"):
+    val expected = preV3Expected
+    val fromJson = ArtifactIO.readInterface(preV3JsonFixture)
+      .fold(error => fail(error), identity)
+    assertLegacyFields(fromJson, expected)
+    assert(fromJson.apiDescriptorV3.isEmpty)
+
+    val messagePack = Base64.getDecoder.decode(preV3MessagePackBase64)
+    assert(sha256Hex(messagePack) ==
+      "a9436cdc278bda4c4da919e55da89a8986d477645fe31d35d0c8f99389c40c32")
+    val fromMessagePack = ArtifactIO.readInterface(messagePack)
+      .fold(error => fail(error), identity)
+    assertLegacyFields(fromMessagePack, expected)
+    assert(fromMessagePack.apiDescriptorV3.isEmpty)
+
+  test(".scim apiDescriptorV3 canonical text round-trips through JSON and MessagePack"):
+    val expected = sampleInterface
+    val json = ArtifactIO.writeInterface(expected)
+    assert(json.contains("\"apiDescriptorV3\""))
+    val fromJson = ArtifactIO.readInterface(json).fold(error => fail(error), identity)
+    assertLegacyFields(fromJson, expected)
+    assert(fromJson.apiDescriptorV3.contains(canonicalApiDescriptorV3))
+
+    val messagePack = writeBinary(expected)
+    val fromMessagePack = ArtifactIO.readInterface(messagePack).fold(error => fail(error), identity)
+    assertLegacyFields(fromMessagePack, expected)
+    assert(fromMessagePack.apiDescriptorV3.contains(canonicalApiDescriptorV3))
+
+  test(".scim stripping apiDescriptorV3 restores None without changing legacy fields"):
+    val json = ArtifactIO.writeInterface(sampleInterface)
+    val stripped = stripFieldFromJson(json, "apiDescriptorV3")
+    assert(stripped != json)
+    val parsed = ArtifactIO.readInterface(stripped).fold(error => fail(error), identity)
+    assertLegacyFields(parsed, sampleInterface)
+    assert(parsed.apiDescriptorV3.isEmpty)
+
+  test("pre-v3 reader DTO ignores apiDescriptorV3 in new JSON and MessagePack"):
+    val json = ArtifactIO.writeInterface(sampleInterface)
+    val legacyJson = read[LegacyModuleInterface](json)
+    assertLegacyReaderFields(legacyJson, sampleInterface)
+
+    val messagePack = writeBinary(sampleInterface)
+    val legacyMessagePack = readBinary[LegacyModuleInterface](messagePack)
+    assertLegacyReaderFields(legacyMessagePack, sampleInterface)
 
   test(".scir byte-stable round-trip: write -> read -> write yields the same JSON"):
     val nm   = sampleIr
@@ -521,7 +656,13 @@ class ArtifactAbiCompatibilityTest extends AnyFunSuite:
    *  Keep in lockstep with `ir/.../Ir.scala` and
    *  `docs/v2.0-artifact-format.md` § "Optional fields". */
   private val optionalFields: Map[String, List[String]] = Map(
-    ".scim"          -> List("instances", "capabilities", "externDefs", "dependencies"),
+    ".scim"          -> List(
+      "instances",
+      "capabilities",
+      "externDefs",
+      "dependencies",
+      "apiDescriptorV3"
+    ),
     ".scir"          -> Nil,
     ".scjvm"         -> List("classBundle", "capabilities"),
     ".scjs"          -> List("capabilities"),

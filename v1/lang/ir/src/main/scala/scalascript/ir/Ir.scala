@@ -700,7 +700,14 @@ case class ModuleInterface(
    *  Tier 1 of the Scala ↔ ScalaScript interop spec
    *  (`specs/scala-interop.md`).  v2.0 — additive optional field, no
    *  ABI version bump. */
-  scalaFacade: Map[String, String] = Map.empty
+  scalaFacade: Map[String, String] = Map.empty,
+  /** Canonical UTF-8 JSON text for the target-neutral v3 API descriptor.
+   *
+   *  This legacy artifact layer is an opaque additive carrier only: it does
+   *  not parse, derive, validate, or reinterpret descriptor semantics.  A
+   *  structured pre-body producer may populate the field; legacy artifacts
+   *  and readers that omit it observe `None` without an ABI-version bump. */
+  apiDescriptorV3: Option[String] = None
 ) derives ReadWriter
 
 /** Module IR artifact envelope — wraps a `NormalizedModule` as `.scir` JSON.
