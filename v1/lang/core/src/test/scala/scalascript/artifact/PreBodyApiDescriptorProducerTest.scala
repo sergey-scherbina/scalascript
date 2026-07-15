@@ -468,6 +468,32 @@ class PreBodyApiDescriptorProducerTest extends AnyFunSuite:
     assert(error.code == "UNSUPPORTED_PUBLIC_DECLARATION")
     assert(error.path.startsWith("$.sections["))
 
+  test("a manifest package wrapper must have the exact plain synthetic header"):
+    val input = source(
+      "def stable(value: Int): Long = value.toLong",
+      List("stable")
+    )
+    val parsed = parse(input)
+    val changedSections = parsed.sections.map { section =>
+      section.copy(content = section.content.map {
+        case block: scalascript.ast.Content.CodeBlock if block.tree.nonEmpty =>
+          val forgedSource = block.source.replace(
+            "object demo:",
+            "object demo extends Serializable:"
+          )
+          val forgedTree = Parser.parseScalaSource(forgedSource)
+            .getOrElse(fail("expected forged package wrapper to parse"))
+          block.copy(tree = Some(forgedTree))
+        case other => other
+      })
+    }
+    val error = failure(PreBodyApiDescriptorProducer.descriptor(
+      parsed.copy(sections = changedSections)
+    ))
+
+    assert(error.code == "UNSUPPORTED_PUBLIC_DECLARATION")
+    assert(error.path.startsWith("$.sections["))
+
   test("effect header evidence is scoped to executable blocks and missing erased evidence fails closed"):
     val input =
       """---
@@ -706,6 +732,52 @@ class PreBodyApiDescriptorProducerTest extends AnyFunSuite:
 
     assert(changed == expected)
 
+  test("a documentless packaged module still verifies CodeBlock source against its AST"):
+    val input = source(
+      "def stable(value: Int): Long = value.toLong",
+      List("stable")
+    )
+    val parsed = parse(input)
+    val changedSections = parsed.sections.map { section =>
+      section.copy(content = section.content.map {
+        case block: scalascript.ast.Content.CodeBlock if block.tree.nonEmpty =>
+          block.copy(source = block.source.replace(
+            "def stable(value: Int): Long",
+            "def stale(value: Int): Long"
+          ))
+        case other => other
+      })
+    }
+    val error = failure(PreBodyApiDescriptorProducer.descriptor(
+      parsed.copy(sections = changedSections, document = None)
+    ))
+
+    assert(error.code == "UNSUPPORTED_PUBLIC_DECLARATION")
+    assert(error.path.startsWith("$.sections["))
+
+  test("document and CodeBlock retained sources cannot disagree on declaration headers"):
+    val input = source(
+      "def stable(value: Int): Long = value.toLong",
+      List("stable")
+    )
+    val parsed = parse(input)
+    val changedSections = parsed.sections.map { section =>
+      section.copy(content = section.content.map {
+        case block: scalascript.ast.Content.CodeBlock if block.tree.nonEmpty =>
+          block.copy(source = block.source.replace(
+            "def stable(value: Int): Long",
+            "def stale(value: Int): Long"
+          ))
+        case other => other
+      })
+    }
+    val error = failure(PreBodyApiDescriptorProducer.descriptor(
+      parsed.copy(sections = changedSections)
+    ))
+
+    assert(error.code == "UNSUPPORTED_PUBLIC_DECLARATION")
+    assert(error.path.startsWith("$.sections["))
+
   test("unsupported definition headers cannot hide behind a product-only witness"):
     val input = source(
       """given helper: Int = 1
@@ -817,6 +889,66 @@ class PreBodyApiDescriptorProducerTest extends AnyFunSuite:
       "demo.api.Array",
       Vector(AbiType.Named("demo.api.Byte"))
     ))
+
+  test("unshadowed Array Byte retains the primitive Bytes shortcut"):
+    val input = source(
+      "def retain(value: Array[Byte]): Bytes = value",
+      List("retain")
+    )
+    val definition = descriptor(input).symbols.head.definition
+
+    assert(definition.parameterLists.head.parameters.head.tpe ==
+      AbiType.Primitive(AbiPrimitive.Bytes))
+    assert(definition.resultType == AbiType.Primitive(AbiPrimitive.Bytes))
+
+  test("a Byte type binder disables the primitive Bytes shortcut"):
+    val input = source(
+      "def retain[Byte](value: Array[Byte]): Int = 0",
+      List("retain")
+    )
+    val error = failure(PreBodyApiDescriptorProducer.descriptor(parse(input)))
+
+    assert(error.code == "AMBIGUOUS_NAMED_TYPE")
+    assert(error.path == "$.symbols[demo.api.retain].parameterLists[0].parameters[0].tpe")
+
+  test("an Array type binder disables the primitive Bytes shortcut"):
+    val input = source(
+      "def retain[Array](value: Array[Byte]): Int = 0",
+      List("retain")
+    )
+    val error = failure(PreBodyApiDescriptorProducer.descriptor(parse(input)))
+
+    assert(error.code == "UNSUPPORTED_NUMERIC_WIDTH")
+    assert(error.path == "$.symbols[demo.api.retain].parameterLists[0].parameters[0].tpe.arguments[0]")
+
+  test("a non-public local Byte disables the primitive Bytes shortcut"):
+    Vector(
+      "private type Byte = Int",
+      "@internal type Byte = Int"
+    ).foreach { declaration =>
+      val input = source(
+        s"""$declaration
+           |def retain(value: Array[Byte]): Int = 0
+           |""".stripMargin,
+        List("retain")
+      )
+      val error = failure(PreBodyApiDescriptorProducer.descriptor(parse(input)))
+
+      assert(error.code == "UNSUPPORTED_PUBLIC_TYPE")
+      assert(error.path == "$.symbols[demo.api.retain].parameterLists[0].parameters[0].tpe.arguments[0]")
+    }
+
+  test("a public local Byte follows ordinary projection instead of primitive Bytes"):
+    val input = source(
+      """type Byte = Int
+        |def retain(value: Array[Byte]): Int = 0
+        |""".stripMargin,
+      List("retain")
+    )
+    val error = failure(PreBodyApiDescriptorProducer.descriptor(parse(input)))
+
+    assert(error.code == "AMBIGUOUS_NAMED_TYPE")
+    assert(error.path == "$.symbols[demo.api.retain].parameterLists[0].parameters[0].tpe")
 
   test("a private local effect cannot fall back to an external effect-row id"):
     val input = source(
