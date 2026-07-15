@@ -331,8 +331,8 @@ Changed Markdown is linted and the final branch must pass `git diff --check`.
 ## Results
 
 - `scripts/sbtc "scala3ControlApi/test;scala3ControlApi/packageBin;scala3ControlApi/makePom"`
-  passes 80/80 tests across ten suites. The direct slice contributes ten runtime
-  semantic tests, eight exact compile-time diagnostic tests, three catalog-lane
+  passes 82/82 tests across ten suites. The direct slice contributes ten runtime
+  semantic tests, ten exact compile-time diagnostic tests, three catalog-lane
   tests, and source-access safety checks.
 - `tests/interop-conformance/run.sh --validate` accepts 26 vectors and nine lanes;
   all nine validator-negative cases pass. `--lane scala-direct` passes vector 18,

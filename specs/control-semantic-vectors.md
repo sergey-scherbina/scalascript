@@ -251,7 +251,7 @@ before it can claim that residual-row boundary.
   programs plus the catalog/program coverage test (18/18).
 - `tests/interop-conformance/run.sh --lane scala-direct` passes vectors 18 and 23
   plus catalog/program coverage (3/3), with an explicit-API differential oracle.
-  The complete `scripts/sbtc "scala3ControlApi/test"` scope passes 80/80.
+  The complete `scripts/sbtc "scala3ControlApi/test"` scope passes 82/82.
 - `tests/conformance/run.sh --only 'effect*,effects*'` passes all five affected
   conformance cases across every lane each case declares. `git diff --check` is
   clean.
