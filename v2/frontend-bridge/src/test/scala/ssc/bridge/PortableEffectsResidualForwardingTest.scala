@@ -108,6 +108,38 @@ final class PortableEffectsResidualForwardingTest extends AnyFunSuite:
     }
   }
 
+  test("source-level lexical nesting forwards through both handlers to exact 57") {
+    val source =
+      """effect Rd:
+        |  def rd(): Int
+        |
+        |effect Wr:
+        |  def wr(value: Int): Unit
+        |
+        |def prog(): Int =
+        |  Wr.wr(7)
+        |  val value = Rd.rd()
+        |  Wr.wr(5)
+        |  value + 7
+        |
+        |def inner(): Int =
+        |  handle(prog()) {
+        |    case Rd.rd(resume) => resume(35)
+        |    case Return(value) => value + 1
+        |  }
+        |
+        |val result = handle(inner()) {
+        |  case Wr.wr(value, resume) => value + resume(())
+        |  case Return(value) => value + 2
+        |}
+        |result
+        |""".stripMargin
+
+    lanes.foreach { lane =>
+      assert(runSource(source, lane) == Value.IntV(57), lane)
+    }
+  }
+
   test("forwarding preserves one-shot and reusable base continuations") {
     val returnOnly = handler(List(Arm("Return", 1, Term.Local(0))))
 
@@ -354,11 +386,12 @@ final class PortableEffectsResidualForwardingTest extends AnyFunSuite:
         |multi effect Gate:
         |  def allow(): Boolean
         |
-        |val inner = handle(Target.op(1)) {
-        |  case Target.op(value, resume) if Gate.allow() => resume(value + 100)
-        |  case Return(value) => value
-        |}
-        |val result = handle(inner) {
+        |def inner(): Int =
+        |  handle(Target.op(1)) {
+        |    case Target.op(value, resume) if Gate.allow() => resume(value + 100)
+        |    case Return(value) => value
+        |  }
+        |val result = handle(inner()) {
         |  case Gate.allow(resume) => resume(false) + resume(true)
         |  case Target.op(value, resume) => resume(value + 10)
         |  case Return(value) => value
