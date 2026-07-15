@@ -1,7 +1,8 @@
 # JavaScript/TypeScript closed lexical direct control transform
 
-Status: **third-review JavaScript/declaration emit-channel repairs specified;
-implementation pending** (2026-07-15).
+Status: **third-review JavaScript/declaration emit-channel repairs implemented and
+direct-package verified; full cross-package gates and fresh rereview pending**
+(2026-07-15).
 
 ## Overview
 
@@ -432,14 +433,14 @@ diagnostic.
       `direct` remain diagnostic-free, while the corresponding runtime local exports
       and source-module re-exports fail file-atomically with one stable
       `JS_DIRECT_UNSUPPORTED` diagnostic.
-- [ ] Mixed exact-module imports produce valid JavaScript in both verbatim modes:
+- [x] Mixed exact-module imports produce valid JavaScript in both verbatim modes:
       completed marker and type-only specifiers disappear, ordinary runtime
       specifiers remain, production has no type-only marker edge, and `.d.ts` retains
       the original type surface.
-- [ ] Exact-module type-only source exports produce no empty module-linked JavaScript
+- [x] Exact-module type-only source exports produce no empty module-linked JavaScript
       export in either verbatim mode; mixed runtime specifiers remain, production runs
       without the marker package, and `.d.ts` retains the original type export.
-- [ ] Runtime external-module `import = require` is rejected once and file-atomically
+- [x] Runtime external-module `import = require` is rejected once and file-atomically
       under CommonJS/Node10, while its explicit type-only form erases from JavaScript
       and remains available to declaration emit.
 - [x] Parenthesized, `as`, non-null, and type-asserted marker receivers/callees obey
@@ -618,6 +619,18 @@ and rejected on three P1 emit-boundary gaps. A mixed named import could retain
 specifier-level `type` syntax in emitted JavaScript; a specifier-level type-only
 source export could retain an empty runtime link to the dev-only package under
 `verbatimModuleSyntax`; and CommonJS/Node10 external `import = require` bypassed the
-namespace-import rejection. The three unchecked behavior rows above are the required
-repair and packed-CLI qualification boundary. The reviewed checkpoint remains
+namespace-import rejection. The three now-checked behavior rows above are the repair
+and packed-CLI qualification boundary. The reviewed checkpoint remains
 unpushed, and another independent APPROVE is required after implementation.
+
+The third-review repair candidate code commit `542a5d2b6`, with synchronized user
+documentation in `cfba88c67`, separates exact-module JavaScript cleanup from
+declaration emit and recognizes external-module import-equals syntax. Direct package
+tests pass 38/38: both verbatim modes run through the real packed installed CLI,
+emitted JavaScript passes `node --check`, production runs after the marker package is
+removed, and `.d.ts` retains the original mixed import/export types. CommonJS/Node10
+runtime import-equals is rejected before emit while the explicit type-only form emits
+no require edge and retains its declaration. Package typecheck and all three
+published-file syntax checks are green. These are local pre-integration results;
+cross-package/catalog/conformance gates and another independent review remain
+mandatory before push or claim release.
