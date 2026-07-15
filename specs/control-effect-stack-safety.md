@@ -60,6 +60,9 @@ that gate.
       iterative drivers, return ordinary values, and never expose the private
       resume carrier; an escaped one-shot continuation still claims/rejects at
       the later call site.
+- [ ] A state-threaded chain in which every handler arm returns a closure that
+      invokes its captured `resume` later remains stack-safe at depth at least
+      20,000; continuation escape must not move recursion back to the host stack.
 - [ ] A nested outer handler still receives a residual operation with the same
       three fields and original base continuation/gate. The private resume
       protocol is never exposed as a residual user operation.
