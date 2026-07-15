@@ -1,5 +1,31 @@
 # Bug tracker
 
+## scala-direct-polymorphic-value-select — moved structural apply retains `<none>`
+
+**Status:** open; reported as P1 by the fresh independent review of frozen candidate
+`f4e860ed7..408f23c11` (2026-07-15). No fix has been accepted or landed.
+
+**Faithful packaged reproduce:** compile with Scala CLI 3.8.3 against only the
+packaged `scalascript-control_3` JAR. Inside `direct.reset`, place the ordinary
+strict value
+`val identity: [A] => A => A = [A] => (a: A) => a` before a block-level
+`direct.shift`, then evaluate `selected + identity[Int](2)` in the captured suffix.
+The direct source fails at the suffix call with raw compiler output
+`undefined: identity.<none> ... TermRef(... val <none>)` twice. The explicit
+`reset`/`shift` equivalent compiles, runs, and prints `42`.
+
+**Likely root cause/plan:** moved selection rebuilding currently uses the original
+`selection.symbol`. Structural `PolyFunction.apply` may carry `<none>` there, while
+an unchanged self-bound `PolyType`/`ParamRef` graph can bypass definition-type
+rebinding when it has no captured-owner dependency. Resolve a rebuilt selection
+from the current qualifier type/member graph and ensure every moved method/poly
+binder closes over its rebuilt binder, including ParamRefs that occur only in a
+result or bound. The accepted strict-val grammar must support this independent
+polymorphic value, or reject a truly unrepresentable shape with stable
+`DIRECT_STYLE_UNSUPPORTED` before constructing generated code; a raw typer crash is
+never allowed. Add the faithful packaged/source differential and adjacent
+monomorphic/polymorphic/owner-dependent binder regressions before implementation.
+
 ## scala-direct-captured-type-owner — captured A keeps a stale prefix owner
 
 **Status:** open; remediation is green in feature commit `2ee8527e1`, but fresh

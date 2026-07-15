@@ -339,6 +339,25 @@ every later compiler/kernel change re-runs the literal fixed point.
       negatives are 9/9, `scala-direct` is 3/3, and affected conformance is 5/5. Markdown/diff checks
       are the final freeze gate. Keep this remediation item and M1 itself pending until a fresh
       independent review approves; do not push or release the claim.
+  - [ ] **Post-`408f23c11` strict-polymorphic-value remediation (P1; resume cold):** fresh
+    independent review rejected the `f4e860ed7..408f23c11` candidate. A real Scala CLI 3.8.3
+    consumer compiled only against the packaged control JAR declares
+    `val identity: [A] => A => A = [A] => (a: A) => a` before capture and calls
+    `identity[Int](2)` in the suffix. Direct source fails at that call with raw typer output
+    `undefined: identity.<none> ... TermRef(... val <none>)` twice; the explicit equivalent runs
+    and prints `42`. Preserve the accepted strict-value grammar or reject a genuinely unsupported
+    graph with stable `DIRECT_STYLE_UNSUPPORTED`; never leak a compiler crash. Complete in order:
+    - [ ] Update and commit `specs/scala3-control-macros.md` before code with structural-select
+      resolution and closed `MethodType`/`PolyType`/`ParamRef` binder invariants.
+    - [ ] Add the faithful red direct-vs-explicit regression plus adjacent monomorphic structural
+      apply, prefix/suffix polymorphic calls, explicit `.apply[Int]`, owner-dependent nested generic
+      polyfunctions, and `ParamRef`-only result/bounds coverage.
+    - [ ] Rebuild selections through the current qualifier/type/member graph and close every moved
+      binder graph; fail closed only for shapes Quotes cannot represent soundly.
+    - [ ] Run clean focused semantics/diagnostics, full leaf/package/POM, packaged positive and
+      negative consumers, catalog 26/9 + negatives 9/9 + direct 3/3, affected conformance 5/5,
+      Markdown, and diff checks. Rebase only from a clean checkpoint, repeat critical gates, freeze
+      an exact base/head for a new independent reviewer, and do not push or release the claim.
 - [ ] **scala3-control-plugin** — publish a `CrossVersion.full` compiler plugin for cross-method CPS,
   managed callback propagation, effect metadata, and generated ABI entrypoints. Precompiled Scala/Java
   code remains callable but is a deterministic control-capture barrier while active on the stack.
