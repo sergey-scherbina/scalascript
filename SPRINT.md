@@ -9,6 +9,55 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## new-self-hosting-front — a rational, self-hosting ScalaScript compiler front (2026-07-15, Sergiy)
+
+**Goal.** Replace the accreted `ssc0` front (`v2/lib/ssc1-front.ssc0` 3190 lines + `ssc1-lower.ssc0` 5359
+lines) with a clean, **self-hosting** front written in ScalaScript itself — **preserving 100% of existing
+functionality** and keeping a rational, phase-separated architecture. NOT a new compiler: everything at and
+below **Core IR is frozen and reused** (`v2/src/CoreIR.scala` = the typed `Term` enum + reader + writer;
+`Runtime.scala` = VM/JIT; JVM/JS/native backends).
+
+**Target architecture.** `source → [lexer → parser → resolver → lowering]  →  Core IR (frozen)  →  VM/backends`.
+All phases written in a clean ScalaScript subset (self-compilable), typed AST (case class/enum per node, like
+`Term` already is), Core IR as the frozen contract.
+
+**The safety invariant (how "preserve all functionality" is guaranteed).** For every one of the ~486 real
+programs (`examples/` + `tests/conformance/`), `new-front(program).coreir == old-front(program).coreir`
+**byte-for-byte**. The VM/backends can't tell the difference, so nothing can silently regress. A byte-diff
+harness makes this an automated gate. Self-hosting is separately proven by the `stage1 == stage2` fixpoint
+method already validated on C_min (P6.6).
+
+**Assets we start from (not from scratch):** the **spike** (`ScalaSpike.scala`, 1282 lines) — a clean, total,
+error-resilient parser already byte-identical to ssc1-front on 119 constructs, the *seed of the new parser*;
+**C_min** — proof a front-in-its-own-language self-compiles; **ssc1-front + the corpus** — the oracle.
+
+### Phases (each gated by the byte-diff harness; land + push per slice)
+
+- [ ] **Phase 0 — corpus byte-identity harness + baseline (IN PROGRESS).** For every corpus `.ssc`: extract
+      code (reuse `sscProgramSource`) → old front `lowerProg(parse(code))` = ref IR; new front
+      `lowerProg(SpikeProject(SpikeParse(code)))` = spike IR; `cmp` byte-for-byte. Output: **"spike ≡
+      ssc1-front on N of 486"** + divergences grouped by cause. Start with single-file (no-`import`) programs
+      for a clean parser comparison; add multi-file (import resolution) as a follow-up. Deliverable:
+      `specs/newfront-diff.sh` + the baseline number. (Kernel jar: `scala-cli --power package v2/src --assembly`
+      — run-ir-capable, unlike the thin `bin/lib/ssc.jar`.)
+- [ ] **Phase 1 — grow the parser to ~100% corpus byte-identity.** Close divergences from Phase 0 in
+      `ScalaSpike.scala`, highest-frequency first (expected: interpolation, `case class`, `for`, `var`,
+      effects, `given`/`using`). Each fix: harness coverage goes UP, never down. Reuses `ssc1-lower` (variant
+      A — the parser produces the same `Pair`-AST). Ends when the whole single-file corpus is byte-identical.
+- [ ] **Phase 2 — multi-file / imports.** Give the new front the module-loading the old front has (resolve
+      `[name](path.ssc)` imports, load defs), so multi-file programs also compare byte-identically.
+- [ ] **Phase 3 — self-host the implementation subset.** Define the clean ScalaScript subset the new front is
+      WRITTEN in (case class/enum for the AST, pattern matching, modules, strings). Ensure it self-compiles
+      (extend the C_min fixpoint method to this richer subset). This is what makes the front self-hosting.
+- [ ] **Phase 4 — rewrite the front cleanly in that subset.** Port `ScalaSpike.scala`'s proven logic into a
+      phase-structured ScalaScript front (`lexer.ssc`/`parser.ssc`/`ast.ssc`/`resolver.ssc`), validated by
+      BOTH (a) the byte-diff harness on the corpus and (b) the self-compilation fixpoint. Typed AST.
+- [ ] **Phase 5 — new clean lowerer (variant B, optional).** Replace `ssc1-lower.ssc0` (5359 ssc0 lines) with
+      a clean typed-AST → Core IR lowerer in ScalaScript, still byte-identical (the harness guards it).
+- [ ] **Phase 6 — cutover.** Wire `bin/ssc` to the new front behind a flag; corpus green; then default.
+
+---
+
 ## control-vectors-audit-followup — reproduce + record codex-interop audit findings (2026-07-14, claude)
 
 The audit's Rust multi-shot drift and portable one-shot guard are complete and
