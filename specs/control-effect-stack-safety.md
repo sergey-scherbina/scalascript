@@ -75,10 +75,18 @@ temporarily in the already understood `Op/3` runtime carrier:
 ```text
 Op(
   privateResumeLabel,
-  ForeignV(ResumeRequest(privateCapability, baseContinuation, handler, input)),
+  ForeignV(ResumeRequest(privateCapability, nextComputation, handler)),
   afterResume
 )
 ```
+
+The handler-facing closure first invokes the original continuation with the
+supplied input and obtains `nextComputation`; it does **not** recursively handle
+that result. This eager invocation is required for one-shot semantics: the
+original guarded continuation performs its atomic claim at the `resume(input)`
+call, so a losing second/concurrent resume rejects before any later handler-side
+observable work. Only deep handling of the already obtained `nextComputation`
+is deferred.
 
 `afterResume` starts as the identity continuation. Existing VM and ASM
 effect-aware lifting over `Op` composes the rest of the handler expression into
@@ -113,8 +121,8 @@ Handle(computation, handler)
   terminal value  -> Complete(call Return handler once, or identity fallback)
 
 Complete(handlerResult)
-  private resume Op(baseK, h, input, afterK)
-                   -> push afterK; Handle(baseK(input), h)
+  private resume Op(next, h, afterK)
+                   -> push afterK; Handle(next, h)
   other, frame :: rest
                    -> Complete(afterK(other))
   other, empty     -> return other
@@ -124,7 +132,9 @@ No transition calls `handle` recursively. Each explicit resume adds at most one
 small heap frame, and a completed nested handled suffix consumes that frame
 before continuing the handler expression. The computation prefix is not
 replayed. Multi-shot handler code creates one independent request per explicit
-resume call and therefore retains its existing branching order.
+resume call and therefore retains its existing branching order. The call to the
+original continuation remains eager; only the recursive deep-handler fold moves
+onto the heap driver.
 
 The real-operation dispatch point remains separate from request recognition.
 Residual forwarding may report a recoverable unmatched handler clause and
