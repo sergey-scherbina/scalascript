@@ -9,19 +9,25 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 Added the compiler-independent ESM-only `@scalascript/control` reference leaf at
 `v2/host/js/control`, with typed reusable/one-shot continuations, deep handlers,
 generative prompts and true `shift`/`reset`, structured local-save rejection, and
-stackless explicit state machines (`9ce091bc3`, verification `6c3a06dd3`). The
+stackless explicit state machines (`2a34d7ed3`, verification `c53294fa7`). The
 private runtime ABI is paired with branded `.d.ts` declarations and has no
 production dependency or lifecycle script.
 
-Independent pre-integration review then drove authority hardening (`d9674d6fa`,
-verification `ab7dc2a7b`): named `unique symbol` owners now separate stable effect
+Independent pre-integration review then drove authority hardening (`0d0ffcfd3`,
+verification `d143af497`): named `unique symbol` owners now separate stable effect
 descriptors from runtime identity, concrete-answer prompt-key extraction remains
 invariant, class-backed capabilities keep state in private WeakMaps, and every
 reachable internal constructor requires an unexported authority token. The exact
 five-file npm payload includes the repository Apache 2.0 license.
 
+Second review closed the remaining union-owner bypass (`5b5421880`) and packed
+README link (`1c2e150c3`, regression `6f19a9538`, verification `b81c526e0`).
+Inferred and explicit generic owner unions are rejected without casts, while the
+five-file payload points to the canonical HTTPS contract and validates every
+relative README target.
+
 All 17 applicable shared semantic vectors pass without changing the catalog or
-lane registry; the complete package suite is 30/30, TypeScript positive/negative
+lane registry; the complete package suite is 31/31, TypeScript positive/negative
 fixtures pass, 1,000,000-bind and 1,000,000-state stress plus 100,000 handled
 operations complete, and fresh affected project conformance is 5/5. Generated
 bridges, managed transforms, mixed SCCs, exact/portable runners, and lane wiring

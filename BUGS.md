@@ -2,9 +2,9 @@
 
 ## js-control-packed-readme-broken-spec-link — npm README links outside payload
 
-**Status:** open, P2 packaging defect (2026-07-15, independent second
-pre-integration review of `javascript-typescript-control-host-runner`; affects
-pre-land documentation commit `ff93f75d5`).
+**Status:** fixed by `1c2e150c3` with regression `6f19a9538`; awaiting final
+independent reviewer confirmation. Reported as P2 on 2026-07-15 by the second
+pre-integration review; affected pre-land documentation commit `069e0204e`.
 
 **Symptom/reproduce:** `npm pack --dry-run --json` correctly emits only the frozen
 five-file payload, but its `README.md` ends with a relative
@@ -12,16 +12,19 @@ five-file payload, but its `README.md` ends with a relative
 is not in the tarball, so installed-package and registry README consumers receive a
 broken contract link.
 
-**Plan/done-when:** make the packed README contract reference self-contained or
-stable without adding repository internals to the payload, and add a package
-regression that rejects relative links escaping the package or targeting absent
-files.
+**Root cause:** the package README reused a repository-checkout-relative link even
+though the exact npm allow-list intentionally excludes the repository spec tree.
+
+**Fix/verification:** the README now uses the absolute canonical HTTPS source URL.
+A package regression scans every Markdown destination, requires that canonical
+link, and rejects an escaping or absent relative target. The exact five-entry pack
+remains unchanged in shape.
 
 ## js-control-runtime-opacity-forgeable — public values leak and clone private authority
 
-**Status:** fixed in `d9674d6fa`; awaiting independent reviewer confirmation.
-Reported as P1 on 2026-07-15 by independent pre-integration review; affected
-pre-land runtime commit `9ce091bc3`.
+**Status:** done in `0d0ffcfd3`; confirmed closed by independent second
+pre-integration review. Originally reported as P1 on 2026-07-15; affected pre-land
+runtime commit `2a34d7ed3`.
 
 **Symptom/reproduce:** returned request/prompt objects expose enumerable internal
 state such as `resumption`, `key`, and `shiftOperation`; a caller can pre-claim a
@@ -45,10 +48,10 @@ and forged prompts. The complete package suite passes 30/30.
 
 ## js-control-npm-license-omitted — package tarball lacks Apache license
 
-**Status:** fixed in `d9674d6fa`; awaiting independent reviewer confirmation.
-Reported as a P2 packaging defect on 2026-07-15 by independent pre-integration
-review; affected pre-land package commit `9ce091bc3` and verification
-`6c3a06dd3`.
+**Status:** done in `0d0ffcfd3`; confirmed closed by independent second
+pre-integration review. Originally reported as a P2 packaging defect on
+2026-07-15; affected pre-land package commit `2a34d7ed3` and verification
+`c53294fa7`.
 
 **Symptom/reproduce:** run `npm pack --dry-run --json` in
 `v2/host/js/control`. The package contains only `README.md`, `index.d.ts`,
@@ -66,9 +69,9 @@ files; `npm pack --dry-run --json` reports exactly five entries, including the
 
 ## js-control-prompt-key-extraction-never — invariant answer type breaks PromptKeyOf
 
-**Status:** fixed in `d9674d6fa`; awaiting independent reviewer confirmation.
-Reported as P1 on 2026-07-15 by independent pre-integration review; affected
-pre-land declaration commit `9ce091bc3`.
+**Status:** done in `0d0ffcfd3`; confirmed closed by independent second
+pre-integration review. Originally reported as P1 on 2026-07-15; affected pre-land
+declaration commit `2a34d7ed3`.
 
 **Symptom/reproduce:** `PromptKeyOf<Prompt<P, ConcreteAnswer>>` evaluates to
 `never` because the conditional matches `Prompt<infer P, unknown>` while the
@@ -85,9 +88,10 @@ gates remain green.
 
 ## js-control-effect-owner-type-collision — descriptor ID is mistaken for owner identity
 
-**Status:** open, P1 (reopened 2026-07-15 after independent second
-pre-integration review rejected the `d9674d6fa` fix). The original report affected
-pre-land declaration commit `9ce091bc3`.
+**Status:** fixed in `5b5421880`; awaiting final independent reviewer
+confirmation. Reopened as P1 on 2026-07-15 after independent second
+pre-integration review rejected the first fix in `0d0ffcfd3`; the original report
+affected pre-land declaration commit `2a34d7ed3`.
 
 **Symptom/reproduce:** two `defineEffect("same.id")` calls create distinct runtime
 owners, but both declarations currently produce `Effect<"same.id">`. TypeScript
@@ -98,7 +102,7 @@ therefore accepts handling an operation from the first key with the second key a
 cannot generate a fresh phantom type for each ordinary function call, so distinct
 runtime keys collapsed to the same declaration type.
 
-**Fix/verification:** `Effect<Id, Owner>` now carries a named `unique symbol`
+**First fix (insufficient):** `Effect<Id, Owner>` carries a named `unique symbol`
 owner supplied to `defineEffect(id, owner)`; inline and widened symbols are
 rejected. Runtime registration is idempotent for one owner+descriptor and rejects
 descriptor conflicts, aligning the phantom with authority. Positive handler
@@ -112,9 +116,10 @@ or an explicit `CollapsedOwner` type argument accepts both calls and gives them 
 same `Effect<Id, CollapsedOwner>`. A wrong-owner handler again typechecks as
 `Eff<never, A>` while runtime owner matching forwards the request.
 
-**Next fix/done-when:** reject union owners as well as broad/inline symbols with a
-single-unique-symbol type guard; cover both inference-only and explicit-generic
-union calls negatively while retaining stable named-owner reuse positively.
+**Second fix/verification:** private `IsUnion` and `SingleUniqueSymbol` guards now
+reject both inference-only and explicit-generic union owners, while stable named
+owner reuse remains positive. `npm run typecheck` passes all original fixtures and
+the exact cast-free second-review repros.
 
 ## jvm-bytegen-letrec-env-clobber — FIXED / awaiting confirmation (2026-07-15, Codex)
 

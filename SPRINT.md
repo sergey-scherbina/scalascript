@@ -232,16 +232,17 @@ every later compiler/kernel change re-runs the literal fixed point.
   and hardened dynamic portable runner from
   `specs/javascript-typescript-bidirectional-control.md`. Promise/async/generators
   remain adapters or barriers; I64 uses `bigint`.
-  - [ ] **Explicit local control slice second-review hardening (2026-07-15)** —
-    preserve the already-green explicit runtime while closing the independent
-    re-review REJECT: `defineEffect` must reject union owner types (both inferred
-    and explicit generic) in addition to broad/inline symbols, and the packed
-    five-file README must not link outside its payload. Freeze the single-unique-
-    symbol and packaged-link rules in the spec first; add negative/positive type
-    fixtures plus a pack-content/link regression; rerun 30/30 baseline tests,
-    TypeScript, exact pack, stress/vectors, and fresh affected conformance. At the
-    final clean checkpoint update all stale pre-rebase SHA references in SPRINT,
-    CHANGELOG, and the affected BUGS entries before requesting read-only review.
+  - [x] **Explicit local control slice + two review rounds (2026-07-15)** — the
+    compiler-independent `@scalascript/control` leaf now rejects inferred/explicit
+    union owners (`5b5421880`), publishes a canonical non-broken contract link
+    (`1c2e150c3`, regression `6f19a9538`), and retains the earlier owner, prompt,
+    WeakMap/constructor-authority, and Apache-license hardening (`0d0ffcfd3`).
+    Package tests pass 31/31 including all 17 applicable catalog vectors;
+    TypeScript, 1,000,000-bind/state and 100,000-operation stress, exact five-file
+    pack (11,059/42,353 bytes), markdown/node checks, and fresh affected conformance
+    5/5 are green after heartbeat rebase. Spec evidence is `b81c526e0`; the two
+    second-review bugs remain `fixed`, not `done`, pending final read-only
+    confirmation.
   - [ ] **Remaining host/runner profile** — generated facades and typed value/call
     bridges, managed source transformation and callback policies, mixed-language
     SCC dispatch, exact and portable runners, and shared lane wiring.
