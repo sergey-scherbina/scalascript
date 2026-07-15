@@ -2102,6 +2102,35 @@ Two new front doors are specced (typed-SQL-API cb94fd88c, JDBC-API f2d1372a0); *
 working first implementation** — the JDBC portable façade (m6v) and the typed SQL surface (m6w),
 alongside SQL polish (REAL literals m6s, LEFT-join-3 m6r). All three "параллельно" lanes advanced.
 
+- [x] **scljet-m7d-rowid-seek** — DONE 2026-07-15 (physical access-path perf; Sergiy chose "сначала
+      IPK, потом seek"). rowid point-lookup: a single-table `SELECT` whose WHERE is exactly `rowid = K`
+      or `<INTEGER PRIMARY KEY> = K` descends the table B-tree (`descendToLeaf`, reused from the write
+      layer) to the row in O(log n) instead of full-scanning, then feeds the 0/1 rows to the same
+      `finishRows` pipeline → byte-identical to the scan for every query shape (projection / COUNT /
+      miss→empty). `queryImageParams` + `runSelectStmt` route through `rowidPointLookup` (so SQL-string
+      AND typed-SQL paths benefit). **OVERFLOW-SAFE:** a payload that spills onto overflow pages
+      (`payloadLen > usable-35`) or an unreadable leaf returns `SeekFallback` → full scan (which follows
+      the overflow chain). Export plumbing: `descendToLeaf` via write.ssc→index.ssc→sql.ssc;
+      `decodeVarint`/`decodeRecord` imported. With m7c, the common `WHERE id = K` on a PK table is now a
+      point-lookup. Verified vs sqlite3 (hits, miss, rowid pseudo-col, IPK col, COUNT over seek, and a
+      1016-char overflow row via fallback), int==js; conformance `scljet-sql-rowid-seek` +
+      `-overflow`; 43/43 scljet-sql green non-memoized. NOTE: scljet SQL INSERT rejects rows too big for
+      a leaf ("needs a split"), so SQL-created DBs never have overflow rows — the fallback only matters
+      for fixture-built (`buildOverflowTableDatabase`) images. NEXT: index-seek (`WHERE indexedcol = K`
+      via index-B-tree descent — the record-key comparison variant, the largest remaining perf piece).
+
+- [x] **scljet-m7c-ipk-rowid-alias** — DONE 2026-07-15 (prerequisite the user prioritized: "сначала
+      IPK-алиас"). `INTEGER PRIMARY KEY` aliases the rowid (SQLite semantics). On SQL INSERT the IPK
+      column's value becomes the rowid (rows scan in that order, not insertion order); a NULL/absent IPK
+      gets the next auto rowid (max+1) written back into the column; `SELECT ipk`/`SELECT rowid` return
+      the same value; a duplicate IPK is rejected. `ipkColumnIndex`/`isIpkType` parse the type tokens;
+      `executeInsert` routes both the plain and index-maintaining paths through `assignInsertRowids` +
+      `insertSqlRowsLoop`. Non-IPK tables unchanged (sequential rowids); `buildTableDatabase` fixtures
+      keep their explicit rowids (SQL-path feature only). Fixes a real divergence (scljet used to assign
+      1,2,3 and store id as a plain column). Verified vs sqlite3 (non-sequential ids → rowid-order scan,
+      id==rowid, auto-assign, column-list insert, duplicate rejection), int==js; conformance
+      `scljet-sql-ipk-rowid`; 41/41 scljet-sql green non-memoized.
+
 - [x] **scljet-m7b-jvm-jdbc-shim** — DONE 2026-07-15 (parallel small-feature lane of "оба параллельно";
       landed by sibling agent, code+build `9ac5d0a62`, spec `d4412a642`, on origin/main `68b2b9c1f`). The
       JVM `java.sql.Driver` shim (J2 of `specs/scljet-jdbc.md`), new module
