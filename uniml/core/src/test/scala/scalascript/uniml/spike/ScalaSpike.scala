@@ -1918,11 +1918,13 @@ object SpikeProject:
       val name = kids(b).collectFirst { case (Some("assign.name"), c) => lexeme(c) }.getOrElse("_")
       val rhs  = kids(b).collectFirst { case (Some("assign.rhs"), c) => expr(c) }.getOrElse(hole)
       s"""Pair("assign", Pair("${esc(name)}", $rhs))"""
-    case b: UniNode.Branch if b.kind == "spike.compoundassign" => // `x += e` → Pair("assign", (x, x + e))
+    case b: UniNode.Branch if b.kind == "spike.compoundassign" =>
+      // `x += e` parses through the EXPRESSION path (compoundBaseOp), so it is an `expr` statement wrapping an
+      // assign — in a block lowerBlock let-binds an `expr` but seq's a bare `assign`, so the wrap matters.
       val name = kids(b).collectFirst { case (Some("ca.name"), c) => lexeme(c) }.getOrElse("_")
       val op   = kids(b).collectFirst { case (Some("ca.op"), c) => lexeme(c) }.getOrElse("+=").dropRight(1)
       val rhs  = kids(b).collectFirst { case (Some("ca.rhs"), c) => expr(c) }.getOrElse(hole)
-      s"""Pair("assign", Pair("${esc(name)}", mkInf("${esc(op)}", mkVar("${esc(name)}"), $rhs)))"""
+      s"""mkSExpr(Pair("assign", Pair("${esc(name)}", mkInf("${esc(op)}", mkVar("${esc(name)}"), $rhs))))"""
     case b: UniNode.Branch if b.kind == "spike.while" =>
       val cond = kids(b).collectFirst { case (Some("while.cond"), c) => expr(c) }.getOrElse(hole)
       val body = kids(b).collectFirst { case (Some("while.body"), c) => expr(c) }.getOrElse(hole)
