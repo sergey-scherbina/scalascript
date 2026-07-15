@@ -356,16 +356,17 @@ ascription is rebuilt. An unsupported path-dependent mutable/contextual/pattern 
 nested term shape fails at its source declaration/marker with the stable unsupported
 diagnostic rather than being narrowed silently or delegated to the Scala compiler.
 
-Selection and binder ownership are rebuilt even when no captured term owner appears
-in the outer type. After replacing a qualifier, the transform resolves the selected
-member through that qualifier's current type/member graph instead of blindly
-copying the original `Select.symbol`; structural `PolyFunction.apply` therefore
-cannot emit an undefined `<none>` member. Every moved `MethodType` and `PolyType`
-is reconstructed with `ParamRef`s pointing to its current binder, including refs
-that occur only in result types or type bounds. Nested method/poly binder graphs
-must be closed before code construction and are included in the stale-symbol audit.
-Failure to resolve a callable member or close a binder graph is diagnosed at the
-source declaration/call with `DIRECT_STYLE_UNSUPPORTED`.
+Selection ownership is rebuilt even when no captured term owner appears in the
+outer type. After replacing a qualifier, the transform resolves a structural
+selection through that qualifier's current type/member graph instead of blindly
+copying an absent original `Select.symbol`; `PolyFunction.apply` therefore cannot
+emit an undefined `<none>` member. A self-contained `MethodType`/`PolyType` binder
+graph may be preserved as one closed unit. When owner/type substitution does rebuild
+such a graph, every `ParamRef` must point to the corresponding rebuilt binder,
+including refs that occur only in result types or type bounds. Nested method/poly
+binder graphs must be closed before code construction and are included in the
+stale-symbol audit. Failure to resolve a callable member or close a binder graph is
+diagnosed at the source declaration/call with `DIRECT_STYLE_UNSUPPORTED`.
 
 Marker normalization may remove only ownership-neutral typing wrappers; it never
 removes an `Inlined` node. Even `Inlined(None, Nil, ...)` can retain references to
@@ -585,11 +586,12 @@ Changed Markdown is linted and the final branch must pass `git diff --check`.
   values may retain ordinary forward/mutual term references while all RHS trees
   move against a complete replacement map. Rejected: sequential move-then-allocate,
   which leaks an old owner for forward references, and eager evaluation of givens.
-- **Resolve moved selections and close every binder.** Chosen because a structural
-  selection may have no reusable source symbol, and a self-bound `PolyType` remains
-  owner-sensitive even without a captured term path. Rejected: rebuilding
-  `Select` with the original `<none>` symbol or skipping MethodType/PolyType
-  reconstruction when ParamRefs occur only in results or bounds.
+- **Resolve moved selections and preserve closed binders atomically.** Chosen
+  because a structural selection may have no reusable source symbol, while a
+  self-contained `PolyType` and all of its `ParamRef`s can remain one closed unit.
+  Owner-dependent graphs are rebuilt binder-for-binder. Rejected: rebuilding
+  `Select` with the original `<none>` symbol, or partially rebuilding a
+  MethodType/PolyType while leaving result/bound ParamRefs on an old binder.
 - **ShiftBody is opaque but marker-free.** Chosen to preserve arbitrary explicit
   effect code while enforcing that every direct marker is consumed by its owning
   transform. A nested managed reset protects only its contextual body, because its
