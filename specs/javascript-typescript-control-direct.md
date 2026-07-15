@@ -1,8 +1,7 @@
 # JavaScript/TypeScript closed lexical direct control transform
 
 Status: **fourth-review exact-tarball dependency-boundary repair implemented and
-direct-package verified; full cross-package gates and fresh rereview pending**
-(2026-07-15).
+fully locally verified; fresh independent rereview pending** (2026-07-15).
 
 ## Overview
 
@@ -470,7 +469,7 @@ diagnostic.
 - [x] The packed installed `.bin` runs through its symlink, resolves TypeScript only
       from the project/config/cwd issuer even when the package lives in an extracted
       store, and fails non-zero for missing compiler or invalid options.
-- [ ] Package tests, packed-CLI JavaScript/declaration/syntax/production regressions,
+- [x] Package tests, packed-CLI JavaScript/declaration/syntax/production regressions,
       package typecheck, exact dry-run pack, the existing explicit
       package's 31 tests/typecheck, catalog validation/negative validation, and
       affected `effect*,effects*` conformance are green from the isolated worktree.
@@ -556,8 +555,8 @@ diagnostic.
 
 ## Results
 
-The first repair candidate code commit `93cb6b88c` on current `origin/main` base
-`445f7faf7`, with synchronized user documentation in `ea1ad0590`, produced:
+The first repair candidate code commit `4c6b8e2a9` on current `origin/main` base
+`6603e6c29`, with synchronized user documentation in `1b84d0bfe`, produced:
 
 - `npm test` in `v2/host/js/control-direct`: 31/31, including faithful real-
   JavaScript prefix-TDZ rejection, accepted type-only prefix references,
@@ -577,11 +576,11 @@ The first repair candidate code commit `93cb6b88c` on current `origin/main` base
   (memoized from unchanged previously green cases).
 
 These are local pre-integration results. Exact frozen checkpoint `c4377fabb`
-(current rebased equivalent `840f23c1b`) remained unpushed and was submitted to a fresh
+(current rebased equivalent `58de23cf1`) remained unpushed and was submitted to a fresh
 independent read-only review.
 
-The second symbol-ownership repair code commit `6fa7cb62c` on base `445f7faf7`,
-with synchronized user documentation in `bded5933a`, produced:
+The second symbol-ownership repair code commit `ec95c4c65` on base `6603e6c29`,
+with synchronized user documentation in `6544b8104`, produced:
 
 - `npm test` in `v2/host/js/control-direct`: 35/35. New real-JavaScript/package
   regressions reject shorthand property and assignment-initializer suffix capture,
@@ -649,8 +648,8 @@ namespace-import rejection. The three now-checked behavior rows above are the re
 and packed-CLI qualification boundary. The reviewed checkpoint remains
 unpushed, and another independent APPROVE is required after implementation.
 
-The third-review repair candidate code commit `3385574b8` on base `445f7faf7`, with
-synchronized user documentation in `94b632833`, separates exact-module JavaScript cleanup from
+The third-review repair candidate code commit `fabad7d84` on base `6603e6c29`, with
+synchronized user documentation in `416cf83b3`, separates exact-module JavaScript cleanup from
 declaration emit and recognizes external-module import-equals syntax. Direct package
 tests pass 38/38: both verbatim modes run through the real packed installed CLI,
 emitted JavaScript passes `node --check`, production runs after the marker package is
@@ -676,14 +675,19 @@ had used `--omit=dev`, masking the defect. The now-checked exact-manifest behavi
 above is the required repair boundary. The reviewed checkpoint remains unpushed and
 requires another independent APPROVE after implementation.
 
-The fourth-review repair candidate code commit `f03d0fed1`, with synchronized user
-documentation in `94583c850`, removes the sibling dependency from both manifest and
+The fourth-review repair candidate code commit `9baf6d2bf` on base `6603e6c29`, with
+synchronized user documentation in `c42465d5a`, removes the sibling dependency from both manifest and
 lockfile. Typechecking resolves explicit-control declarations through a non-published
 TypeScript path, while compiler/runtime tests create their own temporary sibling
 symlink fixtures. The new exact-tar regression packs and extracts
 `package/package.json`, proves the sole development dependency is registry
 `typescript: 5.9.3`, performs ordinary install with no sibling checkout or control
 link, and self-imports the root and transform subpaths. Direct package tests pass
-39/39, package typecheck and all three published-file syntax checks are green. These
-are local pre-integration results; repeated cross-package/catalog/conformance gates
-and another independent review remain mandatory before push or claim release.
+39/39, package typecheck and all three published-file syntax checks are green. The
+exact eight-file pack is 15,618 packed bytes and 59,636 unpacked bytes, with no
+bundled dependency, executable CLI, and the repository license verbatim. The existing
+explicit package remains 31/31 plus typecheck/node check and its exact five-file
+11,059/42,353-byte pack. Shared catalog validation is 26 vectors / nine lanes,
+negative validation is 9/9, and affected `effect*,effects*` conformance is 5/5
+(memoized unchanged green). These are local pre-integration results; another
+independent review remains mandatory before push or claim release.
