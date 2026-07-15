@@ -1,6 +1,6 @@
 # Portable residual-effect forwarding
 
-> Status: **design freeze / implementation in progress** (2026-07-15).
+> Status: **implemented / verified** (2026-07-15).
 > Normative owners: [`control-interoperability.md`](control-interoperability.md),
 > [`algebraic-effects.md`](algebraic-effects.md), [`../SPEC.md`](../SPEC.md),
 > and the one-shot refinement in
@@ -87,62 +87,62 @@ total `ClosV` whose catch-all throws for foreign operations.
 
 ## Behavior
 
-- [ ] An operation with no arm in the nearest handler is returned as exactly
+- [x] An operation with no arm in the nearest handler is returned as exactly
       `Op(label, argument, deepResume)` and is consumable by the next enclosing
       handler on portable VM and direct ASM.
-- [ ] Invoking the forwarded `deepResume` first invokes the original
+- [x] Invoking the forwarded `deepResume` first invokes the original
       continuation and then reinstalls the skipped handler, so later operations
       handled by that inner handler remain handled.
-- [ ] Forwarding preserves the original base continuation and therefore its
+- [x] Forwarding preserves the original base continuation and therefore its
       multiplicity: a forwarded plain `.ssc effect` remains one-shot, while a
       forwarded `multi effect` or raw `effect.perform` remains reusable.
-- [ ] Selecting an explicit arm or wildcard/default consumes the recoverable
+- [x] Selecting an explicit arm or wildcard/default consumes the recoverable
       dispatch marker before evaluating the arm body. Any nested pattern failure,
       exception, or control failure from that body propagates unchanged and is
       never forwarded.
-- [ ] Guarded, duplicate-constructor, literal, and nested source patterns retain
+- [x] Guarded, duplicate-constructor, literal, and nested source patterns retain
       ordered partial-function behavior: a false guard/pattern continues to the
       next case, terminal fallthrough is `Unhandled`, and only the selected case
       consumes the dispatch before its body.
-- [ ] The compatibility and self-hosted native frontends qualify the same
+- [x] The compatibility and self-hosted native frontends qualify the same
       one-argument self-scrutinee partial-function shape. Simple constructor
       cases retain a direct root `Match`; general ordered chains carry the same
       private selected/miss markers, so installed standard-tier VM and direct
       ASM agree with FrontendBridge rather than depending on a frontend-specific
       wrapper shape.
-- [ ] Pattern guards may themselves perform effects. A guard-side operation is
+- [x] Pattern guards may themselves perform effects. A guard-side operation is
       exposed as an ordinary residual `Op`; after each resume the pending exact
       handler decision continues, then either selects an arm or forwards the
       original operation. Reusable guard effects create independent decision
       branches, while one-shot guard effects retain their base claim.
-- [ ] A total general handler whose final named/wildcard catch-all makes terminal
+- [x] A total general handler whose final named/wildcard catch-all makes terminal
       miss unreachable is still dispatch-qualified by its pre-body selected
       marker. An effect raised by an earlier guard therefore suspends the pending
       decision instead of being reported as an already matched handler result.
-- [ ] A missing `Return` arm uses the same structured `Unhandled` result and
+- [x] A missing `Return` arm uses the same structured `Unhandled` result and
       returns the pure value unchanged. No runtime path recognizes missing arms
       from exception-message text.
-- [ ] Runtime/plugin-owned partial handlers return the same structured
+- [x] Runtime/plugin-owned partial handlers return the same structured
       `Matched | Unhandled` result. An unknown operation crosses a standard
       Logger/Stream runner, and resuming it reinstalls that runner for later
       Logger/Stream operations.
-- [ ] Concurrent and reentrant handler calls cannot share a dispatch probe or
+- [x] Concurrent and reentrant handler calls cannot share a dispatch probe or
       observe another invocation's decision.
-- [ ] A nested/delegated partial function or an ordinary reentrant invocation of
+- [x] A nested/delegated partial function or an ordinary reentrant invocation of
       the same qualified closure while a guard is pending cannot consume or
       reject the outer decision even when it receives the exact same event
       object. Event identity, qualified-root owner, and per-invocation activation
       provenance must all match.
-- [ ] Adding handler-root flags to newly generated local-`LetRec` closures does
+- [x] Adding handler-root flags to newly generated local-`LetRec` closures does
       not break persisted direct-ASM artifacts: the historical three-argument
       static `Emit.letrec(int[], LamFn[], Value[])` descriptor remains linkable
       and delegates with every handler flag false.
-- [ ] Every backend that consumes FrontendBridge CoreIR recognizes the two
+- [x] Every backend that consumes FrontendBridge CoreIR recognizes the two
       bridge-private decision markers. Without a typed dispatch context,
       `selected` is a no-op and `miss` is the backend's ordinary exhaustive-match
       failure; neither becomes a public primitive/capability nor an unknown-op
       regression.
-- [ ] Interoperability axis 19 is a runnable exact-output vector, and the existing
+- [x] Interoperability axis 19 is a runnable exact-output vector, and the existing
       one-shot violation, multi-shot, deep-handler, native effect e2e, and affected
       conformance vectors remain green.
 
@@ -497,6 +497,35 @@ while matching-arm failures share the ordinary failure path.
 ## Results
 
 Pre-implementation assembled baseline (2026-07-14): an inner `Rd` handler
-receives an outer `Wr.wr` event and both portable VM and direct ASM terminate
-with `match: no arm for wr/2`. Implementation results are filled by the
-spec-verification commit.
+received an outer `Wr.wr` event and both portable VM and direct ASM terminated
+with `match: no arm for wr/2`.
+
+Verified implementation results (2026-07-15):
+
+- `scripts/sbtc 'v2FrontendBridge/Test/testOnly
+  ssc.bridge.PortableEffectsResidualForwardingTest'`: 17/17 green, with every
+  source-level case executing both portable VM and direct ASM. The selected-only
+  total-catch-all regression returns exact `108` in both lanes.
+- `scripts/sbtc 'v2FrontendBridge/Test/testOnly
+  ssc.bridge.PortableEffectsOneShotTest;v2NativeEffectRunnersPlugin/Test/testOnly
+  ssc.plugin.effects.EffectRunnersNativePluginTest'`: 4/4 one-shot and 6/6
+  native-runner tests green.
+- A full affected compile plus `cli/installBin` succeeded. The installed
+  axis-19 probe returns exact `57`, exit zero, and empty stderr with both
+  `bin/ssc-standard run --native` and its `--bytecode` direct-ASM lane.
+- `tests/e2e/v21-native-effect-handlers-smoke.sh` passes. It executes the new
+  residual fixture as exact `108` on both installed lanes and structurally
+  checks the self-hosted lowerer for direct `Match(Local(0), ...)` and
+  selected-only total-handler qualification.
+- `v2/backend/check-handler-markers.sh` passes on standalone JVM source,
+  JavaScript, and Rust. Four focused real-Swift tests pass for marker fallback,
+  transitive effects, one-/multi-shot multiplicity, and implicit-`Return`
+  failure isolation.
+- `tests/conformance/run.sh --only
+  'effects,effect-*,head-field-effect-shadow' --no-memo`: 6/6 affected corpus
+  cases green across their INT/JS/JVM/V2 lanes.
+- `tests/interop-conformance/run.sh`: 11 measurable axes green, 0 failures;
+  residual-forwarding axis 19 reports exact `57`.
+- `scripts/v21-stage2-bootstrap-gate`: both single and multi fixed points are
+  true and the 133-file compiler image is source-exact
+  (`23bdb20dcd59953e25ecf7849db06ad6a5d332a075f36d6dd097a124212d280c`).

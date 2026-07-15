@@ -56,11 +56,11 @@ host, those two gates.
 | 16 | concurrent multi-shot | pending-codec | needs SavedContinuation |
 | 17 | no prefix/main replay | pending-codec | needs init-free resume entry |
 | 18 | delimited shift/reset (multi-prompt) | pending-runtime | `reset` unbound on VM |
-| 19 | residual forwarding (nested handlers) | pending-runtime | inner ⇏ outer (no arm) |
+| 19 | residual forwarding (nested handlers) | measurable-now | ✓ 57 |
 | 20 | stack-safety, deep effect recursion | pending-runtime | overflow ~2k depth |
 | 21 | one-shot violation diagnostic | measurable-now | ✓ `error [ONESHOT_VIOLATION]: One-shot violation: One.op resumed more than once` |
 
-Measurable-now axes (01–09, 21) are the **in-process** control semantics the
+Measurable-now axes (01–09, 19, 21) are the **in-process** control semantics the
 portable-VM implements today via `handle(prog()) { case Eff.op(args, resume) => … }`
 and `multi effect` (validated against `tests/conformance/effects.ssc` and
 `effect-deep-handler-state.ssc`). They are the reference baseline every host
@@ -77,13 +77,13 @@ Two distinct pending groups — never silently green:
   whole model exists to close is **15 (cross-host resume)**: the portable-VM
   already does N→M resume in-process (02, 05, 09); only the durable serialization
   to cross a host boundary is missing.
-- **`pending-runtime` (18–20)** are §14.1 semantic vectors the portable-VM
+- **`pending-runtime` (18, 20)** are §14.1 semantic vectors the portable-VM
   effect runtime does **not** support yet, found empirically (2026-07-14, each
   `pending/` file records the exact measured evidence): delimited `shift`/`reset`
-  is unbound; an inner handler does not forward an unhandled operation to an outer
-  handler (`no arm for wr/2`); effect-performing recursion overflows the native
-  stack between depth 500 and 2000 (pure TCO is unaffected — axis 03 ✓ at 2,000,000).
-  These need effect-runtime support, **not** the codec.
+  is unbound, and effect-performing recursion overflows the native stack between
+  depth 500 and 2000 (pure TCO is unaffected — axis 03 ✓ at 2,000,000). These
+  need effect-runtime support, **not** the codec. Axis 19 is now runnable and
+  proves nested residual forwarding with exact result `57`.
 
 ## Layout
 

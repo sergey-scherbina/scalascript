@@ -5,7 +5,7 @@ resolution, point 7) but are **not yet measurable** on the portable-VM runner.
 Axes 10–17 require the `DurableValue` wire codec, the `save()`/`run()` durable
 surface, and the atomic admission layer. Per the v2.2 gate, byte-affecting codec
 work starts only **after the X1 self-compilation fixed-point**, so these stay
-`pending-codec`. Axes 18–20 are independent runtime gaps and stay
+`pending-codec`. Axes 18 and 20 are independent runtime gaps and stay
 `pending-runtime`.
 
 Each `*.pending` file records the axis name, what it needs, and the exact
@@ -21,6 +21,6 @@ Grouping:
 - **negative (must reject)** — `10` raw ForeignV → Unsavable, `11` missing
   resolver → admission reject, `12` codec/artifact mismatch → typed reject,
   `13` signature/audience/tenant/quota → admission reject.
-- **runtime** — `18` delimited shift/reset, `19` residual forwarding, and `20`
-  stack-safe deep effect recursion. Axis `21` is now a runnable expected-negative
-  probe with an exact one-shot diagnostic.
+- **runtime** — `18` delimited shift/reset and `20` stack-safe deep effect
+  recursion. Axes `19` (nested residual forwarding) and `21` (one-shot
+  violation) are now runnable exact-output probes.
