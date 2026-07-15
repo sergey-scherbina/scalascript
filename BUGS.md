@@ -782,15 +782,40 @@ commit message repeats the wrong claim; disregard it.)
 
 ## interp-jit-nested-match-duplicate-var — a nested `match` binding the same value-type miscompiles on the JIT
 
-**Status:** open (found 2026-07-14). Interpreter JIT (JavaC backend, the default
-tier) codegen bug; workaround = avoid the nested match.
+**Status:** FIXED (2026-07-15, `JavacJitBackend.scala`). Two independent codegen
+defects, both surfaced by a `match` nested inside another match's arm:
+
+1. **Duplicate helper locals.** A nested match compiles to an IIFE lambda whose body
+   re-declared the same helper locals (`inst`, `__fa_<ctor>`, `<bind>_a`, `tn`) as the
+   enclosing match; Java forbids a lambda-body local from shadowing an enclosing-method
+   local, so `javac` failed `variable inst is already defined`. FIX: a per-nesting-depth
+   uniquifier (`GenCtx.nameSuffix` / `deeperMatch`) suffixes every emitted match helper
+   local (`inst_1`, `__fa_Bin_1`, `a_a_1`, …). Depth 0 → empty suffix, so non-nested
+   codegen is byte-identical. Depth strictly increases from an enclosing match to a
+   nested one, so no ancestor/descendant scopes ever share a name.
+2. **Unused ref binding extracted as `IntV`.** A named-but-unused pattern binding
+   (`case Bin(l, r) => …` where `l`/`r` are unused `E` values) was eagerly extracted as
+   `long l_a = ((IntV) __fa_Bin[0]).v()` — a `ClassCastException` on a ref field. Pre-fix
+   this was masked in production (the runtime caught the CCE and fell back to tree-walk)
+   but wasted every JIT attempt. FIX: `bindingReferenced` treats an unreferenced binding
+   as a wildcard, so no local is emitted for it.
+
+Empirically the javac error did NOT "error out the call" (see original report below) —
+the runtime swallowed it and ran the tree-walk tier, so results were always correct; the
+bug was a silent loss of JIT for nested matches. Verified: `SscVmTest` two new cases
+(single-nested + triply-nested on the same param) JIT-compile as `ObjToLong` and return
+the right values; full `backendInterpreter/test` green, 0 regressions.
+
+<details><summary>original report (2026-07-14)</summary>
+open. Interpreter JIT (JavaC backend, the default tier) codegen bug; workaround = avoid
+the nested match.
 
 **Symptom:** a function whose body has a `match` nested inside another `match`'s
 case, where BOTH scrutinees are cast to the same runtime `Value` subtype (e.g.
 `InstanceV`), makes the JIT emit two `InstanceV inst = (InstanceV) …;` locals in one
-Java method → `javac` fails with `variable inst is already defined in method …`, so
-the whole call errors out (`/GenJit_<fn>_<n>.java:…: error: variable inst is already
-defined`). Minimal repro (SclJet `SqliteValue` = a sealed trait of case classes):
+Java method → `javac` fails with `variable inst is already defined in method …`.
+(The whole call was believed to error out; in fact the runtime bails to tree-walk.)
+Minimal repro (SclJet `SqliteValue` = a sealed trait of case classes):
 
 ```scalascript
 def cmp(a: SqliteValue, b: SqliteValue): Int =
@@ -800,13 +825,14 @@ def cmp(a: SqliteValue, b: SqliteValue): Int =
       case _ => 1
     case _ => 2
 ```
+(Note: `cmp`'s two ref params make it bail on the "both params ref-typed" cliff before
+codegen; the collision reproduces on a single-ref-param function whose arm re-matches
+the same param, e.g. `x match { case Bin(l,r) => x match { … } }`.)
 
 **Workaround:** split each match into its own single-level helper so no method has
 two same-subtype casts — see `integerOf`/`textOf` used by `compareKeys` in
 `scljet/write.ssc`. The tree-walk tier (`SSC_JIT_BYTECODE=off`) is unaffected.
-
-**Likely cause:** the JIT emits a fixed local name (`inst`) per pattern cast
-without uniquifying across nested match scopes in the same method.
+</details>
 
 ## interp-if-then-no-else-after-while — a bare `if cond then stmt` before a return is skipped
 

@@ -829,8 +829,22 @@ object JavacJitBackend extends JitBackend:
     // indexable seq (bound to `Array(...)`/`Vector(...)`/`List(...)`). Value is
     // true iff the seq is a mutable `Array` (so `a(i)=x` stores are allowed).
     // Lets `a(idx)` read JIT as seqIndexLong on a *local* (slice 1 only did globals).
-    val seqLocals:   Map[String, Boolean] = Map.empty
+    val seqLocals:   Map[String, Boolean] = Map.empty,
+    // Nested-match uniquifier: how deeply the current expression is nested inside
+    // enclosing `match` scopes IN THE SAME JAVA METHOD. A nested match compiles to
+    // an IIFE lambda whose body re-declares the same helper locals (`inst`,
+    // `__fa_<ctor>`, `<bind>_a`, …); Java forbids a lambda-body local from
+    // shadowing an enclosing-method local, so those names must differ per level.
+    // `nameSuffix` is appended to every such local; it is "" at depth 0, so the
+    // common (non-nested) case is byte-identical to before. Depth strictly
+    // increases from an enclosing match to a nested one, so no two colliding
+    // (ancestor/descendant) scopes ever share a suffix. (bug:
+    // interp-jit-nested-match-duplicate-var.)
+    val matchDepth:  Int = 0
   ) extends JitShapeCtx:
+    /** Per-match-scope suffix for emitted helper locals; "" at the outermost
+     *  (depth 0) match so non-nested codegen is unchanged. */
+    def nameSuffix: String = if matchDepth == 0 then "" else "_" + matchDepth
     // JitShapeCtx: a local Long is one that resolves to a Java variable.
     def isLocalLong(n: String): Boolean = resolveLocal(n) != null
     def isLambda(n: String): Boolean    = lambdas.contains(n)
@@ -867,12 +881,17 @@ object JavacJitBackend extends JitBackend:
       val idx = paramNames.indexOf(n)
       if idx >= 0 && idx < paramTypes.length then paramTypes(idx) else null
     def withBindings(more: Iterable[(String, (String, Boolean))]): GenCtx =
-      new GenCtx(funName, params, paramNames, paramIsRef, isDouble, bindings ++ more, interp, coEmit, paramTypes, lambdas, seqLocals)
+      new GenCtx(funName, params, paramNames, paramIsRef, isDouble, bindings ++ more, interp, coEmit, paramTypes, lambdas, seqLocals, matchDepth)
     def withLambda(name: String, paramNamesL: Array[String], body: Term): GenCtx =
-      new GenCtx(funName, params, paramNames, paramIsRef, isDouble, bindings, interp, coEmit, paramTypes, lambdas + (name -> (paramNamesL, body)), seqLocals)
+      new GenCtx(funName, params, paramNames, paramIsRef, isDouble, bindings, interp, coEmit, paramTypes, lambdas + (name -> (paramNamesL, body)), seqLocals, matchDepth)
     /** Bind a ref-local AND record it as a seq (slice 2). `isArray` enables `a(i)=x` stores. */
     def withSeqLocal(name: String, jvar: String, isArray: Boolean): GenCtx =
-      new GenCtx(funName, params, paramNames, paramIsRef, isDouble, bindings + (name -> (jvar, true)), interp, coEmit, paramTypes, lambdas, seqLocals + (name -> isArray))
+      new GenCtx(funName, params, paramNames, paramIsRef, isDouble, bindings + (name -> (jvar, true)), interp, coEmit, paramTypes, lambdas, seqLocals + (name -> isArray), matchDepth)
+    /** Enter a nested `match` scope: bumps the uniquifier depth so the nested
+     *  match's helper locals (`inst`, `__fa_<ctor>`, …) don't collide with the
+     *  enclosing match's in the same Java method. */
+    def deeperMatch: GenCtx =
+      new GenCtx(funName, params, paramNames, paramIsRef, isDouble, bindings, interp, coEmit, paramTypes, lambdas, seqLocals, matchDepth + 1)
 
   /** Stage 9: inline a val-bound lambda's body at the call site by binding
    *  each lambda param to the arg's *Java expression* directly (no local var,
@@ -912,8 +931,11 @@ object JavacJitBackend extends JitBackend:
     // The function body's top-level match is emitted as statements by
     // `walkMatchBody`; here we need an expression form, so we delegate to
     // `walkMatchExpr` which wraps the switch in a `LongSupplier` IIFE.
+    // `deeperMatch` bumps the nested-match uniquifier so this expression-position
+    // match's helper locals don't collide with an enclosing match's in the same
+    // Java method (bug: interp-jit-nested-match-duplicate-var).
     case tm: Term.Match =>
-      walkMatchExpr(tm, ctx, ctx.interp)
+      walkMatchExpr(tm, ctx.deeperMatch, ctx.interp)
     case tn: Term.Name =>
       // Only int-typed names can be read into a Long expression. Ref-typed
       // names (param scrutinee, ref-classified bindings) cannot.
@@ -1949,8 +1971,9 @@ object JavacJitBackend extends JitBackend:
       else s"((java.util.function.DoubleSupplier)(() -> { $stmts })).getAsDouble()"
     // Nested `Term.Match` in Double-typed expression context; mirrors
     // walkLong's treatment via the DoubleSupplier IIFE.
+    // `deeperMatch`: see walkLong — keeps nested-match helper locals distinct.
     case tm: Term.Match =>
-      walkMatchExpr(tm, ctx, ctx.interp)
+      walkMatchExpr(tm, ctx.deeperMatch, ctx.interp)
     case tn: Term.Name =>
       if ctx.isRefName(tn.value) then null
       else
@@ -2173,6 +2196,11 @@ object JavacJitBackend extends JitBackend:
     s"(($supplierIface)(() -> {\n      $body\n    })).$getter()"
 
   private def walkMatchBody(tm: Term.Match, ctx: GenCtx, interp: scalascript.interpreter.Interpreter): String | Null =
+    // Nested-match uniquifier: these helper locals are suffixed per match depth so
+    // a nested match's IIFE body can't collide with this one (see GenCtx.nameSuffix).
+    val sfx   = ctx.nameSuffix
+    val instJ = "inst" + sfx
+    val tnJ   = "tn" + sfx
     // Stage 5.5: support non-Term.Name scrutinees by hoisting to a local.
     val (scrutDecl, scrutJava) = tm.expr match
       case n: Term.Name =>
@@ -2181,7 +2209,8 @@ object JavacJitBackend extends JitBackend:
       case other =>
         val refExpr = walkRef(other, ctx)
         if refExpr == null then return null
-        (s"Object _scrutRef = $refExpr;\n    ", "_scrutRef")
+        val scrutRefJ = "_scrutRef" + sfx
+        (s"Object $scrutRefJ = $refExpr;\n    ", scrutRefJ)
     // Pre-resolve int tags for all arms so we can decide switch type upfront.
     val cases = tm.casesBlock.cases
     val armTags = new Array[Int](cases.length)
@@ -2214,7 +2243,7 @@ object JavacJitBackend extends JitBackend:
       ai += 1
     val sb = new StringBuilder
     sb.append(scrutDecl)
-    sb.append(s"scalascript.interpreter.Value$$package$$Value$$InstanceV inst = (scalascript.interpreter.Value$$package$$Value$$InstanceV) $scrutJava;\n    ")
+    sb.append(s"scalascript.interpreter.Value$$package$$Value$$InstanceV $instJ = (scalascript.interpreter.Value$$package$$Value$$InstanceV) $scrutJava;\n    ")
     // If any arm carries a guard, fall back to a sequential if-chain because a
     // Java switch can't re-dispatch on guard failure: when `case A(n) if n > 0`
     // fails its guard, execution must continue to the next arm rather than
@@ -2233,15 +2262,15 @@ object JavacJitBackend extends JitBackend:
         ci += 1
       if !hasWildcard then
         if allTagged then
-          sb.append("throw new RuntimeException(\"JavacJitBackend: no case matched, tag=\" + inst.typeTag());")
+          sb.append(s"throw new RuntimeException(\"JavacJitBackend: no case matched, tag=\" + $instJ.typeTag());")
         else
-          sb.append("throw new RuntimeException(\"JavacJitBackend: no case matched, typeName=\" + inst.typeName());")
+          sb.append(s"throw new RuntimeException(\"JavacJitBackend: no case matched, typeName=\" + $instJ.typeName());")
     else
       if allTagged then
-        sb.append("switch (inst.typeTag()) {\n    ")
+        sb.append(s"switch ($instJ.typeTag()) {\n    ")
       else
-        sb.append("String tn = inst.typeName();\n    ")
-        sb.append("switch (tn) {\n    ")
+        sb.append(s"String $tnJ = $instJ.typeName();\n    ")
+        sb.append(s"switch ($tnJ) {\n    ")
       var ci = 0
       var restList = cases
       while restList.nonEmpty do
@@ -2252,9 +2281,9 @@ object JavacJitBackend extends JitBackend:
         ci += 1
       if !hasWildcard then
         if allTagged then
-          sb.append("  default: throw new RuntimeException(\"JavacJitBackend: no case matched, tag=\" + inst.typeTag());\n    }")
+          sb.append(s"  default: throw new RuntimeException(\"JavacJitBackend: no case matched, tag=\" + $instJ.typeTag());\n    }")
         else
-          sb.append("  default: throw new RuntimeException(\"JavacJitBackend: no case matched, typeName=\" + tn);\n    }")
+          sb.append(s"  default: throw new RuntimeException(\"JavacJitBackend: no case matched, typeName=\" + $tnJ);\n    }")
       else
         sb.append("}")
     sb.toString
@@ -2304,6 +2333,10 @@ object JavacJitBackend extends JitBackend:
         case None => allTagged = false
       ai += 1
     val sb = new StringBuilder
+    // Nested-match uniquifier: this match compiles to an IIFE lambda, whose body
+    // re-declares `inst`; Java forbids shadowing an enclosing-method local, so the
+    // name is suffixed by depth (walkLong/walkDouble entered via `deeperMatch`).
+    val instJ = "inst" + ctx.nameSuffix
     // We need `inst` accessible inside each arm. Wrap the switch expression
     // in a primitive-typed Supplier IIFE so the outer call site sees a plain
     // long/double — `java.util.function.{LongSupplier,DoubleSupplier}` avoid
@@ -2313,7 +2346,7 @@ object JavacJitBackend extends JitBackend:
     val supplierIface = if ctx.isDouble then "java.util.function.DoubleSupplier" else "java.util.function.LongSupplier"
     val getterMethod  = if ctx.isDouble then "getAsDouble"                       else "getAsLong"
     sb.append(s"(($supplierIface)(() -> {\n      ")
-    sb.append(s"scalascript.interpreter.Value$$package$$Value$$InstanceV inst = (scalascript.interpreter.Value$$package$$Value$$InstanceV) $scrutJava;\n      ")
+    sb.append(s"scalascript.interpreter.Value$$package$$Value$$InstanceV $instJ = (scalascript.interpreter.Value$$package$$Value$$InstanceV) $scrutJava;\n      ")
     val hasAnyGuard = casesArr.exists(_.cond.nonEmpty)
     // A supertype `case _: T` arm can't be an exact-tag switch — route to the
     // if-chain, where `walkArmAsIfBranch` emits a `JitGlobals.isSubtype` check
@@ -2337,14 +2370,14 @@ object JavacJitBackend extends JitBackend:
         restList = restList.tail; ci += 1
       if !hasWildcardExpr then
         if allTagged then
-          sb.append("throw new RuntimeException(\"JavacJitBackend: no guarded case matched, tag=\" + inst.typeTag());\n    ")
+          sb.append(s"throw new RuntimeException(\"JavacJitBackend: no guarded case matched, tag=\" + $instJ.typeTag());\n    ")
         else
-          sb.append("throw new RuntimeException(\"JavacJitBackend: no guarded case matched, typeName=\" + inst.typeName());\n    ")
+          sb.append(s"throw new RuntimeException(\"JavacJitBackend: no guarded case matched, typeName=\" + $instJ.typeName());\n    ")
       sb.append("}))") // close lambda + IIFE cast
     else
       sb.append(s"return ")
-      if allTagged then sb.append("switch (inst.typeTag()) {\n      ")
-      else             sb.append("switch (inst.typeName()) {\n      ")
+      if allTagged then sb.append(s"switch ($instJ.typeTag()) {\n      ")
+      else             sb.append(s"switch ($instJ.typeName()) {\n      ")
       var ci = 0; var restList = cases
       while restList.nonEmpty do
         val arm = walkArmExpr(restList.head, ctx, interp, if allTagged then armTags(ci) else 0)
@@ -2353,9 +2386,9 @@ object JavacJitBackend extends JitBackend:
         restList = restList.tail; ci += 1
       if !hasWildcardExpr then
         if allTagged then
-          sb.append("  default -> { throw new RuntimeException(\"JavacJitBackend: no case matched, tag=\" + inst.typeTag()); }\n      };\n    }))")
+          sb.append(s"  default -> { throw new RuntimeException(\"JavacJitBackend: no case matched, tag=\" + $instJ.typeTag()); }\n      };\n    }))")
         else
-          sb.append("  default -> { throw new RuntimeException(\"JavacJitBackend: no case matched, typeName=\" + inst.typeName()); }\n      };\n    }))")
+          sb.append(s"  default -> { throw new RuntimeException(\"JavacJitBackend: no case matched, typeName=\" + $instJ.typeName()); }\n      };\n    }))")
       else
         sb.append("};\n    }))")
     sb.append(s".$getterMethod()")
@@ -2367,6 +2400,8 @@ object JavacJitBackend extends JitBackend:
    *  differs (no `return`, must `yield`). */
   private def walkArmExpr(c: scala.meta.Case, ctx: GenCtx, interp: scalascript.interpreter.Interpreter, intTag: Int): String | Null =
     if c.cond.nonEmpty then return null
+    val sfx   = ctx.nameSuffix   // nested-match uniquifier (see GenCtx.nameSuffix)
+    val instJ = "inst" + sfx
     c.pat match
       case ext: scala.meta.Pat.Extract =>
         val ctorName = ext.fun match
@@ -2378,7 +2413,9 @@ object JavacJitBackend extends JitBackend:
         var i = 0
         while i < n do
           argPats(i) match
-            case Pat.Var(Term.Name(bn)) => bindNames(i) = bn
+            // An unreferenced named binding is treated as a wildcard so no field
+            // is extracted (extracting an unused ref field as IntV would crash).
+            case Pat.Var(Term.Name(bn)) => bindNames(i) = if bindingReferenced(c, bn) then bn else "_unused$" + i
             case _: Pat.Wildcard        => bindNames(i) = "_unused$" + i
             case _                      => return null
           i += 1
@@ -2394,15 +2431,15 @@ object JavacJitBackend extends JitBackend:
         var k = 0
         while k < n do
           if !bindNames(k).startsWith("_unused$") then
-            val jvar = sanitize(bindNames(k)) + "_a"
+            val jvar = sanitize(bindNames(k)) + "_a" + sfx
             bindingMap += (bindNames(k) -> (jvar, bindIsRef(k)))
           k += 1
         val newCtx = ctx.withBindings(bindingMap.toMap)
         val sb = new StringBuilder
         if intTag > 0 then sb.append(s"      case $intTag -> {\n        ")
         else               sb.append(s"""      case "${escape(ctorName)}" -> {\n        """)
-        val faVar = s"__fa_${sanitize(ctorName)}"
-        if n > 0 then sb.append(s"Object[] $faVar = inst.fieldsArr();\n        ")
+        val faVar = s"__fa_${sanitize(ctorName)}$sfx"
+        if n > 0 then sb.append(s"Object[] $faVar = $instJ.fieldsArr();\n        ")
         var fi = 0
         while fi < n do
           if !bindNames(fi).startsWith("_unused$") then
@@ -2411,7 +2448,7 @@ object JavacJitBackend extends JitBackend:
             if isRef then
               sb.append(s"""Object $jvar = $readExpr;\n        """)
             else if ctx.isDouble then
-              val raw = s"_rf${fi}_${sanitize(ctorName)}"
+              val raw = s"_rf${fi}_${sanitize(ctorName)}$sfx"
               sb.append(s"""Object $raw = $readExpr;\n        """)
               sb.append(s"""double $jvar = $raw instanceof scalascript.interpreter.DataValue.DoubleV ? ((scalascript.interpreter.DataValue.DoubleV) $raw).v() : (double) ((scalascript.interpreter.DataValue.IntV) $raw).v();\n        """)
             else
@@ -2429,11 +2466,11 @@ object JavacJitBackend extends JitBackend:
         s"      default -> { yield $armBodyJava; }\n    "
       case pv: scala.meta.Pat.Var =>
         val xName = pv.name.value
-        val xBind = sanitize(xName) + "_a"
+        val xBind = sanitize(xName) + "_a" + sfx
         val newCtx = ctx.withBindings(Map(xName -> (xBind, true)))
         val armBodyJava = if ctx.isDouble then walkDouble(c.body, newCtx) else walkLong(c.body, newCtx)
         if armBodyJava == null then return null
-        s"      default -> { Object $xBind = inst; yield $armBodyJava; }\n    "
+        s"      default -> { Object $xBind = $instJ; yield $armBodyJava; }\n    "
       case _ => null
 
   /** Emit a single match arm as an `if (tagCheck) { bindings; [if (guard) { ]return body;[ }] }`
@@ -2441,6 +2478,8 @@ object JavacJitBackend extends JitBackend:
    *  can't re-dispatch on guard failure, so the whole match is lowered to an
    *  if-chain that naturally falls through to the next arm. */
   private def walkArmAsIfBranch(c: scala.meta.Case, ctx: GenCtx, interp: scalascript.interpreter.Interpreter, intTag: Int, allTagged: Boolean): String | Null =
+    val sfx   = ctx.nameSuffix   // nested-match uniquifier (see GenCtx.nameSuffix)
+    val instJ = "inst" + sfx
     c.pat match
       case ext: scala.meta.Pat.Extract =>
         val ctorName = ext.fun match
@@ -2452,7 +2491,9 @@ object JavacJitBackend extends JitBackend:
         var i = 0
         while i < n do
           argPats(i) match
-            case Pat.Var(Term.Name(bn)) => bindNames(i) = bn
+            // An unreferenced named binding is treated as a wildcard so no field
+            // is extracted (extracting an unused ref field as IntV would crash).
+            case Pat.Var(Term.Name(bn)) => bindNames(i) = if bindingReferenced(c, bn) then bn else "_unused$" + i
             case _: Pat.Wildcard        => bindNames(i) = "_unused$" + i
             case _                      => return null
           i += 1
@@ -2468,17 +2509,17 @@ object JavacJitBackend extends JitBackend:
         var k = 0
         while k < n do
           if !bindNames(k).startsWith("_unused$") then
-            val jvar = sanitize(bindNames(k)) + "_a"
+            val jvar = sanitize(bindNames(k)) + "_a" + sfx
             bindingMap += (bindNames(k) -> (jvar, bindIsRef(k)))
           k += 1
         val newCtx = ctx.withBindings(bindingMap.toMap)
         val sb = new StringBuilder
         if allTagged && intTag > 0 then
-          sb.append(s"if (inst.typeTag() == $intTag) {\n      ")
+          sb.append(s"if ($instJ.typeTag() == $intTag) {\n      ")
         else
-          sb.append(s"""if ("${escape(ctorName)}".equals(inst.typeName())) {\n      """)
-        val faVar = s"__fa_${sanitize(ctorName)}"
-        if n > 0 then sb.append(s"Object[] $faVar = inst.fieldsArr();\n      ")
+          sb.append(s"""if ("${escape(ctorName)}".equals($instJ.typeName())) {\n      """)
+        val faVar = s"__fa_${sanitize(ctorName)}$sfx"
+        if n > 0 then sb.append(s"Object[] $faVar = $instJ.fieldsArr();\n      ")
         var fi = 0
         while fi < n do
           if !bindNames(fi).startsWith("_unused$") then
@@ -2487,7 +2528,7 @@ object JavacJitBackend extends JitBackend:
             if isRef then
               sb.append(s"""Object $jvar = $readExpr;\n      """)
             else if ctx.isDouble then
-              val raw = s"_rf${fi}_${sanitize(ctorName)}"
+              val raw = s"_rf${fi}_${sanitize(ctorName)}$sfx"
               sb.append(s"""Object $raw = $readExpr;\n      """)
               sb.append(s"""double $jvar = $raw instanceof scalascript.interpreter.DataValue.DoubleV ? ((scalascript.interpreter.DataValue.DoubleV) $raw).v() : (double) ((scalascript.interpreter.DataValue.IntV) $raw).v();\n      """)
             else
@@ -2515,17 +2556,17 @@ object JavacJitBackend extends JitBackend:
         val isSuper = interp.parentTypes.valuesIterator.contains(typeName)
         val tag     = interp.typeTagMap.getOrElse(typeName, 0)
         val cond =
-          if isSuper        then s"""scalascript.interpreter.vm.jit.JitGlobals.isSubtype(inst.typeName(), "${escape(typeName)}")"""
-          else if tag > 0   then s"inst.typeTag() == $tag"
-          else                   s""""${escape(typeName)}".equals(inst.typeName())"""
+          if isSuper        then s"""scalascript.interpreter.vm.jit.JitGlobals.isSubtype($instJ.typeName(), "${escape(typeName)}")"""
+          else if tag > 0   then s"$instJ.typeTag() == $tag"
+          else                   s""""${escape(typeName)}".equals($instJ.typeName())"""
         val newCtx =
           if bindName == null then ctx
-          else ctx.withBindings(Map(bindName -> (sanitize(bindName) + "_a", true)))
+          else ctx.withBindings(Map(bindName -> (sanitize(bindName) + "_a" + sfx, true)))
         val armBodyJava = if ctx.isDouble then walkDouble(c.body, newCtx) else walkLong(c.body, newCtx)
         if armBodyJava == null then return null
         val sb = new StringBuilder
         sb.append(s"if ($cond) {\n      ")
-        if bindName != null then sb.append(s"Object ${sanitize(bindName)}_a = inst;\n      ")
+        if bindName != null then sb.append(s"Object ${sanitize(bindName)}_a$sfx = $instJ;\n      ")
         c.cond match
           case Some(g) =>
             val guardJava = guardBoolExpr(g, newCtx)
@@ -2541,11 +2582,11 @@ object JavacJitBackend extends JitBackend:
         s"return $armBodyJava;\n    "
       case pv: scala.meta.Pat.Var =>
         val xName = pv.name.value
-        val xBind = sanitize(xName) + "_a"
+        val xBind = sanitize(xName) + "_a" + sfx
         val newCtx = ctx.withBindings(Map(xName -> (xBind, true)))
         val armBodyJava = if ctx.isDouble then walkDouble(c.body, newCtx) else walkLong(c.body, newCtx)
         if armBodyJava == null then return null
-        s"Object $xBind = inst;\n    return $armBodyJava;\n    "
+        s"Object $xBind = $instJ;\n    return $armBodyJava;\n    "
       case alt: Pat.Alternative =>
         // Pat.Alternative: emit `if (cond1 || cond2) { return body; }`.
         // Only supported when sub-patterns have no extracted field bindings used in the body.
@@ -2554,8 +2595,8 @@ object JavacJitBackend extends JitBackend:
             val cn = ext.fun match { case Term.Name(n) => n; case _ => return null }
             if !ext.argClause.values.forall(_.isInstanceOf[Pat.Wildcard]) then return null
             val tag = interp.typeTagMap.getOrElse(cn, 0)
-            if tag > 0 then s"inst.typeTag() == $tag"
-            else s"""inst.typeName().equals("${escape(cn)}")"""
+            if tag > 0 then s"$instJ.typeTag() == $tag"
+            else s"""$instJ.typeName().equals("${escape(cn)}")"""
           case _: Pat.Wildcard => "true"
           case _: Pat.Var      => "true"
           case _ => null
@@ -2576,6 +2617,8 @@ object JavacJitBackend extends JitBackend:
    *  emit `case "CtorName":` (String switch fallback). */
   private def walkArm(c: scala.meta.Case, ctx: GenCtx, interp: scalascript.interpreter.Interpreter, intTag: Int): String | Null =
     if c.cond.nonEmpty then return null   // guards not supported in initial slice
+    val sfx   = ctx.nameSuffix   // nested-match uniquifier (see GenCtx.nameSuffix)
+    val instJ = "inst" + sfx
     c.pat match
       // Stage 8: `case _: T =>` and `case x: T =>` — type-test pattern over an
       // ADT constructor T. Equivalent to switch-case on T with no field bindings;
@@ -2591,8 +2634,8 @@ object JavacJitBackend extends JitBackend:
         val newCtx =
           if bindName == null then ctx
           else
-            val bind = sanitize(bindName) + "_a"
-            sb.append(s"Object $bind = inst;\n      ")
+            val bind = sanitize(bindName) + "_a" + sfx
+            sb.append(s"Object $bind = $instJ;\n      ")
             ctx.withBindings(Map(bindName -> (bind, true)))
         val armBodyJava =
           if ctx.isDouble then walkDouble(c.body, newCtx)
@@ -2610,7 +2653,9 @@ object JavacJitBackend extends JitBackend:
         var i = 0
         while i < n do
           argPats(i) match
-            case Pat.Var(Term.Name(bn)) => bindNames(i) = bn
+            // An unreferenced named binding is treated as a wildcard so no field
+            // is extracted (extracting an unused ref field as IntV would crash).
+            case Pat.Var(Term.Name(bn)) => bindNames(i) = if bindingReferenced(c, bn) then bn else "_unused$" + i
             case _: Pat.Wildcard        => bindNames(i) = "_unused$" + i
             case _                      => return null
           i += 1
@@ -2626,7 +2671,7 @@ object JavacJitBackend extends JitBackend:
         var k = 0
         while k < n do
           if !bindNames(k).startsWith("_unused$") then
-            val jvar = sanitize(bindNames(k)) + "_a"
+            val jvar = sanitize(bindNames(k)) + "_a" + sfx
             bindingMap += (bindNames(k) -> (jvar, bindIsRef(k)))
           k += 1
         val newCtx = ctx.withBindings(bindingMap.toMap)
@@ -2637,9 +2682,9 @@ object JavacJitBackend extends JitBackend:
         else
           sb.append(s"""  case "${escape(ctorName)}": {\n      """)
         // Hoist the fieldsArr lookup once per arm. inst is already typed as InstanceV.
-        val faVar = s"__fa_${sanitize(ctorName)}"
+        val faVar = s"__fa_${sanitize(ctorName)}$sfx"
         if n > 0 then
-          sb.append(s"Object[] $faVar = inst.fieldsArr();\n      ")
+          sb.append(s"Object[] $faVar = $instJ.fieldsArr();\n      ")
         var fi = 0
         while fi < n do
           if !bindNames(fi).startsWith("_unused$") then
@@ -2649,7 +2694,7 @@ object JavacJitBackend extends JitBackend:
               sb.append(s"""Object $jvar = $readExpr;\n      """)
             else if ctx.isDouble then
               // Flexible DoubleV/IntV extraction for double-returning functions.
-              val raw = s"_rf${fi}_${sanitize(ctorName)}"
+              val raw = s"_rf${fi}_${sanitize(ctorName)}$sfx"
               sb.append(s"""Object $raw = $readExpr;\n      """)
               sb.append(s"""double $jvar = $raw instanceof scalascript.interpreter.DataValue.DoubleV ? ((scalascript.interpreter.DataValue.DoubleV) $raw).v() : (double) ((scalascript.interpreter.DataValue.IntV) $raw).v();\n      """)
             else
@@ -2667,11 +2712,11 @@ object JavacJitBackend extends JitBackend:
         s"  default: { return $armBodyJava; }\n    "
       case pv: scala.meta.Pat.Var =>
         val xName = pv.name.value
-        val xBind = sanitize(xName) + "_a"
+        val xBind = sanitize(xName) + "_a" + sfx
         val newCtx = ctx.withBindings(Map(xName -> (xBind, true)))
         val armBodyJava = if ctx.isDouble then walkDouble(c.body, newCtx) else walkLong(c.body, newCtx)
         if armBodyJava == null then return null
-        s"  default: { Object $xBind = inst;\n      return $armBodyJava;\n    }\n    "
+        s"  default: { Object $xBind = $instJ;\n      return $armBodyJava;\n    }\n    "
       case _ => null
 
   /** Try to inline the match body of `funV` as a Java `switch (inst.typeTag())`
@@ -2751,7 +2796,9 @@ object JavacJitBackend extends JitBackend:
         var i = 0
         while i < n do
           argPats(i) match
-            case Pat.Var(Term.Name(bn)) => bindNames(i) = bn
+            // An unreferenced named binding is treated as a wildcard so no field
+            // is extracted (extracting an unused ref field as IntV would crash).
+            case Pat.Var(Term.Name(bn)) => bindNames(i) = if bindingReferenced(c, bn) then bn else "_unused$" + i
             case _: Pat.Wildcard        => bindNames(i) = "_unused$" + i
             case _                      => return null
           i += 1
@@ -2827,7 +2874,9 @@ object JavacJitBackend extends JitBackend:
         var i = 0
         while i < n do
           argPats(i) match
-            case Pat.Var(Term.Name(bn)) => bindNames(i) = bn
+            // An unreferenced named binding is treated as a wildcard so no field
+            // is extracted (extracting an unused ref field as IntV would crash).
+            case Pat.Var(Term.Name(bn)) => bindNames(i) = if bindingReferenced(c, bn) then bn else "_unused$" + i
             case _: Pat.Wildcard        => bindNames(i) = "_unused$" + i
             case _                      => return null
           i += 1
@@ -3230,6 +3279,24 @@ object JavacJitBackend extends JitBackend:
   // per-backend through GenCtx.callArgIsRef → callParamIsRef).
   private def bindingIsRef(armBody: Term, bindingName: String, ctx: GenCtx): Boolean =
     JitPredicates.bindingIsRef(armBody, bindingName, ctx)
+
+  /** True iff `name` occurs as a `Term.Name` anywhere in the arm's body or guard.
+   *  A named pattern binding that is NEVER referenced needs no field extraction —
+   *  and extracting it eagerly as an `IntV` (the default when `bindingIsRef` is
+   *  false) throws `ClassCastException` when the field is actually a ref (e.g.
+   *  `case Bin(l, r) => …` where `l`/`r` are unused `E` values). Callers treat an
+   *  unreferenced binding as a wildcard, so no local is emitted. Conservative: any
+   *  textual occurrence (even a shadowing inner binder) counts as "used", so we
+   *  never drop a binding the body actually reads. */
+  private def bindingReferenced(c: scala.meta.Case, name: String): Boolean =
+    var hit = false
+    def walk(t: scala.meta.Tree): Unit =
+      if !hit then t match
+        case Term.Name(n) if n == name => hit = true
+        case _                         => t.children.foreach(walk)
+    walk(c.body)
+    c.cond.foreach(walk)
+    hit
 
   // ── while-loop JIT ───────────────────────────────────────────────────────
 

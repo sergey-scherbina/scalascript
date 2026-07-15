@@ -240,6 +240,61 @@ class SscVmTest extends AnyFunSuite with Matchers:
     jitR.direct.asInstanceOf[ObjToLong].apply(chain) shouldBe 8L
   }
 
+  // Regression: interp-jit-nested-match-duplicate-var. A `match` nested inside
+  // another match's arm (both on a param) previously emitted two `InstanceV inst`
+  // (and `__fa_<ctor>`) locals in one Java method → javac "variable inst is already
+  // defined" → the whole function silently bailed to tree-walk. The nested-match
+  // uniquifier now suffixes helper locals per depth, so the function JIT-compiles.
+  test("javac JIT compiles a match nested inside another match's arm (nested-match uniquifier)") {
+    val interp = interpOf(
+      """sealed trait E
+        |case class Num(n: Int) extends E
+        |case class Bin(l: E, r: E) extends E
+        |def f(x: E): Int = x match
+        |  case Bin(l, r) => x match
+        |    case Bin(a, b) => 1
+        |    case _         => 2
+        |  case Num(v)      => v
+        |val bb = Bin(Num(10), Num(20))
+        |val nn = Num(42)""".stripMargin)
+    val f  = interp.globalsView("f").asInstanceOf[Value.FunV]
+    val bb = interp.globalsView("bb").asInstanceOf[AnyRef]
+    val nn = interp.globalsView("nn").asInstanceOf[AnyRef]
+    val jitR = JavacJitBackend.tryCompile(f, interp)
+    jitR should not be null                       // pre-fix: null (javac failed → bail)
+    jitR.direct.isInstanceOf[ObjToLong] shouldBe true
+    val direct = jitR.direct.asInstanceOf[ObjToLong]
+    direct.apply(bb) shouldBe 1L                  // Bin → inner match on x → Bin → 1
+    direct.apply(nn) shouldBe 42L                 // Num(42) → 42
+  }
+
+  // Three levels of nesting exercise suffixes _1 and _2 (inst, inst_1, inst_2 and
+  // __fa_Bin, __fa_Bin_1, __fa_Bin_2) — proves the uniquifier scales past one level.
+  test("javac JIT compiles a triply-nested match on the same param") {
+    val interp = interpOf(
+      """sealed trait E
+        |case class Num(n: Int) extends E
+        |case class Bin(l: E, r: E) extends E
+        |def g(x: E): Int = x match
+        |  case Bin(l, r) => x match
+        |    case Bin(a, b) => x match
+        |      case Bin(p, q) => 3
+        |      case _         => 2
+        |    case _           => 1
+        |  case Num(v)        => v
+        |val bb = Bin(Num(1), Num(2))
+        |val nn = Num(7)""".stripMargin)
+    val g  = interp.globalsView("g").asInstanceOf[Value.FunV]
+    val bb = interp.globalsView("bb").asInstanceOf[AnyRef]
+    val nn = interp.globalsView("nn").asInstanceOf[AnyRef]
+    val jitR = JavacJitBackend.tryCompile(g, interp)
+    jitR should not be null
+    jitR.direct.isInstanceOf[ObjToLong] shouldBe true
+    val direct = jitR.direct.asInstanceOf[ObjToLong]
+    direct.apply(bb) shouldBe 3L
+    direct.apply(nn) shouldBe 7L
+  }
+
   test("ASM bytecode JIT handles unary ops and block expressions") {
     val interp = interpOf(
       """def adjusted(n: Int): Int =

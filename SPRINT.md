@@ -12105,9 +12105,16 @@ Working through the open compiler bugs + differential extension. Each landed wit
   tiers (tree-walk + bytecode/dispatch VM both funnel control flow through the shared `EvalRuntime.eval`; the
   dispatch VM has no separate `&&`/`||` lowering); the JIT already short-circuited via `LAnd`/`LOr`. Gated:
   repro (`if Nil.nonEmpty && Nil.head>0` → `other`) ✓ + full interpreter suite 1829/0 ✓.
-- [ ] **interp/JS bug sweep** — var-scope-leak-across-calls; if-then-no-else-after-while; JIT
-  nested-match-duplicate-var; js-effect-multishot-in-while; js-caseclass-body-method-params-dropped;
-  v2-bridged-ui (emit collision, signal.id). One at a time, gated.
+- [x] **interp/JS bug sweep** — DONE. Six of the seven listed candidates were ALREADY fixed in prior
+  sessions (var-scope-leak-across-calls, if-then-no-else-after-while, js-effect-multishot-in-while,
+  js-caseclass-body-method-params-dropped, v2-bridged-ui-emit-collision, v2-bridged-ui-signal-id — all
+  marked FIXED in BUGS.md). The one genuinely-open bug, **interp-jit-nested-match-duplicate-var**, is now
+  fixed (`JavacJitBackend.scala`): (a) a per-nesting-depth uniquifier (`GenCtx.nameSuffix`/`deeperMatch`)
+  suffixes match helper locals (`inst_1`, `__fa_Bin_1`, …) so a nested match's IIFE can't shadow the
+  enclosing match's locals (javac "variable inst is already defined") — depth-0 output byte-identical;
+  (b) `bindingReferenced` skips extraction for unused named bindings (they were extracted as `IntV` →
+  ClassCastException on a ref field, masked by the runtime's tree-walk fallback). Gated: 2 new SscVmTest
+  cases (single + triply-nested on same param JIT to ObjToLong, correct values) + full interpreter suite.
 - [ ] **extend v2-vs-JVM differential** — broader real-.ssc corpus through the deep-tree-digest harness to
   find more v2 divergences; fix each.
 - [ ] **make non-running examples run** — DatasetCodec/distributed-dataset; PDF (htmlToPdfBase64); JDBC/h2;
