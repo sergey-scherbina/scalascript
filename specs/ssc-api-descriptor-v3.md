@@ -1,7 +1,7 @@
 # SSC API descriptor v3
 
-Status: **slice A implemented and verified; producer/consumer slices queued**
-(2026-07-15).
+Status: **slice A implemented and verified; slice B producer contract frozen;
+producer implementation in progress; consumer slices queued** (2026-07-15).
 
 This specification refines the structured-descriptor contract in
 [`control-interoperability.md`](control-interoperability.md) without changing its
@@ -83,6 +83,123 @@ strings: only a structured pre-body producer may populate it.
   public-ABI projection with no unification or assignability operations. Rejected:
   sharing `SType` directly (compiler implementation details and best-effort
   fallbacks would leak into the host ABI).
+
+## Slice B pre-body producer contract
+
+Slice B adds the compatibility producer in `v1/lang/core`, which depends on the
+canonical `v2InteropDescriptor` leaf. The dependency direction is deliberately
+one-way: the producer may know the parsed ScalaScript declaration AST, while the
+descriptor leaf remains unaware of AST, `SType`, compiler phases, source files,
+or legacy artifacts.
+
+The public compatibility entrypoints are:
+
+```scala
+object PreBodyApiDescriptorProducer:
+  val ControlAbiVersion: String = "ssc-control-v1"
+  def descriptor(module: scalascript.ast.Module):
+    Either[DescriptorError, ApiDescriptor]
+  def canonicalJson(module: scalascript.ast.Module):
+    Either[DescriptorError, String]
+
+object InterfaceExtractor:
+  def extract(module: ast.Module, sourceBytes: Array[Byte]): ModuleInterface
+  def extractManaged(module: ast.Module, sourceBytes: Array[Byte]):
+    Either[DescriptorError, ModuleInterface]
+```
+
+`extractManaged` invokes the strict pre-body producer first and invokes the
+legacy body-aware extractor only after projection succeeds. It stores exactly
+the bytes returned by `DescriptorCodec.encodeApi`, decoded as UTF-8, in
+`apiDescriptorV3`. The ordinary `extract` method retains its old behavior and
+leaves `apiDescriptorV3 = None`; it neither fails nor fabricates a descriptor
+when a legacy module relies on inference or dynamic `Any`. Slice D will choose
+the strict managed path at the actual managed build/admission boundary.
+
+The source of truth is the parsed declaration header:
+
+- `def` parameter clauses, type-parameter clauses, declared result/effect row,
+  modes, and default presence are read structurally; the body is ignored;
+- explicitly typed `val`/`var`, constructors, nominal types, aliases, objects,
+  enums, effects, and effect operations project from their declaration nodes;
+- manifest `exports:` and `@internal`/private visibility select the public set;
+- `Int` maps directly to `I32`, `Long` directly to `I64`, `Double` to `F64`,
+  and no width is inferred from a literal, body result, lowered value, `SType.Any`,
+  legacy `ExportedSymbol.tpe`, or `TypeEvidenceWire`;
+- generic references use lexical binder coordinates. Parameter-list boundaries,
+  parameter names/modes, and default presence remain intact;
+- a function-typed parameter without an explicit policy syntax receives the only
+  conservative declaration-only policy: `ForeignBarrier`, `Unknown` invocation,
+  `MayEscape`, unknown reentrancy/concurrency/cancellation, and `AnyThread`. It is
+  never upgraded to `ManagedControl` by inspecting a body;
+- plain and `multi effect` operation markers produced by the existing parser map
+  to `OneShot` and `Reusable`, respectively. Operation rows name their owning
+  stable effect id;
+- module `targets:` may populate `requiredTargets`; capabilities, prompt capture,
+  and managed-control claims stay empty/false unless a future declared syntax
+  supplies them. Body-derived facts belong only to Slice C.
+
+Bare named types are accepted only when they are lexical type parameters, local
+public type declarations, or frozen standard constructors. Qualified non-platform
+names retain their dotted id. The frozen standard ids in this producer are
+`std.List`, `std.Vector`, `std.Seq`, `std.Set`, `std.Map`, `std.Option`, and
+`std.Either`; `Array[Byte]` and `Bytes` normalize to primitive `Bytes`. A bare
+unresolved name is ambiguous rather than guessed from imports or a body.
+
+Strict projection failures reuse `DescriptorError` and stable producer codes:
+
+| Code | Meaning |
+|---|---|
+| `MISSING_MODULE_ID` | managed production requires a non-empty manifest `name:` |
+| `MISSING_PUBLIC_TYPE` | an exported value, parameter, or result relies on inference |
+| `DYNAMIC_PUBLIC_TYPE` | `Any`, `AnyRef`, `Object`, `Dynamic`, or a wildcard reaches the public ABI |
+| `UNSUPPORTED_NUMERIC_WIDTH` | a source numeric type has no frozen v3 width (`Byte`, `Short`, `Float`, decimal) |
+| `AMBIGUOUS_NAMED_TYPE` | a bare name is neither bound, local, nor a frozen standard id |
+| `PLATFORM_TYPE_FORBIDDEN` | a public type names `scala.*`, `java.*`, or `javax.*` |
+| `UNSUPPORTED_PUBLIC_TYPE` | the closed v3 algebra cannot represent the declared type without loss |
+| `UNSUPPORTED_PUBLIC_DECLARATION` | the producer cannot represent the declaration kind without guessing |
+| `INVALID_EFFECT_ROW` | an effect row has an unsupported or ambiguous member/tail shape |
+
+Producer paths are deterministic declaration paths such as
+`$.symbols[demo.f].resultType` and
+`$.symbols[demo.f].parameterLists[0].parameters[1].tpe`; they do not depend on
+legacy export ordering. Factory/codec validation errors retain their canonical
+descriptor paths and codes.
+
+The self-hosted frontend already has the target-neutral structured destination:
+`ApiSymbolDefinition` plus `DescriptorFactory.api`. Slice B does not change
+`NativeCompilation`, CoreIR, the structural lowerer, the seed, or compiler-image
+bytes to make that frontend emit the declarations: those changes remain forbidden
+before the P6.5 X1 fixed-point gate. After X1, the self-hosted declaration pass
+must feed the same factory and pass the same producer vectors; it must not acquire
+a second wire model or route through legacy `tpe`.
+
+### Slice B behavior
+
+- [ ] Strict managed extraction populates canonical `apiDescriptorV3`; ordinary
+      legacy extraction leaves it absent and remains compatible with inferred or
+      dynamic legacy interfaces.
+- [ ] Descriptor construction completes from declaration headers before the
+      legacy body-aware typer runs; body-only edits keep canonical descriptor
+      bytes and `apiHash` unchanged.
+- [ ] `Int` and `Long` project to distinct `I32`/`I64` types and identities,
+      including inside parameters, results, type arguments, and effect arguments.
+- [ ] Generic binder coordinates, multiple parameter-list boundaries, modes,
+      defaults, unions/intersections, tuples, functions, and effect rows survive
+      projection without rendered-type parsing.
+- [ ] Nominal types/constructors, typed values, aliases, effects, and plain/multi
+      operations receive structured symbol kinds and resume multiplicity.
+- [ ] Function-typed parameters receive conservative `ForeignBarrier` callback
+      policy; no pre-body producer claims `ManagedControl` from implementation
+      behavior.
+- [ ] Missing/dynamic/ambiguous/unsupported public types fail the strict path with
+      stable producer codes and paths, while the same legacy source still extracts
+      with `apiDescriptorV3 = None`.
+- [ ] A regression fixture proves that even when legacy body typing renders a
+      useful `ExportedSymbol.tpe`, the strict producer rejects a missing header
+      type instead of parsing that string to invent v3.
+- [ ] Scala package/export fixtures agree on qualified public names and exclude
+      helpers omitted by manifest `exports:`.
 
 ## Versions
 
