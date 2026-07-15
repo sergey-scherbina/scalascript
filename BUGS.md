@@ -1,5 +1,152 @@
 # Bug tracker
 
+## js-control-direct-typescript-version-ungated — unsupported compiler APIs are accepted
+
+**Status:** open. Reported as P2 on 2026-07-15 by the independent
+pre-integration review of frozen direct-transform snapshot `f6fa34fac` (rebased
+equivalent `1d45dcb3b`).
+
+**Symptom/reproduce:** `createDirectTransform` accepts any object with enough
+TypeScript-shaped members and the CLI loads any consumer `typescript` version.
+The package therefore has no deterministic boundary for compiler-factory and AST
+API compatibility, although its declarations and tests were built only against
+TypeScript 5.9.3.
+
+**Required fix/verification:** the feature spec must pin the supported compiler API
+version policy, both the programmatic entrypoint and CLI must reject an unsupported
+version before transforming, and positive/negative version-gate tests must preserve
+an actionable stable failure. Keep the published package free of a bundled compiler.
+
+## js-control-direct-wrapped-marker-receiver-missed — transparent TS wrappers evade ownership
+
+**Status:** open. Reported as P2 on 2026-07-15 by the independent
+pre-integration review of frozen direct-transform snapshot `f6fa34fac` (rebased
+equivalent `1d45dcb3b`).
+
+**Symptom/reproduce:** exact-import marker calls written as `(direct).reset(...)`,
+`direct!.reset(...)`, or `(direct as typeof direct).reset(...)` are not consistently
+recognized as the imported marker symbol. Depending on the surrounding tree they
+can survive emit or receive a generic unsupported-shape result instead of the same
+bounded transform/diagnostic contract as an unwrapped `direct.reset(...)` call.
+
+**Required fix/verification:** recursively unwrap only semantically transparent
+parentheses, `as`, non-null, and type-assertion expressions before symbol ownership
+checks. Positive reset/shift cases and negative unsupported cases must prove stable
+source spans and must leave no marker call in emitted JavaScript.
+
+## js-control-direct-consumer-typescript-resolution — CLI resolves the tool's compiler, not the consumer's
+
+**Status:** open. Reported as P1 on 2026-07-15 by the independent
+pre-integration review of frozen direct-transform snapshot `f6fa34fac` (rebased
+equivalent `1d45dcb3b`).
+
+**Symptom/reproduce:** place the published runtime files under an external
+tool/store path, install `typescript` only in a consuming project, and run the real
+CLI with `--project <consumer>/tsconfig.json`. `cli.js` performs bare
+`import("typescript")` relative to itself and exits with “TypeScript compiler API not
+found”, contradicting the contract that the CLI uses the consuming project's
+compiler. Strict/symlinked stores and external/npx tools exhibit the same boundary.
+
+**Required fix/verification:** resolve TypeScript with a consumer-owned Node issuer
+anchored at the explicit project/config directory or current working directory; do
+not fall back to an ambient/global compiler. An extracted packed-package fixture
+must keep TypeScript only under the consumer, invoke the installed CLI, succeed, and
+also prove that an otherwise identical consumer without TypeScript gets a stable
+actionable error.
+
+## js-control-direct-marker-import-survives-emit — build-time marker becomes a production dependency
+
+**Status:** open. Reported as P1 on 2026-07-15 by the independent
+pre-integration review of frozen direct-transform snapshot `f6fa34fac` (rebased
+equivalent `1d45dcb3b`).
+
+**Symptom/reproduce:** transform a valid source importing named `direct` from
+`@scalascript/control-direct`, inspect the emitted JavaScript, then deploy it with
+development dependencies omitted. The marker calls are lowered but the original
+value import remains, so Node fails module resolution even though documentation
+installs the marker package with `--save-dev`.
+
+**Required fix/verification:** after every value use of an exact owned marker binding
+has been transformed, remove only that marker import specifier (and the now-empty
+declaration), preserving unrelated imports/specifiers. Diagnose every surviving
+marker value use rather than emitting it. A packed production-consumer fixture must
+run emitted JavaScript with `@scalascript/control` present and
+`@scalascript/control-direct` absent.
+
+## js-control-direct-cli-symlink-noop — installed npm bin exits successfully without compiling
+
+**Status:** open. Reported as P1 on 2026-07-15 by the independent
+pre-integration review of frozen direct-transform snapshot `f6fa34fac` (rebased
+equivalent `1d45dcb3b`).
+
+**Symptom/reproduce:** invoke `ssc-control-tsc` through the normal
+`node_modules/.bin` symlink. `cli.js` compares the real module `import.meta.url` to
+the unresolved symlink in `process.argv[1]`; the comparison is false, `main()` is
+skipped, and the process exits 0 with no output. Invoking `node <real-cli.js>` does
+run, which is why the existing test missed the published path.
+
+**Required fix/verification:** entry detection must normalize both paths through
+realpath/inode-safe logic with deterministic handling of absent or unreadable
+`argv[1]`. Pack and install the tarball into a fresh consumer, invoke exactly its
+`.bin/ssc-control-tsc`, and prove both successful emit and non-zero failure for an
+invalid compiler option.
+
+## js-control-direct-eval-capture-unsound — direct eval can observe rewritten lexical frames
+
+**Status:** open. Reported as P1 on 2026-07-15 by the independent
+pre-integration review of frozen direct-transform snapshot `f6fa34fac` (rebased
+equivalent `1d45dcb3b`).
+
+**Symptom/reproduce:** a file containing an otherwise transformable direct reset can
+also contain direct `eval(...)`. The current region checks do not reject every
+file-wide direct-eval occurrence or transparent callee wrappers such as parentheses,
+`as`, non-null, and type assertions. Emit can therefore change which lexical frame
+the evaluated source observes or mutates.
+
+**Required fix/verification:** reject intrinsic direct eval anywhere in each file
+that would be transformed, after unwrapping only transparent syntax, and emit
+nothing for that file. The feature spec must explicitly pin indirect-eval and
+`Function`-constructor policy. Tests must cover top-level, reset-local, nested
+closure, wrapped, indirect, and `Function` cases with stable diagnostics.
+
+## js-control-direct-js-marker-binding-semantics — lowering erases const/let declaration behavior
+
+**Status:** open. Reported as P1 on 2026-07-15 by the independent
+pre-integration review of frozen direct-transform snapshot `f6fa34fac` (rebased
+equivalent `1d45dcb3b`).
+
+**Symptom/reproduce:** compile real JavaScript with `allowJs: true` and
+`checkJs: false`, using `const` or `let x = direct.shift(...)`. Lowering replaces the
+source declaration with a `.flatMap(x => ...)` parameter. This loses the original
+declaration kind (for example, assignment to source `const x` no longer has native
+runtime behavior) and can capture/collide with names introduced by the rewrite.
+
+**Required fix/verification:** use a collision-safe fresh resume parameter and begin
+the continuation suffix with the original `const`/`let` declaration initialized
+from it. A real `.js` fixture must exercise both declaration kinds and a name
+collision under `allowJs: true, checkJs: false`, preserving runtime behavior and
+source-map ownership.
+
+## js-control-direct-forward-lexical-capture — shift body escapes declarations moved into the suffix
+
+**Status:** open. Reported as P1 on 2026-07-15 by the independent
+pre-integration review of frozen direct-transform snapshot `f6fa34fac` (rebased
+equivalent `1d45dcb3b`).
+
+**Symptom/reproduce:** inside `direct.reset`, let a shift body save a closure that
+reads `const later = 42`, with `later` declared after the marker. TypeScript and the
+transform report no diagnostics, but lowering leaves the shift body outside the
+generated `.flatMap` callback while moving `later` inside it. Running the saved
+closure throws `ReferenceError: later is not defined` instead of returning `42`.
+References to the marker's own declaration region have the same scope hazard,
+including references hidden in nested closures.
+
+**Required fix/verification:** specify and implement a sound rule: either preserve
+binding/evaluation semantics through exact dependency-aware rebinding, or fail closed
+before emit. Cover forward and own-marker references, nested closures, shadowing,
+and declaration-initializer evaluation order; the accepted cases must remain
+prefix-once/suffix-per-resume.
+
 ## js-control-packed-readme-broken-spec-link — npm README links outside payload
 
 **Status:** fixed by `1c2e150c3` with regression `6f19a9538`; awaiting final

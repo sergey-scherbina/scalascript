@@ -284,6 +284,65 @@ every later compiler/kernel change re-runs the literal fixed point.
       affected `effect*,effects*` conformance passes. Keep code, docs, spec verification,
       and bookkeeping in separate commits and require an independent read-only review
       before integration.
+      - [ ] **REJECT repair: forward/own lexical capture.** Frozen review snapshot
+        `f6fa34fac` emits a shift body outside the `.flatMap` frame that owns later
+        declarations, so a saved nested closure reading `const later = 42` throws
+        `ReferenceError`. Specify fail-closed ownership for every symbol declared by
+        the marker itself or its continuation suffix, detect uses recursively through
+        nested closures with checker symbol identity, and add forward/own/shadowing plus
+        declaration-initializer order regressions. Track in
+        `BUGS.md#js-control-direct-forward-lexical-capture`.
+      - [ ] **REJECT repair: preserve JavaScript marker declarations.** Lower each
+        accepted `const`/`let x = direct.shift(...)` to a collision-safe fresh resume
+        parameter followed by the original declaration kind initialized from that
+        parameter; do not use `x` itself as the callback parameter. Verify real `.js`
+        input under `allowJs: true, checkJs: false`, const assignment behavior, let
+        mutation, a fresh-name collision, and source maps. Track in
+        `BUGS.md#js-control-direct-js-marker-binding-semantics`.
+      - [ ] **REJECT repair: file-wide intrinsic direct-eval barrier.** In every file
+        selected for transformation, reject direct `eval(...)` even at top level or in
+        nested closures and even through parentheses/`as`/non-null/type-assertion
+        wrappers; emit no JavaScript for that file. Normatively allow indirect eval and
+        `Function` as global-only JavaScript operations, then test each accepted and
+        rejected form with stable spans. Track in
+        `BUGS.md#js-control-direct-eval-capture-unsound`.
+      - [ ] **REJECT repair: real installed npm bin.** Replace the raw
+        `import.meta.url === pathToFileURL(argv[1])` guard with deterministic realpath
+        entry detection, including missing/unreadable argv handling. Build a tarball,
+        install it in a fresh consumer, invoke exactly
+        `node_modules/.bin/ssc-control-tsc`, and prove successful emit plus non-zero
+        invalid-option failure. Track in `BUGS.md#js-control-direct-cli-symlink-noop`.
+      - [ ] **REJECT repair: erase the build-time marker import safely.** Require every
+        value use of each exact named `direct` binding to be a successfully transformed
+        marker call; diagnose survivors. Remove only completed marker specifiers and an
+        import declaration only when it becomes empty, preserving unrelated bindings
+        and imports. Run emitted production JavaScript with control runtime installed
+        but no control-direct package. Track in
+        `BUGS.md#js-control-direct-marker-import-survives-emit`.
+      - [ ] **REJECT repair: consumer-owned TypeScript resolution.** Resolve the CLI
+        compiler via Node `createRequire` from the explicit project/config directory or
+        cwd, never from the extracted tool store and never from a global fallback. The
+        packed installed-bin fixture keeps TypeScript only in consumer `node_modules`;
+        a twin fixture without it must fail actionably. Track in
+        `BUGS.md#js-control-direct-consumer-typescript-resolution`.
+      - [ ] **REJECT repair: transparent marker wrappers.** Recursively unwrap only
+        parentheses, `as`, non-null, and type assertions for exact checker-symbol
+        ownership, covering `(direct).reset`, `direct!.reset`, and
+        `(direct as typeof direct).reset` plus corresponding shift/negative forms.
+        Emitted JavaScript must contain no owned marker call. Track in
+        `BUGS.md#js-control-direct-wrapped-marker-receiver-missed`.
+      - [ ] **REJECT repair: supported TypeScript API gate.** Pin the accepted compiler
+        API line in the feature contract, enforce it before programmatic/CLI transform,
+        and test both TypeScript 5.9.x acceptance and deterministic rejection outside
+        that line without adding a bundled/production compiler. Track in
+        `BUGS.md#js-control-direct-typescript-version-ungated`.
+      - [ ] **Repair-cycle closure.** After spec-first and code commits, update package
+        README/project docs, run direct package tests+typecheck+node checks+exact pack,
+        existing explicit control 31/31+typecheck, catalog positive/negative validators,
+        and `tests/conformance/run.sh --only 'effect*,effects*'`. Then fix stale explicit
+        control bookkeeping to reachable landing `cf8f96200`, mark its two confirmed
+        review bugs `done`, freeze a clean HEAD, and obtain a fresh independent APPROVE
+        before any push or claim release.
 - [ ] **rust-control-host-runner** — deliver the Cargo host facade, stable-Rust
   explicit `Eff`, proc-macro/generated state machines, ownership/borrow/RAII barrier
   checks, typed mixed-SCC dispatcher, target/toolchain-pinned exact runner, and
