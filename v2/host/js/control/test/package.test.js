@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
+import { posix } from "node:path"
 import test from "node:test"
 
 import * as control from "@scalascript/control"
@@ -77,6 +78,46 @@ test("package carries the repository Apache 2.0 license verbatim", () => {
     "utf8"
   )
   assert.equal(packageLicense, repositoryLicense)
+})
+
+test("published README links are canonical or resolve inside the payload", () => {
+  const packageJson = JSON.parse(
+    readFileSync(new URL("../package.json", import.meta.url), "utf8")
+  )
+  const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8")
+  const canonicalProfile =
+    "https://github.com/sergey-scherbina/scalascript/blob/main/" +
+    "specs/javascript-typescript-bidirectional-control.md"
+  const destinations = Array.from(
+    readme.matchAll(/\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g),
+    match => match[1]
+  )
+  assert.equal(destinations.includes(canonicalProfile), true)
+
+  const payload = new Set(["package.json", ...packageJson.files])
+  for (const destination of destinations) {
+    if (
+      destination.startsWith("#") ||
+      destination.startsWith("//") ||
+      /^[a-z][a-z0-9+.-]*:/i.test(destination)
+    ) {
+      continue
+    }
+
+    const target = posix.normalize(
+      decodeURIComponent(destination.split(/[?#]/, 1)[0])
+    ).replace(/^\.\//, "")
+    assert.equal(
+      target === ".." || target.startsWith("../") || posix.isAbsolute(target),
+      false,
+      `README link escapes package payload: ${destination}`
+    )
+    assert.equal(
+      payload.has(target),
+      true,
+      `README link target is absent from package payload: ${destination}`
+    )
+  }
 })
 
 test("opaque requests hide resumptions and cannot be pre-claimed", () => {
