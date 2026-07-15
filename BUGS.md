@@ -1,10 +1,27 @@
 # Bug tracker
 
+## js-control-packed-readme-broken-spec-link — npm README links outside payload
+
+**Status:** open, P2 packaging defect (2026-07-15, independent second
+pre-integration review of `javascript-typescript-control-host-runner`; affects
+pre-land documentation commit `ff93f75d5`).
+
+**Symptom/reproduce:** `npm pack --dry-run --json` correctly emits only the frozen
+five-file payload, but its `README.md` ends with a relative
+`../../../../specs/javascript-typescript-bidirectional-control.md` link. The target
+is not in the tarball, so installed-package and registry README consumers receive a
+broken contract link.
+
+**Plan/done-when:** make the packed README contract reference self-contained or
+stable without adding repository internals to the payload, and add a package
+regression that rejects relative links escaping the package or targeting absent
+files.
+
 ## js-control-runtime-opacity-forgeable — public values leak and clone private authority
 
-**Status:** fixed in `a58610cf1`; awaiting independent reviewer confirmation.
+**Status:** fixed in `d9674d6fa`; awaiting independent reviewer confirmation.
 Reported as P1 on 2026-07-15 by independent pre-integration review; affected
-pre-land runtime commit `d9222a55e`.
+pre-land runtime commit `9ce091bc3`.
 
 **Symptom/reproduce:** returned request/prompt objects expose enumerable internal
 state such as `resumption`, `key`, and `shiftOperation`; a caller can pre-claim a
@@ -28,10 +45,10 @@ and forged prompts. The complete package suite passes 30/30.
 
 ## js-control-npm-license-omitted — package tarball lacks Apache license
 
-**Status:** fixed in `a58610cf1`; awaiting independent reviewer confirmation.
+**Status:** fixed in `d9674d6fa`; awaiting independent reviewer confirmation.
 Reported as a P2 packaging defect on 2026-07-15 by independent pre-integration
-review; affected pre-land package commit `d9222a55e` and verification
-`4f71b2770`.
+review; affected pre-land package commit `9ce091bc3` and verification
+`6c3a06dd3`.
 
 **Symptom/reproduce:** run `npm pack --dry-run --json` in
 `v2/host/js/control`. The package contains only `README.md`, `index.d.ts`,
@@ -49,9 +66,9 @@ files; `npm pack --dry-run --json` reports exactly five entries, including the
 
 ## js-control-prompt-key-extraction-never — invariant answer type breaks PromptKeyOf
 
-**Status:** fixed in `a58610cf1`; awaiting independent reviewer confirmation.
+**Status:** fixed in `d9674d6fa`; awaiting independent reviewer confirmation.
 Reported as P1 on 2026-07-15 by independent pre-integration review; affected
-pre-land declaration commit `d9222a55e`.
+pre-land declaration commit `9ce091bc3`.
 
 **Symptom/reproduce:** `PromptKeyOf<Prompt<P, ConcreteAnswer>>` evaluates to
 `never` because the conditional matches `Prompt<infer P, unknown>` while the
@@ -68,9 +85,9 @@ gates remain green.
 
 ## js-control-effect-owner-type-collision — descriptor ID is mistaken for owner identity
 
-**Status:** fixed in `a58610cf1`; awaiting independent reviewer confirmation.
-Reported as P1 on 2026-07-15 by independent pre-integration review; affected
-pre-land declaration commit `d9222a55e`.
+**Status:** open, P1 (reopened 2026-07-15 after independent second
+pre-integration review rejected the `d9674d6fa` fix). The original report affected
+pre-land declaration commit `9ce091bc3`.
 
 **Symptom/reproduce:** two `defineEffect("same.id")` calls create distinct runtime
 owners, but both declarations currently produce `Effect<"same.id">`. TypeScript
@@ -87,6 +104,17 @@ rejected. Runtime registration is idempotent for one owner+descriptor and reject
 descriptor conflicts, aligning the phantom with authority. Positive handler
 inference, cross-owner negative/residual typing, and same-ID runtime forwarding all
 pass.
+
+**Second-review repro:** let `CollapsedOwner` be
+`typeof FirstOwner | typeof SecondOwner`, and let ordinary cast-free functions
+return that union. The current guard rejects only the broad `symbol`, so inference
+or an explicit `CollapsedOwner` type argument accepts both calls and gives them the
+same `Effect<Id, CollapsedOwner>`. A wrong-owner handler again typechecks as
+`Eff<never, A>` while runtime owner matching forwards the request.
+
+**Next fix/done-when:** reject union owners as well as broad/inline symbols with a
+single-unique-symbol type guard; cover both inference-only and explicit-generic
+union calls negatively while retaining stable named-owner reuse positively.
 
 ## jvm-bytegen-letrec-env-clobber — FIXED / awaiting confirmation (2026-07-15, Codex)
 

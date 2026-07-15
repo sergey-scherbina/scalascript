@@ -232,16 +232,16 @@ every later compiler/kernel change re-runs the literal fixed point.
   and hardened dynamic portable runner from
   `specs/javascript-typescript-bidirectional-control.md`. Promise/async/generators
   remain adapters or barriers; I64 uses `bigint`.
-  - [x] **Explicit local control slice + review hardening (2026-07-15)** — the
-    compiler-independent ESM/`.d.ts` reference leaf `@scalascript/control` now has
-    named generative effect owners, concrete-answer `PromptKeyOf`, WeakMap-held
-    opaque state, authority-gated constructors, and a verbatim Apache `LICENSE`
-    (`a58610cf1`, spec verification `4cd07fbc8`). Package tests pass 30/30,
-    including all 17 applicable catalog vectors and opacity/owner regressions;
-    TypeScript positive/negative gates, 1,000,000-bind/state and 100,000-operation
-    stress, the exact five-file dependency-free tarball, and fresh affected
-    conformance 5/5 are green. Four audit bugs remain `fixed`, not `done`, pending
-    independent reviewer confirmation.
+  - [ ] **Explicit local control slice second-review hardening (2026-07-15)** —
+    preserve the already-green explicit runtime while closing the independent
+    re-review REJECT: `defineEffect` must reject union owner types (both inferred
+    and explicit generic) in addition to broad/inline symbols, and the packed
+    five-file README must not link outside its payload. Freeze the single-unique-
+    symbol and packaged-link rules in the spec first; add negative/positive type
+    fixtures plus a pack-content/link regression; rerun 30/30 baseline tests,
+    TypeScript, exact pack, stress/vectors, and fresh affected conformance. At the
+    final clean checkpoint update all stale pre-rebase SHA references in SPRINT,
+    CHANGELOG, and the affected BUGS entries before requesting read-only review.
   - [ ] **Remaining host/runner profile** — generated facades and typed value/call
     bridges, managed source transformation and callback policies, mixed-language
     SCC dispatch, exact and portable runners, and shared lane wiring.

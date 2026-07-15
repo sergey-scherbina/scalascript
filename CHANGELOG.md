@@ -9,12 +9,12 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 Added the compiler-independent ESM-only `@scalascript/control` reference leaf at
 `v2/host/js/control`, with typed reusable/one-shot continuations, deep handlers,
 generative prompts and true `shift`/`reset`, structured local-save rejection, and
-stackless explicit state machines (`d9222a55e`, verification `4f71b2770`). The
+stackless explicit state machines (`9ce091bc3`, verification `6c3a06dd3`). The
 private runtime ABI is paired with branded `.d.ts` declarations and has no
 production dependency or lifecycle script.
 
-Independent pre-integration review then drove authority hardening (`a58610cf1`,
-verification `4cd07fbc8`): named `unique symbol` owners now separate stable effect
+Independent pre-integration review then drove authority hardening (`d9674d6fa`,
+verification `ab7dc2a7b`): named `unique symbol` owners now separate stable effect
 descriptors from runtime identity, concrete-answer prompt-key extraction remains
 invariant, class-backed capabilities keep state in private WeakMaps, and every
 reachable internal constructor requires an unexported authority token. The exact
