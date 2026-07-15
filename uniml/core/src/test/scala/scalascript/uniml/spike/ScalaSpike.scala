@@ -619,6 +619,11 @@ object SpikeParse:
         case None    => c.report("spike.expected", "expected field name after '.'")
       postfix(c, Node.Frame("spike.sel", None, kids.result()))
     else if c.peekKind == "spike.lparen" then postfix(c, applyArgs(c, atom)) // chained application f(a)(b)
+    // `e[T]` type application (`Array.empty[Int]`, `x.asInstanceOf[List[Int]]`, `foo[A](x)`) — the type
+    // args are erased (ssc1-front buildPostfix readTypeApply); continue the chain with the same `e`. Guarded
+    // to the SAME line as `e` so a following-line list-literal statement is not swallowed (newline = trivia).
+    else if c.peekKind == "spike.lbracket" && c.peekLine == c.prevEndLine then
+      skipTypeParams(c); postfix(c, atom)
     // trailing block argument `e { body }` → e(body) (ssc1-front buildPostfix / parseBlockArg). Only when
     // the `{` is on the SAME line as `e` (else it is a fresh statement, per ssc1-front's newline→`;` layout).
     else if c.peekKind == "spike.lbrace" && c.peekLine == c.prevEndLine then
