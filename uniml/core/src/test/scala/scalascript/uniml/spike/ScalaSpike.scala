@@ -433,6 +433,24 @@ object SpikeParse:
   // capture a case-class field type as its raw TOKENS (base + balanced `[…]` generics + `=> …` fn tails) in a
   // spike.cctype frame, so the projection reproduces ssc1-front's full type string (`List[User]`,
   // `Map[String,User]` — token lexemes concatenated with no spaces).
+  private def nodeLexeme(n: Node): String = n match
+    case Node.Leaf(t, _) => t.lexeme
+    case _               => ""
+
+  // capture a `[T, U]` type-argument clause's INNER tokens (for the Prism variant string, concatenated no-space);
+  // kept as leaves so the frame survives the emit. The outer `[`/`]` are consumed but not kept.
+  private def captureTypeArgTokens(c: Cur): Vector[Node] =
+    val toks = Vector.newBuilder[Node]
+    if c.peekKind == "spike.lbracket" then
+      c.advance() // `[`
+      var d = 1
+      while d > 0 && !c.eof do
+        c.peekKind match
+          case "spike.lbracket" => d += 1; c.advance().foreach(t => toks += Node.Leaf(t, Some("ta.tok")))
+          case "spike.rbracket" => d -= 1; if d > 0 then c.advance().foreach(t => toks += Node.Leaf(t, Some("ta.tok"))) else c.advance()
+          case _                => c.advance().foreach(t => toks += Node.Leaf(t, Some("ta.tok")))
+    toks.result()
+
   private def captureFieldType(c: Cur): Node = captureType(c, "cc.fieldType")
   private def captureType(c: Cur, role: String): Node =
     val toks = Vector.newBuilder[Node]
@@ -856,7 +874,13 @@ object SpikeParse:
     // args are erased (ssc1-front buildPostfix readTypeApply); continue the chain with the same `e`. Guarded
     // to the SAME line as `e` so a following-line list-literal statement is not swallowed (newline = trivia).
     else if c.peekKind == "spike.lbracket" && c.peekLine == c.prevEndLine then
-      skipTypeParams(c); postfix(c, atom)
+      // `Focus[T]` / `Prism[T]` are optics markers (ssc1-front buildPostfix:1379): a following `(_.a.b)` accessor
+      // is introspected by the lowerer (resolveFocusArgs, AST-derived) into `optics.focus([OField…])`. Other
+      // `e[T]` type applications just erase the type args and continue the chain.
+      nodeLexeme(atom) match
+        case "Focus" => skipTypeParams(c); postfix(c, Node.Frame("spike.focusmarker", None, Vector(atom)))
+        case "Prism" => postfix(c, Node.Frame("spike.prism", None, atom +: captureTypeArgTokens(c)))
+        case _       => skipTypeParams(c); postfix(c, atom)
     // trailing block argument `e { body }` → e(body) (ssc1-front buildPostfix / parseBlockArg). Only when
     // the `{` is on the SAME line as `e` (else it is a fresh statement, per ssc1-front's newline→`;` layout).
     else if c.peekKind == "spike.lbrace" && c.peekLine == c.prevEndLine then
@@ -1674,6 +1698,10 @@ object SpikeProject:
         val rhs  = kids(b).collectFirst { case (Some("range.rhs"), c) => expr(c) }.getOrElse(hole)
         s"""mkApp(mkSel($lhs, "${esc(word)}"), ${consList(Vector(rhs))})"""
       case "spike.unitlit" => "mkTup(Nil)" // abstract-def placeholder body (ignored by effect/trait lowering)
+      case "spike.focusmarker" => """Pair("focus_marker", "")""" // Focus[T](_.a.b) — type args unused for focus
+      case "spike.prism" => // Prism[Super, Case](…) — the variant name (after the last comma) drives the lowering
+        val ty = kids(b).collect { case (Some("ta.tok"), c) => lexeme(c) }.mkString
+        s"""Pair("prism", "${esc(ty)}")"""
       case "spike.error" => hole
       case _             => hole
     case _ => hole
