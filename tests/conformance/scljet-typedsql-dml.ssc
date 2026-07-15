@@ -1,0 +1,52 @@
+---
+name: scljet-typedsql-dml
+description: SclJet typed SQL writes — INSERT/UPDATE/DELETE built from typed combinators; matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet typed SQL writes
+
+Extends the typed surface to writes: `insertRows`, `updateSet` with typed `setInt`/`setText`/`setExpr`
+assignments (the value/expr type must match the column type), and `deleteWhere`, each erasing to the
+existing `InsertStmt`/`UpdateStmt`/`DeleteStmt` and running through the same executor. The new image
+threads through the sequence and each read-after-write is checked against reference sqlite3 running
+the equivalent SQL (verified out-of-band); locked across `[int, js]`.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[renderRows](std/scljet/sql.ssc)
+[Table, Column, IntType, TextType, col, colExpr, intLit, plus, eqp, gep, setText, setExpr, insertRows, updateSet, deleteWhere, runInsert, runUpdate, runDelete, from, selectStar, orderByQ, orderAsc, runTypedQuery](std/scljet/typedsql.ssc)
+
+```scalascript
+val emp: Table = Table("emp", List("id", "name", "salary"))
+val cId: Column[Long] = col("emp", "id", 0, IntType)
+val cName: Column[String] = col("emp", "name", 1, TextType)
+val cSalary: Column[Long] = col("emp", "salary", 2, IntType)
+
+def dumpAll(db: ByteSlice, tag: String): Unit =
+  runTypedQuery(db, orderByQ(selectStar(from(emp)), orderAsc(cId) :: Nil)) match
+    case Left(m) => println(tag + " => ERR:" + m)
+    case Right(rows) => println(tag + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER, name TEXT, salary INTEGER)",
+  List(List(SqlInteger(1L), SqlText("ann"), SqlInteger(100L)),
+       List(SqlInteger(2L), SqlText("bob"), SqlInteger(250L)),
+       List(SqlInteger(3L), SqlText("cat"), SqlInteger(300L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db0) =>
+    runInsert(db0, insertRows(emp,
+      List(List(SqlInteger(4L), SqlText("dan"), SqlInteger(150L)),
+           List(SqlInteger(5L), SqlText("eve"), SqlInteger(500L))))) match
+      case Left(m) => println("afterInsert => ERR:" + m)
+      case Right(db1) =>
+        dumpAll(db1, "afterInsert")
+        runUpdate(db1, updateSet(emp, setExpr(cSalary, plus(colExpr(cSalary), intLit(10L))) :: Nil, eqp(cId, intLit(1L)))) match
+          case Left(m) => println("upd1 => ERR:" + m)
+          case Right(db2) =>
+            runUpdate(db2, updateSet(emp, setText(cName, "BOB") :: Nil, eqp(cId, intLit(2L)))) match
+              case Left(m) => println("upd2 => ERR:" + m)
+              case Right(db3) =>
+                dumpAll(db3, "afterUpdate")
+                runDelete(db3, deleteWhere(emp, gep(cSalary, intLit(300L)))) match
+                  case Left(m) => println("del => ERR:" + m)
+                  case Right(db4) => dumpAll(db4, "afterDelete")
+```

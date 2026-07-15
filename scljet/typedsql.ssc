@@ -53,6 +53,22 @@ exports:
   - distinctQ
   - toSelectStmt
   - runTypedQuery
+  - TypedInsert
+  - TypedUpdate
+  - TypedDelete
+  - setInt
+  - setReal
+  - setText
+  - setExpr
+  - insertRows
+  - insertColsRows
+  - updateSet
+  - updateAllSet
+  - deleteWhere
+  - deleteAll
+  - runInsert
+  - runUpdate
+  - runDelete
 ---
 
 # SclJet typed SQL surface
@@ -67,7 +83,7 @@ byte-identical rows (verified against reference sqlite3). This stage keeps the e
 paths (full scan); index-aware physical planning is a later stage of the spec.
 
 [ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText](index.ssc)
-[SxNode, SxCol, SxLit, SxBin, Condition, ProjItem, OrderKey, SelectStmt, runSelectStmt, renderRows](sql.ssc)
+[SxNode, SxCol, SxLit, SxBin, Condition, ProjItem, OrderKey, SelectStmt, runSelectStmt, renderRows, InsertStmt, DeleteStmt, UpdateStmt, Assignment, executeInsert, executeDelete, executeUpdate](sql.ssc)
 
 ## Types, columns and expressions
 
@@ -217,4 +233,42 @@ def toSelectStmt(q: TypedQuery): SelectStmt =
 
 def runTypedQuery(dbBytes: ByteSlice, q: TypedQuery): Either[String, List[List[SqliteValue]]] =
   runSelectStmt(dbBytes, toSelectStmt(q))
+```
+
+## Typed writes — INSERT / UPDATE / DELETE
+
+```scalascript
+// Typed write plans erasing to InsertStmt / UpdateStmt / DeleteStmt.
+case class TypedInsert(table: String, columns: List[String], rows: List[List[SqliteValue]])
+case class TypedUpdate(table: String, assignments: List[Assignment], where: List[List[Condition]])
+case class TypedDelete(table: String, where: List[List[Condition]])
+
+// Typed SET assignments: the value type must match the column type (Column[Long] ← Long, etc.).
+def setInt(c: Column[Long], v: Long): Assignment = Assignment(c.name, SqlInteger(v), None)
+def setReal(c: Column[Double], v: Double): Assignment = Assignment(c.name, SqlReal(v), None)
+def setText(c: Column[String], v: String): Assignment = Assignment(c.name, SqlText(v), None)
+// `SET c = <expr>` (e.g. c = c + 1) evaluated against the pre-update row; expr type matches c.
+def setExpr[T](c: Column[T], e: Expr[T]): Assignment = Assignment(c.name, SqlNull, Some(e.node))
+
+// INSERT rows (positional, all columns) or with an explicit column list. Row values erase to the
+// same List[SqliteValue] the VALUES parser produces.
+def insertRows(t: Table, rows: List[List[SqliteValue]]): TypedInsert = TypedInsert(t.name, Nil, rows)
+def insertColsRows(t: Table, cols: List[String], rows: List[List[SqliteValue]]): TypedInsert = TypedInsert(t.name, cols, rows)
+
+// UPDATE with / without a WHERE (updateAllSet updates every row, like a bare UPDATE … SET).
+def updateSet(t: Table, sets: List[Assignment], p: Predicate): TypedUpdate = TypedUpdate(t.name, sets, p.where)
+def updateAllSet(t: Table, sets: List[Assignment]): TypedUpdate = TypedUpdate(t.name, sets, Nil)
+
+// DELETE with / without a WHERE.
+def deleteWhere(t: Table, p: Predicate): TypedDelete = TypedDelete(t.name, p.where)
+def deleteAll(t: Table): TypedDelete = TypedDelete(t.name, Nil)
+
+def runInsert(dbBytes: ByteSlice, ins: TypedInsert): Either[String, ByteSlice] =
+  executeInsert(dbBytes, InsertStmt(ins.table, ins.columns, ins.rows))
+
+def runUpdate(dbBytes: ByteSlice, u: TypedUpdate): Either[String, ByteSlice] =
+  executeUpdate(dbBytes, UpdateStmt(u.table, u.assignments, u.where))
+
+def runDelete(dbBytes: ByteSlice, d: TypedDelete): Either[String, ByteSlice] =
+  executeDelete(dbBytes, DeleteStmt(d.table, d.where))
 ```
