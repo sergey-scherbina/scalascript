@@ -1,6 +1,6 @@
 feature/javascript-typescript-control-direct 2026-07-15T05:29:19Z
 agent: codex-js-control-direct
-heartbeat: 2026-07-15T07:03:03Z
+heartbeat: 2026-07-15T07:12:53Z
 status: in-progress
-done-so-far: plan/spec/code/docs for all three symbol-ownership P1s are committed after clean rebase; runtime/type-only alias matrix is expanded and the branch is in full verification
-next: finish every direct/explicit/package/catalog/conformance gate, freeze a clean exact head, then obtain a new independent review; no push/release
+done-so-far: exact candidate 71ae452ea5 is clean; direct 35/35, explicit 31/31, exact packs, catalog 26/9, negatives 9/9, conformance 5/5 and syntax/type gates are green
+next: a new independent read-only review of a488d38668..71ae452ea5 is active; only after APPROVE integrate origin drift, rerun critical gates, land and release

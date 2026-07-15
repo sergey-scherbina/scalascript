@@ -1,6 +1,6 @@
 feature/scala3-control-macros 2026-07-15T04:07:46Z
 agent: codex-scala-control-macros
-heartbeat: 2026-07-15T07:03:03Z
+heartbeat: 2026-07-15T07:12:53Z
 status: in-progress
-done-so-far: repair plan and owner-graph spec update are committed after clean rebase; captured-A, inferred RHS-type, two-phase given implementation is active
+done-so-far: repair plan/spec are committed; captured-A rebinding, binder-aware closure reconstruction, stale-owner audit, and two-phase given allocation are under implementation
 next: finish all three P1 fixes plus boundary-break regressions, run packaged/full gates, freeze, then obtain a new independent review; no push/release
