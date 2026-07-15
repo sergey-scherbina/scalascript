@@ -310,6 +310,7 @@ object SpikeParse:
       else if isKw(c, "enum") then defs += parseEnum(c)
       else if isKw(c, "extension") then defs += parseExtension(c)
       else if isWord(c, "object") then defs += parseObject(c)
+      else if isWord(c, "effect") && (c.peek2Kind == "spike.uid" || c.peek2Kind == "spike.id") then defs += parseEffectDecl(c)
       else if isWord(c, "extern") then defs += parseExtern(c)
       else if isWord(c, "trait") || isKw(c, "class") then defs += parseTraitOrClassNoop(c)
       // a top-level STATEMENT — script-style `println(…)`, top-level `val`/`var`/expr. ssc1-front keeps these
@@ -365,16 +366,26 @@ object SpikeParse:
     if c.peekKind == "spike.lparen" then skipBalancedParens(c) // `(A, B) => C` domain
     else expectType(c, "def.retType").foreach(kids += _)
     skipTypeTail(c) // function return type `: A => B` (the `=>` is part of the type; `=` ends it)
-    val eqLine = c.peekLine // line of `=` before consuming
-    expect(c, "spike.eq", "def.eq", "'='").foreach(kids += _)
-    // offside: a body starting on a LATER line is an indented block (Scala optional-braces)
-    if !c.eof && c.peekLine > eqLine then kids += parseBlock(c, c.peekCol).withRole("def.body")
-    // a same-line body that is an assignment `x = e` (e.g. `def save(t) = cell = t`) must lower to a store,
-    // not a read — parseExpr stops at the second `=`, so dispatch to parseAssign like branchExpr does.
-    else if c.peekKind == "spike.id" && c.peek2Kind == "spike.eq" then kids += parseAssign(c).withRole("def.body")
-    else parseExpr(c, 1) match
-      case Some(b) => kids += b.withRole("def.body")
-      case None    => c.report("spike.missing-body", "missing def body expression")
+    // an algebraic-effect row `! L` / `! (L1 & L2)` on the return type (`def f: T ! L = …`) — erased.
+    if c.peekKind == "spike.op" && c.peekLexeme == "!" then
+      c.advance()
+      if c.peekKind == "spike.lparen" then skipBalancedParens(c) else { skipTypeRef(c); skipTypeTail(c) }
+    if c.peekKind == "spike.eq" then
+      val eqLine = c.peekLine // line of `=` before consuming
+      c.advance().foreach(t => kids += Node.Leaf(t, Some("def.eq")))
+      // offside: a body starting on a LATER line is an indented block (Scala optional-braces)
+      if !c.eof && c.peekLine > eqLine then kids += parseBlock(c, c.peekCol).withRole("def.body")
+      // a same-line body that is an assignment `x = e` (e.g. `def save(t) = cell = t`) must lower to a store,
+      // not a read — parseExpr stops at the second `=`, so dispatch to parseAssign like branchExpr does.
+      else if c.peekKind == "spike.id" && c.peek2Kind == "spike.eq" then kids += parseAssign(c).withRole("def.body")
+      else parseExpr(c, 1) match
+        case Some(b) => kids += b.withRole("def.body")
+        case None    => c.report("spike.missing-body", "missing def body expression")
+    else
+      // abstract def signature (no `=`): a trait method or effect operation — the effect_decl/trait lowering
+      // ignores the body, so use a harmless unit placeholder (NOT __notImplemented__, which would mis-flag the
+      // whole program as an unparsed HOLE). Emitting it also stops the body parser swallowing the next decl.
+      kids += Node.Frame("spike.unitlit", Some("def.body"), Vector.empty)
     Node.Frame("spike.def", None, kids.result())
 
   // `case class Name(f1: T1, f2: T2)` — a top-level declaration. lowerProg does all the work
@@ -640,6 +651,27 @@ object SpikeParse:
       while c.peekKind == "spike.lparen" do skipBalancedParens(c)
       if c.peekKind == "spike.colon" then { c.advance(); skipTypeRef(c) }
     Node.Frame("spike.sealed", None, Vector.empty)
+
+  // `effect L:` / `effect L { ops }` → Pair("effect_decl", Pair(name, Pair(false, [op-defs]))); the lowerer
+  // materializes E_op closures from the op SIGNATURES (ssc1-front.ssc0:2657, AST-derived — bodies ignored).
+  // `effect { … }` (a brace right after `effect`, no name) is NOT a decl but the reactive call — left to exprs.
+  private def parseEffectDecl(c: Cur): Node =
+    val kids = Vector.newBuilder[Node]
+    c.advance() // `effect`
+    if c.peekKind == "spike.uid" || c.peekKind == "spike.id" then c.advance().foreach(t => kids += Node.Leaf(t, Some("eff.name")))
+    skipTypeParams(c) // `effect State[S]`
+    val braced = c.peekKind == "spike.lbrace"
+    if braced then c.advance()
+    else if c.peekKind == "spike.colon" then c.advance()
+    c.skipSemis()
+    val bodyCol = c.peekCol
+    while !c.eof && c.peekKind != "spike.rbrace" && (braced || c.peekCol >= bodyCol) && isMemberStart(c) do
+      val before = c.mark
+      kids += parseMember(c).withRole("eff.op")
+      if c.mark == before then c.advance()
+      c.skipSemis()
+    if braced && c.peekKind == "spike.rbrace" then c.advance()
+    Node.Frame("spike.effectdecl", None, kids.result())
 
   // `object X [extends …]: members` / `object X { members }` → Pair("object", Pair(name, [member-stmts]))
   // (ssc1-front.ssc0:2687). The lowerer emits `X_member` globals from the body; `X.member` resolves to them.
@@ -1442,11 +1474,18 @@ object SpikeProject:
       case (_, c) if kindOf(c) == "spike.enum"      => Vector(enumNode(c))
       case (_, c) if kindOf(c) == "spike.extension" => extensionNodes(c)
       case (_, c) if kindOf(c) == "spike.object"    => Vector(objectNode(c))
+      case (_, c) if kindOf(c) == "spike.effectdecl" => Vector(effectDeclNode(c))
       // top-level STATEMENTS in source order — `stmt()` projects them to mkVal/Pair("var")/Pair("assign")/
       // Pair("while")/mkSExpr, which lowerProg collects into `(entry (seq …))` (and val/var → a global cell).
       case (_, c) if isTopStmt(kindOf(c))           => Vector(stmt(c))
       case _                                        => Vector.empty[String]
     }.toVector)
+
+  // `effect L: ops` → Pair("effect_decl", Pair(name, Pair(false, [op-defs]))) — lowerer builds E_op closures.
+  private def effectDeclNode(n: UniNode): String =
+    val name = kids(n).collectFirst { case (Some("eff.name"), c) => lexeme(c) }.getOrElse("_")
+    val ops  = kids(n).collect { case (Some("eff.op"), c) => memberNode(c) }
+    s"""Pair("effect_decl", Pair("${esc(name)}", Pair(false, ${consList(ops.toVector)})))"""
 
   // `object X { members }` → Pair("object", Pair(name, [member-stmts])); the lowerer emits X_member globals.
   private def objectNode(n: UniNode): String =
@@ -1625,6 +1664,7 @@ object SpikeProject:
         val lhs  = kids(b).collectFirst { case (Some("range.lhs"), c) => expr(c) }.getOrElse(hole)
         val rhs  = kids(b).collectFirst { case (Some("range.rhs"), c) => expr(c) }.getOrElse(hole)
         s"""mkApp(mkSel($lhs, "${esc(word)}"), ${consList(Vector(rhs))})"""
+      case "spike.unitlit" => "mkTup(Nil)" // abstract-def placeholder body (ignored by effect/trait lowering)
       case "spike.error" => hole
       case _             => hole
     case _ => hole
