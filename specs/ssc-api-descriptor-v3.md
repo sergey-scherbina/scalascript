@@ -1,8 +1,8 @@
 # SSC API descriptor v3
 
 Status: **slice A implemented and verified; slice B compatibility-producer fourth
-pre-integration review rejected with three P1 corrections specified but not yet
-implemented; self-hosted and consumer slices queued** (2026-07-15).
+correction implemented and fully verified locally, awaiting independent
+pre-integration approval; self-hosted and consumer slices queued** (2026-07-15).
 
 This specification refines the structured-descriptor contract in
 [`control-interoperability.md`](control-interoperability.md) without changing its
@@ -211,9 +211,9 @@ The source of truth is the parsed declaration header:
   impersonating an effect: with a raw carrier it fails effect/object correspondence;
   in a packaged documentless block the sentinel alone is never declaration-header
   evidence, so missing raw `effect` evidence rejects at the symbol path. Rejected:
-  adding a
-  new original-source field to `Content.CodeBlock` and every serialized/consumer
-  shape solely for this compatibility producer (a broader carrier/schema change);
+  adding a new original-source field to `Content.CodeBlock` and every
+  serialized/consumer shape solely for this compatibility producer (a broader
+  carrier/schema change);
   using synthetic `val` sentinels (they would become observable object fields in the
   interpreter);
 - nominal projection is deliberately lossless rather than optimistic: a public
@@ -365,19 +365,19 @@ a second wire model or route through legacy `tpe`.
 - [x] Selected public/exported `var` rejects until mutability is represented by an
       additive schema; the equivalent explicitly typed `val` remains projectable,
       and Slice A's model/canonical wire shape is unchanged.
-- [ ] Explicit direct and renamed imports resolve before every bare builtin mapping;
+- [x] Explicit direct and renamed imports resolve before every bare builtin mapping;
       wildcard/conflicting imports fail closed, while rename-away/unimport exclusions
       preserve a builtin only when absence is provable. Array/Byte, Int/List, exact
       qualified positives, and platform-root imports have stable paths and codes.
-- [ ] CodeBlock and Document carriers have equal raw semantic effect-header evidence
+- [x] CodeBlock and Document carriers have equal raw semantic effect-header evidence
       before either supplies effect metadata. Empty effect versus object, plain versus
       multi, name/order, and unsupported generic/parent shape are observable while
       line offsets are not; documentless source remains independently checked.
-- [ ] Reserved private type effect sentinels preserve only parser-erased origin
+- [x] Reserved private type effect sentinels preserve only parser-erased origin
       evidence: they never become descriptor/runtime value members or alter
       EffectAnalysis/backend behavior, and a user collision fails strict managed
       production with or without a Document carrier instead of fabricating an effect.
-- [ ] Non-empty derives and early-initializer clauses participate in exact retained
+- [x] Non-empty derives and early-initializer clauses participate in exact retained
       header correspondence and reject on real public nominal declarations until the
       descriptor represents them, across every parseable class/trait/enum/object form.
 
@@ -944,8 +944,41 @@ effect/object or multiplicity evidence after preprocessing; and derives/early
 template headers were absent from both correspondence and nominal losslessness
 checks. The reviewer explicitly confirmed the previous exact-package-wrapper,
 mandatory CodeBlock-source, and Array/Byte binder/local corrections. All twelve
-Slice B `descriptor-v3-*` entries remain `open`; the new behavior items above are
-unchecked until faithful red vectors and implementation gates pass.
+Slice B `descriptor-v3-*` entries remain `open` until independent approval and
+landing.
+
+The fourth Slice B correction is implementation commit `43d41e88d`, rebased on
+`origin/main@f63714680`. Its faithful red baseline was commit `f08ab9943`: the
+focused producer suite was exactly 50/60, with five import-resolution failures,
+two raw effect-evidence failures, and three derives/early failures while every
+previous regression stayed green. The correction adds source-ordered import
+resolution before every bare builtin, compares raw semantic effect witnesses
+across retained carriers, preserves parser-erased effect origin only as filtered
+private type sentinels, and includes derives/early clauses in both exact
+correspondence and nominal losslessness checks. The four behavior items above are
+checked from the corresponding faithful producer, parser, and effect-analysis
+regressions.
+
+This checkpoint is fully green locally but is not independently approved or
+landed. All twelve Slice B `descriptor-v3-*` bug entries remain `open`, and the
+Slice B sprint item remains unchecked until a fresh read-only review approves the
+exact clean checkpoint and it lands on `origin/main`.
+
+- `scripts/sbtc "core/testOnly
+  scalascript.artifact.PreBodyApiDescriptorProducerTest
+  scalascript.parser.PreprocessEffectsTest
+  scalascript.transform.EffectAnalysisMultiShotTest"` passes 75/75 total: producer
+  63/63, parser preprocessing 8/8, and effect analysis 4/4.
+- `scripts/sbtc "v2InteropDescriptor/test"` passes 27/27 descriptor tests;
+  `scripts/sbtc "core/test"` passes 1111/1111; the combined
+  `scripts/sbtc "interop/test; ir/test; core/testOnly
+  scalascript.artifact.ArtifactAbiCompatibilityTest"` gate passes interop 36/36,
+  the zero-test IR project, and artifact ABI 73/73.
+- `tests/conformance/run.sh --only 'modules*,import-dir*'` passes 2/2 affected
+  cases, and `tests/conformance/run.sh --only
+  'effects,effect-*,js-effect-*,js-applyunary-effect-cps,js-state-effect-runner,head-field-effect-shadow'`
+  passes 9/9 effect cases across their supported lanes (both memoized on the
+  unchanged conformance corpus).
 
 The third Slice B correction is implementation commit `72e6a2897`, rebased on
 `origin/main@790366a9d`. It closes the three P1 gaps from the fresh rereview:
