@@ -1,6 +1,6 @@
 # Scala 3 lexical direct-style control macros
 
-Status: **M1 public ABI and lowering contract frozen; implementation pending**
+Status: **M1 implemented and verified**
 (2026-07-15).
 
 This feature is the bounded inline-macro tier of
@@ -259,24 +259,24 @@ save/run, callbacks, descriptors, runners, or cancellation.
 
 ## Behavior
 
-- [ ] `direct.reset`/`direct.shift` compile to the existing explicit API with no
+- [x] `direct.reset`/`direct.shift` compile to the existing explicit API with no
       additional runtime semantics or production dependency.
-- [ ] Pure prefix code is evaluated once; suffix code is evaluated once per
+- [x] Pure prefix code is evaluated once; suffix code is evaluated once per
       explicit resume; source evaluation remains left-to-right.
-- [ ] Zero, one, and many resumes, nearest same-prompt reset, true `shift` rather
+- [x] Zero, one, and many resumes, nearest same-prompt reset, true `shift` rather
       than `shift0`, residual-row typing, and shared local heap match explicit API
       results.
-- [ ] Multiple sequential shift binds and nested lexical scopes preserve typed
+- [x] Multiple sequential shift binds and nested lexical scopes preserve typed
       ownership without marker capture by the wrong region.
-- [ ] Markers outside a matching scope or across callback/resource/control
+- [x] Markers outside a matching scope or across callback/resource/control
       barriers fail closed with stable code and exact source position.
-- [ ] Unsupported M1 trees fail with `DIRECT_STYLE_UNSUPPORTED`, never a runtime
+- [x] Unsupported M1 trees fail with `DIRECT_STYLE_UNSUPPORTED`, never a runtime
       stub, exception-based control path, or silent explicit-style fallback.
-- [ ] Exported `direct` source signatures expose no `scala.quoted`, CoreIR,
+- [x] Exported `direct` source signatures expose no `scala.quoted`, CoreIR,
       interpreter value, reflection, TLS, or source-forgeable `Scope` constructor;
       the compiler-required macro implementation stays private at Scala source
       level and isolated from runtime semantics.
-- [ ] The `scala-direct` catalog lane and the full `scala3ControlApi` suite pass,
+- [x] The `scala-direct` catalog lane and the full `scala3ControlApi` suite pass,
       the POM keeps only Scala production libraries, and affected common
       conformance remains green.
 
@@ -324,4 +324,16 @@ Changed Markdown is linted and the final branch must pass `git diff --check`.
 
 ## Results
 
-Fill after `spec-dev verify`; no implementation result is claimed by this freeze.
+- `scripts/sbtc "scala3ControlApi/test;scala3ControlApi/packageBin;scala3ControlApi/makePom"`
+  passes 80/80 tests across ten suites. The direct slice contributes ten runtime
+  semantic tests, eight exact compile-time diagnostic tests, three catalog-lane
+  tests, and source-access safety checks.
+- `tests/interop-conformance/run.sh --validate` accepts 26 vectors and nine lanes;
+  all nine validator-negative cases pass. `--lane scala-direct` passes vector 18,
+  vector 23, and catalog/program coverage (3/3), each with an explicit-API
+  differential result.
+- The generated POM has only `scala3-library_3` in production scope (ScalaTest is
+  test scope). The runnable example prints `Vector(10, 20)`, `42`, and direct-style
+  `42`.
+- `tests/conformance/run.sh --only 'effect*,effects*'` passes all five affected
+  cases on every declared lane, and `git diff --check` is clean.
