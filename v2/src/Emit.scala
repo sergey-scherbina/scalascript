@@ -105,13 +105,36 @@ object Emit:
   def clos(arity: Int, fn: LamFn, captured: Array[Value]): Value =
     Value.ClosV(captured, arity, env => Done(unroll(fn.call(env))))
 
+  /** Canonical one-argument handler partial function. The private marker only
+   *  authorizes Runtime.dispatchHandler1 to scope its root-match probe. */
+  def handlerClos(arity: Int, fn: LamFn, captured: Array[Value]): Value =
+    Runtime.handlerClosure(captured, arity, env => Done(unroll(fn.call(env))))
+
   /** LetRec: create the closures, extend env, tie the cyclic frame (VM semantics). */
-  def letrec(arities: Array[Int], fns: Array[LamFn], env: Array[Value]): Array[Value] =
+  def letrec(
+      arities: Array[Int],
+      fns: Array[LamFn],
+      env: Array[Value]
+  ): Array[Value] =
+    // Persisted direct-ASM artifacts link this historical descriptor. New
+    // handler metadata is additive; old classes retain all-false behavior.
+    letrec(arities, fns, Array.fill(fns.length)(false), env)
+
+  def letrec(
+      arities: Array[Int],
+      fns: Array[LamFn],
+      handlerRoots: Array[Boolean],
+      env: Array[Value]
+  ): Array[Value] =
     val cs = new Array[Value](fns.length)
     var i = 0
     while i < fns.length do
       val f = fns(i)
-      cs(i) = Value.ClosV(Array.empty[Value], arities(i), e => Done(unroll(f.call(e))))
+      val raw: Code = e => Done(unroll(f.call(e)))
+      val closure =
+        if handlerRoots(i) then Runtime.handlerClosure(Array.empty[Value], arities(i), raw)
+        else Value.ClosV(Array.empty[Value], arities(i), raw)
+      cs(i) = closure
       i += 1
     val envP = Runtime.extend(env, cs)
     i = 0
@@ -226,6 +249,10 @@ object Emit:
   def dataArity(v: Value): Int = v match { case Value.DataV(_, fs) => fs.length; case _ => -1 }
   def dataFields(v: Value): Array[Value] = v match { case Value.DataV(_, fs) => fs.toArray; case _ => Array.empty }
   def matchFail(tag: String, ar: Int): Value = sys.error(s"match: no arm for $tag/$ar")
+  def handlerMatchEnter(v: Value): Boolean = Runtime.handlerMatchEnter(v)
+  def handlerMatchSelected(active: Boolean): Unit = Runtime.handlerMatchSelected(active)
+  def handlerMatchFailed(active: Boolean, tag: String, ar: Int): Value =
+    Runtime.handlerMatchFailed(active, tag, ar)
 
   /** Program globals for the generated class (set once before invocation). */
   @volatile var globalsRef: scala.collection.Map[String, Value] = Map.empty

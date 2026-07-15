@@ -410,6 +410,8 @@ object R:
     case "map.new"  => mutable.HashMap[V, V]()
     case "map.size" => _asMap(a0).size.toLong
     case "map.keys" => _valList(_asMap(a0).keys.toSeq)
+    case "__handler_dispatch_selected__" => ()
+    case "__handler_dispatch_miss__" => throw new RuntimeException("match: no matching case")
     case "io.args"  => _strList(argv)
     case "io.print" => _out(a0, Console.out); ()
     case "io.println"=> _out(a0, Console.out); Console.out.println(); ()

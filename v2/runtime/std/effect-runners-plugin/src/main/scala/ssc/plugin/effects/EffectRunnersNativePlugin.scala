@@ -23,11 +23,10 @@ final class EffectRunnersNativePlugin extends NativePlugin:
   private def invoke(context: NativePluginContext, fn: Value, args: Value*): Value =
     context.invoke(fn, args.toList)
 
-  private def handle(computation: Value)(handler: Value => Value): Value =
-    PortableEffects.handle(computation, closure(1) {
-      case List(event) => handler(event)
-      case args => throw new IllegalArgumentException(s"effect handler event: $args")
-    })
+  private def handle(computation: Value)(
+      handler: PartialFunction[Value, Value]
+  ): Value =
+    PortableEffects.handle(computation, Runtime.handlerPartialFunction(handler))
 
   private def list(values: List[Value]): Value =
     values.foldRight[Value](Value.DataV("Nil", Vector.empty)) { (value, tail) =>
@@ -162,7 +161,6 @@ final class EffectRunnersNativePlugin extends NativePlugin:
             println(s"[${level.toUpperCase}] $message")
             invoke(context, resume, Value.UnitV)
           case Value.DataV("Return", IndexedSeq(value)) => value
-          case other => throw new IllegalArgumentException(s"runLogger: unsupported event $other")
         }
       case _ => throw new IllegalArgumentException("runLogger(body)")
     })
@@ -180,7 +178,6 @@ final class EffectRunnersNativePlugin extends NativePlugin:
             invoke(context, resume, Value.UnitV)
           case Value.DataV("Return", IndexedSeq(value)) =>
             Value.DataV("Tuple2", Vector(value, list(messages.toList)))
-          case other => throw new IllegalArgumentException(s"runLoggerToList: unsupported event $other")
         }
       case _ => throw new IllegalArgumentException("runLoggerToList(body)")
     })
@@ -199,7 +196,6 @@ final class EffectRunnersNativePlugin extends NativePlugin:
             result(Value.UnitV)
           case Value.DataV("Return", IndexedSeq(value)) =>
             result(value)
-          case other => throw new IllegalArgumentException(s"runStream: unsupported event $other")
         }
       case _ => throw new IllegalArgumentException("runStream(body)")
     })

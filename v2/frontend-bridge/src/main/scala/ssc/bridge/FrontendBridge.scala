@@ -2155,7 +2155,8 @@ object FrontendBridge:
 
     // ── Partial function {case p => e} as lambda+match ────────────────────────
     case Term.PartialFunction(cases) =>
-      CT.Lam(1, convertMatch(CT.Local(0), cases, "_pfn_" :: scope))
+      CT.Lam(1, convertMatch(
+        CT.Local(0), cases, "_pfn_" :: scope, handlerDispatch = true))
 
     // ── Anonymous function (placeholder syntax: _.foo, _ + 1, etc.) ─────────
     case Term.AnonymousFunction(body) =>
@@ -2678,7 +2679,12 @@ object FrontendBridge:
       CT.Prim("__arithExt__", List(CT.Lit(Const.CStr(op)), l, r, CT.Global(op)))
     case _    => CT.Prim("__arith__", List(CT.Lit(Const.CStr(op)), l, r))
 
-  private def convertMatch(scrut: CT, cases: List[Case], scope: List[String]): CT =
+  private def convertMatch(
+      scrut: CT,
+      cases: List[Case],
+      scope: List[String],
+      handlerDispatch: Boolean = false
+  ): CT =
     val hasCtorArms = cases.exists { c =>
       c.pat match
         case Pat.Extract.After_4_6_0(_, _) | Pat.ExtractInfix.After_4_6_0(_, _, _) |
@@ -2695,7 +2701,10 @@ object FrontendBridge:
       // General if-chain: each case becomes a condition (flat, using nested fieldAt) + bindings + body
       val scrutRef = CT.Local(0)
       def caseChain(cs: List[Case]): CT = cs match
-        case Nil => CT.App(CT.Global("__match_fail__"), Nil)
+        case Nil =>
+          if handlerDispatch then
+            CT.Prim(_root_.ssc.HandlerDispatchShape.MissPrimitive, List(scrutRef))
+          else CT.App(CT.Global("__match_fail__"), Nil)
         case c :: rest =>
           val (conds, binds) = flattenPattern(c.pat, scrutRef, sc)
           val failCT  = caseChain(rest)
@@ -2705,9 +2714,19 @@ object FrontendBridge:
           val bindNms = binds.map(_._2)
           val bodyScope = bindNms.reverse ++ sc
           val failInBodyScope = if binds.isEmpty then failCT else shiftLocals(failCT, binds.length)
+          val rawBody = convertExpr(c.body, bodyScope)
+          val selectedBody =
+            if handlerDispatch then
+              val eventInBodyScope = shiftLocals(scrutRef, binds.length)
+              CT.Seq(List(
+                CT.Prim(_root_.ssc.HandlerDispatchShape.SelectedPrimitive,
+                  List(eventInBodyScope)),
+                rawBody))
+            else rawBody
           val bodyExpr  = c.cond match
-            case Some(g) => CT.If(convertExpr(g, bodyScope), convertExpr(c.body, bodyScope), failInBodyScope)
-            case None    => convertExpr(c.body, bodyScope)
+            case Some(g) =>
+              CT.If(convertExpr(g, bodyScope), selectedBody, failInBodyScope)
+            case None => selectedBody
           val withBinds = if binds.isEmpty then bodyExpr else CT.Let(bindRhs, bodyExpr)
           conds.foldRight(withBinds) { (k, t) => CT.If(k, t, failCT) }
       CT.Let(List(scrut), caseChain(cases))

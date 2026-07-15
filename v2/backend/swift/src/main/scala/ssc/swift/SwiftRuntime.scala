@@ -1190,6 +1190,8 @@ private final class Machine {
             return .map(result)
         case "__math_obj__": return .data("__Math__", [])
         case "__match_fail_prim__": fatalError("match: no matching case")
+        case "__handler_dispatch_selected__": return .unit
+        case "__handler_dispatch_miss__": fatalError("match: no matching case")
         case "__method__", "__effect__":
             guard args.count >= 2 else { fatalError("__method__: missing receiver") }
             return method(string(args, 0), args[1], Array(args.dropFirst(2)))

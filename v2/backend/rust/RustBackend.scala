@@ -1,6 +1,6 @@
 package ssc.backend.rust
 
-import ssc.{Term, Const, Arm, Def, Program, Reader}
+import ssc.{Term, Const, Arm, Def, HandlerDispatchShape, Program, Reader}
 import Term.*
 import Const.*
 
@@ -1215,6 +1215,9 @@ ${pad}    }));\n"""
         if rest.isEmpty then s"v_method(${a0}, ${a1}, vec![])"
         else s"v_method(${a0}, ${a1}, vec![$rest])"
       case "__autoPrint__" => s"{ ${a0}; V::Unit }"
+      case HandlerDispatchShape.SelectedPrimitive => s"{ let _ = $a0; V::Unit }"
+      case HandlerDispatchShape.MissPrimitive =>
+        s"{ let _ = $a0; panic!(\"match: no matching case\"); }"
       // Integer arithmetic
       case "i.add"  => s"v_iadd($a0, $a1)"
       case "i.sub"  => s"v_isub($a0, $a1)"

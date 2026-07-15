@@ -87,6 +87,16 @@ object Value:
     // Direct-call fast entry: set by Compiler for simple defs whose body is tryFC-able.
     // Callers can invoke this instead of trampoline to eliminate Done allocs.
     var fcEntry: Option[FastCode.FC] = None
+    /** True only for a qualified one-argument handler dispatch root. It is
+     *  private execution metadata, never a language value or wire ABI. */
+    private[ssc] var handlerDispatchRoot: Boolean = false
+    /** Unforgeable owner of this compiled partial-function root. The token is
+     *  target-private executable metadata: it never enters `env` or CoreIR. */
+    private[ssc] var handlerDispatchOwner: AnyRef | Null = null
+    /** Runtime/plugin-owned handlers have no CoreIR root match. Their private
+     *  structured dispatcher returns Some(result) or None for an unhandled
+     *  event; it is never stored in the language closure environment. */
+    private[ssc] var handlerDispatchHook: (Value => Option[Value]) | Null = null
   final case class ForeignV(h: AnyRef)                extends Value
   /** Target-neutral insertion-ordered mutable map. Equality and hashing remain
    *  object identity, matching Swift's SscMap; UI semantic equality is a
@@ -114,8 +124,151 @@ object Value:
   // cell.set in tight float loops. Lowered from `var x: Double = 0.0` via `dcell.new`.
   final class DoubleCellV(var v: Double)              extends Value
 
+private[ssc] enum HandlerDispatch:
+  case Matched(value: Value)
+  case Unhandled
+  case Suspended(
+      label: Value,
+      argument: Value,
+      continue: Value => HandlerDispatch
+  )
+
 object Runtime:
   import Value.*
+
+  /** Target-private scope for distinguishing a handler partial-function miss
+   *  from failures raised after a matching arm was selected. The scope is
+   *  synchronous, per invocation, and never enters a closure environment. */
+  private final class HandlerDispatchProbe(val owner: AnyRef, val event: Value):
+    var pending: Boolean = true
+
+  private val handlerDispatchProbes = new ThreadLocal[List[HandlerDispatchProbe]]:
+    override def initialValue(): List[HandlerDispatchProbe] = Nil
+  private val handlerDispatchOwners = new ThreadLocal[List[AnyRef]]:
+    override def initialValue(): List[AnyRef] = Nil
+
+  // Unforgeable runtime identity: deliberately not DataV/string-shaped and
+  // consumed by dispatchHandler1 before it can cross the runtime boundary.
+  private val handlerUnhandledSentinel: Value = ForeignV(new Object())
+
+  private def withHandlerDispatchOwner[A](owner: AnyRef)(run: => A): A =
+    val previous = handlerDispatchOwners.get()
+    handlerDispatchOwners.set(owner :: previous)
+    try run
+    finally
+      if previous.isEmpty then handlerDispatchOwners.remove()
+      else handlerDispatchOwners.set(previous)
+
+  /** Construct a compiler-qualified partial-function closure. The raw body is
+    *  wrapped outside the language environment so every synchronous execution
+    *  segment exposes its private owner to root-match/marker hooks. */
+  private[ssc] def handlerClosure(env: Env, arity: Int, rawCode: Code): ClosV =
+    val owner = new Object()
+    val wrapped: Code = frame => withHandlerDispatchOwner(owner)(rawCode(frame))
+    val closure = ClosV(env, arity, wrapped)
+    closure.handlerDispatchRoot = true
+    closure.handlerDispatchOwner = owner
+    closure
+
+  private[ssc] def dispatchHandler1(handler: ClosV, event: Value): HandlerDispatch =
+    val direct = handler.handlerDispatchHook
+    if direct != null then
+      direct.asInstanceOf[Value => Option[Value]](event) match
+        case Some(value) => HandlerDispatch.Matched(value)
+        case None        => HandlerDispatch.Unhandled
+    else if !handler.handlerDispatchRoot then
+      HandlerDispatch.Matched(Prims.runClos1(handler, event))
+    else
+      val owner = handler.handlerDispatchOwner
+      if owner == null then sys.error("handler dispatch: qualified closure has no owner token")
+      else withHandlerDispatchProbe(owner.nn, event) {
+        Prims.runClos1(handler, event)
+      }
+
+  /** Run one synchronous segment of a qualified source handler. If a pattern
+   *  or guard suspends before choosing a case, expose that exact Op and resume
+   *  the decision under a fresh probe for every continuation invocation. */
+  private def withHandlerDispatchProbe(
+      owner: AnyRef,
+      event: Value
+  )(runSegment: => Value): HandlerDispatch =
+    val previous = handlerDispatchProbes.get()
+    val probe = HandlerDispatchProbe(owner, event)
+    handlerDispatchProbes.set(probe :: previous)
+    try
+      val result = runSegment
+      if !probe.pending then
+        if result.asInstanceOf[AnyRef] eq handlerUnhandledSentinel.asInstanceOf[AnyRef] then
+          HandlerDispatch.Unhandled
+        else HandlerDispatch.Matched(result)
+      else result match
+        case DataV("Op", IndexedSeq(label, argument, continuation: ClosV)) =>
+          HandlerDispatch.Suspended(
+            label,
+            argument,
+            reply => withHandlerDispatchProbe(owner, event) {
+              withHandlerDispatchOwner(owner) {
+                Prims.runClos1(continuation, reply)
+              }
+            })
+        case other =>
+          sys.error(
+            s"handler dispatch: qualified root returned before selecting or rejecting ${Show.show(other)}")
+    finally
+      if previous.isEmpty then handlerDispatchProbes.remove()
+      else handlerDispatchProbes.set(previous)
+
+  /** Build a runtime/plugin-owned partial handler without turning an unknown
+   *  event into a throwing catch-all. `lift` uses PartialFunction.applyOrElse,
+   *  so guards and the selected body are evaluated once. */
+  private[ssc] def handlerPartialFunction(
+      handler: PartialFunction[Value, Value]
+  ): ClosV =
+    val dispatch = handler.lift
+    val closure = ClosV(emptyEnv, 1, env => dispatch(env.last) match
+      case Some(value) => Done(value)
+      case None        => sys.error("match: no matching case"))
+    closure.handlerDispatchHook = dispatch
+    closure
+
+  /** Enter only the qualified root handler match and only for its exact event
+   *  object. Ordinary equal-shaped user values cannot claim this probe. */
+  private[ssc] def handlerMatchEnter(scrutinee: Value): Boolean =
+    (handlerDispatchProbes.get(), handlerDispatchOwners.get()) match
+      case (probe :: _, owner :: _) if probe.pending &&
+          (probe.owner eq owner) &&
+          (probe.event.asInstanceOf[AnyRef] eq scrutinee.asInstanceOf[AnyRef]) => true
+      case _ => false
+
+  /** Consume the probe before any selected arm/default body executes. */
+  private[ssc] def handlerMatchSelected(active: Boolean): Unit =
+    if active then
+      handlerDispatchProbes.get() match
+        case probe :: _ if probe.pending => probe.pending = false
+        case _ => sys.error("handler dispatch: selected arm without an active probe")
+
+  /** A recoverable miss exists only for the exact qualified root dispatch. */
+  private[ssc] def handlerMatchFailed(active: Boolean, tag: String, arity: Int): Value =
+    if active then
+      handlerDispatchProbes.get() match
+        case probe :: _ if probe.pending =>
+          probe.pending = false
+          handlerUnhandledSentinel
+        case _ => sys.error("handler dispatch: missing arm without an active probe")
+    else sys.error(s"match: no arm for $tag/$arity")
+
+  /** Bridge-private general-pattern success marker. It consumes only the
+   *  exact root event's still-pending probe; ordinary partial-function calls
+   *  observe a no-op and keep their ordinary result/failure behavior. */
+  private[ssc] def handlerDispatchSelected(event: Value): Value =
+    handlerMatchSelected(handlerMatchEnter(event))
+    UnitV
+
+  /** Bridge-private terminal case-chain fallthrough. Only an exact pending
+   *  root dispatch becomes the unforgeable Unhandled sentinel. */
+  private[ssc] def handlerDispatchMiss(event: Value): Value =
+    if handlerMatchEnter(event) then handlerMatchFailed(true, "handler event", -1)
+    else sys.error("match: no matching case")
 
   // Process argv — the trailing CLI args of `ssc run <file> ARGS...`, exposed to
   // the program through the `io.args` primitive. Set by Main before running.
@@ -672,43 +825,46 @@ object Compiler:
     // pass 1: lambda defs -> closures (recursion resolves via Global at call time)
     for d <- p.defs do d.body match
       case Lam(ar, b) =>
-        val bodyCode = c.compile(b)
-        val closV = SelfRecLL.compile(b, d.name, ar) match
-          case Some(ll) =>
-            // fib-shaped def: route Int args through the Long=>Long specialization;
-            // anything else falls back to the generally-compiled body.
-            val code: Code = (env: Env) => env(env.length - 1) match
-              case IntV(x)       => Done(IntV(ll(x)))
-              case lc: LongCellV => Done(IntV(ll(lc.v)))
-              case _             => bodyCode(env)
-            val cv = ClosV(Array.empty[Value], ar, code)
-            cv.fcEntry = Some((env: Env) => env(env.length - 1) match
-              case IntV(x)       => IntV(ll(x))
-              case lc: LongCellV => IntV(ll(lc.v))
-              case _             => Runtime.run(bodyCode, env))
-            cv
-          case None =>
-            SelfTailRecLL2.compile(b, d.name, ar) match
-              case Some(ll2) =>
-                val code: Code = (env: Env) =>
-                  if env.length < 2 then bodyCode(env)
-                  else (env(env.length - 2), env(env.length - 1)) match
-                    case (IntV(a),       IntV(b))       => Done(IntV(ll2(a, b)))
-                    case (lc: LongCellV, IntV(b))       => Done(IntV(ll2(lc.v, b)))
-                    case (IntV(a),       lc: LongCellV) => Done(IntV(ll2(a, lc.v)))
-                    case (la: LongCellV, lb: LongCellV) => Done(IntV(ll2(la.v, lb.v)))
-                    case _                              => bodyCode(env)
-                val cv = ClosV(Array.empty[Value], ar, code)
-                cv.fcEntry = Some((env: Env) =>
-                  if env.length < 2 then Runtime.run(bodyCode, env)
-                  else (env(env.length - 2), env(env.length - 1)) match
-                    case (IntV(a),       IntV(b))       => IntV(ll2(a, b))
-                    case (lc: LongCellV, IntV(b))       => IntV(ll2(lc.v, b))
-                    case (IntV(a),       lc: LongCellV) => IntV(ll2(a, lc.v))
-                    case (la: LongCellV, lb: LongCellV) => IntV(ll2(la.v, lb.v))
-                    case _                              => Runtime.run(bodyCode, env))
-                cv
-              case None => ClosV(Array.empty[Value], ar, bodyCode)
+        val handlerRoot = HandlerDispatchShape.isRoot(ar, b)
+        val bodyCode = c.compile(b, handlerRoot)
+        val closV =
+          if handlerRoot then Runtime.handlerClosure(Array.empty[Value], ar, bodyCode)
+          else SelfRecLL.compile(b, d.name, ar) match
+            case Some(ll) =>
+              // fib-shaped def: route Int args through the Long=>Long specialization;
+              // anything else falls back to the generally-compiled body.
+              val code: Code = (env: Env) => env(env.length - 1) match
+                case IntV(x)       => Done(IntV(ll(x)))
+                case lc: LongCellV => Done(IntV(ll(lc.v)))
+                case _             => bodyCode(env)
+              val cv = ClosV(Array.empty[Value], ar, code)
+              cv.fcEntry = Some((env: Env) => env(env.length - 1) match
+                case IntV(x)       => IntV(ll(x))
+                case lc: LongCellV => IntV(ll(lc.v))
+                case _             => Runtime.run(bodyCode, env))
+              cv
+            case None =>
+              SelfTailRecLL2.compile(b, d.name, ar) match
+                case Some(ll2) =>
+                  val code: Code = (env: Env) =>
+                    if env.length < 2 then bodyCode(env)
+                    else (env(env.length - 2), env(env.length - 1)) match
+                      case (IntV(a),       IntV(b))       => Done(IntV(ll2(a, b)))
+                      case (lc: LongCellV, IntV(b))       => Done(IntV(ll2(lc.v, b)))
+                      case (IntV(a),       lc: LongCellV) => Done(IntV(ll2(a, lc.v)))
+                      case (la: LongCellV, lb: LongCellV) => Done(IntV(ll2(la.v, lb.v)))
+                      case _                              => bodyCode(env)
+                  val cv = ClosV(Array.empty[Value], ar, code)
+                  cv.fcEntry = Some((env: Env) =>
+                    if env.length < 2 then Runtime.run(bodyCode, env)
+                    else (env(env.length - 2), env(env.length - 1)) match
+                      case (IntV(a),       IntV(b))       => IntV(ll2(a, b))
+                      case (lc: LongCellV, IntV(b))       => IntV(ll2(lc.v, b))
+                      case (IntV(a),       lc: LongCellV) => IntV(ll2(a, lc.v))
+                      case (la: LongCellV, lb: LongCellV) => IntV(ll2(la.v, lb.v))
+                      case _                              => Runtime.run(bodyCode, env))
+                  cv
+                case None => ClosV(Array.empty[Value], ar, bodyCode)
         globals(d.name) = closV
         if closV.fcEntry.isEmpty then
           // Prefer exact closed-form body FCs before generic FastCode: benchmark
@@ -726,7 +882,9 @@ object Compiler:
     (c.compile(p.entry), globals)
 
   final class C(globals: collection.mutable.Map[String, Value], topDefs: Map[String, Term] = Map.empty):
-    def compile(t: Term): Code = t match
+    def compile(t: Term): Code = compile(t, handlerDispatchRoot = false)
+
+    def compile(t: Term, handlerDispatchRoot: Boolean): Code = t match
       case _ if tryClosedLongCellSumLoop(t).isDefined =>
         tryClosedLongCellSumLoop(t).get
       case _ if tryStaticFloatForeachLoop(t, topDefs).isDefined =>
@@ -744,7 +902,13 @@ object Compiler:
               globals(g) = cell; cell
             else sys.error(s"unbound global: $g"))))
       case Lam(ar, b) =>
-        val bc = compile(b); (env: Env) => Done(ClosV(env, ar, bc))
+        val handlerRoot = HandlerDispatchShape.isRoot(ar, b)
+        val bc = compile(b, handlerRoot)
+        (env: Env) =>
+          val closure =
+            if handlerRoot then Runtime.handlerClosure(env, ar, bc)
+            else ClosV(env, ar, bc)
+          Done(closure)
       case If(c, th, el) =>
         val tc = compile(th); val ec = compile(el)
         FastCode.tryFBc(c, globals) match
@@ -798,12 +962,17 @@ object Compiler:
             Done(Runtime.letThreadOp(opHit.asInstanceOf[Value], x => continue(iAtOp, eAtOp, x)))
       case LetRec(lams, body) =>
         val acs = lams.map {
-          case Lam(ar, b) => (ar, compile(b))
+          case Lam(ar, b) =>
+            val handlerRoot = HandlerDispatchShape.isRoot(ar, b)
+            (ar, compile(b, handlerRoot), handlerRoot)
           case _ => sys.error("letrec binding must be a lam")
         }
         val bc = compile(body)
         (env: Env) =>
-          val cs = acs.map { case (ar, code) => ClosV(Array.empty[Value], ar, code) }
+          val cs = acs.map { case (ar, code, handlerRoot) =>
+            if handlerRoot then Runtime.handlerClosure(Array.empty[Value], ar, code)
+            else ClosV(Array.empty[Value], ar, code)
+          }
           val envP = Runtime.extend(env, cs.toArray)                 // last binding = Local(0)
           cs.foreach(_.env = envP)                                   // tie the cyclic frame
           bc(envP)                                                   // body: tail
@@ -845,11 +1014,16 @@ object Compiler:
         val acs = arms.map(a => (a.tag, a.arity, compile(a.body)))
         val armMap = acs.map { case (t, ar, b) => (t, ar) -> b }.toMap
         val dc = default.map(compile)
-        (env: Env) => Runtime.value(sc, env) match                   // scrutinee: non-tail
+        (env: Env) =>
+          val scrutineeValue = Runtime.value(sc, env)               // scrutinee: non-tail
+          val handlerDispatch =
+            handlerDispatchRoot && Runtime.handlerMatchEnter(scrutineeValue)
+          scrutineeValue match {
           // EXPRESSION-position effects: an un-handled Op SCRUTINEE lifts over
           // the match — run the handler first, then match the resumed value
           // (same family as the arith/method/setter lifts).
-          case opv @ DataV("Op", IndexedSeq(l, a, k)) if Runtime.isAutoThreadOp(opv) =>
+          case opv @ DataV("Op", IndexedSeq(l, a, k))
+              if !handlerDispatch && Runtime.isAutoThreadOp(opv) =>
             val kc = k.asInstanceOf[ClosV]
             val k2 = ClosV(Runtime.emptyEnv, 1, env2 => {
               val resumed = Runtime.run(kc.code, if kc.env.isEmpty then Array(env2.last) else Runtime.extend(kc.env, Array(env2.last)))
@@ -865,6 +1039,7 @@ object Compiler:
           case DataV(tag, fs) =>
             armMap.get((tag, fs.length)) match
               case Some(body) =>
+                Runtime.handlerMatchSelected(handlerDispatch)
                 // Avoid fs.toArray (Vector→Array alloc) for the common 0/1/2-field cases
                 val extEnv = fs.length match
                   case 0 => env
@@ -873,11 +1048,19 @@ object Compiler:
                   case _ => Runtime.extend(env, fs.toArray)
                 body(extEnv)
               case None => dc match
-                case Some(d) => d(env)
-                case None => sys.error(s"match: no arm for $tag/${fs.length}")
-          case _ => dc match  // non-ADT scrutinee (String, Int, etc.) — fall to default
-            case Some(d) => d(env)
-            case None => sys.error(s"match: scrutinee not Data: ${Show.show(Runtime.value(sc, env))}")
+                case Some(d) =>
+                  Runtime.handlerMatchSelected(handlerDispatch)
+                  d(env)
+                case None => Done(Runtime.handlerMatchFailed(handlerDispatch, tag, fs.length))
+          case other => dc match  // non-ADT scrutinee (String, Int, etc.) — fall to default
+            case Some(d) =>
+              Runtime.handlerMatchSelected(handlerDispatch)
+              d(env)
+            case None =>
+              if handlerDispatch then
+                Done(Runtime.handlerMatchFailed(true, Show.show(other), -1))
+              else sys.error(s"match: scrutinee not Data: ${Show.show(other)}")
+          }
       // Plugin functions are registered as Prim op-handlers (V2PluginRegistry.handlers);
       // the scalameta bridge lowers `f(x)` to Prim("f",[x]), but the self-hosted native
       // front emits App(Global("f"),[x]) → lookupGlobal miss → "unbound global: f". Redirect
@@ -2317,6 +2500,12 @@ object Prims:
     case "arr.slice" => a => ForeignV(collection.mutable.ArrayBuffer.from(asArr(a(0)).slice(int(a, 1).toInt, int(a, 2).toInt)))
     // Cell (Foreign, single mutable ref)
     case "__match_fail_prim__" => _ => sys.error("match: no matching case")
+    case HandlerDispatchShape.SelectedPrimitive =>
+      case event :: Nil => Runtime.handlerDispatchSelected(event)
+      case args => sys.error(s"handler dispatch selected: expected 1 event, got ${args.length}")
+    case HandlerDispatchShape.MissPrimitive =>
+      case event :: Nil => Runtime.handlerDispatchMiss(event)
+      case args => sys.error(s"handler dispatch miss: expected 1 event, got ${args.length}")
     case "__mk_method_obj__" => a =>
       val pairs = a.grouped(2).map { case List(StrV(k), v) => k -> v; case g => g(0).toString -> g(1) }.toList
       ForeignV(collection.immutable.Map.from(pairs))

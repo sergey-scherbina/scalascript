@@ -1,7 +1,7 @@
 package ssc.bytecode
 
 import org.objectweb.asm.{ClassWriter, MethodVisitor, Opcodes, Label, Handle, Type as AsmType}
-import ssc.{Term, Const, Value, Program}
+import ssc.{Term, Const, Value, Program, HandlerDispatchShape}
 
 /** CoreIR → JVM bytecode, milestone 2 (Phase 4 jvm-lane).
  *
@@ -30,6 +30,9 @@ object JvmByteGen:
   private val GEN   = "ssc/gen/Entry"
   private val ARTIFACT = "ssc/plugin/NativeArtifactRuntime"
 
+  private def isHandlerDispatchRoot(arity: Int, body: Term): Boolean =
+    HandlerDispatchShape.isRoot(arity, body)
+
   private val metafactory = new Handle(
     Opcodes.H_INVOKESTATIC,
     "java/lang/invoke/LambdaMetafactory", "metafactory",
@@ -43,7 +46,8 @@ object JvmByteGen:
       selfArity: Int = -1,
       sourceLine: Option[Int] = None,
       localTailTargets: Map[Int, (String, Int)] = Map.empty,
-      localFrameArity: Int = -1)
+      localFrameArity: Int = -1,
+      handlerDispatchRoot: Boolean = false)
 
   private final class Gen(val cw: ClassWriter, val sourceDebug: Option[JvmSourceDebug]):
     val pending = collection.mutable.Queue.empty[Pending]
@@ -52,6 +56,9 @@ object JvmByteGen:
     /** Top-level Lam defs: name → (methodName, arity). Calls to these compile
      *  to DIRECT invokestatic — no global lookup, no ClosV, no Emit.app. */
     val defMethods = collection.mutable.HashMap.empty[String, (String, Int)]
+    /** Qualified partial functions must execute through their ClosV wrapper so
+     *  the runtime scopes the unforgeable handler-dispatch owner token. */
+    val handlerRootDefs = collection.mutable.HashSet.empty[String]
     /** Pending Seq chains: (per-statement method names, statements, tailLast). */
     val chains = collection.mutable.Queue.empty[(Vector[String], List[Term], Boolean, Vector[Option[Int]])]
     /** Pending Let chains: (step names, body name, rhs terms, body, tail). */
@@ -103,8 +110,9 @@ object JvmByteGen:
       .groupBy(_._1).view.mapValues(_.map(_._2).max).toMap
     p.defs.zipWithIndex.foreach { (d, i) =>
       d.body match
-        case Term.Lam(ar, _) if lastDefs.get(d.name).contains(i) =>
+        case Term.Lam(ar, body) if lastDefs.get(d.name).contains(i) =>
           g.defMethods(d.name) = (g.freshLam(), ar)
+          if isHandlerDispatchRoot(ar, body) then g.handlerRootDefs += d.name
         case _ => ()
     }
 
@@ -178,7 +186,8 @@ object JvmByteGen:
             body,
             selfGlobal = d.name,
             selfArity = ar,
-            sourceLine = sourceLineFor(g, d.name)))
+            sourceLine = sourceLineFor(g, d.name),
+            handlerDispatchRoot = isHandlerDispatchRoot(ar, body)))
           installMv.visitLdcInsn(d.name)
           installMv.visitLdcInsn(ar)
           installMv.visitInvokeDynamicInsn("call", s"()L$LAMFN;", metafactory,
@@ -187,7 +196,9 @@ object JvmByteGen:
             AsmType.getType(s"([L$VAL;)L$VAL;"))
           installMv.visitInsn(Opcodes.ICONST_0)
           installMv.visitTypeInsn(Opcodes.ANEWARRAY, VAL)
-          installMv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "clos", s"(IL$LAMFN;[L$VAL;)L$VAL;", false)
+          val closMethod = if isHandlerDispatchRoot(ar, body) then "handlerClos" else "clos"
+          installMv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, closMethod,
+            s"(IL$LAMFN;[L$VAL;)L$VAL;", false)
           installMv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "registerGlobal", s"(Ljava/lang/String;L$VAL;)V", false)
         case _ => () // non-lam defs remain VM-compiled in globalsRef
     }
@@ -222,7 +233,8 @@ object JvmByteGen:
           selfArity = pnd.selfArity,
           sourceLine = pnd.sourceLine,
           localTailTargets = pnd.localTailTargets,
-          localFrameArity = pnd.localFrameArity)
+          localFrameArity = pnd.localFrameArity,
+          handlerDispatchRoot = pnd.handlerDispatchRoot)
       while g.chains.nonEmpty do
         val (names, ts, tailLast, lines) = g.chains.dequeue()
         emitChain(g, names, ts, tailLast, lines)
@@ -392,12 +404,13 @@ object JvmByteGen:
                        sourceLine: Option[Int] = None,
                        statementLines: Vector[Option[Int]] = Vector.empty,
                        localTailTargets: Map[Int, (String, Int)] = Map.empty,
-                       localFrameArity: Int = -1): Unit =
+                       localFrameArity: Int = -1,
+                       handlerDispatchRoot: Boolean = false): Unit =
     val desc = if paramIsEnv then s"([L$VAL;)L$VAL;" else s"()L$VAL;"
     val mv = g.cw.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, name, desc, null, null)
     mv.visitCode()
     val ctx = new Ctx(mv, g)
-    ctx.selfGlobal = selfGlobal
+    ctx.selfGlobal = if handlerDispatchRoot then null else selfGlobal
     ctx.selfArity = selfArity
     ctx.statementLines = statementLines
     ctx.localTailTargets = localTailTargets
@@ -408,7 +421,7 @@ object JvmByteGen:
       mv.visitTypeInsn(Opcodes.ANEWARRAY, VAL)
       mv.visitVarInsn(Opcodes.ASTORE, 0)
     val paramLongName =
-      if paramIsEnv && selfGlobal != null && selfArity >= 1 &&
+      if paramIsEnv && !handlerDispatchRoot && selfGlobal != null && selfArity >= 1 &&
           canParamLong(body, selfGlobal.nn, selfArity) then
         val ln = s"${name}$$long"
         emitParamLongMethod(g, ln, body, selfGlobal.nn, selfArity, sourceLine)
@@ -437,7 +450,7 @@ object JvmByteGen:
     mv.visitLabel(startL)
     ctx.startLabel = startL
     sourceLine.foreach(line => markLine(ctx, line))
-    gen(body, ctx, tail = true)
+    gen(body, ctx, tail = true, handlerDispatchRoot = handlerDispatchRoot)
     mv.visitInsn(Opcodes.ARETURN)
     mv.visitMaxs(0, 0)
     mv.visitEnd()
@@ -742,7 +755,12 @@ object JvmByteGen:
     mv.visitMaxs(0, 0)
     mv.visitEnd()
 
-  private def gen(t: Term, ctx: Ctx, tail: Boolean = false): Unit =
+  private def gen(
+      t: Term,
+      ctx: Ctx,
+      tail: Boolean = false,
+      handlerDispatchRoot: Boolean = false
+  ): Unit =
     val mv = ctx.mv
     t match
       case Term.Lit(c) => c match
@@ -763,11 +781,15 @@ object JvmByteGen:
         loadLocalValue(i, ctx)
       case Term.Lam(ar, body) =>
         val m = ctx.g.freshLam()
-        ctx.g.pending.enqueue(Pending(m, body, sourceLine = ctx.sourceLine))
+        val handlerRoot = isHandlerDispatchRoot(ar, body)
+        ctx.g.pending.enqueue(Pending(m, body, sourceLine = ctx.sourceLine,
+          handlerDispatchRoot = handlerRoot))
         mv.visitLdcInsn(ar)
         emitLamFnRef(ctx, m)
         emitCapture(ctx)
-        mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "clos", s"(IL$LAMFN;[L$VAL;)L$VAL;", false)
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT,
+          if handlerRoot then "handlerClos" else "clos",
+          s"(IL$LAMFN;[L$VAL;)L$VAL;", false)
       case Term.Seq(Nil) =>
         call0(mv, "unitV")
       case Term.Seq(ts) if ts.length == 1 =>
@@ -830,7 +852,7 @@ object JvmByteGen:
         val entries = lams.map {
           case Term.Lam(ar, b) =>
             val m = ctx.g.freshLam()
-            (ar, m, b)
+            (ar, m, b, isHandlerDispatchRoot(ar, b))
           case other => throw new Unsupported("letrec:non-lam")
         }
         val groupSize = entries.length
@@ -838,31 +860,42 @@ object JvmByteGen:
         // De Bruijn Local(arity + groupSize - 1 - targetIndex) therefore names
         // a LetRec peer. Preserve the complete group so self and mutual tail
         // calls can return a Bounce instead of recursively invoking Emit.app.
-        entries.foreach { case (ar, m, b) =>
-          val targets = entries.zipWithIndex.map { case ((targetArity, targetMethod, _), targetIndex) =>
-            (ar + groupSize - 1 - targetIndex) -> (targetMethod, targetArity)
+        entries.foreach { case (ar, m, b, handlerRoot) =>
+          val targets = entries.zipWithIndex.collect {
+            case ((targetArity, targetMethod, _, false), targetIndex) =>
+              (ar + groupSize - 1 - targetIndex) -> (targetMethod, targetArity)
           }.toMap
           ctx.g.pending.enqueue(Pending(
             m,
             b,
             sourceLine = ctx.sourceLine,
             localTailTargets = targets,
-            localFrameArity = ar))
+            localFrameArity = ar,
+            handlerDispatchRoot = handlerRoot))
         }
         // arities array
         mv.visitLdcInsn(entries.length)
         mv.visitIntInsn(Opcodes.NEWARRAY, Opcodes.T_INT)
-        entries.zipWithIndex.foreach { case ((ar, _, _), i) =>
+        entries.zipWithIndex.foreach { case ((ar, _, _, _), i) =>
           mv.visitInsn(Opcodes.DUP); mv.visitLdcInsn(i); mv.visitLdcInsn(ar); mv.visitInsn(Opcodes.IASTORE)
         }
         // fns array
         mv.visitLdcInsn(entries.length)
         mv.visitTypeInsn(Opcodes.ANEWARRAY, LAMFN)
-        entries.zipWithIndex.foreach { case ((_, m, _), i) =>
+        entries.zipWithIndex.foreach { case ((_, m, _, _), i) =>
           mv.visitInsn(Opcodes.DUP); mv.visitLdcInsn(i); emitLamFnRef(ctx, m); mv.visitInsn(Opcodes.AASTORE)
         }
+        // canonical handler-root flags
+        mv.visitLdcInsn(entries.length)
+        mv.visitIntInsn(Opcodes.NEWARRAY, Opcodes.T_BOOLEAN)
+        entries.zipWithIndex.foreach { case ((_, _, _, handlerRoot), i) =>
+          mv.visitInsn(Opcodes.DUP); mv.visitLdcInsn(i)
+          mv.visitInsn(if handlerRoot then Opcodes.ICONST_1 else Opcodes.ICONST_0)
+          mv.visitInsn(Opcodes.BASTORE)
+        }
         emitCapture(ctx)
-        mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "letrec", s"([I[L$LAMFN;[L$VAL;)[L$VAL;", false)
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "letrec",
+          s"([I[L$LAMFN;[Z[L$VAL;)[L$VAL;", false)
         // the returned frame becomes the body's env: store into slot 0 of a
         // FRESH context region — simplest correct: overwrite slot 0 after
         // saving? Instead: new env slot + a child ctx view.
@@ -875,7 +908,7 @@ object JvmByteGen:
         val savedLocalArity = ctx.localFrameArity
         ctx.selfGlobal = null // slot 0 no longer holds the def's own frame
         ctx.localTailTargets = entries.zipWithIndex.map {
-          case ((targetArity, targetMethod, _), targetIndex) =>
+          case ((targetArity, targetMethod, _, _), targetIndex) =>
             (groupSize - 1 - targetIndex) -> (targetMethod, targetArity)
         }.toMap
         ctx.localFrameArity = 0
@@ -1056,7 +1089,9 @@ object JvmByteGen:
           s"([L$VAL;I[L$VAL;)[L$VAL;",
           false)
         mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "bounce", s"(L$LAMFN;[L$VAL;)L$VAL;", false)
-      case Term.App(Term.Global(gname), args) if ctx.g.defMethods.get(gname).exists(_._2 == args.length) =>
+      case Term.App(Term.Global(gname), args)
+          if !ctx.g.handlerRootDefs(gname) &&
+            ctx.g.defMethods.get(gname).exists(_._2 == args.length) =>
         val (m, _) = ctx.g.defMethods(gname)
         if tail then
           // MUTUAL-TAIL: return a Bounce instead of invoking — the caller's
@@ -1090,6 +1125,15 @@ object JvmByteGen:
         gen(scrut, ctx)
         val scrutSlot = ctx.nextSlot; ctx.nextSlot += 1
         mv.visitVarInsn(Opcodes.ASTORE, scrutSlot)
+        val handlerDispatchSlot =
+          if handlerDispatchRoot then
+            mv.visitVarInsn(Opcodes.ALOAD, scrutSlot)
+            mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "handlerMatchEnter",
+              s"(L$VAL;)Z", false)
+            val slot = ctx.nextSlot; ctx.nextSlot += 1
+            mv.visitVarInsn(Opcodes.ISTORE, slot)
+            slot
+          else -1
         val endL = new Label()
         val defaultL = new Label()
         // if !isData → default
@@ -1108,6 +1152,9 @@ object JvmByteGen:
           mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "dataArity", s"(L$VAL;)I", false)
           mv.visitLdcInsn(arm.arity)
           mv.visitJumpInsn(Opcodes.IF_ICMPNE, skipL)
+          if handlerDispatchRoot then
+            mv.visitVarInsn(Opcodes.ILOAD, handlerDispatchSlot)
+            mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "handlerMatchSelected", "(Z)V", false)
           // bind fields (in order → Local(0)=last field, VM extend semantics)
           if arm.arity > 0 then
             mv.visitVarInsn(Opcodes.ALOAD, scrutSlot)
@@ -1128,13 +1175,26 @@ object JvmByteGen:
         }
         mv.visitLabel(defaultL)
         default match
-          case Some(d) => gen(d, ctx, tail)
+          case Some(d) =>
+            if handlerDispatchRoot then
+              mv.visitVarInsn(Opcodes.ILOAD, handlerDispatchSlot)
+              mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "handlerMatchSelected", "(Z)V", false)
+            gen(d, ctx, tail)
           case None =>
-            mv.visitVarInsn(Opcodes.ALOAD, scrutSlot)
-            mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "dataTag", s"(L$VAL;)Ljava/lang/String;", false)
-            mv.visitVarInsn(Opcodes.ALOAD, scrutSlot)
-            mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "dataArity", s"(L$VAL;)I", false)
-            mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "matchFail", s"(Ljava/lang/String;I)L$VAL;", false)
+            if handlerDispatchRoot then
+              mv.visitVarInsn(Opcodes.ILOAD, handlerDispatchSlot)
+              mv.visitVarInsn(Opcodes.ALOAD, scrutSlot)
+              mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "dataTag", s"(L$VAL;)Ljava/lang/String;", false)
+              mv.visitVarInsn(Opcodes.ALOAD, scrutSlot)
+              mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "dataArity", s"(L$VAL;)I", false)
+              mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "handlerMatchFailed",
+                s"(ZLjava/lang/String;I)L$VAL;", false)
+            else
+              mv.visitVarInsn(Opcodes.ALOAD, scrutSlot)
+              mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "dataTag", s"(L$VAL;)Ljava/lang/String;", false)
+              mv.visitVarInsn(Opcodes.ALOAD, scrutSlot)
+              mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "dataArity", s"(L$VAL;)I", false)
+              mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "matchFail", s"(Ljava/lang/String;I)L$VAL;", false)
         mv.visitLabel(endL)
       case other => throw new Unsupported(other.getClass.getSimpleName)
 

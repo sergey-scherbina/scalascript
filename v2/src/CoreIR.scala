@@ -35,6 +35,40 @@ case class Arm(tag: String, arity: Int, body: Term)
 case class Def(name: String, body: Term)
 case class Program(defs: List[Def], entry: Term)
 
+/** Private lowering vocabulary shared by every CoreIR consumer. General
+  * frontend patterns carry a terminal miss marker outside nested lambdas;
+  * canonical frontends keep the direct Match(Local(0), ...) shape. These names
+  * are deliberately absent from the public primitive manifest. */
+private[ssc] object HandlerDispatchShape:
+  val SelectedPrimitive = "__handler_dispatch_selected__"
+  val MissPrimitive = "__handler_dispatch_miss__"
+
+  def isRoot(arity: Int, body: Term): Boolean =
+    arity == 1 && (body match
+      case Term.Match(Term.Local(0), _, _) => true
+      case other                           => containsTerminalMiss(other))
+
+  private def containsTerminalMiss(term: Term): Boolean = term match
+    case Term.Prim(MissPrimitive, _) => true
+    case Term.Lam(_, _)               => false
+    case Term.App(fn, args)           => containsTerminalMiss(fn) || args.exists(containsTerminalMiss)
+    case Term.Let(rhs, body)          => rhs.exists(containsTerminalMiss) || containsTerminalMiss(body)
+    case Term.LetRec(lams, body)      => lams.exists {
+      case Term.Lam(_, _) => false
+      case other          => containsTerminalMiss(other)
+    } || containsTerminalMiss(body)
+    case Term.If(cond, yes, no)       =>
+      containsTerminalMiss(cond) || containsTerminalMiss(yes) || containsTerminalMiss(no)
+    case Term.Ctor(_, fields)         => fields.exists(containsTerminalMiss)
+    case Term.Match(scrutinee, arms, default) =>
+      containsTerminalMiss(scrutinee) ||
+        arms.exists(arm => containsTerminalMiss(arm.body)) ||
+        default.exists(containsTerminalMiss)
+    case Term.Prim(_, args)           => args.exists(containsTerminalMiss)
+    case Term.While(cond, body)       => containsTerminalMiss(cond) || containsTerminalMiss(body)
+    case Term.Seq(terms)              => terms.exists(containsTerminalMiss)
+    case _                            => false
+
 // ── S-expr reader (lenient: whitespace + `;` comments) ───────────────────────
 
 enum Sx:

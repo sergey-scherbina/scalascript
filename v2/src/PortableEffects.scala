@@ -63,6 +63,25 @@ object PortableEffects:
     case closure: ClosV => Prims.runClos1(closure, argument)
     case other => fail(s"$label must be a one-argument closure, got ${Show.show(other)}")
 
+  private def dispatch1(value: Value, event: Value): HandlerDispatch = value match
+    case closure: ClosV => Runtime.dispatchHandler1(closure, event)
+    case other => fail(s"effect handler must be a one-argument closure, got ${Show.show(other)}")
+
+  /** Resolve a possibly suspended handler-pattern decision. Guard-side effects
+   *  remain ordinary public Ops; only their continuation is wrapped so the
+   *  exact decision resumes and terminal Unhandled can rebuild the original
+   *  residual computation. */
+  private def foldDispatch(
+      step: HandlerDispatch,
+      onUnhandled: () => Value
+  ): Value = step match
+    case HandlerDispatch.Matched(value) => value
+    case HandlerDispatch.Unhandled      => onUnhandled()
+    case HandlerDispatch.Suspended(label, argument, continue) =>
+      val resume = ClosV(Runtime.emptyEnv, 1, env =>
+        Done(foldDispatch(continue(env.last), onUnhandled)))
+      DataV("Op", Vector(label, argument, resume))
+
   private def operationName(label: String): String =
     val dot = label.lastIndexOf('.')
     if dot < 0 then label else label.substring(dot + 1)
@@ -84,12 +103,18 @@ object PortableEffects:
         case UnitV                         => List(resume)
         case DataV("__EffArgs__", fields) => fields.toList :+ resume
         case one                           => List(one, resume)
-      call1(handler, DataV(operationName(label), eventArgs.toVector), "effect handler")
+      foldDispatch(
+        dispatch1(handler, DataV(operationName(label), eventArgs.toVector)),
+        () =>
+          // Forward the exact operation and the same deep resume wrapper. The
+          // wrapper reaches the original continuation first, preserving its
+          // base one-shot gate (or raw/multi reuse), then reinstalls this handler.
+          DataV("Op", Vector(StrV(label), argument, resume)))
     case DataV("Op", fields) => fail(s"malformed Op with ${fields.length} field(s)")
     case value =>
-      try call1(handler, DataV("Return", Vector(value)), "effect handler")
-      catch
-        case e: RuntimeException if Option(e.getMessage).exists(_.startsWith("match: no arm for Return")) => value
+      foldDispatch(
+        dispatch1(handler, DataV("Return", Vector(value))),
+        () => value)
 
   def eval(op: String, args: List[Value]): Value = op match
     case "effect.pure" => args match

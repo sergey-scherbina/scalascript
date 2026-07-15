@@ -1,0 +1,39 @@
+---
+name: interop-19-residual-forwarding-nested-handlers
+axis: residual-forwarding-nested-handlers
+status: measurable-now
+---
+
+# Axis 19 — residual forwarding through nested handlers
+
+The inner handler knows only `Rd`; both `Wr` operations must remain explicit
+`Op`s for the outer handler. Resuming the first `Wr` re-enters the inner
+handler, which consumes `Rd`, then re-enters the outer handler for the second
+`Wr`. The `Return` transforms prove both handlers are reinstated and each maps
+the final continuation completion exactly once.
+
+```scalascript
+effect Rd:
+  def rd(): Int
+
+effect Wr:
+  def wr(value: Int): Unit
+
+def prog(): Int =
+  Wr.wr(7)
+  val value = Rd.rd()
+  Wr.wr(5)
+  value + 7
+
+val inner = handle(prog()) {
+  case Rd.rd(resume) => resume(35)
+  case Return(value) => value + 1
+}
+
+val result = handle(inner) {
+  case Wr.wr(value, resume) => value + resume(())
+  case Return(value) => value + 2
+}
+
+println(result)
+```

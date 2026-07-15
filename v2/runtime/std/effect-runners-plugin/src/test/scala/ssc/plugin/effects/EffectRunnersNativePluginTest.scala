@@ -3,7 +3,7 @@ package ssc.plugin.effects
 import java.util.concurrent.{CountDownLatch, TimeUnit}
 import org.scalatest.funsuite.AnyFunSuite
 import scala.collection.mutable.ListBuffer
-import ssc.{Done, Prims, Runtime, V2EffectContext, V2PluginRegistry, Value}
+import ssc.{Done, PortableEffects, Prims, Runtime, V2EffectContext, V2PluginRegistry, Value}
 import ssc.plugin.NativePluginHost
 
 final class EffectRunnersNativePluginTest extends AnyFunSuite:
@@ -38,6 +38,13 @@ final class EffectRunnersNativePluginTest extends AnyFunSuite:
       case Value.IntV(number) => number
       case other => fail(s"not Int: $other")
     }
+
+  private def handleAsk(computation: Value)(reply: Long => Long): Value =
+    PortableEffects.handle(computation, Runtime.handlerPartialFunction {
+      case Value.DataV("ask", IndexedSeq(Value.IntV(seed), resume: Value.ClosV)) =>
+        invoke(resume, Value.IntV(reply(seed)))
+      case Value.DataV("Return", IndexedSeq(value)) => value
+    })
 
   test("runAsync evaluates futures and parallel callbacks deterministically") {
     install()
@@ -127,4 +134,57 @@ final class EffectRunnersNativePluginTest extends AnyFunSuite:
     intercept[IllegalArgumentException] {
       global("runAsync", function(0) { _ => async("await", Value.IntV(1)) })
     }
+  }
+
+  test("Logger and Stream runners forward foreign effects and reinstall after resume") {
+    install()
+
+    val loggerComputation = Runtime.letThreadOp(
+      PortableEffects.perform("Ask.ask", List(Value.IntV(7))),
+      answer => Runtime.letThreadOp(
+        PortableEffects.perform("Logger.info", List(Value.StrV("after ask"))),
+        _ => answer match
+          case Value.IntV(number) => Value.IntV(number + 1)
+          case other => fail(s"unexpected Ask reply: $other")))
+    val loggerResidual = global("runLoggerToList", function(0)(_ => loggerComputation))
+    val loggerResult = handleAsk(loggerResidual)(_ * 5)
+    assert(loggerResult match
+      case Value.DataV("Tuple2", IndexedSeq(Value.IntV(36), messages)) =>
+        Prims.unlistPub(messages) == List(
+          Value.DataV("Tuple2", Vector(
+            Value.StrV("info"), Value.StrV("after ask"))))
+      case _ => false)
+
+    val streamComputation = Runtime.letThreadOp(
+      PortableEffects.perform("Ask.ask", List(Value.IntV(4))),
+      answer => Runtime.letThreadOp(
+        PortableEffects.perform("Stream.emit", List(answer)),
+        _ => answer match
+          case Value.IntV(number) => Value.IntV(number + 1)
+          case other => fail(s"unexpected Ask reply: $other")))
+    val streamResidual = global("runStream", function(0)(_ => streamComputation))
+    val streamResult = handleAsk(streamResidual)(_ + 6)
+    assert(streamResult match
+      case Value.DataV("Tuple2", IndexedSeq(
+          Value.ForeignV(source: Value.NamedMethodObj), Value.IntV(11))) =>
+        val values = source.getField("runToList")
+          .map(invoke(_))
+          .getOrElse(fail("collected source has no runToList"))
+        ints(values) == List(10)
+      case _ => false)
+  }
+
+  test("a selected native runner arm propagates its body failure") {
+    install()
+    val failingResume = Value.ClosV(Runtime.emptyEnv, 1, _ =>
+      throw new IllegalStateException("logger suffix failed"))
+    val computation = Value.DataV("Op", Vector(
+      Value.StrV("Logger.info"),
+      Value.StrV("before failure"),
+      failingResume))
+
+    val failure = intercept[IllegalStateException] {
+      global("runLoggerToList", function(0)(_ => computation))
+    }
+    assert(failure.getMessage == "logger suffix failed")
   }

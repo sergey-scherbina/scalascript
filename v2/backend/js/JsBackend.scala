@@ -8,7 +8,7 @@ package ssc.js
 // Usage:
 //   ssc1c myfile.ssc | scala-cli run v2/backend/js/ -- /dev/stdin | node
 
-import ssc.{Program, Def, Term, Arm, Const, Reader}
+import ssc.{Program, Def, Term, Arm, Const, HandlerDispatchShape, Reader}
 import Term.*
 import Const.*
 
@@ -373,6 +373,9 @@ object JsGen:
       // FrontendBridge dynamic/runtime primitives
       case "__autoPrint__" => s"$$autoPrint(${a(0)})"
       case "__match_fail_prim__" => "(function(){ throw new Error('match: no matching case'); })()"
+      case HandlerDispatchShape.SelectedPrimitive => s"(${a(0)},null)"
+      case HandlerDispatchShape.MissPrimitive =>
+        s"(${a(0)},(function(){ throw new Error('match: no matching case'); })())"
       case "__math_obj__" => "$mathObj"
       case "__arith__" => s"$$arith(${a(0)},${a(1)},${a(2)})"
       case "__unary__" => s"$$unary(${a(0)},${a(1)})"

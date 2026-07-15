@@ -6,7 +6,7 @@ import java.nio.file.StandardCopyOption.{ATOMIC_MOVE, REPLACE_EXISTING}
 import java.net.URI
 import scala.jdk.CollectionConverters.*
 
-import ssc.{Const, NativeUiSites, Program, Term, Writer}
+import ssc.{Const, HandlerDispatchShape, NativeUiSites, Program, Term, Writer}
 
 enum SwiftPlatform:
   case MacOS, IOS
@@ -132,6 +132,7 @@ object SwiftBackend:
     "map.new", "map.get", "map.put", "map.has", "map.del", "map.keys", "map.size",
     "arr.new", "arr.len", "arr.get", "arr.set", "arr.push", "arr.pop", "arr.slice",
     "__mk_arr__", "__mk_map__", "__math_obj__", "__match_fail_prim__",
+    HandlerDispatchShape.SelectedPrimitive, HandlerDispatchShape.MissPrimitive,
     "__method__", "__effect__", "__effect_oneshot__", "__arith__", "__unary__", "__try__",
     "io.print", "io.println", "io.nanoTime", "io.args", "global.reg",
     // native-front lowering emits these where FrontendBridge lowered differently
