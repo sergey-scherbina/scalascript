@@ -997,8 +997,8 @@ slice A must not mark that milestone complete.
 ## Results
 
 The fifth Slice B correction is implemented locally by the exact-import witness
-commit `9e73fb656`, the unified lexical resolver/recursive inventory commit
-`aebe41434`, and the single validated effect-binding commit `69e02ffe3`. The
+commit `c55ac86e9`, the unified lexical resolver/recursive inventory commit
+`f4d4c01ec`, and the single validated effect-binding commit `ff0e2580b`. The
 producer now anchors import targets in source order, snapshots the active import
 scope on transparent aliases, shares one identity path across bare/selected types,
 effect rows, callbacks, and later importer qualifiers, and records effective owner
@@ -1008,20 +1008,21 @@ filtered. Raw headers bind only to declaration-scope AST candidates, while body-
 local headers are ignored; the resulting carrier binding is retained and consumed
 without a second scan.
 
-The pre-rebase local checkpoint is green:
+The checkpoint rebased onto `origin/main@6603e6c29` is green:
 
 - focused producer/parser/effect analysis passes 94/94 (producer 82/82, parser
   preprocessing 8/8, effect analysis 4/4);
-- `v2InteropDescriptor/test` passes 27/27; `core/test` passes 1130/1130;
+- `v2InteropDescriptor/test` passes 27/27; `core/test` passes 1132/1132;
   `interop/test` passes 36/36; `ir/test` succeeds; artifact ABI compatibility
   passes 73/73;
 - `tests/conformance/run.sh --only 'modules*,import-dir*'` passes 2/2, and the
   forced non-memoized effect slice passes 9/9 across supported lanes.
 
-This is verification evidence, not integration approval. The checkpoint must be
-rebased onto the latest `origin/main`, the affected/full gates repeated, and the
-result frozen for a fresh independent read-only review. All seventeen Slice B bug
-entries therefore remain `open`, and the Slice B sprint item remains unchecked.
+This is verification evidence, not integration approval. The branch is cleanly
+integrated with the stated base and the affected/full gates were repeated after
+that rebase; the resulting exact head must now receive a fresh independent read-
+only review. All seventeen Slice B bug entries therefore remain `open`, and the
+Slice B sprint item remains unchecked.
 
 A fresh independent fifth review rejected exact frozen checkpoint `0cb46c3cd`
 with no P0, five P1 families, and no standalone P2. Exact correspondence omitted
