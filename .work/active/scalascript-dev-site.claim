@@ -1,0 +1,6 @@
+feature/scalascript-dev-site 2026-07-15T12:29:01Z
+agent: claude (plucky-crane)
+heartbeat: 2026-07-15T12:29:01Z
+status: in-progress
+done-so-far: landing page designed + approved (scalascript.dev); domain choice = .dev
+next: add site/ (standalone index.html + favicon.svg + DEPLOY.md for Cloudflare Pages); push. NOT making repo public.
