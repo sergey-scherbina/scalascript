@@ -302,6 +302,12 @@ optional policy, not the default continuation semantics.
       core/interop/IR/ABI + `modules*,import-dir*` conformance, spec-verify/bookkeeping,
       rebase current origin at a clean checkpoint, then request a new independent review.
       Keep all 12 Slice B BUGS `open`; never push/release before APPROVE.
+    - Fourth-review red baseline (`f08ab9943`): focused producer is exactly 50/60,
+      with 10 failures — 5 import-resolution, 2 raw effect-evidence, and 3 derives/
+      early correspondence/losslessness. All previous 46 regressions plus new
+      rename-away/unimport, qualified-name, plain/multi, line-offset, unsupported-
+      effect-shape, and direct early-clause positives are green. Implement all three
+      spec gaps before changing these expectations.
     - Done when the focused regressions and affected core/interop/conformance gates pass and a
       fresh independent read-only review returns APPROVE with no P1/P2 blocker.
   - [ ] **C — post-body summaries:** extract managed/foreign/tail edges, save sites, frame schemas,

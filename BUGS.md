@@ -23,6 +23,12 @@ parser accepts plus stale Document/CodeBlock mismatches; require stable
 the full focused, descriptor/core/interop/IR/ABI, and affected conformance radius.
 Keep `open` until fresh independent approval and landing on `origin/main`.
 
+**Red baseline:** regression commit `f08ab9943`; focused producer is exactly
+50/60. Three nominal tests fail: direct derives is accepted, derives carrier
+tampering returns `Right`, and early-clause tampering reaches the later symbol-level
+inheritance rejection instead of failing correspondence at the section path. All
+previous nominal regressions remain green.
+
 ## descriptor-v3-dual-effect-evidence-mismatch — preprocessing hides effect/object carrier disagreement
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
@@ -46,6 +52,12 @@ carrier positives/negatives, and preserve documentless fail-closed safety.
 
 **Done when:** faithful red vectors fail on the current checkpoint, then pass with
 the full affected gates. Keep `open` until fresh independent approval and landing.
+
+**Red baseline:** regression commit `f08ab9943`; focused producer is exactly
+50/60. Two raw-evidence tests fail: empty effect/object dual carriers return `Right`,
+and a documentless empty effect silently becomes an ordinary value. Plain/multi
+negatives, line-offset invariance, unsupported-shape rejection, and all prior effect
+vectors remain green.
 
 ## descriptor-v3-imported-builtin-shadow — imports are ignored before bare builtin projection
 
@@ -71,6 +83,13 @@ stable declaration paths/codes, including platform-root cases.
 **Done when:** faithful red vectors fail on the current checkpoint, then pass with
 all prior 46 focused tests and the full affected gates. Keep `open` until fresh
 independent approval and landing on `origin/main`.
+
+**Red baseline:** regression commit `f08ab9943`; focused producer is exactly
+50/60. Five import tests fail: exact Array/Byte and rename-to-Byte still become
+primitive `Bytes`, wildcard Array/Byte returns `Right`, exact Int remains `I32`, and
+an exact platform rename remains `I32`. The combined Int/List test stops at its
+first exact-Int assertion; its wildcard-List assertion is retained for the fix.
+Rename-away/unimport and qualified positives already pass, as do all prior 46 tests.
 
 ## descriptor-v3-array-byte-component-shadow — bytes shortcut ignores the `Byte` identity
 
