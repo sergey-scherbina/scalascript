@@ -86,8 +86,13 @@ error-resilient parser already byte-identical to ssc1-front on 119 constructs, t
            depth-0 `= , ; { }`/closing bracket) → handles `Map[String,String]`, `(A,B)=>C`, `A | B`.
          - **try/catch/finally** → `__tryCatch__`/`__tryCatchFinally__`/`__tryFinally__` prims (parseTry;
            braced+braceless catch, finally, no-handler).
+      4. [x] more parse-hole / long-tail closers — landed 2026-07-15: **try/catch/finally** (parseTry); **@main/
+         @tailrec/@nowarn annotations** (skipAnnotation, guarded by isAnnotationStart so bare `@` stays junk) —
+         flipped ssr-page/rozum-meeting/wasm-fibonacci; **type application `e[T]`** in postfix (`Array.empty[Int]`,
+         `x.asInstanceOf[List[Int]]`, `foo[A](x)`) — erase type args, same-line-guarded.
       **MATCH trajectory (484 progs): 0 → 2 (top-level) → 93 (harness leak fix) → 165 (number lexer) → 203
-      (trailing block) → 211 (placeholder) → 241 (imports) → 269 (list+type) → [try running].** Remaining:
+      (trailing block) → 211 (placeholder) → 241 (imports) → 269 (list+type) → 272 (try+annotations) → 288 (59%,
+      type application).** Remaining:
       ~82 parse holes (custom string interpolators `html"…"`/`sql"…"` — actually ssc1-front ALSO parses these as
       `id`+raw-string, the divergence is arm-body block grouping; braceless-catch-at-top-level offside;
       distributed/dsl/effects constructs) + ~130 long-tail DIFFs (real case-class BODY methods `Point_distanceTo`
