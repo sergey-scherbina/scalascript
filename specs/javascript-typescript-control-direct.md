@@ -1,7 +1,7 @@
 # JavaScript/TypeScript closed lexical direct control transform
 
-Status: **second independent pre-integration REJECT; symbol-ownership repair
-specified and implementation pending** (2026-07-15).
+Status: **second-review symbol-ownership repair implemented and locally verified;
+fresh independent pre-integration rereview pending** (2026-07-15).
 
 ## Overview
 
@@ -387,7 +387,7 @@ diagnostic.
 - [x] The transformer preserves usable source maps and the CLI preserves ordinary
       TypeScript type diagnostics rather than laundering them through generated
       code.
-- [ ] A marker layer's prefix statements and shift body fail file-atomically with
+- [x] A marker layer's prefix statements and shift body fail file-atomically with
       `JS_DIRECT_CAPTURE_BARRIER` when they value-reference the marker's own or any
       later suffix binding, including through nested syntax and shorthand property
       or assignment-initializer value symbols; type-only, preceding, ordinary
@@ -400,11 +400,11 @@ diagnostic.
       marker-erasure file, fails file-atomically after transparent-wrapper
       normalization; shadowed/indirect eval and `Function` follow the explicit
       global-only policy above.
-- [ ] Every owned marker value use is transformed or diagnosed, including object
+- [x] Every owned marker value use is transformed or diagnosed, including object
       shorthand and local runtime export aliases; completed named marker specifiers
       are removed without changing unrelated imports, and emitted production
       JavaScript runs with no direct package installed.
-- [ ] Declaration-level and specifier-level type-only local exports/re-exports of
+- [x] Declaration-level and specifier-level type-only local exports/re-exports of
       `direct` remain diagnostic-free and erase normally, while the corresponding
       runtime local exports and source-module re-exports fail file-atomically with
       one stable `JS_DIRECT_UNSUPPORTED` diagnostic.
@@ -484,8 +484,8 @@ diagnostic.
 
 ## Results
 
-The first repair candidate code commit `a84a7bdb4` on `origin/main` base
-`2374e1ea9`, with synchronized user documentation in `b4b0b9e8d`, produced:
+The first repair candidate code commit `56aa43646` on current `origin/main` base
+`340890725`, with synchronized user documentation in `3f7d86249`, produced:
 
 - `npm test` in `v2/host/js/control-direct`: 31/31, including faithful real-
   JavaScript prefix-TDZ rejection, accepted type-only prefix references,
@@ -505,8 +505,31 @@ The first repair candidate code commit `a84a7bdb4` on `origin/main` base
   (memoized from unchanged previously green cases).
 
 These are local pre-integration results. Exact frozen checkpoint `c4377fabb`
-(rebased equivalent `e1f3cc204`) remained unpushed and was submitted to a fresh
+(current rebased equivalent `6c6411a7f`) remained unpushed and was submitted to a fresh
 independent read-only review.
+
+The second symbol-ownership repair code commit `f3c1bbeaa` on base `340890725`,
+with synchronized user documentation in `82ed71efa`, produced:
+
+- `npm test` in `v2/host/js/control-direct`: 35/35. New real-JavaScript/package
+  regressions reject shorthand property and assignment-initializer suffix capture,
+  reject runtime marker shorthand plus local/source export aliases exactly once and
+  file-atomically, accept and erase five declaration/specifier-level type-only export
+  spellings, and preserve a genuinely shadowed local runtime export;
+- `npm run typecheck` plus `node --check` for all three published JavaScript files:
+  green under the TypeScript 5.9.3 qualification pin;
+- `npm pack --dry-run --json`: exactly eight files, 14,909 packed bytes and 56,527
+  unpacked bytes, no bundled dependency, executable `cli.js`, and the 10,837-byte
+  repository license verbatim; the package test invokes the real installed bin;
+- existing `v2/host/js/control`: 31/31 tests, TypeScript declarations, and node check
+  green; its exact pack remains five files, 11,059 packed bytes and 42,353 unpacked
+  bytes, with no bundled dependency;
+- shared catalog validation: 26 vectors / nine lanes; negative validator: 9/9;
+- `tests/conformance/run.sh --only 'effect*,effects*'`: 5/5 affected cases green
+  (memoized from unchanged previously green cases).
+
+These are local pre-integration results. The branch and claim remain active until a
+fresh independent read-only review approves the new frozen checkpoint.
 
 The historical frozen review checkpoint `f6fa34fac` (rebased equivalent
 `1d45dcb3b`) produced:
@@ -542,5 +565,5 @@ rejected on three confirmed P1 symbol-ownership gaps: shorthand properties expos
 property rather than lexical-value symbols to continuation-crossing analysis;
 runtime marker shorthand/local exports could survive while their import was erased;
 and valid erased type-only export forms were diagnosed as runtime re-exports. The
-three unchecked behavior rows above are the next repair gate. A new clean checkpoint
-still requires another independent APPROVE before push or claim release.
+three now-checked behavior rows above are covered by the second repair. A new clean
+checkpoint still requires another independent APPROVE before push or claim release.
