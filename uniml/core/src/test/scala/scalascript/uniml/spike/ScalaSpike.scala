@@ -985,7 +985,12 @@ object SpikeParse:
 
   private def parseCtorPat(c: Cur): Node =
     val kids = Vector.newBuilder[Node]
-    c.advance().foreach(t => kids += Node.Leaf(t, Some("cpat.name"))) // uid ctor name
+    // a qualified pattern `Logger.log(a, resume)` (effect-handler op / `pkg.Ctor`) uses the LAST segment as
+    // the tag (ssc1-front parsePatAtom:1895) — walk any `.seg` chain and keep the final name.
+    var nameTok = c.advance().get // uid
+    while c.peekKind == "spike.dot" && (c.peek2Kind == "spike.id" || c.peek2Kind == "spike.uid") do
+      c.advance(); nameTok = c.advance().get
+    kids += Node.Leaf(nameTok, Some("cpat.name"))
     if c.peekKind == "spike.lparen" then
       c.advance().foreach(t => kids += Node.Leaf(t, Some("cpat.open")))
       while c.peekKind != "spike.rparen" && !c.eof && !isKw(c, "case") do
