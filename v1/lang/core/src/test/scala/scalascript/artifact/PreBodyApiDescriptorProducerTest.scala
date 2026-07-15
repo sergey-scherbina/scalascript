@@ -1408,3 +1408,130 @@ class PreBodyApiDescriptorProducerTest extends AnyFunSuite:
       assert(error.code == "UNSUPPORTED_PUBLIC_TYPE")
       assert(error.path == "$.symbols[demo.api.leak].parameterLists[0].parameters[0].tpe")
     }
+
+  test("a transparent alias keeps the import scope active at its declaration"):
+    val input = source(
+      """object Types:
+        |  type Callback = Int => Long
+        |object Facade:
+        |  import demo.api.Types.Callback
+        |  type Public = Callback
+        |def stable(callback: Facade.Public): Long = 0L
+        |""".stripMargin,
+      List("stable")
+    )
+    val definition = descriptor(input).symbols.head.definition
+
+    assert(definition.callbackPolicies.map(_.parameter) ==
+      Vector(CallbackParameterPath(0, 0)))
+    assert(definition.callbackPolicies.head.callingConvention ==
+      CallingConvention.ForeignBarrier)
+
+  test("an imported leading qualifier resolves a selected local callback alias"):
+    val input = source(
+      """object Types:
+        |  type Callback = Int => Long
+        |import demo.api.{Types as T}
+        |def stable(callback: T.Callback): Long = 0L
+        |""".stripMargin,
+      List("stable")
+    )
+    val definition = descriptor(input).symbols.head.definition
+
+    assert(definition.callbackPolicies.map(_.parameter) ==
+      Vector(CallbackParameterPath(0, 0)))
+
+  test("the lexical resolver is shared by imported local effect rows"):
+    val input = source(
+      """object Effects:
+        |  effect Read:
+        |    def get(): Int
+        |import demo.api.{Effects as E}
+        |def load(): Int ! E.Read = 0
+        |""".stripMargin,
+      List("load")
+    )
+    val definition = descriptor(input).symbols.head.definition
+
+    assert(definition.effectRow.members.map(_.stableEffectId) ==
+      Vector("demo.api.Effects.Read"))
+
+  test("a wildcard import makes an unresolved selected prefix ambiguous"):
+    val input = source(
+      """import remote.*
+        |def stable(value: Types.Value): Int = 0
+        |""".stripMargin,
+      List("stable")
+    )
+    val error = failure(PreBodyApiDescriptorProducer.descriptor(parse(input)))
+
+    assert(error.code == "AMBIGUOUS_NAMED_TYPE")
+    assert(error.path == "$.symbols[demo.api.stable].parameterLists[0].parameters[0].tpe")
+
+  test("an imported private local identity rejects before external fallback"):
+    val input = source(
+      """private object Hidden:
+        |  type T = Int
+        |import demo.api.Hidden.T
+        |def leak(value: T): Int = 0
+        |""".stripMargin,
+      List("leak")
+    )
+    val error = failure(PreBodyApiDescriptorProducer.descriptor(parse(input)))
+
+    assert(error.code == "UNSUPPORTED_PUBLIC_TYPE")
+    assert(error.path == "$.symbols[demo.api.leak].parameterLists[0].parameters[0].tpe")
+
+  test("abstract and receiver-owned nominal identities remain known but nonrepresentable"):
+    val declarations = Vector(
+      """private class Hidden:
+        |  type T
+        |def leak(value: Hidden.T): Int = 0
+        |""".stripMargin,
+      """class Owner:
+        |  type T = Int
+        |def leak(value: Owner.T): Int = 0
+        |""".stripMargin,
+      """class Owner:
+        |  object Inner:
+        |    type T = Int
+        |def leak(value: Owner.Inner.T): Int = 0
+        |""".stripMargin
+    )
+
+    declarations.foreach { declaration =>
+      val error = failure(PreBodyApiDescriptorProducer.descriptor(parse(source(
+        declaration,
+        List("leak")
+      ))))
+
+      assert(error.code == "UNSUPPORTED_PUBLIC_TYPE")
+      assert(error.path == "$.symbols[demo.api.leak].parameterLists[0].parameters[0].tpe")
+    }
+
+  test("a public object remains a representable local namespace"):
+    val input = source(
+      """object Types:
+        |  type T = Int
+        |def stable(value: Types.T): Types.T = value
+        |""".stripMargin,
+      List("stable")
+    )
+    val definition = descriptor(input).symbols.head.definition
+
+    assert(definition.parameterLists.head.parameters.head.tpe ==
+      AbiType.Named("demo.api.Types.T"))
+    assert(definition.resultType == AbiType.Named("demo.api.Types.T"))
+
+  test("a known local owner with an unknown member cannot become external"):
+    val input = source(
+      """object Types:
+        |  type Known = Int
+        |def leak(value: Types.Missing): Int = 0
+        |""".stripMargin,
+      List("leak")
+    )
+    val error = failure(PreBodyApiDescriptorProducer.descriptor(parse(input)))
+
+    assert(error.code == "AMBIGUOUS_NAMED_TYPE")
+    assert(error.path == "$.symbols[demo.api.leak].parameterLists[0].parameters[0].tpe")
