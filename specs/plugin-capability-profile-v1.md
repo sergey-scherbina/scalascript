@@ -155,6 +155,17 @@ object PluginCapabilityProfiles:
     exactArtifactBytes: Array[Byte],
     requiredCapabilities: Vector[String] = Vector.empty
   ): Either[PluginProfileError, PluginTargetImplementation]
+
+  def implementationFromDigest(
+    target: String,
+    targetAbi: String,
+    implementationDigest: ImplementationDigest,
+    requiredCapabilities: Vector[String] = Vector.empty
+  ): Either[PluginProfileError, PluginTargetImplementation]
+
+  def dependencyBinding(
+    profile: PluginCapabilityProfile
+  ): Either[PluginProfileError, DependencyBinding]
 ```
 
 All capability vectors, provisions, and dependencies are set-like. Validation
@@ -169,8 +180,47 @@ The hash framing is deliberately small and language-neutral. An unsigned 32-bit
 big-endian count prefixes every vector. An unsigned 32-bit big-endian UTF-8 byte
 length prefixes every string. An option is one byte (`0x00` or `0x01`) followed,
 for `Some`, by the framed string. Integers are not otherwise present. All text must
-be valid Unicode scalar text; an encoded string or complete preimage larger than
-4,194,304 bytes rejects before hashing.
+be valid Unicode scalar text. A vector with more than 100,000 elements, an encoded
+profile string larger than 4,194,304 bytes, or a complete aggregate-identity
+preimage larger than 4,194,304 bytes rejects before hashing. These bounds apply to
+profile data, not to target artifact bytes: `implementationFromBytes` hashes the
+entire supplied artifact, and streaming/package pipelines may hash arbitrarily large
+artifacts out of band and pass the checked `ImplementationDigest` through
+`implementationFromDigest`.
+
+The canonical element layouts below use `s(x)` for a framed string, `o(x)` for
+an optional framed string, and `v(xs)` for a framed vector whose elements are
+concatenated. Fields appear in exactly the listed order; there are no field names,
+padding bytes, host integers, or implicit values in a preimage:
+
+```text
+provision(p) =
+  s(p.logicalId) || s(p.semanticAbiId) || o(p.schemaId) ||
+  v(p.capabilities.map(s))
+
+requirement(r) =
+  s(r.pluginId) || s(r.semanticAbiId) || o(r.schemaId) ||
+  v(r.requiredCapabilities.map(s))
+
+canonicalSemanticDeclaration =
+  s(declaration.pluginId) ||
+  v(declaration.provisions.map(provision)) ||
+  v(declaration.providedCapabilities.map(s)) ||
+  v(declaration.dependencies.map(requirement))
+
+schemaProvision(p) = s(p.logicalId) || s(p.schemaId.get)
+schemaRequirement(r) = s(r.pluginId) || s(r.schemaId.get)
+
+canonicalSchemaDeclaration =
+  s(declaration.pluginId) ||
+  v(declaration.provisions.filter(_.schemaId.nonEmpty).map(schemaProvision)) ||
+  v(declaration.dependencies.filter(_.schemaId.nonEmpty).map(schemaRequirement))
+```
+
+Every set-like vector is validated for raw duplicates and then sorted by unsigned
+lexicographic order of its fully framed element bytes before it enters a parent
+layout. `schemaVersion` is validated as exactly `1.0` but is omitted from the
+preimage because the domain strings below freeze both schema and framing version.
 
 The target-neutral aggregate ids are:
 
@@ -199,18 +249,21 @@ human version, SPI version, filename, class name, path, source order, or load or
 Exactly one aggregate `DependencyKind.Plugin` binding is emitted for one stable
 `(pluginId, target)` selection:
 
+`PluginCapabilityProfiles.dependencyBinding` revalidates the declaration and
+implementation, recomputes both aggregate identities, and rejects a forged or
+stale `PluginCapabilityProfile` before emitting the binding. On success it emits:
+
 ```scala
-def dependencyBinding(profile: PluginCapabilityProfile): DependencyBinding =
-  DependencyBinding(
-    kind = DependencyKind.Plugin,
-    logicalId = profile.declaration.pluginId,
-    semanticAbiId = profile.aggregateSemanticAbiId,
-    schemaId = profile.aggregateSchemaId,
-    implementationDigest = profile.implementation.implementationDigest,
-    target = Some(profile.implementation.target),
-    requiredCapabilities =
-      normalized(profile.implementation.requiredCapabilities)
-  )
+DependencyBinding(
+  kind = DependencyKind.Plugin,
+  logicalId = checked.declaration.pluginId,
+  semanticAbiId = checked.aggregateSemanticAbiId,
+  schemaId = checked.aggregateSchemaId,
+  implementationDigest = checked.implementation.implementationDigest,
+  target = Some(checked.implementation.target),
+  requiredCapabilities =
+    normalized(checked.implementation.requiredCapabilities)
+)
 ```
 
 There is not one descriptor plugin binding per service. Per-service provisions
@@ -245,7 +298,11 @@ resource opening, or user code. It performs these checks:
    profile for the enclosing target id/ABI;
 3. semantic ABI id, optional schema id, implementation digest, and normalized
    required capabilities match exactly;
-4. every required/admitted capability is present before installation;
+4. every provision capability is contained in its declaration's aggregate
+   `providedCapabilities`; every `PluginRequirement.requiredCapabilities` is
+   contained in the dependency profile's `providedCapabilities`; and every target
+   implementation requirement is contained in the union of the enclosing target
+   features and explicitly admitted capabilities before installation;
 5. every transitive `PluginRequirement` resolves to a matching available profile
    on the same target and also has an exact binding in the artifact dependency
    manifest, so a plugin cannot introduce a hidden dependency after admission;
