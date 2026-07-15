@@ -35,12 +35,16 @@ function formatTsDiagnostics(diagnostics) {
   })
 }
 
-function prepare(source, name = "case") {
+function prepare(source, name = "case", optionOverrides = {}) {
   const directory = mkdtempSync(`${scratchRoot}-`)
-  const input = join(directory, `${name}.ts`)
+  const extension = optionOverrides.allowJs === true ? "js" : "ts"
+  const input = join(directory, `${name}.${extension}`)
   const outDir = join(directory, "out")
   writeFileSync(input, source)
-  const program = ts.createProgram([input], compilerOptions(outDir))
+  const program = ts.createProgram(
+    [input],
+    { ...compilerOptions(outDir), ...optionOverrides }
+  )
   const transform = createDirectTransform(ts, program)
   return {
     directory,
@@ -54,8 +58,8 @@ function prepare(source, name = "case") {
   }
 }
 
-async function compile(source, name = "case") {
-  const prepared = prepare(source, name)
+async function compile(source, name = "case", optionOverrides = {}) {
+  const prepared = prepare(source, name, optionOverrides)
   const diagnostics = ts.getPreEmitDiagnostics(prepared.program)
   assert.equal(formatTsDiagnostics(diagnostics), "")
   assert.deepEqual(prepared.transform.diagnostics, [])
@@ -189,8 +193,10 @@ test("zero/one/many lexical lowering preserves direct semantics", async () => {
     assert.equal(compiled.module.prefixSuffix(), "42|1|1")
     assert.equal(compiled.module.zeroResume(), "-1|0")
     assert.equal(compiled.module.sequential(), 30)
-    assert.match(readFileSync(compiled.javascript, "utf8"), /\.flatMap\(/)
-    assert.doesNotMatch(readFileSync(compiled.javascript, "utf8"), /direct\.shift/)
+    const output = readFileSync(compiled.javascript, "utf8")
+    assert.match(output, /\.flatMap\(/)
+    assert.doesNotMatch(output, /direct\.shift/)
+    assert.doesNotMatch(output, /@scalascript\/control-direct/)
   } finally {
     compiled.cleanup()
   }
@@ -252,6 +258,7 @@ test("an aliased exact import transforms and generated names avoid user bindings
     assert.equal(compiled.module.answer(), "user binding|42")
     const output = readFileSync(compiled.javascript, "utf8")
     assert.doesNotMatch(output, /\bd\.(?:reset|shift)\b/)
+    assert.doesNotMatch(output, /@scalascript\/control-direct/)
     assert.match(output, /__sscControl\d+/)
   } finally {
     compiled.cleanup()
@@ -350,6 +357,11 @@ test("unsupported marker declarations and arbitrary positions fail closed", () =
   for (const [index, expression] of cases.entries()) {
     diagnosticFor(`export const bad${index} = ${expression}`, "JS_DIRECT_UNSUPPORTED")
   }
+  diagnosticFor(
+    `export const optional = freshPrompt<number, number>(p =>
+      direct?.reset(p, (): number => { return 1 }))`,
+    "JS_DIRECT_UNSUPPORTED"
+  )
 })
 
 test("exact imported ownership ignores spelling, comments, strings, and shadowing", () => {
@@ -364,7 +376,307 @@ export const ordinary = local(object) + text.length
   const prepared = prepare(source, "ownership")
   try {
     assert.deepEqual(prepared.transform.diagnostics, [])
+    assert.deepEqual(prepared.transform.transformedFiles, [prepared.input])
+    const emit = prepared.program.emit(
+      undefined,
+      undefined,
+      undefined,
+      false,
+      prepared.transform.transformers
+    )
+    assert.equal(emit.emitSkipped, false)
+    assert.doesNotMatch(
+      readFileSync(join(prepared.outDir, "ownership.js"), "utf8"),
+      /@scalascript\/control-direct/
+    )
+  } finally {
+    prepared.cleanup()
+  }
+})
+
+test("transparent TypeScript wrappers preserve exact marker ownership", async () => {
+  const compiled = await compile(`
+    import { Eff, freshPrompt } from "@scalascript/control"
+    import { direct } from "@scalascript/control-direct"
+    export function answer(): number {
+      return freshPrompt<number, number>(prompt => Eff.runPure(
+        (direct as typeof direct).reset(prompt, (): number => {
+          const first: number = (direct!).shift(prompt, k => k.resume(20))
+          const second: number = (direct).shift(prompt, k => k.resume(22))
+          return first + second
+        })
+      ))
+    }
+  `, "wrapped")
+  try {
+    assert.equal(compiled.module.answer(), 42)
+    const output = readFileSync(compiled.javascript, "utf8")
+    assert.doesNotMatch(output, /@scalascript\/control-direct/)
+    assert.doesNotMatch(output, /\bdirect\b/)
+  } finally {
+    compiled.cleanup()
+  }
+})
+
+test("shift bodies fail closed on own or forward lexical capture", () => {
+  const forward = diagnosticFor(
+    `let saved: () => number = () => -1
+    export const bad = freshPrompt<number, number>(p => Eff.runPure(
+      direct.reset(p, (): number => {
+        const selected: number = direct.shift(p, k => {
+          saved = () => later
+          return k.resume(1)
+        })
+        const later = 42
+        return selected + saved()
+      })
+    ))`,
+    "JS_DIRECT_CAPTURE_BARRIER"
+  )
+  assert.equal(forward.message.includes("later continuation binding"), true)
+
+  const own = diagnosticFor(
+    `let saved: () => number = () => -1
+    export const bad = freshPrompt<number, number>(p => Eff.runPure(
+      direct.reset(p, (): number => {
+        const selected: number = direct.shift(p, k => {
+          saved = () => selected
+          return k.resume(1)
+        })
+        return saved()
+      })
+    ))`,
+    "JS_DIRECT_CAPTURE_BARRIER"
+  )
+  assert.equal(own.message.includes("own marker"), true)
+})
+
+test("preceding and shadowed bindings retain source evaluation order", async () => {
+  const compiled = await compile(`
+    import { Eff, freshPrompt } from "@scalascript/control"
+    import { direct } from "@scalascript/control-direct"
+    export function answer(): string {
+      const events: string[] = []
+      const value = freshPrompt<number, number>(p => Eff.runPure(
+        direct.reset(p, (): number => {
+          const before = (events.push("before"), 40)
+          const selected: number = direct.shift(p, k => {
+            const later = before + 1
+            return k.resume(later)
+          })
+          const later = (events.push("later"), 1)
+          return selected + later
+        })
+      ))
+      return \`${"${value}|${events.join(\",\")}"}\`
+    }
+  `, "lexical-safe")
+  try {
+    assert.equal(compiled.module.answer(), "42|before,later")
+  } finally {
+    compiled.cleanup()
+  }
+})
+
+test("real JavaScript retains const/let declarations and fresh resume names", async () => {
+  const compiled = await compile(`
+    import { Eff, freshPrompt } from "@scalascript/control"
+    import { direct } from "@scalascript/control-direct"
+
+    export function constAssignment() {
+      return freshPrompt(p => Eff.runPure(direct.reset(p, () => {
+        const value = direct.shift(p, k => k.resume(41))
+        value = 0
+        return value + 1
+      })))
+    }
+
+    export function letMutation() {
+      return freshPrompt(p => Eff.runPure(direct.reset(p, () => {
+        let value = direct.shift(p, k => k.resume(41))
+        value += 1
+        return value
+      })))
+    }
+
+    export function collision() {
+      return freshPrompt(p => Eff.runPure(direct.reset(p, () => {
+        const value = direct.shift(p, k => k.resume(41))
+        const __sscResume = 1
+        return value + __sscResume
+      })))
+    }
+  `, "javascript-marker", { allowJs: true, checkJs: false })
+  try {
+    assert.throws(() => compiled.module.constAssignment(), TypeError)
+    assert.equal(compiled.module.letMutation(), 42)
+    assert.equal(compiled.module.collision(), 42)
+    const output = readFileSync(compiled.javascript, "utf8")
+    assert.match(output, /const value = __sscResume/)
+    assert.match(output, /let value = __sscResume/)
+    assert.doesNotMatch(output, /@scalascript\/control-direct/)
+    const map = JSON.parse(readFileSync(compiled.sourceMap, "utf8"))
+    assert.equal(map.sources.some(source => source.endsWith("javascript-marker.js")), true)
+  } finally {
+    compiled.cleanup()
+  }
+})
+
+test("intrinsic direct eval is a transparent-wrapper-aware file barrier", () => {
+  const reset = `export const answer = freshPrompt<number, number>(p => Eff.runPure(
+    direct.reset(p, (): number => { return 42 })
+  ))`
+  const forms = [
+    `eval("void 0")`,
+    `(eval)("void 0")`,
+    `(eval as typeof eval)("void 0")`,
+    `eval!("void 0")`,
+    `(<typeof eval>eval)("void 0")`,
+    `(() => eval("void 0"))`
+  ]
+  for (const [index, expression] of forms.entries()) {
+    const diagnostic = diagnosticFor(
+      `const blocked${index} = ${expression}\n${reset}`,
+      "JS_DIRECT_CAPTURE_BARRIER"
+    )
+    assert.equal(diagnostic.message.includes("direct eval"), true)
+  }
+  diagnosticFor(
+    `declare function eval(source: string): unknown
+    eval("void 0")
+    ${reset}`,
+    "JS_DIRECT_CAPTURE_BARRIER"
+  )
+})
+
+test("shadowed and indirect eval plus Function remain global-only ordinary code", () => {
+  const source = `
+import { Eff, freshPrompt } from "@scalascript/control"
+import { direct } from "@scalascript/control-direct"
+function localScope(): number {
+  function eval(source: string): number { return source.length }
+  return eval("x")
+}
+const local = localScope()
+const indirect = (0, globalThis.eval)("1")
+const optional = eval?.("1")
+const constructed = Function("return 1")()
+export const answer = freshPrompt<number, number>(p => Eff.runPure(
+  direct.reset(p, (): number => { return local + indirect + optional + constructed })
+))
+`
+  const prepared = prepare(source, "eval-allowed")
+  try {
+    assert.deepEqual(prepared.transform.diagnostics, [])
+  } finally {
+    prepared.cleanup()
+  }
+})
+
+test("surviving marker values diagnose and cancel the whole source-file rewrite", () => {
+  const source = `
+import { Eff, freshPrompt } from "@scalascript/control"
+import { direct } from "@scalascript/control-direct"
+void direct
+export const answer = freshPrompt<number, number>(p => Eff.runPure(
+  direct.reset(p, (): number => { return 42 })
+))
+`
+  const prepared = prepare(source, "survivor")
+  try {
+    assert.equal(prepared.transform.diagnostics.length, 1)
+    assert.equal(prepared.transform.diagnostics[0].code, "JS_DIRECT_UNSUPPORTED")
     assert.deepEqual(prepared.transform.transformedFiles, [])
+    const emit = prepared.program.emit(
+      undefined,
+      undefined,
+      undefined,
+      false,
+      prepared.transform.transformers
+    )
+    assert.equal(emit.emitSkipped, false)
+    const output = readFileSync(join(prepared.outDir, "survivor.js"), "utf8")
+    assert.match(output, /@scalascript\/control-direct/)
+    assert.match(output, /direct\.reset/)
+    assert.doesNotMatch(output, /__sscControl/)
+  } finally {
+    prepared.cleanup()
+  }
+})
+
+test("completed marker specifiers are removed without rewriting other imports", async () => {
+  const compiled = await compile(`
+    import { Eff, freshPrompt } from "@scalascript/control"
+    import { DirectMarkerContractError, direct } from "@scalascript/control-direct"
+    export { DirectMarkerContractError }
+    export const answer = freshPrompt<number, number>(p => Eff.runPure(
+      direct.reset(p, (): number => { return 42 })
+    ))
+  `, "mixed-import")
+  try {
+    assert.equal(compiled.module.answer, 42)
+    const output = readFileSync(compiled.javascript, "utf8")
+    assert.match(output, /DirectMarkerContractError/)
+    assert.doesNotMatch(output, /\{[^}]*\bdirect\b[^}]*\} from "@scalascript\/control-direct"/)
+  } finally {
+    compiled.cleanup()
+  }
+})
+
+test("type-only marker references erase with the completed marker import", async () => {
+  const compiled = await compile(`
+    import { Eff, freshPrompt } from "@scalascript/control"
+    import { direct } from "@scalascript/control-direct"
+    type Marker = typeof direct
+    const markerTypeWitness: Marker | undefined = undefined
+    void markerTypeWitness
+    export const answer = freshPrompt<number, number>(p => Eff.runPure(
+      direct.reset(p, (): number => { return 42 })
+    ))
+  `, "type-only-marker")
+  try {
+    assert.equal(compiled.module.answer, 42)
+    assert.doesNotMatch(
+      readFileSync(compiled.javascript, "utf8"),
+      /@scalascript\/control-direct/
+    )
+  } finally {
+    compiled.cleanup()
+  }
+})
+
+test("unsupported marker import and re-export forms fail closed", () => {
+  const sources = [
+    `import * as markers from "@scalascript/control-direct"; void markers`,
+    `export { direct } from "@scalascript/control-direct"`,
+    `export * from "@scalascript/control-direct"`
+  ]
+  for (const [index, source] of sources.entries()) {
+    const prepared = prepare(source, `unsupported-import-${index}`)
+    try {
+      assert.equal(prepared.transform.diagnostics.length, 1)
+      assert.equal(prepared.transform.diagnostics[0].code, "JS_DIRECT_UNSUPPORTED")
+      assert.deepEqual(prepared.transform.transformedFiles, [])
+    } finally {
+      prepared.cleanup()
+    }
+  }
+})
+
+test("the programmatic transform gates the TypeScript compiler API line", () => {
+  const prepared = prepare("export const answer = 42", "version-gate")
+  try {
+    const unsupported = Object.create(ts)
+    Object.defineProperties(unsupported, {
+      version: { value: "6.0.0" },
+      versionMajorMinor: { value: "6.0" }
+    })
+    assert.throws(
+      () => createDirectTransform(unsupported, prepared.program),
+      error => error instanceof RangeError &&
+        error.message ===
+          "@scalascript/control-direct supports TypeScript 5.9.x; received 6.0.0"
+    )
   } finally {
     prepared.cleanup()
   }

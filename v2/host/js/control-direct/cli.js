@@ -1,19 +1,53 @@
 #!/usr/bin/env node
 
-import { resolve } from "node:path"
-import { pathToFileURL } from "node:url"
+import { realpathSync, statSync } from "node:fs"
+import { createRequire } from "node:module"
+import { dirname, join, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
 
 import { createDirectTransform, formatDirectDiagnostic } from "./transform.js"
 
-async function loadTypeScript() {
+const SupportedTypeScriptMajorMinor = "5.9"
+
+function projectArgument(argv) {
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index]
+    if (argument === "--project" || argument === "-p") return argv[index + 1]
+    if (argument.startsWith("--project=")) return argument.slice("--project=".length)
+  }
+  return undefined
+}
+
+function compilerIssuer(argv) {
+  const cwd = process.cwd()
+  const project = projectArgument(argv)
+  if (project === undefined || project.length === 0) return cwd
+  const candidate = resolve(cwd, project)
   try {
-    const loaded = await import("typescript")
-    return loaded.default ?? loaded
+    return statSync(candidate).isDirectory() ? candidate : dirname(candidate)
+  } catch {
+    return dirname(candidate)
+  }
+}
+
+function loadTypeScript(argv) {
+  const issuer = compilerIssuer(argv)
+  try {
+    const requireFromConsumer = createRequire(join(issuer, "package.json"))
+    const loaded = requireFromConsumer("typescript")
+    const ts = loaded.default ?? loaded
+    if (ts.versionMajorMinor !== SupportedTypeScriptMajorMinor) {
+      const version = typeof ts.version === "string" ? ts.version : "unknown"
+      throw new RangeError(
+        `@scalascript/control-direct supports TypeScript 5.9.x; received ${version}`
+      )
+    }
+    return ts
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error)
     process.stderr.write(
-      "ssc-control-tsc: TypeScript compiler API not found; install typescript " +
-      `in the consuming project (${detail})\n`
+      "ssc-control-tsc: compatible TypeScript compiler API not found from " +
+      `${issuer}; install typescript@5.9 in the consuming project (${detail})\n`
     )
     process.exitCode = 1
     return undefined
@@ -102,7 +136,7 @@ function parseConfig(ts, argv) {
 }
 
 export async function main(argv = process.argv.slice(2)) {
-  const ts = await loadTypeScript()
+  const ts = loadTypeScript(argv)
   if (ts === undefined) return 1
 
   const parsed = parseConfig(ts, argv)
@@ -144,9 +178,21 @@ export async function main(argv = process.argv.slice(2)) {
     : 0
 }
 
-const invoked = process.argv[1] === undefined
-  ? false
-  : import.meta.url === pathToFileURL(resolve(process.argv[1])).href
+function sameEntryFile(moduleUrl, argvEntry) {
+  if (argvEntry === undefined) return false
+  try {
+    const modulePath = realpathSync(fileURLToPath(moduleUrl))
+    const entryPath = realpathSync(resolve(argvEntry))
+    if (modulePath === entryPath) return true
+    const moduleStat = statSync(modulePath)
+    const entryStat = statSync(entryPath)
+    return moduleStat.dev === entryStat.dev && moduleStat.ino === entryStat.ino
+  } catch {
+    return false
+  }
+}
+
+const invoked = sameEntryFile(import.meta.url, process.argv[1])
 
 if (invoked) {
   process.exitCode = await main()

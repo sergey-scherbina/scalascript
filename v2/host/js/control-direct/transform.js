@@ -1,5 +1,6 @@
 const DirectModule = "@scalascript/control-direct"
 const ControlModule = "@scalascript/control"
+const SupportedTypeScriptMajorMinor = "5.9"
 
 const Codes = Object.freeze({
   OutsideReset: "JS_DIRECT_OUTSIDE_RESET",
@@ -17,6 +18,12 @@ function assertCompilerApi(ts) {
     typeof ts.factory !== "object"
   ) {
     throw new TypeError("typescript must be a TypeScript compiler API object")
+  }
+  if (ts.versionMajorMinor !== SupportedTypeScriptMajorMinor) {
+    const version = typeof ts.version === "string" ? ts.version : "unknown"
+    throw new RangeError(
+      `@scalascript/control-direct supports TypeScript 5.9.x; received ${version}`
+    )
   }
 }
 
@@ -41,7 +48,10 @@ export function createDirectTransform(ts, program) {
   const claimedShifts = new Set()
   const diagnostics = []
   const diagnosticKeys = new Set()
-  const transformedFiles = new Set()
+  const candidateFiles = new Set()
+  const filesWithPlans = new Set()
+  const filesWithMarkerCalls = new Set()
+  const markerImportsByFile = new Map()
 
   function textRange(node) {
     const source = node.getSourceFile()
@@ -67,26 +77,43 @@ export function createDirectTransform(ts, program) {
     }))
   }
 
+  function directImportSpecifier(declaration) {
+    if (!ts.isImportSpecifier(declaration)) return false
+    const importedName = declaration.propertyName ?? declaration.name
+    const importDeclaration = declaration.parent.parent.parent
+    return importedName.text === "direct" &&
+      ts.isImportDeclaration(importDeclaration) &&
+      ts.isStringLiteral(importDeclaration.moduleSpecifier) &&
+      importDeclaration.moduleSpecifier.text === DirectModule
+  }
+
   function importedDirect(identifier) {
     if (!ts.isIdentifier(identifier)) return false
     const symbol = checker.getSymbolAtLocation(identifier)
     if (symbol === undefined) return false
-    return (symbol.declarations ?? []).some(declaration => {
-      if (!ts.isImportSpecifier(declaration)) return false
-      const importedName = declaration.propertyName ?? declaration.name
-      const importDeclaration = declaration.parent.parent.parent
-      return importedName.text === "direct" &&
-        ts.isImportDeclaration(importDeclaration) &&
-        ts.isStringLiteral(importDeclaration.moduleSpecifier) &&
-        importDeclaration.moduleSpecifier.text === DirectModule
-    })
+    return (symbol.declarations ?? []).some(directImportSpecifier)
+  }
+
+  function unwrapTransparent(expression) {
+    let current = expression
+    while (
+      ts.isParenthesizedExpression(current) ||
+      ts.isAsExpression(current) ||
+      ts.isNonNullExpression(current) ||
+      ts.isTypeAssertionExpression(current)
+    ) {
+      current = current.expression
+    }
+    return current
   }
 
   function directCall(node, method) {
-    return ts.isCallExpression(node) &&
-      ts.isPropertyAccessExpression(node.expression) &&
-      node.expression.name.text === method &&
-      importedDirect(node.expression.expression)
+    if (!ts.isCallExpression(node) || node.questionDotToken !== undefined) return false
+    const callee = unwrapTransparent(node.expression)
+    return ts.isPropertyAccessExpression(callee) &&
+      callee.questionDotToken === undefined &&
+      callee.name.text === method &&
+      importedDirect(unwrapTransparent(callee.expression))
   }
 
   function canonicalSymbol(identifier) {
@@ -107,6 +134,201 @@ export function createDirectTransform(ts, program) {
     const leftSymbol = canonicalSymbol(left)
     const rightSymbol = canonicalSymbol(right)
     return leftSymbol !== undefined && leftSymbol === rightSymbol
+  }
+
+  function isTypeOnlyReference(node) {
+    let current = node
+    while (current.parent !== undefined) {
+      const parent = current.parent
+      if (ts.isTypeQueryNode(parent)) return true
+      if (
+        (ts.isAsExpression(parent) || ts.isTypeAssertionExpression(parent)) &&
+        parent.type === current
+      ) return true
+      if (
+        ts.isImportDeclaration(parent) ||
+        ts.isExportDeclaration(parent) ||
+        ts.isStatement(parent)
+      ) return false
+      current = parent
+    }
+    return false
+  }
+
+  function markerCallForReceiver(identifier) {
+    let receiver = identifier
+    while (
+      receiver.parent !== undefined &&
+      (ts.isParenthesizedExpression(receiver.parent) ||
+        ts.isAsExpression(receiver.parent) ||
+        ts.isNonNullExpression(receiver.parent) ||
+        ts.isTypeAssertionExpression(receiver.parent)) &&
+      receiver.parent.expression === receiver
+    ) {
+      receiver = receiver.parent
+    }
+    const property = receiver.parent
+    if (!ts.isPropertyAccessExpression(property) || property.expression !== receiver) {
+      return undefined
+    }
+    let callee = property
+    while (
+      callee.parent !== undefined &&
+      (ts.isParenthesizedExpression(callee.parent) ||
+        ts.isAsExpression(callee.parent) ||
+        ts.isNonNullExpression(callee.parent) ||
+        ts.isTypeAssertionExpression(callee.parent)) &&
+      callee.parent.expression === callee
+    ) {
+      callee = callee.parent
+    }
+    const call = callee.parent
+    if (!ts.isCallExpression(call) || call.expression !== callee) return undefined
+    if (directCall(call, "reset") || directCall(call, "shift")) return call
+    return undefined
+  }
+
+  function collectMarkerImports(source) {
+    const imports = []
+    for (const statement of source.statements) {
+      if (
+        !ts.isImportDeclaration(statement) ||
+        !ts.isStringLiteral(statement.moduleSpecifier) ||
+        statement.moduleSpecifier.text !== DirectModule
+      ) continue
+      const clause = statement.importClause
+      if (clause === undefined) continue
+      if (clause.name !== undefined) {
+        candidateFiles.add(source.fileName)
+        unsupported(clause.name, "default marker imports are outside the closed grammar")
+      }
+      if (clause.namedBindings !== undefined && ts.isNamespaceImport(clause.namedBindings)) {
+        candidateFiles.add(source.fileName)
+        unsupported(clause.namedBindings.name, "namespace marker imports are outside the closed grammar")
+        continue
+      }
+      if (clause.namedBindings === undefined) continue
+      for (const specifier of clause.namedBindings.elements) {
+        if (!directImportSpecifier(specifier)) continue
+        imports.push(specifier)
+        candidateFiles.add(source.fileName)
+      }
+    }
+    if (imports.length !== 0) markerImportsByFile.set(source.fileName, imports)
+
+    for (const statement of source.statements) {
+      if (
+        !ts.isExportDeclaration(statement) ||
+        statement.moduleSpecifier === undefined ||
+        !ts.isStringLiteral(statement.moduleSpecifier) ||
+        statement.moduleSpecifier.text !== DirectModule
+      ) continue
+      if (statement.exportClause === undefined) {
+        candidateFiles.add(source.fileName)
+        unsupported(statement, "star re-export of the marker package is outside the closed grammar")
+        continue
+      }
+      if (ts.isNamespaceExport(statement.exportClause)) {
+        candidateFiles.add(source.fileName)
+        unsupported(statement.exportClause, "namespace re-export of the marker package is outside the closed grammar")
+        continue
+      }
+      for (const specifier of statement.exportClause.elements) {
+        const importedName = specifier.propertyName ?? specifier.name
+        if (importedName.text !== "direct") continue
+        candidateFiles.add(source.fileName)
+        unsupported(specifier, "re-export of the direct marker is outside the closed grammar")
+      }
+    }
+  }
+
+  function scanMarkerUses(source) {
+    const imports = markerImportsByFile.get(source.fileName)
+    if (imports === undefined) return
+    const declarations = new Set(imports.map(specifier => specifier.name))
+    function visit(node) {
+      if (ts.isIdentifier(node) && importedDirect(node) && !declarations.has(node)) {
+        if (!isTypeOnlyReference(node) && markerCallForReceiver(node) === undefined) {
+          unsupported(node, "owned direct marker value use would survive transformation")
+        }
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(source)
+  }
+
+  function intrinsicDirectEval(node) {
+    if (!ts.isCallExpression(node) || node.questionDotToken !== undefined) return false
+    const callee = unwrapTransparent(node.expression)
+    if (!ts.isIdentifier(callee) || callee.text !== "eval") return false
+    const symbol = checker.getSymbolAtLocation(callee)
+    if (symbol === undefined) return true
+    const declarations = symbol.declarations ?? []
+    return declarations.length === 0 || declarations.every(declaration =>
+      declaration.getSourceFile().isDeclarationFile ||
+      declaration.modifiers?.some(modifier =>
+        modifier.kind === ts.SyntaxKind.DeclareKeyword
+      ) === true
+    )
+  }
+
+  function scanDirectEval(source) {
+    if (!filesWithMarkerCalls.has(source.fileName)) return
+    function visit(node) {
+      if (intrinsicDirectEval(node)) {
+        addDiagnostic(
+          Codes.CaptureBarrier,
+          "intrinsic direct eval crosses the transformed file's lexical capture boundary",
+          node
+        )
+        return
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(source)
+  }
+
+  function declarationSymbols(statement, result) {
+    if (!ts.isVariableStatement(statement)) return
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name)) continue
+      const symbol = checker.getSymbolAtLocation(declaration.name)
+      if (symbol !== undefined) result.add(symbol)
+    }
+  }
+
+  function findForbiddenReference(node, forbidden) {
+    let found
+    function visit(current) {
+      if (found !== undefined) return
+      if (
+        ts.isIdentifier(current) &&
+        !isTypeOnlyReference(current) &&
+        forbidden.has(checker.getSymbolAtLocation(current))
+      ) {
+        found = current
+        return
+      }
+      ts.forEachChild(current, visit)
+    }
+    visit(node)
+    return found
+  }
+
+  function checkMarkerLexicalCapture(statements, markers) {
+    for (const marker of markers) {
+      const forbidden = new Set()
+      for (let index = marker.index; index < statements.length - 1; index += 1) {
+        declarationSymbols(statements[index], forbidden)
+      }
+      const reference = findForbiddenReference(marker.shiftBody, forbidden)
+      if (reference === undefined) continue
+      addDiagnostic(
+        Codes.CaptureBarrier,
+        "direct.shift body captures its own marker or a later continuation binding",
+        reference
+      )
+    }
   }
 
   function isFunctionNode(node) {
@@ -318,7 +540,7 @@ export function createDirectTransform(ts, program) {
       const marker = markerFromStatement(statement, prompt, call)
       if (marker === null) continue
       if (marker !== undefined) {
-        markers.push({ index, ...marker })
+        markers.push({ index, statement, ...marker })
         continue
       }
 
@@ -381,6 +603,8 @@ export function createDirectTransform(ts, program) {
       )
     }
 
+    checkMarkerLexicalCapture(statements, markers)
+
     if (diagnostics.length === before) {
       plans.set(call, Object.freeze({
         call,
@@ -390,30 +614,45 @@ export function createDirectTransform(ts, program) {
         returnStatement,
         markers
       }))
-      transformedFiles.add(call.getSourceFile().fileName)
+      candidateFiles.add(call.getSourceFile().fileName)
+      filesWithPlans.add(call.getSourceFile().fileName)
     }
   }
 
   function walkForResets(node) {
-    if (directCall(node, "reset")) analyzeReset(node)
+    if (directCall(node, "reset")) {
+      filesWithMarkerCalls.add(node.getSourceFile().fileName)
+      analyzeReset(node)
+    }
     ts.forEachChild(node, walkForResets)
   }
 
   function walkForOutsideShifts(node) {
-    if (directCall(node, "shift") && !claimedShifts.has(node)) {
-      addDiagnostic(
-        Codes.OutsideReset,
-        "direct.shift is outside a recognized direct.reset region",
-        node
-      )
-      return
+    if (directCall(node, "shift")) {
+      filesWithMarkerCalls.add(node.getSourceFile().fileName)
+      if (!claimedShifts.has(node)) {
+        addDiagnostic(
+          Codes.OutsideReset,
+          "direct.shift is outside a recognized direct.reset region",
+          node
+        )
+        return
+      }
     }
     ts.forEachChild(node, walkForOutsideShifts)
   }
 
   const sources = program.getSourceFiles().filter(source => !source.isDeclarationFile)
+  for (const source of sources) collectMarkerImports(source)
   for (const source of sources) walkForResets(source)
   for (const source of sources) walkForOutsideShifts(source)
+  for (const source of sources) scanMarkerUses(source)
+  for (const source of sources) scanDirectEval(source)
+
+  const diagnosticFiles = new Set(diagnostics.map(diagnostic => diagnostic.fileName))
+  const transformedFiles = new Set(
+    Array.from(candidateFiles).filter(fileName => !diagnosticFiles.has(fileName))
+  )
 
   diagnostics.sort((left, right) =>
     left.fileName.localeCompare(right.fileName) ||
@@ -493,16 +732,47 @@ export function createDirectTransform(ts, program) {
         ),
         nextMarker.call
       )
+      const resumeName = factory.createUniqueName(
+        "__sscResume",
+        ts.GeneratedIdentifierFlags.Optimistic
+      )
       const parameter = ranged(
         factory.createParameterDeclaration(
           undefined,
           undefined,
-          nextMarker.declaration.name,
+          resumeName,
           undefined,
-          nextMarker.declaration.type,
+          undefined,
           undefined
         ),
         nextMarker.declaration.name
+      )
+      const bindingDeclaration = ranged(
+        factory.updateVariableDeclaration(
+          nextMarker.declaration,
+          nextMarker.declaration.name,
+          nextMarker.declaration.exclamationToken,
+          nextMarker.declaration.type,
+          resumeName
+        ),
+        nextMarker.declaration
+      )
+      const bindingList = factory.updateVariableDeclarationList(
+        nextMarker.statement.declarationList,
+        [bindingDeclaration]
+      )
+      const bindingStatement = ranged(
+        factory.updateVariableStatement(
+          nextMarker.statement,
+          nextMarker.statement.modifiers,
+          bindingList
+        ),
+        nextMarker.statement
+      )
+      const continuationTail = lowerTail(plan, markerPosition + 1)
+      const continuationBody = factory.updateBlock(
+        continuationTail,
+        [bindingStatement, ...continuationTail.statements]
       )
       const continuation = ranged(
         factory.createArrowFunction(
@@ -511,7 +781,7 @@ export function createDirectTransform(ts, program) {
           [parameter],
           undefined,
           factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken),
-          lowerTail(plan, markerPosition + 1)
+          continuationBody
         ),
         nextMarker.declaration
       )
@@ -544,6 +814,43 @@ export function createDirectTransform(ts, program) {
       )
     }
 
+    function rewriteMarkerImport(statement) {
+      if (
+        !ts.isImportDeclaration(statement) ||
+        !ts.isStringLiteral(statement.moduleSpecifier) ||
+        statement.moduleSpecifier.text !== DirectModule ||
+        statement.importClause === undefined ||
+        statement.importClause.namedBindings === undefined ||
+        !ts.isNamedImports(statement.importClause.namedBindings)
+      ) return statement
+
+      const retained = statement.importClause.namedBindings.elements.filter(
+        specifier => !directImportSpecifier(specifier)
+      )
+      if (retained.length === statement.importClause.namedBindings.elements.length) {
+        return statement
+      }
+      if (retained.length === 0 && statement.importClause.name === undefined) {
+        return undefined
+      }
+      const namedBindings = retained.length === 0
+        ? undefined
+        : factory.updateNamedImports(statement.importClause.namedBindings, retained)
+      const clause = factory.updateImportClause(
+        statement.importClause,
+        statement.importClause.isTypeOnly,
+        statement.importClause.name,
+        namedBindings
+      )
+      return factory.updateImportDeclaration(
+        statement,
+        statement.modifiers,
+        clause,
+        statement.moduleSpecifier,
+        statement.attributes
+      )
+    }
+
     return source => {
       if (!transformedFiles.has(source.fileName)) return source
       const identifiers = new Set()
@@ -558,19 +865,34 @@ export function createDirectTransform(ts, program) {
         suffix += 1
         namespaceText = `__sscControl${suffix}`
       }
-      controlNamespace = factory.createUniqueName(namespaceText, ts.GeneratedIdentifierFlags.Optimistic)
-      const namespaceImport = factory.createImportDeclaration(
-        undefined,
-        factory.createImportClause(
-          false,
+      const needsControl = filesWithPlans.has(source.fileName)
+      let namespaceImport
+      if (needsControl) {
+        controlNamespace = factory.createUniqueName(
+          namespaceText,
+          ts.GeneratedIdentifierFlags.Optimistic
+        )
+        namespaceImport = factory.createImportDeclaration(
           undefined,
-          factory.createNamespaceImport(controlNamespace)
-        ),
-        factory.createStringLiteral(ControlModule),
-        undefined
+          factory.createImportClause(
+            false,
+            undefined,
+            factory.createNamespaceImport(controlNamespace)
+          ),
+          factory.createStringLiteral(ControlModule),
+          undefined
+        )
+      }
+      const statements = []
+      for (const statement of source.statements) {
+        const visited = visitStatement(statement)
+        const rewritten = rewriteMarkerImport(visited)
+        if (rewritten !== undefined) statements.push(rewritten)
+      }
+      return factory.updateSourceFile(
+        source,
+        namespaceImport === undefined ? statements : [namespaceImport, ...statements]
       )
-      const statements = source.statements.map(statement => visitStatement(statement))
-      return factory.updateSourceFile(source, [namespaceImport, ...statements])
     }
   }
 
