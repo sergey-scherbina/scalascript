@@ -3,7 +3,8 @@
 ## descriptor-v3-nested-owner-identity-leak — nested private identities under non-object owners fall back external
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
-exact frozen checkpoint `0cb46c3cd`; fix SHA pending.
+exact frozen checkpoint `0cb46c3cd`; local correction `aebe41434`, landing SHA
+pending independent approval.
 
 **Symptom/reproduce:** declare `private class Hidden { type T }` and expose a public
 signature containing `Hidden.T`. Strict managed production returns `Right` with an
@@ -30,10 +31,19 @@ fresh independent approval and landing on `origin/main`.
 63/70. The nested-owner regression fails because the private-class case returns
 `Right` with `Named("Hidden.T")`; all previous 63 producer tests remain green.
 
+**Local verification:** `aebe41434` replaces the object-only collectors with one
+recursive owner-aware inventory covering class/trait/enum/object, abstract
+`Decl.Type`, inherited visibility, and receiver representability. Audit-hardening
+vectors cover public-class members, a nested object below a class, known-owner/
+unknown-member fallback, and the positive public-object namespace. Focused producer
+passes 82/82 and full core passes 1130/1130; keep `open` until fresh review and
+landing.
+
 ## descriptor-v3-body-local-effect-evidence — raw effect scan makes descriptors depend on method bodies
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
-exact frozen checkpoint `0cb46c3cd`; fix SHA pending.
+exact frozen checkpoint `0cb46c3cd`; local correction `69e02ffe3`, landing SHA
+pending independent approval.
 
 **Symptom/reproduce:** put a local `effect Local:` declaration inside the body of an
 exported method whose public header is otherwise unchanged. The raw carrier regex
@@ -60,10 +70,18 @@ landing.
 `UNSUPPORTED_PUBLIC_DECLARATION` reported by the unscoped raw scan; all previous
 63 producer tests remain green.
 
+**Local verification:** `69e02ffe3` correlates sanitized raw headers only with
+declaration-scope AST candidates, accounts for the parser's deterministic line
+insertions, ignores body-local candidates, and stores the validated bindings for
+later projection instead of rescanning. Body-local-only and same-name-before-real-
+effect vectors are green; focused producer passes 82/82 and forced effect
+conformance passes 9/9. Keep `open` until fresh review and landing.
+
 ## descriptor-v3-effect-sentinel-duplicate-collision — injected and user effect markers coexist
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
-exact frozen checkpoint `0cb46c3cd`; fix SHA pending.
+exact frozen checkpoint `0cb46c3cd`; local correction `69e02ffe3`, landing SHA
+pending independent approval.
 
 **Symptom/reproduce:** source an actual `effect Stable:` whose body declares
 `private type __effectDecl__ = true`. Parser preprocessing injects its own marker,
@@ -89,10 +107,18 @@ the full affected gates pass. Keep `open` until independent approval and landing
 `Right` for an actual effect containing the colliding user alias; all previous 63
 producer tests remain green.
 
+**Local verification:** `69e02ffe3` validates both reserved names before filtering:
+each marker must be the sole canonical unscoped-private, parameterless, unbounded
+`type ... = true` declaration, and unsupported-shape evidence requires the origin
+marker and raw-header agreement. Duplicate, malformed, non-type, ordinary-object,
+and unexpected-unsupported vectors are green; focused producer passes 82/82.
+Keep `open` until fresh review and landing.
+
 ## descriptor-v3-import-identity-laundering — selected/imported aliases bypass canonical identity resolution
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
-exact frozen checkpoint `0cb46c3cd`; fix SHA pending.
+exact frozen checkpoint `0cb46c3cd`; local correction `aebe41434`, landing SHA
+pending independent approval.
 
 **Symptom/reproduce:** `import java.{lang as jl}` followed by a public `jl.String`
 type succeeds as external `Named("jl.String")`; a chained `import jl.{Integer as
@@ -121,10 +147,19 @@ full affected gates pass. Keep `open` until fresh independent approval and landi
 `jl.Integer` return `Right`, and an imported local function alias has no callback
 policy. All previous 63 producer tests remain green.
 
+**Local verification:** `aebe41434` anchors exact targets under the preceding import
+environment and shares one resolver across bare/selected type projection, effect
+rows, callback classification, and later importer qualifiers. Transparent aliases
+snapshot their declaration-time import scope. Platform chains, selected local
+prefixes, imported callbacks/effects, wildcard prefixes, private identities, and
+source-order controls are green; focused producer passes 82/82. Keep `open` until
+fresh review and landing.
+
 ## descriptor-v3-import-witness-omission — retained carrier import mutations evade correspondence
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
-exact frozen checkpoint `0cb46c3cd`; fix SHA pending.
+exact frozen checkpoint `0cb46c3cd`; local correction `9e73fb656`, landing SHA
+pending independent approval.
 
 **Symptom/reproduce:** parse a module containing `import foo.Int` and a public use of
 `Int`, then mutate only the retained Document carrier to `import bar.Int` while the
@@ -148,6 +183,11 @@ and landing.
 **Red baseline:** regression commit `c1f57d99f`; focused producer is exactly
 63/70. The carrier-import mutation returns `Right` with `Named("foo.Int")`; all
 previous 63 producer tests remain green.
+
+**Local verification:** `9e73fb656` adds ordered import witnesses containing the
+importer reference plus direct/rename/unimport/wildcard/given/given-all selector
+shape. The faithful carrier mutation is green and all later focused/full gates
+remain green. Keep `open` until fresh review and landing.
 
 ## descriptor-v3-nominal-derives-early-loss — derives and early initializers disappear from nominal APIs
 

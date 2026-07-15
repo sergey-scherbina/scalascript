@@ -382,6 +382,16 @@ optional policy, not the default continuation semantics.
       on an ordinary object, body-local-only header, and a body-local same-name header
       preceding a genuine top-level effect. A plain effect carrying an unexpected
       unsupported-shape marker already fails and remains a control.
+    - Fifth-correction pre-rebase checkpoint: implementation commits
+      `9e73fb656` (exact import witness), `aebe41434` (unified resolver + recursive
+      inventory), and `69e02ffe3` (exact sentinels + single declaration-scope effect
+      binding). Focused producer/parser/effect passes 94/94 (82/8/4); descriptor
+      27/27, core 1130/1130, interop 36/36, IR success, ABI 73/73; modules/import-
+      dir conformance 2/2 and forced non-memoized effect conformance 9/9. Next:
+      commit open-ledger/spec verification, rebase the clean branch onto current
+      `origin/main`, reread changed project instructions/milestones, repeat affected
+      and full gates, freeze exact base/head, then request a fresh read-only review.
+      Do not push/release and do not close any of the 17 Slice B BUGS beforehand.
     - Done when the focused regressions and affected core/interop/conformance gates pass and a
       fresh independent read-only review returns APPROVE with no P1/P2 blocker.
   - [ ] **C — post-body summaries:** extract managed/foreign/tail edges, save sites, frame schemas,
