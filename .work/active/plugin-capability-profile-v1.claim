@@ -1,6 +1,6 @@
 feature/plugin-capability-profile-v1 2026-07-15T03:15:24Z
 agent: codex-plugin-profile
-heartbeat: 2026-07-15T03:26:05Z
+heartbeat: 2026-07-15T03:48:17Z
 status: in-progress
-done-so-far: committed target-neutral plugin capability profile spec plus validation-bound tightening (feature commits f592735ff and 46d2a320a); aligned the single aggregate plugin binding with the descriptor owner
-next: rebase the descriptor Slice A landing, then implement the profile leaf, additive NativePlugin adapter, inventory validation, and focused tests
+done-so-far: implemented the target-neutral profile leaf, checked descriptor projection, inventory preflight, and additive NativePlugin declaration; focused tests pass 23/23 plus 12/12 and plugin-* conformance is explicit 0/0; independent review findings fixed
+next: obtain final review approval, rebase latest origin/main, rerun gates, commit docs and bookkeeping separately, then push for root release
