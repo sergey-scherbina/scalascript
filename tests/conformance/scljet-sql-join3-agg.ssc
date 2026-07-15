@@ -1,0 +1,45 @@
+---
+name: scljet-sql-join3-agg
+description: SclJet SQL aggregates / GROUP BY / HAVING over a 3-table join; matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet SQL aggregates over a 3-table join
+
+`COUNT`/`SUM`/`MAX` with `GROUP BY` and `HAVING` over `FROM a JOIN b ON … JOIN c ON …` — the N-table
+join path groups the joined rows and reduces each group. Every result is byte-identical to reference
+sqlite3 running the same SQL on the same file (verified out-of-band); locked across backends.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, renderRows, executeMutation](std/scljet/sql.ssc)
+
+```scalascript
+def apply(db: ByteSlice, sql: String): ByteSlice =
+  executeMutation(db, sql) match
+    case Left(m) =>
+      println(sql + " => ERR:" + m)
+      db
+    case Right(next) => next
+
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER, name TEXT, dept_id INTEGER, salary INTEGER)",
+  List(List(SqlInteger(1L), SqlText("ann"), SqlInteger(10L), SqlInteger(100L)),
+       List(SqlInteger(2L), SqlText("bob"), SqlInteger(20L), SqlInteger(250L)),
+       List(SqlInteger(3L), SqlText("cat"), SqlInteger(10L), SqlInteger(300L)),
+       List(SqlInteger(4L), SqlText("dan"), SqlInteger(10L), SqlInteger(150L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db0) =>
+    val d1 = apply(db0, "CREATE TABLE dept(did INTEGER, dname TEXT, loc_id INTEGER)")
+    val d2 = apply(d1, "INSERT INTO dept VALUES (10,'eng',100),(20,'sales',200)")
+    val d3 = apply(d2, "CREATE TABLE loc(lid INTEGER, city TEXT)")
+    val db = apply(d3, "INSERT INTO loc VALUES (100,'NYC'),(200,'SF')")
+    show(db, "SELECT loc.city, COUNT(*) FROM emp JOIN dept ON emp.dept_id = dept.did JOIN loc ON dept.loc_id = loc.lid GROUP BY loc.city")
+    show(db, "SELECT COUNT(*) FROM emp JOIN dept ON emp.dept_id = dept.did JOIN loc ON dept.loc_id = loc.lid")
+    show(db, "SELECT loc.city, SUM(emp.salary) FROM emp JOIN dept ON emp.dept_id = dept.did JOIN loc ON dept.loc_id = loc.lid GROUP BY loc.city")
+    show(db, "SELECT loc.city, COUNT(*) FROM emp JOIN dept ON emp.dept_id = dept.did JOIN loc ON dept.loc_id = loc.lid GROUP BY loc.city HAVING COUNT(*) >= 2")
+    show(db, "SELECT loc.city, MAX(emp.salary) FROM emp JOIN dept ON emp.dept_id = dept.did JOIN loc ON dept.loc_id = loc.lid GROUP BY loc.city ORDER BY loc.city")
+```

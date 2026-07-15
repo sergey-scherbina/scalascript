@@ -2653,6 +2653,106 @@ def joinTableNames(stmt: SelectStmt): List[String] =
     r = r.tail
   stmt.table :: accRev.reverse
 
+// ── Aggregates / GROUP BY / HAVING over an N-table join (a group is a list of joined rows) ──
+
+def extractMultiValues(group: List[List[StorageRecord]], tables: List[JoinTable], col: String): List[SqliteValue] =
+  var r = group
+  var accRev: List[SqliteValue] = Nil
+  while r.nonEmpty do
+    accRev = multiColValue(r.head, tables, col) :: accRev
+    r = r.tail
+  reverseValues(accRev, Nil)
+
+def multiAggValue(func: String, arg: String, distinct: Boolean, group: List[List[StorageRecord]], tables: List[JoinTable]): SqliteValue =
+  val f = upperStr(func)
+  val vals = extractMultiValues(group, tables, arg)
+  if distinct then aggregateValues(f, dedupValues(vals))
+  else if f == "COUNT" && arg == "*" then SqlInteger(group.length.toLong)
+  else aggregateValues(f, vals)
+
+def evalArgsMultiGroup(args: List[SxNode], group: List[List[StorageRecord]], tables: List[JoinTable]): List[SqliteValue] =
+  var r = args
+  var accRev: List[SqliteValue] = Nil
+  while r.nonEmpty do
+    accRev = evalExprMultiGroup(r.head, group, tables) :: accRev
+    r = r.tail
+  reverseValues(accRev, Nil)
+
+def evalCaseMultiGroup(operand: Option[SxNode], whens: List[SxWhen], elseExpr: Option[SxNode], group: List[List[StorageRecord]], tables: List[JoinTable]): SqliteValue =
+  var r = whens
+  var out: Option[SqliteValue] = None
+  operand match
+    case Some(opExpr) =>
+      val opVal = evalExprMultiGroup(opExpr, group, tables)
+      while r.nonEmpty && out.isEmpty do
+        if sqlCompare(opVal, evalExprMultiGroup(r.head.cond, group, tables)) == 0 then out = Some(evalExprMultiGroup(r.head.result, group, tables))
+        r = r.tail
+    case None =>
+      while r.nonEmpty && out.isEmpty do
+        if isTruthy(evalExprMultiGroup(r.head.cond, group, tables)) then out = Some(evalExprMultiGroup(r.head.result, group, tables))
+        r = r.tail
+  out match
+    case Some(v) => v
+    case None => elseExpr match
+      case Some(e) => evalExprMultiGroup(e, group, tables)
+      case None => SqlNull
+
+// Evaluate an expression over a group of joined rows: an aggregate reduces the whole group, a bare
+// column takes the group's first joined row.
+def evalExprMultiGroup(e: SxNode, group: List[List[StorageRecord]], tables: List[JoinTable]): SqliteValue = e match
+  case SxCol(name) => if group.isEmpty then SqlNull else multiColValue(group.head, tables, name)
+  case SxLit(v) => v
+  case SxNeg(inner) => negateValue(evalExprMultiGroup(inner, group, tables))
+  case SxBin(op, l, r) => arithValue(op, evalExprMultiGroup(l, group, tables), evalExprMultiGroup(r, group, tables))
+  case SxCall(func, args) => evalCall(func, evalArgsMultiGroup(args, group, tables))
+  case SxNot(inner) => notValue(evalExprMultiGroup(inner, group, tables))
+  case SxAgg(func, arg, distinct) => multiAggValue(func, arg, distinct, group, tables)
+  case SxCase(operand, whens, elseExpr) => evalCaseMultiGroup(operand, whens, elseExpr, group, tables)
+
+def projectMultiGroupRow(group: List[List[StorageRecord]], tables: List[JoinTable], stmt: SelectStmt): List[SqliteValue] =
+  var r = stmt.projection
+  var accRev: List[SqliteValue] = Nil
+  while r.nonEmpty do
+    val item = r.head
+    val v = if item.isAgg then multiAggValue(item.func, item.name, item.distinct, group, tables)
+      else item.expr match
+        case Some(e) => evalExprMultiGroup(e, group, tables)
+        case None => if group.isEmpty then SqlNull else multiColValue(group.head, tables, item.name)
+    accRev = v :: accRev
+    r = r.tail
+  reverseValues(accRev, Nil)
+
+def multiGroupEqual(a: List[StorageRecord], b: List[StorageRecord], tables: List[JoinTable], groupCols: List[String]): Boolean =
+  var r = groupCols
+  var eq = true
+  while r.nonEmpty && eq do
+    if sqlCompare(multiColValue(a, tables, r.head), multiColValue(b, tables, r.head)) != 0 then eq = false
+    r = r.tail
+  eq
+
+// Partition rows (already sorted by the group columns) into consecutive equal-key runs.
+// All-if/else expressions (no bare `if … then <assign>`, which the interpreter mishandles).
+def partitionMultiRows(sortedRows: List[List[StorageRecord]], tables: List[JoinTable], groupCols: List[String]): List[List[List[StorageRecord]]] =
+  var r = sortedRows
+  var groupsRev: List[List[List[StorageRecord]]] = Nil
+  var curRev: List[List[StorageRecord]] = Nil
+  while r.nonEmpty do
+    val startNew = if curRev.isEmpty then true else !multiGroupEqual(curRev.head, r.head, tables, groupCols)
+    groupsRev = if startNew && curRev.nonEmpty then curRev.reverse :: groupsRev else groupsRev
+    curRev = if startNew then r.head :: Nil else r.head :: curRev
+    r = r.tail
+  val groups = if curRev.isEmpty then groupsRev else curRev.reverse :: groupsRev
+  groups.reverse
+
+def havingHoldsMulti(having: Option[HavingCond], group: List[List[StorageRecord]], tables: List[JoinTable]): Boolean = having match
+  case None => true
+  case Some(hc) =>
+    val lv = if hc.item.isAgg then multiAggValue(hc.item.func, hc.item.name, hc.item.distinct, group, tables)
+      else hc.item.expr match
+        case Some(e) => evalExprMultiGroup(e, group, tables)
+        case None => if group.isEmpty then SqlNull else multiColValue(group.head, tables, hc.item.name)
+    condMatches(hc.op, sqlCompare(lv, hc.value))
+
 def multiJoinExecute(db: ReadonlyDatabase, stmt: SelectStmt): Either[String, List[List[SqliteValue]]] =
   readJoinTables(db, joinTableNames(stmt)) match
     case Left(message) => Left(message)
@@ -2664,15 +2764,24 @@ def multiJoinExecute(db: ReadonlyDatabase, stmt: SelectStmt): Either[String, Lis
         if multiWhereHolds(stmt.where, jr.head, tables) then keptRev = jr.head :: keptRev
         jr = jr.tail
       val kept = keptRev.reverse
-      val ordered = if stmt.orderBy.isEmpty then kept else sortMultiRows(kept, tables, stmt.orderBy)
-      var r = ordered
-      var outRev: List[List[SqliteValue]] = Nil
-      while r.nonEmpty do
-        outRev = projectMultiRow(r.head, tables, stmt) :: outRev
-        r = r.tail
-      val projected = outRev.reverse
-      val deduped = if stmt.distinct then dedupRows(projected) else projected
-      Right(limitValueRows(deduped, stmt.limit, stmt.offset))
+      if stmt.groupBy.nonEmpty then
+        val groups = partitionMultiRows(sortMultiRows(kept, tables, groupKeysOf(stmt.groupBy)), tables, stmt.groupBy)
+        var g = groups
+        var rowsRev: List[List[SqliteValue]] = Nil
+        while g.nonEmpty do
+          if havingHoldsMulti(stmt.having, g.head, tables) then rowsRev = projectMultiGroupRow(g.head, tables, stmt) :: rowsRev
+          g = g.tail
+        Right(limitValueRows(rowsRev.reverse, stmt.limit, stmt.offset))
+      else if projHasAgg(stmt.projection) then Right(projectMultiGroupRow(kept, tables, stmt) :: Nil)
+      else
+        val ordered = if stmt.orderBy.isEmpty then kept else sortMultiRows(kept, tables, stmt.orderBy)
+        var r = ordered
+        var outRev: List[List[SqliteValue]] = Nil
+        while r.nonEmpty do
+          outRev = projectMultiRow(r.head, tables, stmt) :: outRev
+          r = r.tail
+        val deduped = if stmt.distinct then dedupRows(outRev.reverse) else outRev.reverse
+        Right(limitValueRows(deduped, stmt.limit, stmt.offset))
 
 def executeSelect(db: ReadonlyDatabase, stmt: SelectStmt): Either[String, List[List[SqliteValue]]] =
   if stmt.joins.isEmpty then executeSelectSingle(db, stmt)

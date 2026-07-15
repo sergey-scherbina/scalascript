@@ -1,0 +1,8 @@
+SELECT loc.city, COUNT(*) FROM emp JOIN dept ON emp.dept_id = dept.did JOIN loc ON dept.loc_id = loc.lid GROUP BY loc.city => NYC|3
+SF|1
+SELECT COUNT(*) FROM emp JOIN dept ON emp.dept_id = dept.did JOIN loc ON dept.loc_id = loc.lid => 4
+SELECT loc.city, SUM(emp.salary) FROM emp JOIN dept ON emp.dept_id = dept.did JOIN loc ON dept.loc_id = loc.lid GROUP BY loc.city => NYC|550
+SF|250
+SELECT loc.city, COUNT(*) FROM emp JOIN dept ON emp.dept_id = dept.did JOIN loc ON dept.loc_id = loc.lid GROUP BY loc.city HAVING COUNT(*) >= 2 => NYC|3
+SELECT loc.city, MAX(emp.salary) FROM emp JOIN dept ON emp.dept_id = dept.did JOIN loc ON dept.loc_id = loc.lid GROUP BY loc.city ORDER BY loc.city => NYC|300
+SF|250
