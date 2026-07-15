@@ -192,7 +192,7 @@ optional policy, not the default continuation semantics.
   portable lanes become available, plus the managed Scala direct-style lane. Landed 2026-07-15:
   one validated 26-vector/9-lane catalog; portable VM and ASM pass 13/13 exact process vectors each,
   explicit Scala passes 17 semantic vectors plus coverage (18/18), the whole control leaf is 57/57,
-  and seven malformed/omitted-catalog regressions are rejected. Future direct/generated host lanes,
+  and nine malformed/omitted/lane-substitution regressions are rejected. Future direct/generated host lanes,
   durable vectors 10--17, and cancellation 26 remain visibly phased rather than counted green.
 
 ### ScalaScript lowering and Scala/JVM host profile

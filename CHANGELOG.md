@@ -34,7 +34,7 @@ consumes the same catalog and passes 17 typed laws plus its coverage check.
 The matrix distinguishes `READY`, `UNSUPPORTED`, `UNAVAILABLE`, `pending-codec`,
 and `pending-spec`; prompt laws 18/22/23 are executable on explicit Scala without
 pretending `.ssc` lowering already exists, while future host/AOT, durable, and
-cancellation obligations cannot disappear or become silently green. Seven
+cancellation obligations cannot disappear or become silently green. Nine
 negative catalog regressions, the full 57-test control leaf, and the five-case
 effect conformance slice pass from the isolated worktree.
 
