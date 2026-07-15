@@ -1,7 +1,7 @@
 # JavaScript/TypeScript closed lexical direct control transform
 
-Status: **repair implemented and locally verified; fresh independent
-pre-integration rereview pending** (2026-07-15).
+Status: **second independent pre-integration REJECT; symbol-ownership repair
+specified and implementation pending** (2026-07-15).
 
 ## Overview
 
@@ -175,12 +175,33 @@ assertion wrappers are recursively transparent around a marker receiver/callee:
 `(direct).reset`, `direct!.reset`, and `(direct as typeof direct).reset` have the
 same ownership as `direct.reset`. No other expression wrapper is transparent.
 
+Runtime value identity is resolved through one checker-backed operation. An ordinary
+identifier uses `getSymbolAtLocation`; the name of a
+`ShorthandPropertyAssignment` uses `getShorthandAssignmentValueSymbol` so object
+shorthand and its assignment-initializer form resolve to the referenced lexical
+value rather than the synthesized property symbol; and a local `ExportSpecifier`
+uses `getExportSpecifierLocalTargetSymbol` so export aliases resolve to their local
+binding. Declaration identifiers, property-access names, ordinary object property
+names, and genuinely shadowed bindings retain their own symbols. This operation is
+shared by marker ownership and continuation-crossing checks.
+
 Every runtime/value reference to an owned marker binding in a file selected for
 transformation must be the receiver of a successfully analyzed `reset` or `shift`
-call. Rebinding, computed access, passing/returning the marker, namespace/default
-aliasing, and re-exporting the owned value are unsupported and produce
-`JS_DIRECT_UNSUPPORTED`; they never survive a successful emit. Type-only references
-that TypeScript erases are not value uses. After a file is clean, the transformer
+call. Rebinding, computed access, passing/returning the marker, object shorthand,
+namespace/default aliasing, and local or source-module runtime export/re-export of
+the owned value are unsupported and produce `JS_DIRECT_UNSUPPORTED`; they never
+survive a successful emit. A local runtime export is inspected once at its
+`ExportSpecifier`, including `export { direct }` and
+`export { direct as alias }`, so aliases receive one diagnostic rather than one per
+identifier child.
+
+Type-only references that TypeScript erases are not value uses. In particular,
+declaration-level `export type { direct as Marker }` of a local imported marker,
+source-module `export type { direct } from "@scalascript/control-direct"`, and
+specifier-level `export { type direct } from "@scalascript/control-direct"` are
+accepted and left to ordinary TypeScript erasure. Declaration-level `isTypeOnly` or
+specifier-level `isTypeOnly` is checked before any runtime export rule; changing
+either form to a runtime export is unsupported. After a file is clean, the transformer
 removes only each completed named `direct` import specifier and removes its import
 declaration only when no default or named bindings remain. Unrelated import
 declarations and other specifiers are preserved exactly. This makes the ordinary
@@ -216,8 +237,9 @@ binding itself or any block-scoped binding declared in statement `i` or the
 continuation suffix after it, directly or through nested syntax. Otherwise moving
 the declaration into `.flatMap` could make a temporal-dead-zone reference resolve to
 an outer binding, or make a captured binding disappear. Ownership is determined by
-TypeScript checker symbol identity, so type-only references and genuinely shadowed
-bindings are unrelated. The first forbidden value reference receives
+the runtime-value symbol operation above, so shorthand properties cannot hide a
+referenced lexical binding while type-only references, ordinary property names, and
+genuinely shadowed bindings remain unrelated. The first forbidden value reference receives
 `JS_DIRECT_CAPTURE_BARRIER` and the file is not transformed. T1 deliberately rejects
 this crossing reference instead of hoisting or re-evaluating declarations: hidden
 motion would change temporal-dead-zone, initializer, and per-resume evaluation
@@ -328,8 +350,8 @@ saveability status and remain barriers for later cross-frame/durable profiles.
   barrier.
 - `JS_DIRECT_UNSUPPORTED` — the reset or marker misses the closed grammar: wrong
   arity/callback form, `var`, destructuring, multiple declaration, arbitrary marker
-  position, early/missing return, unsupported statement, marker aliasing, or any
-  surviving owned marker value use.
+  position, early/missing return, unsupported statement, marker aliasing, runtime
+  export/re-export, or any surviving owned marker value use.
 - `JS_DIRECT_PROMPT_MISMATCH` — a marker prompt does not resolve to the owning
   reset's exact prompt symbol.
 
@@ -365,11 +387,12 @@ diagnostic.
 - [x] The transformer preserves usable source maps and the CLI preserves ordinary
       TypeScript type diagnostics rather than laundering them through generated
       code.
-- [x] A marker layer's prefix statements and shift body fail file-atomically with
+- [ ] A marker layer's prefix statements and shift body fail file-atomically with
       `JS_DIRECT_CAPTURE_BARRIER` when they value-reference the marker's own or any
-      later suffix binding, including through nested syntax; type-only, preceding,
-      and genuinely shadowed bindings remain accepted without initializer
-      reordering or TDZ-to-outer-name escape.
+      later suffix binding, including through nested syntax and shorthand property
+      or assignment-initializer value symbols; type-only, preceding, ordinary
+      property-name, and genuinely shadowed bindings remain accepted without
+      initializer reordering or TDZ-to-outer-name escape.
 - [x] Marker lowering uses collision-safe resume parameters followed by the original
       `const`/`let` declaration, including real JavaScript under
       `allowJs: true, checkJs: false`.
@@ -377,9 +400,14 @@ diagnostic.
       marker-erasure file, fails file-atomically after transparent-wrapper
       normalization; shadowed/indirect eval and `Function` follow the explicit
       global-only policy above.
-- [x] Every owned marker value use is transformed or diagnosed, completed named
-      marker specifiers are removed without changing unrelated imports, and emitted
-      production JavaScript runs with no direct package installed.
+- [ ] Every owned marker value use is transformed or diagnosed, including object
+      shorthand and local runtime export aliases; completed named marker specifiers
+      are removed without changing unrelated imports, and emitted production
+      JavaScript runs with no direct package installed.
+- [ ] Declaration-level and specifier-level type-only local exports/re-exports of
+      `direct` remain diagnostic-free and erase normally, while the corresponding
+      runtime local exports and source-module re-exports fail file-atomically with
+      one stable `JS_DIRECT_UNSUPPORTED` diagnostic.
 - [x] Parenthesized, `as`, non-null, and type-asserted marker receivers/callees obey
       the same transform and diagnostic rules as the unwrapped exact import.
 - [x] The programmatic API and CLI accept only TypeScript 5.9.x, reject other API
@@ -405,10 +433,18 @@ diagnostic.
   transform package or retaining a production guard import that contradicts the
   documented install boundary.
 - **Reject any prefix/shift-body reference crossing a generated continuation.**
-  Checker symbol identity catches both captured forward references and a prefix TDZ
-  read that would otherwise resolve to an outer name after lowering, without
-  confusing type-only use or shadowing. Rejected: hoisting or pre-evaluating suffix
-  declarations, which changes TDZ, prefix-once, and suffix-per-resume behavior.
+  Central checker-backed runtime-value identity catches captured forward references,
+  prefix TDZ reads, and shorthand properties whose surface symbol is only a property,
+  without confusing type-only use, ordinary property names, or shadowing. Rejected:
+  raw `getSymbolAtLocation` everywhere, which is not value identity for shorthand;
+  and hoisting or pre-evaluating suffix declarations, which changes TDZ,
+  prefix-once, and suffix-per-resume behavior.
+- **Classify exports before scanning runtime marker ownership.** Declaration-level
+  and specifier-level type-only exports are erased syntax and remain allowed; local
+  runtime exports resolve their target binding through the checker and source-module
+  runtime re-exports remain unsupported. Rejected: treating every `ExportSpecifier`
+  identifier as an ordinary reference, which both misses local aliases and rejects
+  valid erased exports.
 - **Preserve authored JavaScript declaration semantics.** A fresh generated resume
   parameter feeds the original `const`/`let` declaration. Rejected: replacing that
   declaration with a callback parameter, which weakens `const` and can collide with
@@ -448,8 +484,8 @@ diagnostic.
 
 ## Results
 
-The repair candidate code commit `a4635d0b8` on `origin/main` base `76f9706cf`,
-with synchronized user documentation in `f0714a1ea`, produced:
+The first repair candidate code commit `a84a7bdb4` on `origin/main` base
+`2374e1ea9`, with synchronized user documentation in `b4b0b9e8d`, produced:
 
 - `npm test` in `v2/host/js/control-direct`: 31/31, including faithful real-
   JavaScript prefix-TDZ rejection, accepted type-only prefix references,
@@ -468,8 +504,9 @@ with synchronized user documentation in `f0714a1ea`, produced:
 - `tests/conformance/run.sh --only 'effect*,effects*'`: 5/5 affected cases green
   (memoized from unchanged previously green cases).
 
-These are local pre-integration results. The candidate remains unpushed and the
-claim remains active until a fresh independent read-only review returns APPROVE.
+These are local pre-integration results. Exact frozen checkpoint `c4377fabb`
+(rebased equivalent `e1f3cc204`) remained unpushed and was submitted to a fresh
+independent read-only review.
 
 The historical frozen review checkpoint `f6fa34fac` (rebased equivalent
 `1d45dcb3b`) produced:
@@ -491,11 +528,19 @@ The historical frozen review checkpoint `f6fa34fac` (rebased equivalent
 The shared catalog and lane registry, CoreIR/frontends, descriptors, seed/image,
 and runners are byte-untouched by the repair.
 
-Independent read-only review rejected that checkpoint before integration. It
+The first independent read-only review rejected the historical checkpoint before
+integration. It
 reproduced escaped forward lexical capture, erased JavaScript declaration kind,
 file-wide direct-eval unsoundness, a symlinked npm-bin no-op, retained production
 marker imports, compiler lookup from the tool rather than consumer, missed
-transparent marker wrappers, and an unbounded compiler-API version. The now-checked
-behavior rows above are covered by the repair candidate; the historical counts are
-not final qualification evidence. A new clean checkpoint still requires a fresh
-independent APPROVE before push or claim release.
+transparent marker wrappers, and an unbounded compiler-API version. Those repair
+rows were covered by the first repair candidate; the historical counts are not
+final qualification evidence.
+
+The fresh second review of exact `c4377fabb` reported no P0 or P2 findings and
+rejected on three confirmed P1 symbol-ownership gaps: shorthand properties exposed
+property rather than lexical-value symbols to continuation-crossing analysis;
+runtime marker shorthand/local exports could survive while their import was erased;
+and valid erased type-only export forms were diagnosed as runtime re-exports. The
+three unchecked behavior rows above are the next repair gate. A new clean checkpoint
+still requires another independent APPROVE before push or claim release.
