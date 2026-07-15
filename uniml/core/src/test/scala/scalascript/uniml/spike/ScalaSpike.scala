@@ -257,6 +257,16 @@ object SpikeParse:
           case "spike.rparen" => depth -= 1; c.advance()
           case _              => c.advance()
 
+  private def skipBalancedBraces(c: Cur): Unit =
+    if c.peekKind == "spike.lbrace" then
+      c.advance()
+      var depth = 1
+      while depth > 0 && !c.eof do
+        c.peekKind match
+          case "spike.lbrace" => depth += 1; c.advance()
+          case "spike.rbrace" => depth -= 1; c.advance()
+          case _              => c.advance()
+
   // after a base type name, consume its `[T]` args and any `=> Codomain` function-type tail
   // (all erased). Handles `List[Int]`, `Int => Int`, `Int => List[A]`, `A => B => C`, `(A, B) => C`.
   private def skipTypeTail(c: Cur): Unit =
@@ -291,12 +301,16 @@ object SpikeParse:
     val defs = Vector.newBuilder[Node]
     while !c.eof do
       while isAnnotationStart(c) do skipAnnotation(c) // `@main`/`@nowarn(…)` — erased (skipAnn)
-      if c.eof then () // trailing annotation(s) with nothing after
+      skipDeclModifiers(c)                            // `sealed`/`final`/`abstract`/… — erased
+      if c.eof then () // trailing annotation(s)/modifier(s) with nothing after
       else if isDefStart(c) then defs += parseDef(c)
+      else if isKw(c, "case") && c.peek2Lexeme == "object" then { c.advance(); defs += parseObject(c) } // case object
       else if isKw(c, "case") then defs += parseCaseClass(c)
       else if isKw(c, "given") then defs += parseGiven(c)
       else if isKw(c, "enum") then defs += parseEnum(c)
       else if isKw(c, "extension") then defs += parseExtension(c)
+      else if isWord(c, "object") then defs += parseObject(c)
+      else if isWord(c, "trait") || isKw(c, "class") then defs += parseTraitOrClassNoop(c)
       // a top-level STATEMENT — script-style `println(…)`, top-level `val`/`var`/expr. ssc1-front keeps these
       // in source order and lowerProg collects them into `(entry (seq …))` (and `val`/`var` → a global cell).
       // Before this they collapsed the whole program to Nil (newfront Phase 0's #1 gap).
@@ -374,6 +388,7 @@ object SpikeParse:
         if c.peekKind == "spike.comma" then c.advance().foreach(t => kids += Node.Leaf(t, Some("cc.comma")))
         else more = false
     expect(c, "spike.rparen", "cc.rparen", "')'").foreach(kids += _)
+    skipExtendsClause(c) // `case class Circle(r: Double) extends Shape` — the parent clause is erased
     Node.Frame("spike.casecls", None, kids.result())
 
   // `enum E: case A; case B(x: Int); case Red, Green` (offside or `{ … }`). Emits
@@ -506,6 +521,77 @@ object SpikeParse:
   // followed by a name is junk (kept as a spike.error), not an annotation — so guard the skip on the name.
   private def isAnnotationStart(c: Cur): Boolean =
     c.peekKind == "spike.at" && (c.peek2Kind == "spike.id" || c.peek2Kind == "spike.uid")
+
+  // leading declaration modifiers — all bare ids in the spike (not lexer keywords) — erased before the decl.
+  private val declModifiers =
+    Set("sealed", "final", "abstract", "open", "private", "protected", "implicit", "override", "lazy", "inline")
+  private def skipDeclModifiers(c: Cur): Unit =
+    while c.peekKind == "spike.id" && declModifiers(c.peekLexeme) do c.advance()
+
+  // `extends T [(args)] [with T]* ` / `derives T, …` inheritance clause — erased (ssc1-lower tracks subtypes
+  // from the AST separately; the spike does not model subtyping). Stops at the body opener `{`/`:`.
+  private def skipExtendsClause(c: Cur): Unit =
+    if isWord(c, "extends") then
+      c.advance()
+      skipTypeRef(c)
+      if c.peekKind == "spike.lparen" then skipBalancedParens(c) // parent constructor args
+      while isWord(c, "with") do { c.advance(); skipTypeRef(c) }
+    if isWord(c, "derives") then
+      c.advance(); skipTypeRef(c)
+      while c.peekKind == "spike.comma" do { c.advance(); skipTypeRef(c) }
+
+  // `object X [extends …]: members` / `object X { members }` → Pair("object", Pair(name, [member-stmts]))
+  // (ssc1-front.ssc0:2687). The lowerer emits `X_member` globals from the body; `X.member` resolves to them.
+  private def parseObject(c: Cur): Node =
+    val kids = Vector.newBuilder[Node]
+    c.advance() // `object`
+    expect(c, "spike.uid", "obj.name", "object name").foreach(kids += _)
+    skipExtendsClause(c)
+    val braced = c.peekKind == "spike.lbrace"
+    if braced then c.advance()
+    else if c.peekKind == "spike.colon" then c.advance()
+    c.skipSemis()
+    val bodyCol = c.peekCol
+    while !c.eof && c.peekKind != "spike.rbrace" && (braced || c.peekCol >= bodyCol) && isMemberStart(c) do
+      skipDeclModifiers(c)
+      val before = c.mark
+      kids += parseMember(c).withRole("obj.member")
+      if c.mark == before then c.advance()
+      c.skipSemis()
+    if braced && c.peekKind == "spike.rbrace" then c.advance()
+    Node.Frame("spike.object", None, kids.result())
+
+  // one object/enum body member: def / val / var / case class (reuses the top-level declaration parsers).
+  private def isMemberStart(c: Cur): Boolean =
+    isDefStart(c) || isKw(c, "case") || isKw(c, "val") || isWord(c, "var") ||
+    (c.peekKind == "spike.id" && declModifiers(c.peekLexeme))
+  private def parseMember(c: Cur): Node =
+    if isDefStart(c) then parseDef(c)
+    else if isKw(c, "case") then parseCaseClass(c)
+    else if isKw(c, "val") then parseVal(c)
+    else if isWord(c, "var") then parseVarStmt(c)
+    else parseStmt(c)
+
+  // `trait X …` / `class X …` / `abstract class X …` — the spike does not lower trait/class bodies yet, so a
+  // bare/abstract-only declaration is erased to a no-op (matches ssc1-front for marker & abstract traits).
+  private def parseTraitOrClassNoop(c: Cur): Node =
+    c.advance() // `trait` / `class`
+    if c.peekKind == "spike.uid" then c.advance()
+    skipTypeParams(c)
+    if c.peekKind == "spike.lparen" then skipBalancedParens(c) // class constructor params
+    skipExtendsClause(c)
+    // erase an optional body (`{ … }` or offside `: …`) without emitting its members
+    if c.peekKind == "spike.lbrace" then skipBalancedBraces(c)
+    else if c.peekKind == "spike.colon" then
+      c.advance(); c.skipSemis()
+      val bodyCol = c.peekCol
+      while !c.eof && c.peekCol >= bodyCol && isMemberStart(c) do
+        skipDeclModifiers(c)
+        val before = c.mark
+        parseMember(c) // parsed then discarded (no-op)
+        if c.mark == before then c.advance()
+        c.skipSemis()
+    Node.Frame("spike.sealed", None, Vector.empty)
 
   // `@name` / `@name(args)` annotation (e.g. `@main`, `@tailrec`, `@nowarn(…)`) — fully erased, matching
   // ssc1-front skipAnn (ssc1-front.ssc0:2483). Consumes ONE annotation; callers loop for stacked annotations.
@@ -1224,11 +1310,22 @@ object SpikeProject:
       case (_, c) if kindOf(c) == "spike.given"     => Vector(givenNode(c))
       case (_, c) if kindOf(c) == "spike.enum"      => Vector(enumNode(c))
       case (_, c) if kindOf(c) == "spike.extension" => extensionNodes(c)
+      case (_, c) if kindOf(c) == "spike.object"    => Vector(objectNode(c))
       // top-level STATEMENTS in source order — `stmt()` projects them to mkVal/Pair("var")/Pair("assign")/
       // Pair("while")/mkSExpr, which lowerProg collects into `(entry (seq …))` (and val/var → a global cell).
       case (_, c) if isTopStmt(kindOf(c))           => Vector(stmt(c))
       case _                                        => Vector.empty[String]
     }.toVector)
+
+  // `object X { members }` → Pair("object", Pair(name, [member-stmts])); the lowerer emits X_member globals.
+  private def objectNode(n: UniNode): String =
+    val name = kids(n).collectFirst { case (Some("obj.name"), c) => lexeme(c) }.getOrElse("_")
+    val members = kids(n).collect { case (Some("obj.member"), c) => memberNode(c) }
+    s"""Pair("object", Pair("${esc(name)}", ${consList(members.toVector)}))"""
+  private def memberNode(c: UniNode): String = kindOf(c) match
+    case "spike.def"     => defNode(c)
+    case "spike.casecls" => caseClsNode(c)
+    case _               => stmt(c) // val / var / exprStmt / …
 
   private def isTopStmt(k: String): Boolean =
     k == "spike.val" || k == "spike.var" || k == "spike.assign" || k == "spike.while" ||
