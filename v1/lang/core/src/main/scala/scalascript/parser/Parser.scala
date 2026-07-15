@@ -1806,11 +1806,13 @@ object Parser:
               i += 1
     result.toString
 
-  // Preprocess `effect Name:` declarations into `object Name { def op(...) = __effectOp__ }`.
-  // A parameterized effect `effect Name[T]:` keeps `object Name` (the type param is erased at
-  // the interpreter level; the op signatures may still mention `T`). The `(?:\[[^\]]*\])?`
-  // makes the type-param clause optional — without it `effect State[S]:` was left un-rewritten
-  // and reached the Scala parser as a bare `effect State[S]` expression.
+  // Preprocess `effect Name:` declarations into a marked
+  // `object Name { def op(...) = __effectOp__ }`.  The declaration marker is
+  // deliberately present even for an empty plain effect: consumers that only
+  // retain the preprocessed tree must still be able to distinguish that effect
+  // from an ordinary empty object. Generic/parent syntax remains unsupported by
+  // the compatibility ABI producer, so a second marker preserves that erased
+  // header fact and lets the producer fail closed.
   // Split a line into (code, comment) at the first `//` that is not inside a string literal.
   // Returns (line, "") when there is no trailing comment.
   private[parser] def splitLineComment(line: String): (String, String) =
@@ -1824,7 +1826,8 @@ object Parser:
       i += 1
     if at < 0 then (line, "") else (line.substring(0, at), line.substring(at))
 
-  private val effectLinePat = """^(\s*)(multi\s+)?effect\s+(\w+)(?:\[[^\]]*\])?(?:\s+extends\s+\S+)?\s*:""".r
+  private val effectLinePat =
+    """^(\s*)(multi\s+)?effect\s+(\w+)(\[[^\]]*\])?(\s+extends\s+[^:]+)?\s*:""".r
   private[parser] def preprocessEffects(code: String): String =
     if !code.contains("effect") then return code
     val effectLine = effectLinePat
@@ -1839,7 +1842,11 @@ object Parser:
           val baseIndent = m.group(1).length
           val effectName = m.group(3)
           val isMulti    = m.group(2) != null
+          val hasUnsupportedShape = m.group(4) != null || m.group(5) != null
           result.append(m.group(1)).append("object ").append(effectName).append(" {\n")
+          result.append(m.group(1)).append("  private type __effectDecl__ = true\n")
+          if hasUnsupportedShape then
+            result.append(m.group(1)).append("  private type __effectUnsupportedShape__ = true\n")
           if isMulti then
             result.append(m.group(1)).append("  val __multiShot__ = true\n")
           i += 1

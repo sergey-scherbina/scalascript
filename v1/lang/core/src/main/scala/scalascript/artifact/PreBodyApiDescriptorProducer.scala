@@ -67,6 +67,15 @@ object PreBodyApiDescriptorProducer:
       members: Vector[DeclarationWitness] = Vector.empty
   )
 
+  private final case class EffectEvidenceWitness(
+      owner: Vector[String],
+      name: String,
+      isEffect: Boolean,
+      reusable: Boolean,
+      unsupportedShape: Boolean,
+      expectsStructuralMarker: Boolean
+  )
+
   private final case class EffectCandidate(
       owner: Vector[String],
       definition: Defn.Object
@@ -82,6 +91,21 @@ object PreBodyApiDescriptorProducer:
       isPublic: Boolean
   )
 
+  private final case class WildcardImport(excludedNames: Set[String])
+
+  private final case class ImportScope(
+      exactBindings: Map[String, Vector[Option[String]]] = Map.empty,
+      wildcardImports: Vector[WildcardImport] = Vector.empty
+  ):
+    def addExact(name: String, target: Option[String]): ImportScope =
+      copy(exactBindings = exactBindings.updated(
+        name,
+        exactBindings.getOrElse(name, Vector.empty) :+ target
+      ))
+
+    def addWildcard(excludedNames: Set[String]): ImportScope =
+      copy(wildcardImports = wildcardImports :+ WildcardImport(excludedNames))
+
   private final case class ProjectionContext(
       moduleId: String,
       rootNamespace: Vector[String],
@@ -90,7 +114,8 @@ object PreBodyApiDescriptorProducer:
       localEffects: Map[(Vector[String], String), LocalIdentity],
       localAliases: Map[String, LocalAlias],
       requiredTargets: Vector[String],
-      effectHeaders: Map[(Vector[String], String), EffectHeader]
+      effectHeaders: Map[(Vector[String], String), EffectHeader],
+      imports: ImportScope
   ):
     def nested(name: String): ProjectionContext = copy(prefix = prefix :+ name)
     def qualified(name: String): String = (prefix :+ name).mkString(".")
@@ -124,7 +149,8 @@ object PreBodyApiDescriptorProducer:
         localEffects = localEffects,
         localAliases = localAliases,
         requiredTargets = module.manifest.map(_.targets.toVector).getOrElse(Vector.empty),
-        effectHeaders = effectHeaders
+        effectHeaders = effectHeaders,
+        imports = ImportScope()
       )
       definitions <- projectStats(selectedStats, context)
       api <- DescriptorFactory.api(ControlAbiVersion, moduleId, definitions)
@@ -267,6 +293,7 @@ object PreBodyApiDescriptorProducer:
   ): Either[DescriptorError, ParsedDeclarationBlock] =
     val normalizedStored = normalizeDeclarationStats(block.stats)
     val storedWitness = declarationWitnesses(normalizedStored)
+    val storedEffectEvidence = effectEvidenceFromPreprocessedStats(normalizedStored)
 
     def reparse(
         source: String,
@@ -311,13 +338,48 @@ object PreBodyApiDescriptorProducer:
         )
       )
 
+    def requireStoredEffectEvidence(
+        source: String,
+        retained: Vector[Stat],
+        carrier: String,
+        alreadyPreprocessed: Boolean
+    ): Either[DescriptorError, Unit] =
+      val retainedEvidence =
+        if alreadyPreprocessed then Right(effectEvidenceFromPreprocessedStats(retained))
+        else effectEvidenceFromRawSource(source, retained, block.path, carrier)
+      retainedEvidence.flatMap { evidence =>
+        Either.cond(
+          evidence == storedEffectEvidence,
+          (),
+          error(
+            "UNSUPPORTED_PUBLIC_DECLARATION",
+            block.path,
+            s"retained $carrier source effect/object headers do not match the stored section AST"
+          )
+        )
+      }
+
     for
       sectionStats <- reparse(block.sectionSource, "code-block", packageWrapped = true)
       _ <- requireStoredWitness(sectionStats, "code-block")
+      _ <- requireStoredEffectEvidence(
+        block.sectionSource,
+        sectionStats,
+        "code-block",
+        alreadyPreprocessed = pkg.nonEmpty
+      )
       _ <- block.documentSource match
         case Some(source) =>
-          reparse(source, "document", packageWrapped = false)
-            .flatMap(requireStoredWitness(_, "document"))
+          for
+            documentStats <- reparse(source, "document", packageWrapped = false)
+            _ <- requireStoredWitness(documentStats, "document")
+            _ <- requireStoredEffectEvidence(
+              source,
+              documentStats,
+              "document",
+              alreadyPreprocessed = false
+            )
+          yield ()
         case None => Right(())
     yield block.copy(stats = normalizedStored)
 
@@ -328,6 +390,84 @@ object PreBodyApiDescriptorProducer:
 
   private def declarationWitnesses(stats: Iterable[Stat]): Vector[DeclarationWitness] =
     stats.iterator.flatMap(declarationWitness).toVector
+
+  private def effectEvidenceCandidates(
+      stats: Iterable[Stat],
+      owner: Vector[String] = Vector.empty
+  ): Vector[EffectCandidate] =
+    stats.iterator.flatMap {
+      case definition: Defn.Object =>
+        EffectCandidate(owner, definition) +:
+          effectEvidenceCandidates(definition.templ.body.stats, owner :+ definition.name.value)
+      case _ => Vector.empty
+    }.toVector
+
+  private def effectEvidenceFromPreprocessedStats(
+      stats: Iterable[Stat]
+  ): Vector[EffectEvidenceWitness] =
+    effectEvidenceCandidates(stats).map { candidate =>
+      val effect = isStructurallyMarkedEffect(candidate.definition)
+      val reusable = effect && candidate.definition.templ.body.stats.exists(isMultiShotMarker)
+      val hasOperation = effect && hasEffectOperationMarker(candidate.definition)
+      EffectEvidenceWitness(
+        owner = candidate.owner,
+        name = candidate.definition.name.value,
+        isEffect = effect,
+        reusable = reusable,
+        unsupportedShape = effect && candidate.definition.templ.body.stats.exists(isUnsupportedEffectShapeMarker),
+        expectsStructuralMarker = effect && (reusable || hasOperation)
+      )
+    }
+
+  private def effectEvidenceFromRawSource(
+      source: String,
+      stats: Vector[Stat],
+      path: String,
+      carrier: String
+  ): Either[DescriptorError, Vector[EffectEvidenceWitness]] =
+    val headers = declaredEffectHeaders(source)
+    val candidates = effectEvidenceCandidates(stats)
+    val markedCandidates = candidates.zipWithIndex.filter { case (candidate, _) =>
+      isStructurallyMarkedEffect(candidate.definition)
+    }
+    if headers.size != markedCandidates.size then
+      Left(error(
+        "UNSUPPORTED_PUBLIC_DECLARATION",
+        path,
+        s"retained $carrier source has ${headers.size} effect headers but ${markedCandidates.size} marked parsed declarations"
+      ))
+    else
+      val paired = headers.zip(markedCandidates)
+      paired.collectFirst {
+        case (header, (candidate, _)) if header.name != candidate.definition.name.value =>
+          header.name -> candidate.definition.name.value
+      } match
+        case Some((headerName, declarationName)) => Left(error(
+          "UNSUPPORTED_PUBLIC_DECLARATION",
+          path,
+          s"retained $carrier effect header $headerName does not align with marked declaration $declarationName"
+        ))
+        case None =>
+          val headersByCandidate = paired.iterator.map { case (header, (_, index)) => index -> header }.toMap
+          Right(candidates.zipWithIndex.map { case (candidate, index) =>
+            headersByCandidate.get(index) match
+              case Some(header) => EffectEvidenceWitness(
+                owner = candidate.owner,
+                name = candidate.definition.name.value,
+                isEffect = true,
+                reusable = header.reusable,
+                unsupportedShape = header.unsupportedShape,
+                expectsStructuralMarker = header.expectsStructuralMarker
+              )
+              case None => EffectEvidenceWitness(
+                owner = candidate.owner,
+                name = candidate.definition.name.value,
+                isEffect = false,
+                reusable = false,
+                unsupportedShape = false,
+                expectsStructuralMarker = false
+              )
+          })
 
   private def declarationWitness(stat: Stat): Option[DeclarationWitness] = stat match
     case definition: Defn.Def => Some(DeclarationWitness(
@@ -535,8 +675,10 @@ object PreBodyApiDescriptorProducer:
 
   private def templateHeaderWitness(template: Template): String =
     encodeWitnessParts(Vector(
+      template.earlyClause.map(_.structure).getOrElse(""),
       encodeWitnessParts(template.inits.map(initWitness)),
-      template.body.selfOpt.map(_.structure).getOrElse("")
+      template.body.selfOpt.map(_.structure).getOrElse(""),
+      encodeWitnessParts(template.derives.map(_.structure))
     ))
 
   private def initWitness(init: Init): String =
@@ -554,7 +696,8 @@ object PreBodyApiDescriptorProducer:
   private def selectExports(stats: Vector[Stat], requested: List[String]): Vector[Stat] =
     val allowed = requested.toSet
     stats.filter { stat =>
-      isPublic(stat) && (allowed.isEmpty || declarationNames(stat).exists(allowed.contains))
+      stat.isInstanceOf[Import] ||
+        (isPublic(stat) && (allowed.isEmpty || declarationNames(stat).exists(allowed.contains)))
     }
 
   private def validateRequestedExports(
@@ -887,11 +1030,56 @@ object PreBodyApiDescriptorProducer:
 
     new String(out)
 
+  private def importReferencePath(reference: Term.Ref): Option[String] = reference match
+    case Term.Name(name) => Some(name)
+    case Term.Select(qualifier: Term.Ref, name) =>
+      importReferencePath(qualifier).map(prefix => s"$prefix.${name.value}")
+    case _ => None
+
+  private def importedTarget(
+      importer: Importer,
+      importedName: String
+  ): Option[String] =
+    importReferencePath(importer.ref).map(prefix => s"$prefix.$importedName")
+
+  private def applyImporter(scope: ImportScope, importer: Importer): ImportScope =
+    val excludedFromWildcard = importer.importees.iterator.collect {
+      case Importee.Unimport(name) => name.value
+      case Importee.Rename(name, _) => name.value
+    }.toSet
+
+    importer.importees.foldLeft(scope) { (current, importee) =>
+      importee match
+        case Importee.Name(name) =>
+          current.addExact(name.value, importedTarget(importer, name.value))
+        case Importee.Rename(name, rename) =>
+          current.addExact(rename.value, importedTarget(importer, name.value))
+        case Importee.Wildcard() =>
+          current.addWildcard(excludedFromWildcard)
+        case _: Importee.Unimport | _: Importee.Given | _: Importee.GivenAll => current
+        case _ => current
+    }
+
+  private def applyImport(scope: ImportScope, imported: Import): ImportScope =
+    imported.importers.foldLeft(scope)(applyImporter)
+
   private def projectStats(
       stats: Iterable[Stat],
       context: ProjectionContext
   ): Either[DescriptorError, Vector[ApiSymbolDefinition]] =
-    traverse(stats.toVector)(projectStat(_, context)).map(_.flatten)
+    stats.toVector.foldLeft[
+      Either[DescriptorError, (Vector[ApiSymbolDefinition], ProjectionContext)]
+    ](Right(Vector.empty -> context)) { (acc, stat) =>
+      acc.flatMap { case (definitions, activeContext) =>
+        stat match
+          case imported: Import =>
+            Right(definitions -> activeContext.copy(
+              imports = applyImport(activeContext.imports, imported)
+            ))
+          case other =>
+            projectStat(other, activeContext).map(projected => (definitions ++ projected) -> activeContext)
+      }
+    }.map(_._1)
 
   private def projectStat(
       stat: Stat,
@@ -1216,7 +1404,12 @@ object PreBodyApiDescriptorProducer:
       resultType = AbiType.Named(qualifiedName),
       requiredTargets = context.requiredTargets
     )
-    val members = definition.templ.body.stats.filter(isPublic)
+    // Imports carry no visibility modifiers, but spell their retention out:
+    // projectStats consumes them as source-ordered scope updates and emits no
+    // symbols. The updated nested scope remains local to this object.
+    val members = definition.templ.body.stats.filter { stat =>
+      stat.isInstanceOf[Import] || isPublic(stat)
+    }
     rejectUnsupportedParents(definition.templ, s"$$.symbols[$qualifiedName]", "object")
       .flatMap(_ => projectStats(members, nestedContext))
       .map(own +: _)
@@ -1242,6 +1435,7 @@ object PreBodyApiDescriptorProducer:
         ))
       case Some(header) =>
         val markerReusable = definition.templ.body.stats.exists(isMultiShotMarker)
+        val markerUnsupportedShape = definition.templ.body.stats.exists(isUnsupportedEffectShapeMarker)
         val multiplicity = if header.reusable then ResumeMultiplicity.Reusable else ResumeMultiplicity.OneShot
         val effectDefinition = ApiSymbolDefinition(
           qualifiedName = qualifiedName,
@@ -1264,12 +1458,21 @@ object PreBodyApiDescriptorProducer:
               s"effect ${definition.name.value} declaration/header multiplicity evidence disagrees"
             )
           )
+          _ <- Either.cond(
+            markerUnsupportedShape == header.unsupportedShape,
+            (),
+            error(
+              "UNSUPPORTED_PUBLIC_DECLARATION",
+              path,
+              s"effect ${definition.name.value} declaration/header shape evidence disagrees"
+            )
+          )
           _ <- rejectUnsupportedParents(definition.templ, path, "effect")
           _ <- rejectUnsupportedTemplateMembers(
             definition.templ.body.stats,
             path,
             "effect",
-            stat => isMultiShotMarker(stat) || (stat match
+            stat => isEffectSyntaxMarker(stat) || isMultiShotMarker(stat) || (stat match
               case operation: Defn.Def => EffectAnalysis.isEffectOpDef(operation.body)
               case _ => false)
           )
@@ -1283,13 +1486,34 @@ object PreBodyApiDescriptorProducer:
         yield effectDefinition +: projectedOperations
 
   private def isEffectObject(definition: Defn.Object): Boolean =
+    definition.templ.body.stats.exists(isEffectDeclarationMarker) ||
+      hasEffectOperationMarker(definition)
+
+  private def isStructurallyMarkedEffect(definition: Defn.Object): Boolean =
+    isEffectObject(definition) || definition.templ.body.stats.exists(isMultiShotMarker)
+
+  private def hasEffectOperationMarker(definition: Defn.Object): Boolean =
     definition.templ.body.stats.exists {
       case operation: Defn.Def => EffectAnalysis.isEffectOpDef(operation.body)
       case _ => false
     }
 
-  private def isStructurallyMarkedEffect(definition: Defn.Object): Boolean =
-    isEffectObject(definition) || definition.templ.body.stats.exists(isMultiShotMarker)
+  private def isEffectDeclarationMarker(stat: Stat): Boolean =
+    isPrivateTrueTypeMarker(stat, "__effectDecl__")
+
+  private def isUnsupportedEffectShapeMarker(stat: Stat): Boolean =
+    isPrivateTrueTypeMarker(stat, "__effectUnsupportedShape__")
+
+  private def isEffectSyntaxMarker(stat: Stat): Boolean =
+    isEffectDeclarationMarker(stat) || isUnsupportedEffectShapeMarker(stat)
+
+  private def isPrivateTrueTypeMarker(stat: Stat, expectedName: String): Boolean = stat match
+    case definition: Defn.Type =>
+      definition.name.value == expectedName &&
+        definition.mods.exists(_.is[Mod.Private]) &&
+        definition.tparamClause.values.isEmpty &&
+        definition.body.syntax == "true"
+    case _ => false
 
   private def isMultiShotMarker(stat: Stat): Boolean = stat match
     case value: Defn.Val =>
@@ -1401,7 +1625,10 @@ object PreBodyApiDescriptorProducer:
       context: ProjectionContext
   ): Either[DescriptorError, Boolean] =
     if resolveBinder(name, binders).nonEmpty then Right(true)
-    else resolveLocalTypeForAbi(name, path, context).map(_.nonEmpty)
+    else resolveLocalTypeForAbi(name, path, context).flatMap {
+      case Some(_) => Right(true)
+      case None => resolveImportedTypeForAbi(name, path, context).map(_.nonEmpty)
+    }
 
   private def projectNamedApplication(
       name: String,
@@ -1411,6 +1638,10 @@ object PreBodyApiDescriptorProducer:
       context: ProjectionContext
   ): Either[DescriptorError, AbiType] =
     for
+      // Resolve the constructor spelling before descending into arguments so a
+      // wildcard/conflicting import reports the declaration's constructor path,
+      // rather than whichever argument happens to be visited first.
+      _ <- projectSimpleName(name, Vector.empty, binders, path, context)
       projectedArguments <- traverse(arguments.zipWithIndex) { case (argument, index) =>
         projectType(argument, binders, s"$path.arguments[$index]", context)
       }
@@ -1529,44 +1760,48 @@ object PreBodyApiDescriptorProducer:
       case None =>
         resolveLocalTypeForAbi(name, path, context).flatMap {
           case Some(stableId) => Right(AbiType.Named(stableId, arguments))
-          case None if DynamicTypes.contains(name) =>
-            Left(error("DYNAMIC_PUBLIC_TYPE", path, s"dynamic type $name is not a managed public ABI"))
-          case None if UnsupportedNumericTypes.contains(name) =>
-            Left(error(
-              "UNSUPPORTED_NUMERIC_WIDTH",
-              path,
-              s"numeric type $name has no frozen descriptor v3 width"
-            ))
-          case None if arguments.isEmpty => name match
-            case "Unit" => Right(AbiType.Primitive(AbiPrimitive.Unit))
-            case "Boolean" => Right(AbiType.Primitive(AbiPrimitive.Boolean))
-            case "Int" => Right(AbiType.Primitive(AbiPrimitive.I32))
-            case "Long" => Right(AbiType.Primitive(AbiPrimitive.I64))
-            case "BigInt" => Right(AbiType.Primitive(AbiPrimitive.BigInt))
-            case "Double" => Right(AbiType.Primitive(AbiPrimitive.F64))
-            case "String" => Right(AbiType.Primitive(AbiPrimitive.String))
-            case "Bytes" => Right(AbiType.Primitive(AbiPrimitive.Bytes))
-            case "Char" => Right(AbiType.Primitive(AbiPrimitive.Char))
-            case "Nothing" | "Null" => Left(error(
-              "UNSUPPORTED_PUBLIC_TYPE",
-              path,
-              s"type $name has no descriptor v3 representation"
-            ))
-            case standard if StandardTypes.contains(standard) =>
-              Right(AbiType.Named(StandardTypes(standard)))
-            case local => Left(error(
-              "AMBIGUOUS_NAMED_TYPE",
-              path,
-              s"bare type $local is neither bound, local, nor a frozen standard type"
-            ))
           case None =>
-            StandardTypes.get(name)
-              .map(id => AbiType.Named(id, arguments))
-              .toRight(error(
-                "AMBIGUOUS_NAMED_TYPE",
-                path,
-                s"bare type constructor $name is neither local nor a frozen standard type"
-              ))
+            resolveImportedTypeForAbi(name, path, context).flatMap {
+              case Some(stableId) => Right(AbiType.Named(stableId, arguments))
+              case None if DynamicTypes.contains(name) =>
+                Left(error("DYNAMIC_PUBLIC_TYPE", path, s"dynamic type $name is not a managed public ABI"))
+              case None if UnsupportedNumericTypes.contains(name) =>
+                Left(error(
+                  "UNSUPPORTED_NUMERIC_WIDTH",
+                  path,
+                  s"numeric type $name has no frozen descriptor v3 width"
+                ))
+              case None if arguments.isEmpty => name match
+                case "Unit" => Right(AbiType.Primitive(AbiPrimitive.Unit))
+                case "Boolean" => Right(AbiType.Primitive(AbiPrimitive.Boolean))
+                case "Int" => Right(AbiType.Primitive(AbiPrimitive.I32))
+                case "Long" => Right(AbiType.Primitive(AbiPrimitive.I64))
+                case "BigInt" => Right(AbiType.Primitive(AbiPrimitive.BigInt))
+                case "Double" => Right(AbiType.Primitive(AbiPrimitive.F64))
+                case "String" => Right(AbiType.Primitive(AbiPrimitive.String))
+                case "Bytes" => Right(AbiType.Primitive(AbiPrimitive.Bytes))
+                case "Char" => Right(AbiType.Primitive(AbiPrimitive.Char))
+                case "Nothing" | "Null" => Left(error(
+                  "UNSUPPORTED_PUBLIC_TYPE",
+                  path,
+                  s"type $name has no descriptor v3 representation"
+                ))
+                case standard if StandardTypes.contains(standard) =>
+                  Right(AbiType.Named(StandardTypes(standard)))
+                case local => Left(error(
+                  "AMBIGUOUS_NAMED_TYPE",
+                  path,
+                  s"bare type $local is neither bound, local, imported, nor a frozen standard type"
+                ))
+              case None =>
+                StandardTypes.get(name)
+                  .map(id => AbiType.Named(id, arguments))
+                  .toRight(error(
+                    "AMBIGUOUS_NAMED_TYPE",
+                    path,
+                    s"bare type constructor $name is neither local, imported, nor a frozen standard type"
+                  ))
+            }
         }
 
   private def projectEffectRow(
@@ -1816,6 +2051,44 @@ object PreBodyApiDescriptorProducer:
       }
     }.toSeq.headOption
 
+  private def resolveImportedTypeForAbi(
+      name: String,
+      path: String,
+      context: ProjectionContext
+  ): Either[DescriptorError, Option[String]] =
+    val exactTargets = context.imports.exactBindings
+      .getOrElse(name, Vector.empty)
+      .distinct
+    val wildcardMayBind = context.imports.wildcardImports.exists { wildcard =>
+      !wildcard.excludedNames.contains(name)
+    }
+
+    if wildcardMayBind then
+      Left(error(
+        "AMBIGUOUS_NAMED_TYPE",
+        path,
+        s"bare type $name may be supplied by an active wildcard import"
+      ))
+    else exactTargets match
+      case Vector() => Right(None)
+      case Vector(Some(target)) =>
+        for
+          _ <- rejectPlatformType(target, path)
+          local <- resolveSelectedLocalTypeForAbi(target, path, context)
+        yield Some(local.getOrElse(normalizeRoot(target)))
+      case Vector(None) =>
+        Left(error(
+          "AMBIGUOUS_NAMED_TYPE",
+          path,
+          s"bare type $name has an import whose qualifier is not a stable portable path"
+        ))
+      case _ =>
+        Left(error(
+          "AMBIGUOUS_NAMED_TYPE",
+          path,
+          s"bare type $name has conflicting explicit import bindings"
+        ))
+
   private def resolveLocalTypeForAbi(
       name: String,
       path: String,
@@ -1977,11 +2250,23 @@ object PreBodyApiDescriptorProducer:
       path: String,
       declarationKind: String
   ): Either[DescriptorError, Unit] =
-    if template.inits.nonEmpty then
+    if template.earlyClause.nonEmpty then
+      Left(error(
+        "UNSUPPORTED_PUBLIC_DECLARATION",
+        path,
+        s"public $declarationKind early initializers are not represented by descriptor v3"
+      ))
+    else if template.inits.nonEmpty then
       Left(error(
         "UNSUPPORTED_PUBLIC_DECLARATION",
         path,
         s"public $declarationKind inheritance is not represented by descriptor v3"
+      ))
+    else if template.derives.nonEmpty then
+      Left(error(
+        "UNSUPPORTED_PUBLIC_DECLARATION",
+        path,
+        s"public $declarationKind derives clauses are not represented by descriptor v3"
       ))
     else if template.body.selfOpt.nonEmpty then
       Left(error(

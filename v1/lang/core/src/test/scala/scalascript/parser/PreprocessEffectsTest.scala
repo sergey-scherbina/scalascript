@@ -29,6 +29,19 @@ class PreprocessEffectsTest extends AnyFunSuite:
     val out = Parser.preprocessEffects("effect E:\n  def op(x: Int): Int")
     assert(out.contains(": Int = __effectOp__"))
 
+  test("effect origin survives only as private type evidence"):
+    val empty = Parser.preprocessEffects("effect Empty:\n")
+    assert(empty.contains("private type __effectDecl__ = true"))
+    assert(!empty.contains("val __effectDecl__"))
+
+    val generic = Parser.preprocessEffects("effect State[A]:\n")
+    assert(generic.contains("private type __effectDecl__ = true"))
+    assert(generic.contains("private type __effectUnsupportedShape__ = true"))
+    assert(!generic.contains("val __effectUnsupportedShape__"))
+
+    val ordinary = "object Empty:\n  ()"
+    assert(Parser.preprocessEffects(ordinary) == ordinary)
+
   test("an op that already has a body is left alone"):
     val out = Parser.preprocessEffects("effect E:\n  def op(x: Int): Int = x")
     assert(!out.contains("__effectOp__"), s"a real body must not be doubled; got:\n$out")

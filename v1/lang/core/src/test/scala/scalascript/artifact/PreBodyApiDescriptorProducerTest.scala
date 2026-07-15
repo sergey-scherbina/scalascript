@@ -938,6 +938,28 @@ class PreBodyApiDescriptorProducerTest extends AnyFunSuite:
     ))
     assert(ordinary.symbols.head.definition.kind == ApiSymbolKind.Value)
 
+  test("reserved effect origin sentinels are non-API and collisions fail closed"):
+    val effect = descriptor(source("effect Empty:\n", List("Empty")))
+    assert(effect.symbols.map(_.definition.qualifiedName) == Vector("demo.api.Empty"))
+    assert(!effect.symbols.exists(_.definition.qualifiedName.contains("__effect")))
+
+    val collision = source(
+      """object Empty:
+        |  private type __effectDecl__ = true
+        |""".stripMargin,
+      List("Empty")
+    )
+    val parsedCollision = parse(collision)
+    val collisionError = failure(PreBodyApiDescriptorProducer.descriptor(parsedCollision))
+    assert(collisionError.code == "UNSUPPORTED_PUBLIC_DECLARATION")
+    assert(collisionError.path.startsWith("$.sections["))
+
+    val documentlessError = failure(PreBodyApiDescriptorProducer.descriptor(
+      parsedCollision.copy(document = None)
+    ))
+    assert(documentlessError.code == "UNSUPPORTED_PUBLIC_DECLARATION")
+    assert(documentlessError.path == "$.symbols[demo.api.Empty]")
+
   test("unsupported definition headers cannot hide behind a product-only witness"):
     val input = source(
       """given helper: Int = 1
@@ -1172,6 +1194,45 @@ class PreBodyApiDescriptorProducerTest extends AnyFunSuite:
     val wildcard = failure(PreBodyApiDescriptorProducer.descriptor(parse(wildcardInput)))
     assert(wildcard.code == "AMBIGUOUS_NAMED_TYPE")
     assert(wildcard.path == "$.symbols[demo.api.retain].parameterLists[0].parameters[0].tpe")
+
+  test("imports are source ordered and nested import scopes do not leak"):
+    val input = source(
+      """def before(value: Int): Int = value
+        |import foo.Int
+        |def after(value: Int): Int = value
+        |object Nested:
+        |  import bar.Long
+        |  def inside(value: Long): Long = value
+        |def outside(value: Long): Long = value
+        |""".stripMargin,
+      List("before", "after", "Nested", "outside")
+    )
+    val definitions = descriptor(input).symbols.map(_.definition).map(d => d.qualifiedName -> d).toMap
+
+    assert(definitions("demo.api.before").resultType == AbiType.Primitive(AbiPrimitive.I32))
+    assert(definitions("demo.api.after").resultType == AbiType.Named("foo.Int"))
+    assert(definitions("demo.api.Nested.inside").resultType == AbiType.Named("bar.Long"))
+    assert(definitions("demo.api.outside").resultType == AbiType.Primitive(AbiPrimitive.I64))
+
+  test("conflicting exact imports fail while given-only selectors do not bind type names"):
+    val conflict = source(
+      """import foo.Int
+        |import bar.Int
+        |def retain(value: Int): Int = value
+        |""".stripMargin,
+      List("retain")
+    )
+    val conflictError = failure(PreBodyApiDescriptorProducer.descriptor(parse(conflict)))
+    assert(conflictError.code == "AMBIGUOUS_NAMED_TYPE")
+    assert(conflictError.path == "$.symbols[demo.api.retain].parameterLists[0].parameters[0].tpe")
+
+    val givenOnly = descriptor(source(
+      """import foo.{given Int}
+        |def retain(value: Int): Int = value
+        |""".stripMargin,
+      List("retain")
+    )).symbols.head.definition
+    assert(givenOnly.resultType == AbiType.Primitive(AbiPrimitive.I32))
 
   test("renamed-away and unimported names preserve provable builtin resolution"):
     val renamedAway = descriptor(source(

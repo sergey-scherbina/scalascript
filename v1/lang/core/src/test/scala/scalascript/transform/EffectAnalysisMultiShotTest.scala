@@ -35,6 +35,18 @@ class EffectAnalysisMultiShotTest extends AnyFunSuite:
     assert(r.effectOps.contains("NonDet.choose"))
   }
 
+  test("private type origin evidence has no effect-analysis behavior") {
+    val r = analyze(
+      """object Empty {
+        |  private type __effectDecl__ = true
+        |  private type __effectUnsupportedShape__ = true
+        |}""".stripMargin
+    )
+    assert(r.effectOps.isEmpty)
+    assert(r.effectfulFuns.isEmpty)
+    assert(r.multiShotEffects.isEmpty)
+  }
+
   test("mix: Logger is one-shot, NonDet is multi-shot") {
     val r = analyze(
       """object Logger {
