@@ -140,6 +140,9 @@ shapes as unsupported until receiver/member metadata exists, reject them with
 stable `UNSUPPORTED_PUBLIC_DECLARATION`, and add one regression per shape before
 requesting another independent review.
 
+**Baseline:** focused producer suite reproduces all four nominal shapes as
+unexpected successful descriptors (`18/25` total green before the fix).
+
 ## descriptor-v3-effect-header-evidence-misbinding — comments and same-name objects corrupt effect evidence
 
 **Status:** open (2026-07-15). Reported by the independent Slice B re-review
@@ -158,6 +161,10 @@ comment/string-aware lexical projection, bind evidence to the structurally marke
 effect candidate and lexical owner/order, and fail closed when an empty same-name
 effect cannot be bound unambiguously. Add both faithful regressions.
 
+**Baseline:** focused producer suite reproduces both failures: the comment/string
+fixture reports the phantom header, and the ordinary object leaves the real effect
+without evidence (`18/25` total green before the fix).
+
 ## descriptor-v3-lost-ast-container-fail-open — retained declarations can project as an empty API
 
 **Status:** open (2026-07-15). Reported by the independent Slice B re-review
@@ -173,6 +180,9 @@ completeness cross-check against retained parseable document blocks. Compare the
 retained declaration-source containers with section code blocks and return stable
 `UNSUPPORTED_PUBLIC_DECLARATION` whenever parsed declaration structure is missing.
 Cover the exact copy-based repro.
+**Baseline:** focused producer suite reproduces the copied module as an unexpected
+successful empty `ApiDescriptor` (`18/25` total green before the fix).
+
 ## jvm-bytegen-letrec-env-clobber — FIXED / awaiting confirmation (2026-07-15, Codex)
 
 **Status:** fixed in `956b42539`; awaiting reporter confirmation. Found by the

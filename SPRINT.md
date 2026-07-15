@@ -213,6 +213,8 @@ optional policy, not the default continuation semantics.
       effect owner/order; an ordinary same-name object must never steal another effect's header.
     - [ ] Close nominal losslessness gaps for trait constructors/self types, template exports,
       and constructor `val`/`var` accessors until receiver/member metadata can represent them.
+    - Baseline: focused producer suite is `18/25` green; the seven new faithful regressions
+      fail as 1 lost-AST + 2 effect-evidence + 4 nominal-surface cases before the fix.
     - Done when the focused regressions and affected core/interop/conformance gates pass and a
       fresh independent read-only review returns APPROVE with no P1/P2 blocker.
   - [ ] **C — post-body summaries:** extract managed/foreign/tail edges, save sites, frame schemas,
