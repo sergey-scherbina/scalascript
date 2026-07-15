@@ -1587,11 +1587,13 @@ final class RunCmd extends CliCommand:
           System.exit(1)
       return
 
-    // `--v2`: force the ssc 2.0 VM (v1 frontend → FrontendBridge → v2 runtime).
-    // Plain default-lane runs reach the same path below unless `--v1` is set.
+    // `--v2` / `--bytecode`: the ssc 2.0 runtime via the native ssc1 front (the
+    // scalameta FrontendBridge/RunV2 tier has been retired — this is the same
+    // path `bin/ssc run --v2` uses). Plain default-lane runs reach it below too
+    // unless `--v1` selects the tree-walking interpreter.
     if bytecodeFlag then
       if fileArgs.isEmpty then { println("Error: No files specified"); System.exit(1) }
-      try RunV2.runBytecode(fileArgs.toList, programArgv)
+      try RunNativeV2.run(fileArgs.toList, programArgv, bytecode = true)
       catch case failure: _root_.ssc.ControlRunFailure =>
         System.err.println(failure.rendered)
         System.exit(1)
@@ -1599,7 +1601,7 @@ final class RunCmd extends CliCommand:
 
     if (v2Flag || compatFrontendFlag) && !appleTarget then
       if fileArgs.isEmpty then { println("Error: No files specified"); System.exit(1) }
-      try RunV2.run(fileArgs.toList, programArgv)
+      try RunNativeV2.run(fileArgs.toList, programArgv, bytecode = false)
       catch case failure: _root_.ssc.ControlRunFailure =>
         System.err.println(failure.rendered)
         System.exit(1)
@@ -1742,7 +1744,7 @@ final class RunCmd extends CliCommand:
             scala.util.Try(shouldUseV2DefaultRunner(loadModule(path))).getOrElse(false)
         }
     then
-      try RunV2.run(fileArgs.toList, programArgv)
+      try RunNativeV2.run(fileArgs.toList, programArgv, bytecode = false)
       catch case failure: _root_.ssc.ControlRunFailure =>
         System.err.println(failure.rendered)
         System.exit(1)
@@ -3274,7 +3276,7 @@ final class RunJsCmd extends CliCommand:
     if !nodeAvailable then
       System.err.println("run-js: node not found on PATH"); System.exit(1)
     if jsV2Flag then
-      RunV2.runJs(List(path.toString), jsArgv.toList)
+      RunNativeV2.runJs(List(path.toString), jsArgv.toList)
       return
     // Detect capabilities to build the runtime preamble, then compile user code.
     val module  = Parser.parse(os.read(path))

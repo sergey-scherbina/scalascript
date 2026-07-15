@@ -15,6 +15,27 @@ object RunNativeV2:
       if bytecode then runBytecode(compilation.program) else runVm(compilation.program)
     finally _root_.ssc.Runtime.argv = previousArgv
 
+  /** `run-js --v2` on the native lane: native ssc1 front → CoreIR → v2 JsGen →
+   *  a temp CommonJS file executed with node. 64-bit-Int JS (the reason this lane
+   *  exists), now sourced from the native front instead of the scalameta bridge. */
+  def runJs(files: List[String], argv: List[String]): Unit =
+    val compilation = compile(files)
+    val js  = _root_.ssc.js.JsGen.generate(compilation.program)
+    val tmp = java.nio.file.Files.createTempFile("ssc-native-js-", ".cjs")
+    java.nio.file.Files.writeString(tmp, js, java.nio.charset.StandardCharsets.UTF_8)
+    tmp.toFile.deleteOnExit()
+    runNodeAndWait(Seq("node", tmp.toString) ++ argv)
+
+  private def runNodeAndWait(cmd: Seq[String]): Unit =
+    val proc = new ProcessBuilder(cmd*).inheritIO().start()
+    val hook = new Thread(() => proc.destroy())
+    java.lang.Runtime.getRuntime.addShutdownHook(hook)
+    try
+      val exitCode = proc.waitFor()
+      java.lang.Runtime.getRuntime.removeShutdownHook(hook)
+      if exitCode != 0 then System.exit(exitCode)
+    catch case _: InterruptedException => proc.destroy(); System.exit(1)
+
   private[cli] def compile(files: List[String]): NativeV2Compilation =
     compile(files, mutable = false)
 
