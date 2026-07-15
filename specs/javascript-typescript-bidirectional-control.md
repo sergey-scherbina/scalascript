@@ -1,6 +1,7 @@
 # JavaScript/TypeScript ↔ ScalaScript bidirectional control profile
 
-Status: **normative host profile / implementation planned** (2026-07-14).
+Status: **normative host profile / explicit local control slice implemented;
+remaining host/runner profile planned** (2026-07-15).
 
 This is the JavaScript/TypeScript host profile of
 [`control-interoperability.md`](control-interoperability.md). That specification
@@ -562,30 +563,50 @@ In addition to every common vector, this profile proves:
 
 ### 11.1 First-slice acceptance
 
-- [ ] The package root and dry-run tarball expose only the frozen ESM files and
+- [x] The package root and dry-run tarball expose only the frozen ESM files and
       subpaths, with no production dependency or lifecycle script.
-- [ ] The published declarations accept typed effect/handler/state-machine and
+- [x] The published declarations accept typed effect/handler/state-machine and
       prompt programs while rejecting prompt mixing, effectful `runPure`, forged
       branded values, reusable operations on one-shot continuations, and save on
       one-shot continuations.
-- [ ] All 17 currently `specified` semantic vectors applicable to an explicit
+- [x] All 17 currently `specified` semantic vectors applicable to an explicit
       local host API produce the shared catalog oracle without changing the shared
       catalog or lane registry.
-- [ ] One million left-associated binds, one million state-machine transitions,
+- [x] One million left-associated binds, one million state-machine transitions,
       and 100,000 deeply handled operations complete without native stack growth.
-- [ ] Zero/one/many resume, handler reinstall, residual forwarding, return-clause
+- [x] Zero/one/many resume, handler reinstall, residual forwarding, return-clause
       placement, shared local heap, nested/fresh prompts, and the true-shift case
       are separately tested.
-- [ ] A losing one-shot attempt returns structured `AlreadyResumed` before suffix
+- [x] A losing one-shot attempt returns structured `AlreadyResumed` before suffix
       construction/execution; local `save` returns structured
       `UnmanagedCapture("Continuation.local")`.
-- [ ] `npm test`, `npm run typecheck`, `npm pack --dry-run`, and the project
+- [x] `npm test`, `npm run typecheck`, `npm pack --dry-run`, and the project
       `effect*,effects*` conformance slice pass from the isolated worktree.
 
 ### 11.2 First-slice results
 
-Pending implementation and verification. Completing this subsection qualifies
-only §2.1--§2.2, not the whole host/runner profile.
+The compiler-independent explicit package is implemented at
+`v2/host/js/control` as ESM-only `@scalascript/control` with no production
+dependencies or lifecycle scripts. Verification on 2026-07-15 produced:
+
+- `npm test`: 27/27 tests pass, including all 17 applicable `specified`
+  catalog vectors without editing the shared catalog or lane registry;
+- iterative stress: 1,000,000 left-associated binds, 1,000,000 mixed
+  state-machine transitions, and 100,000 handled operations complete;
+- `npm run typecheck`: positive declarations and negative prompt/effect/brand/
+  multiplicity fixtures pass;
+- `npm pack --dry-run --json`: exactly `README.md`, `index.d.ts`, `index.js`, and
+  `package.json` (4 entries, 6,372 packed bytes, 26,193 unpacked bytes, no bundled
+  dependencies);
+- `tests/conformance/run.sh --only 'effect*,effects*'`: 5/5 cases pass on the
+  affected project slice (and remain 5/5 memoized after rebasing onto the final
+  `origin/main` checkpoint).
+
+This evidence qualifies only the local explicit API in §2.1--§2.2. Generated
+facades and value/call bridges, managed direct-style transformation, callback
+policies, mixed-language SCC dispatch, exact-artifact execution, portable runners,
+and shared lane wiring remain open delivery steps; the whole host/runner profile
+is not yet qualified.
 
 ## 12. Delivery and architecture gate
 
