@@ -4,6 +4,7 @@ import java.nio.charset.StandardCharsets
 
 import org.scalatest.funsuite.AnyFunSuite
 
+import scalascript.ast.{ContentBlock, EmbeddedKind}
 import scalascript.interop.descriptor.*
 import scalascript.parser.Parser
 
@@ -609,3 +610,65 @@ class PreBodyApiDescriptorProducerTest extends AnyFunSuite:
       assert(error.code == "UNSUPPORTED_PUBLIC_DECLARATION")
       assert(error.path == s"$$.symbols[demo.api.$name]")
     }
+
+  test("retained declaration source must correspond exactly to its stored section AST"):
+    val input = source(
+      """effect Real:
+        |  def read(): Long
+        |""".stripMargin,
+      List("Real")
+    )
+    val parsed = parse(input)
+    assert(descriptor(input).symbols.exists(_.definition.qualifiedName == "demo.api.Real.read"))
+
+    val document = parsed.document.getOrElse(fail("expected retained document content"))
+    val tamperedSections = document.sections.map { section =>
+      section.copy(blocks = section.blocks.map {
+        case ContentBlock.Embedded(lang, _, EmbeddedKind.Executable, data, attrs)
+            if scalascript.ast.Lang.isParseable(lang) =>
+          ContentBlock.Embedded(lang, "effect Real:\n", EmbeddedKind.Executable, data, attrs)
+        case other => other
+      })
+    }
+    val tampered = parsed.copy(document = Some(document.copy(sections = tamperedSections)))
+    val error = failure(PreBodyApiDescriptorProducer.descriptor(tampered))
+
+    assert(error.code == "UNSUPPORTED_PUBLIC_DECLARATION")
+    assert(error.path.startsWith("$.sections["))
+
+  test("a type under a private local owner cannot fall back to an external ABI name"):
+    val input = source(
+      """private object Hidden:
+        |  type T = Int
+        |def leak(value: Hidden.T): Hidden.T = value
+        |""".stripMargin,
+      List("leak")
+    )
+    val error = failure(PreBodyApiDescriptorProducer.descriptor(parse(input)))
+
+    assert(error.code == "UNSUPPORTED_PUBLIC_TYPE")
+    assert(error.path == "$.symbols[demo.api.leak].parameterLists[0].parameters[0].tpe")
+
+  test("an internal qualified callback alias cannot bypass callback policy"):
+    val input = source(
+      """object Callbacks:
+        |  @internal type Hidden = Int => Long
+        |def run(callback: Callbacks.Hidden): Long = 0L
+        |""".stripMargin,
+      List("run")
+    )
+    val error = failure(PreBodyApiDescriptorProducer.descriptor(parse(input)))
+
+    assert(error.code == "UNSUPPORTED_PUBLIC_TYPE")
+    assert(error.path == "$.symbols[demo.api.run].parameterLists[0].parameters[0].tpe")
+
+  test("selected mutable vars reject until descriptor v3 represents mutability"):
+    val immutable = descriptor(source("val current: Int = 1", List("current")))
+    assert(immutable.symbols.map(_.definition.kind) == Vector(ApiSymbolKind.Value))
+
+    val error = failure(PreBodyApiDescriptorProducer.descriptor(parse(source(
+      "var current: Int = 1",
+      List("current")
+    ))))
+    assert(error.code == "UNSUPPORTED_PUBLIC_DECLARATION")
+    assert(error.path == "$.symbols[demo.api.current]")
