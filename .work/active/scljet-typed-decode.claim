@@ -1,0 +1,5 @@
+claim: scljet-typed-decode
+owner: claude-typed-decode
+heartbeat: 2026-07-15T00:00:00Z
+status: active
+note: additive typed row decoder in scljet/typedsql.ssc (runTypedQueryAs + cell extractors) + 1 conformance test. Touches only typedsql.ssc + new test files; NOT sql.ssc.
