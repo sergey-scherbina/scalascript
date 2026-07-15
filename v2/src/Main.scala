@@ -9,14 +9,14 @@ package ssc
   case "run" :: file :: rest =>                 // trailing args -> the program's #io.args()
     Runtime.argv = rest
     val prog = Lower.module(Loader.load(file))  // Loader resolves `import`s
-    out(Runtime.run(Compiler.compile(prog), Array.empty[Value]))
+    out(Runtime.runManaged(Compiler.compile(prog), Array.empty[Value]))
   case "compile" :: file :: Nil =>
     val prog = Lower.module(Loader.load(file))
     println(Writer.program(prog))
   case "run-ir" :: file :: rest =>              // same argv forwarding for raw bytecode
     Runtime.argv = rest
     val prog = Reader.parseProgram(read(file))
-    out(Runtime.run(Compiler.compile(prog), Array.empty[Value]))
+    out(Runtime.runManaged(Compiler.compile(prog), Array.empty[Value]))
   case "bench-ir" :: file :: rest =>            // in-process bench: warmup + timed reps, print median ms
     val warmup = intArg(rest, "--warmup", 10)
     val reps   = intArg(rest, "--reps",  100)
@@ -27,7 +27,7 @@ package ssc
       .asInstanceOf[Value.ClosV]
     // suppress program stdout (io.println etc.) during all bench runs
     val devNull = new java.io.PrintStream(java.io.OutputStream.nullOutputStream())
-    def call(): Unit = Console.withOut(devNull)(Runtime.run(fn.code, fn.env))
+    def call(): Unit = Console.withOut(devNull)(Runtime.runManaged(fn.code, fn.env))
     for _ <- 1 to warmup do call()
     val times = Array.ofDim[Long](reps)
     for i <- 0 until reps do

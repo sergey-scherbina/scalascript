@@ -1,7 +1,7 @@
 package ssc.bytecode
 
 import org.objectweb.asm.{ClassWriter, MethodVisitor, Opcodes, Label, Handle, Type as AsmType}
-import ssc.{Term, Const, Value, Program, HandlerDispatchShape}
+import ssc.{Term, Const, Value, Program, HandlerDispatchShape, PortableEffects}
 
 /** CoreIR → JVM bytecode, milestone 2 (Phase 4 jvm-lane).
  *
@@ -298,7 +298,9 @@ object JvmByteGen:
     case Term.App(_, _) => true
     case Term.Prim(op, args) =>
       op == "__method__" || op == "__effect__" || op == "__methodOrExt__" ||
-        op == "__effect_oneshot__" || op == "__spliceUnwrap__" || args.exists(mayOp)
+        op == "__effect_oneshot__" || op == "__spliceUnwrap__" ||
+        op == "effect.perform" || op == "effect.perform.oneshot" ||
+        op == "effect.handle" || args.exists(mayOp)
     case Term.If(c, a, b)    => mayOp(c) || mayOp(a) || mayOp(b)
     case Term.Seq(ts)        => ts.exists(mayOp)
     case Term.Let(r, b)      => r.exists(mayOp) || mayOp(b)
@@ -1240,4 +1242,5 @@ object JvmByteGen:
   def runProgram(bytes: Array[Byte]): Value =
     val cls = new GenLoader(getClass.getClassLoader).define("ssc.gen.Entry", bytes)
     cls.getMethod("install").invoke(null)
-    ssc.Emit.unroll(cls.getMethod("entry").invoke(null).asInstanceOf[Value])
+    PortableEffects.completeManaged(
+      ssc.Emit.unroll(cls.getMethod("entry").invoke(null).asInstanceOf[Value]))

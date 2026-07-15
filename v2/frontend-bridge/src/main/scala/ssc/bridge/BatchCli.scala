@@ -55,7 +55,7 @@ private final class BatchExit(val code: Int) extends RuntimeException(s"exit($co
       resultRef.set(scala.util.Try {
         val src  = scala.io.Source.fromFile(f).mkString
         val prog = FrontendBridge.convertSource(src, Some(f.getParentFile))
-        Runtime.run(Compiler.compile(prog), Array.empty[Value])
+        Runtime.runManaged(Compiler.compile(prog), Array.empty[Value])
         ()
       })
     }

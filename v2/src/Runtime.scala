@@ -400,6 +400,26 @@ object Runtime:
           code = c.code
     sys.error("unreachable")
 
+  /** Run one managed VM program/callback boundary, then drain only the
+   * runtime-private continuation hand-off. Internal Runtime.run calls remain
+   * unchanged so surrounding Op-aware code can capture its suffix first. */
+  def runManaged(code0: Code, env0: Env): Value =
+    PortableEffects.completeManaged(run(code0, env0))
+
+  /** Finish a Step produced inside an effect-lifted non-tail suffix. Pure
+   * application paths still return Call directly; only a captured suffix must
+   * collapse that Call back to a Value for the Op continuation contract. */
+  private[ssc] def completeStep(step: Step): Value = step match
+    case Done(value) => value
+    case Call(closure, arguments) =>
+      if closure.arity >= 0 && closure.arity != arguments.length then
+        sys.error(s"arity: ${closure.arity} expected, ${arguments.length} given")
+      val env =
+        if arguments.isEmpty then closure.env
+        else if closure.env.isEmpty then arguments
+        else Runtime.extend(closure.env, arguments)
+      run(closure.code, env)
+
   // Non-tail evaluation of a sub-term = run it to a value.
   inline def value(code: Code, env: Env): Value = run(code, env)
 
@@ -573,6 +593,54 @@ object SelfTailRecLL2:
 
 object Compiler:
   import Value.*, Term.*
+
+  /** Primitive arguments that are the effect substrate itself must reach that
+   * primitive raw. Keep this list byte-for-byte equivalent to
+   * OpAnfNative.isEffectPrim; every other primitive threads evaluated Ops. */
+  private[ssc] def isEffectPrim(op: String): Boolean =
+    op == "effect.handle" || op == "effect.perform" ||
+      op == "effect.perform.oneshot" || op == "effect.pure"
+
+  /** Conservative FastCode guard: these terms may evaluate to an auto-thread
+   * Op and therefore must stay on the effect-aware compiler path when used as
+   * a primitive argument. The slow compiler still checks the actual Value, so
+   * this predicate is an optimization-safety gate rather than semantics. */
+  private[ssc] def mayProduceAutoThreadOp(t: Term): Boolean = t match
+    case App(_, _) => true
+    case Prim(
+          "__method__" | "__effect__" | "__methodOrExt__" |
+            "__effect_oneshot__" | "__spliceUnwrap__" |
+            "effect.perform" | "effect.perform.oneshot" | "effect.handle",
+          _,
+        ) => true
+    case Prim(_, args)         => args.exists(mayProduceAutoThreadOp)
+    case Let(rhs, body)        => rhs.exists(mayProduceAutoThreadOp) || mayProduceAutoThreadOp(body)
+    case LetRec(_, body)       => mayProduceAutoThreadOp(body)
+    case If(cond, thenV, elseV) =>
+      mayProduceAutoThreadOp(cond) ||
+        mayProduceAutoThreadOp(thenV) || mayProduceAutoThreadOp(elseV)
+    case Match(scrut, arms, default) =>
+      mayProduceAutoThreadOp(scrut) ||
+        arms.exists(arm => mayProduceAutoThreadOp(arm.body)) ||
+        default.exists(mayProduceAutoThreadOp)
+    case Ctor(_, fields) => fields.exists(mayProduceAutoThreadOp)
+    case While(cond, body) =>
+      mayProduceAutoThreadOp(cond) || mayProduceAutoThreadOp(body)
+    case Seq(terms) => terms.exists(mayProduceAutoThreadOp)
+    case _          => false
+
+  private[ssc] def isRawHandleStage(function: Term, args: List[Term]): Boolean =
+    function == Global("handle") && args.length == 1
+
+  private[ssc] def valuePositionsNeedEffectThreading(t: Term): Boolean = t match
+    case App(function, args) if isRawHandleStage(function, args) => false
+    case App(function, args) =>
+      mayProduceAutoThreadOp(function) || args.exists(mayProduceAutoThreadOp)
+    case Ctor(_, fields) => fields.exists(mayProduceAutoThreadOp)
+    case Prim(op, args) => !isEffectPrim(op) && args.exists(mayProduceAutoThreadOp)
+    case While(cond, body) =>
+      mayProduceAutoThreadOp(cond) || mayProduceAutoThreadOp(body)
+    case _ => false
 
   /** Compile a whole program; returns the entry Code (globals captured inside). */
   def compile(p: Program): Code = compileWithGlobals(p)._1
@@ -1011,9 +1079,18 @@ object Compiler:
           val initCode: Code = if fields.isEmpty then (_ => Done(UnitV)) else compile(fields.head)
           return (env: Env) =>
             val initial = Runtime.value(initCode, env)
-            V2PluginRegistry.lookupGlobal(tag) match
-              case Some(provider: ClosV) => Call(provider, Array[Value](initial))
-              case _ => Done(ForeignV(Array[Value](initial)))
+            def build(value: Value): Step = V2PluginRegistry.lookupGlobal(tag) match
+              case Some(provider: ClosV) => Call(provider, Array[Value](value))
+              case _ => Done(ForeignV(Array[Value](value)))
+
+            if Runtime.isAutoThreadOp(initial) then
+              Done(Runtime.letThreadOp(
+                initial,
+                resumed => Runtime.completeStep(build(resumed)),
+              ))
+            else build(initial)
+        if fields.exists(mayProduceAutoThreadOp) then
+          return compileEffectAwareConstructor(tag, fields)
         val fcs = fields.map(compile)
         fcs.length match
           case 0 =>
@@ -1100,6 +1177,10 @@ object Compiler:
           if !globals.contains(g) && !V2PluginRegistry.hasGlobal(g)
              && V2PluginRegistry.lookup(g).isDefined =>
         compile(Prim(g, args))
+      case App(fn, args)
+          if !isRawHandleStage(fn, args) &&
+            (mayProduceAutoThreadOp(fn) || args.exists(mayProduceAutoThreadOp)) =>
+        compileEffectAwareApplication(fn, args)
       case App(fn, args) =>
         // Global-call FC fast path: skip Done/run for the function lookup.
         // Uses tryFC for args (not tryFLC) so FloatV/StrV args pass through unchanged.
@@ -1183,6 +1264,9 @@ object Compiler:
                 case DataV("Stub", fs) => Done(DataV("Stub", fs))
                 case v => Runtime.applyFallback(v, avs)
         }   // end globalFastPath.getOrElse
+      case While(cond, body)
+          if mayProduceAutoThreadOp(cond) || mayProduceAutoThreadOp(body) =>
+        compileEffectAwareWhile(cond, body)
       case While(cond, body) =>
         // Try FastCode path: avoids Done boxing and trampoline per iteration
         (FastCode.tryFBc(cond, globals), FastCode.tryFC(body, globals)) match
@@ -1231,44 +1315,230 @@ object Compiler:
                 case _ => go(k + 1)
             Done(go(0))
       case Prim(op, args) =>
+        val threadArguments = !isEffectPrim(op)
+        inline def shouldThread(value: Value): Boolean =
+          threadArguments && Runtime.isAutoThreadOp(value)
+
         // Fast paths for 1/2/3-arg primitives: avoid List[Value] allocation for args
         args match
           case List(a0) =>
             Prims.resolve1(op) match
               case Some(fn1) =>
                 val ac0 = compile(a0)
-                (env: Env) => Done(fn1(Runtime.value(ac0, env)))
+                (env: Env) =>
+                  val value0 = Runtime.value(ac0, env)
+                  if shouldThread(value0) then Done(Runtime.letThreadOp(value0, fn1))
+                  else Done(fn1(value0))
               case None =>
                 val fn = Prims.resolve(op); val ac0 = compile(a0)
-                (env: Env) => Done(fn(List(Runtime.value(ac0, env))))
+                (env: Env) =>
+                  val value0 = Runtime.value(ac0, env)
+                  if shouldThread(value0) then
+                    Done(Runtime.letThreadOp(value0, resumed0 => fn(List(resumed0))))
+                  else Done(fn(List(value0)))
           case List(a0, a1) =>
             Prims.resolve2(op) match
               case Some(fn2) =>
                 val ac0 = compile(a0); val ac1 = compile(a1)
-                (env: Env) => Done(fn2(Runtime.value(ac0, env), Runtime.value(ac1, env)))
+                (env: Env) =>
+                  def evaluateSecond(value0: Value): Value =
+                    val value1 = Runtime.value(ac1, env)
+                    if shouldThread(value1) then
+                      Runtime.letThreadOp(value1, resumed1 => fn2(value0, resumed1))
+                    else fn2(value0, value1)
+
+                  val value0 = Runtime.value(ac0, env)
+                  if shouldThread(value0) then
+                    Done(Runtime.letThreadOp(value0, evaluateSecond))
+                  else Done(evaluateSecond(value0))
               case None =>
                 val fn = Prims.resolve(op); val ac0 = compile(a0); val ac1 = compile(a1)
-                (env: Env) => Done(fn(List(Runtime.value(ac0, env), Runtime.value(ac1, env))))
+                (env: Env) =>
+                  def evaluateSecond(value0: Value): Value =
+                    val value1 = Runtime.value(ac1, env)
+                    if shouldThread(value1) then
+                      Runtime.letThreadOp(value1, resumed1 => fn(List(value0, resumed1)))
+                    else fn(List(value0, value1))
+
+                  val value0 = Runtime.value(ac0, env)
+                  if shouldThread(value0) then
+                    Done(Runtime.letThreadOp(value0, evaluateSecond))
+                  else Done(evaluateSecond(value0))
           case List(a0, a1, a2) =>
             Prims.resolve3(op) match
               case Some(fn3) =>
                 val ac0 = compile(a0); val ac1 = compile(a1); val ac2 = compile(a2)
-                (env: Env) => Done(fn3(Runtime.value(ac0, env), Runtime.value(ac1, env), Runtime.value(ac2, env)))
+                (env: Env) =>
+                  def evaluateThird(value0: Value, value1: Value): Value =
+                    val value2 = Runtime.value(ac2, env)
+                    if shouldThread(value2) then
+                      Runtime.letThreadOp(value2, resumed2 => fn3(value0, value1, resumed2))
+                    else fn3(value0, value1, value2)
+
+                  def evaluateSecond(value0: Value): Value =
+                    val value1 = Runtime.value(ac1, env)
+                    if shouldThread(value1) then
+                      Runtime.letThreadOp(value1, resumed1 => evaluateThird(value0, resumed1))
+                    else evaluateThird(value0, value1)
+
+                  val value0 = Runtime.value(ac0, env)
+                  if shouldThread(value0) then
+                    Done(Runtime.letThreadOp(value0, evaluateSecond))
+                  else Done(evaluateSecond(value0))
               case None =>
                 // Special fast path: __arith__ with literal op — avoid List alloc on every call
                 if op == "__arith__" then a0 match
                   case Lit(Const.CStr(fixedOp)) =>
                     val ac1 = compile(a1); val ac2 = compile(a2)
-                    (env: Env) => Done(Prims.arithFast(fixedOp, Runtime.value(ac1, env), Runtime.value(ac2, env)))
+                    (env: Env) =>
+                      def evaluateRight(value1: Value): Value =
+                        val value2 = Runtime.value(ac2, env)
+                        if shouldThread(value2) then
+                          Runtime.letThreadOp(
+                            value2,
+                            resumed2 => Prims.arithFast(fixedOp, value1, resumed2),
+                          )
+                        else Prims.arithFast(fixedOp, value1, value2)
+
+                      val value1 = Runtime.value(ac1, env)
+                      if shouldThread(value1) then
+                        Done(Runtime.letThreadOp(value1, evaluateRight))
+                      else Done(evaluateRight(value1))
                   case _ =>
-                    val fn = Prims.resolve(op); val acs = args.map(compile)
-                    (env: Env) => Done(fn(acs.map(ac => Runtime.value(ac, env))))
+                    compileGenericPrimitive(op, args, threadArguments)
                 else
-                  val fn = Prims.resolve(op); val acs = args.map(compile)
-                  (env: Env) => Done(fn(acs.map(ac => Runtime.value(ac, env))))
+                  compileGenericPrimitive(op, args, threadArguments)
           case _ =>                                                    // 0 or 4+ args: generic path
-            val fn = Prims.resolve(op); val acs = args.map(compile)
-            (env: Env) => Done(fn(acs.map(ac => Runtime.value(ac, env))))
+            compileGenericPrimitive(op, args, threadArguments)
+
+    private def compileGenericPrimitive(
+        op: String,
+        args: List[Term],
+        threadArguments: Boolean,
+    ): Code =
+      val fn = Prims.resolve(op)
+      val argumentCodes = args.map(compile).toArray
+      val argumentCount = argumentCodes.length
+      (env: Env) =>
+        def evaluate(index: Int, reversed: List[Value]): Value =
+          if index == argumentCount then fn(reversed.reverse)
+          else
+            val value = Runtime.value(argumentCodes(index), env)
+            if threadArguments && Runtime.isAutoThreadOp(value) then
+              Runtime.letThreadOp(
+                value,
+                resumed => evaluate(index + 1, resumed :: reversed),
+              )
+            else evaluate(index + 1, value :: reversed)
+
+        Done(evaluate(0, Nil))
+
+    private def compileEffectAwareConstructor(tag: String, fields: List[Term]): Code =
+      val fieldCodes = fields.map(compile).toArray
+      val fieldCount = fieldCodes.length
+      (env: Env) =>
+        def evaluate(index: Int, reversed: List[Value]): Value =
+          if index == fieldCount then
+            val values = reversed.reverse.toArray
+            DataV(tag, collection.immutable.ArraySeq.unsafeWrapArray(values))
+          else
+            val value = Runtime.value(fieldCodes(index), env)
+            if Runtime.isAutoThreadOp(value) then
+              Runtime.letThreadOp(
+                value,
+                resumed => evaluate(index + 1, resumed :: reversed),
+              )
+            else evaluate(index + 1, value :: reversed)
+
+        Done(evaluate(0, Nil))
+
+    private def compileEffectAwareApplication(function: Term, args: List[Term]): Code =
+      val functionCode = compile(function)
+      val argumentCodes = args.map(compile).toArray
+      val argumentCount = argumentCodes.length
+
+      def applyStep(functionValue: Value, arguments: Array[Value]): Step = functionValue match
+        case closure: ClosV => Call(closure, arguments)
+        case other          => Runtime.applyFallback(other, arguments)
+
+      (env: Env) =>
+        def evaluateRemainingAsValue(
+            functionValue: Value,
+            index: Int,
+            reversed: List[Value],
+        ): Value =
+          if index == argumentCount then
+            Runtime.completeStep(applyStep(functionValue, reversed.reverse.toArray))
+          else
+            val value = Runtime.value(argumentCodes(index), env)
+            if Runtime.isAutoThreadOp(value) then
+              Runtime.letThreadOp(
+                value,
+                resumed => evaluateRemainingAsValue(
+                  functionValue,
+                  index + 1,
+                  resumed :: reversed,
+                ),
+              )
+            else evaluateRemainingAsValue(functionValue, index + 1, value :: reversed)
+
+        def evaluateRemainingAsStep(
+            functionValue: Value,
+            index: Int,
+            reversed: List[Value],
+        ): Step =
+          if index == argumentCount then
+            applyStep(functionValue, reversed.reverse.toArray)
+          else
+            val value = Runtime.value(argumentCodes(index), env)
+            if Runtime.isAutoThreadOp(value) then
+              Done(Runtime.letThreadOp(
+                value,
+                resumed => evaluateRemainingAsValue(
+                  functionValue,
+                  index + 1,
+                  resumed :: reversed,
+                ),
+              ))
+            else evaluateRemainingAsStep(functionValue, index + 1, value :: reversed)
+
+        val functionValue = Runtime.value(functionCode, env)
+        if Runtime.isAutoThreadOp(functionValue) then
+          Done(Runtime.letThreadOp(
+            functionValue,
+            resolved => evaluateRemainingAsValue(resolved, 0, Nil),
+          ))
+        else evaluateRemainingAsStep(functionValue, 0, Nil)
+
+    private def compileEffectAwareWhile(cond: Term, body: Term): Code =
+      val conditionCode = compile(cond)
+      val bodyCode = compile(body)
+      (env: Env) =>
+        def afterCondition(value: Value): Value = value match
+          case BoolV(false) => UnitV
+          case BoolV(true) =>
+            val bodyValue = Runtime.value(bodyCode, env)
+            if Runtime.isAutoThreadOp(bodyValue) then
+              Runtime.seqThreadOp(bodyValue, () => loop())
+            else loop()
+          case other => sys.error(s"while: condition not Bool: ${Show.show(other)}")
+
+        def loop(): Value =
+          while true do
+            val conditionValue = Runtime.value(conditionCode, env)
+            if Runtime.isAutoThreadOp(conditionValue) then
+              return Runtime.letThreadOp(conditionValue, afterCondition)
+            conditionValue match
+              case BoolV(false) => return UnitV
+              case BoolV(true) =>
+                val bodyValue = Runtime.value(bodyCode, env)
+                if Runtime.isAutoThreadOp(bodyValue) then
+                  return Runtime.seqThreadOp(bodyValue, () => loop())
+              case other =>
+                sys.error(s"while: condition not Bool: ${Show.show(other)}")
+          UnitV
+
+        Done(loop())
 
   def constV(c: Const): Value = c match
     case Const.CUnit     => Value.UnitV
@@ -1334,6 +1604,7 @@ object FastCode:
    *  reads baseEnv's Local(k-1).  Complex binders are intentionally rejected so a
    *  synthetic env can never be captured by a nested closure. */
   private def tryFCAppended(t: Term, globals: collection.mutable.Map[String, Value]): Option[FCA] = t match
+    case term if Compiler.valuePositionsNeedEffectThreading(term) => None
     case Lit(k) =>
       val v = Compiler.constV(k); Some((_, _) => v)
     case Local(0) =>
@@ -1435,6 +1706,7 @@ object FastCode:
   /** Try to compile a term to a FastLongCode (Env => Long), eliminating IntV boxing.
    *  Covers Local lookups from LongCellV/IntV, arithmetic ops, and integer literals. */
   def tryFLC(t: Term, globals: collection.mutable.Map[String, Value]): Option[FLC] = t match
+    case term if Compiler.valuePositionsNeedEffectThreading(term) => None
     case Lit(Const.CInt(n)) => Some(_ => n)
     case Local(i) =>
       // Optimistic: assume Local holds an IntV or LongCellV (function params, let-bindings)
@@ -1571,6 +1843,7 @@ object FastCode:
    *  `cell.set` is intentionally excluded: it can hold FloatV, StrV, etc., so using
    *  tryFLC (which coerces Float→0L) would silently corrupt non-Int cells. */
   def tryFCLongSet(t: Term, globals: collection.mutable.Map[String, Value]): Option[FC] = t match
+    case term if Compiler.valuePositionsNeedEffectThreading(term) => None
     case Prim("lcell.set", List(Local(c), body)) =>
       tryFLC(body, globals).map { flc =>
         val cn = c
@@ -1581,6 +1854,7 @@ object FastCode:
   /** Float-safe FC for arm bodies and cell.set values: for __arith__, uses arithOp directly
    *  (correct for Float operands) instead of the FLC-first shortcut (which coerces Float→0L). */
   def tryFCValue(t: Term, globals: collection.mutable.Map[String, Value]): Option[FC] = t match
+    case term if Compiler.valuePositionsNeedEffectThreading(term) => None
     case Prim("__arith__", List(Lit(Const.CStr(op)), a0, a1)) =>
       tryFCValue(a0, globals).flatMap { fc0 => tryFCValue(a1, globals).map { fc1 =>
         (env: Env) => Prims.arithFast(op, fc0(env), fc1(env)): Value
@@ -1590,6 +1864,7 @@ object FastCode:
   /** Try to compile a term to a FastCode.  Returns None if the term
    *  requires a tail call (Lam, App, LetRec, Match with complex arms). */
   def tryFC(t: Term, globals: collection.mutable.Map[String, Value]): Option[FC] = t match
+    case term if Compiler.valuePositionsNeedEffectThreading(term) => None
     case Lit(k) =>
       val v = Compiler.constV(k); Some(_ => v)
     case Local(i) =>
@@ -2027,6 +2302,7 @@ object FastCode:
 
   /** Try to compile a condition term to a FastBoolCode (avoids BoolV allocation). */
   def tryFBc(t: Term, globals: collection.mutable.Map[String, Value]): Option[FBc] = t match
+    case term if Compiler.valuePositionsNeedEffectThreading(term) => None
     // __arith__ comparisons — bridge generates these; fast path via unboxed Long comparison.
     // GUARD (ALL ops): only when BOTH operands are provably Long. tryFLC reads a Local optimistically
     // as a Long and returns 0L for a FloatV OR StrV (see the Local case), so an unguarded fast path makes

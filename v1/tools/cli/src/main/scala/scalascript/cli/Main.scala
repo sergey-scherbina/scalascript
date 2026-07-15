@@ -7833,7 +7833,10 @@ final class BenchCmd extends CliCommand:
         _root_.ssc.bridge.PluginBridge.loadAll()
         Console.withOut(outPs) {
           val prog = _root_.ssc.bridge.FrontendBridge.convertSource(wrapper, Some((path / os.up).toIO))
-          _root_.ssc.Runtime.run(_root_.ssc.Compiler.compile(prog), Array.empty[_root_.ssc.Value])
+          _root_.ssc.Runtime.runManaged(
+            _root_.ssc.Compiler.compile(prog),
+            Array.empty[_root_.ssc.Value],
+          )
         }
       catch case e: Throwable =>
         if System.getenv("SSC_BENCH_DEBUG") != null then

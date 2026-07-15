@@ -86,35 +86,122 @@ object PortableEffects:
     val dot = label.lastIndexOf('.')
     if dot < 0 then label else label.substring(dot + 1)
 
+  /** Runtime-only hand-off from a handler-facing resume call to the iterative
+   * driver. The label merely lets the ordinary Op-threading machinery carry
+   * the handler suffix; authority comes from both this private class and the
+   * process-local capability identity, neither of which portable code can
+   * construct. */
+  private val resumeCapability: AnyRef = new Object()
+  private val resumeLabel = "ssc.control.__resume__"
+  private final class ResumeRequest(
+      val capability: AnyRef,
+      val nextComputation: Value,
+      val handler: Value,
+  )
+  private sealed trait DriverFrame
+  private final case class ApplySuffix(afterResume: ClosV) extends DriverFrame
+  private final case class Rehandle(handler: Value) extends DriverFrame
+
+  private val resumeIdentity = ClosV(Runtime.emptyEnv, 1, env => Done(env.last))
+
+  private def deferredResume(nextComputation: Value, handler: Value): Value =
+    DataV("Op", Vector(
+      StrV(resumeLabel),
+      ForeignV(new ResumeRequest(resumeCapability, nextComputation, handler)),
+      resumeIdentity,
+    ))
+
+  private def privateResume(value: Value): Option[(ResumeRequest, ClosV)] = value match
+    case DataV("Op", IndexedSeq(
+          StrV(label),
+          ForeignV(request: ResumeRequest),
+          afterResume: ClosV,
+        ))
+        if label == resumeLabel && (request.capability eq resumeCapability) =>
+      Some(request -> afterResume)
+    case _ => None
+
   /** Fold an explicit computation through a user handler. The handler-facing
-   * `resume` delegates to the operation's original continuation: raw/multi
-   * continuations remain reusable while typed one-shot continuations retain
-   * their single base claim through every deep wrapper. */
-  def handle(computation: Value, handler: Value): Value = computation match
-    case DataV("Pure", IndexedSeq(value)) => handle(value, handler)
-    case DataV("Op", IndexedSeq(StrV(label), argument, continuation: ClosV)) =>
-      val resume = ClosV(Array[Value](continuation, handler), 1, env => {
-        val k = env(0)
-        val h = env(1)
-        val next = call1(k, env.last, "effect continuation")
-        Done(handle(next, h))
-      })
-      val eventArgs = argument match
-        case UnitV                         => List(resume)
-        case DataV("__EffArgs__", fields) => fields.toList :+ resume
-        case one                           => List(one, resume)
-      foldDispatch(
-        dispatch1(handler, DataV(operationName(label), eventArgs.toVector)),
-        () =>
-          // Forward the exact operation and the same deep resume wrapper. The
-          // wrapper reaches the original continuation first, preserving its
-          // base one-shot gate (or raw/multi reuse), then reinstalls this handler.
-          DataV("Op", Vector(StrV(label), argument, resume)))
-    case DataV("Op", fields) => fail(s"malformed Op with ${fields.length} field(s)")
-    case value =>
-      foldDispatch(
-        dispatch1(handler, DataV("Return", Vector(value))),
-        () => value)
+   * `resume` eagerly invokes the operation's original continuation, so the
+   * one-shot claim still happens at the resume call. Only recursive handling
+   * of the obtained computation is deferred onto a heap-frame driver. */
+  def handle(computation: Value, handler: Value): Value =
+    runDriver(computation, handler, handlingComputationInitially = true)
+
+  /** Complete a value crossing a managed program/call boundary. Ordinary
+   * values — including public Op/3 computations — are returned by identity;
+   * only an exact capability-backed resume request enters the private driver. */
+  def completeManaged(value: Value): Value =
+    privateResume(value) match
+      case Some(_) => runDriver(value, UnitV, handlingComputationInitially = false)
+      case None    => value
+
+  private def runDriver(
+      computation: Value,
+      handler: Value,
+      handlingComputationInitially: Boolean,
+  ): Value =
+    var current = computation
+    var currentHandler = handler
+    var frames: List[DriverFrame] = Nil
+    var handlingComputation = handlingComputationInitially
+
+    while true do
+      privateResume(current) match
+        case Some((request, afterResume)) =>
+          if handlingComputation then
+            frames = ApplySuffix(afterResume) :: Rehandle(currentHandler) :: frames
+          else
+            frames = ApplySuffix(afterResume) :: frames
+          current = request.nextComputation
+          currentHandler = request.handler
+          handlingComputation = true
+        case None =>
+          if handlingComputation then
+            current match
+              case DataV("Pure", IndexedSeq(value)) =>
+                current = value
+              case DataV("Op", IndexedSeq(StrV(label), argument, continuation: ClosV)) =>
+                val resume = ClosV(Array[Value](continuation, currentHandler), 1, env => {
+                  val next = call1(env(0), env.last, "effect continuation")
+                  Done(deferredResume(next, env(1)))
+                })
+                val eventArgs = argument match
+                  case UnitV                         => List(resume)
+                  case DataV("__EffArgs__", fields) => fields.toList :+ resume
+                  case one                           => List(one, resume)
+                current = foldDispatch(
+                  dispatch1(
+                    currentHandler,
+                    DataV(operationName(label), eventArgs.toVector),
+                  ),
+                  () =>
+                    // Preserve the exact argument and base continuation/gate.
+                    // The deep resume wrapper reaches that continuation first,
+                    // then reinstalls this handler through the private driver.
+                    DataV("Op", Vector(StrV(label), argument, resume)),
+                )
+                handlingComputation = false
+              case DataV("Op", fields) =>
+                fail(s"malformed Op with ${fields.length} field(s)")
+              case value =>
+                current = foldDispatch(
+                  dispatch1(currentHandler, DataV("Return", Vector(value))),
+                  () => value,
+                )
+                handlingComputation = false
+          else
+            frames match
+              case ApplySuffix(afterResume) :: remaining =>
+                frames = remaining
+                current = call1(afterResume, current, "effect resume suffix")
+              case Rehandle(outerHandler) :: remaining =>
+                frames = remaining
+                currentHandler = outerHandler
+                handlingComputation = true
+              case Nil => return current
+
+    fail("unreachable handler driver")
 
   def eval(op: String, args: List[Value]): Value = op match
     case "effect.pure" => args match

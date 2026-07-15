@@ -49,7 +49,9 @@ object OpAnfNative:
     case T.App(_, _) => true
     case T.Prim(op, as) =>
       op == "__method__" || op == "__effect__" || op == "__methodOrExt__" ||
-        op == "__effect_oneshot__" || op == "__spliceUnwrap__" || as.exists(mayOp)
+        op == "__effect_oneshot__" || op == "__spliceUnwrap__" ||
+        op == "effect.perform" || op == "effect.perform.oneshot" ||
+        op == "effect.handle" || as.exists(mayOp)
     case T.Let(rhs, b)       => rhs.exists(mayOp) || mayOp(b)
     case T.LetRec(_, b)      => mayOp(b)
     case T.If(c, x, y)       => mayOp(c) || mayOp(x) || mayOp(y)
@@ -62,12 +64,17 @@ object OpAnfNative:
     op == "effect.handle" || op == "effect.perform" ||
       op == "effect.perform.oneshot" || op == "effect.pure"
 
+  /** First stage of the legacy curried `handle(computation)(handler)` form.
+   * The computation is the substrate consumed by the returned closure. */
+  private def isHandleStage(f: T, args: List[T]): Boolean =
+    f == T.Global("handle") && args.length == 1
+
   private def tx(t: T): T = t match
     case T.App(f, as) =>
       val f2 = tx(f); val as2 = as.map(tx)
-      if as2.exists(mayOp) then
-        val binders = as2.count(a => !isPure(a))
-        letify(as2, ls => T.App(shift(f2, binders, 0), ls))
+      val positions = f2 :: as2
+      if !isHandleStage(f2, as2) && positions.exists(mayOp) then
+        letify(positions, lifted => T.App(lifted.head, lifted.tail))
       else T.App(f2, as2)
     case T.Prim(op, as) =>
       val as2 = as.map(tx)
@@ -94,8 +101,29 @@ object OpAnfNative:
     case T.Let(rhs, b)     => T.Let(rhs.map(tx), tx(b))
     case T.LetRec(lams, b) => T.LetRec(lams.map(tx), tx(b))
     case T.Seq(ts)         => T.Seq(ts.map(tx))
-    case T.While(c, b)     => T.While(tx(c), tx(b))
+    case T.While(c, b) =>
+      val c2 = tx(c); val b2 = tx(b)
+      if mayOp(c2) || mayOp(b2) then effectAwareWhile(c2, b2)
+      else T.While(c2, b2)
     case _                 => t // Lit, Local, Global
+
+  /** Lower an effectful loop to a local tail-recursive loop. Under the Lam the
+   * loop closure is Local(0); under the condition Let it becomes Local(1), and
+   * original outer locals shift by two. Existing Let/Seq threading owns the
+   * condition/body requests while local-tail codegen owns stack safety. */
+  private def effectAwareWhile(cond: T, body: T): T =
+    val condInLoop = shift(cond, 1, 0)
+    val bodyInCondition = shift(body, 2, 0)
+    val recur = T.App(T.Local(1), Nil)
+    val loop = T.Lam(0, T.Let(
+      List(condInLoop),
+      T.If(
+        T.Local(0),
+        T.Seq(List(bodyInCondition, recur)),
+        T.Lit(ssc.Const.CUnit),
+      ),
+    ))
+    T.LetRec(List(loop), T.App(T.Local(0), Nil))
 
   private def isPure(t: T): Boolean = t match
     case T.Lit(_) | T.Global(_) | T.Lam(_, _) | T.Local(_) => true

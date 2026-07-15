@@ -18,7 +18,7 @@ import ssc.*
     val f    = new java.io.File(file)
     val src  = scala.io.Source.fromFile(f).mkString
     val prog = FrontendBridge.convertSource(src, Some(f.getParentFile))
-    val v = Runtime.run(Compiler.compile(prog), Array.empty[Value])
+    val v = Runtime.runManaged(Compiler.compile(prog), Array.empty[Value])
     v match
       case Value.UnitV => ()
       case other       => println(Show.show(other))
@@ -28,7 +28,7 @@ import ssc.*
     PluginBridge.loadAll()
     val module  = scalascript.parser.Parser.parse(scala.io.Source.fromFile(file).mkString)
     val prog    = ModuleBridge.convert(module)
-    val v = Runtime.run(Compiler.compile(prog), Array.empty[Value])
+    val v = Runtime.runManaged(Compiler.compile(prog), Array.empty[Value])
     v match
       case Value.UnitV => ()
       case other       => println(Show.show(other))
@@ -49,7 +49,7 @@ import ssc.*
     Runtime.argv = rest
     PluginBridge.loadAll()
     val prog = Reader.parseProgram(scala.io.Source.fromFile(file).mkString)
-    val v = Runtime.run(Compiler.compile(prog), Array.empty[Value])
+    val v = Runtime.runManaged(Compiler.compile(prog), Array.empty[Value])
     v match
       case Value.UnitV => ()
       case other       => println(Show.show(other))
@@ -64,7 +64,7 @@ import ssc.*
     Runtime.argv = rest
     _root_.ssc.plugin.NativePluginHost.loadAll()
     val prog = Reader.parseProgram(scala.io.Source.fromFile(file).mkString)
-    val v = Runtime.run(Compiler.compile(prog), Array.empty[Value])
+    val v = Runtime.runManaged(Compiler.compile(prog), Array.empty[Value])
     v match
       case Value.UnitV => ()
       case other       => println(Show.show(other))
@@ -92,7 +92,7 @@ import ssc.*
       try
         Console.withOut(ps) {
           val prog = Reader.parseProgram(scala.io.Source.fromFile(irPath).mkString)
-          Runtime.run(Compiler.compile(prog), Array.empty[Value]) match
+          Runtime.runManaged(Compiler.compile(prog), Array.empty[Value]) match
             case Value.UnitV => ()
             case other       => println(Show.show(other))
         }

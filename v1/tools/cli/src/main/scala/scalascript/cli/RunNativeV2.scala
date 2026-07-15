@@ -136,7 +136,7 @@ object RunNativeV2:
           _root_.ssc.Runtime.argv = args
           Console.withOut(irPs) {
             val tower = _root_.ssc.Lower.module(_root_.ssc.Loader.load(runner.getCanonicalPath))
-            resultValue.set(_root_.ssc.Runtime.run(
+            resultValue.set(_root_.ssc.Runtime.runManaged(
               _root_.ssc.Compiler.compile(tower), Array.empty[_root_.ssc.Value]))
           }
         catch
@@ -157,7 +157,7 @@ object RunNativeV2:
       irPs.close()
 
   private def runVm(prog: _root_.ssc.Program): Unit =
-    V2Result.report(_root_.ssc.Runtime.run(
+    V2Result.report(_root_.ssc.Runtime.runManaged(
       _root_.ssc.Compiler.compile(prog), Array.empty[_root_.ssc.Value]))
 
   private def runBytecode(prog: _root_.ssc.Program): Unit =

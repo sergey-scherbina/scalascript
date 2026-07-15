@@ -17,7 +17,8 @@ object RunV2:
       val src  = scala.io.Source.fromFile(f).mkString
       val prog = _root_.ssc.bridge.FrontendBridge.convertSource(src, Some(f.getParentFile))
       warnIfDocOnly(file)
-      V2Result.report(_root_.ssc.Runtime.run(_root_.ssc.Compiler.compile(prog), Array.empty[_root_.ssc.Value]))
+      V2Result.report(_root_.ssc.Runtime.runManaged(
+        _root_.ssc.Compiler.compile(prog), Array.empty[_root_.ssc.Value]))
 
   /** A fence-less markdown document converts to an EMPTY program by design
    *  (doc-only examples must stay runnable no-ops) — but silently doing

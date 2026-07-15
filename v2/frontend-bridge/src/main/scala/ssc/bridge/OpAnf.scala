@@ -48,7 +48,11 @@ object OpAnf:
    *  own position by `tx`). */
   private def mayOp(t: T): Boolean = t match
     case T.App(_, _) => true
-    case T.Prim("__method__" | "__methodOrExt__" | "__effect__" | "__effect_oneshot__", _) => true
+    case T.Prim(
+          "__method__" | "__methodOrExt__" | "__effect__" | "__effect_oneshot__" |
+            "effect.perform" | "effect.perform.oneshot" | "effect.handle",
+          _,
+        ) => true
     case T.Prim(_, as) => as.exists(mayOp)
     case T.Let(rhs, b)           => rhs.exists(mayOp) || mayOp(b)
     case T.LetRec(_, b)          => mayOp(b)
@@ -60,20 +64,23 @@ object OpAnf:
   /** `handle(expr)(handler)` paren form: the body EXPRESSION's Op must reach
    *  `handle` RAW — letifying it would thread the op past its own handler
    *  (the block form is immune: its body arrives as a Lam thunk). */
-  private def isHandle(f: T): Boolean = f match
-    case T.Global("handle") => true
-    case _                  => false
+  private def isHandleStage(f: T, args: List[T]): Boolean =
+    f == T.Global("handle") && args.length == 1
+
+  private def isEffectPrim(op: String): Boolean =
+    op == "effect.handle" || op == "effect.perform" ||
+      op == "effect.perform.oneshot" || op == "effect.pure"
 
   private def tx(t: T): T = t match
     case T.App(f, as) =>
       val f2 = tx(f); val as2 = as.map(tx)
-      if !isHandle(f2) && as2.exists(mayOp) then
-        val binders = as2.count(a => !isPure(a))
-        letify(as2, ls => T.App(shift(f2, binders, 0), ls))
+      val positions = f2 :: as2
+      if !isHandleStage(f2, as2) && positions.exists(mayOp) then
+        letify(positions, lifted => T.App(lifted.head, lifted.tail))
       else T.App(f2, as2)
     case T.Prim(op, as) =>
       val as2 = as.map(tx)
-      if as2.exists(mayOp) then letify(as2, ls => T.Prim(op, ls))
+      if !isEffectPrim(op) && as2.exists(mayOp) then letify(as2, ls => T.Prim(op, ls))
       else T.Prim(op, as2)
     case T.Ctor(tag, fs) =>
       val fs2 = fs.map(tx)
@@ -96,8 +103,25 @@ object OpAnf:
     case T.Let(rhs, b)     => T.Let(rhs.map(tx), tx(b))
     case T.LetRec(lams, b) => T.LetRec(lams.map(tx), tx(b))
     case T.Seq(ts)         => T.Seq(ts.map(tx))
-    case T.While(c, b)     => T.While(tx(c), tx(b))
+    case T.While(c, b) =>
+      val c2 = tx(c); val b2 = tx(b)
+      if mayOp(c2) || mayOp(b2) then effectAwareWhile(c2, b2)
+      else T.While(c2, b2)
     case _                 => t // Lit, Local, Global
+
+  private def effectAwareWhile(cond: T, body: T): T =
+    val condInLoop = shift(cond, 1, 0)
+    val bodyInCondition = shift(body, 2, 0)
+    val recur = T.App(T.Local(1), Nil)
+    val loop = T.Lam(0, T.Let(
+      List(condInLoop),
+      T.If(
+        T.Local(0),
+        T.Seq(List(bodyInCondition, recur)),
+        T.Lit(ssc.Const.CUnit),
+      ),
+    ))
+    T.LetRec(List(loop), T.App(T.Local(0), Nil))
 
   /** Values whose evaluation is effect-free and position-independent: they
    *  stay IN PLACE (shifted under the new binders) instead of being Let-bound.

@@ -531,8 +531,10 @@ class FrontendBridgeTest extends AnyFunSuite:
     val handler = Value.ClosV(Runtime.emptyEnv, 1, env => env.last match
       case Value.DataV("pick", IndexedSeq(_, resume: Value.ClosV)) =>
         val first = Prims.runClos1(resume, Value.IntV(1))
-        val second = Prims.runClos1(resume, Value.IntV(2))
-        Done(Value.DataV("Tuple2", Vector(first, second)))
+        Done(Runtime.letThreadOp(first, firstValue =>
+          val second = Prims.runClos1(resume, Value.IntV(2))
+          Runtime.letThreadOp(second, secondValue =>
+            Value.DataV("Tuple2", Vector(firstValue, secondValue)))))
       case Value.DataV("Return", IndexedSeq(value)) => Done(value)
       case other => throw new RuntimeException(s"unexpected effect event: ${Show.show(other)}")
     )

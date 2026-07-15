@@ -3,7 +3,7 @@ package ssc.plugin
 import java.io.InputStreamReader
 import java.nio.charset.StandardCharsets
 import java.util.Properties
-import ssc.{Emit, Runtime, Show, Value}
+import ssc.{Emit, PortableEffects, Runtime, Show, Value}
 
 /** Runtime entry contract for a persisted direct-ASM ScalaScript artifact.
  *
@@ -22,15 +22,16 @@ object NativeArtifactRuntime:
     NativePluginHost.loadAll(loadConfig())
 
   /** Same observable final-value contract as the standard native CLI lane. */
-  def report(result: Value): Unit = result match
-    case Value.UnitV => ()
-    case op @ Value.DataV("Op", fields) if Runtime.isAutoThreadOp(op) =>
-      val label = fields.headOption.collect { case Value.StrV(s) => s }.getOrElse("<unknown>")
-      throw new RuntimeException(s"unhandled runtime effect: $label")
-    case Value.DataV("Stub", fields) =>
-      val label = fields.headOption.collect { case Value.StrV(s) => s }.getOrElse("<unknown>")
-      throw new RuntimeException(s"unresolved runtime dispatch: $label")
-    case other => println(Show.show(other))
+  def report(rawResult: Value): Unit =
+    PortableEffects.completeManaged(rawResult) match
+      case Value.UnitV => ()
+      case op @ Value.DataV("Op", fields) if Runtime.isAutoThreadOp(op) =>
+        val label = fields.headOption.collect { case Value.StrV(s) => s }.getOrElse("<unknown>")
+        throw new RuntimeException(s"unhandled runtime effect: $label")
+      case Value.DataV("Stub", fields) =>
+        val label = fields.headOption.collect { case Value.StrV(s) => s }.getOrElse("<unknown>")
+        throw new RuntimeException(s"unresolved runtime dispatch: $label")
+      case other => println(Show.show(other))
 
   private def loadConfig(): NativeRuntimeConfig =
     val resource = Option(getClass.getClassLoader.getResourceAsStream(
