@@ -893,6 +893,9 @@ object SpikeParse:
         case Some(f) => kids += Node.Leaf(f, Some("sel.field"))
         case None    => c.report("spike.expected", "expected field name after '.'")
       postfix(c, Node.Frame("spike.sel", None, kids.result()))
+    // `f(a)(using g)` merges the explicit using args INTO f(a) (KC8 flattening), not a curried apply.
+    else if c.peekKind == "spike.lparen" && c.peek2Lexeme == "using" && roleKind(atom) == "spike.call" then
+      postfix(c, mergeUsingArgs(c, atom))
     else if c.peekKind == "spike.lparen" then postfix(c, applyArgs(c, atom)) // chained application f(a)(b)
     // `e[T]` type application (`Array.empty[Int]`, `x.asInstanceOf[List[Int]]`, `foo[A](x)`) — the type
     // args are erased (ssc1-front buildPostfix readTypeApply); continue the chain with the same `e`. Guarded
@@ -1306,6 +1309,31 @@ object SpikeParse:
 
   // apply `fn` to the argument list at the cursor's `(` → a spike.call. Shared by `f(a)` and, via
   // postfix, chained/curried application `f(a)(b)` (the fn is itself a call).
+  private def roleKind(n: Node): String = n match
+    case Node.Frame(k, _, _) => k
+    case _                   => ""
+  private def roleOf(n: Node): Option[String] = n match
+    case Node.Leaf(_, r)  => r
+    case Node.Frame(_, r, _) => r
+
+  // `f(a)(using g …)` — rebuild f(a) with the using args appended to its argument list (flatten, don't curry).
+  private def mergeUsingArgs(c: Cur, call: Node): Node =
+    val (fnNode, oldArgs) = call match
+      case Node.Frame("spike.call", _, ks) =>
+        val fnc = ks.find(n => roleOf(n).contains("call.fn")).getOrElse(call)
+        (fnc, ks.filter(n => roleOf(n).contains("call.arg")))
+      case _ => (call, Vector.empty[Node])
+    val kids = Vector.newBuilder[Node]
+    kids += fnNode.withRole("call.fn")
+    kids ++= oldArgs
+    c.advance() // `(`
+    if isWord(c, "using") then c.advance()
+    while c.peekKind != "spike.rparen" && !c.eof do
+      parseExpr(c, 1).foreach(a => kids += a.withRole("call.arg"))
+      if c.peekKind == "spike.comma" then c.advance()
+    if c.peekKind == "spike.rparen" then c.advance()
+    Node.Frame("spike.call", None, kids.result())
+
   private def applyArgs(c: Cur, fn: Node): Node =
     val kids = Vector.newBuilder[Node]
     kids += fn.withRole("call.fn")
