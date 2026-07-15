@@ -56,12 +56,24 @@ export interface EffectKey<Fx extends Effect> {
   ): OperationFactory<Fx, A, Args>
 }
 
+type IsUnion<T, Whole = T> =
+  T extends unknown ? ([Whole] extends [T] ? false : true) : never
+
+type SingleUniqueSymbol<T extends symbol> =
+  [T] extends [never]
+    ? never
+    : symbol extends T
+      ? never
+      : true extends IsUnion<T>
+        ? never
+        : T
+
 export function defineEffect<
   const Id extends string,
   const Owner extends symbol
 >(
   id: Id,
-  owner: symbol extends Owner ? never : Owner
+  owner: SingleUniqueSymbol<Owner>
 ): EffectKey<Effect<Id, Owner>>
 
 export interface Operation<

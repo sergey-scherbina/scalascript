@@ -30,6 +30,22 @@ defineEffect("typed.WidenedOwner", widenedOwner)
 
 const FirstOwner = Symbol("typed.Same.first")
 const SecondOwner = Symbol("typed.Same.second")
+type CollapsedOwner = typeof FirstOwner | typeof SecondOwner
+function collapsedOwnerA(flag: boolean): CollapsedOwner {
+  return flag ? FirstOwner : SecondOwner
+}
+function collapsedOwnerB(flag: boolean): CollapsedOwner {
+  return flag ? SecondOwner : FirstOwner
+}
+// @ts-expect-error an inferred union cannot identify one runtime owner
+defineEffect("typed.Collapsed", collapsedOwnerA(true))
+// @ts-expect-error a second inferred union must not collapse with the first
+defineEffect("typed.Collapsed", collapsedOwnerB(false))
+defineEffect<"typed.Collapsed", CollapsedOwner>(
+  "typed.Collapsed",
+  // @ts-expect-error an explicit generic union is not one unique symbol
+  collapsedOwnerA(true)
+)
 const First = defineEffect("typed.Same", FirstOwner)
 const Second = defineEffect("typed.Same", SecondOwner)
 type FirstFx = typeof First extends EffectKey<infer Fx> ? Fx : never

@@ -26,6 +26,8 @@ import type {
 
 const InputOwner = Symbol("typed.Input.owner")
 const Input = defineEffect("typed.Input", InputOwner)
+const InputAgain: typeof Input = defineEffect("typed.Input", InputOwner)
+void InputAgain
 type InputFx = typeof Input extends EffectKey<infer Fx> ? Fx : never
 const Read = Input.operation<number>("read")
 
