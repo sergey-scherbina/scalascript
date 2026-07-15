@@ -1337,6 +1337,11 @@ object SpikeProject:
     b.kind == "spike.call" || b.kind == "spike.paren"
   private def countPh(n: UniNode): Int = n match
     case UniNode.Token(t) if t.kind == "spike.id" && t.lexeme == "_" => 1
+    // A `_` in a nested call's ARGUMENT belongs to that inner call (it gets its own lambda when the inner
+    // call is projected), so it does NOT lift into THIS argument — only the fn position (e.g. `_.foo(a)`)
+    // joins this lift. ssc1-front achieves the same by wrapping innermost-first at parse time.
+    case b: UniNode.Branch if b.kind == "spike.call" =>
+      kids(b).collect { case (Some("call.fn"), c) => countPh(c) }.sum
     case b: UniNode.Branch if phDescend(b) => kids(b).map((_, c) => countPh(c)).sum
     case _ => 0
   private def projectPh(n: UniNode, ctr: Array[Int]): String = n match
@@ -1356,8 +1361,10 @@ object SpikeProject:
       val field = kids(b).collectFirst { case (Some("sel.field"), c) => lexeme(c) }.getOrElse("_")
       s"""mkSel($obj, "${esc(field)}")"""
     case b: UniNode.Branch if b.kind == "spike.call" =>
+      // fn position joins THIS lift (shared ctr); a nested call's args get their OWN placeholder scope
+      // via wrapArg (independent lambda), so they must NOT consume this lambda's params.
       val fn   = kids(b).collectFirst { case (Some("call.fn"), c) => projectPh(c, ctr) }.getOrElse(hole)
-      val args = kids(b).collect { case (Some("call.arg"), c) => projectPh(c, ctr) }
+      val args = kids(b).collect { case (Some("call.arg"), c) => wrapArg(c) }
       s"""mkApp($fn, ${consList(args.toVector)})"""
     case b: UniNode.Branch if b.kind == "spike.paren" =>
       kids(b).collectFirst { case (Some("group.elem"), c) => projectPh(c, ctr) }.getOrElse(hole)
