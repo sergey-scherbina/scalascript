@@ -1,0 +1,6 @@
+q1 emp 1 ann 100
+q1 emp 2 bob 250
+q1 emp 3 cat 300
+q2 bonus 1 false 0
+q2 bonus 2 true 50
+q2 bonus 3 false 0

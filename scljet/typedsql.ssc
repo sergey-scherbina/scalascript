@@ -62,6 +62,11 @@ exports:
   - havingMin
   - toSelectStmt
   - runTypedQuery
+  - runTypedQueryAs
+  - cellLong
+  - cellText
+  - cellReal
+  - cellIsNull
   - TypedInsert
   - TypedUpdate
   - TypedDelete
@@ -92,7 +97,7 @@ byte-identical rows (verified against reference sqlite3). This stage keeps the e
 paths (full scan); index-aware physical planning is a later stage of the spec.
 
 [ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText](index.ssc)
-[SxNode, SxCol, SxLit, SxBin, Condition, ProjItem, OrderKey, JoinSpec, HavingCond, SelectStmt, runSelectStmt, renderRows, InsertStmt, DeleteStmt, UpdateStmt, Assignment, executeInsert, executeDelete, executeUpdate](sql.ssc)
+[SxNode, SxCol, SxLit, SxBin, Condition, ProjItem, OrderKey, JoinSpec, HavingCond, SelectStmt, runSelectStmt, renderRows, InsertStmt, DeleteStmt, UpdateStmt, Assignment, executeInsert, executeDelete, executeUpdate, coerceText](sql.ssc)
 
 ## Types, columns and expressions
 
@@ -266,6 +271,100 @@ def toSelectStmt(q: TypedQuery): SelectStmt =
 
 def runTypedQuery(dbBytes: ByteSlice, q: TypedQuery): Either[String, List[List[SqliteValue]]] =
   runSelectStmt(dbBytes, toSelectStmt(q))
+```
+
+## Typed row decoder → typed output records
+
+`runTypedQuery` returns raw `List[SqliteValue]` rows; `runTypedQueryAs` maps each row through a
+caller-supplied `decode` function, producing typed output records (`List[S]`). The bounds-safe,
+0-based `cell*` extractors make decoders trivial to write: they pull the i-th cell (SqlNull when the
+index is out of range) and coerce it to a scalar exactly like the JDBC façade — text/integer via a
+leading-int parse with a 0L-seeded accumulator (JS BigInt-safe), reals via a Double-space parse or a
+direct `SqlReal.value`, never `.toInt`/`.toDouble`. SqlNull coerces to `0` / `0.0` / `""`.
+
+```scalascript
+// Bounds-safe char code: -1 past either end, so guards work under the interpreter's non-short-circuit &&.
+def cellCodeAt(s: String, i: Int): Int =
+  if i < 0 then -1
+  else if i >= s.length then -1
+  else s.charAt(i).toInt
+
+// Leading-integer parse (sqlite CAST-to-int intent): 0L seed, `*10L`, so JS stays BigInt-safe.
+def cellParseLong(s: String): Long =
+  val c0 = cellCodeAt(s, 0)
+  val neg = c0 == 45
+  var i = if c0 == 45 then 1 else if c0 == 43 then 1 else 0
+  var acc = 0L
+  while cellCodeAt(s, i) >= 48 && cellCodeAt(s, i) <= 57 do
+    acc = acc * 10L + (cellCodeAt(s, i) - 48).toLong
+    i = i + 1
+  if neg then 0L - acc else acc
+
+// Leading-real parse in Double space (0.0 seed, never touches BigInt).
+def cellParseDouble(s: String): Double =
+  val c0 = cellCodeAt(s, 0)
+  val neg = c0 == 45
+  var i = if c0 == 45 then 1 else if c0 == 43 then 1 else 0
+  var intPart = 0.0
+  while cellCodeAt(s, i) >= 48 && cellCodeAt(s, i) <= 57 do
+    intPart = intPart * 10.0 + (cellCodeAt(s, i) - 48).toDouble
+    i = i + 1
+  var frac = 0.0
+  var scale = 1.0
+  if cellCodeAt(s, i) == 46 then
+    i = i + 1
+    var fdone = false
+    while (cellCodeAt(s, i) >= 48 && cellCodeAt(s, i) <= 57) && !fdone do
+      frac = frac * 10.0 + (cellCodeAt(s, i) - 48).toDouble
+      scale = scale * 10.0
+      i = i + 1
+  val mag = intPart + frac / scale
+  if neg then 0.0 - mag else mag
+
+// Value → scalar (same semantics as the JDBC façade's valLong/valDouble/valString).
+def cellValueLong(v: SqliteValue): Long = v match
+  case SqlInteger(n) => n
+  case SqlNull => 0L
+  case _ => cellParseLong(coerceText(v))
+
+def cellValueDouble(v: SqliteValue): Double = v match
+  case SqlReal(x) => x
+  case SqlNull => 0.0
+  case _ => cellParseDouble(coerceText(v))
+
+def cellValueText(v: SqliteValue): String = v match
+  case SqlNull => ""
+  case _ => coerceText(v)
+
+// The i-th (0-based) cell of a row; SqlNull past either end.
+def cellAt(row: List[SqliteValue], i: Int): SqliteValue =
+  if i < 0 then SqlNull
+  else
+    var r = row
+    var k = i
+    while r.nonEmpty && k > 0 do
+      r = r.tail
+      k = k - 1
+    if r.isEmpty then SqlNull else r.head
+
+def cellLong(row: List[SqliteValue], i: Int): Long = cellValueLong(cellAt(row, i))
+def cellText(row: List[SqliteValue], i: Int): String = cellValueText(cellAt(row, i))
+def cellReal(row: List[SqliteValue], i: Int): Double = cellValueDouble(cellAt(row, i))
+def cellIsNull(row: List[SqliteValue], i: Int): Boolean = cellAt(row, i) match
+  case SqlNull => true
+  case _ => false
+
+// Run a typed query, then decode each raw row into a typed record S (order preserved).
+def runTypedQueryAs[S](dbBytes: ByteSlice, q: TypedQuery, decode: List[SqliteValue] => S): Either[String, List[S]] =
+  runTypedQuery(dbBytes, q) match
+    case Left(m) => Left(m)
+    case Right(rows) =>
+      var r = rows
+      var accRev: List[S] = Nil
+      while r.nonEmpty do
+        accRev = decode(r.head) :: accRev
+        r = r.tail
+      Right(accRev.reverse)
 ```
 
 ## Typed writes — INSERT / UPDATE / DELETE

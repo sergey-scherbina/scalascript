@@ -1,0 +1,67 @@
+---
+name: scljet-typedsql-decode
+description: SclJet typed SQL row decoder — decode erased query rows into typed output records; NULL columns coerce like sqlite3
+backends: [int, js]
+---
+
+# SclJet typed SQL row decoder
+
+Runs a typed query built from the `scljet/typedsql.ssc` combinators, then maps each raw
+`List[SqliteValue]` row through a decoder into a typed record with `runTypedQueryAs`. The bounds-safe
+0-based `cell*` extractors (`cellLong` / `cellText` / `cellReal` / `cellIsNull`) coerce each cell to a
+scalar exactly like the executor / reference sqlite3: a NULL column reads as `cellIsNull == true` and
+`cellLong == 0`. The query still erases to the same `SelectStmt`, so the decoded records carry the
+same values reference sqlite3 returns for the equivalent SQL (verified out-of-band); locked across
+`[int, js]`.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, SqlNull, buildTableDatabase](std/scljet/index.ssc)
+[SqlType, IntType, TextType, Table, Column, TypedQuery, col, from, selectCols, orderByQ, projCol, orderAsc, runTypedQueryAs, cellLong, cellText, cellIsNull](std/scljet/typedsql.ssc)
+
+```scalascript
+val emp: Table = Table("emp", List("id", "name", "salary", "bonus"))
+val cId: Column[Long] = col("emp", "id", 0, IntType)
+val cName: Column[String] = col("emp", "name", 1, TextType)
+val cSalary: Column[Long] = col("emp", "salary", 2, IntType)
+val cBonus: Column[Long] = col("emp", "bonus", 3, IntType)
+
+// Typed output records the query rows decode into.
+case class Emp(id: Long, name: String, salary: Long)
+case class BonusRow(id: Long, hasBonus: Boolean, bonus: Long)
+
+// SELECT id, name, salary → Emp: cellLong / cellText / cellLong by 0-based position.
+def decodeEmp(row: List[SqliteValue]): Emp =
+  Emp(cellLong(row, 0), cellText(row, 1), cellLong(row, 2))
+
+// SELECT id, bonus → BonusRow: a NULL bonus reads as hasBonus=false, cellLong=0.
+def decodeBonus(row: List[SqliteValue]): BonusRow =
+  BonusRow(cellLong(row, 0), !cellIsNull(row, 1), cellLong(row, 1))
+
+def showEmps(db: ByteSlice, q: TypedQuery): Unit =
+  runTypedQueryAs(db, q, decodeEmp) match
+    case Left(m) => println("q1 => ERR:" + m)
+    case Right(emps) =>
+      var r = emps
+      while r.nonEmpty do
+        val e = r.head
+        println("q1 emp " + e.id.toString + " " + e.name + " " + e.salary.toString)
+        r = r.tail
+
+def showBonus(db: ByteSlice, q: TypedQuery): Unit =
+  runTypedQueryAs(db, q, decodeBonus) match
+    case Left(m) => println("q2 => ERR:" + m)
+    case Right(rows) =>
+      var r = rows
+      while r.nonEmpty do
+        val b = r.head
+        println("q2 bonus " + b.id.toString + " " + b.hasBonus.toString + " " + b.bonus.toString)
+        r = r.tail
+
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER, name TEXT, salary INTEGER, bonus INTEGER)",
+  List(List(SqlInteger(1L), SqlText("ann"), SqlInteger(100L), SqlNull),
+       List(SqlInteger(2L), SqlText("bob"), SqlInteger(250L), SqlInteger(50L)),
+       List(SqlInteger(3L), SqlText("cat"), SqlInteger(300L), SqlNull))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db) =>
+    showEmps(db, orderByQ(selectCols(from(emp), projCol(cId) :: projCol(cName) :: projCol(cSalary) :: Nil), orderAsc(cId) :: Nil))
+    showBonus(db, orderByQ(selectCols(from(emp), projCol(cId) :: projCol(cBonus) :: Nil), orderAsc(cId) :: Nil))
+```
