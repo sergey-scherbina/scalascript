@@ -125,7 +125,10 @@ object SpikeLex:
           case "=" => "spike.eq"
           case ":" => "spike.colon"
           case _   => "spike.op"
-        emit(kind, start, op, TokenChannel.Syntax)
+        // `:::` list concat lexes as `++` — in v2 every Seq is a Cons-list, so `xs ::: ys` is exactly
+        // `xs ++ ys` (an EXACT mirror of ssc1-front.ssc0:385, which rewrites the token at lex time).
+        val lexeme = if op == ":::" then "++" else op
+        emit(kind, start, lexeme, TokenChannel.Syntax)
       else if c == '"' then
         // string literal → spike.str whose lexeme is the DECODED value (mirrors ssc1-front
         // buildStr: `\n`→NL, `\t`→TAB, `\<c>`→c; triple-quoted is raw). Interpolation prefixes
