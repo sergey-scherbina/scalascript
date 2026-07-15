@@ -415,6 +415,22 @@ object SpikeParse:
       if c.peekKind == "spike.lparen" then skipBalancedParens(c)
       while isWord(c, "with") do { c.advance(); skipTypeRef(c) }
     captureDerives(c, kids)
+    // an EXPLICIT body `{ def m … }` / `: def m …` carries BODY METHODS. ssc1-front registers them in a
+    // parser cell the spike bypasses; instead we capture them (cc.method) and project a companion
+    // `("casemethods", (name, (fields, defs)))` node that lowerProg's collectCaseMethodsNodes unions in.
+    // Only a `{`/`:` opener starts a body — a bodyless case class must NOT swallow a following top-level decl.
+    val braced = c.peekKind == "spike.lbrace"
+    if braced || c.peekKind == "spike.colon" then
+      c.advance()
+      c.skipSemis()
+      val bodyCol = c.peekCol
+      while !c.eof && c.peekKind != "spike.rbrace" && (braced || c.peekCol >= bodyCol) && isMemberStart(c) do
+        skipDeclModifiers(c)
+        val before = c.mark
+        kids += parseMember(c).withRole("cc.method")
+        if c.mark == before then c.advance()
+        c.skipSemis()
+      if braced && c.peekKind == "spike.rbrace" then c.advance()
     Node.Frame("spike.casecls", None, kids.result())
 
   // `derives Name[T][, Name…]*` → cc.derive leaves (each name's `[T]` type args skipped), matching
@@ -1495,7 +1511,7 @@ object SpikeProject:
   def program(root: UniNode): String =
     consList(kids(root).flatMap {
       case (_, c) if kindOf(c) == "spike.def"       => Vector(defNode(c))
-      case (_, c) if kindOf(c) == "spike.casecls"   => Vector(caseClsNode(c))
+      case (_, c) if kindOf(c) == "spike.casecls"   => caseClsNodes(c)
       case (_, c) if kindOf(c) == "spike.given"     => Vector(givenNode(c))
       case (_, c) if kindOf(c) == "spike.givenobj"  => Vector(givenObjNode(c))
       case (_, c) if kindOf(c) == "spike.givenval"  => Vector(givenValNode(c))
@@ -1580,6 +1596,18 @@ object SpikeProject:
     val types = ks.collect { case (Some("cc.fieldType"), c) => "\"" + esc(concatType(c)) + "\"" }.toVector
     val derives = ks.collect { case (Some("cc.derive"), c) => "\"" + esc(lexeme(c)) + "\"" }.toVector
     s"""mkCaseCls("${esc(name)}", ${consList(names)}, ${consList(types)}, ${consList(derives)})"""
+
+  // a case class projects to its mkCaseCls plus, if the body has METHODS, a companion casemethods node
+  // (Pair("casemethods", Pair(name, Pair(fieldNames, [method-defs]))) — the shape lowerProg's caseMethodsCell
+  // expects), which collectCaseMethodsNodes unions in to generate the `Name_method` globals + dispatch regs.
+  private def caseClsNodes(n: UniNode): Vector[String] =
+    val base    = caseClsNode(n)
+    val methods = kids(n).collect { case (Some("cc.method"), c) => memberNode(c) }
+    if methods.isEmpty then Vector(base)
+    else
+      val name   = kids(n).collectFirst { case (Some("cc.name"), c) => lexeme(c) }.getOrElse("_")
+      val fields = kids(n).collect { case (Some("cc.field"), c) => "\"" + esc(lexeme(c)) + "\"" }.toVector
+      Vector(base, s"""Pair("casemethods", Pair("${esc(name)}", Pair(${consList(fields)}, ${consList(methods.toVector)})))""")
 
   // concatenate a spike.cctype frame's token lexemes (no spaces) → the full field type string
   private def concatType(n: UniNode): String = n match

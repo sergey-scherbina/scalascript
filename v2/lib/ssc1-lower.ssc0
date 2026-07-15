@@ -5373,9 +5373,25 @@ def emitExtDispatchers = (stmts) =>
     } in
   emitAll(extDispatchMethodNames(stmts))
 
+-- AST-carried case-class body methods: a front that does not populate caseMethodsCell as a parse side
+-- effect (e.g. the new self-hosting spike) instead emits `("casemethods", (name, (fields, defs)))` nodes.
+-- Collect them here and UNION with the cell — additive, so ssc1-front's own parse (which never emits these
+-- nodes) is unaffected and production output stays byte-identical.
+def collectCaseMethodsNodes = (stmts) =>
+  match stmts {
+    case Nil => Nil
+    case Cons(s, rest) =>
+      match s {
+        case Pair(tag, data) =>
+          if #seq(tag, "casemethods") then Cons(data, collectCaseMethodsNodes(rest))
+          else collectCaseMethodsNodes(rest)
+      }
+  }
+
 def lowerProg = (stmts) =>
   -- K62.18: imported extension identity is AST-owned, never transient parser
   -- state. This must run before resolveE classifies selected method calls.
+  let _cmn = #cell.set(caseMethodsCell, appendL(collectCaseMethodsNodes(stmts), #cell.get(caseMethodsCell))) in
   let _em = #cell.set(extensionMethodsCell, collectExtensionMethods(stmts)) in
   -- Extension-dispatch registries: top-level extension methods + given-body dispatch names, so a
   -- method with both gets its top-level impl mangled to `m__ext_default` (dispatcher fallback).
