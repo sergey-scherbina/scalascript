@@ -83,6 +83,11 @@ that gate.
 - [ ] Effectful `While` conditions and bodies thread resume requests before
       boolean dispatch, discard, or the next iteration. Deep effectful loops
       remain stack-safe on VM/direct ASM; FastCode may not bypass this path.
+- [ ] A raw CoreIR `If` condition whose primitive result is a stored
+      auto-thread operation (for example `cell.get(cellHoldingOp)`) threads the
+      operation before boolean dispatch on VM/direct ASM. `FastBoolCode` must
+      decline the whole operation-producing condition instead of coercing the
+      `Op` to `false`.
 - [ ] The first curried `App(Global("handle"), computation)` stage preserves
       the computation as raw `Op/3`, while an effectful application function
       position completes before any argument is evaluated.
@@ -332,6 +337,12 @@ operation-producing, independently of the mutable `V2PluginRegistry`. This is
 required by `build-jvm`: native lowering and `OpAnfNative` run while the plugin
 registry is empty, whereas the packaged artifact installs its ServiceLoader
 plugins in `NativeArtifactRuntime.initialize` immediately before execution.
+`FastBoolCode` has the stronger condition-boundary rule: it must decline when
+the complete condition satisfies `mayProduceAutoThreadOp`, including a
+primitive that can itself return a stored/callback operation even when every
+argument is pure. Guarding only consumed value positions would let a specialized
+`cell.get` return an `Op` and then coerce the non-`BoolV` result to `false`,
+silently selecting the wrong `If` branch.
 
 Builtin recognition is single-sourced from the existing primitive dispatchers,
 not a duplicated allowlist. `Prims.resolveBuiltin(op)` contains the generic
