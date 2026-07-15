@@ -18,12 +18,14 @@ import type {
   Eff as EffType,
   Handler,
   Prompt,
+  PromptKeyOf,
   PromptScope,
   ResumeStateMachine,
   StateMachine as StateMachineType
 } from "@scalascript/control"
 
-const Input = defineEffect("typed.Input")
+const InputOwner = Symbol("typed.Input.owner")
+const Input = defineEffect("typed.Input", InputOwner)
 type InputFx = typeof Input extends EffectKey<infer Fx> ? Fx : never
 const Read = Input.operation<number>("read")
 
@@ -38,6 +40,13 @@ const inputHandler: Handler<InputFx, never, number, number> = {
 const handled: EffType<never, number> = handle(readProgram, inputHandler)
 const answer: number = Eff.runPure(handled)
 void answer
+
+const inferredHandled: EffType<never, number> = handle(readProgram, {
+  effect: Input,
+  onReturn: value => Eff.pure(value),
+  onOperation: () => Eff.pure(42)
+})
+void inferredHandled
 
 const machine: StateMachineType<number, never, number> = {
   step(state) {
@@ -62,14 +71,18 @@ const prompted: EffType<never, number> = freshPrompt<
   EffType<never, number>
 >(
   <P extends PromptScope>(prompt: Prompt<P, number>) =>
-    reset(prompt, () =>
-      shift<P, number, number>(
-        prompt,
-        <Residual extends Effect>(
-          continuation: ContinuationType<number, Residual, number>
-        ): EffType<Residual | Control<P>, number> =>
-          continuation.resume(41)
-      ).map(value => value + 1)
-    )
+    {
+      const extracted: Prompt<PromptKeyOf<typeof prompt>, number> = prompt
+      void extracted
+      return reset(prompt, () =>
+        shift<P, number, number>(
+          prompt,
+          <Residual extends Effect>(
+            continuation: ContinuationType<number, Residual, number>
+          ): EffType<Residual | Control<P>, number> =>
+            continuation.resume(41)
+        ).map(value => value + 1)
+      )
+    }
 )
 void prompted

@@ -30,45 +30,45 @@ function resumeOneShot(resumption, value) {
   return attempt.computation
 }
 
-const One = defineEffect("One")
+const One = defineEffect("One", Symbol("One.owner"))
 const OneOp = One.operation("op", {
   multiplicity: ResumeMultiplicity.OneShot
 })
 
-const Choice = defineEffect("Vector.Choice")
+const Choice = defineEffect("Vector.Choice", Symbol("Vector.Choice.owner"))
 const Pick = Choice.operation("pick")
 
-const Yield = defineEffect("Vector.Yield")
+const Yield = defineEffect("Vector.Yield", Symbol("Vector.Yield.owner"))
 const Emit = Yield.operation("emit", {
   multiplicity: ResumeMultiplicity.OneShot
 })
 
-const Abort = defineEffect("Vector.Abort")
+const Abort = defineEffect("Vector.Abort", Symbol("Vector.Abort.owner"))
 const Stop = Abort.operation("stop", {
   multiplicity: ResumeMultiplicity.OneShot
 })
 
-const Amb = defineEffect("Vector.Amb")
+const Amb = defineEffect("Vector.Amb", Symbol("Vector.Amb.owner"))
 const Flip = Amb.operation("flip", {
   multiplicity: ResumeMultiplicity.OneShot
 })
 
-const Get = defineEffect("Vector.Get")
+const Get = defineEffect("Vector.Get", Symbol("Vector.Get.owner"))
 const GetValue = Get.operation("get", {
   multiplicity: ResumeMultiplicity.OneShot
 })
 
-const Read = defineEffect("Vector.Read")
+const Read = defineEffect("Vector.Read", Symbol("Vector.Read.owner"))
 const ReadValue = Read.operation("read", {
   multiplicity: ResumeMultiplicity.OneShot
 })
 
-const Write = defineEffect("Vector.Write")
+const Write = defineEffect("Vector.Write", Symbol("Vector.Write.owner"))
 const WriteValue = Write.operation("write", {
   multiplicity: ResumeMultiplicity.OneShot
 })
 
-const Tick = defineEffect("Vector.Tick")
+const Tick = defineEffect("Vector.Tick", Symbol("Vector.Tick.owner"))
 const TickStep = Tick.operation("step", {
   multiplicity: ResumeMultiplicity.OneShot
 })
@@ -550,8 +550,20 @@ test("local continuations are reusable and save rejects deterministically", () =
 })
 
 test("same stable effect id does not collapse distinct runtime owners", () => {
-  const first = defineEffect("same.id")
-  const second = defineEffect("same.id")
+  assert.throws(
+    () => defineEffect("missing.owner"),
+    /effect owner must be a symbol/
+  )
+  const firstOwner = Symbol("same.id.first")
+  const secondOwner = Symbol("same.id.second")
+  const first = defineEffect("same.id", firstOwner)
+  const firstAgain = defineEffect("same.id", firstOwner)
+  const second = defineEffect("same.id", secondOwner)
+  assert.equal(firstAgain, first)
+  assert.throws(
+    () => defineEffect("different.id", firstOwner),
+    /already bound to descriptor same\.id/
+  )
   const request = second.operation("read")
   const forwarded = handle(perform(request()), {
     effect: first,

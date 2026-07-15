@@ -8,9 +8,18 @@ declare const savedContinuationBrand: unique symbol
 declare const promptScopeBrand: unique symbol
 declare const promptBrand: unique symbol
 declare const controlBrand: unique symbol
+declare const saveEffectOwner: unique symbol
+declare const restoreEffectOwner: unique symbol
+declare const controlEffectOwner: unique symbol
 
-export interface Effect<Id extends string = string> {
-  readonly [effectBrand]: Id
+export interface Effect<
+  Id extends string = string,
+  Owner extends symbol = symbol
+> {
+  readonly [effectBrand]: Readonly<{
+    descriptor: Id
+    owner: Owner
+  }>
 }
 
 export interface EffectId {
@@ -47,9 +56,13 @@ export interface EffectKey<Fx extends Effect> {
   ): OperationFactory<Fx, A, Args>
 }
 
-export function defineEffect<const Id extends string>(
-  id: Id
-): EffectKey<Effect<Id>>
+export function defineEffect<
+  const Id extends string,
+  const Owner extends symbol
+>(
+  id: Id,
+  owner: symbol extends Owner ? never : Owner
+): EffectKey<Effect<Id, Owner>>
 
 export interface Operation<
   Fx extends Effect,
@@ -170,14 +183,16 @@ export const CaptureFailure: Readonly<{
   UnsupportedGraph(site: string, detail: string): CaptureFailure
 }>
 
-export interface Save extends Effect<"scalascript.control.Save"> {}
+export interface Save
+  extends Effect<"scalascript.control.Save", typeof saveEffectOwner> {}
 
 export const Save: Readonly<{
   key: EffectKey<Save>
   Rejected: OperationFactory<Save, never, readonly [CaptureFailure]>
 }>
 
-export interface Restore extends Effect<"scalascript.control.Restore"> {}
+export interface Restore
+  extends Effect<"scalascript.control.Restore", typeof restoreEffectOwner> {}
 
 export interface SavedContinuation<A, Fx extends Effect, R> {
   readonly [savedContinuationBrand]: Readonly<{
@@ -193,10 +208,10 @@ export interface PromptScope {
 }
 
 export type PromptKeyOf<T> =
-  T extends Prompt<infer P, unknown> ? P : never
+  T extends Prompt<infer P, infer _R> ? P : never
 
 export interface Control<P extends PromptScope>
-  extends Effect<"scalascript.control.Control"> {
+  extends Effect<"scalascript.control.Control", typeof controlEffectOwner> {
   readonly [controlBrand]: (prompt: P) => P
 }
 

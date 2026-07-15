@@ -2,6 +2,7 @@ import {
   Eff,
   defineEffect,
   freshPrompt,
+  handle,
   perform,
   reset,
   shift
@@ -17,8 +18,47 @@ import type {
   PromptScope
 } from "@scalascript/control"
 
-const Input = defineEffect("typed.NegativeInput")
+const InputOwner = Symbol("typed.NegativeInput.owner")
+const Input = defineEffect("typed.NegativeInput", InputOwner)
 const Read = Input.operation<number>("read")
+
+// @ts-expect-error inline Symbol() widens and cannot name a generative owner
+defineEffect("typed.InlineOwner", Symbol("typed.InlineOwner"))
+declare const widenedOwner: symbol
+// @ts-expect-error a widened symbol cannot preserve owner identity
+defineEffect("typed.WidenedOwner", widenedOwner)
+
+const FirstOwner = Symbol("typed.Same.first")
+const SecondOwner = Symbol("typed.Same.second")
+const First = defineEffect("typed.Same", FirstOwner)
+const Second = defineEffect("typed.Same", SecondOwner)
+type FirstFx = typeof First extends EffectKey<infer Fx> ? Fx : never
+type SecondFx = typeof Second extends EffectKey<infer Fx> ? Fx : never
+const FirstRead = First.operation<number>("read")
+const wrongOwnerHandler = {
+  effect: Second,
+  onReturn: (value: number) => Eff.pure(value),
+  onOperation: () => Eff.pure(73)
+} satisfies import("@scalascript/control").Handler<
+  SecondFx,
+  never,
+  number,
+  number
+>
+handle(
+  // @ts-expect-error another owner cannot infer discharge of FirstFx
+  perform(FirstRead()),
+  wrongOwnerHandler
+)
+const stillFirst: EffType<FirstFx, number> = handle<
+  SecondFx,
+  FirstFx,
+  number,
+  number
+>(perform(FirstRead()), wrongOwnerHandler)
+// @ts-expect-error a handler for the second owner cannot discharge the first
+const wrongOwnerWasNotHandled: EffType<never, number> = stillFirst
+void wrongOwnerWasNotHandled
 
 // @ts-expect-error an effectful computation is not accepted by runPure
 Eff.runPure(perform(Read()))

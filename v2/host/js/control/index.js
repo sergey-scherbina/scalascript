@@ -1,11 +1,28 @@
-const effectKeys = new WeakSet()
-const operations = new WeakSet()
-const computations = new WeakSet()
-const prompts = new WeakSet()
+const internalAuthority = Object.freeze(Object.create(null))
+const effectKeyStates = new WeakMap()
+const operationStates = new WeakMap()
+const computationStates = new WeakMap()
+const reusableContinuationStates = new WeakMap()
+const localContinuationStates = new WeakMap()
+const delegatedContinuationStates = new WeakMap()
+const promptStates = new WeakMap()
 const shiftBodies = new WeakMap()
 const oneShotStates = new WeakMap()
+const effectKeysByOwner = new Map()
 
-const operationFactoryToken = Symbol("operationFactory")
+function requireInternalAuthority(value) {
+  if (value !== internalAuthority) {
+    throw new TypeError("@scalascript/control internal constructor is private")
+  }
+}
+
+function requirePrivateState(states, value, label) {
+  const state = states.get(value)
+  if (state === undefined) {
+    throw new TypeError(`${label} has no @scalascript/control private state`)
+  }
+  return state
+}
 
 function requireFunction(value, label) {
   if (typeof value !== "function") {
@@ -21,29 +38,36 @@ function requireNonEmptyString(value, label) {
   return value
 }
 
+function requireSymbol(value, label) {
+  if (typeof value !== "symbol") {
+    throw new TypeError(`${label} must be a symbol`)
+  }
+  return value
+}
+
 function requireEffectKey(value, label = "effect key") {
-  if ((typeof value !== "object" && typeof value !== "function") || value === null || !effectKeys.has(value)) {
+  if ((typeof value !== "object" && typeof value !== "function") || value === null || !effectKeyStates.has(value)) {
     throw new TypeError(`${label} is not a @scalascript/control EffectKey`)
   }
   return value
 }
 
 function requireOperation(value) {
-  if ((typeof value !== "object" && typeof value !== "function") || value === null || !operations.has(value)) {
+  if ((typeof value !== "object" && typeof value !== "function") || value === null || !operationStates.has(value)) {
     throw new TypeError("operation is not a @scalascript/control Operation")
   }
   return value
 }
 
 function requireEff(value, label = "computation") {
-  if ((typeof value !== "object" && typeof value !== "function") || value === null || !computations.has(value)) {
+  if ((typeof value !== "object" && typeof value !== "function") || value === null || !computationStates.has(value)) {
     throw new TypeError(`${label} is not a @scalascript/control Eff`)
   }
   return value
 }
 
 function requirePrompt(value) {
-  if ((typeof value !== "object" && typeof value !== "function") || value === null || !prompts.has(value)) {
+  if ((typeof value !== "object" && typeof value !== "function") || value === null || !promptStates.has(value)) {
     throw new TypeError("prompt is not a @scalascript/control Prompt")
   }
   return value
@@ -101,14 +125,32 @@ export const CaptureFailure = Object.freeze({
 })
 
 class OperationImpl {
-  constructor(factory, args) {
-    this.effect = factory.effect
-    this.id = factory.id
-    this.multiplicity = factory.multiplicity
-    this.args = Object.freeze(Array.from(args))
-    this[operationFactoryToken] = factory
-    operations.add(this)
+  constructor(authority, factory, args) {
+    requireInternalAuthority(authority)
+    operationStates.set(this, Object.freeze({
+      factory,
+      effect: factory.effect,
+      id: factory.id,
+      multiplicity: factory.multiplicity,
+      args: Object.freeze(Array.from(args))
+    }))
     Object.freeze(this)
+  }
+
+  get effect() {
+    return requirePrivateState(operationStates, this, "operation").effect
+  }
+
+  get id() {
+    return requirePrivateState(operationStates, this, "operation").id
+  }
+
+  get multiplicity() {
+    return requirePrivateState(operationStates, this, "operation").multiplicity
+  }
+
+  get args() {
+    return requirePrivateState(operationStates, this, "operation").args
   }
 }
 
@@ -121,13 +163,13 @@ function createOperationFactory(effect, name, options = undefined) {
   }
 
   const id = Object.freeze({ effect: key.id, name: operationName })
-  const factory = (...args) => new OperationImpl(factory, args)
+  const factory = (...args) => new OperationImpl(internalAuthority, factory, args)
   Object.defineProperties(factory, {
     effect: { value: key, enumerable: true },
     id: { value: id, enumerable: true },
     multiplicity: { value: multiplicity, enumerable: true },
     is: {
-      value: operation => operations.has(operation) && operation[operationFactoryToken] === factory,
+      value: operation => operationStates.get(operation)?.factory === factory,
       enumerable: true
     }
   })
@@ -135,10 +177,16 @@ function createOperationFactory(effect, name, options = undefined) {
 }
 
 class EffectKeyImpl {
-  constructor(id) {
-    this.id = Object.freeze({ value: id })
-    effectKeys.add(this)
+  constructor(authority, id) {
+    requireInternalAuthority(authority)
+    effectKeyStates.set(this, Object.freeze({
+      id: Object.freeze({ value: id })
+    }))
     Object.freeze(this)
+  }
+
+  get id() {
+    return requirePrivateState(effectKeyStates, this, "effect key").id
   }
 
   operation(name, options = undefined) {
@@ -146,11 +194,30 @@ class EffectKeyImpl {
   }
 }
 
-export function defineEffect(id) {
-  return new EffectKeyImpl(requireNonEmptyString(id, "effect id"))
+function createEffectKey(id) {
+  return new EffectKeyImpl(internalAuthority, requireNonEmptyString(id, "effect id"))
 }
 
-const saveKey = defineEffect("scalascript.control.Save")
+export function defineEffect(id, owner) {
+  const descriptor = requireNonEmptyString(id, "effect id")
+  const identity = requireSymbol(owner, "effect owner")
+  const existing = effectKeysByOwner.get(identity)
+  if (existing !== undefined) {
+    if (existing.id.value !== descriptor) {
+      throw new TypeError(
+        `effect owner is already bound to descriptor ${existing.id.value}`
+      )
+    }
+    return existing
+  }
+
+  const key = createEffectKey(descriptor)
+  effectKeysByOwner.set(identity, key)
+  return key
+}
+
+const saveOwner = Symbol("scalascript.control.Save.owner")
+const saveKey = defineEffect("scalascript.control.Save", saveOwner)
 const saveRejected = saveKey.operation("rejected", {
   multiplicity: ResumeMultiplicity.OneShot
 })
@@ -161,12 +228,17 @@ export const Save = Object.freeze({
 })
 
 class EffImpl {
-  constructor() {
-    computations.add(this)
+  constructor(authority) {
+    requireInternalAuthority(authority)
   }
 
   flatMap(next) {
-    return new Bind(this, requireFunction(next, "flatMap continuation"))
+    const source = requireEff(this, "flatMap receiver")
+    return new Bind(
+      internalAuthority,
+      source,
+      requireFunction(next, "flatMap continuation")
+    )
   }
 
   map(transform) {
@@ -176,74 +248,97 @@ class EffImpl {
 }
 
 class Pure extends EffImpl {
-  constructor(value) {
-    super()
-    this.value = value
+  constructor(authority, value) {
+    super(authority)
+    computationStates.set(this, Object.freeze({ kind: "Pure", value }))
     Object.freeze(this)
   }
 }
 
 class Deferred extends EffImpl {
-  constructor(thunk) {
-    super()
-    this.thunk = thunk
+  constructor(authority, thunk) {
+    super(authority)
+    computationStates.set(this, Object.freeze({ kind: "Deferred", thunk }))
     Object.freeze(this)
   }
 }
 
 class Bind extends EffImpl {
-  constructor(source, next) {
-    super()
-    this.source = source
-    this.next = next
+  constructor(authority, source, next) {
+    super(authority)
+    computationStates.set(this, Object.freeze({ kind: "Bind", source, next }))
     Object.freeze(this)
   }
 }
 
 class Attached extends EffImpl {
-  constructor(source, frames) {
-    super()
-    this.source = source
-    this.frames = Object.freeze(frames.slice())
+  constructor(authority, source, frames) {
+    super(authority)
+    computationStates.set(this, Object.freeze({
+      kind: "Attached",
+      source,
+      frames: Object.freeze(frames.slice())
+    }))
     Object.freeze(this)
   }
 }
 
 class Pending extends EffImpl {
-  constructor(operation, key, resumption) {
-    super()
-    this.operation = operation
-    this.key = key
-    this.resumption = resumption
+  constructor(authority, operation, key, resumption) {
+    super(authority)
+    computationStates.set(this, Object.freeze({
+      kind: "Pending",
+      operation,
+      key,
+      resumption
+    }))
     Object.freeze(this)
   }
 }
 
 class ReusableContinuationImpl {
-  constructor(site, resume) {
-    this.site = site
-    this.resumeBody = resume
+  constructor(authority, site, resume) {
+    requireInternalAuthority(authority)
+    reusableContinuationStates.set(this, Object.freeze({ site, resume }))
     Object.freeze(this)
   }
 
   resume(value) {
-    return requireEff(this.resumeBody(value), "resumed computation")
+    const state = requirePrivateState(
+      reusableContinuationStates,
+      this,
+      "reusable continuation"
+    )
+    return requireEff(state.resume(value), "resumed computation")
   }
 
   save() {
-    return perform(Save.Rejected(CaptureFailure.UnmanagedCapture(this.site)))
+    const state = requirePrivateState(
+      reusableContinuationStates,
+      this,
+      "reusable continuation"
+    )
+    return perform(Save.Rejected(CaptureFailure.UnmanagedCapture(state.site)))
   }
 }
 
 class LocalContinuationImpl {
-  constructor(state, machine) {
-    this.state = state
-    this.machine = machine
+  constructor(authority, state, machine) {
+    requireInternalAuthority(authority)
+    localContinuationStates.set(this, Object.freeze({ state, machine }))
     Object.freeze(this)
   }
 
   resume(value) {
-    return requireEff(this.machine.resume(this.state, value), "local continuation result")
+    const state = requirePrivateState(
+      localContinuationStates,
+      this,
+      "local continuation"
+    )
+    return requireEff(
+      state.machine.resume(state.state, value),
+      "local continuation result"
+    )
   }
 
   save() {
@@ -254,13 +349,18 @@ class LocalContinuationImpl {
 }
 
 class OneShotContinuationImpl {
-  constructor(operation, resume) {
+  constructor(authority, operation, resume) {
+    requireInternalAuthority(authority)
     oneShotStates.set(this, { claimed: false, operation, resume })
     Object.freeze(this)
   }
 
   tryResume(value) {
-    const state = oneShotStates.get(this)
+    const state = requirePrivateState(
+      oneShotStates,
+      this,
+      "one-shot continuation"
+    )
     if (state.claimed) {
       return Object.freeze({
         ok: false,
@@ -275,19 +375,24 @@ class OneShotContinuationImpl {
 }
 
 class DelegatedOneShotContinuationImpl {
-  constructor(source, transform) {
-    this.source = source
-    this.transform = transform
+  constructor(authority, source, transform) {
+    requireInternalAuthority(authority)
+    delegatedContinuationStates.set(this, Object.freeze({ source, transform }))
     Object.freeze(this)
   }
 
   tryResume(value) {
-    const attempt = this.source.tryResume(value)
+    const state = requirePrivateState(
+      delegatedContinuationStates,
+      this,
+      "delegated one-shot continuation"
+    )
+    const attempt = state.source.tryResume(value)
     if (!attempt.ok) return attempt
     return Object.freeze({
       ok: true,
       computation: requireEff(
-        this.transform(attempt.computation),
+        state.transform(attempt.computation),
         "delegated one-shot computation"
       )
     })
@@ -304,21 +409,25 @@ function oneShotResumption(continuation) {
 
 function attach(source, frames) {
   const computation = requireEff(source)
-  return frames.length === 0 ? computation : new Attached(computation, frames)
+  return frames.length === 0
+    ? computation
+    : new Attached(internalAuthority, computation, frames)
 }
 
 function mapResumption(source, frames) {
   const captured = frames.slice()
   if (source.kind === "Reusable") {
     return reusableResumption(
-      new ReusableContinuationImpl("Eff.step", value =>
+      new ReusableContinuationImpl(internalAuthority, "Eff.step", value =>
         attach(source.continuation.resume(value), captured)
       )
     )
   }
   return oneShotResumption(
-    new DelegatedOneShotContinuationImpl(source.continuation, next =>
-      attach(next, captured)
+    new DelegatedOneShotContinuationImpl(
+      internalAuthority,
+      source.continuation,
+      next => attach(next, captured)
     )
   )
 }
@@ -328,43 +437,44 @@ function stepInternal(body) {
   let frames = []
 
   for (;;) {
-    if (current instanceof Pure) {
+    const state = requirePrivateState(computationStates, current, "computation")
+
+    if (state.kind === "Pure") {
       if (frames.length === 0) {
-        return { kind: "Done", value: current.value }
+        return { kind: "Done", value: state.value }
       }
       const frame = frames.pop()
-      current = requireEff(frame(current.value), "flatMap continuation result")
+      current = requireEff(frame(state.value), "flatMap continuation result")
       continue
     }
 
-    if (current instanceof Deferred) {
-      current = requireEff(current.thunk(), "deferred computation")
+    if (state.kind === "Deferred") {
+      current = requireEff(state.thunk(), "deferred computation")
       continue
     }
 
-    if (current instanceof Bind) {
-      frames.push(current.next)
-      current = current.source
+    if (state.kind === "Bind") {
+      frames.push(state.next)
+      current = state.source
       continue
     }
 
-    if (current instanceof Attached) {
-      const attached = current
-      current = attached.source
-      if (attached.frames.length !== 0) {
-        frames = frames.concat(attached.frames)
+    if (state.kind === "Attached") {
+      current = state.source
+      if (state.frames.length !== 0) {
+        frames = frames.concat(state.frames)
       }
       continue
     }
 
-    if (current instanceof Pending) {
+    if (state.kind === "Pending") {
       const resumption = frames.length === 0
-        ? current.resumption
-        : mapResumption(current.resumption, frames)
+        ? state.resumption
+        : mapResumption(state.resumption, frames)
       return {
         kind: "Request",
-        operation: current.operation,
-        key: current.key,
+        operation: state.operation,
+        key: state.key,
         resumption
       }
     }
@@ -375,11 +485,14 @@ function stepInternal(body) {
 
 export const Eff = Object.freeze({
   pure(value) {
-    return new Pure(value)
+    return new Pure(internalAuthority, value)
   },
 
   defer(body) {
-    return new Deferred(requireFunction(body, "deferred body"))
+    return new Deferred(
+      internalAuthority,
+      requireFunction(body, "deferred body")
+    )
   },
 
   runPure(body) {
@@ -400,20 +513,30 @@ export function perform(operation) {
 
   if (request.multiplicity === ResumeMultiplicity.Reusable) {
     return new Pending(
+      internalAuthority,
       request,
       key,
       reusableResumption(
-        new ReusableContinuationImpl(operationLabel(request.id), value => Eff.pure(value))
+        new ReusableContinuationImpl(
+          internalAuthority,
+          operationLabel(request.id),
+          value => Eff.pure(value)
+        )
       )
     )
   }
 
   if (request.multiplicity === ResumeMultiplicity.OneShot) {
     return new Pending(
+      internalAuthority,
       request,
       key,
       oneShotResumption(
-        new OneShotContinuationImpl(request.id, value => Eff.pure(value))
+        new OneShotContinuationImpl(
+          internalAuthority,
+          request.id,
+          value => Eff.pure(value)
+        )
       )
     )
   }
@@ -424,7 +547,7 @@ export function perform(operation) {
 function deepResumption(source, handler, handledKey) {
   if (source.kind === "Reusable") {
     return reusableResumption(
-      new ReusableContinuationImpl("handle", value =>
+      new ReusableContinuationImpl(internalAuthority, "handle", value =>
         handleWithKey(
           source.continuation.resume(value),
           handler,
@@ -435,8 +558,10 @@ function deepResumption(source, handler, handledKey) {
   }
 
   return oneShotResumption(
-    new DelegatedOneShotContinuationImpl(source.continuation, next =>
-      handleWithKey(next, handler, handledKey)
+    new DelegatedOneShotContinuationImpl(
+      internalAuthority,
+      source.continuation,
+      next => handleWithKey(next, handler, handledKey)
     )
   )
 }
@@ -449,7 +574,12 @@ function handleRequest(request, handler, handledKey) {
       "handler operation clause"
     )
   }
-  return new Pending(request.operation, request.key, next)
+  return new Pending(
+    internalAuthority,
+    request.operation,
+    request.key,
+    next
+  )
 }
 
 function handleWithKey(body, handler, handledKey) {
@@ -474,20 +604,24 @@ export function handle(body, handler) {
 }
 
 class PromptImpl {
-  constructor() {
-    this.key = defineEffect("scalascript.control.Control")
-    this.shiftOperation = this.key.operation("shift")
-    prompts.add(this)
+  constructor(authority) {
+    requireInternalAuthority(authority)
+    const key = createEffectKey("scalascript.control.Control")
+    promptStates.set(this, Object.freeze({
+      key,
+      shiftOperation: key.operation("shift")
+    }))
     Object.freeze(this)
   }
 }
 
 function resetBody(prompt, body) {
   const delimiter = requirePrompt(prompt)
+  const promptState = requirePrivateState(promptStates, delimiter, "prompt")
   return handleWithKey(
     body,
     {
-      effect: delimiter.key,
+      effect: promptState.key,
       onReturn: value => Eff.pure(value),
       onOperation: (operation, resumption) => {
         const shiftBody = shiftBodies.get(operation)
@@ -506,13 +640,13 @@ function resetBody(prompt, body) {
         )
       }
     },
-    delimiter.key
+    promptState.key
   )
 }
 
 export function freshPrompt(body) {
   const scope = requireFunction(body, "freshPrompt body")
-  return scope(new PromptImpl())
+  return scope(new PromptImpl(internalAuthority))
 }
 
 export function reset(prompt, body) {
@@ -523,8 +657,9 @@ export function reset(prompt, body) {
 
 export function shift(prompt, body) {
   const delimiter = requirePrompt(prompt)
+  const promptState = requirePrivateState(promptStates, delimiter, "prompt")
   const shiftBody = requireFunction(body, "shift body")
-  const operation = delimiter.shiftOperation()
+  const operation = promptState.shiftOperation()
   shiftBodies.set(operation, shiftBody)
   return perform(operation)
 }
@@ -578,6 +713,6 @@ export const Continuation = Object.freeze({
       throw new TypeError("resume state machine must be an object")
     }
     requireFunction(machine.resume, "resume state machine method")
-    return new LocalContinuationImpl(state, machine)
+    return new LocalContinuationImpl(internalAuthority, state, machine)
   }
 })

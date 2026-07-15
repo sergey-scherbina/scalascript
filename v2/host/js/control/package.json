@@ -18,6 +18,7 @@
   },
   "types": "./index.d.ts",
   "files": [
+    "LICENSE",
     "index.js",
     "index.d.ts",
     "README.md"
