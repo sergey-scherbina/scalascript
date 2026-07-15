@@ -320,6 +320,20 @@ run --bytecode`, 2026-07-14); the same shape with no effect (pure TCO) runs to 2
 **Fix/verification:** not fixed — needs a stack-safe (heap-allocated) effect continuation.
 Conformance axis stays `pending-runtime`.
 
+**Secondary root cause found during the fix (2026-07-15):** after the private
+resume carrier was moved to a managed-boundary driver, the installed VM still
+printed that carrier in the escaped state-thread vector while direct ASM
+completed it. `Compiler.C.compile` evaluated every `Term.Prim` argument and
+invoked the primitive immediately; it did not mirror direct ASM's
+`OpAnfNative` argument lifting. Thus `println(escapedResume(0))` consumed the
+private `Op` before the managed program root could drain it. Spec update
+`513d9686a` requires left-to-right per-argument `Runtime.letThreadOp` for every
+non-effect-substrate primitive, exact exclusions for `effect.handle`,
+`effect.perform`, `effect.perform.oneshot`, and `effect.pure`, and a FastCode
+guard plus VM/ASM multiple-Op ordering regression. Implementation verification
+is still in progress; the axis remains pending until the full combined gate is
+green.
+
 ## spec-grammar-schema-links — FIXED (2026-07-14, Codex)
 
 **Status:** fixed in `96fc5adfb`; found while mechanically checking local links
