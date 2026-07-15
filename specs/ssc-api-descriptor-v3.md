@@ -280,6 +280,12 @@ binds the schema bytes. The `frameDigest` over schema plus live payload belongs 
 the saved-capsule format and is deliberately deferred rather than assigned an
 unreviewed hash domain here.
 
+A frame schema also declares its own ordered `typeParameters[]` binder group.
+Every slot type is validated under that schema-local group; a nested `TypeLambda`
+pushes another group in the usual way. This keeps a standalone `ControlSummary`
+self-describing for polymorphic code without consulting an `ApiDescriptor`.
+Concrete type instantiation at a save site belongs to the later capsule format.
+
 Every save site's `frameSchemaId` must resolve to exactly one `frameSchemas` entry
 in the same summary. Admission rejects a missing reference.
 
@@ -511,12 +517,10 @@ Every `TypeParameterRef` is validated against its lexical binder stack: `depth`
 selects an existing enclosing binder group, `index` selects an existing binder,
 and `kindArity` must equal that binder's arity. This applies to bounds, function
 types, type lambdas, effect arguments/open tails, callbacks/prompts, and frame
-slots; an unbound reference is invalid. A frame-slot type starts with an empty
-external binder stack because `ControlSummary` carries no declaration binders: it
-must be closed, except for references bound inside a `TypeLambda` contained in that
-slot type. Generic source locals are projected to such a self-contained ABI shape
-by the later post-body producer rather than implicitly referring back into an
-`ApiDescriptor`.
+slots; an unbound reference is invalid. A frame-slot type starts with its
+`FrameSchema.typeParameters` as depth zero, not with an implicit reference to an
+API symbol. A frame schema with no type parameters therefore requires closed slot
+types except for references bound inside a nested `TypeLambda`.
 
 After canonical-byte equality, semantic validation also rejects unsupported
 versions, malformed ids or digests, duplicate symbols/effects/edges/entrypoints,
