@@ -2,7 +2,7 @@
 
 ## jvm-bytegen-letrec-env-clobber — FIXED / awaiting confirmation (2026-07-15, Codex)
 
-**Status:** fixed in `ad73b3e49`; awaiting reporter confirmation. Found by the
+**Status:** fixed in `956b42539`; awaiting reporter confirmation. Found by the
 stack-safety focused VM/direct-ASM vector while qualifying effectful `While`
 lowering.
 
@@ -338,8 +338,8 @@ VM guard bug.
 
 ## control-interop-effect-recursion-stack-unsafe — FIXED / awaiting confirmation (2026-07-14, claude)
 
-**Status:** fixed by the shared driver in `d2f462a69` and completed by JVM
-lowering fixes in `ad73b3e49`; awaiting reporter confirmation. Reported by
+**Status:** fixed by the shared driver in `3de5020c5` and completed by JVM
+lowering fixes in `956b42539`; awaiting reporter confirmation. Reported by
 codex-interop (rozum #interoperability, 2026-07-14): "legacy deep-handler/return
 paths appear recursively stack-unsafe".
 
@@ -363,7 +363,7 @@ completed it. `Compiler.C.compile` evaluated every `Term.Prim` argument and
 invoked the primitive immediately; it did not mirror direct ASM's
 `OpAnfNative` argument lifting. Thus `println(escapedResume(0))` consumed the
 private `Op` before the managed program root could drain it. Spec update
-`325cc927f` requires left-to-right per-argument `Runtime.letThreadOp` for every
+`241c5dcd5` requires left-to-right per-argument `Runtime.letThreadOp` for every
 non-effect-substrate primitive, exact exclusions for `effect.handle`,
 `effect.perform`, `effect.perform.oneshot`, and `effect.pure`, and a FastCode
 guard plus VM/ASM multiple-Op ordering regression. The combined implementation

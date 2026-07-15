@@ -7,7 +7,7 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 ## 2026-07-15 — Stack-safe portable effect resumptions
 
 Portable VM and direct ASM now execute deep effect resumes through one shared
-iterative two-mode driver (`d2f462a69`, `ad73b3e49`). Handler-facing resumes
+iterative two-mode driver (`3de5020c5`, `956b42539`). Handler-facing resumes
 eagerly invoke the original continuation (preserving the atomic one-shot claim),
 then hand the obtained computation to an unforgeable private deferred request;
 declared managed program/call boundaries drain escaped requests without changing
@@ -17,11 +17,11 @@ protect FastBool/curried-handle paths, lower effectful loops stack-safely, and
 restore the caller environment after generated non-tail `LetRec` bodies.
 
 The residual-forwarding integration adds a VM/direct-ASM `Rehandle` regression
-with exact inner-then-outer `Return` result `312` (`a68b677ea`). Focused
+with exact inner-then-outer `Return` result `312` (`6db946a86`). Focused
 stack/one-shot/residual tests pass 39/39; installed default VM and `--bytecode`
 both produce `100000`, `100000`, `20007`, `20000`; affected conformance is 6/6,
 full interop is 12/12, and the 133-file stage2 image remains source-exact. Axis
-20 is measurable-now (`94e7b3a9e`); the verified contract and evidence are in
+20 is measurable-now (`b7c280792`); the verified contract and evidence are in
 `specs/control-effect-stack-safety.md`.
 
 ## 2026-07-15 — Portable residual-effect forwarding
