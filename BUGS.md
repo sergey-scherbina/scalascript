@@ -2,9 +2,11 @@
 
 ## js-control-direct-packed-local-dev-dependency — tarball escapes to repository sibling
 
-**Status:** open. Reported as P1 by the fresh independent read-only review of exact
-range `445f7faf7..d66ed988df` on 2026-07-15; the other semantic, JavaScript,
-declaration, source-map, and atomicity gates were clean.
+**Status:** open; repair candidate `f03d0fed1` is direct-package verified and awaits
+full gates, fresh independent review, and landing. Reported as P1 by the fresh
+independent read-only review of exact range `445f7faf7..d66ed988df` on 2026-07-15;
+the other semantic, JavaScript, declaration, source-map, and atomicity gates were
+clean.
 
 **Symptom/reproduce:** run `npm pack` for `v2/host/js/control-direct`, extract the
 result into a fresh directory with no `../control`, and inspect
@@ -25,14 +27,16 @@ boundary, run ordinary install without a sibling checkout, and prove it does not
 create a dangling local control dependency. Existing packed CLI installation and
 production execution must remain green.
 
-**Root cause:** `package.json` and `package-lock.json` use the sibling explicit
+**Root cause/fix candidate:** `package.json` and `package-lock.json` used the sibling explicit
 control package as a publishable `file:../control` development dependency for local
 tests/typechecking. npm includes `package.json` in the exact payload, so the repository
 topology leaks even though `npm pack --dry-run` reports no bundled dependencies.
-Local tests manually symlink control in their fixtures already; compile-time/local
-resolution must move fully to non-published test configuration instead of the
-manifest. No fix is recorded until the exact extracted-tar regression and full gates
-are green and a new independent reviewer approves.
+The candidate removes that entry from manifest and lock, supplies the type declaration
+through a TypeScript path, and gives compiler/runtime tests explicit temporary
+symlinks. Its exact-tar regression reads the extracted manifest, ordinary-installs
+with no sibling, proves no control link exists, and imports both published subpaths.
+Direct package tests pass 39/39. The bug remains open until full gates, landing, and a
+new independent reviewer confirmation.
 
 ## js-control-direct-import-equals-bypass — runtime marker require evades fail-closed import scan
 

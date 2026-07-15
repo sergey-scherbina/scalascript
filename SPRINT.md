@@ -433,7 +433,7 @@ every later compiler/kernel change re-runs the literal fixed point.
         `BUGS.md#js-control-direct-import-equals-bypass`. Implemented in `3385574b8`;
         runtime used/unused forms receive one stable diagnostic while type-only forms
         emit no require edge and retain `.d.ts` under both verbatim modes.
-      - [ ] **Fresh-rereview P1: the exact tarball must not publish repository-local
+      - [x] **Fresh-rereview P1: the exact tarball must not publish repository-local
         dependency edges.** Exact reviewed range `445f7faf7..d66ed988df` includes
         `devDependencies["@scalascript/control"] = "file:../control"` inside the
         eight-file tarball manifest. Extracting that tarball outside the repository
@@ -447,7 +447,10 @@ every later compiler/kernel change re-runs the literal fixed point.
         it at a clean boundary with no sibling. Move local control resolution to test
         fixtures/TypeScript paths or test-created symlinks and regenerate the lock
         mechanically. Track in
-        `BUGS.md#js-control-direct-packed-local-dev-dependency`.
+        `BUGS.md#js-control-direct-packed-local-dev-dependency`. Implemented in
+        `f03d0fed1`: the manifest/lock contain only TypeScript 5.9.3, local
+        compiler/runtime tests use explicit paths/symlinks, and the 39th package test
+        exact-packs, extracts, ordinary-installs, and self-imports without a sibling.
       - [ ] **Repair-cycle closure.** After spec-first and code commits, update package
         README/project docs, run direct package tests+typecheck+node checks+exact pack,
         existing explicit control 31/31+typecheck, catalog positive/negative validators,
@@ -463,7 +466,10 @@ every later compiler/kernel change re-runs the literal fixed point.
         exact eight-file pack (15,423/59,187 bytes), explicit control 31/31 plus
         exact five-file pack (11,059/42,353 bytes), catalog 26/9, negative validator
         9/9, and conformance 5/5. Only fresh independent APPROVE and subsequent
-        landing remain.
+        landing remained. The following fresh review rejected exact range
+        `445f7faf7..d66ed988df` on the packed local dev-dependency P1; repair
+        `f03d0fed1` is direct-package green at 39/39. Clean rebase, repeated full
+        gates, fresh independent APPROVE, and subsequent landing remain.
 - [ ] **rust-control-host-runner** — deliver the Cargo host facade, stable-Rust
   explicit `Eff`, proc-macro/generated state machines, ownership/borrow/RAII barrier
   checks, typed mixed-SCC dispatcher, target/toolchain-pinned exact runner, and
