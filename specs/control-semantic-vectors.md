@@ -1,6 +1,6 @@
 # Control semantic vectors
 
-Status: **implementation specification** (2026-07-15).
+Status: **implemented and verified** (2026-07-15).
 
 ## Overview
 
@@ -149,25 +149,25 @@ and capability names keep those claims separate.
 
 ## Behavior
 
-- [ ] The catalog validator rejects duplicate, malformed, orphaned, or silently
+- [x] The catalog validator rejects duplicate, malformed, orphaned, or silently
       omitted vector/lane records before any user program executes.
-- [ ] Default execution runs both `portable-vm` and `portable-asm`; every runnable
+- [x] Default execution runs both `portable-vm` and `portable-asm`; every runnable
       process vector has identical exit/stream bytes on both lanes.
-- [ ] The explicit Scala API executes the catalog's currently implementable effect,
+- [x] The explicit Scala API executes the catalog's currently implementable effect,
       handler, prompt, mutation, stack-safety, one-shot, and capture-negative laws.
-- [ ] Fresh/nested prompts, nearest matching reset, and same-prompt shift-body
+- [x] Fresh/nested prompts, nearest matching reset, and same-prompt shift-body
       behavior have distinct stable vector ids rather than one umbrella result.
-- [ ] Multi-shot continuation evidence proves control is copied while an ordinary
+- [x] Multi-shot continuation evidence proves control is copied while an ordinary
       captured mutable heap cell remains shared across local resumes.
-- [ ] One-shot and managed-capture negatives assert structured identities first and
+- [x] One-shot and managed-capture negatives assert structured identities first and
       exact CLI rendering where a process boundary exists.
-- [ ] Every mandatory future lane is present in the matrix and reports `PENDING` or
+- [x] Every mandatory future lane is present in the matrix and reports `PENDING` or
       `UNAVAILABLE` instead of being omitted or counted green.
-- [ ] Cancellation is recorded as `pending-spec` until its public transition and
+- [x] Cancellation is recorded as `pending-spec` until its public transition and
       diagnostic contract is frozen by the target-neutral semantic owner.
-- [ ] Durable/admission/network vectors remain explicit `pending-codec` rows until
+- [x] Durable/admission/network vectors remain explicit `pending-codec` rows until
       X1 and the capsule implementation make them executable.
-- [ ] The affected Scala suite, portable VM/ASM matrix, catalog validation, and
+- [x] The affected Scala suite, portable VM/ASM matrix, catalog validation, and
       project conformance slice pass from an isolated worktree.
 
 ## Decisions
@@ -199,5 +199,19 @@ and capability names keep those claims separate.
 
 ## Results
 
-Fill after implementation verification with exact vector counts, lane counts,
-commands, and any deliberately pending rows.
+- `vectors.tsv` contains 26 contiguous stable ids: 17 `specified`, eight
+  `pending-codec` (10--17), and one deliberately `pending-spec` cancellation row
+  (26). `lanes.tsv` declares all nine mandatory lanes; five future generated or
+  host lanes and `scala-direct` remain explicitly `pending`.
+- `tests/interop-conformance/validation-test.sh` passes seven negative cases:
+  duplicate vector/lane, removed id, missing eligible probe, orphan expected
+  bytes, mismatched front-matter, and missing pending record.
+- After `scripts/sbtc "cli/installBin"`, the default
+  `SSC="$PWD/bin/ssc" tests/interop-conformance/run.sh` gate passes all 13 eligible
+  exact-output vectors on `portable-vm` and the same 13/13 on `portable-asm`.
+- `tests/interop-conformance/run.sh --lane scala-explicit` passes 17 typed semantic
+  programs plus the catalog/program coverage test (18/18). The complete
+  `scripts/sbtc "scala3ControlApi/test"` scope passes 57/57.
+- `tests/conformance/run.sh --only 'effect*,effects*'` passes all five affected
+  conformance cases across every lane each case declares. `git diff --check` is
+  clean.
