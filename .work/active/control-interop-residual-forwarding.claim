@@ -1,6 +1,6 @@
 feature/control-interop-residual-forwarding 2026-07-15T00:56:18Z
 agent: codex-residual-control
-heartbeat: 2026-07-15T02:23:45Z
+heartbeat: 2026-07-15T02:33:15Z
 status: in-progress
-done-so-far: structured residual dispatch, activation isolation, JVM bypass guards, backend fallbacks, ABI vectors, and lexical nested-handler axis 19/unit regressions implemented; focused rerun in progress
-next: finish exact lexical nesting run, then execute plugin/cross-backend/install axis 19/native/conformance/interop gates and prepare docs/spec verification for review
+done-so-far: residual source suite 16/16, one-shot 4/4, and native effect-runner 6/6 green after lexical fixture repair; branch rebased on current origin without runtime overlap
+next: finish marker/Swift/install axis 19/native/conformance/interop plus required v2.2 stage2 bootstrap gate, then prepare docs/spec verification for review

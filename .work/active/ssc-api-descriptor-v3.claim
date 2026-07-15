@@ -1,6 +1,6 @@
 feature/ssc-api-descriptor-v3 2026-07-15T02:10:53Z
 agent: codex-control-descriptor
-heartbeat: 2026-07-15T02:23:45Z
+heartbeat: 2026-07-15T02:33:15Z
 status: in-progress
-done-so-far: descriptor v3 feature spec committed, then tightened to restricted RFC 8785 JCS with canonical-byte admission and golden-vector requirements; Slice A module implementation started
-next: complete target-neutral descriptor model/codec/hash/validation plus additive legacy .scim carrier and focused tests, then prepare root review
+done-so-far: restricted-JCS spec committed; Slice A model/hash/validator/build work in progress while read-only audit closes canonical-sort, duplicate-admission, wire-schema, binder-reference, frame-schema, and public-decoder gaps before commit
+next: land the approved frame-digest scope correction, complete explicit canonical codec and validation, add legacy .scim carrier/goldens, compile and run focused tests, then prepare root review
