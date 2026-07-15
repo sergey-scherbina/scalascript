@@ -2,8 +2,10 @@
 
 ## scala-direct-inline-wrapper-owner-escape — inline marker wrapper loses bindings and provenance
 
-**Status:** open (2026-07-15). Reported as P1 by the independent
-`scala3-control-macros` review of frozen checkpoint `fa992fd92`; fix SHA pending.
+**Status:** open; remediation and regression are green on the feature branch
+(2026-07-15), but fresh independent rereview and the landing SHA are pending.
+Reported as P1 by the independent `scala3-control-macros` review of frozen
+checkpoint `fa992fd92`.
 
 **Symptom/reproduce:** define an inline method that accepts ordinary parameters
 and a matching `direct.Scope`, then delegates to `direct.shift`. Calling that
@@ -19,10 +21,18 @@ shape: provenance-bearing or binding-bearing inline expansions must fail closed 
 the exact marker with stable `DIRECT_STYLE_UNSUPPORTED`. Add a side-effectful
 wrapper regression that proves no wrapper code is executed.
 
+**Implementation/verification:** marker normalization now preserves every
+`Inlined` node, and both inline expansion boundaries and unexpanded inline
+applications fail closed before their prompt/body arguments can be moved. The
+side-effectful wrapper regression passes in the 16/16 clean-compiled diagnostic
+suite; keep this entry open until rereview approves and the fix lands.
+
 ## scala-direct-lazy-marker-eager — lazy marker initializer is lowered eagerly
 
-**Status:** open (2026-07-15). Reported as P1 by the independent
-`scala3-control-macros` review of frozen checkpoint `fa992fd92`; fix SHA pending.
+**Status:** open; remediation and regressions are green on the feature branch
+(2026-07-15), but fresh independent rereview and the landing SHA are pending.
+Reported as P1 by the independent `scala3-control-macros` review of frozen
+checkpoint `fa992fd92`.
 
 **Symptom/reproduce:** an unused `lazy val selected = direct.shift(...)` inside
 `direct.reset` increments a counter in the shift body even though ordinary Scala
@@ -36,10 +46,18 @@ marker form so the existing barrier walk reports exact `CAPTURE_BARRIER`. A stri
 lazy declaration that would remain live across a later capture is separately
 outside M1 and must fail closed rather than be moved or forced.
 
+**Implementation/verification:** lazy marker declarations are excluded from the
+accepted marker bind, so traversal reports the frozen lazy-initializer
+`CAPTURE_BARRIER`; an ordinary lazy prefix before a later capture is rejected
+without forcing it. Both regressions pass in the 16/16 clean-compiled diagnostic
+suite; keep this entry open until rereview approves and the fix lands.
+
 ## scala-direct-prefix-owner-split — local declarations lose ownership across capture
 
-**Status:** open (2026-07-15). Reported as P1 by the independent
-`scala3-control-macros` review of frozen checkpoint `fa992fd92`; fix SHA pending.
+**Status:** open; remediation and regressions are green on the feature branch
+(2026-07-15), but fresh independent rereview and the landing SHA are pending.
+Reported as P1 by the independent `scala3-control-macros` review of frozen
+checkpoint `fa992fd92`.
 
 **Symptom/reproduce:** declare a local `val`, `var`, `given`, destructuring bind,
 method, class, or type before `direct.shift`, then reference it from the shift body
@@ -57,11 +75,19 @@ closure boxing for a shared mutable cell. Until M1 models richer definition
 ownership, fail closed when a local method, class, type, or lazy cell crosses a
 capture. Add semantic and exact-diagnostic regressions before rereview.
 
+**Implementation/verification:** capture splits now clone strict local value
+symbols in declaration order and carry their replacement map through prompt,
+shift body, suffix, and sequential markers. Scala closure conversion therefore
+shares one captured mutable cell. Local method/class/type/lazy crossings reject
+with exact diagnostics. The expanded semantics suite passes 14/14 and diagnostics
+16/16 after a clean test compilation; keep this entry open until rereview approves
+and the fix lands.
+
 ## scala-direct-deferred-nonlocal-return — OPEN / fix planned (2026-07-15, Codex)
 
-**Status:** open; found by Codex during the pre-integration fail-closed audit of
-`scala3-control-macros`. The implementation has not been changed yet; update the
-specification and add regressions before touching the lowering.
+**Status:** open; implementation and regressions are green on the feature branch,
+but fresh independent rereview and the landing SHA are pending. Found by Codex
+during the pre-integration fail-closed audit of `scala3-control-macros`.
 
 **Symptom:** a source `return` in a pure `direct.reset` body, or in the suffix
 after `direct.shift`, could be moved into the explicit reset's deferred
@@ -79,11 +105,12 @@ produce a runnable `Eff`.
 did not independently reject a `Return` targeting a method outside the contextual
 reset body before moving that body under `Eff.defer` and generated continuations.
 
-**Fix/verification plan:** make `DirectMacros` inspect the typed body before
-lowering and reject only returns whose target is outside the lexical reset owner;
-returns local to a nested method must remain owned by that method. Add pure-body,
-captured-suffix, and safe local-return regressions, then run the full control leaf
-and packaged-jar compile path before independent review.
+**Fix/verification:** `DirectMacros` now inspects the typed body before lowering
+and rejects only returns whose target is outside the lexical reset owner; returns
+local to a nested method remain owned by that method. Pure-body, captured-suffix,
+and safe local-return regressions pass; the full control leaf is 92/92 and the
+packaged-JAR example compiles and runs. Keep this entry open until rereview
+approves and the fix lands.
 
 ## js-control-packed-readme-broken-spec-link — npm README links outside payload
 

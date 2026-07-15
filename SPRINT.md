@@ -247,24 +247,26 @@ every later compiler/kernel change re-runs the literal fixed point.
   level. M1 nested resets lower only their own matching markers; a marker targeting
   an outer scope across a nested reset is rejected until the compiler-plugin tier can preserve the
   residual outer control row explicitly. Accordingly the direct lane claims vector 18/23 `shift-reset`;
-  vector 22 also requires `prompt-isolation` and remains explicit/plugin evidence. Landed 2026-07-15:
-  the bounded lexical transform emits only the existing explicit API; ten direct semantic tests, ten
-  exact diagnostic tests, and source-access guards pass inside the 82/82 control leaf. The validated
+  vector 22 also requires `prompt-isolation` and remains explicit/plugin evidence. Current pre-review
+  checkpoint: the bounded lexical transform emits only the existing explicit API; fourteen direct
+  semantic tests, sixteen exact diagnostic tests, and source-access guards pass inside the 92/92
+  control leaf. The validated
   `scala-direct` lane runs vectors 18/23 plus coverage (3/3) with explicit differential oracles; package,
-  POM, runnable example, and five-case affected conformance gates are green. Before integration, close
-  the tracked `scala-direct-deferred-nonlocal-return` fail-closed gap: specify and reject external
-  returns before they can move under `Eff.defer`, while preserving returns local to a nested method.
-  Independent review of `fa992fd92` rejected three additional P1 families; complete these in order:
-  - [ ] Clone/rebind strict prefix `val`/`var`/`given` symbols across each capture, including
+  POM, packaged-JAR runnable example, and five-case affected conformance gates are green. The tracked
+  `scala-direct-deferred-nonlocal-return` gap now rejects external returns before they move under
+  `Eff.defer` while preserving a return local to a nested method. Independent review of `fa992fd92`
+  rejected three additional P1 families; complete these in order:
+  - [x] Clone/rebind strict prefix `val`/`var`/`given` symbols across each capture, including
     destructuring synthetic binds, values used by `ShiftBody`, and values between sequential shifts;
     prove a local multi-shot mutable cell is shared. Fail closed for crossing local method/class/type
     and lazy declarations until M1 models their ownership/state explicitly.
-  - [ ] Keep a marker in a lazy initializer behind exact `CAPTURE_BARRIER`, and reject
+  - [x] Keep a marker in a lazy initializer behind exact `CAPTURE_BARRIER`, and reject
     binding/provenance-bearing inline wrappers with stable `DIRECT_STYLE_UNSUPPORTED` at the marker
     before any wrapper prompt or body side effect can run.
-  - [ ] Run the expanded direct semantic/diagnostic suites, full control leaf/package/POM, catalog
-    validation + negatives + direct lane, affected conformance, packaged-jar compile probes, and a fresh
-    independent read-only rereview. Do not mark M1 done or push until it returns APPROVE.
+  - [ ] Fresh independent read-only rereview of the frozen checkpoint. Expanded direct semantics
+    (14/14), diagnostics after clean compile (16/16), full leaf/package/POM (92/92), catalog validation
+    (26/9), negatives (9/9), direct lane (3/3), affected conformance (5/5), and packaged-JAR compile/run
+    are already green. Do not mark M1 done or push until rereview returns APPROVE.
 - [ ] **scala3-control-plugin** — publish a `CrossVersion.full` compiler plugin for cross-method CPS,
   managed callback propagation, effect metadata, and generated ABI entrypoints. Precompiled Scala/Java
   code remains callable but is a deterministic control-capture barrier while active on the stack.

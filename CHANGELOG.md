@@ -11,6 +11,9 @@ Added `scalascript.control.direct.{Scope,reset,shift}` to the existing
 bounded lexical ANF sequence and emits only the compiler-independent explicit
 `Eff`/`shift`/`reset` protocol, preserving prefix/suffix evaluation, sequential
 markers, reusable continuation semantics, residual rows, and shared heap state.
+Strict local values, contextual/pattern binds, and mutable closure cells retain
+their Scala ownership across capture; richer local definitions, lazy markers, and
+inline wrapper applications fail closed before code can be moved or evaluated.
 Unsupported expression shapes and callback/control barriers fail closed at compile
 time with stable `UNMANAGED_CAPTURE`, `CAPTURE_BARRIER`, or
 `DIRECT_STYLE_UNSUPPORTED` diagnostics; there is no exception/TLS/runtime capture
@@ -18,7 +21,7 @@ path and no CoreIR, UniML, seed, backend, or self-hosting change.
 
 The `scala-direct` semantic lane is now ready for vectors 18 and 23 plus catalog
 coverage (3/3), each differential against explicit Scala. The complete control
-leaf passes 82/82 tests, the package/POM and runnable example are green, catalog
+leaf passes 92/92 tests, the package/POM and packaged-JAR runnable example are green, catalog
 validation remains 26 vectors/9 lanes with 9/9 negative cases, and affected effect
 conformance passes 5/5. Cross-method capture, prompt forwarding across a nested
 different-prompt reset, managed callbacks, and saveable frames remain work for the
