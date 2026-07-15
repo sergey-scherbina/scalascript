@@ -3534,18 +3534,24 @@ def rangeOfCond(op: String, value: SqliteValue, values: List[SqliteValue]): Opti
     else None
   else None
 
-// A WHERE of exactly one indexable condition `col <op> literal(s)` → (column, IndexRange); else None.
-def extractColRange(where: List[List[Condition]]): Option[(String, IndexRange)] =
-  if where.length != 1 then None
+// Every indexable condition `col <op> literal(s)` in a single AND-group (no top-level OR). Any one of
+// them can drive the seek: a row satisfying the whole AND also satisfies each condition, so a seek on
+// one returns a superset that finishRows (which applies the full WHERE) filters down. OR-of-groups
+// (where.length > 1) is not seekable this way.
+def indexableConds(where: List[List[Condition]]): List[(String, IndexRange)] =
+  if where.length != 1 then Nil
   else
-    val group = where.head
-    if group.length != 1 then None
-    else
-      val cond = group.head
-      if cond.leftExpr.isEmpty && cond.rightExpr.isEmpty then rangeOfCond(cond.op, cond.value, cond.values) match
-        case None => None
-        case Some(range) => Some((cond.column, range))
-      else None
+    var r = where.head
+    var accRev: List[(String, IndexRange)] = Nil
+    while r.nonEmpty do
+      val cond = r.head
+      accRev =
+        if cond.leftExpr.isEmpty && cond.rightExpr.isEmpty then rangeOfCond(cond.op, cond.value, cond.values) match
+          case Some(range) => (cond.column, range) :: accRev
+          case None => accRev
+        else accRev
+      r = r.tail
+    accRev.reverse
 
 // If the range is an equality [v, v] (both inclusive), return v — used for the rowid/IPK seek, which
 // is equality-only (a rowid range still full-scans for now).
@@ -3556,34 +3562,48 @@ def rangeEqualityValue(range: IndexRange): Option[SqliteValue] =
       case None => None
       case Some(h) => if range.loIncl && range.hiIncl && valEqual(l, h) then Some(l) else None
 
-// If the query is a single-table `WHERE col <op> literal` (=, <, <=, >, >=, BETWEEN), try an index
-// access path: a rowid/IPK column with an equality seeks the table B-tree; an indexed column is
-// looked up through its index B-tree over the range (collect matching rowids, then point-lookup each
-// row). None → "not applicable, use the full scan". Both feed the same finishRows downstream.
+// Pick the first seekable condition and run its seek. A rowid/IPK column needs an equality (a rowid
+// range still full-scans); any other column needs an index. A non-seekable condition is skipped to
+// the next. Returns None if none is seekable or the chosen seek bails (→ full scan).
+def chooseSeek(dbBytes: ByteSlice, db: ReadonlyDatabase, root: Int, pageSize: Int, colNames: List[String], stmt: SelectStmt, ipkIdx: Int, conds: List[(String, IndexRange)]): Option[Either[String, List[List[SqliteValue]]]] =
+  var r = conds
+  var result: Option[Either[String, List[List[SqliteValue]]]] = None
+  var stop = false
+  while r.nonEmpty && !stop do
+    val colName = r.head._1
+    val range = r.head._2
+    val col = upperStr(colName)
+    val isRowidCol = col == "ROWID" || (ipkIdx >= 0 && col == upperStr(nthName(colNames, ipkIdx)))
+    if isRowidCol then rangeEqualityValue(range) match
+      case Some(v) => longOfValue(v) match
+        case Some(k) =>
+          result = rowidSeekResult(dbBytes, db, root, pageSize, colNames, stmt, k)
+          stop = true
+        case None => r = r.tail
+      case None => r = r.tail
+    else indexForColumn(db, stmt.table, colName) match
+      case Some(idx) =>
+        result = indexSeekResult(dbBytes, db, root, pageSize, colNames, stmt, idx._1, idx._2, range)
+        stop = true
+      case None => r = r.tail
+  result
+
+// Try an index access path for a single-table query whose WHERE is one AND-group containing at least
+// one indexable condition (rowid/IPK equality → table seek, indexed col over a range → index seek).
+// The seek returns a superset; finishRows applies the full WHERE. None → use the full scan.
 def pointLookup(dbBytes: ByteSlice, stmt: SelectStmt): Option[Either[String, List[List[SqliteValue]]]] =
   if stmt.joins.nonEmpty then None
-  else extractColRange(stmt.where) match
-    case None => None
-    case Some(colR) =>
-      tableContext(dbBytes, stmt.table) match
-        case Left(_) => None
-        case Right(ctx) =>
-          val db = ctx._1
-          val root = ctx._2
-          val colNames = ctx._3
-          val pageSize = ctx._4
-          val ipkIdx = tableIpkIndex(db, stmt.table)
-          val col = upperStr(colR._1)
-          val range = colR._2
-          val isRowidCol = col == "ROWID" || (ipkIdx >= 0 && col == upperStr(nthName(colNames, ipkIdx)))
-          if isRowidCol then rangeEqualityValue(range) match
-            case None => None
-            case Some(v) => longOfValue(v) match
-              case Some(k) => rowidSeekResult(dbBytes, db, root, pageSize, colNames, stmt, k)
-              case None => None
-          else indexForColumn(db, stmt.table, colR._1) match
-            case None => None
-            case Some(idx) => indexSeekResult(dbBytes, db, root, pageSize, colNames, stmt, idx._1, idx._2, range)
+  else
+    val conds = indexableConds(stmt.where)
+    if conds.isEmpty then None
+    else tableContext(dbBytes, stmt.table) match
+      case Left(_) => None
+      case Right(ctx) =>
+        val db = ctx._1
+        val root = ctx._2
+        val colNames = ctx._3
+        val pageSize = ctx._4
+        chooseSeek(dbBytes, db, root, pageSize, colNames, stmt, tableIpkIndex(db, stmt.table), conds)
 
 /** Execute an already-built SelectStmt against a database image (the typed-SQL surface entry —
  *  skips tokenize/parse and runs the same executor path queryImage's tail uses). Tries a rowid
