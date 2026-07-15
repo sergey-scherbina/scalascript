@@ -4,6 +4,7 @@ import scalascript.ir.*
 import scalascript.ast
 import scalascript.transform.EffectAnalysis
 import scalascript.typer.{Typer, DefSummary, SType, TypeEvidence, SymbolKind as TSymbolKind}
+import scalascript.interop.descriptor.DescriptorError
 import scala.meta.*
 import scala.collection.mutable.ListBuffer
 
@@ -26,6 +27,21 @@ import scala.collection.mutable.ListBuffer
 object InterfaceExtractor:
 
   private val hexDigits = "0123456789abcdef"
+
+  /** Strict managed-interface extraction.
+   *
+   *  The descriptor is projected first, exclusively from declaration headers.
+   *  Only after that succeeds do we invoke the legacy body-aware extractor and
+   *  attach the canonical JSON to its additive opaque carrier. Ordinary
+   *  [[extract]] remains the legacy-compatible path and leaves the carrier empty.
+   */
+  def extractManaged(
+      module: ast.Module,
+      sourceBytes: Array[Byte]
+  ): Either[DescriptorError, ModuleInterface] =
+    PreBodyApiDescriptorProducer.canonicalJson(module).map { descriptorJson =>
+      extract(module, sourceBytes).copy(apiDescriptorV3 = Some(descriptorJson))
+    }
 
   /** Compute a SHA-256 hex digest of raw bytes. */
   def sha256(bytes: Array[Byte]): String =

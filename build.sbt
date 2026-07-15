@@ -721,7 +721,7 @@ lazy val unimlMarkdownBridge = project
 
 lazy val core = project
   .in(file("v1/lang/core"))
-  .dependsOn(valueData, backendSpi, backendSqlRuntime, logger, yaml, markupCore)
+  .dependsOn(valueData, backendSpi, backendSqlRuntime, logger, yaml, markupCore, v2InteropDescriptor)
   .settings(
     name := "scalascript-core",
     libraryDependencies ++= Seq(
