@@ -63,6 +63,15 @@ error-resilient parser already byte-identical to ssc1-front on 119 constructs, t
 The audit's Rust multi-shot drift and portable one-shot guard are complete and
 recorded in `CHANGELOG.md`. The remaining active control-runtime follow-ups are:
 
+- [ ] **control-interop-residual-forwarding**
+      (`BUGS.md control-interop-residual-forwarding-absent`) — specify and implement
+      an explicit recoverable unmatched-operation path so an inner handler rebuilds
+      the residual three-field `Op` for the next enclosing handler. Preserve deep
+      reinstall, the original one-shot base gate, raw/multi reuse, and genuine
+      matching-arm failures; do not parse exception text into semantic control.
+      Promote interop axis 19 and verify installed VM/direct ASM, native effect e2e,
+      and affected conformance. Coordinate Swift qualification after the concurrent
+      implicit-`Return` repair establishes its recoverable no-match representation.
 - [ ] **stack-safe effect continuation** (`BUGS.md control-interop-effect-recursion-stack-unsafe`)
       — effect-performing recursion overflows the native stack ~500–2000 depth on both tiers
       (pure TCO fine to 2M). Needs a heap-allocated continuation. Conformance axis 20 stays pending-runtime.

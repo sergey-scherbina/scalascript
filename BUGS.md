@@ -1,5 +1,35 @@
 # Bug tracker
 
+## control-interop-residual-forwarding-absent — CONFIRMED / open (2026-07-15, Codex)
+
+**Status:** open. Recorded from portable interoperability axis 19; implementation
+is now claimed as `control-interop-residual-forwarding`.
+
+**Symptom:** an operation unhandled by the nearest inner handler is sent to that
+handler anyway and fails with `match: no arm`, instead of remaining an explicit
+`Op` for the next enclosing handler.
+
+**Reproduce:** run the axis-19 probe described by
+`tests/interop-conformance/pending/19-residual-forwarding-nested-handlers.pending`:
+nest an inner `Rd` handler inside an outer `Wr` handler, then perform `Wr.wr`
+inside the inner scope. Portable VM/direct ASM report `no arm for wr/2`; expected
+output is produced only when the unmatched operation is forwarded to the outer
+handler.
+
+**Initial diagnosis:** the current handler fold calls the nearest handler as an
+ordinary partial-function closure and represents a missing arm as an immediate
+runtime failure. There is no explicit recoverable `Unhandled(operation)` result
+that can rebuild the residual `Op` around the same continuation. The fix must
+distinguish only a genuine missing operation arm from failures thrown by a
+matching arm, preserve deep-handler reinstall and the original one-shot gate,
+and avoid changing CoreIR or the three-field `Op` ABI.
+
+**Fix/verification:** pending specification in
+`specs/control-residual-forwarding.md`. Done when axis 19 is promoted to the
+measurable suite, nested forwarding works identically on VM/direct ASM, matching
+handler failures remain failures, one-shot/multi-shot behavior is unchanged, and
+the native effect e2e plus affected conformance are green.
+
 ## swift-effect-handler-implicit-return-fallback — CONFIRMED / open (2026-07-15, Codex)
 
 **Status:** open. Found by the real Swift checked-source regression while
