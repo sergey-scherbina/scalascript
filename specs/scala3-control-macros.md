@@ -1,7 +1,7 @@
 # Scala 3 lexical direct-style control macros
 
-Status: **M1 second-rereview remediation verified locally; fresh independent
-rereview pending** (2026-07-15). The first review rejected owner splitting, lazy-marker lowering,
+Status: **M1 third-review owner remediation specified; implementation pending**
+(2026-07-15). The first review rejected owner splitting, lazy-marker lowering,
 and inline marker wrappers. The next independent rereview found stale dependent
 types in freshened declarations, a direct marker hidden in `ShiftBody`, an
 incorrect transparent-inline primary position, and deferred
@@ -12,7 +12,12 @@ more owner-safety gap: the `ShiftBody` survival scan exempted the eager prompt
 argument of a nested managed reset together with that reset's managed body. The
 contract below now distinguishes those two evaluation regions. The packaged-
 consumer regression and full local verification matrix are green; M1 still does
-not land until a new independent review approves the frozen checkpoint.
+not land until a new independent review approves the frozen checkpoint. Fresh
+independent review of `708dec2f1` then found three remaining owner graphs outside
+that evidence: captured result type `A`, nested/inferred types in moved terms, and
+forward/mutual compiler-lazy givens. The contract below now covers those graphs;
+their new behavior items remain unchecked until faithful packaged regressions and
+the full gate pass.
 
 This feature is the bounded inline-macro tier of
 [`scala3-bidirectional-control.md`](scala3-bidirectional-control.md). It translates
@@ -171,12 +176,32 @@ shape cannot be rebuilt soundly, M1 rejects its declaration with
 owner diagnostic. Ordinary mutable, contextual/given, and pattern-generated
 bindings retain the same rules, flags, and shared-cell behavior.
 
+The captured result type `A` is part of the same ownership graph. If `A` names a
+freshened prefix value, the transform rebinds it before opening the type or typing
+the generated explicit continuation. This includes ordinary singleton capture
+(`owner.type`) and a local prompt value (`Prompt[inner.Key, R]`). The rank-2 shift
+body, explicit shift instantiation, and generated bind continuation all use that
+one rebound type. A type that cannot be rebuilt soundly fails at the source marker
+with `DIRECT_STYLE_UNSUPPORTED`, never as generated E007/owner² output.
+
+Ownership also includes every type attached to a moved term, not only the outer
+declaration's written `tpt`. Nested lambda/result symbols, inferred type trees, and
+declarations created in the captured suffix must refer only to the fresh owner
+graph. The common `val f: () => owner.type = () => owner` shape is accepted both
+before capture and when declared in the suffix. Any richer moved definition graph
+that cannot be rebuilt is rejected before generated code is constructed.
+
 A captured local `var` remains one Scala closure cell shared by every reusable
 resume; the transform must not copy its current value into each continuation.
 Scala may represent a parameterless source `given` with both `Given` and `Lazy`
 flags; that compiler encoding remains in the accepted contextual-value case and
-is cloned with both flags intact. It does not admit an ordinary source `lazy val`,
-which remains the explicit fail-closed case below.
+is cloned with both flags intact. Supported crossing contextual values may refer
+forward or mutually to other parameterless givens in the same prefix: all fresh
+symbols are allocated before their RHS trees move, so a still-lazy, unused cycle
+remains lazy and observationally matches ordinary Scala. A dependent type cycle
+that cannot be allocated soundly is rejected at its declaration. This does not
+admit an ordinary source `lazy val`, which remains the explicit fail-closed case
+below.
 
 The shift body's rank-2 lambda is an opaque argument of the marker. Its own lambda
 syntax is not classified as a crossed callback frame. Opaque here means that its
@@ -233,6 +258,10 @@ exception-based escaped control rather than direct-style effect semantics.
 a `Return` tree, it is library/compiler control whose target is not represented by
 the direct transform's lexical owner test. The macro identifies the exact break
 symbol or its inline call provenance and rejects the invocation before lowering.
+Resolution is by exact symbol, independent of source spelling: a directly selected
+call, imported method alias, module alias, explicit label application, and
+transparent-inline provenance are all the same forbidden operation and retain the
+nearest truthful invocation position.
 This rule intentionally rejects even a shape that a future transform might prove
 safe; it prevents a source delimiter from returning before delayed code invokes
 the break. A return wholly local to a nested method remains accepted under the
@@ -283,24 +312,30 @@ The implementation must:
    Promise/Future, or target-private continuation protocol;
 5. reject any marker not proven to be removed from the returned tree.
 
-At every capture split, the implementation clones each preceding strict
-`ValDef` under the current generated owner and extends one old-symbol to fresh-ref
-map before moving the next initializer, prompt, shift body, or suffix. This map is
-carried recursively through sequential markers. Mutable flags are preserved so
-normal Scala closure conversion owns the shared cell; given and synthetic/pattern
-flags are preserved so implicit selection and destructuring dependencies keep
-their source meaning. A definition kind that M1 cannot freshen is rejected before
-constructing the continuation, never left for a raw quote-owner error.
+At every capture split, the implementation first selects every preceding supported
+strict `ValDef` that crosses the split and allocates its fresh symbol under the
+current generated owner. Type allocation proceeds in source order through already
+available type dependencies; an unsupported forward dependent-type cycle fails
+closed. Only after the complete old-symbol to fresh-ref term map exists are RHS
+trees moved in source order. This two-phase scheme preserves ordinary backward,
+forward, and mutual term references, including compiler-lazy givens, without
+changing strict source evaluation. The map is carried recursively through
+sequential markers. Mutable flags are preserved so normal Scala closure conversion
+owns the shared cell; given and synthetic/pattern flags are preserved so implicit
+selection and destructuring dependencies keep their source meaning. A definition
+kind that M1 cannot freshen is rejected before constructing the continuation,
+never left for a raw quote-owner error.
 
-Cloning includes type ownership. Before `Symbol.newVal`, the transform moves the
-initializer using the current symbol map and rebinds every dependent/singleton path
-in the declared type to the corresponding fresh term reference. The rebuilt type
-is checked for stale old symbols. If the source type has no captured path, its exact
-ascription is retained; if it has a supported captured path, the ascription is
-rebuilt (or equivalently derived from the already-typed moved initializer when
-that preserves the accepted declaration contract). An unsupported path-dependent
-mutable/contextual/pattern shape fails at the source declaration with the stable
-unsupported diagnostic rather than being narrowed silently.
+Cloning includes type ownership. Before each `Symbol.newVal`, the transform rebinds
+every supported dependent/singleton path in the declared type to the fresh term
+references already allocated for its type dependencies. After the full symbol map
+exists, it moves the initializer and rebinds/audits all nested owner-bearing types
+in that tree. The captured `A`, prompt, shift body, suffix, and every nested moved
+definition receive the same stale-symbol audit. If the source type has no captured
+path, its exact ascription is retained; if it has a supported captured path, the
+ascription is rebuilt. An unsupported path-dependent mutable/contextual/pattern or
+nested term shape fails at its source declaration/marker with the stable unsupported
+diagnostic rather than being narrowed silently or delegated to the Scala compiler.
 
 Marker normalization may remove only ownership-neutral typing wrappers; it never
 removes an `Inlined` node. Even `Inlined(None, Nil, ...)` can retain references to
@@ -382,7 +417,9 @@ The review-remediation diagnostics freeze these families:
 - an unsupported dependent prefix type uses `DIRECT_STYLE_UNSUPPORTED` at its
   declaration and tells the user to move the declaration outside `direct.reset`;
 - `scala.util.boundary.break` uses `DIRECT_STYLE_UNSUPPORTED` at the break
-  invocation and tells the user to move boundary control outside `direct.reset`.
+  invocation and tells the user to move boundary control outside `direct.reset`;
+  imported aliases, explicit-label calls, module aliases, and transparent-inline
+  provenance preserve the same code and nearest truthful source position.
 
 ## Semantic-vector lane
 
@@ -432,9 +469,18 @@ save/run, callbacks, descriptors, runners, or cancellation.
 - [x] Lazy marker initializers, crossing local method/class/type/lazy
       declarations, and inline marker wrappers fail closed
       with the frozen diagnostic family and never execute rejected side effects.
-- [x] Dependent/singleton types of freshened strict locals are rebound without old
-      owner references; local nested prompts and `owner.type` flow across capture,
-      while unsupported shapes fail closed without raw compiler errors.
+- [x] Top-level declared types of freshened strict locals are rebound without old
+      owner references for the covered local nested-prompt, `owner.type`, mutable,
+      given, and pattern declaration cases.
+- [ ] A captured result `A` that names a freshened `owner.type` or
+      `Prompt[inner.Key, R]` is rebound consistently through the explicit shift and
+      rank-2 continuation; unsupported types fail at the marker without raw E007.
+- [ ] Owner-bearing types on nested moved RHS symbols and suffix declarations are
+      rebound/audited, including `() => owner.type`; no old owner reaches emitted
+      code and any unsupported graph fails closed at its source construct.
+- [ ] Supported compiler-lazy parameterless givens are allocated before any RHS is
+      moved, so unused forward/mutual term references compile and retain ordinary
+      Scala laziness while unsupported dependent type cycles fail closed.
 - [x] An exact direct marker inside an outer `ShiftBody` fails at the inner call;
       ordinary explicit control and nested managed `direct.reset` remain accepted.
 - [x] A nested managed reset exempts only its contextual body from the enclosing
@@ -443,9 +489,10 @@ save/run, callbacks, descriptors, runners, or cancellation.
       nested managed body and explicit `scalascript.control.shift` remain accepted.
 - [x] Transparent-inline rejection reports the nearest wrapper invocation, while
       the unexpanded-inline application diagnostic remains stable.
-- [x] Every `scala.util.boundary.break` inside M1 fails before defer/CPS movement
-      with a stable source-located direct diagnostic; safe nested-method returns
-      remain accepted.
+- [ ] Every `scala.util.boundary.break` inside M1 fails before defer/CPS movement
+      with a stable source-located direct diagnostic through direct selection,
+      imported alias, explicit label, module alias, and transparent-inline
+      provenance; safe nested-method returns remain accepted.
 
 ## Verification
 
@@ -495,8 +542,14 @@ Changed Markdown is linted and the final branch must pass `git diff --check`.
   symbols across generated lambdas, and cloning local methods/classes/types/lazy
   machinery without a complete ownership model.
 - **Types are ownership-bearing.** Chosen because a cloned term whose type still
-  names an old local is not a sound clone. Rejected: term-only substitution and
-  relying on the Scala compiler to surface a raw generated-tree E007.
+  names an old local is not a sound clone. This includes captured `A`, nested
+  definition symbol infos, and suffix declarations, not just an outer `ValDef.tpt`.
+  Rejected: term-only/top-level-type substitution and relying on the Scala compiler
+  to surface a raw generated-tree E007.
+- **Two-phase crossing-value allocation.** Chosen so supported lazy contextual
+  values may retain ordinary forward/mutual term references while all RHS trees
+  move against a complete replacement map. Rejected: sequential move-then-allocate,
+  which leaks an old owner for forward references, and eager evaluation of givens.
 - **ShiftBody is opaque but marker-free.** Chosen to preserve arbitrary explicit
   effect code while enforcing that every direct marker is consumed by its owning
   transform. A nested managed reset protects only its contextual body, because its
@@ -557,3 +610,12 @@ Changed Markdown is linted and the final branch must pass `git diff --check`.
   green, catalog validation is 26 vectors/9 lanes with 9/9 negative cases, the
   direct lane is 3/3, and affected conformance is 5/5. Fresh independent rereview
   remains the landing gate.
+- Fresh independent review of frozen checkpoint `708dec2f1` rejected three further
+  P1 owner families. A packaged Scala CLI 3.8.3 singleton-captured-`A` consumer
+  reports E007 `owner` versus `owner²`; a moved `() => owner.type` RHS reports the
+  same split; and unused forward/mutual parameterless givens fail with raw macro
+  output that `second` escaped its scope. Their explicit equivalents compile and
+  print `42`. The review also required committed exact regressions for four
+  symbol-preserving `boundary.break` spellings/provenance forms and correction of
+  the over-broad dependent-owner completion wording. These are pre-fix baselines;
+  another independent review remains mandatory after implementation and full gates.
