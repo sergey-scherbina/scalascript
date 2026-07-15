@@ -115,6 +115,10 @@ total `ClosV` whose catch-all throws for foreign operations.
       handler decision continues, then either selects an arm or forwards the
       original operation. Reusable guard effects create independent decision
       branches, while one-shot guard effects retain their base claim.
+- [ ] A total general handler whose final named/wildcard catch-all makes terminal
+      miss unreachable is still dispatch-qualified by its pre-body selected
+      marker. An effect raised by an earlier guard therefore suspends the pending
+      decision instead of being reported as an already matched handler result.
 - [ ] A missing `Return` arm uses the same structured `Unhandled` result and
       returns the pure value unchanged. No runtime path recognizes missing arms
       from exception-message text.
@@ -190,7 +194,10 @@ handler-dispatch-selected(event) // after pattern + guard succeed, before body
 handler-dispatch-miss(event)     // only after the complete case chain falls through
 ```
 
-The compiler recognizes the terminal marker as private handler-root metadata.
+The compiler recognizes either decision marker as private handler-root metadata.
+`selected` is sufficient because a total ordered chain may eliminate its
+synthetic terminal fallback after a final named/wildcard catch-all, while an
+earlier guard may still suspend before that selected marker runs.
 With an active exact-event probe, `selected` consumes `Pending -> Matched` and
 returns unit; `miss` performs `Pending -> Unhandled` and returns the same private
 sentinel used by canonical `Match`. Without that probe, `selected` is a no-op and
@@ -460,6 +467,8 @@ while matching-arm failures share the ordinary failure path.
    A recursive/ordinary reentrant call to that *same closure* and same event
    exercises both paths again, proving activation provenance rather than merely
    owner provenance.
+   An effectful guard followed by a total named/wildcard catch-all proves that
+   selected-only root metadata still yields `Suspended` before either body runs.
    A native-frontend structural regression compiles the same simple and general
    one-parameter self-scrutinee partial functions and asserts direct-root or
    selected/miss qualification without broadening unrelated lambdas.
