@@ -61,7 +61,7 @@ rows, applies the filter, and projects the result. `queryImage(dbBytes, sql)` op
 database image and returns the result rows; `renderRows` formats them like the sqlite3
 CLI (`a|b|c` per row, NULL blank) for differential testing.
 
-[ByteSlice, ByteError, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, ReadonlyDatabase, SchemaEntry, StorageRecord, DecodedRecord, DecodedText, RowidTableTree, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly, ReadonlyCursorStep, ReadonlyBtreeCursor, SqliteError, SqliteOpenOptions, SqliteLimits, OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, encodeRecord, openMutablePager, mutableCommit, mutableGet, mutablePut, MutablePager, PagerCommit, pagerInsertBalanced, pagerDeleteBalanced, readLeafCells, leafInsertCell, rebuildLeafPage, LeafCell, byteSliceSlice, byteSliceToList, byteSliceGet, writeU32Be, IndexEntry, buildIndexTree, sortIndexEntries, IndexTreeBytes, buildSingleTableIndexed, KeyedRawRow, SchemaIndex, SchemaTable, descendToLeaf, decodeVarint, VarintRead, decodeRecord](index.ssc)
+[ByteSlice, ByteError, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, ReadonlyDatabase, SchemaEntry, StorageRecord, DecodedRecord, DecodedText, RowidTableTree, RecordKeyTree, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly, ReadonlyCursorStep, ReadonlyBtreeCursor, SqliteError, SqliteOpenOptions, SqliteLimits, OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, encodeRecord, openMutablePager, mutableCommit, mutableGet, mutablePut, MutablePager, PagerCommit, pagerInsertBalanced, pagerDeleteBalanced, readLeafCells, leafInsertCell, rebuildLeafPage, LeafCell, byteSliceSlice, byteSliceToList, byteSliceGet, writeU32Be, IndexEntry, buildIndexTree, sortIndexEntries, IndexTreeBytes, buildSingleTableIndexed, KeyedRawRow, SchemaIndex, SchemaTable, descendToLeaf, decodeVarint, VarintRead, decodeRecord](index.ssc)
 [ImageVfs, fieldValueAt](mutate.ssc)
 
 ```scalascript
@@ -3202,27 +3202,117 @@ def seekRowidRecord(dbBytes: ByteSlice, db: ReadonlyDatabase, root: Int, pageSiz
           case Left(_) => SeekFallback
           case Right(cells) => seekDecodeCell(findCellByRowid(cells, rowid), threshold, db, rowid)
 
-// A WHERE of exactly one equality `column = <integer literal>` → (column, K); else None.
-def extractRowidEq(where: List[List[Condition]]): Option[(String, Long)] =
+// A WHERE of exactly one equality `column = <literal>` → (column, value); else None.
+def extractColEq(where: List[List[Condition]]): Option[(String, SqliteValue)] =
   if where.length != 1 then None
   else
     val group = where.head
     if group.length != 1 then None
     else
       val cond = group.head
-      if cond.op == "=" && cond.leftExpr.isEmpty && cond.rightExpr.isEmpty then cond.value match
-        case SqlInteger(k) => Some((cond.column, k))
-        case _ => None
+      if cond.op == "=" && cond.leftExpr.isEmpty && cond.rightExpr.isEmpty then Some((cond.column, cond.value))
       else None
 
-// If the query is a single-table `WHERE rowid = K` / `WHERE ipk = K`, seek the row; None means
-// "not applicable / cannot seek — use the normal path". The seek result feeds the same finishRows
-// downstream as the full scan, so the output is byte-identical.
-def rowidPointLookup(dbBytes: ByteSlice, stmt: SelectStmt): Option[Either[String, List[List[SqliteValue]]]] =
+def longOfValue(v: SqliteValue): Option[Long] = v match
+  case SqlInteger(x) => Some(x)
+  case _ => None
+
+// An index on `table` whose FIRST key column is `colName` → (indexRoot, #keyColumns). The index
+// record is [keycols…, rowid], so #keyColumns is the field index of the rowid.
+def indexForColumn(db: ReadonlyDatabase, table: String, colName: String): Option[(Long, Int)] =
+  val target = upperStr(table)
+  val colU = upperStr(colName)
+  var r = db.schema.entries
+  var found: Option[(Long, Int)] = None
+  while r.nonEmpty && found.isEmpty do
+    val e = r.head
+    val isIndex = e.kind match
+      case SchemaIndex => true
+      case _ => false
+    if isIndex && upperStr(cpToString(e.tableName.codePoints)) == target then
+      val cols = e.sql match
+        case Some(t) => indexSqlColumns(cpToString(t.codePoints))
+        case None => Nil
+      if cols.nonEmpty then
+        if upperStr(cols.head) == colU then e.rootPage match
+          case Some(rp) => found = Some((rp, cols.length))
+          case None => found = found
+    r = r.tail
+  found
+
+def indexRowidOf(record: DecodedRecord, numKeyCols: Int): Long =
+  fieldValueAt(record, numKeyCols) match
+    case SqlInteger(x) => x
+    case _ => 0L
+
+// Walk an index B-tree in key order, collecting the rowids whose first key column == `key`; stop
+// when a key sorts past `key` (indexes are BINARY-sorted, matching sqlCompare). Equal-key entries
+// are sub-ordered by rowid (the record's tie-break field) = the table's scan order.
+def indexSeekRowids(db: ReadonlyDatabase, indexRoot: Long, numKeyCols: Int, key: SqliteValue): Either[String, List[Long]] =
+  openReadonlyRoot(db, indexRoot, RecordKeyTree) match
+    case Left(error) => Left(error.message)
+    case Right(cursor) => readonlyFirst(db, cursor) match
+      case Left(error) => Left(error.message)
+      case Right(firstStep) =>
+        var d = firstStep.database
+        var c = firstStep.cursor
+        var row = firstStep.row
+        var accRev: List[Long] = Nil
+        var err: Option[String] = None
+        var done = false
+        while !done && err.isEmpty do
+          row match
+            case None => done = true
+            case Some(rec) =>
+              val cmp = sqlCompare(fieldValueAt(rec.record, 0), key)
+              if cmp > 0 then done = true
+              else
+                accRev = if cmp == 0 then indexRowidOf(rec.record, numKeyCols) :: accRev else accRev
+                readonlyNext(d, c) match
+                  case Left(error) => err = Some(error.message)
+                  case Right(step) =>
+                    d = step.database
+                    c = step.cursor
+                    row = step.row
+        err match
+          case Some(message) => Left(message)
+          case None => Right(accRev.reverse)
+
+// Point-lookup each rowid → its row; None if any lookup must fall back (overflow) or is missing.
+def seekRowsForRowids(dbBytes: ByteSlice, db: ReadonlyDatabase, root: Int, pageSize: Int, rowids: List[Long]): Option[List[StorageRecord]] =
+  var r = rowids
+  var accRev: List[StorageRecord] = Nil
+  var bail = false
+  while r.nonEmpty && !bail do
+    seekRowidRecord(dbBytes, db, root, pageSize, r.head) match
+      case SeekHit(rec) => accRev = rec :: accRev
+      case SeekMiss => bail = true
+      case SeekFallback => bail = true
+    r = r.tail
+  if bail then None else Some(accRev.reverse)
+
+def rowidSeekResult(dbBytes: ByteSlice, db: ReadonlyDatabase, root: Int, pageSize: Int, colNames: List[String], stmt: SelectStmt, k: Long): Option[Either[String, List[List[SqliteValue]]]] =
+  seekRowidRecord(dbBytes, db, root, pageSize, k) match
+    case SeekFallback => None
+    case SeekMiss => Some(finishRows(Nil, colNames, stmt))
+    case SeekHit(rec) => Some(finishRows(rec :: Nil, colNames, stmt))
+
+def indexSeekResult(dbBytes: ByteSlice, db: ReadonlyDatabase, root: Int, pageSize: Int, colNames: List[String], stmt: SelectStmt, indexRoot: Long, numKeyCols: Int, value: SqliteValue): Option[Either[String, List[List[SqliteValue]]]] =
+  indexSeekRowids(db, indexRoot, numKeyCols, value) match
+    case Left(_) => None
+    case Right(rowids) => seekRowsForRowids(dbBytes, db, root, pageSize, rowids) match
+      case None => None
+      case Some(rows) => Some(finishRows(rows, colNames, stmt))
+
+// If the query is a single-table `WHERE col = literal`, try an index access path: a rowid/IPK column
+// seeks the table B-tree; otherwise an indexed column is looked up through its index B-tree (collect
+// matching rowids, then point-lookup each row). None → "not applicable, use the full scan". Either
+// path feeds the same finishRows downstream as the full scan, so the output is byte-identical.
+def pointLookup(dbBytes: ByteSlice, stmt: SelectStmt): Option[Either[String, List[List[SqliteValue]]]] =
   if stmt.joins.nonEmpty then None
-  else extractRowidEq(stmt.where) match
+  else extractColEq(stmt.where) match
     case None => None
-    case Some(colK) =>
+    case Some(colV) =>
       tableContext(dbBytes, stmt.table) match
         case Left(_) => None
         case Right(ctx) =>
@@ -3231,20 +3321,21 @@ def rowidPointLookup(dbBytes: ByteSlice, stmt: SelectStmt): Option[Either[String
           val colNames = ctx._3
           val pageSize = ctx._4
           val ipkIdx = tableIpkIndex(db, stmt.table)
-          val col = upperStr(colK._1)
+          val col = upperStr(colV._1)
           val isRowidCol = col == "ROWID" || (ipkIdx >= 0 && col == upperStr(nthName(colNames, ipkIdx)))
-          if !isRowidCol then None
-          else seekRowidRecord(dbBytes, db, root, pageSize, colK._2) match
-            case SeekFallback => None
-            case SeekMiss => Some(finishRows(Nil, colNames, stmt))
-            case SeekHit(rec) => Some(finishRows(rec :: Nil, colNames, stmt))
+          if isRowidCol then longOfValue(colV._2) match
+            case Some(k) => rowidSeekResult(dbBytes, db, root, pageSize, colNames, stmt, k)
+            case None => None
+          else indexForColumn(db, stmt.table, colV._1) match
+            case None => None
+            case Some(idx) => indexSeekResult(dbBytes, db, root, pageSize, colNames, stmt, idx._1, idx._2, colV._2)
 
 /** Execute an already-built SelectStmt against a database image (the typed-SQL surface entry —
  *  skips tokenize/parse and runs the same executor path queryImage's tail uses). Tries a rowid
  *  point-lookup first (WHERE rowid=K / WHERE ipk=K), else the normal executor. */
 def runSelectStmt(dbBytes: ByteSlice, stmt: SelectStmt): Either[String, List[List[SqliteValue]]] =
   if stmt.table == "" then executeNoFrom(stmt)
-  else rowidPointLookup(dbBytes, stmt) match
+  else pointLookup(dbBytes, stmt) match
     case Some(result) => result
     case None => openReadonly(ImageVfs(dbBytes), "image.db", sqlOptions()) match
       case Left(error) => Left(error.message)

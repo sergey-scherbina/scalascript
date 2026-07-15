@@ -1,0 +1,11 @@
+SELECT id, dept FROM t WHERE dept = 'eng' => 1|eng
+3|eng
+5|eng
+SELECT id FROM t WHERE dept = 'sales' => 2
+SELECT id FROM t WHERE dept = 'nope' => 
+SELECT COUNT(*) FROM t WHERE dept = 'eng' => 3
+SELECT dept FROM t WHERE salary = 250 => eng
+SELECT id FROM t WHERE salary = 999 => 
+SELECT id, dept FROM t WHERE dept = 'eng' ORDER BY id DESC => 5|eng
+3|eng
+1|eng

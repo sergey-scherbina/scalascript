@@ -1,0 +1,49 @@
+---
+name: scljet-sql-index-seek
+description: SclJet index-assisted lookup — WHERE indexedcol=K reads the index B-tree instead of scanning; matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet index-assisted lookup
+
+A single-table `SELECT … WHERE <indexed column> = K` now uses the column's index: it walks the index
+B-tree (sorted by key) collecting the matching rowids — stopping once a key sorts past K — then
+point-looks-up each row through the rowid seek, instead of scanning and decoding every table row.
+The found rows feed the same `finishRows` pipeline, so the result is byte-identical to a full scan.
+Equal-key index entries are sub-ordered by rowid, matching the table's scan order. Covers TEXT and
+INTEGER indexes, duplicates, a miss, `COUNT`, and `ORDER BY` on top. Every result matches reference
+sqlite3 (verified out-of-band); locked across `[int, js]`. (This uses the index via an ordered walk;
+an O(log n) interior-node descent is a follow-up.)
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, executeMutation, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def apply(db: ByteSlice, sql: String): ByteSlice =
+  executeMutation(db, sql) match
+    case Left(m) =>
+      println(sql + " => ERR:" + m)
+      db
+    case Right(next) => next
+
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(id INTEGER PRIMARY KEY, dept TEXT, salary INTEGER)",
+  List(List(SqlInteger(9L), SqlText("seed"), SqlInteger(0L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db0) =>
+    val d1 = apply(db0, "DELETE FROM t")
+    val d2 = apply(d1, "CREATE INDEX idx_dept ON t(dept)")
+    val d3 = apply(d2, "CREATE INDEX idx_sal ON t(salary)")
+    val db = apply(d3, "INSERT INTO t VALUES (1,'eng',100),(2,'sales',200),(3,'eng',300),(4,'hr',150),(5,'eng',250)")
+    show(db, "SELECT id, dept FROM t WHERE dept = 'eng'")
+    show(db, "SELECT id FROM t WHERE dept = 'sales'")
+    show(db, "SELECT id FROM t WHERE dept = 'nope'")
+    show(db, "SELECT COUNT(*) FROM t WHERE dept = 'eng'")
+    show(db, "SELECT dept FROM t WHERE salary = 250")
+    show(db, "SELECT id FROM t WHERE salary = 999")
+    show(db, "SELECT id, dept FROM t WHERE dept = 'eng' ORDER BY id DESC")
+```
