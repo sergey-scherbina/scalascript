@@ -1,8 +1,7 @@
 # JavaScript/TypeScript closed lexical direct control transform
 
 Status: **third-review JavaScript/declaration emit-channel repairs implemented and
-direct-package verified; full cross-package gates and fresh rereview pending**
-(2026-07-15).
+fully locally verified; fresh independent rereview pending** (2026-07-15).
 
 ## Overview
 
@@ -450,7 +449,7 @@ diagnostic.
 - [x] The packed installed `.bin` runs through its symlink, resolves TypeScript only
       from the project/config/cwd issuer even when the package lives in an extracted
       store, and fails non-zero for missing compiler or invalid options.
-- [ ] Package tests, packed-CLI JavaScript/declaration/syntax/production regressions,
+- [x] Package tests, packed-CLI JavaScript/declaration/syntax/production regressions,
       package typecheck, exact dry-run pack, the existing explicit
       package's 31 tests/typecheck, catalog validation/negative validation, and
       affected `effect*,effects*` conformance are green from the isolated worktree.
@@ -530,8 +529,8 @@ diagnostic.
 
 ## Results
 
-The first repair candidate code commit `ec55b8738` on current `origin/main` base
-`a488d3866`, with synchronized user documentation in `df3648abb`, produced:
+The first repair candidate code commit `93cb6b88c` on current `origin/main` base
+`445f7faf7`, with synchronized user documentation in `ea1ad0590`, produced:
 
 - `npm test` in `v2/host/js/control-direct`: 31/31, including faithful real-
   JavaScript prefix-TDZ rejection, accepted type-only prefix references,
@@ -551,11 +550,11 @@ The first repair candidate code commit `ec55b8738` on current `origin/main` base
   (memoized from unchanged previously green cases).
 
 These are local pre-integration results. Exact frozen checkpoint `c4377fabb`
-(current rebased equivalent `0be077e53`) remained unpushed and was submitted to a fresh
+(current rebased equivalent `840f23c1b`) remained unpushed and was submitted to a fresh
 independent read-only review.
 
-The second symbol-ownership repair code commit `484cde9fe` on base `a488d3866`,
-with synchronized user documentation in `49799707b`, produced:
+The second symbol-ownership repair code commit `6fa7cb62c` on base `445f7faf7`,
+with synchronized user documentation in `bded5933a`, produced:
 
 - `npm test` in `v2/host/js/control-direct`: 35/35. New real-JavaScript/package
   regressions reject shorthand property and assignment-initializer suffix capture,
@@ -623,14 +622,19 @@ namespace-import rejection. The three now-checked behavior rows above are the re
 and packed-CLI qualification boundary. The reviewed checkpoint remains
 unpushed, and another independent APPROVE is required after implementation.
 
-The third-review repair candidate code commit `542a5d2b6`, with synchronized user
-documentation in `cfba88c67`, separates exact-module JavaScript cleanup from
+The third-review repair candidate code commit `3385574b8` on base `445f7faf7`, with
+synchronized user documentation in `94b632833`, separates exact-module JavaScript cleanup from
 declaration emit and recognizes external-module import-equals syntax. Direct package
 tests pass 38/38: both verbatim modes run through the real packed installed CLI,
 emitted JavaScript passes `node --check`, production runs after the marker package is
 removed, and `.d.ts` retains the original mixed import/export types. CommonJS/Node10
 runtime import-equals is rejected before emit while the explicit type-only form emits
 no require edge and retains its declaration. Package typecheck and all three
-published-file syntax checks are green. These are local pre-integration results;
-cross-package/catalog/conformance gates and another independent review remain
-mandatory before push or claim release.
+published-file syntax checks are green. The exact eight-file pack is 15,423 packed
+bytes and 59,187 unpacked bytes, with no bundled dependency, executable CLI, and the
+repository license verbatim. The existing explicit package remains 31/31 plus
+typecheck/node check and its exact five-file 11,059/42,353-byte pack. Shared catalog
+validation is 26 vectors / nine lanes, negative validation is 9/9, and affected
+`effect*,effects*` conformance is 5/5 (memoized unchanged green). These are local
+pre-integration results; another independent review remains mandatory before push
+or claim release.
