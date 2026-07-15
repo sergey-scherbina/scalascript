@@ -116,13 +116,17 @@ error-resilient parser already byte-identical to ssc1-front on 119 constructs, t
            can't populate. ssc1-front emits no such nodes → collect=Nil → production byte-identical (no ref
            regression). Case-class body methods +3, using-injection +1, default synthesis (synthetics match).
          - **KC8** `f(a)(using g)`→flatten (mergeUsingArgs) +1.
-      **Remaining ~20% is DEEP/BESPOKE or UNMATCHABLE:**
-      - **custom string interpolators `html"…"`/`sql"…"` are UNMATCHABLE cleanly** — ssc1-front itself doesn't
-        recognise them and emits error-recovery garbage (`_err`, leftover statements); byte-matching that is a
-        non-goal (~5 progs).
-      - deep bespoke: summon resolution + given-body extension methods, `direct { }` marker, continuations/
-        coroutines, symbolic operator methods `def <~>` + custom-op infix precedence; long-tail 1-program gaps.
-      - The **variant-A additive pattern is the reusable template** for any parse-cell the spike can't populate.
+      8. [x] error-recovery + long-tail — landed 2026-07-15 (→404, 83%, 37 slices): the "unmatchable" custom
+         interpolators `html"…"` were matchable — ssc1-front's error recovery is DETERMINISTIC. applyArgs ends the
+         arg list on a non-comma token (so `f(html"…")`→`f(html)` + trailing tokens); error nodes → `mkVar("_err")`
+         (not __notImplemented__); `???`→hole (`?` in isOpChar); compound assignment `x += e`→`x = x + e` (wrapped
+         as `mkSExpr(assign)` in a block so lowerBlock let-folds it). Flipped rest-api/uploads/rest-api-fm/spa-demo/
+         mcp-server-tool; HOLE 40→17. **LESSON: don't call a divergence "unmatchable" — the oracle's quirks are
+         deterministic and reproducible.**
+      **Remaining ~17% is DEEP/BESPOKE:** symbolic operator methods `def <~>` + custom-op infix precedence, summon
+      resolution + given-body extension methods, `direct { }` marker, continuations/coroutines, misc block-fold +
+      arity edge cases, long-tail 1-program gaps. The **variant-A additive collect-node pattern** (lowerProg unions
+      AST-carried companion nodes into a parse-cell) is the reusable template for any remaining parse-cell gap.
       Older remaining (88 DIFF + 70 HOLE):
       ~82 parse holes (custom string interpolators `html"…"`/`sql"…"` — actually ssc1-front ALSO parses these as
       `id`+raw-string, the divergence is arm-body block grouping; braceless-catch-at-top-level offside;
