@@ -1,0 +1,7 @@
+claim: scljet-jdbc-j2
+owner: opus
+started: 2026-07-15
+scope: JVM java.sql shim hardening ONLY — v1/runtime/std/scljet-jdbc-plugin/ + specs/scljet-jdbc*.md.
+  Items: getGeneratedKeys (Statement/PreparedStatement), DatabaseMetaData.getTables/getColumns,
+  host-file durability/locking notes. Does NOT touch scljet/*.ssc (engine) — no overlap with scljet-m3-writes.
+status: starting
