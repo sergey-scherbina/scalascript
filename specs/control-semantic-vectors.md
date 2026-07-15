@@ -34,7 +34,10 @@ run.sh                      catalog validator and lane runner
 id  slug  law  capabilities  phase  expectedExit  expectedStream  oracle
 ```
 
-- `id` is a stable zero-padded decimal id. It is never reused for another law.
+- `id` is a stable zero-padded decimal id. Rows are strictly ordered and
+  contiguous from `01`; a new vector appends the next id. An obsolete or blocked
+  law remains an explicit phased row instead of being deleted, and an id is never
+  reused for another law.
 - `slug` is the stable kebab-case vector name and matches probe/expected names.
 - `law` is the normative section anchor in `control-interoperability.md`.
 - `capabilities` is a sorted comma-separated set of semantic capabilities.
