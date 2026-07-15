@@ -369,29 +369,29 @@ optional policy, not the default continuation semantics.
       and nested objects below a nonrepresentable nominal owner; retain a positive
       public-object namespace control. A known local owner with an unknown member
       must not silently fall back to an external identity.
-    - Audit-hardening regression checkpoint (`0d2582a81`) after the isolated import-
+    - Audit-hardening regression checkpoint (`e7069ad59`) after the isolated import-
       witness fix: focused producer is exactly `66/78`. Twelve tests remain red:
       the six original resolver/effect/inventory failures plus alias import-snapshot,
       selected local callback prefix, selected imported effect, wildcard selected
       prefix, receiver-owned/abstract nominal identities, and known-owner/unknown-
       member fallback. The imported-private identity and public-object namespace
       controls are already green and must stay green.
-    - Effect-hardening checkpoint (`fc465925e`) after resolver/inventory repair:
+    - Effect-hardening checkpoint (`2bdb4114e`) after resolver/inventory repair:
       focused producer is exactly `77/82`. Five tests remain red: duplicate canonical
       declaration marker, malformed/non-type reserved collision, unsupported marker
       on an ordinary object, body-local-only header, and a body-local same-name header
       preceding a genuine top-level effect. A plain effect carrying an unexpected
       unsupported-shape marker already fails and remains a control.
-    - Fifth-correction pre-rebase checkpoint: implementation commits
-      `9e73fb656` (exact import witness), `aebe41434` (unified resolver + recursive
-      inventory), and `69e02ffe3` (exact sentinels + single declaration-scope effect
-      binding). Focused producer/parser/effect passes 94/94 (82/8/4); descriptor
-      27/27, core 1130/1130, interop 36/36, IR success, ABI 73/73; modules/import-
+    - Fifth-correction post-rebase checkpoint on `origin/main@6603e6c29`:
+      implementation commits `c55ac86e9` (exact import witness), `f4d4c01ec`
+      (unified resolver + recursive inventory), and `ff0e2580b` (exact sentinels +
+      single declaration-scope effect binding). Focused producer/parser/effect
+      passes 94/94 (82/8/4); descriptor
+      27/27, core 1132/1132, interop 36/36, IR success, ABI 73/73; modules/import-
       dir conformance 2/2 and forced non-memoized effect conformance 9/9. Next:
-      commit open-ledger/spec verification, rebase the clean branch onto current
-      `origin/main`, reread changed project instructions/milestones, repeat affected
-      and full gates, freeze exact base/head, then request a fresh read-only review.
-      Do not push/release and do not close any of the 17 Slice B BUGS beforehand.
+      commit this open-ledger/spec verification, freeze the resulting exact clean
+      head, then request a fresh independent read-only review. Do not push/release
+      and do not close any of the 17 Slice B BUGS beforehand.
     - Done when the focused regressions and affected core/interop/conformance gates pass and a
       fresh independent read-only review returns APPROVE with no P1/P2 blocker.
   - [ ] **C — post-body summaries:** extract managed/foreign/tail edges, save sites, frame schemas,
