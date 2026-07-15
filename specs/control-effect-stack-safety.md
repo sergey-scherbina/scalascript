@@ -73,8 +73,13 @@ that gate.
       evaluating the remaining positions, and invoke/build their consumer
       exactly once. Focused raw-CoreIR vectors cover multiple
       operation-producing primitive arguments plus `App`/`Ctor` handler arms
-      containing `resume`, with observable VM/direct-ASM ordering parity;
-      FastCode may not bypass these paths.
+      containing `resume`, with observable VM/direct-ASM ordering parity.
+- [ ] Effectful `While` conditions and bodies thread resume requests before
+      boolean dispatch, discard, or the next iteration. Deep effectful loops
+      remain stack-safe on VM/direct ASM; FastCode may not bypass this path.
+- [ ] The first curried `App(Global("handle"), computation)` stage preserves
+      the computation as raw `Op/3`, while an effectful application function
+      position completes before any argument is evaluated.
 - [ ] A nested outer handler still receives a residual operation with the same
       three fields and original base continuation/gate. The private resume
       protocol is never exposed as a residual user operation.
@@ -259,14 +264,14 @@ CoreIR value-position audit is:
 | non-final `Seq` terms | already threads before the remaining statements |
 | `If` condition | already threads before selecting a branch |
 | `Match` scrutinee | already threads before dispatching an arm |
-| `App` function and arguments | evaluate function, then arguments left-to-right; thread before remaining arguments and apply exactly once |
+| `App` function and arguments | evaluate function, then arguments left-to-right; thread before remaining arguments and apply exactly once; the first curried `Global("handle")` stage is the exact raw-computation exception |
 | `Ctor` fields | evaluate left-to-right; thread before remaining fields and construct exactly once |
 | `Prim` arguments | evaluate left-to-right; thread before remaining arguments and invoke exactly once, except the substrate exclusions below |
+| `While` condition/body | thread a condition before boolean dispatch and a body before discard/next iteration; retain an iterative pure path and tail-recursive generated loop |
 
 `Lam` and `LetRec` bindings are values whose bodies run only when called. A
-`While` is an optimization/control node rather than a value consumer; effectful
-loop condition/body semantics are not introduced by this stack-safety slice and
-must not be used to justify skipping any value position above.
+final `Seq` result flows outward unchanged. These cases complete the CoreIR
+position audit; none may bury or discard a private request.
 
 For every primitive except the four effect-substrate operations below, the VM
 applies `Runtime.letThreadOp` whenever an evaluated argument is an auto-thread
@@ -289,15 +294,37 @@ partially-filled argument/field array may be captured by a reusable
 continuation. Application evaluates an effectful function position before any
 argument and preserves tail `Call` on the all-pure runtime path.
 
-FastCode must decline an `App`, `Ctor`, or non-substrate `Prim` whose consumed
-position can produce an operation, so the effect-aware compiler path remains
-authoritative. The VM classifier is deliberately a conservative superset of
-`OpAnfNative.mayOp`: in addition to `App` and dynamic method/effect dispatch, it
-recognizes explicit `effect.perform`, `effect.perform.oneshot`, and
-`effect.handle` CoreIR sources used by raw `run-ir` tests. False positives only
-select the correct effect-aware path; they never change a value. Focused tests
-assert the required declines. This is an existing `Op/3` evaluation rule, not a
-new host or CoreIR ABI.
+The bridge's curried compatibility form is a second, syntactically exact
+substrate boundary:
+
+```text
+App(Global("handle"), List(computation))
+```
+
+Its first stage stores the raw computation and returns the handler-taking
+closure; lifting `computation` would float the operation past its own handler.
+Only this exact first-stage shape is excluded. The outer application still
+sequences its (possibly effectful) function position before the handler
+argument. `FrontendBridge.OpAnf`, `OpAnfNative`, and the VM compiler must agree
+on this exception, and paren-form regression tests guard it.
+
+An effectful `While` uses an iterative runtime loop on the VM: pure iterations
+stay in the local loop, while an operation in the condition captures boolean
+dispatch and an operation in the body captures discard plus the next
+iteration. Direct ASM lowers the same shape to a local tail-recursive
+`LetRec` whose condition is an effect-threaded `Let` and whose true branch is
+an effect-threaded `Seq(body, loop())`; existing local-tail code generation
+keeps arbitrary depth off the host stack.
+
+FastCode must decline an `App`, `Ctor`, non-substrate `Prim`, or `While` whose
+consumed position can produce an operation, so the effect-aware compiler path
+remains authoritative. The VM, `OpAnfNative`, and direct-ASM classifiers align
+on `App`, dynamic method/effect dispatch, and explicit `effect.perform`,
+`effect.perform.oneshot`, and `effect.handle` CoreIR sources used by raw
+`run-ir` tests. The VM predicate remains a conservative runtime-path selector:
+false positives only select the correct effect-aware path; the slow path checks
+the actual `Value` before threading. Focused tests assert the required declines.
+This is an existing `Op/3` evaluation rule, not a new host or CoreIR ABI.
 
 ## Decisions
 
