@@ -310,6 +310,7 @@ object SpikeParse:
       else if isKw(c, "enum") then defs += parseEnum(c)
       else if isKw(c, "extension") then defs += parseExtension(c)
       else if isWord(c, "object") then defs += parseObject(c)
+      else if isWord(c, "extern") then defs += parseExtern(c)
       else if isWord(c, "trait") || isKw(c, "class") then defs += parseTraitOrClassNoop(c)
       // a top-level STATEMENT — script-style `println(…)`, top-level `val`/`var`/expr. ssc1-front keeps these
       // in source order and lowerProg collects them into `(entry (seq …))` (and `val`/`var` → a global cell).
@@ -368,6 +369,9 @@ object SpikeParse:
     expect(c, "spike.eq", "def.eq", "'='").foreach(kids += _)
     // offside: a body starting on a LATER line is an indented block (Scala optional-braces)
     if !c.eof && c.peekLine > eqLine then kids += parseBlock(c, c.peekCol).withRole("def.body")
+    // a same-line body that is an assignment `x = e` (e.g. `def save(t) = cell = t`) must lower to a store,
+    // not a read — parseExpr stops at the second `=`, so dispatch to parseAssign like branchExpr does.
+    else if c.peekKind == "spike.id" && c.peek2Kind == "spike.eq" then kids += parseAssign(c).withRole("def.body")
     else parseExpr(c, 1) match
       case Some(b) => kids += b.withRole("def.body")
       case None    => c.report("spike.missing-body", "missing def body expression")
@@ -613,6 +617,29 @@ object SpikeParse:
     if isWord(c, "derives") then
       c.advance(); skipTypeRef(c)
       while c.peekKind == "spike.comma" do { c.advance(); skipTypeRef(c) }
+
+  // `extern def f(…): T` / `extern class C { … }` — external signatures, erased to a no-op (ssc1-front:2738).
+  private def parseExtern(c: Cur): Node =
+    c.advance() // `extern`
+    if isKw(c, "class") then
+      c.advance()
+      if c.peekKind == "spike.uid" then c.advance()
+      skipTypeParams(c)
+      if c.peekKind == "spike.lparen" then skipBalancedParens(c)
+      skipExtendsClause(c)
+      if c.peekKind == "spike.lbrace" then skipBalancedBraces(c)
+      else if c.peekKind == "spike.colon" then
+        c.advance(); c.skipSemis()
+        val bodyCol = c.peekCol
+        while !c.eof && c.peekCol >= bodyCol && isMemberStart(c) do
+          val before = c.mark; parseMember(c); if c.mark == before then c.advance(); c.skipSemis()
+    else // `extern def NAME(params): RetType` — a bodyless signature: consume def/name/params/return type
+      if isDefStart(c) then c.advance()
+      if c.peekKind == "spike.id" then c.advance()
+      skipTypeParams(c)
+      while c.peekKind == "spike.lparen" do skipBalancedParens(c)
+      if c.peekKind == "spike.colon" then { c.advance(); skipTypeRef(c) }
+    Node.Frame("spike.sealed", None, Vector.empty)
 
   // `object X [extends …]: members` / `object X { members }` → Pair("object", Pair(name, [member-stmts]))
   // (ssc1-front.ssc0:2687). The lowerer emits `X_member` globals from the body; `X.member` resolves to them.
