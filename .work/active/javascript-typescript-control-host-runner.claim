@@ -1,0 +1,6 @@
+feature/javascript-typescript-control-host-runner 2026-07-15T04:12:05Z
+agent: codex-js-control-explicit
+heartbeat: 2026-07-15T04:12:05Z
+status: not-started
+done-so-far: host profile and delivery sequence are frozen; shared semantic-vector catalog and Scala explicit reference are landed
+next: freeze and implement the first independent slice, a zero-runtime-dependency ESM/TypeScript explicit control API with local vectors
