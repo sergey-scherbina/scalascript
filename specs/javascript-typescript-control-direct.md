@@ -1,7 +1,8 @@
 # JavaScript/TypeScript closed lexical direct control transform
 
-Status: **fourth-review exact-tarball dependency-boundary repair specified;
-implementation pending** (2026-07-15).
+Status: **fourth-review exact-tarball dependency-boundary repair implemented and
+direct-package verified; full cross-package gates and fresh rereview pending**
+(2026-07-15).
 
 ## Overview
 
@@ -410,7 +411,7 @@ diagnostic.
 - [x] The package publishes only the frozen root, `/transform`, command, and exact
       eight-file Apache-licensed allow-list, with no production dependency,
       lifecycle script, or import-time effect.
-- [ ] The exact eight-file tarball manifest contains only the TypeScript 5.9.3
+- [x] The exact eight-file tarball manifest contains only the TypeScript 5.9.3
       registry dev dependency and no repository-local dependency specifier; ordinary
       install from an extracted clean boundary succeeds without a sibling checkout or
       dangling `@scalascript/control` link.
@@ -469,7 +470,7 @@ diagnostic.
 - [x] The packed installed `.bin` runs through its symlink, resolves TypeScript only
       from the project/config/cwd issuer even when the package lives in an extracted
       store, and fails non-zero for missing compiler or invalid options.
-- [x] Package tests, packed-CLI JavaScript/declaration/syntax/production regressions,
+- [ ] Package tests, packed-CLI JavaScript/declaration/syntax/production regressions,
       package typecheck, exact dry-run pack, the existing explicit
       package's 31 tests/typecheck, catalog validation/negative validation, and
       affected `effect*,effects*` conformance are green from the isolated worktree.
@@ -671,6 +672,18 @@ findings and one P1 packaging-boundary failure. The exact tarball's own
 `"@scalascript/control": "file:../control"` in `devDependencies`; extracting it
 without the repository sibling and running ordinary npm install produced a dangling
 dependency whose import failed with `ERR_MODULE_NOT_FOUND`. The packed-consumer test
-had used `--omit=dev`, masking the defect. The unchecked exact-manifest behavior row
+had used `--omit=dev`, masking the defect. The now-checked exact-manifest behavior row
 above is the required repair boundary. The reviewed checkpoint remains unpushed and
 requires another independent APPROVE after implementation.
+
+The fourth-review repair candidate code commit `f03d0fed1`, with synchronized user
+documentation in `94583c850`, removes the sibling dependency from both manifest and
+lockfile. Typechecking resolves explicit-control declarations through a non-published
+TypeScript path, while compiler/runtime tests create their own temporary sibling
+symlink fixtures. The new exact-tar regression packs and extracts
+`package/package.json`, proves the sole development dependency is registry
+`typescript: 5.9.3`, performs ordinary install with no sibling checkout or control
+link, and self-imports the root and transform subpaths. Direct package tests pass
+39/39, package typecheck and all three published-file syntax checks are green. These
+are local pre-integration results; repeated cross-package/catalog/conformance gates
+and another independent review remain mandatory before push or claim release.
