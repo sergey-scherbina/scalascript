@@ -1,0 +1,6 @@
+feature/control-semantic-vectors 2026-07-15T03:19:06Z
+agent: codex-control-vectors
+heartbeat: 2026-07-15T03:19:06Z
+status: not-started
+done-so-far: task is already planned in SPRINT.md and is explicitly allowed before UniML X1
+next: create an isolated worktree, audit the existing cross-lane control harness, and commit a semantic-vector feature spec before implementation
