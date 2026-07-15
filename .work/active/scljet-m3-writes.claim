@@ -1,4 +1,4 @@
 claim: scljet-m3-writes
 owner: opus
-heartbeat: 2026-07-15T05:25:00Z
-status: LIMIT pushdown landed, full gate 83/83 green. Sibling agent A (typed row decoder) DONE af4b65e17. Agent B (JVM JDBC shim) still running. Physical index-seek = next (overflow-safe, differential-tested).
+heartbeat: 2026-07-15T05:40:00Z
+status: BOTH parallel lanes DONE — typed row decoder (A, af4b65e17) + JVM java.sql.Driver shim (B, 68b2b9c1f, 14/14 vs xerial). My lane: LIMIT pushdown landed (gate 83/83). NEXT: physical index/rowid seek (overflow-safe, differential-tested).

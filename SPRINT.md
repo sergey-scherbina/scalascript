@@ -2080,6 +2080,24 @@ Two new front doors are specced (typed-SQL-API cb94fd88c, JDBC-API f2d1372a0); *
 working first implementation** — the JDBC portable façade (m6v) and the typed SQL surface (m6w),
 alongside SQL polish (REAL literals m6s, LEFT-join-3 m6r). All three "параллельно" lanes advanced.
 
+- [x] **scljet-m7b-jvm-jdbc-shim** — DONE 2026-07-15 (parallel small-feature lane of "оба параллельно";
+      landed by sibling agent, code+build `9ac5d0a62`, spec `d4412a642`, on origin/main `68b2b9c1f`). The
+      JVM `java.sql.Driver` shim (J2 of `specs/scljet-jdbc.md`), new module
+      `v1/runtime/std/scljet-jdbc-plugin/`. **Bridge finding: JVM↔engine is clean via the embedded
+      `scalascript.interpreter.Interpreter`** — bootstrap one interpreter running the same
+      `std/scljet/index.ssc` + `std/scljet/jdbc.ssc` imports the conformance case uses, drive the façade
+      via `Interpreter.invoke`, thread the DB image + ResultSet cursor as opaque `Value`s. **No engine
+      changes.** Real `java.sql.Driver` for `jdbc:scljet:<target>` (`:memory:`/`classpath:`/host file,
+      ServiceLoader-registered); Connection/Statement/PreparedStatement/ResultSet/*MetaData are
+      `java.lang.reflect.Proxy` shims (supported subset; else `SQLFeatureNotSupportedException`).
+      Autocommit/commit/rollback thread the image; host files = whole-image read-modify-rewrite.
+      `build.sbt`: `scljetJdbcPlugin` on `backendInterpreter`+`scljetVfsPlugin`, NOT in `allPlugins` (would
+      cycle). Test: `sbt scljetJdbcPlugin/test` **14/14 green** incl. a byte-for-value ResultSet
+      cross-check vs `org.xerial:sqlite-jdbc`. Gotchas the agent fixed (shim-only): `globalsView` replaces
+      case-class ctors with a placeholder → build SqliteValue leaves via `Value.singleValue`;
+      `emptyDatabase` leaves schema-format/encoding 0 → patch header bytes 47→4, 59→1; the engine index
+      needs the `jvm-vfs.ssc` externs → put `scljetVfsPlugin` on the classpath. JVM-only lane.
+
 - [x] **scljet-m7a-typed-row-decoder** — DONE 2026-07-15 (parallel small-feature lane of "оба
       параллельно"; landed by sibling agent, `af4b65e17`). Typed row decoder on the typed-SQL surface:
       `runTypedQueryAs[S](dbBytes, q, decode: List[SqliteValue] => S): Either[String, List[S]]` maps each
