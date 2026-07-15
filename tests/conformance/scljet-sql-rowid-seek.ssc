@@ -1,0 +1,46 @@
+---
+name: scljet-sql-rowid-seek
+description: SclJet rowid point-lookup — WHERE rowid=K / WHERE ipk=K seeks the row via a B-tree descent; matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet rowid point-lookup
+
+A single-table `SELECT … WHERE rowid = K` or `WHERE <INTEGER PRIMARY KEY> = K` now seeks the row via
+an O(log n) B-tree descent (`descendToLeaf`) instead of a full scan, then feeds the 0/1 found rows to
+the same `finishRows` pipeline — so the result is byte-identical to a full scan (verified below for
+hits, a miss, the rowid pseudo-column, the IPK column, and `COUNT(*)` over the seek). The seek is
+overflow-safe: a row whose payload spills onto overflow pages falls back to the full scan
+(exercised separately in `scljet-sql-rowid-seek-overflow`). Every result matches reference sqlite3
+(verified out-of-band); locked across `[int, js]`.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, executeMutation, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def apply(db: ByteSlice, sql: String): ByteSlice =
+  executeMutation(db, sql) match
+    case Left(m) =>
+      println(sql + " => ERR:" + m)
+      db
+    case Right(next) => next
+
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(id INTEGER PRIMARY KEY, name TEXT)",
+  List(List(SqlInteger(1L), SqlText("seed")))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db0) =>
+    val db1 = apply(db0, "DELETE FROM t")
+    val db = apply(db1, "INSERT INTO t VALUES (5,'a'),(2,'b'),(9,'c'),(20,'d')")
+    show(db, "SELECT id, name FROM t WHERE id = 9")
+    show(db, "SELECT name FROM t WHERE id = 2")
+    show(db, "SELECT id, name FROM t WHERE id = 7")
+    show(db, "SELECT name FROM t WHERE rowid = 20")
+    show(db, "SELECT id, name FROM t WHERE id = 5")
+    show(db, "SELECT COUNT(*) FROM t WHERE id = 9")
+    show(db, "SELECT COUNT(*) FROM t WHERE id = 7")
+```

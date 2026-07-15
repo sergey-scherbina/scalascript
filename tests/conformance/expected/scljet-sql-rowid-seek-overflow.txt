@@ -1,0 +1,4 @@
+SELECT LENGTH(v) FROM t WHERE rowid = 1 => 1016
+SELECT v FROM t WHERE rowid = 2 => tail
+SELECT n, LENGTH(v) FROM t ORDER BY n => 1|1016
+2|4

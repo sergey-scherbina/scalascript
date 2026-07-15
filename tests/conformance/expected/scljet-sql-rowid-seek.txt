@@ -1,0 +1,7 @@
+SELECT id, name FROM t WHERE id = 9 => 9|c
+SELECT name FROM t WHERE id = 2 => b
+SELECT id, name FROM t WHERE id = 7 => 
+SELECT name FROM t WHERE rowid = 20 => d
+SELECT id, name FROM t WHERE id = 5 => 5|a
+SELECT COUNT(*) FROM t WHERE id = 9 => 1
+SELECT COUNT(*) FROM t WHERE id = 7 => 0

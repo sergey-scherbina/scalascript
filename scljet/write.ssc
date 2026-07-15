@@ -39,6 +39,7 @@ exports:
   - readInteriorNode
   - pagerInsertBalanced
   - pagerDeleteBalanced
+  - descendToLeaf
 ---
 
 # SclJet M3 write path

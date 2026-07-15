@@ -61,7 +61,7 @@ rows, applies the filter, and projects the result. `queryImage(dbBytes, sql)` op
 database image and returns the result rows; `renderRows` formats them like the sqlite3
 CLI (`a|b|c` per row, NULL blank) for differential testing.
 
-[ByteSlice, ByteError, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, ReadonlyDatabase, SchemaEntry, StorageRecord, DecodedRecord, DecodedText, RowidTableTree, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly, ReadonlyCursorStep, ReadonlyBtreeCursor, SqliteError, SqliteOpenOptions, SqliteLimits, OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, encodeRecord, openMutablePager, mutableCommit, mutableGet, mutablePut, MutablePager, PagerCommit, pagerInsertBalanced, pagerDeleteBalanced, readLeafCells, leafInsertCell, rebuildLeafPage, LeafCell, byteSliceSlice, byteSliceToList, byteSliceGet, writeU32Be, IndexEntry, buildIndexTree, sortIndexEntries, IndexTreeBytes, buildSingleTableIndexed, KeyedRawRow, SchemaIndex, SchemaTable](index.ssc)
+[ByteSlice, ByteError, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, ReadonlyDatabase, SchemaEntry, StorageRecord, DecodedRecord, DecodedText, RowidTableTree, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly, ReadonlyCursorStep, ReadonlyBtreeCursor, SqliteError, SqliteOpenOptions, SqliteLimits, OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, encodeRecord, openMutablePager, mutableCommit, mutableGet, mutablePut, MutablePager, PagerCommit, pagerInsertBalanced, pagerDeleteBalanced, readLeafCells, leafInsertCell, rebuildLeafPage, LeafCell, byteSliceSlice, byteSliceToList, byteSliceGet, writeU32Be, IndexEntry, buildIndexTree, sortIndexEntries, IndexTreeBytes, buildSingleTableIndexed, KeyedRawRow, SchemaIndex, SchemaTable, descendToLeaf, decodeVarint, VarintRead, decodeRecord](index.ssc)
 [ImageVfs, fieldValueAt](mutate.ssc)
 
 ```scalascript
@@ -3008,29 +3008,33 @@ def executeSelectLimited(db: ReadonlyDatabase, cursor: ReadonlyBtreeCursor, stmt
       Right(limitValueRows(accRev.reverse, stmt.limit, stmt.offset))
 
 // Full-scan path: read the whole table, filter, then group/aggregate/order/project/limit.
+// Finish a single-table query from a row set: filter, then group/aggregate/order/project/limit.
+// Shared by the full-scan path and the rowid point-lookup (which supplies 0/1 rows).
+def finishRows(rows: List[StorageRecord], colNames: List[String], stmt: SelectStmt): Either[String, List[List[SqliteValue]]] =
+  val filtered = filterRows(rows, stmt.where, colNames)
+  if stmt.groupBy.nonEmpty then
+    val sortedForGroup = sortStorage(filtered, colNames, groupKeysOf(stmt.groupBy))
+    val groups = filterGroups(groupPartition(sortedForGroup, colNames, stmt.groupBy), stmt.having, colNames)
+    Right(limitValueRows(mapGroups(groups, colNames, stmt.projection), stmt.limit, stmt.offset))
+  else if projHasAgg(stmt.projection) then Right(projectGroupRow(filtered, colNames, stmt.projection) :: Nil)
+  else
+    val sorted = if stmt.orderBy.isEmpty then filtered else sortStorage(filtered, colNames, stmt.orderBy)
+    var r = sorted
+    var accRev: List[List[SqliteValue]] = Nil
+    while r.nonEmpty do
+      accRev = projectRow(r.head, colNames, stmt) :: accRev
+      r = r.tail
+    var projected: List[List[SqliteValue]] = Nil
+    while accRev.nonEmpty do
+      projected = accRev.head :: projected
+      accRev = accRev.tail
+    val deduped = if stmt.distinct then dedupRows(projected) else projected
+    Right(limitValueRows(deduped, stmt.limit, stmt.offset))
+
 def executeSelectFullScan(db: ReadonlyDatabase, cursor: ReadonlyBtreeCursor, stmt: SelectStmt, colNames: List[String]): Either[String, List[List[SqliteValue]]] =
   collectRows(db, cursor) match
     case Left(error) => Left(error.message)
-    case Right(rows) =>
-      val filtered = filterRows(rows, stmt.where, colNames)
-      if stmt.groupBy.nonEmpty then
-        val sortedForGroup = sortStorage(filtered, colNames, groupKeysOf(stmt.groupBy))
-        val groups = filterGroups(groupPartition(sortedForGroup, colNames, stmt.groupBy), stmt.having, colNames)
-        Right(limitValueRows(mapGroups(groups, colNames, stmt.projection), stmt.limit, stmt.offset))
-      else if projHasAgg(stmt.projection) then Right(projectGroupRow(filtered, colNames, stmt.projection) :: Nil)
-      else
-        val sorted = if stmt.orderBy.isEmpty then filtered else sortStorage(filtered, colNames, stmt.orderBy)
-        var r = sorted
-        var accRev: List[List[SqliteValue]] = Nil
-        while r.nonEmpty do
-          accRev = projectRow(r.head, colNames, stmt) :: accRev
-          r = r.tail
-        var projected: List[List[SqliteValue]] = Nil
-        while accRev.nonEmpty do
-          projected = accRev.head :: projected
-          accRev = accRev.tail
-        val deduped = if stmt.distinct then dedupRows(projected) else projected
-        Right(limitValueRows(deduped, stmt.limit, stmt.offset))
+    case Right(rows) => finishRows(rows, colNames, stmt)
 
 // `SELECT <exprs>` with no FROM: evaluate each projection item against an empty row (no columns).
 def executeNoFrom(stmt: SelectStmt): Either[String, List[List[SqliteValue]]] =
@@ -3134,13 +3138,117 @@ def resolveSubqueries(dbBytes: ByteSlice, toks: List[Token]): Either[String, Lis
         val subst = if inCtx then valueListTokens(values) else scalarValueTokens(values)
         resolveSubqueries(dbBytes, prefixRev.reverse ++ subst ++ sp._2)
 
+def sqlLimits(): SqliteLimits =
+  SqliteLimits(1000000L, 100, 100, 100, 100, 10, 1000000L, 100, 100, 1000L, 1000000L, 2, 1000L, 100, 1000000L)
+
+// ── rowid point-lookup: an O(log n) B-tree seek for `WHERE rowid = K` / `WHERE ipk = K` ──
+// The result of a seek. SeekFallback means "cannot seek safely, full-scan instead".
+sealed trait RowidSeek
+case class SeekHit(record: StorageRecord) extends RowidSeek
+case object SeekMiss extends RowidSeek
+case object SeekFallback extends RowidSeek
+
+def nthName(names: List[String], idx: Int): String =
+  var r = names
+  var k = idx
+  while r.nonEmpty && k > 0 do
+    r = r.tail
+    k = k - 1
+  if idx < 0 then "" else if r.isEmpty then "" else r.head
+
+def findCellByRowid(cells: List[LeafCell], rowid: Long): Option[LeafCell] =
+  var r = cells
+  var found: Option[LeafCell] = None
+  while r.nonEmpty && found.isEmpty do
+    if r.head.rowid == rowid then found = Some(r.head)
+    r = r.tail
+  found
+
+// Decode the found cell's local payload into a StorageRecord. OVERFLOW-SAFE: a payload larger than
+// the local threshold (usable - 35) spans overflow pages the readLeafCells reader does not follow,
+// so we fall back to the full scan (which decodes overflow correctly). readLeafCells already having
+// succeeded means payloadLen.toInt is a valid local length (mirrors readLeafCellAt).
+def seekDecodeCell(cellOpt: Option[LeafCell], threshold: Int, db: ReadonlyDatabase, rowid: Long): RowidSeek =
+  cellOpt match
+    case None => SeekMiss
+    case Some(cell) => ByteSlice.fromList(cell.bytes) match
+      case Left(_) => SeekFallback
+      case Right(cellSlice) => decodeVarint(cellSlice, 0) match
+        case Left(_) => SeekFallback
+        case Right(VarintRead(plValue, _, plNext)) =>
+          if plValue.toInt > threshold then SeekFallback
+          else decodeVarint(cellSlice, plNext) match
+            case Left(_) => SeekFallback
+            case Right(VarintRead(_, _, ridNext)) => byteSliceSlice(cellSlice, ridNext, plValue.toInt) match
+              case Left(_) => SeekFallback
+              case Right(payload) => decodeRecord(payload, db.schema.encoding, db.schema.format, sqlLimits()) match
+                case Left(_) => SeekFallback
+                case Right(rec) => SeekHit(StorageRecord(Some(rowid), rec))
+
+// Seek one rowid via a B-tree descent (reuses the write layer's descendToLeaf); overflow/failure → fallback.
+def seekRowidRecord(dbBytes: ByteSlice, db: ReadonlyDatabase, root: Int, pageSize: Int, rowid: Long): RowidSeek =
+  val reserved = byteSliceGet(dbBytes, 20) match
+    case Right(v) => v
+    case Left(_) => 0
+  val threshold = pageSize - reserved - 35
+  val pager = openMutablePager(dbBytes, pageSize, pageSize)
+  descendToLeaf(pager, root, rowid) match
+    case Left(_) => SeekFallback
+    case Right(leafPage) =>
+      val ho = if leafPage == 1 then 100 else 0
+      mutableGet(pager, leafPage) match
+        case Left(_) => SeekFallback
+        case Right(pageBytes) => readLeafCells(pageBytes, ho) match
+          case Left(_) => SeekFallback
+          case Right(cells) => seekDecodeCell(findCellByRowid(cells, rowid), threshold, db, rowid)
+
+// A WHERE of exactly one equality `column = <integer literal>` → (column, K); else None.
+def extractRowidEq(where: List[List[Condition]]): Option[(String, Long)] =
+  if where.length != 1 then None
+  else
+    val group = where.head
+    if group.length != 1 then None
+    else
+      val cond = group.head
+      if cond.op == "=" && cond.leftExpr.isEmpty && cond.rightExpr.isEmpty then cond.value match
+        case SqlInteger(k) => Some((cond.column, k))
+        case _ => None
+      else None
+
+// If the query is a single-table `WHERE rowid = K` / `WHERE ipk = K`, seek the row; None means
+// "not applicable / cannot seek — use the normal path". The seek result feeds the same finishRows
+// downstream as the full scan, so the output is byte-identical.
+def rowidPointLookup(dbBytes: ByteSlice, stmt: SelectStmt): Option[Either[String, List[List[SqliteValue]]]] =
+  if stmt.joins.nonEmpty then None
+  else extractRowidEq(stmt.where) match
+    case None => None
+    case Some(colK) =>
+      tableContext(dbBytes, stmt.table) match
+        case Left(_) => None
+        case Right(ctx) =>
+          val db = ctx._1
+          val root = ctx._2
+          val colNames = ctx._3
+          val pageSize = ctx._4
+          val ipkIdx = tableIpkIndex(db, stmt.table)
+          val col = upperStr(colK._1)
+          val isRowidCol = col == "ROWID" || (ipkIdx >= 0 && col == upperStr(nthName(colNames, ipkIdx)))
+          if !isRowidCol then None
+          else seekRowidRecord(dbBytes, db, root, pageSize, colK._2) match
+            case SeekFallback => None
+            case SeekMiss => Some(finishRows(Nil, colNames, stmt))
+            case SeekHit(rec) => Some(finishRows(rec :: Nil, colNames, stmt))
+
 /** Execute an already-built SelectStmt against a database image (the typed-SQL surface entry —
- *  skips tokenize/parse and runs the same executor path queryImage's tail uses). */
+ *  skips tokenize/parse and runs the same executor path queryImage's tail uses). Tries a rowid
+ *  point-lookup first (WHERE rowid=K / WHERE ipk=K), else the normal executor. */
 def runSelectStmt(dbBytes: ByteSlice, stmt: SelectStmt): Either[String, List[List[SqliteValue]]] =
   if stmt.table == "" then executeNoFrom(stmt)
-  else openReadonly(ImageVfs(dbBytes), "image.db", sqlOptions()) match
-    case Left(error) => Left(error.message)
-    case Right(db) => executeSelect(db, stmt)
+  else rowidPointLookup(dbBytes, stmt) match
+    case Some(result) => result
+    case None => openReadonly(ImageVfs(dbBytes), "image.db", sqlOptions()) match
+      case Left(error) => Left(error.message)
+      case Right(db) => executeSelect(db, stmt)
 
 /** Run a SELECT against a database image and return the result rows. */
 def queryImage(dbBytes: ByteSlice, sql: String): Either[String, List[List[SqliteValue]]] =
@@ -3157,11 +3265,7 @@ def queryImageParams(dbBytes: ByteSlice, sql: String, params: List[SqliteValue])
         case Left(message) => Left(message)
         case Right(toks) => parseSelect(toks) match
           case Left(message) => Left(message)
-          case Right(stmt) =>
-            if stmt.table == "" then executeNoFrom(stmt)
-            else openReadonly(ImageVfs(dbBytes), "image.db", sqlOptions()) match
-              case Left(error) => Left(error.message)
-              case Right(db) => executeSelect(db, stmt)
+          case Right(stmt) => runSelectStmt(dbBytes, stmt)
 
 // ── DML: INSERT and DELETE through the balanced write path ──
 

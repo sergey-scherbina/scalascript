@@ -1,0 +1,43 @@
+---
+name: scljet-sql-rowid-seek-overflow
+description: SclJet rowid seek is overflow-safe — a WHERE rowid=K on an overflow row falls back to the full scan; matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet rowid seek — overflow safety
+
+The rowid point-lookup reads only the found cell's local payload. A row whose payload spills onto
+overflow pages (local length < total, so `payloadLen > usable - 35`) is detected and the seek
+returns a fallback, so the query runs the full scan (which follows the overflow chain and decodes
+the whole value). Here `rowid = 1` is a 1016-char overflow row and `rowid = 2` is a small row that
+uses the seek directly; both read back byte-identical to reference sqlite3 (verified out-of-band).
+Locked across `[int, js]`.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildOverflowTableDatabase](std/scljet/index.ssc)
+[queryImage, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+// "a" * n with log-depth recursion (JS lane has no TCO).
+def text(n: Int): String =
+  if n <= 0 then ""
+  else if n == 1 then "a"
+  else
+    val half = text(n / 2)
+    if n % 2 == 0 then half + half else half + half + "a"
+
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+val rows: List[List[SqliteValue]] = List(
+  List(SqlInteger(1L), SqlText(text(1016))),
+  List(SqlInteger(2L), SqlText("tail")))
+
+buildOverflowTableDatabase(512, 1, 1, "t", "CREATE TABLE t(n INTEGER, v TEXT)", rows) match
+  case Left(error) => println("ERROR:" + error.message)
+  case Right(db) =>
+    show(db, "SELECT LENGTH(v) FROM t WHERE rowid = 1")
+    show(db, "SELECT v FROM t WHERE rowid = 2")
+    show(db, "SELECT n, LENGTH(v) FROM t ORDER BY n")
+```
