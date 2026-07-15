@@ -1,6 +1,0 @@
-feature/ssc-api-descriptor-v3 2026-07-15T02:10:53Z
-agent: codex-control-descriptor
-heartbeat: 2026-07-15T03:21:17Z
-status: in-progress
-done-so-far: Slice A implementation/spec/docs commits are clean; independent final audit approved descriptor 27/27 and legacy .scim ABI 73/73, including old/new JSON and MessagePack compatibility
-next: rebase the 75-commit delta onto origin/main, rerun focused suites and affected conformance, then root review before push
