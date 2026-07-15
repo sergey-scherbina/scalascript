@@ -86,11 +86,51 @@ export function createDirectTransform(ts, program) {
       importDeclaration.moduleSpecifier.text === DirectModule
   }
 
-  function importedDirect(identifier) {
-    if (!ts.isIdentifier(identifier)) return false
-    const symbol = checker.getSymbolAtLocation(identifier)
+  function runtimeValueSymbol(node) {
+    if (ts.isExportSpecifier(node)) {
+      try {
+        return checker.getExportSpecifierLocalTargetSymbol(node)
+      } catch {
+        return undefined
+      }
+    }
+    if (!ts.isIdentifier(node)) return undefined
+    const parent = node.parent
+    if (ts.isShorthandPropertyAssignment(parent) && parent.name === node) {
+      try {
+        return checker.getShorthandAssignmentValueSymbol(parent) ??
+          checker.getSymbolAtLocation(node)
+      } catch {
+        return checker.getSymbolAtLocation(node)
+      }
+    }
+    return checker.getSymbolAtLocation(node)
+  }
+
+  function aliasedSymbol(symbol) {
+    if (symbol === undefined || (symbol.flags & ts.SymbolFlags.Alias) === 0) {
+      return undefined
+    }
+    try {
+      return checker.getAliasedSymbol(symbol)
+    } catch {
+      return undefined
+    }
+  }
+
+  function ownedDirectSymbol(symbol, source) {
     if (symbol === undefined) return false
-    return (symbol.declarations ?? []).some(directImportSpecifier)
+    const imports = markerImportsByFile.get(source.fileName)
+    if (imports === undefined) return false
+    return imports.some(specifier => {
+      const local = checker.getSymbolAtLocation(specifier.name)
+      return symbol === local
+    })
+  }
+
+  function importedDirect(node) {
+    const symbol = runtimeValueSymbol(node)
+    return symbol !== undefined && ownedDirectSymbol(symbol, node.getSourceFile())
   }
 
   function unwrapTransparent(expression) {
@@ -119,14 +159,7 @@ export function createDirectTransform(ts, program) {
     if (!ts.isIdentifier(identifier)) return undefined
     const symbol = checker.getSymbolAtLocation(identifier)
     if (symbol === undefined) return undefined
-    if ((symbol.flags & ts.SymbolFlags.Alias) !== 0) {
-      try {
-        return checker.getAliasedSymbol(symbol)
-      } catch {
-        return symbol
-      }
-    }
-    return symbol
+    return aliasedSymbol(symbol) ?? symbol
   }
 
   function samePrompt(left, right) {
@@ -144,6 +177,11 @@ export function createDirectTransform(ts, program) {
         (ts.isAsExpression(parent) || ts.isTypeAssertionExpression(parent)) &&
         parent.type === current
       ) return true
+      if (ts.isExportSpecifier(parent)) {
+        const declaration = parent.parent.parent
+        return parent.isTypeOnly ||
+          (ts.isExportDeclaration(declaration) && declaration.isTypeOnly)
+      }
       if (
         ts.isImportDeclaration(parent) ||
         ts.isExportDeclaration(parent) ||
@@ -152,6 +190,12 @@ export function createDirectTransform(ts, program) {
       current = parent
     }
     return false
+  }
+
+  function isTypeOnlyExport(specifier) {
+    const declaration = specifier.parent.parent
+    return specifier.isTypeOnly ||
+      (ts.isExportDeclaration(declaration) && declaration.isTypeOnly)
   }
 
   function markerCallForReceiver(identifier) {
@@ -222,6 +266,7 @@ export function createDirectTransform(ts, program) {
         !ts.isStringLiteral(statement.moduleSpecifier) ||
         statement.moduleSpecifier.text !== DirectModule
       ) continue
+      if (statement.isTypeOnly) continue
       if (statement.exportClause === undefined) {
         candidateFiles.add(source.fileName)
         unsupported(statement, "star re-export of the marker package is outside the closed grammar")
@@ -233,6 +278,7 @@ export function createDirectTransform(ts, program) {
         continue
       }
       for (const specifier of statement.exportClause.elements) {
+        if (specifier.isTypeOnly) continue
         const importedName = specifier.propertyName ?? specifier.name
         if (importedName.text !== "direct") continue
         candidateFiles.add(source.fileName)
@@ -244,8 +290,27 @@ export function createDirectTransform(ts, program) {
   function scanMarkerUses(source) {
     const imports = markerImportsByFile.get(source.fileName)
     if (imports === undefined) return
-    const declarations = new Set(imports.map(specifier => specifier.name))
+    const declarations = new Set(imports.flatMap(specifier =>
+      specifier.propertyName === undefined
+        ? [specifier.name]
+        : [specifier.propertyName, specifier.name]
+    ))
     function visit(node) {
+      if (ts.isExportSpecifier(node)) {
+        if (isTypeOnlyExport(node)) return
+        const declaration = node.parent.parent
+        if (
+          ts.isExportDeclaration(declaration) &&
+          declaration.moduleSpecifier === undefined &&
+          ownedDirectSymbol(runtimeValueSymbol(node), source)
+        ) {
+          unsupported(
+            node.propertyName ?? node.name,
+            "owned direct marker value use would survive transformation"
+          )
+        }
+        return
+      }
       if (ts.isIdentifier(node) && importedDirect(node) && !declarations.has(node)) {
         if (!isTypeOnlyReference(node) && markerCallForReceiver(node) === undefined) {
           unsupported(node, "owned direct marker value use would survive transformation")
@@ -303,7 +368,7 @@ export function createDirectTransform(ts, program) {
       if (
         ts.isIdentifier(current) &&
         !isTypeOnlyReference(current) &&
-        forbidden.has(checker.getSymbolAtLocation(current))
+        forbidden.has(runtimeValueSymbol(current))
       ) {
         found = current
         return

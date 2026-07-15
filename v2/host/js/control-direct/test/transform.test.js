@@ -451,6 +451,65 @@ test("shift bodies fail closed on own or forward lexical capture", () => {
   assert.equal(own.message.includes("own marker"), true)
 })
 
+test("shorthand value symbols cannot hide a suffix capture", () => {
+  const bodies = [
+    `const selected = direct.shift(p, k => {
+      const captured = ({ later }).later
+      return k.resume(captured)
+    })`,
+    `const selected = direct.shift(p, k => {
+      ({ later = 0 } = {})
+      return k.resume(1)
+    })`
+  ]
+  for (const [index, marker] of bodies.entries()) {
+    const source = `
+import { Eff, freshPrompt } from "@scalascript/control"
+import { direct } from "@scalascript/control-direct"
+export function bad${index}() {
+  return freshPrompt(p => Eff.runPure(direct.reset(p, () => {
+    ${marker}
+    const later = 42
+    return selected + later
+  })))
+}
+`
+    const prepared = prepare(
+      source,
+      `shorthand-capture-${index}`,
+      { allowJs: true, checkJs: false, verbatimModuleSyntax: true }
+    )
+    try {
+      const matching = prepared.transform.diagnostics.filter(
+        diagnostic => diagnostic.code === "JS_DIRECT_CAPTURE_BARRIER"
+      )
+      assert.equal(matching.length, 1)
+      assert.equal(
+        source.slice(matching[0].start, matching[0].start + matching[0].length),
+        "later"
+      )
+      assert.deepEqual(prepared.transform.transformedFiles, [])
+      const emit = prepared.program.emit(
+        undefined,
+        undefined,
+        undefined,
+        false,
+        prepared.transform.transformers
+      )
+      assert.equal(emit.emitSkipped, false)
+      const output = readFileSync(
+        join(prepared.outDir, `shorthand-capture-${index}.js`),
+        "utf8"
+      )
+      assert.match(output, /@scalascript\/control-direct/)
+      assert.match(output, /direct\.reset/)
+      assert.doesNotMatch(output, /__sscControl/)
+    } finally {
+      prepared.cleanup()
+    }
+  }
+})
+
 test("real JavaScript prefix references cannot cross into a marker suffix binding", () => {
   const source = `
 import { Eff, freshPrompt } from "@scalascript/control"
@@ -711,6 +770,104 @@ export const answer = freshPrompt<number, number>(p => Eff.runPure(
   }
 })
 
+test("marker shorthand and local runtime export aliases fail file atomically", () => {
+  const survivors = [
+    `export const leaked = { direct }`,
+    `const source = {}; ({ direct = source } = source)`,
+    `export { direct }`,
+    `export { direct as marker }`
+  ]
+  for (const [index, survivor] of survivors.entries()) {
+    const source = `
+import { Eff, freshPrompt } from "@scalascript/control"
+import { direct } from "@scalascript/control-direct"
+${survivor}
+export const answer = freshPrompt<number, number>(p => Eff.runPure(
+  direct.reset(p, (): number => { return 42 })
+))
+`
+    const prepared = prepare(source, `runtime-survivor-${index}`)
+    try {
+      const matching = prepared.transform.diagnostics.filter(
+        diagnostic => diagnostic.code === "JS_DIRECT_UNSUPPORTED"
+      )
+      assert.equal(matching.length, 1)
+      assert.equal(
+        source.slice(matching[0].start, matching[0].start + matching[0].length),
+        "direct"
+      )
+      assert.deepEqual(prepared.transform.transformedFiles, [])
+      const emit = prepared.program.emit(
+        undefined,
+        undefined,
+        undefined,
+        false,
+        prepared.transform.transformers
+      )
+      assert.equal(emit.emitSkipped, false)
+      const output = readFileSync(
+        join(prepared.outDir, `runtime-survivor-${index}.js`),
+        "utf8"
+      )
+      assert.match(output, /@scalascript\/control-direct/)
+      assert.doesNotMatch(output, /__sscControl/)
+    } finally {
+      prepared.cleanup()
+    }
+  }
+})
+
+test("type-only marker exports erase without runtime diagnostics", async () => {
+  const sources = [
+    `import { direct } from "@scalascript/control-direct"
+     export type { direct as Marker }
+     export const answer = 42`,
+    `import { direct } from "@scalascript/control-direct"
+     export { type direct as Marker }
+     export const answer = 42`,
+    `export type { direct } from "@scalascript/control-direct"
+     export const answer = 42`,
+    `export { type direct } from "@scalascript/control-direct"
+     export const answer = 42`,
+    `export { type direct as Marker } from "@scalascript/control-direct"
+     export const answer = 42`
+  ]
+  for (const [index, source] of sources.entries()) {
+    const compiled = await compile(source, `type-export-${index}`)
+    try {
+      assert.equal(compiled.module.answer, 42)
+      assert.doesNotMatch(
+        readFileSync(compiled.javascript, "utf8"),
+        /@scalascript\/control-direct/
+      )
+    } finally {
+      compiled.cleanup()
+    }
+  }
+})
+
+test("a shadowed local runtime export is not owned by the marker import", async () => {
+  const compiled = await compile(`
+    import { Eff, freshPrompt } from "@scalascript/control"
+    import { direct as marker } from "@scalascript/control-direct"
+    const direct = 40
+    export { direct }
+    export const answer = direct + freshPrompt<number, number>(p => Eff.runPure(
+      marker.reset(p, (): number => { return 2 })
+    ))
+  `, "shadowed-export")
+  try {
+    assert.equal(compiled.module.direct, 40)
+    assert.equal(compiled.module.answer, 42)
+    assert.doesNotMatch(
+      readFileSync(compiled.javascript, "utf8"),
+      /@scalascript\/control-direct/
+    )
+  } finally {
+    compiled.cleanup()
+  }
+})
+
 test("completed marker specifiers are removed without rewriting other imports", async () => {
   const compiled = await compile(`
     import { Eff, freshPrompt } from "@scalascript/control"
@@ -756,6 +913,7 @@ test("unsupported marker import and re-export forms fail closed", () => {
   const sources = [
     `import * as markers from "@scalascript/control-direct"; void markers`,
     `export { direct } from "@scalascript/control-direct"`,
+    `export { direct as marker } from "@scalascript/control-direct"`,
     `export * from "@scalascript/control-direct"`
   ]
   for (const [index, source] of sources.entries()) {
