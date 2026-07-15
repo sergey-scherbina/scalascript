@@ -920,7 +920,16 @@ object SpikeParse:
     else if c.peekKind == "spike.id" && c.peek2Kind == "spike.eq" then parseAssign(c) // `x = e`
     else if c.peekKind == "spike.id" && c.peek2Kind == "spike.op" && isCompoundAssign(c.peek2Lexeme) then parseCompoundAssign(c) // `x += e`
     else parseExpr(c, 1) match
-      case Some(e) => Node.Frame("spike.exprStmt", None, Vector(e.withRole("stmt.expr")))
+      case Some(e) =>
+        // `a(idx) = rhs` array/collection update: parseExpr stops at the `=` (not an operator). When the LHS
+        // is an apply, ssc1-front emits an idx_assign node (ssc1-lower:3849 → arr.set(a, idx, rhs)). A plain
+        // `x = e` is caught above; a `.field = e` LHS is left as-is (an exprStmt + stray `=`), as before.
+        e match
+          case Node.Frame("spike.call", _, _) if c.peekKind == "spike.eq" =>
+            c.advance() // `=`
+            val rhs = parseExpr(c, 1).getOrElse(Node.Frame("spike.error", None, Vector.empty))
+            Node.Frame("spike.idxassign", None, Vector(e.withRole("idxassign.lhs"), rhs.withRole("idxassign.rhs")))
+          case _ => Node.Frame("spike.exprStmt", None, Vector(e.withRole("stmt.expr")))
       case None =>
         c.report("spike.expected", s"expected statement, found '${c.peekLexeme}'")
         c.advance() match
@@ -1744,7 +1753,7 @@ object SpikeProject:
 
   private def isTopStmt(k: String): Boolean =
     k == "spike.val" || k == "spike.var" || k == "spike.assign" || k == "spike.while" ||
-    k == "spike.exprStmt" || k == "spike.sealed" || k == "spike.tuppatval" || k == "spike.compoundassign"
+    k == "spike.exprStmt" || k == "spike.sealed" || k == "spike.tuppatval" || k == "spike.compoundassign" || k == "spike.idxassign"
 
   // an extension group → three statements: extension_start, the method def (receiver prepended
   // to its params), extension_end. lowerProg's collectExtensionMethods registers it for `.m`.
@@ -2095,6 +2104,10 @@ object SpikeProject:
       val name = kids(b).collectFirst { case (Some("assign.name"), c) => lexeme(c) }.getOrElse("_")
       val rhs  = kids(b).collectFirst { case (Some("assign.rhs"), c) => expr(c) }.getOrElse(hole)
       s"""Pair("assign", Pair("${esc(name)}", $rhs))"""
+    case b: UniNode.Branch if b.kind == "spike.idxassign" => // `a(idx) = rhs` → ssc1-lower arr.set(a, idx, rhs)
+      val lhs = kids(b).collectFirst { case (Some("idxassign.lhs"), c) => expr(c) }.getOrElse(hole)
+      val rhs = kids(b).collectFirst { case (Some("idxassign.rhs"), c) => expr(c) }.getOrElse(hole)
+      s"""Pair("idx_assign", Pair($lhs, $rhs))"""
     case b: UniNode.Branch if b.kind == "spike.compoundassign" =>
       // `x += e` parses through the EXPRESSION path (compoundBaseOp), so it is an `expr` statement wrapping an
       // assign — in a block lowerBlock let-binds an `expr` but seq's a bare `assign`, so the wrap matters.
