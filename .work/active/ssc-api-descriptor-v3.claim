@@ -1,6 +1,6 @@
 feature/ssc-api-descriptor-v3 2026-07-15T02:10:53Z
 agent: codex-control-descriptor
-heartbeat: 2026-07-15T02:10:53Z
-status: not-started
-done-so-far: sprint item and governing control interoperability spec identified
-next: create isolated worktree, write and commit the additive descriptor v3 feature spec, then implement the smallest independently shippable descriptor slice
+heartbeat: 2026-07-15T02:11:31Z
+status: in-progress
+done-so-far: isolated feature worktree created from current origin/main
+next: read descriptor and interop contracts, write and commit the additive descriptor v3 feature spec, then implement the smallest independently shippable descriptor slice
