@@ -1363,6 +1363,53 @@ class PreBodyApiDescriptorProducerTest extends AnyFunSuite:
     assert(error.code == "UNSUPPORTED_PUBLIC_DECLARATION")
     assert(error.path.startsWith("$.sections[") || error.path == "$.symbols[demo.api.Stable]")
 
+  test("effect origin sentinels reject malformed and non-type collisions"):
+    val collisions = Vector(
+      "private type __effectDecl__[A] = true",
+      "private type __effectDecl__ = false",
+      "private val __effectDecl__: Boolean = true"
+    )
+
+    collisions.foreach { collision =>
+      val input = source(
+        s"""effect Stable:
+           |  $collision
+           |""".stripMargin,
+        List("Stable")
+      )
+      val error = failure(PreBodyApiDescriptorProducer.descriptor(parse(input)))
+
+      assert(error.code == "UNSUPPORTED_PUBLIC_DECLARATION")
+      assert(error.path.startsWith("$.sections[") || error.path == "$.symbols[demo.api.Stable]")
+    }
+
+  test("the unsupported-shape sentinel is forbidden on ordinary objects"):
+    val input = source(
+      """object Stable:
+        |  private type __effectUnsupportedShape__ = true
+        |""".stripMargin,
+      List("Stable")
+    )
+    val parsed = parse(input)
+    val retainedError = failure(PreBodyApiDescriptorProducer.descriptor(parsed))
+    val documentlessError = failure(PreBodyApiDescriptorProducer.descriptor(
+      parsed.copy(document = None)
+    ))
+
+    assert(retainedError.code == "UNSUPPORTED_PUBLIC_DECLARATION")
+    assert(documentlessError.code == "UNSUPPORTED_PUBLIC_DECLARATION")
+
+  test("a real plain effect cannot carry an unsupported-shape sentinel"):
+    val input = source(
+      """effect Stable:
+        |  private type __effectUnsupportedShape__ = true
+        |""".stripMargin,
+      List("Stable")
+    )
+    val error = failure(PreBodyApiDescriptorProducer.descriptor(parse(input)))
+
+    assert(error.code == "UNSUPPORTED_PUBLIC_DECLARATION")
+
   test("body-local effects do not participate in pre-body descriptor evidence"):
     val plain = source(
       "def stable(value: Int): Int = value",
@@ -1381,6 +1428,31 @@ class PreBodyApiDescriptorProducerTest extends AnyFunSuite:
     val actualJson = right(PreBodyApiDescriptorProducer.canonicalJson(parse(withLocalEffect)))
     assert(actualJson == expectedJson)
     assert(descriptor(withLocalEffect).apiHash == descriptor(plain).apiHash)
+
+  test("body-local headers do not shift or consume later top-level effect evidence"):
+    val plain = source(
+      """def helper(): Int = 0
+        |effect Shared:
+        |  def read(): Int
+        |def stable(): Int = 0
+        |""".stripMargin,
+      List("Shared", "stable")
+    )
+    val withLocalEffect = source(
+      """def helper(): Int =
+        |  effect Shared:
+        |    def local(): Int
+        |  0
+        |effect Shared:
+        |  def read(): Int
+        |def stable(): Int = 0
+        |""".stripMargin,
+      List("Shared", "stable")
+    )
+
+    val expectedJson = right(PreBodyApiDescriptorProducer.canonicalJson(parse(plain)))
+    val actualJson = right(PreBodyApiDescriptorProducer.canonicalJson(parse(withLocalEffect)))
+    assert(actualJson == expectedJson)
 
   test("nested identities under private nominal owners cannot fall back external"):
     val declarations = Vector(
