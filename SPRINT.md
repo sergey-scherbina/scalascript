@@ -185,11 +185,15 @@ optional policy, not the default continuation semantics.
   - [ ] **D — post-link manifests and consumers:** populate target entrypoints and exact program,
     artifact, runtime, control, and dependency-profile digests; switch facades/admission/runners to
     v3 with explicit legacy fallback only for ordinary non-managed interop.
-- [ ] **control-semantic-vectors** — add target-neutral vectors for nested/fresh prompts, nearest-match
+- [x] **control-semantic-vectors** — add target-neutral vectors for nested/fresh prompts, nearest-match
   `reset`, zero/one/many resume, deep handler reinstall, residual effects, mutation (control copied;
   heap shared), stack safety, cancellation, managed-boundary negatives, and exact diagnostics. Run the
   same vectors on explicit API, v2 VM/direct ASM, generated JVM, JS, Rust, WASM, and Swift as those
-  portable lanes become available, plus the managed Scala direct-style lane.
+  portable lanes become available, plus the managed Scala direct-style lane. Landed 2026-07-15:
+  one validated 26-vector/9-lane catalog; portable VM and ASM pass 13/13 exact process vectors each,
+  explicit Scala passes 17 semantic vectors plus coverage (18/18), the whole control leaf is 57/57,
+  and seven malformed/omitted-catalog regressions are rejected. Future direct/generated host lanes,
+  durable vectors 10--17, and cancellation 26 remain visibly phased rather than counted green.
 
 ### ScalaScript lowering and Scala/JVM host profile
 

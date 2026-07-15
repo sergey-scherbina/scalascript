@@ -23,6 +23,21 @@ descriptor leaf, independent review is approved, and affected `plugin-*`
 conformance reports an explicit 0 matching cases / 0 failures. `.sscpkg` carriers
 and automatic linker/admission population remain queued with descriptor consumers.
 
+## 2026-07-15 — Shared control semantic vectors and lane matrix
+
+Replaced independent control-interoperability checklists with one validated
+26-vector catalog and nine explicit lane declarations. The default gate now runs
+both portable VM and direct ASM, each passing the same 13/13 eligible probes with
+exact exit/stream bytes; the compiler-independent `scalascript-control_3` suite
+consumes the same catalog and passes 17 typed laws plus its coverage check.
+
+The matrix distinguishes `READY`, `UNSUPPORTED`, `UNAVAILABLE`, `pending-codec`,
+and `pending-spec`; prompt laws 18/22/23 are executable on explicit Scala without
+pretending `.ssc` lowering already exists, while future host/AOT, durable, and
+cancellation obligations cannot disappear or become silently green. Seven
+negative catalog regressions, the full 57-test control leaf, and the five-case
+effect conformance slice pass from the isolated worktree.
+
 ## 2026-07-15 — Canonical interop descriptor v3 foundation (Slice A)
 
 Added the target-neutral `v2/interop/descriptor` leaf and
