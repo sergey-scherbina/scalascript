@@ -1,6 +1,6 @@
 feature/control-interop-residual-forwarding 2026-07-15T00:56:18Z
 agent: codex-residual-control
-heartbeat: 2026-07-15T00:56:18Z
-status: not-started
-done-so-far:
-next: create isolated worktree and land the missing BUGS/SPRINT/feature-spec contract before implementing axis 19
+heartbeat: 2026-07-15T00:56:35Z
+status: in-progress
+done-so-far: isolated worktree created from origin/main
+next: land the missing BUGS/SPRINT/feature-spec contract, then implement and promote residual-forwarding axis 19
