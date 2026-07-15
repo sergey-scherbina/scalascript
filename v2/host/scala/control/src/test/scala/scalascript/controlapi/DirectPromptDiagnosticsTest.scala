@@ -469,6 +469,50 @@ final class DirectPromptDiagnosticsTest extends AnyFunSuite:
     )
   }
 
+  test("a direct marker in a nested reset prompt remains in the outer ShiftBody") {
+    val errors = typeCheckErrors("""
+      import scalascript.control.*
+
+      val outerScope = freshPrompt[Int]
+      val outer = outerScope.prompt
+      val innerScope = freshPrompt[Int]
+      val inner = innerScope.prompt
+      val computation = direct.reset[outerScope.Key, Nothing, Int](outer) {
+        val selected =
+          direct.shift[outerScope.Key, Int, Nothing, Int](outer)(
+            [Residual >: Nothing <: Effect] =>
+              (outerContinuation: Continuation[Int, Residual, Int]) =>
+                val nested = direct.reset[innerScope.Key, Nothing, Int](
+                  direct.shift[
+                    outerScope.Key,
+                    Prompt[innerScope.Key, Int],
+                    Nothing,
+                    Int
+                  ](outer)(
+                    [NestedResidual >: Nothing <: Effect] =>
+                      (
+                          promptContinuation: Continuation[
+                            Prompt[innerScope.Key, Int],
+                            NestedResidual,
+                            Int
+                          ]
+                      ) => promptContinuation.resume(inner)
+                  )
+                ) { 1 }
+                outerContinuation.resume(Eff.runPure(nested))
+          )
+        selected
+      }
+    """)
+
+    assertDiagnostic(
+      errors,
+      "error [DIRECT_STYLE_UNSUPPORTED]: direct.shift inside another direct.shift body is outside M1; use scalascript.control.shift explicitly or a nested direct.reset",
+      "                  direct.shift[",
+      18
+    )
+  }
+
   test("a transparent inline wrapper reports its invocation position") {
     val errors = typeCheckErrors("""
       import scalascript.control.*

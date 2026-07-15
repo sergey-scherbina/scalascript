@@ -382,3 +382,30 @@ final class DirectPromptSemanticsTest extends AnyFunSuite:
 
     assert(Eff.runPure(result) == 42)
   }
+
+  test("explicit shift remains legal inside ShiftBody") {
+    val scoped = freshPrompt[Int]
+    val prompt = scoped.prompt
+
+    val result = direct.reset[scoped.Key, Nothing, Int](prompt) {
+      val selected =
+        direct.shift[scoped.Key, Int, Nothing, Int](prompt)(
+          [Residual >: Nothing <: Effect] =>
+            (outer: Continuation[Int, Residual, Int]) =>
+              val _ = outer
+              scalascript.control.shift[
+                scoped.Key,
+                Int,
+                Residual,
+                Int
+              ](prompt)(
+                [Nested >: Residual <: Effect] =>
+                  (inner: Continuation[Int, Nested, Int]) =>
+                    inner.resume(40)
+              )
+        )
+      selected + 2
+    }
+
+    assert(Eff.runPure(result) == 40)
+  }

@@ -153,6 +153,20 @@ private object DirectMacros:
           )
         case _ => None
 
+    def managedResetPrompt(term: Term): Option[Term] =
+      stripMarker(term) match
+        case Apply(
+              Apply(
+                TypeApply(function, typeArguments),
+                List(promptArgument)
+              ),
+              List(_)
+            )
+            if function.symbol == directResetSymbol &&
+              typeArguments.size == 3 =>
+          Some(promptArgument)
+        case _ => None
+
     def replaceReferences(
         term: Term,
         replacements: Map[Symbol, Term]
@@ -427,14 +441,26 @@ private object DirectMacros:
 
     def rejectMarkerInShiftBody(tree: Tree): Unit =
       val traverser = new TreeTraverser:
+        private def traverseManagedResetPrompt(
+            invocation: Term,
+            owner: Symbol
+        ): Unit =
+          managedResetPrompt(invocation) match
+            case Some(promptArgument) => traverseTree(promptArgument)(owner)
+            case None =>
+              report.errorAndAbort(
+                "error [DIRECT_STYLE_UNSUPPORTED]: nested direct.reset call shape inside direct.shift body is outside M1; move it outside direct.shift body",
+                invocation.pos
+              )
+
         override def traverseTree(current: Tree)(owner: Symbol): Unit =
           current match
             case Inlined(Some(call: Term), _, _)
                 if calledSymbol(call) == directResetSymbol =>
-              ()
+              traverseManagedResetPrompt(call, owner)
             case application: Apply
                 if calledSymbol(application) == directResetSymbol =>
-              ()
+              traverseManagedResetPrompt(application, owner)
             case term: Term =>
               marker(term) match
                 case Some(found) =>
