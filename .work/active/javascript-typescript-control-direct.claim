@@ -1,6 +1,6 @@
 feature/javascript-typescript-control-direct 2026-07-15T05:29:19Z
 agent: codex-js-control-direct
-heartbeat: 2026-07-15T06:00:37Z
+heartbeat: 2026-07-15T06:13:34Z
 status: in-progress
-done-so-far: clean frozen T1 checkpoint f6fa34fac is under independent review; reviewer has reproduced lexical forward-ref, emitted runtime import, npm symlink entry, consumer TypeScript resolution, direct eval, and JavaScript const-mutation P1s
-next: await the complete verdict, then record every finding in BUGS/SPRINT and update the spec before any implementation; no push/release before a fresh approval
+done-so-far: independent review rejected f6fa34fac with six P1s covering lexical refs, JS const, direct eval, npm bin, marker import removal, and consumer TypeScript resolution; owner is active
+next: BUGS/SPRINT and spec-first remediation, real JS/packed-bin/extracted-consumer regressions, all gates, then a new independent review; no push/release

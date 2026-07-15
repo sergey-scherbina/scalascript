@@ -1,6 +1,6 @@
 feature/ssc-api-descriptor-v3-slice-b 2026-07-15T04:02:06Z
 agent: codex-descriptor-b
-heartbeat: 2026-07-15T05:49:38Z
+heartbeat: 2026-07-15T06:13:34Z
 status: in-progress
-done-so-far: second rereview fixes are in progress; design audit added exact source/AST witness, fully-qualified private locals, checked callback aliases, local Array, package-wrapper, placeholder-alias, and stale-body cases
-next: finish producer/tests, checkpoint, rebase current origin/main, rerun focused/full gates, then freeze for a new independent review; no push or release before approval
+done-so-far: fresh rereview rejected non-plain package wrappers, documentless packaged source/AST correspondence, and generic/local Byte bypass of Array[Byte]; owner is active from clean 8a8886557
+next: record three P1s in BUGS/SPRINT, update spec first, implement exact wrapper/source and Array+Byte checks, run full radius, then freeze for another independent review; no push/release
