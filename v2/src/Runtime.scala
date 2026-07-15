@@ -2996,6 +2996,19 @@ object Prims:
         case (IntV(n), "toDouble", Nil)      => FloatV(n.toDouble)
         case (IntV(n), "toFloat", Nil)       => FloatV(n.toDouble)
         case (IntV(n), "abs", Nil)           => IntV(math.abs(n))
+        // Char operations on a code-point IntV (v2 has no Char box). These are only
+        // ever called when the Int IS a char (numbers have no `.toUpper`/`.isDigit`),
+        // so treating the value as a char code is unambiguous. `toUpper`/`toLower`
+        // return the transformed char CODE (IntV) so `str.map(c => c.toUpper)` renders
+        // a String; the predicates return Bool.
+        case (IntV(n), "toUpper", Nil)          => IntV(Character.toUpperCase(n.toInt).toLong)
+        case (IntV(n), "toLower", Nil)          => IntV(Character.toLowerCase(n.toInt).toLong)
+        case (IntV(n), "isDigit", Nil)          => BoolV(Character.isDigit(n.toInt))
+        case (IntV(n), "isLetter", Nil)         => BoolV(Character.isLetter(n.toInt))
+        case (IntV(n), "isLetterOrDigit", Nil)  => BoolV(Character.isLetterOrDigit(n.toInt))
+        case (IntV(n), "isUpper", Nil)          => BoolV(Character.isUpperCase(n.toInt))
+        case (IntV(n), "isLower", Nil)          => BoolV(Character.isLowerCase(n.toInt))
+        case (IntV(n), "isWhitespace", Nil)     => BoolV(Character.isWhitespace(n.toInt))
         case (FloatV(d), "toString", Nil)    => StrV(Writer.floatStr(d))
         case (FloatV(d), "toInt", Nil)       => IntV(d.toLong)
         case (FloatV(d), "toLong", Nil)      => IntV(d.toLong)
@@ -3058,6 +3071,23 @@ object Prims:
           BoolV(s.forall(c => callClos(fn, Array(IntV(c.toLong))) == BoolV(true)))
         case (StrV(s), "exists", List(fn: Value.ClosV)) =>
           BoolV(s.exists(c => callClos(fn, Array(IntV(c.toLong))) == BoolV(true)))
+        // filter/filterNot are unambiguous — a Char predicate keeps the value a String.
+        case (StrV(s), "filter", List(fn: Value.ClosV)) =>
+          StrV(s.filter(c => callClos(fn, Array(IntV(c.toLong))) == BoolV(true)))
+        case (StrV(s), "filterNot", List(fn: Value.ClosV)) =>
+          StrV(s.filterNot(c => callClos(fn, Array(IntV(c.toLong))) == BoolV(true)))
+        // map: v2 has NO Char box (chars are IntV), so — unlike v1, which returns a
+        // String for a Char=>Char mapper and a List otherwise via static types — we
+        // approximate at runtime: if every result is an IntV in 16-bit char range,
+        // render a String (the dominant char=>char case, matching v1); otherwise a
+        // List. Only divergence vs v1: char=>int-in-range arithmetic (`.map(c => c+1)`
+        // yields a String here but a List on v1) — no Char type to tell them apart.
+        case (StrV(s), "map", List(fn: Value.ClosV)) =>
+          val rs = s.toList.map(c => callClos(fn, Array(IntV(c.toLong))))
+          if rs.nonEmpty && rs.forall { case IntV(n) => n >= 0 && n <= 0xFFFF; case _ => false } then
+            StrV(rs.iterator.map { case IntV(n) => n.toChar; case _ => ' ' }.mkString)
+          else
+            listOf(rs)
         case (StrV(s), "endsWith", List(StrV(sfx)))   => BoolV(s.endsWith(sfx))
         case (StrV(s), "take", List(IntV(n)))            => StrV(s.take(n.toInt))
         case (StrV(s), "drop", List(IntV(n)))            => StrV(s.drop(n.toInt))

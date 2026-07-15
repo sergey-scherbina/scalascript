@@ -18,8 +18,24 @@ both `List(…)` and `Vector(…)` collection args (existing methods like `diff`
 **Third batch (2026-07-15):** `Int.toHexString`/`toBinaryString`/`toOctalString` (64-bit, via `java.lang.Long`,
 in `dispatchInt`); `Integer.parseInt(s[, radix])` (the radix form is the only way to parse hex/binary — `.toInt`
 takes no radix; `intrinsics/Core.scala` + an `Integer` object in `BuiltinsRuntime`); `List.partitionMap`
-(Left/Right = `InstanceV(_, "value" -> v)`). NOTE (still open): `String.padTo`, `String.map` (a v2-NATIVE gap,
-not v1), `permutations`, `combinations`, `Set.subsets` — the common methods are now covered.
+(Left/Right = `InstanceV(_, "value" -> v)`).
+
+## v2-native-string-map-filter-char-methods — `String.map`/`.filter` + char methods on v2-native
+
+**Status:** FIXED (2026-07-15, `v2/src/Runtime.scala`). `"abc".map(...)`/`.filter(...)` threw `no dispatch
+for .map on "abc"` on `bin/ssc run` (v2 native), and char methods on an iterated char (`c.toUpper`,
+`c.isDigit`) eta-expanded to a closure. ROOT: v2 has NO Char box (chars are `IntV` code points), so unlike
+interp/JS (which added `CharV`/`_Char` — see the `string-map-nonchar-*` entry below) v2 can't distinguish a
+Char from an Int by type. FIX (boxless adaptation): (1) `String.filter`/`filterNot` → String (unambiguous —
+a Char predicate keeps it a String). (2) `String.map` → if every result is an `IntV` in 16-bit char range,
+render a String (the dominant char→char case, matching v1), else a List. (3) added char ops on a code-point
+`IntV` — `toUpper`/`toLower` (return the transformed char CODE so a map renders a String) and
+`isDigit`/`isLetter`/`isLetterOrDigit`/`isUpper`/`isLower`/`isWhitespace` (Bool); safe because these are only
+ever called when the Int IS a char. Verified byte-identical to the v1 interpreter on the common cases
+(`map(c=>c.toUpper)`→`ABC`, `filter(c=>c.isDigit)`→`123`, `map(c=> if c.isLetter then c.toUpper else c)`→`A1B2`).
+KNOWN residual divergence (documented, no Char type to avoid it): `"abc".map(c => c + 1)` → String `"bcd"` on
+v2 vs `List(98,99,100)` on v1 — char→int-in-range arithmetic can't be told from char→char without a Char box.
+Remaining separate gap: `String.padTo` on v2-native.
 
 ## js-control-packed-readme-broken-spec-link — npm README links outside payload
 
