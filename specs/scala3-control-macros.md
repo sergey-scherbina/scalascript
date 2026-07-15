@@ -7,7 +7,11 @@ types in freshened declarations, a direct marker hidden in `ShiftBody`, an
 incorrect transparent-inline primary position, and deferred
 `scala.util.boundary.break`. The contract below now covers all four and the full
 local verification matrix is green; M1 does not land until a new independent
-review approves the frozen checkpoint.
+review approves the frozen checkpoint. An adversarial pre-review then found one
+more owner-safety gap: the `ShiftBody` survival scan exempted the eager prompt
+argument of a nested managed reset together with that reset's managed body. The
+contract below now distinguishes those two evaluation regions; its new behavior
+item remains unchecked until the packaged-consumer regression and full gates pass.
 
 This feature is the bounded inline-macro tier of
 [`scala3-bidirectional-control.md`](scala3-bidirectional-control.md). It translates
@@ -178,8 +182,14 @@ syntax is not classified as a crossed callback frame. Opaque here means that its
 ordinary explicit `Eff`/`scalascript.control.shift` program is not transformed or
 rejected. It does not exempt the body from the marker-survival invariant: an exact
 `direct.shift` nested inside another marker's `ShiftBody` is outside M1 and is
-rejected at that inner call. A separately managed nested `direct.reset` still owns
-and lowers its own markers and is not rejected by the outer-region scan.
+rejected at that inner call. A separately managed nested `direct.reset` owns and
+lowers markers in its contextual body, so that managed body is not rejected by the
+outer-region scan. The exception starts only at the nested delimiter: its prompt
+expression is an eager argument evaluated before the nested reset is entered and
+therefore remains part of the enclosing `ShiftBody` audit. An exact direct marker
+in that prompt expression is rejected at the marker call. If a future reset shape
+has additional eager arguments, they follow the same rule; only the proven managed
+body/inline expansion is delegated to the nested transform.
 
 M1 rejects a direct marker nested inside any of these boundaries:
 
@@ -310,10 +320,14 @@ report the application itself.
 
 Before an accepted marker body is moved, a narrow survival scan enters its rank-2
 `ShiftBody`. It ignores ordinary explicit control calls, but rejects the exact
-`direct.shift` symbol unless the call belongs to a nested managed `direct.reset`
-expansion. This scan is independent from callback-barrier classification: the
-rank-2 body stays legal, while an unlowered direct marker can never reach emitted
-code.
+`direct.shift` symbol. On an exact nested managed `direct.reset`, the scan parses
+the known curried call shape, recursively audits the eager prompt argument, and
+delegates only the contextual body/inline expansion to that reset's own transform.
+It never skips the whole reset call. If the call shape cannot be separated into
+eager arguments and managed body, M1 fails closed with
+`DIRECT_STYLE_UNSUPPORTED` rather than guessing which subtree is protected. This
+scan is independent from callback-barrier classification: the rank-2 body stays
+legal, while an unlowered direct marker can never reach emitted code.
 
 The generated bind continuation is an ordinary reusable explicit continuation.
 Zero, one, or many resumes and deep reset reinstallation therefore come from the
@@ -361,7 +375,9 @@ The review-remediation diagnostics freeze these families:
 - an exact `direct.shift` nested in another marker's `ShiftBody` uses
   `DIRECT_STYLE_UNSUPPORTED` at the inner call and tells the user to use the
   explicit `scalascript.control.shift` protocol or a separately managed nested
-  `direct.reset`;
+  `direct.reset`; this includes a marker in the eager prompt argument of that
+  nested reset, while markers in the nested reset's managed body remain owned by
+  its own transform;
 - an unsupported dependent prefix type uses `DIRECT_STYLE_UNSUPPORTED` at its
   declaration and tells the user to move the declaration outside `direct.reset`;
 - `scala.util.boundary.break` uses `DIRECT_STYLE_UNSUPPORTED` at the break
@@ -420,6 +436,10 @@ save/run, callbacks, descriptors, runners, or cancellation.
       while unsupported shapes fail closed without raw compiler errors.
 - [x] An exact direct marker inside an outer `ShiftBody` fails at the inner call;
       ordinary explicit control and nested managed `direct.reset` remain accepted.
+- [ ] A nested managed reset exempts only its contextual body from the enclosing
+      `ShiftBody` survival scan: an exact outer direct marker in its eager prompt
+      argument fails with the stable source-located diagnostic, while the ordinary
+      nested managed body and explicit `scalascript.control.shift` remain accepted.
 - [x] Transparent-inline rejection reports the nearest wrapper invocation, while
       the unexpanded-inline application diagnostic remains stable.
 - [x] Every `scala.util.boundary.break` inside M1 fails before defer/CPS movement
@@ -478,8 +498,10 @@ Changed Markdown is linted and the final branch must pass `git diff --check`.
   relying on the Scala compiler to surface a raw generated-tree E007.
 - **ShiftBody is opaque but marker-free.** Chosen to preserve arbitrary explicit
   effect code while enforcing that every direct marker is consumed by its owning
-  transform. Rejected: skipping the body wholesale and allowing a compile-time
-  marker stub to escape.
+  transform. A nested managed reset protects only its contextual body, because its
+  prompt is evaluated before entering that delimiter. Rejected: skipping either
+  the whole `ShiftBody` or the whole nested-reset call and allowing a compile-time
+  marker stub to escape through an eager argument.
 - **All boundary breaks fail closed in M1.** Chosen because inline/library boundary
   targets are not represented in the bounded transform's owner model. Rejected:
   assuming lexical source nesting survives `Eff.defer` and generated continuations.
@@ -523,3 +545,10 @@ Changed Markdown is linted and the final branch must pass `git diff --check`.
   JAR example are green, catalog validation is 26 vectors/9 lanes with 9/9 negative
   cases, the direct lane is 3/3, and affected conformance is 5/5. Another
   independent rereview remains the landing gate.
+- Adversarial pre-review of the post-remediation feature checkpoint `9c6850904`
+  found that the nested-reset exception skipped its eager prompt together with the
+  managed body. A Scala CLI 3.8.3 consumer compiled against only the packaged JAR
+  reproduces an outer direct marker in that prompt and currently fails with raw
+  owner output (`contextual$2 was used outside the scope where it was defined`) at
+  the nested call's closing delimiter. This is the pre-fix baseline for the new
+  exact diagnostic regression; final counts and gates remain to be recorded.
