@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-15 — JavaScript/TypeScript explicit local control API
+
+Added the compiler-independent ESM-only `@scalascript/control` reference leaf at
+`v2/host/js/control`, with typed reusable/one-shot continuations, deep handlers,
+generative prompts and true `shift`/`reset`, structured local-save rejection, and
+stackless explicit state machines (`d9222a55e`, verification `4f71b2770`). The
+private runtime ABI is paired with branded `.d.ts` declarations and has no
+production dependency or lifecycle script.
+
+All 17 applicable shared semantic vectors pass without changing the catalog or
+lane registry; the complete package suite is 27/27, TypeScript positive/negative
+fixtures pass, 1,000,000-bind and 1,000,000-state stress plus 100,000 handled
+operations complete, the dry-run tarball contains exactly four files, and affected
+project conformance is 5/5. Generated bridges, managed transforms, mixed SCCs,
+exact/portable runners, and lane wiring remain open under the parent JS/TS profile.
+
 ## 2026-07-15 — Target-neutral plugin capability profiles
 
 Added `v2/interop/plugin-profile` and

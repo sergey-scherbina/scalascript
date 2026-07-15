@@ -232,6 +232,15 @@ every later compiler/kernel change re-runs the literal fixed point.
   and hardened dynamic portable runner from
   `specs/javascript-typescript-bidirectional-control.md`. Promise/async/generators
   remain adapters or barriers; I64 uses `bigint`.
+  - [x] **Explicit local control slice (2026-07-15)** — implemented and verified the
+    compiler-independent ESM/`.d.ts` reference leaf `@scalascript/control`: 27/27
+    package tests including all 17 applicable catalog vectors, 1,000,000-bind and
+    1,000,000-state stress plus 100,000 handled operations, positive/negative
+    TypeScript gates, an exact four-file dependency-free tarball, and 5/5 affected
+    project conformance cases (`d9222a55e`, spec evidence in §11).
+  - [ ] **Remaining host/runner profile** — generated facades and typed value/call
+    bridges, managed source transformation and callback policies, mixed-language
+    SCC dispatch, exact and portable runners, and shared lane wiring.
 - [ ] **rust-control-host-runner** — deliver the Cargo host facade, stable-Rust
   explicit `Eff`, proc-macro/generated state machines, ownership/borrow/RAII barrier
   checks, typed mixed-SCC dispatcher, target/toolchain-pinned exact runner, and
