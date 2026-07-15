@@ -152,6 +152,10 @@ The strict-value rule includes dependencies between synthetic `ValDef`s emitted
 for a destructuring pattern and values declared between two sequential markers.
 A captured local `var` remains one Scala closure cell shared by every reusable
 resume; the transform must not copy its current value into each continuation.
+Scala may represent a parameterless source `given` with both `Given` and `Lazy`
+flags; that compiler encoding remains in the accepted contextual-value case and
+is cloned with both flags intact. It does not admit an ordinary source `lazy val`,
+which remains the explicit fail-closed case below.
 
 The shift body's rank-2 lambda is an opaque argument of the marker. Its own lambda
 syntax is not classified as a crossed callback frame.
