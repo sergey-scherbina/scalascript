@@ -1,7 +1,7 @@
 # SSC API descriptor v3
 
-Status: **slice A implemented and verified; slice B compatibility-producer
-pre-integration checkpoint implemented and green, pending independent approval;
+Status: **slice A implemented and verified; slice B compatibility-producer third
+pre-integration rereview rejected with three P1 corrections in progress;
 self-hosted and consumer slices queued** (2026-07-15).
 
 This specification refines the structured-descriptor contract in
@@ -180,21 +180,39 @@ The source of truth is the parsed declaration header:
   primary constructors emit only their `Type` symbol. Repeated enum cases and the
   difference between `case A` and `case A()` are retained; generic or explicitly
   specialized enum cases reject;
-- every retained executable declaration-source block must have exactly one
-  corresponding parseable section code block, **and correspondence is semantic,
-  not count-only**. The producer canonically preprocesses and reparses each
-  retained block, removes the manifest package wrapper from the stored section
-  tree, and compares their ordered declaration-header witnesses before using the
-  stored AST. A witness retains owner nesting, declaration kind/name, ABI-relevant
+- every parseable executable section code block has two mandatory retained
+  components: its `CodeBlock.source` and its stored AST. A `DocumentContent`
+  executable source is an optional second source carrier, not a replacement for
+  the code-block source. If the document snapshot exists, its executable sources
+  must pair one-to-one and in order with the section blocks. **Correspondence is
+  semantic, not count-only, and no source carrier silently wins.** The producer
+  canonically preprocesses and reparses the code-block source and, when present,
+  the document source; both ordered declaration-header witnesses must equal the
+  stored AST witness and therefore each other. The check is mandatory even when
+  `module.document = None`.
+
+  A packaged stored AST must contain exactly the synthetic manifest namespace
+  chain before it is unwrapped. Every wrapper is one plain `Defn.Object` with the
+  exact expected name, no modifiers, parents/inits, derives, self type, or any
+  other non-body template/header state, and exactly one next wrapper until the
+  namespace leaf. A package-wrapped code-block source is reparsed and subjected to
+  the same exact-wrapper check before witness comparison; an already-unwrapped
+  document source is compared directly. A name-only wrapper match is forbidden.
+
+  A witness retains owner nesting, declaration kind/name, ABI-relevant
   modifiers (including `val` versus `var`, visibility, accessors, and effect
   multiplicity/operation markers), type/constructor/parameter clauses, declared
   types/effect rows, parent/self/export/member surface, and default presence. It
   deliberately erases method/value bodies, initializer/default expressions, source
   positions, comments, and formatting, so body-only edits remain descriptor/hash
   invariant. A parse failure or witness mismatch, a non-empty block without an
-  AST, a retained document block whose section container was lost, a missing
-  package wrapper, or a manifest export without a local declaration header rejects
-  with `UNSUPPORTED_PUBLIC_DECLARATION`. Managed production never trusts stale
+  AST, a retained document block whose section container was lost, a missing or
+  non-plain package wrapper, two source carriers with different headers, or a
+  manifest export without a local declaration header rejects with
+  `UNSUPPORTED_PUBLIC_DECLARATION`. After source witnesses agree, document source
+  is preferred for original lexical effect-header evidence; without a document,
+  the code-block source is used and safely rejects if package preprocessing erased
+  evidence that cannot be reconstructed. Managed production never trusts stale
   declaration AST or turns structural source/AST loss into a valid descriptor;
 - module `targets:` may populate `requiredTargets`; capabilities, prompt capture,
   and managed-control claims stay empty/false unless a future declared syntax
@@ -204,8 +222,13 @@ Bare named types are accepted only when they are lexical type parameters, local
 public type declarations, or frozen standard constructors. Qualified non-platform
 names retain their dotted id. The frozen standard ids in this producer are
 `std.List`, `std.Vector`, `std.Seq`, `std.Set`, `std.Map`, `std.Option`, and
-`std.Either`; `Array[Byte]` and `Bytes` normalize to primitive `Bytes`. A bare
-unresolved name is ambiguous rather than guessed from imports or a body.
+`std.Either`; unshadowed `Array[Byte]` and `Bytes` normalize to primitive `Bytes`.
+The `Array[Byte]` shortcut applies only when **both** `Array` and `Byte` are neither
+lexical binders nor known local type identities. Binder or public-local shadowing
+takes the ordinary type-application path (which may reject if that application has
+no closed v3 representation); private/protected/`@internal` shadowing rejects with
+the ordinary stable visibility error before the shortcut. A bare unresolved name
+is ambiguous rather than guessed from imports or a body.
 `_root_` is removed before stable-id and platform-root checks, so
 `_root_.java.*` remains forbidden.
 
@@ -263,22 +286,30 @@ a second wire model or route through legacy `tpe`.
       type instead of parsing that string to invent v3.
 - [x] Scala package/export fixtures agree on qualified public names and exclude
       helpers omitted by manifest `exports:`.
-- [x] Retained executable document blocks and parsed section blocks are checked
+- [ ] Retained executable document blocks and parsed section blocks are checked
       for one-to-one completeness; deleting `sections` from an otherwise intact
-      parsed module rejects instead of emitting an empty API.
+      parsed module rejects instead of emitting an empty API. Documentless modules
+      still verify every retained `CodeBlock.source` against its AST, and dual
+      source carriers must agree semantically.
 - [x] Effect-header evidence ignores comments and string/character literals and
       binds within the same code block to the exact lexical owner; an ordinary
       same-name object cannot steal a later effect header.
 - [x] Trait constructor clauses/self types, template exports, and constructor
       `val`/`var` accessors reject with stable paths until descriptor v3 has
       receiver/member metadata.
-- [x] Retained source and stored section AST have exact declaration-header
+- [ ] Retained source and stored section AST have exact declaration-header
       correspondence, not merely equal block counts; changing retained
       `effect Real` to remove an operation while preserving the old AST rejects,
       while a body-only change does not affect descriptor bytes or `apiHash`.
-- [x] A signature that resolves to a private/internal local owner or alias rejects
+      Every manifest package wrapper is exact/plain before unwrapping; a wrapper
+      parent, modifier, derive, self type, or other header state rejects.
+- [ ] A signature that resolves to a private/internal local owner or alias rejects
       with `UNSUPPORTED_PUBLIC_TYPE` before external-name fallback. A non-public
       callback alias cannot bypass the conservative callback-policy rule.
+- [ ] `Array[Byte]` becomes primitive `Bytes` only when both component names are
+      unbound and have no local identity. Generic binders and public local
+      `Array`/`Byte` take ordinary projection; a non-public local component rejects
+      before the shortcut.
 - [x] Selected public/exported `var` rejects until mutability is represented by an
       additive schema; the equivalent explicitly typed `val` remains projectable,
       and Slice A's model/canonical wire shape is unchanged.
@@ -839,10 +870,14 @@ slice A must not mark that milestone complete.
 
 ## Results
 
-The Slice B compatibility-producer pre-integration checkpoint is implementation
-commit `abf6d909a`; it remains unlanded until a fresh independent read-only review
-returns APPROVE. The three frozen-checkpoint bugs therefore remain `open` rather
-than `fixed`.
+The second Slice B compatibility-producer checkpoint was implementation commit
+`abf6d909a` (rebased as `ddb4c6b0f`) and frozen as `8a8886557` (rebased as
+`28535c87d`). A fresh independent read-only rereview rejected it with no P0 and
+three P1 gaps: non-plain package-wrapper headers were discarded, documentless
+`CodeBlock.source` skipped correspondence (and dual source precedence was
+undefined), and `Array[Byte]` ignored binder/local shadowing of `Byte`. All six
+descriptor bugs remain `open`; the green numbers below are the rejected-checkpoint
+baseline, not approval or landing evidence.
 
 - `scripts/sbtc "core/testOnly
   scalascript.artifact.PreBodyApiDescriptorProducerTest"` passes 38/38 focused
