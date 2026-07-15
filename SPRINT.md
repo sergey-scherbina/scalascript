@@ -2163,6 +2163,16 @@ Two new front doors are specced (typed-SQL-API cb94fd88c, JDBC-API f2d1372a0); *
 working first implementation** — the JDBC portable façade (m6v) and the typed SQL surface (m6w),
 alongside SQL polish (REAL literals m6s, LEFT-join-3 m6r). All three "параллельно" lanes advanced.
 
+- [x] **scljet-m7k-right-full-join** — DONE 2026-07-15 (new SQL feature; Sergiy "Делай всё автономно";
+      last list item). `RIGHT [OUTER] JOIN` (keeps every right-table row, NULL-extended left) and `FULL
+      [OUTER] JOIN` (both sides' unmatched rows). `JoinSpec.rightOuter` flag (`parseJoin`: RIGHT→rightOuter,
+      FULL→both); `joinExecute` adds a pass over the right table emitting each ON-unmatched right row with a
+      `nullRow` left sentinel — so `SELECT *` keeps the left-then-right column order (a table swap would
+      reverse it). Verified vs sqlite3 (RIGHT explicit + `SELECT *`, FULL, COUNT, NULL-extended sides),
+      int==js; conformance `scljet-sql-right-full-join`; 51/51 sql green. Scope: 2-table (3+ table RIGHT/
+      FULL is a follow-up). **The SQL-feature list is now complete** (correlated EXISTS m7i / IN m7j,
+      RIGHT/FULL joins m7k) on top of the comprehensive physical index access-path (m6z, m7c–m7h).
+
 - [x] **scljet-m7j-correlated-in** — DONE 2026-07-15 (new SQL feature; Sergiy "Делай всё автономно").
       Correlated `[NOT] IN (subquery)` — extends the EXISTS per-row machinery. `resolveSubqueries` now
       detects a correlated subquery (its tokens contain a qualified ref to the outer FROM table —

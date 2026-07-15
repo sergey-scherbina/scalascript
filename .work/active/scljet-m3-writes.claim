@@ -1,4 +1,4 @@
 claim: scljet-m3-writes
 owner: opus
-heartbeat: 2026-07-15T10:15:00Z
-status: correlated EXISTS+IN done; FULL gate 94/94 green non-memoized [int, js]. NEXT (last list item): RIGHT/FULL joins.
+heartbeat: 2026-07-15T10:35:00Z
+status: RIGHT/FULL joins (m7k) landed — LIST COMPLETE (index access-path + correlated EXISTS/IN + RIGHT/FULL joins). 51/51 sql green; full gate confirming.
