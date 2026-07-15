@@ -313,6 +313,7 @@ compiles them via Scala.js.
 | Stack-safe deep effect resume | Portable VM and direct ASM fold handler resumptions through one iterative runtime: 100,000 tail/sequence operations and 20,000 non-tail or escaped continuation resumes run without growing the native stack. See the [verified design](specs/control-effect-stack-safety.md) and [axis-20 probe](tests/interop-conformance/probes/20-stack-safety-deep-effect-recursion.ssc) |
 | Scala 3 explicit control API (Tier 1 implemented) | Publication-ready `_3` leaf in `scalascript.control`: typed `Eff`, deep handlers, generative multi-prompt `shift`/`reset`, reusable and one-shot local continuations, and stackless state machines. Local `save()` rejects with typed `UnmanagedCapture`; see the [runnable Scala example](v2/host/scala/control/src/test/scala/scalascript/controlapi/examples/ControlApiExample.scala) and [Scala/JVM profile](specs/scala3-bidirectional-control.md) |
 | Full control interoperability (in progress) | One target-neutral contract in [`specs/control-interoperability.md`](specs/control-interoperability.md). Successful durable `save`/`run`, network transfer, Scala↔ScalaScript typed bridges, managed callbacks/TCO, macros/plugin, admission, and exact/portable runners remain post-X1 work |
+| Canonical interop descriptors (Slice A infrastructure) | Target-neutral `v2/interop/descriptor` leaf with bounded canonical codecs and checked factories for `ApiDescriptor`, `ControlSummary`, and `ArtifactManifest`; compiler/linker producers and runtime/admission consumers remain queued in [descriptor v3](specs/ssc-api-descriptor-v3.md) |
 | Host/runner profiles (planned) | Native typed bidirectional bridges for [Scala/JVM](specs/scala3-bidirectional-control.md), [JS/TS](specs/javascript-typescript-bidirectional-control.md), [Rust](specs/rust-bidirectional-control.md), and [Swift](specs/swift-bidirectional-control.md), measured against the [portable-VM reference runner](specs/control-interop-profile-portable-vm.md), plus the [WASM/WASI runner](specs/wasm-wasi-control-runner.md) |
 | Typed effect rows | `def foo(): A ! Logger` — effect appears in function type; closed row (no `!`) = total/pure |
 | `multi effect` | Explicit multi-shot effects — continuation can be resumed many times; raw CoreIR `effect.perform` also remains reusable |
@@ -967,6 +968,7 @@ bin/
 
 runtime/backend/spi/        # SPI traits (Backend, SourceLanguage, PluginRegistry, Capabilities, …)
 runtime/scalascript-plugin-api/ # Stable plugin author API (PluginValue, PluginNative, capability traits)
+v2/interop/descriptor/      # Target-neutral canonical API/control/artifact descriptors
 ir/                         # IR types + JSON/MsgPack codecs
 core/
   src/main/scala/scalascript/
@@ -1061,6 +1063,13 @@ Interpreter.run(module)                      // interpret
 val js    = JsGen.generate(module)           // emit JavaScript
 val scala = JvmGen.generate(module)          // emit Scala 3 script
 ```
+
+The target-neutral descriptor leaf is the sbt project `v2InteropDescriptor` at
+`v2/interop/descriptor`; its Maven coordinate is
+`io.scalascript:scalascript-interop-descriptor_3`. The
+`scalascript.interop.descriptor` package exposes bounded canonical codecs and
+checked factories. Slice A supplies infrastructure only: compiler/linker
+producers and runtime/admission consumers remain deferred.
 
 ScalaScript libraries can also be packaged as `.ssclib` archives:
 
