@@ -1146,18 +1146,26 @@ object SpikeParse:
   private def tryParseLambda(c: Cur): Option[Node] =
     if c.peekKind == "spike.id" && c.peek2Lexeme == "=>" then
       val name = c.advance().get
+      val arrowLine = c.peekLine // line of `=>`
       c.advance() // =>
-      val body = parseExpr(c, 1).getOrElse(Node.Frame("spike.error", None, Vector.empty))
+      val body = parseLambdaBody(c, arrowLine)
       Some(Node.Frame("spike.lambda", None, Vector(Node.Leaf(name, Some("lam.param")), body.withRole("lam.body"))))
     else if c.peekKind == "spike.lparen" then
       val m = c.mark
       tryLambdaParams(c) match
         case Some(ps) if c.peekLexeme == "=>" =>
+          val arrowLine = c.peekLine // line of `=>`
           c.advance() // =>
-          val body = parseExpr(c, 1).getOrElse(Node.Frame("spike.error", None, Vector.empty))
+          val body = parseLambdaBody(c, arrowLine)
           Some(Node.Frame("spike.lambda", None, ps.map(p => Node.Leaf(p, Some("lam.param"))) :+ body.withRole("lam.body")))
         case _ => c.reset(m); None
     else None
+
+  // a lambda body starting on a LATER line than its `=>` is an indented block (`xs.map(x =>\n  val d = …\n  d*d)`),
+  // exactly like a def body — else a single inline expression. The block folds to nested lets in projection.
+  private def parseLambdaBody(c: Cur, arrowLine: Int): Node =
+    if !c.eof && c.peekLine > arrowLine then parseBlock(c, c.peekCol)
+    else parseExpr(c, 1).getOrElse(Node.Frame("spike.error", None, Vector.empty))
 
   // scan `( id [: T] (, id [: T])* )` — the shape of a lambda parameter clause. Returns the param
   // tokens on success (cursor left just after `)`), else None (caller resets).
