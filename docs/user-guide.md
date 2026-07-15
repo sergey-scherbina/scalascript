@@ -1796,10 +1796,65 @@ license.
 
 This package does not yet claim the complete JavaScript/TypeScript host profile.
 Generated descriptors/facades, ScalaScript↔JavaScript value and call bridges,
-managed source transforms and event-loop callbacks, mixed-language tail SCCs,
+cross-method managed transforms and event-loop callbacks, mixed-language tail SCCs,
 successful durable save/run, and exact/portable runners remain later slices. The
 exact ESM and `.d.ts` ABI is frozen in the
 [`JS/TS host profile`](../specs/javascript-typescript-bidirectional-control.md).
+
+### JavaScript/TypeScript lexical direct control (T1)
+
+For a closed synchronous lexical region, install the separate authoring transform
+alongside the explicit runtime and the consuming project's TypeScript compiler:
+
+```bash
+npm install @scalascript/control
+npm install --save-dev @scalascript/control-direct typescript
+```
+
+Write `direct.reset` with top-level `const` or `let` shift bindings:
+
+```ts
+import { Eff, freshPrompt } from "@scalascript/control"
+import { direct } from "@scalascript/control-direct"
+
+const answer = freshPrompt<number, number>(prompt => Eff.runPure(
+  direct.reset(prompt, (): number => {
+    const selected: number = direct.shift(prompt, continuation =>
+      continuation.resume(41)
+    )
+    return selected + 1
+  })
+))
+```
+
+Compile with the wrapper, which follows ordinary `tsc` project options and retains
+TypeScript diagnostics and source maps:
+
+```bash
+npx ssc-control-tsc --project tsconfig.json
+```
+
+The transform emits the existing `@scalascript/control` `Eff.pure`, `reset`,
+`shift`, and `flatMap` protocol. Prefix statements run once; every reusable resume
+enters its suffix; sequential markers preserve source order; and ordinary local
+`let` state is shared by multi-shot resumes. An aliased named import such as
+`import { direct as d } ...` works because the compiler binding, not the text
+`direct`, owns the marker. Shadowed names, comments, strings, and same-spelled
+properties are not transformed.
+
+T1 deliberately fails closed for async/generator/await/yield, cleanup, loops,
+switch, a marker nested under a branch/callback/class, prompt mismatch, `var` or
+destructuring marker binds, and arbitrary marker positions. The stable diagnostics
+are `JS_DIRECT_OUTSIDE_RESET`, `JS_DIRECT_CAPTURE_BARRIER`,
+`JS_DIRECT_UNSUPPORTED`, and `JS_DIRECT_PROMPT_MISMATCH`. If a root marker reaches
+runtime without the transform, it throws `JS_DIRECT_UNTRANSFORMED`; it never acts
+as a second control implementation.
+
+The exact accepted grammar and package/tooling API are in the
+[`direct-control specification`](../specs/javascript-typescript-control-direct.md).
+Cross-method/module CPS, managed callbacks, generated value/call bridges, runners,
+durable continuations, and shared-lane qualification remain later host-profile
+slices.
 
 ### Direct Syntax (Do-Notation)
 
