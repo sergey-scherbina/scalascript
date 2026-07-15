@@ -4,6 +4,25 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-15 — Target-neutral plugin capability profiles
+
+Added `v2/interop/plugin-profile` and
+`io.scalascript:scalascript-plugin-profile_3`: bounded language-neutral framing,
+domain-separated semantic/schema identities, exact target implementation digests,
+one aggregate descriptor binding, and pure pre-install inventory validation for
+target ABI, capabilities, exact transitive dependencies, deterministic order, and
+cycles (`e1933fcc6`). Runtime plugin code asserts externally owned contracts; it
+does not define effect, control, CoreIR, codec, or interop semantics.
+
+`ssc.plugin.NativePlugin` gains only the concrete optional
+`capabilityDeclaration = None` adapter. A Java provider with the old `id`/`install`
+bytecode shape still loads through ServiceLoader and inherits the JVM default;
+installation ordering and ownership conflicts are unchanged. Profile tests pass
+23/23, native SPI tests 12/12, the only project dependency is the canonical
+descriptor leaf, independent review is approved, and affected `plugin-*`
+conformance reports an explicit 0 matching cases / 0 failures. `.sscpkg` carriers
+and automatic linker/admission population remain queued with descriptor consumers.
+
 ## 2026-07-15 — Canonical interop descriptor v3 foundation (Slice A)
 
 Added the target-neutral `v2/interop/descriptor` leaf and

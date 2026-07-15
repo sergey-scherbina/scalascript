@@ -185,9 +185,6 @@ optional policy, not the default continuation semantics.
   - [ ] **D — post-link manifests and consumers:** populate target entrypoints and exact program,
     artifact, runtime, control, and dependency-profile digests; switch facades/admission/runners to
     v3 with explicit legacy fallback only for ordinary non-managed interop.
-- [ ] **plugin-capability-profile-v1** — extend the current id/install-only plugin SPI with stable
-  semantic ABI/schema ids plus target implementation digests/capabilities so a capsule dependency
-  profile can be verified before execution. Human versions alone are insufficient.
 - [ ] **control-semantic-vectors** — add target-neutral vectors for nested/fresh prompts, nearest-match
   `reset`, zero/one/many resume, deep handler reinstall, residual effects, mutation (control copied;
   heap shared), stack safety, cancellation, managed-boundary negatives, and exact diagnostics. Run the
