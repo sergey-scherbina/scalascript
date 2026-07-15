@@ -39,7 +39,7 @@ conformance passes 5/5. Cross-method capture, prompt forwarding across a nested
 different-prompt reset, managed callbacks, and saveable frames remain work for the
 compiler plugin.
 
-The post-review owner remediation is frozen in feature commit `4821f824c`; this
+The post-review owner remediation is frozen in feature commit `2ee8527e1`; this
 checkpoint remains unlanded pending a fresh independent review.
 
 ## 2026-07-15 — JavaScript/TypeScript explicit local control API

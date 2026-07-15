@@ -331,7 +331,7 @@ every later compiler/kernel change re-runs the literal fixed point.
       after changing a macro implementation, incremental `typeCheckErrors` test compilation can retain
       the prior macro class and report an obsolete primary column; use `scala3ControlApi/clean` before
       freezing exact diagnostic evidence.
-      Owner remediation is implemented in `4821f824c` on `origin/main` base `6ece0fb35`:
+      Owner remediation is implemented in `2ee8527e1` on `origin/main` base `f4e860ed7`:
       clean focused suites pass 47/47 (21 semantics, 26 diagnostics), the full leaf/package/POM pass
       109/109, packaged positive consumers print the expected general output and eight differential
       `42` values, and the packaged negative reports stable `DIRECT_STYLE_UNSUPPORTED`. The POM has
