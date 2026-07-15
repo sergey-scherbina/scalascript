@@ -12300,7 +12300,21 @@ Working through the open compiler bugs + differential extension. Each landed wit
   (b) `bindingReferenced` skips extraction for unused named bindings (they were extracted as `IntV` →
   ClassCastException on a ref field, masked by the runtime's tree-walk fallback). Gated: 2 new SscVmTest
   cases (single + triply-nested on same param JIT to ObjToLong, correct values) + full interpreter suite.
-- [ ] **extend v2-vs-JVM differential** — broader real-.ssc corpus through the deep-tree-digest harness to
-  find more v2 divergences; fix each.
-- [ ] **make non-running examples run** — DatasetCodec/distributed-dataset; PDF (htmlToPdfBase64); JDBC/h2;
-  crypto singles (aesGenKey/verifyEd25519/totp).
+- [~] **extend v2-vs-JVM differential** — IN PROGRESS 2026-07-15 (opus). Built a lean differential:
+  15 pure dual-compilable programs run through the v1 interpreter (`ssc-tools run --v1`, reference) vs v2
+  native (`bin/ssc run`), flagging BOTH-run-but-DIFFERENT as real semantic bugs. Lane note (measured): plain
+  `bin/ssc run` = v2 NATIVE, `ssc-tools run --v1` = v1 interp, `ssc-tools run --v2` = v2 BRIDGE (v1 front → v2
+  Runtime). First batch found 2 real bugs: (1) FIXED **v2-native-toDouble-toFloat-noop** — native ssc1 lowered
+  `.toDouble`/`.toFloat` to a no-op → integer division (`7.toDouble/2`→3); fixed in `ssc1-lower.ssc0` (route to
+  `__method__` like `.toInt`; isolated via the bridge lane being correct). (2) OPEN
+  **interp-string-interp-open-bracket-in-nested-string** — v1 interp mangles `s"...${xs.mkString("[", ...,
+  "]")}"` (an open `[` in a `${…}`-embedded string literal → drops the call). Corpus/runner in
+  scratchpad `diff16/`; expand for more.
+- [~] **make non-running examples run** — TRIAGED 2026-07-15 (opus): the examples are NOT broken; each runs on
+  its intended toolchain. `totp-shamir-demo`/`sql-h2-quickstart`/`dataset-word-count` run on lightweight
+  `bin/ssc`; PDF (`invoice-pdf`→"PDF generated: 2584 base64 chars", `pdf-extract-demo`) + `crypto-verify-demo`
+  run on the full `bin/ssc-tools` toolchain (the heavy PDFBox plugin is excluded from the lightweight standard
+  bundle BY DESIGN); `distributed-dataset-codec`/`object-store-jdbc` are `backend: jvm` typeddata examples.
+  The "non-running" was measured on the JS target (jvm-only plugins → needs LARGE plugin ports: JS
+  typeddata-codec runtime, JS PDF impl) or the lightweight bundle. Large plugin-port tracks, NOT codegen bugs —
+  deferred (user pivoted to the differential).

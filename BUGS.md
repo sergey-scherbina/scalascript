@@ -1,5 +1,34 @@
 # Bug tracker
 
+## v2-native-toDouble-toFloat-noop — `.toDouble`/`.toFloat` dropped by the native frontend → integer division
+
+**Status:** FIXED (2026-07-15, `v2/lib/ssc1-lower.ssc0`). Found by the v2-vs-v1 differential
+(task #16): `List(1,2,3,4,5,6).sum.toDouble / xs.length` printed `3` on `bin/ssc run` (v2
+native) but `3.5` on the v1 interpreter and the v2 BRIDGE lane (`ssc-tools run --v2`). The
+native ssc1 frontend lowered `.toDouble` and `.toFloat` to the bare receiver (`robj`, a
+no-op), so the value stayed an Int and a following `/` did integer division
+(`7.toDouble / 2` → `3`, not `3.5`). This is correct for `.toLong` (Long IS Int in v2's
+representation) but wrong for the float conversions. FIX: lower them to
+`__method__("toDouble"/"toFloat", robj)` like the `.toInt` case right above, so the shared
+runtime method table converts (`IntV(n).toDouble → FloatV`; String receivers convert too).
+Isolated because the bridge lane (same v2 Runtime, v1 scalameta frontend) was already
+correct → the bug was purely the native frontend lowering. Verified via native `v2/ssc1`:
+`21.toDouble/6` → `3.5`, `7.toDouble/2` → `3.5`; conformance 640ok.
+
+## interp-string-interp-open-bracket-in-nested-string — `[` in a string literal inside `${…}` mangles the interpolation
+
+**Status:** open (found 2026-07-15 by the v2-vs-v1 differential, task #16). The v1
+interpreter (`ssc-tools run --v1`) mis-evaluates a string interpolation whose `${…}`
+expression contains a string literal with an open bracket `[`. `xs.mkString("[", ", ", "]")`
+returns the correct `[1, 2, 3]` standalone, but inside `s"list: ${xs.mkString("[", ", ",
+"]")}"` it returns `List(1, 2, 3)` (the default `xs.toString`, i.e. the `.mkString(...)` is
+dropped). Even `s"${xs.mkString("[")}"` yields the garbled `1List(2List(3`. Trigger is
+specifically an open `[` inside a `${…}`-embedded string literal; `"<",",",">"`,
+`"(","-",")"`, and a lone `"]"` all work. The v2 native/bridge lanes render this case
+correctly, so the bug is v1-interpreter-only (its `${…}` boundary scanner appears to balance
+`[]` and mis-counts when a `[` occurs inside an embedded string). Workaround: avoid `[` in
+string literals inside `${…}`, or build the string in a `val` before interpolating.
+
 ## control-interop-residual-forwarding-absent — CONFIRMED / open (2026-07-15, Codex)
 
 **Status:** open. Recorded from portable interoperability axis 19; implementation

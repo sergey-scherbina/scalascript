@@ -1605,8 +1605,14 @@ def resolveField = (robj, field) =>
     -- preserves both cases; erasing unknown receivers loses String conversion.
     Pair("prim", Pair("__method__", Cons(Pair("str", "toInt"), Cons(robj, Nil))))
   else if #seq(field, "toLong") then robj
-  else if #seq(field, "toDouble") then robj
-  else if #seq(field, "toFloat") then robj
+  -- toDouble/toFloat must actually convert Int->Float; lowering to `robj` (a no-op)
+  -- left the value an Int, so a following `/` did integer division (7.toDouble/2 -> 3,
+  -- not 3.5). Route to the shared runtime method table (IntV.toDouble -> FloatV) like
+  -- toInt above; String receivers convert too. `toLong` stays a no-op (Long IS Int here).
+  else if #seq(field, "toDouble") then
+    Pair("prim", Pair("__method__", Cons(Pair("str", "toDouble"), Cons(robj, Nil))))
+  else if #seq(field, "toFloat") then
+    Pair("prim", Pair("__method__", Cons(Pair("str", "toFloat"), Cons(robj, Nil))))
   else if #seq(field, "toShort") then robj
   else if #seq(field, "head") then
     Pair("prim", Pair("_list_head", Cons(robj, Nil)))

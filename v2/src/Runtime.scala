@@ -2485,6 +2485,11 @@ object Prims:
         case (FloatV(d), "toString", Nil)    => StrV(Writer.floatStr(d))
         case (FloatV(d), "toInt", Nil)       => IntV(d.toLong)
         case (FloatV(d), "toLong", Nil)      => IntV(d.toLong)
+        // Identity: a Float is already floating-point. The native frontend now
+        // routes `.toDouble`/`.toFloat` here (it used to no-op them, which broke
+        // Int.toDouble → integer division); these keep Float receivers unchanged.
+        case (FloatV(d), "toDouble", Nil)    => FloatV(d)
+        case (FloatV(d), "toFloat", Nil)     => FloatV(d)
         case (StrV(s), "length", Nil)        => IntV(s.length.toLong)
         case (StrV(s), "size", Nil)          => IntV(s.length.toLong)
         case (StrV(s), "isEmpty", Nil)       => BoolV(s.isEmpty)
@@ -2500,6 +2505,7 @@ object Prims:
         // v1 semantics: .toDouble is the RAW conversion (throws on junk) —
         // the Option-returning variant is .toDoubleOption, mirroring .toInt.
         case (StrV(s), "toDouble", Nil)       => FloatV(s.trim.toDouble)
+        case (StrV(s), "toFloat", Nil)        => FloatV(s.trim.toDouble)
         case (StrV(s), "toDoubleOption", Nil) => s.toDoubleOption.fold(none)(d => some(FloatV(d)))
         case (StrV(s), "trim", Nil)          => StrV(s.trim)
         case (StrV(s), "matchPrefix", List(StrV(pat))) =>
@@ -2615,6 +2621,7 @@ object Prims:
         case (BigV(n), "toInt",        Nil)            => IntV(n.toLong)
         case (BigV(n), "toLong",       Nil)            => IntV(n.toLong)
         case (BigV(n), "toDouble",     Nil)            => FloatV(n.toDouble)
+        case (BigV(n), "toFloat",      Nil)            => FloatV(n.toDouble)
         case (BigV(n), "toString",     Nil)            => StrV(n.toString)
         case (BigV(n), "toString",     List(IntV(r)))  => StrV(n.toString(r.toInt))
         case (BigV(n), "abs",          Nil)            => BigV(n.abs)
@@ -2636,6 +2643,7 @@ object Prims:
             case BigV(n) => IntV(n.toLong)
             case _       => sys.error("decimal: invalid to-bigint result")
         case (d: DecimalV, "toDouble", Nil) => FloatV(PortableDecimal.toJava(d).doubleValue())
+        case (d: DecimalV, "toFloat", Nil)  => FloatV(PortableDecimal.toJava(d).doubleValue())
         case (d: DecimalV, "scale", Nil) => PortableDecimal.eval("dec.scale", List(d))
         case (d: DecimalV, "unscaledValue", Nil) => PortableDecimal.eval("dec.unscaled", List(d))
         case (d: DecimalV, "abs", Nil) => PortableDecimal.eval("dec.abs", List(d))
