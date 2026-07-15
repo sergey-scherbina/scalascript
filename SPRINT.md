@@ -2124,6 +2124,23 @@ Two new front doors are specced (typed-SQL-API cb94fd88c, JDBC-API f2d1372a0); *
 working first implementation** — the JDBC portable façade (m6v) and the typed SQL surface (m6w),
 alongside SQL polish (REAL literals m6s, LEFT-join-3 m6r). All three "параллельно" lanes advanced.
 
+- [x] **scljet-m7e-index-seek** — DONE 2026-07-15 (physical access-path perf; continues the seek work).
+      Index-assisted lookup — the engine previously **never** used an index for SELECT (always
+      full-scanned; the spec's key gap). Now a single-table `SELECT … WHERE col = literal`, where `col`
+      is the first key column of an index, walks that index B-tree (`RecordKeyTree` cursor) in key order
+      collecting the rowids whose first key column == the literal (stops once a key sorts past it —
+      indexes are BINARY-sorted, matching `sqlCompare`), then point-looks-up each row via the rowid seek;
+      the found rows feed the same `finishRows` → byte-identical to the full scan. Equal-key entries are
+      sub-ordered by rowid = table scan order, so multi-match order matches. `extractRowidEq`→`extractColEq`
+      (any literal); `pointLookup` dispatches rowid/IPK-col → table seek, indexed col → index seek, else
+      full scan. Overflow-safe: any point-lookup that must fall back abandons the index path.
+      Verified vs sqlite3 (TEXT + INTEGER index, duplicates→rowid order, single match, miss, COUNT over
+      seek, ORDER BY on top), int==js; conformance `scljet-sql-index-seek`; 44/44 scljet-sql green
+      non-memoized. NOTE: this walks the index in ORDER (early-terminating) — a real index-access win over
+      decoding every table row, but O(index position), not the O(log n) interior-node descent. The
+      descent (index-key **record** comparison in interior nodes — `readInteriorNode` is table/rowid-only,
+      so a new index-interior reader + multi-leaf span handling is needed) is the remaining follow-up.
+
 - [x] **scljet-m7d-rowid-seek** — DONE 2026-07-15 (physical access-path perf; Sergiy chose "сначала
       IPK, потом seek"). rowid point-lookup: a single-table `SELECT` whose WHERE is exactly `rowid = K`
       or `<INTEGER PRIMARY KEY> = K` descends the table B-tree (`descendToLeaf`, reused from the write

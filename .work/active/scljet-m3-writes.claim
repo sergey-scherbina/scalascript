@@ -1,4 +1,4 @@
 claim: scljet-m3-writes
 owner: opus
-heartbeat: 2026-07-15T06:25:00Z
-status: IPK rowid-alias (m7c) + rowid point-lookup seek (m7d, overflow-safe) landed — WHERE id=K on a PK table now O(log n). FULL scljet gate 87/87 green non-memoized on [int, js]. NEXT: index-seek (WHERE indexedcol=K via index-B-tree descent).
+heartbeat: 2026-07-15T06:55:00Z
+status: index-assisted lookup (m7e) landed — WHERE indexedcol=K now uses the index B-tree (engine never used an index for SELECT before). 44/44 sql green. Full gate confirming. NEXT: O(log n) index interior-node descent (index-key record comparison).
