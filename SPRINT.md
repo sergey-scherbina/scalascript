@@ -291,9 +291,9 @@ every later compiler/kernel change re-runs the literal fixed point.
         nested closures with checker symbol identity, and add forward/own/shadowing plus
         declaration-initializer order regressions. Track in
         `BUGS.md#js-control-direct-forward-lexical-capture`. Implemented in cumulative
-        repair `2730971a6`; marker-layer generalization is in `56aa43646`.
+        repair `9228b4892`; marker-layer generalization is in `d78969b06`.
       - [x] **Pre-rereview repair: prefix TDZ/outer-binding escape.** Cumulative
-        repair `2730971a6` checked only the shift body: a pure prefix read of a later block
+        repair `9228b4892` checked only the shift body: a pure prefix read of a later block
         binding is left outside the generated continuation and can resolve to an
         outer name instead of throwing from the original TDZ (`99`/`141` reproduced,
         no direct diagnostic). For each marker, scan its layer's prefix statements
@@ -301,7 +301,7 @@ every later compiler/kernel change re-runs the literal fixed point.
         genuinely shadowed references; cover real `.js` with `checkJs: false` and
         file-atomic ignored-diagnostic emit. Track in
         `BUGS.md#js-control-direct-prefix-tdz-binding-escape`. Implemented and covered
-        by real-JavaScript plus type-only regressions in `56aa43646`.
+        by real-JavaScript plus type-only regressions in `d78969b06`.
       - [x] **REJECT repair: preserve JavaScript marker declarations.** Lower each
         accepted `const`/`let x = direct.shift(...)` to a collision-safe fresh resume
         parameter followed by the original declaration kind initialized from that
@@ -309,7 +309,7 @@ every later compiler/kernel change re-runs the literal fixed point.
         input under `allowJs: true, checkJs: false`, const assignment behavior, let
         mutation, a fresh-name collision, and source maps. Track in
         `BUGS.md#js-control-direct-js-marker-binding-semantics`. Implemented in
-        `2730971a6`.
+        `9228b4892`.
       - [x] **REJECT repair: file-wide intrinsic direct-eval barrier.** In every file
         selected for transformation, reject direct `eval(...)` even at top level or in
         nested closures and even through parentheses/`as`/non-null/type-assertion
@@ -317,22 +317,22 @@ every later compiler/kernel change re-runs the literal fixed point.
         `Function` as global-only JavaScript operations, then test each accepted and
         rejected form with stable spans. Track in
         `BUGS.md#js-control-direct-eval-capture-unsound`. Implemented in
-        `2730971a6`, with the selected-file closure completed by `56aa43646`.
-      - [x] **Pre-rereview repair: import-only direct eval.** Repair `2730971a6`
+        `9228b4892`, with the selected-file closure completed by `d78969b06`.
+      - [x] **Pre-rereview repair: import-only direct eval.** Repair `9228b4892`
         removes an unused named marker import even with no marker call, but gates eval
         scanning on `filesWithMarkerCalls`; `eval("typeof direct")` therefore observes
         a changed lexical environment. Gate intrinsic direct eval on every candidate
         file rewrite (including import-only erasure), retain eval-free unused-import
         removal, and prove diagnostic + file-atomic ignored-diagnostic emit. Track in
         `BUGS.md#js-control-direct-import-only-eval-erasure`. Implemented and covered
-        by an executing import-only regression in `56aa43646`.
+        by an executing import-only regression in `d78969b06`.
       - [x] **REJECT repair: real installed npm bin.** Replace the raw
         `import.meta.url === pathToFileURL(argv[1])` guard with deterministic realpath
         entry detection, including missing/unreadable argv handling. Build a tarball,
         install it in a fresh consumer, invoke exactly
         `node_modules/.bin/ssc-control-tsc`, and prove successful emit plus non-zero
         invalid-option failure. Track in `BUGS.md#js-control-direct-cli-symlink-noop`.
-        Implemented in `2730971a6`.
+        Implemented in `9228b4892`.
       - [x] **REJECT repair: erase the build-time marker import safely.** Require every
         value use of each exact named `direct` binding to be a successfully transformed
         marker call; diagnose survivors. Remove only completed marker specifiers and an
@@ -340,27 +340,27 @@ every later compiler/kernel change re-runs the literal fixed point.
         and imports. Run emitted production JavaScript with control runtime installed
         but no control-direct package. Track in
         `BUGS.md#js-control-direct-marker-import-survives-emit`. Implemented in
-        `2730971a6`.
+        `9228b4892`.
       - [x] **REJECT repair: consumer-owned TypeScript resolution.** Resolve the CLI
         compiler via Node `createRequire` from the explicit project/config directory or
         cwd, never from the extracted tool store and never from a global fallback. The
         packed installed-bin fixture keeps TypeScript only in consumer `node_modules`;
         a twin fixture without it must fail actionably. Track in
         `BUGS.md#js-control-direct-consumer-typescript-resolution`. Implemented in
-        `2730971a6`.
+        `9228b4892`.
       - [x] **REJECT repair: transparent marker wrappers.** Recursively unwrap only
         parentheses, `as`, non-null, and type assertions for exact checker-symbol
         ownership, covering `(direct).reset`, `direct!.reset`, and
         `(direct as typeof direct).reset` plus corresponding shift/negative forms.
         Emitted JavaScript must contain no owned marker call. Track in
         `BUGS.md#js-control-direct-wrapped-marker-receiver-missed`. Implemented in
-        `2730971a6`.
+        `9228b4892`.
       - [x] **REJECT repair: supported TypeScript API gate.** Pin the accepted compiler
         API line in the feature contract, enforce it before programmatic/CLI transform,
         and test both TypeScript 5.9.x acceptance and deterministic rejection outside
         that line without adding a bundled/production compiler. Track in
         `BUGS.md#js-control-direct-typescript-version-ungated`. Implemented in
-        `2730971a6`.
+        `9228b4892`.
       - [x] **Rereview repair: shorthand value-symbol capture.** Frozen reviewed HEAD
         `c4377fabb` asks `checker.getSymbolAtLocation` for an identifier inside a
         `ShorthandPropertyAssignment`, which returns the property symbol rather than
@@ -371,7 +371,7 @@ every later compiler/kernel change re-runs the literal fixed point.
         only identities, and cover shorthand plus assignment-initializer syntax where
         TypeScript exposes it. Track in
         `BUGS.md#js-control-direct-shorthand-value-symbol-capture`. Implemented in
-        `f3c1bbeaa`; real-JavaScript property and assignment-initializer regressions
+        `6476764a6`; real-JavaScript property and assignment-initializer regressions
         prove one stable capture diagnostic and unchanged ignored-diagnostic emit.
       - [x] **Rereview repair: surviving marker shorthand/local exports.** Runtime
         shorthand `{ direct }` and local exports `export { direct }` or
@@ -382,7 +382,7 @@ every later compiler/kernel change re-runs the literal fixed point.
         surviving owned value once as `JS_DIRECT_UNSUPPORTED`, and cancel every rewrite
         in the file. Track in
         `BUGS.md#js-control-direct-marker-shorthand-export-survivor`. Implemented in
-        `f3c1bbeaa`; shorthand/assignment and local/source export aliases each produce
+        `6476764a6`; shorthand/assignment and local/source export aliases each produce
         exactly one file-atomic diagnostic.
       - [x] **Rereview repair: erased type-only exports.** The fail-closed re-export
         scan currently rejects valid erased forms: local
@@ -392,7 +392,7 @@ every later compiler/kernel change re-runs the literal fixed point.
         preserve their normal TypeScript erasure without a direct diagnostic, and add
         positive tests alongside runtime export aliases and shadowing. Track in
         `BUGS.md#js-control-direct-type-only-export-false-positive`. Implemented in
-        `f3c1bbeaa`; five local/source declaration/specifier spellings erase normally,
+        `6476764a6`; five local/source declaration/specifier spellings erase normally,
         and a shadowed local runtime export remains ordinary.
       - [ ] **Repair-cycle closure.** After spec-first and code commits, update package
         README/project docs, run direct package tests+typecheck+node checks+exact pack,
@@ -401,7 +401,7 @@ every later compiler/kernel change re-runs the literal fixed point.
         control bookkeeping to reachable landing `cf8f96200`, mark its two confirmed
         review bugs `done`, freeze a clean HEAD, and obtain a fresh independent APPROVE
         before any push or claim release. All local gates and spec verification are
-        green at `faadb338a`: direct 35/35 and exact eight-file pack
+        green at `17e08e08f`: direct 35/35 and exact eight-file pack
         (14,909/56,527 bytes), explicit control 31/31 and exact five-file pack,
         catalog 26/9, negative validator 9/9, and conformance 5/5. Only fresh
         independent APPROVE and subsequent landing remain.

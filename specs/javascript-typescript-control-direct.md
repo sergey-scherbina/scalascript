@@ -484,8 +484,8 @@ diagnostic.
 
 ## Results
 
-The first repair candidate code commit `56aa43646` on current `origin/main` base
-`340890725`, with synchronized user documentation in `3f7d86249`, produced:
+The first repair candidate code commit `d78969b06` on current `origin/main` base
+`c75d26b09`, with synchronized user documentation in `5c5b3bf77`, produced:
 
 - `npm test` in `v2/host/js/control-direct`: 31/31, including faithful real-
   JavaScript prefix-TDZ rejection, accepted type-only prefix references,
@@ -505,11 +505,11 @@ The first repair candidate code commit `56aa43646` on current `origin/main` base
   (memoized from unchanged previously green cases).
 
 These are local pre-integration results. Exact frozen checkpoint `c4377fabb`
-(current rebased equivalent `6c6411a7f`) remained unpushed and was submitted to a fresh
+(current rebased equivalent `e0bbc62a2`) remained unpushed and was submitted to a fresh
 independent read-only review.
 
-The second symbol-ownership repair code commit `f3c1bbeaa` on base `340890725`,
-with synchronized user documentation in `82ed71efa`, produced:
+The second symbol-ownership repair code commit `6476764a6` on base `c75d26b09`,
+with synchronized user documentation in `c69befe81`, produced:
 
 - `npm test` in `v2/host/js/control-direct`: 35/35. New real-JavaScript/package
   regressions reject shorthand property and assignment-initializer suffix capture,
