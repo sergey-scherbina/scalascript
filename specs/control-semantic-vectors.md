@@ -136,6 +136,12 @@ where the former delimited-control umbrella was too coarse:
 - durable save/run, admission, remote, and no-replay cases as explicit
   `pending-codec` rows until their post-X1 implementation lands.
 
+Vector 12 retains its stable compound identity but has three independently
+asserted admission subcases: incompatible value/frame codec schema is
+`CodecMismatch`; a present exact artifact with incompatible ABI/control identity
+is `AbiMismatch`; and an absent required exact artifact/toolchain implementation
+is `MissingDependency`. A target adapter must not collapse these failures.
+
 Cancellation remains `pending-spec`. The current common specification names
 cancellation as required evidence but does not define public states, transition
 ordering, interaction with one-shot ownership, or the exact diagnostic. This
@@ -175,6 +181,8 @@ and capability names keep those claims separate.
       captured mutable heap cell remains shared across local resumes.
 - [x] One-shot and managed-capture negatives assert structured identities first and
       exact CLI rendering where a process boundary exists.
+- [ ] The compound codec/exact-artifact admission vector preserves distinct
+      `CodecMismatch`, `AbiMismatch`, and `MissingDependency` constructors.
 - [x] Every mandatory future lane is present in the matrix and reports `PENDING` or
       `UNAVAILABLE` instead of being omitted or counted green.
 - [x] Cancellation is recorded as `pending-spec` until its public transition and
