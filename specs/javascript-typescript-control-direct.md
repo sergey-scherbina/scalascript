@@ -1,6 +1,7 @@
 # JavaScript/TypeScript closed lexical direct control transform
 
-Status: **specified / implementation pending** (2026-07-15).
+Status: **implemented and verified / independent pre-integration review pending**
+(2026-07-15).
 
 ## Overview
 
@@ -261,29 +262,29 @@ module produce no direct-transform diagnostic.
 
 ## Behavior
 
-- [ ] The package publishes only the frozen root, `/transform`, command, and exact
+- [x] The package publishes only the frozen root, `/transform`, command, and exact
       eight-file Apache-licensed allow-list, with no production dependency,
       lifecycle script, or import-time effect.
-- [ ] An untransformed root marker throws the stable
+- [x] An untransformed root marker throws the stable
       `JS_DIRECT_UNTRANSFORMED` contract error and performs no control operation.
-- [ ] Exact named imports and aliases transform; shadowing, comments, strings,
+- [x] Exact named imports and aliases transform; shadowing, comments, strings,
       same-spelled properties, and foreign-module imports do not.
-- [ ] Zero, one, and sequentially many markers lower only to explicit
+- [x] Zero, one, and sequentially many markers lower only to explicit
       `Eff.pure/reset/shift/flatMap` and preserve left-to-right evaluation.
-- [ ] Prefix-once, suffix-per-resume, true shift, nearest matching reset, fresh
+- [x] Prefix-once, suffix-per-resume, true shift, nearest matching reset, fresh
       prompt isolation, and ordinary shared local mutable heap agree with the
       explicit package.
-- [ ] Direct differential programs for catalog vectors 18, 22, 23, and 24 produce
+- [x] Direct differential programs for catalog vectors 18, 22, 23, and 24 produce
       their existing target-neutral oracles without editing `vectors.tsv` or
       `lanes.tsv` and without claiming the pending generated-JS lane.
-- [ ] Async/generator/await/yield, try/finally, loops, switch, branch-nested marker,
+- [x] Async/generator/await/yield, try/finally, loops, switch, branch-nested marker,
       callback-nested marker, class-nested marker, outside-reset marker, prompt
       mismatch, `var`/destructuring marker, and arbitrary marker position fail with
       exact stable code and source span.
-- [ ] The transformer preserves usable source maps and the CLI preserves ordinary
+- [x] The transformer preserves usable source maps and the CLI preserves ordinary
       TypeScript type diagnostics rather than laundering them through generated
       code.
-- [ ] Package tests, package typecheck, exact dry-run pack, the existing explicit
+- [x] Package tests, package typecheck, exact dry-run pack, the existing explicit
       package's 31 tests/typecheck, catalog validation/negative validation, and
       affected `effect*,effects*` conformance are green from the isolated worktree.
 
@@ -324,4 +325,23 @@ module produce no direct-transform diagnostic.
 
 ## Results
 
-Pending implementation and independent pre-integration review.
+The isolated implementation checkpoint at `bedc918d6` plus documentation
+`c11aac022` produced:
+
+- `npm test` in `v2/host/js/control-direct`: 16/16, covering root contract,
+  package/links/license, CLI green/type-error/transform-error paths, exact-import
+  ownership and alias/collision handling, source maps, every closed-grammar
+  positive/negative, and catalog 18/22/23/24 differentials;
+- `npm run typecheck`: green under TypeScript 5.9.3; `node --check` is green for
+  all three published JavaScript files;
+- `npm pack --dry-run --json`: exactly eight files, 11,376 packed bytes and
+  39,819 unpacked bytes, no bundled dependency, executable `cli.js`, and the
+  10,837-byte repository license verbatim;
+- existing `v2/host/js/control`: 31/31 tests and TypeScript declarations green;
+- shared catalog validation: 26 vectors / nine lanes; negative validator: 9/9;
+- `tests/conformance/run.sh --only 'effect*,effects*'`: 5/5 affected cases green
+  across every declared INT/JS/JVM/V2 lane.
+
+The shared catalog and lane registry, CoreIR/frontends, descriptors, seed/image,
+and runners are byte-untouched. Independent read-only pre-integration review is the
+remaining gate before bookkeeping and integration.

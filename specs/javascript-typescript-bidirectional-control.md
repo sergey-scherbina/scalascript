@@ -1,7 +1,7 @@
 # JavaScript/TypeScript ↔ ScalaScript bidirectional control profile
 
-Status: **normative host profile / explicit local control slice implemented and
-verified; closed lexical direct-transform slice specified; remaining profile planned**
+Status: **normative host profile / explicit local control and closed lexical
+direct-transform slices implemented and verified; remaining profile planned**
 (2026-07-15).
 
 This is the JavaScript/TypeScript host profile of
@@ -435,7 +435,7 @@ the mixed JavaScript↔ScalaScript SCC qualification from §8.
 
 ### 2.3 Closed lexical direct-transform slice
 
-The next independently shippable slice is the zero-production-dependency ESM
+The implemented second independently shippable slice is the zero-production-dependency ESM
 package `@scalascript/control-direct` at `v2/host/js/control-direct`. Its root
 exports compile-time authoring markers that fail with a stable contract error if
 they survive emit; `/transform` and `ssc-control-tsc` use the consuming TypeScript
