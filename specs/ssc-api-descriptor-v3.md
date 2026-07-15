@@ -1,6 +1,7 @@
 # SSC API descriptor v3
 
-Status: **slice A specified; implementation in progress** (2026-07-15).
+Status: **slice A implemented and verified; producer/consumer slices queued**
+(2026-07-15).
 
 This specification refines the structured-descriptor contract in
 [`control-interoperability.md`](control-interoperability.md) without changing its
@@ -570,37 +571,37 @@ structured `(code, path, message)` errors and does not execute user code.
 
 ## Slice A behavior
 
-- [ ] The new v2 descriptor leaf builds independently and has no dependency on
+- [x] The new v2 descriptor leaf builds independently and has no dependency on
       v1 compiler/runtime, CoreIR, UniML, a backend, or the Scala control API.
-- [ ] `AbiType` round-trips canonical primitives (including `I32`/`I64`), named
+- [x] `AbiType` round-trips canonical primitives (including `I32`/`I64`), named
       generics, alpha-stable type parameters/type lambdas, functions, tuples,
       unions/intersections, and open/closed effect rows.
-- [ ] Callback policies and prompt/control metadata round-trip every common field
+- [x] Callback policies and prompt/control metadata round-trip every common field
       without host object types or string-only signatures.
-- [ ] Stable symbol/overload/JVM-entrypoint ids are deterministic, domain-separated,
+- [x] Stable symbol/overload/JVM-entrypoint ids are deterministic, domain-separated,
       order-independent where specified, and change when their semantic ABI input
       changes.
-- [ ] `ApiDescriptor`, `ControlSummary`, and `ArtifactManifest` canonical bytes and
+- [x] `ApiDescriptor`, `ControlSummary`, and `ArtifactManifest` canonical bytes and
       digests are deterministic; tampering or a wrong self/dependency digest is
       rejected before use.
-- [ ] RFC 8785 restricted JCS admission pins UTF-8, escaping, UTF-16 key ordering,
+- [x] RFC 8785 restricted JCS admission pins UTF-8, escaping, UTF-16 key ordering,
       bounded integral indices, and the non-ASCII/control-character golden vector;
       every non-canonical equivalent JSON text rejects.
-- [ ] The exact `ssc-descriptor-json/1` object fields, `tag` alternatives, wrapper,
+- [x] The exact `ssc-descriptor-json/1` object fields, `tag` alternatives, wrapper,
       vector, and option shapes are golden-tested; public models expose no
       permissive generic-library decoder that bypasses canonical admission.
-- [ ] Reordering symbols, set-like type members, capabilities, dependencies, edges,
+- [x] Reordering symbols, set-like type members, capabilities, dependencies, edges,
       or target features does not change canonical bytes; parameter/type-argument/
       parameter-list order remains observable.
-- [ ] A body/control/artifact-only change can keep `apiHash` stable while changing
+- [x] A body/control/artifact-only change can keep `apiHash` stable while changing
       the appropriate control or artifact digest.
-- [ ] Raw duplicates, an ambiguous dependency implementation, an unbound or
+- [x] Raw duplicates, an ambiguous dependency implementation, an unbound or
       wrong-arity type-parameter reference, and a missing save-site frame schema
       reject with stable structured errors before normalization can erase them.
-- [ ] Legacy `.scim` JSON and MessagePack payloads without `apiDescriptorV3` decode
+- [x] Legacy `.scim` JSON and MessagePack payloads without `apiDescriptorV3` decode
       to `None`; a v3 payload round-trips, stripping it restores `None`, and every
       existing field retains its previous value and meaning.
-- [ ] `ArtifactVersion.current` remains `2.0`; no existing artifact field is renamed,
+- [x] `ArtifactVersion.current` remains `2.0`; no existing artifact field is renamed,
       removed, retyped, reordered, or repurposed.
 
 ## Deferred slices (resume-cold)
@@ -638,5 +639,18 @@ slice A must not mark that milestone complete.
 
 ## Results
 
-Fill after verification with commit ids, focused test counts, dependency graph
-evidence, and the affected conformance command.
+Slice A implementation is commit `7faa92430`; the matching public documentation
+is commit `ecb5008b6`. An independent descriptor audit approved the implementation
+without blockers.
+
+- `scripts/sbtc "v2InteropDescriptor/test; core/testOnly
+  scalascript.artifact.ArtifactAbiCompatibilityTest"` passes 27/27 descriptor
+  tests and 73/73 legacy artifact ABI tests.
+- `scripts/sbtc "show v2InteropDescriptor/projectDependencies; ir/test; core/test;
+  interop/test"` prints only `*` for the leaf dependency graph and passes the
+  affected integration radius: `ir/test` succeeds, `core/test` passes 1046/1046,
+  and `interop/test` passes 36/36.
+- `tests/conformance/run.sh --only 'modules*,import-dir*'` passes 2/2 cases on
+  interpreter, JavaScript, and JVM lanes.
+- The legacy carrier remains opaque and defaulted; no Slice B/C/D producer,
+  linker, facade, admission, or runner behavior is claimed by these results.
