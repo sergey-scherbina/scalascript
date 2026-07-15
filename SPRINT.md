@@ -219,8 +219,9 @@ optional policy, not the default continuation semantics.
       retained `effect Real:` is paired with a stale AST still containing `read`.
     - [ ] Index every known local type/alias with effective owner visibility. A public signature
       resolving to a private/internal local owner or alias must fail `UNSUPPORTED_PUBLIC_TYPE`
-      before external `AbiType.Named` fallback or callback classification; regress both
-      `private Hidden.T` and an `@internal` callback alias.
+      before external `AbiType.Named` fallback or callback classification; regress relative and
+      absolute `private Hidden.T`, an `@internal` callback alias both directly and through a
+      public wrapper alias, plus a private local `Array` shadowing the `Array[Byte]` fast path.
     - [ ] Reject selected public/exported `Defn.Var` with
       `UNSUPPORTED_PUBLIC_DECLARATION` until an additive descriptor revision represents
       mutability. Keep equivalent `val` positive and do not change the frozen Slice A schema.

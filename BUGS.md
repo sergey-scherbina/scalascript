@@ -32,7 +32,8 @@ fix SHA pending.
 private/internal local owner, is accepted as an external `AbiType.Named` instead of
 being rejected. Likewise an `@internal` local alias for a callback type can be
 exported without expanding to the callback shape, bypassing the mandatory callback
-policy.
+policy. The same bypass survives through a non-exported public wrapper alias, and
+the built-in `Array[Byte]` fast path can outrun a private local `Array` declaration.
 
 **Root cause/plan:** the lexical type index records only public declarations and
 recurses only through public owners. A known local declaration hidden by visibility
@@ -40,7 +41,8 @@ therefore becomes indistinguishable from an actually external qualified type. In
 all local type identities and aliases with effective owner visibility; if resolution
 finds a known non-public local identity, fail with stable `UNSUPPORTED_PUBLIC_TYPE`
 before external-name projection or callback classification. Regress both the private
-qualified-owner and internal callback-alias shapes.
+qualified-owner and internal callback-alias shapes, a public alias chain, absolute
+fully-qualified selection, and the shadowed `Array[Byte]` fast path.
 
 **Baseline:** focused producer test accepts `Hidden.T` and `Callbacks.Hidden` as
 external `AbiType.Named` values; the latter has no callback policy. These are two
