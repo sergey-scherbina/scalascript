@@ -4,6 +4,15 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-15 — scalascript.dev landing page (site/)
+
+Marketing landing page for the project domain `scalascript.dev`: a single static,
+self-contained page under `site/` (inline CSS/JS, no build, no external requests),
+plus `favicon.svg` and `DEPLOY.md` (Cloudflare Pages + domain + a pre-public
+git-history secret-scan gate). Design: a literate ScalaScript document whose Markdown
+structural tokens glow in the compiler's red accent. Deploy and the repo-public flip
+remain owner actions.
+
 ## 2026-07-15 — JavaScript/TypeScript explicit local control API
 
 Added the compiler-independent ESM-only `@scalascript/control` reference leaf at
