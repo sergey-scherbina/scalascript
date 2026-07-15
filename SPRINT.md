@@ -96,7 +96,17 @@ error-resilient parser already byte-identical to ssc1-front on 119 constructs, t
          `f(label = value)` → `Pair("narg", …)` (applyArgs id+`=` detect; +33 programs — pervasive in UI/config).
       **MATCH trajectory (484 progs): 0 → 2 (top-level) → 93 (harness leak fix) → 165 (number lexer) → 203
       (trailing block) → 211 (placeholder) → 241 (imports) → 269 (list+type) → 272 (try+annotations) → 288
-      (type application) → 293 (literal patterns) → 326 (67%, named args).** Remaining (88 DIFF + 70 HOLE):
+      (type application) → 293 (literal patterns) → 326 (named args) → 327 (for-comprehensions) → 330 (objects/
+      traits/modifiers) → 334 (case-class field defaults + generic field-type strings) → 342 (70%, uppercase
+      val/var names).** Remaining (76 DIFF + 67 HOLE) is now mostly SPECIALIZED or ARCHITECTURAL:
+      - **variant-A parser-cell gaps** (case-class body METHODS `Point_distanceTo`, call-site default SYNTHESIS
+        `Box()`→`Box(10,20)`) — caseMethodsCell/funcDefaultsCell are populated by ssc1-front's PARSE (not
+        AST-derived), which the spike bypasses; needs the Phase 4/5 clean lowerer or an oracle AST change.
+      - **bespoke DSLs**: optics `Focus[T](_.a.b)` → `optics.focus [OField…]` (5), custom string interpolators
+        `html"…"`/`sql"…"` (ssc1-front itself doesn't recognize them; position-dependent block grouping, 5),
+        `derives` codec generation.
+      - **tagless/typeclass givens** `given x: TC[T] with { def … }` (29 HOLE programs), extensions.
+      Older remaining (88 DIFF + 70 HOLE):
       ~82 parse holes (custom string interpolators `html"…"`/`sql"…"` — actually ssc1-front ALSO parses these as
       `id`+raw-string, the divergence is arm-body block grouping; braceless-catch-at-top-level offside;
       distributed/dsl/effects constructs) + ~130 long-tail DIFFs (real case-class BODY methods `Point_distanceTo`
