@@ -1736,12 +1736,18 @@ val directAnswer: Eff[Nothing, Int] =
 assert(Eff.runPure(directAnswer) == 42)
 ```
 
-M1 accepts pure prefixes/suffixes, immutable block-level shift binds, tail shifts,
-and sequential binds. It fails at compile time if a marker escapes its matching
-lexical scope, crosses a callback/resource/control barrier, targets an outer scope
-through a nested `direct.reset`, or appears in an unsupported expression shape.
-Cross-method transformation and managed callbacks belong to the later compiler
-plugin; M1 introduces no second runtime or exception-based continuation path.
+M1 accepts pure prefixes/suffixes, block-level shift binds, tail shifts, sequential
+binds, and strict local `val`/`var`/`given` or pattern bindings that cross a
+capture. Those locals are rebound under the generated owner; a reusable
+continuation therefore shares one ordinary Scala closure cell for a captured
+`var`. It fails at compile time if a marker escapes its matching lexical scope,
+crosses a callback/resource/control barrier, targets an outer scope through a
+nested `direct.reset`, or appears in an unsupported expression shape. A local
+method, class, type, ordinary lazy value, or inline application that would cross
+the capture split also fails closed instead of producing a raw owner error or
+forcing lazy/inline code. Cross-method transformation and managed callbacks belong
+to the later compiler plugin; M1 introduces no second runtime or exception-based
+continuation path.
 
 Reusable continuations expose `resume`; one-shot continuations expose only atomic
 `tryResume`, whose second or concurrent loser returns typed `AlreadyResumed`.
