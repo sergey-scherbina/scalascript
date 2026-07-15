@@ -1451,7 +1451,16 @@ lazy val cli = project
   // cluster tests (which spawn `java -jar ssc.jar` nodes) died with
   // "runActors requires the actors plugin" — actorsPlugin was staged for
   // installBin but missing here.
-  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendRust, backendInterpreter, backendInterpreterServer, runtimeServerJvmFast, backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap, frontendCore, graphPlugin, deployPlugin, httpPlugin, wsPlugin, contentPlugin, frontendPlugin, fetchPlugin, streamsPlugin, actorsPlugin, v2JvmBytecode, v2JsBackend, v2SwiftBackend, v2NativePluginSpi, v2NativeHostPlugin, v2NativeCryptoPlugin, v2NativeOsPlugin, v2NativeFsPlugin, v2NativeJsonPlugin, v2NativeHttpFastPlugin, v2NativeSqlPlugin, v2NativeUiPlugin, v2NativeStateEffectPlugin, v2NativeEffectRunnersPlugin, v2NativeStorageEffectPlugin, v2NativeReactivePlugin, v2NativeYamlPlugin, v2NativeContentPlugin, v2NativeDatasetPlugin, v2NativeGeneratorPlugin, v2NativeActorsPlugin, v2NativeDistributedPlugin, v2NativeGraphPlugin, v2NativeOpticsPlugin, v2NativePdfPlugin, v2NativeNfcPlugin, v2NativeMcpPlugin, v2NativeGraphRdf4jPlugin, v2NativeSwiftPlugin)
+  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendRust, backendInterpreter, backendInterpreterServer, runtimeServerJvmFast, backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap, frontendCore, graphPlugin, deployPlugin, httpPlugin, wsPlugin, contentPlugin, frontendPlugin, fetchPlugin, streamsPlugin, actorsPlugin,
+    // Plugins that formerly reached the CLI transitively through v2FrontendBridge →
+    // v2PluginBridge. That bridge is gone, so the v1 interpreter's std.* plugins must
+    // be DIRECT cli deps (installBin stages bin/lib/jars from cli's fullClasspath).
+    sqlPlugin, cryptoPlugin, uuidPlugin, mcpPlugin, authPlugin, osPlugin, oauthPlugin,
+    nfcPlugin, pdfPlugin, jsonPlugin, mimePlugin, smtpPlugin, fsPlugin, yamlPlugin,
+    pwaPlugin, markupCore, paymentsPlugin, paymentsBankRails, paymentsPix,
+    loggerEffectPlugin, stateEffectPlugin, randomEffectPlugin, clockEffectPlugin,
+    envEffectPlugin, retryEffectPlugin, cacheEffectPlugin,
+    v2JvmBytecode, v2JsBackend, v2SwiftBackend, v2NativePluginSpi, v2NativeHostPlugin, v2NativeCryptoPlugin, v2NativeOsPlugin, v2NativeFsPlugin, v2NativeJsonPlugin, v2NativeHttpFastPlugin, v2NativeSqlPlugin, v2NativeUiPlugin, v2NativeStateEffectPlugin, v2NativeEffectRunnersPlugin, v2NativeStorageEffectPlugin, v2NativeReactivePlugin, v2NativeYamlPlugin, v2NativeContentPlugin, v2NativeDatasetPlugin, v2NativeGeneratorPlugin, v2NativeActorsPlugin, v2NativeDistributedPlugin, v2NativeGraphPlugin, v2NativeOpticsPlugin, v2NativePdfPlugin, v2NativeNfcPlugin, v2NativeMcpPlugin, v2NativeGraphRdf4jPlugin, v2NativeSwiftPlugin)
   // Frontend backends — derived from allFrontends registry (arch-build-registry Phase 4)
   .dependsOn(allFrontends.map(f => ClasspathDependency(f.project, None)): _*)
   .settings(
