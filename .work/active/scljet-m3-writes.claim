@@ -1,4 +1,4 @@
 claim: scljet-m3-writes
 owner: opus
-heartbeat: 2026-07-15T05:10:00Z
-status: LIMIT pushdown (first perf op) landed, 40/40 sql green. Physical index-seek = next (multi-turn, differential-tested). 2 sibling agents on typed-decoder + JVM-JDBC-shim in parallel.
+heartbeat: 2026-07-15T05:25:00Z
+status: LIMIT pushdown landed, full gate 83/83 green. Sibling agent A (typed row decoder) DONE af4b65e17. Agent B (JVM JDBC shim) still running. Physical index-seek = next (overflow-safe, differential-tested).

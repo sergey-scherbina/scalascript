@@ -2064,6 +2064,17 @@ Two new front doors are specced (typed-SQL-API cb94fd88c, JDBC-API f2d1372a0); *
 working first implementation** — the JDBC portable façade (m6v) and the typed SQL surface (m6w),
 alongside SQL polish (REAL literals m6s, LEFT-join-3 m6r). All three "параллельно" lanes advanced.
 
+- [x] **scljet-m7a-typed-row-decoder** — DONE 2026-07-15 (parallel small-feature lane of "оба
+      параллельно"; landed by sibling agent, `af4b65e17`). Typed row decoder on the typed-SQL surface:
+      `runTypedQueryAs[S](dbBytes, q, decode: List[SqliteValue] => S): Either[String, List[S]]` maps each
+      raw result row through a caller `decode` → typed records; plus bounds-safe 0-based cell extractors
+      `cellLong`/`cellText`/`cellReal`/`cellIsNull` (same BigInt-safe coercion as the JDBC façade — text/
+      int via 0L-seeded leading-int parse, reals via Double-space parse / direct `SqlReal.value`, never
+      `.toInt`/`.toDouble`; SqlNull→0/0.0/""). Verified vs sqlite3 (decode into `case class Emp`, NULL
+      column → cellIsNull/cellLong=0), int==js; conformance `scljet-typedsql-decode`; all 4 typedsql
+      cases green. GOTCHA recorded by the agent: a fresh worktree needs `sbt cli/installBin` — the main
+      checkout's Jul-13 jars miscompile current scljet (`Method not found: fullPath on ImageVfs`).
+
 - [x] **scljet-m6z-limit-pushdown** — DONE 2026-07-15 (first perf op of the physical-access-path
       direction, Sergiy: "оба параллельно"). LIMIT pushdown / early scan termination. A single-table
       `SELECT` with a `LIMIT` and no `ORDER BY`/aggregate/`GROUP BY`/`DISTINCT` keeps rows in scan
