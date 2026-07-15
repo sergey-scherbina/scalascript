@@ -1,6 +1,0 @@
-feature/swift-effect-handler-implicit-return-fallback 2026-07-15T00:54:58Z
-agent: codex-swift-control
-heartbeat: 2026-07-15T00:55:14Z
-status: in-progress
-done-so-far: isolated worktree created from origin/main
-next: reproduce the checked-source no-Return mismatch, then implement the specified identity fallback without swallowing real handler failures
