@@ -118,10 +118,11 @@ total `ClosV` whose catch-all throws for foreign operations.
       Logger/Stream operations.
 - [ ] Concurrent and reentrant handler calls cannot share a dispatch probe or
       observe another invocation's decision.
-- [ ] A nested/delegated partial function invoked while a guard is pending
-      cannot consume or reject the outer decision even when it receives the
-      exact same event object. Both event identity and qualified-root provenance
-      must match.
+- [ ] A nested/delegated partial function or an ordinary reentrant invocation of
+      the same qualified closure while a guard is pending cannot consume or
+      reject the outer decision even when it receives the exact same event
+      object. Event identity, qualified-root owner, and per-invocation activation
+      provenance must all match.
 - [ ] Adding handler-root flags to newly generated local-`LetRec` closures does
       not break persisted direct-ASM artifacts: the historical three-argument
       static `Emit.letrec(int[], LamFn[], Value[])` descriptor remains linkable
@@ -141,24 +142,26 @@ total `ClosV` whose catch-all throws for foreign operations.
 
 The JVM compiler marks only the canonical one-argument handler closure whose
 root body is `event match { ... }` as dispatch-qualified. That marker is private
-closure metadata, not a source value or serialized descriptor. For such a
-closure, the runtime scopes one private, unforgeable probe to each
-`dispatchHandler1(handler, event)` invocation. The probe records both the exact
-event object and the handler closure's unforgeable owner token, and has a linear
-state transition:
+closure metadata, not a source value or serialized descriptor. Every qualified
+closure owns one unforgeable executable token, and every invocation of that
+closure receives a second, fresh unforgeable **activation token**. For the one
+invocation designated by `dispatchHandler1(handler, event)`, the runtime scopes
+a private probe containing the exact event object, closure owner, and designated
+activation. The probe has a linear state transition:
 
 ```text
 Pending -> Matched
 Pending -> Unhandled
 ```
 
-Only the first qualified-root pattern decision whose active owner token and
-scrutinee identity both match the probe may transition it. Reference identity is
-intentional: a user-created value with equal fields is not the runtime's handler
-event and cannot claim the probe. Owner provenance is equally required: a
-nested/delegated partial function may receive the very same event object during
-a guard, but its private token differs and therefore cannot claim the outer
-probe.
+Only the first qualified-root pattern decision whose active owner token,
+activation token, and scrutinee identity all match the probe may transition it.
+Reference identity is intentional: a user-created value with equal fields is
+not the runtime's handler event and cannot claim the probe. Owner provenance
+separates different qualified closures. Activation provenance also separates a
+recursive or ordinary reentrant invocation of the *same* qualified closure:
+even when it receives the exact same event object while an outer guard is
+pending, its selected or terminal-miss marker cannot claim the outer probe.
 Selecting a constructor arm or explicit default performs `Pending -> Matched`
 before its body starts. A missing arm performs `Pending -> Unhandled` and returns
 a private singleton that is not `DataV`, has no source constructor, and is
@@ -211,13 +214,17 @@ copy the JVM thread-local probe implementation.
 
 The marker keeps its one explicit CoreIR argument. During executable
 compilation, every qualified partial-function closure receives a fresh
-unforgeable owner token in target-private closure metadata, and every execution
-of that closure scopes the same token as the current marker owner. Canonical
-root-match hooks and general-chain markers compare that current owner with the
-probe owner as well as comparing the event by identity. A nested qualified
-closure temporarily scopes its own token and restores the outer owner in
-`finally`, so its `selected` or `miss` marker retains ordinary partial-function
-semantics even if its scrutinee aliases the outer event. Tokens never enter a
+unforgeable owner token and a private raw entry in target-private closure
+metadata. Ordinary calls use the public executable wrapper, which creates a
+fresh activation before entering that raw code. `dispatchHandler1` creates its
+own designated activation and invokes the raw entry directly under its probe,
+so the wrapper cannot replace that activation. Canonical root-match hooks and
+general-chain markers compare the current owner and activation with the probe as
+well as comparing the event by identity. A nested qualified closure or a
+reentrant call to the same closure temporarily scopes a different activation
+and restores the outer activation in `finally`, so its `selected` or `miss`
+marker retains ordinary partial-function semantics even if its scrutinee aliases
+the outer event. Owner tokens, activation tokens, and raw entries never enter a
 language environment, CoreIR argument, codec, manifest, or saved continuation.
 
 The selected marker is deliberately placed after all outer/nested pattern tests
@@ -243,13 +250,16 @@ fold(Suspended(label, argument, continue), onUnhandled) =
 then installs a **fresh** probe for the same exact handler event while the case
 chain continues. Freshness matters for reusable guard operations: two resumes
 must make independent pattern decisions instead of sharing one consumed mutable
-flag. The synchronous thread-local scope is removed before the residual `Op`
-crosses the handler boundary; no `ThreadLocal` or mutable probe is captured.
-Only the event reference, immutable owner identity, and original continuation
-are retained by the private wrapper, matching the state a portable
+flag. Each fresh probe retains the original designated activation identity, so
+the resumed segment remains the same logical handler invocation while any
+reentrant qualified call made by that segment receives a different activation.
+The synchronous thread-local scope is removed before the residual `Op` crosses
+the handler boundary; no `ThreadLocal` or mutable probe is captured. Only the
+event reference, immutable owner and activation identities, and original
+continuation are retained by the private wrapper, matching the state a portable
 handler-decision frame must retain. Because a guard continuation is not itself
 the handler-root closure, each resumed segment explicitly scopes the original
-owner token while it runs.
+owner and activation while it runs.
 
 If the selected marker ran before a handler body produced an `Op`, the probe is
 already consumed and that result is `Matched(Op(...))`, not `Suspended`. The
@@ -364,12 +374,15 @@ while matching-arm failures share the ordinary failure path.
 - **Keep dispatch metadata out of closure environments.** A prepended marker
   preserves indexing but can become captured implementation state. A scoped
   probe has no observable lifetime beyond the first handler match.
-- **Require root provenance as well as event identity.** Event identity alone
-  lets a nested marker-bearing partial function consume the outer probe when a
-  guard passes it the same event object. Each qualified closure therefore owns
-  an unforgeable executable token, scoped during its execution and compared by
-  the root hooks. Rejected: string/integer site ids, language-environment
-  tokens, and guessing from the dynamic call stack.
+- **Require invocation provenance as well as root and event identity.** Event
+  identity alone lets a nested marker-bearing partial function consume the
+  outer probe when a guard passes it the same event object. A per-closure owner
+  token fixes different closures but still lets an ordinary recursive call to
+  that same closure steal the probe. Each qualified closure therefore owns an
+  unforgeable executable token and every invocation receives a fresh activation
+  token; the root hooks compare both. Rejected: owner-only provenance,
+  string/integer site ids, language-environment tokens, and guessing from the
+  dynamic call stack.
 - **Qualify only the canonical root handler match.** Private closure metadata is
   set when compiling the one-argument `event => event match` shape or the
   frontend's explicitly marked root decision chain. Rejected: allowing an
@@ -431,6 +444,9 @@ while matching-arm failures share the ordinary failure path.
    ordinary partial-function invocation, and a selected body whose nested match
    fails. A same-event nested marker-bearing partial function exercises both its
    selected and terminal-miss paths without changing the outer pending decision.
+   A recursive/ordinary reentrant call to that *same closure* and same event
+   exercises both paths again, proving activation provenance rather than merely
+   owner provenance.
 3. Native effect-runner tests send a foreign operation through
    `runLoggerToList` and `runStream`, resume it outside, and observe later
    Logger/Stream operations captured by the reinstated inner runner. A selected
