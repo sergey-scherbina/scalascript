@@ -1,9 +1,9 @@
 # Scala 3 lexical direct-style control macros
 
-Status: **M1 fourth-review strict-polymorphic-value remediation specified;
-implementation pending** (2026-07-15). The first review rejected owner
-splitting, lazy-marker lowering,
-and inline marker wrappers. The next independent rereview found stale dependent
+Status: **M1 fourth-review strict-polymorphic-value remediation implemented and
+locally green; fresh independent review pending** (2026-07-15). The first review
+rejected owner splitting, lazy-marker lowering, and inline marker wrappers. The
+next independent rereview found stale dependent
 types in freshened declarations, a direct marker hidden in `ShiftBody`, an
 incorrect transparent-inline primary position, and deferred
 `scala.util.boundary.break`. The contract below now covers all four and the full
@@ -17,14 +17,16 @@ not land until a new independent review approves the frozen checkpoint. Fresh
 independent review of `708dec2f1` then found three remaining owner graphs outside
 that evidence: captured result type `A`, nested/inferred types in moved terms, and
 forward/mutual compiler-lazy givens. The contract below covers those graphs, and
-feature commit `2ee8527e1` implements them with faithful source and packaged
+feature commit `a8f321d5c` implements them with faithful source and packaged
 regressions plus the full local gate. M1 remains unlanded until a new independent
 review approves the frozen checkpoint. Fresh review of candidate
 `f4e860ed7..408f23c11` then found an independent strict polymorphic function value
 whose structural `apply` selection retained an invalid `<none>` member after
 capture. The contract below now covers structural member resolution and complete
-method/poly binder closure; the new behavior item remains unchecked until the
-faithful packaged regression and full gate pass.
+method/poly binder closure. Feature commit `b6d2cd262` resolves the structural
+selection from its moved qualifier; the new source and packaged regressions plus
+the complete local gate are green. M1 remains unlanded until another independent
+review approves the frozen checkpoint.
 
 This feature is the bounded inline-macro tier of
 [`scala3-bidirectional-control.md`](scala3-bidirectional-control.md). It translates
@@ -524,7 +526,7 @@ save/run, callbacks, descriptors, runners, or cancellation.
       with a stable source-located direct diagnostic through direct selection,
       imported alias, explicit label, module alias, and transparent-inline
       provenance; safe nested-method returns remain accepted.
-- [ ] Independent strict polymorphic function values and monomorphic structural
+- [x] Independent strict polymorphic function values and monomorphic structural
       applications cross capture without undefined selections; prefix/suffix and
       explicit `.apply` calls retain closed method/poly binders, while genuinely
       unsupported structural or owner-dependent graphs fail with stable
@@ -610,8 +612,8 @@ Changed Markdown is linted and the final branch must pass `git diff --check`.
 ## Results
 
 - `scripts/sbtc "scala3ControlApi/test;scala3ControlApi/packageBin;scala3ControlApi/makePom"`
-  passes 109/109 tests across ten suites. The direct slice contributes twenty-one
-  runtime semantic tests, twenty-six exact compile-time diagnostic tests, three
+  passes 113/113 tests across ten suites. The direct slice contributes twenty-four
+  runtime semantic tests, twenty-seven exact compile-time diagnostic tests, three
   catalog-lane tests, and source-access safety checks.
 - `tests/interop-conformance/run.sh --validate` accepts 26 vectors and nine lanes;
   all nine validator-negative cases pass. `--lane scala-direct` passes vector 18,
@@ -661,7 +663,7 @@ Changed Markdown is linted and the final branch must pass `git diff --check`.
   symbol-preserving `boundary.break` spellings/provenance forms and correction of
   the over-broad dependent-owner completion wording. These are pre-fix baselines;
   another independent review remains mandatory after implementation and full gates.
-- Post-`708dec2f1` owner remediation is implemented in feature commit `2ee8527e1`.
+- Post-`708dec2f1` owner remediation is implemented in feature commit `a8f321d5c`.
   Captured `A` is rebound before type opening; moved definition types and common
   prefix/suffix owner-dependent lambdas are rebuilt and stale-symbol audited; and
   supported crossing givens are allocated in two phases with `Given`/`Lazy` flags
@@ -681,3 +683,18 @@ Changed Markdown is linted and the final branch must pass `git diff --check`.
   `undefined: identity.<none> ... TermRef(... val <none>)`; the explicit equivalent
   compiles and prints `42`. This is the pre-fix baseline for the unchecked
   structural-selection/binder-closure behavior above.
+- Fourth-review remediation is implemented in feature commit `b6d2cd262` on
+  `origin/main` base `6603e6c29`. The moved-tree mapper now detects a structural
+  selection with `Symbol.noSymbol` and resolves it through the already-moved
+  qualifier with `Select.unique`; a resolution failure becomes stable
+  `DIRECT_STYLE_UNSUPPORTED`. Clean focused suites pass 51/51 (24 semantics and
+  27 diagnostics), and the full leaf/package/POM pass 113/113. The packaged Scala
+  CLI 3.8.3 consumer prints fourteen differential `42` results, covering the exact
+  `identity[Int](2)` suffix repro, prefix and explicit `.apply` calls, ordinary
+  monomorphic functions, and ParamRefs used only in results or self-bounds. A
+  nested owner-dependent polyfunction remains deliberately outside M1 and the
+  packaged negative fails at its declaration with stable
+  `DIRECT_STYLE_UNSUPPORTED`. The POM retains only `scala3-library_3` in production
+  scope, catalog validation is 26 vectors/9 lanes with 9/9 validator negatives,
+  the direct lane is 3/3, and affected conformance is 5/5. Fresh independent review
+  remains the landing gate.
