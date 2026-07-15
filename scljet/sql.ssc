@@ -298,7 +298,8 @@ case class SxCase(operand: Option[SxNode], whens: List[SxWhen], elseExpr: Option
 // `subTokens` (defaulted empty) carries an EXISTS/NOT EXISTS subquery's tokens (op "exists"/"notexists");
 // evaluated per outer row with the outer table's qualified columns substituted (correlated subquery).
 case class Condition(column: String, op: String, value: SqliteValue, values: List[SqliteValue], leftExpr: Option[SxNode], rightExpr: Option[SxNode], subTokens: List[Token] = Nil)
-case class JoinSpec(table: String, leftCol: String, op: String, rightCol: String, leftOuter: Boolean)
+// leftOuter keeps unmatched left rows; rightOuter (defaulted) keeps unmatched right rows. Both → FULL.
+case class JoinSpec(table: String, leftCol: String, op: String, rightCol: String, leftOuter: Boolean, rightOuter: Boolean = false)
 case class HavingCond(item: ProjItem, op: String, value: SqliteValue)
 case class SelectStmt(star: Boolean, projection: List[ProjItem], table: String, where: List[List[Condition]], orderBy: List[OrderKey], limit: Int, offset: Int, groupBy: List[String], joins: List[JoinSpec], having: Option[HavingCond], distinct: Boolean)
 
@@ -938,9 +939,19 @@ def parseGroupBy(toks: List[Token]): Either[String, (List[String], List[Token])]
 // Optional `[INNER | LEFT [OUTER]] JOIN ident ON col op col`; returns the join spec + rest.
 def parseJoin(toks: List[Token]): Either[String, (Option[JoinSpec], List[Token])] =
   var leftOuter = false
+  var rightOuter = false
   var afterKw = toks
   if tkIsKw(afterKw, "LEFT") then
     leftOuter = true
+    afterKw = afterKw.tail
+    if tkIsKw(afterKw, "OUTER") then afterKw = afterKw.tail
+  else if tkIsKw(afterKw, "RIGHT") then
+    rightOuter = true
+    afterKw = afterKw.tail
+    if tkIsKw(afterKw, "OUTER") then afterKw = afterKw.tail
+  else if tkIsKw(afterKw, "FULL") then
+    leftOuter = true
+    rightOuter = true
     afterKw = afterKw.tail
     if tkIsKw(afterKw, "OUTER") then afterKw = afterKw.tail
   else if tkIsKw(afterKw, "INNER") then afterKw = afterKw.tail
@@ -962,7 +973,7 @@ def parseJoin(toks: List[Token]): Either[String, (Option[JoinSpec], List[Token])
           if l.kind != "ident" then Left("expected a column in ON")
           else if o.kind != "op" then Left("expected a comparison operator in ON")
           else if rc.kind != "ident" then Left("expected a column in ON")
-          else Right((Some(JoinSpec(jtable, l.text, o.text, rc.text, leftOuter)), afterOn.tail.tail.tail))
+          else Right((Some(JoinSpec(jtable, l.text, o.text, rc.text, leftOuter, rightOuter)), afterOn.tail.tail.tail))
 
 // A chain of JOIN clauses (0, 1, or more) — supports 2-, 3-, … table joins.
 def parseJoins(toks: List[Token]): Either[String, (List[JoinSpec], List[Token])] =
@@ -2680,6 +2691,24 @@ def joinExecute(db: ReadonlyDatabase, stmt: SelectStmt, spec: JoinSpec): Either[
             if joinWhereHolds(stmt.where, ra.head, colsA, stmt.table, noneB, colsB, spec.table) then
               pairsRev = JoinPair(ra.head, noneB) :: pairsRev
           ra = ra.tail
+        // RIGHT / FULL: keep each right-table row that no left row matched (on the ON), left side NULL.
+        if spec.rightOuter then
+          var rb2 = rowsB
+          while rb2.nonEmpty do
+            var ra2 = rowsA
+            var bMatched = false
+            while ra2.nonEmpty do
+              val rbOpt2: Option[StorageRecord] = Some(rb2.head)
+              val lv2 = joinColValue(ra2.head, colsA, stmt.table, rbOpt2, colsB, spec.table, spec.leftCol)
+              val rv2 = joinColValue(ra2.head, colsA, stmt.table, rbOpt2, colsB, spec.table, spec.rightCol)
+              if condMatches(spec.op, sqlCompare(lv2, rv2)) then bMatched = true
+              ra2 = ra2.tail
+            if !bMatched then
+              val nullA = nullRow()
+              val rbOptN: Option[StorageRecord] = Some(rb2.head)
+              if joinWhereHolds(stmt.where, nullA, colsA, stmt.table, rbOptN, colsB, spec.table) then
+                pairsRev = JoinPair(nullA, rbOptN) :: pairsRev
+            rb2 = rb2.tail
         val pairs = reversePairs(pairsRev, Nil)
         if stmt.groupBy.nonEmpty then
           val sortedForGroup = sortPairsBy(pairs, colsA, stmt.table, colsB, spec.table, groupKeysOf(stmt.groupBy))

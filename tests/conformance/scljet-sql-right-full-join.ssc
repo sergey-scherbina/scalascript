@@ -1,0 +1,42 @@
+---
+name: scljet-sql-right-full-join
+description: SclJet RIGHT and FULL [OUTER] JOIN (2 tables); matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet RIGHT / FULL join
+
+`RIGHT [OUTER] JOIN` keeps every row of the right table (NULL-extended on the left where no left row
+matches the ON); `FULL [OUTER] JOIN` keeps both sides' unmatched rows. `JoinSpec` gains a `rightOuter`
+flag (`parseJoin` sets it for RIGHT, both flags for FULL); `joinExecute` adds a pass over the right
+table emitting each unmatched right row with a NULL-sentinel left record — so `SELECT *` keeps the
+left-then-right column order (unlike a table swap). Verified against reference sqlite3 (RIGHT explicit
++ `SELECT *`, FULL, COUNT), int==js.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, executeMutation, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def apply(db: ByteSlice, sql: String): ByteSlice =
+  executeMutation(db, sql) match
+    case Left(m) =>
+      println(sql + " => ERR:" + m)
+      db
+    case Right(next) => next
+
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "t1", "CREATE TABLE t1(a INTEGER, x TEXT)",
+  List(List(SqlInteger(1L), SqlText("p")), List(SqlInteger(2L), SqlText("q")))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db0) =>
+    val d1 = apply(db0, "CREATE TABLE t2(b INTEGER, y TEXT)")
+    val db = apply(d1, "INSERT INTO t2 VALUES (2,'m'),(3,'n')")
+    show(db, "SELECT t1.a, t2.b, t2.y FROM t1 RIGHT JOIN t2 ON t1.a = t2.b ORDER BY t2.b")
+    show(db, "SELECT * FROM t1 RIGHT JOIN t2 ON t1.a = t2.b ORDER BY t2.b")
+    show(db, "SELECT t1.a, t2.b FROM t1 FULL JOIN t2 ON t1.a = t2.b ORDER BY t1.a, t2.b")
+    show(db, "SELECT COUNT(*) FROM t1 RIGHT JOIN t2 ON t1.a = t2.b")
+```
