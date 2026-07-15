@@ -2,8 +2,10 @@
 
 ## js-control-direct-import-equals-bypass — runtime marker require evades fail-closed import scan
 
-**Status:** open. Reported as P1 by the fresh independent read-only review of exact
-frozen HEAD `71ae452ea5` on 2026-07-15 (current rebased equivalent `2d913f991`).
+**Status:** open; repair candidate `542a5d2b6` is direct-package verified and awaits
+full gates, fresh independent review, and landing. Reported as P1 by the fresh
+independent read-only review of exact frozen HEAD `71ae452ea5` on 2026-07-15
+(current rebased equivalent `2d913f991`).
 
 **Symptom/reproduce:** compile a CommonJS/Node10 source containing
 `import markers = require("@scalascript/control-direct")`, with or without a use of
@@ -18,10 +20,20 @@ unchanged emit when diagnostics are ignored. Accept `import type markers =
 require(...)` as an erased, non-runtime form. Test used/unused runtime imports, the
 type-only form, and packed-CLI CommonJS/Node10 JavaScript plus declarations.
 
+**Root cause/fix candidate:** exact-module import collection handled only ES
+`ImportDeclaration`, so external `ImportEqualsDeclaration` never entered marker
+ownership. The candidate recognizes only a string-literal `ExternalModuleReference`,
+diagnoses runtime used/unused forms at the local name, and JavaScript-erases the
+explicit type-only form while declaration emit retains it. Programmatic and real
+packed-CLI CommonJS/Node10 regressions are green under both verbatim modes; the full
+direct package passes 38/38.
+
 ## js-control-direct-type-export-runtime-link — erased export retains dev-only module link
 
-**Status:** open. Reported as P1 by the fresh independent read-only review of exact
-frozen HEAD `71ae452ea5` on 2026-07-15 (current rebased equivalent `2d913f991`).
+**Status:** open; repair candidate `542a5d2b6` is direct-package verified and awaits
+full gates, fresh independent review, and landing. Reported as P1 by the fresh
+independent read-only review of exact frozen HEAD `71ae452ea5` on 2026-07-15
+(current rebased equivalent `2d913f991`).
 
 **Symptom/reproduce:** with `verbatimModuleSyntax: true`, compile
 `export { type direct as Marker } from "@scalascript/control-direct"`. The transform
@@ -36,10 +48,20 @@ Declaration emit must see the original source form. Test declaration- and
 specifier-level aliases, mixed exports, both verbatim modes, packed CLI syntax,
 production execution without the marker package, and emitted `.d.ts`.
 
+**Root cause/fix candidate:** collection skipped specifier-level type-only source
+exports, so the JavaScript transformer never selected their file and verbatim emit
+preserved an empty module-linked export. The candidate selects exact-module
+type-only `direct` exports, removes every erased specifier in the JavaScript channel,
+drops an empty declaration, and preserves mixed runtime specifiers. Both verbatim
+modes retain the original `.d.ts`, and packed production runs without the marker
+package; the full direct package passes 38/38.
+
 ## js-control-direct-mixed-type-import-invalid-js — marker erasure leaves TypeScript syntax
 
-**Status:** open. Reported as P1 by the fresh independent read-only review of exact
-frozen HEAD `71ae452ea5` on 2026-07-15 (current rebased equivalent `2d913f991`).
+**Status:** open; repair candidate `542a5d2b6` is direct-package verified and awaits
+full gates, fresh independent review, and landing. Reported as P1 by the fresh
+independent read-only review of exact frozen HEAD `71ae452ea5` on 2026-07-15
+(current rebased equivalent `2d913f991`).
 
 **Symptom/reproduce:** compile a transformed file containing
 `import { direct, type DirectMarkerContractError as ErrorType } from
@@ -53,6 +75,14 @@ runtime values and remove the declaration if nothing runtime remains; declaratio
 emit must retain the original TypeScript import and type information. Exercise both
 `verbatimModuleSyntax: false` and `true` through the packed CLI, validate JavaScript
 with Node, and assert the generated `.d.ts` surface.
+
+**Root cause/fix candidate:** `rewriteMarkerImport` rebuilt a selected TypeScript
+import after normal type analysis but retained specifier-level `isTypeOnly` nodes;
+the JavaScript emitter therefore printed TypeScript syntax instead of erasing it.
+The candidate explicitly removes completed marker and type-only specifiers in the
+JavaScript channel while leaving TypeScript's declaration pipeline on the original
+source. Both verbatim modes pass real packed-CLI `node --check`, `.d.ts`, and
+production-without-marker regressions; the full direct package passes 38/38.
 
 ## js-control-direct-type-only-export-false-positive — erased exports are rejected
 

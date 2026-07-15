@@ -394,7 +394,7 @@ every later compiler/kernel change re-runs the literal fixed point.
         `BUGS.md#js-control-direct-type-only-export-false-positive`. Implemented in
         `484cde9fe`; five local/source declaration/specifier spellings erase normally,
         and a shadowed local runtime export remains ordinary.
-      - [ ] **Fresh-rereview P1: mixed type-only marker imports must stay valid JavaScript.**
+      - [x] **Fresh-rereview P1: mixed type-only marker imports must stay valid JavaScript.**
         Exact reviewed HEAD `71ae452ea5` (current rebased equivalent `2d913f991`)
         rewrites a mixed import such as
         `import { direct, type DirectMarkerContractError as ErrorType } from
@@ -405,8 +405,10 @@ every later compiler/kernel change re-runs the literal fixed point.
         specifiers while retaining ordinary runtime values; declaration emit observes
         the original import. Prove both `verbatimModuleSyntax` modes through the real
         packed CLI, JavaScript syntax validation, and emitted `.d.ts`. Track in
-        `BUGS.md#js-control-direct-mixed-type-import-invalid-js`.
-      - [ ] **Fresh-rereview P1: erased source exports must not retain a runtime module
+        `BUGS.md#js-control-direct-mixed-type-import-invalid-js`. Implemented in
+        `542a5d2b6`; both verbatim modes pass packed-CLI syntax, declaration, and
+        production-without-marker checks.
+      - [x] **Fresh-rereview P1: erased source exports must not retain a runtime module
         link.** With `verbatimModuleSyntax: true`, specifier-level
         `export { type direct as Marker } from "@scalascript/control-direct"` can emit
         `export {} from "@scalascript/control-direct"`; production then resolves the
@@ -415,8 +417,10 @@ every later compiler/kernel change re-runs the literal fixed point.
         export, preserve mixed ordinary runtime specifiers, and leave declaration emit
         unchanged. Cover aliases, mixed lists, both verbatim modes, packed CLI syntax,
         production execution without the marker package, and `.d.ts`. Track in
-        `BUGS.md#js-control-direct-type-export-runtime-link`.
-      - [ ] **Fresh-rereview P1: external `import = require` must follow marker import
+        `BUGS.md#js-control-direct-type-export-runtime-link`. Implemented in
+        `542a5d2b6`; pure aliases lose the linked JavaScript export, mixed runtime
+        specifiers remain, and declaration emit retains both.
+      - [x] **Fresh-rereview P1: external `import = require` must follow marker import
         ownership.** Under CommonJS/Node10,
         `import markers = require("@scalascript/control-direct")` bypasses the existing
         default/namespace-import fail-closed scan and can survive as a runtime require.
@@ -426,7 +430,9 @@ every later compiler/kernel change re-runs the literal fixed point.
         because it is erased, while declaration emit remains TypeScript-owned. Cover
         used and unused runtime forms, the erased type-only form, ignored-diagnostic
         file atomicity, and the real packed CLI in CommonJS/Node10. Track in
-        `BUGS.md#js-control-direct-import-equals-bypass`.
+        `BUGS.md#js-control-direct-import-equals-bypass`. Implemented in `542a5d2b6`;
+        runtime used/unused forms receive one stable diagnostic while type-only forms
+        emit no require edge and retain `.d.ts` under both verbatim modes.
       - [ ] **Repair-cycle closure.** After spec-first and code commits, update package
         README/project docs, run direct package tests+typecheck+node checks+exact pack,
         existing explicit control 31/31+typecheck, catalog positive/negative validators,
@@ -436,8 +442,11 @@ every later compiler/kernel change re-runs the literal fixed point.
         before any push or claim release. All local gates and spec verification are
         green at `0a1c62f0a`: direct 35/35 and exact eight-file pack
         (14,909/56,527 bytes), explicit control 31/31 and exact five-file pack,
-        catalog 26/9, negative validator 9/9, and conformance 5/5. Only fresh
-        independent APPROVE and subsequent landing remain.
+        catalog 26/9, negative validator 9/9, and conformance 5/5. The next fresh
+        review rejected exact `71ae452ea5` on three emit-channel P1s; cumulative
+        repair `542a5d2b6` is direct-package green at 38/38. Clean rebase, repeated
+        cross-package/catalog/conformance gates, fresh independent APPROVE, and
+        subsequent landing remain.
 - [ ] **rust-control-host-runner** — deliver the Cargo host facade, stable-Rust
   explicit `Eff`, proc-macro/generated state machines, ownership/borrow/RAII barrier
   checks, typed mixed-SCC dispatcher, target/toolchain-pinned exact runner, and
