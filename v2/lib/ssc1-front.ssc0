@@ -1067,7 +1067,15 @@ def parseAtom = (toks) =>
       let ts2 = prT(rBody) in
       if #seq(tokVal(peek(ts2)), "catch") then
         let ts3 = advance(ts2) in
-        let rPf = if kindIs("{", ts3) then parseBlockArg(advance(ts3)) else parseExpr(ts3) in
+        -- `catch { case … }` (braced) OR braceless `catch case … => …` (Scala 3
+        -- fewer-braces) → a partial-function handler. Braceless arms have no `{`, so
+        -- use parseMatchArmsBraceless (does NOT eat the enclosing block's `}`). A
+        -- non-case `catch expr` (a plain PartialFunction value) still parses as an expr.
+        let rPf = if kindIs("{", ts3) then parseBlockArg(advance(ts3))
+                  else if kwIs("case", skipSemis(ts3)) then
+                    let rArms = parseMatchArmsBraceless(skipSemis(ts3)) in
+                    pr(mkLam(Cons("__pf", Nil), mkMatch(mkVar("__pf"), prV(rArms))), prT(rArms))
+                  else parseExpr(ts3) in
         let catchPf = prV(rPf) in
         let ts4 = prT(rPf) in
         if #seq(tokVal(peek(ts4)), "finally") then
@@ -2051,6 +2059,20 @@ def parseMatchArms = (toks) =>
       let r = parseMatchArm(advance(ts2)) in
       go(prT(r), Cons(prV(r), acc))
     else if kindIs("}", ts2) then pr(reverse(acc), advance(ts2))
+    else pr(reverse(acc), ts2) in
+  go(toks, Nil)
+
+-- Braceless arm list: like parseMatchArms but there is NO opening `{`, so a `}`
+-- belongs to an ENCLOSING block — stop at it WITHOUT consuming (else the arm list
+-- swallows the enclosing block close and everything after it). Used by braceless
+-- `catch case … => …` (Scala 3 fewer-braces), where the layout pass never inserts
+-- virtual braces around the single-line arms.
+def parseMatchArmsBraceless = (toks) =>
+  let rec go = (ts, acc) =>
+    let ts2 = skipSemis(ts) in
+    if kwIs("case", ts2) then
+      let r = parseMatchArm(advance(ts2)) in
+      go(prT(r), Cons(prV(r), acc))
     else pr(reverse(acc), ts2) in
   go(toks, Nil)
 
