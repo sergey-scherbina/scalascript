@@ -25,6 +25,8 @@ exports:
   - executeInsert
   - executeDelete
   - executeMutation
+  - MutationResult
+  - executeMutationCounted
   - Assignment
   - UpdateStmt
   - parseUpdate
@@ -3944,6 +3946,105 @@ def executeMutation(dbBytes: ByteSlice, sql: String): Either[String, ByteSlice] 
           case Left(message) => Left(message)
           case Right(tableName) => executeCreate(dbBytes, sql, tableName)
       else Left("executeMutation expects INSERT, DELETE, UPDATE, DROP INDEX, CREATE TABLE, or CREATE INDEX")
+
+// ── Counted mutation (JDBC executeUpdate needs the affected-row count + last INSERT rowid) ──
+// Same dispatch as executeMutation, but each statement also yields how many rows it changed and,
+// for INSERT, the highest rowid assigned. CREATE/DROP → changes = 0. The counts are derived from a
+// read pass over the affected table (the executors already act on exactly these rows): INSERT →
+// #value-tuples, DELETE/UPDATE → #rows matching WHERE (matching sqlite's `changes()`), so the numbers
+// agree with the mutation without threading a count through the large executor bodies.
+case class MutationResult(image: ByteSlice, changes: Long, lastInsertRowid: Long)
+
+// Long-valued list length, accumulated from a 0L seed so JS stays on BigInt (never mixes with a
+// Number literal). Used for row counts.
+def listLenLong(xs: List[Long]): Long =
+  var n = 0L
+  var r = xs
+  while r.nonEmpty do
+    n = n + 1L
+    r = r.tail
+  n
+
+def valueRowsLenLong(xs: List[List[SqliteValue]]): Long =
+  var n = 0L
+  var r = xs
+  while r.nonEmpty do
+    n = n + 1L
+    r = r.tail
+  n
+
+// Current rows + column names for a table (a read pass, used only to count affected rows).
+def tableRowsForCount(dbBytes: ByteSlice, table: String): Either[String, (List[StorageRecord], List[String])] =
+  tableContext(dbBytes, table) match
+    case Left(message) => Left(message)
+    case Right(ctx) =>
+      openReadonlyRoot(ctx._1, ctx._2.toLong, RowidTableTree) match
+        case Left(error) => Left(error.message)
+        case Right(cursor) => collectRows(ctx._1, cursor) match
+          case Left(error) => Left(error.message)
+          case Right(rows) => Right((rows, ctx._3))
+
+// #rows matching a DELETE/UPDATE WHERE (rows matched = sqlite `changes()`), from the pre-mutation image.
+def matchedRowCount(dbBytes: ByteSlice, table: String, where: List[List[Condition]]): Either[String, Long] =
+  tableRowsForCount(dbBytes, table) match
+    case Left(message) => Left(message)
+    case Right(rc) => Right(listLenLong(matchingRowids(rc._1, where, rc._2)))
+
+// changes + lastInsertRowid for an INSERT. scljet assigns sequential rowids from maxRowid+1, so
+// changes = #value-tuples and the last assigned rowid = maxRowid + changes.
+def insertChangesRowid(dbBytes: ByteSlice, stmt: InsertStmt): Either[String, (Long, Long)] =
+  if stmt.rows.isEmpty then Right((0L, 0L))
+  else
+    val nrows = valueRowsLenLong(stmt.rows)
+    tableRowsForCount(dbBytes, stmt.table) match
+      case Left(message) => Left(message)
+      case Right(rc) => Right((nrows, longAdd(maxRowidOf(rc._1), nrows)))
+
+def executeMutationCounted(dbBytes: ByteSlice, sql: String): Either[String, MutationResult] =
+  tokenize(sql) match
+    case Left(message) => Left(message)
+    case Right(toks0) => resolveSubqueries(dbBytes, toks0) match
+     case Left(message) => Left(message)
+     case Right(toks) =>
+      if toks.isEmpty then Left("empty statement")
+      else if isKw(toks.head, "INSERT") then parseInsert(toks) match
+        case Left(message) => Left(message)
+        case Right(stmt) => executeInsert(dbBytes, stmt) match
+          case Left(message) => Left(message)
+          case Right(image) => insertChangesRowid(dbBytes, stmt) match
+            case Left(message) => Left(message)
+            case Right(cr) => Right(MutationResult(image, cr._1, cr._2))
+      else if isKw(toks.head, "DELETE") then parseDelete(toks) match
+        case Left(message) => Left(message)
+        case Right(stmt) => matchedRowCount(dbBytes, stmt.table, stmt.where) match
+          case Left(message) => Left(message)
+          case Right(n) => executeDelete(dbBytes, stmt) match
+            case Left(message) => Left(message)
+            case Right(image) => Right(MutationResult(image, n, 0L))
+      else if isKw(toks.head, "UPDATE") then parseUpdate(toks) match
+        case Left(message) => Left(message)
+        case Right(stmt) => matchedRowCount(dbBytes, stmt.table, stmt.where) match
+          case Left(message) => Left(message)
+          case Right(n) => executeUpdate(dbBytes, stmt) match
+            case Left(message) => Left(message)
+            case Right(image) => Right(MutationResult(image, n, 0L))
+      else if isKw(toks.head, "DROP") then parseDropIndex(toks) match
+        case Left(message) => Left(message)
+        case Right(indexName) => executeDropIndex(dbBytes, indexName) match
+          case Left(message) => Left(message)
+          case Right(image) => Right(MutationResult(image, 0L, 0L))
+      else if isKw(toks.head, "CREATE") then
+        if tkIsKw(toks.tail, "INDEX") then parseCreateIndex(toks) match
+          case Left(message) => Left(message)
+          case Right(stmt) => executeCreateIndex(dbBytes, sql, stmt) match
+            case Left(message) => Left(message)
+            case Right(image) => Right(MutationResult(image, 0L, 0L))
+        else parseCreate(toks) match
+          case Left(message) => Left(message)
+          case Right(tableName) => executeCreate(dbBytes, sql, tableName) match
+            case Left(message) => Left(message)
+            case Right(image) => Right(MutationResult(image, 0L, 0L))
+      else Left("executeMutationCounted expects INSERT, DELETE, UPDATE, DROP INDEX, CREATE TABLE, or CREATE INDEX")
 
 // ── Rendering (sqlite3 CLI list format: `a|b|c` per row, NULL blank) ──
 

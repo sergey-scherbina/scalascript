@@ -1,0 +1,41 @@
+---
+name: scljet-sql-mutation-count
+description: SclJet executeMutationCounted — affected-row count + last INSERT rowid; matches reference sqlite3 changes()/last_insert_rowid()
+backends: [int, js]
+---
+
+# SclJet counted mutations
+
+`executeMutationCounted(db, sql)` runs a DML/DDL statement and returns a `MutationResult(image,
+changes, lastInsertRowid)`. `changes` matches sqlite's `changes()`: #value-tuples for INSERT,
+#rows-matching-WHERE for UPDATE/DELETE, 0 for CREATE/DROP. `lastInsertRowid` is the highest rowid
+assigned by an INSERT (scljet assigns sequential rowids from maxRowid+1), and 0 for non-INSERT
+statements (the caller persists the previous value). The affected-row counts were checked against
+reference sqlite3 out-of-band; locked across backends. This is the engine addition the JDBC
+`executeUpdate`/`getGeneratedKeys` façade depends on.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[executeMutationCounted, MutationResult](std/scljet/sql.ssc)
+
+```scalascript
+def step(db: ByteSlice, sql: String): ByteSlice =
+  executeMutationCounted(db, sql) match
+    case Left(m) =>
+      println(sql + " => ERR:" + m)
+      db
+    case Right(r) =>
+      println(sql + " => changes=" + r.changes.toString + " rowid=" + r.lastInsertRowid.toString)
+      r.image
+
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER, name TEXT)",
+  List(List(SqlInteger(1L), SqlText("ann")),
+       List(SqlInteger(2L), SqlText("bob")),
+       List(SqlInteger(3L), SqlText("cat")))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db0) =>
+    val d1 = step(db0, "INSERT INTO emp VALUES (10,'dan'),(11,'eve')")
+    val d2 = step(d1, "UPDATE emp SET name='X' WHERE id >= 2")
+    val d3 = step(d2, "DELETE FROM emp WHERE id >= 10")
+    val d4 = step(d3, "CREATE TABLE t(x INTEGER)")
+    println("done")
+```

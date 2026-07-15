@@ -1,0 +1,5 @@
+INSERT INTO emp VALUES (10,'dan'),(11,'eve') => changes=2 rowid=5
+UPDATE emp SET name='X' WHERE id >= 2 => changes=4 rowid=0
+DELETE FROM emp WHERE id >= 10 => changes=2 rowid=0
+CREATE TABLE t(x INTEGER) => changes=0 rowid=0
+done
