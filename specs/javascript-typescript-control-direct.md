@@ -1,7 +1,7 @@
 # JavaScript/TypeScript closed lexical direct control transform
 
-Status: **third-review JavaScript/declaration emit-channel repairs implemented and
-fully locally verified; fresh independent rereview pending** (2026-07-15).
+Status: **fourth-review exact-tarball dependency-boundary repair specified;
+implementation pending** (2026-07-15).
 
 ## Overview
 
@@ -50,11 +50,27 @@ The exact tarball allow-list is `LICENSE`, `README.md`, `cli.js`, `index.d.ts`,
 `index.js`, `package.json`, `transform.d.ts`, and `transform.js`. The license is
 byte-equal to the repository Apache 2.0 `LICENSE`. The package has no
 `dependencies`, `optionalDependencies`, or `peerDependencies`, no lifecycle
-script, and `sideEffects: false`. TypeScript is a development/tooling dependency;
-the transform API accepts a caller-supplied compiler API object and the CLI resolves
+script, and `sideEffects: false`. Its published `devDependencies` map is exactly
+`{ "typescript": "5.9.3" }`; the lockfile records the same registry dependency and
+no repository sibling. No package-manager dependency or tooling field may contain a
+`file:`, `link:`, or `workspace:` specifier, an absolute filesystem path, or a
+relative local path escaping the package. This includes production, optional, peer,
+development, bundled, override, and resolution-style declarations. The exact
+tarball manifest is authoritative: checking only the working-tree JSON or npm's
+`bundled` summary is insufficient.
+
+An extracted exact tarball in a clean directory with no sibling checkout must
+complete an ordinary `npm install --ignore-scripts`, install only its non-local
+TypeScript development tool, and leave no `node_modules/@scalascript/control` link.
+The root and transform subpaths remain importable at that boundary. Local tests and
+typechecking resolve the sibling explicit-control sources only through non-published
+test fixtures, test-created symlinks, or TypeScript `paths`; repository topology is
+never an install contract.
+
+The transform API accepts a caller-supplied compiler API object and the CLI resolves
 the consuming project's installed `typescript`. T1 supports the TypeScript 5.9 API
-line (`versionMajorMinor === "5.9"`); 5.9.3 is the development and qualification
-pin. The programmatic API rejects any other line with the stable `RangeError`
+line (`versionMajorMinor === "5.9"`); 5.9.3 is the development and qualification pin.
+The programmatic API rejects any other line with the stable `RangeError`
 message `@scalascript/control-direct supports TypeScript 5.9.x; received <version>`
 before inspecting the program. The CLI reports the same incompatibility as an
 actionable tooling failure. A missing or unsupported compiler API is never a silent
@@ -394,6 +410,10 @@ diagnostic.
 - [x] The package publishes only the frozen root, `/transform`, command, and exact
       eight-file Apache-licensed allow-list, with no production dependency,
       lifecycle script, or import-time effect.
+- [ ] The exact eight-file tarball manifest contains only the TypeScript 5.9.3
+      registry dev dependency and no repository-local dependency specifier; ordinary
+      install from an extracted clean boundary succeeds without a sibling checkout or
+      dangling `@scalascript/control` link.
 - [x] An untransformed root marker throws the stable
       `JS_DIRECT_UNTRANSFORMED` contract error and performs no control operation.
 - [x] Exact named imports and aliases transform; shadowing, comments, strings,
@@ -467,6 +487,12 @@ diagnostic.
   stays a development dependency. Rejected: implementing a second runtime in the
   transform package or retaining a production guard import that contradicts the
   documented install boundary.
+- **Keep local test topology out of the published manifest.** The exact tarball may
+  name only the TypeScript qualification pin as development tooling. Local explicit
+  control sources are supplied to tests/typechecking by fixtures, symlinks, or
+  compiler paths. Rejected: a `file:../control` dev dependency, which npm faithfully
+  publishes and turns into a dangling link after clean extraction, and testing only
+  with `--omit=dev`, which hides the broken ordinary-install contract.
 - **Reject any prefix/shift-body reference crossing a generated continuation.**
   Central checker-backed runtime-value identity catches captured forward references,
   prefix TDZ reads, and shorthand properties whose surface symbol is only a property,
@@ -638,3 +664,13 @@ validation is 26 vectors / nine lanes, negative validation is 9/9, and affected
 `effect*,effects*` conformance is 5/5 (memoized unchanged green). These are local
 pre-integration results; another independent review remains mandatory before push
 or claim release.
+
+The fresh fourth review of exact range `445f7faf7..d66ed988df` reported no P0 or P2
+findings and one P1 packaging-boundary failure. The exact tarball's own
+`package/package.json` still declared
+`"@scalascript/control": "file:../control"` in `devDependencies`; extracting it
+without the repository sibling and running ordinary npm install produced a dangling
+dependency whose import failed with `ERR_MODULE_NOT_FOUND`. The packed-consumer test
+had used `--omit=dev`, masking the defect. The unchecked exact-manifest behavior row
+above is the required repair boundary. The reviewed checkpoint remains unpushed and
+requires another independent APPROVE after implementation.
