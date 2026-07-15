@@ -2047,6 +2047,16 @@ Two new front doors are specced (typed-SQL-API cb94fd88c, JDBC-API f2d1372a0); *
 working first implementation** — the JDBC portable façade (m6v) and the typed SQL surface (m6w),
 alongside SQL polish (REAL literals m6s, LEFT-join-3 m6r). All three "параллельно" lanes advanced.
 
+- [x] **scljet-m6y-typed-sql-join** — DONE 2026-07-15 (extends m6w). Typed SQL joins. `TypedQuery`
+      gains a `joins` field (defaulted Nil, threaded through every builder); `joinOn`/`leftJoinOn` append
+      a `JoinSpec` with qualified column names (`owner.name`) from the joined columns, erasing to
+      `SelectStmt.joins` so the executor's join path runs it; `projColQ` gives qualified join projections.
+      Inner join, LEFT join (NULL-extended unmatched rows), and aggregate/GROUP BY over a join verified
+      byte-identical vs reference sqlite3, int==js; conformance `scljet-typedsql-join`; all 3 typed-SQL
+      cases green non-memoized. The typed surface now covers full CRUD + joins + aggregates/GROUP BY +
+      ORDER BY + DISTINCT + LIMIT. NEXT: HAVING in the typed surface; then the spec's LogicalPlan/
+      PhysicalOp IR with index-aware access paths (the perf win over always-full-scan).
+
 - [x] **scljet-m6x-typed-sql-dml** — DONE 2026-07-15 (extends m6w). Typed SQL writes — the typed
       front door now has full CRUD. `insertRows`/`insertColsRows`, `updateSet`/`updateAllSet` with typed
       `setInt`/`setReal`/`setText`/`setExpr` assignments (value/expr type must match the column type),
