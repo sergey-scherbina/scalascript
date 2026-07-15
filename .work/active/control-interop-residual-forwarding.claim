@@ -1,6 +1,6 @@
 feature/control-interop-residual-forwarding 2026-07-15T00:56:18Z
 agent: codex-residual-control
-heartbeat: 2026-07-15T02:33:15Z
+heartbeat: 2026-07-15T02:44:13Z
 status: in-progress
-done-so-far: residual source suite 16/16, one-shot 4/4, and native effect-runner 6/6 green after lexical fixture repair; branch rebased on current origin without runtime overlap
-next: finish marker/Swift/install axis 19/native/conformance/interop plus required v2.2 stage2 bootstrap gate, then prepare docs/spec verification for review
+done-so-far: residual core/runtime and cross-backend paths are focused-green; self-hosted partial-function qualification root cause fixed in native lowerer, with selected-only total-handler gap specified before regression work
+next: complete CoreIR qualifier recognition plus native/source regressions, then installed axis 19 both lanes, native/conformance/interop and v2.2 stage2 fixed-point gates before review

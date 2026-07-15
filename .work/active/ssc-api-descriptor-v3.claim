@@ -1,6 +1,6 @@
 feature/ssc-api-descriptor-v3 2026-07-15T02:10:53Z
 agent: codex-control-descriptor
-heartbeat: 2026-07-15T02:33:15Z
+heartbeat: 2026-07-15T02:44:13Z
 status: in-progress
-done-so-far: restricted-JCS spec committed; Slice A model/hash/validator/build work in progress while read-only audit closes canonical-sort, duplicate-admission, wire-schema, binder-reference, frame-schema, and public-decoder gaps before commit
-next: land the approved frame-digest scope correction, complete explicit canonical codec and validation, add legacy .scim carrier/goldens, compile and run focused tests, then prepare root review
+done-so-far: Slice A spec now freezes restricted JCS, exact wire/hash vectors, bounded byte APIs, raw admission, and schema-local frame type binders; explicit internal codec/model/hash/validator implementation is in progress under read-only audit
+next: complete explicit all-fields codec and bounded pre-scan, raw/binder/reference validation, legacy .scim carrier/goldens, focused compile/tests and final audit before push
