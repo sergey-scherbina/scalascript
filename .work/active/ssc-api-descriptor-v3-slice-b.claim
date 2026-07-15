@@ -1,6 +1,6 @@
 feature/ssc-api-descriptor-v3-slice-b 2026-07-15T04:02:06Z
 agent: codex-descriptor-b
-heartbeat: 2026-07-15T04:29:38Z
+heartbeat: 2026-07-15T05:11:15Z
 status: in-progress
-done-so-far: Slice B producer seam audited; declaration-header projection is being implemented without legacy ExportedSymbol.tpe synthesis
-next: finish strict rejection/stability tests and return a clean verified branch for integration review
+done-so-far: spec-first P1 re-review corrections committed; dirty implementation loop is 21/25 focused regressions green (lost AST, nominal surface, ordinary-object/effect ownership)
+next: close four positional effect-header cases with owner-safe structural ordering, then clean commit, rebase, gates, and another independent review
