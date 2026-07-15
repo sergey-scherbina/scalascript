@@ -1,6 +1,6 @@
 feature/control-interop-effect-recursion-stack-unsafe 2026-07-15T00:55:35Z
 agent: codex-stack-control
-heartbeat: 2026-07-15T01:12:00Z
+heartbeat: 2026-07-15T01:22:43Z
 status: in-progress
-done-so-far: v2 feature spec and failing VM/ASM deep-effect probe committed; eager-claim deferred-resume driver design frozen
-next: implement private capability-backed iterative handler driver and qualify tail, bind, non-tail, nested, and one-shot vectors
+done-so-far: feature spec, failing probe, escape/deep-escape and typed Rehandle frame updates committed; initial iterative driver passes focused in-scope tests
+next: prove 20k escaped state-thread chain and place minimal managed-boundary drain before residual integration
