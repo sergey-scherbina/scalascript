@@ -35,8 +35,9 @@ failures and are never mistaken for forwarding.
 
 ## Interface
 
-There is no new ScalaScript surface syntax, CoreIR term, primitive, or public
-wire value. The existing source and CoreIR interfaces remain:
+There is no new ScalaScript surface syntax, CoreIR term kind, public primitive
+manifest entry, or public wire value. The existing source and CoreIR interfaces
+remain:
 
 ```text
 handle(computation) { case Effect.operation(args..., resume) => body }
@@ -121,6 +122,11 @@ total `ClosV` whose catch-all throws for foreign operations.
       not break persisted direct-ASM artifacts: the historical three-argument
       static `Emit.letrec(int[], LamFn[], Value[])` descriptor remains linkable
       and delegates with every handler flag false.
+- [ ] Every backend that consumes FrontendBridge CoreIR recognizes the two
+      bridge-private decision markers. Without a typed dispatch context,
+      `selected` is a no-op and `miss` is the backend's ordinary exhaustive-match
+      failure; neither becomes a public primitive/capability nor an unknown-op
+      regression.
 - [ ] Interoperability axis 19 is a runnable exact-output vector, and the existing
       one-shot violation, multi-shot, deep-handler, native effect e2e, and affected
       conformance vectors remain green.
@@ -174,6 +180,25 @@ sentinel used by canonical `Match`. Without that probe, `selected` is a no-op an
 function as an ordinary function does not gain recovery. The markers are
 bridge/compiler implementation primitives: they are absent from the public
 primitive manifest and add no source construct or portable data constructor.
+
+Because FrontendBridge emits one target-neutral `Program`, these markers are
+also a private CoreIR-consumer contract rather than JVM-only opcodes. Every
+backend which accepts FrontendBridge CoreIR must recognize both names. A backend
+which has not yet implemented structured handler dispatch uses the exact
+compatibility fallback:
+
+```text
+handler-dispatch-selected(event) = Unit
+handler-dispatch-miss(event)     = ordinary exhaustive-match failure
+```
+
+It must not reject either marker during validation, route it to a public plugin,
+or report an unknown primitive at runtime. This fallback preserves the behavior
+that preceded marker insertion for ordinary partial functions and guarded
+handlers. A backend gains residual forwarding only when its handler driver
+intercepts the same exact-event markers and maps them to its private
+`Matched | Unhandled` result; the marker names themselves are not permission to
+copy the JVM thread-local probe implementation.
 
 The selected marker is deliberately placed after all outer/nested pattern tests
 and the guard, but before the selected body. Thus a false guard can try a later
@@ -324,6 +349,12 @@ while matching-arm failures share the ordinary failure path.
   guards and nested/duplicate cases cannot be inferred from a constructor arm
   alone. Rejected: consuming at the outer constructor before its guard and
   catching the generic `__match_fail__` path.
+- **Give every CoreIR consumer a conservative marker fallback.** FrontendBridge
+  produces target-neutral CoreIR, so leaving the private markers unknown outside
+  the JVM would regress existing guarded/nested partial functions. Rejected:
+  treating a JVM-only primitive as though it could safely remain in shared
+  CoreIR, and backend-specific frontend lowering that would create divergent
+  programs for the same source.
 - **Fold a pending decision through guard effects.** A synchronous probe alone
   disappears before an effectful guard resumes. `Suspended` preserves the
   ordinary public `Op` and resumes the decision with a fresh probe. Rejected:
@@ -351,9 +382,10 @@ while matching-arm failures share the ordinary failure path.
 - Changing operation identity/dispatch from the current operation-event shape.
 - Stack-safe recursive effect evaluation (interop axis 20), which composes with
   this dispatch result but is a separate implementation slice.
-- Swift's generated match implementation in this commit. Swift must reuse the
-  same `Matched | Unhandled` law after its concurrent implicit-`Return` repair;
-  it must not copy JVM-private probe machinery.
+- Swift residual forwarding in this commit. Swift and the other native/source
+  backends implement the conservative marker fallback here, and must reuse the
+  same `Matched | Unhandled` law when they add forwarding; they must not copy
+  JVM-private probe machinery.
 - `shift`/`reset`, saved continuations, capsule codecs, or cross-host execution.
 - Any public CoreIR term, codec, `Op` arity, source primitive, or
   primitive-manifest change. Bridge-private decision markers are compiler
@@ -382,6 +414,11 @@ while matching-arm failures share the ordinary failure path.
    measurable now.
 7. `tests/e2e/v21-native-effect-handlers-smoke.sh`, affected
    `effects`/`effect-*` conformance, and existing one-shot/multi-shot axes pass.
+8. Targeted JavaScript, Rust, standalone-JVM-source, and Swift checks feed a
+   guarded/general partial function from FrontendBridge to each CoreIR consumer;
+   selected cases retain their prior result and terminal miss retains the
+   ordinary exhaustive-match failure rather than validation/unknown-primitive
+   failure.
 
 ## Results
 
