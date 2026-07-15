@@ -1,6 +1,6 @@
 feature/ssc-api-descriptor-v3 2026-07-15T02:10:53Z
 agent: codex-control-descriptor
-heartbeat: 2026-07-15T02:58:05Z
+heartbeat: 2026-07-15T03:07:44Z
 status: in-progress
-done-so-far: Slice A explicit wire codec, strict bounded JCS, raw-before-normalize validator, structural identities, frame-local binders and alpha erase-then-renormalize projection are implemented; non-recursive public preflight is being wired and compiled
-next: finish adversarial/golden tests and legacy .scim JSON+MsgPack carrier, then conformance, final audit, rebase and review before push
+done-so-far: Slice A model/explicit codec/JCS/identity/preflight implementation passes 13 focused tests; audit approved raw-before-normalize bounds, numeric admission, alpha identity, factory preflight and full-output MaxBytes guarantees
+next: complete ControlSummary/Artifact raw invariant matrix and legacy .scim JSON+MsgPack carrier, then conformance, final audit, rebase and root review
