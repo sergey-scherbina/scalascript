@@ -8,6 +8,7 @@ import ssc.bytecode.JvmByteGen
 
 final class PortableEffectsResidualForwardingTest extends AnyFunSuite:
   private val lanes = List("vm", "asm")
+  private lazy val bridgeRuntimeLoaded: Unit = PluginBridge.loadAll()
 
   private def run(program: Program, lane: String): Value = lane match
     case "vm" => Runtime.run(Compiler.compile(program), Runtime.emptyEnv)
@@ -20,6 +21,7 @@ final class PortableEffectsResidualForwardingTest extends AnyFunSuite:
     }
 
   private def runSource(source: String, lane: String): Value =
+    bridgeRuntimeLoaded
     FrontendBridge.resetState()
     run(FrontendBridge.convertSource(source), lane)
 
