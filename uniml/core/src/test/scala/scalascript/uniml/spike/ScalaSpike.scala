@@ -467,8 +467,40 @@ object SpikeParse:
   // `var`/`while`/`for`/`do` are not lexer keywords (like ssc1-front they are identifiers dispatched by value).
   private def isWord(c: Cur, w: String): Boolean = c.peekKind == "spike.id" && c.peekLexeme == w
 
+  // `[a, b, c](path.ssc)` markdown-link import — a parse-only no-op (ssc1-front.ssc0:2474 → Pair("sealed","")).
+  // Consume `[ … ]` then the optional `( … )`, matching ssc1-front's non-nested skipTo.
+  private def parseLinkImport(c: Cur): Node =
+    c.advance() // `[`
+    while c.peekKind != "spike.rbracket" && !c.eof do c.advance()
+    if c.peekKind == "spike.rbracket" then c.advance()
+    if c.peekKind == "spike.lparen" then
+      c.advance()
+      while c.peekKind != "spike.rparen" && !c.eof do c.advance()
+      if c.peekKind == "spike.rparen" then c.advance()
+    Node.Frame("spike.sealed", None, Vector.empty)
+
+  // `import a.b.c` / `import a.b.{x, y}` / `import a.b.*` — parse-only no-op (ssc1-front.ssc0:2485 → sealed).
+  // Consume exactly the dotted path (+ optional `{…}` group / `.*` wildcard), like ssc1-front's skipPath.
+  private def parseImportStmt(c: Cur): Node =
+    c.advance() // `import`
+    var go = true
+    while go do
+      if c.peekKind == "spike.id" || c.peekKind == "spike.uid" then
+        c.advance()
+        if c.peekKind == "spike.dot" then c.advance() else go = false
+      else if c.peekKind == "spike.lbrace" then
+        c.advance()
+        while c.peekKind != "spike.rbrace" && !c.eof do c.advance()
+        if c.peekKind == "spike.rbrace" then c.advance()
+        go = false
+      else if c.peekLexeme == "*" then { c.advance(); go = false }
+      else go = false
+    Node.Frame("spike.sealed", None, Vector.empty)
+
   private def parseStmt(c: Cur): Node =
-    if isKw(c, "val") then parseVal(c)
+    if c.peekKind == "spike.lbracket" then parseLinkImport(c)               // `[a, b, c](path.ssc)` link import
+    else if isWord(c, "import") then parseImportStmt(c)                     // `import a.b.{x, y}` / `import a.b.*`
+    else if isKw(c, "val") then parseVal(c)
     else if isWord(c, "var") then parseVarStmt(c)                           // `var x [: T] = e`
     else if isWord(c, "while") then parseWhile(c)                           // `while cond do body`
     else if isDefStart(c) then parseDef(c)                                  // nested `def` in a block → letrec
@@ -1102,7 +1134,8 @@ object SpikeProject:
     }.toVector)
 
   private def isTopStmt(k: String): Boolean =
-    k == "spike.val" || k == "spike.var" || k == "spike.assign" || k == "spike.while" || k == "spike.exprStmt"
+    k == "spike.val" || k == "spike.var" || k == "spike.assign" || k == "spike.while" ||
+    k == "spike.exprStmt" || k == "spike.sealed"
 
   // an extension group → three statements: extension_start, the method def (receiver prepended
   // to its params), extension_end. lowerProg's collectExtensionMethods registers it for `.m`.
@@ -1293,6 +1326,7 @@ object SpikeProject:
     s"""Pair("block", ${consList(kids(b).map((_, c) => stmt(c)))})"""
 
   private def stmt(n: UniNode): String = n match
+    case b: UniNode.Branch if b.kind == "spike.sealed" => """Pair("sealed", "")""" // import — parse-only no-op
     case b: UniNode.Branch if b.kind == "spike.val" =>
       val name = kids(b).collectFirst { case (Some("val.name"), c) => lexeme(c) }.getOrElse("_")
       val rhs  = kids(b).collectFirst { case (Some("val.rhs"), c) => expr(c) }.getOrElse(hole)
