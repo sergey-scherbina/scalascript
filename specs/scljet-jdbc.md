@@ -157,10 +157,12 @@ The `Connection` factory resolves `target` to an initial `image: ByteSlice` and 
 - `:memory:` — `image = emptyDatabase(pageSize)` (`scljet/write.ssc`), `vfs = ImageVfs`.
 - `classpath:` (JVM) — read the resource bytes → `ByteSlice`, `vfs = ImageVfs`, force
   `OpenReadOnly`.
-- host file — the JVM lane uses `jvmSqliteVfs()` (`std/scljet/jvm-vfs.ssc`) so real
-  locking and durability apply; the portable lane, which has no host file access, either
-  reads the file's bytes into an `ImageVfs` (read/modify/rewrite) or is restricted to
-  `:memory:`. The `vfs=` param overrides.
+- host file — **as shipped (J3), BOTH lanes read the file's bytes into an `ImageVfs`
+  (read-modify-rewrite)**; the `vfs=` param is parsed but ignored, and `jvmSqliteVfs()`
+  (`std/scljet/jvm-vfs.ssc`) is not used by the shim. Routing the JVM lane through it — so
+  real locking and crash-safe durability apply — is open J4 work; see "Durability boundary"
+  for the contract this currently implies. A missing file is created on open unless
+  `mode=ro`.
 
 Reads always go through the read-only path (`openReadonly(ImageVfs(image), "image.db",
 sqlOptions())` inside `queryImage`); writes go through `executeMutation`, which builds a
@@ -223,14 +225,48 @@ Connection {
 
 - **`:memory:` / `ImageVfs`** — "persist" is simply swapping the in-memory `ByteSlice`
   (`committed := working`). No file I/O. This is the portable-lane and `:memory:` case.
-- **Host file (JVM `jvmSqliteVfs`)** — `commit()` writes the new image to the file
-  crash-safely using the rollback-journal primitives already in `scljet/journal.ssc`:
+- **Host file — AS IMPLEMENTED (J3, `ScljetConnectionState.flushDurable`).** The JVM lane
+  does **not** use `jvmSqliteVfs()`. Opening reads the whole file
+  (`Files.readAllBytes` → `ImageVfs`); every durable change rewrites the whole file
+  (`Files.write`, i.e. `TRUNCATE_EXISTING` + write). A durable change is: any statement in
+  autocommit, `commit()`, or `setAutoCommit(true)` with pending work. **This is the same
+  read-modify-rewrite model as the portable lane** — the "JVM lane gets real locking and
+  durability" sentence under "Opening the image" describes the intended design, not the
+  shipped one.
+
+  Its consequences are load-bearing and must not be papered over:
+
+  | Property | Status |
+  |---|---|
+  | Crash-atomicity | **NONE.** `Files.write` truncates first: a crash mid-write leaves a truncated/corrupt file, and the pre-image is gone. There is no journal to replay. |
+  | `fsync` | **NEVER CALLED.** A completed `commit()` can still be lost to an OS/host crash; it only guarantees the bytes reached the page cache. |
+  | Inter-process locking | **NONE.** No `flock`/`FileLock`, no `busy_timeout`. |
+  | Multi-writer | **UNSAFE — silent data loss.** Two connections (in one JVM or two) each hold a full image; the last writer's rewrite discards the other's committed rows entirely. Not a torn row: a lost file. |
+  | Reader-during-write | **UNSAFE.** An external reader can observe a partially written file. |
+  | Cost | O(file) bytes read on open and written per durable change, regardless of how little changed. |
+
+  **The contract this implies — state it to users, do not let them infer it:** a host-file
+  `jdbc:scljet:` connection is **single-writer, single-process, and non-durable across a
+  crash**. It is sound for the cases it is used for today (tests, single-process embedded
+  storage, read-mostly images) and unsound as a shared database. Prefer `:memory:` or
+  `classpath:` when persistence is not needed; use a real SQLite driver when concurrent
+  processes or crash-durability are required.
+
+  **The intended design (NOT yet built).** `commit()` should write through
+  `jvmSqliteVfs()` using the rollback-journal primitives already in `scljet/journal.ssc`:
   `writePagesJournaled` / `beginTransaction`+`stagePage`+`commitTransaction` journal the
   pre-images of the changed pages, overwrite them in place (`overwritePage`, which copies
   into the chunk map without an O(file) `++`), `sync`, then delete/zero the journal. On
   reopen, a hot journal is replayed by `applyRollbackJournal`. `synchronous`/`journal`
-  options select the exact sync/invalidation discipline (`specs/scljet.md`
-  "Rollback-journal transactions").
+  options would then select the sync/invalidation discipline (`specs/scljet.md`
+  "Rollback-journal transactions"). That work also needs a `MutablePager` threaded through
+  the Connection (Model B under "Open decisions" #4), since journaling pages requires
+  knowing *which* pages changed — the current executor only produces whole images.
+
+  **URL parameters that are advertised but ignored.** `Driver.getPropertyInfo` lists
+  `journal`, `sync`, `busy_timeout`, `cache_pages` and `vfs`; `ScljetDriver.openTarget`
+  reads only `mode` and `page_size`. The rest are inert until the journaled path above
+  lands — they describe a discipline that currently has no implementation to select.
 
 Rejected here (recorded as a future optimization): threading one long-lived `MutablePager`
 through the whole transaction so each statement stages only its changed pages instead of
@@ -245,6 +281,14 @@ under a rollback journal is serializable). `setTransactionIsolation` accepts
 `TRANSACTION_SERIALIZABLE` and throws `SQLFeatureNotSupportedException` for weaker levels
 requested explicitly (they cannot be honored faithfully). `getTransactionIsolation`
 returns `TRANSACTION_SERIALIZABLE`.
+
+**Scope of that claim (J3 reality).** Serializability holds for ONE `Connection`: its
+statements run in order against one image, and `commit`/`rollback` promote or discard it
+atomically in memory. It does **not** extend across connections on the same host file.
+Each connection snapshots the file at open and rewrites it wholesale (see "Durability
+boundary"), so two writers do not serialize — they overwrite. `TRANSACTION_SERIALIZABLE`
+therefore describes the isolation a single writer sees, which is exactly the supported
+configuration; it is not a claim of multi-connection concurrency control.
 
 ## Statement and PreparedStatement
 
@@ -543,9 +587,35 @@ label, `findColumn`, `getMetaData`, `isBeforeFirst`/`isAfterLast`/`isFirst`/`get
 `getDriverName`/`getDriverVersion`, `getURL`, `getConnection`, `supportsTransactions()` =
 true, `supportsResultSetType(TYPE_FORWARD_ONLY)` = true (others false),
 `getSQLKeywords()`, `getIdentifierQuoteString()` = `"\""`, `storesLowerCaseIdentifiers`
-= false / `storesMixedCaseIdentifiers` = true, `getTables`/`getColumns` (backed by a
-`SELECT` over `sqlite_schema` and `tableColumns`). Everything else may throw
+= false / `storesMixedCaseIdentifiers` = true. Everything else may throw
 `SQLFeatureNotSupportedException` or return the conservative default.
+
+**Catalog queries (`getTables`/`getColumns`, landed J4).** In the JDBC row shapes the
+javadoc mandates — `getTables` = 10 columns ordered by `(TABLE_TYPE, TABLE_NAME)`,
+`getColumns` = 24 ordered by `(TABLE_NAME, ORDINAL_POSITION)` — plus `getTableTypes`
+(`TABLE`, `VIEW`) and empty `getCatalogs`/`getSchemas`. `TABLE_CAT`/`TABLE_SCHEM` are
+always NULL: one image is one anonymous namespace. Name patterns follow JDBC (`%`, `_`,
+`null` = all, `\` escape per `getSearchStringEscape`) and match case-insensitively.
+
+*Mechanism (differs from this spec's original plan).* A `SELECT` over `sqlite_schema` does
+**not** work: the engine's `findTable` only resolves entries that have a `rootPage`, and
+the schema table is not an entry in its own list. Instead `ScljetCatalog` reads the schema
+structurally — `openReadonly(ImageVfs(current()), "image.db", sqlOptions())` →
+`db.schema.entries` (`scljet/schema.ssc`) — filtered to `SchemaTable`→`TABLE` and
+`SchemaView`→`VIEW` (indexes/triggers are not tables; internal entries are skipped).
+Column names and declared types come from parsing each entry's `CREATE TABLE` with the
+**engine's own `tokenize`**, mirroring the scan in `tableColumns` (`scljet/sql.ssc`); a
+test asserts the resulting names equal the engine's own `imageTableColumns`, so the two
+cannot drift. `DATA_TYPE` applies SQLite's documented affinity rules to the declared type;
+`TYPE_NAME` is the declared text (`""` when absent). Nullability is reported as
+`columnNullableUnknown`/`""` rather than parsed from `NOT NULL`, because the engine does
+not enforce those constraints — reporting them would assert a guarantee that does not
+exist. The catalog reads the *working* image, so it sees uncommitted DDL inside an open
+transaction. Both are diffed against `org.xerial:sqlite-jdbc` on the same DDL.
+
+Deliberately NOT implemented (throw `SQLFeatureNotSupportedException`): `getIndexInfo`,
+`getPrimaryKeys`, `getImportedKeys`/`getExportedKeys`, `getProcedures`, `getTypeInfo`.
+They need index/constraint introspection the catalog does not model yet.
 
 ## Error mapping
 
@@ -668,8 +738,17 @@ lane, referenced from `README.md` and this spec.
    `jdbc:scljet:<file>` on `[int, js]` either reads the whole file into an `ImageVfs`
    (read-modify-rewrite) or is limited to `:memory:`. Decide whether a JS/OPFS VFS lands
    here or stays with the engine's VFS milestones.
-6. **`getGeneratedKeys` shape.** A one-column `ResultSet` of `last_insert_rowid` (proposed)
-   vs the full inserted row. SQLite/JDBC convention favors the single rowid column.
+6. **`getGeneratedKeys` shape.** ✓ **RESOLVED (J4, 2026-07-15) — a one-column `ResultSet`
+   of `last_insert_rowid`**, as proposed; the full inserted row was rejected. Confirmed
+   against the reference driver rather than by convention alone: Xerial `sqlite-jdbc`
+   returns exactly one column labelled `last_insert_rowid()` with one row after an INSERT,
+   and an EMPTY `ResultSet` after CREATE/UPDATE/DELETE/SELECT or on a statement that has
+   not executed. The shim matches that observable contract (asserted by a diff against
+   sqlite-jdbc over a mixed statement sequence) with one deliberate deviation: in the empty
+   case Xerial labels the column `1` — a placeholder artifact — where the shim keeps the
+   stable `last_insert_rowid()` label. Keys are tracked per `Statement` for INSERT/REPLACE
+   that changed ≥1 row, since UPDATE/DELETE/DDL leave SQLite's `last_insert_rowid()`
+   untouched.
 
 ## Milestones and behavior gates
 
@@ -699,9 +778,25 @@ lane, referenced from `README.md` and this spec.
 - [ ] Unsupported methods throw `SQLFeatureNotSupportedException` exactly as enumerated.
 
 ### J4 — hardening
-- [ ] `getGeneratedKeys`, `getParameterMetaData`, minimal `DatabaseMetaData.getTables`/
-  `getColumns`, error→SQLState mapping, `executeBatch`, and the full conformance matrix are
-  CI gates; backend gaps are explicit skips.
+- [x] `getGeneratedKeys` — one-column `last_insert_rowid()` `ResultSet`, tracked per
+  statement for INSERT/REPLACE, diffed against `sqlite-jdbc` (2026-07-15, `scljet-jdbc-j2`).
+- [x] `getParameterMetaData` — landed with J3.
+- [x] minimal `DatabaseMetaData.getTables`/`getColumns` (+ `getTableTypes`, empty
+  `getCatalogs`/`getSchemas`) — JDBC row shapes, patterns, affinity-mapped `DATA_TYPE`,
+  diffed against `sqlite-jdbc` (2026-07-15, `scljet-jdbc-j2`).
+- [x] error→SQLState mapping (`ScljetErrors`) and `executeBatch` — landed with J3.
+- [x] Host-file durability/locking contract documented honestly ("Durability boundary" +
+  "Isolation"): read-modify-rewrite, no journal/fsync/locking, single-writer/single-process
+  (2026-07-15, `scljet-jdbc-j2`).
+- [ ] **Journaled host-file writes** — the gap the J4 durability note records: route
+  `commit()` through `jvmSqliteVfs()` + `scljet/journal.ssc` so a host file is crash-atomic
+  and `fsync`ed, and honour the advertised `journal`/`sync`/`busy_timeout`/`vfs` URL params.
+  Needs a Connection-level `MutablePager` (Model B, "Open decisions" #4) — journaling needs
+  to know which PAGES changed, and today's executor only yields whole images.
+- [ ] Inter-process locking for host files (`FileLock` + `busy_timeout`); until it exists,
+  the single-writer/single-process contract stands.
+- [ ] The full conformance matrix as a CI gate; backend gaps are explicit skips.
+  (`sbt scljetJdbcPlugin/test` = 29/29 today and covers the JVM lane end-to-end.)
 
 ## Decisions
 
