@@ -1,6 +1,6 @@
 feature/javascript-typescript-control-direct 2026-07-15T05:29:19Z
 agent: codex-js-control-direct
-heartbeat: 2026-07-15T08:10:15Z
+heartbeat: 2026-07-15T08:20:41Z
 status: in-progress
-done-so-far: fresh review rejected d66ed988df on one P1 package boundary: the exact tar manifest leaks devDependency `file:../control`; all semantic/emit/declaration/source-map gates were otherwise clean
-next: owner resumed with SPRINT/BUGS/spec-first exact packed-manifest and extracted-clean-install regressions; remove publishable repo-local specs, repeat full gates, freeze for another fresh review
+done-so-far: exact clean candidate 6603e6c29..1b18503d4 removes all local manifest specs; exact tar ordinary install/self-import passes, direct 39/39, explicit 31/31, packs, catalog 26/9, negatives 9/9 and conformance 5/5 are green
+next: a new independent review of exact 1b18503d4 is running across extracted tar metadata/install, fixture isolation, lock reproducibility and all emit/symbol boundaries; no push/release before APPROVE

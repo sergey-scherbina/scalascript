@@ -1,6 +1,6 @@
 feature/scala3-control-macros 2026-07-15T04:07:46Z
 agent: codex-scala-control-macros
-heartbeat: 2026-07-15T08:10:15Z
+heartbeat: 2026-07-15T08:20:41Z
 status: in-progress
-done-so-far: fresh review rejected exact 408f23c11 on a confirmed P1: a strict polymorphic function value used after capture leaks `identity.<none>` and crashes the Scala typer; explicit equivalent runs 42
-next: owner committed plan/BUGS 81d03e8fd, spec 90ae22c97 and faithful plus adjacent PolyFunction/ParamRef regressions 93dfbe386; a narrow noSymbol Select repair is under test before all full/package gates
+done-so-far: exact clean candidate 6603e6c29..e34b81733 repairs moved noSymbol selections; focused 51/51, full/package/POM 113/113, packaged 14x42 plus stable negative, catalog/negatives/direct/conformance are green
+next: a new independent review of exact e34b81733 is running across PolyFunction/structural selections, binder/owner closure, diagnostics and artifact/package boundaries; no push/release before APPROVE

@@ -1,6 +1,6 @@
 feature/ssc-api-descriptor-v3-slice-b 2026-07-15T04:02:06Z
 agent: codex-descriptor-b
-heartbeat: 2026-07-15T08:10:15Z
+heartbeat: 2026-07-15T08:20:41Z
 status: in-progress
-done-so-far: import witness 9e73fb656, unified resolver/inventory aebe41434 and single declaration-scoped effect evidence 69e02ffe3 are committed; focused producer is 82/82 with no raw bindEffectHeaders re-scan
-next: run focused parser/effect plus full descriptor/core/interop/IR/ABI/conformance gates, checkpoint docs/spec/BUGS, integrate current origin, rerun affected gates and freeze for fresh review
+done-so-far: exact clean candidate 6603e6c29..28c2e959c is green: focused 94/94, descriptor 27/27, core 1132/1132, interop 36/36, IR, ABI 73/73 and conformance 2/2 plus forced effects 9/9
+next: a new independent review of exact 28c2e959c is running across import witness/resolver/alias snapshots, recursive inventory, exact sentinels, declaration-only effects and architecture; no push/release before APPROVE
