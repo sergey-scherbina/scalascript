@@ -1,4 +1,4 @@
 claim: scljet-m3-writes
 owner: opus
-heartbeat: 2026-07-15T06:15:00Z
-status: IPK rowid-alias (m7c) + rowid point-lookup seek (m7d, overflow-safe) landed — WHERE id=K on a PK table is now O(log n). 43/43 sql green. Both parallel lanes (typed decoder, JVM shim) done earlier. NEXT: index-seek (WHERE indexedcol=K).
+heartbeat: 2026-07-15T06:25:00Z
+status: IPK rowid-alias (m7c) + rowid point-lookup seek (m7d, overflow-safe) landed — WHERE id=K on a PK table now O(log n). FULL scljet gate 87/87 green non-memoized on [int, js]. NEXT: index-seek (WHERE indexedcol=K via index-B-tree descent).
