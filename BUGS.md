@@ -1,5 +1,62 @@
 # Bug tracker
 
+## descriptor-v3-mutable-export-loss — exported val and var collapse to one immutable descriptor
+
+**Status:** open (2026-07-15). Reported by the independent Slice B frozen-checkpoint
+re-review; affected pre-integration commit `0f60205c5` (rebased as `59ca2898f`);
+fix SHA pending.
+
+**Symptom/reproduce:** project otherwise identical public `val current: Int` and
+`var current: Int` declarations. The strict pre-body producer returns the same
+`ApiSymbolKind.Value`, descriptor JSON, and `apiHash` for both, so the descriptor
+silently discards public mutability.
+
+**Root cause/plan:** `projectValues` receives the declaration's `mutable` flag but
+does not encode or reject it, while the frozen Slice A schema has no mutability
+field. Reject every selected public/exported `Defn.Var` with stable
+`UNSUPPORTED_PUBLIC_DECLARATION` until a future additive schema represents
+mutability. Keep `val` positive and add a faithful val-versus-var regression without
+changing the descriptor leaf.
+
+## descriptor-v3-nonpublic-local-type-leak — private local types fall back to external names
+
+**Status:** open (2026-07-15). Reported by the independent Slice B frozen-checkpoint
+re-review; affected pre-integration commit `0f60205c5` (rebased as `59ca2898f`);
+fix SHA pending.
+
+**Symptom/reproduce:** a public signature using `Hidden.T`, where `Hidden` is a
+private/internal local owner, is accepted as an external `AbiType.Named` instead of
+being rejected. Likewise an `@internal` local alias for a callback type can be
+exported without expanding to the callback shape, bypassing the mandatory callback
+policy.
+
+**Root cause/plan:** the lexical type index records only public declarations and
+recurses only through public owners. A known local declaration hidden by visibility
+therefore becomes indistinguishable from an actually external qualified type. Index
+all local type identities and aliases with effective owner visibility; if resolution
+finds a known non-public local identity, fail with stable `UNSUPPORTED_PUBLIC_TYPE`
+before external-name projection or callback classification. Regress both the private
+qualified-owner and internal callback-alias shapes.
+
+## descriptor-v3-source-ast-correspondence-tamper — count-only retained-source check accepts stale declarations
+
+**Status:** open (2026-07-15). Reported by the independent Slice B frozen-checkpoint
+re-review; affected pre-integration commit `0f60205c5` (rebased as `59ca2898f`);
+fix SHA pending.
+
+**Symptom/reproduce:** parse an effect containing operation `read`, then copy the
+module so its retained executable source is only `effect Real:\n` while preserving
+the old section AST. The strict producer sees the same number of source and AST
+containers and returns `Right`, projecting the stale `read` operation that no longer
+exists in retained source.
+
+**Root cause/plan:** `topLevelStats` checks only retained-block counts before pairing
+source with AST by position. Reparse each retained executable block through the
+canonical declaration preprocessor/parser and compare an exact declaration-header
+shape with its paired section AST while deliberately ignoring executable bodies and
+comments. Reject a mismatch with stable `UNSUPPORTED_PUBLIC_DECLARATION`; preserve
+body-only descriptor/hash invariance and add the exact copy/tamper regression.
+
 ## js-control-packed-readme-broken-spec-link — npm README links outside payload
 
 **Status:** fixed by `1c2e150c3` with regression `6f19a9538`; awaiting final

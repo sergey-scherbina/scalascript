@@ -213,8 +213,22 @@ optional policy, not the default continuation semantics.
       effect owner/order; an ordinary same-name object must never steal another effect's header.
     - [ ] Close nominal losslessness gaps for trait constructors/self types, template exports,
       and constructor `val`/`var` accessors until receiver/member metadata can represent them.
+    - [ ] Replace `PreBodyApiDescriptorProducer.topLevelStats` count-only pairing with exact
+      per-block declaration-header correspondence between canonically reparsed retained source
+      and the stored section AST. Ignore bodies/comments, but reject the reviewer's tamper where
+      retained `effect Real:` is paired with a stale AST still containing `read`.
+    - [ ] Index every known local type/alias with effective owner visibility. A public signature
+      resolving to a private/internal local owner or alias must fail `UNSUPPORTED_PUBLIC_TYPE`
+      before external `AbiType.Named` fallback or callback classification; regress both
+      `private Hidden.T` and an `@internal` callback alias.
+    - [ ] Reject selected public/exported `Defn.Var` with
+      `UNSUPPORTED_PUBLIC_DECLARATION` until an additive descriptor revision represents
+      mutability. Keep equivalent `val` positive and do not change the frozen Slice A schema.
     - Baseline: focused producer suite is `18/25` green; the seven new faithful regressions
       fail as 1 lost-AST + 2 effect-evidence + 4 nominal-surface cases before the fix.
+      The first correction checkpoint restored all `25/25`; the second frozen-checkpoint
+      re-review then found the three fail-open classes above (four faithful new regressions,
+      because non-public local resolution needs qualified-owner and alias cases).
     - Done when the focused regressions and affected core/interop/conformance gates pass and a
       fresh independent read-only review returns APPROVE with no P1/P2 blocker.
   - [ ] **C — post-body summaries:** extract managed/foreign/tail edges, save sites, frame schemas,
