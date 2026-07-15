@@ -348,7 +348,8 @@ object SpikeParse:
     // `def.param` role, so defNode collects them in order across clauses).
     while c.peekKind == "spike.lparen" do
       c.advance().foreach(t => kids += Node.Leaf(t, Some("def.lparen")))
-      if isWord(c, "using") then c.advance() // `(using s: T)` context param — `using` stripped, `s` kept as a param
+      val usingClause = isWord(c, "using")
+      if usingClause then c.advance() // `(using s: T)` context param — `using` stripped, `s` kept as a param
       var moreParams = c.peekKind != "spike.rparen" && !c.eof && !isDefStart(c)
       while moreParams do
         val name = expect(c, "spike.id", "def.param", "parameter name")
@@ -356,6 +357,8 @@ object SpikeParse:
         if name.isEmpty then moreParams = false
         else
           expect(c, "spike.colon", "def.paramColon", "':'").foreach(kids += _)
+          // for a `using` param, keep its TYPE head so defNode can emit the usingSig (call-site given injection)
+          if usingClause && (c.peekKind == "spike.uid" || c.peekKind == "spike.id") then kids += Node.Leaf(c.peek.get, Some("def.usingtype"))
           if c.peekKind == "spike.lparen" then skipBalancedParens(c)
           else expectType(c, "def.paramType").foreach(kids += _)
           skipTypeTail(c) // generic `List[T]` / function `A => B` param types (erased)
@@ -1510,7 +1513,7 @@ object SpikeProject:
 
   def program(root: UniNode): String =
     consList(kids(root).flatMap {
-      case (_, c) if kindOf(c) == "spike.def"       => Vector(defNode(c))
+      case (_, c) if kindOf(c) == "spike.def"       => defNodes(c)
       case (_, c) if kindOf(c) == "spike.casecls"   => caseClsNodes(c)
       case (_, c) if kindOf(c) == "spike.given"     => Vector(givenNode(c))
       case (_, c) if kindOf(c) == "spike.givenobj"  => Vector(givenObjNode(c))
@@ -1596,6 +1599,18 @@ object SpikeProject:
     val types = ks.collect { case (Some("cc.fieldType"), c) => "\"" + esc(concatType(c)) + "\"" }.toVector
     val derives = ks.collect { case (Some("cc.derive"), c) => "\"" + esc(lexeme(c)) + "\"" }.toVector
     s"""mkCaseCls("${esc(name)}", ${consList(names)}, ${consList(types)}, ${consList(derives)})"""
+
+  // a top-level def projects to its mkDef plus, if it has `using` params, a companion usingsig node
+  // (Pair("usingsig", Pair(name, Pair([usingTypeHeads], fullArgCount))) — the shape lowerProg's usingSigCell
+  // expects), which collectUsingSigNodes unions in for call-site given auto-injection (injectGivens).
+  private def defNodes(n: UniNode): Vector[String] =
+    val base       = defNode(n)
+    val usingTypes = kids(n).collect { case (Some("def.usingtype"), c) => "\"" + esc(lexeme(c)) + "\"" }.toVector
+    if usingTypes.isEmpty then Vector(base)
+    else
+      val name      = kids(n).collectFirst { case (Some("def.name"), c) => lexeme(c) }.getOrElse("_")
+      val fullCount = kids(n).count { case (Some("def.param"), _) => true; case _ => false }
+      Vector(base, s"""Pair("usingsig", Pair("${esc(name)}", Pair(${consList(usingTypes)}, $fullCount)))""")
 
   // a case class projects to its mkCaseCls plus, if the body has METHODS, a companion casemethods node
   // (Pair("casemethods", Pair(name, Pair(fieldNames, [method-defs]))) — the shape lowerProg's caseMethodsCell
