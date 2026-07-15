@@ -21,10 +21,12 @@ capabilities are present in that lane. Process adapters additionally require an
 exact `probes/<id>-<slug>.ssc` and `expected/<id>-<slug>.txt` pair. Structured
 host results use the same catalog oracle through a native typed adapter.
 
-The validator rejects malformed or duplicate rows, unsorted capabilities,
-catalog/front-matter disagreement, missing eligible adapters, and orphaned probe,
-expected, or pending files. A missing tool or capability is reported as
-`UNAVAILABLE`, `UNSUPPORTED`, or `PENDING`; it is never counted as a pass.
+The validator rejects malformed, duplicate, non-contiguous, or missing rows;
+unsorted capabilities; swapped lane adapter/status bindings; a ready lane with no
+executable vector; catalog/front-matter disagreement; missing eligible adapters;
+and orphaned probe, expected, or pending files. A missing tool or capability is
+reported as `UNAVAILABLE`, `UNSUPPORTED`, or `PENDING`; it is never counted as a
+pass.
 
 ## How to run
 
@@ -78,7 +80,9 @@ The vector phases are deliberately visible:
   behavior, and managed-capture rejection.
 - **8 `pending-codec` vectors (10–17)** retain durable save/run, admission,
   cross-host execution, concurrent saved runs, and no-replay obligations until the
-  post-X1 capsule implementation exists.
+  post-X1 capsule implementation exists. Compound vector 12 separately requires
+  `CodecMismatch`, `AbiMismatch`, and `MissingDependency`; an adapter cannot
+  collapse those admission failures.
 - **1 `pending-spec` vector (26)** records cancellation without inventing public
   transitions or a diagnostic that the target-neutral specification has not yet
   frozen.
