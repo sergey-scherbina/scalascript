@@ -1,4 +1,4 @@
 claim: scljet-m3-writes
 owner: opus
-heartbeat: 2026-07-15T08:30:00Z
-status: range index-seeks (m7g) landed — WHERE indexedcol >/>=/</<=/BETWEEN uses the index; also fixed a latent m7f divider-entry bug (index interior dividers are real entries). 47/47 sql green; full gate confirming. NEXT: composite indexes / correlated subqueries.
+heartbeat: 2026-07-15T08:55:00Z
+status: multi-condition index usage (m7h) landed — WHERE a=A AND b=B uses an index (seek one, finishRows filters). Physical index access-path broad: equality+range+multi-cond. 48/48 sql green; full gate confirming. NEXT: composite multi-col index / correlated subqueries / RIGHT-FULL joins.

@@ -2137,6 +2137,20 @@ Two new front doors are specced (typed-SQL-API cb94fd88c, JDBC-API f2d1372a0); *
 working first implementation** — the JDBC portable façade (m6v) and the typed SQL surface (m6w),
 alongside SQL polish (REAL literals m6s, LEFT-join-3 m6r). All three "параллельно" lanes advanced.
 
+- [x] **scljet-m7h-index-multi-cond** — DONE 2026-07-15 (physical access-path perf; Sergiy "Делай всё").
+      Use an index in a multi-condition AND WHERE. `pointLookup` previously only fired for a single
+      condition; now a single AND-group with several conditions is index-driven when ANY condition is
+      indexable: `indexableConds` collects every `col op literal` in the group, `chooseSeek` picks the
+      first seekable one (rowid/IPK equality → table seek, indexed col over a range → index seek). A row
+      satisfying the whole AND satisfies each condition, so the seek returns a superset that `finishRows`
+      (full WHERE) filters down — byte-identical to the scan. Non-seekable condition → skip to next; a
+      chosen seek that bails → full scan; OR-of-groups stays full-scan. Makes `dept='eng' AND active=1`,
+      `id=K AND status='x'` index-driven. Verified vs sqlite3 (indexed+residual, rowid+residual, indexable
+      condition second, COUNT), int==js; conformance `scljet-sql-index-multi-cond`; 48/48 sql green.
+      **Physical index access-path now broad**: equality (rowid/IPK/index descent) + ranges + multi-cond.
+      NEXT: true composite multi-column index match (`a=? AND b=?` on `(a,b)`), correlated subqueries /
+      EXISTS, RIGHT/FULL joins.
+
 - [x] **scljet-m7g-range-index-seek** — DONE 2026-07-15 (physical access-path perf; Sergiy "Делай всё").
       Range index-seeks — `WHERE indexedcol >/>=/</<= K` and `BETWEEN lo AND hi` now use the index. The
       descent is generalized from an equality key to an `IndexRange` (lo/hi + inclusivity): `keyInRange`
