@@ -613,9 +613,44 @@ not enforce those constraints — reporting them would assert a guarantee that d
 exist. The catalog reads the *working* image, so it sees uncommitted DDL inside an open
 transaction. Both are diffed against `org.xerial:sqlite-jdbc` on the same DDL.
 
-Deliberately NOT implemented (throw `SQLFeatureNotSupportedException`): `getIndexInfo`,
-`getPrimaryKeys`, `getImportedKeys`/`getExportedKeys`, `getProcedures`, `getTypeInfo`.
-They need index/constraint introspection the catalog does not model yet.
+**Introspection (landed J4).** `getPrimaryKeys` (6 cols, ordered by COLUMN_NAME; `PK_NAME`
+NULL — SQLite stores no name for a PK) reads both spellings: column-level
+(`id INTEGER PRIMARY KEY`) and table-level (`PRIMARY KEY (a, b)`, incl. the named
+`CONSTRAINT pk …` form), with `KEY_SEQ` following the declared key order.
+`getIndexInfo` (13 cols, one row per index COLUMN, ordered by
+`(NON_UNIQUE, TYPE, INDEX_NAME, ORDINAL_POSITION)`; `TYPE` = `tableIndexOther`) reads the
+`SchemaIndex` entries, grouping by `SchemaEntry.tableName` and parsing `UNIQUE` + the key
+list out of each `CREATE INDEX`. `CARDINALITY`/`PAGES` are 0 (unknown — no statistics), so
+`approximate` is accepted and ignored; `ASC_OR_DESC` is NULL (per-column direction is not
+modelled). Internal `sqlite_autoindex_*` entries are skipped (no `CREATE INDEX` text to
+read, and the reference driver does not report them either). `getTypeInfo` (18 cols) lists
+the five storage classes. `getImportedKeys`/`getExportedKeys`/`getCrossReference` return an
+EMPTY 14-column result rather than throwing: the engine models no foreign keys, and a pool
+or ORM iterating relationships must not blow up on a database that simply has none.
+
+*Two deliberate deviations from the reference driver* (both asserted by tests, so they
+cannot rot into accidents):
+1. **`getIndexInfo(unique = true)` filters to unique indexes** — the JDBC contract. Xerial
+   `sqlite-jdbc` IGNORES the flag and returns non-unique indexes anyway; that is a bug and
+   is not reproduced. A test asserts the reference still misbehaves, so if a future
+   sqlite-jdbc fixes it, this note can go.
+2. **`getTypeInfo.DATA_TYPE` uses THIS driver's codes** — INTEGER → `BIGINT`, REAL →
+   `DOUBLE` — where the reference says `INTEGER`/`REAL`. Our `ResultSetMetaData` and
+   `getColumns.DATA_TYPE` already report BIGINT/DOUBLE; matching the reference here would
+   make our own metadata self-contradictory, so internal consistency wins. A test pins
+   `getTypeInfo` against `getColumns` for the same type names.
+
+*Engine limits this surface exposes (NOT shim gaps).* The engine cannot `CREATE UNIQUE
+INDEX` at all (`parseCreateIndex` requires `CREATE INDEX`; `CREATE UNIQUE INDEX` falls
+through to `parseCreate` → "expected TABLE"), so every index a scljet-*created* database
+can hold is non-unique. The unique path is therefore exercised against a file written by
+the reference driver and opened via `jdbc:scljet:<file>` — which also demonstrates that
+catalog introspection works on real SQLite files. **That same test pins a live engine bug:
+an `INTEGER PRIMARY KEY` column in a real SQLite file reads back as `0`, because the rowid
+alias is not substituted (`BUGS.md` → `scljet-ipk-rowid-alias-not-substituted`).**
+
+Still NOT implemented (throw `SQLFeatureNotSupportedException`): `getProcedures`,
+`getFunctions`, `getUDTs`, `getSuperTables`, `getBestRowIdentifier`, `getVersionColumns`.
 
 ## Error mapping
 
@@ -795,8 +830,10 @@ lane, referenced from `README.md` and this spec.
   to know which PAGES changed, and today's executor only yields whole images.
 - [ ] Inter-process locking for host files (`FileLock` + `busy_timeout`); until it exists,
   the single-writer/single-process contract stands.
+- [x] `getPrimaryKeys`/`getIndexInfo`/`getTypeInfo` + empty FK queries — JDBC row shapes,
+  diffed against `sqlite-jdbc` (2026-07-15, `scljet-jdbc-j4-introspection`).
 - [ ] The full conformance matrix as a CI gate; backend gaps are explicit skips.
-  (`sbt scljetJdbcPlugin/test` = 29/29 today and covers the JVM lane end-to-end.)
+  (`sbt scljetJdbcPlugin/test` = 42/42 today and covers the JVM lane end-to-end.)
 
 ## Decisions
 
