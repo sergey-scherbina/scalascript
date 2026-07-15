@@ -17,7 +17,8 @@ import {
   perform
 } from "@scalascript/control"
 
-const Input = defineEffect("example.Input")
+const InputOwner = Symbol("example.Input.owner")
+const Input = defineEffect("example.Input", InputOwner)
 const Read = Input.operation("read", {
   multiplicity: ResumeMultiplicity.OneShot
 })
@@ -57,9 +58,18 @@ const answer = freshPrompt(prompt =>
 ```
 
 TypeScript declarations brand effect keys, prompts, continuations, and saved
-continuations so ordinary structural values cannot forge them. Nested fresh prompt
-keys are incompatible, an effectful `Eff` cannot be passed to `Eff.runPure`, and a
-one-shot continuation exposes neither reusable `resume` nor `save`.
+continuations so ordinary structural values cannot forge them. A named
+`const Symbol()` supplies each effect's generative owner type: two keys may share a
+stable descriptor string without becoming the same effect row. Nested fresh
+prompt keys are incompatible, `PromptKeyOf` preserves an invariant concrete answer
+type, an effectful `Eff` cannot be passed to `Eff.runPure`, and a one-shot
+continuation exposes neither reusable `resume` nor `save`.
+
+Runtime capabilities keep request, resumption, prompt, and continuation state in
+private weak storage. Their reachable JavaScript constructors require an
+unexported authority token, so property inspection, prototype grafting, or
+constructor calls cannot pre-claim or forge control authority. The npm tarball
+includes the repository's Apache 2.0 `LICENSE` verbatim.
 
 This first slice is intentionally local. `Continuation.local` is reusable, but
 `save()` performs typed `Save.Rejected(UnmanagedCapture("Continuation.local"))`.

@@ -1754,7 +1754,8 @@ import {
   perform
 } from "@scalascript/control"
 
-const Input = defineEffect("example.Input")
+const InputOwner = Symbol("example.Input.owner")
+const Input = defineEffect("example.Input", InputOwner)
 const Read = Input.operation("read", {
   multiplicity: ResumeMultiplicity.OneShot
 })
@@ -1775,12 +1776,23 @@ const handled = handle(program, {
 console.log(Eff.runPure(handled)) // 42
 ```
 
+The named owner symbol is semantically separate from the stable descriptor
+string. TypeScript preserves its `unique symbol` type, so two independently
+declared keys with the same descriptor cannot discharge one another's effect row;
+reusing the same owner and descriptor returns the same runtime key. Inline or
+widened symbols are rejected by the declaration because they cannot carry a
+sound generative type identity.
+
 `freshPrompt` uses a scoped generic callback, and its private declaration brands
 make nested prompt keys incompatible in TypeScript. `reset` discharges only its
 own `Control<P>` row; `shift` keeps its body under the same reset, rather than
 silently providing `shift0` behavior. `Continuation.local` may resume repeatedly,
 while its `save()` performs the typed
 `Save.Rejected(UnmanagedCapture("Continuation.local"))` operation.
+Opaque computations, continuations, and prompts keep authority-bearing state in
+private weak storage, and every reachable internal constructor is guarded by a
+module-private token. The published package also carries the project Apache 2.0
+license.
 
 This package does not yet claim the complete JavaScript/TypeScript host profile.
 Generated descriptors/facades, ScalaScript↔JavaScript value and call bridges,
