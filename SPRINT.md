@@ -171,6 +171,17 @@ optional policy, not the default continuation semantics.
   canonical types/generics/effect rows, callback convention + invocation/escape/thread policy,
   prompt metadata, stable overload IDs/JVM entrypoints, `apiHash`, control/save/tail summaries,
   `programDigest`, `artifactDigest`, and dependency-profile binding. Preserve old `.scim` meanings.
+  Resume-cold slices are frozen in [`specs/ssc-api-descriptor-v3.md`](specs/ssc-api-descriptor-v3.md):
+  - [ ] **A — canonical descriptor leaf + additive carrier (active):** add the target-neutral
+    `v2/interop/descriptor` model, canonical JSON/SHA-256 identities and validation, tests for all
+    three phase records, and only a defaulted `apiDescriptorV3` JSON payload on legacy `.scim`.
+  - [ ] **B — pre-body producers:** project declarations/real width evidence into v3 before body
+    compilation; reject ambiguous/dynamic managed exports and never parse legacy `tpe` to invent v3.
+  - [ ] **C — post-body summaries:** extract managed/foreign/tail edges, save sites, frame schemas,
+    and barriers; cross-check callback `ManagedControl` claims.
+  - [ ] **D — post-link manifests and consumers:** populate target entrypoints and exact program,
+    artifact, runtime, control, and dependency-profile digests; switch facades/admission/runners to
+    v3 with explicit legacy fallback only for ordinary non-managed interop.
 - [ ] **plugin-capability-profile-v1** — extend the current id/install-only plugin SPI with stable
   semantic ABI/schema ids plus target implementation digests/capabilities so a capsule dependency
   profile can be verified before execution. Human versions alone are insufficient.
