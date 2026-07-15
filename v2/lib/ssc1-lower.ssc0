@@ -2618,7 +2618,31 @@ def lowerE = (scope, rawExpr) =>
           case Pair(params, body) =>
             let n = lenL(params) in
             let lamScope = appendL(revL(params), scope) in
-            IrLam(n, lowerE(lamScope, body))
+            -- A parsed partial-function literal is exactly a one-argument
+            -- self-scrutinee match (`__pf => __pf match { ... }`). Preserve
+            -- that root identity for effect handlers: simple constructor arms
+            -- become a direct Match(Local(0), ...), while general patterns use
+            -- the same private selected/miss markers as FrontendBridge.
+            if #i.eq(n, 1) then
+              match params {
+                case Cons(param, paramRest) =>
+                  match paramRest {
+                    case Nil =>
+                      match body {
+                        case Pair(bodyTag, bodyData) =>
+                          if #seq(bodyTag, "match") then
+                            match bodyData {
+                              case Pair(scrutinee, arms) =>
+                                if isVarNamed(scrutinee, param) then
+                                  IrLam(1, lowerHandlerMatch(lamScope, param, arms))
+                                else IrLam(n, lowerE(lamScope, body))
+                            }
+                          else IrLam(n, lowerE(lamScope, body))
+                      }
+                    case _ => IrLam(n, lowerE(lamScope, body))
+                  }
+              }
+            else IrLam(n, lowerE(lamScope, body))
         }
       else if #seq(tag, "return") then
         -- `return e` in EXPRESSION position (e.g. `if c then return x else y`, inside a
@@ -3414,6 +3438,134 @@ def expandAltArms = (arms) =>
         }
       }
   }
+
+-- Handler-root qualification is intentionally a FRONTEND rule, not a runtime
+-- search through arbitrary Let/nested matches. The parser represents every
+-- partial-function literal as `lam([p], match(var(p), arms))`; these helpers
+-- preserve that exact provenance while ordinary invocation keeps ordinary PF
+-- semantics (selected is a no-op and miss is the normal exhaustive-match error
+-- without an active handler probe).
+def isVarNamed = (expr, name) =>
+  match expr {
+    case Pair(tag, data) => if #seq(tag, "var") then #seq(data, name) else false
+  }
+
+def hasAltPat = (arms) =>
+  match arms {
+    case Nil => false
+    case Cons(arm, rest) =>
+      match arm { case Pair(pat, body) =>
+        match pat { case Pair(ptag, pdata) =>
+          if #seq(ptag, "apat") then true
+          else if #seq(ptag, "gpat") then
+            match pdata { case Pair(basePat, guard) =>
+              match basePat { case Pair(btag, bdata) =>
+                if #seq(btag, "apat") then true else hasAltPat(rest) } }
+          else hasAltPat(rest) } }
+  }
+
+def hasNamedCatchAll = (arms) =>
+  match arms {
+    case Nil => false
+    case Cons(arm, rest) =>
+      match arm { case Pair(pat, body) =>
+        match pat { case Pair(ptag, pdata) =>
+          if #seq(ptag, "vpat") then
+            if #seq(pdata, "_") then hasNamedCatchAll(rest) else true
+          else hasNamedCatchAll(rest) } }
+  }
+
+def stringMember = (needle, values) =>
+  match values {
+    case Nil => false
+    case Cons(value, rest) =>
+      if #seq(needle, value) then true else stringMember(needle, rest)
+  }
+
+def hasDuplicateCtorPat = (arms) =>
+  let rec go = (remaining, seen) =>
+    match remaining {
+      case Nil => false
+      case Cons(arm, rest) =>
+        match arm { case Pair(pat, body) =>
+          match pat { case Pair(ptag, pdata) =>
+            if #seq(ptag, "cpat") then
+              match pdata { case Pair(ctorName, fields) =>
+                if stringMember(ctorName, seen) then true
+                else go(rest, Cons(ctorName, seen)) }
+            else go(rest, seen) } }
+    } in
+  go(arms, Nil)
+
+def handlerSelectedExpr = (eventName) =>
+  Pair("prim", Pair("__handler_dispatch_selected__",
+    Cons(Pair("var", eventName), Nil)))
+
+def handlerMissExpr = (eventName) =>
+  Pair("prim", Pair("__handler_dispatch_miss__",
+    Cons(Pair("var", eventName), Nil)))
+
+def handlerSelectedBody = (eventName, body) =>
+  Pair("block",
+    Cons(Pair("expr", handlerSelectedExpr(eventName)),
+      Cons(Pair("expr", body), Nil)))
+
+def markHandlerBodies = (eventName, arms) =>
+  match arms {
+    case Nil => Nil
+    case Cons(arm, rest) =>
+      match arm { case Pair(pat, body) =>
+        Cons(Pair(pat, handlerSelectedBody(eventName, body)),
+          markHandlerBodies(eventName, rest)) }
+  }
+
+def handlerMarkedArms = (eventName, arms) =>
+  let fallback = Pair(
+    Pair("vpat", "__handler_dispatch_fallback__"),
+    handlerMissExpr(eventName)) in
+  appendL(markHandlerBodies(eventName, arms), Cons(fallback, Nil))
+
+-- Direct simple-constructor lowering deliberately omits lowerMatch's synthetic
+-- once-evaluated scrutinee Let: the lambda parameter already IS Local(0).
+-- Pattern fields extend the runtime environment directly, so their body scope
+-- is fields ++ the original lambda scope (no phantom scrutinee binder).
+def lowerDirectHandlerMatch = (scope, arms) =>
+  let rec procArms = (armsLeft, irAcc, defAcc) =>
+    match armsLeft {
+      case Nil => Pair(irAcc, defAcc)
+      case Cons(arm, rest) =>
+        match arm { case Pair(pat, body) =>
+          match pat { case Pair(ptag, pdata) =>
+            if #seq(ptag, "cpat") then
+              match pdata { case Pair(ctorName, fields) =>
+                let armScope = appendL(revL(fldBinders(fields)), scope) in
+                let armBody = dischargeObs(
+                  fldObligations(fields, lenL(fields)), armScope, body) in
+                procArms(rest,
+                  appendL(irAcc, ctorPatternArms(ctorName, lenL(fields), armBody)),
+                  defAcc) }
+            else if #seq(ptag, "vpat") then
+              procArms(rest, irAcc, Some(lowerE(scope, body)))
+            else procArms(rest, irAcc, Some(lowerE(scope, body))) } }
+    } in
+  match procArms(arms, Nil, None) {
+    case Pair(irArms, defOpt) => IrMatch(IrLocal(0), irArms, defOpt)
+  }
+
+def lowerHandlerMatch = (scope, eventName, arms) =>
+  let flatArms = expandAltArms(arms) in
+  let general =
+    if hasBindPat(flatArms) then true
+    else if hasGuardPat(flatArms) then true
+    else if hasTypedPat(flatArms) then true
+    else if hasNestedPat(flatArms) then true
+    else if hasLpat(flatArms) then true
+    else if hasAltPat(arms) then true
+    else if hasNamedCatchAll(flatArms) then true
+    else hasDuplicateCtorPat(flatArms) in
+  if general then
+    lowerMatch(scope, Pair("var", eventName), handlerMarkedArms(eventName, arms))
+  else lowerDirectHandlerMatch(scope, flatArms)
 
 def lowerMatch = (scope, scrutinee, arms) =>
   let eIr = lowerE(scope, scrutinee) in
