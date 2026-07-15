@@ -552,3 +552,140 @@ final class DirectPromptSemanticsTest extends AnyFunSuite:
     assert(Eff.runPure(directResult) == 42)
     assert(Eff.runPure(directResult) == Eff.runPure(explicitResult))
   }
+
+  test("an independent polymorphic function value crosses capture") {
+    val scoped = freshPrompt[Int]
+    val prompt = scoped.prompt
+
+    val directResult = direct.reset[scoped.Key, Nothing, Int](prompt) {
+      val identity: [A] => A => A = [A] => (value: A) => value
+      val selected =
+        direct.shift[scoped.Key, Int, Nothing, Int](prompt)(
+          [Residual >: Nothing <: Effect] =>
+            (continuation: Continuation[Int, Residual, Int]) =>
+              continuation.resume(40)
+        )
+      selected + identity[Int](2)
+    }
+
+    val explicitResult = reset[scoped.Key, Nothing, Int](prompt) {
+      val identity: [A] => A => A = [A] => (value: A) => value
+      shift[scoped.Key, Int, Nothing, Int](prompt)(
+        [Residual >: Nothing <: Effect] =>
+          (continuation: Continuation[Int, Residual, Int]) =>
+            continuation.resume(40)
+      ).map(selected => selected + identity[Int](2))
+    }
+
+    assert(Eff.runPure(directResult) == 42)
+    assert(Eff.runPure(directResult) == Eff.runPure(explicitResult))
+  }
+
+  test("prefix and explicit apply calls retain structural members") {
+    val scoped = freshPrompt[Int]
+    val prompt = scoped.prompt
+
+    val directResult = direct.reset[scoped.Key, Nothing, Int](prompt) {
+      val identity: [A] => A => A = [A] => (value: A) => value
+      val plusOne: Int => Int = value => value + 1
+      val prefix = identity[Int](1)
+      val selected =
+        direct.shift[scoped.Key, Int, Nothing, Int](prompt)(
+          [Residual >: Nothing <: Effect] =>
+            (continuation: Continuation[Int, Residual, Int]) =>
+              continuation.resume(38)
+        )
+      selected + prefix + identity.apply[Int](1) + plusOne(1)
+    }
+
+    val explicitResult = reset[scoped.Key, Nothing, Int](prompt) {
+      val identity: [A] => A => A = [A] => (value: A) => value
+      val plusOne: Int => Int = value => value + 1
+      val prefix = identity[Int](1)
+      shift[scoped.Key, Int, Nothing, Int](prompt)(
+        [Residual >: Nothing <: Effect] =>
+          (continuation: Continuation[Int, Residual, Int]) =>
+            continuation.resume(38)
+      ).map(selected => selected + prefix + identity.apply[Int](1) + plusOne(1))
+    }
+
+    assert(Eff.runPure(directResult) == 42)
+    assert(Eff.runPure(directResult) == Eff.runPure(explicitResult))
+  }
+
+  test("nested polymorphic values close owner-dependent result binders") {
+    val scoped = freshPrompt[Int]
+    val prompt = scoped.prompt
+
+    val directResult = direct.reset[scoped.Key, Nothing, Int](prompt) {
+      val owner = new Object()
+      val nested: [A] => A => ([B] => B => owner.type) =
+        [A] => (_: A) => [B] => (_: B) => owner
+      val selected =
+        direct.shift[scoped.Key, Int, Nothing, Int](prompt)(
+          [Residual >: Nothing <: Effect] =>
+            (continuation: Continuation[Int, Residual, Int]) =>
+              continuation.resume(41)
+        )
+      selected + (if nested[Int](1)[String]("value") eq owner then 1 else 1000)
+    }
+
+    val explicitResult = reset[scoped.Key, Nothing, Int](prompt) {
+      val owner = new Object()
+      val nested: [A] => A => ([B] => B => owner.type) =
+        [A] => (_: A) => [B] => (_: B) => owner
+      shift[scoped.Key, Int, Nothing, Int](prompt)(
+        [Residual >: Nothing <: Effect] =>
+          (continuation: Continuation[Int, Residual, Int]) =>
+            continuation.resume(41)
+      ).map { selected =>
+        selected + (if nested[Int](1)[String]("value") eq owner then 1 else 1000)
+      }
+    }
+
+    assert(Eff.runPure(directResult) == 42)
+    assert(Eff.runPure(directResult) == Eff.runPure(explicitResult))
+  }
+
+  test("polymorphic ParamRefs close when used only in results or bounds") {
+    trait Bound[A]
+    final class Token extends Bound[Token]
+
+    val scoped = freshPrompt[Int]
+    val prompt = scoped.prompt
+
+    val directResult = direct.reset[scoped.Key, Nothing, Int](prompt) {
+      val resultOnly: [A] => () => Option[A] =
+        [A] => () => Option.empty[A]
+      val boundOnly: [A <: Bound[A]] => () => Int =
+        [A <: Bound[A]] => () => 1
+      val selected =
+        direct.shift[scoped.Key, Int, Nothing, Int](prompt)(
+          [Residual >: Nothing <: Effect] =>
+            (continuation: Continuation[Int, Residual, Int]) =>
+              continuation.resume(40)
+        )
+      selected +
+        (if resultOnly[String]().isEmpty then 1 else 1000) +
+        boundOnly[Token]()
+    }
+
+    val explicitResult = reset[scoped.Key, Nothing, Int](prompt) {
+      val resultOnly: [A] => () => Option[A] =
+        [A] => () => Option.empty[A]
+      val boundOnly: [A <: Bound[A]] => () => Int =
+        [A <: Bound[A]] => () => 1
+      shift[scoped.Key, Int, Nothing, Int](prompt)(
+        [Residual >: Nothing <: Effect] =>
+          (continuation: Continuation[Int, Residual, Int]) =>
+            continuation.resume(40)
+      ).map { selected =>
+        selected +
+          (if resultOnly[String]().isEmpty then 1 else 1000) +
+          boundOnly[Token]()
+      }
+    }
+
+    assert(Eff.runPure(directResult) == 42)
+    assert(Eff.runPure(directResult) == Eff.runPure(explicitResult))
+  }
