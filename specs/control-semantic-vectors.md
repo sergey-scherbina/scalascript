@@ -83,6 +83,20 @@ wasm-generated
 swift-generated
 ```
 
+The current bindings are exact, not interchangeable labels:
+
+```text
+portable-vm   -> ssc-vm                 ready
+portable-asm  -> ssc-asm                ready
+scala-explicit -> scala3-control-test    ready
+all remaining mandatory lanes -> none   pending
+```
+
+The validator rejects an unknown lane, a swapped adapter/status binding, or a
+`ready` lane whose declared capabilities admit no executable specified vector.
+Changing one of these bindings requires the same explicit catalog-and-runner
+revision as adding an adapter.
+
 `tests/interop-conformance/run.sh` supports:
 
 ```text
