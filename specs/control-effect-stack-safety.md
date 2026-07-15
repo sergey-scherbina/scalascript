@@ -74,6 +74,11 @@ that gate.
       exactly once. Focused raw-CoreIR vectors cover multiple
       operation-producing primitive arguments plus `App`/`Ctor` handler arms
       containing `resume`, with observable VM/direct-ASM ordering parity.
+- [ ] An arbitrary primitive supplied by a plugin may return an operation even
+      when every primitive argument is pure. Such a result is threaded in an
+      application argument, constructor field, and non-final sequence position
+      on VM/direct ASM, including when the handler is registered only after the
+      CoreIR transformation has run.
 - [ ] Effectful `While` conditions and bodies thread resume requests before
       boolean dispatch, discard, or the next iteration. Deep effectful loops
       remain stack-safe on VM/direct ASM; FastCode may not bypass this path.
@@ -321,10 +326,23 @@ consumed position can produce an operation, so the effect-aware compiler path
 remains authoritative. The VM, `OpAnfNative`, and direct-ASM classifiers align
 on `App`, dynamic method/effect dispatch, and explicit `effect.perform`,
 `effect.perform.oneshot`, and `effect.handle` CoreIR sources used by raw
-`run-ir` tests. The VM predicate remains a conservative runtime-path selector:
-false positives only select the correct effect-aware path; the slow path checks
-the actual `Value` before threading. Focused tests assert the required declines.
-This is an existing `Op/3` evaluation rule, not a new host or CoreIR ABI.
+`run-ir` tests. They must also treat a primitive which is not explicitly proven
+to have a non-operation result as operation-producing. In particular, this
+decision is based on the CoreIR primitive contract rather than the mutable
+contents of `V2PluginRegistry`: a saved/direct-ASM artifact may install its
+plugin handlers after transformation, and every registered handler has the
+unrestricted result type `List[Value] => Value`. A future plugin SPI may add an
+explicit non-suspending descriptor; absence of that descriptor remains
+effectful-by-default.
+
+The VM predicate remains a conservative runtime-path selector: false positives
+only select the correct effect-aware path, and consumed values are checked at
+runtime before threading. Direct ASM uses the same predicate to select its
+effect-aware `Let`/sequence chains, so an unknown primitive remains safe even
+when no handler is present while the artifact is built. Focused tests register
+the witness handler after transformation and assert the required VM/ASM
+declines. This is an existing `Op/3` evaluation rule, not a new host or CoreIR
+ABI.
 
 ## Decisions
 
@@ -342,6 +360,11 @@ This is an existing `Op/3` evaluation rule, not a new host or CoreIR ABI.
 - **Preserve public `Op/3`** — the temporary request uses the existing private
   runtime carrier and is consumed before returning from the handler driver; no
   CoreIR/value/codec/ABI inventory changes.
+- **Unknown/plugin primitives are effectful by default** — selected because the
+  plugin handler result type permits `Op/3`, while registry membership at build
+  time is not stable for a saved artifact. Rejected: consulting the current
+  `V2PluginRegistry` during transformation, because a handler installed later
+  would reintroduce a backend-dependent buried operation.
 - **Always defer; drain only at managed boundaries** — selected so lifting sees
   the complete post-resume suffix and both VM and ASM stay stack-safe for deep
   escaped state-thread chains. Rejected: forbidding continuation escape (not an
