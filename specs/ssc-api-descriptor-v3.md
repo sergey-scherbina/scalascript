@@ -248,7 +248,15 @@ in the explicit effect/control protocol. Foreign edges name a structured foreign
 target and barrier category. Tail edges record eligibility or the first stable
 barrier code. Save sites name their owning symbol, requested code mode, live frame
 schema, prompt set, and first barrier if unsavable. Frame slots carry `AbiType` and
-an explicit `Durable`, `DurableRef`, or `Unsavable(code)` classification.
+an explicit `Durable`, `DurableRef`, or `Unsavable(code)` classification. A frame
+schema has a stable `schemaId` and its ordered slots, but slice A has no separately
+hashed `FrameSchemaDigest`: the containing `ControlSummary.summaryDigest` already
+binds the schema bytes. The `frameDigest` over schema plus live payload belongs to
+the saved-capsule format and is deliberately deferred rather than assigned an
+unreviewed hash domain here.
+
+Every save site's `frameSchemaId` must resolve to exactly one `frameSchemas` entry
+in the same summary. Admission rejects a missing reference.
 
 The digest is:
 
@@ -346,6 +354,41 @@ domain. The exact profile is:
 - digest strings are lowercase 64-hex SHA-256 values;
 - a self-hash field is omitted, not blanked, while that digest is computed.
 
+### Frozen descriptor JSON shape
+
+JCS freezes spelling and ordering but does not by itself define the model-to-JSON
+schema. Profile `ssc-descriptor-json/1` therefore also freezes this shape:
+
+- every product record is a JSON object with exactly the case-sensitive field
+  names declared in this specification/model; all fields are present, including
+  fields whose value is empty or optional;
+- every enum/union alternative is an object whose mandatory discriminator is
+  `"tag"` with the exact case name shown in this specification. Payload fields use
+  the exact declared case-parameter names. A zero-payload case has only `"tag"`;
+- typed string wrappers (`ApiHash`, `StableSymbolId`, `OverloadId`, digest and
+  entrypoint wrappers) are objects with the sole field `"value"`;
+- vectors are JSON arrays. An `Option[A]` is `[]` for `None` and `[a]` for
+  `Some(a)`; no `null`, missing-field, or bare-value spelling is admitted;
+- integers occur only in the index/arity fields already bounded by this profile;
+  booleans and strings use their ordinary JSON forms;
+- unknown fields, missing fields, alternate discriminators, alternate enum tags,
+  and any other shape are schema errors. Even if a library parser tolerates an
+  unknown field, canonical re-emission drops it and canonical-byte admission
+  rejects the input.
+
+Normative canonical fragments are:
+
+```json
+{"tag":"Primitive","value":{"tag":"I32"}}
+{"arguments":[],"stableTypeId":"std.String","tag":"Named"}
+{"apiHash":{"value":"0000000000000000000000000000000000000000000000000000000000000000"},"controlAbiVersion":"ssc-control-v1","moduleId":"example","schemaVersion":"3.0","symbols":[]}
+```
+
+The implementation keeps all JSON readers/writers package-internal. Public model
+types do not expose a permissive generic-library `ReadWriter`; the only supported
+wire entrypoints are the bounded canonical-admission methods for
+`ApiDescriptor`, `ControlSummary`, and `ArtifactManifest`.
+
 The golden non-ASCII/control-character JCS vector is:
 
 ```text
@@ -366,11 +409,27 @@ second textual representation fails with `NON_CANONICAL_JSON`, even if a generic
 JSON parser could construct the same value. Internal tests may use a permissive
 parser only to create negative fixtures; it is not a wire/admission API.
 
-After canonical-byte equality, semantic validation rejects unsupported versions,
-malformed ids or digests, duplicate symbols/effects/edges/entrypoints, derived-id
-mismatch, `apiHash` mismatch, control-summary mismatch, dependency-profile
-mismatch, invalid callback parameter paths, and forbidden answer-type modification.
-It returns structured `(code, path, message)` errors and does not execute user code.
+Structural duplicate and reference validation runs on the decoded value **before**
+set-like normalization, so normalization cannot silently erase an invalid duplicate.
+Effect-row identity is the complete normalized `EffectRef(stableEffectId,
+typeArguments)`, not only its effect id. A foreign-call edge identity includes
+caller plus the full foreign target, including its optional descriptor; a second
+edge for the same identity with another barrier is ambiguous and rejects. A
+dependency identity is `(kind, logicalId, target)`; two implementations for that
+identity reject instead of depending on input order.
+
+Every `TypeParameterRef` is validated against its lexical binder stack: `depth`
+selects an existing enclosing binder group, `index` selects an existing binder,
+and `kindArity` must equal that binder's arity. This applies to bounds, function
+types, type lambdas, effect arguments/open tails, callbacks/prompts, and frame
+slots; an unbound reference is invalid.
+
+After canonical-byte equality, semantic validation also rejects unsupported
+versions, malformed ids or digests, duplicate symbols/effects/edges/entrypoints,
+derived-id mismatch, `apiHash` mismatch, control-summary mismatch,
+dependency-profile mismatch, an unresolved save-site frame schema, invalid
+callback parameter paths, and forbidden answer-type modification. It returns
+structured `(code, path, message)` errors and does not execute user code.
 
 ## Slice A behavior
 
@@ -390,11 +449,17 @@ It returns structured `(code, path, message)` errors and does not execute user c
 - [ ] RFC 8785 restricted JCS admission pins UTF-8, escaping, UTF-16 key ordering,
       bounded integral indices, and the non-ASCII/control-character golden vector;
       every non-canonical equivalent JSON text rejects.
+- [ ] The exact `ssc-descriptor-json/1` object fields, `tag` alternatives, wrapper,
+      vector, and option shapes are golden-tested; public models expose no
+      permissive generic-library decoder that bypasses canonical admission.
 - [ ] Reordering symbols, set-like type members, capabilities, dependencies, edges,
       or target features does not change canonical bytes; parameter/type-argument/
       parameter-list order remains observable.
 - [ ] A body/control/artifact-only change can keep `apiHash` stable while changing
       the appropriate control or artifact digest.
+- [ ] Raw duplicates, an ambiguous dependency implementation, an unbound or
+      wrong-arity type-parameter reference, and a missing save-site frame schema
+      reject with stable structured errors before normalization can erase them.
 - [ ] Legacy `.scim` JSON and MessagePack payloads without `apiDescriptorV3` decode
       to `None`; a v3 payload round-trips, stripping it restores `None`, and every
       existing field retains its previous value and meaning.
