@@ -369,6 +369,13 @@ optional policy, not the default continuation semantics.
       and nested objects below a nonrepresentable nominal owner; retain a positive
       public-object namespace control. A known local owner with an unknown member
       must not silently fall back to an external identity.
+    - Audit-hardening regression checkpoint (`0d2582a81`) after the isolated import-
+      witness fix: focused producer is exactly `66/78`. Twelve tests remain red:
+      the six original resolver/effect/inventory failures plus alias import-snapshot,
+      selected local callback prefix, selected imported effect, wildcard selected
+      prefix, receiver-owned/abstract nominal identities, and known-owner/unknown-
+      member fallback. The imported-private identity and public-object namespace
+      controls are already green and must stay green.
     - Done when the focused regressions and affected core/interop/conformance gates pass and a
       fresh independent read-only review returns APPROVE with no P1/P2 blocker.
   - [ ] **C — post-body summaries:** extract managed/foreign/tail edges, save sites, frame schemas,
