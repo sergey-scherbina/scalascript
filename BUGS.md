@@ -26,6 +26,10 @@ positives remain green; the full focused, descriptor/core/interop/IR/ABI, and
 modules/import-dir plus forced effect conformance radius passes. Keep `open` until
 fresh independent approval and landing on `origin/main`.
 
+**Red baseline:** regression commit `c1f57d99f`; focused producer is exactly
+63/70. The nested-owner regression fails because the private-class case returns
+`Right` with `Named("Hidden.T")`; all previous 63 producer tests remain green.
+
 ## descriptor-v3-body-local-effect-evidence — raw effect scan makes descriptors depend on method bodies
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
@@ -51,6 +55,11 @@ checkpoint, body-only add/remove edits preserve canonical descriptor bytes and
 the full affected gates pass. Keep `open` until fresh independent approval and
 landing.
 
+**Red baseline:** regression commit `c1f57d99f`; focused producer is exactly
+63/70. The body-local-effect regression fails with the section-level
+`UNSUPPORTED_PUBLIC_DECLARATION` reported by the unscoped raw scan; all previous
+63 producer tests remain green.
+
 ## descriptor-v3-effect-sentinel-duplicate-collision — injected and user effect markers coexist
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
@@ -74,6 +83,11 @@ after validation, for both Document-backed and documentless packaged carriers.
 vectors fail on the reviewed checkpoint, then reject at stable managed-production
 paths without descriptor/runtime members; parser and EffectAnalysis invariance plus
 the full affected gates pass. Keep `open` until independent approval and landing.
+
+**Red baseline:** regression commit `c1f57d99f`; focused producer is exactly
+63/70. The duplicate-sentinel regression fails because strict production returns
+`Right` for an actual effect containing the colliding user alias; all previous 63
+producer tests remain green.
 
 ## descriptor-v3-import-identity-laundering — selected/imported aliases bypass canonical identity resolution
 
@@ -102,6 +116,11 @@ platform chains reject and imported local callback aliases receive `ForeignBarri
 policy; direct/rename/wildcard/exclusion/source-order positives remain green; the
 full affected gates pass. Keep `open` until fresh independent approval and landing.
 
+**Red baseline:** regression commit `c1f57d99f`; focused producer is exactly
+63/70. Three resolver regressions fail: selected `jl.String` and chained
+`jl.Integer` return `Right`, and an imported local function alias has no callback
+policy. All previous 63 producer tests remain green.
+
 ## descriptor-v3-import-witness-omission — retained carrier import mutations evade correspondence
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
@@ -125,6 +144,10 @@ same-header formatting/body edits stay invariant, nested/source-ordered import
 positives remain green, and the full focused, descriptor/core/interop/IR/ABI plus
 affected conformance radius passes. Keep `open` until fresh independent approval
 and landing.
+
+**Red baseline:** regression commit `c1f57d99f`; focused producer is exactly
+63/70. The carrier-import mutation returns `Right` with `Named("foo.Int")`; all
+previous 63 producer tests remain green.
 
 ## descriptor-v3-nominal-derives-early-loss — derives and early initializers disappear from nominal APIs
 

@@ -355,6 +355,11 @@ optional policy, not the default continuation semantics.
       core 1111+, interop 36/36, IR, ABI 73/73, modules/import-dir conformance, and
       forced effect conformance. Keep all 17 Slice B BUGS `open`, every Slice B task
       marker unchecked, and never push/release before a new independent APPROVE.
+    - Fifth-review red baseline (`c1f57d99f`): focused producer is exactly 63/70.
+      Seven new tests fail — one ordered-import witness, three unified-resolver
+      cases (selected platform alias, chained platform alias, imported callback),
+      one duplicate sentinel, one body-local effect, and one nested nominal-owner
+      inventory — while all previous 63 producer regressions remain green.
     - Done when the focused regressions and affected core/interop/conformance gates pass and a
       fresh independent read-only review returns APPROVE with no P1/P2 blocker.
   - [ ] **C — post-body summaries:** extract managed/foreign/tail edges, save sites, frame schemas,

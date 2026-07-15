@@ -1009,6 +1009,12 @@ only in `v2/interop/descriptor`. All seventeen Slice B `descriptor-v3-*` entries
 remain `open`; the five new behavior items above stay unchecked until faithful red
 vectors and the full implementation gates pass.
 
+The faithful fifth-review regression commit is `c1f57d99f`. Its focused producer
+result is exactly 63/70: one ordered-import-witness, three unified-resolver, one
+duplicate-sentinel, one body-local-effect, and one nested-owner test fail, while all
+previous 63 regressions stay green. These failures reproduce each reviewed P1
+without weakening any earlier expectation.
+
 A fresh independent review rejected exact frozen checkpoint `4cd2a4aaa` (rebased
 as `05e498a72`) with no P0 and three P1 fail-open classes. Imports were ignored
 before bare builtin projection; dual source carriers could disagree on raw
