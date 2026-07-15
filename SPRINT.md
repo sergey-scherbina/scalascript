@@ -248,8 +248,8 @@ every later compiler/kernel change re-runs the literal fixed point.
   an outer scope across a nested reset is rejected until the compiler-plugin tier can preserve the
   residual outer control row explicitly. Accordingly the direct lane claims vector 18/23 `shift-reset`;
   vector 22 also requires `prompt-isolation` and remains explicit/plugin evidence. Current pre-review
-  checkpoint: the bounded lexical transform emits only the existing explicit API; sixteen direct
-  semantic tests, twenty-one exact diagnostic tests, and source-access guards pass inside the 99/99
+  checkpoint: the bounded lexical transform emits only the existing explicit API; seventeen direct
+  semantic tests, twenty-two exact diagnostic tests, and source-access guards pass inside the 101/101
   control leaf. The validated
   `scala-direct` lane runs vectors 18/23 plus coverage (3/3) with explicit differential oracles; package,
   POM, packaged-JAR runnable example, and five-case affected conformance gates are green. The tracked
@@ -287,13 +287,17 @@ every later compiler/kernel change re-runs the literal fixed point.
       managed reset body and explicit `scalascript.control.shift`; update the spec before code.
       Landed on the feature branch in `fdde23d93`; clean focused suites pass 39/39 and the rebuilt
       packaged consumer reports the exact direct diagnostic instead of raw owner output.
-    - [ ] Run clean focused semantic/diagnostic tests, then
+    - [x] Run clean focused semantic/diagnostic tests, then
       `scripts/sbtc "scala3ControlApi/test;scala3ControlApi/packageBin;scala3ControlApi/makePom"`,
       packaged-JAR consumer/example, catalog validation 26/9, negatives 9/9, direct lane 3/3,
       `tests/conformance/run.sh --only 'effect*,effects*'`, Markdown checks, and `git diff --check`.
       Update spec checkboxes/results, leave the five BUGS entries open pending approval/landing,
       refresh SPRINT/CHANGELOG counts in separate docs/bookkeeping commits, rebase only at a clean
       checkpoint, repeat critical gates, and freeze for a new independent review. Do not push/release.
+      Final clean checkpoint is based on `origin/main` `76f9706cf`: focused suites pass 39/39,
+      the full leaf/package/POM pass 101/101, packaged positive and exact-negative consumers are
+      green, catalog validation is 26 vectors/9 lanes, negatives are 9/9, direct is 3/3, and
+      affected conformance is 5/5. Markdown and diff checks are the final freeze gate.
   - [ ] Fresh independent read-only rereview of the frozen checkpoint. Expanded direct semantics
     (17/17), diagnostics after clean compile (22/22), full leaf/package/POM (101/101), catalog validation
     (26/9), negatives (9/9), direct lane (3/3), affected conformance (5/5), and packaged-JAR compile/run

@@ -45,7 +45,7 @@ fix lands.
 
 ## scala-direct-boundary-break-escape — boundary break can outlive its delimiter
 
-**Status:** open; remediation is green in feature commit `eda7dcabf`, but a fresh
+**Status:** open; remediation is green in feature commit `a77651132`, but a fresh
 independent review and the landing SHA are pending. Reported as P1 by the rereview
 of frozen `scala3-control-macros` checkpoint `ec4eb279e` (2026-07-15).
 
@@ -73,7 +73,7 @@ approves and the fix lands.
 
 ## scala-direct-transparent-inline-position — wrapper diagnostic points at reset
 
-**Status:** open; remediation is green in feature commit `eda7dcabf`, but a fresh
+**Status:** open; remediation is green in feature commit `a77651132`, but a fresh
 independent review and the landing SHA are pending. Reported as P1 by the rereview
 of frozen `scala3-control-macros` checkpoint `ec4eb279e` (2026-07-15).
 
@@ -99,7 +99,7 @@ approves and the fix lands.
 
 ## scala-direct-nested-shift-body-marker — direct marker survives inside ShiftBody
 
-**Status:** open; remediation is green in feature commit `eda7dcabf`, but a fresh
+**Status:** open; remediation is green in feature commit `a77651132`, but a fresh
 independent review and the landing SHA are pending. Reported as P1 by the rereview
 of frozen `scala3-control-macros` checkpoint `ec4eb279e` (2026-07-15).
 
@@ -126,7 +126,7 @@ entry open until rereview approves and the fix lands.
 
 ## scala-direct-dependent-prefix-type-owner — freshened values retain stale type refs
 
-**Status:** open; remediation is green in feature commit `eda7dcabf`, but a fresh
+**Status:** open; remediation is green in feature commit `a77651132`, but a fresh
 independent review and the landing SHA are pending. Reported as P1 by the rereview
 of frozen `scala3-control-macros` checkpoint `ec4eb279e` (2026-07-15).
 
