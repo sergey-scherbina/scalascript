@@ -837,6 +837,7 @@ object SpikeParse:
       case "spike.id" if c.peekLexeme == "throw" => Some(parseThrow(c))
       case "spike.id" if c.peekLexeme == "new"   => c.advance(); parseAtom(c)
       case "spike.id" if c.peekLexeme == "for"   => Some(parseFor(c))
+      case "spike.id" if c.peekLexeme == "try"   => Some(parseTry(c))
       // interpolator: an `s`/`f`/`raw`/`md` prefix immediately before a string token (ssc1-front
       // detects interpolation the same way — id value + following str, no adjacency check).
       case "spike.id" if isInterpPrefix(c.peekLexeme) && c.peek2Kind == "spike.str" => Some(parseInterp(c))
@@ -851,6 +852,32 @@ object SpikeParse:
     c.advance() // `throw`
     val e = parseExpr(c, 1).getOrElse(Node.Frame("spike.error", None, Vector.empty))
     Node.Frame("spike.throw", None, Vector(e.withRole("throw.expr")))
+
+  // `try BODY [catch handler] [finally F]` (ssc1-front.ssc0:1061) → __tryCatch__ / __tryCatchFinally__ /
+  // __tryFinally__ prims (BODY & finally become 0-arg thunks in the projection; the catch is a partial fn).
+  private def parseTry(c: Cur): Node =
+    c.advance() // `try`
+    val kids = Vector.newBuilder[Node]
+    parseExpr(c, 1).foreach(b => kids += b.withRole("try.body"))
+    if isWord(c, "catch") then
+      c.advance() // `catch`
+      val handler =
+        if c.peekKind == "spike.lbrace" then parseBlockArg(c)     // `catch { case … }` → spike.pfblock/lambda
+        else if isKw(c, "case") then parsePartialFn(c)            // braceless `catch case … => …`
+        else parseExpr(c, 1).getOrElse(Node.Frame("spike.error", None, Vector.empty)) // a PartialFunction value
+      kids += handler.withRole("try.catch")
+    if isWord(c, "finally") then
+      c.advance() // `finally`
+      parseExpr(c, 1).foreach(f => kids += f.withRole("try.finally"))
+    Node.Frame("spike.try", None, kids.result())
+
+  // braceless `case P => B; …` arms (Scala 3 fewer-braces catch) → __pf => __pf match { arms } (spike.pfblock).
+  private def parsePartialFn(c: Cur): Node =
+    val arms = Vector.newBuilder[Node]
+    val armCol = if isKw(c, "case") then c.peekCol else 0
+    while isKw(c, "case") && c.peek2Lexeme != "class" && c.peekCol >= armCol do
+      arms += parseArm(c); c.skipSemis()
+    Node.Frame("spike.pfblock", None, arms.result())
 
   // `for g1 ; g2 ; … (do|yield) body` desugared EXACTLY like ssc1-front's parseForFrom: each generator
   // `binder <- gen [if guard]` becomes `gen[.filter(binderLam(guard))].{flatMap|map|foreach}(binderLam(…))`
@@ -1289,6 +1316,19 @@ object SpikeProject:
       case "spike.pfblock" => // { case … } → __pf => __pf match { … } (partial-function literal)
         val arms = kids(b).collect { case (_, c) if kindOf(c) == "spike.arm" => arm(c.asInstanceOf[UniNode.Branch]) }
         s"""mkLam(Cons("__pf", Nil), mkMatch(mkVar("__pf"), ${consList(arms.toVector)}))"""
+      case "spike.try" => // try B [catch H] [finally F] → __tryCatch__ / __tryCatchFinally__ / __tryFinally__
+        val body = kids(b).collectFirst { case (Some("try.body"), c) => expr(c) }.getOrElse(hole)
+        val catchH = kids(b).collectFirst { case (Some("try.catch"), c) => expr(c) }
+        val finH = kids(b).collectFirst { case (Some("try.finally"), c) => expr(c) }
+        val bodyThunk = s"""mkLam(Nil, $body)"""
+        (catchH, finH) match
+          case (Some(ch), Some(fh)) =>
+            s"""Pair("prim", Pair("__tryCatchFinally__", ${consList(Vector(bodyThunk, ch, s"mkLam(Nil, $fh)"))}))"""
+          case (Some(ch), None) =>
+            s"""Pair("prim", Pair("__tryCatch__", ${consList(Vector(bodyThunk, ch))}))"""
+          case (None, Some(fh)) =>
+            s"""Pair("prim", Pair("__tryFinally__", ${consList(Vector(bodyThunk, s"mkLam(Nil, $fh)"))}))"""
+          case (None, None) => body // `try B` with no handler is just B (ssc1-front returns the raw body)
       case "spike.interp" =>
         val pfx = kids(b).collectFirst { case (Some("interp.prefix"), c) => lexeme(c) }.getOrElse("s")
         val raw = kids(b).collectFirst { case (Some("interp.raw"), c) => lexeme(c) }.getOrElse("")
