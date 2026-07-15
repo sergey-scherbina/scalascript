@@ -123,6 +123,12 @@ The source of truth is the parsed declaration header:
 - explicitly typed `val`/`var`, constructors, nominal types, aliases, objects,
   enums, effects, and effect operations project from their declaration nodes;
 - manifest `exports:` and `@internal`/private visibility select the public set;
+- lexical declaration environments are collected before the manifest export
+  filter. A non-exported public local type/effect/transparent alias may therefore
+  still supply the stable identity or callback shape used by an exported
+  signature, without itself becoming an exported symbol. Lexical local type
+  declarations shadow the frozen standard constructors; relative selections such
+  as `Domain.Value` normalize to their fully qualified local id;
 - `Int` maps directly to `I32`, `Long` directly to `I64`, `Double` to `F64`,
   and no width is inferred from a literal, body result, lowered value, `SType.Any`,
   legacy `ExportedSymbol.tpe`, or `TypeEvidenceWire`;
@@ -131,10 +137,40 @@ The source of truth is the parsed declaration header:
 - a function-typed parameter without an explicit policy syntax receives the only
   conservative declaration-only policy: `ForeignBarrier`, `Unknown` invocation,
   `MayEscape`, unknown reentrancy/concurrency/cancellation, and `AnyThread`. It is
-  never upgraded to `ManagedControl` by inspecting a body;
+  never upgraded to `ManagedControl` by inspecting a body. Local transparent type
+  aliases are expanded only far enough, with arity and cycle checks, to prevent an
+  alias from hiding a function-shaped parameter from this policy;
 - plain and `multi effect` operation markers produced by the existing parser map
   to `OneShot` and `Reusable`, respectively. Operation rows name their owning
-  stable effect id;
+  stable effect id. Because the compatibility parser erases generic/parent effect
+  syntax, original effect headers are read only from their executable code-block
+  declaration source. The scan is Scala-lexical for this purpose: line/block
+  comments, character literals, ordinary strings, and triple-quoted strings are
+  blanked while line boundaries are retained, so text inside them cannot create
+  evidence. Each header binds to the parsed object at the corresponding source
+  position in the same code block, after the parser's deterministic package-wrap
+  line shift; the object's AST owner supplies the stable lexical owner. A global
+  bare-name queue is forbidden: an ordinary same-name object cannot consume a
+  later effect's header. Prose and non-Scala fences are never evidence. A missing
+  or ambiguous binding, an owner/multiplicity mismatch, or an AST whose package
+  wrapper retained only the erased object fails closed instead of guessing;
+- nominal projection is deliberately lossless rather than optimistic: a public
+  class/trait/enum with explicit parents or a self type, a trait constructor
+  clause, a public instance member, a template `export`, or a secondary
+  constructor rejects until receiver/supertype/member metadata exists. Class and
+  case-class primary parameters carrying `val`/`var` accessor semantics reject for
+  the same reason; a plain non-accessor class constructor remains representable.
+  Objects remain namespace containers whose public nested declarations are
+  projected explicitly. Abstract classes and classes with private/protected
+  primary constructors emit only their `Type` symbol. Repeated enum cases and the
+  difference between `case A` and `case A()` are retained; generic or explicitly
+  specialized enum cases reject;
+- every retained executable declaration-source block must have exactly one
+  corresponding parseable section code block. A non-empty block without an AST,
+  a retained document block whose section container was lost, a missing package
+  wrapper, or a manifest export without a local declaration header rejects with
+  `UNSUPPORTED_PUBLIC_DECLARATION`. Managed production never turns structural
+  source/AST loss into a valid empty descriptor;
 - module `targets:` may populate `requiredTargets`; capabilities, prompt capture,
   and managed-control claims stay empty/false unless a future declared syntax
   supplies them. Body-derived facts belong only to Slice C.
@@ -145,6 +181,8 @@ names retain their dotted id. The frozen standard ids in this producer are
 `std.List`, `std.Vector`, `std.Seq`, `std.Set`, `std.Map`, `std.Option`, and
 `std.Either`; `Array[Byte]` and `Bytes` normalize to primitive `Bytes`. A bare
 unresolved name is ambiguous rather than guessed from imports or a body.
+`_root_` is removed before stable-id and platform-root checks, so
+`_root_.java.*` remains forbidden.
 
 Strict projection failures reuse `DescriptorError` and stable producer codes:
 
@@ -200,6 +238,15 @@ a second wire model or route through legacy `tpe`.
       type instead of parsing that string to invent v3.
 - [ ] Scala package/export fixtures agree on qualified public names and exclude
       helpers omitted by manifest `exports:`.
+- [ ] Retained executable document blocks and parsed section blocks are checked
+      for one-to-one completeness; deleting `sections` from an otherwise intact
+      parsed module rejects instead of emitting an empty API.
+- [ ] Effect-header evidence ignores comments and string/character literals and
+      binds within the same code block to the exact lexical owner; an ordinary
+      same-name object cannot steal a later effect header.
+- [ ] Trait constructor clauses/self types, template exports, and constructor
+      `val`/`var` accessors reject with stable paths until descriptor v3 has
+      receiver/member metadata.
 
 ## Versions
 
@@ -724,7 +771,8 @@ structured `(code, path, message)` errors and does not execute user code.
 ## Deferred slices (resume-cold)
 
 1. **Pre-body producers.** Add declaration-only projections from the self-hosted
-   frontend and compatibility `SType` pipeline. Populate `apiDescriptorV3` before
+   frontend and compatibility declaration-header AST pipeline. Populate
+   `apiDescriptorV3` before
    body compilation, reject unknown/ambiguous public numeric widths and unsupported
    dynamic ABI shapes, and add Scala import/export fixtures. Never derive v3 by
    parsing legacy `tpe`.
