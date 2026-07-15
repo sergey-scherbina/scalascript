@@ -52,7 +52,10 @@ There is no `scalascript-control-macros_3` coordinate. Keeping the inline surfac
 beside the explicit ABI avoids a second version axis and preserves the canonical
 artifact name already chosen for Scala users. The production artifact gains no
 dependency beyond the Scala libraries. `scala.quoted` is used only by the private
-compile-time implementation and never appears in a public signature.
+compile-time implementation and never appears in an exported `direct` source
+signature. Scala 3 necessarily emits the compiler-invoked macro implementation and
+an inline accessor in classfiles; those private-source/synthetic members are not a
+supported user ABI and may change without compatibility guarantees.
 
 This is normal Scala 3 binary cross-versioning (`_3`), not `CrossVersion.full`.
 Full compiler-version coupling remains reserved for the later compiler-plugin
@@ -267,8 +270,10 @@ save/run, callbacks, descriptors, runners, or cancellation.
       barriers fail closed with stable code and exact source position.
 - [ ] Unsupported M1 trees fail with `DIRECT_STYLE_UNSUPPORTED`, never a runtime
       stub, exception-based control path, or silent explicit-style fallback.
-- [ ] Public ABI inspection exposes no `scala.quoted`, compiler implementation,
-      CoreIR, interpreter value, reflection, TLS, or forgeable `Scope` constructor.
+- [ ] Exported `direct` source signatures expose no `scala.quoted`, CoreIR,
+      interpreter value, reflection, TLS, or source-forgeable `Scope` constructor;
+      the compiler-required macro implementation stays private at Scala source
+      level and isolated from runtime semantics.
 - [ ] The `scala-direct` catalog lane and the full `scala3ControlApi` suite pass,
       the POM keeps only Scala production libraries, and affected common
       conformance remains green.

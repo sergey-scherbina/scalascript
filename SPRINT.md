@@ -242,8 +242,9 @@ every later compiler/kernel change re-runs the literal fixed point.
   `scalascript.control.direct.{Scope,reset,shift}`, transform only bounded lexical ANF sequences into
   explicit `reset`/`shift`/`flatMap`/`pure`, and fail closed with `UNMANAGED_CAPTURE`,
   `CAPTURE_BARRIER`, or `DIRECT_STYLE_UNSUPPORTED`. Done-when the `scala-direct` adapter executes the
-  applicable shared vectors, the full control leaf/package/POM gates pass, and public ABI exposes no
-  quotes/compiler/runtime type. M1 nested resets lower only their own matching markers; a marker targeting
+  applicable shared vectors, the full control leaf/package/POM gates pass, exported source signatures expose
+  no quotes/runtime type, and the compiler-required macro implementation remains private at Scala source
+  level. M1 nested resets lower only their own matching markers; a marker targeting
   an outer scope across a nested reset is rejected until the compiler-plugin tier can preserve the
   residual outer control row explicitly.
 - [ ] **scala3-control-plugin** — publish a `CrossVersion.full` compiler plugin for cross-method CPS,
