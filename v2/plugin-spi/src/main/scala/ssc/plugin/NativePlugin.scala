@@ -1,5 +1,6 @@
 package ssc.plugin
 
+import scalascript.interop.plugin.PluginCapabilityDeclaration
 import ssc.Value
 
 /** Core-free JDBC configuration passed from native root front-matter. */
@@ -27,6 +28,7 @@ final case class NativeRuntimeConfig(
 /** Scalameta-free native intrinsic provider for the ScalaScript 2.1 runtime. */
 trait NativePlugin:
   def id: String
+  def capabilityDeclaration: Option[PluginCapabilityDeclaration] = None
   def install(context: NativePluginContext): Unit
 
 /** The only standard-tier mutation surface exposed to native providers. */

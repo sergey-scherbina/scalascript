@@ -154,6 +154,18 @@ lazy val v2InteropDescriptor = project
     Test    / scalacOptions ++= sharedScalacOptions,
   )
 
+// Target-neutral plugin semantic/schema declarations and exact target bindings.
+// Runtime plugin SPIs are adapters over this leaf; they do not own the contracts.
+lazy val v2PluginCapabilityProfile = project
+  .in(file("v2/interop/plugin-profile"))
+  .dependsOn(v2InteropDescriptor)
+  .settings(
+    name := "scalascript-plugin-profile",
+    libraryDependencies += scalatestTest,
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 // ── v2 plugin bridge — loads v1 Backend plugins into the v2 VM ────────────────
 // Bridges v1 Backend.intrinsics (NativeImpl) into v2's V2PluginRegistry so the
 // v2 VM can dispatch unknown Prim ops to v1 plugins.  Depends on both v2Core
@@ -200,7 +212,7 @@ lazy val v2SwiftBackend = project
 // NativeImpl/PluginValue adapter remains isolated in v2PluginBridge.
 lazy val v2NativePluginSpi = project
   .in(file("v2/plugin-spi"))
-  .dependsOn(v2Core)
+  .dependsOn(v2Core, v2PluginCapabilityProfile)
   .settings(
     name := "scalascript-v2-native-plugin-spi",
     libraryDependencies += scalatestTest,
@@ -4691,7 +4703,8 @@ lazy val bureauScheduler = project
 lazy val root = project
   .in(file("."))
   .aggregate(
-    v2Core, v2InteropDescriptor, v2NativePluginSpi, v2NativeHostPlugin, v2NativeCryptoPlugin,
+    v2Core, v2InteropDescriptor, v2PluginCapabilityProfile, v2NativePluginSpi,
+    v2NativeHostPlugin, v2NativeCryptoPlugin,
     v2NativeOsPlugin, v2NativeFsPlugin, v2NativeJsonPlugin, v2NativeHttpFastPlugin,
     v2NativeSqlPlugin, v2NativeUiPlugin, v2NativeStateEffectPlugin, v2NativeEffectRunnersPlugin,
     v2NativeStorageEffectPlugin, v2NativeReactivePlugin, v2NativeYamlPlugin,

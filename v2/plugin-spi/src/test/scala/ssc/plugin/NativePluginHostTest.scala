@@ -1,12 +1,33 @@
 package ssc.plugin
 
 import org.scalatest.funsuite.AnyFunSuite
+import scala.jdk.CollectionConverters.*
 import ssc.Value
 
 class NativePluginHostTest extends AnyFunSuite:
   private final class Provider(val id: String, name: String, value: Long) extends NativePlugin:
     def install(context: NativePluginContext): Unit =
       context.registerValue(name, Value.IntV(value))
+
+  test("legacy and profiled providers coexist through the real ServiceLoader host path") {
+    val providers = java.util.ServiceLoader
+      .load(classOf[NativePlugin], Thread.currentThread().getContextClassLoader)
+      .iterator().asScala.toVector.sortBy(_.id)
+
+    assert(providers.map(_.id) == Vector("service-legacy", "service-profiled"))
+    assert(providers.head.capabilityDeclaration.isEmpty)
+    assert(providers.last.capabilityDeclaration.exists(_.pluginId == "service-profiled"))
+    assert(NativePluginHost.loadAll() == 2)
+    assert(ssc.V2PluginRegistry.lookupGlobal("serviceProfiled").contains(Value.IntV(2)))
+  }
+
+  test("capability declaration remains a concrete interface default for old providers") {
+    val method = classOf[NativePlugin].getMethod("capabilityDeclaration")
+    assert(!java.lang.reflect.Modifier.isAbstract(method.getModifiers))
+    assert(!classOf[JavaLegacyServicePlugin].getDeclaredMethods.exists(
+      _.getName == "capabilityDeclaration"))
+    assert(new JavaLegacyServicePlugin().capabilityDeclaration.isEmpty)
+  }
 
   test("providers install in stable id order") {
     val seen = collection.mutable.ArrayBuffer.empty[String]
