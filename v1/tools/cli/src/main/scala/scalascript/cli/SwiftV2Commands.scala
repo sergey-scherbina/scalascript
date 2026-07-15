@@ -1,7 +1,6 @@
 package scalascript.cli
 
-import java.nio.charset.StandardCharsets
-import java.nio.file.{Files, Path}
+import java.nio.file.Path
 import scala.jdk.CollectionConverters.*
 
 import _root_.ssc.swift.{SwiftAppMetadata, SwiftBackend, SwiftPlatform, XcodeAppArtifact}
@@ -43,33 +42,35 @@ private[cli] object SwiftV2Cli:
     if !os.exists(input) || !os.isFile(input) then
       throw new IllegalArgumentException(s"file not found: $input")
 
-    RunV2.loadPluginJars()
     _root_.ssc.Runtime.argv = Nil
-    _root_.ssc.bridge.FrontendBridge.resetState()
-    _root_.ssc.bridge.PluginBridge.loadAll()
-    val source = Files.readString(input.toNIO, StandardCharsets.UTF_8)
-    val checked = _root_.ssc.bridge.FrontendBridge.convertSourceWithMetadata(
-      source,
-      Some((input / os.up).toIO),
-    )
+    // Native ssc1 front — ONE compile yields the Core IR program, the parsed
+    // front-matter manifests (metadata), and any self-hosted content modules.
+    // (Replaces the scalameta FrontendBridge; `main:` is synthesized inside
+    // RunNativeV2.compile.)
+    val compiled = RunNativeV2.compile(List(input.toString))
+    val program  = compiled.program
+    def meta(key: String): Option[String] = manifestString(compiled, input, key)
     val product = SwiftBackend.productName(
-      requestedProduct.orElse(checked.metadata.name).getOrElse(input.last.stripSuffix(".ssc"))
+      requestedProduct.orElse(meta("name")).getOrElse(input.last.stripSuffix(".ssc"))
     )
-    val appMetadata = checked.metadata.bundleId.map { bundleId =>
+    val appMetadata = meta("bundle-id").map { bundleId =>
       SwiftAppMetadata(
         bundleId = bundleId,
-        displayName = checked.metadata.displayName.orElse(checked.metadata.name).getOrElse(product),
-        marketingVersion = checked.metadata.version.getOrElse("1.0.0"),
-        buildVersion = checked.metadata.buildVersion.getOrElse("1"),
+        displayName = meta("display-name").orElse(meta("name")).getOrElse(product),
+        marketingVersion = meta("version").getOrElse("1.0.0"),
+        buildVersion = meta("build-version").getOrElse("1"),
       )
     }
-    val forceNativeUi = checked.metadata.frontend.exists(_.trim.equalsIgnoreCase("swiftui"))
-    if (forceNativeUi || SwiftBackend.requiresNativeUi(checked.program)) && appMetadata.isEmpty then
+    val forceNativeUi = meta("frontend").exists(_.trim.equalsIgnoreCase("swiftui"))
+    if (forceNativeUi || SwiftBackend.requiresNativeUi(program)) && appMetadata.isEmpty then
       throw new IllegalArgumentException(
         "Swift UI application requires front-matter bundle-id")
     appMetadata.foreach(SwiftBackend.validateAppMetadata)
 
-    val contentModulesBase64 = contentModulesBase64For(input)
+    val contentModulesBase64 =
+      if compiled.contentModules.isEmpty then None
+      else Some(java.util.Base64.getEncoder.encodeToString(
+        _root_.ssc.plugin.NativeContentCodec.encode(compiled.contentModules)))
 
     os.makeDir.all(output)
     val resourcesRoot = output / "AppleApp" / "Resources"
@@ -79,7 +80,7 @@ private[cli] object SwiftV2Cli:
         .filterNot(_.startsWith("AppleApp/Resources/Assets.xcassets/"))
         .sorted
     val generated = SwiftBackend.generate(
-      checked.program, product, platform, backendBaseUrl, appMetadata,
+      program, product, platform, backendBaseUrl, appMetadata,
       forceNativeUi = forceNativeUi,
       appleResourcePaths = existingResources,
       contentModulesBase64 = contentModulesBase64,
@@ -87,32 +88,19 @@ private[cli] object SwiftV2Cli:
     generated.writeTo(output.toNIO)
     EmittedPackage(output, generated.debugCli, platform, generated.xcodeApp)
 
-  /** Content-module extraction (std/ui/content.ssc's contentDocument/etc) lives
-   *  only in the self-hosted tower's structural ABI (RunNativeV2/
-   *  NativeV2Structural), a separate pipeline from FrontendBridge — which is
-   *  what `emit` otherwise uses for the actual Core IR. This is a SECOND,
-   *  independent compile of the same input, kept deliberately non-fatal: not
-   *  every Swift-targeted source is self-hosted-tower-parseable (v1-only
-   *  syntax FrontendBridge accepts), and a Swift app that never imports
-   *  std/ui/content must not fail to emit because of this. See
-   *  specs/v2.1-native-content.md for the ABI this reuses unmodified.
-   */
-  private def contentModulesBase64For(input: os.Path): Option[String] =
-    try
-      val compiled = RunNativeV2.compile(List(input.toString))
-      if compiled.contentModules.isEmpty then None
-      else
-        val bytes = _root_.ssc.plugin.NativeContentCodec.encode(compiled.contentModules)
-        Some(java.util.Base64.getEncoder.encodeToString(bytes))
-    catch
-      // Best-effort: a Swift-targeted source that never imports std/ui/content must
-      // never fail to emit because of this second, independent compile. StackOverflowError
-      // (real, hit on a large real-world source — the self-hosted tower's own dedicated
-      // 64MB-stack thread can still be exceeded) is an Error, not an Exception; catching
-      // only Exception let it escape and crash the whole emit. OutOfMemoryError is
-      // deliberately NOT caught here — recovering from it is not safe.
-      case _: Exception => None
-      case _: StackOverflowError => None
+  /** A top-level front-matter string value from the compiled root manifest
+   *  (parsed once by the native front), e.g. bundle-id / display-name / frontend. */
+  private def manifestString(
+      compiled: NativeV2Compilation, input: os.Path, key: String): Option[String] =
+    val canonical = input.toIO.getCanonicalFile
+    compiled.manifests.find(_.source == canonical)
+      .orElse(compiled.manifests.lastOption)
+      .flatMap(_.value)
+      .collect {
+        case NativeManifestObject(fields) =>
+          fields.collectFirst { case (`key`, NativeManifestString(v)) if v.nonEmpty => v }
+      }
+      .flatten
 
   def requireSwift(command: String): String =
     val executable = sys.props.getOrElse("ssc.swift.command", "swift")
