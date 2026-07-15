@@ -1,5 +1,131 @@
 # Bug tracker
 
+## descriptor-v3-nested-owner-identity-leak — nested private identities under non-object owners fall back external
+
+**Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
+exact frozen checkpoint `0cb46c3cd`; fix SHA pending.
+
+**Symptom/reproduce:** declare `private class Hidden { type T }` and expose a public
+signature containing `Hidden.T`. Strict managed production returns `Right` with an
+external `AbiType.Named("Hidden.T")` instead of rejecting the effectively private
+local identity. Equivalent nested identities under traits/enums and nested local
+effects/aliases have the same un-audited owner-boundary risk.
+
+**Root cause/plan:** `collectLocalTypes` descends namespace objects but not every
+nominal owner, so the known-local identity inventory is incomplete before qualified
+external fallback. Collect types, aliases, and effects recursively under class,
+trait, enum, and object owners; carry inherited effective visibility and whether the
+owner itself is representable. Resolve any known nested identity through that
+inventory before external fallback and reject private/internal/nonrepresentable
+owners with the stable local-visibility error. Audit `localEffects` and alias
+expansion through the same owner traversal rather than adding a type-only exception.
+
+**Done when:** faithful class/trait/enum/object nested-owner regressions fail on the
+reviewed checkpoint, then pass with stable paths/codes; prior public nested-object
+positives remain green; the full focused, descriptor/core/interop/IR/ABI, and
+modules/import-dir plus forced effect conformance radius passes. Keep `open` until
+fresh independent approval and landing on `origin/main`.
+
+## descriptor-v3-body-local-effect-evidence — raw effect scan makes descriptors depend on method bodies
+
+**Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
+exact frozen checkpoint `0cb46c3cd`; fix SHA pending.
+
+**Symptom/reproduce:** put a local `effect Local:` declaration inside the body of an
+exported method whose public header is otherwise unchanged. The raw carrier regex
+classifies the body-local header as top-level effect evidence and strict production
+returns a section-level `Left`. Removing only that method body declaration changes
+the result, violating the pre-body descriptor/body-invariance contract.
+
+**Root cause/plan:** raw effect-header extraction is lexically string-aware but not
+declaration-scope-aware, and `bindEffectHeaders` performs a second unscoped
+interpretation. Correlate raw headers only with declaration-scope marked AST
+candidates using validated positions/owners/order, structurally exclude headers in
+method/value/template bodies that are not part of the projected declaration scope,
+and pass the one validated evidence model into binding. Do not re-scan the chosen
+carrier independently after correspondence.
+
+**Done when:** a faithful body-local-effect regression fails on the reviewed
+checkpoint, body-only add/remove edits preserve canonical descriptor bytes and
+`apiHash`, genuine top-level plain/multi/empty effects retain their evidence, and
+the full affected gates pass. Keep `open` until fresh independent approval and
+landing.
+
+## descriptor-v3-effect-sentinel-duplicate-collision — injected and user effect markers coexist
+
+**Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
+exact frozen checkpoint `0cb46c3cd`; fix SHA pending.
+
+**Symptom/reproduce:** source an actual `effect Stable:` whose body declares
+`private type __effectDecl__ = true`. Parser preprocessing injects its own marker,
+leaving duplicate reserved aliases, but strict managed production still returns
+`Right`. The same collision class applies to `__effectUnsupportedShape__` and to
+non-canonical marker aliases.
+
+**Root cause/plan:** the producer treats marker presence as evidence and filters all
+matching names without validating cardinality or exact parser-owned shape. For each
+effect object require exactly one canonical `private type __effectDecl__ = true`,
+require the unsupported-shape marker exactly when preprocessing the raw header calls
+for it, reject duplicates/wrong RHS/modifiers/bounds/parameters, and reject either
+reserved name anywhere it could be user-authored. Preserve marker filtering only
+after validation, for both Document-backed and documentless packaged carriers.
+
+**Done when:** faithful duplicate, malformed, and unsupported-marker collision
+vectors fail on the reviewed checkpoint, then reject at stable managed-production
+paths without descriptor/runtime members; parser and EffectAnalysis invariance plus
+the full affected gates pass. Keep `open` until independent approval and landing.
+
+## descriptor-v3-import-identity-laundering — selected/imported aliases bypass canonical identity resolution
+
+**Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
+exact frozen checkpoint `0cb46c3cd`; fix SHA pending.
+
+**Symptom/reproduce:** `import java.{lang as jl}` followed by a public `jl.String`
+type succeeds as external `Named("jl.String")`; a chained `import jl.{Integer as
+Int}` succeeds as `Named("jl.Integer")`. A local callback alias declared under
+`object Types`, imported with `import Types.Callback`, is projected as an ordinary
+parameter and receives no conservative callback policy. Selected types, importer
+qualifiers, chained aliases, private identities, and platform roots therefore take
+different resolution paths.
+
+**Root cause/plan:** `ImportScope` models only final bare-name bindings and
+`projectNamedApplication`/selected-name/callback-alias code bypasses expansion of
+importer qualifiers. Implement one source-ordered lexical identity resolver used by
+all bare and selected type projection plus callback classification. It must expand
+direct/renamed importer prefixes and chained aliases, detect cycles/conflicts/
+wildcards, retain exclusions/given-only behavior, apply platform-root checks after
+expansion, and consult effective local visibility before external fallback. Remove
+ad hoc paths that can disagree about the same spelling.
+
+**Done when:** all three faithful repros fail on the reviewed checkpoint, then
+platform chains reject and imported local callback aliases receive `ForeignBarrier`
+policy; direct/rename/wildcard/exclusion/source-order positives remain green; the
+full affected gates pass. Keep `open` until fresh independent approval and landing.
+
+## descriptor-v3-import-witness-omission — retained carrier import mutations evade correspondence
+
+**Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
+exact frozen checkpoint `0cb46c3cd`; fix SHA pending.
+
+**Symptom/reproduce:** parse a module containing `import foo.Int` and a public use of
+`Int`, then mutate only the retained Document carrier to `import bar.Int` while the
+stored AST and CodeBlock carrier still contain `foo.Int`. Strict production returns
+`Right` and projects `Named("foo.Int")` because carrier correspondence treats both
+sources as the same declaration surface.
+
+**Root cause/plan:** imports now influence projection, but `declarationWitness`
+omits `Import`, so the exact source/AST contract does not cover that semantic input.
+Add ordered import witnesses at their lexical owner, preserving importer syntax and
+every selector kind (direct, rename, wildcard, unimport/exclusion, given, given-all)
+while remaining position/format/body invariant. Require stored AST, CodeBlock, and
+optional Document witnesses to agree before constructing import scope.
+
+**Done when:** the faithful dual-carrier mutation fails on the reviewed checkpoint,
+same-header formatting/body edits stay invariant, nested/source-ordered import
+positives remain green, and the full focused, descriptor/core/interop/IR/ABI plus
+affected conformance radius passes. Keep `open` until fresh independent approval
+and landing.
+
 ## descriptor-v3-nominal-derives-early-loss — derives and early initializers disappear from nominal APIs
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent review of

@@ -320,6 +320,41 @@ optional policy, not the default continuation semantics.
       All 12 Slice B BUGS remain `open`, every Slice B task marker remains unchecked,
       and the claim stays active until a fresh independent read-only review returns
       APPROVE; do not push/release this checkpoint first.
+    - Fifth-review of exact frozen `0cb46c3cd`: REJECT, no P0, five P1 families,
+      and no standalone P2. The reviewer confirmed the fourth correction's
+      derives/early, direct-import ordering, raw effect/object comparison, and
+      architecture: the canonical model remains only in `v2/interop/descriptor`,
+      with the v1/lang core compatibility producer depending one-way on it.
+    - Fifth-correction resume-cold plan (recorded before rebasing or coding):
+      1. include exact ordered `Import` semantics in declaration correspondence.
+         Preserve importer plus direct/rename/wildcard/unimport/given selector shape
+         and lexical owner/order, so stored AST, CodeBlock, and optional Document
+         cannot disagree on an import that changes projection;
+      2. replace partial `ImportScope` handling with one source-ordered lexical
+         identity resolver for bare names, selected types, importer qualifiers,
+         chained aliases, and callback alias classification. Detect cycles,
+         conflicts, wildcards, exclusions, platform roots, and private/local
+         identities after expansion. Faithful repros: `java.{lang as jl}` then
+         `jl.String`; chained `jl.{Integer as Int}`; imported local function alias
+         must receive conservative callback policy;
+      3. validate effect origin sentinels by exact count and canonical private-type
+         shape. Reject user duplicates or malformed `__effectDecl__` and
+         `__effectUnsupportedShape__` markers in Document-backed and documentless
+         packaged modules before filtering them from the public/runtime surface;
+      4. make raw effect evidence declaration-scope-aware and reuse that single
+         validated model in `bindEffectHeaders`. A local effect written only inside
+         an exported method body is body evidence and must not change descriptor
+         success/bytes/hash; retain genuine top-level effect binding;
+      5. recursively inventory local types, aliases, and effects under class, trait,
+         enum, and object owners with inherited effective visibility and owner
+         representability. `private class Hidden { type T }` followed by public
+         `Hidden.T` must reject before external-name fallback.
+      Before implementation, update/commit the normative feature spec; then add
+      faithful regressions and record the exact red baseline. Preserve all previous
+      vectors and run focused producer/parser/effect tests, descriptor 27/27, full
+      core 1111+, interop 36/36, IR, ABI 73/73, modules/import-dir conformance, and
+      forced effect conformance. Keep all 17 Slice B BUGS `open`, every Slice B task
+      marker unchecked, and never push/release before a new independent APPROVE.
     - Done when the focused regressions and affected core/interop/conformance gates pass and a
       fresh independent read-only review returns APPROVE with no P1/P2 blocker.
   - [ ] **C — post-body summaries:** extract managed/foreign/tail edges, save sites, frame schemas,
