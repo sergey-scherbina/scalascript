@@ -1773,9 +1773,43 @@ with extensions isolated behind an explicit non-default profile.
               WHICH PAGES changed, and the executor only yields whole images. Cross-lane (engine + shim).
         - [ ] **Inter-process locking** for host files (`FileLock` + `busy_timeout`). Until then the
               single-writer/single-process contract in the spec stands.
-        - [ ] `getIndexInfo` / `getPrimaryKeys` / `getImportedKeys` / `getTypeInfo` — need index and
-              constraint introspection the catalog does not model yet (`SchemaIndex` entries are read but
-              filtered out of `getTables`; their `CREATE INDEX` sql is available).
+        - [ ] **`scljet-jdbc-j4-introspection`** (claimed 2026-07-15, opus) — `getPrimaryKeys` /
+              `getIndexInfo` / `getTypeInfo` (+ empty `getImportedKeys`/`getExportedKeys`). Shim-only;
+              builds directly on J2 (`ScljetCatalog` already reads schema entries — incl. `SchemaIndex`
+              with `tableName`/`sql`/`internal` — and `ScljetStaticResultSet` is the row substrate).
+              **Reference shapes PROBED from Xerial before planning** (do not re-probe):
+              - `getPrimaryKeys` = 6 cols `TABLE_CAT,TABLE_SCHEM,TABLE_NAME,COLUMN_NAME,KEY_SEQ,PK_NAME`;
+                `emp(id INTEGER PRIMARY KEY,…)` → 1 row `COLUMN_NAME=id KEY_SEQ=1 PK_NAME=null`; a table
+                with no PK → 0 rows.
+              - `getIndexInfo` = 13 cols `TABLE_CAT,TABLE_SCHEM,TABLE_NAME,NON_UNIQUE,INDEX_QUALIFIER,
+                INDEX_NAME,TYPE,ORDINAL_POSITION,COLUMN_NAME,ASC_OR_DESC,CARDINALITY,PAGES,
+                FILTER_CONDITION`; `TYPE=3` (tableIndexOther), `CARDINALITY=0`, `PAGES=0`,
+                `ASC_OR_DESC`/`INDEX_QUALIFIER`/`FILTER_CONDITION` = null; one row PER INDEX COLUMN;
+                ordered by `(NON_UNIQUE, INDEX_NAME, ORDINAL_POSITION)`. The implicit rowid PK gets no row.
+              - `getTypeInfo` = 18 cols, 5 rows (NULL/INTEGER/REAL/TEXT/BLOB).
+              **Two deliberate deviations from the reference — assert them, don't copy the bug:**
+              1. **Xerial IGNORES the `unique` filter** (`getIndexInfo(…, unique=true, …)` still returned
+                 the non-unique `emp_name`). Implement the JDBC contract: filter when `unique=true`.
+              2. **`getTypeInfo` DATA_TYPE must match what THIS driver reports elsewhere.** Xerial says
+                 INTEGER=4/REAL=7; our `ResultSetMetaData`+`getColumns` say `BIGINT(-5)`/`DOUBLE(8)`
+                 (m7b, asserted by existing tests). Internal consistency wins — a client comparing
+                 `getTypeInfo` to `getColumns.DATA_TYPE` must see the same codes.
+              Slices:
+              - [ ] **J4.1 `getPrimaryKeys`** — needs `ScljetCatalog` to keep PK info it currently drops:
+                    column-level (`id INTEGER PRIMARY KEY` → the words after the type are already captured
+                    in `typeWords`) AND table-level (`PRIMARY KEY (a,b)` → currently `skipDef=true` throws
+                    the whole def away; capture the column list + order for `KEY_SEQ`).
+              - [ ] **J4.2 `getIndexInfo`** — group `SchemaIndex` entries by `SchemaEntry.tableName`;
+                    `NON_UNIQUE` from `CREATE UNIQUE INDEX` in the entry's sql; index columns from the
+                    `ON t(a,b)` list (engine `tokenize`, same discipline as J2 — never a second parser);
+                    skip `internal` entries (`sqlite_autoindex_*`).
+              - [ ] **J4.3 `getTypeInfo`** (18 cols, our own type codes) + empty `getImportedKeys`/
+                    `getExportedKeys` (the engine has no FK support at all — empty is the honest answer,
+                    not `nse`, since a pool iterating them must not blow up).
+              - [ ] **J4.4** — spec (`specs/scljet-jdbc.md` §DatabaseMetaData: move these out of the
+                    "deliberately NOT implemented" list, record both deviations) + CHANGELOG/SPRINT.
+              Gate: `sbt scljetJdbcPlugin/test` (29/29 today) + per-slice cross-checks vs `sqlite-jdbc`
+              where the reference is not buggy.
         - [ ] **ENGINE GAP found via a J2 test (for the `scljet-m3-writes` lane, NOT this one):**
               `INSERT INTO t SELECT …` does not parse ("expected VALUES"). Blocks testing the
               "INSERT affecting 0 rows generates no key" branch, and it is a real SQL hole.
