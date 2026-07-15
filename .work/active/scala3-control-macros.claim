@@ -1,6 +1,6 @@
 feature/scala3-control-macros 2026-07-15T04:07:46Z
 agent: codex-scala-control-macros
-heartbeat: 2026-07-15T04:29:38Z
+heartbeat: 2026-07-15T04:55:15Z
 status: in-progress
-done-so-far: macro specification committed; pure reset compiles and the exact typed direct.shift marker AST/ownership boundary is characterized
-next: implement bounded ANF/CPS lowering with exact symbol and Scope ownership checks, then run semantic and negative gates
+done-so-far: bounded macro, docs, spec verification, and bookkeeping committed; control leaf 80/80, direct lane 3/3, catalog 26/9 plus 9 negatives, affected conformance 5/5
+next: independent read-only review, then rebase, repeat critical gates, push origin/main, and release claim
