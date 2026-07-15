@@ -89,6 +89,7 @@ The current bindings are exact, not interchangeable labels:
 portable-vm   -> ssc-vm                 ready
 portable-asm  -> ssc-asm                ready
 scala-explicit -> scala3-control-test    ready
+scala-direct  -> scala3-control-macros-test pending until macro M1 lands
 all remaining mandatory lanes -> none   pending
 ```
 
@@ -109,7 +110,9 @@ run.sh --all-installed         run ready and installed optional lanes
 
 `SSC=/path/to/ssc` selects the standard launcher for portable lanes. Adapter ids
 are closed and validated in this version: `ssc-vm`, `ssc-asm`,
-`scala3-control-test`, and `none`. Adding an optional native/AOT adapter requires
+`scala3-control-test`, `scala3-control-macros-test`, and `none`. The direct adapter
+is frozen by [`scala3-control-macros.md`](scala3-control-macros.md) and remains
+pending until its owning suite is green. Adding an optional native/AOT adapter requires
 an explicit catalog-and-runner revision that names its executable environment
 variable; an adapter never falls back to another backend. Tool absence is
 `UNAVAILABLE`, not `PASS`.

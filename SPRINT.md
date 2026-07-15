@@ -237,6 +237,13 @@ every later compiler/kernel change re-runs the literal fixed point.
 - [ ] **scala3-control-macros** — publish `_3` inline macros for local direct-style `reset` regions;
   lower to the same explicit ABI and reject a `shift` crossing an untransformed callback/resource
   frame. Preserve exact source positions and make explicit-vs-macro differential tests mandatory.
+  Resume-cold M1 contract: [`specs/scala3-control-macros.md`](specs/scala3-control-macros.md).
+  Keep the existing `scala3ControlApi` / `scalascript-control_3` artifact; add
+  `scalascript.control.direct.{Scope,reset,shift}`, transform only bounded lexical ANF sequences into
+  explicit `reset`/`shift`/`flatMap`/`pure`, and fail closed with `UNMANAGED_CAPTURE`,
+  `CAPTURE_BARRIER`, or `DIRECT_STYLE_UNSUPPORTED`. Done-when the `scala-direct` adapter executes the
+  applicable shared vectors, the full control leaf/package/POM gates pass, and public ABI exposes no
+  quotes/compiler/runtime type.
 - [ ] **scala3-control-plugin** — publish a `CrossVersion.full` compiler plugin for cross-method CPS,
   managed callback propagation, effect metadata, and generated ABI entrypoints. Precompiled Scala/Java
   code remains callable but is a deterministic control-capture barrier while active on the stack.
