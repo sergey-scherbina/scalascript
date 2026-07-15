@@ -6,6 +6,7 @@ import scala.meta.*
 
 import scalascript.ast
 import scalascript.interop.descriptor.*
+import scalascript.parser.Parser
 import scalascript.transform.EffectAnalysis
 
 /** Strict declaration-only producer for the v3 managed API descriptor.
@@ -58,6 +59,12 @@ object PreBodyApiDescriptorProducer:
       blocks: Vector[ParsedDeclarationBlock]
   )
 
+  private final case class DeclarationWitness(
+      kind: String,
+      attributes: Vector[String],
+      members: Vector[DeclarationWitness] = Vector.empty
+  )
+
   private final case class EffectCandidate(
       owner: Vector[String],
       definition: Defn.Object
@@ -68,12 +75,17 @@ object PreBodyApiDescriptorProducer:
       owner: Vector[String]
   )
 
+  private final case class LocalIdentity(
+      stableId: String,
+      isPublic: Boolean
+  )
+
   private final case class ProjectionContext(
       moduleId: String,
       rootNamespace: Vector[String],
       prefix: Vector[String],
-      localTypeIds: Map[(Vector[String], String), String],
-      localEffectIds: Map[(Vector[String], String), String],
+      localTypes: Map[(Vector[String], String), LocalIdentity],
+      localEffects: Map[(Vector[String], String), LocalIdentity],
       localAliases: Map[String, LocalAlias],
       requiredTargets: Vector[String],
       effectHeaders: Map[(Vector[String], String), EffectHeader]
@@ -99,15 +111,15 @@ object PreBodyApiDescriptorProducer:
       requestedExports = module.manifest.map(_.exports).getOrElse(Nil)
       _ <- validateRequestedExports(allStats, requestedExports, rootNamespace)
       selectedStats = selectExports(allStats, requestedExports)
-      localTypeIds = collectLocalTypes(allStats, rootNamespace)
-      localEffectIds = collectLocalEffects(allStats, rootNamespace, effectHeaders)
+      localTypes = collectLocalTypes(allStats, rootNamespace)
+      localEffects = collectLocalEffects(allStats, rootNamespace, effectHeaders)
       localAliases = collectLocalAliases(allStats, rootNamespace, effectHeaders)
       context = ProjectionContext(
         moduleId = moduleId,
         rootNamespace = rootNamespace,
         prefix = rootNamespace,
-        localTypeIds = localTypeIds,
-        localEffectIds = localEffectIds,
+        localTypes = localTypes,
+        localEffects = localEffects,
         localAliases = localAliases,
         requiredTargets = module.manifest.map(_.targets.toVector).getOrElse(Vector.empty),
         effectHeaders = effectHeaders
@@ -128,10 +140,10 @@ object PreBodyApiDescriptorProducer:
       remaining match
         case Nil => Some(stats)
         case head :: tail =>
-          stats.collectFirst {
-            case obj: Defn.Object if obj.name.value == head =>
+          stats match
+            case List(obj: Defn.Object) if obj.name.value == head =>
               unwrapPackage(obj.templ.body.stats, tail)
-          }.flatten
+            case _ => None
 
     def statsFromTree(
         stats: List[Stat],
@@ -212,9 +224,10 @@ object PreBodyApiDescriptorProducer:
             block.copy(rawSource = Some(source))
           })
         case None => Right(sectionBlocks)
+      verifiedBlocks <- traverse(pairedBlocks)(verifyDeclarationCorrespondence)
     yield ParsedDeclarations(
-      stats = pairedBlocks.flatMap(_.stats),
-      blocks = pairedBlocks
+      stats = verifiedBlocks.flatMap(_.stats),
+      blocks = verifiedBlocks
     )
 
   private def retainedExecutableSources(document: ast.DocumentContent): Vector[String] =
@@ -228,6 +241,273 @@ object PreBodyApiDescriptorProducer:
       fromBlocks(section.blocks) ++ section.children.iterator.flatMap(fromSection).toVector
 
     fromBlocks(document.blocks) ++ document.sections.iterator.flatMap(fromSection).toVector
+
+  private def verifyDeclarationCorrespondence(
+      block: ParsedDeclarationBlock
+  ): Either[DescriptorError, ParsedDeclarationBlock] =
+    block.rawSource match
+      case None => Right(block)
+      case Some(source) =>
+        val reparsed = Parser.parseScalaSource(source).toRight(error(
+          "UNSUPPORTED_PUBLIC_DECLARATION",
+          block.path,
+          "retained executable source cannot be reparsed for declaration correspondence"
+        ))
+        reparsed.flatMap { node =>
+          val reparsedStats = node.tree match
+            case parsed: Source => Right(parsed.stats.toVector)
+            case parsed: Term.Block => Right(parsed.stats.toVector)
+            case other => Left(error(
+              "UNSUPPORTED_PUBLIC_DECLARATION",
+              block.path,
+              s"retained executable source reparsed as unsupported root ${other.productPrefix}"
+            ))
+          reparsedStats.flatMap { stats =>
+            val normalizedRetained = normalizeDeclarationStats(stats)
+            val normalizedStored = normalizeDeclarationStats(block.stats)
+            val retainedWitness = declarationWitnesses(normalizedRetained)
+            val storedWitness = declarationWitnesses(normalizedStored)
+            Either.cond(
+              retainedWitness == storedWitness,
+              block.copy(stats = normalizedStored),
+              error(
+                "UNSUPPORTED_PUBLIC_DECLARATION",
+                block.path,
+                "retained executable source declaration headers do not match the stored section AST"
+              )
+            )
+          }
+        }
+
+  private def normalizeDeclarationStats(stats: Vector[Stat]): Vector[Stat] =
+    Parser.desugarTypeLambdaAliases(Source(stats.toList)) match
+      case normalized: Source => normalized.stats.toVector
+      case _ => stats
+
+  private def declarationWitnesses(stats: Iterable[Stat]): Vector[DeclarationWitness] =
+    stats.iterator.flatMap(declarationWitness).toVector
+
+  private def declarationWitness(stat: Stat): Option[DeclarationWitness] = stat match
+    case definition: Defn.Def => Some(DeclarationWitness(
+      kind = "def",
+      attributes = Vector(
+        modifiersWitness(definition.mods),
+        definition.name.value,
+        parameterGroupsWitness(definition.paramClauseGroups),
+        definition.decltpe.map(_.structure).getOrElse(""),
+        EffectAnalysis.isEffectOpDef(definition.body).toString
+      )
+    ))
+    case definition: Defn.Val => Some(DeclarationWitness(
+      kind = "val",
+      attributes = Vector(
+        modifiersWitness(definition.mods),
+        encodeWitnessParts(definition.pats.map(_.structure)),
+        definition.decltpe.map(_.structure).getOrElse(""),
+        isMultiShotMarker(definition).toString
+      )
+    ))
+    case definition: Defn.Var => Some(DeclarationWitness(
+      kind = "var",
+      attributes = Vector(
+        modifiersWitness(definition.mods),
+        encodeWitnessParts(definition.pats.map(_.structure)),
+        definition.decltpe.map(_.structure).getOrElse("")
+      )
+    ))
+    case definition: Defn.Class => Some(DeclarationWitness(
+      kind = "class",
+      attributes = nominalWitness(
+        definition.mods,
+        definition.name.value,
+        definition.tparamClause.values,
+        definition.ctor,
+        definition.templ
+      ),
+      members = declarationWitnesses(definition.templ.body.stats)
+    ))
+    case definition: Defn.Trait => Some(DeclarationWitness(
+      kind = "trait",
+      attributes = nominalWitness(
+        definition.mods,
+        definition.name.value,
+        definition.tparamClause.values,
+        definition.ctor,
+        definition.templ
+      ),
+      members = declarationWitnesses(definition.templ.body.stats)
+    ))
+    case definition: Defn.Enum => Some(DeclarationWitness(
+      kind = "enum",
+      attributes = nominalWitness(
+        definition.mods,
+        definition.name.value,
+        definition.tparamClause.values,
+        definition.ctor,
+        definition.templ
+      ),
+      members = declarationWitnesses(definition.templ.body.stats)
+    ))
+    case definition: Defn.Object => Some(DeclarationWitness(
+      kind = "object",
+      attributes = Vector(
+        modifiersWitness(definition.mods),
+        definition.name.value,
+        templateHeaderWitness(definition.templ)
+      ),
+      members = declarationWitnesses(definition.templ.body.stats)
+    ))
+    case definition: Defn.Type => Some(DeclarationWitness(
+      kind = "type",
+      attributes = Vector(
+        modifiersWitness(definition.mods),
+        definition.name.value,
+        typeParametersWitness(definition.tparamClause.values),
+        definition.body.structure,
+        definition.bounds.structure
+      )
+    ))
+    case definition: Defn.EnumCase => Some(DeclarationWitness(
+      kind = "enum-case",
+      attributes = Vector(
+        modifiersWitness(definition.mods),
+        definition.name.value,
+        typeParametersWitness(definition.tparamClause.values),
+        constructorWitness(definition.ctor),
+        encodeWitnessParts(definition.inits.map(initWitness))
+      )
+    ))
+    case definition: Defn.RepeatedEnumCase => Some(DeclarationWitness(
+      kind = "repeated-enum-case",
+      attributes = Vector(
+        modifiersWitness(definition.mods),
+        encodeWitnessParts(definition.cases.map(_.value))
+      )
+    ))
+    case definition: Defn.Given => Some(DeclarationWitness(
+      kind = definition.productPrefix,
+      attributes = Vector(
+        modifiersWitness(definition.mods),
+        definition.name.value,
+        parameterGroupsWitness(definition.paramClauseGroups),
+        templateHeaderWitness(definition.templ)
+      ),
+      members = declarationWitnesses(definition.templ.body.stats)
+    ))
+    case definition: Defn.GivenAlias => Some(DeclarationWitness(
+      kind = definition.productPrefix,
+      attributes = Vector(
+        modifiersWitness(definition.mods),
+        definition.name.value,
+        parameterGroupsWitness(definition.paramClauseGroups),
+        definition.decltpe.structure
+      )
+    ))
+    case definition: Defn.ExtensionGroup => Some(DeclarationWitness(
+      kind = definition.productPrefix,
+      attributes = Vector(
+        parameterGroupsWitness(definition.paramClauseGroup.toVector)
+      ),
+      members = nestedDeclarationWitnesses(definition.body)
+    ))
+    case definition: Defn.Macro => Some(DeclarationWitness(
+      kind = definition.productPrefix,
+      attributes = Vector(
+        modifiersWitness(definition.mods),
+        definition.name.value,
+        parameterGroupsWitness(definition.paramClauseGroups),
+        definition.decltpe.map(_.structure).getOrElse("")
+      )
+    ))
+    case declaration: Decl => Some(DeclarationWitness(
+      kind = declaration.productPrefix,
+      attributes = Vector(declaration.structure)
+    ))
+    case exported: Export => Some(DeclarationWitness(
+      kind = "export",
+      attributes = Vector(exported.structure)
+    ))
+    case definition: Defn => Some(DeclarationWitness(
+      kind = definition.productPrefix,
+      attributes = Vector(definition.structure)
+    ))
+    case _ => None
+
+  private def nestedDeclarationWitnesses(stat: Stat): Vector[DeclarationWitness] = stat match
+    case block: Term.Block => declarationWitnesses(block.stats)
+    case other => declarationWitness(other).toVector
+
+  private def nominalWitness(
+      mods: List[Mod],
+      name: String,
+      typeParameters: Iterable[Type.Param],
+      constructor: Ctor.Primary,
+      template: Template
+  ): Vector[String] = Vector(
+    modifiersWitness(mods),
+    name,
+    typeParametersWitness(typeParameters),
+    constructorWitness(constructor),
+    templateHeaderWitness(template)
+  )
+
+  private def constructorWitness(constructor: Ctor.Primary): String =
+    encodeWitnessParts(Vector(
+      modifiersWitness(constructor.mods),
+      parameterClausesWitness(constructor.paramClauses)
+    ))
+
+  private def parameterGroupsWitness(groups: Iterable[Member.ParamClauseGroup]): String =
+    encodeWitnessParts(groups.map { group =>
+      encodeWitnessParts(Vector(
+        typeParametersWitness(group.tparamClause.values),
+        parameterClausesWitness(group.paramClauses)
+      ))
+    })
+
+  private def parameterClausesWitness(clauses: Iterable[Term.ParamClause]): String =
+    encodeWitnessParts(clauses.map { clause =>
+      encodeWitnessParts(Vector(
+        clause.mod.map(_.structure).getOrElse(""),
+        encodeWitnessParts(clause.values.map(parameterWitness))
+      ))
+    })
+
+  private def parameterWitness(parameter: Term.Param): String =
+    encodeWitnessParts(Vector(
+      modifiersWitness(parameter.mods),
+      parameter.name.value,
+      parameter.decltpe.map(_.structure).getOrElse(""),
+      parameter.default.nonEmpty.toString
+    ))
+
+  private def typeParametersWitness(parameters: Iterable[Type.Param]): String =
+    encodeWitnessParts(parameters.map { parameter =>
+      encodeWitnessParts(Vector(
+        modifiersWitness(parameter.mods),
+        parameter.name.value,
+        typeParametersWitness(parameter.tparamClause.values),
+        parameter.bounds.structure
+      ))
+    })
+
+  private def templateHeaderWitness(template: Template): String =
+    encodeWitnessParts(Vector(
+      encodeWitnessParts(template.inits.map(initWitness)),
+      template.body.selfOpt.map(_.structure).getOrElse("")
+    ))
+
+  private def initWitness(init: Init): String =
+    encodeWitnessParts(Vector(
+      init.tpe.structure,
+      encodeWitnessParts(init.argClauses.map(clause => clause.values.size.toString))
+    ))
+
+  private def modifiersWitness(mods: Iterable[Mod]): String =
+    encodeWitnessParts(mods.map(_.structure))
+
+  private def encodeWitnessParts(parts: Iterable[String]): String =
+    parts.iterator.map(part => s"${part.length}:$part").mkString
 
   private def selectExports(stats: Vector[Stat], requested: List[String]): Vector[Stat] =
     val allowed = requested.toSet
@@ -282,47 +562,60 @@ object PreBodyApiDescriptorProducer:
   private def collectLocalTypes(
       stats: Vector[Stat],
       prefix: Vector[String]
-  ): Map[(Vector[String], String), String] =
-    val builder = Map.newBuilder[(Vector[String], String), String]
+  ): Map[(Vector[String], String), LocalIdentity] =
+    val builder = Map.newBuilder[(Vector[String], String), LocalIdentity]
 
-    def visit(items: Iterable[Stat], owner: Vector[String]): Unit =
+    def add(definition: Stat.WithMods & Member, owner: Vector[String], name: String, ownerIsPublic: Boolean): Unit =
+      val stableId = (owner :+ name).mkString(".")
+      builder += (owner -> name) -> LocalIdentity(stableId, ownerIsPublic && isPublic(definition))
+
+    def visit(items: Iterable[Stat], owner: Vector[String], ownerIsPublic: Boolean): Unit =
       items.foreach {
-        case definition: Defn.Class if isPublic(definition) =>
-          builder += (owner -> definition.name.value) -> (owner :+ definition.name.value).mkString(".")
-        case definition: Defn.Trait if isPublic(definition) =>
-          builder += (owner -> definition.name.value) -> (owner :+ definition.name.value).mkString(".")
-        case definition: Defn.Enum if isPublic(definition) =>
-          builder += (owner -> definition.name.value) -> (owner :+ definition.name.value).mkString(".")
-        case definition: Defn.Type if isPublic(definition) =>
-          builder += (owner -> definition.name.value) -> (owner :+ definition.name.value).mkString(".")
-        case definition: Defn.Object if isPublic(definition) =>
+        case definition: Defn.Class =>
+          add(definition, owner, definition.name.value, ownerIsPublic)
+        case definition: Defn.Trait =>
+          add(definition, owner, definition.name.value, ownerIsPublic)
+        case definition: Defn.Enum =>
+          add(definition, owner, definition.name.value, ownerIsPublic)
+        case definition: Defn.Type =>
+          add(definition, owner, definition.name.value, ownerIsPublic)
+        case definition: Defn.Object =>
           val nestedOwner = owner :+ definition.name.value
-          visit(definition.templ.body.stats, nestedOwner)
+          visit(
+            definition.templ.body.stats,
+            nestedOwner,
+            ownerIsPublic && isPublic(definition)
+          )
         case _ => ()
       }
 
-    visit(stats, prefix)
+    visit(stats, prefix, ownerIsPublic = true)
     builder.result()
 
   private def collectLocalEffects(
       stats: Vector[Stat],
       prefix: Vector[String],
       effectHeaders: Map[(Vector[String], String), EffectHeader]
-  ): Map[(Vector[String], String), String] =
-    val builder = Map.newBuilder[(Vector[String], String), String]
+  ): Map[(Vector[String], String), LocalIdentity] =
+    val builder = Map.newBuilder[(Vector[String], String), LocalIdentity]
 
-    def visit(items: Iterable[Stat], owner: Vector[String]): Unit =
+    def visit(items: Iterable[Stat], owner: Vector[String], ownerIsPublic: Boolean): Unit =
       items.foreach {
-        case definition: Defn.Object if isPublic(definition) =>
+        case definition: Defn.Object =>
+          val definitionIsPublic = ownerIsPublic && isPublic(definition)
           if isEffectObject(definition) || effectHeaders.contains(owner -> definition.name.value) then
             builder += (owner -> definition.name.value) ->
-              (owner :+ definition.name.value).mkString(".")
+              LocalIdentity((owner :+ definition.name.value).mkString("."), definitionIsPublic)
           else
-            visit(definition.templ.body.stats, owner :+ definition.name.value)
+            visit(
+              definition.templ.body.stats,
+              owner :+ definition.name.value,
+              definitionIsPublic
+            )
         case _ => ()
       }
 
-    visit(stats, prefix)
+    visit(stats, prefix, ownerIsPublic = true)
     builder.result()
 
   private def collectLocalAliases(
@@ -564,8 +857,17 @@ object PreBodyApiDescriptorProducer:
   ): Either[DescriptorError, Vector[ApiSymbolDefinition]] = stat match
     case definition: Defn.Def =>
       projectFunction(definition, context, ApiSymbolKind.Function, None).map(Vector(_))
-    case definition: Defn.Val => projectValues(definition, context, mutable = false)
-    case definition: Defn.Var => projectValues(definition, context, mutable = true)
+    case definition: Defn.Val => projectValues(definition, context)
+    case definition: Defn.Var =>
+      val names = definition.pats.collect { case Pat.Var(name) => name.value }
+      val path = names match
+        case name :: Nil => symbolPath(context, name)
+        case _ => "$.symbols"
+      Left(error(
+        "UNSUPPORTED_PUBLIC_DECLARATION",
+        path,
+        "public mutable variables are not represented by descriptor v3"
+      ))
     case definition: Defn.Class => projectClass(definition, context)
     case definition: Defn.Trait => projectTrait(definition, context).map(Vector(_))
     case definition: Defn.Enum => projectEnum(definition, context)
@@ -644,19 +946,17 @@ object PreBodyApiDescriptorProducer:
     )
 
   private def projectValues(
-      definition: Defn.Val | Defn.Var,
-      context: ProjectionContext,
-      mutable: Boolean
+      definition: Defn.Val,
+      context: ProjectionContext
   ): Either[DescriptorError, Vector[ApiSymbolDefinition]] =
-    val (patterns, declaredType) = definition match
-      case value: Defn.Val => value.pats -> value.decltpe
-      case value: Defn.Var => value.pats -> value.decltpe
+    val patterns = definition.pats
+    val declaredType = definition.decltpe
     val names = patterns.collect { case Pat.Var(name) => name.value }.toVector
     if names.size != patterns.size then
       Left(error(
         "UNSUPPORTED_PUBLIC_DECLARATION",
         "$.symbols",
-        s"public ${if mutable then "var" else "val"} destructuring is not a stable managed ABI declaration"
+        "public val destructuring is not a stable managed ABI declaration"
       ))
     else
       traverse(names) { name =>
@@ -1048,6 +1348,10 @@ object PreBodyApiDescriptorProducer:
       yield projectedResult -> projectedEffects
     case ordinary => projectType(ordinary, binders, path, context).map(_ -> EffectRow.Pure)
 
+  private def isByteArgument(arguments: List[Type]): Boolean = arguments match
+    case List(Type.Name("Byte")) => true
+    case _ => false
+
   private def projectType(
       sourceType: Type,
       binders: BinderStack,
@@ -1056,8 +1360,14 @@ object PreBodyApiDescriptorProducer:
   ): Either[DescriptorError, AbiType] = sourceType match
     case Type.Name(name) => projectSimpleName(name, Vector.empty, binders, path, context)
     case Type.Apply.After_4_6_0(Type.Name("Array"), arguments)
-        if arguments.values.toList == List(Type.Name("Byte")) =>
-      Right(AbiType.Primitive(AbiPrimitive.Bytes))
+        if isByteArgument(arguments.values.toList) =>
+      resolveLocalTypeForAbi("Array", path, context).flatMap {
+        case None => Right(AbiType.Primitive(AbiPrimitive.Bytes))
+        case Some(stableId) =>
+          traverse(arguments.values.toVector.zipWithIndex) { case (argument, index) =>
+            projectType(argument, binders, s"$path.arguments[$index]", context)
+          }.map(projectedArguments => AbiType.Named(stableId, projectedArguments))
+      }
     case Type.Apply.After_4_6_0(Type.Name(name), arguments) =>
       for
         projectedArguments <- traverse(arguments.values.toVector.zipWithIndex) { case (argument, index) =>
@@ -1069,15 +1379,17 @@ object PreBodyApiDescriptorProducer:
       for
         stableName <- showTypePath(selected, path)
         _ <- rejectPlatformType(stableName, path)
+        resolved <- resolveSelectedLocalTypeForAbi(stableName, path, context)
         projectedArguments <- traverse(arguments.values.toVector.zipWithIndex) { case (argument, index) =>
           projectType(argument, binders, s"$path.arguments[$index]", context)
         }
-      yield AbiType.Named(resolveSelectedLocalType(stableName, context).getOrElse(normalizeRoot(stableName)), projectedArguments)
+      yield AbiType.Named(resolved.getOrElse(normalizeRoot(stableName)), projectedArguments)
     case selected: Type.Select =>
       for
         stableName <- showTypePath(selected, path)
         _ <- rejectPlatformType(stableName, path)
-      yield AbiType.Named(resolveSelectedLocalType(stableName, context).getOrElse(normalizeRoot(stableName)))
+        resolved <- resolveSelectedLocalTypeForAbi(stableName, path, context)
+      yield AbiType.Named(resolved.getOrElse(normalizeRoot(stableName)))
     case function: Type.Function =>
       for
         parameters <- traverse(function.paramClause.values.toVector.zipWithIndex) { case (parameter, index) =>
@@ -1147,48 +1459,48 @@ object PreBodyApiDescriptorProducer:
           s"higher-kinded parameter application $name[...] has no lossless v3 node"
         ))
       case Some(reference) => Right(AbiType.TypeParameter(reference))
-      case None if DynamicTypes.contains(name) =>
-        Left(error("DYNAMIC_PUBLIC_TYPE", path, s"dynamic type $name is not a managed public ABI"))
-      case None if UnsupportedNumericTypes.contains(name) =>
-        Left(error(
-          "UNSUPPORTED_NUMERIC_WIDTH",
-          path,
-          s"numeric type $name has no frozen descriptor v3 width"
-        ))
-      case None if arguments.isEmpty =>
-        name match
-          case "Unit" => Right(AbiType.Primitive(AbiPrimitive.Unit))
-          case "Boolean" => Right(AbiType.Primitive(AbiPrimitive.Boolean))
-          case "Int" => Right(AbiType.Primitive(AbiPrimitive.I32))
-          case "Long" => Right(AbiType.Primitive(AbiPrimitive.I64))
-          case "BigInt" => Right(AbiType.Primitive(AbiPrimitive.BigInt))
-          case "Double" => Right(AbiType.Primitive(AbiPrimitive.F64))
-          case "String" => Right(AbiType.Primitive(AbiPrimitive.String))
-          case "Bytes" => Right(AbiType.Primitive(AbiPrimitive.Bytes))
-          case "Char" => Right(AbiType.Primitive(AbiPrimitive.Char))
-          case "Nothing" | "Null" => Left(error(
-            "UNSUPPORTED_PUBLIC_TYPE",
-            path,
-            s"type $name has no descriptor v3 representation"
-          ))
-          case local if resolveLocalType(local, context).nonEmpty =>
-            Right(AbiType.Named(resolveLocalType(local, context).get))
-          case standard if StandardTypes.contains(standard) =>
-            Right(AbiType.Named(StandardTypes(standard)))
-          case local => Left(error(
-            "AMBIGUOUS_NAMED_TYPE",
-            path,
-            s"bare type $local is neither bound, local, nor a frozen standard type"
-          ))
       case None =>
-        resolveLocalType(name, context)
-          .orElse(StandardTypes.get(name))
-          .map(id => AbiType.Named(id, arguments))
-          .toRight(error(
-            "AMBIGUOUS_NAMED_TYPE",
-            path,
-            s"bare type constructor $name is neither local nor a frozen standard type"
-          ))
+        resolveLocalTypeForAbi(name, path, context).flatMap {
+          case Some(stableId) => Right(AbiType.Named(stableId, arguments))
+          case None if DynamicTypes.contains(name) =>
+            Left(error("DYNAMIC_PUBLIC_TYPE", path, s"dynamic type $name is not a managed public ABI"))
+          case None if UnsupportedNumericTypes.contains(name) =>
+            Left(error(
+              "UNSUPPORTED_NUMERIC_WIDTH",
+              path,
+              s"numeric type $name has no frozen descriptor v3 width"
+            ))
+          case None if arguments.isEmpty => name match
+            case "Unit" => Right(AbiType.Primitive(AbiPrimitive.Unit))
+            case "Boolean" => Right(AbiType.Primitive(AbiPrimitive.Boolean))
+            case "Int" => Right(AbiType.Primitive(AbiPrimitive.I32))
+            case "Long" => Right(AbiType.Primitive(AbiPrimitive.I64))
+            case "BigInt" => Right(AbiType.Primitive(AbiPrimitive.BigInt))
+            case "Double" => Right(AbiType.Primitive(AbiPrimitive.F64))
+            case "String" => Right(AbiType.Primitive(AbiPrimitive.String))
+            case "Bytes" => Right(AbiType.Primitive(AbiPrimitive.Bytes))
+            case "Char" => Right(AbiType.Primitive(AbiPrimitive.Char))
+            case "Nothing" | "Null" => Left(error(
+              "UNSUPPORTED_PUBLIC_TYPE",
+              path,
+              s"type $name has no descriptor v3 representation"
+            ))
+            case standard if StandardTypes.contains(standard) =>
+              Right(AbiType.Named(StandardTypes(standard)))
+            case local => Left(error(
+              "AMBIGUOUS_NAMED_TYPE",
+              path,
+              s"bare type $local is neither bound, local, nor a frozen standard type"
+            ))
+          case None =>
+            StandardTypes.get(name)
+              .map(id => AbiType.Named(id, arguments))
+              .toRight(error(
+                "AMBIGUOUS_NAMED_TYPE",
+                path,
+                s"bare type constructor $name is neither local nor a frozen standard type"
+              ))
+        }
 
   private def projectEffectRow(
       sourceType: Type,
@@ -1207,17 +1519,18 @@ object PreBodyApiDescriptorProducer:
     case Type.Name(name) =>
       resolveBinder(name, binders) match
         case Some(reference) => Right(EffectRow(openTail = Some(reference)))
-        case None => resolveLocalEffect(name, context) match
+        case None => resolveLocalEffectForAbi(name, path, context).flatMap {
           case Some(id) =>
             validateLocalEffectUse(id, hasTypeArguments = false, path, context)
               .map(stableId => EffectRow(Vector(EffectRef(stableId))))
           case None => Left(error(
-              "INVALID_EFFECT_ROW",
-              path,
-              s"bare effect $name is neither a bound row tail nor a local declared effect"
-            ))
+            "INVALID_EFFECT_ROW",
+            path,
+            s"bare effect $name is neither a bound row tail nor a local declared effect"
+          ))
+        }
     case Type.Apply.After_4_6_0(Type.Name(name), arguments) =>
-      resolveLocalEffect(name, context) match
+      resolveLocalEffectForAbi(name, path, context).flatMap {
         case None => Left(error(
           "INVALID_EFFECT_ROW",
           path,
@@ -1230,11 +1543,12 @@ object PreBodyApiDescriptorProducer:
                 projectType(argument, binders, s"$path.typeArguments[$index]", context)
               }.map(args => EffectRow(Vector(EffectRef(stableId, args))))
             }
+      }
     case selected: Type.Select =>
       for
         id <- showTypePath(selected, path)
         _ <- rejectPlatformType(id, path)
-        resolved = resolveSelectedLocalEffect(id, context)
+        resolved <- resolveSelectedLocalEffectForAbi(id, path, context)
         stableId <- resolved match
           case Some(localId) => validateLocalEffectUse(localId, hasTypeArguments = false, path, context)
           case None => Right(normalizeRoot(id))
@@ -1243,7 +1557,7 @@ object PreBodyApiDescriptorProducer:
       for
         id <- showTypePath(selected, path)
         _ <- rejectPlatformType(id, path)
-        resolved = resolveSelectedLocalEffect(id, context)
+        resolved <- resolveSelectedLocalEffectForAbi(id, path, context)
         stableId <- resolved match
           case Some(localId) =>
             validateLocalEffectUse(localId, hasTypeArguments = arguments.values.nonEmpty, path, context)
@@ -1325,26 +1639,38 @@ object PreBodyApiDescriptorProducer:
     case Type.Name(name) if substitutions.contains(name) =>
       isCallbackType(substitutions(name), substitutions - name, seenAliases, path, context)
     case Type.Name(name) =>
-      resolveLocalType(name, context).flatMap(context.localAliases.get) match
-        case Some(alias) => expandAliasCallback(alias, Vector.empty, substitutions, seenAliases, path, context)
-        case None => Right(false)
-    case Type.Apply.After_4_6_0(Type.Name(name), arguments) =>
-      resolveLocalType(name, context).flatMap(context.localAliases.get) match
-        case Some(alias) =>
-          expandAliasCallback(alias, arguments.values.toVector, substitutions, seenAliases, path, context)
-        case None => Right(false)
-    case selected: Type.Select =>
-      showTypePath(selected, path).flatMap { selectedName =>
-        resolveSelectedLocalType(selectedName, context).flatMap(context.localAliases.get) match
+      resolveLocalTypeForAbi(name, path, context).flatMap {
+        case Some(stableId) => context.localAliases.get(stableId) match
           case Some(alias) => expandAliasCallback(alias, Vector.empty, substitutions, seenAliases, path, context)
           case None => Right(false)
+        case None => Right(false)
       }
-    case Type.Apply.After_4_6_0(selected: Type.Select, arguments) =>
-      showTypePath(selected, path).flatMap { selectedName =>
-        resolveSelectedLocalType(selectedName, context).flatMap(context.localAliases.get) match
+    case Type.Apply.After_4_6_0(Type.Name(name), arguments) =>
+      resolveLocalTypeForAbi(name, path, context).flatMap {
+        case Some(stableId) => context.localAliases.get(stableId) match
           case Some(alias) =>
             expandAliasCallback(alias, arguments.values.toVector, substitutions, seenAliases, path, context)
           case None => Right(false)
+        case None => Right(false)
+      }
+    case selected: Type.Select =>
+      showTypePath(selected, path).flatMap { selectedName =>
+        resolveSelectedLocalTypeForAbi(selectedName, path, context).flatMap {
+          case Some(stableId) => context.localAliases.get(stableId) match
+            case Some(alias) => expandAliasCallback(alias, Vector.empty, substitutions, seenAliases, path, context)
+            case None => Right(false)
+          case None => Right(false)
+        }
+      }
+    case Type.Apply.After_4_6_0(selected: Type.Select, arguments) =>
+      showTypePath(selected, path).flatMap { selectedName =>
+        resolveSelectedLocalTypeForAbi(selectedName, path, context).flatMap {
+          case Some(stableId) => context.localAliases.get(stableId) match
+            case Some(alias) =>
+              expandAliasCallback(alias, arguments.values.toVector, substitutions, seenAliases, path, context)
+            case None => Right(false)
+          case None => Right(false)
+        }
       }
     case _ => Right(false)
 
@@ -1423,11 +1749,72 @@ object PreBodyApiDescriptorProducer:
       }
     }.toSeq.headOption
 
-  private def resolveLocalType(name: String, context: ProjectionContext): Option[String] =
-    resolveLocal(name, context.prefix, context.rootNamespace, context.localTypeIds)
+  private def resolveLocalTypeForAbi(
+      name: String,
+      path: String,
+      context: ProjectionContext
+  ): Either[DescriptorError, Option[String]] =
+    resolveLocalIdentityForAbi(
+      resolveLocal(name, context.prefix, context.rootNamespace, context.localTypes),
+      path,
+      "type"
+    )
 
-  private def resolveLocalEffect(name: String, context: ProjectionContext): Option[String] =
-    resolveLocal(name, context.prefix, context.rootNamespace, context.localEffectIds)
+  private def resolveSelectedLocalTypeForAbi(
+      name: String,
+      path: String,
+      context: ProjectionContext
+  ): Either[DescriptorError, Option[String]] =
+    resolveLocalIdentityForAbi(
+      resolveSelectedLocal(name, context, context.localTypes),
+      path,
+      "type"
+    )
+
+  private def resolveLocalEffectForAbi(
+      name: String,
+      path: String,
+      context: ProjectionContext
+  ): Either[DescriptorError, Option[String]] =
+    resolveEffectIdentityForAbi(
+      resolveLocal(name, context.prefix, context.rootNamespace, context.localEffects),
+      path
+    )
+
+  private def resolveSelectedLocalEffectForAbi(
+      name: String,
+      path: String,
+      context: ProjectionContext
+  ): Either[DescriptorError, Option[String]] =
+    resolveEffectIdentityForAbi(
+      resolveSelectedLocal(name, context, context.localEffects),
+      path
+    )
+
+  private def resolveLocalIdentityForAbi(
+      identity: Option[LocalIdentity],
+      path: String,
+      kind: String
+  ): Either[DescriptorError, Option[String]] = identity match
+    case Some(local) if !local.isPublic => Left(error(
+      "UNSUPPORTED_PUBLIC_TYPE",
+      path,
+      s"known local $kind ${local.stableId} is not public in this managed ABI"
+    ))
+    case Some(local) => Right(Some(local.stableId))
+    case None => Right(None)
+
+  private def resolveEffectIdentityForAbi(
+      identity: Option[LocalIdentity],
+      path: String
+  ): Either[DescriptorError, Option[String]] = identity match
+    case Some(local) if !local.isPublic => Left(error(
+      "INVALID_EFFECT_ROW",
+      path,
+      s"known local effect ${local.stableId} is not public in this managed ABI"
+    ))
+    case Some(local) => Right(Some(local.stableId))
+    case None => Right(None)
 
   private def validateLocalEffectUse(
       stableId: String,
@@ -1456,28 +1843,16 @@ object PreBodyApiDescriptorProducer:
       ))
       case Some(_) => Right(stableId)
 
-  private def resolveSelectedLocalType(
-      name: String,
-      context: ProjectionContext
-  ): Option[String] =
-    resolveSelectedLocal(name, context, context.localTypeIds)
-
-  private def resolveSelectedLocalEffect(
-      name: String,
-      context: ProjectionContext
-  ): Option[String] =
-    resolveSelectedLocal(name, context, context.localEffectIds)
-
   private def resolveSelectedLocal(
       rawName: String,
       context: ProjectionContext,
-      values: Map[(Vector[String], String), String]
-  ): Option[String] =
+      values: Map[(Vector[String], String), LocalIdentity]
+  ): Option[LocalIdentity] =
     val absolute = rawName.startsWith("_root_.")
     val name = normalizeRoot(rawName)
-    if absolute then values.valuesIterator.find(_ == name)
+    if absolute then values.valuesIterator.find(_.stableId == name)
     else
-      values.valuesIterator.find(_ == name).orElse {
+      values.valuesIterator.find(_.stableId == name).orElse {
         val segments = name.split('.').toVector.filter(_.nonEmpty)
         if segments.size < 2 then None
         else
@@ -1494,8 +1869,8 @@ object PreBodyApiDescriptorProducer:
       name: String,
       prefix: Vector[String],
       root: Vector[String],
-      values: Map[(Vector[String], String), String]
-  ): Option[String] =
+      values: Map[(Vector[String], String), LocalIdentity]
+  ): Option[LocalIdentity] =
     (prefix.length to root.length by -1).iterator
       .map(size => prefix.take(size) -> name)
       .flatMap(values.get)

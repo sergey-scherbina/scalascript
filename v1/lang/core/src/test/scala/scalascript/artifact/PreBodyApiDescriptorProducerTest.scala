@@ -3,6 +3,7 @@ package scalascript.artifact
 import java.nio.charset.StandardCharsets
 
 import org.scalatest.funsuite.AnyFunSuite
+import scala.meta.Source
 
 import scalascript.ast.{ContentBlock, EmbeddedKind}
 import scalascript.interop.descriptor.*
@@ -430,6 +431,43 @@ class PreBodyApiDescriptorProducerTest extends AnyFunSuite:
     assert(iface.scalaFacade.keySet == Set("org.acme.publicApi"))
     assert(!iface.exports.exists(_.name == "helper"))
 
+  test("package-wrapped placeholder aliases use the same normalized declaration shape"):
+    val input = source(
+      "type IntKey = Map[Int, _]",
+      List("IntKey")
+    )
+    val alias = descriptor(input).symbols.head.definition
+
+    assert(alias.qualifiedName == "demo.api.IntKey")
+    assert(alias.resultType.isInstanceOf[AbiType.TypeLambda])
+
+  test("a package wrapper with sibling AST declarations fails closed"):
+    val input = source(
+      "def stable(value: Int): Long = value.toLong",
+      List("stable")
+    )
+    val parsed = parse(input)
+    val changedSections = parsed.sections.map { section =>
+      section.copy(content = section.content.map {
+        case block: scalascript.ast.Content.CodeBlock =>
+          block.tree match
+            case Some(node) => node.tree match
+              case parsedSource: Source =>
+                block.copy(tree = Some(scalascript.ast.ScalaNode(
+                  Source(parsedSource.stats ++ parsedSource.stats)
+                )))
+              case _ => block
+            case None => block
+        case other => other
+      })
+    }
+    val error = failure(PreBodyApiDescriptorProducer.descriptor(
+      parsed.copy(sections = changedSections)
+    ))
+
+    assert(error.code == "UNSUPPORTED_PUBLIC_DECLARATION")
+    assert(error.path.startsWith("$.sections["))
+
   test("effect header evidence is scoped to executable blocks and missing erased evidence fails closed"):
     val input =
       """---
@@ -636,11 +674,88 @@ class PreBodyApiDescriptorProducerTest extends AnyFunSuite:
     assert(error.code == "UNSUPPORTED_PUBLIC_DECLARATION")
     assert(error.path.startsWith("$.sections["))
 
+  test("retained body-only source changes may reuse the same declaration AST"):
+    val input = source(
+      """val seed: Long = 1L
+        |def stable(value: Int, delta: Long = 1L): Long = value.toLong + delta
+        |""".stripMargin,
+      List("seed", "stable")
+    )
+    val parsed = parse(input)
+    val expected = descriptor(input)
+    val document = parsed.document.getOrElse(fail("expected retained document content"))
+    val changedSections = document.sections.map { section =>
+      section.copy(blocks = section.blocks.map {
+        case ContentBlock.Embedded(lang, _, EmbeddedKind.Executable, data, attrs)
+            if scalascript.ast.Lang.isParseable(lang) =>
+          ContentBlock.Embedded(
+            lang,
+            """val seed: Long = 999L
+              |def stable(value: Int, delta: Long = 999L): Long = value.toLong + delta + 999L
+              |""".stripMargin,
+            EmbeddedKind.Executable,
+            data,
+            attrs
+          )
+        case other => other
+      })
+    }
+    val changed = right(PreBodyApiDescriptorProducer.descriptor(
+      parsed.copy(document = Some(document.copy(sections = changedSections)))
+    ))
+
+    assert(changed == expected)
+
+  test("unsupported definition headers cannot hide behind a product-only witness"):
+    val input = source(
+      """given helper: Int = 1
+        |def stable(value: Int): Long = value.toLong
+        |""".stripMargin,
+      List("stable")
+    )
+    val parsed = parse(input)
+    val document = parsed.document.getOrElse(fail("expected retained document content"))
+    val changedSections = document.sections.map { section =>
+      section.copy(blocks = section.blocks.map {
+        case ContentBlock.Embedded(lang, _, EmbeddedKind.Executable, data, attrs)
+            if scalascript.ast.Lang.isParseable(lang) =>
+          ContentBlock.Embedded(
+            lang,
+            """given helper: Long = 1L
+              |def stable(value: Int): Long = value.toLong
+              |""".stripMargin,
+            EmbeddedKind.Executable,
+            data,
+            attrs
+          )
+        case other => other
+      })
+    }
+    val error = failure(PreBodyApiDescriptorProducer.descriptor(
+      parsed.copy(document = Some(document.copy(sections = changedSections)))
+    ))
+
+    assert(error.code == "UNSUPPORTED_PUBLIC_DECLARATION")
+    assert(error.path.startsWith("$.sections["))
+
   test("a type under a private local owner cannot fall back to an external ABI name"):
     val input = source(
       """private object Hidden:
         |  type T = Int
         |def leak(value: Hidden.T): Hidden.T = value
+        |""".stripMargin,
+      List("leak")
+    )
+    val error = failure(PreBodyApiDescriptorProducer.descriptor(parse(input)))
+
+    assert(error.code == "UNSUPPORTED_PUBLIC_TYPE")
+    assert(error.path == "$.symbols[demo.api.leak].parameterLists[0].parameters[0].tpe")
+
+  test("an absolute type under a private local owner cannot fall back to an external ABI name"):
+    val input = source(
+      """private object Hidden:
+        |  type T = Int
+        |def leak(value: _root_.demo.api.Hidden.T): Int = 0
         |""".stripMargin,
       List("leak")
     )
@@ -661,6 +776,61 @@ class PreBodyApiDescriptorProducerTest extends AnyFunSuite:
 
     assert(error.code == "UNSUPPORTED_PUBLIC_TYPE")
     assert(error.path == "$.symbols[demo.api.run].parameterLists[0].parameters[0].tpe")
+
+  test("a public alias cannot hide an internal callback alias from policy classification"):
+    val input = source(
+      """object Callbacks:
+        |  @internal type Hidden = Int => Long
+        |type PublicCallback = Callbacks.Hidden
+        |def run(callback: PublicCallback): Long = 0L
+        |""".stripMargin,
+      List("run")
+    )
+    val error = failure(PreBodyApiDescriptorProducer.descriptor(parse(input)))
+
+    assert(error.code == "UNSUPPORTED_PUBLIC_TYPE")
+    assert(error.path == "$.symbols[demo.api.run].parameterLists[0].parameters[0].tpe")
+
+  test("a non-public local Array cannot bypass visibility through the Bytes fast path"):
+    val input = source(
+      """@internal type Array[A] = List[A]
+        |def leak(value: Array[Byte]): Bytes = ???
+        |""".stripMargin,
+      List("leak")
+    )
+    val error = failure(PreBodyApiDescriptorProducer.descriptor(parse(input)))
+
+    assert(error.code == "UNSUPPORTED_PUBLIC_TYPE")
+    assert(error.path == "$.symbols[demo.api.leak].parameterLists[0].parameters[0].tpe")
+
+  test("a public local Array follows ordinary lexical constructor projection"):
+    val input = source(
+      """type Byte = Int
+        |type Array[A] = List[A]
+        |def retain(value: Array[Byte]): Int = 0
+        |""".stripMargin,
+      List("retain")
+    )
+    val definition = descriptor(input).symbols.head.definition
+
+    assert(definition.parameterLists.head.parameters.head.tpe == AbiType.Named(
+      "demo.api.Array",
+      Vector(AbiType.Named("demo.api.Byte"))
+    ))
+
+  test("a private local effect cannot fall back to an external effect-row id"):
+    val input = source(
+      """private object Hidden:
+        |  effect Read:
+        |    def get(): Int
+        |def load(): Int ! Hidden.Read = 0
+        |""".stripMargin,
+      List("load")
+    )
+    val error = failure(PreBodyApiDescriptorProducer.descriptor(parse(input)))
+
+    assert(error.code == "INVALID_EFFECT_ROW")
+    assert(error.path == "$.symbols[demo.api.load].resultType.effects")
 
   test("selected mutable vars reject until descriptor v3 represents mutability"):
     val immutable = descriptor(source("val current: Int = 1", List("current")))
