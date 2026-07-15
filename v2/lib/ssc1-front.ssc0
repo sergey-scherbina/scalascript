@@ -569,6 +569,11 @@ def patternTypeHead = (toks) =>
 -- Pair("__nodflt__", "") sentinel. Constructors share the same registry.
 def paramDefaultsCell = #cell.new(Nil)
 def funcDefaultsCell  = #cell.new(Nil)
+-- FIRST parameter list's positional defaults for a CURRIED def (name → [dflt…]).
+-- The lowerer's curry-collapse fills these when the first clause is under-applied
+-- (e.g. `hstack()(kids)` where `def hstack(gap=0, wrap=false)(children*)`): without
+-- it the children shift into the first list's slots (a kid lands in `wrap: Boolean`).
+def firstListDfltsCell = #cell.new(Nil)
 -- Names of defs whose LAST parameter is a repeated (vararg) `T*` param. ssc1-lower
 -- reads it (same self-hosted process) to PACK a call's trailing arguments into a
 -- single Cons-list, since the def body binds that param as one list value
@@ -651,6 +656,16 @@ def registerParamDflts = (name, params) =>
     #cell.set(funcDefaultsCell,
       Cons(Pair(name, Pair(params, positionalDflts(params, dflts))),
         #cell.get(funcDefaultsCell)))
+  else 0
+-- Register the FIRST clause's positional defaults, but only for a curried def
+-- (a non-empty second clause) whose first clause actually has a default.
+def registerFirstListDflts = (name, firstParams, curried) =>
+  if curried then
+    let dflts = #cell.get(paramDefaultsCell) in
+    if anyDflt(firstParams, dflts) then
+      #cell.set(firstListDfltsCell,
+        Cons(Pair(name, positionalDflts(firstParams, dflts)), #cell.get(firstListDfltsCell)))
+    else 0
   else 0
 
 -- ── Parameter list parser ─────────────────────────────────────────────────────
@@ -1721,6 +1736,10 @@ def parseDef = (toks) =>
   -- are not part of the source-call arity/default registry.
   let callParams = append(params, prV(rp2)) in
   let _reg = registerParamDflts(name, callParams) in
+  -- Curried = a non-empty SECOND clause; snapshot the first clause's defaults so the
+  -- lowerer's curry-collapse can fill them when the first clause is called empty.
+  let _regFirst = registerFirstListDflts(name, params,
+    match prV(rp2) { case Nil => false case _ => true }) in
   -- Register a trailing-vararg def so the lowerer packs its call-site trailing args.
   let _vreg = if #cell.get(lastParamVarargCell) then
                 #cell.set(varargDefsCell, Cons(name, #cell.get(varargDefsCell)))

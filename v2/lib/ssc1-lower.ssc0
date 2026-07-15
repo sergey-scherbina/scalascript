@@ -1767,6 +1767,28 @@ def allDfltReal = (ds) =>
     case Nil => true
     case Cons(d, rest) => if dfltIsNone(d) then false else allDfltReal(rest)
   }
+-- Curry-collapse helper: when a curried def's FIRST clause is under-applied
+-- (`hstack()(kids)`), fill that clause's defaults so a later clause's args don't
+-- shift into it. Only fills when every missing first-clause param has a real
+-- default (else it's a genuine required-arg error, left as-is).
+def firstListDfltsLookup = (nm) =>
+  let rec go = (reg) =>
+    match reg {
+      case Nil => Pair("__none__", Nil)
+      case Cons(h, t) =>
+        match h { case Pair(fnm, ds) =>
+          if #seq(fnm, nm) then Pair("__some__", ds) else go(t) }
+    } in
+  go(#cell.get(firstListDfltsCell))
+def padFirstClauseDflts = (name, innerArgs) =>
+  match firstListDfltsLookup(name) {
+    case Pair(found, firstDflts) =>
+      if #seq(found, "__some__") then
+        let missing = dropL(lenL(innerArgs), firstDflts) in
+        if allDfltReal(missing) then append(innerArgs, resolveDfltTail(missing))
+        else innerArgs
+      else innerArgs
+  }
 def ctorApplyDefaults = (name, args) =>
   match dfltRegLookup(name, #cell.get(funcDefaultsCell)) {
     case Pair(found, entry) =>
@@ -2145,7 +2167,7 @@ def resolveE = (expr) =>
                             else if #seq(innerTag, "uid") then innerData
                             else ""
                         } in
-                        let combinedArgs = append(innerArgs, args) in
+                        let combinedArgs = append(padFirstClauseDflts(innerName, innerArgs), args) in
                         match defArity(innerName) {
                           case Pair(found, arity) =>
                             if found then
