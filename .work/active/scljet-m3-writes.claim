@@ -1,4 +1,4 @@
 claim: scljet-m3-writes
 owner: opus
-heartbeat: 2026-07-15T07:45:00Z
-status: O(log n) index descent (m7f) landed — WHERE indexedcol=K descends the multi-level index B-tree (record-key comparison, spans handled), overflow-safe fallback to ordered walk. Physical index access-path COMPLETE. 45/45 sql green; full gate confirming.
+heartbeat: 2026-07-15T07:55:00Z
+status: O(log n) index descent (m7f) landed — WHERE indexedcol=K descends the multi-level index B-tree (record-key comparison, spans handled), overflow-safe fallback. Physical index access-path (equality) COMPLETE. FULL gate 89/89 green non-memoized [int, js]. NEXT candidate: range index-seeks (col>K / BETWEEN).
