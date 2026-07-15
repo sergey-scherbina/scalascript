@@ -1498,6 +1498,7 @@ object SpikeProject:
     case UniNode.Token(t) if t.kind == "spike.str"   => s"""mkStr("${escStr(t.lexeme)}")"""
     // `true`/`false` are literal booleans, not variables (ssc1-front does the same)
     case UniNode.Token(t) if t.kind == "spike.id" && (t.lexeme == "true" || t.lexeme == "false") => s"""mkBool("${t.lexeme}")"""
+    case UniNode.Token(t) if t.kind == "spike.id" && t.lexeme == "null" => """mkUVar("None")""" // K62.18: null → None
     case UniNode.Token(t) if t.kind == "spike.id"    => s"""mkVar("${esc(t.lexeme)}")"""
     case UniNode.Token(t) if t.kind == "spike.uid"   => s"""mkUVar("${esc(t.lexeme)}")"""
     case b: UniNode.Branch => b.kind match
