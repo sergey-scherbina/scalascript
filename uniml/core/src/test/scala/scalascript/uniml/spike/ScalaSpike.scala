@@ -1297,7 +1297,6 @@ object SpikeProject:
   private def escStr(s: String): String = esc(s).replace("\n", "\\n").replace("\t", "\\t")
 
   // ── string interpolation (mirrors ssc1-front interpParts / partsToExpr, KC12) ──────────────────
-  private def isAlpha(c: Char): Boolean = c.isLetter || c == '_'
   private def isAlphaNum(c: Char): Boolean = c.isLetterOrDigit || c == '_'
 
   /** skip a nested `"…"` inside a `${…}` body; returns the index just after the closing quote. */
@@ -1342,13 +1341,13 @@ object SpikeProject:
           flush(i)
           out = out :+ (("expr", raw.substring(i + 2, exprEnd)))
           i = iAfter; litStart = iAfter
-        else if isAlpha(c2) then
+        else if c2.isLetter then // ssc1-front's isAlpha is LETTER-only: `$_foo` is NOT interpolated (a literal `$`)
           flush(i)
           var endId = i + 1
           while endId < n && isAlphaNum(raw.charAt(endId)) do endId += 1
           out = out :+ (("var", raw.substring(i + 1, endId)))
           i = endId; litStart = endId
-        else i += 1 // a literal `$`
+        else i += 1 // a literal `$` (including `$_…` / `$1…`, which ssc1-front leaves as text)
       else i += 1
     flush(n)
     out
