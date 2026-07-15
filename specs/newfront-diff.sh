@@ -47,27 +47,24 @@ echo "spike batch (sbt)..."
     > "$WORK/sbt.log" 2>&1 )
 grep -o 'newfront batch:.*' "$WORK/sbt.log" | tail -1
 
-# ── 3. ref — lowerProg(parse(code)) for all, one JVM ──
-cat > "$V2/bin/_nf_refall.ssc0" <<'DRV'
+# ── 3. ref driver — per-file, FRESH JVM (NOT a batch: ssc1-front's parse populates
+#      parser-owned accumulator cells — caseMethodsCell, classBodyFieldsCell, … — that
+#      are NEVER reset between parses, so a one-JVM batch leaks earlier programs' case-
+#      class methods into later programs. A fresh JVM per file gives each ref an empty
+#      cell state, matching the fresh JVM the spike side already uses. Apples-to-apples.)
+cat > "$V2/bin/_nf_refone.ssc0" <<'DRV'
 import "../lib/ssc1-lower.ssc0"
-def oneRef = (p) => #sconcat("@@F@@", #sconcat(p, #sconcat("@@C@@", #sconcat(#coreir.encode(lowerProg(parse(#utf8->str(#io.readFile(p))))), "@@E@@"))))
-def allRef = (ps) => match ps { case Nil => "" case Cons(p, r) => #sconcat(oneRef(p), allRef(r)) }
-def main = () => #io.print(allRef(#io.args()))
+def main = () => match #io.args() { case Cons(p, r) => #io.print(#coreir.encode(lowerProg(parse(#utf8->str(#io.readFile(p)))))) case Nil => #io.eprint("no-arg") }
 DRV
-( cd "$V2" && run bin/_nf_refall.ssc0 $(ls "$WORK/code"/*.code) ) > "$WORK/all.ref"
-python3 - "$WORK/all.ref" "$WORK/ref" <<'PY'
-import sys, os, re
-blob=open(sys.argv[1],encoding='utf-8',errors='replace').read(); outd=sys.argv[2]
-for m in re.finditer(r'@@F@@(.*?)@@C@@(.*?)@@E@@', blob, re.DOTALL):
-    name=os.path.splitext(os.path.basename(m.group(1)))[0]
-    open(os.path.join(outd,name+'.ir'),'w',encoding='utf-8').write(m.group(2))
-PY
 
-# ── 4. compare — per-file (parallel): lowerProg(proj) vs ref ──
+# ── 4. compare — per-file (parallel): BOTH ref and spike lowered in fresh JVMs ──
 cat > "$WORK/worker.sh" <<WORKER
 #!/usr/bin/env bash
-pf="\$1"; n=\$(basename "\$pf" .proj); ref="$WORK/ref/\$n.ir"
-[ -f "\$ref" ] || { echo "SKIP \$n"; exit 0; }
+pf="\$1"; n=\$(basename "\$pf" .proj); code="$WORK/code/\$n.code"; ref="$WORK/ref/\$n.ir"
+[ -f "\$code" ] || { echo "SKIP \$n"; exit 0; }
+# ref: fresh JVM per file (no cross-program cell leak)
+( cd "$V2" && java -Xss512m -jar "$JAR" run bin/_nf_refone.ssc0 "\$code" 2>/dev/null ) > "\$ref"
+[ -s "\$ref" ] || { echo "SKIP \$n"; exit 0; }
 [ "\$(cat "\$pf")" = "Nil" ] && { echo "DROP \$n |proj=Nil (top-level statements / empty projection)"; exit 0; }
 grep -q 'SPIKE_CRASH' "\$pf" && { echo "DROP \$n |spike parse crash"; exit 0; }
 grep -q '__notImplemented__' "\$pf" && { echo "HOLE \$n |__notImplemented__"; exit 0; }

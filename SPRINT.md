@@ -60,12 +60,22 @@ error-resilient parser already byte-identical to ssc1-front on 119 constructs, t
          top-level `val`/`var` into a global cell). Verified byte-identical on a mixed def+println+val+var+assign
          program. **Corpus impact: DROP (program lost) 259→8, MATCH 0→2** (most programs now project their body
          and expose a *downstream* gap instead of collapsing). Remaining 8 DROP = import-/fence-only files.
-      2. content-level clusters (now the dominant DIFF cause): **case-class/trait METHODS** (`OverlayVfs_name`,
-         `Point_distanceTo`, `ByteSlice_get`, `PassError_toString` — methods in a class/trait body →
-         `ClassName_method` + `_sel_<field>` access; ~260 programs blocked here), then top-level `var`,
-         SQL/YAML/content fences.
-      3. the 155 parse holes (`__notImplemented__`) — surface each construct, add it to the parser. (Up from 52:
-         now that programs project their whole body, more constructs are reached.)
+      1b. [x] **Harness leak-artifact fix ✓ DONE 2026-07-15.** The "case-class methods" cluster (~60 programs:
+         `ByteSlice_get`/`Point_distanceTo`/`OverlayVfs_name`/`FixtureVfs_name`/`PassError_toString`) was a
+         **false negative**, not a spike gap. `ssc1-front`'s `parse` populates parser-owned accumulator cells
+         (`caseMethodsCell` @ ssc1-front.ssc0:611, plus `classBodyFieldsCell`/`mutableFieldsCell`/… ) that it
+         **never resets** between parses — so the harness's one-JVM batch-ref leaked earlier programs' case-class
+         methods into later programs' ref IR. The spike side already used a fresh JVM per file, so the comparison
+         was unfair. Fix (`specs/newfront-diff.sh`): compute the **ref side per-file in a fresh JVM** too
+         (`_nf_refone.ssc0`), apples-to-apples. Verified: fresh-ref for `case-classes` == spike, byte-identical.
+         **Corrected baseline: MATCH 2→93 (19%), DROP 3, HOLE 155, DIFF 233.** (The oracle's non-idempotent
+         `parse` is a real latent bug but harmless in production — `bin/ssc` lowers one program per process.)
+      2. content-level clusters (the real dominant DIFF causes, post-artifact-fix): **SQL-DSL content**
+         (`(ctor Cons (app (global SqlText) …` — ~49 programs, scljet-sql-*), **actor/async trailing-block
+         calls** (`runActors { … }`/`runAsync { … }`/`spawn { … }` → `(app (global runActors) (lam 0 …))`; the
+         spike splits `f { block }` into two statements instead of a trailing-lambda arg — ~14 programs), then
+         `_sel_mkString`/`httpClient`/top-level `var`.
+      3. the 155 parse holes (`__notImplemented__`) — surface each construct, add it to the parser.
       Ends when the whole (single-file) corpus is byte-identical.
 - [ ] **Phase 2 — multi-file / imports.** Give the new front the module-loading the old front has (resolve
       `[name](path.ssc)` imports, load defs), so multi-file programs also compare byte-identically.
