@@ -227,7 +227,10 @@ is replaced by the empty string, recursively through its bounds, body, function
 rows, union/intersection members, effect type arguments, parameter/result types,
 and prompt answer types. Top-level callable type-parameter names remain omitted by
 `TypeParameterIdentity`. The full `ApiDescriptor` keeps every real display name,
-so renaming changes `apiHash` but not stable symbol/overload identity.
+so renaming changes `apiHash` but not stable symbol/overload identity. After names
+are blanked, the whole projected definition is normalized again: union,
+intersection, effect, callback, and prompt set-like members are deduplicated and
+sorted from the projected canonical bytes, never from the pre-erasure name order.
 
 ```text
 {"callable":{"callbackPolicies":[],"effectRow":{"members":[],"openTail":[]},"kind":{"tag":"Function"},"operationResumeMultiplicity":[],"parameterLists":[],"promptAndControlMetadata":{"answerTypeModification":false,"capturesContinuation":false,"exposesContinuation":false,"prompts":[]},"qualifiedName":"demo.zero","resultType":{"tag":"Primitive","value":{"tag":"I32"}},"typeParameters":[]},"moduleId":"demo"}
