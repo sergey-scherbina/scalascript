@@ -395,8 +395,27 @@ object SpikeParse:
         if c.peekKind == "spike.comma" then c.advance().foreach(t => kids += Node.Leaf(t, Some("cc.comma")))
         else more = false
     expect(c, "spike.rparen", "cc.rparen", "')'").foreach(kids += _)
-    skipExtendsClause(c) // `case class Circle(r: Double) extends Shape` — the parent clause is erased
+    // `extends Y with Z` is erased, but a `derives A, B` clause is CAPTURED (cc.derive leaves) — the
+    // lowerer generates the derived typeclass/codec instances from it (ssc1-front mkCaseCls's 4th field).
+    if isWord(c, "extends") then
+      c.advance(); skipTypeRef(c)
+      if c.peekKind == "spike.lparen" then skipBalancedParens(c)
+      while isWord(c, "with") do { c.advance(); skipTypeRef(c) }
+    captureDerives(c, kids)
     Node.Frame("spike.casecls", None, kids.result())
+
+  // `derives Name[T][, Name…]*` → cc.derive leaves (each name's `[T]` type args skipped), matching
+  // ssc1-front parseDeriveNames (ssc1-front.ssc0:2176).
+  private def captureDerives(c: Cur, kids: scala.collection.mutable.Builder[Node, Vector[Node]]): Unit =
+    if isWord(c, "derives") then
+      c.advance()
+      var more = true
+      while more do
+        if c.peekKind == "spike.uid" || c.peekKind == "spike.id" then
+          c.advance().foreach(t => kids += Node.Leaf(t, Some("cc.derive")))
+          skipTypeParams(c)
+          if c.peekKind == "spike.comma" then c.advance() else more = false
+        else more = false
 
   // capture a case-class field type as its raw TOKENS (base + balanced `[…]` generics + `=> …` fn tails) in a
   // spike.cctype frame, so the projection reproduces ssc1-front's full type string (`List[User]`,
@@ -1436,7 +1455,8 @@ object SpikeProject:
     val name  = ks.collectFirst { case (Some("cc.name"), c) => lexeme(c) }.getOrElse("_")
     val names = ks.collect { case (Some("cc.field"), c) => "\"" + esc(lexeme(c)) + "\"" }.toVector
     val types = ks.collect { case (Some("cc.fieldType"), c) => "\"" + esc(concatType(c)) + "\"" }.toVector
-    s"""mkCaseCls("${esc(name)}", ${consList(names)}, ${consList(types)}, Nil)"""
+    val derives = ks.collect { case (Some("cc.derive"), c) => "\"" + esc(lexeme(c)) + "\"" }.toVector
+    s"""mkCaseCls("${esc(name)}", ${consList(names)}, ${consList(types)}, ${consList(derives)})"""
 
   // concatenate a spike.cctype frame's token lexemes (no spaces) → the full field type string
   private def concatType(n: UniNode): String = n match
