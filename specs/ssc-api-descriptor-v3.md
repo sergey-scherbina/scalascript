@@ -453,6 +453,31 @@ types do not expose a permissive generic-library `ReadWriter`; the only supporte
 wire entrypoints are the bounded canonical-admission methods for
 `ApiDescriptor`, `ControlSummary`, and `ArtifactManifest`.
 
+The public byte API is exactly:
+
+```scala
+object DescriptorCodec:
+  val MaxBytes: Int = 4_194_304
+  val MaxDepth: Int = 256
+  val MaxContainerItems: Int = 100_000
+
+  def encodeApi(value: ApiDescriptor): Either[DescriptorError, Array[Byte]]
+  def decodeApi(bytes: Array[Byte]): Either[DescriptorError, ApiDescriptor]
+
+  def encodeControlSummary(value: ControlSummary): Either[DescriptorError, Array[Byte]]
+  def decodeControlSummary(bytes: Array[Byte]): Either[DescriptorError, ControlSummary]
+
+  def encodeArtifactManifest(value: ArtifactManifest): Either[DescriptorError, Array[Byte]]
+  def decodeArtifactManifest(bytes: Array[Byte]): Either[DescriptorError, ArtifactManifest]
+```
+
+Every encoder semantically validates, normalizes, and returns fresh canonical UTF-8
+bytes. Every decoder enforces bounds, strict UTF-8, schema shape, exact canonical
+byte equality, then semantic validation. There is no permissive public text or JSON
+AST overload. A caller that stores canonical text (including the `.scim` carrier)
+decodes encoder bytes as UTF-8; admission re-encodes its received UTF-8 bytes and
+still goes through the byte API.
+
 The golden non-ASCII/control-character JCS vector is:
 
 ```text
