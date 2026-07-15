@@ -57,7 +57,8 @@ private[interpreter] object DispatchRuntime:
               "drop" | "apply" | "grouped" | "sliding" | "scanLeft" |
               "reduceLeft" | "reduce" | "reduceRight" | "reduceOption" |
               "reduceLeftOption" | "transpose" | "patch" | "zipAll" | "scanRight" |
-              "distinctBy" | "partition" | "partitionMap" | "count" | "collect" | "span" |
+              "distinctBy" | "partition" | "partitionMap" | "permutations" | "combinations" |
+              "tails" | "inits" | "padTo" | "count" | "collect" | "span" |
               "sortBy" | "sortWith" | "groupBy" | "mkString" | "zip" |
               "takeRight" | "dropRight" | "splitAt" | "intersect" | "diff" |
               "takeWhile" | "dropWhile" | "toList" | "toSeq" | "toIterable" |
@@ -1525,6 +1526,10 @@ private[interpreter] object DispatchRuntime:
       case "size"     => Computation.pureIntV(s.size.toLong)
       case "isEmpty"  => Computation.pureBool(s.isEmpty)
       case "nonEmpty" => Computation.pureBool(s.nonEmpty)
+      case "subsets"  => args match
+        case Nil                 => Pure(Value.ListV(s.subsets().map(Value.SetV(_)).toList))
+        case List(Value.IntV(n)) => Pure(Value.ListV(s.subsets(n.toInt).map(Value.SetV(_)).toList))
+        case _                   => dispatchFallback(recv, name, args, env, interp)
       case "incl" | "+" => args match
         case List(x) => Pure(Value.SetV(s + x))
         case _       => dispatchFallback(recv, name, args, env, interp)
@@ -1617,6 +1622,9 @@ private[interpreter] object DispatchRuntime:
       case "init"         => Pure(Value.ListV(ls.init))
       case "reverse"      => Pure(Value.ListV(ls.reverse))
       case "distinct"     => Pure(Value.ListV(ls.distinct))
+      case "permutations" => Pure(Value.ListV(ls.permutations.map(Value.ListV(_)).toList))
+      case "tails"        => Pure(Value.ListV(ls.tails.map(Value.ListV(_)).toList))
+      case "inits"        => Pure(Value.ListV(ls.inits.map(Value.ListV(_)).toList))
       case "sorted"       =>
         if ls.isEmpty then Pure(recv)
         else
@@ -1894,6 +1902,12 @@ private[interpreter] object DispatchRuntime:
         case _                        => dispatchFallback(recv, name, args, env, interp)
       case "grouped"      => args match
         case List(Value.IntV(n))      => Pure(Value.ListV(ls.grouped(n.toInt).map(Value.ListV(_)).toList))
+        case _                        => dispatchFallback(recv, name, args, env, interp)
+      case "combinations" => args match
+        case List(Value.IntV(n))      => Pure(Value.ListV(ls.combinations(n.toInt).map(Value.ListV(_)).toList))
+        case _                        => dispatchFallback(recv, name, args, env, interp)
+      case "padTo"        => args match
+        case List(Value.IntV(len), elem) => Pure(Value.ListV(ls.padTo(len.toInt, elem)))
         case _                        => dispatchFallback(recv, name, args, env, interp)
       case "zip"          => args match
         case List(Value.ListV(other)) =>

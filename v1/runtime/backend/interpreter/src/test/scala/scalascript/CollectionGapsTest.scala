@@ -95,3 +95,18 @@ class CollectionGapsTest extends AnyFunSuite:
     assert(captured("println(List(1,2,3,4).partitionMap(n => if n % 2 == 0 then Right(n) else Left(n)))")
              == "(List(1, 3), List(2, 4))")
   }
+
+  test("List.permutations / combinations / tails / inits / padTo") {
+    assert(captured("println(List(1,2,3).permutations.toList.length)") == "6")
+    assert(captured("println(List(1,2,3).combinations(2).toList)") == "List(List(1, 2), List(1, 3), List(2, 3))")
+    assert(captured("println(List(1,2,3).tails.toList)") == "List(List(1, 2, 3), List(2, 3), List(3), List())")
+    assert(captured("println(List(1,2,3).inits.toList)") == "List(List(1, 2, 3), List(1, 2), List(1), List())")
+    assert(captured("println(List(1,2).padTo(4, 0))") == "List(1, 2, 0, 0)")
+    assert(captured("println(List(1,2,3).padTo(2, 9))") == "List(1, 2, 3)")
+  }
+
+  test("Set.subsets") {
+    assert(captured("println(Set(1,2,3).subsets.toList.length)") == "8")
+    assert(captured("println(Set(1,2).subsets(1).toList.map(_.toList.sorted).sortBy(_.headOption.getOrElse(0)))")
+             == "List(List(1), List(2))")
+  }
