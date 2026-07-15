@@ -234,12 +234,13 @@ object SpikeParse:
       else if isKw(c, "given") then defs += parseGiven(c)
       else if isKw(c, "enum") then defs += parseEnum(c)
       else if isKw(c, "extension") then defs += parseExtension(c)
+      // a top-level STATEMENT — script-style `println(…)`, top-level `val`/`var`/expr. ssc1-front keeps these
+      // in source order and lowerProg collects them into `(entry (seq …))` (and `val`/`var` → a global cell).
+      // Before this they collapsed the whole program to Nil (newfront Phase 0's #1 gap).
       else
-        c.report("spike.unexpected-toplevel", s"unexpected token '${c.peekLexeme}' at top level")
-        val skipped = Vector.newBuilder[Node]
-        while !c.eof && !isDefStart(c) do c.advance().foreach(t => skipped += Node.Leaf(t, Some("error.skipped")))
-        val sk = skipped.result()
-        if sk.nonEmpty then defs += Node.Frame("spike.error", None, sk)
+        val before = c.mark
+        defs += parseStmt(c)
+        if c.mark == before then c.advance() // guarantee progress even if parseStmt consumed nothing
     Parsed(Node.Frame("spike.program", None, defs.result()), c.diagnostics)
 
   private def expect(c: Cur, kind: String, role: String, what: String): Option[Node] =
@@ -1012,8 +1013,14 @@ object SpikeProject:
       case (_, c) if kindOf(c) == "spike.given"     => Vector(givenNode(c))
       case (_, c) if kindOf(c) == "spike.enum"      => Vector(enumNode(c))
       case (_, c) if kindOf(c) == "spike.extension" => extensionNodes(c)
+      // top-level STATEMENTS in source order — `stmt()` projects them to mkVal/Pair("var")/Pair("assign")/
+      // Pair("while")/mkSExpr, which lowerProg collects into `(entry (seq …))` (and val/var → a global cell).
+      case (_, c) if isTopStmt(kindOf(c))           => Vector(stmt(c))
       case _                                        => Vector.empty[String]
     }.toVector)
+
+  private def isTopStmt(k: String): Boolean =
+    k == "spike.val" || k == "spike.var" || k == "spike.assign" || k == "spike.while" || k == "spike.exprStmt"
 
   // an extension group → three statements: extension_start, the method def (receiver prepended
   // to its params), extension_end. lowerProg's collectExtensionMethods registers it for `.m`.

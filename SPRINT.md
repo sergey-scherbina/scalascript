@@ -53,12 +53,19 @@ error-resilient parser already byte-identical to ssc1-front on 119 constructs, t
 - [ ] **Phase 1 — grow the parser to ~100% corpus byte-identity.** Close Phase 0 divergences in
       `ScalaSpike.scala`, in the order the baseline dictates. Each fix: rerun `specs/newfront-diff.sh`, MATCH
       goes UP, never down. Reuses `ssc1-lower` (variant A — same `Pair`-AST). Priority:
-      1. **TOP-LEVEL STATEMENTS (the #1 gap, ~50%+).** Make the spike parse + project a program body that is a
-         mix of declarations AND bare statements (top-level `println(…)`, `val`, exprs) — ssc1-front collects
-         them into `(entry (seq …))`. Today they collapse the whole projection to `Nil`.
-      2. the 52 parse holes (`__notImplemented__`) — surface each construct, add it to the parser.
-      3. content-level clusters: case-class METHODS (methods in the class body → `ClassName_method` +
-         `_sel_<field>`), top-level `var`, SQL/YAML/content fences.
+      1. [x] **TOP-LEVEL STATEMENTS (the #1 gap) ✓ DONE 2026-07-15.** `parseProgram`'s non-declaration branch
+         now falls through to `parseStmt` (guaranteeing forward progress), and `program()` routes
+         `spike.val/var/assign/while/exprStmt` through `stmt()`, so a program body that mixes declarations AND
+         bare statements projects in source order — `ssc1-lower` collects them into `(entry (seq …))` (and
+         top-level `val`/`var` into a global cell). Verified byte-identical on a mixed def+println+val+var+assign
+         program. **Corpus impact: DROP (program lost) 259→8, MATCH 0→2** (most programs now project their body
+         and expose a *downstream* gap instead of collapsing). Remaining 8 DROP = import-/fence-only files.
+      2. content-level clusters (now the dominant DIFF cause): **case-class/trait METHODS** (`OverlayVfs_name`,
+         `Point_distanceTo`, `ByteSlice_get`, `PassError_toString` — methods in a class/trait body →
+         `ClassName_method` + `_sel_<field>` access; ~260 programs blocked here), then top-level `var`,
+         SQL/YAML/content fences.
+      3. the 155 parse holes (`__notImplemented__`) — surface each construct, add it to the parser. (Up from 52:
+         now that programs project their whole body, more constructs are reached.)
       Ends when the whole (single-file) corpus is byte-identical.
 - [ ] **Phase 2 — multi-file / imports.** Give the new front the module-loading the old front has (resolve
       `[name](path.ssc)` imports, load defs), so multi-file programs also compare byte-identically.
