@@ -56,10 +56,10 @@ that gate.
 - [ ] Deep reinstall applies the matching handler around every resumed suffix;
       the `Return` clause is applied exactly once at the terminal result.
 - [ ] A handler-facing continuation may escape its handler arm. Sequential and
-      concurrent calls to an escaped reusable continuation run through fresh
-      iterative drivers, return ordinary values, and never expose the private
-      resume carrier; an escaped one-shot continuation still claims/rejects at
-      the later call site.
+      concurrent managed calls to an escaped reusable continuation are drained
+      by the managed-call boundary, return ordinary values, and never expose the
+      private resume carrier; an escaped one-shot continuation still
+      claims/rejects at the later call site.
 - [ ] A state-threaded chain in which every handler arm returns a closure that
       invokes its captured `resume` later remains stack-safe at depth at least
       20,000; continuation escape must not move recursion back to the host stack.
@@ -96,25 +96,54 @@ its atomic claim at the `resume(input)` call, so a losing second/concurrent
 resume rejects before any later handler-side observable work. Only deep handling
 of the already obtained `nextComputation` is deferred.
 
-The continuation may legally escape the handler arm and be invoked later. A
-thread-local active-driver scope distinguishes the two cases:
+The continuation may legally escape the handler arm and be invoked later.
+`resume` uses the same operation in every context:
 
 ```text
 resume(input):
   next = originalContinuation(input)  // eager claim + next in both cases
-  if an iterative driver is active on this thread:
-    privateDeferredResume(next, handler)
-  else:
-    iterativeHandle(next, handler)
+  privateDeferredResume(next, handler)
 ```
 
-The driver scope is installed and removed with `try/finally`; it is a depth, not
-a process-global Boolean, so nested handlers compose and concurrent calls on
-other threads each start their own driver. An escaped raw/multi continuation can
-therefore run sequentially or concurrently. An escaped one-shot continuation
-retains the same atomic base gate and rejects losing calls before a driver starts.
-The fresh-driver path returns the actual handled value: the private carrier must
-not cross the resume-call boundary when no driver was active.
+This lets ordinary `Op` lifting capture everything after the resume call,
+including application of a handler-returned state closure. Starting a fresh
+driver inside an escaped `resume` is too early: direct ASM would call the next
+escaped closure after that driver returned and rebuild an unbounded
+`Emit.app -> Runtime.run` host stack.
+
+The runtime instead exposes an internal `completeManaged(value)` hook. It is
+called only at a managed program or host-call boundary and is the identity for
+every value except an exact capability-backed private request. For a request it
+starts the same iterative driver in `Complete` mode, after the caller suffix has
+already been captured in `afterResume`. VM program roots, direct-ASM
+`runProgram`, and explicit host-to-ScalaScript managed invocation are mandatory
+hook sites. `Runtime.run` and `Emit.app` are deliberately not global hook sites:
+draining there would be too early for surrounding effect-aware lifting and
+would add a semantic branch to every internal call. Concurrent managed calls
+run independent local drivers; the request and driver have no shared mutable
+state. An escaped one-shot continuation retains the same atomic base gate and
+rejects losing calls before a request is returned.
+
+The JVM implementation uses this explicit hook inventory:
+
+1. `Runtime.runManaged(code, env)` wraps VM **program roots** (`ssc.Main`, the
+   installed compatibility/native runners, `BridgeCli`, and `BatchCli`) and
+   managed plugin/callback entry adapters (`NativePluginHost.invoke` and the
+   v1/v2 `PluginBridge` closure adapters).
+2. `JvmByteGen.runProgram` completes the unrolled generated `entry()` result;
+   this is the direct-ASM program/library boundary used by installed runners and
+   tests.
+3. `NativeArtifactRuntime.report` completes the result of a persisted direct-
+   ASM artifact before applying the same final-value contract.
+4. `V2Result.report` defensively completes its input before classifying Unit,
+   an ordinary unresolved public operation, or a printable result. This makes
+   every installed CLI path safe even if a caller supplies a raw VM result.
+
+Calling `completeManaged` more than once is harmless: after the first call its
+result is an ordinary value or public residual `Op`, for which every later call
+is identity. No installed VM/ASM/host boundary in this inventory may return an
+exact private request. Ordinary public values, including every public three-
+field `Op(label, argument, continuation)`, must cross unchanged.
 
 `afterResume` starts as the identity continuation. Existing VM and ASM
 effect-aware lifting over `Op` composes the rest of the handler expression into
@@ -174,15 +203,14 @@ resume call and therefore retains its existing branching order. The call to the
 original continuation remains eager; only the recursive deep-handler fold moves
 onto the heap driver.
 
-Private-request recognition precedes ordinary `Op` dispatch in both modes. This
-matters when an escaped resume is invoked inside a different active driver: the
-request carries its own handler and is adopted by that driver's heap loop rather
-than being reported to either user handler as a forged operation. When a private
-request appears as the computation currently being handled, `Rehandle` retains
-that outer handler: the loop finishes the inner request and its suffix first,
-then applies the outer handler to the resulting value or residual operation.
-Merely overwriting the current handler would lose outer `Return`, residual
-forwarding, and deep-reinstall semantics.
+Private-request recognition precedes ordinary `Op` dispatch in both modes. A
+request carries its own handler and is adopted by the heap loop rather than
+being reported to a user handler as a forged operation. When a private request
+appears as the computation currently being handled, `Rehandle` retains that
+outer handler: the loop finishes the inner request and its suffix first, then
+applies the outer handler to the resulting value or residual operation. Merely
+overwriting the current handler would lose outer `Return`, residual forwarding,
+and deep-reinstall semantics.
 
 The real-operation dispatch point remains separate from request recognition.
 Residual forwarding may report a recoverable unmatched handler clause and
@@ -197,7 +225,9 @@ already call for `effect.handle`. Direct ASM needs no alternate handler or
 continuation protocol: its `Emit` helpers already propagate an `Op` result
 through bindings, sequences, arithmetic, applications, and list traversal.
 Focused tests inspect both final behavior and the inability of a label-only
-operation to enter the private driver.
+operation to enter the private driver. Boundary tests additionally assert that
+ordinary public `Op` values still escape unchanged while exact private requests
+are never observable after a managed program/call returns.
 
 ## Decisions
 
@@ -215,10 +245,12 @@ operation to enter the private driver.
 - **Preserve public `Op/3`** — the temporary request uses the existing private
   runtime carrier and is consumed before returning from the handler driver; no
   CoreIR/value/codec/ABI inventory changes.
-- **Thread-local active-driver depth** — selected so an in-driver resume can
-  hand off without recursive handling while an escaped resume still returns its
-  ordinary value. Rejected: forbidding continuation escape (not an algebraic-
-  effect law) and a process-global flag (wrong under nesting/concurrency).
+- **Always defer; drain only at managed boundaries** — selected so lifting sees
+  the complete post-resume suffix and both VM and ASM stay stack-safe for deep
+  escaped state-thread chains. Rejected: forbidding continuation escape (not an
+  algebraic-effect law), starting a fresh driver inside escaped `resume`
+  (direct-ASM host recursion), and global `Runtime.run`/`Emit.app` hooks (too
+  early and too broad).
 
 ## Out of scope
 
