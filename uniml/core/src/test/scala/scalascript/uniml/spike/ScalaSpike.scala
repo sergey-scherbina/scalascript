@@ -737,9 +737,11 @@ object SpikeParse:
   // (cpat) / tuple `(a, b)` (→ cpat "Pair"/"TupleN"). Recursive for sub-patterns.
   private def parsePattern(c: Cur): Node =
     c.peekKind match
-      case "spike.int" => c.advance().map(t => Node.Leaf(t, Some("pat.lit"))).get
+      case "spike.int"   => c.advance().map(t => Node.Leaf(t, Some("pat.lit"))).get
+      case "spike.str"   => c.advance().map(t => Node.Leaf(t, Some("pat.lit"))).get // `case "ping" =>` literal
+      case "spike.float" => c.advance().map(t => Node.Leaf(t, Some("pat.lit"))).get
       case "spike.id" if c.peekLexeme == "_" => c.advance().map(t => Node.Leaf(t, Some("pat.wild"))).get
-      case "spike.id"  => c.advance().map(t => Node.Leaf(t, Some("pat.var"))).get
+      case "spike.id"  => c.advance().map(t => Node.Leaf(t, Some("pat.var"))).get // incl. true/false → lpat bool
       case "spike.uid" => parseCtorPat(c)
       case "spike.lparen" => parseTuplePat(c)
       case _ =>
@@ -1386,7 +1388,11 @@ object SpikeProject:
 
   private def patProj(n: UniNode): String = n match
     case UniNode.Token(t) if t.kind == "spike.int"                    => s"""Pair("lpat", Pair("int", "${esc(t.lexeme)}"))"""
+    case UniNode.Token(t) if t.kind == "spike.str"                    => s"""Pair("lpat", Pair("str", "${escStr(t.lexeme)}"))"""
+    case UniNode.Token(t) if t.kind == "spike.float"                  => s"""Pair("lpat", Pair("float", "${esc(t.lexeme)}"))"""
     case UniNode.Token(t) if t.kind == "spike.id" && t.lexeme == "_"  => """Pair("wpat", "")"""
+    case UniNode.Token(t) if t.kind == "spike.id" && (t.lexeme == "true" || t.lexeme == "false") =>
+      s"""Pair("lpat", Pair("bool", "${t.lexeme}"))""" // `case true/false =>` (true/false are ids, not kws)
     case UniNode.Token(t) if t.kind == "spike.id"                     => s"""Pair("vpat", "${esc(t.lexeme)}")"""
     case b: UniNode.Branch if b.kind == "spike.cpat"                  => cpatProj(b)
     case b: UniNode.Branch if b.kind == "spike.conspat"               =>
