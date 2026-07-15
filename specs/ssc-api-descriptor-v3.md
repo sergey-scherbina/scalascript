@@ -1,7 +1,8 @@
 # SSC API descriptor v3
 
-Status: **slice A implemented and verified; slice B producer contract frozen;
-producer implementation in progress; consumer slices queued** (2026-07-15).
+Status: **slice A implemented and verified; slice B compatibility-producer
+pre-integration checkpoint implemented and green, pending independent approval;
+self-hosted and consumer slices queued** (2026-07-15).
 
 This specification refines the structured-descriptor contract in
 [`control-interoperability.md`](control-interoperability.md) without changing its
@@ -238,47 +239,47 @@ a second wire model or route through legacy `tpe`.
 
 ### Slice B behavior
 
-- [ ] Strict managed extraction populates canonical `apiDescriptorV3`; ordinary
+- [x] Strict managed extraction populates canonical `apiDescriptorV3`; ordinary
       legacy extraction leaves it absent and remains compatible with inferred or
       dynamic legacy interfaces.
-- [ ] Descriptor construction completes from declaration headers before the
+- [x] Descriptor construction completes from declaration headers before the
       legacy body-aware typer runs; body-only edits keep canonical descriptor
       bytes and `apiHash` unchanged.
-- [ ] `Int` and `Long` project to distinct `I32`/`I64` types and identities,
+- [x] `Int` and `Long` project to distinct `I32`/`I64` types and identities,
       including inside parameters, results, type arguments, and effect arguments.
-- [ ] Generic binder coordinates, multiple parameter-list boundaries, modes,
+- [x] Generic binder coordinates, multiple parameter-list boundaries, modes,
       defaults, unions/intersections, tuples, functions, and effect rows survive
       projection without rendered-type parsing.
-- [ ] Nominal types/constructors, typed values, aliases, effects, and plain/multi
+- [x] Nominal types/constructors, typed values, aliases, effects, and plain/multi
       operations receive structured symbol kinds and resume multiplicity.
-- [ ] Function-typed parameters receive conservative `ForeignBarrier` callback
+- [x] Function-typed parameters receive conservative `ForeignBarrier` callback
       policy; no pre-body producer claims `ManagedControl` from implementation
       behavior.
-- [ ] Missing/dynamic/ambiguous/unsupported public types fail the strict path with
+- [x] Missing/dynamic/ambiguous/unsupported public types fail the strict path with
       stable producer codes and paths, while the same legacy source still extracts
       with `apiDescriptorV3 = None`.
-- [ ] A regression fixture proves that even when legacy body typing renders a
+- [x] A regression fixture proves that even when legacy body typing renders a
       useful `ExportedSymbol.tpe`, the strict producer rejects a missing header
       type instead of parsing that string to invent v3.
-- [ ] Scala package/export fixtures agree on qualified public names and exclude
+- [x] Scala package/export fixtures agree on qualified public names and exclude
       helpers omitted by manifest `exports:`.
-- [ ] Retained executable document blocks and parsed section blocks are checked
+- [x] Retained executable document blocks and parsed section blocks are checked
       for one-to-one completeness; deleting `sections` from an otherwise intact
       parsed module rejects instead of emitting an empty API.
-- [ ] Effect-header evidence ignores comments and string/character literals and
+- [x] Effect-header evidence ignores comments and string/character literals and
       binds within the same code block to the exact lexical owner; an ordinary
       same-name object cannot steal a later effect header.
-- [ ] Trait constructor clauses/self types, template exports, and constructor
+- [x] Trait constructor clauses/self types, template exports, and constructor
       `val`/`var` accessors reject with stable paths until descriptor v3 has
       receiver/member metadata.
-- [ ] Retained source and stored section AST have exact declaration-header
+- [x] Retained source and stored section AST have exact declaration-header
       correspondence, not merely equal block counts; changing retained
       `effect Real` to remove an operation while preserving the old AST rejects,
       while a body-only change does not affect descriptor bytes or `apiHash`.
-- [ ] A signature that resolves to a private/internal local owner or alias rejects
+- [x] A signature that resolves to a private/internal local owner or alias rejects
       with `UNSUPPORTED_PUBLIC_TYPE` before external-name fallback. A non-public
       callback alias cannot bypass the conservative callback-policy rule.
-- [ ] Selected public/exported `var` rejects until mutability is represented by an
+- [x] Selected public/exported `var` rejects until mutability is represented by an
       additive schema; the equivalent explicitly typed `val` remains projectable,
       and Slice A's model/canonical wire shape is unchanged.
 
@@ -837,6 +838,20 @@ slice A must not mark that milestone complete.
 - loading classes/plugins or executing user code during descriptor decode.
 
 ## Results
+
+The Slice B compatibility-producer pre-integration checkpoint is implementation
+commit `abf6d909a`; it remains unlanded until a fresh independent read-only review
+returns APPROVE. The three frozen-checkpoint bugs therefore remain `open` rather
+than `fixed`.
+
+- `scripts/sbtc "core/testOnly
+  scalascript.artifact.PreBodyApiDescriptorProducerTest"` passes 38/38 focused
+  producer regressions after rebasing onto `origin/main@b1e93d0f9`.
+- `scripts/sbtc "v2InteropDescriptor/test; core/test; interop/test; ir/test"`
+  passes descriptor 27/27, core 1084/1084, interop 36/36, and the zero-test IR
+  project gate; a separate `scripts/sbtc "ir/test"` succeeds as well.
+- `tests/conformance/run.sh --only 'modules*,import-dir*'` passes 2/2 affected
+  cases (memoized green on this unchanged conformance corpus).
 
 Slice A implementation is commit `286de7cee`; the matching public documentation
 is commit `68a470a64`. An independent descriptor audit approved the implementation

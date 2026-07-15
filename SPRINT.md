@@ -242,6 +242,11 @@ optional policy, not the default continuation semantics.
       baseline from `scripts/sbtc "core/testOnly
       scalascript.artifact.PreBodyApiDescriptorProducerTest"` is exactly `25/29`:
       all prior regressions pass and each new faithful repro fails by returning `Right`.
+    - Frozen local checkpoint after the second corrections: implementation `abf6d909a` on
+      `origin/main@b1e93d0f9`; focused producer 38/38, descriptor 27/27, core 1084/1084,
+      interop 36/36, `ir/test` success, and affected `modules*,import-dir*` conformance 2/2.
+      Keep all three BUGS entries `open` and this slice unchecked until a fresh independent
+      read-only review returns APPROVE; do not push/release this checkpoint beforehand.
     - Done when the focused regressions and affected core/interop/conformance gates pass and a
       fresh independent read-only review returns APPROVE with no P1/P2 blocker.
   - [ ] **C — post-body summaries:** extract managed/foreign/tail edges, save sites, frame schemas,

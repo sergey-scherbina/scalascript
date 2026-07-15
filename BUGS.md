@@ -22,6 +22,11 @@ changing the descriptor leaf.
 shape as the positive `val`; this is one of four expected failures in the
 `25/29` pre-fix run.
 
+**Pre-integration checkpoint:** local implementation `abf6d909a` rejects the
+faithful repro; focused 38/38 and the full affected gates are green after rebase
+onto `origin/main@b1e93d0f9`. Status stays `open` until independent approval and
+landing on `origin/main`.
+
 ## descriptor-v3-nonpublic-local-type-leak — private local types fall back to external names
 
 **Status:** open (2026-07-15). Reported by the independent Slice B frozen-checkpoint
@@ -52,6 +57,12 @@ while a non-public one rejects before the shortcut.
 external `AbiType.Named` values; the latter has no callback policy. These are two
 of four expected failures in the `25/29` pre-fix run.
 
+**Pre-integration checkpoint:** local implementation `abf6d909a` covers relative
+and absolute private owners, direct and wrapped callback aliases, private/public
+local `Array` shadowing, and a private local effect; focused 38/38 and the full
+affected gates are green. Status stays `open` until independent approval and
+landing on `origin/main`.
+
 ## descriptor-v3-source-ast-correspondence-tamper — count-only retained-source check accepts stale declarations
 
 **Status:** open (2026-07-15). Reported by the independent Slice B frozen-checkpoint
@@ -80,6 +91,12 @@ accept a changed unsupported declaration header.
 **Baseline:** focused producer test returns `Right` and still exports
 `demo.api.Real.read` after retained source removes that operation; this is one of
 four expected failures in the `25/29` pre-fix run.
+
+**Pre-integration checkpoint:** local implementation `abf6d909a` reparses and
+compares exact body-erased headers, normalizes placeholder aliases, requires the
+unique wrapper, and conservatively covers every current ScalaMeta definition form;
+focused 38/38 and the full affected gates are green. Status stays `open` until
+independent approval and landing on `origin/main`.
 
 ## js-control-packed-readme-broken-spec-link — npm README links outside payload
 
