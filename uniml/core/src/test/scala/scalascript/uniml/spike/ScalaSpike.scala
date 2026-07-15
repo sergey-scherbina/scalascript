@@ -28,6 +28,12 @@ enum Node:
 object SpikeLex:
   private val keywords = Set("def", "val", "if", "then", "else", "match", "case", "class", "given", "enum", "extension")
   private def isOpChar(c: Char): Boolean = "+-*/%<>=!&|^~:".indexOf(c.toInt) >= 0
+  private def isHexDigit(c: Char): Boolean =
+    (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+  private def hexVal(c: Char): Long =
+    if c >= '0' && c <= '9' then (c - '0').toLong
+    else if c >= 'a' && c <= 'f' then (c - 'a' + 10).toLong
+    else (c - 'A' + 10).toLong
 
   def scan(src: SourceId, text: String): Vector[SourceToken] =
     val out = Vector.newBuilder[SourceToken]
@@ -52,14 +58,46 @@ object SpikeLex:
           sb.append(text.charAt(i)); advance(text.charAt(i))
         emit("spike.ws", start, sb.toString, TokenChannel.Trivia)
       else if c.isDigit then
-        val sb = new StringBuilder
-        while i < n && text.charAt(i).isDigit do { sb.append(text.charAt(i)); advance(text.charAt(i)) }
-        // `1.5` is a float; `1.field` (dot NOT followed by a digit) stays int + `.` + selector
-        if i + 1 < n && text.charAt(i) == '.' && text.charAt(i + 1).isDigit then
-          sb.append('.'); advance('.')
-          while i < n && text.charAt(i).isDigit do { sb.append(text.charAt(i)); advance(text.charAt(i)) }
-          emit("spike.float", start, sb.toString, TokenChannel.Syntax)
-        else emit("spike.int", start, sb.toString, TokenChannel.Syntax)
+        // Number lexer — matches ssc1-front (v2/lib/ssc1-front.ssc0:295-338):
+        //   • hex 0x/0X → the DECIMAL value string (strip trailing L/l Long suffix)
+        //   • decimal: `_` digit-separators stripped from the lexeme; `d.d` or `1e10`/`1.0e100`
+        //     exponent → float; otherwise int with a trailing L/l suffix stripped.
+        if c == '0' && i + 1 < n && (text.charAt(i + 1) == 'x' || text.charAt(i + 1) == 'X')
+           && i + 2 < n && isHexDigit(text.charAt(i + 2)) then
+          advance(text.charAt(i)); advance(text.charAt(i)) // consume `0x`
+          var hv = 0L
+          while i < n && isHexDigit(text.charAt(i)) do { hv = hv * 16 + hexVal(text.charAt(i)); advance(text.charAt(i)) }
+          if i < n && (text.charAt(i) == 'L' || text.charAt(i) == 'l') then advance(text.charAt(i))
+          emit("spike.int", start, hv.toString, TokenChannel.Syntax)
+        else
+          val sb = new StringBuilder
+          // digit run, `_` separators consumed but not kept
+          while i < n && (text.charAt(i).isDigit || text.charAt(i) == '_') do
+            { if text.charAt(i).isDigit then sb.append(text.charAt(i)); advance(text.charAt(i)) }
+          // optional scientific exponent `e`/`E` [`+`/`-`] digits (appended to the lexeme)
+          def scanExponent(): Boolean =
+            if i < n && (text.charAt(i) == 'e' || text.charAt(i) == 'E') then
+              val signLen = if i + 1 < n && (text.charAt(i + 1) == '+' || text.charAt(i + 1) == '-') then 1 else 0
+              if i + 1 + signLen < n && text.charAt(i + 1 + signLen).isDigit then
+                sb.append(text.charAt(i)); advance(text.charAt(i))               // `e`/`E`
+                if signLen == 1 then { sb.append(text.charAt(i)); advance(text.charAt(i)) }
+                while i < n && (text.charAt(i).isDigit || text.charAt(i) == '_') do
+                  { if text.charAt(i).isDigit then sb.append(text.charAt(i)); advance(text.charAt(i)) }
+                true
+              else false
+            else false
+          // `1.5` is a float; `1.field` (dot NOT followed by a digit) stays int + `.` + selector
+          if i + 1 < n && text.charAt(i) == '.' && text.charAt(i + 1).isDigit then
+            sb.append('.'); advance('.')
+            while i < n && (text.charAt(i).isDigit || text.charAt(i) == '_') do
+              { if text.charAt(i).isDigit then sb.append(text.charAt(i)); advance(text.charAt(i)) }
+            scanExponent()
+            emit("spike.float", start, sb.toString, TokenChannel.Syntax)
+          else if scanExponent() then // `1e10` (no decimal point) is still a float
+            emit("spike.float", start, sb.toString, TokenChannel.Syntax)
+          else
+            if i < n && (text.charAt(i) == 'L' || text.charAt(i) == 'l') then advance(text.charAt(i)) // Long suffix
+            emit("spike.int", start, sb.toString, TokenChannel.Syntax)
       else if c.isLetter || c == '_' then
         val sb = new StringBuilder
         while i < n && (text.charAt(i).isLetterOrDigit || text.charAt(i) == '_') do { sb.append(text.charAt(i)); advance(text.charAt(i)) }
