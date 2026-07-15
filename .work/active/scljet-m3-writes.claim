@@ -1,4 +1,4 @@
 claim: scljet-m3-writes
 owner: opus
-heartbeat: 2026-07-14T23:46:19Z
-status: m6p subqueries done; 34/34 sql green
+heartbeat: 2026-07-15T00:17:56Z
+status: m6q aggregates/GROUP BY/HAVING over 3+ joins done; 35/35 sql green
