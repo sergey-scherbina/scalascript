@@ -240,10 +240,13 @@ every later compiler/kernel change re-runs the literal fixed point.
     project conformance cases (`d9222a55e`, spec evidence in §11). Before
     integration, close the independent-review blockers recorded in `BUGS.md`:
     generative effect-owner typing distinct from stable descriptor IDs,
-    answer-invariant `PromptKeyOf` extraction, and Apache `LICENSE` publication.
-    Freeze any declaration/manifest contract change in the feature spec first;
-    verify cross-owner runtime/type regressions, handler inference, exact pack
-    contents, all 27 existing tests, TypeScript gates, and affected conformance.
+    answer-invariant `PromptKeyOf` extraction, Apache `LICENSE` publication, and
+    opaque runtime authority. Freeze any declaration/manifest contract change in
+    the feature spec first; then hide request/prompt/node state, authority-gate
+    every reachable internal constructor, and verify cross-owner runtime/type
+    regressions, handler inference, property/constructor forgery and one-shot
+    pre-claim negatives, exact pack contents, all existing tests, TypeScript gates,
+    and affected conformance.
   - [ ] **Remaining host/runner profile** — generated facades and typed value/call
     bridges, managed source transformation and callback policies, mixed-language
     SCC dispatch, exact and portable runners, and shared lane wiring.

@@ -1,5 +1,25 @@
 # Bug tracker
 
+## js-control-runtime-opacity-forgeable — public values leak and clone private authority
+
+**Status:** open (2026-07-15, independent review of
+`javascript-typescript-control-host-runner`).
+
+**Symptom/reproduce:** returned request/prompt objects expose enumerable internal
+state such as `resumption`, `key`, and `shiftOperation`; a caller can pre-claim a
+one-shot resumption or intercept prompt authority. Public instances also expose
+their JavaScript `.constructor`, and internal constructors accept caller values,
+so expressions such as `new key.constructor(...)`, `new computation.constructor(...)`,
+operation cloning, and `new prompt.constructor()` can mint objects that pass the
+module's WeakSet membership checks.
+
+**Plan/done-when:** move all request/prompt/internal node state behind WeakMaps or
+private fields and require one unexported module authority token in every reachable
+internal constructor. Add plain-JavaScript regressions proving returned values have
+no authority-bearing own keys/properties, one-shot continuations cannot be
+pre-claimed, prompt operations cannot be intercepted/forged, and constructor-based
+keys/computations/operations/prompts are rejected by public APIs.
+
 ## js-control-npm-license-omitted — package tarball lacks Apache license
 
 **Status:** open (2026-07-15, independent review of
