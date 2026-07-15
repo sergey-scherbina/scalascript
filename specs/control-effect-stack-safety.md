@@ -139,20 +139,30 @@ the string or `DataV` tag alone is never trusted.
 
 ### Iterative two-mode driver
 
-`PortableEffects.handle` becomes a loop with two modes and a heap list of
-`afterResume` closures:
+`PortableEffects.handle` becomes a loop with two modes and a typed heap list of
+driver frames:
+
+```text
+ApplySuffix(afterResume)
+Rehandle(handler)
+```
 
 ```text
 Handle(computation, handler)
   Pure(v)          -> Handle(v, handler)
+  private resume Q -> push Rehandle(handler)
+                      push ApplySuffix(Q.after) // now the top frame
+                      Handle(Q.next, Q.handler)
   ordinary Op     -> Complete(call handler(event-with-private-resume))
   terminal value  -> Complete(call Return handler once, or identity fallback)
 
 Complete(handlerResult)
   private resume Op(next, h, afterK)
-                   -> push afterK; Handle(next, h)
-  other, frame :: rest
+                   -> push ApplySuffix(afterK); Handle(next, h)
+  other, ApplySuffix(afterK) :: rest
                    -> Complete(afterK(other))
+  other, Rehandle(h) :: rest
+                   -> Handle(other, h)
   other, empty     -> return other
 ```
 
@@ -167,7 +177,12 @@ onto the heap driver.
 Private-request recognition precedes ordinary `Op` dispatch in both modes. This
 matters when an escaped resume is invoked inside a different active driver: the
 request carries its own handler and is adopted by that driver's heap loop rather
-than being reported to either user handler as a forged operation.
+than being reported to either user handler as a forged operation. When a private
+request appears as the computation currently being handled, `Rehandle` retains
+that outer handler: the loop finishes the inner request and its suffix first,
+then applies the outer handler to the resulting value or residual operation.
+Merely overwriting the current handler would lose outer `Return`, residual
+forwarding, and deep-reinstall semantics.
 
 The real-operation dispatch point remains separate from request recognition.
 Residual forwarding may report a recoverable unmatched handler clause and
