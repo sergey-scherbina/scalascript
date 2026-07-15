@@ -724,13 +724,26 @@ object SpikeParse:
   private def parseVal(c: Cur): Node =
     val kids = Vector.newBuilder[Node]
     c.advance().foreach(t => kids += Node.Leaf(t, Some("val.kw"))) // `val`
-    expectName(c, "val.name", "val name").foreach(kids += _)
-    skipTypeAnnotation(c) // optional `: T` (erased)
-    expect(c, "spike.eq", "val.eq", "'='").foreach(kids += _)
-    parseExpr(c, 1) match
-      case Some(e) => kids += e.withRole("val.rhs")
-      case None    => c.report("spike.missing-rhs", "missing val right-hand side")
-    Node.Frame("spike.val", None, kids.result())
+    // tuple-destructuring `val (a, b) = expr` → Pair("tuppat", Pair([names], expr)) (ssc1-front parseVal:1798)
+    if c.peekKind == "spike.lparen" then
+      c.advance() // `(`
+      while c.peekKind != "spike.rparen" && !c.eof do
+        if c.peekKind == "spike.id" || c.peekKind == "spike.uid" then c.advance().foreach(t => kids += Node.Leaf(t, Some("tup.name")))
+        if c.peekKind == "spike.comma" then c.advance()
+        else if c.peekKind != "spike.rparen" then c.advance() // skip a stray token to guarantee progress
+      if c.peekKind == "spike.rparen" then c.advance()
+      skipTypeAnnotation(c)
+      expect(c, "spike.eq", "val.eq", "'='")
+      parseExpr(c, 1).foreach(e => kids += e.withRole("val.rhs"))
+      Node.Frame("spike.tuppatval", None, kids.result())
+    else
+      expectName(c, "val.name", "val name").foreach(kids += _)
+      skipTypeAnnotation(c) // optional `: T` (erased)
+      expect(c, "spike.eq", "val.eq", "'='").foreach(kids += _)
+      parseExpr(c, 1) match
+        case Some(e) => kids += e.withRole("val.rhs")
+        case None    => c.report("spike.missing-rhs", "missing val right-hand side")
+      Node.Frame("spike.val", None, kids.result())
 
   // `var x [: T] = e` → Pair("var", (name, e)); lowerProg backs it with an lcell and rewrites reads/writes.
   private def parseVarStmt(c: Cur): Node =
@@ -1405,7 +1418,7 @@ object SpikeProject:
 
   private def isTopStmt(k: String): Boolean =
     k == "spike.val" || k == "spike.var" || k == "spike.assign" || k == "spike.while" ||
-    k == "spike.exprStmt" || k == "spike.sealed"
+    k == "spike.exprStmt" || k == "spike.sealed" || k == "spike.tuppatval"
 
   // an extension group → three statements: extension_start, the method def (receiver prepended
   // to its params), extension_end. lowerProg's collectExtensionMethods registers it for `.m`.
@@ -1637,6 +1650,10 @@ object SpikeProject:
 
   private def stmt(n: UniNode): String = n match
     case b: UniNode.Branch if b.kind == "spike.sealed" => """Pair("sealed", "")""" // import — parse-only no-op
+    case b: UniNode.Branch if b.kind == "spike.tuppatval" => // val (a, b) = e → Pair("tuppat", Pair([names], e))
+      val names = kids(b).collect { case (Some("tup.name"), c) => "\"" + esc(lexeme(c)) + "\"" }.toVector
+      val rhs   = kids(b).collectFirst { case (Some("val.rhs"), c) => expr(c) }.getOrElse(hole)
+      s"""Pair("tuppat", Pair(${consList(names)}, $rhs))"""
     case b: UniNode.Branch if b.kind == "spike.val" =>
       val name = kids(b).collectFirst { case (Some("val.name"), c) => lexeme(c) }.getOrElse("_")
       val rhs  = kids(b).collectFirst { case (Some("val.rhs"), c) => expr(c) }.getOrElse(hole)
