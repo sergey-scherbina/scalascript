@@ -16,11 +16,14 @@ their Scala ownership across capture. Covered owner-bearing graphs are rebuilt a
 stale-symbol audited: captured `A` supports `owner.type` and
 `Prompt[inner.Key, R]`, prefix/suffix lambdas support `() => owner.type`, and
 crossing parameterless givens are allocated in two phases with their compiler
-flags preserved. Richer graphs that M1 cannot represent fail closed. A ShiftBody
+flags preserved. Structural `PolyFunction.apply` selections are resolved from the
+transformed qualifier, while self-contained `PolyType`/`ParamRef` graphs—including
+references present only in a result or bound—remain closed atomically. Richer
+owner-dependent graphs that M1 cannot represent fail closed. A ShiftBody
 may use ordinary explicit control or a nested managed direct reset body; that
 nested reset's eager prompt is still audited by the enclosing ShiftBody. An exact
-nested direct marker,
-including one in that prompt, is rejected before it can survive lowering. Richer
+nested direct marker, including one in that prompt, is rejected before it can
+survive lowering. Richer
 local definitions, lazy markers, inline wrapper applications, and every
 `scala.util.boundary.break` fail closed before code can be moved or evaluated;
 method/module aliases, explicit labels, and transparent-inline provenance cannot
@@ -32,15 +35,16 @@ path and no CoreIR, UniML, seed, backend, or self-hosting change.
 
 The `scala-direct` semantic lane is now ready for vectors 18 and 23 plus catalog
 coverage (3/3), each differential against explicit Scala. The complete control
-leaf passes 109/109 tests (21 direct semantics, 26 exact diagnostics), the
-package/POM and packaged-JAR positive/exact-negative consumers are green, catalog
-validation remains 26 vectors/9 lanes with 9/9 negative cases, and affected effect
-conformance passes 5/5. Cross-method capture, prompt forwarding across a nested
-different-prompt reset, managed callbacks, and saveable frames remain work for the
-compiler plugin.
+leaf passes 113/113 tests (24 direct semantics, 27 exact diagnostics), the
+package/POM and packaged-JAR positive/exact-negative consumers are green, and the
+positive consumer prints fourteen differential `42` values. Catalog validation
+remains 26 vectors/9 lanes with 9/9 negative cases, and affected effect conformance
+passes 5/5. Cross-method capture, prompt forwarding across a nested different-prompt
+reset, managed callbacks, and saveable frames remain work for the compiler plugin.
 
-The post-review owner remediation is frozen in feature commit `2ee8527e1`; this
-checkpoint remains unlanded pending a fresh independent review.
+The latest strict-polymorphic-value remediation is frozen in feature commit
+`b6d2cd262` on `origin/main` base `6603e6c29`; this checkpoint remains unlanded
+pending a fresh independent review.
 
 ## 2026-07-15 — JavaScript/TypeScript explicit local control API
 

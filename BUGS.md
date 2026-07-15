@@ -2,8 +2,10 @@
 
 ## scala-direct-polymorphic-value-select — moved structural apply retains `<none>`
 
-**Status:** open; reported as P1 by the fresh independent review of frozen candidate
-`f4e860ed7..408f23c11` (2026-07-15). No fix has been accepted or landed.
+**Status:** open; remediation is green in feature commit `b6d2cd262` on frozen
+`origin/main` base `6603e6c29`, but fresh independent review and the landing SHA
+are pending. Reported as P1 by the fresh independent review of frozen candidate
+`f4e860ed7..408f23c11` (2026-07-15).
 
 **Faithful packaged reproduce:** compile with Scala CLI 3.8.3 against only the
 packaged `scalascript-control_3` JAR. Inside `direct.reset`, place the ordinary
@@ -14,21 +16,31 @@ The direct source fails at the suffix call with raw compiler output
 `undefined: identity.<none> ... TermRef(... val <none>)` twice. The explicit
 `reset`/`shift` equivalent compiles, runs, and prints `42`.
 
-**Likely root cause/plan:** moved selection rebuilding currently uses the original
-`selection.symbol`. Structural `PolyFunction.apply` may carry `<none>` there, while
-an unchanged self-bound `PolyType`/`ParamRef` graph can bypass definition-type
-rebinding when it has no captured-owner dependency. Resolve a rebuilt selection
-from the current qualifier type/member graph and ensure every moved method/poly
-binder closes over its rebuilt binder, including ParamRefs that occur only in a
-result or bound. The accepted strict-val grammar must support this independent
-polymorphic value, or reject a truly unrepresentable shape with stable
-`DIRECT_STYLE_UNSUPPORTED` before constructing generated code; a raw typer crash is
-never allowed. Add the faithful packaged/source differential and adjacent
-monomorphic/polymorphic/owner-dependent binder regressions before implementation.
+**Root cause:** reference replacement rebuilt every moved `Select` with the source
+`selection.symbol`. The structural `PolyFunction.apply` selection has
+`Symbol.noSymbol`; copying that placeholder onto the moved qualifier constructed
+the invalid `identity.<none>` term. A self-contained `PolyType`/`ParamRef` binder
+graph is already closed when retained atomically. A rejected broad-cloning attempt
+instead split rank-2/owner-dependent graphs, so only graphs that actually depend on
+replaced owners are rebound.
+
+**Implementation/verification:** moved selections first transform their qualifier.
+When the source symbol is absent, `Select.unique` resolves the member from that
+current qualifier; resolution failure becomes stable `DIRECT_STYLE_UNSUPPORTED`
+before generated code is emitted. Independent polymorphic values, prefix/suffix
+calls, explicit `.apply[Int]`, ordinary monomorphic function application, and
+result/bound-only `ParamRef` cases execute; an owner-dependent nested polyfunction
+fails closed at its declaration. Clean focused tests pass 51/51 (24 semantics and
+27 diagnostics), the full leaf/package/POM gate passes 113/113, and the packaged
+Scala CLI 3.8.3 consumer prints fourteen differential `42` values. Its packaged
+negative reports only the stable unsupported diagnostic. Catalog validation is
+26 vectors/9 lanes, validator negatives are 9/9, `scala-direct` is 3/3, and
+affected conformance is 5/5. Keep this entry open until rereview approves and the
+fix lands.
 
 ## scala-direct-captured-type-owner — captured A keeps a stale prefix owner
 
-**Status:** open; remediation is green in feature commit `2ee8527e1`, but fresh
+**Status:** open; remediation is green in feature commit `a8f321d5c`, but fresh
 independent review and the landing SHA are pending. Reported as P1 by the fresh
 independent review of frozen `scala3-control-macros` checkpoint `708dec2f1`
 (2026-07-15).
@@ -65,7 +77,7 @@ cases are part of the clean 21/21 semantics suite and the 109/109 full leaf gate
 
 ## scala-direct-moved-term-type-owner — moved RHS and suffix symbols keep stale owners
 
-**Status:** open; remediation is green in feature commit `2ee8527e1`, but fresh
+**Status:** open; remediation is green in feature commit `a8f321d5c`, but fresh
 independent review and the landing SHA are pending. Reported as P1 by the fresh
 independent review of frozen `scala3-control-macros` checkpoint `708dec2f1`
 (2026-07-15).
@@ -98,11 +110,11 @@ audits moved terms for every replaced term/type symbol. Prefix and suffix
 `() => owner.type` direct/explicit regressions all print `42` in the packaged
 consumer. Unrepresentable richer graphs reject before code construction with the
 stable unsupported diagnostic. These cases are green in feature commit
-`2ee8527e1`, the clean focused 47/47 gate, and the full 109/109 leaf gate.
+`a8f321d5c`, the clean focused 47/47 gate, and the full 109/109 leaf gate.
 
 ## scala-direct-contextual-forward-reference — prefix cloning breaks lazy givens
 
-**Status:** open; remediation is green in feature commit `2ee8527e1`, but fresh
+**Status:** open; remediation is green in feature commit `a8f321d5c`, but fresh
 independent review and the landing SHA are pending. Reported as P1 by the fresh
 independent review of frozen `scala3-control-macros` checkpoint `708dec2f1`
 (2026-07-15).
@@ -130,12 +142,12 @@ givens and keep ordinary strict sequencing/shared mutable-cell regressions green
 fresh value symbol before moving any RHS, then moves initializers with the complete
 replacement map while retaining compiler `Given`/`Lazy` flags. The unused
 forward/mutual-given direct and explicit programs compile and each print `42` in
-the packaged consumer. The regression is green in feature commit `2ee8527e1`, the
+the packaged consumer. The regression is green in feature commit `a8f321d5c`, the
 clean 21/21 semantics suite, and the full 109/109 leaf gate.
 
 ## scala-direct-nested-reset-prompt-marker — outer marker survives in eager nested-reset prompt
 
-**Status:** open; remediation remains green at feature checkpoint `2ee8527e1`, but
+**Status:** open; remediation remains green at feature checkpoint `a8f321d5c`, but
 a fresh independent review and the landing SHA are pending. Reported by the root
 agent's adversarial pre-review of the `scala3-control-macros` feature checkpoint
 `9c6850904` (2026-07-15).
@@ -179,7 +191,7 @@ fix lands.
 ## scala-direct-boundary-break-escape — boundary break can outlive its delimiter
 
 **Status:** open; behavior and the missing alias/provenance regressions are green at
-feature checkpoint `2ee8527e1`, but fresh independent review and the landing SHA
+feature checkpoint `a8f321d5c`, but fresh independent review and the landing SHA
 are pending. Originally
 reported as P1 by the rereview of frozen `scala3-control-macros` checkpoint
 `ec4eb279e` (2026-07-15); regression gap reported as P2 on 2026-07-15.
@@ -210,7 +222,7 @@ approves and the fix lands.
 
 ## scala-direct-transparent-inline-position — wrapper diagnostic points at reset
 
-**Status:** open; remediation remains green at feature checkpoint `2ee8527e1`, but
+**Status:** open; remediation remains green at feature checkpoint `a8f321d5c`, but
 a fresh independent review and the landing SHA are pending. Reported as P1 by the
 rereview of frozen `scala3-control-macros` checkpoint `ec4eb279e` (2026-07-15).
 
@@ -236,7 +248,7 @@ approves and the fix lands.
 
 ## scala-direct-nested-shift-body-marker — direct marker survives inside ShiftBody
 
-**Status:** open; remediation remains green at feature checkpoint `2ee8527e1`, but
+**Status:** open; remediation remains green at feature checkpoint `a8f321d5c`, but
 a fresh independent review and the landing SHA are pending. Reported as P1 by the
 rereview of frozen `scala3-control-macros` checkpoint `ec4eb279e` (2026-07-15).
 
@@ -263,7 +275,7 @@ entry open until rereview approves and the fix lands.
 
 ## scala-direct-dependent-prefix-type-owner — freshened values retain stale type refs
 
-**Status:** open; remediation remains green at feature checkpoint `2ee8527e1`, but
+**Status:** open; remediation remains green at feature checkpoint `a8f321d5c`, but
 a fresh independent review and the landing SHA are pending. Reported as P1 by the
 rereview of frozen `scala3-control-macros` checkpoint `ec4eb279e` (2026-07-15).
 

@@ -331,7 +331,7 @@ every later compiler/kernel change re-runs the literal fixed point.
       after changing a macro implementation, incremental `typeCheckErrors` test compilation can retain
       the prior macro class and report an obsolete primary column; use `scala3ControlApi/clean` before
       freezing exact diagnostic evidence.
-      Owner remediation is implemented in `2ee8527e1` on `origin/main` base `f4e860ed7`:
+      Owner remediation is implemented in `a8f321d5c` on `origin/main` base `f4e860ed7`:
       clean focused suites pass 47/47 (21 semantics, 26 diagnostics), the full leaf/package/POM pass
       109/109, packaged positive consumers print the expected general output and eight differential
       `42` values, and the packaged negative reports stable `DIRECT_STYLE_UNSUPPORTED`. The POM has
@@ -347,17 +347,25 @@ every later compiler/kernel change re-runs the literal fixed point.
     `undefined: identity.<none> ... TermRef(... val <none>)` twice; the explicit equivalent runs
     and prints `42`. Preserve the accepted strict-value grammar or reject a genuinely unsupported
     graph with stable `DIRECT_STYLE_UNSUPPORTED`; never leak a compiler crash. Complete in order:
-    - [ ] Update and commit `specs/scala3-control-macros.md` before code with structural-select
+    - [x] Update and commit `specs/scala3-control-macros.md` before code with structural-select
       resolution and closed `MethodType`/`PolyType`/`ParamRef` binder invariants.
-    - [ ] Add the faithful red direct-vs-explicit regression plus adjacent monomorphic structural
+    - [x] Add the faithful red direct-vs-explicit regression plus adjacent monomorphic structural
       apply, prefix/suffix polymorphic calls, explicit `.apply[Int]`, owner-dependent nested generic
       polyfunctions, and `ParamRef`-only result/bounds coverage.
-    - [ ] Rebuild selections through the current qualifier/type/member graph and close every moved
-      binder graph; fail closed only for shapes Quotes cannot represent soundly.
-    - [ ] Run clean focused semantics/diagnostics, full leaf/package/POM, packaged positive and
+    - [x] Resolve structural selections through the transformed qualifier/member graph. Preserve a
+      self-contained binder graph atomically, rebind only graphs that depend on replaced owners, and
+      fail closed for an owner-dependent nested polyfunction that Quotes cannot represent soundly.
+    - [x] Run clean focused semantics/diagnostics, full leaf/package/POM, packaged positive and
       negative consumers, catalog 26/9 + negatives 9/9 + direct 3/3, affected conformance 5/5,
       Markdown, and diff checks. Rebase only from a clean checkpoint, repeat critical gates, freeze
       an exact base/head for a new independent reviewer, and do not push or release the claim.
+      Implementation `b6d2cd262` is green on `origin/main` base `6603e6c29`: clean focused suites
+      pass 51/51 (24 semantics and 27 diagnostics), the full leaf/package/POM passes 113/113, and
+      the packaged Scala CLI 3.8.3 positive consumer prints fourteen differential `42` values. The
+      packaged negative reports stable `DIRECT_STYLE_UNSUPPORTED`; the POM has only the Scala
+      library in production scope. Catalog validation is 26 vectors/9 lanes, validator negatives
+      are 9/9, `scala-direct` is 3/3, and affected conformance is 5/5. Keep this remediation item and
+      M1 pending until a fresh independent review approves; do not push or release the claim.
 - [ ] **scala3-control-plugin** — publish a `CrossVersion.full` compiler plugin for cross-method CPS,
   managed callback propagation, effect metadata, and generated ABI entrypoints. Precompiled Scala/Java
   code remains callable but is a deterministic control-capture barrier while active on the stack.
