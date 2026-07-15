@@ -1,5 +1,62 @@
 # Bug tracker
 
+## scala-direct-inline-wrapper-owner-escape — inline marker wrapper loses bindings and provenance
+
+**Status:** open (2026-07-15). Reported as P1 by the independent
+`scala3-control-macros` review of frozen checkpoint `fa992fd92`; fix SHA pending.
+
+**Symptom/reproduce:** define an inline method that accepts ordinary parameters
+and a matching `direct.Scope`, then delegates to `direct.shift`. Calling that
+wrapper in a block-level direct bind fails during macro expansion with a raw
+`reference to parameter contextual$2 was used outside the scope where it was
+defined` ownership error. A side-effectful prompt argument also makes dropping or
+duplicating inline bindings an observable single-evaluation risk.
+
+**Root cause/plan:** marker normalization strips every quoted `Inlined` node and
+therefore discards its bindings and call provenance before the lowering can prove
+their owners or evaluation order. M1 will accept only a directly proven marker
+shape: provenance-bearing or binding-bearing inline expansions must fail closed at
+the exact marker with stable `DIRECT_STYLE_UNSUPPORTED`. Add a side-effectful
+wrapper regression that proves no wrapper code is executed.
+
+## scala-direct-lazy-marker-eager — lazy marker initializer is lowered eagerly
+
+**Status:** open (2026-07-15). Reported as P1 by the independent
+`scala3-control-macros` review of frozen checkpoint `fa992fd92`; fix SHA pending.
+
+**Symptom/reproduce:** an unused `lazy val selected = direct.shift(...)` inside
+`direct.reset` increments a counter in the shift body even though ordinary Scala
+would never force the initializer. The computation returns its unrelated tail
+value, but the counter is already one.
+
+**Root cause/plan:** the block-level marker search accepts every non-mutable
+`ValDef`, including `Flags.Lazy`, before the nested-marker traversal can classify
+the lazy initializer as a capture barrier. Exclude lazy bindings from the accepted
+marker form so the existing barrier walk reports exact `CAPTURE_BARRIER`. A strict
+lazy declaration that would remain live across a later capture is separately
+outside M1 and must fail closed rather than be moved or forced.
+
+## scala-direct-prefix-owner-split — local declarations lose ownership across capture
+
+**Status:** open (2026-07-15). Reported as P1 by the independent
+`scala3-control-macros` review of frozen checkpoint `fa992fd92`; fix SHA pending.
+
+**Symptom/reproduce:** declare a local `val`, `var`, `given`, destructuring bind,
+method, class, or type before `direct.shift`, then reference it from the shift body
+or captured suffix. The macro fails with a raw `reference ... was used outside the
+scope where it was defined` compiler error. The same failure occurs for a value
+between sequential shifts. Existing shared-heap coverage used an external variable
+and did not exercise the local cell that actually crosses capture.
+
+**Root cause/plan:** the lowering moves prefix statements separately from the
+generated continuation and only substitutes the marker result; it neither clones
+strict local value symbols into the generated owner nor rewrites later references.
+Clone/rebind ordinary strict `val`/`var`/`given` symbols in declaration order,
+including pattern-generated synthetic `ValDef`s, so Scala performs its normal
+closure boxing for a shared mutable cell. Until M1 models richer definition
+ownership, fail closed when a local method, class, type, or lazy cell crosses a
+capture. Add semantic and exact-diagnostic regressions before rereview.
+
 ## scala-direct-deferred-nonlocal-return — OPEN / fix planned (2026-07-15, Codex)
 
 **Status:** open; found by Codex during the pre-integration fail-closed audit of
