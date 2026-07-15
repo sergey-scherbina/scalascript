@@ -87,9 +87,11 @@ run.sh --lane <lane>           run one selected lane
 run.sh --all-installed         run ready and installed optional lanes
 ```
 
-`SSC=/path/to/ssc` selects the standard launcher for portable lanes. Optional
-native/AOT adapters use an explicit executable environment variable named by the
-lane descriptor; they never fall back to another backend. Tool absence is
+`SSC=/path/to/ssc` selects the standard launcher for portable lanes. Adapter ids
+are closed and validated in this version: `ssc-vm`, `ssc-asm`,
+`scala3-control-test`, and `none`. Adding an optional native/AOT adapter requires
+an explicit catalog-and-runner revision that names its executable environment
+variable; an adapter never falls back to another backend. Tool absence is
 `UNAVAILABLE`, not `PASS`.
 
 The compiler-independent Scala adapter is a ScalaTest suite in the existing
