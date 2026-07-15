@@ -1928,6 +1928,20 @@ ORDER BY / LIMIT / OFFSET, aggregates (COUNT/SUM/MIN/MAX/AVG/TOTAL), GROUP BY + 
 and inner + LEFT joins — every feature byte-verified against reference sqlite3, int==js.
 Remaining follow-ups (niche): multi-table (3+) joins, page-1 schema split, repeating-decimal %.15g.
 
+- [x] **scljet-m6q-join3-agg** — DONE 2026-07-15 (follow-up to m6o; Sergiy "все три … параллельно").
+      Aggregates / GROUP BY / HAVING over 3+ table joins. Extends `multiJoinExecute`: a group is a list
+      of joined rows; `multiAggValue` extracts the arg column across all tables (`multiColValue`) and
+      reduces (COUNT(*)=group length); `evalExprMultiGroup` evaluates an expr over a group (SxAgg
+      reduces, bare column → group's first joined row); `partitionMultiRows` splits the sorted joined
+      rows into GROUP BY runs; `havingHoldsMulti` filters; `projectMultiGroupRow` projects; a no-GROUP-BY
+      aggregate query reduces the whole set to one row. Written all-if/else-expression (no bare
+      `if cond then <assign>`, which the interpreter mishandles). Verified vs sqlite3 (GROUP BY city
+      with COUNT/SUM/MAX, HAVING, ORDER BY over groups, total COUNT), int==js; conformance
+      `scljet-sql-join3-agg`; 35/35 sql. NOTE: `ROUND`/float functions still deferred (renderReal vs
+      sqlite `%.15g` + `.toLong`/`.toDouble` JS lowering = the float-format rabbit hole, same as AVG
+      repeating decimals). Two future milestones (typed-SQL-API, JDBC-API) have SPECS being drafted by
+      sibling agents this session; correlated subqueries / EXISTS + multi-table-with-indexes DML remain.
+
 - [x] **scljet-m6p-subquery** — DONE 2026-07-15 (Sergiy "еще что-то? … тоже нужно сделать"). Non-
       correlated subqueries via a token-substitution PRE-PASS (`resolveSubqueries`, wired into both
       `queryImage` and `executeMutation`): find a `( SELECT … )`, `evalSubquery` it once, and splice its
