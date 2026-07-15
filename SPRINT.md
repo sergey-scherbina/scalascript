@@ -144,14 +144,28 @@ error-resilient parser already byte-identical to ssc1-front on 119 constructs, t
            imports/graphql-typed-resolvers/ws-typed-client/head-field-effect-shadow/oauth-mcp-full-stack).
          - **qualified type in arm-pattern ascription** `case x: A.B =>` — captured only the head, left `.B` breaking the
            arm; skipTypeSegments (like skipTypeTail but does NOT eat the case `=>`); ssc1-front tags on the HEAD (+1).
-      **Remaining ~65 DIFF + ~2 real HOLE is DEEP/BESPOKE/FRAGILE — mostly bug-reproduction, low architectural value:**
-      (a) **8× error-recovery** — REF `_err` vs spike real code; reproducing ssc1-front's OWN parse bugs (braceless-for
-      `foreach` mis-desugar, custom-interpolator recovery in auth-full/bank-rails/bureau-demo). (b) **~6× `derives` on
-      `@`-annotated fields** (graph-*) — ssc1-front error-recovers `case class C(@key id: …)` to a SINGLE synthetic
-      `_: Any` field (ctor 1-arg, mirror `["_"]`/`["Any"]`) + finds derives via a forward-scan (findCaseDerives), NOT
-      simple annotation-erase (investigated + reverted an erase attempt — it diverges without matching). (c) summon
-      resolution + given-body extension methods, symbolic-op precedence (opPrec tables already match), import-as-value
-      (x402), colon-lambda `foo.method: x=>` (wasm-collections), for-comp foreach/flatMap. The **variant-A additive
+      10. [x] annotation error-recovery + enum defaults + subtype registry + type aliases — landed 2026-07-15
+         (→**446, 89%, 51 slices**; "Доделай" round, +24). The "deep/bespoke" tail held BIG CLEAN clusters:
+         - **annotation error-recovery — +20, the biggest single win** — the spike ERASED, but must REPRODUCE:
+           (1) `@`-annotated case-class FIELDS `case class C(@key id: …)` → ssc1-front yields ONE synthetic
+           ("_","Any") field + forward-scans `derives` (findCaseDerives); spike emits cc.synthfield + skipToParamListEnd.
+           (2) OWN-LINE decl annotations `@graphLabel("Module")\ncase class …` → ssc1-front's `@` handler hits the
+           layout `;` → a standalone `_err` (SAME-line `@main def` still erased); spike emits `_err` when the token
+           after `@ann` is on a later line. Flipped graph-*/spark-*/object-store-*/scljet-sql-*/typed-object-codec.
+         - **enum-case field defaults** `case Square(side: Int = 2)` — capture ec.dflt + per-case ("funcdefaults", …)
+           companion (variant-A) so `Circle()`→`Circle(1)` (+2 default-params, +dsl-mini-language).
+         - **subtype registry** `case _: Shape` (sealed trait + `extends`) — VARIANT-A + ORACLE: parseCaseClass
+           captures the uid parent, caseClsNodes emits ("subtype", (parent, child)), NEW collectSubtypeNodes in
+           ssc1-lower unions into subtypeRegCell (reverse-accumulate — ssc1-front prepends). Additive, byte-identical (+1).
+         - **`type X = Y` alias** → spike.sealed no-op (+2). **REVERTED same-line arm-body-as-block** (+2 gains but
+           5-9 regressions — parseBlock over-consumes past `}`/next-arm/default; not worth it).
+      **Remaining ~45 DIFF + ~2 false HOLE is the HARD TAIL — deep features or bug-reproduction, low leverage:**
+      summon/given resolution (typeclass/custom-derives-mirror/graph-rdf4j-http-storage/rozum-agent/tagless-context-
+      bounds), quoted-macros (2), for-comp foreach/flatMap (wasm-http braceless-for, wasm-sorting `:::`), ssc1-front's
+      OWN parse bugs (symbolic-op defs `def <~>`→truncated unit body; colon-lambda `.foreach: (a,b)=>`→`_err(a,b)`;
+      custom-interpolator-in-arm-body), case-class-body-method+trait edge (scljet-*pager/wal/journal), std-ui if-nesting.
+      **LESSON: annotations looked like fragile "error-recovery" but were the single biggest clean cluster (+20) — the
+      recovery is 100% deterministic; always probe a `_err` cluster's ROOT before dismissing it.** The **variant-A additive
       collect-node pattern** (lowerProg unions AST-carried companion nodes into a parse-cell) is the reusable template.
       Older remaining (88 DIFF + 70 HOLE):
       ~82 parse holes (custom string interpolators `html"…"`/`sql"…"` — actually ssc1-front ALSO parses these as
