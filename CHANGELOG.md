@@ -4,6 +4,22 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-15 — Canonical interop descriptor v3 foundation (Slice A)
+
+Added the target-neutral `v2/interop/descriptor` leaf and
+`io.scalascript:scalascript-interop-descriptor_3`: closed public ABI types,
+callback/prompt policy, control summaries, artifact manifests, restricted-JCS
+canonical admission, bounded checked factories, domain-separated identities and
+digests, and structured validation. The leaf has no project dependencies.
+
+Legacy `.scim` gains only a final defaulted opaque
+`apiDescriptorV3: Option[String]`; captured pre-v3 JSON and MessagePack remain
+readable as `None`, existing fields retain their meanings, and artifact ABI stays
+`2.0` (`7faa92430`, spec verification `90ddb4337`). Descriptor tests pass 27/27,
+artifact ABI tests 73/73, core 1046/1046, interop 36/36, and affected conformance
+2/2 on interpreter/JS/JVM. Compiler producers, post-body/linker population, and
+runtime/admission consumers remain queued as descriptor slices B/C/D.
+
 ## 2026-07-15 — Stack-safe portable effect resumptions
 
 Portable VM and direct ASM now execute deep effect resumes through one shared
