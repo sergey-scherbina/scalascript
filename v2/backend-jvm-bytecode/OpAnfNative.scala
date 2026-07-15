@@ -48,10 +48,7 @@ object OpAnfNative:
   private def mayOp(t: T): Boolean = t match
     case T.App(_, _) => true
     case T.Prim(op, as) =>
-      op == "__method__" || op == "__effect__" || op == "__methodOrExt__" ||
-        op == "__effect_oneshot__" || op == "__spliceUnwrap__" ||
-        op == "effect.perform" || op == "effect.perform.oneshot" ||
-        op == "effect.handle" || as.exists(mayOp)
+      ssc.Compiler.primitiveMayProduceAutoThreadOp(op) || as.exists(mayOp)
     case T.Let(rhs, b)       => rhs.exists(mayOp) || mayOp(b)
     case T.LetRec(_, b)      => mayOp(b)
     case T.If(c, x, y)       => mayOp(c) || mayOp(x) || mayOp(y)

@@ -327,6 +327,350 @@ final class PortableEffectsStackSafetyTest extends AnyFunSuite:
     assert(vm == (Value.IntV(1928), "first\nsecond\nprimitive", 1))
     assert(asm == vm)
 
+  test("primitive effect classification is builtin-derived and AOT-conservative"):
+    val pluginName = "test.stackSafety.dynamicValue"
+    val pureProgram = Program(Nil, Term.Ctor("Box", List(
+      Term.Prim("i.add", List(Term.Lit(Const.CInt(1)), Term.Lit(Const.CInt(2)))),
+    )))
+
+    assert(Prims.isBuiltin("i.add"))
+    assert(!Compiler.primitiveMayProduceAutoThreadOp("i.add"))
+    assert(Prims.isBuiltin("__arith__"))
+    assert(!Compiler.primitiveMayProduceAutoThreadOp("__arith__"))
+    assert(Prims.isBuiltin("runLogger"))
+    assert(!Compiler.primitiveMayProduceAutoThreadOp("runLogger"))
+    assert(Prims.isBuiltin("global.reg"))
+    assert(!Compiler.primitiveMayProduceAutoThreadOp("global.reg"))
+    assert(!Prims.isBuiltin(pluginName))
+    assert(Compiler.primitiveMayProduceAutoThreadOp(pluginName))
+    assert(OpAnf.lift(pureProgram) == pureProgram)
+    assert(ssc.bytecode.OpAnfNative.lift(pureProgram) == pureProgram)
+
+    val callbackOrStoredValueBuiltins = Set(
+      "__method__", "__effect__", "__methodOrExt__", "__effect_oneshot__",
+      "__arithExt__",
+      "__with_return__", "__tryCatch__", "__tryCatchFinally__", "__tryFinally__",
+      "__lazyForce__", "coreir.eval",
+      "fieldAt", "arr.get", "arr.pop", "cell.get", "cell.getOr",
+      "effect.perform", "effect.perform.oneshot", "effect.handle",
+    )
+    assert(callbackOrStoredValueBuiltins.subsetOf(Compiler.operationProducingBuiltinNames))
+    assert(callbackOrStoredValueBuiltins.forall(Prims.isBuiltin))
+    assert(callbackOrStoredValueBuiltins.forall(Compiler.primitiveMayProduceAutoThreadOp))
+
+  test("stored primitive Op in an If condition bypasses FastBool and threads on VM and direct ASM"):
+    val cellName = "test.stackSafety.booleanCell"
+    val condition = Term.Prim("cell.get", List(Term.Global(cellName)))
+    val handler = Term.Lam(1, Term.Match(
+      Term.Local(0),
+      List(
+        Arm("boolean", 1, Term.App(
+          Term.Local(0),
+          List(Term.Lit(Const.CBool(true))),
+        )),
+        Arm("Return", 1, Term.Local(0)),
+      ),
+      None,
+    ))
+    val program = Program(Nil, Term.Prim("effect.handle", List(
+      Term.If(
+        condition,
+        Term.Ctor("Selected", List(Term.Lit(Const.CInt(1)))),
+        Term.Ctor("Selected", List(Term.Lit(Const.CInt(2)))),
+      ),
+      handler,
+    )))
+    val storedCell = Value.ForeignV(Array[Value](
+      PortableEffects.perform("Stored.boolean", Nil),
+    ))
+
+    assert(Compiler.mayProduceAutoThreadOp(condition))
+    assert(FastCode.tryFBc(
+      condition,
+      collection.mutable.HashMap(cellName -> storedCell),
+    ).isEmpty)
+
+    val registryBefore = V2PluginRegistry.snapshot()
+    try
+      V2PluginRegistry.registerGlobal(cellName, storedCell)
+      val vm = Runtime.runManaged(Compiler.compile(program), Runtime.emptyEnv)
+      Emit.globalsRef = Map.empty
+      val bytes = ssc.bytecode.JvmByteGen.emitProgram(
+        ssc.bytecode.OpAnfNative.lift(program),
+      )
+      val asm =
+        try ssc.bytecode.JvmByteGen.runProgram(bytes)
+        catch case e: java.lang.reflect.InvocationTargetException =>
+          throw Option(e.getCause).getOrElse(e)
+
+      assert(vm == Value.DataV("Selected", Vector(Value.IntV(1))))
+      assert(asm == vm)
+    finally V2PluginRegistry.restore(registryBefore)
+
+  test("plugin primitive Op results thread through Ctor App and non-final Seq on VM and saved ASM"):
+    val pluginName = "test.stackSafety.dynamicValue"
+    val pluginResult = Term.Prim(pluginName, Nil)
+
+    def handler(wrapResume: Boolean): Term =
+      val resumed = Term.App(Term.Local(0), List(Term.Lit(Const.CInt(7))))
+      Term.Lam(1, Term.Match(
+        Term.Local(0),
+        List(
+          Arm("value", 1,
+            if wrapResume then Term.Ctor("Handled", List(resumed)) else resumed),
+          Arm("Return", 1, Term.Local(0)),
+        ),
+        None,
+      ))
+
+    def handled(body: Term, wrapResume: Boolean = false): Program =
+      Program(Nil, Term.Prim("effect.handle", List(body, handler(wrapResume))))
+
+    val ctorBody = Term.Ctor("Box", List(pluginResult))
+    val appBody = Term.App(
+      Term.Lam(1, Term.Ctor("Applied", List(Term.Local(0)))),
+      List(pluginResult),
+    )
+    val seqBody = Term.Seq(List(pluginResult, Term.Ctor("After", Nil)))
+    val cases = Vector(
+      handled(ctorBody) ->
+        Value.DataV("Box", Vector(Value.IntV(7))),
+      handled(appBody) -> Value.DataV("Applied", Vector(Value.IntV(7))),
+      handled(
+        seqBody,
+        wrapResume = true,
+      ) -> Value.DataV("Handled", Vector(Value.DataV("After", Vector.empty))),
+    )
+
+    val registryBefore = V2PluginRegistry.snapshot()
+    assert(V2PluginRegistry.lookup(pluginName).isEmpty)
+    def install(counter: AtomicInteger): Unit =
+      V2PluginRegistry.register(pluginName, args =>
+        assert(args.isEmpty)
+        counter.incrementAndGet()
+        PortableEffects.perform("Dynamic.value", Nil)
+      )
+
+    try
+      // VM compilation resolves primitive handlers eagerly, so install before
+      // Compiler.compile and retain the compiled Code for the executions.
+      val vmCalls = new AtomicInteger(0)
+      install(vmCalls)
+      val vmCodes = cases.map((program, _) => Compiler.compile(program))
+      val vmResults = vmCodes.map(code => Runtime.runManaged(code, Runtime.emptyEnv))
+      assert(vmResults == cases.map(_._2))
+      assert(vmCalls.get() == cases.length)
+
+      // build-jvm transforms/emits with no runtime plugin registry. Unknown
+      // non-builtin names must still select OpAnf/sequence effect paths.
+      V2PluginRegistry.restore(registryBefore)
+      assert(V2PluginRegistry.lookup(pluginName).isEmpty)
+      val bodyPrograms = Vector(ctorBody, appBody, seqBody).map(Program(Nil, _))
+      val frontendBodyLifted = bodyPrograms.map(OpAnf.lift)
+      val nativeBodyLifted = bodyPrograms.map(ssc.bytecode.OpAnfNative.lift)
+      assert(frontendBodyLifted(0) != bodyPrograms(0))
+      assert(frontendBodyLifted(1) != bodyPrograms(1))
+      assert(frontendBodyLifted(2) == bodyPrograms(2))
+      assert(nativeBodyLifted(0) != bodyPrograms(0))
+      assert(nativeBodyLifted(1) != bodyPrograms(1))
+      assert(nativeBodyLifted(2) == bodyPrograms(2))
+
+      val asmLifted = cases.map((program, _) => ssc.bytecode.OpAnfNative.lift(program))
+      Emit.globalsRef = Map.empty
+      val asmBytes = asmLifted.map(ssc.bytecode.JvmByteGen.emitProgram)
+      assert(V2PluginRegistry.lookup(pluginName).isEmpty)
+
+      val asmCalls = new AtomicInteger(0)
+      install(asmCalls)
+      val asmResults = asmBytes.map(bytes =>
+        try ssc.bytecode.JvmByteGen.runProgram(bytes)
+        catch case e: java.lang.reflect.InvocationTargetException =>
+          throw Option(e.getCause).getOrElse(e)
+      )
+      assert(asmResults == cases.map(_._2))
+      assert(asmCalls.get() == cases.length)
+    finally V2PluginRegistry.restore(registryBefore)
+
+  test("effectful application evaluates function before arguments on VM and direct ASM"):
+    val functionOp = Term.Prim(
+      "effect.perform",
+      List(Term.Lit(Const.CStr("Order.function"))),
+    )
+    val argumentOp = Term.Prim(
+      "effect.perform",
+      List(Term.Lit(Const.CStr("Order.argument"))),
+    )
+    val application = Term.App(functionOp, List(argumentOp))
+    val functionValue = Term.Lam(1, Term.Ctor("Applied", List(Term.Local(0))))
+    val handler = Term.Lam(1, Term.Match(
+      Term.Local(0),
+      List(
+        Arm("function", 1, Term.Seq(List(
+          Term.Prim("io.println", List(Term.Lit(Const.CStr("function")))),
+          Term.App(Term.Local(0), List(functionValue)),
+        ))),
+        Arm("argument", 1, Term.Seq(List(
+          Term.Prim("io.println", List(Term.Lit(Const.CStr("argument")))),
+          Term.App(Term.Local(0), List(Term.Lit(Const.CInt(5)))),
+        ))),
+        Arm("Return", 1, Term.Local(0)),
+      ),
+      None,
+    ))
+    val program = Program(Nil, Term.Prim("effect.handle", List(application, handler)))
+
+    assert(Compiler.valuePositionsNeedEffectThreading(application))
+    assert(FastCode.tryFC(
+      application,
+      collection.mutable.HashMap.empty[String, Value],
+    ).isEmpty)
+
+    def capture(run: => Value): (Value, String) =
+      val output = new java.io.ByteArrayOutputStream
+      val value = Console.withOut(output)(run)
+      value -> output.toString("UTF-8").stripTrailing()
+
+    val vm = capture(Runtime.runManaged(Compiler.compile(program), Runtime.emptyEnv))
+    Emit.globalsRef = Map.empty
+    val bytes = ssc.bytecode.JvmByteGen.emitProgram(ssc.bytecode.OpAnfNative.lift(program))
+    val asm = capture {
+      try ssc.bytecode.JvmByteGen.runProgram(bytes)
+      catch case e: java.lang.reflect.InvocationTargetException =>
+        throw Option(e.getCause).getOrElse(e)
+    }
+
+    assert(vm == (Value.DataV("Applied", Vector(Value.IntV(5))), "function\nargument"))
+    assert(asm == vm)
+
+  test("curried handle first stage preserves its computation as raw Op on VM and direct ASM"):
+    val computation = Term.Prim(
+      "effect.perform",
+      List(Term.Lit(Const.CStr("Paren.value"))),
+    )
+    val firstStage = Term.App(Term.Global("handle"), List(computation))
+    val handler = Term.Lam(1, Term.Match(
+      Term.Local(0),
+      List(
+        Arm("value", 1, Term.App(Term.Local(0), List(Term.Lit(Const.CInt(11))))),
+        Arm("Return", 1, Term.Local(0)),
+      ),
+      None,
+    ))
+    val program = Program(Nil, Term.App(firstStage, List(handler)))
+
+    val firstStageProgram = Program(Nil, firstStage)
+    assert(OpAnf.lift(firstStageProgram) == firstStageProgram)
+    assert(ssc.bytecode.OpAnfNative.lift(firstStageProgram) == firstStageProgram)
+    assert(!Compiler.valuePositionsNeedEffectThreading(firstStage))
+
+    val registryBefore = V2PluginRegistry.snapshot()
+    val handleGlobal = Value.ClosV(Runtime.emptyEnv, 1, env =>
+      val body = env.last
+      Done(Value.ClosV(Array(body), 1, env2 =>
+        Done(PortableEffects.handle(env2(0), env2.last)),
+      )),
+    )
+    try
+      V2PluginRegistry.registerGlobal("handle", handleGlobal)
+      val vm = Runtime.runManaged(Compiler.compile(program), Runtime.emptyEnv)
+      Emit.globalsRef = Map.empty
+      val bytes = ssc.bytecode.JvmByteGen.emitProgram(ssc.bytecode.OpAnfNative.lift(program))
+      val asm =
+        try ssc.bytecode.JvmByteGen.runProgram(bytes)
+        catch case e: java.lang.reflect.InvocationTargetException =>
+          throw Option(e.getCause).getOrElse(e)
+
+      assert(vm == Value.IntV(11))
+      assert(asm == vm)
+    finally V2PluginRegistry.restore(registryBefore)
+
+  test("effectful While condition and body remain stack-safe on VM and direct ASM"):
+    val depth = nonTailDepth
+    val current = Term.Prim("lcell.get", List(Term.Local(0)))
+    val condition = Term.Prim("effect.perform", List(
+      Term.Lit(Const.CStr("Loop.condition")),
+      current,
+    ))
+    val body = Term.Seq(List(
+      Term.Prim("effect.perform", List(Term.Lit(Const.CStr("Loop.body")))),
+      Term.Prim("lcell.set", List(
+        Term.Local(0),
+        Term.Prim("i.add", List(current, Term.Lit(Const.CInt(1)))),
+      )),
+    ))
+    val loop = Term.While(condition, body)
+    val handler = Term.Lam(1, Term.Match(
+      Term.Local(0),
+      List(
+        Arm("condition", 2, Term.App(
+          Term.Local(0),
+          List(Term.Prim("i.lt", List(Term.Local(1), Term.Lit(Const.CInt(depth))))),
+        )),
+        Arm("body", 1, Term.App(Term.Local(0), List(Term.Lit(Const.CUnit)))),
+        Arm("Return", 1, Term.Local(0)),
+      ),
+      None,
+    ))
+    val program = Program(Nil, Term.Let(
+      List(Term.Prim("lcell.new", List(Term.Lit(Const.CInt(0))))),
+      Term.Seq(List(
+        Term.Prim("effect.handle", List(loop, handler)),
+        Term.Prim("lcell.get", List(Term.Local(0))),
+      )),
+    ))
+
+    assert(Compiler.valuePositionsNeedEffectThreading(loop))
+    assert(FastCode.tryFBc(
+      condition,
+      collection.mutable.HashMap.empty[String, Value],
+    ).isEmpty)
+    assert(FastCode.tryFC(
+      body,
+      collection.mutable.HashMap.empty[String, Value],
+    ).isEmpty)
+
+    val vm = Runtime.runManaged(Compiler.compile(program), Runtime.emptyEnv)
+    Emit.globalsRef = Map.empty
+    val bytes = ssc.bytecode.JvmByteGen.emitProgram(ssc.bytecode.OpAnfNative.lift(program))
+    val asm =
+      try ssc.bytecode.JvmByteGen.runProgram(bytes)
+      catch case e: java.lang.reflect.InvocationTargetException =>
+        throw Option(e.getCause).getOrElse(e)
+
+    assert(vm == Value.IntV(depth.toLong))
+    assert(asm == vm)
+
+  test("direct ASM restores the surrounding frame after a non-tail local LetRec"):
+    val localComputation = Term.LetRec(
+      List(Term.Lam(0, Term.Lit(Const.CInt(7)))),
+      Term.App(Term.Local(0), Nil),
+    )
+    val handler = Term.Lam(1, Term.Match(
+      Term.Local(0),
+      List(Arm("Return", 1, Term.Local(0))),
+      None,
+    ))
+    val program = Program(Nil, Term.Let(
+      List(Term.Prim("lcell.new", List(Term.Lit(Const.CInt(41))))),
+      Term.Seq(List(
+        Term.Prim("effect.handle", List(localComputation, handler)),
+        Term.Prim("lcell.get", List(Term.Local(0))),
+      )),
+    ))
+
+    val vm = Runtime.runManaged(Compiler.compile(program), Runtime.emptyEnv)
+    Emit.globalsRef = Map.empty
+    val bytes = ssc.bytecode.JvmByteGen.emitProgram(
+      ssc.bytecode.OpAnfNative.lift(program),
+    )
+    val asm =
+      try ssc.bytecode.JvmByteGen.runProgram(bytes)
+      catch case e: java.lang.reflect.InvocationTargetException =>
+        throw Option(e.getCause).getOrElse(e)
+
+    assert(vm == Value.IntV(41))
+    assert(asm == vm)
+
   test("managed completion is identity for every ordinary value and public Op"):
     val ordinary = Value.DataV("Result", Vector(Value.IntV(1)))
     val publicOp = PortableEffects.perform("User.op", List(Value.IntV(2)))

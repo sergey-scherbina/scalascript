@@ -48,12 +48,8 @@ object OpAnf:
    *  own position by `tx`). */
   private def mayOp(t: T): Boolean = t match
     case T.App(_, _) => true
-    case T.Prim(
-          "__method__" | "__methodOrExt__" | "__effect__" | "__effect_oneshot__" |
-            "effect.perform" | "effect.perform.oneshot" | "effect.handle",
-          _,
-        ) => true
-    case T.Prim(_, as) => as.exists(mayOp)
+    case T.Prim(op, as) =>
+      ssc.Compiler.primitiveMayProduceAutoThreadOp(op) || as.exists(mayOp)
     case T.Let(rhs, b)           => rhs.exists(mayOp) || mayOp(b)
     case T.LetRec(_, b)          => mayOp(b)
     case T.If(c, x, y)           => mayOp(c) || mayOp(x) || mayOp(y)

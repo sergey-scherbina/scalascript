@@ -221,7 +221,7 @@ object JvmByteGen:
       }
 
     // drain pending lam bodies and seq chains (each may enqueue more)
-    while g.pending.nonEmpty || g.chains.nonEmpty do
+    while g.pending.nonEmpty || g.chains.nonEmpty || g.letChains.nonEmpty do
       while g.pending.nonEmpty do
         val pnd = g.pending.dequeue()
         emitBody(
@@ -297,10 +297,7 @@ object JvmByteGen:
   private def mayOp(t: Term): Boolean = t match
     case Term.App(_, _) => true
     case Term.Prim(op, args) =>
-      op == "__method__" || op == "__effect__" || op == "__methodOrExt__" ||
-        op == "__effect_oneshot__" || op == "__spliceUnwrap__" ||
-        op == "effect.perform" || op == "effect.perform.oneshot" ||
-        op == "effect.handle" || args.exists(mayOp)
+      ssc.Compiler.primitiveMayProduceAutoThreadOp(op) || args.exists(mayOp)
     case Term.If(c, a, b)    => mayOp(c) || mayOp(a) || mayOp(b)
     case Term.Seq(ts)        => ts.exists(mayOp)
     case Term.Let(r, b)      => r.exists(mayOp) || mayOp(b)
@@ -850,6 +847,13 @@ object JvmByteGen:
         emitCapture(ctx)
         mv.visitMethodInsn(Opcodes.INVOKESTATIC, GEN, stepNames(0), s"([L$VAL;)L$VAL;", false)
       case Term.LetRec(lams, body) =>
+        // LetRec installs its tied closure frame in local 0 while compiling the
+        // expression body. Preserve the caller frame: a surrounding argument
+        // or Seq suffix must keep resolving its original De Bruijn locals.
+        val callerEnvSlot = ctx.nextSlot
+        ctx.nextSlot += 1
+        mv.visitVarInsn(Opcodes.ALOAD, 0)
+        mv.visitVarInsn(Opcodes.ASTORE, callerEnvSlot)
         // materialize the current frame, then Emit.letrec(arities, fns, env)
         val entries = lams.map {
           case Term.Lam(ar, b) =>
@@ -919,6 +923,10 @@ object JvmByteGen:
         ctx.localTailTargets = savedLocalTargets
         ctx.localFrameArity = savedLocalArity
         ctx.restoreSlots(savedSlots)
+        // Keep the LetRec result on the operand stack while restoring the
+        // method's lexical environment for the surrounding expression.
+        mv.visitVarInsn(Opcodes.ALOAD, callerEnvSlot)
+        mv.visitVarInsn(Opcodes.ASTORE, 0)
       case Term.While(cond, body) =>
         val startL = new Label(); val endL = new Label()
         mv.visitLabel(startL)

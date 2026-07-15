@@ -601,19 +601,31 @@ object Compiler:
     op == "effect.handle" || op == "effect.perform" ||
       op == "effect.perform.oneshot" || op == "effect.pure"
 
+  /** Builtins in this set can produce an auto-thread Op even when all their
+   * arguments are already ordinary values: they invoke user/plugin code, run
+   * nested CoreIR, or read a stored arbitrary Value. A non-builtin primitive
+   * is equally conservative because an AOT artifact installs plugins only at
+   * runtime. Keep every frontend/backend classifier on this predicate. */
+  private[ssc] val operationProducingBuiltinNames: Set[String] = Set(
+    "__method__", "__effect__", "__methodOrExt__", "__effect_oneshot__",
+    "__arithExt__",
+    "__with_return__", "__tryCatch__", "__tryCatchFinally__", "__tryFinally__",
+    "__lazyForce__", "coreir.eval",
+    "fieldAt", "arr.get", "arr.pop", "cell.get", "cell.getOr",
+    "effect.perform", "effect.perform.oneshot", "effect.handle",
+  )
+
+  private[ssc] def primitiveMayProduceAutoThreadOp(op: String): Boolean =
+    operationProducingBuiltinNames.contains(op) || !Prims.isBuiltin(op)
+
   /** Conservative FastCode guard: these terms may evaluate to an auto-thread
    * Op and therefore must stay on the effect-aware compiler path when used as
    * a primitive argument. The slow compiler still checks the actual Value, so
    * this predicate is an optimization-safety gate rather than semantics. */
   private[ssc] def mayProduceAutoThreadOp(t: Term): Boolean = t match
     case App(_, _) => true
-    case Prim(
-          "__method__" | "__effect__" | "__methodOrExt__" |
-            "__effect_oneshot__" | "__spliceUnwrap__" |
-            "effect.perform" | "effect.perform.oneshot" | "effect.handle",
-          _,
-        ) => true
-    case Prim(_, args)         => args.exists(mayProduceAutoThreadOp)
+    case Prim(op, args) =>
+      primitiveMayProduceAutoThreadOp(op) || args.exists(mayProduceAutoThreadOp)
     case Let(rhs, body)        => rhs.exists(mayProduceAutoThreadOp) || mayProduceAutoThreadOp(body)
     case LetRec(_, body)       => mayProduceAutoThreadOp(body)
     case If(cond, thenV, elseV) =>
@@ -2302,7 +2314,7 @@ object FastCode:
 
   /** Try to compile a condition term to a FastBoolCode (avoids BoolV allocation). */
   def tryFBc(t: Term, globals: collection.mutable.Map[String, Value]): Option[FBc] = t match
-    case term if Compiler.valuePositionsNeedEffectThreading(term) => None
+    case term if Compiler.mayProduceAutoThreadOp(term) => None
     // __arith__ comparisons — bridge generates these; fast path via unboxed Long comparison.
     // GUARD (ALL ops): only when BOTH operands are provably Long. tryFLC reads a Local optimistically
     // as a Long and returns 0L for a FloatV OR StrV (see the Local case), so an unguarded fast path makes
@@ -2471,7 +2483,11 @@ object Prims:
   import Value.*
   type Fn = List[Value] => Value
 
-  def resolve(op: String): Fn = op match
+  private object NotBuiltin extends Function1[List[Value], Value]:
+    def apply(args: List[Value]): Value =
+      throw new IllegalStateException("non-builtin primitive sentinel invoked")
+
+  private def resolveBuiltinRaw(op: String): Fn = op match
     case portable if PortableDecimal.primitiveNames.contains(portable) =>
       args => PortableDecimal.eval(portable, args)
     case portable if PortableEffects.primitiveNames.contains(portable) =>
@@ -3720,10 +3736,20 @@ object Prims:
                     ClosV(Runtime.emptyEnv, 1, env => Done(methodOp(name, recv, List(env.last))))
                   else
                     sys.error(s"__method__: no dispatch for .$name on ${Show.show(recv)}")
-    case op =>
-      V2PluginRegistry.lookup(op) match
-        case Some(fn) => fn
-        case None => (_: List[Value]) => sys.error(s"unimplemented primitive: $op")
+    case _ => NotBuiltin
+
+  private[ssc] def resolveBuiltin(op: String): Option[Fn] =
+    val fn = resolveBuiltinRaw(op)
+    if fn eq NotBuiltin then None else Some(fn)
+
+  private[ssc] def isBuiltin(op: String): Boolean =
+    (resolveBuiltinRaw(op) ne NotBuiltin) ||
+      resolve1(op).isDefined || resolve2(op).isDefined || resolve3(op).isDefined
+
+  def resolve(op: String): Fn =
+    resolveBuiltin(op)
+      .orElse(V2PluginRegistry.lookup(op))
+      .getOrElse((_: List[Value]) => sys.error(s"unimplemented primitive: $op"))
 
   /** Dispatch `__arith__(op, l, r)` without allocating a List[Value] for the common cases. */
   /** Run a 1-arg closure to a finished Value (trampolined). */
