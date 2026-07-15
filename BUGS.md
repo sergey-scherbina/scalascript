@@ -24,6 +24,12 @@ the existing local-`Array` vectors.
 four new shadowing tests fail because the producer returns a successful descriptor
 containing primitive `Bytes`. The unshadowed built-in positive remains green.
 
+**Local correction checkpoint:** implementation `72e6a2897` on
+`origin/main@790366a9d` resolves both component identities before the shortcut.
+Focused producer 46/46, descriptor 27/27, core 1092/1092, interop 36/36, IR,
+artifact ABI 73/73, and affected conformance 2/2 are green. Status remains `open`
+until fresh independent approval and landing on `origin/main`.
+
 ## descriptor-v3-codeblock-source-bypass — documentless modules skip source/AST correspondence
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent rereview of
@@ -51,6 +57,12 @@ disagreement while keeping body-only invariance.
 `CodeBlock.source` repro and the dual-source disagreement repro return `Right` from
 the old tree. They account for two of seven failures in the exact 39/46 focused run.
 
+**Local correction checkpoint:** implementation `72e6a2897` on
+`origin/main@790366a9d` verifies mandatory section source plus optional document
+source against the stored AST. Focused producer 46/46, descriptor 27/27, core
+1092/1092, interop 36/36, IR, artifact ABI 73/73, and affected conformance 2/2
+are green. Status remains `open` until fresh independent approval and landing.
+
 ## descriptor-v3-package-wrapper-header-forgery — wrapper names match while wrapper semantics differ
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent rereview of
@@ -72,6 +84,12 @@ at the block path before inner declaration correspondence. Add the exact
 **Baseline:** regression commit `387a10384`; the forged-wrapper repro returns
 `Right` and projects the inner API. It is one of seven failures in the exact 39/46
 focused run.
+
+**Local correction checkpoint:** implementation `72e6a2897` on
+`origin/main@790366a9d` requires the exact plain wrapper at every package segment.
+Focused producer 46/46, descriptor 27/27, core 1092/1092, interop 36/36, IR,
+artifact ABI 73/73, and affected conformance 2/2 are green. Status remains `open`
+until fresh independent approval and landing.
 
 ## descriptor-v3-mutable-export-loss — exported val and var collapse to one immutable descriptor
 
@@ -95,10 +113,11 @@ changing the descriptor leaf.
 shape as the positive `val`; this is one of four expected failures in the
 `25/29` pre-fix run.
 
-**Pre-integration checkpoint:** local implementation `abf6d909a` rejects the
-faithful repro; focused 38/38 and the full affected gates are green after rebase
-onto `origin/main@b1e93d0f9`. Status stays `open` until independent approval and
-landing on `origin/main`.
+**Latest local checkpoint:** implementation `72e6a2897` on
+`origin/main@790366a9d` rejects the faithful repro. Focused producer 46/46,
+descriptor 27/27, core 1092/1092, interop 36/36, IR, artifact ABI 73/73, and
+affected conformance 2/2 are green. Status stays `open` until fresh independent
+approval and landing on `origin/main`.
 
 ## descriptor-v3-nonpublic-local-type-leak — private local types fall back to external names
 
@@ -130,11 +149,12 @@ while a non-public one rejects before the shortcut.
 external `AbiType.Named` values; the latter has no callback policy. These are two
 of four expected failures in the `25/29` pre-fix run.
 
-**Pre-integration checkpoint:** local implementation `abf6d909a` covers relative
-and absolute private owners, direct and wrapped callback aliases, private/public
-local `Array` shadowing, and a private local effect; focused 38/38 and the full
-affected gates are green. Status stays `open` until independent approval and
-landing on `origin/main`.
+**Latest local checkpoint:** implementation `72e6a2897` on
+`origin/main@790366a9d` covers relative and absolute private owners, direct and
+wrapped callback aliases, private/public local `Array` shadowing, and a private
+local effect. Focused producer 46/46, descriptor 27/27, core 1092/1092, interop
+36/36, IR, artifact ABI 73/73, and affected conformance 2/2 are green. Status stays
+`open` until fresh independent approval and landing on `origin/main`.
 
 ## descriptor-v3-source-ast-correspondence-tamper — count-only retained-source check accepts stale declarations
 
@@ -165,11 +185,13 @@ accept a changed unsupported declaration header.
 `demo.api.Real.read` after retained source removes that operation; this is one of
 four expected failures in the `25/29` pre-fix run.
 
-**Pre-integration checkpoint:** local implementation `abf6d909a` reparses and
-compares exact body-erased headers, normalizes placeholder aliases, requires the
-unique wrapper, and conservatively covers every current ScalaMeta definition form;
-focused 38/38 and the full affected gates are green. Status stays `open` until
-independent approval and landing on `origin/main`.
+**Latest local checkpoint:** implementation `72e6a2897` on
+`origin/main@790366a9d` reparses and compares exact body-erased headers, normalizes
+placeholder aliases, requires exact/plain wrappers, verifies both retained source
+carriers, and conservatively covers every current ScalaMeta definition form.
+Focused producer 46/46, descriptor 27/27, core 1092/1092, interop 36/36, IR,
+artifact ABI 73/73, and affected conformance 2/2 are green. Status stays `open`
+until fresh independent approval and landing on `origin/main`.
 
 ## js-control-packed-readme-broken-spec-link — npm README links outside payload
 
@@ -314,6 +336,12 @@ requesting another independent review.
 **Baseline:** focused producer suite reproduces all four nominal shapes as
 unexpected successful descriptors (`18/25` total green before the fix).
 
+**Local correction checkpoint:** implementation `72e6a2897` on
+`origin/main@790366a9d` rejects all four shapes. Focused producer 46/46,
+descriptor 27/27, core 1092/1092, interop 36/36, IR, artifact ABI 73/73, and
+affected conformance 2/2 are green. Status remains `open` until fresh independent
+approval and landing on `origin/main`.
+
 ## descriptor-v3-effect-header-evidence-misbinding — comments and same-name objects corrupt effect evidence
 
 **Status:** open (2026-07-15). Reported by the independent Slice B re-review
@@ -336,6 +364,12 @@ effect cannot be bound unambiguously. Add both faithful regressions.
 fixture reports the phantom header, and the ordinary object leaves the real effect
 without evidence (`18/25` total green before the fix).
 
+**Local correction checkpoint:** implementation `72e6a2897` on
+`origin/main@790366a9d` binds lexically scrubbed evidence to the exact effect owner.
+Focused producer 46/46, descriptor 27/27, core 1092/1092, interop 36/36, IR,
+artifact ABI 73/73, and affected conformance 2/2 are green. Status remains `open`
+until fresh independent approval and landing on `origin/main`.
+
 ## descriptor-v3-lost-ast-container-fail-open — retained declarations can project as an empty API
 
 **Status:** open (2026-07-15). Reported by the independent Slice B re-review
@@ -353,6 +387,13 @@ retained declaration-source containers with section code blocks and return stabl
 Cover the exact copy-based repro.
 **Baseline:** focused producer suite reproduces the copied module as an unexpected
 successful empty `ApiDescriptor` (`18/25` total green before the fix).
+
+**Local correction checkpoint:** implementation `72e6a2897` on
+`origin/main@790366a9d` fails closed when retained declaration containers lose
+their section AST. Focused producer 46/46, descriptor 27/27, core 1092/1092,
+interop 36/36, IR, artifact ABI 73/73, and affected conformance 2/2 are green.
+Status remains `open` until fresh independent approval and landing on
+`origin/main`.
 
 ## jvm-bytegen-letrec-env-clobber — FIXED / awaiting confirmation (2026-07-15, Codex)
 

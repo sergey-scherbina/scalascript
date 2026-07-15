@@ -274,6 +274,12 @@ optional policy, not the default continuation semantics.
       returning `Right` — 1 non-plain wrapper, 2 code-block/document source-evidence, and 4
       Array/Byte binder-or-local shadowing tests. All prior 38 regressions plus the new unshadowed
       built-in `Array[Byte]` positive pass.
+    - Third-correction local checkpoint: implementation `72e6a2897`, spec verification
+      `7fde36cf9`, rebased on `origin/main@790366a9d`. Focused producer 46/46,
+      descriptor 27/27, core 1092/1092, interop 36/36, `ir/test` success, artifact ABI
+      73/73, and affected `modules*,import-dir*` conformance 2/2 are green. All nine
+      Slice B BUGS entries remain `open`, and Slice B remains unchecked until a fresh
+      independent read-only review approves the clean checkpoint; do not push/release first.
     - Done when the focused regressions and affected core/interop/conformance gates pass and a
       fresh independent read-only review returns APPROVE with no P1/P2 blocker.
   - [ ] **C — post-body summaries:** extract managed/foreign/tail edges, save sites, frame schemas,
