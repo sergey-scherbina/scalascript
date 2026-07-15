@@ -1,6 +1,6 @@
 feature/control-interop-effect-recursion-stack-unsafe 2026-07-15T00:55:35Z
 agent: codex-stack-control
-heartbeat: 2026-07-15T00:55:35Z
-status: not-started
-done-so-far:
-next: create isolated worktree, verify the real VM/ASM overflow boundary, then implement a heap-safe continuation path from the existing spec
+heartbeat: 2026-07-15T00:55:50Z
+status: in-progress
+done-so-far: isolated worktree created from origin/main
+next: verify the real VM/ASM overflow boundary and existing continuation specs, then implement and qualify a heap-safe continuation path
