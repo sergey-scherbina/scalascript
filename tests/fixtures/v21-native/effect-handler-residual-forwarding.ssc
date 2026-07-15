@@ -1,0 +1,19 @@
+effect Target:
+  def op(value: Int): Int
+
+multi effect Gate:
+  def allow(): Boolean
+
+def inner(): Int =
+  handle(Target.op(1)) {
+    case Target.op(value, resume) if Gate.allow() => resume(value + 100)
+    case Return(value) => value
+    case other => 7
+  }
+
+val result = handle(inner()) {
+  case Gate.allow(resume) => resume(false) + resume(true)
+  case Return(value) => value
+}
+
+println(result)

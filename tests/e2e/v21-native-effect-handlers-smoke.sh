@@ -10,6 +10,12 @@ run_native() {
   PATH=/usr/bin:/bin SSC_NO_CDS=1 "$ROOT/bin/ssc-standard" run --native "$@"
 }
 
+lower_native_source() {
+  PATH=/usr/bin:/bin SSC_NO_CDS=1 java -Xss512m \
+    -cp "$ROOT/bin/lib/standard/jars/*" ssc.cli run \
+    "$ROOT/v2/bin/ssc1c.ssc0" "$@"
+}
+
 run_native_failure() {
   local label=$1 out=$2 err=$3 expected=$4
   shift 4
@@ -38,6 +44,36 @@ done
 
 cmp "$tmp/vm.out" "$tmp/asm.out"
 ! rg -q 'Stub|unhandled runtime effect|unbound global' "$tmp/vm.out" "$tmp/asm.out"
+
+residual_fixture="$ROOT/tests/fixtures/v21-native/effect-handler-residual-forwarding.ssc"
+for mode in vm asm; do
+  mode_args=()
+  [[ $mode == asm ]] && mode_args+=(--bytecode)
+  run_native "${mode_args[@]}" "$residual_fixture" \
+    >"$tmp/residual.$mode.out" 2>"$tmp/residual.$mode.err"
+  [[ $(<"$tmp/residual.$mode.out") == '108' ]]
+  [[ ! -s "$tmp/residual.$mode.err" ]]
+done
+cmp "$tmp/residual.vm.out" "$tmp/residual.asm.out"
+
+# The installed standard tier runs the checked-in self-hosted lowerer. Inspect
+# its CoreIR as well as executing it: simple handler partial functions must keep
+# a direct root Match, while a guarded total catch-all has selected-only root
+# metadata because its synthetic terminal miss is unreachable.
+simple_residual="$ROOT/tests/interop-conformance/probes/19-residual-forwarding-nested-handlers.ssc"
+lower_native_source "$simple_residual" \
+  >"$tmp/residual-simple.coreir" 2>"$tmp/residual-simple.err"
+[[ ! -s "$tmp/residual-simple.err" ]]
+rg -Fq \
+  '(def inner (lam 0 (prim effect.handle (app (global prog)) (lam 1 (match (local 0)' \
+  "$tmp/residual-simple.coreir"
+
+lower_native_source "$residual_fixture" \
+  >"$tmp/residual-total.coreir" 2>"$tmp/residual-total.err"
+[[ ! -s "$tmp/residual-total.err" ]]
+rg -Fq '(def inner (lam 0 (prim effect.handle' "$tmp/residual-total.coreir"
+rg -Fq '__handler_dispatch_selected__' "$tmp/residual-total.coreir"
+! rg -Fq '__handler_dispatch_miss__' "$tmp/residual-total.coreir"
 
 one_shot_fixture="$ROOT/tests/fixtures/v21-native/effect-one-shot-violation.ssc"
 one_shot_expected='error [ONESHOT_VIOLATION]: One-shot violation: One.op resumed more than once'
