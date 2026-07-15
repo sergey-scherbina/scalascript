@@ -1,13 +1,13 @@
 # Scala 3 lexical direct-style control macros
 
-Status: **M1 second-rereview remediation specified; implementation pending**
-(2026-07-15). The first review rejected owner splitting, lazy-marker lowering,
+Status: **M1 second-rereview remediation verified locally; fresh independent
+rereview pending** (2026-07-15). The first review rejected owner splitting, lazy-marker lowering,
 and inline marker wrappers. The next independent rereview found stale dependent
 types in freshened declarations, a direct marker hidden in `ShiftBody`, an
 incorrect transparent-inline primary position, and deferred
-`scala.util.boundary.break`. The contract below now covers all four; M1 does not
-land until implementation, full verification, and a new independent review approve
-the frozen checkpoint.
+`scala.util.boundary.break`. The contract below now covers all four and the full
+local verification matrix is green; M1 does not land until a new independent
+review approves the frozen checkpoint.
 
 This feature is the bounded inline-macro tier of
 [`scala3-bidirectional-control.md`](scala3-bidirectional-control.md). It translates
@@ -415,14 +415,14 @@ save/run, callbacks, descriptors, runners, or cancellation.
 - [x] Lazy marker initializers, crossing local method/class/type/lazy
       declarations, and inline marker wrappers fail closed
       with the frozen diagnostic family and never execute rejected side effects.
-- [ ] Dependent/singleton types of freshened strict locals are rebound without old
+- [x] Dependent/singleton types of freshened strict locals are rebound without old
       owner references; local nested prompts and `owner.type` flow across capture,
       while unsupported shapes fail closed without raw compiler errors.
-- [ ] An exact direct marker inside an outer `ShiftBody` fails at the inner call;
+- [x] An exact direct marker inside an outer `ShiftBody` fails at the inner call;
       ordinary explicit control and nested managed `direct.reset` remain accepted.
-- [ ] Transparent-inline rejection reports the nearest wrapper invocation, while
+- [x] Transparent-inline rejection reports the nearest wrapper invocation, while
       the unexpanded-inline application diagnostic remains stable.
-- [ ] Every `scala.util.boundary.break` inside M1 fails before defer/CPS movement
+- [x] Every `scala.util.boundary.break` inside M1 fails before defer/CPS movement
       with a stable source-located direct diagnostic; safe nested-method returns
       remain accepted.
 
@@ -492,8 +492,8 @@ Changed Markdown is linted and the final branch must pass `git diff --check`.
 ## Results
 
 - `scripts/sbtc "scala3ControlApi/test;scala3ControlApi/packageBin;scala3ControlApi/makePom"`
-  passes 92/92 tests across ten suites. The direct slice contributes fourteen runtime
-  semantic tests, sixteen exact compile-time diagnostic tests, three catalog-lane
+  passes 99/99 tests across ten suites. The direct slice contributes sixteen runtime
+  semantic tests, twenty-one exact compile-time diagnostic tests, three catalog-lane
   tests, and source-access safety checks.
 - `tests/interop-conformance/run.sh --validate` accepts 26 vectors and nine lanes;
   all nine validator-negative cases pass. `--lane scala-direct` passes vector 18,
@@ -515,5 +515,11 @@ Changed Markdown is linted and the final branch must pass `git diff --check`.
   four additional P1 families: stale dependent/singleton type owners, a direct
   marker hidden in an outer `ShiftBody`, transparent-inline diagnostics anchored
   at `direct.reset`, and `scala.util.boundary.break` escaping after defer. The
-  behavior items above remain unchecked until faithful regressions and the complete
-  verification matrix pass; another independent rereview remains the landing gate.
+  seven new regressions now cover dependent prompt/`owner.type` flow (including
+  mutable/given/pattern references), a stable fail-closed dependent polymorphic
+  shape, explicit and nested-managed control inside `ShiftBody`, exact inner-marker
+  rejection, nearest transparent-inline position, and pure/suffix boundary breaks.
+  Clean focused tests pass 37/37; the full leaf is 99/99, package/POM and packaged-
+  JAR example are green, catalog validation is 26 vectors/9 lanes with 9/9 negative
+  cases, the direct lane is 3/3, and affected conformance is 5/5. Another
+  independent rereview remains the landing gate.
