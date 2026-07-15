@@ -33,6 +33,8 @@ final class PortableEffectsResidualForwardingTest extends AnyFunSuite:
   private val unit: Term = Term.Lit(Const.CUnit)
   private def add(left: Term, right: Term): Term =
     Term.Prim("i.add", List(left, right))
+  private def mul(left: Term, right: Term): Term =
+    Term.Prim("i.mul", List(left, right))
   private def app(function: Term, argument: Term): Term =
     Term.App(function, List(argument))
   private def op(label: String, argument: Term, suffix: Term): Term =
@@ -78,6 +80,17 @@ final class PortableEffectsResidualForwardingTest extends AnyFunSuite:
   private def continuation(value: Value): Value.ClosV = value match
     case Value.DataV("Op", IndexedSeq(_, _, resume: Value.ClosV)) => resume
     case other => fail(s"expected Op continuation, got ${Show.show(other)}")
+
+  private def runManaged1(closure: Value.ClosV, argument: Value): Value =
+    Runtime.runManaged(closure.code, Runtime.extend(closure.env, Array(argument)))
+
+  private def isPrivateResumeCarrier(value: Value): Boolean = value match
+    case Value.DataV("Op", IndexedSeq(
+          Value.StrV("ssc.control.__resume__"),
+          Value.ForeignV(_),
+          _: Value.ClosV,
+        )) => true
+    case _ => false
 
   /** A local LetRec handler re-enters the exact same qualified closure with
     *  the exact same event through a tail-calling peer while the outer
@@ -173,6 +186,28 @@ final class PortableEffectsResidualForwardingTest extends AnyFunSuite:
     }
   }
 
+  test("residual forwarding enters Rehandle and orders inner then outer Return") {
+    // The inner handler must first forward Outer.outer. Resuming it reaches an
+    // Inner.inner operation and therefore produces the nested private request
+    // that the active outer fold handles through Rehandle. Non-commutative
+    // Return transforms distinguish inner-then-outer (312) from outer-then-inner
+    // (321), while the final ordinary value proves the carrier was drained.
+    val computation = op("Outer.outer", unit,
+      op("Inner.inner", unit, Term.Local(0)))
+    val inner = handler(List(
+      Arm("inner", 1, app(Term.Local(0), lit(3))),
+      Arm("Return", 1, add(mul(Term.Local(0), lit(10)), lit(1)))))
+    val outer = handler(List(
+      Arm("outer", 1, app(Term.Local(0), unit)),
+      Arm("Return", 1, add(mul(Term.Local(0), lit(10)), lit(2)))))
+    val program = Program(Nil, handle(handle(computation, inner), outer))
+
+    eachLane(program) { (lane, result) =>
+      assert(result == Value.IntV(312), lane)
+      assert(!isPrivateResumeCarrier(result), lane)
+    }
+  }
+
   test("forwarding preserves one-shot and reusable base continuations") {
     val returnOnly = handler(List(Arm("Return", 1, Term.Local(0))))
 
@@ -180,20 +215,32 @@ final class PortableEffectsResidualForwardingTest extends AnyFunSuite:
       val oneShot = Program(Nil, handle(
         Term.Prim("effect.perform.oneshot", List(str("One"), str("op"))),
         returnOnly))
-      val guarded = continuation(run(oneShot, lane))
-      assert(Prims.runClos1(guarded, Value.IntV(1)) == Value.IntV(1), lane)
+      val oneShotResidual = run(oneShot, lane)
+      assert(PortableEffects.completeManaged(oneShotResidual) eq oneShotResidual, lane)
+      val guarded = continuation(oneShotResidual)
+      val firstRequest = Prims.runClos1(guarded, Value.IntV(1))
+      assert(isPrivateResumeCarrier(firstRequest), lane)
       val rejection = intercept[ControlRunFailure] {
         Prims.runClos1(guarded, Value.IntV(2))
       }
       assert(rejection.rejection ==
         ResumeRejected.AlreadyResumed(OperationId(EffectId("One"), "op")), lane)
+      val firstResult = PortableEffects.completeManaged(firstRequest)
+      assert(firstResult == Value.IntV(1), lane)
+      assert(!isPrivateResumeCarrier(firstResult), lane)
 
       val reusable = Program(Nil, handle(
         Term.Prim("effect.perform", List(str("Many.op"))),
         returnOnly))
-      val raw = continuation(run(reusable, lane))
-      assert(Prims.runClos1(raw, Value.IntV(3)) == Value.IntV(3), lane)
-      assert(Prims.runClos1(raw, Value.IntV(4)) == Value.IntV(4), lane)
+      val reusableResidual = run(reusable, lane)
+      assert(PortableEffects.completeManaged(reusableResidual) eq reusableResidual, lane)
+      val raw = continuation(reusableResidual)
+      val first = runManaged1(raw, Value.IntV(3))
+      val second = runManaged1(raw, Value.IntV(4))
+      assert(first == Value.IntV(3), lane)
+      assert(second == Value.IntV(4), lane)
+      assert(!isPrivateResumeCarrier(first), lane)
+      assert(!isPrivateResumeCarrier(second), lane)
     }
   }
 
