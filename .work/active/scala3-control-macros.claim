@@ -1,6 +1,6 @@
 feature/scala3-control-macros 2026-07-15T04:07:46Z
 agent: codex-scala-control-macros
-heartbeat: 2026-07-15T05:24:50Z
+heartbeat: 2026-07-15T05:55:19Z
 status: in-progress
-done-so-far: independent review rejected three P1 families (split-owner declarations, lazy-marker eagerness, unsafe inline wrappers); branch rebased and frozen audit complete
-next: record review bugs and SPRINT plan, update spec first, then implement owner-safe val rebinding and fail-closed lazy/definition/inline shapes with regressions
+done-so-far: all four tracked review/fail-closed families are implemented; 92/92 leaf, 26/9 catalog, 9/9 negatives, 3/3 direct lane, 5/5 conformance, and packaged-JAR compile/run are green at clean HEAD ec4eb279e
+next: run a fresh independent read-only rereview of ec4eb279e; fix any finding spec-first, otherwise rebase, repeat critical gates, publish to main, and release
