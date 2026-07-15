@@ -94,6 +94,21 @@ private object DirectMacros:
         case _: Apply => boundaryBreakSymbols.contains(calledSymbol(term))
         case _        => false
 
+    def boundaryBreakPosition(term: Term): Position =
+      def applicationPositions(current: Term): List[Position] =
+        current match
+          case application @ Apply(function, _) =>
+            application.pos :: applicationPositions(function)
+          case application @ TypeApply(function, _) =>
+            application.pos :: applicationPositions(function)
+          case typed @ Typed(function, _) =>
+            typed.pos :: applicationPositions(function)
+          case function => List(function.pos)
+      applicationPositions(term)
+        .filter(position => position.end > position.start)
+        .minByOption(position => position.end - position.start)
+        .getOrElse(term.pos)
+
     def rejectDeferredControl(tree: Tree): Unit =
       def isOwnedBy(symbol: Symbol, ancestor: Symbol): Boolean =
         @annotation.tailrec
@@ -104,20 +119,31 @@ private object DirectMacros:
         loop(symbol)
 
       val traverser = new TreeTraverser:
+        private var inlineCallPositions = List.empty[Position]
+
+        private def reject(invocation: Term): Nothing =
+          report.errorAndAbort(
+            "error [DIRECT_STYLE_UNSUPPORTED]: direct.reset M1 cannot defer scala.util.boundary.break; move boundary control outside direct.reset",
+            inlineCallPositions.headOption.getOrElse(
+              boundaryBreakPosition(invocation)
+            )
+          )
+
         override def traverseTree(current: Tree)(owner: Symbol): Unit =
           current match
-            case Inlined(Some(invocation: Term), _, _)
-                if isBoundaryBreakInvocation(invocation) =>
-              report.errorAndAbort(
-                "error [DIRECT_STYLE_UNSUPPORTED]: direct.reset M1 cannot defer scala.util.boundary.break; move boundary control outside direct.reset",
-                invocation.pos
-              )
+            case inlined: Inlined =>
+              val previous = inlineCallPositions
+              inlined.call.foreach { call =>
+                if call.pos.sourceCode.nonEmpty ||
+                  call.pos.end > call.pos.start
+                then
+                  inlineCallPositions = call.pos :: inlineCallPositions
+              }
+              try traverseTreeChildren(inlined)(owner)
+              finally inlineCallPositions = previous
             case invocation: Term
                 if isBoundaryBreakInvocation(invocation) =>
-              report.errorAndAbort(
-                "error [DIRECT_STYLE_UNSUPPORTED]: direct.reset M1 cannot defer scala.util.boundary.break; move boundary control outside direct.reset",
-                invocation.pos
-              )
+              reject(invocation)
             case returned: Return
                 if !isOwnedBy(returned.from, sourceOwner) =>
               report.errorAndAbort(
@@ -169,7 +195,8 @@ private object DirectMacros:
 
     def replaceReferences(
         term: Term,
-        replacements: Map[Symbol, Term]
+        replacements: Map[Symbol, Term],
+        typeReplacements: Map[Symbol, TypeRepr] = Map.empty
     ): Term =
       val mapper = new TreeMap:
         override def transformTerm(tree: Term)(owner: Symbol): Term =
@@ -189,8 +216,16 @@ private object DirectMacros:
         override def transformTypeTree(
             tree: TypeTree
         )(owner: Symbol): TypeTree =
-          if typeDependsOn(tree.tpe, replacements) then
-            Inferred(rebindType(tree.tpe, replacements, tree.pos))
+          val substituted =
+            if typeReplacements.isEmpty then tree.tpe
+            else
+              tree.tpe.substituteTypes(
+                typeReplacements.keys.toList,
+                typeReplacements.values.toList
+              )
+          if typeReplacements.nonEmpty ||
+            typeDependsOn(substituted, replacements)
+          then Inferred(rebindType(substituted, replacements, tree.pos))
           else super.transformTypeTree(tree)(owner)
       mapper.transformTerm(term)(sourceOwner)
 
@@ -264,6 +299,59 @@ private object DirectMacros:
             typeDependsOn(underlying, replacements)
           case _ => false)
 
+    def typeDependsOnSymbols(
+        tpe: TypeRepr,
+        symbols: Set[Symbol]
+    ): Boolean =
+      symbols.contains(tpe.typeSymbol) ||
+        (tpe match
+          case TypeRef(qualifier, _) =>
+            typeDependsOnSymbols(qualifier, symbols)
+          case TermRef(qualifier, _) =>
+            typeDependsOnSymbols(qualifier, symbols)
+          case AppliedType(constructor, arguments) =>
+            typeDependsOnSymbols(constructor, symbols) ||
+              arguments.exists(typeDependsOnSymbols(_, symbols))
+          case AndType(left, right) =>
+            typeDependsOnSymbols(left, symbols) ||
+              typeDependsOnSymbols(right, symbols)
+          case OrType(left, right) =>
+            typeDependsOnSymbols(left, symbols) ||
+              typeDependsOnSymbols(right, symbols)
+          case ByNameType(underlying) =>
+            typeDependsOnSymbols(underlying, symbols)
+          case TypeBounds(low, high) =>
+            typeDependsOnSymbols(low, symbols) ||
+              typeDependsOnSymbols(high, symbols)
+          case Refinement(parent, _, info) =>
+            typeDependsOnSymbols(parent, symbols) ||
+              typeDependsOnSymbols(info, symbols)
+          case MatchType(bound, scrutinee, cases) =>
+            typeDependsOnSymbols(bound, symbols) ||
+              typeDependsOnSymbols(scrutinee, symbols) ||
+              cases.exists(typeDependsOnSymbols(_, symbols))
+          case AnnotatedType(underlying, _) =>
+            typeDependsOnSymbols(underlying, symbols)
+          case method: MethodType =>
+            method.paramTypes.exists(typeDependsOnSymbols(_, symbols)) ||
+              typeDependsOnSymbols(method.resType, symbols)
+          case poly: PolyType =>
+            poly.paramBounds.exists(typeDependsOnSymbols(_, symbols)) ||
+              typeDependsOnSymbols(poly.resType, symbols)
+          case lambda: TypeLambda =>
+            lambda.paramBounds.exists(typeDependsOnSymbols(_, symbols)) ||
+              typeDependsOnSymbols(lambda.resType, symbols)
+          case recursive: RecursiveType =>
+            typeDependsOnSymbols(recursive.underlying, symbols)
+          case flexible: FlexibleType =>
+            typeDependsOnSymbols(flexible.underlying, symbols)
+          case SuperType(thisType, superType) =>
+            typeDependsOnSymbols(thisType, symbols) ||
+              typeDependsOnSymbols(superType, symbols)
+          case ThisType(underlying) =>
+            typeDependsOnSymbols(underlying, symbols)
+          case _ => false)
+
     def rebindType(
         tpe: TypeRepr,
         replacements: Map[Symbol, Term],
@@ -324,12 +412,328 @@ private object DirectMacros:
                 position
               )
 
+    def rebindDefinitionType(
+        tpe: TypeRepr,
+        replacements: Map[Symbol, Term],
+        position: Position
+    ): TypeRepr =
+      def sameBinder(left: TypeRepr, right: TypeRepr): Boolean =
+        left.asInstanceOf[AnyRef] eq right.asInstanceOf[AnyRef]
+
+      def reboundParameter(
+          parameter: ParamRef,
+          binders: List[(TypeRepr, TypeRepr)]
+      ): Option[TypeRepr] =
+        binders.collectFirst {
+          case (oldBinder, freshBinder)
+              if sameBinder(parameter.binder, oldBinder) =>
+            freshBinder match
+              case method: MethodType => method.param(parameter.paramNum)
+              case poly: PolyType     => poly.param(parameter.paramNum)
+              case lambda: TypeLambda => lambda.param(parameter.paramNum)
+        }
+
+      def dependsOnBinder(
+          current: TypeRepr,
+          binders: List[(TypeRepr, TypeRepr)]
+      ): Boolean =
+        current match
+          case parameter: ParamRef =>
+            reboundParameter(parameter, binders).nonEmpty
+          case TypeRef(qualifier, _) =>
+            dependsOnBinder(qualifier, binders)
+          case TermRef(qualifier, _) =>
+            dependsOnBinder(qualifier, binders)
+          case AppliedType(constructor, arguments) =>
+            dependsOnBinder(constructor, binders) ||
+              arguments.exists(dependsOnBinder(_, binders))
+          case AndType(left, right) =>
+            dependsOnBinder(left, binders) ||
+              dependsOnBinder(right, binders)
+          case OrType(left, right) =>
+            dependsOnBinder(left, binders) ||
+              dependsOnBinder(right, binders)
+          case ByNameType(underlying) =>
+            dependsOnBinder(underlying, binders)
+          case TypeBounds(low, high) =>
+            dependsOnBinder(low, binders) ||
+              dependsOnBinder(high, binders)
+          case Refinement(parent, _, info) =>
+            dependsOnBinder(parent, binders) ||
+              dependsOnBinder(info, binders)
+          case MatchType(bound, scrutinee, cases) =>
+            dependsOnBinder(bound, binders) ||
+              dependsOnBinder(scrutinee, binders) ||
+              cases.exists(dependsOnBinder(_, binders))
+          case AnnotatedType(underlying, _) =>
+            dependsOnBinder(underlying, binders)
+          case method: MethodType =>
+            method.paramTypes.exists(dependsOnBinder(_, binders)) ||
+              dependsOnBinder(method.resType, binders)
+          case poly: PolyType =>
+            poly.paramBounds.exists(dependsOnBinder(_, binders)) ||
+              dependsOnBinder(poly.resType, binders)
+          case lambda: TypeLambda =>
+            lambda.paramBounds.exists(dependsOnBinder(_, binders)) ||
+              dependsOnBinder(lambda.resType, binders)
+          case recursive: RecursiveType =>
+            dependsOnBinder(recursive.underlying, binders)
+          case flexible: FlexibleType =>
+            dependsOnBinder(flexible.underlying, binders)
+          case SuperType(thisType, superType) =>
+            dependsOnBinder(thisType, binders) ||
+              dependsOnBinder(superType, binders)
+          case ThisType(underlying) =>
+            dependsOnBinder(underlying, binders)
+          case _ => false
+
+      def loop(
+          current: TypeRepr,
+          binders: List[(TypeRepr, TypeRepr)]
+      ): TypeRepr =
+        current match
+          case parameter: ParamRef =>
+            reboundParameter(parameter, binders).getOrElse(parameter)
+          case _ =>
+            replacements.get(current.termSymbol) match
+              case Some(replacement) => replacement.tpe
+              case None
+                  if !typeDependsOn(current, replacements) &&
+                    !dependsOnBinder(current, binders) =>
+                current
+              case None =>
+                current match
+                  case reference @ TypeRef(qualifier, _) =>
+                    loop(qualifier, binders).select(reference.typeSymbol)
+                  case TermRef(qualifier, name) =>
+                    TermRef(loop(qualifier, binders), name)
+                  case AppliedType(constructor, arguments) =>
+                    AppliedType(
+                      loop(constructor, binders),
+                      arguments.map(loop(_, binders))
+                    )
+                  case AndType(left, right) =>
+                    AndType(loop(left, binders), loop(right, binders))
+                  case OrType(left, right) =>
+                    OrType(loop(left, binders), loop(right, binders))
+                  case ByNameType(underlying) =>
+                    ByNameType(loop(underlying, binders))
+                  case TypeBounds(low, high) =>
+                    TypeBounds(loop(low, binders), loop(high, binders))
+                  case Refinement(parent, name, info) =>
+                    Refinement(
+                      loop(parent, binders),
+                      name,
+                      loop(info, binders)
+                    )
+                  case MatchType(bound, scrutinee, cases) =>
+                    MatchType(
+                      loop(bound, binders),
+                      loop(scrutinee, binders),
+                      cases.map(loop(_, binders))
+                    )
+                  case AnnotatedType(underlying, annotation) =>
+                    AnnotatedType(
+                      loop(underlying, binders),
+                      replaceReferences(annotation, replacements)
+                    )
+                  case method: MethodType =>
+                    MethodType(method.methodTypeKind)(method.paramNames)(
+                      fresh =>
+                        method.paramTypes.map(
+                          loop(_, (method, fresh) :: binders)
+                        ),
+                      fresh =>
+                        loop(method.resType, (method, fresh) :: binders)
+                    )
+                  case poly: PolyType =>
+                    PolyType(poly.paramNames)(
+                      fresh =>
+                        poly.paramBounds.map { bounds =>
+                          loop(bounds, (poly, fresh) :: binders)
+                            .asInstanceOf[TypeBounds]
+                        },
+                      fresh => loop(poly.resType, (poly, fresh) :: binders)
+                    )
+                  case _ =>
+                    report.errorAndAbort(
+                      "error [DIRECT_STYLE_UNSUPPORTED]: direct.shift cannot rebind this nested owner-dependent definition across capture; move the declaration outside direct.reset",
+                      position
+                    )
+
+      loop(tpe, Nil)
+
+    def assertNoStaleOwner(
+        tree: Tree,
+        replacements: Map[Symbol, Term],
+        typeReplacements: Map[Symbol, TypeRepr],
+        position: Position
+    ): Unit =
+      var stale: Option[Position] = None
+      val replacedTypes = typeReplacements.keySet
+      val traverser = new TreeTraverser:
+        override def traverseTree(current: Tree)(owner: Symbol): Unit =
+          if stale.isEmpty then
+            val staleType =
+              current match
+                case definition: DefDef =>
+                  typeDependsOn(
+                    definition.symbol.termRef.widenTermRefByName,
+                    replacements
+                  ) || typeDependsOnSymbols(
+                    definition.symbol.termRef.widenTermRefByName,
+                    replacedTypes
+                  )
+                case definition: ValDef =>
+                  typeDependsOn(definition.tpt.tpe, replacements) ||
+                    typeDependsOnSymbols(definition.tpt.tpe, replacedTypes)
+                case term: Term =>
+                  typeDependsOn(term.tpe, replacements) ||
+                    typeDependsOnSymbols(term.tpe, replacedTypes)
+                case typeTree: TypeTree =>
+                  typeDependsOn(typeTree.tpe, replacements) ||
+                    typeDependsOnSymbols(typeTree.tpe, replacedTypes)
+                case _ => false
+            val staleReference =
+              current match
+                case reference: Ident =>
+                  replacements.contains(reference.symbol)
+                case _ => false
+            if staleType || staleReference then stale = Some(current.pos)
+            else traverseTreeChildren(current)(owner)
+
+      traverser.traverseTree(tree)(sourceOwner)
+      stale.foreach { found =>
+        val primary = if found.sourceCode.nonEmpty then found else position
+        report.errorAndAbort(
+          "error [DIRECT_STYLE_UNSUPPORTED]: direct.shift cannot rebind an owner-dependent moved term across capture; move the declaration outside direct.reset",
+          primary
+        )
+      }
+
+    def repairMovedClosures(
+        term: Term,
+        owner: Symbol,
+        replacements: Map[Symbol, Term],
+        typeReplacements: Map[Symbol, TypeRepr]
+    ): Term =
+      val mapper = new TreeMap:
+        override def transformTerm(tree: Term)(currentOwner: Symbol): Term =
+          tree match
+            case Block(
+                  List(definition: DefDef),
+                  closure: Closure
+                )
+                if closure.meth.symbol == definition.symbol &&
+                  (typeDependsOn(
+                    definition.symbol.termRef.widenTermRefByName,
+                    replacements
+                  ) || typeDependsOnSymbols(
+                    definition.symbol.termRef.widenTermRefByName,
+                    typeReplacements.keySet
+                  )) =>
+              val originalInfo =
+                definition.symbol.termRef.widenTermRefByName
+              val substitutedInfo =
+                if typeReplacements.isEmpty then originalInfo
+                else
+                  originalInfo.substituteTypes(
+                    typeReplacements.keys.toList,
+                    typeReplacements.values.toList
+                  )
+              val reboundInfo =
+                rebindDefinitionType(
+                  substitutedInfo,
+                  replacements,
+                  definition.pos
+                )
+              val fresh = Symbol.newMethod(
+                currentOwner,
+                definition.name,
+                reboundInfo,
+                definition.symbol.flags,
+                definition.symbol.privateWithin
+                  .map(_.typeSymbol)
+                  .getOrElse(Symbol.noSymbol)
+              )
+              val oldParameters = definition.paramss.flatMap {
+                case TypeParamClause(parameters) => parameters
+                case TermParamClause(parameters) => parameters
+              }
+              val cloned = DefDef(
+                fresh,
+                generatedClauses =>
+                  var termParameters = replacements
+                  var typeParameters = typeReplacements
+                  val generatedParameters = generatedClauses.flatten
+                  oldParameters.zip(generatedParameters).foreach {
+                    case (oldParameter: ValDef, freshReference: Term) =>
+                      termParameters = termParameters.updated(
+                        oldParameter.symbol,
+                        freshReference
+                      )
+                    case (oldParameter: TypeDef, freshReference: TypeTree) =>
+                      typeParameters = typeParameters.updated(
+                        oldParameter.symbol,
+                        freshReference.tpe
+                      )
+                    case _ =>
+                      report.errorAndAbort(
+                        "error [DIRECT_STYLE_UNSUPPORTED]: generated direct-style lambda has an invalid parameter graph",
+                        definition.pos
+                      )
+                  }
+                  definition.rhs.map { rightHandSide =>
+                    move(
+                      rightHandSide,
+                      fresh,
+                      termParameters,
+                      typeParameters
+                    )
+                  }
+              )
+              val closureType = closure.tpeOpt.map { original =>
+                val substituted =
+                  if typeReplacements.isEmpty then original
+                  else
+                    original.substituteTypes(
+                      typeReplacements.keys.toList,
+                      typeReplacements.values.toList
+                    )
+                rebindDefinitionType(
+                  substituted,
+                  replacements,
+                  closure.pos
+                )
+              }
+              Block(List(cloned), Closure(Ref(fresh), closureType))
+            case _ => super.transformTerm(tree)(currentOwner)
+
+      mapper.transformTerm(term)(owner)
+
     def move(
         term: Term,
         owner: Symbol,
-        replacements: Map[Symbol, Term]
+        replacements: Map[Symbol, Term],
+        typeReplacements: Map[Symbol, TypeRepr] = Map.empty
     ): Term =
-      replaceReferences(term, replacements).changeOwner(owner)
+      val moved =
+        replaceReferences(term, replacements, typeReplacements)
+          .changeOwner(owner)
+      val repaired =
+        repairMovedClosures(
+          moved,
+          owner,
+          replacements,
+          typeReplacements
+        )
+      assertNoStaleOwner(
+        repaired,
+        replacements,
+        typeReplacements,
+        term.pos
+      )
+      repaired
 
     def rejectNestedMarker(tree: Tree): Unit =
       final case class Barrier(kind: String, position: Position)
@@ -477,6 +881,7 @@ private object DirectMacros:
 
     def explicitShift(
         found: Marker,
+        capturedType: TypeRepr,
         owner: Symbol,
         replacements: Map[Symbol, Term]
     ): Term =
@@ -489,7 +894,7 @@ private object DirectMacros:
 
       rejectMarkerInShiftBody(found.bodyArgument)
 
-      found.typeArguments(1).tpe.asType match
+      capturedType.asType match
         case '[captured] =>
           val movedPrompt =
             move(found.promptArgument, owner, replacements)
@@ -508,15 +913,101 @@ private object DirectMacros:
         owner: Symbol,
         replacements: Map[Symbol, Term]
     ): Term =
-      val movedValue = move(value, owner, replacements).asExprOf[R]
+      pureMoved(move(value, owner, replacements), owner)
+
+    def pureMoved(value: Term, owner: Symbol): Term =
+      val movedValue = value.asExprOf[R]
       '{ Eff.pure[R]($movedValue) }.asTerm.changeOwner(owner)
+
+    def prepareDependentSuffix(
+        statements: List[Statement],
+        tail: Term,
+        owner: Symbol,
+        replacements: Map[Symbol, Term]
+    ): Term =
+      val definitions = statements.collect { case definition: ValDef =>
+        definition
+      }
+      var current = replacements
+      val freshSymbols = definitions.zipWithIndex.map {
+        case (definition, index) =>
+          val pending = definitions.drop(index).iterator.map { later =>
+            later.symbol -> Ref(later.symbol)
+          }.toMap
+          if typeDependsOn(definition.tpt.tpe, pending) then
+            report.errorAndAbort(
+              "error [DIRECT_STYLE_UNSUPPORTED]: direct.shift cannot allocate a forward-dependent local type in the captured suffix; move the declaration outside direct.reset",
+              definition.pos
+            )
+          val reboundType =
+            rebindType(definition.tpt.tpe, current, definition.pos)
+          val fresh = Symbol.newVal(
+            owner,
+            definition.name,
+            reboundType,
+            definition.symbol.flags,
+            definition.symbol.privateWithin
+              .map(_.typeSymbol)
+              .getOrElse(Symbol.noSymbol)
+          )
+          current = current.updated(definition.symbol, Ref(fresh))
+          definition.symbol -> fresh
+      }.toMap
+
+      val movedStatements = statements.map {
+        case definition: ValDef =>
+          val rightHandSide = definition.rhs.getOrElse {
+            report.errorAndAbort(
+              "error [DIRECT_STYLE_UNSUPPORTED]: direct.shift cannot move an uninitialized suffix value",
+              definition.pos
+            )
+          }
+          val fresh = freshSymbols(definition.symbol)
+          ValDef(fresh, Some(move(rightHandSide, fresh, current)))
+        case term: Term => move(term, owner, current)
+        case definition =>
+          report.errorAndAbort(
+            "error [DIRECT_STYLE_UNSUPPORTED]: direct.shift cannot combine an owner-dependent suffix value with a local definition graph; move the definition outside direct.reset",
+            definition.pos
+          )
+      }
+      Block(movedStatements, move(tail, owner, current))
 
     def preparePrefix(
         statements: List[Statement],
         owner: Symbol,
         replacements: Map[Symbol, Term]
     ): (List[Statement], Map[Symbol, Term]) =
+      val definitions = statements.collect { case definition: ValDef =>
+        definition
+      }
       var current = replacements
+      val freshSymbols = definitions.zipWithIndex.map {
+        case (definition, index) =>
+          val pending = definitions.drop(index).iterator.map { later =>
+            later.symbol -> Ref(later.symbol)
+          }.toMap
+          if typeDependsOn(definition.tpt.tpe, pending) then
+            report.errorAndAbort(
+              "error [DIRECT_STYLE_UNSUPPORTED]: direct.shift cannot allocate a forward-dependent local type across capture; move the declaration outside direct.reset",
+              definition.pos
+            )
+
+          val reboundType =
+            rebindType(definition.tpt.tpe, current, definition.pos)
+          val fresh = Symbol.newVal(
+            owner,
+            definition.name,
+            reboundType,
+            definition.symbol.flags,
+            definition.symbol.privateWithin
+              .map(_.typeSymbol)
+              .getOrElse(Symbol.noSymbol)
+          )
+          current = current.updated(definition.symbol, Ref(fresh))
+          definition.symbol -> fresh
+      }.toMap
+
       val moved = statements.map {
         case definition: ValDef =>
           if definition.symbol.flags.is(Flags.Lazy) &&
@@ -533,21 +1024,9 @@ private object DirectMacros:
               definition.pos
             )
           }
-          val movedRightHandSide = move(rightHandSide, owner, current)
-          val reboundType =
-            rebindType(definition.tpt.tpe, current, definition.pos)
-          val fresh = Symbol.newVal(
-            owner,
-            definition.name,
-            reboundType,
-            definition.symbol.flags,
-            definition.symbol.privateWithin
-              .map(_.typeSymbol)
-              .getOrElse(Symbol.noSymbol)
-          )
-          val cloned = ValDef(fresh, Some(movedRightHandSide))
-          current = current.updated(definition.symbol, Ref(fresh))
-          cloned
+          val fresh = freshSymbols(definition.symbol)
+          val movedRightHandSide = move(rightHandSide, fresh, current)
+          ValDef(fresh, Some(movedRightHandSide))
 
         case definition: DefDef =>
           report.errorAndAbort(
@@ -600,7 +1079,11 @@ private object DirectMacros:
         val definition = statements(markerIndex).asInstanceOf[ValDef]
         val found = marker(definition.rhs.get).get
         val after = statements.drop(markerIndex + 1)
-        val capturedType = found.typeArguments(1).tpe
+        val capturedType = rebindType(
+          found.typeArguments(1).tpe,
+          prefixReplacements,
+          found.whole.pos
+        )
         val continuationType =
           MethodType(List(definition.name))(
             _ => List(capturedType),
@@ -626,7 +1109,8 @@ private object DirectMacros:
                   )
           )
 
-        val shifted = explicitShift(found, owner, prefixReplacements)
+        val shifted =
+          explicitShift(found, capturedType, owner, prefixReplacements)
         val bound = capturedType.asType match
           case '[captured] =>
             val shiftedExpression =
@@ -645,22 +1129,42 @@ private object DirectMacros:
       else
         marker(tail) match
           case Some(found) =>
-            val capturedType = found.typeArguments(1).tpe
+            rejectNestedMarker(Block(statements, Literal(UnitConstant())))
+            val (movedStatements, prefixReplacements) =
+              preparePrefix(statements, owner, replacements)
+            val capturedType = rebindType(
+              found.typeArguments(1).tpe,
+              prefixReplacements,
+              found.whole.pos
+            )
             if !(capturedType =:= TypeRepr.of[R]) then
               report.errorAndAbort(
                 "error [DIRECT_STYLE_UNSUPPORTED]: a tail direct.shift result must equal the reset answer type",
                 found.whole.pos
               )
-            rejectNestedMarker(Block(statements, Literal(UnitConstant())))
-            val (movedStatements, prefixReplacements) =
-              preparePrefix(statements, owner, replacements)
-            val shifted = explicitShift(found, owner, prefixReplacements)
+            val shifted =
+              explicitShift(found, capturedType, owner, prefixReplacements)
             if movedStatements.isEmpty then shifted
             else Block(movedStatements, shifted)
           case None =>
             val source = Block(statements, tail)
             rejectNestedMarker(source)
-            pure(source, owner, replacements)
+            val hasDependentSuffixValue = statements.exists {
+              case definition: ValDef =>
+                typeDependsOn(definition.tpt.tpe, replacements)
+              case _ => false
+            }
+            if hasDependentSuffixValue then
+              pureMoved(
+                prepareDependentSuffix(
+                  statements,
+                  tail,
+                  owner,
+                  replacements
+                ),
+                owner
+              )
+            else pure(source, owner, replacements)
 
     val (statements, tail) = rawBody match
       case Block(values, result) => (values, result)

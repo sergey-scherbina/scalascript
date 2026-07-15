@@ -621,3 +621,95 @@ final class DirectPromptDiagnosticsTest extends AnyFunSuite:
       12
     )
   }
+
+  test("an imported boundary break alias cannot be deferred") {
+    val errors = typeCheckErrors("""
+      import scalascript.control.*
+      import scala.util.boundary.break as stop
+
+      def escaped(): Eff[Nothing, Int] =
+        scala.util.boundary[Eff[Nothing, Int]]:
+          val scoped = freshPrompt[Int]
+          val prompt = scoped.prompt
+          direct.reset[scoped.Key, Nothing, Int](prompt) {
+            stop(Eff.pure(7))
+          }
+    """)
+
+    assertDiagnostic(
+      errors,
+      "error [DIRECT_STYLE_UNSUPPORTED]: direct.reset M1 cannot defer scala.util.boundary.break; move boundary control outside direct.reset",
+      "            stop(Eff.pure(7))",
+      12
+    )
+  }
+
+  test("an explicitly labelled boundary break cannot be deferred") {
+    val errors = typeCheckErrors("""
+      import scalascript.control.*
+
+      def escaped(): Eff[Nothing, Int] =
+        scala.util.boundary[Eff[Nothing, Int]]:
+          val label =
+            summon[scala.util.boundary.Label[Eff[Nothing, Int]]]
+          val scoped = freshPrompt[Int]
+          val prompt = scoped.prompt
+          direct.reset[scoped.Key, Nothing, Int](prompt) {
+            scala.util.boundary.break(Eff.pure(7))(using label)
+          }
+    """)
+
+    assertDiagnostic(
+      errors,
+      "error [DIRECT_STYLE_UNSUPPORTED]: direct.reset M1 cannot defer scala.util.boundary.break; move boundary control outside direct.reset",
+      "            scala.util.boundary.break(Eff.pure(7))(using label)",
+      12
+    )
+  }
+
+  test("a boundary module alias cannot hide break from the transform") {
+    val errors = typeCheckErrors("""
+      import scalascript.control.*
+      import scala.util.{boundary as escape}
+
+      def escaped(): Eff[Nothing, Int] =
+        escape[Eff[Nothing, Int]]:
+          val scoped = freshPrompt[Int]
+          val prompt = scoped.prompt
+          direct.reset[scoped.Key, Nothing, Int](prompt) {
+            escape.break(Eff.pure(7))
+          }
+    """)
+
+    assertDiagnostic(
+      errors,
+      "error [DIRECT_STYLE_UNSUPPORTED]: direct.reset M1 cannot defer scala.util.boundary.break; move boundary control outside direct.reset",
+      "            escape.break(Eff.pure(7))",
+      12
+    )
+  }
+
+  test("transparent inline provenance cannot hide boundary break") {
+    val errors = typeCheckErrors("""
+      import scalascript.control.*
+
+      transparent inline def stop[T](value: T)(using
+          scala.util.boundary.Label[T]
+      ): Nothing = scala.util.boundary.break(value)
+
+      def escaped(): Eff[Nothing, Int] =
+        scala.util.boundary[Eff[Nothing, Int]]:
+          val scoped = freshPrompt[Int]
+          val prompt = scoped.prompt
+          direct.reset[scoped.Key, Nothing, Int](prompt) {
+            stop(Eff.pure(7))
+          }
+    """)
+
+    assertDiagnostic(
+      errors,
+      "error [DIRECT_STYLE_UNSUPPORTED]: direct.reset M1 cannot defer scala.util.boundary.break; move boundary control outside direct.reset",
+      "            stop(Eff.pure(7))",
+      12
+    )
+  }
