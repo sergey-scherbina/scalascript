@@ -4042,6 +4042,27 @@ lazy val scljetVfsPlugin = project
   )
   .settings(sscpkgSettings("scalascript.std.scljet-vfs"))
 
+// ── scljet.jdbc — JVM java.sql.Driver shim over the scljet engine ────────
+// NOTE: unlike a normal std plugin, this shim EMBEDS the interpreter (it is a
+// java.sql.Driver that drives the pure scljet/jdbc.ssc façade), so it depends on
+// `backendInterpreter` at Compile scope and is deliberately NOT in the
+// `allPlugins` registry — adding it there would create a dependency cycle
+// (backendInterpreterPluginTests → thisPlugin → backendInterpreter) and it needs
+// no `.sscpkg` packaging (DriverManager finds it via META-INF/services).
+lazy val scljetJdbcPlugin = project
+  .in(file("v1/runtime/std/scljet-jdbc-plugin"))
+  // scljetVfsPlugin: the engine's `index.ssc` transitively imports `jvm-vfs.ssc`,
+  // whose `extern def jvmVfs*` intrinsics are provided by scljet-vfs-plugin.  On
+  // the classpath, the interpreter's ServiceLoader-based `ensurePluginsLoaded`
+  // resolves them when the engine bootstrap loads.
+  .dependsOn(backendInterpreter, scljetVfsPlugin, backendSqlRuntime % Test, testUtils % Test)
+  .settings(
+    name := "scalascript-scljet-jdbc-plugin",
+    libraryDependencies ++= Seq(scalatestTest),
+    Compile / scalacOptions ++= sharedScalacOptionsStrict,
+    Test    / scalacOptions ++= sharedScalacOptions,
+  )
+
 // ── std.os / std.process — OS environment + process management ───────────
 lazy val osPlugin = project
   .in(file("v1/runtime/std/os-plugin"))
@@ -4667,7 +4688,7 @@ lazy val root = project
 
     runtimeServerCommon, runtimeServerSpi, runtimeServerJvm,
     runtimeServerJvmJetty, runtimeServerJvmNetty, httpFastEngine, runtimeServerJvmFast, mcpCommon,
-    backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendRust, backendInterpreter, backendInterpreterServer, backendInterpreterPluginTests,
+    backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendRust, backendInterpreter, backendInterpreterServer, backendInterpreterPluginTests, scljetJdbcPlugin,
     backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap,
     cli, clientPostgres, clientRedis, clientEvm, clientSolana, clientKafka, clientCoinbase,  backendSqlRuntime, backendSqlRuntimeJs, sqlAws, sqlGcp, sqlAzure, backendTypedDataRuntime, backendGraphRuntime, backendConfigRuntime,
     clientBlockfrost,
