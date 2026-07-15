@@ -1,0 +1,68 @@
+---
+name: scljet-jdbc-basic
+description: SclJet portable JDBC façade — Connection/Statement/ResultSet over the executor; matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet portable JDBC façade
+
+Drives the pure `scljet/jdbc.ssc` façade the way a JDBC caller would: open a connection over a
+database image, run `executeUpdate`s (autocommit threads the image), run `executeQuery` and walk the
+forward-only `ResultSet` with typed getters, bind `?` parameters, read columns by label, and inspect
+metadata. Every value read back — including a parameterized UPDATE's row count and a NULL column —
+matches reference sqlite3 driven with the same statements (verified out-of-band); locked across
+`[int, js]`.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, SqlReal, buildTableDatabase](std/scljet/index.ssc)
+[JdbcConnection, JdbcResultSet, jdbcOpen, jdbcExecuteUpdate, jdbcExecuteUpdateParams, jdbcExecuteQuery, jdbcExecuteQueryParams, rsNext, rsHasRow, rsIsNull, rsGetLong, rsGetDouble, rsGetString, rsFindColumn, rsColumnCount, rsColumnLabel, rsGetLongByLabel, rsGetStringByLabel](std/scljet/jdbc.ssc)
+
+```scalascript
+def dumpRows(rs0: JdbcResultSet): Unit =
+  var cur = rsNext(rs0)
+  while rsHasRow(cur) do
+    println("row => " + rsGetLong(cur, 1).toString + "|" + rsGetString(cur, 2) + "|" +
+      rsGetLong(cur, 3).toString + "|" + rsGetDouble(cur, 4).toString)
+    cur = rsNext(cur)
+
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER, name TEXT, salary INTEGER, bonus REAL)",
+  List(List(SqlInteger(1L), SqlText("ann"), SqlInteger(100L), SqlReal(1.5)),
+       List(SqlInteger(2L), SqlText("bob"), SqlInteger(250L), SqlReal(2.5)),
+       List(SqlInteger(3L), SqlText("cat"), SqlInteger(300L), SqlReal(3.5)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db0) =>
+    val conn0 = jdbcOpen(db0)
+    jdbcExecuteUpdate(conn0, "INSERT INTO emp VALUES (4,'dan',150,4.5)") match
+      case Left(m) => println("update1 => ERR:" + m)
+      case Right(u1) =>
+        println("update1 => changes=" + u1.changes.toString + " rowid=" + u1.lastInsertRowid.toString)
+        val conn1 = u1.conn
+        jdbcExecuteQuery(conn1, "SELECT id, name, salary, bonus FROM emp ORDER BY id") match
+          case Left(m) => println("query1 => ERR:" + m)
+          case Right(rs) =>
+            dumpRows(rs)
+            println("meta => count=" + rsColumnCount(rs).toString + " label3=" + rsColumnLabel(rs, 3) +
+              " find(SALARY)=" + rsFindColumn(rs, "SALARY").toString + " find(nope)=" + rsFindColumn(rs, "nope").toString)
+        jdbcExecuteQueryParams(conn1, "SELECT name, salary FROM emp WHERE id = ?", List(SqlInteger(2L))) match
+          case Left(m) => println("byLabel => ERR:" + m)
+          case Right(rs2) =>
+            val one = rsNext(rs2)
+            println("byLabel => " + rsGetStringByLabel(one, "name") + "|" + rsGetLongByLabel(one, "salary").toString)
+        jdbcExecuteUpdateParams(conn1, "UPDATE emp SET salary = ? WHERE id = ?", List(SqlInteger(999L), SqlInteger(1L))) match
+          case Left(m) => println("update2 => ERR:" + m)
+          case Right(u2) =>
+            println("update2 => changes=" + u2.changes.toString)
+            jdbcExecuteQuery(u2.conn, "SELECT salary FROM emp WHERE id = 1") match
+              case Left(m) => println("id1 => ERR:" + m)
+              case Right(rs3) =>
+                val r3 = rsNext(rs3)
+                println("id1 salary => " + rsGetLong(r3, 1).toString)
+            jdbcExecuteUpdate(u2.conn, "INSERT INTO emp(id) VALUES (5)") match
+              case Left(m) => println("nullins => ERR:" + m)
+              case Right(u3) =>
+                jdbcExecuteQuery(u3.conn, "SELECT id, name, salary, bonus FROM emp WHERE id = 5") match
+                  case Left(m) => println("nullrow => ERR:" + m)
+                  case Right(rs4) =>
+                    val r4 = rsNext(rs4)
+                    println("nullrow => id=" + rsGetLong(r4, 1).toString + " nameNull=" + rsIsNull(r4, 2).toString +
+                      " name=[" + rsGetString(r4, 2) + "] salary=" + rsGetLong(r4, 3).toString + " bonus=" + rsGetDouble(r4, 4).toString)
+```
