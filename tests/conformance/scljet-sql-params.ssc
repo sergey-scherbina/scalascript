@@ -1,0 +1,44 @@
+---
+name: scljet-sql-params
+description: SclJet ?-parameter binding (queryImageParams / executeMutationCountedParams); matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet parameter binding
+
+`?` placeholders bind to `SqliteValue`s through the lexer/parser: `bindParams` rewrites each
+`?` token into a "bound" token, so the value reaches the parser as an `SxLit` — indistinguishable
+from an inline literal, with full storage-class fidelity (integer / real / text / NULL) and zero
+string interpolation. `queryImageParams` and `executeMutationCountedParams` are the parameterized
+entry points the JDBC `PreparedStatement` façade drives. Every result was checked against reference
+sqlite3 with the same bound values out-of-band; locked across backends.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlReal, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImageParams, executeMutationCountedParams, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def showP(db: ByteSlice, sql: String, ps: List[SqliteValue]): Unit =
+  queryImageParams(db, sql, ps) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER, name TEXT, salary INTEGER)",
+  List(List(SqlInteger(1L), SqlText("ann"), SqlInteger(100L)),
+       List(SqlInteger(2L), SqlText("bob"), SqlInteger(250L)),
+       List(SqlInteger(3L), SqlText("cat"), SqlInteger(300L)),
+       List(SqlInteger(4L), SqlText("dan"), SqlInteger(150L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db) =>
+    showP(db, "SELECT name FROM emp WHERE id = ?", List(SqlInteger(2L)))
+    showP(db, "SELECT name FROM emp WHERE salary >= ? ORDER BY id", List(SqlInteger(250L)))
+    showP(db, "SELECT name FROM emp WHERE name = ?", List(SqlText("cat")))
+    showP(db, "SELECT ? + ?", List(SqlInteger(2L), SqlInteger(3L)))
+    showP(db, "SELECT ?", List(SqlText("hi")))
+    showP(db, "SELECT ?", List(SqlReal(3.5)))
+    executeMutationCountedParams(db, "INSERT INTO emp VALUES (?,?,?)",
+      List(SqlInteger(5L), SqlText("eve"), SqlInteger(500L))) match
+      case Left(m) => println("INSERT => ERR:" + m)
+      case Right(r) =>
+        println("INSERT => changes=" + r.changes.toString + " rowid=" + r.lastInsertRowid.toString)
+        showP(r.image, "SELECT name, salary FROM emp WHERE id = ?", List(SqlInteger(5L)))
+```

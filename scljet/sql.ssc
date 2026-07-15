@@ -16,6 +16,8 @@ exports:
   - parseSelect
   - executeSelect
   - queryImage
+  - queryImageParams
+  - bindParams
   - renderRows
   - tableColumns
   - InsertStmt
@@ -27,6 +29,7 @@ exports:
   - executeMutation
   - MutationResult
   - executeMutationCounted
+  - executeMutationCountedParams
   - Assignment
   - UpdateStmt
   - parseUpdate
@@ -50,7 +53,10 @@ CLI (`a|b|c` per row, NULL blank) for differential testing.
 ```scalascript
 // ── Lexer ──
 
-case class Token(kind: String, text: String, num: Long)
+// `bound` carries a value bound to a `?` parameter (see bindParams). A "param" token holds the
+// 1-based ordinal in `num`; after binding it becomes a "bound" token whose `bound` is the value.
+// The default keeps every existing `Token(k, t, n)` construction valid (no arity churn).
+case class Token(kind: String, text: String, num: Long, bound: Option[SqliteValue] = None)
 
 // Bounds-safe: returns -1 past the end, so loop conditions like
 // `i < n && isDigit(charCode(s, i))` are safe even though `&&` does not
@@ -92,6 +98,7 @@ def tokenize(sql: String): Either[String, List[Token]] =
   val n = sql.length
   var toksRev: List[Token] = Nil
   var err: Option[String] = None
+  var paramMax = 0L
   while i < n && err.isEmpty do
     val c = charCode(sql, i)
     if isWs(c) then i = i + 1
@@ -188,12 +195,56 @@ def tokenize(sql: String): Either[String, List[Token]] =
         toksRev = Token("op", "||", 0L) :: toksRev
         i = i + 2
       else err = Some("unexpected '|' (did you mean '||'?)")
+    else if c == 63 then
+      // '?' positional parameter. Bare '?' takes the next ordinal; '?NNN' is explicit (sqlite
+      // semantics: a later bare '?' resumes after the largest ordinal seen). Bound later by bindParams.
+      i = i + 1
+      if i < n && isDigit(charCode(sql, i)) then
+        var ord = 0L
+        while i < n && isDigit(charCode(sql, i)) do
+          ord = ord * 10L + (charCode(sql, i) - 48).toLong
+          i = i + 1
+        if ord > paramMax then paramMax = ord
+        toksRev = Token("param", "?", ord) :: toksRev
+      else
+        paramMax = paramMax + 1L
+        toksRev = Token("param", "?", paramMax) :: toksRev
     else if c == 59 then
       i = i + 1
     else err = Some("unexpected character '" + sql.charAt(i).toString + "'")
   err match
     case Some(message) => Left(message)
     case None => Right(reverseTokens(toksRev, Nil))
+
+// 1-based lookup into the bound-parameter list (params(idx-1)); strict — an unset ordinal errors.
+def paramAt(params: List[SqliteValue], idx: Long): Either[String, SqliteValue] =
+  var r = params
+  var k = idx
+  while r.nonEmpty && k > 1L do
+    r = r.tail
+    k = k - 1L
+  if r.isEmpty then Left("parameter " + idx.toString + " is not set")
+  else Right(r.head)
+
+// Replace every "param" token with a "bound" token carrying its resolved value (a `?`-parameter
+// binding pass, run once between tokenize and parse). Keeps the parser pure/un-parameterized: a
+// bound value reaches parseExprAtom/litValue as an SxLit, indistinguishable from an inline literal,
+// preserving full storage-class fidelity (integer/real/text/blob/NULL) with no string interpolation.
+def bindParams(toks: List[Token], params: List[SqliteValue]): Either[String, List[Token]] =
+  var r = toks
+  var accRev: List[Token] = Nil
+  var err: Option[String] = None
+  while r.nonEmpty && err.isEmpty do
+    val t = r.head
+    if t.kind == "param" then
+      paramAt(params, t.num) match
+        case Left(message) => err = Some(message)
+        case Right(v) => accRev = Token("bound", "", 0L, Some(v)) :: accRev
+    else accRev = t :: accRev
+    r = r.tail
+  err match
+    case Some(message) => Left(message)
+    case None => Right(reverseTokens(accRev, Nil))
 
 // ── Parser: SELECT (*|cols) FROM table [WHERE …] ──
 
@@ -257,6 +308,9 @@ def parseColumnList(toks: List[String], remaining: List[Token]): Either[String, 
 def litValue(token: Token): Either[String, SqliteValue] =
   if token.kind == "num" then Right(SqlInteger(token.num))
   else if token.kind == "str" then Right(SqlText(token.text))
+  else if token.kind == "bound" then token.bound match
+    case Some(v) => Right(v)
+    case None => Left("bound token without a value")
   else Left("expected a literal in WHERE")
 
 // Parse an optional `WHERE col op literal`; returns the condition (or None) and the
@@ -610,6 +664,9 @@ def parseExprAtom(toks: List[Token]): Either[String, (SxNode, List[Token])] =
   else if tkIsKw(toks, "CASE") then parseCase(toks.tail)
   else if tkKind(toks) == "num" then Right((SxLit(SqlInteger(toks.head.num)), toks.tail))
   else if tkKind(toks) == "str" then Right((SxLit(SqlText(toks.head.text)), toks.tail))
+  else if tkKind(toks) == "bound" then toks.head.bound match
+    case Some(v) => Right((SxLit(v), toks.tail))
+    case None => Left("bound token without a value")
   else if tkKind(toks) == "ident" then
     // `COUNT(…)` etc. = an aggregate node; `f(…)` = a scalar function call; else a column.
     if tkKind(toks.tail) == "lparen" then
@@ -2938,17 +2995,24 @@ def resolveSubqueries(dbBytes: ByteSlice, toks: List[Token]): Either[String, Lis
 
 /** Run a SELECT against a database image and return the result rows. */
 def queryImage(dbBytes: ByteSlice, sql: String): Either[String, List[List[SqliteValue]]] =
+  queryImageParams(dbBytes, sql, Nil)
+
+// Parameterized SELECT: tokenize → bindParams → resolveSubqueries → parseSelect → execute. With
+// `params = Nil` and no `?` in the SQL, bindParams is an identity pass, so queryImage delegates here.
+def queryImageParams(dbBytes: ByteSlice, sql: String, params: List[SqliteValue]): Either[String, List[List[SqliteValue]]] =
   tokenize(sql) match
     case Left(message) => Left(message)
-    case Right(toks0) => resolveSubqueries(dbBytes, toks0) match
+    case Right(toks0) => bindParams(toks0, params) match
       case Left(message) => Left(message)
-      case Right(toks) => parseSelect(toks) match
+      case Right(bt) => resolveSubqueries(dbBytes, bt) match
         case Left(message) => Left(message)
-        case Right(stmt) =>
-          if stmt.table == "" then executeNoFrom(stmt)
-          else openReadonly(ImageVfs(dbBytes), "image.db", sqlOptions()) match
-            case Left(error) => Left(error.message)
-            case Right(db) => executeSelect(db, stmt)
+        case Right(toks) => parseSelect(toks) match
+          case Left(message) => Left(message)
+          case Right(stmt) =>
+            if stmt.table == "" then executeNoFrom(stmt)
+            else openReadonly(ImageVfs(dbBytes), "image.db", sqlOptions()) match
+              case Left(error) => Left(error.message)
+              case Right(db) => executeSelect(db, stmt)
 
 // ── DML: INSERT and DELETE through the balanced write path ──
 
@@ -4001,11 +4065,22 @@ def insertChangesRowid(dbBytes: ByteSlice, stmt: InsertStmt): Either[String, (Lo
       case Right(rc) => Right((nrows, longAdd(maxRowidOf(rc._1), nrows)))
 
 def executeMutationCounted(dbBytes: ByteSlice, sql: String): Either[String, MutationResult] =
+  executeMutationCountedParams(dbBytes, sql, Nil)
+
+// tokenize → bindParams → resolveSubqueries, as one step producing the tokens to dispatch on.
+def prepareMutationToks(dbBytes: ByteSlice, sql: String, params: List[SqliteValue]): Either[String, List[Token]] =
   tokenize(sql) match
     case Left(message) => Left(message)
-    case Right(toks0) => resolveSubqueries(dbBytes, toks0) match
-     case Left(message) => Left(message)
-     case Right(toks) =>
+    case Right(toks1) => bindParams(toks1, params) match
+      case Left(message) => Left(message)
+      case Right(toks0) => resolveSubqueries(dbBytes, toks0)
+
+// Parameterized counted mutation. With `params = Nil` and no `?`, bindParams is identity, so
+// executeMutationCounted delegates here.
+def executeMutationCountedParams(dbBytes: ByteSlice, sql: String, params: List[SqliteValue]): Either[String, MutationResult] =
+  prepareMutationToks(dbBytes, sql, params) match
+    case Left(message) => Left(message)
+    case Right(toks) =>
       if toks.isEmpty then Left("empty statement")
       else if isKw(toks.head, "INSERT") then parseInsert(toks) match
         case Left(message) => Left(message)

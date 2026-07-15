@@ -1,0 +1,9 @@
+SELECT name FROM emp WHERE id = ? => bob
+SELECT name FROM emp WHERE salary >= ? ORDER BY id => bob
+cat
+SELECT name FROM emp WHERE name = ? => cat
+SELECT ? + ? => 5
+SELECT ? => hi
+SELECT ? => 3.5
+INSERT => changes=1 rowid=5
+SELECT name, salary FROM emp WHERE id = ? => eve|500
