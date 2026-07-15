@@ -1713,10 +1713,58 @@ with extensions isolated behind an explicit non-default profile.
         Verified end-to-end vs reference sqlite3 on `[int, js]` (conformance `scljet-jdbc-basic`,
         `scljet-sql-mutation-count`, `scljet-sql-params`). Also fixed a prereq the façade exposed:
         REAL number literals in SQL text (`555033aa4`, conformance `scljet-sql-real-literal`).
-      - **NEXT (J2+):** the stateful JVM `java.sql.Driver`/`Connection`/`PreparedStatement`/`ResultSet`
-        shim in `runtime/std/scljet-jdbc-plugin/` (true mutable `next()`/`wasNull()`, `jdbc:scljet:` URL,
-        `java.sql.Types` metadata); host-file durability via `scljet/journal.ssc`; blob getters (hex
-        `getString`, `getBytes`), `getBigDecimal`, `ResultSetMetaData` column types.
+      - **J2 SHIM DONE 2026-07-15** — landed as `scljet-m7b-jvm-jdbc-shim` (see its entry below): the
+        stateful JVM `java.sql.Driver`/`Connection`/`Statement`/`PreparedStatement`/`ResultSet` shim in
+        `v1/runtime/std/scljet-jdbc-plugin/` (true mutable `next()`/`wasNull()`, `jdbc:scljet:` URL,
+        `java.sql.Types` metadata). The earlier "NEXT (J2+)" list is stale: blob getters (`getBytes`),
+        `getBigDecimal` and `ResultSetMetaData` column types all landed WITH m7b (`ScljetResultSet.scala`
+        `getBytes`/`getBigDecimal`/`columnTypeNames`) — do not redo them.
+      - **NEXT — J2 hardening (`scljet-jdbc-j2`, claimed 2026-07-15).** The gaps a real JVM client
+        (connection pool / ORM / DbVisualizer) hits first. Scope is the SHIM ONLY —
+        `v1/runtime/std/scljet-jdbc-plugin/` + `specs/scljet-jdbc*.md`; must NOT touch `scljet/*.ssc`
+        (engine), which is the `scljet-m3-writes` lane. Slices:
+        - [ ] **J2.1 — static in-memory ResultSet helper** (`ScljetStaticResultSet.scala`). Both
+              `getGeneratedKeys` and `DatabaseMetaData.getTables/getColumns` must return JDBC ResultSets
+              whose rows are computed on the JVM, NOT by the façade — so they can't reuse
+              `ScljetResultSet` (which wraps an opaque façade `JdbcResultSet` Value). Add a small
+              forward-only, read-only `ResultSet` over `(labels: List[String], rows: List[List[AnyRef]])`
+              built with the existing `ProxySupport.proxy` + a `ResultSetMetaData` derived from the
+              declared `java.sql.Types` per column. `wasNull` tracks the last read. This is the shared
+              substrate for J2.2 and J2.3 — build it first.
+        - [ ] **J2.2 — `getGeneratedKeys`** (currently `throw nse` at `ScljetStatement.scala:77`).
+              `ScljetConnectionState.executeUpdate` ALREADY returns `(changes, lastInsertRowid)` from the
+              façade's `JdbcUpdate.lastInsertRowid` — the shim just discards the rowid (`val (c, _) = …`).
+              Keep it in `StatementState.lastRowid` on every update, and return a 1-row static RS
+              (label `last_insert_rowid()`, `Types.BIGINT`) — matching Xerial `sqlite-jdbc`, which the
+              test cross-checks against. Empty RS when no INSERT ran on this statement. Also accept the
+              `RETURN_GENERATED_KEYS` overloads currently missing: `Statement.execute(sql,int)`/
+              `executeUpdate(sql,int)`/`(sql,int[])`/`(sql,String[])` and
+              `Connection.prepareStatement(sql,int)` — `NO_GENERATED_KEYS` behaves as today; the
+              int[]/String[] forms may throw `nse` (SQLite has one rowid).
+        - [ ] **J2.3 — `DatabaseMetaData.getTables` + `getColumns`** (both `throw nse` today).
+              `getColumns` is easy: the engine already exports `imageTableColumns(image, table)`.
+              `getTables` needs the TABLE LIST, and the engine exports no such function — and the claim
+              forbids adding one. **Approach to try first:** reach the schema from the JVM via the
+              exported `openReadonly(ImageVfs(bytes), "image.db", sqlOptions())` → `db.schema.entries`
+              (`SchemaEntry.name`/`.kind`/`.sql`/`.rootPage`, `scljet/schema.ssc:48`), reading the
+              `Value`s structurally (`DecodedText.codePoints` → String on the JVM; no `cpToString` call).
+              **RISK/OPEN QUESTION:** `ImageVfs(main: ByteSlice)` (`scljet/mutate.ssc:71`) is a case class
+              WITH METHODS (`extends SqliteVfs`), and the m7b gotcha says `globalsView` replaces
+              case-class ctors with a placeholder, so it must be built via `Value.singleValue("ImageVfs",
+              slice)` — UNVERIFIED whether a hand-built `InstanceV` still dispatches trait methods when
+              `openReadonly` calls them. **Verify with a spike BEFORE writing the feature.** If it fails,
+              fallbacks in order: (a) `readAllTables(dbBytes)` (`scljet/mutate.ssc:386`, returns
+              `List[RawTable]` whose `schemaRecord` is the raw sqlite_master record — decode on the JVM;
+              needs the name added to the bootstrap import, check it is exported from `index.ssc`);
+              (b) declare `getTables` out of scope, `nse` + a spec note, and hand the engine-side
+              `imageTableNames` export to the engine lane as a follow-up.
+        - [ ] **J2.4 — host-file durability + locking notes** (`specs/scljet-jdbc.md`). Document, do not
+              implement: the shim's host-file model is whole-image read-modify-rewrite via
+              `Files.write` on each durable change (`ScljetConnectionState.flushDurable`), i.e. NO
+              journal/WAL, NO fsync, NO inter-process locking — a crash mid-write truncates/corrupts the
+              file, and two JVMs on one path silently lose writes (last-writer-wins). State the
+              single-writer/one-process contract and point at `scljet/journal.ssc` as the future path.
+              Includes the `sbt scljetJdbcPlugin/test` gate (14/14 today) + new tests per slice.
 
 - [x] **scljet-0-plan-and-spec** — DONE 2026-07-12. Created `specs/scljet.md`
       after reconciling `SPEC.md`,
