@@ -207,9 +207,11 @@ The source of truth is the parsed declaration header:
   operations. The producer recognizes and filters them before nominal/member
   projection; effect analysis and target backends continue to inspect only the
   existing `__effectOp__` and `__multiShot__` contracts. A user declaration that
-  collides with either reserved sentinel fails strict correspondence instead of
-  impersonating an effect, and the raw Document witness prevents an ordinary object
-  containing sentinel-shaped text from becoming effect evidence. Rejected: adding a
+  collides with either reserved sentinel fails strict managed production instead of
+  impersonating an effect: with a raw carrier it fails effect/object correspondence;
+  in a packaged documentless block the sentinel alone is never declaration-header
+  evidence, so missing raw `effect` evidence rejects at the symbol path. Rejected:
+  adding a
   new original-source field to `Content.CodeBlock` and every serialized/consumer
   shape solely for this compatibility producer (a broader carrier/schema change);
   using synthetic `val` sentinels (they would become observable object fields in the
@@ -374,7 +376,7 @@ a second wire model or route through legacy `tpe`.
 - [ ] Reserved private type effect sentinels preserve only parser-erased origin
       evidence: they never become descriptor/runtime value members or alter
       EffectAnalysis/backend behavior, and a user collision fails strict managed
-      correspondence instead of fabricating an effect.
+      production with or without a Document carrier instead of fabricating an effect.
 - [ ] Non-empty derives and early-initializer clauses participate in exact retained
       header correspondence and reject on real public nominal declarations until the
       descriptor represents them, across every parseable class/trait/enum/object form.
