@@ -1,7 +1,7 @@
 # JavaScript/TypeScript closed lexical direct control transform
 
-Status: **repair specification frozen after independent pre-integration REJECT;
-implementation repair pending** (2026-07-15).
+Status: **repair implemented and locally verified; fresh independent
+pre-integration rereview pending** (2026-07-15).
 
 ## Overview
 
@@ -365,29 +365,29 @@ diagnostic.
 - [x] The transformer preserves usable source maps and the CLI preserves ordinary
       TypeScript type diagnostics rather than laundering them through generated
       code.
-- [ ] A marker layer's prefix statements and shift body fail file-atomically with
+- [x] A marker layer's prefix statements and shift body fail file-atomically with
       `JS_DIRECT_CAPTURE_BARRIER` when they value-reference the marker's own or any
       later suffix binding, including through nested syntax; type-only, preceding,
       and genuinely shadowed bindings remain accepted without initializer
       reordering or TDZ-to-outer-name escape.
-- [ ] Marker lowering uses collision-safe resume parameters followed by the original
+- [x] Marker lowering uses collision-safe resume parameters followed by the original
       `const`/`let` declaration, including real JavaScript under
       `allowJs: true, checkJs: false`.
-- [ ] Intrinsic direct eval anywhere in a selected file, including an import-only
+- [x] Intrinsic direct eval anywhere in a selected file, including an import-only
       marker-erasure file, fails file-atomically after transparent-wrapper
       normalization; shadowed/indirect eval and `Function` follow the explicit
       global-only policy above.
-- [ ] Every owned marker value use is transformed or diagnosed, completed named
+- [x] Every owned marker value use is transformed or diagnosed, completed named
       marker specifiers are removed without changing unrelated imports, and emitted
       production JavaScript runs with no direct package installed.
-- [ ] Parenthesized, `as`, non-null, and type-asserted marker receivers/callees obey
+- [x] Parenthesized, `as`, non-null, and type-asserted marker receivers/callees obey
       the same transform and diagnostic rules as the unwrapped exact import.
-- [ ] The programmatic API and CLI accept only TypeScript 5.9.x, reject other API
+- [x] The programmatic API and CLI accept only TypeScript 5.9.x, reject other API
       lines actionably, and never bundle or fall back to another compiler.
-- [ ] The packed installed `.bin` runs through its symlink, resolves TypeScript only
+- [x] The packed installed `.bin` runs through its symlink, resolves TypeScript only
       from the project/config/cwd issuer even when the package lives in an extracted
       store, and fails non-zero for missing compiler or invalid options.
-- [ ] Package tests, package typecheck, exact dry-run pack, the existing explicit
+- [x] Package tests, package typecheck, exact dry-run pack, the existing explicit
       package's 31 tests/typecheck, catalog validation/negative validation, and
       affected `effect*,effects*` conformance are green from the isolated worktree.
 
@@ -448,6 +448,29 @@ diagnostic.
 
 ## Results
 
+The repair candidate code commit `a4635d0b8` on `origin/main` base `76f9706cf`,
+with synchronized user documentation in `f0714a1ea`, produced:
+
+- `npm test` in `v2/host/js/control-direct`: 31/31, including faithful real-
+  JavaScript prefix-TDZ rejection, accepted type-only prefix references,
+  import-only marker erasure under direct eval, installed packed-bin consumer
+  compiler resolution, compiler-version gates, production execution without the
+  marker package, and the original closed-grammar/differential coverage;
+- `npm run typecheck` and `node --check` for `transform.js`, `cli.js`, and `index.js`:
+  green under the TypeScript 5.9.3 qualification pin;
+- `npm pack --dry-run --json`: exactly eight files, 14,345 packed bytes and 54,062
+  unpacked bytes, no bundled dependency, executable `cli.js`, and the 10,837-byte
+  repository license verbatim;
+- existing `v2/host/js/control`: 31/31 tests and TypeScript declarations green;
+  its exact pack remains five files, 11,059 packed bytes and 42,353 unpacked bytes,
+  with no bundled dependency;
+- shared catalog validation: 26 vectors / nine lanes; negative validator: 9/9;
+- `tests/conformance/run.sh --only 'effect*,effects*'`: 5/5 affected cases green
+  (memoized from unchanged previously green cases).
+
+These are local pre-integration results. The candidate remains unpushed and the
+claim remains active until a fresh independent read-only review returns APPROVE.
+
 The historical frozen review checkpoint `f6fa34fac` (rebased equivalent
 `1d45dcb3b`) produced:
 
@@ -466,13 +489,13 @@ The historical frozen review checkpoint `f6fa34fac` (rebased equivalent
   across every declared INT/JS/JVM/V2 lane.
 
 The shared catalog and lane registry, CoreIR/frontends, descriptors, seed/image,
-and runners are byte-untouched.
+and runners are byte-untouched by the repair.
 
 Independent read-only review rejected that checkpoint before integration. It
 reproduced escaped forward lexical capture, erased JavaScript declaration kind,
 file-wide direct-eval unsoundness, a symlinked npm-bin no-op, retained production
 marker imports, compiler lookup from the tool rather than consumer, missed
-transparent marker wrappers, and an unbounded compiler-API version. The unchecked
-behavior rows above are the repair gate; these historical counts are not final
-qualification evidence. A new clean checkpoint requires a fresh independent
-APPROVE before bookkeeping, push, or claim release.
+transparent marker wrappers, and an unbounded compiler-API version. The now-checked
+behavior rows above are covered by the repair candidate; the historical counts are
+not final qualification evidence. A new clean checkpoint still requires a fresh
+independent APPROVE before push or claim release.
