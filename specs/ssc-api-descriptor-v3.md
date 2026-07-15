@@ -639,8 +639,8 @@ slice A must not mark that milestone complete.
 
 ## Results
 
-Slice A implementation is commit `7faa92430`; the matching public documentation
-is commit `ecb5008b6`. An independent descriptor audit approved the implementation
+Slice A implementation is commit `286de7cee`; the matching public documentation
+is commit `68a470a64`. An independent descriptor audit approved the implementation
 without blockers.
 
 - `scripts/sbtc "v2InteropDescriptor/test; core/testOnly

@@ -175,7 +175,7 @@ optional policy, not the default continuation semantics.
   - [x] **A — canonical descriptor leaf + additive carrier (landed 2026-07-15):** target-neutral
     `v2/interop/descriptor`, bounded canonical JSON/SHA-256 identities and validation, checked
     factories for all three phase records, and only a defaulted opaque `apiDescriptorV3` JSON
-    payload on legacy `.scim` (`7faa92430`). Verified: descriptor 27/27, artifact ABI 73/73,
+    payload on legacy `.scim` (`286de7cee`). Verified: descriptor 27/27, artifact ABI 73/73,
     core 1046/1046, interop 36/36, leaf has no project dependencies, and affected conformance
     `modules*,import-dir*` is 2/2 on interpreter/JS/JVM. Slices B/C/D remain open below.
   - [ ] **B — pre-body producers:** project declarations/real width evidence into v3 before body
