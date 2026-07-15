@@ -10,8 +10,9 @@ local verification matrix is green; M1 does not land until a new independent
 review approves the frozen checkpoint. An adversarial pre-review then found one
 more owner-safety gap: the `ShiftBody` survival scan exempted the eager prompt
 argument of a nested managed reset together with that reset's managed body. The
-contract below now distinguishes those two evaluation regions; its new behavior
-item remains unchecked until the packaged-consumer regression and full gates pass.
+contract below now distinguishes those two evaluation regions. The packaged-
+consumer regression and full local verification matrix are green; M1 still does
+not land until a new independent review approves the frozen checkpoint.
 
 This feature is the bounded inline-macro tier of
 [`scala3-bidirectional-control.md`](scala3-bidirectional-control.md). It translates
@@ -436,7 +437,7 @@ save/run, callbacks, descriptors, runners, or cancellation.
       while unsupported shapes fail closed without raw compiler errors.
 - [x] An exact direct marker inside an outer `ShiftBody` fails at the inner call;
       ordinary explicit control and nested managed `direct.reset` remain accepted.
-- [ ] A nested managed reset exempts only its contextual body from the enclosing
+- [x] A nested managed reset exempts only its contextual body from the enclosing
       `ShiftBody` survival scan: an exact outer direct marker in its eager prompt
       argument fails with the stable source-located diagnostic, while the ordinary
       nested managed body and explicit `scalascript.control.shift` remain accepted.
@@ -514,9 +515,9 @@ Changed Markdown is linted and the final branch must pass `git diff --check`.
 ## Results
 
 - `scripts/sbtc "scala3ControlApi/test;scala3ControlApi/packageBin;scala3ControlApi/makePom"`
-  passes 99/99 tests across ten suites. The direct slice contributes sixteen runtime
-  semantic tests, twenty-one exact compile-time diagnostic tests, three catalog-lane
-  tests, and source-access safety checks.
+  passes 101/101 tests across ten suites. The direct slice contributes seventeen
+  runtime semantic tests, twenty-two exact compile-time diagnostic tests, three
+  catalog-lane tests, and source-access safety checks.
 - `tests/interop-conformance/run.sh --validate` accepts 26 vectors and nine lanes;
   all nine validator-negative cases pass. `--lane scala-direct` passes vector 18,
   vector 23, and catalog/program coverage (3/3), each with an explicit-API
@@ -547,8 +548,12 @@ Changed Markdown is linted and the final branch must pass `git diff --check`.
   independent rereview remains the landing gate.
 - Adversarial pre-review of the post-remediation feature checkpoint `9c6850904`
   found that the nested-reset exception skipped its eager prompt together with the
-  managed body. A Scala CLI 3.8.3 consumer compiled against only the packaged JAR
-  reproduces an outer direct marker in that prompt and currently fails with raw
-  owner output (`contextual$2 was used outside the scope where it was defined`) at
-  the nested call's closing delimiter. This is the pre-fix baseline for the new
-  exact diagnostic regression; final counts and gates remain to be recorded.
+  managed body. Before the fix, a Scala CLI 3.8.3 consumer compiled against only
+  the packaged JAR reproduced raw owner output (`contextual$2 was used outside the
+  scope where it was defined`) at the nested call's closing delimiter. The narrow
+  call-shape audit now rejects the exact marker at its own position while preserving
+  the nested managed-body and explicit-shift positives. Clean focused tests pass
+  39/39; the full leaf is 101/101, package/POM and both packaged consumers are
+  green, catalog validation is 26 vectors/9 lanes with 9/9 negative cases, the
+  direct lane is 3/3, and affected conformance is 5/5. Fresh independent rereview
+  remains the landing gate.
