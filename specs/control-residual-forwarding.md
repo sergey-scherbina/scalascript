@@ -48,14 +48,15 @@ Op(label, packedArgument, continuation) // exactly three fields
 The portable JVM runtime adds one package-private dispatch result:
 
 ```text
-HandlerDispatch =
+HandlerDispatchStep =
   Matched(value: Value)
   | Unhandled
+  | Suspended(label: Value, argument: Value, continue: Value => HandlerDispatchStep)
 
 Runtime.dispatchHandler1(
   handler: Value.ClosV,
   event: Value
-): HandlerDispatch
+): HandlerDispatchStep
 ```
 
 `Unhandled` means exactly that the designated handler-event pattern dispatch had
@@ -64,6 +65,10 @@ arm failed, that an unrelated nested match failed, or that the handler returned
 an error-looking string/value. Backends may represent this private dispatch
 result differently, but must preserve that distinction without parsing exception
 messages, tags that user code can forge, or public exception class names.
+`Suspended` is a private intermediate step, not a third source-level decision:
+it means an effect in the pattern/guard ran before either terminal decision.
+`PortableEffects` folds it back to the same public three-field `Op`, wrapping
+only its continuation so the dispatch decision continues after resume.
 
 The JVM implementation has two private producers of that same result:
 
@@ -98,6 +103,11 @@ total `ClosV` whose catch-all throws for foreign operations.
       ordered partial-function behavior: a false guard/pattern continues to the
       next case, terminal fallthrough is `Unhandled`, and only the selected case
       consumes the dispatch before its body.
+- [ ] Pattern guards may themselves perform effects. A guard-side operation is
+      exposed as an ordinary residual `Op`; after each resume the pending exact
+      handler decision continues, then either selects an arm or forwards the
+      original operation. Reusable guard effects create independent decision
+      branches, while one-shot guard effects retain their base claim.
 - [ ] A missing `Return` arm uses the same structured `Unhandled` result and
       returns the pure value unchanged. No runtime path recognizes missing arms
       from exception-message text.
@@ -166,6 +176,33 @@ and the guard, but before the selected body. Thus a false guard can try a later
 same-constructor case, while a nested match failure inside the chosen body is
 outside the recoverable decision. A reentrant dispatch during a guard receives a
 new probe and restores the pending outer probe on return.
+
+### Effectful guards and suspended decisions
+
+Guards are ordinary ScalaScript expressions; neither the global language spec
+nor the algebraic-effect contract restricts them to pure terms. If a guard
+returns an `Op` while the exact-event probe is still pending,
+`dispatchHandler1` reports `Suspended` rather than `Matched`. The handler fold
+re-emits that operation unchanged except for a continuation wrapper:
+
+```text
+fold(Suspended(label, argument, continue), onUnhandled) =
+  Op(label, argument, reply => fold(continue(reply), onUnhandled))
+```
+
+`continue(reply)` invokes the guard operation's original continuation first,
+then installs a **fresh** probe for the same exact handler event while the case
+chain continues. Freshness matters for reusable guard operations: two resumes
+must make independent pattern decisions instead of sharing one consumed mutable
+flag. The synchronous thread-local scope is removed before the residual `Op`
+crosses the handler boundary; no `ThreadLocal` or mutable probe is captured.
+Only the event reference and original continuation are retained by the private
+wrapper, matching the state a portable handler-decision frame must retain.
+
+If the selected marker ran before a handler body produced an `Op`, the probe is
+already consumed and that result is `Matched(Op(...))`, not `Suspended`. The
+handler body operation therefore propagates normally and can never turn a later
+body failure into terminal handler fallthrough.
 
 On the JVM the synchronous probe stack may be implemented with a private
 `ThreadLocal` scoped by `try/finally`. This is not ambient program state or a
@@ -268,6 +305,11 @@ while matching-arm failures share the ordinary failure path.
   guards and nested/duplicate cases cannot be inferred from a constructor arm
   alone. Rejected: consuming at the outer constructor before its guard and
   catching the generic `__match_fail__` path.
+- **Fold a pending decision through guard effects.** A synchronous probe alone
+  disappears before an effectful guard resumes. `Suspended` preserves the
+  ordinary public `Op` and resumes the decision with a fresh probe. Rejected:
+  declaring guards pure, retaining a thread-local across suspension, or sharing
+  one mutable probe across multi-shot resumes.
 - **Give runtime-owned handlers a private typed hook.** Standard runners have no
   compiled root match, so their partial function supplies `Matched | Unhandled`
   directly. Rejected: catch-all `IllegalArgumentException`, exception-message
@@ -300,9 +342,10 @@ while matching-arm failures share the ordinary failure path.
    reinstall after outer resume, forwarded one-shot rejection, forwarded
    raw/multi reuse, implicit `Return`, and a matching arm whose body reaches an
    unrelated missing pattern arm.
-2. Frontend VM/direct-ASM tests cover false guards, a later same-tag guarded
-   case, nested `Return` patterns, ordinary partial-function invocation, and a
-   selected body whose nested match fails.
+2. Frontend VM/direct-ASM tests cover pure and effectful false guards, an
+   effectful true guard, a later same-tag guarded case, nested `Return` patterns,
+   ordinary partial-function invocation, and a selected body whose nested match
+   fails.
 3. Native effect-runner tests send a foreign operation through
    `runLoggerToList` and `runStream`, resume it outside, and observe later
    Logger/Stream operations captured by the reinstated inner runner. A selected
