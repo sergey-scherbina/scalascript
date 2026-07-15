@@ -325,23 +325,52 @@ the binding.
 
 ## Canonical JSON and validation
 
-The canonical codec is UTF-8 JSON with:
+The canonical codec is the JSON Canonicalization Scheme from
+[RFC 8785](https://www.rfc-editor.org/rfc/rfc8785), restricted to the descriptor
+domain. The exact profile is:
 
-- explicit tagged variants;
-- lexicographically sorted object keys;
-- no insignificant whitespace;
-- recursively normalized values;
-- deterministic ordering for semantically set-like collections;
-- source order retained only where the model declares order significant;
-- lowercase 64-hex SHA-256 values;
-- self-hash fields omitted, not blanked, while their digest is computed.
+- UTF-8 output with no BOM and no insignificant whitespace;
+- explicit tagged variants and no duplicate object keys;
+- object property names sorted by raw UTF-16 code units as required by JCS;
+- strings contain valid Unicode scalar values (lone surrogates reject), escape `"`
+  and `\`, use the JCS short escapes for backspace/tab/LF/form-feed/CR, use lowercase
+  `\u00xx` for every other U+0000..U+001F control, and leave all other Unicode
+  characters unescaped;
+- descriptor JSON contains no floating-point numbers. Every numeric token is a
+  non-negative integral index in `0..2147483647`; widths, digests, versions, and
+  numeric ABI identities are strings or tagged variants;
+- semantic normalization happens before JCS: set-like collections are recursively
+  deduplicated and sorted by their canonical encoded value, while parameter,
+  parameter-list, type-argument, tuple, binder, and other declared source order is
+  retained;
+- digest strings are lowercase 64-hex SHA-256 values;
+- a self-hash field is omitted, not blanked, while that digest is computed.
 
-Decode is followed by validation. Validation rejects unsupported versions,
-malformed/non-canonical ids or digests, duplicate symbols/effects/edges/entrypoints,
-derived-id mismatch, `apiHash` mismatch, control-summary mismatch,
-dependency-profile mismatch, invalid callback parameter paths, and forbidden
-answer-type modification. It returns structured `(code, path, message)` errors and
-does not execute user code.
+The golden non-ASCII/control-character JCS vector is:
+
+```text
+logical entries (deliberately out of order):
+  "😀" -> "雪"
+  "z"  -> "line<LF>é"
+  "a"  -> U+0001
+
+canonical UTF-8 text:
+{"a":"\u0001","z":"line\né","😀":"雪"}
+```
+
+Every public descriptor decode path is **canonical admission**, not a permissive
+JSON parse: parse and schema-decode the bounded input, normalize the value, re-emit
+JCS, and require `inputBytes == canonical(decoded)`. A different property order,
+extra whitespace, alternate escaping, duplicate/set-like ordering, or any other
+second textual representation fails with `NON_CANONICAL_JSON`, even if a generic
+JSON parser could construct the same value. Internal tests may use a permissive
+parser only to create negative fixtures; it is not a wire/admission API.
+
+After canonical-byte equality, semantic validation rejects unsupported versions,
+malformed ids or digests, duplicate symbols/effects/edges/entrypoints, derived-id
+mismatch, `apiHash` mismatch, control-summary mismatch, dependency-profile
+mismatch, invalid callback parameter paths, and forbidden answer-type modification.
+It returns structured `(code, path, message)` errors and does not execute user code.
 
 ## Slice A behavior
 
@@ -358,6 +387,9 @@ does not execute user code.
 - [ ] `ApiDescriptor`, `ControlSummary`, and `ArtifactManifest` canonical bytes and
       digests are deterministic; tampering or a wrong self/dependency digest is
       rejected before use.
+- [ ] RFC 8785 restricted JCS admission pins UTF-8, escaping, UTF-16 key ordering,
+      bounded integral indices, and the non-ASCII/control-character golden vector;
+      every non-canonical equivalent JSON text rejects.
 - [ ] Reordering symbols, set-like type members, capabilities, dependencies, edges,
       or target features does not change canonical bytes; parameter/type-argument/
       parameter-list order remains observable.
