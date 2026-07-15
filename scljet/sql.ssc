@@ -390,7 +390,10 @@ def parseCondition(toks: List[Token]): Either[String, (Condition, List[Token])] 
         // `tkIsKw(after,"NOT") && tkIsKw(after.tail,…)` would evaluate `after.tail` on an
         // empty list (e.g. a bare `WHERE <expr>`) and crash. Here after.tail is safe (after="NOT").
         if tkIsKw(after.tail, "IN") then
-          parseValueList(after.tail.tail) match
+          if tkKind(after.tail.tail) == "lparen" && tkIsKw(after.tail.tail.tail, "SELECT") then splitParenGroup(after.tail.tail.tail) match
+            case None => Left("unbalanced parentheses in NOT IN subquery")
+            case Some(sp) => Right((Condition(col, "notinsubq", SqlNull, Nil, lopt, None, sp._1), sp._2))
+          else parseValueList(after.tail.tail) match
             case Left(message) => Left(message)
             case Right(vl) => Right((Condition(col, "notin", SqlNull, vl._1, lopt, None), vl._2))
         else if tkIsKw(after.tail, "LIKE") then
@@ -405,7 +408,10 @@ def parseCondition(toks: List[Token]): Either[String, (Condition, List[Token])] 
           case Left(message) => Left(message)
           case Right(pat) => Right((Condition(col, "like", pat, Nil, lopt, None), after.tail.tail))
       else if tkIsKw(after, "IN") then
-        parseValueList(after.tail) match
+        if tkKind(after.tail) == "lparen" && tkIsKw(after.tail.tail, "SELECT") then splitParenGroup(after.tail.tail) match
+          case None => Left("unbalanced parentheses in IN subquery")
+          case Some(sp) => Right((Condition(col, "insubq", SqlNull, Nil, lopt, None, sp._1), sp._2))
+        else parseValueList(after.tail) match
           case Left(message) => Left(message)
           case Right(vl) => Right((Condition(col, "in", SqlNull, vl._1, lopt, None), vl._2))
       else if tkIsKw(after, "BETWEEN") then
@@ -2039,7 +2045,8 @@ def hasExistsCond(where: List[List[Condition]]): Boolean =
   while g.nonEmpty && !found do
     var r = g.head
     while r.nonEmpty && !found do
-      if r.head.op == "exists" || r.head.op == "notexists" then found = true
+      val o = r.head.op
+      if o == "exists" || o == "notexists" || o == "insubq" || o == "notinsubq" then found = true
       r = r.tail
     g = g.tail
   found
@@ -2081,9 +2088,24 @@ def existsHolds(db: ReadonlyDatabase, subTokens: List[Token], outerTable: String
         case Right(rows) => rows.nonEmpty
         case Left(_) => false
 
+// `col [NOT] IN (subquery)`: substitute the outer refs, run the subquery, test membership of the left
+// value in its first column.
+def inSubqHolds(db: ReadonlyDatabase, cond: Condition, rec: StorageRecord, colNames: List[String], outerTable: String): Boolean =
+  val colVal = condLeftSingle(cond, rec, colNames)
+  val sub = substituteOuterRefs(cond.subTokens, outerTable, colNames, rec)
+  parseSelect(sub) match
+    case Left(_) => false
+    case Right(stmt) =>
+      val rowsE = if stmt.table == "" then executeNoFrom(stmt) else executeSelect(db, stmt)
+      rowsE match
+        case Left(_) => false
+        case Right(rows) => valueInList(colVal, firstColumn(rows))
+
 def condHoldsCtx(db: ReadonlyDatabase, cond: Condition, rec: StorageRecord, colNames: List[String], outerTable: String): Boolean =
   if cond.op == "exists" then existsHolds(db, cond.subTokens, outerTable, colNames, rec)
   else if cond.op == "notexists" then existsHolds(db, cond.subTokens, outerTable, colNames, rec) == false
+  else if cond.op == "insubq" then inSubqHolds(db, cond, rec, colNames, outerTable)
+  else if cond.op == "notinsubq" then inSubqHolds(db, cond, rec, colNames, outerTable) == false
   else condHolds(cond, rec, colNames)
 
 def andGroupHoldsCtx(db: ReadonlyDatabase, group: List[Condition], rec: StorageRecord, colNames: List[String], outerTable: String): Boolean =
@@ -3221,12 +3243,54 @@ def evalSubquery(dbBytes: ByteSlice, inner: List[Token]): Either[String, List[Sq
 def prevIsExists(prefixRev: List[Token]): Boolean =
   if prefixRev.isEmpty then false else isKw(prefixRev.head, "EXISTS")
 
+// The first top-level (depth-0) FROM table name in a token stream, or "" — the outer query's table.
+def firstFromTable(toks: List[Token]): String =
+  var r = toks
+  var depth = 0
+  var found = ""
+  while r.nonEmpty && found == "" do
+    val t = r.head
+    if t.kind == "lparen" then depth = depth + 1
+    else if t.kind == "rparen" then depth = depth - 1
+    else if depth == 0 && isKw(t, "FROM") then
+      if tkKind(r.tail) == "ident" then found = r.tail.head.text
+    r = r.tail
+  found
+
+// True iff a subquery's tokens contain a qualified reference to `outerTable` (outerTable.col) — i.e. it
+// is correlated and must be evaluated per outer row, not pre-resolved.
+def referencesOuterTable(innerToks: List[Token], outerTable: String): Boolean =
+  if outerTable == "" then false
+  else
+    val ot = upperStr(outerTable)
+    var r = innerToks
+    var found = false
+    while r.nonEmpty && !found do
+      val t = r.head
+      if t.kind == "ident" then
+        val dot = indexOfDot(t.text)
+        if dot >= 0 then
+          if upperStr(substr(t.text, 0, dot)) == ot then found = true
+      r = r.tail
+    found
+
 def resolveSubqueries(dbBytes: ByteSlice, toks: List[Token]): Either[String, List[Token]] =
+  val outerTable = firstFromTable(toks)
   var prefixRev: List[Token] = Nil
   var r = toks
   var atSpan = false
   while r.nonEmpty && !atSpan do
-    if r.head.kind == "lparen" && tkIsKw(r.tail, "SELECT") && !prevIsExists(prefixRev) then atSpan = true
+    if r.head.kind == "lparen" && tkIsKw(r.tail, "SELECT") then
+      if prevIsExists(prefixRev) then
+        prefixRev = r.head :: prefixRev
+        r = r.tail
+      else splitParenGroup(r.tail) match
+        case None => atSpan = true
+        case Some(sp) =>
+          if referencesOuterTable(sp._1, outerTable) then
+            prefixRev = r.head :: prefixRev
+            r = r.tail
+          else atSpan = true
     else
       prefixRev = r.head :: prefixRev
       r = r.tail

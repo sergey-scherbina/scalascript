@@ -1,0 +1,4 @@
+SELECT id FROM t1 WHERE name IN (SELECT tag FROM t2 WHERE t2.fk = t1.id) ORDER BY id => 1
+3
+SELECT id FROM t1 WHERE name NOT IN (SELECT tag FROM t2 WHERE t2.fk = t1.id) ORDER BY id => 2
+SELECT id FROM t1 WHERE id IN (SELECT fk FROM t2 WHERE tag = 'z') ORDER BY id => 3
