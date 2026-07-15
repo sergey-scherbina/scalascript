@@ -36,6 +36,9 @@ object PreBodyApiDescriptorProducer:
   private val UnsupportedNumericTypes: Set[String] =
     Set("Byte", "Short", "Float", "Decimal", "BigDecimal")
 
+  private val ReservedEffectMarkerNames: Set[String] =
+    Set("__effectDecl__", "__effectUnsupportedShape__")
+
   private final case class Binder(name: String, index: Int, kindArity: Int)
   private type BinderStack = Vector[Vector[Binder]]
 
@@ -83,13 +86,24 @@ object PreBodyApiDescriptorProducer:
 
   private final case class LocalAlias(
       definition: Defn.Type,
-      owner: Vector[String]
+      owner: Vector[String],
+      imports: ImportScope
   )
 
   private final case class LocalIdentity(
       stableId: String,
-      isPublic: Boolean
+      isPublic: Boolean,
+      ownerRepresentable: Boolean
   )
+
+  private final case class LocalInventory(
+      types: Map[(Vector[String], String), LocalIdentity],
+      effects: Map[(Vector[String], String), LocalIdentity],
+      owners: Map[String, LocalIdentity]
+  )
+
+  private enum IdentityDomain:
+    case TypeIdentity, EffectIdentity
 
   private final case class WildcardImport(excludedNames: Set[String])
 
@@ -112,6 +126,7 @@ object PreBodyApiDescriptorProducer:
       prefix: Vector[String],
       localTypes: Map[(Vector[String], String), LocalIdentity],
       localEffects: Map[(Vector[String], String), LocalIdentity],
+      localOwners: Map[String, LocalIdentity],
       localAliases: Map[String, LocalAlias],
       requiredTargets: Vector[String],
       effectHeaders: Map[(Vector[String], String), EffectHeader],
@@ -138,20 +153,21 @@ object PreBodyApiDescriptorProducer:
       requestedExports = module.manifest.map(_.exports).getOrElse(Nil)
       _ <- validateRequestedExports(allStats, requestedExports, rootNamespace)
       selectedStats = selectExports(allStats, requestedExports)
-      localTypes = collectLocalTypes(allStats, rootNamespace)
-      localEffects = collectLocalEffects(allStats, rootNamespace, effectHeaders)
-      localAliases = collectLocalAliases(allStats, rootNamespace, effectHeaders)
-      context = ProjectionContext(
+      localInventory = collectLocalInventory(allStats, rootNamespace, effectHeaders)
+      inventoryContext = ProjectionContext(
         moduleId = moduleId,
         rootNamespace = rootNamespace,
         prefix = rootNamespace,
-        localTypes = localTypes,
-        localEffects = localEffects,
-        localAliases = localAliases,
+        localTypes = localInventory.types,
+        localEffects = localInventory.effects,
+        localOwners = localInventory.owners,
+        localAliases = Map.empty,
         requiredTargets = module.manifest.map(_.targets.toVector).getOrElse(Vector.empty),
         effectHeaders = effectHeaders,
         imports = ImportScope()
       )
+      localAliases = collectLocalAliases(allStats, inventoryContext)
+      context = inventoryContext.copy(localAliases = localAliases)
       definitions <- projectStats(selectedStats, context)
       api <- DescriptorFactory.api(ControlAbiVersion, moduleId, definitions)
     yield api
@@ -766,86 +782,153 @@ object PreBodyApiDescriptorProducer:
         case _ => false
     case _ => false
 
-  private def collectLocalTypes(
+  private def collectLocalInventory(
       stats: Vector[Stat],
-      prefix: Vector[String]
-  ): Map[(Vector[String], String), LocalIdentity] =
-    val builder = Map.newBuilder[(Vector[String], String), LocalIdentity]
+      prefix: Vector[String],
+      effectHeaders: Map[(Vector[String], String), EffectHeader]
+  ): LocalInventory =
+    val types = Map.newBuilder[(Vector[String], String), LocalIdentity]
+    val effects = Map.newBuilder[(Vector[String], String), LocalIdentity]
+    val owners = Map.newBuilder[String, LocalIdentity]
 
-    def add(definition: Stat.WithMods & Member, owner: Vector[String], name: String, ownerIsPublic: Boolean): Unit =
-      val stableId = (owner :+ name).mkString(".")
-      builder += (owner -> name) -> LocalIdentity(stableId, ownerIsPublic && isPublic(definition))
+    def stableIdentity(
+        owner: Vector[String],
+        name: String,
+        effectivelyPublic: Boolean,
+        ownerRepresentable: Boolean
+    ): LocalIdentity =
+      LocalIdentity(
+        stableId = (owner :+ name).mkString("."),
+        isPublic = effectivelyPublic,
+        ownerRepresentable = ownerRepresentable
+      )
 
-    def visit(items: Iterable[Stat], owner: Vector[String], ownerIsPublic: Boolean): Unit =
+    def addType(
+        owner: Vector[String],
+        name: String,
+        effectivelyPublic: Boolean,
+        ownerRepresentable: Boolean
+    ): Unit =
+      if !ReservedEffectMarkerNames.contains(name) then
+        types += (owner -> name) ->
+          stableIdentity(owner, name, effectivelyPublic, ownerRepresentable)
+
+    def addOwner(
+        owner: Vector[String],
+        name: String,
+        effectivelyPublic: Boolean,
+        representableAsOwner: Boolean
+    ): Unit =
+      val identity = stableIdentity(owner, name, effectivelyPublic, representableAsOwner)
+      owners += identity.stableId -> identity
+
+    def visit(
+        items: Iterable[Stat],
+        owner: Vector[String],
+        ownerIsPublic: Boolean,
+        ownerRepresentable: Boolean
+    ): Unit =
       items.foreach {
         case definition: Defn.Class =>
-          add(definition, owner, definition.name.value, ownerIsPublic)
-        case definition: Defn.Trait =>
-          add(definition, owner, definition.name.value, ownerIsPublic)
-        case definition: Defn.Enum =>
-          add(definition, owner, definition.name.value, ownerIsPublic)
-        case definition: Defn.Type =>
-          add(definition, owner, definition.name.value, ownerIsPublic)
-        case definition: Defn.Object =>
-          val nestedOwner = owner :+ definition.name.value
+          val effectivelyPublic = ownerIsPublic && isPublic(definition)
+          addType(owner, definition.name.value, effectivelyPublic, ownerRepresentable)
+          addOwner(owner, definition.name.value, effectivelyPublic, representableAsOwner = false)
           visit(
             definition.templ.body.stats,
-            nestedOwner,
-            ownerIsPublic && isPublic(definition)
+            owner :+ definition.name.value,
+            effectivelyPublic,
+            ownerRepresentable = false
+          )
+        case definition: Defn.Trait =>
+          val effectivelyPublic = ownerIsPublic && isPublic(definition)
+          addType(owner, definition.name.value, effectivelyPublic, ownerRepresentable)
+          addOwner(owner, definition.name.value, effectivelyPublic, representableAsOwner = false)
+          visit(
+            definition.templ.body.stats,
+            owner :+ definition.name.value,
+            effectivelyPublic,
+            ownerRepresentable = false
+          )
+        case definition: Defn.Enum =>
+          val effectivelyPublic = ownerIsPublic && isPublic(definition)
+          addType(owner, definition.name.value, effectivelyPublic, ownerRepresentable)
+          addOwner(owner, definition.name.value, effectivelyPublic, representableAsOwner = false)
+          visit(
+            definition.templ.body.stats,
+            owner :+ definition.name.value,
+            effectivelyPublic,
+            ownerRepresentable = false
+          )
+        case definition: Defn.Object =>
+          val effectivelyPublic = ownerIsPublic && isPublic(definition)
+          addOwner(
+            owner,
+            definition.name.value,
+            effectivelyPublic,
+            representableAsOwner = ownerRepresentable
+          )
+          if isEffectObject(definition) || effectHeaders.contains(owner -> definition.name.value) then
+            effects += (owner -> definition.name.value) ->
+              stableIdentity(owner, definition.name.value, effectivelyPublic, ownerRepresentable)
+          visit(
+            definition.templ.body.stats,
+            owner :+ definition.name.value,
+            effectivelyPublic,
+            ownerRepresentable
+          )
+        case definition: Defn.Type =>
+          addType(
+            owner,
+            definition.name.value,
+            ownerIsPublic && isPublic(definition),
+            ownerRepresentable
+          )
+        case declaration: Decl.Type =>
+          addType(
+            owner,
+            declaration.name.value,
+            ownerIsPublic && isPublic(declaration),
+            ownerRepresentable
           )
         case _ => ()
       }
 
-    visit(stats, prefix, ownerIsPublic = true)
-    builder.result()
-
-  private def collectLocalEffects(
-      stats: Vector[Stat],
-      prefix: Vector[String],
-      effectHeaders: Map[(Vector[String], String), EffectHeader]
-  ): Map[(Vector[String], String), LocalIdentity] =
-    val builder = Map.newBuilder[(Vector[String], String), LocalIdentity]
-
-    def visit(items: Iterable[Stat], owner: Vector[String], ownerIsPublic: Boolean): Unit =
-      items.foreach {
-        case definition: Defn.Object =>
-          val definitionIsPublic = ownerIsPublic && isPublic(definition)
-          if isEffectObject(definition) || effectHeaders.contains(owner -> definition.name.value) then
-            builder += (owner -> definition.name.value) ->
-              LocalIdentity((owner :+ definition.name.value).mkString("."), definitionIsPublic)
-          else
-            visit(
-              definition.templ.body.stats,
-              owner :+ definition.name.value,
-              definitionIsPublic
-            )
-        case _ => ()
-      }
-
-    visit(stats, prefix, ownerIsPublic = true)
-    builder.result()
+    visit(stats, prefix, ownerIsPublic = true, ownerRepresentable = true)
+    LocalInventory(types.result(), effects.result(), owners.result())
 
   private def collectLocalAliases(
       stats: Vector[Stat],
-      prefix: Vector[String],
-      effectHeaders: Map[(Vector[String], String), EffectHeader]
+      context: ProjectionContext
   ): Map[String, LocalAlias] =
     val builder = Map.newBuilder[String, LocalAlias]
 
-    def visit(items: Iterable[Stat], owner: Vector[String]): Unit =
+    def visit(items: Iterable[Stat], initialContext: ProjectionContext): Unit =
+      var activeContext = initialContext
       items.foreach {
-        case definition: Defn.Type if isPublic(definition) =>
-          builder += (owner :+ definition.name.value).mkString(".") ->
-            LocalAlias(definition, owner)
-        case definition: Defn.Object
-            if isPublic(definition) &&
-              !isEffectObject(definition) &&
-              !effectHeaders.contains(owner -> definition.name.value) =>
-          visit(definition.templ.body.stats, owner :+ definition.name.value)
+        case imported: Import =>
+          activeContext = activeContext.copy(
+            imports = applyImport(activeContext.imports, imported, activeContext)
+          )
+        case definition: Defn.Type
+            if !ReservedEffectMarkerNames.contains(definition.name.value) =>
+          val stableId = (activeContext.prefix :+ definition.name.value).mkString(".")
+          builder += stableId -> LocalAlias(
+            definition,
+            activeContext.prefix,
+            activeContext.imports
+          )
+        case definition: Defn.Object =>
+          visit(definition.templ.body.stats, activeContext.nested(definition.name.value))
+        case definition: Defn.Class =>
+          visit(definition.templ.body.stats, activeContext.nested(definition.name.value))
+        case definition: Defn.Trait =>
+          visit(definition.templ.body.stats, activeContext.nested(definition.name.value))
+        case definition: Defn.Enum =>
+          visit(definition.templ.body.stats, activeContext.nested(definition.name.value))
         case _ => ()
       }
 
-    visit(stats, prefix)
+    visit(stats, context)
     builder.result()
 
   private def declaredEffectHeaders(source: String): Vector[EffectHeader] =
@@ -1058,13 +1141,62 @@ object PreBodyApiDescriptorProducer:
       importReferencePath(qualifier).map(prefix => s"$prefix.${name.value}")
     case _ => None
 
-  private def importedTarget(
-      importer: Importer,
-      importedName: String
+  private def stableImportedPrefixForStorage(
+      rawPrefix: String,
+      scope: ImportScope
   ): Option[String] =
-    importReferencePath(importer.ref).map(prefix => s"$prefix.$importedName")
+    val absolute = rawPrefix.startsWith("_root_.")
+    val normalized = normalizeRoot(rawPrefix)
+    if absolute then Some(normalized)
+    else
+      val segments = normalized.split('.').toVector.filter(_.nonEmpty)
+      segments.headOption match
+        case None => None
+        case Some(head) =>
+          val wildcardMayBind = scope.wildcardImports.exists { wildcard =>
+            !wildcard.excludedNames.contains(head)
+          }
+          val exactTargets = scope.exactBindings.getOrElse(head, Vector.empty).distinct
+          if wildcardMayBind then None
+          else exactTargets match
+            case Vector() => Some(normalized)
+            case Vector(Some(target)) =>
+              Some((normalizeRoot(target).split('.').toVector ++ segments.drop(1)).mkString("."))
+            case _ => None
 
-  private def applyImporter(scope: ImportScope, importer: Importer): ImportScope =
+  private def canonicalLocalImportPath(
+      rawPath: String,
+      context: ProjectionContext
+  ): Option[String] =
+    val normalized = normalizeRoot(rawPath)
+    val selected = normalized.contains('.')
+    val local =
+      if selected then
+        resolveSelectedLocal(normalized, context, context.localTypes)
+          .orElse(resolveSelectedLocal(normalized, context, context.localEffects))
+      else
+        resolveLocal(normalized, context.prefix, context.rootNamespace, context.localTypes)
+          .orElse(resolveLocal(normalized, context.prefix, context.rootNamespace, context.localEffects))
+    local.map(_.stableId)
+      .orElse(resolveLocalOwner(normalized, context).map(_.stableId))
+
+  private def importedTarget(
+      scope: ImportScope,
+      importer: Importer,
+      importedName: String,
+      context: ProjectionContext
+  ): Option[String] =
+    for
+      rawPrefix <- importReferencePath(importer.ref)
+      anchoredPrefix <- stableImportedPrefixForStorage(rawPrefix, scope)
+      target = s"$anchoredPrefix.$importedName"
+    yield canonicalLocalImportPath(target, context).getOrElse(normalizeRoot(target))
+
+  private def applyImporter(
+      scope: ImportScope,
+      importer: Importer,
+      context: ProjectionContext
+  ): ImportScope =
     val excludedFromWildcard = importer.importees.iterator.collect {
       case Importee.Unimport(name) => name.value
       case Importee.Rename(name, _) => name.value
@@ -1073,17 +1205,29 @@ object PreBodyApiDescriptorProducer:
     importer.importees.foldLeft(scope) { (current, importee) =>
       importee match
         case Importee.Name(name) =>
-          current.addExact(name.value, importedTarget(importer, name.value))
-        case Importee.Rename(name, rename) =>
-          current.addExact(rename.value, importedTarget(importer, name.value))
+          current.addExact(
+            name.value,
+            importedTarget(scope, importer, name.value, context.copy(imports = scope))
+          )
+        case Importee.Rename(name, rename) if rename.value != "_" =>
+          current.addExact(
+            rename.value,
+            importedTarget(scope, importer, name.value, context.copy(imports = scope))
+          )
         case Importee.Wildcard() =>
           current.addWildcard(excludedFromWildcard)
         case _: Importee.Unimport | _: Importee.Given | _: Importee.GivenAll => current
         case _ => current
     }
 
-  private def applyImport(scope: ImportScope, imported: Import): ImportScope =
-    imported.importers.foldLeft(scope)(applyImporter)
+  private def applyImport(
+      scope: ImportScope,
+      imported: Import,
+      context: ProjectionContext
+  ): ImportScope =
+    imported.importers.foldLeft(scope) { (current, importer) =>
+      applyImporter(current, importer, context.copy(imports = current))
+    }
 
   private def projectStats(
       stats: Iterable[Stat],
@@ -1096,7 +1240,7 @@ object PreBodyApiDescriptorProducer:
         stat match
           case imported: Import =>
             Right(definitions -> activeContext.copy(
-              imports = applyImport(activeContext.imports, imported)
+              imports = applyImport(activeContext.imports, imported, activeContext)
             ))
           case other =>
             projectStat(other, activeContext).map(projected => (definitions ++ projected) -> activeContext)
@@ -1647,10 +1791,7 @@ object PreBodyApiDescriptorProducer:
       context: ProjectionContext
   ): Either[DescriptorError, Boolean] =
     if resolveBinder(name, binders).nonEmpty then Right(true)
-    else resolveLocalTypeForAbi(name, path, context).flatMap {
-      case Some(_) => Right(true)
-      case None => resolveImportedTypeForAbi(name, path, context).map(_.nonEmpty)
-    }
+    else resolveTypeForAbi(name, path, context).map(_.nonEmpty)
 
   private def projectNamedApplication(
       name: String,
@@ -1698,8 +1839,7 @@ object PreBodyApiDescriptorProducer:
     case Type.Apply.After_4_6_0(selected: Type.Select, arguments) =>
       for
         stableName <- showTypePath(selected, path)
-        _ <- rejectPlatformType(stableName, path)
-        resolved <- resolveSelectedLocalTypeForAbi(stableName, path, context)
+        resolved <- resolveTypeForAbi(stableName, path, context)
         projectedArguments <- traverse(arguments.values.toVector.zipWithIndex) { case (argument, index) =>
           projectType(argument, binders, s"$path.arguments[$index]", context)
         }
@@ -1707,8 +1847,7 @@ object PreBodyApiDescriptorProducer:
     case selected: Type.Select =>
       for
         stableName <- showTypePath(selected, path)
-        _ <- rejectPlatformType(stableName, path)
-        resolved <- resolveSelectedLocalTypeForAbi(stableName, path, context)
+        resolved <- resolveTypeForAbi(stableName, path, context)
       yield AbiType.Named(resolved.getOrElse(normalizeRoot(stableName)))
     case function: Type.Function =>
       for
@@ -1780,20 +1919,18 @@ object PreBodyApiDescriptorProducer:
         ))
       case Some(reference) => Right(AbiType.TypeParameter(reference))
       case None =>
-        resolveLocalTypeForAbi(name, path, context).flatMap {
+        resolveTypeForAbi(name, path, context).flatMap {
           case Some(stableId) => Right(AbiType.Named(stableId, arguments))
           case None =>
-            resolveImportedTypeForAbi(name, path, context).flatMap {
-              case Some(stableId) => Right(AbiType.Named(stableId, arguments))
-              case None if DynamicTypes.contains(name) =>
+            if DynamicTypes.contains(name) then
                 Left(error("DYNAMIC_PUBLIC_TYPE", path, s"dynamic type $name is not a managed public ABI"))
-              case None if UnsupportedNumericTypes.contains(name) =>
+            else if UnsupportedNumericTypes.contains(name) then
                 Left(error(
                   "UNSUPPORTED_NUMERIC_WIDTH",
                   path,
                   s"numeric type $name has no frozen descriptor v3 width"
                 ))
-              case None if arguments.isEmpty => name match
+            else if arguments.isEmpty then name match
                 case "Unit" => Right(AbiType.Primitive(AbiPrimitive.Unit))
                 case "Boolean" => Right(AbiType.Primitive(AbiPrimitive.Boolean))
                 case "Int" => Right(AbiType.Primitive(AbiPrimitive.I32))
@@ -1815,15 +1952,14 @@ object PreBodyApiDescriptorProducer:
                   path,
                   s"bare type $local is neither bound, local, imported, nor a frozen standard type"
                 ))
-              case None =>
-                StandardTypes.get(name)
-                  .map(id => AbiType.Named(id, arguments))
-                  .toRight(error(
-                    "AMBIGUOUS_NAMED_TYPE",
-                    path,
-                    s"bare type constructor $name is neither local, imported, nor a frozen standard type"
-                  ))
-            }
+            else
+              StandardTypes.get(name)
+                .map(id => AbiType.Named(id, arguments))
+                .toRight(error(
+                  "AMBIGUOUS_NAMED_TYPE",
+                  path,
+                  s"bare type constructor $name is neither local, imported, nor a frozen standard type"
+                ))
         }
 
   private def projectEffectRow(
@@ -1843,9 +1979,9 @@ object PreBodyApiDescriptorProducer:
     case Type.Name(name) =>
       resolveBinder(name, binders) match
         case Some(reference) => Right(EffectRow(openTail = Some(reference)))
-        case None => resolveLocalEffectForAbi(name, path, context).flatMap {
+        case None => resolveEffectForAbi(name, path, context).flatMap {
           case Some(id) =>
-            validateLocalEffectUse(id, hasTypeArguments = false, path, context)
+            validateResolvedEffectUse(id, hasTypeArguments = false, path, context)
               .map(stableId => EffectRow(Vector(EffectRef(stableId))))
           case None => Left(error(
             "INVALID_EFFECT_ROW",
@@ -1854,14 +1990,14 @@ object PreBodyApiDescriptorProducer:
           ))
         }
     case Type.Apply.After_4_6_0(Type.Name(name), arguments) =>
-      resolveLocalEffectForAbi(name, path, context).flatMap {
+      resolveEffectForAbi(name, path, context).flatMap {
         case None => Left(error(
           "INVALID_EFFECT_ROW",
           path,
-          s"parameterized effect $name is not a local declared effect"
+          s"parameterized effect $name is neither local nor imported"
         ))
         case Some(id) =>
-          validateLocalEffectUse(id, hasTypeArguments = arguments.values.nonEmpty, path, context)
+          validateResolvedEffectUse(id, hasTypeArguments = arguments.values.nonEmpty, path, context)
             .flatMap { stableId =>
               traverse(arguments.values.toVector.zipWithIndex) { case (argument, index) =>
                 projectType(argument, binders, s"$path.typeArguments[$index]", context)
@@ -1871,21 +2007,28 @@ object PreBodyApiDescriptorProducer:
     case selected: Type.Select =>
       for
         id <- showTypePath(selected, path)
-        _ <- rejectPlatformType(id, path)
-        resolved <- resolveSelectedLocalEffectForAbi(id, path, context)
+        resolved <- resolveEffectForAbi(id, path, context)
         stableId <- resolved match
-          case Some(localId) => validateLocalEffectUse(localId, hasTypeArguments = false, path, context)
-          case None => Right(normalizeRoot(id))
+          case Some(effectId) =>
+            validateResolvedEffectUse(effectId, hasTypeArguments = false, path, context)
+          case None => Left(error(
+            "INVALID_EFFECT_ROW",
+            path,
+            s"selected effect $id has no stable identity"
+          ))
       yield EffectRow(Vector(EffectRef(stableId)))
     case Type.Apply.After_4_6_0(selected: Type.Select, arguments) =>
       for
         id <- showTypePath(selected, path)
-        _ <- rejectPlatformType(id, path)
-        resolved <- resolveSelectedLocalEffectForAbi(id, path, context)
+        resolved <- resolveEffectForAbi(id, path, context)
         stableId <- resolved match
-          case Some(localId) =>
-            validateLocalEffectUse(localId, hasTypeArguments = arguments.values.nonEmpty, path, context)
-          case None => Right(normalizeRoot(id))
+          case Some(effectId) =>
+            validateResolvedEffectUse(effectId, hasTypeArguments = arguments.values.nonEmpty, path, context)
+          case None => Left(error(
+            "INVALID_EFFECT_ROW",
+            path,
+            s"selected effect $id has no stable identity"
+          ))
         args <- traverse(arguments.values.toVector.zipWithIndex) { case (argument, index) =>
           projectType(argument, binders, s"$path.typeArguments[$index]", context)
         }
@@ -1963,14 +2106,14 @@ object PreBodyApiDescriptorProducer:
     case Type.Name(name) if substitutions.contains(name) =>
       isCallbackType(substitutions(name), substitutions - name, seenAliases, path, context)
     case Type.Name(name) =>
-      resolveLocalTypeForAbi(name, path, context).flatMap {
+      resolveTypeForAbi(name, path, context).flatMap {
         case Some(stableId) => context.localAliases.get(stableId) match
           case Some(alias) => expandAliasCallback(alias, Vector.empty, substitutions, seenAliases, path, context)
           case None => Right(false)
         case None => Right(false)
       }
     case Type.Apply.After_4_6_0(Type.Name(name), arguments) =>
-      resolveLocalTypeForAbi(name, path, context).flatMap {
+      resolveTypeForAbi(name, path, context).flatMap {
         case Some(stableId) => context.localAliases.get(stableId) match
           case Some(alias) =>
             expandAliasCallback(alias, arguments.values.toVector, substitutions, seenAliases, path, context)
@@ -1979,7 +2122,7 @@ object PreBodyApiDescriptorProducer:
       }
     case selected: Type.Select =>
       showTypePath(selected, path).flatMap { selectedName =>
-        resolveSelectedLocalTypeForAbi(selectedName, path, context).flatMap {
+        resolveTypeForAbi(selectedName, path, context).flatMap {
           case Some(stableId) => context.localAliases.get(stableId) match
             case Some(alias) => expandAliasCallback(alias, Vector.empty, substitutions, seenAliases, path, context)
             case None => Right(false)
@@ -1988,7 +2131,7 @@ object PreBodyApiDescriptorProducer:
       }
     case Type.Apply.After_4_6_0(selected: Type.Select, arguments) =>
       showTypePath(selected, path).flatMap { selectedName =>
-        resolveSelectedLocalTypeForAbi(selectedName, path, context).flatMap {
+        resolveTypeForAbi(selectedName, path, context).flatMap {
           case Some(stableId) => context.localAliases.get(stableId) match
             case Some(alias) =>
               expandAliasCallback(alias, arguments.values.toVector, substitutions, seenAliases, path, context)
@@ -2030,7 +2173,7 @@ object PreBodyApiDescriptorProducer:
           substitutions ++ aliasSubstitutions,
           seenAliases + stableId,
           path,
-          context.copy(prefix = alias.owner)
+          context.copy(prefix = alias.owner, imports = alias.imports)
         )
 
   private def nominalResult(
@@ -2073,110 +2216,178 @@ object PreBodyApiDescriptorProducer:
       }
     }.toSeq.headOption
 
-  private def resolveImportedTypeForAbi(
-      name: String,
+  private def identityLabel(domain: IdentityDomain): String = domain match
+    case IdentityDomain.TypeIdentity => "type"
+    case IdentityDomain.EffectIdentity => "effect"
+
+  private def identityAmbiguityCode(domain: IdentityDomain): String = domain match
+    case IdentityDomain.TypeIdentity => "AMBIGUOUS_NAMED_TYPE"
+    case IdentityDomain.EffectIdentity => "INVALID_EFFECT_ROW"
+
+  private def identityVisibilityCode(domain: IdentityDomain): String = domain match
+    case IdentityDomain.TypeIdentity => "UNSUPPORTED_PUBLIC_TYPE"
+    case IdentityDomain.EffectIdentity => "INVALID_EFFECT_ROW"
+
+  private def identityValues(
+      domain: IdentityDomain,
+      context: ProjectionContext
+  ): Map[(Vector[String], String), LocalIdentity] = domain match
+    case IdentityDomain.TypeIdentity => context.localTypes
+    case IdentityDomain.EffectIdentity => context.localEffects
+
+  private def resolveLocalIdentity(
+      rawName: String,
+      domain: IdentityDomain,
+      context: ProjectionContext
+  ): Option[LocalIdentity] =
+    val normalized = normalizeRoot(rawName)
+    val values = identityValues(domain, context)
+    if normalized.contains('.') || rawName.startsWith("_root_.") then
+      resolveSelectedLocal(rawName, context, values)
+    else resolveLocal(normalized, context.prefix, context.rootNamespace, values)
+
+  private def validateLocalIdentityForAbi(
+      identity: LocalIdentity,
       path: String,
+      domain: IdentityDomain
+  ): Either[DescriptorError, String] =
+    if !identity.isPublic then
+      Left(error(
+        identityVisibilityCode(domain),
+        path,
+        s"known local ${identityLabel(domain)} ${identity.stableId} is not public in this managed ABI"
+      ))
+    else if !identity.ownerRepresentable then
+      Left(error(
+        identityVisibilityCode(domain),
+        path,
+        s"known local ${identityLabel(domain)} ${identity.stableId} has no representable owner surface in descriptor v3"
+      ))
+    else Right(identity.stableId)
+
+  private def importedLeadingTargetForAbi(
+      rawName: String,
+      path: String,
+      domain: IdentityDomain,
       context: ProjectionContext
   ): Either[DescriptorError, Option[String]] =
-    val exactTargets = context.imports.exactBindings
-      .getOrElse(name, Vector.empty)
-      .distinct
-    val wildcardMayBind = context.imports.wildcardImports.exists { wildcard =>
-      !wildcard.excludedNames.contains(name)
+    if rawName.startsWith("_root_.") then Right(None)
+    else
+      val segments = normalizeRoot(rawName).split('.').toVector.filter(_.nonEmpty)
+      segments.headOption match
+        case None => Right(None)
+        case Some(head) =>
+          val wildcardMayBind = context.imports.wildcardImports.exists { wildcard =>
+            !wildcard.excludedNames.contains(head)
+          }
+          val exactTargets = context.imports.exactBindings
+            .getOrElse(head, Vector.empty)
+            .distinct
+          if wildcardMayBind then
+            Left(error(
+              identityAmbiguityCode(domain),
+              path,
+              s"${identityLabel(domain)} prefix $head may be supplied by an active wildcard import"
+            ))
+          else exactTargets match
+            case Vector() => Right(None)
+            case Vector(Some(target)) =>
+              Right(Some((normalizeRoot(target).split('.').toVector ++ segments.drop(1)).mkString(".")))
+            case Vector(None) =>
+              Left(error(
+                identityAmbiguityCode(domain),
+                path,
+                s"${identityLabel(domain)} prefix $head has an import whose qualifier is not a stable portable path"
+              ))
+            case _ =>
+              Left(error(
+                identityAmbiguityCode(domain),
+                path,
+                s"${identityLabel(domain)} prefix $head has conflicting explicit import bindings"
+              ))
+
+  private def knownOwnerForMember(
+      rawName: String,
+      context: ProjectionContext
+  ): Option[LocalIdentity] =
+    val normalized = normalizeRoot(rawName)
+    val segments = normalized.split('.').toVector.filter(_.nonEmpty)
+    if segments.size < 2 then None
+    else
+      val ownerName = segments.dropRight(1).mkString(".")
+      resolveLocalOwner(
+        if rawName.startsWith("_root_.") then s"_root_.$ownerName" else ownerName,
+        context
+      )
+
+  private def rejectKnownOwnerFallback(
+      rawName: String,
+      owner: LocalIdentity,
+      path: String,
+      domain: IdentityDomain
+  ): Either[DescriptorError, Option[String]] =
+    validateLocalIdentityForAbi(owner, path, domain).flatMap { _ =>
+      Left(error(
+        identityAmbiguityCode(domain),
+        path,
+        s"${identityLabel(domain)} $rawName names unknown member of known local owner ${owner.stableId}"
+      ))
     }
 
-    if wildcardMayBind then
-      Left(error(
-        "AMBIGUOUS_NAMED_TYPE",
-        path,
-        s"bare type $name may be supplied by an active wildcard import"
-      ))
-    else exactTargets match
-      case Vector() => Right(None)
-      case Vector(Some(target)) =>
-        for
-          _ <- rejectPlatformType(target, path)
-          local <- resolveSelectedLocalTypeForAbi(target, path, context)
-        yield Some(local.getOrElse(normalizeRoot(target)))
-      case Vector(None) =>
-        Left(error(
-          "AMBIGUOUS_NAMED_TYPE",
-          path,
-          s"bare type $name has an import whose qualifier is not a stable portable path"
-        ))
-      case _ =>
-        Left(error(
-          "AMBIGUOUS_NAMED_TYPE",
-          path,
-          s"bare type $name has conflicting explicit import bindings"
-        ))
+  private def resolveLexicalIdentityForAbi(
+      rawName: String,
+      path: String,
+      domain: IdentityDomain,
+      context: ProjectionContext
+  ): Either[DescriptorError, Option[String]] =
+    resolveLocalIdentity(rawName, domain, context) match
+      case Some(identity) =>
+        rejectPlatformType(identity.stableId, path)
+          .flatMap(_ => validateLocalIdentityForAbi(identity, path, domain))
+          .map(Some(_))
+      case None =>
+        knownOwnerForMember(rawName, context) match
+          case Some(owner) => rejectKnownOwnerFallback(rawName, owner, path, domain)
+          case None =>
+            importedLeadingTargetForAbi(rawName, path, domain, context).flatMap {
+              case Some(expanded) =>
+                for
+                  _ <- rejectPlatformType(expanded, path)
+                  resolved <- resolveLocalIdentity(expanded, domain, context) match
+                    case Some(identity) =>
+                      validateLocalIdentityForAbi(identity, path, domain).map(Some(_))
+                    case None => knownOwnerForMember(expanded, context) match
+                      case Some(owner) => rejectKnownOwnerFallback(expanded, owner, path, domain)
+                      case None => Right(Some(normalizeRoot(expanded)))
+                yield resolved
+              case None if normalizeRoot(rawName).contains('.') =>
+                rejectPlatformType(rawName, path).map(_ => Some(normalizeRoot(rawName)))
+              case None => Right(None)
+            }
 
-  private def resolveLocalTypeForAbi(
+  private def resolveTypeForAbi(
       name: String,
       path: String,
       context: ProjectionContext
   ): Either[DescriptorError, Option[String]] =
-    resolveLocalIdentityForAbi(
-      resolveLocal(name, context.prefix, context.rootNamespace, context.localTypes),
-      path,
-      "type"
-    )
+    resolveLexicalIdentityForAbi(name, path, IdentityDomain.TypeIdentity, context)
 
-  private def resolveSelectedLocalTypeForAbi(
+  private def resolveEffectForAbi(
       name: String,
       path: String,
       context: ProjectionContext
   ): Either[DescriptorError, Option[String]] =
-    resolveLocalIdentityForAbi(
-      resolveSelectedLocal(name, context, context.localTypes),
-      path,
-      "type"
-    )
+    resolveLexicalIdentityForAbi(name, path, IdentityDomain.EffectIdentity, context)
 
-  private def resolveLocalEffectForAbi(
-      name: String,
+  private def validateResolvedEffectUse(
+      stableId: String,
+      hasTypeArguments: Boolean,
       path: String,
       context: ProjectionContext
-  ): Either[DescriptorError, Option[String]] =
-    resolveEffectIdentityForAbi(
-      resolveLocal(name, context.prefix, context.rootNamespace, context.localEffects),
-      path
-    )
-
-  private def resolveSelectedLocalEffectForAbi(
-      name: String,
-      path: String,
-      context: ProjectionContext
-  ): Either[DescriptorError, Option[String]] =
-    resolveEffectIdentityForAbi(
-      resolveSelectedLocal(name, context, context.localEffects),
-      path
-    )
-
-  private def resolveLocalIdentityForAbi(
-      identity: Option[LocalIdentity],
-      path: String,
-      kind: String
-  ): Either[DescriptorError, Option[String]] = identity match
-    case Some(local) if !local.isPublic => Left(error(
-      "UNSUPPORTED_PUBLIC_TYPE",
-      path,
-      s"known local $kind ${local.stableId} is not public in this managed ABI"
-    ))
-    case Some(local) => Right(Some(local.stableId))
-    case None => Right(None)
-
-  private def resolveEffectIdentityForAbi(
-      identity: Option[LocalIdentity],
-      path: String
-  ): Either[DescriptorError, Option[String]] = identity match
-    case Some(local) if !local.isPublic => Left(error(
-      "INVALID_EFFECT_ROW",
-      path,
-      s"known local effect ${local.stableId} is not public in this managed ABI"
-    ))
-    case Some(local) => Right(Some(local.stableId))
-    case None => Right(None)
+  ): Either[DescriptorError, String] =
+    val isLocal = context.localEffects.valuesIterator.exists(_.stableId == stableId)
+    if isLocal then validateLocalEffectUse(stableId, hasTypeArguments, path, context)
+    else Right(stableId)
 
   private def validateLocalEffectUse(
       stableId: String,
@@ -2204,6 +2415,23 @@ object PreBodyApiDescriptorProducer:
         s"non-generic local effect $stableId does not accept type arguments"
       ))
       case Some(_) => Right(stableId)
+
+  private def resolveLocalOwner(
+      rawName: String,
+      context: ProjectionContext
+  ): Option[LocalIdentity] =
+    val absolute = rawName.startsWith("_root_.")
+    val normalized = normalizeRoot(rawName)
+    context.localOwners.get(normalized).orElse {
+      if absolute then None
+      else
+        val segments = normalized.split('.').toVector.filter(_.nonEmpty)
+        (context.prefix.length to context.rootNamespace.length by -1).iterator
+          .map(size => (context.prefix.take(size) ++ segments).mkString("."))
+          .flatMap(context.localOwners.get)
+          .toSeq
+          .headOption
+    }
 
   private def resolveSelectedLocal(
       rawName: String,
