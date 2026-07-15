@@ -1,5 +1,48 @@
 # Bug tracker
 
+## scljet-ipk-rowid-alias-not-substituted — reading a REAL SQLite file returns 0 for every `INTEGER PRIMARY KEY`
+
+**Status:** OPEN (found 2026-07-15 by `scljet-jdbc-j4-introspection` while probing whether the
+JDBC shim can read a file written by the reference driver). **Engine bug — belongs to the
+`scljet-m3-writes` lane, NOT the JDBC shim** (the shim only forwards `queryImage` rows).
+Found on `origin/main` `727ea5e12`. **Silent wrong data, not an error** — the severity is that
+nothing fails; the client just gets zeros.
+
+**Symptom/reproduce** (three-way differential; the JDBC lane is only the harness — the same read
+goes through `queryImage`, so a pure `.ssc` repro should reproduce it too):
+
+```scala
+// 1. a file written by the REFERENCE driver (org.xerial:sqlite-jdbc)
+CREATE TABLE emp(id INTEGER PRIMARY KEY, name TEXT); INSERT INTO emp VALUES (1,'ann'),(7,'bob')
+// 2. read it back:
+reference reading its own file        → 1|ann, 7|bob     ✓
+scljet   reading the reference file   → 0|ann, 0|bob     ✗  ← BUG
+scljet   reading a scljet-created db  → 1|ann, 7|bob     ✓  (masks the bug in our own tests)
+```
+
+**Root cause (hypothesis, needs engine confirmation).** In real SQLite an `INTEGER PRIMARY KEY`
+column is an *alias for the rowid*: the record stores NULL for it and the value lives in the
+rowid. scljet's read path does not substitute the rowid for the IPK column, so it returns the
+stored NULL, which the getters coerce to `0`. The engine already models the concept — `isIpkType`
+(`scljet/sql.ssc:1086`), `ipkColumnIndex(sql)` (`~:1098`), `tableIpkIndex(db, table)` (`~:4291`) —
+so the fix is likely to apply the existing IPK index in the row-projection path, not new analysis.
+
+**A second, opposite-direction divergence to check while fixing** (not yet verified, flagged by
+the same finding): scljet's WRITE path appears to store the IPK value *in the column* rather than
+as NULL+rowid, and assigns rowids sequentially. If so, `INSERT INTO emp VALUES (7,'bob')` into a
+scljet database yields a row with column `id=7` but rowid `2` — and real SQLite reading that file
+reports `id=2` (it always reads the rowid for an IPK column), i.e. our files are wrong for real
+SQLite too. Our own read path agrees with itself, which is exactly why every existing test passes.
+A test whose oracle is "scljet reads back what scljet wrote" cannot see either half of this;
+the differential must cross the two engines through a FILE.
+
+**Notes.** Reading a reference-written file otherwise works (schema, indexes incl. `UNIQUE`,
+non-IPK columns, TEXT) — see `ScljetIntrospectionTest` "reads a database created by the
+reference driver", which pins the parts that DO hold. Related engine gaps found the same way:
+`CREATE UNIQUE INDEX` is not parsed at all (`parseCreateIndex` requires `CREATE INDEX`;
+`CREATE UNIQUE INDEX` falls through to `parseCreate` → "expected TABLE"), and
+`INSERT INTO t SELECT …` is not parsed ("expected VALUES").
+
 ## interp-collection-stdlib-completeness-gaps — common List/String/math methods missing on the v1 interp
 
 **Status:** FIXED (2026-07-15) — first batch. Surfaced by the v2-vs-v1 differential (sprint
