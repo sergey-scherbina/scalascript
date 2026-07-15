@@ -1540,10 +1540,22 @@ with extensions isolated behind an explicit non-default profile.
         `?` handling → add the additive `Token.bound` field + `bindParams`/`parsePrimary`/`litValue`
         hooks. `runtime/std/scljet` is a symlink to repo-root `scljet/`, so the pure façade lands at
         `scljet/jdbc.ssc` (imported `std/scljet/jdbc.ssc`).
-      - **NEXT (implement):** J1 — the two engine additions above + the portable `scljet/jdbc.ssc`
-        façade (Connection/Statement/PreparedStatement/ResultSet over `queryImage`/`executeMutationCounted`),
-        verified on `[int, js]`; then the JVM `java.sql.Driver` shim. Depends on: the SQL executor (done)
-        and the mutable pager / transaction layer (done); shares the typed API's value mapping.
+      - **J1 CORE DONE 2026-07-15** — the two engine additions landed: `executeMutationCounted`/
+        `…Params` → `MutationResult(image, changes, lastInsertRowid)` (`30fd8fb33`), and `?`-parameter
+        binding (a `param` lexer token + defaulted `Token.bound` field + a `bindParams` pass →
+        `SxLit`; `queryImageParams`/`executeMutationCountedParams`) (`5a64800c7`). The portable façade
+        `scljet/jdbc.ssc` (`25ea1023e`) implements `JdbcConnection` (image + autocommit/working-image;
+        commit/rollback), `jdbcExecuteUpdate*` (threads image, returns count + last rowid),
+        `jdbcExecuteQuery*` → forward-only `JdbcResultSet` with typed getters (getLong/Int/Double/String/
+        Boolean, isNull, by-index + by-label) and metadata labels (projItemNames / imageTableColumns);
+        value getters route through coerceText + Double/Int string-parse to stay BigInt-safe on JS.
+        Verified end-to-end vs reference sqlite3 on `[int, js]` (conformance `scljet-jdbc-basic`,
+        `scljet-sql-mutation-count`, `scljet-sql-params`). Also fixed a prereq the façade exposed:
+        REAL number literals in SQL text (`555033aa4`, conformance `scljet-sql-real-literal`).
+      - **NEXT (J2+):** the stateful JVM `java.sql.Driver`/`Connection`/`PreparedStatement`/`ResultSet`
+        shim in `runtime/std/scljet-jdbc-plugin/` (true mutable `next()`/`wasNull()`, `jdbc:scljet:` URL,
+        `java.sql.Types` metadata); host-file durability via `scljet/journal.ssc`; blob getters (hex
+        `getString`, `getBytes`), `getBigDecimal`, `ResultSetMetaData` column types.
 
 - [x] **scljet-0-plan-and-spec** — DONE 2026-07-12. Created `specs/scljet.md`
       after reconciling `SPEC.md`,
@@ -2007,7 +2019,50 @@ and inner + LEFT joins over 2 *and* 3+ tables (incl. aggregates/GROUP BY/HAVING 
 non-correlated subqueries, CREATE/DROP INDEX with maintenance — every feature byte-verified against
 reference sqlite3, int==js. Remaining follow-ups (niche): RIGHT/FULL outer joins, correlated
 subqueries / EXISTS, multi-table-with-indexes DML, page-1 schema split, repeating-decimal %.15g.
-Two new front doors are specced (typed-SQL-API cb94fd88c, JDBC-API f2d1372a0) — implementation next.
+Two new front doors are specced (typed-SQL-API cb94fd88c, JDBC-API f2d1372a0); the JDBC portable lane
+is now implemented (see m6s–m6v below). REAL number literals in SQL text also landed (m6s).
+
+- [x] **scljet-m6v-jdbc-facade** — DONE 2026-07-15 (JDBC-API lane of "все три … параллельно"; J1 core
+      of `specs/scljet-jdbc.md`). Portable `scljet/jdbc.ssc` — a `java.sql`-shaped front door in pure
+      ScalaScript for `[int, js]`. `JdbcConnection` (current image + autocommit/working-image;
+      `jdbcCommit`/`jdbcRollback`/`jdbcSetAutoCommit` promote/discard); `jdbcExecuteUpdate*` threads the
+      new image per the autocommit rules and returns `JdbcUpdate(conn, changes, lastInsertRowid)`;
+      `jdbcExecuteQuery*` → forward-only `JdbcResultSet` (`rsNext` advances a functional cursor). Typed
+      getters `rsGetLong/Int/Double/String/Boolean`, `rsIsNull`, by-index + by-label (`rsFindColumn`
+      case-insensitive), metadata `rsColumnCount`/`rsColumnLabel` (labels from `projItemNames` or
+      `imageTableColumns`). Value conversions route through `coerceText` + Double/Int string-parse
+      (`parseLongStr`/`parseDoubleStr`, 0L/0.0 seeds, bounds-safe `codeAt`) to stay BigInt-safe on JS.
+      `?` params flow via `queryImageParams`/`executeMutationCountedParams`. Verified end-to-end vs
+      reference sqlite3 (autocommit INSERT + count/rowid, ResultSet walk over INTEGER/TEXT/REAL, by-label,
+      metadata, parameterized UPDATE + count, NULL-column read), int==js; conformance `scljet-jdbc-basic`.
+      NEXT: the stateful JVM `java.sql.Driver` shim (J2), blob/BigDecimal getters, column-type metadata.
+
+- [x] **scljet-m6u-param-binding** — DONE 2026-07-15 (JDBC prereq). `?` positional parameters. Lexer
+      emits a `param` token (1-based ordinal in `num`; `?NNN` explicit); `Token` gains a defaulted
+      fourth field `bound: Option[SqliteValue] = None` (keeps all 30 `Token(k,t,n)` sites valid — default
+      case-class args verified on int+js); `bindParams(toks, params)` rewrites each `param` → a `bound`
+      token; `parseExprAtom`/`litValue` gain a `bound` branch → the value reaches the parser as an
+      `SxLit`, indistinguishable from an inline literal, so integer/real/text/blob/NULL params flow
+      through WHERE / projections / VALUES / SET with zero string interpolation. New `queryImageParams`
+      / `executeMutationCountedParams`; `queryImage`/`executeMutationCounted` delegate (bindParams with
+      `Nil` is identity for param-free SQL). Verified vs sqlite3 (int/text/real params, param arithmetic,
+      parameterized INSERT + count), int==js; conformance `scljet-sql-params`; 38/38 scljet-sql green.
+
+- [x] **scljet-m6t-mutation-count** — DONE 2026-07-15 (JDBC prereq). `executeMutationCounted`/`…Params`
+      → `MutationResult(image, changes, lastInsertRowid)`, the counted sibling of `executeMutation`.
+      Counts derived from a read pass over the affected table (INSERT → #value-tuples + lastRowid =
+      maxRowid+n; DELETE/UPDATE → #rows matching WHERE = sqlite `changes()`; CREATE/DROP → 0), so they
+      agree with the mutation without threading a count through the large executor bodies. Row counts
+      accumulate from 0L seeds / `longAdd` for BigInt-safety. Verified vs reference sqlite3
+      `changes()`/`last_insert_rowid()`, int==js; conformance `scljet-sql-mutation-count`.
+
+- [x] **scljet-m6s-real-literal** — DONE 2026-07-15 (SQL polish; prereq the JDBC INSERT of `4.5`
+      exposed). REAL number literals in SQL text. The lexer reads a `digits.digits` fraction as a REAL
+      literal (value parsed in Double space, carried on `Token.bound` as `SqlReal`); `litValue` and
+      `parseExprAtom` gain a `real` branch → an `SxLit`. Real literals now work in `VALUES`, `WHERE`,
+      projections and arithmetic (previously `INSERT … VALUES (..,4.5)` failed at the `.`). Integer-valued
+      reals render with a trailing `.0` (`10.0`), matching the sqlite3 CLI. Verified vs sqlite3, int==js;
+      conformance `scljet-sql-real-literal`; 39/39 scljet-sql green non-memoized.
 
 - [x] **scljet-m6r-left-join3** — DONE 2026-07-15 (SQL-polish lane of "все три … параллельно"). LEFT
       joins over 3+ tables in the N-table path. `extendPartials` now keeps a partial join-row that
