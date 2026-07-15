@@ -19,7 +19,12 @@ exports:
   - queryImageParams
   - bindParams
   - renderRows
+  - renderReal
+  - renderValue
+  - coerceText
+  - projItemNames
   - tableColumns
+  - imageTableColumns
   - InsertStmt
   - DeleteStmt
   - parseInsert
@@ -103,11 +108,25 @@ def tokenize(sql: String): Either[String, List[Token]] =
     val c = charCode(sql, i)
     if isWs(c) then i = i + 1
     else if isDigit(c) then
+      // Integer digits accumulate into both a Long (num) and a Double (dval); if a `.digit`
+      // fraction follows, emit a REAL literal (value carried in `bound`), else an integer.
       var num = 0L
+      var dval = 0.0
       while i < n && isDigit(charCode(sql, i)) do
-        num = num * 10L + (charCode(sql, i) - 48).toLong
+        val dg = charCode(sql, i) - 48
+        num = num * 10L + dg.toLong
+        dval = dval * 10.0 + dg.toDouble
         i = i + 1
-      toksRev = Token("num", "", num) :: toksRev
+      if charCode(sql, i) == 46 && isDigit(charCode(sql, i + 1)) then
+        i = i + 1
+        var scale = 1.0
+        while i < n && isDigit(charCode(sql, i)) do
+          val dg = charCode(sql, i) - 48
+          dval = dval * 10.0 + dg.toDouble
+          scale = scale * 10.0
+          i = i + 1
+        toksRev = Token("real", "", 0L, Some(SqlReal(dval / scale))) :: toksRev
+      else toksRev = Token("num", "", num) :: toksRev
     else if isAlpha(c) then
       var word = ""
       while i < n && isAlnum(charCode(sql, i)) do
@@ -308,6 +327,9 @@ def parseColumnList(toks: List[String], remaining: List[Token]): Either[String, 
 def litValue(token: Token): Either[String, SqliteValue] =
   if token.kind == "num" then Right(SqlInteger(token.num))
   else if token.kind == "str" then Right(SqlText(token.text))
+  else if token.kind == "real" then token.bound match
+    case Some(v) => Right(v)
+    case None => Left("real token without a value")
   else if token.kind == "bound" then token.bound match
     case Some(v) => Right(v)
     case None => Left("bound token without a value")
@@ -664,6 +686,9 @@ def parseExprAtom(toks: List[Token]): Either[String, (SxNode, List[Token])] =
   else if tkIsKw(toks, "CASE") then parseCase(toks.tail)
   else if tkKind(toks) == "num" then Right((SxLit(SqlInteger(toks.head.num)), toks.tail))
   else if tkKind(toks) == "str" then Right((SxLit(SqlText(toks.head.text)), toks.tail))
+  else if tkKind(toks) == "real" then toks.head.bound match
+    case Some(v) => Right((SxLit(v), toks.tail))
+    case None => Left("real token without a value")
   else if tkKind(toks) == "bound" then toks.head.bound match
     case Some(v) => Right((SxLit(v), toks.tail))
     case None => Left("bound token without a value")
@@ -3159,6 +3184,12 @@ def matchingRowids(rows: List[StorageRecord], where: List[List[Condition]], colN
     out = accRev.head :: out
     accRev = accRev.tail
   out
+
+// The column names of a table in an image (from its CREATE TABLE), for result metadata labels.
+def imageTableColumns(dbBytes: ByteSlice, table: String): Either[String, List[String]] =
+  tableContext(dbBytes, table) match
+    case Left(message) => Left(message)
+    case Right(ctx) => Right(ctx._3)
 
 // Resolve (rootPage, column names, page size) for a table; open the image read-only.
 def tableContext(dbBytes: ByteSlice, table: String): Either[String, (ReadonlyDatabase, Int, List[String], Int)] =

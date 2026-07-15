@@ -1,0 +1,42 @@
+---
+name: scljet-sql-real-literal
+description: SclJet REAL number literals in SQL text (INSERT / WHERE / SELECT / arithmetic); matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet REAL literals
+
+The lexer reads a `digits.digits` fraction as a REAL literal (value carried on the token, parsed in
+Double space), so real literals work in `VALUES`, `WHERE`, projections, and arithmetic — not just as
+bound parameters or pre-built `SqlReal` rows. Integer-valued reals render with a trailing `.0`
+(`10.0`), matching the sqlite3 CLI. Every result is byte-identical to reference sqlite3 on the same
+SQL (verified out-of-band); locked across backends.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlReal, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, renderRows, executeMutation](std/scljet/sql.ssc)
+
+```scalascript
+def apply(db: ByteSlice, sql: String): ByteSlice =
+  executeMutation(db, sql) match
+    case Left(m) =>
+      println(sql + " => ERR:" + m)
+      db
+    case Right(next) => next
+
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "prod", "CREATE TABLE prod(id INTEGER, price REAL)",
+  List(List(SqlInteger(1L), SqlReal(1.5)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db0) =>
+    val db = apply(db0, "INSERT INTO prod VALUES (2,2.75),(3,10.0)")
+    show(db, "SELECT id, price FROM prod ORDER BY id")
+    show(db, "SELECT id FROM prod WHERE price > 2.0 ORDER BY id")
+    show(db, "SELECT price + 0.5 FROM prod WHERE id = 1")
+    show(db, "SELECT 3.5")
+    show(db, "SELECT 2.5 + 1.25")
+    show(db, "SELECT id, price FROM prod WHERE price = 10.0")
+```
