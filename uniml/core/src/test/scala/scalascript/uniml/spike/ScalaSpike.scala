@@ -328,27 +328,40 @@ object SpikeParse:
     val c = new Cur(toks)
     val defs = Vector.newBuilder[Node]
     while !c.eof do
-      while isAnnotationStart(c) do skipAnnotation(c) // `@main`/`@nowarn(…)` — erased (skipAnn)
-      skipDeclModifiers(c)                            // `sealed`/`final`/`abstract`/… — erased
-      if c.eof then () // trailing annotation(s)/modifier(s) with nothing after
-      else if isDefStart(c) then defs += parseDef(c)
-      else if isKw(c, "case") && c.peek2Lexeme == "object" then { c.advance(); defs += parseObject(c) } // case object
-      else if isKw(c, "case") then defs += parseCaseClass(c)
-      else if isKw(c, "given") then defs += parseGiven(c)
-      else if isKw(c, "enum") then defs += parseEnum(c)
-      else if isKw(c, "extension") then defs += parseExtension(c)
-      else if isWord(c, "object") then defs += parseObject(c)
-      else if isWord(c, "effect") && (c.peek2Kind == "spike.uid" || c.peek2Kind == "spike.id") then defs += parseEffectDecl(c, false)
-      else if isWord(c, "multi") && c.peek2Lexeme == "effect" then defs += parseEffectDecl(c, true) // `multi effect`
-      else if isWord(c, "extern") then defs += parseExtern(c)
-      else if isWord(c, "trait") || isKw(c, "class") then defs += parseTraitOrClassNoop(c)
-      // a top-level STATEMENT — script-style `println(…)`, top-level `val`/`var`/expr. ssc1-front keeps these
-      // in source order and lowerProg collects them into `(entry (seq …))` (and `val`/`var` → a global cell).
-      // Before this they collapsed the whole program to Nil (newfront Phase 0's #1 gap).
+      // annotation: a SAME-LINE `@ann <decl>` is a decl annotation (erased); an OWN-LINE `@ann` (the next
+      // token sits on a LATER line — ssc1-front's layout inserts a `;` there) is a standalone statement →
+      // `_err`, because ssc1-front's `@` handler runs `parseOneStmt(skipAnn(…))` which then hits that `;`
+      // (ssc1-front.ssc0:2499). Emit the `_err` and let the decl parse on the next loop iteration.
+      var annErr = false
+      while !annErr && isAnnotationStart(c) do
+        val atTok = c.peek.get
+        skipAnnotation(c)
+        if c.eof || c.peekLine > c.prevEndLine then
+          defs += Node.Frame("spike.exprStmt", None,
+            Vector(Node.Frame("spike.error", None, Vector(Node.Leaf(atTok, Some("error.token")))).withRole("stmt.expr")))
+          annErr = true
+      if annErr then () // `_err` emitted; the annotated decl (if any) is parsed on the next iteration
       else
-        val before = c.mark
-        defs += parseStmt(c)
-        if c.mark == before then c.advance() // guarantee progress even if parseStmt consumed nothing
+        skipDeclModifiers(c)                            // `sealed`/`final`/`abstract`/… — erased
+        if c.eof then () // trailing annotation(s)/modifier(s) with nothing after
+        else if isDefStart(c) then defs += parseDef(c)
+        else if isKw(c, "case") && c.peek2Lexeme == "object" then { c.advance(); defs += parseObject(c) } // case object
+        else if isKw(c, "case") then defs += parseCaseClass(c)
+        else if isKw(c, "given") then defs += parseGiven(c)
+        else if isKw(c, "enum") then defs += parseEnum(c)
+        else if isKw(c, "extension") then defs += parseExtension(c)
+        else if isWord(c, "object") then defs += parseObject(c)
+        else if isWord(c, "effect") && (c.peek2Kind == "spike.uid" || c.peek2Kind == "spike.id") then defs += parseEffectDecl(c, false)
+        else if isWord(c, "multi") && c.peek2Lexeme == "effect" then defs += parseEffectDecl(c, true) // `multi effect`
+        else if isWord(c, "extern") then defs += parseExtern(c)
+        else if isWord(c, "trait") || isKw(c, "class") then defs += parseTraitOrClassNoop(c)
+        // a top-level STATEMENT — script-style `println(…)`, top-level `val`/`var`/expr. ssc1-front keeps these
+        // in source order and lowerProg collects them into `(entry (seq …))` (and `val`/`var` → a global cell).
+        // Before this they collapsed the whole program to Nil (newfront Phase 0's #1 gap).
+        else
+          val before = c.mark
+          defs += parseStmt(c)
+          if c.mark == before then c.advance() // guarantee progress even if parseStmt consumed nothing
     Parsed(Node.Frame("spike.program", None, defs.result()), c.diagnostics)
 
   private def expect(c: Cur, kind: String, role: String, what: String): Option[Node] =
@@ -431,11 +444,21 @@ object SpikeParse:
     skipTypeParams(c) // `case class Box[A](…)`
     expect(c, "spike.lparen", "cc.lparen", "'('").foreach(kids += _)
     var more = c.peekKind != "spike.rparen" && !c.eof && !isDefStart(c) && !isKw(c, "case")
+    var recovered = false
     while more do
-      val fname = expect(c, "spike.id", "cc.field", "field name")
-      fname.foreach(kids += _)
-      if fname.isEmpty then more = false
+      if c.peekKind != "spike.id" then
+        // ssc1-front parseCaseParam (ssc1-front.ssc0:2160): a NON-id field name (an `@annotation` like
+        // `@key id`/`@rdf("schema:name") name`) is NOT consumed and yields a synthetic ("_", "Any") field
+        // that ENDS the param list — annotated case-class fields are UNSUPPORTED by the oracle. Mirror it:
+        // append the synthetic field (cc.synthfield marker → "_"/"Any" in the projection) and skip the
+        // leftover `@ann name: T, …` up to the param-list `)` (depth-aware, past `@rdf("…")` inner parens),
+        // so the existing captureDerives (ssc1-front finds them via a forward findCaseDerives scan) still runs.
+        c.peek.foreach(t => kids += Node.Leaf(t, Some("cc.synthfield")))
+        skipToParamListEnd(c)
+        recovered = true
+        more = false
       else
+        c.advance().foreach(t => kids += Node.Leaf(t, Some("cc.field")))
         expect(c, "spike.colon", "cc.fieldColon", "':'").foreach(kids += _)
         kids += captureFieldType(c) // full type TEXT incl generics (`List[User]`) for the mirror metadata
         // a field default `= 10` — captured (cc.dflt) so caseClsNodes emits the ctor's funcdefaults entry
@@ -443,7 +466,7 @@ object SpikeParse:
         if c.peekKind == "spike.eq" then { c.advance(); parseExpr(c, 1).foreach(e => kids += e.withRole("cc.dflt")) }
         if c.peekKind == "spike.comma" then c.advance().foreach(t => kids += Node.Leaf(t, Some("cc.comma")))
         else more = false
-    expect(c, "spike.rparen", "cc.rparen", "')'").foreach(kids += _)
+    if !recovered then expect(c, "spike.rparen", "cc.rparen", "')'").foreach(kids += _)
     // `extends Y with Z` is erased, but a `derives A, B` clause is CAPTURED (cc.derive leaves) — the
     // lowerer generates the derived typeclass/codec instances from it (ssc1-front mkCaseCls's 4th field).
     if isWord(c, "extends") then
@@ -471,6 +494,19 @@ object SpikeParse:
 
   // `derives Name[T][, Name…]*` → cc.derive leaves (each name's `[T]` type args skipped), matching
   // ssc1-front parseDeriveNames (ssc1-front.ssc0:2176).
+  // skip forward to the closing `)` of the current param list (and consume it), tracking nested `(`/`[`
+  // depth so an inner `@rdf("…")` / generic `[…]` does not end it early. Used by parseCaseClass's synthetic-
+  // field recovery to consume the leftover `@ann name: T, …` after an unsupported annotated field.
+  private def skipToParamListEnd(c: Cur): Unit =
+    var depth = 0
+    var go = true
+    while go && !c.eof do
+      c.peekKind match
+        case "spike.lparen" | "spike.lbracket" => depth += 1; c.advance()
+        case "spike.rbracket"                  => if depth > 0 then depth -= 1; c.advance()
+        case "spike.rparen"                    => if depth == 0 then { c.advance(); go = false } else { depth -= 1; c.advance() }
+        case _                                 => c.advance()
+
   private def captureDerives(c: Cur, kids: scala.collection.mutable.Builder[Node, Vector[Node]]): Unit =
     if isWord(c, "derives") then
       c.advance()
@@ -1731,8 +1767,11 @@ object SpikeProject:
   private def caseClsNode(n: UniNode): String =
     val ks = kids(n)
     val name  = ks.collectFirst { case (Some("cc.name"), c) => lexeme(c) }.getOrElse("_")
-    val names = ks.collect { case (Some("cc.field"), c) => "\"" + esc(lexeme(c)) + "\"" }.toVector
-    val types = ks.collect { case (Some("cc.fieldType"), c) => "\"" + esc(concatType(c)) + "\"" }.toVector
+    // an unsupported annotated field (cc.synthfield marker) contributed a synthetic ("_","Any") field,
+    // appended after any real fields parsed before it — exactly ssc1-front's parseCaseParam fallback.
+    val synth = ks.exists { case (Some("cc.synthfield"), _) => true; case _ => false }
+    val names = ks.collect { case (Some("cc.field"), c) => "\"" + esc(lexeme(c)) + "\"" }.toVector ++ (if synth then Vector("\"_\"") else Vector.empty)
+    val types = ks.collect { case (Some("cc.fieldType"), c) => "\"" + esc(concatType(c)) + "\"" }.toVector ++ (if synth then Vector("\"Any\"") else Vector.empty)
     val derives = ks.collect { case (Some("cc.derive"), c) => "\"" + esc(lexeme(c)) + "\"" }.toVector
     s"""mkCaseCls("${esc(name)}", ${consList(names)}, ${consList(types)}, ${consList(derives)})"""
 
