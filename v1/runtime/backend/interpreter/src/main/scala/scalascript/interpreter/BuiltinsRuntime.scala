@@ -559,6 +559,8 @@ private[interpreter] object BuiltinsRuntime:
       "sqrt"  -> interp.globals("math.sqrt"),
       "abs"   -> interp.globals("math.abs"),
       "pow"   -> interp.globals("math.pow"),
+      "max"   -> interp.globals("math.max"),
+      "min"   -> interp.globals("math.min"),
       "floor" -> interp.globals("math.floor"),
       "ceil"  -> interp.globals("math.ceil"),
       "round" -> interp.globals("math.round"),

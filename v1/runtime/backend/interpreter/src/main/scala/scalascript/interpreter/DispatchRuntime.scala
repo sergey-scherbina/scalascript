@@ -55,7 +55,8 @@ private[interpreter] object DispatchRuntime:
               "filter" | "filterNot" | "exists" | "forall" | "find" |
               "contains" | "indexOf" | "appended" | "prepended" | "take" |
               "drop" | "apply" | "grouped" | "sliding" | "scanLeft" |
-              "reduceLeft" | "partition" | "count" | "collect" | "span" |
+              "reduceLeft" | "reduce" | "reduceRight" | "reduceOption" |
+              "reduceLeftOption" | "transpose" | "partition" | "count" | "collect" | "span" |
               "sortBy" | "sortWith" | "groupBy" | "mkString" | "zip" |
               "takeRight" | "dropRight" | "splitAt" | "intersect" | "diff" |
               "takeWhile" | "dropWhile" | "toList" | "toSeq" | "toIterable" |
@@ -1100,6 +1101,7 @@ private[interpreter] object DispatchRuntime:
       case "trim"        => Pure(Value.StringV(s.trim))
       case "toUpperCase" => Pure(Value.StringV(s.toUpperCase))
       case "toLowerCase" => Pure(Value.StringV(s.toLowerCase))
+      case "capitalize"  => Pure(Value.StringV(if s.isEmpty then s else s.charAt(0).toUpper.toString + s.substring(1)))
       case "reverse"     => Pure(Value.StringV(s.reverse))
       case "toInt"       => Computation.pureIntV(s.toLong)
       case "toLong"      => Computation.pureIntV(s.toLong)
@@ -2078,11 +2080,32 @@ private[interpreter] object DispatchRuntime:
             case _ => throw InterpretError("foldRight expects one function argument")
           }))
         case _       => dispatchFallback(recv, name, args, env, interp)
-      case "reduceLeft"   => args match
+      case "reduceLeft" | "reduce"  => args match
+        // `reduce` is unordered in Scala but the standard List impl reduces left-to-right.
         case List(f) => ls match
-          case Nil    => interp.located("reduceLeft on empty list")
+          case Nil    => interp.located(s"$name on empty list")
           case h :: t => Computation.foldLeftSequence(t, h, (acc, x) => interp.callValue2(f, acc, x, env))
         case _       => dispatchFallback(recv, name, args, env, interp)
+      case "reduceRight"  => args match
+        // f(x0, f(x1, … f(x_{n-1}, x_n))) — seed with the last element, fold the init in reverse.
+        case List(f) => ls match
+          case Nil => interp.located("reduceRight on empty list")
+          case _   => Computation.foldLeftSequence(ls.init.reverse, ls.last, (acc, x) => interp.callValue2(f, x, acc, env))
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "reduceLeftOption" | "reduceOption" => args match
+        case List(f) => ls match
+          case Nil    => Pure(Value.OptionV(null))
+          case h :: t => Computation.foldLeftSequence(t, h, (acc, x) => interp.callValue2(f, acc, x, env)) match
+            case Pure(v) => Pure(Value.OptionV(v))
+            case c       => FlatMap(c, v => Pure(Value.OptionV(v)))
+        case _       => dispatchFallback(recv, name, args, env, interp)
+      case "transpose"    => args match
+        // Rows of a rectangular list-of-lists → columns. Pure; bails if a row is not a list.
+        case Nil =>
+          val rows = ls.map { case Value.ListV(inner) => inner; case _ => null }
+          if rows.contains(null) then dispatchFallback(recv, name, args, env, interp)
+          else Pure(Value.ListV(rows.transpose.map(col => Value.ListV(col))))
+        case _   => dispatchFallback(recv, name, args, env, interp)
       case "partition"    => args match
         case List(f) => Computation.partitionSequence(ls, item => interp.callValue1(f, item, env))
         case _       => dispatchFallback(recv, name, args, env, interp)

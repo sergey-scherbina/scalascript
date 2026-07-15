@@ -100,6 +100,24 @@ val CoreIntrinsics: Map[QualifiedName, IntrinsicImpl] = Map(
       case _                          => ()
   ),
 
+  QualifiedName("math.max") -> NativeImpl((_, args) =>
+    args match
+      case List(a: Long,   b: Long)   => math.max(a, b)
+      case List(a: Double, b: Double) => math.max(a, b)
+      case List(a: Long,   b: Double) => math.max(a.toDouble, b)
+      case List(a: Double, b: Long)   => math.max(a, b.toDouble)
+      case _                          => ()
+  ),
+
+  QualifiedName("math.min") -> NativeImpl((_, args) =>
+    args match
+      case List(a: Long,   b: Long)   => math.min(a, b)
+      case List(a: Double, b: Double) => math.min(a, b)
+      case List(a: Long,   b: Double) => math.min(a.toDouble, b)
+      case List(a: Double, b: Long)   => math.min(a, b.toDouble)
+      case _                          => ()
+  ),
+
   QualifiedName("math.floor") -> NativeImpl((_, args) =>
     args match
       case List(d: Double) => math.floor(d)

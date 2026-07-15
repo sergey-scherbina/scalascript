@@ -1,5 +1,18 @@
 # Bug tracker
 
+## interp-collection-stdlib-completeness-gaps — common List/String/math methods missing on the v1 interp
+
+**Status:** FIXED (2026-07-15) — first batch. Surfaced by the v2-vs-v1 differential (sprint
+#16) as `No method …` errors on the v1 interpreter (`ssc-tools run --v1`), the conformance
+reference. Added: `List.reduce` / `reduceRight` / `reduceOption` / `reduceLeftOption` /
+`transpose` (`DispatchRuntime.dispatchList`, next to the existing `reduceLeft`; also added to
+the builtin-vs-extension precedence whitelist `hasBuiltinMemberBeforeExtension`);
+`String.capitalize` (`DispatchRuntime` string dispatch, uppercases only the first char per
+Scala); `math.max` / `math.min` (Int/Double overloads in `intrinsics/Core.scala`, wired into
+the `math` object in `BuiltinsRuntime`). `Vector(…)` is a `ListV` in the interp so these cover
+Vector too. Regression test `CollectionGapsTest`. NOTE (still open): `Vector.patch`,
+`String.padTo` (v2-native), and likely more seq methods remain — this closes the common ones.
+
 ## js-control-packed-readme-broken-spec-link — npm README links outside payload
 
 **Status:** fixed by `1c2e150c3` with regression `6f19a9538`; awaiting final
