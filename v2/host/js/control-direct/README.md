@@ -52,10 +52,11 @@ than implementing a second control runtime.
 T1 accepts only top-level `const`/`let` shift bindings inside a zero-parameter
 synchronous reset arrow. Async/generator/cleanup/loop/switch/branch/callback/class
 capture frames and arbitrary marker positions fail closed with source diagnostics.
-So do intrinsic direct `eval`, a shift body that captures its own or a later suffix
-binding, and any marker value use that would survive emit. Parentheses and
-TypeScript `as`/non-null/type assertions preserve marker ownership; indirect eval
-and `Function` remain global-only unmanaged operations.
+So do intrinsic direct `eval` anywhere in a selected file (including import-only
+marker erasure), a marker layer whose prefix or shift body value-references its own
+or a later suffix binding, and any marker value use that would survive emit.
+Parentheses and TypeScript `as`/non-null/type assertions preserve marker ownership;
+indirect eval and `Function` remain global-only unmanaged operations.
 
 Each source file is atomic: one direct diagnostic leaves the whole file unchanged.
 Accepted lowering uses a fresh resume parameter followed by the original authored
