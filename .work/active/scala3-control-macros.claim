@@ -1,6 +1,6 @@
 feature/scala3-control-macros 2026-07-15T04:07:46Z
 agent: codex-scala-control-macros
-heartbeat: 2026-07-15T06:29:29Z
+heartbeat: 2026-07-15T06:44:32Z
 status: in-progress
-done-so-far: all four rereview gaps have plan/BUGS/spec-first commits and implementation eda7dcabf; focused gates and adversarial nested-reset prompt checks are active
-next: close any adversarial gap spec-first, run full macro/package/catalog/conformance gates, freeze a clean checkpoint, then fresh independent review; no push/release
+done-so-far: frozen clean checkpoint 708dec2f1 including nested-reset eager-prompt fix; focused 39/39, full 101/101, package/consumers, catalog 26/9, negatives 9/9, direct 3/3 and conformance 5/5 green
+next: fresh independent read-only review of 76f9706cf..708dec2f1 is active; on APPROVE rebase, rerun critical gates, land and release; no push before approval

@@ -1,6 +1,6 @@
 feature/javascript-typescript-control-direct 2026-07-15T05:29:19Z
 agent: codex-js-control-direct
-heartbeat: 2026-07-15T06:29:29Z
+heartbeat: 2026-07-15T06:44:32Z
 status: in-progress
-done-so-far: six review P1 repairs are committed with 28/28 package tests plus catalog 26/9 and negatives 9/9 green; adversarial review found import-only direct-eval binding erasure and its plan/spec-first repair is active
-next: finish the import-only eval regression/fix, full package/consumer/catalog/conformance gates, freeze a clean checkpoint, then fresh independent review; no push/release
+done-so-far: frozen clean checkpoint c4377fabb; direct and explicit packages 31/31, exact packs, catalog 26/9, negatives 9/9, conformance 5/5, markdown/diff gates green
+next: fresh independent read-only review of 76f9706cf..c4377fabb is active; on APPROVE rebase, rerun critical gates, land and release; no push before approval
