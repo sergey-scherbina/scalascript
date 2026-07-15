@@ -30,6 +30,7 @@ nested into topic subdirectories. This index is the map for both sets.
 - [../specs/coroutines.md](../specs/coroutines.md) — Coroutines
 - [../specs/control-interoperability.md](../specs/control-interoperability.md) — target-neutral effects, multi-prompt `shift`/`reset`, managed callbacks/TCO, and durable `save`/`run` laws
 - [../specs/scala3-bidirectional-control.md](../specs/scala3-bidirectional-control.md) — Scala 3/JVM control host profile
+- [../specs/scala3-control-macros.md](../specs/scala3-control-macros.md) — bounded Scala 3 lexical `direct.reset`/`direct.shift` macros
 - [../specs/javascript-typescript-bidirectional-control.md](../specs/javascript-typescript-bidirectional-control.md) — JavaScript/TypeScript control host profile
 - [../specs/rust-bidirectional-control.md](../specs/rust-bidirectional-control.md) — Rust control host profile
 - [../specs/swift-bidirectional-control.md](../specs/swift-bidirectional-control.md) — Swift control host profile

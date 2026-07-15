@@ -89,7 +89,7 @@ The current bindings are exact, not interchangeable labels:
 portable-vm   -> ssc-vm                 ready
 portable-asm  -> ssc-asm                ready
 scala-explicit -> scala3-control-test    ready
-scala-direct  -> scala3-control-macros-test pending until macro M1 lands
+scala-direct  -> scala3-control-macros-test ready
 all remaining mandatory lanes -> none   pending
 ```
 
@@ -111,16 +111,18 @@ run.sh --all-installed         run ready and installed optional lanes
 `SSC=/path/to/ssc` selects the standard launcher for portable lanes. Adapter ids
 are closed and validated in this version: `ssc-vm`, `ssc-asm`,
 `scala3-control-test`, `scala3-control-macros-test`, and `none`. The direct adapter
-is frozen by [`scala3-control-macros.md`](scala3-control-macros.md) and remains
-pending until its owning suite is green. Adding an optional native/AOT adapter requires
+is frozen by [`scala3-control-macros.md`](scala3-control-macros.md) and is ready
+with the bounded `shift-reset` capability. Adding an optional native/AOT adapter requires
 an explicit catalog-and-runner revision that names its executable environment
 variable; an adapter never falls back to another backend. Tool absence is
 `UNAVAILABLE`, not `PASS`.
 
-The compiler-independent Scala adapter is a ScalaTest suite in the existing
-`scala3ControlApi` test scope. It reads the same catalog, maps stable vector ids to
-typed `scalascript.control` programs, and compares canonical structured outcomes.
-It does not add a production dependency or publish a second semantics library.
+Both Scala adapters are ScalaTest suites in the existing `scala3ControlApi` test
+scope. They read the same catalog, map stable vector ids to typed
+`scalascript.control` programs, and compare canonical structured outcomes. The
+direct adapter additionally compares each eligible result to the explicit Scala
+program. Neither adds a production dependency or publishes a second semantics
+library.
 
 ## Vector inventory
 
@@ -224,8 +226,10 @@ before it can claim that residual-row boundary.
 
 - Changing CoreIR, the v2 frontend/lowering, the seed image, or compiler fixed-point
   bytes before X1.
-- Implementing `.ssc` shift/reset lowering, Scala direct-style macros/plugins, a
-  host value/call bridge, or a durable continuation codec in this slice.
+- Implementing `.ssc` shift/reset lowering, a Scala compiler plugin, a host
+  value/call bridge, or a durable continuation codec in this slice. The later
+  lexical macro M1 supplies the now-ready `scala-direct` adapter without changing
+  the catalog's semantic ownership.
 - Treating an AOT backend row as proof of host-bridge or runner qualification.
 - Defining cancellation semantics, retry, exactly-once effects, or prefix replay.
 
@@ -233,8 +237,9 @@ before it can claim that residual-row boundary.
 
 - `vectors.tsv` contains 26 contiguous stable ids: 17 `specified`, eight
   `pending-codec` (10--17), and one deliberately `pending-spec` cancellation row
-  (26). `lanes.tsv` declares all nine mandatory lanes; five future generated or
-  host lanes and `scala-direct` remain explicitly `pending`.
+  (26). `lanes.tsv` declares all nine mandatory lanes; the explicit and bounded
+  direct Scala lanes are ready, while five future generated host/AOT lanes remain
+  explicitly `pending`.
 - `tests/interop-conformance/validation-test.sh` passes nine negative cases:
   duplicate vector/lane, removed id, swapped stable adapter, empty ready lane,
   missing eligible probe, orphan expected bytes, mismatched front-matter, and
@@ -243,8 +248,10 @@ before it can claim that residual-row boundary.
   `SSC="$PWD/bin/ssc" tests/interop-conformance/run.sh` gate passes all 13 eligible
   exact-output vectors on `portable-vm` and the same 13/13 on `portable-asm`.
 - `tests/interop-conformance/run.sh --lane scala-explicit` passes 17 typed semantic
-  programs plus the catalog/program coverage test (18/18). The complete
-  `scripts/sbtc "scala3ControlApi/test"` scope passes 57/57.
+  programs plus the catalog/program coverage test (18/18).
+- `tests/interop-conformance/run.sh --lane scala-direct` passes vectors 18 and 23
+  plus catalog/program coverage (3/3), with an explicit-API differential oracle.
+  The complete `scripts/sbtc "scala3ControlApi/test"` scope passes 80/80.
 - `tests/conformance/run.sh --only 'effect*,effects*'` passes all five affected
   conformance cases across every lane each case declares. `git diff --check` is
   clean.

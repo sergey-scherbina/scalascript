@@ -40,10 +40,11 @@ tests/interop-conformance/run.sh --validate
 # Print every lane × vector status, including unsupported and pending cells.
 tests/interop-conformance/run.sh --list
 
-# Run one adapter. This is also how to run the explicit Scala 3 suite.
+# Run one adapter. This is also how to run the two Scala 3 suites.
 tests/interop-conformance/run.sh --lane portable-vm
 tests/interop-conformance/run.sh --lane portable-asm
 tests/interop-conformance/run.sh --lane scala-explicit
+tests/interop-conformance/run.sh --lane scala-direct
 
 # Run every ready adapter plus any installed optional adapters.
 tests/interop-conformance/run.sh --all-installed
@@ -53,8 +54,8 @@ SSC=/path/to/ssc tests/interop-conformance/run.sh
 ```
 
 The default command intentionally runs ready **process** lanes only. The
-`scala-explicit` adapter invokes its ScalaTest suite through `scripts/sbtc`, so it
-is selected explicitly or via `--all-installed`.
+The `scala-explicit` and `scala-direct` adapters invoke their ScalaTest suites
+through `scripts/sbtc`, so they are selected explicitly or via `--all-installed`.
 
 ## Current evidence
 
@@ -65,7 +66,7 @@ Catalog validation currently covers **26 vectors** and **9 lanes**:
 | `portable-vm` | `ssc-vm` | Ready; 13/13 eligible process vectors compare exact exit code and stdout/stderr bytes |
 | `portable-asm` | `ssc-asm` | Ready; the same 13/13 process vectors and exact bytes |
 | `scala-explicit` | `scala3-control-test` | Ready; 17 semantic-vector tests plus one catalog/program coverage test (18 tests total) |
-| `scala-direct` | none | **PENDING** — inline direct-style macro slice is not implemented |
+| `scala-direct` | `scala3-control-macros-test` | Ready; vectors 18 and 23 plus one catalog/program coverage test (3 tests total), differentially checked against the explicit Scala API |
 | `jvm-generated` | none | **PENDING** — typed managed JVM control lane is not qualified |
 | `js-generated` | none | **PENDING** — JS/TypeScript host and runner profile is not qualified |
 | `rust-generated` | none | **PENDING** — Rust host and runner profile is not qualified |
@@ -88,6 +89,9 @@ The vector phases are deliberately visible:
   frozen.
 
 Prompt vectors **18, 22, and 23** are specified and ready on `scala-explicit`.
+The bounded lexical `scala-direct` M1 lane runs vectors **18 and 23**. Vector 22
+also requires `prompt-isolation`: forwarding an outer prompt through a nested
+different-prompt reset is deliberately reserved for the compiler-plugin tier.
 They are unsupported on today's `.ssc` portable VM/ASM lanes because those lanes
 do not yet advertise `shift-reset`; this is lane-specific readiness, not a global
 semantic pending state. Vector 25 is likewise a structured explicit-API negative

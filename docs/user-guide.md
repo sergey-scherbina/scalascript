@@ -1655,7 +1655,7 @@ runReader("Alice")(greetUser())   // "Hello, Alice!"
 
 See [`specs/algebraic-effects.md`](algebraic-effects.md) for the full spec.
 
-### Scala 3 explicit control API (Tier 1)
+### Scala 3 control API (explicit Tier 1 + lexical direct M1)
 
 Ordinary Scala 3/JVM programs can use the compiler-independent
 `scalascript.control` API. The repository builds the publication-ready leaf as
@@ -1718,13 +1718,39 @@ val answer = reset[scoped.Key, Nothing, Int](prompt)(shifted)
 assert(Eff.runPure(answer) == 42)
 ```
 
+For a bounded lexical region, `direct.reset` and `direct.shift` provide ordinary
+direct-style Scala syntax while expanding exclusively to the same explicit API:
+
+```scala
+val directAnswer: Eff[Nothing, Int] =
+  direct.reset[scoped.Key, Nothing, Int](prompt) {
+    val resumed =
+      direct.shift[scoped.Key, Int, Nothing, Int](prompt)(
+        [Residual >: Nothing <: Effect] =>
+          (continuation: Continuation[Int, Residual, Int]) =>
+            continuation.resume(41)
+      )
+    resumed + 1
+  }
+
+assert(Eff.runPure(directAnswer) == 42)
+```
+
+M1 accepts pure prefixes/suffixes, immutable block-level shift binds, tail shifts,
+and sequential binds. It fails at compile time if a marker escapes its matching
+lexical scope, crosses a callback/resource/control barrier, targets an outer scope
+through a nested `direct.reset`, or appears in an unsupported expression shape.
+Cross-method transformation and managed callbacks belong to the later compiler
+plugin; M1 introduces no second runtime or exception-based continuation path.
+
 Reusable continuations expose `resume`; one-shot continuations expose only atomic
 `tryResume`, whose second or concurrent loser returns typed `AlreadyResumed`.
 Tier 1 is local: `Continuation.save()` performs the typed
 `Save.Rejected(UnmanagedCapture)` operation because no post-X1 save plan exists.
 It does not serialize a JVM stack, replay a prefix, or fabricate a durable value.
 
-The complete runnable example prints `Vector(10, 20)` and `42`:
+The complete runnable example prints `Vector(10, 20)`, `42`, and `42` (the final
+line is the direct-style result):
 
 ```bash
 scripts/sbtc "scala3ControlApi/Test/runMain scalascript.controlapi.examples.effectsAndShift"
@@ -1732,8 +1758,8 @@ scripts/sbtc "scala3ControlApi/Test/runMain scalascript.controlapi.examples.effe
 
 Source: [`ControlApiExample.scala`](../v2/host/scala/control/src/test/scala/scalascript/controlapi/examples/ControlApiExample.scala).
 Successful durable `save`/`run`, network transfer, Scala↔ScalaScript lowering and
-typed call/value bridges, managed callbacks and mixed tail SCCs, macros/plugin,
-admission, and exact/portable runners remain separate post-X1 milestones. See the
+typed call/value bridges, managed callbacks and mixed tail SCCs, the compiler
+plugin, admission, and exact/portable runners remain separate post-X1 milestones. See the
 [`Scala 3/JVM host profile`](../specs/scala3-bidirectional-control.md).
 
 ### JavaScript/TypeScript explicit control API (first slice)
@@ -6415,7 +6441,7 @@ operations, native sum Mirrors, and broader generated-backend edge cases.
 - Algebraic effects: §4, `docs/architecture.md`
 - Direct syntax: [docs/direct-syntax.md](direct-syntax.md)
 - Coroutines + generators: [specs/coroutines.md](coroutines.md)
-- Scala 3 explicit control API: §4 above, [Scala/JVM host profile](../specs/scala3-bidirectional-control.md), [runnable Scala example](../v2/host/scala/control/src/test/scala/scalascript/controlapi/examples/ControlApiExample.scala)
+- Scala 3 control API: §4 above, [lexical macro contract](../specs/scala3-control-macros.md), [Scala/JVM host profile](../specs/scala3-bidirectional-control.md), [runnable Scala example](../v2/host/scala/control/src/test/scala/scalascript/controlapi/examples/ControlApiExample.scala)
 - DSL authoring: [specs/dsl.md](dsl.md)
 - Dataset / MapReduce: [specs/mapreduce.md](mapreduce.md)
 - **SQL databases + secret management: §6, §6.2, [secret-resolvers.md](../secret-resolvers.md)**
