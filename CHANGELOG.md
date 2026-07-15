@@ -4,6 +4,16 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-15 — Swift implicit effect `Return` parity
+
+Swift AOT now applies the specified identity fallback when an effect handler omits
+`case Return(value)` (`f21abfcc8`). The recoverable result is private to the
+directly invoked partial-function match: failures inside a selected arm, fallback,
+or nested match remain failures. Shared no-`Return` fixtures now produce the same
+one-shot violation and reusable result `3` on Swift and JVM VM/direct ASM. Focused
+Swift/JVM tests, `installBin`, native effect e2e, and fresh affected conformance
+(6/6) pass; the live one-shot specification was reconciled in `8a9300497`.
+
 ## 2026-07-15 — Portable one-shot effect continuations
 
 Implemented the typed `.ssc effect` multiplicity contract across the v2

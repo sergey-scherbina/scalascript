@@ -30,10 +30,10 @@ measurable suite, nested forwarding works identically on VM/direct ASM, matching
 handler failures remain failures, one-shot/multi-shot behavior is unchanged, and
 the native effect e2e plus affected conformance are green.
 
-## swift-effect-handler-implicit-return-fallback — CONFIRMED / open (2026-07-15, Codex)
+## swift-effect-handler-implicit-return-fallback — FIXED / awaiting confirmation (2026-07-15, Codex)
 
-**Status:** open. Found by the real Swift checked-source regression while
-implementing the portable one-shot guard.
+**Status:** fixed in `f21abfcc8`; awaiting confirmation. Found by the real Swift
+checked-source regression while implementing the portable one-shot guard.
 
 **Symptom:** a Swift AOT handler that omits `case Return(value)` fails on its
 first `resume` with `match: no arm for Return(1)`. JVM VM/ASM implement the
@@ -53,9 +53,13 @@ on JVM VM/ASM.
 `fatalError`. JVM `PortableEffects.handle` recognizes only a missing Return arm
 and returns the value; Swift has no equivalent recoverable no-arm signal.
 
-**Fix/verification:** pending. Preserve real handler failures while representing
-the missing-Return case explicitly enough for `handleEffect` to apply the same
-identity fallback; add the identical no-Return fixture to JVM and Swift tests.
+**Fix/verification:** Swift now uses a private `matched | noMatch` result only for
+the directly invoked handler partial-function match. An absent `Return` arm maps
+to identity; selected arms and fallbacks execute through the ordinary evaluator,
+so nested match/runtime/control failures remain failures. The same no-`Return`
+fixtures now reach the stable one-shot violation and reusable result `3` on Swift
+and JVM VM/direct ASM. Swift focused tests, native effect e2e, `installBin`, and
+fresh affected conformance (6/6) pass.
 
 ## v21-stage2-gate-ignores-symlinked-std-sources — FIXED / awaiting confirmation (2026-07-15, Codex)
 
@@ -265,8 +269,8 @@ second resume with the same exact structured diagnostic and no suffix; their
 multi-shot controls both return `3`. Direct runtime tests pass 4/4, real Swift
 focused tests pass 3/3, native e2e passes, interop reports 10/10 measurable axes,
 and affected conformance reports 6/6. The independently found Swift implicit-
-`Return` fallback and residual-forwarding/stack-safety axes remain open; they do
-not reopen this original portable-VM guard bug.
+`Return` fallback is fixed in `f21abfcc8`; residual-forwarding/stack-safety axes
+remain open and do not reopen this original portable-VM guard bug.
 
 ## control-interop-effect-recursion-stack-unsafe — CONFIRMED / open (2026-07-14, claude)
 
