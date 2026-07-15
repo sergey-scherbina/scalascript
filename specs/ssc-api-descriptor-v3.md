@@ -511,7 +511,12 @@ Every `TypeParameterRef` is validated against its lexical binder stack: `depth`
 selects an existing enclosing binder group, `index` selects an existing binder,
 and `kindArity` must equal that binder's arity. This applies to bounds, function
 types, type lambdas, effect arguments/open tails, callbacks/prompts, and frame
-slots; an unbound reference is invalid.
+slots; an unbound reference is invalid. A frame-slot type starts with an empty
+external binder stack because `ControlSummary` carries no declaration binders: it
+must be closed, except for references bound inside a `TypeLambda` contained in that
+slot type. Generic source locals are projected to such a self-contained ABI shape
+by the later post-body producer rather than implicitly referring back into an
+`ApiDescriptor`.
 
 After canonical-byte equality, semantic validation also rejects unsupported
 versions, malformed ids or digests, duplicate symbols/effects/edges/entrypoints,
