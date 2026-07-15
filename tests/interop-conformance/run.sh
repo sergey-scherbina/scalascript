@@ -507,9 +507,13 @@ while IFS= read -r lane; do
       run_lane "$lane" || overall=1
       ;;
     all-installed:ready:*|all-installed:optional:*)
-      run_lane "$lane" || rc=$?
-      if [ "${rc:-0}" -ne 0 ] && [ "${rc:-0}" -ne 3 ]; then overall=1; fi
       rc=0
+      run_lane "$lane" || rc=$?
+      if [ "$rc" -ne 0 ]; then
+        if [ "$status" != "optional" ] || [ "$rc" -ne 3 ]; then
+          overall=1
+        fi
+      fi
       ;;
   esac
 done < "$tmp/lane-keys"
