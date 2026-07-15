@@ -1852,8 +1852,10 @@ The authoring package is build-time-only. A clean file has every owned marker us
 lowered and its named `direct` import specifier removed; emitted JavaScript imports
 only `@scalascript/control` and runs after development dependencies are omitted.
 Other import declarations and non-marker specifiers are preserved. Any value use
-of the marker that would remain in JavaScript is a diagnostic, and one diagnostic
-cancels every rewrite in that source file.
+of the marker that would remain in JavaScript—including object shorthand and local
+runtime export aliases—is a diagnostic, and one diagnostic cancels every rewrite in
+that source file. TypeScript declaration-level and specifier-level type-only exports
+of the marker remain accepted because normal TypeScript emit erases them.
 
 Lowering does not replace an authored binding with a mutable callback parameter.
 It receives the resumed value under a collision-safe generated name and then emits
@@ -1863,12 +1865,14 @@ JavaScript under `allowJs: true, checkJs: false` as well as TypeScript.
 T1 deliberately fails closed for async/generator/await/yield, cleanup, loops,
 switch, a marker nested under a branch/callback/class, prompt mismatch, `var` or
 destructuring marker binds, arbitrary marker positions, a marker-layer prefix or
-shift body value-referencing its own or a later suffix binding, and intrinsic direct
-`eval` anywhere in a selected file, including a file selected only to erase the
-marker import. The binding checks follow TypeScript symbols through nested syntax
-and do not confuse type-only references or genuine shadowing. Parentheses plus `as`,
-non-null, and type assertions are transparent for marker/eval ownership; indirect
-eval and `Function` remain global-only unmanaged operations. The stable diagnostics are
+shift body value-referencing its own or a later suffix binding (including shorthand
+property or assignment-initializer values), and intrinsic direct `eval` anywhere in
+a selected file, including a file selected only to erase the marker import. The
+binding checks follow TypeScript runtime-value symbols through nested syntax and do
+not confuse ordinary property names, type-only references, or genuine shadowing.
+Parentheses plus `as`, non-null, and type assertions are transparent for marker/eval
+ownership; indirect eval and `Function` remain global-only unmanaged operations. The
+stable diagnostics are
 `JS_DIRECT_OUTSIDE_RESET`, `JS_DIRECT_CAPTURE_BARRIER`, `JS_DIRECT_UNSUPPORTED`,
 and `JS_DIRECT_PROMPT_MISMATCH`. If a root marker reaches runtime without the
 transform, it throws `JS_DIRECT_UNTRANSFORMED`; it never acts as a second control

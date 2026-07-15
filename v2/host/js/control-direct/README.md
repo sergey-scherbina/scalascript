@@ -54,9 +54,15 @@ synchronous reset arrow. Async/generator/cleanup/loop/switch/branch/callback/cla
 capture frames and arbitrary marker positions fail closed with source diagnostics.
 So do intrinsic direct `eval` anywhere in a selected file (including import-only
 marker erasure), a marker layer whose prefix or shift body value-references its own
-or a later suffix binding, and any marker value use that would survive emit.
+or a later suffix binding (including through object shorthand), and any marker value
+use that would survive emit, including shorthand and local runtime exports.
 Parentheses and TypeScript `as`/non-null/type assertions preserve marker ownership;
 indirect eval and `Function` remain global-only unmanaged operations.
+
+Declaration-level or specifier-level TypeScript type-only exports are erased uses,
+not runtime marker escapes, so forms such as `export type { direct as Marker }` and
+`export { type direct as Marker }` remain accepted. Changing them to runtime exports
+produces one file-atomic `JS_DIRECT_UNSUPPORTED` diagnostic.
 
 Each source file is atomic: one direct diagnostic leaves the whole file unchanged.
 Accepted lowering uses a fresh resume parameter followed by the original authored
