@@ -1,8 +1,8 @@
 # SSC API descriptor v3
 
 Status: **slice A implemented and verified; slice B compatibility-producer third
-pre-integration rereview rejected with three P1 corrections in progress;
-self-hosted and consumer slices queued** (2026-07-15).
+correction implemented and locally verified, awaiting a fresh independent
+pre-integration review; self-hosted and consumer slices queued** (2026-07-15).
 
 This specification refines the structured-descriptor contract in
 [`control-interoperability.md`](control-interoperability.md) without changing its
@@ -286,7 +286,7 @@ a second wire model or route through legacy `tpe`.
       type instead of parsing that string to invent v3.
 - [x] Scala package/export fixtures agree on qualified public names and exclude
       helpers omitted by manifest `exports:`.
-- [ ] Retained executable document blocks and parsed section blocks are checked
+- [x] Retained executable document blocks and parsed section blocks are checked
       for one-to-one completeness; deleting `sections` from an otherwise intact
       parsed module rejects instead of emitting an empty API. Documentless modules
       still verify every retained `CodeBlock.source` against its AST, and dual
@@ -297,16 +297,16 @@ a second wire model or route through legacy `tpe`.
 - [x] Trait constructor clauses/self types, template exports, and constructor
       `val`/`var` accessors reject with stable paths until descriptor v3 has
       receiver/member metadata.
-- [ ] Retained source and stored section AST have exact declaration-header
+- [x] Retained source and stored section AST have exact declaration-header
       correspondence, not merely equal block counts; changing retained
       `effect Real` to remove an operation while preserving the old AST rejects,
       while a body-only change does not affect descriptor bytes or `apiHash`.
       Every manifest package wrapper is exact/plain before unwrapping; a wrapper
       parent, modifier, derive, self type, or other header state rejects.
-- [ ] A signature that resolves to a private/internal local owner or alias rejects
+- [x] A signature that resolves to a private/internal local owner or alias rejects
       with `UNSUPPORTED_PUBLIC_TYPE` before external-name fallback. A non-public
       callback alias cannot bypass the conservative callback-policy rule.
-- [ ] `Array[Byte]` becomes primitive `Bytes` only when both component names are
+- [x] `Array[Byte]` becomes primitive `Bytes` only when both component names are
       unbound and have no local identity. Generic binders and public local
       `Array`/`Byte` take ordinary projection; a non-public local component rejects
       before the shortcut.
@@ -870,14 +870,37 @@ slice A must not mark that milestone complete.
 
 ## Results
 
-The second Slice B compatibility-producer checkpoint was implementation commit
-`abf6d909a` (rebased as `ddb4c6b0f`) and frozen as `8a8886557` (rebased as
+The third Slice B correction is implementation commit `72e6a2897`, rebased on
+`origin/main@790366a9d`. It closes the three P1 gaps from the fresh rereview:
+package wrappers must be exact and plain, every `CodeBlock.source` participates in
+source/AST correspondence even without `DocumentContent`, and the primitive
+`Array[Byte]` shortcut resolves both component identities first. The faithful red
+baseline was `39/46` at original regression commit `387a10384` (rebased as
+`af7094249`): one package-wrapper, two retained-source, and four Array/Byte
+shadowing repros returned `Right`, while all prior 38 regressions and the new
+unshadowed built-in positive stayed green.
+
+The correction is locally green after rebase but is not independently approved or
+landed. All nine Slice B `descriptor-v3-*` bug entries remain `open`, and the Slice
+B sprint item remains unchecked until a fresh read-only review approves this clean
+checkpoint and it lands on `origin/main`.
+
+- `scripts/sbtc "core/testOnly
+  scalascript.artifact.PreBodyApiDescriptorProducerTest"` passes 46/46 focused
+  producer regressions.
+- `scripts/sbtc "v2InteropDescriptor/test"` passes 27/27 descriptor tests;
+  `scripts/sbtc "core/test"` passes 1092/1092; the combined
+  `scripts/sbtc "interop/test; ir/test; core/testOnly
+  scalascript.artifact.ArtifactAbiCompatibilityTest"` gate passes interop 36/36,
+  the zero-test IR project, and artifact ABI 73/73.
+- `tests/conformance/run.sh --only 'modules*,import-dir*'` passes 2/2 affected
+  cases (memoized green on the unchanged conformance corpus).
+
+The historical second Slice B compatibility-producer checkpoint was implementation
+commit `abf6d909a` (rebased as `ddb4c6b0f`) and frozen as `8a8886557` (rebased as
 `28535c87d`). A fresh independent read-only rereview rejected it with no P0 and
-three P1 gaps: non-plain package-wrapper headers were discarded, documentless
-`CodeBlock.source` skipped correspondence (and dual source precedence was
-undefined), and `Array[Byte]` ignored binder/local shadowing of `Byte`. All six
-descriptor bugs remain `open`; the green numbers below are the rejected-checkpoint
-baseline, not approval or landing evidence.
+the three P1 gaps above; the green numbers below are rejected-checkpoint history,
+not approval or landing evidence.
 
 - `scripts/sbtc "core/testOnly
   scalascript.artifact.PreBodyApiDescriptorProducerTest"` passes 38/38 focused
