@@ -1,0 +1,229 @@
+package scalascript.controlapi
+
+import org.scalatest.funsuite.AnyFunSuite
+import scala.compiletime.testing.Error
+import scala.compiletime.testing.typeCheckErrors
+
+final class DirectPromptDiagnosticsTest extends AnyFunSuite:
+  private def render(error: Error): String =
+    s"${error.message}\nline=${error.lineContent}\ncolumn=${error.column}"
+
+  private def assertDiagnostic(
+      errors: List[Error],
+      expectedMessage: String,
+      expectedLine: String,
+      expectedColumn: Int
+  ): Unit =
+    assert(errors.size == 1, errors.map(render).mkString("\n---\n"))
+    val error = errors.head
+    assert(error.message == expectedMessage, render(error))
+    assert(error.lineContent == expectedLine, render(error))
+    assert(error.column == expectedColumn, render(error))
+
+  test("a direct shift outside reset is an unmanaged capture") {
+    val errors = typeCheckErrors("""
+      import scalascript.control.*
+
+      val scoped = freshPrompt[Int]
+      val prompt = scoped.prompt
+      val escaped = direct.shift[scoped.Key, Int, Nothing, Int](prompt)(
+        [Residual >: Nothing <: Effect] =>
+          (continuation: Continuation[Int, Residual, Int]) =>
+            continuation.resume(1)
+      )
+    """)
+
+    assertDiagnostic(
+      errors,
+      "error [UNMANAGED_CAPTURE]: direct.shift must be lexically enclosed by direct.reset for the same prompt and effect row",
+      "      )",
+      7
+    )
+  }
+
+  test("a marker under a lambda reports a capture barrier") {
+    val errors = typeCheckErrors("""
+      import scalascript.control.*
+
+      val scoped = freshPrompt[Int]
+      val prompt = scoped.prompt
+      val computation = direct.reset[scoped.Key, Nothing, Int](prompt) {
+        val callback = () =>
+          direct.shift[scoped.Key, Int, Nothing, Int](prompt)(
+            [Residual >: Nothing <: Effect] =>
+              (continuation: Continuation[Int, Residual, Int]) =>
+                continuation.resume(1)
+          )
+        callback()
+      }
+    """)
+
+    assertDiagnostic(
+      errors,
+      "error [CAPTURE_BARRIER]: direct.shift crosses a lambda boundary at line 7, column 23",
+      "          direct.shift[scoped.Key, Int, Nothing, Int](prompt)(",
+      10
+    )
+  }
+
+  test("a marker under try reports a capture barrier") {
+    val errors = typeCheckErrors("""
+      import scalascript.control.*
+
+      val scoped = freshPrompt[Int]
+      val prompt = scoped.prompt
+      val computation = direct.reset[scoped.Key, Nothing, Int](prompt) {
+        try
+          direct.shift[scoped.Key, Int, Nothing, Int](prompt)(
+            [Residual >: Nothing <: Effect] =>
+              (continuation: Continuation[Int, Residual, Int]) =>
+                continuation.resume(1)
+          )
+        finally ()
+      }
+    """)
+
+    assertDiagnostic(
+      errors,
+      "error [CAPTURE_BARRIER]: direct.shift crosses a try/finally boundary at line 7, column 8",
+      "          direct.shift[scoped.Key, Int, Nothing, Int](prompt)(",
+      10
+    )
+  }
+
+  test("a marker in an unsupported expression position fails closed") {
+    val errors = typeCheckErrors("""
+      import scalascript.control.*
+
+      val scoped = freshPrompt[Int]
+      val prompt = scoped.prompt
+      val computation = direct.reset[scoped.Key, Nothing, Int](prompt) {
+        val selected =
+          if true then
+            direct.shift[scoped.Key, Int, Nothing, Int](prompt)(
+              [Residual >: Nothing <: Effect] =>
+                (continuation: Continuation[Int, Residual, Int]) =>
+                  continuation.resume(1)
+            )
+          else 0
+        selected + 1
+      }
+    """)
+
+    assertDiagnostic(
+      errors,
+      "error [DIRECT_STYLE_UNSUPPORTED]: direct.shift must be a block-level immutable val bind or the reset tail expression",
+      "            direct.shift[scoped.Key, Int, Nothing, Int](prompt)(",
+      12
+    )
+  }
+
+  test("a marker cannot cross a nested direct reset in M1") {
+    val errors = typeCheckErrors("""
+      import scalascript.control.*
+
+      val outerScope = freshPrompt[Int]
+      val outer = outerScope.prompt
+      val innerScope = freshPrompt[Int]
+      val inner = innerScope.prompt
+      val computation = direct.reset[outerScope.Key, Nothing, Int](outer) {
+        val nested = direct.reset[innerScope.Key, Nothing, Int](inner) {
+          val escaped =
+            direct.shift[outerScope.Key, Int, Nothing, Int](outer)(
+              [Residual >: Nothing <: Effect] =>
+                (continuation: Continuation[Int, Residual, Int]) =>
+                  continuation.resume(1)
+            )
+          escaped
+        }
+        Eff.runPure(nested)
+      }
+    """)
+
+    assertDiagnostic(
+      errors,
+      "error [UNMANAGED_CAPTURE]: direct.shift belongs to a different lexical direct.reset scope",
+      "            direct.shift[outerScope.Key, Int, Nothing, Int](outer)(",
+      12
+    )
+  }
+
+  test("a marker under a loop reports a capture barrier") {
+    val errors = typeCheckErrors("""
+      import scalascript.control.*
+
+      val scoped = freshPrompt[Int]
+      val prompt = scoped.prompt
+      val computation = direct.reset[scoped.Key, Nothing, Int](prompt) {
+        var keepGoing = true
+        while keepGoing do
+          keepGoing = false
+          val selected =
+            direct.shift[scoped.Key, Int, Nothing, Int](prompt)(
+              [Residual >: Nothing <: Effect] =>
+                (continuation: Continuation[Int, Residual, Int]) =>
+                  continuation.resume(1)
+            )
+          val _ = selected
+        42
+      }
+    """)
+
+    assertDiagnostic(
+      errors,
+      "error [CAPTURE_BARRIER]: direct.shift crosses a loop boundary at line 8, column 8",
+      "            direct.shift[scoped.Key, Int, Nothing, Int](prompt)(",
+      12
+    )
+  }
+
+  test("a marker passed by name reports a capture barrier") {
+    val errors = typeCheckErrors("""
+      import scalascript.control.*
+
+      val scoped = freshPrompt[Int]
+      val prompt = scoped.prompt
+      def evaluate(value: => Int): Int = value
+      val computation = direct.reset[scoped.Key, Nothing, Int](prompt) {
+        evaluate(
+          direct.shift[scoped.Key, Int, Nothing, Int](prompt)(
+            [Residual >: Nothing <: Effect] =>
+              (continuation: Continuation[Int, Residual, Int]) =>
+                continuation.resume(1)
+          )
+        )
+      }
+    """)
+
+    assertDiagnostic(
+      errors,
+      "error [CAPTURE_BARRIER]: direct.shift crosses a by-name argument boundary at line 8, column 8",
+      "          direct.shift[scoped.Key, Int, Nothing, Int](prompt)(",
+      10
+    )
+  }
+
+  test("a mutable marker binding is outside the accepted ANF grammar") {
+    val errors = typeCheckErrors("""
+      import scalascript.control.*
+
+      val scoped = freshPrompt[Int]
+      val prompt = scoped.prompt
+      val computation = direct.reset[scoped.Key, Nothing, Int](prompt) {
+        var selected =
+          direct.shift[scoped.Key, Int, Nothing, Int](prompt)(
+            [Residual >: Nothing <: Effect] =>
+              (continuation: Continuation[Int, Residual, Int]) =>
+                continuation.resume(1)
+          )
+        selected + 1
+      }
+    """)
+
+    assertDiagnostic(
+      errors,
+      "error [DIRECT_STYLE_UNSUPPORTED]: direct.shift must be a block-level immutable val bind or the reset tail expression",
+      "          direct.shift[scoped.Key, Int, Nothing, Int](prompt)(",
+      10
+    )
+  }

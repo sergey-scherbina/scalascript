@@ -181,10 +181,12 @@ validate_lane_catalog() {
       expectedAdapter["portable-vm"] = "ssc-vm"
       expectedAdapter["portable-asm"] = "ssc-asm"
       expectedAdapter["scala-explicit"] = "scala3-control-test"
+      expectedAdapter["scala-direct"] = "scala3-control-macros-test"
       expectedStatus["portable-vm"] = "ready"
       expectedStatus["portable-asm"] = "ready"
       expectedStatus["scala-explicit"] = "ready"
-      for (i = 4; i <= requiredCount; i++) {
+      expectedStatus["scala-direct"] = "ready"
+      for (i = 5; i <= requiredCount; i++) {
         expectedAdapter[requiredLane[i]] = "none"
         expectedStatus[requiredLane[i]] = "pending"
       }
@@ -197,7 +199,7 @@ validate_lane_catalog() {
       if ($1 !~ /^[a-z0-9]+(-[a-z0-9]+)*$/) bad("invalid lane id: " $1)
       if (seenLane[$1]++) bad("duplicate lane: " $1)
       if (!allowedLane[$1]) bad("unknown lane: " $1)
-      if ($2 != "ssc-vm" && $2 != "ssc-asm" && $2 != "scala3-control-test" && $2 != "none")
+      if ($2 != "ssc-vm" && $2 != "ssc-asm" && $2 != "scala3-control-test" && $2 != "scala3-control-macros-test" && $2 != "none")
         bad("unknown adapter: " $2)
       if ($3 != "ready" && $3 != "optional" && $3 != "pending")
         bad("invalid status: " $3)
@@ -253,7 +255,7 @@ validate_ready_lane_coverage() {
       capabilities_are_subset "$lane_caps" "$required_caps" || continue
       stream="$(vector_field "$key" 7)"
       case "$adapter:$stream" in
-        ssc-vm:stdout|ssc-vm:stderr|ssc-asm:stdout|ssc-asm:stderr|scala3-control-test:*)
+        ssc-vm:stdout|ssc-vm:stderr|ssc-asm:stdout|ssc-asm:stderr|scala3-control-test:*|scala3-control-macros-test:*)
           eligible=$((eligible + 1))
           ;;
       esac
@@ -469,13 +471,26 @@ run_process_lane() {
 
 run_scala_lane() {
   lane="$1"
+  adapter="$2"
   if [ ! -x "$ROOT/scripts/sbtc" ]; then
     echo "LANE $lane UNAVAILABLE: scripts/sbtc is missing" >&2
     return 3
   fi
-  echo "LANE $lane: scala3ControlApi semantic-vector suite"
+  case "$adapter" in
+    scala3-control-test)
+      suite="scalascript.controlapi.SemanticVectorConformanceTest"
+      ;;
+    scala3-control-macros-test)
+      suite="scalascript.controlapi.DirectSemanticVectorConformanceTest"
+      ;;
+    *)
+      echo "LANE $lane UNAVAILABLE: unknown Scala adapter '$adapter'" >&2
+      return 3
+      ;;
+  esac
+  echo "LANE $lane: scala3ControlApi $suite"
   (cd "$ROOT" && scripts/sbtc \
-    "scala3ControlApi/testOnly scalascript.controlapi.SemanticVectorConformanceTest")
+    "scala3ControlApi/testOnly $suite")
 }
 
 run_lane() {
@@ -491,7 +506,7 @@ run_lane() {
   fi
   case "$adapter" in
     ssc-vm|ssc-asm) run_process_lane "$lane" "$adapter" "$lane_caps" ;;
-    scala3-control-test) run_scala_lane "$lane" ;;
+    scala3-control-test|scala3-control-macros-test) run_scala_lane "$lane" "$adapter" ;;
     *) echo "LANE $lane UNAVAILABLE: adapter '$adapter' is not installed" >&2; return 3 ;;
   esac
 }

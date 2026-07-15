@@ -56,5 +56,17 @@ private def resumeReusable[A, Fx <: Effect, R](
     )
   val shiftResult = reset[scoped.Key, Nothing, Int](prompt)(shifted)
 
+  val directResult: Eff[Nothing, Int] =
+    direct.reset[scoped.Key, Nothing, Int](prompt) {
+      val resumed =
+        direct.shift[scoped.Key, Int, Nothing, Int](prompt)(
+          [Residual >: Nothing <: Effect] =>
+            (continuation: Continuation[Int, Residual, Int]) =>
+              continuation.resume(41)
+        )
+      resumed + 1
+    }
+
   println(Eff.runPure(handled))
   println(Eff.runPure(shiftResult))
+  println(Eff.runPure(directResult))
