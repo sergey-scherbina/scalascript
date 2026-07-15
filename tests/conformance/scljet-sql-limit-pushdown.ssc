@@ -1,0 +1,42 @@
+---
+name: scljet-sql-limit-pushdown
+description: SclJet LIMIT pushdown / early-termination — plain LIMIT queries stop scanning early; results match reference sqlite3
+backends: [int, js]
+---
+
+# SclJet LIMIT pushdown
+
+A plain `LIMIT` query with no `ORDER BY` / aggregate / `GROUP BY` / `DISTINCT` keeps rows in scan
+order, so the executor only needs the first `offset+limit` matching rows — the scan stops there
+(`executeSelectLimited` via `collectRowsLimited`) instead of reading the whole table. Queries with
+`ORDER BY` (or aggregates/DISTINCT) fall through to the full scan. Every result — including
+`LIMIT 0`, a filtered `LIMIT`, `OFFSET`, and an `ORDER BY … LIMIT` (full-scan path) — is
+byte-identical to reference sqlite3 on the same SQL (verified out-of-band); locked across `[int, js]`.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(id INTEGER, name TEXT, active INTEGER)",
+  List(List(SqlInteger(1L), SqlText("ann"), SqlInteger(1L)),
+       List(SqlInteger(2L), SqlText("bob"), SqlInteger(0L)),
+       List(SqlInteger(3L), SqlText("cat"), SqlInteger(1L)),
+       List(SqlInteger(4L), SqlText("dan"), SqlInteger(1L)),
+       List(SqlInteger(5L), SqlText("eve"), SqlInteger(0L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db) =>
+    show(db, "SELECT * FROM t LIMIT 2")
+    show(db, "SELECT * FROM t LIMIT 2 OFFSET 1")
+    show(db, "SELECT id FROM t WHERE active = 1 LIMIT 2")
+    show(db, "SELECT id FROM t WHERE active = 1 LIMIT 10")
+    show(db, "SELECT name FROM t LIMIT 1")
+    show(db, "SELECT * FROM t LIMIT 0")
+    show(db, "SELECT id FROM t WHERE active = 0 LIMIT 1")
+    show(db, "SELECT id FROM t WHERE active = 1 LIMIT 2 OFFSET 1")
+    show(db, "SELECT id FROM t ORDER BY id DESC LIMIT 2")
+```

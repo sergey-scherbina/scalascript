@@ -1855,6 +1855,40 @@ def filterGroups(groups: List[List[StorageRecord]], having: Option[HavingCond], 
     r = r.tail
   reverseGroups(accRev, Nil)
 
+// Like collectRows, but returns at most `maxRows` rows that satisfy `where`, stopping the scan as
+// soon as that many matches are found. For a LIMIT query with no ORDER BY / aggregate / DISTINCT the
+// output order is scan order, so the first `offset+limit` matches are exactly what the full scan
+// would keep — identical result, but the table tail is never read (LIMIT pushdown / early exit).
+def collectRowsLimited(db: ReadonlyDatabase, cursor: ReadonlyBtreeCursor, where: List[List[Condition]], colNames: List[String], maxRows: Int): Either[SqliteError, List[StorageRecord]] =
+  readonlyFirst(db, cursor) match
+    case Left(error) => Left(error)
+    case Right(firstStep) =>
+      var d = firstStep.database
+      var c = firstStep.cursor
+      var row = firstStep.row
+      var accRev: List[StorageRecord] = Nil
+      var count = 0
+      var err: Option[SqliteError] = None
+      var done = false
+      if maxRows <= 0 then done = true
+      while !done && err.isEmpty do
+        row match
+          case None => done = true
+          case Some(rec) =>
+            val matched = whereHolds(where, rec, colNames)
+            accRev = if matched then rec :: accRev else accRev
+            count = if matched then count + 1 else count
+            if count >= maxRows then done = true
+            else readonlyNext(d, c) match
+              case Left(error) => err = Some(error)
+              case Right(step) =>
+                d = step.database
+                c = step.cursor
+                row = step.row
+      err match
+        case Some(error) => Left(error)
+        case None => Right(accRev.reverse)
+
 def collectRows(db: ReadonlyDatabase, cursor: ReadonlyBtreeCursor): Either[SqliteError, List[StorageRecord]] =
   readonlyFirst(db, cursor) match
     case Left(error) => Left(error)
@@ -2902,28 +2936,50 @@ def executeSelectSingle(db: ReadonlyDatabase, stmt: SelectStmt): Either[String, 
         case None => 0L
       openReadonlyRoot(db, root, RowidTableTree) match
         case Left(error) => Left(error.message)
-        case Right(cursor) => collectRows(db, cursor) match
-          case Left(error) => Left(error.message)
-          case Right(rows) =>
-            val filtered = filterRows(rows, stmt.where, colNames)
-            if stmt.groupBy.nonEmpty then
-              val sortedForGroup = sortStorage(filtered, colNames, groupKeysOf(stmt.groupBy))
-              val groups = filterGroups(groupPartition(sortedForGroup, colNames, stmt.groupBy), stmt.having, colNames)
-              Right(limitValueRows(mapGroups(groups, colNames, stmt.projection), stmt.limit, stmt.offset))
-            else if projHasAgg(stmt.projection) then Right(projectGroupRow(filtered, colNames, stmt.projection) :: Nil)
-            else
-              val sorted = if stmt.orderBy.isEmpty then filtered else sortStorage(filtered, colNames, stmt.orderBy)
-              var r = sorted
-              var accRev: List[List[SqliteValue]] = Nil
-              while r.nonEmpty do
-                accRev = projectRow(r.head, colNames, stmt) :: accRev
-                r = r.tail
-              var projected: List[List[SqliteValue]] = Nil
-              while accRev.nonEmpty do
-                projected = accRev.head :: projected
-                accRev = accRev.tail
-              val deduped = if stmt.distinct then dedupRows(projected) else projected
-              Right(limitValueRows(deduped, stmt.limit, stmt.offset))
+        case Right(cursor) =>
+          // LIMIT pushdown: a plain LIMIT query (no ORDER BY / aggregate / GROUP BY / DISTINCT) keeps
+          // rows in scan order, so we only need the first `offset+limit` matches — stop the scan there.
+          val fastLimit = stmt.orderBy.isEmpty && stmt.groupBy.isEmpty && !projHasAgg(stmt.projection) && !stmt.distinct && stmt.limit >= 0
+          if fastLimit then executeSelectLimited(db, cursor, stmt, colNames)
+          else executeSelectFullScan(db, cursor, stmt, colNames)
+
+// LIMIT-pushdown path: collect only the first offset+limit matching rows (already filtered), then
+// project and apply LIMIT/OFFSET. Byte-identical to the full scan for a plain LIMIT query.
+def executeSelectLimited(db: ReadonlyDatabase, cursor: ReadonlyBtreeCursor, stmt: SelectStmt, colNames: List[String]): Either[String, List[List[SqliteValue]]] =
+  collectRowsLimited(db, cursor, stmt.where, colNames, stmt.offset + stmt.limit) match
+    case Left(error) => Left(error.message)
+    case Right(matched) =>
+      var r = matched
+      var accRev: List[List[SqliteValue]] = Nil
+      while r.nonEmpty do
+        accRev = projectRow(r.head, colNames, stmt) :: accRev
+        r = r.tail
+      Right(limitValueRows(accRev.reverse, stmt.limit, stmt.offset))
+
+// Full-scan path: read the whole table, filter, then group/aggregate/order/project/limit.
+def executeSelectFullScan(db: ReadonlyDatabase, cursor: ReadonlyBtreeCursor, stmt: SelectStmt, colNames: List[String]): Either[String, List[List[SqliteValue]]] =
+  collectRows(db, cursor) match
+    case Left(error) => Left(error.message)
+    case Right(rows) =>
+      val filtered = filterRows(rows, stmt.where, colNames)
+      if stmt.groupBy.nonEmpty then
+        val sortedForGroup = sortStorage(filtered, colNames, groupKeysOf(stmt.groupBy))
+        val groups = filterGroups(groupPartition(sortedForGroup, colNames, stmt.groupBy), stmt.having, colNames)
+        Right(limitValueRows(mapGroups(groups, colNames, stmt.projection), stmt.limit, stmt.offset))
+      else if projHasAgg(stmt.projection) then Right(projectGroupRow(filtered, colNames, stmt.projection) :: Nil)
+      else
+        val sorted = if stmt.orderBy.isEmpty then filtered else sortStorage(filtered, colNames, stmt.orderBy)
+        var r = sorted
+        var accRev: List[List[SqliteValue]] = Nil
+        while r.nonEmpty do
+          accRev = projectRow(r.head, colNames, stmt) :: accRev
+          r = r.tail
+        var projected: List[List[SqliteValue]] = Nil
+        while accRev.nonEmpty do
+          projected = accRev.head :: projected
+          accRev = accRev.tail
+        val deduped = if stmt.distinct then dedupRows(projected) else projected
+        Right(limitValueRows(deduped, stmt.limit, stmt.offset))
 
 // `SELECT <exprs>` with no FROM: evaluate each projection item against an empty row (no columns).
 def executeNoFrom(stmt: SelectStmt): Either[String, List[List[SqliteValue]]] =
