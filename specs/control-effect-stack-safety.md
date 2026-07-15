@@ -67,6 +67,12 @@ that gate.
 - [ ] A state-threaded chain in which every handler arm returns a closure that
       invokes its captured `resume` later remains stack-safe at depth at least
       20,000; continuation escape must not move recursion back to the host stack.
+- [ ] VM primitive arguments preserve the direct-ASM `OpAnfNative` contract:
+      every non-effect-substrate primitive evaluates arguments left-to-right,
+      threads each auto-thread operation before evaluating the remaining
+      arguments, and invokes the primitive exactly once. A focused CoreIR
+      vector covers multiple operation-producing arguments and observable
+      ordering on both VM and direct ASM; FastCode may not bypass this path.
 - [ ] A nested outer handler still receives a residual operation with the same
       three fields and original base continuation/gate. The private resume
       protocol is never exposed as a residual user operation.
@@ -132,9 +138,9 @@ rejects losing calls before a request is returned.
 The JVM implementation uses this explicit hook inventory:
 
 1. `Runtime.runManaged(code, env)` wraps VM **program roots** (`ssc.Main`, the
-   installed compatibility/native runners, `BridgeCli`, and `BatchCli`). It is
-   also the explicit hook a future descriptor-qualified managed host adapter
-   must call.
+   installed compatibility/native runners, the v1 CLI `timeV2` benchmark
+   wrapper, `BridgeCli`, and `BatchCli`). It is also the explicit hook a future
+   descriptor-qualified managed host adapter must call.
 2. `JvmByteGen.runProgram` completes the unrolled generated `entry()` result;
    this is the direct-ASM program/library boundary used by installed runners and
    tests.
@@ -241,6 +247,30 @@ Focused tests inspect both final behavior and the inability of a label-only
 operation to enter the private driver. Boundary tests additionally assert that
 ordinary public `Op` values still escape unchanged while exact private requests
 are never observable after a managed program/call returns.
+
+The VM compiler must also mirror direct ASM's primitive-argument lifting. For
+every primitive except the four effect-substrate operations below, it evaluates
+arguments left-to-right and applies `Runtime.letThreadOp` whenever an evaluated
+argument is an auto-thread operation. The continuation evaluates the remaining
+arguments before invoking the primitive, so multiple operation-producing
+arguments preserve order and the primitive is called exactly once:
+
+```text
+effect.handle
+effect.perform
+effect.perform.oneshot
+effect.pure
+```
+
+These exclusions exactly match `OpAnfNative.isEffectPrim`: those primitives
+intentionally receive the effect computation or substrate values without
+lifting them past their own handler/constructor. The VM uses specialized
+one/two/three-argument paths plus an immutable-prefix generic path; no mutable
+partially-filled argument array may be captured by a reusable continuation.
+FastCode must decline any primitive whose argument can produce an operation, so
+the effect-aware compiler path remains authoritative rather than calling the
+primitive directly. This is an existing `Op/3` evaluation rule, not a new host
+or CoreIR ABI.
 
 ## Decisions
 
