@@ -38,7 +38,9 @@ id  slug  law  capabilities  phase  expectedExit  expectedStream  oracle
 - `slug` is the stable kebab-case vector name and matches probe/expected names.
 - `law` is the normative section anchor in `control-interoperability.md`.
 - `capabilities` is a sorted comma-separated set of semantic capabilities.
-- `phase` is `runnable`, `pending-runtime`, `pending-codec`, or `pending-spec`.
+- `phase` is `specified`, `pending-codec`, or `pending-spec`. Runtime readiness is
+  lane-specific: for example the prompt vectors are specified and runnable on the
+  explicit Scala lane while the current `.ssc` lanes lack `shift-reset`.
 - `expectedExit` is `zero`, `nonzero`, or `pending`.
 - `expectedStream` is `stdout`, `stderr`, `structured`, or `pending`.
 - `oracle` is a short canonical result/failure description. Exact rendered bytes
@@ -46,8 +48,9 @@ id  slug  law  capabilities  phase  expectedExit  expectedStream  oracle
 
 Tabs and newlines are forbidden inside fields. The validator rejects duplicate ids
 or slugs, unknown phases/exit/stream values, missing laws, unsorted/duplicate
-capabilities, missing process probes/oracles, orphan probes/expected/pending files,
-and probe front-matter that disagrees with the catalog.
+capabilities, missing process probes/oracles for an eligible process lane, orphan
+probes/expected/pending files, and probe front-matter that disagrees with the
+catalog.
 
 `lanes.tsv` is UTF-8 TSV with these fields:
 
