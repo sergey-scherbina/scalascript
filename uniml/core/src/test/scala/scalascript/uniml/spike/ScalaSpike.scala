@@ -362,6 +362,9 @@ object SpikeParse:
           if c.peekKind == "spike.lparen" then skipBalancedParens(c)
           else expectType(c, "def.paramType").foreach(kids += _)
           skipTypeTail(c) // generic `List[T]` / function `A => B` param types (erased)
+          // a default value `param: T = expr` — captured (def.dflt) so defNodes can emit the funcdefaults node
+          // for call-site synthesis (`f(a)`→`f(a, dflt…)`); appears right after its param, before the next one.
+          if c.peekKind == "spike.eq" then { c.advance(); parseExpr(c, 1).foreach(e => kids += e.withRole("def.dflt")) }
           if c.peekKind == "spike.comma" then c.advance().foreach(t => kids += Node.Leaf(t, Some("def.comma")))
           else moreParams = false
       expect(c, "spike.rparen", "def.rparen", "')'").foreach(kids += _)
@@ -407,7 +410,9 @@ object SpikeParse:
       else
         expect(c, "spike.colon", "cc.fieldColon", "':'").foreach(kids += _)
         kids += captureFieldType(c) // full type TEXT incl generics (`List[User]`) for the mirror metadata
-        if c.peekKind == "spike.eq" then { c.advance(); parseExpr(c, 1) } // default value `= 10` — erased
+        // a field default `= 10` — captured (cc.dflt) so caseClsNodes emits the ctor's funcdefaults entry
+        // (`C(a)` with a defaulted trailing field synthesises it); appears after its field, before the next.
+        if c.peekKind == "spike.eq" then { c.advance(); parseExpr(c, 1).foreach(e => kids += e.withRole("cc.dflt")) }
         if c.peekKind == "spike.comma" then c.advance().foreach(t => kids += Node.Leaf(t, Some("cc.comma")))
         else more = false
     expect(c, "spike.rparen", "cc.rparen", "')'").foreach(kids += _)
@@ -1600,29 +1605,61 @@ object SpikeProject:
     val derives = ks.collect { case (Some("cc.derive"), c) => "\"" + esc(lexeme(c)) + "\"" }.toVector
     s"""mkCaseCls("${esc(name)}", ${consList(names)}, ${consList(types)}, ${consList(derives)})"""
 
-  // a top-level def projects to its mkDef plus, if it has `using` params, a companion usingsig node
-  // (Pair("usingsig", Pair(name, Pair([usingTypeHeads], fullArgCount))) — the shape lowerProg's usingSigCell
-  // expects), which collectUsingSigNodes unions in for call-site given auto-injection (injectGivens).
+  // a top-level def projects to its mkDef plus, when applicable, companion variant-A nodes that lowerProg
+  // unions into the parser cells it can no longer populate from the spike's projection:
+  //   usingsig   → usingSigCell   for call-site given auto-injection (injectGivens)
+  //   funcdefaults → funcDefaultsCell for call-site default synthesis (`f(a)` → `f(a, dflt…)`)
   private def defNodes(n: UniNode): Vector[String] =
-    val base       = defNode(n)
-    val usingTypes = kids(n).collect { case (Some("def.usingtype"), c) => "\"" + esc(lexeme(c)) + "\"" }.toVector
-    if usingTypes.isEmpty then Vector(base)
-    else
-      val name      = kids(n).collectFirst { case (Some("def.name"), c) => lexeme(c) }.getOrElse("_")
-      val fullCount = kids(n).count { case (Some("def.param"), _) => true; case _ => false }
-      Vector(base, s"""Pair("usingsig", Pair("${esc(name)}", Pair(${consList(usingTypes)}, $fullCount)))""")
+    val base = defNode(n)
+    val ks   = kids(n)
+    val name = ks.collectFirst { case (Some("def.name"), c) => lexeme(c) }.getOrElse("_")
+    // positional param names + their defaults (a def.dflt follows its def.param, before the next def.param)
+    val paramNames = Vector.newBuilder[String]
+    val dflts = Vector.newBuilder[String]
+    var hasDflt = false
+    var i = 0
+    while i < ks.length do
+      if ks(i)._1.contains("def.param") then
+        paramNames += "\"" + esc(lexeme(ks(i)._2)) + "\""
+        var j = i + 1; var d = ""
+        while j < ks.length && !ks(j)._1.contains("def.param") do
+          if ks(j)._1.contains("def.dflt") then d = wrapArg(ks(j)._2)
+          j += 1
+        if d.nonEmpty then { dflts += d; hasDflt = true } else dflts += """Pair("__nodflt__", "")"""
+      i += 1
+    val usingTypes = ks.collect { case (Some("def.usingtype"), c) => "\"" + esc(lexeme(c)) + "\"" }.toVector
+    val usingNode = if usingTypes.isEmpty then Vector.empty[String]
+      else Vector(s"""Pair("usingsig", Pair("${esc(name)}", Pair(${consList(usingTypes)}, ${paramNames.result().length})))""")
+    val fdNode = if !hasDflt then Vector.empty[String]
+      else Vector(s"""Pair("funcdefaults", Pair("${esc(name)}", Pair(${consList(paramNames.result())}, ${consList(dflts.result())})))""")
+    Vector(base) ++ usingNode ++ fdNode
 
   // a case class projects to its mkCaseCls plus, if the body has METHODS, a companion casemethods node
   // (Pair("casemethods", Pair(name, Pair(fieldNames, [method-defs]))) — the shape lowerProg's caseMethodsCell
   // expects), which collectCaseMethodsNodes unions in to generate the `Name_method` globals + dispatch regs.
   private def caseClsNodes(n: UniNode): Vector[String] =
     val base    = caseClsNode(n)
-    val methods = kids(n).collect { case (Some("cc.method"), c) => memberNode(c) }
-    if methods.isEmpty then Vector(base)
-    else
-      val name   = kids(n).collectFirst { case (Some("cc.name"), c) => lexeme(c) }.getOrElse("_")
-      val fields = kids(n).collect { case (Some("cc.field"), c) => "\"" + esc(lexeme(c)) + "\"" }.toVector
-      Vector(base, s"""Pair("casemethods", Pair("${esc(name)}", Pair(${consList(fields)}, ${consList(methods.toVector)})))""")
+    val ks      = kids(n)
+    val name    = ks.collectFirst { case (Some("cc.name"), c) => lexeme(c) }.getOrElse("_")
+    val methods = ks.collect { case (Some("cc.method"), c) => memberNode(c) }.toVector
+    // positional field names + defaults (a cc.dflt follows its cc.field, before the next cc.field / cc.method)
+    val fieldB = Vector.newBuilder[String]; val dfltB = Vector.newBuilder[String]; var hasDflt = false
+    var i = 0
+    while i < ks.length do
+      if ks(i)._1.contains("cc.field") then
+        fieldB += "\"" + esc(lexeme(ks(i)._2)) + "\""
+        var j = i + 1; var d = ""
+        while j < ks.length && !ks(j)._1.contains("cc.field") && !ks(j)._1.contains("cc.method") do
+          if ks(j)._1.contains("cc.dflt") then d = wrapArg(ks(j)._2)
+          j += 1
+        if d.nonEmpty then { dfltB += d; hasDflt = true } else dfltB += """Pair("__nodflt__", "")"""
+      i += 1
+    val fields = fieldB.result()
+    val cmNode = if methods.isEmpty then Vector.empty[String]
+      else Vector(s"""Pair("casemethods", Pair("${esc(name)}", Pair(${consList(fields)}, ${consList(methods)})))""")
+    val fdNode = if !hasDflt then Vector.empty[String]
+      else Vector(s"""Pair("funcdefaults", Pair("${esc(name)}", Pair(${consList(fields)}, ${consList(dfltB.result())})))""")
+    Vector(base) ++ cmNode ++ fdNode
 
   // concatenate a spike.cctype frame's token lexemes (no spaces) → the full field type string
   private def concatType(n: UniNode): String = n match

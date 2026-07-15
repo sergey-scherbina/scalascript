@@ -5402,11 +5402,25 @@ def collectUsingSigNodes = (stmts) =>
       }
   }
 
+-- AST-carried default-parameter registry — same additive, production-safe pattern: a front that does not
+-- populate funcDefaultsCell as a parse side effect emits `("funcdefaults", (name, (params, positionalDflts)))`.
+def collectFuncDefaultsNodes = (stmts) =>
+  match stmts {
+    case Nil => Nil
+    case Cons(s, rest) =>
+      match s {
+        case Pair(tag, data) =>
+          if #seq(tag, "funcdefaults") then Cons(data, collectFuncDefaultsNodes(rest))
+          else collectFuncDefaultsNodes(rest)
+      }
+  }
+
 def lowerProg = (stmts) =>
   -- K62.18: imported extension identity is AST-owned, never transient parser
   -- state. This must run before resolveE classifies selected method calls.
   let _cmn = #cell.set(caseMethodsCell, appendL(collectCaseMethodsNodes(stmts), #cell.get(caseMethodsCell))) in
   let _usn = #cell.set(usingSigCell, appendL(collectUsingSigNodes(stmts), #cell.get(usingSigCell))) in
+  let _fdn = #cell.set(funcDefaultsCell, appendL(collectFuncDefaultsNodes(stmts), #cell.get(funcDefaultsCell))) in
   let _em = #cell.set(extensionMethodsCell, collectExtensionMethods(stmts)) in
   -- Extension-dispatch registries: top-level extension methods + given-body dispatch names, so a
   -- method with both gets its top-level impl mangled to `m__ext_default` (dispatcher fallback).
