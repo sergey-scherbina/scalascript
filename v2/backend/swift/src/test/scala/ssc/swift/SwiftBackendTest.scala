@@ -1230,18 +1230,10 @@ public enum SessionProbe {
         Some(repoRoot.toFile),
       )
 
-    val oneShotSource = """
-```scalascript
-effect One:
-  def op(): Int
-
-val result = handle(One.op()) {
-  case One.op(resume) => resume(1) + resume(2)
-  case Return(value)  => value
-}
-println(s"suffix: $result")
-```
-"""
+    val oneShotSource = Files.readString(
+      repoRoot.resolve("tests/fixtures/v21-native/effect-one-shot-violation.ssc"),
+      StandardCharsets.UTF_8,
+    )
     val rejected = runSwiftResult(
       "checkedOneShot",
       checked(oneShotSource),
@@ -1251,20 +1243,27 @@ println(s"suffix: $result")
       "error [ONESHOT_VIOLATION]: One-shot violation: One.op resumed more than once"), rejected.stderr)
     assert(!rejected.stdout.contains("suffix:"), rejected.stdout)
 
-    val multiShotSource = """
-```scalascript
-multi effect Many:
-  def op(): Int
-
-val result = handle(Many.op()) {
-  case Many.op(resume) => resume(1) + resume(2)
-  case Return(value)   => value
-}
-println(result)
-```
-"""
+    val multiShotSource = Files.readString(
+      repoRoot.resolve("tests/fixtures/v21-native/effect-multi-shot-resume.ssc"),
+      StandardCharsets.UTF_8,
+    )
     val reusable = checked(multiShotSource)
     assert(runSwift("checkedMultiShot", reusable) == "3")
+
+  test("real Swift implicit Return fallback does not swallow handler match failures"):
+    assume(swiftAvailable, "Swift toolchain is not available")
+    val nestedFailure = Term.Match(Term.Local(0), Nil, None)
+    val handler = Term.Lam(1, Term.Match(
+      Term.Local(0),
+      Nil,
+      Some(nestedFailure),
+    ))
+    val handled = Term.Prim("effect.handle", List(Term.Ctor("Bad", Nil), handler))
+
+    val result = runSwiftResult("returnHandlerFailure", Program(Nil, handled))
+    assert(result.exit != 0)
+    assert(result.stderr.contains("match: no arm for Return(Bad)"), result.stderr)
+    assert(result.stdout.isEmpty, result.stdout)
 
   test("checked std/ui source runs through FrontendBridge and Swift NativeUi host"):
     assume(swiftAvailable, "Swift toolchain is not available")

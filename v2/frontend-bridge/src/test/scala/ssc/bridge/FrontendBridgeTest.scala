@@ -543,6 +543,33 @@ class FrontendBridgeTest extends AnyFunSuite:
       Value.DataV("Tuple2", Vector(Value.IntV(1), Value.IntV(2))))
   }
 
+  test("VM and direct ASM share the no-Return effect fixtures used by Swift") {
+    val oneShot = java.nio.file.Files.readString(
+      repoFile("tests/fixtures/v21-native/effect-one-shot-violation.ssc").toPath)
+    val multiShot = java.nio.file.Files.readString(
+      repoFile("tests/fixtures/v21-native/effect-multi-shot-resume.ssc").toPath)
+
+    def rejected(runFixture: => Value): (ControlRunFailure, String) =
+      val output = new java.io.ByteArrayOutputStream
+      val failure = Console.withOut(output)(intercept[ControlRunFailure](runFixture))
+      failure -> output.toString("UTF-8")
+
+    val (vmFailure, vmOutput) = rejected(run(oneShot))
+    val (asmFailure, asmOutput) = rejected(runBytecode(oneShot))
+    assert(vmFailure.rejection == ResumeRejected.AlreadyResumed(OperationId(EffectId("One"), "op")))
+    assert(asmFailure.rejection == vmFailure.rejection)
+    assert(vmOutput.isEmpty)
+    assert(asmOutput.isEmpty)
+
+    def output(runFixture: => Value): String =
+      val bytes = new java.io.ByteArrayOutputStream
+      Console.withOut(bytes)(runFixture)
+      bytes.toString("UTF-8").trim
+
+    assert(output(run(multiShot)) == "3")
+    assert(output(runBytecode(multiShot)) == "3")
+  }
+
   test("bridge preserves plain and multi effect dispatch multiplicity") {
     val source =
       """effect Once:

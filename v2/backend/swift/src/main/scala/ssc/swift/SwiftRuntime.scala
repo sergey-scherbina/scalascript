@@ -490,6 +490,11 @@ private enum EvalStep {
     case call(SscClosure, [SscValue])
 }
 
+private enum SscPartialCallResult {
+    case matched(SscValue)
+    case noMatch
+}
+
 enum SscRuntime {
     public static func execute(_ program: SscProgram) {
         let result = evaluate(program)
@@ -818,6 +823,29 @@ private final class Machine {
         }
         guard let body = closure.body else { fatalError("app: closure has no body") }
         return runTerm(body, closure.environment + arguments)
+    }
+
+    private func callPartial(_ closure: SscClosure, _ arguments: [SscValue]) -> SscPartialCallResult {
+        if failure != nil { return .matched(.unit) }
+        checkArity(closure, arguments)
+        guard closure.native == nil else { return .matched(call(closure, arguments)) }
+        guard let body = closure.body else { fatalError("app: closure has no body") }
+        // Only an absent arm in this directly invoked partial-function match is recoverable.
+        // Selected arms and fallbacks re-enter the ordinary evaluator, so failures in handler
+        // code (including nested non-exhaustive matches) keep their normal failure semantics.
+        guard case let .matchValue(scrutinee, arms, fallback) = body else {
+            return .matched(runTerm(body, closure.environment + arguments))
+        }
+
+        let environment = closure.environment + arguments
+        let scrutineeValue = value(scrutinee, environment)
+        if failure != nil { return .matched(.unit) }
+        if case let .data(tag, fields) = scrutineeValue,
+           let arm = arms.first(where: { $0.tag == tag && $0.arity == fields.count }) {
+            return .matched(runTerm(arm.body, environment + fields))
+        }
+        if let fallback { return .matched(runTerm(fallback, environment)) }
+        return .noMatch
     }
 
     private func evaluate(_ term: SscTerm, _ environment: [SscValue], tail: Bool) -> EvalStep {
@@ -1654,7 +1682,10 @@ private final class Machine {
             return call(handler, [.data(operation, SscFields(eventArgs))])
         case .data("Op", _): fatalError("effect: malformed Op")
         default:
-            return call(handler, [.data("Return", [computation])])
+            switch callPartial(handler, [.data("Return", [computation])]) {
+            case let .matched(value): return value
+            case .noMatch: return computation
+            }
         }
     }
 
