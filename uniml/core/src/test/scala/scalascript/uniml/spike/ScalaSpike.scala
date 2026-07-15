@@ -1087,24 +1087,8 @@ object SpikeParse:
     if c.peekKind == "spike.op" && c.peekLexeme == "=>" then c.advance().foreach(t => kids += Node.Leaf(t, Some("case.arrow")))
     else c.report("spike.expected", "expected '=>' in case arm")
     // an arm body on a LATER line than `=>` is an indented block (like a def/if branch)
-    kids += parseArmBody(c, arrowLine).withRole("case.body")
+    kids += branchExpr(c, arrowLine).withRole("case.body")
     Node.Frame("spike.arm", None, kids.result())
-
-  // a braceless arm body is a BLOCK bounded by the next `case` / dedent / `}` (ssc1-front reads statements
-  // there, not one expression). A LATER-line body uses the proven branchExpr (indented block). A SAME-line
-  // body is usually one expr — but e.g. `case _ => html "…"` is a bare `html` var plus an adjacent string
-  // ssc1-front cannot combine → TWO statements → `let _ = html in "…"`. Parse it as a block and unwrap a lone
-  // exprStmt so a normal single-expr arm stays the bare expr (a 1-stmt block would add a spurious let).
-  private def parseArmBody(c: Cur, arrowLine: Int): Node =
-    if !c.eof && c.peekLine > arrowLine then branchExpr(c, arrowLine)
-    else if c.peekKind == "spike.id" && c.peek2Lexeme == "=>" then branchExpr(c, arrowLine) // nested lambda arm `x => …`
-    else
-      parseBlock(c, c.peekCol) match
-        case Node.Frame("spike.block", _, stmts) if stmts.length == 1 =>
-          stmts.head match
-            case Node.Frame("spike.exprStmt", _, inner) if inner.length == 1 => inner.head
-            case _ => Node.Frame("spike.block", None, stmts)
-        case blk => blk
 
   // a full arm pattern: `alias @ PAT` (bind, bpat) around `PAT | PAT | …` (alternatives, apat).
   private def parseArmPattern(c: Cur): Node =
