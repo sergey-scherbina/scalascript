@@ -1773,43 +1773,37 @@ with extensions isolated behind an explicit non-default profile.
               WHICH PAGES changed, and the executor only yields whole images. Cross-lane (engine + shim).
         - [ ] **Inter-process locking** for host files (`FileLock` + `busy_timeout`). Until then the
               single-writer/single-process contract in the spec stands.
-        - [ ] **`scljet-jdbc-j4-introspection`** (claimed 2026-07-15, opus) — `getPrimaryKeys` /
-              `getIndexInfo` / `getTypeInfo` (+ empty `getImportedKeys`/`getExportedKeys`). Shim-only;
-              builds directly on J2 (`ScljetCatalog` already reads schema entries — incl. `SchemaIndex`
-              with `tableName`/`sql`/`internal` — and `ScljetStaticResultSet` is the row substrate).
-              **Reference shapes PROBED from Xerial before planning** (do not re-probe):
-              - `getPrimaryKeys` = 6 cols `TABLE_CAT,TABLE_SCHEM,TABLE_NAME,COLUMN_NAME,KEY_SEQ,PK_NAME`;
-                `emp(id INTEGER PRIMARY KEY,…)` → 1 row `COLUMN_NAME=id KEY_SEQ=1 PK_NAME=null`; a table
-                with no PK → 0 rows.
-              - `getIndexInfo` = 13 cols `TABLE_CAT,TABLE_SCHEM,TABLE_NAME,NON_UNIQUE,INDEX_QUALIFIER,
-                INDEX_NAME,TYPE,ORDINAL_POSITION,COLUMN_NAME,ASC_OR_DESC,CARDINALITY,PAGES,
-                FILTER_CONDITION`; `TYPE=3` (tableIndexOther), `CARDINALITY=0`, `PAGES=0`,
-                `ASC_OR_DESC`/`INDEX_QUALIFIER`/`FILTER_CONDITION` = null; one row PER INDEX COLUMN;
-                ordered by `(NON_UNIQUE, INDEX_NAME, ORDINAL_POSITION)`. The implicit rowid PK gets no row.
-              - `getTypeInfo` = 18 cols, 5 rows (NULL/INTEGER/REAL/TEXT/BLOB).
-              **Two deliberate deviations from the reference — assert them, don't copy the bug:**
-              1. **Xerial IGNORES the `unique` filter** (`getIndexInfo(…, unique=true, …)` still returned
-                 the non-unique `emp_name`). Implement the JDBC contract: filter when `unique=true`.
-              2. **`getTypeInfo` DATA_TYPE must match what THIS driver reports elsewhere.** Xerial says
-                 INTEGER=4/REAL=7; our `ResultSetMetaData`+`getColumns` say `BIGINT(-5)`/`DOUBLE(8)`
-                 (m7b, asserted by existing tests). Internal consistency wins — a client comparing
-                 `getTypeInfo` to `getColumns.DATA_TYPE` must see the same codes.
-              Slices:
-              - [ ] **J4.1 `getPrimaryKeys`** — needs `ScljetCatalog` to keep PK info it currently drops:
-                    column-level (`id INTEGER PRIMARY KEY` → the words after the type are already captured
-                    in `typeWords`) AND table-level (`PRIMARY KEY (a,b)` → currently `skipDef=true` throws
-                    the whole def away; capture the column list + order for `KEY_SEQ`).
-              - [ ] **J4.2 `getIndexInfo`** — group `SchemaIndex` entries by `SchemaEntry.tableName`;
-                    `NON_UNIQUE` from `CREATE UNIQUE INDEX` in the entry's sql; index columns from the
-                    `ON t(a,b)` list (engine `tokenize`, same discipline as J2 — never a second parser);
-                    skip `internal` entries (`sqlite_autoindex_*`).
-              - [ ] **J4.3 `getTypeInfo`** (18 cols, our own type codes) + empty `getImportedKeys`/
-                    `getExportedKeys` (the engine has no FK support at all — empty is the honest answer,
-                    not `nse`, since a pool iterating them must not blow up).
-              - [ ] **J4.4** — spec (`specs/scljet-jdbc.md` §DatabaseMetaData: move these out of the
-                    "deliberately NOT implemented" list, record both deviations) + CHANGELOG/SPRINT.
-              Gate: `sbt scljetJdbcPlugin/test` (29/29 today) + per-slice cross-checks vs `sqlite-jdbc`
-              where the reference is not buggy.
+        - [x] **`scljet-jdbc-j4-introspection` DONE 2026-07-15** (`1abc60fd7` feat, `8389b6a56` bug,
+              `10208987b` spec). `getPrimaryKeys` (both spellings — column-level AND table-level
+              `PRIMARY KEY (a,b)` incl. named `CONSTRAINT pk`; KEY_SEQ = declared key order),
+              `getIndexInfo` (one row per index column; UNIQUE + key list parsed from `CREATE INDEX`
+              with the engine's `tokenize`), `getTypeInfo`, and EMPTY (not `nse`)
+              `getImportedKeys`/`getExportedKeys`/`getCrossReference`. `sbt scljetJdbcPlugin/test`
+              **42/42** (was 29/29). Reworked `parseTable` — table-level constraints were dropped
+              wholesale, so a table-level PK was invisible.
+              **Deviations from the reference, asserted so they cannot rot:** (1) `getIndexInfo(unique=
+              true)` FILTERS per the contract — Xerial ignores the flag (bug); a test asserts the
+              reference still misbehaves so a future fix tells us. (2) `getTypeInfo` reports
+              INTEGER→BIGINT/REAL→DOUBLE (ours) not Xerial's INTEGER/REAL — a test pins it against
+              `getColumns`.
+              **GOTCHA:** comparing `getObject` across drivers compares BOXING, not data
+              (`NON_UNIQUE` = our `Boolean` vs Xerial's `Integer 1`, both correct via `getBoolean`) —
+              cross-check with typed getters.
+              **ENGINE GAPS this surfaced (m3-writes lane, NOT the shim):**
+              - **`CREATE UNIQUE INDEX` is not parsed at all** — `parseCreateIndex` requires
+                `CREATE INDEX`; `CREATE UNIQUE INDEX` falls through to `parseCreate` → "expected
+                TABLE" (`scljet/sql.ssc:4658`). So NO scljet-created database can hold a unique
+                index. The unique path is tested instead against a file written by the reference
+                driver and opened via `jdbc:scljet:<file>` (which also proves catalog introspection
+                works on real SQLite files).
+              - **`BUGS.md` → `scljet-ipk-rowid-alias-not-substituted` (OPEN, silent wrong data):**
+                an `INTEGER PRIMARY KEY` column in a REAL SQLite file reads back as `0` — the rowid
+                alias is not substituted. scljet reading its OWN db is fine, which is why no existing
+                test sees it: an oracle of "read back what we wrote" cannot catch a file-format
+                divergence; the differential must cross both engines through a FILE. Suspected
+                opposite direction too (our writes store the IPK value in the column with a
+                sequential rowid → real SQLite would read OUR files wrong). Pinned by a test that
+                flips loudly when fixed.
         - [ ] **ENGINE GAP found via a J2 test (for the `scljet-m3-writes` lane, NOT this one):**
               `INSERT INTO t SELECT …` does not parse ("expected VALUES"). Blocks testing the
               "INSERT affecting 0 rows generates no key" branch, and it is a real SQL hole.

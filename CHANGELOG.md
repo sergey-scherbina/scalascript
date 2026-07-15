@@ -4,6 +4,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-15 — scljet JDBC introspection (getPrimaryKeys / getIndexInfo / getTypeInfo)
+
+Completes the `DatabaseMetaData` surface a JVM tool actually walks: primary keys (both
+SQLite spellings — on the column and as a table constraint, named or not), index info
+(one row per index column, UNIQUE and the key list parsed out of `CREATE INDEX` with the
+engine's own lexer), type info, and empty-not-throwing foreign-key queries. Two deviations
+from the reference driver are deliberate and asserted: `getIndexInfo(unique=true)` filters
+per the JDBC contract where Xerial ignores the flag, and `getTypeInfo` reports this
+driver's own type codes so it cannot contradict `getColumns`.
+
+The engine cannot create a unique index at all, so that path is tested where it matters —
+reading a file written by the reference driver — which also demonstrates catalog
+introspection over real SQLite files, and pinned a live engine bug: an `INTEGER PRIMARY
+KEY` column in a real SQLite file reads back as 0, because the rowid alias is not
+substituted (`BUGS.md` → `scljet-ipk-rowid-alias-not-substituted`). Our own databases read
+back fine, which is exactly why no existing test caught it.
+`sbt scljetJdbcPlugin/test`: 42/42 (was 29/29).
+
 ## 2026-07-15 — scljet JDBC shim J2 hardening (getGeneratedKeys, catalog, durability contract)
 
 The gaps a real JVM client (pool / ORM / DB tool) hits first, closed on the JVM
