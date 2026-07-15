@@ -86,5 +86,5 @@ npm run typecheck
 npm pack --dry-run
 ```
 
-The normative contract is
-[`specs/javascript-typescript-bidirectional-control.md`](../../../../specs/javascript-typescript-bidirectional-control.md).
+The normative contract is the canonical
+[JavaScript/TypeScript bidirectional-control profile](https://github.com/sergey-scherbina/scalascript/blob/main/specs/javascript-typescript-bidirectional-control.md).
