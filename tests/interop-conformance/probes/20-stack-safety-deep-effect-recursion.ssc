@@ -9,11 +9,16 @@ status: measurable-now
 The first two runs perform 100,000 one-shot operations across a tail-recursive
 continuation and across statement/binding suffixes. The third run keeps
 `resume` in non-tail handler position; each handler frame adds one, and the
-`Return` arm adds seven exactly once.
+`Return` arm adds seven exactly once. The fourth run lets every handler arm
+return a state-threading closure and invokes each captured `resume` only later;
+continuation escape must not put the 20,000-step chain back on the host stack.
 
 ```scalascript
 effect Tick:
   def step(): Int
+
+effect Yield:
+  def emit(value: Int): Unit
 
 def tailLoop(n: Int, acc: Int): Int =
   if n == 0 then acc else
@@ -33,6 +38,11 @@ def nonTailLoop(n: Int): Int =
     Tick.step()
     nonTailLoop(n - 1)
 
+def escapedLoop(n: Int): Int =
+  if n == 0 then 0 else
+    Yield.emit(1)
+    escapedLoop(n - 1)
+
 val tailResult = handle(tailLoop(100000, 0)) {
   case Tick.step(resume) => resume(1)
 }
@@ -46,7 +56,13 @@ val nonTailResult = handle(nonTailLoop(20000)) {
   case Return(value) => value + 7
 }
 
+val escapedResult = handle(escapedLoop(20000)) {
+  case Yield.emit(value, resume) => (state: Int) => resume(())(state + value)
+  case Return(value) => (state: Int) => value + state
+}
+
 println(tailResult)
 println(sequenceResult)
 println(nonTailResult)
+println(escapedResult(0))
 ```
