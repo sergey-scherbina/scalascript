@@ -504,6 +504,15 @@ AST overload. A caller that stores canonical text (including the `.scim` carrier
 decodes encoder bytes as UTF-8; admission re-encodes its received UTF-8 bytes and
 still goes through the byte API.
 
+`DescriptorFactory` is the checked construction surface for the three records and
+target bindings. It exposes `api`, `controlSummary`, `artifactManifest`,
+`jvmEntrypoint`, and `namedEntrypoint`; both entrypoint factories derive their ids
+and exclude `implementationDigest` from identity exactly as specified above. A
+successful factory call semantically validates and bounded-renders the complete
+returned wire record, including its derived digest/id fields. Therefore any value
+returned as `Right` is immediately encodable under `MaxBytes`; fitting only the
+smaller self-hash or entrypoint-identity preimage is insufficient.
+
 The golden non-ASCII/control-character JCS vector is:
 
 ```text
