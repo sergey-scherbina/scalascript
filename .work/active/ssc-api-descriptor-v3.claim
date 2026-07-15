@@ -1,6 +1,6 @@
 feature/ssc-api-descriptor-v3 2026-07-15T02:10:53Z
 agent: codex-control-descriptor
-heartbeat: 2026-07-15T02:11:31Z
+heartbeat: 2026-07-15T02:23:45Z
 status: in-progress
-done-so-far: isolated feature worktree created from current origin/main
-next: read descriptor and interop contracts, write and commit the additive descriptor v3 feature spec, then implement the smallest independently shippable descriptor slice
+done-so-far: descriptor v3 feature spec committed, then tightened to restricted RFC 8785 JCS with canonical-byte admission and golden-vector requirements; Slice A module implementation started
+next: complete target-neutral descriptor model/codec/hash/validation plus additive legacy .scim carrier and focused tests, then prepare root review
