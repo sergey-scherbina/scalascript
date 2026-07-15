@@ -43,6 +43,34 @@ class PreBodyApiDescriptorProducerTest extends AnyFunSuite:
        |```
        |""".stripMargin
 
+  private def mapDocumentExecutableSources(
+      module: scalascript.ast.Module
+  )(f: String => String): scalascript.ast.Module =
+    val document = module.document.getOrElse(fail("expected retained document content"))
+    val sections = document.sections.map { section =>
+      section.copy(blocks = section.blocks.map {
+        case ContentBlock.Embedded(lang, body, EmbeddedKind.Executable, data, attrs)
+            if scalascript.ast.Lang.isParseable(lang) =>
+          ContentBlock.Embedded(lang, f(body), EmbeddedKind.Executable, data, attrs)
+        case other => other
+      })
+    }
+    module.copy(document = Some(document.copy(sections = sections)))
+
+  private def mapSectionCodeBlockSources(
+      module: scalascript.ast.Module
+  )(f: String => String): scalascript.ast.Module =
+    def rewrite(section: scalascript.ast.Section): scalascript.ast.Section =
+      section.copy(
+        content = section.content.map {
+          case block: scalascript.ast.Content.CodeBlock if block.tree.nonEmpty =>
+            block.copy(source = f(block.source))
+          case other => other
+        },
+        subsections = section.subsections.map(rewrite)
+      )
+    module.copy(sections = module.sections.map(rewrite))
+
   test("managed extraction stores canonical v3 while ordinary legacy extraction keeps None"):
     val input = source(
       "def widen[A](value: Int, delta: Long = 0L)(using fallback: A): Long = delta",
@@ -675,6 +703,71 @@ class PreBodyApiDescriptorProducerTest extends AnyFunSuite:
       assert(error.path == s"$$.symbols[demo.api.$name]")
     }
 
+  test("derives clauses reject on every directly parseable nominal form"):
+    val cases = Vector(
+      "class Derived derives Eq" -> "Derived",
+      "trait Derived derives Eq" -> "Derived",
+      "enum Derived derives Eq:\n  case One" -> "Derived"
+    )
+
+    cases.foreach { case (declaration, name) =>
+      val input = source(declaration, List(name))
+      val error = failure(PreBodyApiDescriptorProducer.descriptor(parse(input)))
+      assert(error.code == "UNSUPPORTED_PUBLIC_DECLARATION")
+      assert(error.path == s"$$.symbols[demo.api.$name]")
+    }
+
+  test("early initializer clauses reject on directly parseable nominal forms"):
+    val declarations = Vector(
+      "trait Base\nclass Early extends { val seed: Int = 1 } with Base",
+      "trait Base\ntrait Early extends { val seed: Int = 1 } with Base",
+      "trait Base\nobject Early extends { val seed: Int = 1 } with Base"
+    )
+
+    declarations.foreach { declaration =>
+      val input = source(declaration, List("Early"))
+      val error = failure(PreBodyApiDescriptorProducer.descriptor(parse(input)))
+      assert(error.code == "UNSUPPORTED_PUBLIC_DECLARATION")
+      assert(error.path == "$.symbols[demo.api.Early]")
+    }
+
+  test("derives headers participate in both retained source carriers"):
+    val derivesInput = source("class Derived derives Eq", List("Derived"))
+    val parsedDerives = parse(derivesInput)
+    val staleDocument = mapDocumentExecutableSources(parsedDerives)(
+      _.replace(" derives Eq", "")
+    )
+    val documentError = failure(PreBodyApiDescriptorProducer.descriptor(staleDocument))
+    assert(documentError.code == "UNSUPPORTED_PUBLIC_DECLARATION")
+    assert(documentError.path.startsWith("$.sections["))
+
+    val staleCodeBlock = mapSectionCodeBlockSources(parsedDerives)(
+      _.replace(" derives Eq", "")
+    )
+    val codeBlockError = failure(PreBodyApiDescriptorProducer.descriptor(staleCodeBlock))
+    assert(codeBlockError.code == "UNSUPPORTED_PUBLIC_DECLARATION")
+    assert(codeBlockError.path.startsWith("$.sections["))
+
+  test("early initializer headers participate in both retained source carriers"):
+    val earlyInput = source(
+      "trait Base\nclass Early extends { val seed: Int = 1 } with Base",
+      List("Early")
+    )
+    val parsedEarly = parse(earlyInput)
+    val staleDocument = mapDocumentExecutableSources(parsedEarly)(
+      _.replace("extends { val seed: Int = 1 } with Base", "extends Base")
+    )
+    val documentError = failure(PreBodyApiDescriptorProducer.descriptor(staleDocument))
+    assert(documentError.code == "UNSUPPORTED_PUBLIC_DECLARATION")
+    assert(documentError.path.startsWith("$.sections["))
+
+    val staleCodeBlock = mapSectionCodeBlockSources(parsedEarly)(
+      _.replace("extends { val seed: Int = 1 } with Base", "extends Base")
+    )
+    val codeBlockError = failure(PreBodyApiDescriptorProducer.descriptor(staleCodeBlock))
+    assert(codeBlockError.code == "UNSUPPORTED_PUBLIC_DECLARATION")
+    assert(codeBlockError.path.startsWith("$.sections["))
+
   test("retained declaration source must correspond exactly to its stored section AST"):
     val input = source(
       """effect Real:
@@ -777,6 +870,73 @@ class PreBodyApiDescriptorProducerTest extends AnyFunSuite:
 
     assert(error.code == "UNSUPPORTED_PUBLIC_DECLARATION")
     assert(error.path.startsWith("$.sections["))
+
+  test("dual carriers distinguish an empty effect from an ordinary object"):
+    val effectInput = source("effect Empty:\n", List("Empty"))
+    assert(descriptor(effectInput).symbols.head.definition.kind == ApiSymbolKind.Effect)
+    val staleObject = mapDocumentExecutableSources(parse(effectInput))(
+      _.replace("effect Empty:", "object Empty:")
+    )
+    val effectError = failure(PreBodyApiDescriptorProducer.descriptor(staleObject))
+    assert(effectError.code == "UNSUPPORTED_PUBLIC_DECLARATION")
+    assert(effectError.path.startsWith("$.sections["))
+
+    val objectInput = source("object Empty:\n  ()\n", List("Empty"))
+    assert(descriptor(objectInput).symbols.head.definition.kind == ApiSymbolKind.Value)
+    val staleEffect = mapDocumentExecutableSources(parse(objectInput))(
+      _.replace("object Empty:", "effect Empty:")
+    )
+    val objectError = failure(PreBodyApiDescriptorProducer.descriptor(staleEffect))
+    assert(objectError.code == "UNSUPPORTED_PUBLIC_DECLARATION")
+    assert(objectError.path.startsWith("$.sections["))
+
+  test("dual carriers compare plain and multi effect evidence before selection"):
+    val multiInput = source("multi effect Signal:\n", List("Signal"))
+    val stalePlain = mapDocumentExecutableSources(parse(multiInput))(
+      _.replace("multi effect Signal:", "effect Signal:")
+    )
+    val multiError = failure(PreBodyApiDescriptorProducer.descriptor(stalePlain))
+    assert(multiError.code == "UNSUPPORTED_PUBLIC_DECLARATION")
+
+    val plainInput = source(
+      """effect Signal:
+        |  def read(): Int
+        |""".stripMargin,
+      List("Signal")
+    )
+    val staleMulti = mapDocumentExecutableSources(parse(plainInput))(
+      _.replace("effect Signal:", "multi effect Signal:")
+    )
+    val plainError = failure(PreBodyApiDescriptorProducer.descriptor(staleMulti))
+    assert(plainError.code == "UNSUPPORTED_PUBLIC_DECLARATION")
+
+  test("raw effect evidence ignores carrier line offsets but not erased unsupported shape"):
+    val input = source("effect Empty:\n", List("Empty"))
+    val expected = descriptor(input)
+    val shifted = mapDocumentExecutableSources(parse(input))(body => s"\n\n$body")
+    assert(right(PreBodyApiDescriptorProducer.descriptor(shifted)) == expected)
+
+    val genericInput = source("effect State[A]:\n", List("State"))
+    val staleObject = mapDocumentExecutableSources(parse(genericInput))(
+      _.replace("effect State[A]:", "object State:")
+    )
+    val error = failure(PreBodyApiDescriptorProducer.descriptor(staleObject))
+    assert(error.code == "UNSUPPORTED_PUBLIC_DECLARATION")
+    assert(error.path.startsWith("$.sections["))
+
+  test("documentless empty effects fail closed while ordinary objects remain safe"):
+    val effectInput = source("effect Empty:\n", List("Empty"))
+    val effectError = failure(PreBodyApiDescriptorProducer.descriptor(
+      parse(effectInput).copy(document = None)
+    ))
+    assert(effectError.code == "UNSUPPORTED_PUBLIC_DECLARATION")
+    assert(effectError.path == "$.symbols[demo.api.Empty]")
+
+    val objectInput = source("object Empty:\n  ()\n", List("Empty"))
+    val ordinary = right(PreBodyApiDescriptorProducer.descriptor(
+      parse(objectInput).copy(document = None)
+    ))
+    assert(ordinary.symbols.head.definition.kind == ApiSymbolKind.Value)
 
   test("unsupported definition headers cannot hide behind a product-only witness"):
     val input = source(
@@ -948,6 +1108,104 @@ class PreBodyApiDescriptorProducerTest extends AnyFunSuite:
     val error = failure(PreBodyApiDescriptorProducer.descriptor(parse(input)))
 
     assert(error.code == "AMBIGUOUS_NAMED_TYPE")
+    assert(error.path == "$.symbols[demo.api.retain].parameterLists[0].parameters[0].tpe")
+
+  test("direct imports resolve both Array and Byte before the Bytes shortcut"):
+    val input = source(
+      """import foo.Array
+        |import foo.Byte
+        |def retain(value: Array[Byte]): Int = 0
+        |""".stripMargin,
+      List("retain")
+    )
+    val parameter = descriptor(input).symbols.head.definition.parameterLists.head.parameters.head
+
+    assert(parameter.tpe == AbiType.Named(
+      "foo.Array",
+      Vector(AbiType.Named("foo.Byte"))
+    ))
+
+  test("rename-to-name imports resolve before the Bytes shortcut"):
+    val input = source(
+      """import foo.Array
+        |import foo.{Token as Byte}
+        |def retain(value: Array[Byte]): Int = 0
+        |""".stripMargin,
+      List("retain")
+    )
+    val parameter = descriptor(input).symbols.head.definition.parameterLists.head.parameters.head
+
+    assert(parameter.tpe == AbiType.Named(
+      "foo.Array",
+      Vector(AbiType.Named("foo.Token"))
+    ))
+
+  test("a wildcard import makes Array Byte ambiguous instead of primitive Bytes"):
+    val input = source(
+      """import foo.*
+        |def retain(value: Array[Byte]): Int = 0
+        |""".stripMargin,
+      List("retain")
+    )
+    val error = failure(PreBodyApiDescriptorProducer.descriptor(parse(input)))
+
+    assert(error.code == "AMBIGUOUS_NAMED_TYPE")
+    assert(error.path == "$.symbols[demo.api.retain].parameterLists[0].parameters[0].tpe")
+
+  test("exact and wildcard imports precede representative Int and List builtins"):
+    val exactInput = source(
+      """import foo.Int
+        |def retain(value: Int): Int = value
+        |""".stripMargin,
+      List("retain")
+    )
+    val exact = descriptor(exactInput).symbols.head.definition
+    assert(exact.parameterLists.head.parameters.head.tpe == AbiType.Named("foo.Int"))
+    assert(exact.resultType == AbiType.Named("foo.Int"))
+
+    val wildcardInput = source(
+      """import foo.*
+        |def retain(value: List[Int]): Int = 0
+        |""".stripMargin,
+      List("retain")
+    )
+    val wildcard = failure(PreBodyApiDescriptorProducer.descriptor(parse(wildcardInput)))
+    assert(wildcard.code == "AMBIGUOUS_NAMED_TYPE")
+    assert(wildcard.path == "$.symbols[demo.api.retain].parameterLists[0].parameters[0].tpe")
+
+  test("renamed-away and unimported names preserve provable builtin resolution"):
+    val renamedAway = descriptor(source(
+      """import foo.{Int as Other}
+        |def retain(value: Int): Int = value
+        |""".stripMargin,
+      List("retain")
+    )).symbols.head.definition
+    assert(renamedAway.resultType == AbiType.Primitive(AbiPrimitive.I32))
+
+    val unimported = descriptor(source(
+      """import foo.{Int as _, *}
+        |def retain(value: Int): Int = value
+        |""".stripMargin,
+      List("retain")
+    )).symbols.head.definition
+    assert(unimported.resultType == AbiType.Primitive(AbiPrimitive.I32))
+
+    val qualified = descriptor(source(
+      "def retain(value: foo.Int): foo.Int = value",
+      List("retain")
+    )).symbols.head.definition
+    assert(qualified.resultType == AbiType.Named("foo.Int"))
+
+  test("an exact platform import cannot launder a bare builtin spelling"):
+    val input = source(
+      """import java.lang.{Integer as Int}
+        |def retain(value: Int): Int = value
+        |""".stripMargin,
+      List("retain")
+    )
+    val error = failure(PreBodyApiDescriptorProducer.descriptor(parse(input)))
+
+    assert(error.code == "PLATFORM_TYPE_FORBIDDEN")
     assert(error.path == "$.symbols[demo.api.retain].parameterLists[0].parameters[0].tpe")
 
   test("a private local effect cannot fall back to an external effect-row id"):
