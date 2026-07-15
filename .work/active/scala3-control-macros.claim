@@ -1,6 +1,6 @@
 feature/scala3-control-macros 2026-07-15T04:07:46Z
 agent: codex-scala-control-macros
-heartbeat: 2026-07-15T04:07:46Z
-status: not-started
-done-so-far: explicit Scala control leaf and shared semantic-vector lane are landed; macro task is queued and unclaimed
-next: freeze the public inline direct-style API and diagnostics in a committed feature spec before implementation
+heartbeat: 2026-07-15T04:08:08Z
+status: in-progress
+done-so-far: isolated feature worktree created; explicit Scala control leaf and shared semantic-vector lane are verified dependencies
+next: commit the public inline direct-style API/diagnostic specification, then implement the bounded lexical macro slice
