@@ -376,6 +376,12 @@ optional policy, not the default continuation semantics.
       prefix, receiver-owned/abstract nominal identities, and known-owner/unknown-
       member fallback. The imported-private identity and public-object namespace
       controls are already green and must stay green.
+    - Effect-hardening checkpoint (`fc465925e`) after resolver/inventory repair:
+      focused producer is exactly `77/82`. Five tests remain red: duplicate canonical
+      declaration marker, malformed/non-type reserved collision, unsupported marker
+      on an ordinary object, body-local-only header, and a body-local same-name header
+      preceding a genuine top-level effect. A plain effect carrying an unexpected
+      unsupported-shape marker already fails and remains a control.
     - Done when the focused regressions and affected core/interop/conformance gates pass and a
       fresh independent read-only review returns APPROVE with no P1/P2 blocker.
   - [ ] **C — post-body summaries:** extract managed/foreign/tail edges, save sites, frame schemas,
