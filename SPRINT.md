@@ -327,7 +327,10 @@ every later compiler/kernel change re-runs the literal fixed point.
       and negative consumers, catalog validation 26/9, negatives 9/9, direct lane 3/3, affected
       conformance 5/5, Markdown, and diff checks. Update spec verification/results and BUGS/SPRINT/
       CHANGELOG in separate commits, rebase only while clean, repeat critical gates, freeze an exact
-      clean head, and require another independent review. Do not push or release the claim.
+      clean head, and require another independent review. Do not push or release the claim. Gotcha:
+      after changing a macro implementation, incremental `typeCheckErrors` test compilation can retain
+      the prior macro class and report an obsolete primary column; use `scala3ControlApi/clean` before
+      freezing exact diagnostic evidence.
 - [ ] **scala3-control-plugin** — publish a `CrossVersion.full` compiler plugin for cross-method CPS,
   managed callback propagation, effect metadata, and generated ABI entrypoints. Precompiled Scala/Java
   code remains callable but is a deterministic control-capture barrier while active on the stack.
