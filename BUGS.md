@@ -1,5 +1,88 @@
 # Bug tracker
 
+## scala-direct-boundary-break-escape — boundary break can outlive its delimiter
+
+**Status:** open; reported as P1 by the fresh independent rereview of frozen
+`scala3-control-macros` checkpoint `ec4eb279e` (2026-07-15). Remediation must be
+reviewed independently before landing.
+
+**Symptom/reproduce:** place `scala.util.boundary.break(value)` in a
+`direct.reset` body, including a pure prefix before a later `direct.shift` or a
+captured suffix. The macro may move the call below `Eff.defer` or a generated
+continuation. When the resulting computation runs, its source `boundary` delimiter
+has already returned, so the break escapes through delayed code instead of
+retaining Scala's lexical boundary semantics.
+
+**Root cause/plan:** the current external-return audit recognizes `Return` trees
+but not Scala's library-level boundary control marker. M1 cannot prove that any
+`boundary.break` call remains dynamically enclosed after defer/CPS movement, so
+reject every such call conservatively with a stable direct-style diagnostic at
+the exact break invocation. Keep returns local to a nested method accepted, and
+add pure-prefix/suffix negatives proving no raw boundary exception or quote error
+leaks.
+
+## scala-direct-transparent-inline-position — wrapper diagnostic points at reset
+
+**Status:** open; reported as P1 by the fresh independent rereview of frozen
+`scala3-control-macros` checkpoint `ec4eb279e` (2026-07-15). Remediation must be
+reviewed independently before landing.
+
+**Symptom/reproduce:** invoke a transparent-inline wrapper around
+`direct.shift` inside `direct.reset`. The transform correctly rejects the inline
+expansion, but its primary position is the enclosing `direct.reset` rather than
+the wrapper invocation, so the diagnostic does not identify the unsupported
+source construct.
+
+**Root cause/plan:** inline-boundary rejection reports the moved/body tree span
+after compiler wrapping has widened it instead of retaining the nearest
+`Inlined.call` source position. Track the closest provenance-bearing inline call
+while descending and report `DIRECT_STYLE_UNSUPPORTED` there. Preserve the
+existing unexpanded-inline application path and freeze exact message, line
+content, and zero-based column for both shapes.
+
+## scala-direct-nested-shift-body-marker — direct marker survives inside ShiftBody
+
+**Status:** open; reported as P1 by the fresh independent rereview of frozen
+`scala3-control-macros` checkpoint `ec4eb279e` (2026-07-15). Remediation must be
+reviewed independently before landing.
+
+**Symptom/reproduce:** write an accepted block-level `direct.shift`, then place a
+second exact `direct.shift` inside the outer marker's rank-2 `ShiftBody`. The outer
+body is currently treated as wholly opaque, so the nested marker survives macro
+lowering and later fails through a raw compile-time-only/ownership path rather
+than a stable M1 diagnostic.
+
+**Root cause/plan:** the shift-body exemption distinguishes its rank-2 lambda from
+an ordinary crossed callback, but it also skips the invariant that no direct
+marker may remain in the emitted tree. Scan the opaque body specifically for exact
+managed direct markers and reject them at their source call with a stable
+`CAPTURE_BARRIER`/`DIRECT_STYLE_UNSUPPORTED` diagnostic. Do not reject ordinary
+explicit `scalascript.control.shift`/`Eff` code or a separately managed nested
+`direct.reset`; add all three regression shapes.
+
+## scala-direct-dependent-prefix-type-owner — freshened values retain stale type refs
+
+**Status:** open; reported as P1 by the fresh independent rereview of frozen
+`scala3-control-macros` checkpoint `ec4eb279e` (2026-07-15). Remediation must be
+reviewed independently before landing.
+
+**Symptom/reproduce:** create a local prompt scope before capture, then declare a
+dependent value such as `Prompt[innerScope.Key, Int]` (or a value typed with
+`owner.type`) and use it after `direct.shift`. Term references in initializers are
+freshened, but the declaration's `tpt.tpe` still refers to the old local symbol;
+Scala emits a raw `E007`/owner error from generated code. The common nested local
+prompt shape therefore fails despite ordinary strict locals being advertised as
+supported.
+
+**Root cause/plan:** prefix freshening substitutes term trees only and reuses the
+original quoted type tree unchanged. Rebind dependent/singleton type references
+to the fresh symbols before creating each new declaration, preserving declaration
+order, mutable/given/pattern flags, and shared-cell behavior. Support the common
+local nested-prompt case; if a type shape cannot be soundly rebound in M1, fail
+closed at the declaration with stable `DIRECT_STYLE_UNSUPPORTED`, never a raw
+quote/type error. Add semantic coverage for dependent prompt and owner-singleton
+flow plus diagnostics for any deliberately unsupported shape.
+
 ## scala-direct-inline-wrapper-owner-escape — inline marker wrapper loses bindings and provenance
 
 **Status:** open; remediation and regression are green on the feature branch

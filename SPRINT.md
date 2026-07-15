@@ -263,6 +263,30 @@ every later compiler/kernel change re-runs the literal fixed point.
   - [x] Keep a marker in a lazy initializer behind exact `CAPTURE_BARRIER`, and reject
     binding/provenance-bearing inline wrappers with stable `DIRECT_STYLE_UNSUPPORTED` at the marker
     before any wrapper prompt or body side effect can run.
+  - [ ] **Fresh-rereview remediation (`ec4eb279e`, four P1 families; resume cold):**
+    update `specs/scala3-control-macros.md` first, then change only the existing Scala host leaf.
+    Preserve the already-green 14 semantic + 16 diagnostic regressions and complete these in order:
+    - [ ] Rebind dependent/singleton references in cloned prefix `ValDef.tpt.tpe` as well as term
+      trees, supporting the common local `freshPrompt` / `Prompt[scope.Key, R]` flow across capture.
+      Audit `var`, parameterless `given`, and destructuring dependencies; any type shape that cannot
+      be rebound soundly must fail closed with stable `DIRECT_STYLE_UNSUPPORTED`, never raw E007 or
+      quote-owner output.
+    - [ ] Inspect the otherwise-opaque rank-2 `ShiftBody` for a surviving exact `direct.shift` and
+      reject that nested marker at its call site. Ordinary explicit `Eff`/`shift` code and a nested
+      managed `direct.reset` remain legal and need positive regressions.
+    - [ ] Report a transparent-inline expansion at the nearest provenance-bearing `Inlined.call`
+      wrapper invocation, with exact message/line/column; keep the separately compiled unexpanded-
+      inline application path unchanged and covered.
+    - [ ] Reject every `scala.util.boundary.break` in M1 before `Eff.defer`/continuation movement,
+      with stable direct diagnostics in pure-prefix and captured-suffix shapes. Returns local to a
+      nested method remain accepted; M1 conservatively treats all boundary breaks as outside scope.
+    - [ ] Run clean focused semantic/diagnostic tests, then
+      `scripts/sbtc "scala3ControlApi/test;scala3ControlApi/packageBin;scala3ControlApi/makePom"`,
+      packaged-JAR consumer/example, catalog validation 26/9, negatives 9/9, direct lane 3/3,
+      `tests/conformance/run.sh --only 'effect*,effects*'`, Markdown checks, and `git diff --check`.
+      Update spec checkboxes/results, leave the four BUGS entries open pending approval/landing,
+      refresh SPRINT/CHANGELOG counts in separate docs/bookkeeping commits, rebase only at a clean
+      checkpoint, repeat critical gates, and freeze for a new independent review. Do not push/release.
   - [ ] Fresh independent read-only rereview of the frozen checkpoint. Expanded direct semantics
     (14/14), diagnostics after clean compile (16/16), full leaf/package/POM (92/92), catalog validation
     (26/9), negatives (9/9), direct lane (3/3), affected conformance (5/5), and packaged-JAR compile/run
