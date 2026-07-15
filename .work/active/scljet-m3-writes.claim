@@ -1,4 +1,4 @@
 claim: scljet-m3-writes
 owner: opus
-heartbeat: 2026-07-15T08:55:00Z
-status: multi-condition index usage (m7h) landed — WHERE a=A AND b=B uses an index (seek one, finishRows filters). Physical index access-path broad: equality+range+multi-cond. 48/48 sql green; full gate confirming. NEXT: composite multi-col index / correlated subqueries / RIGHT-FULL joins.
+heartbeat: 2026-07-15T09:05:00Z
+status: PHYSICAL INDEX ACCESS-PATH COMPREHENSIVE — rowid/IPK seeks, O(log n) index descent, range seeks, multi-condition (m6z,m7c-m7h). FULL gate 92/92 green non-memoized [int, js]. NEXT (new SQL features): correlated subqueries/EXISTS, RIGHT/FULL joins.
