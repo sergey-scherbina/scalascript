@@ -65,6 +65,20 @@ an error-looking string/value. Backends may represent this private dispatch
 result differently, but must preserve that distinction without parsing exception
 messages, tags that user code can forge, or public exception class names.
 
+The JVM implementation has two private producers of that same result:
+
+```text
+compiled source handler     -> qualified event-pattern dispatch
+runtime/plugin-owned handler -> Runtime.handlerPartialFunction(partialFunction)
+```
+
+`handlerPartialFunction` is package-private runtime construction, not a Scala or
+ScalaScript API. It uses the partial function's structured terminal fallback to
+return `Unhandled`; once a case is selected, the case body runs normally and any
+failure propagates. Standard native runners such as `runLogger`,
+`runLoggerToList`, and `runStream` must use this construction rather than a
+total `ClosV` whose catch-all throws for foreign operations.
+
 ## Behavior
 
 - [ ] An operation with no arm in the nearest handler is returned as exactly
@@ -80,9 +94,17 @@ messages, tags that user code can forge, or public exception class names.
       dispatch marker before evaluating the arm body. Any nested pattern failure,
       exception, or control failure from that body propagates unchanged and is
       never forwarded.
+- [ ] Guarded, duplicate-constructor, literal, and nested source patterns retain
+      ordered partial-function behavior: a false guard/pattern continues to the
+      next case, terminal fallthrough is `Unhandled`, and only the selected case
+      consumes the dispatch before its body.
 - [ ] A missing `Return` arm uses the same structured `Unhandled` result and
       returns the pure value unchanged. No runtime path recognizes missing arms
       from exception-message text.
+- [ ] Runtime/plugin-owned partial handlers return the same structured
+      `Matched | Unhandled` result. An unknown operation crosses a standard
+      Logger/Stream runner, and resuming it reinstalls that runner for later
+      Logger/Stream operations.
 - [ ] Concurrent and reentrant handler calls cannot share a dispatch probe or
       observe another invocation's decision.
 - [ ] Interoperability axis 19 is a runnable exact-output vector, and the existing
@@ -119,6 +141,32 @@ selected arm/default, and typed miss on no arm. Ordinary/nested matches run thei
 unchanged failure path. The private sentinel never crosses `dispatchHandler1`,
 never enters `PortableEffects` or an `Op`, and is not a CoreIR/runtime data ABI.
 
+The compatibility frontend's general pattern lowering cannot always retain a
+single CoreIR `Match`: guards, repeated outer constructors, literals, and nested
+patterns become an ordered `Let`/`If` decision chain. For a partial-function
+literal only, that lowering emits two bridge-private markers carrying the exact
+root event reference:
+
+```text
+handler-dispatch-selected(event) // after pattern + guard succeed, before body
+handler-dispatch-miss(event)     // only after the complete case chain falls through
+```
+
+The compiler recognizes the terminal marker as private handler-root metadata.
+With an active exact-event probe, `selected` consumes `Pending -> Matched` and
+returns unit; `miss` performs `Pending -> Unhandled` and returns the same private
+sentinel used by canonical `Match`. Without that probe, `selected` is a no-op and
+`miss` raises the ordinary exhaustive-match failure, so calling the partial
+function as an ordinary function does not gain recovery. The markers are
+bridge/compiler implementation primitives: they are absent from the public
+primitive manifest and add no source construct or portable data constructor.
+
+The selected marker is deliberately placed after all outer/nested pattern tests
+and the guard, but before the selected body. Thus a false guard can try a later
+same-constructor case, while a nested match failure inside the chosen body is
+outside the recoverable decision. A reentrant dispatch during a guard receives a
+new probe and restores the pending outer probe on return.
+
 On the JVM the synchronous probe stack may be implemented with a private
 `ThreadLocal` scoped by `try/finally`. This is not ambient program state or a
 public control ABI: it exists only between `dispatchHandler1` and the handler
@@ -150,6 +198,25 @@ ordinary total call:
 These rules avoid guessing from exception text or treating an arbitrary function
 as a partial handler. A malformed/non-canonical frontend result therefore fails
 loudly instead of silently gaining residual semantics.
+
+### Runtime/plugin-owned partial handlers
+
+Native standard runners construct their handlers at runtime and therefore have
+neither a CoreIR root `Match` nor compiler metadata. `Runtime.handlerPartialFunction`
+creates a normal one-argument closure with a private direct-dispatch hook. The
+hook evaluates the partial function once using its structured fallback:
+
+```text
+case selected  -> Matched(body result)
+no case        -> Unhandled
+body failure   -> propagate
+```
+
+`dispatchHandler1` consults this hook before the compiled-source probe path.
+Ordinary closure invocation retains ordinary partial-function exhaustion. The
+hook is target-local executable metadata, is never placed in the closure
+environment, and is not serializable CoreIR or continuation state. A backend
+without JVM `PartialFunction` supplies an equivalent private dispatcher.
 
 ### Forwarding and multiplicity
 
@@ -194,8 +261,17 @@ while matching-arm failures share the ordinary failure path.
   preserves indexing but can become captured implementation state. A scoped
   probe has no observable lifetime beyond the first handler match.
 - **Qualify only the canonical root handler match.** Private closure metadata is
-  set when compiling the one-argument `event => event match` shape. Rejected:
-  allowing an unrelated nested/delegated match to claim a pending probe.
+  set when compiling the one-argument `event => event match` shape or the
+  frontend's explicitly marked root decision chain. Rejected: allowing an
+  unrelated nested/delegated match to claim a pending probe.
+- **Mark general-pattern success and terminal fallthrough explicitly.** Pattern
+  guards and nested/duplicate cases cannot be inferred from a constructor arm
+  alone. Rejected: consuming at the outer constructor before its guard and
+  catching the generic `__match_fail__` path.
+- **Give runtime-owned handlers a private typed hook.** Standard runners have no
+  compiled root match, so their partial function supplies `Matched | Unhandled`
+  directly. Rejected: catch-all `IllegalArgumentException`, exception-message
+  parsing, or pretending every manually built `ClosV` is partial.
 - **Rebuild the existing `Op`, not a new residual node.** The frozen CoreIR and
   `Pure | Op` protocol already express forwarding completely.
 - **Reuse one deep resume closure for matching and forwarding.** This preserves
@@ -214,7 +290,9 @@ while matching-arm failures share the ordinary failure path.
   same `Matched | Unhandled` law after its concurrent implicit-`Return` repair;
   it must not copy JVM-private probe machinery.
 - `shift`/`reset`, saved continuations, capsule codecs, or cross-host execution.
-- Any CoreIR, codec, `Op` arity, or primitive-manifest change.
+- Any public CoreIR term, codec, `Op` arity, source primitive, or
+  primitive-manifest change. Bridge-private decision markers are compiler
+  implementation details, not a public primitive contract.
 
 ## Verification
 
@@ -222,12 +300,19 @@ while matching-arm failures share the ordinary failure path.
    reinstall after outer resume, forwarded one-shot rejection, forwarded
    raw/multi reuse, implicit `Return`, and a matching arm whose body reaches an
    unrelated missing pattern arm.
-2. An assembled source fixture fails before the change as
+2. Frontend VM/direct-ASM tests cover false guards, a later same-tag guarded
+   case, nested `Return` patterns, ordinary partial-function invocation, and a
+   selected body whose nested match fails.
+3. Native effect-runner tests send a foreign operation through
+   `runLoggerToList` and `runStream`, resume it outside, and observe later
+   Logger/Stream operations captured by the reinstated inner runner. A selected
+   plugin arm failure remains fatal.
+4. An assembled source fixture fails before the change as
    `match: no arm for wr/2`, then prints the exact expected result on both
    `bin/ssc run` and `bin/ssc run --bytecode`.
-3. Pending interop axis 19 becomes a probe/expected pair and the matrix marks it
+5. Pending interop axis 19 becomes a probe/expected pair and the matrix marks it
    measurable now.
-4. `tests/e2e/v21-native-effect-handlers-smoke.sh`, affected
+6. `tests/e2e/v21-native-effect-handlers-smoke.sh`, affected
    `effects`/`effect-*` conformance, and existing one-shot/multi-shot axes pass.
 
 ## Results
