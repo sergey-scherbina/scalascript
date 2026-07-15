@@ -1,8 +1,8 @@
 # SSC API descriptor v3
 
-Status: **slice A implemented and verified; slice B compatibility-producer third
-correction implemented and locally verified, awaiting a fresh independent
-pre-integration review; self-hosted and consumer slices queued** (2026-07-15).
+Status: **slice A implemented and verified; slice B compatibility-producer fourth
+pre-integration review rejected with three P1 corrections specified but not yet
+implemented; self-hosted and consumer slices queued** (2026-07-15).
 
 This specification refines the structured-descriptor contract in
 [`control-interoperability.md`](control-interoperability.md) without changing its
@@ -141,6 +141,21 @@ The source of truth is the parsed declaration header:
   local identity may remain an external stable id. Lexical local type declarations
   shadow the frozen standard constructors; relative selections such as
   `Domain.Value` normalize to their fully qualified local id;
+- explicit imports participate in the lexical declaration environment in source
+  order. A frozen bare spelling is eligible for builtin projection only when the
+  active import environment proves that no explicit import binds or may bind that
+  spelling. A direct import and a rename-to-name carry their exact qualified target:
+  the producer resolves that target as a qualified local/external identity, applying
+  normal visibility and platform-root checks, instead of selecting a same-spelled
+  builtin. A wildcard makes every non-excluded bare name potentially imported and
+  therefore rejects with `AMBIGUOUS_NAMED_TYPE`; conflicting exact bindings reject
+  the same way. A rename-away or explicit unimport excludes the source name from that
+  importer, including its wildcard, so the builtin remains eligible only if no other
+  active importer can supply it. Given-only selectors do not bind ordinary type
+  names. These rules apply before **every** bare primitive, numeric, `Bytes`, frozen
+  collection, and `Array[Byte]` mapping, not only before `Byte`; an exact import from
+  `scala`, `java`, or `javax` rejects with `PLATFORM_TYPE_FORBIDDEN` rather than
+  laundering a platform type through a builtin spelling;
 - `Int` maps directly to `I32`, `Long` directly to `I64`, `Double` to `F64`,
   and no width is inferred from a literal, body result, lowered value, `SType.Any`,
   legacy `ExportedSymbol.tpe`, or `TypeEvidenceWire`;
@@ -168,13 +183,25 @@ The source of truth is the parsed declaration header:
   is forbidden: an ordinary unmarked same-name object cannot consume a later
   marked effect's header. Prose and non-Scala fences are never evidence. A missing
   or ambiguous binding, an owner/multiplicity mismatch, or an AST whose package
-  wrapper retained only the erased object fails closed instead of guessing;
+  wrapper retained only the erased object fails closed instead of guessing.
+  Before one retained carrier is chosen as lexical evidence, every carrier also
+  receives an ordered, line-offset-independent raw effect-header witness aligned to
+  its declaration witness. Each object-shaped candidate records its lexical owner,
+  name/order, whether the source declared an ordinary `object` or an `effect`, plain
+  versus `multi` multiplicity, and whether generic or parent/header syntax was
+  present. Unsupported generic/parent effect shape rejects even when both carriers
+  repeat it. CodeBlock and Document witnesses must agree exactly; preprocessing an
+  `effect` into an object never erases an effect/object or multiplicity disagreement.
+  A documentless CodeBlock still validates its raw evidence against the stored
+  marked AST before production;
 - nominal projection is deliberately lossless rather than optimistic: a public
   class/trait/enum with explicit parents or a self type, a trait constructor
-  clause, a public instance member, a template `export`, or a secondary
-  constructor rejects until receiver/supertype/member metadata exists. Class and
-  case-class primary parameters carrying `val`/`var` accessor semantics reject for
-  the same reason; a plain non-accessor class constructor remains representable.
+  clause, a non-empty derives clause or early-initializer clause, a public instance
+  member, a template `export`, or a secondary constructor rejects until receiver/
+  supertype/member/derivation metadata exists. Class and case-class primary
+  parameters carrying `val`/`var` accessor semantics reject for the same reason; a
+  plain non-accessor class constructor remains representable. This derives/early
+  gate applies to every class, trait, enum, or object form accepted by the parser.
   Objects remain namespace containers whose public nested declarations are
   projected explicitly. Abstract classes and classes with private/protected
   primary constructors emit only their `Type` symbol. Repeated enum cases and the
@@ -202,7 +229,8 @@ The source of truth is the parsed declaration header:
   A witness retains owner nesting, declaration kind/name, ABI-relevant
   modifiers (including `val` versus `var`, visibility, accessors, and effect
   multiplicity/operation markers), type/constructor/parameter clauses, declared
-  types/effect rows, parent/self/export/member surface, and default presence. It
+  types/effect rows, parent/self/derives/early/export/member surface, and default
+  presence. It
   deliberately erases method/value bodies, initializer/default expressions, source
   positions, comments, and formatting, so body-only edits remain descriptor/hash
   invariant. A parse failure or witness mismatch, a non-empty block without an
@@ -219,8 +247,9 @@ The source of truth is the parsed declaration header:
   supplies them. Body-derived facts belong only to Slice C.
 
 Bare named types are accepted only when they are lexical type parameters, local
-public type declarations, or frozen standard constructors. Qualified non-platform
-names retain their dotted id. The frozen standard ids in this producer are
+public type declarations, exact explicit-import bindings, or frozen standard
+constructors. Qualified non-platform names retain their dotted id. The frozen
+standard ids in this producer are
 `std.List`, `std.Vector`, `std.Seq`, `std.Set`, `std.Map`, `std.Option`, and
 `std.Either`; unshadowed `Array[Byte]` and `Bytes` normalize to primitive `Bytes`.
 The `Array[Byte]` shortcut applies only when **both** `Array` and `Byte` are neither
@@ -228,7 +257,8 @@ lexical binders nor known local type identities. Binder or public-local shadowin
 takes the ordinary type-application path (which may reject if that application has
 no closed v3 representation); private/protected/`@internal` shadowing rejects with
 the ordinary stable visibility error before the shortcut. A bare unresolved name
-is ambiguous rather than guessed from imports or a body.
+or a name potentially supplied by a wildcard/conflicting import is ambiguous rather
+than guessed from imports or a body.
 `_root_` is removed before stable-id and platform-root checks, so
 `_root_.java.*` remains forbidden.
 
@@ -240,8 +270,8 @@ Strict projection failures reuse `DescriptorError` and stable producer codes:
 | `MISSING_PUBLIC_TYPE` | an exported value, parameter, or result relies on inference |
 | `DYNAMIC_PUBLIC_TYPE` | `Any`, `AnyRef`, `Object`, `Dynamic`, or a wildcard reaches the public ABI |
 | `UNSUPPORTED_NUMERIC_WIDTH` | a source numeric type has no frozen v3 width (`Byte`, `Short`, `Float`, decimal) |
-| `AMBIGUOUS_NAMED_TYPE` | a bare name is neither bound, local, nor a frozen standard id |
-| `PLATFORM_TYPE_FORBIDDEN` | a public type names `scala.*`, `java.*`, or `javax.*` |
+| `AMBIGUOUS_NAMED_TYPE` | a bare name is unresolved or may have conflicting/wildcard import bindings |
+| `PLATFORM_TYPE_FORBIDDEN` | a public type directly, qualifiedly, or through an exact import names `scala.*`, `java.*`, or `javax.*` |
 | `UNSUPPORTED_PUBLIC_TYPE` | the closed v3 algebra cannot represent the declared type without loss |
 | `UNSUPPORTED_PUBLIC_DECLARATION` | the producer cannot represent the declaration kind without guessing |
 | `INVALID_EFFECT_ROW` | an effect row has an unsupported or ambiguous member/tail shape |
@@ -313,6 +343,17 @@ a second wire model or route through legacy `tpe`.
 - [x] Selected public/exported `var` rejects until mutability is represented by an
       additive schema; the equivalent explicitly typed `val` remains projectable,
       and Slice A's model/canonical wire shape is unchanged.
+- [ ] Explicit direct and renamed imports resolve before every bare builtin mapping;
+      wildcard/conflicting imports fail closed, while rename-away/unimport exclusions
+      preserve a builtin only when absence is provable. Array/Byte, Int/List, exact
+      qualified positives, and platform-root imports have stable paths and codes.
+- [ ] CodeBlock and Document carriers have equal raw semantic effect-header evidence
+      before either supplies effect metadata. Empty effect versus object, plain versus
+      multi, name/order, and unsupported generic/parent shape are observable while
+      line offsets are not; documentless source remains independently checked.
+- [ ] Non-empty derives and early-initializer clauses participate in exact retained
+      header correspondence and reject on real public nominal declarations until the
+      descriptor represents them, across every parseable class/trait/enum/object form.
 
 ## Versions
 
@@ -869,6 +910,16 @@ slice A must not mark that milestone complete.
 - loading classes/plugins or executing user code during descriptor decode.
 
 ## Results
+
+A fresh independent review rejected exact frozen checkpoint `4cd2a4aaa` (rebased
+as `05e498a72`) with no P0 and three P1 fail-open classes. Imports were ignored
+before bare builtin projection; dual source carriers could disagree on raw
+effect/object or multiplicity evidence after preprocessing; and derives/early
+template headers were absent from both correspondence and nominal losslessness
+checks. The reviewer explicitly confirmed the previous exact-package-wrapper,
+mandatory CodeBlock-source, and Array/Byte binder/local corrections. All twelve
+Slice B `descriptor-v3-*` entries remain `open`; the new behavior items above are
+unchecked until faithful red vectors and implementation gates pass.
 
 The third Slice B correction is implementation commit `72e6a2897`, rebased on
 `origin/main@790366a9d`. It closes the three P1 gaps from the fresh rereview:
