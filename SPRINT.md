@@ -2124,6 +2124,25 @@ Two new front doors are specced (typed-SQL-API cb94fd88c, JDBC-API f2d1372a0); *
 working first implementation** — the JDBC portable façade (m6v) and the typed SQL surface (m6w),
 alongside SQL polish (REAL literals m6s, LEFT-join-3 m6r). All three "параллельно" lanes advanced.
 
+- [x] **scljet-m7f-index-descent** — DONE 2026-07-15 (physical access-path perf; Sergiy "Ок берись").
+      O(log n) index descent — `WHERE indexedcol=K` now **descends** the index B-tree instead of walking
+      it in order. New index-aware page readers: `readIndexInterior` (each interior cell = left-child
+      pointer + divider **key record** → first key column; `readInteriorNode` couldn't be reused — it's
+      table/rowid-only, reads a rowid varint) and `readIndexLeafRowids` (leaf cells → rowids where first
+      key col == K). `indexDescendCollect` recurses from the root; `descendChildren` visits only children
+      whose divider range could contain K (`childCouldContainKey`: conservative `<=`/`>=` on the first
+      column, so equal-key runs that **span multiple leaves** are never missed — the hard case). Overflow
+      /unexpected-page/decode bail → previous ordered walk (`indexWalkRowids`); both yield identical
+      rowids in identical order, so `indexSeekRowids` = try-descent-else-walk is transparent. Verified vs
+      sqlite3 on a **multi-level** index (40 long-text-key rows spanning several leaves under an interior
+      node; confirmed out-of-band the descent runs standalone without falling back), int==js; conformance
+      `scljet-sql-index-descent`; 45/45 scljet-sql green non-memoized. **Physical index access-path work
+      COMPLETE**: `WHERE col=K` → PK/rowid col = table B-tree seek (m7c/m7d), any indexed col = O(log n)
+      index descent + point-lookup (m7e ordered-walk → m7f descent), plus LIMIT pushdown (m6z). GOTCHA:
+      the interp/JS build path (`buildTableWithIndexDatabase`/large SQL INSERT) StackOverflows above
+      ~60 rows (no TCO) — force a multi-level index at a small row count via **long keys** (fewer entries
+      per leaf) rather than many rows.
+
 - [x] **scljet-m7e-index-seek** — DONE 2026-07-15 (physical access-path perf; continues the seek work).
       Index-assisted lookup — the engine previously **never** used an index for SELECT (always
       full-scanned; the spec's key gap). Now a single-table `SELECT … WHERE col = literal`, where `col`
