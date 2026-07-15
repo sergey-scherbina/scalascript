@@ -1,6 +1,6 @@
 feature/plugin-capability-profile-v1 2026-07-15T03:15:24Z
 agent: codex-plugin-profile
-heartbeat: 2026-07-15T03:15:50Z
+heartbeat: 2026-07-15T03:26:05Z
 status: in-progress
-done-so-far: isolated feature worktree created from current origin/main; descriptor Slice A remains in final verification and will be rebased in before profile implementation depends on it
-next: read global/control/plugin specs and current SPI, then commit a target-neutral capability-profile spec before implementation
+done-so-far: committed target-neutral plugin capability profile spec plus validation-bound tightening (feature commits f592735ff and 46d2a320a); aligned the single aggregate plugin binding with the descriptor owner
+next: rebase the descriptor Slice A landing, then implement the profile leaf, additive NativePlugin adapter, inventory validation, and focused tests
