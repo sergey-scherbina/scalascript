@@ -334,6 +334,16 @@ schema id, exact implementation digest, applicable target, and required
 capabilities. The next `plugin-capability-profile-v1` slice supplies real plugin
 producer data; this descriptor only defines the binding container.
 
+`DependencyKind.Plugin` is an aggregate, atomic selection: a manifest contains
+exactly one binding per stable `(pluginId, target)`, with `logicalId = pluginId`,
+an aggregate `semanticAbiId` (and optional aggregate `schemaId`) that commits to
+the plugin profile's normalized per-service provisions, and the exact target
+implementation digest. Per-service provisions are not repeated as competing
+`Plugin` bindings. A separately resolved primitive, codec, resolver, or capability
+may instead receive its own binding under that dependency kind and stable logical
+id. This preserves the frozen `(kind, logicalId, target)` ambiguity check while
+letting the plugin profile evolve its internal service inventory atomically.
+
 The exact normalized dependency vector is bound by the already specified domain:
 
 ```text
