@@ -1,0 +1,46 @@
+---
+name: scljet-sql-left-join3
+description: SclJet SQL LEFT joins over a 3-table chain (NULL-extended rows); matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet SQL LEFT joins over a 3-table chain
+
+`a LEFT JOIN b ON … LEFT JOIN c ON …` over the N-table join path. A partial join-row that matches
+no row of the next table is kept once, NULL-extended (an empty record → every column of that table
+reads back as NULL). NULLs propagate down the chain, and a later inner `JOIN` drops rows whose
+LEFT side went NULL. Every result is byte-identical to reference sqlite3 running the same SQL on the
+same file (verified out-of-band); locked across backends.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, renderRows, executeMutation](std/scljet/sql.ssc)
+
+```scalascript
+def apply(db: ByteSlice, sql: String): ByteSlice =
+  executeMutation(db, sql) match
+    case Left(m) =>
+      println(sql + " => ERR:" + m)
+      db
+    case Right(next) => next
+
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER, name TEXT, dept_id INTEGER, salary INTEGER)",
+  List(List(SqlInteger(1L), SqlText("ann"), SqlInteger(10L), SqlInteger(100L)),
+       List(SqlInteger(2L), SqlText("bob"), SqlInteger(99L), SqlInteger(250L)),
+       List(SqlInteger(3L), SqlText("cat"), SqlInteger(10L), SqlInteger(300L)),
+       List(SqlInteger(4L), SqlText("dan"), SqlInteger(20L), SqlInteger(150L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db0) =>
+    val d1 = apply(db0, "CREATE TABLE dept(did INTEGER, dname TEXT, loc_id INTEGER)")
+    val d2 = apply(d1, "INSERT INTO dept VALUES (10,'eng',100),(20,'sales',200)")
+    val d3 = apply(d2, "CREATE TABLE loc(lid INTEGER, city TEXT)")
+    val db = apply(d3, "INSERT INTO loc VALUES (100,'NYC')")
+    show(db, "SELECT emp.name, dept.dname, loc.city FROM emp LEFT JOIN dept ON emp.dept_id = dept.did LEFT JOIN loc ON dept.loc_id = loc.lid ORDER BY emp.id")
+    show(db, "SELECT emp.name, dept.dname FROM emp LEFT JOIN dept ON emp.dept_id = dept.did LEFT JOIN loc ON dept.loc_id = loc.lid WHERE loc.city IS NULL ORDER BY emp.id")
+    show(db, "SELECT COUNT(*) FROM emp LEFT JOIN dept ON emp.dept_id = dept.did LEFT JOIN loc ON dept.loc_id = loc.lid")
+    show(db, "SELECT emp.name, loc.city FROM emp LEFT JOIN dept ON emp.dept_id = dept.did JOIN loc ON dept.loc_id = loc.lid ORDER BY emp.id")
+```

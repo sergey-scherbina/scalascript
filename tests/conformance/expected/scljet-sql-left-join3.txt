@@ -1,0 +1,9 @@
+SELECT emp.name, dept.dname, loc.city FROM emp LEFT JOIN dept ON emp.dept_id = dept.did LEFT JOIN loc ON dept.loc_id = loc.lid ORDER BY emp.id => ann|eng|NYC
+bob||
+cat|eng|NYC
+dan|sales|
+SELECT emp.name, dept.dname FROM emp LEFT JOIN dept ON emp.dept_id = dept.did LEFT JOIN loc ON dept.loc_id = loc.lid WHERE loc.city IS NULL ORDER BY emp.id => bob|
+dan|sales
+SELECT COUNT(*) FROM emp LEFT JOIN dept ON emp.dept_id = dept.did LEFT JOIN loc ON dept.loc_id = loc.lid => 4
+SELECT emp.name, loc.city FROM emp LEFT JOIN dept ON emp.dept_id = dept.did JOIN loc ON dept.loc_id = loc.lid ORDER BY emp.id => ann|NYC
+cat|NYC

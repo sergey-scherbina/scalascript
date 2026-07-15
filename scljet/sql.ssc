@@ -2527,16 +2527,25 @@ def wrapSingletons(rows: List[StorageRecord]): List[List[StorageRecord]] =
     r = r.tail
   accRev.reverse
 
+// A NULL-extended row for an unmatched LEFT-join side: an empty record, so `fieldValueAt`
+// (hence `multiColValue`) returns SqlNull for every column of that table.
+def nullRow(): StorageRecord = StorageRecord(None, DecodedRecord(0, 0, Nil))
+
 // Extend each partial join-row with every row of the next table that satisfies the ON.
+// For a LEFT join, a partial that matched no next-table row is kept once, NULL-extended.
 def extendPartials(partials: List[List[StorageRecord]], nextRows: List[StorageRecord], boundTables: List[JoinTable], spec: JoinSpec): List[List[StorageRecord]] =
   var ps = partials
   var accRev: List[List[StorageRecord]] = Nil
   while ps.nonEmpty do
     var nr = nextRows
+    var matched = false
     while nr.nonEmpty do
       val candidate = ps.head ++ (nr.head :: Nil)
-      if onHolds(candidate, boundTables, spec) then accRev = candidate :: accRev
+      val hit = onHolds(candidate, boundTables, spec)
+      accRev = if hit then candidate :: accRev else accRev
+      matched = if hit then true else matched
       nr = nr.tail
+    accRev = if spec.leftOuter && !matched then (ps.head ++ (nullRow() :: Nil)) :: accRev else accRev
     ps = ps.tail
   accRev.reverse
 
