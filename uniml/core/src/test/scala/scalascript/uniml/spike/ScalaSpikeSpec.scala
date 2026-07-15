@@ -527,6 +527,30 @@ final class ScalaSpikeSpec extends AnyFunSuite:
     assert(ccBare == ccNl)
   }
 
+  // ══ new-self-hosting-front Phase 0 — batch-project the real corpus for the byte-diff harness ═══
+  // Reads every `<name>.code` (extracted ScalaScript, from specs/newfront-diff.sh) in $NEWFRONT_CODE and
+  // writes `<name>.proj` (the spike's AST-builder projection) to $NEWFRONT_PROJ. The harness then lowers each
+  // .proj with the SAME lowerProg the old front uses and byte-compares to the old front's Core IR. No-op
+  // unless NEWFRONT_CODE is set, so it never affects normal CI runs.
+  test("newfront corpus batch — project every *.code to *.proj (env NEWFRONT_CODE)") {
+    sys.env.get("NEWFRONT_CODE").foreach { dir =>
+      val outDir = sys.env.getOrElse("NEWFRONT_PROJ", dir)
+      Files.createDirectories(Paths.get(outDir))
+      val files = Option(new java.io.File(dir).listFiles()).getOrElse(Array.empty[java.io.File])
+        .filter(_.getName.endsWith(".code")).sortBy(_.getName)
+      var ok = 0; var bad = 0
+      for f <- files do
+        val name = f.getName.stripSuffix(".code")
+        val proj =
+          try
+            val roots = parse(new String(Files.readAllBytes(f.toPath), "UTF-8")).roots
+            if roots.isEmpty then { bad += 1; "EMPTY" } else { ok += 1; SpikeProject.program(roots.head) }
+          catch case e: Throwable => { bad += 1; s"SPIKE_CRASH: ${e.getClass.getSimpleName}: ${e.getMessage}" }
+        Files.writeString(Paths.get(outDir, s"$name.proj"), proj)
+      info(s"newfront batch: projected ${files.length} files ($ok projected, $bad empty/crash)")
+    }
+  }
+
   // ══ emit projections + toys for the end-to-end run-ir / Core IR diff harness ═══
 
   test("emit projections + toys for the diff harness") {

@@ -33,17 +33,33 @@ error-resilient parser already byte-identical to ssc1-front on 119 constructs, t
 
 ### Phases (each gated by the byte-diff harness; land + push per slice)
 
-- [ ] **Phase 0 — corpus byte-identity harness + baseline (IN PROGRESS).** For every corpus `.ssc`: extract
-      code (reuse `sscProgramSource`) → old front `lowerProg(parse(code))` = ref IR; new front
-      `lowerProg(SpikeProject(SpikeParse(code)))` = spike IR; `cmp` byte-for-byte. Output: **"spike ≡
-      ssc1-front on N of 486"** + divergences grouped by cause. Start with single-file (no-`import`) programs
-      for a clean parser comparison; add multi-file (import resolution) as a follow-up. Deliverable:
-      `specs/newfront-diff.sh` + the baseline number. (Kernel jar: `scala-cli --power package v2/src --assembly`
-      — run-ir-capable, unlike the thin `bin/lib/ssc.jar`.)
-- [ ] **Phase 1 — grow the parser to ~100% corpus byte-identity.** Close divergences from Phase 0 in
-      `ScalaSpike.scala`, highest-frequency first (expected: interpolation, `case class`, `for`, `var`,
-      effects, `given`/`using`). Each fix: harness coverage goes UP, never down. Reuses `ssc1-lower` (variant
-      A — the parser produces the same `Pair`-AST). Ends when the whole single-file corpus is byte-identical.
+- [x] **Phase 0 — corpus byte-identity harness + baseline ✓ DONE 2026-07-15.** `specs/newfront-diff.sh`
+      (extract via `sscProgramSource` → spike batch in `ScalaSpikeSpec` "newfront corpus batch" → `lowerProg`
+      both sides → per-file byte-`cmp`, parallel). Ran over **479 corpus programs**. **BASELINE: 0 byte-
+      identical.** Breakdown (the priority list for Phase 1):
+      - **~259 proj = `Nil` + ~266 prelude-only ⇒ the program is LOST.** The #1 gap by far (>50%): the spike's
+        `program()` projects only DECLARATIONS, so a file with **top-level statements** (script-style `println(
+        …)` / top-level `val`) collapses to an empty projection. Fixing top-level-statement handling flips the
+        largest chunk. (Root cause verified: `json-read.code` starts with `println(…)` → proj = `"Nil"`.)
+      - **52 parse holes** (`__notImplemented__`) — constructs the spike can't parse yet.
+      - **~107 content-level DIFFs** — real per-construct gaps once the program projects: clusters on case-
+        class METHODS (`Point_distanceTo`/`FixtureVfs_name` = `_sel_<field>` access), top-level `var`→`_cell`,
+        SQL/YAML/content fences.
+      Method note: both sides use the SAME `lowerProg` on the SAME extracted code, so the diff isolates the
+      PARSER/projection. The earlier "case class method" categorisation was misleading (it was just where the
+      ref's content starts when the spike is empty) — the true dominant cause is TOP-LEVEL STATEMENTS.
+      Kernel jar built with `scala-cli --power package v2/src --assembly` (run-ir-capable; thin `bin/lib/ssc.jar`
+      is not). `ScalaSpikeSpec` gained a `NEWFRONT_CODE`-gated batch-projection test (no-op in normal CI).
+- [ ] **Phase 1 — grow the parser to ~100% corpus byte-identity.** Close Phase 0 divergences in
+      `ScalaSpike.scala`, in the order the baseline dictates. Each fix: rerun `specs/newfront-diff.sh`, MATCH
+      goes UP, never down. Reuses `ssc1-lower` (variant A — same `Pair`-AST). Priority:
+      1. **TOP-LEVEL STATEMENTS (the #1 gap, ~50%+).** Make the spike parse + project a program body that is a
+         mix of declarations AND bare statements (top-level `println(…)`, `val`, exprs) — ssc1-front collects
+         them into `(entry (seq …))`. Today they collapse the whole projection to `Nil`.
+      2. the 52 parse holes (`__notImplemented__`) — surface each construct, add it to the parser.
+      3. content-level clusters: case-class METHODS (methods in the class body → `ClassName_method` +
+         `_sel_<field>`), top-level `var`, SQL/YAML/content fences.
+      Ends when the whole (single-file) corpus is byte-identical.
 - [ ] **Phase 2 — multi-file / imports.** Give the new front the module-loading the old front has (resolve
       `[name](path.ssc)` imports, load defs), so multi-file programs also compare byte-identically.
 - [ ] **Phase 3 — self-host the implementation subset.** Define the clean ScalaScript subset the new front is
