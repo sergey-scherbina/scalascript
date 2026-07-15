@@ -209,6 +209,12 @@ object SpikeParse:
     def peekLexeme: String = peek.map(_.lexeme).getOrElse("<eof>")
     def peekLine: Int = peek.map(_.span.start.line).getOrElse(-1)
     def peekCol: Int = peek.map(_.span.start.column).getOrElse(-1)
+    // line where the previous significant token ENDS (used for same-line trailing-block detection:
+    // ssc1-front's layout inserts `;` on a newline, so `f\n{…}` is two statements, `f {…}` is a call).
+    def prevEndLine: Int =
+      var q = p - 1
+      while q >= 0 && toks(q).kind == "spike.ws" do q -= 1
+      if q >= 0 then toks(q).span.end.line else -1
     def peekPrec: Int = if peekKind == "spike.op" then opPrec(peekLexeme) else 0
     def peek2Lexeme: String = // the second significant (non-trivia) token's lexeme
       skipTrivia()
@@ -532,8 +538,46 @@ object SpikeParse:
         case None    => c.report("spike.expected", "expected field name after '.'")
       postfix(c, Node.Frame("spike.sel", None, kids.result()))
     else if c.peekKind == "spike.lparen" then postfix(c, applyArgs(c, atom)) // chained application f(a)(b)
+    // trailing block argument `e { body }` → e(body) (ssc1-front buildPostfix / parseBlockArg). Only when
+    // the `{` is on the SAME line as `e` (else it is a fresh statement, per ssc1-front's newline→`;` layout).
+    else if c.peekKind == "spike.lbrace" && c.peekLine == c.prevEndLine then
+      val arg = parseBlockArg(c)
+      postfix(c, Node.Frame("spike.blockapp", None, Vector(atom.withRole("blkapp.fn"), arg.withRole("blkapp.arg"))))
     else if isKw(c, "match") then parseMatch(c, atom)
     else atom
+
+  // `{ … }` as a call argument, wrapped as a lambda — mirrors ssc1-front parseBlockArg (ssc1-front.ssc0:1750):
+  //   `{ case P => B; … }`  → __pf => __pf match { … }  (spike.pfblock)
+  //   `{ id => body }`      → mkLam([id], block)
+  //   `{ (p,…) => body }`   → mkLam([p,…], block)
+  //   `{ stmts }`           → mkLam([], block)          (0-arity thunk)
+  private def parseBlockArg(c: Cur): Node =
+    c.advance() // consume `{`
+    c.skipSemis()
+    if isKw(c, "case") then
+      val arms = Vector.newBuilder[Node]
+      while isKw(c, "case") do { arms += parseArm(c); c.skipSemis() }
+      if c.peekKind == "spike.rbrace" then c.advance()
+      else c.report("spike.expected", "expected '}' to close partial-function block")
+      Node.Frame("spike.pfblock", None, arms.result())
+    else
+      // optional lambda header: `id =>` or `(params) =>` (paren form backtracks if not a lambda)
+      val params: Vector[SourceToken] =
+        if c.peekKind == "spike.id" && c.peek2Lexeme == "=>" then
+          val nm = c.advance().get; c.advance(); Vector(nm)
+        else if c.peekKind == "spike.lparen" then
+          val m = c.mark
+          tryLambdaParams(c) match
+            case Some(ps) if c.peekLexeme == "=>" => c.advance(); ps
+            case _ => c.reset(m); Vector.empty
+        else Vector.empty
+      c.skipSemis()
+      val stmts = Vector.newBuilder[Node]
+      while !c.eof && c.peekKind != "spike.rbrace" do { stmts += parseStmt(c); c.skipSemis() }
+      if c.peekKind == "spike.rbrace" then c.advance()
+      else c.report("spike.expected", "expected '}' to close block argument")
+      val block = Node.Frame("spike.block", None, stmts.result())
+      Node.Frame("spike.lambda", None, params.map(p => Node.Leaf(p, Some("lam.param"))) :+ block.withRole("lam.body"))
 
   private def parseMatch(c: Cur, scrut: Node): Node =
     val kids = Vector.newBuilder[Node]
@@ -1167,6 +1211,13 @@ object SpikeProject:
         val ps   = kids(b).collect { case (Some("lam.param"), c) => "\"" + esc(lexeme(c)) + "\"" }.toVector
         val body = kids(b).collectFirst { case (Some("lam.body"), c) => expr(c) }.getOrElse(hole)
         s"""mkLam(${consList(ps)}, $body)"""
+      case "spike.blockapp" => // e { body } → mkApp(e, [blockArg]) (ssc1-front consumeBlockArg)
+        val fn  = kids(b).collectFirst { case (Some("blkapp.fn"), c) => expr(c) }.getOrElse(hole)
+        val arg = kids(b).collectFirst { case (Some("blkapp.arg"), c) => expr(c) }.getOrElse(hole)
+        s"""mkApp($fn, ${consList(Vector(arg))})"""
+      case "spike.pfblock" => // { case … } → __pf => __pf match { … } (partial-function literal)
+        val arms = kids(b).collect { case (_, c) if kindOf(c) == "spike.arm" => arm(c.asInstanceOf[UniNode.Branch]) }
+        s"""mkLam(Cons("__pf", Nil), mkMatch(mkVar("__pf"), ${consList(arms.toVector)}))"""
       case "spike.interp" =>
         val pfx = kids(b).collectFirst { case (Some("interp.prefix"), c) => lexeme(c) }.getOrElse("s")
         val raw = kids(b).collectFirst { case (Some("interp.raw"), c) => lexeme(c) }.getOrElse("")
