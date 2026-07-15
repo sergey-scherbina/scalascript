@@ -207,6 +207,14 @@ optional policy, not the default continuation semantics.
     `modules*,import-dir*` is 2/2 on interpreter/JS/JVM. Slices B/C/D remain open below.
   - [ ] **B — pre-body producers:** project declarations/real width evidence into v3 before body
     compilation; reject ambiguous/dynamic managed exports and never parse legacy `tpe` to invent v3.
+    - [ ] Reject retained declaration source whose parsed section AST was lost; preserve the
+      reviewer repro that copies a valid module with `sections = Nil`.
+    - [ ] Make effect-header evidence comment/string invariant and bind it to the exact lexical
+      effect owner/order; an ordinary same-name object must never steal another effect's header.
+    - [ ] Close nominal losslessness gaps for trait constructors/self types, template exports,
+      and constructor `val`/`var` accessors until receiver/member metadata can represent them.
+    - Done when the focused regressions and affected core/interop/conformance gates pass and a
+      fresh independent read-only review returns APPROVE with no P1/P2 blocker.
   - [ ] **C — post-body summaries:** extract managed/foreign/tail edges, save sites, frame schemas,
     and barriers; cross-check callback `ManagedControl` claims.
   - [ ] **D — post-link manifests and consumers:** populate target entrypoints and exact program,

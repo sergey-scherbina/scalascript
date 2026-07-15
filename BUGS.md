@@ -120,7 +120,59 @@ same `Effect<Id, CollapsedOwner>`. A wrong-owner handler again typechecks as
 reject both inference-only and explicit-generic union owners, while stable named
 owner reuse remains positive. `npm run typecheck` passes all original fixtures and
 the exact cast-free second-review repros.
+## descriptor-v3-nominal-surface-loss — strict pre-body projection drops public nominal semantics
 
+**Status:** open (2026-07-15). Reported by the independent Slice B re-review
+(`/root/descriptor_b_rereview`); fix SHA pending.
+
+**Symptom/reproduce:** the in-progress descriptor-v3 producer accepts nominal
+declarations whose public surface cannot be represented by the current descriptor:
+`trait Configured(value: Int)` loses its trait constructor, a trait self type such
+as `self: Base =>` loses the self constraint, a template `export delegate.exposed`
+loses a public receiver member, and constructor `val`/`var` parameters lose their
+generated public accessors. Each input currently produces a successful bare
+`Type`/`Constructor` projection instead of failing closed.
+
+**Root cause/plan:** the nominal losslessness gates inspect parents and most
+`Stat.WithMods` members, but do not inspect trait constructor clauses, template
+self types, `scala.meta.Export`, or constructor accessor modifiers. Freeze these
+shapes as unsupported until receiver/member metadata exists, reject them with
+stable `UNSUPPORTED_PUBLIC_DECLARATION`, and add one regression per shape before
+requesting another independent review.
+
+## descriptor-v3-effect-header-evidence-misbinding — comments and same-name objects corrupt effect evidence
+
+**Status:** open (2026-07-15). Reported by the independent Slice B re-review
+(`/root/descriptor_b_rereview`); fix SHA pending.
+
+**Symptom/reproduce:** inserting `/* effect Phantom: */` before a valid
+`effect Real` changes a successful projection into
+`UNSUPPORTED_PUBLIC_DECLARATION`, so comments/body text are not invariant. An
+ordinary unexported `Left.Choice` object encountered before an exported
+`Right.Choice` effect can also consume the latter's erased source header and make
+the real effect fail with missing evidence.
+
+**Root cause/plan:** effect headers are found by a raw line regex and then assigned
+to transformed objects by bare-name preorder. Replace the scan with a
+comment/string-aware lexical projection, bind evidence to the structurally marked
+effect candidate and lexical owner/order, and fail closed when an empty same-name
+effect cannot be bound unambiguously. Add both faithful regressions.
+
+## descriptor-v3-lost-ast-container-fail-open — retained declarations can project as an empty API
+
+**Status:** open (2026-07-15). Reported by the independent Slice B re-review
+(`/root/descriptor_b_rereview`); fix SHA pending.
+
+**Symptom/reproduce:** parse a valid declaration-bearing module, then copy it with
+`sections = Nil` while retaining the original `document`/`sourceText` and an empty
+manifest export list. The in-progress strict producer returns a valid descriptor
+with zero symbols instead of rejecting the lost declaration AST.
+
+**Root cause/plan:** `topLevelStats` folds only `module.sections`; it has no
+completeness cross-check against retained parseable document blocks. Compare the
+retained declaration-source containers with section code blocks and return stable
+`UNSUPPORTED_PUBLIC_DECLARATION` whenever parsed declaration structure is missing.
+Cover the exact copy-based repro.
 ## jvm-bytegen-letrec-env-clobber — FIXED / awaiting confirmation (2026-07-15, Codex)
 
 **Status:** fixed in `956b42539`; awaiting reporter confirmation. Found by the
