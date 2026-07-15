@@ -29,35 +29,36 @@ correctly, so the bug is v1-interpreter-only (its `${…}` boundary scanner appe
 `[]` and mis-counts when a `[` occurs inside an embedded string). Workaround: avoid `[` in
 string literals inside `${…}`, or build the string in a `val` before interpolating.
 
-## control-interop-residual-forwarding-absent — CONFIRMED / open (2026-07-15, Codex)
+## control-interop-residual-forwarding-absent — FIXED / awaiting confirmation (2026-07-15, Codex)
 
-**Status:** open. Recorded from portable interoperability axis 19; implementation
-is now claimed as `control-interop-residual-forwarding`.
+**Status:** fixed in `803e82a67`, with self-hosted frontend qualification in
+`2fcd5eff3` and selected-only total-handler hardening in `6cabe261c`; awaiting
+reporter confirmation after the feature branch lands.
 
 **Symptom:** an operation unhandled by the nearest inner handler is sent to that
 handler anyway and fails with `match: no arm`, instead of remaining an explicit
 `Op` for the next enclosing handler.
 
-**Reproduce:** run the axis-19 probe described by
-`tests/interop-conformance/pending/19-residual-forwarding-nested-handlers.pending`:
-nest an inner `Rd` handler inside an outer `Wr` handler, then perform `Wr.wr`
-inside the inner scope. Portable VM/direct ASM report `no arm for wr/2`; expected
-output is produced only when the unmatched operation is forwarded to the outer
-handler.
+**Reproduce:** run
+`tests/interop-conformance/probes/19-residual-forwarding-nested-handlers.ssc`:
+it nests an inner `Rd` handler inside an outer `Wr` handler, then performs
+`Wr.wr` inside the inner scope. Before the fix, portable VM/direct ASM reported
+`no arm for wr/2`; both installed lanes now print exact `57` with empty stderr.
 
-**Initial diagnosis:** the current handler fold calls the nearest handler as an
-ordinary partial-function closure and represents a missing arm as an immediate
-runtime failure. There is no explicit recoverable `Unhandled(operation)` result
-that can rebuild the residual `Op` around the same continuation. The fix must
-distinguish only a genuine missing operation arm from failures thrown by a
-matching arm, preserve deep-handler reinstall and the original one-shot gate,
-and avoid changing CoreIR or the three-field `Op` ABI.
+**Root cause:** the handler fold called the nearest generated partial-function
+closure as an ordinary total function. Its missing arm became an immediate
+textual match failure, so the fold could not distinguish a recoverable miss from
+a failure thrown inside a selected arm or continue an effectful guard decision.
 
-**Fix/verification:** pending specification in
-`specs/control-residual-forwarding.md`. Done when axis 19 is promoted to the
-measurable suite, nested forwarding works identically on VM/direct ASM, matching
-handler failures remain failures, one-shot/multi-shot behavior is unchanged, and
-the native effect e2e plus affected conformance are green.
+**Fix/verification:** qualified handler roots now return a private structured
+`Matched | Unhandled | Suspended` decision with exact-event, owner, and activation
+provenance. A miss rebuilds the existing three-field `Op` around the same deep
+continuation and base multiplicity gate; no public CoreIR/data ABI changed and no
+exception text is parsed. Axis 19 is measurable-now (`57`), focused JVM tests are
+17/17 + 4/4 + 6/6, native e2e and stage2 source-exact fixed points pass, affected
+conformance is 6/6, all 11 interop axes pass, and focused JVM/JS/Rust/Swift marker
+checks are green. Full evidence is recorded in
+`specs/control-residual-forwarding.md`.
 
 ## swift-effect-handler-implicit-return-fallback — FIXED / awaiting confirmation (2026-07-15, Codex)
 

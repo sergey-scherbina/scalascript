@@ -4,6 +4,28 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-15 — Portable residual-effect forwarding
+
+Deep portable handlers now forward an unmatched operation to the next enclosing
+handler as the existing three-field `Op`, with the skipped handler reinstalled
+around the original continuation. The JVM runtime uses a private structured
+`Matched | Unhandled | Suspended` dispatch result; exact-event owner/activation
+provenance isolates concurrent, nested, and reentrant decisions, while the
+original one-shot or reusable base continuation remains authoritative. Matching
+arm failures stay fatal, missing `Return` remains identity, and no public CoreIR,
+wire value, or primitive-manifest ABI changed (`803e82a67`, `2fcd5eff3`,
+`6cabe261c`).
+
+Both compatibility and self-hosted frontends now qualify simple and general
+handler partial functions, including effectful guards and selected-only total
+catch-alls. Conservative JVM-source/JS/Rust/Swift marker fallbacks preserve
+ordinary partial-function behavior outside typed JVM dispatch. Interop axis 19
+is measurable-now at exact `57`; 17/17 residual, 4/4 one-shot, and 6/6 native
+runner tests pass, as do installed VM/direct-ASM e2e, four real-Swift checks,
+6/6 affected conformance, all 11 interop axes, and the source-exact stage2
+single/multi fixed points. The verified design and complete commands are in
+`specs/control-residual-forwarding.md`.
+
 ## 2026-07-15 — Swift implicit effect `Return` parity
 
 Swift AOT now applies the specified identity fallback when an effect handler omits
