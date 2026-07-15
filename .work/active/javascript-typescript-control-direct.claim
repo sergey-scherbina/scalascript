@@ -1,6 +1,6 @@
 feature/javascript-typescript-control-direct 2026-07-15T05:29:19Z
 agent: codex-js-control-direct
-heartbeat: 2026-07-15T06:13:34Z
+heartbeat: 2026-07-15T06:29:29Z
 status: in-progress
-done-so-far: independent review rejected f6fa34fac with six P1s covering lexical refs, JS const, direct eval, npm bin, marker import removal, and consumer TypeScript resolution; owner is active
-next: BUGS/SPRINT and spec-first remediation, real JS/packed-bin/extracted-consumer regressions, all gates, then a new independent review; no push/release
+done-so-far: six review P1 repairs are committed with 28/28 package tests plus catalog 26/9 and negatives 9/9 green; adversarial review found import-only direct-eval binding erasure and its plan/spec-first repair is active
+next: finish the import-only eval regression/fix, full package/consumer/catalog/conformance gates, freeze a clean checkpoint, then fresh independent review; no push/release

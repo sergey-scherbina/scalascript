@@ -1,6 +1,6 @@
 feature/ssc-api-descriptor-v3-slice-b 2026-07-15T04:02:06Z
 agent: codex-descriptor-b
-heartbeat: 2026-07-15T06:13:34Z
+heartbeat: 2026-07-15T06:29:29Z
 status: in-progress
-done-so-far: fresh rereview rejected non-plain package wrappers, documentless packaged source/AST correspondence, and generic/local Byte bypass of Array[Byte]; owner is active from clean 8a8886557
-next: record three P1s in BUGS/SPRINT, update spec first, implement exact wrapper/source and Array+Byte checks, run full radius, then freeze for another independent review; no push/release
+done-so-far: frozen clean checkpoint 4cd2a4aaa; focused 46/46, descriptor 27/27, core 1092/1092, interop 36/36, IR and ABI 73/73, affected conformance 2/2 green
+next: fresh independent read-only review of 790366a9d..4cd2a4aaa is active; on APPROVE rebase, rerun critical gates, land and release; no push before approval

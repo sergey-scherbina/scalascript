@@ -1,6 +1,6 @@
 feature/scala3-control-macros 2026-07-15T04:07:46Z
 agent: codex-scala-control-macros
-heartbeat: 2026-07-15T06:13:34Z
+heartbeat: 2026-07-15T06:29:29Z
 status: in-progress
-done-so-far: fresh rereview rejected dependent/singleton type rebinding, nested ShiftBody markers, transparent-inline source position, and escaping boundary.break; fix agent is active from clean ec4eb279e
-next: record all four P1s in BUGS/SPRINT, update spec first, implement faithful regressions/fixes, run full gates, then freeze for another independent review; no push/release
+done-so-far: all four rereview gaps have plan/BUGS/spec-first commits and implementation eda7dcabf; focused gates and adversarial nested-reset prompt checks are active
+next: close any adversarial gap spec-first, run full macro/package/catalog/conformance gates, freeze a clean checkpoint, then fresh independent review; no push/release
