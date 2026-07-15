@@ -1719,52 +1719,66 @@ with extensions isolated behind an explicit non-default profile.
         `java.sql.Types` metadata). The earlier "NEXT (J2+)" list is stale: blob getters (`getBytes`),
         `getBigDecimal` and `ResultSetMetaData` column types all landed WITH m7b (`ScljetResultSet.scala`
         `getBytes`/`getBigDecimal`/`columnTypeNames`) — do not redo them.
-      - **NEXT — J2 hardening (`scljet-jdbc-j2`, claimed 2026-07-15).** The gaps a real JVM client
-        (connection pool / ORM / DbVisualizer) hits first. Scope is the SHIM ONLY —
-        `v1/runtime/std/scljet-jdbc-plugin/` + `specs/scljet-jdbc*.md`; must NOT touch `scljet/*.ssc`
-        (engine), which is the `scljet-m3-writes` lane. Slices:
-        - [ ] **J2.1 — static in-memory ResultSet helper** (`ScljetStaticResultSet.scala`). Both
-              `getGeneratedKeys` and `DatabaseMetaData.getTables/getColumns` must return JDBC ResultSets
-              whose rows are computed on the JVM, NOT by the façade — so they can't reuse
-              `ScljetResultSet` (which wraps an opaque façade `JdbcResultSet` Value). Add a small
-              forward-only, read-only `ResultSet` over `(labels: List[String], rows: List[List[AnyRef]])`
-              built with the existing `ProxySupport.proxy` + a `ResultSetMetaData` derived from the
-              declared `java.sql.Types` per column. `wasNull` tracks the last read. This is the shared
-              substrate for J2.2 and J2.3 — build it first.
-        - [ ] **J2.2 — `getGeneratedKeys`** (currently `throw nse` at `ScljetStatement.scala:77`).
-              `ScljetConnectionState.executeUpdate` ALREADY returns `(changes, lastInsertRowid)` from the
-              façade's `JdbcUpdate.lastInsertRowid` — the shim just discards the rowid (`val (c, _) = …`).
-              Keep it in `StatementState.lastRowid` on every update, and return a 1-row static RS
-              (label `last_insert_rowid()`, `Types.BIGINT`) — matching Xerial `sqlite-jdbc`, which the
-              test cross-checks against. Empty RS when no INSERT ran on this statement. Also accept the
-              `RETURN_GENERATED_KEYS` overloads currently missing: `Statement.execute(sql,int)`/
-              `executeUpdate(sql,int)`/`(sql,int[])`/`(sql,String[])` and
-              `Connection.prepareStatement(sql,int)` — `NO_GENERATED_KEYS` behaves as today; the
-              int[]/String[] forms may throw `nse` (SQLite has one rowid).
-        - [ ] **J2.3 — `DatabaseMetaData.getTables` + `getColumns`** (both `throw nse` today).
-              `getColumns` is easy: the engine already exports `imageTableColumns(image, table)`.
-              `getTables` needs the TABLE LIST, and the engine exports no such function — and the claim
-              forbids adding one. **Approach to try first:** reach the schema from the JVM via the
-              exported `openReadonly(ImageVfs(bytes), "image.db", sqlOptions())` → `db.schema.entries`
-              (`SchemaEntry.name`/`.kind`/`.sql`/`.rootPage`, `scljet/schema.ssc:48`), reading the
-              `Value`s structurally (`DecodedText.codePoints` → String on the JVM; no `cpToString` call).
-              **RISK/OPEN QUESTION:** `ImageVfs(main: ByteSlice)` (`scljet/mutate.ssc:71`) is a case class
-              WITH METHODS (`extends SqliteVfs`), and the m7b gotcha says `globalsView` replaces
-              case-class ctors with a placeholder, so it must be built via `Value.singleValue("ImageVfs",
-              slice)` — UNVERIFIED whether a hand-built `InstanceV` still dispatches trait methods when
-              `openReadonly` calls them. **Verify with a spike BEFORE writing the feature.** If it fails,
-              fallbacks in order: (a) `readAllTables(dbBytes)` (`scljet/mutate.ssc:386`, returns
-              `List[RawTable]` whose `schemaRecord` is the raw sqlite_master record — decode on the JVM;
-              needs the name added to the bootstrap import, check it is exported from `index.ssc`);
-              (b) declare `getTables` out of scope, `nse` + a spec note, and hand the engine-side
-              `imageTableNames` export to the engine lane as a follow-up.
-        - [ ] **J2.4 — host-file durability + locking notes** (`specs/scljet-jdbc.md`). Document, do not
-              implement: the shim's host-file model is whole-image read-modify-rewrite via
-              `Files.write` on each durable change (`ScljetConnectionState.flushDurable`), i.e. NO
-              journal/WAL, NO fsync, NO inter-process locking — a crash mid-write truncates/corrupts the
-              file, and two JVMs on one path silently lose writes (last-writer-wins). State the
-              single-writer/one-process contract and point at `scljet/journal.ssc` as the future path.
-              Includes the `sbt scljetJdbcPlugin/test` gate (14/14 today) + new tests per slice.
+      - **J2 HARDENING DONE 2026-07-15** (`scljet-jdbc-j2`; `c96d51f35` feat, `296c71eed` feat,
+        `4b63441e6` spec). All four slices landed; `sbt scljetJdbcPlugin/test` **29/29** (was 14/14),
+        engine untouched (`scljet/*.ssc` is the `scljet-m3-writes` lane).
+        - **J2.1 static ResultSet** — `ScljetStaticResultSet.scala`: forward-only/read-only cursor over
+          JVM-materialized `(columns, rows)` (null cell = SQL NULL) + its `ResultSetMetaData`.
+          `ScljetResultSet` can only serve rows the ENGINE produced, so the generated key and the JDBC
+          catalog shapes (which exist nowhere in the engine) needed their own substrate.
+        - **J2.2 `getGeneratedKeys`** — the rowid already crossed the bridge (`JdbcUpdate.lastInsertRowid`
+          → `executeUpdate` returns `(changes, rowid)`); every call site discarded it (`val (c, _)`).
+          `StatementState.runUpdate/runQuery` is now the SINGLE write/read path for Statement +
+          PreparedStatement + batch (3 duplicated copies before, each dropping the rowid). Key tracked
+          for INSERT/REPLACE with `changes > 0` only. Semantics PROBED from Xerial, not guessed: one
+          column `last_insert_rowid()`, one row after INSERT; EMPTY after CREATE/UPDATE/DELETE/SELECT and
+          on a fresh statement. Deviation: Xerial labels the EMPTY case `1` (placeholder artifact) — we
+          keep the stable label.
+        - **J2.3 `getTables`/`getColumns`** (+ `getTableTypes`, empty `getCatalogs`/`getSchemas`) —
+          `ScljetCatalog.scala`. **The spec's plan (a `SELECT` over `sqlite_schema`) does NOT work**:
+          `findTable` only resolves entries WITH a `rootPage`, and the schema table is not an entry in its
+          own list. Instead: `openReadonly(ImageVfs(image), …)` → `db.schema.entries` read structurally,
+          columns parsed from `CREATE TABLE` with the ENGINE's own `tokenize` (mirrors `tableColumns`) —
+          a test asserts the names equal the engine's `imageTableColumns` so the two cannot drift.
+          Affinity → `java.sql.Types`. Reads the WORKING image → catalog read-your-writes.
+        - **J2.4 durability/locking notes** — `specs/scljet-jdbc.md`. Found the spec DESCRIBED A MODEL
+          THAT WAS NEVER BUILT (journaled writes via `jvmSqliteVfs()`/`journal.ssc`, "real locking and
+          durability"). Reality: whole-file `Files.write` per durable change, no journal/fsync/locking.
+          Documented as a property table + an explicit single-writer/single-process/non-crash-durable
+          contract + the `TRANSACTION_SERIALIZABLE` scope limit.
+        **GOTCHAS (each cost a debugging round; all recorded in-code):**
+        - **`globalsView` exposes ALL transitively loaded engine globals**, not just the bootstrap's
+          import list (`openReadonly`/`sqlOptions`/`tokenize`/`ImageVfs` are all callable without touching
+          `ScljetEngine.bootstrap*`). This is why `call("byteSliceUnsafe", …)` already worked.
+        - **`ImageVfs` must be `InstanceV("ImageVfs", Map("main" -> image))`.** `Value.singleValue` hardcodes
+          the field name `value`, but the field is `main` — and a missing field does NOT fail loudly: the
+          interpreter falls back to the GLOBAL `main`, dying deep inside as
+          `No method 'length' on NativeFnV(<native:main>)`. A hand-built `InstanceV` DOES dispatch trait
+          methods (that was the open risk; spike settled it).
+        - **`Option` is `Value.OptionV(inner|null)`, NOT `InstanceV("Some"/"None")`** — matching the latter
+          silently yields `None` (it emptied every `getColumns` row).
+        - **`Token(kind, text, num)` keeps numeric literals in `num` with `text` EMPTY** (kind `"num"`), so
+          `VARCHAR(255)` renders as `VARCHAR()` unless read from `num`.
+        - **Driver registration was order-dependent** (fixed): `Class.forName("…ScljetDriver")` inits the
+          CLASS, but `registerDriver` lives in the companion OBJECT, and DriverManager's ServiceLoader scan
+          does not see the plugin under sbt. Registration only happened because the FIRST test does
+          `new ScljetDriver().acceptsURL` (which reads `ScljetDriver.Prefix` → inits the object), so
+          `testOnly … -- -z "<one test>"` failed with "No suitable driver found" for ANY single test.
+      - **NEXT (J4+), not started:**
+        - [ ] **Journaled host-file writes** — route `commit()` through `jvmSqliteVfs()` +
+              `scljet/journal.ssc` so a host file is crash-atomic + `fsync`ed, and honour the
+              `journal`/`sync`/`busy_timeout`/`vfs` URL params that `getPropertyInfo` ADVERTISES BUT
+              `openTarget` IGNORES today (only `mode`/`page_size` are read). Blocked on a
+              Connection-level `MutablePager` (Model B, spec "Open decisions" #4): journaling needs to know
+              WHICH PAGES changed, and the executor only yields whole images. Cross-lane (engine + shim).
+        - [ ] **Inter-process locking** for host files (`FileLock` + `busy_timeout`). Until then the
+              single-writer/single-process contract in the spec stands.
+        - [ ] `getIndexInfo` / `getPrimaryKeys` / `getImportedKeys` / `getTypeInfo` — need index and
+              constraint introspection the catalog does not model yet (`SchemaIndex` entries are read but
+              filtered out of `getTables`; their `CREATE INDEX` sql is available).
+        - [ ] **ENGINE GAP found via a J2 test (for the `scljet-m3-writes` lane, NOT this one):**
+              `INSERT INTO t SELECT …` does not parse ("expected VALUES"). Blocks testing the
+              "INSERT affecting 0 rows generates no key" branch, and it is a real SQL hole.
 
 - [x] **scljet-0-plan-and-spec** — DONE 2026-07-12. Created `specs/scljet.md`
       after reconciling `SPEC.md`,

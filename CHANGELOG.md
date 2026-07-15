@@ -4,6 +4,27 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-15 — scljet JDBC shim J2 hardening (getGeneratedKeys, catalog, durability contract)
+
+The gaps a real JVM client (pool / ORM / DB tool) hits first, closed on the JVM
+`java.sql` shim (`v1/runtime/std/scljet-jdbc-plugin/`) with the engine untouched.
+`getGeneratedKeys` returns the one-column `last_insert_rowid()` ResultSet — the rowid
+already crossed the bridge, every call site just discarded it — tracked per statement
+for INSERT/REPLACE; its semantics were probed from Xerial `sqlite-jdbc` rather than
+guessed, and are diffed against it. `DatabaseMetaData.getTables`/`getColumns` (plus
+`getTableTypes`, empty `getCatalogs`/`getSchemas`) return the mandated JDBC row shapes
+over a new JVM-side static ResultSet; since the engine exports no table listing, the
+catalog reads `sqlite_schema` structurally through `openReadonly` and parses columns
+with the engine's own lexer (a test pins the names to the engine's `imageTableColumns`,
+so they cannot drift), mapping SQLite affinity to `java.sql.Types`.
+
+`specs/scljet-jdbc.md` also stopped describing a durability model that was never built:
+host files are whole-image read-modify-rewrite with no journal, no fsync and no locking,
+so the spec now carries that property table and the explicit single-writer /
+single-process / non-crash-durable contract, with the journaled path kept as intended
+design and its real prerequisite (a Connection-level MutablePager) recorded.
+`sbt scljetJdbcPlugin/test`: 29/29 (was 14/14).
+
 ## 2026-07-15 — scalascript.dev landing page (site/)
 
 Marketing landing page for the project domain `scalascript.dev`: a single static,
