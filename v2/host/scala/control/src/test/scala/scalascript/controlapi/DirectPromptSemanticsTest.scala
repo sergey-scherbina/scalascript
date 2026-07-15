@@ -317,3 +317,68 @@ final class DirectPromptSemanticsTest extends AnyFunSuite:
 
     assert(Eff.runPure(result) == 42)
   }
+
+  test("dependent prompt and owner singleton locals cross capture") {
+    val outerScope = freshPrompt[Int]
+    val outer = outerScope.prompt
+
+    val result = direct.reset[outerScope.Key, Nothing, Int](outer) {
+      val innerScope = freshPrompt[Int]
+      val inner: Prompt[innerScope.Key, Int] = innerScope.prompt
+      val owner = new Object()
+      val same: owner.type = owner
+      var mutable: Prompt[innerScope.Key, Int] = inner
+      given dependentPrompt: Prompt[innerScope.Key, Int] = inner
+      val (patternPrompt, patternTag) = (inner, 1)
+      val selected =
+        direct.shift[outerScope.Key, Int, Nothing, Int](outer)(
+          [Residual >: Nothing <: Effect] =>
+            (continuation: Continuation[Int, Residual, Int]) =>
+              continuation.resume(40)
+        )
+      val checked: Prompt[innerScope.Key, Int] = inner
+      mutable = summon[Prompt[innerScope.Key, Int]]
+      val allRebound =
+        (checked eq innerScope.prompt) &&
+          (mutable eq inner) &&
+          (patternPrompt eq inner) &&
+          patternTag == 1 &&
+          (same eq owner)
+      selected + (if allRebound then 2 else 1000)
+    }
+
+    assert(Eff.runPure(result) == 42)
+  }
+
+  test("a nested managed direct reset remains legal inside ShiftBody") {
+    val outerScope = freshPrompt[Int]
+    val outer = outerScope.prompt
+    val innerScope = freshPrompt[Int]
+    val inner = innerScope.prompt
+
+    val result = direct.reset[outerScope.Key, Nothing, Int](outer) {
+      val selected =
+        direct.shift[outerScope.Key, Int, Nothing, Int](outer)(
+          [Residual >: Nothing <: Effect] =>
+            (continuation: Continuation[Int, Residual, Int]) =>
+              val nested = direct.reset[innerScope.Key, Nothing, Int](inner) {
+                val innerSelected =
+                  direct.shift[innerScope.Key, Int, Nothing, Int](inner)(
+                    [InnerResidual >: Nothing <: Effect] =>
+                      (
+                          innerContinuation: Continuation[
+                            Int,
+                            InnerResidual,
+                            Int
+                          ]
+                      ) => innerContinuation.resume(40)
+                  )
+                innerSelected
+              }
+              continuation.resume(Eff.runPure(nested))
+        )
+      selected + 2
+    }
+
+    assert(Eff.runPure(result) == 42)
+  }

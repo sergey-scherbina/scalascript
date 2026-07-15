@@ -437,3 +437,143 @@ final class DirectPromptDiagnosticsTest extends AnyFunSuite:
       23
     )
   }
+
+  test("a direct marker nested in ShiftBody fails at the inner call") {
+    val errors = typeCheckErrors("""
+      import scalascript.control.*
+
+      val scoped = freshPrompt[Int]
+      val prompt = scoped.prompt
+      val computation = direct.reset[scoped.Key, Nothing, Int](prompt) {
+        val selected =
+          direct.shift[scoped.Key, Int, Nothing, Int](prompt)(
+            [Residual >: Nothing <: Effect] =>
+              (outer: Continuation[Int, Residual, Int]) =>
+                val nested =
+                  direct.shift[scoped.Key, Int, Nothing, Int](prompt)(
+                    [Nested >: Nothing <: Effect] =>
+                      (inner: Continuation[Int, Nested, Int]) =>
+                        inner.resume(1)
+                  )
+                outer.resume(nested)
+          )
+        selected
+      }
+    """)
+
+    assertDiagnostic(
+      errors,
+      "error [DIRECT_STYLE_UNSUPPORTED]: direct.shift inside another direct.shift body is outside M1; use scalascript.control.shift explicitly or a nested direct.reset",
+      "                  direct.shift[scoped.Key, Int, Nothing, Int](prompt)(",
+      18
+    )
+  }
+
+  test("a transparent inline wrapper reports its invocation position") {
+    val errors = typeCheckErrors("""
+      import scalascript.control.*
+
+      transparent inline def wrapped[P, A, Fx <: Effect, R](
+          prompt: Prompt[P, R]
+      )(
+          body: ShiftBody[P, A, Fx, R]
+      )(using direct.Scope[P, Fx, R]): A =
+        direct.shift[P, A, Fx, R](prompt)(body)
+
+      val scoped = freshPrompt[Int]
+      val prompt = scoped.prompt
+      val computation = direct.reset[scoped.Key, Nothing, Int](prompt) {
+        val selected = wrapped[scoped.Key, Int, Nothing, Int](prompt)(
+          [Residual >: Nothing <: Effect] =>
+            (continuation: Continuation[Int, Residual, Int]) =>
+              continuation.resume(41)
+        )
+        selected + 1
+      }
+    """)
+
+    assertDiagnostic(
+      errors,
+      "error [DIRECT_STYLE_UNSUPPORTED]: direct.shift through an inline wrapper is outside M1; write direct.shift directly at block level",
+      "        val selected = wrapped[scoped.Key, Int, Nothing, Int](prompt)(",
+      23
+    )
+  }
+
+  test("an unsupported dependent polymorphic local type fails closed") {
+    val errors = typeCheckErrors("""
+      import scalascript.control.*
+
+      val scoped = freshPrompt[Int]
+      val prompt = scoped.prompt
+      val computation = direct.reset[scoped.Key, Nothing, Int](prompt) {
+        val innerScope = freshPrompt[Int]
+        val inner: Prompt[innerScope.Key, Int] = innerScope.prompt
+        val dependent: [A] => () => Prompt[innerScope.Key, Int] =
+          [A] => () => inner
+        val selected =
+          direct.shift[scoped.Key, Int, Nothing, Int](prompt)(
+            [Residual >: Nothing <: Effect] =>
+              (continuation: Continuation[Int, Residual, Int]) =>
+                continuation.resume(1)
+          )
+        val _ = dependent[Int]()
+        selected
+      }
+    """)
+
+    assertDiagnostic(
+      errors,
+      "error [DIRECT_STYLE_UNSUPPORTED]: direct.shift cannot rebind this dependent local type across capture; move the declaration outside direct.reset",
+      "        val dependent: [A] => () => Prompt[innerScope.Key, Int] =",
+      12
+    )
+  }
+
+  test("a pure reset body cannot defer boundary break") {
+    val errors = typeCheckErrors("""
+      import scalascript.control.*
+
+      def escaped(): Eff[Nothing, Int] =
+        scala.util.boundary[Eff[Nothing, Int]]:
+          val scoped = freshPrompt[Int]
+          val prompt = scoped.prompt
+          direct.reset[scoped.Key, Nothing, Int](prompt) {
+            scala.util.boundary.break(Eff.pure(7))
+          }
+    """)
+
+    assertDiagnostic(
+      errors,
+      "error [DIRECT_STYLE_UNSUPPORTED]: direct.reset M1 cannot defer scala.util.boundary.break; move boundary control outside direct.reset",
+      "            scala.util.boundary.break(Eff.pure(7))",
+      12
+    )
+  }
+
+  test("a captured suffix cannot defer boundary break") {
+    val errors = typeCheckErrors("""
+      import scalascript.control.*
+
+      def escaped(): Eff[Nothing, Int] =
+        scala.util.boundary[Eff[Nothing, Int]]:
+          val scoped = freshPrompt[Int]
+          val prompt = scoped.prompt
+          direct.reset[scoped.Key, Nothing, Int](prompt) {
+            val selected =
+              direct.shift[scoped.Key, Int, Nothing, Int](prompt)(
+                [Residual >: Nothing <: Effect] =>
+                  (continuation: Continuation[Int, Residual, Int]) =>
+                    continuation.resume(1)
+              )
+            scala.util.boundary.break(Eff.pure(selected))
+          }
+    """)
+
+    assertDiagnostic(
+      errors,
+      "error [DIRECT_STYLE_UNSUPPORTED]: direct.reset M1 cannot defer scala.util.boundary.break; move boundary control outside direct.reset",
+      "            scala.util.boundary.break(Eff.pure(selected))",
+      12
+    )
+  }
