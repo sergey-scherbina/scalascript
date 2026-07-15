@@ -55,7 +55,11 @@ object PreBodyApiDescriptorProducer:
       stats: Vector[Stat],
       sectionSource: String,
       documentSource: Option[String],
-      rawSource: Option[String],
+      effectBindings: Vector[((Vector[String], String), EffectHeader)] = Vector.empty
+  )
+
+  private final case class ReparsedDeclarationCarrier(
+      stats: Vector[Stat],
       lineShift: Int
   )
 
@@ -77,6 +81,11 @@ object PreBodyApiDescriptorProducer:
       reusable: Boolean,
       unsupportedShape: Boolean,
       expectsStructuralMarker: Boolean
+  )
+
+  private final case class ValidatedEffectEvidence(
+      witnesses: Vector[EffectEvidenceWitness],
+      bindings: Vector[((Vector[String], String), EffectHeader)] = Vector.empty
   )
 
   private final case class EffectCandidate(
@@ -236,9 +245,7 @@ object PreBodyApiDescriptorProducer:
                         path = contentPath,
                         stats = stats,
                         sectionSource = block.source,
-                        documentSource = None,
-                        rawSource = Some(block.source),
-                        lineShift = 0
+                        documentSource = None
                       ))
                     }
                   case termBlock: Term.Block =>
@@ -247,9 +254,7 @@ object PreBodyApiDescriptorProducer:
                         path = contentPath,
                         stats = stats,
                         sectionSource = block.source,
-                        documentSource = None,
-                        rawSource = Some(block.source),
-                        lineShift = 1
+                        documentSource = None
                       ))
                     }
                   case other => Left(error(
@@ -279,9 +284,7 @@ object PreBodyApiDescriptorProducer:
             ))
           else Right(sectionBlocks.zip(retainedSources).map { case (block, source) =>
             block.copy(
-              documentSource = Some(source),
-              rawSource = Some(source),
-              lineShift = block.lineShift + pkg.size
+              documentSource = Some(source)
             )
           })
         case None => Right(sectionBlocks)
@@ -309,43 +312,46 @@ object PreBodyApiDescriptorProducer:
   ): Either[DescriptorError, ParsedDeclarationBlock] =
     val normalizedStored = normalizeDeclarationStats(block.stats)
     val storedWitness = declarationWitnesses(normalizedStored)
-    val storedEffectEvidence = effectEvidenceFromPreprocessedStats(normalizedStored)
 
     def reparse(
         source: String,
         carrier: String,
         packageWrapped: Boolean
-    ): Either[DescriptorError, Vector[Stat]] =
+    ): Either[DescriptorError, ReparsedDeclarationCarrier] =
       Parser.parseScalaSource(source).toRight(error(
         "UNSUPPORTED_PUBLIC_DECLARATION",
         block.path,
         s"retained $carrier source cannot be reparsed for declaration correspondence"
       )).flatMap { node =>
-        val reparsedStats = node.tree match
-          case parsed: Source => Right(parsed.stats)
-          case parsed: Term.Block => Right(parsed.stats)
+        val reparsed = node.tree match
+          case parsed: Source => Right(parsed.stats -> 0)
+          case parsed: Term.Block => Right(parsed.stats -> 1)
           case other => Left(error(
             "UNSUPPORTED_PUBLIC_DECLARATION",
             block.path,
             s"retained $carrier source reparsed as unsupported root ${other.productPrefix}"
           ))
-        reparsedStats.flatMap { stats =>
-          if packageWrapped && pkg.nonEmpty then
+        reparsed.flatMap { case (stats, lineShift) =>
+          val unwrapped = if packageWrapped && pkg.nonEmpty then
             unwrapExactPackage(stats, pkg).toRight(error(
               "UNSUPPORTED_PUBLIC_DECLARATION",
               block.path,
               s"retained $carrier source does not contain the exact plain package wrapper ${pkg.mkString(".")}"
             ))
           else Right(stats)
-        }.map(stats => normalizeDeclarationStats(stats.toVector))
+          unwrapped.map(stats => ReparsedDeclarationCarrier(
+            normalizeDeclarationStats(stats.toVector),
+            lineShift
+          ))
+        }
       }
 
     def requireStoredWitness(
-        retained: Vector[Stat],
+        retained: ReparsedDeclarationCarrier,
         carrier: String
     ): Either[DescriptorError, Unit] =
       Either.cond(
-        declarationWitnesses(retained) == storedWitness,
+        declarationWitnesses(retained.stats) == storedWitness,
         (),
         error(
           "UNSUPPORTED_PUBLIC_DECLARATION",
@@ -356,17 +362,25 @@ object PreBodyApiDescriptorProducer:
 
     def requireStoredEffectEvidence(
         source: String,
-        retained: Vector[Stat],
+        retained: ReparsedDeclarationCarrier,
         carrier: String,
-        alreadyPreprocessed: Boolean
-    ): Either[DescriptorError, Unit] =
-      val retainedEvidence =
-        if alreadyPreprocessed then Right(effectEvidenceFromPreprocessedStats(retained))
-        else effectEvidenceFromRawSource(source, retained, block.path, carrier)
+        alreadyPreprocessed: Boolean,
+        storedEffectEvidence: ValidatedEffectEvidence
+    ): Either[DescriptorError, ValidatedEffectEvidence] =
+      val retainedEvidence = if alreadyPreprocessed then
+        effectEvidenceFromPreprocessedStats(retained.stats, block.path, carrier)
+      else
+        effectEvidenceFromRawSource(
+          source,
+          retained.stats,
+          block.path,
+          carrier,
+          retained.lineShift
+        )
       retainedEvidence.flatMap { evidence =>
         Either.cond(
-          evidence == storedEffectEvidence,
-          (),
+          evidence.witnesses == storedEffectEvidence.witnesses,
+          evidence,
           error(
             "UNSUPPORTED_PUBLIC_DECLARATION",
             block.path,
@@ -376,28 +390,41 @@ object PreBodyApiDescriptorProducer:
       }
 
     for
+      storedEffectEvidence <- effectEvidenceFromPreprocessedStats(
+        normalizedStored,
+        block.path,
+        "stored section AST"
+      )
       sectionStats <- reparse(block.sectionSource, "code-block", packageWrapped = true)
       _ <- requireStoredWitness(sectionStats, "code-block")
-      _ <- requireStoredEffectEvidence(
+      codeBlockEvidence <- requireStoredEffectEvidence(
         block.sectionSource,
         sectionStats,
         "code-block",
-        alreadyPreprocessed = pkg.nonEmpty
+        alreadyPreprocessed = pkg.nonEmpty,
+        storedEffectEvidence
       )
-      _ <- block.documentSource match
+      documentEvidence <- block.documentSource match
         case Some(source) =>
           for
             documentStats <- reparse(source, "document", packageWrapped = false)
             _ <- requireStoredWitness(documentStats, "document")
-            _ <- requireStoredEffectEvidence(
+            evidence <- requireStoredEffectEvidence(
               source,
               documentStats,
               "document",
-              alreadyPreprocessed = false
+              alreadyPreprocessed = false,
+              storedEffectEvidence
             )
-          yield ()
-        case None => Right(())
-    yield block.copy(stats = normalizedStored)
+          yield Some(evidence)
+        case None => Right(None)
+      selectedBindings = documentEvidence
+        .map(_.bindings)
+        .getOrElse(codeBlockEvidence.bindings)
+    yield block.copy(
+      stats = normalizedStored,
+      effectBindings = selectedBindings
+    )
 
   private def normalizeDeclarationStats(stats: Vector[Stat]): Vector[Stat] =
     Parser.desugarTypeLambdaAliases(Source(stats.toList)) match
@@ -415,75 +442,217 @@ object PreBodyApiDescriptorProducer:
       case definition: Defn.Object =>
         EffectCandidate(owner, definition) +:
           effectEvidenceCandidates(definition.templ.body.stats, owner :+ definition.name.value)
+      case definition: Defn.Class =>
+        effectEvidenceCandidates(definition.templ.body.stats, owner :+ definition.name.value)
+      case definition: Defn.Trait =>
+        effectEvidenceCandidates(definition.templ.body.stats, owner :+ definition.name.value)
+      case definition: Defn.Enum =>
+        effectEvidenceCandidates(definition.templ.body.stats, owner :+ definition.name.value)
       case _ => Vector.empty
     }.toVector
 
+  private def reservedEffectMarkerNames(stat: Stat): Vector[String] =
+    val definitionNames = declarationNames(stat)
+    val abstractNames = stat match
+      case declaration: Decl.Type => Vector(declaration.name.value)
+      case declaration: Decl.Def => Vector(declaration.name.value)
+      case declaration: Decl.Val => declaration.pats.collect {
+        case Pat.Var(name) => name.value
+      }.toVector
+      case declaration: Decl.Var => declaration.pats.collect {
+        case Pat.Var(name) => name.value
+      }.toVector
+      case _ => Vector.empty
+    (definitionNames ++ abstractNames).filter(ReservedEffectMarkerNames.contains)
+
+  private def isCanonicalEffectSentinel(stat: Stat, expectedName: String): Boolean = stat match
+    case definition: Defn.Type =>
+      definition.name.value == expectedName &&
+        definition.mods.map(_.syntax) == List("private") &&
+        definition.tparamClause.values.isEmpty &&
+        definition.bounds.lo.isEmpty &&
+        definition.bounds.hi.isEmpty &&
+        definition.bounds.context.isEmpty &&
+        definition.bounds.view.isEmpty &&
+        definition.body.syntax == "true"
+    case _ => false
+
+  private def validateEffectSentinels(
+      stats: Iterable[Stat],
+      path: String,
+      carrier: String
+  ): Either[DescriptorError, Unit] =
+    def failure(message: String): DescriptorError = error(
+      "UNSUPPORTED_PUBLIC_DECLARATION",
+      path,
+      s"retained $carrier $message"
+    )
+
+    def visit(items: Iterable[Stat], allowObjectSentinels: Boolean): Either[DescriptorError, Unit] =
+      val values = items.toVector
+      val occurrences = values.flatMap { stat =>
+        reservedEffectMarkerNames(stat).map(_ -> stat)
+      }
+      val validateCurrent =
+        if occurrences.nonEmpty && !allowObjectSentinels then
+          Left(failure("contains a reserved effect sentinel outside an effect-object body"))
+        else
+          occurrences.collectFirst {
+            case (name, stat) if !isCanonicalEffectSentinel(stat, name) => name
+          } match
+            case Some(name) => Left(failure(
+              s"contains non-canonical reserved effect sentinel $name"
+            ))
+            case None =>
+              val declarationCount = occurrences.count(_._1 == "__effectDecl__")
+              val unsupportedCount = occurrences.count(_._1 == "__effectUnsupportedShape__")
+              val structurallyMarked = values.exists(isMultiShotMarker) || values.exists {
+                case operation: Defn.Def => EffectAnalysis.isEffectOpDef(operation.body)
+                case _ => false
+              }
+              if declarationCount > 1 then
+                Left(failure("contains duplicate __effectDecl__ sentinels"))
+              else if unsupportedCount > 1 then
+                Left(failure("contains duplicate __effectUnsupportedShape__ sentinels"))
+              else if structurallyMarked && declarationCount != 1 then
+                Left(failure("has structural effect markers without exactly one __effectDecl__ sentinel"))
+              else if unsupportedCount == 1 && declarationCount != 1 then
+                Left(failure("has __effectUnsupportedShape__ without exactly one __effectDecl__ sentinel"))
+              else Right(())
+
+      validateCurrent.flatMap { _ =>
+        traverse(values) {
+          case definition: Defn.Object =>
+            visit(definition.templ.body.stats, allowObjectSentinels = true)
+          case definition: Defn.Class =>
+            visit(definition.templ.body.stats, allowObjectSentinels = false)
+          case definition: Defn.Trait =>
+            visit(definition.templ.body.stats, allowObjectSentinels = false)
+          case definition: Defn.Enum =>
+            visit(definition.templ.body.stats, allowObjectSentinels = false)
+          case _ => Right(())
+        }.map(_ => ())
+      }
+
+    visit(stats, allowObjectSentinels = false)
+
   private def effectEvidenceFromPreprocessedStats(
-      stats: Iterable[Stat]
-  ): Vector[EffectEvidenceWitness] =
-    effectEvidenceCandidates(stats).map { candidate =>
-      val effect = isStructurallyMarkedEffect(candidate.definition)
-      val reusable = effect && candidate.definition.templ.body.stats.exists(isMultiShotMarker)
-      val hasOperation = effect && hasEffectOperationMarker(candidate.definition)
-      EffectEvidenceWitness(
-        owner = candidate.owner,
-        name = candidate.definition.name.value,
-        isEffect = effect,
-        reusable = reusable,
-        unsupportedShape = effect && candidate.definition.templ.body.stats.exists(isUnsupportedEffectShapeMarker),
-        expectsStructuralMarker = effect && (reusable || hasOperation)
-      )
+      stats: Iterable[Stat],
+      path: String,
+      carrier: String
+  ): Either[DescriptorError, ValidatedEffectEvidence] =
+    validateEffectSentinels(stats, path, carrier).map { _ =>
+      ValidatedEffectEvidence(effectEvidenceCandidates(stats).map { candidate =>
+        val effect = isStructurallyMarkedEffect(candidate.definition)
+        val reusable = effect && candidate.definition.templ.body.stats.exists(isMultiShotMarker)
+        val hasOperation = effect && hasEffectOperationMarker(candidate.definition)
+        EffectEvidenceWitness(
+          owner = candidate.owner,
+          name = candidate.definition.name.value,
+          isEffect = effect,
+          reusable = reusable,
+          unsupportedShape = effect && candidate.definition.templ.body.stats.exists(isUnsupportedEffectShapeMarker),
+          expectsStructuralMarker = effect && (reusable || hasOperation)
+        )
+      })
     }
 
   private def effectEvidenceFromRawSource(
       source: String,
       stats: Vector[Stat],
       path: String,
-      carrier: String
-  ): Either[DescriptorError, Vector[EffectEvidenceWitness]] =
+      carrier: String,
+      lineShift: Int
+  ): Either[DescriptorError, ValidatedEffectEvidence] =
     val headers = declaredEffectHeaders(source)
     val candidates = effectEvidenceCandidates(stats)
+    val preprocessorInsertions = effectPreprocessorInsertions(source)
+    val positionedHeaders = headers.map { header =>
+      val insertedBefore = preprocessorInsertions.iterator
+        .takeWhile(_._1 < header.sourceLine)
+        .map(_._2)
+        .sum
+      header -> (header.sourceLine + insertedBefore + lineShift)
+    }
     val markedCandidates = candidates.zipWithIndex.filter { case (candidate, _) =>
       isStructurallyMarkedEffect(candidate.definition)
     }
-    if headers.size != markedCandidates.size then
-      Left(error(
-        "UNSUPPORTED_PUBLIC_DECLARATION",
-        path,
-        s"retained $carrier source has ${headers.size} effect headers but ${markedCandidates.size} marked parsed declarations"
-      ))
-    else
-      val paired = headers.zip(markedCandidates)
-      paired.collectFirst {
-        case (header, (candidate, _)) if header.name != candidate.definition.name.value =>
-          header.name -> candidate.definition.name.value
-      } match
-        case Some((headerName, declarationName)) => Left(error(
+    var usedHeaders = Set.empty[Int]
+
+    def selectHeader(
+        candidate: EffectCandidate
+    ): Either[DescriptorError, (EffectHeader, Int)] =
+      val position = candidate.definition.pos
+      val exact = positionedHeaders.zipWithIndex.filter { case ((header, processedLine), headerIndex) =>
+        !usedHeaders.contains(headerIndex) &&
+          header.name == candidate.definition.name.value &&
+          !position.isEmpty && position.startLine == processedLine
+      }
+      val fallback = positionedHeaders.zipWithIndex.filter { case ((header, _), headerIndex) =>
+        !usedHeaders.contains(headerIndex) &&
+          header.name == candidate.definition.name.value
+      }
+      exact match
+        case Vector(((header, _), headerIndex)) => Right(header -> headerIndex)
+        case Vector() if position.isEmpty && fallback.size == 1 =>
+          val ((header, _), headerIndex) = fallback.head
+          Right(header -> headerIndex)
+        case Vector() => Left(error(
           "UNSUPPORTED_PUBLIC_DECLARATION",
           path,
-          s"retained $carrier effect header $headerName does not align with marked declaration $declarationName"
+          s"retained $carrier marked effect ${candidate.definition.name.value} has no unique declaration-scope source header"
         ))
-        case None =>
-          val headersByCandidate = paired.iterator.map { case (header, (_, index)) => index -> header }.toMap
-          Right(candidates.zipWithIndex.map { case (candidate, index) =>
-            headersByCandidate.get(index) match
-              case Some(header) => EffectEvidenceWitness(
-                owner = candidate.owner,
-                name = candidate.definition.name.value,
-                isEffect = true,
-                reusable = header.reusable,
-                unsupportedShape = header.unsupportedShape,
-                expectsStructuralMarker = header.expectsStructuralMarker
-              )
-              case None => EffectEvidenceWitness(
-                owner = candidate.owner,
-                name = candidate.definition.name.value,
-                isEffect = false,
-                reusable = false,
-                unsupportedShape = false,
-                expectsStructuralMarker = false
-              )
-          })
+        case _ => Left(error(
+          "UNSUPPORTED_PUBLIC_DECLARATION",
+          path,
+          s"retained $carrier marked effect ${candidate.definition.name.value} has ambiguous declaration-scope source headers"
+        ))
+
+    for
+      _ <- validateEffectSentinels(stats, path, carrier)
+      selected <- traverse(markedCandidates) { case (candidate, candidateIndex) =>
+        selectHeader(candidate).map { case (header, headerIndex) =>
+          usedHeaders += headerIndex
+          candidateIndex -> header
+        }
+      }
+      selectedByCandidate = selected.toMap
+      _ <- positionedHeaders.zipWithIndex.collectFirst {
+        case ((header, processedLine), headerIndex)
+            if !usedHeaders.contains(headerIndex) && candidates.exists { candidate =>
+              val position = candidate.definition.pos
+              !position.isEmpty && position.startLine == processedLine
+            } =>
+          error(
+            "UNSUPPORTED_PUBLIC_DECLARATION",
+            path,
+            s"retained $carrier declaration-scope effect header ${header.name} does not bind a marked parsed declaration"
+          )
+      }.toLeft(())
+      witnesses = candidates.zipWithIndex.map { case (candidate, candidateIndex) =>
+        selectedByCandidate.get(candidateIndex) match
+          case Some(header) => EffectEvidenceWitness(
+            owner = candidate.owner,
+            name = candidate.definition.name.value,
+            isEffect = true,
+            reusable = header.reusable,
+            unsupportedShape = header.unsupportedShape,
+            expectsStructuralMarker = header.expectsStructuralMarker
+          )
+          case None => EffectEvidenceWitness(
+            owner = candidate.owner,
+            name = candidate.definition.name.value,
+            isEffect = false,
+            reusable = false,
+            unsupportedShape = false,
+            expectsStructuralMarker = false
+          )
+      }
+      bindings = selected.map { case (candidateIndex, header) =>
+        val candidate = candidates(candidateIndex)
+        (candidate.owner -> candidate.definition.name.value) -> header
+      }
+    yield ValidatedEffectEvidence(witnesses, bindings)
 
   private def importWitness(imported: Import): String =
     encodeWitnessParts(imported.importers.map { importer =>
@@ -931,6 +1100,28 @@ object PreBodyApiDescriptorProducer:
     visit(stats, context)
     builder.result()
 
+  private def effectPreprocessorInsertions(source: String): Vector[(Int, Int)] =
+    val effectLine =
+      """^(\s*)(multi\s+)?effect\s+(\w+)(\[[^\]]*\])?(\s+extends\s+[^:]+)?\s*:""".r
+    val lines = source.linesIterator.toVector
+    val insertions = Vector.newBuilder[(Int, Int)]
+    var lineIndex = 0
+    while lineIndex < lines.size do
+      effectLine.findFirstMatchIn(lines(lineIndex)) match
+        case Some(matched) =>
+          val baseIndent = matched.group(1).length
+          val reusable = matched.group(2) != null
+          val unsupportedShape = matched.group(4) != null || matched.group(5) != null
+          val inserted = 2 + (if reusable then 1 else 0) + (if unsupportedShape then 1 else 0)
+          insertions += lineIndex -> inserted
+          lineIndex += 1
+          while lineIndex < lines.size && {
+            val line = lines(lineIndex)
+            line.isBlank || (line.nonEmpty && line.indexWhere(_ != ' ') > baseIndent)
+          } do lineIndex += 1
+        case None => lineIndex += 1
+    insertions.result()
+
   private def declaredEffectHeaders(source: String): Vector[EffectHeader] =
     val header =
       """(?m)^[ \t]*(multi[ \t]+)?effect[ \t]+([A-Za-z_][A-Za-z0-9_]*)([ \t]*\[[^\]\r\n]*\])?([ \t]+extends[ \t]+[^\r\n:]+)?[ \t]*:""".r
@@ -973,74 +1164,18 @@ object PreBodyApiDescriptorProducer:
       blocks: Vector[ParsedDeclarationBlock],
       rootNamespace: Vector[String]
   ): Either[DescriptorError, Map[(Vector[String], String), EffectHeader]] =
-    def candidates(items: Iterable[Stat], owner: Vector[String]): Vector[EffectCandidate] =
-      val found = Vector.newBuilder[EffectCandidate]
-      items.foreach {
-        case definition: Defn.Object =>
-          found += EffectCandidate(owner, definition)
-          found ++= candidates(definition.templ.body.stats, owner :+ definition.name.value)
-        case _ => ()
+    val bindings = blocks.flatMap { block =>
+      block.effectBindings.map { case ((owner, name), header) =>
+        ((rootNamespace ++ owner) -> name) -> header
       }
-      found.result()
-
-    traverse(blocks) { block =>
-      val blockCandidates = candidates(block.stats, rootNamespace)
-      val headers = block.rawSource.map(declaredEffectHeaders).getOrElse(Vector.empty)
-      var usedCandidates = Set.empty[Int]
-      traverse(headers) { header =>
-        val expectedLine = header.sourceLine + block.lineShift
-        val exactMatches = blockCandidates.zipWithIndex.filter { case (candidate, candidateIndex) =>
-          val position = candidate.definition.pos
-          !usedCandidates.contains(candidateIndex) &&
-            candidate.definition.name.value == header.name &&
-            (!header.expectsStructuralMarker || isStructurallyMarkedEffect(candidate.definition)) &&
-            !position.isEmpty && position.startLine == expectedLine
-        }
-        val fallbackMatches = blockCandidates.zipWithIndex.filter { case (candidate, candidateIndex) =>
-          !usedCandidates.contains(candidateIndex) &&
-            candidate.definition.name.value == header.name &&
-            (!header.expectsStructuralMarker || isStructurallyMarkedEffect(candidate.definition))
-        }
-        val selected = exactMatches match
-          case Vector(single) => Right(single)
-          case Vector() if header.expectsStructuralMarker => fallbackMatches.headOption.toRight(error(
-            "UNSUPPORTED_PUBLIC_DECLARATION",
-            block.path,
-            s"effect declaration header ${header.name} at source line ${header.sourceLine + 1} has no structurally marked parsed declaration"
-          ))
-          case Vector() if fallbackMatches.size == 1 => Right(fallbackMatches.head)
-          case Vector() => Left(error(
-            "UNSUPPORTED_PUBLIC_DECLARATION",
-            block.path,
-            s"empty effect declaration header ${header.name} at source line ${header.sourceLine + 1} has ambiguous parsed declarations"
-          ))
-          case _ => Left(error(
-            "UNSUPPORTED_PUBLIC_DECLARATION",
-            block.path,
-            s"effect declaration header ${header.name} at source line ${header.sourceLine + 1} has ambiguous parsed declarations"
-          ))
-        /*
-         * The positional match is exact when preprocessing preserved line count.
-         * Effect preprocessing itself inserts marker/closing lines; in that case
-         * the source-declared operation marker plus per-block declaration order
-         * selects the only lossless owner. Empty effects deliberately require a
-         * unique remaining same-name candidate.
-         */
-        selected match
-          case Right((candidate, candidateIndex)) =>
-            usedCandidates += candidateIndex
-            Right((candidate.owner -> candidate.definition.name.value) -> header)
-          case Left(problem) => Left(problem)
-      }
-    }.map(_.flatten).flatMap { bindings =>
-      bindings.groupBy(_._1).collectFirst { case (key, values) if values.size > 1 => key } match
-        case Some((owner, name)) => Left(error(
-          "UNSUPPORTED_PUBLIC_DECLARATION",
-          s"$$.symbols[${(owner :+ name).mkString(".")}]",
-          s"effect declaration ${(owner :+ name).mkString(".")} has duplicate source-header evidence"
-        ))
-        case None => Right(bindings.toMap)
     }
+    bindings.groupBy(_._1).collectFirst { case (key, values) if values.size > 1 => key } match
+      case Some((owner, name)) => Left(error(
+        "UNSUPPORTED_PUBLIC_DECLARATION",
+        s"$$.symbols[${(owner :+ name).mkString(".")}]",
+        s"effect declaration ${(owner :+ name).mkString(".")} has duplicate validated source-header evidence"
+      ))
+      case None => Right(bindings.toMap)
 
   private def sanitizeForEffectHeaders(source: String): String =
     val chars = source.toCharArray
@@ -1674,12 +1809,7 @@ object PreBodyApiDescriptorProducer:
     isEffectDeclarationMarker(stat) || isUnsupportedEffectShapeMarker(stat)
 
   private def isPrivateTrueTypeMarker(stat: Stat, expectedName: String): Boolean = stat match
-    case definition: Defn.Type =>
-      definition.name.value == expectedName &&
-        definition.mods.exists(_.is[Mod.Private]) &&
-        definition.tparamClause.values.isEmpty &&
-        definition.body.syntax == "true"
-    case _ => false
+    case _ => isCanonicalEffectSentinel(stat, expectedName)
 
   private def isMultiShotMarker(stat: Stat): Boolean = stat match
     case value: Defn.Val =>
