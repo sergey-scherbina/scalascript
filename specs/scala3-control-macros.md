@@ -1,7 +1,8 @@
 # Scala 3 lexical direct-style control macros
 
-Status: **M1 third-review owner remediation specified; implementation pending**
-(2026-07-15). The first review rejected owner splitting, lazy-marker lowering,
+Status: **M1 third-review owner remediation implemented and locally green; fresh
+independent review pending** (2026-07-15). The first review rejected owner
+splitting, lazy-marker lowering,
 and inline marker wrappers. The next independent rereview found stale dependent
 types in freshened declarations, a direct marker hidden in `ShiftBody`, an
 incorrect transparent-inline primary position, and deferred
@@ -15,9 +16,10 @@ consumer regression and full local verification matrix are green; M1 still does
 not land until a new independent review approves the frozen checkpoint. Fresh
 independent review of `708dec2f1` then found three remaining owner graphs outside
 that evidence: captured result type `A`, nested/inferred types in moved terms, and
-forward/mutual compiler-lazy givens. The contract below now covers those graphs;
-their new behavior items remain unchecked until faithful packaged regressions and
-the full gate pass.
+forward/mutual compiler-lazy givens. The contract below covers those graphs, and
+feature commit `4821f824c` implements them with faithful source and packaged
+regressions plus the full local gate. M1 remains unlanded until a new independent
+review approves the frozen checkpoint.
 
 This feature is the bounded inline-macro tier of
 [`scala3-bidirectional-control.md`](scala3-bidirectional-control.md). It translates
@@ -472,13 +474,13 @@ save/run, callbacks, descriptors, runners, or cancellation.
 - [x] Top-level declared types of freshened strict locals are rebound without old
       owner references for the covered local nested-prompt, `owner.type`, mutable,
       given, and pattern declaration cases.
-- [ ] A captured result `A` that names a freshened `owner.type` or
+- [x] A captured result `A` that names a freshened `owner.type` or
       `Prompt[inner.Key, R]` is rebound consistently through the explicit shift and
       rank-2 continuation; unsupported types fail at the marker without raw E007.
-- [ ] Owner-bearing types on nested moved RHS symbols and suffix declarations are
+- [x] Owner-bearing types on nested moved RHS symbols and suffix declarations are
       rebound/audited, including `() => owner.type`; no old owner reaches emitted
       code and any unsupported graph fails closed at its source construct.
-- [ ] Supported compiler-lazy parameterless givens are allocated before any RHS is
+- [x] Supported compiler-lazy parameterless givens are allocated before any RHS is
       moved, so unused forward/mutual term references compile and retain ordinary
       Scala laziness while unsupported dependent type cycles fail closed.
 - [x] An exact direct marker inside an outer `ShiftBody` fails at the inner call;
@@ -489,7 +491,7 @@ save/run, callbacks, descriptors, runners, or cancellation.
       nested managed body and explicit `scalascript.control.shift` remain accepted.
 - [x] Transparent-inline rejection reports the nearest wrapper invocation, while
       the unexpanded-inline application diagnostic remains stable.
-- [ ] Every `scala.util.boundary.break` inside M1 fails before defer/CPS movement
+- [x] Every `scala.util.boundary.break` inside M1 fails before defer/CPS movement
       with a stable source-located direct diagnostic through direct selection,
       imported alias, explicit label, module alias, and transparent-inline
       provenance; safe nested-method returns remain accepted.
@@ -568,8 +570,8 @@ Changed Markdown is linted and the final branch must pass `git diff --check`.
 ## Results
 
 - `scripts/sbtc "scala3ControlApi/test;scala3ControlApi/packageBin;scala3ControlApi/makePom"`
-  passes 101/101 tests across ten suites. The direct slice contributes seventeen
-  runtime semantic tests, twenty-two exact compile-time diagnostic tests, three
+  passes 109/109 tests across ten suites. The direct slice contributes twenty-one
+  runtime semantic tests, twenty-six exact compile-time diagnostic tests, three
   catalog-lane tests, and source-access safety checks.
 - `tests/interop-conformance/run.sh --validate` accepts 26 vectors and nine lanes;
   all nine validator-negative cases pass. `--lane scala-direct` passes vector 18,
@@ -619,3 +621,15 @@ Changed Markdown is linted and the final branch must pass `git diff --check`.
   symbol-preserving `boundary.break` spellings/provenance forms and correction of
   the over-broad dependent-owner completion wording. These are pre-fix baselines;
   another independent review remains mandatory after implementation and full gates.
+- Post-`708dec2f1` owner remediation is implemented in feature commit `4821f824c`.
+  Captured `A` is rebound before type opening; moved definition types and common
+  prefix/suffix owner-dependent lambdas are rebuilt and stale-symbol audited; and
+  supported crossing givens are allocated in two phases with `Given`/`Lazy` flags
+  preserved. Clean focused suites pass 47/47 (21 semantics and 26 diagnostics),
+  and the full leaf/package/POM pass 109/109. A Scala CLI 3.8.3 consumer compiled
+  only against the packaged JAR prints eight differential `42` results; the exact
+  nested-reset-prompt negative reports stable `DIRECT_STYLE_UNSUPPORTED` at the
+  inner marker. The POM retains only `scala3-library_3` in production scope,
+  catalog validation is 26 vectors/9 lanes with 9/9 validator negatives, the
+  direct lane is 3/3, and affected conformance is 5/5. Fresh independent review
+  remains the landing gate.
