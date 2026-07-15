@@ -1,7 +1,7 @@
 # JavaScript/TypeScript ↔ ScalaScript bidirectional control profile
 
 Status: **normative host profile / explicit local control slice implemented and
-verified; final independent confirmation pending; remaining profile planned**
+verified; closed lexical direct-transform slice specified; remaining profile planned**
 (2026-07-15).
 
 This is the JavaScript/TypeScript host profile of
@@ -433,6 +433,23 @@ The package may demonstrate a plain JavaScript callback returning through an
 bridge. Likewise its stackless state-machine vector is local control evidence, not
 the mixed JavaScript↔ScalaScript SCC qualification from §8.
 
+### 2.3 Closed lexical direct-transform slice
+
+The next independently shippable slice is the zero-production-dependency ESM
+package `@scalascript/control-direct` at `v2/host/js/control-direct`. Its root
+exports compile-time authoring markers that fail with a stable contract error if
+they survive emit; `/transform` and `ssc-control-tsc` use the consuming TypeScript
+compiler API to lower a closed synchronous lexical grammar to this profile's one
+explicit `@scalascript/control` implementation.
+
+The bounded grammar, public transformer/CLI API, exact package allow-list,
+diagnostic codes/spans, source-map requirements, accepted barriers, and package-
+local catalog differentials are normative in
+[`javascript-typescript-control-direct.md`](javascript-typescript-control-direct.md).
+This slice does not consume descriptors, cross methods/modules or callbacks, edit
+CoreIR/frontends/seed/lane registration, provide a runner, or qualify the complete
+host profile.
+
 ## 3. Canonical value mapping
 
 The bridge validates every value; JavaScript representation is never type evidence:
@@ -488,6 +505,12 @@ Direct style may use a selected TypeScript/SWC/Babel-equivalent source transform
 that lowers to the explicit protocol. A managed region may cross methods/modules
 only while every intervening frame and call edge carries managed metadata. Source
 maps and diagnostics must remain precise.
+
+The first implementation is the closed lexical TypeScript-compiler-API transform
+from §2.3. It admits only local synchronous `direct.reset` blocks with top-level
+identifier `const`/`let` shift bindings and fails closed for every frame it does not
+model. Its `Fx = never` and package-local vector evidence are not a claim of the
+later cross-method managed transform.
 
 Native mechanisms are not alternate semantics:
 
