@@ -469,7 +469,29 @@ object PreBodyApiDescriptorProducer:
               )
           })
 
+  private def importWitness(imported: Import): String =
+    encodeWitnessParts(imported.importers.map { importer =>
+      encodeWitnessParts(Vector(
+        importer.ref.structure,
+        encodeWitnessParts(importer.importees.map(importeeWitness))
+      ))
+    })
+
+  private def importeeWitness(importee: Importee): String = importee match
+    case Importee.Name(name) => encodeWitnessParts(Vector("name", name.value))
+    case Importee.Rename(name, rename) =>
+      encodeWitnessParts(Vector("rename", name.value, rename.value))
+    case Importee.Unimport(name) => encodeWitnessParts(Vector("unimport", name.value))
+    case Importee.Wildcard() => encodeWitnessParts(Vector("wildcard"))
+    case Importee.Given(tpe) => encodeWitnessParts(Vector("given", tpe.structure))
+    case Importee.GivenAll() => encodeWitnessParts(Vector("given-all"))
+    case other => encodeWitnessParts(Vector(other.productPrefix, other.structure))
+
   private def declarationWitness(stat: Stat): Option[DeclarationWitness] = stat match
+    case imported: Import => Some(DeclarationWitness(
+      kind = "import",
+      attributes = Vector(importWitness(imported))
+    ))
     case definition: Defn.Def => Some(DeclarationWitness(
       kind = "def",
       attributes = Vector(
