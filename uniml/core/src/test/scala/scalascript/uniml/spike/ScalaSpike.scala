@@ -629,8 +629,10 @@ object SpikeParse:
   // EOF, or a top-level `def` ends it. parseStmt always consumes ≥1 token (progress).
   private def parseBlock(c: Cur, blockCol: Int): Node =
     val stmts = Vector.newBuilder[Node]
-    // a block ends at a dedent, a def, the next `case` (an arm-body block), or a `}` (a braced match)
-    while !c.eof && c.peekCol >= blockCol && !isDefStart(c) && !isKw(c, "case") && c.peekKind != "spike.rbrace" do
+    // a block ends at a dedent (col < blockCol), the next `case` (an arm-body block), or a `}` (a braced
+    // match). A nested `def` at col >= blockCol is a LOCAL def (→ letrec, handled by parseStmt), part of
+    // the block — NOT a terminator; a sibling `def` is dedented and already stopped by the col guard.
+    while !c.eof && c.peekCol >= blockCol && !isKw(c, "case") && c.peekKind != "spike.rbrace" do
       stmts += parseStmt(c)
     Node.Frame("spike.block", None, stmts.result())
 
@@ -1091,10 +1093,21 @@ object SpikeParse:
       else c.report("spike.expected", "expected ')' in constructor pattern")
     Node.Frame("spike.cpat", None, kids.result())
 
-  // a sub-pattern inside a tuple/constructor pattern — a base pattern with an optional `: T` ascription
-  // (`(word: String, _: Int)`, `Foo(x: Int)`), mirroring parseArmPattern's tpat but at nesting depth. The
-  // type head is kept (one token, generics skipped) exactly like ssc1-front's patternTypeHead.
+  // a sub-pattern inside a tuple/constructor pattern. Each element may itself be a cons pattern —
+  // `(x :: xs, y :: ys)`, `Some(h :: t)` — which binds tighter than the enclosing comma, so parse a
+  // base sub-pattern and fold a trailing `:: rest` into a conspat (right-associative, → cpat "Cons").
   private def parseSubPattern(c: Cur): Node =
+    val base = parseSubPatternAtom(c)
+    if c.peekKind == "spike.op" && c.peekLexeme == "::" then
+      c.advance() // `::`
+      val tail = parseSubPattern(c)
+      Node.Frame("spike.conspat", None, Vector(base.withRole("conspat.arg"), tail.withRole("conspat.arg")))
+    else base
+
+  // a base sub-pattern with an optional `: T` ascription (`(word: String, _: Int)`, `Foo(x: Int)`),
+  // mirroring parseArmPattern's tpat but at nesting depth. The type head is kept (one token, generics
+  // skipped) exactly like ssc1-front's patternTypeHead.
+  private def parseSubPatternAtom(c: Cur): Node =
     val base = parsePattern(c)
     if c.peekKind == "spike.colon" then
       c.advance()
