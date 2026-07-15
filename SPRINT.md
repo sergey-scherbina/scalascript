@@ -246,7 +246,8 @@ every later compiler/kernel change re-runs the literal fixed point.
   no quotes/runtime type, and the compiler-required macro implementation remains private at Scala source
   level. M1 nested resets lower only their own matching markers; a marker targeting
   an outer scope across a nested reset is rejected until the compiler-plugin tier can preserve the
-  residual outer control row explicitly.
+  residual outer control row explicitly. Accordingly the direct lane claims vector 18/23 `shift-reset`;
+  vector 22 also requires `prompt-isolation` and remains explicit/plugin evidence.
 - [ ] **scala3-control-plugin** — publish a `CrossVersion.full` compiler plugin for cross-method CPS,
   managed callback propagation, effect metadata, and generated ABI entrypoints. Precompiled Scala/Java
   code remains callable but is a deterministic control-capture barrier while active on the stack.

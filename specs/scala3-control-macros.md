@@ -250,7 +250,9 @@ capabilities:  shift-reset
 ```
 
 M1 differentially executes the applicable `shift-reset` catalog rows (currently
-18, 22, and 23) against the explicit Scala oracle. Local tests additionally cover
+18 and 23) against the explicit Scala oracle. Vector 22 additionally requires
+`prompt-isolation`: its outer prompt must forward through a nested different-prompt
+reset, which is the residual-row case deliberately deferred from M1. Local tests additionally cover
 sequential markers, shared heap, evaluation order, nested scope hygiene, and every
 diagnostic. The lane does not claim generated Scala/ScalaScript interop, durable
 save/run, callbacks, descriptors, runners, or cancellation.

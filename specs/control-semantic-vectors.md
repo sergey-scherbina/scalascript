@@ -170,6 +170,13 @@ An AOT backend passing portable `.ssc` vectors is useful backend evidence but do
 not imply a bidirectional host bridge or dynamic saved-capsule runner. The lane row
 and capability names keep those claims separate.
 
+Vector 22 carries both `prompt-isolation` and `shift-reset`. The extra capability
+is intentional: its law forwards an outer prompt through a nested reset for a
+different prompt. The bounded Scala inline M1 lane advertises only `shift-reset`,
+so it executes vectors 18 and 23; the explicit Scala lane advertises both and keeps
+vector 22. The later managed compiler-plugin lane must gain `prompt-isolation`
+before it can claim that residual-row boundary.
+
 ## Behavior
 
 - [x] The catalog validator rejects duplicate, malformed, orphaned, or silently
