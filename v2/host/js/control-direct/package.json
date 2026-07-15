@@ -1,0 +1,45 @@
+{
+  "name": "@scalascript/control-direct",
+  "version": "0.1.0-snapshot.0",
+  "description": "Closed lexical direct-style transform for @scalascript/control",
+  "type": "module",
+  "sideEffects": false,
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js",
+      "default": "./index.js"
+    },
+    "./transform": {
+      "types": "./transform.d.ts",
+      "import": "./transform.js",
+      "default": "./transform.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "ssc-control-tsc": "./cli.js"
+  },
+  "types": "./index.d.ts",
+  "files": [
+    "LICENSE",
+    "README.md",
+    "cli.js",
+    "index.d.ts",
+    "index.js",
+    "transform.d.ts",
+    "transform.js"
+  ],
+  "scripts": {
+    "test": "node --test --test-concurrency=1 test/*.test.js",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@scalascript/control": "file:../control",
+    "typescript": "5.9.3"
+  }
+}
