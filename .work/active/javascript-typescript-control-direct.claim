@@ -1,6 +1,6 @@
 feature/javascript-typescript-control-direct 2026-07-15T05:29:19Z
 agent: codex-js-control-direct
-heartbeat: 2026-07-15T06:44:32Z
+heartbeat: 2026-07-15T06:52:41Z
 status: in-progress
-done-so-far: frozen clean checkpoint c4377fabb; direct and explicit packages 31/31, exact packs, catalog 26/9, negatives 9/9, conformance 5/5, markdown/diff gates green
-next: fresh independent read-only review of 76f9706cf..c4377fabb is active; on APPROVE rebase, rerun critical gates, land and release; no push before approval
+done-so-far: fresh review rejected the frozen direct checkpoint on shorthand value-symbol capture, shorthand/local-export marker erasure, and valid type-only exports; repair plan is committed after clean rebase
+next: spec-first fix all three P1s with real packaged regressions, rerun every direct/explicit/catalog/conformance gate, freeze, then obtain a new independent review; no push/release

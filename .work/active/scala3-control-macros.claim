@@ -1,6 +1,6 @@
 feature/scala3-control-macros 2026-07-15T04:07:46Z
 agent: codex-scala-control-macros
-heartbeat: 2026-07-15T06:44:32Z
+heartbeat: 2026-07-15T06:52:41Z
 status: in-progress
-done-so-far: frozen clean checkpoint 708dec2f1 including nested-reset eager-prompt fix; focused 39/39, full 101/101, package/consumers, catalog 26/9, negatives 9/9, direct 3/3 and conformance 5/5 green
-next: fresh independent read-only review of 76f9706cf..708dec2f1 is active; on APPROVE rebase, rerun critical gates, land and release; no push before approval
+done-so-far: fresh review rejected the frozen macro checkpoint on captured-A rebinding, inferred owner-bearing RHS types, and forward/mutual lazy givens; owner resumed from a clean rebase
+next: plan and spec-first repair all three P1s plus boundary-break regressions, run packaged/full gates, freeze, then obtain a new independent review; no push/release

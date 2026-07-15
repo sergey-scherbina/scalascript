@@ -1,6 +1,6 @@
 feature/ssc-api-descriptor-v3-slice-b 2026-07-15T04:02:06Z
 agent: codex-descriptor-b
-heartbeat: 2026-07-15T06:44:32Z
+heartbeat: 2026-07-15T06:52:41Z
 status: in-progress
-done-so-far: fresh review rejected 4cd2a4aaa on import-aware bare-type shadowing, raw effect/object carrier agreement, and derives/early template evidence; fourth repair plan is committed after rebase
-next: spec-first repair all three P1s with faithful import/effect/template regressions, full gates, freeze, then another independent review; no push/release
+done-so-far: fourth repair plan/spec and faithful red import/effect/template baselines are committed; implementation repair is active in the isolated worktree
+next: close all three P1s, run descriptor/core/interop/ABI/conformance gates, freeze, then obtain a new independent review; no push/release
