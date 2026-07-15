@@ -324,6 +324,11 @@ object SpikeParse:
     if c.peekKind == kind then c.advance().map(t => Node.Leaf(t, Some(role)))
     else { c.report("spike.expected", s"expected $what, found '${c.peekLexeme}'"); None }
 
+  // a val/var binder name — a lowercase id OR an uppercase uid (`val Schema = …` / `val Pi = …` are valid).
+  private def expectName(c: Cur, role: String, what: String): Option[Node] =
+    if c.peekKind == "spike.id" || c.peekKind == "spike.uid" then c.advance().map(t => Node.Leaf(t, Some(role)))
+    else { c.report("spike.expected", s"expected $what, found '${c.peekLexeme}'"); None }
+
   // a type name is an uppercase `uid` (Int, String) or a lowercase type param (`id`).
   private def expectType(c: Cur, role: String): Option[Node] =
     if c.peekKind == "spike.uid" || c.peekKind == "spike.id" then c.advance().map(t => Node.Leaf(t, Some(role)))
@@ -674,7 +679,7 @@ object SpikeParse:
   private def parseVal(c: Cur): Node =
     val kids = Vector.newBuilder[Node]
     c.advance().foreach(t => kids += Node.Leaf(t, Some("val.kw"))) // `val`
-    expect(c, "spike.id", "val.name", "val name").foreach(kids += _)
+    expectName(c, "val.name", "val name").foreach(kids += _)
     skipTypeAnnotation(c) // optional `: T` (erased)
     expect(c, "spike.eq", "val.eq", "'='").foreach(kids += _)
     parseExpr(c, 1) match
@@ -686,7 +691,7 @@ object SpikeParse:
   private def parseVarStmt(c: Cur): Node =
     val kids = Vector.newBuilder[Node]
     c.advance().foreach(t => kids += Node.Leaf(t, Some("var.kw"))) // `var`
-    expect(c, "spike.id", "var.name", "var name").foreach(kids += _)
+    expectName(c, "var.name", "var name").foreach(kids += _)
     skipTypeAnnotation(c) // optional `: T` (erased) — full generic/function type, not just one token
     expect(c, "spike.eq", "var.eq", "'='").foreach(kids += _)
     parseExpr(c, 1) match
