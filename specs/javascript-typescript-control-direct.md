@@ -1,7 +1,7 @@
 # JavaScript/TypeScript closed lexical direct control transform
 
-Status: **second-review symbol-ownership repair implemented and locally verified;
-fresh independent pre-integration rereview pending** (2026-07-15).
+Status: **third-review JavaScript/declaration emit-channel repairs specified;
+implementation pending** (2026-07-15).
 
 ## Overview
 
@@ -199,14 +199,39 @@ Type-only references that TypeScript erases are not value uses. In particular,
 declaration-level `export type { direct as Marker }` of a local imported marker,
 source-module `export type { direct } from "@scalascript/control-direct"`, and
 specifier-level `export { type direct } from "@scalascript/control-direct"` are
-accepted and left to ordinary TypeScript erasure. Declaration-level `isTypeOnly` or
-specifier-level `isTypeOnly` is checked before any runtime export rule; changing
-either form to a runtime export is unsupported. After a file is clean, the transformer
-removes only each completed named `direct` import specifier and removes its import
-declaration only when no default or named bindings remain. Unrelated import
-declarations and other specifiers are preserved exactly. This makes the ordinary
-marker-only authoring case independent of the direct package at production time
-without rewriting unrelated imports.
+accepted. Declaration-level `isTypeOnly` or specifier-level `isTypeOnly` is checked
+before any runtime export rule; changing either form to a runtime export is
+unsupported.
+
+JavaScript emit and declaration emit have separate observable contracts. For
+JavaScript, a clean selected file removes every completed named `direct` import
+specifier and every type-only specifier in that exact-module import. An empty import
+declaration is removed; ordinary runtime default/named bindings are retained. Thus
+`import { direct, type T, RuntimeValue } from "@scalascript/control-direct"` becomes
+the valid JavaScript import of `RuntimeValue`, never `import { type T }`. For
+declaration emit, the original TypeScript import remains the source of `.d.ts`
+information, including `T`; JavaScript normalization must not erase the declaration
+surface.
+
+An exact-module source export containing a type-only `direct` specifier is selected
+for the same JavaScript-only normalization even if the file has no reset. The
+type-only specifier is removed; if no runtime specifier remains, the whole
+module-linked export is removed rather than emitting
+`export {} from "@scalascript/control-direct"`. Mixed ordinary runtime specifiers are
+retained. Declaration emit again observes the original export. These guarantees hold
+with both `verbatimModuleSyntax: false` and `true`; production JavaScript cannot keep
+a module-resolution edge to the build-time marker solely because erased import or
+export syntax shared a declaration with `direct`.
+
+External-module import-equals syntax follows the same ownership boundary. A runtime
+`import markers = require("@scalascript/control-direct")` is a namespace marker import
+and is unsupported whether used or unused. It produces one
+`JS_DIRECT_UNSUPPORTED` and cancels every rewrite in the file. The explicitly
+type-only form `import type markers = require("@scalascript/control-direct")` is
+accepted because it has no JavaScript binding or require edge; its JavaScript form is
+removed and its declaration information remains TypeScript-owned. Internal
+import-equals aliases and import-equals declarations naming another module are
+unrelated.
 
 The closed T1 grammar is:
 
@@ -351,7 +376,8 @@ saveability status and remain barriers for later cross-frame/durable profiles.
 - `JS_DIRECT_UNSUPPORTED` — the reset or marker misses the closed grammar: wrong
   arity/callback form, `var`, destructuring, multiple declaration, arbitrary marker
   position, early/missing return, unsupported statement, marker aliasing, runtime
-  export/re-export, or any surviving owned marker value use.
+  export/re-export, runtime exact-module `import = require`, or any surviving owned
+  marker value use.
 - `JS_DIRECT_PROMPT_MISMATCH` — a marker prompt does not resolve to the owning
   reset's exact prompt symbol.
 
@@ -401,13 +427,21 @@ diagnostic.
       normalization; shadowed/indirect eval and `Function` follow the explicit
       global-only policy above.
 - [x] Every owned marker value use is transformed or diagnosed, including object
-      shorthand and local runtime export aliases; completed named marker specifiers
-      are removed without changing unrelated imports, and emitted production
-      JavaScript runs with no direct package installed.
+      shorthand and local runtime export aliases.
 - [x] Declaration-level and specifier-level type-only local exports/re-exports of
-      `direct` remain diagnostic-free and erase normally, while the corresponding
-      runtime local exports and source-module re-exports fail file-atomically with
-      one stable `JS_DIRECT_UNSUPPORTED` diagnostic.
+      `direct` remain diagnostic-free, while the corresponding runtime local exports
+      and source-module re-exports fail file-atomically with one stable
+      `JS_DIRECT_UNSUPPORTED` diagnostic.
+- [ ] Mixed exact-module imports produce valid JavaScript in both verbatim modes:
+      completed marker and type-only specifiers disappear, ordinary runtime
+      specifiers remain, production has no type-only marker edge, and `.d.ts` retains
+      the original type surface.
+- [ ] Exact-module type-only source exports produce no empty module-linked JavaScript
+      export in either verbatim mode; mixed runtime specifiers remain, production runs
+      without the marker package, and `.d.ts` retains the original type export.
+- [ ] Runtime external-module `import = require` is rejected once and file-atomically
+      under CommonJS/Node10, while its explicit type-only form erases from JavaScript
+      and remains available to declaration emit.
 - [x] Parenthesized, `as`, non-null, and type-asserted marker receivers/callees obey
       the same transform and diagnostic rules as the unwrapped exact import.
 - [x] The programmatic API and CLI accept only TypeScript 5.9.x, reject other API
@@ -415,7 +449,8 @@ diagnostic.
 - [x] The packed installed `.bin` runs through its symlink, resolves TypeScript only
       from the project/config/cwd issuer even when the package lives in an extracted
       store, and fails non-zero for missing compiler or invalid options.
-- [x] Package tests, package typecheck, exact dry-run pack, the existing explicit
+- [ ] Package tests, packed-CLI JavaScript/declaration/syntax/production regressions,
+      package typecheck, exact dry-run pack, the existing explicit
       package's 31 tests/typecheck, catalog validation/negative validation, and
       affected `effect*,effects*` conformance are green from the isolated worktree.
 
@@ -445,6 +480,16 @@ diagnostic.
   runtime re-exports remain unsupported. Rejected: treating every `ExportSpecifier`
   identifier as an ordinary reference, which both misses local aliases and rejects
   valid erased exports.
+- **Normalize JavaScript without rewriting the declaration contract.** Selected
+  exact-module imports and source exports discard completed marker/type-only
+  specifiers in JavaScript, remove an empty linked declaration, and retain mixed
+  runtime specifiers; `.d.ts` remains derived from the original TypeScript surface.
+  Rejected: relying on `verbatimModuleSyntax` to erase a custom-transformed node,
+  which can leave TypeScript-only import syntax or an empty runtime module edge.
+- **Treat runtime external `import = require` as a namespace marker import.** It is
+  rejected under the same exact-module, file-atomic rule; explicit `import type =`
+  is accepted and erased. Rejected: scanning only ES `ImportDeclaration`, which lets
+  the CommonJS/Node10 spelling bypass marker ownership.
 - **Preserve authored JavaScript declaration semantics.** A fresh generated resume
   parameter feeds the original `const`/`let` declaration. Rejected: replacing that
   declaration with a callback parameter, which weakens `const` and can collide with
@@ -567,3 +612,12 @@ runtime marker shorthand/local exports could survive while their import was eras
 and valid erased type-only export forms were diagnosed as runtime re-exports. The
 three now-checked behavior rows above are covered by the second repair. A new clean
 checkpoint still requires another independent APPROVE before push or claim release.
+
+The fresh third review of exact `71ae452ea5` likewise reported no P0 or P2 findings
+and rejected on three P1 emit-boundary gaps. A mixed named import could retain
+specifier-level `type` syntax in emitted JavaScript; a specifier-level type-only
+source export could retain an empty runtime link to the dev-only package under
+`verbatimModuleSyntax`; and CommonJS/Node10 external `import = require` bypassed the
+namespace-import rejection. The three unchecked behavior rows above are the required
+repair and packed-CLI qualification boundary. The reviewed checkpoint remains
+unpushed, and another independent APPROVE is required after implementation.
