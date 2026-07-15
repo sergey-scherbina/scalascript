@@ -345,6 +345,7 @@ object SpikeParse:
     // `def.param` role, so defNode collects them in order across clauses).
     while c.peekKind == "spike.lparen" do
       c.advance().foreach(t => kids += Node.Leaf(t, Some("def.lparen")))
+      if isWord(c, "using") then c.advance() // `(using s: T)` context param — `using` stripped, `s` kept as a param
       var moreParams = c.peekKind != "spike.rparen" && !c.eof && !isDefStart(c)
       while moreParams do
         val name = expect(c, "spike.id", "def.param", "parameter name")
@@ -400,7 +401,8 @@ object SpikeParse:
   // capture a case-class field type as its raw TOKENS (base + balanced `[…]` generics + `=> …` fn tails) in a
   // spike.cctype frame, so the projection reproduces ssc1-front's full type string (`List[User]`,
   // `Map[String,User]` — token lexemes concatenated with no spaces).
-  private def captureFieldType(c: Cur): Node =
+  private def captureFieldType(c: Cur): Node = captureType(c, "cc.fieldType")
+  private def captureType(c: Cur, role: String): Node =
     val toks = Vector.newBuilder[Node]
     def take(): Unit = c.advance().foreach(t => toks += Node.Leaf(t, Some("ct.tok")))
     def takeBalanced(open: String, close: String): Unit =
@@ -418,7 +420,7 @@ object SpikeParse:
         if c.peekKind == "spike.lparen" then takeBalanced("spike.lparen", "spike.rparen")
         else if c.peekKind == "spike.uid" || c.peekKind == "spike.id" then take()
       else more = false
-    Node.Frame("spike.cctype", Some("cc.fieldType"), toks.result())
+    Node.Frame("spike.cctype", Some(role), toks.result())
 
   // `enum E: case A; case B(x: Int); case Red, Green` (offside or `{ … }`). Emits
   // ("enum", (name, [(caseName, [fieldNames])…])); lowerProg reuses the case-class ctor path.
@@ -478,17 +480,41 @@ object SpikeParse:
 
   // `given name: T = expr` — a named typeclass instance (dictionary). lowerProg's resolve pass
   // does the dict-passing; the projection only emits the `("given", (name, typeStr, body))` node.
+  // `given name: T = body` → ("given", …) for KC5 injection; `given name: T with { defs }` → ("given_obj", …)
+  // a typeclass instance whose body methods lower to `name_method` (ssc1-front.ssc0:2603). `given name = body`
+  // (no type) is a plain val; an anonymous given is a no-op. buildGivenTable/collectObjects are AST-derived.
   private def parseGiven(c: Cur): Node =
     val kids = Vector.newBuilder[Node]
     c.advance().foreach(t => kids += Node.Leaf(t, Some("given.kw"))) // `given`
-    expect(c, "spike.id", "given.name", "given name").foreach(kids += _)
-    expect(c, "spike.colon", "given.colon", "':'").foreach(kids += _)
-    expectType(c, "given.type").foreach(kids += _)
-    expect(c, "spike.eq", "given.eq", "'='").foreach(kids += _)
-    parseExpr(c, 1) match
-      case Some(b) => kids += b.withRole("given.body")
-      case None    => c.report("spike.missing-given-body", "missing given body")
-    Node.Frame("spike.given", None, kids.result())
+    if c.peekKind == "spike.id" && c.peek2Kind == "spike.colon" then
+      c.advance().foreach(t => kids += Node.Leaf(t, Some("given.name")))
+      c.advance() // `:`
+      kids += captureType(c, "given.type")
+      if c.peekKind == "spike.eq" then
+        c.advance()
+        parseExpr(c, 1).foreach(b => kids += b.withRole("given.body"))
+        Node.Frame("spike.given", None, kids.result())
+      else if isWord(c, "with") then
+        c.advance() // `with` — followed by a braced `{ … }` or an offside indented body
+        val braced = c.peekKind == "spike.lbrace"
+        if braced then c.advance()
+        c.skipSemis()
+        val bodyCol = c.peekCol
+        while !c.eof && c.peekKind != "spike.rbrace" && (braced || c.peekCol >= bodyCol) && isMemberStart(c) do
+          skipDeclModifiers(c)
+          val before = c.mark
+          kids += parseMember(c).withRole("obj.member")
+          if c.mark == before then c.advance()
+          c.skipSemis()
+        if braced && c.peekKind == "spike.rbrace" then c.advance()
+        Node.Frame("spike.givenobj", None, kids.result())
+      else Node.Frame("spike.sealed", None, Vector.empty)
+    else if c.peekKind == "spike.id" && c.peek2Kind == "spike.eq" then
+      c.advance().foreach(t => kids += Node.Leaf(t, Some("given.name"))) // `given name = body` → a plain val
+      c.advance() // `=`
+      parseExpr(c, 1).foreach(b => kids += b.withRole("given.body"))
+      Node.Frame("spike.givenval", None, kids.result())
+    else Node.Frame("spike.sealed", None, Vector.empty) // anonymous given — no-op
 
   // `summon[T]` — resolved to the matching given by lowerProg. A bare `summon` (no `[`) is a var.
   private def parseSummon(c: Cur): Node =
@@ -1337,6 +1363,8 @@ object SpikeProject:
       case (_, c) if kindOf(c) == "spike.def"       => Vector(defNode(c))
       case (_, c) if kindOf(c) == "spike.casecls"   => Vector(caseClsNode(c))
       case (_, c) if kindOf(c) == "spike.given"     => Vector(givenNode(c))
+      case (_, c) if kindOf(c) == "spike.givenobj"  => Vector(givenObjNode(c))
+      case (_, c) if kindOf(c) == "spike.givenval"  => Vector(givenValNode(c))
       case (_, c) if kindOf(c) == "spike.enum"      => Vector(enumNode(c))
       case (_, c) if kindOf(c) == "spike.extension" => extensionNodes(c)
       case (_, c) if kindOf(c) == "spike.object"    => Vector(objectNode(c))
@@ -1383,9 +1411,23 @@ object SpikeProject:
   private def givenNode(n: UniNode): String =
     val ks = kids(n)
     val name = ks.collectFirst { case (Some("given.name"), c) => lexeme(c) }.getOrElse("_")
-    val ty   = ks.collectFirst { case (Some("given.type"), c) => lexeme(c) }.getOrElse("_")
+    val ty   = ks.collectFirst { case (Some("given.type"), c) => concatType(c) }.getOrElse("_")
     val body = ks.collectFirst { case (Some("given.body"), c) => expr(c) }.getOrElse(hole)
     s"""Pair("given", Pair("${esc(name)}", Pair("${esc(ty)}", $body)))"""
+
+  // `given name: T with { members }` → Pair("given_obj", Pair(name, Pair(typeStr, [member-stmts])))
+  private def givenObjNode(n: UniNode): String =
+    val ks = kids(n)
+    val name = ks.collectFirst { case (Some("given.name"), c) => lexeme(c) }.getOrElse("_")
+    val ty   = ks.collectFirst { case (Some("given.type"), c) => concatType(c) }.getOrElse("_")
+    val members = ks.collect { case (Some("obj.member"), c) => memberNode(c) }
+    s"""Pair("given_obj", Pair("${esc(name)}", Pair("${esc(ty)}", ${consList(members.toVector)})))"""
+
+  private def givenValNode(n: UniNode): String =
+    val ks = kids(n)
+    val name = ks.collectFirst { case (Some("given.name"), c) => lexeme(c) }.getOrElse("_")
+    val body = ks.collectFirst { case (Some("given.body"), c) => expr(c) }.getOrElse(hole)
+    s"""mkVal("${esc(name)}", $body)"""
 
   // Pair("casecls", Pair(name, Pair(fieldNames, Pair(fieldTypes, derives)))) via mkCaseCls;
   // lowerProg generates the ctor def, Mirror, `_sel_<field>` accessors and `__regfields__`.
