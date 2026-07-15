@@ -2887,6 +2887,14 @@ def nullRow(): StorageRecord = StorageRecord(None, DecodedRecord(0, 0, Nil))
 
 // Extend each partial join-row with every row of the next table that satisfies the ON.
 // For a LEFT join, a partial that matched no next-table row is kept once, NULL-extended.
+def nullList(n: Int): List[StorageRecord] =
+  var i = 0
+  var acc: List[StorageRecord] = Nil
+  while i < n do
+    acc = nullRow() :: acc
+    i = i + 1
+  acc
+
 def extendPartials(partials: List[List[StorageRecord]], nextRows: List[StorageRecord], boundTables: List[JoinTable], spec: JoinSpec): List[List[StorageRecord]] =
   var ps = partials
   var accRev: List[List[StorageRecord]] = Nil
@@ -2901,6 +2909,18 @@ def extendPartials(partials: List[List[StorageRecord]], nextRows: List[StorageRe
       nr = nr.tail
     accRev = if spec.leftOuter && !matched then (ps.head ++ (nullRow() :: Nil)) :: accRev else accRev
     ps = ps.tail
+  // RIGHT / FULL: keep each next-table row that no partial matched, previous tables NULL-extended.
+  if spec.rightOuter then
+    val prefixWidth = boundTables.length - 1
+    var nr2 = nextRows
+    while nr2.nonEmpty do
+      var pp = partials
+      var anyMatch = false
+      while pp.nonEmpty do
+        if onHolds(pp.head ++ (nr2.head :: Nil), boundTables, spec) then anyMatch = true
+        pp = pp.tail
+      accRev = if anyMatch then accRev else (nullList(prefixWidth) ++ (nr2.head :: Nil)) :: accRev
+      nr2 = nr2.tail
   accRev.reverse
 
 def buildJoinRows(tables: List[JoinTable], joins: List[JoinSpec]): List[List[StorageRecord]] =
