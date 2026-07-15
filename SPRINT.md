@@ -2184,6 +2184,14 @@ Two new front doors are specced (typed-SQL-API cb94fd88c, JDBC-API f2d1372a0); *
 working first implementation** — the JDBC portable façade (m6v) and the typed SQL surface (m6w),
 alongside SQL polish (REAL literals m6s, LEFT-join-3 m6r). All three "параллельно" lanes advanced.
 
+- [x] **scljet-m7m-right-join3** — DONE 2026-07-15 (follow-up niche #2). RIGHT/FULL as the LAST join of a
+      3+ table chain (N-table path). `extendPartials` now, for `rightOuter`, keeps each next-table row no
+      partial matched, NULL-extending the previous tables (`nullList`). `a JOIN b … RIGHT JOIN c` keeps
+      unmatched c rows with a/b NULL; FULL = both flags. Verified vs sqlite3 (3-table RIGHT-last, NULL
+      emp/dept for the unmatched proj row), int==js; conformance `scljet-sql-right-join3`; 53/53 sql green.
+      Scope: RIGHT/FULL as the LAST join (those rows need no further extension); a RIGHT/FULL join in the
+      MIDDLE of a chain (null-extended rows must survive later joins) is a deeper follow-up.
+
 - [x] **scljet-m7l-correlated-scalar** — DONE 2026-07-15 (follow-up niche; Sergiy "Берись за эти ниши").
       Correlated scalar subquery in a comparison — `col <cmp> (SELECT … WHERE inner.x = outer.y)`.
       Completes the correlated-subquery family (EXISTS m7i, IN m7j, scalar m7l). `parseCondition`'s

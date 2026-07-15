@@ -1,4 +1,4 @@
 claim: scljet-m3-writes
 owner: opus
-heartbeat: 2026-07-15T11:05:00Z
-status: NICHE #1 done — correlated scalar subquery (m7l); correlated family complete (EXISTS/IN/scalar). 52/52 sql green. NEXT niches: RIGHT/FULL 3+ tables, physical IR, JVM JDBC J2.
+heartbeat: 2026-07-15T11:30:00Z
+status: NICHES #1 (correlated scalar) + #2 (RIGHT/FULL 3-table last-join) done. 53/53 sql green. NEXT: #3 physical-IR EXPLAIN (me), #4 JVM JDBC J2 (sibling agent).
