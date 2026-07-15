@@ -2,10 +2,10 @@
 
 ## js-control-direct-import-equals-bypass — runtime marker require evades fail-closed import scan
 
-**Status:** open; repair candidate `542a5d2b6` is direct-package verified and awaits
-full gates, fresh independent review, and landing. Reported as P1 by the fresh
+**Status:** open; repair candidate `3385574b8` is fully locally verified and awaits
+fresh independent review and landing. Reported as P1 by the fresh
 independent read-only review of exact frozen HEAD `71ae452ea5` on 2026-07-15
-(current rebased equivalent `2d913f991`).
+(current rebased equivalent `b6a68f038`).
 
 **Symptom/reproduce:** compile a CommonJS/Node10 source containing
 `import markers = require("@scalascript/control-direct")`, with or without a use of
@@ -30,10 +30,10 @@ direct package passes 38/38.
 
 ## js-control-direct-type-export-runtime-link — erased export retains dev-only module link
 
-**Status:** open; repair candidate `542a5d2b6` is direct-package verified and awaits
-full gates, fresh independent review, and landing. Reported as P1 by the fresh
+**Status:** open; repair candidate `3385574b8` is fully locally verified and awaits
+fresh independent review and landing. Reported as P1 by the fresh
 independent read-only review of exact frozen HEAD `71ae452ea5` on 2026-07-15
-(current rebased equivalent `2d913f991`).
+(current rebased equivalent `b6a68f038`).
 
 **Symptom/reproduce:** with `verbatimModuleSyntax: true`, compile
 `export { type direct as Marker } from "@scalascript/control-direct"`. The transform
@@ -58,10 +58,10 @@ package; the full direct package passes 38/38.
 
 ## js-control-direct-mixed-type-import-invalid-js — marker erasure leaves TypeScript syntax
 
-**Status:** open; repair candidate `542a5d2b6` is direct-package verified and awaits
-full gates, fresh independent review, and landing. Reported as P1 by the fresh
+**Status:** open; repair candidate `3385574b8` is fully locally verified and awaits
+fresh independent review and landing. Reported as P1 by the fresh
 independent read-only review of exact frozen HEAD `71ae452ea5` on 2026-07-15
-(current rebased equivalent `2d913f991`).
+(current rebased equivalent `b6a68f038`).
 
 **Symptom/reproduce:** compile a transformed file containing
 `import { direct, type DirectMarkerContractError as ErrorType } from
@@ -86,9 +86,9 @@ production-without-marker regressions; the full direct package passes 38/38.
 
 ## js-control-direct-type-only-export-false-positive — erased exports are rejected
 
-**Status:** open; repair candidate `484cde9fe` is locally verified and awaits fresh
+**Status:** open; repair candidate `6fa7cb62c` is locally verified and awaits fresh
 independent review plus landing. Reported as P1 by independent rereview of exact
-frozen HEAD `c4377fabb` on 2026-07-15 (current rebased equivalent `0be077e53`).
+frozen HEAD `c4377fabb` on 2026-07-15 (current rebased equivalent `840f23c1b`).
 
 **Symptom/reproduce:** TypeScript files using local
 `export type { direct as Marker }`, direct
@@ -112,9 +112,9 @@ package tests pass 35/35.
 
 ## js-control-direct-marker-shorthand-export-survivor — owned values evade scanning
 
-**Status:** open; repair candidate `484cde9fe` is locally verified and awaits fresh
+**Status:** open; repair candidate `6fa7cb62c` is locally verified and awaits fresh
 independent review plus landing. Reported as P1 by independent rereview of exact
-frozen HEAD `c4377fabb` on 2026-07-15 (current rebased equivalent `0be077e53`).
+frozen HEAD `c4377fabb` on 2026-07-15 (current rebased equivalent `840f23c1b`).
 
 **Symptom/reproduce:** place runtime shorthand `{ direct }`, local
 `export { direct }`, or `export { direct as alias }` in a file selected for marker
@@ -139,9 +139,9 @@ file-atomic diagnostic with unchanged ignored-diagnostic emit.
 
 ## js-control-direct-shorthand-value-symbol-capture — property symbol hides suffix capture
 
-**Status:** open; repair candidate `484cde9fe` is locally verified and awaits fresh
+**Status:** open; repair candidate `6fa7cb62c` is locally verified and awaits fresh
 independent review plus landing. Reported as P1 by independent rereview of exact
-frozen HEAD `c4377fabb` on 2026-07-15 (current rebased equivalent `0be077e53`).
+frozen HEAD `c4377fabb` on 2026-07-15 (current rebased equivalent `840f23c1b`).
 
 **Symptom/reproduce:** inside a shift body, save or evaluate a closure/expression
 reading `({ later }).later`, then declare suffix `const later = 42`. The current
@@ -167,7 +167,7 @@ the untouched file when diagnostics are ignored.
 
 ## js-control-direct-prefix-tdz-binding-escape — moved suffix exposes an outer binding
 
-**Status:** open; repair candidate `ec55b8738` is locally verified and awaits fresh
+**Status:** open; repair candidate `93cb6b88c` is locally verified and awaits fresh
 independent review plus landing. Confirmed by parent adversarial pre-rereview on
 2026-07-15; the original independent-review snapshot was `f6fa34fac`.
 
@@ -196,7 +196,7 @@ keeps ignored-diagnostic emit file-atomic. Direct package tests pass 31/31.
 
 ## js-control-direct-import-only-eval-erasure — unused marker removal changes direct-eval scope
 
-**Status:** open; repair candidate `ec55b8738` is locally verified and awaits fresh
+**Status:** open; repair candidate `93cb6b88c` is locally verified and awaits fresh
 independent review plus landing. Found by parent adversarial pre-rereview on
 2026-07-15; the original independent-review snapshot was `f6fa34fac`.
 
@@ -221,7 +221,7 @@ executing regression proving that `eval("typeof direct")` still observes `"objec
 
 ## js-control-direct-typescript-version-ungated — unsupported compiler APIs are accepted
 
-**Status:** open; cumulative repair candidate `cc43d36d8` is locally verified and
+**Status:** open; cumulative repair candidate `2181491ca` is locally verified and
 awaits fresh independent review plus landing. Reported as P2 on 2026-07-15 by the
 independent pre-integration review of frozen direct-transform snapshot `f6fa34fac`.
 
@@ -243,7 +243,7 @@ as the qualification pin and deterministic rejection tests outside that line.
 
 ## js-control-direct-wrapped-marker-receiver-missed — transparent TS wrappers evade ownership
 
-**Status:** open; cumulative repair candidate `cc43d36d8` is locally verified and
+**Status:** open; cumulative repair candidate `2181491ca` is locally verified and
 awaits fresh independent review plus landing. Reported as P2 on 2026-07-15 by the
 independent pre-integration review of frozen direct-transform snapshot `f6fa34fac`.
 
@@ -265,7 +265,7 @@ regressions prove that no owned marker call survives a clean emit.
 
 ## js-control-direct-consumer-typescript-resolution — CLI resolves the tool's compiler, not the consumer's
 
-**Status:** open; cumulative repair candidate `cc43d36d8` is locally verified and
+**Status:** open; cumulative repair candidate `2181491ca` is locally verified and
 awaits fresh independent review plus landing. Reported as P1 on 2026-07-15 by the
 independent pre-integration review of frozen direct-transform snapshot `f6fa34fac`.
 
@@ -290,7 +290,7 @@ both present and missing consumer compilers through the packed installed bin.
 
 ## js-control-direct-marker-import-survives-emit — build-time marker becomes a production dependency
 
-**Status:** open; cumulative repair candidate `cc43d36d8` is locally verified and
+**Status:** open; cumulative repair candidate `2181491ca` is locally verified and
 awaits fresh independent review plus landing. Reported as P1 on 2026-07-15 by the
 independent pre-integration review of frozen direct-transform snapshot `f6fa34fac`.
 
@@ -315,7 +315,7 @@ package.
 
 ## js-control-direct-cli-symlink-noop — installed npm bin exits successfully without compiling
 
-**Status:** open; cumulative repair candidate `cc43d36d8` is locally verified and
+**Status:** open; cumulative repair candidate `2181491ca` is locally verified and
 awaits fresh independent review plus landing. Reported as P1 on 2026-07-15 by the
 independent pre-integration review of frozen direct-transform snapshot `f6fa34fac`.
 
@@ -338,8 +338,8 @@ compiles and invalid options fail non-zero.
 
 ## js-control-direct-eval-capture-unsound — direct eval can observe rewritten lexical frames
 
-**Status:** open; cumulative repair candidate `cc43d36d8` plus selected-file closure
-`ec55b8738` are locally verified and await fresh independent review plus landing.
+**Status:** open; cumulative repair candidate `2181491ca` plus selected-file closure
+`93cb6b88c` are locally verified and await fresh independent review plus landing.
 Reported as P1 on 2026-07-15 by the independent pre-integration review of frozen
 direct-transform snapshot `f6fa34fac`.
 
@@ -362,7 +362,7 @@ to import-only erasure while leaving indirect eval and `Function` global-only.
 
 ## js-control-direct-js-marker-binding-semantics — lowering erases const/let declaration behavior
 
-**Status:** open; cumulative repair candidate `cc43d36d8` is locally verified and
+**Status:** open; cumulative repair candidate `2181491ca` is locally verified and
 awaits fresh independent review plus landing. Reported as P1 on 2026-07-15 by the
 independent pre-integration review of frozen direct-transform snapshot `f6fa34fac`.
 
@@ -385,8 +385,8 @@ declaration; real JavaScript const/let/mutation/collision tests are green.
 
 ## js-control-direct-forward-lexical-capture — shift body escapes declarations moved into the suffix
 
-**Status:** open; cumulative repair candidate `cc43d36d8` with marker-layer closure
-`ec55b8738` is locally verified and awaits fresh independent review plus landing.
+**Status:** open; cumulative repair candidate `2181491ca` with marker-layer closure
+`93cb6b88c` is locally verified and awaits fresh independent review plus landing.
 Reported as P1 on 2026-07-15 by the independent pre-integration review of frozen
 direct-transform snapshot `f6fa34fac`.
 
