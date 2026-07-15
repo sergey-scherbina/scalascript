@@ -55,6 +55,324 @@ CommonJS, UMD, raw globals, and dynamically discovered functions may remain
 compatibility adapters. They are `ForeignBarrier` unless they carry the same
 descriptor and managed entry contract.
 
+### 2.1 Compiler-independent explicit package (first delivery slice)
+
+The first independently shippable slice is the local explicit reference package.
+Its repository home is exactly `v2/host/js/control`, and its npm package name is
+exactly `@scalascript/control`. It is ESM-only, has no production dependencies,
+does not run install scripts, and publishes exactly these package subpaths:
+
+```json
+{
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js",
+      "default": "./index.js"
+    },
+    "./package.json": "./package.json"
+  }
+}
+```
+
+The root runtime module exports exactly:
+
+```text
+CaptureFailure
+Continuation
+Eff
+MachineStep
+ResumeMultiplicity
+ResumeRejected
+Save
+StateMachine
+defineEffect
+freshPrompt
+handle
+perform
+reset
+shift
+```
+
+`index.d.ts` exposes the corresponding opaque or readonly types:
+`Effect`, `EffectId`, `OperationId`, `ResumeMultiplicity`, `ResumeRejected`,
+`ResumeAttempt`, `EffectKey`, `Operation`, `OperationFactory`, `Eff`, `Handler`,
+`Continuation`, `OneShotContinuation`, `Resumption`, `CaptureFailure`, `Save`,
+`Restore`, `SavedContinuation`, `PromptScope`, `PromptKeyOf`, `Control`, `Prompt`,
+`ShiftBody`, `StateMachine`, `MachineStep`, and `ResumeStateMachine`. Raw
+`Pure`/`Op` nodes, request constructors, the iterative stepper, prompt ids, and
+authority tokens are not public ABI.
+
+`defineEffect(id)` returns an opaque runtime-unique `EffectKey`. Its stable
+descriptor id is the supplied non-empty string, while handler matching uses the
+unforgeable owner identity. `key.operation(name, options)` creates an exact
+`OperationFactory`; the factory snapshots the key, structured id, result type,
+argument tuple, and `Reusable` (default) or `OneShot` multiplicity. Two keys with
+the same descriptor string remain distinct owners and therefore do not handle one
+another accidentally.
+
+The `Eff` surface is deliberately small:
+
+```text
+Eff.pure(value)
+Eff.defer(() => computation)
+computation.map(f)
+computation.flatMap(f)
+Eff.runPure(computation)
+perform(operation)
+handle(computation, handler)
+```
+
+`Eff.runPure` accepts `Eff<never, A>` at the TypeScript boundary. If untyped
+JavaScript violates that precondition, it raises a programmer-contract `TypeError`
+naming the unhandled structured operation. Such a misuse exception is not an
+effect, a handler escape channel, or a control failure ABI. Effect execution,
+resumption, and prompt capture themselves use no exceptions, Promise, async/await,
+generator, thread-local state, or stack inspection.
+
+`Continuation.local(state, machine)` creates a reusable local continuation backed
+by `ResumeStateMachine`. Its `resume` may be invoked repeatedly. This first slice
+has no successful save plan: `save()` deterministically performs
+`Save.Rejected(UnmanagedCapture("Continuation.local"))`. `SavedContinuation` and
+`Restore` are reserved opaque types only; no public constructor or cast-free
+successful producer exists.
+
+One-shot `tryResume` returns a discriminated `ResumeAttempt` with either
+`{ ok: true, computation }` or
+`{ ok: false, rejection: AlreadyResumed(OperationId) }`. The gate changes state
+before the accepted continuation builder is invoked. Because one JavaScript agent
+runs to completion between event-loop turns, this synchronous compare-and-set
+region is atomic for the package's local execution model: all later attempts are
+rejected before suffix construction or execution. Copying a resumption object does
+not copy its gate.
+
+Prompts use the scoped callback form:
+
+```ts
+freshPrompt<R, A>(
+  body: <P extends PromptScope>(prompt: Prompt<P, R>) => A
+): A
+```
+
+`Prompt`, its invariant `P`, and `Control<P>` carry private declaration brands.
+There is no prompt constructor. Nested callback binders have incompatible keys,
+and `reset` removes only the matching `Control<P>` member from the effect row.
+`shift` exposes a reusable `Continuation` and implements the two-reset law from
+§4.2 of the target-neutral specification; the shift body therefore remains under
+the same delimiter and is observably `shift`, not `shift0`.
+
+The following is the normative declaration shape for this slice (private
+`unique symbol` brands are omitted from the listing but are required in the
+published declaration):
+
+```ts
+export interface Effect<Id extends string = string> {}
+export interface EffectId { readonly value: string }
+export interface OperationId {
+  readonly effect: EffectId
+  readonly name: string
+}
+
+export type ResumeMultiplicity = "Reusable" | "OneShot"
+export const ResumeMultiplicity: Readonly<{
+  Reusable: "Reusable"
+  OneShot: "OneShot"
+}>
+
+export type ResumeRejected = Readonly<{
+  kind: "AlreadyResumed"
+  operation: OperationId
+}>
+export const ResumeRejected: Readonly<{
+  AlreadyResumed(operation: OperationId): ResumeRejected
+}>
+
+export interface EffectKey<Fx extends Effect> {
+  readonly id: EffectId
+  operation<A, Args extends readonly unknown[] = readonly []>(
+    name: string,
+    options?: Readonly<{ multiplicity?: ResumeMultiplicity }>
+  ): OperationFactory<Fx, A, Args>
+}
+export function defineEffect<const Id extends string>(
+  id: Id
+): EffectKey<Effect<Id>>
+
+export interface Operation<
+  Fx extends Effect,
+  A,
+  Args extends readonly unknown[] = readonly unknown[]
+> {
+  readonly effect: EffectKey<Fx>
+  readonly id: OperationId
+  readonly multiplicity: ResumeMultiplicity
+  readonly args: Args
+}
+export interface OperationFactory<
+  Fx extends Effect,
+  A,
+  Args extends readonly unknown[] = readonly []
+> {
+  (...args: Args): Operation<Fx, A, Args>
+  readonly effect: EffectKey<Fx>
+  readonly id: OperationId
+  readonly multiplicity: ResumeMultiplicity
+  is(operation: Operation<Fx, unknown>): operation is Operation<Fx, A, Args>
+}
+
+export interface Eff<Fx extends Effect, A> {
+  flatMap<Fx2 extends Effect, B>(
+    next: (value: A) => Eff<Fx2, B>
+  ): Eff<Fx | Fx2, B>
+  map<B>(f: (value: A) => B): Eff<Fx, B>
+}
+export const Eff: Readonly<{
+  pure<A>(value: A): Eff<never, A>
+  defer<Fx extends Effect, A>(body: () => Eff<Fx, A>): Eff<Fx, A>
+  runPure<A>(body: Eff<never, A>): A
+}>
+export function perform<Fx extends Effect, A, Args extends readonly unknown[]>(
+  operation: Operation<Fx, A, Args>
+): Eff<Fx, A>
+
+export interface Handler<
+  Handled extends Effect,
+  Residual extends Effect,
+  A,
+  B
+> {
+  readonly effect: EffectKey<Handled>
+  onReturn(value: A): Eff<Residual, B>
+  onOperation<X, Args extends readonly unknown[]>(
+    operation: Operation<Handled, X, Args>,
+    resumption: Resumption<X, Residual, B>
+  ): Eff<Residual, B>
+}
+export function handle<
+  Handled extends Effect,
+  Residual extends Effect,
+  A,
+  B
+>(body: Eff<Handled | Residual, A>, handler: Handler<Handled, Residual, A, B>):
+  Eff<Residual, B>
+
+export interface Continuation<A, Fx extends Effect, R> {
+  resume(value: A): Eff<Fx, R>
+  save(): Eff<Save, SavedContinuation<A, Fx, R>>
+}
+export interface OneShotContinuation<A, Fx extends Effect, R> {
+  tryResume(value: A): ResumeAttempt<Fx, R>
+}
+export type ResumeAttempt<Fx extends Effect, R> =
+  | Readonly<{ ok: true, computation: Eff<Fx, R> }>
+  | Readonly<{ ok: false, rejection: ResumeRejected }>
+export type Resumption<A, Fx extends Effect, R> =
+  | Readonly<{
+      kind: "Reusable"
+      continuation: Continuation<A, Fx, R>
+    }>
+  | Readonly<{
+      kind: "OneShot"
+      continuation: OneShotContinuation<A, Fx, R>
+    }>
+
+export type CaptureFailure =
+  | Readonly<{ kind: "UnmanagedCapture", site: string }>
+  | Readonly<{ kind: "CaptureBarrier", site: string, detail: string }>
+  | Readonly<{ kind: "OneShotSource", site: string }>
+  | Readonly<{ kind: "MissingCodec", site: string, typeId: string }>
+  | Readonly<{ kind: "UnsupportedGraph", site: string, detail: string }>
+export const CaptureFailure: Readonly<{
+  UnmanagedCapture(site: string): CaptureFailure
+  CaptureBarrier(site: string, detail: string): CaptureFailure
+  OneShotSource(site: string): CaptureFailure
+  MissingCodec(site: string, typeId: string): CaptureFailure
+  UnsupportedGraph(site: string, detail: string): CaptureFailure
+}>
+
+export interface Save extends Effect<"scalascript.control.Save"> {}
+export const Save: Readonly<{
+  key: EffectKey<Save>
+  Rejected: OperationFactory<Save, never, readonly [CaptureFailure]>
+}>
+export interface Restore extends Effect<"scalascript.control.Restore"> {}
+export interface SavedContinuation<A, Fx extends Effect, R> {
+  run(value: A): Eff<Fx | Restore, R>
+}
+
+export interface PromptScope {}
+export type PromptKeyOf<T> =
+  T extends Prompt<infer P, unknown> ? P : never
+export interface Control<P extends PromptScope>
+  extends Effect<"scalascript.control.Control"> {}
+export interface Prompt<P extends PromptScope, R> {}
+export type ShiftBody<
+  P extends PromptScope,
+  A,
+  Fx extends Effect,
+  R
+> = <Residual extends Effect>(
+  continuation: Continuation<A, Fx | Residual, R>
+) => Eff<Fx | Residual | Control<P>, R>
+export function freshPrompt<R, A>(
+  body: <P extends PromptScope>(prompt: Prompt<P, R>) => A
+): A
+export function reset<P extends PromptScope, R, Fx extends Effect>(
+  prompt: Prompt<P, R>,
+  body: () => Eff<Fx, R>
+): Eff<Exclude<Fx, Control<P>>, R>
+export function shift<
+  P extends PromptScope,
+  R,
+  A,
+  Fx extends Effect = never
+>(prompt: Prompt<P, R>, body: ShiftBody<P, A, Fx, R>):
+  Eff<Fx | Control<P>, A>
+
+export type MachineStep<S, Fx extends Effect, A> =
+  | Readonly<{ kind: "Continue", next: S }>
+  | Readonly<{ kind: "Evaluate", next: Eff<Fx, S> }>
+  | Readonly<{ kind: "Done", value: A }>
+export const MachineStep: Readonly<{
+  Continue<S>(next: S): MachineStep<S, never, never>
+  Evaluate<S, Fx extends Effect>(next: Eff<Fx, S>): MachineStep<S, Fx, never>
+  Done<A>(value: A): MachineStep<never, never, A>
+}>
+export interface StateMachine<S, Fx extends Effect, A> {
+  step(state: S): MachineStep<S, Fx, A>
+}
+export const StateMachine: Readonly<{
+  run<S, Fx extends Effect, A>(
+    initial: S,
+    machine: StateMachine<S, Fx, A>
+  ): Eff<Fx, A>
+}>
+export interface ResumeStateMachine<S, A, Fx extends Effect, R> {
+  resume(state: S, input: A): Eff<Fx, R>
+}
+export const Continuation: Readonly<{
+  local<S, A, Fx extends Effect, R>(
+    state: S,
+    machine: ResumeStateMachine<S, A, Fx, R>
+  ): Continuation<A, Fx, R>
+}>
+```
+
+### 2.2 Accepted scope of the first slice
+
+This slice is local semantic infrastructure and evidence, not a completed JS/TS
+host profile. It includes the explicit `Pure | Op` API, handlers, typed state
+machines, local continuations, prompt control, multiplicity, and local conformance.
+It does not include generated facades, descriptor consumers, ScalaScript↔JS call
+or value bridges, a managed source transform, event-loop adapters, mixed-language
+SCC dispatch, successful durable save/run, exact-artifact loading, a portable
+runner, or lane-matrix wiring. Those remain later steps in §12.
+
+The package may demonstrate a plain JavaScript callback returning through an
+`Eff` suffix, but that is not evidence for a generated `ManagedControl` callback
+bridge. Likewise its stackless state-machine vector is local control evidence, not
+the mixed JavaScript↔ScalaScript SCC qualification from §8.
+
 ## 3. Canonical value mapping
 
 The bridge validates every value; JavaScript representation is never type evidence:
@@ -241,6 +559,33 @@ In addition to every common vector, this profile proves:
 12. missing bundle/import/plugin/resolver, wrong engine/ABI/codec, tampering, quotas,
     expiry/revocation, and outcome-phase failures;
 13. portable capsules accepted from and by every other qualified runner.
+
+### 11.1 First-slice acceptance
+
+- [ ] The package root and dry-run tarball expose only the frozen ESM files and
+      subpaths, with no production dependency or lifecycle script.
+- [ ] The published declarations accept typed effect/handler/state-machine and
+      prompt programs while rejecting prompt mixing, effectful `runPure`, forged
+      branded values, reusable operations on one-shot continuations, and save on
+      one-shot continuations.
+- [ ] All 17 currently `specified` semantic vectors applicable to an explicit
+      local host API produce the shared catalog oracle without changing the shared
+      catalog or lane registry.
+- [ ] One million left-associated binds, one million state-machine transitions,
+      and 100,000 deeply handled operations complete without native stack growth.
+- [ ] Zero/one/many resume, handler reinstall, residual forwarding, return-clause
+      placement, shared local heap, nested/fresh prompts, and the true-shift case
+      are separately tested.
+- [ ] A losing one-shot attempt returns structured `AlreadyResumed` before suffix
+      construction/execution; local `save` returns structured
+      `UnmanagedCapture("Continuation.local")`.
+- [ ] `npm test`, `npm run typecheck`, `npm pack --dry-run`, and the project
+      `effect*,effects*` conformance slice pass from the isolated worktree.
+
+### 11.2 First-slice results
+
+Pending implementation and verification. Completing this subsection qualifies
+only §2.1--§2.2, not the whole host/runner profile.
 
 ## 12. Delivery and architecture gate
 
