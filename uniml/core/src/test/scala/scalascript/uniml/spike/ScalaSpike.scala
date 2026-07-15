@@ -290,7 +290,9 @@ object SpikeParse:
     val c = new Cur(toks)
     val defs = Vector.newBuilder[Node]
     while !c.eof do
-      if isDefStart(c) then defs += parseDef(c)
+      while isAnnotationStart(c) do skipAnnotation(c) // `@main`/`@nowarn(…)` — erased (skipAnn)
+      if c.eof then () // trailing annotation(s) with nothing after
+      else if isDefStart(c) then defs += parseDef(c)
       else if isKw(c, "case") then defs += parseCaseClass(c)
       else if isKw(c, "given") then defs += parseGiven(c)
       else if isKw(c, "enum") then defs += parseEnum(c)
@@ -500,6 +502,18 @@ object SpikeParse:
   // `var`/`while`/`for`/`do` are not lexer keywords (like ssc1-front they are identifiers dispatched by value).
   private def isWord(c: Cur, w: String): Boolean = c.peekKind == "spike.id" && c.peekLexeme == w
 
+  // an annotation is `@` immediately followed by a NAME (`@main`, `@tailrec`, `@nowarn`). A bare `@` not
+  // followed by a name is junk (kept as a spike.error), not an annotation — so guard the skip on the name.
+  private def isAnnotationStart(c: Cur): Boolean =
+    c.peekKind == "spike.at" && (c.peek2Kind == "spike.id" || c.peek2Kind == "spike.uid")
+
+  // `@name` / `@name(args)` annotation (e.g. `@main`, `@tailrec`, `@nowarn(…)`) — fully erased, matching
+  // ssc1-front skipAnn (ssc1-front.ssc0:2483). Consumes ONE annotation; callers loop for stacked annotations.
+  private def skipAnnotation(c: Cur): Unit =
+    c.advance() // `@`
+    if c.peekKind == "spike.id" || c.peekKind == "spike.uid" then c.advance() // annotation name
+    if c.peekKind == "spike.lparen" then skipBalancedParens(c)                // annotation arguments
+
   // `[a, b, c](path.ssc)` markdown-link import — a parse-only no-op (ssc1-front.ssc0:2474 → Pair("sealed","")).
   // Consume `[ … ]` then the optional `( … )`, matching ssc1-front's non-nested skipTo.
   private def parseLinkImport(c: Cur): Node =
@@ -531,6 +545,7 @@ object SpikeParse:
     Node.Frame("spike.sealed", None, Vector.empty)
 
   private def parseStmt(c: Cur): Node =
+    while isAnnotationStart(c) do skipAnnotation(c)                         // erase `@ann` before a statement
     if c.peekKind == "spike.lbracket" then parseLinkImport(c)               // `[a, b, c](path.ssc)` link import
     else if isWord(c, "import") then parseImportStmt(c)                     // `import a.b.{x, y}` / `import a.b.*`
     else if isKw(c, "val") then parseVal(c)
