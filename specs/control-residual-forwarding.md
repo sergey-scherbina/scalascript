@@ -104,6 +104,12 @@ total `ClosV` whose catch-all throws for foreign operations.
       ordered partial-function behavior: a false guard/pattern continues to the
       next case, terminal fallthrough is `Unhandled`, and only the selected case
       consumes the dispatch before its body.
+- [ ] The compatibility and self-hosted native frontends qualify the same
+      one-argument self-scrutinee partial-function shape. Simple constructor
+      cases retain a direct root `Match`; general ordered chains carry the same
+      private selected/miss markers, so installed standard-tier VM and direct
+      ASM agree with FrontendBridge rather than depending on a frontend-specific
+      wrapper shape.
 - [ ] Pattern guards may themselves perform effects. A guard-side operation is
       exposed as an ordinary residual `Op`; after each resume the pending exact
       handler decision continues, then either selects an arm or forwards the
@@ -283,9 +289,16 @@ an accidental `ForeignV` save barrier.
 
 ### Canonical and non-canonical handler closures
 
-The self-hosted and compatibility frontends generate the canonical one-argument
-shape `event => event match { ... }`; it performs the designated decision
-immediately. `dispatchHandler1` treats any other one-argument closure as an
+Both frontends recognize the same canonical source shape: a one-argument lambda
+whose body immediately matches that exact parameter. The compatibility frontend
+already preserves a direct `Match(Local(0), ...)` for simple constructor cases.
+The self-hosted lowerer must not let its general once-evaluated-scrutinee `Let`
+normalization erase that qualification: for simple constructor cases it emits
+the same direct root `Match`, and for guards, duplicates, literals, nested
+patterns, or aliases it emits its ordered chain with the same private terminal
+miss and pre-body selected markers described above. This is a frontend lowering
+rule, not permission for the runtime to search through arbitrary `Let`s or
+nested matches. `dispatchHandler1` treats any other one-argument closure as an
 ordinary total call:
 
 - if it returns normally, the result is
@@ -447,6 +460,9 @@ while matching-arm failures share the ordinary failure path.
    A recursive/ordinary reentrant call to that *same closure* and same event
    exercises both paths again, proving activation provenance rather than merely
    owner provenance.
+   A native-frontend structural regression compiles the same simple and general
+   one-parameter self-scrutinee partial functions and asserts direct-root or
+   selected/miss qualification without broadening unrelated lambdas.
 3. Native effect-runner tests send a foreign operation through
    `runLoggerToList` and `runStream`, resume it outside, and observe later
    Logger/Stream operations captured by the reinstated inner runner. A selected
@@ -465,6 +481,9 @@ while matching-arm failures share the ordinary failure path.
    selected cases retain their prior result and terminal miss retains the
    ordinary exhaustive-match failure rather than validation/unknown-primitive
    failure.
+9. `scripts/v21-stage2-bootstrap-gate` remains source-exact after rebuilding the
+   self-hosted lowerer image; a FrontendBridge/compiler-output change is not
+   releasable on unit and installed-runtime checks alone.
 
 ## Results
 
