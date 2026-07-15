@@ -117,6 +117,10 @@ total `ClosV` whose catch-all throws for foreign operations.
       Logger/Stream operations.
 - [ ] Concurrent and reentrant handler calls cannot share a dispatch probe or
       observe another invocation's decision.
+- [ ] Adding handler-root flags to newly generated local-`LetRec` closures does
+      not break persisted direct-ASM artifacts: the historical three-argument
+      static `Emit.letrec(int[], LamFn[], Value[])` descriptor remains linkable
+      and delegates with every handler flag false.
 - [ ] Interoperability axis 19 is a runnable exact-output vector, and the existing
       one-shot violation, multi-shot, deep-handler, native effect e2e, and affected
       conformance vectors remain green.
@@ -255,6 +259,21 @@ hook is target-local executable metadata, is never placed in the closure
 environment, and is not serializable CoreIR or continuation state. A backend
 without JVM `PartialFunction` supplies an equivalent private dispatcher.
 
+### Generated-artifact ABI compatibility
+
+New direct-ASM classes pass one `boolean[]` alongside local-`LetRec` arities and
+functions so only qualified handler closures receive dispatch metadata. Runtime
+`Emit` must also retain its historical overload:
+
+```text
+letrec(arities: int[], functions: LamFn[], environment: Value[]): Value[]
+```
+
+That overload delegates to the new four-argument implementation with an
+all-false handler flag array. Existing persisted classes therefore keep linking
+against a newer runtime; they simply retain their historical behavior of having
+no compiler-qualified residual dispatch inside local `LetRec` handlers.
+
 ### Forwarding and multiplicity
 
 For an operation event, `PortableEffects.handle` constructs one `deepResume`:
@@ -314,6 +333,10 @@ while matching-arm failures share the ordinary failure path.
   compiled root match, so their partial function supplies `Matched | Unhandled`
   directly. Rejected: catch-all `IllegalArgumentException`, exception-message
   parsing, or pretending every manually built `ClosV` is partial.
+- **Keep the old generated-bytecode descriptor.** The boolean handler-root
+  array is additive runtime metadata, not permission to invalidate persisted
+  classes. Rejected: silently replacing the three-argument `Emit.letrec` ABI or
+  forcing an artifact-format version bump for this private optimization.
 - **Rebuild the existing `Op`, not a new residual node.** The frozen CoreIR and
   `Pure | Op` protocol already express forwarding completely.
 - **Reuse one deep resume closure for matching and forwarding.** This preserves
@@ -350,12 +373,14 @@ while matching-arm failures share the ordinary failure path.
    `runLoggerToList` and `runStream`, resume it outside, and observe later
    Logger/Stream operations captured by the reinstated inner runner. A selected
    plugin arm failure remains fatal.
-4. An assembled source fixture fails before the change as
+4. A linkage regression resolves and invokes the historical static
+   `Emit.letrec(int[], LamFn[], Value[])` descriptor against the new runtime.
+5. An assembled source fixture fails before the change as
    `match: no arm for wr/2`, then prints the exact expected result on both
    `bin/ssc run` and `bin/ssc run --bytecode`.
-5. Pending interop axis 19 becomes a probe/expected pair and the matrix marks it
+6. Pending interop axis 19 becomes a probe/expected pair and the matrix marks it
    measurable now.
-6. `tests/e2e/v21-native-effect-handlers-smoke.sh`, affected
+7. `tests/e2e/v21-native-effect-handlers-smoke.sh`, affected
    `effects`/`effect-*` conformance, and existing one-shot/multi-shot axes pass.
 
 ## Results
