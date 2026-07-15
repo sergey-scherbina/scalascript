@@ -1435,12 +1435,19 @@ with extensions isolated behind an explicit non-default profile.
       - **Why:** compile-time safety, zero string-parse at query time, index-aware access paths
         (rowid/range/index seeks instead of always full-scanning), and a clean seam for a cost-based
         planner later. The reused evaluator is the `SxNode`/`evalExpr` expression layer.
-      - **NEXT when we start:** write `specs/scljet-typed-sql.md` (typed schema representation, the
-        query-algebra surface, the logical→physical plan IR and its operators, the mapping onto the
-        current B-tree/pager primitives, and a differential test plan against both the SQL-string path
-        and reference sqlite3). Then implement planner + physical ops incrementally, each byte/row
-        verified vs sqlite3 on `[int, js]` like the rest of scljet. Depends on: CREATE INDEX (for index
-        access paths) and the current SQL executor (as the reference semantics).
+      - **SPEC DONE 2026-07-15** — `specs/scljet-typed-sql.md` (644 lines, on origin/main cb94fd88c):
+        typed surface (`Table[R]`/`Column[T]`/`Expr[T]`/`Predicate`/`Projection` erasing to the existing
+        `SxNode`/`Condition`), a `LogicalPlan` algebra, a `PhysicalOp` IR (SeekRowid/RangeScan/FullScan/
+        IndexSeek/IndexRangeScan/Filter/Project/Aggregate/Sort/NestedLoopJoin + InsertCell/DeleteCell/
+        UpdateCell/Balance) pinned to real function names, a staged T0–T7 plan, and a 3-oracle
+        differential test plan. Key spec findings: SELECT never uses an index yet (`executeSelectSingle`
+        always full-scans); cursors are forward-only and need a new `cursorSeek`/`cursorSeekGe` primitive
+        (reuse write-layer `descendToLeaf`/`chooseChild`) with a FullScan fallback until seeks are
+        equivalence-tested.
+      - **NEXT (implement):** T0 — the typed surface that erases to today's `SxNode`/`Condition` and
+        runs through the existing executor (pure re-expression, no new access paths), byte/row verified
+        vs sqlite3 on `[int, js]`; then T1+ add the physical IR + index-aware seeks. Depends on: CREATE
+        INDEX (done, for index access paths) and the current SQL executor (reference semantics).
 
 - [ ] **scljet-jdbc-api** — FUTURE (idea, 2026-07-14, Sergiy: "нужно чтобы было API для работы с
       базой через JDBC"). A JDBC-shaped API so scljet can be driven through the standard
@@ -1460,12 +1467,25 @@ with extensions isolated behind an explicit non-default profile.
       - **Why:** lets existing JVM tools, connection pools, and ORMs talk to a scljet file with no code
         changes, and gives a familiar imperative API next to the (future) typed SQL API and the SQL
         string front end — three front doors onto the same executor/storage engine.
-      - **NEXT when we start:** decide the split between a real `java.sql.Driver` (JVM, via a thin
-        interop shim) and a portable `scljet.jdbc` façade (int/js), then `specs/scljet-jdbc.md`
-        (URL grammar, the supported `Connection`/`Statement`/`ResultSet` subset, the SqliteValue↔JDBC
-        type map, transaction/autocommit semantics, and a conformance plan diffing `ResultSet` reads
-        against reference sqlite3/JDBC). Depends on: the SQL executor (done) and the mutable pager /
-        transaction layer (done); the typed SQL API can share the same `ResultSet`/value mapping.
+      - **SPEC DONE 2026-07-15** — `specs/scljet-jdbc.md` (~430 lines, on origin/main f2d1372a0):
+        `jdbc:scljet:<path>` URL grammar → `SqliteOpenOptions`; a two-lane split (a real
+        `java.sql.Driver` shim in `runtime/std/scljet-jdbc-plugin/` + a portable pure `scljet/jdbc.ssc`
+        façade for `[int, js]`); Connection transaction threading over the read-modify-rewrite whole-image
+        model (autocommit/`commit`/`rollback` → `mutableCommit`/`mutableRollback`); the `?`-param
+        mechanism (a new `?` lexer token + `Token.bound` + a `bindParams` pass → bound param becomes an
+        `SxLit`, zero string interpolation); the forward-only `ResultSet` getter↔`SqliteValue`↔
+        `java.sql.Types` map, `ResultSetMetaData` derivation, the supported-vs-`SQLFeatureNotSupportedException`
+        subset, error→SQLState mapping, and a `[int, js]` conformance plan vs `sqlite3`/`sqlite-jdbc`.
+      - **Two required engine additions flagged by the spec (do first in J1):** (1) `executeMutation`
+        returns only `Either[String, ByteSlice]` with **no** affected-row count → add a counted variant
+        `executeMutationCounted → MutationResult(image, changes, lastInsertRowid)`; (2) the lexer has no
+        `?` handling → add the additive `Token.bound` field + `bindParams`/`parsePrimary`/`litValue`
+        hooks. `runtime/std/scljet` is a symlink to repo-root `scljet/`, so the pure façade lands at
+        `scljet/jdbc.ssc` (imported `std/scljet/jdbc.ssc`).
+      - **NEXT (implement):** J1 — the two engine additions above + the portable `scljet/jdbc.ssc`
+        façade (Connection/Statement/PreparedStatement/ResultSet over `queryImage`/`executeMutationCounted`),
+        verified on `[int, js]`; then the JVM `java.sql.Driver` shim. Depends on: the SQL executor (done)
+        and the mutable pager / transaction layer (done); shares the typed API's value mapping.
 
 - [x] **scljet-0-plan-and-spec** — DONE 2026-07-12. Created `specs/scljet.md`
       after reconciling `SPEC.md`,
@@ -1925,8 +1945,23 @@ order, so `SELECT *` matches without ORDER BY), and int==js.
 
 **SclJet SQL is now broad**: full CRUD (incl. column-list INSERT), SELECT with DISTINCT, multi-column
 ORDER BY / LIMIT / OFFSET, aggregates (COUNT/SUM/MIN/MAX/AVG/TOTAL), GROUP BY + HAVING, CREATE TABLE,
-and inner + LEFT joins — every feature byte-verified against reference sqlite3, int==js.
-Remaining follow-ups (niche): multi-table (3+) joins, page-1 schema split, repeating-decimal %.15g.
+and inner + LEFT joins over 2 *and* 3+ tables (incl. aggregates/GROUP BY/HAVING over a 3-join),
+non-correlated subqueries, CREATE/DROP INDEX with maintenance — every feature byte-verified against
+reference sqlite3, int==js. Remaining follow-ups (niche): RIGHT/FULL outer joins, correlated
+subqueries / EXISTS, multi-table-with-indexes DML, page-1 schema split, repeating-decimal %.15g.
+Two new front doors are specced (typed-SQL-API cb94fd88c, JDBC-API f2d1372a0) — implementation next.
+
+- [x] **scljet-m6r-left-join3** — DONE 2026-07-15 (SQL-polish lane of "все три … параллельно"). LEFT
+      joins over 3+ tables in the N-table path. `extendPartials` now keeps a partial join-row that
+      matched no row of the next table, NULL-extended via `nullRow` = `StorageRecord(None,
+      DecodedRecord(0,0,Nil))` — an empty record, so `fieldValueAt`/`multiColValue` read back SqlNull
+      for every column of that table. NULLs propagate down the chain (a later LEFT join sees NULL on
+      its ON and NULL-extends again); a later inner `JOIN` on the now-NULL side drops the row. Written
+      all-if/else-expression (`hit`/`matched` flags, no bare `if cond then <assign>`). WHERE (incl.
+      `IS NULL`), ORDER BY, `COUNT(*)` verified byte-identical vs reference sqlite3, int==js;
+      conformance `scljet-sql-left-join3` (4 queries); 36/36 sql. The 2-table LEFT path (m5o) is
+      unchanged. Remaining join follow-ups: RIGHT/FULL outer (SQLite has RIGHT/FULL since 3.39), and
+      multi-table-with-indexes DML (still errors).
 
 - [x] **scljet-m6q-join3-agg** — DONE 2026-07-15 (follow-up to m6o; Sergiy "все три … параллельно").
       Aggregates / GROUP BY / HAVING over 3+ table joins. Extends `multiJoinExecute`: a group is a list
