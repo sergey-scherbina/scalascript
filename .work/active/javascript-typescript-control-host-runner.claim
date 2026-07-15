@@ -1,6 +1,0 @@
-feature/javascript-typescript-control-host-runner 2026-07-15T04:12:05Z
-agent: codex-js-control-explicit
-heartbeat: 2026-07-15T05:11:20Z
-status: in-progress
-done-so-far: explicit JS control plus two audit-hardening rounds committed; package 31/31, TypeScript, exact five-file pack, and fresh conformance 5/5 are green
-next: rebase claim heartbeat, repeat final gates, spec-verify, and request read-only confirmation before integration
