@@ -333,24 +333,30 @@ required by `build-jvm`: native lowering and `OpAnfNative` run while the plugin
 registry is empty, whereas the packaged artifact installs its ServiceLoader
 plugins in `NativeArtifactRuntime.initialize` immediately before execution.
 
-Builtin recognition is single-sourced from the existing primitive dispatcher,
-not a duplicated allowlist. `Prims.resolveBuiltin(op)` contains the builtin
-match and returns no implementation for its final non-builtin case;
-`Prims.isBuiltin(op)` queries that function, while public `Prims.resolve(op)`
-falls back to `V2PluginRegistry` or the existing unimplemented-primitive error.
-The shared classifier is therefore:
+Builtin recognition is single-sourced from the existing primitive dispatchers,
+not a duplicated allowlist. `Prims.resolveBuiltin(op)` contains the generic
+builtin match and returns no implementation for its final non-builtin case;
+`Prims.isBuiltin(op)` combines that result with the specialized
+`resolve1`/`resolve2`/`resolve3` tables. This includes specialized-only
+`runLogger` and `global.reg`, neither of which returns an operation. Public
+`Prims.resolve(op)` falls back to `V2PluginRegistry` or the existing
+unimplemented-primitive error. The shared classifier is therefore:
 
 ```text
 primitiveMayProduceOp(op) =
   operationProducingBuiltinNames.contains(op) || !Prims.isBuiltin(op)
 ```
 
-The explicit builtin set includes the existing method/effect sources and every
-builtin that invokes user/plugin code or can return a stored computation, such
-as `__arithExt__`, return/try/finally helpers, `__lazyForce__`, and
-`coreir.eval`. Known non-suspending builtins stay on their current fast paths;
-unknown/unimplemented names conservatively select effect-aware lowering and
-still fail with the same runtime error if no handler is installed.
+The explicit result-source set is `__method__`, `__effect__`,
+`__methodOrExt__`, `__effect_oneshot__`, `__arithExt__`, `__with_return__`,
+`__tryCatch__`, `__tryCatchFinally__`, `__tryFinally__`, `__lazyForce__`,
+`coreir.eval`, `fieldAt`, `arr.get`, `arr.pop`, `cell.get`, `cell.getOr`,
+`effect.perform`, `effect.perform.oneshot`, and `effect.handle`. `__arith__`
+is deliberately absent: with ordinary arguments it cannot produce an
+operation, and an operation-producing argument is already detected
+recursively. Known non-suspending builtins therefore stay on their current fast
+paths; unknown/unimplemented names conservatively select effect-aware lowering
+and still fail with the same runtime error if no handler is installed.
 
 The VM predicate remains a conservative runtime-path selector: false positives
 only select the correct effect-aware path, and consumed values are checked at
