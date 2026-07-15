@@ -228,7 +228,10 @@ optional policy, not the default continuation semantics.
       fail as 1 lost-AST + 2 effect-evidence + 4 nominal-surface cases before the fix.
       The first correction checkpoint restored all `25/25`; the second frozen-checkpoint
       re-review then found the three fail-open classes above (four faithful new regressions,
-      because non-public local resolution needs qualified-owner and alias cases).
+      because non-public local resolution needs qualified-owner and alias cases). Red
+      baseline from `scripts/sbtc "core/testOnly
+      scalascript.artifact.PreBodyApiDescriptorProducerTest"` is exactly `25/29`:
+      all prior regressions pass and each new faithful repro fails by returning `Right`.
     - Done when the focused regressions and affected core/interop/conformance gates pass and a
       fresh independent read-only review returns APPROVE with no P1/P2 blocker.
   - [ ] **C — post-body summaries:** extract managed/foreign/tail edges, save sites, frame schemas,

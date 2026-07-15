@@ -18,6 +18,10 @@ field. Reject every selected public/exported `Defn.Var` with stable
 mutability. Keep `val` positive and add a faithful val-versus-var regression without
 changing the descriptor leaf.
 
+**Baseline:** focused producer test accepts the `var` as the same `Value(I32)`
+shape as the positive `val`; this is one of four expected failures in the
+`25/29` pre-fix run.
+
 ## descriptor-v3-nonpublic-local-type-leak — private local types fall back to external names
 
 **Status:** open (2026-07-15). Reported by the independent Slice B frozen-checkpoint
@@ -38,6 +42,10 @@ finds a known non-public local identity, fail with stable `UNSUPPORTED_PUBLIC_TY
 before external-name projection or callback classification. Regress both the private
 qualified-owner and internal callback-alias shapes.
 
+**Baseline:** focused producer test accepts `Hidden.T` and `Callbacks.Hidden` as
+external `AbiType.Named` values; the latter has no callback policy. These are two
+of four expected failures in the `25/29` pre-fix run.
+
 ## descriptor-v3-source-ast-correspondence-tamper — count-only retained-source check accepts stale declarations
 
 **Status:** open (2026-07-15). Reported by the independent Slice B frozen-checkpoint
@@ -56,6 +64,10 @@ canonical declaration preprocessor/parser and compare an exact declaration-heade
 shape with its paired section AST while deliberately ignoring executable bodies and
 comments. Reject a mismatch with stable `UNSUPPORTED_PUBLIC_DECLARATION`; preserve
 body-only descriptor/hash invariance and add the exact copy/tamper regression.
+
+**Baseline:** focused producer test returns `Right` and still exports
+`demo.api.Real.read` after retained source removes that operation; this is one of
+four expected failures in the `25/29` pre-fix run.
 
 ## js-control-packed-readme-broken-spec-link — npm README links outside payload
 
