@@ -29,6 +29,15 @@ tampering returns `Right`, and early-clause tampering reaches the later symbol-l
 inheritance rejection instead of failing correspondence at the section path. All
 previous nominal regressions remain green.
 
+**Local fourth correction checkpoint:** implementation `43d41e88d` and spec
+verification `38597ae85`, rebased on `origin/main@f63714680`, include derives and
+early clauses in both exact declaration witnesses and the nominal rejection gate.
+Focused producer/parser/effect tests pass 75/75 (producer 63/63), descriptor
+27/27, core 1111/1111, interop 36/36, IR succeeds, artifact ABI 73/73, and affected
+conformance passes 2/2 modules/import-dir plus 9/9 effect cases. Status remains
+`open` until fresh independent approval and landing; the local commit is not a fix
+SHA on `origin/main`.
+
 ## descriptor-v3-dual-effect-evidence-mismatch — preprocessing hides effect/object carrier disagreement
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
@@ -64,6 +73,15 @@ and a documentless empty effect silently becomes an ordinary value. Plain/multi
 negatives, line-offset invariance, unsupported-shape rejection, and all prior effect
 vectors remain green.
 
+**Local fourth correction checkpoint:** implementation `43d41e88d` and spec
+verification `38597ae85`, rebased on `origin/main@f63714680`, compare ordered raw
+effect witnesses before carrier selection and retain erased origin only in filtered
+private type sentinels. Focused producer/parser/effect tests pass 75/75 (producer
+63/63), descriptor 27/27, core 1111/1111, interop 36/36, IR succeeds, artifact ABI
+73/73, and affected conformance passes 2/2 modules/import-dir plus 9/9 effect cases.
+Status remains `open` until fresh independent approval and landing; the local
+commit is not a fix SHA on `origin/main`.
+
 ## descriptor-v3-imported-builtin-shadow — imports are ignored before bare builtin projection
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
@@ -95,6 +113,15 @@ primitive `Bytes`, wildcard Array/Byte returns `Right`, exact Int remains `I32`,
 an exact platform rename remains `I32`. The combined Int/List test stops at its
 first exact-Int assertion; its wildcard-List assertion is retained for the fix.
 Rename-away/unimport and qualified positives already pass, as do all prior 46 tests.
+
+**Local fourth correction checkpoint:** implementation `43d41e88d` and spec
+verification `38597ae85`, rebased on `origin/main@f63714680`, add source-ordered
+import scope and resolve direct/renamed/wildcard/excluded bindings before every bare
+builtin. Focused producer/parser/effect tests pass 75/75 (producer 63/63),
+descriptor 27/27, core 1111/1111, interop 36/36, IR succeeds, artifact ABI 73/73,
+and affected conformance passes 2/2 modules/import-dir plus 9/9 effect cases. Status
+remains `open` until fresh independent approval and landing; the local commit is
+not a fix SHA on `origin/main`.
 
 ## descriptor-v3-array-byte-component-shadow — bytes shortcut ignores the `Byte` identity
 

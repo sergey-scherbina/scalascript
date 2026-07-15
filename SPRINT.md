@@ -312,6 +312,14 @@ optional policy, not the default continuation semantics.
       rename-away/unimport, qualified-name, plain/multi, line-offset, unsupported-
       effect-shape, and direct early-clause positives are green. Implement all three
       spec gaps before changing these expectations.
+    - Fourth-correction local checkpoint: implementation `43d41e88d`, spec
+      verification `38597ae85`, rebased on `origin/main@f63714680`. Focused
+      producer/parser/effect tests pass 75/75 (producer 63/63), descriptor 27/27,
+      core 1111/1111, interop 36/36, `ir/test` succeeds, artifact ABI 73/73, and
+      affected conformance passes 2/2 modules/import-dir plus 9/9 effect cases.
+      All 12 Slice B BUGS remain `open`, every Slice B task marker remains unchecked,
+      and the claim stays active until a fresh independent read-only review returns
+      APPROVE; do not push/release this checkpoint first.
     - Done when the focused regressions and affected core/interop/conformance gates pass and a
       fresh independent read-only review returns APPROVE with no P1/P2 blocker.
   - [ ] **C — post-body summaries:** extract managed/foreign/tail edges, save sites, frame schemas,
