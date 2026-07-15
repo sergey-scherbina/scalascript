@@ -2184,6 +2184,16 @@ Two new front doors are specced (typed-SQL-API cb94fd88c, JDBC-API f2d1372a0); *
 working first implementation** — the JDBC portable façade (m6v) and the typed SQL surface (m6w),
 alongside SQL polish (REAL literals m6s, LEFT-join-3 m6r). All three "параллельно" lanes advanced.
 
+- [x] **scljet-m7l-correlated-scalar** — DONE 2026-07-15 (follow-up niche; Sergiy "Берись за эти ниши").
+      Correlated scalar subquery in a comparison — `col <cmp> (SELECT … WHERE inner.x = outer.y)`.
+      Completes the correlated-subquery family (EXISTS m7i, IN m7j, scalar m7l). `parseCondition`'s
+      comparison branch captures `<cmp> (SELECT …)` on `subTokens` (op = the comparison); per outer row
+      `scalarSubqHolds` substitutes outer refs, runs the subquery, takes the first row's first column
+      (`scalarSubqValue`, NULL if empty), compares — NULL either side → false (SQL unknown). Non-correlated
+      scalar still pre-resolved. `hasExistsCond` now keys on any condition with `subTokens`. Verified vs
+      sqlite3 (=/</>= correlated scalar, empty-subquery→NULL→excluded), int==js; conformance
+      `scljet-sql-correlated-scalar`; 52/52 sql green.
+
 - [x] **scljet-m7k-right-full-join** — DONE 2026-07-15 (new SQL feature; Sergiy "Делай всё автономно";
       last list item). `RIGHT [OUTER] JOIN` (keeps every right-table row, NULL-extended left) and `FULL
       [OUTER] JOIN` (both sides' unmatched rows). `JoinSpec.rightOuter` flag (`parseJoin`: RIGHT→rightOuter,

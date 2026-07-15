@@ -1,4 +1,4 @@
 claim: scljet-m3-writes
 owner: opus
-heartbeat: 2026-07-15T10:45:00Z
-status: SQL-feature list COMPLETE (index access-path equality+range+multi-cond; correlated EXISTS+IN; RIGHT/FULL joins). FULL gate 95/95 green non-memoized [int, js].
+heartbeat: 2026-07-15T11:05:00Z
+status: NICHE #1 done — correlated scalar subquery (m7l); correlated family complete (EXISTS/IN/scalar). 52/52 sql green. NEXT niches: RIGHT/FULL 3+ tables, physical IR, JVM JDBC J2.
