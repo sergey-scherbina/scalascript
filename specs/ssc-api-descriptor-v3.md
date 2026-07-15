@@ -203,6 +203,31 @@ derived ids. Parameter and type-parameter display names/default presence remain 
 the full descriptor and therefore affect `apiHash`, but do not create a second
 overload solely through renaming.
 
+The private symbol/overload preimage is nevertheless a frozen wire record, not a
+Scala implementation detail:
+
+```text
+SymbolIdentity(moduleId, callable)
+CallableIdentity(
+  qualifiedName, kind,
+  typeParameters[index, variance, kindArity, lowerBound, upperBound],
+  parameterLists[[tpe, mode]],
+  resultType, effectRow, operationResumeMultiplicity,
+  callbackPolicies, promptAndControlMetadata
+)
+```
+
+It uses the same product/tag/wrapper/option rules as
+`ssc-descriptor-json/1`. The normative zero-argument example has canonical
+preimage and results:
+
+```text
+{"callable":{"callbackPolicies":[],"effectRow":{"members":[],"openTail":[]},"kind":{"tag":"Function"},"operationResumeMultiplicity":[],"parameterLists":[],"promptAndControlMetadata":{"answerTypeModification":false,"capturesContinuation":false,"exposesContinuation":false,"prompts":[]},"qualifiedName":"demo.zero","resultType":{"tag":"Primitive","value":{"tag":"I32"}},"typeParameters":[]},"moduleId":"demo"}
+
+stableSymbolId = ssc:symbol:v1:453bfef37e9c434783110ab89039214b9f8a7a998665c1125074c0d44d82faaf
+overloadId     = ssc:overload:v1:a4daead86b456de1fe3ab86a936448c1546f09ed2ea812c95a689591e4d69fc9
+```
+
 ## Callback and prompt policy
 
 Every callback parameter is addressed by `(parameterListIndex, parameterIndex)`
@@ -331,6 +356,30 @@ hex(SHA-256("ssc-jvm-entrypoint-v1\0" || canonical(binding identity)))
 No class is loaded and no application initializer runs while decoding or validating
 the binding.
 
+Other targets use a common pure-data `NamedTargetEntrypoint(entrypointId,
+stableSymbolId, externalName, targetAbi, implementationDigest)`. Its identity
+excludes `implementationDigest` and is frozen as:
+
+```text
+"ssc:target-entrypoint:v1:" +
+hex(SHA-256("ssc-target-entrypoint-v1\0" ||
+  canonical(NamedEntrypointIdentity(stableSymbolId, externalName, targetAbi))))
+```
+
+Entrypoint identity preimages use the exact field lists shown above: the JVM
+preimage is `(stableSymbolId, ownerInternalName, methodName, methodDescriptor,
+invocationKind, bridgeFlags, classLoaderProfile)`; the named preimage is
+`(stableSymbolId, externalName, targetAbi)`. Normative vectors based on the symbol
+example above are:
+
+```text
+JVM preimage = {"bridgeFlags":[],"classLoaderProfile":"application","invocationKind":{"tag":"Static"},"methodDescriptor":"()I","methodName":"zero","ownerInternalName":"demo/Main","stableSymbolId":{"value":"ssc:symbol:v1:453bfef37e9c434783110ab89039214b9f8a7a998665c1125074c0d44d82faaf"}}
+JVM entrypointId = ssc:jvm-entrypoint:v1:20859d2db58ee7508193d092b2e3933c9273de8d0341f79900a7cdcd49cfae21
+
+named preimage = {"externalName":"zero","stableSymbolId":{"value":"ssc:symbol:v1:453bfef37e9c434783110ab89039214b9f8a7a998665c1125074c0d44d82faaf"},"targetAbi":"js-es2024"}
+named entrypointId = ssc:target-entrypoint:v1:ec9ea38732c339e777dc59f6e5b4a09adf4ed9f4d31de0f350c97e352bbe9222
+```
+
 ## Canonical JSON and validation
 
 The canonical codec is the JSON Canonicalization Scheme from
@@ -348,11 +397,26 @@ domain. The exact profile is:
   non-negative integral index in `0..2147483647`; widths, digests, versions, and
   numeric ABI identities are strings or tagged variants;
 - semantic normalization happens before JCS: set-like collections are recursively
-  deduplicated and sorted by their canonical encoded value, while parameter,
+  deduplicated and sorted by unsigned lexicographic comparison of their canonical
+  UTF-8 bytes, while parameter,
   parameter-list, type-argument, tuple, binder, and other declared source order is
   retained;
 - digest strings are lowercase 64-hex SHA-256 values;
 - a self-hash field is omitted, not blanked, while that digest is computed.
+
+Public admission bounds are constants of profile `ssc-descriptor-json/1`:
+
+```text
+MaxBytes          = 4_194_304 UTF-8 bytes
+MaxDepth          = 256 object/array levels
+MaxContainerItems = 100_000 members in any one object or array
+```
+
+The byte limit is checked before UTF-8 decoding. A string-aware structural pre-scan
+checks depth and container counts before invoking the generic JSON parser, so a
+deeply nested hostile input cannot exhaust its call stack. The renderer enforces
+the same depth and item limits. Limit failures are structured descriptor errors,
+never parser stack overflows or incidental exceptions.
 
 ### Frozen descriptor JSON shape
 
