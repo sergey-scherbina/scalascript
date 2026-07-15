@@ -3,6 +3,12 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    "baseUrl": ".",
+    "paths": {
+      "@scalascript/control": [
+        "../control/index.d.ts"
+      ]
+    },
     "strict": true,
     "exactOptionalPropertyTypes": true,
     "noEmit": true,

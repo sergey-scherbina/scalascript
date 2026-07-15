@@ -19,6 +19,13 @@ const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)))
 function withProject(source, run) {
   const directory = mkdtempSync(join(packageRoot, ".cli-tmp-"))
   try {
+    const fixtureScope = join(directory, "node_modules", "@scalascript")
+    mkdirSync(fixtureScope, { recursive: true })
+    symlinkSync(
+      join(packageRoot, "..", "control"),
+      join(fixtureScope, "control"),
+      "dir"
+    )
     writeFileSync(join(directory, "input.ts"), source)
     writeFileSync(join(directory, "tsconfig.json"), JSON.stringify({
       compilerOptions: {

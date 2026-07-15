@@ -1,6 +1,14 @@
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -38,6 +46,13 @@ function formatTsDiagnostics(diagnostics) {
 
 function prepare(source, name = "case", optionOverrides = {}) {
   const directory = mkdtempSync(`${scratchRoot}-`)
+  const fixtureScope = join(directory, "node_modules", "@scalascript")
+  mkdirSync(fixtureScope, { recursive: true })
+  symlinkSync(
+    join(packageRoot, "..", "control"),
+    join(fixtureScope, "control"),
+    "dir"
+  )
   const extension = optionOverrides.allowJs === true ? "js" : "ts"
   const input = join(directory, `${name}.${extension}`)
   const outDir = join(directory, "out")
