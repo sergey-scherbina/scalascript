@@ -1,108 +1,115 @@
-# Control-interoperability conformance matrix
+# Control-interoperability semantic vectors
 
-Runnable conformance harness for the target-neutral **control-interoperability**
-model agreed in the Rozum `#interoperability` joint resolution (2026-07-14). It
-measures a single runner against the normative axis matrix and prints one row per
-axis. The **portable-VM** (`ssc run --bytecode`) is the *reference runner*: other
-host/runner profiles (JVM, JS/TS, Rust, Swift, WASM/WASI) measure against the
-same matrix, and "runner delivery order" is chosen by **measured** readiness, not
-presumed backend age.
+This directory is the executable evidence matrix for the target-neutral laws in
+[`specs/control-interoperability.md`](../../specs/control-interoperability.md).
+That specification remains the sole semantic owner. The catalog records stable
+law identities, canonical outcomes, lane capabilities, and current readiness; it
+does not redefine effects, handlers, prompts, continuation multiplicity, capture,
+or saved-continuation behavior.
 
-Normative spec ownership (see the joint resolution):
+## Catalog model
 
-- `specs/control-interoperability.md` — landed sole target-neutral semantic owner.
-- `specs/scala3-bidirectional-control.md` — Scala/JVM host profile only.
-- `specs/control-interop-profile-portable-vm.md` — portable-VM reference runner
-  profile and measured obligations.
-- This harness — executable evidence/status and the axis inventory; it never
-  redefines semantic laws.
+Two checked TSV files replace hand-maintained per-runner matrices:
+
+| File | Purpose |
+|---|---|
+| [`vectors.tsv`](vectors.tsv) | Stable vector id, law anchor, required capabilities, delivery phase, process contract, and canonical oracle |
+| [`lanes.tsv`](lanes.tsv) | Stable lane id, concrete adapter, readiness, advertised capabilities, and an explicit reason for every pending lane |
+
+A vector is runnable on a lane only when it is `specified` and all of its
+capabilities are present in that lane. Process adapters additionally require an
+exact `probes/<id>-<slug>.ssc` and `expected/<id>-<slug>.txt` pair. Structured
+host results use the same catalog oracle through a native typed adapter.
+
+The validator rejects malformed or duplicate rows, unsorted capabilities,
+catalog/front-matter disagreement, missing eligible adapters, and orphaned probe,
+expected, or pending files. A missing tool or capability is reported as
+`UNAVAILABLE`, `UNSUPPORTED`, or `PENDING`; it is never counted as a pass.
 
 ## How to run
 
 ```bash
-tests/interop-conformance/run.sh     # uses ./bin/ssc
+# Validate, then run both ready process lanes: portable-vm and portable-asm.
+tests/interop-conformance/run.sh
+
+# Validate catalogs and adapters without executing a program.
+tests/interop-conformance/run.sh --validate
+
+# Print every lane × vector status, including unsupported and pending cells.
+tests/interop-conformance/run.sh --list
+
+# Run one adapter. This is also how to run the explicit Scala 3 suite.
+tests/interop-conformance/run.sh --lane portable-vm
+tests/interop-conformance/run.sh --lane portable-asm
+tests/interop-conformance/run.sh --lane scala-explicit
+
+# Run every ready adapter plus any installed optional adapters.
+tests/interop-conformance/run.sh --all-installed
+
+# Select the standard launcher used by the two portable process lanes.
 SSC=/path/to/ssc tests/interop-conformance/run.sh
-# only if no binary exists: scripts/sbtc "cli/installBin"
 ```
 
-Exit code is non-zero if any *measurable-now* axis regresses. Pending axes print
-as `PENDING` — the matrix is never silently reported as fully green.
+The default command intentionally runs ready **process** lanes only. The
+`scala-explicit` adapter invokes its ScalaTest suite through `scripts/sbtc`, so it
+is selected explicitly or via `--all-installed`.
 
-## The matrix
+## Current evidence
 
-Two orthogonal properties classify every capsule (joint resolution point 3):
-`CodeMode = Portable(closed CoreIR) | ExactArtifact` and
-`FrameGate = Savable(DurableValue/DurableRef) | Unsavable(reject)`. The axes
-below exercise the control semantics and, where a capsule crosses a process or
-host, those two gates.
+Catalog validation currently covers **26 vectors** and **9 lanes**:
 
-| # | Axis | Status | portable-VM reference row |
-|---|------|--------|---------------------------|
-| 01 | one-shot resume | measurable-now | ✓ 42 |
-| 02 | multi-shot resume (reusable N→M) | measurable-now | ✓ List(1, 2) |
-| 03 | deep proper tail calls (intra-lane) | measurable-now | ✓ 2000000 |
-| 04 | callback re-entry (managed closure) | measurable-now | ✓ 8 |
-| 05 | capture + resume, same host | measurable-now | ✓ 30 |
-| 06 | zero-resume (early return / abort) | measurable-now | ✓ -1 |
-| 07 | deep handler reinstall over recursion | measurable-now | ✓ 3 |
-| 08 | return-clause transform (Int→List) | measurable-now | ✓ List(42, 42) |
-| 09 | nondeterminism (many-resume product) | measurable-now | ✓ List(11, 21, 12, 22) |
-| 10 | raw ForeignV → Unsavable (neg.) | pending-codec | FrameGate discriminator |
-| 11 | missing resolver → reject (neg.) | pending-codec | atomic admission |
-| 12 | codec / ExactArtifact mismatch (neg.) | pending-codec | versioned-codec + pin |
-| 13 | signature / quota (neg.) | pending-codec | untrusted-capsule admission |
-| 14 | durable save/run, same process | pending-codec | needs DurableValue codec |
-| 15 | cross-host resume | pending-codec | ✗ today (no capsule) |
-| 16 | concurrent multi-shot | pending-codec | needs SavedContinuation |
-| 17 | no prefix/main replay | pending-codec | needs init-free resume entry |
-| 18 | delimited shift/reset (multi-prompt) | pending-runtime | `reset` unbound on VM |
-| 19 | residual forwarding (nested handlers) | measurable-now | ✓ 57 |
-| 20 | stack-safety, deep effect recursion | measurable-now | ✓ 100000 / 100000 / 20007 / 20000 |
-| 21 | one-shot violation diagnostic | measurable-now | ✓ `error [ONESHOT_VIOLATION]: One-shot violation: One.op resumed more than once` |
+| Lane | Adapter | Current evidence |
+|---|---|---|
+| `portable-vm` | `ssc-vm` | Ready; 13/13 eligible process vectors compare exact exit code and stdout/stderr bytes |
+| `portable-asm` | `ssc-asm` | Ready; the same 13/13 process vectors and exact bytes |
+| `scala-explicit` | `scala3-control-test` | Ready; 17 semantic-vector tests plus one catalog/program coverage test (18 tests total) |
+| `scala-direct` | none | **PENDING** — inline direct-style macro slice is not implemented |
+| `jvm-generated` | none | **PENDING** — typed managed JVM control lane is not qualified |
+| `js-generated` | none | **PENDING** — JS/TypeScript host and runner profile is not qualified |
+| `rust-generated` | none | **PENDING** — Rust host and runner profile is not qualified |
+| `wasm-generated` | none | **PENDING** — WASM/WASI dynamic runner profile is not qualified |
+| `swift-generated` | none | **PENDING** — Swift host and runner profile is not qualified |
 
-Measurable-now axes (01–09, 19–21) are the **in-process** control semantics the
-portable-VM implements today via `handle(prog()) { case Eff.op(args, resume) => … }`
-and `multi effect` (validated against `tests/conformance/effects.ssc` and
-`effect-deep-handler-state.ssc`). They are the reference baseline every host
-profile must also pass, and cover §14.1 semantic vectors that run on the VM:
-one/many/zero-resume, one-shot rejection, deep handler reinstall, residual
-forwarding, return-clause transform, and stack-safe deep effect recursion.
+The vector phases are deliberately visible:
 
-Two distinct pending groups — never silently green:
+- **17 `specified` vectors** cover one-shot and reusable resume, zero-resume,
+  callbacks, deep handlers, residual forwarding, return placement, proper tail
+  calls, stack safety, prompt isolation, true `shift`, shared-heap multi-shot
+  behavior, and managed-capture rejection.
+- **8 `pending-codec` vectors (10–17)** retain durable save/run, admission,
+  cross-host execution, concurrent saved runs, and no-replay obligations until the
+  post-X1 capsule implementation exists.
+- **1 `pending-spec` vector (26)** records cancellation without inventing public
+  transitions or a diagnostic that the target-neutral specification has not yet
+  frozen.
 
-- **`pending-codec` (10–17)** require the durable capsule surface
-  (`continuation.save()` / `SavedContinuation.run()`), the `DurableValue` wire
-  codec, and the atomic admission layer. Per the v2.2 gate, byte-affecting codec
-  work begins only **after the X1 self-compilation fixed point**. The single ✗ the
-  whole model exists to close is **15 (cross-host resume)**: the portable-VM
-  already does N→M resume in-process (02, 05, 09); only the durable serialization
-  to cross a host boundary is missing.
-- **`pending-runtime` (18)** is the remaining §14.1 semantic vector the portable-
-  VM effect runtime does **not** support yet: delimited `shift`/`reset` is
-  unbound. It needs compiler/runtime support, **not** the codec. Axis 19 proves
-  nested residual forwarding with exact result `57`; axis 20 now proves deep
-  effect recursion on both installed portable JVM lanes at 100,000 tail/sequence
-  resumes and 20,000 non-tail/escaped resumes.
+Prompt vectors **18, 22, and 23** are specified and ready on `scala-explicit`.
+They are unsupported on today's `.ssc` portable VM/ASM lanes because those lanes
+do not yet advertise `shift-reset`; this is lane-specific readiness, not a global
+semantic pending state. Vector 25 is likewise a structured explicit-API negative
+rather than a process probe.
 
 ## Layout
 
-```
+```text
 tests/interop-conformance/
-  README.md                 # this matrix
-  run.sh                    # runner: portable-VM reference row + pending enumeration
-  probes/NN-axis.ssc        # runnable measurable-now probes
-  expected/NN-axis.txt      # exact expected stdout/stderr selected by probe metadata
-  pending/NN-axis.pending   # not-yet-measurable axes (spec + expected behaviour)
+  vectors.tsv                 target-neutral identities and canonical oracles
+  lanes.tsv                   adapter readiness and capability inventory
+  run.sh                      validator, matrix printer, and lane dispatcher
+  probes/<id>-<slug>.ssc      runnable ScalaScript process adapters
+  expected/<id>-<slug>.txt    exact expected process bytes
+  pending/<id>-<slug>.pending explicit prerequisite for blocked vectors
 ```
 
-## Extending
+## Extending the matrix
 
-- **New host/runner profile**: run this harness with `SSC=/path/to/that-runner`
-  (or its equivalent) and record its row next to the portable-VM row. A profile
-  cannot claim control-interop conformance without a native bidirectional
-  value/call bridge (joint resolution point 2).
-- **A pending axis becomes implementable**: move `pending/NN-*.pending` to a
-  `probes/NN-*.ssc` + `expected/NN-*.txt` pair using the durable surface, and
-  flip its matrix row to measurable-now. Success probes default to
-  `expected-exit: zero` and `expected-stream: stdout`; expected-negative probes
-  declare `expected-exit: nonzero` and normally `expected-stream: stderr`.
+- Add or change a law in the target-neutral specification first; this harness is
+  evidence, not a semantic owner.
+- Give every new law a stable vector id, canonical oracle, and sorted capability
+  set in `vectors.tsv`.
+- Add a lane only with an explicit adapter, status, capability inventory, and
+  reason. A generated backend lane does not by itself prove a native host bridge
+  or a dynamic saved-continuation runner.
+- When a pending vector becomes executable, keep its id, change its phase, and add
+  the required process or native host adapter. Run `--validate` before executing
+  any lane.

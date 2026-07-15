@@ -62,10 +62,12 @@ The core model classifies every capsule on two orthogonal axes. On this runner:
 
 ## 3. In-process control semantics — reference row
 
-The table records the portable VM's current evidence; an explicitly pending row
-is specified but not yet conforming. Every runner profile must pass the same
-vectors before it advertises typed algebraic effects. Surface syntax (as accepted
-by the self-hosted frontend):
+The table records the portable VM's current evidence. Eligibility is
+capability-driven: a target-neutral vector may be specified and runnable on one
+lane while still unsupported on another. Every runner profile must pass the
+vectors admitted by its declared capabilities before it advertises typed
+algebraic effects or delimited control. Surface syntax (as accepted by the
+self-hosted frontend):
 
 ```scalascript
 effect E:            // one-shot: zero or one resume per performed operation
@@ -81,7 +83,7 @@ handle { block }  { case E.op(args, resume) => … }   // block form
 | Axis | Reference row | Notes |
 |------|---------------|-------|
 | one-shot resume | ✓ `42` | resume invoked once |
-| one-shot violation | **pending-runtime** | second/concurrent resume currently runs silently |
+| one-shot violation | ✓ `ONESHOT_VIOLATION` | second resume is rejected as `AlreadyResumed(One.op)` with exact process rendering |
 | multi-shot resume (reusable N→M) | ✓ `List(1, 2)` | resume invoked ≥2×; `multi effect` |
 | nondeterminism (product of choices) | ✓ | `opts.flatMap(o => resume(o))` |
 | early return (non-resuming arm) | ✓ | handler arm returns without `resume` |
@@ -89,6 +91,7 @@ handle { block }  { case E.op(args, resume) => … }   // block form
 | effect performed inside a loop | ✓ | `resume` per iteration |
 | callback re-entry (managed closure) | ✓ `8` | HOF re-enters a managed closure |
 | capture + resume, same host (state-threaded) | ✓ `30` | handler arms return functions |
+| multi-prompt `shift`/`reset` | **UNSUPPORTED on portable `.ssc` lanes** | vectors 18/22/23 are specified and ready on `scala-explicit`; VM/ASM do not yet advertise `shift-reset` |
 
 The one-shot row is conforming only when a second sequential or concurrent
 resume is rejected as structured `AlreadyResumed(OperationId)` with portable
@@ -101,12 +104,22 @@ Raw CoreIR/Mira `effect.perform` remains reusable; the typed `.ssc effect`
 projection selects `effect.perform.oneshot(effectId, operationName, args...)`
 without adding a CoreIR node or changing `Op(label, argument, continuation)` arity.
 
+Prompt readiness is a lane property, not a global semantic delivery phase. The
+compiler-independent Scala API executes nearest matching reset, fresh/nested
+prompt isolation, and true `shift` (vectors 18, 22, and 23). The current portable
+`.ssc` VM and ASM lanes lack the `shift-reset` capability, so the matrix reports
+those cells as `UNSUPPORTED` while retaining the same specified vector ids and
+oracles.
+
 The runnable probes and expected outputs are in
 [`../tests/interop-conformance/probes/`](../tests/interop-conformance/probes);
-`tests/interop-conformance/run.sh` prints this row and exits non-zero on any
-regression. The syntax and multi-shot/nondeterminism/early-return semantics are
-also covered by the existing `tests/conformance/effects.ssc` and
-`effect-deep-handler-state.ssc` conformance cases.
+`tests/interop-conformance/run.sh` validates one 26-vector, 9-lane catalog and
+exits non-zero on any regression. Both portable process lanes pass their 13/13
+eligible exact-output vectors; the explicit Scala adapter executes 17 semantic
+vectors plus a catalog/program coverage test. The syntax and
+multi-shot/nondeterminism/early-return semantics are also covered by the existing
+`tests/conformance/effects.ssc` and `effect-deep-handler-state.ssc` conformance
+cases.
 
 ## 4. Pending — durable and cross-host (post-X1)
 
@@ -139,10 +152,13 @@ fully green while they are unmet.
   (`extern → ForeignV` inbound + typed host facades outbound, no `Value`/`SpiValue`
   leaks). The portable VM is a *runner-target* profile, so it carries no host SDK
   bridge; it is measured only on the control axes above.
-- **Measuring another runner.** Run the harness with `SSC=/path/to/that-runner`
-  (or the runner's equivalent driver) and record its row beside the portable-VM
-  reference row. A runner enters its delivery milestone when it passes the
-  mandatory measurable subset; full interoperability is not complete until
-  JVM/JS/Rust/Swift all pass the durable + cross-host axes.
-- **No silent green.** Any axis a runner cannot yet satisfy is reported PENDING,
-  never omitted — the reference harness enforces this.
+- **Measuring another runner.** Give it an explicit `lanes.tsv` row, adapter, and
+  capability inventory, then run `run.sh --lane <lane>`. `SSC=/path/to/ssc`
+  selects the standard launcher for the existing portable VM/ASM adapters; it
+  does not make an undeclared backend a conforming lane. A runner enters its
+  delivery milestone when it passes the mandatory measurable subset; full
+  interoperability is not complete until JVM/JS/Rust/Swift all pass the durable
+  + cross-host axes.
+- **No silent green.** Any vector a lane cannot yet satisfy is reported
+  `PENDING`, `UNSUPPORTED`, or `UNAVAILABLE`, never omitted — the reference
+  harness enforces this.
