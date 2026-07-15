@@ -907,8 +907,8 @@ object JvmByteGen:
         val savedLocalTargets = ctx.localTailTargets
         val savedLocalArity = ctx.localFrameArity
         ctx.selfGlobal = null // slot 0 no longer holds the def's own frame
-        ctx.localTailTargets = entries.zipWithIndex.map {
-          case ((targetArity, targetMethod, _, _), targetIndex) =>
+        ctx.localTailTargets = entries.zipWithIndex.collect {
+          case ((targetArity, targetMethod, _, false), targetIndex) =>
             (groupSize - 1 - targetIndex) -> (targetMethod, targetArity)
         }.toMap
         ctx.localFrameArity = 0

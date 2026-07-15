@@ -1,6 +1,7 @@
 package ssc.bridge
 
 import java.lang.reflect.InvocationTargetException
+import java.util.concurrent.{ConcurrentLinkedQueue, CountDownLatch}
 import org.scalatest.funsuite.AnyFunSuite
 import ssc.*
 import ssc.bytecode.JvmByteGen
@@ -41,6 +42,48 @@ final class PortableEffectsResidualForwardingTest extends AnyFunSuite:
   private def continuation(value: Value): Value.ClosV = value match
     case Value.DataV("Op", IndexedSeq(_, _, resume: Value.ClosV)) => resume
     case other => fail(s"expected Op continuation, got ${Show.show(other)}")
+
+  /** A local LetRec handler re-enters the exact same qualified closure with
+    *  the exact same event through a tail-calling peer while the outer
+    *  decision is pending. The nested call either selects or terminally misses;
+    *  both must retain ordinary-call behavior and leave the outer probe alone. */
+  private def sameClosureReentryProgram(nestedMiss: Boolean): Program =
+    val selected = Term.Prim(
+      HandlerDispatchShape.SelectedPrimitive,
+      List(Term.Local(0)))
+    val miss = Term.Prim(
+      HandlerDispatchShape.MissPrimitive,
+      List(Term.Local(0)))
+    val nestedDecision =
+      if nestedMiss then miss
+      else Term.Seq(List(selected, lit(7)))
+    // handler frame: cell, handler, tailPeer, event
+    val nestedCall = Term.App(Term.Local(1), List(Term.Local(0)))
+    val caughtNestedCall =
+      if nestedMiss then
+        Term.Prim("__tryCatch__", List(
+          Term.Lam(0, nestedCall),
+          Term.Lam(1, unit)))
+      else nestedCall
+    val rootBody = Term.If(
+      Term.Prim("cell.get", List(Term.Local(3))),
+      nestedDecision,
+      Term.Seq(List(
+        Term.Prim("cell.set", List(
+          Term.Local(3), Term.Lit(Const.CBool(true)))),
+        caughtNestedCall,
+        miss)))
+    // peer frame is identical; Local(2) is the handler. Its tail call must go
+    // through the ClosV wrapper, never the ASM local-tail LamFn shortcut.
+    val tailPeer = Term.Lam(1,
+      Term.App(Term.Local(2), List(Term.Local(0))))
+    val computation = Term.Prim("effect.perform", List(str("Target.op")))
+    Program(Nil,
+      Term.Let(
+        List(Term.Prim("cell.new", List(Term.Lit(Const.CBool(false))))),
+        Term.LetRec(
+          List(Term.Lam(1, rootBody), tailPeer),
+          handle(computation, Term.Local(1)))))
 
   test("residual forwarding reinstalls every skipped handler and both Return clauses") {
     // Wr(7); Rd(); Wr(5); rdReply + 7. The second Wr proves that the outer
@@ -131,6 +174,23 @@ final class PortableEffectsResidualForwardingTest extends AnyFunSuite:
     }
   }
 
+  test("FastCode materialization preserves qualified handler metadata") {
+    val identity = Def("identity", Term.Lam(1, Term.Local(0)))
+    val qualified = handler(List(Arm("Return", 1, Term.Local(0))))
+    val program = Program(List(identity),
+      Term.Let(
+        List(Term.App(Term.Global("identity"), List(qualified))),
+        handle(
+          Term.Prim("effect.perform", List(str("Missing.op"))),
+          Term.Local(0))))
+
+    eachLane(program) { (lane, result) =>
+      result match
+        case Value.DataV("Op", IndexedSeq(Value.StrV("Missing.op"), _, _: Value.ClosV)) => ()
+        case other => fail(s"$lane: expected forwarded Missing.op, got ${Show.show(other)}")
+    }
+  }
+
   test("a selected handler body keeps unrelated nested match failures fatal") {
     val nestedFailure = Term.Match(
       Term.Ctor("Some", List(lit(1))),
@@ -144,6 +204,113 @@ final class PortableEffectsResidualForwardingTest extends AnyFunSuite:
       val failure = intercept[RuntimeException](run(program, lane))
       assert(failure.getMessage.contains("match: no arm for Some/1"), lane)
     }
+  }
+
+  test("a guarded frontend selected body keeps its nested match failure fatal") {
+    val source =
+      """effect Boom:
+        |  def op(value: Int): Int
+        |
+        |val result = handle(Boom.op(1)) {
+        |  case Boom.op(value, resume) if value == 1 =>
+        |    Some(value) match
+        |      case None => 0
+        |  case Return(value) => value
+        |}
+        |result
+        |""".stripMargin
+
+    lanes.foreach { lane =>
+      val failure = intercept[RuntimeException](runSource(source, lane))
+      assert(failure.getMessage.contains("match: no arm for Some/1"), lane)
+    }
+  }
+
+  test("same qualified closure reentry cannot select the pending outer probe") {
+    eachLane(sameClosureReentryProgram(nestedMiss = false)) { (lane, result) =>
+      result match
+        case Value.DataV("Op", IndexedSeq(Value.StrV("Target.op"), _, _: Value.ClosV)) => ()
+        case other => fail(s"$lane: expected forwarded Target.op, got ${Show.show(other)}")
+    }
+  }
+
+  test("same qualified closure reentry cannot reject the pending outer probe") {
+    eachLane(sameClosureReentryProgram(nestedMiss = true)) { (lane, result) =>
+      result match
+        case Value.DataV("Op", IndexedSeq(Value.StrV("Target.op"), _, _: Value.ClosV)) => ()
+        case other => fail(s"$lane: expected forwarded Target.op, got ${Show.show(other)}")
+    }
+  }
+
+  test("same-event nested qualified closures cannot select or reject an outer guard") {
+    val catchRuntimeName = "__residual_test_catch_runtime__"
+    V2PluginRegistry.registerGlobal(catchRuntimeName,
+      Value.ClosV(Runtime.emptyEnv, 1, env =>
+        val thunk = env.last.asInstanceOf[Value.ClosV]
+        val value =
+          try Runtime.run(thunk.code, thunk.env)
+          catch case _: RuntimeException => Value.BoolV(false)
+        Done(value)))
+
+    def source(nestedCase: String, guard: String): String =
+      s"""effect Target:
+         |  def op(value: Int): Int
+         |
+         |val nested = { $nestedCase }
+         |val inner = handle(Target.op(1)) {
+         |  case event @ Target.op(value, resume) if $guard && false => resume(value)
+         |  case Return(value) => value
+         |}
+         |val result = handle(inner) {
+         |  case Target.op(value, resume) => resume(value + 10)
+         |  case Return(value) => value
+         |}
+         |result
+         |""".stripMargin
+
+    val selected = source(
+      "case event @ Target.op(value, resume) => true",
+      "nested(event)")
+    val missed = source(
+      "case Return(value) => true",
+      s"$catchRuntimeName(() => nested(event))")
+
+    lanes.foreach { lane =>
+      assert(runSource(selected, lane) == Value.IntV(11), s"$lane selected")
+      assert(runSource(missed, lane) == Value.IntV(11), s"$lane miss")
+    }
+  }
+
+  test("one qualified closure has thread-isolated dispatch decisions") {
+    val program = Program(
+      List(Def("shared", handler(List(Arm("hit", 1, Term.Local(0)))))),
+      unit)
+    val (_, globals) = Compiler.compileWithGlobals(program)
+    val shared = globals("shared").asInstanceOf[Value.ClosV]
+    val start = CountDownLatch(1)
+    val failures = ConcurrentLinkedQueue[Throwable]()
+    val threads = (0 until 32).map { worker =>
+      new Thread(() =>
+        try
+          start.await()
+          (0 until 100).foreach { iteration =>
+            if ((worker + iteration) & 1) == 0 then
+              val value = worker.toLong * 100L + iteration
+              val event = Value.DataV("hit", IndexedSeq(Value.IntV(value)))
+              assert(Runtime.dispatchHandler1(shared, event) ==
+                HandlerDispatch.Matched(Value.IntV(value)))
+            else
+              val event = Value.DataV("miss", IndexedSeq.empty)
+              assert(Runtime.dispatchHandler1(shared, event) == HandlerDispatch.Unhandled)
+          }
+        catch case failure: Throwable =>
+          failures.add(failure)
+          ())
+    }
+    threads.foreach(_.start())
+    start.countDown()
+    threads.foreach(_.join())
+    if !failures.isEmpty then throw failures.peek()
   }
 
   test("guarded duplicate cases and nested Return patterns retain source order") {

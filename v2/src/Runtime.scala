@@ -93,6 +93,9 @@ object Value:
     /** Unforgeable owner of this compiled partial-function root. The token is
      *  target-private executable metadata: it never enters `env` or CoreIR. */
     private[ssc] var handlerDispatchOwner: AnyRef | Null = null
+    /** Raw qualified-root entry used only by dispatchHandler1. Ordinary calls
+     *  use `code`, whose wrapper assigns a fresh per-invocation activation. */
+    private[ssc] var handlerDispatchRawCode: Code | Null = null
     /** Runtime/plugin-owned handlers have no CoreIR root match. Their private
      *  structured dispatcher returns Some(result) or None for an unhandled
      *  event; it is never stored in the language closure environment. */
@@ -139,35 +142,51 @@ object Runtime:
   /** Target-private scope for distinguishing a handler partial-function miss
    *  from failures raised after a matching arm was selected. The scope is
    *  synchronous, per invocation, and never enters a closure environment. */
-  private final class HandlerDispatchProbe(val owner: AnyRef, val event: Value):
+  private final class HandlerDispatchProbe(
+      val owner: AnyRef,
+      val activation: AnyRef,
+      val event: Value
+  ):
     var pending: Boolean = true
+
+  private final class HandlerDispatchInvocation(
+      val owner: AnyRef,
+      val activation: AnyRef
+  )
 
   private val handlerDispatchProbes = new ThreadLocal[List[HandlerDispatchProbe]]:
     override def initialValue(): List[HandlerDispatchProbe] = Nil
-  private val handlerDispatchOwners = new ThreadLocal[List[AnyRef]]:
-    override def initialValue(): List[AnyRef] = Nil
+  private val handlerDispatchInvocations =
+    new ThreadLocal[List[HandlerDispatchInvocation]]:
+      override def initialValue(): List[HandlerDispatchInvocation] = Nil
 
   // Unforgeable runtime identity: deliberately not DataV/string-shaped and
   // consumed by dispatchHandler1 before it can cross the runtime boundary.
   private val handlerUnhandledSentinel: Value = ForeignV(new Object())
 
-  private def withHandlerDispatchOwner[A](owner: AnyRef)(run: => A): A =
-    val previous = handlerDispatchOwners.get()
-    handlerDispatchOwners.set(owner :: previous)
+  private def withHandlerDispatchInvocation[A](
+      owner: AnyRef,
+      activation: AnyRef
+  )(run: => A): A =
+    val previous = handlerDispatchInvocations.get()
+    handlerDispatchInvocations.set(
+      HandlerDispatchInvocation(owner, activation) :: previous)
     try run
     finally
-      if previous.isEmpty then handlerDispatchOwners.remove()
-      else handlerDispatchOwners.set(previous)
+      if previous.isEmpty then handlerDispatchInvocations.remove()
+      else handlerDispatchInvocations.set(previous)
 
-  /** Construct a compiler-qualified partial-function closure. The raw body is
-    *  wrapped outside the language environment so every synchronous execution
-    *  segment exposes its private owner to root-match/marker hooks. */
+  /** Construct a compiler-qualified partial-function closure. Ordinary calls
+    *  enter through a fresh activation; dispatchHandler1 alone invokes the raw
+    *  entry under its designated activation and probe. */
   private[ssc] def handlerClosure(env: Env, arity: Int, rawCode: Code): ClosV =
     val owner = new Object()
-    val wrapped: Code = frame => withHandlerDispatchOwner(owner)(rawCode(frame))
+    val wrapped: Code = frame =>
+      withHandlerDispatchInvocation(owner, new Object())(rawCode(frame))
     val closure = ClosV(env, arity, wrapped)
     closure.handlerDispatchRoot = true
     closure.handlerDispatchOwner = owner
+    closure.handlerDispatchRawCode = rawCode
     closure
 
   private[ssc] def dispatchHandler1(handler: ClosV, event: Value): HandlerDispatch =
@@ -180,20 +199,29 @@ object Runtime:
       HandlerDispatch.Matched(Prims.runClos1(handler, event))
     else
       val owner = handler.handlerDispatchOwner
-      if owner == null then sys.error("handler dispatch: qualified closure has no owner token")
-      else withHandlerDispatchProbe(owner.nn, event) {
-        Prims.runClos1(handler, event)
-      }
+      val rawCode = handler.handlerDispatchRawCode
+      if owner == null then
+        sys.error("handler dispatch: qualified closure has no owner token")
+      else if rawCode == null then
+        sys.error("handler dispatch: qualified closure has no raw entry")
+      else
+        val activation = new Object()
+        withHandlerDispatchProbe(owner.nn, activation, event) {
+          withHandlerDispatchInvocation(owner.nn, activation) {
+            Runtime.run(rawCode.nn, Runtime.extend(handler.env, Array(event)))
+          }
+        }
 
   /** Run one synchronous segment of a qualified source handler. If a pattern
    *  or guard suspends before choosing a case, expose that exact Op and resume
    *  the decision under a fresh probe for every continuation invocation. */
   private def withHandlerDispatchProbe(
       owner: AnyRef,
+      activation: AnyRef,
       event: Value
   )(runSegment: => Value): HandlerDispatch =
     val previous = handlerDispatchProbes.get()
-    val probe = HandlerDispatchProbe(owner, event)
+    val probe = HandlerDispatchProbe(owner, activation, event)
     handlerDispatchProbes.set(probe :: previous)
     try
       val result = runSegment
@@ -206,8 +234,8 @@ object Runtime:
           HandlerDispatch.Suspended(
             label,
             argument,
-            reply => withHandlerDispatchProbe(owner, event) {
-              withHandlerDispatchOwner(owner) {
+            reply => withHandlerDispatchProbe(owner, activation, event) {
+              withHandlerDispatchInvocation(owner, activation) {
                 Prims.runClos1(continuation, reply)
               }
             })
@@ -234,9 +262,10 @@ object Runtime:
   /** Enter only the qualified root handler match and only for its exact event
    *  object. Ordinary equal-shaped user values cannot claim this probe. */
   private[ssc] def handlerMatchEnter(scrutinee: Value): Boolean =
-    (handlerDispatchProbes.get(), handlerDispatchOwners.get()) match
-      case (probe :: _, owner :: _) if probe.pending &&
-          (probe.owner eq owner) &&
+    (handlerDispatchProbes.get(), handlerDispatchInvocations.get()) match
+      case (probe :: _, invocation :: _) if probe.pending &&
+          (probe.owner eq invocation.owner) &&
+          (probe.activation eq invocation.activation) &&
           (probe.event.asInstanceOf[AnyRef] eq scrutinee.asInstanceOf[AnyRef]) => true
       case _ => false
 
@@ -866,7 +895,7 @@ object Compiler:
                   cv
                 case None => ClosV(Array.empty[Value], ar, bodyCode)
         globals(d.name) = closV
-        if closV.fcEntry.isEmpty then
+        if !handlerRoot && closV.fcEntry.isEmpty then
           // Prefer exact closed-form body FCs before generic FastCode: benchmark
           // wrappers call arity-0 defs via fcEntry, so a code-only closed form
           // would be bypassed on the hot path.
@@ -1928,9 +1957,12 @@ object FastCode:
     // Lam in while body: compile body once; create ClosV capturing current env per call.
     // This allows `shapes.foreach(s => ...)` in a while loop to fast-compile the outer loop.
     case Lam(arity, body) =>
-      val bodyC = Compiler.C(globals).compile(body)
+      val handlerRoot = HandlerDispatchShape.isRoot(arity, body)
+      val bodyC = Compiler.C(globals).compile(body, handlerRoot)
       val ar = arity
-      Some((env: Env) => ClosV(env, ar, bodyC))
+      Some((env: Env) =>
+        if handlerRoot then Runtime.handlerClosure(env, ar, bodyC)
+        else ClosV(env, ar, bodyC))
     // While as an FC term: used when a while loop appears inside a Seq, Let body, or foreach.
     // Both condition and body must be FC-able (otherwise fall back to compile path).
     case While(cond, body) =>

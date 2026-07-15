@@ -5,7 +5,7 @@ import java.nio.file.{Files, Path, Paths}
 
 import org.scalatest.funsuite.AnyFunSuite
 
-import ssc.{Arm, Const, Program, Reader, Term}
+import ssc.{Arm, Const, HandlerDispatchShape, Program, Reader, Term}
 import ssc.bridge.{FrontendBridge, PluginBridge}
 
 final class SwiftBackendTest extends AnyFunSuite:
@@ -162,6 +162,22 @@ final class SwiftBackendTest extends AnyFunSuite:
     val badPrimitive = Program(Nil, Term.Prim("host.secret", Nil))
     val primitiveError = intercept[IllegalArgumentException](SwiftBackend.generate(badPrimitive))
     assert(primitiveError.getMessage == "swift backend: unsupported primitive 'host.secret'")
+
+  test("real Swift preserves ordinary fallback semantics for handler decision markers"):
+    assume(swiftAvailable, "Swift toolchain is not available")
+    val selected = Program(Nil, Term.Prim(
+      HandlerDispatchShape.SelectedPrimitive,
+      List(Term.Lit(Const.CUnit))))
+    assert(runSwift("handlerMarkerSelected", selected).isEmpty)
+
+    val missed = Program(Nil, Term.Prim(
+      HandlerDispatchShape.MissPrimitive,
+      List(Term.Lit(Const.CUnit))))
+    val failure = runSwiftResult("handlerMarkerMiss", missed)
+    assert(failure.exit != 0, failure.stdout)
+    assert(failure.stderr.contains("match: no matching case"), failure.stderr)
+    assert(!failure.stderr.toLowerCase.contains("unsupported primitive"), failure.stderr)
+    assert(!failure.stderr.toLowerCase.contains("unknown primitive"), failure.stderr)
 
   test("Swift validation authorizes @-prefixed cell globals as lazily-vivified cells"):
     // Regression for the real gap found running examples/frontend/dashboard/dashboard.ssc
