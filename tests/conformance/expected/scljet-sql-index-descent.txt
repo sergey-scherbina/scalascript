@@ -1,0 +1,13 @@
+SELECT COUNT(*) FROM t WHERE k = 'kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk3' => 5
+SELECT v FROM t WHERE k = 'kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk3' ORDER BY v => 3
+11
+19
+27
+35
+SELECT v FROM t WHERE k = 'kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk0' ORDER BY v => 8
+16
+24
+32
+40
+SELECT MAX(v) FROM t WHERE k = 'kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk7' => 39
+SELECT COUNT(*) FROM t WHERE k = 'kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk9' => 0

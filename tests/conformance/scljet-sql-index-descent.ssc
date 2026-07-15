@@ -1,0 +1,48 @@
+---
+name: scljet-sql-index-descent
+description: SclJet O(log n) index descent — WHERE indexedcol=K prunes to the matching subtrees of a multi-level index; matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet index descent (multi-level index)
+
+Beyond the ordered index walk, a `WHERE <indexed col> = K` now descends the index B-tree in O(log n):
+at each interior node it reads the divider key records and recurses only into the children whose
+divider range could contain K (conservative `<=`/`>=` on the first key column, so equal-key runs that
+straddle a divider are never missed); leaves yield the matching rowids, which are point-looked-up.
+Falls back to the ordered walk on any bail (overflow divider/leaf, unexpected page). This fixture
+uses long (40-char) text keys so 40 rows span several index leaves under an interior node — the
+descent's interior path is exercised (verified separately that it does not fall back). Every result
+matches reference sqlite3 (verified out-of-band); locked across `[int, js]`.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableWithIndexDatabase](std/scljet/index.ssc)
+[queryImage, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+var pfx = ""
+var p = 0
+while p < 40 do
+  pfx = pfx + "k"
+  p = p + 1
+
+var rowsRev: List[List[SqliteValue]] = Nil
+var i = 1
+while i <= 40 do
+  rowsRev = List(SqlText(pfx + (i % 8).toString), SqlInteger(i.toLong)) :: rowsRev
+  i = i + 1
+
+buildTableWithIndexDatabase(512, 1, 1, "t", "CREATE TABLE t(k TEXT, v INTEGER)", "idx_k",
+  "CREATE INDEX idx_k ON t(k)", List(0), rowsRev.reverse) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db) =>
+    show(db, "SELECT COUNT(*) FROM t WHERE k = '" + pfx + "3'")
+    show(db, "SELECT v FROM t WHERE k = '" + pfx + "3' ORDER BY v")
+    show(db, "SELECT v FROM t WHERE k = '" + pfx + "0' ORDER BY v")
+    show(db, "SELECT MAX(v) FROM t WHERE k = '" + pfx + "7'")
+    show(db, "SELECT COUNT(*) FROM t WHERE k = '" + pfx + "9'")
+```

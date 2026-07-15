@@ -61,7 +61,7 @@ rows, applies the filter, and projects the result. `queryImage(dbBytes, sql)` op
 database image and returns the result rows; `renderRows` formats them like the sqlite3
 CLI (`a|b|c` per row, NULL blank) for differential testing.
 
-[ByteSlice, ByteError, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, ReadonlyDatabase, SchemaEntry, StorageRecord, DecodedRecord, DecodedText, RowidTableTree, RecordKeyTree, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly, ReadonlyCursorStep, ReadonlyBtreeCursor, SqliteError, SqliteOpenOptions, SqliteLimits, OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, encodeRecord, openMutablePager, mutableCommit, mutableGet, mutablePut, MutablePager, PagerCommit, pagerInsertBalanced, pagerDeleteBalanced, readLeafCells, leafInsertCell, rebuildLeafPage, LeafCell, byteSliceSlice, byteSliceToList, byteSliceGet, writeU32Be, IndexEntry, buildIndexTree, sortIndexEntries, IndexTreeBytes, buildSingleTableIndexed, KeyedRawRow, SchemaIndex, SchemaTable, descendToLeaf, decodeVarint, VarintRead, decodeRecord](index.ssc)
+[ByteSlice, ByteError, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, ReadonlyDatabase, SchemaEntry, StorageRecord, DecodedRecord, DecodedText, RowidTableTree, RecordKeyTree, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly, ReadonlyCursorStep, ReadonlyBtreeCursor, SqliteError, SqliteOpenOptions, SqliteLimits, OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, encodeRecord, openMutablePager, mutableCommit, mutableGet, mutablePut, MutablePager, PagerCommit, pagerInsertBalanced, pagerDeleteBalanced, readLeafCells, leafInsertCell, rebuildLeafPage, LeafCell, byteSliceSlice, byteSliceToList, byteSliceGet, writeU32Be, IndexEntry, buildIndexTree, sortIndexEntries, IndexTreeBytes, buildSingleTableIndexed, KeyedRawRow, SchemaIndex, SchemaTable, descendToLeaf, decodeVarint, VarintRead, decodeRecord, readU16Be, readU32Be, ByteRead](index.ssc)
 [ImageVfs, fieldValueAt](mutate.ssc)
 
 ```scalascript
@@ -3245,10 +3245,11 @@ def indexRowidOf(record: DecodedRecord, numKeyCols: Int): Long =
     case SqlInteger(x) => x
     case _ => 0L
 
-// Walk an index B-tree in key order, collecting the rowids whose first key column == `key`; stop
-// when a key sorts past `key` (indexes are BINARY-sorted, matching sqlCompare). Equal-key entries
+// Ordered fallback: walk the whole index B-tree in key order, collecting the rowids whose first key
+// column == `key`; stop once a key sorts past `key` (indexes are BINARY-sorted, matching sqlCompare).
+// Used when the O(log n) descent bails (overflow divider/leaf, unexpected page). Equal-key entries
 // are sub-ordered by rowid (the record's tie-break field) = the table's scan order.
-def indexSeekRowids(db: ReadonlyDatabase, indexRoot: Long, numKeyCols: Int, key: SqliteValue): Either[String, List[Long]] =
+def indexWalkRowids(db: ReadonlyDatabase, indexRoot: Long, numKeyCols: Int, key: SqliteValue): Either[String, List[Long]] =
   openReadonlyRoot(db, indexRoot, RecordKeyTree) match
     case Left(error) => Left(error.message)
     case Right(cursor) => readonlyFirst(db, cursor) match
@@ -3278,6 +3279,141 @@ def indexSeekRowids(db: ReadonlyDatabase, indexRoot: Long, numKeyCols: Int, key:
           case Some(message) => Left(message)
           case None => Right(accRev.reverse)
 
+// ── O(log n) index descent: prune to the subtrees whose divider range could contain `key` ──
+def pageTypeByte(pageBytes: ByteSlice, ho: Int): Int =
+  byteSliceGet(pageBytes, ho) match
+    case Right(v) => v
+    case Left(_) => -1
+
+def intAt(xs: List[Int], idx: Int): Int =
+  var r = xs
+  var k = idx
+  while r.nonEmpty && k > 0 do
+    r = r.tail
+    k = k - 1
+  if r.isEmpty then 0 else r.head
+
+def dividerAt(xs: List[SqliteValue], idx: Int): SqliteValue =
+  var r = xs
+  var k = idx
+  while r.nonEmpty && k > 0 do
+    r = r.tail
+    k = k - 1
+  if r.isEmpty then SqlNull else r.head
+
+// Reverse `xs` onto `acc` (so revIntAppend([c2,c1,c0], [right]) == [c0,c1,c2,right]).
+def revIntAppend(xs: List[Int], acc: List[Int]): List[Int] =
+  var r = xs
+  var out = acc
+  while r.nonEmpty do
+    out = r.head :: out
+    r = r.tail
+  out
+
+// One index-interior page → (child page numbers, divider first-column values). A divider payload
+// that overflows the local threshold → Left (caller falls back to the ordered walk).
+def readIndexInterior(pageBytes: ByteSlice, ho: Int, threshold: Int, db: ReadonlyDatabase): Either[String, (List[Int], List[SqliteValue])] =
+  readU16Be(pageBytes, ho + 3) match
+    case Left(e) => Left(e.message)
+    case Right(ByteRead(count, _)) => readU32Be(pageBytes, ho + 8) match
+      case Left(e) => Left(e.message)
+      case Right(ByteRead(rightChild, _)) =>
+        var i = 0
+        var childrenRev: List[Int] = Nil
+        var dividersRev: List[SqliteValue] = Nil
+        var err: Option[String] = None
+        while i < count.toInt && err.isEmpty do
+          readU16Be(pageBytes, ho + 12 + 2 * i) match
+            case Left(e) => err = Some(e.message)
+            case Right(ByteRead(cellPtr, _)) => readU32Be(pageBytes, cellPtr.toInt) match
+              case Left(e) => err = Some(e.message)
+              case Right(ByteRead(leftChild, _)) => decodeVarint(pageBytes, cellPtr.toInt + 4) match
+                case Left(e) => err = Some(e.message)
+                case Right(VarintRead(plLen, _, payloadOff)) =>
+                  if plLen > threshold.toLong then err = Some("overflow-divider")
+                  else byteSliceSlice(pageBytes, payloadOff, plLen.toInt) match
+                    case Left(e) => err = Some(e.message)
+                    case Right(payload) => decodeRecord(payload, db.schema.encoding, db.schema.format, sqlLimits()) match
+                      case Left(_) => err = Some("decode-divider")
+                      case Right(rec) =>
+                        childrenRev = leftChild.toInt :: childrenRev
+                        dividersRev = fieldValueAt(rec, 0) :: dividersRev
+          i = i + 1
+        err match
+          case Some(m) => Left(m)
+          case None => Right((revIntAppend(childrenRev, rightChild.toInt :: Nil), reverseValues(dividersRev, Nil)))
+
+// One index-leaf page → the rowids whose first key column == `key`. Overflow payload → Left.
+def readIndexLeafRowids(pageBytes: ByteSlice, ho: Int, threshold: Int, numKeyCols: Int, key: SqliteValue, db: ReadonlyDatabase): Either[String, List[Long]] =
+  readU16Be(pageBytes, ho + 3) match
+    case Left(e) => Left(e.message)
+    case Right(ByteRead(count, _)) =>
+      var i = 0
+      var accRev: List[Long] = Nil
+      var err: Option[String] = None
+      while i < count.toInt && err.isEmpty do
+        readU16Be(pageBytes, ho + 8 + 2 * i) match
+          case Left(e) => err = Some(e.message)
+          case Right(ByteRead(cellPtr, _)) => decodeVarint(pageBytes, cellPtr.toInt) match
+            case Left(e) => err = Some(e.message)
+            case Right(VarintRead(plLen, _, payloadOff)) =>
+              if plLen > threshold.toLong then err = Some("overflow-leaf")
+              else byteSliceSlice(pageBytes, payloadOff, plLen.toInt) match
+                case Left(e) => err = Some(e.message)
+                case Right(payload) => decodeRecord(payload, db.schema.encoding, db.schema.format, sqlLimits()) match
+                  case Left(_) => err = Some("decode-leaf")
+                  case Right(rec) =>
+                    accRev = if sqlCompare(fieldValueAt(rec, 0), key) == 0 then indexRowidOf(rec, numKeyCols) :: accRev else accRev
+        i = i + 1
+      err match
+        case Some(m) => Left(m)
+        case None => Right(accRev.reverse)
+
+// Descend into child i only if `key` could lie in its divider range (conservative <= / >= on the
+// first column, so equal-key runs that straddle a divider are never missed).
+def childCouldContainKey(i: Int, nchildren: Int, dividers: List[SqliteValue], key: SqliteValue): Boolean =
+  val lowerOk = if i == 0 then true else sqlCompare(dividerAt(dividers, i - 1), key) <= 0
+  val upperOk = if i == nchildren - 1 then true else sqlCompare(dividerAt(dividers, i), key) >= 0
+  lowerOk && upperOk
+
+def descendChildren(pager: MutablePager, children: List[Int], dividers: List[SqliteValue], threshold: Int, numKeyCols: Int, key: SqliteValue, db: ReadonlyDatabase): Either[String, List[Long]] =
+  var i = 0
+  val nchildren = children.length
+  var acc: List[Long] = Nil
+  var err: Option[String] = None
+  while i < nchildren && err.isEmpty do
+    if childCouldContainKey(i, nchildren, dividers, key) then
+      indexDescendCollect(pager, intAt(children, i), threshold, numKeyCols, key, db) match
+        case Left(m) => err = Some(m)
+        case Right(rowids) => acc = acc ++ rowids
+    i = i + 1
+  err match
+    case Some(m) => Left(m)
+    case None => Right(acc)
+
+def indexDescendCollect(pager: MutablePager, pageNumber: Int, threshold: Int, numKeyCols: Int, key: SqliteValue, db: ReadonlyDatabase): Either[String, List[Long]] =
+  mutableGet(pager, pageNumber) match
+    case Left(e) => Left(e.message)
+    case Right(pageBytes) =>
+      val ho = if pageNumber == 1 then 100 else 0
+      val kind = pageTypeByte(pageBytes, ho)
+      if kind == 10 then readIndexLeafRowids(pageBytes, ho, threshold, numKeyCols, key, db)
+      else if kind == 2 then readIndexInterior(pageBytes, ho, threshold, db) match
+        case Left(m) => Left(m)
+        case Right(ci) => descendChildren(pager, ci._1, ci._2, threshold, numKeyCols, key, db)
+      else Left("unexpected index page kind")
+
+// Collect matching rowids via the O(log n) descent; on any bail (overflow / unexpected page) fall
+// back to the ordered walk. Both yield the same rowids in the same order.
+def indexSeekRowids(dbBytes: ByteSlice, db: ReadonlyDatabase, indexRoot: Long, numKeyCols: Int, key: SqliteValue, pageSize: Int): Either[String, List[Long]] =
+  val reserved = byteSliceGet(dbBytes, 20) match
+    case Right(v) => v
+    case Left(_) => 0
+  val threshold = pageSize - reserved - 35
+  indexDescendCollect(openMutablePager(dbBytes, pageSize, pageSize), indexRoot.toInt, threshold, numKeyCols, key, db) match
+    case Right(rowids) => Right(rowids)
+    case Left(_) => indexWalkRowids(db, indexRoot, numKeyCols, key)
+
 // Point-lookup each rowid → its row; None if any lookup must fall back (overflow) or is missing.
 def seekRowsForRowids(dbBytes: ByteSlice, db: ReadonlyDatabase, root: Int, pageSize: Int, rowids: List[Long]): Option[List[StorageRecord]] =
   var r = rowids
@@ -3298,7 +3434,7 @@ def rowidSeekResult(dbBytes: ByteSlice, db: ReadonlyDatabase, root: Int, pageSiz
     case SeekHit(rec) => Some(finishRows(rec :: Nil, colNames, stmt))
 
 def indexSeekResult(dbBytes: ByteSlice, db: ReadonlyDatabase, root: Int, pageSize: Int, colNames: List[String], stmt: SelectStmt, indexRoot: Long, numKeyCols: Int, value: SqliteValue): Option[Either[String, List[List[SqliteValue]]]] =
-  indexSeekRowids(db, indexRoot, numKeyCols, value) match
+  indexSeekRowids(dbBytes, db, indexRoot, numKeyCols, value, pageSize) match
     case Left(_) => None
     case Right(rowids) => seekRowsForRowids(dbBytes, db, root, pageSize, rowids) match
       case None => None
