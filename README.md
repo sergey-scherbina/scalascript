@@ -314,6 +314,7 @@ compiles them via Scala.js.
 | Scala 3 explicit control API (Tier 1 implemented) | Publication-ready `_3` leaf in `scalascript.control`: typed `Eff`, deep handlers, generative multi-prompt `shift`/`reset`, reusable and one-shot local continuations, and stackless state machines. Local `save()` rejects with typed `UnmanagedCapture`; see the [runnable Scala example](v2/host/scala/control/src/test/scala/scalascript/controlapi/examples/ControlApiExample.scala) and [Scala/JVM profile](specs/scala3-bidirectional-control.md) |
 | Full control interoperability (in progress) | One target-neutral contract in [`specs/control-interoperability.md`](specs/control-interoperability.md). Successful durable `save`/`run`, network transfer, Scala↔ScalaScript typed bridges, managed callbacks/TCO, macros/plugin, admission, and exact/portable runners remain post-X1 work |
 | Canonical interop descriptors (Slice A infrastructure) | Target-neutral `v2/interop/descriptor` leaf with bounded canonical codecs and checked factories for `ApiDescriptor`, `ControlSummary`, and `ArtifactManifest`; compiler/linker producers and runtime/admission consumers remain queued in [descriptor v3](specs/ssc-api-descriptor-v3.md) |
+| Plugin capability profiles (infrastructure) | Target-neutral `v2/interop/plugin-profile` leaf derives stable semantic/schema identities, pins exact target implementation bytes, projects one canonical descriptor binding, and validates target/capability/transitive dependency closure before plugin installation. The JVM `NativePlugin` adapter remains source/binary compatible; package/linker population is a later descriptor slice. See the [verified profile](specs/plugin-capability-profile-v1.md) |
 | Host/runner profiles (planned) | Native typed bidirectional bridges for [Scala/JVM](specs/scala3-bidirectional-control.md), [JS/TS](specs/javascript-typescript-bidirectional-control.md), [Rust](specs/rust-bidirectional-control.md), and [Swift](specs/swift-bidirectional-control.md), measured against the [portable-VM reference runner](specs/control-interop-profile-portable-vm.md), plus the [WASM/WASI runner](specs/wasm-wasi-control-runner.md) |
 | Typed effect rows | `def foo(): A ! Logger` — effect appears in function type; closed row (no `!`) = total/pure |
 | `multi effect` | Explicit multi-shot effects — continuation can be resumed many times; raw CoreIR `effect.perform` also remains reusable |
@@ -1070,6 +1071,15 @@ The target-neutral descriptor leaf is the sbt project `v2InteropDescriptor` at
 `scalascript.interop.descriptor` package exposes bounded canonical codecs and
 checked factories. Slice A supplies infrastructure only: compiler/linker
 producers and runtime/admission consumers remain deferred.
+
+Plugin dependency identity and admission live in sbt project
+`v2PluginCapabilityProfile` at `v2/interop/plugin-profile`, published as
+`io.scalascript:scalascript-plugin-profile_3`. The
+`scalascript.interop.plugin` package exposes checked declaration/implementation
+binding, one aggregate `DependencyKind.Plugin` projection, and pure inventory
+validation. `ssc.plugin.NativePlugin.capabilityDeclaration` is an optional JVM
+adapter; legacy providers keep the concrete `None` default. Automatic `.sscpkg`
+carriers and linker population remain deferred.
 
 ScalaScript libraries can also be packaged as `.ssclib` archives:
 

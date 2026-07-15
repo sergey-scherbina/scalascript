@@ -1,6 +1,6 @@
 # Plugin capability profile v1
 
-Status: **specified / implementation pending** (2026-07-15).
+Status: **implemented and verified; package/linker consumers queued** (2026-07-15).
 
 This specification supplies the plugin dependency data required by
 [`control-interoperability.md`](control-interoperability.md) and the
@@ -336,6 +336,7 @@ Failures are structured `PluginProfileError` values. Stable codes include:
 UNSUPPORTED_PROFILE_VERSION
 INVALID_ID
 INVALID_SHA256
+INVALID_ARTIFACT_BYTES
 DUPLICATE_PROVISION
 DUPLICATE_DEPENDENCY
 DUPLICATE_CAPABILITY
@@ -359,29 +360,29 @@ merge, or best-effort execution.
 
 ## Behavior
 
-- [ ] The profile leaf builds independently of v1, CoreIR, UniML, every backend,
+- [x] The profile leaf builds independently of v1, CoreIR, UniML, every backend,
       runtime values, plugin installation, and host control libraries.
-- [ ] Equivalent declarations in different input order produce byte-identical
+- [x] Equivalent declarations in different input order produce byte-identical
       aggregate semantic/schema ids and descriptor plugin bindings.
-- [ ] Semantic ABI, schema, dependency, or declared-capability changes alter the
+- [x] Semantic ABI, schema, dependency, or declared-capability changes alter the
       appropriate aggregate identity; target implementation bytes change only the
       implementation digest/binding.
-- [ ] Human package version, `spiVersion`, class name, path, and load order are not
+- [x] Human package version, `spiVersion`, class name, path, and load order are not
       present in either aggregate identity preimage.
-- [ ] Exact artifact bytes have a deterministic SHA-256 implementation digest;
+- [x] Exact artifact bytes have a deterministic SHA-256 implementation digest;
       malformed precomputed digests reject.
-- [ ] Duplicate/empty ids, duplicate capabilities, self/duplicate dependencies,
+- [x] Duplicate/empty ids, duplicate capabilities, self/duplicate dependencies,
       undeclared provision capabilities, malformed hashes, and oversized preimages
       reject with stable structured errors before hashing or normalization erases
       evidence.
-- [ ] Projection emits one exact `DependencyKind.Plugin` binding per
+- [x] Projection emits one exact `DependencyKind.Plugin` binding per
       `(pluginId,target)` and preserves aggregate required capabilities.
-- [ ] Inventory validation rejects target/ABI/semantic/schema/digest/capability
+- [x] Inventory validation rejects target/ABI/semantic/schema/digest/capability
       mismatch, ambiguous implementations, a missing exact binding, hidden
       transitive dependencies, and dependency cycles before plugin installation.
-- [ ] A legacy `NativePlugin` that implements only `id` and `install` still loads
+- [x] A legacy `NativePlugin` that implements only `id` and `install` still loads
       through ServiceLoader unchanged; it cannot satisfy a profiled dependency.
-- [ ] A profiled `NativePlugin` declaration round-trips through the additive SPI
+- [x] A profiled `NativePlugin` declaration round-trips through the additive SPI
       method without changing ownership/conflict behavior in `NativePluginHost`.
 
 ## Out of scope
@@ -406,8 +407,9 @@ merge, or best-effort execution.
    stable negative categories.
 2. `v2NativePluginSpi/test` covers an unchanged legacy provider and an additive
    profiled provider through the real deterministic ServiceLoader host path.
-3. `v2PluginCapabilityProfile/dependencyTree` proves the leaf depends only on the
-   descriptor leaf plus Scala/JDK libraries.
+3. `v2PluginCapabilityProfile/dependencyTree` proves its only project dependency
+   is the descriptor leaf and that no v1/CoreIR/UniML/backend/runtime/host module
+   enters the graph. Descriptor's own canonical-codec libraries remain transitive.
 4. Run the affected plugin conformance slice through
    `tests/conformance/run.sh --only 'plugin-*'`; if no matching corpus cases exist,
    record the explicit zero-match result and run the native plugin host tests as the
@@ -415,5 +417,23 @@ merge, or best-effort execution.
 
 ## Results
 
-Fill after implementation with commit ids, exact test counts, dependency graph
-evidence, and conformance output.
+Implementation commit: `e1933fcc6` (spec sequence `546b86bb1`, `483165b47`,
+`7b139d509`).
+
+- `scripts/sbtc "v2PluginCapabilityProfile/test;v2NativePluginSpi/test"`:
+  profile/identity/inventory **23/23**, native SPI/ServiceLoader **12/12**.
+- `scripts/sbtc "v2PluginCapabilityProfile/dependencyTree"`: artifact
+  `io.scalascript:scalascript-plugin-profile_3`; its only project edge is
+  `io.scalascript:scalascript-interop-descriptor_3`. No v1, `v2Core`, UniML,
+  backend, runtime-value, plugin-host, or control project appears.
+- Frozen identity vector:
+  `ssc:plugin-abi:v1:f1582769b5e96e607486af18fdcf5ef2ec6321d12c05449d854034eb5a895616`
+  and
+  `ssc:plugin-schema:v1:72feecf4e6cc67902ce2d27017f06a146267d5fc45e9fb155961e7bbe3d8816d`;
+  an independent Ruby `Digest::SHA256` re-encoding produced the same pair.
+- `tests/conformance/run.sh --only 'plugin-*'`: explicit **0 matching cases,
+  0 passed / 0 failed**; the native ServiceLoader suite is therefore the affected
+  executable gate required by this specification.
+- Independent read-only review: **APPROVED** after aggregate-id ingress,
+  cross-language topological ordering, original manifest paths, exact resource
+  boundaries, and legacy JVM default linkage were rechecked.
