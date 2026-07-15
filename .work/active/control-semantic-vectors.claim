@@ -1,6 +1,6 @@
-feature/control-semantic-vectors 2026-07-15T03:19:06Z
+feature/control-semantic-vectors 2026-07-15T03:28:48Z
 agent: codex-control-vectors
-heartbeat: 2026-07-15T03:19:06Z
+heartbeat: 2026-07-15T03:28:48Z
 status: in-progress
-done-so-far: isolated feature worktree created from origin/main; task is explicitly allowed before UniML X1
-next: audit the existing cross-lane control harness and commit a semantic-vector feature spec before implementation
+done-so-far: feature spec committed; target-neutral vector and lane catalogs plus new semantic probes drafted in isolated worktree
+next: implement strict catalog validation, multi-lane process harness, and Scala explicit-API consumer
