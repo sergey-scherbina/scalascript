@@ -1427,7 +1427,10 @@ object SpikeParse:
   // prefix operator `- e` / `! e` / `~ e` → mkPre(op, e). Binds at the atom level.
   private def parsePrefix(c: Cur): Node =
     val op = c.advance().get
-    val sub = parseAtom(c).getOrElse(Node.Frame("spike.error", None, Vector.empty))
+    // a prefix `!`/`-`/`~` binds LOOSER than the postfix chain: `!a.b.c(1)` is `!(a.b.c(1))`, not `(!a).b.c(1)`
+    // (ssc1-front lowers `!e` → `if e then false else true` over the WHOLE chain). Apply postfix to the atom
+    // before wrapping. Binary infix stays looser still (`!a + b` = `(!a) + b`) — handled by the caller.
+    val sub = postfix(c, parseAtom(c).getOrElse(Node.Frame("spike.error", None, Vector.empty)))
     Node.Frame("spike.pre", None, Vector(Node.Leaf(op, Some("pre.op")), sub.withRole("pre.sub")))
 
   private def parseParen(c: Cur): Option[Node] =
@@ -1455,10 +1458,19 @@ object SpikeParse:
   private def parseIf(c: Cur): Option[Node] =
     val kids = Vector.newBuilder[Node]
     c.advance().foreach(t => kids += Node.Leaf(t, Some("if.kw")))
-    parseExpr(c, 1).foreach(e => kids += e.withRole("if.cond"))
+    // C-style `if (cond) body` / `if (cond) { body }`: parse the PARENTHESISED condition ourselves so a
+    // trailing same-line `{ body }` does NOT attach as a block-arg to the condition (ssc1-front parseIfExpr
+    // resumes at parseInfix after the `)`, ssc1-front.ssc0:1280) — the `{ }` is then the then-branch, and
+    // `then` is optional. Otherwise the Scala-3 `if cond then body` form. `(cond)` projects like `cond`.
+    val parenCond = c.peekKind == "spike.lparen"
+    if parenCond then
+      c.advance() // `(`
+      parseExpr(c, 1).foreach(e => kids += e.withRole("if.cond"))
+      if c.peekKind == "spike.rparen" then c.advance()
+    else parseExpr(c, 1).foreach(e => kids += e.withRole("if.cond"))
     val thenLine = c.peekLine
     if isKw(c, "then") then c.advance().foreach(t => kids += Node.Leaf(t, Some("if.then")))
-    else c.report("spike.expected", "expected 'then'")
+    else if !parenCond then c.report("spike.expected", "expected 'then'")
     kids += branchExpr(c, thenLine).withRole("if.thenE")
     // `else` is OPTIONAL (`if c then e` is a statement whose else defaults to Unit) — see ifExpr projection.
     // elseLine is the line of `else` itself (BEFORE consuming), so an offside else-branch block is detected.
