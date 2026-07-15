@@ -354,6 +354,7 @@ object SpikeParse:
         else if isWord(c, "effect") && (c.peek2Kind == "spike.uid" || c.peek2Kind == "spike.id") then defs += parseEffectDecl(c, false)
         else if isWord(c, "multi") && c.peek2Lexeme == "effect" then defs += parseEffectDecl(c, true) // `multi effect`
         else if isWord(c, "extern") then defs += parseExtern(c)
+        else if isWord(c, "type") && c.peek2Kind == "spike.uid" then defs += parseTypeAlias(c) // `type X = Y` erased
         else if isWord(c, "trait") || isKw(c, "class") then defs += parseTraitOrClassNoop(c)
         // a top-level STATEMENT — script-style `println(…)`, top-level `val`/`var`/expr. ssc1-front keeps these
         // in source order and lowerProg collects them into `(entry (seq …))` (and `val`/`var` → a global cell).
@@ -841,6 +842,14 @@ object SpikeParse:
 
   // `trait X …` / `class X …` / `abstract class X …` — the spike does not lower trait/class bodies yet, so a
   // bare/abstract-only declaration is erased to a no-op (matches ssc1-front for marker & abstract traits).
+  // `type X = Y` / `type X[..] = A | B` alias — erased to a no-op (ssc1-front.ssc0:2721 → Pair("sealed", ""),
+  // skipToStmt). Consume the whole single-line declaration (ssc1-front's `;`-at-newline layout ends it there).
+  private def parseTypeAlias(c: Cur): Node =
+    val typeLine = c.peekLine
+    c.advance() // `type`
+    while !c.eof && c.peekLine == typeLine do c.advance()
+    Node.Frame("spike.sealed", None, Vector.empty)
+
   private def parseTraitOrClassNoop(c: Cur): Node =
     c.advance() // `trait` / `class`
     if c.peekKind == "spike.uid" then c.advance()
