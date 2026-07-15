@@ -159,7 +159,14 @@ error-resilient parser already byte-identical to ssc1-front on 119 constructs, t
            ssc1-lower unions into subtypeRegCell (reverse-accumulate — ssc1-front prepends). Additive, byte-identical (+1).
          - **`type X = Y` alias** → spike.sealed no-op (+2). **REVERTED same-line arm-body-as-block** (+2 gains but
            5-9 regressions — parseBlock over-consumes past `}`/next-arm/default; not worth it).
-      **Remaining ~45 DIFF + ~2 false HOLE is the HARD TAIL — deep features or bug-reproduction, low leverage:**
+      11. [x] operators + layout + index-assign — landed 2026-07-15 (→**454, 91%, 55 slices**; "Продолжай" round, +8):
+         - **`:::` list concat lexes as `++`** (ssc1-front.ssc0:385; every Seq is a Cons-list) (+1 wasm-sorting).
+         - **chained `(` requires SAME line** — postfix applied a `(` regardless of line, so `val cols = line.split(",")\n
+           ("order", …)` applied the tuple to `split(",")`; ssc1-front's layout inserts `;` at the newline. Guard on
+           `peekLine == prevEndLine` (like the `[` type-app). **+6 — biggest** (control-center-live/coroutine-error/
+           dsl-yaml-like/indent-block-statements/rest-validate/standard-scala-multifence; pervasive in DSL combinators).
+         - **array index update `a(idx) = rhs`** — spike.call LHS + `=` → idx_assign node (ssc1-lower → arr.set) (+1).
+      **Remaining ~37 DIFF + ~2 false HOLE is the HARD TAIL — deep features or bug-reproduction, low leverage:**
       summon/given resolution (typeclass/custom-derives-mirror/graph-rdf4j-http-storage/rozum-agent/tagless-context-
       bounds), quoted-macros (2), for-comp foreach/flatMap (wasm-http braceless-for, wasm-sorting `:::`), ssc1-front's
       OWN parse bugs (symbolic-op defs `def <~>`→truncated unit body; colon-lambda `.foreach: (a,b)=>`→`_err(a,b)`;
