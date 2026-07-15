@@ -34,6 +34,7 @@ being rejected. Likewise an `@internal` local alias for a callback type can be
 exported without expanding to the callback shape, bypassing the mandatory callback
 policy. The same bypass survives through a non-exported public wrapper alias, and
 the built-in `Array[Byte]` fast path can outrun a private local `Array` declaration.
+A qualified private local effect can likewise fall back to an external effect-row id.
 
 **Root cause/plan:** the lexical type index records only public declarations and
 recurses only through public owners. A known local declaration hidden by visibility
@@ -42,7 +43,8 @@ all local type identities and aliases with effective owner visibility; if resolu
 finds a known non-public local identity, fail with stable `UNSUPPORTED_PUBLIC_TYPE`
 before external-name projection or callback classification. Regress both the private
 qualified-owner and internal callback-alias shapes, a public alias chain, absolute
-fully-qualified selection, and the shadowed `Array[Byte]` fast path.
+fully-qualified selection, the shadowed `Array[Byte]` fast path, and a private local
+effect row.
 
 **Baseline:** focused producer test accepts `Hidden.T` and `Callbacks.Hidden` as
 external `AbiType.Named` values; the latter has no callback policy. These are two
@@ -66,6 +68,9 @@ canonical declaration preprocessor/parser and compare an exact declaration-heade
 shape with its paired section AST while deliberately ignoring executable bodies and
 comments. Reject a mismatch with stable `UNSUPPORTED_PUBLIC_DECLARATION`; preserve
 body-only descriptor/hash invariance and add the exact copy/tamper regression.
+Require a unique synthetic package-wrapper chain, normalize placeholder type aliases
+symmetrically on both trees, and prove that body/RHS/default-expression-only retained
+source changes remain accepted against the same stored declaration AST.
 
 **Baseline:** focused producer test returns `Right` and still exports
 `demo.api.Real.read` after retained source removes that operation; this is one of

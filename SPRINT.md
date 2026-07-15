@@ -216,12 +216,15 @@ optional policy, not the default continuation semantics.
     - [ ] Replace `PreBodyApiDescriptorProducer.topLevelStats` count-only pairing with exact
       per-block declaration-header correspondence between canonically reparsed retained source
       and the stored section AST. Ignore bodies/comments, but reject the reviewer's tamper where
-      retained `effect Real:` is paired with a stale AST still containing `read`.
+      retained `effect Real:` is paired with a stale AST still containing `read`; require one
+      exact package-wrapper chain, normalize placeholder aliases on both sides, and keep stale
+      body/RHS/default-expression-only edits descriptor/hash invariant.
     - [ ] Index every known local type/alias with effective owner visibility. A public signature
       resolving to a private/internal local owner or alias must fail `UNSUPPORTED_PUBLIC_TYPE`
       before external `AbiType.Named` fallback or callback classification; regress relative and
       absolute `private Hidden.T`, an `@internal` callback alias both directly and through a
-      public wrapper alias, plus a private local `Array` shadowing the `Array[Byte]` fast path.
+      public wrapper alias, a private local `Array` shadowing the `Array[Byte]` fast path, and a
+      qualified private local effect row.
     - [ ] Reject selected public/exported `Defn.Var` with
       `UNSUPPORTED_PUBLIC_DECLARATION` until an additive descriptor revision represents
       mutability. Keep equivalent `val` positive and do not change the frozen Slice A schema.
