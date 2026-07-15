@@ -181,7 +181,7 @@ and capability names keep those claims separate.
       captured mutable heap cell remains shared across local resumes.
 - [x] One-shot and managed-capture negatives assert structured identities first and
       exact CLI rendering where a process boundary exists.
-- [ ] The compound codec/exact-artifact admission vector preserves distinct
+- [x] The compound codec/exact-artifact admission vector preserves distinct
       `CodecMismatch`, `AbiMismatch`, and `MissingDependency` constructors.
 - [x] Every mandatory future lane is present in the matrix and reports `PENDING` or
       `UNAVAILABLE` instead of being omitted or counted green.
@@ -225,9 +225,10 @@ and capability names keep those claims separate.
   `pending-codec` (10--17), and one deliberately `pending-spec` cancellation row
   (26). `lanes.tsv` declares all nine mandatory lanes; five future generated or
   host lanes and `scala-direct` remain explicitly `pending`.
-- `tests/interop-conformance/validation-test.sh` passes seven negative cases:
-  duplicate vector/lane, removed id, missing eligible probe, orphan expected
-  bytes, mismatched front-matter, and missing pending record.
+- `tests/interop-conformance/validation-test.sh` passes nine negative cases:
+  duplicate vector/lane, removed id, swapped stable adapter, empty ready lane,
+  missing eligible probe, orphan expected bytes, mismatched front-matter, and
+  missing pending record.
 - After `scripts/sbtc "cli/installBin"`, the default
   `SSC="$PWD/bin/ssc" tests/interop-conformance/run.sh` gate passes all 13 eligible
   exact-output vectors on `portable-vm` and the same 13/13 on `portable-asm`.
