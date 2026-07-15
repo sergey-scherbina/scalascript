@@ -105,15 +105,24 @@ error-resilient parser already byte-identical to ssc1-front on 119 constructs, t
       **MATCH trajectory (→487 progs): 0→2→93 (harness leak fix)→165 (number lexer)→203 (trailing block)→211
       (placeholder)→241 (imports)→269 (list+type)→272 (try+annot)→288 (type app)→293 (lit patterns)→326 (named
       args)→330 (objects)→334 (field defaults+types)→342 (uppercase names)→346 (derives)→350 (tuple val)→364
-      (while, +14)→365 (null)→368 (extern+def-assign)→369 (75%, tuple-pat-ascription). 24 slices, all pushed.
-      **Remaining ~24% is SPECIALIZED or ARCHITECTURAL:**
-      - **variant-A parser-cell gaps** (case-class body METHODS `Point_distanceTo`, call-site default SYNTHESIS
-        `Box()`→`Box(10,20)`, using-INJECTION `display(42)`→`display(42,g)`, summon) — caseMethodsCell/
-        funcDefaultsCell/usingSigCell are populated by ssc1-front's PARSE (mkCaseCls carries NO methods —
-        verified), which the spike bypasses. ONE oracle refactor (AST-derive these cells in lowerProg + carry the
-        info in the projected AST) unblocks the whole cluster; = deliberate Phase 4/5 decision, NOT a spike slice.
-      - **effect handlers** (`__handler_dispatch_selected__`), **optics** `Focus[T](_.a.b)`, **custom interpolators**
-        `html"…"` (ssc1-front itself mis-groups them), **continuations/coroutines** — bespoke/complex.
+      (while, +14)→365 (null)→368 (extern+def-assign)→369 (tuple-pat-ascription)→370 (`$_`interp).
+      7. [x] BIG-FEATURE + ARCHITECTURE tier — landed 2026-07-15 (→396, 80%, 33 slices total):
+         - **algebraic effects** (effect_decl/`multi effect`, `! L` rows, abstract-def unit bodies, `handle` via
+           trailing-block+pfblock, qualified op patterns `case L.op(a,resume)`, perform via effect_decl) — +13.
+         - **optics** `Focus[T](_.a.b)`→focus_marker / `Prism`→prism (resolveFocusArgs AST-derived) — +6.
+         - **VARIANT-A TRILOGY, the key architectural win** — an ADDITIVE, PRODUCTION-SAFE pattern: lowerProg gains
+           collect{CaseMethods,UsingSig,FuncDefaults}Nodes(stmts) that UNION AST-carried `("casemethods"|"usingsig"|
+           "funcdefaults", …)` companion nodes (emitted by caseClsNodes/defNodes) into the parser cells the spike
+           can't populate. ssc1-front emits no such nodes → collect=Nil → production byte-identical (no ref
+           regression). Case-class body methods +3, using-injection +1, default synthesis (synthetics match).
+         - **KC8** `f(a)(using g)`→flatten (mergeUsingArgs) +1.
+      **Remaining ~20% is DEEP/BESPOKE or UNMATCHABLE:**
+      - **custom string interpolators `html"…"`/`sql"…"` are UNMATCHABLE cleanly** — ssc1-front itself doesn't
+        recognise them and emits error-recovery garbage (`_err`, leftover statements); byte-matching that is a
+        non-goal (~5 progs).
+      - deep bespoke: summon resolution + given-body extension methods, `direct { }` marker, continuations/
+        coroutines, symbolic operator methods `def <~>` + custom-op infix precedence; long-tail 1-program gaps.
+      - The **variant-A additive pattern is the reusable template** for any parse-cell the spike can't populate.
       Older remaining (88 DIFF + 70 HOLE):
       ~82 parse holes (custom string interpolators `html"…"`/`sql"…"` — actually ssc1-front ALSO parses these as
       `id`+raw-string, the divergence is arm-body block grouping; braceless-catch-at-top-level offside;
