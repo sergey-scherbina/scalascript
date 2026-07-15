@@ -430,7 +430,10 @@ def parseCondition(toks: List[Token]): Either[String, (Condition, List[Token])] 
         Right((Condition(col, "truthy", SqlNull, Nil, lopt, None), after))
       else
         val op = after.head
-        parseExprAdd(after.tail) match
+        if tkKind(after.tail) == "lparen" && tkIsKw(after.tail.tail, "SELECT") then splitParenGroup(after.tail.tail) match
+          case None => Left("unbalanced parentheses in scalar subquery")
+          case Some(sp) => Right((Condition(col, op.text, SqlNull, Nil, lopt, None, sp._1), sp._2))
+        else parseExprAdd(after.tail) match
           case Left(message) => Left(message)
           case Right(re) =>
             val rnode = re._1
@@ -2056,8 +2059,7 @@ def hasExistsCond(where: List[List[Condition]]): Boolean =
   while g.nonEmpty && !found do
     var r = g.head
     while r.nonEmpty && !found do
-      val o = r.head.op
-      if o == "exists" || o == "notexists" || o == "insubq" || o == "notinsubq" then found = true
+      if r.head.subTokens.nonEmpty then found = true
       r = r.tail
     g = g.tail
   found
@@ -2112,11 +2114,37 @@ def inSubqHolds(db: ReadonlyDatabase, cond: Condition, rec: StorageRecord, colNa
         case Left(_) => false
         case Right(rows) => valueInList(colVal, firstColumn(rows))
 
+def isCmpOp(op: String): Boolean =
+  op == "=" || op == "<>" || op == "!=" || op == "<" || op == "<=" || op == ">" || op == ">="
+
+// The scalar of a subquery result = the first row's first column (NULL if it returned no rows).
+def scalarSubqValue(rows: List[List[SqliteValue]]): SqliteValue =
+  if rows.isEmpty then SqlNull
+  else if rows.head.isEmpty then SqlNull
+  else rows.head.head
+
+// `col <cmp> (subquery)`: substitute the outer refs, run the subquery, compare the left value with its
+// scalar. A NULL either side makes the comparison unknown (false), as in SQL.
+def scalarSubqHolds(db: ReadonlyDatabase, cond: Condition, rec: StorageRecord, colNames: List[String], outerTable: String): Boolean =
+  val colVal = condLeftSingle(cond, rec, colNames)
+  val sub = substituteOuterRefs(cond.subTokens, outerTable, colNames, rec)
+  parseSelect(sub) match
+    case Left(_) => false
+    case Right(stmt) =>
+      val rowsE = if stmt.table == "" then executeNoFrom(stmt) else executeSelect(db, stmt)
+      rowsE match
+        case Left(_) => false
+        case Right(rows) =>
+          val scalar = scalarSubqValue(rows)
+          if isNullValue(colVal) || isNullValue(scalar) then false
+          else condMatches(cond.op, sqlCompare(colVal, scalar))
+
 def condHoldsCtx(db: ReadonlyDatabase, cond: Condition, rec: StorageRecord, colNames: List[String], outerTable: String): Boolean =
   if cond.op == "exists" then existsHolds(db, cond.subTokens, outerTable, colNames, rec)
   else if cond.op == "notexists" then existsHolds(db, cond.subTokens, outerTable, colNames, rec) == false
   else if cond.op == "insubq" then inSubqHolds(db, cond, rec, colNames, outerTable)
   else if cond.op == "notinsubq" then inSubqHolds(db, cond, rec, colNames, outerTable) == false
+  else if cond.subTokens.nonEmpty && isCmpOp(cond.op) then scalarSubqHolds(db, cond, rec, colNames, outerTable)
   else condHolds(cond, rec, colNames)
 
 def andGroupHoldsCtx(db: ReadonlyDatabase, group: List[Condition], rec: StorageRecord, colNames: List[String], outerTable: String): Boolean =
