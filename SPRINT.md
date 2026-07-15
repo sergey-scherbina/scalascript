@@ -70,12 +70,28 @@ error-resilient parser already byte-identical to ssc1-front on 119 constructs, t
          (`_nf_refone.ssc0`), apples-to-apples. Verified: fresh-ref for `case-classes` == spike, byte-identical.
          **Corrected baseline: MATCH 2→93 (19%), DROP 3, HOLE 155, DIFF 233.** (The oracle's non-idempotent
          `parse` is a real latent bug but harmless in production — `bin/ssc` lowers one program per process.)
-      2. content-level clusters (the real dominant DIFF causes, post-artifact-fix): **SQL-DSL content**
-         (`(ctor Cons (app (global SqlText) …` — ~49 programs, scljet-sql-*), **actor/async trailing-block
-         calls** (`runActors { … }`/`runAsync { … }`/`spawn { … }` → `(app (global runActors) (lam 0 …))`; the
-         spike splits `f { block }` into two statements instead of a trailing-lambda arg — ~14 programs), then
-         `_sel_mkString`/`httpClient`/top-level `var`.
-      3. the 155 parse holes (`__notImplemented__`) — surface each construct, add it to the parser.
+      2. [x] content-level clusters — landed 2026-07-15, each byte-verified + ScalaSpikeSpec 60/60 + full harness:
+         - **number lexer** (hex `0x`→decimal, `L`/`l` Long suffix, `_` separators, `1e10`/`1.0e100` exponents,
+           matching ssc1-front.ssc0:295-338) — closed the SQL-DSL `SqlInteger(1L)` cluster + hex.
+         - **trailing block arg** `f { … }` (runActors/runAsync/spawn + `.map { case … }`/`foldLeft(z){(a,b)=>}`;
+           spike.blockapp + pfblock; SAME-LINE guard via Cur.prevEndLine).
+         - **underscore-placeholder scope** — `_` lifts to its NEAREST enclosing call arg (countPh/projectPh no
+           longer descend into a nested call's args), fixing `xs.map(_*2).mkString`.
+         - **imports** `[names](path)` link + `import a.b.{x,y}`/`.*` → `Pair("sealed","")` no-op (spike.sealed).
+      3. [x] parse-hole closers — landed 2026-07-15:
+         - **list literals** `[e…]` → `List(e…)` in expression position (`[]`→List(); `[`/`]` kept as leaves so
+           empty frame survives Node→UniNode). Statement-position `[…]` still routes to link-import.
+         - **typed val/var** `val x: T = e` — parseVal skipped NO annotation, parseVarStmt only one token;
+           added skipTypeAnnotation (depth-based, mirrors ssc1-front skipTypeAt: balanced `[]`/`()` until a
+           depth-0 `= , ; { }`/closing bracket) → handles `Map[String,String]`, `(A,B)=>C`, `A | B`.
+         - **try/catch/finally** → `__tryCatch__`/`__tryCatchFinally__`/`__tryFinally__` prims (parseTry;
+           braced+braceless catch, finally, no-handler).
+      **MATCH trajectory (484 progs): 0 → 2 (top-level) → 93 (harness leak fix) → 165 (number lexer) → 203
+      (trailing block) → 211 (placeholder) → 241 (imports) → 269 (list+type) → [try running].** Remaining:
+      ~82 parse holes (custom string interpolators `html"…"`/`sql"…"` — actually ssc1-front ALSO parses these as
+      `id`+raw-string, the divergence is arm-body block grouping; braceless-catch-at-top-level offside;
+      distributed/dsl/effects constructs) + ~130 long-tail DIFFs (real case-class BODY methods `Point_distanceTo`
+      = variant-A limitation since caseMethodsCell is populated by ssc1-front's parse which the spike bypasses).
       Ends when the whole (single-file) corpus is byte-identical.
 - [ ] **Phase 2 — multi-file / imports.** Give the new front the module-loading the old front has (resolve
       `[name](path.ssc)` imports, load defs), so multi-file programs also compare byte-identically.
