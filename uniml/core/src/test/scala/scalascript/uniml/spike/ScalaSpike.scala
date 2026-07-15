@@ -470,7 +470,12 @@ object SpikeParse:
     // `extends Y with Z` is erased, but a `derives A, B` clause is CAPTURED (cc.derive leaves) — the
     // lowerer generates the derived typeclass/codec instances from it (ssc1-front mkCaseCls's 4th field).
     if isWord(c, "extends") then
-      c.advance(); skipTypeRef(c)
+      c.advance()
+      // capture the FIRST nominal (uppercase) parent for the subtype registry: `case class Circle(…) extends
+      // Shape` lets `case _: Shape` expand to its child tags. ssc1-front registers only a `uid` parent
+      // (subtypeRegCell); caseClsNodes emits a companion ("subtype", (parent, child)) node (variant-A).
+      if c.peekKind == "spike.uid" then kids += Node.Leaf(c.peek.get, Some("cc.parent"))
+      skipTypeRef(c)
       if c.peekKind == "spike.lparen" then skipBalancedParens(c)
       while isWord(c, "with") do { c.advance(); skipTypeRef(c) }
     captureDerives(c, kids)
@@ -1857,7 +1862,11 @@ object SpikeProject:
       else Vector(s"""Pair("casemethods", Pair("${esc(name)}", Pair(${consList(fields)}, ${consList(methods)})))""")
     val fdNode = if !hasDflt then Vector.empty[String]
       else Vector(s"""Pair("funcdefaults", Pair("${esc(name)}", Pair(${consList(fields)}, ${consList(dfltB.result())})))""")
-    Vector(base) ++ cmNode ++ fdNode
+    // `case class Circle(…) extends Shape` → ("subtype", (Shape, Circle)) so `case _: Shape` expands to child tags
+    val stNode = ks.collectFirst { case (Some("cc.parent"), c) => lexeme(c) } match
+      case Some(p) => Vector(s"""Pair("subtype", Pair("${esc(p)}", "${esc(name)}"))""")
+      case None    => Vector.empty[String]
+    Vector(base) ++ cmNode ++ fdNode ++ stNode
 
   // concatenate a spike.cctype frame's token lexemes (no spaces) → the full field type string
   private def concatType(n: UniNode): String = n match

@@ -5437,12 +5437,29 @@ def collectFuncDefaultsNodes = (stmts) =>
       }
   }
 
+-- AST-carried subtype hierarchy — same additive, production-safe pattern: a front that does not populate
+-- subtypeRegCell as a parse side effect emits `("subtype", (parent, childName))` per `case class C extends P`.
+-- ssc1-front PREPENDS each entry (reverse source order), and subtypeChildren preserves cell order, so
+-- accumulate in reverse (last-seen at the front) to reproduce the child-tag test order byte-for-byte.
+def collectSubtypeNodesAcc = (stmts, acc) =>
+  match stmts {
+    case Nil => acc
+    case Cons(s, rest) =>
+      match s {
+        case Pair(tag, data) =>
+          if #seq(tag, "subtype") then collectSubtypeNodesAcc(rest, Cons(data, acc))
+          else collectSubtypeNodesAcc(rest, acc)
+      }
+  }
+def collectSubtypeNodes = (stmts) => collectSubtypeNodesAcc(stmts, Nil)
+
 def lowerProg = (stmts) =>
   -- K62.18: imported extension identity is AST-owned, never transient parser
   -- state. This must run before resolveE classifies selected method calls.
   let _cmn = #cell.set(caseMethodsCell, appendL(collectCaseMethodsNodes(stmts), #cell.get(caseMethodsCell))) in
   let _usn = #cell.set(usingSigCell, appendL(collectUsingSigNodes(stmts), #cell.get(usingSigCell))) in
   let _fdn = #cell.set(funcDefaultsCell, appendL(collectFuncDefaultsNodes(stmts), #cell.get(funcDefaultsCell))) in
+  let _stn = #cell.set(subtypeRegCell, appendL(collectSubtypeNodes(stmts), #cell.get(subtypeRegCell))) in
   let _em = #cell.set(extensionMethodsCell, collectExtensionMethods(stmts)) in
   -- Extension-dispatch registries: top-level extension methods + given-body dispatch names, so a
   -- method with both gets its top-level impl mangled to `m__ext_default` (dispatcher fallback).
