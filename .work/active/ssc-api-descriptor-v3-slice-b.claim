@@ -1,6 +1,6 @@
 feature/ssc-api-descriptor-v3-slice-b 2026-07-15T04:02:06Z
 agent: codex-descriptor-b
-heartbeat: 2026-07-15T06:52:41Z
+heartbeat: 2026-07-15T07:03:03Z
 status: in-progress
-done-so-far: fourth repair plan/spec and faithful red import/effect/template baselines are committed; implementation repair is active in the isolated worktree
-next: close all three P1s, run descriptor/core/interop/ABI/conformance gates, freeze, then obtain a new independent review; no push/release
+done-so-far: fourth repair plan/spec and exact 50/60 red baseline are committed; source-ordered imports and carrier witnesses are designed, with parser-origin marker contract being amended spec-first
+next: commit the non-API parser-evidence contract, close all three P1s, run expanded parser/effect/descriptor/core/interop/ABI/conformance gates, freeze, then independent review; no push/release

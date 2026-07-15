@@ -1,6 +1,6 @@
 feature/scala3-control-macros 2026-07-15T04:07:46Z
 agent: codex-scala-control-macros
-heartbeat: 2026-07-15T06:52:41Z
+heartbeat: 2026-07-15T07:03:03Z
 status: in-progress
-done-so-far: fresh review rejected the frozen macro checkpoint on captured-A rebinding, inferred owner-bearing RHS types, and forward/mutual lazy givens; owner resumed from a clean rebase
-next: plan and spec-first repair all three P1s plus boundary-break regressions, run packaged/full gates, freeze, then obtain a new independent review; no push/release
+done-so-far: repair plan and owner-graph spec update are committed after clean rebase; captured-A, inferred RHS-type, two-phase given implementation is active
+next: finish all three P1 fixes plus boundary-break regressions, run packaged/full gates, freeze, then obtain a new independent review; no push/release

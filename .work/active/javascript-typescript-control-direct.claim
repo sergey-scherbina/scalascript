@@ -1,6 +1,6 @@
 feature/javascript-typescript-control-direct 2026-07-15T05:29:19Z
 agent: codex-js-control-direct
-heartbeat: 2026-07-15T06:52:41Z
+heartbeat: 2026-07-15T07:03:03Z
 status: in-progress
-done-so-far: fresh review rejected the frozen direct checkpoint on shorthand value-symbol capture, shorthand/local-export marker erasure, and valid type-only exports; repair plan is committed after clean rebase
-next: spec-first fix all three P1s with real packaged regressions, rerun every direct/explicit/catalog/conformance gate, freeze, then obtain a new independent review; no push/release
+done-so-far: plan/spec/code/docs for all three symbol-ownership P1s are committed after clean rebase; runtime/type-only alias matrix is expanded and the branch is in full verification
+next: finish every direct/explicit/package/catalog/conformance gate, freeze a clean exact head, then obtain a new independent review; no push/release
