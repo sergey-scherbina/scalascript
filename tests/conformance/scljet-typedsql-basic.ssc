@@ -16,7 +16,7 @@ property of the generic combinator signatures, exercised by the construction bel
 
 [ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
 [renderRows](std/scljet/sql.ssc)
-[SqlType, IntType, TextType, Table, Column, Expr, Predicate, TypedQuery, col, intLit, textLit, eqp, gep, lep, inp, betweenp, likep, andp, projCol, countStar, sumCol, orderAsc, from, whereQ, selectCols, selectStar, groupByQ, orderByQ, distinctQ, runTypedQuery](std/scljet/typedsql.ssc)
+[SqlType, IntType, TextType, Table, Column, Expr, Predicate, TypedQuery, col, intLit, textLit, eqp, gep, lep, inp, betweenp, likep, andp, projCol, countStar, sumCol, orderAsc, from, whereQ, selectCols, selectStar, groupByQ, orderByQ, distinctQ, havingQ, havingCount, runTypedQuery](std/scljet/typedsql.ssc)
 
 ```scalascript
 val emp: Table = Table("emp", List("id", "name", "salary", "dept"))
@@ -47,4 +47,5 @@ buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER, name TEXT, sa
     show(db, "q8", selectCols(whereQ(from(emp), likep(cName, "a%")), projCol(cName) :: Nil))
     show(db, "q9", orderByQ(groupByQ(selectCols(from(emp), projCol(cDept) :: countStar() :: Nil), "dept" :: Nil), orderAsc(cDept) :: Nil))
     show(db, "q10", orderByQ(distinctQ(selectCols(from(emp), projCol(cDept) :: Nil)), orderAsc(cDept) :: Nil))
+    show(db, "q11", orderByQ(havingQ(groupByQ(selectCols(from(emp), projCol(cDept) :: countStar() :: Nil), "dept" :: Nil), havingCount(">=", 2L)), orderAsc(cDept) :: Nil))
 ```

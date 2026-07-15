@@ -55,6 +55,11 @@ exports:
   - joinOn
   - leftJoinOn
   - qualName
+  - havingQ
+  - havingCount
+  - havingSum
+  - havingMax
+  - havingMin
   - toSelectStmt
   - runTypedQuery
   - TypedInsert
@@ -87,7 +92,7 @@ byte-identical rows (verified against reference sqlite3). This stage keeps the e
 paths (full scan); index-aware physical planning is a later stage of the spec.
 
 [ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText](index.ssc)
-[SxNode, SxCol, SxLit, SxBin, Condition, ProjItem, OrderKey, JoinSpec, SelectStmt, runSelectStmt, renderRows, InsertStmt, DeleteStmt, UpdateStmt, Assignment, executeInsert, executeDelete, executeUpdate](sql.ssc)
+[SxNode, SxCol, SxLit, SxBin, Condition, ProjItem, OrderKey, JoinSpec, HavingCond, SelectStmt, runSelectStmt, renderRows, InsertStmt, DeleteStmt, UpdateStmt, Assignment, executeInsert, executeDelete, executeUpdate](sql.ssc)
 
 ## Types, columns and expressions
 
@@ -202,36 +207,46 @@ def orderDesc[T](c: Column[T]): OrderKey = OrderKey(SxCol(c.name), true)
 ## Query builder (single table) → SelectStmt → executor
 
 ```scalascript
-// Accumulates the fields of a SelectStmt. `joins` (defaulted Nil) threads through every builder.
+// Accumulates the fields of a SelectStmt. `joins`/`having` (defaulted) thread through every builder.
 case class TypedQuery(table: String, star: Boolean, projection: List[ProjItem],
   where: List[List[Condition]], groupBy: List[String], orderBy: List[OrderKey],
-  limit: Int, offset: Int, distinct: Boolean, joins: List[JoinSpec] = Nil)
+  limit: Int, offset: Int, distinct: Boolean, joins: List[JoinSpec] = Nil, having: Option[HavingCond] = None)
 
 def from(t: Table): TypedQuery =
-  TypedQuery(t.name, true, Nil, Nil, Nil, Nil, -1, 0, false, Nil)
+  TypedQuery(t.name, true, Nil, Nil, Nil, Nil, -1, 0, false, Nil, None)
 
 // Successive whereQ calls AND together (crossAnd of the OR-of-ANDs shapes).
 def whereQ(q: TypedQuery, p: Predicate): TypedQuery =
   val merged = if q.where.isEmpty then p.where else crossAnd(q.where, p.where)
-  TypedQuery(q.table, q.star, q.projection, merged, q.groupBy, q.orderBy, q.limit, q.offset, q.distinct, q.joins)
+  TypedQuery(q.table, q.star, q.projection, merged, q.groupBy, q.orderBy, q.limit, q.offset, q.distinct, q.joins, q.having)
 
 def selectCols(q: TypedQuery, items: List[ProjItem]): TypedQuery =
-  TypedQuery(q.table, false, items, q.where, q.groupBy, q.orderBy, q.limit, q.offset, q.distinct, q.joins)
+  TypedQuery(q.table, false, items, q.where, q.groupBy, q.orderBy, q.limit, q.offset, q.distinct, q.joins, q.having)
 
 def selectStar(q: TypedQuery): TypedQuery =
-  TypedQuery(q.table, true, Nil, q.where, q.groupBy, q.orderBy, q.limit, q.offset, q.distinct, q.joins)
+  TypedQuery(q.table, true, Nil, q.where, q.groupBy, q.orderBy, q.limit, q.offset, q.distinct, q.joins, q.having)
 
 def groupByQ(q: TypedQuery, keys: List[String]): TypedQuery =
-  TypedQuery(q.table, q.star, q.projection, q.where, keys, q.orderBy, q.limit, q.offset, q.distinct, q.joins)
+  TypedQuery(q.table, q.star, q.projection, q.where, keys, q.orderBy, q.limit, q.offset, q.distinct, q.joins, q.having)
 
 def orderByQ(q: TypedQuery, keys: List[OrderKey]): TypedQuery =
-  TypedQuery(q.table, q.star, q.projection, q.where, q.groupBy, keys, q.limit, q.offset, q.distinct, q.joins)
+  TypedQuery(q.table, q.star, q.projection, q.where, q.groupBy, keys, q.limit, q.offset, q.distinct, q.joins, q.having)
 
 def limitQ(q: TypedQuery, n: Int, off: Int): TypedQuery =
-  TypedQuery(q.table, q.star, q.projection, q.where, q.groupBy, q.orderBy, n, off, q.distinct, q.joins)
+  TypedQuery(q.table, q.star, q.projection, q.where, q.groupBy, q.orderBy, n, off, q.distinct, q.joins, q.having)
 
 def distinctQ(q: TypedQuery): TypedQuery =
-  TypedQuery(q.table, q.star, q.projection, q.where, q.groupBy, q.orderBy, q.limit, q.offset, true, q.joins)
+  TypedQuery(q.table, q.star, q.projection, q.where, q.groupBy, q.orderBy, q.limit, q.offset, true, q.joins, q.having)
+
+// HAVING <agg> op <value> after GROUP BY. Convenience builders make the aggregate ProjItem the
+// executor's filterGroups/havingHolds expects (COUNT(*) / SUM(col) / MIN / MAX / AVG).
+def havingQ(q: TypedQuery, h: HavingCond): TypedQuery =
+  TypedQuery(q.table, q.star, q.projection, q.where, q.groupBy, q.orderBy, q.limit, q.offset, q.distinct, q.joins, Some(h))
+
+def havingCount(op: String, n: Long): HavingCond = HavingCond(countStar(), op, SqlInteger(n))
+def havingSum[T](c: Column[T], op: String, n: Long): HavingCond = HavingCond(sumCol(c), op, SqlInteger(n))
+def havingMax[T](c: Column[T], op: String, n: Long): HavingCond = HavingCond(maxCol(c), op, SqlInteger(n))
+def havingMin[T](c: Column[T], op: String, n: Long): HavingCond = HavingCond(minCol(c), op, SqlInteger(n))
 
 // Inner / LEFT join on `leftCol op rightCol` — appends a JoinSpec (qualified column names from the
 // columns' owners). The executor's join path (executeSelect → joinExecute/multiJoinExecute) runs it.
@@ -239,15 +254,15 @@ def qualName[T](c: Column[T]): String = c.owner + "." + c.name
 
 def joinOn[A, B](q: TypedQuery, tb: Table, lc: Column[A], op: String, rc: Column[B]): TypedQuery =
   val js = JoinSpec(tb.name, qualName(lc), op, qualName(rc), false)
-  TypedQuery(q.table, q.star, q.projection, q.where, q.groupBy, q.orderBy, q.limit, q.offset, q.distinct, q.joins ++ (js :: Nil))
+  TypedQuery(q.table, q.star, q.projection, q.where, q.groupBy, q.orderBy, q.limit, q.offset, q.distinct, q.joins ++ (js :: Nil), q.having)
 
 def leftJoinOn[A, B](q: TypedQuery, tb: Table, lc: Column[A], op: String, rc: Column[B]): TypedQuery =
   val js = JoinSpec(tb.name, qualName(lc), op, qualName(rc), true)
-  TypedQuery(q.table, q.star, q.projection, q.where, q.groupBy, q.orderBy, q.limit, q.offset, q.distinct, q.joins ++ (js :: Nil))
+  TypedQuery(q.table, q.star, q.projection, q.where, q.groupBy, q.orderBy, q.limit, q.offset, q.distinct, q.joins ++ (js :: Nil), q.having)
 
-// Erase to the existing SelectStmt (joins included; HAVING is a later stage).
+// Erase to the existing SelectStmt.
 def toSelectStmt(q: TypedQuery): SelectStmt =
-  SelectStmt(q.star, q.projection, q.table, q.where, q.orderBy, q.limit, q.offset, q.groupBy, q.joins, None, q.distinct)
+  SelectStmt(q.star, q.projection, q.table, q.where, q.orderBy, q.limit, q.offset, q.groupBy, q.joins, q.having, q.distinct)
 
 def runTypedQuery(dbBytes: ByteSlice, q: TypedQuery): Either[String, List[List[SqliteValue]]] =
   runSelectStmt(dbBytes, toSelectStmt(q))
