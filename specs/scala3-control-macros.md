@@ -214,7 +214,7 @@ Compile-time failures use stable codes and primary positions:
 
 | Code | Meaning | Primary position |
 |---|---|---|
-| `UNMANAGED_CAPTURE` | marker is outside a matching lexical scope or survived transformation | exact `direct.shift` call |
+| `UNMANAGED_CAPTURE` | marker is outside a matching lexical scope or survived transformation | missing contextual-argument insertion site for a typer rejection; exact `direct.shift` call for a macro rejection |
 | `CAPTURE_BARRIER` | first enclosing callback/resource/control boundary forbids M1 capture | exact `direct.shift` call; detail names barrier kind and its line/column |
 | `DIRECT_STYLE_UNSUPPORTED` | tree is safe to reject but outside the accepted M1 ANF grammar | exact `direct.shift` call; detail gives an ANF rewrite hint |
 
@@ -223,6 +223,13 @@ the exact message, `lineContent`, and zero-based column from
 `scala.compiletime.testing.typeCheckErrors`. A separate real-scalac fixture may
 assert `<file>:<line>:<column>` when a physical line number is required; tests must
 not invent a nonexistent `Error.line` member.
+
+An out-of-region call is rejected by Scala's `implicitNotFound` path before any
+enclosing macro can inspect it. Scala 3 therefore owns that primary position and,
+for a multiline invocation, reports the missing contextual-argument insertion site
+(normally the closing delimiter). Structural errors found by `direct.reset` point at
+the `direct.shift` source line itself. Both position forms are frozen by tests; the
+macro does not forge a less truthful source span.
 
 If several markers fail, diagnostics are reported in deterministic source order.
 The first structural barrier from a marker outward is the one named.
