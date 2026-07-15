@@ -1,8 +1,8 @@
 # SSC API descriptor v3
 
-Status: **slice A implemented and verified; slice B compatibility-producer fourth
-correction implemented and fully verified locally, awaiting independent
-pre-integration approval; self-hosted and consumer slices queued** (2026-07-15).
+Status: **slice A implemented and verified; slice B compatibility-producer fifth
+pre-integration review rejected with five P1 corrections specified but not yet
+implemented; self-hosted and consumer slices queued** (2026-07-15).
 
 This specification refines the structured-descriptor contract in
 [`control-interoperability.md`](control-interoperability.md) without changing its
@@ -131,31 +131,55 @@ The source of truth is the parsed declaration header:
 - manifest `exports:` and `@internal`/private visibility select the public set;
 - lexical declaration environments are collected before the manifest export
   filter. Every local type/effect/transparent-alias identity is indexed together
-  with effective visibility inherited through all enclosing owners. A non-exported
-  **public** local declaration may therefore still supply the stable identity or
-  callback shape used by an exported signature, without itself becoming an
-  exported symbol. A reference that resolves to a known private, protected, or
-  `@internal` local declaration/owner rejects before qualified-external fallback;
-  it must never become an external `AbiType.Named` or hide a function-shaped alias
-  from callback policy. Only a qualified non-platform name that is not any known
-  local identity may remain an external stable id. Lexical local type declarations
-  shadow the frozen standard constructors; relative selections such as
-  `Domain.Value` normalize to their fully qualified local id;
+  with effective visibility inherited through **every** enclosing class, trait,
+  enum, or object owner. Inventory traversal does not stop merely because a nominal
+  owner is not itself a namespace projected by descriptor v3: its nested identities
+  must remain known so they cannot fall through as external names. The inventory
+  records both effective visibility and whether the enclosing owner surface is
+  representable. A non-exported **public** local declaration may therefore still
+  supply the stable identity or callback shape used by an exported signature,
+  without itself becoming an exported symbol. A reference that resolves to a known
+  private, protected, `@internal`, or otherwise nonrepresentable local declaration/
+  owner rejects before qualified-external fallback; it must never become an
+  external `AbiType.Named` or hide a function-shaped alias from callback policy.
+  The same recursive owner rules govern the local type, effect, and transparent-
+  alias inventories. Only a qualified non-platform name that is not any known local
+  identity may remain an external stable id. Lexical local type declarations shadow
+  the frozen standard constructors; relative selections such as `Domain.Value`
+  normalize to their fully qualified local id;
 - explicit imports participate in the lexical declaration environment in source
-  order. A frozen bare spelling is eligible for builtin projection only when the
-  active import environment proves that no explicit import binds or may bind that
-  spelling. A direct import and a rename-to-name carry their exact qualified target:
-  the producer resolves that target as a qualified local/external identity, applying
-  normal visibility and platform-root checks, instead of selecting a same-spelled
-  builtin. A wildcard makes every non-excluded bare name potentially imported and
-  therefore rejects with `AMBIGUOUS_NAMED_TYPE`; conflicting exact bindings reject
-  the same way. A rename-away or explicit unimport excludes the source name from that
-  importer, including its wildcard, so the builtin remains eligible only if no other
-  active importer can supply it. Given-only selectors do not bind ordinary type
-  names. These rules apply before **every** bare primitive, numeric, `Bytes`, frozen
-  collection, and `Array[Byte]` mapping, not only before `Byte`; an exact import from
-  `scala`, `java`, or `javax` rejects with `PLATFORM_TYPE_FORBIDDEN` rather than
-  laundering a platform type through a builtin spelling;
+  order and are themselves ABI-relevant declaration evidence. The exact retained
+  witness records each import at its lexical owner and position in declaration
+  order, including the importer reference plus every direct, rename, wildcard,
+  unimport/exclusion, given, and given-all selector. Stored AST, CodeBlock, and
+  optional Document witnesses must agree on that ordered import shape before its
+  bindings may influence projection; formatting and source positions remain erased.
+
+  One lexical identity resolver owns all import-aware public type decisions. It is
+  used for bare names, selected/applied paths, importer qualifiers of later imports,
+  effect-row members, and transparent-alias callback classification. When an import
+  is encountered, its qualifier is interpreted under the environment established by
+  earlier declarations/imports; direct and renamed bindings retain the resulting
+  target path. Resolving a selected type expands an imported leading qualifier and
+  repeats expansion for chained aliases before local-identity, visibility, and
+  platform-root checks. Thus `import java.{lang as jl}; jl.String` and a later
+  `import jl.{Integer as Int}; Int` both expose the canonical `java.lang.*` root and
+  reject with `PLATFORM_TYPE_FORBIDDEN`; `import Types.Callback` resolves to the same
+  local transparent alias used by callback policy.
+
+  A frozen bare spelling is eligible for builtin projection only when the active
+  import environment proves that no explicit import binds or may bind that spelling.
+  A wildcard makes every non-excluded bare name potentially imported and therefore
+  rejects with `AMBIGUOUS_NAMED_TYPE`; conflicting exact bindings, cyclic qualifier/
+  alias expansion, or an otherwise non-unique resolution reject deterministically.
+  A rename-away or explicit unimport excludes the source name from that importer,
+  including its wildcard, so the builtin remains eligible only if no other active
+  importer can supply it. Given-only selectors do not bind ordinary type names.
+  These rules apply before **every** bare primitive, numeric, `Bytes`, frozen
+  collection, and `Array[Byte]` mapping, not only before `Byte`. Visibility and
+  platform isolation are checked after complete import expansion and before external
+  fallback. Rejected: separate ad hoc bare-name, selected-name, and callback lookup
+  paths, because they can assign different identities to the same source spelling;
 - `Int` maps directly to `I32`, `Long` directly to `I64`, `Double` to `F64`,
   and no width is inferred from a literal, body result, lowered value, `SType.Any`,
   legacy `ExportedSymbol.tpe`, or `TypeEvidenceWire`;
@@ -174,9 +198,16 @@ The source of truth is the parsed declaration header:
   declaration source. The scan is Scala-lexical for this purpose: line/block
   comments, character literals, ordinary strings, and triple-quoted strings are
   blanked while line boundaries are retained, so text inside them cannot create
-  evidence. Each header binds inside the same code block: a preserved source
-  position is exact evidence; when deterministic preprocessing has inserted
-  lines, a structurally marked effect object is selected by declaration order.
+  evidence. A lexical header match is only a candidate: it becomes effect evidence
+  when it aligns with a marked object in the declaration-scope AST inventory for
+  the same retained carrier. That inventory follows top-level and namespace-owner
+  declaration members but deliberately does not descend into method/value bodies,
+  initializer expressions, defaults, or other erased implementation bodies. A
+  body-local `effect` therefore cannot add, remove, or invalidate a pre-body API
+  descriptor. Each accepted header binds inside the same code block: a preserved
+  source position/owner is exact evidence; when deterministic preprocessing has
+  inserted lines, a structurally marked declaration-scope effect object is selected
+  by owner and declaration order.
   An empty effect has no operation marker and therefore binds without a preserved
   position only when the remaining same-name candidate is unique. The selected
   object's AST owner supplies the stable lexical owner. A global bare-name queue
@@ -193,7 +224,10 @@ The source of truth is the parsed declaration header:
   repeat it. CodeBlock and Document witnesses must agree exactly; preprocessing an
   `effect` into an object never erases an effect/object or multiplicity disagreement.
   A documentless CodeBlock still validates its raw evidence against the stored
-  marked AST before production;
+  marked AST before production. This validated carrier-to-AST binding is the sole
+  effect-header model used by later effect projection. The binding phase consumes
+  it directly and must not run a second unscoped regular-expression interpretation
+  of the chosen source;
 
   Package wrapping currently replaces `CodeBlock.source` with the already
   preprocessed, package-nested Scala source. For a documentless packaged **empty**
@@ -205,12 +239,18 @@ The source of truth is the parsed declaration header:
   erased. These are parser-internal compatibility evidence, not ScalaScript source
   declarations, value fields, CoreIR terms, descriptor symbols, or effect/runtime
   operations. The producer recognizes and filters them before nominal/member
-  projection; effect analysis and target backends continue to inspect only the
-  existing `__effectOp__` and `__multiShot__` contracts. A user declaration that
-  collides with either reserved sentinel fails strict managed production instead of
-  impersonating an effect: with a raw carrier it fails effect/object correspondence;
-  in a packaged documentless block the sentinel alone is never declaration-header
-  evidence, so missing raw `effect` evidence rejects at the symbol path. Rejected:
+  projection, but only after validating exact parser-owned cardinality and shape.
+  A real effect object contains exactly one canonical
+  `private type __effectDecl__ = true`, with no additional modifier, type parameter,
+  bound, or alternate right-hand side. It contains exactly one equally canonical
+  `__effectUnsupportedShape__` marker iff its validated raw header has generic or
+  parent syntax, and none otherwise. A duplicate, malformed marker, unexpected
+  unsupported-shape marker, missing required marker, or either reserved name on an
+  ordinary declaration is a stable strict-production failure. These rules apply to
+  Document-backed and documentless packaged carriers, including an actual effect
+  whose user body collides with the injected name. Effect analysis and target
+  backends continue to inspect only the existing `__effectOp__` and
+  `__multiShot__` contracts. Rejected:
   adding a new original-source field to `Content.CodeBlock` and every
   serialized/consumer shape solely for this compatibility producer (a broader
   carrier/schema change);
@@ -251,9 +291,9 @@ The source of truth is the parsed declaration header:
   A witness retains owner nesting, declaration kind/name, ABI-relevant
   modifiers (including `val` versus `var`, visibility, accessors, and effect
   multiplicity/operation markers), type/constructor/parameter clauses, declared
-  types/effect rows, parent/self/derives/early/export/member surface, and default
-  presence. It
-  deliberately erases method/value bodies, initializer/default expressions, source
+  types/effect rows, ordered import references/selectors, parent/self/derives/early/
+  export/member surface, and default presence. It deliberately erases method/value
+  bodies, initializer/default expressions, source
   positions, comments, and formatting, so body-only edits remain descriptor/hash
   invariant. A parse failure or witness mismatch, a non-empty block without an
   AST, a retained document block whose section container was lost, a missing or
@@ -380,6 +420,25 @@ a second wire model or route through legacy `tpe`.
 - [x] Non-empty derives and early-initializer clauses participate in exact retained
       header correspondence and reject on real public nominal declarations until the
       descriptor represents them, across every parseable class/trait/enum/object form.
+- [ ] Ordered imports participate in exact declaration correspondence, including
+      importer references and every selector kind; mutating only a Document import
+      while retaining the CodeBlock/stored AST import rejects at the section path.
+- [ ] One source-ordered lexical identity resolver handles bare and selected paths,
+      importer aliases/chains, platform/private/local identities, and transparent
+      callback aliases. `jl.String`/chained `jl.Integer` cannot launder `java.*`, and
+      an imported local function alias receives conservative callback policy.
+- [ ] Effect origin sentinels have exact parser-owned count and canonical private-
+      type shape. Duplicate or malformed declaration/unsupported-shape markers,
+      including a collision inside a real effect body, fail closed without becoming
+      descriptor or runtime members.
+- [ ] Raw effect evidence is declaration-scope-aware and is bound once. A local
+      effect appearing only in an exported method body is ignored for pre-body API
+      correspondence and cannot change descriptor bytes or `apiHash`; genuine
+      top-level effects retain their owner/multiplicity/shape evidence.
+- [ ] Local type/effect/alias inventories recurse through class, trait, enum, and
+      object owners with inherited visibility/representability. A nested identity
+      below a private/internal/nonrepresentable nominal owner rejects before
+      qualified-external fallback.
 
 ## Versions
 
@@ -937,6 +996,19 @@ slice A must not mark that milestone complete.
 
 ## Results
 
+A fresh independent fifth review rejected exact frozen checkpoint `0cb46c3cd`
+with no P0, five P1 families, and no standalone P2. Exact correspondence omitted
+imports even though imports now affect projection; selected/importer/chained paths
+and callback classification bypassed the partial bare-name import scope; reserved
+effect sentinels were not unique/canonical; raw effect scanning interpreted
+body-local effects as API evidence and was repeated during binding; and local
+identity inventories stopped at non-object nominal owners. The reviewer confirmed
+the prior derives/early, direct-import ordering, raw effect/object comparison, and
+package/source fixes, as well as the one-way architecture with the canonical model
+only in `v2/interop/descriptor`. All seventeen Slice B `descriptor-v3-*` entries
+remain `open`; the five new behavior items above stay unchecked until faithful red
+vectors and the full implementation gates pass.
+
 A fresh independent review rejected exact frozen checkpoint `4cd2a4aaa` (rebased
 as `05e498a72`) with no P0 and three P1 fail-open classes. Imports were ignored
 before bare builtin projection; dual source carriers could disagree on raw
@@ -959,10 +1031,11 @@ correspondence and nominal losslessness checks. The four behavior items above ar
 checked from the corresponding faithful producer, parser, and effect-analysis
 regressions.
 
-This checkpoint is fully green locally but is not independently approved or
-landed. All twelve Slice B `descriptor-v3-*` bug entries remain `open`, and the
-Slice B sprint item remains unchecked until a fresh read-only review approves the
-exact clean checkpoint and it lands on `origin/main`.
+That checkpoint was fully green locally but was independently rejected by the
+fifth review above and was not landed. Its twelve pre-existing Slice B bug entries
+remain `open` together with the five new entries, and the Slice B sprint item stays
+unchecked until a later exact checkpoint receives fresh read-only approval and
+lands on `origin/main`.
 
 - `scripts/sbtc "core/testOnly
   scalascript.artifact.PreBodyApiDescriptorProducerTest
