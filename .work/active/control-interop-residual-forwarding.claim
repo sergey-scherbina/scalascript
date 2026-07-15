@@ -1,6 +1,6 @@
 feature/control-interop-residual-forwarding 2026-07-15T00:56:18Z
 agent: codex-residual-control
-heartbeat: 2026-07-15T02:06:12Z
+heartbeat: 2026-07-15T02:15:05Z
 status: in-progress
-done-so-far: per-invocation activation, same-closure reentry, TLS isolation, FastCode/ASM bypass guards, and marker consumer fallbacks implemented; selected VM/ASM reentry case green
-next: finish isolated miss/cross-backend tests, checkpoint and rebase current origin, then run axis 19/install/conformance gates
+done-so-far: structured residual dispatch, per-invocation activation/TLS isolation, FastCode and both ASM bypass guards, cross-backend marker fallbacks, ABI regression, and selected/miss reentry vectors implemented; branch rebased and history cleaned
+next: finish focused source isolation run, then execute plugin/cross-backend/install axis 19/native/conformance/interop gates and prepare docs/spec verification for review
