@@ -2,7 +2,7 @@
 
 Status: **M1 implemented; independent-review remediation in progress**
 (2026-07-15). The first review rejected owner splitting, lazy-marker lowering,
-and provenance-bearing inline wrappers. The fail-closed and symbol-rebinding
+and inline marker wrappers. The fail-closed and symbol-rebinding
 contract below is normative before M1 may land.
 
 This feature is the bounded inline-macro tier of
@@ -179,9 +179,9 @@ In particular, `lazy val selected = direct.shift(...)` is never an accepted bind
 the marker is inside a lazy initializer and receives `CAPTURE_BARRIER` without
 forcing that initializer. A pure lazy value before a later shift is also rejected
 fail-closed rather than being made strict or copied across capture. An inline
-wrapper that expands to `direct.shift` with call provenance or local inline
-bindings is outside M1 and receives `DIRECT_STYLE_UNSUPPORTED`; the transform may
-not erase those bindings and then attempt to lower the exposed marker.
+wrapper that expands to `direct.shift` is outside M1 and receives
+`DIRECT_STYLE_UNSUPPORTED`; the transform may not erase the expansion boundary
+and then attempt to lower the exposed marker.
 
 A marker targeting an outer `Scope` from inside a nested `direct.reset` is rejected
 as `UNMANAGED_CAPTURE` in M1. It is not silently narrowed through the nested reset's
@@ -247,11 +247,13 @@ flags are preserved so implicit selection and destructuring dependencies keep
 their source meaning. A definition kind that M1 cannot freshen is rejected before
 constructing the continuation, never left for a raw quote-owner error.
 
-Marker normalization may remove only ownership-neutral typing wrappers and an
-`Inlined` node with neither call provenance nor bindings. A provenance-bearing or
-binding-bearing inline expansion is not a direct M1 marker shape. Its exposed
-`direct.shift` is diagnosed before prompt/body movement, so wrapper arguments are
-neither dropped, duplicated, nor evaluated by the failed expansion.
+Marker normalization may remove only ownership-neutral typing wrappers; it never
+removes an `Inlined` node. Even `Inlined(None, Nil, ...)` can retain references to
+owner-sensitive synthetic parameters after earlier compiler phases have erased
+its visible call/binding metadata. Any inline expansion is therefore not a direct
+M1 marker shape. Its exposed `direct.shift` is diagnosed before prompt/body
+movement, so wrapper arguments are neither dropped, duplicated, nor evaluated by
+the failed expansion.
 
 The generated bind continuation is an ordinary reusable explicit continuation.
 Zero, one, or many resumes and deep reset reinstallation therefore come from the
@@ -290,7 +292,7 @@ The review-remediation diagnostics freeze these families:
 - a strict capture preceded by a local method, class, type, or lazy declaration
   uses `DIRECT_STYLE_UNSUPPORTED` at that declaration and tells the user to move
   it outside `direct.reset` (or make a lazy value strict);
-- a binding/provenance-bearing inline wrapper uses
+- an inline marker wrapper uses
   `DIRECT_STYLE_UNSUPPORTED` at the exposed marker/wrapper invocation and tells
   the user to write `direct.shift` directly at block level.
 
@@ -340,7 +342,7 @@ save/run, callbacks, descriptors, runners, or cancellation.
       across capture, including shift-body use and sequential markers; reusable
       resumes share one local mutable cell.
 - [ ] Lazy marker initializers, crossing local method/class/type/lazy
-      declarations, and binding/provenance-bearing inline wrappers fail closed
+      declarations, and inline marker wrappers fail closed
       with the frozen diagnostic family and never execute rejected side effects.
 
 ## Verification
