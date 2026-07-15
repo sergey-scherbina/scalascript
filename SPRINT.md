@@ -360,6 +360,15 @@ optional policy, not the default continuation semantics.
       cases (selected platform alias, chained platform alias, imported callback),
       one duplicate sentinel, one body-local effect, and one nested nominal-owner
       inventory — while all previous 63 producer regressions remain green.
+    - Resolver/inventory audit addendum (must be covered before the next freeze):
+      preserve the active source-ordered `ImportScope` on every transparent alias
+      declaration; use the same leading-qualifier expansion for selected local
+      callbacks and imported local effect rows; fail closed on wildcard-selected
+      prefixes and imported private identities; include abstract `Decl.Type` in the
+      recursive identity inventory; reject public class receiver-owned identities
+      and nested objects below a nonrepresentable nominal owner; retain a positive
+      public-object namespace control. A known local owner with an unknown member
+      must not silently fall back to an external identity.
     - Done when the focused regressions and affected core/interop/conformance gates pass and a
       fresh independent read-only review returns APPROVE with no P1/P2 blocker.
   - [ ] **C — post-body summaries:** extract managed/foreign/tail edges, save sites, frame schemas,
