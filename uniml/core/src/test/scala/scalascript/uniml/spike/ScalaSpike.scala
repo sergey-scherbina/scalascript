@@ -920,9 +920,15 @@ object SpikeParse:
       // is introspected by the lowerer (resolveFocusArgs, AST-derived) into `optics.focus([OField…])`. Other
       // `e[T]` type applications just erase the type args and continue the chain.
       nodeLexeme(atom) match
-        case "Focus" => skipTypeParams(c); postfix(c, Node.Frame("spike.focusmarker", None, Vector(atom)))
-        case "Prism" => postfix(c, Node.Frame("spike.prism", None, atom +: captureTypeArgTokens(c)))
-        case _       => skipTypeParams(c); postfix(c, atom)
+        case "Focus"  => skipTypeParams(c); postfix(c, Node.Frame("spike.focusmarker", None, Vector(atom)))
+        case "Prism"  => postfix(c, Node.Frame("spike.prism", None, atom +: captureTypeArgTokens(c)))
+        case "direct" => postfix(c, Node.Frame("spike.directmarker", None, atom +: captureTypeArgTokens(c)))
+        case _        => skipTypeParams(c); postfix(c, atom)
+    // `direct[F] { … }` direct-style monadic block → Pair("direct", (typeArgs, block)); ssc1-lower desugars
+    // it to a flatMap chain (ssc1-front.ssc0:1394). The `{ … }` is a plain block, not a lambda arg.
+    else if c.peekKind == "spike.lbrace" && roleKind(atom) == "spike.directmarker" then
+      val markerKids = atom match { case Node.Frame(_, _, ks) => ks; case _ => Vector.empty[Node] } // direct leaf + ta.tok
+      postfix(c, Node.Frame("spike.direct", None, markerKids :+ parseBracedBlock(c).withRole("direct.block")))
     // trailing block argument `e { body }` → e(body) (ssc1-front buildPostfix / parseBlockArg). Only when
     // the `{` is on the SAME line as `e` (else it is a fresh statement, per ssc1-front's newline→`;` layout).
     else if c.peekKind == "spike.lbrace" && c.peekLine == c.prevEndLine then
@@ -1830,6 +1836,10 @@ object SpikeProject:
         val rhs  = kids(b).collectFirst { case (Some("range.rhs"), c) => expr(c) }.getOrElse(hole)
         s"""mkApp(mkSel($lhs, "${esc(word)}"), ${consList(Vector(rhs))})"""
       case "spike.unitlit" => "mkTup(Nil)" // abstract-def placeholder body (ignored by effect/trait lowering)
+      case "spike.direct" => // direct[F] { block } → Pair("direct", Pair(typeArgs, block)) — lowerer → flatMap
+        val ty  = kids(b).collect { case (Some("ta.tok"), c) => lexeme(c) }.mkString
+        val blk = kids(b).collectFirst { case (Some("direct.block"), c) => expr(c) }.getOrElse(hole)
+        s"""Pair("direct", Pair("${esc(ty)}", $blk))"""
       case "spike.focusmarker" => """Pair("focus_marker", "")""" // Focus[T](_.a.b) — type args unused for focus
       case "spike.prism" => // Prism[Super, Case](…) — the variant name (after the last comma) drives the lowering
         val ty = kids(b).collect { case (Some("ta.tok"), c) => lexeme(c) }.mkString
