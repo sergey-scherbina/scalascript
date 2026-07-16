@@ -964,7 +964,13 @@ object SpikeParse:
             // and the `=>`, a LAYOUT OPENER at end-of-line (isLayoutOpener, ssc1-front.ssc0:2841), opens a
             // virtual-brace block that buildPostfix takes as a 0-arity block ARG. (a/b stay FREE vars — the
             // oracle never binds them, so this is bug-for-bug reproduction, not a lambda.)
-            val err = Node.Frame("spike.error", None, Vector(Node.Leaf(t, Some("error.token"))))
+            // An unhandled KEYWORD in atom position is NOT an error: ssc1-front's parseAtom falls through to
+            // `pr(mkVar(v), advance(toks))` (ssc1-front.ssc0:1121), i.e. a var NAMED AFTER THE KEYWORD. So a
+            // stray `else` (e.g. after an `if … then` whose branch a custom interpolator cut short) lowers to
+            // `(global else)`, not `(global _err)`. Only a non-keyword token takes the `_err` path (:1169-1170).
+            val err =
+              if t.kind == "spike.kw" then Node.Leaf(t, Some("var"))
+              else Node.Frame("spike.error", None, Vector(Node.Leaf(t, Some("error.token"))))
             val head =
               if isLayoutOpenerTok(t) && !c.eof && c.peekLine > errLine then
                 val thunk = Node.Frame("spike.lambda", None, Vector(parseBlock(c, c.peekCol).withRole("lam.body")))
@@ -995,10 +1001,15 @@ object SpikeParse:
     else
       expectName(c, "val.name", "val name").foreach(kids += _)
       skipTypeAnnotation(c) // optional `: T` (erased)
+      val eqLine = c.peekLine
       expect(c, "spike.eq", "val.eq", "'='").foreach(kids += _)
-      parseExpr(c, 1) match
-        case Some(e) => kids += e.withRole("val.rhs")
-        case None    => c.report("spike.missing-rhs", "missing val right-hand side")
+      // `=` is a LAYOUT OPENER (isLayoutOpener, ssc1-front.ssc0:2841), so an RHS starting on a LATER line is
+      // an indented BLOCK — exactly like a def body — not a single expression. A lone-expression RHS lowers
+      // identically (lowerBlock's last-item case is the bare expr), so this only matters when the RHS spans
+      // several statements: `val x =` ⏎ `if c then html"…"` ⏎ `else html"…"` is FIVE statements once the
+      // custom interpolator splits each `html"…"` into a var + a string. parseExpr kept only the first and
+      // leaked the rest into the enclosing block.
+      kids += branchExpr(c, eqLine).withRole("val.rhs")
       Node.Frame("spike.val", None, kids.result())
 
   // `var x [: T] = e` → Pair("var", (name, e)); lowerProg backs it with an lcell and rewrites reads/writes.
@@ -2026,6 +2037,11 @@ object SpikeProject:
     case UniNode.Token(t) if t.lexeme == "???"       => hole // Predef.??? → prim __notImplemented__
     case UniNode.Token(t) if t.kind == "spike.id"    => s"""mkVar("${esc(t.lexeme)}")"""
     case UniNode.Token(t) if t.kind == "spike.uid"   => s"""mkUVar("${esc(t.lexeme)}")"""
+    // an unhandled KEYWORD in atom position is a var NAMED AFTER ITSELF, not an error — ssc1-front's
+    // parseAtom falls through to `pr(mkVar(v), advance(toks))` (ssc1-front.ssc0:1121). Reached via the
+    // statement-level recovery (e.g. a stray `else` whose `if … then` branch a custom interpolator cut
+    // short). Without this case the token hits `case _ => hole` and poisons the program with a parse hole.
+    case UniNode.Token(t) if t.kind == "spike.kw"    => s"""mkVar("${esc(t.lexeme)}")"""
     case b: UniNode.Branch => b.kind match
       case "spike.infix" => infix(b)
       case "spike.paren" => kids(b).collectFirst { case (Some("group.elem"), c) => expr(c) }.getOrElse(hole)
