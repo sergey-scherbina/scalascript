@@ -88,13 +88,15 @@ def binPrecK(k) = if k == 47 then 1 else (if k == 46 then 2 else (if k == 44 the
 // -- parser (precedence climbing over the token stream) ----------------------------------------
 def parseAtom(ts, env, dq) = if isEmpty(ts) then (emitInt(0), Nil) else postfix(parseAtom0(ts, env, dq), env, dq)
 def parseAtom0(ts, env, dq) = parseAtom1(hd(ts), tl(ts), env, dq)
-def parseAtom1(t, rest, env, dq) = if fst(t) == 0 then (emitInt(snd(t)), rest) else (if fst(t) == 4 then (emitStr(snd(t), dq), rest) else (if fst(t) == 3 then parseCtor(snd(t), rest, env, dq) else (if fst(t) == 1 then parseVarOrCall(snd(t), rest, env, dq) else (if isTok(t, 2, 21) then parseParen(rest, env, dq) else (if isTok(t, 2, 28) then parseBlock(rest, env, dq) else (if isTok(t, 2, 2) then parseIf(rest, env, dq) else (if isTok(t, 2, 8) then ("(lit true)", rest) else (if isTok(t, 2, 9) then ("(lit false)", rest) else (emitInt(0), rest)))))))))
+def parseAtom1(t, rest, env, dq) = if fst(t) == 0 then (emitInt(snd(t)), rest) else (if fst(t) == 4 then (emitStr(snd(t), dq), rest) else (if fst(t) == 3 then parseCtor(snd(t), rest, env, dq) else (if fst(t) == 1 then parseIdent(t, rest, env, dq) else (if isTok(t, 2, 21) then parseParenOrLam(rest, env, dq) else (if isTok(t, 2, 28) then parseBlock(rest, env, dq) else (if isTok(t, 2, 2) then parseIf(rest, env, dq) else (if isTok(t, 2, 8) then ("(lit true)", rest) else (if isTok(t, 2, 9) then ("(lit false)", rest) else (emitInt(0), rest)))))))))
 // -- postfix method calls ---------------------------------------------------------------------
 // `.charAt` -> scodeAt and `.substring` -> sslice UNCONDITIONALLY, but `.length` is receiver-
 // dependent: slen for a string-literal-ish receiver, __method__ otherwise -- and a `++` receiver
 // takes the __method__ path even though it IS a string expression (isConcatInf is tested first).
 // All measured against the reference.
-def postfix(pr, env, dq) = pr match { case (c, ts) => if isTok(hd(ts), 2, 31) then postfix(postDot(c, tl(ts), env, dq), env, dq) else (if isTok(hd(ts), 2, 5) then postfix(parseMatch(c, tl(ts), env, dq), env, dq) else (c, ts)) }
+def postfix(pr, env, dq) = pr match { case (c, ts) => if isTok(hd(ts), 2, 31) then postfix(postDot(c, tl(ts), env, dq), env, dq) else (if isTok(hd(ts), 2, 5) then postfix(parseMatch(c, tl(ts), env, dq), env, dq) else (if isTok(hd(ts), 2, 21) then postfix(postApp(c, tl(ts), env, dq), env, dq) else (c, ts))) }
+// Chained application `f(a)(b)` -> (app (app (global f) a) b).
+def postApp(c, ts, env, dq) = parseArgs(ts, env, dq) match { case (args, r) => (emitApp(c, args), r) }
 def postDot(c, ts, env, dq) = postDot1(c, snd(hd(ts)), tl(ts), env, dq)
 def postDot1(c, nm, ts, env, dq) = if nm == "length" then (emitLen(c, dq), ts) else postMeth(c, nm, ts, env, dq)
 def emitLen(c, dq) = if isConcatCode(c, dq) then emitMethod("length", c, "", dq) else (if isStrLitish(c) then "(prim slen " ++ c ++ ")" else emitMethod("length", c, "", dq))
@@ -102,7 +104,21 @@ def emitMethod(nm, c, args, dq) = "(prim __method__ (lit (str " ++ dq ++ nm ++ d
 def postMeth(c, nm, ts, env, dq) = parseArgs(tl(ts), env, dq) match { case (args, r) => (emitPrimMeth(nm, c, args, dq), r) }
 def emitPrimMeth(nm, c, args, dq) = if nm == "charAt" then "(prim scodeAt " ++ c ++ args ++ ")" else (if nm == "substring" then "(prim sslice " ++ c ++ args ++ ")" else emitMethod(nm, c, args, dq))
 
+// -- lambdas ------------------------------------------------------------------------------------
+// `(lam N body)`, params pushed onto the env exactly like def params (so the same reverse indexing
+// falls out) and closing over the enclosing env by depth -- measured on `def mk(k) = y => y + k`,
+// which gives `(lam 1 (lam 1 .. (local 0) (local 1)))`.
+def skipToClose(ts, d) = if isEmpty(ts) then ts else (if isTok(hd(ts), 2, 21) then skipToClose(tl(ts), d + 1) else (if isTok(hd(ts), 2, 22) then skipClose2(ts, d) else skipToClose(tl(ts), d)))
+def skipClose2(ts, d) = if d == 0 then tl(ts) else skipToClose(tl(ts), d - 1)
+// `(` opens a lambda param list iff the token after the MATCHING `)` is `=>`.
+def isLamParen(ts) = isTok(hd(skipToClose(ts, 0)), 2, 30)
+def parseLamParen(ts, env, dq) = parseLamP(parseParams(ts, env), env, dq)
+def parseLamP(pr, env, dq) = pr match { case (env2, r) => parseLamBody(dlen(env2) - dlen(env), env2, tl(r), dq) }
+def parseLamBody(ar, env2, ts, dq) = parseExpr(ts, 0, env2, dq) match { case (b, r) => ("(lam " ++ ar ++ " " ++ b ++ ")", r) }
+
 // An Upper name is a constructor: `Cons(a, b)` -> (ctor Cons a b), bare `Nil` -> (ctor Nil).
+def parseIdent(t, rest, env, dq) = if isTok(hd(rest), 2, 30) then parseLamBody(1, snd(t) :: env, tl(rest), dq) else parseVarOrCall(snd(t), rest, env, dq)
+def parseParenOrLam(ts, env, dq) = if isLamParen(ts) then parseLamParen(ts, env, dq) else parseParen(ts, env, dq)
 def parseCtor(nm, ts, env, dq) = if isTok(hd(ts), 2, 21) then parseCtorArgs(nm, tl(ts), env, dq) else ("(ctor " ++ nm ++ ")", ts)
 def parseCtorArgs(nm, ts, env, dq) = parseArgs(ts, env, dq) match { case (args, r) => ("(ctor " ++ nm ++ args ++ ")", r) }
 // `(e)` is a group; `(a, b)` is a Tuple2 construction.
@@ -110,8 +126,13 @@ def parseParen(ts, env, dq) = parseExpr(ts, 0, env, dq) match { case (e, r) => p
 def parseParenEnd(e, ts, env, dq) = if isTok(hd(ts), 2, 27) then parseTupRest(e, tl(ts), env, dq) else (e, tl(ts))
 def parseTupRest(e, ts, env, dq) = parseExpr(ts, 0, env, dq) match { case (e2, r) => ("(ctor Tuple2 " ++ e ++ " " ++ e2 ++ ")", tl(r)) }
 // A bare name resolves to (local i) when bound, else to a global call. `f(a, b)` -> (app (global f) a b).
-def parseVarOrCall(nm, ts, env, dq) = if isTok(hd(ts), 2, 21) then parseCall(nm, tl(ts), env, dq) else (if lookup(nm, env) >= 0 then ("(local " ++ lookup(nm, env) ++ ")", ts) else ("(global " ++ nm ++ ")", ts))
-def parseCall(nm, ts, env, dq) = parseArgs(ts, env, dq) match { case (args, r) => ("(app (global " ++ nm ++ ")" ++ args ++ ")", r) }
+// A name resolves against the env FIRST -- including in callee position: calling a bound name emits
+// `(app (local i) ..)`, not `(app (global nm) ..)` (measured on `def ap(f, x) = f(x)`). F's own source
+// never calls a local, so the corpus only reached this once lambdas arrived.
+def calleeOf(nm, env) = if lookup(nm, env) >= 0 then "(local " ++ lookup(nm, env) ++ ")" else "(global " ++ nm ++ ")"
+def parseVarOrCall(nm, ts, env, dq) = if isTok(hd(ts), 2, 21) then parseCall(nm, tl(ts), env, dq) else (calleeOf(nm, env), ts)
+def parseCall(nm, ts, env, dq) = parseArgs(ts, env, dq) match { case (args, r) => (emitApp(calleeOf(nm, env), args), r) }
+def emitApp(callee, args) = "(app " ++ callee ++ args ++ ")"
 def parseArgs(ts, env, dq) = if isTok(hd(ts), 2, 22) then ("", tl(ts)) else parseArg(ts, env, dq)
 def parseArg(ts, env, dq) = parseExpr(ts, 0, env, dq) match { case (e, r) => parseArgsMore(e, r, env, dq) }
 def parseArgsMore(e, ts, env, dq) = if isTok(hd(ts), 2, 27) then parseArgs(tl(ts), env, dq) match { case (rest, r2) => (" " ++ e ++ rest, r2) } else (" " ++ e, tl(ts))

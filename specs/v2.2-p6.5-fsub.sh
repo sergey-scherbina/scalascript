@@ -185,6 +185,16 @@ d val_match  'def f(a: Int): Int = { val x = a + 1  x match { case 0 => 1 case _
 def main(): Int = f(1)'
 d val_str    'def g(s: String): String = { val t = s ++ "!"  t }
 def main(): String = g("ab")'
+d lam1       'def ap(f: Int => Int, x: Int): Int = f(x)
+def main(): Int = ap((y: Int) => y + 1, 5)'
+d lam_notype 'def ap(f: Int => Int, x: Int): Int = f(x)
+def main(): Int = ap(y => y + 1, 5)'
+d lam_cap    'def mk(k: Int): Int => Int = (y: Int) => y + k
+def main(): Int = mk(3)(4)'
+d lam2       'def ap2(f: (Int, Int) => Int): Int = f(1, 2)
+def main(): Int = ap2((a: Int, b: Int) => a + b)'
+d lam_local  'def ap(f: Int => Int, x: Int): Int = f(x)
+def main(): Int = ap(y => y * 2, 5)'
 
 if [ "${1:-}" = "--self" ]; then
   echo "--- X1: F compiles its OWN source ---"
