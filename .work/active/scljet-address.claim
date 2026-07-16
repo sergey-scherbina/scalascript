@@ -1,0 +1,10 @@
+claim: scljet-address
+owner: opus
+agent: opus
+started: 2026-07-16
+heartbeat: 2026-07-16T11:05:00Z
+status: starting
+scope: NEW module scljet/address.ssc + specs/scljet-address.md — address = the link between a
+  logical (table/rowid/column) and a physical (page/offset/length) location; read by address →
+  (type, value). SQLite only for now. Additive: does NOT edit scljet/sql.ssc (the live
+  scljet-ipk-rowid lane owns it) and does NOT touch the m3-writes lane.
