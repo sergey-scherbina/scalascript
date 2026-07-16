@@ -49,10 +49,13 @@ it in a `finally`; what the DEFAULT handler does was not checked and is the next
 
 ## v2-zero-arg-unknown-method-fails-open — a typo'd zero-argument method silently returns garbage instead of erroring
 
-**Status:** OPEN (v1/v2 divergence, silent wrong answer on the DEFAULT lane). Found 2026-07-16 by
-the `control-interop-examples` agent while attempting `resume.save()` from a user's seat; the
-fail-open is what made a broken example look like it ran. Not control-specific — it affects every
-`.ssc` program on `bin/ssc run`.
+**Status:** FIXED 2026-07-16 (`__method0__`, see "Fix" below) for every **applied** zero-arg call
+(`recv.name()`) on all three v2 lanes (native / `--bytecode` / `build-jvm`). A **bare** selection
+(`recv.name`, no parens) that is never applied still fails open — that residual is inherent to the
+untyped runtime and is recorded below, not swept under the rug. Found 2026-07-16 by the
+`control-interop-examples` agent while attempting `resume.save()` from a user's seat; the fail-open
+is what made a broken example look like it ran. Not control-specific — it affected every `.ssc`
+program on `bin/ssc run`.
 
 **Symptom.** On the v2 lanes an **unknown zero-argument method call** does not raise. It silently
 evaluates to an undispatched value (`<closure>`, or `Stub` for a list receiver) and the program
@@ -67,13 +70,15 @@ println("String: " + "hi".bogusMethod().toString())
 println("List:   " + List(1,2).bogusMethod().toString())
 ```
 
-- `bin/ssc run` (native — the default lane) → `Int:    <closure>` / `String: <closure>` /
-  `List:   Stub`, **exit 0**.
-- `bin/ssc-tools run --v2` (bridge) → same fail-open.
-- `bin/ssc-tools run --v1` (correct) →
+- BEFORE — `bin/ssc run` (native — the default lane) → `Int:    <closure>` / `String: <closure>` /
+  `List:   Stub`, **exit 0**. Same fail-open on `--bytecode` and `build-jvm` (all three route
+  through `Prims`), and on `bin/ssc-tools run --v2` (bridge).
+- AFTER — all three v2 lanes → `ssc: __method__: no dispatch for .bogusMethod on 42`, **exit 1**.
+- `bin/ssc-tools run --v1` (the reference, unchanged) →
   `[ERROR] [line 1, col 22] No method 'bogusMethod' on IntV(42)`.
 
-**Arity is the discriminator** — the same unknown name with an argument errors correctly:
+**Arity LOOKED like the discriminator** (it was really "which fallback you land in") — the same
+unknown name with an argument always errored correctly:
 
 ```scalascript
 val f = (x: Int) => x + 1
@@ -81,23 +86,63 @@ println(f.totallyBogus().toString())   // native: "<closure>", exit 0   ← fail
 println(f.alsoBogus(1).toString())     // native: __method__: no dispatch for .alsoBogus  ← correct
 ```
 
-**Root cause (hypothesis, matches every observation).** `__method__` is curried as
-`__method__(name, recv)(args…)`; the `_method` fallback that throws
-(`v2/backend/jvm/JvmBackend.scala:369`, mirrored in `v2/backend/js/JsBackend.scala:668`) only runs
-once the argument list is applied. A **zero-argument** call never applies it, so the receiver-and-name
-pair is returned undispatched and renders via `case "toString" … => _show(recv)` as `<closure>`.
-Applying the result later (`f.totallyBogus()(41)`) does reach the fallback — which is why the error
-appears only in applied position, and why chains like `f.nope().alsoNope()` stay silent.
+**Root cause (VERIFIED — the earlier "currying" hypothesis was WRONG).** `__method__` is *not*
+curried, and `JvmBackend.scala:369` was never on the native lane's path. The real cause is two
+**deliberate fail-open fallbacks** in the VM's `Prims.__method__` (`v2/src/Runtime.scala`), reached
+only after no dispatch case matched:
 
-**Why it matters.** This is fail-open on the lane `bin/ssc run` uses by default, and it defeats
+1. **The eta-expansion fallback** (added 2026-07-14 by `691334d4e` to make `list.exists(lc.contains)`
+   work). When `margs.isEmpty` it returns `ClosV(_, 1, env => methodOp(name, recv, List(env.last)))`
+   — i.e. `x => recv.name(x)` — instead of erroring. That closure renders as `<closure>`. Its commit
+   note claimed it was "untyped-safe: a real field/nullary method matches an earlier dispatch case,
+   so only a genuine method-ref-as-value reaches here". That is exactly the bug: **a typo reaches
+   here too, and is indistinguishable from a method ref.**
+2. **The `Stub` breadcrumb** (the `DataV(tag, fields)` arm): an unresolved method/field on a DataV
+   receiver returns `DataV("Stub", "<tag>.<name>")` and keeps going — this is the `Stub` seen for
+   List / case-class receivers, and it is why `resume.save()` in *statement* position ran silently.
+
+**Why arity looked like the discriminator:** both fallbacks are guarded by `margs.isEmpty` / only
+reachable with no args, so an applied `42.bogus(1)` fell to the `sys.error` line instead.
+
+**The keystone fact (measured, not reasoned).** `42.bogusMethod` and `42.bogusMethod()` lower to
+**byte-identical Core IR** — `(prim __method__ (lit (str "bogusMethod")) (lit (int 42)))`. Dump it
+with `java -jar <run-ir.jar> run v2/bin/ssc1-run.ssc0 x.ssc` (build: `scala-cli --power package
+v2/src --assembly -o /tmp/ssc.jar`). The lowerer **discards the `()`**. Therefore **no runtime-only
+fix can distinguish a typo'd call from a method ref** — the distinction has to be carried in the IR.
+The front does have it (`sel` vs `app(sel, [])`); only the lowerer collapsed them.
+
+**Fix (additive; `__method__` semantics unchanged, so nothing that worked before breaks).**
+`v2/lib/ssc1-lower.ssc0` now emits **`__method0__`** — "an APPLIED zero-arg call: dispatch or fail,
+never eta-expand" — from the **call path only** (`resolveMethodCall`/`selMethodOr`, reached solely
+from `app(sel(...), rargs)`; all 5 call sites verified). Bare selections keep `__method__` via
+`selOrMethod`, so method refs still eta-expand. `Prims.__method__` marks the eta closure
+(`ClosV.etaMethodRef`); `__method0__` dispatches through `__method__` and rejects **both** the marked
+eta closure and a freshly-minted `Stub` (a `Stub` *receiver* still propagates its existing
+breadcrumb). Other backends never eta-expanded, so they alias `__method0__` to `__method__`
+(`JvmBackend`, `JsBackend`, `RustBackend`, `SwiftBackend`+`SwiftRuntime`).
+
+**Residual (design, NOT fixed — do not file as a regression).** A **bare** selection of a
+nonexistent member that is never applied stays silent: `val a = 42.bogusMethod` → `<closure>`;
+`P(1).bogusField` / `List(1,2).bogusField` → `Stub`. This is inherent: a bare selection is exactly
+the shape a legitimate method ref has, so failing it closed would break `list.exists(lc.contains)`.
+Closing it needs a typed frontend (or making record method-refs a real feature and then erroring on
+the rest). The reported bug — every *applied* call, which is what users actually write — is closed.
+
+**Why it matters.** This was fail-open on the lane `bin/ssc run` uses by default, and it defeats
 examples-as-evidence: a method that does not exist reads as a plausible value. It is also how a
-`.ssc` attempt at the not-yet-existing control surface (`resume.save()`) appears to succeed and
-then fails downstream with the misleading `no dispatch for .run on <closure>`.
+`.ssc` attempt at the not-yet-existing control surface (`resume.save()`) appeared to succeed and
+then failed downstream with the misleading `no dispatch for .run on <closure>`.
 
-**Notes.** Base SHA `0891ed8cf`. Fix must keep `.toString()`/`.foreach` working and preserve the
-existing positive dispatch cases; add a v1-vs-v2 differential vector for an unknown zero-arg method
-on Int/String/List/closure receivers. Related but distinct: `v2-native-front-in-fence-imports-not-followed`
-below is the other current "native lane reports something misleading instead of the honest error" case.
+**Gate.** `v2/plugin-spi/src/test/scala/ssc/MethodDispatchFailClosedTest.scala` (10 tests) pins both
+arities, all receiver shapes, both fail-open values, AND the method-ref eta-expansion that must keep
+working. Base SHA `0891ed8cf`. Related but distinct:
+`v2-native-front-in-fence-imports-not-followed` below is the other current "native lane reports
+something misleading instead of the honest error" case.
+
+**GOTCHA for whoever works here next.** The agent harness's `grep` is a **shell function** that
+silently returns nothing for single-file greps — it will make you "prove" that `object Prims` does
+not exist. Use `/usr/bin/grep`.
+
 ## tower-thread-hardcoded-64m-stack — `run --bytecode` StackOverflowErrors on big programs, and `-Xss` cannot help
 
 **Status:** FIXED (2026-07-16, `RunNativeV2.scala` tower stack 64m → 512m). Found by running
