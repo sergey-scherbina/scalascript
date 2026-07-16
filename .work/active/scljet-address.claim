@@ -6,5 +6,10 @@ heartbeat: 2026-07-16T11:05:00Z
 status: starting
 scope: NEW module scljet/address.ssc + specs/scljet-address.md — address = the link between a
   logical (table/rowid/column) and a physical (page/offset/length) location; read by address →
-  (type, value). SQLite only for now. Additive: does NOT edit scljet/sql.ssc (the live
-  scljet-ipk-rowid lane owns it) and does NOT touch the m3-writes lane.
+  (type, value). SQLite only for now.
+scope-amend 2026-07-16: the address layer needs the engine internals that resolve the physical
+  half (tableContext / seekRowidRecord+RowidSeek / tableIpkIndex / columnIndex / joinTableRows,
+  and fieldAt from mutate.ssc). They are not in the module manifests, so I add them to the
+  `exports:` LIST ONLY of scljet/sql.ssc + scljet/mutate.ssc — additive, manifest-only, ZERO
+  logic change. No other edit to those files: the live scljet-ipk-rowid lane owns rowValue and
+  scljet-m3-writes owns the rest. Announced in rozum.
