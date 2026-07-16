@@ -191,13 +191,23 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
         compiler-free premise is unfounded and was tested, not argued**: `v21-build-jvm-release-gate`
         and the negative gate each build their OWN `toolbin` sandbox PATH and assert scala-cli is
         unreachable *there*; my machine has scala-cli and both gates PASS on it.
-        With scala-cli present the gate then reached the **wasm target smoke** (run 29497687749):
-        `emit-wasm` succeeds and writes `main.wasm` (435988 bytes) + js + `__loader.js`, then the
-        step ends with a bare `##[error]Process completed with exit code 1` and NO other output —
-        every assertion in that smoke was a bare `[[ ]]`. It PASSES locally, so it is CI/Linux-
-        specific and not reproducible here. Pushed named diagnostics (`5428bf566`): the next CI run
-        will print WHICH check failed (want/got, `ls -la`, node stderr) instead of exiting silently.
-        **This is the current CI blocker for the sbt job — start here.**
+        With scala-cli present the gate reached the **wasm target smoke**, which died with a bare
+        `##[error]Process completed with exit code 1` and no output. Pushed named diagnostics
+        (`5428bf566`) instead of guessing — and the very next run named it:
+        ```
+        v21-explicit-wasm-target-smoke: FAILED check pure: node run
+        [CompileError: WebAssembly.instantiate(): Unknown type code 0x5e,
+         enable with --experimental-wasm-gc @+15]      Node.js v20.20.2
+        ```
+        **`emit-wasm` emits a WasmGC module; CI pinned node 20, whose V8 cannot instantiate one.**
+        A pure works-on-my-machine gap — it passes locally only because dev node is newer (mine is
+        v26, WasmGC on by default) — invisible until now because this gate had never run in CI.
+        The flag is NOT a portable workaround (**measured**): `node --experimental-wasm-gc -e …` on
+        modern node → `node: bad option`, because WasmGC is standard there. So the requirement is
+        just a node new enough to have WasmGC by default. Fixed in `801172c9a`: **sbt job → node 22**
+        (lint/conformance stay on 20 on purpose — neither runs the wasm gate and conformance is at a
+        hard-won 279/281), plus the smoke now fails fast with `node >= 22 required (found vX)` so the
+        constraint is explicit rather than accidental. **Awaiting CI proof — verify it.**
       - **Still unverified: no fully green run has been observed.** The last pushes had not completed
         CI when this lane stopped. Next agent: `gh run list --workflow=ci.yml --branch=main`, and
         expect conformance to stay red at 279/281 until the two JS bugs above are fixed.
