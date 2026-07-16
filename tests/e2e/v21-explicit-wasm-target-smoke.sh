@@ -8,15 +8,18 @@ command -v node >/dev/null || { echo 'v21-explicit-wasm-target-smoke: node is re
 
 command -v xxd >/dev/null || { echo 'v21-explicit-wasm-target-smoke: xxd is required' >&2; exit 2; }
 
-# `emit-wasm` produces a WasmGC module. A V8 without WasmGC enabled by default
-# (node 20 and older) dies with a cryptic `CompileError: Unknown type code 0x5e,
-# enable with --experimental-wasm-gc` from deep inside the generated loader. Say so
-# up front instead. The flag is not a portable workaround: modern node REJECTS it
-# ("bad option") because WasmGC is standard there.
+# `emit-wasm` output needs a modern V8 twice over, and each failure is cryptic and
+# arrives from deep inside the generated loader, so say it up front instead:
+#   - WasmGC       — node 20: `CompileError: Unknown type code 0x5e`. Not fixable with
+#                    --experimental-wasm-gc: modern node rejects that flag outright.
+#   - JS string    — node 22: `TypeError: Import #120 module="": module is not an
+#     builtins       object or function`. __loader.js instantiates with
+#                    `{builtins:["js-string"], importedStringConstants:""}`, and 364 of
+#                    the module's 484 imports have module name "" and depend on it.
 node_major=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
-if [[ ${node_major:-0} -lt 22 ]]; then
-  echo "v21-explicit-wasm-target-smoke: node >= 22 required (found $(node --version 2>/dev/null))" >&2
-  echo '  the wasm target emits WasmGC; node 20 needs --experimental-wasm-gc' >&2
+if [[ ${node_major:-0} -lt 24 ]]; then
+  echo "v21-explicit-wasm-target-smoke: node >= 24 required (found $(node --version 2>/dev/null))" >&2
+  echo '  the wasm target emits WasmGC + imported string constants (JS string builtins)' >&2
   exit 2
 fi
 

@@ -188,19 +188,27 @@ jobs:
       # is covered by the Conformance job; subprocess hangs are bounded by
       # ProcTestUtil.runCaptured, so a wedged child fails fast, not the whole job.
       #
-      # node 22, not 20: `emit-wasm` produces a **WasmGC** module, and node 20's V8
-      # cannot instantiate one without `--experimental-wasm-gc`
-      # (`CompileError: Unknown type code 0x5e`). The flag is NOT a portable
-      # workaround — modern node rejects it outright ("bad option"), because WasmGC
-      # is standard there — so the requirement is simply a node new enough to have
-      # WasmGC on by default. This only ever surfaced now: the wasm target smoke had
-      # never run in CI (an earlier step always failed first), and it passes on
-      # developers' newer local node. Only this job runs that gate; the other two
-      # stay on 20 deliberately, to avoid perturbing a green conformance lane.
+      # node 24, not 20: `emit-wasm` output needs a modern V8 for TWO separate
+      # reasons, and CI found them one at a time (node 20 -> 22 -> 24):
+      #   1. it is a **WasmGC** module — node 20 gives
+      #      `CompileError: Unknown type code 0x5e, enable with --experimental-wasm-gc`.
+      #      The flag is NOT a portable workaround: modern node rejects it outright
+      #      ("bad option") because WasmGC is standard there.
+      #   2. its `__loader.js` instantiates with
+      #      `{ builtins: ["js-string"], importedStringConstants: "" }` — the
+      #      **imported string constants** proposal. 364 of the module's 484 imports
+      #      have module name `""` and are satisfied by that option, so a V8 that
+      #      ignores it (node 22) fails with
+      #      `TypeError: Import #120 module="": module is not an object or function`.
+      # So the requirement is a node whose V8 has WasmGC *and* JS string builtins.
+      # This only surfaced now: the wasm target smoke had never run in CI (an earlier
+      # step always failed first) and it passes on developers' newer local node.
+      # Only this job runs that gate; the other two stay on 20 deliberately, to avoid
+      # perturbing a green conformance lane.
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
 
       - name: Setup sbt
         uses: sbt/setup-sbt@v1
