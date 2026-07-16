@@ -585,19 +585,30 @@ self-cleanup, and what NOT to do follow.
 
 **Prevention — make the trap impossible:**
 
-- Run `pwd` as the first command in your worktree session, and
-  prefer **relative paths** for every Write / Edit / Read of project
-  files.  `Write(file_path="docs/foo.md")` resolves against the
-  worktree CWD; `Write(file_path="<repo-root>/docs/foo.md")`
-  doesn't.  Relative wins by construction.
-- If you must use an absolute path (some tools / scripts require it),
-  build it from `$(pwd)` first — never hand-type the full project
-  root in a `Write` / `Edit` call.  Hardcoded
-  `<repo-root>/...` strings in tool arguments
-  are the smell.
+> **CORRECTED 2026-07-16 — this section used to advise the OPPOSITE, and the advice
+> was itself causing the trap.**  It said "prefer relative paths … relative wins by
+> construction".  **That is false in this harness, and it is the worst option.**
+> Measured, not reasoned: `cd`-ing into a worktree in Bash and then calling
+> `Write(file_path="_probe.txt")` created the file in **shared main**, not the
+> worktree.  The harness **resets the shell CWD to the Primary working directory
+> (shared main) after every Bash call**, and Write/Edit/Read resolve relative paths
+> against that — not against wherever your last `cd` went.  So the old advice sent
+> every agent's edits straight into the shared checkout.  Several did; each spent
+> the same confused minutes rediscovering it.
+
+- **Use ABSOLUTE paths rooted at YOUR WORKTREE** for every Write / Edit / Read of
+  project files: `Write(file_path="/abs/path/to/<repo>-wt-<name>/docs/foo.md")`.
+  Get the root once (`git rev-parse --show-toplevel` from inside the worktree, or
+  the path `scripts/new-worktree` printed) and build every tool argument from it.
+- **The smell is not "an absolute path" — it is an absolute path that starts with
+  the SHARED MAIN root.**  `<repo-root>/docs/foo.md` is the bug;
+  `<repo-root>-wt-<name>/docs/foo.md` is correct.  Check the prefix, not the shape.
+- `pwd` in Bash tells you about the *Bash* call only, and even that resets.  It does
+  **not** tell you where a Write will land.  Do not rely on it.
 - After each edit, glance at `git status` *inside your worktree*.
   Clean status after you just edited something means you wrote to
-  the wrong place.
+  the wrong place.  This check is what actually catches it — it caught the
+  2026-07-16 case in seconds.
 
 **Context compaction — when summaries carry stale paths:**
 
@@ -693,11 +704,14 @@ that spawns parallel sub-agents owns the parallel-safety contract on
 their behalf.  In every sub-agent prompt, surface the two non-obvious
 rules that catch every first-time sub-agent:
 
-- "Always use **relative paths** for Write / Edit / Read of project
-  files; verify `pwd` once at the start and don't hand-type
-  `<repo-root>/...` into tool arguments.  The
-  absolute-path trap (described in AGENTS.md §1) hits shared `main`
-  silently."
+- "Use **absolute paths rooted at YOUR WORKTREE** for every Write / Edit /
+  Read of project files.  Relative paths do **NOT** resolve against your
+  worktree: the harness resets the shell CWD to shared `main` after every
+  Bash call, so a relative Write lands in the SHARED checkout (measured
+  2026-07-16).  A path starting with the shared-main root is the bug; the
+  same path under `<repo-root>-wt-<name>/` is correct.  After your first
+  edit, run `git status` inside the worktree — a clean status means you
+  wrote to the wrong place."
 - "If a leak into shared `main` is confusing to clean up, prefer
   `git push origin <your-branch>:main` from inside the worktree — it
   lands your work without touching the shared checkout.  Do **not**
