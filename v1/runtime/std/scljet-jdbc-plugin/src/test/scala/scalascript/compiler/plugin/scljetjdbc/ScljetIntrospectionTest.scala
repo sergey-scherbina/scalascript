@@ -270,17 +270,15 @@ class ScljetIntrospectionTest extends AnyFunSuite:
         assert(render(md.getIndexInfo(null, null, "emp", true, false), "INDEX_NAME") ==
           List("emp_dept_uq", "emp_dept_uq"))
 
-        // KNOWN ENGINE BUG (BUGS.md: scljet-ipk-rowid-alias-not-substituted):
-        // real SQLite stores an INTEGER PRIMARY KEY column as NULL and keeps the
-        // value in the rowid; the engine does not substitute it, so `id` reads
-        // back as 0 instead of 1. Pinned so the fix flips this test loudly
-        // rather than passing unnoticed.
+        // Real SQLite stores an INTEGER PRIMARY KEY column as NULL and keeps the
+        // value in the rowid. The engine now substitutes the rowid for the IPK
+        // column, so `id` reads back as 1. (This asserted 0 while
+        // BUGS.md scljet-ipk-rowid-alias-not-substituted was open — FIXED; the
+        // cross-engine coverage lives in ScljetIpkRowidDifferentialTest.)
         val rs = c.createStatement().executeQuery("SELECT id, name FROM emp")
         assert(rs.next())
         assert(rs.getString(2) == "ann", "non-IPK columns read correctly from a real SQLite file")
-        assert(rs.getLong(1) == 0L,
-          "IPK still reads as 0 — if this now returns 1, the engine bug is FIXED: " +
-          "update BUGS.md scljet-ipk-rowid-alias-not-substituted and assert 1 here")
+        assert(rs.getLong(1) == 1L, "the IPK column reads the rowid, as real SQLite does")
       finally c.close()
     finally
       java.nio.file.Files.deleteIfExists(db)

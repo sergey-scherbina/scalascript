@@ -61,7 +61,7 @@ rows, applies the filter, and projects the result. `queryImage(dbBytes, sql)` op
 database image and returns the result rows; `renderRows` formats them like the sqlite3
 CLI (`a|b|c` per row, NULL blank) for differential testing.
 
-[ByteSlice, ByteError, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, ReadonlyDatabase, SchemaEntry, StorageRecord, DecodedRecord, DecodedText, RowidTableTree, RecordKeyTree, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly, ReadonlyCursorStep, ReadonlyBtreeCursor, SqliteError, SqliteOpenOptions, SqliteLimits, OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, encodeRecord, openMutablePager, mutableCommit, mutableGet, mutablePut, MutablePager, PagerCommit, pagerInsertBalanced, pagerDeleteBalanced, readLeafCells, leafInsertCell, rebuildLeafPage, LeafCell, byteSliceSlice, byteSliceToList, byteSliceGet, writeU32Be, IndexEntry, buildIndexTree, sortIndexEntries, IndexTreeBytes, buildSingleTableIndexed, KeyedRawRow, SchemaIndex, SchemaTable, descendToLeaf, decodeVarint, VarintRead, decodeRecord, readU16Be, readU32Be, ByteRead](index.ssc)
+[ByteSlice, ByteError, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, ReadonlyDatabase, SchemaEntry, StorageRecord, DecodedRecord, RecordField, DecodedText, RowidTableTree, RecordKeyTree, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly, ReadonlyCursorStep, ReadonlyBtreeCursor, SqliteError, SqliteOpenOptions, SqliteLimits, OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, encodeRecord, openMutablePager, mutableCommit, mutableGet, mutablePut, MutablePager, PagerCommit, pagerInsertBalanced, pagerDeleteBalanced, readLeafCells, leafInsertCell, rebuildLeafPage, LeafCell, byteSliceSlice, byteSliceToList, byteSliceGet, writeU32Be, IndexEntry, buildIndexTree, sortIndexEntries, IndexTreeBytes, buildSingleTableIndexed, KeyedRawRow, SchemaIndex, SchemaTable, descendToLeaf, decodeVarint, VarintRead, decodeRecord, readU16Be, readU32Be, ByteRead](index.ssc)
 [ImageVfs, fieldValueAt](mutate.ssc)
 
 ```scalascript
@@ -1131,6 +1131,68 @@ def ipkColumnIndex(sql: String): Int =
           if depth > 0 then r = r.tail
         result
 
+// ── INTEGER PRIMARY KEY = rowid alias: materialise the rowid into the IPK column ──
+//
+// In real SQLite an INTEGER PRIMARY KEY column is an ALIAS for the rowid: the record stores NULL for
+// it and the value lives in the rowid, so every read of that column returns the rowid and the stored
+// field is IGNORED. Without this, a file written by real SQLite reads back NULL (→ 0 through the
+// typed getters) for every IPK column — silent wrong data (BUGS.md scljet-ipk-rowid-alias-not-substituted).
+//
+// The substitution happens ONCE per query, on the decoded row set, so every downstream reader —
+// projection, WHERE, ORDER BY, GROUP BY, aggregates, joins, DISTINCT — goes through `fieldValueAt`
+// and sees the rowid without any of them needing to know about the alias.
+//
+// Only the DECODED value is replaced; `serialType` and `encoded` are carried over from the original
+// field untouched, so `reconstructRecordBytes` (which rebuilds the on-disk payload from exactly those
+// two) still reproduces the original bytes. A normalized record is therefore safe to hand to the
+// write path — it cannot corrupt a re-encode.
+def ipkSubstituteField(fields: List[RecordField], idx: Int, id: Long): List[RecordField] =
+  var r = fields
+  var i = 0
+  var accRev: List[RecordField] = Nil
+  while r.nonEmpty do
+    val f = r.head
+    accRev = (if i == idx then RecordField(f.serialType, f.encoded, Some(SqlInteger(id)), None) else f) :: accRev
+    i = i + 1
+    r = r.tail
+  reverseFields(accRev, Nil)
+
+def reverseFields(items: List[RecordField], acc: List[RecordField]): List[RecordField] =
+  var r = items
+  var out = acc
+  while r.nonEmpty do
+    out = r.head :: out
+    r = r.tail
+  out
+
+// One row: replace the IPK column's decoded value with the rowid. A record with no rowid (not a
+// rowid table) or too few fields to hold `ipkIdx` is returned unchanged.
+def ipkNormalizeRecord(rec: StorageRecord, ipkIdx: Int): StorageRecord =
+  if ipkIdx < 0 || ipkIdx >= rec.record.fields.length then rec
+  else rec.rowid match
+    case None => rec
+    case Some(id) =>
+      StorageRecord(Some(id), DecodedRecord(rec.record.headerBytes, rec.record.bodyBytes,
+        ipkSubstituteField(rec.record.fields, ipkIdx, id)))
+
+def ipkNormalizeRows(rows: List[StorageRecord], ipkIdx: Int): List[StorageRecord] =
+  if ipkIdx < 0 then rows
+  else
+    var r = rows
+    var accRev: List[StorageRecord] = Nil
+    while r.nonEmpty do
+      accRev = ipkNormalizeRecord(r.head, ipkIdx) :: accRev
+      r = r.tail
+    reverseRecords(accRev, Nil)
+
+def reverseRecords(items: List[StorageRecord], acc: List[StorageRecord]): List[StorageRecord] =
+  var r = items
+  var out = acc
+  while r.nonEmpty do
+    out = r.head :: out
+    r = r.tail
+  out
+
 // ── Executor ──
 
 def sqlOptions(): SqliteOpenOptions = SqliteOpenOptions(OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, 0L, 16, false,
@@ -1947,7 +2009,9 @@ def filterGroups(groups: List[List[StorageRecord]], having: Option[HavingCond], 
 // soon as that many matches are found. For a LIMIT query with no ORDER BY / aggregate / DISTINCT the
 // output order is scan order, so the first `offset+limit` matches are exactly what the full scan
 // would keep — identical result, but the table tail is never read (LIMIT pushdown / early exit).
-def collectRowsLimited(db: ReadonlyDatabase, cursor: ReadonlyBtreeCursor, where: List[List[Condition]], colNames: List[String], maxRows: Int): Either[SqliteError, List[StorageRecord]] =
+// `ipkIdx` (-1 = none) is the INTEGER PRIMARY KEY column: each row is IPK-normalized (rowid
+// materialised into that column) BEFORE the WHERE is applied, so a filter on the IPK matches.
+def collectRowsLimited(db: ReadonlyDatabase, cursor: ReadonlyBtreeCursor, where: List[List[Condition]], colNames: List[String], maxRows: Int, ipkIdx: Int): Either[SqliteError, List[StorageRecord]] =
   readonlyFirst(db, cursor) match
     case Left(error) => Left(error)
     case Right(firstStep) =>
@@ -1962,7 +2026,8 @@ def collectRowsLimited(db: ReadonlyDatabase, cursor: ReadonlyBtreeCursor, where:
       while !done && err.isEmpty do
         row match
           case None => done = true
-          case Some(rec) =>
+          case Some(rec0) =>
+            val rec = ipkNormalizeRecord(rec0, ipkIdx)
             val matched = whereHolds(where, rec, colNames)
             accRev = if matched then rec :: accRev else accRev
             count = if matched then count + 1 else count
@@ -2422,7 +2487,9 @@ def joinTableRows(db: ReadonlyDatabase, table: String): Either[String, (List[Str
         case Left(error) => Left(error.message)
         case Right(cursor) => collectRows(db, cursor) match
           case Left(error) => Left(error.message)
-          case Right(rows) => Right((cols, rows))
+          // IPK-normalize here (the single row source for BOTH the 2-table and the N-table join),
+          // so an ON / WHERE / projection on a joined table's IPK sees the rowid.
+          case Right(rows) => Right((cols, ipkNormalizeRows(rows, tableIpkIndex(db, table))))
 
 case class JoinPair(recA: StorageRecord, recBOpt: Option[StorageRecord])
 
@@ -3193,7 +3260,10 @@ def executeSelectSingle(db: ReadonlyDatabase, stmt: SelectStmt): Either[String, 
 // LIMIT-pushdown path: collect only the first offset+limit matching rows (already filtered), then
 // project and apply LIMIT/OFFSET. Byte-identical to the full scan for a plain LIMIT query.
 def executeSelectLimited(db: ReadonlyDatabase, cursor: ReadonlyBtreeCursor, stmt: SelectStmt, colNames: List[String]): Either[String, List[List[SqliteValue]]] =
-  collectRowsLimited(db, cursor, stmt.where, colNames, stmt.offset + stmt.limit) match
+  // NOTE: collectRowsLimited applies the WHERE itself while scanning, so the IPK substitution has to
+  // reach it too — it takes `ipkIdx` and normalizes each row before matching (see collectRowsLimited).
+  val ipkIdx = tableIpkIndex(db, stmt.table)
+  collectRowsLimited(db, cursor, stmt.where, colNames, stmt.offset + stmt.limit, ipkIdx) match
     case Left(error) => Left(error.message)
     case Right(matched) =>
       var r = matched
@@ -3207,7 +3277,10 @@ def executeSelectLimited(db: ReadonlyDatabase, cursor: ReadonlyBtreeCursor, stmt
 // Finish a single-table query from a row set: filter, then group/aggregate/order/project/limit.
 // Shared by the full-scan path and the rowid point-lookup (which supplies 0/1 rows).
 def finishRows(db: ReadonlyDatabase, rows: List[StorageRecord], colNames: List[String], stmt: SelectStmt): Either[String, List[List[SqliteValue]]] =
-  val filtered = filterRowsCtx(db, rows, stmt.where, colNames, stmt.table)
+  // Materialise the rowid into the IPK column BEFORE filtering: WHERE/ORDER BY/aggregates all read
+  // the record, so substituting only at projection time would leave `WHERE id = 7` matching nothing.
+  val normalized = ipkNormalizeRows(rows, tableIpkIndex(db, stmt.table))
+  val filtered = filterRowsCtx(db, normalized, stmt.where, colNames, stmt.table)
   if stmt.groupBy.nonEmpty then
     val sortedForGroup = sortStorage(filtered, colNames, groupKeysOf(stmt.groupBy))
     val groups = filterGroups(groupPartition(sortedForGroup, colNames, stmt.groupBy), stmt.having, colNames)
