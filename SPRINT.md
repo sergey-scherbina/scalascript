@@ -2265,20 +2265,39 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
             — F always emitted a global callee, and the 61-program corpus never caught it because F's
             own source never calls a local. Keeping `--self` in the same harness means every breadth
             slice re-proves self-compilation or fails loudly.
-      - [ ] **X1h — case classes.** MEASURED 2026-07-16 (don't re-probe, but do re-verify). This one is
-            NOT a local shape — it breaks F's single-pass streaming design and needs a **pre-pass**:
-            - per field, ONE global `(def _sel_<f> (lam 1 (match (local 0) (<one arm per class having
-              that field>) (default (prim __method__ (lit (str "<f>")) (local 0))))))`. Verified with two
-              classes sharing a field: `_sel_x` is emitted **once**, carrying `(arm P 1 …) (arm Q 1 …)`,
-              at the position of the FIRST declaring class. So accessors must be collected across ALL
-              declarations before any is emitted.
-            - `(def P (lam N (ctor P (local N-1) … (local 0))))`;
-            - `(def __mirror_P (ctor Mirror (lit (str "P")) <Cons-list of field-name strs> <Cons-list of
-              field-TYPE-name strs>))` — so F must genuinely **parse types**, not skip them (X1a–X1g get
-              away with skipping because types leave no trace anywhere else);
-            - the entry becomes `(entry (seq (prim __regfields__ (lit (str "P")) <field-name Cons-list>)
-              … (app (global main))))` — one `__regfields__` per case class, then the main call (or
-              `(lit unit)` when main-less; cf. X1f).
+      - [ ] **X1h — case classes.** FULLY MEASURED 2026-07-16 — every shape below was read off the
+            reference, so implement against this table and re-verify; don't re-derive.
+            - **`_sel_<f>` defs HOIST TO THE VERY FRONT**, before all user defs — verified with
+              `def helper …` BEFORE `case class P(x)`: order is `_sel_x, helper, P, __mirror_P, main`.
+              One global def per field NAME, merging one arm per class having that field (two classes
+              sharing `x` → a single `(def _sel_x …)` carrying `(arm P 1 …) (arm Q 1 …)`, in class
+              declaration order). Shape: `(lam 1 (match (local 0) (<arms>) (default (prim __method__
+              (lit (str "<f>")) (local 0)))))`; a field's slot is `(local arity-1-pos)`.
+            - **ctor + mirror stay AT the declaration site** (interleaved: `_sel_x, _sel_y, P,
+              __mirror_P, helper, Q, __mirror_Q, main`). `(def P (lam N (ctor P (local N-1) … (local
+              0))))`; `(def __mirror_P (ctor Mirror (lit (str "P")) <field-name Cons-list> <field-TYPE
+              Cons-list>))`.
+            - **Mirror type names are whitespace-stripped SOURCE TEXT**: `List[Int]` → `"List[Int]"`,
+              `(Int, Int)` → `"(Int,Int)"`. So F must lex `[`/`]` (it currently DROPS them) and rebuild
+              the text by concatenating token lexemes with NO separator — which reproduces the stripped
+              form exactly. This is why case classes force real type parsing: types leave no trace
+              anywhere else in the Core IR, which is why skipping them was byte-faithful up to X1g.
+            - **The ENTRY rule** (measured across all four combinations): items = one `(prim
+              __regfields__ (lit (str "C")) <field-name Cons-list>)` per case class in declaration
+              order, then `(app (global main))` if a main exists. **0 items → `(entry (lit unit))`;
+              exactly 1 → that item BARE (no `seq`!); >1 → `(entry (seq i1 i2 …))`.** A main-less
+              program with one case class really is `(entry (prim __regfields__ …))`, not a seq.
+            - **`.field` dispatch**: `.x` with no parens → `(app (global _sel_x) recv)` **iff** `x` is a
+              collected case-class field; an unknown field → `(prim __method__ (lit (str "zzz")) recv)`
+              (measured: `o.zzz` with no case class at all). `.length` keeps its X1c dispatch.
+            - **REAL LATENT BUG this slice must fix** (found 2026-07-16 by probing past the corpus, not
+              yet in it): `def f(m: Map[String, Int], k: Int)` → F emits **`(lam 3)`, reference says
+              `(lam 2)`**. F's lexer drops `[`/`]`, so the `,` inside the brackets reads as a parameter
+              separator. Lexing `[`/`]` and tracking BRACKET depth alongside paren depth in the type
+              skipper fixes it. Add it to the corpus.
+            - Latent, same family, worth a corpus entry: `.name` with NO parens currently falls into the
+              method path (which expects `(`), so prelude selectors like `._1` → `(app (global _sel__1)
+              recv)` are unhandled. Only `length` is special-cased today.
       - [ ] **X1i — remaining breadth**, in the same style: given/summon dict-passing, enums, extensions,
             for-comprehensions, `var`/`while`, string interpolation, and the List-variable registry that
             dispatches `.length` to `_sel_length` (`ssc1-lower:233,301`).
