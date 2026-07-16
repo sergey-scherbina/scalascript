@@ -10,9 +10,10 @@ description: MCP client that spawns a server subprocess and lists its capabiliti
 Spawns the `mcp-server-tools` example as a subprocess and lists all
 tools, resources, and prompts it advertises.
 
-```scalascript
-[mcpConnect, Transport](std/mcp/client.ssc)
+[mcpConnect](std/mcp/client.ssc)
+[Transport](std/mcp/types.ssc)
 
+```scalascript
 val client = mcpConnect(Transport.Spawn("node", List("examples/mcp-server-tools.js")))
 
 val tools = client.listTools()

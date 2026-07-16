@@ -11,7 +11,7 @@ agent loop can call external MCP tools alongside the app's own — the consumer 
 bridge. Requires a jvm/js backend (the MCP client is unavailable on the interpreter).
 
 [mcpConnect](std/mcp/client.ssc)
-[Transport](std/mcp/server.ssc)
+[Transport](std/mcp/types.ssc)
 [mcpToolSource](std/agent-mcp.ssc)
 
 ```scalascript
