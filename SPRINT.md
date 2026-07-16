@@ -827,16 +827,141 @@ optional policy, not the default continuation semantics.
   serialize `While` and `Seq`. Pin one canonical node/value inventory before freezing the capsule
   encoding; this is documentation/contract drift, not permission to add a continuation node. After
   landing, re-run and re-freeze the literal stage1==stage2 fixed point against the reconciled bytes.
+
+  **MEASURED BASELINE (2026-07-16, before any change — reproduce before trusting):**
+  `scala-cli --power package v2/src --assembly -o /tmp/ssc.jar`; then
+  `SSC_JAR=/tmp/ssc.jar V2_DIR=<repo>/v2 ./specs/v2.2-p6.5-fsub.sh --self` → **89 ok / 0 FAIL, exit 0**;
+  fixpoint `stage1 == stage2` = **79,667 B**, sha256 `c5d9b5ed034d81a446f60dbe3b8dab15dcb910bbf318b6bfc01e4f63769c8f81`.
+  **De-risking measurement:** that 79,667 B corpus contains **zero `(float …)` and zero `(bytes …)`
+  constants** — so the float/`-0.0`/`IrBytes` codec fixes provably cannot move the fixpoint. Verified
+  by `grep -c float stage1.ir` = 0 on a work dir preserved from the script.
+
+  **The drift, measured (not read off the source):**
+  | Claim in spec | Reality in `v2/src/CoreIR.scala` |
+  |---|---|
+  | `10-core-ir.md` header: "node set (11 nodes) are frozen" | `enum Term` has **13** cases (adds `While`, `Seq`) |
+  | `10-core-ir.md` §3: "**`Seq a b` is dropped**" | `Term.Seq(terms)` exists, Reader head `seq`, Writer emits `(seq …)` |
+  | `10-core-ir.md` inv.7: "**no loop node is needed** in Core IR" | `Term.While(cond, body)`, Reader head `while`, Writer emits `(while …)` |
+  | `12-ir-format.md` grammar: `term := lit \| local \| … \| prim` | no `while`/`seq` production, though both round-trip |
+  Both `While` and `Seq` are documented in-source as **optimizations** (no trampoline bounce / no
+  Let-binding overhead), not new semantics — reconcile them as such. NOT permission to add a
+  continuation node (§9 "Explicitly NOT in Core IR" stands).
+
+  - [ ] **R1 — pin ONE inventory.** Reconcile `10-core-ir.md` (11→13 nodes, retract "Seq is dropped",
+    restate inv.7 as "TCO makes a loop node unnecessary *for semantics*; `While` is a permitted
+    optimization node with `LetRec`-equivalent meaning") + `12-ir-format.md` (add `while`/`seq`
+    grammar + canonicalization). Value domain stays **10 shapes** (verified: matches `Value` — no drift).
+  - [ ] **R2 — make the inventory machine-checked (gate BEFORE feature, AGENTS.md §measurement).**
+    A drift test asserting spec inventory == `Term`/`Const` enum cases == Reader heads == Writer cases.
+    Docs drifted silently for ~3 weeks precisely because nothing compared them. Prints want/got/diff.
+  - [ ] **R3 — re-run + re-freeze** the literal fixed point; docs-only ⇒ bytes MUST NOT move (89/0, 79,667 B).
+
 - [ ] **coreir-canonical-codec-hardening — UNBLOCKED 2026-07-16** — make the canonical codec match its contract before it is
   used for untrusted persisted capsules: preserve floating-point bit identity including `-0.0`, add
   `IrBytes` encode parity, reconcile `coreir.encode`'s promised Bytes with its actual String, provide
   the specified text/bytes decode path, validate symbols/closed globals/arities, and enforce bounded
   decoding. Add encode/decode/canonicalization vectors for every node and constant, then re-run the
   literal fixed point. Canonical Reader/Writer remains kernel-owned.
-- [ ] **numeric-width-reconciliation — UNBLOCKED 2026-07-16** — retain source `Int`/`Long`
+
+  **⚠️ THE LANDMINE (measured — do not skip).** `Writer.floatStr` is **not** an IR-only function. It is
+  shared by `f->str` (`Runtime.scala:2560,4217`), `FloatV.toString` (`:3039`), Float↔String concat
+  (`:4011,4015`) and **`Show`** (`:4408,4655` — program output). Collapsing whole doubles (`2.0`→`"2"`)
+  there is **deliberate v1 output parity** (see the comment at `:4008`; cf. the scljet `0.0.toString`→`"0"`
+  gotcha). Measured in the real runtime: `f->str 2.0` = `2`, `f->str 7.5` = `7.5`, `f->str -0.0` = `0`.
+  ⇒ **Fix by SPLITTING a new IR-only `Writer.floatLit` from `floatStr`; never "fix" `floatStr` itself.**
+  A run-ir-only gate would NOT catch that regression (memory: changing shared VM `Show` once broke ~28
+  mira JS/Rust checks that run-ir-only gates masked; the catch is full `v2/conformance/check.sh`).
+
+  **Contract violations, each measured end-to-end:**
+  1. `coreir.encode(IrFloat(-0.0))` → `(lit (float 0))` → decodes to **+0.0**. Bit identity lost.
+     `12-ir-format.md` §Tokens is explicit: "Negative zero is `-0.0`".
+  2. Integral floats emit `(float 2)`, but §Tokens requires FLOAT "always containing a `.` or an
+     exponent". Value still round-trips (the `float` tag disambiguates), so this is *form* drift.
+  3. `IrEncode.const` has **no `IrBytes` case** (`Runtime.scala:4573-4580`) though `IrDecode.constant`
+     has one (`:4635`) and `Const.CBytes`/Reader/Writer all support bytes ⇒ `coreir.encode` of a bytes
+     literal dies with `sys.error("bad const")`. Asymmetric codec.
+  4. `10-core-ir.md` §5 promises `coreir.encode v`→**`Bytes`**; `Runtime.scala:2919` returns **`StrV`**.
+  5. `coreir.decode` is **not registered as a prim at all** (only `coreir.encode`/`coreir.eval` exist);
+     §5 itself admits "Still deferred at the kernel level: `coreir.decode`". `12-ir-format.md` promises
+     `encode ∘ decode = canonicalize` — currently unimplementable from `.ssc`.
+  6. **Fail-open decoding** (this codec is for **untrusted** capsules — fail-open here is a security
+     property, not a nicety): `Reader.parseHex` accepts odd-length hex (`"abc"`→2 bytes) and `parseInt`
+     accepts `+1`/`-1`/uppercase; `(local -1)`/`(lam -1 …)`/`(arm T -1 …)` accepted (spec: NAT);
+     `readAtom` accepts any non-delimiter run as SYMBOL (spec: `[A-Za-z_][A-Za-z0-9_.]*`); `letrec`
+     accepts non-`Lam` bindings (spec §4: "bindings must be Lam"); unbound `(global g)` accepted;
+     `Reader.P.sexpr()` is **unboundedly recursive** ⇒ a deeply-nested hostile capsule is a
+     StackOverflowError, not a diagnostic (note `v2.2-p6.5-fsub.sh` already needs `-Xss512m`; and CI
+     runs a 1m default stack where macOS gives 2m — the exact shape of the 192-run CI red).
+
+  - [ ] **H1 — float bit identity.** New IR-only `Writer.floatLit` per §12 (`-0.0`, always `.`/exp,
+    specials `nan`/`inf`/`-inf`, else shortest round-trip). Used by `Writer.const` + `IrEncode.const`
+    ONLY. `floatStr` untouched. Verify: full `v2/conformance/check.sh`, not just run-ir.
+  - [ ] **H2 — `IrBytes` encode parity** in `IrEncode.const` (`(bytes)` empty / lowercase hex).
+  - [ ] **H3 — reconcile encode's Bytes-vs-String.** Format is canonical **text** (§12 v1). Land as:
+    spec says `coreir.encode v`→`Str` (canonical S-expr text; UTF-8 via `str->utf8`). Changing the prim
+    to return `Bytes` would break every existing caller (`lib/ssct-emit.ssc0`, `bin/mirac.ssc0`, the
+    p6.5 driver) for no gain — record that as the rejected alternative.
+  - [ ] **H4 — the specified decode path.** Register `coreir.decode : Str|Bytes -> IrProg` (Data tree,
+    inverse of encode) so `encode ∘ decode = canonicalize` holds from `.ssc`. Needs `Term -> Data`
+    (`IrToData`), the mirror of `IrDecode`. Kernel-owned.
+  - [ ] **H5 — validate** symbols / closed globals / arities / `LetRec`-is-`Lam` / NAT-ness / hex
+    evenness. Fail **closed** with a diagnostic naming the offending node.
+  - [ ] **H6 — bounded decoding.** Depth + node-count + input-size limits; iterative or depth-capped
+    reader. Hostile input ⇒ diagnostic, never StackOverflowError. Must hold on a **1m** stack (CI), not
+    just a macOS 2m default — test with an explicit small `-Xss`, or the gate lies exactly like the
+    192-run CI red did.
+  - [ ] **H7 — vectors for EVERY node and constant** (13 nodes × encode/decode/canonicalize + all 7
+    consts + the negative/hostile cases above). Every vector prints name/want/got/diff — never bare
+    `[[ $(…) == "$want" ]]` under `set -e` (that gate prints nothing and has been red for days before).
+  - [ ] **H8 — re-run the literal fixed point** (expect unchanged 89/0, 79,667 B — corpus has no
+    float/bytes consts; if it moves, STOP and coordinate with p65-fixpoint + newfront).
+- [ ] **numeric-width-reconciliation — UNBLOCKED 2026-07-16 · ⛔ NEEDS A DESIGN DECISION FROM SERGIY
+  BEFORE CODING (raised 2026-07-16 by coreir-contract; do not "fix" this unilaterally)** — retain source `Int`/`Long`
   width evidence and implement canonical public `I32`/`I64` semantics over the current signed
   wrapping-64 CoreIR value. Add per-backend wrap/round-trip/overload vectors and reject legacy
   ambiguous exports; this is semantic lowering work, not descriptor-only mapping.
+
+  **THE CONTRADICTION (measured 2026-07-16, in the real runtime — not read off source):**
+  `v1/lang/core/src/main/scala/scalascript/artifact/PreBodyApiDescriptorProducer.scala:2066` maps
+  source `Int` → `AbiPrimitive.I32`, and `:2067` maps `Long` → `I64`. But **ssc `Int` is 64-bit**:
+  ```
+  java -jar /tmp/ssc.jar run  #  (#i.add(2147483647, 1))          => 2147483648        <- did NOT wrap at 32
+  #                              (#i.add(9223372036854775807, 1)) => -9223372036854775808 <- DID wrap at 64
+  ```
+  Corroborated by `v2/specs/10-core-ir.md` §2 ("`Int` is 64-bit two's-complement, wrapping (matches
+  `ssc 1.0`'s `Int = Long`)") and the durable memory note `project_interp_int64_and_entrypoint.md`
+  ("ssc Int is 64-bit"). ⇒ **The descriptor currently tells every foreign host (JS/TS, Rust, Swift,
+  WASM-WASI) that an ssc `Int` is 32 bits when it is 64.** A host marshalling per the descriptor
+  silently truncates any value > 2^31−1 **at the ABI boundary** — a fail-open of exactly the kind the
+  descriptor exists to prevent, and it is the *interop* surface, so it is cross-language.
+
+  **Why this is NOT a unilateral fix:** `Int → I32` is not dead code — it is asserted by live tests
+  (`PreBodyApiDescriptorProducerTest.scala:100,130,132,136,267,1212`), and `AbiPrimitive` is part of
+  the **frozen Slice A schema** feeding `apiHash`. Changing the mapping changes the meaning and the
+  hash of every descriptor ever emitted. That is a contract change and needs Sergiy's call.
+
+  **The three options (pick one before any code):**
+  - **(A) `Int` → `I64` — truthful to measured semantics.** `Int`/`Long` both become `I64` and are
+    indistinguishable in the descriptor ⇒ needs separate retained source-spelling width evidence to
+    keep overload IDs distinct (this is what "retain source `Int`/`Long` width evidence" reads as).
+    Flips the 6 test expectations above; re-hashes every descriptor. *Cheapest that stops the lie.*
+  - **(B) Make surface `Int` genuinely 32-bit.** Matches Scala and makes the existing descriptor
+    correct retroactively, but contradicts the **frozen** `10-core-ir.md` §2 value domain, the
+    `Int = Long` v1 parity, and measured behavior; blast radius across every backend + the whole
+    corpus. Would be a Core IR **version bump (v2)** per `10-core-ir.md`'s own freeze rule.
+  - **(C) `Int` → `I64` public, with an explicit narrowing ABI.** Where a host genuinely wants 32-bit
+    it becomes an explicit, *implemented* wrap/checked-narrow at the boundary (real semantic lowering,
+    per the item's own "not descriptor-only mapping"), and ambiguous legacy exports are rejected.
+    *Most faithful to the item text; most work.*
+  My read: the item text ("over the current signed wrapping-64 CoreIR value", "reject legacy ambiguous
+  exports", "not descriptor-only mapping") points at **(C)**, with **(A)** as its first slice. But
+  (B) is a coherent reading of "canonical public I32 semantics" too, so I am not choosing.
+  Tracked as a live fail-open in `BUGS.md` (`coreir-abi-int-width-declared-i32-actually-i64`).
+
+  Once decided, the slices are: [ ] width evidence retained pre-body · [ ] public I32/I64 semantics
+  implemented (real wrap at the boundary, not a relabel) · [ ] per-backend wrap/round-trip/overload
+  vectors (JS/TS, Rust, Swift, WASM-WASI — each must FAIL loudly on truncation) · [ ] reject legacy
+  ambiguous exports · [ ] re-run the literal fixed point.
 
 ### Common ABI and portable semantic baseline
 
