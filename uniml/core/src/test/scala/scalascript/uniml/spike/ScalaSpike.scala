@@ -629,6 +629,7 @@ object SpikeParse:
   private def parseExtension(c: Cur): Node =
     val kids = Vector.newBuilder[Node]
     c.advance().foreach(t => kids += Node.Leaf(t, Some("ext.kw"))) // `extension`
+    skipTypeParams(c) // `extension [A](fa: F[A])` — the group's own type params are erased
     expect(c, "spike.lparen", "ext.open", "'('").foreach(kids += _)
     expect(c, "spike.id", "ext.recv", "receiver name").foreach(kids += _)
     expect(c, "spike.colon", "ext.colon", "':'").foreach(kids += _)
@@ -846,13 +847,16 @@ object SpikeParse:
 
   // one object/enum body member: def / val / var / case class (reuses the top-level declaration parsers).
   private def isMemberStart(c: Cur): Boolean =
-    isDefStart(c) || isKw(c, "case") || isKw(c, "val") || isWord(c, "var") ||
+    isDefStart(c) || isKw(c, "case") || isKw(c, "val") || isWord(c, "var") || isKw(c, "extension") ||
     (c.peekKind == "spike.id" && declModifiers(c.peekLexeme))
   private def parseMember(c: Cur): Node =
     if isDefStart(c) then parseDef(c)
     else if isKw(c, "case") then parseCaseClass(c)
     else if isKw(c, "val") then parseVal(c)
     else if isWord(c, "var") then parseVarStmt(c)
+    // `extension [A](fa: F[A]) def m … = …` inside a `given … with` body — a typeclass instance whose ops
+    // are extension methods. Each method becomes a MEMBER def with the receiver prepended (see memberNodes).
+    else if isKw(c, "extension") then parseExtension(c)
     else parseStmt(c)
 
   // `trait X …` / `class X …` / `abstract class X …` — the spike does not lower trait/class bodies yet, so a
@@ -1854,8 +1858,19 @@ object SpikeProject:
     val ks = kids(n)
     val name = ks.collectFirst { case (Some("given.name"), c) => lexeme(c) }.getOrElse("_")
     val ty   = ks.collectFirst { case (Some("given.type"), c) => concatType(c) }.getOrElse("_")
-    val members = ks.collect { case (Some("obj.member"), c) => memberNode(c) }
-    s"""Pair("given_obj", Pair("${esc(name)}", Pair("${esc(ty)}", ${consList(members.toVector)})))"""
+    val members = ks.collect { case (Some("obj.member"), c) => c }.toVector.flatMap(memberNodes)
+    s"""Pair("given_obj", Pair("${esc(name)}", Pair("${esc(ty)}", ${consList(members)})))"""
+
+  // a given-body member → its projected node(s). An `extension [A](recv: T) def m … = …` group inside a
+  // `given … with` body projects EXACTLY like a top-level one: extension_start / def-with-receiver-prepended
+  // / extension_end. The markers are load-bearing, not decoration — ssc1-lower's collectExtensionMethods
+  // descends into a given_obj's members with active=FALSE (ssc1-lower.ssc0:573-576), so a bare def there
+  // never registers as an extension method; only defs BETWEEN the markers do. Registering them is what makes
+  // the lowerer emit the tag-testing dispatcher (`fmap` → listFunctor_fmap / optionFunctor_fmap) on top of
+  // the per-instance `<given>_<m>` defs and the instance method object.
+  private def memberNodes(c: UniNode): Vector[String] = kindOf(c) match
+    case "spike.extension" => extensionNodes(c)
+    case _                 => Vector(memberNode(c))
 
   private def givenValNode(n: UniNode): String =
     val ks = kids(n)
