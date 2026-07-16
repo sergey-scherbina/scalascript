@@ -191,7 +191,18 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
         5. `scljetVfsPlugin / SclJetJvmVfsHostTest:167` — *"exclusive host lock blocks official
            SQLite in another process"*, `process.isAlive() was false`. (scljet lane; may need a real
            sqlite3 binary — likely environment-sensitive)
-- [~] **5. CI re-audit — real progress, NOT green yet. Do not claim green.** Observed, not assumed:
+- [~] **5. CI re-audit — ALL SIX v21 GATES NOW PASS IN CI. Two jobs still red; not green overall.**
+      **CI-CONFIRMED green (run 29501968735, observed step-by-step — this is proof, not inference):**
+      `Lint Markdown` · `Validate ScalaScript` · and in the sbt job, in order: `compiler-free ASM
+      artifact release gate` · **`explicit provider and target lanes`** (the 4b deliverable, red
+      through all 192 runs) · `physically slim standard distribution gate` · `JRE-shaped no-javac
+      module gate` · **`standard-only negative toolchain release gate`** · **`direct-ASM local
+      recursion gate`**. The last two had NEVER executed in CI before — their green is the CI proof
+      of the tower-stack (64m→512m), freeze-refresh (200→207) and `SSC_XSS` fixes.
+      **Still red, both understood and recorded:**
+      - `Conformance Suite`: **279/281** (from 228/53), zero scljet — the 2 are the JS pair below.
+      - `Test via sbt`: the 5 suites in 4c, all in other agents' lanes.
+      Observed, not assumed:
       - `Lint Markdown` GREEN. `Validate ScalaScript` GREEN.
       - `Conformance Suite`: **228 passed/53 failed → 279 passed/2 failed of 281. Zero scljet
         failures** (run 29495952418) — the `-Xss64m` fix is CI-confirmed. The SPRINT's guess about
