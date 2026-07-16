@@ -21,8 +21,19 @@ own bare-prim style: X1's object language is **real ScalaScript** and its oracle
 the trusted front** — including `ssc1-lower`'s constant 7258-byte prelude and both of its literal-driven
 specialisations (`+`→`++` when either side is a str-expr; `.length`→`slen` vs `__method__`).
 
-Boundary: S is the subset F is itself written in. Case classes, given/summon, enums, extensions, lambdas,
-comprehensions, `var`/`while` and interpolation remain — corpus growth against the same oracle.
+Breadth since (same oracle, fixpoint re-proved by each slice): **lambdas + HOFs**, and **case classes**
+end-to-end — the first construct needing a pre-pass (accessors are global and cross-declaration) and a
+context-dependent parser (a user case class CALLS its generated ctor, `P(1,2)` → `(app (global P) ..)`,
+while builtins like `Cons` stay `(ctor ..)`). Corpus **85 programs**, 89 ok / 0 FAIL.
+
+Three real bugs the exact oracle caught that a review would have shipped: a `(lam 3)`-vs-`(lam 2)` arity
+bug on `Map[String, Int]` params (F's lexer dropped `[`/`]`, so the `,` inside read as a param separator
+— wrong arity is silent and shifts every local index, and the corpus had stayed green over it); a
+`(entry  (app ..))` double space; and a regex rewrite that silently didn't match, leaving `compile`
+passing a raw `dq` where the parser wanted a context.
+
+Boundary: S is the subset F is itself written in. Still out: given/summon, enums, extensions,
+comprehensions, `var`/`while`, interpolation, the prelude-selector table, the List-var registry.
 
 ## 2026-07-16 — v2: a typo'd zero-arg method now FAILS CLOSED (`__method0__`)
 

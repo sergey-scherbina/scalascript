@@ -2382,8 +2382,13 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
             — F always emitted a global callee, and the 61-program corpus never caught it because F's
             own source never calls a local. Keeping `--self` in the same harness means every breadth
             slice re-proves self-compilation or fails loudly.
-      - [ ] **X1h — case classes.** FULLY MEASURED 2026-07-16 — every shape below was read off the
-            reference, so implement against this table and re-verify; don't re-derive.
+      - [x] **X1h — case classes ✓ Landed 2026-07-16** (98421d615 prep, 1c253090e decls, f8625c681
+            ctor+field). **89 ok / 0 FAIL, fixpoint holds** (79667 B); corpus 69 → 85. The first
+            construct that is not a local shape: it needed a PRE-PASS (accessors are global and
+            cross-declaration) *and* made the parser CONTEXT-DEPENDENT (ctor + field selection must know
+            what was declared), so the collected registry is threaded as `cx = (dq, (ccNames,
+            fieldNames))`. The measured table below is the durable record — it was implemented against
+            exactly this and every line is pinned by a corpus entry:
             - **`_sel_<f>` defs HOIST TO THE VERY FRONT**, before all user defs — verified with
               `def helper …` BEFORE `case class P(x)`: order is `_sel_x, helper, P, __mirror_P, main`.
               One global def per field NAME, merging one arm per class having that field (two classes
@@ -2407,24 +2412,32 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
             - **`.field` dispatch**: `.x` with no parens → `(app (global _sel_x) recv)` **iff** `x` is a
               collected case-class field; an unknown field → `(prim __method__ (lit (str "zzz")) recv)`
               (measured: `o.zzz` with no case class at all). `.length` keeps its X1c dispatch.
-            - **REAL LATENT BUG this slice must fix** (found 2026-07-16 by probing past the corpus, not
-              yet in it): `def f(m: Map[String, Int], k: Int)` → F emits **`(lam 3)`, reference says
-              `(lam 2)`**. F's lexer drops `[`/`]`, so the `,` inside the brackets reads as a parameter
-              separator. Lexing `[`/`]` and tracking BRACKET depth alongside paren depth in the type
-              skipper fixes it. Add it to the corpus.
-            - Latent, same family, worth a corpus entry: `.name` with NO parens currently falls into the
-              method path (which expects `(`), so prelude selectors like `._1` → `(app (global _sel__1)
-              recv)` are unhandled. Only `length` is special-cased today.
+            - **REAL LATENT BUG ✓ FIXED** (98421d615; found by probing past the corpus): `def f(m:
+              Map[String, Int], k: Int)` emitted **`(lam 3)` where the reference says `(lam 2)`** — F's
+              lexer DROPPED `[`/`]`, so the `,` inside the brackets read as a parameter separator. Wrong
+              arity is silent and total: every local index in the body shifts. The 66-program corpus had
+              stayed green over a broken lexer. Type skipping now tracks BOTH paren and bracket depth
+              (same family as the X1d tuple-param bug). Pinned by ty_generic/ty_nested/ty_tuplist.
+            - **`.name` with no parens ✓ FIXED** (f8625c681): it used to fall into the method path
+              (which expects `(`). Now a declared field → `_sel_`, unknown → `__method__`. **Still open**:
+              the PRELUDE selectors (`._1`.., `.trim`, `.mkString`, …) have their own `_sel_` defs in the
+              prelude and are NOT case-class fields, so `(1,2)._1` → `(app (global _sel__1) …)` is still
+              unhandled — F would emit `__method__`. Needs the fixed prelude-selector name table. No
+              corpus entry uses it yet; add one when closing.
       - [ ] **X1i — remaining breadth**, in the same style: given/summon dict-passing, enums, extensions,
             for-comprehensions, `var`/`while`, string interpolation, and the List-variable registry that
             dispatches `.length` to `_sel_length` (`ssc1-lower:233,301`).
       - **HONEST BOUNDARY of the landed X1 — read before claiming P6.5 done.** The fixed point holds for
         the subset **S that F is itself written in** (the same bootstrap discipline that kept C_min at 84
         defs), not for all of ScalaScript. `F(P) == ssc1-front(P)` is proven on the 61-program corpus, and
-        on `F_src`. Still out, unchanged in kind (each is corpus growth against the same exact oracle, no
-        new design question): **case classes** (ctor/Mirror/`_sel_`/`__regfields__`), **given/summon**
-        dict-passing, **enums**, **extensions**, **lambdas**, **for-comprehensions**, **`var`/`while`**,
-        string **interpolation**, and the **List-variable registry** that dispatches `.length` to
+        on `F_src`. **Boundary as of 2026-07-16 (moves as slices land — keep this line honest):** the
+        corpus is **85 programs**, and `F` covers arithmetic/comparison/booleans, defs+params+recursion,
+        `if`, strings + `charAt`/`length`/`substring`/`==`/`++`, `match` (Cons/Nil/tuple/int-lit/
+        wildcard/cons-infix), `val`-blocks, **lambdas + HOFs** (X1g), and **case classes** end-to-end
+        (X1h). Still out, unchanged in kind (each is corpus growth against the same exact oracle, no new
+        design question): **given/summon** dict-passing, **enums**, **extensions**, **for-comprehensions**,
+        **`var`/`while`**, string **interpolation**, the **prelude-selector table** (`._1`/`.trim`/
+        `.mkString` — see X1h), and the **List-variable registry** that dispatches `.length` to
         `_sel_length` (`ssc1-lower:233,301` — F has no registry, so a `List` local's `.length` would
         diverge; F's own source avoids it by using a recursive `dlen`).
     - Sequencing: F1 → F2/F3 → L1 → X1. Each stage is differential-tested against the spike/`ssc1-front` on
