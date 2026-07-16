@@ -32,8 +32,9 @@ Companion: [`specs/arch-distribution.md`](arch-distribution.md),
 - **`ssc search` / `ssc info` / `ssc add` CLI commands** integrated with the
   registry.
 - **Browseable HTML index** at the GitHub Pages project URL
-  `https://sergey-scherbina.github.io/scalascript/`, auto-generated from
-  `packages.yaml` by CI.
+  `https://sergey-scherbina.github.io/scalascript/registry/`, auto-generated from
+  `packages.yaml` by CI. (The Pages root serves the project landing page; the
+  registry machine files stay at the root — see below.)
 
 ## 2. Non-goals
 
@@ -70,8 +71,15 @@ github.com/sergey-scherbina/scalascript/
 
 Pages URL for the MVP:
 
-- HTML index: `https://sergey-scherbina.github.io/scalascript/`
+- HTML index: `https://sergey-scherbina.github.io/scalascript/registry/`
 - CLI YAML: `https://sergey-scherbina.github.io/scalascript/packages.yaml`
+
+The Pages root (`/`) serves the project landing page (`site/`), so the browseable
+index lives under `/registry/`. The **CLI YAML path is a contract** —
+`RegistryClient.DefaultRegistryUrl` is a built-in default in shipped source, so
+`/packages.yaml`, `/packages/**` and `/search-index.json` must keep resolving at
+the root. Both trees are published by the single `Pages` workflow
+(`.github/workflows/pages.yml`); a second Pages-deploying workflow would race it.
 
 Later, when a domain is registered, `registry.scalascript.io` can CNAME to the
 same Pages site. That alias must not change the registry file format.
