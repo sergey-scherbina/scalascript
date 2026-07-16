@@ -195,6 +195,12 @@ d lam2       'def ap2(f: (Int, Int) => Int): Int = f(1, 2)
 def main(): Int = ap2((a: Int, b: Int) => a + b)'
 d lam_local  'def ap(f: Int => Int, x: Int): Int = f(x)
 def main(): Int = ap(y => y * 2, 5)'
+d ty_generic 'def f(m: Map[String, Int], k: Int): Int = k
+def main(): Int = 0'
+d ty_nested  'def f(m: Map[String, List[Int]], k: Int): Int = k
+def main(): Int = 0'
+d ty_tuplist 'def f(xs: List[(Int, Int)], k: Int): Int = k
+def main(): Int = 0'
 
 if [ "${1:-}" = "--self" ]; then
   echo "--- X1: F compiles its OWN source ---"
