@@ -906,15 +906,22 @@ object SpikeParse:
 
   // `[a, b, c](path.ssc)` markdown-link import — a parse-only no-op (ssc1-front.ssc0:2474 → Pair("sealed","")).
   // Consume `[ … ]` then the optional `( … )`, matching ssc1-front's non-nested skipTo.
+  // KEEP the consumed tokens as leaves: an EMPTY Frame does not survive the Node→UniNode emit (same reason
+  // parseListLiteral keeps its `[`/`]`). At top level a vanished no-op import was harmless — it projects to
+  // `("sealed", "")`, which the lowerer drops anyway — but inside a STATEMENT LIST it is not: an arm body
+  // `case _ => []` is a link-import for ssc1-front's parseOneStmt too (ssc1-front.ssc0:2515), giving
+  // `("block", [("sealed","")])` → `(lit unit)`; with the frame gone the block is empty and projects a HOLE.
+  // The projection ignores these children (`stmt()` maps any spike.sealed to `Pair("sealed", "")`).
   private def parseLinkImport(c: Cur): Node =
-    c.advance() // `[`
-    while c.peekKind != "spike.rbracket" && !c.eof do c.advance()
-    if c.peekKind == "spike.rbracket" then c.advance()
+    val kids = Vector.newBuilder[Node]
+    c.advance().foreach(t => kids += Node.Leaf(t, Some("imp.tok"))) // `[`
+    while c.peekKind != "spike.rbracket" && !c.eof do c.advance().foreach(t => kids += Node.Leaf(t, Some("imp.tok")))
+    if c.peekKind == "spike.rbracket" then c.advance().foreach(t => kids += Node.Leaf(t, Some("imp.tok")))
     if c.peekKind == "spike.lparen" then
-      c.advance()
-      while c.peekKind != "spike.rparen" && !c.eof do c.advance()
-      if c.peekKind == "spike.rparen" then c.advance()
-    Node.Frame("spike.sealed", None, Vector.empty)
+      c.advance().foreach(t => kids += Node.Leaf(t, Some("imp.tok")))
+      while c.peekKind != "spike.rparen" && !c.eof do c.advance().foreach(t => kids += Node.Leaf(t, Some("imp.tok")))
+      if c.peekKind == "spike.rparen" then c.advance().foreach(t => kids += Node.Leaf(t, Some("imp.tok")))
+    Node.Frame("spike.sealed", None, kids.result())
 
   // `import a.b.c` / `import a.b.{x, y}` / `import a.b.*` — parse-only no-op (ssc1-front.ssc0:2485 → sealed).
   // Consume exactly the dotted path (+ optional `{…}` group / `.*` wildcard), like ssc1-front's skipPath.
@@ -1169,9 +1176,13 @@ object SpikeParse:
       c.advance().foreach(t => kids += Node.Leaf(t, Some("case.ifkw")))
       parseExpr(c, 1).foreach(g => kids += g.withRole("case.guard"))
     val arrowLine = c.peekLine
-    if c.peekKind == "spike.op" && c.peekLexeme == "=>" then c.advance().foreach(t => kids += Node.Leaf(t, Some("case.arrow")))
+    var arrow: Option[SourceToken] = None
+    if c.peekKind == "spike.op" && c.peekLexeme == "=>" then
+      c.advance().foreach { t => arrow = Some(t); kids += Node.Leaf(t, Some("case.arrow")) }
     else c.report("spike.expected", "expected '=>' in case arm")
-    kids += armBody(c, arrowLine).withRole("case.body")
+    // the `=>` token doubles as the carrier for an EMPTY body (an empty Frame would not survive the emit)
+    val arrowTok = arrow.map(t => Node.Leaf(t, Some("unit.tok"))).getOrElse(Node.Frame("spike.error", None, Vector.empty))
+    kids += armBody(c, arrowLine, arrowTok).withRole("case.body")
     Node.Frame("spike.arm", None, kids.result())
 
   // An arm body is a STATEMENT LIST terminated by `case` / `}` / EOF, and then: exactly ONE `expr`
@@ -1189,7 +1200,7 @@ object SpikeParse:
   // as one token: `case Some(u) => html"<p>…</p>"` is the var `html` THEN the string — two statements → a
   // block. Keeping the single-expr UNWRAP is what makes this safe (wrapping every same-line arm in a block
   // changes the body's tag for hundreds of programs — the trap that sank the earlier attempt).
-  private def armBody(c: Cur, arrowLine: Int): Node =
+  private def armBody(c: Cur, arrowLine: Int, arrowTok: Node): Node =
     if !c.eof && c.peekLine > arrowLine then branchExpr(c, arrowLine)
     else
       val bodyCol = c.peekCol
@@ -1207,7 +1218,8 @@ object SpikeParse:
           stmts += parseStmt(c)
           if c.mark == before then more = false // guarantee progress
       val ss = stmts.result()
-      if ss.length == 1 then
+      if ss.isEmpty then Node.Frame("spike.unitbody", None, Vector(arrowTok)) // `case A =>` with NO body → Unit
+      else if ss.length == 1 then
         ss.head match
           case Node.Frame("spike.exprStmt", _, inner) if inner.length == 1 => inner.head
           case _                                                           => Node.Frame("spike.block", None, ss)
@@ -2099,6 +2111,10 @@ object SpikeProject:
         gens.zipWithIndex.foldRight(body) { case ((g, i), inner) =>
           genExpr(g, if i == n - 1 then (if isYield then "map" else "foreach") else "flatMap", inner)
         }
+      // `case A =>` with NO body at all — ssc1-front's parseArmBody returns `Pair("uid", "Unit")` for an
+      // empty statement list (ssc1-front.ssc0:1987). The frame carries the `=>` token only so it survives
+      // the Node→UniNode emit; the token itself is not projected.
+      case "spike.unitbody" => """mkUVar("Unit")"""
       case "spike.summon" => // payload = the whole type application, joined with NO separator (joinStrs)
         s"""Pair("summon", "${esc(kids(b).collect { case (Some("summon.tok"), c) => lexeme(c) }.mkString)}")"""
       case "spike.pre" =>
