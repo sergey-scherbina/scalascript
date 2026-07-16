@@ -171,6 +171,27 @@ object RunNativeV2:
       value: _root_.ssc.Value | Null)
   private final class TowerExit(val code: Int) extends RuntimeException
 
+  /** Stack for the tower thread — the COMPILER's stack, deliberately independent of
+   * `-Xss`/`SSC_XSS`.
+   *
+   * Split of responsibilities: this thread loads, lowers and runs the self-hosted
+   * front (and `Compiler.compile`s it) to produce the user's `Program`; the USER's
+   * program is then compiled and run on the calling thread, where `-Xss` applies.
+   * So `-Xss`/`SSC_XSS` bounds the user program, and this constant bounds the
+   * compiler. They are different jobs with very different depth needs and must not
+   * share a knob: v21-direct-asm-recursion-smoke pins 256k to prove the COMPILED
+   * lanes need no big stack, and that must not starve the compiler that gets there.
+   *
+   * Was hardcoded 64m, which made `-Xss` look inert — raising it changed nothing,
+   * because the overflow was never on `main`. It only LOOKED like main: the catch
+   * below stores the Throwable and rethrows it on the joining thread, so a tower
+   * StackOverflowError prints as "Exception in thread main" carrying the tower's
+   * trace. 64m was not enough for the scljet examples: `run --bytecode` overflowed
+   * here ~80% of the time, flaky because frame sizes depend on how much the JIT has
+   * compiled, which depends on machine load. Stack is reserved address space, not
+   * committed memory, so a generous value is cheap. */
+  private val TowerStackBytes: Long = 512L * 1024L * 1024L
+
   private def runTower(runner: java.io.File, args: List[String], threadName: String): TowerResult =
     val irOut   = new java.io.ByteArrayOutputStream()
     val irPs    = new java.io.PrintStream(irOut, true, java.nio.charset.StandardCharsets.UTF_8)
@@ -191,7 +212,7 @@ object RunNativeV2:
         catch
           case e: TowerExit => exitCode.set(e.code)
           case t: Throwable => failure.set(t)
-    val thread = new Thread(null, task, threadName, 64L * 1024L * 1024L)
+    val thread = new Thread(null, task, threadName, TowerStackBytes)
     try
       thread.start()
       thread.join()
