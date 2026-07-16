@@ -217,15 +217,25 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
         [CompileError: WebAssembly.instantiate(): Unknown type code 0x5e,
          enable with --experimental-wasm-gc @+15]      Node.js v20.20.2
         ```
-        **`emit-wasm` emits a WasmGC module; CI pinned node 20, whose V8 cannot instantiate one.**
-        A pure works-on-my-machine gap — it passes locally only because dev node is newer (mine is
-        v26, WasmGC on by default) — invisible until now because this gate had never run in CI.
-        The flag is NOT a portable workaround (**measured**): `node --experimental-wasm-gc -e …` on
-        modern node → `node: bad option`, because WasmGC is standard there. So the requirement is
-        just a node new enough to have WasmGC by default. Fixed in `801172c9a`: **sbt job → node 22**
-        (lint/conformance stay on 20 on purpose — neither runs the wasm gate and conformance is at a
-        hard-won 279/281), plus the smoke now fails fast with `node >= 22 required (found vX)` so the
-        constraint is explicit rather than accidental. **Awaiting CI proof — verify it.**
+        **The emitted wasm needs a modern V8 twice over.** CI found the two reasons one at a
+        time, each time named by the diagnostics rather than guessed:
+        - **node 20 → WasmGC**: `CompileError: Unknown type code 0x5e`. Not fixable with
+          `--experimental-wasm-gc` (**measured**: modern node rejects that flag, `bad option`,
+          because WasmGC is standard there).
+        - **node 22 → JS string builtins**: `TypeError: Import #120 module="": module is not an
+          object or function`. Diagnosed: the module has **484 imports, 364 with module name `""`**
+          (rest = `__scalaJSHelpers` 41 / `__scalaJSCustomHelpers` 70 / `wasm:js-string` 9), and
+          those 364 are satisfied by the option the generated `__loader.js` passes —
+          `{ builtins: ["js-string"], importedStringConstants: "" }`, the imported-string-constants
+          proposal. A V8 that ignores it leaves all 364 unbound.
+        A pure works-on-my-machine gap: it passes locally only because dev node is newer (mine is
+        v26, which has both) — invisible until now because this gate had never run in CI.
+        Fixed in `21f87ac22`: **sbt job → node 24** (has WasmGC + JS string builtins); lint and
+        conformance stay on node 20 on purpose — neither runs the wasm gate and conformance is at a
+        hard-won 279/281. The smoke also guards up front (`node >= 24 required (found vX)` + both
+        reasons), so this cannot regress into another cryptic loader error.
+        **Awaiting CI proof — verify it.** node 22 was verified WRONG by CI, so do not assume 24 is
+        right until a run says so.
       - **Still unverified: no fully green run has been observed.** The last pushes had not completed
         CI when this lane stopped. Next agent: `gh run list --workflow=ci.yml --branch=main`, and
         expect conformance to stay red at 279/281 until the two JS bugs above are fixed.
