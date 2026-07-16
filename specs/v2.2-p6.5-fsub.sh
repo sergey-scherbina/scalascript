@@ -188,13 +188,68 @@ def main(): String = g("ab")'
 
 if [ "${1:-}" = "--self" ]; then
   echo "--- X1: F compiles its OWN source ---"
+  # Step 1 -- the differential oracle applied to F's OWN source. This is the load-bearing claim;
+  # everything below follows from it.
   run bin/ssc1-run.ssc0 "$FSUB" > "$WORK/selfref.ir"
   runir "$WORK/F0.ir" "$FSUB" > "$WORK/stage1.ir"
   if cmp -s "$WORK/stage1.ir" "$WORK/selfref.ir"; then
-    echo "ok   *** F(F_src) == ssc1-front(F_src) -- the fixpoint follows ***"
+    echo "ok   F(F_src) == ssc1-front(F_src) byte-identical ($(wc -c < "$WORK/stage1.ir") bytes)"
   else
-    echo "FAIL F cannot yet compile its own source byte-identically (expected until the corpus grows)"
-    fail=1
+    echo "FAIL F cannot yet compile its own source byte-identically"
+    python3 - "$WORK/stage1.ir" "$WORK/selfref.ir" <<'DIFFPY'
+import sys
+a=open(sys.argv[1]).read(); b=open(sys.argv[2]).read()
+i=0
+while i<min(len(a),len(b)) and a[i]==b[i]: i+=1
+print('       first divergence at byte', i, 'of', len(a), '(mine) /', len(b), '(ref)')
+j=b.rfind('(def ',0,i)
+print('       in ref def:', b[j:j+40].split()[1] if j>0 else '?')
+print('       mine: ...'+repr(a[max(0,i-60):i+60]))
+print('       ref : ...'+repr(b[max(0,i-60):i+60]))
+DIFFPY
+    exit 1
+  fi
+
+  # Step 2 -- the fixpoint. stage1 is F-compiled-by-F; wrap it in the SAME file-reading main that C0
+  # got, giving C1, then have C1 compile F's source again. stage1 == stage2 is the literal
+  # self-compilation fixed point -- no quine, the source comes from a FILE.
+  #
+  # The driver supplies BOTH the main def and the entry that calls it. F's source is main-less, so
+  # F faithfully emits `(entry (lit unit))` for it (that is what the reference emits, and byte-
+  # identity is the oracle) -- wrapping therefore has to replace the entry, exactly as C0 got when
+  # lowerProg saw the appended fileMain. Splicing the def alone leaves a compiler that never runs.
+  python3 - "$WORK/F0.ir" "$WORK/stage1.ir" "$WORK/C1.ir" <<'SPLICEPY'
+import sys
+c0=open(sys.argv[1]).read(); i=c0.index('(def main '); d=0; j=i
+while j<len(c0):
+    if c0[j]=='(': d+=1
+    elif c0[j]==')':
+        d-=1
+        if d==0: j+=1; break
+    j+=1
+md=c0[i:j]
+s=open(sys.argv[2]).read(); k=s.rindex(') (entry')
+open(sys.argv[3],'w').write(s[:k]+' '+md+') (entry (app (global main))))')
+SPLICEPY
+
+  # C1 must be a WORKING compiler -- and not merely "it runs": byte-identical to the reference too.
+  printf 'def f(x: Int): Int = if x < 1 then 1 else x * f(x - 1)\ndef main(): Int = f(5)\n' > "$WORK/t.ssc"
+  run bin/ssc1-run.ssc0 "$WORK/t.ssc" > "$WORK/t.ref"
+  runir "$WORK/C1.ir" "$WORK/t.ssc" > "$WORK/t.mine"
+  if cmp -s "$WORK/t.mine" "$WORK/t.ref"; then
+    g1=$(runir "$WORK/t.mine" | head -1)
+    if [ "$g1" = "120" ]; then echo "ok   C1 (the self-produced compiler) is byte-identical to the reference AND its IR runs -> $g1"
+    else echo "FAIL C1's emitted IR ran to [$g1], want 120"; fail=1; fi
+  else
+    echo "FAIL C1 is not a faithful compiler"; fail=1
+  fi
+
+  # stage2 = C1(F_src)
+  runir "$WORK/C1.ir" "$FSUB" > "$WORK/stage2.ir"
+  if cmp -s "$WORK/stage1.ir" "$WORK/stage2.ir"; then
+    echo "ok   *** X1 FIXPOINT: stage1 == stage2 (byte-identical, $(wc -c < "$WORK/stage2.ir") bytes) ***"
+  else
+    echo "FAIL fixpoint: stage1 != stage2"; fail=1
   fi
 fi
 

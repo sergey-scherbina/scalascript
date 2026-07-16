@@ -185,7 +185,15 @@ def emitDef1(nm, ts, dq) = parseParams(tl(ts), Nil) match { case (env, r) => emi
 def emitDefBody(nm, ar, env, ts, dq) = parseExpr(ts, 0, env, dq) match { case (body, rest) => ("(def " ++ nm ++ " (lam " ++ ar ++ " " ++ body ++ "))", rest) }
 def emitDefs(ts, dq) = if isEmpty(ts) then "" else emitDef(ts, dq) match { case (d, rest) => if isEmpty(rest) then d else d ++ " " ++ emitDefs(rest, dq) }
 
-def compile(src, dq) = prelude(dq) ++ emitDefs(lex(src, 0, src.length), dq) ++ ") (entry (app (global main))))"
+// The entry clause depends on whether the program HAS a `main` (measured: a main-less program gets
+// `(entry (lit unit))`). F's OWN source is main-less -- it defines `compile`, and the ssc0 driver
+// supplies the file-reading main -- so this is the last shape X1 needs.
+def hasMain(ts) = if isEmpty(ts) then false else (if isTok(hd(ts), 2, 1) then hasMain1(hd(tl(ts)), tl(ts)) else hasMain(tl(ts)))
+def hasMain1(t, ts) = if fst(t) == 1 then hasMainN(snd(t), ts) else hasMain(ts)
+def hasMainN(nm, ts) = if nm == "main" then true else hasMain(ts)
+def entryOf(ts) = if hasMain(ts) then ") (entry (app (global main))))" else ") (entry (lit unit)))"
+def compile(src, dq) = compile1(lex(src, 0, src.length), dq)
+def compile1(ts, dq) = prelude(dq) ++ emitDefs(ts, dq) ++ entryOf(ts)
 // The CONSTANT 7258-byte prelude `ssc1-lower` emits (measured identical across programs).
 // It is fixed OUTPUT, so F carries it as a string constant; byte-identity stays the oracle.
 // Split at the 24 `"` sites, spliced with dq -- so this source has no `"`-inside-a-string.
