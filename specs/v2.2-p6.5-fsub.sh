@@ -201,6 +201,20 @@ d ty_nested  'def f(m: Map[String, List[Int]], k: Int): Int = k
 def main(): Int = 0'
 d ty_tuplist 'def f(xs: List[(Int, Int)], k: Int): Int = k
 def main(): Int = 0'
+d cc_decl    'case class P(x: Int, y: Int)'
+d cc_nomain  'case class P(x: Int)'
+d cc_pat     'case class P(x: Int, y: Int)
+def g(p: P): Int = p match { case P(a, b) => a + b }'
+d cc_two     'case class P(x: Int)
+case class Q(x: Int)'
+d cc_interl  'case class P(x: Int)
+def helper(n: Int): Int = n + 1
+case class Q(y: Int)'
+d cc_after   'def helper(n: Int): Int = n + 1
+case class P(x: Int)'
+d cc_types   'case class M(n: Int, s: String, xs: List[Int])'
+d cc_tuptype 'case class G(p: (Int, Int))'
+d cc_3       'case class T(a: Int, b: String, c: Int)'
 
 if [ "${1:-}" = "--self" ]; then
   echo "--- X1: F compiles its OWN source ---"
