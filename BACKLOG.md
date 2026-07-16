@@ -15,6 +15,35 @@ Status hygiene (2026-06-23): open `[ ]` rows below are intentionally still open,
 explicitly `BLOCKED` or `DEFERRED` product/external-decision items. History-only / wontfix notes
 are plain bullets without checkboxes so agents do not claim them as build work.
 
+## Residual risk from the codex-lane salvage — descriptor v3 Slice B parser markers (2026-07-16)
+
+`feature/ssc-api-descriptor-v3-slice-b` landed as `cf14fb5b4` after an independent re-verification
+(see the `codex-lane-salvage` SPRINT section for the observed numbers — every claimed gate reproduced;
+nothing below is known-broken). It was the only one of the three salvaged branches to touch **shared
+compiler core**, so its two structural decisions are recorded here rather than left implicit in a
+5,636-line diff nobody else has read. Neither is a defect; both are things a future agent should know
+about *before* being surprised by them.
+
+- **`preprocessEffects` now injects marker types into every effect object.**
+  `v1/lang/core/src/main/scala/scalascript/parser/Parser.scala` rewrites `effect Name:` into
+  `object Name { private type __effectDecl__ = true; … }`, plus `private type
+  __effectUnsupportedShape__ = true` for generic/`extends` effects. This is how declaration facts
+  reach `PreBodyApiDescriptorProducer` (a consumer that only retains the *preprocessed* tree
+  otherwise cannot tell an empty effect from an ordinary empty object). It is a string-injected
+  marker in a desugaring, i.e. it touches **every `.ssc` program that declares an effect**, on every
+  lane. Verified inert: `core/test` 1132/1132, and the forced (`--no-memo`) effect conformance slice
+  9/9 across INT/JS/JVM against a freshly built jar. Full-corpus is CI's radius, per AGENTS.md §4b.
+- **The effect-line `extends` regex widened from `\S+` to `[^:]+`** (same file, `effectLinePat`).
+  Behaviour change worth knowing: `effect Foo extends Bar with Baz:` previously did **not** match
+  (`\S+` stops at `Bar`, so `\s*:` failed) and fell through to the Scala parser un-rewritten; it now
+  matches, is rewritten, and is flagged unsupported-shape so the producer fails closed. Strictly more
+  cases are handled — but if an effect-declaration parse ever behaves unexpectedly around `extends`,
+  this is the commit to look at first.
+- **`core` now `dependsOn(v2InteropDescriptor)`** (`build.sbt`), i.e. the v1 lang core takes a
+  compile dependency on a v2 interop module. Deliberate (the producer lives in `core` and emits v2
+  descriptor types) and the whole graph builds + `installBin` stages cleanly, but it is a new v1→v2
+  coupling direction — relevant to anyone untangling the v1/v2 module graph.
+
 ## Saved-continuation optional policies (2026-07-14)
 
 The base contract is deliberately small: a reusable `SavedContinuation` is a typed opaque

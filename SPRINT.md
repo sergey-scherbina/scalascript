@@ -59,14 +59,37 @@ substantial and self-reported green:
 | `feature/scala3-control-macros` @ `e34b81733` | 21 files, +4443 | focused 51/51, full/package/POM 113/113, packaged 14×42 |
 | `feature/ssc-api-descriptor-v3-slice-b` @ `28c2e959c` | 10 files, +5636 | focused 94/94, descriptor 27/27, core 1132/1132, interop 36/36, ABI 73/73 |
 
-- [ ] **C1 — verify, do not trust.** For each branch: rebase on current `origin/main`, then RE-RUN the
-      gates it claims rather than believing the claim file. A self-reported green from a dead agent is a
-      hypothesis. Record the ACTUAL numbers.
-- [ ] **C2 — merge what is genuinely green**, one branch at a time, each as its own push to `origin/main`
-      (feature / docs / bookkeeping split per AGENTS.md §3). Do NOT bundle the three.
-- [ ] **C3 — for anything red or ambiguous:** do not merge and do not silently drop it. Record what is
-      valuable + what is broken in `BACKLOG.md` so the work is recoverable, and report it up.
-- [ ] **C4 — release the three stale claims** + remove the dead worktrees once adjudicated.
+- [x] **C1 — verify, do not trust ✓ DONE 2026-07-16.** All three re-verified on top of live `origin/main`
+      (integrated by merge, not rebase: 43/50/48 commits each × the same BUGS/CHANGELOG/SPRINT hunks =
+      40+ identical conflict resolutions per branch; a merge resolves them once, and `main` already
+      carries merge commits). **Every claimed gate reproduced; nothing was red.** Notably `origin/main`
+      had moved 80+ commits (incl. the `v2FrontendBridge`/`v2PluginBridge` removal) — **zero code
+      conflicts** on all three; the only conflicts were additive doc hunks. ACTUAL observed numbers:
+      - **js-control-direct**: `control-direct` npm 39/39 (verified per-file 4 cli + 6 package + 29
+        transform — the glob really does run all three files), `control` explicit npm 31/31, `tsc -p`
+        exit 0, catalog PASS. "catalog 26/9" decoded = **26 vectors / 9 lanes**, not a ratio.
+      - **scala3-control-macros**: `scala3ControlApi/test` **113/113** (10 suites), catalog validation
+        PASS (26 vectors/9 lanes), lane `scala-direct` 3/3, lane `scala-explicit` 18/18 (re-run because
+        the branch edits `vectors.tsv`/`lanes.tsv`).
+      - **descriptor-v3-slice-b**: focused **94/94** = producer 82/82 + parser-preprocess 8/8 + effect-
+        analysis 4/4 (the claim's "94" is the SUM — the producer suite alone is 82; `specs/ssc-api-
+        descriptor-v3.md:1013` states the split); `v2InteropDescriptor/test` 27/27; `core/test`
+        **1132/1132**; `interop/test` 36/36; `ir/test` trivially green (**no test sources exist**);
+        artifact ABI 73/73; `installBin` OK; conformance `modules*,import-dir*` 2/2 and the forced
+        effect slice 9/9 — both `--no-memo` **against a freshly rebuilt jar** (the worktree's
+        `bin/lib/ssc.jar` was the dead agent's stale Jul-15 build and would have proved nothing).
+- [x] **C2 — merged, one push each ✓ DONE 2026-07-16.** Landed separately, gates re-run after every
+      re-sync (main moved 4× mid-flight):
+      - `feature/javascript-typescript-control-direct` → **`b5e1a74db`**
+      - `feature/scala3-control-macros` → **`488d86175`**
+      - `feature/ssc-api-descriptor-v3-slice-b` → **`cf14fb5b4`**
+- [x] **C3 — nothing red; nothing dropped ✓.** No branch needed a BACKLOG deferral. Two judgement calls
+      recorded for the record: (a) the README control-feature table was a **semantic** conflict (the JS
+      and Scala lanes rewrote the *same four rows*) — resolved row-by-row on meaning, not "keep both",
+      which would have duplicated rows into a nonsense table; (b) the descriptor branch is the only one
+      touching shared compiler core — see the residual-risk note in `BACKLOG.md`.
+- [x] **C4 — dead worktrees removed + merged branches deleted ✓.** The three codex claims were already
+      released by the orchestrator before this lane started.
 
 ## new-self-hosting-front — a rational, self-hosting ScalaScript compiler front (2026-07-15, Sergiy)
 
