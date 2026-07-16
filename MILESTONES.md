@@ -21,10 +21,18 @@ This is the spine: the `C_min` compiler-for-L-in-L fixpoint already holds (stage
 byte-identical, no quine), and the **new self-hosting front** is replacing `ssc1-front`+`ssc1-lower`
 byte-identically against the frozen Core IR.
 
-- **Status: newfront Phase 1 at MATCH 478/499 (96%)** — DROP 2, HOLE 4, DIFF 15 (measured
-  2026-07-16 via `specs/newfront-diff.sh`; re-measure, don't trust this line).
-- Then: Phase 2 imports → 3 self-host subset → 4 rewrite in the subset → 5 clean lowerer →
-  6 cutover (`bin/ssc` behind a flag, corpus green, then default).
+Two independent threads run under this stream — don't confuse them:
+
+- **newfront** — the clean front replacing `ssc1-front`+`ssc1-lower`, byte-identical on the corpus.
+  **Status: Phase 1 at MATCH 478/499 (96%)** — DROP 2, HOLE 4, DIFF 15 (measured 2026-07-16 via
+  `specs/newfront-diff.sh`; re-measure, don't trust this line). Then: Phase 2 imports → 3 self-host
+  subset → 4 rewrite in the subset → 5 clean lowerer → 6 cutover (`bin/ssc` behind a flag, corpus
+  green, then default).
+- **P6.5 → X1 — THE KEYSTONE.** The subset compiler written in the subset, compiling itself.
+  P6.6's `C_min` fixpoint (stage1 == stage2, no quine) already proved the concept; F1/F2/F3/L1 cores
+  landed; what's left is bounded mechanical breadth (~1–3k subset lines, no unknowns per SPRINT).
+  **X1 also unblocks the whole deep half of stream 3** — see stream 3 below. If you only have room
+  for one self-hosting task, this is the one with leverage.
 - Adjacent: retire the v1/scalameta hybrid tier (`SwiftV2Commands`→`RunNativeV2`, delete
   `RunV2`/bridge); v2 native/bytecode lane coverage.
 - Detail: `SPRINT.md` §`new-self-hosting-front`, `specs/newfront-*`.
@@ -47,8 +55,21 @@ other languages can drive — and be driven by — ScalaScript.
 
 - Landed 2026-07-16: Scala 3 direct-style control macros, JS/TS direct control host, the
   `ssc-api-descriptor-v3` interop surface.
-- Open: host/runner profiles (JS/TS, Rust, Swift, WASM-WASI), the N×M interop matrix,
-  saved-continuation format, mixed-build interface extraction.
+- **⚠️ The deep half of this stream is GATED ON STREAM 1's `P6.5 X1`** — it is not fully
+  independent. SPRINT: byte-affecting control work "begins only after the active UniML P6.5
+  literal-fixed-point sequence `F1 → F2/F3 → L1 → X1` is green and frozen". X1 green/frozen is the
+  stated blocker on `coreir-canonical-contract-reconcile`, `coreir-canonical-codec-hardening`,
+  `numeric-width-reconciliation` and — via `specs/control-interoperability.md` §2.4 —
+  `save()`/`run()` durable continuations. **Measured 2026-07-16:** no `SavedContinuation` is
+  constructible on ANY lane (every `Continuation.save()` performs `Save.Rejected(UnmanagedCapture)`);
+  `.ssc` has no `shift`/`reset` surface at all (`unbound global`); vectors 14/17 are `pending-codec`
+  on all 9 lanes. So `control-interop-examples` was queued AHEAD of its own prerequisites and is
+  now marked BLOCKED — **do not start it**.
+- **Unblock order:** P6.5 X1 green/frozen → `coreir-*` reconcile/hardening → `save()`/`run()` →
+  examples. Working X1 IS working this stream.
+- Genuinely independent (not X1-gated): host/runner profile delivery (JS/TS, Rust, Swift,
+  WASM-WASI), the N×M matrix, mixed-build interface extraction — planning, descriptors, reference
+  API and semantic vectors "may proceed now" per SPRINT.
 - Detail: `SPRINT.md` §`control-interoperability`, `specs/control-interoperability.md`.
 
 ### Health (blocks everything — check before trusting any gate)
