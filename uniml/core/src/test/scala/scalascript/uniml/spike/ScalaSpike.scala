@@ -1151,9 +1151,47 @@ object SpikeParse:
     val arrowLine = c.peekLine
     if c.peekKind == "spike.op" && c.peekLexeme == "=>" then c.advance().foreach(t => kids += Node.Leaf(t, Some("case.arrow")))
     else c.report("spike.expected", "expected '=>' in case arm")
-    // an arm body on a LATER line than `=>` is an indented block (like a def/if branch)
-    kids += branchExpr(c, arrowLine).withRole("case.body")
+    kids += armBody(c, arrowLine).withRole("case.body")
     Node.Frame("spike.arm", None, kids.result())
+
+  // An arm body is a STATEMENT LIST terminated by `case` / `}` / EOF, and then: exactly ONE `expr`
+  // statement → the BARE expr; anything else (a single val/var/assign, or 2+ statements) → a
+  // `("block", stmts)` (ssc1-front parseArmBody, ssc1-front.ssc0:1974-1996).
+  //
+  // ssc1-front needs no column rule there because its layout pass emits a virtual `}` at a dedent; the
+  // spike has no synthetic tokens, so it emulates the dedent with parseBlock's column guard, and stops at
+  // an enclosing `)`/`]` (which the layout's closeToDelim closes for ssc1-front). Both are REQUIRED: without
+  // the paren stop, `f(x match ⏎ case A => 1)` eats the call's `)` into an `_err` statement.
+  //
+  // An OFFSIDE body was already a block (the `=>` opens a layout block) — unchanged. A SAME-LINE body is
+  // almost always ONE expression and unwraps to exactly what parseExpr produced before, so this is a strict
+  // superset of the old behaviour. The list matters for a CUSTOM INTERPOLATOR, which ssc1-front does not lex
+  // as one token: `case Some(u) => html"<p>…</p>"` is the var `html` THEN the string — two statements → a
+  // block. Keeping the single-expr UNWRAP is what makes this safe (wrapping every same-line arm in a block
+  // changes the body's tag for hundreds of programs — the trap that sank the earlier attempt).
+  private def armBody(c: Cur, arrowLine: Int): Node =
+    if !c.eof && c.peekLine > arrowLine then branchExpr(c, arrowLine)
+    else
+      val bodyCol = c.peekCol
+      val stmts = Vector.newBuilder[Node]
+      var more = true
+      while more do
+        c.skipSemis() // parseArmBody skipSemis's BEFORE each terminator test — an explicit `;` between arms
+        // (`{ case Text(s) => s; case _ => "?" }`) is a separator, NOT a statement. parseBlock does not skip
+        // semis, so borrowing it here turned the `;` into an `_err` statement and broke the bare-expr unwrap.
+        if c.eof || isKw(c, "case") || c.peekKind == "spike.rbrace" ||
+           c.peekKind == "spike.rparen" || c.peekKind == "spike.rbracket" || c.peekCol < bodyCol
+        then more = false
+        else
+          val before = c.mark
+          stmts += parseStmt(c)
+          if c.mark == before then more = false // guarantee progress
+      val ss = stmts.result()
+      if ss.length == 1 then
+        ss.head match
+          case Node.Frame("spike.exprStmt", _, inner) if inner.length == 1 => inner.head
+          case _                                                           => Node.Frame("spike.block", None, ss)
+      else Node.Frame("spike.block", None, ss)
 
   // a full arm pattern: `alias @ PAT` (bind, bpat) around `PAT | PAT | …` (alternatives, apat).
   private def parseArmPattern(c: Cur): Node =
