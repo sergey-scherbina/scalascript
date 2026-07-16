@@ -3549,7 +3549,8 @@ ssc add io.scalascript/json 1.0.0 --file app.ssc
 
 The built-in public registry URL is
 `https://sergey-scherbina.github.io/scalascript/packages.yaml`. The browseable
-HTML index is served from `https://sergey-scherbina.github.io/scalascript/`.
+HTML index is served from `https://sergey-scherbina.github.io/scalascript/registry/`
+(the Pages root serves the project landing page).
 No custom domain is required for the MVP.
 
 Use `--registry <url>` on registry commands for a local mirror or internal

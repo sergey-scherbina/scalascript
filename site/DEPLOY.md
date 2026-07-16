@@ -2,8 +2,32 @@
 
 The site is a single static page — `index.html` + `favicon.svg`, no build step, no
 framework, no external requests (CSS and JS are inlined). Serve it from any static
-host. Recommended: **Cloudflare Pages** (free, global CDN, automatic HTTPS — which
-`.dev` requires).
+host.
+
+## Where it is published today — GitHub Pages (automatic)
+
+`https://sergey-scherbina.github.io/scalascript/` is live and published by
+`.github/workflows/pages.yml` on every push to `main` that touches `site/**`
+(or on demand via **Actions → Pages → Run workflow**). Nothing to do by hand.
+
+That workflow is the **single** Pages publisher: it composes this landing page
+with the package registry into one artifact, because two workflows deploying to
+Pages would race each other. Layout:
+
+| Path | Source | Notes |
+|---|---|---|
+| `/` | `site/index.html` | this landing page |
+| `/packages.yaml`, `/packages/**`, `/search-index.json` | `registry/site/` | **contract** — `RegistryClient.DefaultRegistryUrl` is a built-in default in shipped source; these must stay at the root |
+| `/registry/` | `registry/site/index.html` | browseable registry index |
+
+`DEPLOY.md` is stripped from the published artifact.
+
+## Custom domain (`scalascript.dev`) — not yet done
+
+The sections below are the plan for a custom domain. Recommended:
+**Cloudflare Pages** (free, global CDN, automatic HTTPS — which `.dev` requires).
+A custom domain could also be pointed at the existing GitHub Pages site via a
+`CNAME`; note the workflow currently asserts no `CNAME` file is generated.
 
 ## 1 · Register the domain — Cloudflare Registrar
 
