@@ -5399,16 +5399,21 @@ def emitExtDispatchers = (stmts) =>
 -- effect (e.g. the new self-hosting spike) instead emits `("casemethods", (name, (fields, defs)))` nodes.
 -- Collect them here and UNION with the cell — additive, so ssc1-front's own parse (which never emits these
 -- nodes) is unaffected and production output stays byte-identical.
-def collectCaseMethodsNodes = (stmts) =>
+-- REVERSE-accumulate (like collectSubtypeNodesAcc below): ssc1-front populates caseMethodsCell as a parse
+-- side effect by PREPENDING each class as it is parsed, so the cell ends up in REVERSE source order, and
+-- that order is observable in the emitted `<Class>_<method>` defs. Collecting AST-carried nodes in source
+-- order put the FIRST class's methods first and permuted the whole output (same bytes, wrong order).
+def collectCaseMethodsNodesAcc = (stmts, acc) =>
   match stmts {
-    case Nil => Nil
+    case Nil => acc
     case Cons(s, rest) =>
       match s {
         case Pair(tag, data) =>
-          if #seq(tag, "casemethods") then Cons(data, collectCaseMethodsNodes(rest))
-          else collectCaseMethodsNodes(rest)
+          if #seq(tag, "casemethods") then collectCaseMethodsNodesAcc(rest, Cons(data, acc))
+          else collectCaseMethodsNodesAcc(rest, acc)
       }
   }
+def collectCaseMethodsNodes = (stmts) => collectCaseMethodsNodesAcc(stmts, Nil)
 
 -- AST-carried `using` signatures — same additive, production-safe pattern as collectCaseMethodsNodes:
 -- a front that does not populate usingSigCell as a parse side effect emits `("usingsig", (name,
