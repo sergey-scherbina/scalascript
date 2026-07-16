@@ -202,6 +202,34 @@ when the surrounding conversation is in another language. The same rule
 applies to all other shared documentation files (`docs/`, `BACKLOG.md`,
 `specs/vm-jit-next.md`, etc.) unless they are explicitly localised.
 
+## MANDATORY: measurement apparatus must COMPARE, never PRE-JUDGE
+
+**Our single most recurring failure mode is not buggy code — it is measurement apparatus that
+decides the answer before comparing.** It is insidious because it fails *green*: the gate says
+"pass" (or "known failure") while the truth is the opposite, so nobody looks. It cost us days on
+three independent lanes in one day (2026-07-16):
+
+| Apparatus | How it pre-judged | Truth it hid |
+|---|---|---|
+| `specs/newfront-diff.sh` | `__notImplemented__` in the projection ⇒ **HOLE**, before comparing | `???` is a legit expression that LOWERS to that prim — the program was **byte-identical** and reported as a gap for 2 rounds |
+| `specs/newfront-diff.sh` | `proj == "Nil"` ⇒ **DROP** | doc-only `.ssc` extracts to a legitimately EMPTY program; `Nil` lowers to the bare prelude — both were **byte-identical** |
+| v21 e2e gates | bare `[[ … ]]` under `set -e`, printing **nothing** on mismatch | trivially-stale expectations, red for days |
+| CI vs local | local launchers inherited a bigger default JVM stack | a whole family passed locally, `StackOverflowError` in CI for **192 consecutive runs** |
+
+**The rules (binding):**
+
+1. **Compare first, classify after.** Compute both sides, byte-compare, and only then bucket the
+   result. A marker/heuristic (`__notImplemented__`, `Nil`, a size threshold) is a *triage hint* for
+   an already-failing case — never a reason to skip the comparison.
+2. **Every check prints its diff.** A gate that can fail silently will. `[[ x == y ]]` under `set -e`
+   is not a test; print `expected=… got=…` on mismatch.
+3. **Green from a proxy is not green.** Byte-equality (or the real observable) is the ground truth;
+   a passing gate that never ran the comparison proves nothing. Ask: *if this were broken right now,
+   would my apparatus actually say so?* If not, fix the apparatus **first** — a phase built on a
+   blind gate produces a confident lie, not progress.
+4. **Suspect the apparatus when a result looks impossible** ("this program can't have a hole") — and
+   when adding a new phase/lane, **build its gate before its feature**.
+
 ## MANDATORY: persist everything needed to continue from a fresh context
 
 The session that records is not the session that resumes. A parallel

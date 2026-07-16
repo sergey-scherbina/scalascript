@@ -164,6 +164,17 @@ substantial and self-reported green:
 
 ## new-self-hosting-front — a rational, self-hosting ScalaScript compiler front (2026-07-15, Sergiy)
 
+> **RULE FOR THIS WHOLE ARC (earned 3× in one session — see AGENTS.md "measurement apparatus must
+> COMPARE, never PRE-JUDGE"): the harness must COMPARE FIRST and CLASSIFY AFTER.** Three of the seven
+> gains on 2026-07-16 were the HARNESS lying, not parser gaps: `__notImplemented__`⇒HOLE and
+> `proj=="Nil"`⇒DROP each short-circuited BEFORE the byte-compare, so `predef-notimplemented`,
+> `deploy` and `tkv2-typed-client-derived` were reported as failures while being byte-identical.
+> **Byte-equality is the only ground truth here**; a marker or a size threshold is a triage hint for
+> an already-failing case, never a reason to skip the cmp. The same disease hit the v21 gates (bare
+> `[[ … ]]` under `set -e`, silent on mismatch) and CI (192 red runs behind a local-green launcher).
+> **When a phase gets a new capability, BUILD ITS GATE BEFORE ITS FEATURE** — an ungated phase does
+> not produce progress, it produces a confident lie. That is exactly why Phase 2 starts at 2.0.
+
 **Goal.** Replace the accreted `ssc0` front (`v2/lib/ssc1-front.ssc0` 3190 lines + `ssc1-lower.ssc0` 5359
 lines) with a clean, **self-hosting** front written in ScalaScript itself — **preserving 100% of existing
 functionality** and keeping a rational, phase-separated architecture. NOT a new compiler: everything at and
