@@ -24,5 +24,7 @@ if [[ "${SSC_NO_CDS:-}" != "1" ]]; then
   fi
 fi
 
-exec java "${_SSC_CDS_ARGS[@]}" -Dssc.lib.path="$_SSC_ROOT" \
+# The v1 tree walker recurses by AST depth; do not inherit the platform-dependent
+# JVM main-thread default (1m on Linux, 2m on macOS). Keep an override for gates.
+exec java "${_SSC_CDS_ARGS[@]}" -Xss"${SSC_XSS:-64m}" -Dssc.lib.path="$_SSC_ROOT" \
   -cp "$_SSC_BIN/lib/jars/*:$_SSC_BIN/lib/ssc.jar" scalascript.cli.ssc "$@"
