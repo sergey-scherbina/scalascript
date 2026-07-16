@@ -11,6 +11,6 @@ if [[ "${SSC_NO_CDS:-}" != "1" ]]; then
                    -Xlog:cds=off -Xlog:cds+dynamic=off)
   fi
 fi
-exec java "${_SSC_CDS_ARGS[@]}" -Dssc.lib.path="$_SSC_ROOT" \
+exec java "${_SSC_CDS_ARGS[@]}" -Xss64m -Dssc.lib.path="$_SSC_ROOT" \
   -cp "$_SSC_BIN/lib/standard/jars/*:$_SSC_BIN/lib/standard/ssc.jar" \
   scalascript.cli.StandardMain "$@"
