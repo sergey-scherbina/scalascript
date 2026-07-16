@@ -85,6 +85,13 @@ mkdir -p "$BIN"
 
 # The ScalaScript 2.1 standard tier is the default launcher. Keep this launcher
 # in sync with the checked-in bin/ssc (AppCDS cold-start cut).
+#
+# NOTE: these heredocs OVERWRITE the launchers `sbt cli/installBin` (above) just
+# generated from build.sbt's templates — so there are two generators for the same
+# three files and THIS one wins for anything that runs install.sh (including CI's
+# conformance job). A fix applied to only one side silently does nothing here:
+# that is exactly how -Xss64m was "fixed" in build.sbt yet every scljet case kept
+# StackOverflowError-ing in CI. Change both, or neither.
 cat > "$BIN/ssc" <<'LAUNCHER'
 #!/usr/bin/env bash
 _SSC_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -105,7 +112,7 @@ if [[ "${SSC_NO_CDS:-}" != "1" ]]; then
   fi
 fi
 
-exec java "${_SSC_CDS_ARGS[@]}" -Dssc.lib.path="$_SSC_ROOT" \
+exec java "${_SSC_CDS_ARGS[@]}" -Xss64m -Dssc.lib.path="$_SSC_ROOT" \
   -cp "$_SSC_BIN/lib/standard/jars/*:$_SSC_BIN/lib/standard/ssc.jar" \
   scalascript.cli.StandardMain "$@"
 LAUNCHER
@@ -115,7 +122,7 @@ cat > "$BIN/ssc-standard" <<'STANDARD_LAUNCHER'
 #!/usr/bin/env bash
 _SSC_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _SSC_ROOT="$(dirname "$_SSC_BIN")"
-exec java -Dssc.lib.path="$_SSC_ROOT" \
+exec java -Xss64m -Dssc.lib.path="$_SSC_ROOT" \
   -cp "$_SSC_BIN/lib/standard/jars/*:$_SSC_BIN/lib/standard/ssc.jar" \
   scalascript.cli.StandardMain "$@"
 STANDARD_LAUNCHER
@@ -125,7 +132,7 @@ cat > "$BIN/ssc-tools" <<'TOOLS_LAUNCHER'
 #!/usr/bin/env bash
 _SSC_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _SSC_ROOT="$(dirname "$_SSC_BIN")"
-exec java -Dssc.lib.path="$_SSC_ROOT" \
+exec java -Xss64m -Dssc.lib.path="$_SSC_ROOT" \
   -cp "$_SSC_BIN/lib/jars/*:$_SSC_BIN/lib/ssc.jar" \
   scalascript.cli.ssc "$@"
 TOOLS_LAUNCHER

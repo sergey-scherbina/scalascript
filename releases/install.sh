@@ -20,7 +20,7 @@ fi
 
 cat > "$BIN_DIR/ssc" <<EOF
 #!/usr/bin/env sh
-exec java -jar "$LIB_DIR/ssc.jar" "\$@"
+exec java -Xss64m -jar "$LIB_DIR/ssc.jar" "\$@"
 EOF
 chmod +x "$BIN_DIR/ssc"
 
