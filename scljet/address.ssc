@@ -185,7 +185,7 @@ def pickRowid(rows: List[StorageRecord], a: SqliteAddress): Either[String, Stora
     case None => Left("no such row: " + renderAddress(a))
 
 def readField(rec: StorageRecord, colIdx: Int, ipkIdx: Int, a: SqliteAddress, stable: Boolean): AddressedValue =
-  val physical = fieldAt(rec.record, colIdx)
+  val physical = fieldAt(rec.record.fields, colIdx)
   val physicalBytes = physical match
     case Some(field) => field.encoded.length
     case None => 0

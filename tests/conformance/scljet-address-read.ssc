@@ -1,6 +1,6 @@
 ---
 name: scljet-address-read
-description: SclJet addressing — read a value by <table>/<rowid>/<column>; the logical/physical link, Raw fallback, stability
+description: SclJet addressing — read a value by <table>/<rowid>/<column>; the logical/physical link, type answers, stability
 backends: [int, js]
 ---
 
@@ -11,13 +11,21 @@ the record). This drives the first slice — `addressRead` — over an in-memory
 resolution, the per-type answers, and the two facts that make the link observable rather than
 assumed (`fromRowid`, `physicalBytes`).
 
-Note what this case can and cannot prove. The image here is written by scljet and read by scljet,
-so it is a **self-consistent oracle**: it pins the shape of the answers, but it cannot see a
+Note what this case can and cannot prove. The image is written by scljet and read by scljet, so
+it is a **self-consistent oracle**: it pins the shape of the answers, but it cannot see a
 file-format divergence. The IPK link is only truly proven by a differential that crosses two
-engines through a FILE — that lives in the JVM lane (`ScljetAddressTest`), where a real SQLite
-writer is available. Spec: `specs/scljet-address.md`.
+engines through a FILE — that lives in the JVM lane, where a real SQLite writer is available.
+Spec: `specs/scljet-address.md`.
+
+Rows are inserted through the SQL path, because that is the path that honours the
+`INTEGER PRIMARY KEY` = rowid alias (`buildTableDatabase` is a low-level builder that assigns
+rowids sequentially and does not). The NULL row omits its column rather than writing
+`VALUES (…, NULL)`: an explicit NULL in a VALUES list is an open engine gap
+(`BUGS.md` → `scljet-insert-null-literal-rejected`), while omitting the column is equivalent
+and parses.
 
 [ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlText, SqlReal, SqlBlob, buildTableDatabase](std/scljet/index.ssc)
+[executeMutation](std/scljet/sql.ssc)
 [SqliteAddress, AddressedValue, parseAddress, renderAddress, addressRead](std/scljet/address.ssc)
 
 ```scalascript
@@ -39,15 +47,24 @@ def readAt(image: ByteSlice, text: String): Unit =
           " fromRowid=" + av.fromRowid.toString +
           " stable=" + av.stable.toString)
 
-// A table WITH an INTEGER PRIMARY KEY: the addresses into it are stable, and `id` is an alias
-// for the rowid.
+// Loud on failure: a helper that silently returned the unchanged image would make a
+// failed insert look like a missing row — the exact silence this module exists to remove.
+def insert(image: ByteSlice, sql: String): ByteSlice =
+  executeMutation(image, sql) match
+    case Left(message) =>
+      println("INSERT FAILED: " + message + " -- " + sql)
+      image
+    case Right(next) => next
+
+// A table WITH an INTEGER PRIMARY KEY: `id` IS the rowid, so the addresses are stable.
 buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER PRIMARY KEY, name TEXT, bonus REAL)",
-  List(List(SqlInteger(1L), SqlText("ann"), SqlReal(1.5)),
-       List(SqlInteger(7L), SqlText("bob"), SqlReal(2.5)),
-       List(SqlInteger(9L), SqlText("cat"), SqlNull))) match
+  List(List(SqlInteger(1L), SqlText("ann"), SqlReal(1.5)))) match
   case Left(error) => println("build failed: " + error.message)
-  case Right(image) =>
-    println("-- an IPK table: addresses are stable --")
+  case Right(base) =>
+    val image = insert(insert(base, "INSERT INTO emp VALUES (7, 'bob', 2.5)"),
+                       "INSERT INTO emp(id, name) VALUES (9, 'cat')")
+
+    println("-- an IPK table: id IS the rowid, addresses are stable --")
     readAt(image, "emp/7/name")
     readAt(image, "emp/7/id")
     readAt(image, "emp/7/bonus")

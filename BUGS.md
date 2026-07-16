@@ -1,5 +1,82 @@
 # Bug tracker
 
+## v2-native-double-toLong-noop — `Double.toLong` is a no-op on v2-native → any Long op on the result explodes
+
+**Status:** OPEN (found 2026-07-16 by `scljet-address` while building an address read; the SAME
+class as the already-FIXED `v2-native-toDouble-toFloat-noop`, and the fix site is the same file).
+**Not the scljet engine — the v2 native front.** Found on `origin/main` `1832b5b22`.
+
+**Symptom/reproduce** — three lines, and the failure is *loud but misattributed*: the value even
+prints correctly, so it looks fine right up to the first arithmetic:
+
+```scala
+val d: Double = 6.0
+val n: Long = d.toLong
+println((8L | n).toString)
+// bin/ssc-tools run --v1  → 14          (v1 interp, the conformance reference)
+// bin/ssc run             → ssc: expected Int, got 6     ← v2 native
+```
+
+`.toLong` leaves the value a **Double**; it renders as an integer (whole doubles print without a
+decimal point), so nothing looks wrong until a Long/bit operation receives it. `Double.toInt`
+works — only `toLong` is broken. `Long.toDouble` works (that was the earlier fix).
+
+**Root cause — confirmed, and the comment names the blind spot.** `v2/lib/ssc1-lower.ssc0:1624`:
+
+```
+else if #seq(field, "toLong") then robj      -- no-op
+...
+-- ... `toLong` stays a no-op (Long IS Int here).
+```
+
+That reasoning is right for an **Int** receiver (ssc `Int` is 64-bit, so `Int.toLong` IS identity)
+and wrong for a **Double** one, which must actually convert. The adjacent `toDouble`/`toFloat`
+were fixed on 2026-07-15 by routing them to the shared runtime method table; `toLong` was left
+behind. `else if #seq(field, "toShort") then robj` (line ~1633) is the same shape and likely the
+same bug.
+
+**Fix (one line, same shape as its neighbours), plus the check it needs.** Route it:
+`Pair("prim", Pair("__method__", Cons(Pair("str", "toLong"), Cons(robj, Nil))))`. The backends
+already implement it — `JvmBackend.scala:362` (`case "toLong" | "toInt"`), `RustBackend.scala:1610`
+— **but verify the NATIVE tier's method table has `toLong` before landing**: today every
+`Int.toLong` survives *because* the lowering erases it, so routing it through `__method__` when
+the native table lacks the entry would break every existing `Int.toLong`.
+
+**Impact.** `scljet/write.ssc:163` (`encodeReal`) does `(… * 4503599627370496.0).toLong`, so
+**every REAL write through scljet crashes on `bin/ssc run`** — the default command
+(`ssc: expected Int, got 2251799813685248`, which is `0.5 * 2^52`, the mantissa of 1.5). It went
+unnoticed because scljet's conformance runs `[int, js]`, and `int` (the v1 interp) is correct.
+
+**Related, opposite direction (minor, not filed separately):** `Double.toDouble` does not exist on
+the **v1 interp** (`No method 'toDouble' on Double`) but works on v2-native — a stdlib
+completeness gap of the same family as `interp-collection-stdlib-completeness-gaps`.
+
+## scljet-insert-null-literal-rejected — `INSERT … VALUES (…, NULL, …)` is rejected; `UPDATE … SET x = NULL` works
+
+**Status:** OPEN (found 2026-07-16 by `scljet-address`). **Engine — the `scljet-m3-writes` lane.**
+Found on `origin/main` `1832b5b22`.
+
+**Symptom/reproduce** — a `NULL` literal in an INSERT's VALUES list fails in **any** position, and
+the message misnames the clause (it is an INSERT, not a WHERE):
+
+```
+INSERT INTO emp VALUES (9, 'cat', 3.5)     → ok
+INSERT INTO emp VALUES (9, 'cat', NULL)    → FAILED: expected a literal in WHERE
+INSERT INTO emp VALUES (9, NULL, 3.5)      → FAILED: expected a literal in WHERE
+INSERT INTO emp VALUES (NULL, 'cat', 3.5)  → FAILED: expected a literal in WHERE
+INSERT INTO emp(id, name) VALUES (9,'cat') → ok      (omitting the column is the workaround)
+UPDATE emp SET bonus = NULL WHERE id = 1   → ok      (NULL parses fine HERE)
+```
+
+**Root cause (hypothesis).** The asymmetry localises it: UPDATE's assignment parser accepts the
+`NULL` keyword, INSERT's value-list parser (`parseValueList` / its literal reader) does not. The
+"in WHERE" wording suggests the INSERT path reuses the WHERE-clause literal reader, so fixing the
+reader (or its caller's error text) probably fixes both the parse and the message.
+
+**Why it survived.** The workaround — omit the column — is the natural way to write a NULL row, so
+existing tests never needed the literal form. `conformance scljet-address-read` documents the
+detour in a comment; switch it back to `VALUES (…, NULL)` when this is fixed.
+
 ## run-js-v2-always-exits-1 — `run-js --v2` returns exit 1 on success, for every program
 
 **Status:** OPEN, root cause NOT found (time-boxed — handing over with the measurements).

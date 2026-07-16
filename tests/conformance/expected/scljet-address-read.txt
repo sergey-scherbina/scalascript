@@ -1,0 +1,18 @@
+-- an IPK table: id IS the rowid, addresses are stable --
+emp/7/name => TEXT bob | physical=3B fromRowid=false stable=true
+emp/7/id => INTEGER 7 | physical=1B fromRowid=true stable=true
+emp/7/bonus => REAL 2.5 | physical=8B fromRowid=false stable=true
+emp/1/name => TEXT ann | physical=3B fromRowid=false stable=true
+emp/9/bonus => NULL NULL | physical=0B fromRowid=false stable=true
+-- addresses that do not resolve are errors, not guesses --
+emp/42/name => ERR no such row: emp/42/name
+emp/7/nope => ERR no such column: nope in emp
+nosuch/1/x => ERR no such table: nosuch
+-- a malformed address is an explicit error --
+emp/7 => ERR address: expected <table>/<rowid>/<column>, got: emp/7
+emp/x/name => ERR address: rowid is not a number: x
+emp//name => ERR address: empty rowid
+emp/7/name
+-- no IPK: same address form, but NOT stable --
+log/1/a => INTEGER 10 | physical=1B fromRowid=false stable=false
+log/2/b => TEXT y | physical=1B fromRowid=false stable=false
