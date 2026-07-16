@@ -24,6 +24,34 @@ specialisations (`+`→`++` when either side is a str-expr; `.length`→`slen` v
 Boundary: S is the subset F is itself written in. Case classes, given/summon, enums, extensions, lambdas,
 comprehensions, `var`/`while` and interpolation remain — corpus growth against the same oracle.
 
+## 2026-07-16 — v2: a typo'd zero-arg method now FAILS CLOSED (`__method0__`)
+
+Fixed `v2-zero-arg-unknown-method-fails-open`: on the DEFAULT lane (`bin/ssc run`),
+an unknown **zero-argument** method silently computed garbage and exited 0 —
+`42.bogusMethod()` printed `<closure>`, `List(1,2).bogusMethod()` printed `Stub`,
+and `resume.save()` in statement position ran silently. Any typo'd zero-arg method
+in any `.ssc` program was affected; it also defeats examples-as-evidence (a
+nonexistent method reads as a plausible value).
+
+Root cause was **not** the recorded hypothesis (curried `__method__`). It was two
+deliberate fail-open fallbacks in the VM's `Prims.__method__`: the eta-expansion
+added by `691334d4e` for `list.exists(lc.contains)` (returns `x => recv.name(x)`
+rather than erroring) and the `Stub` missed-method breadcrumb for DataV receivers.
+Both are guarded by "no args", which is why arity *looked* like the discriminator.
+
+The keystone: `42.bogusMethod` and `42.bogusMethod()` lower to **byte-identical
+Core IR** — the lowerer discards the `()`, so no runtime-only fix could tell a typo
+from a method ref. The front does distinguish (`sel` vs `app(sel, [])`). The lowerer
+now carries it: an applied zero-arg call emits **`__method0__`** (dispatch or fail,
+never eta-expand); bare selections keep `__method__`, so method refs still work.
+Other backends never eta-expanded and simply alias the new prim. Fails closed now on
+native, `--bytecode` and `build-jvm`, with the same message as the applied-arity case.
+
+Residual (design, documented in BUGS.md): a **bare** `42.bogusMethod` never applied
+is still silent — it is the same shape as a legitimate method ref, so closing it
+needs a typed frontend.
+
+
 ## 2026-07-16 — scljet: `INTEGER PRIMARY KEY` is a rowid alias (interop with real SQLite)
 
 Fixed `scljet-ipk-rowid-alias-not-substituted`: scljet read `0` for every
