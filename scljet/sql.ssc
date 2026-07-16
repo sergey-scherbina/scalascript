@@ -5061,15 +5061,43 @@ def matchedRowCount(dbBytes: ByteSlice, table: String, where: List[List[Conditio
     case Left(message) => Left(message)
     case Right(rc) => Right(listLenLong(matchingRowids(rc._1, where, rc._2)))
 
-// changes + lastInsertRowid for an INSERT. scljet assigns sequential rowids from maxRowid+1, so
-// changes = #value-tuples and the last assigned rowid = maxRowid + changes.
+// The last rowid of an assigned insert batch (the batch is never empty at the call site).
+def lastRowidOf(rows: List[SqlRow]): Long =
+  var r = rows
+  var last = 0L
+  while r.nonEmpty do
+    last = r.head.rowid
+    r = r.tail
+  last
+
+// changes + lastInsertRowid for an INSERT.
+//
+// The last rowid is NOT `maxRowid + #rows`: with an INTEGER PRIMARY KEY column an explicit value IS
+// the rowid (SQLite's alias), so `INSERT INTO emp VALUES (7,'bob')` into an empty table assigns
+// rowid 7, not 1. Deriving the number here independently of the code that actually places the rows
+// is what made `lastInsertRowid` disagree with the row on disk — and `getGeneratedKeys` (J2) return
+// the wrong key for exactly the tables where generated keys matter most.
+//
+// So reuse `assignInsertRowids` — the single source of truth executeInsert uses — and report the
+// last rowid it assigns. Both callers now derive the rowid from the same function by construction.
 def insertChangesRowid(dbBytes: ByteSlice, stmt: InsertStmt): Either[String, (Long, Long)] =
   if stmt.rows.isEmpty then Right((0L, 0L))
   else
     val nrows = valueRowsLenLong(stmt.rows)
-    tableRowsForCount(dbBytes, stmt.table) match
+    tableContext(dbBytes, stmt.table) match
       case Left(message) => Left(message)
-      case Right(rc) => Right((nrows, longAdd(maxRowidOf(rc._1), nrows)))
+      case Right(ctx) =>
+        val db = ctx._1
+        val root = ctx._2
+        val colNames = ctx._3
+        openReadonlyRoot(db, root.toLong, RowidTableTree) match
+          case Left(error) => Left(error.message)
+          case Right(cursor) => collectRows(db, cursor) match
+            case Left(error) => Left(error.message)
+            case Right(rows) =>
+              val assigned = assignInsertRowids(stmt.rows, stmt.columns, colNames,
+                tableIpkIndex(db, stmt.table), longAdd(maxRowidOf(rows), 1L))
+              Right((nrows, lastRowidOf(assigned)))
 
 def executeMutationCounted(dbBytes: ByteSlice, sql: String): Either[String, MutationResult] =
   executeMutationCountedParams(dbBytes, sql, Nil)

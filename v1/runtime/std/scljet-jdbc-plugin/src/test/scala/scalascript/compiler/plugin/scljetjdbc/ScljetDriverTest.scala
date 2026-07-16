@@ -267,6 +267,37 @@ class ScljetDriverTest extends AnyFunSuite:
       assert(rs2.next() && rs2.getLong(1) == 2L)
     finally c.close()
 
+  test("getGeneratedKeys on an INTEGER PRIMARY KEY table reports the EXPLICIT id, not a counter"):
+    // The test above uses a PLAIN `INTEGER` column, where a sequential rowid IS
+    // the right answer — so it passed while lastInsertRowid was a counter
+    // (BUGS.md scljet-ipk-rowid-alias-not-substituted).  An INTEGER PRIMARY KEY
+    // is the case that tells the two apart: the explicit value IS the rowid, so
+    // inserting 7 into an empty table must report 7, not 1.  Cross-checked
+    // against the reference driver's last_insert_rowid() rather than a literal.
+    def keys(c: Connection): List[Long] =
+      val s = c.createStatement()
+      s.executeUpdate("CREATE TABLE k(id INTEGER PRIMARY KEY, v TEXT)")
+      val out = scala.collection.mutable.ArrayBuffer.empty[Long]
+      List("INSERT INTO k VALUES (7,'seven')",   // explicit → rowid 7
+           "INSERT INTO k(v) VALUES ('auto')",   // auto     → max+1 = 8
+           "INSERT INTO k VALUES (3,'three')",   // explicit below the max → 3
+      ).foreach: sql =>
+        s.executeUpdate(sql)
+        val rs = s.getGeneratedKeys
+        assert(rs.next(), s"INSERT generates a key: $sql")
+        out += rs.getLong(1)
+      out.toList
+
+    val sc = memConn()
+    val scKeys = try keys(sc) finally sc.close()
+
+    Class.forName("org.sqlite.JDBC")
+    val ref = DriverManager.getConnection("jdbc:sqlite::memory:")
+    val refKeys = try keys(ref) finally ref.close()
+
+    assert(scKeys == List(7L, 8L, 3L), s"explicit IPK values are the rowids: $scKeys")
+    assert(scKeys == refKeys, s"scljet=$scKeys\nsqlite=$refKeys")
+
   test("getGeneratedKeys is empty when the last execution generated no key"):
     val c = memConn()
     try
