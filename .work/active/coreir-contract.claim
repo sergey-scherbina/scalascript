@@ -1,0 +1,23 @@
+slug: coreir-contract
+agent: coreir-contract
+branch: feature/coreir-contract
+worktree: ../scalascript-wt-coreir-contract
+started: 2026-07-16
+heartbeat: 2026-07-16
+scope:
+  - coreir-canonical-contract-reconcile (v2/specs/10-core-ir.md + 12-ir-format.md node inventory)
+  - coreir-canonical-codec-hardening (v2/src/CoreIR.scala Writer/Reader, Runtime.scala IrEncode/IrDecode)
+  - numeric-width-reconciliation (assessing scope)
+files:
+  - v2/specs/10-core-ir.md
+  - v2/specs/12-ir-format.md
+  - v2/src/CoreIR.scala
+  - v2/src/Runtime.scala (IrEncode/IrDecode/Prims coreir.*)
+  - specs/coreir-canonical-contract.md (new)
+notes: |
+  Core IR BYTE-AFFECTING work. Siblings p65-fixpoint and v3-newfront-p1-toplevel depend on
+  Core IR bytes staying stable. Baseline measured before starting:
+    specs/v2.2-p6.5-fsub.sh --self = 89 ok / 0 FAIL, exit 0
+    fixpoint stage1==stage2 = 79667 bytes, sha256 c5d9b5ed034d81a446f60dbe3b8dab15dcb910bbf318b6bfc01e4f63769c8f81
+  Fixpoint corpus measured to contain ZERO float and ZERO bytes constants, so the float/bytes
+  codec fixes provably cannot move those bytes. Any byte move = coordinate before landing.
