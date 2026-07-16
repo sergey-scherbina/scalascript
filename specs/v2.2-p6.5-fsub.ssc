@@ -92,24 +92,39 @@ def emitBin(k, l, r, dq) = if k == 49 then "(ctor Cons " ++ l ++ " " ++ r ++ ")"
 def binPrec(t) = if fst(t) == 2 then binPrecK(snd(t)) else 0
 def binPrecK(k) = if k == 47 then 1 else (if k == 46 then 2 else (if k == 44 then 3 else (if k == 45 then 3 else (if k == 40 then 4 else (if k == 41 then 4 else (if k == 42 then 4 else (if k == 43 then 4 else (if k == 49 then 5 else (if k == 23 then 6 else (if k == 24 then 6 else (if k == 48 then 6 else (if k == 25 then 7 else (if k == 26 then 7 else 0)))))))))))))
 
+// -- the parse context ---------------------------------------------------------------------------
+// cx = (dq, (ccNames, fieldNames)). Case classes made the parser context-dependent: a ctor call and
+// a field selection both have to know what was DECLARED, so the collected registry is threaded.
+// Nested pairs, not a 3-tuple -- this compiler's own style stays inside what it can compile.
+def mkCx(dq, ccNames, fldNames) = (dq, (ccNames, fldNames))
+def dqOf(cx) = fst(cx)
+def ccNamesOf(cx) = fst(snd(cx))
+def fldNamesOf(cx) = snd(snd(cx))
+def isCC(nm, cx) = memL(nm, ccNamesOf(cx))
+def isFld(nm, cx) = memL(nm, fldNamesOf(cx))
+
 // -- parser (precedence climbing over the token stream) ----------------------------------------
-def parseAtom(ts, env, dq) = if isEmpty(ts) then (emitInt(0), Nil) else postfix(parseAtom0(ts, env, dq), env, dq)
-def parseAtom0(ts, env, dq) = parseAtom1(hd(ts), tl(ts), env, dq)
-def parseAtom1(t, rest, env, dq) = if fst(t) == 0 then (emitInt(snd(t)), rest) else (if fst(t) == 4 then (emitStr(snd(t), dq), rest) else (if fst(t) == 3 then parseCtor(snd(t), rest, env, dq) else (if fst(t) == 1 then parseIdent(t, rest, env, dq) else (if isTok(t, 2, 21) then parseParenOrLam(rest, env, dq) else (if isTok(t, 2, 28) then parseBlock(rest, env, dq) else (if isTok(t, 2, 2) then parseIf(rest, env, dq) else (if isTok(t, 2, 8) then ("(lit true)", rest) else (if isTok(t, 2, 9) then ("(lit false)", rest) else (emitInt(0), rest)))))))))
+def parseAtom(ts, env, cx) = if isEmpty(ts) then (emitInt(0), Nil) else postfix(parseAtom0(ts, env, cx), env, cx)
+def parseAtom0(ts, env, cx) = parseAtom1(hd(ts), tl(ts), env, cx)
+def parseAtom1(t, rest, env, cx) = if fst(t) == 0 then (emitInt(snd(t)), rest) else (if fst(t) == 4 then (emitStr(snd(t), dqOf(cx)), rest) else (if fst(t) == 3 then parseCtor(snd(t), rest, env, cx) else (if fst(t) == 1 then parseIdent(t, rest, env, cx) else (if isTok(t, 2, 21) then parseParenOrLam(rest, env, cx) else (if isTok(t, 2, 28) then parseBlock(rest, env, cx) else (if isTok(t, 2, 2) then parseIf(rest, env, cx) else (if isTok(t, 2, 8) then ("(lit true)", rest) else (if isTok(t, 2, 9) then ("(lit false)", rest) else (emitInt(0), rest)))))))))
 // -- postfix method calls ---------------------------------------------------------------------
 // `.charAt` -> scodeAt and `.substring` -> sslice UNCONDITIONALLY, but `.length` is receiver-
 // dependent: slen for a string-literal-ish receiver, __method__ otherwise -- and a `++` receiver
 // takes the __method__ path even though it IS a string expression (isConcatInf is tested first).
 // All measured against the reference.
-def postfix(pr, env, dq) = pr match { case (c, ts) => if isTok(hd(ts), 2, 31) then postfix(postDot(c, tl(ts), env, dq), env, dq) else (if isTok(hd(ts), 2, 5) then postfix(parseMatch(c, tl(ts), env, dq), env, dq) else (if isTok(hd(ts), 2, 21) then postfix(postApp(c, tl(ts), env, dq), env, dq) else (c, ts))) }
+def postfix(pr, env, cx) = pr match { case (c, ts) => if isTok(hd(ts), 2, 31) then postfix(postDot(c, tl(ts), env, cx), env, cx) else (if isTok(hd(ts), 2, 5) then postfix(parseMatch(c, tl(ts), env, cx), env, cx) else (if isTok(hd(ts), 2, 21) then postfix(postApp(c, tl(ts), env, cx), env, cx) else (c, ts))) }
 // Chained application `f(a)(b)` -> (app (app (global f) a) b).
-def postApp(c, ts, env, dq) = parseArgs(ts, env, dq) match { case (args, r) => (emitApp(c, args), r) }
-def postDot(c, ts, env, dq) = postDot1(c, snd(hd(ts)), tl(ts), env, dq)
-def postDot1(c, nm, ts, env, dq) = if nm == "length" then (emitLen(c, dq), ts) else postMeth(c, nm, ts, env, dq)
-def emitLen(c, dq) = if isConcatCode(c, dq) then emitMethod("length", c, "", dq) else (if isStrLitish(c) then "(prim slen " ++ c ++ ")" else emitMethod("length", c, "", dq))
+def postApp(c, ts, env, cx) = parseArgs(ts, env, cx) match { case (args, r) => (emitApp(c, args), r) }
+def postDot(c, ts, env, cx) = postDot1(c, snd(hd(ts)), tl(ts), env, cx)
+// `.name` WITHOUT parens is a selection, not a method call: a declared case-class field goes through
+// its hoisted accessor, `(app (global _sel_x) recv)`; an unknown field is `__method__` (measured:
+// `o.zzz` with no case class at all). With parens it is a method call.
+def postDot1(c, nm, ts, env, cx) = if nm == "length" then (emitLen(c, cx), ts) else (if isTok(hd(ts), 2, 21) then postMeth(c, nm, ts, env, cx) else (postSel(c, nm, cx), ts))
+def postSel(c, nm, cx) = if isFld(nm, cx) then "(app (global _sel_" ++ nm ++ ") " ++ c ++ ")" else emitMethod(nm, c, "", dqOf(cx))
+def emitLen(c, cx) = if isConcatCode(c, dqOf(cx)) then emitMethod("length", c, "", dqOf(cx)) else (if isStrLitish(c) then "(prim slen " ++ c ++ ")" else emitMethod("length", c, "", dqOf(cx)))
 def emitMethod(nm, c, args, dq) = "(prim __method__ (lit (str " ++ dq ++ nm ++ dq ++ ")) " ++ c ++ args ++ ")"
-def postMeth(c, nm, ts, env, dq) = parseArgs(tl(ts), env, dq) match { case (args, r) => (emitPrimMeth(nm, c, args, dq), r) }
-def emitPrimMeth(nm, c, args, dq) = if nm == "charAt" then "(prim scodeAt " ++ c ++ args ++ ")" else (if nm == "substring" then "(prim sslice " ++ c ++ args ++ ")" else emitMethod(nm, c, args, dq))
+def postMeth(c, nm, ts, env, cx) = parseArgs(tl(ts), env, cx) match { case (args, r) => (emitPrimMeth(nm, c, args, cx), r) }
+def emitPrimMeth(nm, c, args, cx) = if nm == "charAt" then "(prim scodeAt " ++ c ++ args ++ ")" else (if nm == "substring" then "(prim sslice " ++ c ++ args ++ ")" else emitMethod(nm, c, args, dqOf(cx)))
 
 // -- lambdas ------------------------------------------------------------------------------------
 // `(lam N body)`, params pushed onto the env exactly like def params (so the same reverse indexing
@@ -119,46 +134,51 @@ def skipToClose(ts, d) = if isEmpty(ts) then ts else (if isTok(hd(ts), 2, 21) th
 def skipClose2(ts, d) = if d == 0 then tl(ts) else skipToClose(tl(ts), d - 1)
 // `(` opens a lambda param list iff the token after the MATCHING `)` is `=>`.
 def isLamParen(ts) = isTok(hd(skipToClose(ts, 0)), 2, 30)
-def parseLamParen(ts, env, dq) = parseLamP(parseParams(ts, env), env, dq)
-def parseLamP(pr, env, dq) = pr match { case (env2, r) => parseLamBody(dlen(env2) - dlen(env), env2, tl(r), dq) }
-def parseLamBody(ar, env2, ts, dq) = parseExpr(ts, 0, env2, dq) match { case (b, r) => ("(lam " ++ ar ++ " " ++ b ++ ")", r) }
+def parseLamParen(ts, env, cx) = parseLamP(parseParams(ts, env), env, cx)
+def parseLamP(pr, env, cx) = pr match { case (env2, r) => parseLamBody(dlen(env2) - dlen(env), env2, tl(r), cx) }
+def parseLamBody(ar, env2, ts, cx) = parseExpr(ts, 0, env2, cx) match { case (b, r) => ("(lam " ++ ar ++ " " ++ b ++ ")", r) }
 
 // An Upper name is a constructor: `Cons(a, b)` -> (ctor Cons a b), bare `Nil` -> (ctor Nil).
-def parseIdent(t, rest, env, dq) = if isTok(hd(rest), 2, 30) then parseLamBody(1, snd(t) :: env, tl(rest), dq) else parseVarOrCall(snd(t), rest, env, dq)
-def parseParenOrLam(ts, env, dq) = if isLamParen(ts) then parseLamParen(ts, env, dq) else parseParen(ts, env, dq)
-def parseCtor(nm, ts, env, dq) = if isTok(hd(ts), 2, 21) then parseCtorArgs(nm, tl(ts), env, dq) else ("(ctor " ++ nm ++ ")", ts)
-def parseCtorArgs(nm, ts, env, dq) = parseArgs(ts, env, dq) match { case (args, r) => ("(ctor " ++ nm ++ args ++ ")", r) }
+def parseIdent(t, rest, env, cx) = if isTok(hd(rest), 2, 30) then parseLamBody(1, snd(t) :: env, tl(rest), cx) else parseVarOrCall(snd(t), rest, env, cx)
+def parseParenOrLam(ts, env, cx) = if isLamParen(ts) then parseLamParen(ts, env, cx) else parseParen(ts, env, cx)
+def parseCtor(nm, ts, env, cx) = if isTok(hd(ts), 2, 21) then parseCtorArgs(nm, tl(ts), env, cx) else (bareCtor(nm, cx), ts)
+def parseCtorArgs(nm, ts, env, cx) = parseArgs(ts, env, cx) match { case (args, r) => (ctorApp(nm, args, cx), r) }
+// MEASURED: a BUILTIN constructor is bare -- `Cons(a, b)` -> (ctor Cons a b), `Nil` -> (ctor Nil) --
+// but a USER case class CALLS its generated ctor def: `P(1, 2)` -> `(app (global P) ..)`, NOT
+// `(ctor P ..)`. Telling them apart is exactly why the collected registry has to reach the parser.
+def bareCtor(nm, cx) = if isCC(nm, cx) then "(app (global " ++ nm ++ "))" else "(ctor " ++ nm ++ ")"
+def ctorApp(nm, args, cx) = if isCC(nm, cx) then "(app (global " ++ nm ++ ")" ++ args ++ ")" else "(ctor " ++ nm ++ args ++ ")"
 // `(e)` is a group; `(a, b)` is a Tuple2 construction.
-def parseParen(ts, env, dq) = parseExpr(ts, 0, env, dq) match { case (e, r) => parseParenEnd(e, r, env, dq) }
-def parseParenEnd(e, ts, env, dq) = if isTok(hd(ts), 2, 27) then parseTupRest(e, tl(ts), env, dq) else (e, tl(ts))
-def parseTupRest(e, ts, env, dq) = parseExpr(ts, 0, env, dq) match { case (e2, r) => ("(ctor Tuple2 " ++ e ++ " " ++ e2 ++ ")", tl(r)) }
+def parseParen(ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => parseParenEnd(e, r, env, cx) }
+def parseParenEnd(e, ts, env, cx) = if isTok(hd(ts), 2, 27) then parseTupRest(e, tl(ts), env, cx) else (e, tl(ts))
+def parseTupRest(e, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e2, r) => ("(ctor Tuple2 " ++ e ++ " " ++ e2 ++ ")", tl(r)) }
 // A bare name resolves to (local i) when bound, else to a global call. `f(a, b)` -> (app (global f) a b).
 // A name resolves against the env FIRST -- including in callee position: calling a bound name emits
 // `(app (local i) ..)`, not `(app (global nm) ..)` (measured on `def ap(f, x) = f(x)`). F's own source
 // never calls a local, so the corpus only reached this once lambdas arrived.
 def calleeOf(nm, env) = if lookup(nm, env) >= 0 then "(local " ++ lookup(nm, env) ++ ")" else "(global " ++ nm ++ ")"
-def parseVarOrCall(nm, ts, env, dq) = if isTok(hd(ts), 2, 21) then parseCall(nm, tl(ts), env, dq) else (calleeOf(nm, env), ts)
-def parseCall(nm, ts, env, dq) = parseArgs(ts, env, dq) match { case (args, r) => (emitApp(calleeOf(nm, env), args), r) }
+def parseVarOrCall(nm, ts, env, cx) = if isTok(hd(ts), 2, 21) then parseCall(nm, tl(ts), env, cx) else (calleeOf(nm, env), ts)
+def parseCall(nm, ts, env, cx) = parseArgs(ts, env, cx) match { case (args, r) => (emitApp(calleeOf(nm, env), args), r) }
 def emitApp(callee, args) = "(app " ++ callee ++ args ++ ")"
-def parseArgs(ts, env, dq) = if isTok(hd(ts), 2, 22) then ("", tl(ts)) else parseArg(ts, env, dq)
-def parseArg(ts, env, dq) = parseExpr(ts, 0, env, dq) match { case (e, r) => parseArgsMore(e, r, env, dq) }
-def parseArgsMore(e, ts, env, dq) = if isTok(hd(ts), 2, 27) then parseArgs(tl(ts), env, dq) match { case (rest, r2) => (" " ++ e ++ rest, r2) } else (" " ++ e, tl(ts))
-def parseIf(ts, env, dq) = parseExpr(ts, 0, env, dq) match { case (c, r1) => parseExpr(tl(r1), 0, env, dq) match { case (t, r2) => parseExpr(tl(r2), 0, env, dq) match { case (e, r3) => (emitIf(c, t, e), r3) } } }
-def parseExpr(ts, minPrec, env, dq) = parseAtom(ts, env, dq) match { case (l, r) => climb(l, r, minPrec, env, dq) }
-def climb(left, ts, minPrec, env, dq) = if binPrec(hd(ts)) >= minPrec then climbStep(left, ts, minPrec, env, dq) else (left, ts)
-def climbStep(left, ts, minPrec, env, dq) = { val p = binPrec(hd(ts))
+def parseArgs(ts, env, cx) = if isTok(hd(ts), 2, 22) then ("", tl(ts)) else parseArg(ts, env, cx)
+def parseArg(ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => parseArgsMore(e, r, env, cx) }
+def parseArgsMore(e, ts, env, cx) = if isTok(hd(ts), 2, 27) then parseArgs(tl(ts), env, cx) match { case (rest, r2) => (" " ++ e ++ rest, r2) } else (" " ++ e, tl(ts))
+def parseIf(ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (c, r1) => parseExpr(tl(r1), 0, env, cx) match { case (t, r2) => parseExpr(tl(r2), 0, env, cx) match { case (e, r3) => (emitIf(c, t, e), r3) } } }
+def parseExpr(ts, minPrec, env, cx) = parseAtom(ts, env, cx) match { case (l, r) => climb(l, r, minPrec, env, cx) }
+def climb(left, ts, minPrec, env, cx) = if binPrec(hd(ts)) >= minPrec then climbStep(left, ts, minPrec, env, cx) else (left, ts)
+def climbStep(left, ts, minPrec, env, cx) = { val p = binPrec(hd(ts))
   if p == 0 then (left, ts)
-  else parseExpr(tl(ts), rightMin(p), env, dq) match { case (right, r2) => climb(emitBin(snd(hd(ts)), left, right, dq), r2, minPrec, env, dq) } }
+  else parseExpr(tl(ts), rightMin(p), env, cx) match { case (right, r2) => climb(emitBin(snd(hd(ts)), left, right, dqOf(cx)), r2, minPrec, env, cx) } }
 def rightMin(p) = if p == 5 then p else p + 1
 
 // -- val-blocks ---------------------------------------------------------------------------------
 // `{ val x = e  BODY }` -> `(let (e) BODY)`, nesting one let per val (measured). The bound name is
 // pushed onto the env for the REST of the block, so later vals see it at the right depth.
-def parseBlock(ts, env, dq) = if isTok(hd(ts), 2, 7) then parseBlockVal(tl(ts), env, dq) else parseBlockEnd(ts, env, dq)
-def parseBlockVal(ts, env, dq) = parseBlockVal1(snd(hd(ts)), skipToEq(tl(ts)), env, dq)
-def parseBlockVal1(nm, ts, env, dq) = parseExpr(ts, 0, env, dq) match { case (e, r) => parseBlockRest(nm, e, r, env, dq) }
-def parseBlockRest(nm, e, ts, env, dq) = parseBlock(ts, nm :: env, dq) match { case (b, r) => ("(let (" ++ e ++ ") " ++ b ++ ")", r) }
-def parseBlockEnd(ts, env, dq) = parseExpr(ts, 0, env, dq) match { case (e, r) => (e, tl(r)) }
+def parseBlock(ts, env, cx) = if isTok(hd(ts), 2, 7) then parseBlockVal(tl(ts), env, cx) else parseBlockEnd(ts, env, cx)
+def parseBlockVal(ts, env, cx) = parseBlockVal1(snd(hd(ts)), skipToEq(tl(ts)), env, cx)
+def parseBlockVal1(nm, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => parseBlockRest(nm, e, r, env, cx) }
+def parseBlockRest(nm, e, ts, env, cx) = parseBlock(ts, nm :: env, cx) match { case (b, r) => ("(let (" ++ e ++ ") " ++ b ++ ")", r) }
+def parseBlockEnd(ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => (e, tl(r)) }
 
 // -- match --------------------------------------------------------------------------------------
 // MEASURED: `match` LET-BINDS its scrutinee -- `(let ((scrut)) (match (local 0) (arms)))` -- so every
@@ -171,31 +191,31 @@ def appEnv(vs, e) = vs match { case Nil => e case h :: t => h :: appEnv(t, e) }
 def joinArm(a, rest) = if rest == "" then a else a ++ " " ++ rest
 // join2 guards BOTH sides -- the case-class joins can legitimately have an empty left.
 def join2(a, b) = if a == "" then b else (if b == "" then a else a ++ " " ++ b)
-def parseMatch(scrut, ts, env, dq) = if fst(hd(tl(tl(ts)))) == 0 then parseIntMatch(scrut, tl(ts), env, dq) else parseCtorMatch(scrut, tl(ts), env, dq)
-def parseCtorMatch(scrut, ts, env, dq) = parseArms(ts, "__m" :: env, dq) match { case (arms, r) => (emitMatch(scrut, fst(arms), snd(arms)), r) }
+def parseMatch(scrut, ts, env, cx) = if fst(hd(tl(tl(ts)))) == 0 then parseIntMatch(scrut, tl(ts), env, cx) else parseCtorMatch(scrut, tl(ts), env, cx)
+def parseCtorMatch(scrut, ts, env, cx) = parseArms(ts, "__m" :: env, cx) match { case (arms, r) => (emitMatch(scrut, fst(arms), snd(arms)), r) }
 def emitMatch(scrut, arms, dflt) = "(let (" ++ scrut ++ ") (match (local 0) (" ++ arms ++ ")" ++ dflt ++ "))"
-def parseArms(ts, menv, dq) = if isTok(hd(ts), 2, 6) then parseArm(tl(ts), menv, dq) else (("", ""), tl(ts))
-def parseArm(ts, menv, dq) = if isWild(hd(ts)) then parseWildArm(tl(ts), menv, dq) else (if fst(hd(ts)) == 3 then parseCtorArm(ts, menv, dq) else (if isTok(hd(ts), 2, 21) then parseTupArm(ts, menv, dq) else parseConsArm(ts, menv, dq)))
-def parseWildArm(ts, menv, dq) = parseExpr(tl(ts), 0, menv, dq) match { case (b, r) => (("", " (default " ++ b ++ ")"), tl(r)) }
+def parseArms(ts, menv, cx) = if isTok(hd(ts), 2, 6) then parseArm(tl(ts), menv, cx) else (("", ""), tl(ts))
+def parseArm(ts, menv, cx) = if isWild(hd(ts)) then parseWildArm(tl(ts), menv, cx) else (if fst(hd(ts)) == 3 then parseCtorArm(ts, menv, cx) else (if isTok(hd(ts), 2, 21) then parseTupArm(ts, menv, cx) else parseConsArm(ts, menv, cx)))
+def parseWildArm(ts, menv, cx) = parseExpr(tl(ts), 0, menv, cx) match { case (b, r) => (("", " (default " ++ b ++ ")"), tl(r)) }
 def parsePatVars(ts, vs) = if isTok(hd(ts), 2, 22) then (vs, tl(ts)) else (if isTok(hd(ts), 2, 27) then parsePatVars(tl(ts), vs) else parsePatVars(tl(ts), snd(hd(ts)) :: vs))
-def parseCtorArm(ts, menv, dq) = parseCtorArm1(snd(hd(ts)), tl(ts), menv, dq)
-def parseCtorArm1(nm, ts, menv, dq) = if isTok(hd(ts), 2, 21) then parseCtorArm2(nm, tl(ts), menv, dq) else parseArmBody(nm, 0, Nil, ts, menv, dq)
-def parseCtorArm2(nm, ts, menv, dq) = parsePatVars(ts, Nil) match { case (vs, r) => parseArmBody(nm, dlen(vs), vs, r, menv, dq) }
-def parseArmBody(nm, ar, vs, ts, menv, dq) = parseExpr(tl(ts), 0, appEnv(vs, menv), dq) match { case (body, r) => parseArmsMore("(arm " ++ nm ++ " " ++ ar ++ " " ++ body ++ ")", r, menv, dq) }
-def parseArmsMore(a, ts, menv, dq) = parseArms(ts, menv, dq) match { case (more, r) => ((joinArm(a, fst(more)), snd(more)), r) }
+def parseCtorArm(ts, menv, cx) = parseCtorArm1(snd(hd(ts)), tl(ts), menv, cx)
+def parseCtorArm1(nm, ts, menv, cx) = if isTok(hd(ts), 2, 21) then parseCtorArm2(nm, tl(ts), menv, cx) else parseArmBody(nm, 0, Nil, ts, menv, cx)
+def parseCtorArm2(nm, ts, menv, cx) = parsePatVars(ts, Nil) match { case (vs, r) => parseArmBody(nm, dlen(vs), vs, r, menv, cx) }
+def parseArmBody(nm, ar, vs, ts, menv, cx) = parseExpr(tl(ts), 0, appEnv(vs, menv), cx) match { case (body, r) => parseArmsMore("(arm " ++ nm ++ " " ++ ar ++ " " ++ body ++ ")", r, menv, cx) }
+def parseArmsMore(a, ts, menv, cx) = parseArms(ts, menv, cx) match { case (more, r) => ((joinArm(a, fst(more)), snd(more)), r) }
 // `case h :: t =>` is the same (arm Cons 2 ..) as `case Cons(h, t) =>`.
-def parseConsArm(ts, menv, dq) = parseConsArm1(snd(hd(ts)), snd(hd(tl(tl(ts)))), tl(tl(tl(ts))), menv, dq)
-def parseConsArm1(h, t, ts, menv, dq) = parseArmBody("Cons", 2, t :: h :: Nil, ts, menv, dq)
+def parseConsArm(ts, menv, cx) = parseConsArm1(snd(hd(ts)), snd(hd(tl(tl(ts)))), tl(tl(tl(ts))), menv, cx)
+def parseConsArm1(h, t, ts, menv, cx) = parseArmBody("Cons", 2, t :: h :: Nil, ts, menv, cx)
 // A tuple pattern lowers to TWO arms, Pair and Tuple2, sharing the body.
-def parseTupArm(ts, menv, dq) = parsePatVars(tl(ts), Nil) match { case (vs, r) => parseTupArmBody(vs, r, menv, dq) }
-def parseTupArmBody(vs, ts, menv, dq) = parseExpr(tl(ts), 0, appEnv(vs, menv), dq) match { case (body, r) => parseArmsMore("(arm Pair 2 " ++ body ++ ") (arm Tuple2 2 " ++ body ++ ")", r, menv, dq) }
+def parseTupArm(ts, menv, cx) = parsePatVars(tl(ts), Nil) match { case (vs, r) => parseTupArmBody(vs, r, menv, cx) }
+def parseTupArmBody(vs, ts, menv, cx) = parseExpr(tl(ts), 0, appEnv(vs, menv), cx) match { case (body, r) => parseArmsMore("(arm Pair 2 " ++ body ++ ") (arm Tuple2 2 " ++ body ++ ")", r, menv, cx) }
 // An int-literal match lowers to an if-chain over __eq__ against the let-bound scrutinee.
-def parseIntMatch(scrut, ts, env, dq) = parseIntArms(ts, "__m" :: env, dq) match { case (chain, r) => ("(let (" ++ scrut ++ ") " ++ chain ++ ")", r) }
-def parseIntArms(ts, menv, dq) = if isTok(hd(ts), 2, 6) then parseIntArm(ts, menv, dq) else (emitInt(0), tl(ts))
-def parseIntArm(ts, menv, dq) = if isWild(hd(tl(ts))) then parseIntDefault(tl(tl(tl(ts))), menv, dq) else parseIntArm2(snd(hd(tl(ts))), tl(tl(tl(ts))), menv, dq)
-def parseIntDefault(ts, menv, dq) = parseExpr(ts, 0, menv, dq) match { case (b, r) => (b, tl(r)) }
-def parseIntArm2(n, ts, menv, dq) = parseExpr(ts, 0, menv, dq) match { case (body, r) => parseIntArm3(n, body, r, menv, dq) }
-def parseIntArm3(n, body, ts, menv, dq) = parseIntArms(ts, menv, dq) match { case (rest, r) => (emitIf(emitEq("(local 0)", emitInt(n)), body, rest), r) }
+def parseIntMatch(scrut, ts, env, cx) = parseIntArms(ts, "__m" :: env, cx) match { case (chain, r) => ("(let (" ++ scrut ++ ") " ++ chain ++ ")", r) }
+def parseIntArms(ts, menv, cx) = if isTok(hd(ts), 2, 6) then parseIntArm(ts, menv, cx) else (emitInt(0), tl(ts))
+def parseIntArm(ts, menv, cx) = if isWild(hd(tl(ts))) then parseIntDefault(tl(tl(tl(ts))), menv, cx) else parseIntArm2(snd(hd(tl(ts))), tl(tl(tl(ts))), menv, cx)
+def parseIntDefault(ts, menv, cx) = parseExpr(ts, 0, menv, cx) match { case (b, r) => (b, tl(r)) }
+def parseIntArm2(n, ts, menv, cx) = parseExpr(ts, 0, menv, cx) match { case (body, r) => parseIntArm3(n, body, r, menv, cx) }
+def parseIntArm3(n, body, ts, menv, cx) = parseIntArms(ts, menv, cx) match { case (rest, r) => (emitIf(emitEq("(local 0)", emitInt(n)), body, rest), r) }
 
 // -- declarations -----------------------------------------------------------------------------
 // `def name(p1: T, p2: T): T = body`. Types are ERASED by the reference lowerer (measured: `def
@@ -213,14 +233,14 @@ def parseParamSkipD(ts, env, d) = if isOpenD(hd(ts)) then parseParamSkipD(tl(ts)
 def parseParamClose(ts, env, d) = if d == 0 then (env, tl(ts)) else parseParamSkipD(tl(ts), env, d - 1)
 def parseParamComma(ts, env, d) = if d == 0 then parseParams(tl(ts), env) else parseParamSkipD(tl(ts), env, d)
 def skipToEq(ts) = if isEmpty(ts) then Nil else (if isTok(hd(ts), 2, 20) then tl(ts) else skipToEq(tl(ts)))
-def emitDef(ts, dq) = emitDef1(snd(hd(tl(ts))), tl(tl(ts)), dq)
-def emitDef1(nm, ts, dq) = parseParams(tl(ts), Nil) match { case (env, r) => emitDefBody(nm, dlen(env), env, skipToEq(r), dq) }
-def emitDefBody(nm, ar, env, ts, dq) = parseExpr(ts, 0, env, dq) match { case (body, rest) => ("(def " ++ nm ++ " (lam " ++ ar ++ " " ++ body ++ "))", rest) }
-def emitDefs(ts, dq) = if isEmpty(ts) then "" else emitDefs1(emitDecl(ts, dq), dq)
-def emitDefs1(pr, dq) = pr match { case (d, rest) => if isEmpty(rest) then d else d ++ " " ++ emitDefs(rest, dq) }
+def emitDef(ts, cx) = emitDef1(snd(hd(tl(ts))), tl(tl(ts)), cx)
+def emitDef1(nm, ts, cx) = parseParams(tl(ts), Nil) match { case (env, r) => emitDefBody(nm, dlen(env), env, skipToEq(r), cx) }
+def emitDefBody(nm, ar, env, ts, cx) = parseExpr(ts, 0, env, cx) match { case (body, rest) => ("(def " ++ nm ++ " (lam " ++ ar ++ " " ++ body ++ "))", rest) }
+def emitDefs(ts, cx) = if isEmpty(ts) then "" else emitDefs1(emitDecl(ts, cx), cx)
+def emitDefs1(pr, cx) = pr match { case (d, rest) => if isEmpty(rest) then d else d ++ " " ++ emitDefs(rest, cx) }
 // A top-level decl is either `def ..` or `case class ..` (the ctor + mirror land here, in place).
-def emitDecl(ts, dq) = if isCCHead(ts) then emitCCDecl(ts, dq) else emitDef(ts, dq)
-def emitCCDecl(ts, dq) = collectCC1(tl(tl(ts))) match { case c :: r => (emitCC(c, dq), skipCCHead(tl(tl(ts)))) case _ => ("", Nil) }
+def emitDecl(ts, cx) = if isCCHead(ts) then emitCCDecl(ts, cx) else emitDef(ts, cx)
+def emitCCDecl(ts, cx) = collectCC1(tl(tl(ts))) match { case c :: r => (emitCC(c, dqOf(cx)), skipCCHead(tl(tl(ts)))) case _ => ("", Nil) }
 def skipCCHead(ts) = collectFields(tl(tl(ts)), Nil) match { case (fs, r) => r }
 
 // -- case classes -------------------------------------------------------------------------------
@@ -298,7 +318,12 @@ def hasMainN(nm, ts) = if nm == "main" then true else hasMain(ts)
 def entryOf(ts, cs, dq) = ") (entry " ++ entryBody(ts, cs, dq) ++ "))"
 def compile(src, dq) = compile1(lex(src, 0, src.length), dq)
 def compile1(ts, dq) = compile2(ts, collectCC(ts), dq)
-def compile2(ts, cs, dq) = prelude(dq) ++ emitSels(cs, dq) ++ emitDefs(ts, dq) ++ entryOf(ts, cs, dq)
+// The pre-pass result becomes the parse CONTEXT: the emitters below take a raw dq, the parser
+// takes cx. Getting this seam wrong is what made F0 die with `match: scrutinee not Data: """`
+// -- dqOf(cx) was matching on the quote character itself.
+def compile2(ts, cs, dq) = compile3(ts, cs, dq, mkCx(dq, ccNamesL(cs), allFieldNames(cs)))
+def compile3(ts, cs, dq, cx) = prelude(dq) ++ emitSels(cs, dq) ++ emitDefs(ts, cx) ++ entryOf(ts, cs, dq)
+def ccNamesL(cs) = cs match { case Nil => Nil case h :: t => Cons(ccName(h), ccNamesL(t)) }
 // The CONSTANT 7258-byte prelude `ssc1-lower` emits (measured identical across programs).
 // It is fixed OUTPUT, so F carries it as a string constant; byte-identity stays the oracle.
 // Split at the 24 `"` sites, spliced with dq -- so this source has no `"`-inside-a-string.

@@ -215,6 +215,22 @@ case class P(x: Int)'
 d cc_types   'case class M(n: Int, s: String, xs: List[Int])'
 d cc_tuptype 'case class G(p: (Int, Int))'
 d cc_3       'case class T(a: Int, b: String, c: Int)'
+d cc_ctor    'case class P(x: Int, y: Int)
+def main(): Int = P(1, 2).x'
+d cc_field2  'case class P(x: Int, y: Int)
+def main(): Int = P(1, 2).y'
+d cc_match   'case class P(x: Int, y: Int)
+def g(p: P): Int = p match { case P(a, b) => a + b }
+def main(): Int = g(P(1, 2))'
+d cc_shared  'case class P(x: Int)
+case class Q(x: Int)
+def main(): Int = P(1).x + Q(2).x'
+d cc_unknown 'def g(o: Int): Int = o.zzz
+def main(): Int = 0'
+d cc_nest    'case class P(x: Int, y: Int)
+def main(): Int = P(P(1, 2).x, 3).y'
+d cc_builtin 'case class P(x: Int)
+def main(): List[Int] = Cons(1, Nil)'
 
 if [ "${1:-}" = "--self" ]; then
   echo "--- X1: F compiles its OWN source ---"
