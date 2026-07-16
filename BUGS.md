@@ -51,6 +51,49 @@ then fails downstream with the misleading `no dispatch for .run on <closure>`.
 existing positive dispatch cases; add a v1-vs-v2 differential vector for an unknown zero-arg method
 on Int/String/List/closure receivers. Related but distinct: `v2-native-front-in-fence-imports-not-followed`
 below is the other current "native lane reports something misleading instead of the honest error" case.
+## tower-thread-hardcoded-64m-stack — `run --bytecode` StackOverflowErrors on big programs, and `-Xss` cannot help
+
+**Status:** FIXED (2026-07-16, `RunNativeV2.scala` tower stack 64m → 512m). Found by running
+`v21-negative-toolchain-release-gate.sh` locally — a CI step that had **never once run**, because
+every CI run died at an earlier step. Not a scljet bug despite only scljet examples showing it.
+
+**Symptom.** `bin/ssc-standard run --bytecode examples/scljet-bytes.ssc` (and `scljet-full.ssc`)
+fails ~80% of runs with `Exception in thread "main" java.lang.StackOverflowError`, trace inside
+`ssc.Compiler$.compile`. Nondeterministic; stdout is empty when it fails (it dies during compile,
+before the program runs). Surfaces as `v21-negative-toolchain-release-gate` `parity.one-sided` ≠ 0,
+naming a *different* scljet case each run — which looks exactly like flaky infra.
+
+**Root cause.** `RunNativeV2.runTower` created its thread with a **hardcoded 64 MB stack**
+(`new Thread(null, task, threadName, 64L * 1024L * 1024L)`). That thread runs the self-hosted front
+**and** `Compiler.compile`, so it — not `main` — is where a deep compile overflows. Compiling a big
+program recurses much deeper than running it, and 64m was not enough for the scljet examples.
+Flaky because stack frame sizes depend on how much the JIT has compiled, which depends on machine
+load: same input, different outcome.
+
+**Two traps that cost real time here:**
+
+1. **`-Xss` looked inert.** Raising the launcher's stack changed nothing — 64m, 128m, 256m and even
+   `-Xss1g` all failed at the same rate (measured: 2/8 pass at 64m, 2/8 at 256m, 1/6 at `-Xss1g`).
+   That non-correlation is what wrongly suggested "unbounded recursion / a race". The stack the
+   overflowing thread uses was simply never `-Xss`.
+2. **"thread main" is a lie.** `runTower` catches `Throwable` into a cell and rethrows it on the
+   joining thread, so a **tower** StackOverflowError prints under main's banner while carrying the
+   tower's trace. Do not conclude from the banner that `-Xss` should have applied.
+
+**Reproduce** (before the fix; ~80% of runs):
+
+```bash
+for i in 1 2 3 4 5 6 7 8; do
+  bin/ssc-standard run --bytecode examples/scljet-bytes.ssc >/dev/null 2>&1; printf '%s ' $?
+done   # 1 1 0 0 1 1 1 1   → after the fix: 0 0 0 0 0 0 0 0
+```
+
+**The fix, and why the stack sizes are deliberately NOT one knob.** `-Xss` / `SSC_XSS` bounds the
+**user program** (compiled and run on the calling thread); `RunNativeV2.TowerStackBytes` bounds the
+**compiler**. Different jobs, very different depth needs. Sharing a knob breaks
+`v21-direct-asm-recursion-smoke`, which pins 256k to prove the compiled lanes need no big stack —
+that 256k must not starve the compiler that gets them there (tried it; the gate went red). Stack is
+reserved address space, not committed memory, so 512m is cheap.
 
 ## v2-native-front-in-fence-imports-not-followed — the native lane silently ignores an import written inside a code fence
 
