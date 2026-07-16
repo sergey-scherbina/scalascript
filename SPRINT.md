@@ -53,35 +53,82 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
         name/want/got/diff. **Apply the same treatment to any gate you touch.**
       Verified locally: `v21-build-jvm-release-gate` PASS, `v21-slim-distribution-gate` PASS,
       `v21-jre-module-gate` PASS.
-- [ ] **4b. `v21-explicit-lanes-gate` — RED. Real bug, NOT a stale expectation.** Bisected to exactly
-      ONE of its 10 manifest regressions: **`tests/e2e/v21-explicit-mcp-provider-smoke.sh`** (the
-      other 9 pass). It fails silently because the gate's last check is another bare
-      `[[ $provider -eq 8 && $target -eq 7 ]]`. The real failure:
-      ```
-      bin/ssc-provider mcp run examples/mcp-client-discover.ssc
-        → ssc: unhandled runtime effect: Transport.Spawn      (exit 1, no other output)
-      ```
-      **`Transport` is an `enum`, NOT an effect** (`v1/runtime/std/mcp/types.ssc:62`, `case
-      Spawn(cmd: String, args: List[String] = List())`). So the runtime is mistaking an enum-case
-      constructor for an effect operation. Message thrown at
-      `v1/tools/cli/src/main/scala/scalascript/cli/V2Result.scala:10`.
-      **Exonerated:** NOT caused by the `-Xss64m` change (reproduces with the pre-change launcher).
-      **Prime suspect — check first:** the just-landed `ssc-api-descriptor-v3-slice-b` (`cf14fb5b4`)
-      is the only salvaged branch touching shared compiler core, and its own risk note says
-      *"`preprocessEffects` now injects marker types into every effect object, and the `extends`
-      regex widened `\S+`→`[^:]+`"*. Bisect `cf14fb5b4` vs its parent on this one smoke test before
-      anything else; if it is the cause, fix or revert that hunk. If it predates the salvage, it is
-      an older masked regression — say so.
-- [ ] **4c. Remaining CI gate steps not yet run locally**: `v21-negative-toolchain-release-gate.sh`
-      (30 min timeout), `v21-direct-asm-recursion-smoke.sh`, and the `Test via sbt` step. Run them;
-      expect more masked breakage behind the ones already fixed.
-- [ ] **5. Re-audit the whole run once 4 is closed** — with 192 red runs there may be further
-      failures still masked behind step 4. Do not declare CI green until a run is actually green;
-      check `Conformance Suite` too (it was 228/281 with 51 scljet + 2 others: `std-monaderror`,
-      `dataset-error`, `coroutine-error` appear in the log — confirm whether they are also fixed).
+- [x] **4b. `v21-explicit-lanes-gate` — FIXED, gate PASSES (exit 0, 15 exact rows: provider=8
+      target=7).** The prime suspect was WRONG: `cf14fb5b4`/`preprocessEffects` is **exonerated** —
+      `preprocessEffects` lives in `v1/lang/core`, which the mcp provider classpath physically
+      forbids, and the minimal repro below contains no effect and no mcp at all.
+      **Real root cause: the native lane never followed an import written INSIDE a code fence.**
+      `v2/bin/ssc1-run.ssc0`'s `sscScanLines` only treats `[names](path)` as an import OUTSIDE a
+      fence, and `ssc1-front.ssc0`'s `[` branch no-ops the same link on the assumption its names are
+      plugin globals. True for externs like `mcpConnect`; false for a `.ssc` module's declarations —
+      so `std/mcp/types.ssc` never loaded and `Transport` stayed unbound.
+      **`unhandled runtime effect: X.y` is a RED HERRING** — on the native lane a *field access* on
+      an unbound name says `unbound global`, but a *CALL* falls back to the ambient-plugin Op path
+      and `V2Result.report` renders that Op as "unhandled runtime effect". Read it as
+      "unbound qualified call", never as "the effects system is broken".
+      Pre-existing, not a regression: the outside-fence-only rule dates to the native front's first
+      commit (`0ccecb44d`). BOTH smoke cases failed for this one reason (the 2nd was masked behind
+      the 1st): `agent-mcp-toolsource` took `Transport` from `std/mcp/server.ssc`, whose own import
+      of `./types.ssc` is in-fence AND multi-line (a one-line grep misses it).
+      **Fix shipped = the examples now import above the fence** (the form the rest of the corpus and
+      the sibling example already use). The proper fix — teaching `sscScanLines` to scan
+      `scalascript`/`scala` fences — WORKS and was written, but is NOT shippable yet: it widens the
+      native module graph to `std/agent.ssc`, which the native front cannot parse. See BUGS.md
+      `v2-native-front-in-fence-imports-not-followed` + the two parse gaps it is blocked on
+      (`…-multiline-curried-def`, fix known+verified but unlanded; `…-try-catch`, undiagnosed).
+- [x] **4c. The never-run CI gate steps — all run locally now. Two more real bugs found behind them.**
+      - `v21-direct-asm-recursion-smoke.sh` — PASS, but it was a **false green**: it pins
+        `JAVA_TOOL_OPTIONS=-Xss256k` to prove the compiled lanes need no big stack, and an explicit
+        `-Xss` on the java command line BEATS `JAVA_TOOL_OPTIONS`, so `-Xss64m` silently made it test
+        64m. Launchers now take `-Xss"${SSC_XSS:-64m}"` (**both generators** — build.sbt AND
+        install.sh; the latter overwrites the former and is what CI uses) and the gate sets
+        `SSC_XSS=256k`. Measured: `SSC_XSS=256k` → ThreadStackSize 256, unset → 65536.
+      - `v21-negative-toolchain-release-gate.sh` — was RED twice, for two different reasons:
+        1. `parity.one-sided != 0`, naming a *different* scljet case each run (looks like flaky
+           infra; is not). **Not a scljet bug**: `RunNativeV2` built the tower thread with a
+           hardcoded **64m** stack, and the tower runs the front + `Compiler.compile` — so
+           `-Xss`/`SSC_XSS` never reached the thread that overflowed (raising to `-Xss1g` changed
+           nothing, which is what makes this look like unbounded recursion). "Exception in thread
+           main" LIES: `runTower` catches and rethrows on the joining thread. Fixed → 512m,
+           deliberately NOT sharing a knob with `-Xss` (that knob bounds the USER program on main;
+           this bounds the COMPILER — sharing it makes the 256k gate above starve the compiler).
+           scljet-bytes `--bytecode` 8/8, was 2/8. BUGS.md `tower-thread-hardcoded-64m-stack`.
+        2. then a **stale frozen baseline** (`frontend.total 200→207`, `frontend.ok`/`checker.ok`
+           `199→206`, `parity.identical 56→63`) — the corpus grew by 7 examples while the gate never
+           ran. Same numbers were hardcoded in the sibling
+           `v21-negative-toolchain-release-gate-smoke.sh`; the "same stale string in 2-3 gates" rule
+           held again. Both refreshed together.
+      - `sbt test` — **NOT RUN. The one item in this lane I did not get to.** Next agent: run
+        `cd <worktree> && sbt test` (CI allows 60 min). Expect more masked breakage.
+- [~] **5. CI re-audit — real progress, NOT green yet. Do not claim green.** Observed, not assumed:
+      - `Lint Markdown` GREEN. `Validate ScalaScript` GREEN.
+      - `Conformance Suite`: **228 passed/53 failed → 279 passed/2 failed of 281. Zero scljet
+        failures** (run 29495952418) — the `-Xss64m` fix is CI-confirmed. The SPRINT's guess about
+        `std-monaderror`/`dataset-error`/`coroutine-error` was wrong: they pass. The real remaining
+        2 are both JS-lane, both pre-existing, both reproduce locally:
+        - `deep-tail-recursion` — NOT a node-stack analogue (that hypothesis is falsified).
+          `run-js --v2` exits **1 for every program**, including `println("hi")`, while node itself
+          exits 0. BUGS.md `run-js-v2-always-exits-1` has the full ruled-out list + the one loose
+          thread; the next thing to check is `ssc.Runtime.exitHandler`'s DEFAULT.
+        - `dataset-from-generator` — a separate JS runtime dispatch gap (`Method not found`).
+      - `sbt — compile and test`: my mcp fix is **CI-CONFIRMED** (`PASS v21-explicit-mcp-provider-smoke`,
+        all 8 provider smokes green in run 29495815304). The job then died one step further on
+        `Cannot run program "scala-cli"` — the sbt job had no `Setup Scala CLI` step yet runs a gate
+        whose lane is explicitly `wasm-target-tools`. Added it. **The objection that this breaks the
+        compiler-free premise is unfounded and was tested, not argued**: `v21-build-jvm-release-gate`
+        and the negative gate each build their OWN `toolbin` sandbox PATH and assert scala-cli is
+        unreachable *there*; my machine has scala-cli and both gates PASS on it.
+      - **Still unverified: no fully green run has been observed.** The last pushes had not completed
+        CI when this lane stopped. Next agent: `gh run list --workflow=ci.yml --branch=main`, and
+        expect conformance to stay red at 279/281 until the two JS bugs above are fixed.
 - [ ] **6. Prevent the recurrence.** Long-red CI is what let all of this pile up. Decide + record a
       cheap guard (e.g. the loop checks `gh run list` before claiming a lane green, or a CI-status
       line in the claim protocol). Recorded as a question for Sergiy, not a unilateral process change.
+      **Evidence for the conversation, from this lane:** every single bug found here was invisible
+      because something silently swallowed it — bare `[[ ]]` under `set -e` printing nothing, a gate
+      that never ran because an earlier step died, a frozen baseline nobody re-ran, a `-Xss` that
+      never reached the thread it was meant for, and a "fix" in one of two launcher generators. The
+      guard worth having is probably "a gate that cannot fail loudly is not a gate".
 
 ## scljet-unique-index-not-supported — `CREATE UNIQUE INDEX` needs ENFORCEMENT, not just parsing (2026-07-16)
 

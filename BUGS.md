@@ -1,5 +1,52 @@
 # Bug tracker
 
+## run-js-v2-always-exits-1 — `run-js --v2` returns exit 1 on success, for every program
+
+**Status:** OPEN, root cause NOT found (time-boxed — handing over with the measurements).
+Blocks conformance `deep-tail-recursion` (`FAIL [JS]`, `line 4: expected=<missing> got=<exit:1>`),
+one of the last 2 red cases in an otherwise 279/281 suite. Pre-existing; unrelated to the
+2026-07-16 CI-red work.
+
+**Symptom.** `bin/ssc-tools run-js --v2 <any file>` prints the correct output and then exits **1**.
+Nothing is wrong with the program: stdout is byte-correct, stderr is EMPTY.
+
+**It is not about recursion or stack** — the obvious hypothesis (node's ~1 MB default stack, the
+JS analogue of `tower-thread-hardcoded-64m-stack` below) is **wrong**. Measured:
+
+```bash
+printf 'println("hi")\n' > /tmp/tiny.ssc
+bin/ssc-tools run-js /tmp/tiny.ssc          # v1 codegen  → hi, exit 0
+bin/ssc-tools run     --v2 /tmp/tiny.ssc    # v2 VM       → hi, exit 0
+bin/ssc-tools run-js  --v2 /tmp/tiny.ssc    # v2 JS       → hi, exit 1   ← every program
+```
+
+`deep-tail-recursion` prints all 3 expected lines (`0`, `5000050000`, `12`) and still exits 1. The
+harness renders that as a phantom 4th line `<exit:1>`, which is why it reads as a truncated/crashed
+run rather than a bad exit code.
+
+**What is already ruled out — do not re-do this work:**
+
+- **node is NOT the source.** A shim placed on `PATH` in front of the real node logged both
+  invocations: `node --version` → exit 0, and `node /tmp/ssc-native-js-*.cjs` → **exit 0**.
+- **`runNodeAndWait` returns normally.** Instrumented `RunNativeV2.runNodeAndWait`: it observes
+  `exitCode=0`, skips its `System.exit`, and falls off the end of the method. So the process is
+  still healthy at that point and the 1 is manufactured afterwards.
+- **The generated JS does not exit.** `JsBackend` emits `process.exit` for exactly one thing,
+  `io.exit`; the entry epilogue only `console.log`s a non-Unit result.
+- **No stale/duplicate classes.** `scalascript/cli/RunJsCmd` exists in exactly one jar
+  (`bin/lib/ssc.jar`), which is the one on `ssc-tools`' classpath.
+
+**The one loose thread, unexplained.** With debug prints compiled into the jar (verified present
+with `grep -a` on the extracted classes — a plain `grep` lies here, the strings are in the class
+constant pool), `RunNativeV2.runNodeAndWait`'s trace printed but the *next* statement in
+`RunJsCmd.run` after `RunNativeV2.runJs(...)` did **not**, nor did one added at
+`dispatchCommand(...).exitIfFailure()` in `Main$package`. So the JVM appears to leave between
+`runNodeAndWait` returning and its caller resuming — with `main` never reaching the dispatcher tail.
+There is no global catch in `@main def ssc` and stderr is empty, so an uncaught exception is
+unlikely. Suspect a `System.exit` reached via a path not yet traced (a shutdown hook, or
+`ssc.Runtime.exitHandler` — `runTower` swaps it for `code => throw new TowerExit(code)` and restores
+it in a `finally`; what the DEFAULT handler does was not checked and is the next thing to look at).
+
 ## v2-zero-arg-unknown-method-fails-open — a typo'd zero-argument method silently returns garbage instead of erroring
 
 **Status:** OPEN (v1/v2 divergence, silent wrong answer on the DEFAULT lane). Found 2026-07-16 by
