@@ -543,8 +543,16 @@ final class ScalaSpikeSpec extends AnyFunSuite:
         val name = f.getName.stripSuffix(".code")
         val proj =
           try
-            val roots = parse(new String(Files.readAllBytes(f.toPath), "UTF-8")).roots
-            if roots.isEmpty then { bad += 1; "EMPTY" } else { ok += 1; SpikeProject.program(roots.head) }
+            val text  = new String(Files.readAllBytes(f.toPath), "UTF-8")
+            val roots = parse(text).roots
+            // A BLANK source is a legitimately EMPTY program, not a spike failure: fences are optional, so a
+            // doc-only `.ssc` extracts to no code at all (feedback_ssc_fences_by_design). Its correct
+            // projection is the empty statement list `Nil`, which lowerProg turns into the bare prelude —
+            // byte-identical to ssc1-front's own parse(""). Only a NON-blank source yielding no roots is a
+            // real spike failure worth flagging.
+            if roots.isEmpty then
+              if text.isBlank then { ok += 1; "Nil" } else { bad += 1; "EMPTY" }
+            else { ok += 1; SpikeProject.program(roots.head) }
           catch case e: Throwable => { bad += 1; s"SPIKE_CRASH: ${e.getClass.getSimpleName}: ${e.getMessage}" }
         Files.writeString(Paths.get(outDir, s"$name.proj"), proj)
       info(s"newfront batch: projected ${files.length} files ($ok projected, $bad empty/crash)")

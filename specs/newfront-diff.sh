@@ -65,8 +65,12 @@ pf="\$1"; n=\$(basename "\$pf" .proj); code="$WORK/code/\$n.code"; ref="$WORK/re
 # ref: fresh JVM per file (no cross-program cell leak)
 ( cd "$V2" && java -Xss512m -jar "$JAR" run bin/_nf_refone.ssc0 "\$code" 2>/dev/null ) > "\$ref"
 [ -s "\$ref" ] || { echo "SKIP \$n"; exit 0; }
-[ "\$(cat "\$pf")" = "Nil" ] && { echo "DROP \$n |proj=Nil (top-level statements / empty projection)"; exit 0; }
 grep -q 'SPIKE_CRASH' "\$pf" && { echo "DROP \$n |spike parse crash"; exit 0; }
+grep -q '^EMPTY\$' "\$pf" && { echo "DROP \$n |spike projected no roots"; exit 0; }
+# NOTE: a `Nil` projection is NOT pre-judged a DROP. For a doc-only .ssc (fences are optional) the extracted
+# program is legitimately EMPTY, and `Nil` lowers to the bare prelude — byte-identical to ssc1-front's
+# parse(""). Lower it and let the cmp decide; a NON-empty program that collapses to Nil still lands in the
+# `< 7400` prelude-only DROP bucket below. Same rule as the hole check: compare first, classify after.
 drv="$V2/bin/_nf_\${n//[^A-Za-z0-9_]/_}.ssc0"
 printf 'import "../lib/ssc1-lower.ssc0"\ndef main = () => #io.print(#coreir.encode(lowerProg(%s)))\n' "\$(cat "\$pf")" > "\$drv"
 sp="$WORK/spike/\$n.ir"; ( cd "$V2" && java -Xss512m -jar "$JAR" run "\$drv" 2>/dev/null ) > "\$sp"; rm -f "\$drv"
