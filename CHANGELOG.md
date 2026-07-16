@@ -1,5 +1,20 @@
 # Changelog
 
+## busi-v1-lane-runtime-regressions — supported rollback runtime restored (2026-07-16)
+
+Fixed three import/runtime boundaries exposed by busi's canonical browser lane: enum cases no
+longer replace core `None`/`Some`/`Nil`, imported Boolean guards short-circuit, and nested internal
+helpers retain their defining module's lexical names instead of resolving a same-named importer
+global. The lexical fix is `10e116a63`; the faithful regressions include the actual multi-file
+`Unit`-versus-Boolean name collision.
+
+Verification: 1849/1849 interpreter tests, 8/8 affected conformance cases, and busi's remotely
+resolvable minimal pin `83941df60` (also carrying the deterministic stack and two older var-frame
+fixes) passed `make v2-web-e2e-v1` 9/9 and `make v2-web-e2e-v2` 9/9. Focused adapters were an
+insufficient oracle: only the full browser exposed Housing's var-frame requirement and Corporate's
+second helper hop. A broad all-global lexical binding was rejected because cyclic structural
+closure equality prevents hub boot; only locally declared module functions are bound recursively.
+
 ## coreir-canonical-contract-reconcile — the canonical Core IR contract now matches the code, and a gate keeps it that way (2026-07-16)
 
 Pinned **one** canonical inventory (13 nodes / 7 constants) in `v2/specs/10-core-ir.md` §3.2 and
