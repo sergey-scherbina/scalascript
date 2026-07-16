@@ -3073,21 +3073,42 @@ and can quietly point at another row (a real `sqlite3` can vacuum between two of
 
 ### Slices
 
-- [ ] **A1 — the address.** `case class SqliteAddress(table, rowid, column)` + parse/render of the
-      `table/rowid/column` form. Errors are explicit (no guessing at a malformed address).
-- [ ] **A2 — resolve.** Address → the physical half: reuse `findTable` → root page → rowid seek →
-      the record's field. Returns both halves, so the link is a value, not an assumption.
-- [ ] **A3 — read.** `addressRead(image, address) → Either[String, (type, value)]`, honouring the
-      link: an IPK column reads the ROWID, not the stored field. **Gate: the differential must cross
-      the two engines through a FILE** (write with real `sqlite3`/xerial → read by address), because
-      a "scljet reads what scljet wrote" oracle is self-consistent and cannot see this class of bug.
-      Depends on / coordinates with the `scljet-ipk-rowid` lane — if their `rowValue` fix lands
-      first, read through it instead of duplicating the substitution.
-- [ ] **A4 — `Raw(n)`.** Report the format's type where known, else the raw extent. Serial types
-      10/11 stay a refusal (they carry no length — the true edge of knowledge; `record.ssc` already
-      rejects them).
-- [ ] **A5 — stability.** Report whether an address is stable (has-IPK → yes; no-IPK → no).
-      Test: a table with and without an IPK.
+- [x] **A1-A5 — read by address. DONE 2026-07-16** (`0aa5c4727` module, `8961fc8d7` conformance +
+      bugs, `4db3cf4b5` differential). `scljet/address.ssc`: `parseAddress`/`renderAddress`/
+      `addressRead` → `AddressedValue(typeName, value, physicalBytes, fromRowid, stable)`.
+      Gates: conformance `scljet-address-read` PASS [INT]+[JS], full scljet slice **98/98**,
+      `sbt scljetJdbcPlugin/test` **53/53** (4 new cross-engine cases).
+      - **`fromRowid` + `physicalBytes` are the point**: they make the LINK observable instead of
+        assumed. Proven on a REAL SQLite file: `emp/7/id` → value 7, `fromRowid=true`,
+        `physicalBytes=0` (real SQLite stores NULL there; the value lives in the rowid). Same
+        address in a scljet-written file → same value 7, `physicalBytes=1` (we store a redundant
+        copy). One logical address, one logical value, two physical encodings.
+      - **Stability is read from the file, not assumed**: IPK → stable; no IPK → `stable=false`
+        (VACUUM may renumber; a reference to it rots silently).
+      - **Exports** (manifest-only, zero logic) added to `sql.ssc` (tableContext, seekRowidRecord,
+        RowidSeek/SeekHit/SeekMiss/SeekFallback, tableIpkIndex, columnIndex, joinTableRows) and
+        `mutate.ssc` (fieldAt); `address.ssc` added to the `ScljetEngine` JVM bootstrap.
+      **METHOD (the reusable part).** The conformance case CANNOT prove the link: `[int, js]` means
+      scljet writes and scljet reads — a self-consistent oracle, blind to a file-format divergence
+      by construction. The two halves only genuinely disagree in a file written by ANOTHER engine,
+      so the real gate is the JVM differential (`ScljetAddressTest`): write with
+      `org.xerial:sqlite-jdbc`, read by address with ours. Both directions matter — we-write/
+      they-read is what disproved the write-side hypothesis in the IPK bug.
+      **GOTCHAS hit (each cost a round):**
+      - `fieldAt` takes `List[RecordField]`, NOT `DecodedRecord` — passing the record gives a match
+        failure deep inside, not a type error.
+      - **`buildTableDatabase` does NOT honour the IPK alias** — it assigns rowids sequentially, so
+        an IPK table built with it has a column that disagrees with its own rowid (real SQLite
+        would read the rowid, i.e. that helper writes a *misleading* file). The SQL insert path
+        does honour it. Build IPK fixtures through SQL.
+      - `executeMutation` is exported by `sql.ssc`, not re-exported by `index.ssc`.
+      - My own test helper swallowed a failed INSERT and returned the image unchanged, making a
+        rejected write look like a missing row — the exact silence this module removes. Helpers in
+        this area must be loud.
+      **Two bugs filed on the way** (neither mine to fix): `v2-native-double-toLong-noop` (every
+      REAL write through scljet crashes on `bin/ssc run`, the DEFAULT command — invisible to us
+      because scljet's conformance runs `[int, js]` and `int` is correct) and
+      `scljet-insert-null-literal-rejected`.
 
 ### Later (shape fixed now so they don't change it)
 - write by address = the same triple applied + a **commit boundary** (one row change touches
