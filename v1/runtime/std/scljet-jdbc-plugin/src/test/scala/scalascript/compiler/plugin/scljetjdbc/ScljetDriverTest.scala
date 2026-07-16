@@ -298,6 +298,36 @@ class ScljetDriverTest extends AnyFunSuite:
     assert(scKeys == List(7L, 8L, 3L), s"explicit IPK values are the rowids: $scKeys")
     assert(scKeys == refKeys, s"scljet=$scKeys\nsqlite=$refKeys")
 
+  // ── INSERT … SELECT ───────────────────────────────────────────────────────
+
+  test("INSERT INTO t SELECT … copies rows, cross-checked against the reference"):
+    // Was "expected VALUES" — the row source can be a query, not just a tuple
+    // list. Every assertion is the reference driver's own answer, not a literal.
+    def run(c: Connection): List[String] =
+      val s = c.createStatement()
+      s.executeUpdate("CREATE TABLE src(id INTEGER PRIMARY KEY, name TEXT, dept INTEGER)")
+      s.executeUpdate("CREATE TABLE dst(id INTEGER PRIMARY KEY, name TEXT, dept INTEGER)")
+      s.executeUpdate("INSERT INTO src VALUES (1,'ann',10),(7,'bob',20),(9,'cid',10)")
+      // filtered copy — the IPK values travel with the rows
+      s.executeUpdate("INSERT INTO dst SELECT * FROM src WHERE dept = 10")
+      // column-list form + a self-referencing source (reads the PRE-insert dst)
+      s.executeUpdate("INSERT INTO dst(name, dept) SELECT name, dept FROM src WHERE id = 7")
+      val rs = s.executeQuery("SELECT id, name, dept FROM dst ORDER BY id")
+      val out = scala.collection.mutable.ArrayBuffer.empty[String]
+      while rs.next() do out += s"${rs.getLong(1)}|${rs.getString(2)}|${rs.getInt(3)}"
+      out.toList
+
+    val sc = memConn()
+    val scRows = try run(sc) finally sc.close()
+
+    Class.forName("org.sqlite.JDBC")
+    val ref = DriverManager.getConnection("jdbc:sqlite::memory:")
+    val refRows = try run(ref) finally ref.close()
+
+    assert(scRows == refRows, s"scljet=$scRows\nsqlite=$refRows")
+    // pin the values too, so a shared misbehaviour cannot make this vacuous
+    assert(scRows == List("1|ann|10", "9|cid|10", "10|bob|20"), s"got $scRows")
+
   test("getGeneratedKeys is empty when the last execution generated no key"):
     val c = memConn()
     try

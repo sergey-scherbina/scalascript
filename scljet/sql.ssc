@@ -3951,7 +3951,11 @@ def queryImageParams(dbBytes: ByteSlice, sql: String, params: List[SqliteValue])
 
 // ── DML: INSERT and DELETE through the balanced write path ──
 
-case class InsertStmt(table: String, columns: List[String], rows: List[List[SqliteValue]])
+// `INSERT INTO t (cols) VALUES (…),(…)` carries its rows in `rows` and leaves `select` empty.
+// `INSERT INTO t (cols) SELECT …` carries the source query in `select` instead: its rows are not
+// known until execution, so they are materialised against the PRE-mutation image (see
+// insertValueRows) — which is also what makes `INSERT INTO t SELECT … FROM t` well-defined.
+case class InsertStmt(table: String, columns: List[String], rows: List[List[SqliteValue]], select: Option[SelectStmt] = None)
 case class DeleteStmt(table: String, where: List[List[Condition]])
 
 def reverseValues(items: List[SqliteValue], acc: List[SqliteValue]): List[SqliteValue] =
@@ -4053,10 +4057,14 @@ def parseInsert(toks: List[Token]): Either[String, InsertStmt] =
           case Left(message) => Left(message)
           case Right(colPair) =>
             val afterCols = colPair._2
-            if !tkIsKw(afterCols, "VALUES") then Left("expected VALUES")
+            // `INSERT INTO t SELECT …` — the row source is a query, not a VALUES list.
+            if tkIsKw(afterCols, "SELECT") then parseSelect(afterCols) match
+              case Left(message) => Left(message)
+              case Right(sel) => Right(InsertStmt(table, colPair._1, Nil, Some(sel)))
+            else if !tkIsKw(afterCols, "VALUES") then Left("expected VALUES or SELECT")
             else parseValueRows(afterCols.tail) match
               case Left(message) => Left(message)
-              case Right(valPair) => Right(InsertStmt(table, colPair._1, valPair._1))
+              case Right(valPair) => Right(InsertStmt(table, colPair._1, valPair._1, None))
 
 def parseDelete(toks: List[Token]): Either[String, DeleteStmt] =
   if !tkIsKw(toks, "DELETE") then Left("expected DELETE")
@@ -4368,7 +4376,22 @@ def tableIpkIndex(db: ReadonlyDatabase, table: String): Int =
       case Some(t) => ipkColumnIndex(cpToString(t.codePoints))
       case None => -1
 
+// The rows an INSERT will place: its VALUES tuples, or — for `INSERT INTO t SELECT …` — the result
+// of running the source query against `dbBytes`. Always the PRE-mutation image, so `INSERT INTO t
+// SELECT … FROM t` reads the table as it was before the insert (SQLite's semantics) and cannot feed
+// on its own output. Both executeInsert and insertChangesRowid go through this, so the rows they
+// place and the rowid they report are derived from the same query result.
+def insertValueRows(dbBytes: ByteSlice, stmt: InsertStmt): Either[String, List[List[SqliteValue]]] =
+  stmt.select match
+    case None => Right(stmt.rows)
+    case Some(sel) => runSelectStmt(dbBytes, sel)
+
 def executeInsert(dbBytes: ByteSlice, stmt: InsertStmt): Either[String, ByteSlice] =
+  insertValueRows(dbBytes, stmt) match
+    case Left(message) => Left(message)
+    case Right(valueRows) => executeInsertRows(dbBytes, stmt, valueRows)
+
+def executeInsertRows(dbBytes: ByteSlice, stmt: InsertStmt, valueRows: List[List[SqliteValue]]): Either[String, ByteSlice] =
   tableContext(dbBytes, stmt.table) match
     case Left(message) => Left(message)
     case Right(ctx) =>
@@ -4381,11 +4404,11 @@ def executeInsert(dbBytes: ByteSlice, stmt: InsertStmt): Either[String, ByteSlic
         case Right(cursor) => collectRows(db, cursor) match
           case Left(error) => Left(error.message)
           case Right(rows) =>
-            if stmt.rows.isEmpty then Right(dbBytes)
+            if valueRows.isEmpty then Right(dbBytes)
             else
               val rowid0 = maxRowidOf(rows) + 1L
               val ipkIdx = tableIpkIndex(db, stmt.table)
-              val newRows = assignInsertRowids(stmt.rows, stmt.columns, colNames, ipkIdx, rowid0)
+              val newRows = assignInsertRowids(valueRows, stmt.columns, colNames, ipkIdx, rowid0)
               val infos = tableIndexInfos(db, stmt.table, colNames)
               if infos.isEmpty then
                 insertSqlRowsLoop(openMutablePager(dbBytes, pageSize, pageSize), root, newRows, pageSize) match
@@ -5081,23 +5104,26 @@ def lastRowidOf(rows: List[SqlRow]): Long =
 // So reuse `assignInsertRowids` — the single source of truth executeInsert uses — and report the
 // last rowid it assigns. Both callers now derive the rowid from the same function by construction.
 def insertChangesRowid(dbBytes: ByteSlice, stmt: InsertStmt): Either[String, (Long, Long)] =
-  if stmt.rows.isEmpty then Right((0L, 0L))
-  else
-    val nrows = valueRowsLenLong(stmt.rows)
-    tableContext(dbBytes, stmt.table) match
-      case Left(message) => Left(message)
-      case Right(ctx) =>
-        val db = ctx._1
-        val root = ctx._2
-        val colNames = ctx._3
-        openReadonlyRoot(db, root.toLong, RowidTableTree) match
-          case Left(error) => Left(error.message)
-          case Right(cursor) => collectRows(db, cursor) match
-            case Left(error) => Left(error.message)
-            case Right(rows) =>
-              val assigned = assignInsertRowids(stmt.rows, stmt.columns, colNames,
-                tableIpkIndex(db, stmt.table), longAdd(maxRowidOf(rows), 1L))
-              Right((nrows, lastRowidOf(assigned)))
+  insertValueRows(dbBytes, stmt) match
+    case Left(message) => Left(message)
+    case Right(valueRows) =>
+      if valueRows.isEmpty then Right((0L, 0L))
+      else
+        val nrows = valueRowsLenLong(valueRows)
+        tableContext(dbBytes, stmt.table) match
+          case Left(message) => Left(message)
+          case Right(ctx) =>
+            val db = ctx._1
+            val root = ctx._2
+            val colNames = ctx._3
+            openReadonlyRoot(db, root.toLong, RowidTableTree) match
+              case Left(error) => Left(error.message)
+              case Right(cursor) => collectRows(db, cursor) match
+                case Left(error) => Left(error.message)
+                case Right(rows) =>
+                  val assigned = assignInsertRowids(valueRows, stmt.columns, colNames,
+                    tableIpkIndex(db, stmt.table), longAdd(maxRowidOf(rows), 1L))
+                  Right((nrows, lastRowidOf(assigned)))
 
 def executeMutationCounted(dbBytes: ByteSlice, sql: String): Either[String, MutationResult] =
   executeMutationCountedParams(dbBytes, sql, Nil)
