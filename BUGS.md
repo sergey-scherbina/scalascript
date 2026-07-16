@@ -3,8 +3,8 @@
 
 ## busi-v1-lane-runtime-regressions — four imported owner adapters fail on the 3666-based v1 runtime
 
-**Status:** open (reported by busi/Codex, 2026-07-16). The production v2 runtime lane is green;
-the documented `--v1` rollback lane is not.
+**Status:** done (2026-07-16; confirmed by busi on the assembled derived pin). Both the production
+v2 lane and documented `--v1` rollback lane are green.
 
 **Real-harness repro:** busi `origin/main` after `ksef-2-0-protocol`, with its malformed KSeF
 front matter quoted, runs `make v2-web-e2e-v1` against the assembled pin `25a2bfebc`: 5/9 pass.
@@ -48,9 +48,14 @@ empty. The fix must bind locally declared functions to their defining module con
 helper depth while preserving caller-interpreter effects. A broad all-global binding was rejected:
 it creates recursive structural `FunV`/Map equality during canonical hub boot.
 
-**Done when:** the faithful ScalaScript regression passes, all four focused busi adapters pass on
-the assembled derived pin, and both busi browser lanes pass 9/9. Record the fix and pin SHAs here;
-move to `fixed` only after busi confirms.
+**Fix and verification:** `207109cc3` protects core ADTs during enum registration; `9f7c3ce6c`
+pins imported short-circuit guards; `10e116a63` binds locally declared helpers to an
+identity-stable lexical module view with a faithful multi-file name-collision regression. The
+upstream interpreter suite passed 1849/1849 and the affected conformance slice passed 8/8. The
+minimal published consumer lineage additionally backports the deterministic launcher stack and
+the two function-local var fixes; its head is `83941df60` on
+`origin/busi-pin/v1-runtime-regressions`. Busi confirmed all focused adapters and the real browser
+matrix: `make v2-web-e2e-v1` 9/9 in 4.4 minutes and `make v2-web-e2e-v2` 9/9 in 1.6 minutes.
 
 
 ## v2-native-double-toLong-noop — `Double.toLong` is a no-op on v2-native → any Long op on the result explodes
