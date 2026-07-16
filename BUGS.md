@@ -1,6 +1,38 @@
 # Bug tracker
 
 
+## busi-v1-lane-runtime-regressions — four imported owner adapters fail on the 3666-based v1 runtime
+
+**Status:** open (reported by busi/Codex, 2026-07-16). The production v2 runtime lane is green;
+the documented `--v1` rollback lane is not.
+
+**Real-harness repro:** busi `origin/main` after `ksef-2-0-protocol`, with its malformed KSeF
+front matter quoted, runs `make v2-web-e2e-v1` against the assembled pin `25a2bfebc`: 5/9 pass.
+Housing, Personal Vault, Official Documents and Corporate fail; `make v2-web-e2e-v2` passes 9/9.
+The same failures reproduce without Chromium through the imported adapters:
+
+```sh
+SSC_LANE_FLAG=--v1 SSC_NO_CDS=1 scripts/ssc tests/v2/housing_http.ssc
+SSC_LANE_FLAG=--v1 SSC_NO_CDS=1 scripts/ssc tests/v2/personal_vault_http.ssc
+SSC_LANE_FLAG=--v1 SSC_NO_CDS=1 scripts/ssc tests/v2/residency_http.ssc
+SSC_LANE_FLAG=--v1 SSC_NO_CDS=1 scripts/ssc tests/v2/corporate_http.ssc
+```
+
+They stop respectively at `head on Nil`, `No field 'isEmpty'`, `Option.get on None`, and
+`Error: null`. The pin is `3666ccb7a` plus five std/ui-only commits; busi had previously recorded
+the same browser matrix 9/9 on the later `6826f2569` lineage, before downgrading for a JSON-renderer
+compatibility problem. The owner adapters themselves did not change between those runs.
+
+**Fix direction:** identify the minimal post-3666 interpreter fixes, add one imported multi-file
+regression that retains the real nested callback/effect shape, then publish a derived busi pin from
+the current cherry-pick lineage. Do not paper over interpreter state corruption in busi, and do not
+bundle the unrelated current-main launcher-tier migration.
+
+**Done when:** the faithful ScalaScript regression passes, all four focused busi adapters pass on
+the assembled derived pin, and both busi browser lanes pass 9/9. Record the fix and pin SHAs here;
+move to `fixed` only after busi confirms.
+
+
 ## v2-native-double-toLong-noop — `Double.toLong` is a no-op on v2-native → any Long op on the result explodes
 
 **Status:** OPEN (found 2026-07-16 by `scljet-address` while building an address read; the SAME

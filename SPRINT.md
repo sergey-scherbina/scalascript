@@ -9,6 +9,27 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## busi-v1-lane-runtime-regressions — restore the supported rollback lane (2026-07-16, Codex)
+
+- [ ] **Reproduce and classify the four real busi failures on the exact published pin.** Current
+      busi pin `25a2bfebc` is runtime `3666ccb7a` plus UI-only cherry-picks. `make
+      v2-web-e2e-v1` boots after quoting one busi KSeF manifest, then passes 5/9; focused
+      `housing_http`, `personal_vault_http`, `residency_http`, and `corporate_http` fail on `--v1`
+      while the identical v2 lane is green. Recorded symptoms: `head on Nil`, `No field isEmpty`,
+      `Option.get on None`, and `Error: null` after the fifth corporate transition.
+- [ ] **Add a faithful multi-file v1 regression.** Preserve imported-module boundaries and the
+      nested Journal/effect/callback shape; a tiny single-file collection test is insufficient.
+      Compare against the known-good post-3666 history and identify the minimal existing fixes
+      instead of adding busi workarounds or advancing to the unrelated current launcher tier.
+- [ ] **Publish a minimal derived busi pin and verify the assembled consumer.** Cherry-pick only
+      the required runtime fixes onto the existing `busi-pin/hstack-wrap-cherry-pick` lineage,
+      rebuild/install the exact jar, then require all four focused busi adapters and
+      `make v2-web-e2e-v1` 9/9. Keep `make v2-web-e2e-v2` green. Record exact commits and reject a
+      broad `origin/main` bump because the current standard-tier launcher is a separate migration.
+
+Done when the regression is durable on ScalaScript main, the derived pin is remotely resolvable,
+and busi's full two-lane browser gate is green on that pin.
+
 ## v2-failopen — unknown zero-arg method silently returns a closure (BUGS.md `v2-zero-arg-unknown-method-fails-open`)
 
 **Root cause (VERIFIED, not the BUGS.md hypothesis).** Not "curried `__method__` never applies the
