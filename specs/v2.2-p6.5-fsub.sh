@@ -123,6 +123,34 @@ d nestcall   'def add(a: Int, b: Int): Int = a + b
 def main(): Int = add(add(1, 2), add(3, 4))'
 d mixprec    'def f(a: Int, b: Int): Boolean = a + 1 < b * 2 && a > 0
 def main(): Boolean = f(1, 5)'
+d strlit     'def main(): String = "hi"'
+d strcat_pp  'def g(a: String, b: String): String = a ++ b
+def main(): String = g("x", "y")'
+d strcat_lit 'def main(): String = "a" + "b"'
+d strcat_var 'def g(a: String): String = a + "b"
+def main(): String = g("x")'
+d strcat_int 'def g(n: Int): String = "v" + n
+def main(): String = g(5)'
+d strcat_nest 'def g(a: String): String = "x" + a + "y"
+def main(): String = g("q")'
+d plus_ints  'def g(a: Int, b: Int): Int = a + b
+def main(): Int = g(1, 2)'
+d len_lit    'def main(): Int = "ab".length'
+d len_var    'def h(s: String): Int = s.length
+def main(): Int = h("ab")'
+d len_concat 'def h(s: String): Int = (s ++ s).length
+def main(): Int = h("ab")'
+d len_sub    'def h(s: String): Int = s.substring(0, 1).length
+def main(): Int = h("ab")'
+d charAt     'def g(s: String, i: Int): Int = s.charAt(i)
+def main(): Int = g("ab", 0)'
+d charAt_lit 'def main(): Int = "ab".charAt(0)'
+d substring  'def k(s: String, a: Int, b: Int): String = s.substring(a, b)
+def main(): String = k("abcd", 1, 3)'
+d streq      'def g(a: String, b: String): Boolean = a == b
+def main(): Boolean = g("a", "a")'
+d strchain   'def g(s: String, i: Int): Boolean = s.charAt(i) >= 97 && s.charAt(i) <= 122
+def main(): Boolean = g("ab", 0)'
 
 if [ "${1:-}" = "--self" ]; then
   echo "--- X1: F compiles its OWN source ---"
