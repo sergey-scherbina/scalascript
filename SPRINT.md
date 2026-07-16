@@ -2037,6 +2037,50 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
           OWN source; require the Core IR it produces for a program P to be byte-identical to what the spike +
           `ssc1-lower` produce for P (the differential oracle stays the guard); then feed it its own source →
           `stage1 == stage2` fixed point. `scalac` remains the outer oracle.
+      - **X1 architecture (established 2026-07-16 by MEASUREMENT — read this before continuing).** Three
+        facts that were NOT written down before and that shape the whole remaining port:
+        1. **The fixpoint is a COROLLARY of self byte-identity, not a separate goal.** If `F(P) ≡
+           ssc1-front(P)` for all P in the corpus *including `F`'s own source*, then `stage1 == stage2`
+           follows: `stage1 = C0(F_src) = F(F_src) ≡ ssc1-front(F_src)`, so `C1 ≡ C0` and `stage2 =
+           C1(F_src) = stage1`. **So X1 == "extend the differential corpus until it contains `F_src`."**
+           There is no separate fixpoint engineering — only breadth.
+        2. **`ssc1-lower` emits a CONSTANT 7258-byte prelude** (~50 `_sel_*`/`__list_*`/exception/
+           `Bump_tick` defs), byte-identical across programs (verified: `def main(): Int = 1+2` and
+           `def main(): String = "hi"` have the same 7258-B prefix, sha `422e0067…`); user defs follow it
+           in source order, then `) (entry (app (global main))))`. In `ssc1-lower` it is *built* as `IrDef`
+           structures (~2000 lines), but it is fixed OUTPUT — so `F` emits it as a **string constant**.
+           This is not a cheat: byte-identity is the oracle, and the blob is exactly what the reference
+           produces. It does mean `F_src` carries a ~7.2 KB quoted blob (spliced with `dq`).
+        3. **The exact reference shapes for the subset `F` is written in** (measured, not guessed):
+           `1+2`→`(prim __arith__ (lit (str "+")) …)` — arith is `__arith__` + a QUOTED symbol, *not*
+           bare `i.add` (C_min's style); `"a"+"b"`→`__arith__ "++"` but `a+b` on String **params**→
+           `__arith__ "+"` (the front specialises on literal operands ONLY — a small special case, not a
+           type system); `.charAt`→`scodeAt`, `.length`→`slen`, `.substring`→`sslice`, `==`→`__eq__`;
+           `Cons(1,Nil)`→`(ctor Cons … (ctor Nil))`; `(1,2)`→`(ctor Tuple2 …)`; `._1`→`(app (global
+           _sel__1) …)`; **`match` let-binds its scrutinee** — `(let ((scrut)) (match (local 0) ((arm Cons
+           2 …) …)))` — so every arm's slots are shifted by the let; a tuple pattern `(a,b)` emits **two**
+           arms (`Pair 2` and `Tuple2 2`); `val`-block→`(let (E) BODY)`; params are reverse-indexed
+           (`def g(a,b)` → a=`(local 1)`, b=`(local 0)`).
+        - Consequence for scope: `F` need only handle the constructs **`F`'s own source uses** (+ the
+          corpus) — the classic bootstrap discipline that kept C_min at 84 defs. Keep the subset `S` that
+          `F` is written in minimal-but-idiomatic and grow `F` and `S` together.
+        - Artifact layout follows C_min's blessed pattern (single source of truth, harness reads the file),
+          NOT the Scala-string-literal-in-`ScalaSpikeSpec` pattern that F1/F2 used — a 1–3k-line compiler
+          cannot live in a test string, and `ScalaSpike.scala` is owned by the newfront agent.
+      - [ ] **X1a — architecture + harness + prelude-exact minimal `F`.** `specs/v2.2-p6.5-fsub.ssc` (the
+            subset compiler, in the subset) + `specs/v2.2-p6.5-fsub.sh` (differential harness, ssc1-front
+            bootstrap, no sbt — same shape as `v2.2-p6.6-fixpoint.sh`). Scope: int literals, `+ - * /`
+            via `__arith__`, parens, `def main(): Int = e`, and the **exact 7258-B prelude**. Gate:
+            `F(P)` byte-identical to `ssc1-front(P)` on a small corpus. Proves the architecture end-to-end.
+      - [ ] **X1b — multi-def, params/locals, calls, `if`/`then`/`else`, recursion.** Slot allocation
+            (env → reverse-indexed `(local i)`), `(app (global f) …)`, `(lam N …)`.
+      - [ ] **X1c — strings.** `dq` splicing, `(lit (str …))`, `.charAt`/`.length`/`.substring`, `==`,
+            the literal-operand `++` special case.
+      - [ ] **X1d — `match`.** Let-bound scrutinee + slot shift, `Cons`/`Nil`/tuple(2 arms)/int-lit/
+            wildcard arms.
+      - [ ] **X1e — `val`-blocks** → `(let (E) BODY)`.
+      - [ ] **X1f — the fixpoint.** Add `F_src` itself to the differential corpus; when it is byte-
+            identical, run `stage1 == stage2` to confirm the corollary holds in practice.
     - Sequencing: F1 → F2/F3 → L1 → X1. Each stage is differential-tested against the spike/`ssc1-front` on
       the growing corpus (same harness). Estimated ~1–3k lines of subset code; multi-session but purely
       mechanical — no unknowns. Every primitive it needs (strings incl. charAt/length/concat/eq/substring,
