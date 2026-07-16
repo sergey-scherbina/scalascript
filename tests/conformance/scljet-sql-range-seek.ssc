@@ -1,0 +1,46 @@
+---
+name: scljet-sql-range-seek
+description: SclJet range index-seek — WHERE indexedcol >/>=/</<=/BETWEEN uses the index; matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet range index-seek
+
+`WHERE <indexed col> op K` for `>`, `>=`, `<`, `<=`, and `BETWEEN lo AND hi` now uses the index: the
+descent (and its ordered-walk fallback) is generalized from an equality key to an `IndexRange`,
+pruning to the subtrees whose divider range overlaps the query range and collecting the rowids whose
+key is in range. The collected rowids are sorted into rowid order so the result is byte-identical to
+the full scan. Every result matches reference sqlite3 (verified out-of-band); locked across
+`[int, js]`.
+
+[ByteSlice, SqliteValue, SqlInteger, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, executeMutation, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def apply(db: ByteSlice, sql: String): ByteSlice =
+  executeMutation(db, sql) match
+    case Left(m) =>
+      println(sql + " => ERR:" + m)
+      db
+    case Right(next) => next
+
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(id INTEGER PRIMARY KEY, k INTEGER)",
+  List(List(SqlInteger(99L), SqlInteger(0L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db0) =>
+    val d1 = apply(db0, "DELETE FROM t")
+    val d2 = apply(d1, "CREATE INDEX idx_k ON t(k)")
+    val db = apply(d2, "INSERT INTO t VALUES (1,10),(2,20),(3,30),(4,40),(5,50),(6,25),(7,35)")
+    show(db, "SELECT id FROM t WHERE k > 30 ORDER BY id")
+    show(db, "SELECT id FROM t WHERE k >= 30 ORDER BY id")
+    show(db, "SELECT id FROM t WHERE k < 25 ORDER BY id")
+    show(db, "SELECT id FROM t WHERE k <= 25 ORDER BY id")
+    show(db, "SELECT id FROM t WHERE k BETWEEN 20 AND 35 ORDER BY id")
+    show(db, "SELECT COUNT(*) FROM t WHERE k > 100")
+    show(db, "SELECT COUNT(*) FROM t WHERE k >= 10")
+```

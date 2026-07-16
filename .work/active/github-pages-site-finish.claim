@@ -1,0 +1,9 @@
+claim: github-pages-site-finish
+branch: feature/github-pages-site-finish
+agent: opus (orchestrator session 0716)
+heartbeat: 2026-07-16T10:36:21Z
+status: in-progress
+what: add .github/workflows/pages.yml publishing site/; Pages is configured (build_type=workflow)
+      but status=null because no publishing workflow exists. SPRINT G1-G2.
+supersedes: stale claim github-pages-site (heartbeat 2026-07-15T13:02, agent gone; its branch has
+      no commits above origin/main — the work already landed, only the workflow is missing).

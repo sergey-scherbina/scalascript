@@ -15,6 +15,27 @@ object RunNativeV2:
       if bytecode then runBytecode(compilation.program) else runVm(compilation.program)
     finally _root_.ssc.Runtime.argv = previousArgv
 
+  /** `run-js --v2` on the native lane: native ssc1 front → CoreIR → v2 JsGen →
+   *  a temp CommonJS file executed with node. 64-bit-Int JS (the reason this lane
+   *  exists), now sourced from the native front instead of the scalameta bridge. */
+  def runJs(files: List[String], argv: List[String]): Unit =
+    val compilation = compile(files)
+    val js  = _root_.ssc.js.JsGen.generate(compilation.program)
+    val tmp = java.nio.file.Files.createTempFile("ssc-native-js-", ".cjs")
+    java.nio.file.Files.writeString(tmp, js, java.nio.charset.StandardCharsets.UTF_8)
+    tmp.toFile.deleteOnExit()
+    runNodeAndWait(Seq("node", tmp.toString) ++ argv)
+
+  private def runNodeAndWait(cmd: Seq[String]): Unit =
+    val proc = new ProcessBuilder(cmd*).inheritIO().start()
+    val hook = new Thread(() => proc.destroy())
+    java.lang.Runtime.getRuntime.addShutdownHook(hook)
+    try
+      val exitCode = proc.waitFor()
+      java.lang.Runtime.getRuntime.removeShutdownHook(hook)
+      if exitCode != 0 then System.exit(exitCode)
+    catch case _: InterruptedException => proc.destroy(); System.exit(1)
+
   private[cli] def compile(files: List[String]): NativeV2Compilation =
     compile(files, mutable = false)
 
@@ -41,7 +62,7 @@ object RunNativeV2:
     // (v2-native-ambient-prelude.)
     val canonicalFiles = ambientPrelude(userFiles, layout.stdRoot) ++ userFiles
     val sourceFiles = canonicalFiles.map(portablePath)
-    val sourceUnits = NativeSourceClosure.resolve(canonicalFiles, layout.stdRoot)
+    val sourceUnits = NativeSourceClosure.resolve(canonicalFiles, layout.stdRoot, layout.installRoot)
 
     val previousArgv = _root_.ssc.Runtime.argv
     try
@@ -52,7 +73,7 @@ object RunNativeV2:
           throw new IllegalArgumentException(detail)
       }
 
-      val structural = lowerNative(layout.runner, layout.stdRoot, sourceFiles, canonicalFiles, mutableFlag)
+      val structural = lowerNative(layout.runner, layout.stdRoot, layout.installRoot, sourceFiles, canonicalFiles, mutableFlag)
       if mutableFieldSentinel(structural.program) then
         throw new IllegalArgumentException(
           "mutable class fields (a `var` field in a class) are disabled by default; " +
@@ -117,12 +138,14 @@ object RunNativeV2:
   private def lowerNative(
       runner: java.io.File,
       stdRoot: java.io.File,
+      libRoot: java.io.File,
       sourceFiles: List[String],
       canonicalFiles: List[java.io.File],
       mutableFlag: List[String]): NativeStructuralFrontend =
     val result = runTower(
       runner,
-      mutableFlag ++ ("--structural" :: "--std-root" :: portablePath(stdRoot.getCanonicalFile) :: sourceFiles),
+      mutableFlag ++ ("--structural" :: "--std-root" :: portablePath(stdRoot.getCanonicalFile) ::
+        "--lib-root" :: portablePath(libRoot.getCanonicalFile) :: sourceFiles),
       "ssc-native-frontend")
     if result.exitCode != 0 then
       throw new RuntimeException(s"native frontend exited with ${result.exitCode}")
@@ -291,7 +314,8 @@ object RunNativeV2:
   private final case class NativeFrontLayout(
       runner: java.io.File,
       checker: java.io.File,
-      stdRoot: java.io.File)
+      stdRoot: java.io.File,
+      installRoot: java.io.File)
 
   private def nativeFrontLayout(): NativeFrontLayout =
     val installRoot = Option(System.getProperty("ssc.lib.path")).map(new java.io.File(_)).getOrElse {
@@ -307,7 +331,7 @@ object RunNativeV2:
     if !runner.isFile || !checker.isFile || !stdRoot.isDirectory then
       throw new IllegalStateException(
         s"native frontend resources are not staged under ${base.getPath}; run scripts/sbtc \"installBin\"")
-    NativeFrontLayout(runner, checker, stdRoot)
+    NativeFrontLayout(runner, checker, stdRoot, installRoot)
 
   /** The self-hosted resolver uses `/` as its target-independent separator;
    *  `java.nio.file.Path` accepts that spelling on Windows as well. */

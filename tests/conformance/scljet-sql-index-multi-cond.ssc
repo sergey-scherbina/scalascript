@@ -1,0 +1,44 @@
+---
+name: scljet-sql-index-multi-cond
+description: SclJet index use in a multi-condition AND — seek one indexable condition, filter the rest; matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet index use in a multi-condition WHERE
+
+A single-table query whose WHERE is one AND-group with several conditions now uses an index when
+*any* condition is indexable: `pointLookup` seeks that condition (a row satisfying the whole AND also
+satisfies each condition, so the seek returns a superset) and `finishRows` applies the full WHERE to
+filter down. Covers an indexed column + a non-indexed predicate (`dept='eng' AND active=1`), a rowid
+seek + a residual predicate (`id=4 AND dept='eng'`), the indexable condition appearing second
+(`active=1 AND dept='eng'` seeks `dept`), and `COUNT`. Every result matches reference sqlite3
+(verified out-of-band); locked across `[int, js]`.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, executeMutation, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def apply(db: ByteSlice, sql: String): ByteSlice =
+  executeMutation(db, sql) match
+    case Left(m) =>
+      println(sql + " => ERR:" + m)
+      db
+    case Right(next) => next
+
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(id INTEGER PRIMARY KEY, dept TEXT, active INTEGER)",
+  List(List(SqlInteger(9L), SqlText("x"), SqlInteger(0L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db0) =>
+    val d1 = apply(db0, "DELETE FROM t")
+    val d2 = apply(d1, "CREATE INDEX idx_dept ON t(dept)")
+    val db = apply(d2, "INSERT INTO t VALUES (1,'eng',1),(2,'sales',1),(3,'eng',0),(4,'eng',1),(5,'sales',0)")
+    show(db, "SELECT id FROM t WHERE dept = 'eng' AND active = 1 ORDER BY id")
+    show(db, "SELECT id FROM t WHERE id = 4 AND dept = 'eng'")
+    show(db, "SELECT id FROM t WHERE active = 1 AND dept = 'eng' ORDER BY id")
+    show(db, "SELECT COUNT(*) FROM t WHERE dept = 'sales' AND active = 0")
+```

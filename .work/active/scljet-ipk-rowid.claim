@@ -1,0 +1,11 @@
+claim: scljet-ipk-rowid
+branch: feature/scljet-ipk-rowid
+agent: opus (orchestrator session 0716)
+heartbeat: 2026-07-16T10:36:21Z
+status: in-progress
+what: BUGS.md scljet-ipk-rowid-alias-not-substituted — INTEGER PRIMARY KEY must alias the rowid
+      (record stores NULL, value lives in rowid). Both directions: READ (we return 0 for a
+      reference-written file) and WRITE (we likely store the value in the column + sequential
+      rowid, so real SQLite misreads our files). Plan: SPRINT "scljet-ipk-rowid" A1-A5.
+key: the differential must cross the two engines through a FILE; a scljet-reads-what-scljet-wrote
+      oracle is self-consistent and cannot see this bug.

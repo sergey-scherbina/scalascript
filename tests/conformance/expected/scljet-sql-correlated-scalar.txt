@@ -1,0 +1,5 @@
+SELECT id FROM t1 WHERE val = (SELECT amt FROM t2 WHERE t2.fk = t1.id) ORDER BY id => 1
+3
+SELECT id FROM t1 WHERE val < (SELECT amt FROM t2 WHERE t2.fk = t1.id) ORDER BY id => 2
+SELECT id FROM t1 WHERE val >= (SELECT amt FROM t2 WHERE t2.fk = t1.id) ORDER BY id => 1
+3

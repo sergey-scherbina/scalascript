@@ -9,6 +9,79 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## scljet-ipk-rowid — `INTEGER PRIMARY KEY` is not a rowid alias (2026-07-16, Sergiy: "делай все три направления параллельно")
+
+Fixes BUGS.md `scljet-ipk-rowid-alias-not-substituted` (OPEN, found 2026-07-15 by the J4 lane).
+**Severity: silent wrong data in BOTH directions** — no error is raised, the client just gets zeros.
+In real SQLite an `INTEGER PRIMARY KEY` column is an *alias for the rowid*: the record stores NULL
+for that column and the value lives in the rowid. scljet models neither half.
+
+Why every existing test misses it: the oracle is "scljet reads back what scljet wrote" — self-
+consistent by construction. **The test must cross the two engines through a FILE**, or the bug
+re-hides. This is the load-bearing part of the task, not the fix.
+
+- [ ] **A1 — pin the failure first (differential harness).** A test that (a) writes a db with the
+      REFERENCE driver (`org.xerial:sqlite-jdbc`, already a test dep — see `ScljetIntrospectionTest`
+      "reads a database created by the reference driver"), reads it with scljet; and (b) the reverse:
+      scljet writes, reference reads. Both directions must be RED before any fix. Expected today:
+      (a) `0|ann, 0|bob` instead of `1|ann, 7|bob`; (b) unverified hypothesis — scljet stores the IPK
+      value in the column and assigns rowids sequentially, so reference reading our file reports the
+      ROWID (`id=2`) not the stored `7`. Confirm (b) is real before fixing it; record the finding
+      either way.
+- [ ] **A2 — READ path: substitute the rowid for the IPK column.** The concept is already modelled —
+      `isIpkType` (`scljet/sql.ssc:1085`), `ipkColumnIndex(sql)` (`:1099`), `tableIpkIndex(db, table)`
+      (`:4291`), already used at `:3849`/`:4314`. So the fix is likely to apply the EXISTING ipk index
+      in the row-projection path, not to add new analysis. When the stored column value is NULL and the
+      column is the IPK, project the rowid instead.
+- [ ] **A3 — WRITE path: store NULL in the IPK column, put the value in the rowid.** Only if A1(b)
+      confirms. `INSERT INTO emp VALUES (7,'bob')` must produce rowid=7 + column NULL, so real SQLite
+      reads `7`. Watch the auto-assign path (no explicit IPK ⇒ max(rowid)+1) and `getGeneratedKeys`
+      (J2.1) which may depend on the current wrong behaviour.
+- [ ] **A4 — gate.** Full `scljet-*` conformance slice green (`tests/conformance/run.sh --only
+      'scljet-*' --no-memo` — **`--no-memo` is mandatory: the memo keys on ssc.jar, NOT on scljet/*.ssc
+      sources**, so an edit to `.ssc` alone will falsely "skip green"). Plus the A1 differential in both
+      directions, plus the existing `ScljetIntrospectionTest`.
+- [ ] **A5 — adjacent parse gaps found by the same probe (separate commits).** `CREATE UNIQUE INDEX`
+      is not parsed AT ALL (`parseCreateIndex` requires `CREATE INDEX`; `CREATE UNIQUE INDEX` falls
+      through to `parseCreate` → "expected TABLE"), and `INSERT INTO t SELECT …` is not parsed
+      ("expected VALUES"). Both are real SQL surface a reference-written db can contain.
+
+## codex-lane-salvage — recover value from three orphaned codex branches (2026-07-16, Sergiy: "разберись — может быть там есть чтото ценное; всё ценное замерж в мастер")
+
+Three codex lanes died mid-review (agents gone >25 h; heartbeats 2026-07-15T08:20). Each claim says
+"a new independent review is running; no push/release before APPROVE" — **the reviewer that would
+have approved is dead, so the branches are frozen forever unless someone adjudicates them.** Each is
+substantial and self-reported green:
+
+| Branch | Size | Self-reported gates |
+|---|---|---|
+| `feature/javascript-typescript-control-direct` @ `1b18503d4` | 22 files, +5023 | direct 39/39, explicit 31/31, catalog 26/9, negatives 9/9, conformance 5/5 |
+| `feature/scala3-control-macros` @ `e34b81733` | 21 files, +4443 | focused 51/51, full/package/POM 113/113, packaged 14×42 |
+| `feature/ssc-api-descriptor-v3-slice-b` @ `28c2e959c` | 10 files, +5636 | focused 94/94, descriptor 27/27, core 1132/1132, interop 36/36, ABI 73/73 |
+
+- [ ] **C1 — verify, do not trust.** For each branch: rebase on current `origin/main`, then RE-RUN the
+      gates it claims rather than believing the claim file. A self-reported green from a dead agent is a
+      hypothesis. Record the ACTUAL numbers.
+- [ ] **C2 — merge what is genuinely green**, one branch at a time, each as its own push to `origin/main`
+      (feature / docs / bookkeeping split per AGENTS.md §3). Do NOT bundle the three.
+- [ ] **C3 — for anything red or ambiguous:** do not merge and do not silently drop it. Record what is
+      valuable + what is broken in `BACKLOG.md` so the work is recoverable, and report it up.
+- [ ] **C4 — release the three stale claims** + remove the dead worktrees once adjudicated.
+
+## github-pages-site-finish — publish site/ via Actions (2026-07-16)
+
+Orphaned at the last step (claim heartbeat 2026-07-15T13:02). Everything is already on `main`:
+repo public, secret-scan clean, `site/` present (`index.html`, `favicon.svg`, `DEPLOY.md`).
+Pages is already configured API-side: `build_type: workflow`, `source: main /`, `https_enforced`,
+**but `status: null` — nothing has ever been published** because the publishing workflow does not exist.
+
+- [ ] **G1 — add `.github/workflows/pages.yml`** publishing `site/` (actions/upload-pages-artifact +
+      actions/deploy-pages; `pages: write` + `id-token: write` permissions). The 4 existing workflows
+      (`ci.yml`, `corpus-contract.yml`, `native-release.yml`, `registry-pages.yml`) are the style
+      reference — **check `registry-pages.yml` FIRST: it may already deploy Pages, in which case a second
+      deploying workflow would fight it** and the right move is to extend it instead.
+- [ ] **G2 — trigger, verify live URL** (`https://sergey-scherbina.github.io/scalascript/`), report it.
+
 ## new-self-hosting-front — a rational, self-hosting ScalaScript compiler front (2026-07-15, Sergiy)
 
 **Goal.** Replace the accreted `ssc0` front (`v2/lib/ssc1-front.ssc0` 3190 lines + `ssc1-lower.ssc0` 5359
@@ -116,13 +189,64 @@ error-resilient parser already byte-identical to ssc1-front on 119 constructs, t
            can't populate. ssc1-front emits no such nodes → collect=Nil → production byte-identical (no ref
            regression). Case-class body methods +3, using-injection +1, default synthesis (synthetics match).
          - **KC8** `f(a)(using g)`→flatten (mergeUsingArgs) +1.
-      **Remaining ~20% is DEEP/BESPOKE or UNMATCHABLE:**
-      - **custom string interpolators `html"…"`/`sql"…"` are UNMATCHABLE cleanly** — ssc1-front itself doesn't
-        recognise them and emits error-recovery garbage (`_err`, leftover statements); byte-matching that is a
-        non-goal (~5 progs).
-      - deep bespoke: summon resolution + given-body extension methods, `direct { }` marker, continuations/
-        coroutines, symbolic operator methods `def <~>` + custom-op infix precedence; long-tail 1-program gaps.
-      - The **variant-A additive pattern is the reusable template** for any parse-cell the spike can't populate.
+      8. [x] error-recovery + long-tail — landed 2026-07-15 (→404, 83%, 37 slices): the "unmatchable" custom
+         interpolators `html"…"` were matchable — ssc1-front's error recovery is DETERMINISTIC. applyArgs ends the
+         arg list on a non-comma token (so `f(html"…")`→`f(html)` + trailing tokens); error nodes → `mkVar("_err")`
+         (not __notImplemented__); `???`→hole (`?` in isOpChar); compound assignment `x += e`→`x = x + e` (wrapped
+         as `mkSExpr(assign)` in a block so lowerBlock let-folds it). Flipped rest-api/uploads/rest-api-fm/spa-demo/
+         mcp-server-tool; HOLE 40→17. **LESSON: don't call a divergence "unmatchable" — the oracle's quirks are
+         deterministic and reproducible.**
+      9. [x] clean mechanical parser gaps — landed 2026-07-15 (→**422, 85%, 45 slices**; HOLE 17→4, of which 2 are
+         FALSE holes: legit `???`→__NI__ the harness pre-filters — predef-notimplemented actually MATCHES). The
+         "deep/unmatchable" claims were mostly wrong; +8 clean slices, all pushed origin/main:
+         - **`direct[F] { block }`** direct-style monadic — postfix `[T]`→directmarker (like Focus/Prism), next `{ }`
+           → `Pair("direct",(typeArgs,block))` → lowerProg flatMap chain (+3).
+         - **char literals** `'='`/`'\n'`/`'\uXXXX'` — the spike had NO `'` lexing; ssc1-front.ssc0:361-374 lexes each
+           to an INT token holding the char CODE (VM treats chars as codes). Mirror exactly: plain 3ch/escape 4ch/`\u` 8ch (+3).
+         - **local defs in braceless blocks** — parseBlock stopped at ANY `def` (`!isDefStart`), emptying a body whose
+           first stmt is a nested def and leaking it to top level; guard removed (parseStmt routes nested def→letrec;
+           col guard stops siblings). **cons `::` in tuple/ctor sub-patterns** — `(x::xs, y::ys)` split each `::` into a
+           junk wildcard (`Tuple6` not `Tuple2`); parseSubPattern folds `:: rest`→conspat. Together fix mergesort/fibonacci.
+         - **multi-method extension groups + generic receiver** `extension (xs: List[Int])` — parsed one inline method
+           (rest leaked) and left `[Int]` unconsumed; loop the def group + skipTypeTail (+1).
+         - **offside (multi-line) lambda bodies** `xs.map(x =>\n val d=…\n d*d)` — parseExpr dropped the block's vals;
+           parseLambdaBody parses a block (unwrap a lone exprStmt so a single-expr body stays bare, no spurious `let`),
+           with a **stopAtParen flag — LAMBDA-ONLY** so the block stops at the enclosing call's `)` (higher-column on the
+           body's last line); MUST be lambda-only — a def-body dangling `)` (from an unsupported `html"…"` interpolator
+           breaking arg parsing) must fall through to `_err` to match ssc1-front recovery (rest-api-fm). (+several:
+           imports/graphql-typed-resolvers/ws-typed-client/head-field-effect-shadow/oauth-mcp-full-stack).
+         - **qualified type in arm-pattern ascription** `case x: A.B =>` — captured only the head, left `.B` breaking the
+           arm; skipTypeSegments (like skipTypeTail but does NOT eat the case `=>`); ssc1-front tags on the HEAD (+1).
+      10. [x] annotation error-recovery + enum defaults + subtype registry + type aliases — landed 2026-07-15
+         (→**446, 89%, 51 slices**; "Доделай" round, +24). The "deep/bespoke" tail held BIG CLEAN clusters:
+         - **annotation error-recovery — +20, the biggest single win** — the spike ERASED, but must REPRODUCE:
+           (1) `@`-annotated case-class FIELDS `case class C(@key id: …)` → ssc1-front yields ONE synthetic
+           ("_","Any") field + forward-scans `derives` (findCaseDerives); spike emits cc.synthfield + skipToParamListEnd.
+           (2) OWN-LINE decl annotations `@graphLabel("Module")\ncase class …` → ssc1-front's `@` handler hits the
+           layout `;` → a standalone `_err` (SAME-line `@main def` still erased); spike emits `_err` when the token
+           after `@ann` is on a later line. Flipped graph-*/spark-*/object-store-*/scljet-sql-*/typed-object-codec.
+         - **enum-case field defaults** `case Square(side: Int = 2)` — capture ec.dflt + per-case ("funcdefaults", …)
+           companion (variant-A) so `Circle()`→`Circle(1)` (+2 default-params, +dsl-mini-language).
+         - **subtype registry** `case _: Shape` (sealed trait + `extends`) — VARIANT-A + ORACLE: parseCaseClass
+           captures the uid parent, caseClsNodes emits ("subtype", (parent, child)), NEW collectSubtypeNodes in
+           ssc1-lower unions into subtypeRegCell (reverse-accumulate — ssc1-front prepends). Additive, byte-identical (+1).
+         - **`type X = Y` alias** → spike.sealed no-op (+2). **REVERTED same-line arm-body-as-block** (+2 gains but
+           5-9 regressions — parseBlock over-consumes past `}`/next-arm/default; not worth it).
+      11. [x] operators + layout + index-assign — landed 2026-07-15 (→**454, 91%, 55 slices**; "Продолжай" round, +8):
+         - **`:::` list concat lexes as `++`** (ssc1-front.ssc0:385; every Seq is a Cons-list) (+1 wasm-sorting).
+         - **chained `(` requires SAME line** — postfix applied a `(` regardless of line, so `val cols = line.split(",")\n
+           ("order", …)` applied the tuple to `split(",")`; ssc1-front's layout inserts `;` at the newline. Guard on
+           `peekLine == prevEndLine` (like the `[` type-app). **+6 — biggest** (control-center-live/coroutine-error/
+           dsl-yaml-like/indent-block-statements/rest-validate/standard-scala-multifence; pervasive in DSL combinators).
+         - **array index update `a(idx) = rhs`** — spike.call LHS + `=` → idx_assign node (ssc1-lower → arr.set) (+1).
+      **Remaining ~37 DIFF + ~2 false HOLE is the HARD TAIL — deep features or bug-reproduction, low leverage:**
+      summon/given resolution (typeclass/custom-derives-mirror/graph-rdf4j-http-storage/rozum-agent/tagless-context-
+      bounds), quoted-macros (2), for-comp foreach/flatMap (wasm-http braceless-for, wasm-sorting `:::`), ssc1-front's
+      OWN parse bugs (symbolic-op defs `def <~>`→truncated unit body; colon-lambda `.foreach: (a,b)=>`→`_err(a,b)`;
+      custom-interpolator-in-arm-body), case-class-body-method+trait edge (scljet-*pager/wal/journal), std-ui if-nesting.
+      **LESSON: annotations looked like fragile "error-recovery" but were the single biggest clean cluster (+20) — the
+      recovery is 100% deterministic; always probe a `_err` cluster's ROOT before dismissing it.** The **variant-A additive
+      collect-node pattern** (lowerProg unions AST-carried companion nodes into a parse-cell) is the reusable template.
       Older remaining (88 DIFF + 70 HOLE):
       ~82 parse holes (custom string interpolators `html"…"`/`sql"…"` — actually ssc1-front ALSO parses these as
       `id`+raw-string, the divergence is arm-body block grouping; braceless-catch-at-top-level offside;
@@ -1872,10 +1996,100 @@ with extensions isolated behind an explicit non-default profile.
         Verified end-to-end vs reference sqlite3 on `[int, js]` (conformance `scljet-jdbc-basic`,
         `scljet-sql-mutation-count`, `scljet-sql-params`). Also fixed a prereq the façade exposed:
         REAL number literals in SQL text (`555033aa4`, conformance `scljet-sql-real-literal`).
-      - **NEXT (J2+):** the stateful JVM `java.sql.Driver`/`Connection`/`PreparedStatement`/`ResultSet`
-        shim in `runtime/std/scljet-jdbc-plugin/` (true mutable `next()`/`wasNull()`, `jdbc:scljet:` URL,
-        `java.sql.Types` metadata); host-file durability via `scljet/journal.ssc`; blob getters (hex
-        `getString`, `getBytes`), `getBigDecimal`, `ResultSetMetaData` column types.
+      - **J2 SHIM DONE 2026-07-15** — landed as `scljet-m7b-jvm-jdbc-shim` (see its entry below): the
+        stateful JVM `java.sql.Driver`/`Connection`/`Statement`/`PreparedStatement`/`ResultSet` shim in
+        `v1/runtime/std/scljet-jdbc-plugin/` (true mutable `next()`/`wasNull()`, `jdbc:scljet:` URL,
+        `java.sql.Types` metadata). The earlier "NEXT (J2+)" list is stale: blob getters (`getBytes`),
+        `getBigDecimal` and `ResultSetMetaData` column types all landed WITH m7b (`ScljetResultSet.scala`
+        `getBytes`/`getBigDecimal`/`columnTypeNames`) — do not redo them.
+      - **J2 HARDENING DONE 2026-07-15** (`scljet-jdbc-j2`; `c96d51f35` feat, `296c71eed` feat,
+        `4b63441e6` spec). All four slices landed; `sbt scljetJdbcPlugin/test` **29/29** (was 14/14),
+        engine untouched (`scljet/*.ssc` is the `scljet-m3-writes` lane).
+        - **J2.1 static ResultSet** — `ScljetStaticResultSet.scala`: forward-only/read-only cursor over
+          JVM-materialized `(columns, rows)` (null cell = SQL NULL) + its `ResultSetMetaData`.
+          `ScljetResultSet` can only serve rows the ENGINE produced, so the generated key and the JDBC
+          catalog shapes (which exist nowhere in the engine) needed their own substrate.
+        - **J2.2 `getGeneratedKeys`** — the rowid already crossed the bridge (`JdbcUpdate.lastInsertRowid`
+          → `executeUpdate` returns `(changes, rowid)`); every call site discarded it (`val (c, _)`).
+          `StatementState.runUpdate/runQuery` is now the SINGLE write/read path for Statement +
+          PreparedStatement + batch (3 duplicated copies before, each dropping the rowid). Key tracked
+          for INSERT/REPLACE with `changes > 0` only. Semantics PROBED from Xerial, not guessed: one
+          column `last_insert_rowid()`, one row after INSERT; EMPTY after CREATE/UPDATE/DELETE/SELECT and
+          on a fresh statement. Deviation: Xerial labels the EMPTY case `1` (placeholder artifact) — we
+          keep the stable label.
+        - **J2.3 `getTables`/`getColumns`** (+ `getTableTypes`, empty `getCatalogs`/`getSchemas`) —
+          `ScljetCatalog.scala`. **The spec's plan (a `SELECT` over `sqlite_schema`) does NOT work**:
+          `findTable` only resolves entries WITH a `rootPage`, and the schema table is not an entry in its
+          own list. Instead: `openReadonly(ImageVfs(image), …)` → `db.schema.entries` read structurally,
+          columns parsed from `CREATE TABLE` with the ENGINE's own `tokenize` (mirrors `tableColumns`) —
+          a test asserts the names equal the engine's `imageTableColumns` so the two cannot drift.
+          Affinity → `java.sql.Types`. Reads the WORKING image → catalog read-your-writes.
+        - **J2.4 durability/locking notes** — `specs/scljet-jdbc.md`. Found the spec DESCRIBED A MODEL
+          THAT WAS NEVER BUILT (journaled writes via `jvmSqliteVfs()`/`journal.ssc`, "real locking and
+          durability"). Reality: whole-file `Files.write` per durable change, no journal/fsync/locking.
+          Documented as a property table + an explicit single-writer/single-process/non-crash-durable
+          contract + the `TRANSACTION_SERIALIZABLE` scope limit.
+        **GOTCHAS (each cost a debugging round; all recorded in-code):**
+        - **`globalsView` exposes ALL transitively loaded engine globals**, not just the bootstrap's
+          import list (`openReadonly`/`sqlOptions`/`tokenize`/`ImageVfs` are all callable without touching
+          `ScljetEngine.bootstrap*`). This is why `call("byteSliceUnsafe", …)` already worked.
+        - **`ImageVfs` must be `InstanceV("ImageVfs", Map("main" -> image))`.** `Value.singleValue` hardcodes
+          the field name `value`, but the field is `main` — and a missing field does NOT fail loudly: the
+          interpreter falls back to the GLOBAL `main`, dying deep inside as
+          `No method 'length' on NativeFnV(<native:main>)`. A hand-built `InstanceV` DOES dispatch trait
+          methods (that was the open risk; spike settled it).
+        - **`Option` is `Value.OptionV(inner|null)`, NOT `InstanceV("Some"/"None")`** — matching the latter
+          silently yields `None` (it emptied every `getColumns` row).
+        - **`Token(kind, text, num)` keeps numeric literals in `num` with `text` EMPTY** (kind `"num"`), so
+          `VARCHAR(255)` renders as `VARCHAR()` unless read from `num`.
+        - **Driver registration was order-dependent** (fixed): `Class.forName("…ScljetDriver")` inits the
+          CLASS, but `registerDriver` lives in the companion OBJECT, and DriverManager's ServiceLoader scan
+          does not see the plugin under sbt. Registration only happened because the FIRST test does
+          `new ScljetDriver().acceptsURL` (which reads `ScljetDriver.Prefix` → inits the object), so
+          `testOnly … -- -z "<one test>"` failed with "No suitable driver found" for ANY single test.
+      - **NEXT (J4+), not started:**
+        - [ ] **Journaled host-file writes** — route `commit()` through `jvmSqliteVfs()` +
+              `scljet/journal.ssc` so a host file is crash-atomic + `fsync`ed, and honour the
+              `journal`/`sync`/`busy_timeout`/`vfs` URL params that `getPropertyInfo` ADVERTISES BUT
+              `openTarget` IGNORES today (only `mode`/`page_size` are read). Blocked on a
+              Connection-level `MutablePager` (Model B, spec "Open decisions" #4): journaling needs to know
+              WHICH PAGES changed, and the executor only yields whole images. Cross-lane (engine + shim).
+        - [ ] **Inter-process locking** for host files (`FileLock` + `busy_timeout`). Until then the
+              single-writer/single-process contract in the spec stands.
+        - [x] **`scljet-jdbc-j4-introspection` DONE 2026-07-15** (`1abc60fd7` feat, `8389b6a56` bug,
+              `10208987b` spec). `getPrimaryKeys` (both spellings — column-level AND table-level
+              `PRIMARY KEY (a,b)` incl. named `CONSTRAINT pk`; KEY_SEQ = declared key order),
+              `getIndexInfo` (one row per index column; UNIQUE + key list parsed from `CREATE INDEX`
+              with the engine's `tokenize`), `getTypeInfo`, and EMPTY (not `nse`)
+              `getImportedKeys`/`getExportedKeys`/`getCrossReference`. `sbt scljetJdbcPlugin/test`
+              **42/42** (was 29/29). Reworked `parseTable` — table-level constraints were dropped
+              wholesale, so a table-level PK was invisible.
+              **Deviations from the reference, asserted so they cannot rot:** (1) `getIndexInfo(unique=
+              true)` FILTERS per the contract — Xerial ignores the flag (bug); a test asserts the
+              reference still misbehaves so a future fix tells us. (2) `getTypeInfo` reports
+              INTEGER→BIGINT/REAL→DOUBLE (ours) not Xerial's INTEGER/REAL — a test pins it against
+              `getColumns`.
+              **GOTCHA:** comparing `getObject` across drivers compares BOXING, not data
+              (`NON_UNIQUE` = our `Boolean` vs Xerial's `Integer 1`, both correct via `getBoolean`) —
+              cross-check with typed getters.
+              **ENGINE GAPS this surfaced (m3-writes lane, NOT the shim):**
+              - **`CREATE UNIQUE INDEX` is not parsed at all** — `parseCreateIndex` requires
+                `CREATE INDEX`; `CREATE UNIQUE INDEX` falls through to `parseCreate` → "expected
+                TABLE" (`scljet/sql.ssc:4658`). So NO scljet-created database can hold a unique
+                index. The unique path is tested instead against a file written by the reference
+                driver and opened via `jdbc:scljet:<file>` (which also proves catalog introspection
+                works on real SQLite files).
+              - **`BUGS.md` → `scljet-ipk-rowid-alias-not-substituted` (OPEN, silent wrong data):**
+                an `INTEGER PRIMARY KEY` column in a REAL SQLite file reads back as `0` — the rowid
+                alias is not substituted. scljet reading its OWN db is fine, which is why no existing
+                test sees it: an oracle of "read back what we wrote" cannot catch a file-format
+                divergence; the differential must cross both engines through a FILE. Suspected
+                opposite direction too (our writes store the IPK value in the column with a
+                sequential rowid → real SQLite would read OUR files wrong). Pinned by a test that
+                flips loudly when fixed.
+        - [ ] **ENGINE GAP found via a J2 test (for the `scljet-m3-writes` lane, NOT this one):**
+              `INSERT INTO t SELECT …` does not parse ("expected VALUES"). Blocks testing the
+              "INSERT affecting 0 rows generates no key" branch, and it is a real SQL hole.
 
 - [x] **scljet-0-plan-and-spec** — DONE 2026-07-12. Created `specs/scljet.md`
       after reconciling `SPEC.md`,
@@ -2342,6 +2556,93 @@ subqueries / EXISTS, multi-table-with-indexes DML, page-1 schema split, repeatin
 Two new front doors are specced (typed-SQL-API cb94fd88c, JDBC-API f2d1372a0); **both now have a
 working first implementation** — the JDBC portable façade (m6v) and the typed SQL surface (m6w),
 alongside SQL polish (REAL literals m6s, LEFT-join-3 m6r). All three "параллельно" lanes advanced.
+
+- [x] **scljet-m7m-right-join3** — DONE 2026-07-15 (follow-up niche #2). RIGHT/FULL as the LAST join of a
+      3+ table chain (N-table path). `extendPartials` now, for `rightOuter`, keeps each next-table row no
+      partial matched, NULL-extending the previous tables (`nullList`). `a JOIN b … RIGHT JOIN c` keeps
+      unmatched c rows with a/b NULL; FULL = both flags. Verified vs sqlite3 (3-table RIGHT-last, NULL
+      emp/dept for the unmatched proj row), int==js; conformance `scljet-sql-right-join3`; 53/53 sql green.
+      Scope: RIGHT/FULL as the LAST join (those rows need no further extension); a RIGHT/FULL join in the
+      MIDDLE of a chain (null-extended rows must survive later joins) is a deeper follow-up.
+
+- [x] **scljet-m7l-correlated-scalar** — DONE 2026-07-15 (follow-up niche; Sergiy "Берись за эти ниши").
+      Correlated scalar subquery in a comparison — `col <cmp> (SELECT … WHERE inner.x = outer.y)`.
+      Completes the correlated-subquery family (EXISTS m7i, IN m7j, scalar m7l). `parseCondition`'s
+      comparison branch captures `<cmp> (SELECT …)` on `subTokens` (op = the comparison); per outer row
+      `scalarSubqHolds` substitutes outer refs, runs the subquery, takes the first row's first column
+      (`scalarSubqValue`, NULL if empty), compares — NULL either side → false (SQL unknown). Non-correlated
+      scalar still pre-resolved. `hasExistsCond` now keys on any condition with `subTokens`. Verified vs
+      sqlite3 (=/</>= correlated scalar, empty-subquery→NULL→excluded), int==js; conformance
+      `scljet-sql-correlated-scalar`; 52/52 sql green.
+
+- [x] **scljet-m7k-right-full-join** — DONE 2026-07-15 (new SQL feature; Sergiy "Делай всё автономно";
+      last list item). `RIGHT [OUTER] JOIN` (keeps every right-table row, NULL-extended left) and `FULL
+      [OUTER] JOIN` (both sides' unmatched rows). `JoinSpec.rightOuter` flag (`parseJoin`: RIGHT→rightOuter,
+      FULL→both); `joinExecute` adds a pass over the right table emitting each ON-unmatched right row with a
+      `nullRow` left sentinel — so `SELECT *` keeps the left-then-right column order (a table swap would
+      reverse it). Verified vs sqlite3 (RIGHT explicit + `SELECT *`, FULL, COUNT, NULL-extended sides),
+      int==js; conformance `scljet-sql-right-full-join`; 51/51 sql green. Scope: 2-table (3+ table RIGHT/
+      FULL is a follow-up). **The SQL-feature list is now complete** (correlated EXISTS m7i / IN m7j,
+      RIGHT/FULL joins m7k) on top of the comprehensive physical index access-path (m6z, m7c–m7h).
+
+- [x] **scljet-m7j-correlated-in** — DONE 2026-07-15 (new SQL feature; Sergiy "Делай всё автономно").
+      Correlated `[NOT] IN (subquery)` — extends the EXISTS per-row machinery. `resolveSubqueries` now
+      detects a correlated subquery (its tokens contain a qualified ref to the outer FROM table —
+      `firstFromTable` + `referencesOuterTable`) and skips the pre-pass, while non-correlated
+      `IN (SELECT …)` still resolves once. `parseCondition` captures `IN (SELECT …)`/`NOT IN (SELECT …)`
+      as `insubq`/`notinsubq` Conditions; per outer row `inSubqHolds` substitutes the outer refs, runs
+      the subquery against the open db, and tests the left value's membership in the first column. Verified
+      vs sqlite3 (correlated IN + NOT IN, and a non-correlated IN still pre-resolved), int==js; conformance
+      `scljet-sql-correlated-in`; 50/50 sql green. Correlated scalar `=(SELECT …)` is a follow-up.
+      NEXT (last list item): RIGHT/FULL joins.
+
+- [x] **scljet-m7i-correlated-exists** — DONE 2026-07-15 (new SQL feature; Sergiy "Делай всё автономно").
+      Correlated `[NOT] EXISTS (subquery)` where the subquery references the outer row (`t2.fk = t1.id`),
+      evaluated PER OUTER ROW (not the non-correlated pre-pass). `Condition` gains a defaulted `subTokens`
+      field (op "exists"/"notexists"); `parseCondition` recognizes the EXISTS prefix; `resolveSubqueries`
+      skips a `(SELECT` preceded by EXISTS. Per row, `substituteOuterRefs` replaces qualified outer refs
+      with that row's value (bound literal token) and the subquery runs against the already-open `db` —
+      true iff it returns a row. The filter threads `db` (`finishRows`→`filterRowsCtx`→`whereHoldsCtx`→
+      `condHoldsCtx`→`existsHolds`); seek paths pass `db` too (EXISTS composes with an indexable
+      predicate); LIMIT-pushdown disabled when the WHERE has EXISTS. **Also fixed** a pre-existing gap the
+      natural syntax exposed: single-table column refs were bare-only, so `t2.fk` in `FROM t2` → NULL;
+      `rowValue` now drops a `t.col` qualifier (`stripQualifier`) so qualified refs work in single-table
+      WHERE/projection (join path unaffected). Verified vs sqlite3 (EXISTS, NOT EXISTS, EXISTS+range
+      predicate, COUNT over EXISTS, qualified inner+outer refs), int==js; conformance `scljet-sql-exists`;
+      49/49 sql green non-memoized. Scope: single-table outer, qualified outer refs. NEXT: correlated
+      `IN`/scalar subqueries (same per-row substitution), RIGHT/FULL joins.
+
+- [x] **scljet-m7h-index-multi-cond** — DONE 2026-07-15 (physical access-path perf; Sergiy "Делай всё").
+      Use an index in a multi-condition AND WHERE. `pointLookup` previously only fired for a single
+      condition; now a single AND-group with several conditions is index-driven when ANY condition is
+      indexable: `indexableConds` collects every `col op literal` in the group, `chooseSeek` picks the
+      first seekable one (rowid/IPK equality → table seek, indexed col over a range → index seek). A row
+      satisfying the whole AND satisfies each condition, so the seek returns a superset that `finishRows`
+      (full WHERE) filters down — byte-identical to the scan. Non-seekable condition → skip to next; a
+      chosen seek that bails → full scan; OR-of-groups stays full-scan. Makes `dept='eng' AND active=1`,
+      `id=K AND status='x'` index-driven. Verified vs sqlite3 (indexed+residual, rowid+residual, indexable
+      condition second, COUNT), int==js; conformance `scljet-sql-index-multi-cond`; 48/48 sql green.
+      **Physical index access-path now broad**: equality (rowid/IPK/index descent) + ranges + multi-cond.
+      NEXT: true composite multi-column index match (`a=? AND b=?` on `(a,b)`), correlated subqueries /
+      EXISTS, RIGHT/FULL joins.
+
+- [x] **scljet-m7g-range-index-seek** — DONE 2026-07-15 (physical access-path perf; Sergiy "Делай всё").
+      Range index-seeks — `WHERE indexedcol >/>=/</<= K` and `BETWEEN lo AND hi` now use the index. The
+      descent is generalized from an equality key to an `IndexRange` (lo/hi + inclusivity): `keyInRange`
+      tests membership, `rangeChildCouldContain` prunes interior children overlapping [lo,hi],
+      `readIndexLeafRowids` collects in-range rowids. Equality is `[K,K]`. Collected rowids sorted into
+      rowid order (non-recursive `sortLongsAsc`) so a range seek (index order ≠ rowid order) matches the
+      full scan. `rangeOfCond`/`extractColRange` map the WHERE; `pointLookup` dispatches equality→table
+      seek / range→index range seek. **Also fixed a latent m7f bug**: SQLite index B-tree interior
+      DIVIDER cells are REAL entries (each key appears once, not duplicated in a leaf), so
+      `readIndexInterior` now returns divider rowids and `descendChildren` collects the in-range ones —
+      m7f's k3/k0/k7 keys happened not to be dividers; the range test's k6 (rowid 22 = a divider) exposed
+      it. **The interp `if-then-no-else` drop bit again**: a bare `if cond then acc = …` followed by
+      another `acc = …` silently discarded the child-subtree rowids → restructured to one acc assignment
+      per loop. Verified vs sqlite3 (int/text ranges, all ops, multi-level index with interior pruning +
+      divider collection, no fallback), int==js; conformance `scljet-sql-range-seek` + `-range-descent`;
+      47/47 scljet-sql green non-memoized. NEXT candidates: composite indexes (`a=? AND b=?`), correlated
+      subqueries / EXISTS, RIGHT/FULL joins.
 
 - [x] **scljet-m7f-index-descent** — DONE 2026-07-15 (physical access-path perf; Sergiy "Ок берись").
       O(log n) index descent — `WHERE indexedcol=K` now **descends** the index B-tree instead of walking

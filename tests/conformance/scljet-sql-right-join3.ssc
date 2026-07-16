@@ -1,0 +1,43 @@
+---
+name: scljet-sql-right-join3
+description: SclJet RIGHT JOIN as the last join of a 3-table chain (N-table path); matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet RIGHT join over 3 tables
+
+`a JOIN b … RIGHT JOIN c` in the N-table join path. `extendPartials` (which extends each partial with
+the next table's rows and NULL-extends unmatched partials for LEFT) now also, for `rightOuter`, keeps
+each next-table row that no partial matched, NULL-extending the previous tables (`nullList`). Here the
+`proj` row with no matching `dept` is kept with `emp`/`dept` columns NULL. Verified against reference
+sqlite3 (explicit projection + `COUNT`), int==js. (RIGHT/FULL as the last join; a RIGHT join in the
+middle of a chain is a follow-up.)
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, executeMutation, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def apply(db: ByteSlice, sql: String): ByteSlice =
+  executeMutation(db, sql) match
+    case Left(m) =>
+      println(sql + " => ERR:" + m)
+      db
+    case Right(next) => next
+
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER, name TEXT, dept_id INTEGER)",
+  List(List(SqlInteger(1L), SqlText("ann"), SqlInteger(10L)),
+       List(SqlInteger(2L), SqlText("bob"), SqlInteger(20L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db0) =>
+    val d1 = apply(db0, "CREATE TABLE dept(did INTEGER, dname TEXT)")
+    val d2 = apply(d1, "INSERT INTO dept VALUES (10,'eng')")
+    val d3 = apply(d2, "CREATE TABLE proj(pid INTEGER, dept INTEGER)")
+    val db = apply(d3, "INSERT INTO proj VALUES (100,10),(200,99)")
+    show(db, "SELECT emp.name, dept.dname, proj.pid FROM emp JOIN dept ON emp.dept_id = dept.did RIGHT JOIN proj ON dept.did = proj.dept ORDER BY proj.pid")
+    show(db, "SELECT COUNT(*) FROM emp JOIN dept ON emp.dept_id = dept.did RIGHT JOIN proj ON dept.did = proj.dept")
+```

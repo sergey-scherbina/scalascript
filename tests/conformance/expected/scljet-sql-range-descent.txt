@@ -1,0 +1,16 @@
+SELECT COUNT(*) FROM t WHERE k > 'kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk5' => 10
+SELECT v FROM t WHERE k > 'kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk5' ORDER BY v => 6
+7
+14
+15
+22
+23
+30
+31
+38
+39
+SELECT COUNT(*) FROM t WHERE k BETWEEN 'kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk2' AND 'kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk4' => 15
+SELECT v FROM t WHERE k BETWEEN 'kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk2' AND 'kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk4' ORDER BY v LIMIT 4 => 2
+3
+4
+10
