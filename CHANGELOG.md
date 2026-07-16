@@ -4,6 +4,82 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-15 — Scala 3 lexical direct-style control macros (M1)
+
+Added `scalascript.control.direct.{Scope,reset,shift}` to the existing
+`io.scalascript:scalascript-control_3` artifact. The inline transform accepts a
+bounded lexical ANF sequence and emits only the compiler-independent explicit
+`Eff`/`shift`/`reset` protocol, preserving prefix/suffix evaluation, sequential
+markers, reusable continuation semantics, residual rows, and shared heap state.
+Strict local values, contextual/pattern binds, and mutable closure cells retain
+their Scala ownership across capture. Covered owner-bearing graphs are rebuilt and
+stale-symbol audited: captured `A` supports `owner.type` and
+`Prompt[inner.Key, R]`, prefix/suffix lambdas support `() => owner.type`, and
+crossing parameterless givens are allocated in two phases with their compiler
+flags preserved. Structural `PolyFunction.apply` selections are resolved from the
+transformed qualifier, while self-contained `PolyType`/`ParamRef` graphs—including
+references present only in a result or bound—remain closed atomically. Richer
+owner-dependent graphs that M1 cannot represent fail closed. A ShiftBody
+may use ordinary explicit control or a nested managed direct reset body; that
+nested reset's eager prompt is still audited by the enclosing ShiftBody. An exact
+nested direct marker, including one in that prompt, is rejected before it can
+survive lowering. Richer
+local definitions, lazy markers, inline wrapper applications, and every
+`scala.util.boundary.break` fail closed before code can be moved or evaluated;
+method/module aliases, explicit labels, and transparent-inline provenance cannot
+hide a break, and inline diagnostics point at the nearest wrapper invocation.
+Unsupported expression shapes and callback/control barriers fail closed at compile
+time with stable `UNMANAGED_CAPTURE`, `CAPTURE_BARRIER`, or
+`DIRECT_STYLE_UNSUPPORTED` diagnostics; there is no exception/TLS/runtime capture
+path and no CoreIR, UniML, seed, backend, or self-hosting change.
+
+The `scala-direct` semantic lane is now ready for vectors 18 and 23 plus catalog
+coverage (3/3), each differential against explicit Scala. The complete control
+leaf passes 113/113 tests (24 direct semantics, 27 exact diagnostics), the
+package/POM and packaged-JAR positive/exact-negative consumers are green, and the
+positive consumer prints fourteen differential `42` values. Catalog validation
+remains 26 vectors/9 lanes with 9/9 negative cases, and affected effect conformance
+passes 5/5. Cross-method capture, prompt forwarding across a nested different-prompt
+reset, managed callbacks, and saveable frames remain work for the compiler plugin.
+
+The latest strict-polymorphic-value remediation is frozen in feature commit
+`b6d2cd262` on `origin/main` base `6603e6c29`; this checkpoint remains unlanded
+pending a fresh independent review.
+
+## 2026-07-16 — the site is live on GitHub Pages
+
+<https://sergey-scherbina.github.io/scalascript/> serves the landing page (HTTP 200,
+verified live — not merely a green workflow). Pages had been configured API-side for a
+while but had never published anything: no workflow uploaded a Pages artifact, and the two
+historical Pages deploys predate the repo going public.
+
+The interesting part was what *not* to do. `registry-pages.yml` already deployed to Pages,
+so the planned second `pages.yml` would have raced it for the same deployment — the live
+site flipping between the landing page and the registry index depending on which run
+finished last. Instead that workflow became the single publisher (renamed to `pages.yml`,
+"Pages") and composes both trees into one artifact.
+
+The layout is forced by a shipped contract: `RegistryClient.DefaultRegistryUrl` is a
+built-in default pointing at `<pages>/packages.yaml`, so the registry machine files had to
+stay at the root or every `ssc search|info|add` already in the wild would break.
+
+| Path | Source |
+|---|---|
+| `/` | `site/index.html` — landing page |
+| `/packages.yaml`, `/packages/**`, `/search-index.json` | `registry/site/` — CLI contract, root-pinned |
+| `/registry/` | `registry/site/index.html` — browseable registry index (moved from `/`) |
+
+A "Check composed tree" step asserts both contracts hold in the artifact before deploy;
+`concurrency: pages` with `cancel-in-progress: false` avoids cancelling an in-flight
+deploy; `workflow_dispatch` allows on-demand runs. Docs that claimed the registry HTML
+index lived at the root were corrected, and `site/DEPLOY.md` — which described only a
+prospective Cloudflare deploy — now documents the host that actually serves the site.
+
+Note for future readers: `GET /repos/:owner/:repo/pages` still reports `status: null` and
+`pages/builds` is empty. Those are the *legacy* build pipeline's fields and stay empty
+under `build_type: workflow`; the authoritative signals are the deployment state and the
+URL responding.
+
 ## 2026-07-15 — scljet JDBC introspection (getPrimaryKeys / getIndexInfo / getTypeInfo)
 
 Completes the `DatabaseMetaData` surface a JVM tool actually walks: primary keys (both
@@ -57,22 +133,18 @@ remain owner actions.
 Added the compiler-independent ESM-only `@scalascript/control` reference leaf at
 `v2/host/js/control`, with typed reusable/one-shot continuations, deep handlers,
 generative prompts and true `shift`/`reset`, structured local-save rejection, and
-stackless explicit state machines (`2a34d7ed3`, verification `c53294fa7`). The
-private runtime ABI is paired with branded `.d.ts` declarations and has no
-production dependency or lifecycle script.
+stackless explicit state machines. The complete reviewed slice is reachable on
+`origin/main` as landing `cf8f96200`. Its private runtime ABI is paired with branded
+`.d.ts` declarations and has no production dependency or lifecycle script.
 
-Independent pre-integration review then drove authority hardening (`0d0ffcfd3`,
-verification `d143af497`): named `unique symbol` owners now separate stable effect
-descriptors from runtime identity, concrete-answer prompt-key extraction remains
-invariant, class-backed capabilities keep state in private WeakMaps, and every
-reachable internal constructor requires an unexported authority token. The exact
-five-file npm payload includes the repository Apache 2.0 license.
-
-Second review closed the remaining union-owner bypass (`5b5421880`) and packed
-README link (`1c2e150c3`, regression `6f19a9538`, verification `b81c526e0`).
-Inferred and explicit generic owner unions are rejected without casts, while the
-five-file payload points to the canonical HTTPS contract and validates every
-relative README target.
+Two independent pre-integration review rounds drove and confirmed the final
+hardening: named single `unique symbol` owners separate stable effect descriptors
+from runtime identity and reject inferred or explicit owner unions; concrete-answer
+prompt-key extraction remains invariant; class-backed capabilities keep state in
+private WeakMaps; and every reachable internal constructor requires unexported
+authority. The exact five-file npm payload includes the repository Apache 2.0
+license, points to the canonical HTTPS contract, and validates every relative
+README target. Both second-review bug entries are confirmed `done`.
 
 All 17 applicable shared semantic vectors pass without changing the catalog or
 lane registry; the complete package suite is 31/31, TypeScript positive/negative

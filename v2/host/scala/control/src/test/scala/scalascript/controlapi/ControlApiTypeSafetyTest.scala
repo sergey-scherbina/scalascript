@@ -181,3 +181,22 @@ final class ControlApiTypeSafetyTest extends AnyFunSuite:
 
     assert(errors.nonEmpty)
   }
+
+  test("user code cannot construct or subclass a direct Scope token") {
+    val errors = typeCheckErrors("""
+      import scalascript.control.*
+
+      final class ForgedScope
+          extends direct.Scope[Int, Nothing, Int]
+    """)
+
+    assert(errors.nonEmpty)
+  }
+
+  test("the direct macro implementation is not source-accessible") {
+    val errors = typeCheckErrors("""
+      val implementation = scalascript.control.DirectMacros
+    """)
+
+    assert(errors.nonEmpty)
+  }

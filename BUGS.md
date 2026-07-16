@@ -505,6 +505,872 @@ Focused producer 46/46, descriptor 27/27, core 1092/1092, interop 36/36, IR,
 artifact ABI 73/73, and affected conformance 2/2 are green. Status stays `open`
 until fresh independent approval and landing on `origin/main`.
 
+## scala-direct-polymorphic-value-select — moved structural apply retains `<none>`
+
+**Status:** open; remediation is green in feature commit `b6d2cd262` on frozen
+`origin/main` base `6603e6c29`, but fresh independent review and the landing SHA
+are pending. Reported as P1 by the fresh independent review of frozen candidate
+`f4e860ed7..408f23c11` (2026-07-15).
+
+**Faithful packaged reproduce:** compile with Scala CLI 3.8.3 against only the
+packaged `scalascript-control_3` JAR. Inside `direct.reset`, place the ordinary
+strict value
+`val identity: [A] => A => A = [A] => (a: A) => a` before a block-level
+`direct.shift`, then evaluate `selected + identity[Int](2)` in the captured suffix.
+The direct source fails at the suffix call with raw compiler output
+`undefined: identity.<none> ... TermRef(... val <none>)` twice. The explicit
+`reset`/`shift` equivalent compiles, runs, and prints `42`.
+
+**Root cause:** reference replacement rebuilt every moved `Select` with the source
+`selection.symbol`. The structural `PolyFunction.apply` selection has
+`Symbol.noSymbol`; copying that placeholder onto the moved qualifier constructed
+the invalid `identity.<none>` term. A self-contained `PolyType`/`ParamRef` binder
+graph is already closed when retained atomically. A rejected broad-cloning attempt
+instead split rank-2/owner-dependent graphs, so only graphs that actually depend on
+replaced owners are rebound.
+
+**Implementation/verification:** moved selections first transform their qualifier.
+When the source symbol is absent, `Select.unique` resolves the member from that
+current qualifier; resolution failure becomes stable `DIRECT_STYLE_UNSUPPORTED`
+before generated code is emitted. Independent polymorphic values, prefix/suffix
+calls, explicit `.apply[Int]`, ordinary monomorphic function application, and
+result/bound-only `ParamRef` cases execute; an owner-dependent nested polyfunction
+fails closed at its declaration. Clean focused tests pass 51/51 (24 semantics and
+27 diagnostics), the full leaf/package/POM gate passes 113/113, and the packaged
+Scala CLI 3.8.3 consumer prints fourteen differential `42` values. Its packaged
+negative reports only the stable unsupported diagnostic. Catalog validation is
+26 vectors/9 lanes, validator negatives are 9/9, `scala-direct` is 3/3, and
+affected conformance is 5/5. Keep this entry open until rereview approves and the
+fix lands.
+
+## scala-direct-captured-type-owner — captured A keeps a stale prefix owner
+
+**Status:** open; remediation is green in feature commit `a8f321d5c`, but fresh
+independent review and the landing SHA are pending. Reported as P1 by the fresh
+independent review of frozen `scala3-control-macros` checkpoint `708dec2f1`
+(2026-07-15).
+
+**Symptom/reproduce:** declare a local owner before capture and use its singleton
+type as the captured result, for example
+`direct.shift[scope.Key, owner.type, Nothing, Int](...)`. The prefix owner is
+freshened, but the captured `A` used to type the generated explicit continuation
+still names the original owner. Scala emits raw E007/owner-versus-owner² output.
+The same failure occurs for `A = Prompt[inner.Key, Int]`; the equivalent explicit
+control program compiles and prints `42`.
+
+**Observed packaged baseline:** Scala CLI 3.8.3 against only the packaged control
+JAR fails the singleton case at the enclosing reset expansion with E007: found
+`(owner : Object)`, required `(owner² : Object)`. This confirms a generated-type
+owner split rather than a test-classpath artifact.
+
+**Root cause/plan:** `explicitShift` opens `found.typeArguments(1).tpe.asType`
+without applying the capture split's prefix replacement map, then moves and casts
+the rank-2 body against that stale type. Rebind the captured type through the same
+supported dependent/singleton type substitution used by prefix declarations and
+use the rebound type consistently for the explicit shift and moved continuation
+body. Prefer supporting both common singleton and local-prompt shapes; any truly
+unsupported type must reject at the source marker with stable
+`DIRECT_STYLE_UNSUPPORTED`, never a generated compiler error. Add faithful
+packaged-consumer semantics for both shapes and the explicit differential.
+
+**Implementation/verification:** the captured type is rebound through the active
+term/type replacement graph before `asType`, and the rebuilt type is used by the
+rank-2 body, explicit shift, and generated bind continuation. Source regressions
+cover both `owner.type` and `Prompt[inner.Key, Int]`; the packaged Scala CLI 3.8.3
+consumer executes their direct and explicit forms and prints `42` for each. These
+cases are part of the clean 21/21 semantics suite and the 109/109 full leaf gate.
+
+## scala-direct-moved-term-type-owner — moved RHS and suffix symbols keep stale owners
+
+**Status:** open; remediation is green in feature commit `a8f321d5c`, but fresh
+independent review and the landing SHA are pending. Reported as P1 by the fresh
+independent review of frozen `scala3-control-macros` checkpoint `708dec2f1`
+(2026-07-15).
+
+**Symptom/reproduce:** before a direct marker, declare
+`val owner = new Object` and
+`val f: () => owner.type = () => owner`, then use `f` after capture. Although the
+outer `ValDef.tpt` is rebound, an inferred/nested symbol type inside the moved RHS
+still points at the old owner and Scala reports raw E007/quote-owner output. A
+declaration in the captured suffix can retain the same stale owner graph. The
+equivalent explicit program compiles and prints `42`.
+
+**Observed packaged baseline:** Scala CLI 3.8.3 against only the packaged control
+JAR fails at the lambda RHS with E007: found `() => (owner : Object)`, required
+`() => (owner² : Object)`.
+
+**Root cause/plan:** term-reference substitution and the cloned declaration's top
+type do not cover every owner-bearing type attached to nested moved definitions or
+suffix terms. Audit the complete moved term after owner change, rebind the common
+function/lambda and suffix declaration symbol/type graphs, and verify no replaced
+old symbol remains. If Quotes cannot rebuild a particular graph soundly in M1,
+reject it before constructing generated code with stable source-located
+`DIRECT_STYLE_UNSUPPORTED`. Add prefix-RHS and suffix packaged regressions plus an
+explicit differential; no raw E007 path is acceptable. Correct the spec and
+CHANGELOG wording that currently claims dependent-owner completion too broadly.
+
+**Implementation/verification:** definition-type rebinding reconstructs supported
+method/poly binders and closure methods/parameters under the generated owner, then
+audits moved terms for every replaced term/type symbol. Prefix and suffix
+`() => owner.type` direct/explicit regressions all print `42` in the packaged
+consumer. Unrepresentable richer graphs reject before code construction with the
+stable unsupported diagnostic. These cases are green in feature commit
+`a8f321d5c`, the clean focused 47/47 gate, and the full 109/109 leaf gate.
+
+## scala-direct-contextual-forward-reference — prefix cloning breaks lazy givens
+
+**Status:** open; remediation is green in feature commit `a8f321d5c`, but fresh
+independent review and the landing SHA are pending. Reported as P1 by the fresh
+independent review of frozen `scala3-control-macros` checkpoint `708dec2f1`
+(2026-07-15).
+
+**Symptom/reproduce:** put compiler-lazy parameterless givens before a later marker,
+including a forward/mutual pair such as `given first: TC = second` and
+`given second: TC = first`. The givens remain unused, so the equivalent explicit
+program compiles and prints `42`, but direct lowering moves the first RHS before a
+fresh symbol for `second` exists and leaks an old owner/reference.
+
+**Observed packaged baseline:** Scala CLI 3.8.3 against only the packaged control
+JAR fails at `given first: TC = second` with raw macro output: `a reference to
+given instance second was used outside the scope where it was defined`.
+
+**Root cause/plan:** `preparePrefix` allocates and records each fresh symbol only
+after moving that declaration's RHS, which is valid only for backward references.
+Allocate the supported crossing value symbols in a first phase, preserving flags
+and rebinding their types, then move every RHS with the complete replacement map.
+Support ordinary compiler-lazy given forward/mutual term references as promised by
+the current spec. Any dependent type cycle that cannot be allocated soundly must
+fail closed at its declaration. Add a real packaged consumer for forward/mutual
+givens and keep ordinary strict sequencing/shared mutable-cell regressions green.
+
+**Implementation/verification:** prefix lowering now allocates every supported
+fresh value symbol before moving any RHS, then moves initializers with the complete
+replacement map while retaining compiler `Given`/`Lazy` flags. The unused
+forward/mutual-given direct and explicit programs compile and each print `42` in
+the packaged consumer. The regression is green in feature commit `a8f321d5c`, the
+clean 21/21 semantics suite, and the full 109/109 leaf gate.
+
+## scala-direct-nested-reset-prompt-marker — outer marker survives in eager nested-reset prompt
+
+**Status:** open; remediation remains green at feature checkpoint `a8f321d5c`, but
+a fresh independent review and the landing SHA are pending. Reported by the root
+agent's adversarial pre-review of the `scala3-control-macros` feature checkpoint
+`9c6850904` (2026-07-15).
+
+**Symptom/reproduce:** inside an accepted outer `direct.shift` rank-2 `ShiftBody`,
+use a second exact `direct.shift` targeting the outer scope as the prompt argument
+of a nested `direct.reset`, while keeping the nested reset body ordinary. The prompt
+expression is evaluated before entering the nested delimiter, but the current
+survival audit skips the whole nested-reset `Inlined`/`Apply` tree. The outer marker
+therefore survives macro lowering and can fail through a raw compile-time-only or
+quote-owner path instead of the stable M1 diagnostic.
+
+**Observed baseline:** a Scala CLI 3.8.3 compile against only the packaged
+`scalascript-control_3` JAR reproduces the prompt-argument shape and fails on the
+nested call's closing `)` with the raw compiler message `While expanding a macro,
+a reference to parameter contextual$2 was used outside the scope where it was
+defined`. This is a real packaged-consumer failure, not a source-inspection-only
+hypothesis.
+
+**Root cause/plan:** the nested-managed-reset exception is too broad. Refine the
+specification first: only the nested reset's managed body/inline expansion belongs to
+that nested transform; its eager prompt (and any other eager call arguments) remain
+inside the enclosing `ShiftBody` audit. Parse the exact nested-reset call shape,
+inspect those eager arguments for exact direct markers, and skip only the managed
+body/expansion. Add an exact negative regression, while retaining positive coverage
+for an ordinary nested managed reset body and explicit `scalascript.control.shift`.
+Run the clean focused/full/package/consumer/catalog/conformance gates and freeze a
+new checkpoint for independent review before landing.
+
+**Implementation/verification:** the survival audit now parses the exact curried
+nested-reset call, traverses its eager prompt, and skips only the contextual body
+owned by the nested transform; an unknown call shape fails closed. The faithful
+negative reports the inner marker's stable `DIRECT_STYLE_UNSUPPORTED`, while the
+ordinary nested managed body and explicit `scalascript.control.shift` positives
+remain executable. Clean focused suites pass 39/39, the full leaf passes 101/101,
+and the rebuilt packaged-JAR consumer no longer emits raw owner output. Package,
+POM, catalog 26/9, validator negatives 9/9, direct lane 3/3, and affected
+conformance 5/5 are green. Keep this entry open until rereview approves and the
+fix lands.
+
+## scala-direct-boundary-break-escape — boundary break can outlive its delimiter
+
+**Status:** open; behavior and the missing alias/provenance regressions are green at
+feature checkpoint `a8f321d5c`, but fresh independent review and the landing SHA
+are pending. Originally
+reported as P1 by the rereview of frozen `scala3-control-macros` checkpoint
+`ec4eb279e` (2026-07-15); regression gap reported as P2 on 2026-07-15.
+
+**Symptom/reproduce:** place `scala.util.boundary.break(value)` in a
+`direct.reset` body, including a pure prefix before a later `direct.shift` or a
+captured suffix. The macro may move the call below `Eff.defer` or a generated
+continuation. When the resulting computation runs, its source `boundary` delimiter
+has already returned, so the break escapes through delayed code instead of
+retaining Scala's lexical boundary semantics.
+
+**Root cause/plan:** the current external-return audit recognizes `Return` trees
+but not Scala's library-level boundary control marker. M1 cannot prove that any
+`boundary.break` call remains dynamically enclosed after defer/CPS movement, so
+reject every such call conservatively with a stable direct-style diagnostic at
+the exact break invocation. Keep returns local to a nested method accepted, and
+add pure-prefix/suffix negatives proving no raw boundary exception or quote error
+leaks.
+
+**Implementation/verification:** the pre-lowering control audit recognizes the
+exact `scala.util.boundary.break` overload symbols both as ordinary calls and
+through inline provenance, then rejects at the invocation before `Eff.defer` is
+constructed. Pure-body, captured-suffix, imported method alias, explicit-label,
+module-alias, and transparent-inline provenance regressions are committed and pass
+in the clean 26/26 diagnostics suite; the full leaf is 109/109 and the complete
+package/catalog/conformance gate is green. Keep this entry open until rereview
+approves and the fix lands.
+
+## scala-direct-transparent-inline-position — wrapper diagnostic points at reset
+
+**Status:** open; remediation remains green at feature checkpoint `a8f321d5c`, but
+a fresh independent review and the landing SHA are pending. Reported as P1 by the
+rereview of frozen `scala3-control-macros` checkpoint `ec4eb279e` (2026-07-15).
+
+**Symptom/reproduce:** invoke a transparent-inline wrapper around
+`direct.shift` inside `direct.reset`. The transform correctly rejects the inline
+expansion, but its primary position is the enclosing `direct.reset` rather than
+the wrapper invocation, so the diagnostic does not identify the unsupported
+source construct.
+
+**Root cause/plan:** inline-boundary rejection reports the moved/body tree span
+after compiler wrapping has widened it instead of retaining the nearest
+`Inlined.call` source position. Track the closest provenance-bearing inline call
+while descending and report `DIRECT_STYLE_UNSUPPORTED` there. Preserve the
+existing unexpanded-inline application path and freeze exact message, line
+content, and zero-based column for both shapes.
+
+**Implementation/verification:** inline traversal keeps only non-empty
+`Inlined.call` positions on a nearest-first stack and falls back to the marker when
+the compiler supplies no call span. The transparent-inline regression reports the
+wrapper invocation exactly; the earlier unexpanded-inline path remains unchanged.
+Both pass in the 21/21 clean diagnostic suite; keep this entry open until rereview
+approves and the fix lands.
+
+## scala-direct-nested-shift-body-marker — direct marker survives inside ShiftBody
+
+**Status:** open; remediation remains green at feature checkpoint `a8f321d5c`, but
+a fresh independent review and the landing SHA are pending. Reported as P1 by the
+rereview of frozen `scala3-control-macros` checkpoint `ec4eb279e` (2026-07-15).
+
+**Symptom/reproduce:** write an accepted block-level `direct.shift`, then place a
+second exact `direct.shift` inside the outer marker's rank-2 `ShiftBody`. The outer
+body is currently treated as wholly opaque, so the nested marker survives macro
+lowering and later fails through a raw compile-time-only/ownership path rather
+than a stable M1 diagnostic.
+
+**Root cause/plan:** the shift-body exemption distinguishes its rank-2 lambda from
+an ordinary crossed callback, but it also skips the invariant that no direct
+marker may remain in the emitted tree. Scan the opaque body specifically for exact
+managed direct markers and reject them at their source call with a stable
+`CAPTURE_BARRIER`/`DIRECT_STYLE_UNSUPPORTED` diagnostic. Do not reject ordinary
+explicit `scalascript.control.shift`/`Eff` code or a separately managed nested
+`direct.reset`; add all three regression shapes.
+
+**Implementation/verification:** every accepted marker now receives a narrow
+ShiftBody survival scan. It rejects only the exact nested `direct.shift`, skips a
+separately managed nested `direct.reset`, and leaves ordinary explicit
+`scalascript.control.shift`/`Eff` code untouched. Exact negative plus both positive
+families pass across the 16/16 semantics and 21/21 diagnostics suites; keep this
+entry open until rereview approves and the fix lands.
+
+## scala-direct-dependent-prefix-type-owner — freshened values retain stale type refs
+
+**Status:** open; remediation remains green at feature checkpoint `a8f321d5c`, but
+a fresh independent review and the landing SHA are pending. Reported as P1 by the
+rereview of frozen `scala3-control-macros` checkpoint `ec4eb279e` (2026-07-15).
+
+**Symptom/reproduce:** create a local prompt scope before capture, then declare a
+dependent value such as `Prompt[innerScope.Key, Int]` (or a value typed with
+`owner.type`) and use it after `direct.shift`. Term references in initializers are
+freshened, but the declaration's `tpt.tpe` still refers to the old local symbol;
+Scala emits a raw `E007`/owner error from generated code. The common nested local
+prompt shape therefore fails despite ordinary strict locals being advertised as
+supported.
+
+**Root cause/plan:** prefix freshening substitutes term trees only and reuses the
+original quoted type tree unchanged. Rebind dependent/singleton type references
+to the fresh symbols before creating each new declaration, preserving declaration
+order, mutable/given/pattern flags, and shared-cell behavior. Support the common
+local nested-prompt case; if a type shape cannot be soundly rebound in M1, fail
+closed at the declaration with stable `DIRECT_STYLE_UNSUPPORTED`, never a raw
+quote/type error. Add semantic coverage for dependent prompt and owner-singleton
+flow plus diagnostics for any deliberately unsupported shape.
+
+**Implementation/verification:** prefix cloning now moves the initializer first,
+rebuilds affected `Select` and type trees, recursively rebinds supported
+dependent/singleton `TypeRepr` paths, and fails closed for a dependent lambda type
+whose binder graph M1 does not clone. The semantic regression carries a local
+prompt plus `owner.type`, dependent mutable/given/pattern values, and a suffix
+ascription across capture; the diagnostic regression freezes the unsupported
+polymorphic case. Focused suites pass 37/37 and the full leaf passes 99/99; keep
+this entry open until rereview approves and the fix lands.
+
+## scala-direct-inline-wrapper-owner-escape — inline marker wrapper loses bindings and provenance
+
+**Status:** open; remediation and regression are green on the feature branch
+(2026-07-15), but fresh independent rereview and the landing SHA are pending.
+Reported as P1 by the independent `scala3-control-macros` review of frozen
+checkpoint `fa992fd92`.
+
+**Symptom/reproduce:** define an inline method that accepts ordinary parameters
+and a matching `direct.Scope`, then delegates to `direct.shift`. Calling that
+wrapper in a block-level direct bind fails during macro expansion with a raw
+`reference to parameter contextual$2 was used outside the scope where it was
+defined` ownership error. A side-effectful prompt argument also makes dropping or
+duplicating inline bindings an observable single-evaluation risk.
+
+**Root cause/plan:** marker normalization strips every quoted `Inlined` node and
+therefore discards its bindings and call provenance before the lowering can prove
+their owners or evaluation order. M1 will accept only a directly proven marker
+shape: provenance-bearing or binding-bearing inline expansions must fail closed at
+the exact marker with stable `DIRECT_STYLE_UNSUPPORTED`. Add a side-effectful
+wrapper regression that proves no wrapper code is executed.
+
+**Implementation/verification:** marker normalization now preserves every
+`Inlined` node, and both inline expansion boundaries and unexpanded inline
+applications fail closed before their prompt/body arguments can be moved. The
+side-effectful wrapper regression passes in the 16/16 clean-compiled diagnostic
+suite; keep this entry open until rereview approves and the fix lands.
+
+## scala-direct-lazy-marker-eager — lazy marker initializer is lowered eagerly
+
+**Status:** open; remediation and regressions are green on the feature branch
+(2026-07-15), but fresh independent rereview and the landing SHA are pending.
+Reported as P1 by the independent `scala3-control-macros` review of frozen
+checkpoint `fa992fd92`.
+
+**Symptom/reproduce:** an unused `lazy val selected = direct.shift(...)` inside
+`direct.reset` increments a counter in the shift body even though ordinary Scala
+would never force the initializer. The computation returns its unrelated tail
+value, but the counter is already one.
+
+**Root cause/plan:** the block-level marker search accepts every non-mutable
+`ValDef`, including `Flags.Lazy`, before the nested-marker traversal can classify
+the lazy initializer as a capture barrier. Exclude lazy bindings from the accepted
+marker form so the existing barrier walk reports exact `CAPTURE_BARRIER`. A strict
+lazy declaration that would remain live across a later capture is separately
+outside M1 and must fail closed rather than be moved or forced.
+
+**Implementation/verification:** lazy marker declarations are excluded from the
+accepted marker bind, so traversal reports the frozen lazy-initializer
+`CAPTURE_BARRIER`; an ordinary lazy prefix before a later capture is rejected
+without forcing it. Both regressions pass in the 16/16 clean-compiled diagnostic
+suite; keep this entry open until rereview approves and the fix lands.
+
+## scala-direct-prefix-owner-split — local declarations lose ownership across capture
+
+**Status:** open; remediation and regressions are green on the feature branch
+(2026-07-15), but fresh independent rereview and the landing SHA are pending.
+Reported as P1 by the independent `scala3-control-macros` review of frozen
+checkpoint `fa992fd92`.
+
+**Symptom/reproduce:** declare a local `val`, `var`, `given`, destructuring bind,
+method, class, or type before `direct.shift`, then reference it from the shift body
+or captured suffix. The macro fails with a raw `reference ... was used outside the
+scope where it was defined` compiler error. The same failure occurs for a value
+between sequential shifts. Existing shared-heap coverage used an external variable
+and did not exercise the local cell that actually crosses capture.
+
+**Root cause/plan:** the lowering moves prefix statements separately from the
+generated continuation and only substitutes the marker result; it neither clones
+strict local value symbols into the generated owner nor rewrites later references.
+Clone/rebind ordinary strict `val`/`var`/`given` symbols in declaration order,
+including pattern-generated synthetic `ValDef`s, so Scala performs its normal
+closure boxing for a shared mutable cell. Until M1 models richer definition
+ownership, fail closed when a local method, class, type, or lazy cell crosses a
+capture. Add semantic and exact-diagnostic regressions before rereview.
+
+**Implementation/verification:** capture splits now clone strict local value
+symbols in declaration order and carry their replacement map through prompt,
+shift body, suffix, and sequential markers. Scala closure conversion therefore
+shares one captured mutable cell. Local method/class/type/lazy crossings reject
+with exact diagnostics. The expanded semantics suite passes 14/14 and diagnostics
+16/16 after a clean test compilation; keep this entry open until rereview approves
+and the fix lands.
+
+## scala-direct-deferred-nonlocal-return — OPEN / fix planned (2026-07-15, Codex)
+
+**Status:** open; implementation and regressions are green on the feature branch,
+but fresh independent rereview and the landing SHA are pending. Found by Codex
+during the pre-integration fail-closed audit of `scala3-control-macros`.
+
+**Symptom:** a source `return` in a pure `direct.reset` body, or in the suffix
+after `direct.shift`, could be moved into the explicit reset's deferred
+computation. The enclosing Scala method has already returned when that `Eff`
+runs, so preserving the tree would turn source return into escaped exception-based
+control instead of the specified explicit effect semantics.
+
+**Reproduce:** compile a method returning `Eff[Nothing, Int]` whose
+`direct.reset` body executes `return Eff.pure(7)`, and a second method that first
+binds `direct.shift` and then executes `return Eff.pure(selected)`. Both shapes
+must fail at the exact `return` with `DIRECT_STYLE_UNSUPPORTED`; neither may
+produce a runnable `Eff`.
+
+**Root cause:** the bounded lowering validated markers under `Return` nodes, but
+did not independently reject a `Return` targeting a method outside the contextual
+reset body before moving that body under `Eff.defer` and generated continuations.
+
+**Fix/verification:** `DirectMacros` now inspects the typed body before lowering
+and rejects only returns whose target is outside the lexical reset owner; returns
+local to a nested method remain owned by that method. Pure-body, captured-suffix,
+and safe local-return regressions pass; the full control leaf is 92/92 and the
+packaged-JAR example compiles and runs. Keep this entry open until rereview
+approves and the fix lands.
+
+## js-control-direct-packed-local-dev-dependency — tarball escapes to repository sibling
+
+**Status:** open; repair candidate `9baf6d2bf` is fully locally verified and awaits
+fresh independent review and landing. Reported as P1 by the fresh
+independent read-only review of exact range `445f7faf7..d66ed988df` on 2026-07-15;
+the other semantic, JavaScript, declaration, source-map, and atomicity gates were
+clean.
+
+**Symptom/reproduce:** run `npm pack` for `v2/host/js/control-direct`, extract the
+result into a fresh directory with no `../control`, and inspect
+`package/package.json`. Its published `devDependencies` contains
+`"@scalascript/control": "file:../control"`. An ordinary
+`npm install --ignore-scripts` in the extracted package creates a control dependency
+pointing outside the payload (or otherwise relies on that missing sibling), and an
+ESM import fails with `ERR_MODULE_NOT_FOUND`. The existing packed-consumer test uses
+`--omit=dev`, so it never exercises the broken published development manifest.
+
+**Required fix/verification:** the exact tarball manifest—not merely the working-tree
+JSON—must contain no repository-local dependency specifier in any production,
+optional, peer, development, or override/resolution-style dependency field. Forbid
+`file:`, `link:`, `workspace:`, absolute paths, and relative local escapes; retain
+only the qualified non-local TypeScript development pin and preserve empty
+production/optional/peer dependency maps. Extract the exact tarball at a clean
+boundary, run ordinary install without a sibling checkout, and prove it does not
+create a dangling local control dependency. Existing packed CLI installation and
+production execution must remain green.
+
+**Root cause/fix candidate:** `package.json` and `package-lock.json` used the sibling explicit
+control package as a publishable `file:../control` development dependency for local
+tests/typechecking. npm includes `package.json` in the exact payload, so the repository
+topology leaks even though `npm pack --dry-run` reports no bundled dependencies.
+The candidate removes that entry from manifest and lock, supplies the type declaration
+through a TypeScript path, and gives compiler/runtime tests explicit temporary
+symlinks. Its exact-tar regression reads the extracted manifest, ordinary-installs
+with no sibling, proves no control link exists, and imports both published subpaths.
+Direct package tests pass 39/39; its exact pack, explicit control 31/31, catalog
+26/9, negative validator 9/9, and affected conformance 5/5 are green. The bug remains
+open until landing and a new independent reviewer confirmation.
+
+## js-control-direct-import-equals-bypass — runtime marker require evades fail-closed import scan
+
+**Status:** open; repair candidate `fabad7d84` is fully locally verified and awaits
+fresh independent review and landing. Reported as P1 by the fresh
+independent read-only review of exact frozen HEAD `71ae452ea5` on 2026-07-15
+(current rebased equivalent `82aee139a`).
+
+**Symptom/reproduce:** compile a CommonJS/Node10 source containing
+`import markers = require("@scalascript/control-direct")`, with or without a use of
+`markers.direct`. The exact-module syntax is an `ImportEqualsDeclaration`, not the
+`ImportDeclaration` shape checked by the current default/namespace rejection, so the
+runtime marker require can survive without `JS_DIRECT_UNSUPPORTED`.
+
+**Required fix/verification:** recognize an external-module
+`ImportEqualsDeclaration` whose string-literal module reference is exactly the marker
+package. Reject every runtime form once with a stable source span and file-atomic
+unchanged emit when diagnostics are ignored. Accept `import type markers =
+require(...)` as an erased, non-runtime form. Test used/unused runtime imports, the
+type-only form, and packed-CLI CommonJS/Node10 JavaScript plus declarations.
+
+**Root cause/fix candidate:** exact-module import collection handled only ES
+`ImportDeclaration`, so external `ImportEqualsDeclaration` never entered marker
+ownership. The candidate recognizes only a string-literal `ExternalModuleReference`,
+diagnoses runtime used/unused forms at the local name, and JavaScript-erases the
+explicit type-only form while declaration emit retains it. Programmatic and real
+packed-CLI CommonJS/Node10 regressions are green under both verbatim modes; the full
+direct package passes 38/38.
+
+## js-control-direct-type-export-runtime-link — erased export retains dev-only module link
+
+**Status:** open; repair candidate `fabad7d84` is fully locally verified and awaits
+fresh independent review and landing. Reported as P1 by the fresh
+independent read-only review of exact frozen HEAD `71ae452ea5` on 2026-07-15
+(current rebased equivalent `82aee139a`).
+
+**Symptom/reproduce:** with `verbatimModuleSyntax: true`, compile
+`export { type direct as Marker } from "@scalascript/control-direct"`. The transform
+does not select the erased specifier-level source export for JavaScript normalization;
+TypeScript emits `export {} from "@scalascript/control-direct"`. Running production
+output without the dev-only marker package fails with `ERR_MODULE_NOT_FOUND`.
+
+**Required fix/verification:** in the JavaScript channel, select exact-module
+type-only source exports, discard their erased specifiers, remove the whole export
+when no runtime specifier remains, and preserve mixed ordinary runtime specifiers.
+Declaration emit must see the original source form. Test declaration- and
+specifier-level aliases, mixed exports, both verbatim modes, packed CLI syntax,
+production execution without the marker package, and emitted `.d.ts`.
+
+**Root cause/fix candidate:** collection skipped specifier-level type-only source
+exports, so the JavaScript transformer never selected their file and verbatim emit
+preserved an empty module-linked export. The candidate selects exact-module
+type-only `direct` exports, removes every erased specifier in the JavaScript channel,
+drops an empty declaration, and preserves mixed runtime specifiers. Both verbatim
+modes retain the original `.d.ts`, and packed production runs without the marker
+package; the full direct package passes 38/38.
+
+## js-control-direct-mixed-type-import-invalid-js — marker erasure leaves TypeScript syntax
+
+**Status:** open; repair candidate `fabad7d84` is fully locally verified and awaits
+fresh independent review and landing. Reported as P1 by the fresh
+independent read-only review of exact frozen HEAD `71ae452ea5` on 2026-07-15
+(current rebased equivalent `82aee139a`).
+
+**Symptom/reproduce:** compile a transformed file containing
+`import { direct, type DirectMarkerContractError as ErrorType } from
+"@scalascript/control-direct"`. The after-transform import rewrite removes the runtime
+marker but retains the type-only specifier, producing `import { type ErrorType }` in a
+`.js` file. The real packed CLI exits zero, yet `node --check` fails with `SyntaxError`.
+
+**Required fix/verification:** treat JavaScript and declaration emit independently.
+The JavaScript rewrite must drop type-only specifiers while preserving unrelated
+runtime values and remove the declaration if nothing runtime remains; declaration
+emit must retain the original TypeScript import and type information. Exercise both
+`verbatimModuleSyntax: false` and `true` through the packed CLI, validate JavaScript
+with Node, and assert the generated `.d.ts` surface.
+
+**Root cause/fix candidate:** `rewriteMarkerImport` rebuilt a selected TypeScript
+import after normal type analysis but retained specifier-level `isTypeOnly` nodes;
+the JavaScript emitter therefore printed TypeScript syntax instead of erasing it.
+The candidate explicitly removes completed marker and type-only specifiers in the
+JavaScript channel while leaving TypeScript's declaration pipeline on the original
+source. Both verbatim modes pass real packed-CLI `node --check`, `.d.ts`, and
+production-without-marker regressions; the full direct package passes 38/38.
+
+## js-control-direct-type-only-export-false-positive — erased exports are rejected
+
+**Status:** open; repair candidate `ec95c4c65` is locally verified and awaits fresh
+independent review plus landing. Reported as P1 by independent rereview of exact
+frozen HEAD `c4377fabb` on 2026-07-15 (current rebased equivalent `58de23cf1`).
+
+**Symptom/reproduce:** TypeScript files using local
+`export type { direct as Marker }`, direct
+`export type { direct } from "@scalascript/control-direct"`, or inline
+`export { type direct } from "@scalascript/control-direct"` receive
+`JS_DIRECT_UNSUPPORTED` even though all three forms are erased and cannot leave a
+runtime marker value in JavaScript.
+
+**Required fix/verification:** the accepted grammar must distinguish declaration-
+level and specifier-level type-only exports before runtime owned-marker checks. Keep
+the erased forms diagnostic-free, preserve normal TypeScript emit, and retain stable
+`JS_DIRECT_UNSUPPORTED` for local runtime exports/re-exports and aliases. Cover all
+three type-only spellings plus shadowing in the real compiler harness.
+
+**Root cause/fix candidate:** export collection treated every direct-module export
+as runtime syntax, while generic type-only detection stopped at an export without
+reading declaration/specifier flags. The candidate classifies `isTypeOnly` before
+runtime ownership and proves five local/source declaration/specifier spellings erase
+without a diagnostic; a shadowed local runtime export remains ordinary. Direct
+package tests pass 35/35.
+
+## js-control-direct-marker-shorthand-export-survivor — owned values evade scanning
+
+**Status:** open; repair candidate `ec95c4c65` is locally verified and awaits fresh
+independent review plus landing. Reported as P1 by independent rereview of exact
+frozen HEAD `c4377fabb` on 2026-07-15 (current rebased equivalent `58de23cf1`).
+
+**Symptom/reproduce:** place runtime shorthand `{ direct }`, local
+`export { direct }`, or `export { direct as alias }` in a file selected for marker
+transformation. Checker lookup at the shorthand/export identifier does not resolve
+to the imported runtime value under the current scan, so no direct diagnostic is
+reported; completed-import rewriting can then erase the import while emitted code
+retains an unbound shorthand or export.
+
+**Required fix/verification:** resolve the runtime value behind shorthand properties
+and local export specifiers (including aliases) through the TypeScript checker, then
+reuse exact owned-marker identity. Every surviving runtime use must receive one
+stable `JS_DIRECT_UNSUPPORTED` and cancel the entire source-file rewrite; ignored-
+diagnostic emit must retain the original import and marker syntax. Avoid duplicate
+diagnostics when an export node is reachable through more than one scan.
+
+**Root cause/fix candidate:** raw identifier lookup exposes a shorthand property or
+exported-name symbol rather than its local runtime value. The candidate centralizes
+value-symbol resolution, uses `getExportSpecifierLocalTargetSymbol`, and handles an
+export specifier once without visiting its identifier children. Runtime shorthand,
+assignment-initializer shorthand, and local/source aliases each get exactly one
+file-atomic diagnostic with unchanged ignored-diagnostic emit.
+
+## js-control-direct-shorthand-value-symbol-capture — property symbol hides suffix capture
+
+**Status:** open; repair candidate `ec95c4c65` is locally verified and awaits fresh
+independent review plus landing. Reported as P1 by independent rereview of exact
+frozen HEAD `c4377fabb` on 2026-07-15 (current rebased equivalent `58de23cf1`).
+
+**Symptom/reproduce:** inside a shift body, save or evaluate a closure/expression
+reading `({ later }).later`, then declare suffix `const later = 42`. The current
+lexical scan calls `checker.getSymbolAtLocation` on the identifier in the shorthand
+property and receives the property symbol rather than the referenced value symbol.
+The crossing is missed; transformed execution throws `ReferenceError` instead of
+the original lexical behavior.
+
+**Required fix/verification:** centralize runtime-value symbol lookup and use
+`checker.getShorthandAssignmentValueSymbol` for shorthand property names, falling
+back to ordinary checker identity everywhere else. The shift-body shorthand must
+fail file-atomically with one `JS_DIRECT_CAPTURE_BARRIER` on the source identifier;
+ordinary property names, genuine shadowing, and type-only references remain
+accepted. Add assignment-initializer shorthand coverage where the compiler AST
+permits that form.
+
+**Root cause/fix candidate:** `getSymbolAtLocation` returns the synthesized property
+symbol for `ShorthandPropertyAssignment`. The candidate uses
+`getShorthandAssignmentValueSymbol` in the same runtime-value resolver used by
+marker ownership and continuation checks. Real JavaScript property and assignment-
+initializer regressions now select `later`, emit one capture diagnostic, and retain
+the untouched file when diagnostics are ignored.
+
+## js-control-direct-prefix-tdz-binding-escape — moved suffix exposes an outer binding
+
+**Status:** open; repair candidate `4c6b8e2a9` is locally verified and awaits fresh
+independent review plus landing. Confirmed by parent adversarial pre-rereview on
+2026-07-15; the original independent-review snapshot was `f6fa34fac`.
+
+**Symptom/reproduce:** define outer `const later = 99`; inside a direct reset, read
+`later` in a pure prefix declaration before the first marker, then declare inner
+`const later = 42` after the marker. The original block resolves the prefix read to
+the inner binding and throws from its temporal dead zone. Lowering moves that inner
+declaration into the continuation callback, so the unchanged prefix read resolves
+at runtime to the outer `99`; the reproduced candidate returned `141` with no
+direct diagnostic. TypeScript reports 2448/2454, but real JavaScript under
+`allowJs: true, checkJs: false` has the same runtime semantic change without a type
+gate.
+
+**Required fix/verification:** for every marker boundary, use checker symbol identity
+to reject value references from that boundary's pure prefix statements or shift body
+to the marker's own or any later suffix binding. Preserve type-only references and
+genuine shadowing. Add a real-JavaScript outer-shadow/TDZ regression proving stable
+`JS_DIRECT_CAPTURE_BARRIER`, no transformed file, and unchanged emit when diagnostics
+are ignored; retain accepted preceding-binding evaluation order.
+
+**Root cause/fix candidate:** the first repair scanned only each marker's shift body,
+not the pure statements kept before that marker's generated continuation. The
+candidate now checks the complete marker layer by checker-symbol identity, reports
+the first crossing value reference, preserves type-only/shadowed references, and
+keeps ignored-diagnostic emit file-atomic. Direct package tests pass 31/31.
+
+## js-control-direct-import-only-eval-erasure — unused marker removal changes direct-eval scope
+
+**Status:** open; repair candidate `4c6b8e2a9` is locally verified and awaits fresh
+independent review plus landing. Found by parent adversarial pre-rereview on
+2026-07-15; the original independent-review snapshot was `f6fa34fac`.
+
+**Symptom/reproduce:** compile a file that imports named `direct`, contains no
+`reset`/`shift`, and evaluates `eval("typeof direct")`. The repair candidate selects
+the file solely to erase the otherwise unused build-time marker import, but its
+direct-eval scan is gated on `filesWithMarkerCalls`. Emit therefore removes the
+lexical binding without a diagnostic and changes the eval result from `"object"` to
+`"undefined"`.
+
+**Required fix/verification:** intrinsic direct eval is a barrier for every source
+file that the transform would rewrite, including import-only marker erasure. Keep
+unused marker removal for eval-free files; do not reintroduce a production marker
+dependency. Add an exact import-only direct-eval regression proving one stable
+`JS_DIRECT_CAPTURE_BARRIER`, no `transformedFiles` entry, and byte-semantic
+file-atomic emit when a programmatic caller ignores diagnostics.
+
+**Root cause/fix candidate:** eval scanning was gated by the presence of marker
+calls even though an import-only file was also a rewrite candidate. The candidate
+now scans every selected file, retains the original import on diagnostic, and has an
+executing regression proving that `eval("typeof direct")` still observes `"object"`.
+
+## js-control-direct-typescript-version-ungated — unsupported compiler APIs are accepted
+
+**Status:** open; cumulative repair candidate `c19d42401` is locally verified and
+awaits fresh independent review plus landing. Reported as P2 on 2026-07-15 by the
+independent pre-integration review of frozen direct-transform snapshot `f6fa34fac`.
+
+**Symptom/reproduce:** `createDirectTransform` accepts any object with enough
+TypeScript-shaped members and the CLI loads any consumer `typescript` version.
+The package therefore has no deterministic boundary for compiler-factory and AST
+API compatibility, although its declarations and tests were built only against
+TypeScript 5.9.3.
+
+**Required fix/verification:** the feature spec must pin the supported compiler API
+version policy, both the programmatic entrypoint and CLI must reject an unsupported
+version before transforming, and positive/negative version-gate tests must preserve
+an actionable stable failure. Keep the published package free of a bundled compiler.
+
+**Root cause/fix candidate:** the transform validated only a TypeScript-shaped
+object and never bounded compiler AST/factory compatibility. The candidate gates
+both programmatic and CLI entrypoints on `versionMajorMinor === "5.9"`, with 5.9.3
+as the qualification pin and deterministic rejection tests outside that line.
+
+## js-control-direct-wrapped-marker-receiver-missed — transparent TS wrappers evade ownership
+
+**Status:** open; cumulative repair candidate `c19d42401` is locally verified and
+awaits fresh independent review plus landing. Reported as P2 on 2026-07-15 by the
+independent pre-integration review of frozen direct-transform snapshot `f6fa34fac`.
+
+**Symptom/reproduce:** exact-import marker calls written as `(direct).reset(...)`,
+`direct!.reset(...)`, or `(direct as typeof direct).reset(...)` are not consistently
+recognized as the imported marker symbol. Depending on the surrounding tree they
+can survive emit or receive a generic unsupported-shape result instead of the same
+bounded transform/diagnostic contract as an unwrapped `direct.reset(...)` call.
+
+**Required fix/verification:** recursively unwrap only semantically transparent
+parentheses, `as`, non-null, and type-assertion expressions before symbol ownership
+checks. Positive reset/shift cases and negative unsupported cases must prove stable
+source spans and must leave no marker call in emitted JavaScript.
+
+**Root cause/fix candidate:** ownership recognition examined the raw receiver/callee
+node. The candidate recursively removes only parentheses, `as`, non-null, and type
+assertions before exact checker-symbol matching; positive and negative wrapper
+regressions prove that no owned marker call survives a clean emit.
+
+## js-control-direct-consumer-typescript-resolution — CLI resolves the tool's compiler, not the consumer's
+
+**Status:** open; cumulative repair candidate `c19d42401` is locally verified and
+awaits fresh independent review plus landing. Reported as P1 on 2026-07-15 by the
+independent pre-integration review of frozen direct-transform snapshot `f6fa34fac`.
+
+**Symptom/reproduce:** place the published runtime files under an external
+tool/store path, install `typescript` only in a consuming project, and run the real
+CLI with `--project <consumer>/tsconfig.json`. `cli.js` performs bare
+`import("typescript")` relative to itself and exits with “TypeScript compiler API not
+found”, contradicting the contract that the CLI uses the consuming project's
+compiler. Strict/symlinked stores and external/npx tools exhibit the same boundary.
+
+**Required fix/verification:** resolve TypeScript with a consumer-owned Node issuer
+anchored at the explicit project/config directory or current working directory; do
+not fall back to an ambient/global compiler. An extracted packed-package fixture
+must keep TypeScript only under the consumer, invoke the installed CLI, succeed, and
+also prove that an otherwise identical consumer without TypeScript gets a stable
+actionable error.
+
+**Root cause/fix candidate:** bare module import resolved from the tool package's
+location. The candidate uses `createRequire` from the explicit project/config
+directory or cwd, never falls back to the store/global environment, and exercises
+both present and missing consumer compilers through the packed installed bin.
+
+## js-control-direct-marker-import-survives-emit — build-time marker becomes a production dependency
+
+**Status:** open; cumulative repair candidate `c19d42401` is locally verified and
+awaits fresh independent review plus landing. Reported as P1 on 2026-07-15 by the
+independent pre-integration review of frozen direct-transform snapshot `f6fa34fac`.
+
+**Symptom/reproduce:** transform a valid source importing named `direct` from
+`@scalascript/control-direct`, inspect the emitted JavaScript, then deploy it with
+development dependencies omitted. The marker calls are lowered but the original
+value import remains, so Node fails module resolution even though documentation
+installs the marker package with `--save-dev`.
+
+**Required fix/verification:** after every value use of an exact owned marker binding
+has been transformed, remove only that marker import specifier (and the now-empty
+declaration), preserving unrelated imports/specifiers. Diagnose every surviving
+marker value use rather than emitting it. A packed production-consumer fixture must
+run emitted JavaScript with `@scalascript/control` present and
+`@scalascript/control-direct` absent.
+
+**Root cause/fix candidate:** lowering rewrote marker calls but did not prove that all
+owned value uses were consumed or update the corresponding import declaration. The
+candidate diagnoses surviving uses, removes only completed marker specifiers, keeps
+unrelated imports intact, and runs packed production output without the direct
+package.
+
+## js-control-direct-cli-symlink-noop — installed npm bin exits successfully without compiling
+
+**Status:** open; cumulative repair candidate `c19d42401` is locally verified and
+awaits fresh independent review plus landing. Reported as P1 on 2026-07-15 by the
+independent pre-integration review of frozen direct-transform snapshot `f6fa34fac`.
+
+**Symptom/reproduce:** invoke `ssc-control-tsc` through the normal
+`node_modules/.bin` symlink. `cli.js` compares the real module `import.meta.url` to
+the unresolved symlink in `process.argv[1]`; the comparison is false, `main()` is
+skipped, and the process exits 0 with no output. Invoking `node <real-cli.js>` does
+run, which is why the existing test missed the published path.
+
+**Required fix/verification:** entry detection must normalize both paths through
+realpath/inode-safe logic with deterministic handling of absent or unreadable
+`argv[1]`. Pack and install the tarball into a fresh consumer, invoke exactly its
+`.bin/ssc-control-tsc`, and prove both successful emit and non-zero failure for an
+invalid compiler option.
+
+**Root cause/fix candidate:** entry detection compared a real module URL with an
+unresolved npm-bin symlink. The candidate compares deterministic realpath/filesystem
+identity with explicit missing/unreadable handling; the exact packed `.bin` now
+compiles and invalid options fail non-zero.
+
+## js-control-direct-eval-capture-unsound — direct eval can observe rewritten lexical frames
+
+**Status:** open; cumulative repair candidate `c19d42401` plus selected-file closure
+`4c6b8e2a9` are locally verified and await fresh independent review plus landing.
+Reported as P1 on 2026-07-15 by the independent pre-integration review of frozen
+direct-transform snapshot `f6fa34fac`.
+
+**Symptom/reproduce:** a file containing an otherwise transformable direct reset can
+also contain direct `eval(...)`. The current region checks do not reject every
+file-wide direct-eval occurrence or transparent callee wrappers such as parentheses,
+`as`, non-null, and type assertions. Emit can therefore change which lexical frame
+the evaluated source observes or mutates.
+
+**Required fix/verification:** reject intrinsic direct eval anywhere in each file
+that would be transformed, after unwrapping only transparent syntax, and emit
+nothing for that file. The feature spec must explicitly pin indirect-eval and
+`Function`-constructor policy. Tests must cover top-level, reset-local, nested
+closure, wrapped, indirect, and `Function` cases with stable diagnostics.
+
+**Root cause/fix candidate:** analysis had no file-wide intrinsic-eval ownership
+pass. The repair resolves the unshadowed global binding through transparent wrappers
+and cancels every rewrite in that selected file; the follow-up extends the same gate
+to import-only erasure while leaving indirect eval and `Function` global-only.
+
+## js-control-direct-js-marker-binding-semantics — lowering erases const/let declaration behavior
+
+**Status:** open; cumulative repair candidate `c19d42401` is locally verified and
+awaits fresh independent review plus landing. Reported as P1 on 2026-07-15 by the
+independent pre-integration review of frozen direct-transform snapshot `f6fa34fac`.
+
+**Symptom/reproduce:** compile real JavaScript with `allowJs: true` and
+`checkJs: false`, using `const` or `let x = direct.shift(...)`. Lowering replaces the
+source declaration with a `.flatMap(x => ...)` parameter. This loses the original
+declaration kind (for example, assignment to source `const x` no longer has native
+runtime behavior) and can capture/collide with names introduced by the rewrite.
+
+**Required fix/verification:** use a collision-safe fresh resume parameter and begin
+the continuation suffix with the original `const`/`let` declaration initialized
+from it. A real `.js` fixture must exercise both declaration kinds and a name
+collision under `allowJs: true, checkJs: false`, preserving runtime behavior and
+source-map ownership.
+
+**Root cause/fix candidate:** the source binding itself became the generated callback
+parameter, erasing declaration kind and weakening lexical ownership. The candidate
+uses a collision-safe resume parameter followed by the original authored
+declaration; real JavaScript const/let/mutation/collision tests are green.
+
+## js-control-direct-forward-lexical-capture — shift body escapes declarations moved into the suffix
+
+**Status:** open; cumulative repair candidate `c19d42401` with marker-layer closure
+`4c6b8e2a9` is locally verified and awaits fresh independent review plus landing.
+Reported as P1 on 2026-07-15 by the independent pre-integration review of frozen
+direct-transform snapshot `f6fa34fac`.
+
+**Symptom/reproduce:** inside `direct.reset`, let a shift body save a closure that
+reads `const later = 42`, with `later` declared after the marker. TypeScript and the
+transform report no diagnostics, but lowering leaves the shift body outside the
+generated `.flatMap` callback while moving `later` inside it. Running the saved
+closure throws `ReferenceError: later is not defined` instead of returning `42`.
+References to the marker's own declaration region have the same scope hazard,
+including references hidden in nested closures.
+
+**Required fix/verification:** specify and implement a sound rule: either preserve
+binding/evaluation semantics through exact dependency-aware rebinding, or fail closed
+before emit. Cover forward and own-marker references, nested closures, shadowing,
+and declaration-initializer evaluation order; the accepted cases must remain
+prefix-once/suffix-per-resume.
+
+**Root cause/fix candidate:** the closed grammar rejected structural frame barriers
+but did not compare value references with bindings moved across generated
+continuations. Checker-symbol scans now reject own/later references in each marker
+layer, including nested syntax, while retaining type-only, preceding, and shadowed
+cases.
+
 ## scljet-ipk-rowid-alias-not-substituted — reading a REAL SQLite file returns 0 for every `INTEGER PRIMARY KEY`
 
 **Status:** OPEN (found 2026-07-15 by `scljet-jdbc-j4-introspection` while probing whether the
@@ -532,14 +1398,49 @@ stored NULL, which the getters coerce to `0`. The engine already models the conc
 (`scljet/sql.ssc:1086`), `ipkColumnIndex(sql)` (`~:1098`), `tableIpkIndex(db, table)` (`~:4291`) —
 so the fix is likely to apply the existing IPK index in the row-projection path, not new analysis.
 
-**A second, opposite-direction divergence to check while fixing** (not yet verified, flagged by
-the same finding): scljet's WRITE path appears to store the IPK value *in the column* rather than
-as NULL+rowid, and assigns rowids sequentially. If so, `INSERT INTO emp VALUES (7,'bob')` into a
-scljet database yields a row with column `id=7` but rowid `2` — and real SQLite reading that file
-reports `id=2` (it always reads the rowid for an IPK column), i.e. our files are wrong for real
-SQLite too. Our own read path agrees with itself, which is exactly why every existing test passes.
-A test whose oracle is "scljet reads back what scljet wrote" cannot see either half of this;
-the differential must cross the two engines through a FILE.
+**~~A second, opposite-direction divergence~~ — MEASURED AND DISPROVED (2026-07-16).** The
+earlier suspicion here (that our WRITE stores the IPK value in the column with a *sequential*
+rowid, so real SQLite would misread our files) is **WRONG**. Probed directly — write with
+scljet, read with `org.xerial:sqlite-jdbc`:
+
+```
+scljet: INSERT INTO emp VALUES (7,'bob')  → the row's actual rowid = 7   (NOT sequential)
+REAL SQLite reading OUR file → id=1|ann|rowid=1, id=7|bob|rowid=7        ✓ correct
+REAL SQLite `PRAGMA integrity_check` on our file → ok                    ✓
+```
+
+**So the WRITE side is sound and our files are valid, correctly-readable SQLite.** What we
+actually do is store the IPK value *redundantly*: in the rowid (correct) **and** in the record's
+column (real SQLite stores NULL there). Real SQLite tolerates that because it always takes an IPK
+column's value from the rowid and ignores what is stored. Our two inaccuracies cancel out on our
+own files, which is why every existing test passes.
+
+**Consequence for the fix — it is READ-ONLY and does not regress our own files.** Since our write
+already sets `rowid = 7`, teaching the read path to take the IPK column from the rowid yields `7`
+on *both* file flavours: ours (rowid 7, column 7) and the reference's (rowid 7, column NULL).
+There is no need to change the write path to make the read correct. (Writing a canonical NULL in
+the column is a separate, optional tidy-up — byte-level canonicity vs real SQLite — NOT required
+for correctness, and it would be a storage-format change worth its own slice.)
+
+**A REAL second bug found by the same probe — `lastInsertRowid` is wrong for an IPK table:**
+
+```
+scljet: INSERT INTO emp VALUES (7,'bob')  → the row's rowid IS 7, but
+                                             MutationResult.lastInsertRowid reports 1
+reference sqlite-jdbc for the same INSERT  → last_insert_rowid() = 7
+```
+
+i.e. the counted-mutation path reports a sequential counter instead of the rowid actually
+assigned. This makes the JDBC shim's `getGeneratedKeys` (J2) return the wrong key for exactly the
+tables where generated keys matter most. The existing `getGeneratedKeys` tests use a *plain*
+`INTEGER` column (not an IPK), where a sequential rowid IS the right answer — which is why they
+pass, and why the reference cross-check passes too. Fix alongside the read substitution, and
+extend the getGeneratedKeys tests to cover an IPK table.
+
+**Method note that generalises.** A test whose oracle is "scljet reads back what scljet wrote"
+cannot see any of this: it is self-consistent by construction. The differential must cross the
+two engines **through a FILE**, in *both* directions (they-write/we-read AND we-write/they-read) —
+only the second direction could have disproved the write-side hypothesis above.
 
 **Notes.** Reading a reference-written file otherwise works (schema, indexes incl. `UNIQUE`,
 non-IPK columns, TEXT) — see `ScljetIntrospectionTest` "reads a database created by the
@@ -587,9 +1488,9 @@ Remaining separate gap: `String.padTo` on v2-native.
 
 ## js-control-packed-readme-broken-spec-link — npm README links outside payload
 
-**Status:** fixed by `1c2e150c3` with regression `6f19a9538`; awaiting final
-independent reviewer confirmation. Reported as P2 on 2026-07-15 by the second
-pre-integration review; affected pre-land documentation commit `069e0204e`.
+**Status:** done in reachable `origin/main` landing `cf8f96200`; the independent
+rereviewer confirmed the packed README contract link. Reported as P2 on 2026-07-15
+by the second pre-integration review.
 
 **Symptom/reproduce:** `npm pack --dry-run --json` correctly emits only the frozen
 five-file payload, but its `README.md` ends with a relative
@@ -673,10 +1574,9 @@ gates remain green.
 
 ## js-control-effect-owner-type-collision — descriptor ID is mistaken for owner identity
 
-**Status:** fixed in `5b5421880`; awaiting final independent reviewer
-confirmation. Reopened as P1 on 2026-07-15 after independent second
-pre-integration review rejected the first fix in `0d0ffcfd3`; the original report
-affected pre-land declaration commit `2a34d7ed3`.
+**Status:** done in reachable `origin/main` landing `cf8f96200`; the independent
+rereviewer confirmed both inferred and explicit union-owner rejection. Reopened as
+P1 on 2026-07-15 after the second pre-integration review rejected the first repair.
 
 **Symptom/reproduce:** two `defineEffect("same.id")` calls create distinct runtime
 owners, but both declarations currently produce `Effect<"same.id">`. TypeScript

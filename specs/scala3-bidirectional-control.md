@@ -1,7 +1,7 @@
 # Scala 3 ↔ ScalaScript bidirectional control profile
 
-Status: **explicit Tier 1 implemented; remaining host profile planned**
-(2026-07-14).
+Status: **explicit Tier 1 and lexical macro M1 implemented; remaining host profile planned**
+(2026-07-15).
 
 This document is the Scala 3/JVM host profile of
 [`control-interoperability.md`](control-interoperability.md). The target-neutral
@@ -491,6 +491,16 @@ Scala integration has three cumulative tiers:
 3. **Compiler plugin.** Cross-method state-machine/CPS transformation, managed
    callbacks, saveable-frame metadata, mixed tail graphs, and barrier diagnostics.
 
+The implemented first inline tier is frozen independently in
+[`scala3-control-macros.md`](scala3-control-macros.md). It remains in
+`io.scalascript:scalascript-control_3` under `scalascript.control.direct`, uses a
+typed lexical `Scope`, and accepts a bounded ANF/CPS grammar. It expands only to
+the public explicit API and fails closed at callbacks, resources, unsupported
+control trees, or a marker outside its matching region. This M1 reference transform
+is valid before X1 because it changes no ScalaScript frontend, CoreIR,
+codec, seed, backend, or self-hosted compiler byte. It does not claim a
+ScalaScript bridge, cross-method plugin transform, or complete host profile.
+
 A macro can transform only syntax it receives. The plugin cannot rewrite already
 compiled bytecode. Precompiled Scala/Java code, reflection, unknown virtual calls,
 JNI, an uninstrumented executor, and raw callbacks are barriers while active.
@@ -703,11 +713,13 @@ Scala APIs, macros, compiler plugins, JAR launchers, admission services, and res
 resolvers stay outside UniML, the seed, the canonical codec, and the self-hosted
 compiler image. This profile introduces no CoreIR node or value semantics.
 
-Specification/API/descriptor/vector work may proceed now. Frontend/lowering,
-canonical-codec/loader, seed-image, and other byte-affecting implementation remains
-blocked until full P6.5 X1 is green and frozen. The landed P6.6 `C_min` proof does
-not close X1. Every later byte-affecting compiler/kernel change reruns the literal
-fixed point.
+Specification/API/descriptor/vector work and the landed host-local lexical macro M1 may
+proceed now. M1 is qualified only while it expands to the frozen explicit API and
+stays outside the bootstrap graph; it does not advance delivery steps 4--9 or claim
+cross-language transparency. ScalaScript frontend/lowering, canonical-codec/loader,
+seed-image, and other byte-affecting implementation remains blocked until full
+P6.5 X1 is green and frozen. The landed P6.6 `C_min` proof does not close X1. Every
+later byte-affecting compiler/kernel change reruns the literal fixed point.
 
 ## 13. Profile-specific non-goals
 

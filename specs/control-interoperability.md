@@ -142,10 +142,14 @@ call whose body has already run.
 
 ### 2.4 Self-hosting and byte gate
 
-Specification, host profiles, descriptors, and semantic vectors may proceed now.
-No frontend/lowering, canonical-codec/loader, seed-image, or other byte-affecting
-implementation begins before the full P6.5 `F1 → F2/F3 → L1 → X1` compiler fixed
-point is green and frozen.
+Specification, host profiles, descriptors, semantic vectors, compiler-independent
+host APIs, and a host-local inline transform that expands exclusively into an
+already-frozen explicit host API may proceed now. Such a transform stays outside
+the bootstrap graph and cannot claim a ScalaScript frontend, cross-language bridge,
+save plan, or kernel behavior. No ScalaScript frontend/lowering,
+canonical-codec/loader, seed-image, or other byte-affecting implementation begins
+before the full P6.5 `F1 → F2/F3 → L1 → X1` compiler fixed point is green and
+frozen.
 
 The landed P6.6 `C_min` stage1==stage2 proof is strong evidence, but it does not by
 itself close the full X1 gate. After X1, the project must reconcile and version the
@@ -925,7 +929,8 @@ The order protects the self-hosting fixed point:
 1. Freeze this target-neutral contract, profiles, descriptors, diagnostics, and
    vectors without changing measured compiler/kernel bytes.
 2. Implement compiler-independent explicit APIs and typed state-machine builders
-   outside the bootstrap graph.
+   outside the bootstrap graph. Host-local lexical macros may be differentially
+   qualified against those APIs here when they introduce no compiler/kernel bytes.
 3. Complete and freeze full P6.5 X1.
 4. Reconcile/version CoreIR inventory, canonical codec, and numeric-width evidence;
    rerun the full fixed point.

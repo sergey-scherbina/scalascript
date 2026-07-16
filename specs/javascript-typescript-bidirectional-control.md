@@ -1,8 +1,8 @@
 # JavaScript/TypeScript ↔ ScalaScript bidirectional control profile
 
-Status: **normative host profile / explicit local control slice implemented and
-verified; final independent confirmation pending; remaining profile planned**
-(2026-07-15).
+Status: **normative host profile / explicit local control implemented; closed
+lexical direct-transform repair specification frozen after independent REJECT;
+remaining profile planned** (2026-07-15).
 
 This is the JavaScript/TypeScript host profile of
 [`control-interoperability.md`](control-interoperability.md). That specification
@@ -433,6 +433,42 @@ The package may demonstrate a plain JavaScript callback returning through an
 bridge. Likewise its stackless state-machine vector is local control evidence, not
 the mixed JavaScript↔ScalaScript SCC qualification from §8.
 
+### 2.3 Closed lexical direct-transform slice
+
+The second independently shippable slice is the zero-production-dependency ESM
+package `@scalascript/control-direct` at `v2/host/js/control-direct`. Its root
+exports build-time authoring markers that fail with a stable contract error if they
+survive emit; `/transform` and `ssc-control-tsc` use the consumer-owned TypeScript
+5.9.x compiler API to lower a closed synchronous lexical grammar to this profile's
+one explicit `@scalascript/control` implementation. TypeScript 5.9.3 is the
+qualification pin; other compiler API lines fail before transformation. The CLI
+resolves the compiler from the explicit project/config directory or cwd, including
+when its packed npm executable lives behind a symlink in an external strict store.
+
+A successful file is atomic and contains neither an owned marker value use nor its
+completed named import specifier. It therefore runs with only
+`@scalascript/control` installed. Every surviving marker value use is a diagnostic.
+Transparent parentheses/`as`/non-null/type assertions preserve exact marker
+ownership. Shift-body references to their own marker or later suffix bindings fail
+closed by checker-symbol identity rather than moving declarations. The same rule
+rejects a pure prefix reference that would cross the generated continuation and
+escape an original temporal-dead-zone binding to an outer name. Accepted markers
+retain their authored `const`/`let` declaration behind a fresh resume parameter.
+Intrinsic direct eval anywhere in a selected file is a barrier, including when the
+only planned rewrite is erasing an unused named marker import; shadowed or indirect
+eval and `Function` remain explicit global-only unmanaged operations.
+
+The bounded grammar, public transformer/CLI API, exact package allow-list,
+diagnostic codes/spans, source-map requirements, accepted barriers, and package-
+local catalog differentials are normative in
+[`javascript-typescript-control-direct.md`](javascript-typescript-control-direct.md).
+This slice does not consume descriptors, cross methods/modules or callbacks, edit
+CoreIR/frontends/seed/lane registration, provide a runner, or qualify the complete
+host profile. The first implementation checkpoint was rejected by independent
+pre-integration review on the packaging/scope invariants above; it is not qualified
+until the repair checklist in the companion spec is green and a fresh independent
+review approves the clean checkpoint.
+
 ## 3. Canonical value mapping
 
 The bridge validates every value; JavaScript representation is never type evidence:
@@ -488,6 +524,14 @@ Direct style may use a selected TypeScript/SWC/Babel-equivalent source transform
 that lowers to the explicit protocol. A managed region may cross methods/modules
 only while every intervening frame and call edge carries managed metadata. Source
 maps and diagnostics must remain precise.
+
+The first implementation is the closed lexical TypeScript-compiler-API transform
+from §2.3. It admits only local synchronous `direct.reset` blocks with top-level
+identifier `const`/`let` shift bindings and fails closed for every frame it does not
+model. A selected file is transformed atomically; direct eval is rejected because
+it can observe rewritten lexical frames, whereas indirect eval and `Function`
+remain global-only unmanaged operations. Its `Fx = never` and package-local vector
+evidence are not a claim of the later cross-method managed transform.
 
 Native mechanisms are not alternate semantics:
 

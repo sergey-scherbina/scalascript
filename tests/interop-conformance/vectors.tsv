@@ -20,7 +20,7 @@ id	slug	law	capabilities	phase	expectedExit	expectedStream	oracle
 19	residual-forwarding-nested-handlers	§3,§11.3,§14.1	effects,handler-deep,one-shot,residual,return-transform	specified	zero	stdout	57
 20	stack-safety-deep-effect-recursion	§3,§14.1	effects,handler-deep,one-shot,stack-safe	specified	zero	stdout	100000|100000|20007|20000
 21	one-shot-violation-diagnostic	§3.1,§13,§14.1	effects,one-shot	specified	nonzero	stderr	AlreadyResumed(One.op)
-22	fresh-nested-prompt-isolation	§4.1,§4.2,§14.1	shift-reset	specified	zero	stdout	7
+22	fresh-nested-prompt-isolation	§4.1,§4.2,§14.1	prompt-isolation,shift-reset	specified	zero	stdout	7
 23	shift-not-shift0	§4.2,§14.1	shift-reset	specified	zero	stdout	11
 24	multi-shot-shared-heap	§4.2,§8.2,§14.1	effects,multi-shot,mutation	specified	zero	stdout	1,2|2
 25	unmanaged-capture-negative	§5.3,§13,§14.1	capture-negative	specified	zero	structured	UnmanagedCapture(Continuation.local)
