@@ -27,14 +27,49 @@ stored NULL, which the getters coerce to `0`. The engine already models the conc
 (`scljet/sql.ssc:1086`), `ipkColumnIndex(sql)` (`~:1098`), `tableIpkIndex(db, table)` (`~:4291`) —
 so the fix is likely to apply the existing IPK index in the row-projection path, not new analysis.
 
-**A second, opposite-direction divergence to check while fixing** (not yet verified, flagged by
-the same finding): scljet's WRITE path appears to store the IPK value *in the column* rather than
-as NULL+rowid, and assigns rowids sequentially. If so, `INSERT INTO emp VALUES (7,'bob')` into a
-scljet database yields a row with column `id=7` but rowid `2` — and real SQLite reading that file
-reports `id=2` (it always reads the rowid for an IPK column), i.e. our files are wrong for real
-SQLite too. Our own read path agrees with itself, which is exactly why every existing test passes.
-A test whose oracle is "scljet reads back what scljet wrote" cannot see either half of this;
-the differential must cross the two engines through a FILE.
+**~~A second, opposite-direction divergence~~ — MEASURED AND DISPROVED (2026-07-16).** The
+earlier suspicion here (that our WRITE stores the IPK value in the column with a *sequential*
+rowid, so real SQLite would misread our files) is **WRONG**. Probed directly — write with
+scljet, read with `org.xerial:sqlite-jdbc`:
+
+```
+scljet: INSERT INTO emp VALUES (7,'bob')  → the row's actual rowid = 7   (NOT sequential)
+REAL SQLite reading OUR file → id=1|ann|rowid=1, id=7|bob|rowid=7        ✓ correct
+REAL SQLite `PRAGMA integrity_check` on our file → ok                    ✓
+```
+
+**So the WRITE side is sound and our files are valid, correctly-readable SQLite.** What we
+actually do is store the IPK value *redundantly*: in the rowid (correct) **and** in the record's
+column (real SQLite stores NULL there). Real SQLite tolerates that because it always takes an IPK
+column's value from the rowid and ignores what is stored. Our two inaccuracies cancel out on our
+own files, which is why every existing test passes.
+
+**Consequence for the fix — it is READ-ONLY and does not regress our own files.** Since our write
+already sets `rowid = 7`, teaching the read path to take the IPK column from the rowid yields `7`
+on *both* file flavours: ours (rowid 7, column 7) and the reference's (rowid 7, column NULL).
+There is no need to change the write path to make the read correct. (Writing a canonical NULL in
+the column is a separate, optional tidy-up — byte-level canonicity vs real SQLite — NOT required
+for correctness, and it would be a storage-format change worth its own slice.)
+
+**A REAL second bug found by the same probe — `lastInsertRowid` is wrong for an IPK table:**
+
+```
+scljet: INSERT INTO emp VALUES (7,'bob')  → the row's rowid IS 7, but
+                                             MutationResult.lastInsertRowid reports 1
+reference sqlite-jdbc for the same INSERT  → last_insert_rowid() = 7
+```
+
+i.e. the counted-mutation path reports a sequential counter instead of the rowid actually
+assigned. This makes the JDBC shim's `getGeneratedKeys` (J2) return the wrong key for exactly the
+tables where generated keys matter most. The existing `getGeneratedKeys` tests use a *plain*
+`INTEGER` column (not an IPK), where a sequential rowid IS the right answer — which is why they
+pass, and why the reference cross-check passes too. Fix alongside the read substitution, and
+extend the getGeneratedKeys tests to cover an IPK table.
+
+**Method note that generalises.** A test whose oracle is "scljet reads back what scljet wrote"
+cannot see any of this: it is self-consistent by construction. The differential must cross the
+two engines **through a FILE**, in *both* directions (they-write/we-read AND we-write/they-read) —
+only the second direction could have disproved the write-side hypothesis above.
 
 **Notes.** Reading a reference-written file otherwise works (schema, indexes incl. `UNIQUE`,
 non-IPK columns, TEXT) — see `ScljetIntrospectionTest` "reads a database created by the
