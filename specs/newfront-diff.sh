@@ -67,11 +67,16 @@ pf="\$1"; n=\$(basename "\$pf" .proj); code="$WORK/code/\$n.code"; ref="$WORK/re
 [ -s "\$ref" ] || { echo "SKIP \$n"; exit 0; }
 [ "\$(cat "\$pf")" = "Nil" ] && { echo "DROP \$n |proj=Nil (top-level statements / empty projection)"; exit 0; }
 grep -q 'SPIKE_CRASH' "\$pf" && { echo "DROP \$n |spike parse crash"; exit 0; }
-grep -q '__notImplemented__' "\$pf" && { echo "HOLE \$n |__notImplemented__"; exit 0; }
 drv="$V2/bin/_nf_\${n//[^A-Za-z0-9_]/_}.ssc0"
 printf 'import "../lib/ssc1-lower.ssc0"\ndef main = () => #io.print(#coreir.encode(lowerProg(%s)))\n' "\$(cat "\$pf")" > "\$drv"
 sp="$WORK/spike/\$n.ir"; ( cd "$V2" && java -Xss512m -jar "$JAR" run "\$drv" 2>/dev/null ) > "\$sp"; rm -f "\$drv"
+# BYTE-COMPARE FIRST, classify after. A \`__notImplemented__\` in the projection is NOT proof of a parse
+# hole: \`???\` (Predef.???) is a legitimate expression that LOWERS to that prim, so a program using it can
+# be byte-identical (predef-notimplemented was reported HOLE for exactly this reason while it actually
+# MATCHES). A projection carrying the marker still lowers fine — the prim is valid — so only a hole that
+# also DIVERGES is a real gap. Byte-equality is the ground truth; the marker is just a hint for triage.
 if cmp -s "\$ref" "\$sp"; then echo "MATCH \$n"
+elif grep -q '__notImplemented__' "\$pf"; then echo "HOLE \$n |__notImplemented__"
 elif [ \$(wc -c < "\$sp") -lt 7400 ]; then echo "DROP \$n |prelude-only (program lost)"
 else ctx=\$(python3 -c "r=open('\$ref').read();s=open('\$sp').read();b=next((i for i in range(min(len(r),len(s))) if r[i]!=s[i]),0);print(r[b:b+40].replace(chr(10),' '))" 2>/dev/null); echo "DIFF \$n |\$ctx"; fi
 WORKER
