@@ -37,12 +37,16 @@ renaming the busi enum or broad-disabling bare enum cases would only hide the ru
 
 **Remaining roots isolated by assembled A/B:** with an explicit `-Xss64m`, the exact published
 pin still fails Housing at `xs.head` after an `xs.nonEmpty && ...` guard and Official Documents at
-`Option.get` after an `isEmpty || ...` guard. Adding only the existing tree-walker short-circuit
-fix makes both pass; the two var-scope commits tested before it are unnecessary for this consumer.
-Corporate already passes on the original runtime when launched with 64m. Its former `Error: null`
-was the HTTP wrapper hiding a `StackOverflowError` from the old launcher's platform-dependent JVM
-default stack. Therefore the minimal pin is exactly: short-circuit evaluation, deterministic
-64m/`SSC_XSS` launcher stack, and the enum/core-ADT collision fix.
+`Option.get` after an `isEmpty || ...` guard. Short-circuit evaluation fixes those direct adapter
+repros, but the canonical browser lane also needs the two function-local `var` isolation/re-sync
+fixes before Housing passes. The focused Corporate adapter was likewise an incomplete oracle:
+after the deterministic stack exposes the real request path, its exported function calls an
+internal `sameMoney`, which calls the module-local Boolean `sameCurrency`; that second helper call
+instead resolves the importer's internal `std.money.sameCurrency: Unit` and fails at `Unit && ...`.
+The module importer enriches only the exported function, leaving internal helper `FunV` closures
+empty. The fix must bind locally declared functions to their defining module context at arbitrary
+helper depth while preserving caller-interpreter effects. A broad all-global binding was rejected:
+it creates recursive structural `FunV`/Map equality during canonical hub boot.
 
 **Done when:** the faithful ScalaScript regression passes, all four focused busi adapters pass on
 the assembled derived pin, and both busi browser lanes pass 9/9. Record the fix and pin SHAs here;

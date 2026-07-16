@@ -22,16 +22,18 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       built-in `None` binding with `InstanceV(None)`, so later Option code dispatches `.isEmpty`
       against the enum singleton.
 - [ ] **Add faithful multi-file v1 regressions and repair the runtime.** The enum/Option boundary is
-      now fixed on `origin/main` by `207109cc3`, with `EnumBuiltinCollisionTest`. Also preserve the
-      imported owner predicate shape: `xs.nonEmpty && xs.head...` and
-      `opt.isEmpty || opt.get...` must not evaluate their unsafe right-hand sides. A/B is now exact:
-      the published pin plus a 64m stack still fails Housing (`head on Nil`) and Official Documents
-      (`Option.get on None`);
-      adding only the existing short-circuit fix makes both green. The two earlier var-scope fixes
-      are not required for these owner adapters. Corporate is runtime-correct on the original pin
-      and only needs the deterministic launcher stack.
+      fixed on `origin/main` by `207109cc3`, and imported short-circuit guards are pinned by
+      `9f7c3ce6c`. Focused adapters were not a sufficient oracle: the full browser lane still needed
+      the two function-local `var` isolation/re-sync fixes for Housing. Corporate then exposed a
+      separate nested-import bug: its local Boolean `sameCurrency` overrides the internal
+      `std.money.sameCurrency: Unit`, but an exported function calling an internal helper calling
+      another helper lost the defining module context and resolved the importer's same-named
+      global. Add the exact multi-file collision regression and bind only locally declared module
+      functions to an identity-stable lexical module view; do not bind every inherited global,
+      which creates cyclic structural closure comparisons during hub boot.
 - [ ] **Publish a minimal derived busi pin and verify the assembled consumer.** Cherry-pick only
-      the required runtime fixes onto the existing `busi-pin/hstack-wrap-cherry-pick` lineage,
+      the required runtime fixes (short-circuit, deterministic stack, enum/core ADTs, the two
+      function-local `var` fixes, and lexical module helpers) onto the existing UI-pin lineage,
       rebuild/install the exact jar, then require all four focused busi adapters and
       `make v2-web-e2e-v1` 9/9. Keep `make v2-web-e2e-v2` green. Record exact commits and reject a
       broad `origin/main` bump because the current standard-tier launcher is a separate migration.
