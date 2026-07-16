@@ -1186,10 +1186,51 @@ dynamic saved-capsule runner.
   missing resolver vs unavailable resource, raw foreign rejection, one-shot-source
   rejection, lifecycle expiry/revocation, signature/quota, and tampered/cross-tenant
   rejection. The portable-VM is the reference evidence row; it does not own laws.
-- [ ] **control-interop-examples** — ship runnable ScalaScript typed multi-prompt
+- [ ] **control-interop-examples** — BLOCKED, do not start: every one of its three
+  deliverables is gated on work that does not exist yet. Measured 2026-07-16 on
+  `0891ed8cf` with the assembled `bin/ssc` and `tests/interop-conformance/run.sh --list`
+  (re-measure, don't trust this line). Ship runnable ScalaScript typed multi-prompt
   shift/reset and save→run-twice examples with a prefix counter proving no replay,
   plus one ordinary managed callback example for each qualified host profile. Run
   through assembled package/artifact paths and link from the common/profile specs.
+  - **`.ssc` shift/reset — no surface exists.** `freshPrompt`/`reset`/`shift`/`save`
+    are each `ssc: unbound global` on the assembled launcher; no `.ssc` library
+    defines them (`v1/runtime/std/monad-control.ssc` is monadic loop combinators, not
+    delimited control). `lanes.tsv` gives `portable-vm`/`portable-asm` no `shift-reset`
+    capability, so vectors 18/22/23 print `UNSUPPORTED missing: shift-reset`. The
+    `.ssc` control surface is `effect`/`handle`/`resume` only — spec §4.3's
+    `freshPrompt`/`reset`/`shift` is explicitly *"conceptually provides"*, i.e. design,
+    not implementation.
+  - **save→run-twice + prefix counter — impossible on EVERY lane, by design.** No lane
+    advertises `durable-save`/`no-replay`. Vectors `14-durable-save-run-same-process`
+    and `17-no-prefix-main-replay` are `pending-codec` on all 9 lanes *including*
+    `scala-explicit`. Vector 17's pending file already specifies exactly this task's
+    prefix-counter obligation; its `needs:` is `save()/run() + ExactArtifact init-free
+    resume entry`. No `SavedContinuation` is constructible on any profile: Scala's
+    `Continuation.save()` always performs `Save.Rejected(CaptureFailure.UnmanagedCapture)`
+    (`Save` has *only* the `Rejected` operation), JS `index.js:315/344` does the same, and
+    `SavedContinuation.Authority` is commented *"Reserved for post-X1 library-owned
+    successful save plans."* Spec §2.4 forbids the implementation until the P6.5
+    `F1→F2/F3→L1→X1` fixed point is green and frozen — the same X1 gate that already
+    blocks the three `coreir-*`/`numeric-width` items at the top of this section.
+  - **"each qualified host profile" — the set is empty.** `jvm-generated`,
+    `js-generated`, `rust-generated`, `wasm-generated`, `swift-generated` are all
+    `pending`/"not qualified" in `lanes.tsv`. `specs/scala3-bidirectional-control.md`
+    says *"explicit Tier 1 and lexical macro M1 implemented; remaining host profile
+    planned"*; `docs/user-guide.md` says the JS package *"does not yet claim the complete
+    JavaScript/TypeScript host profile."* Per spec §5.1 neither is a complete host claim.
+    The landed Scala/JS control work is host-language (Scala/JS) library surface, not
+    `.ssc`-callable, so AGENTS.md §3a's `examples/` rule does not bite it; both already
+    carry surface examples (`ControlApiExample.scala`, the two package READMEs).
+  - **Unblock order:** P6.5 X1 green/frozen → `coreir-canonical-contract-reconcile` +
+    `coreir-canonical-codec-hardening` → DurableValue codec + `save()`/`run()` → then
+    vectors 14/17 flip from `pending-codec` and this item becomes writable. Requalify a
+    host lane in `lanes.tsv` before promising per-profile callback examples. Rewrite this
+    item to match whatever actually lands; do not bend an example around the gap.
+  - Found while investigating: `v2-zero-arg-unknown-method-fails-open` (BUGS.md) — an
+    unknown zero-arg method silently returns `<closure>`/`Stub` and exits 0 on the default
+    native lane while v1 errors correctly. This is why a `.ssc` `resume.save()` attempt
+    *looks* like it runs. Fix it before trusting any example as evidence.
 - [ ] **host-sdk-feature-coverage** — derive a CI-enforced matrix from existing
   feature/capability/module metadata. Every portable ScalaScript capability declares,
   for Scala/JVM, JS/TS, Rust, and Swift, one exposure form: native API, generated
