@@ -1,5 +1,6 @@
 # Bug tracker
 
+
 ## v2-native-double-toLong-noop — `Double.toLong` is a no-op on v2-native → any Long op on the result explodes
 
 **Status:** OPEN (found 2026-07-16 by `scljet-address` while building an address read; the SAME
@@ -76,6 +77,97 @@ reader (or its caller's error text) probably fixes both the parse and the messag
 **Why it survived.** The workaround — omit the column — is the natural way to write a NULL row, so
 existing tests never needed the literal form. `conformance scljet-address-read` documents the
 detour in a comment; switch it back to `VALUES (…, NULL)` when this is fixed.
+
+## coreir-abi-int-width-declared-i32-actually-i64 — the v3 descriptor tells every foreign host that `Int` is 32-bit, when it is 64-bit
+
+**Status:** OPEN — **needs a design decision from Sergiy before any fix** (raised 2026-07-16 by
+`coreir-contract` while planning `numeric-width-reconciliation`; escalated rather than fixed, because
+the fix is a contract change). Tracked in `SPRINT.md` §`control-interoperability`.
+
+**Symptom.** `v1/lang/core/src/main/scala/scalascript/artifact/PreBodyApiDescriptorProducer.scala:2066`
+maps source `Int` -> `AbiPrimitive.I32` (`:2067` maps `Long` -> `I64`). But ScalaScript's `Int` is
+**64-bit**. So the `ssc-api-descriptor-v3` interop surface — the thing whose whole job is to tell
+JS/TS, Rust, Swift and WASM-WASI hosts how to marshal our values — declares a 32-bit width for a
+64-bit value. A host that believes the descriptor **silently truncates any value > 2^31-1 at the ABI
+boundary**. It fails open, it is cross-language, and it is on the interop surface.
+
+**Reproduce** (measured in the real runtime, not read off the source):
+
+```bash
+scala-cli --power package v2/src --assembly -o /tmp/ssc.jar
+cat > /tmp/w.ssc0 <<'EOF'
+def p = (label, s) => #io.print(#sconcat(label, s))
+def main = () =>
+  let a = p("2147483647 + 1        = ", #i->str(#i.add(2147483647, 1))) in
+          p("9223372036854775807+1 = ", #i->str(#i.add(9223372036854775807, 1)))
+EOF
+java -jar /tmp/ssc.jar run /tmp/w.ssc0
+# 2147483647 + 1        = 2147483648            <- did NOT wrap at 32 bits => Int is not I32
+# 9223372036854775807+1 = -9223372036854775808   <- DID wrap at 64 bits     => Int is I64
+```
+
+Corroborated by `v2/specs/10-core-ir.md` §2 ("`Int` is 64-bit two's-complement, wrapping (matches
+`ssc 1.0`'s `Int = Long`)") and by the durable memory note `project_interp_int64_and_entrypoint.md`
+("ssc Int is 64-bit").
+
+**Why it is not just fixed.** `Int -> I32` is **not dead code**: it is asserted by live tests
+(`PreBodyApiDescriptorProducerTest.scala:100,130,132,136,267,1212`), and `AbiPrimitive` is part of the
+**frozen Slice A schema** that feeds `apiHash`. Changing the mapping changes the meaning *and the
+hash* of every descriptor ever emitted. Three options are written up in full in `SPRINT.md`
+(A: `Int`->`I64`; B: make surface `Int` genuinely 32-bit — a Core IR version bump; C: `I64` public
+plus an explicit implemented narrowing ABI). Do not pick one unilaterally.
+
+## coreir-compiler-unbounded-depth — a deep-but-well-formed capsule overflows the COMPILER at ~depth 500 on a 1m stack
+
+**Status:** OPEN (found 2026-07-16 by `coreir-contract` while bounding the *reader*; the reader half
+is fixed, this half is not). Not a regression — pre-existing.
+
+**Symptom.** `Compiler.valuePositionsNeedEffectThreading` / `FastCode.tryFC` recurse without a bound.
+A perfectly well-formed (nothing malformed — merely deeply nested) Core IR program overflows the JVM
+stack at roughly **depth 500** on `-Xss1m`, which is the **Linux/CI default** main-thread stack;
+macOS defaults to 2m, so this hides locally — the same asymmetry that kept CI red for 192 runs.
+
+`StackOverflowError` is an `Error`, not a catchable failure: on an untrusted persisted capsule this is
+a denial of service, not a diagnostic.
+
+**Reproduce:**
+
+```bash
+python3 -c "n=500; print('(program (defs) (entry ' + '(seq '*n + '(lit unit)' + ')'*n + '))', end='')" > /tmp/d500.ir
+java -Xss1m -jar /tmp/ssc.jar run-ir /tmp/d500.ir
+# Exception in thread "main" java.lang.StackOverflowError
+#   at ssc.Compiler$.valuePositionsNeedEffectThreading(Runtime.scala:654)
+#   at ssc.FastCode$.tryFC(Runtime.scala:1886)
+```
+
+**Context / what is already done.** `Reader.MaxDepth` (default 1000, `-Dssc.coreir.maxDepth=N`) now
+bounds the *decoder*, so the reader itself yields a diagnostic instead of crashing — see
+`specs/coreir-codec-vectors.sh` §"bounded decoding", which tests at `-Xss1m` on purpose. But the
+capsule path is only fully DoS-safe once the compiler is bounded too. Real Core IR is shallow
+(measured: the 79,667 B X1 fixpoint IR is depth **25**; the `.coreir` fixtures are 6-12), so a
+compiler-side bound has enormous headroom available.
+
+## irbin-v2bin-codec-fails-open — the deferred binary codec narrows BigInt, loses -0.0, and turns unknown tags into strings
+
+**Status:** OPEN (found 2026-07-16 by `coreir-contract`). **Not** the canonical codec — `lib/irbin.ssc0`
+is the deferred `v2-bin` experiment (`12-ir-format.md` §"Open / deferred"); the canonical text codec is
+unaffected. Filed so it is fixed *before* `v2-bin` is ever promoted to a real format.
+
+Three independent fail-open defects in `v2/lib/irbin.ssc0`:
+
+1. **BigInt is silently narrowed to 64 bits.** `:53` encodes `IrBig(n)` as `encSVar(a1, #big->i(n))`.
+   `big->i` "may overflow" per `10-core-ir.md` §5, so any BigInt outside Int64 is **corrupted**, not
+   rejected. The canonical text codec is correct here (vector: "const CBig -> arbitrary precision").
+2. **`-0.0` is lost.** `:54` encodes `IrFloat(d)` as `encStr(a1, #f->str(d))` — the *user-visible*
+   renderer, which collapses whole doubles, so `-0.0` becomes `"0"`. This is the same root cause as the
+   canonical-codec bug fixed on 2026-07-16; `irbin` should use the new `Writer.floatLit` semantics.
+3. **Unknown tags become `IrStr`, and unparseable floats become `0.0`.** `:88` maps a failed `#str->f`
+   to `IrFloat(0.0)`; `:89` is a bare `else` that turns **any** unrecognised tag into `IrStr`. Corrupt
+   input decodes to a plausible-looking wrong program instead of an error.
+
+Also: `IrBytes` has no representation at all in `irbin` (`grep -c IrBytes lib/irbin.ssc0` = 0), so the
+binary codec cannot round-trip a bytes literal that the canonical codec now encodes fine.
+
 
 ## run-js-v2-always-exits-1 — `run-js --v2` returns exit 1 on success, for every program
 
