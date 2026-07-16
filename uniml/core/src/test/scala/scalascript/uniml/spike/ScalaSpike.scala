@@ -770,9 +770,15 @@ object SpikeParse:
   private def isAnnotationStart(c: Cur): Boolean =
     c.peekKind == "spike.at" && (c.peek2Kind == "spike.id" || c.peek2Kind == "spike.uid")
 
-  // leading declaration modifiers — all bare ids in the spike (not lexer keywords) — erased before the decl.
+  // Leading declaration modifiers — all bare ids in the spike (not lexer keywords) — erased before the decl.
+  // NOT `inline`: ssc1-front's isLeadModTok (ssc1-front.ssc0:2486) erases only `final`/`private`, and `inline`
+  // is neither that nor a keyword there — so `inline def f(x) = …` is TWO statements for the oracle, the var
+  // `inline` (parseAtom on a plain id) and then the def, giving a `(global inline)` in the entry seq per
+  // `inline def`. Erasing it dropped those statements. (`sealed`/`abstract`/`override` ARE ssc1-front keywords
+  // and are consumed by its own decl/class-body parsers — ssc1-front.ssc0:2379/2384/2427/2431 — so they stay
+  // erased here; `sealed` is corpus-verified by 2 matching programs.)
   private val declModifiers =
-    Set("sealed", "final", "abstract", "open", "private", "protected", "implicit", "override", "lazy", "inline")
+    Set("sealed", "final", "abstract", "open", "private", "protected", "implicit", "override", "lazy")
   private def skipDeclModifiers(c: Cur): Unit =
     while c.peekKind == "spike.id" && declModifiers(c.peekLexeme) do c.advance()
 
