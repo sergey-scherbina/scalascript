@@ -35,6 +35,15 @@ Option-valued vault code therefore receives `InstanceV(None)` and `.isEmpty` fai
 protect the built-in binding while retaining qualified enum access, with a multi-file regression;
 renaming the busi enum or broad-disabling bare enum cases would only hide the runtime defect.
 
+**Remaining roots isolated by assembled A/B:** with an explicit `-Xss64m`, the exact published
+pin still fails Housing at `xs.head` after an `xs.nonEmpty && ...` guard and Official Documents at
+`Option.get` after an `isEmpty || ...` guard. Adding only the existing tree-walker short-circuit
+fix makes both pass; the two var-scope commits tested before it are unnecessary for this consumer.
+Corporate already passes on the original runtime when launched with 64m. Its former `Error: null`
+was the HTTP wrapper hiding a `StackOverflowError` from the old launcher's platform-dependent JVM
+default stack. Therefore the minimal pin is exactly: short-circuit evaluation, deterministic
+64m/`SSC_XSS` launcher stack, and the enum/core-ADT collision fix.
+
 **Done when:** the faithful ScalaScript regression passes, all four focused busi adapters pass on
 the assembled derived pin, and both busi browser lanes pass 9/9. Record the fix and pin SHAs here;
 move to `fixed` only after busi confirms.

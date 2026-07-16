@@ -21,12 +21,15 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       importing its `enum DataClass { case None, ... }` makes v1 enum registration overwrite the
       built-in `None` binding with `InstanceV(None)`, so later Option code dispatches `.isEmpty`
       against the enum singleton.
-- [ ] **Add faithful multi-file v1 regressions and repair the runtime.** First preserve the actual
-      import boundary between a module declaring a nullary enum `None` and a module consuming an
-      ordinary Option `None`; qualified `DataClass.None` must remain available while the built-in
-      stays intact. Then compare the three remaining failures against the known-good post-3666
-      history and identify the minimal existing fixes instead of adding busi workarounds or
-      advancing to the unrelated current launcher tier.
+- [ ] **Add faithful multi-file v1 regressions and repair the runtime.** The enum/Option boundary is
+      now fixed on `origin/main` by `207109cc3`, with `EnumBuiltinCollisionTest`. Also preserve the
+      imported owner predicate shape: `xs.nonEmpty && xs.head...` and
+      `opt.isEmpty || opt.get...` must not evaluate their unsafe right-hand sides. A/B is now exact:
+      the published pin plus a 64m stack still fails Housing (`head on Nil`) and Official Documents
+      (`Option.get on None`);
+      adding only the existing short-circuit fix makes both green. The two earlier var-scope fixes
+      are not required for these owner adapters. Corporate is runtime-correct on the original pin
+      and only needs the deterministic launcher stack.
 - [ ] **Publish a minimal derived busi pin and verify the assembled consumer.** Cherry-pick only
       the required runtime fixes onto the existing `busi-pin/hstack-wrap-cherry-pick` lineage,
       rebuild/install the exact jar, then require all four focused busi adapters and
