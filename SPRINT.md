@@ -255,7 +255,7 @@ error-resilient parser already byte-identical to ssc1-front on 119 constructs, t
          → codec generation, **tuple-destructuring val** `val (a,b)=e`, **multiline while-do body** (branchExpr;
          +14 — pervasive), **null→None**, **def-body assignment** `def f(x)=cell=t`→store, **extern signatures**
          →no-op, **type ascriptions in tuple/ctor sub-patterns** `case (a:T, b:U)`.
-      **CURRENT BASELINE (MEASURED 2026-07-16, corpus 499): MATCH 478 (96%), DROP 2, HOLE 4, DIFF 15.**
+      **CURRENT BASELINE (MEASURED 2026-07-16, corpus 499): MATCH 485 (97%), DROP 0, HOLE 3, DIFF 11.**
       Reproduce: `SSC_JAR=<run-ir jar> V2_DIR=<wt>/v2 bash specs/newfront-diff.sh` (jar: `scala-cli --power
       package v2/src --assembly` — the thin bin/lib/ssc.jar has NO run-ir). ~12 min.
       **MATCH trajectory (→487 progs): 0→2→93 (harness leak fix)→165 (number lexer)→203 (trailing block)→211
@@ -264,8 +264,10 @@ error-resilient parser already byte-identical to ssc1-front on 119 constructs, t
       (while, +14)→365 (null)→368 (extern+def-assign)→369 (tuple-pat-ascription)→370 (`$_`interp).
       **Then (corpus 499): 458 (MEASURED start 2026-07-16) →460 (`_err`-postfix / colon-lambda) →463 (summon
       payload) →465 (given-extension) →469 (no lambda-body unwrap, +4) →471 (arm-body stmt list) →473 (keyword-
-      as-var + offside val RHS) →475 (paren depth) →476 (empty-frame fixes) →478 (caseMethods reverse);
-      import-gate measured neutral.** See items 12-13.
+      as-var + offside val RHS) →475 (paren depth) →476 (empty-frame fixes) →478 (caseMethods reverse)
+      →479 (harness: `???` is not a hole) →481 (`inline` is a var) →482 (op-lexer table + def name)
+      →483 (stray `}` + `_err` stmt + infix) →**485** (harness: empty program = Nil, DROP 2→0);
+      import-gate measured neutral.** See items 12-14.
       7. [x] BIG-FEATURE + ARCHITECTURE tier — landed 2026-07-15 (→396, 80%, 33 slices total):
          - **algebraic effects** (effect_decl/`multi effect`, `! L` rows, abstract-def unit bodies, `handle` via
            trailing-block+pfblock, qualified op patterns `case L.op(a,resume)`, perform via effect_decl) — +13.
@@ -413,19 +415,60 @@ error-resilient parser already byte-identical to ssc1-front on 119 constructs, t
            needs `bash install.sh --dev` first; the ref-diff is cheaper and more direct).
          **EQUAL LENGTH + wrong content = an ORDERING bug (check prepend-vs-append), not a parse gap** — a cheap
          first diagnostic: `wc -c` both IRs before reading them.
-      **Remaining 15 DIFF + 4 HOLE + 2 DROP (MEASURED 2026-07-16, after item 13) — cluster analysis:**
-      *(2) quoted-macro-{constfold,interpreter}* — `(global inline)`; quoted macros, the largest cluster left.
-      *(1 each)* scljet-readonly-btree-pure (a REAL content gap, not ordering: ref 18770 vs spike 19859),
-      tagless-context-bounds (context bounds `[A: TC]` need the `__tc_TC`-param rewrite skipTypeParams defers),
-      wasm-http (braceless multi-line `for`⏎generators⏎yield — `for` is NOT a layout opener (isLayoutOpener,
-      :2841), so the oracle glues the generators into ONE statement and mis-parses it to `_sel_foreach` + `_err`;
-      its colon-lambda half is already fixed), js-symbolic-infix-operator (`def <~>` truncated unit body),
-      type-ascription, bureau-demo, dsl-multi-pass, graph-rdf4j-http-storage, graphql-client, mcp-search-server,
-      openapi-annotation, typed-sql-crud, wasm-primes.
-      HOLEs: predef-notimplemented is a FALSE hole (legit `???` the harness pre-filters — it actually MATCHES);
-      dsl-mini-language, wasm-scalascript, x402-cardano-scalus are real. DROPs: deploy, tkv2-typed-client-derived.
-      **Given this round's hit rate, do NOT assume the tail is "deep features" — every cluster attacked in items
-      12-13 (incl. two the notes called unmatchable/reverted) fell to reading the oracle's source.**
+      14. [x] HARNESS-HONESTY + error-recovery round — landed 2026-07-16 (→**485/499, 97%, 72 slices**; +7,
+         DROP 2→0, HOLE 4→3). **THREE of the seven were the harness LYING, not parser gaps** — it pre-judged
+         instead of comparing. That anti-pattern is now cured in all three places; the rule is
+         **COMPARE FIRST, CLASSIFY AFTER — byte-equality is the only ground truth**:
+         - **`???` is not a parse hole (+1 predef-notimplemented)** — the worker short-circuited to HOLE on any
+           `__notImplemented__` in the projection, BEFORE comparing. But `???` (Predef.???) is a legitimate
+           expression that LOWERS to that prim; the program was byte-identical for two rounds while being
+           reported as a hole (and I repeated the lie in my own hand-off). Only a hole that ALSO diverges is a gap.
+         - **an empty program is `Nil`, not a DROP (+2 deploy, tkv2-typed-client-derived; DROP 2→0)** — both are
+           doc-only `.ssc` (fences OPTIONAL by design), so sscProgramSource extracts NOTHING and `.code` is blank.
+           `Nil` lowers to the bare prelude = ssc1-front's `parse("")`. ScalaSpikeSpec wrote an `EMPTY` sentinel
+           (which then failed to lower) and the worker short-circuited `proj == "Nil"`→DROP (a leftover from
+           Phase 1's #1 gap). Blank source → `Nil`; non-blank with no roots keeps `EMPTY` (a real spike failure).
+         - **`inline` is NOT a decl modifier (+2 quoted-macro-{constfold,interpreter})** — the "largest remaining
+           cluster", closed by deleting one word. isLeadModTok (ssc1-front.ssc0:2486) erases ONLY `final`/`private`;
+           `inline` is neither, so `inline def f = …` is TWO statements for the oracle — the var `inline`, then the
+           def — one `(global inline)` per `inline def`. (`sealed`/`abstract`/`override` ARE oracle keywords,
+           consumed by its own parsers at :2379/:2384/:2427/:2431, so they stay erased.) Corpus evidence drove it:
+           of the erased modifiers only `inline` (2 files) and `override` (2) appear leading, both with 0 matches.
+         - **op lexer is a per-char TABLE, not a greedy munch; def name is ANY token (+1 x402-cardano-scalus)** —
+           ssc1-front lexes ops via a hand-written per-leading-char dispatch (ssc1-front.ssc0:375-445): `<~>` is
+           `<~` + `>`, `~~` is `~` + `~`; a char with NO entry (`/`,`%`,`^`) is a ONE-char op, so `/=` is `/`+`=`.
+           New `opAt` transcribes it exactly (incl. `:::`→`++`, `+:`→`::`). And the def name is whatever token
+           follows `def`, consumed unconditionally (`tokVal(peek)`+`advance`, :1689) — no kind check — which is how
+           `def <~>` truncates to `def <~` with a unit body.
+         - **stray top-level `}` skipped + bare `_err` is a REAL statement + it continues into INFIX (+1
+           type-ascription)** — ONE causal chain; **landing the parts apart MEASURED net-negative (-2), so
+           sequencing was verified, not assumed**. (a) parseStmts SKIPS a residual top-level `}` emitting nothing
+           (:2828) — real, because the layout emits a VIRTUAL `}` per open frame and KEEPS the original (:3101),
+           and a `{` eaten by the char lexer (`'{ ` in `'{ $x + 1 }` is a 3-char CHAR literal!) orphans its `}`.
+           (b) parseOneStmt ends at parseExpr, so an unparseable token is `("expr", mkVar("_err"))` → `(global
+           _err)`; leaving it a bare node let `isTopStmt` DROP one statement per stray token. (c) the atom then
+           continues through the infix loop (new `infixLoop`, split out of parseInfixExpr), so
+           `println(((1+2): Int) + 1)` recovers as the INFIX `_err + 1`. Without (a), (b) manufactured an `_err`
+           the oracle never has (-2 quoted-macros) and the drop had been HIDING it.
+      **Remaining 11 DIFF + 3 HOLE (MEASURED 2026-07-16, after item 14) — no cluster ≥2 left; all singles:**
+      js-symbolic-infix-operator (**ONE token away**: `(def ~ (lam 1 …))` vs `(lam 0 …)` — ssc1-front carries the
+      extension receiver in a parser CELL, extensionParamsCell (:1691), whose lifetime is the extension's LAYOUT
+      frame and is cleared only by `extension_end` (:2823-2827), so its SECOND def still gets the receiver even
+      after the first def's parse desyncs on the stray `>`; the spike's parseExtension loop instead stops at the
+      first non-def. FIX: model the receiver as a cell with layout-frame lifetime, not a group loop),
+      tagless-context-bounds (**needs a DESIGN DECISION — do not burn a session on it**: context bounds `[A: TC]`
+      require the `__tc_TC`-param rewrite that skipTypeParams deliberately defers; ssc1-front threads ctxBounds
+      through parseDef→mkCtxParam→call-site injection, so this is a cross-cutting feature, not a parse tweak),
+      scljet-readonly-btree-pure (a REAL content gap, not ordering: ref 18770 vs spike 19859),
+      wasm-http (braceless multi-line `for`⏎generators⏎yield — `for` is NOT a layout opener, so the oracle glues
+      the generators into ONE statement and mis-parses it to `_sel_foreach`+`_err`; its colon-lambda half is fixed),
+      dsl-multi-pass + wasm-scalascript (both use leading `override`, which ssc1-front treats as a KEYWORD inside
+      class-body capture — captureBraced/captureLayout :2276/:2311 — while the spike erases it as a modifier;
+      2 files, 0 matching → a likely 2-program cluster, START HERE), bureau-demo, graph-rdf4j-http-storage,
+      graphql-client, mcp-search-server, openapi-annotation, typed-sql-crud, wasm-primes, dsl-mini-language.
+      **Given items 12-14's hit rate, do NOT assume the tail is "deep features" — every cluster attacked (incl.
+      two the notes called unmatchable/reverted, and the "largest remaining" one that fell to a single word) gave
+      way to reading the oracle's actual function. And check the HARNESS before believing its labels.**
       **Older (pre-2026-07-16) hard-tail notes — several since CLOSED (summon/given, colon-lambda, extension-in-given):**
       summon/given resolution (typeclass/custom-derives-mirror/graph-rdf4j-http-storage/rozum-agent/tagless-context-
       bounds), quoted-macros (2), for-comp foreach/flatMap (wasm-http braceless-for, wasm-sorting `:::`), ssc1-front's
@@ -442,6 +485,32 @@ error-resilient parser already byte-identical to ssc1-front on 119 constructs, t
       Ends when the whole (single-file) corpus is byte-identical.
 - [ ] **Phase 2 — multi-file / imports.** Give the new front the module-loading the old front has (resolve
       `[name](path.ssc)` imports, load defs), so multi-file programs also compare byte-identically.
+      **Scope (measured 2026-07-16 on the 499-program corpus): 34 files carry a `[names](path.ssc)` link-import,
+      50 carry a `import a.b.{x,y}`.** Phase 1 made BOTH a parse-only no-op (`Pair("sealed","")`), which is
+      byte-correct SINGLE-file precisely because the harness compares one extracted program — Phase 2 is where
+      that no-op stops being enough. Slices, in order (write each result back here; MATCH only goes up):
+      - [ ] **2.0 — the harness must SEE multi-file first (do this before any parser work).** `specs/newfront-diff.sh`
+            extracts and lowers ONE file per program, so an import gap is INVISIBLE to it today — the current
+            485/499 says nothing about module loading. Extend it (or add `specs/newfront-diff-multi.sh`) to drive
+            ssc1-run's REAL module loader on both sides: ref = the old front's full multi-file lower; new = the
+            spike's. Without this gate, Phase 2 is unmeasurable and its "green" would be another harness lie.
+            Deliverable: a baseline `MATCH/DIFF` over the ~34 link-import programs. **This is the phase's keystone.**
+      - [ ] **2.1 — read ssc1-run's loader and write down its EXACT contract** (`v2/bin/ssc1-run.ssc0`,
+            `sscProgramSource`): resolution order, path base (relative to the importing file?), dedup of a diamond
+            import, ordering of loaded defs vs the importer's own (the caseMethods round proved ORDER is
+            observable), and what a missing file does. Record it here — it is the spec 2.2 implements against.
+      - [ ] **2.2 — resolve `[names](path.ssc)` in the spike**: parseLinkImport already CONSUMES the form and keeps
+            its tokens (needed so the frame survives the emit); make it emit the path + names instead of a no-op,
+            and have the driver load/parse/project each imported file and splice its statements in the loader's
+            order. Reuse the variant-A ADDITIVE pattern (ssc1-front emits no such node → collect=Nil → production
+            byte-identical), and PROVE production is untouched with the ref-diff check (item 13: re-derive all
+            corpus refs, byte-compare — 499 identical).
+      - [ ] **2.3 — `import a.b.{x,y}` / `.*`**: these resolve via the plugin registry / globals, NOT the file
+            system (that is WHY ssc1-front no-ops them, ssc1-front.ssc0:2526). Confirm against the loader before
+            writing code — the likely correct answer is that 2.3 is a NO-OP and only 2.2 is real work. Do not
+            invent module semantics the old front does not have; Core IR is frozen and the oracle is the spec.
+      - [ ] **2.4 — the in-body `import` half is ALREADY DONE** (landed this session, measured neutral): `import`
+            is top-level-only, and in a body it is the var `import` + a selection chain. Keep that behaviour.
 - [ ] **Phase 3 — self-host the implementation subset.** Define the clean ScalaScript subset the new front is
       WRITTEN in (case class/enum for the AST, pattern matching, modules, strings). Ensure it self-compiles
       (extend the C_min fixpoint method to this richer subset). This is what makes the front self-hosting.
