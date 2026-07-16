@@ -1,10 +1,20 @@
 # 10 — Core IR
 
-> Status: **FROZEN v1** (2026-06-25). The keystone spec: everything in ssc 2.0 compiles to
-> Core IR, and the Scala evaluator runs it. `ssc₀`, the seed, and every backend derive from
-> this. The value domain (10 shapes) and node set (11 nodes) are frozen — a change here is a
-> **version bump** (`v2`) that must update the evaluator, the seed, and `12-ir-format.md`
-> together. Decisions: D1–D8 in [`00-overview.md`](00-overview.md).
+> Status: **FROZEN v1** (2026-06-25; inventory reconciled 2026-07-16). The keystone spec:
+> everything in ssc 2.0 compiles to Core IR, and the Scala evaluator runs it. `ssc₀`, the seed,
+> and every backend derive from this. The **node set (13 nodes) and the constant set (7)** are
+> frozen and pinned in §3.2 — a change there is a **version bump** (`v2`) that must update the
+> evaluator, the seed, and `12-ir-format.md` together. Decisions: D1–D8 in
+> [`00-overview.md`](00-overview.md).
+>
+> **Reconciled 2026-07-16** (`coreir-canonical-contract-reconcile`): this header said "node set
+> (11 nodes)", §3 said "`Seq a b` is dropped", and invariant 7 said "no loop node is needed" — while
+> `v2/src/CoreIR.scala` had **13** nodes and both the canonical `Reader` and `Writer` round-tripped
+> `While` and `Seq`. The prose was reconciled **to the code**, because the code is what the frozen
+> fixpoint bytes and every live consumer already depend on; see §3.1 for why the two extra nodes are
+> safe (each has an exact, semantics-preserving desugaring) and §3.2 for the one pinned inventory.
+> `specs/coreir-inventory-gate.sh` now compares six sources on every run so this cannot rot again.
+> The **value domain** is discussed in §2 — its "ten shapes" line needed its own reconciliation.
 
 Core IR is the **untyped inner kernel language** ([overview](00-overview.md)). It is the
 language's formal semantic contract: one definition, every backend agrees on it.
@@ -53,7 +63,15 @@ language's formal semantic contract: one definition, every backend agrees on it.
    with an explicit control loop / trampoline rather than host (JVM) recursion for tail
    calls. Because the kernel guarantees it, the outer compiler may lower surface `while` /
    `for` loops to tail-recursive `LetRec` and rely on constant stack — so **no loop node is
-   needed** in Core IR.
+   needed for semantics** in Core IR.
+
+   **Reconciled 2026-07-16:** this clause used to end "so **no loop node is needed**", which read
+   as "there is no loop node". There *is* one — `While` (§3.1) — and there has been for some time.
+   The guarantee itself is unchanged and still exactly as strong: a loop node is not *needed*,
+   because `LetRec` + TCO already expresses every loop in constant stack. `While` is an
+   **optimization** the lowerer may choose (it avoids a trampoline bounce per iteration), never a
+   requirement for expressiveness, and it is strictly redundant with the `LetRec` form given in
+   §3.1. Nothing about TCO is weakened, and §9 (no continuations in Core IR) is untouched.
 
    **Tail positions** (where a sub-term inherits the enclosing function's continuation):
    the body of a `Lam`; both branches of an `If` in tail position; every `arm` body and the
@@ -82,7 +100,24 @@ Value ::= Unit
                                          --   cell, file handle, …
 ```
 
-Ten shapes. Notes:
+**Ten *semantic* shapes — plus `Decimal`, reconciled 2026-07-16.** The evaluator
+(`v2/src/Runtime.scala`) actually defines **14** `Value` subclasses. Measured, they split cleanly
+into three groups, and only the first is the semantic value domain:
+
+| Group | Members | Status |
+|---|---|---|
+| The ten above | `UnitV BoolV IntV BigV FloatV StrV BytesV DataV ClosV ForeignV` | the semantic value domain — as documented |
+| Private representations of `Foreign` | `MapV`, `LongCellV`, `DoubleCellV` | **not** new shapes. `Foreign` is defined below as covering "hash map, growable array, mutable cell"; these are unboxed/specialized representations of exactly that (e.g. `LongCellV` avoids `IntV` boxing on `cell.set` in tight loops). Semantically indistinguishable from `Foreign`. |
+| A genuine 11th shape | `DecimalV` | **real drift.** It is language-visible (11 `dec.*` primitives) with its own numeric equality (`PortableDecimal`), so "ten shapes" undercounts. |
+
+**`Decimal` is deliberately not capsule-encodable.** There is no `Const` case for it (measured:
+zero occurrences of `Decimal` in `CoreIR.scala`), so a decimal cannot appear as a *literal* in
+canonical IR — programs compute decimals through `dec.*` over strings instead. That is why the
+constant inventory is **7** (§3.2) while the value domain is 11: the two counts answer different
+questions, and conflating them is what made "ten shapes" look right for so long. The **capsule
+encoding** depends only on §3.2, which is the machine-checked one.
+
+Notes on the ten:
 
 - **Three numeric kinds, all primitive** (`Int`, `BigInt`, `Float`) — kept in the kernel
   rather than emulated in a library. By the "primitive only if unexpressible" rule (§5),
@@ -132,10 +167,83 @@ Why this set (and the deliberate near-misses):
   encoding `Bool` as `Data` and unifying — cheaper and clearer.
 - **No first-class primitives.** To pass a primitive as a value, wrap it:
   `Lam 1 (Prim op [Local 0])`. So `Prim` is only ever a call site.
-- **`Seq a b` is dropped** — it is `Let [a] b` with an unused binding.
 - **Nullary `Lam`/`App` are legal and load-bearing.** `Lam 0 body` is a thunk; `App f []`
   forces it. This is the *entire* kernel mechanism behind by-name params, `lazy val`, and
   lazy streams (invariant 2) — laziness needs no dedicated node.
+
+### 3.1 The two optimization nodes: `While` and `Seq`
+
+**Reconciled 2026-07-16** (`coreir-canonical-contract-reconcile`). Earlier revisions of this
+section said "`Seq a b` **is dropped**" and invariant 7 said "**no loop node is needed**". Both
+statements were **contract drift**: `v2/src/CoreIR.scala` has carried `Term.While` and `Term.Seq`
+for some time, the canonical `Reader` accepts the `while`/`seq` heads, and the canonical `Writer`
+emits them — so they are, in fact, part of the canonical encoding. The prose was reconciled to the
+code (not the reverse): removing them would move the frozen fixpoint bytes and break live
+consumers, and they are semantically redundant, which is exactly what makes them safe.
+
+Both are **semantics-preserving optimizations with an exact desugaring**, not new expressive power:
+
+| Node | Meaning (exact equivalent) | Why it is kept |
+|---|---|---|
+| `While cond body` | the tail-recursive `LetRec [Lam 0 (If cond (Seq [body, App (Local 0) []]) (Lit CUnit))] (App (Local 0) [])` | runs as a host `while` loop — no trampoline bounce per iteration |
+| `Seq [e₁ … eₙ]` | `Let [e₁] (… (Let [eₙ₋₁] eₙ))` with unused bindings | evaluates in sequence in the *same* env — no per-statement `Let` frame |
+
+Consequences, binding:
+
+- **They add no semantics.** Invariant 7 still holds in full: TCO is a kernel guarantee, and a
+  loop node is **not needed** *for semantics* — the outer compiler may still lower surface `while`
+  to tail-recursive `LetRec` and rely on constant stack. `While` is an *optimization* the lowerer
+  may choose; it is never required for a program to be expressible.
+- **`Seq` is not "dropped".** It is a distinct node with the `Let`-with-unused-binding meaning.
+- **Tail positions (invariant 7) extend as follows:** the `body` of a `While` is **not** tail
+  (the loop continues after it) and a `While`'s value is `Unit`; the **last** term of a `Seq` in
+  tail position **is** tail, and every earlier term is not.
+- **This is not a precedent for a continuation node.** §9 stands unchanged: no `call/cc`, no
+  effect handlers, no `reset`/`shift` node in Core IR. `While`/`Seq` qualify only because each has
+  an exact, semantics-preserving desugaring to nodes that already exist. A continuation node has
+  none — that is the whole point of the distinction.
+
+### 3.2 The pinned canonical inventory (machine-checked)
+
+This block is **the** canonical node/constant inventory — one place, no second list. It is
+**order-significant** and mechanically compared against six independent sources by
+[`specs/coreir-inventory-gate.sh`](../../specs/coreir-inventory-gate.sh): this block, `enum Term`,
+`enum Const`, the canonical `Reader`, the canonical `Writer`, and the `IrEncode`/`IrDecode`
+Data-tree tags. **Editing this block without editing the code (or vice versa) fails the gate** —
+which is precisely what did not happen while the "11 nodes" claim rotted.
+
+Columns: `node|const` · Scala case in `CoreIR.scala` · canonical S-expr head/form
+(`12-ir-format.md`) · Data-tree tag consumed by `coreir.encode` / produced by `coreir.decode`.
+
+```coreir-inventory
+# 13 nodes — 11 semantic (§3) + 2 optimization (§3.1)
+node  Lit     lit     IrLit
+node  Local   local   IrLocal
+node  Global  global  IrGlobal
+node  Lam     lam     IrLam
+node  App     app     IrApp
+node  Let     let     IrLet
+node  LetRec  letrec  IrLetRec
+node  If      if      IrIf
+node  Ctor    ctor    IrCtor
+node  Match   match   IrMatch
+node  Prim    prim    IrPrim
+node  While   while   IrWhile   # optimization (§3.1)
+node  Seq     seq     IrSeq     # optimization (§3.1)
+
+# 7 constants — the entire capsule-encodable constant surface
+const CUnit   unit    IrUnit
+const CBool   true    IrBool    # canonical form is `true` | `false`
+const CInt    int     IrInt
+const CBig    big     IrBig
+const CFloat  float   IrFloat
+const CStr    str     IrStr
+const CBytes  bytes   IrBytes
+```
+
+**Counts, pinned:** **13 nodes** (11 semantic + 2 optimization) and **7 constants**. The header's
+former "node set (11 nodes) are frozen" counted `Local`/`Global` separately and predated
+`While`/`Seq`; 13 is the number the code has, and it is now the number the gate enforces.
 
 ## 4. Operational semantics (big-step)
 
@@ -262,10 +370,33 @@ structurally by the host value representation):**
 `io.eprint` also implemented. The rest of the I/O group is deferred δ-widening.)
 
 **Core IR (canonical, kernel-owned serialization):**
-`coreir.encode v`→`Bytes` (serialize a `Data`-tree representation of a Core IR program to
-the canonical byte form) · `coreir.decode bytes`→`Value` (inverse, for tooling).
-These let `sscc` *emit* Core IR without reimplementing the byte format, and keep the
-format canonical in exactly one place — which is what makes the fixpoint diff meaningful.
+`coreir.encode v`→**`Str`** (serialize a `Data`-tree representation of a Core IR program to the
+canonical form) · `coreir.eval v` (compile and run an IR `Data` tree directly) ·
+`coreir.decode`→**not implemented** (see below).
+These let `sscc` *emit* Core IR without reimplementing the format, and keep the format canonical
+in exactly one place — which is what makes the fixpoint diff meaningful.
+
+**Reconciled 2026-07-16** (`coreir-canonical-codec-hardening`), because this table promised two
+things that were not true:
+
+- **`coreir.encode` returns `Str`, not `Bytes`.** It always did (`Runtime.scala`:
+  `case "coreir.encode" => a => StrV(IrEncode.program(a(0)))`). The canonical v1 format **is text**
+  (`12-ir-format.md`: "canonical S-expressions (text)"), so `Str` is the honest type, and the
+  signature was reconciled to it. *Rejected alternative:* changing the primitive to return `Bytes`
+  — it would break every existing caller (`lib/ssct-emit.ssc0`, `bin/mirac.ssc0`, the P6.5 driver)
+  and buy nothing, since UTF-8 bytes are one `str->utf8` away. If a binary encoding is ever wanted
+  it is `v2-bin`, already scoped as deferred in `12-ir-format.md`.
+- **`coreir.decode` is not registered as a primitive at all.** Only `coreir.encode` and
+  `coreir.eval` exist. The kernel *can* read canonical text — that is `Reader`, used by
+  `ssc run-ir` — but it is not exposed to `.ssc`, so `encode ∘ decode = canonicalize` (promised by
+  `12-ir-format.md`) is currently not expressible from the language. Still open; tracked in
+  `SPRINT.md` as `coreir-canonical-codec-hardening` **H4**. The status note below already said
+  "Still deferred at the kernel level: `coreir.decode`" — the signature line above simply had not
+  been kept in sync with it.
+
+The reader that *does* exist is **bounded**: see `12-ir-format.md` §"Bounded decoding". It is the
+entry point for untrusted capsules, so it rejects over-deep input with a diagnostic rather than a
+`StackOverflowError`.
 
 Design rules for the primitive set:
 

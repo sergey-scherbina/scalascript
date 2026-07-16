@@ -33,6 +33,7 @@ def      := "(def " name " " term ")"
 entry    := "(entry " term ")"
 
 term     := lit | local | global | lam | app | let | letrec | if | ctor | match | prim
+          | while | seq                  -- optimization nodes; see 10-core-ir.md §3.1
 lit      := "(lit " const ")"
 const    := "unit" | "true" | "false"
           | "(int "   INT   ")"          -- 64-bit signed, wrapping
@@ -52,11 +53,21 @@ match    := "(match " term " (" arm ( " " arm )* ")" default? ")"
 arm      := "(arm " tag " " NAT " " term ")"   -- tag, field-arity, body
 default  := " (default " term ")"
 prim     := "(prim " op ( " " term )* ")"
+while    := "(while " term " " term ")"        -- cond, body; value is Unit (10-core-ir.md §3.1)
+seq      := "(seq" ( " " term )* ")"           -- evaluate in order, value = last (§3.1)
 
 name     := SYMBOL        -- global def name and surface variable symbol (debug only for locals)
 tag      := SYMBOL        -- constructor tag
 op       := SYMBOL        -- primitive op, e.g. i.add, io.print, coreir.encode
 ```
+
+**`while` and `seq` are part of the canonical form** — reconciled 2026-07-16
+(`coreir-canonical-contract-reconcile`). They were absent from this grammar while the canonical
+`Reader` accepted them and the canonical `Writer` emitted them; the omission was contract drift, not
+a restriction. They are semantics-preserving optimization nodes with exact desugarings — see
+[`10-core-ir.md` §3.1](10-core-ir.md) for the equivalences and §3.2 for **the** pinned inventory
+(13 nodes, 7 constants), which is mechanically enforced across this file, the code, and both codecs
+by [`specs/coreir-inventory-gate.sh`](../../specs/coreir-inventory-gate.sh).
 
 ### Tokens
 
@@ -67,6 +78,25 @@ op       := SYMBOL        -- primitive op, e.g. i.add, io.print, coreir.encode
 - `FLOAT` := canonical shortest round-tripping decimal of the IEEE-754 value (the unique
   shortest string that parses back to the same bits), always containing a `.` or an
   exponent; specials are exactly `nan`, `inf`, `-inf`. Negative zero is `-0.0`.
+
+  **The encoder must preserve IEEE-754 bit identity, `-0.0` included.** This is `Writer.floatLit`,
+  and it is deliberately **not** `Writer.floatStr`: `floatStr` is the *user-visible* renderer
+  (`f->str`, `.toString`, string concat, `Show`) where whole doubles collapse (`2.0` renders as
+  `"2"`) for ssc 1.0 output parity. Until 2026-07-16 the encoder went through `floatStr`, so
+  `-0.0` encoded as `(float 0)` and decoded back as `+0.0` — bit identity silently lost — and
+  integral floats emitted as `(float 2)`, violating the "always containing a `.` or an exponent"
+  rule above. Both are fixed and pinned by `specs/coreir-codec-vectors.sh`. Do not re-merge the
+  two functions: their contracts genuinely differ.
+
+  On the JVM the implementation is `Double.toString`, which is exactly this token on **JDK 19+**
+  (JDK-4511638 made it the shortest round-tripping decimal, always with a `.` or an `E`, and
+  `-0.0` prints as `-0.0`). Verified on the toolchain JDK (21). **The kernel requires JDK 19+**:
+  on an older JDK `Double.toString` still round-trips but is not always shortest, so the canonical
+  bytes would become host-dependent and the fixpoint diff would stop being decidable.
+
+  **Reader leniency (deliberate):** the reader accepts the non-canonical integral spelling
+  `(float 2)` as well as `(float 2.0)`. That is what let the encoder be corrected to the canonical
+  form without breaking any existing fixture or persisted capsule.
 - `STRING` := `"` … `"`, UTF-8, with escapes `\"` `\\` `\n` `\r` `\t` and `\uXXXX` (lower-
   case hex) for other control points. No other characters are escaped (canonical = minimal
   escaping).
@@ -94,6 +124,34 @@ hand-authored fixtures are pleasant: it accepts arbitrary inter-token whitespace
 (newlines, indentation) and `;`-to-end-of-line comments. Reading then re-encoding any
 accepted input yields the canonical bytes — `encode ∘ decode = canonicalize`. Comments and
 layout are not preserved (they are not part of the term).
+
+Leniency is about **layout**, never about **validity**: an accepted-but-malformed term is a bug,
+not a feature. See "Bounded decoding" below.
+
+## Bounded decoding (binding)
+
+The reader is the entry point for **untrusted persisted capsules** (`control-interoperability.md`),
+so it is an attack surface, not just a convenience. A decoder that fails *open* here is a security
+defect. Two rules:
+
+1. **Nesting is bounded.** The reader rejects input nested deeper than `Reader.MaxDepth`
+   (default **1000**; override `-Dssc.coreir.maxDepth=N`) with a *diagnostic*.
+   `StackOverflowError` is an `Error`, not a catchable failure — it is a crash, and on hostile
+   input that is a denial of service. Measured before this bound existed (2026-07-16): a 300 KB
+   **well-formed** capsule (`(seq (seq … (lit unit) …))` — nothing malformed, merely deep) killed
+   the reader with `StackOverflowError` in `Reader$P.readAtom` at `-Xss1m`, the **Linux/CI default**
+   main-thread stack. macOS defaults to 2m, which is exactly the asymmetry behind the 192-run CI red.
+2. **The bound is generous, because real IR is shallow.** Measured: the 79,667 B self-hosted
+   compiler's own IR (the X1 fixpoint) is depth **25**; the `.coreir` fixtures under `v2/conformance`
+   are 6–12. 1000 is ~40× headroom over the deepest program the toolchain has ever produced.
+
+Tested at `-Xss1m` on purpose by `specs/coreir-codec-vectors.sh` §"bounded decoding" — testing only
+at the developer default is how a whole family passed on macs and StackOverflowError'd in CI.
+
+**Known gap (`BUGS.md` → `coreir-compiler-unbounded-depth`):** bounding the reader is only the
+codec's half. `Compiler.valuePositionsNeedEffectThreading` / `FastCode.tryFC` independently overflow
+at ~depth 500 on `-Xss1m`, so the capsule path is not yet fully DoS-safe. Recorded, not silently
+papered over.
 
 ## Semantics mapping
 
