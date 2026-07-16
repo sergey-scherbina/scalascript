@@ -176,6 +176,12 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
         The full run then took 43 min and ended `exit 1` with **5 failing suites**, all in other
         agents' lanes — none fixed here, all recorded so they are not lost. **Caveat: this was a
         macOS run; CI is ubuntu, so some of these may be local-only. Re-check on CI before acting.**
+        **Read the CI verdict instead of re-running 43 min locally:** with all six v21 gates now
+        green, `Test via sbt` finally EXECUTES in CI. It was still in flight when this lane stopped —
+        `gh run view 29501968735 --log-failed` (or any newer run) is the first place to look, and it
+        settles the macOS-vs-ubuntu question for all 5 at once. Prediction to check, not to trust:
+        #2 (the `scalascript.interpreter` import guard) is a pure source scan and should fail there
+        too; #4 Swift/Xcode and #5 SQLite-host-lock are the likely macOS-only ones.
         1. `uniml / ScalaSpikeSpec` — besides the JS linker, `C_min … projects cleanly (P6.21)`
            fails on a **CWD-dependent** lookup: *"specs/v2.2-p6.6-cmin.L not found — set CMIN_L or
            run from the repo root / uniml dir"* (`ScalaSpikeSpec.scala:493`). sbt's per-project CWD
