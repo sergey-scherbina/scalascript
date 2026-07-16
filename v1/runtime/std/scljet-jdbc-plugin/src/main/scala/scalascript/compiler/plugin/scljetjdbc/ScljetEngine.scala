@@ -33,7 +33,7 @@ object ScljetEngine:
     // std/scljet (a symlink to the repo-root engine in the dev tree).
     scalascript.imports.ImportResolver.stdPath
       .map(_ / "std" / "scljet")
-      .filter(p => os.exists(p / "index.ssc") && os.exists(p / "jdbc.ssc"))
+      .filter(p => os.exists(p / "index.ssc") && os.exists(p / "jdbc.ssc") && os.exists(p / "address.ssc"))
 
   // A no-side-effect bootstrap module: import the façade + engine so every name
   // is bound in globals.  Relative imports resolve against baseDir = scljetDir.
@@ -42,6 +42,7 @@ object ScljetEngine:
       |
       |[ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, byteSliceToList, emptyDatabase, buildTableDatabase](index.ssc)
       |[JdbcConnection, JdbcUpdate, JdbcResultSet, jdbcOpen, jdbcCurrent, jdbcSetAutoCommit, jdbcCommit, jdbcRollback, jdbcExecuteUpdate, jdbcExecuteUpdateParams, jdbcExecuteQuery, jdbcExecuteQueryParams, rsNext, rsHasRow, rsIsNull, rsGetLong, rsGetInt, rsGetDouble, rsGetString, rsGetBoolean, rsFindColumn, rsColumnCount, rsColumnLabel, rsRowCount](jdbc.ssc)
+      |[SqliteAddress, AddressedValue, parseAddress, renderAddress, addressRead](address.ssc)
       |""".stripMargin
 
   // Fallback bootstrap using library-path (`std/scljet/…`) resolution — used
@@ -51,6 +52,7 @@ object ScljetEngine:
       |
       |[ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, byteSliceToList, emptyDatabase, buildTableDatabase](std/scljet/index.ssc)
       |[JdbcConnection, JdbcUpdate, JdbcResultSet, jdbcOpen, jdbcCurrent, jdbcSetAutoCommit, jdbcCommit, jdbcRollback, jdbcExecuteUpdate, jdbcExecuteUpdateParams, jdbcExecuteQuery, jdbcExecuteQueryParams, rsNext, rsHasRow, rsIsNull, rsGetLong, rsGetInt, rsGetDouble, rsGetString, rsGetBoolean, rsFindColumn, rsColumnCount, rsColumnLabel, rsRowCount](std/scljet/jdbc.ssc)
+      |[SqliteAddress, AddressedValue, parseAddress, renderAddress, addressRead](std/scljet/address.ssc)
       |""".stripMargin
 
   private lazy val interp: Interpreter =
