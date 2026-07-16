@@ -258,6 +258,15 @@ object SpikeParse:
 
   private def isDefStart(c: Cur): Boolean = c.peekKind == "spike.kw" && c.peekLexeme == "def"
 
+  // exact mirror of ssc1-front's `isLayoutOpener` (ssc1-front.ssc0:2841): these tokens, when immediately
+  // followed by a newline, open a brace-less LAYOUT block — ssc1-front's layout pass rewrites the indented
+  // lines beneath them into a virtual `{ … }`. The spike computes block structure from COLUMNS instead of
+  // synthesising tokens, so this predicate is only needed where the distinction is observable (currently the
+  // statement-level `_err` recovery, where `=>` ⏎ body must become a 0-arity block argument).
+  private def isLayoutOpenerTok(t: SourceToken): Boolean = t.lexeme match
+    case "=" | "=>" | "then" | "else" | "do" | "yield" | "with" | "match" => true
+    case _                                                                => false
+
   // consume a `[ … ]` type-parameter clause (erased). Plain params only — a context bound
   // `[A: TC]` would need the `__tc_TC`-param rewrite (deferred; finicky even in ssc1-front).
   private def skipTypeParams(c: Cur): Unit =
@@ -932,8 +941,28 @@ object SpikeParse:
           case _ => Node.Frame("spike.exprStmt", None, Vector(e.withRole("stmt.expr")))
       case None =>
         c.report("spike.expected", s"expected statement, found '${c.peekLexeme}'")
+        val errLine = c.peekLine
         c.advance() match
-          case Some(t) => Node.Frame("spike.error", None, Vector(Node.Leaf(t, Some("error.token"))))
+          case Some(t) =>
+            // ssc1-front's parseAtom NEVER fails: an unrecognised token yields the var `_err`
+            // (ssc1-front.ssc0:1169-1170) and the CALLER's buildPostfix continues the chain. So the Scala-3
+            // "fewer braces" call `xs.foreach: (a, b) =>` ⏎ <indented body> recovers as THREE statements:
+            //   `xs.foreach`  |  `_err(a, b)`  |  `_err(lam 0 { body })`
+            // — the `:` and the `=>` each become an `_err` atom; `(a, b)` applies to the first as call args;
+            // and the `=>`, a LAYOUT OPENER at end-of-line (isLayoutOpener, ssc1-front.ssc0:2841), opens a
+            // virtual-brace block that buildPostfix takes as a 0-arity block ARG. (a/b stay FREE vars — the
+            // oracle never binds them, so this is bug-for-bug reproduction, not a lambda.)
+            val err = Node.Frame("spike.error", None, Vector(Node.Leaf(t, Some("error.token"))))
+            val head =
+              if isLayoutOpenerTok(t) && !c.eof && c.peekLine > errLine then
+                val thunk = Node.Frame("spike.lambda", None, Vector(parseBlock(c, c.peekCol).withRole("lam.body")))
+                Node.Frame("spike.blockapp", None, Vector(err.withRole("blkapp.fn"), thunk.withRole("blkapp.arg")))
+              else err
+            val e = postfix(c, head)
+            // a BARE `_err` (nothing applied) keeps the historic bare-error statement shape — inside a block
+            // both project to `mkSExpr(_err)`, but at TOP level `isTopStmt` drops a bare error node.
+            if roleKind(e) == "spike.error" then e
+            else Node.Frame("spike.exprStmt", None, Vector(e.withRole("stmt.expr")))
           case None    => Node.Frame("spike.error", None, Vector.empty)
 
   private def parseVal(c: Cur): Node =
