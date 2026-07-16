@@ -1287,16 +1287,15 @@ object SpikeParse:
   // a lambda body starting on a LATER line than its `=>` is an indented block (`xs.map(x =>\n  val d = …\n  d*d)`),
   // exactly like a def body — else a single inline expression. The block folds to nested lets in projection.
   private def parseLambdaBody(c: Cur, arrowLine: Int): Node =
-    if !c.eof && c.peekLine > arrowLine then
-      parseBlock(c, c.peekCol, stopAtParen = true) match
-        // a single-expression body is NOT a block — unwrap it so it lowers to the bare expr; a one-stmt
-        // block wraps the expr in a spurious `let`, unlike ssc1-front's inline body (see regression on
-        // `head-field-effect-shadow` / `oauth-mcp-full-stack`: `lam N (if …)` vs `lam N (let ((if …)) …)`).
-        case Node.Frame("spike.block", _, stmts) if stmts.length == 1 =>
-          stmts.head match
-            case Node.Frame("spike.exprStmt", _, inner) if inner.length == 1 => inner.head
-            case _ => Node.Frame("spike.block", None, stmts)
-        case blk => blk
+    // An offside body (first token on a LATER line than the `=>`) is a BLOCK — `=>` is a layout opener, so
+    // ssc1-front's layout pass wraps the indented lines in a virtual `{ … }` (isLayoutOpener,
+    // ssc1-front.ssc0:2841) and the body projects as `("block", …)`. Keep that wrapper: a lone `expr`
+    // statement lowers to the bare expr anyway (lowerBlock's last-item case is `lowerE(scope, data)` —
+    // NO let, ssc1-lower.ssc0:3950), so the block is IR-neutral — but the TAG is NOT. ssc1-lower's lambda
+    // path treats `lam([p], match(var p, arms))` as a partial-function/effect-handler literal and marks every
+    // arm with `__handler_dispatch_selected__` (ssc1-lower.ssc0:2648-2659); an unwrapped one-statement body
+    // hits that path, while the oracle's block-tagged body does not. Hence: DO NOT unwrap.
+    if !c.eof && c.peekLine > arrowLine then parseBlock(c, c.peekCol, stopAtParen = true)
     else parseExpr(c, 1).getOrElse(Node.Frame("spike.error", None, Vector.empty))
 
   // scan `( id [: T] (, id [: T])* )` — the shape of a lambda parameter clause. Returns the param
