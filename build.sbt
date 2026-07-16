@@ -1678,6 +1678,13 @@ lazy val cli = project
       // is why it went unnoticed for a day. 64m matches the stack RunNativeV2
       // already gives its interpreter thread. Do not drop this without making
       // the interpreter iterative first.
+      //
+      // `SSC_XSS` overrides the value. An explicit `-Xss` on the java command line
+      // BEATS `JAVA_TOOL_OPTIONS`, so a hardcoded -Xss64m silently defeats any caller
+      // that sets a stack size that way — which is what happened to
+      // v21-direct-asm-recursion-smoke: it runs the launcher under
+      // JAVA_TOOL_OPTIONS=-Xss256k to prove the compiled lanes do NOT need a big
+      // stack, and after -Xss64m landed it kept passing while quietly testing 64m.
       val standardLauncherScript =
         """#!/usr/bin/env bash
           |_SSC_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1692,7 +1699,7 @@ lazy val cli = project
           |                   -Xlog:cds=off -Xlog:cds+dynamic=off)
           |  fi
           |fi
-          |exec java "${_SSC_CDS_ARGS[@]}" -Xss64m -Dssc.lib.path="$_SSC_ROOT" \
+          |exec java "${_SSC_CDS_ARGS[@]}" -Xss"${SSC_XSS:-64m}" -Dssc.lib.path="$_SSC_ROOT" \
           |  -cp "$_SSC_BIN/lib/standard/jars/*:$_SSC_BIN/lib/standard/ssc.jar" \
           |  scalascript.cli.StandardMain "$@"
           |""".stripMargin
@@ -1705,7 +1712,7 @@ lazy val cli = project
         """#!/usr/bin/env bash
           |_SSC_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
           |_SSC_ROOT="$(dirname "$_SSC_BIN")"
-          |exec java -Xss64m -Dssc.lib.path="$_SSC_ROOT" \
+          |exec java -Xss"${SSC_XSS:-64m}" -Dssc.lib.path="$_SSC_ROOT" \
           |  -cp "$_SSC_BIN/lib/jars/*:$_SSC_BIN/lib/ssc.jar" \
           |  scalascript.cli.ssc "$@"
           |""".stripMargin)
@@ -1727,7 +1734,7 @@ lazy val cli = project
           |  echo "ssc-provider: provider is not installed: $_SSC_PROVIDER" >&2
           |  exit 2
           |fi
-          |exec java -Xss64m -Dssc.lib.path="$_SSC_ROOT" \
+          |exec java -Xss"${SSC_XSS:-64m}" -Dssc.lib.path="$_SSC_ROOT" \
           |  -cp "$_SSC_PROVIDER_DIR/*:$_SSC_BIN/lib/standard/jars/*:$_SSC_BIN/lib/standard/ssc.jar" \
           |  scalascript.cli.StandardMain "$@"
           |""".stripMargin)
