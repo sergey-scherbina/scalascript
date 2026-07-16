@@ -505,6 +505,86 @@ Focused producer 46/46, descriptor 27/27, core 1092/1092, interop 36/36, IR,
 artifact ABI 73/73, and affected conformance 2/2 are green. Status stays `open`
 until fresh independent approval and landing on `origin/main`.
 
+## scljet-ipk-rowid-alias-not-substituted — reading a REAL SQLite file returns 0 for every `INTEGER PRIMARY KEY`
+
+**Status:** OPEN (found 2026-07-15 by `scljet-jdbc-j4-introspection` while probing whether the
+JDBC shim can read a file written by the reference driver). **Engine bug — belongs to the
+`scljet-m3-writes` lane, NOT the JDBC shim** (the shim only forwards `queryImage` rows).
+Found on `origin/main` `727ea5e12`. **Silent wrong data, not an error** — the severity is that
+nothing fails; the client just gets zeros.
+
+**Symptom/reproduce** (three-way differential; the JDBC lane is only the harness — the same read
+goes through `queryImage`, so a pure `.ssc` repro should reproduce it too):
+
+```scala
+// 1. a file written by the REFERENCE driver (org.xerial:sqlite-jdbc)
+CREATE TABLE emp(id INTEGER PRIMARY KEY, name TEXT); INSERT INTO emp VALUES (1,'ann'),(7,'bob')
+// 2. read it back:
+reference reading its own file        → 1|ann, 7|bob     ✓
+scljet   reading the reference file   → 0|ann, 0|bob     ✗  ← BUG
+scljet   reading a scljet-created db  → 1|ann, 7|bob     ✓  (masks the bug in our own tests)
+```
+
+**Root cause (hypothesis, needs engine confirmation).** In real SQLite an `INTEGER PRIMARY KEY`
+column is an *alias for the rowid*: the record stores NULL for it and the value lives in the
+rowid. scljet's read path does not substitute the rowid for the IPK column, so it returns the
+stored NULL, which the getters coerce to `0`. The engine already models the concept — `isIpkType`
+(`scljet/sql.ssc:1086`), `ipkColumnIndex(sql)` (`~:1098`), `tableIpkIndex(db, table)` (`~:4291`) —
+so the fix is likely to apply the existing IPK index in the row-projection path, not new analysis.
+
+**A second, opposite-direction divergence to check while fixing** (not yet verified, flagged by
+the same finding): scljet's WRITE path appears to store the IPK value *in the column* rather than
+as NULL+rowid, and assigns rowids sequentially. If so, `INSERT INTO emp VALUES (7,'bob')` into a
+scljet database yields a row with column `id=7` but rowid `2` — and real SQLite reading that file
+reports `id=2` (it always reads the rowid for an IPK column), i.e. our files are wrong for real
+SQLite too. Our own read path agrees with itself, which is exactly why every existing test passes.
+A test whose oracle is "scljet reads back what scljet wrote" cannot see either half of this;
+the differential must cross the two engines through a FILE.
+
+**Notes.** Reading a reference-written file otherwise works (schema, indexes incl. `UNIQUE`,
+non-IPK columns, TEXT) — see `ScljetIntrospectionTest` "reads a database created by the
+reference driver", which pins the parts that DO hold. Related engine gaps found the same way:
+`CREATE UNIQUE INDEX` is not parsed at all (`parseCreateIndex` requires `CREATE INDEX`;
+`CREATE UNIQUE INDEX` falls through to `parseCreate` → "expected TABLE"), and
+`INSERT INTO t SELECT …` is not parsed ("expected VALUES").
+
+## interp-collection-stdlib-completeness-gaps — common List/String/math methods missing on the v1 interp
+
+**Status:** FIXED (2026-07-15) — first batch. Surfaced by the v2-vs-v1 differential (sprint
+#16) as `No method …` errors on the v1 interpreter (`ssc-tools run --v1`), the conformance
+reference. Added: `List.reduce` / `reduceRight` / `reduceOption` / `reduceLeftOption` /
+`transpose` (`DispatchRuntime.dispatchList`, next to the existing `reduceLeft`; also added to
+the builtin-vs-extension precedence whitelist `hasBuiltinMemberBeforeExtension`);
+`String.capitalize` (`DispatchRuntime` string dispatch, uppercases only the first char per
+Scala); `math.max` / `math.min` (Int/Double overloads in `intrinsics/Core.scala`, wired into
+the `math` object in `BuiltinsRuntime`). `Vector(…)` is a `ListV` in the interp so these cover
+Vector too. Regression test `CollectionGapsTest`.
+**Second batch (2026-07-15):** `List.patch` / `zipAll` / `scanRight` / `distinctBy` / `sliding(size, step)`
+(the 2-arg form) added to `dispatchList` (+ whitelist); a `seqElems` helper lets `patch`/`zipAll` accept
+both `List(…)` and `Vector(…)` collection args (existing methods like `diff`/`intersect` only accept
+`ListV` — a broader pre-existing limitation left as-is).
+**Third batch (2026-07-15):** `Int.toHexString`/`toBinaryString`/`toOctalString` (64-bit, via `java.lang.Long`,
+in `dispatchInt`); `Integer.parseInt(s[, radix])` (the radix form is the only way to parse hex/binary — `.toInt`
+takes no radix; `intrinsics/Core.scala` + an `Integer` object in `BuiltinsRuntime`); `List.partitionMap`
+(Left/Right = `InstanceV(_, "value" -> v)`).
+
+## v2-native-string-map-filter-char-methods — `String.map`/`.filter` + char methods on v2-native
+
+**Status:** FIXED (2026-07-15, `v2/src/Runtime.scala`). `"abc".map(...)`/`.filter(...)` threw `no dispatch
+for .map on "abc"` on `bin/ssc run` (v2 native), and char methods on an iterated char (`c.toUpper`,
+`c.isDigit`) eta-expanded to a closure. ROOT: v2 has NO Char box (chars are `IntV` code points), so unlike
+interp/JS (which added `CharV`/`_Char` — see the `string-map-nonchar-*` entry below) v2 can't distinguish a
+Char from an Int by type. FIX (boxless adaptation): (1) `String.filter`/`filterNot` → String (unambiguous —
+a Char predicate keeps it a String). (2) `String.map` → if every result is an `IntV` in 16-bit char range,
+render a String (the dominant char→char case, matching v1), else a List. (3) added char ops on a code-point
+`IntV` — `toUpper`/`toLower` (return the transformed char CODE so a map renders a String) and
+`isDigit`/`isLetter`/`isLetterOrDigit`/`isUpper`/`isLower`/`isWhitespace` (Bool); safe because these are only
+ever called when the Int IS a char. Verified byte-identical to the v1 interpreter on the common cases
+(`map(c=>c.toUpper)`→`ABC`, `filter(c=>c.isDigit)`→`123`, `map(c=> if c.isLetter then c.toUpper else c)`→`A1B2`).
+KNOWN residual divergence (documented, no Char type to avoid it): `"abc".map(c => c + 1)` → String `"bcd"` on
+v2 vs `List(98,99,100)` on v1 — char→int-in-range arithmetic can't be told from char→char without a Char box.
+Remaining separate gap: `String.padTo` on v2-native.
+
 ## js-control-packed-readme-broken-spec-link — npm README links outside payload
 
 **Status:** fixed by `1c2e150c3` with regression `6f19a9538`; awaiting final

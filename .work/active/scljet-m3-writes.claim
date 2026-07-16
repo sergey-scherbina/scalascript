@@ -1,4 +1,4 @@
 claim: scljet-m3-writes
 owner: opus
-heartbeat: 2026-07-15T07:55:00Z
-status: O(log n) index descent (m7f) landed — WHERE indexedcol=K descends the multi-level index B-tree (record-key comparison, spans handled), overflow-safe fallback. Physical index access-path (equality) COMPLETE. FULL gate 89/89 green non-memoized [int, js]. NEXT candidate: range index-seeks (col>K / BETWEEN).
+heartbeat: 2026-07-15T11:30:00Z
+status: NICHES #1 (correlated scalar) + #2 (RIGHT/FULL 3-table last-join) done. 53/53 sql green. NEXT: #3 physical-IR EXPLAIN (me), #4 JVM JDBC J2 (sibling agent).

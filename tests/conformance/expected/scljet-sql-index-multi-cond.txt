@@ -1,0 +1,6 @@
+SELECT id FROM t WHERE dept = 'eng' AND active = 1 ORDER BY id => 1
+4
+SELECT id FROM t WHERE id = 4 AND dept = 'eng' => 4
+SELECT id FROM t WHERE active = 1 AND dept = 'eng' ORDER BY id => 1
+4
+SELECT COUNT(*) FROM t WHERE dept = 'sales' AND active = 0 => 1

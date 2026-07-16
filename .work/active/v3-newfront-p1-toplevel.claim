@@ -1,5 +1,12 @@
 claim: v3-newfront-p1-toplevel
-branch: feature/v3-newfront-p1-toplevel
-what: newfront Phase 1 #1 — spike handles TOP-LEVEL STATEMENTS (script-style println/val/exprs) so programs
-      no longer collapse to Nil. Byte-identical to ssc1-front. Rerun newfront-diff.sh, MATCH goes up.
-started: 2026-07-15
+branch: feature/v3-newfront-p1-continue
+agent: opus (orchestrator session 0716)
+heartbeat: 2026-07-16T10:36:21Z
+status: in-progress
+what: newfront Phase 1 continuation. Items 1/1b/2/3/4 already LANDED on main (top-level statements,
+      harness leak fix, number lexer, trailing block arg, underscore scope, imports, list literals,
+      typed val/var, try/catch, annotations). Corrected baseline: MATCH 93/479 (19%), DROP 3,
+      HOLE 155, DIFF 233. Continue closing HOLE/DIFF clusters, byte-identical to ssc1-front,
+      rerunning specs/newfront-diff.sh each time (MATCH only goes UP).
+note: reclaimed — previous claim was orphaned by the 2026-07-15 host reboot; its worktree is clean
+      with no commits above origin/main, i.e. that work landed.

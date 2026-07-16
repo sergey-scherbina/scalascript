@@ -1,8 +1,0 @@
-feature/v2-asm-jit 2026-07-10
-agent: claude (lucky-perch)
-status: DONE (all landed on main)
-scope: JIT for the ssc v2 VM ASM/bytecode lane (Sergiy: "jit делай для ssc vm asm v2").
-result: 6 fused fast-paths landed + bench-validated — bytecode lane is now parity-or-faster
-  than the VM on EVERY measured workload. Key commits: dcell unboxed-double loops (17x
-  float-loop), lcellAccum (list-fold beats VM), dcellAccum (float-fold 2.2x), CBig/CBytes
-  widening, foldLeft inline, pureNoEffect dcell fix. See git log --grep=v2-asm-jit.

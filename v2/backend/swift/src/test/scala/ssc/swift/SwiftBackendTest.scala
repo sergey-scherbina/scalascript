@@ -6,7 +6,6 @@ import java.nio.file.{Files, Path, Paths}
 import org.scalatest.funsuite.AnyFunSuite
 
 import ssc.{Arm, Const, HandlerDispatchShape, Program, Reader, Term}
-import ssc.bridge.{FrontendBridge, PluginBridge}
 
 final class SwiftBackendTest extends AnyFunSuite:
   private val repoRoot =
@@ -1140,46 +1139,6 @@ public enum SessionProbe {
     assert(result.exit == 0, result.stderr)
     assert(result.stdout == "component|occurrence-0|occurrence-1")
 
-  test("checked real money source runs through FrontendBridge and SwiftPM"):
-    assume(swiftAvailable, "Swift toolchain is not available")
-    val source = repoRoot.resolve("tests/conformance/money-portable-v2.ssc")
-    FrontendBridge.resetState()
-    PluginBridge.loadAll()
-    val program = FrontendBridge.convertSource(
-      Files.readString(source, StandardCharsets.UTF_8),
-      Some(source.getParent.toFile),
-    )
-    val expected = Files.readString(
-      repoRoot.resolve("tests/conformance/expected/money-portable-v2.txt"),
-      StandardCharsets.UTF_8,
-    ).trim
-    assert(runSwift("money", program) == expected)
-
-  test("checked self-hosted JSON cutover runs through FrontendBridge and real Swift"):
-    assume(swiftAvailable, "Swift toolchain is not available")
-    val fixtureRoot = repoRoot.resolve("tests/fixtures/v21-native")
-    val source = fixtureRoot.resolve("json-cutover.ssc")
-    FrontendBridge.resetState()
-    PluginBridge.loadAll()
-    val program = FrontendBridge.convertSource(
-      Files.readString(source, StandardCharsets.UTF_8),
-      Some(source.getParent.toFile),
-    )
-    val expected = Files.readString(
-      fixtureRoot.resolve("json-cutover.expected"), StandardCharsets.UTF_8).trim
-    assert(runSwift("checkedJsonCutover", program) == expected)
-
-    val invalid = fixtureRoot.resolve("json-cutover-invalid.ssc")
-    FrontendBridge.resetState()
-    PluginBridge.loadAll()
-    val invalidProgram = FrontendBridge.convertSource(
-      Files.readString(invalid, StandardCharsets.UTF_8),
-      Some(invalid.getParent.toFile),
-    )
-    val failed = runSwiftResult("checkedJsonInvalid", invalidProgram)
-    assert(failed.exit != 0)
-    assert(failed.stderr.contains("invalid JSON"), failed.stderr)
-
   test("real Swift JSON facade covers fallback Unicode numbers keys and bounded failures"):
     assume(swiftAvailable, "Swift toolchain is not available")
     def app(name: String, args: Term*): Term = Term.App(Term.Global(name), args.toList)
@@ -1221,51 +1180,6 @@ public enum SessionProbe {
     assert(output.contains("invalid JsonCore UTF-16 surrogate pair"), output)
     assert(output.contains("jsonStringify cannot encode NaN or Infinity"), output)
 
-  test("checked transitive effect source runs through FrontendBridge and SwiftPM"):
-    assume(swiftAvailable, "Swift toolchain is not available")
-    val source = repoRoot.resolve("tests/conformance/effect-transitive-handler.ssc")
-    FrontendBridge.resetState()
-    PluginBridge.loadAll()
-    val program = FrontendBridge.convertSource(
-      Files.readString(source, StandardCharsets.UTF_8),
-      Some(source.getParent.toFile),
-    )
-    val expected = Files.readString(
-      repoRoot.resolve("tests/conformance/expected/effect-transitive-handler.txt"),
-      StandardCharsets.UTF_8,
-    ).trim
-    assert(runSwift("transitiveEffects", program) == expected)
-
-  test("checked effect multiplicity preserves one-shot rejection and explicit multi-shot reuse on Swift"):
-    assume(swiftAvailable, "Swift toolchain is not available")
-    def checked(source: String): Program =
-      FrontendBridge.resetState()
-      PluginBridge.loadAll()
-      FrontendBridge.convertSource(
-        source,
-        Some(repoRoot.toFile),
-      )
-
-    val oneShotSource = Files.readString(
-      repoRoot.resolve("tests/fixtures/v21-native/effect-one-shot-violation.ssc"),
-      StandardCharsets.UTF_8,
-    )
-    val rejected = runSwiftResult(
-      "checkedOneShot",
-      checked(oneShotSource),
-    )
-    assert(rejected.exit != 0)
-    assert(rejected.stderr.contains(
-      "error [ONESHOT_VIOLATION]: One-shot violation: One.op resumed more than once"), rejected.stderr)
-    assert(!rejected.stdout.contains("suffix:"), rejected.stdout)
-
-    val multiShotSource = Files.readString(
-      repoRoot.resolve("tests/fixtures/v21-native/effect-multi-shot-resume.ssc"),
-      StandardCharsets.UTF_8,
-    )
-    val reusable = checked(multiShotSource)
-    assert(runSwift("checkedMultiShot", reusable) == "3")
-
   test("real Swift implicit Return fallback does not swallow handler match failures"):
     assume(swiftAvailable, "Swift toolchain is not available")
     val nestedFailure = Term.Match(Term.Local(0), Nil, None)
@@ -1280,71 +1194,6 @@ public enum SessionProbe {
     assert(result.exit != 0)
     assert(result.stderr.contains("match: no arm for Return(Bad)"), result.stderr)
     assert(result.stdout.isEmpty, result.stdout)
-
-  test("checked std/ui source runs through FrontendBridge and Swift NativeUi host"):
-    assume(swiftAvailable, "Swift toolchain is not available")
-    val source = repoRoot.resolve("examples/swift/appcore-nativeui.ssc")
-    FrontendBridge.resetState()
-    PluginBridge.loadAll()
-    val program = FrontendBridge.convertSource(
-      Files.readString(source, StandardCharsets.UTF_8),
-      Some(source.getParent.toFile),
-    )
-    assert(runSwift("checkedNativeUi", program) ==
-      "NativeUiAbi(version=1, root=NativeUiFragment, operation=emit)")
-
-  test("checked standard lower serve source resolves token and numeric styles in real Swift"):
-    assume(swiftAvailable, "Swift toolchain is not available")
-    val source = repoRoot.resolve("tests/fixtures/swift/nativeui-standard-lower.ssc")
-    FrontendBridge.resetState()
-    PluginBridge.loadAll()
-    val checked = FrontendBridge.convertSourceWithMetadata(
-      Files.readString(source, StandardCharsets.UTF_8),
-      Some(source.getParent.toFile),
-    )
-    assert(checked.metadata.main.contains("run"))
-    val program = checked.program
-    val probe = """
-public enum SessionProbe {
-    private static func list(_ value: SscValue) -> [SscValue] {
-        var current = value
-        var result: [SscValue] = []
-        while case let .data("Cons", fields) = current, fields.count == 2 {
-            result.append(fields[0])
-            current = fields[1]
-        }
-        guard case let .data("Nil", fields) = current, fields.isEmpty else {
-            fatalError("expected proper NativeUi child list")
-        }
-        return result
-    }
-    private static func styles(_ value: SscValue) -> [String] {
-        guard case let .data(tag, fields) = value else { return [] }
-        if tag == "NativeUiAbi", fields.count == 3 { return styles(fields[1]) }
-        if tag == "NativeUiFragment", fields.count == 1 {
-            return list(fields[0]).flatMap(styles)
-        }
-        guard tag == "NativeUiElement", fields.count == 5,
-              case let .map(attributes) = fields[2] else { return [] }
-        var result: [String] = []
-        if case let .string(style)? = attributes.get(.string("style")) { result.append(style) }
-        return result + list(fields[4]).flatMap(styles)
-    }
-    public static func run() {
-        do {
-            let session = try SscGeneratedProgram.makeNativeUiRoot()
-            Swift.print(nativeUiDebug(session.root))
-            Swift.print(styles(session.root).joined(separator: "|"))
-        } catch { fatalError(String(describing: error)) }
-    }
-}
-"""
-    val result = runSwiftResult("standardLower", program, probe = Some(probe))
-    assert(result.exit == 0, s"swift run standardLower failed (${result.exit}):\n${result.stderr}\n${result.stdout}")
-    assert(result.stdout.linesIterator.nextOption().contains(
-      "NativeUiAbi(version=1, root=NativeUiElement, operation=serve)"), result.stdout)
-    assert(result.stdout.contains("padding-left:16px;padding-right:16px"), result.stdout)
-    assert(result.stdout.contains("padding-left:12px;padding-right:12px"), result.stdout)
 
   test("real Swift NativeUi normalizes association maps and sources malformed failures"):
     assume(swiftAvailable, "Swift toolchain is not available")
@@ -1444,19 +1293,6 @@ public enum SessionProbe {
       .count(_ == "association.ssc:12:7 [element]") == 6, output)
     assert(output.linesIterator.toVector.last ==
       "NativeUiAbi(version=1, root=NativeUiFragment, operation=emit)", output)
-
-  test("checked production-shaped locale JSON keyed pipeline runs in real Swift"):
-    assume(swiftAvailable, "Swift toolchain is not available")
-    val source = repoRoot.resolve("tests/fixtures/swift/busi-pipeline-nativeui-smoke.ssc")
-    FrontendBridge.resetState()
-    PluginBridge.loadAll()
-    val checked = FrontendBridge.convertSourceWithMetadata(
-      Files.readString(source, StandardCharsets.UTF_8),
-      Some(source.getParent.toFile),
-    )
-    assert(checked.metadata.main.contains("run"))
-    assert(runSwift("busiPipelineNativeUi", checked.program) ==
-      "NativeUiAbi(version=1, root=NativeUiElement, operation=serve)")
 
   private def fixture(name: String): Program =
     val path = repoRoot.resolve(s"v2/conformance/$name.coreir")

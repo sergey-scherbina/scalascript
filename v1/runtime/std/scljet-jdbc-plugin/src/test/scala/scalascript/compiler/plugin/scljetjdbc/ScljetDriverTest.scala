@@ -3,7 +3,7 @@ package scalascript.compiler.plugin.scljetjdbc
 import org.scalatest.funsuite.AnyFunSuite
 
 import java.nio.file.{Files, Path}
-import java.sql.{Connection, DriverManager, ResultSet, SQLException, SQLFeatureNotSupportedException, Types}
+import java.sql.{Connection, DriverManager, ResultSet, SQLException, SQLFeatureNotSupportedException, Statement, Types}
 
 /** JVM `java.sql.Driver` shim — end-to-end through `DriverManager`.
  *
@@ -13,8 +13,17 @@ import java.sql.{Connection, DriverManager, ResultSet, SQLException, SQLFeatureN
  *  literals, plus cross-checked against the reference `org.xerial:sqlite-jdbc`). */
 class ScljetDriverTest extends AnyFunSuite:
 
-  // Force driver registration (also happens via META-INF/services on the classpath).
-  Class.forName("scalascript.compiler.plugin.scljetjdbc.ScljetDriver")
+  // Force driver registration.  `Class.forName("…ScljetDriver")` does NOT do it:
+  // it initializes the CLASS, while `DriverManager.registerDriver` lives in the
+  // companion OBJECT (`ScljetDriver$`), whose initializer only runs when the
+  // object is touched.  Under sbt the ServiceLoader scan (META-INF/services)
+  // does not see the plugin either, since DriverManager scans the thread-context
+  // classloader once at its own init.  The suite used to register the driver by
+  // accident — the first test happens to call `new ScljetDriver().acceptsURL`,
+  // which reads `ScljetDriver.Prefix` and thus inits the object — so running any
+  // single test (`testOnly … -- -z "…"`) failed with "No suitable driver found".
+  // Touch the object explicitly so every test is order-independent.
+  assert(ScljetDriver.Prefix == "jdbc:scljet:")
 
   private def memConn(): Connection = DriverManager.getConnection("jdbc:scljet::memory:")
 
@@ -231,5 +240,104 @@ class ScljetDriverTest extends AnyFunSuite:
         s.executeUpdate(schema); inserts.foreach(s.executeUpdate)
         render(s.executeQuery(query))
       finally ref.close()
+
+    assert(scRows == refRows, s"scljet=$scRows\nsqlite=$refRows")
+
+  // ── getGeneratedKeys (J2.2) ───────────────────────────────────────────────
+
+  test("getGeneratedKeys returns the last-insert rowid as a one-column ResultSet"):
+    val c = memConn()
+    try
+      val s = c.createStatement()
+      s.executeUpdate("CREATE TABLE k(id INTEGER, v TEXT)")
+      s.executeUpdate("INSERT INTO k VALUES (10,'ten')")
+      val rs = s.getGeneratedKeys
+      val md = rs.getMetaData
+      assert(md.getColumnCount == 1)
+      assert(md.getColumnLabel(1) == "last_insert_rowid()")
+      assert(md.getColumnType(1) == Types.BIGINT)
+      assert(rs.next())
+      assert(rs.getLong(1) == 1L)                       // first row → rowid 1
+      assert(rs.getLong("last_insert_rowid()") == 1L)   // by label too
+      assert(!rs.next())                                // exactly one row
+      assert(rs.getStatement == s)
+      // the rowid advances with each insert
+      s.executeUpdate("INSERT INTO k VALUES (20,'twenty')")
+      val rs2 = s.getGeneratedKeys
+      assert(rs2.next() && rs2.getLong(1) == 2L)
+    finally c.close()
+
+  test("getGeneratedKeys is empty when the last execution generated no key"):
+    val c = memConn()
+    try
+      val s = c.createStatement()
+      // a statement that has never executed
+      assert(!s.getGeneratedKeys.next())
+      s.executeUpdate("CREATE TABLE k(id INTEGER, v TEXT)")
+      assert(!s.getGeneratedKeys.next(), "DDL generates no key")
+      s.executeUpdate("INSERT INTO k VALUES (1,'one')")
+      assert(s.getGeneratedKeys.next(), "INSERT generates a key")
+      s.executeUpdate("UPDATE k SET v='x' WHERE id=1")
+      assert(!s.getGeneratedKeys.next(), "UPDATE generates no key")
+      s.executeUpdate("INSERT INTO k VALUES (2,'two')")
+      s.executeUpdate("DELETE FROM k WHERE id=1")
+      assert(!s.getGeneratedKeys.next(), "DELETE generates no key")
+      s.executeQuery("SELECT id FROM k")
+      assert(!s.getGeneratedKeys.next(), "SELECT generates no key")
+      // NOTE: the "INSERT that affects 0 rows" case (guarded by `changes > 0` in
+      // StatementState.runUpdate) is not asserted here — it needs INSERT…SELECT,
+      // which the engine does not parse yet ("expected VALUES").
+    finally c.close()
+
+  test("PreparedStatement getGeneratedKeys, incl. the RETURN_GENERATED_KEYS overloads"):
+    val c = memConn()
+    try
+      val s = c.createStatement()
+      s.executeUpdate("CREATE TABLE k(id INTEGER, v TEXT)")
+      // Connection.prepareStatement(sql, RETURN_GENERATED_KEYS)
+      val ps = c.prepareStatement("INSERT INTO k VALUES (?,?)", Statement.RETURN_GENERATED_KEYS)
+      ps.setInt(1, 7); ps.setString(2, "seven")
+      assert(ps.executeUpdate() == 1)
+      val rs = ps.getGeneratedKeys
+      assert(rs.next() && rs.getLong(1) == 1L)
+      assert(rs.getStatement == ps)
+      // Statement.executeUpdate(sql, RETURN_GENERATED_KEYS)
+      assert(s.executeUpdate("INSERT INTO k VALUES (8,'eight')", Statement.RETURN_GENERATED_KEYS) == 1)
+      assert(s.getGeneratedKeys.next())
+      // Statement.execute(sql, RETURN_GENERATED_KEYS)
+      assert(!s.execute("INSERT INTO k VALUES (9,'nine')", Statement.RETURN_GENERATED_KEYS))
+      val rs3 = s.getGeneratedKeys
+      assert(rs3.next() && rs3.getLong(1) == 3L)
+      // NO_GENERATED_KEYS still tracks the rowid (as SQLite's last_insert_rowid() does)
+      assert(s.executeUpdate("INSERT INTO k VALUES (10,'ten')", Statement.NO_GENERATED_KEYS) == 1)
+      assert(s.getGeneratedKeys.next())
+    finally c.close()
+
+  test("getGeneratedKeys equals reference sqlite-jdbc (rows and rowids)"):
+    val schema = "CREATE TABLE k(id INTEGER, v TEXT)"
+    val steps = List(
+      "INSERT INTO k VALUES (1,'one')",
+      "INSERT INTO k VALUES (2,'two')",
+      "UPDATE k SET v='x' WHERE id=1",
+      "INSERT INTO k VALUES (3,'three')",
+      "DELETE FROM k WHERE id=2",
+    )
+
+    /** After each step: "<hasRow>:<rowid or ->" — the observable getGeneratedKeys contract. */
+    def render(c: Connection): List[String] =
+      val s = c.createStatement()
+      s.executeUpdate(schema)
+      steps.map { sql =>
+        s.executeUpdate(sql)
+        val rs = s.getGeneratedKeys
+        if rs.next() then s"true:${rs.getLong(1)}" else "false:-"
+      }
+
+    val sc = memConn()
+    val scRows = try render(sc) finally sc.close()
+
+    Class.forName("org.sqlite.JDBC")
+    val ref = DriverManager.getConnection("jdbc:sqlite::memory:")
+    val refRows = try render(ref) finally ref.close()
 
     assert(scRows == refRows, s"scljet=$scRows\nsqlite=$refRows")

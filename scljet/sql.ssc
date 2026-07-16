@@ -295,8 +295,11 @@ case class SxCase(operand: Option[SxNode], whens: List[SxWhen], elseExpr: Option
 // expression (`leftExpr=Some`); the right operand of a scalar comparison is a literal (`value`,
 // `rightExpr=None`) or an expression / another column (`rightExpr=Some`). `values` carries the
 // multi-operand list for BETWEEN/IN; `value` also holds the LIKE pattern.
-case class Condition(column: String, op: String, value: SqliteValue, values: List[SqliteValue], leftExpr: Option[SxNode], rightExpr: Option[SxNode])
-case class JoinSpec(table: String, leftCol: String, op: String, rightCol: String, leftOuter: Boolean)
+// `subTokens` (defaulted empty) carries an EXISTS/NOT EXISTS subquery's tokens (op "exists"/"notexists");
+// evaluated per outer row with the outer table's qualified columns substituted (correlated subquery).
+case class Condition(column: String, op: String, value: SqliteValue, values: List[SqliteValue], leftExpr: Option[SxNode], rightExpr: Option[SxNode], subTokens: List[Token] = Nil)
+// leftOuter keeps unmatched left rows; rightOuter (defaulted) keeps unmatched right rows. Both → FULL.
+case class JoinSpec(table: String, leftCol: String, op: String, rightCol: String, leftOuter: Boolean, rightOuter: Boolean = false)
 case class HavingCond(item: ProjItem, op: String, value: SqliteValue)
 case class SelectStmt(star: Boolean, projection: List[ProjItem], table: String, where: List[List[Condition]], orderBy: List[OrderKey], limit: Int, offset: Int, groupBy: List[String], joins: List[JoinSpec], having: Option[HavingCond], distinct: Boolean)
 
@@ -359,8 +362,17 @@ def condColOf(node: SxNode): String = node match
 // One predicate: `<expr> op <expr>`, `<expr> IS [NOT] NULL`, `<expr> BETWEEN lo AND hi`,
 // `<expr> [NOT] IN ( … )`, or `<expr> [NOT] LIKE pat`. The left operand (and, for a scalar
 // comparison, the right operand) may be any arithmetic expression, a column, or a literal.
+// `[NOT] EXISTS ( subquery )` → an exists/notexists Condition carrying the subquery tokens.
+def parseExistsCond(toks: List[Token], op: String): Either[String, (Condition, List[Token])] =
+  if tkKind(toks) != "lparen" then Left("expected '(' after EXISTS")
+  else splitParenGroup(toks.tail) match
+    case None => Left("unbalanced parentheses in EXISTS")
+    case Some(sp) => Right((Condition("", op, SqlNull, Nil, None, None, sp._1), sp._2))
+
 def parseCondition(toks: List[Token]): Either[String, (Condition, List[Token])] =
-  parseExprAdd(toks) match
+  if tkIsKw(toks, "EXISTS") then parseExistsCond(toks.tail, "exists")
+  else if tkIsKw(toks, "NOT") && tkIsKw(toks.tail, "EXISTS") then parseExistsCond(toks.tail.tail, "notexists")
+  else parseExprAdd(toks) match
     case Left(message) => Left(message)
     case Right(le) =>
       val lnode = le._1
@@ -379,7 +391,10 @@ def parseCondition(toks: List[Token]): Either[String, (Condition, List[Token])] 
         // `tkIsKw(after,"NOT") && tkIsKw(after.tail,…)` would evaluate `after.tail` on an
         // empty list (e.g. a bare `WHERE <expr>`) and crash. Here after.tail is safe (after="NOT").
         if tkIsKw(after.tail, "IN") then
-          parseValueList(after.tail.tail) match
+          if tkKind(after.tail.tail) == "lparen" && tkIsKw(after.tail.tail.tail, "SELECT") then splitParenGroup(after.tail.tail.tail) match
+            case None => Left("unbalanced parentheses in NOT IN subquery")
+            case Some(sp) => Right((Condition(col, "notinsubq", SqlNull, Nil, lopt, None, sp._1), sp._2))
+          else parseValueList(after.tail.tail) match
             case Left(message) => Left(message)
             case Right(vl) => Right((Condition(col, "notin", SqlNull, vl._1, lopt, None), vl._2))
         else if tkIsKw(after.tail, "LIKE") then
@@ -394,7 +409,10 @@ def parseCondition(toks: List[Token]): Either[String, (Condition, List[Token])] 
           case Left(message) => Left(message)
           case Right(pat) => Right((Condition(col, "like", pat, Nil, lopt, None), after.tail.tail))
       else if tkIsKw(after, "IN") then
-        parseValueList(after.tail) match
+        if tkKind(after.tail) == "lparen" && tkIsKw(after.tail.tail, "SELECT") then splitParenGroup(after.tail.tail) match
+          case None => Left("unbalanced parentheses in IN subquery")
+          case Some(sp) => Right((Condition(col, "insubq", SqlNull, Nil, lopt, None, sp._1), sp._2))
+        else parseValueList(after.tail) match
           case Left(message) => Left(message)
           case Right(vl) => Right((Condition(col, "in", SqlNull, vl._1, lopt, None), vl._2))
       else if tkIsKw(after, "BETWEEN") then
@@ -412,7 +430,10 @@ def parseCondition(toks: List[Token]): Either[String, (Condition, List[Token])] 
         Right((Condition(col, "truthy", SqlNull, Nil, lopt, None), after))
       else
         val op = after.head
-        parseExprAdd(after.tail) match
+        if tkKind(after.tail) == "lparen" && tkIsKw(after.tail.tail, "SELECT") then splitParenGroup(after.tail.tail) match
+          case None => Left("unbalanced parentheses in scalar subquery")
+          case Some(sp) => Right((Condition(col, op.text, SqlNull, Nil, lopt, None, sp._1), sp._2))
+        else parseExprAdd(after.tail) match
           case Left(message) => Left(message)
           case Right(re) =>
             val rnode = re._1
@@ -921,9 +942,19 @@ def parseGroupBy(toks: List[Token]): Either[String, (List[String], List[Token])]
 // Optional `[INNER | LEFT [OUTER]] JOIN ident ON col op col`; returns the join spec + rest.
 def parseJoin(toks: List[Token]): Either[String, (Option[JoinSpec], List[Token])] =
   var leftOuter = false
+  var rightOuter = false
   var afterKw = toks
   if tkIsKw(afterKw, "LEFT") then
     leftOuter = true
+    afterKw = afterKw.tail
+    if tkIsKw(afterKw, "OUTER") then afterKw = afterKw.tail
+  else if tkIsKw(afterKw, "RIGHT") then
+    rightOuter = true
+    afterKw = afterKw.tail
+    if tkIsKw(afterKw, "OUTER") then afterKw = afterKw.tail
+  else if tkIsKw(afterKw, "FULL") then
+    leftOuter = true
+    rightOuter = true
     afterKw = afterKw.tail
     if tkIsKw(afterKw, "OUTER") then afterKw = afterKw.tail
   else if tkIsKw(afterKw, "INNER") then afterKw = afterKw.tail
@@ -945,7 +976,7 @@ def parseJoin(toks: List[Token]): Either[String, (Option[JoinSpec], List[Token])
           if l.kind != "ident" then Left("expected a column in ON")
           else if o.kind != "op" then Left("expected a comparison operator in ON")
           else if rc.kind != "ident" then Left("expected a column in ON")
-          else Right((Some(JoinSpec(jtable, l.text, o.text, rc.text, leftOuter)), afterOn.tail.tail.tail))
+          else Right((Some(JoinSpec(jtable, l.text, o.text, rc.text, leftOuter, rightOuter)), afterOn.tail.tail.tail))
 
 // A chain of JOIN clauses (0, 1, or more) — supports 2-, 3-, … table joins.
 def parseJoins(toks: List[Token]): Either[String, (List[JoinSpec], List[Token])] =
@@ -1124,14 +1155,20 @@ def columnIndex(colNames: List[String], name: String): Int =
     r = r.tail
   found
 
-/** The value of column `name` in a row (`rowid` is the implicit rowid). */
+// Drop a table qualifier (`t.col` → `col`); in a single-table query any qualifier refers to that table.
+def stripQualifier(name: String): String =
+  val d = indexOfDot(name)
+  if d < 0 then name else substr(name, d + 1, name.length)
+
+/** The value of column `name` in a row (`rowid` is the implicit rowid; a `t.col` qualifier is dropped). */
 def rowValue(rec: StorageRecord, colNames: List[String], name: String): SqliteValue =
-  if upperStr(name) == "ROWID" then
+  val bare = stripQualifier(name)
+  if upperStr(bare) == "ROWID" then
     rec.rowid match
       case Some(id) => SqlInteger(id)
       case None => SqlNull
   else
-    val idx = columnIndex(colNames, name)
+    val idx = columnIndex(colNames, bare)
     if idx < 0 then SqlNull else fieldValueAt(rec.record, idx)
 
 // ── Scalar expression evaluation (SQL numeric arithmetic) ──
@@ -2015,6 +2052,127 @@ def filterRows(rows: List[StorageRecord], where: List[List[Condition]], colNames
     r = r.tail
   reverseStorage(accRev, Nil)
 
+// ── Correlated EXISTS: a WHERE containing a [NOT] EXISTS subquery, evaluated per outer row ──
+def hasExistsCond(where: List[List[Condition]]): Boolean =
+  var g = where
+  var found = false
+  while g.nonEmpty && !found do
+    var r = g.head
+    while r.nonEmpty && !found do
+      if r.head.subTokens.nonEmpty then found = true
+      r = r.tail
+    g = g.tail
+  found
+
+def exactValueToken(v: SqliteValue): Token = Token("bound", "", 0L, Some(v))
+
+// Replace qualified outer-table references (outerTable.col) in a subquery's tokens with the current
+// outer row's value (a bound literal token). Bare/other refs resolve to the inner table unchanged.
+def substituteOuterRefs(subTokens: List[Token], outerTable: String, colNames: List[String], rec: StorageRecord): List[Token] =
+  val ot = upperStr(outerTable)
+  var r = subTokens
+  var accRev: List[Token] = Nil
+  while r.nonEmpty do
+    val t = r.head
+    val repl =
+      if t.kind == "ident" then
+        val dot = indexOfDot(t.text)
+        if dot < 0 then t
+        else if upperStr(substr(t.text, 0, dot)) != ot then t
+        else
+          val colPart = substr(t.text, dot + 1, t.text.length)
+          if columnIndex(colNames, colPart) < 0 then t
+          else exactValueToken(rowValue(rec, colNames, colPart))
+      else t
+    accRev = repl :: accRev
+    r = r.tail
+  reverseTokens(accRev, Nil)
+
+// EXISTS: substitute the outer refs, run the subquery against the open db, true iff it returns a row.
+def existsHolds(db: ReadonlyDatabase, subTokens: List[Token], outerTable: String, colNames: List[String], rec: StorageRecord): Boolean =
+  val sub = substituteOuterRefs(subTokens, outerTable, colNames, rec)
+  parseSelect(sub) match
+    case Left(_) => false
+    case Right(stmt) =>
+      if stmt.table == "" then executeNoFrom(stmt) match
+        case Right(rows) => rows.nonEmpty
+        case Left(_) => false
+      else executeSelect(db, stmt) match
+        case Right(rows) => rows.nonEmpty
+        case Left(_) => false
+
+// `col [NOT] IN (subquery)`: substitute the outer refs, run the subquery, test membership of the left
+// value in its first column.
+def inSubqHolds(db: ReadonlyDatabase, cond: Condition, rec: StorageRecord, colNames: List[String], outerTable: String): Boolean =
+  val colVal = condLeftSingle(cond, rec, colNames)
+  val sub = substituteOuterRefs(cond.subTokens, outerTable, colNames, rec)
+  parseSelect(sub) match
+    case Left(_) => false
+    case Right(stmt) =>
+      val rowsE = if stmt.table == "" then executeNoFrom(stmt) else executeSelect(db, stmt)
+      rowsE match
+        case Left(_) => false
+        case Right(rows) => valueInList(colVal, firstColumn(rows))
+
+def isCmpOp(op: String): Boolean =
+  op == "=" || op == "<>" || op == "!=" || op == "<" || op == "<=" || op == ">" || op == ">="
+
+// The scalar of a subquery result = the first row's first column (NULL if it returned no rows).
+def scalarSubqValue(rows: List[List[SqliteValue]]): SqliteValue =
+  if rows.isEmpty then SqlNull
+  else if rows.head.isEmpty then SqlNull
+  else rows.head.head
+
+// `col <cmp> (subquery)`: substitute the outer refs, run the subquery, compare the left value with its
+// scalar. A NULL either side makes the comparison unknown (false), as in SQL.
+def scalarSubqHolds(db: ReadonlyDatabase, cond: Condition, rec: StorageRecord, colNames: List[String], outerTable: String): Boolean =
+  val colVal = condLeftSingle(cond, rec, colNames)
+  val sub = substituteOuterRefs(cond.subTokens, outerTable, colNames, rec)
+  parseSelect(sub) match
+    case Left(_) => false
+    case Right(stmt) =>
+      val rowsE = if stmt.table == "" then executeNoFrom(stmt) else executeSelect(db, stmt)
+      rowsE match
+        case Left(_) => false
+        case Right(rows) =>
+          val scalar = scalarSubqValue(rows)
+          if isNullValue(colVal) || isNullValue(scalar) then false
+          else condMatches(cond.op, sqlCompare(colVal, scalar))
+
+def condHoldsCtx(db: ReadonlyDatabase, cond: Condition, rec: StorageRecord, colNames: List[String], outerTable: String): Boolean =
+  if cond.op == "exists" then existsHolds(db, cond.subTokens, outerTable, colNames, rec)
+  else if cond.op == "notexists" then existsHolds(db, cond.subTokens, outerTable, colNames, rec) == false
+  else if cond.op == "insubq" then inSubqHolds(db, cond, rec, colNames, outerTable)
+  else if cond.op == "notinsubq" then inSubqHolds(db, cond, rec, colNames, outerTable) == false
+  else if cond.subTokens.nonEmpty && isCmpOp(cond.op) then scalarSubqHolds(db, cond, rec, colNames, outerTable)
+  else condHolds(cond, rec, colNames)
+
+def andGroupHoldsCtx(db: ReadonlyDatabase, group: List[Condition], rec: StorageRecord, colNames: List[String], outerTable: String): Boolean =
+  var r = group
+  var all = true
+  while r.nonEmpty && all do
+    if !condHoldsCtx(db, r.head, rec, colNames, outerTable) then all = false
+    r = r.tail
+  all
+
+def whereHoldsCtx(db: ReadonlyDatabase, where: List[List[Condition]], rec: StorageRecord, colNames: List[String], outerTable: String): Boolean =
+  if where.isEmpty then true
+  else
+    var r = where
+    var any = false
+    while r.nonEmpty && !any do
+      if andGroupHoldsCtx(db, r.head, rec, colNames, outerTable) then any = true
+      r = r.tail
+    any
+
+def filterRowsCtx(db: ReadonlyDatabase, rows: List[StorageRecord], where: List[List[Condition]], colNames: List[String], outerTable: String): List[StorageRecord] =
+  var r = rows
+  var accRev: List[StorageRecord] = Nil
+  while r.nonEmpty do
+    if whereHoldsCtx(db, where, r.head, colNames, outerTable) then accRev = r.head :: accRev
+    r = r.tail
+  reverseStorage(accRev, Nil)
+
 // Lexicographic comparison over the ORDER BY key list (per-key ASC/DESC).
 def recCompare(a: StorageRecord, b: StorageRecord, colNames: List[String], keys: List[OrderKey]): Int =
   var r = keys
@@ -2561,6 +2719,24 @@ def joinExecute(db: ReadonlyDatabase, stmt: SelectStmt, spec: JoinSpec): Either[
             if joinWhereHolds(stmt.where, ra.head, colsA, stmt.table, noneB, colsB, spec.table) then
               pairsRev = JoinPair(ra.head, noneB) :: pairsRev
           ra = ra.tail
+        // RIGHT / FULL: keep each right-table row that no left row matched (on the ON), left side NULL.
+        if spec.rightOuter then
+          var rb2 = rowsB
+          while rb2.nonEmpty do
+            var ra2 = rowsA
+            var bMatched = false
+            while ra2.nonEmpty do
+              val rbOpt2: Option[StorageRecord] = Some(rb2.head)
+              val lv2 = joinColValue(ra2.head, colsA, stmt.table, rbOpt2, colsB, spec.table, spec.leftCol)
+              val rv2 = joinColValue(ra2.head, colsA, stmt.table, rbOpt2, colsB, spec.table, spec.rightCol)
+              if condMatches(spec.op, sqlCompare(lv2, rv2)) then bMatched = true
+              ra2 = ra2.tail
+            if !bMatched then
+              val nullA = nullRow()
+              val rbOptN: Option[StorageRecord] = Some(rb2.head)
+              if joinWhereHolds(stmt.where, nullA, colsA, stmt.table, rbOptN, colsB, spec.table) then
+                pairsRev = JoinPair(nullA, rbOptN) :: pairsRev
+            rb2 = rb2.tail
         val pairs = reversePairs(pairsRev, Nil)
         if stmt.groupBy.nonEmpty then
           val sortedForGroup = sortPairsBy(pairs, colsA, stmt.table, colsB, spec.table, groupKeysOf(stmt.groupBy))
@@ -2711,6 +2887,14 @@ def nullRow(): StorageRecord = StorageRecord(None, DecodedRecord(0, 0, Nil))
 
 // Extend each partial join-row with every row of the next table that satisfies the ON.
 // For a LEFT join, a partial that matched no next-table row is kept once, NULL-extended.
+def nullList(n: Int): List[StorageRecord] =
+  var i = 0
+  var acc: List[StorageRecord] = Nil
+  while i < n do
+    acc = nullRow() :: acc
+    i = i + 1
+  acc
+
 def extendPartials(partials: List[List[StorageRecord]], nextRows: List[StorageRecord], boundTables: List[JoinTable], spec: JoinSpec): List[List[StorageRecord]] =
   var ps = partials
   var accRev: List[List[StorageRecord]] = Nil
@@ -2725,6 +2909,18 @@ def extendPartials(partials: List[List[StorageRecord]], nextRows: List[StorageRe
       nr = nr.tail
     accRev = if spec.leftOuter && !matched then (ps.head ++ (nullRow() :: Nil)) :: accRev else accRev
     ps = ps.tail
+  // RIGHT / FULL: keep each next-table row that no partial matched, previous tables NULL-extended.
+  if spec.rightOuter then
+    val prefixWidth = boundTables.length - 1
+    var nr2 = nextRows
+    while nr2.nonEmpty do
+      var pp = partials
+      var anyMatch = false
+      while pp.nonEmpty do
+        if onHolds(pp.head ++ (nr2.head :: Nil), boundTables, spec) then anyMatch = true
+        pp = pp.tail
+      accRev = if anyMatch then accRev else (nullList(prefixWidth) ++ (nr2.head :: Nil)) :: accRev
+      nr2 = nr2.tail
   accRev.reverse
 
 def buildJoinRows(tables: List[JoinTable], joins: List[JoinSpec]): List[List[StorageRecord]] =
@@ -2990,7 +3186,7 @@ def executeSelectSingle(db: ReadonlyDatabase, stmt: SelectStmt): Either[String, 
         case Right(cursor) =>
           // LIMIT pushdown: a plain LIMIT query (no ORDER BY / aggregate / GROUP BY / DISTINCT) keeps
           // rows in scan order, so we only need the first `offset+limit` matches — stop the scan there.
-          val fastLimit = stmt.orderBy.isEmpty && stmt.groupBy.isEmpty && !projHasAgg(stmt.projection) && !stmt.distinct && stmt.limit >= 0
+          val fastLimit = stmt.orderBy.isEmpty && stmt.groupBy.isEmpty && !projHasAgg(stmt.projection) && !stmt.distinct && stmt.limit >= 0 && !hasExistsCond(stmt.where)
           if fastLimit then executeSelectLimited(db, cursor, stmt, colNames)
           else executeSelectFullScan(db, cursor, stmt, colNames)
 
@@ -3010,8 +3206,8 @@ def executeSelectLimited(db: ReadonlyDatabase, cursor: ReadonlyBtreeCursor, stmt
 // Full-scan path: read the whole table, filter, then group/aggregate/order/project/limit.
 // Finish a single-table query from a row set: filter, then group/aggregate/order/project/limit.
 // Shared by the full-scan path and the rowid point-lookup (which supplies 0/1 rows).
-def finishRows(rows: List[StorageRecord], colNames: List[String], stmt: SelectStmt): Either[String, List[List[SqliteValue]]] =
-  val filtered = filterRows(rows, stmt.where, colNames)
+def finishRows(db: ReadonlyDatabase, rows: List[StorageRecord], colNames: List[String], stmt: SelectStmt): Either[String, List[List[SqliteValue]]] =
+  val filtered = filterRowsCtx(db, rows, stmt.where, colNames, stmt.table)
   if stmt.groupBy.nonEmpty then
     val sortedForGroup = sortStorage(filtered, colNames, groupKeysOf(stmt.groupBy))
     val groups = filterGroups(groupPartition(sortedForGroup, colNames, stmt.groupBy), stmt.having, colNames)
@@ -3034,7 +3230,7 @@ def finishRows(rows: List[StorageRecord], colNames: List[String], stmt: SelectSt
 def executeSelectFullScan(db: ReadonlyDatabase, cursor: ReadonlyBtreeCursor, stmt: SelectStmt, colNames: List[String]): Either[String, List[List[SqliteValue]]] =
   collectRows(db, cursor) match
     case Left(error) => Left(error.message)
-    case Right(rows) => finishRows(rows, colNames, stmt)
+    case Right(rows) => finishRows(db, rows, colNames, stmt)
 
 // `SELECT <exprs>` with no FROM: evaluate each projection item against an empty row (no columns).
 def executeNoFrom(stmt: SelectStmt): Either[String, List[List[SqliteValue]]] =
@@ -3119,12 +3315,59 @@ def evalSubquery(dbBytes: ByteSlice, inner: List[Token]): Either[String, List[Sq
             case Left(message) => Left(message)
             case Right(rows) => Right(firstColumn(rows))
 
+// True iff the token just before a `(SELECT` is EXISTS — such a subquery is correlated (references the
+// outer row) and must NOT be pre-resolved here; parseCondition captures it as an exists Condition.
+def prevIsExists(prefixRev: List[Token]): Boolean =
+  if prefixRev.isEmpty then false else isKw(prefixRev.head, "EXISTS")
+
+// The first top-level (depth-0) FROM table name in a token stream, or "" — the outer query's table.
+def firstFromTable(toks: List[Token]): String =
+  var r = toks
+  var depth = 0
+  var found = ""
+  while r.nonEmpty && found == "" do
+    val t = r.head
+    if t.kind == "lparen" then depth = depth + 1
+    else if t.kind == "rparen" then depth = depth - 1
+    else if depth == 0 && isKw(t, "FROM") then
+      if tkKind(r.tail) == "ident" then found = r.tail.head.text
+    r = r.tail
+  found
+
+// True iff a subquery's tokens contain a qualified reference to `outerTable` (outerTable.col) — i.e. it
+// is correlated and must be evaluated per outer row, not pre-resolved.
+def referencesOuterTable(innerToks: List[Token], outerTable: String): Boolean =
+  if outerTable == "" then false
+  else
+    val ot = upperStr(outerTable)
+    var r = innerToks
+    var found = false
+    while r.nonEmpty && !found do
+      val t = r.head
+      if t.kind == "ident" then
+        val dot = indexOfDot(t.text)
+        if dot >= 0 then
+          if upperStr(substr(t.text, 0, dot)) == ot then found = true
+      r = r.tail
+    found
+
 def resolveSubqueries(dbBytes: ByteSlice, toks: List[Token]): Either[String, List[Token]] =
+  val outerTable = firstFromTable(toks)
   var prefixRev: List[Token] = Nil
   var r = toks
   var atSpan = false
   while r.nonEmpty && !atSpan do
-    if r.head.kind == "lparen" && tkIsKw(r.tail, "SELECT") then atSpan = true
+    if r.head.kind == "lparen" && tkIsKw(r.tail, "SELECT") then
+      if prevIsExists(prefixRev) then
+        prefixRev = r.head :: prefixRev
+        r = r.tail
+      else splitParenGroup(r.tail) match
+        case None => atSpan = true
+        case Some(sp) =>
+          if referencesOuterTable(sp._1, outerTable) then
+            prefixRev = r.head :: prefixRev
+            r = r.tail
+          else atSpan = true
     else
       prefixRev = r.head :: prefixRev
       r = r.tail
@@ -3245,11 +3488,33 @@ def indexRowidOf(record: DecodedRecord, numKeyCols: Int): Long =
     case SqlInteger(x) => x
     case _ => 0L
 
-// Ordered fallback: walk the whole index B-tree in key order, collecting the rowids whose first key
-// column == `key`; stop once a key sorts past `key` (indexes are BINARY-sorted, matching sqlCompare).
-// Used when the O(log n) descent bails (overflow divider/leaf, unexpected page). Equal-key entries
-// are sub-ordered by rowid (the record's tie-break field) = the table's scan order.
-def indexWalkRowids(db: ReadonlyDatabase, indexRoot: Long, numKeyCols: Int, key: SqliteValue): Either[String, List[Long]] =
+// A key predicate for an index seek: an equality (lo==hi, both inclusive) or an open/closed range.
+// `None` bound = unbounded on that side (`col > K` has hi = None; `col < K` has lo = None).
+case class IndexRange(lo: Option[SqliteValue], hi: Option[SqliteValue], loIncl: Boolean, hiIncl: Boolean)
+
+// Does a (non-NULL) key satisfy the range? NULL keys never match a comparison/range (SQL semantics).
+def keyInRange(key: SqliteValue, range: IndexRange): Boolean =
+  if isNullValue(key) then false
+  else
+    val loOk = range.lo match
+      case None => true
+      case Some(l) => if range.loIncl then sqlCompare(key, l) >= 0 else sqlCompare(key, l) > 0
+    val hiOk = range.hi match
+      case None => true
+      case Some(h) => if range.hiIncl then sqlCompare(key, h) <= 0 else sqlCompare(key, h) < 0
+    loOk && hiOk
+
+// True once the walk has passed the range's high bound (so the ordered walk can stop early).
+def pastHigh(key: SqliteValue, range: IndexRange): Boolean =
+  range.hi match
+    case None => false
+    case Some(h) => if range.hiIncl then sqlCompare(key, h) > 0 else sqlCompare(key, h) >= 0
+
+// Ordered fallback: walk the index B-tree in key order collecting the rowids whose first key column
+// is in `range`; stop once past the high bound (indexes are BINARY-sorted, matching sqlCompare).
+// Used when the O(log n) descent bails (overflow divider/leaf, unexpected page). Entries are visited
+// in (key, rowid) order.
+def indexWalkRowids(db: ReadonlyDatabase, indexRoot: Long, numKeyCols: Int, range: IndexRange): Either[String, List[Long]] =
   openReadonlyRoot(db, indexRoot, RecordKeyTree) match
     case Left(error) => Left(error.message)
     case Right(cursor) => readonlyFirst(db, cursor) match
@@ -3265,10 +3530,10 @@ def indexWalkRowids(db: ReadonlyDatabase, indexRoot: Long, numKeyCols: Int, key:
           row match
             case None => done = true
             case Some(rec) =>
-              val cmp = sqlCompare(fieldValueAt(rec.record, 0), key)
-              if cmp > 0 then done = true
+              val kv = fieldValueAt(rec.record, 0)
+              if pastHigh(kv, range) then done = true
               else
-                accRev = if cmp == 0 then indexRowidOf(rec.record, numKeyCols) :: accRev else accRev
+                accRev = if keyInRange(kv, range) then indexRowidOf(rec.record, numKeyCols) :: accRev else accRev
                 readonlyNext(d, c) match
                   case Left(error) => err = Some(error.message)
                   case Right(step) =>
@@ -3312,7 +3577,10 @@ def revIntAppend(xs: List[Int], acc: List[Int]): List[Int] =
 
 // One index-interior page → (child page numbers, divider first-column values). A divider payload
 // that overflows the local threshold → Left (caller falls back to the ordered walk).
-def readIndexInterior(pageBytes: ByteSlice, ho: Int, threshold: Int, db: ReadonlyDatabase): Either[String, (List[Int], List[SqliteValue])] =
+// Returns (child page numbers, divider first-columns, divider ROWIDS). In a SQLite index B-tree the
+// interior divider cells are REAL entries (each key appears once in the whole tree, not duplicated in
+// a leaf), so their rowids must be collected too — not only the leaves'.
+def readIndexInterior(pageBytes: ByteSlice, ho: Int, threshold: Int, numKeyCols: Int, db: ReadonlyDatabase): Either[String, (List[Int], List[SqliteValue], List[Long])] =
   readU16Be(pageBytes, ho + 3) match
     case Left(e) => Left(e.message)
     case Right(ByteRead(count, _)) => readU32Be(pageBytes, ho + 8) match
@@ -3321,6 +3589,7 @@ def readIndexInterior(pageBytes: ByteSlice, ho: Int, threshold: Int, db: Readonl
         var i = 0
         var childrenRev: List[Int] = Nil
         var dividersRev: List[SqliteValue] = Nil
+        var dividerRowidsRev: List[Long] = Nil
         var err: Option[String] = None
         while i < count.toInt && err.isEmpty do
           readU16Be(pageBytes, ho + 12 + 2 * i) match
@@ -3338,13 +3607,14 @@ def readIndexInterior(pageBytes: ByteSlice, ho: Int, threshold: Int, db: Readonl
                       case Right(rec) =>
                         childrenRev = leftChild.toInt :: childrenRev
                         dividersRev = fieldValueAt(rec, 0) :: dividersRev
+                        dividerRowidsRev = indexRowidOf(rec, numKeyCols) :: dividerRowidsRev
           i = i + 1
         err match
           case Some(m) => Left(m)
-          case None => Right((revIntAppend(childrenRev, rightChild.toInt :: Nil), reverseValues(dividersRev, Nil)))
+          case None => Right((revIntAppend(childrenRev, rightChild.toInt :: Nil), reverseValues(dividersRev, Nil), revLongAppend(dividerRowidsRev, Nil)))
 
-// One index-leaf page → the rowids whose first key column == `key`. Overflow payload → Left.
-def readIndexLeafRowids(pageBytes: ByteSlice, ho: Int, threshold: Int, numKeyCols: Int, key: SqliteValue, db: ReadonlyDatabase): Either[String, List[Long]] =
+// One index-leaf page → the rowids whose first key column is in `range`. Overflow payload → Left.
+def readIndexLeafRowids(pageBytes: ByteSlice, ho: Int, threshold: Int, numKeyCols: Int, range: IndexRange, db: ReadonlyDatabase): Either[String, List[Long]] =
   readU16Be(pageBytes, ho + 3) match
     case Left(e) => Left(e.message)
     case Right(ByteRead(count, _)) =>
@@ -3363,56 +3633,111 @@ def readIndexLeafRowids(pageBytes: ByteSlice, ho: Int, threshold: Int, numKeyCol
                 case Right(payload) => decodeRecord(payload, db.schema.encoding, db.schema.format, sqlLimits()) match
                   case Left(_) => err = Some("decode-leaf")
                   case Right(rec) =>
-                    accRev = if sqlCompare(fieldValueAt(rec, 0), key) == 0 then indexRowidOf(rec, numKeyCols) :: accRev else accRev
+                    accRev = if keyInRange(fieldValueAt(rec, 0), range) then indexRowidOf(rec, numKeyCols) :: accRev else accRev
         i = i + 1
       err match
         case Some(m) => Left(m)
         case None => Right(accRev.reverse)
 
-// Descend into child i only if `key` could lie in its divider range (conservative <= / >= on the
-// first column, so equal-key runs that straddle a divider are never missed).
-def childCouldContainKey(i: Int, nchildren: Int, dividers: List[SqliteValue], key: SqliteValue): Boolean =
-  val lowerOk = if i == 0 then true else sqlCompare(dividerAt(dividers, i - 1), key) <= 0
-  val upperOk = if i == nchildren - 1 then true else sqlCompare(dividerAt(dividers, i), key) >= 0
+// Descend into child i only if its divider range could overlap `range` (conservative bounds, so
+// key runs that straddle a divider are never missed). child i holds keys in (div[i-1], div[i]].
+def rangeChildCouldContain(i: Int, nchildren: Int, dividers: List[SqliteValue], range: IndexRange): Boolean =
+  val lowerOk =
+    if i == 0 then true
+    else range.hi match
+      case None => true
+      case Some(h) => sqlCompare(dividerAt(dividers, i - 1), h) <= 0
+  val upperOk =
+    if i == nchildren - 1 then true
+    else range.lo match
+      case None => true
+      case Some(l) => sqlCompare(dividerAt(dividers, i), l) >= 0
   lowerOk && upperOk
 
-def descendChildren(pager: MutablePager, children: List[Int], dividers: List[SqliteValue], threshold: Int, numKeyCols: Int, key: SqliteValue, db: ReadonlyDatabase): Either[String, List[Long]] =
+def longAt(xs: List[Long], idx: Int): Long =
+  var r = xs
+  var k = idx
+  while r.nonEmpty && k > 0 do
+    r = r.tail
+    k = k - 1
+  if r.isEmpty then 0L else r.head
+
+// Recurse into every child whose divider range could contain the query range, AND collect the
+// divider entries themselves (real entries in an index B-tree) whose key is in range. Order does not
+// matter — indexSeekRowids sorts the result into rowid order.
+def descendChildren(pager: MutablePager, children: List[Int], dividers: List[SqliteValue], dividerRowids: List[Long], threshold: Int, numKeyCols: Int, range: IndexRange, db: ReadonlyDatabase): Either[String, List[Long]] =
   var i = 0
   val nchildren = children.length
   var acc: List[Long] = Nil
   var err: Option[String] = None
   while i < nchildren && err.isEmpty do
-    if childCouldContainKey(i, nchildren, dividers, key) then
-      indexDescendCollect(pager, intAt(children, i), threshold, numKeyCols, key, db) match
-        case Left(m) => err = Some(m)
-        case Right(rowids) => acc = acc ++ rowids
+    val childRes: Either[String, List[Long]] =
+      if rangeChildCouldContain(i, nchildren, dividers, range) then indexDescendCollect(pager, intAt(children, i), threshold, numKeyCols, range, db)
+      else Right(Nil)
+    childRes match
+      case Left(m) => err = Some(m)
+      case Right(rowids) =>
+        val dividerPart = if i < nchildren - 1 && keyInRange(dividerAt(dividers, i), range) then longAt(dividerRowids, i) :: Nil else Nil
+        acc = acc ++ rowids ++ dividerPart
     i = i + 1
   err match
     case Some(m) => Left(m)
     case None => Right(acc)
 
-def indexDescendCollect(pager: MutablePager, pageNumber: Int, threshold: Int, numKeyCols: Int, key: SqliteValue, db: ReadonlyDatabase): Either[String, List[Long]] =
+def indexDescendCollect(pager: MutablePager, pageNumber: Int, threshold: Int, numKeyCols: Int, range: IndexRange, db: ReadonlyDatabase): Either[String, List[Long]] =
   mutableGet(pager, pageNumber) match
     case Left(e) => Left(e.message)
     case Right(pageBytes) =>
       val ho = if pageNumber == 1 then 100 else 0
       val kind = pageTypeByte(pageBytes, ho)
-      if kind == 10 then readIndexLeafRowids(pageBytes, ho, threshold, numKeyCols, key, db)
-      else if kind == 2 then readIndexInterior(pageBytes, ho, threshold, db) match
+      if kind == 10 then readIndexLeafRowids(pageBytes, ho, threshold, numKeyCols, range, db)
+      else if kind == 2 then readIndexInterior(pageBytes, ho, threshold, numKeyCols, db) match
         case Left(m) => Left(m)
-        case Right(ci) => descendChildren(pager, ci._1, ci._2, threshold, numKeyCols, key, db)
+        case Right(ci) => descendChildren(pager, ci._1, ci._2, ci._3, threshold, numKeyCols, range, db)
       else Left("unexpected index page kind")
 
-// Collect matching rowids via the O(log n) descent; on any bail (overflow / unexpected page) fall
-// back to the ordered walk. Both yield the same rowids in the same order.
-def indexSeekRowids(dbBytes: ByteSlice, db: ReadonlyDatabase, indexRoot: Long, numKeyCols: Int, key: SqliteValue, pageSize: Int): Either[String, List[Long]] =
+// Reverse `xs` onto `acc` (for the sorted-insert splice).
+def revLongAppend(xs: List[Long], acc: List[Long]): List[Long] =
+  var r = xs
+  var out = acc
+  while r.nonEmpty do
+    out = r.head :: out
+    r = r.tail
+  out
+
+// Insert x into an ascending list (non-recursive, so no interp stack overflow on long ranges).
+def insertSortedLong(x: Long, sorted: List[Long]): List[Long] =
+  var beforeRev: List[Long] = Nil
+  var rest = sorted
+  var placed = false
+  while rest.nonEmpty && !placed do
+    if x <= rest.head then placed = true
+    else
+      beforeRev = rest.head :: beforeRev
+      rest = rest.tail
+  revLongAppend(beforeRev, x :: rest)
+
+def sortLongsAsc(xs: List[Long]): List[Long] =
+  var r = xs
+  var out: List[Long] = Nil
+  while r.nonEmpty do
+    out = insertSortedLong(r.head, out)
+    r = r.tail
+  out
+
+// Collect the rowids matching `range` via the O(log n) descent; on any bail (overflow / unexpected
+// page) fall back to the ordered walk. The result is sorted into ascending rowid order so a range
+// seek (whose index order differs from rowid order) produces the same rows as the full scan.
+def indexSeekRowids(dbBytes: ByteSlice, db: ReadonlyDatabase, indexRoot: Long, numKeyCols: Int, range: IndexRange, pageSize: Int): Either[String, List[Long]] =
   val reserved = byteSliceGet(dbBytes, 20) match
     case Right(v) => v
     case Left(_) => 0
   val threshold = pageSize - reserved - 35
-  indexDescendCollect(openMutablePager(dbBytes, pageSize, pageSize), indexRoot.toInt, threshold, numKeyCols, key, db) match
-    case Right(rowids) => Right(rowids)
-    case Left(_) => indexWalkRowids(db, indexRoot, numKeyCols, key)
+  indexDescendCollect(openMutablePager(dbBytes, pageSize, pageSize), indexRoot.toInt, threshold, numKeyCols, range, db) match
+    case Right(rowids) => Right(sortLongsAsc(rowids))
+    case Left(_) => indexWalkRowids(db, indexRoot, numKeyCols, range) match
+      case Left(m) => Left(m)
+      case Right(rowids) => Right(sortLongsAsc(rowids))
 
 // Point-lookup each rowid → its row; None if any lookup must fall back (overflow) or is missing.
 def seekRowsForRowids(dbBytes: ByteSlice, db: ReadonlyDatabase, root: Int, pageSize: Int, rowids: List[Long]): Option[List[StorageRecord]] =
@@ -3430,41 +3755,98 @@ def seekRowsForRowids(dbBytes: ByteSlice, db: ReadonlyDatabase, root: Int, pageS
 def rowidSeekResult(dbBytes: ByteSlice, db: ReadonlyDatabase, root: Int, pageSize: Int, colNames: List[String], stmt: SelectStmt, k: Long): Option[Either[String, List[List[SqliteValue]]]] =
   seekRowidRecord(dbBytes, db, root, pageSize, k) match
     case SeekFallback => None
-    case SeekMiss => Some(finishRows(Nil, colNames, stmt))
-    case SeekHit(rec) => Some(finishRows(rec :: Nil, colNames, stmt))
+    case SeekMiss => Some(finishRows(db, Nil, colNames, stmt))
+    case SeekHit(rec) => Some(finishRows(db, rec :: Nil, colNames, stmt))
 
-def indexSeekResult(dbBytes: ByteSlice, db: ReadonlyDatabase, root: Int, pageSize: Int, colNames: List[String], stmt: SelectStmt, indexRoot: Long, numKeyCols: Int, value: SqliteValue): Option[Either[String, List[List[SqliteValue]]]] =
-  indexSeekRowids(dbBytes, db, indexRoot, numKeyCols, value, pageSize) match
+def indexSeekResult(dbBytes: ByteSlice, db: ReadonlyDatabase, root: Int, pageSize: Int, colNames: List[String], stmt: SelectStmt, indexRoot: Long, numKeyCols: Int, range: IndexRange): Option[Either[String, List[List[SqliteValue]]]] =
+  indexSeekRowids(dbBytes, db, indexRoot, numKeyCols, range, pageSize) match
     case Left(_) => None
     case Right(rowids) => seekRowsForRowids(dbBytes, db, root, pageSize, rowids) match
       case None => None
-      case Some(rows) => Some(finishRows(rows, colNames, stmt))
+      case Some(rows) => Some(finishRows(db, rows, colNames, stmt))
 
-// If the query is a single-table `WHERE col = literal`, try an index access path: a rowid/IPK column
-// seeks the table B-tree; otherwise an indexed column is looked up through its index B-tree (collect
-// matching rowids, then point-lookup each row). None → "not applicable, use the full scan". Either
-// path feeds the same finishRows downstream as the full scan, so the output is byte-identical.
+// The index range for a single equality/comparison/BETWEEN condition on `col`; else None.
+def rangeOfCond(op: String, value: SqliteValue, values: List[SqliteValue]): Option[IndexRange] =
+  if op == "=" then Some(IndexRange(Some(value), Some(value), true, true))
+  else if op == ">" then Some(IndexRange(Some(value), None, false, true))
+  else if op == ">=" then Some(IndexRange(Some(value), None, true, true))
+  else if op == "<" then Some(IndexRange(None, Some(value), true, false))
+  else if op == "<=" then Some(IndexRange(None, Some(value), true, true))
+  else if op == "between" then
+    if values.length >= 2 then Some(IndexRange(Some(values.head), Some(values.tail.head), true, true))
+    else None
+  else None
+
+// Every indexable condition `col <op> literal(s)` in a single AND-group (no top-level OR). Any one of
+// them can drive the seek: a row satisfying the whole AND also satisfies each condition, so a seek on
+// one returns a superset that finishRows (which applies the full WHERE) filters down. OR-of-groups
+// (where.length > 1) is not seekable this way.
+def indexableConds(where: List[List[Condition]]): List[(String, IndexRange)] =
+  if where.length != 1 then Nil
+  else
+    var r = where.head
+    var accRev: List[(String, IndexRange)] = Nil
+    while r.nonEmpty do
+      val cond = r.head
+      accRev =
+        if cond.leftExpr.isEmpty && cond.rightExpr.isEmpty then rangeOfCond(cond.op, cond.value, cond.values) match
+          case Some(range) => (cond.column, range) :: accRev
+          case None => accRev
+        else accRev
+      r = r.tail
+    accRev.reverse
+
+// If the range is an equality [v, v] (both inclusive), return v — used for the rowid/IPK seek, which
+// is equality-only (a rowid range still full-scans for now).
+def rangeEqualityValue(range: IndexRange): Option[SqliteValue] =
+  range.lo match
+    case None => None
+    case Some(l) => range.hi match
+      case None => None
+      case Some(h) => if range.loIncl && range.hiIncl && valEqual(l, h) then Some(l) else None
+
+// Pick the first seekable condition and run its seek. A rowid/IPK column needs an equality (a rowid
+// range still full-scans); any other column needs an index. A non-seekable condition is skipped to
+// the next. Returns None if none is seekable or the chosen seek bails (→ full scan).
+def chooseSeek(dbBytes: ByteSlice, db: ReadonlyDatabase, root: Int, pageSize: Int, colNames: List[String], stmt: SelectStmt, ipkIdx: Int, conds: List[(String, IndexRange)]): Option[Either[String, List[List[SqliteValue]]]] =
+  var r = conds
+  var result: Option[Either[String, List[List[SqliteValue]]]] = None
+  var stop = false
+  while r.nonEmpty && !stop do
+    val colName = r.head._1
+    val range = r.head._2
+    val col = upperStr(colName)
+    val isRowidCol = col == "ROWID" || (ipkIdx >= 0 && col == upperStr(nthName(colNames, ipkIdx)))
+    if isRowidCol then rangeEqualityValue(range) match
+      case Some(v) => longOfValue(v) match
+        case Some(k) =>
+          result = rowidSeekResult(dbBytes, db, root, pageSize, colNames, stmt, k)
+          stop = true
+        case None => r = r.tail
+      case None => r = r.tail
+    else indexForColumn(db, stmt.table, colName) match
+      case Some(idx) =>
+        result = indexSeekResult(dbBytes, db, root, pageSize, colNames, stmt, idx._1, idx._2, range)
+        stop = true
+      case None => r = r.tail
+  result
+
+// Try an index access path for a single-table query whose WHERE is one AND-group containing at least
+// one indexable condition (rowid/IPK equality → table seek, indexed col over a range → index seek).
+// The seek returns a superset; finishRows applies the full WHERE. None → use the full scan.
 def pointLookup(dbBytes: ByteSlice, stmt: SelectStmt): Option[Either[String, List[List[SqliteValue]]]] =
   if stmt.joins.nonEmpty then None
-  else extractColEq(stmt.where) match
-    case None => None
-    case Some(colV) =>
-      tableContext(dbBytes, stmt.table) match
-        case Left(_) => None
-        case Right(ctx) =>
-          val db = ctx._1
-          val root = ctx._2
-          val colNames = ctx._3
-          val pageSize = ctx._4
-          val ipkIdx = tableIpkIndex(db, stmt.table)
-          val col = upperStr(colV._1)
-          val isRowidCol = col == "ROWID" || (ipkIdx >= 0 && col == upperStr(nthName(colNames, ipkIdx)))
-          if isRowidCol then longOfValue(colV._2) match
-            case Some(k) => rowidSeekResult(dbBytes, db, root, pageSize, colNames, stmt, k)
-            case None => None
-          else indexForColumn(db, stmt.table, colV._1) match
-            case None => None
-            case Some(idx) => indexSeekResult(dbBytes, db, root, pageSize, colNames, stmt, idx._1, idx._2, colV._2)
+  else
+    val conds = indexableConds(stmt.where)
+    if conds.isEmpty then None
+    else tableContext(dbBytes, stmt.table) match
+      case Left(_) => None
+      case Right(ctx) =>
+        val db = ctx._1
+        val root = ctx._2
+        val colNames = ctx._3
+        val pageSize = ctx._4
+        chooseSeek(dbBytes, db, root, pageSize, colNames, stmt, tableIpkIndex(db, stmt.table), conds)
 
 /** Execute an already-built SelectStmt against a database image (the typed-SQL surface entry —
  *  skips tokenize/parse and runs the same executor path queryImage's tail uses). Tries a rowid

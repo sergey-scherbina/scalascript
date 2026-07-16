@@ -559,11 +559,19 @@ private[interpreter] object BuiltinsRuntime:
       "sqrt"  -> interp.globals("math.sqrt"),
       "abs"   -> interp.globals("math.abs"),
       "pow"   -> interp.globals("math.pow"),
+      "max"   -> interp.globals("math.max"),
+      "min"   -> interp.globals("math.min"),
       "floor" -> interp.globals("math.floor"),
       "ceil"  -> interp.globals("math.ceil"),
       "round" -> interp.globals("math.round"),
       "Pi"    -> interp.globals("math.Pi"),
       "E"     -> interp.globals("math.E")
+    ))
+
+    // `Integer` object so `Integer.parseInt(s[, radix])` works via field dispatch
+    // (the `.toInt` string method takes no radix, so this is the way to parse hex/binary).
+    interp.globals("Integer") = Value.InstanceV("Integer", Map(
+      "parseInt" -> interp.globals("Integer.parseInt")
     ))
 
     // v1.17.x — oauth namespace: standalone OAuth 2.1 Authorization Server.

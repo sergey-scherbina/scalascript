@@ -200,7 +200,7 @@ lazy val v2JsBackend = project
 // the legacy SwiftUI View emitter.
 lazy val v2SwiftBackend = project
   .in(file("v2/backend/swift"))
-  .dependsOn(v2Core, v2FrontendBridge % Test)
+  .dependsOn(v2Core)
   .settings(
     name := "scalascript-v2-swift-backend",
     libraryDependencies += scalatestTest,
@@ -208,8 +208,7 @@ lazy val v2SwiftBackend = project
   )
 
 // ScalaScript 2.1 standard-tier plugin SPI and the first core-free providers.
-// These projects depend only on the v2 runtime graph; the compatibility
-// NativeImpl/PluginValue adapter remains isolated in v2PluginBridge.
+// These projects depend only on the v2 runtime graph.
 lazy val v2NativePluginSpi = project
   .in(file("v2/plugin-spi"))
   .dependsOn(v2Core, v2PluginCapabilityProfile)
@@ -458,45 +457,10 @@ lazy val v2NativeSwiftPlugin = project
     scalacOptions ++= Seq("-deprecation", "-feature"),
   )
 
-lazy val v2PluginBridge = project
-  .in(file("v2/plugin-bridge"))
-  // backendInterpreterServer: the REAL web server (route/serveAsync/stop) is
-  // driven from the v2 bridge — Phase-3 `run --v2` must serve for real.
-  .dependsOn(v2Core, backendSpi, valueData, core, backendInterpreterServer,
-    loggerEffectPlugin, stateEffectPlugin, randomEffectPlugin,
-    clockEffectPlugin, envEffectPlugin, retryEffectPlugin, cacheEffectPlugin,
-    httpPlugin, sqlPlugin, frontendPlugin, wsPlugin, fetchPlugin, contentPlugin,
-    cryptoPlugin, uuidPlugin, mcpPlugin, streamsPlugin, authPlugin, osPlugin, oauthPlugin,
-    nfcPlugin, pdfPlugin, jsonPlugin, actorsPlugin, mimePlugin, smtpPlugin, fsPlugin, yamlPlugin,
-    pwaPlugin, markupCore, backendInterpreter,
-    paymentsPlugin, paymentsBankRails, paymentsPix)
-  .settings(
-    name := "scalascript-v2-plugin-bridge",
-    scalacOptions ++= Seq("-deprecation", "-feature"),
-    libraryDependencies ++= Seq(scalatestTest),
-  )
-
-// ── v2 frontend bridge — scalameta AST → Core IR converter (T1.1) ────────────────
-// Converts output of the v1 pipeline (scalameta AST from parser+typer+linker)
-// to v2 Core IR so ANY .ssc program can run on the v2 VM/backends.
-// Depends on: v2Core (ssc.Term/Const/Program), core (scalameta + v1 pipeline types).
-lazy val v2FrontendBridge = project
-  .in(file("v2/frontend-bridge"))
-  // graphPlugin is a Test-only dep: the graph-* conformance cases (graph-edge-display)
-  // exercise Graph.putVertex/putEdge, which register via ServiceLoader (PluginBridge.loadAll).
-  // Without the plugin on the test classpath those ops stay unperformed (raw Op), so the
-  // case produced no StoredEdge. The assembled CLI already bundles it.
-  // v2NativePluginSpi (compile): NativePluginHost for the `run-ir-native` audit mode.
-  // v2NativeReactivePlugin (Test): puts the reactive NativePlugin on the test classpath so
-  // run-ir-native's ServiceLoader can load it — the accurate native-production plugin mirror.
-  .dependsOn(v2Core, v2PluginBridge, v2JvmBytecode, core, v2NativePluginSpi, graphPlugin % Test,
-    v2NativeReactivePlugin % Test, runtimeServerJvmFast % Test)
-  .settings(
-    name := "scalascript-v2-frontend-bridge",
-    scalacOptions ++= Seq("-deprecation", "-feature"),
-    libraryDependencies ++= Seq(scalatestTest,
-      "com.h2database" % "h2" % "2.2.224" % Test),  // sql fenced-block conformance
-  )
+// (v2/plugin-bridge and v2/frontend-bridge — the scalameta FrontendBridge tier —
+// were removed once the Swift toolchain and all `run --v2`/`run-js --v2`/`--bytecode`
+// paths moved to the native ssc1 front. The native path uses v2NativePluginSpi, not
+// the v1 Backend SPI adapter.)
 
 // ── value-data — shared pure-data scalar leaves (value-unification, scalars-only) ──
 // A leaf module (depends on nothing) holding `enum DataValue` — the host-neutral scalar
@@ -1487,7 +1451,16 @@ lazy val cli = project
   // cluster tests (which spawn `java -jar ssc.jar` nodes) died with
   // "runActors requires the actors plugin" — actorsPlugin was staged for
   // installBin but missing here.
-  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendRust, backendInterpreter, backendInterpreterServer, runtimeServerJvmFast, backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap, frontendCore, graphPlugin, deployPlugin, httpPlugin, wsPlugin, contentPlugin, frontendPlugin, fetchPlugin, streamsPlugin, actorsPlugin, v2FrontendBridge, v2JvmBytecode, v2JsBackend, v2SwiftBackend, v2NativePluginSpi, v2NativeHostPlugin, v2NativeCryptoPlugin, v2NativeOsPlugin, v2NativeFsPlugin, v2NativeJsonPlugin, v2NativeHttpFastPlugin, v2NativeSqlPlugin, v2NativeUiPlugin, v2NativeStateEffectPlugin, v2NativeEffectRunnersPlugin, v2NativeStorageEffectPlugin, v2NativeReactivePlugin, v2NativeYamlPlugin, v2NativeContentPlugin, v2NativeDatasetPlugin, v2NativeGeneratorPlugin, v2NativeActorsPlugin, v2NativeDistributedPlugin, v2NativeGraphPlugin, v2NativeOpticsPlugin, v2NativePdfPlugin, v2NativeNfcPlugin, v2NativeMcpPlugin, v2NativeGraphRdf4jPlugin, v2NativeSwiftPlugin)
+  .dependsOn(core, interop, backendJvm, backendJs, backendNode, backendScalajs, backendWasm, backendRust, backendInterpreter, backendInterpreterServer, runtimeServerJvmFast, backendScalaSource, backendHtml, backendCss, backendSpark, backendKafkaStreams, backendFlink, backendDap, frontendCore, graphPlugin, deployPlugin, httpPlugin, wsPlugin, contentPlugin, frontendPlugin, fetchPlugin, streamsPlugin, actorsPlugin,
+    // Plugins that formerly reached the CLI transitively through v2FrontendBridge →
+    // v2PluginBridge. That bridge is gone, so the v1 interpreter's std.* plugins must
+    // be DIRECT cli deps (installBin stages bin/lib/jars from cli's fullClasspath).
+    sqlPlugin, cryptoPlugin, uuidPlugin, mcpPlugin, authPlugin, osPlugin, oauthPlugin,
+    nfcPlugin, pdfPlugin, jsonPlugin, mimePlugin, smtpPlugin, fsPlugin, yamlPlugin,
+    pwaPlugin, markupCore, paymentsPlugin, paymentsBankRails, paymentsPix,
+    loggerEffectPlugin, stateEffectPlugin, randomEffectPlugin, clockEffectPlugin,
+    envEffectPlugin, retryEffectPlugin, cacheEffectPlugin,
+    v2JvmBytecode, v2JsBackend, v2SwiftBackend, v2NativePluginSpi, v2NativeHostPlugin, v2NativeCryptoPlugin, v2NativeOsPlugin, v2NativeFsPlugin, v2NativeJsonPlugin, v2NativeHttpFastPlugin, v2NativeSqlPlugin, v2NativeUiPlugin, v2NativeStateEffectPlugin, v2NativeEffectRunnersPlugin, v2NativeStorageEffectPlugin, v2NativeReactivePlugin, v2NativeYamlPlugin, v2NativeContentPlugin, v2NativeDatasetPlugin, v2NativeGeneratorPlugin, v2NativeActorsPlugin, v2NativeDistributedPlugin, v2NativeGraphPlugin, v2NativeOpticsPlugin, v2NativePdfPlugin, v2NativeNfcPlugin, v2NativeMcpPlugin, v2NativeGraphRdf4jPlugin, v2NativeSwiftPlugin)
   // Frontend backends — derived from allFrontends registry (arch-build-registry Phase 4)
   .dependsOn(allFrontends.map(f => ClasspathDependency(f.project, None)): _*)
   .settings(
@@ -4711,7 +4684,7 @@ lazy val root = project
     v2NativeContentPlugin, v2NativeDatasetPlugin, v2NativeGeneratorPlugin, v2NativeActorsPlugin,
     v2NativeDistributedPlugin, v2NativeGraphPlugin, v2NativeOpticsPlugin, v2NativePdfPlugin,
     v2NativeNfcPlugin, v2NativeMcpPlugin, v2NativeGraphRdf4jPlugin, v2NativeSwiftPlugin,
-    v2PluginBridge, v2FrontendBridge, v2JvmBytecode, v2JsBackend, v2SwiftBackend,
+    v2JvmBytecode, v2JsBackend, v2SwiftBackend,
     valueData, backendSpi, pluginApi, ir, logger, yaml, uniml, unimlJs, unimlJson, unimlJsonJs, unimlXml, unimlXmlJs, unimlYaml, unimlYamlJs, unimlMarkdown, unimlMarkdownJs, unimlMarkdownBridge, core, scala3ControlApi, interop, testUtils, pluginHost, wireCore,
 
     runtimeServerCommon, runtimeServerSpi, runtimeServerJvm,

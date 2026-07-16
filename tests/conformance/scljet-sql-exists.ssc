@@ -1,0 +1,45 @@
+---
+name: scljet-sql-exists
+description: SclJet correlated [NOT] EXISTS subquery (references the outer row); matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet correlated EXISTS
+
+`WHERE [NOT] EXISTS (subquery)` where the subquery references the outer table's columns
+(`t2.fk = t1.id`). Unlike the non-correlated subquery pre-pass, this is evaluated per outer row:
+`substituteOuterRefs` replaces the qualified outer references (`t1.id`) with that row's value (a bound
+literal token), and the subquery runs against the open database — true iff it returns any row.
+Combines with other predicates (`name > 'a' AND EXISTS …`) and aggregates. A `t.col` qualifier is now
+resolved in single-table queries too (dropped to the bare column). Every result matches reference
+sqlite3 (verified out-of-band); locked across `[int, js]`.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, executeMutation, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def apply(db: ByteSlice, sql: String): ByteSlice =
+  executeMutation(db, sql) match
+    case Left(m) =>
+      println(sql + " => ERR:" + m)
+      db
+    case Right(next) => next
+
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "t1", "CREATE TABLE t1(id INTEGER PRIMARY KEY, name TEXT)",
+  List(List(SqlInteger(9L), SqlText("z")))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db0) =>
+    val d1 = apply(db0, "DELETE FROM t1")
+    val d2 = apply(d1, "INSERT INTO t1 VALUES (1,'a'),(2,'b'),(3,'c')")
+    val d3 = apply(d2, "CREATE TABLE t2(fk INTEGER, tag TEXT)")
+    val db = apply(d3, "INSERT INTO t2 VALUES (1,'x'),(1,'y'),(3,'z')")
+    show(db, "SELECT id, name FROM t1 WHERE EXISTS (SELECT 1 FROM t2 WHERE t2.fk = t1.id) ORDER BY id")
+    show(db, "SELECT id, name FROM t1 WHERE NOT EXISTS (SELECT 1 FROM t2 WHERE t2.fk = t1.id) ORDER BY id")
+    show(db, "SELECT id FROM t1 WHERE name > 'a' AND EXISTS (SELECT 1 FROM t2 WHERE t2.fk = t1.id) ORDER BY id")
+    show(db, "SELECT COUNT(*) FROM t1 WHERE EXISTS (SELECT 1 FROM t2 WHERE t2.fk = t1.id)")
+```

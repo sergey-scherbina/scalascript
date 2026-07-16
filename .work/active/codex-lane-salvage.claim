@@ -1,0 +1,11 @@
+claim: codex-lane-salvage
+branch: feature/codex-lane-salvage
+agent: opus (orchestrator session 0716)
+heartbeat: 2026-07-16T10:36:21Z
+status: in-progress
+what: adjudicate 3 orphaned codex branches (js-control-direct 1b18503d4, scala3-control-macros
+      e34b81733, ssc-api-descriptor-v3-slice-b 28c2e959c). Their agents died >25h ago mid-review,
+      each frozen on "no push before APPROVE" from a reviewer that no longer exists. Verify the
+      claimed gates by RE-RUNNING them, merge what is truly green, record the rest. SPRINT C1-C4.
+supersedes: the three stale claims javascript-typescript-control-direct / scala3-control-macros /
+      ssc-api-descriptor-v3-slice-b (released in this same commit, agents dead since 07-15T08:20).
