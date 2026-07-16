@@ -4,6 +4,26 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-16 — P6.5 X1: the literal self-compilation fixed point for a ScalaScript subset
+
+`specs/v2.2-p6.5-fsub.ssc` (131 defs, 208 lines) is a compiler for a ScalaScript subset S, **written in
+S**, emitting Core IR **byte-identical to the reference front** (`ssc1-front` + `ssc1-lower`) — and it
+compiles its own source. `specs/v2.2-p6.5-fsub.sh --self` → **65 ok / 0 FAIL**:
+
+- 61-program differential corpus: `F(P) == ssc1-front(P)` byte-identical for every P;
+- `F(F_src) == ssc1-front(F_src)` byte-identical (61750 B);
+- C1, the self-produced compiler, is byte-identical to the reference **and** its IR runs → 120;
+- **`stage1 == stage2`, byte-identical.**
+
+No quine (the source is read from a FILE via the ssc0 driver); escape-free (the `"` char is the `dq`
+parameter). Distinct from P6.6's C_min, which reached a fixpoint for its own toy language L emitting its
+own bare-prim style: X1's object language is **real ScalaScript** and its oracle is **byte-identity with
+the trusted front** — including `ssc1-lower`'s constant 7258-byte prelude and both of its literal-driven
+specialisations (`+`→`++` when either side is a str-expr; `.length`→`slen` vs `__method__`).
+
+Boundary: S is the subset F is itself written in. Case classes, given/summon, enums, extensions, lambdas,
+comprehensions, `var`/`while` and interpolation remain — corpus growth against the same oracle.
+
 ## 2026-07-16 — scljet: `INTEGER PRIMARY KEY` is a rowid alias (interop with real SQLite)
 
 Fixed `scljet-ipk-rowid-alias-not-substituted`: scljet read `0` for every

@@ -2138,9 +2138,12 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
           1 …(app (global f)…))) + main→f(5); the emitted Core IR runs to **120**. Every compiler capability
           now proven in the subset (lex/precedence-parse/eval/closures/lower-text/lower-executable/functions+
           recursion+local-slots+global-refs+application). **Corpus 79 programs, 0 fail.**
-  - [ ] **P6.5 literal fixed point (follow-on, non-gate)** — the whole ScalaScript-subset compiler, written
-        in the subset, compiling itself. No capability/design question remains (every construct + Core IR form
-        is proven runnable in the subset). The remaining work is bounded MECHANICAL BREADTH, tracked here:
+  - [~] **P6.5 literal fixed point (follow-on, non-gate)** — the whole ScalaScript-subset compiler, written
+        in the subset, compiling itself. **X1 CLOSED 2026-07-16: the fixed point HOLDS** (`stage1 == stage2`,
+        byte-identical, on a compiler written in the subset it compiles) — see X1f + the HONEST BOUNDARY note.
+        Still `[~]` and not `[x]`: the subset S that `F` covers is the one `F` is written in, so the remaining
+        breadth (case classes, given/summon, enums, extensions, lambdas, comprehensions, `var`/`while`,
+        interpolation) is corpus growth against the same exact oracle. No capability/design question remains:
     - [~] **F1 — subset lexer in the subset.** ✓ *Core landed 2026-07-14* (538b8e2c6): `selfhost-lexer` ports
           SpikeLex's core — whitespace-skip, multi-char identifiers + keyword classification, integers,
           operator runs (+-*/%<>=!&|^~:), single-char punctuation → a rendered `tag:lexeme` token stream,
@@ -2160,10 +2163,11 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
           emitted Core IR runs to factorial(5) = 120. Remaining breadth: multiple defs + arbitrary arity +
           proper slot allocation (env → local i); case-class ctor/Mirror/`_sel_`/`__regfields__`; given/summon
           dict-passing; enum ctor path; extension registration; the full `ssc1-lower` walk.
-    - [ ] **X1 — the fixpoint.** Feed the F1+F2+F3+L1 pipeline (compiled by the spike, running on the VM) its
-          OWN source; require the Core IR it produces for a program P to be byte-identical to what the spike +
-          `ssc1-lower` produce for P (the differential oracle stays the guard); then feed it its own source →
-          `stage1 == stage2` fixed point. `scalac` remains the outer oracle.
+    - [x] **X1 — the fixpoint ✓ DONE 2026-07-16** (32b46f78d). `F` = `specs/v2.2-p6.5-fsub.ssc` (131 defs)
+          — a compiler for subset S, written in S, whose Core IR is byte-identical to `ssc1-front` +
+          `ssc1-lower`, compiling its OWN source. `specs/v2.2-p6.5-fsub.sh --self` → **65 ok / 0 FAIL**:
+          61-program corpus byte-identical, `F(F_src) == ssc1-front(F_src)` (61750 B), C1 faithful + runs
+          → 120, **`stage1 == stage2` byte-identical**. Scope caveat in the HONEST BOUNDARY note below.
       - **X1 architecture (established 2026-07-16 by MEASUREMENT — read this before continuing).** Three
         facts that were NOT written down before and that shape the whole remaining port:
         1. **The fixpoint is a COROLLARY of self byte-identity, not a separate goal.** If `F(P) ≡
@@ -2194,20 +2198,55 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
         - Artifact layout follows C_min's blessed pattern (single source of truth, harness reads the file),
           NOT the Scala-string-literal-in-`ScalaSpikeSpec` pattern that F1/F2 used — a 1–3k-line compiler
           cannot live in a test string, and `ScalaSpike.scala` is owned by the newfront agent.
-      - [ ] **X1a — architecture + harness + prelude-exact minimal `F`.** `specs/v2.2-p6.5-fsub.ssc` (the
-            subset compiler, in the subset) + `specs/v2.2-p6.5-fsub.sh` (differential harness, ssc1-front
-            bootstrap, no sbt — same shape as `v2.2-p6.6-fixpoint.sh`). Scope: int literals, `+ - * /`
-            via `__arith__`, parens, `def main(): Int = e`, and the **exact 7258-B prelude**. Gate:
-            `F(P)` byte-identical to `ssc1-front(P)` on a small corpus. Proves the architecture end-to-end.
-      - [ ] **X1b — multi-def, params/locals, calls, `if`/`then`/`else`, recursion.** Slot allocation
-            (env → reverse-indexed `(local i)`), `(app (global f) …)`, `(lam N …)`.
-      - [ ] **X1c — strings.** `dq` splicing, `(lit (str …))`, `.charAt`/`.length`/`.substring`, `==`,
-            the literal-operand `++` special case.
-      - [ ] **X1d — `match`.** Let-bound scrutinee + slot shift, `Cons`/`Nil`/tuple(2 arms)/int-lit/
-            wildcard arms.
-      - [ ] **X1e — `val`-blocks** → `(let (E) BODY)`.
-      - [ ] **X1f — the fixpoint.** Add `F_src` itself to the differential corpus; when it is byte-
-            identical, run `stage1 == stage2` to confirm the corollary holds in practice.
+      - [x] **X1a — architecture + harness + prelude-exact minimal `F` ✓ Landed 2026-07-16** (514fc72a3):
+            `specs/v2.2-p6.5-fsub.ssc` + `specs/v2.2-p6.5-fsub.sh` (ssc1-front bootstrap, no sbt/spike).
+            Int literals, `+ - * /` via `__arith__` + a QUOTED symbol, parens, `def main(): Int = e`,
+            `//` comments, and the exact 7258-B prelude as a dq-spliced string constant. **10/10
+            byte-identical.** The oracle caught the first bug on its first run: the quote sitting ON a
+            prelude chunk boundary was dropped — exactly 4 bytes, one per boundary.
+      - [x] **X1b — params/locals, calls, `if`, comparisons, recursion ✓ Landed 2026-07-16** (d2d3ca001):
+            env with the innermost binding at the HEAD, so a name's position IS its `(local i)` index —
+            this reproduces the reference's reverse param indexing for free. `< > <= >=` also route
+            through `__arith__`+quoted symbol; `==`→`__eq__`; `!=`→negated `__eq__`; `&&`/`||` desugar to
+            `if`; `true`/`false`→`(lit true/false)`. **26/26.**
+      - [x] **X1c — strings + the two literal-driven specialisations ✓ Landed 2026-07-16** (f98604602):
+            **43/43.** Both subtleties were read out of `ssc1-lower` and confirmed by probe, not guessed:
+            (1) `+`→`++` iff either RESOLVED side is a str-expr (`ssc1-lower:2214` "KC5-micro"; str
+            literal / `i->str` / `sslice` / `inf ++`) — so `a+b` on String *params* stays `+`;
+            (2) `.length` is receiver-dependent — `slen` for a literal-ish receiver, `__method__`
+            otherwise, and a `++` receiver takes the `__method__` path because `isConcatInf` is tested
+            FIRST (`ssc1-lower:1577`). `.charAt`→`scodeAt`/`.substring`→`sslice` are unconditional.
+            F emits canonically, so a receiver's class is recoverable from its emitted PREFIX.
+      - [x] **X1d — `match`, ctors, tuples, cons-infix ✓ Landed 2026-07-16** (1c7654252): **57/57.**
+            Scrutinee let-binding + the resulting slot shift; int-literal match → an if-chain (not a
+            `match`); tuple pattern → TWO arms (Pair+Tuple2); `case _` → `(default …)` outside the arm
+            list; `::` right-assoc. Two real bugs the oracle localised at once: a paren slip lowered
+            three defs to `(global _err)` in the entry seq (F0 still *bootstrapped*, to 58 KB, and only
+            crashed at run time — grepping `_err` found it instantly); and a **tuple param type**
+            `def g(p: (Int, Int))` came out `(lam 2)` not `(lam 1)` because the type-skipper stopped at
+            the `,` INSIDE the type. Type skipping now tracks paren depth.
+      - [x] **X1e — `val`-blocks ✓ Landed 2026-07-16** (96a004ba6): `{ val x = e  BODY }` → `(let (e)
+            BODY)`, one nested let per val. **62/62.**
+      - [x] **X1f — THE FIXPOINT ✓ Landed 2026-07-16** (32b46f78d). `specs/v2.2-p6.5-fsub.sh --self` →
+            **65 ok / 0 FAIL**, personally observed:
+            - 61-program differential corpus: `F(P) == ssc1-front(P)` **byte-identical** for every P;
+            - **`F(F_src) == ssc1-front(F_src)` byte-identical (61750 B)** — F compiles its OWN source;
+            - C1 (the self-produced compiler) is byte-identical to the reference AND its IR runs → 120;
+            - **`stage1 == stage2`, byte-identical, 61750 B.**
+            F is 131 defs / 208 lines of subset. No quine (source read from a FILE via the ssc0 driver);
+            escape-free (`dq` parameter). The last shape needed was the **entry clause**: F's own source
+            is main-less, and the reference emits `(entry (lit unit))` for a main-less program — making
+            that faithful is what closed self byte-identity, and it then exposed that wrapping stage1
+            must REPLACE the entry, not just splice the main def in, or C1 never runs.
+      - **HONEST BOUNDARY of the landed X1 — read before claiming P6.5 done.** The fixed point holds for
+        the subset **S that F is itself written in** (the same bootstrap discipline that kept C_min at 84
+        defs), not for all of ScalaScript. `F(P) == ssc1-front(P)` is proven on the 61-program corpus, and
+        on `F_src`. Still out, unchanged in kind (each is corpus growth against the same exact oracle, no
+        new design question): **case classes** (ctor/Mirror/`_sel_`/`__regfields__`), **given/summon**
+        dict-passing, **enums**, **extensions**, **lambdas**, **for-comprehensions**, **`var`/`while`**,
+        string **interpolation**, and the **List-variable registry** that dispatches `.length` to
+        `_sel_length` (`ssc1-lower:233,301` — F has no registry, so a `List` local's `.length` would
+        diverge; F's own source avoids it by using a recursive `dlen`).
     - Sequencing: F1 → F2/F3 → L1 → X1. Each stage is differential-tested against the spike/`ssc1-front` on
       the growing corpus (same harness). Estimated ~1–3k lines of subset code; multi-session but purely
       mechanical — no unknowns. Every primitive it needs (strings incl. charAt/length/concat/eq/substring,

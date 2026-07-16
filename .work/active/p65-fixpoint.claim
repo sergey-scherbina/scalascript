@@ -1,14 +1,19 @@
 claim: p65-fixpoint
 branch: feature/p65-fixpoint
 agent: claude (opus, session 0716)
-heartbeat: 2026-07-16T14:20:00Z
-status: in-progress
-what: P6.5 literal fixed point — X1. The ScalaScript-subset compiler, written in the subset,
-      emitting Core IR byte-identical to ssc1-front, ultimately compiling its own source.
-scope (files I own): specs/v2.2-p6.5-fsub.ssc, specs/v2.2-p6.5-fsub.sh, specs/v2.2-p6.5-fixpoint.md,
-      the P6.5 block in SPRINT.md. I do NOT touch ScalaSpike.scala (newfront agent owns it),
-      tests/e2e/*, install.sh, build.sbt.
-key finding (2026-07-16): X1 == "extend the differential corpus until it contains F_src" — the
-      stage1==stage2 fixpoint is a COROLLARY of self byte-identity, not separate work. ssc1-lower's
-      prelude is a CONSTANT 7258 B blob (sha 422e0067...), so F emits it as a string constant.
-      Full measured shape table in SPRINT.md under "X1 architecture".
+heartbeat: 2026-07-16T15:40:00Z
+status: X1 CLOSED — the fixpoint holds. Continuing with breadth.
+what: P6.5 literal fixed point. F = specs/v2.2-p6.5-fsub.ssc — a compiler for a ScalaScript
+      subset S, written in S, Core IR byte-identical to ssc1-front, compiling its own source.
+DONE + on main: X1a..X1f (514fc72a3, d2d3ca001, f98604602, 1c7654252, 96a004ba6, 32b46f78d).
+      `specs/v2.2-p6.5-fsub.sh --self` -> 65 ok / 0 FAIL: 61-program corpus byte-identical,
+      F(F_src) == ssc1-front(F_src) (61750 B), C1 faithful + runs -> 120, stage1 == stage2.
+NEXT (each is corpus growth against the same exact oracle — no design question):
+      case classes (ctor/Mirror/_sel_/__regfields__), given/summon dict-passing, enums,
+      extensions, lambdas, for-comprehensions, var/while, string interpolation, and the
+      List-variable registry that dispatches .length to _sel_length (ssc1-lower:233,301).
+scope (files I own): specs/v2.2-p6.5-fsub.{ssc,sh}, the P6.5 block in SPRINT.md.
+      NOT ScalaSpike.scala (newfront agent), tests/e2e/*, install.sh, build.sbt.
+HOW TO RUN: SSC_JAR=<jar> V2_DIR=<repo>/v2 ./specs/v2.2-p6.5-fsub.sh --self
+      (jar: scala-cli --power package v2/src --assembly -o /tmp/ssc.jar — the thin
+       bin/lib/ssc.jar has no run-ir)

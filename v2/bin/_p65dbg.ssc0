@@ -1,0 +1,13 @@
+import "../lib/ssc1-lower.ssc0"
+def app2 = (xs, ys) => match xs { case Nil => ys case Cons(h, t) => Cons(h, app2(t, ys)) }
+def prim0 = (nm) => Pair("prim", Pair(nm, Nil))
+def prim1 = (nm, a) => Pair("prim", Pair(nm, Cons(a, Nil)))
+def consPat = Pair("cpat", Pair("Cons", Cons(Pair("vpat", "path"), Cons(Pair("vpat", "rest"), Nil))))
+def readCompile = (dqArg) => prim1("io.print", mkApp(mkVar("compile"), Cons(prim1("utf8->str", prim1("io.readFile", mkVar("path"))), Cons(dqArg, Nil))))
+def fileMain = (dqArg) => mkDef("main", Nil, Pair("match", Pair(prim0("io.args"), Cons(Pair(consPat, readCompile(dqArg)), Nil))))
+def main = () =>
+  let srcPath = match #io.env("FSUB_SRC") { case Some(p) => p case None => "" } in
+  let fsubSrc = #utf8->str(#io.readFile(srcPath)) in
+  let dqArg = mkStr(#sfromCodes(Cons(34, Nil))) in
+  let prog = app2(parse(fsubSrc), Cons(fileMain(dqArg), Nil)) in
+  #io.print(#coreir.encode(lowerProg(prog)))
