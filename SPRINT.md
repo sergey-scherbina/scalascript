@@ -68,20 +68,6 @@ substantial and self-reported green:
       valuable + what is broken in `BACKLOG.md` so the work is recoverable, and report it up.
 - [ ] **C4 — release the three stale claims** + remove the dead worktrees once adjudicated.
 
-## github-pages-site-finish — publish site/ via Actions (2026-07-16)
-
-Orphaned at the last step (claim heartbeat 2026-07-15T13:02). Everything is already on `main`:
-repo public, secret-scan clean, `site/` present (`index.html`, `favicon.svg`, `DEPLOY.md`).
-Pages is already configured API-side: `build_type: workflow`, `source: main /`, `https_enforced`,
-**but `status: null` — nothing has ever been published** because the publishing workflow does not exist.
-
-- [ ] **G1 — add `.github/workflows/pages.yml`** publishing `site/` (actions/upload-pages-artifact +
-      actions/deploy-pages; `pages: write` + `id-token: write` permissions). The 4 existing workflows
-      (`ci.yml`, `corpus-contract.yml`, `native-release.yml`, `registry-pages.yml`) are the style
-      reference — **check `registry-pages.yml` FIRST: it may already deploy Pages, in which case a second
-      deploying workflow would fight it** and the right move is to extend it instead.
-- [ ] **G2 — trigger, verify live URL** (`https://sergey-scherbina.github.io/scalascript/`), report it.
-
 ## new-self-hosting-front — a rational, self-hosting ScalaScript compiler front (2026-07-15, Sergiy)
 
 **Goal.** Replace the accreted `ssc0` front (`v2/lib/ssc1-front.ssc0` 3190 lines + `ssc1-lower.ssc0` 5359
@@ -503,19 +489,229 @@ every later compiler/kernel change re-runs the literal fixed point.
   `specs/javascript-typescript-bidirectional-control.md`. Promise/async/generators
   remain adapters or barriers; I64 uses `bigint`.
   - [x] **Explicit local control slice + two review rounds (2026-07-15)** — the
-    compiler-independent `@scalascript/control` leaf now rejects inferred/explicit
-    union owners (`5b5421880`), publishes a canonical non-broken contract link
-    (`1c2e150c3`, regression `6f19a9538`), and retains the earlier owner, prompt,
-    WeakMap/constructor-authority, and Apache-license hardening (`0d0ffcfd3`).
-    Package tests pass 31/31 including all 17 applicable catalog vectors;
-    TypeScript, 1,000,000-bind/state and 100,000-operation stress, exact five-file
-    pack (11,059/42,353 bytes), markdown/node checks, and fresh affected conformance
-    5/5 are green after heartbeat rebase. Spec evidence is `b81c526e0`; the two
-    second-review bugs remain `fixed`, not `done`, pending final read-only
-    confirmation.
+    compiler-independent `@scalascript/control` leaf is reachable on `origin/main`
+    as landing `cf8f96200`. It rejects inferred/explicit union owners, publishes a
+    canonical non-broken contract link, and includes the owner, prompt,
+    WeakMap/constructor-authority, and Apache-license hardening. Package tests pass
+    31/31 including all 17 applicable catalog vectors; TypeScript,
+    1,000,000-bind/state and 100,000-operation stress, exact five-file pack
+    (11,059/42,353 bytes), markdown/node checks, and affected conformance 5/5 are
+    green. Independent rereview confirmed both second-review bugs closed; their
+    `BUGS.md` entries are `done`.
   - [ ] **Remaining host/runner profile** — generated facades and typed value/call
     bridges, managed source transformation and callback policies, mixed-language
     SCC dispatch, exact and portable runners, and shared lane wiring.
+    - [ ] **T1 — closed synchronous lexical direct transform (`javascript-typescript-control-direct`).**
+      Specify and ship the zero-runtime-side-effect package `v2/host/js/control-direct`
+      (`@scalascript/control-direct`, transformer subpath `/transform`, CLI
+      `ssc-control-tsc`) that lowers the bounded grammar
+      `direct.reset(prompt, () => { ... const/let x = direct.shift(prompt, body) ... })`
+      into the existing explicit `@scalascript/control` `Eff/reset/shift/flatMap` ABI.
+      This slice is deliberately local and closed (`Fx = never`): preserve exact-import
+      ownership, lexical shadowing, nearest resets, true shift, prompt isolation,
+      prefix-once/suffix-per-resume, sequential markers, and shared local mutable heap;
+      reject all asynchronous/generator and capture-barrier shapes with stable
+      `JS_DIRECT_*` codes and source spans. Use the TypeScript compiler API as the
+      established syntax/binding authority when it is already available, keep the
+      published package free of production dependencies, and leave descriptors,
+      CoreIR/frontends, runners, lane registration, and the rest of the host profile
+      open. Resume from `specs/javascript-typescript-control-direct.md`; done when its
+      behavior checklist is verified, catalog 18/22/23/24 differentials and negative
+      syntax/import/source-map/type-diagnostic/package tests are green, the existing
+      explicit package remains 31/31 plus typecheck, exact npm packs are audited, and
+      affected `effect*,effects*` conformance passes. Keep code, docs, spec verification,
+      and bookkeeping in separate commits and require an independent read-only review
+      before integration.
+      - [x] **REJECT repair: forward/own lexical capture.** Frozen review snapshot
+        `f6fa34fac` emits a shift body outside the `.flatMap` frame that owns later
+        declarations, so a saved nested closure reading `const later = 42` throws
+        `ReferenceError`. Specify fail-closed ownership for every symbol declared by
+        the marker itself or its continuation suffix, detect uses recursively through
+        nested closures with checker symbol identity, and add forward/own/shadowing plus
+        declaration-initializer order regressions. Track in
+        `BUGS.md#js-control-direct-forward-lexical-capture`. Implemented in cumulative
+        repair `c19d42401`; marker-layer generalization is in `4c6b8e2a9`.
+      - [x] **Pre-rereview repair: prefix TDZ/outer-binding escape.** Cumulative
+        repair `c19d42401` checked only the shift body: a pure prefix read of a later block
+        binding is left outside the generated continuation and can resolve to an
+        outer name instead of throwing from the original TDZ (`99`/`141` reproduced,
+        no direct diagnostic). For each marker, scan its layer's prefix statements
+        plus shift body against own/later declaration symbols, ignoring type-only and
+        genuinely shadowed references; cover real `.js` with `checkJs: false` and
+        file-atomic ignored-diagnostic emit. Track in
+        `BUGS.md#js-control-direct-prefix-tdz-binding-escape`. Implemented and covered
+        by real-JavaScript plus type-only regressions in `4c6b8e2a9`.
+      - [x] **REJECT repair: preserve JavaScript marker declarations.** Lower each
+        accepted `const`/`let x = direct.shift(...)` to a collision-safe fresh resume
+        parameter followed by the original declaration kind initialized from that
+        parameter; do not use `x` itself as the callback parameter. Verify real `.js`
+        input under `allowJs: true, checkJs: false`, const assignment behavior, let
+        mutation, a fresh-name collision, and source maps. Track in
+        `BUGS.md#js-control-direct-js-marker-binding-semantics`. Implemented in
+        `c19d42401`.
+      - [x] **REJECT repair: file-wide intrinsic direct-eval barrier.** In every file
+        selected for transformation, reject direct `eval(...)` even at top level or in
+        nested closures and even through parentheses/`as`/non-null/type-assertion
+        wrappers; emit no JavaScript for that file. Normatively allow indirect eval and
+        `Function` as global-only JavaScript operations, then test each accepted and
+        rejected form with stable spans. Track in
+        `BUGS.md#js-control-direct-eval-capture-unsound`. Implemented in
+        `c19d42401`, with the selected-file closure completed by `4c6b8e2a9`.
+      - [x] **Pre-rereview repair: import-only direct eval.** Repair `c19d42401`
+        removes an unused named marker import even with no marker call, but gates eval
+        scanning on `filesWithMarkerCalls`; `eval("typeof direct")` therefore observes
+        a changed lexical environment. Gate intrinsic direct eval on every candidate
+        file rewrite (including import-only erasure), retain eval-free unused-import
+        removal, and prove diagnostic + file-atomic ignored-diagnostic emit. Track in
+        `BUGS.md#js-control-direct-import-only-eval-erasure`. Implemented and covered
+        by an executing import-only regression in `4c6b8e2a9`.
+      - [x] **REJECT repair: real installed npm bin.** Replace the raw
+        `import.meta.url === pathToFileURL(argv[1])` guard with deterministic realpath
+        entry detection, including missing/unreadable argv handling. Build a tarball,
+        install it in a fresh consumer, invoke exactly
+        `node_modules/.bin/ssc-control-tsc`, and prove successful emit plus non-zero
+        invalid-option failure. Track in `BUGS.md#js-control-direct-cli-symlink-noop`.
+        Implemented in `c19d42401`.
+      - [x] **REJECT repair: erase the build-time marker import safely.** Require every
+        value use of each exact named `direct` binding to be a successfully transformed
+        marker call; diagnose survivors. Remove only completed marker specifiers and an
+        import declaration only when it becomes empty, preserving unrelated bindings
+        and imports. Run emitted production JavaScript with control runtime installed
+        but no control-direct package. Track in
+        `BUGS.md#js-control-direct-marker-import-survives-emit`. Implemented in
+        `c19d42401`.
+      - [x] **REJECT repair: consumer-owned TypeScript resolution.** Resolve the CLI
+        compiler via Node `createRequire` from the explicit project/config directory or
+        cwd, never from the extracted tool store and never from a global fallback. The
+        packed installed-bin fixture keeps TypeScript only in consumer `node_modules`;
+        a twin fixture without it must fail actionably. Track in
+        `BUGS.md#js-control-direct-consumer-typescript-resolution`. Implemented in
+        `c19d42401`.
+      - [x] **REJECT repair: transparent marker wrappers.** Recursively unwrap only
+        parentheses, `as`, non-null, and type assertions for exact checker-symbol
+        ownership, covering `(direct).reset`, `direct!.reset`, and
+        `(direct as typeof direct).reset` plus corresponding shift/negative forms.
+        Emitted JavaScript must contain no owned marker call. Track in
+        `BUGS.md#js-control-direct-wrapped-marker-receiver-missed`. Implemented in
+        `c19d42401`.
+      - [x] **REJECT repair: supported TypeScript API gate.** Pin the accepted compiler
+        API line in the feature contract, enforce it before programmatic/CLI transform,
+        and test both TypeScript 5.9.x acceptance and deterministic rejection outside
+        that line without adding a bundled/production compiler. Track in
+        `BUGS.md#js-control-direct-typescript-version-ungated`. Implemented in
+        `c19d42401`.
+      - [x] **Rereview repair: shorthand value-symbol capture.** Frozen reviewed HEAD
+        `c4377fabb` asks `checker.getSymbolAtLocation` for an identifier inside a
+        `ShorthandPropertyAssignment`, which returns the property symbol rather than
+        the referenced lexical value. A shift body such as `({ later }).later` can
+        therefore capture a suffix `const later = 42` and fail at runtime. Specify and
+        centralize runtime-value symbol resolution with
+        `checker.getShorthandAssignmentValueSymbol`, preserve ordinary/shadowed/type-
+        only identities, and cover shorthand plus assignment-initializer syntax where
+        TypeScript exposes it. Track in
+        `BUGS.md#js-control-direct-shorthand-value-symbol-capture`. Implemented in
+        `ec95c4c65`; real-JavaScript property and assignment-initializer regressions
+        prove one stable capture diagnostic and unchanged ignored-diagnostic emit.
+      - [x] **Rereview repair: surviving marker shorthand/local exports.** Runtime
+        shorthand `{ direct }` and local exports `export { direct }` or
+        `export { direct as alias }` currently evade owned-marker value scanning; the
+        import may then be erased while emitted code keeps an unbound value/export.
+        Reuse one central runtime-value symbol resolver, including
+        `getExportSpecifierLocalTargetSymbol` for local export aliases, diagnose each
+        surviving owned value once as `JS_DIRECT_UNSUPPORTED`, and cancel every rewrite
+        in the file. Track in
+        `BUGS.md#js-control-direct-marker-shorthand-export-survivor`. Implemented in
+        `ec95c4c65`; shorthand/assignment and local/source export aliases each produce
+        exactly one file-atomic diagnostic.
+      - [x] **Rereview repair: erased type-only exports.** The fail-closed re-export
+        scan currently rejects valid erased forms: local
+        `export type { direct as Marker }`, direct
+        `export type { direct } from "@scalascript/control-direct"`, and inline
+        `export { type direct } from ...`. Specify these as type-only/non-runtime uses,
+        preserve their normal TypeScript erasure without a direct diagnostic, and add
+        positive tests alongside runtime export aliases and shadowing. Track in
+        `BUGS.md#js-control-direct-type-only-export-false-positive`. Implemented in
+        `ec95c4c65`; five local/source declaration/specifier spellings erase normally,
+        and a shadowed local runtime export remains ordinary.
+      - [x] **Fresh-rereview P1: mixed type-only marker imports must stay valid JavaScript.**
+        Exact reviewed HEAD `71ae452ea5` (current rebased equivalent `82aee139a`)
+        rewrites a mixed import such as
+        `import { direct, type DirectMarkerContractError as ErrorType } from
+        "@scalascript/control-direct"` after TypeScript has performed its normal
+        type erasure. Removing `direct` can leave `import { type ErrorType }`, which
+        the packed CLI reports as success but `node --check` rejects. Define separate
+        JavaScript/declaration channels: JavaScript rewriting discards type-only
+        specifiers while retaining ordinary runtime values; declaration emit observes
+        the original import. Prove both `verbatimModuleSyntax` modes through the real
+        packed CLI, JavaScript syntax validation, and emitted `.d.ts`. Track in
+        `BUGS.md#js-control-direct-mixed-type-import-invalid-js`. Implemented in
+        `fabad7d84`; both verbatim modes pass packed-CLI syntax, declaration, and
+        production-without-marker checks.
+      - [x] **Fresh-rereview P1: erased source exports must not retain a runtime module
+        link.** With `verbatimModuleSyntax: true`, specifier-level
+        `export { type direct as Marker } from "@scalascript/control-direct"` can emit
+        `export {} from "@scalascript/control-direct"`; production then resolves the
+        dev-only package and fails with `ERR_MODULE_NOT_FOUND`. Select exact-module
+        type-only source exports for JavaScript normalization, remove an empty linked
+        export, preserve mixed ordinary runtime specifiers, and leave declaration emit
+        unchanged. Cover aliases, mixed lists, both verbatim modes, packed CLI syntax,
+        production execution without the marker package, and `.d.ts`. Track in
+        `BUGS.md#js-control-direct-type-export-runtime-link`. Implemented in
+        `fabad7d84`; pure aliases lose the linked JavaScript export, mixed runtime
+        specifiers remain, and declaration emit retains both.
+      - [x] **Fresh-rereview P1: external `import = require` must follow marker import
+        ownership.** Under CommonJS/Node10,
+        `import markers = require("@scalascript/control-direct")` bypasses the existing
+        default/namespace-import fail-closed scan and can survive as a runtime require.
+        Detect exact external-module `ImportEqualsDeclaration` syntax, reject every
+        runtime form once with stable `JS_DIRECT_UNSUPPORTED`, and cancel the complete
+        JavaScript rewrite. Normatively allow `import type markers = require(...)`
+        because it is erased, while declaration emit remains TypeScript-owned. Cover
+        used and unused runtime forms, the erased type-only form, ignored-diagnostic
+        file atomicity, and the real packed CLI in CommonJS/Node10. Track in
+        `BUGS.md#js-control-direct-import-equals-bypass`. Implemented in `fabad7d84`;
+        runtime used/unused forms receive one stable diagnostic while type-only forms
+        emit no require edge and retain `.d.ts` under both verbatim modes.
+      - [x] **Fresh-rereview P1: the exact tarball must not publish repository-local
+        dependency edges.** Exact reviewed range `445f7faf7..d66ed988df` includes
+        `devDependencies["@scalascript/control"] = "file:../control"` inside the
+        eight-file tarball manifest. Extracting that tarball outside the repository
+        and running ordinary `npm install --ignore-scripts` creates a dangling local
+        control link (or otherwise depends on the absent sibling); importing it fails
+        with `ERR_MODULE_NOT_FOUND`. Specify a self-contained manifest: keep the
+        qualified TypeScript tool pin, forbid `file:`, `link:`, `workspace:`, absolute,
+        and relative-local dependency specifications in every dependency/tooling map,
+        and retain the no production/peer dependency decision. Add a regression that
+        reads `package/package.json` from the exact tarball, then extracts and installs
+        it at a clean boundary with no sibling. Move local control resolution to test
+        fixtures/TypeScript paths or test-created symlinks and regenerate the lock
+        mechanically. Track in
+        `BUGS.md#js-control-direct-packed-local-dev-dependency`. Implemented in
+        `9baf6d2bf`: the manifest/lock contain only TypeScript 5.9.3, local
+        compiler/runtime tests use explicit paths/symlinks, and the 39th package test
+        exact-packs, extracts, ordinary-installs, and self-imports without a sibling.
+      - [ ] **Repair-cycle closure.** After spec-first and code commits, update package
+        README/project docs, run direct package tests+typecheck+node checks+exact pack,
+        existing explicit control 31/31+typecheck, catalog positive/negative validators,
+        and `tests/conformance/run.sh --only 'effect*,effects*'`. Then fix stale explicit
+        control bookkeeping to reachable landing `cf8f96200`, mark its two confirmed
+        review bugs `done`, freeze a clean HEAD, and obtain a fresh independent APPROVE
+        before any push or claim release. All local gates and spec verification are
+        green at `abfcb03e6`: direct 35/35 and exact eight-file pack
+        (14,909/56,527 bytes), explicit control 31/31 and exact five-file pack,
+        catalog 26/9, negative validator 9/9, and conformance 5/5. The next fresh
+        review rejected exact `71ae452ea5` on three emit-channel P1s. Cumulative
+        repair `fabad7d84` on current base `6603e6c29` is fully green: direct 38/38 plus
+        exact eight-file pack (15,423/59,187 bytes), explicit control 31/31 plus
+        exact five-file pack (11,059/42,353 bytes), catalog 26/9, negative validator
+        9/9, and conformance 5/5. Only fresh independent APPROVE and subsequent
+        landing remained. The following fresh review rejected exact range
+        `445f7faf7..d66ed988df` on the packed local dev-dependency P1. Fourth repair
+        `9baf6d2bf` on current base `6603e6c29` is fully green: direct 39/39 plus
+        exact eight-file pack (15,618/59,636 bytes), explicit control 31/31 plus
+        exact five-file pack (11,059/42,353 bytes), catalog 26/9, negative validator
+        9/9, and conformance 5/5. Only fresh independent APPROVE and subsequent
+        landing remain.
 - [ ] **rust-control-host-runner** — deliver the Cargo host facade, stable-Rust
   explicit `Eff`, proc-macro/generated state machines, ownership/borrow/RAII barrier
   checks, typed mixed-SCC dispatcher, target/toolchain-pinned exact runner, and

@@ -417,6 +417,455 @@ and safe local-return regressions pass; the full control leaf is 92/92 and the
 packaged-JAR example compiles and runs. Keep this entry open until rereview
 approves and the fix lands.
 
+## js-control-direct-packed-local-dev-dependency — tarball escapes to repository sibling
+
+**Status:** open; repair candidate `9baf6d2bf` is fully locally verified and awaits
+fresh independent review and landing. Reported as P1 by the fresh
+independent read-only review of exact range `445f7faf7..d66ed988df` on 2026-07-15;
+the other semantic, JavaScript, declaration, source-map, and atomicity gates were
+clean.
+
+**Symptom/reproduce:** run `npm pack` for `v2/host/js/control-direct`, extract the
+result into a fresh directory with no `../control`, and inspect
+`package/package.json`. Its published `devDependencies` contains
+`"@scalascript/control": "file:../control"`. An ordinary
+`npm install --ignore-scripts` in the extracted package creates a control dependency
+pointing outside the payload (or otherwise relies on that missing sibling), and an
+ESM import fails with `ERR_MODULE_NOT_FOUND`. The existing packed-consumer test uses
+`--omit=dev`, so it never exercises the broken published development manifest.
+
+**Required fix/verification:** the exact tarball manifest—not merely the working-tree
+JSON—must contain no repository-local dependency specifier in any production,
+optional, peer, development, or override/resolution-style dependency field. Forbid
+`file:`, `link:`, `workspace:`, absolute paths, and relative local escapes; retain
+only the qualified non-local TypeScript development pin and preserve empty
+production/optional/peer dependency maps. Extract the exact tarball at a clean
+boundary, run ordinary install without a sibling checkout, and prove it does not
+create a dangling local control dependency. Existing packed CLI installation and
+production execution must remain green.
+
+**Root cause/fix candidate:** `package.json` and `package-lock.json` used the sibling explicit
+control package as a publishable `file:../control` development dependency for local
+tests/typechecking. npm includes `package.json` in the exact payload, so the repository
+topology leaks even though `npm pack --dry-run` reports no bundled dependencies.
+The candidate removes that entry from manifest and lock, supplies the type declaration
+through a TypeScript path, and gives compiler/runtime tests explicit temporary
+symlinks. Its exact-tar regression reads the extracted manifest, ordinary-installs
+with no sibling, proves no control link exists, and imports both published subpaths.
+Direct package tests pass 39/39; its exact pack, explicit control 31/31, catalog
+26/9, negative validator 9/9, and affected conformance 5/5 are green. The bug remains
+open until landing and a new independent reviewer confirmation.
+
+## js-control-direct-import-equals-bypass — runtime marker require evades fail-closed import scan
+
+**Status:** open; repair candidate `fabad7d84` is fully locally verified and awaits
+fresh independent review and landing. Reported as P1 by the fresh
+independent read-only review of exact frozen HEAD `71ae452ea5` on 2026-07-15
+(current rebased equivalent `82aee139a`).
+
+**Symptom/reproduce:** compile a CommonJS/Node10 source containing
+`import markers = require("@scalascript/control-direct")`, with or without a use of
+`markers.direct`. The exact-module syntax is an `ImportEqualsDeclaration`, not the
+`ImportDeclaration` shape checked by the current default/namespace rejection, so the
+runtime marker require can survive without `JS_DIRECT_UNSUPPORTED`.
+
+**Required fix/verification:** recognize an external-module
+`ImportEqualsDeclaration` whose string-literal module reference is exactly the marker
+package. Reject every runtime form once with a stable source span and file-atomic
+unchanged emit when diagnostics are ignored. Accept `import type markers =
+require(...)` as an erased, non-runtime form. Test used/unused runtime imports, the
+type-only form, and packed-CLI CommonJS/Node10 JavaScript plus declarations.
+
+**Root cause/fix candidate:** exact-module import collection handled only ES
+`ImportDeclaration`, so external `ImportEqualsDeclaration` never entered marker
+ownership. The candidate recognizes only a string-literal `ExternalModuleReference`,
+diagnoses runtime used/unused forms at the local name, and JavaScript-erases the
+explicit type-only form while declaration emit retains it. Programmatic and real
+packed-CLI CommonJS/Node10 regressions are green under both verbatim modes; the full
+direct package passes 38/38.
+
+## js-control-direct-type-export-runtime-link — erased export retains dev-only module link
+
+**Status:** open; repair candidate `fabad7d84` is fully locally verified and awaits
+fresh independent review and landing. Reported as P1 by the fresh
+independent read-only review of exact frozen HEAD `71ae452ea5` on 2026-07-15
+(current rebased equivalent `82aee139a`).
+
+**Symptom/reproduce:** with `verbatimModuleSyntax: true`, compile
+`export { type direct as Marker } from "@scalascript/control-direct"`. The transform
+does not select the erased specifier-level source export for JavaScript normalization;
+TypeScript emits `export {} from "@scalascript/control-direct"`. Running production
+output without the dev-only marker package fails with `ERR_MODULE_NOT_FOUND`.
+
+**Required fix/verification:** in the JavaScript channel, select exact-module
+type-only source exports, discard their erased specifiers, remove the whole export
+when no runtime specifier remains, and preserve mixed ordinary runtime specifiers.
+Declaration emit must see the original source form. Test declaration- and
+specifier-level aliases, mixed exports, both verbatim modes, packed CLI syntax,
+production execution without the marker package, and emitted `.d.ts`.
+
+**Root cause/fix candidate:** collection skipped specifier-level type-only source
+exports, so the JavaScript transformer never selected their file and verbatim emit
+preserved an empty module-linked export. The candidate selects exact-module
+type-only `direct` exports, removes every erased specifier in the JavaScript channel,
+drops an empty declaration, and preserves mixed runtime specifiers. Both verbatim
+modes retain the original `.d.ts`, and packed production runs without the marker
+package; the full direct package passes 38/38.
+
+## js-control-direct-mixed-type-import-invalid-js — marker erasure leaves TypeScript syntax
+
+**Status:** open; repair candidate `fabad7d84` is fully locally verified and awaits
+fresh independent review and landing. Reported as P1 by the fresh
+independent read-only review of exact frozen HEAD `71ae452ea5` on 2026-07-15
+(current rebased equivalent `82aee139a`).
+
+**Symptom/reproduce:** compile a transformed file containing
+`import { direct, type DirectMarkerContractError as ErrorType } from
+"@scalascript/control-direct"`. The after-transform import rewrite removes the runtime
+marker but retains the type-only specifier, producing `import { type ErrorType }` in a
+`.js` file. The real packed CLI exits zero, yet `node --check` fails with `SyntaxError`.
+
+**Required fix/verification:** treat JavaScript and declaration emit independently.
+The JavaScript rewrite must drop type-only specifiers while preserving unrelated
+runtime values and remove the declaration if nothing runtime remains; declaration
+emit must retain the original TypeScript import and type information. Exercise both
+`verbatimModuleSyntax: false` and `true` through the packed CLI, validate JavaScript
+with Node, and assert the generated `.d.ts` surface.
+
+**Root cause/fix candidate:** `rewriteMarkerImport` rebuilt a selected TypeScript
+import after normal type analysis but retained specifier-level `isTypeOnly` nodes;
+the JavaScript emitter therefore printed TypeScript syntax instead of erasing it.
+The candidate explicitly removes completed marker and type-only specifiers in the
+JavaScript channel while leaving TypeScript's declaration pipeline on the original
+source. Both verbatim modes pass real packed-CLI `node --check`, `.d.ts`, and
+production-without-marker regressions; the full direct package passes 38/38.
+
+## js-control-direct-type-only-export-false-positive — erased exports are rejected
+
+**Status:** open; repair candidate `ec95c4c65` is locally verified and awaits fresh
+independent review plus landing. Reported as P1 by independent rereview of exact
+frozen HEAD `c4377fabb` on 2026-07-15 (current rebased equivalent `58de23cf1`).
+
+**Symptom/reproduce:** TypeScript files using local
+`export type { direct as Marker }`, direct
+`export type { direct } from "@scalascript/control-direct"`, or inline
+`export { type direct } from "@scalascript/control-direct"` receive
+`JS_DIRECT_UNSUPPORTED` even though all three forms are erased and cannot leave a
+runtime marker value in JavaScript.
+
+**Required fix/verification:** the accepted grammar must distinguish declaration-
+level and specifier-level type-only exports before runtime owned-marker checks. Keep
+the erased forms diagnostic-free, preserve normal TypeScript emit, and retain stable
+`JS_DIRECT_UNSUPPORTED` for local runtime exports/re-exports and aliases. Cover all
+three type-only spellings plus shadowing in the real compiler harness.
+
+**Root cause/fix candidate:** export collection treated every direct-module export
+as runtime syntax, while generic type-only detection stopped at an export without
+reading declaration/specifier flags. The candidate classifies `isTypeOnly` before
+runtime ownership and proves five local/source declaration/specifier spellings erase
+without a diagnostic; a shadowed local runtime export remains ordinary. Direct
+package tests pass 35/35.
+
+## js-control-direct-marker-shorthand-export-survivor — owned values evade scanning
+
+**Status:** open; repair candidate `ec95c4c65` is locally verified and awaits fresh
+independent review plus landing. Reported as P1 by independent rereview of exact
+frozen HEAD `c4377fabb` on 2026-07-15 (current rebased equivalent `58de23cf1`).
+
+**Symptom/reproduce:** place runtime shorthand `{ direct }`, local
+`export { direct }`, or `export { direct as alias }` in a file selected for marker
+transformation. Checker lookup at the shorthand/export identifier does not resolve
+to the imported runtime value under the current scan, so no direct diagnostic is
+reported; completed-import rewriting can then erase the import while emitted code
+retains an unbound shorthand or export.
+
+**Required fix/verification:** resolve the runtime value behind shorthand properties
+and local export specifiers (including aliases) through the TypeScript checker, then
+reuse exact owned-marker identity. Every surviving runtime use must receive one
+stable `JS_DIRECT_UNSUPPORTED` and cancel the entire source-file rewrite; ignored-
+diagnostic emit must retain the original import and marker syntax. Avoid duplicate
+diagnostics when an export node is reachable through more than one scan.
+
+**Root cause/fix candidate:** raw identifier lookup exposes a shorthand property or
+exported-name symbol rather than its local runtime value. The candidate centralizes
+value-symbol resolution, uses `getExportSpecifierLocalTargetSymbol`, and handles an
+export specifier once without visiting its identifier children. Runtime shorthand,
+assignment-initializer shorthand, and local/source aliases each get exactly one
+file-atomic diagnostic with unchanged ignored-diagnostic emit.
+
+## js-control-direct-shorthand-value-symbol-capture — property symbol hides suffix capture
+
+**Status:** open; repair candidate `ec95c4c65` is locally verified and awaits fresh
+independent review plus landing. Reported as P1 by independent rereview of exact
+frozen HEAD `c4377fabb` on 2026-07-15 (current rebased equivalent `58de23cf1`).
+
+**Symptom/reproduce:** inside a shift body, save or evaluate a closure/expression
+reading `({ later }).later`, then declare suffix `const later = 42`. The current
+lexical scan calls `checker.getSymbolAtLocation` on the identifier in the shorthand
+property and receives the property symbol rather than the referenced value symbol.
+The crossing is missed; transformed execution throws `ReferenceError` instead of
+the original lexical behavior.
+
+**Required fix/verification:** centralize runtime-value symbol lookup and use
+`checker.getShorthandAssignmentValueSymbol` for shorthand property names, falling
+back to ordinary checker identity everywhere else. The shift-body shorthand must
+fail file-atomically with one `JS_DIRECT_CAPTURE_BARRIER` on the source identifier;
+ordinary property names, genuine shadowing, and type-only references remain
+accepted. Add assignment-initializer shorthand coverage where the compiler AST
+permits that form.
+
+**Root cause/fix candidate:** `getSymbolAtLocation` returns the synthesized property
+symbol for `ShorthandPropertyAssignment`. The candidate uses
+`getShorthandAssignmentValueSymbol` in the same runtime-value resolver used by
+marker ownership and continuation checks. Real JavaScript property and assignment-
+initializer regressions now select `later`, emit one capture diagnostic, and retain
+the untouched file when diagnostics are ignored.
+
+## js-control-direct-prefix-tdz-binding-escape — moved suffix exposes an outer binding
+
+**Status:** open; repair candidate `4c6b8e2a9` is locally verified and awaits fresh
+independent review plus landing. Confirmed by parent adversarial pre-rereview on
+2026-07-15; the original independent-review snapshot was `f6fa34fac`.
+
+**Symptom/reproduce:** define outer `const later = 99`; inside a direct reset, read
+`later` in a pure prefix declaration before the first marker, then declare inner
+`const later = 42` after the marker. The original block resolves the prefix read to
+the inner binding and throws from its temporal dead zone. Lowering moves that inner
+declaration into the continuation callback, so the unchanged prefix read resolves
+at runtime to the outer `99`; the reproduced candidate returned `141` with no
+direct diagnostic. TypeScript reports 2448/2454, but real JavaScript under
+`allowJs: true, checkJs: false` has the same runtime semantic change without a type
+gate.
+
+**Required fix/verification:** for every marker boundary, use checker symbol identity
+to reject value references from that boundary's pure prefix statements or shift body
+to the marker's own or any later suffix binding. Preserve type-only references and
+genuine shadowing. Add a real-JavaScript outer-shadow/TDZ regression proving stable
+`JS_DIRECT_CAPTURE_BARRIER`, no transformed file, and unchanged emit when diagnostics
+are ignored; retain accepted preceding-binding evaluation order.
+
+**Root cause/fix candidate:** the first repair scanned only each marker's shift body,
+not the pure statements kept before that marker's generated continuation. The
+candidate now checks the complete marker layer by checker-symbol identity, reports
+the first crossing value reference, preserves type-only/shadowed references, and
+keeps ignored-diagnostic emit file-atomic. Direct package tests pass 31/31.
+
+## js-control-direct-import-only-eval-erasure — unused marker removal changes direct-eval scope
+
+**Status:** open; repair candidate `4c6b8e2a9` is locally verified and awaits fresh
+independent review plus landing. Found by parent adversarial pre-rereview on
+2026-07-15; the original independent-review snapshot was `f6fa34fac`.
+
+**Symptom/reproduce:** compile a file that imports named `direct`, contains no
+`reset`/`shift`, and evaluates `eval("typeof direct")`. The repair candidate selects
+the file solely to erase the otherwise unused build-time marker import, but its
+direct-eval scan is gated on `filesWithMarkerCalls`. Emit therefore removes the
+lexical binding without a diagnostic and changes the eval result from `"object"` to
+`"undefined"`.
+
+**Required fix/verification:** intrinsic direct eval is a barrier for every source
+file that the transform would rewrite, including import-only marker erasure. Keep
+unused marker removal for eval-free files; do not reintroduce a production marker
+dependency. Add an exact import-only direct-eval regression proving one stable
+`JS_DIRECT_CAPTURE_BARRIER`, no `transformedFiles` entry, and byte-semantic
+file-atomic emit when a programmatic caller ignores diagnostics.
+
+**Root cause/fix candidate:** eval scanning was gated by the presence of marker
+calls even though an import-only file was also a rewrite candidate. The candidate
+now scans every selected file, retains the original import on diagnostic, and has an
+executing regression proving that `eval("typeof direct")` still observes `"object"`.
+
+## js-control-direct-typescript-version-ungated — unsupported compiler APIs are accepted
+
+**Status:** open; cumulative repair candidate `c19d42401` is locally verified and
+awaits fresh independent review plus landing. Reported as P2 on 2026-07-15 by the
+independent pre-integration review of frozen direct-transform snapshot `f6fa34fac`.
+
+**Symptom/reproduce:** `createDirectTransform` accepts any object with enough
+TypeScript-shaped members and the CLI loads any consumer `typescript` version.
+The package therefore has no deterministic boundary for compiler-factory and AST
+API compatibility, although its declarations and tests were built only against
+TypeScript 5.9.3.
+
+**Required fix/verification:** the feature spec must pin the supported compiler API
+version policy, both the programmatic entrypoint and CLI must reject an unsupported
+version before transforming, and positive/negative version-gate tests must preserve
+an actionable stable failure. Keep the published package free of a bundled compiler.
+
+**Root cause/fix candidate:** the transform validated only a TypeScript-shaped
+object and never bounded compiler AST/factory compatibility. The candidate gates
+both programmatic and CLI entrypoints on `versionMajorMinor === "5.9"`, with 5.9.3
+as the qualification pin and deterministic rejection tests outside that line.
+
+## js-control-direct-wrapped-marker-receiver-missed — transparent TS wrappers evade ownership
+
+**Status:** open; cumulative repair candidate `c19d42401` is locally verified and
+awaits fresh independent review plus landing. Reported as P2 on 2026-07-15 by the
+independent pre-integration review of frozen direct-transform snapshot `f6fa34fac`.
+
+**Symptom/reproduce:** exact-import marker calls written as `(direct).reset(...)`,
+`direct!.reset(...)`, or `(direct as typeof direct).reset(...)` are not consistently
+recognized as the imported marker symbol. Depending on the surrounding tree they
+can survive emit or receive a generic unsupported-shape result instead of the same
+bounded transform/diagnostic contract as an unwrapped `direct.reset(...)` call.
+
+**Required fix/verification:** recursively unwrap only semantically transparent
+parentheses, `as`, non-null, and type-assertion expressions before symbol ownership
+checks. Positive reset/shift cases and negative unsupported cases must prove stable
+source spans and must leave no marker call in emitted JavaScript.
+
+**Root cause/fix candidate:** ownership recognition examined the raw receiver/callee
+node. The candidate recursively removes only parentheses, `as`, non-null, and type
+assertions before exact checker-symbol matching; positive and negative wrapper
+regressions prove that no owned marker call survives a clean emit.
+
+## js-control-direct-consumer-typescript-resolution — CLI resolves the tool's compiler, not the consumer's
+
+**Status:** open; cumulative repair candidate `c19d42401` is locally verified and
+awaits fresh independent review plus landing. Reported as P1 on 2026-07-15 by the
+independent pre-integration review of frozen direct-transform snapshot `f6fa34fac`.
+
+**Symptom/reproduce:** place the published runtime files under an external
+tool/store path, install `typescript` only in a consuming project, and run the real
+CLI with `--project <consumer>/tsconfig.json`. `cli.js` performs bare
+`import("typescript")` relative to itself and exits with “TypeScript compiler API not
+found”, contradicting the contract that the CLI uses the consuming project's
+compiler. Strict/symlinked stores and external/npx tools exhibit the same boundary.
+
+**Required fix/verification:** resolve TypeScript with a consumer-owned Node issuer
+anchored at the explicit project/config directory or current working directory; do
+not fall back to an ambient/global compiler. An extracted packed-package fixture
+must keep TypeScript only under the consumer, invoke the installed CLI, succeed, and
+also prove that an otherwise identical consumer without TypeScript gets a stable
+actionable error.
+
+**Root cause/fix candidate:** bare module import resolved from the tool package's
+location. The candidate uses `createRequire` from the explicit project/config
+directory or cwd, never falls back to the store/global environment, and exercises
+both present and missing consumer compilers through the packed installed bin.
+
+## js-control-direct-marker-import-survives-emit — build-time marker becomes a production dependency
+
+**Status:** open; cumulative repair candidate `c19d42401` is locally verified and
+awaits fresh independent review plus landing. Reported as P1 on 2026-07-15 by the
+independent pre-integration review of frozen direct-transform snapshot `f6fa34fac`.
+
+**Symptom/reproduce:** transform a valid source importing named `direct` from
+`@scalascript/control-direct`, inspect the emitted JavaScript, then deploy it with
+development dependencies omitted. The marker calls are lowered but the original
+value import remains, so Node fails module resolution even though documentation
+installs the marker package with `--save-dev`.
+
+**Required fix/verification:** after every value use of an exact owned marker binding
+has been transformed, remove only that marker import specifier (and the now-empty
+declaration), preserving unrelated imports/specifiers. Diagnose every surviving
+marker value use rather than emitting it. A packed production-consumer fixture must
+run emitted JavaScript with `@scalascript/control` present and
+`@scalascript/control-direct` absent.
+
+**Root cause/fix candidate:** lowering rewrote marker calls but did not prove that all
+owned value uses were consumed or update the corresponding import declaration. The
+candidate diagnoses surviving uses, removes only completed marker specifiers, keeps
+unrelated imports intact, and runs packed production output without the direct
+package.
+
+## js-control-direct-cli-symlink-noop — installed npm bin exits successfully without compiling
+
+**Status:** open; cumulative repair candidate `c19d42401` is locally verified and
+awaits fresh independent review plus landing. Reported as P1 on 2026-07-15 by the
+independent pre-integration review of frozen direct-transform snapshot `f6fa34fac`.
+
+**Symptom/reproduce:** invoke `ssc-control-tsc` through the normal
+`node_modules/.bin` symlink. `cli.js` compares the real module `import.meta.url` to
+the unresolved symlink in `process.argv[1]`; the comparison is false, `main()` is
+skipped, and the process exits 0 with no output. Invoking `node <real-cli.js>` does
+run, which is why the existing test missed the published path.
+
+**Required fix/verification:** entry detection must normalize both paths through
+realpath/inode-safe logic with deterministic handling of absent or unreadable
+`argv[1]`. Pack and install the tarball into a fresh consumer, invoke exactly its
+`.bin/ssc-control-tsc`, and prove both successful emit and non-zero failure for an
+invalid compiler option.
+
+**Root cause/fix candidate:** entry detection compared a real module URL with an
+unresolved npm-bin symlink. The candidate compares deterministic realpath/filesystem
+identity with explicit missing/unreadable handling; the exact packed `.bin` now
+compiles and invalid options fail non-zero.
+
+## js-control-direct-eval-capture-unsound — direct eval can observe rewritten lexical frames
+
+**Status:** open; cumulative repair candidate `c19d42401` plus selected-file closure
+`4c6b8e2a9` are locally verified and await fresh independent review plus landing.
+Reported as P1 on 2026-07-15 by the independent pre-integration review of frozen
+direct-transform snapshot `f6fa34fac`.
+
+**Symptom/reproduce:** a file containing an otherwise transformable direct reset can
+also contain direct `eval(...)`. The current region checks do not reject every
+file-wide direct-eval occurrence or transparent callee wrappers such as parentheses,
+`as`, non-null, and type assertions. Emit can therefore change which lexical frame
+the evaluated source observes or mutates.
+
+**Required fix/verification:** reject intrinsic direct eval anywhere in each file
+that would be transformed, after unwrapping only transparent syntax, and emit
+nothing for that file. The feature spec must explicitly pin indirect-eval and
+`Function`-constructor policy. Tests must cover top-level, reset-local, nested
+closure, wrapped, indirect, and `Function` cases with stable diagnostics.
+
+**Root cause/fix candidate:** analysis had no file-wide intrinsic-eval ownership
+pass. The repair resolves the unshadowed global binding through transparent wrappers
+and cancels every rewrite in that selected file; the follow-up extends the same gate
+to import-only erasure while leaving indirect eval and `Function` global-only.
+
+## js-control-direct-js-marker-binding-semantics — lowering erases const/let declaration behavior
+
+**Status:** open; cumulative repair candidate `c19d42401` is locally verified and
+awaits fresh independent review plus landing. Reported as P1 on 2026-07-15 by the
+independent pre-integration review of frozen direct-transform snapshot `f6fa34fac`.
+
+**Symptom/reproduce:** compile real JavaScript with `allowJs: true` and
+`checkJs: false`, using `const` or `let x = direct.shift(...)`. Lowering replaces the
+source declaration with a `.flatMap(x => ...)` parameter. This loses the original
+declaration kind (for example, assignment to source `const x` no longer has native
+runtime behavior) and can capture/collide with names introduced by the rewrite.
+
+**Required fix/verification:** use a collision-safe fresh resume parameter and begin
+the continuation suffix with the original `const`/`let` declaration initialized
+from it. A real `.js` fixture must exercise both declaration kinds and a name
+collision under `allowJs: true, checkJs: false`, preserving runtime behavior and
+source-map ownership.
+
+**Root cause/fix candidate:** the source binding itself became the generated callback
+parameter, erasing declaration kind and weakening lexical ownership. The candidate
+uses a collision-safe resume parameter followed by the original authored
+declaration; real JavaScript const/let/mutation/collision tests are green.
+
+## js-control-direct-forward-lexical-capture — shift body escapes declarations moved into the suffix
+
+**Status:** open; cumulative repair candidate `c19d42401` with marker-layer closure
+`4c6b8e2a9` is locally verified and awaits fresh independent review plus landing.
+Reported as P1 on 2026-07-15 by the independent pre-integration review of frozen
+direct-transform snapshot `f6fa34fac`.
+
+**Symptom/reproduce:** inside `direct.reset`, let a shift body save a closure that
+reads `const later = 42`, with `later` declared after the marker. TypeScript and the
+transform report no diagnostics, but lowering leaves the shift body outside the
+generated `.flatMap` callback while moving `later` inside it. Running the saved
+closure throws `ReferenceError: later is not defined` instead of returning `42`.
+References to the marker's own declaration region have the same scope hazard,
+including references hidden in nested closures.
+
+**Required fix/verification:** specify and implement a sound rule: either preserve
+binding/evaluation semantics through exact dependency-aware rebinding, or fail closed
+before emit. Cover forward and own-marker references, nested closures, shadowing,
+and declaration-initializer evaluation order; the accepted cases must remain
+prefix-once/suffix-per-resume.
+
+**Root cause/fix candidate:** the closed grammar rejected structural frame barriers
+but did not compare value references with bindings moved across generated
+continuations. Checker-symbol scans now reject own/later references in each marker
+layer, including nested syntax, while retaining type-only, preceding, and shadowed
+cases.
+
 ## scljet-ipk-rowid-alias-not-substituted — reading a REAL SQLite file returns 0 for every `INTEGER PRIMARY KEY`
 
 **Status:** OPEN (found 2026-07-15 by `scljet-jdbc-j4-introspection` while probing whether the
@@ -444,14 +893,49 @@ stored NULL, which the getters coerce to `0`. The engine already models the conc
 (`scljet/sql.ssc:1086`), `ipkColumnIndex(sql)` (`~:1098`), `tableIpkIndex(db, table)` (`~:4291`) —
 so the fix is likely to apply the existing IPK index in the row-projection path, not new analysis.
 
-**A second, opposite-direction divergence to check while fixing** (not yet verified, flagged by
-the same finding): scljet's WRITE path appears to store the IPK value *in the column* rather than
-as NULL+rowid, and assigns rowids sequentially. If so, `INSERT INTO emp VALUES (7,'bob')` into a
-scljet database yields a row with column `id=7` but rowid `2` — and real SQLite reading that file
-reports `id=2` (it always reads the rowid for an IPK column), i.e. our files are wrong for real
-SQLite too. Our own read path agrees with itself, which is exactly why every existing test passes.
-A test whose oracle is "scljet reads back what scljet wrote" cannot see either half of this;
-the differential must cross the two engines through a FILE.
+**~~A second, opposite-direction divergence~~ — MEASURED AND DISPROVED (2026-07-16).** The
+earlier suspicion here (that our WRITE stores the IPK value in the column with a *sequential*
+rowid, so real SQLite would misread our files) is **WRONG**. Probed directly — write with
+scljet, read with `org.xerial:sqlite-jdbc`:
+
+```
+scljet: INSERT INTO emp VALUES (7,'bob')  → the row's actual rowid = 7   (NOT sequential)
+REAL SQLite reading OUR file → id=1|ann|rowid=1, id=7|bob|rowid=7        ✓ correct
+REAL SQLite `PRAGMA integrity_check` on our file → ok                    ✓
+```
+
+**So the WRITE side is sound and our files are valid, correctly-readable SQLite.** What we
+actually do is store the IPK value *redundantly*: in the rowid (correct) **and** in the record's
+column (real SQLite stores NULL there). Real SQLite tolerates that because it always takes an IPK
+column's value from the rowid and ignores what is stored. Our two inaccuracies cancel out on our
+own files, which is why every existing test passes.
+
+**Consequence for the fix — it is READ-ONLY and does not regress our own files.** Since our write
+already sets `rowid = 7`, teaching the read path to take the IPK column from the rowid yields `7`
+on *both* file flavours: ours (rowid 7, column 7) and the reference's (rowid 7, column NULL).
+There is no need to change the write path to make the read correct. (Writing a canonical NULL in
+the column is a separate, optional tidy-up — byte-level canonicity vs real SQLite — NOT required
+for correctness, and it would be a storage-format change worth its own slice.)
+
+**A REAL second bug found by the same probe — `lastInsertRowid` is wrong for an IPK table:**
+
+```
+scljet: INSERT INTO emp VALUES (7,'bob')  → the row's rowid IS 7, but
+                                             MutationResult.lastInsertRowid reports 1
+reference sqlite-jdbc for the same INSERT  → last_insert_rowid() = 7
+```
+
+i.e. the counted-mutation path reports a sequential counter instead of the rowid actually
+assigned. This makes the JDBC shim's `getGeneratedKeys` (J2) return the wrong key for exactly the
+tables where generated keys matter most. The existing `getGeneratedKeys` tests use a *plain*
+`INTEGER` column (not an IPK), where a sequential rowid IS the right answer — which is why they
+pass, and why the reference cross-check passes too. Fix alongside the read substitution, and
+extend the getGeneratedKeys tests to cover an IPK table.
+
+**Method note that generalises.** A test whose oracle is "scljet reads back what scljet wrote"
+cannot see any of this: it is self-consistent by construction. The differential must cross the
+two engines **through a FILE**, in *both* directions (they-write/we-read AND we-write/they-read) —
+only the second direction could have disproved the write-side hypothesis above.
 
 **Notes.** Reading a reference-written file otherwise works (schema, indexes incl. `UNIQUE`,
 non-IPK columns, TEXT) — see `ScljetIntrospectionTest` "reads a database created by the
@@ -499,9 +983,9 @@ Remaining separate gap: `String.padTo` on v2-native.
 
 ## js-control-packed-readme-broken-spec-link — npm README links outside payload
 
-**Status:** fixed by `1c2e150c3` with regression `6f19a9538`; awaiting final
-independent reviewer confirmation. Reported as P2 on 2026-07-15 by the second
-pre-integration review; affected pre-land documentation commit `069e0204e`.
+**Status:** done in reachable `origin/main` landing `cf8f96200`; the independent
+rereviewer confirmed the packed README contract link. Reported as P2 on 2026-07-15
+by the second pre-integration review.
 
 **Symptom/reproduce:** `npm pack --dry-run --json` correctly emits only the frozen
 five-file payload, but its `README.md` ends with a relative
@@ -585,10 +1069,9 @@ gates remain green.
 
 ## js-control-effect-owner-type-collision — descriptor ID is mistaken for owner identity
 
-**Status:** fixed in `5b5421880`; awaiting final independent reviewer
-confirmation. Reopened as P1 on 2026-07-15 after independent second
-pre-integration review rejected the first fix in `0d0ffcfd3`; the original report
-affected pre-land declaration commit `2a34d7ed3`.
+**Status:** done in reachable `origin/main` landing `cf8f96200`; the independent
+rereviewer confirmed both inferred and explicit union-owner rejection. Reopened as
+P1 on 2026-07-15 after the second pre-integration review rejected the first repair.
 
 **Symptom/reproduce:** two `defineEffect("same.id")` calls create distinct runtime
 owners, but both declarations currently produce `Effect<"same.id">`. TypeScript

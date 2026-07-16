@@ -1,0 +1,125 @@
+name: Pages
+
+# Single publisher for the GitHub Pages site. Two sources are composed into one
+# artifact — a second deploying workflow would race this one for the same Pages
+# deployment, so everything served from Pages must be built here.
+#
+# Layout (see "Compose Pages tree" below):
+#   /                    landing page          <- site/index.html
+#   /packages.yaml       registry CLI contract <- registry/site/  (MUST stay at the root:
+#   /packages/**                                  RegistryClient.DefaultRegistryUrl is a
+#   /search-index.json                            built-in default in shipped source)
+#   /registry/           browseable registry   <- registry/site/index.html
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - site/**
+      - registry/packages.yaml
+      - registry/site/**
+      - v1/tools/registry-site/generate.sc
+      - .github/workflows/pages.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - site/**
+      - registry/packages.yaml
+      - registry/site/**
+      - v1/tools/registry-site/generate.sc
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build site
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Scala CLI
+        uses: VirtusLab/scala-cli-setup@v1
+        with:
+          power: true
+          jvm: temurin:21
+
+      - name: Generate registry site
+        run: scala-cli --server=false v1/tools/registry-site/generate.sc -- registry/packages.yaml registry/site
+
+      - name: Check generated registry artifact
+        run: |
+          test -f registry/site/packages.yaml
+          test -f registry/site/index.html
+          test -f registry/site/search-index.json
+          test ! -f registry/site/CNAME
+          grep -q "io.scalascript/json" registry/site/packages.yaml
+
+      - name: Compose Pages tree
+        run: |
+          set -eu
+          rm -rf _site
+          mkdir -p _site
+          # 1. Registry at the root — keeps /packages.yaml and /packages/** resolving
+          #    for every `ssc search|info|add` already in the wild.
+          cp -R registry/site/. _site/
+          # 2. Registry HTML index also under /registry/ (its links are relative, so it
+          #    keeps working there once the landing page takes over the root index).
+          mkdir -p _site/registry
+          cp -R registry/site/. _site/registry/
+          # 3. Landing page wins the root index.html.
+          cp -R site/. _site/
+          # Deploy notes are for maintainers, not for publishing.
+          rm -f _site/DEPLOY.md
+
+      - name: Check composed tree
+        run: |
+          set -eu
+          # Landing page owns the root
+          test -f _site/index.html
+          test -f _site/favicon.svg
+          grep -q "Markdown you can compile" _site/index.html
+          test ! -f _site/DEPLOY.md
+          # Registry CLI contract preserved at the root
+          test -f _site/packages.yaml
+          test -f _site/search-index.json
+          test -f _site/packages/io.scalascript/json/index.json
+          grep -q "io.scalascript/json" _site/packages.yaml
+          # Browseable registry index still reachable
+          test -f _site/registry/index.html
+          grep -q "ScalaScript Package Registry" _site/registry/index.html
+          test -f _site/registry/packages/io.scalascript/json/index.json
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    name: Deploy site
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
