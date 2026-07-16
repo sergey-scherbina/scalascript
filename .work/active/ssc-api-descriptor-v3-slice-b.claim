@@ -1,6 +1,0 @@
-feature/ssc-api-descriptor-v3-slice-b 2026-07-15T04:02:06Z
-agent: codex-descriptor-b
-heartbeat: 2026-07-15T08:20:41Z
-status: in-progress
-done-so-far: exact clean candidate 6603e6c29..28c2e959c is green: focused 94/94, descriptor 27/27, core 1132/1132, interop 36/36, IR, ABI 73/73 and conformance 2/2 plus forced effects 9/9
-next: a new independent review of exact 28c2e959c is running across import witness/resolver/alias snapshots, recursive inventory, exact sentinels, declaration-only effects and architecture; no push/release before APPROVE

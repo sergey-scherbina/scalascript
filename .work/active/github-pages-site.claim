@@ -1,6 +1,0 @@
-feature/github-pages-site 2026-07-15T13:02:17Z
-agent: claude
-heartbeat: 2026-07-15T13:02:17Z
-status: in-progress
-done-so-far: repo public, secret-scan clean, site/ on main
-next: add .github/workflows/pages.yml publishing site/, enable Pages (Actions source), trigger, report live URL
