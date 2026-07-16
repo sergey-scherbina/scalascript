@@ -4,6 +4,33 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-16 — scljet: `INTEGER PRIMARY KEY` is a rowid alias (interop with real SQLite)
+
+Fixed `scljet-ipk-rowid-alias-not-substituted`: scljet read `0` for every
+`INTEGER PRIMARY KEY` column of a database written by real SQLite — silent wrong
+data, nothing failed. Real SQLite stores NULL for an IPK column and keeps the
+value in the rowid; scljet returned the stored NULL, so `SELECT id FROM emp` gave
+zeros and `WHERE id = 7` matched nothing. The rowid is now materialised into the
+IPK column once per query, on the decoded row set, so projection / WHERE /
+ORDER BY / GROUP BY / aggregates / joins all see it through the existing
+`fieldValueAt` (`14f4da4ac`). Also fixed `lastInsertRowid`, which reported a
+sequential counter instead of the rowid actually assigned — making
+`getGeneratedKeys` return a nonexistent key for IPK tables (`2fc0a0fd1`); it now
+reuses `assignInsertRowids` rather than re-deriving the rowid independently.
+Added `INSERT INTO t SELECT …`, previously not parsed at all (`ab436301f`).
+
+The hypothesis that our WRITES were also wrong was **measured and disproved**:
+`assignInsertRowids` already uses an explicit IPK value as the rowid, so real
+SQLite reads our files correctly and `PRAGMA integrity_check` passes.
+
+New `ScljetIpkRowidDifferentialTest` crosses scljet and `org.xerial:sqlite-jdbc`
+**through a file** in both directions — the oracle the suite lacked, since every
+existing test asserts "scljet reads back what scljet wrote", which is
+self-consistent by construction and cannot see an interop divergence. Gates:
+`scljet-*` conformance 97/97, `scljetJdbcPlugin/test` 49/49. Two follow-ups
+queued: `scljet-unique-index-not-supported` (SPRINT — needs enforcement, not just
+parsing) and `scljet-update-ipk-does-not-move-rowid` (BUGS.md).
+
 ## 2026-07-15 — Scala 3 lexical direct-style control macros (M1)
 
 Added `scalascript.control.direct.{Scope,reset,shift}` to the existing

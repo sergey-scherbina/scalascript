@@ -83,42 +83,39 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       cheap guard (e.g. the loop checks `gh run list` before claiming a lane green, or a CI-status
       line in the claim protocol). Recorded as a question for Sergiy, not a unilateral process change.
 
-## scljet-ipk-rowid — `INTEGER PRIMARY KEY` is not a rowid alias (2026-07-16, Sergiy: "делай все три направления параллельно")
+## scljet-unique-index-not-supported — `CREATE UNIQUE INDEX` needs ENFORCEMENT, not just parsing (2026-07-16)
 
-Fixes BUGS.md `scljet-ipk-rowid-alias-not-substituted` (OPEN, found 2026-07-15 by the J4 lane).
-**Severity: silent wrong data in BOTH directions** — no error is raised, the client just gets zeros.
-In real SQLite an `INTEGER PRIMARY KEY` column is an *alias for the rowid*: the record stores NULL
-for that column and the value lives in the rowid. scljet models neither half.
+Split out of `scljet-ipk-rowid` A5 after analysis: this is **not** the "parse gap" it was filed as.
+`parseCreateIndex` requires `CREATE INDEX`, so `CREATE UNIQUE INDEX` falls through to `parseCreate`
+→ "expected TABLE". But **parsing it without enforcing it would be worse than rejecting it**: the
+engine has NO uniqueness concept anywhere (`grep -i unique scljet/*.ssc` → nothing; the JDBC
+`NON_UNIQUE` column is derived in `ScljetMeta.scala` by reading the stored schema TEXT, not from any
+engine state). We would silently accept duplicate keys into an index real SQLite guarantees unique,
+producing files whose `PRAGMA integrity_check` reports "non-unique entry in index" — the same
+silent-wrong-data class as the IPK bug just fixed. So it is a feature slice, not a one-line parser fix.
 
-Why every existing test misses it: the oracle is "scljet reads back what scljet wrote" — self-
-consistent by construction. **The test must cross the two engines through a FILE**, or the bug
-re-hides. This is the load-bearing part of the task, not the fix.
+What is already free: `executeCreateIndex(dbBytes, sql, stmt)` stores the raw `sql` TEXT verbatim, so
+once the statement parses, introspection (`getIndexInfo` → `NON_UNIQUE=false`) reports it correctly
+with no extra work — `ScljetIntrospectionTest` already proves that path against a reference-written
+file that HAS a unique index.
 
-- [ ] **A1 — pin the failure first (differential harness).** A test that (a) writes a db with the
-      REFERENCE driver (`org.xerial:sqlite-jdbc`, already a test dep — see `ScljetIntrospectionTest`
-      "reads a database created by the reference driver"), reads it with scljet; and (b) the reverse:
-      scljet writes, reference reads. Both directions must be RED before any fix. Expected today:
-      (a) `0|ann, 0|bob` instead of `1|ann, 7|bob`; (b) unverified hypothesis — scljet stores the IPK
-      value in the column and assigns rowids sequentially, so reference reading our file reports the
-      ROWID (`id=2`) not the stored `7`. Confirm (b) is real before fixing it; record the finding
-      either way.
-- [ ] **A2 — READ path: substitute the rowid for the IPK column.** The concept is already modelled —
-      `isIpkType` (`scljet/sql.ssc:1085`), `ipkColumnIndex(sql)` (`:1099`), `tableIpkIndex(db, table)`
-      (`:4291`), already used at `:3849`/`:4314`. So the fix is likely to apply the EXISTING ipk index
-      in the row-projection path, not to add new analysis. When the stored column value is NULL and the
-      column is the IPK, project the rowid instead.
-- [ ] **A3 — WRITE path: store NULL in the IPK column, put the value in the rowid.** Only if A1(b)
-      confirms. `INSERT INTO emp VALUES (7,'bob')` must produce rowid=7 + column NULL, so real SQLite
-      reads `7`. Watch the auto-assign path (no explicit IPK ⇒ max(rowid)+1) and `getGeneratedKeys`
-      (J2.1) which may depend on the current wrong behaviour.
-- [ ] **A4 — gate.** Full `scljet-*` conformance slice green (`tests/conformance/run.sh --only
-      'scljet-*' --no-memo` — **`--no-memo` is mandatory: the memo keys on ssc.jar, NOT on scljet/*.ssc
-      sources**, so an edit to `.ssc` alone will falsely "skip green"). Plus the A1 differential in both
-      directions, plus the existing `ScljetIntrospectionTest`.
-- [ ] **A5 — adjacent parse gaps found by the same probe (separate commits).** `CREATE UNIQUE INDEX`
-      is not parsed AT ALL (`parseCreateIndex` requires `CREATE INDEX`; `CREATE UNIQUE INDEX` falls
-      through to `parseCreate` → "expected TABLE"), and `INSERT INTO t SELECT …` is not parsed
-      ("expected VALUES"). Both are real SQL surface a reference-written db can contain.
+- [ ] **U1 — parse.** Accept the optional `UNIQUE` between `CREATE` and `INDEX` in `parseCreateIndex`
+      (`scljet/sql.ssc:~4800`); add `unique: Boolean = false` to `CreateIndexStmt`. Also fix the
+      dispatch in `executeMutationCountedParams` (`~:5147`), which routes on `tkIsKw(toks.tail,
+      "INDEX")` and would still send `CREATE UNIQUE INDEX` to `parseCreate`.
+- [ ] **U2 — enforce at CREATE.** Real SQLite REFUSES to create a unique index over existing
+      duplicates. `buildIndexEntriesFromRecords` already produces the key tuples — check for a
+      duplicate key and fail with SQLite's message shape
+      (`UNIQUE constraint failed: <table>.<col>[, <table>.<col>…]`).
+- [ ] **U3 — enforce at INSERT/UPDATE.** The hard half: `tableIndexInfos` carries no unique flag, so
+      thread it through and reject a duplicate in the `reindexTable` maintenance path
+      (`executeInsert` `~:4390`, and the UPDATE equivalent). NOTE the pre-existing limit right there:
+      "index maintenance on a multi-table database is not yet supported" — U3 inherits it.
+- [ ] **U4 — gate.** `tests/conformance/run.sh --only 'scljet-*' --no-memo` (**`--no-memo` mandatory**
+      — the memo keys on ssc.jar, NOT on `scljet/*.ssc`) + `scljetJdbcPlugin/test`. Add a differential
+      that cross-checks the duplicate REJECTION against `org.xerial:sqlite-jdbc` (both must error) and
+      a `PRAGMA integrity_check` on the file we write — the oracle must be the reference engine
+      through a FILE, per the lesson in the entry below.
 
 ## codex-lane-salvage — recover value from three orphaned codex branches (2026-07-16, Sergiy: "разберись — может быть там есть чтото ценное; всё ценное замерж в мастер")
 
