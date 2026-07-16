@@ -690,16 +690,19 @@ object SpikeParse:
     else Node.Frame("spike.sealed", None, Vector.empty) // anonymous given — no-op
 
   // `summon[T]` — resolved to the matching given by lowerProg. A bare `summon` (no `[`) is a var.
+  // The payload is the WHOLE type application as ONE string, exactly as ssc1-front builds it: its
+  // `[` handler runs readTypeApply (ssc1-front.ssc0:1305-1317), which concatenates every token up to the
+  // matching `]` with joinStrs — NO separator — and hands `Pair("summon", "Show[Int]")` to the lowerer.
+  // ssc1-lower matches that string against the given registry, so the FULL application is load-bearing:
+  // capturing only the head (`"Show"`) never matches an instance and degrades to `__summon_value_Show`.
   private def parseSummon(c: Cur): Node =
     val id = c.advance().get // `summon`
     if c.peekKind != "spike.lbracket" then Node.Leaf(id, Some("var"))
     else
       val kids = Vector.newBuilder[Node]
       kids += Node.Leaf(id, Some("summon.kw"))
-      c.advance().foreach(t => kids += Node.Leaf(t, Some("summon.open"))) // `[`
-      expectType(c, "summon.type").foreach(kids += _)
-      if c.peekKind == "spike.rbracket" then c.advance().foreach(t => kids += Node.Leaf(t, Some("summon.close")))
-      else c.report("spike.expected", "expected ']' after summon type")
+      // captureTypeArgTokens consumes the balanced `[ … ]` and yields the inner tokens (depth-1 `]` dropped)
+      captureTypeArgTokens(c).foreach(t => kids += t.withRole("summon.tok"))
       Node.Frame("spike.summon", None, kids.result())
 
   // an indented block: statements at column >= blockCol; a dedent (col < blockCol),
@@ -2005,8 +2008,8 @@ object SpikeProject:
         gens.zipWithIndex.foldRight(body) { case ((g, i), inner) =>
           genExpr(g, if i == n - 1 then (if isYield then "map" else "foreach") else "flatMap", inner)
         }
-      case "spike.summon" =>
-        s"""Pair("summon", "${esc(kids(b).collectFirst { case (Some("summon.type"), c) => lexeme(c) }.getOrElse("_"))}")"""
+      case "spike.summon" => // payload = the whole type application, joined with NO separator (joinStrs)
+        s"""Pair("summon", "${esc(kids(b).collect { case (Some("summon.tok"), c) => lexeme(c) }.mkString)}")"""
       case "spike.pre" =>
         val op  = kids(b).collectFirst { case (Some("pre.op"), c) => lexeme(c) }.getOrElse("-")
         val sub = kids(b).collectFirst { case (Some("pre.sub"), c) => expr(c) }.getOrElse(hole)
