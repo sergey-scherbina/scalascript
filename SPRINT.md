@@ -2238,6 +2238,32 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
             is main-less, and the reference emits `(entry (lit unit))` for a main-less program — making
             that faithful is what closed self byte-identity, and it then exposed that wrapping stage1
             must REPLACE the entry, not just splice the main def in, or C1 never runs.
+      - [x] **X1g — lambdas, local callees, chained application ✓ Landed 2026-07-16** (2435b2a5a):
+            corpus 61 → 66, **70 ok / 0 FAIL, fixpoint still holds** (64851 B). `(lam N body)`; lambda
+            params push onto the env like def params, so reverse indexing + closure-by-depth fall out.
+            The paren form is ambiguous with group/tuple → F looks ahead to the MATCHING `)` and tests
+            for `=>` (the spike backtracks with mark/reset; lookahead needs neither). **Real gap the
+            lambdas exposed**: a call to a BOUND name is `(app (local i) …)`, not `(app (global nm) …)`
+            — F always emitted a global callee, and the 61-program corpus never caught it because F's
+            own source never calls a local. Keeping `--self` in the same harness means every breadth
+            slice re-proves self-compilation or fails loudly.
+      - [ ] **X1h — case classes.** MEASURED 2026-07-16 (don't re-probe, but do re-verify). This one is
+            NOT a local shape — it breaks F's single-pass streaming design and needs a **pre-pass**:
+            - per field, ONE global `(def _sel_<f> (lam 1 (match (local 0) (<one arm per class having
+              that field>) (default (prim __method__ (lit (str "<f>")) (local 0))))))`. Verified with two
+              classes sharing a field: `_sel_x` is emitted **once**, carrying `(arm P 1 …) (arm Q 1 …)`,
+              at the position of the FIRST declaring class. So accessors must be collected across ALL
+              declarations before any is emitted.
+            - `(def P (lam N (ctor P (local N-1) … (local 0))))`;
+            - `(def __mirror_P (ctor Mirror (lit (str "P")) <Cons-list of field-name strs> <Cons-list of
+              field-TYPE-name strs>))` — so F must genuinely **parse types**, not skip them (X1a–X1g get
+              away with skipping because types leave no trace anywhere else);
+            - the entry becomes `(entry (seq (prim __regfields__ (lit (str "P")) <field-name Cons-list>)
+              … (app (global main))))` — one `__regfields__` per case class, then the main call (or
+              `(lit unit)` when main-less; cf. X1f).
+      - [ ] **X1i — remaining breadth**, in the same style: given/summon dict-passing, enums, extensions,
+            for-comprehensions, `var`/`while`, string interpolation, and the List-variable registry that
+            dispatches `.length` to `_sel_length` (`ssc1-lower:233,301`).
       - **HONEST BOUNDARY of the landed X1 — read before claiming P6.5 done.** The fixed point holds for
         the subset **S that F is itself written in** (the same bootstrap discipline that kept C_min at 84
         defs), not for all of ScalaScript. `F(P) == ssc1-front(P)` is proven on the 61-program corpus, and
