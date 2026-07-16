@@ -1380,6 +1380,23 @@ def enumHasCase = (cases, cname) =>
   }
 
 -- Resolve a method call obj.method(rargs) — obj and rargs already resolved
+-- The runtime method-dispatch prim for a CALL `recv.method(args)`.
+--
+-- A bare selection `recv.m` and an applied zero-arg call `recv.m()` lower to
+-- byte-identical CoreIR (`__method__(m, recv)`), so the VM's __method__ fallthrough
+-- cannot tell a genuine method REF (`list.exists(lc.contains)` — must eta-expand to
+-- `x => recv.m(x)`) from a TYPO (`42.bogusMethod()` — must fail). It chose to
+-- eta-expand, so every typo'd zero-arg method silently produced `<closure>` and
+-- exited 0 (BUGS.md v2-zero-arg-unknown-method-fails-open).
+--
+-- The front DOES know: `sel` vs `app(sel, [])`. Preserve that here — an applied
+-- zero-arg call emits `__method0__` (dispatch or ERROR, never eta-expand). Bare
+-- selections keep `__method__` (via selOrMethod), so method refs still work. Only the
+-- call path uses this: resolveMethodCall/selMethodOr are reached solely from
+-- `app(sel(...), rargs)`.
+def methodPrim = (rargs) =>
+  match rargs { case Nil => "__method0__" case _ => "__method__" }
+
 def resolveMethodCall = (robj, method, rargs) =>
   if isExtensionMethod(method) then
     -- Extension names are collected over the whole imported module closure,
@@ -1425,7 +1442,7 @@ def resolveMethodCall = (robj, method, rargs) =>
                 -- then fills any trailing positional defaults for the non-named case.
                 Pair("ctorap", Pair(method, ctorApplyDefaults(method, resolveCtorArgs(method, rargs))))
               else
-                Pair("prim", Pair("__method__",
+                Pair("prim", Pair(methodPrim(rargs),
                   Cons(Pair("str", method), Cons(Pair("ctorap", Pair(rname, Nil)), rargs)))))
            -- K62.7b: a user object (Math.square) → static Math_square; an unknown
            -- uppercase object (Dataset.of, Graph.vertices) → __method__ dispatch,
@@ -1468,9 +1485,9 @@ def resolveMethodCall = (robj, method, rargs) =>
             else if #seq(method, "getOrElse") then
               Pair("app", Pair(Pair("var", "_sel_mapGetOrElse"), Cons(robj, rargs)))
             else
-              Pair("prim", Pair("__method__", Cons(Pair("str", method), Cons(robj, rargs))))
+              Pair("prim", Pair(methodPrim(rargs), Cons(Pair("str", method), Cons(robj, rargs))))
           else
-            Pair("prim", Pair("__method__", Cons(Pair("str", method), Cons(robj, rargs))))
+            Pair("prim", Pair(methodPrim(rargs), Cons(Pair("str", method), Cons(robj, rargs))))
           }
         else
           selMethodOr(method, robj, rargs)
@@ -1526,23 +1543,23 @@ def selMethodOr = (method, robj, rargs) =>
     (if #i.eq(lenL(rargs), 1) then
        Pair("app", Pair(Pair("var", "_sel_mkString"), Cons(robj, rargs)))
      else
-       Pair("prim", Pair("__method__", Cons(Pair("str", "mkString"), Cons(robj, rargs)))))
+       Pair("prim", Pair(methodPrim(rargs), Cons(Pair("str", "mkString"), Cons(robj, rargs)))))
   else if #seq(method, "take") then
-    Pair("prim", Pair("__method__", Cons(Pair("str", "take"), Cons(robj, rargs))))
+    Pair("prim", Pair(methodPrim(rargs), Cons(Pair("str", "take"), Cons(robj, rargs))))
   else if #seq(method, "sum") then
-    Pair("prim", Pair("__method__", Cons(Pair("str", "sum"), Cons(robj, rargs))))
+    Pair("prim", Pair(methodPrim(rargs), Cons(Pair("str", "sum"), Cons(robj, rargs))))
   -- foldLeft via the runtime __method__ (not the self-hosted _sel_foldLeft): its methodOp threads an
   -- Op receiver (`perform().foldLeft(z)(f)`), which the curried _sel_foldLeft's inner Local-match does
   -- NOT (the bytecode backend only A-normalizes mayOp Match/Let/Seq scrutinees, and a Local isn't one).
   -- __method__ also handles a superset of receiver types (List/ArrayBuffer/Map). Same for foldRight.
   else if #seq(method, "foldLeft") then
-    Pair("prim", Pair("__method__", Cons(Pair("str", "foldLeft"), Cons(robj, rargs))))
+    Pair("prim", Pair(methodPrim(rargs), Cons(Pair("str", "foldLeft"), Cons(robj, rargs))))
   else if #seq(method, "foldRight") then
-    Pair("prim", Pair("__method__", Cons(Pair("str", "foldRight"), Cons(robj, rargs))))
+    Pair("prim", Pair(methodPrim(rargs), Cons(Pair("str", "foldRight"), Cons(robj, rargs))))
   else if isKnownSelMethod(method) then
     Pair("app", Pair(Pair("var", #sconcat("_sel_", method)), Cons(robj, rargs)))
   else
-    Pair("prim", Pair("__method__", Cons(Pair("str", method), Cons(robj, rargs))))
+    Pair("prim", Pair(methodPrim(rargs), Cons(Pair("str", method), Cons(robj, rargs))))
 
 -- Resolve a pure field access obj.field (no args)
 def resolveField = (robj, field) =>

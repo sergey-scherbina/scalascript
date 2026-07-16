@@ -485,7 +485,9 @@ object R:
     case "io.env"   => sys.env.get(_asStr(a0)).map(_Some(_)).getOrElse(_None)
     case "io.readFile" => java.nio.file.Files.readAllBytes(java.nio.file.Path.of(_asStr(a0))).toVector
     case "global.reg" => ()
-    case "__method__" => _method(_asStr(a0), a1, Array.empty[V])
+    // __method0__ = an APPLIED zero-arg call. This backend never eta-expands (the
+    // _method fallthrough throws), so it is exactly __method__ here.
+    case "__method__" | "__method0__" => _method(_asStr(a0), a1, Array.empty[V])
     case _ => throw new RuntimeException(s"unknown prim2: $op")
 
   // Bridge-generated arithmetic: prim3("__arith__", op, left, right)
@@ -533,7 +535,7 @@ object R:
   def primN(op: String, args: Array[V]): V = op match
     case "io.args"  => _strList(argv)
     case "io.nanoTime" => System.nanoTime()
-    case "__method__" if args.length >= 2 => _method(_asStr(args(0)), args(1), args.drop(2))
+    case "__method__" | "__method0__" if args.length >= 2 => _method(_asStr(args(0)), args(1), args.drop(2))
     case "map.new"  => mutable.HashMap[V, V]()
     case "arr.new"  => mutable.ArrayBuffer[V]()
     case "sfromCodes" => String(_unlist(args(0)).map(v => _asLong(v).toChar).toArray)

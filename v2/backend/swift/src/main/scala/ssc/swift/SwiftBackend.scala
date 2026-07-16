@@ -133,7 +133,9 @@ object SwiftBackend:
     "arr.new", "arr.len", "arr.get", "arr.set", "arr.push", "arr.pop", "arr.slice",
     "__mk_arr__", "__mk_map__", "__math_obj__", "__match_fail_prim__",
     HandlerDispatchShape.SelectedPrimitive, HandlerDispatchShape.MissPrimitive,
-    "__method__", "__effect__", "__effect_oneshot__", "__arith__", "__unary__", "__try__",
+    // __method0__ = an APPLIED zero-arg call; this runtime never eta-expands, so it
+    // behaves exactly like __method__ (see SwiftRuntime's dispatch).
+    "__method__", "__method0__", "__effect__", "__effect_oneshot__", "__arith__", "__unary__", "__try__",
     "io.print", "io.println", "io.nanoTime", "io.args", "global.reg",
     // native-front lowering emits these where FrontendBridge lowered differently
     "str->i", "str.split", "__eq__", "__throw__", "__tryCatch__", "__regfields__",

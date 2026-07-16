@@ -1209,8 +1209,9 @@ ${pad}    }));\n"""
       case "__arith__" => s"v_arith(${a0}, ${a1}, ${a2})"
       // __unary__ with literal op string (FrontendBridge-generated): dispatch to v_unary
       case "__unary__" => s"v_unary(${a0}, ${a1})"
-      // __method__: dispatch to v_method runtime helper
-      case "__method__" =>
+      // __method__: dispatch to v_method runtime helper. __method0__ (an APPLIED
+      // zero-arg call) is identical here — v_method never eta-expands.
+      case "__method__" | "__method0__" =>
         val rest = a.drop(2).mkString(", ")
         if rest.isEmpty then s"v_method(${a0}, ${a1}, vec![])"
         else s"v_method(${a0}, ${a1}, vec![$rest])"

@@ -381,7 +381,9 @@ object JsGen:
       case "__unary__" => s"$$unary(${a(0)},${a(1)})"
       case "__eq__" => s"$$eq(${a(0)},${a(1)})"
       case "__isTag__" => s"$$isTag(${a(0)},${a(1)},${a(2)})"
-      case "__method__" =>
+      // __method0__ = an APPLIED zero-arg call. $method never eta-expands (its
+      // fallthrough throws), so it is exactly __method__ on this backend.
+      case "__method__" | "__method0__" =>
         val argsJs = args.map(a => genE(a, scope, tco = false)).mkString(",")
         s"$$method($argsJs)"
       case "__effect__" =>

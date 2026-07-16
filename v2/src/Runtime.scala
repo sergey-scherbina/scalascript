@@ -100,6 +100,13 @@ object Value:
      *  structured dispatcher returns Some(result) or None for an unhandled
      *  event; it is never stored in the language closure environment. */
     private[ssc] var handlerDispatchHook: (Value => Option[Value]) | Null = null
+    /** Set ONLY on the `__method__` eta-expansion fallback closure (`recv.name`
+     *  used as a function value), holding the (name, receiver) that produced it.
+     *  A bare selection and an APPLIED zero-arg call lower to byte-identical
+     *  CoreIR, so the applied form is emitted as `__method0__`, which uses this
+     *  marker to reject the eta fallback and fail closed. Private execution
+     *  metadata: never enters `env`, CoreIR, or the wire ABI. */
+    private[ssc] var etaMethodRef: (String, Value) | Null = null
   final case class ForeignV(h: AnyRef)                extends Value
   /** Target-neutral insertion-ordered mutable map. Equality and hashing remain
    *  object identity, matching Swift's SscMap; UI semantic equality is a
@@ -607,7 +614,7 @@ object Compiler:
    * is equally conservative because an AOT artifact installs plugins only at
    * runtime. Keep every frontend/backend classifier on this predicate. */
   private[ssc] val operationProducingBuiltinNames: Set[String] = Set(
-    "__method__", "__effect__", "__methodOrExt__", "__effect_oneshot__",
+    "__method__", "__method0__", "__effect__", "__methodOrExt__", "__effect_oneshot__",
     "__arithExt__",
     "__with_return__", "__tryCatch__", "__tryCatchFinally__", "__tryFinally__",
     "__lazyForce__", "coreir.eval",
@@ -2942,6 +2949,26 @@ object Prims:
     // __eq__(a, b): structural equality (works on all Value types including ADTs)
     case "__eq__" => a => liftArith("==", a, BoolV(a(0) == a(1)))
     // __method__(name, receiver, args...): method dispatch on receiver type
+    // An APPLIED zero-arg method call `recv.name()`. Identical to __method__ except
+    // that it NEVER eta-expands: the user wrote an argument list, so the call must
+    // dispatch or fail. The lowerer emits this (instead of __method__) only from the
+    // call path, because a bare selection `recv.name` and a call `recv.name()` lower
+    // to byte-identical CoreIR — without this split a typo'd zero-arg method silently
+    // became the eta-expansion closure and the program printed `<closure>` and exited 0.
+    case "__method0__" => a =>
+      val recv0 = a(1)
+      def missed = sys.error(s"__method__: no dispatch for .${str(a, 0)} on ${Show.show(recv0)}")
+      resolve("__method__")(a) match
+        // (1) the eta-expansion fallback — `recv.name` as a function value.
+        case c: ClosV if c.etaMethodRef != null => missed
+        // (2) the missed-method BREADCRUMB. A DataV receiver whose method/field does
+        // not resolve yields DataV("Stub", "<tag>.<name>") and keeps going, so a
+        // typo'd call on a List/case class computed garbage and exited 0 too. An
+        // applied call must not degrade gracefully. A Stub RECEIVER legitimately
+        // propagates its existing breadcrumb (that error is already reported at the
+        // point the stub was minted), so only a freshly-missed dispatch fails here.
+        case DataV("Stub", _) if !isStubV(recv0) => missed
+        case v => v
     case "__method__" => a =>
       val name = str(a, 0)
       val recv = a(1)
@@ -3763,8 +3790,16 @@ object Prims:
                   // matched earlier). Treat it as the function value `x => recv.name(x)`
                   // — v2 is untyped so this is decided at dispatch time, not by the
                   // frontend. HOFs then call it per element.
+                  //
+                  // This fallback CANNOT tell a genuine method ref from a typo: both
+                  // lower to the same `__method__(name, recv)` node. An APPLIED zero-arg
+                  // call (`recv.name()`) is therefore emitted by the lowerer as
+                  // `__method0__`, which rejects the marked closure below and fails
+                  // closed. Only a BARE selection may legitimately land here.
                   if margs.isEmpty then
-                    ClosV(Runtime.emptyEnv, 1, env => Done(methodOp(name, recv, List(env.last))))
+                    val eta = ClosV(Runtime.emptyEnv, 1, env => Done(methodOp(name, recv, List(env.last))))
+                    eta.etaMethodRef = (name, recv)
+                    eta
                   else
                     sys.error(s"__method__: no dispatch for .$name on ${Show.show(recv)}")
     case _ => NotBuiltin
@@ -4086,6 +4121,11 @@ object Prims:
   /** Dispatch `__method__(name, recv, args...)` without trampoline — for FastCode. */
   def methodOp(name: String, recv: Value, args: List[Value]): Value =
     resolve("__method__")(StrV(name) :: recv :: args)
+
+  /** The runtime's missed-method breadcrumb value (see the __method__ DataV arm). */
+  private[ssc] def isStubV(v: Value): Boolean = v match
+    case DataV("Stub", _) => true
+    case _                => false
 
   // ── Effect-aware list traversal (bridged-lane list HOFs) ─────────────────────
   // A perform INSIDE a HOF lambda (`items.map(i => OperatorPlan(i.id,
