@@ -1,6 +1,6 @@
 feature/busi-v1-lane-runtime-regressions 2026-07-16T20:14:03Z
 agent: codex
-heartbeat: 2026-07-16T20:14:03Z
-status: not-started
-done-so-far: busi real browser and four focused adapters reproduce on the assembled 3666-based pin; v2 lane is green
-next: create an external worktree, record the multi-file regression contract, identify the minimal post-3666 runtime fixes, and verify against busi
+heartbeat: 2026-07-16T20:14:30Z
+status: in-progress
+done-so-far: external feature worktree created; busi real browser and focused-adapter baselines captured
+next: record the multi-file regression contract, identify the minimal post-3666 runtime fixes, and verify an assembled pin against busi
