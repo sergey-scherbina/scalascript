@@ -1451,8 +1451,8 @@ reference driver", which pins the parts that DO hold. Related engine gaps found 
 
 ## interp-collection-stdlib-completeness-gaps — common List/String/math methods missing on the v1 interp
 
-**Status:** FIXED (2026-07-15) — first batch. Surfaced by the v2-vs-v1 differential (sprint
-#16) as `No method …` errors on the v1 interpreter (`ssc-tools run --v1`), the conformance
+**Status:** FIXED (2026-07-15) — first batch. Surfaced by the v2-vs-v1 differential
+(sprint #16) as `No method …` errors on the v1 interpreter (`ssc-tools run --v1`), the conformance
 reference. Added: `List.reduce` / `reduceRight` / `reduceOption` / `reduceLeftOption` /
 `transpose` (`DispatchRuntime.dispatchList`, next to the existing `reduceLeft`; also added to
 the builtin-vs-extension precedence whitelist `hasBuiltinMemberBeforeExtension`);
