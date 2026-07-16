@@ -373,7 +373,7 @@ object SpikeParse:
         // Before this they collapsed the whole program to Nil (newfront Phase 0's #1 gap).
         else
           val before = c.mark
-          defs += parseStmt(c)
+          defs += parseStmt(c, topLevel = true)
           if c.mark == before then c.advance() // guarantee progress even if parseStmt consumed nothing
     Parsed(Node.Frame("spike.program", None, defs.result()), c.diagnostics)
 
@@ -925,10 +925,15 @@ object SpikeParse:
       else go = false
     Node.Frame("spike.sealed", None, Vector.empty)
 
-  private def parseStmt(c: Cur): Node =
+  // topLevel: ssc1-front handles `import` ONLY in parseOneStmt (its TOP-LEVEL statement parser,
+  // ssc1-front.ssc0:2526). Inside a block `import` is just a keyword in atom position, and parseAtom's
+  // fallback turns an unhandled keyword into `mkVar(v)` (ssc1-front.ssc0:1121) — so an in-body
+  // `import a.b.C` recovers as TWO statements: the var `import`, then the selection chain `a.b.C`
+  // (parseExpr stops after `import` — the next token is an id, not an operator). Reproduce that.
+  private def parseStmt(c: Cur, topLevel: Boolean = false): Node =
     while isAnnotationStart(c) do skipAnnotation(c)                         // erase `@ann` before a statement
     if c.peekKind == "spike.lbracket" then parseLinkImport(c)               // `[a, b, c](path.ssc)` link import
-    else if isWord(c, "import") then parseImportStmt(c)                     // `import a.b.{x, y}` / `import a.b.*`
+    else if topLevel && isWord(c, "import") then parseImportStmt(c)         // `import a.b.{x, y}` / `import a.b.*`
     else if isKw(c, "val") then parseVal(c)
     else if isWord(c, "var") then parseVarStmt(c)                           // `var x [: T] = e`
     else if isWord(c, "while") then parseWhile(c)                           // `while cond do body`
