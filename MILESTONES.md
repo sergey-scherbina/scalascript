@@ -55,18 +55,20 @@ other languages can drive — and be driven by — ScalaScript.
 
 - Landed 2026-07-16: Scala 3 direct-style control macros, JS/TS direct control host, the
   `ssc-api-descriptor-v3` interop surface.
-- **⚠️ The deep half of this stream is GATED ON STREAM 1's `P6.5 X1`** — it is not fully
-  independent. SPRINT: byte-affecting control work "begins only after the active UniML P6.5
-  literal-fixed-point sequence `F1 → F2/F3 → L1 → X1` is green and frozen". X1 green/frozen is the
-  stated blocker on `coreir-canonical-contract-reconcile`, `coreir-canonical-codec-hardening`,
-  `numeric-width-reconciliation` and — via `specs/control-interoperability.md` §2.4 —
-  `save()`/`run()` durable continuations. **Measured 2026-07-16:** no `SavedContinuation` is
-  constructible on ANY lane (every `Continuation.save()` performs `Save.Rejected(UnmanagedCapture)`);
-  `.ssc` has no `shift`/`reset` surface at all (`unbound global`); vectors 14/17 are `pending-codec`
-  on all 9 lanes. So `control-interop-examples` was queued AHEAD of its own prerequisites and is
-  now marked BLOCKED — **do not start it**.
-- **Unblock order:** P6.5 X1 green/frozen → `coreir-*` reconcile/hardening → `save()`/`run()` →
-  examples. Working X1 IS working this stream.
+- **✅ GATE LIFTED 2026-07-16 (Sergiy's call).** This stream's deep half waited on stream 1's
+  `P6.5 X1`; X1 now holds — verified independently, twice, from a clean build: **89 ok / 0 FAIL**,
+  `F(F_src) == ssc1-front(F_src)` byte-identical (79,667 B), `stage1 == stage2`. **Boundary:** the
+  fixpoint is real but scope-bounded (`F` compiles the subset it is written in, not all of
+  ScalaScript) — P6.5 stays `[~]` and its HONEST BOUNDARY note is the authority. Rationale for
+  lifting: X1 proves the Core IR byte contract is stable and self-consistent, which is what these
+  items depend on; breadth grows in parallel.
+- **Unblock order (do not skip):** `coreir-canonical-contract-reconcile` +
+  `coreir-canonical-codec-hardening` + `numeric-width-reconciliation` → `save()`/`run()` →
+  `control-interop-examples`.
+- **`control-interop-examples` is still LAST, not now.** Measured 2026-07-16: no `SavedContinuation`
+  is constructible on ANY lane (every `Continuation.save()` performs `Save.Rejected(UnmanagedCapture)`),
+  `.ssc` has no `shift`/`reset` surface (`unbound global`), vectors 14/17 are `pending-codec` on all
+  9 lanes. It was once queued ahead of its own prerequisites — don't repeat that.
 - Genuinely independent (not X1-gated): host/runner profile delivery (JS/TS, Rust, Swift,
   WASM-WASI), the N×M matrix, mixed-build interface extraction — planning, descriptors, reference
   API and semantic vectors "may proceed now" per SPRINT.

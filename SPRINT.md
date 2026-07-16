@@ -803,18 +803,37 @@ optional policy, not the default continuation semantics.
 
 ### Specification and contract freeze
 
-- [ ] **coreir-canonical-contract-reconcile — BLOCKED on P6.5 X1 green/frozen** — reconcile the frozen-count/no-loop claims in
+> **GATE LIFTED 2026-07-16 — Sergiy's call, on measured evidence.** These three items (and, behind
+> them, `save()`/`run()` and `control-interop-examples`) waited on "the UniML P6.5 literal-fixed-point
+> sequence `F1 → F2/F3 → L1 → X1` green and frozen". **X1 now holds and was verified independently
+> by the coordinator, twice, from a clean `scala-cli --power package v2/src --assembly` build:**
+> `specs/v2.2-p6.5-fsub.sh --self` → **89 ok / 0 FAIL, exit 0**; `F(F_src) == ssc1-front(F_src)`
+> byte-identical (79,667 B); `stage1 == stage2` byte-identical; the self-produced compiler C1 is
+> byte-identical to the reference and its IR runs → 120.
+>
+> **Read the boundary before you rely on this.** The fixpoint is REAL but SCOPE-BOUNDED: `F` compiles
+> the subset `S` that `F` is itself written in — **not** all of ScalaScript. Still outside S:
+> given/summon dict-passing, enums, extensions, for-comprehensions, `var`/`while`, string
+> interpolation, the prelude-selector table, the List-var registry. (Case classes landed as X1h.)
+> P6.5 stays `[~]`, not `[x]`, and its HONEST BOUNDARY note is the authority — re-read it, don't
+> infer scope from the word "fixpoint". Sergiy's rationale for lifting anyway: X1 proves the Core IR
+> byte contract is stable and self-consistent, which is exactly what these items depend on; P6.5
+> breadth grows in parallel and re-proves `--self` on every slice.
+>
+> **Unblock order (do not skip):** these three → `save()`/`run()` → `control-interop-examples`.
+
+- [ ] **coreir-canonical-contract-reconcile — UNBLOCKED 2026-07-16** — reconcile the frozen-count/no-loop claims in
   `v2/specs/10-core-ir.md` with the current canonical Reader/Writer and `CoreIR.scala`, which already
   serialize `While` and `Seq`. Pin one canonical node/value inventory before freezing the capsule
   encoding; this is documentation/contract drift, not permission to add a continuation node. After
   landing, re-run and re-freeze the literal stage1==stage2 fixed point against the reconciled bytes.
-- [ ] **coreir-canonical-codec-hardening — BLOCKED on P6.5 X1 green/frozen** — make the canonical codec match its contract before it is
+- [ ] **coreir-canonical-codec-hardening — UNBLOCKED 2026-07-16** — make the canonical codec match its contract before it is
   used for untrusted persisted capsules: preserve floating-point bit identity including `-0.0`, add
   `IrBytes` encode parity, reconcile `coreir.encode`'s promised Bytes with its actual String, provide
   the specified text/bytes decode path, validate symbols/closed globals/arities, and enforce bounded
   decoding. Add encode/decode/canonicalization vectors for every node and constant, then re-run the
   literal fixed point. Canonical Reader/Writer remains kernel-owned.
-- [ ] **numeric-width-reconciliation — BLOCKED on P6.5 X1 green/frozen** — retain source `Int`/`Long`
+- [ ] **numeric-width-reconciliation — UNBLOCKED 2026-07-16** — retain source `Int`/`Long`
   width evidence and implement canonical public `I32`/`I64` semantics over the current signed
   wrapping-64 CoreIR value. Add per-backend wrap/round-trip/overload vectors and reject legacy
   ambiguous exports; this is semantic lowering work, not descriptor-only mapping.
