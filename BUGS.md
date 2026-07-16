@@ -1,5 +1,57 @@
 # Bug tracker
 
+## v2-zero-arg-unknown-method-fails-open — a typo'd zero-argument method silently returns garbage instead of erroring
+
+**Status:** OPEN (v1/v2 divergence, silent wrong answer on the DEFAULT lane). Found 2026-07-16 by
+the `control-interop-examples` agent while attempting `resume.save()` from a user's seat; the
+fail-open is what made a broken example look like it ran. Not control-specific — it affects every
+`.ssc` program on `bin/ssc run`.
+
+**Symptom.** On the v2 lanes an **unknown zero-argument method call** does not raise. It silently
+evaluates to an undispatched value (`<closure>`, or `Stub` for a list receiver) and the program
+**exits 0**. v1 rejects the same source loudly with a position. Any typo'd zero-arg method name
+therefore computes garbage rather than failing.
+
+**Reproduce** (assembled launcher, no effects/control involved):
+
+```scalascript
+println("Int:    " + 42.bogusMethod().toString())
+println("String: " + "hi".bogusMethod().toString())
+println("List:   " + List(1,2).bogusMethod().toString())
+```
+
+- `bin/ssc run` (native — the default lane) → `Int:    <closure>` / `String: <closure>` /
+  `List:   Stub`, **exit 0**.
+- `bin/ssc-tools run --v2` (bridge) → same fail-open.
+- `bin/ssc-tools run --v1` (correct) →
+  `[ERROR] [line 1, col 22] No method 'bogusMethod' on IntV(42)`.
+
+**Arity is the discriminator** — the same unknown name with an argument errors correctly:
+
+```scalascript
+val f = (x: Int) => x + 1
+println(f.totallyBogus().toString())   // native: "<closure>", exit 0   ← fail-open
+println(f.alsoBogus(1).toString())     // native: __method__: no dispatch for .alsoBogus  ← correct
+```
+
+**Root cause (hypothesis, matches every observation).** `__method__` is curried as
+`__method__(name, recv)(args…)`; the `_method` fallback that throws
+(`v2/backend/jvm/JvmBackend.scala:369`, mirrored in `v2/backend/js/JsBackend.scala:668`) only runs
+once the argument list is applied. A **zero-argument** call never applies it, so the receiver-and-name
+pair is returned undispatched and renders via `case "toString" … => _show(recv)` as `<closure>`.
+Applying the result later (`f.totallyBogus()(41)`) does reach the fallback — which is why the error
+appears only in applied position, and why chains like `f.nope().alsoNope()` stay silent.
+
+**Why it matters.** This is fail-open on the lane `bin/ssc run` uses by default, and it defeats
+examples-as-evidence: a method that does not exist reads as a plausible value. It is also how a
+`.ssc` attempt at the not-yet-existing control surface (`resume.save()`) appears to succeed and
+then fails downstream with the misleading `no dispatch for .run on <closure>`.
+
+**Notes.** Base SHA `0891ed8cf`. Fix must keep `.toString()`/`.foreach` working and preserve the
+existing positive dispatch cases; add a v1-vs-v2 differential vector for an unknown zero-arg method
+on Int/String/List/closure receivers. Related but distinct: `v2-native-front-in-fence-imports-not-followed`
+below is the other current "native lane reports something misleading instead of the honest error" case.
+
 ## v2-native-front-in-fence-imports-not-followed — the native lane silently ignores an import written inside a code fence
 
 **Status:** OPEN (compiler divergence). The **symptom** that made `v21-explicit-lanes-gate` red is
