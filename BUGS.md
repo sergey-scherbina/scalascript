@@ -1419,11 +1419,35 @@ cases.
 
 ## scljet-ipk-rowid-alias-not-substituted — reading a REAL SQLite file returns 0 for every `INTEGER PRIMARY KEY`
 
-**Status:** OPEN (found 2026-07-15 by `scljet-jdbc-j4-introspection` while probing whether the
-JDBC shim can read a file written by the reference driver). **Engine bug — belongs to the
+**Status:** **FIXED (2026-07-16)** — `14f4da4ac` (read substitution) + `2fc0a0fd1`
+(`lastInsertRowid`). Found 2026-07-15 by `scljet-jdbc-j4-introspection` while probing whether the
+JDBC shim can read a file written by the reference driver. **Engine bug — belongs to the
 `scljet-m3-writes` lane, NOT the JDBC shim** (the shim only forwards `queryImage` rows).
 Found on `origin/main` `727ea5e12`. **Silent wrong data, not an error** — the severity is that
 nothing fails; the client just gets zeros.
+
+**ACTUAL root cause (confirmed, not hypothesis).** Exactly the read-side hypothesis below, and
+*only* that: `fieldValueAt` returned the record's stored field for the IPK column. A
+reference-written file stores NULL there (the value lives in the rowid), so the engine returned
+NULL — which the typed getters coerce to `0`. Verified through a file in both directions before
+any fix: `SELECT id, name FROM emp` gave `null|ann, null|bob`, and `WHERE id = 7` matched *nothing*
+(the filter reads the record too — a projection-only fix would have left this broken).
+
+**The fix (read-only, `scljet/sql.ssc`).** Materialise the rowid into the IPK column once per
+query, on the decoded row set, so every downstream reader — projection, WHERE, ORDER BY, GROUP BY,
+aggregates, joins, DISTINCT — sees it through the existing `fieldValueAt` without knowing about the
+alias. Three choke points cover every SELECT path: `finishRows` (full scan + rowid seek + index
+seek), `executeSelectLimited` (LIMIT pushdown applies its WHERE *during* the scan, so
+`collectRowsLimited` takes `ipkIdx` and normalizes before matching), and `joinTableRows` (the one
+row source for both the 2-table and the N-table join). Each derives the index from the existing
+`tableIpkIndex` — no new analysis, and no signature churn beyond `collectRowsLimited`.
+**Byte-safety:** only the DECODED value is replaced; `serialType`/`encoded` carry over from the
+original field, so `reconstructRecordBytes` still rebuilds the original on-disk payload
+byte-for-byte and a normalized record cannot corrupt a re-encode.
+
+**Regression cover:** `ScljetIpkRowidDifferentialTest` (new) crosses the two engines **through a
+file** in both directions; `ScljetIntrospectionTest`'s deliberately-pinned `getLong(1) == 0` now
+asserts `1`. Gates: `scljet-*` conformance 97/97 (`--no-memo`), `scljetJdbcPlugin/test` 48/48.
 
 **Symptom/reproduce** (three-way differential; the JDBC lane is only the harness — the same read
 goes through `queryImage`, so a pure `.ssc` repro should reproduce it too):
@@ -1468,7 +1492,8 @@ There is no need to change the write path to make the read correct. (Writing a c
 the column is a separate, optional tidy-up — byte-level canonicity vs real SQLite — NOT required
 for correctness, and it would be a storage-format change worth its own slice.)
 
-**A REAL second bug found by the same probe — `lastInsertRowid` is wrong for an IPK table:**
+**A REAL second bug found by the same probe — `lastInsertRowid` is wrong for an IPK table —
+FIXED `2fc0a0fd1`:**
 
 ```
 scljet: INSERT INTO emp VALUES (7,'bob')  → the row's rowid IS 7, but
@@ -1480,8 +1505,19 @@ i.e. the counted-mutation path reports a sequential counter instead of the rowid
 assigned. This makes the JDBC shim's `getGeneratedKeys` (J2) return the wrong key for exactly the
 tables where generated keys matter most. The existing `getGeneratedKeys` tests use a *plain*
 `INTEGER` column (not an IPK), where a sequential rowid IS the right answer — which is why they
-pass, and why the reference cross-check passes too. Fix alongside the read substitution, and
-extend the getGeneratedKeys tests to cover an IPK table.
+pass, and why the reference cross-check passes too.
+
+**Root cause:** `insertChangesRowid` derived the rowid as `maxRowid + #rows` *independently of*
+`assignInsertRowids`, the function that actually places the rows — two derivations of one fact,
+which agreed only while no IPK was involved. **Fix:** reuse `assignInsertRowids` and report the
+last rowid it assigns, so both callers share one source of truth by construction.
+`ScljetDriverTest` now covers an IPK table (explicit 7 → auto 8 → explicit 3), cross-checked
+against the reference's `last_insert_rowid()`. Verified RED first: reported `(1, 8, 9)` vs the
+correct `(7, 8, 3)`.
+
+**A THIRD divergence, still OPEN — see `scljet-update-ipk-does-not-move-rowid` below.** Found while
+verifying that the read fix does not regress `UPDATE`. It is a *pre-existing write* gap, not a
+regression, and the read fix strictly improves cross-engine agreement on it.
 
 **Method note that generalises.** A test whose oracle is "scljet reads back what scljet wrote"
 cannot see any of this: it is self-consistent by construction. The differential must cross the
@@ -1494,6 +1530,40 @@ reference driver", which pins the parts that DO hold. Related engine gaps found 
 `CREATE UNIQUE INDEX` is not parsed at all (`parseCreateIndex` requires `CREATE INDEX`;
 `CREATE UNIQUE INDEX` falls through to `parseCreate` → "expected TABLE"), and
 `INSERT INTO t SELECT …` is not parsed ("expected VALUES").
+
+## scljet-update-ipk-does-not-move-rowid — `UPDATE t SET <ipk>=N` rewrites the column but leaves the rowid
+
+**Status:** OPEN (found 2026-07-16 by the `scljet-ipk-rowid` lane, while verifying that the read
+substitution `14f4da4ac` does not regress `UPDATE`). **Pre-existing write-path gap — NOT a
+regression from that fix.** Low severity relative to the read bug: it needs an explicit `UPDATE` of
+an IPK column, which is rare.
+
+**Symptom** (measured, both engines, same statements):
+
+```
+CREATE TABLE emp(id INTEGER PRIMARY KEY, name TEXT); INSERT INTO emp VALUES (1,'ann')
+UPDATE emp SET id=5 WHERE name='ann'
+                      → (rowid|id|name)
+real SQLite           → 5|5|ann     ✓ the row MOVES to rowid 5
+scljet (post-14f4da4ac) → 1|1|ann   ✗ the rowid never moved
+real SQLite reading scljet's file → 1|1|ann   (agrees with us about what the file says)
+```
+
+**Root cause.** In real SQLite an IPK column IS the rowid, so assigning to it moves the row to a new
+rowid (and fails on a duplicate). scljet's `executeUpdate` treats the IPK as an ordinary column: it
+rewrites the record field and leaves the rowid alone.
+
+**Why the read fix improves this rather than breaking it.** Before `14f4da4ac` scljet reported the
+stored column (`id=5`) while real SQLite reading the very same file reported the rowid (`id=1`) —
+the two engines *disagreed about our own file*. Now both say `1`: we are honestly reporting what the
+file contains. The remaining bug is that the file is not what SQLite would have written. Pinning
+this in a test therefore requires deciding the intended semantics first (move the rowid), not just
+asserting today's output.
+
+**Fix sketch.** In `executeUpdate`, detect an assignment to the IPK column (`tableIpkIndex`) and
+re-key the row: delete + reinsert under the new rowid, erroring on a duplicate exactly as a
+duplicate `INTEGER PRIMARY KEY` does today via `leafInsertCell`. Also update any index entries,
+which store the rowid as their tail.
 
 ## interp-collection-stdlib-completeness-gaps — common List/String/math methods missing on the v1 interp
 
