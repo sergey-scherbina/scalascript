@@ -561,32 +561,72 @@ error-resilient parser already byte-identical to ssc1-front on 119 constructs, t
       Ends when the whole (single-file) corpus is byte-identical.
 - [ ] **Phase 2 — multi-file / imports.** Give the new front the module-loading the old front has (resolve
       `[name](path.ssc)` imports, load defs), so multi-file programs also compare byte-identically.
-      **Scope (measured 2026-07-16 on the 499-program corpus): 34 files carry a `[names](path.ssc)` link-import,
-      50 carry a `import a.b.{x,y}`.** Phase 1 made BOTH a parse-only no-op (`Pair("sealed","")`), which is
-      byte-correct SINGLE-file precisely because the harness compares one extracted program — Phase 2 is where
-      that no-op stops being enough. Slices, in order (write each result back here; MATCH only goes up):
-      - [ ] **2.0 — the harness must SEE multi-file first (do this before any parser work).** `specs/newfront-diff.sh`
-            extracts and lowers ONE file per program, so an import gap is INVISIBLE to it today — the current
-            485/499 says nothing about module loading. Extend it (or add `specs/newfront-diff-multi.sh`) to drive
-            ssc1-run's REAL module loader on both sides: ref = the old front's full multi-file lower; new = the
-            spike's. Without this gate, Phase 2 is unmeasurable and its "green" would be another harness lie.
-            Deliverable: a baseline `MATCH/DIFF` over the ~34 link-import programs. **This is the phase's keystone.**
-      - [ ] **2.1 — read ssc1-run's loader and write down its EXACT contract** (`v2/bin/ssc1-run.ssc0`,
-            `sscProgramSource`): resolution order, path base (relative to the importing file?), dedup of a diamond
-            import, ordering of loaded defs vs the importer's own (the caseMethods round proved ORDER is
-            observable), and what a missing file does. Record it here — it is the spec 2.2 implements against.
-      - [ ] **2.2 — resolve `[names](path.ssc)` in the spike**: parseLinkImport already CONSUMES the form and keeps
+      **SCOPE (re-measured 2026-07-16 via the 2.0 gate — supersedes the earlier "34", which was WRONG):
+      216 of 499 roots load ≥1 module (43%); 110 distinct modules; up to 20 modules per root; 5 roots the
+      ORACLE ITSELF cannot resolve.** (The 34 came from grepping the EXTRACTED CODE — but imports are scanned
+      from the RAW file, and a FENCED `.ssc` keeps the link line in the PROSE, so `.code` never has it.)
+      **MULTI-FILE BASELINE (MEASURED 2026-07-16): MATCH 42/216 (19%), DROP 0, HOLE 108, DIFF 66, SKIP 5** —
+      versus 485/499 (97%) single-file. Reproduce: `SSC_JAR=<run-ir jar> bash specs/newfront-diff-multi.sh`
+      FROM THE REPO ROOT (~25 min). Phase 1 made both import forms a parse-only no-op (`Pair("sealed","")`),
+      byte-correct SINGLE-file precisely because that harness compares one extracted program — Phase 2 is where
+      that stops being enough. Slices, in order (write each result back here; MATCH only goes up):
+      - [x] **2.0 — the MULTI-FILE gate ✓ DONE 2026-07-16** (`specs/newfront-diff-multi.sh`). Both sides drive
+            ssc1-run's REAL loader, so only the PARSER differs: `ref = lowerProg(sscLoadRoots([root]))` vs
+            `new = lowerProg(sscApp(sscDefsOnly(spike(m1)), … spike(root)))`. Run from the REPO ROOT (a bare
+            `a/b.ssc` import falls back to sscLibRoot()+rel, which is CWD-relative); `SSC_JAR` = a run-ir jar.
+            **FIRST MULTI-FILE BASELINE (MEASURED): MATCH 42/216 (19%), DROP 0, HOLE 108, DIFF 66, SKIP 5.**
+            The keystone paid off immediately — single-file says 97%, multi-file says **19%**: module loading
+            was entirely unmeasured, exactly as feared.
+            **SCOPE CORRECTION: 216 of 499 roots load ≥1 module (43%), NOT the 34 I first recorded.** The 34 came
+            from grepping the EXTRACTED CODE; imports are scanned from the RAW file (sscImports), and in a FENCED
+            `.ssc` the link line lives in the PROSE, so `.code` never contains it. 110 distinct modules, up to 20
+            per root (scljet-jdbc-basic). **5 roots the ORACLE ITSELF cannot resolve** (e.g. std-ui-aggregator's
+            `[…](../examples/std-ui)` normalises to `tests/examples/std-ui`) → SKIP: a corpus property, not a
+            new-front gap. Gotchas already paid for (both commented in the script): `xargs -I{}` CANNOT take a
+            20-module scope line ("command line cannot be assembled, too long") and silently shrank the run to 3
+            roots — pass a LINE INDEX; and an unquoted heredoc command-substitutes BACKTICKS.
+      - [x] **2.1 — ssc1-run's loader contract ✓ RECORDED** (in `specs/newfront-diff-multi.sh`'s header; read off
+            `v2/bin/ssc1-run.ssc0:443-479`): `sscLoadMod = sscApp(impDefs, defs)` — a module's transitive imports'
+            defs come BEFORE its own; `sscLoadRoot = sscApp(impDefs, stmts)` — the ROOT keeps its entry
+            expressions, MODULES are defs-only (`sscDefsOnly`: def/extension_start/extension_end/val/var/casecls/
+            caseobj/enum/given/given_obj/object/effect_decl — a module's top-level entry EXPRESSIONS are dropped);
+            dedup at first VISIT (`Cons(path, seen)` BEFORE descending) so a diamond loads ONCE in its FIRST slot
+            (ORDER is observable — cf. the caseMethods reverse-accumulate bug); `[n](./dir)` → `dir/index.ssc`;
+            `std/…` → SSC_STD (default `v1/runtime/`); a bare `a/b.ssc` tries `<dir>/a/b.ssc` then falls back to
+            sscLibRoot()+rel; a missing file throws (the whole run dies — so probe PER-FILE, never in one batch).
+      - [x] **2.1b — parse-only no-ops must carry a token ✓ DONE 2026-07-16** (the gate's first real find, and one
+            ONLY it could make). All six `("sealed","")` sites returned an EMPTY Frame, which does not survive the
+            Node→UniNode emit — so if EVERY statement in a file is a no-op the file projects NO ROOTS and the batch
+            reports the module as `EMPTY` (unlowerable). `v1/runtime/std/ui/offline.ssc` is nothing but `extern def`
+            signatures. 6 std modules fixed (auth/crypto/http/openapi/ui-offline/ui-webauthn), 7 EMPTY → 0.
+            Single-file harness measured UNCHANGED (485/499, zero delta) — these modules are never roots.
+      - [ ] **2.2 — close the MODULE parse holes (HOLE 108 — the dominant multi-file cluster, START HERE).** The
+            holes are in MODULE code (`v1/runtime/std/*`) that the single-file corpus never exercised, so they are
+            almost certainly ordinary parse gaps of the kind items 12-14 ate for breakfast — not module semantics.
+            Method unchanged: pick the module that poisons the most roots (`grep '^HOLE' <work>/results.txt`, map
+            each root to its modules via `<work>/scope.txt`), find its `__notImplemented__`, read the ORACLE's rule,
+            mirror it. Re-run the multi-file gate; MATCH only goes up. Note the single-file harness is BLIND to
+            these — verify with `newfront-diff-multi.sh`, and keep `newfront-diff.sh` green as a regression guard.
+      - [ ] **2.3 — then the 66 DIFFs.** Top first-divergence clusters from the 2026-07-16 baseline: `lower` (11),
+            `contentViewBlock` (9), `Cluster_healthCheck` (9), `_sel_method` (8), `Parser_`/NoContext (6),
+            `AgentSchemaInstance_decode` (5). Several look like ORDER/registry effects (the caseMethods lesson:
+            equal length + wrong content ⇒ an ordering bug — `wc -c` both IRs FIRST).
+      - [ ] **2.4 — resolve `[names](path.ssc)` in the spike itself (the real Phase 2 feature, LAST not first).**
+            The gate composes the module list EXTERNALLY today (via ssc1-run's own loader), which is what makes the
+            PARSER the only variable. Only once 2.2/2.3 are green does the spike need to own resolution:
+            parseLinkImport already CONSUMES the form and keeps
             its tokens (needed so the frame survives the emit); make it emit the path + names instead of a no-op,
             and have the driver load/parse/project each imported file and splice its statements in the loader's
             order. Reuse the variant-A ADDITIVE pattern (ssc1-front emits no such node → collect=Nil → production
             byte-identical), and PROVE production is untouched with the ref-diff check (item 13: re-derive all
             corpus refs, byte-compare — 499 identical).
-      - [ ] **2.3 — `import a.b.{x,y}` / `.*`**: these resolve via the plugin registry / globals, NOT the file
-            system (that is WHY ssc1-front no-ops them, ssc1-front.ssc0:2526). Confirm against the loader before
-            writing code — the likely correct answer is that 2.3 is a NO-OP and only 2.2 is real work. Do not
-            invent module semantics the old front does not have; Core IR is frozen and the oracle is the spec.
-      - [ ] **2.4 — the in-body `import` half is ALREADY DONE** (landed this session, measured neutral): `import`
-            is top-level-only, and in a body it is the var `import` + a selection chain. Keep that behaviour.
+      - [ ] **2.5 — `import a.b.{x,y}` / `.*`**: these resolve via the plugin registry / globals, NOT the file
+            system (that is WHY ssc1-front no-ops them, ssc1-front.ssc0:2526) — and the 2.0 gate CONFIRMS it: the
+            loader only ever follows `[names](path)` link-imports (sscImports scans for link lines only). So 2.5 is
+            almost certainly a NO-OP; verify against the gate rather than inventing module semantics the old front
+            does not have. Core IR is frozen and the oracle is the spec.
+      - [x] **2.6 — the in-body `import` half ✓ ALREADY DONE** (landed 2026-07-16, measured neutral): `import` is
+            top-level-only, and in a body it is the var `import` + a selection chain. Keep that behaviour.
 - [ ] **Phase 3 — self-host the implementation subset.** Define the clean ScalaScript subset the new front is
       WRITTEN in (case class/enum for the AST, pattern matching, modules, strings). Ensure it self-compiles
       (extend the C_min fixpoint method to this richer subset). This is what makes the front self-hosting.
