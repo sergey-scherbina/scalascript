@@ -172,7 +172,25 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
         **NOT FIXED BY ME — `ScalaSpike*` is the live newfront lane and I stayed out of it.**
         Reported to that agent in rozum (2026-07-16/19). Standard fix: move the spec to the JVM-only
         source dir `uniml/core/.jvm/src/test/scala/...` — the corpus harness is filesystem-bound and
-        JVM-only by nature. **This will fail the sbt job the moment the lanes gate goes green.**
+        JVM-only by nature.
+        The full run then took 43 min and ended `exit 1` with **5 failing suites**, all in other
+        agents' lanes — none fixed here, all recorded so they are not lost. **Caveat: this was a
+        macOS run; CI is ubuntu, so some of these may be local-only. Re-check on CI before acting.**
+        1. `uniml / ScalaSpikeSpec` — besides the JS linker, `C_min … projects cleanly (P6.21)`
+           fails on a **CWD-dependent** lookup: *"specs/v2.2-p6.6-cmin.L not found — set CMIN_L or
+           run from the repo root / uniml dir"* (`ScalaSpikeSpec.scala:493`). sbt's per-project CWD
+           is not the repo root, so it cannot find its own fixture. (newfront lane)
+        2. `backendInterpreterPluginTests` — *"value-surface plugins depend only on
+           scalascript-plugin-api (no scalascript.interpreter)"* fails: the **scljet-jdbc-plugin**
+           (6 files: ScljetEngine/ResultSet/Statement/Catalog/Connection/Driver) imports
+           `scalascript.interpreter.{Interpreter, Value}`. An **architecture guard the scljet-jdbc J4
+           lane broke** — this one is a pure source scan, so it WILL fail on CI too. (scljet lane)
+        3. `cli` — *"standalone release fixtures provide the three documented install channels"*.
+        4. `v2SwiftBackend / SwiftBackendTest:149` — *"SwiftUI renderer inventory covers every
+           shipped lowerer tag and CSS property"*, `missing SwiftUI tag inventory`.
+        5. `scljetVfsPlugin / SclJetJvmVfsHostTest:167` — *"exclusive host lock blocks official
+           SQLite in another process"*, `process.isAlive() was false`. (scljet lane; may need a real
+           sqlite3 binary — likely environment-sensitive)
 - [~] **5. CI re-audit — real progress, NOT green yet. Do not claim green.** Observed, not assumed:
       - `Lint Markdown` GREEN. `Validate ScalaScript` GREEN.
       - `Conformance Suite`: **228 passed/53 failed → 279 passed/2 failed of 281. Zero scljet
