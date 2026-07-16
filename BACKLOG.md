@@ -788,7 +788,14 @@ The larger / later items of the crypto/blockchain/identity/payments roadmap. Nea
       gossip/CRDT layers over the actor/cluster substrate + crypto SPI. Gate: per-component correctness + a
       cluster integration test.
 
-## Roadmap — agreed priority order (2026-06-17, with Sergiy)
+## Roadmap — agreed priority order (2026-06-17, with Sergiy) — ⚠️ SUPERSEDED 2026-07-16
+
+> **HISTORY, NOT THE CURRENT DIRECTION.** This order (agent-sdk → package-registry →
+> sbt-plugin → …) described mid-June. Since then the work has been the three streams in
+> `MILESTONES.md` §"Where we are going" — v2 self-hosting, dogfood (scljet/uniml), control/interop
+> — confirmed with Sergiy on 2026-07-16. The entries below stay for their findings and their
+> still-open follow-ups, which remain valid work; they are just **not** what to pick next.
+> Do not start a theme from this list without asking.
 
 Drive top-to-bottom, one major theme at a time. **Maven/centralized publication is dead
 last — after everything else.**

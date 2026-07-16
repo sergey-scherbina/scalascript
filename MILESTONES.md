@@ -1,6 +1,6 @@
 # Milestones
 
-> This file is a navigation index. Full content lives in three files:
+> Navigation index. Full content lives in three files:
 
 | File | Contents |
 |------|----------|
@@ -10,91 +10,70 @@
 
 ---
 
-## Quick status (2026-05-28)
+## Where we are going (2026-07-16, confirmed with Sergiy)
 
-### In progress
+**Three streams, run in parallel. All three are current — none is a side quest.**
 
-- v1.57.1-payment-rails-australia-npp — Australia NPP/PayID adapter
-- v1.57.2-payment-rails-canada-eft — Canada Interac e-Transfer + EFT adapter
-- v1.57.3-payment-rails-mexico-spei — Mexico SPEI + CLABE adapter
-- v1.57-fx-provider — FX rate provider SPI + ECB / Open Exchange Rates adapters
-- graph-storage-fullstack — Phase 6: graph query REST routes + client-side cache example
+### 1. v2 self-hosting — one chain
 
-### Recently completed
+Retire scalameta and the old ssc0 front; ScalaScript compiles itself, on its own toolchain.
+This is the spine: the `C_min` compiler-for-L-in-L fixpoint already holds (stage1 == stage2,
+byte-identical, no quine), and the **new self-hosting front** is replacing `ssc1-front`+`ssc1-lower`
+byte-identically against the frozen Core IR.
 
-- v1.63.0-distributed-runtime-spec — canonical distributed runtime spec merging placement/remoting, local/distributed cluster lifecycle, and cluster operations ✓ (2026-05-28)
-- v1.62.0-distributed-wire-spec — opt-in JSON/MsgPack/CBOR internal distributed wire protocol spec + backlog ✓ (2026-05-28)
-- v1.57.3-payment-rails-mexico-spei — Mexico SPEI + CLABE, 44 tests ✓ (2026-05-27)
-- graph-storage-fullstack — Phase 6 full-stack examples ✓ (2026-05-27)
-- openapi-export — `/_openapi.json` + `/_swagger` built-in routes ✓ (2026-05-27)
-- secret-resolvers-cloud — AWS/GCP/Azure secret resolver plugins ✓ (2026-05-27)
-- wallet-solana-standard-js — Scala.js `registerWallet` bridge ✓ (2026-05-27)
-- x402-cardano-scalus-completion — Phases 3/5/6 complete ✓ (2026-05-27)
-- v1.56-xslt — XSLT 1.0 transformation, Feature.Xslt, 18 tests ✓ (2026-05-27)
-- secret-resolvers-jdk — Vault/Doppler/1Password/pass resolver plugins ✓ (2026-05-27)
-- v1.55.8-singapore-paynow — PayNow proxy resolution + FAST payment, 67 tests ✓ (2026-05-27)
-- v1.55.7-japan-zengin — Zengin fixed-width file, kana validation, 59 tests ✓ (2026-05-27)
-- v1.55.6-india-upi — UPI push+collect + RSA-SHA256, 63 tests ✓ (2026-05-27)
-- v1.55.5-uk-chaps — UK CHAPS ISO 20022 pacs.008, 46 tests ✓ (2026-05-27)
-- v1.55.4-uk-bacs — BACS DD Standard-18 + AUDDIS, 61 tests ✓ (2026-05-27)
-- v1.55.3-uk-faster-payments — UK FPS + CoP name check, 47 tests ✓ (2026-05-27)
-- v1.55.2-sepa-instant — SCT Inst pacs.008, 49 tests ✓ (2026-05-27)
-- v1.55.1-international-swift — SWIFT MT103 + pacs.008 CBPR+, 65 tests ✓ (2026-05-27)
-- v1.52.7-deploy-state-backends — `LocalFileStateBackend`/`S3StateBackend`/`ConsulStateBackend`/`EtcdStateBackend` + `StateBackendFactory` + `StateMigrator`, 105 tests total ✓ (2026-05-27)
-- v1.52.6-deploy-faas — `FaasTarget` (Lambda/Cloudflare Workers/Cloud Run/Vercel Functions), 91 tests total ✓ (2026-05-27)
-- v1.52.5-deploy-static — `StaticTarget` (Vercel/Netlify/Cloudflare Pages/GitHub Pages), 80 tests total ✓ (2026-05-27)
-- v1.52.4-deploy-traditional — `SystemdUnitGenerator` + `SshSystemdTarget` + `RsyncTarget` + `SftpTarget`, 71 tests total ✓ (2026-05-27)
-- v1.52.3-deploy-k8s — `K8sManifestGenerator` + `K8sTarget` (all 7 SPI verbs + switch/promote blue-green), `TargetFactory` k8s case, 53 tests total ✓ (2026-05-27)
-- v1.52.2-deploy-container — `DockerfileGenerator` (4 base-image recipes), `ContainerTarget` (all 7 SPI verbs, buildctl/buildx/docker fallback, multi-platform, digest rollback), `TargetFactory`, 36 tests total ✓ (2026-05-27)
-- v2.1.10-dstream-conformance — new `backendConformance` module; 8 cross-backend conformance tests; `examples/distributed-streams.ssc` expanded to 12 examples; all 4 shims now declare all 7 backend aliases ✓ (2026-05-27)
-- v2.1.9-dstream-joins — `join`/`leftOuterJoin`/`rightOuterJoin`/`flatten`; all 4 shims + native interpreter `evalDag`; `CAP_WINDOWED_JOINS`; +20 tests ✓ (2026-05-27)
-- v2.1.8-dstream-side-io — `SideInput[T]`/`OutputTag[B]`/`withSideInput`/`sideOutput`; all 4 shims + native interpreter; `CAP_SIDE_INPUTS`/`CAP_SIDE_OUTPUTS`; +16 tests ✓ (2026-05-27)
-- v2.1.7-dstream-stateful — `statefulMap`/`statefulFlatMap`/`broadcastState`/`timerEventTime`; state types `ValueState`/`MapState`/`ListState`/`BagState`; `StateContext`/`KeyedStateSpec`; all 4 shims + native interpreter, 20 new tests ✓ (2026-05-27)
-- v2.1.6-dstream-connectors — `Kafka`/`Files`/`Jdbc`/`Pulsar`/`Kinesis` stubs in all 4 shims + native interpreter, `containsConnector` detection, 14 new tests ✓ (2026-05-27)
-- v2.1.5-dstream-flink — Flink + Beam backends: `FlinkGen`/`BeamGen`/`FlinkBackend`/`BeamBackend`, `PipelineOptions`, `_flinkEnv`/`_createBeamPipeline`, 30 tests ✓ (2026-05-27)
-- v2.1.4-dstream-kafka — Kafka Streams backend: `KafkaStreamsGen` + `KafkaStreamsBackend` + `KafkaStreamsCapabilities`, `dstreamKafkaShim`, 22 tests ✓ (2026-05-27)
-- v2.1.3-dstream-spark — `SparkGen` DStream shim: full pipeline DSL emitted inside `@main`, `Feature.DistributedStreams` in `SparkCapabilities`, 14 new tests ✓ (2026-05-27)
-- v2.1.2-dstream-native-unbounded — Processing-time windowing, `timerProcessing`, `withWatermark`, `EventTime`+`WatermarkPerfect` capabilities, 30 tests ✓ (2026-05-27)
-- v2.1.1-dstream-native-bounded — `DStream[T]` / `Pipeline` native bounded backend, DirectRunner, 23 tests, `examples/distributed-streams.ssc` ✓ (2026-05-27)
-- v1.53 — Traditional Payment Processors spec (`specs/traditional-payments.md`) — `PaymentProvider` SPI, `Money` type, `WebhookReceiver`, 4 PSP adapter families planned ✓ (2026-05-27)
-- v2.1.0 — Distributed Streams spec (`specs/distributed-streams.md`) — DStream[T], full Beam model, 5 backends, capability system ✓ (2026-05-27)
-- v1.52 — Deploy to Hostings/Clouds/K8s spec (`specs/deploy.md`) + go decision ✓ (2026-05-27)
-- v1.51 — Streams with Backpressure spec (`specs/streams.md`) + go decision ✓ (2026-05-27)
-- v1.50 — GraalVM native-image build + `ssc-plugin-host` bridge + native plugin guide ✓ (2026-05-27)
-- v1.12.3 — Effects stdlib: `NonDet`, `Reader`, typed discharge signatures, `examples/algebraic-effects.ssc` ✓ (2026-05-26)
-- v1.12.2 — One-shot effect runtime fast path + JS `function*` + dynamic violation check ✓ (2026-05-26)
-- v1.12.1 — Typed Algebraic Effects type system + parser + diagnostics ✓ (2026-05-26)
-- v1.12 — Typed Algebraic Effects spec (`specs/algebraic-effects.md`) + go decision ✓ (2026-05-26)
-- v1.48 (SwiftUI Phase 3) — Reactive list lowering + `@Observable` AppModel ✓ (2026-05-26)
-- v1.46 — Typed Route Clients (all phases, including pagination) ✓ (2026-05-26)
-- v1.48 — JavaFX Typed Route Clients ✓ (2026-05-26)
-- v1.47 — JavaFX Desktop Frontend ✓ (2026-05-26)
-- v1.45 — JVM Desktop Frontend ✓ (2026-05-26)
-- v1.44 — Full-Stack In-Process Transport ✓ (2026-05-26)
-- v1.43 — Electron JVM REST Backend ✓ (2026-05-26)
-- v1.42 — Native Platform P3: Electron Renderer ✓ (2026-05-23)
+- **Status: newfront Phase 1 at MATCH 478/499 (96%)** — DROP 2, HOLE 4, DIFF 15 (measured
+  2026-07-16 via `specs/newfront-diff.sh`; re-measure, don't trust this line).
+- Then: Phase 2 imports → 3 self-host subset → 4 rewrite in the subset → 5 clean lowerer →
+  6 cutover (`bin/ssc` behind a flag, corpus green, then default).
+- Adjacent: retire the v1/scalameta hybrid tier (`SwiftV2Commands`→`RunNativeV2`, delete
+  `RunV2`/bridge); v2 native/bytecode lane coverage.
+- Detail: `SPRINT.md` §`new-self-hosting-front`, `specs/newfront-*`.
 
-See [CHANGELOG.md](CHANGELOG.md) for the full list.
+### 2. Dogfood — serious systems software written in `.ssc`
+
+The proof the language is real, and the libraries that make it useful.
+
+- **scljet** — a SQLite-compatible engine in pure `.ssc`: pager/btree/WAL/journal + a full SQL
+  layer, plus two front doors (portable JDBC façade, typed SQL surface). *Open engine bug:
+  `INTEGER PRIMARY KEY` must alias the rowid — see BUGS.md; our files are wrong for real SQLite.*
+- **uniml** — a standalone lossless token→tree markup framework (JSON/XML/YAML/Markdown),
+  dual-compiling on v2 == JVM.
+- Detail: `SPRINT.md` §`scljet-*`, §`uniml-*`.
+
+### 3. Control / interop ABI across hosts
+
+A target-neutral control ABI (`reset`/`shift`, continuations, effects) plus host profiles so
+other languages can drive — and be driven by — ScalaScript.
+
+- Landed 2026-07-16: Scala 3 direct-style control macros, JS/TS direct control host, the
+  `ssc-api-descriptor-v3` interop surface.
+- Open: host/runner profiles (JS/TS, Rust, Swift, WASM-WASI), the N×M interop matrix,
+  saved-continuation format, mixed-build interface extraction.
+- Detail: `SPRINT.md` §`control-interoperability`, `specs/control-interoperability.md`.
+
+### Health (blocks everything — check before trusting any gate)
+
+`origin/main` CI was **red for 192 consecutive runs** (through 2026-07-16) and nobody read it, so
+failures stacked: each one masked the next. **A local green does not imply CI green** — the
+launchers passed no `-Xss`, so the interpreter inherited the JVM default main-thread stack (2m on
+macOS, 1m on Linux), and every `scljet-*` case passed on developer macs while StackOverflowError-ing
+in CI. Check `gh run list --workflow=ci.yml --branch=main` before claiming a lane green.
+Detail: `SPRINT.md` §`ci-red-main`.
 
 ---
 
-## Parallel directions (all independent)
+## Not current
 
-| Direction | Top task | Spec |
-|-----------|----------|------|
-| **Frontend & Clients** | graph-storage-fullstack | `specs/graph-storage.md §Phase 6` |
-| **Language & Compiler** | secret-resolvers-cloud | `specs/secret-resolvers.md §aws-secret §gcp-secret §azure-kv` |
-| **Database** | _(queue empty)_ | — |
-| **Payments & Blockchain** | v1.57-payment-rails-apac | `specs/international-bank-rails.md` (new v1.57 spec) |
-| **Native Platform** | _(queue empty)_ | — |
-| **Distribution & Tooling** | v1.57-fx-provider | `specs/traditional-payments.md §FxProvider` |
-| **Runtime & Distributed Placement** | v1.63.1-stream-bridge-basic-ops | `specs/distributed-runtime.md §v1.63.1` |
-| **Runtime & Distributed** | v1.62.1-wire-core | `specs/distributed-wire-protocol.md §Phase 1` |
-
-Multiple agents can work in parallel — one per direction. Tell each: `"работай над <Direction>"`.
+The earlier direction tables (payments rails, graph-storage, FX provider, agent-sdk,
+package-registry, sbt-plugin) described May–June and no longer match what is being built. Their
+open items remain in `BACKLOG.md` and are recoverable, but they are **not** the current direction —
+do not pick from them without asking. See `BACKLOG.md` §"Roadmap — agreed priority order
+(2026-06-17)" for that history.
 
 ## For agents
 
-- **Pick next task**: read [SPRINT.md](SPRINT.md) for active tasks, or [BACKLOG.md](BACKLOG.md) for next milestone; claim via `AGENTS.md §"Task claiming protocol"`.
-- **Mark landed**: update `BACKLOG.md` (remove entry from direction section) + add one-liner to `CHANGELOG.md`.
-- **Start new milestone**: add it to the right direction section in `BACKLOG.md`.
+- **Pick next task**: read [SPRINT.md](SPRINT.md); claim per `AGENTS.md` §"Task claiming protocol".
+  A claim file existing does **not** mean someone is alive — **check its heartbeat age** (on
+  2026-07-16 every one of 8 claims was orphaned, the newest 21 h stale).
+- **Mark landed**: update `BACKLOG.md` + add a one-liner to `CHANGELOG.md`.
+- **Start new milestone**: add it under the matching stream above.
