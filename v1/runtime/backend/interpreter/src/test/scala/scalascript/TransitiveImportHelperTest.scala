@@ -132,3 +132,41 @@ class TransitiveImportHelperTest extends AnyFunSuite with Matchers:
         |```
         |""".stripMargin)
     run(dir, "main.ssc") shouldBe "a,b,c"
+
+  test("an internal helper keeps its module-local override of an imported function"):
+    val dir = os.temp.dir(prefix = "ssc-transitive-local-shadow-")
+    os.write(dir / "base.ssc",
+      """---
+        |name: base
+        |exports:
+        |  - sameName
+        |---
+        |```scalascript
+        |def sameName(a: String, b: String): Unit = ()
+        |```
+        |""".stripMargin)
+    os.write(dir / "dep.ssc",
+      """---
+        |name: dep
+        |exports:
+        |  - outer
+        |---
+        |[sameName](base.ssc)
+        |
+        |```scalascript
+        |def sameName(a: String, b: String): Boolean = a == b
+        |def helper(a: String, b: String): Boolean =
+        |  sameName(a, b) && a.length == b.length
+        |def outer(a: String, b: String): Boolean =
+        |  helper(a, b) && a.nonEmpty
+        |```
+        |""".stripMargin)
+    os.write(dir / "main.ssc",
+      """[sameName](base.ssc)
+        |[outer](dep.ssc)
+        |
+        |```scalascript
+        |println(outer("PLN", "PLN"))
+        |```
+        |""".stripMargin)
+    run(dir, "main.ssc") shouldBe "true"

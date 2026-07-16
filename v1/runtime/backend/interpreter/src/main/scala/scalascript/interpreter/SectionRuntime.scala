@@ -314,6 +314,22 @@ private[interpreter] object SectionRuntime:
       } || section.subsections.exists(loop)
     m.sections.exists(loop)
 
+  private def moduleTopLevelDefNames(m: Module): Set[String] =
+    def names(stats: List[Stat]): Set[String] =
+      stats.collect { case d: Defn.Def => d.name.value }.toSet
+    def loop(section: Section): Set[String] =
+      section.content.iterator.flatMap {
+        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
+          cb.tree.iterator.flatMap(t => ScalaNode.fold(t) {
+            case s: Source     => names(s.stats)
+            case b: Term.Block => names(b.stats)
+            case d: Defn.Def   => Set(d.name.value)
+            case _             => Set.empty[String]
+          })
+        case _ => Iterator.empty
+      }.toSet ++ section.subsections.iterator.flatMap(loop).toSet
+    m.sections.iterator.flatMap(loop).toSet
+
   // True if the module already calls a UI render entry (`serve`/`emit`/`mount`/`serveAsync`)
   // at top level. Used by the `def view()` convention (Interpreter.autoRunView) to NOT
   // auto-render when the module renders itself explicitly.
@@ -381,7 +397,9 @@ private[interpreter] object SectionRuntime:
     val childPkg    = child.exportedPkg
     // Snapshot all child globals so exported FunVs can reference sibling imports
     // (e.g. VStackNode, element) when called from a parent interpreter that lacks them.
-    val childCtx: Map[String, Value] = exported ++ packageMembers(exported, childPkg)
+    val childCtx = bindModuleFunctions(
+      exported ++ packageMembers(exported, childPkg),
+      moduleTopLevelDefNames(childModule))
     // Does the imported module hold mutable top-level state? If so its exported functions are
     // bound to run in the child interp (live module globals) rather than a frozen snapshot.
     val childHasVars = moduleDeclaresTopLevelVar(childModule)
@@ -535,6 +553,41 @@ private[interpreter] object SectionRuntime:
       val enrichedFields = inst.effectiveFields.view.mapValues(enrichFnClosures(_, ctx)).toMap
       inst.copy(fields = enrichedFields)
     case _ => v
+
+  /** Bind every module-level function to one live lexical view of the module.
+   *  Exported functions already receive `childCtx`, but an internal helper pulled
+   *  from that context used to retain its empty top-level closure.  A second helper
+   *  call then fell back to the importer's globals, where a same-named binding from
+   *  another module could win.  The shared view keeps arbitrarily deep helper chains
+   *  in their defining module while still executing them in the caller interpreter. */
+  private final class ModuleEnvView(backing: mutable.Map[String, Value])
+      extends scala.collection.immutable.AbstractMap[String, Value]:
+    override def get(key: String): Option[Value] = backing.get(key)
+    override def getOrElse[V1 >: Value](key: String, default: => V1): V1 =
+      backing.getOrElse(key, default)
+    override def contains(key: String): Boolean = backing.contains(key)
+    override def iterator: Iterator[(String, Value)] = backing.iterator
+    override def foreachEntry[U](f: (String, Value) => U): Unit = backing.foreachEntry(f)
+    override def updated[V1 >: Value](key: String, value: V1): Map[String, V1] =
+      backing.toMap.updated(key, value)
+    override def removed(key: String): Map[String, Value] = backing.toMap.removed(key)
+    override def equals(other: Any): Boolean =
+      other.asInstanceOf[AnyRef] eq this
+    override def hashCode(): Int = System.identityHashCode(this)
+
+  private def bindModuleFunctions(ctx: Map[String, Value], localDefNames: Set[String]): Map[String, Value] =
+    val bound = mutable.HashMap.from(ctx)
+    val moduleEnv: Env = new ModuleEnvView(bound)
+    localDefNames.foreach { name =>
+      ctx.get(name) match
+        case Some(fn: Value.FunV) =>
+          val closure =
+            if fn.closure.isEmpty then moduleEnv
+            else FrameMap.fromMap(fn.closure.iterator.toMap, moduleEnv)
+          bound(name) = fn.copy(closure = closure)
+        case _ => ()
+    }
+    bound.toMap
 
   def lookupExport(exported: Map[String, Value], pkg: List[String], name: String): Option[Value] =
     if pkg.isEmpty then exported.get(name)
