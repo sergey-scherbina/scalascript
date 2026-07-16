@@ -1,0 +1,3 @@
+SELECT emp.name, dept.dname, proj.pid FROM emp JOIN dept ON emp.dept_id = dept.did RIGHT JOIN proj ON dept.did = proj.dept ORDER BY proj.pid => ann|eng|100
+||200
+SELECT COUNT(*) FROM emp JOIN dept ON emp.dept_id = dept.did RIGHT JOIN proj ON dept.did = proj.dept => 2

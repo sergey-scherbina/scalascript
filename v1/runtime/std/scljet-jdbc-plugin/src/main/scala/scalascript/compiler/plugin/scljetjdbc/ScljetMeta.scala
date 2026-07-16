@@ -1,6 +1,6 @@
 package scalascript.compiler.plugin.scljetjdbc
 
-import java.sql.{Connection, DatabaseMetaData, ParameterMetaData, ResultSet}
+import java.sql.{Connection, DatabaseMetaData, ParameterMetaData, ResultSet, Types}
 import ProxySupport.*
 
 object ScljetVersion:
@@ -52,7 +52,304 @@ final class DatabaseMetaHandler(state: ScljetConnectionState, connProxy: Connect
     case "storesMixedCaseIdentifiers" => boxB(true)
     case "supportsBatchUpdates"      => boxB(true)
     case "jdbcCompliant"             => boxB(false)
+    // ── catalog queries ─────────────────────────────────────────────────────
+    case "getTables"      => ScljetCatalogMeta.getTables(state, strOrNull(args, 2), strArrOrNull(args, 3))
+    case "getColumns"     => ScljetCatalogMeta.getColumns(state, strOrNull(args, 2), strOrNull(args, 3))
+    case "getTableTypes"  => ScljetCatalogMeta.getTableTypes()
+    case "getCatalogs"    => ScljetCatalogMeta.emptyCatalogs()
+    case "getSchemas"     => ScljetCatalogMeta.emptySchemas()
+    case "getPrimaryKeys" => ScljetCatalogMeta.getPrimaryKeys(state, strOrNull(args, 2))
+    case "getIndexInfo"   => ScljetCatalogMeta.getIndexInfo(state, strOrNull(args, 2), argBool(args, 3))
+    case "getTypeInfo"    => ScljetCatalogMeta.getTypeInfo()
+    // The engine has no foreign keys at all.  An empty result is the honest
+    // answer AND the safe one: a pool/ORM iterating relationships must not blow
+    // up on a database that simply has none.
+    case "getImportedKeys" | "getExportedKeys" | "getCrossReference" => ScljetCatalogMeta.emptyKeys()
+    case "supportsIntegrityEnhancementFacility" => boxB(false)
     case _                           => throw nse(name)
+
+  private def strOrNull(args: Array[AnyRef], k: Int): String | Null =
+    if k < args.length then args(k).asInstanceOf[String | Null] else null
+
+  private def strArrOrNull(args: Array[AnyRef], k: Int): Array[String] | Null =
+    if k < args.length then args(k).asInstanceOf[Array[String] | Null] else null
+
+/** The `DatabaseMetaData` catalog queries, in the exact row shapes the JDBC
+ *  javadoc mandates (`getTables` = 10 columns, `getColumns` = 24).  Rows come
+ *  from [[ScljetCatalog]] and are served over [[ScljetStaticResultSet]].
+ *
+ *  Everything here reports catalog and schema as NULL: a scljet connection is a
+ *  single image with one anonymous namespace, so there is nothing to name. */
+object ScljetCatalogMeta:
+  private def s(v: String | Null): AnyRef = v.asInstanceOf[AnyRef]
+  private def i(v: Int): AnyRef = Integer.valueOf(v)
+
+  private val TableColumns: List[StaticColumn] = List(
+    StaticColumn("TABLE_CAT", Types.VARCHAR),
+    StaticColumn("TABLE_SCHEM", Types.VARCHAR),
+    StaticColumn("TABLE_NAME", Types.VARCHAR),
+    StaticColumn("TABLE_TYPE", Types.VARCHAR),
+    StaticColumn("REMARKS", Types.VARCHAR),
+    StaticColumn("TYPE_CAT", Types.VARCHAR),
+    StaticColumn("TYPE_SCHEM", Types.VARCHAR),
+    StaticColumn("TYPE_NAME", Types.VARCHAR),
+    StaticColumn("SELF_REFERENCING_COL_NAME", Types.VARCHAR),
+    StaticColumn("REF_GENERATION", Types.VARCHAR),
+  )
+
+  /** `getTables` — ordered by TABLE_TYPE then TABLE_NAME, per the JDBC contract. */
+  def getTables(state: ScljetConnectionState, tableNamePattern: String | Null, types: Array[String] | Null): ResultSet =
+    state.checkOpen()
+    val wanted = Option(types.asInstanceOf[Array[String] | Null]).map(_.toSet)
+    val rows = ScljetCatalog.tables(state.currentImage)
+      .filter(t => ScljetCatalog.matchesPattern(tableNamePattern, t.name))
+      .filter(t => wanted.forall(_.contains(t.kind)))
+      .sortBy(t => (t.kind, t.name))
+      .map(t => List[AnyRef](null, null, s(t.name), s(t.kind), s(""), null, null, null, null, null))
+    ScljetStaticResultSet.make(TableColumns, rows)
+
+  private val ColumnColumns: List[StaticColumn] = List(
+    StaticColumn("TABLE_CAT", Types.VARCHAR),
+    StaticColumn("TABLE_SCHEM", Types.VARCHAR),
+    StaticColumn("TABLE_NAME", Types.VARCHAR),
+    StaticColumn("COLUMN_NAME", Types.VARCHAR),
+    StaticColumn("DATA_TYPE", Types.INTEGER),
+    StaticColumn("TYPE_NAME", Types.VARCHAR),
+    StaticColumn("COLUMN_SIZE", Types.INTEGER),
+    StaticColumn("BUFFER_LENGTH", Types.INTEGER),
+    StaticColumn("DECIMAL_DIGITS", Types.INTEGER),
+    StaticColumn("NUM_PREC_RADIX", Types.INTEGER),
+    StaticColumn("NULLABLE", Types.INTEGER),
+    StaticColumn("REMARKS", Types.VARCHAR),
+    StaticColumn("COLUMN_DEF", Types.VARCHAR),
+    StaticColumn("SQL_DATA_TYPE", Types.INTEGER),
+    StaticColumn("SQL_DATETIME_SUB", Types.INTEGER),
+    StaticColumn("CHAR_OCTET_LENGTH", Types.INTEGER),
+    StaticColumn("ORDINAL_POSITION", Types.INTEGER),
+    StaticColumn("IS_NULLABLE", Types.VARCHAR),
+    StaticColumn("SCOPE_CATALOG", Types.VARCHAR),
+    StaticColumn("SCOPE_SCHEMA", Types.VARCHAR),
+    StaticColumn("SCOPE_TABLE", Types.VARCHAR),
+    StaticColumn("SOURCE_DATA_TYPE", Types.SMALLINT),
+    StaticColumn("IS_AUTOINCREMENT", Types.VARCHAR),
+    StaticColumn("IS_GENERATED", Types.VARCHAR),
+  )
+
+  /** `getColumns` — ordered by TABLE_NAME then ORDINAL_POSITION.
+   *
+   *  Nullability is reported as `columnNullableUnknown`/`""` rather than parsed
+   *  out of the NOT NULL constraints: the engine does not enforce them, so
+   *  claiming to know would be a lie a client could act on. */
+  def getColumns(state: ScljetConnectionState, tableNamePattern: String | Null, columnNamePattern: String | Null): ResultSet =
+    state.checkOpen()
+    val image = state.currentImage
+    val rows = ScljetCatalog.tables(image)
+      .filter(t => ScljetCatalog.matchesPattern(tableNamePattern, t.name))
+      .sortBy(_.name)
+      .flatMap { t =>
+        ScljetCatalog.columns(t).zipWithIndex
+          .filter((c, _) => ScljetCatalog.matchesPattern(columnNamePattern, c.name))
+          .map { (c, idx) =>
+            List[AnyRef](
+              null,                                        // TABLE_CAT
+              null,                                        // TABLE_SCHEM
+              s(t.name),                                   // TABLE_NAME
+              s(c.name),                                   // COLUMN_NAME
+              i(c.sqlType),                                // DATA_TYPE
+              s(c.declaredType),                           // TYPE_NAME
+              i(0),                                        // COLUMN_SIZE — SQLite is dynamically typed
+              null,                                        // BUFFER_LENGTH (unused)
+              i(0),                                        // DECIMAL_DIGITS
+              i(10),                                       // NUM_PREC_RADIX
+              i(DatabaseMetaData.columnNullableUnknown),   // NULLABLE
+              s(""),                                       // REMARKS
+              null,                                        // COLUMN_DEF
+              i(0),                                        // SQL_DATA_TYPE (unused)
+              i(0),                                        // SQL_DATETIME_SUB (unused)
+              i(0),                                        // CHAR_OCTET_LENGTH
+              i(idx + 1),                                  // ORDINAL_POSITION (1-based)
+              s(""),                                       // IS_NULLABLE — "" = unknown
+              null, null, null, null,                      // SCOPE_* / SOURCE_DATA_TYPE
+              s(""),                                       // IS_AUTOINCREMENT — "" = unknown
+              s(""),                                       // IS_GENERATED — "" = unknown
+            )
+          }
+      }
+    ScljetStaticResultSet.make(ColumnColumns, rows)
+
+  // ── introspection (J4) ────────────────────────────────────────────────────
+
+  private val PrimaryKeyColumns: List[StaticColumn] = List(
+    StaticColumn("TABLE_CAT", Types.VARCHAR),
+    StaticColumn("TABLE_SCHEM", Types.VARCHAR),
+    StaticColumn("TABLE_NAME", Types.VARCHAR),
+    StaticColumn("COLUMN_NAME", Types.VARCHAR),
+    StaticColumn("KEY_SEQ", Types.SMALLINT),
+    StaticColumn("PK_NAME", Types.VARCHAR),
+  )
+
+  /** `getPrimaryKeys` — ordered by COLUMN_NAME, per the JDBC contract.
+   *  `PK_NAME` is NULL: SQLite does not store a name for a primary key. */
+  def getPrimaryKeys(state: ScljetConnectionState, table: String | Null): ResultSet =
+    state.checkOpen()
+    val rows = ScljetCatalog.tables(state.currentImage)
+      .filter(t => ScljetCatalog.matchesPattern(table, t.name))
+      .flatMap { t =>
+        ScljetCatalog.primaryKeyColumns(t).zipWithIndex.map { (col, idx) =>
+          List[AnyRef](null, null, s(t.name), s(col), java.lang.Short.valueOf((idx + 1).toShort), null)
+        }
+      }
+      .sortBy(r => (r(2).asInstanceOf[String], r(3).asInstanceOf[String]))
+    ScljetStaticResultSet.make(PrimaryKeyColumns, rows)
+
+  private val IndexInfoColumns: List[StaticColumn] = List(
+    StaticColumn("TABLE_CAT", Types.VARCHAR),
+    StaticColumn("TABLE_SCHEM", Types.VARCHAR),
+    StaticColumn("TABLE_NAME", Types.VARCHAR),
+    StaticColumn("NON_UNIQUE", Types.BOOLEAN),
+    StaticColumn("INDEX_QUALIFIER", Types.VARCHAR),
+    StaticColumn("INDEX_NAME", Types.VARCHAR),
+    StaticColumn("TYPE", Types.SMALLINT),
+    StaticColumn("ORDINAL_POSITION", Types.SMALLINT),
+    StaticColumn("COLUMN_NAME", Types.VARCHAR),
+    StaticColumn("ASC_OR_DESC", Types.VARCHAR),
+    StaticColumn("CARDINALITY", Types.BIGINT),
+    StaticColumn("PAGES", Types.BIGINT),
+    StaticColumn("FILTER_CONDITION", Types.VARCHAR),
+  )
+
+  /** `getIndexInfo` — one row per index COLUMN, ordered by
+   *  `(NON_UNIQUE, TYPE, INDEX_NAME, ORDINAL_POSITION)` per the JDBC contract.
+   *
+   *  `unique = true` filters to unique indexes — the contract. NOTE the
+   *  reference driver (Xerial `sqlite-jdbc`) IGNORES this flag and returns
+   *  non-unique indexes anyway; that is a bug, and this deliberately does not
+   *  reproduce it (`specs/scljet-jdbc.md` §DatabaseMetaData).
+   *
+   *  `approximate` is accepted and ignored: CARDINALITY/PAGES are reported as 0
+   *  ("unknown") either way, so there are no statistics to (re)compute.
+   *  `ASC_OR_DESC` is NULL — the catalog does not model per-column direction. */
+  def getIndexInfo(state: ScljetConnectionState, table: String | Null, unique: Boolean): ResultSet =
+    state.checkOpen()
+    val rows = ScljetCatalog.indexes(state.currentImage)
+      .filter(idx => ScljetCatalog.matchesPattern(table, idx.table))
+      .filter(idx => !unique || idx.unique)
+      .flatMap { idx =>
+        idx.columns.zipWithIndex.map { (col, ord) =>
+          List[AnyRef](
+            null,                                                  // TABLE_CAT
+            null,                                                  // TABLE_SCHEM
+            s(idx.table),                                          // TABLE_NAME
+            java.lang.Boolean.valueOf(!idx.unique),                // NON_UNIQUE
+            null,                                                  // INDEX_QUALIFIER
+            s(idx.name),                                           // INDEX_NAME
+            java.lang.Short.valueOf(DatabaseMetaData.tableIndexOther), // TYPE
+            java.lang.Short.valueOf((ord + 1).toShort),            // ORDINAL_POSITION
+            s(col),                                                // COLUMN_NAME
+            null,                                                  // ASC_OR_DESC
+            java.lang.Long.valueOf(0L),                            // CARDINALITY — unknown
+            java.lang.Long.valueOf(0L),                            // PAGES — unknown
+            null,                                                  // FILTER_CONDITION
+          )
+        }
+      }
+      .sortBy { r =>
+        (r(3).asInstanceOf[java.lang.Boolean].booleanValue,        // NON_UNIQUE
+         r(6).asInstanceOf[java.lang.Short].shortValue,            // TYPE
+         r(5).asInstanceOf[String],                                // INDEX_NAME
+         r(7).asInstanceOf[java.lang.Short].shortValue)            // ORDINAL_POSITION
+      }
+    ScljetStaticResultSet.make(IndexInfoColumns, rows)
+
+  private val TypeInfoColumns: List[StaticColumn] = List(
+    StaticColumn("TYPE_NAME", Types.VARCHAR),
+    StaticColumn("DATA_TYPE", Types.INTEGER),
+    StaticColumn("PRECISION", Types.INTEGER),
+    StaticColumn("LITERAL_PREFIX", Types.VARCHAR),
+    StaticColumn("LITERAL_SUFFIX", Types.VARCHAR),
+    StaticColumn("CREATE_PARAMS", Types.VARCHAR),
+    StaticColumn("NULLABLE", Types.SMALLINT),
+    StaticColumn("CASE_SENSITIVE", Types.BOOLEAN),
+    StaticColumn("SEARCHABLE", Types.SMALLINT),
+    StaticColumn("UNSIGNED_ATTRIBUTE", Types.BOOLEAN),
+    StaticColumn("FIXED_PREC_SCALE", Types.BOOLEAN),
+    StaticColumn("AUTO_INCREMENT", Types.BOOLEAN),
+    StaticColumn("LOCAL_TYPE_NAME", Types.VARCHAR),
+    StaticColumn("MINIMUM_SCALE", Types.SMALLINT),
+    StaticColumn("MAXIMUM_SCALE", Types.SMALLINT),
+    StaticColumn("SQL_DATA_TYPE", Types.INTEGER),
+    StaticColumn("SQL_DATETIME_SUB", Types.INTEGER),
+    StaticColumn("NUM_PREC_RADIX", Types.INTEGER),
+  )
+
+  /** `getTypeInfo` — the five SQLite storage classes, ordered by DATA_TYPE.
+   *
+   *  DATA_TYPE reports the codes THIS driver uses elsewhere
+   *  (`ResultSetMetaData.getColumnType`, `getColumns.DATA_TYPE`): INTEGER →
+   *  `BIGINT`, REAL → `DOUBLE`. The reference driver says INTEGER/REAL instead;
+   *  matching it would make our own metadata self-contradictory, so internal
+   *  consistency wins (`specs/scljet-jdbc.md` §DatabaseMetaData). */
+  def getTypeInfo(): ResultSet =
+    def row(name: String, dataType: Int, prefix: String | Null, caseSensitive: Boolean): List[AnyRef] =
+      List[AnyRef](
+        s(name),                                                    // TYPE_NAME
+        i(dataType),                                                // DATA_TYPE
+        i(0),                                                       // PRECISION — dynamically typed
+        s(prefix),                                                  // LITERAL_PREFIX
+        s(prefix),                                                  // LITERAL_SUFFIX
+        null,                                                       // CREATE_PARAMS
+        java.lang.Short.valueOf(DatabaseMetaData.typeNullable.toShort),     // NULLABLE
+        java.lang.Boolean.valueOf(caseSensitive),                   // CASE_SENSITIVE
+        java.lang.Short.valueOf(DatabaseMetaData.typeSearchable.toShort),   // SEARCHABLE
+        java.lang.Boolean.valueOf(false),                           // UNSIGNED_ATTRIBUTE
+        java.lang.Boolean.valueOf(false),                           // FIXED_PREC_SCALE
+        java.lang.Boolean.valueOf(false),                           // AUTO_INCREMENT
+        s(name),                                                    // LOCAL_TYPE_NAME
+        java.lang.Short.valueOf(0.toShort),                         // MINIMUM_SCALE
+        java.lang.Short.valueOf(0.toShort),                         // MAXIMUM_SCALE
+        i(0),                                                       // SQL_DATA_TYPE
+        i(0),                                                       // SQL_DATETIME_SUB
+        i(10),                                                      // NUM_PREC_RADIX
+      )
+    ScljetStaticResultSet.make(TypeInfoColumns, List(
+      row("BLOB", Types.BLOB, "X'", false),
+      row("INTEGER", Types.BIGINT, null, false),
+      row("NULL", Types.NULL, null, false),
+      row("REAL", Types.DOUBLE, null, false),
+      row("TEXT", Types.VARCHAR, "'", true),
+    ).sortBy(r => r(1).asInstanceOf[Integer].intValue))
+
+  private val KeyColumns: List[StaticColumn] = List(
+    StaticColumn("PKTABLE_CAT", Types.VARCHAR),
+    StaticColumn("PKTABLE_SCHEM", Types.VARCHAR),
+    StaticColumn("PKTABLE_NAME", Types.VARCHAR),
+    StaticColumn("PKCOLUMN_NAME", Types.VARCHAR),
+    StaticColumn("FKTABLE_CAT", Types.VARCHAR),
+    StaticColumn("FKTABLE_SCHEM", Types.VARCHAR),
+    StaticColumn("FKTABLE_NAME", Types.VARCHAR),
+    StaticColumn("FKCOLUMN_NAME", Types.VARCHAR),
+    StaticColumn("KEY_SEQ", Types.SMALLINT),
+    StaticColumn("UPDATE_RULE", Types.SMALLINT),
+    StaticColumn("DELETE_RULE", Types.SMALLINT),
+    StaticColumn("FK_NAME", Types.VARCHAR),
+    StaticColumn("PK_NAME", Types.VARCHAR),
+    StaticColumn("DEFERRABILITY", Types.SMALLINT),
+  )
+
+  /** The engine models no foreign keys, so these are always empty. */
+  def emptyKeys(): ResultSet = ScljetStaticResultSet.make(KeyColumns, Nil)
+
+  def getTableTypes(): ResultSet =
+    ScljetStaticResultSet.make(
+      List(StaticColumn("TABLE_TYPE", Types.VARCHAR)),
+      List(List[AnyRef]("TABLE"), List[AnyRef]("VIEW")))
+
+  def emptyCatalogs(): ResultSet =
+    ScljetStaticResultSet.make(List(StaticColumn("TABLE_CAT", Types.VARCHAR)), Nil)
+
+  def emptySchemas(): ResultSet =
+    ScljetStaticResultSet.make(
+      List(StaticColumn("TABLE_SCHEM", Types.VARCHAR), StaticColumn("TABLE_CATALOG", Types.VARCHAR)), Nil)
 
 final class ParameterMetaHandler(count: Int) extends ProxyHandler("ParameterMetaData"):
   def dispatch(proxy: AnyRef, name: String, args: Array[AnyRef]): AnyRef = name match

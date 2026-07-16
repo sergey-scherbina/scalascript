@@ -1,0 +1,43 @@
+---
+name: scljet-sql-correlated-in
+description: SclJet correlated [NOT] IN subquery (references the outer row); matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet correlated IN subquery
+
+`col [NOT] IN (SELECT … WHERE inner.x = outer.y)` where the subquery references the outer row is
+evaluated per outer row: `resolveSubqueries` detects the outer reference (`referencesOuterTable`) and
+skips the pre-pass, `parseCondition` captures it as an `insubq`/`notinsubq` Condition, and per row the
+outer refs are substituted, the subquery runs against the open db, and the left value's membership in
+its first column is tested. Non-correlated `IN (SELECT …)` still resolves once via the pre-pass. Every
+result matches reference sqlite3 (verified out-of-band); locked across `[int, js]`.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, executeMutation, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def apply(db: ByteSlice, sql: String): ByteSlice =
+  executeMutation(db, sql) match
+    case Left(m) =>
+      println(sql + " => ERR:" + m)
+      db
+    case Right(next) => next
+
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "t1", "CREATE TABLE t1(id INTEGER PRIMARY KEY, name TEXT)",
+  List(List(SqlInteger(9L), SqlText("q")))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db0) =>
+    val d1 = apply(db0, "DELETE FROM t1")
+    val d2 = apply(d1, "INSERT INTO t1 VALUES (1,'x'),(2,'y'),(3,'z')")
+    val d3 = apply(d2, "CREATE TABLE t2(fk INTEGER, tag TEXT)")
+    val db = apply(d3, "INSERT INTO t2 VALUES (1,'x'),(2,'q'),(3,'z')")
+    show(db, "SELECT id FROM t1 WHERE name IN (SELECT tag FROM t2 WHERE t2.fk = t1.id) ORDER BY id")
+    show(db, "SELECT id FROM t1 WHERE name NOT IN (SELECT tag FROM t2 WHERE t2.fk = t1.id) ORDER BY id")
+    show(db, "SELECT id FROM t1 WHERE id IN (SELECT fk FROM t2 WHERE tag = 'z') ORDER BY id")
+```

@@ -1,0 +1,44 @@
+---
+name: scljet-sql-correlated-scalar
+description: SclJet correlated scalar subquery in a comparison (col <cmp> (SELECT …)); matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet correlated scalar subquery
+
+`col <cmp> (SELECT … WHERE inner.x = outer.y)` where the subquery returns a single scalar per outer
+row. Reuses the correlated-subquery machinery: `resolveSubqueries` skips the correlated subquery,
+`parseCondition` captures `<cmp> (SELECT …)` on the Condition's `subTokens` (with the comparison op),
+and per outer row `scalarSubqHolds` substitutes the outer refs, runs the subquery, and compares the
+left value with the first row's first column (a NULL either side → the comparison is unknown = false,
+as in SQL). Non-correlated scalar subqueries still resolve once via the pre-pass. Every result matches
+reference sqlite3 (verified out-of-band); locked across `[int, js]`.
+
+[ByteSlice, SqliteValue, SqlInteger, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, executeMutation, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def apply(db: ByteSlice, sql: String): ByteSlice =
+  executeMutation(db, sql) match
+    case Left(m) =>
+      println(sql + " => ERR:" + m)
+      db
+    case Right(next) => next
+
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+buildTableDatabase(512, 1, 1, "t1", "CREATE TABLE t1(id INTEGER PRIMARY KEY, val INTEGER)",
+  List(List(SqlInteger(9L), SqlInteger(0L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db0) =>
+    val d1 = apply(db0, "DELETE FROM t1")
+    val d2 = apply(d1, "INSERT INTO t1 VALUES (1,10),(2,20),(3,30),(4,40)")
+    val d3 = apply(d2, "CREATE TABLE t2(fk INTEGER, amt INTEGER)")
+    val db = apply(d3, "INSERT INTO t2 VALUES (1,10),(2,25),(3,30)")
+    show(db, "SELECT id FROM t1 WHERE val = (SELECT amt FROM t2 WHERE t2.fk = t1.id) ORDER BY id")
+    show(db, "SELECT id FROM t1 WHERE val < (SELECT amt FROM t2 WHERE t2.fk = t1.id) ORDER BY id")
+    show(db, "SELECT id FROM t1 WHERE val >= (SELECT amt FROM t2 WHERE t2.fk = t1.id) ORDER BY id")
+```

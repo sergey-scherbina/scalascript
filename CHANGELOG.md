@@ -46,6 +46,54 @@ The latest strict-polymorphic-value remediation is frozen in feature commit
 `b6d2cd262` on `origin/main` base `6603e6c29`; this checkpoint remains unlanded
 pending a fresh independent review.
 
+## 2026-07-15 — scljet JDBC introspection (getPrimaryKeys / getIndexInfo / getTypeInfo)
+
+Completes the `DatabaseMetaData` surface a JVM tool actually walks: primary keys (both
+SQLite spellings — on the column and as a table constraint, named or not), index info
+(one row per index column, UNIQUE and the key list parsed out of `CREATE INDEX` with the
+engine's own lexer), type info, and empty-not-throwing foreign-key queries. Two deviations
+from the reference driver are deliberate and asserted: `getIndexInfo(unique=true)` filters
+per the JDBC contract where Xerial ignores the flag, and `getTypeInfo` reports this
+driver's own type codes so it cannot contradict `getColumns`.
+
+The engine cannot create a unique index at all, so that path is tested where it matters —
+reading a file written by the reference driver — which also demonstrates catalog
+introspection over real SQLite files, and pinned a live engine bug: an `INTEGER PRIMARY
+KEY` column in a real SQLite file reads back as 0, because the rowid alias is not
+substituted (`BUGS.md` → `scljet-ipk-rowid-alias-not-substituted`). Our own databases read
+back fine, which is exactly why no existing test caught it.
+`sbt scljetJdbcPlugin/test`: 42/42 (was 29/29).
+
+## 2026-07-15 — scljet JDBC shim J2 hardening (getGeneratedKeys, catalog, durability contract)
+
+The gaps a real JVM client (pool / ORM / DB tool) hits first, closed on the JVM
+`java.sql` shim (`v1/runtime/std/scljet-jdbc-plugin/`) with the engine untouched.
+`getGeneratedKeys` returns the one-column `last_insert_rowid()` ResultSet — the rowid
+already crossed the bridge, every call site just discarded it — tracked per statement
+for INSERT/REPLACE; its semantics were probed from Xerial `sqlite-jdbc` rather than
+guessed, and are diffed against it. `DatabaseMetaData.getTables`/`getColumns` (plus
+`getTableTypes`, empty `getCatalogs`/`getSchemas`) return the mandated JDBC row shapes
+over a new JVM-side static ResultSet; since the engine exports no table listing, the
+catalog reads `sqlite_schema` structurally through `openReadonly` and parses columns
+with the engine's own lexer (a test pins the names to the engine's `imageTableColumns`,
+so they cannot drift), mapping SQLite affinity to `java.sql.Types`.
+
+`specs/scljet-jdbc.md` also stopped describing a durability model that was never built:
+host files are whole-image read-modify-rewrite with no journal, no fsync and no locking,
+so the spec now carries that property table and the explicit single-writer /
+single-process / non-crash-durable contract, with the journaled path kept as intended
+design and its real prerequisite (a Connection-level MutablePager) recorded.
+`sbt scljetJdbcPlugin/test`: 29/29 (was 14/14).
+
+## 2026-07-15 — scalascript.dev landing page (site/)
+
+Marketing landing page for the project domain `scalascript.dev`: a single static,
+self-contained page under `site/` (inline CSS/JS, no build, no external requests),
+plus `favicon.svg` and `DEPLOY.md` (Cloudflare Pages + domain + a pre-public
+git-history secret-scan gate). Design: a literate ScalaScript document whose Markdown
+structural tokens glow in the compiler's red accent. Deploy and the repo-public flip
+remain owner actions.
+
 ## 2026-07-15 — JavaScript/TypeScript explicit local control API
 
 Added the compiler-independent ESM-only `@scalascript/control` reference leaf at

@@ -27,7 +27,7 @@ enum Node:
 // ── lexer ────────────────────────────────────────────────────────────────────
 object SpikeLex:
   private val keywords = Set("def", "val", "if", "then", "else", "match", "case", "class", "given", "enum", "extension")
-  private def isOpChar(c: Char): Boolean = "+-*/%<>=!&|^~:".indexOf(c.toInt) >= 0
+  private def isOpChar(c: Char): Boolean = "+-*/%<>=!&|^~:?".indexOf(c.toInt) >= 0 // `?` only forms `???`
   private def isHexDigit(c: Char): Boolean =
     (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
   private def hexVal(c: Char): Long =
@@ -125,7 +125,10 @@ object SpikeLex:
           case "=" => "spike.eq"
           case ":" => "spike.colon"
           case _   => "spike.op"
-        emit(kind, start, op, TokenChannel.Syntax)
+        // `:::` list concat lexes as `++` — in v2 every Seq is a Cons-list, so `xs ::: ys` is exactly
+        // `xs ++ ys` (an EXACT mirror of ssc1-front.ssc0:385, which rewrites the token at lex time).
+        val lexeme = if op == ":::" then "++" else op
+        emit(kind, start, lexeme, TokenChannel.Syntax)
       else if c == '"' then
         // string literal → spike.str whose lexeme is the DECODED value (mirrors ssc1-front
         // buildStr: `\n`→NL, `\t`→TAB, `\<c>`→c; triple-quoted is raw). Interpolation prefixes
@@ -156,6 +159,26 @@ object SpikeLex:
             else { sb.append(text.charAt(i)); advance(text.charAt(i)) }
           if i < n then advance('"')
         emit("spike.str", start, sb.toString, TokenChannel.Syntax)
+      else if c == '\'' then
+        // char literal 'x' / '\n' / '\uXXXX' → spike.int holding the char CODE — an EXACT
+        // mirror of ssc1-front.ssc0:361-374 (the VM treats chars as codes: scodeAt, `'a' == c`).
+        // Like ssc1-front, every `'` is assumed to open a char literal (fixed 3/4/8-char forms).
+        if i + 1 < n && text.charAt(i + 1) == '\\' then
+          val e = if i + 2 < n then text.charAt(i + 2) else ' '
+          if e == 'u' then
+            val code = (hexVal(text.charAt(i + 3)) << 12) | (hexVal(text.charAt(i + 4)) << 8) |
+                       (hexVal(text.charAt(i + 5)) << 4) | hexVal(text.charAt(i + 6))
+            var k = 0; while k < 8 && i < n do { advance(text.charAt(i)); k += 1 }
+            emit("spike.int", start, code.toString, TokenChannel.Syntax)
+          else
+            val code = if e == 'n' then 10L else if e == 't' then 9L
+                       else if e == 'r' then 13L else if e == '0' then 0L else e.toLong
+            var k = 0; while k < 4 && i < n do { advance(text.charAt(i)); k += 1 }
+            emit("spike.int", start, code.toString, TokenChannel.Syntax)
+        else
+          val code = if i + 1 < n then text.charAt(i + 1).toLong else 0L
+          var k = 0; while k < 3 && i < n do { advance(text.charAt(i)); k += 1 }
+          emit("spike.int", start, code.toString, TokenChannel.Syntax)
       else
         val kind = c match
           case '(' => "spike.lparen"
@@ -269,7 +292,15 @@ object SpikeParse:
 
   // after a base type name, consume its `[T]` args and any `=> Codomain` function-type tail
   // (all erased). Handles `List[Int]`, `Int => Int`, `Int => List[A]`, `A => B => C`, `(A, B) => C`.
+  // consume a type's `.segment` chain and generic `[…]` args ONLY — NOT a function `=>` arrow. Used where
+  // a following `=>` is a case arrow (arm pattern `case x: A.B =>`), so skipTypeTail would wrongly eat it.
+  private def skipTypeSegments(c: Cur): Unit =
+    while c.peekKind == "spike.dot" && (c.peek2Kind == "spike.id" || c.peek2Kind == "spike.uid") do { c.advance(); c.advance() }
+    if c.peekKind == "spike.lbracket" then skipTypeParams(c)
+
   private def skipTypeTail(c: Cur): Unit =
+    // a fully-qualified type `a.b.C` — consume the `.segment` chain (the base name was already taken)
+    while c.peekKind == "spike.dot" && (c.peek2Kind == "spike.id" || c.peek2Kind == "spike.uid") do { c.advance(); c.advance() }
     if c.peekKind == "spike.lbracket" then skipTypeParams(c)
     if c.peekKind == "spike.op" && c.peekLexeme == "=>" then
       c.advance()
@@ -300,27 +331,41 @@ object SpikeParse:
     val c = new Cur(toks)
     val defs = Vector.newBuilder[Node]
     while !c.eof do
-      while isAnnotationStart(c) do skipAnnotation(c) // `@main`/`@nowarn(…)` — erased (skipAnn)
-      skipDeclModifiers(c)                            // `sealed`/`final`/`abstract`/… — erased
-      if c.eof then () // trailing annotation(s)/modifier(s) with nothing after
-      else if isDefStart(c) then defs += parseDef(c)
-      else if isKw(c, "case") && c.peek2Lexeme == "object" then { c.advance(); defs += parseObject(c) } // case object
-      else if isKw(c, "case") then defs += parseCaseClass(c)
-      else if isKw(c, "given") then defs += parseGiven(c)
-      else if isKw(c, "enum") then defs += parseEnum(c)
-      else if isKw(c, "extension") then defs += parseExtension(c)
-      else if isWord(c, "object") then defs += parseObject(c)
-      else if isWord(c, "effect") && (c.peek2Kind == "spike.uid" || c.peek2Kind == "spike.id") then defs += parseEffectDecl(c, false)
-      else if isWord(c, "multi") && c.peek2Lexeme == "effect" then defs += parseEffectDecl(c, true) // `multi effect`
-      else if isWord(c, "extern") then defs += parseExtern(c)
-      else if isWord(c, "trait") || isKw(c, "class") then defs += parseTraitOrClassNoop(c)
-      // a top-level STATEMENT — script-style `println(…)`, top-level `val`/`var`/expr. ssc1-front keeps these
-      // in source order and lowerProg collects them into `(entry (seq …))` (and `val`/`var` → a global cell).
-      // Before this they collapsed the whole program to Nil (newfront Phase 0's #1 gap).
+      // annotation: a SAME-LINE `@ann <decl>` is a decl annotation (erased); an OWN-LINE `@ann` (the next
+      // token sits on a LATER line — ssc1-front's layout inserts a `;` there) is a standalone statement →
+      // `_err`, because ssc1-front's `@` handler runs `parseOneStmt(skipAnn(…))` which then hits that `;`
+      // (ssc1-front.ssc0:2499). Emit the `_err` and let the decl parse on the next loop iteration.
+      var annErr = false
+      while !annErr && isAnnotationStart(c) do
+        val atTok = c.peek.get
+        skipAnnotation(c)
+        if c.eof || c.peekLine > c.prevEndLine then
+          defs += Node.Frame("spike.exprStmt", None,
+            Vector(Node.Frame("spike.error", None, Vector(Node.Leaf(atTok, Some("error.token")))).withRole("stmt.expr")))
+          annErr = true
+      if annErr then () // `_err` emitted; the annotated decl (if any) is parsed on the next iteration
       else
-        val before = c.mark
-        defs += parseStmt(c)
-        if c.mark == before then c.advance() // guarantee progress even if parseStmt consumed nothing
+        skipDeclModifiers(c)                            // `sealed`/`final`/`abstract`/… — erased
+        if c.eof then () // trailing annotation(s)/modifier(s) with nothing after
+        else if isDefStart(c) then defs += parseDef(c)
+        else if isKw(c, "case") && c.peek2Lexeme == "object" then { c.advance(); defs += parseObject(c) } // case object
+        else if isKw(c, "case") then defs += parseCaseClass(c)
+        else if isKw(c, "given") then defs += parseGiven(c)
+        else if isKw(c, "enum") then defs += parseEnum(c)
+        else if isKw(c, "extension") then defs += parseExtension(c)
+        else if isWord(c, "object") then defs += parseObject(c)
+        else if isWord(c, "effect") && (c.peek2Kind == "spike.uid" || c.peek2Kind == "spike.id") then defs += parseEffectDecl(c, false)
+        else if isWord(c, "multi") && c.peek2Lexeme == "effect" then defs += parseEffectDecl(c, true) // `multi effect`
+        else if isWord(c, "extern") then defs += parseExtern(c)
+        else if isWord(c, "type") && c.peek2Kind == "spike.uid" then defs += parseTypeAlias(c) // `type X = Y` erased
+        else if isWord(c, "trait") || isKw(c, "class") then defs += parseTraitOrClassNoop(c)
+        // a top-level STATEMENT — script-style `println(…)`, top-level `val`/`var`/expr. ssc1-front keeps these
+        // in source order and lowerProg collects them into `(entry (seq …))` (and `val`/`var` → a global cell).
+        // Before this they collapsed the whole program to Nil (newfront Phase 0's #1 gap).
+        else
+          val before = c.mark
+          defs += parseStmt(c)
+          if c.mark == before then c.advance() // guarantee progress even if parseStmt consumed nothing
     Parsed(Node.Frame("spike.program", None, defs.result()), c.diagnostics)
 
   private def expect(c: Cur, kind: String, role: String, what: String): Option[Node] =
@@ -403,11 +448,21 @@ object SpikeParse:
     skipTypeParams(c) // `case class Box[A](…)`
     expect(c, "spike.lparen", "cc.lparen", "'('").foreach(kids += _)
     var more = c.peekKind != "spike.rparen" && !c.eof && !isDefStart(c) && !isKw(c, "case")
+    var recovered = false
     while more do
-      val fname = expect(c, "spike.id", "cc.field", "field name")
-      fname.foreach(kids += _)
-      if fname.isEmpty then more = false
+      if c.peekKind != "spike.id" then
+        // ssc1-front parseCaseParam (ssc1-front.ssc0:2160): a NON-id field name (an `@annotation` like
+        // `@key id`/`@rdf("schema:name") name`) is NOT consumed and yields a synthetic ("_", "Any") field
+        // that ENDS the param list — annotated case-class fields are UNSUPPORTED by the oracle. Mirror it:
+        // append the synthetic field (cc.synthfield marker → "_"/"Any" in the projection) and skip the
+        // leftover `@ann name: T, …` up to the param-list `)` (depth-aware, past `@rdf("…")` inner parens),
+        // so the existing captureDerives (ssc1-front finds them via a forward findCaseDerives scan) still runs.
+        c.peek.foreach(t => kids += Node.Leaf(t, Some("cc.synthfield")))
+        skipToParamListEnd(c)
+        recovered = true
+        more = false
       else
+        c.advance().foreach(t => kids += Node.Leaf(t, Some("cc.field")))
         expect(c, "spike.colon", "cc.fieldColon", "':'").foreach(kids += _)
         kids += captureFieldType(c) // full type TEXT incl generics (`List[User]`) for the mirror metadata
         // a field default `= 10` — captured (cc.dflt) so caseClsNodes emits the ctor's funcdefaults entry
@@ -415,11 +470,16 @@ object SpikeParse:
         if c.peekKind == "spike.eq" then { c.advance(); parseExpr(c, 1).foreach(e => kids += e.withRole("cc.dflt")) }
         if c.peekKind == "spike.comma" then c.advance().foreach(t => kids += Node.Leaf(t, Some("cc.comma")))
         else more = false
-    expect(c, "spike.rparen", "cc.rparen", "')'").foreach(kids += _)
+    if !recovered then expect(c, "spike.rparen", "cc.rparen", "')'").foreach(kids += _)
     // `extends Y with Z` is erased, but a `derives A, B` clause is CAPTURED (cc.derive leaves) — the
     // lowerer generates the derived typeclass/codec instances from it (ssc1-front mkCaseCls's 4th field).
     if isWord(c, "extends") then
-      c.advance(); skipTypeRef(c)
+      c.advance()
+      // capture the FIRST nominal (uppercase) parent for the subtype registry: `case class Circle(…) extends
+      // Shape` lets `case _: Shape` expand to its child tags. ssc1-front registers only a `uid` parent
+      // (subtypeRegCell); caseClsNodes emits a companion ("subtype", (parent, child)) node (variant-A).
+      if c.peekKind == "spike.uid" then kids += Node.Leaf(c.peek.get, Some("cc.parent"))
+      skipTypeRef(c)
       if c.peekKind == "spike.lparen" then skipBalancedParens(c)
       while isWord(c, "with") do { c.advance(); skipTypeRef(c) }
     captureDerives(c, kids)
@@ -443,6 +503,19 @@ object SpikeParse:
 
   // `derives Name[T][, Name…]*` → cc.derive leaves (each name's `[T]` type args skipped), matching
   // ssc1-front parseDeriveNames (ssc1-front.ssc0:2176).
+  // skip forward to the closing `)` of the current param list (and consume it), tracking nested `(`/`[`
+  // depth so an inner `@rdf("…")` / generic `[…]` does not end it early. Used by parseCaseClass's synthetic-
+  // field recovery to consume the leftover `@ann name: T, …` after an unsupported annotated field.
+  private def skipToParamListEnd(c: Cur): Unit =
+    var depth = 0
+    var go = true
+    while go && !c.eof do
+      c.peekKind match
+        case "spike.lparen" | "spike.lbracket" => depth += 1; c.advance()
+        case "spike.rbracket"                  => if depth > 0 then depth -= 1; c.advance()
+        case "spike.rparen"                    => if depth == 0 then { c.advance(); go = false } else { depth -= 1; c.advance() }
+        case _                                 => c.advance()
+
   private def captureDerives(c: Cur, kids: scala.collection.mutable.Builder[Node, Vector[Node]]): Unit =
     if isWord(c, "derives") then
       c.advance()
@@ -531,6 +604,11 @@ object SpikeParse:
         else
           expect(c, "spike.colon", "ec.fieldColon", "':'").foreach(kids += _)
           expectType(c, "ec.fieldType").foreach(kids += _)
+          skipTypeTail(c) // generic field type `List[T]` (erased, head kept)
+          // a field default `case Square(side: Int = 2)` — captured (ec.dflt) so the case's ctor can
+          // synthesise `Square()` → `Square(2)`; without consuming it the `= 2` leaked, ending the enum
+          // early and spuriously lowering the last case as a stray case class (a phantom `__mirror_*`).
+          if c.peekKind == "spike.eq" then { c.advance(); parseExpr(c, 1).foreach(e => kids += e.withRole("ec.dflt")) }
           if c.peekKind == "spike.comma" then c.advance().foreach(t => kids += Node.Leaf(t, Some("ec.comma")))
           else more = false
       expect(c, "spike.rparen", "ec.rparen", "')'").foreach(kids += _)
@@ -546,10 +624,22 @@ object SpikeParse:
     expect(c, "spike.id", "ext.recv", "receiver name").foreach(kids += _)
     expect(c, "spike.colon", "ext.colon", "':'").foreach(kids += _)
     expectType(c, "ext.recvType").foreach(kids += _)
+    skipTypeTail(c) // a generic receiver `(xs: List[Int])` — the `[Int]` tail must be consumed before `)`
     expect(c, "spike.rparen", "ext.close", "')'").foreach(kids += _)
-    // a single inline method def (multi-method offside groups deferred)
-    if isDefStart(c) then kids += parseDef(c)
-    else c.report("spike.expected", "expected a method def in extension")
+    // the method group: `{ def m …; def n … }`, a single inline `def m …`, or an offside block of
+    // defs indented under the header. extensionNodes projects EVERY def child (receiver prepended),
+    // so consume them all — a group closes at a dedent (col < the first method's) or a non-def.
+    if c.peekKind == "spike.lbrace" then
+      c.advance() // `{`
+      c.skipSemis()
+      while isDefStart(c) && !c.eof do { kids += parseDef(c); c.skipSemis() }
+      if c.peekKind == "spike.rbrace" then c.advance() else c.report("spike.expected", "expected '}' to close extension")
+    else
+      var groupCol = -1
+      while isDefStart(c) && !c.eof && (groupCol < 0 || c.peekCol >= groupCol) do
+        if groupCol < 0 then groupCol = c.peekCol
+        kids += parseDef(c)
+      if groupCol < 0 then c.report("spike.expected", "expected a method def in extension")
     Node.Frame("spike.extension", None, kids.result())
 
   // `given name: T = expr` — a named typeclass instance (dictionary). lowerProg's resolve pass
@@ -605,10 +695,17 @@ object SpikeParse:
 
   // an indented block: statements at column >= blockCol; a dedent (col < blockCol),
   // EOF, or a top-level `def` ends it. parseStmt always consumes ≥1 token (progress).
-  private def parseBlock(c: Cur, blockCol: Int): Node =
+  // stopAtParen: also end at a closing `)`/`]` of an ENCLOSING group — needed for a lambda-body block
+  // inside `foo(x => …)`, whose closing `)` sits (higher-column) on the body's last line so the col guard
+  // misses it. NOT wanted for def/branch bodies: there a dangling `)` (e.g. after an unsupported custom
+  // interpolator broke arg parsing) must fall through to parseStmt's `_err` to match ssc1-front's recovery.
+  private def parseBlock(c: Cur, blockCol: Int, stopAtParen: Boolean = false): Node =
     val stmts = Vector.newBuilder[Node]
-    // a block ends at a dedent, a def, the next `case` (an arm-body block), or a `}` (a braced match)
-    while !c.eof && c.peekCol >= blockCol && !isDefStart(c) && !isKw(c, "case") && c.peekKind != "spike.rbrace" do
+    // a block ends at a dedent (col < blockCol), the next `case` (an arm-body block), or a `}` (a braced
+    // match). A nested `def` at col >= blockCol is a LOCAL def (→ letrec via parseStmt), part of the
+    // block — NOT a terminator; a sibling `def` is dedented and already stopped by the col guard.
+    def enclClose = stopAtParen && (c.peekKind == "spike.rparen" || c.peekKind == "spike.rbracket")
+    while !c.eof && c.peekCol >= blockCol && !isKw(c, "case") && c.peekKind != "spike.rbrace" && !enclClose do
       stmts += parseStmt(c)
     Node.Frame("spike.block", None, stmts.result())
 
@@ -748,6 +845,14 @@ object SpikeParse:
 
   // `trait X …` / `class X …` / `abstract class X …` — the spike does not lower trait/class bodies yet, so a
   // bare/abstract-only declaration is erased to a no-op (matches ssc1-front for marker & abstract traits).
+  // `type X = Y` / `type X[..] = A | B` alias — erased to a no-op (ssc1-front.ssc0:2721 → Pair("sealed", ""),
+  // skipToStmt). Consume the whole single-line declaration (ssc1-front's `;`-at-newline layout ends it there).
+  private def parseTypeAlias(c: Cur): Node =
+    val typeLine = c.peekLine
+    c.advance() // `type`
+    while !c.eof && c.peekLine == typeLine do c.advance()
+    Node.Frame("spike.sealed", None, Vector.empty)
+
   private def parseTraitOrClassNoop(c: Cur): Node =
     c.advance() // `trait` / `class`
     if c.peekKind == "spike.uid" then c.advance()
@@ -813,8 +918,18 @@ object SpikeParse:
     else if isWord(c, "while") then parseWhile(c)                           // `while cond do body`
     else if isDefStart(c) then parseDef(c)                                  // nested `def` in a block → letrec
     else if c.peekKind == "spike.id" && c.peek2Kind == "spike.eq" then parseAssign(c) // `x = e`
+    else if c.peekKind == "spike.id" && c.peek2Kind == "spike.op" && isCompoundAssign(c.peek2Lexeme) then parseCompoundAssign(c) // `x += e`
     else parseExpr(c, 1) match
-      case Some(e) => Node.Frame("spike.exprStmt", None, Vector(e.withRole("stmt.expr")))
+      case Some(e) =>
+        // `a(idx) = rhs` array/collection update: parseExpr stops at the `=` (not an operator). When the LHS
+        // is an apply, ssc1-front emits an idx_assign node (ssc1-lower:3849 → arr.set(a, idx, rhs)). A plain
+        // `x = e` is caught above; a `.field = e` LHS is left as-is (an exprStmt + stray `=`), as before.
+        e match
+          case Node.Frame("spike.call", _, _) if c.peekKind == "spike.eq" =>
+            c.advance() // `=`
+            val rhs = parseExpr(c, 1).getOrElse(Node.Frame("spike.error", None, Vector.empty))
+            Node.Frame("spike.idxassign", None, Vector(e.withRole("idxassign.lhs"), rhs.withRole("idxassign.rhs")))
+          case _ => Node.Frame("spike.exprStmt", None, Vector(e.withRole("stmt.expr")))
       case None =>
         c.report("spike.expected", s"expected statement, found '${c.peekLexeme}'")
         c.advance() match
@@ -859,6 +974,18 @@ object SpikeParse:
 
   // `x = e` (assignment statement) → Pair("assign", (name, e)). Only reached in a block-statement position
   // where the id is immediately followed by `=` (spike.eq, not `==`).
+  // a compound-assignment operator `+=`/`-=`/`*=`/… — ends with `=` but is not a comparison (`==`,`!=`,`<=`,`>=`)
+  // or `:=` (a ref-set op). `x += e` desugars to `x = x + e` (ssc1-front.ssc0:1517).
+  private def isCompoundAssign(op: String): Boolean =
+    op.length >= 2 && op.last == '=' && op != "==" && op != "!=" && op != "<=" && op != ">=" && op != ":="
+
+  private def parseCompoundAssign(c: Cur): Node =
+    val kids = Vector.newBuilder[Node]
+    c.advance().foreach(t => kids += Node.Leaf(t, Some("ca.name"))) // id
+    c.advance().foreach(t => kids += Node.Leaf(t, Some("ca.op")))   // `+=` etc. (base op = lexeme minus `=`)
+    parseExpr(c, 1).foreach(e => kids += e.withRole("ca.rhs"))
+    Node.Frame("spike.compoundassign", None, kids.result())
+
   private def parseAssign(c: Cur): Node =
     val kids = Vector.newBuilder[Node]
     c.advance().foreach(t => kids += Node.Leaf(t, Some("assign.name"))) // id
@@ -896,7 +1023,10 @@ object SpikeParse:
     // `f(a)(using g)` merges the explicit using args INTO f(a) (KC8 flattening), not a curried apply.
     else if c.peekKind == "spike.lparen" && c.peek2Lexeme == "using" && roleKind(atom) == "spike.call" then
       postfix(c, mergeUsingArgs(c, atom))
-    else if c.peekKind == "spike.lparen" then postfix(c, applyArgs(c, atom)) // chained application f(a)(b)
+    // chained application `f(a)(b)` — ONLY when the `(` is on the same line as the preceding expression;
+    // a `(` on a LATER line is a fresh statement (ssc1-front's layout inserts `;` at the newline), so
+    // `val cols = line.split(",")\n  ("order", …)` must NOT apply the tuple to `split(",")`.
+    else if c.peekKind == "spike.lparen" && c.peekLine == c.prevEndLine then postfix(c, applyArgs(c, atom))
     // `e[T]` type application (`Array.empty[Int]`, `x.asInstanceOf[List[Int]]`, `foo[A](x)`) — the type
     // args are erased (ssc1-front buildPostfix readTypeApply); continue the chain with the same `e`. Guarded
     // to the SAME line as `e` so a following-line list-literal statement is not swallowed (newline = trivia).
@@ -905,9 +1035,15 @@ object SpikeParse:
       // is introspected by the lowerer (resolveFocusArgs, AST-derived) into `optics.focus([OField…])`. Other
       // `e[T]` type applications just erase the type args and continue the chain.
       nodeLexeme(atom) match
-        case "Focus" => skipTypeParams(c); postfix(c, Node.Frame("spike.focusmarker", None, Vector(atom)))
-        case "Prism" => postfix(c, Node.Frame("spike.prism", None, atom +: captureTypeArgTokens(c)))
-        case _       => skipTypeParams(c); postfix(c, atom)
+        case "Focus"  => skipTypeParams(c); postfix(c, Node.Frame("spike.focusmarker", None, Vector(atom)))
+        case "Prism"  => postfix(c, Node.Frame("spike.prism", None, atom +: captureTypeArgTokens(c)))
+        case "direct" => postfix(c, Node.Frame("spike.directmarker", None, atom +: captureTypeArgTokens(c)))
+        case _        => skipTypeParams(c); postfix(c, atom)
+    // `direct[F] { … }` direct-style monadic block → Pair("direct", (typeArgs, block)); ssc1-lower desugars
+    // it to a flatMap chain (ssc1-front.ssc0:1394). The `{ … }` is a plain block, not a lambda arg.
+    else if c.peekKind == "spike.lbrace" && roleKind(atom) == "spike.directmarker" then
+      val markerKids = atom match { case Node.Frame(_, _, ks) => ks; case _ => Vector.empty[Node] } // direct leaf + ta.tok
+      postfix(c, Node.Frame("spike.direct", None, markerKids :+ parseBracedBlock(c).withRole("direct.block")))
     // trailing block argument `e { body }` → e(body) (ssc1-front buildPostfix / parseBlockArg). Only when
     // the `{` is on the SAME line as `e` (else it is a fresh statement, per ssc1-front's newline→`;` layout).
     else if c.peekKind == "spike.lbrace" && c.peekLine == c.prevEndLine then
@@ -1001,6 +1137,7 @@ object SpikeParse:
         val tk = Vector.newBuilder[Node]
         tk += base.withRole("tpat.pat")
         expectType(c, "tpat.type").foreach(tk += _)
+        skipTypeSegments(c) // qualified `case x: A.B =>` — consume `.B` (+ generics); the head is the tag
         Node.Frame("spike.tpat", None, tk.result())
       else base
     bindAlias match
@@ -1050,10 +1187,21 @@ object SpikeParse:
       else c.report("spike.expected", "expected ')' in constructor pattern")
     Node.Frame("spike.cpat", None, kids.result())
 
-  // a sub-pattern inside a tuple/constructor pattern — a base pattern with an optional `: T` ascription
-  // (`(word: String, _: Int)`, `Foo(x: Int)`), mirroring parseArmPattern's tpat but at nesting depth. The
-  // type head is kept (one token, generics skipped) exactly like ssc1-front's patternTypeHead.
+  // a sub-pattern inside a tuple/constructor pattern. Each element may itself be a cons pattern —
+  // `(x :: xs, y :: ys)`, `Some(h :: t)` — which binds tighter than the enclosing comma, so parse a
+  // base sub-pattern and fold a trailing `:: rest` into a conspat (right-associative, → cpat "Cons").
   private def parseSubPattern(c: Cur): Node =
+    val base = parseSubPatternAtom(c)
+    if c.peekKind == "spike.op" && c.peekLexeme == "::" then
+      c.advance() // `::`
+      val tail = parseSubPattern(c)
+      Node.Frame("spike.conspat", None, Vector(base.withRole("conspat.arg"), tail.withRole("conspat.arg")))
+    else base
+
+  // a base sub-pattern with an optional `: T` ascription (`(word: String, _: Int)`, `Foo(x: Int)`),
+  // mirroring parseArmPattern's tpat but at nesting depth. The type head is kept (one token, generics
+  // skipped) exactly like ssc1-front's patternTypeHead.
+  private def parseSubPatternAtom(c: Cur): Node =
     val base = parsePattern(c)
     if c.peekKind == "spike.colon" then
       c.advance()
@@ -1080,18 +1228,35 @@ object SpikeParse:
   private def tryParseLambda(c: Cur): Option[Node] =
     if c.peekKind == "spike.id" && c.peek2Lexeme == "=>" then
       val name = c.advance().get
+      val arrowLine = c.peekLine // line of `=>`
       c.advance() // =>
-      val body = parseExpr(c, 1).getOrElse(Node.Frame("spike.error", None, Vector.empty))
+      val body = parseLambdaBody(c, arrowLine)
       Some(Node.Frame("spike.lambda", None, Vector(Node.Leaf(name, Some("lam.param")), body.withRole("lam.body"))))
     else if c.peekKind == "spike.lparen" then
       val m = c.mark
       tryLambdaParams(c) match
         case Some(ps) if c.peekLexeme == "=>" =>
+          val arrowLine = c.peekLine // line of `=>`
           c.advance() // =>
-          val body = parseExpr(c, 1).getOrElse(Node.Frame("spike.error", None, Vector.empty))
+          val body = parseLambdaBody(c, arrowLine)
           Some(Node.Frame("spike.lambda", None, ps.map(p => Node.Leaf(p, Some("lam.param"))) :+ body.withRole("lam.body")))
         case _ => c.reset(m); None
     else None
+
+  // a lambda body starting on a LATER line than its `=>` is an indented block (`xs.map(x =>\n  val d = …\n  d*d)`),
+  // exactly like a def body — else a single inline expression. The block folds to nested lets in projection.
+  private def parseLambdaBody(c: Cur, arrowLine: Int): Node =
+    if !c.eof && c.peekLine > arrowLine then
+      parseBlock(c, c.peekCol, stopAtParen = true) match
+        // a single-expression body is NOT a block — unwrap it so it lowers to the bare expr; a one-stmt
+        // block wraps the expr in a spurious `let`, unlike ssc1-front's inline body (see regression on
+        // `head-field-effect-shadow` / `oauth-mcp-full-stack`: `lam N (if …)` vs `lam N (let ((if …)) …)`).
+        case Node.Frame("spike.block", _, stmts) if stmts.length == 1 =>
+          stmts.head match
+            case Node.Frame("spike.exprStmt", _, inner) if inner.length == 1 => inner.head
+            case _ => Node.Frame("spike.block", None, stmts)
+        case blk => blk
+    else parseExpr(c, 1).getOrElse(Node.Frame("spike.error", None, Vector.empty))
 
   // scan `( id [: T] (, id [: T])* )` — the shape of a lambda parameter clause. Returns the param
   // tokens on success (cursor left just after `)`), else None (caller resets).
@@ -1155,6 +1320,7 @@ object SpikeParse:
       case "spike.lbracket" => Some(parseListLiteral(c)) // `[e1, e2, …]` bracket sugar → List(e1, …) (K62.6f)
       case "spike.lbrace" => Some(parseBracedBlock(c)) // `{ val … ; expr }` braced block (non-match position)
       case "spike.kw" if c.peekLexeme == "if" => parseIf(c)
+      case "spike.op" if c.peekLexeme == "???" => c.advance().map(t => Node.Leaf(t, Some("notimpl"))) // Predef.??? → __notImplemented__
       case "spike.op" if c.peekLexeme == "-" || c.peekLexeme == "!" || c.peekLexeme == "~" => Some(parsePrefix(c))
       case "spike.id" if c.peekLexeme == "summon" => Some(parseSummon(c))
       // `throw e` → prim __throw__(e); `new C(args)` == `C(args)` (new is stripped). ssc1-front dispatches
@@ -1261,7 +1427,10 @@ object SpikeParse:
   // prefix operator `- e` / `! e` / `~ e` → mkPre(op, e). Binds at the atom level.
   private def parsePrefix(c: Cur): Node =
     val op = c.advance().get
-    val sub = parseAtom(c).getOrElse(Node.Frame("spike.error", None, Vector.empty))
+    // a prefix `!`/`-`/`~` binds LOOSER than the postfix chain: `!a.b.c(1)` is `!(a.b.c(1))`, not `(!a).b.c(1)`
+    // (ssc1-front lowers `!e` → `if e then false else true` over the WHOLE chain). Apply postfix to the atom
+    // before wrapping. Binary infix stays looser still (`!a + b` = `(!a) + b`) — handled by the caller.
+    val sub = postfix(c, parseAtom(c).getOrElse(Node.Frame("spike.error", None, Vector.empty)))
     Node.Frame("spike.pre", None, Vector(Node.Leaf(op, Some("pre.op")), sub.withRole("pre.sub")))
 
   private def parseParen(c: Cur): Option[Node] =
@@ -1289,10 +1458,19 @@ object SpikeParse:
   private def parseIf(c: Cur): Option[Node] =
     val kids = Vector.newBuilder[Node]
     c.advance().foreach(t => kids += Node.Leaf(t, Some("if.kw")))
-    parseExpr(c, 1).foreach(e => kids += e.withRole("if.cond"))
+    // C-style `if (cond) body` / `if (cond) { body }`: parse the PARENTHESISED condition ourselves so a
+    // trailing same-line `{ body }` does NOT attach as a block-arg to the condition (ssc1-front parseIfExpr
+    // resumes at parseInfix after the `)`, ssc1-front.ssc0:1280) — the `{ }` is then the then-branch, and
+    // `then` is optional. Otherwise the Scala-3 `if cond then body` form. `(cond)` projects like `cond`.
+    val parenCond = c.peekKind == "spike.lparen"
+    if parenCond then
+      c.advance() // `(`
+      parseExpr(c, 1).foreach(e => kids += e.withRole("if.cond"))
+      if c.peekKind == "spike.rparen" then c.advance()
+    else parseExpr(c, 1).foreach(e => kids += e.withRole("if.cond"))
     val thenLine = c.peekLine
     if isKw(c, "then") then c.advance().foreach(t => kids += Node.Leaf(t, Some("if.then")))
-    else c.report("spike.expected", "expected 'then'")
+    else if !parenCond then c.report("spike.expected", "expected 'then'")
     kids += branchExpr(c, thenLine).withRole("if.thenE")
     // `else` is OPTIONAL (`if c then e` is a statement whose else defaults to Unit) — see ifExpr projection.
     // elseLine is the line of `else` itself (BEFORE consuming), so an offside else-branch block is detected.
@@ -1338,7 +1516,11 @@ object SpikeParse:
     val kids = Vector.newBuilder[Node]
     kids += fn.withRole("call.fn")
     c.advance().foreach(t => kids += Node.Leaf(t, Some("call.open")))
-    while c.peekKind != "spike.rparen" && !c.eof && !isDefStart(c) do
+    // args are `,`-separated: after each arg, only a comma continues the list. A NON-comma token ends the args
+    // (ssc1-front's moreArgs stops there too) — e.g. `f(html"…")` closes as `f(html)` and leaves `"…"`/`)` as
+    // trailing tokens, matching ssc1-front's unrecognised-interpolator recovery rather than reading two args.
+    var more = c.peekKind != "spike.rparen" && !c.eof && !isDefStart(c)
+    while more do
       // named argument `label = value` (single `=`, not `==` which lexes as spike.op) → spike.narg;
       // ssc1-lower reorders it by declared case-class field order (mkNArg, ssc1-front.ssc0:1357).
       if c.peekKind == "spike.id" && c.peek2Kind == "spike.eq" then
@@ -1352,7 +1534,10 @@ object SpikeParse:
         case None =>
           c.report("spike.expected", "expected call argument")
           if c.peekKind != "spike.rparen" && !c.eof then c.advance()
-      if c.peekKind == "spike.comma" then c.advance().foreach(t => kids += Node.Leaf(t, Some("call.comma")))
+      if c.peekKind == "spike.comma" then
+        c.advance().foreach(t => kids += Node.Leaf(t, Some("call.comma")))
+        more = c.peekKind != "spike.rparen" && !c.eof && !isDefStart(c) // tolerate a trailing comma before `)`
+      else more = false
     if c.peekKind == "spike.rparen" then c.advance().foreach(t => kids += Node.Leaf(t, Some("call.close")))
     else c.report("spike.expected", "expected ')' to close call")
     Node.Frame("spike.call", None, kids.result())
@@ -1551,7 +1736,7 @@ object SpikeProject:
       case (_, c) if kindOf(c) == "spike.given"     => Vector(givenNode(c))
       case (_, c) if kindOf(c) == "spike.givenobj"  => Vector(givenObjNode(c))
       case (_, c) if kindOf(c) == "spike.givenval"  => Vector(givenValNode(c))
-      case (_, c) if kindOf(c) == "spike.enum"      => Vector(enumNode(c))
+      case (_, c) if kindOf(c) == "spike.enum"      => enumNodes(c)
       case (_, c) if kindOf(c) == "spike.extension" => extensionNodes(c)
       case (_, c) if kindOf(c) == "spike.object"    => Vector(objectNode(c))
       case (_, c) if kindOf(c) == "spike.effectdecl" => Vector(effectDeclNode(c))
@@ -1580,7 +1765,7 @@ object SpikeProject:
 
   private def isTopStmt(k: String): Boolean =
     k == "spike.val" || k == "spike.var" || k == "spike.assign" || k == "spike.while" ||
-    k == "spike.exprStmt" || k == "spike.sealed" || k == "spike.tuppatval"
+    k == "spike.exprStmt" || k == "spike.sealed" || k == "spike.tuppatval" || k == "spike.compoundassign" || k == "spike.idxassign"
 
   // an extension group → three statements: extension_start, the method def (receiver prepended
   // to its params), extension_end. lowerProg's collectExtensionMethods registers it for `.m`.
@@ -1595,6 +1780,29 @@ object SpikeProject:
     val name = ks.collectFirst { case (Some("enum.name"), c) => lexeme(c) }.getOrElse("_")
     val cases = ks.collect { case (_, c) if kindOf(c) == "spike.enumcase" => enumCase(c.asInstanceOf[UniNode.Branch]) }
     s"""Pair("enum", Pair("${esc(name)}", ${consList(cases)}))"""
+
+  // the enum decl plus, per parametrized case with field defaults, a companion `("funcdefaults", …)` node
+  // (variant-A: lowerProg's collectFuncDefaultsNodes unions it into funcDefaultsCell) so `Circle()` →
+  // `Circle(1)` synthesises like a case class with defaults (`case Square(side: Int = 2)`).
+  private def enumNodes(n: UniNode): Vector[String] =
+    val fdNodes = kids(n).collect { case (_, c) if kindOf(c) == "spike.enumcase" => c }.toVector.flatMap { ec =>
+      val eks = kids(ec)
+      val cname = eks.collectFirst { case (Some("ec.name"), c) => lexeme(c) }.getOrElse("_")
+      val fieldB = Vector.newBuilder[String]; val dfltB = Vector.newBuilder[String]; var hasDflt = false
+      var i = 0
+      while i < eks.length do
+        if eks(i)._1.contains("ec.field") then
+          fieldB += "\"" + esc(lexeme(eks(i)._2)) + "\""
+          var j = i + 1; var d = ""
+          while j < eks.length && !eks(j)._1.contains("ec.field") do
+            if eks(j)._1.contains("ec.dflt") then d = wrapArg(eks(j)._2)
+            j += 1
+          if d.nonEmpty then { dfltB += d; hasDflt = true } else dfltB += """Pair("__nodflt__", "")"""
+        i += 1
+      if hasDflt then Vector(s"""Pair("funcdefaults", Pair("${esc(cname)}", Pair(${consList(fieldB.result())}, ${consList(dfltB.result())})))""")
+      else Vector.empty[String]
+    }
+    Vector(enumNode(n)) ++ fdNodes
 
   private def enumCase(b: UniNode.Branch): String =
     val cname = kids(b).collectFirst { case (Some("ec.name"), c) => lexeme(c) }.getOrElse("_")
@@ -1628,8 +1836,11 @@ object SpikeProject:
   private def caseClsNode(n: UniNode): String =
     val ks = kids(n)
     val name  = ks.collectFirst { case (Some("cc.name"), c) => lexeme(c) }.getOrElse("_")
-    val names = ks.collect { case (Some("cc.field"), c) => "\"" + esc(lexeme(c)) + "\"" }.toVector
-    val types = ks.collect { case (Some("cc.fieldType"), c) => "\"" + esc(concatType(c)) + "\"" }.toVector
+    // an unsupported annotated field (cc.synthfield marker) contributed a synthetic ("_","Any") field,
+    // appended after any real fields parsed before it — exactly ssc1-front's parseCaseParam fallback.
+    val synth = ks.exists { case (Some("cc.synthfield"), _) => true; case _ => false }
+    val names = ks.collect { case (Some("cc.field"), c) => "\"" + esc(lexeme(c)) + "\"" }.toVector ++ (if synth then Vector("\"_\"") else Vector.empty)
+    val types = ks.collect { case (Some("cc.fieldType"), c) => "\"" + esc(concatType(c)) + "\"" }.toVector ++ (if synth then Vector("\"Any\"") else Vector.empty)
     val derives = ks.collect { case (Some("cc.derive"), c) => "\"" + esc(lexeme(c)) + "\"" }.toVector
     s"""mkCaseCls("${esc(name)}", ${consList(names)}, ${consList(types)}, ${consList(derives)})"""
 
@@ -1687,7 +1898,11 @@ object SpikeProject:
       else Vector(s"""Pair("casemethods", Pair("${esc(name)}", Pair(${consList(fields)}, ${consList(methods)})))""")
     val fdNode = if !hasDflt then Vector.empty[String]
       else Vector(s"""Pair("funcdefaults", Pair("${esc(name)}", Pair(${consList(fields)}, ${consList(dfltB.result())})))""")
-    Vector(base) ++ cmNode ++ fdNode
+    // `case class Circle(…) extends Shape` → ("subtype", (Shape, Circle)) so `case _: Shape` expands to child tags
+    val stNode = ks.collectFirst { case (Some("cc.parent"), c) => lexeme(c) } match
+      case Some(p) => Vector(s"""Pair("subtype", Pair("${esc(p)}", "${esc(name)}"))""")
+      case None    => Vector.empty[String]
+    Vector(base) ++ cmNode ++ fdNode ++ stNode
 
   // concatenate a spike.cctype frame's token lexemes (no spaces) → the full field type string
   private def concatType(n: UniNode): String = n match
@@ -1719,6 +1934,7 @@ object SpikeProject:
     // `true`/`false` are literal booleans, not variables (ssc1-front does the same)
     case UniNode.Token(t) if t.kind == "spike.id" && (t.lexeme == "true" || t.lexeme == "false") => s"""mkBool("${t.lexeme}")"""
     case UniNode.Token(t) if t.kind == "spike.id" && t.lexeme == "null" => """mkUVar("None")""" // K62.18: null → None
+    case UniNode.Token(t) if t.lexeme == "???"       => hole // Predef.??? → prim __notImplemented__
     case UniNode.Token(t) if t.kind == "spike.id"    => s"""mkVar("${esc(t.lexeme)}")"""
     case UniNode.Token(t) if t.kind == "spike.uid"   => s"""mkUVar("${esc(t.lexeme)}")"""
     case b: UniNode.Branch => b.kind match
@@ -1806,11 +2022,15 @@ object SpikeProject:
         val rhs  = kids(b).collectFirst { case (Some("range.rhs"), c) => expr(c) }.getOrElse(hole)
         s"""mkApp(mkSel($lhs, "${esc(word)}"), ${consList(Vector(rhs))})"""
       case "spike.unitlit" => "mkTup(Nil)" // abstract-def placeholder body (ignored by effect/trait lowering)
+      case "spike.direct" => // direct[F] { block } → Pair("direct", Pair(typeArgs, block)) — lowerer → flatMap
+        val ty  = kids(b).collect { case (Some("ta.tok"), c) => lexeme(c) }.mkString
+        val blk = kids(b).collectFirst { case (Some("direct.block"), c) => expr(c) }.getOrElse(hole)
+        s"""Pair("direct", Pair("${esc(ty)}", $blk))"""
       case "spike.focusmarker" => """Pair("focus_marker", "")""" // Focus[T](_.a.b) — type args unused for focus
       case "spike.prism" => // Prism[Super, Case](…) — the variant name (after the last comma) drives the lowering
         val ty = kids(b).collect { case (Some("ta.tok"), c) => lexeme(c) }.mkString
         s"""Pair("prism", "${esc(ty)}")"""
-      case "spike.error" => hole
+      case "spike.error" => """mkVar("_err")""" // error-recovery for a stray/unparseable token (ssc1-front _err)
       case _             => hole
     case _ => hole
 
@@ -1896,12 +2116,23 @@ object SpikeProject:
       val name = kids(b).collectFirst { case (Some("assign.name"), c) => lexeme(c) }.getOrElse("_")
       val rhs  = kids(b).collectFirst { case (Some("assign.rhs"), c) => expr(c) }.getOrElse(hole)
       s"""Pair("assign", Pair("${esc(name)}", $rhs))"""
+    case b: UniNode.Branch if b.kind == "spike.idxassign" => // `a(idx) = rhs` → ssc1-lower arr.set(a, idx, rhs)
+      val lhs = kids(b).collectFirst { case (Some("idxassign.lhs"), c) => expr(c) }.getOrElse(hole)
+      val rhs = kids(b).collectFirst { case (Some("idxassign.rhs"), c) => expr(c) }.getOrElse(hole)
+      s"""Pair("idx_assign", Pair($lhs, $rhs))"""
+    case b: UniNode.Branch if b.kind == "spike.compoundassign" =>
+      // `x += e` parses through the EXPRESSION path (compoundBaseOp), so it is an `expr` statement wrapping an
+      // assign — in a block lowerBlock let-binds an `expr` but seq's a bare `assign`, so the wrap matters.
+      val name = kids(b).collectFirst { case (Some("ca.name"), c) => lexeme(c) }.getOrElse("_")
+      val op   = kids(b).collectFirst { case (Some("ca.op"), c) => lexeme(c) }.getOrElse("+=").dropRight(1)
+      val rhs  = kids(b).collectFirst { case (Some("ca.rhs"), c) => expr(c) }.getOrElse(hole)
+      s"""mkSExpr(Pair("assign", Pair("${esc(name)}", mkInf("${esc(op)}", mkVar("${esc(name)}"), $rhs))))"""
     case b: UniNode.Branch if b.kind == "spike.while" =>
       val cond = kids(b).collectFirst { case (Some("while.cond"), c) => expr(c) }.getOrElse(hole)
       val body = kids(b).collectFirst { case (Some("while.body"), c) => expr(c) }.getOrElse(hole)
       s"""Pair("while", Pair($cond, $body))"""
     case b: UniNode.Branch if b.kind == "spike.def" => defNode(b)
-    case _ => s"""mkSExpr($hole)"""
+    case n => s"""mkSExpr(${expr(n)})""" // unhandled stmt (e.g. an error-recovery node → `_err`) as a bare expr
 
   private def infix(b: UniNode.Branch): String =
     val op = kids(b).collectFirst { case (Some("bin.op"), c) => lexeme(c) }.getOrElse("+")

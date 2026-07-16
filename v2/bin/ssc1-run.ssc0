@@ -390,6 +390,15 @@ def sscStdRoot = () =>
     }
   else sscSlash(staged)
 
+-- Lib root for BARE import paths (no `./`, `../`, or `std/` prefix): the
+-- install root (ssc.lib.path), which for a dev checkout is the repo root. A
+-- case can then import a module by its repo-root-relative path. Unset → "" so
+-- the bare path resolves against the process cwd, matching prior behaviour.
+def sscLibRootCell = #cell.new("")
+def sscLibRoot = () =>
+  let staged = #cell.get(sscLibRootCell) in
+  if #seq(staged, "") then "" else sscSlash(staged)
+
 -- Lexical path normalization keeps DFS/load-once stable for `./` and `../`
 -- spellings without adding a platform filesystem primitive to the frozen kernel.
 def sscNormSegs = (segs, acc, absolute) =>
@@ -417,9 +426,19 @@ def sscNormalize = (path) =>
   let absolute = if #i.eq(#slen(path), 0) then false else #i.eq(#scodeAt(path, 0), 47) in
   let body = sscJoinSegs(reverse(sscNormSegs(#str.split(path, "/"), Nil, absolute))) in
   if absolute then #sconcat("/", body) else body
+-- std/… → std root;  ./… or ../… (leading '.') → relative to the importing
+-- file.  A BARE path is ambiguous — it may be a sibling of the importer (e.g.
+-- std/http.ssc → `json.ssc`) OR a repo-root-relative path (a case importing
+-- `tests/conformance/lib/foo.ssc`). Match v1's ImportResolver: try the importer
+-- directory first, and only fall back to the lib root (repo root) when that
+-- file does not exist.
 def sscResolve = (dir, rel) =>
   if sscStartsStd(rel) then sscNormalize(#sconcat(sscStdRoot(), rel))
-  else sscNormalize(#sconcat(dir, rel))
+  else if sscStartsChar(rel, 46) then sscNormalize(#sconcat(dir, rel))
+  else
+    let srcRel = sscNormalize(#sconcat(dir, rel)) in
+    if #io.exists(srcRel) then srcRel
+    else sscNormalize(#sconcat(sscLibRoot(), rel))
 
 def sscLoadMod = (rawPath, seen) =>
   let path0 = sscNormalize(rawPath) in
@@ -607,6 +626,12 @@ def sscNativeArgs = (args) =>
         match rest {
           case Cons(root, paths) =>
             let z = #cell.set(sscStdRootCell, sscNormalize(root)) in sscNativeArgs(paths)
+          case Nil => Nil
+        }
+      else if #seq(flag, "--lib-root") then
+        match rest {
+          case Cons(root, paths) =>
+            let z = #cell.set(sscLibRootCell, sscNormalize(root)) in sscNativeArgs(paths)
           case Nil => Nil
         }
       else if #seq(flag, "--mutable") then

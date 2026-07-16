@@ -1,0 +1,45 @@
+---
+name: scljet-sql-range-descent
+description: SclJet range descent over a multi-level index — WHERE indexedcol >/BETWEEN prunes interior subtrees; matches reference sqlite3
+backends: [int, js]
+---
+
+# SclJet range descent (multi-level index)
+
+A range `WHERE <indexed col> > K` / `BETWEEN lo AND hi` over a multi-level index descends the B-tree,
+visiting only the interior children whose divider range overlaps the query range
+(`rangeChildCouldContain`). This fixture uses long (40-char) text keys so 40 rows span several index
+leaves under an interior node — the interior range-pruning path is exercised (verified separately
+that it does not fall back to the ordered walk). Results match reference sqlite3 (verified
+out-of-band); locked across `[int, js]`.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableWithIndexDatabase](std/scljet/index.ssc)
+[queryImage, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def show(db: ByteSlice, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(m) => println(sql + " => ERR:" + m)
+    case Right(rows) => println(sql + " => " + renderRows(rows).toString)
+
+var pfx = ""
+var p = 0
+while p < 40 do
+  pfx = pfx + "k"
+  p = p + 1
+
+var rowsRev: List[List[SqliteValue]] = Nil
+var i = 1
+while i <= 40 do
+  rowsRev = List(SqlText(pfx + (i % 8).toString), SqlInteger(i.toLong)) :: rowsRev
+  i = i + 1
+
+buildTableWithIndexDatabase(512, 1, 1, "t", "CREATE TABLE t(k TEXT, v INTEGER)", "idx_k",
+  "CREATE INDEX idx_k ON t(k)", List(0), rowsRev.reverse) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db) =>
+    show(db, "SELECT COUNT(*) FROM t WHERE k > '" + pfx + "5'")
+    show(db, "SELECT v FROM t WHERE k > '" + pfx + "5' ORDER BY v")
+    show(db, "SELECT COUNT(*) FROM t WHERE k BETWEEN '" + pfx + "2' AND '" + pfx + "4'")
+    show(db, "SELECT v FROM t WHERE k BETWEEN '" + pfx + "2' AND '" + pfx + "4' ORDER BY v LIMIT 4")
+```
