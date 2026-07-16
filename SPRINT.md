@@ -331,7 +331,8 @@ error-resilient parser already byte-identical to ssc1-front on 119 constructs, t
          → codec generation, **tuple-destructuring val** `val (a,b)=e`, **multiline while-do body** (branchExpr;
          +14 — pervasive), **null→None**, **def-body assignment** `def f(x)=cell=t`→store, **extern signatures**
          →no-op, **type ascriptions in tuple/ctor sub-patterns** `case (a:T, b:U)`.
-      **CURRENT BASELINE (MEASURED 2026-07-16, corpus 499): MATCH 485 (97%), DROP 0, HOLE 3, DIFF 11.**
+      **CURRENT BASELINE (MEASURED 2026-07-16, corpus 499): MATCH 486 (97%), DROP 0, HOLE 2, DIFF 11.**
+      (Single-file. The MULTI-FILE gate — Phase 2.0 — measures 43/216; see Phase 2.)
       Reproduce: `SSC_JAR=<run-ir jar> V2_DIR=<wt>/v2 bash specs/newfront-diff.sh` (jar: `scala-cli --power
       package v2/src --assembly` — the thin bin/lib/ssc.jar has NO run-ir). ~12 min.
       **MATCH trajectory (→487 progs): 0→2→93 (harness leak fix)→165 (number lexer)→203 (trailing block)→211
@@ -565,9 +566,9 @@ error-resilient parser already byte-identical to ssc1-front on 119 constructs, t
       216 of 499 roots load ≥1 module (43%); 110 distinct modules; up to 20 modules per root; 5 roots the
       ORACLE ITSELF cannot resolve.** (The 34 came from grepping the EXTRACTED CODE — but imports are scanned
       from the RAW file, and a FENCED `.ssc` keeps the link line in the PROSE, so `.code` never has it.)
-      **MULTI-FILE BASELINE (MEASURED 2026-07-16): MATCH 42/216 (19%), DROP 0, HOLE 108, DIFF 66, SKIP 5** —
-      versus 485/499 (97%) single-file. Reproduce: `SSC_JAR=<run-ir jar> bash specs/newfront-diff-multi.sh`
-      FROM THE REPO ROOT (~25 min). Phase 1 made both import forms a parse-only no-op (`Pair("sealed","")`),
+      **MULTI-FILE BASELINE (MEASURED 2026-07-16, after 2.2): MATCH 43/216 (20%), DROP 0, HOLE 0, DIFF 173,
+      SKIP 5** (first baseline was 42/216 with HOLE 108) — versus 486/499 (97%) single-file. Reproduce:
+      `SSC_JAR=<run-ir jar> bash specs/newfront-diff-multi.sh` FROM THE REPO ROOT (~25 min). Phase 1 made both import forms a parse-only no-op (`Pair("sealed","")`),
       byte-correct SINGLE-file precisely because that harness compares one extracted program — Phase 2 is where
       that stops being enough. Slices, in order (write each result back here; MATCH only goes up):
       - [x] **2.0 — the MULTI-FILE gate ✓ DONE 2026-07-16** (`specs/newfront-diff-multi.sh`). Both sides drive
@@ -600,17 +601,31 @@ error-resilient parser already byte-identical to ssc1-front on 119 constructs, t
             reports the module as `EMPTY` (unlowerable). `v1/runtime/std/ui/offline.ssc` is nothing but `extern def`
             signatures. 6 std modules fixed (auth/crypto/http/openapi/ui-offline/ui-webauthn), 7 EMPTY → 0.
             Single-file harness measured UNCHANGED (485/499, zero delta) — these modules are never roots.
-      - [ ] **2.2 — close the MODULE parse holes (HOLE 108 — the dominant multi-file cluster, START HERE).** The
-            holes are in MODULE code (`v1/runtime/std/*`) that the single-file corpus never exercised, so they are
-            almost certainly ordinary parse gaps of the kind items 12-14 ate for breakfast — not module semantics.
-            Method unchanged: pick the module that poisons the most roots (`grep '^HOLE' <work>/results.txt`, map
-            each root to its modules via `<work>/scope.txt`), find its `__notImplemented__`, read the ORACLE's rule,
-            mirror it. Re-run the multi-file gate; MATCH only goes up. Note the single-file harness is BLIND to
-            these — verify with `newfront-diff-multi.sh`, and keep `newfront-diff.sh` green as a regression guard.
-      - [ ] **2.3 — then the 66 DIFFs.** Top first-divergence clusters from the 2026-07-16 baseline: `lower` (11),
-            `contentViewBlock` (9), `Cluster_healthCheck` (9), `_sel_method` (8), `Parser_`/NoContext (6),
-            `AgentSchemaInstance_decode` (5). Several look like ORDER/registry effects (the caseMethods lesson:
-            equal length + wrong content ⇒ an ordering bug — `wc -c` both IRs FIRST).
+      - [x] **2.2 — MODULE parse holes ✓ DONE 2026-07-16: HOLE 108 → 0.** Exactly as predicted, an ordinary parse
+            gap, not module semantics — and ONE construct in THREE modules (`std/scljet/{bytes,header,wal}.ssc`)
+            poisoned 106 of the 108 HOLE roots: `if (read.value & signBit) != 0 then …`. ssc1-front's parseIfExpr
+            RESUMES at parseInfix after the `)` (ssc1-front.ssc0:1280), so a parenthesised group is only the LEFT
+            OPERAND of a condition that may continue; the spike took the group as the WHOLE condition, left `!= 0`
+            dangling, never found `then`, and holed the then-branch. Fixed via infixLoop (the same helper the
+            `_err` recovery uses). **MEASURED: multi-file HOLE 108→0, MATCH 42→43/216, DIFF 66→173** (the holes
+            became DIFFs — strict progress: those roots now PARSE, so the real divergence is visible); single-file
+            485→486 (+dsl-mini-language). Method that found it: rank modules by #roots poisoned (map roots→modules
+            via `<work>/scope.txt`, holes via `grep -l __notImplemented__ <work>/proj/*.proj`) — DO THIS FIRST, it
+            turned "108 holes" into one 20-line fix.
+      - [ ] **2.3 — the 173 DIFFs. START with the case-class-registry cluster: `ImageVfs_name` (68 roots) +
+            `JvmSqliteVfs_name` (38) = 106 — i.e. the SAME 106 roots, one root cause.** Analysis done 2026-07-16
+            (scljet-crud): **NOT an ordering bug** — ref 544400 vs new 559839 bytes (`wc -c` FIRST, per the
+            caseMethods lesson), the spike emits ~15KB MORE, with an extra `_sel_code` accessor where the ref has
+            `ImageVfs_name`. **Hypothesis (needs confirming, likely a DESIGN DECISION): this is the variant-A
+            boundary in multi-file.** ssc1-front populates its registries as PARSE SIDE EFFECTS in cells
+            (caseMethodsCell/classBodyFieldsCell/mutableFieldsCell/subtypeRegCell/usingSigCell/funcDefaultsCell),
+            and the loader's PARSE order is NOT the composed-statement order: `sscLoadRoot` parses the ROOT FIRST
+            and only THEN loads its imports (ssc1-run.ssc0:476-478), while composing `sscApp(impDefs, stmts)` —
+            modules FIRST. lowerProg runs ONCE over the composed list, so the spike's collect*Nodes see
+            composed order while the oracle's cells hold reverse-PARSE order, and the two disagree on both order
+            and content. Confirm by dumping caseMethodsCell after a multi-file ref parse before writing any fix.
+            Remaining smaller clusters: `lower` (11), `contentViewBlock` (9), `Cluster_healthCheck` (9),
+            `_sel_method` (8), `Parser_`/NoContext (6), `AgentSchemaInstance_decode` (5).
       - [ ] **2.4 — resolve `[names](path.ssc)` in the spike itself (the real Phase 2 feature, LAST not first).**
             The gate composes the module list EXTERNALLY today (via ssc1-run's own loader), which is what makes the
             PARSER the only variable. Only once 2.2/2.3 are green does the spike need to own resolution:
