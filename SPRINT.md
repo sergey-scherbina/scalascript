@@ -2898,6 +2898,61 @@ every named language.
       reconcile/check the specification behavior items, then record results in `CHANGELOG.md` and this
       section in a separate bookkeeping commit before releasing the claim.
 
+## scljet-address — every value has an address (2026-07-16, Sergiy)
+
+**Goal.** SclJet as a platform for data wherever it lives: every value has a **name, a value and
+an address**, and the standing question is always "what does this bit mean *here*". Start from what
+already exists (the SQLite engine), then plug other formats onto the same addressing.
+
+**The model** (`specs/scljet-address.md`, deliberately one page — Sergiy: "сделай попроще, не усложняй"):
+- **Address = the link between a logical and a physical location.** `emp/7/name` (table/row/column)
+  ←→ (page, offset, length). Both true at once; neither alone is the address. Never report one as
+  the other.
+- **One protocol, two directions:** `read address → (type, value)`; `write (address, type, value)`.
+  That triple is the elementary packet.
+- **Type** = the format's own type where known, `Raw(n)` (n bits) where not. `Raw(n)` is a real
+  answer, not a failure — the extent is something we truly know. No universal type, no coercion.
+  Where even the extent is unknown → refuse, don't guess.
+- **Stability is a property of an address**, not a guarantee: it must be *knowable*, because a
+  reference that moves silently is worse than none.
+- Tree is heterogeneous; an address names a **leaf**, a row is the set of leaves sharing a prefix.
+
+**Why IPK is the canonical case.** `emp/7/id` on an `INTEGER PRIMARY KEY`: physically the record's
+field is NULL, logically the value is 7 (it lives in the rowid). Both true. Reporting the physical
+bit as the logical value IS `BUGS.md → scljet-ipk-rowid-alias-not-substituted`. The same mechanism
+also decides **address stability**: with an IPK the rowid is the declared value and survives
+`VACUUM` → stable address; without one, `VACUUM` may renumber → the same address form is positional
+and can quietly point at another row (a real `sqlite3` can vacuum between two of our reads).
+
+**Lane discipline.** Additive: NEW `scljet/address.ssc`. Does NOT edit `scljet/sql.ssc` — the live
+`scljet-ipk-rowid` lane owns the IPK read fix there, and `scljet-m3-writes` owns the rest.
+
+### Slices
+
+- [ ] **A1 — the address.** `case class SqliteAddress(table, rowid, column)` + parse/render of the
+      `table/rowid/column` form. Errors are explicit (no guessing at a malformed address).
+- [ ] **A2 — resolve.** Address → the physical half: reuse `findTable` → root page → rowid seek →
+      the record's field. Returns both halves, so the link is a value, not an assumption.
+- [ ] **A3 — read.** `addressRead(image, address) → Either[String, (type, value)]`, honouring the
+      link: an IPK column reads the ROWID, not the stored field. **Gate: the differential must cross
+      the two engines through a FILE** (write with real `sqlite3`/xerial → read by address), because
+      a "scljet reads what scljet wrote" oracle is self-consistent and cannot see this class of bug.
+      Depends on / coordinates with the `scljet-ipk-rowid` lane — if their `rowValue` fix lands
+      first, read through it instead of duplicating the substitution.
+- [ ] **A4 — `Raw(n)`.** Report the format's type where known, else the raw extent. Serial types
+      10/11 stay a refusal (they carry no length — the true edge of knowledge; `record.ssc` already
+      rejects them).
+- [ ] **A5 — stability.** Report whether an address is stable (has-IPK → yes; no-IPK → no).
+      Test: a table with and without an IPK.
+
+### Later (shape fixed now so they don't change it)
+- write by address = the same triple applied + a **commit boundary** (one row change touches
+  several pages; applying packets one-by-one corrupts the file).
+- UniML documents (JSON/YAML/XML/Markdown) — same model, different resolver; UniML already has the
+  lossless tree + `SourceId`/`SourcePosition` spans, i.e. the physical half.
+- remote references — same model, different resolver; `DurableRef` already exists in
+  `specs/control-interoperability.md`.
+
 ## scljet — pure ScalaScript SQLite-compatible engine specification (2026-07-12, Sergiy: "сделать ... чистую низкоуровневую реализацию формата данных ... блокировками и wal ... sql интерпретатора"; name: "scljet")
 
 Goal: establish a real pure-ScalaScript module boundary and a normative, implementation-ready
