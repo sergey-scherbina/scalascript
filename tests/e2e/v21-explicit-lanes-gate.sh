@@ -11,6 +11,21 @@ if [[ ${1:-} == --report && -n ${2:-} ]]; then report=$2; shift 2; fi
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/v21-explicit-lanes.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 
+# A bare `[[ $(…) == "$want" ]]` under `set -e` exits 1 printing NOTHING — no check
+# name, no diff. That silence hid a real regression in this gate for days and forced
+# a manual bisect. Every assertion goes through this helper instead.
+expect_out() {
+  local name=$1 want=$2 got=$3
+  if [[ $got != "$want" ]]; then
+    echo "v21-explicit-lanes-gate: FAILED check '$name'" >&2
+    echo "--- want" >&2; printf '%s\n' "$want" >&2
+    echo "--- got" >&2;  printf '%s\n' "$got"  >&2
+    echo "--- diff (want vs got)" >&2
+    diff <(printf '%s\n' "$want") <(printf '%s\n' "$got") >&2 || true
+    exit 1
+  fi
+}
+
 awk -F '\t' -v root="$ROOT" '
   BEGIN { OFS="\t" }
   NR == 1 {
@@ -60,6 +75,6 @@ awk -F '\t' -v OFS='\t' '
 
 provider=$(awk -F '\t' 'NR > 1 && $2 == "provider-lane" {n++} END {print n+0}' "$report")
 target=$(awk -F '\t' 'NR > 1 && $2 == "target-lane" {n++} END {print n+0}' "$report")
-[[ $provider -eq 8 && $target -eq 7 ]]
+expect_out lane-counts $'provider=8\ntarget=7' "provider=$provider"$'\n'"target=$target"
 echo "PASS v21-explicit-lanes-gate (15 exact rows: provider=$provider target=$target)"
 echo "REPORT: $report"
