@@ -198,7 +198,7 @@ private[markdown] object MarkdownInlines:
           nodes = nodes :+ delimiterRun(content, i, c)
           i += runLength(content, i, c)
 
-        case other =>
+        case _ =>
           pending = pending :+ content.substring(i, i + 1)
           i += 1
     flushText()

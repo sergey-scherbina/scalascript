@@ -102,9 +102,9 @@ private[markdown] object MdLine:
             lines = lines :+ MdLine(content.mkString, "\r")
             index += 1
           content = Vector.empty
-        case other =>
-          // v2 has no Char box — slice the source rather than `other.toString`
-          // (which would render the code point's decimal digits).
+        case _ =>
+          // v2 has no Char box — slice the source rather than stringifying the
+          // matched char (which would render the code point's decimal digits).
           content = content :+ text.substring(index, index + 1)
           index += 1
     if content.nonEmpty then lines = lines :+ MdLine(content.mkString, "")
