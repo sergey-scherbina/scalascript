@@ -1,0 +1,78 @@
+---
+name: scljet-address-read
+description: SclJet addressing — read a value by <table>/<rowid>/<column>; the logical/physical link, Raw fallback, stability
+backends: [int, js]
+---
+
+# SclJet address — read
+
+An address is the link between a logical location (`emp/7/name`) and a physical one (the bits in
+the record). This drives the first slice — `addressRead` — over an in-memory image: parsing,
+resolution, the per-type answers, and the two facts that make the link observable rather than
+assumed (`fromRowid`, `physicalBytes`).
+
+Note what this case can and cannot prove. The image here is written by scljet and read by scljet,
+so it is a **self-consistent oracle**: it pins the shape of the answers, but it cannot see a
+file-format divergence. The IPK link is only truly proven by a differential that crosses two
+engines through a FILE — that lives in the JVM lane (`ScljetAddressTest`), where a real SQLite
+writer is available. Spec: `specs/scljet-address.md`.
+
+[ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlText, SqlReal, SqlBlob, buildTableDatabase](std/scljet/index.ssc)
+[SqliteAddress, AddressedValue, parseAddress, renderAddress, addressRead](std/scljet/address.ssc)
+
+```scalascript
+def showValue(v: SqliteValue): String = v match
+  case SqlNull => "NULL"
+  case SqlInteger(x) => x.toString
+  case SqlReal(x) => x.toString
+  case SqlText(x) => x
+  case _ => "?"
+
+def readAt(image: ByteSlice, text: String): Unit =
+  parseAddress(text) match
+    case Left(message) => println(text + " => ERR " + message)
+    case Right(addr) => addressRead(image, addr) match
+      case Left(message) => println(renderAddress(addr) + " => ERR " + message)
+      case Right(av) =>
+        println(renderAddress(addr) + " => " + av.typeName + " " + showValue(av.value) +
+          " | physical=" + av.physicalBytes.toString + "B" +
+          " fromRowid=" + av.fromRowid.toString +
+          " stable=" + av.stable.toString)
+
+// A table WITH an INTEGER PRIMARY KEY: the addresses into it are stable, and `id` is an alias
+// for the rowid.
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER PRIMARY KEY, name TEXT, bonus REAL)",
+  List(List(SqlInteger(1L), SqlText("ann"), SqlReal(1.5)),
+       List(SqlInteger(7L), SqlText("bob"), SqlReal(2.5)),
+       List(SqlInteger(9L), SqlText("cat"), SqlNull))) match
+  case Left(error) => println("build failed: " + error.message)
+  case Right(image) =>
+    println("-- an IPK table: addresses are stable --")
+    readAt(image, "emp/7/name")
+    readAt(image, "emp/7/id")
+    readAt(image, "emp/7/bonus")
+    readAt(image, "emp/1/name")
+    readAt(image, "emp/9/bonus")
+
+    println("-- addresses that do not resolve are errors, not guesses --")
+    readAt(image, "emp/42/name")
+    readAt(image, "emp/7/nope")
+    readAt(image, "nosuch/1/x")
+
+    println("-- a malformed address is an explicit error --")
+    readAt(image, "emp/7")
+    readAt(image, "emp/x/name")
+    readAt(image, "emp//name")
+    println(renderAddress(SqliteAddress("emp", 7L, "name")))
+
+// A table WITHOUT an INTEGER PRIMARY KEY: the same address form is positional — a VACUUM by any
+// writer may renumber the rowids and quietly point it at a different row. We say so.
+buildTableDatabase(512, 1, 1, "log", "CREATE TABLE log(a INTEGER, b TEXT)",
+  List(List(SqlInteger(10L), SqlText("x")),
+       List(SqlInteger(20L), SqlText("y")))) match
+  case Left(error) => println("build failed: " + error.message)
+  case Right(image) =>
+    println("-- no IPK: same address form, but NOT stable --")
+    readAt(image, "log/1/a")
+    readAt(image, "log/2/b")
+```

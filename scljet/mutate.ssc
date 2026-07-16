@@ -18,6 +18,7 @@ exports:
   - ImageVfs
   - ImageFile
   - fieldToValue
+  - fieldAt
   - fieldValueAt
 ---
 

@@ -50,6 +50,16 @@ exports:
   - executeUpdate
   - parseCreate
   - executeCreate
+  # address layer (scljet/address.ssc) — resolving the physical half of an address
+  - tableContext
+  - seekRowidRecord
+  - RowidSeek
+  - SeekHit
+  - SeekMiss
+  - SeekFallback
+  - tableIpkIndex
+  - columnIndex
+  - joinTableRows
 ---
 
 # SclJet SQL query layer

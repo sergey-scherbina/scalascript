@@ -1,0 +1,210 @@
+---
+name: scljet-address
+version: 0.1.0
+description: SclJet addressing — an address is the link between a logical and a physical location
+package: scljet
+exports:
+  - SqliteAddress
+  - AddressedValue
+  - parseAddress
+  - renderAddress
+  - addressRead
+---
+
+# scljet address
+
+Every value has an **address**, and an address is the **link between a logical and a physical
+location** — `emp/7/name` (table, row, column) on one side, the actual bits in the file on the
+other. Both are true at once; neither alone is the address. Reporting one as the other is the
+whole class of bug this module exists to prevent (`BUGS.md` →
+`scljet-ipk-rowid-alias-not-substituted`).
+
+Spec: `specs/scljet-address.md`. This is the first slice: **read**.
+
+```scalascript
+[ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, RecordField, StorageRecord, ReadonlyDatabase](index.ssc)
+[tableContext, seekRowidRecord, SeekHit, SeekMiss, SeekFallback, tableIpkIndex, columnIndex, joinTableRows](sql.ssc)
+[fieldAt, fieldToValue](mutate.ssc)
+```
+
+## The address
+
+`<table>/<rowid>/<column>` — a leaf. A row is not an address; it is the set of leaves that
+share its prefix.
+
+```scalascript
+case class SqliteAddress(table: String, rowid: Long, column: String)
+
+def renderAddress(a: SqliteAddress): String =
+  a.table + "/" + a.rowid.toString + "/" + a.column
+```
+
+A malformed address is an explicit error, never a guess.
+
+```scalascript
+def splitOnSlash(s: String): List[String] =
+  var parts: List[String] = Nil
+  var cur = ""
+  var i = 0
+  while i < s.length do
+    val c = s.substring(i, i + 1)
+    if c == "/" then
+      parts = cur :: parts
+      cur = ""
+    else
+      cur = cur + c
+    i = i + 1
+  (cur :: parts).reverse
+
+// A rowid is a decimal integer. Parsed by hand (bounds-safe, no exceptions) so a
+// non-numeric rowid is a clean Left rather than a crash.
+def parseRowid(s: String): Either[String, Long] =
+  if s.length == 0 then Left("address: empty rowid")
+  else
+    var acc = 0L
+    var i = 0
+    var bad = false
+    while i < s.length do
+      val d = s.substring(i, i + 1)
+      val v = digitValue(d)
+      if v < 0 then bad = true
+      else acc = acc * 10L + v.toLong
+      i = i + 1
+    if bad then Left("address: rowid is not a number: " + s) else Right(acc)
+
+def digitValue(d: String): Int =
+  if d == "0" then 0
+  else if d == "1" then 1
+  else if d == "2" then 2
+  else if d == "3" then 3
+  else if d == "4" then 4
+  else if d == "5" then 5
+  else if d == "6" then 6
+  else if d == "7" then 7
+  else if d == "8" then 8
+  else if d == "9" then 9
+  else -1
+
+def parseAddress(s: String): Either[String, SqliteAddress] =
+  val parts = splitOnSlash(s)
+  if parts.length != 3 then
+    Left("address: expected <table>/<rowid>/<column>, got: " + s)
+  else
+    val table = parts.head
+    val rowidText = parts.tail.head
+    val column = parts.tail.tail.head
+    if table.length == 0 then Left("address: empty table")
+    else if column.length == 0 then Left("address: empty column")
+    else parseRowid(rowidText) match
+      case Left(message) => Left(message)
+      case Right(rowid) => Right(SqliteAddress(table, rowid, column))
+```
+
+## The answer
+
+What a read hands back. `typeName` is the format's own type where we know it, and `Raw(n)`
+where we do not — knowing the extent is knowing something true, so `Raw(n)` is an answer, not a
+failure.
+
+`fromRowid` and `physicalBytes` are what make the *link* observable instead of assumed: they say
+where the logical value actually came from, and how many bytes are really stored at that address.
+For an `INTEGER PRIMARY KEY` the two halves disagree by design — the record stores nothing (or,
+in a scljet-written file, a redundant copy) and the value lives in the rowid.
+
+```scalascript
+case class AddressedValue(
+  typeName: String,
+  value: SqliteValue,
+  physicalBytes: Int,
+  fromRowid: Boolean,
+  stable: Boolean
+)
+
+def typeNameOf(field: RecordField): String =
+  fieldToValue(field) match
+    case SqlNull => "NULL"
+    case SqlInteger(_) => "INTEGER"
+    case SqlReal(_) => "REAL"
+    case SqlText(_) => "TEXT"
+    case SqlBlob(_) => "BLOB"
+    case _ => "Raw(" + (field.encoded.length * 8).toString + ")"
+```
+
+## Reading by address
+
+The logical half is the path; the physical half is what the walk lands on. The IPK column is
+where they part company, and honouring that is the point of the whole module.
+
+```scalascript
+def addressRead(dbBytes: ByteSlice, a: SqliteAddress): Either[String, AddressedValue] =
+  tableContext(dbBytes, a.table) match
+    case Left(message) => Left(message)
+    case Right(ctx) =>
+      val db = ctx._1
+      val root = ctx._2
+      val colNames = ctx._3
+      val pageSize = ctx._4
+      val colIdx = columnIndex(colNames, a.column)
+      if colIdx < 0 then Left("no such column: " + a.column + " in " + a.table)
+      else
+        // An INTEGER PRIMARY KEY decides three things at once: the column's value (it IS the
+        // rowid), the row's identity, and whether this address is stable — without one, VACUUM
+        // may renumber rowids and the same address quietly names a different row.
+        val ipkIdx = tableIpkIndex(db, a.table)
+        val stable = ipkIdx >= 0
+        seekRow(dbBytes, db, root, pageSize, a) match
+          case Left(message) => Left(message)
+          case Right(rec) => Right(readField(rec, colIdx, ipkIdx, a, stable))
+
+// Resolve the row. The B-tree seek is O(log n) but bails on payloads it will not chase
+// (overflow); the full scan is the honest fallback rather than a wrong answer.
+def seekRow(dbBytes: ByteSlice, db: ReadonlyDatabase, root: Int, pageSize: Int, a: SqliteAddress): Either[String, StorageRecord] =
+  seekRowidRecord(dbBytes, db, root, pageSize, a.rowid) match
+    case SeekHit(rec) => Right(rec)
+    case SeekMiss => Left("no such row: " + renderAddress(a))
+    case SeekFallback => scanForRowid(db, a)
+    case _ => Left("no such row: " + renderAddress(a))
+
+def scanForRowid(db: ReadonlyDatabase, a: SqliteAddress): Either[String, StorageRecord] =
+  joinTableRows(db, a.table) match
+    case Left(message) => Left(message)
+    case Right(pair) => pickRowid(pair._2, a)
+
+def pickRowid(rows: List[StorageRecord], a: SqliteAddress): Either[String, StorageRecord] =
+  var remaining = rows
+  var found: Option[StorageRecord] = None
+  while remaining.nonEmpty do
+    val row = remaining.head
+    val isMatch = row.rowid match
+      case Some(id) => id == a.rowid
+      case None => false
+    if isMatch then found = Some(row) else ()
+    remaining = remaining.tail
+  found match
+    case Some(rec) => Right(rec)
+    case None => Left("no such row: " + renderAddress(a))
+
+def readField(rec: StorageRecord, colIdx: Int, ipkIdx: Int, a: SqliteAddress, stable: Boolean): AddressedValue =
+  val physical = fieldAt(rec.record, colIdx)
+  val physicalBytes = physical match
+    case Some(field) => field.encoded.length
+    case None => 0
+  if colIdx == ipkIdx then
+    // The link is NOT the identity here: whatever the record holds at this offset, the value of
+    // an IPK column IS the rowid. A file written by real SQLite stores NULL here; one written by
+    // scljet stores a redundant copy. Same address, same logical value, different physical bits.
+    val logical = rec.rowid match
+      case Some(id) => SqlInteger(id)
+      case None => SqlNull
+    AddressedValue("INTEGER", logical, physicalBytes, true, stable)
+  else
+    physical match
+      case Some(field) => AddressedValue(typeNameOf(field), fieldToValue(field), physicalBytes, false, stable)
+      case None => AddressedValue("NULL", SqlNull, 0, false, stable)
+```
+
+## Not in this slice
+
+Writing by address (the same triple, applied, plus a commit boundary — one row change touches
+several pages). Addresses into UniML documents and remote references: same model, different
+resolver.
