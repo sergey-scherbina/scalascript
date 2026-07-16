@@ -28,6 +28,13 @@ regression that retains the real nested callback/effect shape, then publish a de
 the current cherry-pick lineage. Do not paper over interpreter state corruption in busi, and do not
 bundle the unrelated current-main launcher-tier migration.
 
+**Root isolated for Personal Vault:** its imported domain declares `enum DataClass` with a
+parameterless `case None`. v1 `StatRuntime.bindNullaryCase` currently installs every nullary case
+both as `DataClass.None` and as a bare global, overwriting the built-in `Value.NoneV`. The later
+Option-valued vault code therefore receives `InstanceV(None)` and `.isEmpty` fails. The fix must
+protect the built-in binding while retaining qualified enum access, with a multi-file regression;
+renaming the busi enum or broad-disabling bare enum cases would only hide the runtime defect.
+
 **Done when:** the faithful ScalaScript regression passes, all four focused busi adapters pass on
 the assembled derived pin, and both busi browser lanes pass 9/9. Record the fix and pin SHAs here;
 move to `fixed` only after busi confirms.

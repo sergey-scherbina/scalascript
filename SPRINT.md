@@ -11,16 +11,22 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ## busi-v1-lane-runtime-regressions — restore the supported rollback lane (2026-07-16, Codex)
 
-- [ ] **Reproduce and classify the four real busi failures on the exact published pin.** Current
+- [x] **Reproduce and classify the four real busi failures on the exact published pin.** Current
       busi pin `25a2bfebc` is runtime `3666ccb7a` plus UI-only cherry-picks. `make
       v2-web-e2e-v1` boots after quoting one busi KSeF manifest, then passes 5/9; focused
       `housing_http`, `personal_vault_http`, `residency_http`, and `corporate_http` fail on `--v1`
       while the identical v2 lane is green. Recorded symptoms: `head on Nil`, `No field isEmpty`,
-      `Option.get on None`, and `Error: null` after the fifth corporate transition.
-- [ ] **Add a faithful multi-file v1 regression.** Preserve imported-module boundaries and the
-      nested Journal/effect/callback shape; a tiny single-file collection test is insufficient.
-      Compare against the known-good post-3666 history and identify the minimal existing fixes
-      instead of adding busi workarounds or advancing to the unrelated current launcher tier.
+      `Option.get on None`, and `Error: null` after the fifth corporate transition. Current
+      `origin/main` passes Housing, Official Documents, and Corporate, isolating Personal Vault:
+      importing its `enum DataClass { case None, ... }` makes v1 enum registration overwrite the
+      built-in `None` binding with `InstanceV(None)`, so later Option code dispatches `.isEmpty`
+      against the enum singleton.
+- [ ] **Add faithful multi-file v1 regressions and repair the runtime.** First preserve the actual
+      import boundary between a module declaring a nullary enum `None` and a module consuming an
+      ordinary Option `None`; qualified `DataClass.None` must remain available while the built-in
+      stays intact. Then compare the three remaining failures against the known-good post-3666
+      history and identify the minimal existing fixes instead of adding busi workarounds or
+      advancing to the unrelated current launcher tier.
 - [ ] **Publish a minimal derived busi pin and verify the assembled consumer.** Cherry-pick only
       the required runtime fixes onto the existing `busi-pin/hstack-wrap-cherry-pick` lineage,
       rebuild/install the exact jar, then require all four focused busi adapters and
