@@ -151,6 +151,30 @@ d streq      'def g(a: String, b: String): Boolean = a == b
 def main(): Boolean = g("a", "a")'
 d strchain   'def g(s: String, i: Int): Boolean = s.charAt(i) >= 97 && s.charAt(i) <= 122
 def main(): Boolean = g("ab", 0)'
+d ctor_cons  'def main(): List[Int] = Cons(1, Nil)'
+d ctor_nil   'def main(): List[Int] = Nil'
+d ctor_tup   'def main(): (Int, Int) = (1, 2)'
+d consinfix  'def main(): List[Int] = 1 :: 2 :: Nil'
+d m_cons     'def g(xs: List[Int]): Int = xs match { case Cons(h, t) => h case Nil => 0 }
+def main(): Int = g(Nil)'
+d m_consinfix 'def g(xs: List[Int]): Int = xs match { case h :: t => h case _ => 0 }
+def main(): Int = g(Nil)'
+d m_tuple    'def g(p: (Int, Int)): Int = p match { case (a, b) => a }
+def main(): Int = g((1, 2))'
+d m_wild     'def g(n: Int): Int = n match { case 0 => 10 case _ => 99 }
+def main(): Int = g(1)'
+d m_intchain 'def g(n: Int): Int = n match { case 0 => 10 case 1 => 20 case _ => 99 }
+def main(): Int = g(1)'
+d m_nestenv  'def g(xs: List[Int], k: Int): Int = xs match { case Cons(h, t) => h + k case Nil => k }
+def main(): Int = g(Nil, 3)'
+d m_exprscrut 'def g(a: Int, b: Int): Int = (a + b) match { case 0 => 1 case _ => 2 }
+def main(): Int = g(1, 2)'
+d m_rec      'def len(xs: List[Int]): Int = xs match { case Nil => 0 case Cons(h, t) => 1 + len(t) }
+def main(): Int = len(Cons(7, Cons(8, Nil)))'
+d m_tupsnd   'def snd(p: (Int, Int)): Int = p match { case (a, b) => b }
+def main(): Int = snd((1, 2))'
+d m_consenv  'def sum(xs: List[Int]): Int = xs match { case Nil => 0 case h :: t => h + sum(t) }
+def main(): Int = sum(1 :: 2 :: 3 :: Nil)'
 
 if [ "${1:-}" = "--self" ]; then
   echo "--- X1: F compiles its OWN source ---"
