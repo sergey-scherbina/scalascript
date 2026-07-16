@@ -52,10 +52,17 @@ A parameterless case is a **singleton value**; a parametrized case is a
 | `case Circle(r: Int)` | constructor function returning a tagged instance |
 | `EnumName.values` | list of the parameterless cases, in order |
 
+Bare exposure is a convenience and does not displace the core ADT bindings
+`None`, `Some`, or `Nil`. An enum case using one of those names remains
+available through its companion (`DataClass.None`, for example). This keeps
+Option/List construction deterministic inside imported modules while preserving
+the enum's full qualified API.
+
 Representations:
 - **Interpreter:** nullary case → `InstanceV(caseName, Map.empty)`; bound in the
-  env (bare) and in the enum companion's fields (qualified); `parentTypes` links
-  case → enum for matching. `values` → `ListV` of the singletons.
+  env (bare, except for the core-ADT collision rule above) and in the enum
+  companion's fields (qualified); `parentTypes` links case → enum for matching.
+  `values` → `ListV` of the singletons.
 - **JS:** nullary case → `const Case = {_type:'Case'}`; a companion
   `const Enum = { Case: Case, …, values: [...] }`.
 - **JVM:** native Scala `enum` — unchanged.
@@ -63,7 +70,8 @@ Representations:
 ## 4. Verification
 
 - Interpreter tests: repeated/single/parametrized cases, bare + qualified
-  references, matching, `values`, and a busi-style `Element`/`Side` domain.
+  references, matching, `values`, a busi-style `Element`/`Side` domain, and an
+  imported module whose `DataClass.None` coexists with Option `None`.
 - Cross-backend conformance: the same enum program runs on the interpreter, JVM
   (scala-cli), and JS (node) with byte-identical output.
 - No regression in the existing suite (1167 green).
