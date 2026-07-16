@@ -1,5 +1,114 @@
 # Bug tracker
 
+## v2-native-front-in-fence-imports-not-followed — the native lane silently ignores an import written inside a code fence
+
+**Status:** OPEN (compiler divergence). The **symptom** that made `v21-explicit-lanes-gate` red is
+worked around (2026-07-16, `4b8d09377`+) by moving the two mcp examples' imports out of the fence;
+the underlying v1/native divergence below is NOT fixed. Found while closing the `ci-red-main` lane.
+
+**Symptom.** `bin/ssc-provider mcp run examples/mcp-client-discover.ssc` →
+`ssc: unhandled runtime effect: Transport.Spawn` (exit 1, no other output). Deeply misleading:
+`Transport` is an **enum** (`v1/runtime/std/mcp/types.ssc:62`), not an effect. The message is a
+red herring — see "why the message lies" below.
+
+**Root cause.** `v2/bin/ssc1-run.ssc0`'s import scan (`sscScanLines`) treats a `[names](path)` link
+as an import **only outside a fenced block** — inside a fence it skips every line to the closing
+fence. The code parser then treats the same link as a parse-only no-op (`ssc1-front.ssc0`, the `[`
+branch of `parseOneStmt`: *"the imported names resolve via the plugin registry / globals, so the
+declaration is a parse-only no-op"*). Both halves assume in-fence imports name plugin globals. That
+holds for externs like `mcpConnect`, but NOT for ordinary declarations in a `.ssc` module, so the
+module is **never loaded** and every name it exports stays unbound. **v1 resolves in-fence imports
+fine** — this is a pure v1/native divergence.
+
+**Why the message lies.** A *field access* on the unbound name (`Transport.Stdio`) reports the
+honest `unbound global: Transport`. A *call* (`Transport.Spawn(…)`) instead falls back to the
+ambient-plugin-global path, which produces a `DataV("Op", …)` labelled `Transport.Spawn`; that Op
+reaches the program's final value and `NativeArtifactRuntime.report` / `V2Result.report` render it
+as `unhandled runtime effect: <label>`. **Any unbound qualified call on the native lane reports as
+an "unhandled runtime effect"** — do not read that message as "the effects system is broken".
+
+**Reproduce** (no effects, no mcp involved):
+
+```bash
+BT='```'
+printf '%s\ndef greet(): String = "hi"\n%s\n' "$BT" "$BT" > /tmp/m.ssc
+# the [greet](...) import sits INSIDE the fence:
+printf '%sscalascript\n[greet](/tmp/m.ssc)\nprintln(greet())\n%s\n' "$BT" "$BT" > /tmp/u.ssc
+bin/ssc run /tmp/u.ssc            # native → ssc: unbound global: greet
+bin/ssc-tools run --v1 /tmp/u.ssc # v1     → hi
+# move the [greet](...) line ABOVE the opening fence → both lanes print "hi"
+```
+
+**Why it was not simply fixed.** Making `sscScanLines` follow in-fence imports (track the fence
+language, scan standalone link lines in `scalascript`/`scala` fences only) **works** and fixes both
+mcp examples — but it widens the native module graph to modules the native front **cannot parse**:
+`std/agent.ssc` (pulled in via `std/agent-mcp.ssc`) hits at least two independent native-front
+parse gaps (below). So the correct fix regresses `agent-mcp-toolsource` from one error to another
+and is blocked on those gaps. Queued in SPRINT; a green `main` came first.
+
+**Affected sources** (in-fence imports that the native lane silently drops today; note
+`std/mcp/server.ssc`'s is **multi-line**, so a one-line grep misses it):
+`v1/runtime/std/mcp/client.ssc`, `v1/runtime/std/mcp/server.ssc`, `v1/runtime/std/agent-mcp.ssc`,
+`v1/runtime/std/agent.ssc`.
+
+## v2-native-front-multiline-curried-def — a curried `def` whose second clause starts on a new line is mis-parsed
+
+**Status:** OPEN. Found 2026-07-16 while probing why `std/agent.ssc` will not parse on the native
+front. **Fix is known and verified** (see below) but not landed: nothing on the native lane reaches
+a multi-line curried def today (the module that has one is unreachable — see the bug above), so
+landing an unexercised parser change into the CI-red fix was not worth the risk.
+
+**Reproduce:**
+
+```bash
+# a bare .ssc (no fences) is code in its entirety, so no nested fence is needed here
+printf 'def agentTool(name: String, description: String)\n             (handler: String => String): String =\n  handler(name + description)\nprintln(agentTool("a", "b")(s => s + "!"))\n' > /tmp/c.ssc
+bin/ssc run /tmp/c.ssc            # native → ssc: TYPEERR: cannot unify Tuple with non-Tuple
+bin/ssc-tools run --v1 /tmp/c.ssc # v1     → ab!
+# the same def written on ONE line works on both lanes
+```
+
+**Root cause.** Semicolon inference (`ssc1-front.ssc0`, `canEndLine`/`canStartLine`) turns the
+newline between `)` and `(` into `;` — a `)` can end a statement and a `(` can start one — so
+`parseDef`'s `if kindIs("(", toks4)` misses the second clause and `(handler: …)` parses as its own
+statement. `isCont` is the wrong place to fix it: adding `(` there would re-glue
+`val x = f { … }` NL `(x, y)`, a bug that pass explicitly fixed.
+
+**Verified fix** (in `parseDef`, right after the first `parseParamList`): a def signature is not
+complete before its `:`/`=`, so a `;` sitting directly before a `(` is always a continuation —
+drop just that separator. A `;` followed by anything else still ends the signature, so an abstract
+`def op(x: Int)` in a trait/effect stays abstract. Confirmed: fixes the repro, keeps the same-line
+form working, and moves `std/agent.ssc`'s first parse failure to the `try`/`catch` gap below.
+
+## v2-native-front-try-catch — `try` / `catch` does not work on the native front
+
+**Status:** OPEN, **not diagnosed** (time-boxed). Found 2026-07-16 behind the curried-def gap; it is
+the second thing that stops `std/agent.ssc` (`postChatCompletionsOnce`, a braceless
+`try … catch case e: Throwable => …`) from parsing on the native lane.
+
+**Symptom.** Three spellings, three *different* native-lane failures; **all three work on v1**:
+
+| form | native lane |
+|---|---|
+| `try { … } catch { case e: Throwable => … }` | `ssc: unbound global: try` |
+| braceless `try` NL body NL `catch case e: Throwable =>` NL body | `native frontend rejected incomplete parse … sentinel _err` |
+| `try body` NL `catch case e: Throwable =>` NL body | `ssc: match: no matching case` |
+
+**Reproduce:**
+
+```bash
+printf 'def f(x: Int): String =\n  try\n    "ok " + (10 / x).toString\n  catch case e: Throwable => "err"\nprintln(f(0))\n' > /tmp/t.ssc
+bin/ssc run /tmp/t.ssc            # native → ssc: match: no matching case
+bin/ssc-tools run --v1 /tmp/t.ssc # v1     → err
+```
+
+**Notes for whoever picks this up.** `try`/`catch`/`finally`/`throw` are **not** keywords
+(`isKw`, `ssc1-front.ssc0:63-85`) — they lex as `id` and `try` is handled in `parseAtom`
+(`:1076`), which already has a braceless `catch case` path via `parseMatchArmsBraceless`. So the
+code *intends* to support all three forms; `unbound global: try` means `parseAtom`'s `try` branch
+is not even reached for the braced form. Diagnose before patching. This is feature-sized, not a
+one-liner — it blocks `v2-native-front-in-fence-imports-not-followed` above.
+
 ## cli-launcher-default-stack-platform-dependent — every `scljet-*` case fails on Linux and passes on macOS
 
 **Status:** FIXED (2026-07-16, `build.sbt` installBin launcher templates + regenerated `bin/ssc`),
