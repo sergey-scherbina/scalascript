@@ -88,7 +88,7 @@ def binPrecK(k) = if k == 47 then 1 else (if k == 46 then 2 else (if k == 44 the
 // -- parser (precedence climbing over the token stream) ----------------------------------------
 def parseAtom(ts, env, dq) = if isEmpty(ts) then (emitInt(0), Nil) else postfix(parseAtom0(ts, env, dq), env, dq)
 def parseAtom0(ts, env, dq) = parseAtom1(hd(ts), tl(ts), env, dq)
-def parseAtom1(t, rest, env, dq) = if fst(t) == 0 then (emitInt(snd(t)), rest) else (if fst(t) == 4 then (emitStr(snd(t), dq), rest) else (if fst(t) == 3 then parseCtor(snd(t), rest, env, dq) else (if fst(t) == 1 then parseVarOrCall(snd(t), rest, env, dq) else (if isTok(t, 2, 21) then parseParen(rest, env, dq) else (if isTok(t, 2, 2) then parseIf(rest, env, dq) else (if isTok(t, 2, 8) then ("(lit true)", rest) else (if isTok(t, 2, 9) then ("(lit false)", rest) else (emitInt(0), rest))))))))
+def parseAtom1(t, rest, env, dq) = if fst(t) == 0 then (emitInt(snd(t)), rest) else (if fst(t) == 4 then (emitStr(snd(t), dq), rest) else (if fst(t) == 3 then parseCtor(snd(t), rest, env, dq) else (if fst(t) == 1 then parseVarOrCall(snd(t), rest, env, dq) else (if isTok(t, 2, 21) then parseParen(rest, env, dq) else (if isTok(t, 2, 28) then parseBlock(rest, env, dq) else (if isTok(t, 2, 2) then parseIf(rest, env, dq) else (if isTok(t, 2, 8) then ("(lit true)", rest) else (if isTok(t, 2, 9) then ("(lit false)", rest) else (emitInt(0), rest)))))))))
 // -- postfix method calls ---------------------------------------------------------------------
 // `.charAt` -> scodeAt and `.substring` -> sslice UNCONDITIONALLY, but `.length` is receiver-
 // dependent: slen for a string-literal-ish receiver, __method__ otherwise -- and a `++` receiver
@@ -122,6 +122,15 @@ def climbStep(left, ts, minPrec, env, dq) = { val p = binPrec(hd(ts))
   if p == 0 then (left, ts)
   else parseExpr(tl(ts), rightMin(p), env, dq) match { case (right, r2) => climb(emitBin(snd(hd(ts)), left, right, dq), r2, minPrec, env, dq) } }
 def rightMin(p) = if p == 5 then p else p + 1
+
+// -- val-blocks ---------------------------------------------------------------------------------
+// `{ val x = e  BODY }` -> `(let (e) BODY)`, nesting one let per val (measured). The bound name is
+// pushed onto the env for the REST of the block, so later vals see it at the right depth.
+def parseBlock(ts, env, dq) = if isTok(hd(ts), 2, 7) then parseBlockVal(tl(ts), env, dq) else parseBlockEnd(ts, env, dq)
+def parseBlockVal(ts, env, dq) = parseBlockVal1(snd(hd(ts)), skipToEq(tl(ts)), env, dq)
+def parseBlockVal1(nm, ts, env, dq) = parseExpr(ts, 0, env, dq) match { case (e, r) => parseBlockRest(nm, e, r, env, dq) }
+def parseBlockRest(nm, e, ts, env, dq) = parseBlock(ts, nm :: env, dq) match { case (b, r) => ("(let (" ++ e ++ ") " ++ b ++ ")", r) }
+def parseBlockEnd(ts, env, dq) = parseExpr(ts, 0, env, dq) match { case (e, r) => (e, tl(r)) }
 
 // -- match --------------------------------------------------------------------------------------
 // MEASURED: `match` LET-BINDS its scrutinee -- `(let ((scrut)) (match (local 0) (arms)))` -- so every

@@ -175,6 +175,16 @@ d m_tupsnd   'def snd(p: (Int, Int)): Int = p match { case (a, b) => b }
 def main(): Int = snd((1, 2))'
 d m_consenv  'def sum(xs: List[Int]): Int = xs match { case Nil => 0 case h :: t => h + sum(t) }
 def main(): Int = sum(1 :: 2 :: 3 :: Nil)'
+d val1       'def f(a: Int, b: Int): Int = { val x = a + b  x * 2 }
+def main(): Int = f(1, 2)'
+d val2       'def f(a: Int, b: Int): Int = { val x = a + b  val y = x + a  y }
+def main(): Int = f(10, 20)'
+d val_typed  'def f(a: Int): Int = { val x: Int = a + 1  x }
+def main(): Int = f(1)'
+d val_match  'def f(a: Int): Int = { val x = a + 1  x match { case 0 => 1 case _ => x } }
+def main(): Int = f(1)'
+d val_str    'def g(s: String): String = { val t = s ++ "!"  t }
+def main(): String = g("ab")'
 
 if [ "${1:-}" = "--self" ]; then
   echo "--- X1: F compiles its OWN source ---"
