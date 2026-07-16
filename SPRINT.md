@@ -9,6 +9,79 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## scljet-ipk-rowid — `INTEGER PRIMARY KEY` is not a rowid alias (2026-07-16, Sergiy: "делай все три направления параллельно")
+
+Fixes BUGS.md `scljet-ipk-rowid-alias-not-substituted` (OPEN, found 2026-07-15 by the J4 lane).
+**Severity: silent wrong data in BOTH directions** — no error is raised, the client just gets zeros.
+In real SQLite an `INTEGER PRIMARY KEY` column is an *alias for the rowid*: the record stores NULL
+for that column and the value lives in the rowid. scljet models neither half.
+
+Why every existing test misses it: the oracle is "scljet reads back what scljet wrote" — self-
+consistent by construction. **The test must cross the two engines through a FILE**, or the bug
+re-hides. This is the load-bearing part of the task, not the fix.
+
+- [ ] **A1 — pin the failure first (differential harness).** A test that (a) writes a db with the
+      REFERENCE driver (`org.xerial:sqlite-jdbc`, already a test dep — see `ScljetIntrospectionTest`
+      "reads a database created by the reference driver"), reads it with scljet; and (b) the reverse:
+      scljet writes, reference reads. Both directions must be RED before any fix. Expected today:
+      (a) `0|ann, 0|bob` instead of `1|ann, 7|bob`; (b) unverified hypothesis — scljet stores the IPK
+      value in the column and assigns rowids sequentially, so reference reading our file reports the
+      ROWID (`id=2`) not the stored `7`. Confirm (b) is real before fixing it; record the finding
+      either way.
+- [ ] **A2 — READ path: substitute the rowid for the IPK column.** The concept is already modelled —
+      `isIpkType` (`scljet/sql.ssc:1085`), `ipkColumnIndex(sql)` (`:1099`), `tableIpkIndex(db, table)`
+      (`:4291`), already used at `:3849`/`:4314`. So the fix is likely to apply the EXISTING ipk index
+      in the row-projection path, not to add new analysis. When the stored column value is NULL and the
+      column is the IPK, project the rowid instead.
+- [ ] **A3 — WRITE path: store NULL in the IPK column, put the value in the rowid.** Only if A1(b)
+      confirms. `INSERT INTO emp VALUES (7,'bob')` must produce rowid=7 + column NULL, so real SQLite
+      reads `7`. Watch the auto-assign path (no explicit IPK ⇒ max(rowid)+1) and `getGeneratedKeys`
+      (J2.1) which may depend on the current wrong behaviour.
+- [ ] **A4 — gate.** Full `scljet-*` conformance slice green (`tests/conformance/run.sh --only
+      'scljet-*' --no-memo` — **`--no-memo` is mandatory: the memo keys on ssc.jar, NOT on scljet/*.ssc
+      sources**, so an edit to `.ssc` alone will falsely "skip green"). Plus the A1 differential in both
+      directions, plus the existing `ScljetIntrospectionTest`.
+- [ ] **A5 — adjacent parse gaps found by the same probe (separate commits).** `CREATE UNIQUE INDEX`
+      is not parsed AT ALL (`parseCreateIndex` requires `CREATE INDEX`; `CREATE UNIQUE INDEX` falls
+      through to `parseCreate` → "expected TABLE"), and `INSERT INTO t SELECT …` is not parsed
+      ("expected VALUES"). Both are real SQL surface a reference-written db can contain.
+
+## codex-lane-salvage — recover value from three orphaned codex branches (2026-07-16, Sergiy: "разберись — может быть там есть чтото ценное; всё ценное замерж в мастер")
+
+Three codex lanes died mid-review (agents gone >25 h; heartbeats 2026-07-15T08:20). Each claim says
+"a new independent review is running; no push/release before APPROVE" — **the reviewer that would
+have approved is dead, so the branches are frozen forever unless someone adjudicates them.** Each is
+substantial and self-reported green:
+
+| Branch | Size | Self-reported gates |
+|---|---|---|
+| `feature/javascript-typescript-control-direct` @ `1b18503d4` | 22 files, +5023 | direct 39/39, explicit 31/31, catalog 26/9, negatives 9/9, conformance 5/5 |
+| `feature/scala3-control-macros` @ `e34b81733` | 21 files, +4443 | focused 51/51, full/package/POM 113/113, packaged 14×42 |
+| `feature/ssc-api-descriptor-v3-slice-b` @ `28c2e959c` | 10 files, +5636 | focused 94/94, descriptor 27/27, core 1132/1132, interop 36/36, ABI 73/73 |
+
+- [ ] **C1 — verify, do not trust.** For each branch: rebase on current `origin/main`, then RE-RUN the
+      gates it claims rather than believing the claim file. A self-reported green from a dead agent is a
+      hypothesis. Record the ACTUAL numbers.
+- [ ] **C2 — merge what is genuinely green**, one branch at a time, each as its own push to `origin/main`
+      (feature / docs / bookkeeping split per AGENTS.md §3). Do NOT bundle the three.
+- [ ] **C3 — for anything red or ambiguous:** do not merge and do not silently drop it. Record what is
+      valuable + what is broken in `BACKLOG.md` so the work is recoverable, and report it up.
+- [ ] **C4 — release the three stale claims** + remove the dead worktrees once adjudicated.
+
+## github-pages-site-finish — publish site/ via Actions (2026-07-16)
+
+Orphaned at the last step (claim heartbeat 2026-07-15T13:02). Everything is already on `main`:
+repo public, secret-scan clean, `site/` present (`index.html`, `favicon.svg`, `DEPLOY.md`).
+Pages is already configured API-side: `build_type: workflow`, `source: main /`, `https_enforced`,
+**but `status: null` — nothing has ever been published** because the publishing workflow does not exist.
+
+- [ ] **G1 — add `.github/workflows/pages.yml`** publishing `site/` (actions/upload-pages-artifact +
+      actions/deploy-pages; `pages: write` + `id-token: write` permissions). The 4 existing workflows
+      (`ci.yml`, `corpus-contract.yml`, `native-release.yml`, `registry-pages.yml`) are the style
+      reference — **check `registry-pages.yml` FIRST: it may already deploy Pages, in which case a second
+      deploying workflow would fight it** and the right move is to extend it instead.
+- [ ] **G2 — trigger, verify live URL** (`https://sergey-scherbina.github.io/scalascript/`), report it.
+
 ## new-self-hosting-front — a rational, self-hosting ScalaScript compiler front (2026-07-15, Sergiy)
 
 **Goal.** Replace the accreted `ssc0` front (`v2/lib/ssc1-front.ssc0` 3190 lines + `ssc1-lower.ssc0` 5359
