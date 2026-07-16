@@ -822,7 +822,7 @@ optional policy, not the default continuation semantics.
 >
 > **Unblock order (do not skip):** these three → `save()`/`run()` → `control-interop-examples`.
 
-- [ ] **coreir-canonical-contract-reconcile — UNBLOCKED 2026-07-16** — reconcile the frozen-count/no-loop claims in
+- [x] **coreir-canonical-contract-reconcile — ✓ LANDED 2026-07-16** (`69f3ad4d3`/`06f55e621`/`7bcb6d87a`) — reconcile the frozen-count/no-loop claims in
   `v2/specs/10-core-ir.md` with the current canonical Reader/Writer and `CoreIR.scala`, which already
   serialize `While` and `Seq`. Pin one canonical node/value inventory before freezing the capsule
   encoding; this is documentation/contract drift, not permission to add a continuation node. After
@@ -847,16 +847,31 @@ optional policy, not the default continuation semantics.
   Let-binding overhead), not new semantics — reconcile them as such. NOT permission to add a
   continuation node (§9 "Explicitly NOT in Core IR" stands).
 
-  - [ ] **R1 — pin ONE inventory.** Reconcile `10-core-ir.md` (11→13 nodes, retract "Seq is dropped",
+  - [x] **R1 — pin ONE inventory.** Reconcile `10-core-ir.md` (11→13 nodes, retract "Seq is dropped",
     restate inv.7 as "TCO makes a loop node unnecessary *for semantics*; `While` is a permitted
     optimization node with `LetRec`-equivalent meaning") + `12-ir-format.md` (add `while`/`seq`
     grammar + canonicalization). Value domain stays **10 shapes** (verified: matches `Value` — no drift).
-  - [ ] **R2 — make the inventory machine-checked (gate BEFORE feature, AGENTS.md §measurement).**
+  - [x] **R2 — make the inventory machine-checked (gate BEFORE feature, AGENTS.md §measurement).**
     A drift test asserting spec inventory == `Term`/`Const` enum cases == Reader heads == Writer cases.
     Docs drifted silently for ~3 weeks precisely because nothing compared them. Prints want/got/diff.
-  - [ ] **R3 — re-run + re-freeze** the literal fixed point; docs-only ⇒ bytes MUST NOT move (89/0, 79,667 B).
+  - [x] **R3 — re-run + re-freeze** the literal fixed point; docs-only ⇒ bytes MUST NOT move (89/0, 79,667 B).
 
-- [ ] **coreir-canonical-codec-hardening — UNBLOCKED 2026-07-16** — make the canonical codec match its contract before it is
+  **RESULT.** `specs/coreir-inventory-gate.sh` (new) compares 6 sources — the pinned block, `enum Term`,
+  `enum Const`, Reader heads, Writer heads, IrEncode/IrDecode tags — **10/10 green**. Inventory pinned at
+  **13 nodes / 7 constants** in `10-core-ir.md` §3.2; §3.1 explains why `While`/`Seq` are legitimate
+  (exact semantics-preserving desugarings) and why that is **not** a precedent for a continuation node.
+  Fixpoint re-run: **89 ok / 0 FAIL, 79,667 B, output byte-identical to baseline**.
+  *Also found and reconciled, beyond the brief:* §2's "Ten shapes" undercounts — the evaluator has 14
+  `Value` subclasses = the 10 semantic ones + 3 private `Foreign` representations
+  (`MapV`/`LongCellV`/`DoubleCellV`, already covered by `Foreign`'s "hash map, growable array, mutable
+  cell") + **`DecimalV`, a genuine 11th shape** (language-visible via 11 `dec.*` prims). `Decimal` is
+  deliberately **not** capsule-encodable (no `Const` case), which is why the value domain is 11 while the
+  constant inventory is 7 — different questions, and conflating them is what let "ten shapes" survive.
+  *Apparatus note:* the gate's FIRST run reported 6 failures of which **4 were the gate's own fault**
+  (order-sensitivity + a regex scooping up `arm`, a sub-form). Same ratio as the `newfront-diff.sh`
+  incident. Fixed the apparatus before believing it; reasoning kept in the script's comments.
+
+- [~] **coreir-canonical-codec-hardening — PARTIALLY LANDED 2026-07-16** (`69f3ad4d3`; H1/H2/H6/H7 done, **H3 doc-only, H4/H5 OPEN**) — make the canonical codec match its contract before it is
   used for untrusted persisted capsules: preserve floating-point bit identity including `-0.0`, add
   `IrBytes` encode parity, reconcile `coreir.encode`'s promised Bytes with its actual String, provide
   the specified text/bytes decode path, validate symbols/closed globals/arities, and enforce bounded
@@ -893,28 +908,53 @@ optional policy, not the default continuation semantics.
      StackOverflowError, not a diagnostic (note `v2.2-p6.5-fsub.sh` already needs `-Xss512m`; and CI
      runs a 1m default stack where macOS gives 2m — the exact shape of the 192-run CI red).
 
-  - [ ] **H1 — float bit identity.** New IR-only `Writer.floatLit` per §12 (`-0.0`, always `.`/exp,
+  - [x] **H1 — float bit identity.** New IR-only `Writer.floatLit` per §12 (`-0.0`, always `.`/exp,
     specials `nan`/`inf`/`-inf`, else shortest round-trip). Used by `Writer.const` + `IrEncode.const`
     ONLY. `floatStr` untouched. Verify: full `v2/conformance/check.sh`, not just run-ir.
-  - [ ] **H2 — `IrBytes` encode parity** in `IrEncode.const` (`(bytes)` empty / lowercase hex).
-  - [ ] **H3 — reconcile encode's Bytes-vs-String.** Format is canonical **text** (§12 v1). Land as:
+  - [x] **H2 — `IrBytes` encode parity** in `IrEncode.const` (`(bytes)` empty / lowercase hex).
+  - [x] **H3 — reconcile encode's Bytes-vs-String.** ✓ *spec reconciled to reality (`coreir.encode`→`Str`); the rejected alternative is recorded in `10-core-ir.md` §5.* Format is canonical **text** (§12 v1). Land as:
     spec says `coreir.encode v`→`Str` (canonical S-expr text; UTF-8 via `str->utf8`). Changing the prim
     to return `Bytes` would break every existing caller (`lib/ssct-emit.ssc0`, `bin/mirac.ssc0`, the
     p6.5 driver) for no gain — record that as the rejected alternative.
-  - [ ] **H4 — the specified decode path.** Register `coreir.decode : Str|Bytes -> IrProg` (Data tree,
+  - [ ] **H4 — the specified decode path. ⚠ NOT DONE — `coreir.decode` is still unregistered.** The spec now states this honestly instead of promising it (`10-core-ir.md` §5). Needs `Term -> Data` (`IrToData`), the mirror of `IrDecode`, then a `coreir.decode : Str|Bytes -> IrProg` prim. Until then `encode ∘ decode = canonicalize` is not expressible from `.ssc`; the vectors pin the weaker (real) property that canonical bytes **decode and execute** via the `Reader`/`run-ir` path. Register `coreir.decode : Str|Bytes -> IrProg` (Data tree,
     inverse of encode) so `encode ∘ decode = canonicalize` holds from `.ssc`. Needs `Term -> Data`
     (`IrToData`), the mirror of `IrDecode`. Kernel-owned.
-  - [ ] **H5 — validate** symbols / closed globals / arities / `LetRec`-is-`Lam` / NAT-ness / hex
+  - [ ] **H5 — NOT DONE. validate** symbols / closed globals / arities / `LetRec`-is-`Lam` / NAT-ness / hex
     evenness. Fail **closed** with a diagnostic naming the offending node.
-  - [ ] **H6 — bounded decoding.** Depth + node-count + input-size limits; iterative or depth-capped
+  - [x] **H6 — bounded decoding.** ✓ *reader half only — see the note below.* Depth + node-count + input-size limits; iterative or depth-capped
     reader. Hostile input ⇒ diagnostic, never StackOverflowError. Must hold on a **1m** stack (CI), not
     just a macOS 2m default — test with an explicit small `-Xss`, or the gate lies exactly like the
     192-run CI red did.
-  - [ ] **H7 — vectors for EVERY node and constant** (13 nodes × encode/decode/canonicalize + all 7
+  - [x] **H7 — vectors for EVERY node and constant** (13 nodes × encode/decode/canonicalize + all 7
     consts + the negative/hostile cases above). Every vector prints name/want/got/diff — never bare
     `[[ $(…) == "$want" ]]` under `set -e` (that gate prints nothing and has been red for days before).
-  - [ ] **H8 — re-run the literal fixed point** (expect unchanged 89/0, 79,667 B — corpus has no
+  - [x] **H8 — re-run the literal fixed point** (expect unchanged 89/0, 79,667 B — corpus has no
     float/bytes consts; if it moves, STOP and coordinate with p65-fixpoint + newfront).
+
+  **RESULT (measured, every gate actually run).**
+  - `coreir.encode(-0.0)` → `(lit (float -0.0))` (was `(float 0)` → decoded as `+0.0`). `-0.0` and `0.0`
+    now encode **differently**, and the sign survives the reader — witnessed by `1/-0.0 = -inf` vs
+    `1/0.0 = inf`, because `-0.0 == 0.0` is true in IEEE-754 so `f.eq` cannot tell them apart.
+  - Fixed by **splitting** an IR-only `Writer.floatLit` from `Writer.floatStr`. `floatStr` is shared with
+    `f->str`/`.toString`/concat/`Show`, where `2.0`→`"2"` is deliberate v1 parity — verified unchanged
+    before *and* after. Editing `floatStr` would have regressed program output corpus-wide and the
+    run-ir-only fixpoint gate would **not** have caught it (the corpus has zero float constants).
+  - `coreir.encode` of a bytes literal used to **crash** ("bad const"); now `(bytes 4869)` / `(bytes)`.
+    `IrEncode.const` renders through the kernel-owned `Writer.const`, so the duplication that let this
+    drift is gone.
+  - Bounded decoding: a 300 KB **well-formed** depth-50000 capsule was a `StackOverflowError` at `-Xss1m`;
+    now a diagnostic. `Reader.MaxDepth` = 1000 (`-Dssc.coreir.maxDepth=N`), ~40× headroom — measured, real
+    IR is shallow: the X1 fixpoint's own IR is depth **25**, fixtures 6-12.
+  - **Gates:** inventory 10/10 · codec vectors **43/43** · fixpoint **89 ok / 0 FAIL, 79,667 B,
+    byte-identical to baseline** · full `v2/conformance/check.sh` **639 ok / 3 FAIL — all 3 pre-existing**,
+    proven by running the suite on a *pristine `origin/main` worktree* (identical 639/3 and an identical
+    ok-set). `ssc0c uselib.ssc0 ir differs` is **not** a regression from this work.
+  - **Known gap, recorded not papered over:** bounding the reader is only the codec's half —
+    `Compiler.valuePositionsNeedEffectThreading`/`FastCode.tryFC` overflow at ~depth 500 on `-Xss1m`
+    (`BUGS.md` → `coreir-compiler-unbounded-depth`). The capsule path is not fully DoS-safe until H5 +
+    that bound land. **H5 (validation) is the biggest remaining fail-open**: measured, the reader still
+    accepts `(local -1)`, `(lam -1 …)`, odd-length/`+1`/`-1` hex in `(bytes …)`, non-`Lam` `letrec`
+    bindings, unbound globals, and any non-delimiter run as a SYMBOL.
 - [ ] **numeric-width-reconciliation — UNBLOCKED 2026-07-16 · ⛔ NEEDS A DESIGN DECISION FROM SERGIY
   BEFORE CODING (raised 2026-07-16 by coreir-contract; do not "fix" this unilaterally)** — retain source `Int`/`Long`
   width evidence and implement canonical public `I32`/`I64` semantics over the current signed

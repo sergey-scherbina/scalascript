@@ -1,5 +1,33 @@
 # Changelog
 
+## coreir-canonical-contract-reconcile — the canonical Core IR contract now matches the code, and a gate keeps it that way (2026-07-16)
+
+Pinned **one** canonical inventory (13 nodes / 7 constants) in `v2/specs/10-core-ir.md` §3.2 and
+reconciled the drift it had accumulated: the header claimed "11 nodes", §3 claimed "`Seq` is dropped",
+invariant 7 claimed "no loop node is needed", and `12-ir-format.md`'s grammar had no `while`/`seq` — all
+while `CoreIR.scala` had 13 nodes and both codecs round-tripped `While` and `Seq`. Prose reconciled **to
+the code** (the code is what the frozen fixpoint bytes depend on). New §3.1 records why the two
+optimization nodes are legitimate (exact semantics-preserving desugarings) and why that is **not** a
+precedent for a continuation node. §2's "ten shapes" also undercounted: `DecimalV` is a genuine 11th
+value shape, deliberately not capsule-encodable. `specs/coreir-inventory-gate.sh` now compares 6 sources
+(10/10) so this cannot rot silently again. Fixpoint unchanged: 89 ok / 0 FAIL, 79,667 B.
+
+## coreir-canonical-codec-hardening — float bit identity, IrBytes parity, bounded decoding (2026-07-16, partial)
+
+Canonical codec fixes before it is used for **untrusted** capsules. `coreir.encode(-0.0)` emitted
+`(lit (float 0))` and decoded back as `+0.0` — bit identity silently lost — because encoding went through
+`Writer.floatStr`, the *user-visible* renderer where `2.0`→`"2"` is deliberate v1 parity. Fixed by
+**splitting** an IR-only `Writer.floatLit`; `floatStr` untouched, so program output is unchanged (a
+run-ir-only gate would not have caught that regression — the fixpoint corpus has zero float constants).
+`IrEncode` had no `IrBytes` case while `IrDecode` did, so encoding a bytes literal crashed; rendering now
+delegates to the kernel-owned `Writer.const`. The reader recursed unboundedly — a 300 KB *well-formed*
+depth-50000 capsule was a `StackOverflowError` at `-Xss1m` (the CI/Linux default stack) — now a
+diagnostic via `Reader.MaxDepth` (1000; real IR is depth ≤ 25). 43 codec vectors, all printing
+want/got/diff. Gates: vectors 43/43, inventory 10/10, fixpoint 89/0 at 79,667 B byte-identical,
+conformance 639 ok / 3 FAIL with **all 3 proven pre-existing on a pristine `origin/main` worktree**.
+**Still open:** H4 (`coreir.decode` is still unregistered — the spec now says so honestly instead of
+promising it) and H5 (symbol/global/arity validation — the largest remaining fail-open).
+
 Completed milestones, newest first. Each entry is a brief summary; git history has full implementation notes.
 
 ---
