@@ -84,6 +84,31 @@ enum Sx:
   case Lst(xs: List[Sx])
 
 object Reader:
+  /** Bounded decoding (`specs/12-ir-format.md` §"Bounded decoding").
+    *
+    * The canonical reader is the entry point for **untrusted persisted capsules**, so it has
+    * to fail with a *diagnostic*, never with a JVM `StackOverflowError` — an `Error` is not a
+    * catchable failure, it is a crash, and on a hostile input that is a denial of service.
+    *
+    * Measured on the toolchain JDK (21) before this bound existed: a 300 KB, perfectly
+    * well-formed capsule (`(seq (seq … (lit unit) …))`, nothing malformed — merely deep)
+    * killed the reader with `StackOverflowError` in `Reader$P.readAtom` at `-Xss1m`, the
+    * **Linux/CI default** main-thread stack. macOS defaults to 2m, which is exactly the
+    * asymmetry that kept CI red for 192 consecutive runs while every developer saw green.
+    *
+    * Why 1000 is safe for real programs: measured max paren nesting of every real Core IR we
+    * have — the 79,667 B self-hosted compiler's OWN IR (the X1 fixpoint) is depth **25**, and
+    * the `.coreir` fixtures under `v2/conformance` are 6-12. So this bound is ~40x headroom over the
+    * deepest program the toolchain has ever produced, while rejecting the bomb outright.
+    *
+    * Override with `-Dssc.coreir.maxDepth=N` for a deliberately deep experiment.
+    *
+    * NOTE (recorded, not silently fixed): bounding the *reader* does not by itself make the
+    * whole capsule path DoS-safe. `Compiler.valuePositionsNeedEffectThreading` / `FastCode.tryFC`
+    * independently overflow at ~depth 500 on `-Xss1m` — a separate unbounded recursion, tracked
+    * in `BUGS.md` as `coreir-compiler-unbounded-depth`. This bound is the codec's half. */
+  val MaxDepth: Int = Option(System.getProperty("ssc.coreir.maxDepth")).flatMap(_.toIntOption).getOrElse(1000)
+
   def parseProgram(src: String): Program = toProgram(parseOne(src))
 
   def parseOne(src: String): Sx =
@@ -94,6 +119,8 @@ object Reader:
 
   final class P(val s: String):
     var pos = 0
+    /** Current `(` nesting depth — see [[Reader.MaxDepth]]. */
+    private var depth = 0
     def atEnd = pos >= s.length
     def peek = s.charAt(pos)
     def isDelim(c: Char) = c.isWhitespace || c == '(' || c == ')' || c == ';' || c == '"'
@@ -110,6 +137,14 @@ object Reader:
       peek match
         case '(' =>
           pos += 1
+          depth += 1
+          // Bounded decoding: reject BEFORE recursing, so a hostile capsule gets a diagnostic
+          // instead of a StackOverflowError. See Reader.MaxDepth.
+          if depth > MaxDepth then
+            sys.error(
+              s"nesting depth exceeds the bound of $MaxDepth at offset $pos " +
+              s"(bounded decoding, specs/12-ir-format.md; real Core IR is depth <= 25; " +
+              s"override with -Dssc.coreir.maxDepth=N)")
           val buf = collection.mutable.ListBuffer[Sx]()
           var go = true
           while go do
@@ -117,6 +152,7 @@ object Reader:
             if atEnd then sys.error("unterminated list")
             else if peek == ')' then { pos += 1; go = false }
             else buf += sexpr()
+          depth -= 1
           Sx.Lst(buf.toList)
         case ')' => sys.error(s"unexpected ')' at offset $pos")
         case '"' => Sx.Str(readString())
@@ -235,10 +271,37 @@ object Writer:
     case Const.CBool(b)  => b.toString
     case Const.CInt(n)   => s"(int $n)"
     case Const.CBig(n)   => s"(big $n)"
-    case Const.CFloat(d) => s"(float ${floatStr(d)})"
+    case Const.CFloat(d) => s"(float ${floatLit(d)})"
     case Const.CStr(s)   => s"(str ${strLit(s)})"
     case Const.CBytes(b) => if b.isEmpty then "(bytes)" else s"(bytes ${b.map(x => f"${x & 0xff}%02x").mkString})"
 
+  /** Canonical IR **float literal** — `specs/12-ir-format.md` §Tokens: "canonical shortest
+    * round-tripping decimal of the IEEE-754 value ..., always containing a `.` or an
+    * exponent; specials are exactly `nan`, `inf`, `-inf`. Negative zero is `-0.0`."
+    *
+    * DELIBERATELY NOT `floatStr`. `floatStr` is the **user-visible** renderer shared by
+    * `f->str`, `FloatV.toString`, Float↔String concat and `Show`, where whole doubles
+    * collapse (`2.0` -> `"2"`) on purpose, for ssc 1.0 output parity. Encoding IR through
+    * it cost the canonical form its **negative-zero bit identity**, because
+    * `floatStr(-0.0) == "0" == floatStr(0.0)` — `-0.0` silently decoded back as `+0.0`.
+    * The two contracts genuinely differ, so they are two functions. Do not re-merge them:
+    * "fixing" `floatStr` instead would change program OUTPUT across the corpus, and the
+    * run-ir-only fixpoint gate would not notice (it has no float constants at all).
+    *
+    * `Double.toString` is exactly the spec's FLOAT on JDK 19+ (JDK-4511638 made it the
+    * shortest round-tripping decimal); it always emits a `.` or an `E`, and `-0.0` prints
+    * as `-0.0`. Verified on the toolchain JDK (21). On a pre-19 JDK it still round-trips
+    * but is not always shortest, so the canonical bytes would become host-dependent — the
+    * kernel requires JDK 19+ for this reason. */
+  def floatLit(d: Double): String =
+    if d.isNaN then "nan"
+    else if d == Double.PositiveInfinity then "inf"
+    else if d == Double.NegativeInfinity then "-inf"
+    else d.toString
+
+  /** USER-VISIBLE float rendering (`f->str`, `.toString`, concat, `Show`) — ssc 1.0 output
+    * parity, which collapses whole doubles: `2.0` renders as `"2"`. This is NOT the
+    * canonical IR literal form; see [[floatLit]] before changing anything here. */
   def floatStr(d: Double): String =
     if d.isNaN then "nan" else if d == Double.PositiveInfinity then "inf"
     else if d == Double.NegativeInfinity then "-inf"

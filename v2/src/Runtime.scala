@@ -4570,13 +4570,25 @@ object IrEncode:
       s"(match ${term(s)} ($a)$dd)"
     case x => sys.error(s"coreir.encode: bad term ${Show.show(x)}")
 
+  /** Every case renders through the kernel-owned [[Writer.const]] rather than re-spelling
+    * the canonical syntax here. The old hand-rolled copies had drifted twice over:
+    *   - `IrBytes` had **no case at all**, so `coreir.encode` of a bytes literal died with
+    *     "bad const" even though `Const.CBytes`, the Reader, the Writer and `IrDecode` all
+    *     support bytes — an asymmetric codec (`specs/coreir-inventory-gate.sh` now compares
+    *     the encode and decode tag sets and fails on exactly this);
+    *   - floats went through `Writer.floatStr` (the *user-visible* renderer) instead of the
+    *     canonical `Writer.floatLit`, which silently destroyed `-0.0`.
+    * Keeping one renderer means the canonical form has exactly one owner, per
+    * `10-core-ir.md` invariant 6. The cases stay explicit (not a blanket delegation) so the
+    * inventory gate can still enumerate the tag surface. */
   private def const(v: Value): String = v match
-    case DataV("IrUnit", _)                 => "unit"
-    case DataV("IrBool", Seq(BoolV(b)))  => b.toString
-    case DataV("IrInt", Seq(IntV(n)))    => s"(int $n)"
-    case DataV("IrBig", Seq(BigV(n)))    => s"(big $n)"
-    case DataV("IrFloat", Seq(FloatV(d)))=> s"(float ${Writer.floatStr(d)})"
-    case DataV("IrStr", Seq(StrV(s)))    => s"(str ${Writer.strLit(s)})"
+    case DataV("IrUnit", _)               => Writer.const(Const.CUnit)
+    case DataV("IrBool", Seq(BoolV(b)))   => Writer.const(Const.CBool(b))
+    case DataV("IrInt", Seq(IntV(n)))     => Writer.const(Const.CInt(n))
+    case DataV("IrBig", Seq(BigV(n)))     => Writer.const(Const.CBig(n))
+    case DataV("IrFloat", Seq(FloatV(d))) => Writer.const(Const.CFloat(d))
+    case DataV("IrStr", Seq(StrV(s)))     => Writer.const(Const.CStr(s))
+    case DataV("IrBytes", Seq(BytesV(b))) => Writer.const(Const.CBytes(b))
     case x => sys.error(s"coreir.encode: bad const ${Show.show(x)}")
 
   private def list(v: Value): List[Value] = v match
