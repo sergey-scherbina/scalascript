@@ -68,20 +68,6 @@ substantial and self-reported green:
       valuable + what is broken in `BACKLOG.md` so the work is recoverable, and report it up.
 - [ ] **C4 — release the three stale claims** + remove the dead worktrees once adjudicated.
 
-## github-pages-site-finish — publish site/ via Actions (2026-07-16)
-
-Orphaned at the last step (claim heartbeat 2026-07-15T13:02). Everything is already on `main`:
-repo public, secret-scan clean, `site/` present (`index.html`, `favicon.svg`, `DEPLOY.md`).
-Pages is already configured API-side: `build_type: workflow`, `source: main /`, `https_enforced`,
-**but `status: null` — nothing has ever been published** because the publishing workflow does not exist.
-
-- [ ] **G1 — add `.github/workflows/pages.yml`** publishing `site/` (actions/upload-pages-artifact +
-      actions/deploy-pages; `pages: write` + `id-token: write` permissions). The 4 existing workflows
-      (`ci.yml`, `corpus-contract.yml`, `native-release.yml`, `registry-pages.yml`) are the style
-      reference — **check `registry-pages.yml` FIRST: it may already deploy Pages, in which case a second
-      deploying workflow would fight it** and the right move is to extend it instead.
-- [ ] **G2 — trigger, verify live URL** (`https://sergey-scherbina.github.io/scalascript/`), report it.
-
 ## new-self-hosting-front — a rational, self-hosting ScalaScript compiler front (2026-07-15, Sergiy)
 
 **Goal.** Replace the accreted `ssc0` front (`v2/lib/ssc1-front.ssc0` 3190 lines + `ssc1-lower.ssc0` 5359
