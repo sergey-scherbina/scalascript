@@ -37,15 +37,44 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       installBin templates, matching the 64m `RunNativeV2:194` already gives its interpreter thread)
       + `b6ca4b7b8` (regenerate the tracked `bin/ssc`). Full detail + the two reproduction traps:
       BUGS.md `cli-launcher-default-stack-platform-dependent`. **Awaiting CI proof.**
-- [ ] **4. `ScalaScript 2.1 compiler-free ASM artifact release gate` — NEWLY REVEALED, still red.**
-      Was masked by failure 1 (compile died first, so this step never ran). `tests/e2e/
-      v21-build-jvm-release-gate.sh:88`:
-      `[[ $(PATH="$clean_path" java -jar "$sandbox/dataset.jar") == "$dataset_expected" ]]`
-      — under `set -euo pipefail` a mismatch exits 1 **with no message at all**, which is why the
-      log just stops after "JVM artifact written to …/dataset.jar". First step: run the gate locally
-      and diff actual vs `dataset_expected` (line 87) to see whether this is a real ASM/dataset
-      regression or another platform difference. **Consider making the gate print the diff on
-      mismatch** — a gate that fails silently cost real time here and will again.
+- [x] **4. `ScalaScript 2.1 compiler-free ASM artifact release gate` — FIXED, gate now PASSES (exit 0).**
+      Was masked by failure 1. Root cause was TWO stale expectations pinning behaviour that was
+      deliberately changed and never propagated here — plus a silence that hid them:
+      - **`Pair(1, 3-1)` → `(1, 3-1)`**: `fa308e0da` (Sergiy, 07-13) unified tuple rendering to the
+        Scala-correct `(a, b)` and updated the ~20 hardcoded `Pair(…)` wants in
+        `v2/conformance/check.sh` — but missed the identical line in THREE e2e gates
+        (`v21-build-jvm-release-gate`, `v21-slim-distribution-gate`, `v21-native-entry-smoke`).
+      - **`PassError(name-resolve, …, 0, 0)` → `[name-resolve] undefined variable: z`**: `PassError`
+        (`v1/runtime/std/dsl/passes.ssc:43`) defines `override def toString`, so the gates were
+        pinning the OLD BUG where a custom `toString` was ignored.
+      - **All 21 assertions were bare `[[ $(…) == "$want" ]]` under `set -e`** — exits 1 printing
+        NOTHING (no check name, no diff), which is why the CI log just stopped after the last
+        "JVM artifact written to …". Now routed through an `expect_out` helper that prints
+        name/want/got/diff. **Apply the same treatment to any gate you touch.**
+      Verified locally: `v21-build-jvm-release-gate` PASS, `v21-slim-distribution-gate` PASS,
+      `v21-jre-module-gate` PASS.
+- [ ] **4b. `v21-explicit-lanes-gate` — RED. Real bug, NOT a stale expectation.** Bisected to exactly
+      ONE of its 10 manifest regressions: **`tests/e2e/v21-explicit-mcp-provider-smoke.sh`** (the
+      other 9 pass). It fails silently because the gate's last check is another bare
+      `[[ $provider -eq 8 && $target -eq 7 ]]`. The real failure:
+      ```
+      bin/ssc-provider mcp run examples/mcp-client-discover.ssc
+        → ssc: unhandled runtime effect: Transport.Spawn      (exit 1, no other output)
+      ```
+      **`Transport` is an `enum`, NOT an effect** (`v1/runtime/std/mcp/types.ssc:62`, `case
+      Spawn(cmd: String, args: List[String] = List())`). So the runtime is mistaking an enum-case
+      constructor for an effect operation. Message thrown at
+      `v1/tools/cli/src/main/scala/scalascript/cli/V2Result.scala:10`.
+      **Exonerated:** NOT caused by the `-Xss64m` change (reproduces with the pre-change launcher).
+      **Prime suspect — check first:** the just-landed `ssc-api-descriptor-v3-slice-b` (`cf14fb5b4`)
+      is the only salvaged branch touching shared compiler core, and its own risk note says
+      *"`preprocessEffects` now injects marker types into every effect object, and the `extends`
+      regex widened `\S+`→`[^:]+`"*. Bisect `cf14fb5b4` vs its parent on this one smoke test before
+      anything else; if it is the cause, fix or revert that hunk. If it predates the salvage, it is
+      an older masked regression — say so.
+- [ ] **4c. Remaining CI gate steps not yet run locally**: `v21-negative-toolchain-release-gate.sh`
+      (30 min timeout), `v21-direct-asm-recursion-smoke.sh`, and the `Test via sbt` step. Run them;
+      expect more masked breakage behind the ones already fixed.
 - [ ] **5. Re-audit the whole run once 4 is closed** — with 192 red runs there may be further
       failures still masked behind step 4. Do not declare CI green until a run is actually green;
       check `Conformance Suite` too (it was 228/281 with 51 scljet + 2 others: `std-monaderror`,
