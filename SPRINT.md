@@ -258,7 +258,7 @@ error-resilient parser already byte-identical to ssc1-front on 119 constructs, t
          → codec generation, **tuple-destructuring val** `val (a,b)=e`, **multiline while-do body** (branchExpr;
          +14 — pervasive), **null→None**, **def-body assignment** `def f(x)=cell=t`→store, **extern signatures**
          →no-op, **type ascriptions in tuple/ctor sub-patterns** `case (a:T, b:U)`.
-      **CURRENT BASELINE (MEASURED 2026-07-16, corpus 499): MATCH 465 (93%), DROP 2, HOLE 5, DIFF 27.**
+      **CURRENT BASELINE (MEASURED 2026-07-16, corpus 499): MATCH 478 (96%), DROP 2, HOLE 4, DIFF 15.**
       Reproduce: `SSC_JAR=<run-ir jar> V2_DIR=<wt>/v2 bash specs/newfront-diff.sh` (jar: `scala-cli --power
       package v2/src --assembly` — the thin bin/lib/ssc.jar has NO run-ir). ~12 min.
       **MATCH trajectory (→487 progs): 0→2→93 (harness leak fix)→165 (number lexer)→203 (trailing block)→211
@@ -266,7 +266,9 @@ error-resilient parser already byte-identical to ssc1-front on 119 constructs, t
       args)→330 (objects)→334 (field defaults+types)→342 (uppercase names)→346 (derives)→350 (tuple val)→364
       (while, +14)→365 (null)→368 (extern+def-assign)→369 (tuple-pat-ascription)→370 (`$_`interp).
       **Then (corpus 499): 458 (MEASURED start 2026-07-16) →460 (`_err`-postfix / colon-lambda) →463 (summon
-      payload) →465 (given-extension); import-gate measured neutral.** See item 12.
+      payload) →465 (given-extension) →469 (no lambda-body unwrap, +4) →471 (arm-body stmt list) →473 (keyword-
+      as-var + offside val RHS) →475 (paren depth) →476 (empty-frame fixes) →478 (caseMethods reverse);
+      import-gate measured neutral.** See items 12-13.
       7. [x] BIG-FEATURE + ARCHITECTURE tier — landed 2026-07-15 (→396, 80%, 33 slices total):
          - **algebraic effects** (effect_decl/`multi effect`, `! L` rows, abstract-def unit bodies, `handle` via
            trailing-block+pfblock, qualified op patterns `case L.op(a,resume)`, perform via effect_decl) — +13.
@@ -303,6 +305,11 @@ error-resilient parser already byte-identical to ssc1-front on 119 constructs, t
            body's last line); MUST be lambda-only — a def-body dangling `)` (from an unsupported `html"…"` interpolator
            breaking arg parsing) must fall through to `_err` to match ssc1-front recovery (rest-api-fm). (+several:
            imports/graphql-typed-resolvers/ws-typed-client/head-field-effect-shadow/oauth-mcp-full-stack).
+           ⚠️ **BOTH halves of this bullet were CORRECTED on 2026-07-16 — see item 13.** (a) The single-expr UNWRAP was
+           WRONG and is GONE: a one-stmt block is IR-neutral (lowerBlock's last-item case is the bare expr), but the
+           block TAG gates ssc1-lower's handler-literal path; the `let` regression it cited came from MULTI-stmt bodies
+           the length==1 guard never covered (both cited programs still match without it). (b) stopAtParen is now
+           CONDITIONAL on `c.parenDepth > 0` — unconditional was wrong for a lambda that is not inside a call's `(`.
          - **qualified type in arm-pattern ascription** `case x: A.B =>` — captured only the head, left `.B` breaking the
            arm; skipTypeSegments (like skipTypeTail but does NOT eat the case `=>`); ssc1-front tags on the HEAD (+1).
       10. [x] annotation error-recovery + enum defaults + subtype registry + type aliases — landed 2026-07-15
@@ -367,22 +374,61 @@ error-resilient parser already byte-identical to ssc1-front on 119 constructs, t
          ScalaSpike.scala as BINARY (a char-literal test byte) — use `grep -a` or you get silent empty output.
          (c) Run sbt from `<wt>/uniml`, not the repo root: the C_min test resolves `specs/v2.2-p6.6-cmin.L`
          relatively and "fails" 59/60 from the root — that is a CWD artifact, not a regression.
-      **Remaining 27 DIFF + 5 HOLE + 2 DROP (MEASURED 2026-07-16) — the HARD TAIL. Cluster analysis:**
-      *(3) `html"…"`/custom-interpolator in a match ARM body* (auth-demo/oauth-demo/webauthn-demo) — the oracle emits
-      the arm body as a 2-stmt BLOCK `let ((global html)) (lit (str "<p>…"))`; needs same-line arm-body-as-block,
-      which round 10 tried and REVERTED (parseBlock over-consumes past `}`/next-arm/default). Do it with a
-      tighter terminator, not a naive parseBlock. *(3) scljet-{readonly-btree-pure,readonly-pager-btree,wal-read}* —
-      case-class BODY methods (`_sel_`/`Vfs_name`) + trait edge. *(3) distributed-{join,log-aggregation,word-count}* —
-      spike emits EXTRA `__handler_dispatch_selected__` (spike IR is BIGGER than ref: 21995 vs 19080). *(2) x402-cardano/
-      x402-client* — `uri"…"` custom interpolator leaves a stray `)` → `_err.send(…)`, plus `else`-as-var; the
-      in-body-import half is already done. *(2) quoted-macro-{constfold,interpreter}*. *(1 each)* tagless-context-bounds
-      (context bounds `[A: TC]` need the `__tc_TC`-param rewrite skipTypeParams defers), wasm-http (braceless multi-line
-      `for`⏎generators⏎yield: `for` is NOT a layout opener, so the oracle glues the generators into ONE statement and
-      mis-parses it — colon-lambda half already fixed), js-symbolic-infix-operator (`def <~>` truncated unit body),
-      type-ascription, bureau-demo, dsl-json-parser, dsl-multi-pass, graph-rdf4j-http-storage, graphql-client,
-      mcp-search-server, openapi-annotation, std-ui-jobpanel, typed-sql-crud, wasm-primes.
+      13. [x] LAYOUT-FIDELITY round — landed 2026-07-16 (→**478/499, 96%, 65 slices**; +13 more, 6 pushes). Theme:
+         **every one of these is the same discovery — the spike had a LOOKALIKE of an ssc1-front rule instead of the
+         rule.** Method: open ssc1-front/ssc1-lower, read the actual function, mirror it terminator-for-terminator.
+         - **DON'T unwrap a one-stmt offside LAMBDA body (+4: distributed-join/-log-aggregation/-word-count,
+           dsl-json-parser)** — a code DELETION. ssc1-lower treats `lam([p], match(var p, arms))` as a partial-function/
+           effect-handler literal and marks every arm with `__handler_dispatch_selected__` (ssc1-lower.ssc0:2648-2659).
+           It dispatches on the PROJECTION's body TAG, so the oracle's block-tagged offside body skips that path while
+           the spike's unwrapped `match` walked into it (spike IR BIGGER than ref: 21995 vs 19080). The unwrap was never
+           needed — lowerBlock's last-item `expr` case is `lowerE(scope, data)`, the bare expr with NO let
+           (ssc1-lower.ssc0:3950) — so a one-stmt block is IR-NEUTRAL but its TAG is not.
+         - **same-line ARM body is a STATEMENT LIST (+3: auth-demo, oauth-demo, +std-ui-jobpanel via the follow-up)** —
+           re-landed what round 10 reverted. parseArmBody (ssc1-front.ssc0:1974-1996): `skipSemis`; stop at `case`/`}`/
+           EOF; then **exactly ONE `expr` stmt → the BARE expr**, else `("block", stmts)`; empty → `("uid","Unit")`.
+           Why the revert happened: reusing parseBlock, which does NOT skipSemis → the `;` in
+           `{ case Text(s) => s; case _ => "?" }` became an `_err` STATEMENT, which also destroyed the single-expr
+           unwrap → I measured the identical 5 regressions (actors-global-registry, mcp-client-invoke, mcp-types,
+           scljet-journal-recover, webauthn-server-verify) before mirroring the oracle's own loop. Also must stop at an
+           enclosing `)`/`]`. The spike emulates the oracle's virtual-`}`-at-dedent with a column guard.
+         - **unhandled KEYWORD in atom position = `mkVar(<keyword>)`, NOT `_err` (with `_err` only for non-keywords)**
+           — ssc1-front parseAtom's fallback (:1121 vs :1169). A stray `else` lowers to `(global else)`. NEEDS an
+           `expr()` case for `spike.kw` or the token hits `case _ => hole` and poisons the program. **+ offside `val`
+           RHS is a BLOCK** (`=` is a layout opener) — together +2 (auth-full, webauthn-demo).
+         - **offside lambda body ends at `)` only INSIDE a paren group (+2: x402-cardano, x402-client)** — stopAtParen
+           was unconditional, so a STRAY `)` (left by the `uri"…"` interpolator breaking arg parsing) truncated the body
+           and dropped the rest of the lambda into the enclosing scope (`(global req)` vs the oracle's `(local 4)`).
+           closeToDelim (ssc1-front.ssc0:2902) closes only layout blocks opened INSIDE the matching delimiter. New
+           `Cur.parenDepth` (maintained by applyArgs) is the coarse stand-in for the layout DELIMITER STACK.
+         - **empty-Frame bugs (+1: std-ui-jobpanel; HOLE 5→4)** — parseLinkImport returned an EMPTY `spike.sealed`
+           frame, and an empty Frame does NOT survive the Node→UniNode emit. Harmless at top level (a dropped no-op),
+           FATAL in a statement list: `case _ => []` is a link-import for parseOneStmt too (:2515) → the oracle gives
+           `("block",[("sealed","")])` → `(lit unit)`, but the spike's empty block projected `__notImplemented__`
+           (a DIFF→HOLE regression this round introduced and then fixed). Keep the tokens as leaves.
+         - **collectCaseMethodsNodes must REVERSE-accumulate (+2: scljet-readonly-pager-btree, scljet-wal-read)** —
+           an ORDERING bug: spike and ref were the SAME LENGTH (19050) but the class order was reversed. ssc1-front
+           populates caseMethodsCell by PREPENDING during parse, so it is in REVERSE source order, and that order is
+           observable in the emitted `<Class>_<method>` defs. Fixed like collectSubtypeNodesAcc (ssc1-lower.ssc0:5444).
+           **This touches PRODUCTION ssc1-lower — proved it a no-op by re-deriving all 499 corpus refs (which ARE
+           production `lowerProg(parse(code))`) with the patched lowerer and byte-comparing to the pre-change refs:
+           499 identical, 0 changed.** Use that check for any variant-A collector edit (`tests/conformance/run.sh`
+           needs `bash install.sh --dev` first; the ref-diff is cheaper and more direct).
+         **EQUAL LENGTH + wrong content = an ORDERING bug (check prepend-vs-append), not a parse gap** — a cheap
+         first diagnostic: `wc -c` both IRs before reading them.
+      **Remaining 15 DIFF + 4 HOLE + 2 DROP (MEASURED 2026-07-16, after item 13) — cluster analysis:**
+      *(2) quoted-macro-{constfold,interpreter}* — `(global inline)`; quoted macros, the largest cluster left.
+      *(1 each)* scljet-readonly-btree-pure (a REAL content gap, not ordering: ref 18770 vs spike 19859),
+      tagless-context-bounds (context bounds `[A: TC]` need the `__tc_TC`-param rewrite skipTypeParams defers),
+      wasm-http (braceless multi-line `for`⏎generators⏎yield — `for` is NOT a layout opener (isLayoutOpener,
+      :2841), so the oracle glues the generators into ONE statement and mis-parses it to `_sel_foreach` + `_err`;
+      its colon-lambda half is already fixed), js-symbolic-infix-operator (`def <~>` truncated unit body),
+      type-ascription, bureau-demo, dsl-multi-pass, graph-rdf4j-http-storage, graphql-client, mcp-search-server,
+      openapi-annotation, typed-sql-crud, wasm-primes.
       HOLEs: predef-notimplemented is a FALSE hole (legit `???` the harness pre-filters — it actually MATCHES);
-      auth-full, dsl-mini-language, wasm-scalascript, x402-cardano-scalus are real. DROPs: deploy, tkv2-typed-client-derived.
+      dsl-mini-language, wasm-scalascript, x402-cardano-scalus are real. DROPs: deploy, tkv2-typed-client-derived.
+      **Given this round's hit rate, do NOT assume the tail is "deep features" — every cluster attacked in items
+      12-13 (incl. two the notes called unmatchable/reverted) fell to reading the oracle's source.**
       **Older (pre-2026-07-16) hard-tail notes — several since CLOSED (summon/given, colon-lambda, extension-in-given):**
       summon/given resolution (typeclass/custom-derives-mirror/graph-rdf4j-http-storage/rozum-agent/tagless-context-
       bounds), quoted-macros (2), for-comp foreach/flatMap (wasm-http braceless-for, wasm-sorting `:::`), ssc1-front's
