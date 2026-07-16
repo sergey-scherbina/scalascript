@@ -98,8 +98,19 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
            ran. Same numbers were hardcoded in the sibling
            `v21-negative-toolchain-release-gate-smoke.sh`; the "same stale string in 2-3 gates" rule
            held again. Both refreshed together.
-      - `sbt test` — **NOT RUN. The one item in this lane I did not get to.** Next agent: run
-        `cd <worktree> && sbt test` (CI allows 60 min). Expect more masked breakage.
+      - `sbt test` — RUN, and it **FAILS** (as predicted, more masked breakage). CI's `Test via sbt`
+        step sits AFTER the explicit-lanes gate, so it has never once executed in CI either.
+        **Cause: the Scala.js LINKER, not a test assertion.**
+        `uniml/core/src/test/scala/scalascript/uniml/spike/ScalaSpikeSpec.scala` (newfront Phase 0
+        harness, `747dbcd9b`) uses `java.nio.file.{Files, Paths}` (line 5) and
+        `new java.io.File(dir).listFiles()` (line 539) — but `unimlCross` is a crossProject
+        (`build.sbt:567`), so `uniml/core/src/test/` is SHARED and gets linked for Scala.js, where
+        those classes do not exist:
+        `[error] Referring to non-existent class java.io.File … called from core module analyzer`.
+        **NOT FIXED BY ME — `ScalaSpike*` is the live newfront lane and I stayed out of it.**
+        Reported to that agent in rozum (2026-07-16/19). Standard fix: move the spec to the JVM-only
+        source dir `uniml/core/.jvm/src/test/scala/...` — the corpus harness is filesystem-bound and
+        JVM-only by nature. **This will fail the sbt job the moment the lanes gate goes green.**
 - [~] **5. CI re-audit — real progress, NOT green yet. Do not claim green.** Observed, not assumed:
       - `Lint Markdown` GREEN. `Validate ScalaScript` GREEN.
       - `Conformance Suite`: **228 passed/53 failed → 279 passed/2 failed of 281. Zero scljet
@@ -118,6 +129,13 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
         compiler-free premise is unfounded and was tested, not argued**: `v21-build-jvm-release-gate`
         and the negative gate each build their OWN `toolbin` sandbox PATH and assert scala-cli is
         unreachable *there*; my machine has scala-cli and both gates PASS on it.
+        With scala-cli present the gate then reached the **wasm target smoke** (run 29497687749):
+        `emit-wasm` succeeds and writes `main.wasm` (435988 bytes) + js + `__loader.js`, then the
+        step ends with a bare `##[error]Process completed with exit code 1` and NO other output —
+        every assertion in that smoke was a bare `[[ ]]`. It PASSES locally, so it is CI/Linux-
+        specific and not reproducible here. Pushed named diagnostics (`5428bf566`): the next CI run
+        will print WHICH check failed (want/got, `ls -la`, node stderr) instead of exiting silently.
+        **This is the current CI blocker for the sbt job — start here.**
       - **Still unverified: no fully green run has been observed.** The last pushes had not completed
         CI when this lane stopped. Next agent: `gh run list --workflow=ci.yml --branch=main`, and
         expect conformance to stay red at 279/281 until the two JS bugs above are fixed.
