@@ -184,10 +184,15 @@ error-resilient parser already byte-identical to ssc1-front on 119 constructs, t
          → codec generation, **tuple-destructuring val** `val (a,b)=e`, **multiline while-do body** (branchExpr;
          +14 — pervasive), **null→None**, **def-body assignment** `def f(x)=cell=t`→store, **extern signatures**
          →no-op, **type ascriptions in tuple/ctor sub-patterns** `case (a:T, b:U)`.
+      **CURRENT BASELINE (MEASURED 2026-07-16, corpus 499): MATCH 465 (93%), DROP 2, HOLE 5, DIFF 27.**
+      Reproduce: `SSC_JAR=<run-ir jar> V2_DIR=<wt>/v2 bash specs/newfront-diff.sh` (jar: `scala-cli --power
+      package v2/src --assembly` — the thin bin/lib/ssc.jar has NO run-ir). ~12 min.
       **MATCH trajectory (→487 progs): 0→2→93 (harness leak fix)→165 (number lexer)→203 (trailing block)→211
       (placeholder)→241 (imports)→269 (list+type)→272 (try+annot)→288 (type app)→293 (lit patterns)→326 (named
       args)→330 (objects)→334 (field defaults+types)→342 (uppercase names)→346 (derives)→350 (tuple val)→364
       (while, +14)→365 (null)→368 (extern+def-assign)→369 (tuple-pat-ascription)→370 (`$_`interp).
+      **Then (corpus 499): 458 (MEASURED start 2026-07-16) →460 (`_err`-postfix / colon-lambda) →463 (summon
+      payload) →465 (given-extension); import-gate measured neutral.** See item 12.
       7. [x] BIG-FEATURE + ARCHITECTURE tier — landed 2026-07-15 (→396, 80%, 33 slices total):
          - **algebraic effects** (effect_decl/`multi effect`, `! L` rows, abstract-def unit bodies, `handle` via
            trailing-block+pfblock, qualified op patterns `case L.op(a,resume)`, perform via effect_decl) — +13.
@@ -248,7 +253,63 @@ error-resilient parser already byte-identical to ssc1-front on 119 constructs, t
            `peekLine == prevEndLine` (like the `[` type-app). **+6 — biggest** (control-center-live/coroutine-error/
            dsl-yaml-like/indent-block-statements/rest-validate/standard-scala-multifence; pervasive in DSL combinators).
          - **array index update `a(idx) = rhs`** — spike.call LHS + `=` → idx_assign node (ssc1-lower → arr.set) (+1).
-      **Remaining ~37 DIFF + ~2 false HOLE is the HARD TAIL — deep features or bug-reproduction, low leverage:**
+      12. [x] `_err`-postfix + summon payload + given-extension — landed 2026-07-16 (→**465/499, 93%, 59 slices**;
+         +7 from a MEASURED 458 baseline. Corpus grew 489→499, so % is on 499). Each slice byte-verified on its
+         programs, full harness rerun, MATCH strictly additive (diffed the MATCH lists — no program lost):
+         - **statement-level `_err` recovery runs the POSTFIX chain (+2: wasm-collections, wasm-matrix)** — the
+           colon-lambda cluster. ssc1-front's parseAtom NEVER fails: an unrecognised token yields the var `_err`
+           (ssc1-front.ssc0:1169-1170) and the CALLER's buildPostfix continues the chain. The spike's parseAtom
+           returns None for `:`/`=>` (it NEEDS the None to stop expression parsing — do NOT "fix" that), and its
+           statement recovery emitted a BARE error node, losing the chain. Mirror the oracle in parseStmt's
+           recovery branch only. With the layout rule this reproduces Scala-3 fewer-braces
+           `xs.foreach: (a, b) =>`⏎body as THREE statements: `xs.foreach` | `_err(a, b)` | `_err(lam 0 {body})`.
+           New `isLayoutOpenerTok` mirrors ssc1-front's isLayoutOpener (ssc1-front.ssc0:2841) — `=`,`=>`,`then`,
+           `else`,`do`,`yield`,`with`,`match` open a VIRTUAL-BRACE block when followed by a newline; that virtual
+           `{` is why the body becomes a 0-arity block ARG. `a`/`b` stay FREE vars — bug-for-bug, not a lambda.
+           A bare `_err` keeps its historic shape (top-level `isTopStmt` drops a bare error node).
+         - **summon payload = the WHOLE type application (+3: typeclass, custom-derives-mirror, rozum-agent-schema-
+           derived)** — ssc1-front's postfix `[` runs readTypeApply (ssc1-front.ssc0:1305-1317), concatenating every
+           token to the matching `]` with joinStrs (NO separator) → `Pair("summon", "Show[Int]")`. ssc1-lower matches
+           that STRING against the given registry, so the full application is load-bearing; the spike captured only
+           the head (`"Show"`) → matched nothing → `__summon_value_Show` fallback, and left the inner `[Int]`
+           unconsumed. Reuse captureTypeArgTokens + join lexemes in the projection.
+         - **`extension` methods inside a `given … with` body (+2: typeclass-extension, tagless-multi-file)** —
+           isMemberStart lacked `extension` (a spike KEYWORD → isKw, not isWord), so the body loop exited at once:
+           empty method object + the extension leaked to top level as a bare `def fmap` with a free `fa`. Also
+           parseExtension needed skipTypeParams (`extension [A](fa: F[A])` — type params BEFORE the receiver paren).
+           **KEY: givenObjNode must project the group via extensionNodes — extension_start/def/extension_end. The
+           MARKERS are load-bearing:** ssc1-lower's collectExtensionMethods descends into a given_obj's members with
+           active=FALSE (ssc1-lower.ssc0:573-576), so a bare def there never registers; only defs BETWEEN the markers
+           do — and that registration is what makes the lowerer emit the tag-testing dispatcher (`fmap` →
+           listFunctor_fmap/optionFunctor_fmap) on top of the per-instance defs.
+         - **`import` is TOP-LEVEL-ONLY (MEASURED NEUTRAL — landed as a faithfulness step, verified no regression)** —
+           ssc1-front handles `import` only in parseOneStmt (ssc1-front.ssc0:2526); `import` is a keyword (isKwB:69),
+           so in a BODY it hits parseAtom's keyword fallback `mkVar(v)` (:1121) → an in-body `import a.b.C` is TWO
+           statements: var `import`, then the chain `a.b.C`. The spike no-opped it everywhere. parseStmt gained a
+           `topLevel` flag (set only from parseProgram). The only 3 in-body-import programs (x402-client/x402-cardano/
+           x402-cardano-scalus) still diverge on FURTHER gaps in the same region, so this flips nothing alone.
+         **METHOD NOTES for the next agent.** (a) The task prompt's "93/479" baseline was STALE by ~10 slices —
+         ALWAYS re-measure `specs/newfront-diff.sh` before trusting any doc, including this one. (b) `grep` treats
+         ScalaSpike.scala as BINARY (a char-literal test byte) — use `grep -a` or you get silent empty output.
+         (c) Run sbt from `<wt>/uniml`, not the repo root: the C_min test resolves `specs/v2.2-p6.6-cmin.L`
+         relatively and "fails" 59/60 from the root — that is a CWD artifact, not a regression.
+      **Remaining 27 DIFF + 5 HOLE + 2 DROP (MEASURED 2026-07-16) — the HARD TAIL. Cluster analysis:**
+      *(3) `html"…"`/custom-interpolator in a match ARM body* (auth-demo/oauth-demo/webauthn-demo) — the oracle emits
+      the arm body as a 2-stmt BLOCK `let ((global html)) (lit (str "<p>…"))`; needs same-line arm-body-as-block,
+      which round 10 tried and REVERTED (parseBlock over-consumes past `}`/next-arm/default). Do it with a
+      tighter terminator, not a naive parseBlock. *(3) scljet-{readonly-btree-pure,readonly-pager-btree,wal-read}* —
+      case-class BODY methods (`_sel_`/`Vfs_name`) + trait edge. *(3) distributed-{join,log-aggregation,word-count}* —
+      spike emits EXTRA `__handler_dispatch_selected__` (spike IR is BIGGER than ref: 21995 vs 19080). *(2) x402-cardano/
+      x402-client* — `uri"…"` custom interpolator leaves a stray `)` → `_err.send(…)`, plus `else`-as-var; the
+      in-body-import half is already done. *(2) quoted-macro-{constfold,interpreter}*. *(1 each)* tagless-context-bounds
+      (context bounds `[A: TC]` need the `__tc_TC`-param rewrite skipTypeParams defers), wasm-http (braceless multi-line
+      `for`⏎generators⏎yield: `for` is NOT a layout opener, so the oracle glues the generators into ONE statement and
+      mis-parses it — colon-lambda half already fixed), js-symbolic-infix-operator (`def <~>` truncated unit body),
+      type-ascription, bureau-demo, dsl-json-parser, dsl-multi-pass, graph-rdf4j-http-storage, graphql-client,
+      mcp-search-server, openapi-annotation, std-ui-jobpanel, typed-sql-crud, wasm-primes.
+      HOLEs: predef-notimplemented is a FALSE hole (legit `???` the harness pre-filters — it actually MATCHES);
+      auth-full, dsl-mini-language, wasm-scalascript, x402-cardano-scalus are real. DROPs: deploy, tkv2-typed-client-derived.
+      **Older (pre-2026-07-16) hard-tail notes — several since CLOSED (summon/given, colon-lambda, extension-in-given):**
       summon/given resolution (typeclass/custom-derives-mirror/graph-rdf4j-http-storage/rozum-agent/tagless-context-
       bounds), quoted-macros (2), for-comp foreach/flatMap (wasm-http braceless-for, wasm-sorting `:::`), ssc1-front's
       OWN parse bugs (symbolic-op defs `def <~>`→truncated unit body; colon-lambda `.foreach: (a,b)=>`→`_err(a,b)`;
