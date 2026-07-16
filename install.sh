@@ -92,6 +92,12 @@ mkdir -p "$BIN"
 # conformance job). A fix applied to only one side silently does nothing here:
 # that is exactly how -Xss64m was "fixed" in build.sbt yet every scljet case kept
 # StackOverflowError-ing in CI. Change both, or neither.
+#
+# The stack size is `-Xss"${SSC_XSS:-64m}"`, NOT a hardcoded -Xss64m: an explicit
+# -Xss on the java command line beats JAVA_TOOL_OPTIONS, so a hardcoded value
+# silently overrides any caller trying to pin a stack size that way. That is how
+# -Xss64m defeated v21-direct-asm-recursion-smoke, which sets 256k to prove the
+# compiled lanes do not need a big stack — it kept passing while testing 64m.
 cat > "$BIN/ssc" <<'LAUNCHER'
 #!/usr/bin/env bash
 _SSC_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -112,7 +118,7 @@ if [[ "${SSC_NO_CDS:-}" != "1" ]]; then
   fi
 fi
 
-exec java "${_SSC_CDS_ARGS[@]}" -Xss64m -Dssc.lib.path="$_SSC_ROOT" \
+exec java "${_SSC_CDS_ARGS[@]}" -Xss"${SSC_XSS:-64m}" -Dssc.lib.path="$_SSC_ROOT" \
   -cp "$_SSC_BIN/lib/standard/jars/*:$_SSC_BIN/lib/standard/ssc.jar" \
   scalascript.cli.StandardMain "$@"
 LAUNCHER
@@ -122,7 +128,7 @@ cat > "$BIN/ssc-standard" <<'STANDARD_LAUNCHER'
 #!/usr/bin/env bash
 _SSC_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _SSC_ROOT="$(dirname "$_SSC_BIN")"
-exec java -Xss64m -Dssc.lib.path="$_SSC_ROOT" \
+exec java -Xss"${SSC_XSS:-64m}" -Dssc.lib.path="$_SSC_ROOT" \
   -cp "$_SSC_BIN/lib/standard/jars/*:$_SSC_BIN/lib/standard/ssc.jar" \
   scalascript.cli.StandardMain "$@"
 STANDARD_LAUNCHER
@@ -132,7 +138,7 @@ cat > "$BIN/ssc-tools" <<'TOOLS_LAUNCHER'
 #!/usr/bin/env bash
 _SSC_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _SSC_ROOT="$(dirname "$_SSC_BIN")"
-exec java -Xss64m -Dssc.lib.path="$_SSC_ROOT" \
+exec java -Xss"${SSC_XSS:-64m}" -Dssc.lib.path="$_SSC_ROOT" \
   -cp "$_SSC_BIN/lib/jars/*:$_SSC_BIN/lib/ssc.jar" \
   scalascript.cli.ssc "$@"
 TOOLS_LAUNCHER
