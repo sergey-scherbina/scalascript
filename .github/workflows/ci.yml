@@ -195,6 +195,20 @@ jobs:
       - name: Setup sbt
         uses: sbt/setup-sbt@v1
 
+      # `ssc-tools emit-wasm` shells out to scala-cli, so the wasm TARGET lane of the
+      # explicit-lanes gate below needs it on PATH (its dependency_tier is literally
+      # `wasm-target-tools`). Without it that gate died with
+      # `Cannot run program "scala-cli"` — invisible for as long as the gate failed
+      # earlier, on the mcp provider lane. This does NOT weaken the compiler-free
+      # story: the negative-toolchain gate builds its own sandbox PATH and asserts
+      # scala-cli is unreachable there, so it is unaffected by the tool existing on
+      # the runner.
+      - name: Setup Scala CLI
+        uses: VirtusLab/scala-cli-setup@v1
+        with:
+          power: true
+          jvm: temurin:21
+
       - name: Cache Coursier/sbt
         uses: actions/cache@v4
         with:
