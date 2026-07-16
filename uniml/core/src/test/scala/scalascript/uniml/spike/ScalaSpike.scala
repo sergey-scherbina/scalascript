@@ -225,6 +225,15 @@ object SpikeParse:
     private val diags = Vector.newBuilder[Diagnostic]
     def mark: Int = p
     def reset(m: Int): Unit = p = m
+    // Depth of the `( … )` ARGUMENT groups we are lexically inside — a coarse stand-in for ssc1-front's
+    // layout DELIMITER STACK. Its closeToDelim (ssc1-front.ssc0:2902) closes only the virtual layout blocks
+    // opened INSIDE the matching delimiter: "a different explicit delimiter is a hard boundary". So an
+    // offside lambda body opened inside a call's `(` ends at that call's `)`, while one opened OUTSIDE any
+    // group (`val f = (a, b) =>` ⏎ body) is NOT ended by a stray `)` in its own body.
+    private var pdepth = 0
+    def parenDepth: Int = pdepth
+    def enterParen(): Unit = pdepth += 1
+    def exitParen(): Unit = if pdepth > 0 then pdepth -= 1
     private def skipTrivia(): Unit = while p < toks.length && toks(p).kind == "spike.ws" do p += 1
     def eof: Boolean = { skipTrivia(); p >= toks.length }
     def peek: Option[SourceToken] = { skipTrivia(); if p < toks.length then Some(toks(p)) else None }
@@ -1344,7 +1353,13 @@ object SpikeParse:
     // path treats `lam([p], match(var p, arms))` as a partial-function/effect-handler literal and marks every
     // arm with `__handler_dispatch_selected__` (ssc1-lower.ssc0:2648-2659); an unwrapped one-statement body
     // hits that path, while the oracle's block-tagged body does not. Hence: DO NOT unwrap.
-    if !c.eof && c.peekLine > arrowLine then parseBlock(c, c.peekCol, stopAtParen = true)
+    // The body ends at an enclosing `)`/`]` ONLY when the lambda actually sits inside a `( … )` argument
+    // group (`xs.map(x =>` ⏎ `body)`), mirroring closeToDelim: a layout block opened inside a delimiter is
+    // closed by it, one opened outside is not. A top-level `val f = (a, b) =>` ⏎ body is at depth 0, so a
+    // STRAY `)` inside its body — e.g. the leftover of `req.get(uri"$url")` once the custom interpolator
+    // breaks arg parsing — stays a statement and recovers as `_err.send(…)`, as ssc1-front does, instead
+    // of truncating the body (which dropped the rest of the lambda into the enclosing scope).
+    if !c.eof && c.peekLine > arrowLine then parseBlock(c, c.peekCol, stopAtParen = c.parenDepth > 0)
     else parseExpr(c, 1).getOrElse(Node.Frame("spike.error", None, Vector.empty))
 
   // scan `( id [: T] (, id [: T])* )` — the shape of a lambda parameter clause. Returns the param
@@ -1605,6 +1620,7 @@ object SpikeParse:
     val kids = Vector.newBuilder[Node]
     kids += fn.withRole("call.fn")
     c.advance().foreach(t => kids += Node.Leaf(t, Some("call.open")))
+    c.enterParen() // inside the call's `( … )` group until this function returns (see Cur.parenDepth)
     // args are `,`-separated: after each arg, only a comma continues the list. A NON-comma token ends the args
     // (ssc1-front's moreArgs stops there too) — e.g. `f(html"…")` closes as `f(html)` and leaves `"…"`/`)` as
     // trailing tokens, matching ssc1-front's unrecognised-interpolator recovery rather than reading two args.
@@ -1627,6 +1643,8 @@ object SpikeParse:
         c.advance().foreach(t => kids += Node.Leaf(t, Some("call.comma")))
         more = c.peekKind != "spike.rparen" && !c.eof && !isDefStart(c) // tolerate a trailing comma before `)`
       else more = false
+    c.exitParen() // leaving the group — whether or not the `)` was actually reached (a broken arg list
+                  // leaves it as a stray token, which is exactly the recovery ssc1-front performs)
     if c.peekKind == "spike.rparen" then c.advance().foreach(t => kids += Node.Leaf(t, Some("call.close")))
     else c.report("spike.expected", "expected ')' to close call")
     Node.Frame("spike.call", None, kids.result())
