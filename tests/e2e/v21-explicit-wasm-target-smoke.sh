@@ -8,6 +8,18 @@ command -v node >/dev/null || { echo 'v21-explicit-wasm-target-smoke: node is re
 
 command -v xxd >/dev/null || { echo 'v21-explicit-wasm-target-smoke: xxd is required' >&2; exit 2; }
 
+# `emit-wasm` produces a WasmGC module. A V8 without WasmGC enabled by default
+# (node 20 and older) dies with a cryptic `CompileError: Unknown type code 0x5e,
+# enable with --experimental-wasm-gc` from deep inside the generated loader. Say so
+# up front instead. The flag is not a portable workaround: modern node REJECTS it
+# ("bad option") because WasmGC is standard there.
+node_major=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
+if [[ ${node_major:-0} -lt 22 ]]; then
+  echo "v21-explicit-wasm-target-smoke: node >= 22 required (found $(node --version 2>/dev/null))" >&2
+  echo '  the wasm target emits WasmGC; node 20 needs --experimental-wasm-gc' >&2
+  exit 2
+fi
+
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/v21-explicit-wasm.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 mkdir "$tmp/pure" "$tmp/http"

@@ -187,10 +187,20 @@ jobs:
       # via `assume(has("node"))`. The interp==JVM(scala-cli) leg stays gated and
       # is covered by the Conformance job; subprocess hangs are bounded by
       # ProcTestUtil.runCaptured, so a wedged child fails fast, not the whole job.
+      #
+      # node 22, not 20: `emit-wasm` produces a **WasmGC** module, and node 20's V8
+      # cannot instantiate one without `--experimental-wasm-gc`
+      # (`CompileError: Unknown type code 0x5e`). The flag is NOT a portable
+      # workaround — modern node rejects it outright ("bad option"), because WasmGC
+      # is standard there — so the requirement is simply a node new enough to have
+      # WasmGC on by default. This only ever surfaced now: the wasm target smoke had
+      # never run in CI (an earlier step always failed first), and it passes on
+      # developers' newer local node. Only this job runs that gate; the other two
+      # stay on 20 deliberately, to avoid perturbing a green conformance lane.
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Setup sbt
         uses: sbt/setup-sbt@v1
