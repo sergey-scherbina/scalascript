@@ -132,7 +132,7 @@ distributed_log_expected=$'payments: 2 errors\nsearch: 1 errors'
 [[ $(run_native "$ROOT/examples/graph-storage-interpreter.ssc") == 'imports:b.ssc' ]]
 parameterless_expected=$'5\n10\n1\n2\n2\n5\n3\n6\n5'
 [[ $(run_native "$FIXTURES/parameterless-def-main.ssc") == "$parameterless_expected" ]]
-dsl_mini_language_expected=$'=== success: 2 * x + y ===\nresult: 23\n=== name-resolve error: x + z ===\nPassError(name-resolve, undefined variable: z, <unknown>, 0, 0)\n=== type-check error: x / 0 ===\nPassError(type-check, division by zero, <unknown>, 0, 0)\n=== parse error: 1 @ 2 ===\nPassError(parse, cannot parse atom: 1 @ 2, <unknown>, 0, 0)\n=== pipeline report: 2 * x + y ===\n  [parse] ok\n  [name-resolve] ok\n  [type-check] ok\n  [evaluate] ok'
+dsl_mini_language_expected=$'=== success: 2 * x + y ===\nresult: 23\n=== name-resolve error: x + z ===\n[name-resolve] undefined variable: z\n=== type-check error: x / 0 ===\n[type-check] division by zero\n=== parse error: 1 @ 2 ===\n[parse] cannot parse atom: 1 @ 2\n=== pipeline report: 2 * x + y ===\n  [parse] ok\n  [name-resolve] ok\n  [type-check] ok\n  [evaluate] ok'
 [[ $(run_native "$ROOT/examples/dsl-mini-language.ssc") == "$dsl_mini_language_expected" ]]
 custom_derives_expected=$'Person\nname|age\nString|Int\nname,age'
 [[ $(run_native "$ROOT/examples/custom-derives-mirror.ssc") == "$custom_derives_expected" ]]
