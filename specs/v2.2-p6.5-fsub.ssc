@@ -4,8 +4,7 @@
 // X1 (the fixpoint) is reached when the corpus contains F's OWN source: stage1 == stage2 then follows.
 // Escape-free (P6.6b design): the `"` char is the `dq` PARAMETER, so this source never contains a
 // `"`-inside-a-string and F's own scanStr just compares char code 34.
-// The 7258-byte prelude `ssc1-lower` emits is CONSTANT output, so F carries it as a string constant
-// (pre1..pre5) spliced with dq -- byte-identity stays the oracle.
+// Every emission shape here was MEASURED against the reference, never guessed (SPRINT "X1 architecture").
 
 // -- character classes ------------------------------------------------------------------------
 def atEnd(i, n) = i >= n
@@ -21,51 +20,79 @@ def scanLineEnd(s, i, n) = if atEnd(i, n) then i else (if s.charAt(i) == 10 then
 
 // -- lexer ------------------------------------------------------------------------------------
 // token = (kind, payload). kind 0 = int (Int), 1 = lower ident (String), 2 = punct/op (Int code),
-// 3 = Upper ident (String), 4 = string literal (String).
-// punct codes: 20 `=`  21 `(`  22 `)`  23 `+`  24 `-`  25 `*`  26 `/`  27 `,`  34 `:`
-def kwCode(w) = if w == "def" then 1 else (if w == "if" then 2 else (if w == "then" then 3 else (if w == "else" then 4 else (if w == "match" then 5 else (if w == "case" then 6 else (if w == "val" then 7 else 0))))))
+// 3 = Upper ident (String), 9 = EOF sentinel.
+// punct codes: 1 def  2 if  3 then  4 else  5 match  6 case  7 val  8 true  9 false
+//   20 `=`  21 `(`  22 `)`  23 `+`  24 `-`  25 `*`  26 `/`  27 `,`  34 `:`
+//   40 `<`  41 `>`  42 `<=`  43 `>=`  44 `==`  45 `!=`  46 `&&`  47 `||`
+def kwCode(w) = if w == "def" then 1 else (if w == "if" then 2 else (if w == "then" then 3 else (if w == "else" then 4 else (if w == "match" then 5 else (if w == "case" then 6 else (if w == "val" then 7 else (if w == "true" then 8 else (if w == "false" then 9 else 0))))))))
 def lex(s, i, n) = if atEnd(i, n) then Nil else lexDispatch(s, i, n, s.charAt(i))
-def lexDispatch(s, i, n, c) = if c == 32 then lex(s, i + 1, n) else (if c == 10 then lex(s, i + 1, n) else (if c == 9 then lex(s, i + 1, n) else (if c == 13 then lex(s, i + 1, n) else (if isLet(c) then lexWord(s, i, n, scanId(s, i, n)) else (if isDig(c) then lexNum(s, i, n) else (if c == 47 then lexSlash(s, i, n) else lexOp1(s, i, n, c)))))))
+def lexDispatch(s, i, n, c) = if c == 32 then lex(s, i + 1, n) else (if c == 10 then lex(s, i + 1, n) else (if c == 9 then lex(s, i + 1, n) else (if c == 13 then lex(s, i + 1, n) else (if isLet(c) then lexWord(s, i, n, scanId(s, i, n)) else (if isDig(c) then lexNum(s, i, n) else (if c == 47 then lexSlash(s, i, n) else (if c == 61 then lexEq(s, i, n) else (if c == 60 then lexLt(s, i, n) else (if c == 62 then lexGt(s, i, n) else (if c == 33 then lexBang(s, i, n) else (if c == 38 then lexAmp(s, i, n) else (if c == 124 then lexPipe(s, i, n) else lexOp1(s, i, n, c)))))))))))))
 def lexSlash(s, i, n) = if s.charAt(i + 1) == 47 then lex(s, scanLineEnd(s, i + 2, n), n) else Cons((2, 26), lex(s, i + 1, n))
+def lexEq(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 44), lex(s, i + 2, n)) else Cons((2, 20), lex(s, i + 1, n))
+def lexLt(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 42), lex(s, i + 2, n)) else Cons((2, 40), lex(s, i + 1, n))
+def lexGt(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 43), lex(s, i + 2, n)) else Cons((2, 41), lex(s, i + 1, n))
+def lexBang(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 45), lex(s, i + 2, n)) else lex(s, i + 1, n)
+def lexAmp(s, i, n) = if s.charAt(i + 1) == 38 then Cons((2, 46), lex(s, i + 2, n)) else lex(s, i + 1, n)
+def lexPipe(s, i, n) = if s.charAt(i + 1) == 124 then Cons((2, 47), lex(s, i + 2, n)) else lex(s, i + 1, n)
 def lexWord(s, i, n, j) = lexWord2(s, i, n, j, s.substring(i, j))
 def lexWord2(s, i, n, j, w) = if kwCode(w) > 0 then Cons((2, kwCode(w)), lex(s, j, n)) else (if isUp(s.charAt(i)) then Cons((3, w), lex(s, j, n)) else Cons((1, w), lex(s, j, n)))
 def lexNum(s, i, n) = Cons((0, scanNumV(s, i, n, 0)), lex(s, scanNumE(s, i, n), n))
-def opCode(c) = if c == 61 then 20 else (if c == 40 then 21 else (if c == 41 then 22 else (if c == 43 then 23 else (if c == 45 then 24 else (if c == 42 then 25 else (if c == 44 then 27 else (if c == 58 then 34 else 0)))))))
+def opCode(c) = if c == 40 then 21 else (if c == 41 then 22 else (if c == 43 then 23 else (if c == 45 then 24 else (if c == 42 then 25 else (if c == 44 then 27 else (if c == 58 then 34 else 0))))))
 def lexOp1(s, i, n, c) = if opCode(c) == 0 then lex(s, i + 1, n) else Cons((2, opCode(c)), lex(s, i + 1, n))
 
-// -- token helpers ----------------------------------------------------------------------------
+// -- token / env helpers ----------------------------------------------------------------------
 def fst(p) = p match { case (a, b) => a }
 def snd(p) = p match { case (a, b) => b }
 def hd(ts) = ts match { case h :: t => h case _ => (9, 0) }
 def tl(ts) = ts match { case h :: t => t case _ => Nil }
 def isEmpty(ts) = ts match { case Nil => true case _ => false }
 def isTok(t, k, v) = if fst(t) == k then snd(t) == v else false
+// env = the innermost binding at the HEAD, so a name's position IS its (local i) index. Params are
+// pushed left-to-right, which reproduces the reference's reverse indexing (`def g(a,b)` -> a=1, b=0).
+def lookup(nm, env) = lookupAt(nm, env, 0)
+def lookupAt(nm, env, i) = env match { case Nil => 0 - 1 case h :: t => if h == nm then i else lookupAt(nm, t, i + 1) }
+def dlen(env) = env match { case Nil => 0 case h :: t => dlen(t) + 1 }
 
 // -- emission ---------------------------------------------------------------------------------
-// The reference emits arithmetic as `(prim __arith__ (lit (str "OP")) L R)` -- a QUOTED operator
-// symbol, not a bare prim. Measured, not guessed (SPRINT "X1 architecture").
-def arithSym(k) = if k == 23 then "+" else (if k == 24 then "-" else (if k == 25 then "*" else "/"))
+// Arithmetic AND comparison both go through `(prim __arith__ (lit (str "OP")) L R)` -- a QUOTED
+// operator symbol, not a bare prim. `&&`/`||` desugar to `if`; `!=` negates `__eq__`. All measured.
+def arithSym(k) = if k == 23 then "+" else (if k == 24 then "-" else (if k == 25 then "*" else (if k == 26 then "/" else (if k == 40 then "<" else (if k == 41 then ">" else (if k == 42 then "<=" else ">="))))))
 def emitInt(v) = "(lit (int " ++ v ++ "))"
-def emitBin(k, l, r, dq) = "(prim __arith__ (lit (str " ++ dq ++ arithSym(k) ++ dq ++ ")) " ++ l ++ " " ++ r ++ ")"
+def emitArith(k, l, r, dq) = "(prim __arith__ (lit (str " ++ dq ++ arithSym(k) ++ dq ++ ")) " ++ l ++ " " ++ r ++ ")"
+def emitEq(l, r) = "(prim __eq__ " ++ l ++ " " ++ r ++ ")"
+def emitIf(c, t, e) = "(if " ++ c ++ " " ++ t ++ " " ++ e ++ ")"
+def emitBin(k, l, r, dq) = if k == 44 then emitEq(l, r) else (if k == 45 then emitIf(emitEq(l, r), "(lit false)", "(lit true)") else (if k == 46 then emitIf(l, r, "(lit false)") else (if k == 47 then emitIf(l, "(lit true)", r) else emitArith(k, l, r, dq))))
+// Scala's precedence-by-first-character, restricted to the operators the subset uses.
 def binPrec(t) = if fst(t) == 2 then binPrecK(snd(t)) else 0
-def binPrecK(k) = if k == 23 then 1 else (if k == 24 then 1 else (if k == 25 then 2 else (if k == 26 then 2 else 0)))
+def binPrecK(k) = if k == 47 then 1 else (if k == 46 then 2 else (if k == 44 then 3 else (if k == 45 then 3 else (if k == 40 then 4 else (if k == 41 then 4 else (if k == 42 then 4 else (if k == 43 then 4 else (if k == 23 then 5 else (if k == 24 then 5 else (if k == 25 then 6 else (if k == 26 then 6 else 0)))))))))))
 
 // -- parser (precedence climbing over the token stream) ----------------------------------------
-def parseAtom(ts, dq) = if isEmpty(ts) then (emitInt(0), Nil) else parseAtom1(hd(ts), tl(ts), dq)
-def parseAtom1(t, rest, dq) = if fst(t) == 0 then (emitInt(snd(t)), rest) else (if isTok(t, 2, 21) then parseParen(rest, dq) else (emitInt(0), rest))
-def parseParen(ts, dq) = parseExpr(ts, 0, dq) match { case (e, r) => (e, tl(r)) }
-def parseExpr(ts, minPrec, dq) = parseAtom(ts, dq) match { case (l, r) => climb(l, r, minPrec, dq) }
-def climb(left, ts, minPrec, dq) = if binPrec(hd(ts)) >= minPrec then climbStep(left, ts, minPrec, dq) else (left, ts)
-def climbStep(left, ts, minPrec, dq) = { val p = binPrec(hd(ts))
+def parseAtom(ts, env, dq) = if isEmpty(ts) then (emitInt(0), Nil) else parseAtom1(hd(ts), tl(ts), env, dq)
+def parseAtom1(t, rest, env, dq) = if fst(t) == 0 then (emitInt(snd(t)), rest) else (if fst(t) == 1 then parseVarOrCall(snd(t), rest, env, dq) else (if isTok(t, 2, 21) then parseParen(rest, env, dq) else (if isTok(t, 2, 2) then parseIf(rest, env, dq) else (if isTok(t, 2, 8) then ("(lit true)", rest) else (if isTok(t, 2, 9) then ("(lit false)", rest) else (emitInt(0), rest))))))
+def parseParen(ts, env, dq) = parseExpr(ts, 0, env, dq) match { case (e, r) => (e, tl(r)) }
+// A bare name resolves to (local i) when bound, else to a global call. `f(a, b)` -> (app (global f) a b).
+def parseVarOrCall(nm, ts, env, dq) = if isTok(hd(ts), 2, 21) then parseCall(nm, tl(ts), env, dq) else (if lookup(nm, env) >= 0 then ("(local " ++ lookup(nm, env) ++ ")", ts) else ("(global " ++ nm ++ ")", ts))
+def parseCall(nm, ts, env, dq) = parseArgs(ts, env, dq) match { case (args, r) => ("(app (global " ++ nm ++ ")" ++ args ++ ")", r) }
+def parseArgs(ts, env, dq) = if isTok(hd(ts), 2, 22) then ("", tl(ts)) else parseArg(ts, env, dq)
+def parseArg(ts, env, dq) = parseExpr(ts, 0, env, dq) match { case (e, r) => parseArgsMore(e, r, env, dq) }
+def parseArgsMore(e, ts, env, dq) = if isTok(hd(ts), 2, 27) then parseArgs(tl(ts), env, dq) match { case (rest, r2) => (" " ++ e ++ rest, r2) } else (" " ++ e, tl(ts))
+def parseIf(ts, env, dq) = parseExpr(ts, 0, env, dq) match { case (c, r1) => parseExpr(tl(r1), 0, env, dq) match { case (t, r2) => parseExpr(tl(r2), 0, env, dq) match { case (e, r3) => (emitIf(c, t, e), r3) } } }
+def parseExpr(ts, minPrec, env, dq) = parseAtom(ts, env, dq) match { case (l, r) => climb(l, r, minPrec, env, dq) }
+def climb(left, ts, minPrec, env, dq) = if binPrec(hd(ts)) >= minPrec then climbStep(left, ts, minPrec, env, dq) else (left, ts)
+def climbStep(left, ts, minPrec, env, dq) = { val p = binPrec(hd(ts))
   if p == 0 then (left, ts)
-  else parseExpr(tl(ts), p + 1, dq) match { case (right, r2) => climb(emitBin(snd(hd(ts)), left, right, dq), r2, minPrec, dq) } }
+  else parseExpr(tl(ts), p + 1, env, dq) match { case (right, r2) => climb(emitBin(snd(hd(ts)), left, right, dq), r2, minPrec, env, dq) } }
 
 // -- declarations -----------------------------------------------------------------------------
-// `def name(): Type = body`. Types are ERASED by the reference lowerer (measured: `def g(a: String,
-// b: String)` -> `(lam 2 ...)`), so skipping them is byte-faithful.
+// `def name(p1: T, p2: T): T = body`. Types are ERASED by the reference lowerer (measured: `def
+// g(a: String, b: String)` -> `(lam 2 ...)`), so skipping them is byte-faithful.
+def parseParams(ts, env) = if isTok(hd(ts), 2, 22) then (env, tl(ts)) else parseParam(ts, env)
+def parseParam(ts, env) = parseParamSkip(tl(ts), snd(hd(ts)) :: env)
+def parseParamSkip(ts, env) = if isTok(hd(ts), 2, 27) then parseParams(tl(ts), env) else (if isTok(hd(ts), 2, 22) then (env, tl(ts)) else parseParamSkip(tl(ts), env))
 def skipToEq(ts) = if isEmpty(ts) then Nil else (if isTok(hd(ts), 2, 20) then tl(ts) else skipToEq(tl(ts)))
-def emitDef(ts, dq) = emitDefBody(snd(hd(tl(ts))), skipToEq(tl(tl(ts))), dq)
-def emitDefBody(nm, ts, dq) = parseExpr(ts, 0, dq) match { case (body, rest) => ("(def " ++ nm ++ " (lam 0 " ++ body ++ "))", rest) }
+def emitDef(ts, dq) = emitDef1(snd(hd(tl(ts))), tl(tl(ts)), dq)
+def emitDef1(nm, ts, dq) = parseParams(tl(ts), Nil) match { case (env, r) => emitDefBody(nm, dlen(env), env, skipToEq(r), dq) }
+def emitDefBody(nm, ar, env, ts, dq) = parseExpr(ts, 0, env, dq) match { case (body, rest) => ("(def " ++ nm ++ " (lam " ++ ar ++ " " ++ body ++ "))", rest) }
 def emitDefs(ts, dq) = if isEmpty(ts) then "" else emitDef(ts, dq) match { case (d, rest) => if isEmpty(rest) then d else d ++ " " ++ emitDefs(rest, dq) }
 
 def compile(src, dq) = prelude(dq) ++ emitDefs(lex(src, 0, src.length), dq) ++ ") (entry (app (global main))))"

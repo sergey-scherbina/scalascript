@@ -92,6 +92,37 @@ d paren      'def main(): Int = (1 + 2) * 3'
 d assoc      'def main(): Int = 10 - 3 - 2'
 d notype     'def main() = 1 + 2'
 d comment    'def main(): Int = 1 + 2 // trailing comment'
+d twodefs    'def g(a: Int, b: Int): Int = a + b
+def main(): Int = g(1, 2)'
+d locals     'def g(a: Int, b: Int): Int = a - b
+def main(): Int = g(9, 4)'
+d call0      'def g(): Int = 7
+def main(): Int = g()'
+d ifthen     'def main(): Int = if 1 < 2 then 3 else 4'
+d cmp_gt     'def g(a: Int, b: Int): Boolean = a > b
+def main(): Boolean = g(1, 2)'
+d cmp_ge     'def g(a: Int, b: Int): Boolean = a >= b
+def main(): Boolean = g(1, 2)'
+d cmp_le     'def g(a: Int, b: Int): Boolean = a <= b
+def main(): Boolean = g(1, 2)'
+d eq         'def g(a: Int, b: Int): Boolean = a == b
+def main(): Boolean = g(1, 2)'
+d neq        'def g(a: Int, b: Int): Boolean = a != b
+def main(): Boolean = g(1, 2)'
+d andand     'def g(a: Boolean, b: Boolean): Boolean = a && b
+def main(): Boolean = g(true, false)'
+d oror       'def g(a: Boolean, b: Boolean): Boolean = a || b
+def main(): Boolean = g(true, false)'
+d boollit    'def main(): Boolean = true'
+d rec        'def f(x: Int): Int = if x < 1 then 1 else x * f(x - 1)
+def main(): Int = f(5)'
+d threedefs  'def sq(n: Int): Int = n * n
+def inc(n: Int): Int = n + 1
+def main(): Int = inc(sq(4))'
+d nestcall   'def add(a: Int, b: Int): Int = a + b
+def main(): Int = add(add(1, 2), add(3, 4))'
+d mixprec    'def f(a: Int, b: Int): Boolean = a + 1 < b * 2 && a > 0
+def main(): Boolean = f(1, 5)'
 
 if [ "${1:-}" = "--self" ]; then
   echo "--- X1: F compiles its OWN source ---"
