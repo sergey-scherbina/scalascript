@@ -843,6 +843,7 @@ optional policy, not the default continuation semantics.
   | `10-core-ir.md` §3: "**`Seq a b` is dropped**" | `Term.Seq(terms)` exists, Reader head `seq`, Writer emits `(seq …)` |
   | `10-core-ir.md` inv.7: "**no loop node is needed** in Core IR" | `Term.While(cond, body)`, Reader head `while`, Writer emits `(while …)` |
   | `12-ir-format.md` grammar: `term := lit \| local \| … \| prim` | no `while`/`seq` production, though both round-trip |
+
   Both `While` and `Seq` are documented in-source as **optimizations** (no trampoline bounce / no
   Let-binding overhead), not new semantics — reconcile them as such. NOT permission to add a
   continuation node (§9 "Explicitly NOT in Core IR" stands).
