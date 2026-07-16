@@ -363,13 +363,31 @@ private[interpreter] object StatRuntime:
       // Parameterless cases, in declaration order, for `EnumName.values`.
       val enumValues = mutable.ListBuffer.empty[Value]
       val ctorEnv = envView
+      /** Enum cases are exposed bare as a convenience, but that implicit
+       *  exposure must not make the core Option/List constructors unreachable.
+       *  The case is still installed on the enum companion, so an enum that
+       *  deliberately uses one of these names remains available qualified. */
+      def preservesCoreAdtBinding(caseName: String): Boolean =
+        (caseName, env.get(caseName)) match
+          case ("None", Some(existing)) =>
+            existing.asInstanceOf[AnyRef] eq Value.NoneV.asInstanceOf[AnyRef]
+          case ("Nil", Some(existing)) =>
+            existing.asInstanceOf[AnyRef] eq Value.EmptyList.asInstanceOf[AnyRef]
+          case ("Some", Some(Value.NativeFnV("Some", _))) => true
+          case _                                            => false
+
+      def bindBareCase(caseName: String, value: Value): Unit =
+        if !preservesCoreAdtBinding(caseName) then
+          rememberShadowedAlternative(env, caseName, value, interp)
+          env(caseName) = value
+
       /** Bind a parameterless enum case as a singleton value, reachable both
-       *  bare (`Debit`) and qualified (`Side.Debit`), and matchable. */
+       *  bare (`Debit`) and qualified (`Side.Debit`), and matchable. A case
+       *  colliding with a core ADT name remains qualified-only. */
       def bindNullaryCase(caseName: String): Unit =
         interp.parentTypes(caseName) = enumName
         val v = Value.InstanceV(caseName, Map.empty)
-        rememberShadowedAlternative(env, caseName, v, interp)
-        env(caseName) = v
+        bindBareCase(caseName, v)
         caseFields(caseName) = v
         enumValues += v
       d.templ.body.stats.foreach {
@@ -401,8 +419,7 @@ private[interpreter] object StatRuntime:
                 Value.NativeFnV(caseName, args =>
                   constructNoDefaultInstanceOrFallback(caseName, paramNames, args, enumTag, enumFallbackCtor))
               else Value.NativeFnV(caseName, enumFallbackCtor)
-            rememberShadowedAlternative(env, caseName, v, interp)
-            env(caseName) = v
+            bindBareCase(caseName, v)
             caseFields(caseName) = v
         // `case A, B, C` (comma-separated parameterless cases) parses as a
         // RepeatedEnumCase, not individual EnumCases — previously dropped.
