@@ -1,5 +1,36 @@
 # Bug tracker
 
+## scljet-update-ipk-column-silently-ignored — `UPDATE t SET <ipk> = …` does nothing, and reports success
+
+**Status:** OPEN (found 2026-07-17 by `scljet-address-write` while probing the write path before
+building on it). **Engine — the `scljet-m3-writes` lane.** Silent wrong behaviour: no error, no
+change, `Right(image)`.
+
+**Symptom/reproduce** — an `INTEGER PRIMARY KEY` column IS the rowid, so assigning it must RELOCATE
+the row. The reference does; we ignore the assignment and say nothing:
+
+```sql
+CREATE TABLE emp(id INTEGER PRIMARY KEY, name TEXT); INSERT INTO emp VALUES (1,'ann');
+UPDATE emp SET id = 5 WHERE id = 1;
+SELECT id, name, rowid FROM emp;
+--   real sqlite3 3.51.0 → 5|ann|5     (the row moved: rowid is now 5)
+--   scljet             → 1|ann|1     (assignment dropped, executeUpdate returned Right)
+```
+
+**Root cause (hypothesis).** `executeUpdate` builds the new record from the assignments and rewrites
+the row **at its existing rowid**; the rowid is never recomputed from an assignment to the IPK
+column. Since `finishRows`/`ipkNormalizeRows` now materialise the rowid INTO the IPK column on read
+(`14f4da4ac`), an assignment to that column is written into a field the reader then overwrites — so
+even if the record were updated, the read would still show the old rowid. The fix has to move the
+row (delete + reinsert at the new rowid, or the equivalent), not just edit the field.
+
+**Adjacent, same probe (correct, recorded so it is not "fixed" by mistake):** `UPDATE … WHERE
+rowid = 999` on a missing row returns `Right` with no change. That IS standard SQL — `changes() = 0`,
+the reference agrees. It is only wrong for an *address* write, where the address names one specific
+cell; `scljet/address.ssc` therefore resolves the address before writing and refuses when it does
+not exist, rather than changing the engine's SQL semantics.
+
+
 ## newfront-scala-spike-jvm-test-links-on-js — shared filesystem suite breaks Scala.js
 
 **Status:** OPEN / owned by `v3-newfront-p1-toplevel` (reconfirmed 2026-07-17 by `ci-red-main` in
