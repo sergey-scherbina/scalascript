@@ -96,6 +96,18 @@ find_live_match() {
   return 1
 }
 
+claim_declared_branch_is_live() {
+  local claim_text="$1"
+  local claim_branch
+  claim_branch="$(
+    printf '%s\n' "$claim_text" |
+      sed -n 's/^branch:[[:space:]]*//p' |
+      head -1
+  )"
+  [[ -n "$claim_branch" ]] || return 1
+  printf '%s\n' "$live_keys" | grep -Fxq "$claim_branch"
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --no-fetch) DO_FETCH=false; shift ;;
@@ -297,13 +309,17 @@ else
     [[ -n "$claim_file" ]] || continue
     slug="${claim_file##*/}"
     slug="${slug%.claim}"
+    claim_text="$(git -C "$ROOT" show "$REMOTE_REF:$claim_file" 2>/dev/null || true)"
+    if claim_declared_branch_is_live "$claim_text"; then
+      continue
+    fi
     if printf '%s\n' "$live_keys" | grep -Fxq "$slug"; then
       continue
     fi
     if find_live_match "$slug" >/dev/null 2>&1; then
       continue
     fi
-    claim_summary="$(git -C "$ROOT" show "$REMOTE_REF:$claim_file" 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]][[:space:]]*/ /g' || true)"
+    claim_summary="$(printf '%s\n' "$claim_text" | tr '\n' ' ' | sed 's/[[:space:]][[:space:]]*/ /g' || true)"
     printf 'maybe stale: %s (%s)\n' "$slug" "${claim_summary:-unknown claim}"
     found_stale=true
   done <<<"$claim_files"
