@@ -266,9 +266,12 @@ from the feature worktree; both focused JavaScript conformance cases remained gr
 
 ## v2-native-charAt-toString-yields-code — `charAt(i).toString` renders the character CODE on v2-native → every uppercase keyword breaks
 
-**Status:** OPEN (found 2026-07-17 by `v2-native-stack-overflow` while asking why the scljet engine
-cannot run on the DEFAULT `bin/ssc run`). **v2 native front / no-Char-box design**, not the engine.
-Same family as the documented `v2-native-string-map-filter-char-methods`.
+**Status:** **ENGINE SIDE FIXED (2026-07-17, `46f09ad29`)** — scljet no longer uses the ambiguous
+idiom, and the SQL engine now runs on the default `bin/ssc run` (23/24 scljet conformance cases,
+was 0). **The LANGUAGE-LEVEL divergence stays OPEN**: any other `.ssc` using `charAt(i).toString`
+is still silently wrong on v2-native. Found 2026-07-17 while asking why the scljet engine cannot
+run on the DEFAULT `bin/ssc run`. **v2 native front / no-Char-box design**, not the engine. Same
+family as the documented `v2-native-string-map-filter-char-methods`.
 
 **Symptom/reproduce** — silent wrong data, and the shape of the wrongness hides it: an
 already-uppercase string comes back as digits, a lowercase one is fine.
@@ -380,9 +383,19 @@ matrix: `make v2-web-e2e-v1` 9/9 in 4.4 minutes and `make v2-web-e2e-v2` 9/9 in 
 
 ## v2-native-double-toLong-noop — `Double.toLong` is a no-op on v2-native → any Long op on the result explodes
 
-**Status:** OPEN (found 2026-07-16 by `scljet-address` while building an address read; the SAME
-class as the already-FIXED `v2-native-toDouble-toFloat-noop`, and the fix site is the same file).
-**Not the scljet engine — the v2 native front.** Found on `origin/main` `1832b5b22`.
+**Status:** **FIXED (2026-07-17, `3b0ddea92`)** — `v2/lib/ssc1-lower.ssc0` now routes `toLong` to
+the shared runtime method table like its neighbours `toInt`/`toDouble`, so the receiver decides.
+The risk recorded below (that `Int.toLong` survives only BECAUSE the lowering erases it) was
+measured before landing: `Int.toLong`, `Long.toLong` and `Double.toLong` all behave. Gate:
+`contract.sc --lanes v2` — no new regressions, one closed gap recorded (`scljet-crud`).
+Found 2026-07-16 by `scljet-address`; the SAME class as `v2-native-toDouble-toFloat-noop`, same
+file. **Not the scljet engine — the v2 native front.**
+
+**Residual, pre-existing, NOT introduced by the fix: `String.toLong` is wrong on v2-native.**
+`"42".toLong + 1L` → `421` before the fix (the no-op left a String, so `+` concatenated) and
+`<closure>1` after (the native method table has no String→Long entry, unlike `String.toInt` which
+works). Both are wrong; v1 says `43`. The new shape at least fails visibly instead of looking like
+a plausible number. scljet is unaffected — all its `.toLong` receivers are Ints.
 
 **Symptom/reproduce** — three lines, and the failure is *loud but misattributed*: the value even
 prints correctly, so it looks fine right up to the first arithmetic:
