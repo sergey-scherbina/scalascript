@@ -58,9 +58,10 @@ the full CI conformance job is green.
 
 ## install-dev-rewrites-tracked-ssc-launcher — successful staging leaves the checkout dirty
 
-**Status:** OPEN (found 2026-07-17 by `ci-red-main` immediately after the worktree-isolation fix
-`0018dbf0c`). This is a generator-authority drift: the build succeeds and the launcher semantics are
-unchanged, but a documented developer command rewrites a tracked file on every clean checkout.
+**Status:** FIXED (2026-07-17, `b829c8264`; awaiting Sergiy confirmation). Found by `ci-red-main`
+immediately after the worktree-isolation fix `0018dbf0c`. This was a generator-authority drift: the
+build succeeded and the launcher semantics were unchanged, but a documented developer command
+rewrote a tracked file on every clean checkout.
 
 **Real-harness repro.** From a clean linked worktree, run `bash install.sh --dev`, then
 `git diff -- bin/ssc`. The diff adds only the AppCDS explanatory comment and two blank lines.
@@ -71,6 +72,14 @@ insufficient oracle; the required observable is a clean byte comparison after bo
 **Expected.** Both supported staging paths must produce the same tracked launcher bytes. The
 regression must compare the output and print the real diff on mismatch; it must not classify a
 comments-only change as harmless before comparing.
+
+**Root cause/fix.** `install.sh` invoked `cli/installBin` and then duplicated three launcher
+templates in heredocs, overwriting the fresh canonical output; the templates had already drifted.
+The duplicate generator is gone. `cli/installBin` is the sole authority and the installer now
+fails if any expected launcher is not executable. `tests/e2e/staged-launchers-clean.sh` runs in CI
+immediately after the full install and lets `git diff --exit-code` print the exact patch before it
+classifies failure. The gate was proven red against the old output, then green after the fix; the
+full install and both focused conformance cases pass.
 
 
 ## install-dev-initializes-skills-submodule-inside-worktree — documented local build violates the worktree contract

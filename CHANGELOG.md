@@ -13,6 +13,12 @@ completed successfully from the feature worktree; focused conformance remained g
 lanes. That run exposed a separate comments-only launcher-generator drift, now tracked explicitly as
 `install-dev-rewrites-tracked-ssc-launcher` rather than being hidden by the successful build.
 
+That second drift is also closed (`b829c8264`). `cli/installBin` is now the single launcher source;
+`install.sh` validates its outputs instead of overwriting them from three duplicate heredocs. A CI
+gate compares the post-install tracked bytes and prints the actual diff on mismatch. It was first
+proven red on the old AppCDS-comment patch, then green after the full installer and focused
+INT/JS/JVM conformance runs.
+
 ## 2026-07-17 — final JavaScript conformance tail and faithful installed-lane tests
 
 Closed the two JavaScript failures that held the shared corpus at 279/281. `run-js --v2` no longer

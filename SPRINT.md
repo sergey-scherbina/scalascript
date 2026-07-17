@@ -142,9 +142,10 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       - `v21-direct-asm-recursion-smoke.sh` — PASS, but it was a **false green**: it pins
         `JAVA_TOOL_OPTIONS=-Xss256k` to prove the compiled lanes need no big stack, and an explicit
         `-Xss` on the java command line BEATS `JAVA_TOOL_OPTIONS`, so `-Xss64m` silently made it test
-        64m. Launchers now take `-Xss"${SSC_XSS:-64m}"` (**both generators** — build.sbt AND
-        install.sh; the latter overwrites the former and is what CI uses) and the gate sets
+        64m. Launchers now take `-Xss"${SSC_XSS:-64m}"` (**both generators at the time** — build.sbt
+        AND install.sh; the latter then overwrote the former in CI) and the gate sets
         `SSC_XSS=256k`. Measured: `SSC_XSS=256k` → ThreadStackSize 256, unset → 65536.
+        The duplicate install.sh generator was later removed by 5h (`b829c8264`).
       - `v21-negative-toolchain-release-gate.sh` — was RED twice, for two different reasons:
         1. `parity.one-sided != 0`, naming a *different* scljet case each run (looks like flaky
            infra; is not). **Not a scljet bug**: `RunNativeV2` built the tower thread with a
@@ -305,13 +306,17 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       the operation explicitly (no-op only if field accesses are already index-resolved, as on
       Swift), add a direct codegen assertion, and keep the installed `0 / 5 / 8` e2e green.
       **DONE `2f23fd9ec`:** explicit index-resolved no-op + direct assertion; installed suite 3/3.
-- [ ] **5h. Keep a successful dev install byte-clean.** The first full worktree install after
+- [x] **5h. Keep a successful dev install byte-clean.** The first full worktree install after
       `0018dbf0c` succeeds but rewrites tracked `bin/ssc`: only the AppCDS comment and two blank lines
       differ. This proves `build.sbt`'s `installBin` launcher template and `install.sh`'s subsequent
       overwrite are not byte-identical despite the load-bearing "change both or neither" rule.
       Compare the two generated launchers, make one canonical output, then run `cli/installBin` and
       the full `bash install.sh --dev`; done means `git diff --exit-code -- bin/ssc` is green and any
       mismatch gate prints the actual diff.
+      **DONE `b829c8264`:** `cli/installBin` is now the sole launcher generator; `install.sh` verifies
+      its three executables instead of rewriting them. The new CI gate was proven red on the old
+      comments-only diff, prints that patch, and is green after a full install. Both focused
+      conformance cases remain 1/1 on INT/JS/JVM.
 - [ ] **6. Prevent the recurrence.** Long-red CI is what let all of this pile up. Decide + record a
       cheap guard (e.g. the loop checks `gh run list` before claiming a lane green, or a CI-status
       line in the claim protocol). Recorded as a question for Sergiy, not a unilateral process change.
