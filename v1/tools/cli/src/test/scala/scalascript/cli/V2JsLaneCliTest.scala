@@ -35,6 +35,17 @@ class V2JsLaneCliTest extends AnyFunSuite:
       timeout = 15000
     )
 
+  test("JsGen handles native case-class field registration explicitly"):
+    import _root_.ssc.{Const, Program, Term}
+    val program = Program(
+      Nil,
+      Term.Prim("__regfields__", List(
+        Term.Lit(Const.CStr("Box")),
+        Term.Ctor("Nil", Nil))))
+    val generated = _root_.ssc.js.JsGen.generate(program)
+    assert(generated.contains("var $result=null;"))
+    assert(!generated.contains("$prim(\"__regfields__\""))
+
   test("run-js --v2 routes through the v2 CoreIR JS lane"):
     requireNode()
     val sandbox = os.temp.dir(prefix = "ssc-v2-js-lane-")

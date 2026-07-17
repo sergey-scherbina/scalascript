@@ -402,6 +402,13 @@ object JsGen:
         // can read (v2-js-imported-method-object-primitive).
         val argsJs = args.map(a => genE(a, scope, tco = false)).mkString(",")
         s"$$mkMethodObj([$argsJs])"
+      case "__regfields__" =>
+        // The native lowerer emits field-name metadata for the portable VM's
+        // untyped by-name dispatch. JS case-class selections are already lowered
+        // to index-based fieldAt operations, so there is no registry to populate.
+        // Keep the operation explicit (matching Swift) instead of letting it fall
+        // through to $prim and crash every native-front case-class program.
+        "null"
       case "__isNum2__" => s"($$isNum(${a(0)})&&$$isNum(${a(1)}))"
       case "__mdStrip__" => s"$$mdStrip(${a(0)})"
       // Fallback
