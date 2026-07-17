@@ -335,6 +335,10 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       invocation rejected malformed `--jq` quote escaping. Track it as
       `ci-status-fixture-accepts-invalid-jq`; a real authenticated query is now an acceptance gate,
       not an optional smoke.
+      **IMPLEMENTED `c43d8f523`, docs `0fe5e5f0d`, partial spec verify `2b89ba52c`:** six result
+      classes plus red-but-non-aborting `coord-status` pass under the fake, and the real authenticated
+      CLI returns exact-SHA `PENDING` with all four jobs. Remains open until the CI run containing
+      this wiring completes and the exact final SHA is all-green.
 
 ## scljet-unique-index-not-supported — `CREATE UNIQUE INDEX` needs ENFORCEMENT, not just parsing (2026-07-16)
 

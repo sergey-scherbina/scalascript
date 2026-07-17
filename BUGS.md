@@ -2,9 +2,10 @@
 
 ## ci-status-fixture-accepts-invalid-jq — fake-gh green hid a real CLI parse failure
 
-**Status:** OPEN (found 2026-07-17 by `ci-red-main` before the exact-SHA guard landed). The new
-fixture matrix passed 6/6, but the first real `scripts/ci-status` invocation exited `2` with
-`failed to parse jq expression ... unexpected token "\\"` instead of reporting the run.
+**Status:** FIXED (2026-07-17, `c43d8f523`; awaiting final CI confirmation). Found by
+`ci-red-main` before the exact-SHA guard landed. The new fixture matrix passed 6/6, but the first
+real `scripts/ci-status` invocation exited `2` with `failed to parse jq expression ... unexpected
+token "\\"` instead of reporting the run.
 
 **Reproduce.** `tests/e2e/ci-status-guard.sh` passes because its fake `gh` returns canned output and
 ignores the `--jq` expression. Running `scripts/ci-status` against authenticated GitHub parses the
@@ -15,6 +16,12 @@ proxy, not proof that the real query is accepted.
 authenticated invocation to the implementation verification. The guard is not shippable until the
 exact current SHA produces a genuine `PENDING`, `RED`, or `GREEN` result with named jobs; `UNKNOWN`
 from a query/parser defect is red for this task.
+
+**Root cause/fix.** The shell single-quoted jq program unnecessarily escaped the empty string inside
+an interpolation; fake `gh` returned canned records without parsing the supplied program. The jq is
+now accepted by the real CLI. The fixture matrix still passes, and authenticated queries return the
+exact run URL plus all four named jobs. Spec verification records the proxy failure so a fixture-only
+green is never used as release evidence again.
 
 
 ## v2-js-regfields-unimplemented — installed `run-js --v2` crashes before a case-class program starts

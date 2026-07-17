@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-07-17 — exact-SHA CI truth in the coordination loop
+
+`scripts/ci-status` now asks GitHub for the push-triggered `ci.yml` run of one exact commit and
+distinguishes complete green, complete red, pending, and unknown with named job output and stable
+exit codes (`c43d8f523`). `scripts/coord-status` shows that verdict without hiding claims/worktrees,
+the README exposes the main badge, and the project workflow requires exact-SHA green before final
+claim release (`0fe5e5f0d`).
+
+The fixture matrix covers green, failed/cancelled, pending, missing-job, no-run, query failure, and
+coordination continuation. Its first version proved why a real oracle remains mandatory: canned
+fake-gh output accepted malformed jq that authenticated `gh` rejected. The real query is corrected
+and now part of verification; final completion still waits for the workflow containing the guard.
+
 ## 2026-07-17 — worktree-safe developer installer
 
 `bash install.sh --dev` no longer initializes or updates `.agents/plugins` inside a linked feature
