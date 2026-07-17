@@ -391,6 +391,17 @@ class JvmGenEffectsRuntimeTest extends AnyFunSuite with Matchers:
     val ec = ProcTestUtil.awaitExit(proc)
     (ec, scala.io.Source.fromFile(out).mkString.trim)
 
+  test("JvmGen: single-node Bully claim is recorded in leader history"):
+    assume(hasScalaCli, "scala-cli not available")
+    val (ec, out) = runWithScalaCli("""
+      runActors {
+        electLeader()
+        println(leaderHistory().length)
+      }
+    """)
+    assert(ec == 0, s"scala-cli run failed (exit $ec)")
+    assert(out == "1", s"expected one accepted leader claim, got: '$out'")
+
   test("JvmGen: one-shot effect performed in a while-loop compiles + runs"):
     assume(hasScalaCli, "scala-cli not available")
     val (ec, out) = runWithScalaCli("""

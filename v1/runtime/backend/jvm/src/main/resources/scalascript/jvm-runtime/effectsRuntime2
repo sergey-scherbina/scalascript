@@ -248,7 +248,7 @@
        |  val _leaderHistTermSeq   = new java.util.concurrent.atomic.AtomicLong(0L)
        |  val _leaderHist          = new java.util.concurrent.ConcurrentLinkedDeque[(Long, String, Long)]()
        |  def _recordLeaderHist(leaderId: String): Unit =
-       |    // Caller still gates on prev != new, so every call is a real change.
+       |    // Call only after a claim is accepted; change notifications are gated separately.
        |    val term = _leaderHistTermSeq.incrementAndGet()
        |    _leaderHist.offer((term, leaderId, System.currentTimeMillis()))
        |    while _leaderHist.size() > _LEADER_HIST_MAX do _leaderHist.pollFirst()

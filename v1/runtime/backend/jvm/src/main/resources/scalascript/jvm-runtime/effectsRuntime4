@@ -4,7 +4,10 @@
        |  def _startElection(): Unit =
        |    if _localNodeId.isEmpty then
        |      val prev = _currentLeader.getAndSet(_localNodeId)
-       |      if prev != _localNodeId then { _fireLeaderEvent("LeaderElected", _localNodeId); _recordLeaderHist(_localNodeId) }
+       |      // Empty-id single-node mode starts with the same current-leader value;
+       |      // the accepted claim still belongs in history, while notification stays change-gated.
+       |      _recordLeaderHist(_localNodeId)
+       |      if prev != _localNodeId then _fireLeaderEvent("LeaderElected", _localNodeId)
        |    else
        |      val higher = scala.collection.mutable.ListBuffer.empty[String]
        |      _peerChannels.keySet().forEach(nid => if nid > _localNodeId then higher += nid)
@@ -15,9 +18,10 @@
        |        else
        |          val prev = _currentLeader.getAndSet(_localNodeId)
        |          _broadcastCoordinator()
+       |          // Record every accepted claim, including a repeated claim by the same leader.
+       |          _recordLeaderHist(_localNodeId)
        |          if prev != _localNodeId then
        |            _fireLeaderEvent("LeaderElected", _localNodeId)
-       |            _recordLeaderHist(_localNodeId)
        |      else
        |        _electionInProgress = true
        |        _electionStartedAt  = System.currentTimeMillis()
