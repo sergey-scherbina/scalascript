@@ -182,10 +182,10 @@ jobs:
   sbt:
     name: sbt — compile and test
     runs-on: ubuntu-latest
-    # Run 29544412767 spent 35m22s reaching `sbt test`; the 90m outer cap then
-    # cancelled that step after 54m51s, before its own 60m timeout. Keep the
-    # narrower test cap as the hang detector and give the enclosing job headroom.
-    timeout-minutes: 120
+    # Run 29544412767 spent 35m22s reaching `sbt test`; run 29545769651 then
+    # exhausted the full 60m test cap with 4/16 CrossBackendPropertyTest cases
+    # still pending. Keep both caps bounded, with measured tail + runner headroom.
+    timeout-minutes: 150
 
     steps:
       - name: Checkout
@@ -304,7 +304,7 @@ jobs:
         run: tests/e2e/v21-direct-asm-recursion-smoke.sh
 
       - name: Test via sbt
-        timeout-minutes: 60
+        timeout-minutes: 90
         run: sbt test
 
       # Save the classes/zinc cache ONLY when compile + assembly + tests all
