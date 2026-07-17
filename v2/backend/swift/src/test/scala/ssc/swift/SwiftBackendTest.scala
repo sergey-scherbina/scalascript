@@ -568,6 +568,37 @@ public enum SessionProbe {
       assert(stdout == "mapped=ok|unmapped=rejected|live=true->false|malformed=rejected", stdout)
     finally deleteRecursively(root)
 
+  test("select renders a real menu Picker and decodes its options rather than a stub"):
+    assume(xcrunSwiftAvailable, "xcrun Swift toolchain is not available")
+    val root = Files.createTempDirectory("ssc-swiftui-select-")
+    val errors = root.resolve("swift.stderr")
+    try
+      val generated = SwiftBackend.generate(nativeUiSelectProgram(), "NativeSelect")
+      generated.writeTo(root)
+      val probe = root.resolve("NativeUiSelectProbe.swift")
+      val binary = root.resolve("NativeUiSelectProbe")
+      Files.writeString(probe, nativeUiSelectProbe, StandardCharsets.UTF_8)
+      val sources = generated.files.collect {
+        case (path, _) if path.startsWith("Sources/AppCore/") ||
+            (path.startsWith("AppleApp/") && !path.endsWith("App.swift")) =>
+          root.resolve(path).toString
+      }
+      val compile = new ProcessBuilder((List(
+        "xcrun", "swiftc", "-parse-as-library", "-swift-version", "6",
+        "-strict-concurrency=complete", "-warnings-as-errors",
+      ) ++ sources ++ List(probe.toString, "-o", binary.toString))*).redirectError(errors.toFile).start()
+      val compileOut = new String(compile.getInputStream.readAllBytes(), StandardCharsets.UTF_8)
+      val compileExit = compile.waitFor()
+      val compileErr = Files.readString(errors, StandardCharsets.UTF_8)
+      assert(compileExit == 0, s"Swift select compile failed ($compileExit):\n$compileErr\n$compileOut")
+      val run = new ProcessBuilder(binary.toString).redirectError(errors.toFile).start()
+      val stdout = new String(run.getInputStream.readAllBytes(), StandardCharsets.UTF_8).trim
+      val runExit = run.waitFor()
+      val stderr = Files.readString(errors, StandardCharsets.UTF_8)
+      assert(runExit == 0, s"Swift select probe failed ($runExit):\n$stderr\n$stdout")
+      assert(stdout == "options=3|placeholder=Pick one|selected=b", stdout)
+    finally deleteRecursively(root)
+
   test("trusted HTML WebKit adapter isolates content navigation and lifecycle"):
     assume(xcrunSwiftAvailable, "xcrun Swift toolchain is not available")
     assert(runNativeHtmlProbe() == "html")
@@ -1435,6 +1466,36 @@ public enum SessionProbe {
     val malformed = el("div", List("disabled" -> Term.Local(0)), txt("malformed"))
     val root = Term.App(Term.Global("fragment"), List(list(List(mapped, unmapped, malformed))))
     Program(Nil, Term.Let(List(flag, count),
+      Term.App(Term.Global("emit"), List(root, str("out")))))
+
+  private def nativeUiSelectProgram(): Program =
+    def pair(key: Term, value: Term): Term = Term.Ctor("Tuple2", List(key, value))
+    def txt(s: String): Term = Term.App(Term.Global("textNode"), List(str(s)))
+    def boolT(b: Boolean): Term = Term.Lit(Const.CBool(b))
+    def mapArg(entries: (String, Term)*): Term =
+      list(entries.toList.map((key, value) => pair(str(key), value)))
+    def el(tag: String, attrs: Term, events: Term, children: List[Term]): Term =
+      Term.App(Term.Global("element"), List(str(tag), attrs, events, list(children)))
+    val empty = list(Nil)
+    // Mirrors the web lowerer's SelectNode output (runtime/std/ui/lower.ssc): a
+    // <select> two-way bound to a String signal (Local(0)), a disabled+hidden
+    // placeholder <option>, and two real <option>s; change -> inputChange(signal).
+    val selected = Term.App(Term.Global("signal"), List(str("selected"), str("b")))
+    val placeholder = el("option",
+      mapArg("value" -> str(""), "selected" -> boolT(false),
+             "disabled" -> boolT(true), "hidden" -> boolT(true)),
+      empty, List(txt("Pick one")))
+    val optionA = el("option", mapArg("value" -> str("a"), "selected" -> boolT(false)), empty, List(txt("Apple")))
+    val optionB = el("option", mapArg("value" -> str("b"), "selected" -> boolT(true)), empty, List(txt("Banana")))
+    val selectEl = el("select",
+      mapArg("style" -> str("width:100%; box-sizing:border-box; background:#fff; cursor:pointer"),
+             "disabled" -> boolT(false), "value" -> Term.Local(0)),
+      mapArg("change" -> Term.App(Term.Global("inputChange"), List(Term.Local(0)))),
+      List(placeholder, optionA, optionB))
+    // A bare <option> outside a <select> must be a strict, sourced Unsupported.
+    val strayOption = el("option", mapArg("value" -> str("x")), empty, List(txt("Stray")))
+    val root = Term.App(Term.Global("fragment"), List(list(List(selectEl, strayOption))))
+    Program(Nil, Term.Let(List(selected),
       Term.App(Term.Global("emit"), List(root, str("out")))))
 
   private def nativeUiTableProgram(): Program =
@@ -4508,6 +4569,67 @@ struct ReactiveAttrProbe {
         }
 
         Swift.print("mapped=ok|unmapped=rejected|live=true->false|malformed=rejected")
+    }
+}
+"""
+
+  private val nativeUiSelectProbe = """
+import Foundation
+import SwiftUI
+
+@main
+struct NativeUiSelectProbe {
+    static func properList(_ value: SscValue) -> [SscValue] {
+        var current = value, result: [SscValue] = []
+        while true {
+            switch current {
+            case let .data("Cons", fields) where fields.count == 2:
+                result.append(fields[0]); current = fields[1]
+            case .data("Nil", _): return result
+            default: fatalError("expected proper list")
+            }
+        }
+    }
+    static func fields(_ value: SscValue, _ tag: String) -> [SscValue] {
+        guard case let .data(actual, fields) = value, actual == tag else { fatalError("expected \(tag)") }
+        return fields.asArray()
+    }
+    static func optionChildren(_ select: SscValue) -> [SscValue] {
+        properList(fields(select, "NativeUiElement")[4])
+    }
+    @MainActor static func main() async {
+        let store = NativeUiStore()
+        let abi = fields(store.root, "NativeUiAbi")
+        let roots = properList(fields(abi[1], "NativeUiFragment")[0])
+        guard roots.count == 2 else { fatalError("expected select + stray option, got \(roots.count)") }
+        let select = roots[0]
+
+        // The <option> children decode into real (value,label) pairs — the same list a
+        // menu Picker renders — NOT a "select adapter pending" stub.
+        let options: [NativeUiSelectOption]
+        do {
+            options = try NativeUiRenderer.decodeSelectOptions(
+                optionChildren(select), source: "probe", store: store)
+        } catch {
+            fatalError("valid <select> options did not decode into real options: \(error)")
+        }
+        guard options.count == 3,
+              options[0].value == "", options[0].label == "Pick one", options[0].hidden,
+              options[1].value == "a", options[1].label == "Apple",
+              options[2].value == "b", options[2].label == "Banana", options[2].selected else {
+            fatalError("unexpected option decode: \(options.map { "\($0.value)=\($0.label)" }.joined(separator: ","))")
+        }
+
+        // The real menu Picker (NativeUiSelectControl) constructs under strict concurrency.
+        // The select case only reaches this control after decode + attr validation succeed,
+        // so a constructed body here means a real dropdown, not an Unsupported red Text.
+        _ = NativeUiRenderer(store: store, value: select).body
+
+        // A bare <option> outside a <select> routes to the strict guard and still builds
+        // (renders the sourced Unsupported view) rather than crashing.
+        _ = NativeUiRenderer(store: store, value: roots[1]).body
+
+        Swift.print("options=\(options.count)|placeholder=\(options[0].label)|selected=\(options[2].value)")
     }
 }
 """

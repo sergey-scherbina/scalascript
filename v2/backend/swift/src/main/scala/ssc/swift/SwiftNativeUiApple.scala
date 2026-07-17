@@ -3,13 +3,14 @@ package ssc.swift
 private[swift] object SwiftNativeUiApple:
   val inventoryElementTags: Set[String] = Set(
     "a", "button", "code", "div", "em", "hr", "img", "input", "label", "li",
-    "ol", "p", "pre", "span", "strong", "table", "tbody", "td", "th", "thead", "tr", "ul",
+    "ol", "option", "p", "pre", "select", "span", "strong", "table", "tbody",
+    "td", "th", "thead", "tr", "ul",
   )
 
   val inventoryCssProperties: Set[String] = Set(
     "align-items", "background", "border", "border-bottom", "border-collapse",
     "border-radius", "border-top", "border-top-color", "box-shadow", "box-sizing",
-    "color", "cursor", "display", "flex", "flex-direction", "font-family",
+    "color", "cursor", "display", "flex", "flex-direction", "flex-wrap", "font-family",
     "font-size", "font-weight", "gap", "height", "inset", "justify-content",
     "margin", "margin-bottom", "margin-left", "margin-right", "margin-top",
     "max-width", "min-width", "opacity", "overflow", "padding", "padding-bottom",
@@ -2504,8 +2505,9 @@ import UIKit
 struct NativeUiRenderer: View {
     private static let supportedAttributes: Set<String> = [
         "alt", "aria-disabled", "aria-label", "aria-modal", "checked", "class",
-        "data-ssc-raw-html", "disabled", "href", "id", "placeholder", "required",
-        "role", "src", "start", "style", "text-align", "title", "type", "value"
+        "data-ssc-raw-html", "disabled", "hidden", "href", "id", "placeholder",
+        "required", "role", "selected", "src", "start", "style", "text-align",
+        "title", "type", "value"
     ]
     private static let supportedEventSlots: Set<String> = ["change", "click"]
     @ObservedObject var store: NativeUiStore
@@ -2635,6 +2637,11 @@ struct NativeUiRenderer: View {
         }
         let content: AnyView
         switch tag {
+        case "div" where style(attrs, "flex-direction") == "row" && style(attrs, "flex-wrap") == "wrap":
+            // HTML flex-row with wrapping. SwiftUI has no flex-wrap, so the faithful
+            // equivalent is a real wrapping flow layout (custom `Layout`, macOS 13/iOS 16)
+            // rather than the non-wrapping HStack used for the plain flex-row below.
+            content = AnyView(NativeUiFlowLayout(spacing: gap(attrs)) { renderChildren(children) })
         case "div" where style(attrs, "flex-direction") == "row":
             content = AnyView(HStack(alignment: Self.centeredAlignment(attrs) ? .center : .top, spacing: gap(attrs)) { renderChildren(children) })
         case "div", "section", "main", "article", "nav", "form":
@@ -2704,6 +2711,27 @@ struct NativeUiRenderer: View {
             content = renderSemanticTable(children, source: source, nodeOwnerPath: nodeOwnerPath)
         case "thead", "tbody", "tr", "th", "td":
             return unsupported("<" + tag + "> is only valid inside a <table> at " + source)
+        case "select":
+            let options: [NativeUiSelectOption]
+            do { options = try Self.decodeSelectOptions(children, source: source, store: store) }
+            catch let error as SelectOptionsInvalid { return unsupported(error.message) }
+            catch { return unsupported(String(describing: error)) }
+            if let bound = attrs.get(.string("value")), case .data("NativeUiSignal", _) = bound {
+                content = AnyView(NativeUiSelectControl(
+                    store: store, signal: bound, options: options, events: events,
+                    siteId: store.string(fields[0]), ownerPath: nodeOwnerPath))
+            } else {
+                // No two-way binding — render a real, read-only dropdown pinned to the
+                // pre-selected <option> rather than a stub.
+                let current = options.first(where: { $0.selected })?.value ?? options.first?.value ?? ""
+                content = AnyView(Picker("", selection: .constant(current)) {
+                    ForEach(Array(options.enumerated()), id: \.offset) { _, option in
+                        Text(option.label).tag(option.value)
+                    }
+                }.pickerStyle(.menu).labelsHidden().disabled(true))
+            }
+        case "option":
+            return unsupported("<option> is only valid inside a <select> at " + source)
         default:
             return unsupported("unsupported element <" + tag + "> at " + store.source(store.string(fields[0])))
         }
@@ -2858,6 +2886,67 @@ struct NativeUiRenderer: View {
 
     struct SemanticTableInvalid: Error {
         let message: String
+    }
+
+    struct SelectOptionsInvalid: Error {
+        let message: String
+    }
+
+    // Decode the <option> children of a <select> into value/label pairs. Each child
+    // must be a NativeUiElement whose tag is "option" and whose own children are plain
+    // text (the label). Anything else has no faithful Picker mapping and becomes a
+    // sourced Unsupported, matching the strict semantic-table decoding.
+    static func decodeSelectOptions(
+        _ children: [SscValue], source: String, store: NativeUiStore
+    ) throws -> [NativeUiSelectOption] {
+        func plainText(_ nodes: [SscValue]) -> String {
+            var text = ""
+            for node in nodes {
+                switch node {
+                case let .data("NativeUiText", inner) where inner.count == 1:
+                    text += store.string(inner[0])
+                case let .data("NativeUiFragment", inner) where inner.count == 1:
+                    var current = inner[0], gathered: [SscValue] = []
+                    while case let .data("Cons", pair) = current, pair.count == 2 {
+                        gathered.append(pair[0]); current = pair[1]
+                    }
+                    text += plainText(gathered)
+                default: break
+                }
+            }
+            return text
+        }
+        var options: [NativeUiSelectOption] = []
+        for child in children {
+            guard case let .data("NativeUiElement", optionFields) = child, optionFields.count == 5,
+                  store.string(optionFields[1]) == "option" else {
+                throw SelectOptionsInvalid(message: "<select> child must be <option> at " + source)
+            }
+            guard case let .map(optionAttrs) = optionFields[2],
+                  let inline = { () -> [SscValue]? in
+                      var current = optionFields[4], result: [SscValue] = []
+                      while true {
+                          switch current {
+                          case let .data("Cons", pair) where pair.count == 2:
+                              result.append(pair[0]); current = pair[1]
+                          case .data("Nil", _): return result
+                          default: return nil
+                          }
+                      }
+                  }() else {
+                throw SelectOptionsInvalid(message: "malformed <option> at " + source)
+            }
+            func optBool(_ name: String) -> Bool {
+                optionAttrs.get(.string(name)).map(store.bool) ?? false
+            }
+            options.append(NativeUiSelectOption(
+                value: optionAttrs.get(.string("value")).map(store.string) ?? "",
+                label: plainText(inline),
+                disabled: optBool("disabled"),
+                hidden: optBool("hidden"),
+                selected: optBool("selected")))
+        }
+        return options
     }
 
     private func runEvents(_ events: SscMap, input: String? = nil, siteId: String, nodeOwnerPath: String) {
@@ -3133,6 +3222,124 @@ private struct NativeUiToggleControl: View {
             for (_, event) in events.entries {
                 store.cancelFetchAction(event, ownerPath: store.actionOwnerPath(for: event, mountedAt: ownerPath))
             }
+        }
+    }
+}
+
+struct NativeUiSelectOption {
+    let value: String
+    let label: String
+    let disabled: Bool
+    let hidden: Bool
+    let selected: Bool
+}
+
+// Faithful <select> renderer: a menu-style Picker two-way bound to the value Signal,
+// exactly mirroring the reactive plumbing of NativeUiTextControl/NativeUiToggleControl
+// (subscribe to the bound cell on appear; on selection change run the element's
+// `change` events with the picked value as `input`, which is how the web `<select>`
+// lowers via `inputChange(selected)`). The placeholder <option> (value "") is kept as a
+// tagged menu entry so the current-selection label still reads correctly while the
+// signal is empty — SwiftUI's Picker cannot hide an individual entry, so its HTML
+// `hidden` attribute is the one honest approximation here (it stays selectable-to-clear
+// instead of disappearing after the first pick).
+@MainActor
+private struct NativeUiSelectControl: View {
+    @ObservedObject var cell: NativeUiObservableCell
+    @ObservedObject var store: NativeUiStore
+    let options: [NativeUiSelectOption]
+    let events: SscMap
+    let siteId: String
+    let ownerPath: String
+    @State private var token: NativeUiSubscriptionToken?
+
+    init(store: NativeUiStore, signal: SscValue, options: [NativeUiSelectOption], events: SscMap, siteId: String, ownerPath: String) {
+        self.store = store
+        self.cell = store.cell(for: signal)
+        self.options = options
+        self.events = events
+        self.siteId = siteId
+        self.ownerPath = ownerPath
+    }
+
+    @ViewBuilder var body: some View {
+        Group {
+            if let diagnostic = cell.renderedDiagnostic() {
+                Text(diagnostic).foregroundStyle(.red)
+                    .accessibilityLabel("Unsupported native UI: " + diagnostic)
+            } else {
+                Picker("", selection: Binding(
+                    get: { store.string(cell.read()) },
+                    set: { next in
+                        for (_, event) in events.entries {
+                            NativeUiActions.run(
+                                event, input: next, store: store, siteId: siteId,
+                                ownerPath: store.actionOwnerPath(for: event, mountedAt: ownerPath))
+                        }
+                    }
+                )) {
+                    ForEach(Array(options.enumerated()), id: \.offset) { _, option in
+                        Text(option.label).tag(option.value)
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+            }
+        }
+        .onAppear { if token == nil { token = store.subscribe(cell) } }
+        .onDisappear {
+            if let token { store.unsubscribe(token); self.token = nil }
+            for (_, event) in events.entries {
+                store.cancelFetchAction(event, ownerPath: store.actionOwnerPath(for: event, mountedAt: ownerPath))
+            }
+        }
+    }
+}
+
+// SwiftUI has no flex-wrap; this is the faithful equivalent of a wrapping CSS flex-row —
+// a real `Layout` (macOS 13/iOS 16, same floor the semantic-table `Grid` already
+// requires) that flows subviews left-to-right and wraps to a new line when the next one
+// would overflow the proposed width, honoring the same `gap` spacing the HStack path uses.
+private struct NativeUiFlowLayout: Layout {
+    var spacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var rowWidth: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var totalWidth: CGFloat = 0
+        var totalHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if rowWidth > 0 && rowWidth + spacing + size.width > maxWidth {
+                totalWidth = max(totalWidth, rowWidth)
+                totalHeight += rowHeight + spacing
+                rowWidth = size.width
+                rowHeight = size.height
+            } else {
+                rowWidth += (rowWidth > 0 ? spacing : 0) + size.width
+                rowHeight = max(rowHeight, size.height)
+            }
+        }
+        totalWidth = max(totalWidth, rowWidth)
+        totalHeight += rowHeight
+        return CGSize(width: min(totalWidth, maxWidth), height: totalHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX
+        var y = bounds.minY
+        var rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > bounds.minX && x + size.width > bounds.maxX {
+                x = bounds.minX
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), anchor: .topLeading, proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
         }
     }
 }
@@ -3485,7 +3692,7 @@ enum NativeUiStyles {
     }
 
     private static let supportedProperties: Set<String> = [
-        "display", "flex-direction", "align-items", "justify-content", "gap", "flex", "flex-grow",
+        "display", "flex-direction", "flex-wrap", "align-items", "justify-content", "gap", "flex", "flex-grow",
         "padding", "padding-left", "padding-right", "padding-top", "padding-bottom",
         "margin", "margin-left", "margin-right", "margin-top", "margin-bottom",
         "width", "min-width", "max-width", "height", "min-height", "max-height",
@@ -3605,6 +3812,11 @@ enum NativeUiStyles {
                 minHeight: minHeight, maxHeight: maxHeight
             ))
         }
+        // `width:100%` / `height:100%` mean "fill the available cross-axis extent" — the
+        // faithful SwiftUI mapping is an infinite max in that axis (used by the `.ssc`
+        // std/ui textField/select/table styles, which all emit width:100%).
+        if declarations["width"] == "100%" { result = AnyView(result.frame(maxWidth: .infinity)) }
+        if declarations["height"] == "100%" { result = AnyView(result.frame(maxHeight: .infinity)) }
         if declarations["flex"]?.hasPrefix("1") == true || declarations["flex-grow"] == "1" {
             result = AnyView(result.frame(maxWidth: .infinity, maxHeight: .infinity))
         }
@@ -3714,8 +3926,12 @@ enum NativeUiStyles {
             "width", "min-width", "max-width", "height", "min-height", "max-height",
             "font-size", "border-radius"
         ]
+        let fillProperties: Set<String> = [
+            "width", "min-width", "max-width", "height", "min-height", "max-height"
+        ]
         for property in scalarLengths {
-            if let value = values[property], pixels(value) == nil {
+            if let value = values[property], pixels(value) == nil,
+               !(fillProperties.contains(property) && value == "100%") {
                 return "unsupported native CSS value " + property + ":" + value
             }
         }
@@ -3740,6 +3956,9 @@ enum NativeUiStyles {
         }
         if let value = values["flex-direction"], value != "row", value != "column" {
             return "unsupported native CSS value flex-direction:" + value
+        }
+        if let value = values["flex-wrap"], !["wrap", "nowrap", "wrap-reverse"].contains(value) {
+            return "unsupported native CSS value flex-wrap:" + value
         }
         if let value = values["gap"], pixels(value) == nil {
             return "unsupported native CSS value gap:" + value
