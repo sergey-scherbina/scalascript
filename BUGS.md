@@ -60,9 +60,22 @@ not exist, rather than changing the engine's SQL semantics.
 
 ## v1-interp-int-literal-above-2^31-becomes-null — the INT conformance REFERENCE silently prints `null`
 
-**Status:** OPEN / found 2026-07-17 by `int-width-conformance` while writing `tests/conformance/int-width.ssc`.
-Not reported by anyone — found by measuring. SHA `cb35fffa6` (+ this branch), real harness
-(`bin/ssc-tools`, built by `install.sh --dev`).
+**Status:** FIXED `5b71ad2f6` (`int-literal-failopen`). Found 2026-07-17 by
+`int-width-conformance` while writing `tests/conformance/int-width.ssc`. Not reported by anyone —
+found by measuring. Original SHA `cb35fffa6`, real harness (`bin/ssc-tools`, built by
+`install.sh --dev`).
+
+**FIX / confirmed root cause.** The suspected "32-bit host `Int` in the lexer" was WRONG — there is
+no hand-written numeric lexer. `Parser.preprocessNumericLiterals` only promoted a literal
+`> Long.Max` to `BigInt`; the band `(Int.Max, Long.Max]` was emitted as a **bare decimal**, which
+scalameta's 32-bit `Lit.Int` cannot hold, so the block failed to parse and was swallowed by the
+`Try{}.toOption.flatten` wrapper → `null`, exit 0. Fix: emit an `L` suffix for any non-decimal
+magnitude `> Int.Max`, so scalameta yields `Lit.Long` (a 64-bit `IntV`). That fixes the whole band,
+makes `-9223372036854775808` (min64) parse natively as `Long.MinValue`, and makes a literal past
+Int64 a **hard parse error** (fail closed) — scalameta rejects `<n>L` for `n > Long.Max`. The
+bare-oversized `> Long.Max` → BigInt auto-promotion was removed (it silently retyped a literal by
+magnitude, against `specs/numeric-widths.md` §2); BigInt is the explicit `BigInt(...)` / `n` suffix.
+Boundary map now byte-identical to v2 native across `[-9223372036854775808, 9223372036854775807]`.
 
 **The v1 interpreter cannot represent an integer LITERAL at or above 2^31.** It degrades it to
 `null` and **exits 0**. Its *arithmetic* is 64-bit; its *literals* are not. This is the INT
@@ -102,8 +115,22 @@ can be simplified — but do not simplify it before then.
 
 ## v2-native-min64-literal-prints-0 — `println(-9223372036854775808)` gives `0`, silently
 
-**Status:** OPEN / found 2026-07-17 by `int-width-conformance`. SHA `cb35fffa6`, real harness
-(`bin/ssc run`, jar from `scala-cli --power package v2/src --assembly`).
+**Status:** FIXED `5b71ad2f6` (`int-literal-failopen`). Found 2026-07-17 by
+`int-width-conformance`. Original SHA `cb35fffa6`, real harness (`bin/ssc run`, jar from
+`scala-cli --power package v2/src --assembly`).
+
+**FIX / confirmed root cause.** The self-hosted tower's `parseI` (`v2/lib/ssc1-lower.ssc0`)
+defaulted an overflowing `#str->i` (`toLongOption` → None) to `0`, and unary `-` is lowered as an
+eval-time `0 - x` (not folded), so `-9223372036854775808` = `0 - parseI("9223372036854775808")` =
+`0 - 0` = `0`. **Also found and fixed the same fail-open for any bare literal past Int64** (e.g.
+`99999999999999999999999999` → `0`). Fix: `lowerIntLit` fails closed via the `_err_int_range`
+sentinel on overflow; the `pre -` case folds the sign (`#str->i("-" ++ digits)`) so the signed
+min64 string parses directly to `Long.MinValue` (an `IntV`, not a BigInt). `RunNativeV2` surfaces
+the sentinel with a clear "integer literal out of range for Int (64-bit)…" message. Gated to
+overflow/min64 literals only — the **P6.5 self-compile fixpoint is byte-identical before and after**
+(stage1==stage2, 79,667 B), verified with `specs/v2.2-p6.5-fsub.sh --self`. Pre-existing adjacent
+gap (NOT this bug, noted for follow-up): v2 `BigInt("…")` past Int64 still errors `i->big: not Int`,
+so v2 cannot yet build a BigInt larger than Int64 by any spelling.
 
 **Repro** (v2 native):
 

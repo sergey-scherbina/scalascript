@@ -169,6 +169,7 @@ compared against the real consumers by
 | The four host tables | §3 is compared against the width tables in the host profile specs (`javascript-typescript-`/`rust-`/`swift-bidirectional-control.md`, `wasm-wasi-control-runner.md`). A profile that drifts fails. |
 | `Int` == `Long`, `Float` == `Double` | asserted through the real producer (identical ABI, distinct evidence). |
 | Interpreter / v2 / v1 codegen (runtime) | `tests/conformance/int-width.ssc` runs on **every** eligible backend. The v1 codegen lanes are declared known-red there (§4), so the divergence is visible in the gate output rather than routed around. |
+| Literal surface (runtime) | `tests/conformance/int-literal.ssc` pins that every value in `[-9223372036854775808, 9223372036854775807]` is writable as a bare **literal** (the width contract's other half — `int-width.ssc` builds its values by computation). `tests/e2e/int-literal-failopen-smoke.sh` additionally pins that a literal past Int64 fails CLOSED on both launchers. |
 
 The test **parses this table** rather than restating it: a restated table is a second guess, which
 is the very failure this file exists to end. If you change §2 or §3, the test tells you which
