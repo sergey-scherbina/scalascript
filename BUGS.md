@@ -2,9 +2,10 @@
 
 ## registry-seed-test-cwd-cancel — tracked packages.yaml validation silently skips on Linux CI
 
-**Status:** OPEN (found 2026-07-17 by `ci-red-main` in Linux run `29545769651`, SHA `893bf2632`,
-job `87777659720`). `RegistrySchemaTest` cancels `seed registry/packages.yaml parses and validates
-without errors` with `registry/packages.yaml not found — skipping seed validation`.
+**Status:** FIXED (2026-07-17, `a99973c16`; awaiting CI confirmation). Found by `ci-red-main` in
+Linux run `29545769651`, SHA `893bf2632`, job `87777659720`. `RegistrySchemaTest` cancelled
+`seed registry/packages.yaml parses and validates without errors` with
+`registry/packages.yaml not found — skipping seed validation`.
 
 **Real-harness evidence.** GitHub checks out the complete repository before `sbt test`; the seed is
 tracked at repository-root `registry/packages.yaml`. The suite nevertheless treats its own missing
@@ -17,6 +18,12 @@ worktree, and sbt project working directories; validate the tracked seed through
 fixture truly is missing, fail and print every searched location instead of cancelling. Keep the
 existing parse/schema assertions unchanged. Done means the focused suite executes the seed case on
 macOS and Linux-shaped paths rather than pre-judging it as unavailable.
+
+**Fix/result.** The locator walks ancestors from process CWD, `user.dir`, and the loaded test class,
+bounded by each path's segment count so it includes filesystem root once without walking above it.
+The regression explicitly starts at `v1/lang/core`, matching aggregate sbt's module CWD. A missing
+tracked seed now fails with all searched candidates. The suite executes 15/15 with zero cancellations
+and passes; focused cross-backend conformance stays green.
 
 
 ## jvm-bytecode-runtime-tests-ignore-installed-drivers — five CI assertions cancel before comparing

@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-07-17 — package registry seed validation is no longer CWD-optional
+
+`RegistrySchemaTest` now finds tracked `registry/packages.yaml` by bounded ancestor search from the
+process, JVM, and test-class locations, including aggregate sbt's `v1/lang/core` working directory
+(`a99973c16`). Missing checkout data fails with every searched path instead of cancelling. The
+focused suite executes all 15 cases with zero cancels and passes.
+
 ## 2026-07-17 — bytecode runtime-separation tests execute against current artifacts
 
 All five JVM bytecode runtime-separation checks now run through staged `ssc-tools` instead of

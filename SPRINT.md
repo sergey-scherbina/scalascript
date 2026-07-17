@@ -444,7 +444,7 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       paths come from the test JVM on every OS; `JvmArtifactIO` decodes MessagePack; module/runtime
       size is compared relationally within one build. Focused suite executes 5/5 with zero cancels
       and passes; `dataset-parallel-jvm` passes on its declared JVM lane.
-- [ ] **5p. Make the tracked package-registry seed test run from every sbt project CWD.** Linux run
+- [x] **5p. Make the tracked package-registry seed test run from every sbt project CWD.** Linux run
       `29545769651`, job `87777659720`, cancels `RegistrySchemaTest`'s seed validation because
       `registry/packages.yaml` is resolved relative to a module working directory. The file is part
       of the checkout, so this is not an optional external integration. Reproduce with the focused
@@ -455,6 +455,10 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       **Locator gotcha caught by its regression:** a fixed 16-step `Iterator.iterate(path)(_ / ..)`
       eventually asks `os.Path` to move above filesystem root and throws before comparison. Bound
       each walk to `start.segments.length + 1`, which includes root exactly once on every depth.
+      **DONE `a99973c16`:** ancestor search starts from process CWD, `user.dir`, and test-class
+      location, includes filesystem root once, and explicitly verifies the `v1/lang/core` CWD shape.
+      Missing tracked data fails with all candidates. Focused suite passes 15/15 with zero cancels;
+      `arithmetic` remains green INT/JS/JVM.
 - [ ] **6. Prevent the recurrence.** Long-red CI is what let all of this pile up. Decide + record a
       cheap guard (e.g. the loop checks `gh run list` before claiming a lane green, or a CI-status
       line in the claim protocol). Recorded as a question for Sergiy, not a unilateral process change.
