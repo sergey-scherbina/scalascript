@@ -71,48 +71,16 @@ import java.time.Duration
  *     fall back to 1.1.
  *
  *  Requires (else cancels gracefully): `sbt cli/assembly` + `sbt installBin`
- *  (compiler jars; `ssc.lib.path` is derived from the jar via `sscLibArgs`),
- *  `node`, `npm` (`ws` installed into the sandbox), `scala-cli`, and the Scala
- *  stdlib in the Coursier cache. */
+ *  (the installed `ssc-tools` launcher and compiler jars), `node`, `npm` (`ws`
+ *  installed into the sandbox), `scala-cli`, and Scala runtime libraries visible
+ *  to the test JVM. */
 class ClusterMultiBackendMatrixTest extends AnyFunSuite:
 
-  // ── ssc.jar discovery (mirrors other cluster tests) ──────────────────
+  // ── Installed distribution ───────────────────────────────────────────
 
-  private val sscJar: Option[os.Path] =
-    val cwd = os.pwd
-    def jarUnder(root: os.Path): os.Path =
-      root / "cli" / "target" / "scala-3.8.3" / "ssc.jar"
-    def findCanonicalRepo(p: os.Path): Option[os.Path] =
-      val parts = p.segments.toList
-      val idx   = parts.lastIndexOf(".claude")
-      if idx >= 0 && idx + 1 < parts.length && parts(idx + 1) == "worktrees" then
-        Some(os.Path("/" + parts.take(idx).mkString("/")))
-      else None
-    val candidates =
-      List(jarUnder(cwd), jarUnder(cwd / os.up)) ++
-      findCanonicalRepo(cwd).map(jarUnder).toList
-    candidates.find(os.exists)
-
-  private def requireJar(): os.Path = sscJar.getOrElse:
-    cancel("ssc.jar not found — run `sbt cli/assembly` first")
-
-  // `compile-jvm`/`link --bytecode` lazily load the Scala compiler jars from
-  // `<ssc.lib.path>/bin/lib/compiler/jars` (staged by `sbt installBin`). Plain
-  // `java -jar ssc.jar` doesn't set `ssc.lib.path`, so derive it by walking up
-  // from the jar to the staged root and pass `-Dssc.lib.path`; empty when not
-  // staged (compile-jvm then cancels the test with its own message).
-  private val sscLibArgs: Seq[String] =
-    sscJar match
-      case Some(j) =>
-        var p: os.Path = j / os.up
-        var found: Option[os.Path] = None
-        var i = 0
-        while found.isEmpty && i < 8 do
-          if os.exists(p / "bin" / "lib" / "compiler" / "jars") then found = Some(p)
-          if p != p / os.up then p = p / os.up
-          i += 1
-        found.map(r => s"-Dssc.lib.path=$r").toSeq
-      case None => Seq.empty
+  private def requireLauncher(): os.Path =
+    StagedCliTestSupport.toolsLauncher.getOrElse:
+      cancel("bin/ssc-tools not found — run `sbt cli/assembly installBin` first")
 
   private def requireScalaCli(): Unit =
     val res = scala.util.Try {
@@ -130,44 +98,9 @@ class ClusterMultiBackendMatrixTest extends AnyFunSuite:
     if res.isFailure || !res.toOption.exists(_.exitCode == 0) then
       cancel("`node` not on PATH — needed for the JS-codegen side")
 
-  /** Look up the Scala 3 + Scala 2.13 stdlib JARs in Coursier's cache
-   *  (mirrors `JvmBytecodeLinkCliTest`).  Returns `cp1:cp2` when both
-   *  are found; `None` triggers a `cancel(...)` higher up. */
-  private def scalaStdlibClasspath(): Option[String] =
-    val home = sys.env.getOrElse("HOME", "")
-    if home.isEmpty then None
-    else
-      val coursierRoot = os.Path(home) / "Library" / "Caches" / "Coursier" /
-        "v1" / "https" / "repo1.maven.org" / "maven2" / "org" / "scala-lang"
-      val s3Root = coursierRoot / "scala3-library_3"
-      val s2Root = coursierRoot / "scala-library"
-      if !os.exists(s3Root) || !os.exists(s2Root) then None
-      else
-        // Pick the most-recent version directory with a non-placeholder
-        // JAR (>10 KB).  Coursier sometimes leaves a 318-byte stub when
-        // a newer version's resolution hasn't completed — those would
-        // crash `java -cp` with `NoClassDefFoundError`.
-        def newestRealJar(root: os.Path, pattern: String): Option[os.Path] =
-          if !os.isDir(root) then None
-          else
-            val dirs = os.list(root).filter(p =>
-              os.isDir(p) && p.last.matches("\\d+\\.\\d+\\.\\d+"))
-            dirs.flatMap { d =>
-              os.list(d).filter { p =>
-                p.last.matches(pattern) &&
-                !p.last.contains("sources") &&
-                os.size(p) > 10_000
-              }
-            }.sortBy(_.toString).reverse.headOption
-        val s3 = newestRealJar(s3Root, "scala3-library_3-\\d.*\\.jar")
-        val s2 = newestRealJar(s2Root, "scala-library-\\d.*\\.jar")
-        (s3, s2) match
-          case (Some(j3), Some(j2)) => Some(s"$j3:$j2")
-          case _                    => None
-
-  private def requireScalaStdlib(): String = scalaStdlibClasspath().getOrElse:
-    cancel("Scala 3 stdlib JARs not found in Coursier cache — needed to " +
-           "run the JVM-codegen JAR")
+  private def requireScalaStdlib(): String =
+    StagedCliTestSupport.scalaRuntimeClasspath.getOrElse:
+      cancel("Scala runtime libraries are not visible to the test JVM — needed to run the JVM-codegen JAR")
 
   private def freePort(): Int =
     val s = new java.net.ServerSocket(0)
@@ -216,56 +149,60 @@ class ClusterMultiBackendMatrixTest extends AnyFunSuite:
    *  `link --backend jvm --bytecode` against the same artifact dir, then
    *  return the path to a runnable JAR. */
   private def compileJvmSide(
-      sandbox: os.Path, jar: os.Path, src: String, nodeId: String): os.Path =
+      sandbox: os.Path, launcher: os.Path, src: String, nodeId: String): os.Path =
     val sscFile = sandbox / s"$nodeId.ssc"
     os.write(sscFile, src)
     val artifactDir = sandbox / "artifacts-jvm"
     os.makeDir.all(artifactDir)
-    val cmpRes = os.proc(
-      "java", sscLibArgs, "-jar", jar.toString,
-      "compile-jvm", "--bytecode", sscFile.toString,
-      "-o", (artifactDir / s"$nodeId.scjvm").toString
-    ).call(cwd = sandbox, stdin = "", check = false, stderr = os.Pipe, stdout = os.Pipe)
-    if cmpRes.exitCode != 0 then
-      cancel(s"compile-jvm --bytecode failed for $nodeId:\n" +
-             s"stdout=${cmpRes.out.text()}\nstderr=${cmpRes.err.text()}")
+    val cmpRes = StagedCliTestSupport.runTools(
+      launcher,
+      sandbox,
+      args = Seq(
+        "compile-jvm", "--bytecode", sscFile.toString,
+        "-o", (artifactDir / s"$nodeId.scjvm").toString))
+    assert(cmpRes.exitCode == 0,
+      s"compile-jvm --bytecode failed for $nodeId: exit=${cmpRes.exitCode}\n" +
+        s"stdout=${cmpRes.out.text()}\nstderr=${cmpRes.err.text()}")
     val outJar = sandbox / s"$nodeId.jar"
-    val linkRes = os.proc(
-      "java", sscLibArgs, "-jar", jar.toString,
-      "link", "--backend", "jvm", "--bytecode",
-      artifactDir.toString, "-o", outJar.toString
-    ).call(cwd = sandbox, stdin = "", check = false, stderr = os.Pipe, stdout = os.Pipe)
-    if linkRes.exitCode != 0 then
-      cancel(s"link --backend jvm --bytecode failed for $nodeId:\n" +
-             s"stdout=${linkRes.out.text()}\nstderr=${linkRes.err.text()}")
+    val linkRes = StagedCliTestSupport.runTools(
+      launcher,
+      sandbox,
+      args = Seq(
+        "link", "--backend", "jvm", "--bytecode",
+        artifactDir.toString, "-o", outJar.toString))
+    assert(linkRes.exitCode == 0,
+      s"link --backend jvm --bytecode failed for $nodeId: exit=${linkRes.exitCode}\n" +
+        s"stdout=${linkRes.out.text()}\nstderr=${linkRes.err.text()}")
     outJar
 
   /** Compile + link the JS-codegen side: `compile-js` then
    *  `link --backend js` against the same artifact dir, then return the
    *  path to a runnable `out.js` bundle. */
   private def compileJsSide(
-      sandbox: os.Path, jar: os.Path, src: String, nodeId: String): os.Path =
+      sandbox: os.Path, launcher: os.Path, src: String, nodeId: String): os.Path =
     val sscFile = sandbox / s"$nodeId.ssc"
     os.write(sscFile, src)
     val artifactDir = sandbox / "artifacts-js"
     os.makeDir.all(artifactDir)
-    val cmpRes = os.proc(
-      "java", sscLibArgs, "-jar", jar.toString,
-      "compile-js", sscFile.toString,
-      "-o", (artifactDir / s"$nodeId.scjs").toString
-    ).call(cwd = sandbox, stdin = "", check = false, stderr = os.Pipe, stdout = os.Pipe)
-    if cmpRes.exitCode != 0 then
-      cancel(s"compile-js failed for $nodeId:\n" +
-             s"stdout=${cmpRes.out.text()}\nstderr=${cmpRes.err.text()}")
+    val cmpRes = StagedCliTestSupport.runTools(
+      launcher,
+      sandbox,
+      args = Seq(
+        "compile-js", sscFile.toString,
+        "-o", (artifactDir / s"$nodeId.scjs").toString))
+    assert(cmpRes.exitCode == 0,
+      s"compile-js failed for $nodeId: exit=${cmpRes.exitCode}\n" +
+        s"stdout=${cmpRes.out.text()}\nstderr=${cmpRes.err.text()}")
     val outJs = sandbox / s"$nodeId.js"
-    val linkRes = os.proc(
-      "java", sscLibArgs, "-jar", jar.toString,
-      "link", "--backend", "js",
-      artifactDir.toString, "-o", outJs.toString
-    ).call(cwd = sandbox, stdin = "", check = false, stderr = os.Pipe, stdout = os.Pipe)
-    if linkRes.exitCode != 0 then
-      cancel(s"link --backend js failed for $nodeId:\n" +
-             s"stdout=${linkRes.out.text()}\nstderr=${linkRes.err.text()}")
+    val linkRes = StagedCliTestSupport.runTools(
+      launcher,
+      sandbox,
+      args = Seq(
+        "link", "--backend", "js",
+        artifactDir.toString, "-o", outJs.toString))
+    assert(linkRes.exitCode == 0,
+      s"link --backend js failed for $nodeId: exit=${linkRes.exitCode}\n" +
+        s"stdout=${linkRes.out.text()}\nstderr=${linkRes.err.text()}")
     outJs
 
   /** Spawn the JVM-codegen JAR as `java -cp out.jar:scala-stdlib <main>`. */
@@ -276,7 +213,7 @@ class ClusterMultiBackendMatrixTest extends AnyFunSuite:
       logFile:  java.io.File): Process =
     val mainCls = s"${nodeId.replace('-', '_')}_sc"
     val pb = new ProcessBuilder(
-        "java", "-cp", s"$jar:$stdlibCp", mainCls)
+        "java", "-cp", s"$jar${java.io.File.pathSeparator}$stdlibCp", mainCls)
       .redirectErrorStream(true)
       .redirectOutput(logFile)
     pb.start()
@@ -389,7 +326,7 @@ class ClusterMultiBackendMatrixTest extends AnyFunSuite:
   // for cluster modules), flip this back to `test(...)`.  The
   // scaffolding (npm install, sandbox cwd) is already in place.
   test("JVM-codegen + JS-codegen nodes converge on a Bully leader"):
-    val jar       = requireJar()
+    val launcher  = requireLauncher()
     requireScalaCli()
     requireNode()
     val stdlibCp  = requireScalaStdlib()
@@ -408,8 +345,8 @@ class ClusterMultiBackendMatrixTest extends AnyFunSuite:
       val jvmSrc = nodeSrc("node-aaa", portJvm, peerUrl = urlJs)
       val jsSrc  = nodeSrc("node-bbb", portJs,  peerUrl = urlJvm)
 
-      val jvmJarPath = compileJvmSide(sandbox, jar, jvmSrc, "node-aaa")
-      val jsJsPath   = compileJsSide (sandbox, jar, jsSrc,  "node-bbb")
+      val jvmJarPath = compileJvmSide(sandbox, launcher, jvmSrc, "node-aaa")
+      val jsJsPath   = compileJsSide (sandbox, launcher, jsSrc,  "node-bbb")
       // JS-codegen's `connectNode` worker dials peers via `require('ws')`.
       // Install the package alongside the bundle so the cluster handshake
       // succeeds.  Cancels the test on `npm install` failure (offline, no
