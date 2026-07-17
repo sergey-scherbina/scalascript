@@ -68,8 +68,18 @@ Everything else is CI-confirmed green: `Lint Markdown`, `Validate ScalaScript`, 
 and `Conformance Suite` at **286 passed / 0 failed** with 3 declared known-red lanes (up from
 228/53-failed when this excavation started — see §`ci-red-main`).
 
-**The job has TWO independent failures, and they LAYER: the flake runs earlier, so when it fires it
-hides the test failures behind it.** Both are real; fixing one leaves the job red.
+**The job has THREE independent failures, and they LAYER: an earlier one hides the later ones.** All
+real (or real flakes); fixing one leaves the job red.
+
+- [ ] **0. `ScalaScript 2.1 standard-only negative toolchain release gate` — a SERVER-TIMEOUT FLAKE,
+      NOT a regression.** On `f712e97de` (the int-literal fix) the gate exits 1, but its parity output is
+      CLEAN: `mismatch: 0, both-fail: 1, identical: 63` — byte-identical to the numbers the coreir agent
+      recorded as its baseline. The exit-1 comes from **`server-timeout: 4`** — 4 cases timed out on the
+      warm compile server under CI load (`run-ok: 83, server-timeout: 4, run-error: 82, strict-fail: 120`;
+      the 82/120 are EXPECTED negatives, not new). **Do NOT misdiagnose this as an int-literal regression**
+      — the native-tower lowering change is invisible to the parity (mismatch 0). It is the same
+      server-timeout flakiness the gate has shown under load before; the fix is timeout hardening / retry
+      in the gate's warm-server path, not a code change. Flagged so the next agent doesn't chase a ghost.
 
 - [x] **1. `v21-slim-distribution-gate` flake — FIXED `87187416d`, CI-CONFIRMED.** `actors-provider.ssc`
       prints from two unsynchronised actors and the gate asserted a total order over them; CI caught the
