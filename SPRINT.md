@@ -956,7 +956,7 @@ optional policy, not the default continuation semantics.
     that bound land. **H5 (validation) is the biggest remaining fail-open**: measured, the reader still
     accepts `(local -1)`, `(lam -1 …)`, odd-length/`+1`/`-1` hex in `(bytes …)`, non-`Lam` `letrec`
     bindings, unbound globals, and any non-delimiter run as a SYMBOL.
-- [ ] **numeric-width-reconciliation — DECIDED 2026-07-16: OPTION (A) `Int` → `I64`** (Sergiy's call,
+- [~] **numeric-width-reconciliation — LANDED 2026-07-17 (option A); one slice deferred, see below** (Sergiy's call,
   asked with all three options + their costs on the table; raised by coreir-contract, who correctly
   refused to choose unilaterally) — retain source `Int`/`Long`
   width evidence and implement canonical public `I32`/`I64` semantics over the current signed
@@ -1014,10 +1014,81 @@ optional policy, not the default continuation semantics.
   (B) is a coherent reading of "canonical public I32 semantics" too, so I am not choosing.
   Tracked as a live fail-open in `BUGS.md` (`coreir-abi-int-width-declared-i32-actually-i64`).
 
-  Once decided, the slices are: [ ] width evidence retained pre-body · [ ] public I32/I64 semantics
-  implemented (real wrap at the boundary, not a relabel) · [ ] per-backend wrap/round-trip/overload
-  vectors (JS/TS, Rust, Swift, WASM-WASI — each must FAIL loudly on truncation) · [ ] reject legacy
-  ambiguous exports · [ ] re-run the literal fixed point.
+  **EXECUTION (agent `int64-abi`, 2026-07-17).** Spec: [`specs/numeric-width-reconciliation.md`](specs/numeric-width-reconciliation.md).
+  Baselines measured in a clean worktree BEFORE any change: P6.5 fixpoint **89 ok / 0 FAIL**,
+  `stage1 == stage2` byte-identical at **79,667 B**; producer suite green. The descriptor leaf is
+  outside `v2/src` ⇒ the fixpoint bytes MUST NOT move; if they do, stop and coordinate with P6.5.
+
+  **COLLISION PROVEN, not assumed** (bare one-line mapping flip, nothing else changed, probe
+  `def widen(value: Int)` / `def widen(value: Long)`): before flip overloadIds `dde22763…` vs
+  `922b20fa…` (distinct only because `I32 != I64`); after flip →
+  `DUPLICATE_SYMBOL_ID at $.symbols: ssc:symbol:v1:5ddf0353…`. Note it fails **closed** (the factory
+  rejects the module) rather than silently merging overloads — but `Int`/`Long` overloads become
+  unexportable, so the bare flip is not a fix. Width evidence is mandatory.
+
+  **DESIGN:** `AbiType.Primitive(value: AbiPrimitive, declaredWidth: Option[NumericWidthEvidence] = None)`
+  + `enum NumericWidthEvidence: case DeclaredInt, DeclaredLong`. `value` = the **wire width** (the
+  marshalling contract; hosts read this alone and are correct). `declaredWidth` = the **source
+  spelling**, evidence only — it keeps identity exact and is where (C)'s narrowing binds.
+  `AbiPrimitive` keeps all 9 cases; `I32` becomes unreachable from ssc source and is RESERVED for (C).
+
+  Slices:
+  - [x] **width evidence retained pre-body** — `Int -> Primitive(I64, Some(DeclaredInt))`,
+    `Long -> Primitive(I64, Some(DeclaredLong))` in `PreBodyApiDescriptorProducer:2066-2067`;
+    evidence survives `Normalization.abiType`/`TypeWire.identityType` (both pass `Primitive` through
+    whole) ⇒ overload IDs stay distinct.
+  - [x] **public I32/I64 semantics** — `I64` = 64-bit two's-complement wrapping, identical to the
+    Core IR value domain. NOTE: under (A) there is deliberately **no wrap to implement at the
+    boundary** — every ssc integer is I64 end to end, so nothing narrows. A "real wrap at the
+    boundary" belongs to (C)'s narrowing ABI; inventing one here would be the same guess in the
+    other direction. Validator invariants instead (fail-closed): evidence ⇒ `value ∈ {I32,I64}`
+    (`INVALID_NUMERIC_WIDTH_EVIDENCE`); `value ∈ {I32,I64}` ⇒ evidence (`AMBIGUOUS_NUMERIC_WIDTH`).
+  - [x] **reject legacy ambiguous exports** — falls out of the above + `exactObject`: a legacy
+    `{"tag":"Primitive","value":…}` fails loudly `SCHEMA_MISMATCH … missing=[declaredWidth]`
+    instead of defaulting to `Long`.
+  - [ ] **per-backend vectors — SCOPE CORRECTED, measured 2026-07-17.** The item assumed machinery
+    that **does not exist**: there is NO code anywhere mapping `AbiPrimitive`/`AbiType` to a host
+    type — no binding generator, no FFI emitter, no marshaller for JS/TS, Rust, Swift or WASM-WASI
+    (`v2/host/` has only `js/` + `scala/`; `js/control/index.d.ts` is control-only, no numeric
+    bridge). `tests/interop-conformance` is control-law/stdout-oracle shaped (TSV has no width or
+    backend column, runner knows 4 hard-coded adapters) and all 5 generated host lanes are
+    `pending`/adapter `none`. Swift + WASM-WASI have **no spec'd numeric mapping at all** to write
+    against. ⇒ A cross-language "vector" here would exercise nothing and pass vacuously — exactly
+    the apparatus-that-reports-green failure AGENTS.md §"measurement apparatus" bans. Honest split:
+    - [x] vectors at the seam that REALLY exists (producer + codec round-trip + overload identity),
+      each carrying a **negative control** that proves the check fails on a truncating 32-bit
+      mapping — a vector that can't fail is not a vector.
+    - [~] the per-host numeric contract as a **pinned table** (boundary 2^31-1, overflow32 2^31,
+      max64, min64) each host must satisfy WHEN its lane lands. **PARTIAL, honestly:** the table is
+      pinned in `NumericWidthAbiVectorTest` ("host carriers … 64-bit capable in every required
+      profile") and the per-host mapping is now written into all five profile specs (Swift and
+      WASM-WASI had none and were authored). **NOT done:** no record was added to
+      `tests/interop-conformance/pending/`, because that catalogue's schema is control-law shaped
+      (`law/capabilities/phase/expectedExit/expectedStream/oracle` — no width or backend column) and
+      its runner knows only 4 hard-coded adapters. Adding numeric vectors there means extending the
+      TSV schema **and** `run.sh`, which is the sibling harness's contract, not mine to change
+      mid-flight. **Do this when the first host lane stops being `pending`/adapter `none`** — until
+      then a row there would execute nothing.
+  - [x] **fix the specs this change makes FALSE** — `specs/scala3-bidirectional-control.md:402-404`
+    states "ScalaScript source Int and Long map to canonical I32 and I64"; that is now a lie.
+    `specs/javascript-typescript-bidirectional-control.md:480-482` already says "I64 | bigint;
+    conversion through number rejects" + prohibits representing I64 as `number` — under (A) this now
+    binds ssc `Int` too, i.e. **JS hosts must marshal an ssc `Int` as `bigint`, never `number`**.
+    That is a real, user-visible consequence and must be written down.
+  - [x] **re-run the literal fixed point** — stayed **89 ok / 0 FAIL** at **79,667 B**; the gate's
+    whole output is byte-identical to the pre-change baseline, so the contract did not move.
+
+  **LANDED 2026-07-17** — spec `34d2e1cbc`, feature `35f704cd6`, docs `57b417c04`. Verified:
+  producer 83/83, descriptor 32/32, `core/test` 1138/1138, interop 36/36, plugin-profile 23/23,
+  conformance `modules*,import-dir*` 2/2 on INT/JS/JVM, P6.5 89 ok / 0 FAIL @ 79,667 B.
+  The new vectors were proven non-vacuous (reintroducing `Int -> I32` reddens all 5 with
+  `vector overflow32: … changed the value from 2147483648 to -2147483648`; a validator sabotage
+  probe reddens the 3 rejection controls). BUGS entry → FIXED.
+
+  **WHAT REMAINS (why this item is `[~]` and not `[x]`):** only the interop-conformance `pending/`
+  record above, which is blocked on a host lane existing at all. **(C) is untouched and reachable**
+  — `AbiPrimitive.I32` is still in the frozen schema, is now unreachable from ssc source, and
+  `declaredWidth` is exactly the node a narrowing contract binds to. Nothing here forecloses it.
 
 ### Common ABI and portable semantic baseline
 
