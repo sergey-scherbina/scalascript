@@ -32,17 +32,17 @@ The README exposes the ordinary `main` workflow badge as the human-visible compa
 
 ## Behavior
 
-- [ ] A completed exact-SHA run with all four required jobs successful exits `0` and prints
+- [x] A completed exact-SHA run with all four required jobs successful exits `0` and prints
       `CI GREEN` plus all four job results.
-- [ ] Any failed, cancelled, timed-out, or missing required job in a completed run exits `1`, prints
+- [x] Any failed, cancelled, timed-out, or missing required job in a completed run exits `1`, prints
       `CI RED`, and names the non-successful/missing jobs.
-- [ ] A queued or in-progress exact-SHA run exits `2`, prints `CI PENDING`, and never treats an older
+- [x] A queued or in-progress exact-SHA run exits `2`, prints `CI PENDING`, and never treats an older
       green run as evidence for the requested SHA.
-- [ ] An absent run, unavailable GitHub CLI, authentication/network failure, or malformed response
+- [x] An absent run, unavailable GitHub CLI, authentication/network failure, or malformed response
       exits `2` with a diagnostic `CI UNKNOWN` rather than a false green.
-- [ ] The shell regression uses a fake GitHub CLI to cover green, red, pending, missing-job,
+- [x] The shell regression uses a fake GitHub CLI to cover green, red, pending, missing-job,
       no-run, and query-failure cases and prints expected/actual output on mismatch.
-- [ ] `scripts/coord-status` shows the exact remote SHA's CI result without losing claims/worktrees
+- [x] `scripts/coord-status` shows the exact remote SHA's CI result without losing claims/worktrees
       output when the guard returns non-zero.
 - [ ] The guard and README badge run in CI so their own wiring cannot silently rot.
 
@@ -76,4 +76,13 @@ does not abort claim/worktree inspection. Completion policy consumes the same ex
 
 ## Results
 
-Pending implementation and exact-SHA verification.
+Implementation `c43d8f523` adds the guard, fake-gh matrix, `coord-status` integration, and CI step;
+documentation `0fe5e5f0d` adds the badge and release rule. The fixture gate covers six result classes
+plus the non-aborting coordination integration and passes. A real authenticated query for
+`f99150aa8` returned `CI PENDING` with all four queued jobs and the exact run URL; real
+`coord-status --no-fetch` printed the same result followed by active claims.
+
+The first fixture-only version exposed an apparatus defect before landing: fake `gh` ignored the
+supplied `--jq`, while real gojq rejected its quote escaping. That proxy/real mismatch is recorded in
+`BUGS.md`; the corrected real query is now part of verification. The final CI-wiring checkbox remains
+open until a workflow run containing the implementation completes.
