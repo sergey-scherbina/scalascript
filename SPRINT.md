@@ -370,7 +370,7 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       remove the safe stack default merely to satisfy a substring.
       **DONE `5bde29d37`:** fixture 2/2 plus a real generated-launcher shell e2e; default 64m,
       `SSC_XSS=256k` override, jar path, and argv all exact. The shell gate runs in CI validation.
-- [ ] **5m. Run `V2TuplePatternCliTest` through the staged native launcher.** In completed Linux
+- [x] **5m. Run `V2TuplePatternCliTest` through the staged native launcher.** In completed Linux
       job `87773372863`, all four tests (typed tuple patterns, nested tuple patterns, tuple val
       destructuring, map-reduce worker calls) abort before semantics with `ssc.lib.path is unset`.
       Reproduce with `scripts/sbtc "cli/testOnly scalascript.cli.V2TuplePatternCliTest"`, inspect its
@@ -389,6 +389,10 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       express this fixture's dependencies through the currently supported outside-fence Markdown
       links to `std/mapreduce/handlers.ssc` and `distributed.ssc`; do not expand this CI slice into
       the native module-import feature.
+      **DONE `e9567c555`:** the suite locates installed `bin/ssc`, preserves stdout/stderr/exit
+      diagnostics, and uses explicit Markdown module links for the unrelated map-reduce fixture.
+      Current rebased bits pass 4/4; focused `tuples` is green INT/JS/JVM and `distributed-map` is
+      green on its declared JVM lane.
 - [ ] **5n. Give the sbt job enough outer budget to reach its bounded test verdict.** Run
       `29544412767` started the sbt job at `00:18:32Z`; setup/build/release gates consumed until
       `00:53:54Z`, then the 90-minute outer job timeout cancelled `Test via sbt` at `01:48:45Z`
@@ -396,6 +400,8 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       outer job budget to 120 minutes while retaining the 60-minute test-step cap, document the
       measured reason beside the workflow setting, and validate the YAML/diff. Done means a current
       Linux run reaches a natural sbt success/failure rather than outer-job cancellation.
+      **IMPLEMENTED `90c5599dc`, awaiting Linux proof:** workflow YAML parses, the measured timing is
+      documented beside the 120-minute outer cap, and the narrower 60-minute test cap is unchanged.
 - [ ] **6. Prevent the recurrence.** Long-red CI is what let all of this pile up. Decide + record a
       cheap guard (e.g. the loop checks `gh run list` before claiming a lane green, or a CI-status
       line in the claim protocol). Recorded as a question for Sergiy, not a unilateral process change.

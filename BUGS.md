@@ -55,10 +55,10 @@ uses the affected Scala-style import and needs a future real-harness audit.
 
 ## ci-sbt-outer-timeout-cancels-bounded-test-step — job budget expires before the suite can report
 
-**Status:** OPEN (found 2026-07-17 by `ci-red-main` in completed Linux run `29544412767`, SHA
-`73407430457effd61bb96307c4bb41c6d3df3179`, job `87773372863`). The job-level timeout cancels the
-test suite before the separately bounded test step can finish, so CI cannot reveal the complete
-failure set or ever prove the sbt job green at this runtime.
+**Status:** FIXED (2026-07-17, `90c5599dc`; awaiting Linux confirmation). Found by `ci-red-main` in
+completed Linux run `29544412767`, SHA `73407430457effd61bb96307c4bb41c6d3df3179`, job
+`87773372863`. The job-level timeout cancelled the test suite before the separately bounded test
+step could finish, so CI could not reveal the complete failure set or prove the sbt job green.
 
 **Real-harness repro.** The sbt job started at `00:18:32Z`. Setup, compile/assembly, and all six
 v2.1 release gates ran through `00:53:54Z`; `Test via sbt` then ran until `01:48:45Z`, when GitHub
@@ -72,13 +72,17 @@ job budget to 120 minutes so measured setup/gates plus the bounded test have hea
 variance. Document the timing next to the workflow setting. Acceptance requires a current Linux
 run to reach the test step's natural verdict; extending the timeout alone is not evidence of green.
 
+**Fix/result.** The sbt job now has a 120-minute outer budget while `Test via sbt` retains its
+60-minute cap. Workflow YAML parses locally. Status remains awaiting confirmation until a run
+containing `90c5599dc` or later reaches a natural test success/failure instead of cancellation.
+
 
 ## v2-tuple-pattern-cli-tests-bypass-staged-distribution — four tests abort on unset library path
 
-**Status:** OPEN (found 2026-07-17 by `ci-red-main` in completed Linux run `29544412767`, SHA
-`73407430457effd61bb96307c4bb41c6d3df3179`, job `87773372863`). Four
-`V2TuplePatternCliTest` cases fail before evaluating tuple semantics: typed tuple patterns, nested
-tuple patterns, tuple val destructuring, and map-reduce worker calls.
+**Status:** FIXED (2026-07-17, `e9567c555`; awaiting CI confirmation). Found by `ci-red-main` in
+completed Linux run `29544412767`, SHA `73407430457effd61bb96307c4bb41c6d3df3179`, job
+`87773372863`. Four `V2TuplePatternCliTest` cases failed before evaluating tuple semantics: typed
+tuple patterns, nested tuple patterns, tuple val destructuring, and map-reduce worker calls.
 
 **Real-harness repro.** In the GitHub sbt log, every case reports `native frontend requires a
 staged installation (ssc.lib.path is unset); run scripts/sbtc "installBin" and use bin/ssc`.
@@ -91,6 +95,13 @@ launcher (`bin/ssc`) or a shared helper with the identical `ssc.lib.path` contra
 test-only semantic bypass, weaken the tuple assertions, or edit the live `v2-native-stack-overflow`
 claim's `v2/src` scope. Done means all four cases execute and pass against the staged distribution,
 with stdout, stderr, and exit code still reported on mismatch.
+
+**Fix/result.** The suite now locates and invokes installed `bin/ssc`, whose launcher supplies the
+real library root, rather than directly invoking the fat jar. Three tuple scenarios pass unchanged.
+The fourth exposed the separately tracked Scala-style import no-op; its map-reduce assertions remain
+unchanged while the fixture now declares dependencies with supported outside-fence Markdown module
+links. The complete suite is 4/4 on rebased current bits; focused `tuples` passes INT/JS/JVM and
+`distributed-map` passes its JVM lane.
 
 
 ## standalone-install-fixture-stale-java-command — test rejects the release launcher's stack flag
