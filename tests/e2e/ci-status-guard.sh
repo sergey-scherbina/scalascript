@@ -156,6 +156,8 @@ fi
 # branch metadata remains an exact observable and must win before legacy slug matching.
 CLAIM_WT="$TMP/claim-wt"
 CLAIM_BRANCH="feature/ci-red-main-final-fixture-$$"
+FRESH_NOW_EPOCH=1784247000  # 2026-07-17T00:10:00Z
+STALE_NOW_EPOCH=1784247601  # 2026-07-17T00:20:01Z
 git -C "$ROOT" worktree add -q -b "$CLAIM_BRANCH" "$CLAIM_WT" HEAD
 mkdir -p "$CLAIM_WT/.work/active"
 printf '%s\n' \
@@ -175,13 +177,30 @@ GIT_COMMITTER_NAME=fixture GIT_COMMITTER_EMAIL=fixture@example.invalid \
 live_sha="$(git -C "$CLAIM_WT" rev-parse HEAD)"
 set +e
 live_output="$(FAKE_CI_MODE=red FAKE_EXPECT_SHA="$live_sha" SSC_CI_GH="$FAKE_GH" \
-  SSC_COORD_REF="$live_sha" "$ROOT/scripts/coord-status" --no-fetch 2>&1)"
+  SSC_COORD_REF="$live_sha" SSC_COORD_NOW_EPOCH="$FRESH_NOW_EPOCH" \
+  "$ROOT/scripts/coord-status" --no-fetch 2>&1)"
 live_code=$?
 set -e
-if [[ "$live_code" -ne 0 || "$live_output" == *"maybe stale: ci-red-main"* ]]; then
+if [[ "$live_code" -ne 0 || "$live_output" == *"maybe stale: ci-red-main"* ||
+      "$live_output" == *"potentially stale heartbeat: ci-red-main"* ]]; then
   observed_branches="$(git -C "$ROOT" worktree list --porcelain | sed -n 's/^branch refs\/heads\///p')"
-  printf 'ci-status-guard[live-claim]: expected=live got=stale exit=%s expected_branch=%s observed_branches=%q\n%s\n' \
-    "$live_code" "$CLAIM_BRANCH" "$observed_branches" "$live_output" >&2
+  printf 'ci-status-guard[live-claim]: expected=live got=stale exit=%s heartbeat=%s age=%ss expected_branch=%s observed_branches=%q\n%s\n' \
+    "$live_code" '2026-07-17T00:00:00Z' 600 "$CLAIM_BRANCH" "$observed_branches" "$live_output" >&2
+  exit 1
+fi
+
+set +e
+stale_output="$(FAKE_CI_MODE=red FAKE_EXPECT_SHA="$live_sha" SSC_CI_GH="$FAKE_GH" \
+  SSC_COORD_REF="$live_sha" SSC_COORD_NOW_EPOCH="$STALE_NOW_EPOCH" \
+  "$ROOT/scripts/coord-status" --no-fetch 2>&1)"
+stale_code=$?
+set -e
+stale_expected="potentially stale heartbeat: ci-red-main (heartbeat=2026-07-17T00:00:00Z age=1201s/20m reason=older-than-20m branch=live:$CLAIM_BRANCH)"
+if [[ "$stale_code" -ne 0 || "$stale_output" != *"$stale_expected"* ]]; then
+  observed_branches="$(git -C "$ROOT" worktree list --porcelain | sed -n 's/^branch refs\/heads\///p')"
+  printf 'ci-status-guard[stale-heartbeat]: expected=%q got_output=%q exit=%s heartbeat=%s age=%ss expected_branch=%s observed_branches=%q\n' \
+    "$stale_expected" "$stale_output" "$stale_code" '2026-07-17T00:00:00Z' 1201 \
+    "$CLAIM_BRANCH" "$observed_branches" >&2
   exit 1
 fi
 
@@ -197,13 +216,62 @@ GIT_COMMITTER_NAME=fixture GIT_COMMITTER_EMAIL=fixture@example.invalid \
 missing_sha="$(git -C "$CLAIM_WT" rev-parse HEAD)"
 set +e
 missing_output="$(FAKE_CI_MODE=red FAKE_EXPECT_SHA="$missing_sha" SSC_CI_GH="$FAKE_GH" \
-  SSC_COORD_REF="$missing_sha" "$ROOT/scripts/coord-status" --no-fetch 2>&1)"
+  SSC_COORD_REF="$missing_sha" SSC_COORD_NOW_EPOCH="$FRESH_NOW_EPOCH" \
+  "$ROOT/scripts/coord-status" --no-fetch 2>&1)"
 missing_code=$?
 set -e
-if [[ "$missing_code" -ne 0 || "$missing_output" != *"maybe stale: ci-red-main"* ]]; then
+if [[ "$missing_code" -ne 0 || "$missing_output" != *"maybe stale: ci-red-main"* ||
+      "$missing_output" == *"potentially stale heartbeat: ci-red-main"* ]]; then
   observed_branches="$(git -C "$ROOT" worktree list --porcelain | sed -n 's/^branch refs\/heads\///p')"
-  printf 'ci-status-guard[missing-claim]: expected=stale got=live exit=%s expected_branch=%s observed_branches=%q\n%s\n' \
-    "$missing_code" "$missing_branch" "$observed_branches" "$missing_output" >&2
+  printf 'ci-status-guard[missing-claim]: expected=missing-worktree got=other exit=%s heartbeat=%s age=%ss expected_branch=%s observed_branches=%q\n%s\n' \
+    "$missing_code" '2026-07-17T00:00:00Z' 600 "$missing_branch" "$observed_branches" "$missing_output" >&2
+  exit 1
+fi
+
+sed -e "s|^branch: .*|branch: $CLAIM_BRANCH|" \
+    -e 's|^heartbeat: .*|heartbeat: not-a-time|' \
+  "$CLAIM_WT/.work/active/ci-red-main.claim" > "$TMP/invalid-heartbeat.claim"
+mv "$TMP/invalid-heartbeat.claim" "$CLAIM_WT/.work/active/ci-red-main.claim"
+git -C "$CLAIM_WT" add .work/active/ci-red-main.claim
+GIT_AUTHOR_NAME=fixture GIT_AUTHOR_EMAIL=fixture@example.invalid \
+GIT_COMMITTER_NAME=fixture GIT_COMMITTER_EMAIL=fixture@example.invalid \
+  git -C "$CLAIM_WT" commit -q -m 'test: invalid claim heartbeat fixture'
+
+invalid_sha="$(git -C "$CLAIM_WT" rev-parse HEAD)"
+set +e
+invalid_output="$(FAKE_CI_MODE=red FAKE_EXPECT_SHA="$invalid_sha" SSC_CI_GH="$FAKE_GH" \
+  SSC_COORD_REF="$invalid_sha" SSC_COORD_NOW_EPOCH="$FRESH_NOW_EPOCH" \
+  "$ROOT/scripts/coord-status" --no-fetch 2>&1)"
+invalid_code=$?
+set -e
+invalid_expected="potentially stale heartbeat: ci-red-main (heartbeat=not-a-time age=unknown reason=invalid branch=live:$CLAIM_BRANCH)"
+if [[ "$invalid_code" -ne 0 || "$invalid_output" != *"$invalid_expected"* ]]; then
+  observed_branches="$(git -C "$ROOT" worktree list --porcelain | sed -n 's/^branch refs\/heads\///p')"
+  printf 'ci-status-guard[invalid-heartbeat]: expected=%q got_output=%q exit=%s expected_branch=%s observed_branches=%q\n' \
+    "$invalid_expected" "$invalid_output" "$invalid_code" "$CLAIM_BRANCH" "$observed_branches" >&2
+  exit 1
+fi
+
+sed '/^heartbeat:/d' "$CLAIM_WT/.work/active/ci-red-main.claim" > "$TMP/missing-heartbeat.claim"
+mv "$TMP/missing-heartbeat.claim" "$CLAIM_WT/.work/active/ci-red-main.claim"
+git -C "$CLAIM_WT" add .work/active/ci-red-main.claim
+GIT_AUTHOR_NAME=fixture GIT_AUTHOR_EMAIL=fixture@example.invalid \
+GIT_COMMITTER_NAME=fixture GIT_COMMITTER_EMAIL=fixture@example.invalid \
+  git -C "$CLAIM_WT" commit -q -m 'test: missing claim heartbeat fixture'
+
+missing_heartbeat_sha="$(git -C "$CLAIM_WT" rev-parse HEAD)"
+set +e
+missing_heartbeat_output="$(FAKE_CI_MODE=red FAKE_EXPECT_SHA="$missing_heartbeat_sha" SSC_CI_GH="$FAKE_GH" \
+  SSC_COORD_REF="$missing_heartbeat_sha" SSC_COORD_NOW_EPOCH="$FRESH_NOW_EPOCH" \
+  "$ROOT/scripts/coord-status" --no-fetch 2>&1)"
+missing_heartbeat_code=$?
+set -e
+missing_heartbeat_expected="potentially stale heartbeat: ci-red-main (heartbeat=missing age=unknown reason=missing branch=live:$CLAIM_BRANCH)"
+if [[ "$missing_heartbeat_code" -ne 0 || "$missing_heartbeat_output" != *"$missing_heartbeat_expected"* ]]; then
+  observed_branches="$(git -C "$ROOT" worktree list --porcelain | sed -n 's/^branch refs\/heads\///p')"
+  printf 'ci-status-guard[missing-heartbeat]: expected=%q got_output=%q exit=%s expected_branch=%s observed_branches=%q\n' \
+    "$missing_heartbeat_expected" "$missing_heartbeat_output" "$missing_heartbeat_code" \
+    "$CLAIM_BRANCH" "$observed_branches" >&2
   exit 1
 fi
 
