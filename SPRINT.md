@@ -266,15 +266,19 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       is PASS INT/JVM and FAIL JS with `Error: Method not found: += on 1`. Both were forced with
       `--no-memo`. GitHub run `29545769651` (`893bf2632`) had lint/validation green while its two
       long jobs were still running; newer claim-only SHAs do not replace the need to inspect it.
-- [ ] **5b. Close `run-js-v2-always-exits-1` in the real launcher.** Reproduce with the assembled
+- [x] **5b. Close `run-js-v2-always-exits-1` in the real launcher.** Reproduce with the assembled
       `bin/ssc-tools run-js --v2` tiny-program matrix from `BUGS.md`, trace the JVM exit after node
       returns 0, add a regression that asserts both stdout and process exit, then run
       `tests/conformance/run.sh --only 'deep-tail-recursion' --no-memo`. Keep node's exit and the
       CLI process exit as two separately printed observables so the gate cannot pre-judge success.
-- [ ] **5c. Close the independent `dataset-from-generator` JS dispatch failure.** First add the
+      **DONE `8333cf97a`:** the same-line catch compiled `System.exit(1)` outside its exceptional
+      arm; installed-launcher regression added, focused conformance 1/1 INT/JS/JVM.
+- [x] **5c. Close the independent `dataset-from-generator` JS dispatch failure.** First add the
       missing durable `BUGS.md` entry with the assembled-launcher repro and current SHA. Fix the
       owning runtime/plugin boundary (not a test expectation), add a faithful regression, and run
       `tests/conformance/run.sh --only 'dataset-from-generator' --no-memo` on its declared lanes.
+      **DONE `1e6ccb394`:** generator-only statement emission now mirrors interpreter compound
+      assignment; `GeneratorTest` 15/15 and focused conformance 1/1 INT/JS/JVM.
 - [ ] **5d. Reconcile the `sbt test` tail against current CI.** Re-measure all suites from the newest
       completed run; fix every still-red unclaimed suite with a focused regression/gate. Do not edit
       files owned by a live claim (`p65-fixpoint`, newfront, Swift, etc.); consume their landed fixes
@@ -291,11 +295,12 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       skip submodule mutation automatically when `.git` is a worktree file, and verify install still
       updates it from the shared main checkout. Until fixed, build locally with explicit-worktree
       `scripts/sbtc "compile cli/assembly installBin"`; never initialize the submodule here.
-- [ ] **5g. Close the staged-v2-JS `__regfields__` crash exposed by the faithful launcher test.**
+- [x] **5g. Close the staged-v2-JS `__regfields__` crash exposed by the faithful launcher test.**
       `V2JsLaneCliTest` now runs `bin/ssc-tools`; its imported case-class/companion shape reaches
       node and dies at startup because JsBackend falls through to `$prim("__regfields__")`. Define
       the operation explicitly (no-op only if field accesses are already index-resolved, as on
       Swift), add a direct codegen assertion, and keep the installed `0 / 5 / 8` e2e green.
+      **DONE `2f23fd9ec`:** explicit index-resolved no-op + direct assertion; installed suite 3/3.
 - [ ] **6. Prevent the recurrence.** Long-red CI is what let all of this pile up. Decide + record a
       cheap guard (e.g. the loop checks `gh run list` before claiming a lane green, or a CI-status
       line in the claim protocol). Recorded as a question for Sergiy, not a unilateral process change.

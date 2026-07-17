@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-07-17 — final JavaScript conformance tail and faithful installed-lane tests
+
+Closed the two JavaScript failures that held the shared corpus at 279/281. `run-js --v2` no longer
+turns a successful node process into exit 1: a same-line Scala catch had placed `System.exit(1)`
+after the normal/exception join in bytecode (`8333cf97a`). V1 JsGen generator bodies now lower
+mutable-name compound assignment as read/base-op/write instead of method-dispatching the literal
+name `+=` (`1e6ccb394`). Both focused cases pass on INT/JS/JVM.
+
+The CLI regression now runs the staged `bin/ssc-tools` launcher instead of a fat-jar proxy. That
+apparatus correction immediately exposed a third real gap: native-front case classes emitted
+`__regfields__`, which JsBackend did not recognize. JS field accesses are already index-resolved,
+so the registration is now an explicit documented no-op; direct and installed e2e tests pass 3/3
+(`2f23fd9ec`).
+
 ## numeric-width-reconciliation — the v3 descriptor now tells hosts the truth about `Int` (2026-07-17)
 
 **A deliberate interop contract change** (option (A), Sergiy's call 2026-07-16; announced in the

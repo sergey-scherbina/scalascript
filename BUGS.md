@@ -2,7 +2,8 @@
 
 ## v2-js-regfields-unimplemented — installed `run-js --v2` crashes before a case-class program starts
 
-**Status:** OPEN (found 2026-07-17 by making `V2JsLaneCliTest` use the real installed launcher).
+**Status:** FIXED 2026-07-17 in `2f23fd9ec` (awaiting CI confirmation). Found by making
+`V2JsLaneCliTest` use the real installed launcher.
 The prior regression used `java -jar` against the fat assembly and did not exercise the staged
 `bin/ssc-tools` path; after that apparatus was corrected, the imported-companion case failed in
 node with `Error: unimplemented primitive: __regfields__`.
@@ -15,12 +16,19 @@ exits 1 at module initialization, before its expected `0 / 5 / 8` output. `ssc1-
 explicitly treats it as a no-op because its field accesses are already index-resolved; JsBackend
 has no case and falls into `$prim`, which always throws.
 
+**Root cause/fix.** The JS backend, like Swift, lowers case-class field selection to index-based
+access and therefore needs no runtime name registry, but unlike Swift it had not declared the
+registration primitive as an explicit no-op. JsBackend now emits `null` for `__regfields__` with
+that invariant documented. A direct generated-code assertion plus the installed companion e2e
+both pass; `V2JsLaneCliTest` is 3/3.
+
 **Done when.** JsBackend gives `__regfields__` an explicit, documented meaning, the installed CLI
 test passes, and a direct backend unit test prevents the primitive from falling through to `$prim`.
 
 ## dataset-from-generator-js-compound-assign-dispatch — generated JS calls method `+=` on a number
 
-**Status:** OPEN (reproduced 2026-07-17 by `ci-red-main` from `origin/main` `771b67d45`). This is
+**Status:** FIXED 2026-07-17 in `1e6ccb394` (awaiting CI confirmation). Reproduced by
+`ci-red-main` from `origin/main` `771b67d45`. This is
 the second and independent failure in the otherwise 279/281 conformance suite; it is not caused by
 the global `run-js --v2` exit-code defect because node throws before producing the expected output.
 
@@ -37,6 +45,12 @@ INT and JVM pass. JS exits 1 in generated code with
 `12, 14, 16, 18, 20`, `1`, `9`, `25`. The failure must be pinned at the generated-JS/runtime
 boundary and fixed there; changing the expected output or suppressing the exception would preserve
 the wrong program semantics.
+
+**Root cause/fix.** Scala-meta preserves `i += 1` as `Term.ApplyInfix`, and the interpreter's
+block runtime explicitly turns a mutable-name compound assignment into read/base-op/write. JsGen's
+dedicated generator statement emitter omitted that rule and sent the literal method name `+=` to
+`_dispatch`. It now reconstructs the base infix (`+` here) through the ordinary numeric generator
+and writes the result back. `GeneratorTest` is 15/15 and focused conformance is 1/1 on INT/JS/JVM.
 
 **Done when.** The focused conformance case passes on every declared lane, a regression separately
 asserts that mutable generator state increments numerically instead of method-dispatching `+=`, and
@@ -323,10 +337,23 @@ binary codec cannot round-trip a bytes literal that the canonical codec now enco
 
 ## run-js-v2-always-exits-1 — `run-js --v2` returns exit 1 on success, for every program
 
-**Status:** OPEN, root cause NOT found (time-boxed — handing over with the measurements).
-Blocks conformance `deep-tail-recursion` (`FAIL [JS]`, `line 4: expected=<missing> got=<exit:1>`),
-one of the last 2 red cases in an otherwise 279/281 suite. Pre-existing; unrelated to the
-2026-07-16 CI-red work.
+**Status:** FIXED 2026-07-17 in `8333cf97a` (awaiting CI confirmation). It blocked conformance
+`deep-tail-recursion` (`FAIL [JS]`, `line 4: expected=<missing> got=<exit:1>`), one of the last two
+red cases in an otherwise 279/281 suite.
+
+**Actual root cause (the earlier exit-handler hypothesis was wrong).** The one-line Scala 3 catch
+in `RunNativeV2.runNodeAndWait` was written as
+`catch case _: InterruptedException => proc.destroy(); System.exit(1)`. The semicolon ended the
+catch body for code generation: `javap -c -l -p` showed both the successful `waitFor` path and the
+exception path joining immediately before an unconditional `iconst_1; System.exit`. Node really
+returned 0; the JVM then always replaced it with 1. A multiline catch keeps destroy/re-interrupt/
+exit inside the exceptional arm.
+
+**Correction of the previous diagnosis.** The statement below that instrumentation proved
+`runNodeAndWait` “falls off the end” was false: it proved only that `exitCode == 0` skipped the
+*conditional* exit. Source-level tracing missed the second, unconditional bytecode exit. The
+installed-launcher regression now exercises `bin/ssc-tools` (not the fat `java -jar` proxy) and
+asserts the real child process exit. `deep-tail-recursion` is 1/1 on INT/JS/JVM.
 
 **Symptom.** `bin/ssc-tools run-js --v2 <any file>` prints the correct output and then exits **1**.
 Nothing is wrong with the program: stdout is byte-correct, stderr is EMPTY.
