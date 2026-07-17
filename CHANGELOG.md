@@ -141,6 +141,25 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-17 — SclJet runs on the default `ssc run` (two v2-native conversion bugs)
+
+Answering "is SclJet real or a fiction": real — byte-identical against the reference `sqlite3`
+3.51.0 in both directions through a file (we read its files; it reads ours, `integrity_check` ok,
+and writes into them). But it did not run on the default `bin/ssc run` at all.
+
+Two v2-native bugs, both silent. `charAt(i).toString` renders the character CODE (v2 has no Char
+box by design), so `upperStr("INSERT")` became `"737883698284"` and the engine stopped recognising
+its own SQL keywords; lowercase input survived, which is why it hid. Fixed engine-side with an
+idiom that is correct on both lanes. `Double.toLong` was erased by the lowering on the reasoning
+"Long IS Int here" — true for an Int receiver, false for a Double — so every REAL write died on the
+first bit operation.
+
+7 of 9 `examples/scljet-*` now run on `bin/ssc run` (was 0); scljet conformance stays 98/98 on
+`[int, js]`; `contract.sc --lanes v2` green with one closed gap recorded. The last blocker is
+filed: the `jvmVfs*` host-file externs come from a v1-style plugin the native tier cannot see, so
+scljet on the default command is in-memory only until that plugin is ported.
+
+
 ## 2026-07-16 — P6.5 X1: the literal self-compilation fixed point for a ScalaScript subset
 
 `specs/v2.2-p6.5-fsub.ssc` (131 defs, 208 lines) is a compiler for a ScalaScript subset S, **written in

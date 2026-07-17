@@ -3313,6 +3313,56 @@ every named language.
       reconcile/check the specification behavior items, then record results in `CHANGELOG.md` and this
       section in a separate bookkeeping commit before releasing the claim.
 
+## scljet-on-default-command — make `bin/ssc run` actually run the engine (2026-07-17, Sergiy: "Заводи и берись. Исправь")
+
+**DONE 2026-07-17** (`46f09ad29` charAt, `3b0ddea92` toLong, `59843958c`+ bugs). Sergiy asked
+whether SclJet is real or a fiction; it is real — proven byte-identical against the **reference
+`sqlite3` 3.51.0 in both directions through a file** (it reads sqlite3's files; sqlite3 reads ours,
+`PRAGMA integrity_check` = ok, and even writes into them). But it did not run on the **default**
+`bin/ssc run` at all, which for a "platform for data wherever it lives" is not a detail.
+
+**Result: 7 of 9 `examples/scljet-*` now run on `bin/ssc run` (was 0); 23/24 sampled scljet
+conformance cases pass there; `contract.sc --lanes v2` green, one closed gap recorded
+(`scljet-crud v2 FAIL` removed from the baseline — that row is now the regression alarm).**
+Existing lanes untouched: scljet conformance 98/98 `[int, js]`.
+
+### The two fixes
+
+1. **`charAt(i).toString` yields the char CODE on v2-native** (`v2-native-charAt-toString-yields-code`).
+   `upperStr("INSERT")` → `"737883698284"`, so `isKw` never matched and the engine did not recognise
+   its own SQL keywords (`executeMutation expects INSERT, …`). ROOT: `charAt` lowers to the `scodeAt`
+   prim (the code point) because **v2 has no Char box by design**. Lowercase input survived because
+   that branch already used `.toChar.toString` — which is why it hid for so long. FIXED engine-side
+   with the portable idiom `charCode(s, i).toChar.toString` (correct on BOTH lanes, symmetric with
+   the neighbouring branch), 9 sites in `sql.ssc`. Engine-side ON PURPOSE: without a Char box no
+   lowering can satisfy both `charAt(i).toString` and `charCode = charAt(i).toInt`.
+   **The language-level divergence stays OPEN** — any other `.ssc` using the idiom is silently wrong.
+2. **`Double.toLong` was a no-op** (`v2-native-double-toLong-noop`). The lowering erased it on the
+   reasoning in its own comment — "Long IS Int here" — true for an Int receiver, false for a Double.
+   Routed to the shared method table like `toInt`/`toDouble`. The flagged risk (Int.toLong survives
+   only BECAUSE the lowering erases it) was **measured** before landing, not assumed.
+
+### Remaining (filed, not this task)
+- [ ] **`v2-native-jvmvfs-externs-unbound`** — the last blocker: host-file scljet on the default
+      command. `jvmVfs*` come from a **v1-style** plugin (ServiceLoader); the native tier runs its own
+      `NativePluginHost` over `v2/runtime/std`. Needs a port to the v2 native plugin SPI (like
+      `content-plugin`), NOT a one-liner. Until then `bin/ssc run` scljet = in-memory only.
+- [ ] `String.toLong` on v2-native: wrong before (`421`, string concat) and wrong after
+      (`<closure>1`) — pre-existing, not introduced; `String.toInt` works. scljet unaffected
+      (all its `.toLong` receivers are Ints).
+- [ ] `scljet-jdbc-basic` on v2-native: "native frontend rejected incomplete parse" — a front gap.
+
+### METHOD — two traps that cost real time, both worth remembering
+- **A checkout's `bin/` can be stale.** I reported a `StackOverflowError` to Sergiy from the shared
+  main checkout's binary; a freshly `installBin`-ed worktree showed the real error. The overflow
+  does not exist on current main. AGENTS.md's "reproduce in the real harness" applies to the LANE'S
+  BINARY too — rebuild before believing a v2-native failure.
+- **`installBin` COPIES the engine into `bin/lib/native-front/runtime/std/`.** Editing `scljet/*.ssc`
+  changes nothing until you re-run it. (Known as "edit tower SOURCES not bin/lib copies".)
+- **`contract.sc --update-baseline --lanes v2` is DESTRUCTIVE**: it rewrites the whole baseline from
+  the lanes you ran, silently deleting every `js`/`int` row (156 → 121 here). Either run all lanes or
+  hand-edit the rows you actually closed.
+
 ## scljet-address — every value has an address (2026-07-16, Sergiy)
 
 **Goal.** SclJet as a platform for data wherever it lives: every value has a **name, a value and
