@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-07-17 — JS actors bridge Long delays at the host timer boundary
+
+Generated JS actors now convert source `Long` delays to host numbers only where they meet
+`Date.now()`, covering one-shot sends, intervals, and timed receives (`4a4425f68`). Bare `stop()` in
+a CPS actor body lowers through the Actor effect instead of becoming an unbound JavaScript call.
+The real Node regression retains all four operations and the full Node suite passes 60/60.
+
+The JVM-codegen + JS-codegen Bully matrix now runs installed `ssc-tools`, discovers Scala runtime
+JARs from the test JVM, and reports staged compile/link failures with exit/stdout/stderr
+(`74ab54c90`). It executes 1/1 with zero cancellations and converges on one leader;
+`actors-supervision` passes INT/JS/JVM.
+
 ## 2026-07-17 — staged JVM bytecode/source-map suites compare real artifacts
 
 Five JVM CLI suites now use installed `ssc-tools`, the staged compiler tree, production

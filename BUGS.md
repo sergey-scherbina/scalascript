@@ -2,15 +2,22 @@
 
 ## js-actor-stop-cps-emits-unbound-call — completed actor body crashes on raw `stop()`
 
-**Status:** OPEN (found 2026-07-17 by `ci-red-main` while adding the faithful Long-timer Node
-regression). The generated bundle successfully delivers Long `sendAfter`, Long `sendInterval`, and
-a Long timed receive, prints `once`, `interval`, `timeout`, then evaluates source `stop()` as a raw
-JS call and exits with `ReferenceError: stop is not defined` from the actor continuation.
+**Status:** FIXED (2026-07-17, `4a4425f68`; awaiting exact-SHA CI confirmation). Found by
+`ci-red-main` while adding the faithful Long-timer Node regression. The generated bundle
+successfully delivered Long `sendAfter`, Long `sendInterval`, and a Long timed receive, printed
+`once`, `interval`, `timeout`, then evaluated source `stop()` as a raw JS call and exited with
+`ReferenceError: stop is not defined` from the actor continuation.
 
 **Expected/fix plan.** Inspect the shared normal/CPS actor bare-name lowering and route `stop()`
 through the same `_perform('Actor', 'stop', ...)` contract as other actor operations. Keep the real
 Node execution in the timer regression; do not remove `stop()` merely to make the test terminate.
 Rerun the full Node backend suite and the cross-backend cluster matrix.
+
+**Root cause/fix.** CPS actor lowering recognized the other actor operations but let bare `stop()`
+fall through as an ordinary source call. `4a4425f68` lowers it to the shared `Actor.stop()` effect
+operation and keeps `stop()` in the real Node fixture. `backendNode/test` passes 60/60, the staged
+JVM-codegen + JS-codegen Bully matrix passes 1/1 with zero cancellations, and
+`actors-supervision` passes INT/JS/JVM.
 
 
 ## actor-leader-conformance-has-no-expected — tracked leader cases always skip
@@ -34,7 +41,8 @@ from the `BigInt` runtime fix so activation can expose rather than conceal that 
 
 ## cluster-multibackend-js-actor-mixes-bigint-number — generated node dies before Bully convergence
 
-**Status:** OPEN (found 2026-07-17 by `ci-red-main` during SPRINT 5r's separate staged audit).
+**Status:** FIXED (2026-07-17, runtime `4a4425f68`, staged matrix `74ab54c90`; awaiting exact-SHA
+CI confirmation). Found by `ci-red-main` during SPRINT 5r's separate staged audit.
 `scripts/sbtc "cli/testOnly scalascript.cli.ClusterMultiBackendMatrixTest"` executes the one test
 with zero cancellations, starts the JVM-codegen node, and generates/launches the JS-codegen node.
 The latter prints `Listening on http://localhost:<port>/ (backend=node)` and then exits before the
@@ -60,11 +68,13 @@ at the reported `handleActorOp` line. `sendInterval` has the same expression, an
 its timeout to `Date.now()` likewise. Convert these millisecond inputs explicitly to `Number` at the
 JS host timer boundary and cover Long one-shot + interval delivery under a real Node bundle.
 
-**Linux apparatus follow-up in the same matrix.** The test itself still invokes a fat JAR and
-hardcodes macOS `~/Library/Caches/Coursier`; on Linux that can cancel before exposing this runtime
-bug. Reuse the staged launcher/runtime-classpath support landed in `11a9e80e2`. Missing external
-tools may cancel, but once installed, compile/link failures must be assertions with
-exit/stdout/stderr and the two-process convergence remains the final observable.
+**Fix/verification.** `4a4425f68` converts all three source-millisecond values to `Number` exactly
+at the JS host timer boundary and adds a real Node integration for Long one-shot delivery, interval
+delivery, timed receive, and clean actor stop. `74ab54c90` moves the two-process matrix to installed
+`ssc-tools` plus resource-discovered Scala runtime JARs; once prerequisites exist, compile/link
+failures are assertions with exit/stdout/stderr rather than cancellations. `backendNode/test`
+passes 60/60, the staged JVM-codegen + JS-codegen matrix passes 1/1 with zero cancellations and
+converges on `node-bbb`, and `actors-supervision` passes INT/JS/JVM.
 
 
 ## jvm-bytecode-sibling-tests-ignore-installed-cli — thirteen assertions cancel before comparison

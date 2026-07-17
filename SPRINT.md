@@ -505,7 +505,7 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       process diagnostics. Tier 5/spec history proves linked TASTY is required, so that stale
       assertion now verifies `a`, `b`, and shared-runtime TASTY. Focused result: 19/19, zero cancels;
       runtime/facade regressions 12/12; `dataset-parallel-jvm` passes.
-- [ ] **5s. Repair the JS actor `BigInt`/`Number` mismatch exposed by the real multi-backend
+- [x] **5s. Repair the JS actor `BigInt`/`Number` mismatch exposed by the real multi-backend
       cluster matrix.** The separately staged `ClusterMultiBackendMatrixTest` executes 1 test with
       zero cancellations, starts both generated programs, then the node backend exits in
       `handleActorOp` with `TypeError: Cannot mix BigInt and other types`; its advertised HTTP port
@@ -526,12 +526,20 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       a Node integration covering Long one-shot + interval delivery. Also migrate this matrix from
       fat-JAR/macOS-Coursier assumptions to the shared installed launcher/resource-classpath helper;
       on staged CI command failures must fail with exit/stdout/stderr, not cancel.
-- [ ] **5u. Lower actor `stop()` inside generated JS CPS continuations.** The new Long-timer Node
+      **DONE `4a4425f68`, `74ab54c90`:** all three host timer inputs are explicitly converted at the
+      boundary; the real Node fixture covers one-shot, interval, timed receive, and clean stop; the
+      matrix uses installed tools and portable runtime discovery. Node is 60/60, the staged
+      JVM-codegen + JS-codegen matrix is 1/1 with zero cancellations, and actor supervision passes
+      INT/JS/JVM.
+- [x] **5u. Lower actor `stop()` inside generated JS CPS continuations.** The new Long-timer Node
       regression proves all three millisecond conversions by printing `once`, `interval`, and
       `timeout`, then source `stop()` is emitted as a raw JS call and crashes with
       `ReferenceError: stop is not defined`. Trace normal/CPS actor bare-name dispatch and emit the
       Actor effect operation; preserve `stop()` in the real Node fixture and require clean process
       completion. This is a separate exposed layer, not a reason to weaken the timer regression.
+      **DONE `4a4425f68`:** bare CPS `stop()` now lowers to `Actor.stop()`; the unchanged real Node
+      fixture reaches clean process completion after proving all three timer paths. Included in the
+      60/60 Node, 1/1 staged cluster, and three-lane supervision results above.
 - [ ] **5t. Activate the tracked actor leader conformance cases.** Both `actors-leader-protocol` and
       `actors-cluster-leader` sources are found but skipped because their expected files are absent,
       each reporting 0 passed and 0 failed. Check actor ownership, execute every declared backend,
