@@ -956,11 +956,26 @@ optional policy, not the default continuation semantics.
     that bound land. **H5 (validation) is the biggest remaining fail-open**: measured, the reader still
     accepts `(local -1)`, `(lam -1 …)`, odd-length/`+1`/`-1` hex in `(bytes …)`, non-`Lam` `letrec`
     bindings, unbound globals, and any non-delimiter run as a SYMBOL.
-- [ ] **numeric-width-reconciliation — UNBLOCKED 2026-07-16 · ⛔ NEEDS A DESIGN DECISION FROM SERGIY
-  BEFORE CODING (raised 2026-07-16 by coreir-contract; do not "fix" this unilaterally)** — retain source `Int`/`Long`
+- [ ] **numeric-width-reconciliation — DECIDED 2026-07-16: OPTION (A) `Int` → `I64`** (Sergiy's call,
+  asked with all three options + their costs on the table; raised by coreir-contract, who correctly
+  refused to choose unilaterally) — retain source `Int`/`Long`
   width evidence and implement canonical public `I32`/`I64` semantics over the current signed
   wrapping-64 CoreIR value. Add per-backend wrap/round-trip/overload vectors and reject legacy
   ambiguous exports; this is semantic lowering work, not descriptor-only mapping.
+
+  **THE DECISION — (A) `Int` → `I64`.** Make the descriptor truthful to the measured semantics.
+  NOT (B) (making surface `Int` genuinely 32-bit — rejected: it contradicts the frozen
+  `10-core-ir.md` §2 value domain, `Int = Long` v1 parity, and measured behaviour, and would force a
+  Core IR version bump across every backend and the whole corpus). NOT (C) as a whole for now (I64
+  plus a fully-implemented narrowing ABI) — (A) is (C)'s first slice, so (C) stays reachable and is
+  not foreclosed; do not delete its analysis above.
+  **What (A) obliges you to do, and it is the whole difficulty:** once `Int` and `Long` both map to
+  `I64` they are **indistinguishable in the descriptor**, so overload IDs collide unless the source
+  spelling is retained separately — that is exactly what "retain source `Int`/`Long` width evidence"
+  means, and it is not optional garnish. Also flips 6 live expectations
+  (`PreBodyApiDescriptorProducerTest.scala:100,130,132,136,267,1212`) and **re-hashes every
+  descriptor** (`AbiPrimitive` feeds the frozen Slice A `apiHash`) — a deliberate contract change,
+  so land it as such: announce in rozum, and do not bundle it with unrelated work.
 
   **THE CONTRADICTION (measured 2026-07-16, in the real runtime — not read off source):**
   `v1/lang/core/src/main/scala/scalascript/artifact/PreBodyApiDescriptorProducer.scala:2066` maps
