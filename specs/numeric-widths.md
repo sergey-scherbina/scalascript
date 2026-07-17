@@ -124,6 +124,14 @@ Notes, each binding:
   a pinned ABI/codec; wasm-wasi a canonical byte encoding through linear memory).
 - `I32` is unreachable from ScalaScript source and is reserved for a future explicit narrowing ABI —
   see [`numeric-width-reconciliation.md`](numeric-width-reconciliation.md) §2.
+- **A bare integer literal is `Int` (64-bit) or a hard error — never silently `BigInt`.** A literal
+  whose magnitude exceeds `Int64` (e.g. `99999999999999999999999999`) is a loud parse/lowering error
+  on every backend, not a silent auto-promotion to arbitrary precision. Arbitrary precision is spelled
+  explicitly: `BigInt(...)` or the `n` suffix. **RATIFIED by Sergiy 2026-07-16** as a deliberate,
+  breaking removal of the old bare-oversized→BigInt convenience — it retyped a literal by magnitude,
+  which is the same silent-retype-by-value failure class this file exists to prevent (a literal's type
+  must be legible from its spelling, not inferred from how big it happens to be). Landed with the
+  `int-literal-failopen` fix (`f712e97de`); `NumericSugarE2ETest` updated to the explicit `n` spelling.
 
 ## 4. Backend conformance status
 
