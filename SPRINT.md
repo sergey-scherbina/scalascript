@@ -3896,6 +3896,37 @@ Existing lanes untouched: scljet conformance 98/98 `[int, js]`.
   the lanes you ran, silently deleting every `js`/`int` row (156 → 121 here). Either run all lanes or
   hand-edit the rows you actually closed.
 
+## scljet-jdbc-durability — crash-safe host-file writes (2026-07-17, Sergiy: "берись за durability")
+
+**The problem.** The JVM shim's host-file write is `Files.write(path, bytes)` — `TRUNCATE_EXISTING`
+then write the whole image. Two real data-loss modes: a crash mid-write leaves a truncated/corrupt
+file (the old data is already gone), and there is no `fsync`, so even a returned-OK write can vanish
+on an OS/host crash.
+
+**Design decision — atomic replace, NOT the journaled path (recorded because it diverges from the
+claim).** The durability NOTE and this claim floated "route commit() through jvmSqliteVfs() +
+journal.ssc". That needs a Connection-level `MutablePager` (journaling needs to know which PAGES
+changed) — deep work in the `scljet-m3-writes` engine lane. And it is really an OPTIMISATION (avoid
+rewriting the whole file) plus SQLite journal-format compatibility, NOT the thing that makes our
+writes safe. For a whole-image rewrite model the correct, standard crash-safety primitive is
+**write-temp → fsync → atomic rename → fsync dir**: the target is only ever the complete old image
+or the complete new one, and fsync makes it durable. It is entirely in the shim, touches no engine
+code, and is honest about what it does and does not give.
+
+### Slices
+- [ ] **D1 — atomic durable flush.** Replace `flushDurable`'s `Files.write` with: write to a sibling
+      temp file, `force(true)` it (fsync data+metadata), `ATOMIC_MOVE` (REPLACE_EXISTING) over the
+      target, then fsync the containing directory so the rename itself survives a crash. Keep the
+      whole-image content exactly as today (byte-for-byte the same file, just placed atomically).
+- [ ] **D2 — inter-process safety, honestly.** A single-JVM guard is cheap (a per-path lock) and an
+      inter-process `FileLock` around the read-modify-rewrite window prevents two processes silently
+      clobbering. If clean, add it; if it risks the shim's simplicity, leave the single-writer
+      contract in the spec and file the rest. Concurrency ≠ durability — D1 is the priority.
+- [ ] **D3 — spec + gate.** Rewrite the "Durability boundary" table: crash-atomic YES, fsync YES,
+      journal NO (still O(file) per write), inter-process per D2. A test that a flushed file is a
+      complete valid SQLite image the reference `sqlite3` accepts (already true; now also after the
+      atomic path), and — if feasible without flakiness — a torn-write simulation.
+
 ## scljet-address-uniml — the address leaves SQLite (2026-07-17, Sergiy)
 
 **Goal.** The first format beyond SQLite: `read address → (type, value)` over a JSON/YAML/XML/
