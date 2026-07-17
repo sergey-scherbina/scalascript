@@ -3,6 +3,7 @@ package scalascript.cli
 import java.util.jar.JarFile
 
 import org.scalatest.funsuite.AnyFunSuite
+import scalascript.artifact.JvmArtifactIO
 
 /** v2.0 Phase 4 (Option A) — end-to-end test for JSR-45 SMAP injection
  *  via the `compile-jvm --bytecode` → `link --bytecode --source-map`
@@ -28,32 +29,14 @@ import org.scalatest.funsuite.AnyFunSuite
  *  available the runtime assertion is skipped via `cancel(...)`. */
 class JvmSmapStackTraceTest extends AnyFunSuite:
 
-  // ── ssc.jar discovery — mirrors the existing JvmBytecode tests ──────────
+  // ── Installed distribution ──────────────────────────────────────────────
 
-  private val sscJar: Option[os.Path] =
-    val cwd = os.pwd
-    def jarUnder(root: os.Path): os.Path =
-      root / "cli" / "target" / "scala-3.8.3" / "ssc.jar"
-    def findCanonicalRepo(p: os.Path): Option[os.Path] =
-      val parts = p.segments.toList
-      val idx = parts.lastIndexOf(".claude")
-      if idx >= 0 && idx + 1 < parts.length && parts(idx + 1) == "worktrees" then
-        Some(os.Path("/" + parts.take(idx).mkString("/")))
-      else None
-    val candidates = List(
-      jarUnder(cwd),
-      jarUnder(cwd / os.up)
-    ) ++ findCanonicalRepo(cwd).map(jarUnder).toList
-    candidates.find(os.exists)
-
-  private def requireJar(): os.Path = sscJar.getOrElse:
-    cancel("ssc.jar not found — run `sbt cli/assembly` first")
+  private def requireLauncher(): os.Path =
+    StagedCliTestSupport.toolsLauncher.getOrElse:
+      cancel("bin/ssc-tools not found — run `sbt cli/assembly installBin` first")
 
   private def runSsc(cwd: os.Path, env: Map[String, String], args: String*): os.CommandResult =
-    val jar = requireJar()
-    val cmd: Seq[os.Shellable] = Seq[os.Shellable]("java", "-jar", jar.toString) ++
-      args.map(a => a: os.Shellable)
-    os.proc(cmd).call(cwd = cwd, env = env, stdin = "", check = false, stderr = os.Pipe, stdout = os.Pipe)
+    StagedCliTestSupport.runTools(requireLauncher(), cwd, env, args)
 
   private def runSsc(cwd: os.Path, args: String*): os.CommandResult =
     runSsc(cwd, Map.empty, args*)
@@ -97,18 +80,21 @@ class JvmSmapStackTraceTest extends AnyFunSuite:
       os.makeDir.all(sandbox / "artifacts")
       val r = runSsc(sandbox, "compile-jvm", "--bytecode", "a.ssc",
                      "-o", "artifacts/a.scjvm")
-      if r.exitCode != 0 then
-        cancel(s"compile-jvm --bytecode failed (likely missing scala3 stdlib): " +
-          s"stdout=${r.out.text()} stderr=${r.err.text()}")
+      assert(r.exitCode == 0,
+        s"compile-jvm --bytecode failed: exit=${r.exitCode}\n" +
+          s"stdout=${r.out.text()}\nstderr=${r.err.text()}")
 
-      val json = ujson.read(os.read(sandbox / "artifacts" / "a.scjvm"))
-      val lineMap = json.obj.get("lineMap").map(_.obj).getOrElse(ujson.Obj().obj)
+      val artifactPath = sandbox / "artifacts" / "a.scjvm"
+      val artifact = JvmArtifactIO.readJvmFile(artifactPath).fold(
+        err => fail(s"failed to decode $artifactPath through JvmArtifactIO: $err"),
+        identity)
+      val lineMap = artifact.lineMap
       assert(lineMap.nonEmpty,
         s"expected non-empty lineMap in a.scjvm; got: $lineMap")
 
       // The mapping should refer to .ssc line 9 (where `boom` lives) and
       // probably line 8 / 10 (add / println), depending on emit details.
-      val origLines = lineMap.values.toList.map(_.num.toInt).toSet
+      val origLines = lineMap.values.toSet
       assert(origLines.contains(BoomLineInSsc),
         s"expected the lineMap to include .ssc line $BoomLineInSsc; " +
         s"got original lines: ${origLines.toList.sorted}")
@@ -122,8 +108,9 @@ class JvmSmapStackTraceTest extends AnyFunSuite:
 
       val rc = runSsc(sandbox, "compile-jvm", "--bytecode", "a.ssc",
                       "-o", "artifacts/a.scjvm")
-      if rc.exitCode != 0 then
-        cancel(s"compile-jvm --bytecode failed: stderr=${rc.err.text()}")
+      assert(rc.exitCode == 0,
+        s"compile-jvm --bytecode failed: exit=${rc.exitCode}\n" +
+          s"stdout=${rc.out.text()}\nstderr=${rc.err.text()}")
 
       val outJar = sandbox / "out.jar"
       val rl = runSsc(sandbox, "link", "--backend", "jvm", "--bytecode",
@@ -222,34 +209,19 @@ class JvmSmapStackTraceTest extends AnyFunSuite:
       val env = Map("SSC_EXTERNAL_SCALA_CLI" -> "1")
       val rc = runSsc(sandbox, env, "compile-jvm", "--bytecode", "a.ssc",
                       "-o", "artifacts/a.scjvm")
-      if rc.exitCode != 0 then
-        cancel(s"compile-jvm --bytecode failed: stderr=${rc.err.text()}")
+      assert(rc.exitCode == 0,
+        s"compile-jvm --bytecode failed: exit=${rc.exitCode}\n" +
+          s"stdout=${rc.out.text()}\nstderr=${rc.err.text()}")
 
       val outJar = sandbox / "out.jar"
       val rl = runSsc(sandbox, env, "link", "--backend", "jvm", "--bytecode",
                       "--source-map", "artifacts", "-o", outJar.toString)
-      if rl.exitCode != 0 then
-        cancel(s"link failed: stderr=${rl.err.text()}")
+      assert(rl.exitCode == 0,
+        s"link failed: exit=${rl.exitCode}\n" +
+          s"stdout=${rl.out.text()}\nstderr=${rl.err.text()}")
 
-      // Find Scala stdlib JARs for the runtime classpath.
-      val home = sys.env.getOrElse("HOME", "")
-      val cache = os.Path(home) / "Library" / "Caches" / "Coursier" / "v1" /
-                  "https" / "repo1.maven.org" / "maven2" / "org" / "scala-lang"
-      if !os.exists(cache) then cancel("Coursier cache not found — skipping run")
-
-      def newestJar(root: os.Path, pattern: String): Option[os.Path] =
-        if !os.isDir(root) then None
-        else
-          val dirs = os.list(root).filter(p => os.isDir(p) && p.last.matches("\\d+\\.\\d+\\.\\d+"))
-          dirs.flatMap { d =>
-            os.list(d).filter(p => p.last.matches(pattern) && !p.last.contains("sources"))
-          }.sortBy(_.toString).reverse.headOption
-
-      val s3 = newestJar(cache / "scala3-library_3", "scala3-library_3-\\d.*\\.jar")
-      val s2 = newestJar(cache / "scala-library", "scala-library-\\d.*\\.jar")
-      val stdlib = (s3, s2) match
-        case (Some(j3), Some(j2)) => s"$j3:$j2"
-        case _                    => cancel("Scala stdlib not in Coursier cache")
+      val stdlib = StagedCliTestSupport.scalaRuntimeClasspath.getOrElse:
+        cancel("Scala runtime libraries are not visible to the test JVM")
 
       val runRes = os.proc("java", "-cp", s"$outJar:$stdlib", "a_sc").call(
         stdin = "", check = false, stderr = os.Pipe, stdout = os.Pipe

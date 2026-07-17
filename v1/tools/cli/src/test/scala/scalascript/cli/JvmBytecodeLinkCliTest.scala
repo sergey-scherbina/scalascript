@@ -6,8 +6,8 @@ import java.util.jar.JarFile
 import java.util.zip.ZipInputStream
 
 import org.scalatest.funsuite.AnyFunSuite
-import upickle.default.read as upickleRead
-import ujson.Value as JsonValue
+import scalascript.artifact.JvmArtifactIO
+import scalascript.ir.ModuleJvmArtifact
 
 /** v2.0 Phase 2 — end-to-end tests for the bytecode-level JVM linker.
  *
@@ -25,33 +25,19 @@ import ujson.Value as JsonValue
  *      prints expected stdout and exits 0.
  *   5. Two-module run-test where b imports a's `add` via `[add](./a.ssc)`.
  *
- *  All tests `cancel(...)` when prerequisites (`ssc.jar`, `scala-cli`, the
- *  Scala 3 stdlib in Coursier's cache) are missing — local dev setups vary.
+ *  All tests `cancel(...)` when prerequisites (the installed `ssc-tools`,
+ *  `scala-cli`, the staged compiler driver, or Scala runtime libraries) are
+ *  missing — local dev setups vary.
  *
  *  Run with:  `sbt "cli/testOnly *JvmBytecode*"`
  */
 class JvmBytecodeLinkCliTest extends AnyFunSuite:
 
-  // ── ssc.jar discovery (mirrors JvmIncrementalCliTest) ────────────────────
+  // ── Installed distribution ──────────────────────────────────────────────
 
-  private val sscJar: Option[os.Path] =
-    val cwd = os.pwd
-    def jarUnder(root: os.Path): os.Path =
-      root / "cli" / "target" / "scala-3.8.3" / "ssc.jar"
-    def findCanonicalRepo(p: os.Path): Option[os.Path] =
-      val parts = p.segments.toList
-      val idx = parts.lastIndexOf(".claude")
-      if idx >= 0 && idx + 1 < parts.length && parts(idx + 1) == "worktrees" then
-        Some(os.Path("/" + parts.take(idx).mkString("/")))
-      else None
-    val candidates = List(
-      jarUnder(cwd),
-      jarUnder(cwd / os.up)
-    ) ++ findCanonicalRepo(cwd).map(jarUnder).toList
-    candidates.find(os.exists)
-
-  private def requireJar(): os.Path = sscJar.getOrElse:
-    cancel("ssc.jar not found — run `sbt cli/assembly` first")
+  private def requireLauncher(): os.Path =
+    StagedCliTestSupport.toolsLauncher.getOrElse:
+      cancel("bin/ssc-tools not found — run `sbt cli/assembly installBin` first")
 
   private def requireScalaCli(): Unit =
     val res = scala.util.Try {
@@ -61,23 +47,14 @@ class JvmBytecodeLinkCliTest extends AnyFunSuite:
       cancel("`scala-cli` not on PATH — needed for compile-jvm --bytecode")
 
   private def compilerDriverAvailable: Boolean =
-    scalascript.imports.ImportResolver.libPath
-      .exists(p => os.exists(p / "bin" / "lib" / "compiler" / "jars"))
+    StagedCliTestSupport.compilerDriverAvailable
 
   private def requireCompilerDriver(): Unit =
     if !compilerDriverAvailable then
-      cancel("compiler-driver jars not staged (run `sbt cli/stage`); skipping --bytecode test")
+      cancel("compiler-driver jars not staged (run `sbt cli/assembly installBin`); skipping --bytecode test")
 
   private def runSsc(cwd: os.Path, args: String*): os.CommandResult =
-    val jar = requireJar()
-    val libPathArg: Seq[os.Shellable] =
-      scalascript.imports.ImportResolver.libPath
-        .map(p => Seq[os.Shellable](s"-Dssc.lib.path=$p"))
-        .getOrElse(Seq.empty)
-    val cmd: Seq[os.Shellable] =
-      Seq[os.Shellable]("java") ++ libPathArg ++ Seq[os.Shellable]("-jar", jar.toString) ++
-      args.map(a => a: os.Shellable)
-    os.proc(cmd).call(cwd = cwd, stdin = "", check = false, stderr = os.Pipe, stdout = os.Pipe)
+    StagedCliTestSupport.runTools(requireLauncher(), cwd, args = args)
 
   // ── Test fixtures ────────────────────────────────────────────────────────
 
@@ -123,37 +100,14 @@ class JvmBytecodeLinkCliTest extends AnyFunSuite:
       |```
       |""".stripMargin
 
-  // ── Coursier-cached Scala stdlib JARs (needed to actually run the JAR) ───
+  private def requireScalaStdlib(): String =
+    StagedCliTestSupport.scalaRuntimeClasspath.getOrElse:
+      cancel("Scala runtime libraries are not visible to the test JVM — skipping JAR-run test")
 
-  /** The runtime `java -cp out.jar` invocation needs Scala 3 stdlib JARs.
-   *  We look them up under the standard Coursier cache; if they're missing
-   *  on this machine the run-tests cancel rather than fail. */
-  private def scalaStdlibClasspath(): Option[String] =
-    val home = sys.env.getOrElse("HOME", "")
-    if home.isEmpty then None
-    else
-      val coursierRoot = os.Path(home) / "Library" / "Caches" / "Coursier" / "v1" /
-        "https" / "repo1.maven.org" / "maven2" / "org" / "scala-lang"
-      val s3Root = coursierRoot / "scala3-library_3"
-      val s2Root = coursierRoot / "scala-library"
-      if !os.exists(s3Root) || !os.exists(s2Root) then None
-      else
-        // Pick the newest 3.7.x / 2.13.x directory we can find.
-        def newestJar(root: os.Path, pattern: String): Option[os.Path] =
-          if !os.isDir(root) then None
-          else
-            val dirs = os.list(root).filter(p => os.isDir(p) && p.last.matches("\\d+\\.\\d+\\.\\d+"))
-            dirs.flatMap { d =>
-              os.list(d).filter(p => p.last.matches(pattern) && !p.last.contains("sources"))
-            }.sortBy(_.toString).reverse.headOption
-        val s3 = newestJar(s3Root, "scala3-library_3-\\d.*\\.jar")
-        val s2 = newestJar(s2Root, "scala-library-\\d.*\\.jar")
-        (s3, s2) match
-          case (Some(j3), Some(j2)) => Some(s"$j3:$j2")
-          case _                    => None
-
-  private def requireScalaStdlib(): String = scalaStdlibClasspath().getOrElse:
-    cancel("Scala 3 stdlib JARs not found in Coursier cache — skipping JAR-run test")
+  private def readJvmArtifact(path: os.Path): ModuleJvmArtifact =
+    JvmArtifactIO.readJvmFile(path).fold(
+      err => fail(s"failed to decode $path through JvmArtifactIO: $err"),
+      identity)
 
   // ── 1. compile-jvm --bytecode produces a valid classBundle ──────────────
 
@@ -172,14 +126,13 @@ class JvmBytecodeLinkCliTest extends AnyFunSuite:
       val scjvm = sandbox / "a.scjvm"
       assert(os.exists(scjvm), s"expected $scjvm; got: ${os.list(sandbox).mkString(", ")}")
 
-      val json = upickleRead[JsonValue](os.read(scjvm))
-      assert(json("magic").str == "SSCART")
-      assert(json("abiVersion").str == "2.0")
+      val artifact = readJvmArtifact(scjvm)
+      assert(artifact.magic == "SSCART")
+      assert(artifact.abiVersion == "2.0")
 
       // classBundle must be a non-empty base64 string.
-      val cbField = json("classBundle")
-      val cbStr   = cbField.strOpt.getOrElse:
-        fail(s"expected classBundle to be a non-null string, got: $cbField")
+      val cbStr = artifact.classBundle.getOrElse:
+        fail("expected classBundle to be present")
       assert(cbStr.nonEmpty, "expected non-empty classBundle")
 
       // Decoded base64 must be a valid ZIP whose entries include at least
@@ -246,10 +199,15 @@ class JvmBytecodeLinkCliTest extends AnyFunSuite:
           s"expected a_sc.class in JAR; got first 20: ${names.take(20).mkString(", ")}")
         assert(names.exists(_.endsWith("b_sc.class")),
           s"expected b_sc.class in JAR; got first 20: ${names.take(20).mkString(", ")}")
-        // The runtime JAR should NOT contain .tasty files — those are
-        // stripped at link time.
-        assert(!names.exists(_.endsWith(".tasty")),
-          s"unexpected .tasty entries in runtime JAR: ${names.filter(_.endsWith(".tasty")).mkString(", ")}")
+        // Tier 5: the linked JAR is also a Scala 3 compile-time dependency,
+        // so module and shared-runtime TASTY must survive linking.
+        val tastyEntries = names.filter(_.endsWith(".tasty"))
+        assert(tastyEntries.exists(_.endsWith("a_sc.tasty")),
+          s"expected a_sc.tasty in linked JAR; got: ${tastyEntries.mkString(", ")}")
+        assert(tastyEntries.exists(_.endsWith("b_sc.tasty")),
+          s"expected b_sc.tasty in linked JAR; got: ${tastyEntries.mkString(", ")}")
+        assert(tastyEntries.exists(_.endsWith("_ssc_runtime.tasty")),
+          s"expected shared-runtime TASTY in linked JAR; got: ${tastyEntries.mkString(", ")}")
       finally jar.close()
     finally os.remove.all(sandbox)
 
@@ -268,17 +226,11 @@ class JvmBytecodeLinkCliTest extends AnyFunSuite:
       assert(r.exitCode == 0,
         s"compile-jvm (source-only) failed: ${r.err.text()}")
 
-      // Sanity: confirm that the produced artifact really lacks a
-      // classBundle (upickle elides None fields entirely on write).
-      val payload = os.read(artDir / "a.scjvm")
-      val json    = upickleRead[JsonValue](payload).obj
-      val cb      = json.get("classBundle")
-      assert(
-        cb.isEmpty ||
-          cb.exists(_.isNull) ||
-          cb.exists(_.strOpt.exists(_.isEmpty)),
-        s"expected classBundle to be missing/null/empty in source-only artifact; got: $cb"
-      )
+      // Sanity: confirm that the produced artifact really lacks a classBundle.
+      val sourceOnly = readJvmArtifact(artDir / "a.scjvm")
+      assert(sourceOnly.classBundle.forall(_.isEmpty),
+        s"expected classBundle to be missing/empty in source-only artifact; " +
+          s"got ${sourceOnly.classBundle.map(_.length)} chars")
 
       val outJar = sandbox / "out.jar"
       val rl = runSsc(sandbox, "link", "--backend", "jvm", "--bytecode",
@@ -314,7 +266,8 @@ class JvmBytecodeLinkCliTest extends AnyFunSuite:
         check = false, stderr = os.Pipe, stdout = os.Pipe
       )
       assert(runRes.exitCode == 0,
-        s"java -cp out.jar a_sc failed: exit=${runRes.exitCode}\nstdout=${runRes.out.text()}\nstderr=${runRes.err.text()}")
+        s"java -cp out.jar a_sc failed: exit=${runRes.exitCode}\nclasspath=$stdlib\n" +
+          s"stdout=${runRes.out.text()}\nstderr=${runRes.err.text()}")
       val out = runRes.out.text()
       assert(out.contains("a.add(2, 3) = 5"),
         s"expected expected stdout 'a.add(2, 3) = 5'; got:\n$out")
@@ -357,7 +310,8 @@ class JvmBytecodeLinkCliTest extends AnyFunSuite:
         check = false, stderr = os.Pipe, stdout = os.Pipe
       )
       assert(runRes.exitCode == 0,
-        s"java -cp out.jar b_sc failed: exit=${runRes.exitCode}\nstderr=${runRes.err.text()}")
+        s"java -cp out.jar b_sc failed: exit=${runRes.exitCode}\nclasspath=$stdlib\n" +
+          s"stderr=${runRes.err.text()}")
       val out = runRes.out.text()
       assert(out.contains("a.add(7, 8) = 15"),
         s"expected 'a.add(7, 8) = 15' in stdout; got:\n$out")

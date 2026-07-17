@@ -52,16 +52,17 @@ class JvmDirectDriverTest extends AnyFunSuite:
   private def scalaCliAvailable: Boolean = JvmBytecode.scalaCliAvailable
 
   /** The in-process driver needs the staged compiler classloader
-   *  (`<ssc.lib.path>/bin/lib/compiler/jars/`), populated by `sbt cli/stage`.
-   *  Absent in a plain `sbt test` run, so the driver tests cancel rather than
-   *  fail — mirrors `CompilerLoader`'s own preconditions. */
+   *  (`<ssc.lib.path>/bin/lib/compiler/jars/`), populated by `installBin`.
+   *  Configure this test JVM with the same root as the installed launcher
+   *  before CompilerLoader's lazy service is initialised. */
   private def compilerDriverAvailable: Boolean =
-    scalascript.imports.ImportResolver.libPath
-      .exists(p => os.exists(p / "bin" / "lib" / "compiler" / "jars"))
+    StagedCliTestSupport.compilerDriverAvailable
 
   private def requireCompilerDriver(): Unit =
     if !compilerDriverAvailable then
-      cancel("compiler-driver jars not staged (run `sbt cli/stage`); skipping in-process driver test")
+      cancel("compiler-driver jars not staged (run `sbt cli/assembly installBin`); skipping in-process driver test")
+    StagedCliTestSupport.configureInstalledLibPath().getOrElse:
+      cancel("installed ssc root not found after compiler-driver check")
 
   // ── 1. In-process driver compiles + produces a non-empty classBundle ─
 

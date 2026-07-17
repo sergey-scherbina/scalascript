@@ -3,6 +3,7 @@ package scalascript.cli
 import java.util.jar.JarFile
 
 import org.scalatest.funsuite.AnyFunSuite
+import scalascript.artifact.JvmArtifactIO
 
 /** v2.0 Phase 4 — tests for `ssc link --backend jvm --bytecode --source-map`.
  *
@@ -16,39 +17,21 @@ import org.scalatest.funsuite.AnyFunSuite
  *      IntelliJ / drop it in `META-INF/sources/`).
  *   3. Without `--source-map`, no sidecar is written.
  *
- *  Tests `cancel(...)` when prerequisites are missing (ssc.jar, scala-cli,
- *  Scala 3 stdlib in Coursier's cache).
+ *  Tests `cancel(...)` when the installed launcher is missing. Once staged,
+ *  compile/link failures are assertion failures with full process diagnostics.
  *
  *  Run with:  `sbt "cli/testOnly *SourceMapJvm*"`
  */
 class SourceMapJvmTest extends AnyFunSuite:
 
-  // ── ssc.jar discovery (mirrors JvmBytecodeLinkCliTest) ──────────────────
+  // ── Installed distribution ──────────────────────────────────────────────
 
-  private val sscJar: Option[os.Path] =
-    val cwd = os.pwd
-    def jarUnder(root: os.Path): os.Path =
-      root / "cli" / "target" / "scala-3.8.3" / "ssc.jar"
-    def findCanonicalRepo(p: os.Path): Option[os.Path] =
-      val parts = p.segments.toList
-      val idx = parts.lastIndexOf(".claude")
-      if idx >= 0 && idx + 1 < parts.length && parts(idx + 1) == "worktrees" then
-        Some(os.Path("/" + parts.take(idx).mkString("/")))
-      else None
-    val candidates = List(
-      jarUnder(cwd),
-      jarUnder(cwd / os.up)
-    ) ++ findCanonicalRepo(cwd).map(jarUnder).toList
-    candidates.find(os.exists)
-
-  private def requireJar(): os.Path = sscJar.getOrElse:
-    cancel("ssc.jar not found — run `sbt cli/assembly` first")
+  private def requireLauncher(): os.Path =
+    StagedCliTestSupport.toolsLauncher.getOrElse:
+      cancel("bin/ssc-tools not found — run `sbt cli/assembly installBin` first")
 
   private def runSsc(cwd: os.Path, args: String*): os.CommandResult =
-    val jar = requireJar()
-    val cmd: Seq[os.Shellable] = Seq[os.Shellable]("java", "-jar", jar.toString) ++
-      args.map(a => a: os.Shellable)
-    os.proc(cmd).call(cwd = cwd, stdin = "", check = false, stderr = os.Pipe, stdout = os.Pipe)
+    StagedCliTestSupport.runTools(requireLauncher(), cwd, args = args)
 
   // ── Fixtures ────────────────────────────────────────────────────────────
 
@@ -90,14 +73,14 @@ class SourceMapJvmTest extends AnyFunSuite:
 
       val ra = runSsc(sandbox, "compile-jvm", "--bytecode", "a.ssc",
                       "-o", "artifacts/a.scjvm")
-      if ra.exitCode != 0 then
-        cancel(s"compile-jvm --bytecode a failed (likely missing scala3 stdlib):\n" +
+      assert(ra.exitCode == 0,
+        s"compile-jvm --bytecode a failed: exit=${ra.exitCode}\n" +
           s"stdout=${ra.out.text()}\nstderr=${ra.err.text()}")
 
       val rb = runSsc(sandbox, "compile-jvm", "--bytecode", "b.ssc",
                       "-o", "artifacts/b.scjvm")
-      if rb.exitCode != 0 then
-        cancel(s"compile-jvm --bytecode b failed:\n" +
+      assert(rb.exitCode == 0,
+        s"compile-jvm --bytecode b failed: exit=${rb.exitCode}\n" +
           s"stdout=${rb.out.text()}\nstderr=${rb.err.text()}")
 
       // Link WITH --source-map.  Output JAR lives next to the sidecars.
@@ -118,16 +101,20 @@ class SourceMapJvmTest extends AnyFunSuite:
         s"expected $sidecarB next to the linked JAR")
 
       // Sidecar content should match the .scjvm's scalaSource field.
-      val sscjvmA = ujson.read(os.read(artDir / "a.scjvm"))
-      val srcAField = sscjvmA("scalaSource").str
+      val artifactA = JvmArtifactIO.readJvmFile(artDir / "a.scjvm").fold(
+        err => fail(s"failed to decode a.scjvm through JvmArtifactIO: $err"),
+        identity)
+      val srcAField = artifactA.scalaSource
       assert(os.read(sidecarA) == srcAField,
         s"sidecar a.ssc.scala doesn't match the .scjvm scalaSource field")
       // Sanity: source contains the `add` function.
       assert(os.read(sidecarA).contains("add"),
         s"expected `add` in sidecar a.ssc.scala")
 
-      val sscjvmB = ujson.read(os.read(artDir / "b.scjvm"))
-      val srcBField = sscjvmB("scalaSource").str
+      val artifactB = JvmArtifactIO.readJvmFile(artDir / "b.scjvm").fold(
+        err => fail(s"failed to decode b.scjvm through JvmArtifactIO: $err"),
+        identity)
+      val srcBField = artifactB.scalaSource
       assert(os.read(sidecarB) == srcBField)
       assert(os.read(sidecarB).contains("sub"))
 
@@ -146,8 +133,9 @@ class SourceMapJvmTest extends AnyFunSuite:
 
       val ra = runSsc(sandbox, "compile-jvm", "--bytecode", "a.ssc",
                       "-o", "artifacts/a.scjvm")
-      if ra.exitCode != 0 then
-        cancel(s"compile-jvm --bytecode failed:\nstdout=${ra.out.text()}\nstderr=${ra.err.text()}")
+      assert(ra.exitCode == 0,
+        s"compile-jvm --bytecode failed: exit=${ra.exitCode}\n" +
+          s"stdout=${ra.out.text()}\nstderr=${ra.err.text()}")
 
       val outJar = sandbox / "build" / "out.jar"
       os.makeDir.all(outJar / os.up)
@@ -179,8 +167,9 @@ class SourceMapJvmTest extends AnyFunSuite:
 
       val ra = runSsc(sandbox, "compile-jvm", "--bytecode", "a.ssc",
                       "-o", "artifacts/a.scjvm")
-      if ra.exitCode != 0 then
-        cancel(s"compile-jvm --bytecode failed:\nstderr=${ra.err.text()}")
+      assert(ra.exitCode == 0,
+        s"compile-jvm --bytecode failed: exit=${ra.exitCode}\n" +
+          s"stdout=${ra.out.text()}\nstderr=${ra.err.text()}")
 
       val outJar = sandbox / "out.jar"
       val rl = runSsc(sandbox, "link", "--backend", "jvm", "--bytecode",

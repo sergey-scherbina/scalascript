@@ -12,8 +12,18 @@ import scala.jdk.CollectionConverters.*
  *  Subsequent calls reuse the same classloader instance. */
 object CompilerLoader:
 
+  /** Read the live launcher property before falling back to ImportResolver's
+   * process-start snapshot. This matters for an embedded caller that configures
+   * the supported installation root before the compiler service is first used. */
+  private def configuredLibPath: Option[os.Path] =
+    sys.props.get("ssc.lib.path")
+      .orElse(sys.env.get("SSC_LIB_PATH"))
+      .flatMap(s => scala.util.Try(os.Path(s, os.pwd)).toOption)
+      .filter(os.exists)
+      .orElse(scalascript.imports.ImportResolver.libPath)
+
   private lazy val service: Scala3CompilerService =
-    val libPath = scalascript.imports.ImportResolver.libPath.getOrElse(
+    val libPath = configuredLibPath.getOrElse(
       throw RuntimeException(
         "CompilerLoader: ssc.lib.path is not set — cannot locate lib/compiler/jars/.\n" +
         "Run ssc via the installed bin/ssc launcher or set -Dssc.lib.path=<root>."

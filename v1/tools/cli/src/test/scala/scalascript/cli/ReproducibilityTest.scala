@@ -6,6 +6,8 @@ import java.util.Base64
 import java.util.zip.ZipInputStream
 
 import org.scalatest.funsuite.AnyFunSuite
+import scalascript.artifact.JvmArtifactIO
+import scalascript.ir.ModuleJvmArtifact
 
 /** v2.0 Phase 3 follow-up — reproducibility tests.
  *
@@ -21,9 +23,8 @@ import org.scalatest.funsuite.AnyFunSuite
  *     classBundle differs across runs.
  *   - ZIP entry order (collection iteration order).  Catch: same bytes,
  *     different ordering → different bytes when reassembled.
- *   - JSON field order (upickle is deterministic, but `Map` iteration
- *     is not — case-class-derived writers are fine, hand-written ones
- *     might not be).
+ *   - Artifact-envelope field order (the production MessagePack writer is
+ *     deterministic, but a hand-written writer might not be).
  *   - Source-hash inputs that include absolute paths or wall-clock
  *     timestamps.  Catch: `sourceHash` changes across runs even when
  *     the source bytes do not.
@@ -44,38 +45,24 @@ import org.scalatest.funsuite.AnyFunSuite
  *     (~1238 vs 1239 bytes) because the temp-dir path string length
  *     varied with the integer suffix.
  *
- *  What we exclude from byte-comparison and why:
+ *  How the byte comparison is diagnosed:
  *
- *   - For `.scjvm --bytecode` we strip the `classBundle` JSON field
- *     before comparing the envelope, then re-open the bundle and
- *     compare every entry's bytes.  All entries (`<X>$.class`,
- *     `<X>.class`, `<X>.tasty`) are now byte-identical thanks to
- *     the two fixes above.
+ *   - The two complete binary `.scjvm` files are compared directly. For a
+ *     useful mismatch report, we also decode through the production artifact
+ *     IO, compare the envelope without `classBundle`, preserve and compare ZIP
+ *     entry order, and compare every entry's bytes. All entries (`<X>$.class`,
+ *     `<X>.class`, `<X>.tasty`) are now byte-identical thanks to the two fixes
+ *     above.
  *
  *  Run with: `sbt "cli/testOnly *ReproducibilityTest*"`
  */
 class ReproducibilityTest extends AnyFunSuite:
 
-  // ── ssc.jar discovery (mirrors other CLI tests) ─────────────────────────
+  // ── Installed distribution ──────────────────────────────────────────────
 
-  private val sscJar: Option[os.Path] =
-    val cwd = os.pwd
-    def jarUnder(root: os.Path): os.Path =
-      root / "cli" / "target" / "scala-3.8.3" / "ssc.jar"
-    def findCanonicalRepo(p: os.Path): Option[os.Path] =
-      val parts = p.segments.toList
-      val idx = parts.lastIndexOf(".claude")
-      if idx >= 0 && idx + 1 < parts.length && parts(idx + 1) == "worktrees" then
-        Some(os.Path("/" + parts.take(idx).mkString("/")))
-      else None
-    val candidates = List(
-      jarUnder(cwd),
-      jarUnder(cwd / os.up)
-    ) ++ findCanonicalRepo(cwd).map(jarUnder).toList
-    candidates.find(os.exists)
-
-  private def requireJar(): os.Path = sscJar.getOrElse:
-    cancel("ssc.jar not found — run `sbt cli/assembly` first")
+  private def requireLauncher(): os.Path =
+    StagedCliTestSupport.toolsLauncher.getOrElse:
+      cancel("bin/ssc-tools not found — run `sbt cli/assembly installBin` first")
 
   private def requireScalaCli(): Unit =
     val res = scala.util.Try {
@@ -85,23 +72,14 @@ class ReproducibilityTest extends AnyFunSuite:
       cancel("`scala-cli` not on PATH — needed for compile-jvm --bytecode")
 
   private def compilerDriverAvailable: Boolean =
-    scalascript.imports.ImportResolver.libPath
-      .exists(p => os.exists(p / "bin" / "lib" / "compiler" / "jars"))
+    StagedCliTestSupport.compilerDriverAvailable
 
   private def requireCompilerDriver(): Unit =
     if !compilerDriverAvailable then
-      cancel("compiler-driver jars not staged (run `sbt cli/stage`); skipping --bytecode test")
+      cancel("compiler-driver jars not staged (run `sbt cli/assembly installBin`); skipping --bytecode test")
 
   private def runSsc(cwd: os.Path, args: String*): os.CommandResult =
-    val jar = requireJar()
-    val libPathArg: Seq[os.Shellable] =
-      scalascript.imports.ImportResolver.libPath
-        .map(p => Seq[os.Shellable](s"-Dssc.lib.path=$p"))
-        .getOrElse(Seq.empty)
-    val cmd: Seq[os.Shellable] =
-      Seq[os.Shellable]("java") ++ libPathArg ++ Seq[os.Shellable]("-jar", jar.toString) ++
-      args.map(a => a: os.Shellable)
-    os.proc(cmd).call(cwd = cwd, stdin = "", check = false, stderr = os.Pipe, stdout = os.Pipe)
+    StagedCliTestSupport.runTools(requireLauncher(), cwd, args = args)
 
   // ── Fixture ─────────────────────────────────────────────────────────────
 
@@ -129,26 +107,28 @@ class ReproducibilityTest extends AnyFunSuite:
     MessageDigest.getInstance("SHA-256")
       .digest(bytes).map(b => f"$b%02x").mkString
 
-  /** Strip the `"classBundle": "…"` field from a `.scjvm` JSON for
-   *  comparison purposes.  `.class` files embed compilation-side metadata
+  private def readJvmArtifact(path: os.Path): ModuleJvmArtifact =
+    JvmArtifactIO.readJvmFile(path).fold(
+      err => fail(s"failed to decode $path through JvmArtifactIO: $err"),
+      identity)
+
+  /** Strip the classBundle from a decoded `.scjvm` for comparison purposes.
+   *  `.class` files embed compilation-side metadata
    *  (TASTY UUIDs, etc.) we can't normalise without invasive
    *  post-processing — for now we just verify the envelope reproduces.
    *  When the bundle itself becomes reproducible we drop this. */
-  private def stripClassBundle(json: String): String =
-    val parsed = ujson.read(json).obj
-    parsed.remove("classBundle")
-    ujson.write(parsed, indent = 2)
+  private def stripClassBundle(artifact: ModuleJvmArtifact): Array[Byte] =
+    JvmArtifactIO.writeJvm(artifact.copy(classBundle = None)).getBytes("UTF-8")
 
-  /** Decode the `classBundle` and return entry name → bytes for every entry. */
-  private def bundleEntries(json: String): Map[String, Array[Byte]] =
-    val parsed = ujson.read(json).obj
-    parsed.get("classBundle").flatMap(_.strOpt) match
-      case None        => Map.empty
-      case Some(b64) if b64.isEmpty => Map.empty
+  /** Decode classBundle and preserve the ZIP's actual entry order. */
+  private def bundleEntries(artifact: ModuleJvmArtifact): List[(String, Array[Byte])] =
+    artifact.classBundle match
+      case None        => Nil
+      case Some(b64) if b64.isEmpty => Nil
       case Some(b64) =>
         val zis = new ZipInputStream(new ByteArrayInputStream(Base64.getDecoder.decode(b64)))
         try
-          val out = scala.collection.mutable.LinkedHashMap.empty[String, Array[Byte]]
+          val out = scala.collection.mutable.ListBuffer.empty[(String, Array[Byte])]
           var e = zis.getNextEntry
           val buf = new Array[Byte](8192)
           val baos = new java.io.ByteArrayOutputStream()
@@ -158,18 +138,18 @@ class ReproducibilityTest extends AnyFunSuite:
             while n > 0 do
               baos.write(buf, 0, n)
               n = zis.read(buf)
-            out(e.getName) = baos.toByteArray
+            out += e.getName -> baos.toByteArray
             zis.closeEntry()
             e = zis.getNextEntry
-          out.toMap
+          out.toList
         finally zis.close()
 
   /** SHA-256 of two runs' outputs; the test asserts they match.  When
    *  they don't, we print a diff-friendly delta to help diagnose. */
   private def assertBytewiseIdentical(label: String, b1: Array[Byte], b2: Array[Byte]): Unit =
-    val h1 = sha256(b1)
-    val h2 = sha256(b2)
-    if h1 != h2 then
+    if !java.util.Arrays.equals(b1, b2) then
+      val h1 = sha256(b1)
+      val h2 = sha256(b2)
       // Find the first differing byte to give a hint.
       val len = math.min(b1.length, b2.length)
       val firstDiff = (0 until len).find(i => b1(i) != b2(i)).getOrElse(len)
@@ -274,16 +254,16 @@ class ReproducibilityTest extends AnyFunSuite:
       Thread.sleep(1100)
       assert(runSsc(sandbox, "compile-jvm", "--bytecode", "a.ssc", "-o", out2.toString).exitCode == 0)
 
-      val json1 = os.read(out1)
-      val json2 = os.read(out2)
+      val artifact1 = readJvmArtifact(out1)
+      val artifact2 = readJvmArtifact(out2)
 
       // (a) Envelope sans classBundle is byte-identical.
-      val stripped1 = stripClassBundle(json1)
-      val stripped2 = stripClassBundle(json2)
+      val stripped1 = stripClassBundle(artifact1)
+      val stripped2 = stripClassBundle(artifact2)
       assertBytewiseIdentical(
         ".scjvm envelope (classBundle stripped)",
-        stripped1.getBytes("UTF-8"),
-        stripped2.getBytes("UTF-8"))
+        stripped1,
+        stripped2)
 
       // (b) The bundle's entry order matches AND every entry's bytes
       //     match.  Thanks to pinned ZIP timestamps + `-sourceroot`
@@ -291,18 +271,23 @@ class ReproducibilityTest extends AnyFunSuite:
       //     also reproducible.  If a future regression introduces a
       //     new non-determinism source (timestamp leak, randomised
       //     UUID, etc.) this assertion catches it immediately.
-      val entries1 = bundleEntries(json1)
-      val entries2 = bundleEntries(json2)
-      assert(entries1.keys.toList == entries2.keys.toList,
-        s"classBundle entry order changed across runs:\n  run1=${entries1.keys.toList}\n  run2=${entries2.keys.toList}")
-      for (n, b1) <- entries1 do
-        val b2 = entries2(n)
-        assertBytewiseIdentical(s"classBundle entry $n", b1, b2)
+      val entries1 = bundleEntries(artifact1)
+      val entries2 = bundleEntries(artifact2)
+      val names1 = entries1.map(_._1)
+      val names2 = entries2.map(_._1)
+      assert(names1 == names2,
+        s"classBundle entry order changed across runs:\n  run1=$names1\n  run2=$names2")
+      entries1.zip(entries2).foreach { case ((n1, b1), (n2, b2)) =>
+        assert(n1 == n2, s"entry order mismatch: run1=$n1 run2=$n2")
+        assertBytewiseIdentical(s"classBundle entry $n1", b1, b2)
+      }
 
-      // (c) And the classBundle base64 itself is byte-identical (the
-      //     strongest possible check — implies (a) + (b) hold at the
-      //     ZIP framing level too: central directory, EOCD, etc.).
-      val cb1 = ujson.read(json1).obj("classBundle").str
-      val cb2 = ujson.read(json2).obj("classBundle").str
+      // (c) The classBundle base64 itself is byte-identical, covering ZIP
+      //     framing too: central directory, EOCD, etc.
+      val cb1 = artifact1.classBundle.getOrElse(fail("run1 has no classBundle"))
+      val cb2 = artifact2.classBundle.getOrElse(fail("run2 has no classBundle"))
       assertBytewiseIdentical("classBundle base64", cb1.getBytes("UTF-8"), cb2.getBytes("UTF-8"))
+
+      // The actual cache artifact is the binary file, not its decoded proxy.
+      assertBytewiseIdentical("complete .scjvm artifact", os.read.bytes(out1), os.read.bytes(out2))
     finally os.remove.all(sandbox)
