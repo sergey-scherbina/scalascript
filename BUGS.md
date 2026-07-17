@@ -1,5 +1,33 @@
 # Bug tracker
 
+## v2-native-front-rejects-jdbc-facade — `scljet/jdbc.ssc` fails to parse on the native front
+
+**Status:** OPEN (found 2026-07-17 by `scljet-jdbc-durability` while writing the missing
+`examples/scljet-jdbc.ssc`). **v2 native front**, not the façade or the engine. Pre-existing: the
+façade's conformance is `[int, js]`, so the native lane was never exercised.
+
+**Symptom/reproduce** — importing the façade at all is enough:
+
+```
+[jdbcOpen](std/scljet/jdbc.ssc)   → bin/ssc run: "native frontend rejected incomplete parse …
+                                     structural CoreIR contains parser sentinel _err"
+[ByteSlice](std/scljet/index.ssc) → ok
+[queryImageParams, …](std/scljet/sql.ssc) → ok
+```
+
+**Localised so far.** `index.ssc` and `sql.ssc` (5236 lines, incl. everything `jdbc.ssc` imports)
+BOTH parse on the native front — so this is a construct in `jdbc.ssc`'s own 303 lines, not its
+dependencies. `parseDoubleStr` (a suspect, hand-rolled float parse) was extracted and parses fine on
+native, so it is elsewhere. The `_err` sentinel is the native front's parse-failure marker (same
+family as `1832b5b22`'s fail-closed): the front does not crash, it emits a sentinel that the runner
+rejects. Full bisection of the module into the exact construct is native-front-lane work, not the
+JDBC lane's — deferred with this pointer.
+
+**Impact.** The portable JDBC façade cannot run on `bin/ssc run` (the default command); it works on
+`int`/`js` (6/6 conformance) and via the JVM shim (56/56). `examples/scljet-jdbc.ssc` is therefore
+scoped `backends: [int, js]`.
+
+
 ## scljet-update-ipk-column-silently-ignored — `UPDATE t SET <ipk> = …` does nothing, and reports success
 
 **Status:** OPEN (found 2026-07-17 by `scljet-address-write` while probing the write path before

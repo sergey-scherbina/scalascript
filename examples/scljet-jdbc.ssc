@@ -1,0 +1,75 @@
+#!/usr/bin/env ssc
+---
+name: scljet-jdbc
+description: Drive a SclJet database through the portable JDBC-shaped façade — Connection, CRUD, ? parameters, a transaction, and ResultSet metadata
+backends: [int, js]
+---
+
+# SclJet JDBC façade
+
+The `scljet/jdbc.ssc` façade presents the engine through the method names a JDBC caller already
+knows — `Connection` / execute / `ResultSet` — without a real `java.sql.*` (that is the JVM shim's
+job). It returns ScalaScript-native values and binds `?` parameters at the token level, so bound
+text and blobs can never break out of the SQL. Runs on the interpreter and JS backends (the
+engine's `[int, js]` lanes).
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, SqlReal, buildTableDatabase](std/scljet/index.ssc)
+[JdbcConnection, JdbcResultSet, jdbcOpen, jdbcExecuteUpdate, jdbcExecuteUpdateParams, jdbcExecuteQuery, jdbcExecuteQueryParams, jdbcSetAutoCommit, jdbcCommit, jdbcRollback, rsNext, rsHasRow, rsGetLong, rsGetString, rsGetLongByLabel, rsColumnCount, rsColumnLabel](std/scljet/jdbc.ssc)
+
+```scalascript
+def rows(conn: JdbcConnection, sql: String): Unit =
+  jdbcExecuteQuery(conn, sql) match
+    case Left(m) => println("  query ERR: " + m)
+    case Right(rs) =>
+      var cur = rsNext(rs)
+      while rsHasRow(cur) do
+        println("  " + rsGetLong(cur, 1).toString + " | " + rsGetString(cur, 2) + " | " + rsGetLong(cur, 3).toString)
+        cur = rsNext(cur)
+
+def run(conn: JdbcConnection, sql: String): JdbcConnection =
+  jdbcExecuteUpdate(conn, sql) match
+    case Left(m) => println("  update ERR: " + m); conn
+    case Right(u) => u.conn
+
+// Open a connection over a fresh database with one table.
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER, name TEXT, salary INTEGER)",
+  List(List(SqlInteger(1L), SqlText("ann"), SqlInteger(100L)))) match
+  case Left(error) => println("open failed: " + error.message)
+  case Right(image) =>
+    val c0 = jdbcOpen(image)
+
+    println("-- insert two more rows --")
+    val c1 = run(run(c0, "INSERT INTO emp VALUES (2, 'bob', 250)"),
+                     "INSERT INTO emp VALUES (3, 'cat', 300)")
+    rows(c1, "SELECT id, name, salary FROM emp ORDER BY id")
+
+    println("-- a ? parameter (no string interpolation) --")
+    jdbcExecuteQueryParams(c1, "SELECT name, salary FROM emp WHERE id = ?", List(SqlInteger(2L))) match
+      case Left(m) => println("  ERR: " + m)
+      case Right(rs) =>
+        val r = rsNext(rs)
+        println("  id=2 => " + rsGetString(r, 1) + " earns " + rsGetLongByLabel(r, "salary").toString)
+
+    println("-- a parameterised UPDATE reports its row count --")
+    jdbcExecuteUpdateParams(c1, "UPDATE emp SET salary = ? WHERE id = ?", List(SqlInteger(999L), SqlInteger(1L))) match
+      case Left(m) => println("  ERR: " + m)
+      case Right(u) =>
+        println("  changed " + u.changes.toString + " row")
+        rows(u.conn, "SELECT id, name, salary FROM emp WHERE id = 1")
+
+        println("-- a transaction: rollback reverts, autocommit is off --")
+        val tx0 = jdbcSetAutoCommit(u.conn, false)
+        val tx1 = run(tx0, "DELETE FROM emp WHERE id = 3")
+        println("  inside the transaction:")
+        rows(tx1, "SELECT id, name, salary FROM emp ORDER BY id")
+        val tx2 = jdbcRollback(tx1)
+        println("  after rollback (cat is back):")
+        rows(tx2, "SELECT id, name, salary FROM emp ORDER BY id")
+
+        println("-- ResultSet metadata --")
+        jdbcExecuteQuery(tx2, "SELECT id, name, salary FROM emp") match
+          case Left(m) => println("  ERR: " + m)
+          case Right(rs) =>
+            println("  columns: " + rsColumnCount(rs).toString +
+              " (" + rsColumnLabel(rs, 1) + ", " + rsColumnLabel(rs, 2) + ", " + rsColumnLabel(rs, 3) + ")")
+```
