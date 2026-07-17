@@ -1,5 +1,25 @@
 # Bug tracker
 
+## ci-example-typecheck-uses-compiler-free-launcher — green examples fail at the workflow command
+
+**Status:** OPEN (found 2026-07-17 by `ci-red-main` in Linux run `29549382274`, SHA
+`d5492a129`). The conformance job passes the full corpus 282/282 and all-examples backend parity,
+then its `Type-check examples (ssc check)` step runs `./bin/ssc check examples/*.ssc`. The standard
+launcher correctly rejects that compiler command:
+
+```text
+ssc: 'check' requires the optional ScalaScript tools/compatibility tier; run ssc-tools explicitly
+or install the full distribution
+```
+
+The same staged checkout's `./bin/ssc-tools check examples/*.ssc` exits 0 and reports every example
+OK (with only documented warnings). This is launcher routing in `.github/workflows/ci.yml`, not a
+typechecker failure and not a reason to put compiler tooling back into the standard distribution.
+
+**Expected/fix plan.** Route only this compiler-bearing CI step through installed `bin/ssc-tools`,
+preserve the standard launcher's negative contract, and rerun a focused conformance slice before
+push. Exact-SHA Linux confirmation must show the type-check step green and continue to later steps.
+
 ## jvm-actor-electleader-omits-leader-history — JVM disagrees with INT/JS on accepted self claim
 
 **Status:** FIXED (2026-07-17, JVM runtime `34685277c`, activated oracle `f403cb952`; awaiting

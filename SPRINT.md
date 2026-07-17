@@ -563,6 +563,12 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       **DONE `f403cb952`:** after 5v, both cases have one normalized SHA across all three raw lanes.
       Their measured fixtures activate the runner: 2/2 execute, and each passes INT/JS/JVM with
       `--no-memo`; neither source can silently finish as 0/0 now.
+- [ ] **5w. Route CI example type-checking through the installed tools tier.** Linux run
+      `29549382274` reaches conformance 282/282 and green all-examples parity, then invokes
+      compiler-free `./bin/ssc check examples/*.ssc` and fails with the expected tools-tier
+      rejection. Local `./bin/ssc-tools check examples/*.ssc` checks the same corpus successfully.
+      Change only the workflow command to `ssc-tools`; keep the standard negative contract intact,
+      run focused conformance, and require a later Linux run to pass this step and continue.
 - [ ] **6. Prevent the recurrence.** Long-red CI is what let all of this pile up. Decide + record a
       cheap guard (e.g. the loop checks `gh run list` before claiming a lane green, or a CI-status
       line in the claim protocol). Recorded as a question for Sergiy, not a unilateral process change.
