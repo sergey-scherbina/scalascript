@@ -253,6 +253,19 @@ lazy val v2NativeFsPlugin = project
     scalacOptions ++= Seq("-deprecation", "-feature"),
   )
 
+// scljet's host-file VFS (`jvmVfs*`) for the native tier. Adapter only: the FileChannel/lock/shm
+// implementation is scljetVfsHost, shared verbatim with the v1 interpreter plugin, so the two
+// lanes cannot drift on locking or durability. Without this, `bin/ssc run` — the DEFAULT command —
+// cannot open a real SQLite file (the v1 plugin lives behind a different SPI/ServiceLoader).
+lazy val v2NativeScljetVfsPlugin = project
+  .in(file("v2/runtime/std/scljet-vfs-plugin"))
+  .dependsOn(v2NativePluginSpi, scljetVfsHost)
+  .settings(
+    name := "scalascript-v2-native-scljet-vfs-plugin",
+    libraryDependencies += scalatestTest,
+    scalacOptions ++= Seq("-deprecation", "-feature"),
+  )
+
 lazy val v2NativeJsonPlugin = project
   .in(file("v2/runtime/std/json-plugin"))
   .dependsOn(v2NativePluginSpi)
@@ -1460,7 +1473,7 @@ lazy val cli = project
     pwaPlugin, markupCore, paymentsPlugin, paymentsBankRails, paymentsPix,
     loggerEffectPlugin, stateEffectPlugin, randomEffectPlugin, clockEffectPlugin,
     envEffectPlugin, retryEffectPlugin, cacheEffectPlugin,
-    v2JvmBytecode, v2JsBackend, v2SwiftBackend, v2NativePluginSpi, v2NativeHostPlugin, v2NativeCryptoPlugin, v2NativeOsPlugin, v2NativeFsPlugin, v2NativeJsonPlugin, v2NativeHttpFastPlugin, v2NativeSqlPlugin, v2NativeUiPlugin, v2NativeStateEffectPlugin, v2NativeEffectRunnersPlugin, v2NativeStorageEffectPlugin, v2NativeReactivePlugin, v2NativeYamlPlugin, v2NativeContentPlugin, v2NativeDatasetPlugin, v2NativeGeneratorPlugin, v2NativeActorsPlugin, v2NativeDistributedPlugin, v2NativeGraphPlugin, v2NativeOpticsPlugin, v2NativePdfPlugin, v2NativeNfcPlugin, v2NativeMcpPlugin, v2NativeGraphRdf4jPlugin, v2NativeSwiftPlugin)
+    v2JvmBytecode, v2JsBackend, v2SwiftBackend, v2NativePluginSpi, v2NativeHostPlugin, v2NativeCryptoPlugin, v2NativeOsPlugin, v2NativeFsPlugin, v2NativeJsonPlugin, v2NativeHttpFastPlugin, v2NativeSqlPlugin, v2NativeUiPlugin, v2NativeStateEffectPlugin, v2NativeEffectRunnersPlugin, v2NativeStorageEffectPlugin, v2NativeReactivePlugin, v2NativeYamlPlugin, v2NativeContentPlugin, v2NativeDatasetPlugin, v2NativeGeneratorPlugin, v2NativeActorsPlugin, v2NativeDistributedPlugin, v2NativeGraphPlugin, v2NativeOpticsPlugin, v2NativePdfPlugin, v2NativeNfcPlugin, v2NativeMcpPlugin, v2NativeGraphRdf4jPlugin, v2NativeSwiftPlugin, v2NativeScljetVfsPlugin)
   // Frontend backends — derived from allFrontends registry (arch-build-registry Phase 4)
   .dependsOn(allFrontends.map(f => ClasspathDependency(f.project, None)): _*)
   .settings(
@@ -1802,6 +1815,10 @@ lazy val cli = project
         "scalascript-v2-native-distributed-plugin_",
         "scalascript-v2-native-graph-plugin_",
         "scalascript-v2-native-optics-plugin_",
+        // scljet host-file VFS: the native plugin + the zero-dep host it shares verbatim with the
+        // v1 interpreter plugin. Both are needed for `ssc run` to open a real SQLite file; the host
+        // pulls in nothing (java.*/scala.* only), so the standard tier stays compiler-free.
+        "scalascript-v2-native-scljet-vfs-plugin_", "scalascript-scljet-vfs-host_",
         "scalascript-backend-sql-runtime_", "scalascript-backend-config-runtime_",
         "scalascript-backend-typed-data-runtime_", "scalascript-markup-core_",
         "scalascript-yaml_",
@@ -4046,9 +4063,21 @@ lazy val fsPlugin = project
   .settings(sscpkgSettings("scalascript.std.fs"))
 
 // ── scljet.jvm-vfs — positioned I/O + SQLite-compatible host locks ──────
+// The host-file VFS I/O for scljet: FileChannel + advisory locks + shm regions, over its own
+// HostResult/HostLockLevel/HostShmMode. Zero deps (java.*/scala.* only). Shared by the v1
+// interpreter plugin (scljetVfsPlugin) and the v2 native plugin (v2NativeScljetVfsPlugin) —
+// two different plugin SPIs, one implementation. Same pattern as httpFastEngine above.
+lazy val scljetVfsHost = project
+  .in(file("v1/runtime/std/scljet-vfs-host"))
+  .settings(
+    name := "scalascript-scljet-vfs-host",
+    libraryDependencies += scalatestTest,
+    scalacOptions ++= Seq("-deprecation", "-feature"),
+  )
+
 lazy val scljetVfsPlugin = project
   .in(file("v1/runtime/std/scljet-vfs-plugin"))
-  .dependsOn(backendSpi, pluginApi, ir, core, testUtils % Test, backendSqlRuntime % Test)
+  .dependsOn(scljetVfsHost, backendSpi, pluginApi, ir, core, testUtils % Test, backendSqlRuntime % Test)
   .settings(
     name := "scalascript-scljet-vfs-plugin",
     libraryDependencies ++= Seq(scalatestTest),
@@ -4693,7 +4722,7 @@ lazy val root = project
   .aggregate(
     v2Core, v2InteropDescriptor, v2PluginCapabilityProfile, v2NativePluginSpi,
     v2NativeHostPlugin, v2NativeCryptoPlugin,
-    v2NativeOsPlugin, v2NativeFsPlugin, v2NativeJsonPlugin, v2NativeHttpFastPlugin,
+    v2NativeOsPlugin, v2NativeFsPlugin, v2NativeScljetVfsPlugin, scljetVfsHost, v2NativeJsonPlugin, v2NativeHttpFastPlugin,
     v2NativeSqlPlugin, v2NativeUiPlugin, v2NativeStateEffectPlugin, v2NativeEffectRunnersPlugin,
     v2NativeStorageEffectPlugin, v2NativeReactivePlugin, v2NativeYamlPlugin,
     v2NativeContentPlugin, v2NativeDatasetPlugin, v2NativeGeneratorPlugin, v2NativeActorsPlugin,
