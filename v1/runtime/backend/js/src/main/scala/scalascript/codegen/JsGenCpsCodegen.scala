@@ -250,6 +250,9 @@ private[codegen] trait JsGenCpsCodegen:
     case Term.Apply.After_4_6_0(Term.Name("self"), argClause)
         if argClause.values.isEmpty =>
       "Actor.self()"
+    case Term.Apply.After_4_6_0(Term.Name("stop"), argClause)
+        if argClause.values.isEmpty =>
+      "Actor.stop()"
     case Term.Apply.After_4_6_0(Term.Name("exit"), argClause)
         if argClause.values.size == 2 =>
       val pidJs    = genExpr(argClause.values(0).asInstanceOf[Term])

@@ -189,6 +189,37 @@ class NodeBackendTest extends AnyFunSuite:
     assert(out == "Hello from node.js, Sergiy!", s"expected greeting, got:\n$out")
   }
 
+  test("integration: actor timers accept Long delays at the JS host boundary") {
+    assume(hasNode, "node not on PATH — skipping integration test")
+    val src =
+      """|# Long actor timers
+         |
+         |```scalascript
+         |runActors {
+         |  spawn { () =>
+         |    val s = self()
+         |    sendAfter(1L, s, "once")
+         |    receive { case "once" =>
+         |      println("once")
+         |      val ref = sendInterval(1L, s, "tick")
+         |      receive { case "tick" =>
+         |        cancelTimer(ref)
+         |        println("interval")
+         |        val timed = receive(timeout = 1L) { case "never" => "bad" }
+         |        println("timeout")
+         |        stop()
+         |      }
+         |    }
+         |  }
+         |}
+         |```
+         |""".stripMargin
+    val code = compile(src)
+    val out  = runUnderNode(code)
+    assert(out == "once\ninterval\ntimeout",
+      s"expected Long sendAfter/sendInterval/timed-receive delivery, got:\n$out")
+  }
+
   // ── Phase 4: extern def ↔ globalThis bridging ───────────────────────────
 
   test("integration: `extern def` on ssc side resolves against globalThis at runtime") {

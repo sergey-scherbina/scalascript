@@ -192,6 +192,11 @@ const Actor = {
   spawn:      (thunk)      => _perform('Actor', 'spawn',      [thunk]),
   spawn_link: (thunk)      => _perform('Actor', 'spawnLink',  [thunk]),
   self:       ()           => _perform('Actor', 'self',       []),
+  // Stop the current actor exactly like the interpreter global: resolve self,
+  // then exit it with the normal reason. The explicit bind keeps this a Free
+  // computation that the actor scheduler can sequence.
+  stop:       ()           => _bind(_perform('Actor', 'self', []),
+                                    (pid) => _perform('Actor', 'exit', [pid, 'normal'])),
   exit:      (pid, reason) => _perform('Actor', 'exit',      [pid, reason]),
   send:      (pid, msg)    => _perform('Actor', 'send',      [pid, msg]),
   receive_:  (specId)              => _perform('Actor', 'receive',   [specId]),
@@ -1488,7 +1493,10 @@ async function _runActors(bodyFn) {
         const matcher = _receiveSpecs.get(args[0]);
         const c = tryDeliver(state, matcher, true);
         if (c !== null) return { suspend: false, next: new _FlatMap(c, k) };
-        state.blocked = { matcher, k, wrapSome: true, deadline: Date.now() + args[1] };
+        // Source Long values are JS BigInt. Host clocks/timers use Number, so
+        // cross that boundary explicitly instead of mixing Date.now() + BigInt.
+        const timeoutMs = Number(args[1]);
+        state.blocked = { matcher, k, wrapSome: true, deadline: Date.now() + timeoutMs };
         return { suspend: true };
       }
 
@@ -1923,7 +1931,9 @@ async function _runActors(bodyFn) {
       }
       // v1.6.x — scheduled sends
       case 'sendAfter': {
-        const delayMs  = args[0];
+        // `delayMs` is declared Long at the language surface and therefore may
+        // be BigInt; Date/setTimeout deadlines are host Numbers.
+        const delayMs  = Number(args[0]);
         const tgtPid   = args[1];
         const tMsg     = args[2];
         const fireAt   = Date.now() + delayMs;
@@ -1932,7 +1942,7 @@ async function _runActors(bodyFn) {
         return { suspend: false, next: k(tRef) };
       }
       case 'sendInterval': {
-        const periodMs = args[0];
+        const periodMs = Number(args[0]);
         const tgtPid2  = args[1];
         const tMsg2    = args[2];
         const fireAt2  = Date.now() + periodMs;
