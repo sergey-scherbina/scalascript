@@ -225,35 +225,50 @@ Connection {
 
 - **`:memory:` / `ImageVfs`** — "persist" is simply swapping the in-memory `ByteSlice`
   (`committed := working`). No file I/O. This is the portable-lane and `:memory:` case.
-- **Host file — AS IMPLEMENTED (J3, `ScljetConnectionState.flushDurable`).** The JVM lane
-  does **not** use `jvmSqliteVfs()`. Opening reads the whole file
-  (`Files.readAllBytes` → `ImageVfs`); every durable change rewrites the whole file
-  (`Files.write`, i.e. `TRUNCATE_EXISTING` + write). A durable change is: any statement in
+- **Host file — AS IMPLEMENTED (J3 + durability D1, `ScljetConnectionState.flushDurable` →
+  `atomicReplace`).** The JVM lane does **not** use `jvmSqliteVfs()`. Opening reads the whole
+  file ONCE (`Files.readAllBytes` → `ImageVfs`) and holds the image for the connection's
+  lifetime; every durable change rewrites the whole file. A durable change is: any statement in
   autocommit, `commit()`, or `setAutoCommit(true)` with pending work. **This is the same
   read-modify-rewrite model as the portable lane** — the "JVM lane gets real locking and
   durability" sentence under "Opening the image" describes the intended design, not the
   shipped one.
 
-  Its consequences are load-bearing and must not be papered over:
+  Durability was hardened 2026-07-17 (D1): the flush no longer truncates in place. It stages the
+  new image into a sibling temp file, `fsync`s it, `ATOMIC_MOVE`s it over the target, then
+  `fsync`s the directory. The remaining gaps are concurrency, not crash-safety:
 
   | Property | Status |
   |---|---|
-  | Crash-atomicity | **NONE.** `Files.write` truncates first: a crash mid-write leaves a truncated/corrupt file, and the pre-image is gone. There is no journal to replay. |
-  | `fsync` | **NEVER CALLED.** A completed `commit()` can still be lost to an OS/host crash; it only guarantees the bytes reached the page cache. |
-  | Inter-process locking | **NONE.** No `flock`/`FileLock`, no `busy_timeout`. |
-  | Multi-writer | **UNSAFE — silent data loss.** Two connections (in one JVM or two) each hold a full image; the last writer's rewrite discards the other's committed rows entirely. Not a torn row: a lost file. |
-  | Reader-during-write | **UNSAFE.** An external reader can observe a partially written file. |
+  | Crash-atomicity | **YES (D1).** The target is only ever the complete old image or the complete new one — never a torn write. The temp file is the only thing a crash can leave, and it is cleaned up / ignorable. |
+  | `fsync` | **YES (D1).** The new image is `force(true)`d before the rename, and the directory is `fsync`d after, so a returned-OK durable change survives an OS/host crash. |
+  | Inter-process locking | **NONE — and a naive lock would NOT fix it (see below).** No `flock`/`FileLock`, no `busy_timeout`. |
+  | Multi-writer | **UNSAFE — silent data loss, and D1 does not change this.** Each connection snapshots the whole file at open and never re-reads; two writers each rewrite from their own stale snapshot, so the last flush discards the other's committed rows. Atomicity means the loss is a clean lost-update, not a corrupt file — but it is still a lost update. |
+  | Reader-during-write | **SAFE (D1).** An external reader now sees either the old or the new complete image, never a partially written file. |
   | Cost | O(file) bytes read on open and written per durable change, regardless of how little changed. |
 
-  **The contract this implies — state it to users, do not let them infer it:** a host-file
-  `jdbc:scljet:` connection is **single-writer, single-process, and non-durable across a
-  crash**. It is sound for the cases it is used for today (tests, single-process embedded
-  storage, read-mostly images) and unsound as a shared database. Prefer `:memory:` or
-  `classpath:` when persistence is not needed; use a real SQLite driver when concurrent
-  processes or crash-durability are required.
+  **Why inter-process locking is not a one-liner, and why a write-time `FileLock` would be a
+  false fix.** The read-modify-rewrite window is the connection's WHOLE LIFETIME, because the
+  image is read once at open and only rewritten thereafter. Serialising just the physical writes
+  with a lock does nothing for the lost-update above: each writer's image is already based on a
+  snapshot taken at open, before the lock. A correct fix is a real design change — either hold an
+  exclusive lock for the whole connection lifetime (coarse: serialises all connections to a file
+  and blocks concurrent readers) or re-read-and-rebase the image under a lock at each write (which
+  the shim has no machinery for). Tracked as a follow-up rather than papered over with a lock that
+  reads as safe and is not.
 
-  **The intended design (NOT yet built).** `commit()` should write through
-  `jvmSqliteVfs()` using the rollback-journal primitives already in `scljet/journal.ssc`:
+  **The contract this implies — state it to users, do not let them infer it:** a host-file
+  `jdbc:scljet:` connection is **crash-safe and durable (D1) but single-writer / single-process**:
+  concurrent writers silently lose updates. It is sound for its actual uses (tests, single-process
+  embedded storage, read-mostly images) and unsound as a *shared* database. Use a real SQLite
+  driver when multiple processes write the same file.
+
+  **A further optimisation (NOT a safety requirement now that D1 landed).** `commit()` could
+  write through `jvmSqliteVfs()` using the rollback-journal primitives in `scljet/journal.ssc` to
+  update pages IN PLACE instead of rewriting the whole file — an O(changed pages) write and SQLite
+  journal-format compatibility, NOT extra crash-safety (D1 already gives that). It needs a
+  Connection-level `MutablePager` (journaling must know which pages changed), which is engine work
+  in the `scljet-m3-writes` lane. The primitives:
   `writePagesJournaled` / `beginTransaction`+`stagePage`+`commitTransaction` journal the
   pre-images of the changed pages, overwrite them in place (`overwritePage`, which copies
   into the chunk map without an O(file) `++`), `sync`, then delete/zero the journal. On
@@ -834,13 +849,18 @@ lane, referenced from `README.md` and this spec.
 - [x] Host-file durability/locking contract documented honestly ("Durability boundary" +
   "Isolation"): read-modify-rewrite, no journal/fsync/locking, single-writer/single-process
   (2026-07-15, `scljet-jdbc-j2`).
-- [ ] **Journaled host-file writes** — the gap the J4 durability note records: route
-  `commit()` through `jvmSqliteVfs()` + `scljet/journal.ssc` so a host file is crash-atomic
-  and `fsync`ed, and honour the advertised `journal`/`sync`/`busy_timeout`/`vfs` URL params.
-  Needs a Connection-level `MutablePager` (Model B, "Open decisions" #4) — journaling needs
-  to know which PAGES changed, and today's executor only yields whole images.
-- [ ] Inter-process locking for host files (`FileLock` + `busy_timeout`); until it exists,
-  the single-writer/single-process contract stands.
+- [x] **Crash-safe durable host-file writes (D1, 2026-07-17)** — `flushDurable` → `atomicReplace`:
+  stage to a temp file, `fsync`, `ATOMIC_MOVE`, `fsync` the dir. Crash-atomic + `fsync`ed; a
+  reader now sees a complete image, never a torn one. Test: after every autocommit statement the
+  dir holds only the db and the reference `sqlite3`'s `PRAGMA integrity_check` accepts the flush.
+- [ ] **Journaled (in-place) host-file writes** — an OPTIMISATION now, not a safety gap: route
+  `commit()` through `jvmSqliteVfs()` + `scljet/journal.ssc` for O(changed pages) writes and
+  journal-format compat, and honour `journal`/`sync`/`busy_timeout`/`vfs`. Needs a
+  Connection-level `MutablePager` (Model B, "Open decisions" #4) — engine lane.
+- [ ] **Inter-process write safety** — NOT a `FileLock` one-liner (a write-time lock is a false
+  fix; the read-modify-rewrite window is the whole connection lifetime). Needs a lifetime lock or
+  re-read-and-rebase-under-lock. Until then the single-writer/single-process contract stands and
+  is documented; concurrent writers lose updates cleanly (D1 makes the loss atomic, not corrupt).
 - [x] `getPrimaryKeys`/`getIndexInfo`/`getTypeInfo` + empty FK queries — JDBC row shapes,
   diffed against `sqlite-jdbc` (2026-07-15, `scljet-jdbc-j4-introspection`).
 - [ ] The full conformance matrix as a CI gate; backend gaps are explicit skips.
