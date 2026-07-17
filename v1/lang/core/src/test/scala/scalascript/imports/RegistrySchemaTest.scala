@@ -5,6 +5,19 @@ import org.scalatest.funsuite.AnyFunSuite
 /** arch-registry-p1 — packages.yaml schema parsing and validation tests. */
 class RegistrySchemaTest extends AnyFunSuite:
 
+  private def registrySeedCandidates(starts: Seq[os.Path]): List[os.Path] =
+    starts.iterator
+      .flatMap(start => Iterator.iterate(start)(_ / os.up).take(start.segments.length + 1))
+      .map(_ / "registry" / "packages.yaml")
+      .toList
+      .distinct
+
+  private def registrySearchRoots: List[os.Path] =
+    val classLocation = scala.util.Try {
+      os.Path(getClass.getProtectionDomain.getCodeSource.getLocation.toURI)
+    }.toOption
+    (List(os.pwd, os.Path(sys.props("user.dir"))) ++ classLocation).distinct
+
   // ── parseAllRaw / parseAll ────────────────────────────────────────────
 
   test("RegistryEntry.parseAll: minimal valid entry (name + version)") {
@@ -174,24 +187,22 @@ class RegistrySchemaTest extends AnyFunSuite:
   // ── seed registry/packages.yaml parses cleanly ────────────────────────
 
   test("seed registry/packages.yaml parses and validates without errors") {
-    val yamlPath = os.pwd / "registry" / "packages.yaml"
-    val yaml =
-      if os.exists(yamlPath) then os.read(yamlPath)
-      else
-        // Fallback when test runs from a non-repo root (CI).
-        val alt = os.Path(sys.props("user.dir")) / os.RelPath("../..") / "registry" / "packages.yaml"
-        if os.exists(alt) then os.read(alt)
-        else
-          val alt2 = os.home / "work" / "my" / "scalascript" / "registry" / "packages.yaml"
-          if os.exists(alt2) then os.read(alt2) else ""
-    if yaml.isEmpty then
-      cancel("registry/packages.yaml not found — skipping seed validation")
-    else
-      val result = RegistryEntry.parseAll(yaml)
-      assert(result.isRight,
-        s"seed registry/packages.yaml failed validation:\n${result.left.getOrElse(Nil).mkString("\n")}")
-      val entries = result.toOption.get
-      assert(entries.nonEmpty, "seed registry should have at least one entry")
-      assert(entries.exists(_.name.startsWith("io.scalascript/")),
-        "seed should contain at least one io.scalascript/* first-party entry")
+    val searched = registrySeedCandidates(registrySearchRoots)
+    val yamlPath = searched.find(os.isFile).getOrElse:
+      fail(s"tracked registry/packages.yaml not found; searched:\n${searched.mkString("  ", "\n  ", "")}")
+
+    // Pin the CI shape explicitly: aggregate sbt may execute this suite with
+    // user.dir at the module base rather than at the repository root.
+    val repoRoot = yamlPath / os.up / os.up
+    val moduleCwd = repoRoot / "v1" / "lang" / "core"
+    assert(registrySeedCandidates(List(moduleCwd)).exists(p => os.isFile(p) && p == yamlPath),
+      s"module-CWD search did not resolve tracked seed $yamlPath")
+
+    val result = RegistryEntry.parseAll(os.read(yamlPath))
+    assert(result.isRight,
+      s"seed registry/packages.yaml failed validation:\n${result.left.getOrElse(Nil).mkString("\n")}")
+    val entries = result.toOption.get
+    assert(entries.nonEmpty, "seed registry should have at least one entry")
+    assert(entries.exists(_.name.startsWith("io.scalascript/")),
+      "seed should contain at least one io.scalascript/* first-party entry")
   }
