@@ -1,5 +1,26 @@
 # Bug tracker
 
+## coord-status-ignores-heartbeat-age — old claims with live worktrees look current
+
+**Status:** OPEN (found 2026-07-17 by `ci-red-main` at `5d932f6a4`). Project coordination rules
+define a missing or older-than-20-minute `heartbeat:` as potentially orphaned and name
+`scripts/coord-status` as the preferred status check. The script's `stale-claim check` instead tests
+only whether a slug heuristically matches any worktree/branch. Consequently the current output says
+`no stale-looking claims` while `v3-newfront-p1-toplevel` is about 18 hours old,
+`scljet-m3-writes` about 41 hours old, and `v2-swift-nativeui-i18n-json` several days old.
+
+**Root cause / real-harness evidence.** The stale loop never parses `heartbeat:` or computes age;
+any matching worktree suppresses the row forever. This is independent of the zero-token branch bug
+fixed in `8ad5f4d1e`: exact branch identity answers whether a worktree exists, while heartbeat age
+answers whether its owner is still live. Neither observable may pre-classify the other.
+
+**Expected/fix plan.** Parse strict UTC heartbeat timestamps portably on macOS and Linux, compare
+against a test-overridable current epoch, and report a distinct potentially-stale heartbeat row at
+age greater than 20 minutes even when the declared worktree branch exists. Missing/invalid
+heartbeats are stale with a named reason; a fresh heartbeat stays live; a fresh claim whose branch
+is absent retains the separate missing-worktree warning. Hermetic tests must fix time and compare all
+three outcomes with timestamp/age/branch diagnostics.
+
 ## coord-status-stopword-slug-false-stale — live claim is reported as stale
 
 **Status:** FIXED (2026-07-17, `8ad5f4d1e`; awaiting exact-SHA CI confirmation). Found by

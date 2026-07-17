@@ -606,6 +606,15 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       **DONE `8ad5f4d1e`:** explicit `branch:` metadata is compared exactly before legacy heuristics.
       The hermetic gate proves both live and missing zero-token branches with expected/observed
       diagnostics, cleans temporary Git state, and the real claim no longer appears stale.
+- [ ] **6b. Make `coord-status` enforce the 20-minute heartbeat rule independently of worktree
+      presence.** Current exact repro at `5d932f6a4`: `scripts/coord-status --no-fetch` reports
+      `no stale-looking claims` although newfront/SclJet/Swift heartbeats are hours or days old,
+      because the stale loop never parses timestamps and suppresses every claim with a matching
+      branch. Add strict cross-platform UTC parsing, a fixed-now test hook, and separate observable
+      classifications: fresh heartbeat + live branch is live; stale/missing/invalid heartbeat is
+      potentially orphaned even with a live branch; fresh heartbeat + missing branch retains the
+      missing-worktree warning. Hermetic tests must print heartbeat, computed age, expected branch,
+      and observed branches on mismatch. Do not release or modify any foreign claim in this slice.
 
 ## scljet-unique-index-not-supported — `CREATE UNIQUE INDEX` needs ENFORCEMENT, not just parsing (2026-07-16)
 
