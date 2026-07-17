@@ -1476,7 +1476,7 @@ optional policy, not the default continuation semantics.
   (order-sensitivity + a regex scooping up `arm`, a sub-form). Same ratio as the `newfront-diff.sh`
   incident. Fixed the apparatus before believing it; reasoning kept in the script's comments.
 
-- [~] **coreir-canonical-codec-hardening — PARTIALLY LANDED 2026-07-16** (`69f3ad4d3`; H1/H2/H6/H7 done, **H3 doc-only, H4/H5 OPEN**) — make the canonical codec match its contract before it is
+- [x] **coreir-canonical-codec-hardening — ✓ FULLY LANDED 2026-07-17** (`69f3ad4d3` H1/H2/H6/H7; `644543cf5` **H4/H5**; H3 doc-only) — make the canonical codec match its contract before it is
   used for untrusted persisted capsules: preserve floating-point bit identity including `-0.0`, add
   `IrBytes` encode parity, reconcile `coreir.encode`'s promised Bytes with its actual String, provide
   the specified text/bytes decode path, validate symbols/closed globals/arities, and enforce bounded
@@ -1521,11 +1521,19 @@ optional policy, not the default continuation semantics.
     spec says `coreir.encode v`→`Str` (canonical S-expr text; UTF-8 via `str->utf8`). Changing the prim
     to return `Bytes` would break every existing caller (`lib/ssct-emit.ssc0`, `bin/mirac.ssc0`, the
     p6.5 driver) for no gain — record that as the rejected alternative.
-  - [ ] **H4 — the specified decode path. ⚠ NOT DONE — `coreir.decode` is still unregistered.** The spec now states this honestly instead of promising it (`10-core-ir.md` §5). Needs `Term -> Data` (`IrToData`), the mirror of `IrDecode`, then a `coreir.decode : Str|Bytes -> IrProg` prim. Until then `encode ∘ decode = canonicalize` is not expressible from `.ssc`; the vectors pin the weaker (real) property that canonical bytes **decode and execute** via the `Reader`/`run-ir` path. Register `coreir.decode : Str|Bytes -> IrProg` (Data tree,
-    inverse of encode) so `encode ∘ decode = canonicalize` holds from `.ssc`. Needs `Term -> Data`
-    (`IrToData`), the mirror of `IrDecode`. Kernel-owned.
-  - [ ] **H5 — NOT DONE. validate** symbols / closed globals / arities / `LetRec`-is-`Lam` / NAT-ness / hex
-    evenness. Fail **closed** with a diagnostic naming the offending node.
+  - [x] **H4 — the specified decode path. ✓ DONE 2026-07-17 (`644543cf5`).** `coreir.decode : Str|Bytes -> IrProg`
+    is registered (`Runtime.scala`), backed by new `IrToData` (Data-level mirror of `IrDecode`) over the
+    kernel `Reader`. `encode ∘ decode = canonicalize` and `decode ∘ encode = id` are now expressible from
+    `.ssc`; `specs/coreir-codec-vectors.sh` round-trips all 13 nodes + 7 constants (incl. `-0.0`/`nan`/`inf`/
+    bytes) through decode and pins the canonicalize property on a lenient/commented program. Kernel-owned.
+  - [x] **H5 — ✓ DONE 2026-07-17 (`644543cf5`). Reader fails CLOSED** (`CoreIR.scala`). Strict `NAT`/`INT`/`HEX`
+    token parsers reject `(local -1)`, `(int +1)`/`(int 01)`, `(lam +1 …)`, `(arm T -1 …)`, odd/signed/non-hex
+    `(bytes …)`. New `Reader.validate` (run on every `parseProgram`) scope-checks every de Bruijn `Local` in
+    range, requires `letrec` bindings to be `Lam`, and rejects unbound globals (closed = a top-level def or an
+    `@`-cell). Each rejection names the offending node. **Measured RED-before / GREEN-after:** the vectors are
+    47/47 on the pre-fix kernel, 94/0 after. Keystone: an unbound global in a never-evaluated branch used to
+    run clean; now rejected at decode. Global-closedness verified low-risk: the 79,853 B self-hosted compiler
+    IR has 254 defs / 208 globals with **zero** unbound; full `check.sh` shows no regression.
 
   **EXECUTION PLAN (agent coreir-codec-h4h5, 2026-07-17) — decisions pinned so a fresh agent resumes cold:**
   - **Where H5 lives:** kernel-owned `Reader` in `v2/src/CoreIR.scala`. Wire a `Validator` into
@@ -1580,12 +1588,17 @@ optional policy, not the default continuation semantics.
     byte-identical to baseline** · full `v2/conformance/check.sh` **639 ok / 3 FAIL — all 3 pre-existing**,
     proven by running the suite on a *pristine `origin/main` worktree* (identical 639/3 and an identical
     ok-set). `ssc0c uselib.ssc0 ir differs` is **not** a regression from this work.
-  - **Known gap, recorded not papered over:** bounding the reader is only the codec's half —
-    `Compiler.valuePositionsNeedEffectThreading`/`FastCode.tryFC` overflow at ~depth 500 on `-Xss1m`
-    (`BUGS.md` → `coreir-compiler-unbounded-depth`). The capsule path is not fully DoS-safe until H5 +
-    that bound land. **H5 (validation) is the biggest remaining fail-open**: measured, the reader still
-    accepts `(local -1)`, `(lam -1 …)`, odd-length/`+1`/`-1` hex in `(bytes …)`, non-`Lam` `letrec`
-    bindings, unbound globals, and any non-delimiter run as a SYMBOL.
+  - **H4/H5 UPDATE (2026-07-17, `644543cf5`).** H5 fail-open class CLOSED: the reader now rejects
+    `(local -1)`, out-of-range locals, `(lam +1 …)`/`(arm T -1 …)`, `(int +1)`/`(int 01)`,
+    odd-length/signed/non-hex `(bytes …)`, non-`Lam` `letrec` bindings, and unbound globals — each with a
+    node-naming diagnostic (`Reader.validate` + strict token parsers, run on every `parseProgram`). H4:
+    `coreir.decode` registered (`IrToData`). **NOT closed** (recorded, not papered over): (1) the
+    SYMBOL-charset check on `op`/`tag`/`name` is deliberately NOT enforced — real prim ops (`f->str`,
+    `str->utf8`, `i->big`) contain `->` and are not `[A-Za-z_][A-Za-z0-9_.]*`, so validating them against
+    the spec's SYMBOL regex would reject the corpus; the grammar's `op := SYMBOL` is itself drift.
+    (2) the `Compiler.valuePositionsNeedEffectThreading`/`FastCode.tryFC` unbounded-recursion overflow at
+    ~depth 500 on `-Xss1m` (`BUGS.md` → `coreir-compiler-unbounded-depth`) is a *compiler*, not *reader*,
+    bound and still open — the capsule path is not fully DoS-safe until it lands.
 - [~] **numeric-width-reconciliation — LANDED 2026-07-17 (option A); one slice deferred, see below** (Sergiy's call,
   asked with all three options + their costs on the table; raised by coreir-contract, who correctly
   refused to choose unilaterally) — retain source `Int`/`Long`

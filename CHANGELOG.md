@@ -1,5 +1,34 @@
 # Changelog
 
+## 2026-07-17 — the canonical Core IR codec is symmetric and fails CLOSED (H4 + H5)
+
+`coreir-canonical-codec-hardening` **H4 + H5** — the last two open items. The canonical codec is the
+reader for **untrusted persisted capsules** (saved continuations crossing hosts), so a codec that
+fails *open* is a security defect, not a nicety.
+
+- **H4 — `coreir.decode` now exists.** New prim `coreir.decode : Str|Bytes -> IrProg` (the inverse of
+  `coreir.encode`), backed by `IrToData` (`v2/src/Runtime.scala`), the Data-level mirror of
+  `IrDecode`, over the kernel `Reader`. `encode ∘ decode = canonicalize` and `decode ∘ encode = id`
+  are now expressible from `.ssc` — pinned by `specs/coreir-codec-vectors.sh`: all **13 nodes + 7
+  constants** round-trip through decode (including `-0.0`/`nan`/`inf` and bytes), and a lenient/
+  pretty/commented program re-emits as the exact canonical bytes. The wire form is still read in
+  exactly one place (the `Reader`), so the single-owner rule is untouched.
+- **H5 — the reader fails CLOSED on malformed IR** (`v2/src/CoreIR.scala`). It used to accept, silently,
+  terms the canonical Writer could never produce; each now rejects with a diagnostic naming the node.
+  Strict `NAT`/`INT`/`HEX` token parsers replace lenient `toInt`/`grouped(2)`: `(local -1)`, `(int +1)`,
+  `(int 01)`, `(lam +1 …)`, `(arm T -1 …)`, odd-length/signed/non-hex `(bytes …)`. A new
+  `Reader.validate` (run on every `parseProgram`) scope-checks every de Bruijn `Local` in range
+  (a free local was an out-of-bounds `env` read), requires `letrec` bindings to be `Lam`, and rejects
+  unbound globals (a `Global` is *closed* iff it names a top-level `def` or an `@`-cell). The de Bruijn
+  scope model matches the evaluator exactly (`10-core-ir.md` §4). The keystone fix: an unbound global in
+  a **never-evaluated branch** used to run clean; it is now rejected at decode.
+- **Measured, every gate run.** Codec vectors **94/0** (was 47/47 on the pre-fix kernel — 47 new H4/H5
+  vectors, RED before, GREEN after); inventory **10/10**; P6.5 literal fixpoint **89 ok / 0 FAIL,
+  79,667 B, byte-identical to baseline** (the codec change does not move program bytes); sbt
+  descriptor/interop/JS/JVM-bytecode suites green; full `v2/conformance/check.sh` shows no regression
+  vs. a pristine `origin/main` (same pre-existing FAILs, none from this work). Docs: `10-core-ir.md` §5
+  + `12-ir-format.md` reconciled to the new reality (decode registered; validation table).
+
 ## 2026-07-17 — `Int` is 64-bit, normatively, and the suite can no longer route around it
 
 `int-width-conformance` (W1–W5). The same program printed different numbers on different backends,
