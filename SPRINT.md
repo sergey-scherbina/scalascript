@@ -310,7 +310,11 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       durable BUGS entries: `newfront-scala-spike-fixture-paths-linux`,
       `swift-renderer-inventory-missing-shipped-tag`, and
       `scljet-vfs-exclusive-lock-subprocess-exits-linux`; consume their owners' landed fixes rather
-      than overlapping dirty newfront/Swift/SclJet scopes.
+      than overlapping dirty newfront/Swift/SclJet scopes. The current aggregate at `aca439fcc`
+      reconfirms a second newfront blocker already described in 4c but previously missing from the
+      bug ledger: shared JVM-filesystem `ScalaSpikeSpec` makes `unimlJS / Test / fastLinkJS` fail on
+      non-existent `java.io.File` / `java.nio.file.Files`; tracked now as
+      `newfront-scala-spike-jvm-test-links-on-js` under the same stale clean newfront claim.
 - [ ] **5e. Prove green on GitHub, not by proxy.** Rebase each finished slice on current
       `origin/main`, run its affected conformance/test gate, push separately, and finally wait for a
       CI run containing all fixes. Done means all four jobs (`Lint Markdown`, `Validate ScalaScript`,

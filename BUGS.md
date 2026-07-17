@@ -1,5 +1,29 @@
 # Bug tracker
 
+## newfront-scala-spike-jvm-test-links-on-js — shared filesystem suite breaks Scala.js
+
+**Status:** OPEN / owned by `v3-newfront-p1-toplevel` (reconfirmed 2026-07-17 by `ci-red-main` in
+the real aggregate `scripts/sbtc "test"` at `aca439fcc`; the earlier symptom was recorded only in
+SPRINT 4c). `unimlJS / Test / fastLinkJS` fails its core module analyzer on
+`ScalaSpikeSpec.testFun$proxy59/60` with non-existent `java.io.File` and `java.nio.file.Files`
+classes/methods. The same aggregate's JVM lane reaches the suite and independently fails its C_min
+path check, proving this is crossProject test placement rather than missing production Scala.js
+emulation.
+
+**Root cause / real-harness evidence.** The corpus projection/batch/output tests use host files and
+live in `uniml/core/src/test/scala/.../ScalaSpikeSpec.scala`, a source directory shared by the JVM
+and Scala.js sides of `unimlCross`. Scala.js therefore links JVM-only test bodies even though the
+harness is intrinsically filesystem-bound. Current diagnostics name `Files.deleteIfExists`,
+`Files.readAllBytes`, `Files.writeString`, `Files.createDirectories`, `File.listFiles`, and
+`File.toPath`; this is a linker failure before JS tests execute, not an assertion to skip.
+
+**Expected/fix plan.** Move the filesystem-bound spike suite (or split only its host-file tests) to
+the crossProject JVM test source, preserving the parser/projection tests on every backend only where
+they remain platform-neutral. The aggregate must link and execute its JS tests, while the JVM suite
+must still run the real C_min and projection assertions. Do not add fake `java.io` shims or silence
+the linker. This overlaps the stale clean newfront claim; `ci-red-main` records and consumes the
+owner fix but does not edit it without takeover authority.
+
 ## coord-status-ignores-heartbeat-age — old claims with live worktrees look current
 
 **Status:** FIXED (2026-07-17, `52e1d0814`; awaiting exact-SHA CI confirmation). Found by
