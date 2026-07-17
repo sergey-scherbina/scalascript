@@ -1,7 +1,7 @@
 claim: ci-red-main
 branch: feature/ci-red-main-final
 agent: codex
-heartbeat: 2026-07-17T02:56:45Z
+heartbeat: 2026-07-17T03:18:58Z
 status: in-progress
-done-so-far: tuple CLI staged 4/4; bytecode separation 5/5; registry 15/15; sibling JVM audit reproduced 6 executed plus 13 false cancels
-next: record and repair installed-CLI prerequisites across the reproduced JVM suites, then verify affected conformance and exact-SHA CI
+done-so-far: sibling JVM suite repair is locally green 19/19 with zero cancels; runtime/facade regression 12/12; actor matrix real BigInt failure recorded
+next: land the verified JVM test repair, then fix the JS actor matrix and activate its empty conformance gate before exact-SHA CI
