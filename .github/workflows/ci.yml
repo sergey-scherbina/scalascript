@@ -138,6 +138,9 @@ jobs:
       - name: Build ssc launcher (sbt-assembly)
         run: bash install.sh --dev
 
+      - name: Verify staged launcher bytes are reproducible
+        run: tests/e2e/staged-launchers-clean.sh
+
       - name: Run conformance tests
         # Warm JVM lane (specs/conformance-perf.md F3): reuse one Bloop build
         # server across cases instead of a cold scalac start per case. The

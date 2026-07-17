@@ -107,66 +107,16 @@ echo "Staging ssc (thin jar + deps) via sbt cli/installBin..."
 
 mkdir -p "$BIN"
 
-# The ScalaScript 2.1 standard tier is the default launcher. Keep this launcher
-# in sync with the checked-in bin/ssc (AppCDS cold-start cut).
-#
-# NOTE: these heredocs OVERWRITE the launchers `sbt cli/installBin` (above) just
-# generated from build.sbt's templates — so there are two generators for the same
-# three files and THIS one wins for anything that runs install.sh (including CI's
-# conformance job). A fix applied to only one side silently does nothing here:
-# that is exactly how -Xss64m was "fixed" in build.sbt yet every scljet case kept
-# StackOverflowError-ing in CI. Change both, or neither.
-#
-# The stack size is `-Xss"${SSC_XSS:-64m}"`, NOT a hardcoded -Xss64m: an explicit
-# -Xss on the java command line beats JAVA_TOOL_OPTIONS, so a hardcoded value
-# silently overrides any caller trying to pin a stack size that way. That is how
-# -Xss64m defeated v21-direct-asm-recursion-smoke, which sets 256k to prove the
-# compiled lanes do not need a big stack — it kept passing while testing 64m.
-cat > "$BIN/ssc" <<'LAUNCHER'
-#!/usr/bin/env bash
-_SSC_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-_SSC_ROOT="$(dirname "$_SSC_BIN")"
-
-# AppCDS: mmap a class-data archive instead of parsing classes on every launch —
-# cuts `ssc` cold-start ~50%. Auto-created on first run (JDK 19+), auto-recreated
-# if the classpath changes; only CDS (NOT -XX:TieredStopAtLevel=1, which would hurt
-# long-running `ssc serve`). Old JDKs ignore the flags. Opt out with SSC_NO_CDS=1.
-_SSC_CDS_ARGS=()
-if [[ "${SSC_NO_CDS:-}" != "1" ]]; then
-  _SSC_CACHE="${SSC_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/scalascript}"
-  if mkdir -p "$_SSC_CACHE" 2>/dev/null; then
-    _SSC_CDS_ARGS=(-XX:+IgnoreUnrecognizedVMOptions \
-                   -XX:+AutoCreateSharedArchive \
-                   -XX:SharedArchiveFile="$_SSC_CACHE/ssc.jsa" \
-                   -Xlog:cds=off -Xlog:cds+dynamic=off)
-  fi
-fi
-
-exec java "${_SSC_CDS_ARGS[@]}" -Xss"${SSC_XSS:-64m}" -Dssc.lib.path="$_SSC_ROOT" \
-  -cp "$_SSC_BIN/lib/standard/jars/*:$_SSC_BIN/lib/standard/ssc.jar" \
-  scalascript.cli.StandardMain "$@"
-LAUNCHER
-chmod +x "$BIN/ssc"
-
-cat > "$BIN/ssc-standard" <<'STANDARD_LAUNCHER'
-#!/usr/bin/env bash
-_SSC_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-_SSC_ROOT="$(dirname "$_SSC_BIN")"
-exec java -Xss"${SSC_XSS:-64m}" -Dssc.lib.path="$_SSC_ROOT" \
-  -cp "$_SSC_BIN/lib/standard/jars/*:$_SSC_BIN/lib/standard/ssc.jar" \
-  scalascript.cli.StandardMain "$@"
-STANDARD_LAUNCHER
-chmod +x "$BIN/ssc-standard"
-
-cat > "$BIN/ssc-tools" <<'TOOLS_LAUNCHER'
-#!/usr/bin/env bash
-_SSC_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-_SSC_ROOT="$(dirname "$_SSC_BIN")"
-exec java -Xss"${SSC_XSS:-64m}" -Dssc.lib.path="$_SSC_ROOT" \
-  -cp "$_SSC_BIN/lib/jars/*:$_SSC_BIN/lib/ssc.jar" \
-  scalascript.cli.ssc "$@"
-TOOLS_LAUNCHER
-chmod +x "$BIN/ssc-tools"
+# `cli/installBin` is the single launcher generator. Duplicating its templates
+# here caused the full installer to overwrite fresh output with stale bytes and
+# once silently defeated a stack-size fix. Keep one authority and fail loudly if
+# it did not produce every public launcher.
+for launcher in "$BIN/ssc" "$BIN/ssc-standard" "$BIN/ssc-tools"; do
+    if [ ! -x "$launcher" ]; then
+        echo "Stage did not produce executable launcher $launcher" >&2
+        exit 1
+    fi
+done
 
 for launcher in "$ROOT"/v1/tools/scripts/launchers/*; do
     name="$(basename "$launcher")"
