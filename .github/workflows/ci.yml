@@ -182,7 +182,10 @@ jobs:
   sbt:
     name: sbt — compile and test
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # Run 29544412767 spent 35m22s reaching `sbt test`; the 90m outer cap then
+    # cancelled that step after 54m51s, before its own 60m timeout. Keep the
+    # narrower test cap as the hang detector and give the enclosing job headroom.
+    timeout-minutes: 120
 
     steps:
       - name: Checkout
