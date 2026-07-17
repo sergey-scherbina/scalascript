@@ -8,6 +8,29 @@ ScalaScript compiles to multiple target platforms. This document describes the b
 
 The compiler pipeline produces a **Typed IR** (intermediate representation) that captures the full semantics of the program. Each backend translates this IR to target-specific code.
 
+### Numeric widths are a conformance requirement, not a backend choice
+
+> **NORMATIVE — read this before writing or reviewing a backend.** `Int` is **64-bit**
+> two's-complement with wrapping arithmetic. `2147483647 + 1` is `2147483648` on **every** target.
+> **A backend that truncates `Int` to 32 bits is NON-CONFORMING** — it is not "a backend with a
+> different `Int`", it is a backend that reinterprets the source, which the Design Principle above
+> forbids.
+
+The name is a trap: ssc `Int` is **not** a 32-bit integer, despite reading like one. Mapping it onto
+the host's natural 32-bit `int` is the single easiest way to write a non-conforming backend, and it
+fails **silently** — the program prints a wrong number and exits 0. `Int` and `Long` are the same
+type (both 64-bit); so are `Float` and `Double` (both IEEE-754 binary64).
+
+The normative table — every spelling's width, its ABI declaration, the required per-host carriers,
+and the current per-backend conformance status — is **[`specs/numeric-widths.md`](../specs/numeric-widths.md)**.
+Consult it rather than inferring a width from a type name.
+
+**Currently non-conforming (known, declared, expiring):** the **v1 codegen** lanes
+(`ssc-tools run-jvm`, `ssc-tools emit-js`) map ssc `Int` onto a 32-bit host integer and truncate.
+They are slated for deletion with the v1/scalameta hybrid tier and are **not** to be fixed; do not
+model a new backend on them, and do not ship integer-sensitive work on them. See
+`specs/numeric-widths.md` §4.
+
 ## Target Matrix
 
 | Backend | Status | Runtime | Use Case |

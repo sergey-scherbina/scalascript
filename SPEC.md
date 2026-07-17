@@ -467,11 +467,33 @@ The sum is `${add(2, 3)}`.
 |------|-------------|----------|
 | `Unit` | No value | `()` |
 | `Boolean` | Truth value | `true`, `false` |
-| `Int` | 32-bit integer | `42`, `-1`, `0xFF` |
-| `Long` | 64-bit integer | `42L` |
-| `Double` | 64-bit float | `3.14`, `1e10` |
+| `Int` | **64-bit** integer, two's-complement, wrapping | `42`, `-1`, `0xFF` |
+| `Long` | 64-bit integer — the same type as `Int` | `42L` |
+| `Float` | 64-bit IEEE-754 double — the same type as `Double` | `3.14f` |
+| `Double` | 64-bit IEEE-754 double | `3.14`, `1e10` |
+| `BigInt` | Arbitrary-precision integer | `BigInt(42)` |
 | `String` | Unicode text | `"hello"`, `"""multi"""` |
 | `Char` | Unicode char | `'a'` |
+
+#### `Int` is 64-bit — a conformance requirement
+
+> **NORMATIVE.** `Int` is **64-bit** two's-complement with wrapping arithmetic, on **every**
+> backend. `2147483647 + 1` is `2147483648` in ScalaScript. **A backend that truncates `Int` to
+> 32 bits is NON-CONFORMING.** There is no 32-bit mode and no per-backend `Int`.
+>
+> This follows from binding design principle #1: *source semantics are target-independent;
+> backends translate, they do not reinterpret*. It is not a property of any one backend.
+
+`Int` and `Long` are **the same type**, as are `Float` and `Double` — the extra spellings are
+source-level evidence carrying no width difference (`val a: Int = 9223372036854775807` compiles and
+equals the `Long`; `0.1f + 0.2` is double arithmetic). Code that assumes `Int` is narrower than
+`Long`, or that `Float` is narrower than `Double`, is wrong.
+
+The single normative source for every numeric width, the ABI declaration for each spelling, the
+required host carriers, and the per-backend conformance status (including which backends are
+currently non-conforming) is **[`specs/numeric-widths.md`](specs/numeric-widths.md)**. The Core IR
+value domain that implements it is frozen in `v2/specs/10-core-ir.md` §2. Where any document
+disagrees with `specs/numeric-widths.md` §2, that table wins and the document is a bug.
 
 ### 4.2 Compound Types
 

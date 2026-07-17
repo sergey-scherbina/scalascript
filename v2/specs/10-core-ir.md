@@ -128,6 +128,13 @@ Notes on the ten:
   - **`Int`** is 64-bit two's-complement, wrapping (matches `ssc 1.0`'s `Int = Long`).
   - **`BigInt`** is arbitrary precision (host bignum).
   - **`Float`** is a 64-bit IEEE-754 double (NaN, ±∞, signed zero per IEEE-754).
+
+  These three widths are not local to the Core IR — they are the **conformance requirement** for
+  every backend, normatively stated with the surface spellings, the ABI declaration and the host
+  carriers in [`specs/numeric-widths.md`](../../specs/numeric-widths.md) §2 (surface `Int` and
+  `Long` both denote the 64-bit `Int` above; surface `Float` and `Double` both denote the 64-bit
+  `Float` above). **A backend that truncates `Int` to 32 bits is non-conforming** — it is not a
+  backend with a different `Int`.
 - **`Data tag fields`** is the universal product/sum carrier. `tag` is a small symbol
   (interned string or integer). Tuples = `Data "Tuple" [...]`; a case class = `Data
   "Point" [x, y]`; an enum variant = `Data "Some" [v]`; lists = `Data "Cons" [h, t]` /
