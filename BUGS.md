@@ -264,6 +264,62 @@ worktree, compares both classifications, verifies the submodule gitlink remains 
 runs in CI. The exact documented `bash install.sh --dev` command then completed staging in 4 seconds
 from the feature worktree; both focused JavaScript conformance cases remained green on INT/JS/JVM.
 
+## v2-native-charAt-toString-yields-code — `charAt(i).toString` renders the character CODE on v2-native → every uppercase keyword breaks
+
+**Status:** OPEN (found 2026-07-17 by `v2-native-stack-overflow` while asking why the scljet engine
+cannot run on the DEFAULT `bin/ssc run`). **v2 native front / no-Char-box design**, not the engine.
+Same family as the documented `v2-native-string-map-filter-char-methods`.
+
+**Symptom/reproduce** — silent wrong data, and the shape of the wrongness hides it: an
+already-uppercase string comes back as digits, a lowercase one is fine.
+
+```scala
+val s = "INSERT"
+var a = ""; var i = 0
+while i < s.length do { a = a + s.charAt(i).toString; i = i + 1 }
+println(a)
+// bin/ssc-tools run --v1 → INSERT          (the conformance reference)
+// bin/ssc run           → 737883698284     ← v2 native: the char CODES, concatenated
+```
+
+**Root cause — by design, and that is the point.** `v2/lib/ssc1-lower.ssc0:1410` lowers
+`charAt(i)` to the primitive `scodeAt` — the code POINT — because **v2 has no Char box** (chars are
+`IntV`; see `v2-native-string-map-filter-char-methods`). So `.toString` on it is `Int.toString` and
+prints the number. `.toChar.toString` works (it yields a 1-char String), which is why a *lowercase*
+input survives: that branch goes through `(c - 32).toChar.toString`.
+
+This cannot be fixed by making `charAt` return a 1-char String: `charCode(s, i)` is defined as
+`s.charAt(i).toInt` (`scljet/sql.ssc:89`), and `String.toInt` would then try to parse `"I"` as a
+number. Without a Char box, `charAt(i).toString` is **inherently ambiguous** — the two lanes cannot
+both be right.
+
+**Impact — this is why scljet does not run on `bin/ssc run`.** `upperStr` (`scljet/sql.ssc:100`)
+uses `s.charAt(i).toString` for the non-lowercase branch, so `upperStr("INSERT")` →
+`"737883698284"`. Every SQL keyword comparison is `isKw(tok, "INSERT")` = `upperStr(tok.text) ==
+word`, so on v2-native the engine does not recognise its own keywords:
+
+```
+v1:        INSERT INTO emp VALUES (7,'bob','sales',250)  → ok
+v2 native: executeMutation expects INSERT, DELETE, UPDATE, DROP INDEX, CREATE TABLE, or CREATE INDEX
+```
+
+**Fix taken (engine-side, portable):** replace `X.charAt(i).toString` with
+`charCode(X, i).toChar.toString`, which is correct on BOTH lanes (verified) and symmetric with the
+branch right next to it. 9 sites in `scljet/sql.ssc`.
+
+**Still open (the language-level half).** Any `.ssc` code using `charAt(i).toString` is silently
+wrong on v2-native. Options, none free: (a) add a Char box to v2 — previously rejected; (b) a
+peephole in the lowering so a *direct* `charAt(i).toString` chain emits a code→string conversion —
+fixes the common form, misses `val c = s.charAt(i); c.toString`; (c) fail closed on the ambiguous
+shape, in the spirit of `1832b5b22` (a typo'd zero-arg method FAILS CLOSED). Silent divergence is
+the worst of the four.
+
+**Method note.** The `bin/` in a checkout can be *stale*: the shared main checkout's `bin/ssc`
+reported a `StackOverflowError` for this same program (an older build), while a freshly
+`installBin`-ed worktree reports the real error. Always rebuild before believing a v2-native
+failure — AGENTS.md's "reproduce in the real harness" applies to the lane's binary too.
+
+
 
 ## busi-v1-lane-runtime-regressions — four imported owner adapters fail on the 3666-based v1 runtime
 
