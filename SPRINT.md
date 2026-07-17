@@ -331,6 +331,10 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       classes, surface it from `scripts/coord-status`, add the main badge, and require exact-SHA
       green before releasing a final task claim. Do not mutate GitHub runs or mistake another SHA's
       result for proof.
+      **Pre-land apparatus correction:** the fake-gh matrix initially passed while the first real
+      invocation rejected malformed `--jq` quote escaping. Track it as
+      `ci-status-fixture-accepts-invalid-jq`; a real authenticated query is now an acceptance gate,
+      not an optional smoke.
 
 ## scljet-unique-index-not-supported — `CREATE UNIQUE INDEX` needs ENFORCEMENT, not just parsing (2026-07-16)
 
