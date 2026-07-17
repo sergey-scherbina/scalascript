@@ -38,9 +38,9 @@ test fixture merely to hide the generated runtime type error.
 
 ## jvm-bytecode-sibling-tests-ignore-installed-cli — thirteen assertions cancel before comparison
 
-**Status:** OPEN (found 2026-07-17 by `ci-red-main` while auditing the Linux test tail after
-`JvmBytecodeRuntimeSeparationTest` was repaired). With the current installed distribution already
-built, run:
+**Status:** FIXED (2026-07-17, `11a9e80e2`; awaiting CI confirmation). Found by `ci-red-main` while
+auditing the Linux test tail after `JvmBytecodeRuntimeSeparationTest` was repaired. With the current
+installed distribution already built, run:
 
 ```text
 scripts/sbtc "cli/testOnly scalascript.cli.JvmBytecodeLinkCliTest scalascript.cli.JvmDirectDriverTest scalascript.cli.ReproducibilityTest scalascript.cli.JvmSmapStackTraceTest scalascript.cli.SourceMapJvmTest"
@@ -79,6 +79,17 @@ execution assertions. The fourth failure is a contract question, not yet pre-cla
 now contain `_ssc_runtime.tasty`, `a_sc.tasty`, and `b_sc.tasty` while the old test demands no TASTY.
 Read the linker spec/history and test downstream separate-compilation needs before deciding whether
 production or the assertion is stale.
+
+**Fix/result.** The five suites share a bounded installed-distribution locator and invoke real
+`bin/ssc-tools`; compiler commands now fail with exit/stdout/stderr once staging is present. Binary
+artifacts use `JvmArtifactIO`. Reproducibility compares actual bytes and ordered ZIP entries before
+printing SHA diagnostics. Scala runtime JARs come from loaded class resource URLs (Coursier reports
+only a Maven directory through protection-domain code source on this host), and `CompilerLoader`
+honours the live supported property before its cached fallback for embedded direct-driver calls.
+The TASTY assertion was stale: Tier 5 commit `e401aa566` and `specs/v2.0-artifact-format.md` require
+linked JARs to retain module/runtime TASTY for downstream Scala 3 compilation, so the test now
+requires all three observed entries. Final focused result is 19/19 with zero failures/cancellations;
+runtime-separation plus facade regressions are 12/12, and `dataset-parallel-jvm` passes.
 
 
 ## swiftui-real-fixture-system-exit-hides-failure — compiler error kills the forked test JVM

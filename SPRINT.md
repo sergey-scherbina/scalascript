@@ -473,7 +473,7 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       land a red diagnostic-only test or edit production Swift files concurrently; first consume the
       owner fix, then prove a deliberately failing fixture produces a named assertion rather than a
       vanished fork.
-- [ ] **5r. Audit sibling JVM bytecode suites for the same hidden staging/cache assumptions.** The
+- [x] **5r. Audit sibling JVM bytecode suites for the same hidden staging/cache assumptions.** The
       60-minute Linux tail reached `JvmBytecodeRuntimeSeparationTest` but timed out before suites
       including `JvmBytecodeLinkCliTest`, `JvmDirectDriverTest`, `ReproducibilityTest`,
       `JvmSmapStackTraceTest`, `SourceMapJvmTest`, and `ClusterMultiBackendMatrixTest`. Source search
@@ -500,6 +500,11 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       The remaining failure finds `_ssc_runtime.tasty`, `a_sc.tasty`, and `b_sc.tasty` in the linked
       JAR against an old no-TASTY assertion. Inspect the linker spec/history and downstream contract
       before changing either side; do not declare current output wrong from a stale test alone.
+      **DONE `11a9e80e2`:** the five suites use installed `ssc-tools`, production binary decoders,
+      actual byte/order comparisons, resource-URL Scala runtime JARs, and staged failures with full
+      process diagnostics. Tier 5/spec history proves linked TASTY is required, so that stale
+      assertion now verifies `a`, `b`, and shared-runtime TASTY. Focused result: 19/19, zero cancels;
+      runtime/facade regressions 12/12; `dataset-parallel-jvm` passes.
 - [ ] **5s. Repair the JS actor `BigInt`/`Number` mismatch exposed by the real multi-backend
       cluster matrix.** The separately staged `ClusterMultiBackendMatrixTest` executes 1 test with
       zero cancellations, starts both generated programs, then the node backend exits in

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-07-17 — staged JVM bytecode/source-map suites compare real artifacts
+
+Five JVM CLI suites now use installed `ssc-tools`, the staged compiler tree, production
+`JvmArtifactIO`, and Scala runtime JARs resolved from loaded class resources (`11a9e80e2`). Their
+19 tests execute with zero cancellations and pass; command failures retain exit/stdout/stderr, and
+reproducibility compares bytes plus actual ZIP order before using hashes as diagnostics. The stale
+no-TASTY assertion now follows the Tier 5 contract and requires linked module/runtime TASTY for
+downstream Scala 3 compilation. Runtime-separation/facade regressions pass 12/12.
+
 ## 2026-07-17 — package registry seed validation is no longer CWD-optional
 
 `RegistrySchemaTest` now finds tracked `registry/packages.yaml` by bounded ancestor search from the
