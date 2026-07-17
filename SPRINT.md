@@ -473,6 +473,22 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       land a red diagnostic-only test or edit production Swift files concurrently; first consume the
       owner fix, then prove a deliberately failing fixture produces a named assertion rather than a
       vanished fork.
+- [ ] **5r. Audit sibling JVM bytecode suites for the same hidden staging/cache assumptions.** The
+      60-minute Linux tail reached `JvmBytecodeRuntimeSeparationTest` but timed out before suites
+      including `JvmBytecodeLinkCliTest`, `JvmDirectDriverTest`, `ReproducibilityTest`,
+      `JvmSmapStackTraceTest`, `SourceMapJvmTest`, and `ClusterMultiBackendMatrixTest`. Source search
+      finds the same `ImportResolver.libPath` / `run sbt cli/stage` gates and macOS-only Coursier
+      paths in that family. Run each focused suite after `cli/assembly; installBin`, record executed
+      versus cancelled counts, and migrate only reproduced false skips to a shared staged-launcher /
+      test-JVM-classpath helper. Preserve legitimate missing-tool cancellation for ad-hoc runs; in
+      the CI staging shape every available bytecode observable must compare and print its mismatch.
+      **First staged baseline:** the first five suites total 6 executed/pass and 13 cancelled:
+      `JvmBytecodeLinkCliTest` 1/4, `JvmDirectDriverTest` 0/3, `ReproducibilityTest` 4/1,
+      `JvmSmapStackTraceTest` 1/2, and `SourceMapJvmTest` 0/3 (executed/cancelled). Eight false gates
+      inspect `ImportResolver.libPath` / the obsolete `cli/stage` shape; five run the fat JAR without
+      the installed launcher's `ssc.lib.path`. Source inspection also finds stale JSON readers behind
+      those gates even though `.scjvm` is now binary. Record `ClusterMultiBackendMatrixTest`
+      separately before deciding whether it belongs in the repair.
 - [ ] **6. Prevent the recurrence.** Long-red CI is what let all of this pile up. Decide + record a
       cheap guard (e.g. the loop checks `gh run list` before claiming a lane green, or a CI-status
       line in the claim protocol). Recorded as a question for Sergiy, not a unilateral process change.

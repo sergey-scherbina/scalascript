@@ -1,5 +1,32 @@
 # Bug tracker
 
+## jvm-bytecode-sibling-tests-ignore-installed-cli — thirteen assertions cancel before comparison
+
+**Status:** OPEN (found 2026-07-17 by `ci-red-main` while auditing the Linux test tail after
+`JvmBytecodeRuntimeSeparationTest` was repaired). With the current installed distribution already
+built, run:
+
+```text
+scripts/sbtc "cli/testOnly scalascript.cli.JvmBytecodeLinkCliTest scalascript.cli.JvmDirectDriverTest scalascript.cli.ReproducibilityTest scalascript.cli.JvmSmapStackTraceTest scalascript.cli.SourceMapJvmTest"
+```
+
+The five suites report 6 executed/pass and **13 `CANCELED`**. The split is exact:
+`JvmBytecodeLinkCliTest` 1/4, `JvmDirectDriverTest` 0/3, `ReproducibilityTest` 4/1,
+`JvmSmapStackTraceTest` 1/2, and `SourceMapJvmTest` 0/3 (executed/cancelled). Eight cancellations
+look for compiler-driver jars through `ImportResolver.libPath` / the old `cli/stage` layout even
+though `installBin` populated `bin/lib/compiler/jars`; five invoke the fat JAR without the installed
+launcher's `-Dssc.lib.path`, so `CompilerLoader` aborts before bytecode or source-map observables are
+compared.
+
+**Expected/fix plan.** Make only the reproduced suites consume the supported installed
+`bin/ssc-tools`/library tree and derive Scala runtime classpaths from classes loaded by the test JVM,
+not a macOS Coursier cache. Preserve an explicit cancellation when a developer truly has not run
+`installBin`; once staged, every command must execute and failures must include exit/stdout/stderr.
+Decode current binary `.scjvm` artifacts with production `JvmArtifactIO` rather than the stale JSON
+readers found behind the cancelled gates. Audit `ClusterMultiBackendMatrixTest` separately before
+editing it because it was not part of this baseline.
+
+
 ## swiftui-real-fixture-system-exit-hides-failure — compiler error kills the forked test JVM
 
 **Status:** OPEN / waiting on active Swift owner (found by `ci-red-main` in Linux run `29545769651`,
@@ -140,6 +167,11 @@ production `JvmArtifactIO`. The stale absolute JAR threshold is replaced by an i
 the shared runtime bundle/artifact must be at least ten times the trivial module, directly proving
 the runtime was not duplicated. All five cases execute and pass with zero cancellations; focused
 JVM conformance passes.
+
+**Related family audit queued as SPRINT 5r.** Several bytecode/link/source-map suites that the old
+Linux step never reached contain similar `ImportResolver.libPath`, `cli/stage`, or macOS Coursier
+assumptions. They are not pre-labelled broken: run them after the real `installBin` first, then
+extend this apparatus fix only where a cancellation reproduces.
 
 
 ## v2-native-jvmvfs-externs-unbound — host-file I/O intrinsics are invisible to the native tier
