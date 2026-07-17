@@ -3,7 +3,9 @@ package scalascript.interop.descriptor
 private[descriptor] object DescriptorNormalization:
 
   def abiType(value: AbiType): AbiType = value match
-    case AbiType.Primitive(_) | AbiType.TypeParameter(_) => value
+    // Passed through whole: the retained width evidence must survive normalization, or the
+    // Int/Long distinction would vanish from the identity bytes.
+    case AbiType.Primitive(_, _) | AbiType.TypeParameter(_) => value
     case AbiType.Named(id, arguments) =>
       AbiType.Named(id, arguments.map(abiType))
     case AbiType.Tuple(elements) =>

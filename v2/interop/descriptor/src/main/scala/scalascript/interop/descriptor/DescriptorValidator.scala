@@ -484,7 +484,8 @@ object DescriptorValidator:
       path: String,
       binders: Vector[Vector[AbiTypeParameter]]
   ): Either[DescriptorError, Unit] = value match
-    case AbiType.Primitive(_) => Right(())
+    case AbiType.Primitive(primitive, declaredWidth) =>
+      validateNumericWidth(primitive, declaredWidth, path)
     case AbiType.Named(stableTypeId, arguments) =>
       for
         _ <- nonEmpty(s"$path.stableTypeId", stableTypeId)
@@ -544,6 +545,35 @@ object DescriptorValidator:
           _ <- validateTypeParameters(parameters, s"$path.parameters", binders)
           _ <- validateType(body, s"$path.body", parameters +: binders)
         yield ()
+
+  /** Integer primitives must carry their source spelling, and only integer primitives may.
+   *
+   *  Both directions fail closed on purpose. A bare `I64` is **ambiguous**, not a `Long`:
+   *  defaulting it would re-introduce exactly the silent guess this contract exists to kill
+   *  (see `specs/numeric-width-reconciliation.md`), and it would let two overloads collide.
+   */
+  private def validateNumericWidth(
+      primitive: AbiPrimitive,
+      declaredWidth: Option[NumericWidthEvidence],
+      path: String
+  ): Either[DescriptorError, Unit] =
+    val isIntegral = primitive == AbiPrimitive.I32 || primitive == AbiPrimitive.I64
+    (isIntegral, declaredWidth) match
+      case (true, Some(_)) => Right(())
+      case (false, None)   => Right(())
+      case (true, None) =>
+        Left(DescriptorError(
+          "AMBIGUOUS_NUMERIC_WIDTH",
+          s"$path.declaredWidth",
+          s"integer primitive $primitive must retain its source width evidence " +
+            "(DeclaredInt or DeclaredLong); a bare integer width is an ambiguous legacy export"
+        ))
+      case (false, Some(evidence)) =>
+        Left(DescriptorError(
+          "INVALID_NUMERIC_WIDTH_EVIDENCE",
+          s"$path.declaredWidth",
+          s"non-integer primitive $primitive must not carry numeric width evidence $evidence"
+        ))
 
   private def validateEffectRow(
       value: EffectRow,

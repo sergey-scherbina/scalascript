@@ -97,8 +97,8 @@ class PreBodyApiDescriptorProducerTest extends AnyFunSuite:
     assert(definition.parameterLists(1).parameters.head.tpe ==
       AbiType.TypeParameter(TypeParameterRef(0, 0, 0)))
     assert(definition.parameterLists.head.parameters.head.tpe ==
-      AbiType.Primitive(AbiPrimitive.I32))
-    assert(definition.resultType == AbiType.Primitive(AbiPrimitive.I64))
+      AbiType.Primitive(AbiPrimitive.I64, Some(NumericWidthEvidence.DeclaredInt)))
+    assert(definition.resultType == AbiType.Primitive(AbiPrimitive.I64, Some(NumericWidthEvidence.DeclaredLong)))
 
   test("body-only edits keep pre-body bytes and apiHash stable while width edits do not"):
     val first = source(
@@ -126,14 +126,14 @@ class PreBodyApiDescriptorProducerTest extends AnyFunSuite:
     assert(firstApi.apiHash != changedApi.apiHash)
     assert(firstSymbol.stableSymbolId != changedSymbol.stableSymbolId)
     assert(firstSymbol.overloadId != changedSymbol.overloadId)
-    assert(firstApi.symbols.head.definition.resultType == AbiType.Primitive(AbiPrimitive.I64))
-    assert(changedApi.symbols.head.definition.resultType == AbiType.Primitive(AbiPrimitive.I32))
+    assert(firstApi.symbols.head.definition.resultType == AbiType.Primitive(AbiPrimitive.I64, Some(NumericWidthEvidence.DeclaredLong)))
+    assert(changedApi.symbols.head.definition.resultType == AbiType.Primitive(AbiPrimitive.I64, Some(NumericWidthEvidence.DeclaredInt)))
     assert(firstApi.symbols.head.definition.parameterLists.head.parameters.head.tpe ==
-      AbiType.Named("std.List", Vector(AbiType.Primitive(AbiPrimitive.I32))))
+      AbiType.Named("std.List", Vector(AbiType.Primitive(AbiPrimitive.I64, Some(NumericWidthEvidence.DeclaredInt)))))
     assert(firstApi.symbols.head.definition.effectRow.members.head.typeArguments ==
-      Vector(AbiType.Primitive(AbiPrimitive.I64)))
+      Vector(AbiType.Primitive(AbiPrimitive.I64, Some(NumericWidthEvidence.DeclaredLong))))
     assert(changedApi.symbols.head.definition.effectRow.members.head.typeArguments ==
-      Vector(AbiType.Primitive(AbiPrimitive.I32)))
+      Vector(AbiType.Primitive(AbiPrimitive.I64, Some(NumericWidthEvidence.DeclaredInt))))
 
   test("generic modes, tuples, unions, intersections, functions and callbacks stay structured"):
     val input = source(
@@ -201,7 +201,7 @@ class PreBodyApiDescriptorProducerTest extends AnyFunSuite:
       Vector(AbiType.TypeParameter(TypeParameterRef(0, 0, 0)))
     )))
     assert(definitions.find(_.qualifiedName == "demo.model.count").get.resultType ==
-      AbiType.Primitive(AbiPrimitive.I64))
+      AbiType.Primitive(AbiPrimitive.I64, Some(NumericWidthEvidence.DeclaredLong)))
     assert(definitions.find(_.qualifiedName == "demo.model.Pair").get.resultType ==
       AbiType.Tuple(Vector(
         AbiType.TypeParameter(TypeParameterRef(0, 0, 0)),
@@ -264,9 +264,9 @@ class PreBodyApiDescriptorProducerTest extends AnyFunSuite:
     val local = descriptor(input).symbols.head.definition
 
     assert(local.parameterLists.head.parameters.head.tpe ==
-      AbiType.Named("demo.api.List", Vector(AbiType.Primitive(AbiPrimitive.I32))))
+      AbiType.Named("demo.api.List", Vector(AbiType.Primitive(AbiPrimitive.I64, Some(NumericWidthEvidence.DeclaredInt)))))
     assert(local.resultType ==
-      AbiType.Named("demo.api.List", Vector(AbiType.Primitive(AbiPrimitive.I64))))
+      AbiType.Named("demo.api.List", Vector(AbiType.Primitive(AbiPrimitive.I64, Some(NumericWidthEvidence.DeclaredLong)))))
 
   test("transparent callback aliases still receive the conservative foreign barrier policy"):
     val input = source(
@@ -1209,10 +1209,10 @@ class PreBodyApiDescriptorProducerTest extends AnyFunSuite:
     )
     val definitions = descriptor(input).symbols.map(_.definition).map(d => d.qualifiedName -> d).toMap
 
-    assert(definitions("demo.api.before").resultType == AbiType.Primitive(AbiPrimitive.I32))
+    assert(definitions("demo.api.before").resultType == AbiType.Primitive(AbiPrimitive.I64, Some(NumericWidthEvidence.DeclaredInt)))
     assert(definitions("demo.api.after").resultType == AbiType.Named("foo.Int"))
     assert(definitions("demo.api.Nested.inside").resultType == AbiType.Named("bar.Long"))
-    assert(definitions("demo.api.outside").resultType == AbiType.Primitive(AbiPrimitive.I64))
+    assert(definitions("demo.api.outside").resultType == AbiType.Primitive(AbiPrimitive.I64, Some(NumericWidthEvidence.DeclaredLong)))
 
   test("conflicting exact imports fail while given-only selectors do not bind type names"):
     val conflict = source(
@@ -1232,7 +1232,7 @@ class PreBodyApiDescriptorProducerTest extends AnyFunSuite:
         |""".stripMargin,
       List("retain")
     )).symbols.head.definition
-    assert(givenOnly.resultType == AbiType.Primitive(AbiPrimitive.I32))
+    assert(givenOnly.resultType == AbiType.Primitive(AbiPrimitive.I64, Some(NumericWidthEvidence.DeclaredInt)))
 
   test("renamed-away and unimported names preserve provable builtin resolution"):
     val renamedAway = descriptor(source(
@@ -1241,7 +1241,7 @@ class PreBodyApiDescriptorProducerTest extends AnyFunSuite:
         |""".stripMargin,
       List("retain")
     )).symbols.head.definition
-    assert(renamedAway.resultType == AbiType.Primitive(AbiPrimitive.I32))
+    assert(renamedAway.resultType == AbiType.Primitive(AbiPrimitive.I64, Some(NumericWidthEvidence.DeclaredInt)))
 
     val unimported = descriptor(source(
       """import foo.{Int as _, *}
@@ -1249,7 +1249,7 @@ class PreBodyApiDescriptorProducerTest extends AnyFunSuite:
         |""".stripMargin,
       List("retain")
     )).symbols.head.definition
-    assert(unimported.resultType == AbiType.Primitive(AbiPrimitive.I32))
+    assert(unimported.resultType == AbiType.Primitive(AbiPrimitive.I64, Some(NumericWidthEvidence.DeclaredInt)))
 
     val qualified = descriptor(source(
       "def retain(value: foo.Int): foo.Int = value",
@@ -1607,3 +1607,32 @@ class PreBodyApiDescriptorProducerTest extends AnyFunSuite:
 
     assert(error.code == "AMBIGUOUS_NAMED_TYPE")
     assert(error.path == "$.symbols[demo.api.leak].parameterLists[0].parameters[0].tpe")
+
+  test("Int and Long overloads keep distinct identity and both declare 64-bit width"):
+    // The width-evidence keystone. ssc `Int` IS 64-bit (measured: 2147483647 + 1 =>
+    // 2147483648, no 32-bit wrap), so both overloads must declare I64 on the wire --
+    // anything else tells a foreign host to truncate at 2^31. But once both are I64
+    // the two signatures are byte-identical in the descriptor unless the source
+    // spelling is retained separately, and their overload IDs collide.
+    val input = source(
+      """def widen(value: Int): Int = value
+        |def widen(value: Long): Long = value
+        |""".stripMargin,
+      List("widen")
+    )
+    val symbols = descriptor(input).symbols
+    assert(symbols.size == 2, s"expected both overloads, got ${symbols.map(_.definition.qualifiedName)}")
+
+    val intOverload = symbols.find(_.definition.parameterLists.head.parameters.head.tpe ==
+      AbiType.Primitive(AbiPrimitive.I64, Some(NumericWidthEvidence.DeclaredInt)))
+      .getOrElse(fail(s"no Int-declared overload in ${symbols.map(_.definition.parameterLists.head.parameters.head.tpe)}"))
+    val longOverload = symbols.find(_.definition.parameterLists.head.parameters.head.tpe ==
+      AbiType.Primitive(AbiPrimitive.I64, Some(NumericWidthEvidence.DeclaredLong)))
+      .getOrElse(fail(s"no Long-declared overload in ${symbols.map(_.definition.parameterLists.head.parameters.head.tpe)}"))
+
+    // Same name, same declared wire width -- and still distinct identities.
+    assert(intOverload.definition.qualifiedName == longOverload.definition.qualifiedName)
+    assert(intOverload.overloadId != longOverload.overloadId,
+      s"overload IDs collided: ${intOverload.overloadId}")
+    assert(intOverload.stableSymbolId != longOverload.stableSymbolId,
+      s"symbol IDs collided: ${intOverload.stableSymbolId}")

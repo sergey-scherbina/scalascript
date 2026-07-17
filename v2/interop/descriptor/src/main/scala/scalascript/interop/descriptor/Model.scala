@@ -18,8 +18,26 @@ final case class StableSymbolId(value: String)
 final case class OverloadId(value: String)
 final case class EntrypointId(value: String)
 
+/** The width that actually crosses the ABI boundary.
+ *
+ *  This is the marshalling contract: a host reads [[AbiType.Primitive.value]] alone and is
+ *  correct. `I32` is currently unreachable from ScalaScript source — ssc `Int` is 64-bit
+ *  (`v2/specs/10-core-ir.md` §2, `Int = Long`) — and is reserved for an explicit narrowing
+ *  ABI. See `specs/numeric-width-reconciliation.md`.
+ */
 enum AbiPrimitive:
   case Unit, Boolean, I32, I64, BigInt, F64, String, Bytes, Char
+
+/** Which integer type the declaration actually spelled.
+ *
+ *  Evidence only — it never changes marshalling. Because ssc `Int` is 64-bit, both `Int` and
+ *  `Long` declare [[AbiPrimitive.I64]]; without the retained spelling the two are byte-identical
+ *  in the descriptor and `f(x: Int)`/`f(x: Long)` collide on `stableSymbolId`/`overloadId`
+ *  (measured: the factory then rejects the module with `DUPLICATE_SYMBOL_ID`). This is also the
+ *  node a future narrowing ABI binds to.
+ */
+enum NumericWidthEvidence:
+  case DeclaredInt, DeclaredLong
 
 enum Variance:
   case Invariant, Covariant, Contravariant
@@ -53,7 +71,11 @@ object EffectRow:
   val Pure: EffectRow = EffectRow()
 
 enum AbiType:
-  case Primitive(value: AbiPrimitive)
+  /** @param value        the wire width — the marshalling contract.
+   *  @param declaredWidth the retained source spelling for integer primitives; required for
+   *                       `I32`/`I64` and forbidden otherwise (see `DescriptorValidator`).
+   */
+  case Primitive(value: AbiPrimitive, declaredWidth: Option[NumericWidthEvidence] = None)
   case Named(stableTypeId: String, arguments: Vector[AbiType] = Vector.empty)
   case TypeParameter(reference: TypeParameterRef)
   case Tuple(elements: Vector[AbiType])

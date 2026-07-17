@@ -15,6 +15,11 @@ private[descriptor] object TypeWire:
     "Char" -> AbiPrimitive.Char
   )
 
+  private val widthEvidence = Map(
+    "DeclaredInt" -> NumericWidthEvidence.DeclaredInt,
+    "DeclaredLong" -> NumericWidthEvidence.DeclaredLong
+  )
+
   private val variances = Map(
     "Invariant" -> Variance.Invariant,
     "Covariant" -> Variance.Covariant,
@@ -24,6 +29,10 @@ private[descriptor] object TypeWire:
   def writePrimitive(value: AbiPrimitive): ujson.Value = tagged(value.toString)
   def readPrimitive(value: ujson.Value, path: String): Result[AbiPrimitive] =
     enumValue(value, path, primitives)
+
+  def writeWidthEvidence(value: NumericWidthEvidence): ujson.Value = tagged(value.toString)
+  def readWidthEvidence(value: ujson.Value, path: String): Result[NumericWidthEvidence] =
+    enumValue(value, path, widthEvidence)
 
   def writeVariance(value: Variance): ujson.Value = tagged(value.toString)
   def readVariance(value: ujson.Value, path: String): Result[Variance] =
@@ -97,8 +106,14 @@ private[descriptor] object TypeWire:
     yield EffectRow(members, openTail)
 
   def writeType(value: AbiType): ujson.Value = value match
-    case AbiType.Primitive(primitive) =>
-      tagged("Primitive", "value" -> writePrimitive(primitive))
+    case AbiType.Primitive(primitive, declaredWidth) =>
+      tagged(
+        "Primitive",
+        "value" -> writePrimitive(primitive),
+        // Part of the identity bytes on purpose: it is what keeps Int/Long overloads distinct
+        // once both declare I64.
+        "declaredWidth" -> optional(declaredWidth)(writeWidthEvidence)
+      )
     case AbiType.Named(stableTypeId, arguments) =>
       tagged(
         "Named",
@@ -135,7 +150,8 @@ private[descriptor] object TypeWire:
     }))
 
   def identityType(value: AbiType): AbiType = value match
-    case AbiType.Primitive(_) | AbiType.TypeParameter(_) => value
+    // Passed through whole: the retained width evidence is part of the identity.
+    case AbiType.Primitive(_, _) | AbiType.TypeParameter(_) => value
     case AbiType.Named(id, arguments) =>
       AbiType.Named(id, arguments.map(identityType))
     case AbiType.Tuple(elements) =>
@@ -168,9 +184,16 @@ private[descriptor] object TypeWire:
     case objectValue: ujson.Obj =>
       objectValue.value.get("tag") match
         case Some(ujson.Str("Primitive")) =>
-          tag(value, path, "value").flatMap { case (fields, _) =>
-            readPrimitive(field(fields, "value"), s"$path.value").map(AbiType.Primitive.apply)
-          }
+          // `declaredWidth` is required by exactObject, so a legacy primitive node without it
+          // fails loudly (missing=[declaredWidth]) rather than decoding to an ambiguous width.
+          for
+            taggedValue <- tag(value, path, "value", "declaredWidth")
+            (fields, _) = taggedValue
+            primitive <- readPrimitive(field(fields, "value"), s"$path.value")
+            declaredWidth <- option(field(fields, "declaredWidth"), s"$path.declaredWidth")(
+              readWidthEvidence
+            )
+          yield AbiType.Primitive(primitive, declaredWidth)
         case Some(ujson.Str("Named")) =>
           for
             taggedValue <- tag(value, path, "stableTypeId", "arguments")

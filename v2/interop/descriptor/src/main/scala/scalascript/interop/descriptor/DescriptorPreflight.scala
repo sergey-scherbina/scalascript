@@ -150,7 +150,7 @@ private[descriptor] object DescriptorPreflight:
         pending = (child, depth + 1, childPath) :: pending
 
       value match
-        case AbiType.Primitive(_) | AbiType.TypeParameter(_) => ()
+        case AbiType.Primitive(_, _) | AbiType.TypeParameter(_) => ()
         case AbiType.Named(_, arguments) =>
           container(s"$path.arguments", arguments.size) match
             case Left(error) => break(Left(error))

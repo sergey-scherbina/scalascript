@@ -5,8 +5,8 @@ import org.scalatest.funsuite.AnyFunSuite
 
 final class DescriptorValidationSuite extends AnyFunSuite:
   private val Utf8 = StandardCharsets.UTF_8
-  private val I32 = AbiType.Primitive(AbiPrimitive.I32)
-  private val I64 = AbiType.Primitive(AbiPrimitive.I64)
+  private val I32 = AbiType.Primitive(AbiPrimitive.I32, Some(NumericWidthEvidence.DeclaredInt))
+  private val I64 = AbiType.Primitive(AbiPrimitive.I64, Some(NumericWidthEvidence.DeclaredLong))
   private val ZeroHash = "0" * 64
 
   private def must[A](value: Either[DescriptorError, A]): A =
@@ -192,17 +192,19 @@ final class DescriptorValidationSuite extends AnyFunSuite:
     assert(artifactText.contains("\"schemaId\":[\""))
 
   test("ApiDescriptor round-trips every primitive, type, symbol, parameter, callback, and prompt variant"):
+    // Integer primitives must carry source width evidence and the others must not, so the
+    // round-trip fixture pairs each primitive with the evidence its width admits.
     val primitives = Vector(
-      AbiPrimitive.Unit,
-      AbiPrimitive.Boolean,
-      AbiPrimitive.I32,
-      AbiPrimitive.I64,
-      AbiPrimitive.BigInt,
-      AbiPrimitive.F64,
-      AbiPrimitive.String,
-      AbiPrimitive.Bytes,
-      AbiPrimitive.Char
-    ).map(AbiType.Primitive.apply)
+      AbiType.Primitive(AbiPrimitive.Unit),
+      AbiType.Primitive(AbiPrimitive.Boolean),
+      AbiType.Primitive(AbiPrimitive.I32, Some(NumericWidthEvidence.DeclaredInt)),
+      AbiType.Primitive(AbiPrimitive.I64, Some(NumericWidthEvidence.DeclaredLong)),
+      AbiType.Primitive(AbiPrimitive.BigInt),
+      AbiType.Primitive(AbiPrimitive.F64),
+      AbiType.Primitive(AbiPrimitive.String),
+      AbiType.Primitive(AbiPrimitive.Bytes),
+      AbiType.Primitive(AbiPrimitive.Char)
+    )
     val topReference = AbiType.TypeParameter(TypeParameterRef(0, 0))
     val nestedLambda = AbiType.TypeLambda(
       Vector(AbiTypeParameter(0, "U")),
@@ -768,3 +770,71 @@ final class DescriptorValidationSuite extends AnyFunSuite:
     assert(code(DescriptorValidator.artifact(artifact.copy(
       targetEntrypoints = invalidImplementation +: artifact.targetEntrypoints.tail
     ))) == "INVALID_SHA256")
+
+  // --- numeric-width-reconciliation (option A) -------------------------------------------
+  // These are the negative controls for the width-evidence invariant. Their whole job is to
+  // prove the contract FAILS CLOSED: a width the descriptor cannot justify must be rejected,
+  // never guessed. See `specs/numeric-width-reconciliation.md` §4.3.
+
+  test("a bare integer width is rejected as an ambiguous legacy export"):
+    // Legacy shape: I64 with no retained spelling. Defaulting it to `Long` would be a guess,
+    // and would silently merge `f(x: Int)` with `f(x: Long)`.
+    val ambiguous = AbiType.Primitive(AbiPrimitive.I64)
+    val failed = DescriptorFactory.api("ssc-control-v1", "demo", Vector(definition("demo.f", ambiguous)))
+
+    assert(code(failed) == "AMBIGUOUS_NUMERIC_WIDTH")
+    assert(error(failed).path.endsWith(".declaredWidth"))
+
+    // ... and the same for a bare I32, which is the width no ssc source can currently produce.
+    assert(code(DescriptorFactory.api(
+      "ssc-control-v1",
+      "demo",
+      Vector(definition("demo.g", AbiType.Primitive(AbiPrimitive.I32)))
+    )) == "AMBIGUOUS_NUMERIC_WIDTH")
+
+  test("width evidence on a non-integer primitive is rejected"):
+    val nonsense = AbiType.Primitive(AbiPrimitive.String, Some(NumericWidthEvidence.DeclaredInt))
+    val failed = DescriptorFactory.api("ssc-control-v1", "demo", Vector(definition("demo.f", nonsense)))
+
+    assert(code(failed) == "INVALID_NUMERIC_WIDTH_EVIDENCE")
+
+  test("ambiguous integer widths are rejected wherever a type can nest"):
+    // The invariant must hold at every type position, not just at the result.
+    val bare = AbiType.Primitive(AbiPrimitive.I64)
+    val nested = Vector(
+      AbiType.Named("demo.Box", Vector(bare)),
+      AbiType.Tuple(Vector(I32, bare)),
+      AbiType.Union(Vector(bare, AbiType.Named("demo.Other"))),
+      AbiType.Intersection(Vector(bare, AbiType.Named("demo.Other"))),
+      AbiType.Function(Vector(Vector(bare)), I32),
+      AbiType.TypeLambda(Vector(AbiTypeParameter(0, "T")), bare)
+    )
+    nested.foreach { tpe =>
+      assert(
+        code(DescriptorFactory.api("ssc-control-v1", "demo", Vector(definition("demo.f", tpe)))) ==
+          "AMBIGUOUS_NUMERIC_WIDTH",
+        s"a bare integer width survived inside $tpe"
+      )
+    }
+
+  test("a legacy primitive node without retained width fails to decode"):
+    // The wire-level half of the same rejection: an old descriptor must not silently decode.
+    val legacy = "{\"tag\":\"Primitive\",\"value\":{\"tag\":\"I64\"}}"
+    val failed = TypeWire.readType(ujson.read(legacy), "$.tpe")
+
+    assert(code(failed) == "SCHEMA_MISMATCH")
+    assert(error(failed).message.contains("missing=[declaredWidth]"), error(failed).message)
+
+  test("retained width evidence survives the wire and keeps Int and Long distinct"):
+    val declaredInt = AbiType.Primitive(AbiPrimitive.I64, Some(NumericWidthEvidence.DeclaredInt))
+    val declaredLong = AbiType.Primitive(AbiPrimitive.I64, Some(NumericWidthEvidence.DeclaredLong))
+
+    assert(must(TypeWire.readType(TypeWire.writeType(declaredInt), "$.tpe")) == declaredInt)
+    assert(must(TypeWire.readType(TypeWire.writeType(declaredLong), "$.tpe")) == declaredLong)
+
+    // Same declared wire width, different spelling => different identity bytes.
+    assert(declaredInt != declaredLong)
+    assert(
+      must(DescriptorHashes.stableSymbolId("demo", definition("demo.f", declaredInt))) !=
+        must(DescriptorHashes.stableSymbolId("demo", definition("demo.f", declaredLong)))
+    )

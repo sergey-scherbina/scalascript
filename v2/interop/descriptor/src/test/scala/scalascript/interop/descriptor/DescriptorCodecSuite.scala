@@ -6,8 +6,8 @@ import scala.compiletime.testing.typeCheckErrors
 
 final class DescriptorCodecSuite extends AnyFunSuite:
   private val Utf8 = StandardCharsets.UTF_8
-  private val I32 = AbiType.Primitive(AbiPrimitive.I32)
-  private val I64 = AbiType.Primitive(AbiPrimitive.I64)
+  private val I32 = AbiType.Primitive(AbiPrimitive.I32, Some(NumericWidthEvidence.DeclaredInt))
+  private val I64 = AbiType.Primitive(AbiPrimitive.I64, Some(NumericWidthEvidence.DeclaredLong))
 
   private def must[A](value: Either[DescriptorError, A]): A =
     value.fold(error => fail(s"${error.code} at ${error.path}: ${error.message}"), identity)
@@ -72,8 +72,10 @@ final class DescriptorCodecSuite extends AnyFunSuite:
     must(DescriptorFactory.api("ssc-control-v1", "demo", Vector(definition)))
 
   test("frozen wire fragments and restricted-JCS non-ASCII golden vector"):
+    // RE-FROZEN 2026-07-17 (numeric-width-reconciliation, option A): the primitive node now
+    // carries its retained source spelling. See `specs/numeric-width-reconciliation.md` §4.4.
     assert(must(CanonicalJson.text(TypeWire.writeType(I32))) ==
-      "{\"tag\":\"Primitive\",\"value\":{\"tag\":\"I32\"}}")
+      "{\"declaredWidth\":[{\"tag\":\"DeclaredInt\"}],\"tag\":\"Primitive\",\"value\":{\"tag\":\"I32\"}}")
     assert(must(CanonicalJson.text(TypeWire.writeType(AbiType.Named("std.String")))) ==
       "{\"arguments\":[],\"stableTypeId\":\"std.String\",\"tag\":\"Named\"}")
     val minimal = ApiDescriptor(

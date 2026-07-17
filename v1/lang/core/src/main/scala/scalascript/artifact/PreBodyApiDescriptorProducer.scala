@@ -2063,8 +2063,15 @@ object PreBodyApiDescriptorProducer:
             else if arguments.isEmpty then name match
                 case "Unit" => Right(AbiType.Primitive(AbiPrimitive.Unit))
                 case "Boolean" => Right(AbiType.Primitive(AbiPrimitive.Boolean))
-                case "Int" => Right(AbiType.Primitive(AbiPrimitive.I32))
-                case "Long" => Right(AbiType.Primitive(AbiPrimitive.I64))
+                // ssc `Int` is 64-bit (`v2/specs/10-core-ir.md` §2: `Int = Long`; measured:
+                // 2147483647 + 1 => 2147483648, no 32-bit wrap). Declaring I32 told every
+                // foreign host to truncate above 2^31-1 at the ABI boundary. Both spellings
+                // therefore declare I64 and are told apart by retained width evidence, which
+                // is what keeps their overload identities distinct.
+                case "Int" =>
+                  Right(AbiType.Primitive(AbiPrimitive.I64, Some(NumericWidthEvidence.DeclaredInt)))
+                case "Long" =>
+                  Right(AbiType.Primitive(AbiPrimitive.I64, Some(NumericWidthEvidence.DeclaredLong)))
                 case "BigInt" => Right(AbiType.Primitive(AbiPrimitive.BigInt))
                 case "Double" => Right(AbiType.Primitive(AbiPrimitive.F64))
                 case "String" => Right(AbiType.Primitive(AbiPrimitive.String))

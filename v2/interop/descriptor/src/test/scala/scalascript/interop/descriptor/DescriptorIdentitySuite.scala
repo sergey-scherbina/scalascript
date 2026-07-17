@@ -4,8 +4,8 @@ import java.nio.charset.StandardCharsets
 import org.scalatest.funsuite.AnyFunSuite
 
 final class DescriptorIdentitySuite extends AnyFunSuite:
-  private val I32 = AbiType.Primitive(AbiPrimitive.I32)
-  private val I64 = AbiType.Primitive(AbiPrimitive.I64)
+  private val I32 = AbiType.Primitive(AbiPrimitive.I32, Some(NumericWidthEvidence.DeclaredInt))
+  private val I64 = AbiType.Primitive(AbiPrimitive.I64, Some(NumericWidthEvidence.DeclaredLong))
 
   private def basicDefinition(result: AbiType = I32): ApiSymbolDefinition =
     ApiSymbolDefinition(
@@ -17,15 +17,20 @@ final class DescriptorIdentitySuite extends AnyFunSuite:
   private def must[A](value: Either[DescriptorError, A]): A =
     value.fold(error => fail(s"${error.code} at ${error.path}: ${error.message}"), identity)
 
+  // RE-FROZEN 2026-07-17 (numeric-width-reconciliation, option A). These normative vectors moved
+  // on purpose: `AbiType.Primitive` now retains source width evidence, and that evidence is part
+  // of the identity bytes -- which is exactly what keeps `f(x: Int)` and `f(x: Long)` distinct
+  // once both truthfully declare I64. A descriptor identity change is the accepted cost of the
+  // decision; see `specs/numeric-width-reconciliation.md` §4.5.
   test("normative symbol, overload, JVM, and named entrypoint vectors"):
     val definition = basicDefinition()
     val symbolId = must(DescriptorHashes.stableSymbolId("demo", definition))
     val overloadId = must(DescriptorHashes.overloadId("demo", definition)).getOrElse(fail("missing overload"))
 
     assert(symbolId.value ==
-      "ssc:symbol:v1:453bfef37e9c434783110ab89039214b9f8a7a998665c1125074c0d44d82faaf")
+      "ssc:symbol:v1:c6231fac17f3e3c57d6208e679aa040be9cf46c8de69f88697eeccca0191fb4a")
     assert(overloadId.value ==
-      "ssc:overload:v1:a4daead86b456de1fe3ab86a936448c1546f09ed2ea812c95a689591e4d69fc9")
+      "ssc:overload:v1:2e2d67015b0a2ff6f9acf981eccd746866055d4e4d256ab143f340f7c6178ee8")
 
     val jvmId = must(DescriptorHashes.jvmEntrypointId(
       symbolId,
@@ -37,11 +42,11 @@ final class DescriptorIdentitySuite extends AnyFunSuite:
       "application"
     ))
     assert(jvmId.value ==
-      "ssc:jvm-entrypoint:v1:20859d2db58ee7508193d092b2e3933c9273de8d0341f79900a7cdcd49cfae21")
+      "ssc:jvm-entrypoint:v1:5c6533ab8b69e70bd7872c5a97c212518144fb85b08aa874a9accd14a8299140")
 
     val namedId = must(DescriptorHashes.namedEntrypointId(symbolId, "zero", "js-es2024"))
     assert(namedId.value ==
-      "ssc:target-entrypoint:v1:ec9ea38732c339e777dc59f6e5b4a09adf4ed9f4d31de0f350c97e352bbe9222")
+      "ssc:target-entrypoint:v1:d1a0d6b6ab0d6fea59ee7f6d16085159cca546fa1704dcf24e76fc14bbd40a72")
 
   test("nested type-lambda alpha rename preserves ids after erase then renormalize"):
     def lambda(name: String, variance: Variance): AbiType =
