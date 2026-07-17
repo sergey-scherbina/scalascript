@@ -28,6 +28,31 @@ real file do not. So on `bin/ssc run` scljet is an in-memory engine only.
 belongs to the `int`/`js`/JVM lanes, which is where its conformance already runs.
 
 
+## v2-native-scala-import-parse-only-noop — module-defined names stay unbound after `import std.*`
+
+**Status:** OPEN (found 2026-07-17 by `ci-red-main` after correcting
+`V2TuplePatternCliTest` to use staged `bin/ssc`). The map-reduce fixture's Scala-style
+`import std.mapreduce.*` appears to make registry-backed names such as `HandlerRegistry` available,
+but does not load module-defined `WorkerProtocol`; the program prints its first expected line `3`
+and then exits with `ssc: unhandled runtime effect: WorkerProtocol.applyStage`.
+
+**Real-harness repro.** After `scripts/sbtc "cli/assembly; installBin"`, run a `.ssc` containing
+`import std.mapreduce.*`, handler registration, and
+`WorkerProtocol.applyStage(Stage(List(MapOp("tag"))), List("ada"))` through `bin/ssc`. The native
+front's `parseOneStmt` branch explicitly consumes Scala-style imports as parse-only no-ops because
+it assumes imported names resolve through registry/globals. An unbound qualified call then falls
+through to an `Op`, producing the same misleading `unhandled runtime effect` diagnostic documented
+for other missing module names. This is distinct from a Markdown link ignored inside a fence.
+
+**Expected/fix direction.** Define whether Scala-style package imports participate in the native
+module graph and implement that contract instead of relying on an incomplete ambient registry.
+Until then, the supported native module form is an outside-fence Markdown link such as
+`[WorkerProtocol, Stage, MapOp](std/mapreduce/distributed.ssc)`. The tuple CLI test should use those
+explicit links because it tests handler-registration order, not import syntax. This bug remains
+open after that fixture correction; at least `examples/distributed-dataset-typed-helpers.ssc` also
+uses the affected Scala-style import and needs a future real-harness audit.
+
+
 ## ci-sbt-outer-timeout-cancels-bounded-test-step — job budget expires before the suite can report
 
 **Status:** OPEN (found 2026-07-17 by `ci-red-main` in completed Linux run `29544412767`, SHA

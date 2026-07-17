@@ -379,6 +379,16 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       tuple assertions: those files belong to the live native-stack claim and the observed failure
       is test setup. Done means all four cases pass against staged current bits and an affected
       conformance slice remains green.
+      **First faithful-launcher result:** 3/4 immediately pass. The map-reduce case reaches native
+      execution, prints the expected registry count `3`, then reports `unhandled runtime effect:
+      WorkerProtocol.applyStage`. Source inspection corrected the first attribution: this is not a
+      Markdown link hidden inside a fence. Native `parseOneStmt` consumes every Scala-style
+      `import a.b.*` as a parse-only no-op and assumes names already exist in globals; registry-backed
+      `HandlerRegistry` happens to exist, while module-defined `WorkerProtocol` does not. Track that
+      separately as `v2-native-scala-import-parse-only-noop`. Keep the map-reduce assertions, but
+      express this fixture's dependencies through the currently supported outside-fence Markdown
+      links to `std/mapreduce/handlers.ssc` and `distributed.ssc`; do not expand this CI slice into
+      the native module-import feature.
 - [ ] **5n. Give the sbt job enough outer budget to reach its bounded test verdict.** Run
       `29544412767` started the sbt job at `00:18:32Z`; setup/build/release gates consumed until
       `00:53:54Z`, then the 90-minute outer job timeout cancelled `Test via sbt` at `01:48:45Z`
