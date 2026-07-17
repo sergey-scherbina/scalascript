@@ -88,13 +88,23 @@ Every host profile must marshal each ABI primitive through a carrier of the decl
 that uses a 32-bit carrier for `I64` truncates every value above 2^31−1 **at the boundary**, in
 another language, silently.
 
+This table pins the **fixed-width** carriers — the ones where a too-narrow choice silently
+truncates. Each cell is the carrier the host profile must name **first**; profiles may add
+prohibitions after it (e.g. js-ts "`bigint`; conversion through `number` rejects").
+
+**Vocabulary note — deliberate, do not "unify".** The rows below are keyed by the **canonical-value**
+vocabulary the host profile specs use (`I64`, `Double`), *not* by the descriptor's `AbiPrimitive`
+vocabulary used in §2 (`I64`, `F64`). The two are different layers on purpose: the host control
+profiles state that they **do not consume descriptors**. `Double` here and `F64` in §2 denote the
+same 64-bit IEEE-754 binary64 value. Renaming either to match the other would impose one layer's
+vocabulary on the other and is not a cleanup.
+
 <!-- BEGIN NORMATIVE TABLE: ssc-host-carriers -->
 
-| ABI | js-ts | rust | swift | wasm-wasi | jvm |
+| Canonical | js-ts | rust | swift | wasm-wasi | jvm |
 |---|---|---|---|---|---|
 | `I64` | `bigint` | `i64` | `Int64` | `i64` | `Long` |
-| `F64` | `number` | `f64` | `Double` | `f64` | `Double` |
-| `BigInt` | `bigint` | `i64` | `Int64` | `i64` | `BigInt` |
+| `Double` | `number` | `f64` | `Double` | `f64` | `Double` |
 
 <!-- END NORMATIVE TABLE: ssc-host-carriers -->
 
@@ -107,11 +117,13 @@ Notes, each binding:
   must not depend on the host platform.
 - **wasm-wasi `I64` is `i64`** — an `i64` at the JS embedder boundary is a `BigInt`, never a
   `number`.
-- The `BigInt` row pins the *64-bit-capable carrier class* each profile must not fall below; the
-  full arbitrary-precision contract (an approved wrapper with a pinned codec, or a canonical byte
-  encoding through linear memory) lives in each host profile spec. `I32` is unreachable from
-  ScalaScript source and is reserved for a future explicit narrowing ABI — see
-  [`numeric-width-reconciliation.md`](numeric-width-reconciliation.md) §2.
+- **`BigInt` is deliberately NOT in the table.** It is arbitrary-precision, so it has no fixed-width
+  carrier and **must not be given one**: pinning it to any `i64`-class carrier would re-introduce
+  exactly the declared-narrower-than-actual lie this file exists to prevent. Each host profile
+  defines its own arbitrary-precision contract (js-ts `bigint`; rust/swift an approved wrapper with
+  a pinned ABI/codec; wasm-wasi a canonical byte encoding through linear memory).
+- `I32` is unreachable from ScalaScript source and is reserved for a future explicit narrowing ABI —
+  see [`numeric-width-reconciliation.md`](numeric-width-reconciliation.md) §2.
 
 ## 4. Backend conformance status
 
