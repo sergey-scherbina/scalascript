@@ -117,20 +117,55 @@ def run(cmd: os.proc): String =
   val res = cmd.call(stdin = "", stderr = os.Pipe, check = false)
   outputWithFailureContext(res.out.text(), res.err.text(), res.exitCode)
 
+def diffLines(got: String, expected: String, limit: Int = Int.MaxValue): Unit =
+  val gotLines  = got.linesIterator.toList
+  val expLines  = expected.linesIterator.toList
+  val maxLen    = expLines.length max gotLines.length
+  var shown     = 0
+  for i <- 0 until maxLen do
+    val e = expLines.lift(i).getOrElse("<missing>")
+    val g = gotLines.lift(i).getOrElse("<missing>")
+    if e != g && shown < limit then
+      println(s"    line ${i+1}: expected=${e.take(80)}  got=${g.take(80)}")
+      shown += 1
+
 def check(label: String, got: String, expected: String): Boolean =
   if got == expected then
     println(s"  PASS [$label]")
     true
   else
     println(s"  FAIL [$label]")
-    val gotLines  = got.linesIterator.toList
-    val expLines  = expected.linesIterator.toList
-    val maxLen    = expLines.length max gotLines.length
-    for i <- 0 until maxLen do
-      val e = expLines.lift(i).getOrElse("<missing>")
-      val g = gotLines.lift(i).getOrElse("<missing>")
-      if e != g then println(s"    line ${i+1}: expected=${e.take(80)}  got=${g.take(80)}")
+    diffLines(got, expected)
     false
+
+var knownRedCount = 0
+
+/** Compare a lane's output, then bucket it — never the other way round.
+ *
+ *  A `known-red:` lane is still RUN and still COMPARED and still DIFFED; only the
+ *  bucket changes. That is the whole difference from the `codegen:` reroute this
+ *  replaces (`SPRINT.md` §int-width-conformance W3): a declared red is a visible
+ *  red, a reroute is an invisible green.
+ *
+ *  A known-red that PASSES fails the suite: the declaration has expired and must
+ *  be deleted. Without that, a known-red outlives its bug and rots into permanent
+ *  noise that hides the next real regression.
+ */
+def checkLane(label: String, lane: String, got: String, expected: String,
+              knownRed: Map[String, String]): Boolean =
+  knownRed.get(lane) match
+    case None => check(label, got, expected)
+    case Some(reason) =>
+      if got == expected then
+        println(s"  FAIL [$label] STALE known-red: this lane now PASSES — delete the " +
+          s"`known-red:` declaration for '$lane' from the case's front-matter.")
+        println(s"    declared reason was: $reason")
+        false
+      else
+        println(s"  KNOWN-RED [$label] $reason")
+        diffLines(got, expected, limit = 3) // stays visible; capped so it cannot drown real reds
+        knownRedCount += 1
+        true
 
 // Per-backend feature support — mirrors backend-{interpreter,js,jvm}/.../Capabilities.scala.
 // When backends add or drop features, update this map in lockstep.
@@ -231,20 +266,66 @@ def parseBackends(src: String): Option[Set[String]] =
       }.filter(_.nonEmpty).toSet
       if normalised.isEmpty then None else Some(normalised)
 
-// Parse `codegen: v2` — route this case's JVM/JS lanes through the v2 codegen
-// pipeline (`run --bytecode` / `run-js --v2`) instead of the v1 codegen
-// (`run-jvm` / `emit-js`). The v1 codegen treats ssc `Int` as Scala's 32-bit
-// Int; v2 (CoreIR) is natively 64-bit. Cases whose semantics need 64-bit Int
-// (e.g. deep-tail-recursion's 5e9 accumulator) opt in here so they run on the
-// backend that honors the ssc Int=64-bit contract. INT stays the interpreter.
-def parseCodegen(src: String): Option[String] =
+// The YAML front-matter lines of a case, or Nil when it has none.
+def frontmatter(src: String): List[String] =
   val allLines = src.linesIterator.toList
   val lines = if allLines.headOption.exists(_.startsWith("#!")) then allLines.tail else allLines
-  if !lines.headOption.contains("---") then return None
+  if !lines.headOption.contains("---") then return Nil
   val fmEnd = lines.tail.indexOf("---")
-  if fmEnd < 0 then return None
-  val fm = lines.slice(1, fmEnd + 1)
-  fm.find(_.startsWith("codegen:")).map(_.stripPrefix("codegen:").trim.toLowerCase).filter(_.nonEmpty)
+  if fmEnd < 0 then return Nil
+  lines.slice(1, fmEnd + 1)
+
+// Parse `also-codegen: v2` — run this case's JVM/JS lanes on the v2 codegen
+// (`run --bytecode` / `run-js --v2`) **IN ADDITION TO** the v1 codegen lanes.
+//
+// This key REPLACED `codegen: v2`, which routed the JVM/JS lanes to v2 *INSTEAD
+// OF* v1 (removed 2026-07-17, `SPRINT.md` §int-width-conformance W3). The old
+// key let a case pick the backend that agreed with it: `deep-tail-recursion`
+// needs a 64-bit `Int` (its accumulator is 5e9), the v1 codegen truncates to 32
+// bits, so the case opted out of the v1 codegen and the suite reported all-green
+// while a real, silent backend divergence sat underneath. That is the
+// conformance suite — whose entire job is to catch backend divergence — routing
+// around a divergence. `AGENTS.md` ("apparatus must COMPARE, never PRE-JUDGE")
+// now bans exactly this.
+//
+// There is deliberately NO "instead of" form: additive by construction, so the
+// key cannot be used to dodge a divergence. A case that diverges on a backend
+// declares `known-red:` below, which stays visible in the output and expires.
+def parseAlsoCodegen(src: String): Option[String] =
+  frontmatter(src).find(_.startsWith("also-codegen:"))
+    .map(_.stripPrefix("also-codegen:").trim.toLowerCase).filter(_.nonEmpty)
+
+// Parse `known-red: <lane>[,<lane>] — <reason>` — a DECLARED, EXPIRING known
+// non-conformance on specific lanes (`int`, `js`, `jvm`).
+//
+// The lane still RUNS and its output is still COMPARED and DIFFED — only the
+// bucket changes. This is the difference between a known-red and the `codegen:`
+// reroute it replaces: a known-red is a *visible* red with a stated reason; a
+// reroute is an invisible green.
+//
+// It EXPIRES BY ITSELF: if a declared-red lane starts PASSING, the suite FAILS
+// and tells you to delete the declaration. A known-red that outlives its bug
+// would otherwise rot into permanent noise that hides the next real regression.
+def parseKnownRed(src: String): Map[String, String] =
+  frontmatter(src).find(_.startsWith("known-red:")) match
+    case None => Map.empty
+    case Some(line) =>
+      // The reason contains `: ` and `#`, so the YAML value must be quoted in the
+      // front-matter (the real YAML parser rejects it otherwise) — unquote here.
+      val raw = line.stripPrefix("known-red:").trim
+      val body =
+        if raw.length >= 2 && raw.head == '"' && raw.last == '"' then raw.drop(1).dropRight(1)
+        else if raw.length >= 2 && raw.head == '\'' && raw.last == '\'' then raw.drop(1).dropRight(1)
+        else raw
+      // `<lanes> — <reason>`; the em-dash separator keeps lane lists unambiguous.
+      val (lanesPart, reason) = body.split("—", 2) match
+        case Array(l, r) => (l.trim, r.trim)
+        case _           => (body, "")
+      if reason.isEmpty then
+        System.err.println(s"[error] known-red without a reason: '$line' — a known-red MUST state " +
+          "why it is red and when it expires, or it is indistinguishable from an unnoticed bug")
+        System.exit(1)
+      lanesPart.split(",").map(_.trim.toLowerCase).filter(_.nonEmpty).map(_ -> reason).toMap
 
 // Parse `pending: <reason>` — a one-line frontmatter marker that PENDINGs
 // the test out of the suite (counted as pending, not failed). Use sparingly
@@ -273,14 +354,16 @@ val BATCH_MARK = "<<<SSC-BATCH-CASE:"
 
 case class Meta(test: os.Path, name: String, src: String, expected: Option[String],
                 requires: List[String], backendsGate: Option[Set[String]],
-                pending: Option[String], codegen: Option[String], memoHit: Boolean)
+                pending: Option[String], alsoCodegen: Option[String],
+                knownRed: Map[String, String], memoHit: Boolean)
 
 val metas: List[Meta] = tests.toList.map { t =>
   val src = os.read(t)
   val ef  = expectedDir / s"${t.baseName}.txt"
   val exp = if os.exists(ef) then Some(os.read(ef).stripTrailing()) else None
   val hit = !noMemo && exp.exists(e => memo.get(t.baseName).contains(memoKey(t.baseName, src, e)))
-  Meta(t, t.baseName, src, exp, parseRequires(src), parseBackends(src), parsePending(src), parseCodegen(src), hit)
+  Meta(t, t.baseName, src, exp, parseRequires(src), parseBackends(src), parsePending(src),
+       parseAlsoCodegen(src), parseKnownRed(src), hit)
 }
 
 def metaSupports(m: Meta, b: String): Boolean =
@@ -321,7 +404,8 @@ for test <- tests do
   val requires     = parseRequires(src)
   val backendsGate = parseBackends(src)
   val pending      = parsePending(src)
-  val codegen      = parseCodegen(src)  // Some("v2") → JVM/JS via the 64-bit v2 codegen
+  val alsoCodegen  = parseAlsoCodegen(src) // Some("v2") → ALSO run the v2 codegen lanes
+  val knownRed     = parseKnownRed(src)    // declared, expiring per-lane non-conformance
 
   if pending.isDefined then
     println(s"$name: PENDING (${pending.get})")
@@ -358,7 +442,7 @@ for test <- tests do
         true
       else
         val intOut = intBatch.getOrElse(name, run(sscTools("run", "--v1", test.toString)))
-        check("INT", intOut, expected)
+        checkLane("INT", "int", intOut, expected, knownRed)
 
     // JS via Node.js
     val jsOk =
@@ -366,17 +450,20 @@ for test <- tests do
         println(s"  SKIP [JS ] (${skipReason("js")})")
         true
       else
-        val jsOut =
-          if codegen.contains("v2") then
-            // 64-bit v2 JS codegen: `run-js --v2` compiles + runs via node itself.
-            val r = os.proc(sscToolsBin.toString, "run-js", "--v2", test.toString)
-              .call(stdin = "", stderr = os.Pipe, check = false)
-            outputWithFailureContext(r.out.text(), r.err.text(), r.exitCode)
-          else
-            val jsSource = jsEmitted.getOrElse(name, run(sscTools("emit-js", test.toString)))
-            val jsRes = os.proc("node").call(stdin = jsSource, stderr = os.Pipe, check = false)
-            outputWithFailureContext(jsRes.out.text(), jsRes.err.text(), jsRes.exitCode)
-        check("JS ", jsOut, expected)
+        val jsSource = jsEmitted.getOrElse(name, run(sscTools("emit-js", test.toString)))
+        val jsRes = os.proc("node").call(stdin = jsSource, stderr = os.Pipe, check = false)
+        val jsOut = outputWithFailureContext(jsRes.out.text(), jsRes.err.text(), jsRes.exitCode)
+        checkLane("JS ", "js", jsOut, expected, knownRed)
+
+    // v2 JS codegen — ADDITIVE (`also-codegen: v2`), never a replacement for the
+    // lane above. See `parseAlsoCodegen`.
+    val jsV2Ok =
+      if !alsoCodegen.contains("v2") || !backendSupports("js") then true
+      else
+        val r = os.proc(sscToolsBin.toString, "run-js", "--v2", test.toString)
+          .call(stdin = "", stderr = os.Pipe, check = false)
+        val out = outputWithFailureContext(r.out.text(), r.err.text(), r.exitCode)
+        checkLane("JS/v2", "js-v2", out, expected, knownRed)
 
     // JVM via JvmGen + scala-cli compile+run
     val jvmOk =
@@ -396,15 +483,20 @@ for test <- tests do
           if warmJvm then Map("SSC_SCALACLI_SERVER" -> "1")
           else Map("SSC_SCALACLI_SERVER" -> "0")
         val jvmRes =
-          if codegen.contains("v2") then
-            // 64-bit v2 JVM codegen: `run --bytecode` (v2 CoreIR → JVM bytecode).
-            os.proc(sscBin.toString, "run", "--bytecode", test.toString)
-              .call(stdin = "", stderr = os.Pipe, check = false)
-          else
-            os.proc(sscToolsBin.toString, "run-jvm", test.toString)
-              .call(stdin = "", stderr = os.Pipe, check = false, env = jvmEnv)
+          os.proc(sscToolsBin.toString, "run-jvm", test.toString)
+            .call(stdin = "", stderr = os.Pipe, check = false, env = jvmEnv)
         val jvmOut = outputWithFailureContext(jvmRes.out.text(), jvmRes.err.text(), jvmRes.exitCode)
-        check("JVM", jvmOut, expected)
+        checkLane("JVM", "jvm", jvmOut, expected, knownRed)
+
+    // v2 JVM codegen — ADDITIVE (`also-codegen: v2`), never a replacement for the
+    // lane above. See `parseAlsoCodegen`.
+    val jvmV2Ok =
+      if !alsoCodegen.contains("v2") || !backendSupports("jvm") then true
+      else
+        val r = os.proc(sscBin.toString, "run", "--bytecode", test.toString)
+          .call(stdin = "", stderr = os.Pipe, check = false)
+        val out = outputWithFailureContext(r.out.text(), r.err.text(), r.exitCode)
+        checkLane("JVM/v2", "jvm-v2", out, expected, knownRed)
 
     // v2 VM lane: opt-in only. Running it for every historical conformance
     // case would change the suite contract and surface unrelated migration
@@ -418,7 +510,7 @@ for test <- tests do
         val v2Out = run(ssc("run", "--v2", test.toString))
         check("V2 ", v2Out, expected)
 
-    if intOk && jsOk && jvmOk && v2Ok then
+    if intOk && jsOk && jsV2Ok && jvmOk && jvmV2Ok && v2Ok then
       passed += 1
       if !noMemo then memo(name) = memoKey(name, src, expected)
     else failed += 1
@@ -428,7 +520,11 @@ if !noMemo then
   os.makeDir.all(memoFile / os.up)
   os.write.over(memoFile, memo.toList.sorted.map { case (k, v) => s"$k\t$v" }.mkString("\n"))
 val pendingSuffix = if pendingCount > 0 then s" (+ $pendingCount pending)" else ""
+val knownRedSuffix =
+  if knownRedCount > 0 then
+    s" [$knownRedCount declared known-red lane(s) — see KNOWN-RED lines above]"
+  else ""
 val memoSuffix    = if memoSkipped > 0 then s" ($memoSkipped memoized)" else ""
-println(s"Results: $passed passed, $failed failed out of ${passed + failed} tests$pendingSuffix$memoSuffix")
+println(s"Results: $passed passed, $failed failed out of ${passed + failed} tests$pendingSuffix$memoSuffix$knownRedSuffix")
 
 if failed > 0 then System.exit(1)

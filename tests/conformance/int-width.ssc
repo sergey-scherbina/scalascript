@@ -1,0 +1,58 @@
+---
+name: int-width
+also-codegen: v2
+known-red: "jvm, js — v1 codegen is non-conforming for 64-bit Int, in two different ways (measured 2026-07-17): the JVM lane maps ssc Int to a 32-bit host int and truncates (2147483648 -> -2147483648, 2^53+1 -> 1, max64 -> -1); the JS lane folds integer constants at 32 bits AND carries values in a double, so it truncates the fold and loses exactness above 2^53 (max64 -> 9223372036854776000). Per specs/numeric-widths.md §4. EXPIRES when the v1 codegen is deleted (MILESTONES.md stream 1) - do not fix the v1 codegen."
+---
+
+# `Int` is 64-bit on every backend
+
+The runtime half of the numeric-width contract. The compile-time half — the ABI
+descriptor and the four host tables agreeing with the one normative table — is
+`NumericWidthTableAgreementTest`. Both enforce
+[`specs/numeric-widths.md`](../../specs/numeric-widths.md) §2:
+
+> `Int` is 64-bit on EVERY backend. A backend that truncates it is NON-CONFORMING.
+
+This case exists because the width was implemented correctly by the interpreter
+and v2 for years while being *stated* nowhere — and `SPEC.md` §4.1 said the
+opposite ("`Int` | 32-bit integer") until 2026-07-17. A contract nobody executes
+is a contract that drifts.
+
+The v1 codegen lanes are declared `known-red` above: they print the truncated
+answers. That is deliberate and it is the point — the divergence is **visible in
+the gate output** instead of being routed around with a frontmatter flag.
+
+**Why every value here is COMPUTED and no literal exceeds 2^31−1.** Measured
+2026-07-17: the v1 interpreter — the INT conformance *reference* — cannot
+represent an integer **literal** at or above 2^31. `println(2147483648)` prints
+`null` and **exits 0**; a later `+` on it then reports "No method '+' on (null)".
+Its arithmetic is 64-bit but its literals are not. That bug is tracked separately
+(`BUGS.md` → `v1-interp-int-literal-above-2^31-becomes-null`) and is **not** what
+this case is for, so the values below are built from in-range literals. Do not
+"simplify" them back into big literals — that would silently re-couple this case
+to that bug.
+
+`2^31` is the truncation witness: the smallest value a 32-bit lie destroys.
+`2^53+1` additionally catches a backend that carries `Int` in an IEEE-754 double
+(exact in Int64, unrepresentable in a double).
+
+```scalascript
+// 2^31 — the truncation witness. A 32-bit Int wraps this to -2147483648.
+val twoTo31 = 2147483647 + 1
+println(twoTo31)
+
+// 2^53 + 1 — exact in Int64, NOT representable in an IEEE-754 double.
+val twoTo53 = twoTo31 * 4194304
+println(twoTo53 + 1)
+
+// The full declared width, and the wrapping semantics at the top of the range.
+val twoTo62 = twoTo31 * twoTo31
+val max64 = twoTo62 - 1 + twoTo62
+println(max64)
+println(max64 + 1)
+
+// Int and Long are the same runtime type (specs/numeric-widths.md §2.1).
+val asInt: Int = max64
+val asLong: Long = max64
+println(asInt == asLong)
+```

@@ -1,15 +1,27 @@
 ---
 name: deep-tail-recursion
-codegen: v2
+also-codegen: v2
+known-red: "jvm — v1 JVM codegen maps ssc Int to a 32-bit host int and truncates sumTco's 5e9 accumulator: prints 705082704 = 5000050000 - 2^32, exit 0, no error. Non-conforming per specs/numeric-widths.md §4. EXPIRES when the v1 codegen is deleted (MILESTONES.md stream 1) - do not fix the v1 codegen. NOTE: the v1 JS lane is NOT declared here because it genuinely passes - it carries values in a double, and 5000050000 is exactly representable as one (measured 2026-07-17)."
 ---
 
 # Deep tail recursion
 
 Tail-call depth on the codegen backends. `sumTco(100000, 0)` = 5,000,050,000,
-which exceeds 32-bit `Int` — ssc `Int` is 64-bit, and the v1 codegen (which maps
-ssc `Int` to Scala's 32-bit `Int`) cannot honor that. So this case runs its
-JVM/JS lanes through the **v2 codegen** (CoreIR, natively 64-bit: `run --bytecode`
-/ `run-js --v2`). INT stays the interpreter, also 64-bit.
+which exceeds 32-bit `Int` — and ssc `Int` is **64-bit** on every conforming
+backend (`specs/numeric-widths.md` §2).
+
+This case used to carry `codegen: v2`, which routed its JVM/JS lanes to the v2
+codegen *instead of* the v1 codegen — i.e. it picked the backend that agreed
+with it, and the suite reported all-green over a real, silent divergence. It now
+runs on **every** eligible backend: the v1 **JVM** lane is declared `known-red`
+above (visible, reasoned, auto-expiring), and `also-codegen: v2` *additionally*
+verifies the 64-bit v2 codegen rather than substituting for the v1 one.
+
+Note that only the JVM lane is declared. Measured 2026-07-17: the v1 **JS** lane
+genuinely **passes** here — it carries values in a double, and `5000050000` is
+exactly representable as one. The reroute was hiding a divergence on one lane
+while the other was fine, which is precisely what running every lane reveals and
+what a per-lane declaration records.
 
 ```scalascript
 def countdown(n: Int): Int = if n <= 0 then 0 else countdown(n - 1)
