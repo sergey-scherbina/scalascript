@@ -55,10 +55,11 @@ uses the affected Scala-style import and needs a future real-harness audit.
 
 ## ci-sbt-outer-timeout-cancels-bounded-test-step — job budget expires before the suite can report
 
-**Status:** FIXED (2026-07-17, `90c5599dc`; awaiting Linux confirmation). Found by `ci-red-main` in
-completed Linux run `29544412767`, SHA `73407430457effd61bb96307c4bb41c6d3df3179`, job
-`87773372863`. The job-level timeout cancelled the test suite before the separately bounded test
-step could finish, so CI could not reveal the complete failure set or prove the sbt job green.
+**Status:** OPEN (`90c5599dc` fixed the outer cap only; completed Linux run `29545769651` proved the
+60-minute step cap independently insufficient). Found by `ci-red-main` in completed Linux run
+`29544412767`, SHA `73407430457effd61bb96307c4bb41c6d3df3179`, job `87773372863`. The job-level
+timeout cancelled the test suite before the separately bounded test step could finish, so CI could
+not reveal the complete failure set or prove the sbt job green.
 
 **Real-harness repro.** The sbt job started at `00:18:32Z`. Setup, compile/assembly, and all six
 v2.1 release gates ran through `00:53:54Z`; `Test via sbt` then ran until `01:48:45Z`, when GitHub
@@ -75,6 +76,15 @@ run to reach the test step's natural verdict; extending the timeout alone is not
 **Fix/result.** The sbt job now has a 120-minute outer budget while `Test via sbt` retains its
 60-minute cap. Workflow YAML parses locally. Status remains awaiting confirmation until a run
 containing `90c5599dc` or later reaches a natural test success/failure instead of cancellation.
+
+**Correction from the next completed Linux tail.** Run `29545769651`, SHA `893bf2632`, job
+`87777659720`, reached `Test via sbt` at `01:17:59Z` and GitHub stopped that step at `02:18:11Z`
+with the explicit diagnostic `The action 'Test via sbt' has timed out after 60 minutes`. The suite
+was not hung: it was still reporting green `CrossBackendPropertyTest` cases, but had completed only
+12 of that suite's 16 ordered cases; the uncompleted tail includes both generated-program matrices.
+Thus the landed 120/60 configuration remains deterministically red. The next fix is 150 minutes for
+the outer job and 90 for the test step, retaining bounded hang detection while giving the measured
+tail 30 additional minutes. Only a later Linux natural verdict closes this bug.
 
 
 ## v2-tuple-pattern-cli-tests-bypass-staged-distribution — four tests abort on unset library path

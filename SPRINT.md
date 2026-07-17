@@ -402,6 +402,15 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       Linux run reaches a natural sbt success/failure rather than outer-job cancellation.
       **IMPLEMENTED `90c5599dc`, awaiting Linux proof:** workflow YAML parses, the measured timing is
       documented beside the 120-minute outer cap, and the narrower 60-minute test cap is unchanged.
+      **Linux correction before proof:** completed run
+      [`29545769651`](https://github.com/sergey-scherbina/scalascript/actions/runs/29545769651),
+      SHA `893bf2632`, job `87777659720`, reached `Test via sbt` at `01:17:59Z` and then emitted
+      `The action 'Test via sbt' has timed out after 60 minutes` at `02:18:11Z`. At that point
+      `CrossBackendPropertyTest` had completed only 12 of its 16 ordered cases; the final four include
+      both generated-program matrices. Therefore 120/60 still cannot produce a verdict. Revise the
+      measured budget to **150-minute outer / 90-minute test step**: it preserves a bounded hang
+      detector, adds 30 minutes for the observed tail, and leaves 30 minutes beyond the release-gate
+      + test maxima. Revalidate YAML and require a later Linux run to prove the suite completes.
 - [ ] **6. Prevent the recurrence.** Long-red CI is what let all of this pile up. Decide + record a
       cheap guard (e.g. the loop checks `gh run list` before claiming a lane green, or a CI-status
       line in the claim protocol). Recorded as a question for Sergiy, not a unilateral process change.
