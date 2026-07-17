@@ -15,13 +15,14 @@ val dir: os.Path =
       val candidate = os.pwd / "examples"
       if os.isDir(candidate) then candidate else os.pwd
 
-val root     = dir / os.up
-val sscBin   = root / "bin" / "ssc"
-val jsscBin  = root / "bin" / "jssc"
-val ssccBin  = root / "bin" / "sscc"
+val root        = dir / os.up
+val standardBin = root / "bin" / "ssc"
+val toolsBin    = root / "bin" / "ssc-tools"
+val missingBins = Seq(standardBin, toolsBin).filterNot(os.exists)
 
-if !os.exists(sscBin) then
-  System.err.println(s"bin/ssc not found at $sscBin. Build it first: bash install.sh --dev")
+if missingBins.nonEmpty then
+  missingBins.foreach(path => System.err.println(s"required installed launcher not found: $path"))
+  System.err.println("Build the full distribution first: bash install.sh --dev")
   System.exit(2)
 
 case class Run(out: String, code: Int, err: String)
@@ -31,7 +32,8 @@ def runProc(p: os.proc): Run =
   Run(r.out.text().stripTrailing(), r.exitCode, r.err.text())
 
 def runInt(file: os.Path): Run =
-  runProc(os.proc(sscBin.toString, file.toString))
+  // The default launcher is deliberately compiler-free and owns the native lane.
+  runProc(os.proc(standardBin.toString, file.toString))
 
 def runJvm(file: os.Path): Run =
   // `run-jvm` compiles via JVM codegen AND runs, so we get program stdout to
@@ -39,17 +41,15 @@ def runJvm(file: os.Path): Run =
   // a removed `compile` subcommand — `Error: File not found: compile` — which
   // failed every example on the JVM lane. `compile-jvm` only writes an artifact
   // and produces no stdout, so it can't be used here.)
-  runProc(os.proc(sscBin.toString, "run-jvm", file.toString))
+  runProc(os.proc(toolsBin.toString, "run-jvm", file.toString))
 
 def runJs(file: os.Path): Run =
-  if os.exists(jsscBin) then runProc(os.proc(jsscBin.toString, file.toString))
+  val emit = os.proc(toolsBin.toString, "emit-js", file.toString)
+    .call(stderr = os.Pipe, check = false)
+  if emit.exitCode != 0 then Run("", emit.exitCode, emit.err.text())
   else
-    val emit = os.proc(sscBin.toString, "emit-js", file.toString)
-      .call(stderr = os.Pipe, check = false)
-    if emit.exitCode != 0 then Run("", emit.exitCode, emit.err.text())
-    else
-      val nodeRes = os.proc("node").call(stdin = emit.out.text(), stderr = os.Pipe, check = false)
-      Run(nodeRes.out.text().stripTrailing(), nodeRes.exitCode, nodeRes.err.text())
+    val nodeRes = os.proc("node").call(stdin = emit.out.text(), stderr = os.Pipe, check = false)
+    Run(nodeRes.out.text().stripTrailing(), nodeRes.exitCode, nodeRes.err.text())
 
 val examples = Seq(
   "hello.ssc",
