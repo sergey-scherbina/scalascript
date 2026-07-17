@@ -3,7 +3,7 @@ owner: opus
 agent: opus
 started: 2026-07-17
 heartbeat: 2026-07-17T17:30:00Z
-status: investigating
+status: U1 done (JSON resolver, 8/8) — U2 bridge + U3 .ssc surface remain
 scope: specs/scljet-address.md next slice — addresses into UniML documents (JSON/YAML/XML/
   Markdown): same model + same (address, type, value) triple, different resolver. First step is
   an honest feasibility read: UniML's public surface is Scala (scalascript.uniml), address.ssc is
