@@ -21,6 +21,7 @@ exports:
   - SxNot
   - SxAgg
   - tokenize
+  - upperStr
   - parseSelect
   - executeSelect
   - runSelectStmt
@@ -96,7 +97,7 @@ def upperStr(s: String): String =
   var out = ""
   while i < s.length do
     val c = charCode(s, i)
-    out = out + (if c >= 97 && c <= 122 then (c - 32).toChar.toString else s.charAt(i).toString)
+    out = out + (if c >= 97 && c <= 122 then (c - 32).toChar.toString else c.toChar.toString)
     i = i + 1
   out
 
@@ -105,7 +106,7 @@ def lowerStr(s: String): String =
   var out = ""
   while i < s.length do
     val c = charCode(s, i)
-    out = out + (if c >= 65 && c <= 90 then (c + 32).toChar.toString else s.charAt(i).toString)
+    out = out + (if c >= 65 && c <= 90 then (c + 32).toChar.toString else c.toChar.toString)
     i = i + 1
   out
 
@@ -149,14 +150,14 @@ def tokenize(sql: String): Either[String, List[Token]] =
     else if isAlpha(c) then
       var word = ""
       while i < n && isAlnum(charCode(sql, i)) do
-        word = word + sql.charAt(i).toString
+        word = word + charCode(sql, i).toChar.toString
         i = i + 1
       // qualified name `a.b` becomes one ident token "a.b"
       if charCode(sql, i) == 46 && isAlpha(charCode(sql, i + 1)) then
         word = word + "."
         i = i + 1
         while i < n && isAlnum(charCode(sql, i)) do
-          word = word + sql.charAt(i).toString
+          word = word + charCode(sql, i).toChar.toString
           i = i + 1
       toksRev = Token("ident", word, 0L) :: toksRev
     else if c == 39 then
@@ -173,7 +174,7 @@ def tokenize(sql: String): Either[String, List[Token]] =
             closed = true
             i = i + 1
         else
-          str = str + sql.charAt(i).toString
+          str = str + charCode(sql, i).toChar.toString
           i = i + 1
       if !closed then err = Some("unterminated string literal")
       else toksRev = Token("str", str, 0L) :: toksRev
@@ -249,7 +250,7 @@ def tokenize(sql: String): Either[String, List[Token]] =
         toksRev = Token("param", "?", paramMax) :: toksRev
     else if c == 59 then
       i = i + 1
-    else err = Some("unexpected character '" + sql.charAt(i).toString + "'")
+    else err = Some("unexpected character '" + charCode(sql, i).toChar.toString + "'")
   err match
     case Some(message) => Left(message)
     case None => Right(reverseTokens(toksRev, Nil))
@@ -1430,7 +1431,7 @@ def sliceStr(s: String, lo: Int, hi: Int): String =
   var i = lo
   var out = ""
   while i < hi do
-    out = out + s.charAt(i).toString
+    out = out + charCode(s, i).toChar.toString
     i = i + 1
   out
 
@@ -1482,7 +1483,7 @@ def replaceStr(s: String, from: String, to: String): String =
         out = out + to
         i = i + fn
       else
-        out = out + s.charAt(i).toString
+        out = out + charCode(s, i).toChar.toString
         i = i + 1
     out
 
@@ -2403,7 +2404,7 @@ def substr(s: String, from: Int, to: Int): String =
   var i = from
   var out = ""
   while i < to do
-    out = out + s.charAt(i).toString
+    out = out + charCode(s, i).toChar.toString
     i = i + 1
   out
 
