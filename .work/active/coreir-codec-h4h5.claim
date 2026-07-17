@@ -1,8 +1,0 @@
-claim: coreir-codec-h4h5
-branch: feature/coreir-codec-h4h5
-agent: opus (orchestrator session 0716/17)
-heartbeat: 2026-07-17T15:14:16Z
-status: in-progress (spawned agent)
-what: finish coreir codec hardening. H4: coreir.decode not registered at all. H5: reader fails OPEN on
-      untrusted capsules (accepts (local -1), odd hex, non-Lam letrec, unbound globals). Security surface.
-      SPRINT control-interoperability codec-hardening (landed partial).
