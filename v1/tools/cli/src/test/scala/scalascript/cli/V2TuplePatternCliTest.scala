@@ -2,26 +2,24 @@ package scalascript.cli
 
 import org.scalatest.funsuite.AnyFunSuite
 
-/** v2 tuple-pattern smoke tests through the real assembled CLI jar.
+/** v2 tuple-pattern smoke tests through the real installed CLI launcher.
  *
- *  Run with: `sbt cli/assembly "cli/testOnly *V2TuplePatternCliTest"`
+ *  Run with: `sbt cli/assembly installBin "cli/testOnly *V2TuplePatternCliTest"`
  */
 class V2TuplePatternCliTest extends AnyFunSuite:
 
-  private val sscJar: Option[os.Path] =
+  private val sscLauncher: Option[os.Path] =
     val cwd = os.pwd
+    Iterator.iterate(cwd)(_ / os.up).take(8)
+      .map(_ / "bin" / "ssc")
+      .find(os.exists)
 
-    def jarUnder(root: os.Path): os.Path =
-      root / "cli" / "target" / "scala-3.8.3" / "ssc.jar"
-
-    List(jarUnder(cwd), jarUnder(cwd / os.up)).find(os.exists)
-
-  private def requireJar(): os.Path = sscJar.getOrElse:
-    cancel("ssc.jar not found - run `sbt cli/assembly` first")
+  private def requireLauncher(): os.Path = sscLauncher.getOrElse:
+    cancel("bin/ssc not found - run `sbt cli/assembly installBin` first")
 
   private def runSsc(cwd: os.Path, args: String*): os.CommandResult =
-    val jar = requireJar()
-    val cmd: Seq[os.Shellable] = Seq[os.Shellable]("java", "-jar", jar.toString) ++
+    val launcher = requireLauncher()
+    val cmd: Seq[os.Shellable] = Seq[os.Shellable](launcher.toString) ++
       args.map(a => a: os.Shellable)
     os.proc(cmd).call(
       cwd = cwd,
@@ -103,9 +101,11 @@ class V2TuplePatternCliTest extends AnyFunSuite:
       os.write(sandbox / "mapreduce-hoist.ssc",
         """# MapReduce hoist
           |
-          |```scalascript
-          |import std.mapreduce.*
+          |[NamedHandler, HandlerRegistry](std/mapreduce/handlers.ssc)
           |
+          |[FlatMapOp, MapOp, FilterOp, Stage, WorkerProtocol](std/mapreduce/distributed.ssc)
+          |
+          |```scalascript
           |HandlerRegistry.clear()
           |HandlerRegistry.register(NamedHandler("emit", (line: String) => List(line)))
           |HandlerRegistry.register(NamedHandler("tag", (w: String) => (w, 1)))
