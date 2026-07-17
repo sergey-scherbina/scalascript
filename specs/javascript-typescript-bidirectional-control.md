@@ -491,6 +491,16 @@ I32 wrapping occurs only at canonical operations. I64 is never lossily represent
 as `number`. The durable Double codec preserves signed zero and its specified NaN
 policy.
 
+**A ScalaScript `Int` crosses as `bigint`, never `number`.** ssc `Int` is 64-bit
+(`v2/specs/10-core-ir.md` §2, `Int = Long`) and therefore declares canonical `I64`, so the
+"`I64` is never lossily represented as `number`" prohibition above binds it too. This is the
+common case, not an edge case: a host that marshals an ssc `Int` as a `number` truncates
+above 2^31−1 — and beyond 2^53 a `number` cannot represent the value exactly at all. The
+descriptor previously declared `I32` for `Int`, which is precisely the lie that would have
+licensed a `number` carrier; it now declares `I64` with retained `declaredWidth` evidence.
+`I32` is unreachable from ScalaScript source and reserved for an explicit narrowing ABI.
+See `specs/numeric-width-reconciliation.md`.
+
 A plain object, class instance, function, `Symbol`, proxy, DOM object, Promise, or
 other opaque host value requires an explicit local adapter. It is never inferred to
 be durable. Cycles and observable aliases require the explicit graph codec.

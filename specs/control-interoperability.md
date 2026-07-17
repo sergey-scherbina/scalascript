@@ -509,9 +509,15 @@ captured state. `dependencyProfileDigest` identifies exact semantic and target
 implementations. These identities are not interchangeable.
 
 Canonical public numeric types are `I32` and `I64`; a profile maps native carriers
-without guessing from spelling. Current CoreIR's signed wrapping-64 carrier does not
-erase public I32 semantics. Source-width evidence must survive lowering before
-ambiguous exports are admitted.
+without guessing from spelling. **ScalaScript source `Int` and `Long` both declare `I64`**:
+ssc `Int` is 64-bit two's-complement wrapping (`v2/specs/10-core-ir.md` §2, `Int = Long`),
+so any profile that marshals an ssc `Int` through a 32-bit carrier truncates every value
+above 2^31−1 at the boundary. `I32` stays in the algebra but is unreachable from ScalaScript
+source and is reserved for an explicit narrowing ABI. Source-width evidence survives lowering
+as `AbiType.Primitive.declaredWidth` (`DeclaredInt`/`DeclaredLong`) — it keeps overload
+identity exact and never changes marshalling — and a bare integer width is **rejected** as an
+ambiguous legacy export (`AMBIGUOUS_NUMERIC_WIDTH`) rather than defaulted. See
+`specs/numeric-width-reconciliation.md`.
 
 ## 8. `save` and `run`
 

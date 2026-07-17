@@ -1,5 +1,34 @@
 # Changelog
 
+## numeric-width-reconciliation — the v3 descriptor now tells hosts the truth about `Int` (2026-07-17)
+
+**A deliberate interop contract change** (option (A), Sergiy's call 2026-07-16; announced in the
+rozum `scalascript` room before landing). The `ssc-api-descriptor-v3` surface declared source `Int`
+as `AbiPrimitive.I32`, but ssc `Int` is 64-bit — re-measured in the real runtime, not read off
+source: `2147483647 + 1 => 2147483648` (no 32-bit wrap), `9223372036854775807 + 1 => -9223372036854775808`
+(wraps at 64). Every foreign host (JS/TS, Rust, Swift, WASM-WASI) marshalling per the descriptor
+would **silently truncate any value above 2^31−1 at the ABI boundary** — a fail-open on the very
+surface that exists to prevent it (`BUGS.md` → `coreir-abi-int-width-declared-i32-actually-i64`).
+
+The root cause was one field carrying two facts: `AbiType.Primitive` held only the wire width, so
+the source spelling had nowhere to live and `Int → I32` was accidentally doing identity duty. Fixing
+the mapping alone was measured to collapse `def widen(value: Int)` and `def widen(value: Long)` onto
+one `stableSymbolId` (`DUPLICATE_SYMBOL_ID`), making such overloads unexportable. The fix splits the
+two: `Primitive(value, declaredWidth)` — `value` is the truthful wire width (`Int`/`Long` both `I64`),
+`declaredWidth` (`DeclaredInt`/`DeclaredLong`) retains the spelling, carries identity, and never
+changes marshalling. Ambiguous integer widths are now **rejected**, not guessed
+(`AMBIGUOUS_NUMERIC_WIDTH`; legacy wire nodes fail `SCHEMA_MISMATCH … missing=[declaredWidth]`).
+`AbiPrimitive` keeps all nine cases and `I32` is reserved for option (C)'s explicit narrowing ABI, so
+(A) is (C)'s first slice. Specs corrected where they now stated a falsehood — notably **an ssc `Int`
+crosses to JS as `bigint`, never `number`**.
+
+Verification: every descriptor re-hashes, so 7 producer expectations and 2 normative vectors moved
+**because the truth changed** (symbol id `453bfef3…` → `c6231fac…`). Producer 83/83, descriptor 32/32,
+`core/test` 1138/1138, interop 36/36, plugin-profile 23/23, affected conformance green. The P6.5
+literal fixed point is unmoved: **89 ok / 0 FAIL**, `stage1 == stage2` byte-identical at **79,667 B**.
+The new `NumericWidthAbiVectorTest` vectors were proven non-vacuous by reintroducing the bug — all 5
+fail loudly (`vector overflow32: … changed the value from 2147483648 to -2147483648`).
+
 ## busi-v1-lane-runtime-regressions — supported rollback runtime restored (2026-07-16)
 
 Fixed three import/runtime boundaries exposed by busi's canonical browser lane: enum cases no

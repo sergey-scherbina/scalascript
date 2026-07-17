@@ -68,6 +68,24 @@ tagged constructors, and generated nominal records/enums. Generated adapters ret
 numeric width, optionality, field order, enum case identity, and codec
 fingerprints.
 
+| Canonical value | Swift surface |
+|---|---|
+| `Unit` | `Void` |
+| `Boolean` | `Bool` |
+| `I32` | `Int32` |
+| `I64` | `Int64` — never `Int`, whose width is platform-dependent |
+| `BigInt` | approved arbitrary-precision wrapper with pinned ABI/codec |
+| `Double` | `Double`, with bit-preserving durable codec |
+| `String` | `String` under the canonical Unicode contract |
+| `Bytes` | owned/copy-isolated `[UInt8]` or an approved immutable wrapper |
+
+**A ScalaScript `Int` crosses as `Int64`.** ssc `Int` is 64-bit (`v2/specs/10-core-ir.md`
+§2, `Int = Long`) and declares canonical `I64`; marshalling it through `Int32` truncates
+every value above 2^31−1 at the boundary. Swift's `Int` is deliberately excluded even where
+it is 64-bit today: the canonical width must not depend on the host platform. `I32` is
+unreachable from ScalaScript source and reserved for an explicit narrowing ABI. See
+`specs/numeric-width-reconciliation.md`.
+
 Raw `Any`, class identity, metatypes, selectors, Objective-C objects, Foundation
 resources, `UnsafePointer`, `Task`, actor executors, Swift closures, and host
 exceptions are not portable values. They require a local adapter or remain a

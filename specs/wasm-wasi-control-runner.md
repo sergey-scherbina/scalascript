@@ -139,6 +139,24 @@ nominal data, compiler-converted state, prompts/handlers, and explicit reference
 Cycles or aliasing require the graph codec. A decoded graph is fresh per run;
 cross-run identity exists only through `DurableRef`.
 
+| Canonical value | WASM core surface |
+|---|---|
+| `Unit` | empty result |
+| `Boolean` | `i32` restricted to `0`/`1` |
+| `I32` | `i32` |
+| `I64` | `i64` |
+| `BigInt` | canonical byte encoding through linear memory + pinned codec |
+| `Double` | `f64`, with bit-preserving durable codec |
+| `String` | canonical UTF-8 bytes through linear memory |
+| `Bytes` | owned/copy-isolated linear-memory region |
+
+**A ScalaScript `Int` crosses as `i64`.** ssc `Int` is 64-bit (`v2/specs/10-core-ir.md` §2,
+`Int = Long`) and declares canonical `I64`; lowering it to a WASM `i32` parameter or result
+truncates every value above 2^31−1 at the boundary. This binds the JS embedder too: an `i64`
+at the JS boundary is a `BigInt`, never a `number`. `I32` is unreachable from ScalaScript
+source and reserved for an explicit narrowing ABI. See
+`specs/numeric-width-reconciliation.md`.
+
 The CoreIR payload uses the single kernel-owned codec. The self-hosted outer
 capsule/frame codec may frame/hash those bytes but cannot define another CoreIR
 reader. `.scir`, `.sscc`, `irbin`, generated Rust, or raw WASM memory images are not

@@ -137,9 +137,41 @@ detour in a comment; switch it back to `VALUES (…, NULL)` when this is fixed.
 
 ## coreir-abi-int-width-declared-i32-actually-i64 — the v3 descriptor tells every foreign host that `Int` is 32-bit, when it is 64-bit
 
-**Status:** OPEN — **needs a design decision from Sergiy before any fix** (raised 2026-07-16 by
-`coreir-contract` while planning `numeric-width-reconciliation`; escalated rather than fixed, because
-the fix is a contract change). Tracked in `SPRINT.md` §`control-interoperability`.
+**Status:** FIXED — `feature/int64-abi`, 2026-07-17 (agent `int64-abi`). Sergiy decided **option (A)**
+on 2026-07-16: `Int` → `I64`, make the descriptor truthful. Raised 2026-07-16 by `coreir-contract`,
+who correctly escalated rather than fixing unilaterally, because the fix is a contract change.
+Tracked in `SPRINT.md` §`control-interoperability`; spec `specs/numeric-width-reconciliation.md`.
+
+**Root cause (the actual one, not the symptom).** Two distinct facts were being carried by one
+field. `AbiType.Primitive` held only `value: AbiPrimitive` — the **wire width** — so the *source
+spelling* (`Int` vs `Long`) had nowhere to live, and the only way the descriptor could tell two
+same-name overloads apart was by giving them different widths. `Int → I32` was therefore doing two
+jobs at once: declaring a width (wrongly — ssc `Int` is 64-bit) and carrying identity (accidentally).
+That is why the bug could not be fixed by correcting the mapping alone: the bare one-line flip was
+measured to produce `DUPLICATE_SYMBOL_ID at $.symbols: ssc:symbol:v1:5ddf0353…` for
+`def widen(value: Int)` / `def widen(value: Long)` — the two overloads collapse onto one identity and
+the module becomes unexportable. (It fails **closed**, which is why no silent corruption resulted from
+the collision itself; the *silent* failure was always the declared width reaching foreign hosts.)
+
+**The fix.** Split the two facts. `AbiType.Primitive(value, declaredWidth: Option[NumericWidthEvidence])`:
+`value` is the wire width and is now truthful (`Int` and `Long` both → `I64`); `declaredWidth`
+(`DeclaredInt`/`DeclaredLong`) retains the source spelling, carries identity, and never changes
+marshalling. Both directions fail closed — an integer width without evidence is rejected as an
+ambiguous legacy export (`AMBIGUOUS_NUMERIC_WIDTH`), evidence on a non-integer primitive is rejected
+(`INVALID_NUMERIC_WIDTH_EVIDENCE`), and a legacy `{"tag":"Primitive","value":…}` node fails to decode
+(`SCHEMA_MISMATCH … missing=[declaredWidth]`) instead of being guessed as `Long`. `AbiPrimitive` keeps
+all nine cases; `I32` is now unreachable from ssc source and is reserved for option (C)'s explicit
+narrowing ABI, so (A) is (C)'s first slice rather than a dead end.
+
+**Verified.** Producer suite 83/83 (7 expectations flipped — the truth changed; the brief predicted 6),
+descriptor suites 32/32 (2 normative vectors deliberately re-frozen: the symbol id moved
+`453bfef3…` → `c6231fac…`, and the frozen wire fragment gained `"declaredWidth":[{"tag":"DeclaredInt"}]`),
+`core/test` 1138/1138, interop 36/36, plugin-profile 23/23. P6.5 literal fixed point unchanged at
+**89 ok / 0 FAIL**, `stage1 == stage2` byte-identical at **79,667 B** (output diff to baseline: empty).
+New vectors `NumericWidthAbiVectorTest` were **proven non-vacuous**: reintroducing `Int → I32` makes
+all 5 fail loudly with `vector overflow32: a host marshalling an ssc Int per the descriptor changed
+the value from 2147483648 to -2147483648`; a sabotage probe on the validator likewise reddens the
+3 rejection controls.
 
 **Symptom.** `v1/lang/core/src/main/scala/scalascript/artifact/PreBodyApiDescriptorProducer.scala:2066`
 maps source `Int` -> `AbiPrimitive.I32` (`:2067` maps `Long` -> `I64`). But ScalaScript's `Int` is
@@ -167,12 +199,14 @@ Corroborated by `v2/specs/10-core-ir.md` §2 ("`Int` is 64-bit two's-complement,
 `ssc 1.0`'s `Int = Long`)") and by the durable memory note `project_interp_int64_and_entrypoint.md`
 ("ssc Int is 64-bit").
 
-**Why it is not just fixed.** `Int -> I32` is **not dead code**: it is asserted by live tests
+**Why it was not just fixed** (historical — resolved by Sergiy's 2026-07-16 decision, kept because it
+explains the shape of the fix). `Int -> I32` was **not dead code**: it was asserted by live tests
 (`PreBodyApiDescriptorProducerTest.scala:100,130,132,136,267,1212`), and `AbiPrimitive` is part of the
 **frozen Slice A schema** that feeds `apiHash`. Changing the mapping changes the meaning *and the
-hash* of every descriptor ever emitted. Three options are written up in full in `SPRINT.md`
+hash* of every descriptor ever emitted. Three options were written up in full in `SPRINT.md`
 (A: `Int`->`I64`; B: make surface `Int` genuinely 32-bit — a Core IR version bump; C: `I64` public
-plus an explicit implemented narrowing ABI). Do not pick one unilaterally.
+plus an explicit implemented narrowing ABI). **Sergiy chose (A)**, with (C) explicitly left reachable;
+the contract change was announced in the rozum `scalascript` room before landing.
 
 ## coreir-compiler-unbounded-depth — a deep-but-well-formed capsule overflows the COMPILER at ~depth 500 on a 1m stack
 

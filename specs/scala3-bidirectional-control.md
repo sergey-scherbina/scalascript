@@ -399,9 +399,15 @@ Every public boundary uses structured descriptor types:
 | immutable sequence/map | generated canonical adapters with deterministic encoding |
 | callback | generated typed function wrapper with declared convention |
 
-ScalaScript source `Int` and `Long` map to canonical `I32` and `I64`. The current
-CoreIR `CInt(Long)` carrier does not erase I32 range and wrapping behavior.
-Frontend width evidence must survive before an ambiguous legacy export is admitted.
+ScalaScript source `Int` and `Long` **both map to canonical `I64`** — ssc `Int` is 64-bit
+(`v2/specs/10-core-ir.md` §2, `Int = Long`; measured: `2147483647 + 1 => 2147483648`, no
+32-bit wrap), so mapping it to `I32` declared a width the value does not have and told hosts
+to truncate above 2^31−1. The two spellings are told apart by retained source width evidence
+(`declaredWidth`), which keeps `f(x: Int)` and `f(x: Long)` distinct without lying about the
+wire width; a bare integer width is rejected as an ambiguous legacy export. `I32` remains in
+the canonical algebra but is unreachable from ScalaScript source, reserved for an explicit
+narrowing ABI. See `specs/numeric-width-reconciliation.md` (corrected 2026-07-17; this
+paragraph previously asserted the `Int` → `I32` mapping and was false).
 
 An arbitrary `Any`, `AnyRef`, Java/Scala object, lambda, `Class`, reflection handle,
 mutable collection, `Future`, thread, or resource is not a portable value.
