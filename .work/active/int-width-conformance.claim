@@ -1,0 +1,13 @@
+claim: int-width-conformance
+branch: feature/int-width-conformance
+agent: claude (opus, session 0716/17)
+heartbeat: 2026-07-17T12:29:05Z
+status: in-progress
+what: `Int` is 64-bit on the interpreter/v2 and 32-bit on the v1 codegen — same program, different
+      numbers, silently, exit 0. Breaks design principle #1 (backends translate, don't reinterpret).
+      Plan: SPRINT "int-width-conformance" W1-W5.
+key:  do NOT fix the v1 codegen (only violator, already slated for deletion by stream 1). Write the
+      law normatively, pin ONE numeric table + a test every consumer must agree with, and remove the
+      `codegen: v2` frontmatter escape hatch that lets a case pick the backend that agrees with it.
+evidence: run-jvm on tests/conformance/deep-tail-recursion.ssc prints 705082704, expected 5000050000
+      (= 5000050000 - 2^32). v1 emit-js on 2147483647+1 prints -2147483648.
