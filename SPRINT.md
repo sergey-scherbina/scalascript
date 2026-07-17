@@ -3789,6 +3789,58 @@ Existing lanes untouched: scljet conformance 98/98 `[int, js]`.
   the lanes you ran, silently deleting every `js`/`int` row (156 → 121 here). Either run all lanes or
   hand-edit the rows you actually closed.
 
+## scljet-address-uniml — the address leaves SQLite (2026-07-17, Sergiy)
+
+**Goal.** The first format beyond SQLite: `read address → (type, value)` over a JSON/YAML/XML/
+Markdown document. Same model, same triple, **different resolver** — the shape
+`specs/scljet-address.md` promised.
+
+### Feasibility — MEASURED, and it decides the design
+
+- **UniML gives the physical half for free.** Its canonical tree is a lossless CST where EVERY node
+  carries a `SourceSpan(source, start(offset,line,column), end)`. That is exactly "where the bits
+  are", and it makes the `Raw(n)` floor total by construction: `n = end.offset − start.offset` is
+  always available, for any node, understood or not.
+- **The projection is NOT enough — walk the CST.** `JsonValue` (the semantic projection) carries a
+  span only on `JsonMember`; array elements have none. Addressing `users/0/name` through the
+  projection would silently lose the physical half of `users/0`. This is the spec's own rule biting
+  in practice: the CST is canonical, the projection is optional.
+- **JSON CST shape** (`JsonStructure.scala`): `Branch("json.object"|"json.array", edges, span)`;
+  edge roles `member.key` / `member.colon` / `member.value` / `member.separator` / `array.element` /
+  `document.value`; scalars are `Token(SourceToken(kind="json.string"|"json.number"|"json.true"|
+  "json.false"|"json.null", lexeme, span))`.
+- **`unimlJson` is in the MAIN build and cross-compiles to JVM + JS** (`build.sbt:599`), so a
+  resolver over it is not JVM-only in principle.
+- **The .ssc bridge is a plugin, not an import.** UniML's surface is Scala (`scalascript.uniml`) and
+  its DIALECTS are not dual-compilable to `.ssc` yet (`uniml-portable-1c-compat`: plain classes,
+  regex, `java.lang.Character`; the immutable core does compile on v2). So `.ssc` reaches it the
+  same way it reaches host files: an extern from a plugin, exactly like `jvmVfs*`.
+  **Verified, not assumed:** `jsonParse` (what `.ssc` has today) returns a value with **no spans** —
+  it cannot serve the physical half at all.
+
+### Slices
+
+- [ ] **U1 — the resolver (the substance).** `JsonAddress.read(text, path) → Either[String, …]`
+      over the UniML **CST**: walk `member.key`→`member.value` for objects and the Nth
+      `array.element` for arrays; answer with the format's own type (`string`/`number`/`boolean`/
+      `null`/`object`/`array`), the value, the span, and **stability**. Landed as Scala + tests, so
+      the model is proven on format #2 before any plumbing.
+      - **Stability is where this format differs from SQLite and the model earns its keep:** an
+        object key is a NAME (stable); an array index is a POSITION — insert a sibling and
+        `users/0/name` silently means another value. `stable=false`, said out loud, exactly as a
+        non-IPK rowid is.
+- [ ] **U2 — the bridge.** v1 plugin + v2 native plugin exposing the resolver as an extern; a shared
+      zero-dep resolver module both use. Same shape as the VFS port (`6131e17a3`) — including the
+      trap that `bin/lib/standard/jars` is an explicit allowlist (`standardJarPrefixes`).
+- [ ] **U3 — `.ssc` surface + gates.** `addressReadDoc(text, path)` in `scljet/address.ssc`;
+      conformance; and the differential that matters here — the same document read by an
+      independent JSON tool, so the oracle is not ourselves.
+
+### Note on `AddressedValue`
+Its `fromRowid` field is SQLite-flavoured. It generalises honestly ("the logical value did not come
+from the physical bits at this address") but the NAME does not. Rename when the second resolver
+lands, not before — renaming a shipped field on a guess is how specs rot.
+
 ## scljet-address-write — the same triple, applied (2026-07-17)
 
 **The model** (`specs/scljet-address.md`): one protocol, two directions.
