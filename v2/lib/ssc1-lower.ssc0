@@ -1621,11 +1621,18 @@ def resolveField = (robj, field) =>
     -- Option[String].getOrElse) or a numeric value. Runtime method dispatch
     -- preserves both cases; erasing unknown receivers loses String conversion.
     Pair("prim", Pair("__method__", Cons(Pair("str", "toInt"), Cons(robj, Nil))))
-  else if #seq(field, "toLong") then robj
+  -- `toLong` was a no-op on the reasoning "Long IS Int here". True for an INT receiver
+  -- (ssc Int is 64-bit, so Int.toLong is identity) and FALSE for a Double one, which must
+  -- actually truncate: erasing it left a Float in a Long slot, and the first bit/Long op
+  -- died with "expected Int, got <the double>". The value even printed as an integer, so
+  -- nothing looked wrong until arithmetic. Route it like toInt/toDouble below and let the
+  -- receiver decide. (v2-native-double-toLong-noop; it broke every REAL write in scljet.)
+  else if #seq(field, "toLong") then
+    Pair("prim", Pair("__method__", Cons(Pair("str", "toLong"), Cons(robj, Nil))))
   -- toDouble/toFloat must actually convert Int->Float; lowering to `robj` (a no-op)
   -- left the value an Int, so a following `/` did integer division (7.toDouble/2 -> 3,
   -- not 3.5). Route to the shared runtime method table (IntV.toDouble -> FloatV) like
-  -- toInt above; String receivers convert too. `toLong` stays a no-op (Long IS Int here).
+  -- toInt above; String receivers convert too.
   else if #seq(field, "toDouble") then
     Pair("prim", Pair("__method__", Cons(Pair("str", "toDouble"), Cons(robj, Nil))))
   else if #seq(field, "toFloat") then

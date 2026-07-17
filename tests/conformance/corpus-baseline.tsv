@@ -113,7 +113,6 @@ rozum-agent-pool	v2	FAIL
 rozum-agent-schema-derived	*	SKIP
 rozum-agent-streaming	js	FAIL
 rozum-agent-streaming	v2	FAIL
-scljet-crud	v2	FAIL
 seed-signal	*	SKIP
 spa-demo	*	SKIP
 sql-h2-quickstart	js	FAIL
