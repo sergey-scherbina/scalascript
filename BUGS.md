@@ -1,5 +1,59 @@
 # Bug tracker
 
+## scljet-vfs-exclusive-lock-subprocess-exits-linux — official SQLite does not wait on host lock
+
+**Status:** OPEN / owned by the SclJet lane (found by `ci-red-main` in Linux runs `29544412767` and
+`29545769651`; latter job `87777659720`). `SclJetJvmVfsHostTest` fails `exclusive host lock blocks
+official SQLite in another process`: `process.isAlive() was false`, so the spawned SQLite query
+exited instead of remaining blocked long enough for the assertion.
+
+**Real-harness repro.** Run focused `scljetVfsPlugin/testOnly
+scalascript.compiler.plugin.scljet.SclJetJvmVfsHostTest` on Ubuntu with the same official SQLite
+binary selected by the suite. Preserve both observables: subprocess exit/output and the host lock
+state. A capability check may skip only when no supported SQLite executable exists; an executable
+that starts and exits is a real test result, not an unavailable capability.
+
+**Coordination.** This overlaps the active `scljet-m3-writes` / SclJet ownership lane. The
+`ci-red-main` agent records and rechecks it but does not edit that scope. Done requires the owner to
+identify whether the Linux process is an assertion race, invocation error, or lock-visibility bug,
+then land a faithful cross-process regression/fix.
+
+
+## swift-renderer-inventory-missing-shipped-tag — backend inventory omits a lowerer tag
+
+**Status:** OPEN / owned by `v2-swift-nativeui-i18n-json` (found by `ci-red-main` in Linux runs
+`29544412767` and `29545769651`; latter job `87777659720`). `SwiftBackendTest` fails
+`SwiftUI renderer inventory covers every shipped lowerer tag and CSS property` with
+`missing SwiftUI tag inventory`.
+
+**Real-harness repro.** Run `v2SwiftBackend/testOnly ssc.swift.SwiftBackendTest -- -z "renderer
+inventory"`. The assertion compares shipped lowerer tags with `SwiftNativeUiApple` inventory; do
+not remove a tag or weaken subset comparison merely because Xcode execution tests are unavailable
+on Linux.
+
+**Coordination.** Multiple dirty Swift subagent worktrees are active under the authoritative
+`v2-swift-nativeui-i18n-json` claim. `ci-red-main` must consume the landed fix and rerun the focused
+suite, not edit those files concurrently.
+
+
+## newfront-scala-spike-fixture-paths-linux — tracked C_min and output root depend on host CWD
+
+**Status:** OPEN / owned by `v3-newfront-p1-toplevel` (found by `ci-red-main` in Linux runs
+`29544412767` and `29545769651`; latter job `87777659720`). `ScalaSpikeSpec` has two deterministic
+filesystem failures: tracked `specs/v2.2-p6.6-cmin.L` is not found from the sbt module CWD, and
+`emit projections + toys for the diff harness` attempts to create `/private`, which Ubuntu rejects
+with `java.nio.file.AccessDeniedException`.
+
+**Real-harness repro.** Run the JVM `uniml` `ScalaSpikeSpec` from aggregate `sbt test` on Ubuntu (or
+set its process CWD to the module base). The C_min case must resolve the tracked repository fixture;
+the diff-output case must use an explicit temporary/output directory inside the runner workspace,
+not a macOS-root path. Missing tracked input is failure, while optional batch env inputs may remain
+explicitly classified.
+
+**Coordination.** `ScalaSpike*` is the authoritative live newfront claim's scope. `ci-red-main`
+records both exact failures and waits for that lane to land; no concurrent test/source edit is safe.
+
+
 ## registry-seed-test-cwd-cancel — tracked packages.yaml validation silently skips on Linux CI
 
 **Status:** FIXED (2026-07-17, `a99973c16`; awaiting CI confirmation). Found by `ci-red-main` in

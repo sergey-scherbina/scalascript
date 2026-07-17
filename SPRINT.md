@@ -306,7 +306,11 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       Linux tail is run `29544412767` / job `87773372863`; its only still-unclaimed test family is
       `V2TuplePatternCliTest` (four cases, one missing-staging root), queued as 5m. Its outer job was
       cancelled before the suite completed, so later failures remain unknown until 5n lets a current
-      exact-SHA run reach the natural sbt result.
+      exact-SHA run reach the natural sbt result. The three residual claimed families now also have
+      durable BUGS entries: `newfront-scala-spike-fixture-paths-linux`,
+      `swift-renderer-inventory-missing-shipped-tag`, and
+      `scljet-vfs-exclusive-lock-subprocess-exits-linux`; consume their owners' landed fixes rather
+      than overlapping dirty newfront/Swift/SclJet scopes.
 - [ ] **5e. Prove green on GitHub, not by proxy.** Rebase each finished slice on current
       `origin/main`, run its affected conformance/test gate, push separately, and finally wait for a
       CI run containing all fixes. Done means all four jobs (`Lint Markdown`, `Validate ScalaScript`,
