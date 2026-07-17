@@ -532,12 +532,12 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       `ReferenceError: stop is not defined`. Trace normal/CPS actor bare-name dispatch and emit the
       Actor effect operation; preserve `stop()` in the real Node fixture and require clean process
       completion. This is a separate exposed layer, not a reason to weaken the timer regression.
-- [ ] **5t. Activate the tracked `actors-leader-protocol` conformance case.** The affected-gate
-      attempt finds the source but skips it because `expected/actors-leader-protocol.txt` is absent,
-      reporting 0 passed and 0 failed. Check actor ownership, execute every declared backend, and
-      add an expected fixture only after their real stdout agrees; then force the wrapper and require
-      non-zero executed count. Do not derive expected output from a single failing lane or count the
-      current skip as a pre-push verification.
+- [ ] **5t. Activate the tracked actor leader conformance cases.** Both `actors-leader-protocol` and
+      `actors-cluster-leader` sources are found but skipped because their expected files are absent,
+      each reporting 0 passed and 0 failed. Check actor ownership, execute every declared backend,
+      and add expected fixtures only after their real stdout agrees; then force the wrapper and
+      require non-zero executed counts. Do not derive expected output from a single failing lane or
+      count either current skip as a pre-push verification.
 - [ ] **6. Prevent the recurrence.** Long-red CI is what let all of this pile up. Decide + record a
       cheap guard (e.g. the loop checks `gh run list` before claiming a lane green, or a CI-status
       line in the claim protocol). Recorded as a question for Sergiy, not a unilateral process change.

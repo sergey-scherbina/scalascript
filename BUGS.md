@@ -13,13 +13,18 @@ Node execution in the timer regression; do not remove `stop()` merely to make th
 Rerun the full Node backend suite and the cross-backend cluster matrix.
 
 
-## actors-leader-protocol-conformance-has-no-expected — tracked case always skips
+## actor-leader-conformance-has-no-expected — tracked leader cases always skip
 
 **Status:** OPEN (found 2026-07-17 by `ci-red-main` while selecting the affected gate for the
 multi-backend actor failure). `tests/conformance/run.sh --only 'actors-leader-protocol' --no-memo`
 finds the tracked case but prints `SKIP (no expected/actors-leader-protocol.txt)` and finishes with
 `0 passed, 0 failed out of 0 tests`. Therefore the case currently compares no backend output and
 cannot detect a broken leader protocol.
+
+The same family has at least one more empty gate:
+`tests/conformance/run.sh --only 'actors-cluster-leader' --no-memo` also finds its source, reports
+`SKIP (no expected/actors-cluster-leader.txt)`, and ends 0/0. Neither tracked leader scenario
+currently compares any backend.
 
 **Expected/fix plan.** After checking actor ownership, run the source on every declared backend,
 compare the actual observable output, and add the expected fixture only when they agree; a guessed
