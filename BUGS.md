@@ -1,5 +1,41 @@
 # Bug tracker
 
+## actors-leader-protocol-conformance-has-no-expected — tracked case always skips
+
+**Status:** OPEN (found 2026-07-17 by `ci-red-main` while selecting the affected gate for the
+multi-backend actor failure). `tests/conformance/run.sh --only 'actors-leader-protocol' --no-memo`
+finds the tracked case but prints `SKIP (no expected/actors-leader-protocol.txt)` and finishes with
+`0 passed, 0 failed out of 0 tests`. Therefore the case currently compares no backend output and
+cannot detect a broken leader protocol.
+
+**Expected/fix plan.** After checking actor ownership, run the source on every declared backend,
+compare the actual observable output, and add the expected fixture only when they agree; a guessed
+file or an expected value copied from one broken lane would pre-judge the result. Keep this separate
+from the `BigInt` runtime fix so activation can expose rather than conceal that bug.
+
+
+## cluster-multibackend-js-actor-mixes-bigint-number — generated node dies before Bully convergence
+
+**Status:** OPEN (found 2026-07-17 by `ci-red-main` during SPRINT 5r's separate staged audit).
+`scripts/sbtc "cli/testOnly scalascript.cli.ClusterMultiBackendMatrixTest"` executes the one test
+with zero cancellations, starts the JVM-codegen node, and generates/launches the JS-codegen node.
+The latter prints `Listening on http://localhost:<port>/ (backend=node)` and then exits before the
+HTTP-ready probe can connect:
+
+```text
+TypeError: Cannot mix BigInt and other types, use explicit conversions
+    at handleActorOp (.../node-bbb.js:6828:37)
+    at stepActor (.../node-bbb.js:6871:21)
+```
+
+**Expected/fix plan.** Preserve the real two-process convergence assertion and inspect the emitted
+`handleActorOp` expression plus its typed source/IR to identify which actor state/message operand
+crosses the `BigInt`/`Number` boundary. Before editing, check authoritative claims for actor/JS
+runtime ownership; consume an owner fix if overlapping, otherwise add a faithful regression at the
+lowest shared codegen layer and rerun this full matrix. Do not weaken HTTP readiness or coerce the
+test fixture merely to hide the generated runtime type error.
+
+
 ## jvm-bytecode-sibling-tests-ignore-installed-cli — thirteen assertions cancel before comparison
 
 **Status:** OPEN (found 2026-07-17 by `ci-red-main` while auditing the Linux test tail after

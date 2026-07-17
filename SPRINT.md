@@ -489,6 +489,22 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       the installed launcher's `ssc.lib.path`. Source inspection also finds stale JSON readers behind
       those gates even though `.scjvm` is now binary. Record `ClusterMultiBackendMatrixTest`
       separately before deciding whether it belongs in the repair.
+- [ ] **5s. Repair the JS actor `BigInt`/`Number` mismatch exposed by the real multi-backend
+      cluster matrix.** The separately staged `ClusterMultiBackendMatrixTest` executes 1 test with
+      zero cancellations, starts both generated programs, then the node backend exits in
+      `handleActorOp` with `TypeError: Cannot mix BigInt and other types`; its advertised HTTP port
+      never becomes connectable and Bully convergence fails. First inspect authoritative actor/JS
+      claims, then trace the generated expression back to typed source/IR. If unclaimed, fix the
+      shared codegen boundary with a focused regression and rerun the full two-process matrix plus
+      the affected actor conformance slice. If claimed, record/consume the owner's landed repair
+      rather than editing concurrently. Preserve exit/log/readiness diagnostics; no fixture-only
+      coercion or weakened readiness check.
+- [ ] **5t. Activate the tracked `actors-leader-protocol` conformance case.** The affected-gate
+      attempt finds the source but skips it because `expected/actors-leader-protocol.txt` is absent,
+      reporting 0 passed and 0 failed. Check actor ownership, execute every declared backend, and
+      add an expected fixture only after their real stdout agrees; then force the wrapper and require
+      non-zero executed count. Do not derive expected output from a single failing lane or count the
+      current skip as a pre-push verification.
 - [ ] **6. Prevent the recurrence.** Long-red CI is what let all of this pile up. Decide + record a
       cheap guard (e.g. the loop checks `gh run list` before claiming a lane green, or a CI-status
       line in the claim protocol). Recorded as a question for Sergiy, not a unilateral process change.
