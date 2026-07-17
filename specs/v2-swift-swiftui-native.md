@@ -890,6 +890,12 @@ The renderer decodes the exact HTML-like vocabulary emitted by
   synchronously and network URLs through bounded `AsyncImage` state;
 - `input[type=text]`, `input[type=checkbox]`, and `button` map to
   `TextField`, `Toggle`, and `Button` bindings/actions;
+- `select` maps to a menu-style `Picker` two-way bound to its value `Signal`
+  (the `NativeUiSelectControl`): the `<option>` children decode into
+  `(value, label)` entries and a user pick runs the `change` event
+  (`inputChange(signal)`) with the chosen value; a `select` with no signal
+  binding renders a real read-only dropdown pinned to the pre-selected option.
+  A bare `<option>` outside a `<select>` is a strict, sourced `Unsupported`;
 - `a` with a route event writes the route signal, while an ordinary anchor
   uses SwiftUI `openURL`; `#/path` also updates the process hash/route signal;
 - table roles/data descriptors map to the shared native table/grid renderer;
@@ -897,12 +903,19 @@ The renderer decodes the exact HTML-like vocabulary emitted by
   checked bindings map to SwiftUI accessibility/control modifiers.
 
 The style decoder supports every declaration emitted by the current
-`lower.ssc`: flex direction/alignment/gap/grow, display, padding/margins,
+`lower.ssc`: flex direction/wrap/alignment/gap/grow, display, padding/margins,
 width/min-width/max-width/height, foreground/background, border and individual
 border sides/colors, radius, font size/family/weight, opacity, text decoration,
 white space/overflow/overflow-x, text alignment, modal position/inset/z-index,
-shadow, and flex shorthands. It accepts px, `%`, `vw`, unitless numeric,
-hex/rgba, `transparent`, `none`, and the exact keywords emitted by
+shadow, and flex shorthands. `flex-wrap:wrap` on a `flex-direction:row` `div`
+selects a real wrapping flow layout (`NativeUiFlowLayout`, a custom `Layout`
+on the macOS 13/iOS 16 floor the semantic-table `Grid` already requires)
+instead of the non-wrapping `HStack` — SwiftUI has no direct `flex-wrap`, so
+this is the nearest faithful equivalent. It accepts px and the fill keyword
+`100%` on width/height (mapped to `frame(maxWidth/maxHeight: .infinity)`);
+other non-px length units (e.g. `vw`, `%` other than `100%`) surface as a
+sourced `Unsupported` rather than silently mis-rendering. It accepts unitless
+numeric, hex/rgba, `transparent`, `none`, and the exact keywords emitted by
 `lower.ssc`/content lowering. `box-sizing`, `border-collapse`, `cursor`, and
 `user-select` are recognized native-inert declarations rather than errors;
 their browser-only behavior is irrelevant after the corresponding native
