@@ -1,5 +1,25 @@
 # Bug tracker
 
+## swiftui-real-fixture-system-exit-hides-failure — compiler error kills the forked test JVM
+
+**Status:** OPEN / waiting on active Swift owner (found by `ci-red-main` in Linux run `29545769651`,
+job `87777659720`). Under `SwiftUiRealFixtureBuildTest`, generated Scala fails on `selected()` and
+missing `selectFromView`, but ScalaTest prints no `*** FAILED ***` row for the fixture before another
+suite begins.
+
+**Root cause / real-harness evidence.** The test calls `buildSwiftUIPackage` in-process. Its own
+comment records that this production helper calls `System.exit(1)` when bytecode compilation fails,
+which terminates the forked test JVM before ScalaTest can attach exit/stdout/stderr to the test. The
+old guard only cancels when `scala-cli` is absent; it does not contain an actual compiler failure.
+
+**Expected/fix plan.** Once `v2-swift-nativeui-i18n-json` lands the underlying generated-code fix,
+invoke the supported staged Swift build command in a subprocess and assert its captured exit,
+stdout, and stderr before checking `Package.swift`, `ContentView.swift`, and the built executable.
+Add a failing-input assertion that proves non-zero compiler exit becomes a named test failure rather
+than killing the suite. Do not land a known-red harness change or overlap the active dirty Swift
+production worktrees.
+
+
 ## scljet-vfs-exclusive-lock-subprocess-exits-linux — official SQLite does not wait on host lock
 
 **Status:** OPEN / owned by the SclJet lane (found by `ci-red-main` in Linux runs `29544412767` and

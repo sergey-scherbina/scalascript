@@ -463,6 +463,16 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       location, includes filesystem root once, and explicitly verifies the `v1/lang/core` CWD shape.
       Missing tracked data fails with all candidates. Focused suite passes 15/15 with zero cancels;
       `arithmetic` remains green INT/JS/JVM.
+- [ ] **5q. Make the real SwiftUI fixture report subprocess failure instead of killing its test
+      JVM.** Linux job `87777659720` prints three generated-Scala errors (`selected()` arity and
+      missing `selectFromView`) under `SwiftUiRealFixtureBuildTest`, then moves to another suite
+      without a named ScalaTest failure. The test itself documents why: in-process
+      `buildSwiftUIPackage` calls `System.exit(1)` on compiler failure. After the active Swift owner
+      lands the underlying generation fix, route this test through the real staged tools launcher
+      in a subprocess, capture exit/stdout/stderr, and preserve its package/file assertions. Do not
+      land a red diagnostic-only test or edit production Swift files concurrently; first consume the
+      owner fix, then prove a deliberately failing fixture produces a named assertion rather than a
+      vanished fork.
 - [ ] **6. Prevent the recurrence.** Long-red CI is what let all of this pile up. Decide + record a
       cheap guard (e.g. the loop checks `gh run list` before claiming a lane green, or a CI-status
       line in the claim protocol). Recorded as a question for Sergiy, not a unilateral process change.
