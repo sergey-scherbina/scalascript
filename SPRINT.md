@@ -324,7 +324,7 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       its three executables instead of rewriting them. The new CI gate was proven red on the old
       comments-only diff, prints that patch, and is green after a full install. Both focused
       conformance cases remain 1/1 on INT/JS/JVM.
-- [ ] **5i. Route the all-examples matrix through the correct installed tiers.** CI run
+- [x] **5i. Route the all-examples matrix through the correct installed tiers.** CI run
       `29547121050` has a green 282/282 corpus, then every one of 17 JS/JVM examples fails because
       `examples/run-all.sc` invokes tools-only `emit-js`/`run-jvm` through standard `bin/ssc`.
       Require `bin/ssc-tools`, route INT through `run --v1` and JS/JVM through the matching tools
@@ -334,6 +334,8 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       compared v2 native `bin/ssc` against v1 codegens, reaching 16/17. The matrix historically means
       legacy INT/JS/JVM (the same family as conformance), so INT must also use tools `run --v1`.
       The separately exposed v2 auto-output gap stays open in 5k and is not hidden as "fixed" by this.
+      **DONE `aea328279` (after routing slice `ef335ee2c`):** all three lanes use installed
+      `ssc-tools`; the complete 17-file matrix exits 0 and reports byte-identical output.
 - [ ] **5j. Make `v21-slim-distribution-gate` diagnostic before interpreting its Linux failure.**
       Run `29547476776` reaches the gate after two release gates pass, spends 70 seconds, and exits 1
       with literally no check name/diff. Replace every bare assertion that can abort with named

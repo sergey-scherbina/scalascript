@@ -45,10 +45,11 @@ expectation while the apparatus is blind.
 
 ## examples-run-all-standard-launcher-tools-command — all JS/JVM example lanes call forbidden commands
 
-**Status:** OPEN (found 2026-07-17 by `ci-red-main` in run `29547121050`, SHA `1e6ccb394`). The
-conformance corpus immediately before it is green: `282 passed, 0 failed (+ 2 pending)`. The next CI
-step, `scala-cli examples/run-all.sc`, prints the canonical INT output for all 17 examples and then
-reports a non-zero JS and JVM lane for every example.
+**Status:** FIXED (2026-07-17, routing `ef335ee2c` + same-frontend correction `aea328279`; awaiting
+CI confirmation). Found by `ci-red-main` in run `29547121050`, SHA `1e6ccb394`. The conformance
+corpus immediately before it is green: `282 passed, 0 failed (+ 2 pending)`. The next CI step,
+`scala-cli examples/run-all.sc`, printed the canonical INT output for all 17 examples and then
+reported a non-zero JS and JVM lane for every example.
 
 **Real-harness repro.** Build the full distribution and run `scala-cli examples/run-all.sc`. The
 harness binds only `bin/ssc`; `runJvm` calls `bin/ssc run-jvm`, and the JS fallback calls
@@ -56,9 +57,16 @@ harness binds only `bin/ssc`; `runJvm` calls `bin/ssc run-jvm`, and the JS fallb
 rejects both commands with `requires the optional ScalaScript tools/compatibility tier; run
 ssc-tools explicitly`. The harness therefore tests launcher routing, not backend parity.
 
-**Expected/fix plan.** Keep INT on default `bin/ssc`, route JS/JVM compiler-backed commands through
-the installed `bin/ssc-tools`, fail up front with both resolved launcher paths, and rerun all 17
-examples to byte-compare INT/JS/JVM. Do not re-enable tools commands in the standard launcher.
+**Expected/fix plan.** Keep all three comparisons on one frontend/runtime family: route INT through
+installed `bin/ssc-tools run --v1`, JS through `emit-js`+node, and JVM through `run-jvm`. Do not
+re-enable tools commands in the standard launcher or treat a v2-vs-v1 semantic difference as a v1
+backend parity failure.
+
+**Root cause/fix.** The first correction routed JS/JVM to tools but left INT on post-cutover v2
+native, exposing a legitimate separate v2 auto-output gap. The matrix's declared INT/JS/JVM contract
+is the v1 backend family, matching conformance, so the final fix uses one installed `ssc-tools` for
+all lanes. Missing staging now names its exact path. The full 17-file matrix exits 0 with
+byte-identical output on all three lanes; the v2 gap remains independently open.
 
 
 ## ci-status-fixture-accepts-invalid-jq — fake-gh green hid a real CLI parse failure

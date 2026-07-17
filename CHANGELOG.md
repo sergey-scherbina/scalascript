@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-07-17 — all-examples backend matrix follows the installed tools tier
+
+The 17-example INT/JS/JVM parity matrix no longer asks compiler-free standard `bin/ssc` to run
+tools-only `emit-js` and `run-jvm` commands. All three comparisons now use one installed
+`bin/ssc-tools` and one v1 frontend family (`run --v1`, `emit-js`+node, `run-jvm`), matching the
+conformance contract (`ef335ee2c`, `aea328279`). The full matrix exits 0 with byte-identical output;
+missing staging names the exact launcher path.
+
+The corrected apparatus also exposed a separate v2-native multi-block auto-output gap instead of
+misclassifying it as interpreter drift. That user-facing issue remains tracked and was not papered
+over by changing expected output.
+
 ## 2026-07-17 — exact-SHA CI truth in the coordination loop
 
 `scripts/ci-status` now asks GitHub for the push-triggered `ci.yml` run of one exact commit and
