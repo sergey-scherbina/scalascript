@@ -1,5 +1,23 @@
 # Bug tracker
 
+## v2-js-regfields-unimplemented — installed `run-js --v2` crashes before a case-class program starts
+
+**Status:** OPEN (found 2026-07-17 by making `V2JsLaneCliTest` use the real installed launcher).
+The prior regression used `java -jar` against the fat assembly and did not exercise the staged
+`bin/ssc-tools` path; after that apparatus was corrected, the imported-companion case failed in
+node with `Error: unimplemented primitive: __regfields__`.
+
+**Real-harness repro.** Build `cli/assembly` + `installBin`, then run
+`scripts/sbtc "cli/testOnly *V2JsLaneCliTest"`. The first installed-launcher test (simple output)
+passes after the `run-js` exit-code fix; the imported `case class Box(value: Int)` + companion test
+exits 1 at module initialization, before its expected `0 / 5 / 8` output. `ssc1-lower` emits one
+`__regfields__(tag, names)` registration for each case class. The portable VM consumes it; Swift
+explicitly treats it as a no-op because its field accesses are already index-resolved; JsBackend
+has no case and falls into `$prim`, which always throws.
+
+**Done when.** JsBackend gives `__regfields__` an explicit, documented meaning, the installed CLI
+test passes, and a direct backend unit test prevents the primitive from falling through to `$prim`.
+
 ## dataset-from-generator-js-compound-assign-dispatch — generated JS calls method `+=` on a number
 
 **Status:** OPEN (reproduced 2026-07-17 by `ci-red-main` from `origin/main` `771b67d45`). This is

@@ -291,6 +291,11 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       skip submodule mutation automatically when `.git` is a worktree file, and verify install still
       updates it from the shared main checkout. Until fixed, build locally with explicit-worktree
       `scripts/sbtc "compile cli/assembly installBin"`; never initialize the submodule here.
+- [ ] **5g. Close the staged-v2-JS `__regfields__` crash exposed by the faithful launcher test.**
+      `V2JsLaneCliTest` now runs `bin/ssc-tools`; its imported case-class/companion shape reaches
+      node and dies at startup because JsBackend falls through to `$prim("__regfields__")`. Define
+      the operation explicitly (no-op only if field accesses are already index-resolved, as on
+      Swift), add a direct codegen assertion, and keep the installed `0 / 5 / 8` e2e green.
 - [ ] **6. Prevent the recurrence.** Long-red CI is what let all of this pile up. Decide + record a
       cheap guard (e.g. the loop checks `gh run list` before claiming a lane green, or a CI-status
       line in the claim protocol). Recorded as a question for Sergiy, not a unilateral process change.
