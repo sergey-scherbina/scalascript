@@ -7,10 +7,11 @@ that omitted `ssc.lib.path`; all four scenarios execute and pass (`e9567c555`). 
 fixture now uses explicit Markdown module links, keeping the unrelated Scala-style import gap open
 and visible rather than weakening tuple or worker assertions.
 
-The enclosing sbt CI job now allows 120 minutes while retaining the test step's 60-minute cap
-(`90c5599dc`). This matches the measured Linux run where setup and release gates consumed 35m22s
-and the old 90-minute outer limit cancelled tests after only 54m51s. Final confirmation still
-requires a current Linux run to reach the suite's natural verdict.
+The enclosing sbt CI job first moved to 120/60 minutes (`90c5599dc`), then a second Linux run proved
+the step itself still timed out after completing only 12/16 `CrossBackendPropertyTest` cases. The
+measured final budget is therefore 150 minutes outer / 90 minutes for tests (`884832696`): both caps
+remain bounded, with 30 minutes for the observed tail and 30 minutes of enclosing headroom. Final
+confirmation still requires a current Linux run to reach the suite's natural verdict.
 
 ## 2026-07-17 — standalone release launcher keeps a safe, overridable stack
 

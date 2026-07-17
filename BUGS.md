@@ -55,8 +55,9 @@ uses the affected Scala-style import and needs a future real-harness audit.
 
 ## ci-sbt-outer-timeout-cancels-bounded-test-step — job budget expires before the suite can report
 
-**Status:** OPEN (`90c5599dc` fixed the outer cap only; completed Linux run `29545769651` proved the
-60-minute step cap independently insufficient). Found by `ci-red-main` in completed Linux run
+**Status:** FIXED (revised 2026-07-17 in `884832696`; awaiting Linux confirmation). The first fix
+`90c5599dc` raised only the outer cap; completed Linux run `29545769651` then proved the 60-minute
+step cap independently insufficient. Originally found by `ci-red-main` in completed run
 `29544412767`, SHA `73407430457effd61bb96307c4bb41c6d3df3179`, job `87773372863`. The job-level
 timeout cancelled the test suite before the separately bounded test step could finish, so CI could
 not reveal the complete failure set or prove the sbt job green.
@@ -84,7 +85,8 @@ was not hung: it was still reporting green `CrossBackendPropertyTest` cases, but
 12 of that suite's 16 ordered cases; the uncompleted tail includes both generated-program matrices.
 Thus the landed 120/60 configuration remains deterministically red. The next fix is 150 minutes for
 the outer job and 90 for the test step, retaining bounded hang detection while giving the measured
-tail 30 additional minutes. Only a later Linux natural verdict closes this bug.
+tail 30 additional minutes. That revision landed in `884832696`; only a later Linux natural verdict
+closes confirmation.
 
 
 ## v2-tuple-pattern-cli-tests-bypass-staged-distribution — four tests abort on unset library path

@@ -411,6 +411,8 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       measured budget to **150-minute outer / 90-minute test step**: it preserves a bounded hang
       detector, adds 30 minutes for the observed tail, and leaves 30 minutes beyond the release-gate
       + test maxima. Revalidate YAML and require a later Linux run to prove the suite completes.
+      **REVISED `884832696`, awaiting Linux proof:** outer/test caps are now 150/90, the measured
+      rationale is adjacent to the workflow values, YAML parses, and focused conformance stays green.
 - [ ] **6. Prevent the recurrence.** Long-red CI is what let all of this pile up. Decide + record a
       cheap guard (e.g. the loop checks `gh run list` before claiming a lane green, or a CI-status
       line in the claim protocol). Recorded as a question for Sergiy, not a unilateral process change.
