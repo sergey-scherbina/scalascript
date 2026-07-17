@@ -594,7 +594,7 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       classes plus red-but-non-aborting `coord-status` pass under the fake, and the real authenticated
       CLI returns exact-SHA `PENDING` with all four jobs. Remains open until the CI run containing
       this wiring completes and the exact final SHA is all-green.
-- [ ] **6a. Stop `coord-status` from reporting a live zero-token claim as stale.** Current exact
+- [x] **6a. Stop `coord-status` from reporting a live zero-token claim as stale.** Current exact
       repro: `scripts/coord-status --no-fetch` prints `maybe stale: ci-red-main` even though the
       authoritative claim declares `branch: feature/ci-red-main-final` and that exact clean
       worktree exists. `significant_tokens` removes every slug token (`ci` is too short;
@@ -603,6 +603,9 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       slug heuristic. Add a hermetic zero-token/live-branch regression plus a missing-branch case;
       mismatch output must show expected branch and observed branches. Track root cause and result
       in `BUGS.md`; keep this separate from GitHub run mutation or stale foreign-claim takeover.
+      **DONE `8ad5f4d1e`:** explicit `branch:` metadata is compared exactly before legacy heuristics.
+      The hermetic gate proves both live and missing zero-token branches with expected/observed
+      diagnostics, cleans temporary Git state, and the real claim no longer appears stale.
 
 ## scljet-unique-index-not-supported — `CREATE UNIQUE INDEX` needs ENFORCEMENT, not just parsing (2026-07-16)
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-07-17 — coordination status trusts an exact declared worktree branch
+
+`coord-status` no longer reports a live claim as stale when its slug has no usable heuristic tokens
+(`ci-red-main` filters to an empty set). Explicit claim `branch:` metadata is now compared exactly
+against live worktree branches before legacy slug matching (`8ad5f4d1e`). A hermetic e2e fixture
+proves both the live and genuinely missing branch outcomes and prints expected/observed branches on
+failure.
+
 ## 2026-07-17 — CI type-checks examples with the compiler-bearing launcher
 
 After conformance 282/282 and all-examples parity passed, Linux CI still called `check` through the

@@ -2,7 +2,8 @@
 
 ## coord-status-stopword-slug-false-stale — live claim is reported as stale
 
-**Status:** OPEN (found 2026-07-17 by `ci-red-main` at `39feb9cc3`). A fresh authoritative
+**Status:** FIXED (2026-07-17, `8ad5f4d1e`; awaiting exact-SHA CI confirmation). Found by
+`ci-red-main` at `39feb9cc3`. A fresh authoritative
 `.work/active/ci-red-main.claim` names the live branch `feature/ci-red-main-final`, and that exact
 clean worktree exists, but `scripts/coord-status --no-fetch` prints:
 
@@ -21,6 +22,13 @@ metadata, retaining the current slug heuristic only for legacy claims without th
 hermetic regression whose slug has zero significant tokens and whose declared branch is live; it
 must reject the old `maybe stale` output while preserving detection of a genuinely missing
 worktree. Every mismatch must print the expected claim branch and observed worktree branches.
+
+**Fix/verification.** `coord-status` now parses a claim's explicit `branch:` and compares it exactly
+with the collected live worktree branch keys before invoking legacy slug heuristics. The e2e gate
+creates a temporary live branch/worktree for `ci-red-main`, proves the old false-stale row is absent,
+then points the same claim at a missing branch and requires that exact stale row. Both failure paths
+print the expected branch and observed branches. The gate passes and cleans its temporary Git state;
+the real current claim now reports `no stale-looking claims`.
 
 ## ci-example-typecheck-uses-compiler-free-launcher — green examples fail at the workflow command
 
