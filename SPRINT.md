@@ -1526,6 +1526,32 @@ optional policy, not the default continuation semantics.
     (`IrToData`), the mirror of `IrDecode`. Kernel-owned.
   - [ ] **H5 — NOT DONE. validate** symbols / closed globals / arities / `LetRec`-is-`Lam` / NAT-ness / hex
     evenness. Fail **closed** with a diagnostic naming the offending node.
+
+  **EXECUTION PLAN (agent coreir-codec-h4h5, 2026-07-17) — decisions pinned so a fresh agent resumes cold:**
+  - **Where H5 lives:** kernel-owned `Reader` in `v2/src/CoreIR.scala`. Wire a `Validator` into
+    `Reader.parseProgram` so it runs on EVERY decode (the untrusted-capsule entry point: `run-ir`,
+    `coreir.decode`). Strict token parsers (`natOf`/`intOf`/`bigOf`/`hexOf`) replace the lenient
+    `i.toInt`/`a.toInt`/`n.toLong`/`grouped(2)` in `toTerm`/`toArm`/`toConst`.
+  - **Scope model (verified against `Runtime.scala` compiler + `10-core-ir.md` §4):** de Bruijn
+    depth. entry & each Def body start depth 0. `Local(i)`: `0<=i<depth`. `Lam(ar,b)`: body at
+    `depth+ar`. `Let(rhs,body)`: rhs(i) at `depth+i`, body at `depth+len` (let* sequential). `LetRec`:
+    each lam & body at `depth+len` (all mutually visible), each binding MUST be `Lam`. `Match`: scrut &
+    default at depth, arm body at `depth+arm.arity`. `App/If/Ctor/Prim/While/Seq`: subterms at depth.
+  - **NAT** = `0|[1-9][0-9]*` (local idx, lam arity, arm arity); **INT** = `-?`NAT no `-0` (int/big
+    literal); **HEX** = even-length `[0-9a-fA-F]`. All reject `+`, negatives-where-NAT, garbage.
+  - **Global-closedness DECISION (measured, not guessed):** reject `Global(g)` unless `g` is a
+    top-level `Def` name OR starts with `@` (mirrors the runtime's own resolve fallback at
+    `Runtime.scala:1016`; the kernel Reader cannot see the plugin registry). MEASURED SAFE: the
+    79,853 B self-hosted compiler IR has 254 defs / 208 globals and **every global is a def** (0
+    unbound); the 7 `.coreir` fixtures likewise. The native front's plugin-`Global` programs go
+    through `Lower`→`Compiler` directly, NOT `parseProgram`, so they are not on this path. Full
+    `check.sh` is the final guard — if any run-ir program legitimately references a plugin global,
+    scope this down and record it OPEN rather than break the corpus.
+  - **H4:** new `IrToData` object in `Runtime.scala` (mirror of `IrDecode`: `Program -> IrProg` Data
+    value), then prim `coreir.decode : Str|Bytes -> IrProg` = `IrToData.program(Reader.parseProgram(text))`
+    where `Bytes` is decoded UTF-8. Property from `.ssc`: `encode(decode(t)) == canonicalize(t)` and
+    `decode(encode(x))` reconstructs `x`. Add both to `specs/coreir-codec-vectors.sh` (round-trip every
+    node+const incl. floats `-0.0`/`nan`/`inf` and bytes; rejection vector per fail-open).
   - [x] **H6 — bounded decoding.** ✓ *reader half only — see the note below.* Depth + node-count + input-size limits; iterative or depth-capped
     reader. Hostile input ⇒ diagnostic, never StackOverflowError. Must hold on a **1m** stack (CI), not
     just a macOS 2m default — test with an explicit small `-Xss`, or the gate lies exactly like the
