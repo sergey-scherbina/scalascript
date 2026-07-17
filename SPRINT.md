@@ -3537,6 +3537,57 @@ every named language.
       reconcile/check the specification behavior items, then record results in `CHANGELOG.md` and this
       section in a separate bookkeeping commit before releasing the claim.
 
+## v2-native-vfs-plugin — host files for scljet on the DEFAULT command (2026-07-17, Sergiy: "Да берись. Сделай все аккуратно")
+
+**Goal.** Close `BUGS.md → v2-native-jvmvfs-externs-unbound`, the last blocker keeping SclJet
+in-memory-only on `bin/ssc run`. After the charAt/toLong fixes, 7/9 `examples/scljet-*` run
+natively; the 2 that open a real file die on `unbound global: jvmVfsDelete`.
+
+**Why they are unbound (measured, not guessed).** The `jvmVfs*` externs come from
+`v1/runtime/std/scljet-vfs-plugin`, a **v1-style** plugin resolved through the interpreter's
+ServiceLoader over `scalascript.backend.spi`. The native tier runs its OWN `NativePluginHost`
+(`java.util.ServiceLoader.load(classOf[ssc.plugin.NativePlugin])`) over `v2/runtime/std/*-plugin`.
+Two different SPIs, two different worlds. `bin/lib/.../scljet-vfs-plugin.sscpkg` being present is a
+red herring — the native host never consults it.
+
+**The shape of the port (no duplication).** `SclJetJvmVfsHost.scala` (438 lines — the real
+FileChannel/lock/shm I/O) is **already dependency-free**: its only `scalascript` mention is the
+`package` line; everything else is `java.*`/`scala.*`, and it defines its own `HostResult` /
+`HostLockLevel` / `HostShmMode`. So only the 75-line SPI **adapter** is v1-specific. Follows the
+existing `httpFastEngine` precedent (a zero-dep engine at `v1/runtime/http-server/fast-engine`,
+shared by `v2NativeHttpFastPlugin` AND the v1 `runtimeServerJvmFast`) rather than inventing a
+layout.
+
+### Slices
+
+- [ ] **V1 — extract the host to a zero-dep shared module.** New `scljetVfsHost` at
+      `v1/runtime/std/scljet-vfs-host/`, containing `SclJetJvmVfsHost.scala` verbatim (package
+      unchanged → v1 needs no import edits). No `.dependsOn` at all. `scljetVfsPlugin` (v1)
+      dependsOn it. Gate: `sbt scljetVfsPlugin/test` (its 175-line host test) stays green.
+- [ ] **V2 — the native plugin.** `v2/runtime/std/scljet-vfs-plugin/` →
+      `ScljetVfsNativePlugin extends NativePlugin` (model: `v2/runtime/std/fs-plugin`'s
+      `FsNativePlugin`, 106 lines, `dependsOn(v2NativePluginSpi)`), registering the **21** `jvmVfs*`
+      natives over the shared host. `register(name)(fn)` + `registerGlobal(name, -1)(fn)`.
+      Value mapping (v2 `ssc.Value`, NOT v1 `PluginValue`): `JvmVfsResult(code, message, value)` →
+      `DataV("JvmVfsResult", Vector(StrV, StrV, value))`; `JvmVfsRead(bytes, short)` →
+      `DataV("JvmVfsRead", Vector(list, BoolV))`; a list is the `DataV("Cons", …)/DataV("Nil", …)`
+      spine. Lock levels / shm modes arrive as `DataV` tags (`LockShared`, `ShmExclusiveLock`, …).
+      **`registerFields`** for both records — the `.ssc` reads `result.code`/`.message`/`.value`
+      by NAME (`scljet/jvm-vfs.ssc:72`), not just by pattern.
+- [ ] **Wire.** `META-INF/services/ssc.plugin.NativePlugin`; `build.sbt`: new `lazy val`, add to
+      `cli`'s `.dependsOn` list (line ~1463) and the root `.aggregate` (line ~4696) — that is how
+      every other v2 native plugin reaches `bin/ssc`.
+- [ ] **Gate.** `bin/ssc run examples/scljet-readonly.ssc` + `scljet-jvm-vfs.ssc` (both currently
+      `unbound global: jvmVfsDelete`) → 9/9 examples native. Do NOT regress: `sbt
+      scljetVfsPlugin/test`, scljet conformance 98/98 `[int, js]`, `contract.sc --lanes v2`.
+
+### Traps to respect here (learned the hard way this week)
+- **`installBin` COPIES** the engine + plugins into `bin/lib/`; editing sources changes nothing
+  until you re-run it. A "my fix does not work" here is usually a stale `bin/`.
+- **`contract.sc --update-baseline` with a lane subset is DESTRUCTIVE** — it rewrites the whole
+  baseline from the lanes you ran and silently drops the others' rows. Hand-edit the closed rows.
+- The engine (`scljet/*.ssc`) is NOT ours to change here — `scljet-m3-writes` owns it.
+
 ## scljet-on-default-command — make `bin/ssc run` actually run the engine (2026-07-17, Sergiy: "Заводи и берись. Исправь")
 
 **DONE 2026-07-17** (`46f09ad29` charAt, `3b0ddea92` toLong, `59843958c`+ bugs). Sergiy asked
