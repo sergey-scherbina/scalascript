@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-07-17 — standalone release launcher keeps a safe, overridable stack
+
+The curl/wget release installer now generates `-Xss"${SSC_XSS:-64m}"` instead of hardcoding 64 MB
+(`5bde29d37`). Its stale `exec java -jar` fixture now pins the actual java/stack/jar contract, and a
+CI-wired e2e executes the installer with fake downloader/java binaries to verify generated source,
+default and override stack values, installed jar path, and forwarded argv. Focused fixtures are 2/2.
+
 ## 2026-07-17 — all-examples backend matrix follows the installed tools tier
 
 The 17-example INT/JS/JVM parity matrix no longer asks compiler-free standard `bin/ssc` to run
