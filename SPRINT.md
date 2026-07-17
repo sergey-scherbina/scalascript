@@ -102,10 +102,14 @@ real (or real flakes); fixing one leaves the job red.
         Same BUGS. (Both live in `ScalaSpikeSpec`, which was ALSO moved to the JVM-only `src/test-jvm`
         dir to fix the sibling Scala.js linker failure `newfront-scala-spike-jvm-test-links-on-js`.)
         VERIFIED: `unimlJs/Test/fastLinkJS` green + `uniml/testOnly …ScalaSpikeSpec` 60/0.
-      - `SwiftUI renderer inventory …` — **ROUTED @swift** (NOT ownerless: 3 dirty swift worktrees own
-        `SwiftNativeUiApple.scala`/`SwiftBackendTest.scala`). Root cause: web lowerer emits
-        `element("select"|"option")` + CSS `flex-wrap`, none in the Swift inventory and the renderer has
-        no Picker/Menu/flex-wrap — a real feature port. BUGS `swift-renderer-inventory-missing-shipped-tag`.
+      - `SwiftUI renderer inventory …` — **FIXED 2026-07-18 (`swift-renderer-port`).** Ported the three
+        missing pieces for real (port, not declare-gap): `<select>`/`<option>` → menu-style `Picker`
+        (`NativeUiSelectControl`) + strict `<option>`-outside-`<select>` guard; `flex-wrap:wrap` → real
+        wrapping `NativeUiFlowLayout` (custom `Layout`). Surfaced+fixed a co-latent bug: `width:100%`
+        (shipped by textField/table too) rendered a red `Unsupported` → now `frame(maxWidth: .infinity)`.
+        Added a Swift-6-strict runtime probe proving decode + Picker `.body` (not a stub). `v2SwiftBackend/test`
+        59/0. See BUGS `swift-renderer-inventory-missing-shipped-tag`. (The three dirty swift worktrees were
+        stale — worked from a fresh worktree off origin/main, adopted none of their uncommitted edits.)
       - `exclusive host lock blocks official SQLite …` — **ROUTED @scljet-jdbc-durability** (dirty on
         `ScljetConnection`). `process.isAlive()==false`; xerial sqlite-jdbc cross-process lock. BUGS
         `scljet-vfs-exclusive-lock-subprocess-exits-linux`.
@@ -121,6 +125,36 @@ real (or real flakes); fixing one leaves the job red.
       (negative blocks, the unordered actors set-compare, `[[ ! -s ]]`/`[[ $rc -ne 0 ]]`). Proven
       non-vacuous in isolation (mismatch prints want/got/diff, a bare `[[ ]]` failure names line+command);
       `bash -n` clean; the preamble runs to the staging guard with no spurious trap output.
+
+## swift-renderer-port — port select/option + flex-wrap to the SwiftUI renderer (2026-07-18)
+
+Closes the `SwiftBackendTest` → "SwiftUI renderer inventory covers every shipped lowerer tag and
+CSS property" failure (ci-last-red item 2, BUGS `swift-renderer-inventory-missing-shipped-tag`).
+Extracted the exact gap from the test (NOT the routing note): web lowerer emits `element("select")`,
+`element("option")`, and CSS `flex-wrap` — none rendered on the Swift side. Chose PORT over
+declare-gap. All edits in `v2/backend/swift/src/main/scala/ssc/swift/SwiftNativeUiApple.scala`.
+
+- [x] Inventory: added `"select"`, `"option"` to `inventoryElementTags`; `"flex-wrap"` to `inventoryCssProperties`.
+- [x] Renderer: `case "select"` → real `Picker(.menu)` (`NativeUiSelectControl`) bound two-way to the
+      value Signal; `case "option"` → sourced Unsupported outside `<select>`; `decodeSelectOptions`
+      walks the `<option>` children into (value,label,disabled,hidden,selected). Added `hidden`/`selected`
+      to `supportedAttributes`.
+- [x] flex-wrap: `case "div"` flex-direction:row + flex-wrap:wrap → real wrapping `NativeUiFlowLayout`
+      (custom `Layout`, macOS 13/iOS 16); added `"flex-wrap"` to styles `supportedProperties` + a
+      strict value check (wrap/nowrap/wrap-reverse).
+- [x] width:100% (LATENT, also broke existing textField/table): `width/height:100%` hit
+      `invalidDeclaration` → red error; now mapped `100%` → `.frame(maxWidth/maxHeight: .infinity)` so
+      select actually renders. `width:90vw` still rejected (pinned by the Swift diagnostic test).
+- [x] Example: `examples/frontend/select-demo` + `select-reactive-demo` (select) and
+      `examples/frontend/hstack-wrap` (flex-wrap) already exist — backend port renders existing .ssc APIs,
+      no new .ssc user API, so no new example needed.
+- [x] Verify: `v2SwiftBackend/test` 59/0 green; added a runtime probe (`select renders a real menu
+      Picker …`) that compiles the generated renderer under `xcrun swiftc -swift-version 6
+      -strict-concurrency=complete -warnings-as-errors` and asserts decode + Picker `.body`. Spec
+      `specs/v2-swift-swiftui-native.md` updated in sync (swiftui.md was a different Tk/frontend layer).
+
+DONE 2026-07-18 — pending CI confirmation of the SwiftBackendTest suite (the full `Test via sbt` job
+may stay red on the live scljet lanes; deliverable = this suite green, per ci-last-red).
 
 ## int-width-conformance — `Int` means 32 bits on some backends and 64 on others (2026-07-17, Sergiy: "давай так и сделаем")
 

@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-07-18 — SwiftUI native renderer gains select/option (menu Picker) + flex-wrap (flow layout)
+
+`swift-renderer-port` — closed the last `SwiftBackendTest` failure ("SwiftUI renderer inventory covers
+every shipped lowerer tag and CSS property"). The web lowerer had grown `element("select")`/
+`element("option")` and CSS `flex-wrap` with no Swift equivalent; ported all three for real rather than
+declaring a known-gap.
+
+- `<select>` → a menu-style `Picker` (`NativeUiSelectControl`) two-way bound to its value `Signal`,
+  mirroring the reactive plumbing of the existing text/checkbox controls; `<option>` children decode
+  into `(value, label, disabled, hidden, selected)`; a picked value runs the `change` event
+  (`inputChange(signal)`). A bare `<option>` outside a `<select>` is a strict sourced `Unsupported`.
+- `flex-wrap:wrap` on a `flex-direction:row` `div` → a real wrapping `NativeUiFlowLayout` (custom
+  SwiftUI `Layout`, macOS 13/iOS 16) instead of the non-wrapping `HStack` — the nearest faithful
+  equivalent (SwiftUI has no direct flex-wrap).
+- Fixed a co-latent bug the port surfaced: `width:100%`/`height:100%` — emitted by the shipped
+  textField/table styles too, not just select — hit `invalidDeclaration` and rendered a red
+  `Unsupported`; now mapped to `frame(maxWidth/maxHeight: .infinity)`. `width:90vw` and other non-px
+  lengths stay rejected (pinned by the Swift diagnostic test).
+- Added a runtime probe test compiling the generated renderer under `xcrun swiftc -swift-version 6
+  -strict-concurrency=complete -warnings-as-errors` and asserting `decodeSelectOptions` + Picker `.body`
+  construction — the inventory entries are proven real, not stub-satisfied. `v2SwiftBackend/test` 59/0.
+
 ## 2026-07-17 — integer literals span the full 64-bit `Int` range, and overflow fails closed
 
 `int-literal-failopen` — two silent fail-open bugs at the ends of the `Int` range

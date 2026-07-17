@@ -498,19 +498,25 @@ then land a faithful cross-process regression/fix.
 
 ## swift-renderer-inventory-missing-shipped-tag — backend inventory omits a lowerer tag
 
-**Status:** OPEN / owned by `v2-swift-nativeui-i18n-json` (found by `ci-red-main` in Linux runs
-`29544412767` and `29545769651`; latter job `87777659720`). `SwiftBackendTest` fails
-`SwiftUI renderer inventory covers every shipped lowerer tag and CSS property` with
-`missing SwiftUI tag inventory`.
+**Status:** FIXED (2026-07-18, `swift-renderer-port`). The web lowerer had gained
+`element("select")`/`element("option")` (2026-07-13) and CSS `flex-wrap` (2026-07-14) with no Swift
+renderer equivalent. Ported them for real (chose port over declare-gap): `<select>` → menu-style
+`Picker` (`NativeUiSelectControl`) two-way bound to its value `Signal`, `<option>` children decoded
+into `(value,label)` entries, `<option>` alone → strict sourced `Unsupported`; `flex-wrap:wrap` on a
+`flex-direction:row` `div` → real wrapping `NativeUiFlowLayout` (custom SwiftUI `Layout`). Also fixed
+a co-latent bug the port surfaced: `width:100%`/`height:100%` (emitted by the shipped textField/table
+styles too, not just select) hit `invalidDeclaration` → rendered a red `Unsupported` at runtime; now
+mapped to `frame(maxWidth/maxHeight: .infinity)` (`width:90vw` and other non-px lengths stay rejected,
+still pinned by the diagnostic test). Inventory + renderer + styles updated together in
+`SwiftNativeUiApple.scala`. Added a runtime probe test (`select renders a real menu Picker and decodes
+its options rather than a stub`) that compiles the generated renderer under `xcrun swiftc -swift-version
+6 -strict-concurrency=complete -warnings-as-errors` and asserts `decodeSelectOptions` + Picker `.body`
+construction — so the inventory entries are proven real, not stub-satisfied. `v2SwiftBackend/test` 59/0.
 
-**Real-harness repro.** Run `v2SwiftBackend/testOnly ssc.swift.SwiftBackendTest -- -z "renderer
+**Real-harness repro (was).** Run `v2SwiftBackend/testOnly ssc.swift.SwiftBackendTest -- -z "renderer
 inventory"`. The assertion compares shipped lowerer tags with `SwiftNativeUiApple` inventory; do
 not remove a tag or weaken subset comparison merely because Xcode execution tests are unavailable
 on Linux.
-
-**Coordination.** Multiple dirty Swift subagent worktrees are active under the authoritative
-`v2-swift-nativeui-i18n-json` claim. `ci-red-main` must consume the landed fix and rerun the focused
-suite, not edit those files concurrently.
 
 
 ## newfront-scala-spike-fixture-paths-linux — tracked C_min and output root depend on host CWD
