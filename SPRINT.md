@@ -9,6 +9,34 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## ci-last-red — the `sbt — compile and test` job is the only red left (2026-07-17)
+
+Everything else is CI-confirmed green: `Lint Markdown`, `Validate ScalaScript`, all six v21 gates,
+and `Conformance Suite` at **286 passed / 0 failed** with 3 declared known-red lanes (up from
+228/53-failed when this excavation started — see §`ci-red-main`).
+
+**The job has TWO independent failures, and they LAYER: the flake runs earlier, so when it fires it
+hides the test failures behind it.** Both are real; fixing one leaves the job red.
+
+- [x] **1. `v21-slim-distribution-gate` flake — FIXED `87187416d`.** `actors-provider.ssc` prints from
+      two unsynchronised actors and the gate asserted a total order over them; CI caught the two lines
+      swapped (`expected=$'worker: one\nSome(root: reply)'` vs `actual=$'Some(root: reply)\nworker: one'`).
+      Now compared as a set, in BOTH gates that carried the identical line. Proven non-vacuous (a
+      missing/wrong/duplicated line still FAILs). It only became findable because the gates now print
+      name/want/got/diff.
+- [ ] **2. `Test via sbt` — 5 suites, all in other lanes.** Observed on `d382407e1` / `628dabc4f`:
+      - `C_min (specs/v2.2-p6.6-cmin.L) projects cleanly through the spike — no holes, every def (P6.21)`
+      - `emit projections + toys for the diff harness`  ← both newfront/spike lane
+      - `SwiftUI renderer inventory covers every shipped lowerer tag and CSS property`  ← swift lane
+      - `exclusive host lock blocks official SQLite in another process`  ← scljet lane
+      - `scala-cli compiles + runs typed Db.query / Db.insert+update through RowCodec`  ← scljet lane
+      Each belongs to a live sibling lane; route them to their owners rather than fixing blind.
+      **Until this is closed, `main` has never had a fully green run** — do not claim otherwise.
+- [ ] **3. Follow-up: `v21-native-entry-smoke.sh` still asserts with bare `[[ … ]]` under `set -e`**,
+      i.e. it still fails SILENTLY (no check name, no diff). It is not a CI step today, which is the
+      only reason it hasn't cost us yet. Give it the same `expect_*` treatment the other four gates
+      got — AGENTS.md now requires every check to print its diff.
+
 ## int-width-conformance — `Int` means 32 bits on some backends and 64 on others (2026-07-17, Sergiy: "давай так и сделаем")
 
 **The same program prints different numbers on different backends. Silently, exit 0.** This breaks
