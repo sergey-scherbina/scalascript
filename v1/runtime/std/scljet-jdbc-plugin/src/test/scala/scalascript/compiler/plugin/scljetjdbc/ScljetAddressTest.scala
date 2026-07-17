@@ -43,6 +43,12 @@ class ScljetAddressTest extends AnyFunSuite:
       "stable" -> ScljetEngine.asBool(ScljetEngine.field(av, "stable")).toString,
     )
 
+  /** A scljet image back out as raw bytes, so the reference engine can judge it. */
+  private def imageBytes(image: Value): Array[Byte] =
+    ScljetEngine.call("byteSliceToList", image) match
+      case Value.ListV(items) => items.iterator.map(b => ScljetEngine.asLong(b).toByte).toArray
+      case other => fail(s"expected a ByteSlice, got ${Value.show(other)}")
+
   /** Build a database with the REFERENCE engine and hand back its bytes as a scljet image. */
   private def referenceImage(ddl: List[String]): Value =
     val dir: Path = Files.createTempDirectory("scljet-address-")
@@ -137,3 +143,83 @@ class ScljetAddressTest extends AnyFunSuite:
     // Without one, VACUUM may renumber the rowids: the same address form is positional, and a
     // reference that relies on it rots silently. We say so rather than pretend.
     assert(readAddress(withoutIpk, "log/1/a")("stable") == "false")
+
+  // ── write by address, proven through a FILE by the reference engine ────────
+
+  test("a value written BY ADDRESS is read back by the real sqlite3, and the file stays valid"):
+    // The only oracle that means anything here: scljet writes, the REFERENCE reads. A
+    // scljet-writes/scljet-reads check is self-consistent and cannot see a format divergence.
+    val image = referenceImage(List(
+      "CREATE TABLE emp(id INTEGER PRIMARY KEY, name TEXT, salary INTEGER)",
+      "INSERT INTO emp VALUES (7,'bob',250)",
+      "INSERT INTO emp VALUES (9,'cat',300)",
+    ))
+
+    val addr = ScljetEngine.unwrapEither(
+      ScljetEngine.call("parseAddress", Value.StringV("emp/7/name")), m => s"parse failed: $m")
+    val written = ScljetEngine.unwrapEither(
+      ScljetEngine.call("addressWrite", image, addr, ScljetEngine.sqlText("robert")),
+      m => s"write failed: $m")
+
+    // Hand the bytes to the real sqlite3 and let IT tell us whether we wrote SQLite.
+    val dir = Files.createTempDirectory("scljet-addr-write-")
+    val db = dir.resolve("out.db")
+    try
+      Files.write(db, imageBytes(written))
+      Class.forName("org.sqlite.JDBC")
+      val ref = DriverManager.getConnection(s"jdbc:sqlite:${db.toString}")
+      try
+        val check = ref.createStatement().executeQuery("PRAGMA integrity_check")
+        assert(check.next() && check.getString(1) == "ok", "the file we wrote must stay a valid SQLite database")
+
+        val rs = ref.createStatement().executeQuery("SELECT id, name, salary FROM emp ORDER BY id")
+        val rows = scala.collection.mutable.ArrayBuffer.empty[String]
+        while rs.next() do rows += s"${rs.getLong(1)}|${rs.getString(2)}|${rs.getLong(3)}"
+        assert(rows.toList == List("7|robert|250", "9|cat|300"),
+          s"the reference must see the address write and nothing else, got $rows")
+      finally ref.close()
+    finally
+      Files.deleteIfExists(db); Files.deleteIfExists(dir)
+
+  test("a refused write leaves the image byte-identical — no half-applied state"):
+    val image = referenceImage(List(
+      "CREATE TABLE emp(id INTEGER PRIMARY KEY, name TEXT)",
+      "INSERT INTO emp VALUES (7,'bob')",
+    ))
+    def refuse(a: String): String =
+      val addr = ScljetEngine.unwrapEither(
+        ScljetEngine.call("parseAddress", Value.StringV(a)), m => s"parse failed: $m")
+      ScljetEngine.call("addressWrite", image, addr, ScljetEngine.sqlText("x")) match
+        case inst: Value.InstanceV if inst.typeName == "Left" =>
+          ScljetEngine.asString(inst.effectiveFields("value"))
+        case other => fail(s"$a must be REFUSED, not $other — a write to an address that does not resolve is a failed write")
+    assert(refuse("emp/999/name").contains("no such row"))
+    assert(refuse("emp/7/nope").contains("no such column"))
+    assert(refuse("nosuch/1/x").contains("no such table"))
+    // An IPK column is the row's identity: the engine drops such an assignment silently today
+    // (BUGS.md scljet-update-ipk-column-silently-ignored), and real sqlite3 would RELOCATE the row.
+    assert(refuse("emp/7/id").contains("identity"))
+
+  test("addressWriteAll is all-or-nothing across the reference's own file"):
+    val image = referenceImage(List(
+      "CREATE TABLE emp(id INTEGER PRIMARY KEY, name TEXT)",
+      "INSERT INTO emp VALUES (7,'bob')",
+      "INSERT INTO emp VALUES (9,'cat')",
+    ))
+    def packet(a: String, v: String): Value =
+      val addr = ScljetEngine.unwrapEither(
+        ScljetEngine.call("parseAddress", Value.StringV(a)), m => s"parse failed: $m")
+      Value.InstanceV("AddressPacket", Map("address" -> addr, "value" -> ScljetEngine.sqlText(v)))
+
+    val good = ScljetEngine.call("addressWriteAll", image,
+      Value.ListV(List(packet("emp/7/name", "BOB"), packet("emp/9/name", "CAT"))))
+    val applied = ScljetEngine.unwrapEither(good, m => s"batch failed: $m")
+    assert(readAddress(applied, "emp/7/id")("value") == "7")
+
+    // One bad packet in the middle: NO image at all, and the source is untouched.
+    val bad = ScljetEngine.call("addressWriteAll", image,
+      Value.ListV(List(packet("emp/7/name", "never"), packet("emp/999/name", "ghost"))))
+    bad match
+      case inst: Value.InstanceV if inst.typeName == "Left" =>
+        assert(ScljetEngine.asString(inst.effectiveFields("value")).contains("no such row"))
+      case other => fail(s"a batch with an unresolvable packet must yield Left, got $other")

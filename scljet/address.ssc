@@ -9,6 +9,9 @@ exports:
   - parseAddress
   - renderAddress
   - addressRead
+  - addressWrite
+  - addressWriteAll
+  - AddressPacket
 ---
 
 # scljet address
@@ -19,11 +22,12 @@ other. Both are true at once; neither alone is the address. Reporting one as the
 whole class of bug this module exists to prevent (`BUGS.md` →
 `scljet-ipk-rowid-alias-not-substituted`).
 
-Spec: `specs/scljet-address.md`. This is the first slice: **read**.
+Spec: `specs/scljet-address.md`. Slices landed: **read** and **write**.
 
 ```scalascript
 [ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, RecordField, StorageRecord, ReadonlyDatabase](index.ssc)
 [tableContext, seekRowidRecord, SeekHit, SeekMiss, SeekFallback, tableIpkIndex, columnIndex, joinTableRows](sql.ssc)
+[UpdateStmt, Assignment, Condition, executeUpdate](sql.ssc)
 [fieldAt, fieldToValue](mutate.ssc)
 ```
 
@@ -203,8 +207,66 @@ def readField(rec: StorageRecord, colIdx: Int, ipkIdx: Int, a: SqliteAddress, st
       case None => AddressedValue("NULL", SqlNull, 0, false, stable)
 ```
 
+## Writing by address
+
+The same triple, applied. The type travels inside the value — a `SqliteValue` carries its own
+storage class — so the packet is `(address, value)` in the signature and `(address, type, value)`
+in the model.
+
+```scalascript
+case class AddressPacket(address: SqliteAddress, value: SqliteValue)
+```
+
+**A write resolves the address first, and refuses when it does not.** The engine's `executeUpdate`
+is correct SQL — a `WHERE` that matches nothing is `changes() = 0`, not an error, and the reference
+agrees — but an address names ONE cell, so "nothing matched" is a failed write, not a quiet success.
+Measured before building on it: a missing rowid, a missing column, and an IPK assignment ALL return
+`Right` with no change. Turning those three silences into errors is what this layer adds; the
+engine's SQL semantics are left alone.
+
+```scalascript
+def addressWrite(dbBytes: ByteSlice, a: SqliteAddress, value: SqliteValue): Either[String, ByteSlice] =
+  addressRead(dbBytes, a) match
+    case Left(message) => Left(message)
+    case Right(av) =>
+      if av.fromRowid then
+        // An INTEGER PRIMARY KEY column IS the row's identity. Assigning it RELOCATES the row in
+        // real SQLite (`UPDATE emp SET id=5 WHERE id=1` → rowid 5), which would make this packet's
+        // own address stop existing — and the engine drops the assignment silently today anyway
+        // (BUGS.md → scljet-update-ipk-column-silently-ignored). Refusing is the honest answer
+        // until the engine can move a row.
+        Left("cannot write " + renderAddress(a) + ": an INTEGER PRIMARY KEY column is the row's " +
+          "identity, not a value — writing it would relocate the row")
+      else
+        val stmt = UpdateStmt(a.table, List(Assignment(a.column, value, None)),
+          List(List(Condition("rowid", "=", SqlInteger(a.rowid), Nil, None, None))))
+        executeUpdate(dbBytes, stmt)
+```
+
+### The commit boundary
+
+A set of packets that must land together. In the whole-image model each mutation yields a COMPLETE
+new image, so the boundary needs no engine machinery — it needs the caller never to see a
+half-applied set. All-or-nothing: the first failure aborts and yields no image at all.
+
+```scalascript
+def addressWriteAll(dbBytes: ByteSlice, packets: List[AddressPacket]): Either[String, ByteSlice] =
+  var remaining = packets
+  var current = dbBytes
+  var failure: Option[String] = None
+  while remaining.nonEmpty && failure.isEmpty do
+    val p = remaining.head
+    addressWrite(current, p.address, p.value) match
+      case Left(message) => failure = Some(message)
+      case Right(next) => current = next
+    remaining = remaining.tail
+  failure match
+    case Some(message) => Left(message)
+    case None => Right(current)
+```
+
 ## Not in this slice
 
-Writing by address (the same triple, applied, plus a commit boundary — one row change touches
-several pages). Addresses into UniML documents and remote references: same model, different
-resolver.
+Addresses into UniML documents and remote references: same model, different resolver. Creating a
+value at an address that does not exist (writes refuse it today; creation must be asked for
+explicitly, never inferred from a typo).

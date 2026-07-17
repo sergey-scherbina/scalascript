@@ -42,7 +42,7 @@ object ScljetEngine:
       |
       |[ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, byteSliceToList, emptyDatabase, buildTableDatabase](index.ssc)
       |[JdbcConnection, JdbcUpdate, JdbcResultSet, jdbcOpen, jdbcCurrent, jdbcSetAutoCommit, jdbcCommit, jdbcRollback, jdbcExecuteUpdate, jdbcExecuteUpdateParams, jdbcExecuteQuery, jdbcExecuteQueryParams, rsNext, rsHasRow, rsIsNull, rsGetLong, rsGetInt, rsGetDouble, rsGetString, rsGetBoolean, rsFindColumn, rsColumnCount, rsColumnLabel, rsRowCount](jdbc.ssc)
-      |[SqliteAddress, AddressedValue, parseAddress, renderAddress, addressRead](address.ssc)
+      |[SqliteAddress, AddressedValue, AddressPacket, parseAddress, renderAddress, addressRead, addressWrite, addressWriteAll](address.ssc)
       |""".stripMargin
 
   // Fallback bootstrap using library-path (`std/scljet/…`) resolution — used
@@ -52,7 +52,7 @@ object ScljetEngine:
       |
       |[ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, byteSliceToList, emptyDatabase, buildTableDatabase](std/scljet/index.ssc)
       |[JdbcConnection, JdbcUpdate, JdbcResultSet, jdbcOpen, jdbcCurrent, jdbcSetAutoCommit, jdbcCommit, jdbcRollback, jdbcExecuteUpdate, jdbcExecuteUpdateParams, jdbcExecuteQuery, jdbcExecuteQueryParams, rsNext, rsHasRow, rsIsNull, rsGetLong, rsGetInt, rsGetDouble, rsGetString, rsGetBoolean, rsFindColumn, rsColumnCount, rsColumnLabel, rsRowCount](std/scljet/jdbc.ssc)
-      |[SqliteAddress, AddressedValue, parseAddress, renderAddress, addressRead](std/scljet/address.ssc)
+      |[SqliteAddress, AddressedValue, AddressPacket, parseAddress, renderAddress, addressRead, addressWrite, addressWriteAll](std/scljet/address.ssc)
       |""".stripMargin
 
   private lazy val interp: Interpreter =

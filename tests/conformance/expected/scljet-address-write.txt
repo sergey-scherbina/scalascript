@@ -1,0 +1,28 @@
+start => 1|ann|1.5
+7|bob|2.5
+-- a write lands, and reads back through the same address --
+  emp/7/name <= robert ok
+  emp/7/name reads => robert
+  emp/7/bonus <= 9.5 ok
+  emp/7/bonus reads => 9.5
+  emp/1/name <= anna ok
+after 3 writes => 1|anna|1.5
+7|robert|9.5
+-- writing a NULL is a value, not an absence --
+  emp/1/bonus <= NULL ok
+  emp/1/bonus reads => NULL
+-- an address that does not resolve is REFUSED, not silently dropped --
+  emp/999/name <= REFUSED: no such row: emp/999/name
+  emp/7/nope <= REFUSED: no such column: nope in emp
+  nosuch/1/x <= REFUSED: no such table: nosuch
+-- an IPK column is identity, not a value --
+  emp/7/id <= REFUSED: cannot write emp/7/id: an INTEGER PRIMARY KEY column is the row's identity, not a value — writing it would relocate the row
+unchanged by the refusals => 1|anna|
+7|robert|9.5
+-- the commit boundary: all packets, one image --
+  batch applied => 1|ANN|
+7|BOB|9.5
+-- all or nothing: one bad packet yields NO image --
+  batch REFUSED: no such row: emp/999/name
+source image untouched => 1|anna|
+7|robert|9.5

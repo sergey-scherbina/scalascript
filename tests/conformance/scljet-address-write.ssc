@@ -1,0 +1,97 @@
+---
+name: scljet-address-write
+description: SclJet addressing — write by address; refusals instead of silent no-ops; the all-or-nothing commit boundary
+backends: [int, js]
+---
+
+# SclJet address — write
+
+The same triple, applied: `write (address, type, value)`, where the type travels inside the value.
+
+The point of the slice is not that a cell changes — the engine's `executeUpdate` already does that.
+It is that **an address that does not resolve is a failed write, not a quiet success**. Through the
+engine's SQL, a `WHERE` matching nothing is `changes() = 0` — correct SQL, and the reference agrees.
+Through an address, which names ONE cell, the same outcome is a lie. Measured before this was built:
+a missing rowid, a missing column, and an IPK assignment all returned `Right` with no change.
+
+Spec: `specs/scljet-address.md`.
+
+[ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlText, SqlReal, buildTableDatabase](std/scljet/index.ssc)
+[executeMutation, queryImage, renderRows](std/scljet/sql.ssc)
+[SqliteAddress, AddressPacket, parseAddress, renderAddress, addressRead, addressWrite, addressWriteAll](std/scljet/address.ssc)
+
+```scalascript
+def showValue(v: SqliteValue): String = v match
+  case SqlNull => "NULL"
+  case SqlInteger(x) => x.toString
+  case SqlReal(x) => x.toString
+  case SqlText(x) => x
+  case _ => "?"
+
+def dump(label: String, image: ByteSlice): Unit =
+  queryImage(image, "SELECT id, name, bonus FROM emp") match
+    case Left(m) => println(label + " => query ERR " + m)
+    case Right(rows) => println(label + " => " + renderRows(rows))
+
+def readAt(image: ByteSlice, text: String): String =
+  parseAddress(text) match
+    case Left(m) => "ERR " + m
+    case Right(a) => addressRead(image, a) match
+      case Left(m) => "ERR " + m
+      case Right(av) => showValue(av.value)
+
+// Write one packet; report what happened either way.
+def writeAt(image: ByteSlice, text: String, v: SqliteValue): ByteSlice =
+  parseAddress(text) match
+    case Left(m) => println("  " + text + " <= ERR " + m); image
+    case Right(a) => addressWrite(image, a, v) match
+      case Left(m) => println("  " + text + " <= REFUSED: " + m); image
+      case Right(next) => println("  " + text + " <= " + showValue(v) + " ok"); next
+
+def addr(t: String, r: Long, c: String): SqliteAddress = SqliteAddress(t, r, c)
+
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER PRIMARY KEY, name TEXT, bonus REAL)",
+  List(List(SqlInteger(1L), SqlText("ann"), SqlReal(1.5)))) match
+  case Left(error) => println("build failed: " + error.message)
+  case Right(base) =>
+    val seeded = executeMutation(base, "INSERT INTO emp VALUES (7, 'bob', 2.5)") match
+      case Left(m) => println("seed failed: " + m); base
+      case Right(next) => next
+    dump("start", seeded)
+
+    println("-- a write lands, and reads back through the same address --")
+    val w1 = writeAt(seeded, "emp/7/name", SqlText("robert"))
+    println("  emp/7/name reads => " + readAt(w1, "emp/7/name"))
+    val w2 = writeAt(w1, "emp/7/bonus", SqlReal(9.5))
+    println("  emp/7/bonus reads => " + readAt(w2, "emp/7/bonus"))
+    val w3 = writeAt(w2, "emp/1/name", SqlText("anna"))
+    dump("after 3 writes", w3)
+
+    println("-- writing a NULL is a value, not an absence --")
+    val w4 = writeAt(w3, "emp/1/bonus", SqlNull)
+    println("  emp/1/bonus reads => " + readAt(w4, "emp/1/bonus"))
+
+    println("-- an address that does not resolve is REFUSED, not silently dropped --")
+    val r1 = writeAt(w4, "emp/999/name", SqlText("ghost"))
+    val r2 = writeAt(w4, "emp/7/nope", SqlText("x"))
+    val r3 = writeAt(w4, "nosuch/1/x", SqlText("x"))
+    println("-- an IPK column is identity, not a value --")
+    val r4 = writeAt(w4, "emp/7/id", SqlInteger(5L))
+    dump("unchanged by the refusals", w4)
+
+    println("-- the commit boundary: all packets, one image --")
+    addressWriteAll(w4, List(
+      AddressPacket(addr("emp", 1L, "name"), SqlText("ANN")),
+      AddressPacket(addr("emp", 7L, "name"), SqlText("BOB")))) match
+      case Left(m) => println("  batch ERR " + m)
+      case Right(next) => dump("  batch applied", next)
+
+    println("-- all or nothing: one bad packet yields NO image --")
+    addressWriteAll(w4, List(
+      AddressPacket(addr("emp", 1L, "name"), SqlText("never")),
+      AddressPacket(addr("emp", 999L, "name"), SqlText("ghost")),
+      AddressPacket(addr("emp", 7L, "name"), SqlText("never")))) match
+      case Left(m) => println("  batch REFUSED: " + m)
+      case Right(next) => dump("  batch WRONGLY applied", next)
+    dump("source image untouched", w4)
+```
