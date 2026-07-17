@@ -1,0 +1,13 @@
+claim: v2-native-stack-overflow
+owner: opus
+agent: opus
+started: 2026-07-17
+heartbeat: 2026-07-17T09:00:00Z
+status: starting
+scope: `bin/ssc run` (the DEFAULT command, v2-native lane) dies with a compile-time
+  StackOverflowError on a large program — any .ssc importing the scljet engine (13.5k lines,
+  22 modules) fails to COMPILE, reads included. Trace is in ssc.Compiler$C.compile /
+  ssc.Runtime$.run (v2/src/Runtime.scala), i.e. the self-hosted front running on the v2 Runtime.
+  Files: v2/src/*.scala (+ v2/lib/ssc1-*.ssc0 only if the recursion must be restructured).
+  Not the scljet engine — scljet is correct on int/js/JVM (verified byte-identical vs the
+  reference sqlite3 3.51.0, both directions through a file).
