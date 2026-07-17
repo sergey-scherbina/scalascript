@@ -1,5 +1,45 @@
 # Bug tracker
 
+## ci-sbt-outer-timeout-cancels-bounded-test-step — job budget expires before the suite can report
+
+**Status:** OPEN (found 2026-07-17 by `ci-red-main` in completed Linux run `29544412767`, SHA
+`73407430457effd61bb96307c4bb41c6d3df3179`, job `87773372863`). The job-level timeout cancels the
+test suite before the separately bounded test step can finish, so CI cannot reveal the complete
+failure set or ever prove the sbt job green at this runtime.
+
+**Real-harness repro.** The sbt job started at `00:18:32Z`. Setup, compile/assembly, and all six
+v2.1 release gates ran through `00:53:54Z`; `Test via sbt` then ran until `01:48:45Z`, when GitHub
+cancelled the whole job exactly at its 90-minute budget. The test step therefore received only
+54m51s of its explicit 60-minute allowance and was still executing. `gh run view 29544412767
+--json jobs` records the outer job as `cancelled` and the test step as `cancelled`, not as a test
+failure or success.
+
+**Expected/fix plan.** Keep the 60-minute test-step cap as the hang detector, but raise the outer
+job budget to 120 minutes so measured setup/gates plus the bounded test have headroom for runner
+variance. Document the timing next to the workflow setting. Acceptance requires a current Linux
+run to reach the test step's natural verdict; extending the timeout alone is not evidence of green.
+
+
+## v2-tuple-pattern-cli-tests-bypass-staged-distribution — four tests abort on unset library path
+
+**Status:** OPEN (found 2026-07-17 by `ci-red-main` in completed Linux run `29544412767`, SHA
+`73407430457effd61bb96307c4bb41c6d3df3179`, job `87773372863`). Four
+`V2TuplePatternCliTest` cases fail before evaluating tuple semantics: typed tuple patterns, nested
+tuple patterns, tuple val destructuring, and map-reduce worker calls.
+
+**Real-harness repro.** In the GitHub sbt log, every case reports `native frontend requires a
+staged installation (ssc.lib.path is unset); run scripts/sbtc "installBin" and use bin/ssc`.
+Re-run the same suite locally with `scripts/sbtc "cli/testOnly
+scalascript.cli.V2TuplePatternCliTest"` after staging current bits. The repeated prerequisite error
+is the observable; do not classify the tuple implementation from tests that never reached it.
+
+**Expected/fix plan.** Inspect the suite's process helper and make it invoke the real staged native
+launcher (`bin/ssc`) or a shared helper with the identical `ssc.lib.path` contract. Do not set a
+test-only semantic bypass, weaken the tuple assertions, or edit the live `v2-native-stack-overflow`
+claim's `v2/src` scope. Done means all four cases execute and pass against the staged distribution,
+with stdout, stderr, and exit code still reported on mismatch.
+
+
 ## standalone-install-fixture-stale-java-command — test rejects the release launcher's stack flag
 
 **Status:** FIXED (2026-07-17, `5bde29d37`; awaiting CI confirmation). Confirmed by `ci-red-main`

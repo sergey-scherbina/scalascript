@@ -273,7 +273,18 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       fails in `Run examples on all three backends` because all JS/JVM commands use standard
       `bin/ssc`. Run `29547476776`, SHA `0018dbf0c`, independently reaches the sbt release gates and
       dies in `v21-slim-distribution-gate` with no diagnostic. Both runs' sbt/conformance siblings
-      were still in progress when recorded, so 5a remains open pending the completed four-job view.
+      were still in progress when recorded.
+      **Completed Linux sbt baseline:** run
+      [`29544412767`](https://github.com/sergey-scherbina/scalascript/actions/runs/29544412767),
+      SHA `73407430457effd61bb96307c4bb41c6d3df3179`, job `87773372863`, ran all six v2.1
+      release gates green, then entered `Test via sbt` at `00:53:54Z`. Before the outer job timeout
+      cancelled it at `01:48:45Z`, the log recorded: two claimed newfront filesystem failures,
+      one claimed Swift inventory failure, one claimed SclJet VFS host-lock failure, the now-fixed
+      standalone installer fixture, and four unclaimed `V2TuplePatternCliTest` failures. Every tuple
+      case reports the same apparatus error: `native frontend requires a staged installation
+      (ssc.lib.path is unset); run ... installBin and use bin/ssc`. The run cannot be the final
+      four-job baseline because its conformance SHA predates the JS fixes and the sbt job itself was
+      cancelled; 5m/5n below make the two unclaimed findings actionable.
 - [x] **5b. Close `run-js-v2-always-exits-1` in the real launcher.** Reproduce with the assembled
       `bin/ssc-tools run-js --v2` tiny-program matrix from `BUGS.md`, trace the JVM exit after node
       returns 0, add a regression that asserts both stdout and process exit, then run
@@ -291,7 +302,11 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       completed run; fix every still-red unclaimed suite with a focused regression/gate. Do not edit
       files owned by a live claim (`p65-fixpoint`, newfront, Swift, etc.); consume their landed fixes
       and verify them instead. For an environment-only test, make the prerequisite explicit or skip
-      with a proven capability check—never weaken a real assertion to get green.
+      with a proven capability check—never weaken a real assertion to get green. The first completed
+      Linux tail is run `29544412767` / job `87773372863`; its only still-unclaimed test family is
+      `V2TuplePatternCliTest` (four cases, one missing-staging root), queued as 5m. Its outer job was
+      cancelled before the suite completed, so later failures remain unknown until 5n lets a current
+      exact-SHA run reach the natural sbt result.
 - [ ] **5e. Prove green on GitHub, not by proxy.** Rebase each finished slice on current
       `origin/main`, run its affected conformance/test gate, push separately, and finally wait for a
       CI run containing all fixes. Done means all four jobs (`Lint Markdown`, `Validate ScalaScript`,
@@ -355,6 +370,22 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       remove the safe stack default merely to satisfy a substring.
       **DONE `5bde29d37`:** fixture 2/2 plus a real generated-launcher shell e2e; default 64m,
       `SSC_XSS=256k` override, jar path, and argv all exact. The shell gate runs in CI validation.
+- [ ] **5m. Run `V2TuplePatternCliTest` through the staged native launcher.** In completed Linux
+      job `87773372863`, all four tests (typed tuple patterns, nested tuple patterns, tuple val
+      destructuring, map-reduce worker calls) abort before semantics with `ssc.lib.path is unset`.
+      Reproduce with `scripts/sbtc "cli/testOnly scalascript.cli.V2TuplePatternCliTest"`, inspect its
+      process helper, and route it through the real installed `bin/ssc` contract (or the shared
+      faithful staged-launcher helper) instead of a fat-jar proxy. Do not change `v2/src` or loosen
+      tuple assertions: those files belong to the live native-stack claim and the observed failure
+      is test setup. Done means all four cases pass against staged current bits and an affected
+      conformance slice remains green.
+- [ ] **5n. Give the sbt job enough outer budget to reach its bounded test verdict.** Run
+      `29544412767` started the sbt job at `00:18:32Z`; setup/build/release gates consumed until
+      `00:53:54Z`, then the 90-minute outer job timeout cancelled `Test via sbt` at `01:48:45Z`
+      after only 54m51s, before its own 60-minute timeout and before the suite completed. Raise the
+      outer job budget to 120 minutes while retaining the 60-minute test-step cap, document the
+      measured reason beside the workflow setting, and validate the YAML/diff. Done means a current
+      Linux run reaches a natural sbt success/failure rather than outer-job cancellation.
 - [ ] **6. Prevent the recurrence.** Long-red CI is what let all of this pile up. Decide + record a
       cheap guard (e.g. the loop checks `gh run list` before claiming a lane green, or a CI-status
       line in the claim protocol). Recorded as a question for Sergiy, not a unilateral process change.
