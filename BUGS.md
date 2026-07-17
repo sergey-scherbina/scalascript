@@ -451,8 +451,18 @@ extend this apparatus fix only where a cancellation reproduces.
 
 ## v2-native-jvmvfs-externs-unbound — host-file I/O intrinsics are invisible to the native tier
 
-**Status:** OPEN (found 2026-07-17 by `v2-native-stack-overflow` after the charAt/toLong fixes made
-the rest of scljet run on `bin/ssc run`). **v2 native plugin host**, not the engine.
+**Status:** **FIXED (2026-07-17, `6131e17a3`)** — new `v2/runtime/std/scljet-vfs-plugin`
+(`ScljetVfsNativePlugin`) registers the 21 `jvmVfs*` natives on the native SPI. **All 9
+`examples/scljet-*` now run on `bin/ssc run` and match the v1 reference byte-for-byte**, and the
+default command reads a file written by the reference `sqlite3` 3.51.0 with output byte-identical
+to sqlite3's own. No duplication: `SclJetJvmVfsHost` (438 lines, already dependency-free) moved
+verbatim into a zero-dep `scljetVfsHost` module that BOTH plugins depend on — only the value
+adapter is per-SPI, so the two lanes cannot drift on locking or durability. Gate:
+`sbt v2NativeScljetVfsPlugin/test` 5/5 (a real file round-trip incl. lock tags and short reads),
+which exists because the two examples covering this end-to-end write to temp paths and are
+auto-skipped by the corpus contract as non-deterministic.
+Found 2026-07-17 after the charAt/toLong fixes made the rest of scljet run natively.
+**v2 native plugin host**, not the engine.
 
 **Symptom/reproduce:**
 

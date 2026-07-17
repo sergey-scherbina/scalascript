@@ -231,6 +231,23 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-17 — SclJet opens real SQLite files on the default `ssc run`
+
+The last blocker: the `jvmVfs*` host-file intrinsics existed only as a v1 interpreter plugin, behind
+a different SPI and ServiceLoader than the native tier's, so `bin/ssc run` could not open a file at
+all — scljet was in-memory only there.
+
+A new native plugin (`v2/runtime/std/scljet-vfs-plugin`) registers them on the native SPI. No code
+was duplicated: the 438-line FileChannel/lock/shm host was already dependency-free, so it moved into
+a zero-dep module both plugins share — only the value adapter differs per SPI, which keeps the two
+lanes from drifting on locking or durability. Following the existing `httpFastEngine` precedent.
+
+All 9 `examples/scljet-*` now run on the default command and match the v1 reference byte-for-byte,
+and `ssc run` reads a database written by the reference `sqlite3` 3.51.0 with output byte-identical
+to sqlite3's own. Gated by a real-file round-trip test, because the two examples that cover this
+end-to-end write to temp paths and the corpus contract skips them as non-deterministic.
+
+
 ## 2026-07-17 — SclJet runs on the default `ssc run` (two v2-native conversion bugs)
 
 Answering "is SclJet real or a fiction": real — byte-identical against the reference `sqlite3`

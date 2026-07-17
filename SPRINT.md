@@ -3558,28 +3558,43 @@ existing `httpFastEngine` precedent (a zero-dep engine at `v1/runtime/http-serve
 shared by `v2NativeHttpFastPlugin` AND the v1 `runtimeServerJvmFast`) rather than inventing a
 layout.
 
-### Slices
+### DONE 2026-07-17 (`6131e17a3`)
 
-- [ ] **V1 — extract the host to a zero-dep shared module.** New `scljetVfsHost` at
-      `v1/runtime/std/scljet-vfs-host/`, containing `SclJetJvmVfsHost.scala` verbatim (package
-      unchanged → v1 needs no import edits). No `.dependsOn` at all. `scljetVfsPlugin` (v1)
-      dependsOn it. Gate: `sbt scljetVfsPlugin/test` (its 175-line host test) stays green.
-- [ ] **V2 — the native plugin.** `v2/runtime/std/scljet-vfs-plugin/` →
-      `ScljetVfsNativePlugin extends NativePlugin` (model: `v2/runtime/std/fs-plugin`'s
-      `FsNativePlugin`, 106 lines, `dependsOn(v2NativePluginSpi)`), registering the **21** `jvmVfs*`
-      natives over the shared host. `register(name)(fn)` + `registerGlobal(name, -1)(fn)`.
-      Value mapping (v2 `ssc.Value`, NOT v1 `PluginValue`): `JvmVfsResult(code, message, value)` →
-      `DataV("JvmVfsResult", Vector(StrV, StrV, value))`; `JvmVfsRead(bytes, short)` →
-      `DataV("JvmVfsRead", Vector(list, BoolV))`; a list is the `DataV("Cons", …)/DataV("Nil", …)`
-      spine. Lock levels / shm modes arrive as `DataV` tags (`LockShared`, `ShmExclusiveLock`, …).
-      **`registerFields`** for both records — the `.ssc` reads `result.code`/`.message`/`.value`
-      by NAME (`scljet/jvm-vfs.ssc:72`), not just by pattern.
-- [ ] **Wire.** `META-INF/services/ssc.plugin.NativePlugin`; `build.sbt`: new `lazy val`, add to
-      `cli`'s `.dependsOn` list (line ~1463) and the root `.aggregate` (line ~4696) — that is how
-      every other v2 native plugin reaches `bin/ssc`.
-- [ ] **Gate.** `bin/ssc run examples/scljet-readonly.ssc` + `scljet-jvm-vfs.ssc` (both currently
-      `unbound global: jvmVfsDelete`) → 9/9 examples native. Do NOT regress: `sbt
-      scljetVfsPlugin/test`, scljet conformance 98/98 `[int, js]`, `contract.sc --lanes v2`.
+**All 9 `examples/scljet-*` run on `bin/ssc run` and match the v1 reference byte-for-byte** (was
+7/9). The default command now reads a database written by the reference `sqlite3` 3.51.0 with
+output byte-identical to sqlite3's own — SELECT / WHERE-on-IPK / GROUP BY+SUM / ORDER BY+LIMIT.
+
+- [x] **V1 — host extracted** to zero-dep `scljetVfsHost` (`v1/runtime/std/scljet-vfs-host/`),
+      `SclJetJvmVfsHost.scala` moved verbatim (package unchanged → no import edits anywhere);
+      `scljetVfsPlugin` dependsOn it. Follows the `httpFastEngine` precedent.
+- [x] **V2 — `ScljetVfsNativePlugin`** (`v2/runtime/std/scljet-vfs-plugin/`), 21 natives over the
+      shared host. `registerFields` for `JvmVfsResult`/`JvmVfsRead` — the `.ssc` reads `.code` by
+      NAME, not only by pattern.
+- [x] **Wire** — META-INF/services + module + cli `dependsOn` + root `aggregate` **+ the one that
+      is easy to miss: `standardJarPrefixes`**, an explicit ALLOWLIST that fills
+      `bin/lib/standard/jars` (it keeps the compiler-free standard tier clean). Both jars had to be
+      named there; everything else was in place and the plugin still did not load.
+- [x] **Gate — `sbt v2NativeScljetVfsPlugin/test` 5/5**: a real open/write/read/size/sync/truncate
+      round-trip on an actual file, the lock **tags** reaching the host (a degraded tag would
+      silently disable SQLite locking), a past-EOF read reporting SHORT rather than an error (the
+      pager depends on that), and misuse failing loudly. This test exists BECAUSE the two examples
+      that cover the surface end-to-end write to temp paths → the corpus contract auto-skips them
+      as non-deterministic, so nothing else would notice the plugin disappearing.
+
+**No regressions:** scljet conformance 98/98 `[int, js]`; `contract.sc --lanes v2` unchanged at
+164/208 with no new failures; `scljetVfsPlugin/test` unchanged at 5/6.
+
+**PRE-EXISTING, verified by stashing + rebuilding on clean origin/main (NOT ours):**
+`scljetVfsPlugin`'s "exclusive host lock blocks official SQLite in another process" spawns a real
+`sqlite3` and expects it to block on our exclusive lock; the process exits instead
+(`process.isAlive() was false`). Environment/timing-sensitive. Same for `contract --lanes v2`'s red
+`rozum-agent-schema-derived` (a web-server example whose baseline row is `* SKIP`).
+
+### GOTCHA that cost the most time here
+**`scripts/sbtc` serves a CACHED build definition**: after editing `build.sbt`, a new project is
+"Not a valid command" and `installBin` silently keeps using the OLD jar list — the fix looks like it
+did nothing. `sbtc "reload"` first. This bit twice in one session (once for the module, once for the
+allowlist).
 
 ### Traps to respect here (learned the hard way this week)
 - **`installBin` COPIES** the engine + plugins into `bin/lib/`; editing sources changes nothing
