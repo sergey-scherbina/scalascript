@@ -379,7 +379,8 @@ structurally by the host value representation):**
 **Core IR (canonical, kernel-owned serialization):**
 `coreir.encode v`→**`Str`** (serialize a `Data`-tree representation of a Core IR program to the
 canonical form) · `coreir.eval v` (compile and run an IR `Data` tree directly) ·
-`coreir.decode`→**not implemented** (see below).
+`coreir.decode s`→**`IrProg`** (parse canonical Core IR text — `Str`, or its UTF-8 `Bytes` — back
+into the `IrProg` `Data` tree, the inverse of `coreir.encode`; see below).
 These let `sscc` *emit* Core IR without reimplementing the format, and keep the format canonical
 in exactly one place — which is what makes the fixpoint diff meaningful.
 
@@ -393,17 +394,24 @@ things that were not true:
   — it would break every existing caller (`lib/ssct-emit.ssc0`, `bin/mirac.ssc0`, the P6.5 driver)
   and buy nothing, since UTF-8 bytes are one `str->utf8` away. If a binary encoding is ever wanted
   it is `v2-bin`, already scoped as deferred in `12-ir-format.md`.
-- **`coreir.decode` is not registered as a primitive at all.** Only `coreir.encode` and
-  `coreir.eval` exist. The kernel *can* read canonical text — that is `Reader`, used by
-  `ssc run-ir` — but it is not exposed to `.ssc`, so `encode ∘ decode = canonicalize` (promised by
-  `12-ir-format.md`) is currently not expressible from the language. Still open; tracked in
-  `SPRINT.md` as `coreir-canonical-codec-hardening` **H4**. The status note below already said
-  "Still deferred at the kernel level: `coreir.decode`" — the signature line above simply had not
-  been kept in sync with it.
+- **`coreir.decode` is now registered** (2026-07-17, `coreir-canonical-codec-hardening` **H4**).
+  `coreir.decode : Str|Bytes -> IrProg` parses canonical Core IR text (a `Str`, or its UTF-8
+  `Bytes`) back into the `IrProg` `Data` tree the tower consumes — the exact inverse of
+  `coreir.encode`. It is `IrToData` (`Runtime.scala`), the Data-level mirror of `IrDecode`, over the
+  kernel `Reader`. So `encode ∘ decode = canonicalize` and `decode ∘ encode = id` are now expressible
+  from `.ssc` (pinned by `specs/coreir-codec-vectors.sh`: all 13 nodes + 7 constants round-trip, and
+  a lenient/pretty/commented program re-emits as the exact canonical bytes). The wire form is still
+  read in exactly one place — the `Reader` — so nothing about the canonical single-owner rule
+  changes.
 
-The reader that *does* exist is **bounded**: see `12-ir-format.md` §"Bounded decoding". It is the
-entry point for untrusted capsules, so it rejects over-deep input with a diagnostic rather than a
-`StackOverflowError`.
+The reader that backs both `ssc run-ir` and `coreir.decode` is **bounded and validated**: it is the
+entry point for untrusted capsules. It rejects over-deep input with a diagnostic rather than a
+`StackOverflowError` (`12-ir-format.md` §"Bounded decoding"), and it **fails closed** on
+structurally-invalid IR — a negative or out-of-range de Bruijn `Local`, a non-canonical `NAT`/`INT`
+token, odd-length or non-hex `bytes`, a non-`Lam` `letrec` binding, or an unbound `Global` (a
+`Global` is *closed* iff it names a top-level `def` or an `@`-cell) — each with a diagnostic naming
+the offending node (`coreir-canonical-codec-hardening` **H5**; `12-ir-format.md` §"Reader leniency
+vs. writer strictness").
 
 Design rules for the primitive set:
 
@@ -423,8 +431,8 @@ canonical S-expr of §12; `IrEncode` in `Runtime.scala`; used by `lib/ssct-emit.
 the `.ssct → ir → run-ir` loop). `Option` results use `Some`/`None`; lists use `Cons`/`Nil`.
 **Strings are UTF-16 code units** (O(1) indexing, matching JVM/JS) — `slen`/`scodeAt`/`sslice`/
 `sfromCodes` index in code units, not code points (a deliberate relaxation of the original
-"code points" wording for practical performance). Still deferred at the kernel level:
-`coreir.decode`.
+"code points" wording for practical performance). **`coreir.decode` now implemented** (2026-07-17,
+H4; `IrToData` + the validated `Reader`) — the codec is symmetric from `.ssc`.
 
 ## 6. Program envelope
 

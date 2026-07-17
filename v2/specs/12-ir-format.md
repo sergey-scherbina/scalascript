@@ -128,6 +128,29 @@ layout are not preserved (they are not part of the term).
 Leniency is about **layout**, never about **validity**: an accepted-but-malformed term is a bug,
 not a feature. See "Bounded decoding" below.
 
+**Validation — the reader fails CLOSED** (2026-07-17, `coreir-canonical-codec-hardening` **H5**).
+Because the reader decodes **untrusted persisted capsules**, every token and every scope is
+validated on decode; a term the canonical writer could never have produced is rejected with a
+diagnostic naming the offending node, not silently accepted. Before H5 these all decoded *open*
+(the program ran with wrong or out-of-bounds semantics and no diagnostic):
+
+| Malformed input | Was (fail-open) | Now (fail-closed) |
+|---|---|---|
+| `(local -1)` | negative de Bruijn index → OOB `env` read | rejected: "not a canonical NAT" |
+| `(local 5)` with < 6 binders in scope | reads a wrong / out-of-bounds `env` slot | rejected: "local index out of range" |
+| `(lam +1 …)` / `(arm T -1 …)` | signed/negative arity accepted | rejected: "not a canonical NAT" |
+| `(int +1)` / `(int 01)` | read as `1` | rejected: "not a canonical INT" |
+| `(bytes abc)` (odd) / `(bytes +1)` (non-hex) | took 2 bytes / `Integer.parseInt` accepted the sign | rejected: "hex must be even length" / "non-hex digit" |
+| `(letrec ((lit …)) …)` | non-`Lam` binding | rejected: "letrec binding must be a lam" |
+| an unbound `(global g)` (esp. in a dead branch) | accepted; program ran clean | rejected: "unbound global" |
+
+`NAT` = `0|[1-9][0-9]*`; `INT` = `-?`NAT (no `+`, no leading zeros, no `-0`); `HEX` = even-length
+`[0-9a-fA-F]`. A `Global g` is **closed** iff `g` is a top-level `def` name or an `@`-named-arg cell
+(the runtime's own resolve fallback; the kernel reader cannot see the plugin registry). The de
+Bruijn scope check matches the evaluator exactly (`10-core-ir.md` §4). This validation backs both
+`ssc run-ir` and the `coreir.decode` primitive. Pinned by `specs/coreir-codec-vectors.sh`
+(rejection vectors: RED on the pre-H5 kernel, GREEN after).
+
 ## Bounded decoding (binding)
 
 The reader is the entry point for **untrusted persisted capsules** (`control-interoperability.md`),
