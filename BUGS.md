@@ -163,8 +163,9 @@ codegens. Green v1 parity will not close this v2 user-facing bug.
 
 ## v21-slim-distribution-gate-silent-assertions — Linux gate exits 1 with no failed check or diff
 
-**Status:** OPEN (found 2026-07-17 by `ci-red-main` in run `29547476776`, SHA `0018dbf0c`, job
-`sbt — compile and test`). The release and explicit-lanes gates pass, then
+**Status:** FIXED (2026-07-17, `68ff5dacd`; awaiting its queued Linux run `29548820854`). Found by
+`ci-red-main` in run `29547476776`, SHA `0018dbf0c`, job `sbt — compile and test`. The release and
+explicit-lanes gates pass, then
 `v21-slim-distribution-gate.sh` runs for 70 seconds and exits `1`; the complete job log contains no
 output between the step header and `Process completed with exit code 1`.
 
@@ -179,6 +180,13 @@ platform-specific, or stale expectation.
 stdout/stderr/exit, print expected/actual and a diff on mismatch, and only then classify failure.
 Reproduce the current Linux failure from the newly diagnostic run; do not guess at or refresh an
 expectation while the apparatus is blind.
+
+**Fix/result.** Every semantic assertion now routes through named helpers that preserve stdout,
+stderr, and exit status, and prints expected/actual plus a unified diff before failure. File-state
+and negative checks likewise identify themselves. The complete gate passes locally. A later Linux
+run, `29547740771` at `b829c8264`, passes the same slim step, proving the earlier semantic/platform
+mismatch was not persistent; the first run containing the diagnostic implementation is still
+queued, so Linux confirmation of the apparatus itself remains pending.
 
 
 ## examples-run-all-standard-launcher-tools-command — all JS/JVM example lanes call forbidden commands

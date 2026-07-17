@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-07-17 — slim distribution failures identify the compared observable
+
+The v2.1 slim-distribution gate no longer exits silently from bare shell assertions. Named helpers
+preserve stdout, stderr, and exit status and print expected/actual plus a unified diff; file-state
+and negative checks identify themselves before failing (`68ff5dacd`). The full gate passes locally,
+and a later Linux run passes the same slim step; the first run containing the new diagnostics is
+queued for platform confirmation.
+
 ## 2026-07-17 — the Linux sbt tail reaches faithful staged tests
 
 `V2TuplePatternCliTest` now runs the installed `bin/ssc` distribution instead of a fat-jar proxy

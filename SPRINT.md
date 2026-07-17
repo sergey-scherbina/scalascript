@@ -351,11 +351,16 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       The separately exposed v2 auto-output gap stays open in 5k and is not hidden as "fixed" by this.
       **DONE `aea328279` (after routing slice `ef335ee2c`):** all three lanes use installed
       `ssc-tools`; the complete 17-file matrix exits 0 and reports byte-identical output.
-- [ ] **5j. Make `v21-slim-distribution-gate` diagnostic before interpreting its Linux failure.**
+- [x] **5j. Make `v21-slim-distribution-gate` diagnostic before interpreting its Linux failure.**
       Run `29547476776` reaches the gate after two release gates pass, spends 70 seconds, and exits 1
       with literally no check name/diff. Replace every bare assertion that can abort with named
       expected/actual/exit diagnostics, prove the gate still passes locally, then let Linux identify
       the real residual. Never refresh expected output from a silent assertion.
+      **DONE `68ff5dacd`, awaiting diagnostic-run confirmation:** all semantic/file/negative checks
+      now name the observable and print expected/actual/exit/diff before failing; the complete gate
+      passes locally. Later Linux run `29547740771` (`b829c8264`) passes the same slim gate, proving
+      the earlier underlying mismatch was not persistent. Run `29548820854`, the first SHA with the
+      new diagnostics, is queued and remains the platform confirmation.
 - [ ] **5k. Restore v2 native auto-output at every runnable block boundary.** Standard `bin/ssc`
       omits `2`, squares, and `HELLO!` for the three non-Unit fences in `examples/content.ssc`, while
       all v1 lanes print them. Initial "interpreter" attribution was wrong: `bin/ssc` is v2 native;
