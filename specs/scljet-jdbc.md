@@ -792,25 +792,36 @@ lane, referenced from `README.md` and this spec.
   subset, `SqliteValue`↔JDBC type map, transaction/autocommit semantics, parameter-binding
   mechanism, error mapping, conformance plan, dependencies, open decisions.
 
-### J1 — parameter binding + counted mutation in the engine
-- [ ] `?`/`?NNN` lexer branch, `Token.bound`, `bindParams`, the two parser `"bound"`
-  branches, `queryImageParams` — a bound param round-trips as an `SxLit` for all five
-  storage classes, proven equal to the literal form on `[int, js]`.
-- [ ] `executeMutationCounted`/`…Params` return correct `changes`/`lastInsertRowid` for
-  INSERT/UPDATE/DELETE/CREATE/DROP.
+### J1 — parameter binding + counted mutation in the engine ✓ DONE 2026-07-15
+- [x] `?` lexer token + defaulted `Token.bound` + `bindParams` pass → bound param becomes an
+  `SxLit`; `queryImageParams`/`executeMutationCountedParams`. (`5a64800c7`.)
+- [x] `executeMutationCounted`/`…Params` → `MutationResult(image, changes, lastInsertRowid)`
+  (`30fd8fb33`). Note the follow-up filed later: `lastInsertRowid` is wrong for an
+  `INTEGER PRIMARY KEY` table (reports a sequential counter, not the assigned rowid) —
+  `BUGS.md`, found during J4.
 
-### J2 — portable `scljet.jdbc` façade
-- [ ] `JdbcConnection`/`JdbcStatement`/`JdbcPreparedStatement`/`JdbcResultSet`/
-  `JdbcResultSetMetaData` over the engine, forward-only read-only cursor, full getter map,
-  autocommit + `commit`/`rollback` threading — green on `[int, js]` against reference
-  `sqlite3`.
-- [ ] `examples/scljet-jdbc.ssc` runs on the portable lane.
+### J2 — portable `scljet.jdbc` façade ✓ DONE (`25ea1023e`; example 2026-07-17)
+- [x] `JdbcConnection`/`JdbcResultSet` over the engine, forward-only read-only cursor, typed
+  getters (by index + label), autocommit + `commit`/`rollback` threading — conformance
+  `scljet-jdbc-basic`/`scljet-sql-params`/`scljet-typedsql-*` green on `[int, js]` vs reference
+  `sqlite3`. (`JdbcStatement`/`JdbcPreparedStatement`/`JdbcResultSetMetaData` are the JVM shim's
+  J3 types; the portable façade threads the connection functionally instead of holding statement
+  objects.)
+- [x] `examples/scljet-jdbc.ssc` (2026-07-17) runs on the portable `[int, js]` lanes. NOT on the
+  native front — importing the façade trips a parse gap there (`BUGS.md` →
+  `v2-native-front-rejects-jdbc-facade`), which is a native-front issue, not the façade's.
 
-### J3 — JVM `java.sql.Driver` shim
-- [ ] `runtime/std/scljet-jdbc-plugin/` registers `ScljetDriver`; `DriverManager`
-  connects; the query/prepared/update/txn/metadata suite passes and diffs equal against
-  `org.xerial:sqlite-jdbc` on the same host file through `jvmSqliteVfs()`.
-- [ ] Unsupported methods throw `SQLFeatureNotSupportedException` exactly as enumerated.
+### J3 — JVM `java.sql.Driver` shim ✓ DONE 2026-07-15 (`9ac5d0a62`, hardened through 2026-07-16)
+- [x] `runtime/std/scljet-jdbc-plugin/` registers `ScljetDriver`; `DriverManager` connects;
+  Connection/Statement/PreparedStatement/ResultSet/*MetaData as `java.lang.reflect.Proxy` shims
+  over the embedded interpreter; the query/prepared/update/txn/metadata suite passes and
+  cross-checks value-for-value against `org.xerial:sqlite-jdbc`. `sbt scljetJdbcPlugin/test`
+  **56/56**.
+- [x] Unsupported methods throw `SQLFeatureNotSupportedException` as enumerated (8 `nse`
+  fall-throughs across the proxy handlers).
+- [~] NOTE: host-file writes are whole-image `Files.write`, NOT through `jvmSqliteVfs()` — no
+  journal, fsync or locking. The J3 checklist line above overstated it; corrected here and
+  tracked as J4 "Journaled host-file writes" (the durability work in progress).
 
 ### J4 — hardening
 - [x] `getGeneratedKeys` — one-column `last_insert_rowid()` `ResultSet`, tracked per
