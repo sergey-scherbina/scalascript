@@ -14,9 +14,16 @@ import scalascript.transform.Normalize
 
 final class EmitJsCmd extends CliCommand:
   def name = "emit-js"
-  override def summary = "Transpile .ssc to JavaScript (Node) and print to stdout"
+  override def summary =
+    "Transpile .ssc to JavaScript (Node) and print to stdout [NON-CONFORMING: 32-bit Int]"
   override def category = "Emit & transpile"
-  override def details = List("Flags: --no-tree-shake, --stats")
+  override def details = List(
+    "Flags: --no-tree-shake, --stats",
+    "NON-CONFORMING for integer semantics: ssc `Int` is 64-bit; this lane folds integer "
+      + "constants at 32 bits (2147483647+1 emits -2147483648) and carries values in a JS "
+      + "double, losing exactness above 2^53 -- silently, exit 0. See specs/numeric-widths.md "
+      + "§4. Slated for deletion with the v1 hybrid tier; use `run-js --v2` instead."
+  )
   def run(args: List[String]): Unit =
     // Parse --no-tree-shake and --stats flags before processing files.
     var noTreeShake = false

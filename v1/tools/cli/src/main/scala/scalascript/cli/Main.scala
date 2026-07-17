@@ -3079,8 +3079,15 @@ final class EmitIrCmd extends CliCommand:
  *  on disk.  Requires `scala-cli` on PATH. */
 final class RunJvmCmd extends CliCommand:
   def name = "run-jvm"
-  override def summary = "Compile via JvmGen and run immediately via scala-cli"
+  override def summary =
+    "Compile via JvmGen and run immediately via scala-cli [NON-CONFORMING: 32-bit Int]"
   override def category = "Separate compilation (v2.0)"
+  override def details = List(
+    "NON-CONFORMING for integer semantics: ssc `Int` is 64-bit, this lane truncates it to 32 "
+      + "bits (2147483647+1 prints -2147483648; conformance case deep-tail-recursion prints "
+      + "705082704 for 5000050000) -- silently, exit 0. See specs/numeric-widths.md §4. Slated for "
+      + "deletion with the v1 hybrid tier; use the v2 lanes for integer-sensitive work."
+  )
   def run(args: List[String]): Unit =
     if args.isEmpty then
       System.err.println("Usage: ssc run-jvm [--frontend <custom|react|solid|vue|swing|javafx>] [--transport <http|in-process>] <file.ssc>")
