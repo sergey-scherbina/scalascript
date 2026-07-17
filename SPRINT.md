@@ -45,38 +45,89 @@ v2 and (since `9c49438d4`) the ABI descriptor all agree. It is stated as a *conf
 `Int`→`Long` through every emitted Scala and removing `|0` + introducing BigInt in the JS emitter —
 real work on a corpse. Retire it; just stop presenting it as conformant meanwhile.
 
-- [ ] **W1 — write the law, normatively.** `Int` is 64-bit on EVERY backend; a backend that truncates
-      is **non-conforming**. Put it where a backend author and a host-binding author will both hit it
-      (`SPEC.md` + `v2/specs/10-core-ir.md` cross-ref + `docs/`), not in a test-runner comment.
-- [ ] **W2 — ONE normative numeric table + a test that every consumer agrees with it.** This is the
-      anti-recurrence measure and the most valuable item here. The descriptor bug
-      (`coreir-abi-int-width-declared-i32-actually-i64`, fixed `9c49438d4`) happened because **every
-      consumer independently guessed name→width by reading the type name** — and `Int` reads as
-      "32 bits" to everyone alive. Pin: `Int`→64, `Long`→64, `Float`→64, `Double`→64, `BigInt`→arbitrary.
-      Assert agreement from: the interpreter, v2, the v1 codegen (as a declared known-red), the ABI
-      descriptor, and the four host tables (JS/TS, Rust, Swift, WASM-WASI). **Note `Int`==`Long` and
-      `Float`==`Double` are literally the same runtime types** (measured: `val a: Int = 9223372036854775807`
-      compiles and `a == b` vs the `Long`; `0.1f + 0.2` → `0.30000000000000004`, i.e. double
-      arithmetic). Under the table that stops being a lurking surprise and becomes a checked fact.
-      Related live gap found while measuring: the descriptor's numeric table has **no `Float` case at
-      all** — `Float` is a legal ssc type that cannot cross the ABI; `AbiPrimitive` has no `F32`. It
-      currently fails closed; keep it that way, and let the table say so explicitly.
-- [ ] **W3 — stop the test suite from hiding the divergence.** `codegen: v2` frontmatter lets a case
-      **pick the backend that agrees with it** (`run.sc`: *"Cases whose semantics need 64-bit Int …
-      opt in here so they run on the backend that honors the ssc Int=64-bit contract"*). That is the
-      gate routing around the bug — the exact pattern AGENTS.md now bans. Replace with: the case runs
-      on EVERY eligible backend, and the v1 codegen is **RED as a declared, expiring known
-      non-conformance** (expires when v1 codegen is deleted). A known-red is honest; an invisible
-      reroute is not. Keep `codegen:` if it has legitimate non-semantic uses — the ban is on using it
-      to dodge a semantic divergence.
-- [ ] **W4 — mark `run-jvm` / `emit-js` non-conforming** for integer semantics in `--help` and the
-      docs, until they are deleted, so nobody ships on a backend that prints `705082704` for
-      `5000050000`.
-- [ ] **W5 — OPEN QUESTION, measure before deciding (do not guess).** A file may hold both
-      ` ```scalascript ` blocks (our `Int` = 64) and ` ```scala ` blocks, which README calls
-      "Standard Scala 3 — no ScalaScript extensions" and which real `scalac` compiles with `Int` = 32.
-      If both run in one file, one word means two things. **Not yet measured** — measure it, then
-      decide whether it's a documented boundary or a real hole. Raised 2026-07-17.
+**RE-MEASURED 2026-07-17 by `int-width-conformance` — the table above reproduces EXACTLY** (all 5
+rows; `deep-tail-recursion` on `run-jvm` prints `705082704`, exit 0). Three things it does NOT say:
+
+1. **`SPEC.md` §4.1 stated the OPPOSITE law** — "`Int` | 32-bit integer" — until W1 fixed it. So the
+   law was not merely "unstated": the canonical spec asserted 32-bit, and the *only* backend
+   implementing SPEC.md as written was the v1 codegen, i.e. the non-conforming one. Every conforming
+   backend contradicted the canonical spec.
+2. **The v1 interpreter — the REFERENCE — is itself 32-bit for LITERALS** and fails OPEN:
+   `println(2147483648)` prints **`null`**, exit 0 (`BUGS.md`
+   §`v1-interp-int-literal-above-2^31-becomes-null`). Its *arithmetic* is 64-bit, which is why the
+   canonical probe `2147483647 + 1` works — it is the one form that does. "v1 interp = 64-bit ✅" is
+   true only for computed values.
+3. **v2 native prints `0` for `-9223372036854775808`** (min64), silently — `BUGS.md`
+   §`v2-native-min64-literal-prints-0`. A lane the table calls conforming.
+
+- [x] **W1 — write the law, normatively.** DONE `35e905a74`. New `specs/numeric-widths.md` = THE
+      normative table (width + ABI + host carriers + per-backend conformance status, single source of
+      truth). `SPEC.md` §4.1 corrected 32→64 + `Float`/`BigInt` rows + the normative conformance
+      requirement; `v2/specs/10-core-ir.md` §2 cross-ref; `docs/targets.md` carries the law next to
+      design principle #1 where a backend author hits it.
+- [x] **W2 — ONE normative numeric table + a test that every consumer agrees with it.** DONE
+      `402b11445`. Table = `specs/numeric-widths.md` §2/§3. `NumericWidthTableAgreementTest`
+      **PARSES** the table out of the spec and compares it against the REAL consumers — it
+      deliberately does NOT restate the widths in Scala (a restated table is an (N+1)th guess that
+      agrees with itself forever while the spec drifts). Checks: the real
+      `PreBodyApiDescriptorProducer` RUN per row (declared `AbiType` + evidence); REJECTED rows must
+      fail closed with `UNSUPPORTED_NUMERIC_WIDTH`; nothing declared NARROWER than the table; the
+      `Int`/`Long` same-ABI-distinct-evidence invariant; the 4 host-profile tables; plus a
+      non-vacuity guard on the parser itself. **VERIFIED BY MUTATION, not by a green run**: spec
+      claims js-ts `I64`→`number` ⇒ FAILS naming both sides; spec claims `Float` crosses as `F64` ⇒
+      FAILS ("table declares F64, producer gave Left(UNSUPPORTED_NUMERIC_WIDTH)"). 95/95 green incl.
+      `PreBodyApiDescriptorProducerTest`.
+      - Two findings folded in: (a) §3 first pinned `BigInt`→`i64` for rust/swift/wasm — that is the
+        very lie this task exists to kill (arbitrary precision through a 64-bit carrier); `BigInt` is
+        now deliberately EXCLUDED from the fixed-width table with the reason stated. (b) §3 is keyed
+        by the host profiles' **canonical-value** vocabulary (`I64`,`Double`), NOT the descriptor's
+        `AbiPrimitive` (`I64`,`F64`) — the host control specs state they *do not consume
+        descriptors*, so the two layers are separate on purpose and the alias is documented once in
+        the spec rather than hardcoded in the test. `Float` confirmed: it IS handled — it is in
+        `UnsupportedNumericTypes` and fails closed loudly; `AbiPrimitive` has no `F32`. Kept.
+
+- [x] **W3 — stop the test suite from hiding the divergence.** DONE. `codegen: v2` **removed**; only
+      one case ever used it (`deep-tail-recursion`) and it was documented nowhere. Replaced by two
+      keys in `tests/conformance/run.sc`:
+      - `known-red: "<lanes> — <reason>"` — a DECLARED, EXPIRING per-lane non-conformance. The lane
+        still RUNS, is still COMPARED, and still DIFFS (capped at 3 lines); only the *bucket*
+        changes. A reason is MANDATORY (empty ⇒ the runner exits 1). **It expires by itself: if a
+        declared-red lane starts PASSING, the suite FAILS** and tells you to delete the declaration —
+        so a known-red cannot outlive its bug and rot into noise that hides the next regression.
+        Summary line reports the declared-known-red count.
+      - `also-codegen: v2` — ADDITIVE v2 codegen lanes (`JS/v2`, `JVM/v2`). **There is deliberately
+        no "instead of" form**, so the key cannot be used to dodge a divergence by construction. This
+        also *preserves* the genuine v2-codegen TCO coverage the old reroute provided instead of
+        trading it away.
+      - New case `tests/conformance/int-width.ssc` (+ expected, generated from the reference and
+        cross-checked byte-identical against v2 native): 2^31 witness, 2^53+1 (catches a double
+        carrier), max64, the wrap to min64, `Int`==`Long`. **Every value is COMPUTED from literals
+        ≤ 2^31-1** because of the reference's literal bug (finding 2 above) — do not "simplify" it
+        back into big literals.
+      - **The stale-known-red detector immediately caught MY OWN error**: I declared
+        `deep-tail-recursion` JS red; it genuinely PASSES. Measured reason — the v1 JS codegen is not
+        uniformly 32-bit: it folds integer constants at 32 bits (`2147483647+1` → `-2147483648`) but
+        carries runtime values in a **double**, so `5000050000` survives exactly while max64 degrades
+        to `9223372036854776000`. Declarations corrected to the measured truth (deep-tail-recursion:
+        `jvm` only).
+
+- [x] **W4 — mark `run-jvm` / `emit-js` non-conforming** for integer semantics. DONE. Both `--help`
+      summaries now carry `[NON-CONFORMING: 32-bit Int]` and both gained a `details` line stating the
+      measured failure mode, pointing at `specs/numeric-widths.md` §4, and naming the v2 lane to use
+      instead. `docs/targets.md` (the backend-author doc) carries the same warning next to design
+      principle #1. The two failure modes are DIFFERENT and are stated separately (measured): the JVM
+      lane maps ssc `Int` to a 32-bit host int and truncates; the JS lane folds integer constants at
+      32 bits **and** carries values in a double (loses exactness above 2^53).
+- [x] **W5 — measured, NOT a hole today; recorded as a latent one.** Full detail + the decision that
+      is still owed: `BACKLOG.md` §"`scala` fences vs `scalascript` fences". Summary: a `scala` fence
+      behaves **identically** to a `scalascript` fence on every lane — the width follows the
+      BACKEND, not the fence tag — because `Lang.isParseable` covers `scala`, so `scala` blocks are
+      executed by the ScalaScript toolchain and `JsGen`'s `isStandardScala` → `ScalaJsBackend` branch
+      is **unreachable dead code** (verified: 0 Scala.js markers in emitted JS for mixed and
+      `scala`-only files). But `ScalaJsBackend.compileSourceToJs` is REAL (shells out to `scala-cli
+      --power package --js` ⇒ real scalac ⇒ `Int`=32), and `README.md` + `SPEC.md` §3.3 both *promise*
+      that Scala.js path. So the hole is one case-reorder away, and the docs describe the dangerous
+      version. Recorded rather than fixed, per the task's instruction.
 
 ## v2-failopen — unknown zero-arg method silently returns a closure (BUGS.md `v2-zero-arg-unknown-method-fails-open`)
 
