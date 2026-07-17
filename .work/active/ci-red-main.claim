@@ -1,7 +1,7 @@
 claim: ci-red-main
 branch: feature/ci-red-main-final
 agent: codex
-heartbeat: 2026-07-17T04:25:56Z
+heartbeat: 2026-07-17T04:38:48Z
 status: in-progress
-done-so-far: staged JVM and actor repairs landed; Node 60/60, matrix 1/1, generated JVM 35/35, leader cases 2/2 x 3 lanes; CI example type-check now uses tools tier
-next: monitor exact-SHA run 29554418959 and natural sbt tails 29549382274/29549738624/29549788642; current newfront/Swift/SclJet failures reproduce locally, consume owner work and await takeover authority; release only after all four jobs pass one SHA
+done-so-far: staged JVM and actor repairs landed; Node 60/60, matrix 1/1, generated JVM 35/35, leader cases 2/2 x 3 lanes; CI example type-check uses tools tier; coord-status exact branch matcher landed
+next: monitor natural sbt tails 29549382274/29549738624/29549788642 and the next exact-SHA run; current newfront/Swift/SclJet failures reproduce locally, consume owner work and await takeover authority; release only after all four jobs pass one SHA
