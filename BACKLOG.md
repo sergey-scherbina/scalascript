@@ -15,6 +15,44 @@ Status hygiene (2026-06-23): open `[ ]` rows below are intentionally still open,
 explicitly `BLOCKED` or `DEFERRED` product/external-decision items. History-only / wontfix notes
 are plain bullets without checkboxes so agents do not claim them as build work.
 
+## `scala` fences vs `scalascript` fences — a LATENT `Int`-width hole behind dead code (2026-07-17)
+
+Raised by `int-width-conformance` W5, which asked: a file may hold both ` ```scalascript ` blocks
+(ssc `Int` = 64) and ` ```scala ` blocks, which `README.md` calls *"Standard Scala 3 — no
+ScalaScript extensions"* and which real `scalac` compiles with `Int` = **32**. If both run in one
+file, does one word mean two things?
+
+**MEASURED 2026-07-17 — today, NO. There is no divergence.** A `scala` fence behaves identically to
+a `scalascript` fence on every lane (`runScalaFences: true`, `println(2147483647 + 1)`): v1 interp
+`2147483648`/`2147483648`; v2 native `2147483648`/`2147483648`; v1 JVM codegen and v1 JS codegen
+both `-2147483648`/`-2147483648`. **The width follows the BACKEND, not the fence tag.**
+
+**Why — and here is the latent part.** `Lang.isParseable = isScalaScript || isStandardScala`, so a
+`scala` block is parsed and executed by the **ScalaScript** toolchain, not by scalac. In
+`JsGen.genModuleSegmented` the `isParseable` case is matched **before** the `isStandardScala` case,
+which means the `isStandardScala` branch — the one that builds `JsGen.Segment.ScalaSource` and hands
+it to `ScalaJsBackend.compileSourceToJs` — is **unreachable dead code**. Confirmed empirically:
+emitted JS for both a mixed file and a `scala`-only file contains **0** Scala.js markers.
+`ScalaJsBackend.compileSourceToJs` is **real** (it shells out to `scala-cli --power package --js`
+⇒ real scalac ⇒ `Int` = 32) and is also referenced by `emit-spa` / `emit-wc` / `emit-wasm` through
+the same unreachable segment.
+
+**The hole is one case-reorder away.** If anyone "fixes" that dead branch so `scala` fences really
+compile via Scala.js, the same fence text becomes `Int`=32 on the JS lane and `Int`=64 on the
+interpreter — one word meaning two things, silently. Two docs already promise exactly that
+behaviour: `README.md`'s block table (` ```scala ` → "interpreter · **Scala.js** (JS) · JVM") and
+`SPEC.md` §3.3 ("JS backend compiles via Scala.js"). `Lang.scala`'s own comment is the honest one:
+*"The JavaScript backend **will eventually** compile them via Scala.js; for now they are skipped…
+The interpreter runs them using the same Scala 3 subset it already supports."*
+
+- [ ] Decide the boundary and write it down, **before** anyone revives the branch: either (a) `scala`
+      fences are explicitly *ScalaScript-subset* fences (rename the docs' "Standard Scala 3" claim,
+      keep `Int`=64, delete or gate the dead Scala.js path), or (b) they are genuinely Scala 3 (then
+      `Int`=32 inside them is a *declared* boundary that `specs/numeric-widths.md` §2 must carve out,
+      and mixed files need a diagnostic). Today's docs describe (b) while the code implements (a).
+      Not urgent — nothing diverges today — but it is a trap primed for the next person who reads
+      `README.md` and "fixes" the unreachable branch.
+
 ## Residual risk from the codex-lane salvage — descriptor v3 Slice B parser markers (2026-07-16)
 
 `feature/ssc-api-descriptor-v3-slice-b` landed as `cf14fb5b4` after an independent re-verification

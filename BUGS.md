@@ -30,6 +30,71 @@ the reference agrees. It is only wrong for an *address* write, where the address
 cell; `scljet/address.ssc` therefore resolves the address before writing and refuses when it does
 not exist, rather than changing the engine's SQL semantics.
 
+## v1-interp-int-literal-above-2^31-becomes-null — the INT conformance REFERENCE silently prints `null`
+
+**Status:** OPEN / found 2026-07-17 by `int-width-conformance` while writing `tests/conformance/int-width.ssc`.
+Not reported by anyone — found by measuring. SHA `cb35fffa6` (+ this branch), real harness
+(`bin/ssc-tools`, built by `install.sh --dev`).
+
+**The v1 interpreter cannot represent an integer LITERAL at or above 2^31.** It degrades it to
+`null` and **exits 0**. Its *arithmetic* is 64-bit; its *literals* are not. This is the INT
+conformance reference — the lane every other backend is compared against.
+
+**Repro** (v1 interpreter, `ssc-tools run --v1`):
+
+```text
+println(2147483647)      -> 2147483647           OK (2^31-1 fits a 32-bit int)
+println(2147483648)      -> null                 WRONG, exit 0        <- 2^31
+println(3000000000)      -> null                 WRONG, exit 0
+println(4611686018427387904) -> null             WRONG, exit 0        <- 2^62
+println(2147483647 + 1)  -> 2147483648           OK  (computed, not a literal)
+println(2147483648 + 1)  -> [ERROR] No method '+' on (null)  ... and STILL exit 0
+println(-9223372036854775808) -> [ERROR] Cannot apply unary - to 9223372036854775808
+```
+
+For contrast, v2 native prints every one of those correctly except the `min64` literal (see the
+sibling entry below). Values *computed* from in-range literals are fine on both:
+`(2147483647+1) * (2147483647+1)` gives an exact 2^62.
+
+**Why this matters more than the arithmetic.** It **fails open**: a wrong answer (`null`), exit 0,
+no diagnostic — the project's signature failure mode. It also makes the reference itself
+non-conforming to `specs/numeric-widths.md` §2 (`Int` is 64-bit) for the literal surface, which
+means the "v1 interpreter = 64-bit ✅ / v1 codegen = 32-bit ❌" framing in `SPRINT.md`
+§int-width-conformance is **true only for computed values**. Nobody noticed because the canonical
+probe everyone reaches for is `2147483647 + 1` — the one form that works.
+
+**Suspected root cause (NOT yet confirmed — do not treat as diagnosed).** The literal parses into a
+32-bit host `Int` somewhere in the v1 front/lexer and overflows to a null/absent value rather than a
+64-bit one, while `EvalRuntime` arithmetic is genuinely 64-bit. Start at the `Lit`/constant path in
+the scalameta-based v1 front, not at `EvalRuntime`.
+
+**Scope note.** `tests/conformance/int-width.ssc` deliberately builds every value above 2^31 from
+in-range literals so it tests the width contract rather than this bug. If this is fixed, that case
+can be simplified — but do not simplify it before then.
+
+## v2-native-min64-literal-prints-0 — `println(-9223372036854775808)` gives `0`, silently
+
+**Status:** OPEN / found 2026-07-17 by `int-width-conformance`. SHA `cb35fffa6`, real harness
+(`bin/ssc run`, jar from `scala-cli --power package v2/src --assembly`).
+
+**Repro** (v2 native):
+
+```text
+println(-9223372036854775808)      -> 0                      WRONG, fails open
+println(-9223372036854775807 - 1)  -> -9223372036854775808    OK
+println(9223372036854775807)       -> 9223372036854775807     OK
+```
+
+`-9223372036854775808` is `min64` — a legal `Int` per `specs/numeric-widths.md` §2. It is written as
+unary `-` applied to `9223372036854775808`, which is one past `max64`, so the positive literal
+overflows before the negation is applied. v2 yields `0`; the v1 interpreter at least **fails closed**
+here ("Cannot apply unary - to 9223372036854775808"). Neither is correct: the value is representable
+and must print. Scala 3 special-cases exactly this literal.
+
+**Impact.** Silent wrong answer at a value the spec declares legal, on a lane
+`specs/numeric-widths.md` §4 currently lists as **conforming**. Lower frequency than the entry above
+(min64 literals are rare) but the same fail-open class.
+
 
 ## newfront-scala-spike-jvm-test-links-on-js — shared filesystem suite breaks Scala.js
 
