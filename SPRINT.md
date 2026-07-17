@@ -1078,7 +1078,7 @@ optional policy, not the default continuation semantics.
   - [x] **re-run the literal fixed point** — stayed **89 ok / 0 FAIL** at **79,667 B**; the gate's
     whole output is byte-identical to the pre-change baseline, so the contract did not move.
 
-  **LANDED 2026-07-17** — spec `34d2e1cbc`, feature `35f704cd6`, docs `57b417c04`. Verified:
+  **LANDED 2026-07-17** — spec `4bdd5e986`, feature `9c49438d4`, docs `ccc47efe1`, bookkeeping `b40a0f9ae`. Verified:
   producer 83/83, descriptor 32/32, `core/test` 1138/1138, interop 36/36, plugin-profile 23/23,
   conformance `modules*,import-dir*` 2/2 on INT/JS/JVM, P6.5 89 ok / 0 FAIL @ 79,667 B.
   The new vectors were proven non-vacuous (reintroducing `Int -> I32` reddens all 5 with

@@ -137,7 +137,7 @@ detour in a comment; switch it back to `VALUES (…, NULL)` when this is fixed.
 
 ## coreir-abi-int-width-declared-i32-actually-i64 — the v3 descriptor tells every foreign host that `Int` is 32-bit, when it is 64-bit
 
-**Status:** FIXED — `feature/int64-abi`, 2026-07-17 (agent `int64-abi`). Sergiy decided **option (A)**
+**Status:** FIXED — `9c49438d4` (spec `4bdd5e986`, docs `ccc47efe1`), on `origin/main` 2026-07-17 (agent `int64-abi`). Sergiy decided **option (A)**
 on 2026-07-16: `Int` → `I64`, make the descriptor truthful. Raised 2026-07-16 by `coreir-contract`,
 who correctly escalated rather than fixing unilaterally, because the fix is a contract change.
 Tracked in `SPRINT.md` §`control-interoperability`; spec `specs/numeric-width-reconciliation.md`.
