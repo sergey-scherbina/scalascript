@@ -1,0 +1,9 @@
+claim: swift-renderer-port
+branch: feature/swift-renderer-port
+agent: opus (orchestrator session)
+heartbeat: 2026-07-17T22:37:20Z
+status: in-progress (spawned agent)
+what: port the Swift renderer to cover the web lowerer tags/CSS it lacks — select/option -> Picker/Menu,
+      flex-wrap — so SwiftBackendTest "SwiftUI renderer inventory covers every shipped lowerer tag and CSS
+      property" passes. Real feature port (Sergiy's call: port, not declare-gap). Last sibling blocking the
+      first fully-green sbt job; scljet suites owned by scljet-jdbc-durability.
