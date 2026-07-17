@@ -129,6 +129,22 @@ rows; `deep-tail-recursion` on `run-jvm` prints `705082704`, exit 0). Three thin
       that Scala.js path. So the hole is one case-reorder away, and the docs describe the dangerous
       version. Recorded rather than fixed, per the task's instruction.
 
+**CI verdict for the landed SHA `a515faee0`** (AGENTS.md §4c), measured not assumed:
+- **`Conformance Suite`: SUCCESS** — the job W3 actually changes, green on Linux:
+  **286 passed, 0 failed (+2 pending), 3 declared known-red lanes**, with the KNOWN-RED diagnostics
+  visible in the CI log. Run `29583645751`, job `87895130452`.
+- `sbt — compile and test`: **failure — PRE-EXISTING, not attributable to this work.** It dies in
+  `v21-slim-distribution-gate` *before* reaching any sbt test, so `NumericWidthTableAgreementTest`
+  never even ran in CI (it is green locally, 95/95). This exact failure mode is already recorded in
+  this file for SHA `0018dbf0c`, which predates this work ("dies in `v21-slim-distribution-gate`").
+  Now that item 5j made the gate diagnostic, the cause is visible: an **output-ordering
+  nondeterminism** — expected `worker: one` before `Some(root: reply)`, got them swapped. Worth its
+  own item; it is a flake, not a width bug.
+- `origin/main` CI is red at baseline: **8/8** recent *completed* runs failed, with failures stacked
+  (C_min projection, SwiftUI inventory, SclJet host-lock, typed `Db.query`, …). Consistent with
+  MILESTONES' "192 consecutive red / CI cannot currently attribute anything". A local green does not
+  imply CI green, and here CI cannot adjudicate the sbt job either way.
+
 ## v2-failopen — unknown zero-arg method silently returns a closure (BUGS.md `v2-zero-arg-unknown-method-fails-open`)
 
 **Root cause (VERIFIED, not the BUGS.md hypothesis).** Not "curried `__method__` never applies the
