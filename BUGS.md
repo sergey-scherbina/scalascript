@@ -56,9 +56,27 @@ and writes the result back. `GeneratorTest` is 15/15 and focused conformance is 
 asserts that mutable generator state increments numerically instead of method-dispatching `+=`, and
 the full CI conformance job is green.
 
+## install-dev-rewrites-tracked-ssc-launcher — successful staging leaves the checkout dirty
+
+**Status:** OPEN (found 2026-07-17 by `ci-red-main` immediately after the worktree-isolation fix
+`0018dbf0c`). This is a generator-authority drift: the build succeeds and the launcher semantics are
+unchanged, but a documented developer command rewrites a tracked file on every clean checkout.
+
+**Real-harness repro.** From a clean linked worktree, run `bash install.sh --dev`, then
+`git diff -- bin/ssc`. The diff adds only the AppCDS explanatory comment and two blank lines.
+`install.sh` first runs `sbt cli/installBin` (whose `build.sbt` template writes one spelling) and then
+overwrites the same launcher with its own non-byte-identical heredoc. A green build is therefore an
+insufficient oracle; the required observable is a clean byte comparison after both generators run.
+
+**Expected.** Both supported staging paths must produce the same tracked launcher bytes. The
+regression must compare the output and print the real diff on mismatch; it must not classify a
+comments-only change as harmless before comparing.
+
+
 ## install-dev-initializes-skills-submodule-inside-worktree — documented local build violates the worktree contract
 
-**Status:** OPEN (found 2026-07-17 by `ci-red-main` on `origin/main` `771b67d45`). This is a
+**Status:** FIXED (2026-07-17, `0018dbf0c`; awaiting Sergiy confirmation). Found by `ci-red-main` on
+`origin/main` `771b67d45`. This was a
 workflow correctness bug, not merely redundant network work: project rules require
 `.agents/plugins` to be initialized only in shared main, while the command printed by the
 conformance wrapper for a missing launcher is `bash install.sh --dev`.
@@ -74,6 +92,13 @@ should detect a `.git` worktree file, use the shared-main skill checkout only fo
 continue building because the submodule is not a compiler input. A main-checkout install may retain
 the explicit update. The regression gate must exercise both classifications without cloning or
 running the expensive build.
+
+**Fix/result.** `install.sh` detects the linked-worktree `.git` file, resolves the shared checkout
+through `git rev-parse --git-common-dir`, and skips every submodule mutation while retaining the main
+checkout update path. `tests/e2e/install-worktree-submodule-guard.sh` creates a real detached
+worktree, compares both classifications, verifies the submodule gitlink remains uninitialized, and
+runs in CI. The exact documented `bash install.sh --dev` command then completed staging in 4 seconds
+from the feature worktree; both focused JavaScript conformance cases remained green on INT/JS/JVM.
 
 
 ## busi-v1-lane-runtime-regressions — four imported owner adapters fail on the 3666-based v1 runtime

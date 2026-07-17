@@ -288,19 +288,30 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       `origin/main`, run its affected conformance/test gate, push separately, and finally wait for a
       CI run containing all fixes. Done means all four jobs (`Lint Markdown`, `Validate ScalaScript`,
       `Conformance Suite`, `sbt — compile and test`) report `success`; record the run URL and SHA.
-- [ ] **5f. Make the documented local build command work from a worktree.** On a fresh worktree the
+- [x] **5f. Make the documented local build command work from a worktree.** On a fresh worktree the
       conformance wrapper says to run `bash install.sh --dev`, but `install.sh:56` unconditionally
       executes `git submodule update --init --remote --recursive`, violating the project rule that
       the skills submodule is initialized only in shared main. Pin the failure in a cheap shell gate,
       skip submodule mutation automatically when `.git` is a worktree file, and verify install still
       updates it from the shared main checkout. Until fixed, build locally with explicit-worktree
       `scripts/sbtc "compile cli/assembly installBin"`; never initialize the submodule here.
+      **DONE `0018dbf0c`:** linked worktrees resolve the shared git dir and skip submodule mutation;
+      the real `bash install.sh --dev` build/staging command completes from this worktree. A CI-wired
+      shell gate creates a real temporary worktree, checks both classifications, and proves the
+      submodule stays uninitialized.
 - [x] **5g. Close the staged-v2-JS `__regfields__` crash exposed by the faithful launcher test.**
       `V2JsLaneCliTest` now runs `bin/ssc-tools`; its imported case-class/companion shape reaches
       node and dies at startup because JsBackend falls through to `$prim("__regfields__")`. Define
       the operation explicitly (no-op only if field accesses are already index-resolved, as on
       Swift), add a direct codegen assertion, and keep the installed `0 / 5 / 8` e2e green.
       **DONE `2f23fd9ec`:** explicit index-resolved no-op + direct assertion; installed suite 3/3.
+- [ ] **5h. Keep a successful dev install byte-clean.** The first full worktree install after
+      `0018dbf0c` succeeds but rewrites tracked `bin/ssc`: only the AppCDS comment and two blank lines
+      differ. This proves `build.sbt`'s `installBin` launcher template and `install.sh`'s subsequent
+      overwrite are not byte-identical despite the load-bearing "change both or neither" rule.
+      Compare the two generated launchers, make one canonical output, then run `cli/installBin` and
+      the full `bash install.sh --dev`; done means `git diff --exit-code -- bin/ssc` is green and any
+      mismatch gate prints the actual diff.
 - [ ] **6. Prevent the recurrence.** Long-red CI is what let all of this pile up. Decide + record a
       cheap guard (e.g. the loop checks `gh run list` before claiming a lane green, or a CI-status
       line in the claim protocol). Recorded as a question for Sergiy, not a unilateral process change.

@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-07-17 — worktree-safe developer installer
+
+`bash install.sh --dev` no longer initializes or updates `.agents/plugins` inside a linked feature
+worktree. It resolves the shared checkout through Git's common directory, reads the already-owned
+skills checkout there, and continues the complete CLI staging build. The main-checkout submodule
+update path remains intact (`0018dbf0c`).
+
+A CI-wired shell regression creates a real temporary worktree, compares worktree and main-checkout
+classification, and proves the linked submodule remains uninitialized. The full documented command
+completed successfully from the feature worktree; focused conformance remained green on all three
+lanes. That run exposed a separate comments-only launcher-generator drift, now tracked explicitly as
+`install-dev-rewrites-tracked-ssc-launcher` rather than being hidden by the successful build.
+
 ## 2026-07-17 — final JavaScript conformance tail and faithful installed-lane tests
 
 Closed the two JavaScript failures that held the shared corpus at 279/281. `run-js --v2` no longer
