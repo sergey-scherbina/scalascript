@@ -2,22 +2,20 @@ package scalascript.cli
 
 import org.scalatest.funsuite.AnyFunSuite
 
-/** Opt-in v2 JS lane smoke tests through the real assembled CLI jar.
+/** Opt-in v2 JS lane smoke tests through the real installed CLI launcher.
  *
- *  Run with: `sbt cli/assembly "cli/testOnly *V2JsLaneCliTest"`
+ *  Run with: `sbt cli/assembly installBin "cli/testOnly *V2JsLaneCliTest"`
  */
 class V2JsLaneCliTest extends AnyFunSuite:
 
-  private val sscJar: Option[os.Path] =
+  private val sscTools: Option[os.Path] =
     val cwd = os.pwd
+    Iterator.iterate(cwd)(_ / os.up).take(8)
+      .map(_ / "bin" / "ssc-tools")
+      .find(os.exists)
 
-    def jarUnder(root: os.Path): os.Path =
-      root / "cli" / "target" / "scala-3.8.3" / "ssc.jar"
-
-    List(jarUnder(cwd), jarUnder(cwd / os.up)).find(os.exists)
-
-  private def requireJar(): os.Path = sscJar.getOrElse:
-    cancel("ssc.jar not found - run `sbt cli/assembly` first")
+  private def requireLauncher(): os.Path = sscTools.getOrElse:
+    cancel("bin/ssc-tools not found - run `sbt cli/assembly installBin` first")
 
   private def requireNode(): Unit =
     val ok = scala.util.Try {
@@ -26,8 +24,8 @@ class V2JsLaneCliTest extends AnyFunSuite:
     if !ok then cancel("node not found on PATH")
 
   private def runSsc(cwd: os.Path, args: String*): os.CommandResult =
-    val jar = requireJar()
-    val cmd: Seq[os.Shellable] = Seq[os.Shellable]("java", "-jar", jar.toString) ++
+    val launcher = requireLauncher()
+    val cmd: Seq[os.Shellable] = Seq[os.Shellable](launcher.toString) ++
       args.map(a => a: os.Shellable)
     os.proc(cmd).call(
       cwd = cwd,

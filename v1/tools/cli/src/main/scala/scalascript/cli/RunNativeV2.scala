@@ -34,7 +34,11 @@ object RunNativeV2:
       val exitCode = proc.waitFor()
       java.lang.Runtime.getRuntime.removeShutdownHook(hook)
       if exitCode != 0 then System.exit(exitCode)
-    catch case _: InterruptedException => proc.destroy(); System.exit(1)
+    catch
+      case _: InterruptedException =>
+        proc.destroy()
+        Thread.currentThread().interrupt()
+        System.exit(1)
 
   private[cli] def compile(files: List[String]): NativeV2Compilation =
     compile(files, mutable = false)
