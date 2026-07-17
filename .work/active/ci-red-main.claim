@@ -1,7 +1,7 @@
 claim: ci-red-main
 branch: feature/ci-red-main-final
 agent: codex
-heartbeat: 2026-07-17T03:52:37Z
+heartbeat: 2026-07-17T04:04:27Z
 status: in-progress
-done-so-far: staged JVM suites plus JS timer/CPS fixes landed; Node 60/60, JVM-JS matrix 1/1, generated JVM 35/35, and both leader cases pass INT/JS/JVM 2/2
-next: monitor exact-SHA CI, consume landed newfront/Swift/SclJet owner fixes, repair any newly exposed real failure, and release only after all four jobs pass one SHA
+done-so-far: staged JVM and actor repairs landed; Node 60/60, matrix 1/1, generated JVM 35/35, leader cases 2/2 x 3 lanes; CI example type-check now uses tools tier
+next: monitor exact-SHA CI; consume Swift owner work and, if authorized, reclaim clean stale newfront/SclJet test scopes; release only after all four jobs pass one SHA
