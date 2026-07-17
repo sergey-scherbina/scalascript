@@ -11,6 +11,17 @@ import java.nio.file.{Files, Paths}
 final class ScalaSpikeSpec extends AnyFunSuite:
   private val src = SourceId("memory:spike.scala")
 
+  // Resolve the repository root independently of the process CWD. sbt runs each
+  // subproject's tests with a different working directory (here the crossProject's
+  // `.jvm` base, NOT the repo root), so a `user.dir`-relative fixture path breaks in
+  // CI — that was `newfront-scala-spike-fixture-paths-linux`. Walk up to the markers.
+  private val repoRoot: java.nio.file.Path =
+    Iterator.iterate(Paths.get(sys.props("user.dir")).toAbsolutePath.normalize())(_.getParent)
+      .takeWhile(_ != null)
+      .find(p => Files.isRegularFile(p.resolve("build.sbt")) && Files.isDirectory(p.resolve("specs")))
+      .getOrElse(fail(
+        "cannot locate repository root (no build.sbt + specs/ ancestor of " + sys.props("user.dir") + ")"))
+
   private def parse(text: String): ParseResult =
     UniML.parse(SourceInput.fromString(src, text), SpikeDialect)
 
@@ -484,13 +495,12 @@ final class ScalaSpikeSpec extends AnyFunSuite:
   test("C_min (specs/v2.2-p6.6-cmin.L) projects cleanly through the spike — no holes, every def (P6.21)") {
     val srcOpt =
       Seq(sys.env.get("CMIN_L"),
-          Some(sys.props("user.dir") + "/specs/v2.2-p6.6-cmin.L"),
-          Some(sys.props("user.dir") + "/../specs/v2.2-p6.6-cmin.L"))
+          Some(repoRoot.resolve("specs/v2.2-p6.6-cmin.L").toString))
         .flatten.map(Paths.get(_)).filter(Files.exists(_)).headOption
         .map(p => new String(Files.readAllBytes(p), "UTF-8"))
-    // require the artifact so this is a real check, not a vacuous no-op (the fallback covers the repo root and
-    // the uniml/ dir — the two CWDs sbt uses; set CMIN_L for any other layout).
-    assert(srcOpt.isDefined, "specs/v2.2-p6.6-cmin.L not found — set CMIN_L or run from the repo root / uniml dir")
+    // require the artifact so this is a real check, not a vacuous no-op (repoRoot is resolved
+    // CWD-independently above; set CMIN_L for any other layout).
+    assert(srcOpt.isDefined, "specs/v2.2-p6.6-cmin.L not found under " + repoRoot + " — set CMIN_L")
     srcOpt.foreach { src =>
       val proj = SpikeProject.program(parse(src).roots.head)
       assert(!proj.contains("__notImplemented__"),
@@ -562,8 +572,12 @@ final class ScalaSpikeSpec extends AnyFunSuite:
   // ══ emit projections + toys for the end-to-end run-ir / Core IR diff harness ═══
 
   test("emit projections + toys for the diff harness") {
+    // Default to a writable, always-present workspace dir. A hardcoded absolute path
+    // (previously a macOS `/private/tmp/...` scratchpad) makes `createDirectories`
+    // throw `AccessDeniedException` on Linux CI, which cannot create `/private`. The
+    // harness sets SPIKE_OUT explicitly; this default only feeds the no-env CI run.
     val outDir = sys.env.getOrElse("SPIKE_OUT",
-      "/private/tmp/claude-501/-Users-sergiy-work-my-scalascript/0ae59ae0-0693-4dfa-b393-87f68bf3d01b/scratchpad/p6.0")
+      repoRoot.resolve("target/uniml-spike-out").toString)
     Files.createDirectories(Paths.get(outDir))
     // a scale program: enum + match + case class + given/summon + if/else-if + interpolation +
     // lambdas + blocks + recursion, all in one module — a "gold-standard" whole-front interaction test.

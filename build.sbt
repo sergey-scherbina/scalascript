@@ -588,6 +588,14 @@ lazy val unimlCross =
       Test    / scalacOptions ++= sharedScalacOptions,
     )
     .jvmConfigure(_.withId("uniml"))
+    .jvmSettings(
+      // Filesystem-bound suites (ScalaSpikeSpec: reads the tracked C_min fixture,
+      // writes the diff-harness projections) are JVM-only — they must NOT be linked
+      // for Scala.js, where java.io.File / java.nio.file do not exist (that link
+      // failure was `newfront-scala-spike-jvm-test-links-on-js`). Same convention as
+      // unimlYaml below.
+      Test / unmanagedSourceDirectories += baseDirectory.value.getParentFile / "src" / "test-jvm" / "scala",
+    )
     .jsConfigure(_.withId("unimlJs"))
     .jsSettings(Test / fork := false)
 
