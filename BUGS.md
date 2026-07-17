@@ -1,5 +1,24 @@
 # Bug tracker
 
+## interpreter-multiblock-auto-output-missing — INT drops non-Unit block results that JS/JVM print
+
+**Status:** OPEN (found 2026-07-17 by `ci-red-main` after correcting the all-examples launcher
+routing). The corrected 17-example matrix is byte-identical on 16 files. For
+`examples/content.ssc`, JS and JVM print the three documented auto-output values (`2`,
+`List(1, 4, 9, 16, 25)`, `HELLO!`) before the rendered document; native INT omits all three.
+
+**Real-harness repro.** Build the full distribution and run `scala-cli examples/run-all.sc` with
+`runJvm`/`runJs` routed through `bin/ssc-tools`. The file explicitly states that the last non-Unit
+expression in **a top-level code block** is automatically printed and contains three separate
+demonstration fences. Existing interpreter auto-output tests cover only a single block, while JS and
+JVM wrap each runnable block. This is a multi-block execution-boundary gap, not imported-module
+output and not a reason to delete the expected values.
+
+**Expected/fix plan.** Add a faithful multi-block interpreter regression that asserts every
+non-Unit block tail is emitted once in source order while Unit/definition tails stay silent. Repair
+the interpreter block boundary, then rerun the focused suite and all 17 examples on INT/JS/JVM.
+
+
 ## v21-slim-distribution-gate-silent-assertions — Linux gate exits 1 with no failed check or diff
 
 **Status:** OPEN (found 2026-07-17 by `ci-red-main` in run `29547476776`, SHA `0018dbf0c`, job

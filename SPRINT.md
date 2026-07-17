@@ -330,11 +330,20 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       Require both `bin/ssc` and `bin/ssc-tools`, keep native INT on the standard launcher, use tools
       for JS/JVM, and run the full matrix. Done means all 17 print byte-identical output on three
       lanes and a missing launcher names the exact path.
+      **Routing fixed locally:** tools commands now use `bin/ssc-tools`; this removes all 34
+      standard-tier command failures. The matrix reaches 16/17 exact and exposes the independent
+      multi-block INT auto-output bug in 5k, so 5i remains open until that semantic tail closes.
 - [ ] **5j. Make `v21-slim-distribution-gate` diagnostic before interpreting its Linux failure.**
       Run `29547476776` reaches the gate after two release gates pass, spends 70 seconds, and exits 1
       with literally no check name/diff. Replace every bare assertion that can abort with named
       expected/actual/exit diagnostics, prove the gate still passes locally, then let Linux identify
       the real residual. Never refresh expected output from a silent assertion.
+- [ ] **5k. Restore interpreter auto-output at every runnable block boundary.** The correctly routed
+      examples matrix proves JS/JVM print `2`, squares, and `HELLO!` for the three non-Unit fences in
+      `examples/content.ssc`; INT omits them, despite the example's explicit per-block contract.
+      Add a multi-block regression (including silent Unit/definition tails), fix the interpreter
+      execution boundary rather than expectations, then require the focused suite and full 17-file
+      INT/JS/JVM matrix to be byte-identical.
 - [ ] **6. Prevent the recurrence.** Long-red CI is what let all of this pile up. Decide + record a
       cheap guard (e.g. the loop checks `gh run list` before claiming a lane green, or a CI-status
       line in the claim protocol). Recorded as a question for Sergiy, not a unilateral process change.
