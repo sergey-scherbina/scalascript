@@ -418,7 +418,7 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       + test maxima. Revalidate YAML and require a later Linux run to prove the suite completes.
       **REVISED `884832696`, awaiting Linux proof:** outer/test caps are now 150/90, the measured
       rationale is adjacent to the workflow values, YAML parses, and focused conformance stays green.
-- [ ] **5o. Make bytecode runtime-separation tests consume the staged compiler drivers instead of
+- [x] **5o. Make bytecode runtime-separation tests consume the staged compiler drivers instead of
       cancelling.** Linux run `29545769651`, job `87777659720`, runs `installBin` before `sbt test`,
       and its staging log lists `bin/lib/compiler/jars/ (6 JARs incl. compiler-driver)`. Nevertheless
       all five `JvmBytecodeRuntimeSeparationTest` cases report `CANCELED` with `compiler-driver jars
@@ -440,6 +440,10 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       frozen size threshold with a comparison that still proves runtime separation against the
       artifacts produced in that same run (or document why a current canonical bound is stable).
       Re-run all five to completion; a green skip or an unexplained baseline refresh is not done.
+      **DONE `1c109e49e`:** staged `ssc-tools` supplies the real driver/library root; Scala runtime
+      paths come from the test JVM on every OS; `JvmArtifactIO` decodes MessagePack; module/runtime
+      size is compared relationally within one build. Focused suite executes 5/5 with zero cancels
+      and passes; `dataset-parallel-jvm` passes on its declared JVM lane.
 - [ ] **6. Prevent the recurrence.** Long-red CI is what let all of this pile up. Decide + record a
       cheap guard (e.g. the loop checks `gh run list` before claiming a lane green, or a CI-status
       line in the claim protocol). Recorded as a question for Sergiy, not a unilateral process change.

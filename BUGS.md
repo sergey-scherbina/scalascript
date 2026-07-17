@@ -2,9 +2,10 @@
 
 ## jvm-bytecode-runtime-tests-ignore-installed-drivers — five CI assertions cancel before comparing
 
-**Status:** OPEN (found 2026-07-17 by `ci-red-main` in Linux run `29545769651`, SHA `893bf2632`,
-job `87777659720`). `JvmBytecodeRuntimeSeparationTest` reports five `CANCELED` cases rather than
-success/failure because it claims compiler-driver jars are not staged.
+**Status:** FIXED (2026-07-17, `1c109e49e`; awaiting CI confirmation). Found by `ci-red-main` in
+Linux run `29545769651`, SHA `893bf2632`, job `87777659720`.
+`JvmBytecodeRuntimeSeparationTest` reported five `CANCELED` cases rather than success/failure because
+it claimed compiler-driver jars were not staged.
 
 **Real-harness evidence.** The same job's preceding `Compile and assemble ssc.jar` step runs
 `sbt compile cli/assembly installBin` and explicitly logs `bin/lib/compiler/jars/ (6 JARs incl.
@@ -31,6 +32,14 @@ are now binary, not JSON. The link/run case reaches its size assertion and measu
 against a stale `<400,000` bound. The fix must use the canonical production artifact decoder and
 compare the real runtime-separation invariant; merely raising the old number would pre-judge the
 result and could preserve duplicated runtime payloads.
+
+**Fix/result.** The suite invokes installed `bin/ssc-tools`, verifies its actual
+`bin/lib/compiler/jars` tree, and resolves Scala 3/2.13 runtime locations from classes already loaded
+by the test JVM instead of an OS-specific cache. Current binary artifacts are decoded through
+production `JvmArtifactIO`. The stale absolute JAR threshold is replaced by an in-run comparison:
+the shared runtime bundle/artifact must be at least ten times the trivial module, directly proving
+the runtime was not duplicated. All five cases execute and pass with zero cancellations; focused
+JVM conformance passes.
 
 
 ## v2-native-jvmvfs-externs-unbound — host-file I/O intrinsics are invisible to the native tier

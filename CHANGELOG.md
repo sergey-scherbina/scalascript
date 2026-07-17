@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-07-17 — bytecode runtime-separation tests execute against current artifacts
+
+All five JVM bytecode runtime-separation checks now run through staged `ssc-tools` instead of
+cancelling behind an unset in-process library path (`1c109e49e`). Scala runtime locations come from
+the test JVM on macOS and Linux, MessagePack artifacts use production `JvmArtifactIO`, and the size
+gate compares module versus shared-runtime payloads from the same build rather than a stale absolute
+JAR ceiling. The focused suite executes 5/5 with zero cancels and passes.
+
 ## 2026-07-17 — slim distribution failures identify the compared observable
 
 The v2.1 slim-distribution gate no longer exits silently from bare shell assertions. Named helpers
