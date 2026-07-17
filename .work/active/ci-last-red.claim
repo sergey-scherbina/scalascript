@@ -1,0 +1,8 @@
+claim: ci-last-red
+branch: feature/ci-last-red
+agent: opus (orchestrator session 0716/17)
+heartbeat: 2026-07-17T15:14:16Z
+status: in-progress (spawned agent)
+what: get the `sbt — compile and test` job to green — the only red CI job left. 5 suites in
+      `Test via sbt` (newfront/swift/scljet lanes; route to owners, fix ownerless) + P6.21 self-host
+      guard is one of them + v21-native-entry-smoke still asserts with silent [[ ]]. SPRINT §ci-last-red.
