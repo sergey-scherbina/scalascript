@@ -1,5 +1,24 @@
 # Bug tracker
 
+## registry-seed-test-cwd-cancel — tracked packages.yaml validation silently skips on Linux CI
+
+**Status:** OPEN (found 2026-07-17 by `ci-red-main` in Linux run `29545769651`, SHA `893bf2632`,
+job `87777659720`). `RegistrySchemaTest` cancels `seed registry/packages.yaml parses and validates
+without errors` with `registry/packages.yaml not found — skipping seed validation`.
+
+**Real-harness evidence.** GitHub checks out the complete repository before `sbt test`; the seed is
+tracked at repository-root `registry/packages.yaml`. The suite nevertheless treats its own missing
+path as an optional capability and returns green/cancelled because it searches relative to an sbt
+module CWD. Run the focused `scalascript.imports.RegistrySchemaTest` from the normal aggregate build
+to reproduce the path classification.
+
+**Expected/fix plan.** Resolve the repository root robustly across shared checkout, external Git
+worktree, and sbt project working directories; validate the tracked seed through that path. If the
+fixture truly is missing, fail and print every searched location instead of cancelling. Keep the
+existing parse/schema assertions unchanged. Done means the focused suite executes the seed case on
+macOS and Linux-shaped paths rather than pre-judging it as unavailable.
+
+
 ## jvm-bytecode-runtime-tests-ignore-installed-drivers — five CI assertions cancel before comparing
 
 **Status:** FIXED (2026-07-17, `1c109e49e`; awaiting CI confirmation). Found by `ci-red-main` in
