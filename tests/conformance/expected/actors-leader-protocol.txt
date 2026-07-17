@@ -1,0 +1,4 @@
+proto0=bully
+hist1=1
+proto1=raft
+ok
