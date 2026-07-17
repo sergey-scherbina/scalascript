@@ -267,6 +267,13 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       is PASS INT/JVM and FAIL JS with `Error: Method not found: += on 1`. Both were forced with
       `--no-memo`. GitHub run `29545769651` (`893bf2632`) had lint/validation green while its two
       long jobs were still running; newer claim-only SHAs do not replace the need to inspect it.
+      **Live Linux baseline update:** run
+      [`29547121050`](https://github.com/sergey-scherbina/scalascript/actions/runs/29547121050), SHA
+      `1e6ccb394`, proves the corpus itself green at **282/282 (+2 pending)**; its conformance job then
+      fails in `Run examples on all three backends` because all JS/JVM commands use standard
+      `bin/ssc`. Run `29547476776`, SHA `0018dbf0c`, independently reaches the sbt release gates and
+      dies in `v21-slim-distribution-gate` with no diagnostic. Both runs' sbt/conformance siblings
+      were still in progress when recorded, so 5a remains open pending the completed four-job view.
 - [x] **5b. Close `run-js-v2-always-exits-1` in the real launcher.** Reproduce with the assembled
       `bin/ssc-tools run-js --v2` tiny-program matrix from `BUGS.md`, trace the JVM exit after node
       returns 0, add a regression that asserts both stdout and process exit, then run
@@ -317,6 +324,17 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       its three executables instead of rewriting them. The new CI gate was proven red on the old
       comments-only diff, prints that patch, and is green after a full install. Both focused
       conformance cases remain 1/1 on INT/JS/JVM.
+- [ ] **5i. Route the all-examples matrix through the correct installed tiers.** CI run
+      `29547121050` has a green 282/282 corpus, then every one of 17 JS/JVM examples fails because
+      `examples/run-all.sc` invokes tools-only `emit-js`/`run-jvm` through standard `bin/ssc`.
+      Require both `bin/ssc` and `bin/ssc-tools`, keep native INT on the standard launcher, use tools
+      for JS/JVM, and run the full matrix. Done means all 17 print byte-identical output on three
+      lanes and a missing launcher names the exact path.
+- [ ] **5j. Make `v21-slim-distribution-gate` diagnostic before interpreting its Linux failure.**
+      Run `29547476776` reaches the gate after two release gates pass, spends 70 seconds, and exits 1
+      with literally no check name/diff. Replace every bare assertion that can abort with named
+      expected/actual/exit diagnostics, prove the gate still passes locally, then let Linux identify
+      the real residual. Never refresh expected output from a silent assertion.
 - [ ] **6. Prevent the recurrence.** Long-red CI is what let all of this pile up. Decide + record a
       cheap guard (e.g. the loop checks `gh run list` before claiming a lane green, or a CI-status
       line in the claim protocol). Recorded as a question for Sergiy, not a unilateral process change.

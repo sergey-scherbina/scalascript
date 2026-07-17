@@ -1,5 +1,43 @@
 # Bug tracker
 
+## v21-slim-distribution-gate-silent-assertions — Linux gate exits 1 with no failed check or diff
+
+**Status:** OPEN (found 2026-07-17 by `ci-red-main` in run `29547476776`, SHA `0018dbf0c`, job
+`sbt — compile and test`). The release and explicit-lanes gates pass, then
+`v21-slim-distribution-gate.sh` runs for 70 seconds and exits `1`; the complete job log contains no
+output between the step header and `Process completed with exit code 1`.
+
+**Real-harness repro.** Run `tests/e2e/v21-slim-distribution-gate.sh --report
+target/v21-slim-distribution.tsv` after `scripts/sbtc "installBin"`. The script contains dozens of
+bare `[[ $(run_standard ...) == expected ]]` and file-state `[[ ... ]]` assertions under
+`set -euo pipefail`. Any mismatch aborts before naming the check, expected value, actual value, exit
+code, or diff. The CI log therefore cannot identify whether the underlying problem is semantic,
+platform-specific, or stale expectation.
+
+**Expected/fix plan.** Compare each real observable first through named helpers that preserve
+stdout/stderr/exit, print expected/actual and a diff on mismatch, and only then classify failure.
+Reproduce the current Linux failure from the newly diagnostic run; do not guess at or refresh an
+expectation while the apparatus is blind.
+
+
+## examples-run-all-standard-launcher-tools-command — all JS/JVM example lanes call forbidden commands
+
+**Status:** OPEN (found 2026-07-17 by `ci-red-main` in run `29547121050`, SHA `1e6ccb394`). The
+conformance corpus immediately before it is green: `282 passed, 0 failed (+ 2 pending)`. The next CI
+step, `scala-cli examples/run-all.sc`, prints the canonical INT output for all 17 examples and then
+reports a non-zero JS and JVM lane for every example.
+
+**Real-harness repro.** Build the full distribution and run `scala-cli examples/run-all.sc`. The
+harness binds only `bin/ssc`; `runJvm` calls `bin/ssc run-jvm`, and the JS fallback calls
+`bin/ssc emit-js`. Since the 2.1 cutover, `bin/ssc` is the compiler-free standard tier and correctly
+rejects both commands with `requires the optional ScalaScript tools/compatibility tier; run
+ssc-tools explicitly`. The harness therefore tests launcher routing, not backend parity.
+
+**Expected/fix plan.** Keep INT on default `bin/ssc`, route JS/JVM compiler-backed commands through
+the installed `bin/ssc-tools`, fail up front with both resolved launcher paths, and rerun all 17
+examples to byte-compare INT/JS/JVM. Do not re-enable tools commands in the standard launcher.
+
+
 ## ci-status-fixture-accepts-invalid-jq — fake-gh green hid a real CLI parse failure
 
 **Status:** FIXED (2026-07-17, `c43d8f523`; awaiting final CI confirmation). Found by
