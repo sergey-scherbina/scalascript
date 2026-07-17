@@ -22,9 +22,11 @@ value. `[claimed]` = a live agent owns it; `[open]` = free to claim; `[blocked]`
 - `[claimed]` **newfront Phase 2 — multi-file / imports.** Multi-file MATCH **43/216 (20%)** behind the
   new gate; close link-imports `[names](path)` + `import a.b.{x,y}` across files. See
   §`new-self-hosting-front`. Owner: newfront agent.
-- `[open]` **P6.21 — the self-host CI guard is itself RED.** `C_min … projects cleanly through the
-  spike` is one of the 5 failing suites in `Test via sbt` — the guard is red while the self-host it
-  guards is green. Fold into §`ci-last-red` item 2. **Absurd and load-bearing: fix early.**
+- `[x]` **P6.21 — the self-host CI guard is itself RED.** FIXED 2026-07-17 (`ci-last-red`): the guard
+  was wrong, not the self-host — `ScalaSpikeSpec`'s `C_min` case could not FIND `specs/v2.2-p6.6-cmin.L`
+  from the sbt module CWD (and `emit projections` wrote to a hardcoded macOS path). Both anchored to a
+  CWD-independent `repoRoot`; the suite also moved to a JVM-only test dir (fixes the sibling Scala.js
+  linker). `uniml/testOnly …ScalaSpikeSpec` 60/0. See §`ci-last-red` item 2.
 - `[open]` **P6.2/P6.2c/P6.3 spike dialect breadth; P6.20 nested-cons `a::b::t` in the SUBSET** (works
   on v2-native; unverified in the subset — do not infer). See the P6.6/self-host arc section.
 
@@ -72,18 +74,37 @@ hides the test failures behind it.** Both are real; fixing one leaves the job re
       Now compared as a set, in BOTH gates that carried the identical line. Proven non-vacuous (a
       missing/wrong/duplicated line still FAILs). It only became findable because the gates now print
       name/want/got/diff.
-- [ ] **2. `Test via sbt` — 5 suites, all in other lanes.** Observed on `d382407e1` / `628dabc4f`:
-      - `C_min (specs/v2.2-p6.6-cmin.L) projects cleanly through the spike — no holes, every def (P6.21)`
-      - `emit projections + toys for the diff harness`  ← both newfront/spike lane
-      - `SwiftUI renderer inventory covers every shipped lowerer tag and CSS property`  ← swift lane
-      - `exclusive host lock blocks official SQLite in another process`  ← scljet lane
-      - `scala-cli compiles + runs typed Db.query / Db.insert+update through RowCodec`  ← scljet lane
-      Each belongs to a live sibling lane; route them to their owners rather than fixing blind.
-      **Until this is closed, `main` has never had a fully green run** — do not claim otherwise.
-- [ ] **3. Follow-up: `v21-native-entry-smoke.sh` still asserts with bare `[[ … ]]` under `set -e`**,
-      i.e. it still fails SILENTLY (no check name, no diff). It is not a CI step today, which is the
-      only reason it hasn't cost us yet. Give it the same `expect_*` treatment the other four gates
-      got — AGENTS.md now requires every check to print its diff.
+- [~] **2. `Test via sbt` — all 5 suites triaged + reproduced against current `origin/main` (2026-07-17
+      by the spawned `ci-last-red` agent).** Two FIXED here (test-infra, not dirty in any worktree);
+      three ROUTED to their live owners with exact assertions (owned/dirty — fixing them would fight
+      the owner):
+      - `C_min … projects cleanly through the spike (P6.21)` — **FIXED**. The guard was wrong, not the
+        self-host: it couldn't FIND `specs/v2.2-p6.6-cmin.L` from the sbt module CWD. Now anchored to a
+        CWD-independent `repoRoot`. BUGS `newfront-scala-spike-fixture-paths-linux`.
+      - `emit projections + toys for the diff harness` — **FIXED**. Defaulted `SPIKE_OUT` to a hardcoded
+        macOS `/private/tmp/...` path → `AccessDeniedException` on Linux; now `repoRoot/target/uniml-spike-out`.
+        Same BUGS. (Both live in `ScalaSpikeSpec`, which was ALSO moved to the JVM-only `src/test-jvm`
+        dir to fix the sibling Scala.js linker failure `newfront-scala-spike-jvm-test-links-on-js`.)
+        VERIFIED: `unimlJs/Test/fastLinkJS` green + `uniml/testOnly …ScalaSpikeSpec` 60/0.
+      - `SwiftUI renderer inventory …` — **ROUTED @swift** (NOT ownerless: 3 dirty swift worktrees own
+        `SwiftNativeUiApple.scala`/`SwiftBackendTest.scala`). Root cause: web lowerer emits
+        `element("select"|"option")` + CSS `flex-wrap`, none in the Swift inventory and the renderer has
+        no Picker/Menu/flex-wrap — a real feature port. BUGS `swift-renderer-inventory-missing-shipped-tag`.
+      - `exclusive host lock blocks official SQLite …` — **ROUTED @scljet-jdbc-durability** (dirty on
+        `ScljetConnection`). `process.isAlive()==false`; xerial sqlite-jdbc cross-process lock. BUGS
+        `scljet-vfs-exclusive-lock-subprocess-exits-linux`.
+      - `scala-cli … typed Db.query/insert+update through RowCodec` (+ `StableSpiEnforcementTest`) —
+        **ROUTED @scljet** (6 scljet-jdbc-plugin files import `scalascript.interpreter.Value`). BUGS
+        `scljet-jdbc-stable-spi-import-regression`.
+      **Until the three routed lanes also land, `main` has never had a fully green run** — do not claim
+      otherwise. The job also currently fails EARLIER, at `v21-slim-distribution-gate`, on any SHA that
+      predates the flake fix `87187416d` (item 1) — verify a post-`87187416d` run reaches the sbt step.
+- [x] **3. `v21-native-entry-smoke.sh` — DONE (2026-07-17).** Given the `expect_*` treatment: an
+      `expect_out name/want/got/diff` helper (mirroring the four v2.1 gates) now backs all 178 single-line
+      output assertions, and an `ERR` trap names the exact line + command for every remaining assertion
+      (negative blocks, the unordered actors set-compare, `[[ ! -s ]]`/`[[ $rc -ne 0 ]]`). Proven
+      non-vacuous in isolation (mismatch prints want/got/diff, a bare `[[ ]]` failure names line+command);
+      `bash -n` clean; the preamble runs to the staging guard with no spurious trap output.
 
 ## int-width-conformance — `Int` means 32 bits on some backends and 64 on others (2026-07-17, Sergiy: "давай так и сделаем")
 

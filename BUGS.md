@@ -126,13 +126,17 @@ and must print. Scala 3 special-cases exactly this literal.
 
 ## newfront-scala-spike-jvm-test-links-on-js — shared filesystem suite breaks Scala.js
 
-**Status:** OPEN / owned by `v3-newfront-p1-toplevel` (reconfirmed 2026-07-17 by `ci-red-main` in
-the real aggregate `scripts/sbtc "test"` at `aca439fcc`; the earlier symptom was recorded only in
-SPRINT 4c). `unimlJS / Test / fastLinkJS` fails its core module analyzer on
-`ScalaSpikeSpec.testFun$proxy59/60` with non-existent `java.io.File` and `java.nio.file.Files`
-classes/methods. The same aggregate's JVM lane reaches the suite and independently fails its C_min
-path check, proving this is crossProject test placement rather than missing production Scala.js
-emulation.
+**Status:** FIXED (2026-07-17, `ci-last-red`, coordinated with the stale `v3-newfront-p1-toplevel`
+owner in rozum; no objection). `ScalaSpikeSpec.scala` moved out of the shared crossProject test dir
+`uniml/core/src/test/scala/...` into the JVM-only `uniml/core/src/test-jvm/scala/...`, wired via
+`unimlCross`'s new `.jvmSettings(Test / unmanagedSourceDirectories += .../src/test-jvm/scala)` — the
+same convention `unimlYaml` already uses. The filesystem-bound suite is no longer linked for
+Scala.js. VERIFIED: `unimlJs/Test/fastLinkJS` succeeds (was 13 linking errors) and
+`uniml/testOnly ...ScalaSpikeSpec` runs 60/0 on JVM. The pure spike helper `ScalaSpike.scala`
+(no filesystem refs) stays shared and links for JS unchanged. Was: `unimlJS / Test / fastLinkJS`
+failed its core module analyzer on `ScalaSpikeSpec.testFun$proxy59/60` with non-existent
+`java.io.File` / `java.nio.file.Files` classes/methods (reconfirmed 2026-07-17 by `ci-red-main` in
+`scripts/sbtc "test"` at `aca439fcc`).
 
 **Root cause / real-harness evidence.** The corpus projection/batch/output tests use host files and
 live in `uniml/core/src/test/scala/.../ScalaSpikeSpec.scala`, a source directory shared by the JVM
@@ -484,11 +488,18 @@ suite, not edit those files concurrently.
 
 ## newfront-scala-spike-fixture-paths-linux — tracked C_min and output root depend on host CWD
 
-**Status:** OPEN / owned by `v3-newfront-p1-toplevel` (found by `ci-red-main` in Linux runs
-`29544412767` and `29545769651`; latter job `87777659720`). `ScalaSpikeSpec` has two deterministic
-filesystem failures: tracked `specs/v2.2-p6.6-cmin.L` is not found from the sbt module CWD, and
-`emit projections + toys for the diff harness` attempts to create `/private`, which Ubuntu rejects
-with `java.nio.file.AccessDeniedException`.
+**Status:** FIXED (2026-07-17, `ci-last-red`, coordinated with the stale `v3-newfront-p1-toplevel`
+owner). Both failures were CWD/host-path assumptions in the (now JVM-only) `ScalaSpikeSpec`, not
+spike-logic regressions — the guard was wrong, the self-host it guards is green. Fixes: (1) a
+CWD-independent `repoRoot` resolver (walks up from `user.dir` to the `build.sbt` + `specs/` ancestor,
+same shape as `SwiftBackendTest`) now anchors the C_min fixture at `repoRoot/specs/v2.2-p6.6-cmin.L`
+(the `CMIN_L` env override is kept); (2) the `emit projections` test defaults `SPIKE_OUT` to the
+always-writable `repoRoot/target/uniml-spike-out` instead of a hardcoded macOS `/private/tmp/...`
+scratchpad. VERIFIED: `uniml/testOnly ...ScalaSpikeSpec` runs 60/0 (P6.21 C_min + emit both green).
+Was: two deterministic filesystem failures — tracked `specs/v2.2-p6.6-cmin.L` not found from the sbt
+module CWD, and `emit projections + toys for the diff harness` attempted to create `/private`, which
+Ubuntu rejects with `java.nio.file.AccessDeniedException` (found by `ci-red-main` in Linux runs
+`29544412767` / `29545769651`, job `87777659720`).
 
 **Real-harness repro.** Run the JVM `uniml` `ScalaSpikeSpec` from aggregate `sbt test` on Ubuntu (or
 set its process CWD to the module base). The C_min case must resolve the tracked repository fixture;
