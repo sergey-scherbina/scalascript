@@ -9,6 +9,54 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## ⭐ REMAINING WORK — the one index (2026-07-17, Sergiy: "запиши всё что осталось")
+
+The single answer to "what's left". Each line points to the detailed section that owns it. Ordered by
+value. `[claimed]` = a live agent owns it; `[open]` = free to claim; `[blocked]` = has a prerequisite.
+
+**Stream 1 — self-hosting (the spine):**
+- `[claimed]` **P6.5 subset breadth → cover all of ScalaScript.** The self-compilation fixpoint holds
+  for the subset `F` is written in; the remaining breadth (given/summon, enums, extensions,
+  for-comprehensions, `var`/`while`, interpolation, prelude selectors, List-var registry) is bounded
+  mechanical corpus growth, no design question left. See §"v2.2 STATUS" + the P6.5 item. Owner: p65 agent.
+- `[claimed]` **newfront Phase 2 — multi-file / imports.** Multi-file MATCH **43/216 (20%)** behind the
+  new gate; close link-imports `[names](path)` + `import a.b.{x,y}` across files. See
+  §`new-self-hosting-front`. Owner: newfront agent.
+- `[open]` **P6.21 — the self-host CI guard is itself RED.** `C_min … projects cleanly through the
+  spike` is one of the 5 failing suites in `Test via sbt` — the guard is red while the self-host it
+  guards is green. Fold into §`ci-last-red` item 2. **Absurd and load-bearing: fix early.**
+- `[open]` **P6.2/P6.2c/P6.3 spike dialect breadth; P6.20 nested-cons `a::b::t` in the SUBSET** (works
+  on v2-native; unverified in the subset — do not infer). See the P6.6/self-host arc section.
+
+**Stream 2 — dogfood:**
+- `[claimed]` scljet — a live sibling holds `scljet-jdbc-durability`. Open scljet items
+  (`scljet-update-ipk-column-silently-ignored`, unique-index-not-supported) belong to that owner; do
+  NOT spawn a competing scljet lane. See BUGS.md + the scljet SPRINT sections.
+
+**Stream 3 — control/interop (unblocked; a chain):**
+- `[open]` **coreir codec H4 + H5.** H4: `coreir.decode` is not registered at all. H5: the reader
+  fails OPEN on untrusted capsules (accepts `(local -1)`, odd-length hex, non-`Lam` letrec, unbound
+  globals). Security surface. See §"control-interoperability" → codec-hardening (landed partial).
+- `[blocked]` **`save()`/`run()` durable continuations** → then **`control-interop-examples`.** Blocked
+  because `save()`/`run()` does not exist on ANY lane yet (every `Continuation.save()` returns
+  `Save.Rejected`). Unblock order is fixed; do not start examples first. See the GATE-LIFTED note.
+
+**Health — get `main` to its first fully-green run:**
+- `[open]` **ci-last-red — the `sbt — compile and test` job is the only red left.** 5 suites in
+  `Test via sbt` (newfront/swift/scljet lanes) + `v21-native-entry-smoke` still asserts with silent
+  `[[ ]]`. See §`ci-last-red`. **Until this closes, main has never had a fully green run.**
+
+**Fail-open correctness bugs found today (all silent, exit 0):**
+- `[open]` **int-literal-failopen** — `println(2147483648)` → `null` on the reference interpreter;
+  `println(-9223372036854775808)` → `0` on v2 native. The language declares `Int` 64-bit but cannot
+  write half its range as a literal. BUGS: `v1-interp-int-literal-above-2^31-becomes-null`,
+  `v2-native-min64-literal-prints-0`.
+- `[open]` **W5** — measure whether a ` ```scala ` fence changes `Int` width (dead code today, but
+  README/SPEC promise the dangerous path). Ends in a language decision — measure + report, don't fix
+  blind. See §`int-width-conformance` W5.
+
+---
+
 ## ci-last-red — the `sbt — compile and test` job is the only red left (2026-07-17)
 
 Everything else is CI-confirmed green: `Lint Markdown`, `Validate ScalaScript`, all six v21 gates,
