@@ -1,7 +1,7 @@
 claim: ci-red-main
 branch: feature/ci-red-main-final
 agent: codex
-heartbeat: 2026-07-17T00:54:57Z
+heartbeat: 2026-07-17T01:25:05Z
 status: in-progress
-done-so-far: fresh worktree feature/ci-red-main-final created from origin/main; latest GitHub CI inspected
-next: record explicit CI-tail slices in SPRINT.md, then reproduce each failure in the real gates
+done-so-far: fixed the two JS conformance failures plus run-js v2 exit/regfields; installer worktree guard now passes locally
+next: verify and push the installer guard, then inspect the newest complete GitHub CI run and close its remaining failures
