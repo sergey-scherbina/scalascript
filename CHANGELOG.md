@@ -231,6 +231,23 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-17 — SclJet: write by address
+
+The write half of the addressing model: `write (address, type, value)`, plus the commit boundary
+(N packets → one image, all-or-nothing).
+
+What the layer adds is not that a cell changes — the engine could already do that — but that a write
+to an address that does not resolve FAILS. Measured first: a missing rowid, a missing column and an
+`INTEGER PRIMARY KEY` assignment all returned success with no change. For SQL those are right (0
+rows matched; the reference agrees); for an address, which names one cell, they are lies. All three
+are now explicit errors, and the engine's SQL semantics are untouched. An IPK write is refused with
+its reason: that column is the row's identity, and assigning it relocates the row.
+
+Proven where it counts: a value written by address into a file written by the reference `sqlite3` is
+read back by `sqlite3` itself, with `PRAGMA integrity_check` ok. Also filed an engine bug the probe
+exposed — `UPDATE t SET <ipk> = …` is silently ignored while real SQLite moves the row.
+
+
 ## 2026-07-17 — SclJet opens real SQLite files on the default `ssc run`
 
 The last blocker: the `jvmVfs*` host-file intrinsics existed only as a v1 interpreter plugin, behind

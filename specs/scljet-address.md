@@ -25,7 +25,7 @@ One shape, two directions:
 
 ```
 read      address                  →  (type, value)
-write     (address, type, value)                       ← later slice
+write     (address, type, value)
 ```
 
 That triple — address, type, value — is the elementary unit. A write is an update packet; a
@@ -94,6 +94,35 @@ So `emp/7/name` on an IPK table is a durable name for that value; on a non-IPK t
 form is a positional address that a `VACUUM` (by any writer — including a real `sqlite3`
 between two of our reads) can quietly point at a different row.
 
+## Writing
+
+`write (address, type, value)` — the type travels inside the value, so the signature is
+`addressWrite(image, address, value) → Either[String, ByteSlice]`.
+
+**A write resolves its address first, and fails when it does not resolve.** This is the layer's
+whole contribution here. The engine's `executeUpdate` is correct SQL: a `WHERE` matching nothing is
+`changes() = 0`, not an error, and the reference agrees. But an address names ONE cell, so
+"nothing matched" is a failed write. Measured on the engine before this was built — a missing rowid,
+a missing column, and an IPK assignment ALL returned success with no change. Each is now an explicit
+error; the engine's SQL semantics are left exactly as they are.
+
+**An `INTEGER PRIMARY KEY` column is refused.** It is the row's *identity*, not a value: real SQLite
+relocates the row (`UPDATE emp SET id = 5 WHERE id = 1` → rowid 5), which would make the packet's own
+address stop existing. (Our engine silently drops such an assignment today — `BUGS.md` →
+`scljet-update-ipk-column-silently-ignored`.) Refusal is the honest answer until relocation is a
+thing we can do and name.
+
+### The commit boundary
+
+```
+addressWriteAll(image, [packet…]) → Either[String, ByteSlice]
+```
+
+N packets, ONE image, all-or-nothing: the first failure aborts and yields no image, so a caller
+never sees a half-applied set. The whole-image model gives the atomicity for free — every mutation
+already returns a complete image — which is why grouping needs no new engine machinery. A future
+file-backed writer changes where the image lands, not this contract.
+
 ## First slice — read
 
 ```
@@ -110,9 +139,8 @@ Writes, non-SQLite formats, and remote references are later slices. The packet s
 and a set of triples that must land together needs a commit boundary (SQLite touches several
 pages per row change) — that grouping is deliberately not in this slice.
 
-## Not in this slice
+## Not yet
 
-- writing by address (needs the grouping/commit boundary above)
 - addresses into UniML documents (JSON/YAML/XML/Markdown) — same model, different resolver
 - remote references (`DurableRef`) — same model, different resolver
 - addressing an interior node (a whole row or table); an address names a leaf, and a row is

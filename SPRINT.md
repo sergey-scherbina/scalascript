@@ -3749,24 +3749,24 @@ explicit errors, without changing the engine's SQL semantics.
 change counters and page balance. No SQL string is ever built — the same reason the JDBC façade
 binds `?` params at the token level.
 
-### Slices
+### DONE 2026-07-17 (`db1662a5a`)
 
-- [ ] **W1 — `addressWrite(image, address, value) → Either[String, ByteSlice]`.** Resolve the
-      address FIRST (`addressRead`) so a missing table/row/column is a clean `Left`, never a silent
-      no-op. Then `executeUpdate(image, UpdateStmt(table, [Assignment(col, value, None)],
-      [[Condition("rowid", "=", SqlInteger(rowid), …)]]))`.
-- [ ] **W2 — refuse an IPK write, explicitly.** Writing an IPK column changes the row's IDENTITY:
-      the packet's own address (`emp/7/id`) would cease to exist, and the engine currently drops it
-      silently anyway. Refuse with a message that says which and why, referencing the filed bug.
-      Revisit if/when the engine relocates rows.
-- [ ] **W3 — the commit boundary.** `addressWriteAll(image, packets) → Either[String, ByteSlice]`:
-      apply N packets, get ONE image, all-or-nothing — the first failure aborts and yields NO image.
-      In the whole-image model that IS the boundary (each mutation returns a complete new image), so
-      grouping needs no new engine machinery; it needs the caller not to see a half-applied set.
-- [ ] **W4 — gates.** conformance `scljet-address-write` `[int, js]` for the shapes; **and the one
-      that matters — the cross-engine differential through a FILE** (`ScljetAddressTest`): write by
-      address, then have the reference `sqlite3` read the bytes back. A scljet-writes/scljet-reads
-      oracle is self-consistent and cannot see a format divergence.
+- [x] **W1/W2 — `addressWrite`** resolves the address first, so a missing table/row/column is an
+      explicit `Left` instead of the engine's silent `Right`. An IPK write is refused with its
+      reason (identity, not a value; real sqlite3 relocates the row).
+- [x] **W3 — `addressWriteAll`** = the commit boundary: N packets → ONE image, all-or-nothing; a bad
+      packet yields no image and leaves the source untouched.
+- [x] **W4 — gates.** conformance `scljet-address-write` PASS `[int, js]` + byte-identical on the
+      default `bin/ssc run`; scljet conformance **99/99**; `ScljetAddressTest` **7/7** — including
+      the one that counts: a value written BY ADDRESS into a REFERENCE-written file, read back by
+      the real `sqlite3` with `PRAGMA integrity_check` = ok.
+
+**Found on the way (engine, filed, not ours):** `scljet-update-ipk-column-silently-ignored` —
+`UPDATE t SET <ipk> = …` drops the assignment and reports success; real sqlite3 moves the row.
+
+**GOTCHA, hit again:** `bin/lib/native-front/runtime/std/` holds a COPY of the engine — editing
+`scljet/address.ssc` gave `unbound global: addressWrite` on `bin/ssc run` until `installBin` re-ran.
+Third time this week; it is in the traps list for a reason.
 
 ## scljet-address — every value has an address (2026-07-16, Sergiy)
 
