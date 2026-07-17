@@ -84,6 +84,9 @@ jobs:
       - name: Setup sbt
         uses: sbt/setup-sbt@v1
 
+      - name: Verify dev installer worktree isolation
+        run: tests/e2e/install-worktree-submodule-guard.sh
+
       - name: Cache Coursier/sbt
         uses: actions/cache@v4
         with:

@@ -52,12 +52,36 @@ if ! command -v sbt &>/dev/null; then
 fi
 
 # ── Git submodules ─────────────────────────────────────────────────────────────
-echo "Updating git submodules..."
-git -C "$ROOT" submodule update --init --remote --recursive
-echo "✓ submodules up to date"
+# The skills submodule is initialized only in the shared main checkout. A feature
+# worktree intentionally has an uninitialized gitlink and reads skills from main;
+# initializing it here violates the parallel-agent contract and creates an
+# independent mutable checkout in every worktree.
+INSTALL_PREFLIGHT_ONLY="${SSC_INSTALL_PREFLIGHT_ONLY:-0}"
+if [ -f "$ROOT/.git" ]; then
+  GIT_COMMON_DIR="$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir)"
+  MAIN_ROOT="$(dirname "$GIT_COMMON_DIR")"
+  SKILLS_SRC="$MAIN_ROOT/.agents/plugins"
+  echo "Worktree detected; skipping submodule update."
+  echo "✓ agent skills source: $SKILLS_SRC"
+else
+  SKILLS_SRC="$ROOT/.agents/plugins"
+  if [ "$INSTALL_PREFLIGHT_ONLY" = "1" ]; then
+    echo "Main checkout detected; submodules would be updated."
+  else
+    echo "Updating git submodules..."
+    git -C "$ROOT" submodule update --init --remote --recursive
+    echo "✓ submodules up to date"
+  fi
+fi
+
+# Cheap executable classification seam used by the worktree regression. It exits
+# before copying skills or starting the expensive build; normal installs never set it.
+if [ "$INSTALL_PREFLIGHT_ONLY" = "1" ]; then
+  echo "✓ install preflight complete"
+  exit 0
+fi
 
 # ── Agent skills ──────────────────────────────────────────────────────────────
-SKILLS_SRC="$ROOT/.agents/plugins"
 if [ -d "$SKILLS_SRC" ]; then
   echo ""
   echo "Updating agent skills..."
