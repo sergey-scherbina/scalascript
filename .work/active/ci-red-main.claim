@@ -1,7 +1,7 @@
 claim: ci-red-main
 branch: feature/ci-red-main-final
 agent: codex
-heartbeat: 2026-07-17T00:54:35Z
-status: not-started
-done-so-far: latest GitHub CI inspected; lint/validation green, conformance and sbt-test tail remain authoritative
-next: create a fresh worktree, record explicit CI-tail slices in SPRINT.md, then reproduce each failure in the real gates
+heartbeat: 2026-07-17T00:54:57Z
+status: in-progress
+done-so-far: fresh worktree feature/ci-red-main-final created from origin/main; latest GitHub CI inspected
+next: record explicit CI-tail slices in SPRINT.md, then reproduce each failure in the real gates
