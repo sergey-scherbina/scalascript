@@ -3722,6 +3722,52 @@ Existing lanes untouched: scljet conformance 98/98 `[int, js]`.
   the lanes you ran, silently deleting every `js`/`int` row (156 → 121 here). Either run all lanes or
   hand-edit the rows you actually closed.
 
+## scljet-address-write — the same triple, applied (2026-07-17)
+
+**The model** (`specs/scljet-address.md`): one protocol, two directions.
+`read address → (type, value)`; **`write (address, type, value)`** — an update packet. The type
+travels IN the value (a `SqliteValue` carries its own storage class), so the JVM/`.ssc` signature is
+`addressWrite(image, address, value)`.
+
+**Why this is not just a call to the SQL executor.** Probed the write path BEFORE building on it, and
+3 of 4 cases return `Right` — success — with **no change at all**:
+
+| through `executeUpdate` | result |
+|---|---|
+| existing cell | ✓ updated |
+| rowid that does not exist | **`Right`, unchanged** — silent |
+| non-existent column | **`Right`, unchanged** — silent |
+| an `INTEGER PRIMARY KEY` column | **`Right`, unchanged** — silent (engine bug, filed: `scljet-update-ipk-column-silently-ignored`; real sqlite3 RELOCATES the row to the new rowid) |
+
+For SQL, "0 rows matched" is correct semantics — the reference agrees (`changes() = 0`). For an
+**address** it is not: an address names ONE specific cell, so a write to an address that does not
+resolve must FAIL. That is the whole value the layer adds here — it converts three silences into
+explicit errors, without changing the engine's SQL semantics.
+
+**Composition, not duplication.** Build an `UpdateStmt` **value** (`UpdateStmt`/`Assignment`/
+`Condition` are exported) and hand it to the engine's own `executeUpdate`, which owns indexes,
+change counters and page balance. No SQL string is ever built — the same reason the JDBC façade
+binds `?` params at the token level.
+
+### Slices
+
+- [ ] **W1 — `addressWrite(image, address, value) → Either[String, ByteSlice]`.** Resolve the
+      address FIRST (`addressRead`) so a missing table/row/column is a clean `Left`, never a silent
+      no-op. Then `executeUpdate(image, UpdateStmt(table, [Assignment(col, value, None)],
+      [[Condition("rowid", "=", SqlInteger(rowid), …)]]))`.
+- [ ] **W2 — refuse an IPK write, explicitly.** Writing an IPK column changes the row's IDENTITY:
+      the packet's own address (`emp/7/id`) would cease to exist, and the engine currently drops it
+      silently anyway. Refuse with a message that says which and why, referencing the filed bug.
+      Revisit if/when the engine relocates rows.
+- [ ] **W3 — the commit boundary.** `addressWriteAll(image, packets) → Either[String, ByteSlice]`:
+      apply N packets, get ONE image, all-or-nothing — the first failure aborts and yields NO image.
+      In the whole-image model that IS the boundary (each mutation returns a complete new image), so
+      grouping needs no new engine machinery; it needs the caller not to see a half-applied set.
+- [ ] **W4 — gates.** conformance `scljet-address-write` `[int, js]` for the shapes; **and the one
+      that matters — the cross-engine differential through a FILE** (`ScljetAddressTest`): write by
+      address, then have the reference `sqlite3` read the bytes back. A scljet-writes/scljet-reads
+      oracle is self-consistent and cannot see a format divergence.
+
 ## scljet-address — every value has an address (2026-07-16, Sergiy)
 
 **Goal.** SclJet as a platform for data wherever it lives: every value has a **name, a value and
