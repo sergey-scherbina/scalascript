@@ -55,6 +55,9 @@ jobs:
       - name: Verify exact-SHA CI status guard
         run: tests/e2e/ci-status-guard.sh
 
+      - name: Verify standalone release installer launcher
+        run: tests/e2e/release-installer-launcher.sh
+
   conformance:
     name: Conformance Suite
     runs-on: ubuntu-latest

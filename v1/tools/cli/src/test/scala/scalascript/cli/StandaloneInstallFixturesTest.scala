@@ -20,7 +20,8 @@ class StandaloneInstallFixturesTest extends AnyFunSuite:
     assert(coursier.contains("\"name\": \"ssc\""))
     assert(coursier.contains("\"io.scalascript:scalascript-cli_3:0.1.0\""))
     assert(curlInstaller.contains("https://github.com/sergey-scherbina/scalascript/releases/download"))
-    assert(curlInstaller.contains("exec java -jar"))
+    assert(curlInstaller.contains("""exec java -Xss"\${SSC_XSS:-64m}" -jar"""))
+    assert(curlInstaller.contains("\"$LIB_DIR/ssc.jar\""))
     assert(homebrew.contains("class Ssc < Formula"))
     assert(homebrew.contains("REPLACE_WITH_RELEASE_SHA256"))
 
