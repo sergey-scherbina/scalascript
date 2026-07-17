@@ -1,5 +1,29 @@
 # Bug tracker
 
+## jvm-actor-electleader-omits-leader-history — JVM disagrees with INT/JS on accepted self claim
+
+**Status:** OPEN (found 2026-07-17 by `ci-red-main` while activating the previously empty
+`actors-leader-protocol` conformance gate). Running the tracked source through the same installed
+lanes as `tests/conformance/run.sc` and comparing normalized stdout bytes gives:
+
+```text
+INT: hist1=1
+JS:  hist1=1
+JVM: hist1=0
+```
+
+The surrounding `proto0=bully`, `proto1=raft`, and `ok` lines are identical. The exact JVM repro is
+`SSC_SCALACLI_SERVER=0 bin/ssc-tools run-jvm tests/conformance/actors-leader-protocol.ssc`; INT is
+`bin/ssc-tools run --v1 ...`, and JS is installed `emit-js` piped to Node. Because the runner strips
+trailing whitespace, the comparison did the same before `cmp`/`diff`; this is semantic output, not
+a newline artifact.
+
+**Expected/fix plan.** Keep the expected fixture absent while outputs disagree. Trace the JVM actor
+lowering/runtime path for synchronous single-node `electLeader()` and `leaderHistory()` against the
+actor cluster spec and the working INT/JS implementations. Fix the shared lowest correct layer,
+add a JVM-faithful regression, rerun the three raw lanes, then activate both leader fixtures only
+after byte equality. Do not copy the majority output into expected while JVM is still wrong.
+
 ## js-actor-stop-cps-emits-unbound-call — completed actor body crashes on raw `stop()`
 
 **Status:** FIXED (2026-07-17, `4a4425f68`; awaiting exact-SHA CI confirmation). Found by
