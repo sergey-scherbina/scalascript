@@ -2,9 +2,10 @@
 
 ## jvm-actor-electleader-omits-leader-history — JVM disagrees with INT/JS on accepted self claim
 
-**Status:** OPEN (found 2026-07-17 by `ci-red-main` while activating the previously empty
-`actors-leader-protocol` conformance gate). Running the tracked source through the same installed
-lanes as `tests/conformance/run.sc` and comparing normalized stdout bytes gives:
+**Status:** FIXED (2026-07-17, JVM runtime `34685277c`, activated oracle `f403cb952`; awaiting
+exact-SHA CI confirmation). Found by `ci-red-main` while activating the previously empty
+`actors-leader-protocol` conformance gate. Running the tracked source through the same installed
+lanes as `tests/conformance/run.sc` and comparing normalized stdout bytes originally gave:
 
 ```text
 INT: hist1=1
@@ -23,6 +24,14 @@ lowering/runtime path for synchronous single-node `electLeader()` and `leaderHis
 actor cluster spec and the working INT/JS implementations. Fix the shared lowest correct layer,
 add a JVM-faithful regression, rerun the three raw lanes, then activate both leader fixtures only
 after byte equality. Do not copy the majority output into expected while JVM is still wrong.
+
+**Root cause/fix.** Generated JVM `_startElection()` kept both the change notification and history
+write behind `prev != _localNodeId`. In empty-id single-node mode both values start as `""`, so it
+accepted the claim but silently dropped history. INT and JS already recorded every accepted claim
+and guarded only the notification. `34685277c` makes JVM symmetric and adds a generated-source e2e
+that failed `0 != 1` before the fix. The complete `JvmGenEffectsRuntimeTest` passes 35/35. Rebuilt
+installed INT/JS/JVM outputs are byte-identical for both leader cases; the forced conformance run
+passes 2/2 with all three lanes.
 
 ## js-actor-stop-cps-emits-unbound-call — completed actor body crashes on raw `stop()`
 
@@ -46,11 +55,11 @@ JVM-codegen + JS-codegen Bully matrix passes 1/1 with zero cancellations, and
 
 ## actor-leader-conformance-has-no-expected — tracked leader cases always skip
 
-**Status:** OPEN (found 2026-07-17 by `ci-red-main` while selecting the affected gate for the
-multi-backend actor failure). `tests/conformance/run.sh --only 'actors-leader-protocol' --no-memo`
-finds the tracked case but prints `SKIP (no expected/actors-leader-protocol.txt)` and finishes with
-`0 passed, 0 failed out of 0 tests`. Therefore the case currently compares no backend output and
-cannot detect a broken leader protocol.
+**Status:** FIXED (2026-07-17, `f403cb952`; awaiting exact-SHA CI confirmation). Found by
+`ci-red-main` while selecting the affected gate for the multi-backend actor failure.
+`tests/conformance/run.sh --only 'actors-leader-protocol' --no-memo` found the tracked case but
+printed `SKIP (no expected/actors-leader-protocol.txt)` and finished with `0 passed, 0 failed out of
+0 tests`. Therefore the case compared no backend output and could not detect a broken protocol.
 
 The same family has at least one more empty gate:
 `tests/conformance/run.sh --only 'actors-cluster-leader' --no-memo` also finds its source, reports
@@ -61,6 +70,11 @@ currently compares any backend.
 compare the actual observable output, and add the expected fixture only when they agree; a guessed
 file or an expected value copied from one broken lane would pre-judge the result. Keep this separate
 from the `BigInt` runtime fix so activation can expose rather than conceal that bug.
+
+**Activation result.** Compare-first execution exposed and blocked on the separate JVM history bug
+above. After `34685277c`, normalized INT/JS/JVM bytes agree for both sources. `f403cb952` adds only
+those measured observables; a forced wrapper run executes 2/2 cases, with PASS on INT, JS, and JVM
+for each rather than the former 0/0 skips.
 
 
 ## cluster-multibackend-js-actor-mixes-bigint-number — generated node dies before Bully convergence

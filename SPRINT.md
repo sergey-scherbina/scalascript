@@ -540,14 +540,18 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       **DONE `4a4425f68`:** bare CPS `stop()` now lowers to `Actor.stop()`; the unchanged real Node
       fixture reaches clean process completion after proving all three timer paths. Included in the
       60/60 Node, 1/1 staged cluster, and three-lane supervision results above.
-- [ ] **5v. Repair JVM single-node leader history before activating its conformance oracle.** A
+- [x] **5v. Repair JVM single-node leader history before activating its conformance oracle.** A
       compare-first run of installed INT, JS, and JVM lanes for `actors-leader-protocol` found
       byte-identical output except `hist1`: INT/JS report `1`, JVM reports `0`. Reproduce with
       `SSC_SCALACLI_SERVER=0 bin/ssc-tools run-jvm tests/conformance/actors-leader-protocol.ssc`,
       trace `electLeader()`/`leaderHistory()` against the actor cluster spec and working lanes, add
       a faithful JVM regression at the lowest shared layer, and rerun all three raw outputs before
       writing expected data. The missing expected file is intentionally retained until equality.
-- [ ] **5t. Activate the tracked actor leader conformance cases.** Both `actors-leader-protocol` and
+      **DONE `34685277c`:** JVM recorded history only when the leader value changed; empty-id
+      single-node claims therefore vanished. History now records every accepted claim while events
+      remain change-gated. The faithful e2e failed `0 != 1` before the fix; full generated JVM
+      runtime is 35/35, and rebuilt raw INT/JS/JVM outputs are byte-identical.
+- [x] **5t. Activate the tracked actor leader conformance cases.** Both `actors-leader-protocol` and
       `actors-cluster-leader` sources are found but skipped because their expected files are absent,
       each reporting 0 passed and 0 failed. Check actor ownership, execute every declared backend,
       and add expected fixtures only after their real stdout agrees; then force the wrapper and
@@ -556,6 +560,9 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       **Compare-first finding:** `actors-leader-protocol` is not ready for an oracle: INT/JS emit
       `hist1=1`, while JVM emits `hist1=0`; all other lines match. Complete 5v, repeat all three
       lanes, then measure `actors-cluster-leader` rather than guessing either fixture.
+      **DONE `f403cb952`:** after 5v, both cases have one normalized SHA across all three raw lanes.
+      Their measured fixtures activate the runner: 2/2 execute, and each passes INT/JS/JVM with
+      `--no-memo`; neither source can silently finish as 0/0 now.
 - [ ] **6. Prevent the recurrence.** Long-red CI is what let all of this pile up. Decide + record a
       cheap guard (e.g. the loop checks `gh run list` before claiming a lane green, or a CI-status
       line in the claim protocol). Recorded as a question for Sergiy, not a unilateral process change.

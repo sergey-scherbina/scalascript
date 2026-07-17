@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-07-17 — actor leader conformance compares all three backends
+
+Compare-first activation of two previously empty leader gates exposed a real JVM divergence:
+single-node `electLeader()` accepted the empty-id claim but kept the history write behind a
+leader-value change guard. JVM now records every accepted claim while notifications remain
+change-gated, matching INT and JS (`34685277c`); the generated runtime suite passes 35/35.
+
+Only after rebuilt INT/JS/JVM stdout became byte-identical were the two measured fixtures added
+(`f403cb952`). `actors-leader-protocol` and `actors-cluster-leader` now execute 2/2 through the
+normal conformance wrapper, each passing all three lanes instead of silently skipping 0/0.
+
 ## 2026-07-17 — JS actors bridge Long delays at the host timer boundary
 
 Generated JS actors now convert source `Long` delays to host numbers only where they meet
