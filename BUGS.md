@@ -1,5 +1,33 @@
 # Bug tracker
 
+## v2-native-jvmvfs-externs-unbound — host-file I/O intrinsics are invisible to the native tier
+
+**Status:** OPEN (found 2026-07-17 by `v2-native-stack-overflow` after the charAt/toLong fixes made
+the rest of scljet run on `bin/ssc run`). **v2 native plugin host**, not the engine.
+
+**Symptom/reproduce:**
+
+```
+bin/ssc run examples/scljet-readonly.ssc  → ssc: unbound global: jvmVfsDelete
+bin/ssc run examples/scljet-jvm-vfs.ssc   → ssc: unbound global: jvmVfsDelete
+bin/ssc-tools run --v1 <same>             → works
+```
+
+**Root cause.** The `jvmVfs*` externs (`scljet/jvm-vfs.ssc`) are supplied by
+`v1/runtime/std/scljet-vfs-plugin`, a **v1-style** plugin resolved through the interpreter's
+ServiceLoader. The native tier runs its own `NativePluginHost` over `v2/runtime/std/*-plugin`, so a
+v1 plugin is simply not in its world. `bin/lib/.../plugins/scljet-vfs-plugin.sscpkg` being present
+is a red herring — the file is there, the native host does not consult it.
+
+**Impact.** Everything in scljet that does not touch a host file now runs on the default command
+(7 of 9 `examples/scljet-*` pass; SQL, CRUD, codecs, in-memory VFS, writes). The two that open a
+real file do not. So on `bin/ssc run` scljet is an in-memory engine only.
+
+**Fix (not a one-liner).** Port `scljet-vfs-plugin` to the v2 native plugin SPI (`NativePlugin` /
+`NativePluginHost`), the way `v2/runtime/std/content-plugin` is done. Until then, host-file scljet
+belongs to the `int`/`js`/JVM lanes, which is where its conformance already runs.
+
+
 ## ci-sbt-outer-timeout-cancels-bounded-test-step — job budget expires before the suite can report
 
 **Status:** OPEN (found 2026-07-17 by `ci-red-main` in completed Linux run `29544412767`, SHA
