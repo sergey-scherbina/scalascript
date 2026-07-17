@@ -24,6 +24,29 @@ must still run the real C_min and projection assertions. Do not add fake `java.i
 the linker. This overlaps the stale clean newfront claim; `ci-red-main` records and consumes the
 owner fix but does not edit it without takeover authority.
 
+## scljet-jdbc-stable-spi-import-regression — JDBC plugin bypasses the stable value surface
+
+**Status:** OPEN / owned by `scljet-m3-writes` (reconfirmed 2026-07-17 by `ci-red-main` in the
+real aggregate `scripts/sbtc "test"` at code SHA `aca439fcc`).
+`StableSpiEnforcementTest` fails its source boundary comparison because six files in
+`v1/runtime/std/scljet-jdbc-plugin` import `scalascript.interpreter.Value`; `ScljetEngine.scala`
+also imports `Interpreter`. The two-case suite reports 1 pass / 1 failure, and the failure lists
+each offending file and import.
+
+**Impact / real-harness evidence.** SclJet's SQL and JDBC behavior tests can pass while the plugin
+silently regresses the stable plugin architecture. This is not a proxy classification: the guard
+scans the shipped value-surface plugins, compares the observed imports against the permitted API,
+and prints all six mismatches. The same result was already queued in SPRINT 4c; this entry supplies
+the missing durable bug-ledger record required by the project workflow.
+
+**Expected/fix plan.** Migrate the SclJet JDBC boundary to `scalascript-plugin-api` values and
+capabilities, preserving its JDBC/SQL behavior and focused parity tests. A documented exemption is
+valid only if the plugin is first shown to be a runtime-provider boundary rather than a
+value-surface plugin; adding an exemption merely to silence the current comparison is not a fix.
+Verify the focused `StableSpiEnforcementTest`, SclJet JDBC suites, and affected conformance. This
+overlaps the stale clean SclJet claim, so `ci-red-main` does not edit production files without
+takeover authority.
+
 ## coord-status-ignores-heartbeat-age — old claims with live worktrees look current
 
 **Status:** FIXED (2026-07-17, `52e1d0814`; awaiting exact-SHA CI confirmation). Found by

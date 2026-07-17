@@ -198,6 +198,15 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
         5. `scljetVfsPlugin / SclJetJvmVfsHostTest:167` — *"exclusive host lock blocks official
            SQLite in another process"*, `process.isAlive() was false`. (scljet lane; may need a real
            sqlite3 binary — likely environment-sensitive)
+      **Current local aggregate (2026-07-17):** `scripts/sbtc "test"` at code SHA `aca439fcc`
+      (later commits through `edbff55d4` were docs/coord only) finished naturally in 39m17s with
+      exit 1. Four XML suites fail exactly in the claimed lanes above: `ScalaSpikeSpec`,
+      `StableSpiEnforcementTest`, `SclJetJvmVfsHostTest`, and `SwiftBackendTest`. The same run also
+      reproduces the newfront Scala.js linker failure on JVM filesystem classes and the Swift real
+      fixture's generated-Scala errors (`selected()` / missing `selectFromView`) followed by its
+      in-process `System.exit`. No additional unclaimed failing suite appeared. Individual BUGS
+      entries now cover every observed failure; clean newfront/SclJet claims and dirty Swift
+      subagent worktrees still require explicit takeover direction before implementation.
 - [~] **5. CI re-audit — ALL SIX v21 GATES NOW PASS IN CI. Two jobs still red; not green overall.**
       **CI-CONFIRMED green (run 29501968735, observed step-by-step — this is proof, not inference):**
       `Lint Markdown` · `Validate ScalaScript` · and in the sbt job, in order: `compiler-free ASM
