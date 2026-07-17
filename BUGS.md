@@ -1,5 +1,24 @@
 # Bug tracker
 
+## install-dev-initializes-skills-submodule-inside-worktree — documented local build violates the worktree contract
+
+**Status:** OPEN (found 2026-07-17 by `ci-red-main` on `origin/main` `771b67d45`). This is a
+workflow correctness bug, not merely redundant network work: project rules require
+`.agents/plugins` to be initialized only in shared main, while the command printed by the
+conformance wrapper for a missing launcher is `bash install.sh --dev`.
+
+**Real-worktree repro.** Create a fresh worktree with `scripts/new-worktree <name>` and run the
+printed command. Before any build output, `install.sh:54-57` announces `Updating git submodules...`
+and unconditionally runs `git submodule update --init --remote --recursive`; git starts cloning
+`.agents/plugins` into the worktree. The 2026-07-17 run was interrupted immediately, leaving only
+an uninitialized empty submodule directory (`git submodule status` begins with `-`).
+
+**Expected.** A worktree build must not initialize or update the skills submodule. `install.sh`
+should detect a `.git` worktree file, use the shared-main skill checkout only for agent reads, and
+continue building because the submodule is not a compiler input. A main-checkout install may retain
+the explicit update. The regression gate must exercise both classifications without cloning or
+running the expensive build.
+
 
 ## busi-v1-lane-runtime-regressions — four imported owner adapters fail on the 3666-based v1 runtime
 
