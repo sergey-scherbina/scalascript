@@ -493,6 +493,13 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       discards ZIP insertion order via `.toMap`; make byte equality/order primary and keep SHA only
       in mismatch diagnostics. SMAP/source-map suites must also fail (with exit/stdout/stderr) on a
       staged compiler command error instead of reclassifying it as unavailable.
+      **First faithful staged result:** 19 execute, 15 pass, 4 fail, 0 cancel. Direct driver is 3/3,
+      reproducibility 5/5, source-map 3/3, SMAP 2/3, and bytecode-link 2/5. Three failures show the
+      first runtime-classpath helper is incomplete (`scala.Predef$` / `scala.Option` absent from
+      spawned Java); measure actual test JVM/classpath locations and keep the real run assertions.
+      The remaining failure finds `_ssc_runtime.tasty`, `a_sc.tasty`, and `b_sc.tasty` in the linked
+      JAR against an old no-TASTY assertion. Inspect the linker spec/history and downstream contract
+      before changing either side; do not declare current output wrong from a stale test alone.
 - [ ] **5s. Repair the JS actor `BigInt`/`Number` mismatch exposed by the real multi-backend
       cluster matrix.** The separately staged `ClusterMultiBackendMatrixTest` executes 1 test with
       zero cancellations, starts both generated programs, then the node backend exits in

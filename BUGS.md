@@ -69,6 +69,17 @@ the observable bytes/order drive the verdict and hashes are diagnostics only. `J
 and `SourceMapJvmTest` also turn any non-zero compile result into `CANCELED`; after the installed
 launcher and compiler jars are present, those are real failures and must retain exit/stdout/stderr.
 
+**First faithful staged result.** After switching to installed `ssc-tools`, all **19** tests execute:
+15 pass, 4 fail, and 0 cancel. `JvmDirectDriverTest` is 3/3, `ReproducibilityTest` 5/5,
+`SourceMapJvmTest` 3/3, `JvmSmapStackTraceTest` 2/3, and `JvmBytecodeLinkCliTest` 2/5. Three failures
+are one helper defect: its current code-source classpath does not actually make Scala runtime
+classes visible to the spawned `java` process (`scala.Predef$` / `scala.Option` missing). Measure
+the loaded locations/test classpath and select the real runtime JARs, then retain the end-to-end JVM
+execution assertions. The fourth failure is a contract question, not yet pre-classified: linked JARs
+now contain `_ssc_runtime.tasty`, `a_sc.tasty`, and `b_sc.tasty` while the old test demands no TASTY.
+Read the linker spec/history and test downstream separate-compilation needs before deciding whether
+production or the assertion is stale.
+
 
 ## swiftui-real-fixture-system-exit-hides-failure — compiler error kills the forked test JVM
 
