@@ -3498,6 +3498,24 @@ class JsGen(
     case Term.Block(stats) => stats.map(genGenStatItem).mkString("\n")
     case s: Stat           => genGenStatItem(s)
 
+  /** Scala-meta keeps `x += y` as an ApplyInfix, while the interpreter gives a
+   *  mutable-name LHS assignment semantics inside blocks. Generator bodies have
+   *  their own statement emitter, so route the base operation through the normal
+   *  infix generator and write the result back instead of dispatching a method
+   *  literally named `+=` on the current value. */
+  private def genGeneratorCompoundAssign(t: Term.ApplyInfix): Option[String] = t match
+    case Term.ApplyInfix.After_4_6_0(lhs: Term.Name, op, _, argClause)
+        if op.value.lengthIs > 1 && op.value.last == '=' &&
+           op.value != ">=" && op.value != "<=" && op.value != "!=" && op.value != "==" &&
+           argClause.values.lengthCompare(1) == 0 =>
+      val base = Term.ApplyInfix.After_4_6_0(
+        lhs,
+        Term.Name(op.value.init),
+        Nil,
+        argClause)
+      Some(s"${emittedName(lhs.value)} = ${genExpr(base)}")
+    case _ => None
+
   private def genGenStatItem(s: Stat): String = s match
     case Defn.Val(_, List(Pat.Var(n)), _, rhs) =>
       s"  const ${emittedName(n.value)} = ${genGenExpr(rhs)};"
@@ -3505,6 +3523,8 @@ class JsGen(
       s"  let ${emittedName(n.value)} = ${genGenExpr(rhs)};"
     case Term.Assign(Term.Name(n), rhs) =>
       s"  ${emittedName(n)} = ${genGenExpr(rhs)};"
+    case t: Term.ApplyInfix =>
+      s"  ${genGeneratorCompoundAssign(t).getOrElse(genGenExpr(t))};"
     case t: Term.While =>
       val bodyStr = genGenStmt(t.body)
       s"  while (${genExpr(t.expr)}) {\n$bodyStr\n  }"

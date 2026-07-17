@@ -2,8 +2,12 @@ package scalascript
 
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
+import scalascript.codegen.{JsGen, JsRuntime, JsRuntimeAsync}
 import scalascript.interpreter.Interpreter
 import scalascript.parser.Parser
+
+import java.nio.charset.StandardCharsets
+import scala.io.Source
 
 /** Unit tests for v1.10 Generator — pull-based lazy streams. */
 class GeneratorTest extends AnyFunSuite with Matchers:
@@ -16,6 +20,19 @@ class GeneratorTest extends AnyFunSuite with Matchers:
     Interpreter(ps).run(module)
     ps.flush()
     buf.toString.trim
+
+  private def capturedJs(code: String): String =
+    val module = Parser.parse(s"# Test\n\n```scalascript\n$code\n```\n")
+    val flush = """process.stdout.write(_output.join('\n') + (_output.length ? '\n' : '')); _output = [];"""
+    val js = JsRuntime + "\n" + JsRuntimeAsync + "\n" + JsGen.generate(module) + "\n" + flush
+    val tmp = java.io.File.createTempFile("ssc-generator-compound-", ".cjs")
+    tmp.deleteOnExit()
+    java.nio.file.Files.write(tmp.toPath, js.getBytes(StandardCharsets.UTF_8))
+    val proc = ProcessBuilder("node", tmp.getAbsolutePath).redirectErrorStream(true).start()
+    val out = Source.fromInputStream(proc.getInputStream).mkString
+    val exit = ProcTestUtil.awaitExit(proc)
+    withClue(s"node exit=$exit output=$out") { exit shouldBe 0 }
+    out.trim
 
   test("generator — toList collects all values"):
     captured("""
@@ -79,6 +96,18 @@ class GeneratorTest extends AnyFunSuite with Matchers:
       }
       println(g.take(5).toList)
     """) shouldBe "List(0, 1, 2, 3, 4)"
+
+  test("JS generator — compound assignment mutates the local variable"):
+    assume(ProcTestUtil.commandOk("node"), "node not available")
+    capturedJs("""
+      val g = generator { () =>
+        var i = 1
+        while i <= 3 do
+          suspend(i)
+          i += 1
+      }
+      println(g.toList.mkString(", "))
+    """) shouldBe "1, 2, 3"
 
   test("generator — drop(n) skips first n"):
     captured("""
