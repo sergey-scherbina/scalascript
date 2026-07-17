@@ -68,12 +68,15 @@ and `Conformance Suite` at **286 passed / 0 failed** with 3 declared known-red l
 **The job has TWO independent failures, and they LAYER: the flake runs earlier, so when it fires it
 hides the test failures behind it.** Both are real; fixing one leaves the job red.
 
-- [x] **1. `v21-slim-distribution-gate` flake — FIXED `87187416d`.** `actors-provider.ssc` prints from
-      two unsynchronised actors and the gate asserted a total order over them; CI caught the two lines
-      swapped (`expected=$'worker: one\nSome(root: reply)'` vs `actual=$'Some(root: reply)\nworker: one'`).
-      Now compared as a set, in BOTH gates that carried the identical line. Proven non-vacuous (a
-      missing/wrong/duplicated line still FAILs). It only became findable because the gates now print
-      name/want/got/diff.
+- [x] **1. `v21-slim-distribution-gate` flake — FIXED `87187416d`, CI-CONFIRMED.** `actors-provider.ssc`
+      prints from two unsynchronised actors and the gate asserted a total order over them; CI caught the
+      two lines swapped (`expected=$'worker: one\nSome(root: reply)'` vs `actual=$'Some(root: reply)\nworker:
+      one'`). Now compared as a set (`expect_command_unordered`), in BOTH gates that carried the identical
+      line. Proven non-vacuous (a missing/wrong/duplicated line still FAILs). **VERIFIED on CI 2026-07-17,
+      run `29587276704` (the post-fix SHA): step `physically slim standard distribution gate` =
+      completed/success, ALL SIX v21 gates green, and `Test via sbt` reached for the first time** — the
+      flake stuck. (Before the fix, the last completed run `df807d3d7` died at exactly this gate on the
+      swapped-lines flake.)
 - [~] **2. `Test via sbt` — all 5 suites triaged + reproduced against current `origin/main` (2026-07-17
       by the spawned `ci-last-red` agent).** Two FIXED here (test-infra, not dirty in any worktree);
       three ROUTED to their live owners with exact assertions (owned/dirty — fixing them would fight
