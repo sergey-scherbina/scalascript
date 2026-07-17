@@ -1,0 +1,182 @@
+#!/usr/bin/env bash
+# Read-only exact-SHA GitHub Actions status for the main CI workflow.
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+GH_BIN="${SSC_CI_GH:-gh}"
+SHA=""
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/ci-status [--sha GIT_SHA]
+
+Checks the push-triggered ci.yml run for exactly one commit. Without --sha,
+uses the locally fetched origin/main commit.
+
+Exit codes:
+  0  exact run completed and all required jobs succeeded
+  1  exact run completed red or omitted a required job
+  2  exact run is pending, absent, or could not be queried
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --sha)
+      if [[ $# -lt 2 || -z "$2" ]]; then
+        printf 'ci-status: --sha requires a value\n' >&2
+        usage >&2
+        exit 2
+      fi
+      SHA="$2"
+      shift 2
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    *)
+      printf 'ci-status: unknown argument: %s\n' "$1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [[ -z "$SHA" ]]; then
+  if ! SHA="$(git -C "$ROOT" rev-parse --verify 'origin/main^{commit}' 2>/dev/null)"; then
+    printf 'CI UNKNOWN origin/main\n'
+    printf '  reason: origin/main is unavailable; fetch the remote first\n'
+    exit 2
+  fi
+fi
+
+unknown() {
+  local reason="$1"
+  local detail="${2:-}"
+  printf 'CI UNKNOWN %s\n' "$SHA"
+  printf '  reason: %s\n' "$reason"
+  if [[ -n "$detail" ]]; then
+    while IFS= read -r line; do
+      printf '  gh: %s\n' "$line"
+    done <<<"$detail"
+  fi
+  exit 2
+}
+
+if ! command -v "$GH_BIN" >/dev/null 2>&1; then
+  unknown "GitHub CLI is unavailable: $GH_BIN"
+fi
+
+set +e
+run_payload="$(
+  cd "$ROOT" && "$GH_BIN" run list \
+    --workflow ci.yml \
+    --branch main \
+    --event push \
+    --commit "$SHA" \
+    --limit 5 \
+    --json databaseId,headSha,status,conclusion,url \
+    --jq 'if length == 0 then empty else .[0] | "RUN_ID=\(.databaseId)\nRUN_SHA=\(.headSha)\nRUN_STATUS=\(.status)\nRUN_CONCLUSION=\(.conclusion // "")\nRUN_URL=\(.url)" end' \
+    2>&1
+)"
+run_code=$?
+set -e
+
+if [[ "$run_code" -ne 0 ]]; then
+  unknown "gh run list failed" "$run_payload"
+fi
+if [[ -z "$run_payload" ]]; then
+  unknown "no push ci.yml run found for the exact SHA"
+fi
+
+run_id=""
+run_sha=""
+run_status=""
+run_conclusion=""
+run_url=""
+while IFS= read -r line; do
+  case "$line" in
+    RUN_ID=*) run_id="${line#RUN_ID=}" ;;
+    RUN_SHA=*) run_sha="${line#RUN_SHA=}" ;;
+    RUN_STATUS=*) run_status="${line#RUN_STATUS=}" ;;
+    RUN_CONCLUSION=*) run_conclusion="${line#RUN_CONCLUSION=}" ;;
+    RUN_URL=*) run_url="${line#RUN_URL=}" ;;
+  esac
+done <<<"$run_payload"
+
+if [[ -z "$run_id" || -z "$run_sha" || -z "$run_status" || -z "$run_url" ]]; then
+  unknown "malformed gh run list response" "$run_payload"
+fi
+if [[ "$run_sha" != "$SHA" ]]; then
+  unknown "GitHub returned SHA $run_sha for requested SHA $SHA" "$run_payload"
+fi
+
+set +e
+jobs_payload="$(
+  cd "$ROOT" && "$GH_BIN" run view "$run_id" \
+    --json jobs \
+    --jq '.jobs[] | "\(.name)|\(.status)|\(.conclusion // "")"' \
+    2>&1
+)"
+jobs_code=$?
+set -e
+if [[ "$jobs_code" -ne 0 ]]; then
+  unknown "gh run view failed for run $run_id" "$jobs_payload"
+fi
+
+required_jobs=(
+  "Lint Markdown"
+  "Validate ScalaScript"
+  "Conformance Suite"
+  "sbt — compile and test"
+)
+
+report=""
+all_success=true
+for required in "${required_jobs[@]}"; do
+  found=false
+  found_status=""
+  found_conclusion=""
+  while IFS='|' read -r name status conclusion; do
+    if [[ "$name" == "$required" ]]; then
+      found=true
+      found_status="$status"
+      found_conclusion="$conclusion"
+      break
+    fi
+  done <<<"$jobs_payload"
+
+  if $found; then
+    display_conclusion="${found_conclusion:-pending}"
+    report="${report}  ${required}: ${found_status}/${display_conclusion}"$'\n'
+    if [[ "$found_status" != "completed" || "$found_conclusion" != "success" ]]; then
+      all_success=false
+    fi
+  else
+    report="${report}  missing required job: ${required}"$'\n'
+    all_success=false
+  fi
+done
+
+if [[ "$run_status" != "completed" ]]; then
+  printf 'CI PENDING %s %s\n' "$SHA" "$run_url"
+  printf '%s' "$report"
+  exit 2
+fi
+
+if [[ "$run_conclusion" == "success" ]] && $all_success; then
+  printf 'CI GREEN %s %s\n' "$SHA" "$run_url"
+  printf '%s' "$report"
+  exit 0
+fi
+
+printf 'CI RED %s %s\n' "$SHA" "$run_url"
+printf '%s' "$report"
+if [[ -n "$run_conclusion" ]]; then
+  printf '  workflow: completed/%s\n' "$run_conclusion"
+else
+  printf '  workflow: completed/unknown\n'
+fi
+exit 1

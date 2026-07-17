@@ -13,6 +13,7 @@ Usage: scripts/coord-status [--no-fetch]
 
 Shows the authoritative remote queue/claims plus local worktree state:
   - current origin/main commit
+  - exact-commit GitHub CI state (green/red/pending/unknown)
   - active .work/active/*.claim files from origin/main
   - live and prunable git worktrees
   - clean linked worktrees whose HEAD has already landed on origin/main
@@ -120,6 +121,15 @@ queue_file="${queue_file:-SPRINT.md}"
 
 echo "== $REMOTE_REF =="
 git -C "$ROOT" log --oneline -1 "$REMOTE_REF"
+echo
+
+echo "== GitHub CI for $REMOTE_REF =="
+remote_sha="$(git -C "$ROOT" rev-parse "$REMOTE_REF^{commit}")"
+ci_code=0
+"$ROOT/scripts/ci-status" --sha "$remote_sha" || ci_code=$?
+if [[ "$ci_code" -ne 0 ]]; then
+  printf '  exact-SHA CI is not green (exit %s); coordination status continues\n' "$ci_code"
+fi
 echo
 
 active_files="$(git -C "$ROOT" ls-tree -r --name-only "$REMOTE_REF" .work/active 2>/dev/null || true)"

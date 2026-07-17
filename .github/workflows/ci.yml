@@ -52,6 +52,9 @@ jobs:
           test -f examples/imports.ssc
           echo "All example files present"
 
+      - name: Verify exact-SHA CI status guard
+        run: tests/e2e/ci-status-guard.sh
+
   conformance:
     name: Conformance Suite
     runs-on: ubuntu-latest
