@@ -109,7 +109,10 @@ object Reader:
     * in `BUGS.md` as `coreir-compiler-unbounded-depth`. This bound is the codec's half. */
   val MaxDepth: Int = Option(System.getProperty("ssc.coreir.maxDepth")).flatMap(_.toIntOption).getOrElse(1000)
 
-  def parseProgram(src: String): Program = toProgram(parseOne(src))
+  def parseProgram(src: String): Program =
+    val p = toProgram(parseOne(src))
+    validate(p)  // fail CLOSED on malformed IR — this is the untrusted-capsule entry point
+    p
 
   def parseOne(src: String): Sx =
     val p = new P(src)
@@ -195,15 +198,15 @@ object Reader:
     case _ => sys.error(s"bad def: $sx")
 
   def toArm(sx: Sx): Arm = sx match
-    case Sx.Lst(Sx.Atom("arm") :: Sx.Atom(t) :: Sx.Atom(a) :: b :: Nil) => Arm(t, a.toInt, toTerm(b))
+    case Sx.Lst(Sx.Atom("arm") :: Sx.Atom(t) :: Sx.Atom(a) :: b :: Nil) => Arm(t, natOf(a, "arm arity"), toTerm(b))
     case _ => sys.error(s"bad arm: $sx")
 
   def toTerm(sx: Sx): Term = sx match
     case Sx.Lst(Sx.Atom(h) :: rest) => h match
       case "lit"    => Term.Lit(toConst(rest))
-      case "local"  => rest match { case Sx.Atom(i) :: Nil => Term.Local(i.toInt); case _ => sys.error("bad local") }
+      case "local"  => rest match { case Sx.Atom(i) :: Nil => Term.Local(natOf(i, "local index")); case _ => sys.error("bad local") }
       case "global" => rest match { case Sx.Atom(n) :: Nil => Term.Global(n);      case _ => sys.error("bad global") }
-      case "lam"    => rest match { case Sx.Atom(a) :: b :: Nil => Term.Lam(a.toInt, toTerm(b)); case _ => sys.error("bad lam") }
+      case "lam"    => rest match { case Sx.Atom(a) :: b :: Nil => Term.Lam(natOf(a, "lam arity"), toTerm(b)); case _ => sys.error("bad lam") }
       case "app"    => rest match { case fn :: as => Term.App(toTerm(fn), as.map(toTerm)); case _ => sys.error("bad app") }
       case "let"    => rest match { case Sx.Lst(r) :: b :: Nil => Term.Let(r.map(toTerm), toTerm(b)); case _ => sys.error("bad let") }
       case "letrec" => rest match { case Sx.Lst(l) :: b :: Nil => Term.LetRec(l.map(toTerm), toTerm(b)); case _ => sys.error("bad letrec") }
@@ -227,8 +230,8 @@ object Reader:
     case Sx.Atom("unit")  :: Nil => Const.CUnit
     case Sx.Atom("true")  :: Nil => Const.CBool(true)
     case Sx.Atom("false") :: Nil => Const.CBool(false)
-    case Sx.Lst(Sx.Atom("int")   :: Sx.Atom(n) :: Nil) :: Nil => Const.CInt(n.toLong)
-    case Sx.Lst(Sx.Atom("big")   :: Sx.Atom(n) :: Nil) :: Nil => Const.CBig(BigInt(n))
+    case Sx.Lst(Sx.Atom("int")   :: Sx.Atom(n) :: Nil) :: Nil => Const.CInt(intOf(n, "int literal"))
+    case Sx.Lst(Sx.Atom("big")   :: Sx.Atom(n) :: Nil) :: Nil => Const.CBig(bigOf(n, "big literal"))
     case Sx.Lst(Sx.Atom("float") :: Sx.Atom(x) :: Nil) :: Nil => Const.CFloat(parseFloat(x))
     case Sx.Lst(Sx.Atom("str")   :: Sx.Str(s)  :: Nil) :: Nil => Const.CStr(s)
     case Sx.Lst(Sx.Atom("bytes") :: Sx.Atom(h) :: Nil) :: Nil => Const.CBytes(parseHex(h))
@@ -238,7 +241,101 @@ object Reader:
   def parseFloat(x: String): Double = x match
     case "nan" => Double.NaN; case "inf" => Double.PositiveInfinity; case "-inf" => Double.NegativeInfinity
     case _ => x.toDouble
-  def parseHex(h: String): Vector[Byte] = h.grouped(2).map(p => Integer.parseInt(p, 16).toByte).toVector
+
+  // ── strict token validation — fail CLOSED (specs/12-ir-format.md §Tokens) ────────────────
+  // The reader decodes UNTRUSTED persisted capsules, so every numeric/hex token is *validated*,
+  // not merely `.toInt`-ed: an accepted-but-malformed token is a fail-OPEN security defect
+  // ("Leniency is about layout, never about validity"). Leniency covers whitespace + comments
+  // only. Before this, `(local -1)` decoded to a negative de Bruijn index (an OOB env read),
+  // `(int +1)`/`(int 01)` were silently accepted, and `(bytes abc)`/`(bytes +1)` were taken as
+  // bytes — each a term the canonical Writer could never have produced.
+
+  /** NAT := `0` | `[1-9][0-9]*` — no sign, no leading zeros. */
+  private def isNat(s: String): Boolean =
+    s == "0" || (s.nonEmpty && s.charAt(0) != '0' && s.forall(c => c >= '0' && c <= '9'))
+
+  /** de Bruijn index / arity token. Rejects `-1`, `+1`, `01`, empty, non-digits, Int overflow. */
+  def natOf(s: String, what: String): Int =
+    if !isNat(s) then sys.error(s"$what: not a canonical NAT (0|[1-9][0-9]*): '$s'")
+    s.toIntOption.getOrElse(sys.error(s"$what: NAT out of Int range: '$s'"))
+
+  /** INT := `-?` NAT, canonical (no `+`, no leading zeros, `-0` is not canonical). 64-bit. */
+  def intOf(s: String, what: String): Long =
+    if !isCanonicalInt(s) then sys.error(s"$what: not a canonical INT (0|-?[1-9][0-9]*): '$s'")
+    s.toLongOption.getOrElse(sys.error(s"$what: INT out of 64-bit range: '$s'"))
+
+  /** big INT := `-?` NAT, arbitrary precision — same canonical shape, no width bound. */
+  def bigOf(s: String, what: String): BigInt =
+    if !isCanonicalInt(s) then sys.error(s"$what: not a canonical INT (0|-?[1-9][0-9]*): '$s'")
+    BigInt(s)
+
+  private def isCanonicalInt(s: String): Boolean =
+    if s.startsWith("-") then s != "-0" && isNat(s.substring(1)) else isNat(s)
+
+  private def isHexDigit(c: Char): Boolean =
+    (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+
+  /** HEX := an even-length run of hex digits (canonical form is lowercase, §Tokens; the reader
+    * tolerates upper case as layout). Rejects odd length, `+`/`-` signs, and non-hex chars. */
+  def parseHex(h: String): Vector[Byte] =
+    if h.length % 2 != 0 then sys.error(s"bytes: hex must be even length, got ${h.length} digit(s): '$h'")
+    if !h.forall(isHexDigit) then sys.error(s"bytes: non-hex digit in '$h' (expected [0-9a-fA-F])")
+    h.grouped(2).map(p => Integer.parseInt(p, 16).toByte).toVector
+
+  // ── structural validation — fail CLOSED on malformed IR (specs/12-ir-format.md §Bounded) ─
+  /** Reject a decoded program that is structurally invalid — a term the encoder could never
+    * have produced. Runs on EVERY `parseProgram` (the untrusted-capsule entry point). Checks,
+    * each naming the offending node:
+    *   - every `Local i` resolves to an enclosing binder (`0 <= i < depth`) — a FREE local is
+    *     unforgeable by the encoder and reads a wrong / out-of-bounds `env` slot at run time;
+    *   - `letrec` bindings are all `Lam` (10-core-ir.md §4 "bindings must be Lam");
+    *   - every `Global g` is closed: a top-level `def`, or an `@`-named-arg cell (the runtime's
+    *     own resolve fallback, `Runtime.scala` — the kernel reader cannot see the plugin registry).
+    * Arities / indices are already NAT-validated at parse; this adds the scope-level checks. The
+    * de Bruijn scope model matches the evaluator exactly (10-core-ir.md §4): entry & each def body
+    * start at depth 0; `Lam ar` adds `ar`; `Let` is let* (rhs i sees i earlier binders, body sees
+    * all); `LetRec` binds all lambdas simultaneously; a `Match` arm of arity k adds k. */
+  def validate(p: Program): Unit =
+    val defNames = p.defs.iterator.map(_.name).toSet
+    def globalOk(g: String): Boolean = defNames.contains(g) || g.startsWith("@")
+    def go(t: Term, depth: Int): Unit = t match
+      case Term.Lit(_)    => ()
+      case Term.Local(i)  =>
+        if i < 0 || i >= depth then
+          sys.error(s"local index out of range: (local $i) with $depth binder(s) in scope")
+      case Term.Global(g) =>
+        if !globalOk(g) then
+          sys.error(s"unbound global: (global $g) is neither a top-level def nor an @-cell")
+      case Term.Lam(ar, b)     => go(b, depth + ar)
+      case Term.App(fn, as)    => go(fn, depth); as.foreach(go(_, depth))
+      case Term.Let(rhs, body) =>
+        rhs.iterator.zipWithIndex.foreach { case (r, i) => go(r, depth + i) }
+        go(body, depth + rhs.length)
+      case Term.LetRec(lams, body) =>
+        val d2 = depth + lams.length
+        lams.foreach {
+          case l: Term.Lam => go(l, d2)
+          case other       => sys.error(s"letrec binding must be a lam, got: ${nodeName(other)}")
+        }
+        go(body, d2)
+      case Term.If(c, th, el)  => go(c, depth); go(th, depth); go(el, depth)
+      case Term.Ctor(_, fs)    => fs.foreach(go(_, depth))
+      case Term.Prim(_, as)    => as.foreach(go(_, depth))
+      case Term.While(c, b)    => go(c, depth); go(b, depth)
+      case Term.Seq(ts)        => ts.foreach(go(_, depth))
+      case Term.Match(scrut, arms, default) =>
+        go(scrut, depth)
+        arms.foreach(a => go(a.body, depth + a.arity))
+        default.foreach(go(_, depth))
+    p.defs.foreach(d => go(d.body, 0))
+    go(p.entry, 0)
+
+  private def nodeName(t: Term): String = t match
+    case _: Term.Lit => "lit"; case _: Term.Local => "local"; case _: Term.Global => "global"
+    case _: Term.App => "app"; case _: Term.Let => "let"; case _: Term.LetRec => "letrec"
+    case _: Term.If => "if"; case _: Term.Ctor => "ctor"; case _: Term.Match => "match"
+    case _: Term.Prim => "prim"; case _: Term.While => "while"; case _: Term.Seq => "seq"
+    case _: Term.Lam => "lam"
 
 // ── Writer: Term -> canonical S-expr (= coreir.encode, specs/12-ir-format.md) ─
 

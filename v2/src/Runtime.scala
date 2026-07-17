@@ -2919,6 +2919,16 @@ object Prims:
     case "coreir.encode" => a => StrV(IrEncode.program(a(0)))
     case "coreir.eval"   => a => Runtime.run(
       Compiler.compile(IrDecode.program(a(0))), Array.empty[Value])
+    // coreir.decode : Str|Bytes -> IrProg — parse canonical Core IR text back into the IrProg
+    // Data tree the tower consumes (inverse of coreir.encode). The text is read through the
+    // BOUNDED + VALIDATED kernel Reader, so `#coreir.decode` inherits the same fail-closed
+    // rejection of malformed/hostile capsules. Str is the canonical text; Bytes is its UTF-8
+    // (so `#coreir.decode(#coreir.encode(v))` and `#coreir.decode(irBytes)` both round-trip).
+    // Gives `encode ∘ decode = canonicalize` from .ssc (10-core-ir.md §5, 12-ir-format.md).
+    case "coreir.decode" => a => a(0) match
+      case StrV(s)   => IrToData.program(Reader.parseProgram(s))
+      case BytesV(b) => IrToData.program(Reader.parseProgram(new String(b.toArray, java.nio.charset.StandardCharsets.UTF_8)))
+      case x         => sys.error(s"coreir.decode: expected Str|Bytes, got ${Show.show(x)}")
     // ── FrontendBridge collection factories ────────────────────────────────────────
     // Map(k->v, ...) factory: args are Tuple2 pairs (DataV("Tuple2", [k, v]))
     case "__mk_map__" => a =>
@@ -4648,6 +4658,54 @@ object IrDecode:
     case x => sys.error(s"coreir.decode: bad const ${Show.show(x)}")
 
   private def list(v: Value): List[Value] = Prims.unlistPub(v)
+
+/** The Data-level inverse of [[IrDecode]]: rebuild the `IrProg` Data tree that the self-hosted
+ *  tower consumes from a kernel [[Program]]. Together with the [[Reader]] this is the
+ *  `coreir.decode : Str|Bytes -> IrProg` primitive, so `encode ∘ decode = canonicalize` and
+ *  `decode ∘ encode = id` are expressible from `.ssc` (10-core-ir.md §5, 12-ir-format.md).
+ *  Kernel-owned: the canonical wire form is read in exactly ONE place ([[Reader]]); this only
+ *  re-shapes an already-parsed, already-validated term into the tower's `Ir*` Data vocabulary.
+ *  Every tag/shape mirrors [[IrDecode]] and [[IrEncode]] so the three stay round-trippable. */
+object IrToData:
+  import Value.*
+  private val nilV: Value = DataV("Nil", IndexedSeq.empty)
+  private def cons(h: Value, t: Value): Value = DataV("Cons", collection.immutable.ArraySeq(h, t))
+  private def listV(vs: List[Value]): Value = vs.foldRight(nilV)(cons)
+  private def d0(tag: String): Value = DataV(tag, IndexedSeq.empty)
+  private def d1(tag: String, a: Value): Value = DataV(tag, collection.immutable.ArraySeq(a))
+  private def d2(tag: String, a: Value, b: Value): Value = DataV(tag, collection.immutable.ArraySeq(a, b))
+  private def d3(tag: String, a: Value, b: Value, c: Value): Value = DataV(tag, collection.immutable.ArraySeq(a, b, c))
+
+  def program(p: Program): Value = d2("IrProg", listV(p.defs.map(definition)), term(p.entry))
+
+  private def definition(d: Def): Value = d2("IrDef", StrV(d.name), term(d.body))
+
+  private def term(t: Term): Value = t match
+    case Term.Lit(c)        => d1("IrLit", constant(c))
+    case Term.Local(i)      => d1("IrLocal", IntV(i.toLong))
+    case Term.Global(n)     => d1("IrGlobal", StrV(n))
+    case Term.Lam(ar, b)    => d2("IrLam", IntV(ar.toLong), term(b))
+    case Term.App(fn, as)   => d2("IrApp", term(fn), listV(as.map(term)))
+    case Term.Let(rhs, b)   => d2("IrLet", listV(rhs.map(term)), term(b))
+    case Term.LetRec(ls, b) => d2("IrLetRec", listV(ls.map(term)), term(b))
+    case Term.If(c, th, el) => d3("IrIf", term(c), term(th), term(el))
+    case Term.Ctor(tg, fs)  => d2("IrCtor", StrV(tg), listV(fs.map(term)))
+    case Term.Prim(op, as)  => d2("IrPrim", StrV(op), listV(as.map(term)))
+    case Term.While(c, b)   => d2("IrWhile", term(c), term(b))
+    case Term.Seq(ts)       => d1("IrSeq", listV(ts.map(term)))
+    case Term.Match(s, arms, default) =>
+      val armsV = listV(arms.map(a => d3("IrArm", StrV(a.tag), IntV(a.arity.toLong), term(a.body))))
+      val defV  = default match { case Some(x) => d1("Some", term(x)); case None => d0("None") }
+      d3("IrMatch", term(s), armsV, defV)
+
+  private def constant(c: Const): Value = c match
+    case Const.CUnit     => d0("IrUnit")
+    case Const.CBool(b)  => d1("IrBool", BoolV(b))
+    case Const.CInt(n)   => d1("IrInt", IntV(n))
+    case Const.CBig(n)   => d1("IrBig", BigV(n))
+    case Const.CFloat(d) => d1("IrFloat", FloatV(d))
+    case Const.CStr(s)   => d1("IrStr", StrV(s))
+    case Const.CBytes(b) => d1("IrBytes", BytesV(b))
 
 object Show:
   /** Pluggable renderer for opaque ForeignV payloads. The v1 bridge installs a
