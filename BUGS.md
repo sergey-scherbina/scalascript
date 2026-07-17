@@ -2,10 +2,10 @@
 
 ## ci-example-typecheck-uses-compiler-free-launcher — green examples fail at the workflow command
 
-**Status:** OPEN (found 2026-07-17 by `ci-red-main` in Linux run `29549382274`, SHA
-`d5492a129`). The conformance job passes the full corpus 282/282 and all-examples backend parity,
-then its `Type-check examples (ssc check)` step runs `./bin/ssc check examples/*.ssc`. The standard
-launcher correctly rejects that compiler command:
+**Status:** FIXED (2026-07-17, `a421d9077`; awaiting exact-SHA CI confirmation). Found by
+`ci-red-main` in Linux run `29549382274`, SHA `d5492a129`. The conformance job passes the full
+corpus 282/282 and all-examples backend parity, then its `Type-check examples (ssc check)` step ran
+`./bin/ssc check examples/*.ssc`. The standard launcher correctly rejected that compiler command:
 
 ```text
 ssc: 'check' requires the optional ScalaScript tools/compatibility tier; run ssc-tools explicitly
@@ -19,6 +19,11 @@ typechecker failure and not a reason to put compiler tooling back into the stand
 **Expected/fix plan.** Route only this compiler-bearing CI step through installed `bin/ssc-tools`,
 preserve the standard launcher's negative contract, and rerun a focused conformance slice before
 push. Exact-SHA Linux confirmation must show the type-check step green and continue to later steps.
+
+**Fix/verification.** `a421d9077` names and invokes `ssc-tools check` in the workflow. Locally the
+old standard command still exits 1 with the intended tier message, while the replacement checks the
+complete examples glob successfully (documented warnings only). The two actor leader conformance
+cases remain 2/2 across INT/JS/JVM before push.
 
 ## jvm-actor-electleader-omits-leader-history — JVM disagrees with INT/JS on accepted self claim
 

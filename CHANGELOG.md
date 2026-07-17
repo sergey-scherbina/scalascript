@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-07-17 — CI type-checks examples with the compiler-bearing launcher
+
+After conformance 282/282 and all-examples parity passed, Linux CI still called `check` through the
+compiler-free standard launcher and failed on its intentional tier boundary. The workflow now uses
+installed `ssc-tools check` for that compiler-bearing step (`a421d9077`). The standard negative
+contract remains intact, while the tools command checks the complete examples glob successfully.
+
 ## 2026-07-17 — actor leader conformance compares all three backends
 
 Compare-first activation of two previously empty leader gates exposed a real JVM divergence:
