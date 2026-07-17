@@ -325,6 +325,12 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       that never ran because an earlier step died, a frozen baseline nobody re-ran, a `-Xss` that
       never reached the thread it was meant for, and a "fix" in one of two launcher generators. The
       guard worth having is probably "a gate that cannot fail loudly is not a gate".
+      **Decision (2026-07-17):** Sergiy's explicit "Сделай чтобы все работало" authorizes the cheap
+      visibility/completion guard in `specs/ci-exact-sha-status.md`: add an exact-SHA
+      `scripts/ci-status` with explicit green/red/pending/unknown exits, fixture-test all result
+      classes, surface it from `scripts/coord-status`, add the main badge, and require exact-SHA
+      green before releasing a final task claim. Do not mutate GitHub runs or mistake another SHA's
+      result for proof.
 
 ## scljet-unique-index-not-supported — `CREATE UNIQUE INDEX` needs ENFORCEMENT, not just parsing (2026-07-16)
 
