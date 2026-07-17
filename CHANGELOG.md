@@ -261,6 +261,25 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-17 — SclJet JDBC: crash-safe durable writes, and the missing example
+
+Host-file writes through the JVM shim were `Files.write(path, bytes)` — truncate then rewrite the
+whole image — with no fsync: a crash mid-write corrupted the file, and even a returned-OK write
+could be lost on an OS crash. Replaced with the correct primitive for a whole-image model:
+stage to a temp file, fsync, atomic rename, fsync the directory. The target is now only ever the
+complete old or complete new image, and durable. A test asserts no temp litter and that the
+reference `sqlite3` accepts every flushed image.
+
+Inter-process locking was deliberately NOT bolted on: the shim reads the file once at open, so a
+write-time lock would be a false fix (each writer rebuilds from a stale snapshot). The
+single-writer contract is documented honestly and the real fix filed, rather than shipping a lock
+that looks safe.
+
+Also closed two stale gaps: the missing `examples/scljet-jdbc.ssc` (the J2 milestone required it),
+and the J1/J2/J3 checklist, which was all-unchecked while the work had shipped on 2026-07-15/16.
+Writing the example exposed a native-front parse gap on the façade, now filed.
+
+
 ## 2026-07-17 — SclJet: write by address
 
 The write half of the addressing model: `write (address, type, value)`, plus the commit boundary

@@ -3914,15 +3914,15 @@ or the complete new one, and fsync makes it durable. It is entirely in the shim,
 code, and is honest about what it does and does not give.
 
 ### Slices
-- [ ] **D1 — atomic durable flush.** Replace `flushDurable`'s `Files.write` with: write to a sibling
+- [x] **D1 — atomic durable flush. DONE 2026-07-17.** Replace `flushDurable`'s `Files.write` with: write to a sibling
       temp file, `force(true)` it (fsync data+metadata), `ATOMIC_MOVE` (REPLACE_EXISTING) over the
       target, then fsync the containing directory so the rename itself survives a crash. Keep the
       whole-image content exactly as today (byte-for-byte the same file, just placed atomically).
-- [ ] **D2 — inter-process safety, honestly.** A single-JVM guard is cheap (a per-path lock) and an
+- [x] **D2 — inter-process safety, honestly: DOCUMENTED, not falsely fixed.** A single-JVM guard is cheap (a per-path lock) and an
       inter-process `FileLock` around the read-modify-rewrite window prevents two processes silently
       clobbering. If clean, add it; if it risks the shim's simplicity, leave the single-writer
       contract in the spec and file the rest. Concurrency ≠ durability — D1 is the priority.
-- [ ] **D3 — spec + gate.** Rewrite the "Durability boundary" table: crash-atomic YES, fsync YES,
+- [x] **D3 — spec + gate. DONE 2026-07-17.** Rewrite the "Durability boundary" table: crash-atomic YES, fsync YES,
       journal NO (still O(file) per write), inter-process per D2. A test that a flushed file is a
       complete valid SQLite image the reference `sqlite3` accepts (already true; now also after the
       atomic path), and — if feasible without flakiness — a torn-write simulation.
