@@ -4,6 +4,7 @@ import org.scalatest.funsuite.AnyFunSuite
 
 import java.nio.file.{Files, Path}
 import java.sql.{Connection, DriverManager, ResultSet, SQLException, SQLFeatureNotSupportedException, Statement, Types}
+import scala.jdk.CollectionConverters.*
 
 /** JVM `java.sql.Driver` shim — end-to-end through `DriverManager`.
  *
@@ -174,6 +175,49 @@ class ScljetDriverTest extends AnyFunSuite:
       finally c2.close()
     finally
       Files.deleteIfExists(db); Files.deleteIfExists(dir)
+
+  test("durable writes are crash-atomic: no temp litter, and the reference sqlite3 accepts every flushed image"):
+    val dir: Path = Files.createTempDirectory("scljet-jdbc-durable-")
+    val db = dir.resolve("app.db")
+    try
+      val url = s"jdbc:scljet:${db.toString}"
+      val c = DriverManager.getConnection(url)
+      try
+        val s = c.createStatement()
+        // Each autocommit statement flushes durably. After every one the file must be a COMPLETE,
+        // valid SQLite image the reference driver can open — never a torn intermediate.
+        val stmts = List(
+          "CREATE TABLE k(id INTEGER PRIMARY KEY, v TEXT)",
+          "INSERT INTO k VALUES (1,'one')",
+          "INSERT INTO k VALUES (2,'two')",
+          "UPDATE k SET v='ONE' WHERE id=1",
+          "DELETE FROM k WHERE id=2",
+        )
+        Class.forName("org.sqlite.JDBC")
+        for stmt <- stmts do
+          s.executeUpdate(stmt)
+          // The staged temp file must be gone the instant the flush returns — the directory holds
+          // exactly one file, the database.
+          val listed = { val ds = Files.list(dir); try ds.iterator().asScala.toList finally ds.close() }
+          assert(listed == List(db), s"after `$stmt` the directory should hold only the db, got $listed")
+          // The real sqlite3 must accept the just-flushed image.
+          val ref = DriverManager.getConnection(s"jdbc:sqlite:${db.toString}")
+          try
+            val chk = ref.createStatement().executeQuery("PRAGMA integrity_check")
+            assert(chk.next() && chk.getString(1) == "ok", s"reference rejected the image after `$stmt`")
+          finally ref.close()
+      finally c.close()
+      // Final state, read by the reference driver end to end.
+      val ref = DriverManager.getConnection(s"jdbc:sqlite:${db.toString}")
+      try
+        val rs = ref.createStatement().executeQuery("SELECT id, v FROM k ORDER BY id")
+        val rows = scala.collection.mutable.ArrayBuffer.empty[String]
+        while rs.next() do rows += s"${rs.getLong(1)}|${rs.getString(2)}"
+        assert(rows.toList == List("1|ONE"))
+      finally ref.close()
+    finally
+      { val ds = Files.list(dir); try ds.iterator().asScala.foreach(Files.deleteIfExists) finally ds.close() }
+      Files.deleteIfExists(dir)
 
   test("read-only mode rejects writes"):
     val c = DriverManager.getConnection("jdbc:scljet::memory:?mode=ro")

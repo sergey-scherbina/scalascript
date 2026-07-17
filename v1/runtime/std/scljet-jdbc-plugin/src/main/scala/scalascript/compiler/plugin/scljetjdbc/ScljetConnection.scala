@@ -2,7 +2,8 @@ package scalascript.compiler.plugin.scljetjdbc
 
 import scalascript.interpreter.Value
 
-import java.nio.file.{Files, Path}
+import java.nio.channels.FileChannel
+import java.nio.file.{Files, Path, StandardCopyOption, StandardOpenOption}
 import java.sql.{Connection, ResultSet, SQLException, Statement}
 import ProxySupport.*
 
@@ -33,10 +34,55 @@ final class ScljetConnectionState(
       ScljetEngine.call("byteSliceToList", committed) match
         case Value.ListV(items) =>
           val bytes = items.iterator.map(b => ScljetEngine.asLong(b).toByte).toArray
-          Files.write(path, bytes)
+          atomicReplace(path, bytes)
         case other =>
           throw SQLException(s"scljet JDBC: cannot serialize image: ${Value.show(other)}")
     }
+
+  /** Write the whole image durably and crash-atomically.
+   *
+   *  The previous `Files.write(path, bytes)` truncated the target first, so a crash mid-write left
+   *  a truncated/corrupt file with the old data already gone, and — with no fsync — even a
+   *  returned-OK write could vanish on an OS/host crash. Instead: stage into a sibling temp file,
+   *  force it to disk, atomically rename it over the target, then fsync the directory so the rename
+   *  itself is durable. At every instant the target is either the complete old image or the
+   *  complete new one — never a torn write.
+   *
+   *  This is the correct crash-safety primitive for the whole-image rewrite model. It does not add
+   *  the incremental page journal (a write is still O(file)) or inter-process locking; those are
+   *  tracked separately (specs/scljet-jdbc.md §"Durability boundary"). */
+  private def atomicReplace(path: Path, bytes: Array[Byte]): Unit =
+    val dir = Option(path.toAbsolutePath.getParent)
+      .getOrElse(throw SQLException(s"scljet JDBC: cannot resolve the parent of $path", "08003"))
+    val tmp = Files.createTempFile(dir, "." + path.getFileName.toString + ".", ".tmp")
+    try
+      val ch = FileChannel.open(tmp, StandardOpenOption.WRITE)
+      try
+        val buf = java.nio.ByteBuffer.wrap(bytes)
+        while buf.hasRemaining do ch.write(buf)
+        ch.force(true) // fsync the new image's bytes before it becomes the target
+      finally ch.close()
+      try Files.move(tmp, path, StandardCopyOption.ATOMIC_MOVE)
+      catch
+        // A filesystem without atomic rename (rare; e.g. some network mounts) — fall back to a
+        // plain replace. Less crash-atomic, but still fsync'd and no worse than the old behaviour.
+        case _: java.nio.file.AtomicMoveNotSupportedException =>
+          Files.move(tmp, path, StandardCopyOption.REPLACE_EXISTING)
+      syncDir(dir) // make the rename itself survive a crash
+    catch
+      case e: SQLException => Files.deleteIfExists(tmp); throw e
+      case e: Throwable =>
+        Files.deleteIfExists(tmp)
+        throw SQLException(s"scljet JDBC: durable write to $path failed: ${e.getMessage}", "08003", e)
+
+  /** fsync a directory so a rename into it is durable. Best-effort: some platforms/filesystems
+   *  refuse to open a directory channel, in which case the rename is still ordered after the
+   *  file's own fsync — we do not fail the write over a missing directory sync. */
+  private def syncDir(dir: Path): Unit =
+    try
+      val ch = FileChannel.open(dir, StandardOpenOption.READ)
+      try ch.force(true) finally ch.close()
+    catch case _: Throwable => ()
 
   /** Run a SELECT and hand back a forward-only ResultSet bound to `owner`. */
   def executeQuery(sql: String, params: List[Value], owner: Statement): ResultSet =
