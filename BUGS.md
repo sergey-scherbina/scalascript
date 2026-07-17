@@ -35,6 +35,19 @@ runtime ownership; consume an owner fix if overlapping, otherwise add a faithful
 lowest shared codegen layer and rerun this full matrix. Do not weaken HTTP readiness or coerce the
 test fixture merely to hide the generated runtime type error.
 
+**Root cause confirmed.** Commit `70dfb5a1f` correctly made source `Long` values JS `BigInt`, but
+the actor timer boundary still does native date arithmetic. The matrix fixture's
+`sendAfter(500L, ...)` reaches `const fireAt = Date.now() + delayMs` with a `BigInt` delay and throws
+at the reported `handleActorOp` line. `sendInterval` has the same expression, and timed receive adds
+its timeout to `Date.now()` likewise. Convert these millisecond inputs explicitly to `Number` at the
+JS host timer boundary and cover Long one-shot + interval delivery under a real Node bundle.
+
+**Linux apparatus follow-up in the same matrix.** The test itself still invokes a fat JAR and
+hardcodes macOS `~/Library/Caches/Coursier`; on Linux that can cancel before exposing this runtime
+bug. Reuse the staged launcher/runtime-classpath support landed in `11a9e80e2`. Missing external
+tools may cancel, but once installed, compile/link failures must be assertions with
+exit/stdout/stderr and the two-process convergence remains the final observable.
+
 
 ## jvm-bytecode-sibling-tests-ignore-installed-cli — thirteen assertions cancel before comparison
 

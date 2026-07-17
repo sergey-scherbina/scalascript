@@ -520,6 +520,12 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       `70dfb5a1f` Long/BigInt change; current `origin/main` has hundreds of newer JsGen lines. It is
       a stale duplicate, not an active actor/JS claim. Leave it untouched and diagnose only current
       origin when 5s starts.
+      **Root cause:** `500L` is correctly emitted as JS `500n`, then actor `sendAfter` computes
+      `Date.now() + delayMs` without crossing the host timer boundary through `Number`; `sendInterval`
+      and timed receive have the same latent shape. Convert all three host-millisecond inputs and add
+      a Node integration covering Long one-shot + interval delivery. Also migrate this matrix from
+      fat-JAR/macOS-Coursier assumptions to the shared installed launcher/resource-classpath helper;
+      on staged CI command failures must fail with exit/stdout/stderr, not cancel.
 - [ ] **5t. Activate the tracked `actors-leader-protocol` conformance case.** The affected-gate
       attempt finds the source but skips it because `expected/actors-leader-protocol.txt` is absent,
       reporting 0 passed and 0 failed. Check actor ownership, execute every declared backend, and
