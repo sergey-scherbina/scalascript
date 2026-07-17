@@ -1,5 +1,35 @@
 # Changelog
 
+## 2026-07-17 — `Int` is 64-bit, normatively, and the suite can no longer route around it
+
+`int-width-conformance` (W1–W5). The same program printed different numbers on different backends,
+silently, exit 0 — breaking binding design principle #1 (*backends translate, they do not
+reinterpret*).
+
+- **W1** `specs/numeric-widths.md` (new) is THE normative table: width + ABI + host carriers +
+  per-backend conformance status. `Int` is 64-bit on every backend; a backend that truncates is
+  **non-conforming**. Corrected **`SPEC.md` §4.1, which stated the opposite** ("`Int` | 32-bit
+  integer") — so the only backend implementing the canonical spec as written was the *non-conforming*
+  one. Law also placed where a backend author hits it (`docs/targets.md`, next to the principle it
+  follows from) and cross-referenced from the frozen `v2/specs/10-core-ir.md` §2.
+- **W2** `NumericWidthTableAgreementTest` **parses** the table out of the spec and compares it against
+  the real consumers (the descriptor producer RUN per row, plus the four host-profile tables) instead
+  of restating them — a restated table is an (N+1)th guess. Verified by mutation, not by a green run.
+- **W3** the `codegen: v2` reroute is **gone**. It let a case pick the backend that agreed with it.
+  Replaced by `known-red:` (declared, reasoned, diffed, and **auto-expiring** — a declared-red lane
+  that starts passing fails the suite) and `also-codegen:` (additive; no "instead of" form exists, so
+  the reroute is impossible by construction). New `tests/conformance/int-width.ssc`.
+  Full suite: **285 passed, 0 failed, 3 declared known-red lanes** — the divergence is now visible in
+  the gate output instead of hidden.
+- **W4** `run-jvm` / `emit-js` marked `[NON-CONFORMING: 32-bit Int]` in `--help` + docs until deleted.
+- **W5** measured: a `scala` fence does **not** mean a different `Int` today (width follows the
+  backend, not the fence tag) — but the Scala.js path that would make it so is real, unreachable dead
+  code, and two docs promise it. Recorded in `BACKLOG.md` as a latent hole needing a language decision.
+- **Two fail-open bugs found by measuring** (`BUGS.md`): the v1 interpreter — the conformance
+  *reference* — prints **`null`** for any integer literal ≥ 2^31, exit 0 (its arithmetic is 64-bit,
+  which is why the canonical probe `2147483647 + 1` is the one form that works); and v2 native prints
+  **`0`** for the `min64` literal.
+
 ## 2026-07-17 — coordination status exposes stale heartbeat age
 
 `coord-status` now applies the project's 20-minute heartbeat rule independently from worktree
