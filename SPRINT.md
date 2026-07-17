@@ -3820,15 +3820,15 @@ Markdown document. Same model, same triple, **different resolver** — the shape
 
 ### Slices
 
-- [ ] **U1 — the resolver (the substance).** `JsonAddress.read(text, path) → Either[String, …]`
-      over the UniML **CST**: walk `member.key`→`member.value` for objects and the Nth
-      `array.element` for arrays; answer with the format's own type (`string`/`number`/`boolean`/
-      `null`/`object`/`array`), the value, the span, and **stability**. Landed as Scala + tests, so
-      the model is proven on format #2 before any plumbing.
-      - **Stability is where this format differs from SQLite and the model earns its keep:** an
-        object key is a NAME (stable); an array index is a POSITION — insert a sibling and
-        `users/0/name` silently means another value. `stable=false`, said out loud, exactly as a
-        non-IPK rowid is.
+- [x] **U1 — the resolver. DONE 2026-07-17** (`df807d3d7`, `v1/lang/uniml-address`, 8/8). `JsonAddress.read(text, path) → Either[String, …]`
+      `JsonAddress.read(text, path)` over the UniML **CST** (not the projection — it spans only
+      members, so an array element would lose its physical half). Types are the format's own; values
+      are the lexeme as written; the physical half is asserted by slicing the SOURCE at the reported
+      offset/length. Model proven on format #2 before any plumbing.
+      - **Stability earned its keep.** Key = name = stable; array index = POSITION = not stable, and
+        everything beneath inherits it (a stable key under a positional index is still positional).
+        The test does not assert a flag — it inserts a sibling and watches `users/0/name` go from
+        `ann` to `zoe` while `active` stays put. Same distinction as IPK vs a plain rowid.
 - [ ] **U2 — the bridge.** v1 plugin + v2 native plugin exposing the resolver as an extern; a shared
       zero-dep resolver module both use. Same shape as the VFS port (`6131e17a3`) — including the
       trap that `bin/lib/standard/jars` is an explicit allowlist (`standardJarPrefixes`).
