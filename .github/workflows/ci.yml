@@ -159,6 +159,9 @@ jobs:
           SSC_CONF_WARM_JVM: '1'
         run: scala-cli tests/conformance/run.sc
 
+      - name: Integer-literal fail-open regression (assembled launchers, both backends)
+        run: tests/e2e/int-literal-failopen-smoke.sh
+
       - name: Run examples on all three backends
         run: scala-cli examples/run-all.sc
 

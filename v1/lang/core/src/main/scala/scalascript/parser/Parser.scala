@@ -2179,7 +2179,7 @@ object Parser:
   private def isIdentBodyChar(c: Char): Boolean =
     c.isLetterOrDigit || c == '_'
 
-  private val _longMax = BigInt("9223372036854775807")
+  private val _intMax = BigInt("2147483647")
 
   private def isHexDigit(c: Char): Boolean =
     c.isDigit || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
@@ -2188,7 +2188,17 @@ object Parser:
    *  strings/char-literals/comments:
    *   - `123n`      → `BigInt("123")`
    *   - `12.34m`    → `Decimal("12.34")`   (also `5m` → `Decimal("5")`)
-   *   - an integer literal too large for `Long` → `BigInt("…")` (auto-promote)
+   *   - an integer literal above the 32-bit scalameta `Lit.Int` ceiling
+   *     (magnitude `> Int.MaxValue`) → the same digits with an `L` suffix, so
+   *     scalameta yields a `Lit.Long` (interpreted as a 64-bit `IntV` — ssc `Int`
+   *     is 64-bit, `specs/numeric-widths.md` §2).  Without this a bare decimal in
+   *     `(Int.MaxValue, Long.MaxValue]` overflows scalameta's 32-bit `Lit.Int` and
+   *     the whole block silently fails to parse (→ `null`, exit 0).  The `L` form
+   *     also makes an out-of-range literal fail CLOSED: scalameta accepts
+   *     `-9223372036854775808L` (the `min64` value) but REJECTS `<n>L` for
+   *     `n > Long.MaxValue` with a hard parse error, so a genuinely too-big Int
+   *     literal (e.g. `99999999999999999999999999`) is a loud error, not a silent
+   *     `null`/BigInt.  Arbitrary precision is `BigInt(...)` or the `n` suffix.
    *  Plain `Int`/`Long`/`Double`/`Float` literals, hex/binary, `1.toString`,
    *  `t._1`, `1_000`, identifiers like `x1`, and literal text inside strings or
    *  comments are left untouched.  Underscores are stripped from the emitted
@@ -2264,8 +2274,14 @@ object Parser:
           else if suffix == 'L' || suffix == 'l' || suffix == 'f' || suffix == 'F' ||
                   suffix == 'd' || suffix == 'D' then
             sb.append(code.substring(i, j + 1)); i = j + 1
-          else if !isDecimal && BigInt(digits) > _longMax then
-            sb.append("BigInt(\"").append(digits).append("\")"); i = j
+          else if !isDecimal && BigInt(digits) > _intMax then
+            // ssc `Int` is 64-bit: a magnitude above scalameta's 32-bit `Lit.Int`
+            // ceiling is emitted as a `Long` literal (→ `Lit.Long` → 64-bit
+            // `IntV`).  This fixes the (Int.Max, Long.Max] band (bare form
+            // overflows scalameta → block dropped → `null`) AND fails CLOSED past
+            // Int64: scalameta parses `-9223372036854775808L` (min64) but rejects
+            // `<n>L` for n>Long.Max with a hard parse error.  BigInt is `BigInt(...)`.
+            sb.append(digits).append('L'); i = j
           else
             sb.append(raw); i = j
       else

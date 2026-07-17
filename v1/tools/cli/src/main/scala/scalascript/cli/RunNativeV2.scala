@@ -82,6 +82,11 @@ object RunNativeV2:
         throw new IllegalArgumentException(
           "mutable class fields (a `var` field in a class) are disabled by default; " +
             "pass the --mutable flag to enable them (e.g. `ssc run --mutable <file>`)")
+      if intRangeSentinel(structural.program) then
+        throw new IllegalArgumentException(
+          "integer literal out of range for Int (64-bit two's-complement): the value does not " +
+            "fit in [-9223372036854775808, 9223372036854775807]. Use BigInt(...) for arbitrary " +
+            "precision (specs/numeric-widths.md §2).")
       if containsErrorSentinel(structural.program) then
         val inputs = sourceFiles.mkString(", ")
         throw new RuntimeException(
@@ -275,6 +280,37 @@ object RunNativeV2:
     case _root_.ssc.Term.While(cond, body) =>
       containsErrorSentinel(cond) || containsErrorSentinel(body)
     case _root_.ssc.Term.Seq(terms) => terms.exists(containsErrorSentinel)
+    case _ => false
+
+  /** The self-hosted lowerer emits `Global("_err_int_range")` when a decimal
+   *  integer literal does not fit a signed 64-bit `Int` (and is not the min64
+   *  literal, which is folded). Surface a specific, actionable message so a
+   *  too-big literal fails CLOSED with a clear diagnostic instead of silently
+   *  lowering to `0` (`v2-native-min64-literal-prints-0`). */
+  private def intRangeSentinel(program: _root_.ssc.Program): Boolean =
+    program.defs.exists(definition => intRangeSentinel(definition.body)) ||
+      intRangeSentinel(program.entry)
+
+  private def intRangeSentinel(term: _root_.ssc.Term): Boolean = term match
+    case _root_.ssc.Term.Global("_err_int_range") => true
+    case _root_.ssc.Term.Lam(_, body) => intRangeSentinel(body)
+    case _root_.ssc.Term.App(fn, args) =>
+      intRangeSentinel(fn) || args.exists(intRangeSentinel)
+    case _root_.ssc.Term.Let(rhs, body) =>
+      rhs.exists(intRangeSentinel) || intRangeSentinel(body)
+    case _root_.ssc.Term.LetRec(lams, body) =>
+      lams.exists(intRangeSentinel) || intRangeSentinel(body)
+    case _root_.ssc.Term.If(cond, yes, no) =>
+      intRangeSentinel(cond) || intRangeSentinel(yes) || intRangeSentinel(no)
+    case _root_.ssc.Term.Ctor(_, fields) => fields.exists(intRangeSentinel)
+    case _root_.ssc.Term.Match(scrutinee, arms, default) =>
+      intRangeSentinel(scrutinee) ||
+        arms.exists(arm => intRangeSentinel(arm.body)) ||
+        default.exists(intRangeSentinel)
+    case _root_.ssc.Term.Prim(_, args) => args.exists(intRangeSentinel)
+    case _root_.ssc.Term.While(cond, body) =>
+      intRangeSentinel(cond) || intRangeSentinel(body)
+    case _root_.ssc.Term.Seq(terms) => terms.exists(intRangeSentinel)
     case _ => false
 
   /** The self-hosted frontend emits `Global("_err_mutable_fields")` when a class

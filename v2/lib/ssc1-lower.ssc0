@@ -9,6 +9,19 @@ import "../lib/ssc1-front.ssc0"
 -- Unwrap Option[Int] from #str->i (parser only emits valid int strings)
 def parseI = (s) => match #str->i(s) { case Some(n) => n case None => 0 }
 
+-- Lower a decimal integer literal (the digit string) to a Core IR node.
+-- ssc `Int` is 64-bit (specs/numeric-widths.md §2). A magnitude that fits a
+-- signed 64-bit Long becomes IrInt; one that does NOT (e.g. 9223372036854775808
+-- == 2^63, or 99999999999999999999999999) FAILS CLOSED via the `_err_int_range`
+-- sentinel — never silently `0`. BigInt is written `BigInt(...)`. (The min64
+-- literal -9223372036854775808 is handled by folding the sign in the `pre -`
+-- case below, before the positive 2^63 half reaches here.)
+def lowerIntLit = (digits) =>
+  match #str->i(digits) {
+    case Some(n) => IrLit(IrInt(n))
+    case None    => IrGlobal("_err_int_range")
+  }
+
 -- Reverse a list (used to build de Bruijn scope from params)
 def revL = (xs) =>
   let rec go = (xs2, acc) =>
@@ -2432,7 +2445,7 @@ def lowerE = (scope, rawExpr) =>
               IrPrim(op, lowerArgs(scope, args))
         }
       else if #seq(tag, "int") then
-        IrLit(IrInt(parseI(data)))
+        lowerIntLit(data)
       else if #seq(tag, "float") then
         match #str->f(data) {
           case Some(d) => IrLit(IrFloat(d))
@@ -2599,11 +2612,33 @@ def lowerE = (scope, rawExpr) =>
       else if #seq(tag, "pre") then
         match data {
           case Pair(op, sub) =>
-            let sv = lowerE(scope, sub) in
-            if #seq(op, "-") then IrPrim("i.sub", Cons(IrLit(IrInt(0)), Cons(sv, Nil)))
-            else if #seq(op, "!") then IrIf(sv, IrLit(IrBool(false)), IrLit(IrBool(true)))
-            else if #seq(op, "~") then IrPrim("i.not", Cons(sv, Nil))
-            else sv
+            -- min64 fold: `-9223372036854775808` is a legal Int (specs/numeric-widths.md
+            -- §2) whose positive half 9223372036854775808 (== 2^63) overflows Long. Parse
+            -- the SIGNED string so it lands as IrInt(Long.MinValue) instead of `0 - 0`. A
+            -- negative literal past Int64 (e.g. -99999999999999999999999999) fails CLOSED.
+            -- Every other negative keeps the identical `i.sub(0, <sub>)` CoreIR.
+            if #seq(op, "-") then
+              match sub {
+                case Pair(st, sd) =>
+                  if #seq(st, "int") then
+                    match #str->i(sd) {
+                      case Some(pos) =>
+                        IrPrim("i.sub", Cons(IrLit(IrInt(0)), Cons(lowerE(scope, sub), Nil)))
+                      case None =>
+                        match #str->i(#sconcat("-", sd)) {
+                          case Some(m) => IrLit(IrInt(m))
+                          case None    => IrGlobal("_err_int_range")
+                        }
+                    }
+                  else IrPrim("i.sub", Cons(IrLit(IrInt(0)), Cons(lowerE(scope, sub), Nil)))
+                case _ =>
+                  IrPrim("i.sub", Cons(IrLit(IrInt(0)), Cons(lowerE(scope, sub), Nil)))
+              }
+            else
+              let sv = lowerE(scope, sub) in
+              if #seq(op, "!") then IrIf(sv, IrLit(IrBool(false)), IrLit(IrBool(true)))
+              else if #seq(op, "~") then IrPrim("i.not", Cons(sv, Nil))
+              else sv
         }
       else if #seq(tag, "app") then
         match data {
@@ -3182,7 +3217,7 @@ def hasLpat = (arms) =>
   }
 
 def litPatIr = (ty, v) =>
-  if #seq(ty, "int") then IrLit(IrInt(parseI(v)))
+  if #seq(ty, "int") then lowerIntLit(v)
   else if #seq(ty, "str") then IrLit(IrStr(v))
   else if #seq(ty, "bool") then IrLit(IrBool(if #seq(v, "true") then true else false))
   else match #str->f(v) { case Some(d) => IrLit(IrFloat(d)) case None => IrLit(IrFloat(0.0)) }

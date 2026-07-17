@@ -17,13 +17,36 @@ class NumericLiteralSugarTest extends AnyFunSuite:
   test("underscores are stripped from the emitted argument"):
     pp("val x = 1_000_000n") shouldBe_ """val x = BigInt("1000000")"""
 
-  test("oversized integer literal auto-promotes to BigInt"):
-    pp("val x = 9223372036854775808")    shouldBe_ """val x = BigInt("9223372036854775808")"""
-    pp("val y = 100000000000000000000")  shouldBe_ """val y = BigInt("100000000000000000000")"""
+  // ssc `Int` is 64-bit (specs/numeric-widths.md §2), but scalameta's `Lit.Int`
+  // holds only 32 bits. A bare integer literal whose magnitude exceeds
+  // `Int.MaxValue` is emitted with an `L` suffix so scalameta yields `Lit.Long`
+  // (a 64-bit `IntV`). This fixes the `(Int.Max, Long.Max]` band (a bare decimal
+  // there overflows `Lit.Int` and the block is silently dropped → `null`) and
+  // makes anything past Int64 fail CLOSED (scalameta rejects `<n>L` for
+  // n > Long.Max, and accepts `-9223372036854775808L`). BigInt is `BigInt(...)`/`n`.
+  test("integer literal above Int.MaxValue gets an L suffix (→ 64-bit Lit.Long)"):
+    pp("val x = 2147483648")             shouldBe_ "val x = 2147483648L"           // 2^31
+    pp("val y = 3000000000")             shouldBe_ "val y = 3000000000L"
+    pp("val z = 9223372036854775807")    shouldBe_ "val z = 9223372036854775807L"  // Long.MaxValue
 
-  test("Long.MaxValue and smaller integers are left as plain literals"):
-    pp("val x = 9223372036854775807") shouldBe_ "val x = 9223372036854775807"
-    pp("val y = 42")                  shouldBe_ "val y = 42"
+  test("min64 literal: -9223372036854775808 → -...L (scalameta parses it natively)"):
+    // The `-` is a separate token; the magnitude 9223372036854775808 == 2^63 gets
+    // the L suffix, and scalameta accepts `-9223372036854775808L` as Long.MinValue.
+    pp("val x = -9223372036854775808") shouldBe_ "val x = -9223372036854775808L"
+
+  test("a literal past Int64 gets L too, so scalameta REJECTS it (fail closed)"):
+    // The preprocessor does not decide the value is BigInt (that is `BigInt(...)`);
+    // it appends L, and scalameta's tokenizer then rejects the out-of-Long literal
+    // with a hard parse error rather than silently truncating or dropping it.
+    pp("val x = 9223372036854775808")    shouldBe_ "val x = 9223372036854775808L"   // 2^63
+    pp("val y = 100000000000000000000")  shouldBe_ "val y = 100000000000000000000L"
+
+  test("Int.MaxValue and smaller integers are left as plain literals"):
+    pp("val x = 2147483647") shouldBe_ "val x = 2147483647"  // Int.MaxValue — fits Lit.Int
+    pp("val y = 42")         shouldBe_ "val y = 42"
+
+  test("underscores in a wide integer literal are stripped before the L suffix"):
+    pp("val x = 2_147_483_648") shouldBe_ "val x = 2147483648L"
 
   test("typed literals (L/f/d) are left untouched"):
     pp("val a = 100L"); pp("val b = 1.5f"); pp("val c = 2.0d")

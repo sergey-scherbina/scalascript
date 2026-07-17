@@ -1,0 +1,40 @@
+---
+name: int-literal
+also-codegen: v2
+---
+
+# Integer LITERALS span the whole 64-bit `Int` range
+
+The companion to [`int-width`](int-width.ssc). That case builds every value above
+`2^31` by **computation** because, until 2026-07-17, the reference could not write
+those values as **literals** at all. This case pins the literal surface itself:
+every value below is a bare literal, and every backend must print it exactly.
+
+Per [`specs/numeric-widths.md`](../../specs/numeric-widths.md) §2, ssc `Int` is
+64-bit, so its literals must span `[-9223372036854775808, 9223372036854775807]`.
+Two fail-open bugs used to break the ends of that range **silently, exit 0**:
+
+- `2147483648` (`2^31`) printed `null` on the reference interpreter — a bare
+  decimal in `(Int.Max, Long.Max]` overflowed scalameta's 32-bit `Lit.Int`, and
+  the whole block was dropped (`BUGS.md` → `v1-interp-int-literal-above-2^31-becomes-null`).
+- `-9223372036854775808` (`min64`) printed `0` on v2 native — the positive half
+  `2^63` overflowed the tower's `#str->i`, defaulting to `0` before negation
+  (`BUGS.md` → `v2-native-min64-literal-prints-0`).
+
+`2^31` is the low witness (the smallest value the 32-bit lie destroyed); `min64`
+is the high witness (the classic "the magnitude doesn't fit the positive range"
+off-by-one). A too-big literal (beyond `min64`/`max64`) is now a loud error, not a
+silent wrong value — that fail-closed behaviour is pinned by the unit tests and the
+`int-literal-failopen` e2e smoke, not here (an intentional error can't share an
+`expected/` file with the values that must succeed).
+
+```scalascript
+println(2147483647)             // Int.MaxValue
+println(2147483648)             // 2^31 — the low witness (was null on the reference)
+println(-2147483648)            // Int.MinValue
+println(3000000000)             // mid-band, above 2^31
+println(4611686018427387904)    // 2^62
+println(9223372036854775807)    // max64 (Long.MaxValue)
+println(-9223372036854775807)   // -max64
+println(-9223372036854775808)   // min64 — the high witness (was 0 on v2 native)
+```

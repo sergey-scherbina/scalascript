@@ -8,9 +8,15 @@ import scalascript.parser.Parser
 
 import java.nio.charset.StandardCharsets
 
-/** exact-numerics v1.64.7 — literal sugar end-to-end: `123n`/`12.34m`/oversized
- *  integers flow through parse → eval and produce BigInt/Decimal, identically
- *  across interpreter, JVM, and JS. */
+/** exact-numerics v1.64.7 — literal sugar end-to-end: `123n`/`12.34m` flow
+ *  through parse → eval and produce BigInt/Decimal, identically across
+ *  interpreter, JVM, and JS.
+ *
+ *  Note (2026-07-17, int-literal-failopen): a BARE oversized integer literal is
+ *  no longer auto-promoted to BigInt — ssc `Int` is 64-bit
+ *  (specs/numeric-widths.md §2) and a literal past Int64 now FAILS CLOSED (a loud
+ *  parse error) instead of silently changing type. Arbitrary precision is the
+ *  explicit `n` suffix or `BigInt(...)`, which is what these tests use. */
 class NumericSugarE2ETest extends AnyFunSuite with Matchers:
 
   private def module(code: String) =
@@ -30,7 +36,7 @@ class NumericSugarE2ETest extends AnyFunSuite with Matchers:
     interp("""
       println(2n.pow(100))
       println(12.34m + 1)
-      println(9223372036854775808 + 1)
+      println(9223372036854775808n + 1)
       println(0.1m + 0.2m)
       println(1_000_000_000_000_000_000_000n * 2)
     """) shouldBe
@@ -48,7 +54,7 @@ class NumericSugarE2ETest extends AnyFunSuite with Matchers:
     val code = """
       println(2n.pow(64))
       println(12.34m + 1)
-      println(9223372036854775808 + 1)
+      println(9223372036854775808n + 1)
     """
     val tmp = java.io.File.createTempFile("ssc-sugar-", ".sc"); tmp.deleteOnExit()
     java.nio.file.Files.write(tmp.toPath,
