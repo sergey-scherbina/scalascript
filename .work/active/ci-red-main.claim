@@ -1,7 +1,7 @@
 claim: ci-red-main
 branch: feature/ci-red-main-final
 agent: codex
-heartbeat: 2026-07-17T02:40:53Z
+heartbeat: 2026-07-17T02:56:45Z
 status: in-progress
-done-so-far: tuple CLI is staged 4/4; bytecode separation executes 5/5; slim checks are diagnostic; Linux test budgets are measured at 150/90
-next: monitor queued exact-SHA runs, consume landed newfront/Swift/VFS fixes without scope overlap, and fix every newly exposed unclaimed failure
+done-so-far: tuple CLI staged 4/4; bytecode separation 5/5; registry 15/15; sibling JVM audit reproduced 6 executed plus 13 false cancels
+next: record and repair installed-CLI prerequisites across the reproduced JVM suites, then verify affected conformance and exact-SHA CI
