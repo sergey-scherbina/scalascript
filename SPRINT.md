@@ -2988,6 +2988,30 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
       subset = oracle+seed). 4 decisions settled: typed holes (total pipeline), design-for-injection
       ship-composition-first, user-dialects deferred, resync-at-structural-boundary + only-Scala-
       subset-executable. Spike-first sub-phases:
+
+  > **v2.2 STATUS — what "done" means here (single source, 2026-07-17).** The arc's THESIS is proven:
+  > ScalaScript compiles itself. Both literal fixed points hold, re-verified by the coordinator from
+  > clean builds on 2026-07-17:
+  > - **P6.6 `C_min`** (a minimal compiler for subset L, written in L) — `stage1 == stage2` byte-identical,
+  >   32,824 B, exit 0. The concept: no quine, reads its own source from a file.
+  > - **P6.5 `X1` `F`** (a richer subset compiler, Core IR byte-identical to `ssc1-front`) — `stage1 == stage2`,
+  >   79,667 B, 89 ok / 0 FAIL.
+  >
+  > **v2.2 is NOT "finished" as a language milestone, and the gap is deliberate, not hidden.** "Compiles
+  > itself" is true of the SUBSET `F` is written in, not of all ScalaScript. That's why **P6.5 stays `[~]`,
+  > by design** (see its HONEST BOUNDARY note) — the remaining work is *bounded mechanical breadth* with no
+  > capability/design question left: given/summon, enums, extensions, for-comprehensions, `var`/`while`,
+  > interpolation, prelude selectors, the List-var registry (case classes landed 2026-07-16 as X1h). Each
+  > is corpus growth re-proving `--self` on every slice.
+  >
+  > **Also open under the arc:** P6.2/P6.2c/P6.3 (spike dialect breadth), P6.20 nested-cons `a::b::t` in the
+  > *spike/subset* (works on v2-native, unverified in the subset — do not infer), P6.21 CI protection —
+  > **which is currently one of the 5 red suites in `Test via sbt`** (`C_min … projects cleanly through the
+  > spike`), so the self-host guard is red while the self-host itself is green; see §`ci-last-red`.
+  >
+  > One-line answer to "is v2.2 done?": **the hard part (self-compilation) is proven; the breadth to cover
+  > the whole language, and to make CI defend it, is not.**
+
   - [x] **P6.0 spike (GATE) ✓ Landed 2026-07-13 (e510e53ab)** — GREEN. Verdict
         (`specs/v2.2-p6.0-spike-notes.md`): precedence IS expressible via UniML — Pratt-parse INSIDE
         the dialect, then serialise the tree with "open-on-first-token / `Reframe.closeAfter`-on-last"
@@ -3303,7 +3327,11 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
       mechanical — no unknowns. Every primitive it needs (strings incl. charAt/length/concat/eq/substring,
       int↔string, tuples, Cons-lists, nested/tag patterns, recursion, closures, HOFs, executable Core IR
       emission incl. functions/recursion) is proven runnable on the bare VM and byte-identical to ssc1-front.
-  - [ ] **P6.6 — literal self-compilation fixpoint (NO quine)** — spec `specs/v2.2-p6.6-self-compilation.md`.
+  - [x] **P6.6 — literal self-compilation fixpoint (NO quine) ✓ DONE 2026-07-14; re-verified 2026-07-17.**
+        (Accounting fix 2026-07-17: this parent sat `[ ]` while its deliverable P6.6d + capstone c3 were both
+        `[x]` done and the only open children were superseded plan lines — see below. The coordinator re-ran
+        the gate: `specs/v2.2-p6.6-fixpoint.sh` → `stage1 == stage2` byte-identical, 32,824 B, C1 compiles
+        fac(5)→120, exit 0. The fixpoint holds.) — spec `specs/v2.2-p6.6-self-compilation.md`.
         CORRECTION of an earlier note: there is no quine — the compiler reads its source FROM A FILE, exactly
         like `v2/bin/ssc1-run.ssc0` (`match #io.args() { case Cons(path,_) => compile(#utf8->str(#io.readFile(
         path))) }`). `#`-prims are ssc0 (not subset), so the file reading is an ssc0 DRIVER wrapping the
@@ -3321,17 +3349,20 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
           PARAMETER carrying the `"` char (`compile(src,dq)`; driver builds dq via #sfromCodes(Cons(34,Nil)),
           verified). So C's source has NO `"`-inside-a-string literal -> scanStr compares code 34, emits
           `dq++content++dq`; escStr = identity. Spec §"quote-free emission design".
-    - [ ] **P6.6c — write C_min in L (self-compiling).** A compiler `compile(src, dq): String` for language L,
+    - [x] **P6.6c — write C_min in L (self-compiling) ✓ DONE 2026-07-14.** (Was `[ ]` by oversight: its
+          outcome lines `c1/c2 ✓ DONE` and `c3 (capstone) ✓ DONE` below are both `[x]`; the two granular
+          `[ ]` c1/c2 lines directly under this are the SUPERSEDED plan, now marked so.) A compiler
+          `compile(src, dq): String` for language L,
           WRITTEN in L, whose OWN source is entirely within L (so it can compile itself). Design decisions that
           shrink L to the minimum: **match only for `Cons(h,t)`/`Nil`/`(a,b)`** — ALL token-kind dispatch via
           `if`-chains + `fst/snd/hd/tl` (NO int-literal patterns `(2,26)`, NO wildcards `case _`, NO nested
           non-trivial matches); **helper-function bindings** (no `val`-blocks); **escape-free** (`dq` param for
           `"`, bare prims); **`++`→sconcat / `+`→i.add** distinguished (i.add is NOT polymorphic on strings);
           **only `<` and `==`** for numeric compare (`a>=b` ≡ `b<a+1`, `a<=b` ≡ `a<b+1`, `a>b` ≡ `b<a`).
-      - [ ] c1 — lexer (helper-fn bindings; scanStr compares code 34; tokens: def/if/then/else/match/case +
-            `= ( ) + - * < , { } => . == ++`; kinds int/lower/Upper/str).
-      - [ ] c2 — parser+emitter (Pratt climb; atoms int/str(dq)/local/call/ctor/tuple/if/match; postfix method
-            + match; arms Cons/Nil/tuple; multi-param def loop). Emits bare-prim Core IR.
+      - [x] ~~c1 — lexer (helper-fn bindings; scanStr compares code 34; tokens: def/if/then/else/match/case +
+            `= ( ) + - * < , { } => . == ++`; kinds int/lower/Upper/str).~~ SUPERSEDED by `c1/c2 ✓ DONE` below.
+      - [x] ~~c2 — parser+emitter (Pratt climb; atoms int/str(dq)/local/call/ctor/tuple/if/match; postfix method
+            + match; arms Cons/Nil/tuple; multi-param def loop). Emits bare-prim Core IR.~~ SUPERSEDED by `c1/c2 ✓ DONE` below.
       - [x] c1/c2 ✓ DONE 2026-07-14 — `specs/v2.2-p6.6-cmin.L` (74 defs). VERIFIED: C_min compiles a spread of
             L programs correctly (arith, calls, if, recursion, bool, strings+`.charAt/.substring/.length`, `==`,
             `++`, match Cons/Nil/tuple) via the ssc1-front file-driver → each result runs to the expected value.
