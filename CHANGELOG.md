@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-07-17 — integer literals span the full 64-bit `Int` range, and overflow fails closed
+
+`int-literal-failopen` — two silent fail-open bugs at the ends of the `Int` range
+(`specs/numeric-widths.md` §2: ssc `Int` is 64-bit), each measured on the assembled launcher.
+
+- **v1 reference interpreter** printed `null` (exit 0) for any bare integer LITERAL in
+  `(Int.Max, Long.Max]`. Root cause: `Parser.preprocessNumericLiterals` left that band a bare
+  decimal that scalameta's 32-bit `Lit.Int` can't hold, so the block failed to parse and was
+  swallowed. Fix: emit an `L` suffix for magnitudes `> Int.Max` → `Lit.Long` (64-bit `IntV`).
+- **v2 native** printed `0` (exit 0) for `-9223372036854775808` (min64) — and for any bare literal
+  past Int64. Root cause: the self-hosted tower's `parseI` defaulted an overflowing `#str->i` to
+  `0`, and unary `-` is an eval-time `0 - x`. Fix: `lowerIntLit` fails closed via `_err_int_range`;
+  the `pre -` case folds the sign so min64 parses to `Long.MinValue`.
+- Both now fail **CLOSED** (a loud error) on a literal genuinely past Int64 (e.g.
+  `99999999999999999999999999`) instead of `null`/`0`/wraparound. Arbitrary precision is the
+  explicit `BigInt(...)` / `n` suffix; the bare-oversized auto-promote-to-BigInt convenience is
+  removed (it silently retyped a literal by magnitude).
+- Gated to overflow/min64 literals: the **P6.5 self-compile fixpoint is byte-identical** before and
+  after (stage1==stage2, 79,667 B). Regression: `tests/conformance/int-literal.ssc` (5 lanes),
+  `tests/e2e/int-literal-failopen-smoke.sh` (both launchers + fail-closed), `NumericLiteralSugarTest`.
+  `BUGS.md`: `v1-interp-int-literal-above-2^31-becomes-null`, `v2-native-min64-literal-prints-0` → FIXED.
+
 ## 2026-07-17 — the canonical Core IR codec is symmetric and fails CLOSED (H4 + H5)
 
 `coreir-canonical-codec-hardening` **H4 + H5** — the last two open items. The canonical codec is the

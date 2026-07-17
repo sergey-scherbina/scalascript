@@ -49,10 +49,13 @@ value. `[claimed]` = a live agent owns it; `[open]` = free to claim; `[blocked]`
   `[[ ]]`. See §`ci-last-red`. **Until this closes, main has never had a fully green run.**
 
 **Fail-open correctness bugs found today (all silent, exit 0):**
-- `[open]` **int-literal-failopen** — `println(2147483648)` → `null` on the reference interpreter;
-  `println(-9223372036854775808)` → `0` on v2 native. The language declares `Int` 64-bit but cannot
-  write half its range as a literal. BUGS: `v1-interp-int-literal-above-2^31-becomes-null`,
-  `v2-native-min64-literal-prints-0`.
+- `[x]` **int-literal-failopen** — DONE `5b71ad2f6`. `println(2147483648)` → `null` (v1 ref) and
+  `println(-9223372036854775808)` → `0` (v2 native) both fixed; every literal in
+  `[-9223372036854775808, 9223372036854775807]` now prints exactly on both, and a literal past Int64
+  fails CLOSED (loud error) on both. v1 = `Parser` L-suffix for `> Int.Max` (was: bare decimal
+  overflowed scalameta `Lit.Int`); v2 = `ssc1-lower.ssc0` fail-closed `parseI` + `pre -` min64 fold.
+  P6.5 fixpoint byte-identical (79,667 B). BUGS marked FIXED. Follow-up (BACKLOG-worthy): v2
+  `BigInt("…")` past Int64 still errors `i->big: not Int` — v2 can't build a >Int64 BigInt yet.
 - `[open]` **W5** — measure whether a ` ```scala ` fence changes `Int` width (dead code today, but
   README/SPEC promise the dangerous path). Ends in a language decision — measure + report, don't fix
   blind. See §`int-width-conformance` W5.
