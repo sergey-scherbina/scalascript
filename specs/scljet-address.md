@@ -139,9 +139,47 @@ Writes, non-SQLite formats, and remote references are later slices. The packet s
 and a set of triples that must land together needs a commit boundary (SQLite touches several
 pages per row change) — that grouping is deliberately not in this slice.
 
+## Beyond SQLite — addressing a document
+
+The same model and the same triple, a different resolver. Landed for JSON
+(`v1/lang/uniml-address`, `JsonAddress.read(text, path)`), over UniML.
+
+```
+users/0/name  →  logical:  the path
+                 physical: offset 19, length 5, line 1 col 20   (the bytes "ann" in the source)
+```
+
+**Both halves come from UniML's CST, deliberately — not from its semantic projection.** UniML's
+canonical tree is lossless and spans EVERY node; `JsonValue`, the projection, carries a span only on
+`JsonMember`, so an array element resolved through it would have no physical half and `users/0`
+would quietly degrade to logical-only. The spec's own rule — the CST is canonical, the projection is
+optional — has teeth here.
+
+**The `Raw(n)` floor is free and total.** Every node has a span, so `n = end.offset − start.offset`
+is always known: an unrecognised node is `Raw(n)`, never "unknown".
+
+**Stability separates a NAME from a POSITION**, and this is where the property earns its keep:
+
+| address | names by | stable |
+|---|---|---|
+| `active` (object key) | name | **yes** |
+| `users/0` (array index) | position | **no** — insert a sibling and it means another value |
+| `users/0/name` (key under an index) | position | **no** — stability cannot be regained by descending |
+
+That is the same distinction as an IPK vs a plain rowid, in a different format: identity survives its
+neighbours, position does not. A test inserts a sibling and watches `users/0/name` change from `ann`
+to `zoe` while `active` stays put — the divergence the flag exists to announce.
+
+**Reaching it from `.ssc`** is a plugin, not an import: UniML's surface is Scala and its dialects are
+not dual-compilable to `.ssc` yet (`uniml-portable-1c-compat`). This is the same arrangement as host
+files (`jvmVfs*`). Note that `jsonParse` — what `.ssc` has today — returns values with **no spans**
+and so cannot serve the physical half at all.
+
 ## Not yet
 
-- addresses into UniML documents (JSON/YAML/XML/Markdown) — same model, different resolver
+- the `.ssc` bridge for document addresses (a plugin, per above), then YAML/XML/Markdown — the
+  resolver differs, the triple does not
+- remote references (`DurableRef`)
 - remote references (`DurableRef`) — same model, different resolver
 - addressing an interior node (a whole row or table); an address names a leaf, and a row is
   the set of leaves sharing its prefix

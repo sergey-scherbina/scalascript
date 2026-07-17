@@ -614,6 +614,19 @@ lazy val unimlJsonCross =
     .jsConfigure(_.withId("unimlJsonJs"))
     .jsSettings(Test / fork := false)
 
+// Addresses into a UniML document: the logical path ←→ the physical span, over the CST (not the
+// semantic projection, which carries spans only on members — an array element resolved through it
+// would have no physical half). The `.ssc` side reaches this through a plugin, exactly as it
+// reaches host files through jvmVfs*. specs/scljet-address.md.
+lazy val unimlAddress = project
+  .in(file("v1/lang/uniml-address"))
+  .dependsOn(unimlJsonJvm)
+  .settings(
+    name := "scalascript-uniml-address",
+    libraryDependencies += scalatestTest,
+    scalacOptions ++= Seq("-deprecation", "-feature"),
+  )
+
 lazy val unimlJsonJvm = unimlJsonCross.jvm
 lazy val unimlJsonJs  = unimlJsonCross.js
 lazy val unimlJson    = unimlJsonJvm
