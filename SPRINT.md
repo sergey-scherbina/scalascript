@@ -9,6 +9,75 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## int-width-conformance — `Int` means 32 bits on some backends and 64 on others (2026-07-17, Sergiy: "давай так и сделаем")
+
+**The same program prints different numbers on different backends. Silently, exit 0.** This breaks
+the project's binding design principle #1 (AGENTS.md): *"One source, many targets. Source semantics
+are target-independent. Backends translate; **they do not reinterpret**."*
+
+**MEASURED 2026-07-17 (re-measure; don't trust this table).** `println(2147483647 + 1)`, correct
+answer `2147483648`:
+
+| Backend | Result | |
+|---|---|---|
+| v1 interpreter (`ssc-tools run --v1`) — **the INT conformance REFERENCE** | `2147483648` | 64-bit ✅ |
+| v2 native (`bin/ssc run`) | `2147483648` | 64-bit ✅ |
+| v2 JS (`ssc-tools run-js --v2`) | `2147483648` | 64-bit ✅ |
+| **v1 JS codegen** (`ssc-tools emit-js` + node) | **`-2147483648`** | 32-bit ❌ |
+| **v1 JVM codegen** (`ssc-tools run-jvm`) | truncates | 32-bit ❌ |
+
+On the project's own `tests/conformance/deep-tail-recursion.ssc` (`sumTco(100000,0)`), `run-jvm`
+prints **`705082704`** where the expected answer is **`5000050000`** — exactly the 32-bit truncation
+(`5000050000 − 2³²`). Exit 0, no error.
+
+**The sharpest form: v1 contradicts ITSELF** — its interpreter (the conformance reference) says
+64-bit while its own codegen says 32-bit. v2 is self-consistent at 64 across native/JS/bytecode, and
+pays for it honestly (v2 JS is correct even above 2⁵³ — `2⁵³+1` and max Int64 both exact — which a
+plain double cannot do).
+
+**The law is already decided everywhere except where it counts:** `v2/specs/10-core-ir.md` §2 (frozen)
+says "`Int` is 64-bit two's-complement, wrapping (matches `ssc 1.0`'s `Int = Long`)"; the interpreter,
+v2 and (since `9c49438d4`) the ABI descriptor all agree. It is stated as a *conformance requirement*
+**nowhere** — its most load-bearing statement today is a comment inside `tests/conformance/run.sc`.
+
+**Do NOT "fix" the v1 codegen.** It is the only violator and it is already slated for deletion
+(stream 1: retire the scalameta/v1 hybrid → one v2 chain). Making `run-jvm`/`emit-js` 64-bit means
+`Int`→`Long` through every emitted Scala and removing `|0` + introducing BigInt in the JS emitter —
+real work on a corpse. Retire it; just stop presenting it as conformant meanwhile.
+
+- [ ] **W1 — write the law, normatively.** `Int` is 64-bit on EVERY backend; a backend that truncates
+      is **non-conforming**. Put it where a backend author and a host-binding author will both hit it
+      (`SPEC.md` + `v2/specs/10-core-ir.md` cross-ref + `docs/`), not in a test-runner comment.
+- [ ] **W2 — ONE normative numeric table + a test that every consumer agrees with it.** This is the
+      anti-recurrence measure and the most valuable item here. The descriptor bug
+      (`coreir-abi-int-width-declared-i32-actually-i64`, fixed `9c49438d4`) happened because **every
+      consumer independently guessed name→width by reading the type name** — and `Int` reads as
+      "32 bits" to everyone alive. Pin: `Int`→64, `Long`→64, `Float`→64, `Double`→64, `BigInt`→arbitrary.
+      Assert agreement from: the interpreter, v2, the v1 codegen (as a declared known-red), the ABI
+      descriptor, and the four host tables (JS/TS, Rust, Swift, WASM-WASI). **Note `Int`==`Long` and
+      `Float`==`Double` are literally the same runtime types** (measured: `val a: Int = 9223372036854775807`
+      compiles and `a == b` vs the `Long`; `0.1f + 0.2` → `0.30000000000000004`, i.e. double
+      arithmetic). Under the table that stops being a lurking surprise and becomes a checked fact.
+      Related live gap found while measuring: the descriptor's numeric table has **no `Float` case at
+      all** — `Float` is a legal ssc type that cannot cross the ABI; `AbiPrimitive` has no `F32`. It
+      currently fails closed; keep it that way, and let the table say so explicitly.
+- [ ] **W3 — stop the test suite from hiding the divergence.** `codegen: v2` frontmatter lets a case
+      **pick the backend that agrees with it** (`run.sc`: *"Cases whose semantics need 64-bit Int …
+      opt in here so they run on the backend that honors the ssc Int=64-bit contract"*). That is the
+      gate routing around the bug — the exact pattern AGENTS.md now bans. Replace with: the case runs
+      on EVERY eligible backend, and the v1 codegen is **RED as a declared, expiring known
+      non-conformance** (expires when v1 codegen is deleted). A known-red is honest; an invisible
+      reroute is not. Keep `codegen:` if it has legitimate non-semantic uses — the ban is on using it
+      to dodge a semantic divergence.
+- [ ] **W4 — mark `run-jvm` / `emit-js` non-conforming** for integer semantics in `--help` and the
+      docs, until they are deleted, so nobody ships on a backend that prints `705082704` for
+      `5000050000`.
+- [ ] **W5 — OPEN QUESTION, measure before deciding (do not guess).** A file may hold both
+      ` ```scalascript ` blocks (our `Int` = 64) and ` ```scala ` blocks, which README calls
+      "Standard Scala 3 — no ScalaScript extensions" and which real `scalac` compiles with `Int` = 32.
+      If both run in one file, one word means two things. **Not yet measured** — measure it, then
+      decide whether it's a documented boundary or a real hole. Raised 2026-07-17.
+
 ## v2-failopen — unknown zero-arg method silently returns a closure (BUGS.md `v2-zero-arg-unknown-method-fails-open`)
 
 **Root cause (VERIFIED, not the BUGS.md hypothesis).** Not "curried `__method__` never applies the
