@@ -72,6 +72,40 @@ expect_command() {
   expect_eq "$name" "$expected" "$actual"
 }
 
+# Same as expect_command, but compares the output as a SET of lines.
+#
+# Use ONLY where the program genuinely does not order its output, and say why at
+# the call site. `actors-provider.ssc` prints from two unsynchronised actors: the
+# worker prints when the scheduler runs it, while main prints after a *different*
+# actor's reply arrives. Nothing sequences those two, so asserting a total order
+# asserts something the program never promised — and it duly flaked in CI
+# (`expected=$'worker: one\nSome(root: reply)'` / `actual=$'Some(root: reply)\nworker: one'`).
+# Set semantics keeps everything the gate actually cares about: both lines, exactly
+# once each. It does NOT weaken the check into "some output appeared".
+expect_command_unordered() {
+  local name="$1"
+  local expected="$2"
+  shift 2
+  local stderr_file="$sandbox/command.stderr"
+  local actual
+  local rc
+  set +e
+  actual="$("$@" 2>"$stderr_file")"
+  rc=$?
+  set -e
+  if [[ $rc -ne 0 ]]; then
+    printf 'v21-slim-distribution-gate: FAIL [%s] exit expected=0 actual=%s\n' "$name" "$rc" >&2
+    printf '  command:' >&2
+    printf ' %q' "$@" >&2
+    printf '\n  stderr:\n' >&2
+    sed 's/^/    /' "$stderr_file" >&2
+    exit 1
+  fi
+  expect_eq "$name (unordered)" \
+    "$(printf '%s\n' "$expected" | LC_ALL=C sort)" \
+    "$(printf '%s\n' "$actual" | LC_ALL=C sort)"
+}
+
 expect_nonzero() {
   local name="$1"
   local actual="$2"
@@ -220,9 +254,11 @@ expect_command "typed actors vm" "$typed_actors_expected" \
   run_standard run "$ROOT/examples/actors-typed-remote-spawn.ssc"
 expect_command "typed actors asm" "$typed_actors_expected" \
   run_standard run --bytecode "$ROOT/examples/actors-typed-remote-spawn.ssc"
+# Unordered: two unsynchronised actors print these lines — see expect_command_unordered.
 actors_provider_expected=$'worker: one\nSome(root: reply)'
-expect_command "actors provider vm" "$actors_provider_expected" run_standard run "$FIXTURES/actors-provider.ssc"
-expect_command "actors provider asm" "$actors_provider_expected" \
+expect_command_unordered "actors provider vm" "$actors_provider_expected" \
+  run_standard run "$FIXTURES/actors-provider.ssc"
+expect_command_unordered "actors provider asm" "$actors_provider_expected" \
   run_standard run --bytecode "$FIXTURES/actors-provider.ssc"
 distributed_join_expected=$'o1 | c1 | Ada | 10\no2 | c2 | Bob | 20\no3 | c1 | Ada | 30'
 expect_command "distributed join vm" "$distributed_join_expected" \

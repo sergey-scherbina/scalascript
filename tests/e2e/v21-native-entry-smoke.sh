@@ -121,8 +121,14 @@ actors_expected=$'pong: one\npong: two\npong: three\nafter timeout: None\nbefore
 [[ $(run_native "$ROOT/examples/actors-pingpong.ssc") == "$actors_expected" ]]
 typed_actors_expected=$'true\ntrue\nlocal ref\nspawnRemote: pong'
 [[ $(run_native "$ROOT/examples/actors-typed-remote-spawn.ssc") == "$typed_actors_expected" ]]
+# UNORDERED, and it must stay that way: actors-provider.ssc prints from two
+# unsynchronised actors — the worker prints when the scheduler runs it, main prints
+# after a *different* actor's reply arrives. Nothing sequences them, so a total-order
+# assertion asserts what the program never promised. It flaked in CI's slim gate as
+# exactly these two lines swapped. Compare as a set: both lines, once each.
 actors_provider_expected=$'worker: one\nSome(root: reply)'
-[[ $(run_native "$FIXTURES/actors-provider.ssc") == "$actors_provider_expected" ]]
+[[ $(run_native "$FIXTURES/actors-provider.ssc" | LC_ALL=C sort) \
+   == $(printf '%s\n' "$actors_provider_expected" | LC_ALL=C sort) ]]
 distributed_join_expected=$'o1 | c1 | Ada | 10\no2 | c2 | Bob | 20\no3 | c1 | Ada | 30'
 [[ $(run_native "$ROOT/examples/distributed-join.ssc" -- \
   "$FIXTURES/distributed-orders.csv" "$FIXTURES/distributed-customers.csv") == "$distributed_join_expected" ]]
