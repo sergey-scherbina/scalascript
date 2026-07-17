@@ -1,5 +1,27 @@
 # Bug tracker
 
+## coord-status-stopword-slug-false-stale — live claim is reported as stale
+
+**Status:** OPEN (found 2026-07-17 by `ci-red-main` at `39feb9cc3`). A fresh authoritative
+`.work/active/ci-red-main.claim` names the live branch `feature/ci-red-main-final`, and that exact
+clean worktree exists, but `scripts/coord-status --no-fetch` prints:
+
+```text
+maybe stale: ci-red-main (... heartbeat: 2026-07-17T04:25:56Z ...)
+```
+
+**Root cause / real-harness evidence.** `significant_tokens("ci-red-main")` yields no tokens: `ci`
+is shorter than three characters, while `red` and `main` are explicit stop words. Therefore
+`slug_matches_record` has `needed=0` but no loop iteration in which it can return success. The
+exact-key fallback also misses because the worktree key is `feature/ci-red-main-final`, not the
+claim slug. This is a false stale classification in the coordination apparatus, not a stale claim.
+
+**Expected/fix plan.** Prefer an exact live-worktree branch match from a claim's explicit `branch:`
+metadata, retaining the current slug heuristic only for legacy claims without that field. Add a
+hermetic regression whose slug has zero significant tokens and whose declared branch is live; it
+must reject the old `maybe stale` output while preserving detection of a genuinely missing
+worktree. Every mismatch must print the expected claim branch and observed worktree branches.
+
 ## ci-example-typecheck-uses-compiler-free-launcher — green examples fail at the workflow command
 
 **Status:** FIXED (2026-07-17, `a421d9077`; awaiting exact-SHA CI confirmation). Found by
