@@ -256,6 +256,29 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       - **Still unverified: no fully green run has been observed.** The last pushes had not completed
         CI when this lane stopped. Next agent: `gh run list --workflow=ci.yml --branch=main`, and
         expect conformance to stay red at 279/281 until the two JS bugs above are fixed.
+- [ ] **5a. Establish the live CI baseline before changing code.** Let the newest relevant
+      `origin/main` run settle, then inspect every job with `gh run view <id> --json jobs` and the
+      failed logs. Record the exact SHA, failing steps, and output here. Do not infer today's state
+      from run `29501968735`: many independent lanes have landed since it. A failure with no named
+      expected/got diff is itself an apparatus defect and must be made diagnostic before guessing.
+- [ ] **5b. Close `run-js-v2-always-exits-1` in the real launcher.** Reproduce with the assembled
+      `bin/ssc-tools run-js --v2` tiny-program matrix from `BUGS.md`, trace the JVM exit after node
+      returns 0, add a regression that asserts both stdout and process exit, then run
+      `tests/conformance/run.sh --only 'deep-tail-recursion' --no-memo`. Keep node's exit and the
+      CLI process exit as two separately printed observables so the gate cannot pre-judge success.
+- [ ] **5c. Close the independent `dataset-from-generator` JS dispatch failure.** First add the
+      missing durable `BUGS.md` entry with the assembled-launcher repro and current SHA. Fix the
+      owning runtime/plugin boundary (not a test expectation), add a faithful regression, and run
+      `tests/conformance/run.sh --only 'dataset-from-generator' --no-memo` on its declared lanes.
+- [ ] **5d. Reconcile the `sbt test` tail against current CI.** Re-measure all suites from the newest
+      completed run; fix every still-red unclaimed suite with a focused regression/gate. Do not edit
+      files owned by a live claim (`p65-fixpoint`, newfront, Swift, etc.); consume their landed fixes
+      and verify them instead. For an environment-only test, make the prerequisite explicit or skip
+      with a proven capability check—never weaken a real assertion to get green.
+- [ ] **5e. Prove green on GitHub, not by proxy.** Rebase each finished slice on current
+      `origin/main`, run its affected conformance/test gate, push separately, and finally wait for a
+      CI run containing all fixes. Done means all four jobs (`Lint Markdown`, `Validate ScalaScript`,
+      `Conformance Suite`, `sbt — compile and test`) report `success`; record the run URL and SHA.
 - [ ] **6. Prevent the recurrence.** Long-red CI is what let all of this pile up. Decide + record a
       cheap guard (e.g. the loop checks `gh run list` before claiming a lane green, or a CI-status
       line in the claim protocol). Recorded as a question for Sergiy, not a unilateral process change.
