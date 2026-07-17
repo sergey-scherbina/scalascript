@@ -24,6 +24,11 @@ Every piece of work, always, in this order:
    skip; JVM lane is serverless by default; use `--warm-jvm` only for local
    speed probes). It costs seconds now, so a push without
    at least the affected-slice run is not acceptable. Full corpus stays for CI.
+   4c. **Exact-SHA CI before release**: after the final push, run
+   `scripts/ci-status --sha <landed-sha>`. Exit 0 is the only CI-green verdict.
+   Pending/unknown keeps the claim open; red is recorded in `BUGS.md` + `SPRINT.md`
+   and fixed in the real failing job. A local gate or another commit's green run is
+   never evidence for this SHA.
 5. **Release + clean up**: remove the claim, then `scripts/rm-worktree <name>`
    (kills the worktree's build daemons too).
 

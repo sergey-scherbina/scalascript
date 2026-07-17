@@ -1,5 +1,7 @@
 # ScalaScript
 
+[![CI](https://github.com/sergey-scherbina/scalascript/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sergey-scherbina/scalascript/actions/workflows/ci.yml)
+
 A language where **Markdown is syntax, not decoration** — `.ssc` files are
 executable documents combining YAML front-matter, Markdown prose, and
 Scala 3 code blocks.
