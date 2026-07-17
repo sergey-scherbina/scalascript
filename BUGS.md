@@ -1,22 +1,26 @@
 # Bug tracker
 
-## interpreter-multiblock-auto-output-missing — INT drops non-Unit block results that JS/JVM print
+## v2-native-multiblock-auto-output-missing — standard native lane drops per-block non-Unit results
 
-**Status:** OPEN (found 2026-07-17 by `ci-red-main` after correcting the all-examples launcher
-routing). The corrected 17-example matrix is byte-identical on 16 files. For
-`examples/content.ssc`, JS and JVM print the three documented auto-output values (`2`,
-`List(1, 4, 9, 16, 25)`, `HELLO!`) before the rendered document; native INT omits all three.
+**Status:** OPEN (found 2026-07-17 by `ci-red-main` after correcting the all-examples tools-command
+routing; diagnosis corrected before implementation). The partially corrected 17-example matrix is
+byte-identical on 16 files. For `examples/content.ssc`, v1 JS/JVM print the three documented
+auto-output values (`2`, `List(1, 4, 9, 16, 25)`, `HELLO!`) before the rendered document; standard
+v2 native omits all three.
 
-**Real-harness repro.** Build the full distribution and run `scala-cli examples/run-all.sc` with
-`runJvm`/`runJs` routed through `bin/ssc-tools`. The file explicitly states that the last non-Unit
-expression in **a top-level code block** is automatically printed and contains three separate
-demonstration fences. Existing interpreter auto-output tests cover only a single block, while JS and
-JVM wrap each runnable block. This is a multi-block execution-boundary gap, not imported-module
-output and not a reason to delete the expected values.
+**Real-harness repro.** Build the full distribution. `bin/ssc examples/content.ssc` is the v2 native
+standard lane and omits the values; `bin/ssc-tools run --v1`, `emit-js`+node, and `run-jvm` use the
+v1 frontend/runtime family and print them. The file explicitly states that the last non-Unit
+expression in **a top-level code block** is automatically printed and contains three demonstration
+fences. The initial ledger entry called `bin/ssc` the interpreter; that was wrong after the 2.1
+cutover. Existing legacy `InterpreterTest` auto-output tests do not exercise the failing v2 path.
 
-**Expected/fix plan.** Add a faithful multi-block interpreter regression that asserts every
-non-Unit block tail is emitted once in source order while Unit/definition tails stay silent. Repair
-the interpreter block boundary, then rerun the focused suite and all 17 examples on INT/JS/JVM.
+**Expected/fix plan.** The v2 native frontend/runtime must eventually emit every non-Unit block tail
+once in source order while Unit/definition tails stay silent. Its owning files overlap the live
+`v2-native-stack-overflow` claim, so this CI lane must not patch them. Separately, the historical
+all-examples matrix says INT/JS/JVM and must compare one v1 frontend family, just like conformance:
+route INT through `bin/ssc-tools run --v1` rather than silently comparing v2 native against v1
+codegens. Green v1 parity will not close this v2 user-facing bug.
 
 
 ## v21-slim-distribution-gate-silent-assertions — Linux gate exits 1 with no failed check or diff

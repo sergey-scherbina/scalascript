@@ -327,23 +327,25 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
 - [ ] **5i. Route the all-examples matrix through the correct installed tiers.** CI run
       `29547121050` has a green 282/282 corpus, then every one of 17 JS/JVM examples fails because
       `examples/run-all.sc` invokes tools-only `emit-js`/`run-jvm` through standard `bin/ssc`.
-      Require both `bin/ssc` and `bin/ssc-tools`, keep native INT on the standard launcher, use tools
-      for JS/JVM, and run the full matrix. Done means all 17 print byte-identical output on three
+      Require `bin/ssc-tools`, route INT through `run --v1` and JS/JVM through the matching tools
+      commands, and run the full matrix. Done means all 17 print byte-identical output on three v1
       lanes and a missing launcher names the exact path.
-      **Routing fixed locally:** tools commands now use `bin/ssc-tools`; this removes all 34
-      standard-tier command failures. The matrix reaches 16/17 exact and exposes the independent
-      multi-block INT auto-output bug in 5k, so 5i remains open until that semantic tail closes.
+      **Diagnosis correction:** moving only JS/JVM removed all 34 standard-tier command failures but
+      compared v2 native `bin/ssc` against v1 codegens, reaching 16/17. The matrix historically means
+      legacy INT/JS/JVM (the same family as conformance), so INT must also use tools `run --v1`.
+      The separately exposed v2 auto-output gap stays open in 5k and is not hidden as "fixed" by this.
 - [ ] **5j. Make `v21-slim-distribution-gate` diagnostic before interpreting its Linux failure.**
       Run `29547476776` reaches the gate after two release gates pass, spends 70 seconds, and exits 1
       with literally no check name/diff. Replace every bare assertion that can abort with named
       expected/actual/exit diagnostics, prove the gate still passes locally, then let Linux identify
       the real residual. Never refresh expected output from a silent assertion.
-- [ ] **5k. Restore interpreter auto-output at every runnable block boundary.** The correctly routed
-      examples matrix proves JS/JVM print `2`, squares, and `HELLO!` for the three non-Unit fences in
-      `examples/content.ssc`; INT omits them, despite the example's explicit per-block contract.
-      Add a multi-block regression (including silent Unit/definition tails), fix the interpreter
-      execution boundary rather than expectations, then require the focused suite and full 17-file
-      INT/JS/JVM matrix to be byte-identical.
+- [ ] **5k. Restore v2 native auto-output at every runnable block boundary.** Standard `bin/ssc`
+      omits `2`, squares, and `HELLO!` for the three non-Unit fences in `examples/content.ssc`, while
+      all v1 lanes print them. Initial "interpreter" attribution was wrong: `bin/ssc` is v2 native;
+      legacy interpreter tests are green. Add a v2 multi-block regression (including silent
+      Unit/definition tails) and fix the native execution boundary, but **do not touch the current
+      live `v2-native-stack-overflow` scope**. This remains a real user bug even after the v1 examples
+      matrix is green.
 - [ ] **6. Prevent the recurrence.** Long-red CI is what let all of this pile up. Decide + record a
       cheap guard (e.g. the loop checks `gh run list` before claiming a lane green, or a CI-status
       line in the claim protocol). Recorded as a question for Sergiy, not a unilateral process change.
