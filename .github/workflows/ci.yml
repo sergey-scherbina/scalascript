@@ -162,9 +162,9 @@ jobs:
       - name: Run examples on all three backends
         run: scala-cli examples/run-all.sc
 
-      - name: Type-check examples (ssc check)
+      - name: Type-check examples (ssc-tools check)
         run: |
-          ./bin/ssc check examples/*.ssc
+          ./bin/ssc-tools check examples/*.ssc
 
       # Save the classes/zinc cache ONLY when every step above succeeded, so a
       # failed build can never poison later runs (the 200-run red streak cause).
