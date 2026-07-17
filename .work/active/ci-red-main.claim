@@ -1,7 +1,7 @@
 claim: ci-red-main
 branch: feature/ci-red-main-final
 agent: codex
-heartbeat: 2026-07-17T02:21:29Z
+heartbeat: 2026-07-17T02:40:53Z
 status: in-progress
-done-so-far: completed Linux tail recorded; staged tuple CLI harness is 4/4 locally; bounded sbt outer-timeout repair is prepared
-next: reverify both slices on the rebased native baseline, push separately, then inspect their exact GitHub runs for residual failures
+done-so-far: tuple CLI is staged 4/4; bytecode separation executes 5/5; slim checks are diagnostic; Linux test budgets are measured at 150/90
+next: monitor queued exact-SHA runs, consume landed newfront/Swift/VFS fixes without scope overlap, and fix every newly exposed unclaimed failure
