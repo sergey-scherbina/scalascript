@@ -1,5 +1,21 @@
 # Bug tracker
 
+## standalone-install-fixture-stale-java-command — test rejects the release launcher's stack flag
+
+**Status:** OPEN (confirmed 2026-07-17 by `ci-red-main` with the focused current-source suite).
+`StandaloneInstallFixturesTest` fails 1/2 because it requires the literal adjacent substring
+`exec java -jar`; `releases/install.sh` now correctly emits `exec java -Xss64m -jar ...`.
+
+**Real-harness repro.** Run `scripts/sbtc "cli/testOnly
+scalascript.cli.StandaloneInstallFixturesTest"`. The failure prints the complete release installer
+and the missing stale substring. This is the unclaimed CLI suite predicted in the old full-test tail.
+
+**Expected/fix plan.** Preserve the 64 MB safe default but make it caller-overridable through
+`SSC_XSS`, matching the staged launchers and avoiding another hardcoded command-line override. Pin
+the actual contract (`exec java`, `SSC_XSS:-64m`, and `-jar <installed jar>`) instead of requiring
+two tokens to remain adjacent. Re-run 2/2 and an affected conformance slice.
+
+
 ## v2-native-multiblock-auto-output-missing — standard native lane drops per-block non-Unit results
 
 **Status:** OPEN (found 2026-07-17 by `ci-red-main` after correcting the all-examples tools-command

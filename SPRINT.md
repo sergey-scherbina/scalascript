@@ -348,6 +348,11 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       Unit/definition tails) and fix the native execution boundary, but **do not touch the current
       live `v2-native-stack-overflow` scope**. This remains a real user bug even after the v1 examples
       matrix is green.
+- [ ] **5l. Reconcile the standalone release fixture with the stack-safe launcher.** Focused current
+      `StandaloneInstallFixturesTest` is 1/2: it looks for stale adjacent `exec java -jar`, while the
+      release installer emits `exec java -Xss64m -jar`. Give the generated standalone launcher the
+      same `SSC_XSS` override as staged launchers and assert the real java/stack/jar contract; do not
+      remove the safe stack default merely to satisfy a substring.
 - [ ] **6. Prevent the recurrence.** Long-red CI is what let all of this pile up. Decide + record a
       cheap guard (e.g. the loop checks `gh run list` before claiming a lane green, or a CI-status
       line in the claim protocol). Recorded as a question for Sergiy, not a unilateral process change.
