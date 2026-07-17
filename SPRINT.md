@@ -489,6 +489,10 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       the installed launcher's `ssc.lib.path`. Source inspection also finds stale JSON readers behind
       those gates even though `.scjvm` is now binary. Record `ClusterMultiBackendMatrixTest`
       separately before deciding whether it belongs in the repair.
+      **Comparison audit:** the reproducibility helper compares SHA strings rather than bytes and
+      discards ZIP insertion order via `.toMap`; make byte equality/order primary and keep SHA only
+      in mismatch diagnostics. SMAP/source-map suites must also fail (with exit/stdout/stderr) on a
+      staged compiler command error instead of reclassifying it as unavailable.
 - [ ] **5s. Repair the JS actor `BigInt`/`Number` mismatch exposed by the real multi-backend
       cluster matrix.** The separately staged `ClusterMultiBackendMatrixTest` executes 1 test with
       zero cancellations, starts both generated programs, then the node backend exits in
@@ -499,6 +503,11 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       the affected actor conformance slice. If claimed, record/consume the owner's landed repair
       rather than editing concurrently. Preserve exit/log/readiness diagnostics; no fixture-only
       coercion or weakened readiness check.
+      **Overlap audit:** the only dirty JS worktree (`agent-af1f0d3d39673a833`) is based on
+      `46e91144c` from 2026-07-13 and contains an uncommitted predecessor of the already-landed
+      `70dfb5a1f` Long/BigInt change; current `origin/main` has hundreds of newer JsGen lines. It is
+      a stale duplicate, not an active actor/JS claim. Leave it untouched and diagnose only current
+      origin when 5s starts.
 - [ ] **5t. Activate the tracked `actors-leader-protocol` conformance case.** The affected-gate
       attempt finds the source but skips it because `expected/actors-leader-protocol.txt` is absent,
       reporting 0 passed and 0 failed. Check actor ownership, execute every declared backend, and

@@ -62,6 +62,13 @@ Decode current binary `.scjvm` artifacts with production `JvmArtifactIO` rather 
 readers found behind the cancelled gates. Audit `ClusterMultiBackendMatrixTest` separately before
 editing it because it was not part of this baseline.
 
+**Additional apparatus defects exposed by source inspection.** `ReproducibilityTest` currently
+declares two outputs equal when their SHA-256 strings match instead of comparing the bytes first,
+and converts its ordered ZIP-entry buffer with `.toMap` before asserting entry order. Repair both so
+the observable bytes/order drive the verdict and hashes are diagnostics only. `JvmSmapStackTraceTest`
+and `SourceMapJvmTest` also turn any non-zero compile result into `CANCELED`; after the installed
+launcher and compiler jars are present, those are real failures and must retain exit/stdout/stderr.
+
 
 ## swiftui-real-fixture-system-exit-hides-failure — compiler error kills the forked test JVM
 
