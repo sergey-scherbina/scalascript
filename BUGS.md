@@ -1,5 +1,29 @@
 # Bug tracker
 
+## dataset-from-generator-js-compound-assign-dispatch — generated JS calls method `+=` on a number
+
+**Status:** OPEN (reproduced 2026-07-17 by `ci-red-main` from `origin/main` `771b67d45`). This is
+the second and independent failure in the otherwise 279/281 conformance suite; it is not caused by
+the global `run-js --v2` exit-code defect because node throws before producing the expected output.
+
+**Real-harness repro.** Build the worktree distribution with
+`scripts/sbtc "compile; cli/assembly; installBin"`, then run:
+
+```bash
+tests/conformance/run.sh --only 'dataset-from-generator' --no-memo
+```
+
+INT and JVM pass. JS exits 1 in generated code with
+`Error: Method not found: += on 1`; the stack enters `_dispatch`, the generated `Generator.next`,
+`toList`, `_Dataset._sourceFn`, and `_Dataset.collect`. Expected output is four lines:
+`12, 14, 16, 18, 20`, `1`, `9`, `25`. The failure must be pinned at the generated-JS/runtime
+boundary and fixed there; changing the expected output or suppressing the exception would preserve
+the wrong program semantics.
+
+**Done when.** The focused conformance case passes on every declared lane, a regression separately
+asserts that mutable generator state increments numerically instead of method-dispatching `+=`, and
+the full CI conformance job is green.
+
 ## install-dev-initializes-skills-submodule-inside-worktree — documented local build violates the worktree contract
 
 **Status:** OPEN (found 2026-07-17 by `ci-red-main` on `origin/main` `771b67d45`). This is a

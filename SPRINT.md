@@ -261,6 +261,11 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       failed logs. Record the exact SHA, failing steps, and output here. Do not infer today's state
       from run `29501968735`: many independent lanes have landed since it. A failure with no named
       expected/got diff is itself an apparatus defect and must be made diagnostic before guessing.
+      Local assembled baseline at `771b67d45`: `deep-tail-recursion` is PASS INT/JVM and FAIL JS
+      solely with a phantom fourth line `<exit:1>` after byte-correct stdout; `dataset-from-generator`
+      is PASS INT/JVM and FAIL JS with `Error: Method not found: += on 1`. Both were forced with
+      `--no-memo`. GitHub run `29545769651` (`893bf2632`) had lint/validation green while its two
+      long jobs were still running; newer claim-only SHAs do not replace the need to inspect it.
 - [ ] **5b. Close `run-js-v2-always-exits-1` in the real launcher.** Reproduce with the assembled
       `bin/ssc-tools run-js --v2` tiny-program matrix from `BUGS.md`, trace the JVM exit after node
       returns 0, add a regression that asserts both stdout and process exit, then run
