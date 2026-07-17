@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-07-17 — coordination status exposes stale heartbeat age
+
+`coord-status` now applies the project's 20-minute heartbeat rule independently from worktree
+presence (`52e1d0814`). Strict cross-platform UTC parsing reports timestamp, exact age, reason, and
+branch identity for stale, missing, or invalid heartbeats. Hermetic tests separately prove
+fresh/live, stale/live, fresh/missing-worktree, invalid, and missing-heartbeat outcomes.
+
 ## 2026-07-17 — coordination status trusts an exact declared worktree branch
 
 `coord-status` no longer reports a live claim as stale when its slug has no usable heuristic tokens

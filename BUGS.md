@@ -2,7 +2,8 @@
 
 ## coord-status-ignores-heartbeat-age — old claims with live worktrees look current
 
-**Status:** OPEN (found 2026-07-17 by `ci-red-main` at `5d932f6a4`). Project coordination rules
+**Status:** FIXED (2026-07-17, `52e1d0814`; awaiting exact-SHA CI confirmation). Found by
+`ci-red-main` at `5d932f6a4`. Project coordination rules
 define a missing or older-than-20-minute `heartbeat:` as potentially orphaned and name
 `scripts/coord-status` as the preferred status check. The script's `stale-claim check` instead tests
 only whether a slug heuristically matches any worktree/branch. Consequently the current output says
@@ -20,6 +21,13 @@ age greater than 20 minutes even when the declared worktree branch exists. Missi
 heartbeats are stale with a named reason; a fresh heartbeat stays live; a fresh claim whose branch
 is absent retains the separate missing-worktree warning. Hermetic tests must fix time and compare all
 three outcomes with timestamp/age/branch diagnostics.
+
+**Fix/verification.** `coord-status` now parses strict `...Z` timestamps with GNU/BSD `date`, uses
+an injectable epoch only for deterministic checks, and evaluates heartbeat age independently from
+the exact branch/worktree match. The hermetic gate covers fresh/live, 1201-second stale/live,
+fresh/missing-worktree, invalid heartbeat, and missing heartbeat. The real status now reports all
+five old claims with exact timestamp, seconds/minutes, reason, and live/missing branch while keeping
+the current `ci-red-main` claim fresh. Shell syntax, the complete gate, and focused conformance pass.
 
 ## coord-status-stopword-slug-false-stale — live claim is reported as stale
 
