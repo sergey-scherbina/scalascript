@@ -1,5 +1,18 @@
 # Bug tracker
 
+## js-actor-stop-cps-emits-unbound-call — completed actor body crashes on raw `stop()`
+
+**Status:** OPEN (found 2026-07-17 by `ci-red-main` while adding the faithful Long-timer Node
+regression). The generated bundle successfully delivers Long `sendAfter`, Long `sendInterval`, and
+a Long timed receive, prints `once`, `interval`, `timeout`, then evaluates source `stop()` as a raw
+JS call and exits with `ReferenceError: stop is not defined` from the actor continuation.
+
+**Expected/fix plan.** Inspect the shared normal/CPS actor bare-name lowering and route `stop()`
+through the same `_perform('Actor', 'stop', ...)` contract as other actor operations. Keep the real
+Node execution in the timer regression; do not remove `stop()` merely to make the test terminate.
+Rerun the full Node backend suite and the cross-backend cluster matrix.
+
+
 ## actors-leader-protocol-conformance-has-no-expected — tracked case always skips
 
 **Status:** OPEN (found 2026-07-17 by `ci-red-main` while selecting the affected gate for the

@@ -526,6 +526,12 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       a Node integration covering Long one-shot + interval delivery. Also migrate this matrix from
       fat-JAR/macOS-Coursier assumptions to the shared installed launcher/resource-classpath helper;
       on staged CI command failures must fail with exit/stdout/stderr, not cancel.
+- [ ] **5u. Lower actor `stop()` inside generated JS CPS continuations.** The new Long-timer Node
+      regression proves all three millisecond conversions by printing `once`, `interval`, and
+      `timeout`, then source `stop()` is emitted as a raw JS call and crashes with
+      `ReferenceError: stop is not defined`. Trace normal/CPS actor bare-name dispatch and emit the
+      Actor effect operation; preserve `stop()` in the real Node fixture and require clean process
+      completion. This is a separate exposed layer, not a reason to weaken the timer regression.
 - [ ] **5t. Activate the tracked `actors-leader-protocol` conformance case.** The affected-gate
       attempt finds the source but skips it because `expected/actors-leader-protocol.txt` is absent,
       reporting 0 passed and 0 failed. Check actor ownership, execute every declared backend, and
