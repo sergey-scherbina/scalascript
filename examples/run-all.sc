@@ -15,13 +15,11 @@ val dir: os.Path =
       val candidate = os.pwd / "examples"
       if os.isDir(candidate) then candidate else os.pwd
 
-val root        = dir / os.up
-val standardBin = root / "bin" / "ssc"
-val toolsBin    = root / "bin" / "ssc-tools"
-val missingBins = Seq(standardBin, toolsBin).filterNot(os.exists)
+val root     = dir / os.up
+val toolsBin = root / "bin" / "ssc-tools"
 
-if missingBins.nonEmpty then
-  missingBins.foreach(path => System.err.println(s"required installed launcher not found: $path"))
+if !os.exists(toolsBin) then
+  System.err.println(s"required installed launcher not found: $toolsBin")
   System.err.println("Build the full distribution first: bash install.sh --dev")
   System.exit(2)
 
@@ -32,8 +30,9 @@ def runProc(p: os.proc): Run =
   Run(r.out.text().stripTrailing(), r.exitCode, r.err.text())
 
 def runInt(file: os.Path): Run =
-  // The default launcher is deliberately compiler-free and owns the native lane.
-  runProc(os.proc(standardBin.toString, file.toString))
+  // Keep all three comparisons on the same v1 frontend/runtime family. The
+  // default bin/ssc is the separate v2 native product after the 2.1 cutover.
+  runProc(os.proc(toolsBin.toString, "run", "--v1", file.toString))
 
 def runJvm(file: os.Path): Run =
   // `run-jvm` compiles via JVM codegen AND runs, so we get program stdout to
