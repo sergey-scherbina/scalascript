@@ -418,6 +418,28 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       + test maxima. Revalidate YAML and require a later Linux run to prove the suite completes.
       **REVISED `884832696`, awaiting Linux proof:** outer/test caps are now 150/90, the measured
       rationale is adjacent to the workflow values, YAML parses, and focused conformance stays green.
+- [ ] **5o. Make bytecode runtime-separation tests consume the staged compiler drivers instead of
+      cancelling.** Linux run `29545769651`, job `87777659720`, runs `installBin` before `sbt test`,
+      and its staging log lists `bin/lib/compiler/jars/ (6 JARs incl. compiler-driver)`. Nevertheless
+      all five `JvmBytecodeRuntimeSeparationTest` cases report `CANCELED` with `compiler-driver jars
+      not staged (run sbt cli/stage)`, so the aggregate can look healthier without comparing the
+      bytecode/runtime observables. Reproduce with `scripts/sbtc "cli/assembly; installBin;
+      cli/testOnly scalascript.cli.JvmBytecodeRuntimeSeparationTest"`, inspect its prerequisite
+      locator, and make it use the same installed tools/compiler-driver contract CI built. Do not
+      turn a missing prerequisite into success: a staged run must execute all five assertions and
+      print stdout/stderr/exit on failure. Run an affected JVM conformance slice before push.
+      **Source-inspection gotcha:** after the driver check, the end-to-end case has a second latent
+      Linux skip: `scalaStdlibClasspath()` hardcodes macOS `~/Library/Caches/Coursier`, while GitHub
+      uses Linux cache layout. Resolve Scala 3 + 2.13 library locations from the current test JVM's
+      loaded class code sources instead of guessing an OS/cache path, so `java -cp` remains the real
+      observable on both platforms.
+      **Faithful-run result after removing both skips:** 5 tests execute, 0 pass. Four call
+      `ujson.read` on current binary `.scjvm`/`.scjvm-runtime` artifacts and fail at byte zero; the
+      end-to-end link succeeds but its JAR is 762,184 bytes versus a stale `<400,000` absolute bound.
+      Before changing expectations, find and use the production artifact decoder, then replace the
+      frozen size threshold with a comparison that still proves runtime separation against the
+      artifacts produced in that same run (or document why a current canonical bound is stable).
+      Re-run all five to completion; a green skip or an unexplained baseline refresh is not done.
 - [ ] **6. Prevent the recurrence.** Long-red CI is what let all of this pile up. Decide + record a
       cheap guard (e.g. the loop checks `gh run list` before claiming a lane green, or a CI-status
       line in the claim protocol). Recorded as a question for Sergiy, not a unilateral process change.

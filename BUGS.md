@@ -1,5 +1,38 @@
 # Bug tracker
 
+## jvm-bytecode-runtime-tests-ignore-installed-drivers — five CI assertions cancel before comparing
+
+**Status:** OPEN (found 2026-07-17 by `ci-red-main` in Linux run `29545769651`, SHA `893bf2632`,
+job `87777659720`). `JvmBytecodeRuntimeSeparationTest` reports five `CANCELED` cases rather than
+success/failure because it claims compiler-driver jars are not staged.
+
+**Real-harness evidence.** The same job's preceding `Compile and assemble ssc.jar` step runs
+`sbt compile cli/assembly installBin` and explicitly logs `bin/lib/compiler/jars/ (6 JARs incl.
+compiler-driver)`. During `sbt test`, however, all five runtime-separation cases cancel with
+`compiler-driver jars not staged (run sbt cli/stage)`. Reproduce locally with
+`scripts/sbtc "cli/assembly; installBin; cli/testOnly
+scalascript.cli.JvmBytecodeRuntimeSeparationTest"` and compare the test's path detection with the
+installed launcher/library tree. A cancellation is not a green comparison.
+
+**Expected/fix plan.** Make the suite consume the same staged tools/compiler-driver location that
+the supported `installBin` task creates (prefer the real installed launcher contract over a fat-jar
+proxy). Keep capability union, unchanged-runtime timestamp, link, and standalone-runtime assertions
+intact. Missing staging may cancel for an ad-hoc developer invocation, but after `installBin` all
+five cases must execute and report their real stdout/stderr/exit mismatch instead of pre-judging.
+Source inspection found the next hidden platform skip before implementing: the final test locates
+Scala libraries only under macOS `~/Library/Caches/Coursier`, whereas GitHub uses Linux cache paths.
+Use code-source locations already loaded by the test JVM for Scala 3 and 2.13 libraries; do not
+replace one guessed cache path with another.
+
+**Next layer exposed by the faithful run.** After routing through staged `ssc-tools` and resolving
+Scala libraries from the test JVM, all five cases execute and all five fail. Four use `ujson.read`
+directly on current `.scjvm` / `.scjvm-runtime` files and abort at byte zero because those artifacts
+are now binary, not JSON. The link/run case reaches its size assertion and measures 762,184 bytes
+against a stale `<400,000` bound. The fix must use the canonical production artifact decoder and
+compare the real runtime-separation invariant; merely raising the old number would pre-judge the
+result and could preserve duplicated runtime payloads.
+
+
 ## v2-native-jvmvfs-externs-unbound — host-file I/O intrinsics are invisible to the native tier
 
 **Status:** OPEN (found 2026-07-17 by `v2-native-stack-overflow` after the charAt/toLong fixes made
