@@ -15,17 +15,30 @@ façade's conformance is `[int, js]`, so the native lane was never exercised.
 [queryImageParams, …](std/scljet/sql.ssc) → ok
 ```
 
-**Localised so far.** `index.ssc` and `sql.ssc` (5236 lines, incl. everything `jdbc.ssc` imports)
-BOTH parse on the native front — so this is a construct in `jdbc.ssc`'s own 303 lines, not its
-dependencies. `parseDoubleStr` (a suspect, hand-rolled float parse) was extracted and parses fine on
-native, so it is elsewhere. The `_err` sentinel is the native front's parse-failure marker (same
-family as `1832b5b22`'s fail-closed): the front does not crash, it emits a sentinel that the runner
-rejects. Full bisection of the module into the exact construct is native-front-lane work, not the
-JDBC lane's — deferred with this pointer.
+**ROOT CAUSE FOUND (2026-07-18, `native-front-run-gaps`) — a `while` whose condition starts with a
+parenthesised expression is mis-parsed.** Bisected `jdbc.ssc` to `parseDoubleStr` line 14:
+
+```scala
+while (codeAt(s, i) >= 48 && codeAt(s, i) <= 57) && !fdone do   // → parse "_err" on native
+while  codeAt(s, i) >= 48 && codeAt(s, i) <= 57  && !fdone do   // works (no leading paren)
+```
+
+Minimal repro (no scljet at all):
+
+```scala
+var i = 0; var d = false
+while (i >= 0 && i < 3) && !d do        // native: "native frontend rejected … sentinel _err"
+  i = i + 1; if i > 2 then d = true     // v1: fine
+```
+
+So this is a general native-front PARSER bug: `while ( … ) … do` — a parenthesised sub-expression at
+the START of a `while` condition — is not parsed. It just happens to surface first through the JDBC
+façade. Fix belongs in `v2/lib/ssc1-front.ssc0` (the `while`-condition parse). The façade needs no
+change; when the parser is fixed, drop the `[int, js]` scope on `examples/scljet-jdbc.ssc`.
 
 **Impact.** The portable JDBC façade cannot run on `bin/ssc run` (the default command); it works on
 `int`/`js` (6/6 conformance) and via the JVM shim (56/56). `examples/scljet-jdbc.ssc` is therefore
-scoped `backends: [int, js]`.
+scoped `backends: [int, js]` until the parser fix lands.
 
 
 ## scljet-update-ipk-column-silently-ignored — `UPDATE t SET <ipk> = …` does nothing, and reports success
@@ -1598,9 +1611,20 @@ form working, and moves `std/agent.ssc`'s first parse failure to the `try`/`catc
 the second thing that stops `std/agent.ssc` (`postChatCompletionsOnce`, a braceless
 `try … catch case e: Throwable => …`) from parsing on the native lane.
 
-**Symptom.** Three spellings, three *different* native-lane failures; **all three work on v1**:
+**Re-verified 2026-07-18 (`native-front-run-gaps`): PARTIALLY fixed — one form remains.**
 
-| form | native lane |
+| form | native lane, 2026-07-18 |
+|---|---|
+| `try { … } catch { case e: Throwable => … }` (braced) | **works** (== v1) |
+| `try body finally body` (single line) | **works** (== v1) |
+| braceless MULTILINE `try` NL body NL `catch case e: Throwable =>` NL body | **STILL BROKEN** — `native frontend rejected … sentinel _err` |
+
+So the surviving gap is narrow: a **braceless, multiline** `try`/`catch`. The single-line braceless
+form and the braced form now parse. Original (2026-07-16) three-form symptom kept below for history.
+
+Original symptom (2026-07-16) — three spellings, three *different* native-lane failures:
+
+| form | native lane (2026-07-16) |
 |---|---|
 | `try { … } catch { case e: Throwable => … }` | `ssc: unbound global: try` |
 | braceless `try` NL body NL `catch case e: Throwable =>` NL body | `native frontend rejected incomplete parse … sentinel _err` |
