@@ -260,6 +260,25 @@ d flt_half   'def main(): Double = 0.5'
 d flt_mul    'def main(): Double = 2.0 * 3.14'
 d flt_int_mix 'def main(): Double = 1.5 + 2'
 d flt_tenpt0 'def main(): Double = 10.0'
+d bl_int     'def f(n: Int): Int = n match
+  case 0 => 1
+  case _ => 2
+def main(): Int = f(0)'
+d bl_ctor    'def f(xs: List[Int]): Int = xs match
+  case Cons(h, t) => h
+  case Nil => 0
+def main(): Int = f(Nil)'
+d bl_wild    'def f(xs: List[Int]): Int = xs match
+  case Cons(_, _) => 1
+  case _ => 0
+def main(): Int = f(Nil)'
+d bl_then_def 'def f(n: Int): Int = n match
+  case 0 => 1
+  case _ => 2
+def g(n: Int): Int = n + 1
+def main(): Int = f(0) + g(0)'
+d bl_braced_still 'def f(n: Int): Int = n match { case 0 => 1 case _ => 2 }
+def main(): Int = f(0)'
 
 if [ "${1:-}" = "--self" ]; then
   echo "--- X1: F compiles its OWN source ---"
