@@ -1209,8 +1209,17 @@ def parseBlock = (toks) =>
       -- while (cond) body
       let ts3 = advance(ts2) in
       let rCond = if kindIs("(", ts3) then
+        -- A leading `(` is ambiguous: it may wrap the WHOLE condition (C-style
+        -- `while (cond) { body }` or `while (cond) do body`), or be just a sub-expression
+        -- (`while (a && b) && c do`). Tell them apart by what follows the matching `)`:
+        -- `{` or `do` ⇒ the parens were the whole condition; anything else ⇒ the condition
+        -- continues, so parse it in full (parseExpr handles the paren as a primary and stops
+        -- at `do`, exactly like the no-paren branch below).
         let r = parseExpr(advance(ts3)) in
-        pr(prV(r), skipKind(")", prT(r)))
+        let afterParen = skipKind(")", prT(r)) in
+        if kindIs("{", afterParen) then pr(prV(r), afterParen)
+        else if kwIs("do", afterParen) then pr(prV(r), afterParen)
+        else parseExpr(ts3)
       else parseExpr(ts3) in
       let cond = prV(rCond) in
       let ts4 = if kwIs("do", prT(rCond)) then advance(prT(rCond)) else prT(rCond) in  -- K62.6c: skip `do`
@@ -2554,8 +2563,15 @@ def parseOneStmt = (toks) =>
       -- K62.19: document-level while reuses the block statement shape.
       let ts1 = advance(toks) in
       let rCond = if kindIs("(", ts1) then
+        -- A leading `(` may wrap the WHOLE condition (`while (cond) { body }`) or be just a
+        -- sub-expression (`while (a && b) && c do`). `{`/`do` after the matching `)` ⇒ whole
+        -- condition; anything else ⇒ the condition continues, so parse it in full. (Mirrors the
+        -- block-level `while` parse above.)
         let r = parseExpr(advance(ts1)) in
-        pr(prV(r), skipKind(")", prT(r)))
+        let afterParen = skipKind(")", prT(r)) in
+        if kindIs("{", afterParen) then pr(prV(r), afterParen)
+        else if kwIs("do", afterParen) then pr(prV(r), afterParen)
+        else parseExpr(ts1)
       else parseExpr(ts1) in
       let ts2 = if kwIs("do", prT(rCond)) then advance(prT(rCond)) else prT(rCond) in
       let rBody = if kindIs("{", ts2) then parseBlock(advance(ts2))

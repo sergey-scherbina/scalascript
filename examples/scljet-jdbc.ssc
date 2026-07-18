@@ -2,7 +2,6 @@
 ---
 name: scljet-jdbc
 description: Drive a SclJet database through the portable JDBC-shaped façade — Connection, CRUD, ? parameters, a transaction, and ResultSet metadata
-backends: [int, js]
 ---
 
 # SclJet JDBC façade
@@ -10,8 +9,8 @@ backends: [int, js]
 The `scljet/jdbc.ssc` façade presents the engine through the method names a JDBC caller already
 knows — `Connection` / execute / `ResultSet` — without a real `java.sql.*` (that is the JVM shim's
 job). It returns ScalaScript-native values and binds `?` parameters at the token level, so bound
-text and blobs can never break out of the SQL. Runs on the interpreter and JS backends (the
-engine's `[int, js]` lanes).
+text and blobs can never break out of the SQL. Runs on every backend, including the default
+`ssc run`.
 
 [ByteSlice, SqliteValue, SqlInteger, SqlText, SqlReal, buildTableDatabase](std/scljet/index.ssc)
 [JdbcConnection, JdbcResultSet, jdbcOpen, jdbcExecuteUpdate, jdbcExecuteUpdateParams, jdbcExecuteQuery, jdbcExecuteQueryParams, jdbcSetAutoCommit, jdbcCommit, jdbcRollback, rsNext, rsHasRow, rsGetLong, rsGetString, rsGetLongByLabel, rsColumnCount, rsColumnLabel](std/scljet/jdbc.ssc)

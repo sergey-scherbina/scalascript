@@ -33,7 +33,10 @@ favour of the real top-level-statement slice.
 
 ## v2-native-front-rejects-jdbc-facade — `scljet/jdbc.ssc` fails to parse on the native front
 
-**Status:** OPEN (found 2026-07-17 by `scljet-jdbc-durability` while writing the missing
+**Status:** **FIXED (2026-07-18, `native-front-run-gaps`)** — the root cause was the `while (paren) do`
+parse bug below; fixing the `while`-condition parse in `ssc1-front.ssc0` unblocked the whole façade.
+`examples/scljet-jdbc.ssc` now runs on `bin/ssc run` byte-identical to v1, and its `[int, js]` scope
+was dropped. Original triage kept below. Found 2026-07-17 by `scljet-jdbc-durability` while writing the missing
 `examples/scljet-jdbc.ssc`). **v2 native front**, not the façade or the engine. Pre-existing: the
 façade's conformance is `[int, js]`, so the native lane was never exercised.
 
