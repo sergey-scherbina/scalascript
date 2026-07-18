@@ -201,7 +201,7 @@ def emitMatch(scrut, arms, dflt) = "(let (" ++ scrut ++ ") (match (local 0) (" +
 def parseArms(ts, menv, cx) = if isTok(hd(ts), 2, 6) then parseArm(tl(ts), menv, cx) else (("", ""), tl(ts))
 def parseArm(ts, menv, cx) = if isWild(hd(ts)) then parseWildArm(tl(ts), menv, cx) else (if fst(hd(ts)) == 3 then parseCtorArm(ts, menv, cx) else (if isTok(hd(ts), 2, 21) then parseTupArm(ts, menv, cx) else parseConsArm(ts, menv, cx)))
 def parseWildArm(ts, menv, cx) = parseExpr(tl(ts), 0, menv, cx) match { case (b, r) => (("", " (default " ++ b ++ ")"), tl(r)) }
-def parsePatVars(ts, vs) = if isTok(hd(ts), 2, 22) then (vs, tl(ts)) else (if isTok(hd(ts), 2, 27) then parsePatVars(tl(ts), vs) else parsePatVars(tl(ts), snd(hd(ts)) :: vs))
+def parsePatVars(ts, vs) = if isEmpty(ts) then (vs, ts) else (if isTok(hd(ts), 2, 22) then (vs, tl(ts)) else (if isTok(hd(ts), 2, 27) then parsePatVars(tl(ts), vs) else parsePatVars(tl(ts), snd(hd(ts)) :: vs)))
 def parseCtorArm(ts, menv, cx) = parseCtorArm1(snd(hd(ts)), tl(ts), menv, cx)
 def parseCtorArm1(nm, ts, menv, cx) = if isTok(hd(ts), 2, 21) then parseCtorArm2(nm, tl(ts), menv, cx) else parseArmBody(nm, 0, Nil, ts, menv, cx)
 def parseCtorArm2(nm, ts, menv, cx) = parsePatVars(ts, Nil) match { case (vs, r) => parseArmBody(nm, dlen(vs), vs, r, menv, cx) }
@@ -233,7 +233,11 @@ def parseParam(ts, env) = parseParamSkip(tl(ts), snd(hd(ts)) :: env)
 def parseParamSkip(ts, env) = parseParamSkipD(ts, env, 0)
 def isOpenD(t) = if isTok(t, 2, 21) then true else isTok(t, 2, 50)
 def isCloseD(t) = isTok(t, 2, 51)
-def parseParamSkipD(ts, env, d) = if isOpenD(hd(ts)) then parseParamSkipD(tl(ts), env, d + 1) else (if isCloseD(hd(ts)) then parseParamSkipD(tl(ts), env, d - 1) else (if isTok(hd(ts), 2, 22) then parseParamClose(ts, env, d) else (if isTok(hd(ts), 2, 27) then parseParamComma(ts, env, d) else parseParamSkipD(tl(ts), env, d))))
+// TERMINATION GUARD: without `isEmpty` this recurses on `tl(Nil)` = Nil forever when the token
+// stream runs out before a `)` (e.g. top-level `val a = 10` mis-parsed as a def header runs off the
+// end). Guard never fires for valid subset input (every param list is closed), so F's self-output is
+// byte-unchanged apart from this def's own added lowering. BUGS `p65-fsub-toplevel-val-infinite-loop`.
+def parseParamSkipD(ts, env, d) = if isEmpty(ts) then (env, ts) else (if isOpenD(hd(ts)) then parseParamSkipD(tl(ts), env, d + 1) else (if isCloseD(hd(ts)) then parseParamSkipD(tl(ts), env, d - 1) else (if isTok(hd(ts), 2, 22) then parseParamClose(ts, env, d) else (if isTok(hd(ts), 2, 27) then parseParamComma(ts, env, d) else parseParamSkipD(tl(ts), env, d)))))
 def parseParamClose(ts, env, d) = if d == 0 then (env, tl(ts)) else parseParamSkipD(tl(ts), env, d - 1)
 def parseParamComma(ts, env, d) = if d == 0 then parseParams(tl(ts), env) else parseParamSkipD(tl(ts), env, d)
 def skipToEq(ts) = if isEmpty(ts) then Nil else (if isTok(hd(ts), 2, 20) then tl(ts) else skipToEq(tl(ts)))
@@ -272,7 +276,7 @@ def collectField1(nm, ts, acc) = typeText(ts, 0, "") match { case (ty, r) => col
 def collectFieldEnd(nm, ty, ts, acc) = if isTok(hd(ts), 2, 27) then collectFields(tl(ts), Cons((nm, ty), acc)) else ((revL(Cons((nm, ty), acc))), tl(ts))
 // Capture the type's SOURCE TEXT by concatenating token lexemes -- no separator, which reproduces
 // the reference's whitespace-stripped rendering exactly. Stops at `,` or `)` at depth 0.
-def typeText(ts, d, acc) = if isTypeEnd(hd(ts), d) then (acc, ts) else typeText(tl(ts), typeDepth(hd(ts), d), acc ++ tokStr(hd(ts)))
+def typeText(ts, d, acc) = if isEmpty(ts) then (acc, ts) else (if isTypeEnd(hd(ts), d) then (acc, ts) else typeText(tl(ts), typeDepth(hd(ts), d), acc ++ tokStr(hd(ts))))
 def isTypeEnd(t, d) = if d > 0 then false else (if isTok(t, 2, 27) then true else isTok(t, 2, 22))
 def typeDepth(t, d) = if isOpenD(t) then d + 1 else (if isCloseD(t) then d - 1 else (if isTok(t, 2, 22) then d - 1 else d))
 def revL(xs) = revL2(xs, Nil)
