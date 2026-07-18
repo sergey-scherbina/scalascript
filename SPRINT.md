@@ -27,7 +27,59 @@ self-sufficient, NOT by changing v1.
   `Runtime.scala` alone **4754**. The "kernel minimal, +0 growth" invariant needs re-examination.
 - **Ideal / one clean path — ⚠️ TWO fronts.** newfront (breadth: reproduce `ssc1-front` on the
   corpus, 486/499 single-file, 43/216 multi-file) AND P6.5 (depth: subset compiler self-hosting).
-  Both anchor on the same oracle `ssc1-front`, which itself lives in v1's tree.
+
+> **CORRECTION 2026-07-18 (verified by the coordinator): the oracle is NOT in v1.** `ssc1-front.ssc0`
+> + `ssc1-lower.ssc0` live ONLY in `v2/lib/` (`find v1 -name 'ssc1-*'` = nothing); they ARE v2's
+> current production native front and `RunNativeV2` explicitly disclaims scalameta/v1. "ssc1" = the
+> *language* v1.0, not the `v1/` directory. So the front is already independent of the `v1/` tree;
+> convergence is entirely inside v2. Full evidence: `specs/v2-front-convergence-2026-07-18.md`.
+
+> **✅ DECISION 2026-07-18 (Sergiy): OPTION A — P6.5 architecture is the canonical v2 front, and the
+> front OWNS ITS LOWERER.** The canonical front is the subset-written compiler with its own
+> lexer+parser+lowerer that compiles its own source (fixpoint), reproducing `ssc1-lower` IN THE SUBSET
+> rather than keeping the 5665-line `ssc1-lower.ssc0` alive forever. **newfront** does not become the
+> product: it folds in as the real-corpus **acceptance gate + oracle** (its 2447-line Scala spike stays
+> a test oracle, is NOT shipped). Rationale: only owning the lowerer satisfies all four words —
+> *fully self-hosted + small* — which is exactly the stated vision; keeping `ssc1-lower` is a permanent
+> half-self-hosted state. Tradeoff accepted: slower to first-full-corpus-green (must reproduce
+> `ssc1-lower`'s lowering in the subset — the work newfront skipped).
+
+**Reconciled state (both audits landed 2026-07-18; `specs/v2-state-2026-07-18.md` +
+`specs/v2-front-convergence-2026-07-18.md`; coordinator re-verified the load-bearing gates):**
+- **Powerful:** native + JVM-bytecode = FULL parity. v2-JS (`run-js --v2`) = PARTIAL (crashes on
+  `List.foldLeft`, `Map` access, `effect.perform.oneshot`). Tower Rust/WASM = Int/ADT/match/HOF/TCO
+  correct but **BigInt silently dropped**. Swift = emit-only, execution unverified.
+- **Small:** minimal-kernel target ≈ **2,400–2,800 lines (~40–45% of 6,355)** once `PortableEffects`
+  (221, breaches "no effects in kernel"), `Emit` (292, breaches "no backend baked in"), `NativeUiSites`
+  (127, not even used by the kernel pipeline), `PortableDecimal` (171), `FastCode`/`SelfRec*` (962,
+  perf), interop glue (95), and the FrontendBridge dispatch prims (~1200 in the ~1328-line δ table)
+  move to the tower. Self-hosting needs only **23 δ primitives**; the tower uses **66**.
+- **Health:** `v2/conformance/check.sh` is actually **RED** (exit 1 — the ROADMAP's "green" was a
+  `tail`-masked exit code): `ssc0c uselib.ssc0 ir differs` + `StackOverflowError` in
+  `Compiler.compileEffectAwareApplication` (= K62.3 unbounded-depth, surfacing on the default JVM
+  stack; `bin/ssc` uses `-Xss64m`). Distinct from the CI "Conformance Suite" `tests/conformance/run.sh`
+  = 286/0, which is genuinely green.
+
+**Sequenced plan under Decision A** (breadth already runs via the P6.5/newfront agents):
+- [ ] **F1 — trustworthy acceptance gate first.** `specs/newfront-diff.sh` is bit-rotted: run from
+      `$ROOT/uniml` it produces 0 projections, reports MATCH 0, exits 0 (silent-green; the moved
+      `ScalaSpikeSpec` in `test-jvm` isn't wired). Fix so the P6.5-vs-corpus acceptance measurement is
+      real before we steer by it.
+- [ ] **F2 — P6.5 OWNS THE LOWERER.** Reproduce `ssc1-lower`'s lowering in the subset (today P6.5
+      hardcodes the 7258-byte prelude as a string and reuses `ssc1-lower`'s shape). This is the core of
+      Decision A and the long pole. Keep the X1 `--self` fixpoint green on every slice.
+- [ ] **F3 — P6.5 breadth to the full corpus** (given/summon, enums, extensions, for-comprehensions,
+      var/while, interpolation, prelude selectors). Already in progress; now measured against the fixed
+      acceptance gate (F1), not micro-programs.
+- [ ] **F4 — retire the second front.** Once P6.5 covers the corpus + owns its lowerer, demote the
+      newfront Scala spike to test-oracle only; retire the `ssc1-front`/`ssc1-lower` ssc0 files.
+- [ ] **F5 (parallel, lower priority) — "small": kernel/tower boundary.** Relocate the accreted
+      candidates above to the tower per R4; target ~2,400–2,800 kernel lines. Analysis in
+      `specs/v2-state-2026-07-18.md` §R4; no extraction started.
+- [ ] **F6 (parallel) — "powerful": backend gaps.** v2-JS `foldLeft`/`Map`/effects; Rust/WASM BigInt.
+- [ ] **F7 — green the v2 internal gate.** `v2/conformance/check.sh`: the K62.3 unbounded-compile-depth
+      (give the tower compiler an iterative path or a bounded-stack guard) + the `ssc0c uselib` IR
+      divergence.
 
 The path to ideal/small/powerful is: **(1) establish truth (reconcile the stale ROADMAP), (2) converge
 the two fronts into one, (3) redraw the kernel/tower boundary so "small" is real.** Breadth (cover the
