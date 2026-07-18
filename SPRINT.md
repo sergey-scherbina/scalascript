@@ -116,6 +116,26 @@ Kernel untouched (no `v2/src/*` edits). Next slices (highest impact first): (1) 
 (fixes the loop + unblocks most of the corpus — the big one), then prelude selectors `.trim`/`.mkString`/
 `.split`, `var`/`while`, string interpolation, enums, given/summon.
 
+**NEXT-SLICE PRIORITY MAP (measured 2026-07-18 from the 470 DIFF refs at first divergence — so the next
+session picks by impact, not guess). KEY CORRECTION: method calls on a PARAM/LOCAL receiver are ALREADY
+correct in F (`__method__`/`__method0__`, byte-identical) — the `_sel_<m>` path is ONLY for known
+list-VARIABLE receivers (a list-var-registry feature, `ssc1-lower.ssc0`:246/1509). So "prelude selectors"
+is NOT the cheap win the impact list implied. Near-misses each need SEVERAL features, so no single slice
+yields a big jump. Buckets by first-divergence construct:**
+- **sealed traits / enums (~23 "match on user ctor/enum" + sealed-trait decls):** `sealed trait Shape` +
+  `case class C(..) extends Shape` + BRACELESS `match` (`s match\n case C(_) => ..`, no `{}`). Highest
+  fundamental value; needs: `sealed trait`/`extends` handling, braceless-match parse, enum `case` forms.
+- **braceless match** (Scala-3 `match`/`case` without `{}`) — appears widely; likely a prerequisite for
+  the sealed-traits cluster and others.
+- **list-var registry `_sel_<m>`** (~15 direct, more downstream): a top-level val/var whose value is a
+  list → its `.map/.mkString/.filter/...` lowers to `(app (global _sel_<m>) recv ..)` not `__method__`.
+  Reproduce `ssc1-lower` selMethodOr + listVarsCell (map/mkString/foldLeft/take/sum have special routing).
+- **actors (~29 runActors)**, **scljet sql chains (~48: queryImage/executeMutation .apply)**,
+  **derives/codecs (~17 __derived_*Codec)** — large feature clusters, lower priority.
+- **DONE this session:** float literals (`(lit (float ..))`, `2d63fc63e`) — correct + reusable but flips
+  no whole program alone (its cluster = spark-*, still needs sealed traits + math.Pi + braceless match).
+- **var/while, string interpolation, given/summon** — still out; measure after the above.
+
 **TOP-LEVEL STATEMENTS — DONE (2026-07-18, `v2-p65-canonical`). Corpus MATCH 1/504 → 34/504 (6%).**
 Slice A (loop fix, `07522696f`): TIMEOUT 388→0. Slices B+C landed together (`253f68231`, shared walk):
 top-level `val`→cell (def/set/get + collectTopVals pre-pass for forward refs) + top-level exprs→entry

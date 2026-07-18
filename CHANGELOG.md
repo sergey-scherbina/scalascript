@@ -18,6 +18,13 @@
   79,667 → 80,167 B**, byte-identical.
 - **Found:** `p65-fsub-toplevel-val-infinite-loop` (BUGS.md) — F loops on a top-level `val`; the #1
   breadth blocker (388/504 corpus timeouts).
+- **Loop FIXED** (`07522696f`): EOF guards on parseParamSkipD/typeText/parsePatVars → corpus TIMEOUT
+  388 → 0; every program terminates. --self 93 ok, fixpoint 80,383 B.
+- **TOP-LEVEL STATEMENTS** (`253f68231`): top-level `val`→global cell (def/cell.set/cell.get +
+  collectTopVals pre-pass for forward refs) and top-level exprs→entry seq in doc order, reproducing
+  ssc1-lower. **Corpus MATCH 1 → 34/504 (6%)**; --self 101 ok, fixpoint 86,497 B.
+- **Float literals** (`2d63fc63e`): `(lit (float <verbatim>))`; --self 107 ok, fixpoint 87,612 B.
+  MATCH 34 unchanged (correct prerequisite for the spark/float cluster).
 
 ## 2026-07-18 — v2-finish R1/R2/R4: audit — reconcile the stale ROADMAP with measured reality
 
