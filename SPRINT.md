@@ -33,21 +33,18 @@ The path to ideal/small/powerful is: **(1) establish truth (reconcile the stale 
 the two fronts into one, (3) redraw the kernel/tower boundary so "small" is real.** Breadth (cover the
 whole language) runs in parallel (P6.5/newfront agents).
 
-- [ ] **R1 — reconcile `v2/ROADMAP.md` with reality (truth first).** It was last touched 2026-07-09
-      (9 days stale); since then X1 fixpoint, case classes, int-width, codec H4/H5, Swift port all
-      landed. Go through K0→K62 item by item and **verify each `[x]`/`[ ]` against reality by RUNNING
-      its gate or reading the code — never by trusting the checkbox.** Two claims already known false:
-      "~4 files under src/" (it's 9/6355) and the K3 "JS backend TCO-correct + covered by conformance"
-      (measured: `run-js --v2` lacks `List.foldLeft`, and the v2-JS conformance lane is opt-in
-      `also-codegen: v2` + known-red, NOT held to parity). Produce a corrected ROADMAP + a short
-      "claim vs measured" delta list. Discipline: this whole task exists because status ≠ truth on this
-      project (today a RED test blamed a working lock; a GREEN conformance hid a missing `foldLeft`).
-- [ ] **R2 — v2 backend capability matrix (empirical).** For each v2 backend — native (`bin/ssc run`),
-      JVM-bytecode (`run --bytecode`), JS (`run-js --v2`), Rust (`ssc0-rust`/mira-rust), WASM
-      (`ssc0-wasm`), Swift — run the SAME representative feature matrix (enum/match, `List` combinators
-      incl. `foldLeft`/`reduce`, `Map`/`Set`, string ops, effects/handlers, actors/async, closures/HOF,
-      big-int literals). Record the ACTUAL output per cell (works / wrong / missing-method / crash), not
-      a guess. Output a table. This is where "powerful" gets its honest per-target score.
+- [x] **R1 — DONE (2026-07-18).** Corrected `v2/ROADMAP.md` in place + full delta in
+      `specs/v2-state-2026-07-18.md` §1–2. Biggest deltas: "~4 files"→9/6355; `check.sh` **exits 1**
+      (uselib ir-differs + K62.3 SO); K3 JS **overstated** (run-js --v2 crashes foldLeft/Map/effects);
+      `coreir.decode` now done; whole post-07-09 P6.x arc missing from the roadmap. Fixpoints re-verified
+      (P6.5 79,667 B, P6.6 32,824 B).
+- [x] **R2 — DONE (2026-07-18).** Empirical backend matrix in `specs/v2-state-2026-07-18.md` §3.
+      native + JVM-bytecode = **full parity** (all cells ✓, byte-identical). **v2-JS (`run-js --v2`)
+      partial:** enum/HOF/string/interp/big-int ✓, but `List.foldLeft` crashes (`no dispatch`), `Map`
+      access crashes (`not callable: <map>`), effects crash (`unimplemented effect.perform.oneshot`).
+      **Tower Rust/WASM** (ssc0 surface): Int/ADT/match/HOF/**TCO** ✓, but **BigInt silently dropped**
+      (`bigfact`→empty, emits `V::U`) and async hits the K62.3 overflow. Swift = **emit-only** SwiftPM
+      package (execution unverified). `mira-rust` executes; `v2/mira` only type-checks.
 - [x] **R3 — front-convergence decision brief (for Sergiy). ✓ DONE 2026-07-18.** Brief:
       `specs/v2-front-convergence-2026-07-18.md`. Both headline numbers reproduced from a clean build:
       P6.5 `--self` = **89 ok / 0 FAIL, X1 fixpoint stage1==stage2 = 79,667 B**; newfront single-file =
@@ -66,12 +63,14 @@ whole language) runs in parallel (P6.5/newfront agents).
       runs sbt from `$ROOT/uniml` where the moved `ScalaSpikeSpec` (test-jvm, commit `d7256b534`) isn't
       wired, so it reports MATCH 0 and **exits 0** (silent-green failure); run the sbt step from the repo
       root. Flagged for the newfront owner, not fixed (stay-in-lane).
-- [ ] **R4 — kernel/tower boundary analysis ("small").** Break down the 6355 `v2/src` lines: what is
-      genuinely irreducible kernel (CoreIR reader/writer, the VM/trampoline, ssc0 front, δ primitives)
-      vs what accreted and could be a program on the tower (`PortableEffects`, `PortableDecimal`,
-      `NativeUiSites`, `Emit`, plugin-bridge glue). Propose the minimal-kernel target with a rough line
-      count, flagging anything whose removal would break the +0-kernel-growth invariant. Analysis only;
-      no refactor yet.
+- [x] **R4 — DONE (2026-07-18).** Kernel/tower breakdown in `specs/v2-state-2026-07-18.md` §4.
+      Irreducible kernel = `CoreIR`+`Ssc0`+`Main`+Value/trampoline+`Runtime` driver+lean `Compiler`+
+      minimal δ (fixpoint uses **23** prims, tower **66**)+Ir codec+`Show`. **Accreted:** `Emit` (292,
+      JVM-backend surface), `PortableEffects` (221, effect driver — breaks "no continuations"),
+      `PortableDecimal` (171), `NativeUiSites` (127, **unused by the kernel's own pipeline**),
+      `FastCode`+`SelfRec*` (962, perf), `V2PluginRegistry`/`V2EffectContext` (95, interop glue), and
+      ~1200 lines of FrontendBridge/method-dispatch δ prims. **Minimal-kernel target ≈ 2,400–2,800 lines
+      (~40–45 % of 6,355).** Invariant flags on effects/backend/UI documented. Analysis only, nothing moved.
 
 ## scljet-xprocess-lock — DONE (2026-07-18) — it was a TEST bug, the lock interop is correct
 

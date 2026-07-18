@@ -1,5 +1,31 @@
 # Changelog
 
+## 2026-07-18 — v2-finish R1/R2/R4: audit — reconcile the stale ROADMAP with measured reality
+
+`v2-roadmap-reconcile` (R1/R2/R4). Audit only — no kernel/behavior change. Full evidence + exact
+commands: `specs/v2-state-2026-07-18.md`; `v2/ROADMAP.md` corrected in place with `⚠️` markers.
+
+- **Fixpoints re-verified GREEN** from a clean build: P6.5 X1 `stage1==stage2` byte-identical at
+  **79,667 B**; P6.6 `C_min` **32,824 B**.
+- **R1 deltas (claim ≠ reality):** "~4 source files under src/" → actually **9 files / 6355 lines**
+  (`Runtime.scala` 4754). **`v2/conformance/check.sh` exits 1 on HEAD** (639 ok / 3 fail:
+  `ssc0c uselib.ssc0` multi-file IR-differs, + 2× `StackOverflowError` in
+  `Compiler.compileEffectAwareApplication` = the known-open K62.3 / `coreir-compiler-unbounded-depth`
+  at check.sh's default-stack helper) — the ROADMAP claimed it green. K3 "JS backend TCO-correct +
+  covered by conformance" **overstated**. `coreir.decode` is done (roadmap said "still open"). The
+  entire post-07-09 P6.0→P6.18 self-host arc + case classes + int-width + codec H4/H5 + Swift port are
+  **absent** from the roadmap.
+- **R2 backend matrix (measured):** native + JVM-bytecode = **full parity** (byte-identical). **v2-JS
+  (`run-js --v2`) partial** — crashes on `List.foldLeft` (`no dispatch`), `Map` access
+  (`not callable: <map>`), effects (`unimplemented effect.perform.oneshot`); big-ints OK. **Tower
+  Rust/WASM** (ssc0 surface) run Int/ADT/match/HOF/TCO correctly but **silently drop BigInt**
+  (`bigfact`→empty) and can't build async (K62.3 overflow). Swift = emit-only SwiftPM package.
+- **R4 kernel/tower:** self-host fixpoint needs **23** δ prims, the whole tower **66**; the kernel's
+  δ table is ~1328 lines. Minimal-kernel target ≈ **2,400–2,800 lines (~40–45 %** of 6,355) once
+  `Emit` (JVM-backend surface), `PortableEffects` (effect driver — breaks "no continuations"),
+  `PortableDecimal`, `NativeUiSites` (unused by the kernel's own pipeline), the perf layers, and the
+  FrontendBridge/method-dispatch prims move off the kernel. Analysis only — nothing moved.
+
 ## 2026-07-18 — scljet cross-process host lock: the official SQLite driver genuinely waits (test fix)
 
 `scljet-xprocess-lock` — closed the last `SclJetJvmVfsHostTest` failure ("exclusive host lock blocks
