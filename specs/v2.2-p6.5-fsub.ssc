@@ -42,7 +42,13 @@ def lexAmp(s, i, n) = if s.charAt(i + 1) == 38 then Cons((2, 46), lex(s, i + 2, 
 def lexPipe(s, i, n) = if s.charAt(i + 1) == 124 then Cons((2, 47), lex(s, i + 2, n)) else lex(s, i + 1, n)
 def lexWord(s, i, n, j) = lexWord2(s, i, n, j, s.substring(i, j))
 def lexWord2(s, i, n, j, w) = if kwCode(w) > 0 then Cons((2, kwCode(w)), lex(s, j, n)) else (if isUp(s.charAt(i)) then Cons((3, w), lex(s, j, n)) else Cons((1, w), lex(s, j, n)))
-def lexNum(s, i, n) = Cons((0, scanNumV(s, i, n, 0)), lex(s, scanNumE(s, i, n), n))
+// A run of digits is an Int (kind 0) UNLESS a `.` followed by another digit follows -- then it is a
+// float LITERAL captured as VERBATIM SOURCE TEXT (kind 5), which `ssc1-lower` emits `(lit (float 1.0))`
+// preserving `1.0`/`0.5`/`10.0` exactly. `5.toDouble` stays Int (the char after `.` is not a digit).
+def isFloatDot(s, e, n) = if atEnd(e, n) then false else (if s.charAt(e) == 46 then (if atEnd(e + 1, n) then false else isDig(s.charAt(e + 1))) else false)
+def lexNum(s, i, n) = lexNum1(s, i, n, scanNumE(s, i, n))
+def lexNum1(s, i, n, e) = if isFloatDot(s, e, n) then lexFloat(s, i, n, scanNumE(s, e + 1, n)) else Cons((0, scanNumV(s, i, n, 0)), lex(s, e, n))
+def lexFloat(s, i, n, fe) = Cons((5, s.substring(i, fe)), lex(s, fe, n))
 def opCode(c) = if c == 40 then 21 else (if c == 41 then 22 else (if c == 45 then 24 else (if c == 42 then 25 else (if c == 44 then 27 else (if c == 46 then 31 else (if c == 123 then 28 else (if c == 125 then 29 else (if c == 91 then 50 else (if c == 93 then 51 else 0)))))))))
 def lexOp1(s, i, n, c) = if opCode(c) == 0 then lex(s, i + 1, n) else Cons((2, opCode(c)), lex(s, i + 1, n))
 
@@ -80,6 +86,7 @@ def isStrExprCode(c, dq) = if isConcatCode(c, dq) then true else isStrLitish(c)
 // operator symbol, not a bare prim. `&&`/`||` desugar to `if`; `!=` negates `__eq__`. All measured.
 def arithSym(k) = if k == 23 then "+" else (if k == 24 then "-" else (if k == 25 then "*" else (if k == 26 then "/" else (if k == 40 then "<" else (if k == 41 then ">" else (if k == 42 then "<=" else ">="))))))
 def emitInt(v) = "(lit (int " ++ v ++ "))"
+def emitFloat(t) = "(lit (float " ++ t ++ "))"
 def emitStr(v, dq) = "(lit (str " ++ dq ++ v ++ dq ++ "))"
 def emitArithS(sym, l, r, dq) = "(prim __arith__ (lit (str " ++ dq ++ sym ++ dq ++ ")) " ++ l ++ " " ++ r ++ ")"
 // KC5-micro (ssc1-lower:2214): `+` upgrades to `++` when either side is a string expression.
@@ -111,7 +118,7 @@ def isTopVal(nm, cx) = memL(nm, valNamesOf(cx))
 // -- parser (precedence climbing over the token stream) ----------------------------------------
 def parseAtom(ts, env, cx) = if isEmpty(ts) then (emitInt(0), Nil) else postfix(parseAtom0(ts, env, cx), env, cx)
 def parseAtom0(ts, env, cx) = parseAtom1(hd(ts), tl(ts), env, cx)
-def parseAtom1(t, rest, env, cx) = if fst(t) == 0 then (emitInt(snd(t)), rest) else (if fst(t) == 4 then (emitStr(snd(t), dqOf(cx)), rest) else (if fst(t) == 3 then parseCtor(snd(t), rest, env, cx) else (if fst(t) == 1 then parseIdent(t, rest, env, cx) else (if isTok(t, 2, 21) then parseParenOrLam(rest, env, cx) else (if isTok(t, 2, 28) then parseBlock(rest, env, cx) else (if isTok(t, 2, 2) then parseIf(rest, env, cx) else (if isTok(t, 2, 8) then ("(lit true)", rest) else (if isTok(t, 2, 9) then ("(lit false)", rest) else (emitInt(0), rest)))))))))
+def parseAtom1(t, rest, env, cx) = if fst(t) == 0 then (emitInt(snd(t)), rest) else (if fst(t) == 5 then (emitFloat(snd(t)), rest) else (if fst(t) == 4 then (emitStr(snd(t), dqOf(cx)), rest) else (if fst(t) == 3 then parseCtor(snd(t), rest, env, cx) else (if fst(t) == 1 then parseIdent(t, rest, env, cx) else (if isTok(t, 2, 21) then parseParenOrLam(rest, env, cx) else (if isTok(t, 2, 28) then parseBlock(rest, env, cx) else (if isTok(t, 2, 2) then parseIf(rest, env, cx) else (if isTok(t, 2, 8) then ("(lit true)", rest) else (if isTok(t, 2, 9) then ("(lit false)", rest) else (emitInt(0), rest))))))))))
 // -- postfix method calls ---------------------------------------------------------------------
 // `.charAt` -> scodeAt and `.substring` -> sslice UNCONDITIONALLY, but `.length` is receiver-
 // dependent: slen for a string-literal-ish receiver, __method__ otherwise -- and a `++` receiver

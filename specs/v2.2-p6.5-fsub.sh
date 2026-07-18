@@ -254,6 +254,12 @@ d tl_val_str 'val s = "hi"
 println(s)'
 d tl_expr_only_multi 'println(1)
 println(2)'
+d flt_lit    'def main(): Double = 1.0'
+d flt_pi     'def main(): Double = 3.14159'
+d flt_half   'def main(): Double = 0.5'
+d flt_mul    'def main(): Double = 2.0 * 3.14'
+d flt_int_mix 'def main(): Double = 1.5 + 2'
+d flt_tenpt0 'def main(): Double = 10.0'
 
 if [ "${1:-}" = "--self" ]; then
   echo "--- X1: F compiles its OWN source ---"
