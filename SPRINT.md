@@ -115,6 +115,24 @@ Tuple-field slice landed & pushed (29eeb29da): 93 ok/0 FAIL, X1 fixpoint 80,167 
 Kernel untouched (no `v2/src/*` edits). Next slices (highest impact first): (1) **top-level statements**
 (fixes the loop + unblocks most of the corpus — the big one), then prelude selectors `.trim`/`.mkString`/
 `.split`, `var`/`while`, string interpolation, enums, given/summon.
+
+**TOP-LEVEL STATEMENTS — sliced plan (2026-07-18, coordinator-directed: the #1 blocker, gate to ALL
+corpus MATCH). Oracle rules read from `v2/lib/ssc1-lower.ssc0` (do NOT edit it — frozen oracle):**
+- **A — fix the infinite loop FIRST.** `parseParamSkipD` recurses on `tl([])` forever when it runs off
+  the token end without a `)` (F mis-parses top-level `val a = 10` as a def header → type-skip → EOF
+  loop). Add an `isEmpty(ts)` termination guard. Never fires for valid subset input (F self-compiles
+  unchanged) → --self green, re-freeze. Makes the gate FAST (TIMEOUT→DIFF); MATCH still 1 until B/C.
+- **B — top-level EXPR statements → entry seq.** A top-level item that is not `def`/`case class`/`val`
+  is an expression: parse it, append to the entry items IN DOCUMENT ORDER (oracle: entry =
+  caseFieldRegs ++ caseMethodRegs ++ topExprs(stmts) ++ mainCall; `ssc1-lower.ssc0`:5648-5665).
+- **C — top-level VAL → cell.** Oracle (`ssc1-lower.ssc0`:4962/4997/2522/5602): (1) hoisted def
+  `(def name__cell (prim cell.new (lit unit)))` in def-order **prelude, topVarCells, topValCells,
+  caseMethodDefs, accDefs(sels), userDefs**; (2) entry item `(prim cell.set (global name__cell) <init>)`
+  in document order; (3) a bare reference to a top-val name → `(prim cell.get (global name__cell))`
+  (thread a top-val-name registry into cx, like ccNames/fldNames). tuple-pattern `val (a,b) = e` and
+  top-level `var` are follow-ons after plain `val`.
+- Each slice: byte-verify vs oracle on micros AND measure real-corpus MATCH via `v2.2-p6.5-corpus.sh`;
+  keep `--self` green, re-freeze fixpoint bytes; push separately. BUGS `p65-fsub-toplevel-val-infinite-loop`.
 - [ ] **F5 (parallel, lower priority) — "small": kernel/tower boundary.** Relocate the accreted
       candidates above to the tower per R4; target ~2,400–2,800 kernel lines. Analysis in
       `specs/v2-state-2026-07-18.md` §R4; no extraction started.
