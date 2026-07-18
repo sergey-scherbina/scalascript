@@ -1,5 +1,58 @@
 # Bug tracker
 
+## native-front-binop-two-double-params — `-`/`*`/`/` on two bare `Double` parameters mis-infers as `Int`
+
+**Status:** OPEN (found 2026-07-18 by this session while writing `examples/thermodynamics.ssc`;
+SHA cd0b4ad..2901619). **v2 native front** type inference. Worked around in the example; the
+frontend bug itself is unfixed.
+
+**Symptom/reproduce** — a binary `-`, `*`, or `/` whose *both* operands are bare `Double` function
+parameters (no `Double` literal/`val` in the *leftmost* operation to anchor the type) fails with
+`TYPEERR: cannot unify Int with non-Int`. `+` is unaffected; anchoring with a literal fixes it:
+
+```
+def f(a: Double, b: Double): Double = a + b       # -> ok
+def f(a: Double, b: Double): Double = a - b       # -> TYPEERR: cannot unify Int with non-Int
+def f(a: Double, b: Double): Double = b / a       # -> TYPEERR
+def f(a: Double, b: Double): Double = a * 1.0 / b # -> ok  (leading literal anchors the chain)
+def f(a: Double, b: Double): Double = math.log(b / a) # -> TYPEERR (inner b/a still param/param)
+```
+
+`val`/`val` and `val`/param division are fine (`V2/V1` over `val`s, `Tc/hot` over a `val` + a lambda
+param both work) — only param/param with no anchor trips it. Left-associativity means the *first*
+operation must carry the anchor: `1.0 - cold / hot` still fails because `cold / hot` is typed first.
+
+**Impact / workaround.** Any pure-arithmetic helper `def` over `Double` params (`carnot`,
+`entropyChange`, …) is affected. Workarounds: (a) anchor the leftmost op with a `Double` literal
+(`1.0 * a / b`), or (b) inline the computation over `val`s / a `val`+loop-var so at least one operand
+is not a bare param. `examples/thermodynamics.ssc` uses (b).
+
+## native-front-capital-value-identifiers — value bindings whose name starts with a capital letter mis-parse as type refs
+
+**Status:** OPEN (found 2026-07-18 by this session while writing `examples/thermodynamics.ssc`;
+SHA cd0b4ad..2901619). **v2 native front** parse/type. Worked around in the example (lower-case value
+identifiers throughout).
+
+**Symptom/reproduce** — a value identifier that starts with a capital letter is treated as a type
+reference in several positions, producing a parse sentinel `_err`, `unbound global`, or
+`cannot unify Tuple with non-Tuple`. A bare top-level `val T = 3.0` alone is fine; it breaks in
+compound positions:
+
+```
+case class State(P: Double, V: Double, n: Double, T: Double): ...  # -> "cannot unify Tuple with non-Tuple"
+case class S(a: Double, T: Double):
+  def sum: Double = a + T                                          # -> "unbound global: T"
+val Tc = 300.0
+def ceiling(Th: Double): Double = pct(1.0 - Tc / Th)               # -> parser sentinel _err
+def ceiling(h: Double):  Double = pct(1.0 - Tc / h)                # -> ok (lower-case param)
+```
+
+Lower-casing the value identifiers (`p`, `v`, `t`, `tHot`, `tCold`) makes every case above compile
+and run. Physics/type symbols stay upper-case only in comments and printed labels.
+
+**Minor companion:** the `f"…"` interpolator does not collapse `%%` to a literal `%` — `f"${x}%.1f%%"`
+prints `25.0%%`. The example builds the percent sign with an `s"…"` string instead.
+
 ## p65-fsub-toplevel-val-infinite-loop — F (P6.5 subset compiler) hangs on a top-level `val`
 
 **Status:** OPEN (found 2026-07-18 by `v2-p65-canonical` while building the F3 real-corpus gate
