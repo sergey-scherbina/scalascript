@@ -1,0 +1,156 @@
+#!/usr/bin/env ssc
+---
+name: thermodynamics
+version: 1.0.0
+description: Classical thermodynamics in .ssc — ideal gas law, first law, processes, entropy, Carnot efficiency
+---
+
+# Thermodynamics
+
+A self-contained tour of classical thermodynamics, written in ScalaScript.
+Everything below is *real* computation — no approximations hidden in prose —
+and runs bit-for-bit identically on every backend (`ssc run`, `--bytecode`,
+JS, WASM).
+
+The physics: a fixed amount of an ideal gas is pushed through a few textbook
+processes, and we watch the state variables, energy, and entropy follow the
+laws.
+
+## The Universal Gas Constant
+
+```scalascript
+// R — the molar gas constant, in J / (mol · K)
+val R = 8.314462618
+```
+
+## The Ideal Gas Law — PV = nRT
+
+A gas state is fully pinned down by three of its four variables; the fourth
+follows from `PV = nRT`. We store pressure `P` (Pa), volume `V` (m³),
+amount `n` (mol) and temperature `T` (K), and provide a smart constructor
+that derives pressure from the other three so a state is always consistent.
+
+```scalascript
+val R = 8.314462618
+
+case class State(P: Double, V: Double, n: Double, T: Double):
+  // Internal energy of a monatomic ideal gas: U = (3/2) n R T  (joules)
+  def internalEnergy: Double = 1.5 * n * R * T
+
+// Build a consistent state from (n, V, T); pressure is forced by the gas law.
+def gas(n: Double, V: Double, T: Double): State =
+  State(P = n * R * T / V, V = V, n = n, T = T)
+
+// 1 mole of gas in 1 litre (0.001 m³) at room temperature (298.15 K)
+val s0 = gas(n = 1.0, V = 0.001, T = 298.15)
+
+println(s"Initial state:")
+println(f"  P = ${s0.P / 1000.0}%.2f kPa")
+println(f"  V = ${s0.V * 1000.0}%.3f L")
+println(f"  T = ${s0.T}%.2f K")
+println(f"  U = ${s0.internalEnergy}%.2f J")
+```
+
+## Thermodynamic Processes
+
+The four canonical reversible processes differ in what they hold fixed.
+For an ideal gas the work done *by* the gas has a closed form in each case.
+
+```scalascript
+val R = 8.314462618
+
+enum Process:
+  case Isothermal   // T constant  — W = nRT ln(V2/V1)
+  case Isobaric     // P constant  — W = P (V2 - V1)
+  case Isochoric    // V constant  — W = 0
+  case Adiabatic    // Q = 0       — no heat exchanged
+```
+
+## The First Law — ΔU = Q − W
+
+Energy is conserved: the heat `Q` added to a gas either raises its internal
+energy `ΔU` or is spent doing work `W` on the surroundings. We compute the
+work for an isothermal and an isobaric expansion of `s0`, then close the
+energy books with the first law.
+
+```scalascript
+val R = 8.314462618
+
+// --- Isothermal expansion: same T, volume doubles ---
+val n  = 1.0
+val T  = 298.15
+val V1 = 0.001
+val V2 = 0.002
+
+// W = nRT ln(V2/V1);  for isothermal ΔU = 0, so Q = W.
+val wIso = n * R * T * math.log(V2 / V1)
+println("Isothermal expansion (V: 1 L -> 2 L, T fixed):")
+println(f"  work done by gas W = ${wIso}%.2f J")
+println(f"  internal energy   dU = 0.00 J   (T unchanged)")
+println(f"  heat absorbed     Q = ${wIso}%.2f J   (first law: Q = dU + W)")
+
+// --- Isobaric expansion: same P, volume doubles, so T doubles too ---
+val P    = n * R * T / V1
+val Tnew = P * V2 / (n * R)                 // gas law at fixed P
+val wIsobar = P * (V2 - V1)                 // W = P dV
+val dU      = 1.5 * n * R * (Tnew - T)      // monatomic: U = (3/2)nRT
+val Q       = dU + wIsobar                  // first law
+println("Isobaric expansion (V: 1 L -> 2 L, P fixed):")
+println(f"  T rises ${T}%.2f K -> ${Tnew}%.2f K")
+println(f"  work  W = ${wIsobar}%.2f J")
+println(f"  dU      = ${dU}%.2f J")
+println(f"  heat  Q = ${Q}%.2f J")
+```
+
+## Entropy — the Second Law's Bookkeeping
+
+Entropy change of an ideal gas between two states combines a volume term and
+a temperature term:
+
+  ΔS = n R ln(V2/V1) + n Cv ln(T2/T1)
+
+For the reversible isothermal expansion above (T constant), only the volume
+term survives — and it is strictly positive: the gas spreads out, entropy
+rises, the arrow of time points forward.
+
+```scalascript
+val R  = 8.314462618
+val n  = 1.0
+val Cv = 1.5 * R          // monatomic ideal gas, Cv = (3/2) R
+
+def entropyChange(V1: Double, V2: Double, T1: Double, T2: Double): Double =
+  n * R * math.log(V2 / V1) + n * Cv * math.log(T2 / T1)
+
+val dS_iso = entropyChange(0.001, 0.002, 298.15, 298.15)
+println(f"Isothermal dS = ${dS_iso}%.4f J/K   (> 0: entropy increases)")
+
+// Free expansion into vacuum: same endpoints, no work, no heat — yet
+// entropy still rises by exactly the same amount, because S is a state
+// function. That irreversibility is the second law in one line.
+println(f"Free expansion dS = ${entropyChange(0.001, 0.002, 298.15, 298.15)}%.4f J/K")
+```
+
+## The Carnot Limit
+
+No heat engine running between a hot reservoir `Th` and a cold one `Tc` can
+beat the Carnot efficiency η = 1 − Tc/Th. Here we sweep a few hot-side
+temperatures against a fixed cold sink and print the ceiling each one buys.
+
+```scalascript
+def carnot(Th: Double, Tc: Double): Double = 1.0 - Tc / Th
+
+val Tc = 300.0   // cold reservoir ~ room temperature (K)
+val hotSides = List(400.0, 500.0, 700.0, 1000.0, 1500.0)
+
+println(s"Carnot efficiency ceiling (cold sink = ${Tc.toInt} K):")
+hotSides.foreach { Th =>
+  val eta = carnot(Th, Tc)
+  println(f"  Th = ${Th.toInt}%4d K  ->  eta_max = ${eta * 100.0}%.1f%%")
+}
+
+// A real engine can only approach, never reach, these numbers — and only a
+// reversible one at that. The gap between this ceiling and reality is where
+// all of engineering thermodynamics lives.
+val best = hotSides.map(carnot(_, Tc)).max
+println(f"Best ceiling in the sweep: ${best * 100.0}%.1f%%")
+```
