@@ -536,6 +536,7 @@ Dataset/MapReduce typed wire calls can select `wireFormat = "msgpack" | "cbor"` 
 | [enums.ssc](examples/enums.ssc) | Simple and parameterised enums, recursive ADTs |
 | [extensions.ssc](examples/extensions.ssc) | Extension methods, for comprehensions, while, recursion |
 | [imports.ssc](examples/imports.ssc) | Math, geometry, statistics |
+| [thermodynamics.ssc](examples/thermodynamics.ssc) | Ideal gas law, first law (ΔU = Q − W), reversible processes, entropy, Carnot efficiency |
 | [multi-link-imports.ssc](examples/multi-link-imports.ssc) | Two std modules imported from one pure Markdown paragraph |
 | [typeclass.ssc](examples/typeclass.ssc) | Show, Eq, Ord, Monoid, Functor via `given`/`summon` |
 | [quoted-macro-interpreter.ssc](examples/quoted-macro-interpreter.ssc) | Restricted quoted macros on the interpreter run path with `Expr.asValue` / `Expr.asTerm` |
