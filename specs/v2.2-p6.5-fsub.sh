@@ -300,6 +300,23 @@ d list_cc    'case class P(x: Int)
 def main(): List[P] = List(P(1), P(2))'
 d list_tl    'val xs = List(1, 2, 3)
 println(xs)'
+d si_mid     'def f(name: String): String = s"Hello, $name!"
+def main(): String = f("x")'
+d si_brace   'def f(name: String): String = s"Hello, ${name}!"
+def main(): String = f("x")'
+d si_single  'def f(a: String): String = s"$a"
+def main(): String = f("q")'
+d si_empty   'def f(a: String): String = s""
+def main(): String = f("q")'
+d si_plain   'def main(): String = s"hello"'
+d si_two     'def f(a: String, b: String): String = s"$a$b"
+def main(): String = f("x", "y")'
+d si_expr    'def f(n: Int): String = s"v=${n + 1}"
+def main(): String = f(5)'
+d si_dotlit  'def f(a: String): String = s"$a.b"
+def main(): String = f("q")'
+d si_tl      'val name = "World"
+println(s"Hi $name")'
 
 if [ "${1:-}" = "--self" ]; then
   echo "--- X1: F compiles its OWN source ---"

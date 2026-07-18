@@ -41,7 +41,12 @@ def lexBang(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 45), lex(s, i + 2,
 def lexAmp(s, i, n) = if s.charAt(i + 1) == 38 then Cons((2, 46), lex(s, i + 2, n)) else lex(s, i + 1, n)
 def lexPipe(s, i, n) = if s.charAt(i + 1) == 124 then Cons((2, 47), lex(s, i + 2, n)) else lex(s, i + 1, n)
 def lexWord(s, i, n, j) = lexWord2(s, i, n, j, s.substring(i, j))
-def lexWord2(s, i, n, j, w) = if kwCode(w) > 0 then Cons((2, kwCode(w)), lex(s, j, n)) else (if isUp(s.charAt(i)) then Cons((3, w), lex(s, j, n)) else Cons((1, w), lex(s, j, n)))
+// `s"..."` string interpolation: the word `s` immediately followed by `"` opens an interp token (kind 6)
+// carrying the RAW content between the quotes; parseInterp splits it into a `++` chain at parse time.
+def isInterpStart(s, j, n, w) = if w == "s" then (if atEnd(j, n) then false else s.charAt(j) == 34) else false
+def lexInterp(s, q, n) = lexInterp1(s, q, n, scanStr(s, q + 1, n))
+def lexInterp1(s, q, n, close) = Cons((6, s.substring(q + 1, close)), lex(s, close + 1, n))
+def lexWord2(s, i, n, j, w) = if kwCode(w) > 0 then Cons((2, kwCode(w)), lex(s, j, n)) else (if isUp(s.charAt(i)) then Cons((3, w), lex(s, j, n)) else (if isInterpStart(s, j, n, w) then lexInterp(s, j, n) else Cons((1, w), lex(s, j, n))))
 // A run of digits is an Int (kind 0) UNLESS a `.` followed by another digit follows -- then it is a
 // float LITERAL captured as VERBATIM SOURCE TEXT (kind 5), which `ssc1-lower` emits `(lit (float 1.0))`
 // preserving `1.0`/`0.5`/`10.0` exactly. `5.toDouble` stays Int (the char after `.` is not a digit).
@@ -118,7 +123,25 @@ def isTopVal(nm, cx) = memL(nm, valNamesOf(cx))
 // -- parser (precedence climbing over the token stream) ----------------------------------------
 def parseAtom(ts, env, cx) = if isEmpty(ts) then (emitInt(0), Nil) else postfix(parseAtom0(ts, env, cx), env, cx)
 def parseAtom0(ts, env, cx) = parseAtom1(hd(ts), tl(ts), env, cx)
-def parseAtom1(t, rest, env, cx) = if fst(t) == 0 then (emitInt(snd(t)), rest) else (if fst(t) == 5 then (emitFloat(snd(t)), rest) else (if fst(t) == 4 then (emitStr(snd(t), dqOf(cx)), rest) else (if fst(t) == 3 then parseCtor(snd(t), rest, env, cx) else (if fst(t) == 1 then parseIdent(t, rest, env, cx) else (if isTok(t, 2, 21) then parseParenOrLam(rest, env, cx) else (if isTok(t, 2, 28) then parseBlock(rest, env, cx) else (if isTok(t, 2, 2) then parseIf(rest, env, cx) else (if isTok(t, 2, 8) then ("(lit true)", rest) else (if isTok(t, 2, 9) then ("(lit false)", rest) else (emitInt(0), rest))))))))))
+def parseAtom1(t, rest, env, cx) = if fst(t) == 0 then (emitInt(snd(t)), rest) else (if fst(t) == 5 then (emitFloat(snd(t)), rest) else (if fst(t) == 6 then (parseInterp(snd(t), env, cx), rest) else (if fst(t) == 4 then (emitStr(snd(t), dqOf(cx)), rest) else (if fst(t) == 3 then parseCtor(snd(t), rest, env, cx) else (if fst(t) == 1 then parseIdent(t, rest, env, cx) else (if isTok(t, 2, 21) then parseParenOrLam(rest, env, cx) else (if isTok(t, 2, 28) then parseBlock(rest, env, cx) else (if isTok(t, 2, 2) then parseIf(rest, env, cx) else (if isTok(t, 2, 8) then ("(lit true)", rest) else (if isTok(t, 2, 9) then ("(lit false)", rest) else (emitInt(0), rest)))))))))))
+// -- string interpolation desugar --------------------------------------------------------------
+// `s"lit $id lit ${expr} .."` -> a right-nested `++` chain of pieces (measured: empty literal chunks are
+// DROPPED; `$id` scans a bare identifier and stops at `.`; `${..}` is a full expr; single piece has no
+// `++`; empty `s""` -> (lit (str ""))). Each expr piece is lex+parseExpr'd with the enclosing env/cx.
+def parseInterp(content, env, cx) = interpChain(interpPieces(content, 0, 0, content.length, env, cx), dqOf(cx))
+def interpPieces(s, i, start, n, env, cx) = if atEnd(i, n) then litPieces(s, start, i, dqOf(cx)) else (if s.charAt(i) == 36 then interpDollar(s, i, start, n, env, cx) else interpPieces(s, i + 1, start, n, env, cx))
+def litPieces(s, start, i, dq) = if i > start then Cons(emitStr(s.substring(start, i), dq), Nil) else Nil
+def interpDollar(s, i, start, n, env, cx) = interpPrepend(s, start, i, interpDollar2(s, i + 1, n, env, cx), dqOf(cx))
+def interpPrepend(s, start, i, more, dq) = if i > start then Cons(emitStr(s.substring(start, i), dq), more) else more
+def interpDollar2(s, k, n, env, cx) = if s.charAt(k) == 123 then interpBrace(s, k + 1, n, env, cx) else interpBare(s, k, n, env, cx)
+def interpBrace(s, k, n, env, cx) = interpBrace1(s, k, findBrace(s, k, n, 1), n, env, cx)
+def interpBrace1(s, k, close, n, env, cx) = Cons(interpExpr(s.substring(k, close), env, cx), interpPieces(s, close + 1, close + 1, n, env, cx))
+def interpBare(s, k, n, env, cx) = interpBare1(s, k, scanId(s, k, n), n, env, cx)
+def interpBare1(s, k, e, n, env, cx) = Cons(interpExpr(s.substring(k, e), env, cx), interpPieces(s, e, e, n, env, cx))
+def interpExpr(src, env, cx) = parseExpr(lex(src, 0, src.length), 0, env, cx) match { case (e, r) => e }
+def findBrace(s, k, n, d) = if atEnd(k, n) then k else (if s.charAt(k) == 125 then (if d == 1 then k else findBrace(s, k + 1, n, d - 1)) else (if s.charAt(k) == 123 then findBrace(s, k + 1, n, d + 1) else findBrace(s, k + 1, n, d)))
+def interpChain(ps, dq) = ps match { case Nil => emitStr("", dq) case h :: t => interpChain2(h, t, dq) }
+def interpChain2(h, t, dq) = t match { case Nil => h case _ => emitArithS("++", h, interpChain(t, dq), dq) }
 // -- postfix method calls ---------------------------------------------------------------------
 // `.charAt` -> scodeAt and `.substring` -> sslice UNCONDITIONALLY, but `.length` is receiver-
 // dependent: slen for a string-literal-ish receiver, __method__ otherwise -- and a `++` receiver
