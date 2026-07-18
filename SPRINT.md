@@ -48,12 +48,24 @@ whole language) runs in parallel (P6.5/newfront agents).
       incl. `foldLeft`/`reduce`, `Map`/`Set`, string ops, effects/handlers, actors/async, closures/HOF,
       big-int literals). Record the ACTUAL output per cell (works / wrong / missing-method / crash), not
       a guess. Output a table. This is where "powerful" gets its honest per-target score.
-- [ ] **R3 — front-convergence decision brief (for Sergiy).** Characterize newfront vs P6.5 precisely:
-      exact scope each covers, where they overlap, which is more advanced toward "compiles all of
-      ScalaScript, self-hosted," what it would cost to converge to ONE, and the oracle question (both
-      lean on `ssc1-front` in v1's tree — how does the canonical v2 front stop depending on a v1
-      artifact?). End with a recommendation + the tradeoffs, so Sergiy chooses with facts. Do NOT
-      converge anything yet — this is analysis for a decision.
+- [x] **R3 — front-convergence decision brief (for Sergiy). ✓ DONE 2026-07-18.** Brief:
+      `specs/v2-front-convergence-2026-07-18.md`. Both headline numbers reproduced from a clean build:
+      P6.5 `--self` = **89 ok / 0 FAIL, X1 fixpoint stage1==stage2 = 79,667 B**; newfront single-file =
+      **491/504 (97 %)** (2 HOLE, 11 DIFF — the documented tail). Key findings: **(1) THE ORACLE IS NOT A
+      v1 ARTIFACT** — `ssc1-front.ssc0`+`ssc1-lower.ssc0` live in **`v2/lib/`** (born there, commit
+      `a7f34a9ef`; `v1/` has NO copy), are v2's current production native front, written in ssc0; the real
+      dependency is on the **ssc0 tier** inside v2 (front in ssc0 + `v2/src/Ssc0.scala` parser), not v1.
+      So the task framing "both lean on ssc1-front in v1's tree" is wrong; convergence is entirely inside
+      v2. **(2) The two efforts are complementary, not the same design twice:** newfront = breadth in
+      **Scala** (2447 ln, reuses `ssc1-lower`, does NOT self-host, 97 % real corpus); P6.5 `F` = self-host
+      in the **subset** (338 ln, owns its lowerer, X1 fixpoint holds, but ~0 % of the real corpus —
+      measured 0/5). **(3) Recommendation: adopt P6.5's architecture as the canonical target** (only path to
+      *fully self-hosted + small* — owns the lowerer, retires BOTH ssc0 front files), **fold newfront in as
+      the real-corpus acceptance gate + oracle-quirk spec, retire its Scala spike to a test-oracle role.**
+      Tradeoff + Option B in the brief. **(4) Real finding: `specs/newfront-diff.sh` is bit-rotted** — it
+      runs sbt from `$ROOT/uniml` where the moved `ScalaSpikeSpec` (test-jvm, commit `d7256b534`) isn't
+      wired, so it reports MATCH 0 and **exits 0** (silent-green failure); run the sbt step from the repo
+      root. Flagged for the newfront owner, not fixed (stay-in-lane).
 - [ ] **R4 — kernel/tower boundary analysis ("small").** Break down the 6355 `v2/src` lines: what is
       genuinely irreducible kernel (CoreIR reader/writer, the VM/trampoline, ssc0 front, δ primitives)
       vs what accreted and could be a program on the tower (`PortableEffects`, `PortableDecimal`,
