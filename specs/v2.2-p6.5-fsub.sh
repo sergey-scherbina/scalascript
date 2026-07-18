@@ -293,6 +293,13 @@ def main(): Int = area(Circle(5))'
 d trait_plain 'trait Named
 case class P(n: Int) extends Named
 def main(): Int = P(1).n'
+d list_lit3  'def main(): List[Int] = List(1, 2, 3)'
+d list_empty 'def main(): List[Int] = List()'
+d list_one   'def main(): List[Int] = List(5)'
+d list_cc    'case class P(x: Int)
+def main(): List[P] = List(P(1), P(2))'
+d list_tl    'val xs = List(1, 2, 3)
+println(xs)'
 
 if [ "${1:-}" = "--self" ]; then
   echo "--- X1: F compiles its OWN source ---"

@@ -158,7 +158,15 @@ def parseLamBody(ar, env2, ts, cx) = parseExpr(ts, 0, env2, cx) match { case (b,
 def parseIdent(t, rest, env, cx) = if isTok(hd(rest), 2, 30) then parseLamBody(1, snd(t) :: env, tl(rest), cx) else parseVarOrCall(snd(t), rest, env, cx)
 def parseParenOrLam(ts, env, cx) = if isLamParen(ts) then parseLamParen(ts, env, cx) else parseParen(ts, env, cx)
 def parseCtor(nm, ts, env, cx) = if isTok(hd(ts), 2, 21) then parseCtorArgs(nm, tl(ts), env, cx) else (bareCtor(nm, cx), ts)
-def parseCtorArgs(nm, ts, env, cx) = parseArgs(ts, env, cx) match { case (args, r) => (ctorApp(nm, args, cx), r) }
+// `List(a, b, c)` is NOT a ctor call — it desugars to a right-nested Cons chain ending in Nil (measured:
+// List() -> (ctor Nil); List(a,b) -> (ctor Cons a (ctor Cons b (ctor Nil)))). Needs the args as a LIST
+// (to nest), so parseArgL collects them; every other ctor keeps the flat parseArgs string.
+def parseCtorArgs(nm, ts, env, cx) = if nm == "List" then parseListLit(ts, env, cx) else parseArgs(ts, env, cx) match { case (args, r) => (ctorApp(nm, args, cx), r) }
+def parseListLit(ts, env, cx) = parseArgL(ts, env, cx) match { case (es, r) => (consChain(es), r) }
+def consChain(es) = es match { case Nil => "(ctor Nil)" case h :: t => "(ctor Cons " ++ h ++ " " ++ consChain(t) ++ ")" }
+def parseArgL(ts, env, cx) = if isTok(hd(ts), 2, 22) then (Nil, tl(ts)) else parseArgL1(ts, env, cx)
+def parseArgL1(ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => parseArgLMore(e, r, env, cx) }
+def parseArgLMore(e, ts, env, cx) = if isTok(hd(ts), 2, 27) then parseArgL(tl(ts), env, cx) match { case (rest, r2) => (Cons(e, rest), r2) } else (Cons(e, Nil), tl(ts))
 // MEASURED: a BUILTIN constructor is bare -- `Cons(a, b)` -> (ctor Cons a b), `Nil` -> (ctor Nil) --
 // but a USER case class CALLS its generated ctor def: `P(1, 2)` -> `(app (global P) ..)`, NOT
 // `(ctor P ..)`. Telling them apart is exactly why the collected registry has to reach the parser.
