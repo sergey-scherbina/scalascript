@@ -116,8 +116,11 @@ Kernel untouched (no `v2/src/*` edits). Next slices (highest impact first): (1) 
 (fixes the loop + unblocks most of the corpus — the big one), then prelude selectors `.trim`/`.mkString`/
 `.split`, `var`/`while`, string interpolation, enums, given/summon.
 
-**TOP-LEVEL STATEMENTS — sliced plan (2026-07-18, coordinator-directed: the #1 blocker, gate to ALL
-corpus MATCH). Oracle rules read from `v2/lib/ssc1-lower.ssc0` (do NOT edit it — frozen oracle):**
+**TOP-LEVEL STATEMENTS — DONE (2026-07-18, `v2-p65-canonical`). Corpus MATCH 1/504 → 34/504 (6%).**
+Slice A (loop fix, `07522696f`): TIMEOUT 388→0. Slices B+C landed together (`253f68231`, shared walk):
+top-level `val`→cell (def/set/get + collectTopVals pre-pass for forward refs) + top-level exprs→entry
+seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoint re-frozen
+80,383→86,497 B byte-identical. All 8 top-level micros byte-identical. Original sliced plan (for the record):
 - **A — fix the infinite loop FIRST.** `parseParamSkipD` recurses on `tl([])` forever when it runs off
   the token end without a `)` (F mis-parses top-level `val a = 10` as a def header → type-skip → EOF
   loop). Add an `isEmpty(ts)` termination guard. Never fires for valid subset input (F self-compiles
