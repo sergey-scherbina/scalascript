@@ -19,14 +19,28 @@ final class ScljetConnectionState(
     val url: String,
     initialConn: Value,
     durablePath: Option[Path],
-    initialReadOnly: Boolean):
+    initialReadOnly: Boolean,
+    busyTimeoutMillis: Long = 0L):
   private var connValue: Value = initialConn
   var autoCommit: Boolean = true
   var readOnly: Boolean = initialReadOnly
   var closed: Boolean = false
 
+  /** A writable host-file connection is single-writer: it holds an exclusive lock on the file for
+   *  its whole lifetime (see [[HostFileLock]]). `:memory:`, `classpath:`, and read-only connections
+   *  take no lock. Acquired here, at construction, so a contended open fails before the caller gets
+   *  a connection it would silently clobber with. */
+  private val writeLock: Option[HostLockHandle] =
+    durablePath.filter(_ => !initialReadOnly).map(path => HostFileLock.acquire(path, busyTimeoutMillis))
+
   def checkOpen(): Unit =
     if closed then throw SQLException("scljet JDBC: connection is closed", "08003")
+
+  /** Release the write lock. Idempotent-safe via `closed`. */
+  def close(): Unit =
+    if !closed then
+      closed = true
+      writeLock.foreach(_.release())
 
   private def flushDurable(): Unit =
     durablePath.foreach { path =>
@@ -169,7 +183,7 @@ final class ConnectionHandler(state: ScljetConnectionState) extends ProxyHandler
     case "commit"               => state.commit(); unit
     case "rollback"             =>
       if args.length == 0 then { state.rollback(); unit } else throw nse("rollback(Savepoint)")
-    case "close"                => state.closed = true; unit
+    case "close"                => state.close(); unit
     case "isClosed"             => boxB(state.closed)
     case "isValid"              => boxB(!state.closed)
     case "setReadOnly"          => state.checkOpen(); state.readOnly = argBool(args, 0); unit

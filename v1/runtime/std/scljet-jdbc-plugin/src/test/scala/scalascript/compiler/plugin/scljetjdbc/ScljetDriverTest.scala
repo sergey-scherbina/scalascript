@@ -196,10 +196,11 @@ class ScljetDriverTest extends AnyFunSuite:
         Class.forName("org.sqlite.JDBC")
         for stmt <- stmts do
           s.executeUpdate(stmt)
-          // The staged temp file must be gone the instant the flush returns — the directory holds
-          // exactly one file, the database.
-          val listed = { val ds = Files.list(dir); try ds.iterator().asScala.toList finally ds.close() }
-          assert(listed == List(db), s"after `$stmt` the directory should hold only the db, got $listed")
+          // The staged temp file must be gone the instant the flush returns — no `.tmp` litter.
+          // (The sidecar `.scljet-lock` is expected while the connection is open.)
+          val listed = { val ds = Files.list(dir); try ds.iterator().asScala.map(_.getFileName.toString).toList finally ds.close() }
+          assert(!listed.exists(_.endsWith(".tmp")), s"after `$stmt` a temp file leaked: $listed")
+          assert(listed.contains(db.getFileName.toString), s"the db must exist after `$stmt`, got $listed")
           // The real sqlite3 must accept the just-flushed image.
           val ref = DriverManager.getConnection(s"jdbc:sqlite:${db.toString}")
           try
@@ -218,6 +219,115 @@ class ScljetDriverTest extends AnyFunSuite:
     finally
       { val ds = Files.list(dir); try ds.iterator().asScala.foreach(Files.deleteIfExists) finally ds.close() }
       Files.deleteIfExists(dir)
+
+  test("inter-process write lock: a second writer is refused, not silently allowed to clobber"):
+    val dir: Path = Files.createTempDirectory("scljet-jdbc-lock-")
+    val db = dir.resolve("app.db")
+    try
+      val url = s"jdbc:scljet:${db.toString}"
+      val c1 = DriverManager.getConnection(url)
+      try
+        c1.createStatement().executeUpdate("CREATE TABLE k(id INTEGER, v TEXT)")
+        c1.createStatement().executeUpdate("INSERT INTO k VALUES (1,'one')")
+
+        // A second writable connection to the SAME file must fail fast — this is exactly the
+        // silent-clobber the lock exists to prevent. (busy_timeout=0 → immediate.)
+        val ex = intercept[SQLException](DriverManager.getConnection(url))
+        assert(ex.getMessage.toLowerCase.contains("locked"), s"expected a lock error, got: ${ex.getMessage}")
+
+        // A READ-ONLY connection is fine — it snapshots and takes no write lock.
+        val ro = DriverManager.getConnection(s"$url?mode=ro")
+        try
+          val rs = ro.createStatement().executeQuery("SELECT v FROM k WHERE id = 1")
+          assert(rs.next() && rs.getString(1) == "one")
+        finally ro.close()
+      finally c1.close()
+
+      // Once the first writer closes, a new writer acquires cleanly and sees its committed data.
+      val c2 = DriverManager.getConnection(url)
+      try
+        c2.createStatement().executeUpdate("INSERT INTO k VALUES (2,'two')")
+        val rs = c2.createStatement().executeQuery("SELECT count(*) FROM k")
+        assert(rs.next() && rs.getLong(1) == 2)
+      finally c2.close()
+    finally
+      { val ds = Files.list(dir); try ds.iterator().asScala.foreach(Files.deleteIfExists) finally ds.close() }
+      Files.deleteIfExists(dir)
+
+  test("busy_timeout waits for a writer to release rather than failing immediately"):
+    val dir: Path = Files.createTempDirectory("scljet-jdbc-busy-")
+    val db = dir.resolve("app.db")
+    try
+      val url = s"jdbc:scljet:${db.toString}"
+      val holder = DriverManager.getConnection(url)
+      holder.createStatement().executeUpdate("CREATE TABLE k(id INTEGER)")
+
+      // Release the lock shortly, from another thread, while a waiter blocks on busy_timeout.
+      val releaser = new Thread(() => { Thread.sleep(150); holder.close() })
+      releaser.start()
+
+      val t0 = System.nanoTime()
+      val waiter = DriverManager.getConnection(s"$url?busy_timeout=5000") // plenty
+      try
+        val waitedMs = (System.nanoTime() - t0) / 1000000L
+        assert(waitedMs >= 100L, s"the waiter should have blocked until the holder released, waited ${waitedMs}ms")
+        waiter.createStatement().executeUpdate("INSERT INTO k VALUES (1)")
+      finally waiter.close()
+      releaser.join()
+    finally
+      { val ds = Files.list(dir); try ds.iterator().asScala.foreach(Files.deleteIfExists) finally ds.close() }
+      Files.deleteIfExists(dir)
+
+  test("the write lock is genuinely CROSS-PROCESS, not just a same-JVM guard"):
+    // A same-JVM ConcurrentHashMap guard could pass every other lock test while the actual OS
+    // FileLock is broken. This spawns a SEPARATE JVM that holds the lock, then proves this JVM
+    // cannot acquire it — the only test that exercises the real cross-process path.
+    val dir: Path = Files.createTempDirectory("scljet-jdbc-xproc-")
+    val db = dir.resolve("app.db")
+    try
+      val javaBin = System.getProperty("java.home") + "/bin/java"
+      val cp = System.getProperty("java.class.path")
+      val pb = new ProcessBuilder(
+        javaBin, "-cp", cp,
+        "scalascript.compiler.plugin.scljetjdbc.LockHolderMain", db.toString)
+      pb.redirectErrorStream(true)
+      val child = pb.start()
+      try
+        // Wait for the child to report it holds the lock.
+        val reader = new java.io.BufferedReader(new java.io.InputStreamReader(child.getInputStream))
+        var line: String = null
+        var ready = false
+        val deadline = System.nanoTime() + 20L * 1000000000L
+        while !ready && System.nanoTime() < deadline && { line = reader.readLine(); line != null } do
+          if line == "LOCKED" then ready = true
+        assert(ready, "the lock-holder subprocess never reported LOCKED")
+
+        // Another PROCESS holds the lock → this JVM must be refused.
+        val ex = intercept[SQLException](DriverManager.getConnection(s"jdbc:scljet:${db.toString}"))
+        assert(ex.getMessage.toLowerCase.contains("locked"),
+          s"a cross-process lock must refuse this JVM, got: ${ex.getMessage}")
+      finally
+        child.getOutputStream.close() // closing the child's stdin tells it to release
+        child.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)
+        child.destroyForcibly()
+
+      // With the other process gone, this JVM acquires cleanly.
+      val c = DriverManager.getConnection(s"jdbc:scljet:${db.toString}")
+      try c.createStatement().executeUpdate("CREATE TABLE k(x INTEGER)")
+      finally c.close()
+    finally
+      { val ds = Files.list(dir); try ds.iterator().asScala.foreach(Files.deleteIfExists) finally ds.close() }
+      Files.deleteIfExists(dir)
+
+  test(":memory: and read-only connections take no lock — many can coexist"):
+    // No host file → no lock → no contention, however many are open at once.
+    val a = DriverManager.getConnection("jdbc:scljet::memory:")
+    val b = DriverManager.getConnection("jdbc:scljet::memory:")
+    try
+      a.createStatement().executeUpdate("CREATE TABLE t(x INTEGER)")
+      b.createStatement().executeUpdate("CREATE TABLE t(x INTEGER)")
+      assert(!a.isClosed && !b.isClosed)
+    finally { a.close(); b.close() }
 
   test("read-only mode rejects writes"):
     val c = DriverManager.getConnection("jdbc:scljet::memory:?mode=ro")

@@ -25,7 +25,8 @@ final class ScljetDriver extends Driver:
     val parsed = parseUrl(url)
     val (initialImage, durablePath, readOnly) = openTarget(parsed)
     val connValue = ScljetEngine.call("jdbcOpen", initialImage)
-    val state = ScljetConnectionState(url, connValue, durablePath, readOnly)
+    val busyTimeout = parsed.params.get("busy_timeout").flatMap(_.toLongOption).getOrElse(0L)
+    val state = ScljetConnectionState(url, connValue, durablePath, readOnly, busyTimeout)
     ScljetConnection.make(state)
 
   def getMajorVersion: Int = ScljetVersion.Major

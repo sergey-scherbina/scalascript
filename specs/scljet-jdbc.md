@@ -242,26 +242,37 @@ Connection {
   |---|---|
   | Crash-atomicity | **YES (D1).** The target is only ever the complete old image or the complete new one — never a torn write. The temp file is the only thing a crash can leave, and it is cleaned up / ignorable. |
   | `fsync` | **YES (D1).** The new image is `force(true)`d before the rename, and the directory is `fsync`d after, so a returned-OK durable change survives an OS/host crash. |
-  | Inter-process locking | **NONE — and a naive lock would NOT fix it (see below).** No `flock`/`FileLock`, no `busy_timeout`. |
-  | Multi-writer | **UNSAFE — silent data loss, and D1 does not change this.** Each connection snapshots the whole file at open and never re-reads; two writers each rewrite from their own stale snapshot, so the last flush discards the other's committed rows. Atomicity means the loss is a clean lost-update, not a corrupt file — but it is still a lost update. |
+  | Inter-process locking | **YES (2026-07-18).** A writable host-file connection holds an exclusive advisory lock for its whole lifetime; a second writer (in this JVM or another PROCESS) is refused with "database is locked" (`busy_timeout` retries). Proven cross-process by a two-JVM test. |
+  | Multi-writer | **SAFE against silent loss (2026-07-18).** The lifetime lock makes host-file writes single-writer: a second writer is REFUSED, not silently allowed to clobber. Concurrency is coarse (one writer per file at a time), which matches the single-writer embedded-store model. |
   | Reader-during-write | **SAFE (D1).** An external reader now sees either the old or the new complete image, never a partially written file. |
   | Cost | O(file) bytes read on open and written per durable change, regardless of how little changed. |
 
-  **Why inter-process locking is not a one-liner, and why a write-time `FileLock` would be a
-  false fix.** The read-modify-rewrite window is the connection's WHOLE LIFETIME, because the
-  image is read once at open and only rewritten thereafter. Serialising just the physical writes
-  with a lock does nothing for the lost-update above: each writer's image is already based on a
-  snapshot taken at open, before the lock. A correct fix is a real design change — either hold an
-  exclusive lock for the whole connection lifetime (coarse: serialises all connections to a file
-  and blocks concurrent readers) or re-read-and-rebase the image under a lock at each write (which
-  the shim has no machinery for). Tracked as a follow-up rather than papered over with a lock that
-  reads as safe and is not.
+  **Inter-process locking (`HostFileLock`, 2026-07-18) — a LIFETIME lock, not a write-time one.**
+  The read-modify-rewrite window is the connection's WHOLE LIFETIME (the image is read once at open
+  and only rewritten after), so a write-time-only lock would be a false fix: each writer already
+  snapshotted before it. The lock is therefore held from open to close. A writable host-file
+  connection acquires an EXCLUSIVE advisory lock; a second writer — same JVM or another process —
+  is refused with "database is locked" (respecting `busy_timeout`, which retries until it frees).
+  `:memory:`, `classpath:`, and read-only connections take no lock and coexist freely.
 
-  **The contract this implies — state it to users, do not let them infer it:** a host-file
-  `jdbc:scljet:` connection is **crash-safe and durable (D1) but single-writer / single-process**:
-  concurrent writers silently lose updates. It is sound for its actual uses (tests, single-process
-  embedded storage, read-mostly images) and unsound as a *shared* database. Use a real SQLite
-  driver when multiple processes write the same file.
+  Two implementation points that matter:
+  - **The lock is on a SIDECAR `<db>.scljet-lock`, not the database file.** D1 replaces the db via
+    an atomic rename, which swaps the inode; a lock held on the db file would silently stop
+    protecting the new one. The sidecar is never renamed. It also keeps the lock from interfering
+    with a real `sqlite3` process reading the db file itself.
+  - **Two levels.** A JVM-wide guard handles same-process contention (where a second `FileChannel`
+    lock throws `OverlappingFileLockException` rather than reporting "held"); the OS advisory
+    `FileLock` handles cross-process. Both are exercised by tests, including a genuine two-JVM one.
+
+  What it does NOT give: fine-grained concurrency (it is one writer per file at a time), and
+  coordination with a *real* `sqlite3`/Xerial process writing the SAME live file (out of scope — do
+  not mix drivers on one live database).
+
+  **The contract this implies:** a host-file `jdbc:scljet:` connection is **crash-safe, durable,
+  and single-writer with mutual exclusion** — concurrent writers are refused, not silently lost. It
+  is sound as a single-writer embedded store (one writer at a time, any number of readers via
+  `mode=ro`). It is still not a *concurrent* multi-writer database (no row/page-level concurrency),
+  and it does not coordinate with a real `sqlite3` process writing the same file at the same time.
 
   **A further optimisation (NOT a safety requirement now that D1 landed).** `commit()` could
   write through `jvmSqliteVfs()` using the rollback-journal primitives in `scljet/journal.ssc` to
@@ -857,10 +868,11 @@ lane, referenced from `README.md` and this spec.
   `commit()` through `jvmSqliteVfs()` + `scljet/journal.ssc` for O(changed pages) writes and
   journal-format compat, and honour `journal`/`sync`/`busy_timeout`/`vfs`. Needs a
   Connection-level `MutablePager` (Model B, "Open decisions" #4) — engine lane.
-- [ ] **Inter-process write safety** — NOT a `FileLock` one-liner (a write-time lock is a false
-  fix; the read-modify-rewrite window is the whole connection lifetime). Needs a lifetime lock or
-  re-read-and-rebase-under-lock. Until then the single-writer/single-process contract stands and
-  is documented; concurrent writers lose updates cleanly (D1 makes the loss atomic, not corrupt).
+- [x] **Inter-process write safety (2026-07-18, `HostFileLock`)** — a LIFETIME exclusive advisory
+  lock on a sidecar `<db>.scljet-lock` (the db file is renamed by D1, so its inode is not stable).
+  A second writer, same JVM or another process, is refused with "database is locked"; `busy_timeout`
+  retries. Proven cross-process by a two-JVM test. Not fine-grained concurrency, and no coordination
+  with a real `sqlite3` writing the same live file.
 - [x] `getPrimaryKeys`/`getIndexInfo`/`getTypeInfo` + empty FK queries — JDBC row shapes,
   diffed against `sqlite-jdbc` (2026-07-15, `scljet-jdbc-j4-introspection`).
 - [ ] The full conformance matrix as a CI gate; backend gaps are explicit skips.
