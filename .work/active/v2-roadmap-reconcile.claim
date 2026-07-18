@@ -1,0 +1,8 @@
+claim: v2-roadmap-reconcile
+branch: feature/v2-roadmap-reconcile
+agent: opus (orchestrator session)
+heartbeat: 2026-07-18T00:47:55Z
+status: in-progress (spawned agent)
+what: v2-finish R1+R2+R4 — reconcile the 9-day-stale v2/ROADMAP.md against reality by RUNNING each
+      gate (not trusting checkboxes) + empirical backend capability matrix + kernel/tower boundary
+      analysis. AUDIT ONLY, no refactor. SPRINT v2-finish.

@@ -1,0 +1,8 @@
+claim: v2-front-convergence
+branch: feature/v2-front-convergence
+agent: opus (orchestrator session)
+heartbeat: 2026-07-18T00:47:55Z
+status: in-progress (spawned agent)
+what: v2-finish R3 — newfront vs P6.5 convergence decision brief for Sergiy (scope/overlap/maturity/
+      convergence cost + the oracle-lives-in-v1 question + recommendation). ANALYSIS ONLY, converge
+      nothing. SPRINT v2-finish.
