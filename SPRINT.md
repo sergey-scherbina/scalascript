@@ -118,6 +118,19 @@ STOP on that helper, record the exact tree mismatch with evidence, and bring it 
 lock: "fix it or prove it can't be done here", never fake it). The `letrec`/prims foundation this needs
 ALSO serves the breadth constructs (F3), so build the shared foundation first — it advances both.
 
+**➜ F2 FEASIBILITY REPLY (2026-07-18, `v2-p65-canonical`): investigated → BYTE-UNACHIEVABLE for the bulk;
+escape-hatch invoked, back to Sergiy.** Full evidence + tree diffs + options:
+`specs/v2.2-prelude-from-source-feasibility.md` (no `v2/lib` edits). Two code-confirmed root causes: (1)
+the prelude's 22 kernel prims (io.println/cell.new/str.trim/map.put/…, in **30/47** defs) have NO
+ScalaScript surface syntax — `ssc1-front` lexes `#` (`:360`) but has no parser rule, so `#io.println(x)`
+→ `(global _err)`; (2) the **~27** match/letrec helpers use a dedicated LET-FREE path
+(`ssc1-lower.ssc0:3609`, "deliberately omits lowerMatch's scrutinee Let") that no surface `match` reaches
+(surface always let-wraps, `:3014`). Only ~7 trivial defs (identity + exception ctors) are achievable
+as-is; ~8 more only if F adds `#`-prim syntax (F-only, safe). **Recommend D** (prelude = frozen stdlib;
+F's lexer/parser/lowerer already self-host). Genuine source-derivation (option C) = editing the frozen
+oracle + full re-freeze = a NEW milestone, Sergiy's call. **HELD — not investing further in F2 prelude-gen
+until Sergiy re-decides.** (F3 breadth is unblocked and continues independently.)
+
 **F2 (superseded design-question text, kept for context) — does "own the lowerer" require generating the
 7,258 B prelude from subset SOURCE, or is carrying it as a constant acceptable?** The prelude is frozen
 constant output (identical in every program; ssc1-lower emits it as hand-built constant IR, F as a string
