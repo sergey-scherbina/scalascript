@@ -1645,7 +1645,26 @@ form working, and moves `std/agent.ssc`'s first parse failure to the `try`/`catc
 the second thing that stops `std/agent.ssc` (`postChatCompletionsOnce`, a braceless
 `try … catch case e: Throwable => …`) from parsing on the native lane.
 
-**Re-verified 2026-07-18 (`native-front-run-gaps`): PARTIALLY fixed — one form remains.**
+**Re-verified 2026-07-18 (`native-front-run-gaps`): PARTIALLY fixed, and the remaining form has TWO
+independent layers — the second is the real blocker and is NOT the parser.**
+
+- Braced (`try { } catch { }`) and single-line `finally` now parse+run. ✓
+- Braceless MULTILINE `try NL body NL catch case … => …`: LAYER 1 is a parse `_err` — semicolon
+  inference wedges a `;` between the body's `)` and `catch` (the same mechanism as the curried-def
+  bug). A `skipSemis` before the `catch`/`finally` check in the try-parse (`ssc1-front.ssc0:~1082`)
+  fixes the parse (verified: it turns `_err` into layer 2). NOT landed alone — see layer 2.
+- LAYER 2 (the real blocker, RUNTIME/lowerer, NOT parser): when an exception is ACTUALLY thrown,
+  the native runtime does not deliver the caught value to the handler's match. Even the BRACED
+  form fails: `try { (10/0).toString } catch { case e: Throwable => "err" }` → native
+  `ssc: match: no matching case` (v1: `err`); `case _` (wildcard) also does not match. So the whole
+  native try/catch EXCEPTION path is broken regardless of braces — the parse layer above is moot
+  until this is fixed. This lives in the `__tryCatch__` lowering/runtime (p65's lowerer lane or
+  `v2/src`), not `ssc1-front`. `try { println(x) } catch …` works ONLY because nothing throws.
+
+So: the parser half is diagnosed + has a one-line fix (`skipSemis`); the exception-delivery half is
+a separate runtime bug that gates the feature. Land them together.
+
+Original re-verify note (2026-07-18): PARTIALLY fixed — one form remains.
 
 | form | native lane, 2026-07-18 |
 |---|---|

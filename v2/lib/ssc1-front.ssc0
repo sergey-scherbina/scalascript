@@ -1719,7 +1719,16 @@ def parseDef = (toks) =>
   let hasSourceParamClause = kindIs("(", toks3) in
   let rp = parseParamList(toks3) in
   let params = prV(rp) in
-  let toks4 = prT(rp) in
+  -- A multi-line curried def puts a `)` and the next clause's `(` on different lines; semicolon
+  -- inference then wedges a `;` between them (a `)` can end a statement, a `(` can start one). But
+  -- a def signature is not complete before its `:`/`=`, so a `;` sitting DIRECTLY before a `(` is
+  -- always a curried-clause continuation — drop just that separator. A `;` before anything else
+  -- still ends the signature, so an abstract `def op(x: Int)` stays abstract.
+  -- (v2-native-front-multiline-curried-def.)
+  let toks4raw = prT(rp) in
+  let toks4 = if kindIs(";", toks4raw) then
+                (if kindIs("(", advance(toks4raw)) then advance(toks4raw) else toks4raw)
+              else toks4raw in
   -- KC8: handle (using p: T, ...) or a second regular param list
   let rp2 =
     if kindIs("(", toks4) then
