@@ -1,0 +1,12 @@
+claim: scljet-jdbc-iproc-lock
+owner: opus
+agent: opus
+started: 2026-07-18
+heartbeat: 2026-07-18T09:00:00Z
+status: starting
+scope: JDBC shim inter-process write locking (the D2 follow-up). A writable host-file connection
+  takes an EXCLUSIVE advisory FileLock for its whole lifetime (the read-modify-rewrite window),
+  on a SIDECAR <db>.lock file — not the db file itself, because D1's atomic-rename replaces the
+  db inode and would drop a lock held on it. A second writer fails fast with "database is locked"
+  (busy_timeout retry if easy). Read-only / :memory: / classpath connections take no lock.
+  Files: v1/runtime/std/scljet-jdbc-plugin/ + specs/scljet-jdbc.md. No engine change.
