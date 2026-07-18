@@ -403,6 +403,24 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-18 — Native front: `while (paren) do` + multiline curried def, unblocking scljet on `ssc run`
+
+Two parser fixes for the default `bin/ssc run` command, both surgical. A `while` whose condition
+STARTS with a parenthesised expression (`while (a && b) && c do`) mis-parsed — the front treated the
+leading `(` as wrapping the whole condition and stopped at `)`. This was THE reason the whole
+`scljet/jdbc.ssc` façade failed to parse natively (`parseDoubleStr`); `examples/scljet-jdbc.ssc` now
+runs on the default command byte-identical to v1. A multiline curried def (`def f(a)⏎  (b) = …`) also
+mis-parsed, from inferred-semicolon splitting; fixed by dropping the spurious `;` before a curried
+clause's `(`.
+
+Verified against reality first: most of the "doesn't run on ssc run" list in the tracker was already
+stale (try/catch braced, `import std.*`, in-fence imports, deep expressions all pass now). The
+remaining `try`/`catch` gap was diagnosed as two layers — a parse fix plus a separate native-runtime
+bug that fails to deliver a caught exception to the handler (breaks even the braced form) — and
+handed off rather than half-landed. scljet 99/99 [int, js]; contract --lanes v2 +3 with no new
+regressions.
+
+
 ## 2026-07-18 — SclJet JDBC: inter-process write locking
 
 A writable host-file connection now holds an exclusive advisory lock for its whole lifetime, so a
