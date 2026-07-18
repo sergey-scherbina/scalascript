@@ -358,6 +358,17 @@ Completed milestones, newest first. Each entry is a brief summary; git history h
 
 ---
 
+## 2026-07-18 — SclJet JDBC: inter-process write locking
+
+A writable host-file connection now holds an exclusive advisory lock for its whole lifetime, so a
+second writer — in the same JVM or another process — is refused with "database is locked" instead of
+silently clobbering the first. `busy_timeout` retries until it frees; read-only and `:memory:`
+connections take no lock. The lock lives on a sidecar `<db>.scljet-lock` rather than the database
+file, because the durable write replaces the db via an atomic rename (which would drop a lock held
+on it). Proven genuinely cross-process by a two-JVM test, so the same-JVM guard cannot mask a broken
+OS lock. sbt scljetJdbcPlugin/test 61/61.
+
+
 ## 2026-07-17 — SclJet JDBC: crash-safe durable writes, and the missing example
 
 Host-file writes through the JVM shim were `Files.write(path, bytes)` — truncate then rewrite the
