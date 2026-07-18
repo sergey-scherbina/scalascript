@@ -33,7 +33,7 @@ self-sufficient, NOT by changing v1.
 > current production native front and `RunNativeV2` explicitly disclaims scalameta/v1. "ssc1" = the
 > *language* v1.0, not the `v1/` directory. So the front is already independent of the `v1/` tree;
 > convergence is entirely inside v2. Full evidence: `specs/v2-front-convergence-2026-07-18.md`.
-
+>
 > **✅ DECISION 2026-07-18 (Sergiy): OPTION A — P6.5 architecture is the canonical v2 front, and the
 > front OWNS ITS LOWERER.** The canonical front is the subset-written compiler with its own
 > lexer+parser+lowerer that compiles its own source (fixpoint), reproducing `ssc1-lower` IN THE SUBSET
