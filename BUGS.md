@@ -1,5 +1,36 @@
 # Bug tracker
 
+## p65-fsub-toplevel-val-infinite-loop — F (P6.5 subset compiler) hangs on a top-level `val`
+
+**Status:** OPEN (found 2026-07-18 by `v2-p65-canonical` while building the F3 real-corpus gate
+`specs/v2.2-p6.5-corpus.sh`). **`specs/v2.2-p6.5-fsub.ssc`** (F, the P6.5-subset front), not the
+kernel. This is why 216+/504 corpus programs TIMEOUT rather than DIFF.
+
+**Symptom/reproduce** — F's `compile` never returns on a program whose first top-level statement is a
+`val` (not `def`/`case class`):
+
+```
+printf 'val a = 10\ndef main(): Int = a\n' > /tmp/t.ssc
+gtimeout 8 java -Xss512m -jar <run-ir kernel jar> run-ir <F0.ir> /tmp/t.ssc   # -> TIMEOUT (loops)
+printf 'def main(): Int = 1\n'            > /tmp/t.ssc  # -> ok
+printf 'println(1)\n'                     > /tmp/t.ssc  # -> ok (drops the expr, no loop)
+```
+
+**Root cause (localised).** `emitDefs`/`emitDecl` assume every top-level item is `def` or
+`case class`. On a leading `val`, `emitDef` mis-parses and returns a `rest` token list that does not
+shrink, so `emitDefs(rest)` recurses forever. Only top-level `val` triggers it (top-level `expr` is
+silently dropped, no loop). F was designed for a def/case-class-only top level; the real corpus is
+full of top-level `val`/expr.
+
+**Impact / fix direction.** Untrustworthy-if-unbounded: a single such program hung the whole corpus
+gate (measured: stalled at 13/504 forever), so `specs/v2.2-p6.5-corpus.sh` bounds every file with a
+timeout and buckets these as TIMEOUT. The real fix is **top-level statement support** in F
+(reproduce ssc1-lower `lowerProg` topExprs/topValCellDefs, `v2/lib/ssc1-lower.ssc0`:5560-5647) —
+tracked as the highest-impact F3 breadth slice in SPRINT §v2-finish. A cheap interim guard (make
+`emitDefs` bail on non-progress) would stop the hang but emit semantically-broken IR; deferred in
+favour of the real top-level-statement slice.
+
+
 ## v2-native-front-rejects-jdbc-facade — `scljet/jdbc.ssc` fails to parse on the native front
 
 **Status:** OPEN (found 2026-07-17 by `scljet-jdbc-durability` while writing the missing
