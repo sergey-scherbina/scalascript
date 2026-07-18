@@ -170,6 +170,20 @@ yields a big jump. Buckets by first-divergence construct:**
   no whole program alone (its cluster = spark-*, still needs sealed traits + math.Pi + braceless match).
 - **var/while, string interpolation, given/summon** — still out; measure after the above.
 
+**F3 BREADTH LOG (`v2-p65-canonical`, 2026-07-18) — corpus MATCH 1 → 43/504 this session:**
+- top-level statements (loop fix + val cells + exprs): 1 → 34 (`07522696f`, `253f68231`)
+- float literals: 34 (correct prereq, `2d63fc63e`)
+- braceless match (`s match\n case ..`): 34 → 37 (`b93755873`)
+- `sealed trait`/`trait` decls + case-class `extends`: 37 (correct prereq, `f8102e8a4`)
+- `List(..)` literal desugaring → Cons-chain: 37 → 43 (`0059cdf3e`)
+- Fixpoint bytes each slice (all stage1==stage2 byte-identical): 79,667 → 92,641. `--self` 121 ok/0 FAIL.
+- **NEXT LEVER (measured near-misses): list-var `_sel_` registry** — a top-level val whose init is a list
+  (`val xs = List(..)`) makes `xs.map/.mkString/.filter/.foreach/...` lower to `(app (global _sel_<m>) xs
+  args)` not `(prim __method__ ..)` (oracle: listVarsCell + selMethodOr, `ssc1-lower.ssc0:1509/1545`).
+  Blocks case-classes, indent-config-format + ~13 more. Then math members (`math.round/Pi/sqrt`, blocks
+  sealed-traits), then enums, then actors/scljet-sql/derives clusters. NOTE: method calls on PARAM/LOCAL
+  receivers are ALREADY correct (`__method__`); only list-VARIABLE receivers use `_sel_`.
+
 **TOP-LEVEL STATEMENTS — DONE (2026-07-18, `v2-p65-canonical`). Corpus MATCH 1/504 → 34/504 (6%).**
 Slice A (loop fix, `07522696f`): TIMEOUT 388→0. Slices B+C landed together (`253f68231`, shared walk):
 top-level `val`→cell (def/set/get + collectTopVals pre-pass for forward refs) + top-level exprs→entry
