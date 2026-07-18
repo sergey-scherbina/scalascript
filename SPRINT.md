@@ -9,6 +9,56 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## scljet-xprocess-lock — cross-process lock interop with the official SQLite driver (2026-07-18, Sergiy: "починить по-настоящему")
+
+The last suite holding `Test via sbt` red: `SclJetJvmVfsHostTest` → "exclusive host lock blocks
+official SQLite in another process". scljet takes an Exclusive host lock, spawns a subprocess running
+`org.xerial:sqlite-jdbc`, and asserts the official driver **waits** on scljet's lock. It doesn't —
+`assert(process.isAlive, "SQLite query did not wait on the host exclusive lock")` fails: the other
+process's SQLite completes instead of blocking. The `scljet-jdbc-durability` sibling **documented this
+as a known limitation and released without fixing it**; Sergiy's call (2026-07-18) is **fix it for
+real**. Reproduces on macOS locally (5/1) and on Linux CI.
+
+**CRITICAL FRAMING — this is a DEBUG task, not a from-scratch implementation. The SQLite locking
+protocol is ALREADY correctly implemented** in `v1/runtime/std/scljet-vfs-host/.../SclJetJvmVfsHost.scala`:
+`PendingByte = 0x40000000`, `ReservedByte = +1`, `SharedFirst = +2`, `SharedSize = 510` — byte-exact to
+SQLite's Unix VFS scheme — and the level→region mapping (Shared=read-lock on SHARED range;
+Reserved=write RESERVED byte; Pending=write PENDING byte; Exclusive=write SHARED range + pending) via
+`FileChannel.tryLock`. So the offsets are right and the JVM locks acquire; the puzzle is **why a
+correctly-placed JVM `FileLock` does not block the official SQLite driver cross-process.**
+
+- [ ] **X1 — reproduce and INSTRUMENT on both platforms first.** Run the test on macOS AND Linux (CI is
+      Linux). Confirm the exact failing assertion and capture what actually happens: does scljet's
+      `tryRegion(SharedFirst, SharedSize, false)` (the Exclusive write-lock) actually hold at the moment
+      the subprocess queries? Is the lock released early (FileLock lifetime/GC, channel closed)? Use
+      `lslocks`/`/proc/locks` on Linux and `lsof`/`fcntl` tracing to SEE the kernel lock state while the
+      subprocess runs. Do not theorize — observe.
+- [ ] **X2 — determine the real cause among the likely ones, with evidence:**
+      (a) **Platform lock-API mismatch** — JVM `FileChannel.tryLock` uses `fcntl(F_SETLK)` POSIX advisory
+      locks on Linux/macOS; SQLite's Unix VFS also uses `fcntl` POSIX locks — they SHOULD interoperate, so
+      if they don't, find why (e.g. xerial's bundled SQLite build, a different default VFS, or `unix-none`).
+      (b) **Read vs write** — a SQLite *read* needs only a SHARED (read) lock; scljet's Exclusive takes a
+      *write* lock on the SHARED range, which must block a reader. Verify the subprocess actually does a
+      read that acquires a SHARED lock (not a mode that skips locking).
+      (c) **Lock lifetime** — a JVM `FileLock` is released if its `FileChannel` closes or the lock object
+      is GC'd; confirm scljet holds the channel+lock open across the subprocess window.
+      (d) **POSIX F_SETLK fundamental limitation** — POSIX locks are dropped when *any* fd to the file is
+      closed in the process; if scljet opens the db through more than one channel, a close elsewhere frees
+      the lock. This is the classic SQLite-on-POSIX footgun.
+- [ ] **X3 — fix it.** Depending on X2: hold the channel/lock for the lock's full lifetime; match SQLite's
+      exact lock/unlock sequence and ranges; or, if `FileChannel.tryLock` genuinely can't interoperate with
+      xerial's SQLite on a platform, drop to a native `fcntl` call for the byte-range that SQLite honors.
+- [ ] **X4 — HONEST ESCAPE HATCH (mandatory to consider).** If it turns out the official driver
+      *cannot* be made to wait from the JVM without native code the project won't take (e.g. xerial's
+      SQLite deliberately bypasses POSIX locks, or POSIX semantics make it impossible portably), that is a
+      real finding — STOP, record it precisely with the evidence from X1/X2, and bring it back: the honest
+      outcome then becomes the declared known-limitation the sibling already reached, and the test asserts
+      the documented reality. Do NOT force a green by weakening the test into vacuity. "Fix it for real"
+      means fix it or prove it can't be done here — not fake it.
+- [ ] **X5 — gate.** The suite green on macOS AND (via CI) Linux; full `scljetVfsPlugin/test` +
+      `scljetJdbcPlugin/test` green; the test itself de-flaked if the subprocess/sleep timing is racy
+      (a 500ms `Thread.sleep` before `assert(process.isAlive)` is a smell — make it wait on a signal).
+
 ## ⭐ REMAINING WORK — the one index (2026-07-17, Sergiy: "запиши всё что осталось")
 
 The single answer to "what's left". Each line points to the detailed section that owns it. Ordered by
