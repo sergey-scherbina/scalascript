@@ -1,0 +1,11 @@
+claim: scljet-xprocess-lock
+branch: feature/scljet-xprocess-lock
+agent: opus (orchestrator session)
+heartbeat: 2026-07-18T00:07:06Z
+status: in-progress (spawned agent)
+what: fix cross-process lock interop — official SQLite in another process must WAIT on scljet's
+      exclusive host lock (SclJetJvmVfsHostTest, the last suite holding Test via sbt red). The SQLite
+      byte-range protocol is ALREADY correct in SclJetJvmVfsHost.scala; this is a DEBUG task, not a
+      rewrite. Sergiy: "починить по-настоящему". Honest escape hatch if JVM genuinely can't. SPRINT
+      scljet-xprocess-lock X1-X5.
+note: the scljet-jdbc-durability sibling released without fixing this (documented-not-fixed).
