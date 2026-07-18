@@ -479,21 +479,29 @@ production worktrees.
 
 ## scljet-vfs-exclusive-lock-subprocess-exits-linux — official SQLite does not wait on host lock
 
-**Status:** OPEN / owned by the SclJet lane (found by `ci-red-main` in Linux runs `29544412767` and
-`29545769651`; latter job `87777659720`). `SclJetJvmVfsHostTest` fails `exclusive host lock blocks
-official SQLite in another process`: `process.isAlive() was false`, so the spawned SQLite query
-exited instead of remaining blocked long enough for the assertion.
+**Status:** FIXED (2026-07-18, `scljet-xprocess-lock`). It was a **test bug, not a lock-interop bug** —
+the cross-process lock protocol in `SclJetJvmVfsHost.scala` is correct and needed no change. Root cause:
+the subprocess probe (`SclJetSqliteLockProbe`) set `busy_timeout=0`, which tells SQLite to return
+`SQLITE_BUSY` *immediately* on a lock conflict and never wait; the test then asserted `process.isAlive`
+after a 500 ms sleep, expecting the query to be blocked. With `busy_timeout=0` it can never block — it
+returns in ~2 ms and the subprocess exits, so `process.isAlive()==false`.
 
-**Real-harness repro.** Run focused `scljetVfsPlugin/testOnly
-scalascript.compiler.plugin.scljet.SclJetJvmVfsHostTest` on Ubuntu with the same official SQLite
-binary selected by the suite. Preserve both observables: subprocess exit/output and the host lock
-state. A capability check may skip only when no supported SQLite executable exists; an executable
-that starts and exits is a real test result, not an unavailable capability.
+**Evidence (macOS, instrumented `LockDiag` harness).** With scljet holding the Exclusive host lock:
+- `busy_timeout=0` → subprocess prints `busy after 2ms: [SQLITE_BUSY] The database file is locked` —
+  SQLite **detects** scljet's lock but returns instantly.
+- `busy_timeout=5000` → subprocess **blocks** for the whole window the lock is held (`exited within
+  1500ms? false`), then prints `ok after 1266ms` **only after** scljet releases.
 
-**Coordination.** This overlaps the active `scljet-m3-writes` / SclJet ownership lane. The
-`ci-red-main` agent records and rechecks it but does not edit that scope. Done requires the owner to
-identify whether the Linux process is an assertion race, invocation error, or lock-visibility bug,
-then land a faithful cross-process regression/fix.
+So the official xerial `sqlite-jdbc` driver *does* genuinely wait on scljet's fcntl POSIX write-lock
+(PENDING byte + SHARED range) cross-process — the JVM `FileChannel.tryLock` and SQLite's Unix VFS
+`fcntl(F_SETLK)` locks interoperate exactly as designed.
+
+**Fix.** In the test only: the probe now sets `busy_timeout=30000` (so SQLite enters its busy-retry
+loop and waits), and prints a `querying` signal immediately before the blocking read. The test
+synchronizes on that signal (no sleep), then asserts `!process.waitFor(2, SECONDS)` — proving the query
+stays blocked while the lock is held — releases the lock, and asserts the query completes with `ok`.
+Deterministic: `busy_timeout` (30 s) ≫ the 2 s window, and the query cannot return until scljet releases.
+`scljetVfsPlugin/test` 6/0 (×3), `scljetJdbcPlugin/test` 57/0. No production code changed.
 
 
 ## swift-renderer-inventory-missing-shipped-tag — backend inventory omits a lowerer tag

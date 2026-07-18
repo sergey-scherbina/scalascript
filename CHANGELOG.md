@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-07-18 — scljet cross-process host lock: the official SQLite driver genuinely waits (test fix)
+
+`scljet-xprocess-lock` — closed the last `SclJetJvmVfsHostTest` failure ("exclusive host lock blocks
+official SQLite in another process"), the final suite holding `Test via sbt` red. It was a **test bug,
+not a lock-interop bug** — the byte-range lock protocol in `SclJetJvmVfsHost.scala` is correct and was
+not touched.
+
+- **Root cause.** The subprocess probe set `busy_timeout=0`, which makes SQLite return `SQLITE_BUSY`
+  *immediately* on a lock conflict instead of waiting; the test then asserted `process.isAlive` after a
+  500 ms sleep, expecting the query to be blocked. With `busy_timeout=0` the query returns in ~2 ms and
+  the subprocess exits, so `process.isAlive()==false`.
+- **Evidence (instrumented `LockDiag`, macOS).** Holding scljet's Exclusive host lock: at
+  `busy_timeout=0` the official xerial `sqlite-jdbc` printed `busy after 2ms: [SQLITE_BUSY] database is
+  locked` (it *detects* the lock, returns instantly); at `busy_timeout=5000` it **blocked** for the
+  whole window the lock was held, then printed `ok after 1266ms` **only after** scljet released. So the
+  official driver does genuinely wait on scljet's fcntl POSIX write-lock cross-process — JVM
+  `FileChannel.tryLock` and SQLite's Unix VFS `fcntl(F_SETLK)` interoperate exactly as designed.
+- **Fix (test only).** The probe now uses `busy_timeout=30000` (so SQLite enters its busy-retry loop
+  and waits) and prints a `querying` signal immediately before the blocking read. The test synchronizes
+  on that signal instead of a sleep, asserts `!process.waitFor(2, SECONDS)` to prove the query stays
+  blocked while the lock is held, then releases and asserts the query completes with `ok`. Deterministic:
+  the 30 s busy timeout ≫ the 2 s window, and the query cannot return until scljet releases.
+- `scljetVfsPlugin/test` 6/0 (×3 for the de-flake), `scljetJdbcPlugin/test` 57/0.
+
 ## 2026-07-18 — SwiftUI native renderer gains select/option (menu Picker) + flex-wrap (flow layout)
 
 `swift-renderer-port` — closed the last `SwiftBackendTest` failure ("SwiftUI renderer inventory covers

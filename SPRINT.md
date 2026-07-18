@@ -9,55 +9,22 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-## scljet-xprocess-lock — cross-process lock interop with the official SQLite driver (2026-07-18, Sergiy: "починить по-настоящему")
+## scljet-xprocess-lock — DONE (2026-07-18) — it was a TEST bug, the lock interop is correct
 
-The last suite holding `Test via sbt` red: `SclJetJvmVfsHostTest` → "exclusive host lock blocks
-official SQLite in another process". scljet takes an Exclusive host lock, spawns a subprocess running
-`org.xerial:sqlite-jdbc`, and asserts the official driver **waits** on scljet's lock. It doesn't —
-`assert(process.isAlive, "SQLite query did not wait on the host exclusive lock")` fails: the other
-process's SQLite completes instead of blocking. The `scljet-jdbc-durability` sibling **documented this
-as a known limitation and released without fixing it**; Sergiy's call (2026-07-18) is **fix it for
-real**. Reproduces on macOS locally (5/1) and on Linux CI.
-
-**CRITICAL FRAMING — this is a DEBUG task, not a from-scratch implementation. The SQLite locking
-protocol is ALREADY correctly implemented** in `v1/runtime/std/scljet-vfs-host/.../SclJetJvmVfsHost.scala`:
-`PendingByte = 0x40000000`, `ReservedByte = +1`, `SharedFirst = +2`, `SharedSize = 510` — byte-exact to
-SQLite's Unix VFS scheme — and the level→region mapping (Shared=read-lock on SHARED range;
-Reserved=write RESERVED byte; Pending=write PENDING byte; Exclusive=write SHARED range + pending) via
-`FileChannel.tryLock`. So the offsets are right and the JVM locks acquire; the puzzle is **why a
-correctly-placed JVM `FileLock` does not block the official SQLite driver cross-process.**
-
-- [ ] **X1 — reproduce and INSTRUMENT on both platforms first.** Run the test on macOS AND Linux (CI is
-      Linux). Confirm the exact failing assertion and capture what actually happens: does scljet's
-      `tryRegion(SharedFirst, SharedSize, false)` (the Exclusive write-lock) actually hold at the moment
-      the subprocess queries? Is the lock released early (FileLock lifetime/GC, channel closed)? Use
-      `lslocks`/`/proc/locks` on Linux and `lsof`/`fcntl` tracing to SEE the kernel lock state while the
-      subprocess runs. Do not theorize — observe.
-- [ ] **X2 — determine the real cause among the likely ones, with evidence:**
-      (a) **Platform lock-API mismatch** — JVM `FileChannel.tryLock` uses `fcntl(F_SETLK)` POSIX advisory
-      locks on Linux/macOS; SQLite's Unix VFS also uses `fcntl` POSIX locks — they SHOULD interoperate, so
-      if they don't, find why (e.g. xerial's bundled SQLite build, a different default VFS, or `unix-none`).
-      (b) **Read vs write** — a SQLite *read* needs only a SHARED (read) lock; scljet's Exclusive takes a
-      *write* lock on the SHARED range, which must block a reader. Verify the subprocess actually does a
-      read that acquires a SHARED lock (not a mode that skips locking).
-      (c) **Lock lifetime** — a JVM `FileLock` is released if its `FileChannel` closes or the lock object
-      is GC'd; confirm scljet holds the channel+lock open across the subprocess window.
-      (d) **POSIX F_SETLK fundamental limitation** — POSIX locks are dropped when *any* fd to the file is
-      closed in the process; if scljet opens the db through more than one channel, a close elsewhere frees
-      the lock. This is the classic SQLite-on-POSIX footgun.
-- [ ] **X3 — fix it.** Depending on X2: hold the channel/lock for the lock's full lifetime; match SQLite's
-      exact lock/unlock sequence and ranges; or, if `FileChannel.tryLock` genuinely can't interoperate with
-      xerial's SQLite on a platform, drop to a native `fcntl` call for the byte-range that SQLite honors.
-- [ ] **X4 — HONEST ESCAPE HATCH (mandatory to consider).** If it turns out the official driver
-      *cannot* be made to wait from the JVM without native code the project won't take (e.g. xerial's
-      SQLite deliberately bypasses POSIX locks, or POSIX semantics make it impossible portably), that is a
-      real finding — STOP, record it precisely with the evidence from X1/X2, and bring it back: the honest
-      outcome then becomes the declared known-limitation the sibling already reached, and the test asserts
-      the documented reality. Do NOT force a green by weakening the test into vacuity. "Fix it for real"
-      means fix it or prove it can't be done here — not fake it.
-- [ ] **X5 — gate.** The suite green on macOS AND (via CI) Linux; full `scljetVfsPlugin/test` +
-      `scljetJdbcPlugin/test` green; the test itself de-flaked if the subprocess/sleep timing is racy
-      (a 500ms `Thread.sleep` before `assert(process.isAlive)` is a smell — make it wait on a signal).
+X1–X5 complete. **The cross-process lock protocol in `SclJetJvmVfsHost.scala` is correct and unchanged
+— this was a test bug, not the "fix it for real" lock rewrite the framing anticipated, and NOT the
+escape hatch.** Instrumented (`LockDiag` harness, macOS): with scljet holding the Exclusive host lock,
+xerial `sqlite-jdbc` at `busy_timeout=0` printed `busy after 2ms: [SQLITE_BUSY] database is locked`
+(detects the lock, returns instantly — never waits), and at `busy_timeout=5000` **blocked** the whole
+window the lock was held then printed `ok after 1266ms` only after release. So the official driver DOES
+genuinely wait on scljet's fcntl POSIX write-lock cross-process (JVM `FileChannel.tryLock` ↔ SQLite Unix
+VFS `fcntl(F_SETLK)` interoperate exactly). Root cause: the probe set `busy_timeout=0`, which defeats
+waiting, then the test asserted `process.isAlive` after a 500 ms sleep. Fix (test only): probe now uses
+`busy_timeout=30000` and prints a `querying` signal before the blocking read; the test synchronizes on
+that signal (no sleep) and asserts `!process.waitFor(2, SECONDS)` (query stays blocked while locked) →
+release → `ok`. Deterministic (30 s ≫ 2 s; the query can't return until scljet releases).
+`scljetVfsPlugin/test` 6/0 (×3 for de-flake), `scljetJdbcPlugin/test` 57/0. See CHANGELOG + BUGS
+`scljet-vfs-exclusive-lock-subprocess-exits-linux`.
 
 ## ⭐ REMAINING WORK — the one index (2026-07-17, Sergiy: "запиши всё что осталось")
 
@@ -160,15 +127,23 @@ real (or real flakes); fixing one leaves the job red.
         Added a Swift-6-strict runtime probe proving decode + Picker `.body` (not a stub). `v2SwiftBackend/test`
         59/0. See BUGS `swift-renderer-inventory-missing-shipped-tag`. (The three dirty swift worktrees were
         stale — worked from a fresh worktree off origin/main, adopted none of their uncommitted edits.)
-      - `exclusive host lock blocks official SQLite …` — **ROUTED @scljet-jdbc-durability** (dirty on
-        `ScljetConnection`). `process.isAlive()==false`; xerial sqlite-jdbc cross-process lock. BUGS
+      - `exclusive host lock blocks official SQLite …` — **FIXED 2026-07-18 (`scljet-xprocess-lock`).**
+        A TEST bug, not a lock-interop bug: the probe set `busy_timeout=0` (SQLite returns SQLITE_BUSY
+        instantly, never waits) while the test asserted `process.isAlive` after a sleep. Instrumented
+        proof (macOS): at `busy_timeout=5000` the official xerial driver genuinely BLOCKS on scljet's
+        fcntl host lock and only completes after release. Fix (test only): `busy_timeout=30000` + a
+        `querying` signal + `!process.waitFor(2s)` — deterministic, no sleep. `SclJetJvmVfsHost.scala`
+        unchanged. `scljetVfsPlugin/test` 6/0, `scljetJdbcPlugin/test` 57/0. BUGS
         `scljet-vfs-exclusive-lock-subprocess-exits-linux`.
       - `scala-cli … typed Db.query/insert+update through RowCodec` (+ `StableSpiEnforcementTest`) —
         **ROUTED @scljet** (6 scljet-jdbc-plugin files import `scalascript.interpreter.Value`). BUGS
         `scljet-jdbc-stable-spi-import-regression`.
-      **Until the three routed lanes also land, `main` has never had a fully green run** — do not claim
-      otherwise. The job also currently fails EARLIER, at `v21-slim-distribution-gate`, on any SHA that
-      predates the flake fix `87187416d` (item 1) — verify a post-`87187416d` run reaches the sbt step.
+      **Update 2026-07-18:** two of the three routed lanes have since landed here — `SwiftUI renderer
+      inventory …` (`swift-renderer-port`) and `exclusive host lock blocks official SQLite …`
+      (`scljet-xprocess-lock`). Only `scljet-jdbc-stable-spi-import-regression` remains routed to
+      @scljet; until it lands too, do not claim `main` has had a fully green run. The job also fails
+      EARLIER, at `v21-slim-distribution-gate`, on any SHA that predates the flake fix `87187416d`
+      (item 1) — verify a post-`87187416d` run reaches the sbt step.
 - [x] **3. `v21-native-entry-smoke.sh` — DONE (2026-07-17).** Given the `expect_*` treatment: an
       `expect_out name/want/got/diff` helper (mirroring the four v2.1 gates) now backs all 178 single-line
       output assertions, and an `ERR` trap names the exact line + command for every remaining assertion
