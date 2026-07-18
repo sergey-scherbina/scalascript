@@ -20,15 +20,24 @@ object SclJetVfsLockProbe:
     println(code)
 
 object SclJetSqliteLockProbe:
+  // A large busy timeout is essential: with busy_timeout=0 the official driver
+  // returns SQLITE_BUSY *immediately* on a lock conflict and never waits, so it
+  // could never demonstrate blocking on the host lock. With a large timeout it
+  // enters SQLite's busy-retry loop and genuinely waits until the lock is freed.
+  private val BusyTimeoutMs = 30000
   def main(args: Array[String]): Unit =
     println("ready")
     System.out.flush()
     Class.forName("org.sqlite.JDBC")
     val config = SQLiteConfig()
-    config.setBusyTimeout(0)
+    config.setBusyTimeout(BusyTimeoutMs)
     val sqlite = DriverManager.getConnection(s"jdbc:sqlite:${args(0)}", config.toProperties)
     try
-      sqlite.createStatement().execute("pragma busy_timeout=0")
+      sqlite.createStatement().execute(s"pragma busy_timeout=$BusyTimeoutMs")
+      // Signal, right before the read query that must block on the host exclusive
+      // lock, so the parent synchronizes on this line instead of a fixed sleep.
+      println("querying")
+      System.out.flush()
       try
         val rows = sqlite.createStatement().executeQuery("select * from t")
         rows.close()
@@ -163,8 +172,17 @@ class SclJetJvmVfsHostTest extends AnyFunSuite:
           .start()
         val reader = process.inputReader()
         assert(reader.readLine() == "ready")
-        Thread.sleep(500L)
-        assert(process.isAlive, "SQLite query did not wait on the host exclusive lock")
+        // Deterministic handshake: the probe prints "querying" immediately before the
+        // read query that must block on our exclusive lock, so we no longer guess with
+        // a sleep. Once we've seen it, the query is holding on the host lock.
+        assert(reader.readLine() == "querying")
+        // While we hold the exclusive host lock the query MUST wait: it cannot return
+        // until we release. A correct cross-process lock keeps the subprocess blocked
+        // for the whole window; a broken one would let the query finish in a few ms and
+        // the process would exit here. (busy_timeout in the probe is 30s >> this window.)
+        assert(!process.waitFor(2, java.util.concurrent.TimeUnit.SECONDS),
+          "SQLite query did not wait on the host exclusive lock")
+        // Now release: the waiting query acquires its SHARED lock and completes.
         assert(SclJetJvmVfsHost.unlock(handle, HostLockLevel.None).isOk)
         assert(process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS))
         val output = reader.readLine()
