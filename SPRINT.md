@@ -170,7 +170,16 @@ yields a big jump. Buckets by first-divergence construct:**
   no whole program alone (its cluster = spark-*, still needs sealed traits + math.Pi + braceless match).
 - **var/while, string interpolation, given/summon** — still out; measure after the above.
 
-**F3 BREADTH LOG (`v2-p65-canonical`, 2026-07-18) — corpus MATCH 1 → 43/504 this session:**
+**F3 BREADTH LOG (`v2-p65-canonical`, 2026-07-18) — corpus MATCH 1 → 45/504 this session:**
+- `List(..)` → Cons-chain: 37 → 43 (`0059cdf3e`); `s"..."` interpolation → `++`-chain: 43 → 45 (`2d14da86e`).
+- Fixpoint bytes: 79,667 → 97,378, all stage1==stage2 byte-identical. `--self` 130 ok / 0 FAIL.
+- **NEXT LEVERS (measured, MATCH 45):** the remaining near-misses each need a DIFFERENT feature, no single
+  broad cheap win: chained-list `_sel_` inference (~30, needs two-phase list-type resolve — architectural),
+  actors/runActors (~28), scljet-sql `.apply`/buildTableData (~52), derives/codecs (~16), enums, unary
+  minus `-x` (~4). math members (`math.Pi/round/sqrt`) + method calls on params/locals are ALREADY correct.
+- superseded intermediate tally below.
+
+**F3 BREADTH LOG (superseded intermediate) — corpus MATCH 1 → 43/504:**
 - top-level statements (loop fix + val cells + exprs): 1 → 34 (`07522696f`, `253f68231`)
 - float literals: 34 (correct prereq, `2d63fc63e`)
 - braceless match (`s match\n case ..`): 34 → 37 (`b93755873`)
