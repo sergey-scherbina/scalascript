@@ -236,6 +236,24 @@ d tup_snd    'def main(): Int = (1, 2)._2'
 d tup_param  'def g(p: (Int, Int)): Int = p._1 + p._2
 def main(): Int = g((3, 4))'
 d tup_nest   'def main(): Int = ((1, 2), 3)._1._2'
+d tl_expr    'println(42)'
+d tl_val_main 'val a = 10
+def main(): Int = a'
+d tl_val_fwd 'def main(): Int = a
+val a = 10'
+d tl_def_val_expr 'def g(n: Int): Int = n + 1
+val x = 5
+println(g(x))'
+d tl_two_vals 'val a = 1
+val b = 2
+println(a + b)'
+d tl_cc_val_expr 'case class P(x: Int)
+val p = P(3)
+println(p.x)'
+d tl_val_str 'val s = "hi"
+println(s)'
+d tl_expr_only_multi 'println(1)
+println(2)'
 
 if [ "${1:-}" = "--self" ]; then
   echo "--- X1: F compiles its OWN source ---"
