@@ -94,10 +94,31 @@ self-sufficient, NOT by changing v1.
       Nearly every corpus program has a top-level `val`/expr statement, so top-level-statement support
       (ssc1-lower `lowerProg` topExprs/topValCellDefs, `ssc1-lower.ssc0`:5560-5647) is the highest-impact
       breadth slice AND must fix the loop. BUGS.md `p65-fsub-toplevel-val-infinite-loop`.
+      **✅ DONE 2026-07-18 (coordinator-verified): the loop is FIXED (EOF guards in the 3 scanners) and
+      top-level statements landed (val→hoisted cell + doc-order set/get with a forward-ref pre-pass;
+      top-level exprs→entry seq). TIMEOUT 388→0, MATCH 1→34/504, fixpoint 80,383→86,497→87,612 B (floats)
+      all `stage1==stage2` green — re-run by the coordinator: 107 ok/0 FAIL, corpus MATCH 34/504.**
+      **Measured next lever (impact-ordered): sealed traits/enums + braceless match** (~23 + the spark
+      family); NOTE the impact map was corrected — method calls on a param/local receiver are ALREADY
+      correct in F, so "prelude selectors" is NOT a cheap win (the `_sel_<m>` path is only for known
+      list-VARIABLE receivers = a list-var-registry feature). Then list-var registry, then actors/
+      scljet-sql-chains/derives-codecs.
 - [ ] **F4 — retire the second front.** Once P6.5 covers the corpus + owns its lowerer, demote the
       newfront Scala spike to test-oracle only; retire the `ssc1-front`/`ssc1-lower` ssc0 files.
 
-**F2 DESIGN QUESTION for Sergiy (recorded, not decided) — does "own the lowerer" require generating the
+**✅ F2 DESIGN QUESTION — DECIDED 2026-07-18 (Sergiy): GENERATE THE PRELUDE FROM SUBSET SOURCE.**
+Not the constant-string blob — the ~50 helper defs (`_sel_map`, `_sel_foldLeft`, `__list_head`, …) must
+be written as ScalaScript SOURCE and compiled by F's own lexer+parser+lowerer, BYTE-IDENTICAL to
+ssc1-lower's hand-built trees. This is the maximum-purity reading of "полностью сама на себе / ideal"
+and Sergiy chose it deliberately over the cheaper constant-carry. Consequences (accepted): F must grow
+`letrec`, ~15 more `#`-prims (`io.println`, `arr.new`, `map.put`, `cell.new`, …), and exact
+de-Bruijn/letrec matching. **HONEST ESCAPE HATCH (mandatory):** if byte-identity for a given helper turns
+out genuinely unachievable — the hand-built IR may correspond to no surface syntax that lowers to it —
+STOP on that helper, record the exact tree mismatch with evidence, and bring it back (like the scljet
+lock: "fix it or prove it can't be done here", never fake it). The `letrec`/prims foundation this needs
+ALSO serves the breadth constructs (F3), so build the shared foundation first — it advances both.
+
+**F2 (superseded design-question text, kept for context) — does "own the lowerer" require generating the
 7,258 B prelude from subset SOURCE, or is carrying it as a constant acceptable?** The prelude is frozen
 constant output (identical in every program; ssc1-lower emits it as hand-built constant IR, F as a string
 constant — informationally the same). Generating it "in the subset" would mean writing the ~50 helper
