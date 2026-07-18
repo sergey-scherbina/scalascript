@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-07-18 — v2-finish F1/F2/F3: trustworthy acceptance gates + first P6.5 breadth slice
+
+`v2-p65-canonical` (Decision A). No kernel edits (`v2/src/*` untouched).
+
+- **F1 — `specs/newfront-diff.sh` no longer lies green.** Runs the sbt projection from the repo ROOT
+  (the moved `ScalaSpikeSpec` is wired only there) and FAILS LOUDLY (exit 2) if any stage projects
+  nothing. Proven: `NEWFRONT_SBT_CWD=$PWD/uniml` → exit 2; default → MATCH 491/504, exit 0. Also fixed
+  an unquoted worker heredoc that executed comment backticks.
+- **F1b — `specs/v2.2-p6.5-corpus.sh` (new): the F3 metric.** P6.5's F vs ssc1-front+ssc1-lower over
+  the real 504 corpus, byte-identical, per-file timeout + TIMEOUT bucket, fails loud on empty stages.
+  Baseline: **MATCH 1/504** (curried-extern-import); DIFF 115; TIMEOUT 388.
+- **F2 measured:** F already owns its per-construct lowerer — only the 7,258 B CONSTANT prelude (9.1%)
+  is hardcoded (ssc1-lower emits the same constant as hand-built IR). "Generate the prelude from subset
+  source" recorded as a design question for Sergiy.
+- **F2/F3 first slice:** tuple-field `._1`.._4 → `_sel__N`; 93 ok/0 FAIL; **X1 fixpoint re-frozen
+  79,667 → 80,167 B**, byte-identical.
+- **Found:** `p65-fsub-toplevel-val-infinite-loop` (BUGS.md) — F loops on a top-level `val`; the #1
+  breadth blocker (388/504 corpus timeouts).
+
 ## 2026-07-18 — v2-finish R1/R2/R4: audit — reconcile the stale ROADMAP with measured reality
 
 `v2-roadmap-reconcile` (R1/R2/R4). Audit only — no kernel/behavior change. Full evidence + exact
