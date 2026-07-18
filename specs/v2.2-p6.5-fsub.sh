@@ -231,6 +231,11 @@ d cc_nest    'case class P(x: Int, y: Int)
 def main(): Int = P(P(1, 2).x, 3).y'
 d cc_builtin 'case class P(x: Int)
 def main(): List[Int] = Cons(1, Nil)'
+d tup_fst    'def main(): Int = (1, 2)._1'
+d tup_snd    'def main(): Int = (1, 2)._2'
+d tup_param  'def g(p: (Int, Int)): Int = p._1 + p._2
+def main(): Int = g((3, 4))'
+d tup_nest   'def main(): Int = ((1, 2), 3)._1._2'
 
 if [ "${1:-}" = "--self" ]; then
   echo "--- X1: F compiles its OWN source ---"
