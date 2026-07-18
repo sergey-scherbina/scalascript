@@ -269,7 +269,22 @@ def emitDefBody(nm, ar, env, ts, cx) = parseExpr(ts, 0, env, cx) match { case (b
 // on ssc1-lower topExprs: val -> `(prim cell.set (global name__cell) init)`, expr -> the expr itself).
 // The val CELL def is emitted separately (valCells) and references resolve via cell.get. walkTop
 // returns ((userDefs, docEntryItems), nDocItems); parseTopItem returns ((defPart, entryPart), rest).
-def parseTopItem(ts, cx) = if isCCHead(ts) then ccTopItem(ts, cx) else (if isTok(hd(ts), 2, 1) then defTopItem(ts, cx) else (if isTok(hd(ts), 2, 7) then valItem(ts, cx) else exprItem(ts, cx)))
+def parseTopItem(ts, cx) = if isCCHead(ts) then ccTopItem(ts, cx) else (if isTraitHead(ts) then traitItem(ts) else (if isTok(hd(ts), 2, 1) then defTopItem(ts, cx) else (if isTok(hd(ts), 2, 7) then valItem(ts, cx) else exprItem(ts, cx))))
+// `[sealed] trait X [extends ..] [{ .. }]` is a pure TYPE marker: the oracle emits NOTHING for it (a
+// sealed trait has no runtime rep). traitItem emits nothing and advances past the whole decl.
+def isWord(t, w) = if fst(t) == 1 then snd(t) == w else false
+def isTraitHead(ts) = if isWord(hd(ts), "trait") then true else (if isWord(hd(ts), "sealed") then isWord(hd(tl(ts)), "trait") else false)
+def traitItem(ts) = (("", ""), skipTraitDecl(ts))
+def skipTraitKw(ts) = if isWord(hd(ts), "sealed") then tl(tl(ts)) else tl(ts)
+def skipTraitDecl(ts) = skipTraitBody(skipExtends(skipTypeRef(skipTraitKw(ts))))
+def skipTraitBody(ts) = if isTok(hd(ts), 2, 28) then skipBrace(tl(ts), 1) else ts
+def skipBrace(ts, d) = if d == 0 then ts else (if isEmpty(ts) then ts else (if isTok(hd(ts), 2, 28) then skipBrace(tl(ts), d + 1) else (if isTok(hd(ts), 2, 29) then skipBrace(tl(ts), d - 1) else skipBrace(tl(ts), d))))
+// skip one type reference (name token + optional [generics]); skip a trailing `extends T [with T]*`.
+def skipGen(ts) = if isTok(hd(ts), 2, 50) then skipBrk(tl(ts), 1) else ts
+def skipBrk(ts, d) = if d == 0 then ts else (if isEmpty(ts) then ts else (if isTok(hd(ts), 2, 50) then skipBrk(tl(ts), d + 1) else (if isTok(hd(ts), 2, 51) then skipBrk(tl(ts), d - 1) else skipBrk(tl(ts), d))))
+def skipTypeRef(ts) = skipGen(tl(ts))
+def skipExtends(ts) = if isWord(hd(ts), "extends") then skipWithChain(skipTypeRef(tl(ts))) else ts
+def skipWithChain(ts) = if isWord(hd(ts), "with") then skipWithChain(skipTypeRef(tl(ts))) else ts
 def defTopItem(ts, cx) = emitDef(ts, cx) match { case (d, rest) => ((d, ""), rest) }
 def ccTopItem(ts, cx) = emitCCDecl(ts, cx) match { case (d, rest) => ((d, ""), rest) }
 def valItem(ts, cx) = valItem1(snd(hd(tl(ts))), skipToEq(tl(ts)), cx)
@@ -280,7 +295,9 @@ def walkTopStep(pr, cx) = pr match { case (parts, rest) => walkTopJoin(parts, wa
 def walkTopJoin(parts, acc) = parts match { case (d, e) => acc match { case (accStrs, n) => walkTopJoin2(d, e, accStrs, n) } }
 def walkTopJoin2(d, e, accStrs, n) = accStrs match { case (dA, eA) => ((join2(d, dA), join2(e, eA)), if e == "" then n else n + 1) }
 def emitCCDecl(ts, cx) = collectCC1(tl(tl(ts))) match { case c :: r => (emitCC(c, dqOf(cx)), skipCCHead(tl(tl(ts)))) case _ => ("", Nil) }
-def skipCCHead(ts) = collectFields(tl(tl(ts)), Nil) match { case (fs, r) => r }
+// A case class may carry `extends Shape [with T]*` after its params (measured: the oracle IGNORES it —
+// `case class C(x) extends Shape` lowers identically to `case class C(x)`). Skip the clause in the walk.
+def skipCCHead(ts) = collectFields(tl(tl(ts)), Nil) match { case (fs, r) => skipExtends(r) }
 // pre-pass: top-level `val` names in source order. Same item advancement as walkTop; `rest` does not
 // depend on the (not-yet-known) val names, so a base cx (empty valNames) gives the right boundaries.
 def collectTopVals(ts, cx) = if isEmpty(ts) then Nil else (if isTok(hd(ts), 2, 7) then collectValName(ts, cx) else collectTopVals(sndRest(parseTopItem(ts, cx)), cx))

@@ -279,6 +279,20 @@ def g(n: Int): Int = n + 1
 def main(): Int = f(0) + g(0)'
 d bl_braced_still 'def f(n: Int): Int = n match { case 0 => 1 case _ => 2 }
 def main(): Int = f(0)'
+d cc_extends 'case class Circle(r: Int) extends Shape
+def main(): Int = Circle(5).r'
+d trait_alone 'sealed trait Shape
+def main(): Int = 1'
+d sealed_family 'sealed trait Shape
+case class Circle(r: Int) extends Shape
+case class Rect(w: Int, h: Int) extends Shape
+def area(s: Shape): Int = s match
+  case Circle(r) => r
+  case Rect(w, h) => w
+def main(): Int = area(Circle(5))'
+d trait_plain 'trait Named
+case class P(n: Int) extends Named
+def main(): Int = P(1).n'
 
 if [ "${1:-}" = "--self" ]; then
   echo "--- X1: F compiles its OWN source ---"
