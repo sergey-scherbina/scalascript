@@ -258,7 +258,11 @@ def postSel(c, nm, cx) = if isFld(nm, cx) then "(app (global _sel_" ++ nm ++ ") 
 def emitLen(c, cx) = if isConcatCode(c, dqOf(cx)) then emitMethod("length", c, "", dqOf(cx)) else (if isStrLitish(c) then "(prim slen " ++ c ++ ")" else emitMethod("length", c, "", dqOf(cx)))
 def emitMethod(nm, c, args, dq) = "(prim __method__ (lit (str " ++ dq ++ nm ++ dq ++ ")) " ++ c ++ args ++ ")"
 def postMeth(c, nm, ts, env, cx) = parseArgs(tl(ts), env, cx) match { case (args, r) => (emitPrimMeth(nm, c, args, cx), r) }
-def emitPrimMeth(nm, c, args, cx) = if nm == "charAt" then "(prim scodeAt " ++ c ++ args ++ ")" else (if nm == "substring" then "(prim sslice " ++ c ++ args ++ ")" else emitMethod(nm, c, args, dqOf(cx)))
+// An APPLIED zero-arg call `recv.m()` (empty parens) lowers to `__method0__`, not `__method__`
+// (ssc1-lower methodPrim :1410 — dispatch-or-error, never eta-expand). A BARE selection `recv.m` keeps
+// `__method__` (via postSel/emitMethod), so method refs still work. charAt/substring always have args.
+def emitPrimMeth(nm, c, args, cx) = if nm == "charAt" then "(prim scodeAt " ++ c ++ args ++ ")" else (if nm == "substring" then "(prim sslice " ++ c ++ args ++ ")" else emitCallMethod(nm, c, args, dqOf(cx)))
+def emitCallMethod(nm, c, args, dq) = if args == "" then "(prim __method0__ (lit (str " ++ dq ++ nm ++ dq ++ ")) " ++ c ++ ")" else emitMethod(nm, c, args, dq)
 
 // -- lambdas ------------------------------------------------------------------------------------
 // `(lam N body)`, params pushed onto the env exactly like def params (so the same reverse indexing
