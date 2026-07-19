@@ -1,11 +1,10 @@
 claim: v2-p65-deep
-branch: feature/v2-p65-deep2
+branch: feature/v2-p65-deep3
 agent: opus (orchestrator session — fresh agent, handoff chain)
-heartbeat: 2026-07-19T14:53:09Z
+heartbeat: 2026-07-19T16:06:50Z
 status: in-progress (spawned agent)
-what: P6.5 breadth DEEP tail. corpus MATCH 1→369/508 (72%), fixpoint 259,326 B all stage1==stage2.
-      CLEAN ceiling 485/508: 139 DIFFs left = 23 oracle-bugs (do-NOT-reproduce) + 116 deep F-gaps.
-      TRACTABLE deep levers next (§v2-p65-deep): _sel_ list-var registry + multi-line for-block layout,
-      ctor-pattern guards, call-site default synthesis, extension methods, derived-codecs summon/given.
-      FORBIDDEN/hard residual: actors-receive let(match) cluster (do-not-touch). Keep --self green;
-      drop-check; escape-hatch+tally oracle-bugs. GOTCHA: avoid bare-var arm after ctor arm in F-source.
+what: P6.5 breadth DEEP tail. corpus MATCH 1→381/508 (75%), fixpoint 271,756 B all stage1==stage2.
+      CLEAN ceiling ~484 (oracle-bug tally 24). Tractable levers (§v2-p65-deep): leading-assign/val in
+      arm bodies, for-comprehensions + _sel_ list-var registry, default-param synthesis, extension methods,
+      derived-codecs. FORBIDDEN: actors-receive. ESCALATED (needs kernel δ, do NOT tackle): float E-notation
+      (Double.toString). Keep --self green; drop-check; do-not-reproduce oracle bugs.

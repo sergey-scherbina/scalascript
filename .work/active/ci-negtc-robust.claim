@@ -1,0 +1,12 @@
+claim: ci-negtc-robust
+branch: feature/ci-negtc-robust
+agent: opus (orchestrator session — negtc agent resumed)
+heartbeat: 2026-07-19T16:06:50Z
+status: in-progress
+what: negtc gate is a MOVING TARGET coupled to breadth. Class-too-large fixed (bytecode-error:0), but
+      now both-fail:1 + run-timeout:3 under CI load (parity mismatch:0 — F correct). As breadth flips
+      programs to compile further they surface capacity/timeout issues + invalidate the frozen baselines.
+      Make the gate ROBUST once: (1) find the both-fail:1 program (read the REPORT parity.tsv locally),
+      decide real-vs-timeout; (2) harden run/server-timeout (retry or adequate stack/-Xss64m + timeout);
+      (3) make the freeze tolerant of breadth-driven both-fail/timeout churn (or auto-track). Goal: gate
+      reliably green + stays green as breadth advances. mismatch:0 must stay the hard invariant.
