@@ -155,6 +155,23 @@ lazy val v2NativeUi = project
     scalacOptions ++= Seq("-deprecation", "-feature"),
   )
 
+// v2 JVM-bytecode-lane runtime call surface (`ssc.Emit`). Relocated OUT of the
+// minimal self-hosting kernel (`v2/src`) per specs/v2-state-2026-07-18.md §R4:
+// it is the static shim surface that GENERATED JVM bytecode (JvmByteGen) invokes
+// (`invokestatic ssc/Emit.*`) — a JVM backend's runtime support baked into the
+// kernel jar, violating "no target backend baked in." The kernel's own pipeline
+// never uses it (Runtime.scala references it only in comments; Main.scala has no
+// bytecode command). Package stays `ssc` (the FQN the emitted bytecode links);
+// depends on v2Core for the Prims/Runtime/Value/Show/V2PluginRegistry it calls.
+// Deliberately lean (no ASM) so plugins depending on it don't pull the emitter.
+lazy val v2JvmRuntime = project
+  .in(file("v2/jvm-runtime"))
+  .dependsOn(v2Core)
+  .settings(
+    name := "scalascript-v2-jvm-runtime",
+    scalacOptions ++= Seq("-deprecation", "-feature"),
+  )
+
 // Target-neutral, language-reproducible public ABI/control/artifact descriptors.
 // This is intentionally a leaf: no v1 compiler/runtime, CoreIR, backend, UniML,
 // or Scala-host control dependency may enter the canonical wire contract.
@@ -193,7 +210,7 @@ lazy val v2PluginCapabilityProfile = project
 // ClassEmitter seam; structure compiled, prims delegate to ssc.Emit shims.
 lazy val v2JvmBytecode = project
   .in(file("v2/backend-jvm-bytecode"))
-  .dependsOn(v2Core)
+  .dependsOn(v2Core, v2JvmRuntime)
   .settings(
     name := "scalascript-v2-jvm-bytecode",
     libraryDependencies += "org.ow2.asm" % "asm" % "9.7",
@@ -227,7 +244,7 @@ lazy val v2SwiftBackend = project
 // These projects depend only on the v2 runtime graph.
 lazy val v2NativePluginSpi = project
   .in(file("v2/plugin-spi"))
-  .dependsOn(v2Core, v2PluginCapabilityProfile)
+  .dependsOn(v2Core, v2PluginCapabilityProfile, v2JvmRuntime)
   .settings(
     name := "scalascript-v2-native-plugin-spi",
     libraryDependencies += scalatestTest,
@@ -1510,7 +1527,7 @@ lazy val cli = project
     pwaPlugin, markupCore, paymentsPlugin, paymentsBankRails, paymentsPix,
     loggerEffectPlugin, stateEffectPlugin, randomEffectPlugin, clockEffectPlugin,
     envEffectPlugin, retryEffectPlugin, cacheEffectPlugin,
-    v2JvmBytecode, v2JsBackend, v2SwiftBackend, v2NativeUi, v2NativePluginSpi, v2NativeHostPlugin, v2NativeCryptoPlugin, v2NativeOsPlugin, v2NativeFsPlugin, v2NativeJsonPlugin, v2NativeHttpFastPlugin, v2NativeSqlPlugin, v2NativeUiPlugin, v2NativeStateEffectPlugin, v2NativeEffectRunnersPlugin, v2NativeStorageEffectPlugin, v2NativeReactivePlugin, v2NativeYamlPlugin, v2NativeContentPlugin, v2NativeDatasetPlugin, v2NativeGeneratorPlugin, v2NativeActorsPlugin, v2NativeDistributedPlugin, v2NativeGraphPlugin, v2NativeOpticsPlugin, v2NativePdfPlugin, v2NativeNfcPlugin, v2NativeMcpPlugin, v2NativeGraphRdf4jPlugin, v2NativeSwiftPlugin, v2NativeScljetVfsPlugin)
+    v2JvmBytecode, v2JsBackend, v2SwiftBackend, v2NativeUi, v2JvmRuntime, v2NativePluginSpi, v2NativeHostPlugin, v2NativeCryptoPlugin, v2NativeOsPlugin, v2NativeFsPlugin, v2NativeJsonPlugin, v2NativeHttpFastPlugin, v2NativeSqlPlugin, v2NativeUiPlugin, v2NativeStateEffectPlugin, v2NativeEffectRunnersPlugin, v2NativeStorageEffectPlugin, v2NativeReactivePlugin, v2NativeYamlPlugin, v2NativeContentPlugin, v2NativeDatasetPlugin, v2NativeGeneratorPlugin, v2NativeActorsPlugin, v2NativeDistributedPlugin, v2NativeGraphPlugin, v2NativeOpticsPlugin, v2NativePdfPlugin, v2NativeNfcPlugin, v2NativeMcpPlugin, v2NativeGraphRdf4jPlugin, v2NativeSwiftPlugin, v2NativeScljetVfsPlugin)
   // Frontend backends — derived from allFrontends registry (arch-build-registry Phase 4)
   .dependsOn(allFrontends.map(f => ClasspathDependency(f.project, None)): _*)
   .settings(
@@ -1833,6 +1850,11 @@ lazy val cli = project
       val standardJarPrefixes = Set(
         "scala-library-", "scala3-library_3-", "asm-",
         "scalascript-v2-core_", "scalascript-v2-jvm-bytecode_",
+        // Relocated out of the kernel (F5, small) but required by the standard
+        // native/bytecode lane at runtime: NativeUiSites (std/ui ABI pass, called
+        // unconditionally by RunNativeV2.calledNativeUiPrimitives) and Emit (the
+        // ssc.Emit shim surface the generated JVM bytecode invokestatic-links).
+        "scalascript-v2-nativeui_", "scalascript-v2-jvm-runtime_",
         "scalascript-v2-native-plugin-spi_", "scalascript-v2-native-host-plugin_",
         "scalascript-v2-native-crypto-plugin_", "scalascript-v2-native-os-plugin_",
         "scalascript-v2-native-fs-plugin_", "scalascript-v2-native-json-plugin_",
@@ -4765,7 +4787,7 @@ lazy val root = project
     v2NativeContentPlugin, v2NativeDatasetPlugin, v2NativeGeneratorPlugin, v2NativeActorsPlugin,
     v2NativeDistributedPlugin, v2NativeGraphPlugin, v2NativeOpticsPlugin, v2NativePdfPlugin,
     v2NativeNfcPlugin, v2NativeMcpPlugin, v2NativeGraphRdf4jPlugin, v2NativeSwiftPlugin,
-    v2JvmBytecode, v2JsBackend, v2SwiftBackend, v2NativeUi,
+    v2JvmBytecode, v2JsBackend, v2SwiftBackend, v2NativeUi, v2JvmRuntime,
     valueData, backendSpi, pluginApi, ir, logger, yaml, uniml, unimlJs, unimlJson, unimlJsonJs, unimlXml, unimlXmlJs, unimlYaml, unimlYamlJs, unimlMarkdown, unimlMarkdownJs, unimlMarkdownBridge, core, scala3ControlApi, interop, testUtils, pluginHost, wireCore,
 
     runtimeServerCommon, runtimeServerSpi, runtimeServerJvm,
