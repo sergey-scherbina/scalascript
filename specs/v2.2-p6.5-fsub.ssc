@@ -280,9 +280,12 @@ def binPrecK(k) = if k == 57 then 1 else (if k == 47 then 1 else (if k == 46 the
 // -> the nullary-case ctor cons-list (measured: ssc1-lower enumCasesCell/enumValuesList :140/349-390).
 // varNames = top-level `var` names: read like a top val (`(prim cell.get (global name__cell))`, IDENTICAL
 // to isTopVal), but its cell is emitted in the topVar slot (BEFORE val cells) and it is assignable.
-def mkCx(dq, ccNames, fldNames, valNames, ecn, ereg, varNames, bs) = (dq, (ccNames, (fldNames, (valNames, (ecn, (ereg, (varNames, bs)))))))
+// The deepest slot carries `(bs, pless)`: pless = top-level PARENLESS def names (`def n [:T] = e`), a
+// reference to which FORCES the (lam 0 ..) thunk -> `(app (global n))` (ssc1-lower parenless method).
+def mkCx(dq, ccNames, fldNames, valNames, ecn, ereg, varNames, bs, pless) = (dq, (ccNames, (fldNames, (valNames, (ecn, (ereg, (varNames, (bs, pless))))))))
 def dqOf(cx) = fst(cx)
-def bsOf(cx) = snd(snd(snd(snd(snd(snd(snd(cx)))))))
+def bsOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(cx))))))))
+def plessOf(cx) = snd(snd(snd(snd(snd(snd(snd(snd(cx))))))))
 def ccNamesOf(cx) = fst(snd(cx))
 def fldNamesOf(cx) = fst(snd(snd(cx)))
 def valNamesOf(cx) = fst(snd(snd(snd(cx))))
@@ -293,6 +296,7 @@ def isCC(nm, cx) = memL(nm, ccNamesOf(cx))
 def isFld(nm, cx) = memL(nm, fldNamesOf(cx))
 def isTopVal(nm, cx) = memL(nm, valNamesOf(cx))
 def isTopVar(nm, cx) = memL(nm, varNamesOf(cx))
+def isPlessDef(nm, cx) = memL(nm, plessOf(cx))
 def isEnumCase(nm, cx) = memL(nm, enumCaseNamesOf(cx))
 def enumTypeMem(nm, reg) = reg match { case Nil => false case h :: t => if fst(h) == nm then true else enumTypeMem(nm, t) }
 def isEnumType(nm, cx) = enumTypeMem(nm, enumRegOf(cx))
@@ -570,7 +574,7 @@ def tupleCtor(es) = "(ctor Tuple" ++ dlen(es) ++ joinArgs(es) ++ ")"
 // Read resolution mirrors lowerE :2464-2483: plain name in scope -> `(local i)`; else a block-local var
 // bound `@@name`(long cell) -> `(prim lcell.get (local i))` or `@name`(cell) -> `(prim cell.get (local i))`;
 // else a top-level var/val -> `(prim cell.get (global name__cell))`; else a bare global.
-def calleeOf(nm, env, cx) = if lookup(nm, env) >= 0 then "(local " ++ lookup(nm, env) ++ ")" else (if lookup("@@" ++ nm, env) >= 0 then "(prim lcell.get (local " ++ lookup("@@" ++ nm, env) ++ "))" else (if lookup("@" ++ nm, env) >= 0 then "(prim cell.get (local " ++ lookup("@" ++ nm, env) ++ "))" else (if isTopVar(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else (if isTopVal(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else "(global " ++ nm ++ ")"))))
+def calleeOf(nm, env, cx) = if lookup(nm, env) >= 0 then "(local " ++ lookup(nm, env) ++ ")" else (if lookup("@@" ++ nm, env) >= 0 then "(prim lcell.get (local " ++ lookup("@@" ++ nm, env) ++ "))" else (if lookup("@" ++ nm, env) >= 0 then "(prim cell.get (local " ++ lookup("@" ++ nm, env) ++ "))" else (if isTopVar(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else (if isTopVal(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else (if isPlessDef(nm, cx) then "(app (global " ++ nm ++ "))" else "(global " ++ nm ++ ")")))))
 // A lowercase call may carry explicit type args before its `(args)` or block arg — `foo[T](x)`,
 // `coroutineCreate[Int, Unit, String] { .. }`. Type args are erased, so skip the `[..]` (skipGen) and
 // dispatch on the following `(` (or fall to a bare ref, letting postfix pick up a trailing block arg).
@@ -811,7 +815,15 @@ def parseParamClose(ts, env, d) = if d == 0 then (env, tl(ts)) else parseParamSk
 def parseParamComma(ts, env, d) = if d == 0 then parseParams(tl(ts), env) else parseParamSkipD(tl(ts), env, d)
 def skipToEq(ts) = if isEmpty(ts) then Nil else (if isTok(hd(ts), 2, 20) then tl(ts) else skipToEq(tl(ts)))
 def emitDef(ts, cx) = emitDef1(snd(hd(tl(ts))), tl(tl(ts)), cx)
-def emitDef1(nm, ts, cx) = parseParams(tl(ts), Nil) match { case (env, r) => emitDefBody(nm, dlen(env), env, skipToEq(r), cx) }
+// PARENLESS def `def n [: T] = body` (ts at the token after the name) has NO `(` -> a nullary thunk
+// `(def n (lam 0 <body>))` (ssc1-lower); a reference forces it (calleeOf). Normal `def n(ps) = body` unchanged.
+def emitDef1(nm, ts, cx) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil) match { case (env, r) => emitDefBody(nm, dlen(env), env, skipToEq(r), cx) } else emitDefBody(nm, 0, Nil, skipToEq(ts), cx)
+// pre-pass: top-level parenless-def names (same item advancement as collectTopVals; rest is
+// resolution-independent so a base cx gives the right boundaries).
+def collectPlessDefs(ts, cx) = collectPless0(skipSemisF(ts), cx)
+def collectPless0(ts, cx) = if isEmpty(ts) then Nil else (if isPlessHead(ts) then Cons(snd(hd(tl(ts))), collectPlessDefs(sndRest(parseTopItem(ts, cx)), cx)) else collectPlessDefs(sndRest(parseTopItem(ts, cx)), cx))
+def isPlessHead(ts) = if isTok(hd(ts), 2, 1) then isPlessAfterName(tl(tl(ts))) else false
+def isPlessAfterName(ts) = if isTok(hd(ts), 2, 21) then false else true
 def emitDefBody(nm, ar, env, ts, cx) = parseExpr(ts, 0, env, cx) match { case (body, rest) => ("(def " ++ nm ++ " (lam " ++ ar ++ " " ++ body ++ "))", rest) }
 // -- top-level statement walk -------------------------------------------------------------------
 // Each top-level item is `def`, `case class`, `val`, or a bare expression. def/case-class land in the
@@ -1112,9 +1124,9 @@ def compile1(ts, dq, bs) = compile2(ts, collectCC(ts), collectTypeCases(ts), dq,
 // The pre-pass results become the parse CONTEXT: case-class names (cs, cc-only, for isCC) + the UNIFIED
 // type-case field names (tcs, cc + enum cases) + top-level val names + the enum registries. Top-level vals
 // are collected with a base cx first (their `rest` boundaries do not depend on val-name resolution).
-def mkCxE(cs, tcs, ts, dq, vals, vars, bs) = mkCx(dq, ccNamesL(cs), allFieldNames(tcs), vals, collectEnumCaseNames(ts), collectEnumReg(ts), vars, bs)
-def compile2(ts, cs, tcs, dq, bs) = compile2b(ts, cs, tcs, dq, bs, mkCxE(cs, tcs, ts, dq, Nil, Nil, bs))
-def compile2b(ts, cs, tcs, dq, bs, base) = compile3(ts, cs, tcs, dq, mkCxE(cs, tcs, ts, dq, collectTopVals(ts, base), collectTopVars(ts, base), bs))
+def mkCxE(cs, tcs, ts, dq, vals, vars, bs, pless) = mkCx(dq, ccNamesL(cs), allFieldNames(tcs), vals, collectEnumCaseNames(ts), collectEnumReg(ts), vars, bs, pless)
+def compile2(ts, cs, tcs, dq, bs) = compile2b(ts, cs, tcs, dq, bs, mkCxE(cs, tcs, ts, dq, Nil, Nil, bs, Nil))
+def compile2b(ts, cs, tcs, dq, bs, base) = compile3(ts, cs, tcs, dq, mkCxE(cs, tcs, ts, dq, collectTopVals(ts, base), collectTopVars(ts, base), bs, collectPlessDefs(ts, base)))
 def compile3(ts, cs, tcs, dq, cx) = walkTop(ts, cx) match { case (strs, nDoc) => compile4(strs, nDoc, ts, tcs, dq, cx) }
 // def order: prelude, topValCells, sels(accessors), userDefs; then the entry. prelude/valCells/sels
 // each carry a trailing space as their separator; when userDefs is empty that space would sit right
