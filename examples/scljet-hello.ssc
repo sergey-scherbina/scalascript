@@ -1,0 +1,68 @@
+#!/usr/bin/env ssc
+---
+name: scljet-hello
+description: A first taste of SclJet — create a small database and work with it through the JDBC-shaped façade (CRUD, a query, and a bound ? parameter)
+backends: [int, js]
+---
+
+# Hello, SclJet — a tiny library database
+
+SclJet is a SQLite engine written in ScalaScript. This is the friendly front door: the
+`scljet/jdbc.ssc` façade, which speaks the method names a JDBC caller already knows.
+
+Two imports — markdown links whose left side lists the names and whose right side names the module.
+`index.ssc` gives the value types and the database builder; `jdbc.ssc` gives the connection surface.
+
+[SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[JdbcConnection, JdbcResultSet, jdbcOpen, jdbcExecuteUpdate, jdbcExecuteUpdateParams, jdbcExecuteQuery, jdbcExecuteQueryParams, rsNext, rsHasRow, rsGetLong, rsGetString](std/scljet/jdbc.ssc)
+
+```scalascript
+// A connection is immutable: every write returns a NEW database image, so `run` threads the new
+// connection forward instead of mutating in place.
+def run(conn: JdbcConnection, sql: String): JdbcConnection =
+  jdbcExecuteUpdate(conn, sql) match
+    case Left(m)  => println("  ! " + m); conn
+    case Right(u) => u.conn
+
+// Print each result row as "id · title (year)".
+def list(conn: JdbcConnection, sql: String): Unit =
+  printRows(jdbcExecuteQuery(conn, sql))
+
+def printRows(res: Either[String, JdbcResultSet]): Unit =
+  res match
+    case Left(m) => println("  ! " + m)
+    case Right(rs) =>
+      var row = rsNext(rs)
+      while rsHasRow(row) do
+        println("  " + rsGetLong(row, 1).toString + " · " +
+          rsGetString(row, 2) + " (" + rsGetLong(row, 3).toString + ")")
+        row = rsNext(row)
+
+// 1. Create a database with one table and a first row.
+//    (buildTableDatabase writes a complete, valid SQLite image to start from.)
+buildTableDatabase(512, 1, 1, "books",
+  "CREATE TABLE books(id INTEGER PRIMARY KEY, title TEXT, year INTEGER)",
+  List(List(SqlInteger(1L), SqlText("The Little Schemer"), SqlInteger(1974L)))) match
+  case Left(e) => println("could not create the database: " + e.message)
+  case Right(image) =>
+    val db = jdbcOpen(image)
+
+    // 2. Add a couple more books.
+    val c1 = run(run(db,
+      "INSERT INTO books VALUES (2, 'Structure and Interpretation', 1985)"),
+      "INSERT INTO books VALUES (3, 'Types and Programming Languages', 2002)")
+
+    println("all books, newest first:")
+    list(c1, "SELECT id, title, year FROM books ORDER BY year DESC")
+
+    // 3. Fix a title, then look it up.
+    val c2 = run(c1, "UPDATE books SET title = 'SICP' WHERE id = 2")
+    println("after the edit:")
+    list(c2, "SELECT id, title, year FROM books WHERE id = 2")
+
+    // 4. A bound ? parameter — the value is bound at the token level, never spliced into the SQL,
+    //    so it can never break out of the query.
+    println("published this century (year > ?):")
+    printRows(jdbcExecuteQueryParams(c2,
+      "SELECT id, title, year FROM books WHERE year > ? ORDER BY year", List(SqlInteger(2000L))))
+```
