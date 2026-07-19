@@ -368,6 +368,35 @@ baseline set `/tmp/baseline_deep4.txt` for `comm -23` drop-checks. Impact map + 
 crystallizes; **do not develop v1 further.** v2 is the NEW version: fully self-written (self-hosted),
 **ideal, small, powerful.** v2 does NOT depend on v1 and does NOT need to be v1-compatible.
 
+> **★ ENDGAME DECISION — OPTION C (Sergiy, 2026-07-19): v2 DEFINES ITS OWN IDEAL SURFACE.**
+> The target is NO LONGER "F byte-identical to the ssc1-front+ssc1-lower oracle on 100% of the corpus."
+> It is: **v2 is a clean, complete, ideal language — it does NOT inherit v1's warts.** Consequences,
+> and they change what the breadth lane is doing:
+> - **Where the oracle is BUGGY (the 24 oracle-degradation DIFFs — F already emits the correct thing),
+>   v2 is RIGHT. These are NOT gaps and NOT to be "matched."** They are v2 being better than v1.
+> - **Gnarly v1 lowering artifacts that aren't real language features are OUT of v2's surface** — the
+>   actors-receive `let(match)`/`if __isTag__` quirk (~10), and any other v1-lowering wart. v2 does not
+>   reproduce them; v1 keeps them, frozen.
+> - **Legitimate language features an ideal ScalaScript SHOULD have stay IN and get implemented cleanly**
+>   — extension methods, given/summon, nested patterns, for-comprehensions, etc. Keep grinding these
+>   (byte-identity to the oracle is still the practical check WHERE the oracle is sensible, but the
+>   *goal* is a clean complete language, not oracle-mimicry).
+> - **float E-notation (~2)** needs a kernel δ — defer/decide separately; not a v2-surface blocker.
+>
+> **What this unblocks:** F does NOT need to cover the excluded residual, so at F4 we can declare F
+> canonical and **cut `bin/ssc` over to F for v2's surface, retiring the FrontendBridge** (which exists
+> to serve v1's full messy surface) — which is what finally lets F5 shrink the kernel to ~2,400–2,800
+> (the ~1,200 FrontendBridge δ-prims go). Breadth → F4 (cutover + define-surface spec) → real kernel shrink.
+>
+> **NEXT STEPS under Option C:**
+> 1. Keep grinding the CLEAN/ideal arcs (extension methods, given/summon, nested patterns, for-comp) —
+>    §v2-p65-deep* impact maps. These belong in ideal v2.
+> 2. Author `specs/v2-language-surface.md` — the definitive IN/OUT list (what v2's language is; what v1
+>    warts + oracle bugs are deliberately excluded). This is the F4 contract.
+> 3. F4: cut `bin/ssc` over to F as canonical for v2's surface; retire the FrontendBridge; then F5
+>    shrinks the kernel for real. State: corpus MATCH 395/509 (78%), fixpoint byte-identical @ 297,902 B,
+>    self-host + backends (F6) done, F5 mechanical done (kernel 5936 lines, awaiting the bridge retirement).
+
 **This DESELECTS** (do not pursue these as v2 goals): making v2 parse v1's surface via a bridge;
 dropping scalameta *from v1* (v1 keeps whatever it has); the K61 v1.0-compat-frontend framing;
 K62 "scalameta-free parity so v1 can drop it". The `v2FrontendBridge` seam is retired by making v2
