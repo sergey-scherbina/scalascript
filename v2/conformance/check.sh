@@ -178,6 +178,10 @@ chk run examples/tco.ssc0  "500000500000"
 
 echo "# widened primitives (strings, BigInt, maps, Option)"
 chk run examples/bigfact.ssc0 "265252859812191058636308480000000"
+# BigInt on the compiled tower backends (was silently dropped: Rust emitted V::U,
+# tower-JS emitted 0 — fail-open). Rust uses i128 (faithful wide-int, loud panic
+# past i128); JS uses native BigInt. WASM reuses the Rust backend (same fix).
+chk_raw_targets bigfact examples/bigfact.ssc0 "265252859812191058636308480000000"
 chk run examples/mapdemo.ssc0 "1"
 
 echo "# multi-file import"
