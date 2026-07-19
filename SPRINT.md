@@ -696,6 +696,47 @@ Slices, impact-ordered:
       the strip-only path (no reorder, no default synth) alone flips 21; the entangled ctor-reorder cases are
       a SEPARATE smaller residue.
 
+**➜ HANDOFF (`v2-p65-ccm`, 2026-07-19): 3 slices landed = corpus MATCH 274→300/508 (59%), 0 regressions,
+X1 fixpoint stage1==stage2 byte-identical 179,087→192,045 B, --self 153 ok/0 FAIL, kernel +0, no v2/lib edits.**
+Slices: T3 cc-body-methods (+3), M1 @main annotation skip (+2), M2 named-arg strip (+21, biggest single lever
+this whole chain). AUTHORITATIVE work dir = `/tmp/p65ccm` (code+ref regenerated with THIS kernel jar
+`/tmp/ssc-ccm.jar`). Rebuild jar: `scala-cli --power package v2/src --assembly -o /tmp/ssc-ccm.jar --force`.
+Corpus: `SSC_JAR=/tmp/ssc-ccm.jar V2_DIR=<wt>/v2 NEWFRONT_WORK=/tmp/p65ccm bash specs/v2.2-p6.5-corpus.sh`
+(reuses code+ref, only recomputes F's side — fast). --self: `... bash specs/v2.2-p6.5-fsub.sh --self` (do NOT
+`| tail` it — that hides d() FAILs; grep the full output). Histogram tool: `/tmp/ccm_hist.py`.
+**FRESH FIRST-DIVERGENCE IMPACT MAP over the 208 remaining DIFFs (biggest lever first):**
+- **derived codecs / `derives` (~20, BIGGEST but HARD)** — `derives Codec`/JsonCodec/mirror machinery →
+  `(def __derived_XCodec_Y ..)` + codec init in entry. custom-derives-mirror, dataset-typed-mapping,
+  distributed-dataset-{codec,typed-helpers,wire-protocol,wire-shuffle}, graph-{codecs,fullstack,fullstack-rdf,
+  janusgraph-gremlin,neo4j-storage,rdf4j-storage,storage}, object-store-{jdbc,sync-routes}, rozum-agent-schema-
+  derived, spark-{schema-mapping,shared-schema-reader}, typed-object-codec, typed-sql-crud. Deep derivation port.
+- **guarded match `case pat if guard =>` (9)** — bank-rails-fednow, auth-full, data-types, direct-syntax-demo,
+  distributed-streams, mcp-client-invoke, pattern-matching, scala-js-demo, standard-scala-multifence. F's
+  parseMatchArms only has parseIntMatch (int if-chain) / parseCtorMatch (ctor arms); a bare VAR pattern
+  (`case x =>`) OR any guard needs a THIRD path. I DERIVED the oracle's exact target (from data-types
+  `classify`): `(let (scrut) <chain>)` then each arm nested in the ELSE of the prior — VAR `case x [if g]`
+  → `(let (<current-scrut-ref>) <(if g body rest) | body>)` binding x to the scrutinee (its (local i) rises
+  as lets accumulate); INT `case N` → `(if (__eq__ <scrut-ref> (lit N)) body rest)`; WILDCARD `case _` →
+  body (terminal). ⚠️ The CTOR-guard subcase (`case Some(m) if ..`, auth-full/bank-rails-fednow) needs
+  FALLTHROUGH to the next arm on guard failure = the general resolveMatch, much harder — do var/int/wild
+  first, ctor-guard second. ⚠️ SHARES lowering with the actors-receive match cluster (below) — don't break
+  the existing parseIntMatch/parseCtorMatch (all match-heavy MATCH files ride them).
+- **actors receive match (3+: actors-bounded-mailbox/pingpong/process-info, actors-cluster-discovery,
+  actors-typed-remote-spawn)** — `ref='let ((local N)) (let ((l..'` — DO NOT TOUCH (deep shared match strategy).
+- **`direct { .. }` monad desugar (~4: direct-control-flow, direct-syntax, tagless-direct-syntax,
+  direct-syntax-demo)** — `ref='_sel_flatMap) (ctor Some'` vs `mine='direct) (lam..'`; ssc1-lower desugarDirect
+  :2011 (the ~13 grep hits over-count — most just contain "direct" in prose/strings).
+- **optics/lenses/.copy (~8: lenses, optic-polish, user-request-shadow, optics-index-at, optional, traversal,
+  spark-catalog-hive)** — `Focus[T](_.field)` → `(prim optics.focus ..)`; `.copy(f = v)` → a cell-based field
+  copy (`ref='let ((prim cell.get (glo..'`); `optics.prism`. Deep/optics-specific.
+- DEFERRED (escape-hatch): float-exponent (`1.0e100`→`1.0E100`, needs exact Double.toString — normalizes;
+  actors-phi-accrual/control-center-live/spark-lakehouse-hudi).
+- GOTCHAS this session: (1) named-args was NOT as entangled as the prior handoff feared — plain strip-label
+  (no reorder, no default synth) flips 21; the ctor-reorder/default cases are a small SEPARATE residue.
+  (2) `@main def run` — F's lexer dropped only `@` leaving `main` as a stray expr; now lexAt skips the whole
+  annotation. (3) cc-body method DEF order is prelude,varCells,valCells,caseMethodDefs,sels,userDefs and the
+  cross-class reg/def order is REVERSED (ssc1-front prepends). (4) always run --self WITHOUT `| tail`.
+
 **➜ HANDOFF (`v2-p65-tail`, 2026-07-19): 5 slices landed (T1 triple-quote +7, T2 null +1, T4 collection-
 curry +1, T5 nested-interp +4, T6 bracket-list +11) = corpus MATCH 249→274/505 (fresh full 507-corpus
 250→274, 54%), ALL 0 regressions, X1 fixpoint stage1==stage2 byte-identical 169,133→179,087 B, --self all
