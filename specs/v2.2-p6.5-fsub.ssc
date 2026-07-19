@@ -555,7 +555,13 @@ def ctorApp(nm, args, cx) = if isBuiltinCtor(nm) then "(ctor " ++ nm ++ args ++ 
 def parseParen(ts, env, cx) = if isTok(hd(ts), 2, 22) then ("(lit unit)", tl(ts)) else parseParen1(ts, env, cx)
 def parseParen1(ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => parseParenEnd(e, r, env, cx) }
 def parseParenEnd(e, ts, env, cx) = if isTok(hd(ts), 2, 27) then parseTupRest(e, tl(ts), env, cx) else (e, tl(ts))
-def parseTupRest(e, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e2, r) => ("(ctor Tuple2 " ++ e ++ " " ++ e2 ++ ")", tl(r)) }
+// A k-element tuple literal `(e1, .., ek)` -> `(ctor Tuple<k> e1 .. ek)` (ssc1-lower :2560-ish; k>=2,
+// measured `(1,2,3)`->Tuple3, `(1,2,3,4)`->Tuple4). Collect ALL comma-separated elements; k==2 is byte-
+// identical to the old Tuple2 path (joinArgs prefixes each with a space).
+def parseTupRest(e, ts, env, cx) = collectTupElems(ts, env, cx) match { case (es, r) => (tupleCtor(Cons(e, es)), r) }
+def collectTupElems(ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e2, r) => collectTupMore(e2, r, env, cx) }
+def collectTupMore(e2, ts, env, cx) = if isTok(hd(ts), 2, 27) then collectTupElems(tl(ts), env, cx) match { case (rest, r2) => (Cons(e2, rest), r2) } else (Cons(e2, Nil), tl(ts))
+def tupleCtor(es) = "(ctor Tuple" ++ dlen(es) ++ joinArgs(es) ++ ")"
 // A bare name resolves to (local i) when bound, else to a global call. `f(a, b)` -> (app (global f) a b).
 // A name resolves against the env FIRST -- including in callee position: calling a bound name emits
 // `(app (local i) ..)`, not `(app (global nm) ..)` (measured on `def ap(f, x) = f(x)`). F's own source
