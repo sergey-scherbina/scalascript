@@ -999,24 +999,33 @@ def importItem(ts) = (("", ""), skipImport(ts))
 def skipImport(ts) = if isEmpty(ts) then ts else (if isTok(hd(ts), 2, 52) then tl(ts) else (if isTok(hd(ts), 2, 25) then skipImportStar(tl(ts)) else skipImport(tl(ts))))
 def skipImportStar(ts) = if isTok(hd(ts), 2, 52) then tl(ts) else ts
 def parseTopItem(ts, cx) = if isImportHead(ts) then importItem(ts) else (if isEnumHead(ts) then enumItem(ts, cx) else (if isCCHead(ts) then ccTopItem(ts, cx) else (if isTraitHead(ts) then traitItem(ts) else (if isObjectHead(ts) then objectItem(ts, cx) else (if isTok(hd(ts), 2, 1) then defTopItem(ts, cx) else (if isTok(hd(ts), 2, 7) then valItem(ts, cx) else (if isVarHead(ts) then varTopItem(ts, cx) else (if isWhileHead(ts) then whileTopItem(ts, cx) else (if isAssignHead(ts) then assignTopItem(ts, cx) else exprItem(ts, cx))))))))))
-// -- objects (DA10) -----------------------------------------------------------------------------
-// `object O [extends ..]: <defs>` / `object O { <defs> }` flattens each method to a top-level
-// prefixed def `(def O_m (lam N body))`, emitted INLINE at O's source position (userDefs, doc order) —
-// ssc1-front `("object",(name,[stmts]))` :2731, ssc1-lower prefixDefs :4146. A call `O.m(args)` resolves
-// to `(app (global O_m) args)` via the objReg cx slot (collectObjReg pre-pass + emitMethodCall branch).
-// Scope: DEF members (param'd `def m(p)` and empty-parens `def m()` both → `(lam N body)`); reuse emitDef1
-// with the prefixed name. Parameterless-def/val/var/nested-type members are a FOLLOW-UP.
+// -- objects (DA10 + DA13) ----------------------------------------------------------------------
+// `object O [extends ..]: <members>` / `object O { <members> }` flattens each member to a top-level
+// prefixed def, emitted INLINE at O's source position (userDefs, doc order) — ssc1-front
+// `("object",(name,[stmts]))` :2731, ssc1-lower prefixDefs :4146. Member forms (DA13): `def m(p)`/`def m()`
+// → `(def O_m (lam N body))`; parameterless `def m` → `(def O_m body)` (eager property); `val v = e` →
+// `(def O_v body)`; `var v = e` → `(def O_v__cell (prim cell.new e))`. A call `O.m(args)` → `(app (global
+// O_m) args)` and a bare selection `O.v` → `(global O_v)` (objReg cx slot + emitMethodCall/postSel).
+// Nested-type members (case class/enum) are still a FOLLOW-UP. collectObjMembers returns
+// [(kind, (name, toks))] in SOURCE order (reuses skipStmt for advancement, same as collectMethodDefs).
 def isObjectHead(ts) = isWord(hd(ts), "object")
 def objBodyToks(ts) = if isEmpty(ts) then ts else (if isTok(hd(ts), 2, 28) then ts else objBodyToks(tl(ts)))
 def objectItem(ts, cx) = objectItem1(snd(hd(tl(ts))), objBodyToks(tl(tl(ts))), cx)
-def objectItem1(name, ts, cx) = if isTok(hd(ts), 2, 28) then ((objDefsStr(name, collectMethodDefs(tl(ts)), cx), ""), skipBrace(tl(ts), 1)) else (("", ""), ts)
+def objectItem1(name, ts, cx) = if isTok(hd(ts), 2, 28) then ((objDefsStr(name, collectObjMembers(tl(ts)), cx), ""), skipBrace(tl(ts), 1)) else (("", ""), ts)
+def collectObjMembers(ts) = collectOM(skipSemisF(ts))
+def collectOM(ts) = if isEmpty(ts) then Nil else (if isTok(hd(ts), 2, 29) then Nil else (if isWord(hd(ts), "override") then collectOM(tl(ts)) else (if isTok(hd(ts), 2, 1) then collectOMk("def", ts) else (if isTok(hd(ts), 2, 7) then collectOMk("val", ts) else (if isVarHead(ts) then collectOMk("var", ts) else collectOM(skipStmt(ts)))))))
+def collectOMk(kind, ts) = Cons((kind, (snd(hd(tl(ts))), objMemToks(kind, tl(tl(ts))))), collectOM(skipSemisF(skipStmt(tl(tl(ts))))))
+def objMemToks(kind, ts) = if kind == "def" then ts else skipToEq(ts)
 def objDefsStr(name, ms, cx) = ms match { case Nil => "" case h :: t => join2(objDef1(name, h, cx), objDefsStr(name, t, cx)) }
-def objDef1(name, m, cx) = m match { case (mname, toks) => fst(emitDef1(name ++ "_" ++ mname, toks, cx)) }
+def objDef1(name, m, cx) = m match { case (kind, nt) => nt match { case (mname, toks) => objDefEmit(kind, name ++ "_" ++ mname, toks, cx) } }
+def objDefEmit(kind, pfx, toks, cx) = if kind == "def" then objDefE(pfx, toks, cx) else (if kind == "val" then "(def " ++ pfx ++ " " ++ fst(bodyExpr(toks, Nil, cx)) ++ ")" else "(def " ++ pfx ++ "__cell (prim cell.new " ++ fst(bodyExpr(toks, Nil, cx)) ++ "))")
+def objDefE(pfx, ts, cx) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil) match { case (env, r) => fst(emitDefBody(pfx, dlen(env), env, skipToEq(r), cx)) } else "(def " ++ pfx ++ " " ++ fst(bodyExpr(skipToEq(ts), Nil, cx)) ++ ")"
 // pre-pass: objReg = [Pair(objName, [memberNames])], scanned directly off the token stream (base-cx-free).
 def collectObjReg(ts) = if isEmpty(ts) then Nil else (if isObjectHead(ts) then collectOR1(ts) else collectObjReg(tl(ts)))
 def collectOR1(ts) = collectOR2(snd(hd(tl(ts))), objBodyToks(tl(tl(ts))))
-def collectOR2(name, ts) = if isTok(hd(ts), 2, 28) then Cons((name, memberNamesOf(collectMethodDefs(tl(ts)))), collectObjReg(skipBrace(tl(ts), 1))) else collectObjReg(ts)
-def memberNamesOf(ms) = ms match { case Nil => Nil case h :: t => Cons(fst(h), memberNamesOf(t)) }
+def collectOR2(name, ts) = if isTok(hd(ts), 2, 28) then Cons((name, memberNamesOf(collectObjMembers(tl(ts)))), collectObjReg(skipBrace(tl(ts), 1))) else collectObjReg(ts)
+def memberNamesOf(ms) = ms match { case Nil => Nil case h :: t => Cons(objMemName(h), memberNamesOf(t)) }
+def objMemName(m) = m match { case (kind, nt) => fst(nt) }
 def objMemsOf(name, reg) = reg match { case Nil => Nil case h :: t => if fst(h) == name then snd(h) else objMemsOf(name, t) }
 def isObjMember(name, m, cx) = if name == "" then false else memL(m, objMemsOf(name, objRegOf(cx)))
 // A top-level `var name [: T] = init` runs its initializer in the entry as `cell.set(global name__cell)`
