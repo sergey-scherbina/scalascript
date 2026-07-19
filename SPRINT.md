@@ -300,8 +300,18 @@ baseline set `/tmp/baseline_deep4.txt` for `comm -23` drop-checks. Impact map + 
       stage1==stage2 282,747 B, --self 153 ok/0 FAIL. First-div now: default-params @8760 = CALL-SITE synthesis (part b);
       typed-data @10105 = generic-def type params (`def map[A,B](f,box)` → F emits `lam 0`+globals) — SEPARATE lever,
       typed-data needs BOTH generic-def-typeparams AND part b to flip.
-- [ ] **E2 — call-site default synthesis (part b, DEEP).** `greet()`/`Box()`/`shift(10)`/`Person("Bob",25)` fill omitted
-      trailing args from funcDefaultsCell. Oracle ssc1-lower :1754-1900. SLICE carefully; do NOT ship half-done.
+- [x] **E2 — call-site default synthesis DONE (`13ff4a1cc`).** Under-applied positional call to a registered
+      def/case-class/enum-case (omitted trailing params all have real defaults, not shadowed, no named args)
+      → nested one-arg lambdas (oracle expandDefaultCall :1883→resolveE). NEW: 12th cx slot funcDflts
+      (collectFuncDflts pre-pass; objRegOf+fst, funcDfltsOf its snd); collectPD/captureDflt capture default
+      token slices; scanArgs non-emitting arg-slicer; dfltGo gate; synthCall/synthWrap re-parse each default
+      in the scoped env. Plain path (full/over/named/unregistered/curried-2nd/object-method) byte-identical.
+      Corpus 393→394 (+default-params), 0 drops, X1 stage1==stage2 297,464 B, --self 153 ok/0 FAIL. GOTCHA
+      HIT: `val` is a reserved kw — never a param name (oracle mis-lexed → `_err`); paren-count the cx
+      accessors (funcDfltsOf had one extra `)` → leaked top-level `expr:_err`). typed-data STILL DIFF (Person
+      synthesis now correct, but blocked EARLIER by generic-DEF type params `def map[A,B]` → E-next). Deeper
+      part-b sub-cases (curried first-clause padFirstClauseDflts, object-method aliasFuncDefault, named-arg
+      narg reorder) are SEPARATE features — no corpus file needs them to flip; safely deferred via fallback.
 - [ ] **E3 — nested tuple patterns (4 files).** parsing-error-node/recover-until, distributed-word-count/log-aggregation.
 - [ ] **E4 — extension methods (`extension (n) def m` → `X_method`).**
 - [ ] **E5 — symbolic operators `~>`/`<~` (lexer change; oracle → `(app (global op) l r)`).**
