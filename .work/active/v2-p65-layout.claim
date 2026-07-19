@@ -1,11 +1,13 @@
 claim: v2-p65-layout
-branch: feature/v2-p65-guard
+branch: feature/v2-p65-codecs2
 agent: opus (orchestrator session — fresh agent, handoff chain)
-heartbeat: 2026-07-19T10:10:39Z
+heartbeat: 2026-07-19T11:08:49Z
 status: in-progress (spawned agent)
-what: P6.5 breadth lane, SOLE live lane (F5+F6 done). DONE (coordinator-verified): +cc/tc-body-methods
-      +@main-skip +named-args, corpus MATCH 1→300/508 (59%), fixpoint 192,045 B all stage1==stage2.
-      NEXT (§v2-p65-ccm histogram over 208 DIFFs): guarded match case pat if g=> (9, target shape derived
-      in §v2-p65-ccm — needs a 3rd match path, must NOT break shared parseIntMatch/parseCtorMatch),
-      derived-codecs/derives (~20 HARD), direct{} desugar (~4), optics/lenses/.copy (~8). Keep --self green;
-      never push broken; no MATCH drops. GOTCHA: F uses tuple (a,b) not Pair; DO NOT touch actors-receive match.
+what: P6.5 breadth lane. DONE (coordinator-verified): +guarded-scalar-match/!expr/???/hex/tuple-3,
+      corpus MATCH 1→311/508 (61%), fixpoint 203,415 B all stage1==stage2. NEXT (§v2-p65-guard map over
+      197 DIFFs): .copy(f=v) (clean +1, byte-shape derived in §v2-p65-guard — do first), :+/+: & bitwise
+      ops (clean-ish, needs opPrec), derived-codecs/derives (~20 HARD), ctor-guard (extends G1, needs
+      guard-fail fallthrough), direct{}/optics (deep). Keep --self green; drop-check via baseline stash;
+      never push broken. GOTCHA: F uses tuple (a,b) not Pair; DO NOT touch actors-receive match.
+coord: F5+F6 done; a v2-f5-buildjvm-fix sibling is fixing a build.sbt classpath regression (build-jvm
+      artifact ClassNotFound Emit) — it touches build.sbt/CLI, not your specs/v2.2-p6.5-fsub.ssc. Rebase clean.
