@@ -127,8 +127,17 @@ baseline set `/tmp/baseline_deep.txt` for `comm -23` drop-checks. --self via cap
       stage1==stage2 259,326 B, --self 153 ok/0 FAIL. direct-syntax-demo blocked LATER on ctor-pattern
       guards (`case Some(n) if g`); for-comprehensions blocked on multi-line for-BLOCK layout; typed-sql-crud
       on typed-SQL Db.queryTyped — all separate features.
-**➜ v2-p65-deep SESSION: corpus MATCH 362→369/508 (+7, DA1 typed-patterns +2, DA2 try/catch +2, DA3
-  direct{} +3), ALL 0 drops, X1 fixpoint stage1==stage2 byte-identical each slice (232,332→259,326 B),
+- [x] **DA4 — `println()` nullary + `.yaml` fenced-block accessor DONE (deep2 session).** (1) A bare
+      `println()` (no args) → `(prim io.println (lit (str "")))`, NOT `(app (global println))` (ssc1-lower
+      :2659-2662): parseCall routes empty-args through emitCallR/emitNullaryC. (2) `X.yaml` where the hidden
+      top-val `__yaml_X` exists (fenced YAML block lifted by sscProgramSource to `val __yaml_X =
+      __yamlSection__(..)`) → `(prim cell.get (global __yaml_X__cell))` (ssc1-lower resolveField yamlSection
+      :1585-1597): postSel recovers X from the emitted `(global X)` receiver + isTopVal("__yaml_"++X). Together
+      flip yaml-parse (println alone was +0 — moved its div 9352→9907; the `.yaml` was the last div). Corpus
+      369→370, 0 drops, X1 stage1==stage2 260,760 B, --self 153 ok/0 FAIL. NOTE oc.sh reads raw `.ssc`; for
+      markdown/fenced files (yaml-parse) the REAL test is the corpus gate on the extracted `.code`.
+**➜ v2-p65-deep SESSION: corpus MATCH 362→370/508 (+8, DA1 typed-patterns +2, DA2 try/catch +2, DA3
+  direct{} +3, DA4 println()/.yaml +1), ALL 0 drops, X1 fixpoint stage1==stage2 byte-identical each slice (232,332→260,760 B),
   --self 153 ok/0 FAIL each, kernel +0, no v2/lib oracle edits. Jar /tmp/ssc-deep.jar; gate
   `SSC_JAR=/tmp/ssc-deep.jar V2_DIR=<wt>/v2 NEWFRONT_WORK=/tmp/p65deep bash specs/v2.2-p6.5-corpus.sh`.
   GOTCHA: F-source defs must avoid `match {case Nil => .. case cs => ..}` (bare-var arm after ctor arm
