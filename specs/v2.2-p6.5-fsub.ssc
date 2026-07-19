@@ -409,22 +409,40 @@ def parseArgsMore(e, ts, env, cx) = if isTok(hd(ts), 2, 27) then parseArgs(tl(ts
 // ssc1-front wrapPhArg :970 wraps a CALL ARGUMENT that contains `_` (but isn't a bare `_`) into an
 // N-ary lambda, `_` → param, left-to-right (`filter(_ % 2 == 0)` → `filter(x => x % 2 == 0)`). Nested
 // call args are wrapped first (bottom-up), so an inner `_` is captured by its innermost enclosing call.
-// F handles the SINGLE-placeholder case exactly (push one param named "_" so calleeOf resolves it to the
-// right de Bruijn `(local i)`, then emit `(lam 1 body)`); a bare `_` arg stays unwrapped so it binds to an
-// OUTER wrap (`f(_)` → `x => f(x)`). Args with 0 or ≥2 placeholders, or containing a binder (`=>`/`{`/
-// `match`, where `_` is not a shallow placeholder), fall through to a plain parse — same output as before
-// (no MATCH file has a count-1 placeholder arg, so this cannot regress).
-def parseArgExpr(ts, env, cx) = phArgWrap(phScanArg(ts, 0, 0, false), ts, env, cx)
-def phArgWrap(sc, ts, env, cx) = sc match { case (cnt, binder) => if binder then parseExpr(ts, 0, env, cx) else (if cnt == 1 then (if isBarePhArg(ts) then parseExpr(ts, 0, env, cx) else wrapSinglePh(ts, env, cx)) else parseExpr(ts, 0, env, cx)) }
+// F must count placeholders BELONGING to THIS arg — i.e. those NOT captured by an inner call-arg wrap.
+// Cheap, exact for the corpus's shapes via a TWO-count scan: c0 = placeholders at the arg's OWN expression
+// level (bracket depth 0), ct = total placeholders anywhere in the arg. Then:
+//   • all placeholders shallow (c0 == ct): rename the k-th `_` → `__u<k>` left-to-right, push __u0..__u(ct-1)
+//     BEFORE parsing so de Bruijn is right, emit `(lam ct body)` (`_ * 2`, `_.x`, `_ % 2 == 0`, `_ + _` →
+//     `(lam 2 … (local 1)(local 0))`, matching ssc1-lower).
+//   • a single DEEP placeholder (ct == 1, c0 == 0): a bare `f(_)` — push one param named "_" and let calleeOf
+//     propagate the inner bare `_` to it (`f(_)` → `x => f(x)`, ssc1-front :973).
+//   • otherwise (a binder `=>`/`{`/`match`; 0 placeholders; a bare `_` arg; or a MIXED deep+shallow multi like
+//     `xs.map(_+1).filter(_%2==0)` where the inner `_` belong to the inner calls): plain parse, unchanged
+//     (the inner call args get wrapped by their own parseArgExpr). No MATCH file has a placeholder arg → no regress.
+def parseArgExpr(ts, env, cx) = phArgWrap(phScanArg(ts), ts, env, cx)
+def phArgWrap(sc, ts, env, cx) = sc match { case (c0, rest) => rest match { case (ct, binder) =>
+  if binder then parseExpr(ts, 0, env, cx)
+  else if ct == 0 then parseExpr(ts, 0, env, cx)
+  else if isBarePhArg(ts) then parseExpr(ts, 0, env, cx)
+  else if c0 == ct then wrapPh(ts, ct, env, cx)
+  else if ct == 1 then wrapSinglePh(ts, env, cx)
+  else parseExpr(ts, 0, env, cx) } }
+def wrapPh(ts, n, env, cx) = parseExpr(renameArgPh(ts), 0, pushU(0, n, env), cx) match { case (b, r) => ("(lam " ++ n ++ " " ++ b ++ ")", r) }
 def wrapSinglePh(ts, env, cx) = parseExpr(ts, 0, "_" :: env, cx) match { case (b, r) => ("(lam 1 " ++ b ++ ")", r) }
+def pushU(i, n, env) = if i >= n then env else pushU(i + 1, n, ("__u" ++ i) :: env)
+def renameArgPh(ts) = renamePhD(ts, 0, 0)
+def renamePhD(ts, depth, k) = if isEmpty(ts) then ts else renamePhTok(hd(ts), tl(ts), depth, k)
+def renamePhTok(t, rest, depth, k) = if isArgEnd(t, depth) then Cons(t, rest) else (if isOpenB(t) then Cons(t, renamePhD(rest, depth + 1, k)) else (if isCloseB(t) then Cons(t, renamePhD(rest, depth - 1, k)) else (if isWild(t) then Cons((1, "__u" ++ k), renamePhD(rest, depth, k + 1)) else Cons(t, renamePhD(rest, depth, k)))))
 def isArgEnd(t, depth) = if depth == 0 then (if isTok(t, 2, 27) then true else isTok(t, 2, 22)) else false
 def isBarePhArg(ts) = if isWild(hd(ts)) then isArgEnd(hd(tl(ts)), 0) else false
 def isOpenB(t) = if isTok(t, 2, 21) then true else isTok(t, 2, 50)
 def isCloseB(t) = if isTok(t, 2, 22) then true else (if isTok(t, 2, 51) then true else isTok(t, 2, 29))
-// Scan ONE argument's tokens to its top-level boundary (`,`/`)`), tallying placeholders and whether a
-// binder (`=>`/`{`/`match`) makes the `_` non-shallow. `{` both opens a bracket and marks a binder.
-def phScanArg(ts, depth, cnt, binder) = if isEmpty(ts) then (cnt, binder) else phScanTok(hd(ts), tl(ts), depth, cnt, binder)
-def phScanTok(t, rest, depth, cnt, binder) = if isArgEnd(t, depth) then (cnt, binder) else (if isTok(t, 2, 28) then phScanArg(rest, depth + 1, cnt, true) else (if isTok(t, 2, 30) then phScanArg(rest, depth, cnt, true) else (if isTok(t, 2, 5) then phScanArg(rest, depth, cnt, true) else (if isOpenB(t) then phScanArg(rest, depth + 1, cnt, binder) else (if isCloseB(t) then phScanArg(rest, depth - 1, cnt, binder) else (if isWild(t) then phScanArg(rest, depth, cnt + 1, binder) else phScanArg(rest, depth, cnt, binder)))))))
+// Scan ONE argument to its top-level boundary (`,`/`)`): return (c0, (ct, binder)). `{` opens a bracket AND
+// marks a binder; `=>`/`match` mark a binder. A `_` bumps ct always, and c0 only at bracket depth 0.
+def phScanArg(ts) = phScan(ts, 0, 0, 0, false)
+def phScan(ts, depth, c0, ct, binder) = if isEmpty(ts) then (c0, (ct, binder)) else phScanTok(hd(ts), tl(ts), depth, c0, ct, binder)
+def phScanTok(t, rest, depth, c0, ct, binder) = if isArgEnd(t, depth) then (c0, (ct, binder)) else (if isTok(t, 2, 28) then phScan(rest, depth + 1, c0, ct, true) else (if isTok(t, 2, 30) then phScan(rest, depth, c0, ct, true) else (if isTok(t, 2, 5) then phScan(rest, depth, c0, ct, true) else (if isOpenB(t) then phScan(rest, depth + 1, c0, ct, binder) else (if isCloseB(t) then phScan(rest, depth - 1, c0, ct, binder) else (if isWild(t) then phScan(rest, depth, (if depth == 0 then c0 + 1 else c0), ct + 1, binder) else phScan(rest, depth, c0, ct, binder)))))))
 def parseIf(ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (c, r1) => parseExpr(tl(r1), 0, env, cx) match { case (t, r2) => parseExpr(tl(r2), 0, env, cx) match { case (e, r3) => (emitIf(c, t, e), r3) } } }
 def parseExpr(ts, minPrec, env, cx) = parseAtom(ts, env, cx) match { case (l, r) => climb(l, r, minPrec, env, cx) }
 def climb(left, ts, minPrec, env, cx) = if binPrec(hd(ts)) >= minPrec then climbStep(left, ts, minPrec, env, cx) else (left, ts)
