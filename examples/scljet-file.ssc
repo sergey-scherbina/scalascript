@@ -1,0 +1,93 @@
+#!/usr/bin/env ssc-tools run --v1
+---
+name: scljet-file
+description: Two engines, one file — SclJet writes a real .db to disk, then the reference sqlite3 reads it back, checks its integrity, and writes into it
+backends: [int]
+---
+
+# SclJet ⇄ sqlite3 — two engines, one file
+
+SclJet writes an ordinary SQLite file to disk. Then this same program shells out to the reference
+`sqlite3` command and lets it read the file, check its integrity, and write a row of its own — proof
+that what SclJet produces is a genuine SQLite database, not a look-alike.
+
+Requires the `sqlite3` CLI on `PATH`. Runs on the JVM lane (host files + subprocess).
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase, byteSliceToList, jvmVfsOpen, jvmVfsWriteAt, jvmVfsSync, jvmVfsClose, jvmVfsDelete, JvmVfsResult](std/scljet/index.ssc)
+[JdbcConnection, jdbcOpen, jdbcExecuteUpdate, jdbcCurrent](std/scljet/jdbc.ssc)
+[exec, ProcessOptions, ProcessResult](std/process.ssc)
+
+```scalascript
+val dbPath = "scljet-file-demo.db"
+
+// Thread a write forward (each returns a new image).
+def run(conn: JdbcConnection, sql: String): JdbcConnection =
+  jdbcExecuteUpdate(conn, sql) match
+    case Left(m)  => println("  ! " + m); conn
+    case Right(u) => u.conn
+
+// Flush a database image to a real file on disk, crash-safe order (write, then fsync).
+def writeToDisk(path: String, image: ByteSlice): Boolean =
+  jvmVfsOpen(path, false, true) match
+    case JvmVfsResult("ok", _, handle) =>
+      val h = handle.asInstanceOf[Int]
+      val ok = jvmVfsWriteAt(h, 0L, byteSliceToList(image)) match
+        case JvmVfsResult("ok", _, _) => true
+        case JvmVfsResult(code, m, _) => println("  ! write: " + code + " " + m); false
+      jvmVfsSync(h, false)
+      jvmVfsClose(h)
+      ok
+    case JvmVfsResult(code, m, _) => println("  ! open: " + code + " " + m); false
+
+// Run sqlite3, tolerating its absence: if the CLI is not installed, `exec` throws, so catch it and
+// hand back a clear sentinel instead of crashing the demo.
+def runSqlite3(path: String, query: String): ProcessResult =
+  try exec("sqlite3", List(path, query), ProcessOptions())
+  catch case e: Throwable => ProcessResult("", "sqlite3 not found on PATH", 127)
+
+// Ask the reference sqlite3 a question about the file and print each line it returns, indented.
+def sqlite3(path: String, query: String): Unit =
+  runSqlite3(path, query) match
+    case ProcessResult(out, _, 0) =>
+      val lines = out.split("\n")
+      var i = 0
+      while i < lines.length do
+        if lines(i).length > 0 then println("  " + lines(i))
+        i = i + 1
+    case ProcessResult(_, err, code) => println("  (skipped — " + err + ")")
+
+// Write a database to disk, then let the reference sqlite3 read it, verify it, and write into it.
+def handOffToSqlite3(image: ByteSlice): Unit =
+  if writeToDisk(dbPath, image) then
+    println("SclJet wrote " + dbPath)
+    println("")
+
+    println("sqlite3 checks the file:")
+    sqlite3(dbPath, "PRAGMA integrity_check;")
+
+    println("sqlite3 reads the rows SclJet wrote:")
+    sqlite3(dbPath, "SELECT id || ' · ' || title || ' (' || year || ')' FROM books ORDER BY year;")
+
+    // sqlite3 writes into the same file, then reports the new count.
+    println("sqlite3 adds a row of its own, then counts:")
+    sqlite3(dbPath, "INSERT INTO books VALUES (4, 'Purely Functional Data Structures', 1998); SELECT 'now ' || count(*) || ' books' FROM books;")
+
+    // Tidy up the demo file.
+    jvmVfsDelete(dbPath) match
+      case _ => ()
+  else
+    println("SclJet could not write " + dbPath)
+
+// Build a books database with SclJet, populate it through its SQL engine, and hand the file off.
+val _done = buildTableDatabase(512, 1, 1, "books",
+  "CREATE TABLE books(id INTEGER PRIMARY KEY, title TEXT, year INTEGER)",
+  List(List(SqlInteger(1L), SqlText("The Little Schemer"), SqlInteger(1974L)))) match
+  case Left(e) => println("could not create the database: " + e.message)
+  case Right(image) =>
+    val db = jdbcOpen(image)
+    val c1 = run(run(run(db,
+      "INSERT INTO books VALUES (2, 'SICP', 1985)"),
+      "INSERT INTO books VALUES (3, 'Types and Programming Languages', 2002)"),
+      "UPDATE books SET year = 1996 WHERE id = 2")
+    handOffToSqlite3(jdbcCurrent(c1))
+```
