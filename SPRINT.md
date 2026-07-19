@@ -554,6 +554,29 @@ Each slice: byte-verify vs oracle on the cached corpus, keep `--self` GREEN (re-
 `v2.2-p6.5-corpus.sh`, CONFIRM no MATCH dropped. Build: `scala-cli --power package v2/src --assembly -o
 /tmp/ssc-codec.jar --force`; gate: `SSC_JAR=/tmp/ssc-codec.jar V2_DIR=<wt>/v2 NEWFRONT_WORK=/tmp/p65codec_work`.
 
+## v2-p65-tail (`v2-p65-tail`, 2026-07-19) — breadth continued (baseline 249/505, verified clean build)
+Re-measured first-divergence histogram over the 256 DIFFs (my own /tmp/p65tail_work run, `firstdiv.py`/
+`classify.py`/`other.py`). Confirmed clean sub-clusters (biggest first): triple-quote `"""` string content
+(~18, MECHANICAL) · actors receive `match`-vs-`let` (~14, DO NOT TOUCH — shared match lowering) ·
+companion curried static `X.m(a)(b)` flatten (~8, ENTANGLED with oracle defArity/expandCallSugar) ·
+cc/tc body-method `Tag_method` (16, big) · derived-codec (~8, hard) · optics/lenses (~9) · misc long tail.
+Slices, impact-ordered:
+- [x] **T1 — DONE (`8ce0ae732`). triple-quote `"""..."""` strings. Corpus 249->256/505 (+7, 0 regr);
+      fresh full corpus (507) 257. X1 fixpoint 169,133->172,969 B stage1==stage2.** Wins: components-demo,
+      fetch-auth, json-lookup, json-value, mcp-server-resource, rest-jetty, spark-lakehouse-iceberg.
+      Oracle (ssc1-front :341-344) lexes `"""` raw (verbatim
+      real newlines/quotes/backslashes = `#sslice`), then `#coreir.encode`.strLit ESCAPES on emit
+      (`"`→`\"`, `\`→`\\`, \n→`\n`, \r→`\r`, \t→`\t`, other ctrl→`\uXXXX`; CoreIR.scala:407-415). F stores
+      raw source + emits with NO escape (so regular `"..."` round-trip), so it breaks on `"""` (scanStr sees
+      2nd `"` immediately → empty str + garbage). FIX: lexer detects `"""`, captures raw content as NEW
+      token kind 8; parseAtom1 escapes it (needs a BACKSLASH char at F's runtime — F's escape-free source
+      can't contain `\`, so THREAD `bs = #sfromCodes(Cons(92,Nil))` from the driver exactly like `dq`).
+      Escape rules VALIDATED against the oracle: 30/32 corpus `"""` files reproduce byte-exact, 0 ctrl chars
+      beyond \n\r\t (`vtriple.py`). Threading: append `bs` at deepest cx level (only `varNamesOf` accessor
+      changes + new `bsOf`), thread `compile→compile1→compile2→compile2b→mkCxE→mkCx`; update BOTH gate
+      drivers (fsub.sh + corpus.sh readCompile/fileMain/main to build+pass bsArg). Layout: `canEndLine` add
+      kind 8 (canStartLine/isCont already treat it like a string). Re-freeze fixpoint (bytes grow).
+
 **F3 BREADTH LOG (superseded intermediate) — corpus MATCH 1 → 43/504:**
 - top-level statements (loop fix + val cells + exprs): 1 → 34 (`07522696f`, `253f68231`)
 - float literals: 34 (correct prereq, `2d63fc63e`)
