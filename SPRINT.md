@@ -379,14 +379,46 @@ foreach getOrElse length split trim to until toList runToList mapUpdated mapGetO
 `__method__`. F CLASSIFIES the receiver by its EMITTED STRING PREFIX (var read = `(local `/`(global `/`(prim
 cell.get `/`(prim lcell.get `; coll ctor = `(ctor Cons `/`(ctor Nil)`/`(ctor Some `/`(ctor None)`/`(ctor
 Left `/`(ctor Right `; uid obj = other `(ctor Foo)`; else app/prim → selMethodOr).
-- [ ] **S1 — `.head`/`.tail`/`.isEmpty`/`.nonEmpty` → `__list_*` UNCONDITIONAL** (postSel intercept before
-      isFld). No registry. Safe: no MATCH file can have these call-sites (they'd already DIFF).
-- [ ] **S2 — selMethodOr for method-with-args on NON-var, NON-uid-object receiver** (refactor postMeth to
-      parseArgL for arity + multi-param-lambda detection; route postMeth + postMethBlock through it).
-- [ ] **S3 — `.length`/`.size` → `_sel_length` on isListConstruction receiver** (string-recoverable, no
-      registry). DEFER the isListVar registry (name lost after F emits recv; needs cx-threaded registry).
-- Each slice: build jar, byte-verify on the named corpus files, run corpus gate (confirm MATCH no DROP for
-  any prior-matching file), keep `--self` GREEN, record fixpoint bytes.
+- [x] **S1 — DONE (`659d4a5a4`).** `.head`/`.tail`/`.isEmpty`/`.nonEmpty` → `(app (global __list_*) recv)`
+      UNCONDITIONAL (postSel, before isFld). 172→175. fixpoint 147,851→148,370 B.
+- [x] **S2 — DONE (`4bd82fa09`).** selMethodOr for method-with-args on non-var, non-uid-object receiver
+      (postMeth→parseArgL; classify by emitted prefix; postMethBlock routed too). 175→184. fp 148,370→153,031.
+- [x] **S4+S5+S6 — DONE (`b1335b152`,`edb9d1ed5`,`06c050265`).** Underscore-placeholder ARG wrapping
+      (ssc1-front wrapPhArg :970). parseArg/parseArgL1 → `parseArgExpr`, which scans the arg to its top-level
+      boundary returning `(c0, (ct, binder))` = (shallow depth-0 `_` count, total `_` count, has `=>`/`{`/
+      `match`). Wrap ONLY when `c0==ct` (all placeholders shallow): rename the k-th `_` token→`__u<k>` via
+      `renameArgPh`, push `__u0..__u(ct-1)` (pushU) BEFORE parsing so de Bruijn is right, emit `(lam ct body)`
+      (`_ * 2`, `_.x`, `_ + _`→`(lam 2 …(local 1)(local 0))`). DEFER every DEEP/mixed case (`c0<ct`:
+      `xs.map(_*2).mkString`, `xs.map(_+1).filter(_%2==0)`, bare `f(_)`) — the nested call args get wrapped by
+      their OWN parseArgExpr; wrapping here double-wraps. 184→191→194→201. fp 153,031→…→159,579 B.
+- **S3 (`.length`/`.size` list-var registry) NOT DONE — deferred, low corpus impact** (0 first-divergences in
+      the current histogram). `.head`/etc are unconditional (S1); `.length` list-dispatch needs isListVar
+      (name lost after F emits recv → needs a cx-threaded registry) OR isListConstruction (string-recoverable
+      from `(app (global _sel_runToList/filter/map/flatMap/take) …)` prefix). Do isListConstruction first if a
+      `.length`-on-list-expr divergence appears.
+**➜ HANDOFF (`v2-p65-sel`, 2026-07-19): _sel_/__list_/underscore-placeholder cluster DONE. Corpus MATCH
+172 → 201/504 (+29), X1 fixpoint stage1==stage2 byte-identical 147,851 → 159,579 B, --self 136 ok/0 FAIL,
+0 regressions across all 6 slices, kernel +0, no v2/lib oracle edits. The sel/list/placeholder levers are
+EXHAUSTED (no `_sel_*`/`__list_*`/`(global _)` divergences remain as first-divergence). Build+gate as before.
+FRESH FIRST-DIVERGENCE HISTOGRAM over the 303 DIFFs (next levers, biggest first):**
+- **derived-codec (17)** — `derives Csv/JsonCodec/ObjectCodec` → `__derived_*Codec` cells + Mirror + init.
+  custom-derives-mirror, dataset-typed-mapping, distributed-dataset-{codec,typed-helpers,wire-protocol}. Hard.
+- **map-var (15)** — `Map(k -> v, …)` construction (F emits `(app (global Map) (prim __arith__ "-" …))` — no
+  `->` pair, no buildMapExpr) + `.updated`/`.getOrElse`/`.put` on map vars (needs a mapVars registry like the
+  deferred isListVar). maps, content-slot, graphql-hello, http-client, imports. Oracle buildMapExpr ssc1-lower.
+- **cc-body-method (13)** — `case class C(x){ def m = … }` → global `C_m` (+ `C` used as object → `(global C)`
+  not `(ctor C)`; see the scljet ByteSlice bucket below). case-class-body-methods, companion-case-class-order,
+  effects, effect-deep-handler-state. F parses `case class C(..)` but drops the `{…}` body.
+- **scljet ByteSlice (12)** — LIKELY the same root as cc-body-method: a case class WITH body methods used as a
+  value/object emits `(ctor ByteSlice)` in F but `(global ByteSlice)` in the oracle (the cc isn't registered
+  because F failed to parse its body). scljet-bytes, scljet-byte-codec, scljet-memory-vfs, scljet-journal-recover.
+- **for-comprehension (6)** — `(global for)` in F; oracle desugars `for x<-xs [if g] yield e` → map/filter chains
+  (ssc1-front parseForFrom; needs `for`/`yield` layout-openers). index, for-comprehensions, json-deep-import.
+- **actor/generator (5), assign/set (8, var-cluster leftover: def-body `def f = x=e`), remaining `other:*`.**
+- **KNOWN placeholder limitation (recorded so the next agent doesn't chase it as a regression):** F DEFERS a
+  bare `f(_)` partial-application arg and a nested NON-bare placeholder (`g(_ + 1)` inside another call) → both
+  stay DIFF. Matching them needs the oracle's bottom-up tree recursion (exprHasPh/countPh non-descent into
+  already-wrapped inner args), which F's string-emitting single pass can't cheaply mirror. Low corpus impact.
 
 **F3 BREADTH LOG (superseded intermediate) — corpus MATCH 1 → 43/504:**
 - top-level statements (loop fix + val cells + exprs): 1 → 34 (`07522696f`, `253f68231`)

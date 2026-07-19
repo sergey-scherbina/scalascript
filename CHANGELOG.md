@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-07-19 — v2-p65-sel: list `_sel_`/`__list_*` dispatch + underscore-placeholder wrapping in P6.5 F
+
+`v2-p65-sel`. Corpus MATCH **172 → 201/504** (+29); X1 fixpoint stage1==stage2 byte-identical
+**147,851 → 159,579 B**; `--self` 136 ok / 0 FAIL; 0 regressions across 6 slices; no kernel (`v2/src/*`)
+or `v2/lib` oracle edits.
+
+- **S1** `.head`/`.tail`/`.isEmpty`/`.nonEmpty` → `(app (global __list_*) recv)` unconditional (172→175).
+- **S2** `selMethodOr` for method-with-args on non-var, non-uid-object receivers — classify by the emitted
+  receiver prefix (var read vs collection ctor vs uid object), route `map`/`mkString`/`take`/`sum`/`fold*`/
+  isKnownSelMethod exactly as ssc1-lower :1545 (175→184).
+- **S4-S6** underscore-placeholder argument wrapping (ssc1-front wrapPhArg :970): `_ * 2`, `_.x`, `_ + _`,
+  `xs.map(_+1).filter(_%2==0)`. A two-count scan (shallow depth-0 `_` vs total) wraps only all-shallow args
+  (rename k-th `_`→`__u<k>`, push params before parsing for correct de Bruijn, emit `(lam N body)`) and
+  defers deep/mixed cases so inner calls wrap their own args (184→191→194→201). Known deferral: bare `f(_)`.
+
 ## 2026-07-19 — v2-p65-var V2+V3: block-local var + compound assign + modulo in P6.5 F (byte-identical)
 
 `v2-p65-var`. Corpus MATCH **161 → 172**; X1 fixpoint stage1==stage2 byte-identical **142,004 → 147,851
