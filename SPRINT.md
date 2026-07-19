@@ -672,6 +672,15 @@ Slices, impact-ordered:
       (layout S-frame suppresses NL). Fixed content-data-source/-form-submit/-live-rows, pg-listen-notify,
       tkv2-keyed-for, ui-fetch-json/-remote-table/-typed-json, v2-db-url-scheme-not-jdbc, v2-http-sql-demo,
       v2-multiline-list-literal.
+- [x] **M1 — DONE (`v2-p65-ccm`, 2026-07-19). `@Name`/`@Name(args)` annotation skip. Corpus 277->279/508
+      (+2: rozum-meeting, ssr-page), 0 regr; X1 fixpoint 190,288->191,697 B stage1==stage2; --self 153 ok/0
+      FAIL; kernel +0.** F's lexer DROPPED just the `@` (opCode 64→0), leaving the annotation NAME as a stray
+      word (`@main def run` → bare `main` became a top-level expr `(global main)` in the entry + `def run` a
+      def; oracle emits `(entry (lit unit))` + `(def run ..)`). New lexAt skips `@` + Name + optional balanced
+      `(..)` at lex time (ssc1-front skipAnn :2517 = no runtime effect). SAFE: a source `@` only ever reaches
+      lexDispatch OUTSIDE a string (scanStr consumes string `@`s first → emails/regexes/markdown untouched);
+      verified all 6 MATCH-file `@`s are in string literals; F's own `@`s are in comments/strings. 9 DIFF
+      files use @main; the other 7 (wasm-*) diverge FIRST elsewhere so are still DIFF (no regr, no flip).
 
 **➜ HANDOFF (`v2-p65-tail`, 2026-07-19): 5 slices landed (T1 triple-quote +7, T2 null +1, T4 collection-
 curry +1, T5 nested-interp +4, T6 bracket-list +11) = corpus MATCH 249→274/505 (fresh full 507-corpus
