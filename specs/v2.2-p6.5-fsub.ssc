@@ -14,8 +14,12 @@ def isUp(c) = c >= 65 && c <= 90
 def isLet(c) = if isLo(c) then true else (if isUp(c) then true else c == 95)
 def isAlnum(c) = if isLet(c) then true else isDig(c)
 def scanId(s, i, n) = if atEnd(i, n) then i else (if isAlnum(s.charAt(i)) then scanId(s, i + 1, n) else i)
-def scanNumV(s, i, n, acc) = if atEnd(i, n) then acc else (if isDig(s.charAt(i)) then scanNumV(s, i + 1, n, acc * 10 + (s.charAt(i) - 48)) else acc)
-def scanNumE(s, i, n) = if atEnd(i, n) then i else (if isDig(s.charAt(i)) then scanNumE(s, i + 1, n) else i)
+// A `_` is a numeric separator ONLY between digits (`100_000`): it extends the token and is dropped from
+// the value (ssc1-front scanDecEnd :96-103 + stripNumericSeparators :125-131). Leading/trailing/doubled
+// `_` stay outside the token (numSep requires the NEXT char to be a digit).
+def numSep(s, i, n) = if s.charAt(i) == 95 then (if atEnd(i + 1, n) then false else isDig(s.charAt(i + 1))) else false
+def scanNumV(s, i, n, acc) = if atEnd(i, n) then acc else (if isDig(s.charAt(i)) then scanNumV(s, i + 1, n, acc * 10 + (s.charAt(i) - 48)) else (if numSep(s, i, n) then scanNumV(s, i + 1, n, acc) else acc))
+def scanNumE(s, i, n) = if atEnd(i, n) then i else (if isDig(s.charAt(i)) then scanNumE(s, i + 1, n) else (if numSep(s, i, n) then scanNumE(s, i + 1, n) else i))
 def scanLineEnd(s, i, n) = if atEnd(i, n) then i else (if s.charAt(i) == 10 then i else scanLineEnd(s, i + 1, n))
 // Escape-free by design (P6.6b): scan to the closing quote by CHAR CODE 34 -- never a `"` literal.
 def scanStr(s, i, n) = if atEnd(i, n) then i else (if s.charAt(i) == 34 then i else (if s.charAt(i) == 92 then scanStr(s, i + 2, n) else scanStr(s, i + 1, n)))
