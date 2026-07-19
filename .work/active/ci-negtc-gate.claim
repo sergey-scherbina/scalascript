@@ -1,0 +1,10 @@
+claim: ci-negtc-gate
+branch: feature/ci-negtc-gate
+agent: opus (orchestrator session)
+heartbeat: 2026-07-19T12:21:39Z
+status: in-progress (spawned agent)
+what: LAST sbt-job CI blocker. v21-negative-toolchain-release-gate consistently RED (6/6 runs reached,
+      NOT a flake despite my earlier one-run call). Parity CLEAN (mismatch:0); exit-1 from server-timeout:4
+      + run-timeout:2 + bytecode-error:2 — 8 specific programs failing deterministically in the standard-only
+      sanitized env. Diagnose each (likely K62.3 compile-depth/-Xss in sanitized env + 2 real bytecode-errors),
+      fix so the gate is reliably green → first green sbt job of the session. F5's ASM fix cleared the earlier steps.

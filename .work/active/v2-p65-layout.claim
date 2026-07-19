@@ -1,17 +1,11 @@
 claim: v2-p65-layout
-branch: feature/v2-p65-codecs2
+branch: feature/v2-p65-optics
 agent: opus (orchestrator session — fresh agent, handoff chain)
-heartbeat: 2026-07-19T14:30:00Z
+heartbeat: 2026-07-19T12:21:39Z
 status: in-progress (spawned agent)
-what: P6.5 breadth lane. DONE (coordinator-verified through v2-p65-guard): corpus MATCH 1→311/508.
-      v2-p65-codecs2 session (2026-07-19) landed 8 more slices, MATCH 311→334/508 (66%), all 0
-      regressions, X1 fixpoint stage1==stage2 203,415→222,668 B, --self 153 ok/0 FAIL, kernel +0:
-      C1 .copy(f=v), C2 :+/+:/:::, C3 bitwise &|^<<>>>>>~, C4 derives-codec cell+init, C5 import X.*
-      over-skip FIX (+7!), C6 val(a,b) tuple-destructure, C7 tuple-N literals, C8 parenless def.
-      NEXT (fresh impact map in SPRINT §v2-p65-codecs2 handoff over 174 DIFFs): optics Focus/Prism
-      (5, deep, biggest), custom-interpolator id\"\"\"..\"\"\" (4, degenerate mis-parse/escape-hatch),
-      derived-codecs remaining (~17, summon/object OR Vector/JsonValue/@annot diffs), Vector(..)->Cons,
-      direct{}, parenless-in-object-bodies. Keep --self green; drop-check via /tmp/baseline_match.txt.
-      GOTCHA: paren-count big nested-ifs (stray ) -> _err); name-collision check new defs.
-      DO NOT touch actors-receive/! send.
-coord: F5+F6+v2-f5-buildjvm-fix all landed. Only edits specs/v2.2-p6.5-fsub.ssc (+gate/SPRINT). Rebase clean.
+what: P6.5 breadth lane. DONE (coordinator-verified): +.copy/:+/bitwise/derives/import-*-fix/tuple-destr,
+      corpus MATCH 1→334/508 (66%), fixpoint 222,668 B all stage1==stage2. NEXT (§v2-p65-codecs2 map,174
+      DIFFs): optics Focus/Prism (5, deep, biggest clean), Vector(..)→Cons, direct{} monad, parenless-def
+      in object/extension bodies. ESCAPE-HATCH cases (oracle DEGRADES — match=replicate-a-bug): custom
+      interpolator id\"\"\", @key-annotated codec classes → record don't force. Keep --self green; drop-check;
+      never push broken. NOTE: tail is deep + some DIFFs are the oracle being WRONG — ceiling approaching.
