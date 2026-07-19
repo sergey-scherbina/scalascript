@@ -208,6 +208,11 @@ baseline set `/tmp/baseline_deep.txt` for `comm -23` drop-checks. --self via cap
       (collectObjMembers → [(kind,(name,toks))]). Reproduces ssc1-lower prefixDefs val/var/parameterless.
       Flips wc-card. Corpus 389→390, 0 drops, X1 281,162 B, --self 153 ok/0 FAIL. (Nested-type object
       members + bare `O.v` postSel resolution still FOLLOW-UP; no corpus file needs them.)
+- [x] **DA14 — erase extern declarations DONE (deep3).** `extern def f(..): T` / `extern class X` are
+      signature-only; the oracle erases them (ssc1-front :2782-2793) and a call `f(x)` → `(app (global f)
+      x)`. F now skips the whole statement (skipStmt) + emits nothing (previously `extern` cascaded as
+      garbage exprs and stole the next def's body/param scope). Flips node-basic, node-fs-read. Corpus
+      390→392, 0 drops, X1 281,456 B, --self 153 ok/0 FAIL.
 **➜ v2-p65-deep SESSION: corpus MATCH 362→381/508 (+19, DA1 typed-patterns +2, DA2 try/catch +2, DA3
   direct{} +3, DA4 println()/.yaml +1, DA5 min64-literal +1, DA6 ctor-guards +1, DA7 numeric-underscore +3,
   DA8 qualified-enum-case-patterns +3, DA9 source-`;`+arm-sequences +3), ALL 0 drops, X1 fixpoint stage1==stage2 byte-identical each slice (232,332→271,756 B),
