@@ -43,6 +43,10 @@ baseline MATCH set `/tmp/baseline_match.txt` for `comm -23` drop-checks. --self 
       both are plain id tokens in F). MATCH 357→360 (+distributed-dataset-codec, oauth-mcp-full-stack,
       spark-streaming-file-parquet). 0 drops. In parseIdent before the for/lambda checks.
 
+- [x] **O8 (`28045feae`) bare collection-companion selection `Array.empty`/`Seq.empty`/… recv → `(ctor X)`** (ssc1-lower
+      :648 isCollectionCompanion; List/Seq/Vector/Array/Map only). MATCH 360→362 (+array-companion-statics,
+      spark-collections-demo). 0 drops. selRecv in postSel; non-companion uids stay `(global X)`.
+
 **ORACLE-DEGRADATION TALLY (remaining DIFFs that are the ORACLE being WRONG, not F-gaps — do NOT reproduce):**
 - `@`-annotated case-class fields (10: graph-codecs, graph-fullstack, graph-fullstack-rdf, graph-rdf4j-storage,
   graph-storage, object-store-jdbc, object-store-sync-routes, spark-schema-mapping, spark-shared-schema-reader,
