@@ -250,7 +250,10 @@ def postfix(pr, env, cx) = pr match { case (c, ts) => if isTok(hd(ts), 2, 31) th
 // -> `(app (app f args) (lam 0 <block>))` (measured — actors runActors{..}, httpClient(url){..}). The
 // block is a by-name thunk (lam 0); its env is unchanged (arity 0 adds no binders). Reuses parseBlock,
 // so a multi-statement block body lowers via the L2c let-chain. `.match {..}` is handled BEFORE this.
-def postBlockArg(c, ts, env, cx) = parseBlock(ts, env, cx) match { case (b, r) => ("(app " ++ c ++ " (lam 0 " ++ b ++ "))", r) }
+def postBlockArg(c, ts, env, cx) = parseBlock(ts, env, cx) match { case (b, r) => (blockArgApp(c, b), r) }
+// When the block IS a lambda (`f { x => body }`), the lambda is the argument directly — NOT wrapped in
+// a `(lam 0 ..)` thunk (measured). A plain block (`run { stmts }`) becomes the by-name thunk `(lam 0 ..)`.
+def blockArgApp(c, b) = if startsW(b, "(lam ") then "(app " ++ c ++ " " ++ b ++ ")" else "(app " ++ c ++ " (lam 0 " ++ b ++ "))"
 // Chained application `f(a)(b)` -> (app (app (global f) a) b).
 def postApp(c, ts, env, cx) = parseArgs(ts, env, cx) match { case (args, r) => (emitApp(c, args), r) }
 def postDot(c, ts, env, cx) = postDot1(c, snd(hd(ts)), tl(ts), env, cx)
