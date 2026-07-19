@@ -49,7 +49,7 @@ def lexNL2(ind, pos, s, n) = if atEnd(pos, n) then Nil else Cons((7, ind), lex(s
 //   46 `&&`  47 `||`  48 `++`  49 `::`  50 `[`  51 `]`
 def kwCode(w) = if w == "def" then 1 else (if w == "if" then 2 else (if w == "then" then 3 else (if w == "else" then 4 else (if w == "match" then 5 else (if w == "case" then 6 else (if w == "val" then 7 else (if w == "true" then 8 else (if w == "false" then 9 else (if w == "class" then 10 else 0)))))))))
 def lex(s, i, n) = if atEnd(i, n) then Nil else lexDispatch(s, i, n, s.charAt(i))
-def lexDispatch(s, i, n, c) = if c == 32 then lex(s, i + 1, n) else (if c == 10 then lexNL(s, i, n) else (if c == 9 then lex(s, i + 1, n) else (if c == 13 then lexNL(s, i, n) else (if isLet(c) then lexWord(s, i, n, scanId(s, i, n)) else (if isDig(c) then lexNum(s, i, n) else (if c == 34 then lexStrOrTriple(s, i, n) else (if c == 47 then lexSlash(s, i, n) else (if c == 43 then lexPlus(s, i, n) else (if c == 45 then lexMinus(s, i, n) else (if c == 42 then lexStar(s, i, n) else (if c == 58 then lexColon(s, i, n) else (if c == 61 then lexEq(s, i, n) else (if c == 60 then lexLt(s, i, n) else (if c == 62 then lexGt(s, i, n) else (if c == 33 then lexBang(s, i, n) else (if c == 38 then lexAmp(s, i, n) else (if c == 124 then lexPipe(s, i, n) else (if c == 64 then lexAt(s, i, n) else (if c == 63 then lexQ(s, i, n) else lexOp1(s, i, n, c))))))))))))))))))))
+def lexDispatch(s, i, n, c) = if c == 32 then lex(s, i + 1, n) else (if c == 10 then lexNL(s, i, n) else (if c == 9 then lex(s, i + 1, n) else (if c == 13 then lexNL(s, i, n) else (if isLet(c) then lexWord(s, i, n, scanId(s, i, n)) else (if isDig(c) then lexNum(s, i, n) else (if c == 34 then lexStrOrTriple(s, i, n) else (if c == 47 then lexSlash(s, i, n) else (if c == 43 then lexPlus(s, i, n) else (if c == 45 then lexMinus(s, i, n) else (if c == 42 then lexStar(s, i, n) else (if c == 58 then lexColon(s, i, n) else (if c == 61 then lexEq(s, i, n) else (if c == 60 then lexLt(s, i, n) else (if c == 62 then lexGt(s, i, n) else (if c == 33 then lexBang(s, i, n) else (if c == 38 then lexAmp(s, i, n) else (if c == 124 then lexPipe(s, i, n) else (if c == 64 then lexAt(s, i, n) else (if c == 63 then lexQ(s, i, n) else (if c == 39 then lexChar(s, i, n) else lexOp1(s, i, n, c)))))))))))))))))))))
 // `???` (the notImplemented placeholder) lexes to token code 60 -> parseAtom1 emits `(prim
 // __notImplemented__)` (ssc1-lower). A single/double `?` still drops (opCode 0 behaviour, unchanged).
 def isTriQ(s, i, n) = if atEnd(i + 2, n) then false else (if s.charAt(i + 1) == 63 then s.charAt(i + 2) == 63 else false)
@@ -131,6 +131,13 @@ def isHexPfx(s, i, n) = if atEnd(i + 1, n) then false else (if s.charAt(i) == 48
 def scanHexV(s, i, n, acc) = if atEnd(i, n) then acc else (if isHexDig(s.charAt(i)) then scanHexV(s, i + 1, n, acc * 16 + hexDig(s.charAt(i))) else acc)
 def scanHexE(s, i, n) = if atEnd(i, n) then i else (if isHexDig(s.charAt(i)) then scanHexE(s, i + 1, n) else i)
 def lexHex(s, i, n) = Cons((0, scanHexV(s, i + 2, n, 0)), lex(s, longEnd(s, scanHexE(s, i + 2, n), n), n))
+// char literal `'x'` / `'\n'` / `'\uXXXX'` -> int token (its code); the VM treats chars as codes
+// (ssc1-front :361-374). Plain: skip `'x'` (3 chars). Escape `\X`: \n->10 \t->9 \r->13 \0->0 else X (4).
+// `\uXXXX` -> 4-hex code point (8 chars). F's own source has no char literals (all `'` are in comments).
+def escCharCode(e) = if e == 110 then 10 else (if e == 116 then 9 else (if e == 114 then 13 else (if e == 48 then 0 else e)))
+def hex4F(s, i) = ((hexDig(s.charAt(i)) * 16 + hexDig(s.charAt(i + 1))) * 16 + hexDig(s.charAt(i + 2))) * 16 + hexDig(s.charAt(i + 3))
+def lexChar(s, i, n) = if s.charAt(i + 1) == 92 then lexCharEsc(s, i, n, s.charAt(i + 2)) else Cons((0, s.charAt(i + 1)), lex(s, i + 3, n))
+def lexCharEsc(s, i, n, e) = if e == 117 then Cons((0, hex4F(s, i + 3)), lex(s, i + 8, n)) else Cons((0, escCharCode(e)), lex(s, i + 4, n))
 def lexNum(s, i, n) = if isHexPfx(s, i, n) then lexHex(s, i, n) else lexNum1(s, i, n, scanNumE(s, i, n))
 // A trailing `L`/`l` Long suffix is stripped (the oracle emits `(lit (int N))` for `5L`), so `1L` lexes
 // as the int 1, not int 1 + a stray uid `L` (which cascaded into a mis-parse across the scljet cluster).
