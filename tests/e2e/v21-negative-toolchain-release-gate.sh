@@ -88,11 +88,16 @@ parity_report="$sandbox/parity.tsv"
 sentinel_report="$sandbox/sentinel.tsv"
 runtime_report="$sandbox/runtime.tsv"
 runtime_freeze_report="$sandbox/runtime-freeze.tsv"
+# Generous per-case timeouts: the sanitized env has no warm compiler server and
+# CI hosts are contended, so tight defaults (12s/45s) turn slow-under-load runs
+# into spurious timeouts. Front/check feed the frozen frontend.ok/checker.ok, and
+# bc-parity classifies a residual timeout as a non-fatal skip — but a generous
+# limit keeps real parity coverage high. Override, do not rely on script defaults.
 PATH="$toolbin" JAVA="$toolbin/java" SSC_NO_CDS=1 \
-  NATIVE_FRONT_STANDARD_DIR="$standard" \
+  NATIVE_FRONT_STANDARD_DIR="$standard" NATIVE_FRONT_TIMEOUT="${NATIVE_FRONT_TIMEOUT:-20}" \
   "$ROOT/scripts/native-front-corpus" --standard --ssc "$slim/bin/ssc" \
   --report "$native_report"
-PATH="$toolbin" SSC_NO_CDS=1 SSC="$slim/bin/ssc" \
+PATH="$toolbin" SSC_NO_CDS=1 SSC="$slim/bin/ssc" BC_PARITY_TIMEOUT="${BC_PARITY_TIMEOUT:-90}" \
   "$ROOT/scripts/bc-parity-sweep" --strict --report "$parity_report"
 "$ROOT/scripts/v21-sentinel-taxonomy" --native-report "$native_report" \
   --parity-report "$parity_report" --report "$sentinel_report"
