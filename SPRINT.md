@@ -614,8 +614,23 @@ Slices, impact-ordered:
       isCurryFlat/collCurryFlat); 2D tabulate / non-1 2nd clause → normal app path. Correct prereq for
       array-companion-statics/wasm-primes/sse-typed-client/traditional-payments/ws-typed-client (they have
       further divergences).
-- [ ] **T3 (biggest clean lever left) — cc/tc body methods (16). FULLY SPEC'D — a fresh agent can build
-      this cold.** Emission rule DERIVED byte-exact from the oracle (ssc1-lower classBodyFields :3710,
+- [x] **T3 — DONE (`v2-p65-ccm`, 2026-07-19). cc/tc body methods. Corpus 274->277/508 (+3: case-class-body-
+      methods, js-scala-fenced-block, scljet-wal-read [multi-class, 20+ methods — validates reverse-class
+      order]), 0 regressions; X1 fixpoint 179,087->190,288 B stage1==stage2 byte-identical; --self 153 ok/0
+      FAIL; kernel +0.** The cc-method MECHANISM is proven correct end-to-end. Realistic-yield estimate (2-5)
+      met at +3; the other cc-body files carry INDEPENDENT divergences that gate them (see impact map below).
+      Design CONFIRMED against oracle: (a) DEF ORDER prelude,varCells,valCells,**caseMethodDefs**,sels,userDefs
+      (ssc1-lower :5570-5573). (b) ENTRY order = ALL regfields ++ ALL regmethods ++ docExprs ++ main
+      (ssc1-lower :5648-5653) — regmethods AFTER all regfields, not interleaved. (c) CROSS-CLASS ORDER IS
+      REVERSED (ssc1-front registerCaseMethods :621 PREPENDS; verified on scljet-readonly-pager-btree ref:
+      FixtureVfs (2nd in source) defs emitted BEFORE FixtureFile) — methods WITHIN a class stay source order.
+      (d) method env (head=local0) = params(src order) on top of __self; arity=1+#params; each field a
+      `(let ((app (global _sel_f) (local <selfIdx>))) ...)`, selfIdx rises +1 per preceding let (=k+i);
+      body parsed with full cx. (e) skipCCHead MUST consume `:`/`{..}` body (currently cascades → all 16
+      broken). (f) `override` stripped; param-less `def m: T = body` → arity 1. IMPL: pre-pass
+      collectCaseMethods(ts) (revL of source order) → [(cname,(fldNames,[(mname,defToks)]))]; caseMethodDefsStr
+      + regMethods; compile4b + entryOf3 thread cms. Fixpoint SAFE (F has 0 real case-class decls, all 15
+      "case class" are comments). Emission rule DERIVED byte-exact from the oracle (ssc1-lower classBodyFields :3710,
       caseSelfCtx :5088-5165) on `case-class-body-methods.code` (ByteSlice get/size) + `js-scala-fenced-block`
       (Point x,y / distanceTo). For `case class C(f1..fn): def m(p1..pk): T = body`:
       * DEF: `(def C_m (lam (k+1) <n nested field-lets, DECL ORDER> <body>))`. Lam params = self FIRST
