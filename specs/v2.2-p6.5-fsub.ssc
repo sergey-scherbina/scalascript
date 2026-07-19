@@ -699,9 +699,12 @@ def parseArmsMore(a, ts, menv, cx) = parseArms(ts, menv, cx) match { case (more,
 // `case h :: t =>` is the same (arm Cons 2 ..) as `case Cons(h, t) =>`.
 def parseConsArm(ts, menv, cx) = parseConsArm1(snd(hd(ts)), snd(hd(tl(tl(ts)))), tl(tl(tl(ts))), menv, cx)
 def parseConsArm1(h, t, ts, menv, cx) = parseArmBody("Cons", 2, t :: h :: Nil, ts, menv, cx)
-// A tuple pattern lowers to TWO arms, Pair and Tuple2, sharing the body.
+// A 2-tuple pattern lowers to TWO arms, Pair and Tuple2 (a runtime 2-tuple is a Pair), sharing the body.
+// A k-tuple for k>=3 lowers to a single `(arm Tuplek k body)` (measured, ssc1-lower on `(a,b,c)` ->
+// `(arm Tuple3 3 ..)`). The body env (parsePatVars order) is arity-agnostic and already correct.
 def parseTupArm(ts, menv, cx) = parsePatVars(tl(ts), Nil) match { case (vs, r) => parseTupArmBody(vs, r, menv, cx) }
-def parseTupArmBody(vs, ts, menv, cx) = armBodyExpr(tl(ts), appEnv(vs, menv), cx) match { case (body, r) => parseArmsMore("(arm Pair 2 " ++ body ++ ") (arm Tuple2 2 " ++ body ++ ")", r, menv, cx) }
+def tupArmStr(k, body) = if k == 2 then "(arm Pair 2 " ++ body ++ ") (arm Tuple2 2 " ++ body ++ ")" else "(arm Tuple" ++ k ++ " " ++ k ++ " " ++ body ++ ")"
+def parseTupArmBody(vs, ts, menv, cx) = armBodyExpr(tl(ts), appEnv(vs, menv), cx) match { case (body, r) => parseArmsMore(tupArmStr(dlen(vs), body), r, menv, cx) }
 // An int-literal match lowers to an if-chain over __eq__ against the let-bound scrutinee.
 def parseIntMatch(scrut, ts, env, cx) = parseIntArms(ts, "__m" :: env, cx) match { case (chain, r) => ("(let (" ++ scrut ++ ") " ++ chain ++ ")", r) }
 def parseIntArms(ts, menv, cx) = parseIntArms0(skipSemisF(ts), menv, cx)
