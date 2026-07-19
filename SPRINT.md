@@ -449,7 +449,18 @@ Slices, impact-ordered (biggest clean lever first):
 - [ ] **G4 — cc/tc-method-def (16) + `.copy` (3):** case-class/typeclass body methods → `Tag_method(self,..)`
       globals + `__regmethod__` regs (ssc1-lower :5088-5165, classBodyFields :3710). Case-class `.copy(...)`
       is related (user-request-shadow/optic-polish/lenses). Big; slice further.
-- [ ] **derived-codec (20), for-comprehension (6), string-escape/multiline (12): later.**
+- [x] **G5 — for-comprehension (single-generator). Corpus 234 → 238 (+4), 0 regr. fixpoint 164,174→168,736.**
+      lex `<-` (code 58); intercept `for` in parseIdent → parseForExpr desugars (ssc1-front parseForFrom
+      :1000): `yield e`→`gen.map(x=>e)`, `if g`→`gen.filter(x=>g).map(..)`, `do`/braceless→`gen.foreach(..)`,
+      `;`-separated 2nd gen→`gen.flatMap(x=><rest>)`. gen in outer env, each body with binder pushed; reuses
+      emitMethodCall. Fixed agent-mcp-toolsource/mcp-client-discover/sql-transaction/v2-self-hosted-yaml-core.
+      RESIDUAL (single-name binder only): tuple binders; multi-line `for⏎ gens⏎yield` (needs `for` as a
+      LAYOUT OPENER — for-comprehensions.ssc pairs); infix `1 to n` generator (json-deep-import); do-body
+      that is a bare assignment (parseExpr doesn't handle assign — json-deep-import).
+- [ ] **derived-codec (20), cc/tc-method-def+`.copy` (16+3), string-escape/multiline `"""`+encoder-escape
+      (12): later.** OTHER-tail sub-clusters (measured): scljet-write lcell arm-assignment (5, compound
+      assign in a single-line match-arm body); match-lowered-to-`if __isTag__` (actors receive, ~7, DEEP —
+      different match strategy, do NOT touch core match); companion-statics Array.fill/List.x (3).
 Each slice: byte-verify vs oracle on the cached corpus, keep `--self` GREEN (re-freeze fixpoint), re-run
 `v2.2-p6.5-corpus.sh`, CONFIRM no MATCH dropped. Build: `scala-cli --power package v2/src --assembly -o
 /tmp/ssc-codec.jar --force`; gate: `SSC_JAR=/tmp/ssc-codec.jar V2_DIR=<wt>/v2 NEWFRONT_WORK=/tmp/p65codec_work`.
