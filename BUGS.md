@@ -2,9 +2,8 @@
 
 ## ssc0c-multifile-uselib-ir-divergence — self-hosted compiler disagrees with the Scala seed across an import
 
-**Status:** OPEN / claimed 2026-07-19 by `v2-f7-internal-gate`. Found by the 2026-07-18 v2-state audit
-at `358facd8e`; current-head reproduction is the first planned slice because both the compiler and gate
-have moved since that measurement.
+**Status:** REPRODUCED / claimed 2026-07-19 by `v2-f7-internal-gate`. Found by the 2026-07-18 v2-state
+audit at `358facd8e`; re-measured at `a3b115623` after both the compiler and gate had moved.
 
 **Real-harness repro:** run `bash v2/conformance/check.sh` from a clean worktree and preserve its real
 exit code (never `| tail`). The focused comparison is the same one the gate performs:
@@ -15,13 +14,23 @@ self-hosted:  ssc run bin/ssc0c.ssc0 examples/uselib.ssc0
 ```
 
 At the audited SHA both commands returned non-empty canonical Core IR, but their bytes differed while
-the single-file and multi-file self-fixpoints still passed. This violates the byte-for-byte differential
-in `v2/specs/20-bootstrap.md`, not merely a formatting expectation.
+the single-file and multi-file self-fixpoints still passed. On current source the semantic/canonical
+payload has converged: `/tmp/v2-f7-uselib-seed.ir` and `/tmp/v2-f7-uselib-self.ir` share all first 2865
+bytes. The remaining exact mismatch is one trailing LF: seed output is 2866 bytes and ends `29 0a`, while
+self-hosted output is 2865 bytes and ends `29`. SHA-256 values are respectively
+`924205b198d594fdd9683a25dcce48b21f2207ea930d86f988f1ebf652f04975` and
+`d435633db63812dc39cf613d50b9cbeffc8dc9eaa080da10dbf748f6d5464a96`.
 
-**Plan / done-when:** save and print both complete observables before classification, minimize the first
-semantic/canonical difference in a real two-file fixture, fix the owning self-hosted loader/compiler path,
-and add a multi-file regression. Done requires exact bytes for `uselib`, both fixpoints, and the complete
-v2 gate; weakening the comparison, normalizing unequal output, or updating an expected blob is forbidden.
+**Apparatus defect:** `v2/conformance/check.sh` captures both programs with command substitution
+(`ua=$(...)`; `ub=$(...)`), and POSIX command substitution strips trailing newlines before comparison.
+The gate therefore pre-processes away the only current byte mismatch and can print a false byte-identical
+result. The gate must materialize both complete streams and `cmp` them before classification.
+
+**Plan / done-when:** make both compiler CLIs obey one line-termination contract, save and compare complete
+streams before classification, and add a real two-file regression that deliberately proves a trailing-byte
+mismatch is caught with paths/sizes/diff. Done requires exact bytes for `uselib`, both fixpoints, and the
+complete v2 gate; command-substitution normalization, weakening the comparison, or refreshing an expected
+blob is forbidden.
 
 ## f5-buildjvm-artifact-missing-relocated-jars — `build-jvm` jars NoClassDefFoundError after F5 kernel-slimming
 

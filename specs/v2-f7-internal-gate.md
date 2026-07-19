@@ -90,6 +90,8 @@ and the direct process status separately so a successful `tail`, `grep`, or retr
 
 ## Results
 
-Fresh `origin/main` baseline and implementation results are intentionally pending F7.1. The prior audit at
-`358facd8e` reported 639 successful checks and three failures: one `ssc0c uselib.ssc0` byte mismatch and two
-compiler `StackOverflowError`s. Those are hypotheses to re-measure, not expectations to preserve.
+Fresh baseline is in progress at `a3b115623`. The prior audit at `358facd8e` reported 639 successful checks
+and three failures: one `ssc0c uselib.ssc0` byte mismatch and two compiler `StackOverflowError`s. Direct
+current-head artifacts show the 2865-byte Core IR payload now agrees, but exact streams still differ by the
+seed's one trailing LF (2866 vs 2865 bytes). The existing gate's `$(...)` capture strips that evidence and is
+therefore not a valid byte comparator; F7.2 must repair the apparatus before classifying the compiler result.

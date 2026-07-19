@@ -1170,7 +1170,11 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
       - [ ] **F7.2 — restore the multi-file compiler invariant.** Save Scala-front and self-hosted
             `uselib.ssc0` Core IR, print a canonical diff, minimize it across a real imported two-file
             fixture, fix the owning loader/compiler path, and preserve both single-file and multi-file
-            self-fixpoints. Do not normalize away or bless unequal bytes.
+            self-fixpoints. Do not normalize away or bless unequal bytes. **Fresh finding @
+            `a3b115623`:** the 2865-byte Core IR payload is now identical, but `ssc compile` appends LF
+            (2866 bytes) and self-hosted `ssc0c` does not (2865); `$(...)` in `check.sh` strips both
+            endings and can report false equality. Fix the comparison apparatus to compare files first,
+            then align the output contract; do not preserve the command-substitution normalization.
       - [ ] **F7.3 — close compiler-depth fail-open.** Reproduce the current smallest well-formed Core IR
             depth that overflows at `-Xss1m` and the legitimate tower program that needs the same path.
             Make traversal iterative or fail closed at a documented compiler bound with a stable
