@@ -292,7 +292,10 @@ def parseArgLMore(e, ts, env, cx) = if isTok(hd(ts), 2, 27) then parseArgL(tl(ts
 // MEASURED: a BUILTIN constructor is bare -- `Cons(a, b)` -> (ctor Cons a b), `Nil` -> (ctor Nil) --
 // but a USER case class CALLS its generated ctor def: `P(1, 2)` -> `(app (global P) ..)`, NOT
 // `(ctor P ..)`. Telling them apart is exactly why the collected registry has to reach the parser.
-def bareCtor(nm, cx) = if isCC(nm, cx) then "(app (global " ++ nm ++ "))" else "(ctor " ++ nm ++ ")"
+// An Upper-case name can also be a top-level `val` (Scala stable identifier, e.g. `val Schema = ..`):
+// a bare reference lowers to its cell read, exactly like a lower-case top-val (calleeOf). Checked before
+// isCC (they are distinct decls) so `val Transfer = ..; Transfer.sql` resolves to the cell, not `(ctor)`.
+def bareCtor(nm, cx) = if isTopVal(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else (if isCC(nm, cx) then "(app (global " ++ nm ++ "))" else "(ctor " ++ nm ++ ")")
 def ctorApp(nm, args, cx) = if isCC(nm, cx) then "(app (global " ++ nm ++ ")" ++ args ++ ")" else "(ctor " ++ nm ++ args ++ ")"
 // `(e)` is a group; `(a, b)` is a Tuple2 construction.
 def parseParen(ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => parseParenEnd(e, r, env, cx) }
