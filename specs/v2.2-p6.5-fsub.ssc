@@ -65,10 +65,14 @@ def lexTriple(s, i, n, e) = Cons((8, s.substring(i + 3, e)), lex(s, e + 3, n))
 def escTriple(s, i, n, dq, bs) = if atEnd(i, n) then "" else escTripleC(s, i, n, dq, bs, s.charAt(i))
 def escTripleC(s, i, n, dq, bs, c) = escPiece(c, s, i, dq, bs) ++ escTriple(s, i + 1, n, dq, bs)
 def escPiece(c, s, i, dq, bs) = if c == 34 then bs ++ dq else (if c == 92 then bs ++ bs else (if c == 10 then bs ++ "n" else (if c == 13 then bs ++ "r" else (if c == 9 then bs ++ "t" else s.substring(i, i + 1)))))
-def lexColon(s, i, n) = if s.charAt(i + 1) == 58 then Cons((2, 49), lex(s, i + 2, n)) else Cons((2, 34), lex(s, i + 1, n))
+// `:::` list-concat lexes as `++` (code 48; ssc1-front :385 — same Cons-concat lowering); `::` = Cons
+// (49); `:+` append = op code 61 -> `(prim __arith__ (lit (str ":+")) L R)` (prec 6, like `++`); `:` = 34.
+def lexColon(s, i, n) = if s.charAt(i + 1) == 58 then lexColonC(s, i, n) else (if s.charAt(i + 1) == 43 then Cons((2, 61), lex(s, i + 2, n)) else Cons((2, 34), lex(s, i + 1, n)))
+def lexColonC(s, i, n) = if atEnd(i + 2, n) then Cons((2, 49), lex(s, i + 2, n)) else (if s.charAt(i + 2) == 58 then Cons((2, 48), lex(s, i + 3, n)) else Cons((2, 49), lex(s, i + 2, n)))
 // compound-assignment tokens: `+=`=53 `-=`=54 `*=`=55 (`x += e` desugars to `x = x + e`, ssc1-front
 // compoundBaseOp :1512). `+=` is checked after `++`; `-`/`*` get their own dispatch (else they lexOp1).
-def lexPlus(s, i, n) = if s.charAt(i + 1) == 43 then Cons((2, 48), lex(s, i + 2, n)) else (if s.charAt(i + 1) == 61 then Cons((2, 53), lex(s, i + 2, n)) else Cons((2, 23), lex(s, i + 1, n)))
+// `+:` prepend lexes as `::` (code 49; ssc1-front :429 — `x +: xs` == `x :: xs`, right-assoc Cons).
+def lexPlus(s, i, n) = if s.charAt(i + 1) == 43 then Cons((2, 48), lex(s, i + 2, n)) else (if s.charAt(i + 1) == 61 then Cons((2, 53), lex(s, i + 2, n)) else (if s.charAt(i + 1) == 58 then Cons((2, 49), lex(s, i + 2, n)) else Cons((2, 23), lex(s, i + 1, n))))
 // `->` (pair arrow, code 57) — lexed after `-=`; lowers `a -> b` to a 2-tuple `(ctor Pair a b)`
 // (ssc1-front :1477 prec 1, ssc1-lower inf `->` :2572) and is the entry separator in `Map(k -> v, ..)`.
 def lexMinus(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 54), lex(s, i + 2, n)) else (if s.charAt(i + 1) == 62 then Cons((2, 57), lex(s, i + 2, n)) else Cons((2, 24), lex(s, i + 1, n)))
@@ -252,10 +256,10 @@ def plusSym(l, r, dq) = if isStrExprCode(l, dq) then "++" else (if isStrExprCode
 def emitArith(k, l, r, dq) = if k == 23 then emitArithS(plusSym(l, r, dq), l, r, dq) else emitArithS(arithSym(k), l, r, dq)
 def emitEq(l, r) = "(prim __eq__ " ++ l ++ " " ++ r ++ ")"
 def emitIf(c, t, e) = "(if " ++ c ++ " " ++ t ++ " " ++ e ++ ")"
-def emitBin(k, l, r, dq) = if k == 57 then "(ctor Pair " ++ l ++ " " ++ r ++ ")" else (if k == 49 then "(ctor Cons " ++ l ++ " " ++ r ++ ")" else (if k == 48 then emitArithS("++", l, r, dq) else (if k == 44 then emitEq(l, r) else (if k == 45 then emitIf(emitEq(l, r), "(lit false)", "(lit true)") else (if k == 46 then emitIf(l, r, "(lit false)") else (if k == 47 then emitIf(l, "(lit true)", r) else emitArith(k, l, r, dq)))))))
+def emitBin(k, l, r, dq) = if k == 57 then "(ctor Pair " ++ l ++ " " ++ r ++ ")" else (if k == 49 then "(ctor Cons " ++ l ++ " " ++ r ++ ")" else (if k == 48 then emitArithS("++", l, r, dq) else (if k == 44 then emitEq(l, r) else (if k == 45 then emitIf(emitEq(l, r), "(lit false)", "(lit true)") else (if k == 46 then emitIf(l, r, "(lit false)") else (if k == 47 then emitIf(l, "(lit true)", r) else (if k == 61 then emitArithS(":+", l, r, dq) else emitArith(k, l, r, dq))))))))
 // Scala's precedence-by-first-character, restricted to the operators the subset uses.
 def binPrec(t) = if fst(t) == 2 then binPrecK(snd(t)) else 0
-def binPrecK(k) = if k == 57 then 1 else (if k == 47 then 1 else (if k == 46 then 2 else (if k == 44 then 3 else (if k == 45 then 3 else (if k == 40 then 4 else (if k == 41 then 4 else (if k == 42 then 4 else (if k == 43 then 4 else (if k == 49 then 5 else (if k == 23 then 6 else (if k == 24 then 6 else (if k == 48 then 6 else (if k == 25 then 7 else (if k == 26 then 7 else (if k == 56 then 7 else 0)))))))))))))))
+def binPrecK(k) = if k == 57 then 1 else (if k == 47 then 1 else (if k == 46 then 2 else (if k == 44 then 3 else (if k == 45 then 3 else (if k == 40 then 4 else (if k == 41 then 4 else (if k == 42 then 4 else (if k == 43 then 4 else (if k == 49 then 5 else (if k == 23 then 6 else (if k == 24 then 6 else (if k == 48 then 6 else (if k == 61 then 6 else (if k == 25 then 7 else (if k == 26 then 7 else (if k == 56 then 7 else 0))))))))))))))))
 
 // -- the parse context ---------------------------------------------------------------------------
 // cx = (dq, (ccNames, fieldNames)). Case classes made the parser context-dependent: a ctor call and
