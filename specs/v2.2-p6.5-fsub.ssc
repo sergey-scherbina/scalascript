@@ -282,10 +282,12 @@ def binPrecK(k) = if k == 57 then 1 else (if k == 47 then 1 else (if k == 46 the
 // to isTopVal), but its cell is emitted in the topVar slot (BEFORE val cells) and it is assignable.
 // The deepest slot carries `(bs, pless)`: pless = top-level PARENLESS def names (`def n [:T] = e`), a
 // reference to which FORCES the (lam 0 ..) thunk -> `(app (global n))` (ssc1-lower parenless method).
-def mkCx(dq, ccNames, fldNames, valNames, ecn, ereg, varNames, bs, pless) = (dq, (ccNames, (fldNames, (valNames, (ecn, (ereg, (varNames, (bs, pless))))))))
+// DA1: deepest cx slot carries `(bs, (pless, sub))`; sub = `(ccSubReg, enumAllReg)` for typed patterns.
+def mkCx(dq, ccNames, fldNames, valNames, ecn, ereg, varNames, bs, pless, sub) = (dq, (ccNames, (fldNames, (valNames, (ecn, (ereg, (varNames, (bs, (pless, sub)))))))))
 def dqOf(cx) = fst(cx)
 def bsOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(cx))))))))
-def plessOf(cx) = snd(snd(snd(snd(snd(snd(snd(snd(cx))))))))
+def plessOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(snd(cx)))))))))
+def subInfoOf(cx) = snd(snd(snd(snd(snd(snd(snd(snd(snd(cx)))))))))
 def ccNamesOf(cx) = fst(snd(cx))
 def fldNamesOf(cx) = fst(snd(snd(cx)))
 def valNamesOf(cx) = fst(snd(snd(snd(cx))))
@@ -534,8 +536,11 @@ def focusMethStep(nm, arg) = if nm == "index" then "(ctor OIndex " ++ arg ++ ")"
 def parseCtor(nm, ts, env, cx) = if isPrismApp(nm, ts) then parsePrism(ts, env, cx) else (if isFocusApp(nm, ts) then parseFocus(ts, env, cx) else (if isEnumTypeDot(nm, ts, cx) then parseEnumCompanion(nm, tl(ts), env, cx) else parseCtorG(nm, skipGen(ts), env, cx)))
 def parseCtorG(nm, ts, env, cx) = if isTok(hd(ts), 2, 21) then parseCtorArgs(nm, tl(ts), env, cx) else (bareCtor(nm, cx), ts)
 def isEnumTypeDot(nm, ts, cx) = if isTok(hd(ts), 2, 31) then isEnumType(nm, cx) else false
-def parseEnumCompanion(ename, ts, env, cx) = parseEnumComp1(ename, snd(hd(ts)), tl(ts), cx)
-def parseEnumComp1(ename, field, ts, cx) = if field == "values" then (enumValuesStr(enumCasesOfName(ename, enumRegOf(cx))), ts) else ("(ctor " ++ field ++ ")", ts)
+def parseEnumCompanion(ename, ts, env, cx) = parseEnumComp1(ename, snd(hd(ts)), tl(ts), env, cx)
+// `E.Case` -> `(ctor Case)` (nullary); APPLIED parametrized `E.Case(args)` -> `(ctor Case args)` (folds
+// args into the ctor, ssc1-lower applied-ctor path :1700; NOT `(app (ctor Case) args)`); `E.values` -> list.
+def parseEnumComp1(ename, field, ts, env, cx) = if field == "values" then (enumValuesStr(enumCasesOfName(ename, enumRegOf(cx))), ts) else (if isTok(hd(ts), 2, 21) then parseEnumCaseApp(field, tl(ts), env, cx) else ("(ctor " ++ field ++ ")", ts))
+def parseEnumCaseApp(field, ts, env, cx) = parseArgs(ts, env, cx) match { case (args, r) => ("(ctor " ++ field ++ args ++ ")", r) }
 def enumValuesStr(names) = names match { case Nil => "(ctor Nil)" case h :: t => "(ctor Cons (ctor " ++ h ++ ") " ++ enumValuesStr(t) ++ ")" }
 // `List(a, b, c)` is NOT a ctor call — it desugars to a right-nested Cons chain ending in Nil (measured:
 // List() -> (ctor Nil); List(a,b) -> (ctor Cons a (ctor Cons b (ctor Nil)))). Needs the args as a LIST
@@ -764,7 +769,7 @@ def join2(a, b) = if a == "" then b else (if b == "" then a else a ++ " " ++ b)
 // arms stop at the next statement without eating its first token. Braced match is byte-unchanged.
 def parseMatch(scrut, ts, env, cx) = parseMatchArms(scrut, matchBody(ts), env, cx)
 def matchBody(ts) = if isTok(hd(ts), 2, 28) then tl(ts) else ts
-def parseMatchArms(scrut, ts, env, cx) = if fst(hd(tl(ts))) == 0 then parseGenMatch(scrut, ts, env, cx) else (if isGenVarHead(tl(ts)) then parseGenMatch(scrut, ts, env, cx) else parseCtorMatch(scrut, ts, env, cx))
+def parseMatchArms(scrut, ts, env, cx) = if fst(hd(tl(ts))) == 0 then parseGenMatch(scrut, ts, env, cx) else (if isGenVarHead(tl(ts)) then parseGenMatch(scrut, ts, env, cx) else (if isTypedArm(tl(ts)) then parseGenMatch(scrut, ts, env, cx) else parseCtorMatch(scrut, ts, env, cx)))
 def armsRest(ts) = if isTok(hd(ts), 2, 29) then tl(ts) else ts
 def parseCtorMatch(scrut, ts, env, cx) = parseArms(ts, "__m" :: env, cx) match { case (arms, r) => (emitMatch(scrut, fst(arms), snd(arms)), r) }
 def emitMatch(scrut, arms, dflt) = "(let (" ++ scrut ++ ") (match (local 0) (" ++ arms ++ ")" ++ dflt ++ "))"
@@ -822,7 +827,7 @@ def genScrut(menv) = "(local " ++ lookup("__m", menv) ++ ")"
 def parseGenMatch(scrut, ts, env, cx) = parseGenArms(ts, "__m" :: env, cx) match { case (chain, r) => ("(let (" ++ scrut ++ ") " ++ chain ++ ")", r) }
 def parseGenArms(ts, menv, cx) = parseGenArms0(skipSemisF(ts), menv, cx)
 def parseGenArms0(ts, menv, cx) = if isTok(hd(ts), 2, 6) then parseGenArm(tl(ts), menv, cx) else (emitInt(0), armsRest(ts))
-def parseGenArm(ts, menv, cx) = if isWild(hd(ts)) then parseGenWild(tl(ts), menv, cx) else (if fst(hd(ts)) == 0 then parseGenInt(snd(hd(ts)), tl(ts), menv, cx) else parseGenVar(snd(hd(ts)), tl(ts), menv, cx))
+def parseGenArm(ts, menv, cx) = if isTypedArm(ts) then parseTypedArm(ts, menv, cx) else (if isWild(hd(ts)) then parseGenWild(tl(ts), menv, cx) else (if fst(hd(ts)) == 0 then parseGenInt(snd(hd(ts)), tl(ts), menv, cx) else parseGenVar(snd(hd(ts)), tl(ts), menv, cx)))
 def parseGenInt(n, ts, menv, cx) = parseExpr(tl(ts), 0, menv, cx) match { case (body, r) => parseGenIntRest(n, body, r, menv, cx) }
 def parseGenIntRest(n, body, ts, menv, cx) = parseGenArms(ts, menv, cx) match { case (rest, r) => (emitIf(emitEq(genScrut(menv), emitInt(n)), body, rest), r) }
 def parseGenVar(nm, ts, menv, cx) = if isTok(hd(ts), 2, 2) then parseGenVarGuard(nm, tl(ts), menv, cx) else parseGenVarPlain(nm, tl(ts), menv, cx)
@@ -953,6 +958,44 @@ def nullaryNames(cases) = cases match { case Nil => Nil case h :: t => h match {
 def collectEnumCaseNames(ts) = if isEmpty(ts) then Nil else (if isEnumHead(ts) then collectECN1(ts) else collectEnumCaseNames(tl(ts)))
 def collectECN1(ts) = enumCasesFrom(ts) match { case (cases, r) => appEnv(caseNamesL(cases), collectEnumCaseNames(r)) }
 def caseNamesL(cases) = cases match { case Nil => Nil case h :: t => Cons(fst(h), caseNamesL(t)) }
+// DA1 typed-pattern registries. subReg = [Pair(parent, child)] from `case class C(..) extends P`, REVERSE
+// source order (ssc1-front PREPENDS per case class :2251-2258, subtypeChildren preserves cell order). Only
+// the FIRST named parent; enums contribute via enumAllReg. enumAllReg = [Pair(enumName, [allCaseNames])]
+// (declaration order, incl. parametrized cases) so `case _: Color` expands over every Color case.
+def collectSubReg(ts) = collectSubRegAcc(ts, Nil)
+def collectSubRegAcc(ts, acc) = if isEmpty(ts) then acc else (if isCCHead(ts) then collectSubRegAcc(tl(ts), collectSRadd(ts, acc)) else collectSubRegAcc(tl(ts), acc))
+def collectSRadd(ts, acc) = collectFields(tl(tl(tl(tl(ts)))), Nil) match { case (fs, r) => collectSRext(snd(hd(tl(tl(ts)))), r, acc) }
+def collectSRext(child, r, acc) = if isWord(hd(r), "extends") then Cons((snd(hd(tl(r))), child), acc) else acc
+def collectEnumAllReg(ts) = if isEmpty(ts) then Nil else (if isEnumHead(ts) then collectEAR1(ts) else collectEnumAllReg(tl(ts)))
+def collectEAR1(ts) = collectEAR2(snd(hd(tl(ts))), enumCasesFrom(ts))
+def collectEAR2(ename, pr) = pr match { case (cases, r) => Cons((ename, caseNamesL(cases)), collectEnumAllReg(r)) }
+// subtypeChildren(T) = case-class children of T ++ enum cases of T; Nil => leaf (exact test). typedTagTest:
+// leaf -> `(prim __isTag__ s (lit (str T)) (lit (int -1)))`; supertype -> OR-chain (ssc1-lower :3270-3316).
+def subRegChildren(parent, reg) = reg match { case Nil => Nil case h :: t => if fst(h) == parent then Cons(snd(h), subRegChildren(parent, t)) else subRegChildren(parent, t) }
+def enumAllOf(ename, reg) = reg match { case Nil => Nil case h :: t => if fst(h) == ename then snd(h) else enumAllOf(ename, t) }
+def subtypeChildren(th, cx) = appEnv(subRegChildren(th, fst(subInfoOf(cx))), enumAllOf(th, snd(subInfoOf(cx))))
+def isTagExact(scrut, tag, cx) = "(prim __isTag__ " ++ scrut ++ " (lit (str " ++ dqOf(cx) ++ tag ++ dqOf(cx) ++ ")) (lit (int -1)))"
+def orTagTests(scrut, tags, cx) = tags match { case Nil => "(lit false)" case h :: t => t match { case Nil => isTagExact(scrut, h, cx) case _ => "(if " ++ isTagExact(scrut, h, cx) ++ " (lit true) " ++ orTagTests(scrut, t, cx) ++ ")" } }
+// NB: use isEmpty/helper (NOT `case Nil/case cs`) so F self-compiles this def (a bare-var arm after a
+// ctor arm mis-parses as a cons pattern in F's own parseCtorMatch).
+def typedTagTest(scrut, th, cx) = typedTagTest1(scrut, subtypeChildren(th, cx), th, cx)
+def typedTagTest1(scrut, cs, th, cx) = if isEmpty(cs) then isTagExact(scrut, th, cx) else orTagTests(scrut, cs, cx)
+// skip a pattern type annotation `: T[..]` up to (but not consuming) the arm boundary `=>`/guard `if`
+// (ssc1-front skipPatternTypeAt :525-544 — []/() balanced, stop at `=>`/`if`/depth-0).
+def skipTypeToArrow(ts) = skipTTA(ts, 0)
+def skipTTA(ts, d) = if isEmpty(ts) then ts else skipTTA1(hd(ts), tl(ts), ts, d)
+def skipTTA1(t, r, ts, d) = if isTok(t, 2, 50) then skipTTA(r, d + 1) else (if isTok(t, 2, 21) then skipTTA(r, d + 1) else (if isTok(t, 2, 51) then skipTTAclose(r, ts, d) else (if isTok(t, 2, 22) then skipTTAclose(r, ts, d) else (if d > 0 then skipTTA(r, d) else (if isTok(t, 2, 30) then ts else (if isTok(t, 2, 2) then ts else skipTTA(r, d)))))))
+def skipTTAclose(r, ts, d) = if d == 0 then ts else skipTTA(r, d - 1)
+// typed match arm `case _: T => body` / `case x: T => body`. Wild -> if-test only; binder -> extra let
+// binding x to the scrutinee (ssc1-lower lowerOrderedGuardArms tpat :3432-3446). rest recurses in
+// parseGenArms (binder pushes a dummy scrut slot so genScrut rises by one).
+def isTypedArm(ts) = if fst(hd(ts)) == 1 then isTok(hd(tl(ts)), 2, 34) else false
+def parseTypedArm(ts, menv, cx) = parseTypedArm1(isWild(hd(ts)), snd(hd(ts)), snd(hd(tl(tl(ts)))), skipTypeToArrow(tl(tl(ts))), menv, cx)
+def parseTypedArm1(wild, binder, th, tsA, menv, cx) = if wild then parseTypedWild(th, tl(tsA), menv, cx) else parseTypedBind(binder, th, tl(tsA), menv, cx)
+def parseTypedWild(th, ts, menv, cx) = parseExpr(ts, 0, menv, cx) match { case (body, r) => parseTypedWildRest(th, body, r, menv, cx) }
+def parseTypedWildRest(th, body, ts, menv, cx) = parseGenArms(ts, menv, cx) match { case (rest, r) => (emitIf(typedTagTest(genScrut(menv), th, cx), body, rest), r) }
+def parseTypedBind(binder, th, ts, menv, cx) = parseExpr(ts, 0, binder :: menv, cx) match { case (body, r) => parseTypedBindRest(th, body, r, menv, cx) }
+def parseTypedBindRest(th, body, ts, menv, cx) = parseGenArms(ts, "__typed_scrut__" :: menv, cx) match { case (rest, r) => ("(let (" ++ genScrut(menv) ++ ") " ++ emitIf(typedTagTest("(local 0)", th, cx), body, rest) ++ ")", r) }
 def defTopItem(ts, cx) = emitDef(ts, cx) match { case (d, rest) => ((d, ""), rest) }
 def ccTopItem(ts, cx) = emitCCDecl(ts, cx) match { case (d, rest) => ((d, ccDerivedInit(ccNameAt(ts), derivesAt(tl(tl(ts))))), rest) }
 // `val (a, b, ..) = e` tuple-destructuring (ssc1-lower :2522-style): bind the init to a `let`, then set
@@ -1166,7 +1209,7 @@ def compile1(ts, dq, bs) = compile2(ts, collectCC(ts), collectTypeCases(ts), dq,
 // The pre-pass results become the parse CONTEXT: case-class names (cs, cc-only, for isCC) + the UNIFIED
 // type-case field names (tcs, cc + enum cases) + top-level val names + the enum registries. Top-level vals
 // are collected with a base cx first (their `rest` boundaries do not depend on val-name resolution).
-def mkCxE(cs, tcs, ts, dq, vals, vars, bs, pless) = mkCx(dq, ccNamesL(cs), allFieldNames(tcs), vals, collectEnumCaseNames(ts), collectEnumReg(ts), vars, bs, pless)
+def mkCxE(cs, tcs, ts, dq, vals, vars, bs, pless) = mkCx(dq, ccNamesL(cs), allFieldNames(tcs), vals, collectEnumCaseNames(ts), collectEnumReg(ts), vars, bs, pless, (collectSubReg(ts), collectEnumAllReg(ts)))
 def compile2(ts, cs, tcs, dq, bs) = compile2b(ts, cs, tcs, dq, bs, mkCxE(cs, tcs, ts, dq, Nil, Nil, bs, Nil))
 def compile2b(ts, cs, tcs, dq, bs, base) = compile3(ts, cs, tcs, dq, mkCxE(cs, tcs, ts, dq, collectTopVals(ts, base), collectTopVars(ts, base), bs, collectPlessDefs(ts, base)))
 def compile3(ts, cs, tcs, dq, cx) = walkTop(ts, cx) match { case (strs, nDoc) => compile4(strs, nDoc, ts, tcs, dq, cx) }
