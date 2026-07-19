@@ -596,14 +596,42 @@ Slices, impact-ordered:
       (`100.0e5`→`1.0E7` NORMALIZES, so verbatim-uppercase is wrong) — no float formatter in the subset.
       **`[...]` bracket-list literal** (v2-multiline-list-literal) is a niche 1-file form (F reads `[` as
       type-args); low yield.
-- [ ] **T3 (NEXT, biggest clean lever) — cc/tc body methods (16).** `case class C(f): def m(a)=body` →
-      `(def C_m (lam N+1 <let f=_sel_f(self) per field> <body>))` globals + entry `(prim __regfields__ "C"
-      [fields])` + `(prim __regmethod__ "C" "m" (global C_m))`; call `x.m(a)`→`(prim __method__ "m" x a)`
-      (runtime dispatch finds the reg). de Bruijn: lam self FIRST param, body wraps each field ref as a
-      let-bound `_sel_f(self)` (caseSelfCtx). F already emits `_sel_f` accessors; it currently DROPS the
-      `:`-layout / `{..}` body. Oracle: ssc1-lower :5088-5165, classBodyFields :3710. Simplest example =
-      `case-class-body-methods.code` (get/size). Intricate (self+field-context indexing); slice further and
-      byte-verify per example.
+- [x] **T4 — DONE (`0fabf0a4d`). curried collection factory flatten. Corpus 258->259 (+1 list-companion,
+      0 regr); fixpoint 173,067->175,061 B.** `X.fill(n)(x)`/`X.tabulate(n)(f)` on a collection companion
+      {List,Seq,Vector,Array,Map}, each clause len 1, flattens both arg-lists into one `(prim __method__
+      "fill" (ctor X) n x)` (ssc1-lower expandCollectionCurry :1915-1941). Intercepted in postMeth (new
+      isCurryFlat/collCurryFlat); 2D tabulate / non-1 2nd clause → normal app path. Correct prereq for
+      array-companion-statics/wasm-primes/sse-typed-client/traditional-payments/ws-typed-client (they have
+      further divergences).
+- [ ] **T3 (biggest clean lever left) — cc/tc body methods (16). FULLY SPEC'D — a fresh agent can build
+      this cold.** Emission rule DERIVED byte-exact from the oracle (ssc1-lower classBodyFields :3710,
+      caseSelfCtx :5088-5165) on `case-class-body-methods.code` (ByteSlice get/size) + `js-scala-fenced-block`
+      (Point x,y / distanceTo). For `case class C(f1..fn): def m(p1..pk): T = body`:
+      * DEF: `(def C_m (lam (k+1) <n nested field-lets, DECL ORDER> <body>))`. Lam params = self FIRST
+        (index k) then p1..pk (p1=index k-1 .. pk=index 0). Field-let i (0-based): `(let ((app (global
+        _sel_fi) (local (k+i)))) …)` — self's index = k+i because each preceding let shifts it up by 1.
+        Body env (F lookup, head=local0) = reverse(fields) ++ reverse(params) ++ [selfName], i.e. after all
+        lets: fn=local0 … f1=local(n-1), pk=local n … p1=local(n+k-1), self=local(n+k). Field refs in the
+        body resolve to their let-local; `o.x` (param field) → `(app (global _sel_x) <o-local>)`.
+        VERIFIED shapes: `(def ByteSlice_get (lam 2 (let ((app (global _sel_data) (local 1))) (app (local 0)
+        (local 1)))))`; `(def Point_distanceTo (lam 2 (let ((app (global _sel_x) (local 1))) (let ((app
+        (global _sel_y) (local 2))) <body with x=local1,y=local0,o=local2>))))`. ALL fields get a let
+        (not only referenced ones — Point binds both x and y).
+      * DEF ORDER: C_m defs = "caseMethodDefs", emitted in compile4 BETWEEN valCells and emitSels
+        (ssc1-lower order: prelude, topVarCells, topValCells, caseMethodDefs, accDefs(sels), userDefs).
+      * ENTRY: after F's existing `(prim __regfields__ "C" [fields])` per class, add one `(prim __regmethod__
+        (lit (str "C")) (lit (str "m")) (global C_m))` per method (in method decl order), BEFORE the
+        doc-order entry items. (regField is in entryOf2; add regMethod there.)
+      * CALL SITES ALREADY MATCH: `x.m(a)` emits `(prim __method__ "m" x a)` (F default) = oracle; the
+        runtime dispatch finds the __regmethod__ registration. So T3 is purely DEFS + regmethod + body-consume.
+      * MECHANICS: needs a pre-pass (like collectCC) to collect (className, fields, [(method, paramToks,
+        bodyToks)]) so compile4 can emit caseMethodDefs; AND skipCCHead must CONSUME the `:`-layout/`{..}`
+        body (currently it does NOT — the body cascades into garbage in the entry, so all 16 are fully
+        broken, confirmed on case-class-body-methods p65 output). Reuse parseParams (gives reverse(params)
+        env) + parseExpr(bodyToks, 0, fullEnv, cx). Watch: param-less `def m = body` → `(lam 1)` (self only,
+        no `()`), zero explicit params. Realistic yield ~2-5 fully-flip (case-class-body-methods is "pure";
+        lang-split/tagless-*/typeclass-extension/effects carry MORE constructs). Large; slice + byte-verify
+        per example, re-freeze fixpoint.
 
 **F3 BREADTH LOG (superseded intermediate) — corpus MATCH 1 → 43/504:**
 - top-level statements (loop fix + val cells + exprs): 1 → 34 (`07522696f`, `253f68231`)
