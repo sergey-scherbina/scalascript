@@ -576,6 +576,25 @@ Slices, impact-ordered:
       changes + new `bsOf`), thread `compile→compile1→compile2→compile2b→mkCxE→mkCx`; update BOTH gate
       drivers (fsub.sh + corpus.sh readCompile/fileMain/main to build+pass bsArg). Layout: `canEndLine` add
       kind 8 (canStartLine/isCont already treat it like a string). Re-freeze fixpoint (bytes grow).
+- [x] **T2 — DONE (`eeaaea014`). `null` keyword -> `(ctor None)`. Corpus 257->258 (fresh 507), 0 regr;
+      fixpoint 172,969->173,067 B.** Bare `null` var-atom (ssc1-front :1119-1120, scalameta Lit.Null ->
+      Ctor("None")); intercepted in parseVarOrCall (reserved word). Fixed coroutine-error; prereq for
+      spark-udf-demo. NOTE: fresh full corpus is 507 files (2 added since the 505 handoff); my authoritative
+      work dir = `/tmp/p65tail_fresh` (regenerated code+ref+F0 with THIS kernel — the 505 cache was a prior
+      agent's jar). Post-T1 fresh baseline was 257/507.
+- DEFERRED (escape-hatch — byte-unachievable cleanly): **float-exponent** (`1.0e100`→`1.0E100`, 3 files:
+      actors-phi-accrual/control-center-live/spark-lakehouse-hudi) needs exact `Double.toString` reproduction
+      (`100.0e5`→`1.0E7` NORMALIZES, so verbatim-uppercase is wrong) — no float formatter in the subset.
+      **`[...]` bracket-list literal** (v2-multiline-list-literal) is a niche 1-file form (F reads `[` as
+      type-args); low yield.
+- [ ] **T3 (NEXT, biggest clean lever) — cc/tc body methods (16).** `case class C(f): def m(a)=body` →
+      `(def C_m (lam N+1 <let f=_sel_f(self) per field> <body>))` globals + entry `(prim __regfields__ "C"
+      [fields])` + `(prim __regmethod__ "C" "m" (global C_m))`; call `x.m(a)`→`(prim __method__ "m" x a)`
+      (runtime dispatch finds the reg). de Bruijn: lam self FIRST param, body wraps each field ref as a
+      let-bound `_sel_f(self)` (caseSelfCtx). F already emits `_sel_f` accessors; it currently DROPS the
+      `:`-layout / `{..}` body. Oracle: ssc1-lower :5088-5165, classBodyFields :3710. Simplest example =
+      `case-class-body-methods.code` (get/size). Intricate (self+field-context indexing); slice further and
+      byte-verify per example.
 
 **F3 BREADTH LOG (superseded intermediate) — corpus MATCH 1 → 43/504:**
 - top-level statements (loop fix + val cells + exprs): 1 → 34 (`07522696f`, `253f68231`)
