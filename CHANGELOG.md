@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-07-19 — v2-p65-layout: significant-whitespace / indentation layout ported into P6.5 F
+
+`v2-p65-layout`. The dominant breadth gate (~50% of the corpus uses indented / colon-block style).
+Byte-faithful port of the oracle's `NL`-token lexing + stateful `layout` pass into the self-hosting
+subset compiler F (`specs/v2.2-p6.5-fsub.ssc`). Corpus MATCH **48 → 76/504 (+28)**; X1 fixpoint held
+byte-identical at every slice (`--self` 136 ok / 0 FAIL, 97,985 → 120,008 B); no regression; no kernel
+(`v2/src/*`) or `v2/lib` oracle edits.
+
+- **L1** — F's lexer emits `NL <indent>` tokens; `layout` = the L/B/P/S frame-stack pass + declHead
+  vs type-annotation colon disambiguation + all helpers, reproducing `ssc1-front.ssc0:3069-3163`. The
+  layout code is written in the subset and self-compiles byte-identically to the oracle. Extension
+  frames (E/EB/X + `extension_end`) deferred as faithful no-ops (F has no `extension`). 48 → 49.
+- **L2a** applied zero-arg call `recv.m()` → `__method0__` (49→52); **L2b** Upper-case top-level `val`
+  reference → `cell.get` (52→53); **L2c** multi-statement blocks `{ s1 ; s2 ; result }` → let-chain,
+  the layout-adjacent key for indented match-arm bodies (53→55); **L2d** strip Long-literal suffix
+  `5L` (55→56); **L2e** trailing block-argument application `f { block }` / `f(args){ block }` →
+  `(app … (lam 0 block))`, unblocking the whole actors cluster + async-parallel* + http-client (56→76).
+
 ## 2026-07-18 — v2-finish F1/F2/F3: trustworthy acceptance gates + first P6.5 breadth slice
 
 `v2-p65-canonical` (Decision A). No kernel edits (`v2/src/*` untouched).
