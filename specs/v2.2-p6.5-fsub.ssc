@@ -74,7 +74,9 @@ def lexEq(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 44), lex(s, i + 2, n
 // `<-` (generator arrow, code 58) — the `for x <- xs ..` binder separator (ssc1-front lex :400).
 def lexLt(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 42), lex(s, i + 2, n)) else (if s.charAt(i + 1) == 45 then Cons((2, 58), lex(s, i + 2, n)) else Cons((2, 40), lex(s, i + 1, n)))
 def lexGt(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 43), lex(s, i + 2, n)) else Cons((2, 41), lex(s, i + 1, n))
-def lexBang(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 45), lex(s, i + 2, n)) else lex(s, i + 1, n)
+// `!=`(45) is checked first; a BARE `!` is the boolean-NOT prefix (code 59), lexed like unary `-`. The
+// oracle desugars `!x` -> `(if x (lit false) (lit true))` (ssc1-lower unary `!`); F used to DROP the `!`.
+def lexBang(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 45), lex(s, i + 2, n)) else Cons((2, 59), lex(s, i + 1, n))
 def lexAmp(s, i, n) = if s.charAt(i + 1) == 38 then Cons((2, 46), lex(s, i + 2, n)) else lex(s, i + 1, n)
 def lexPipe(s, i, n) = if s.charAt(i + 1) == 124 then Cons((2, 47), lex(s, i + 2, n)) else lex(s, i + 1, n)
 // `@Name` / `@Name(args)` annotation (ssc1-front skipAnn :2517): NO runtime effect in the native path, so
@@ -277,8 +279,11 @@ def enumCasesOfName(ename, reg) = reg match { case Nil => Nil case h :: t => if 
 // A leading `-` in atom position is UNARY minus: `-<atom>` -> `(prim i.sub (lit (int 0)) <atom>)`, and it
 // includes the postfix atom (measured: `-g(x)` -> i.sub(0, (app g x))). Binary `-` is handled in climb, so
 // this only fires where an atom is expected. F's own source uses `0 - 1` (binary), never a leading `-`.
-def parseAtom(ts, env, cx) = if isEmpty(ts) then (emitInt(0), Nil) else (if isTok(hd(ts), 2, 24) then parseNeg(tl(ts), env, cx) else postfix(parseAtom0(ts, env, cx), env, cx))
+def parseAtom(ts, env, cx) = if isEmpty(ts) then (emitInt(0), Nil) else (if isTok(hd(ts), 2, 24) then parseNeg(tl(ts), env, cx) else (if isTok(hd(ts), 2, 59) then parseBang(tl(ts), env, cx) else postfix(parseAtom0(ts, env, cx), env, cx)))
 def parseNeg(ts, env, cx) = parseAtom(ts, env, cx) match { case (a, r) => ("(prim i.sub (lit (int 0)) " ++ a ++ ")", r) }
+// `!x` (boolean not) desugars to `(if x (lit false) (lit true))` (oracle-measured). Binds to the atom
+// exactly like unary `-` (parseNeg): `!f(a)` -> `!(f(a))`, `!a && b` -> `(!a) && b` (climb sees `&&` after).
+def parseBang(ts, env, cx) = parseAtom(ts, env, cx) match { case (a, r) => ("(if " ++ a ++ " (lit false) (lit true))", r) }
 def parseAtom0(ts, env, cx) = parseAtom1(hd(ts), tl(ts), env, cx)
 def parseAtom1(t, rest, env, cx) = if fst(t) == 0 then (emitInt(snd(t)), rest) else (if fst(t) == 5 then (emitFloat(snd(t)), rest) else (if fst(t) == 6 then (parseInterp(snd(t), env, cx), rest) else (if fst(t) == 4 then (emitStr(snd(t), dqOf(cx)), rest) else (if fst(t) == 8 then (emitStr(escTriple(snd(t), 0, (snd(t)).length, dqOf(cx), bsOf(cx)), dqOf(cx)), rest) else (if fst(t) == 3 then parseCtor(snd(t), rest, env, cx) else (if fst(t) == 1 then parseIdent(t, rest, env, cx) else (if isTok(t, 2, 21) then parseParenOrLam(rest, env, cx) else (if isTok(t, 2, 50) then parseBrkLit(rest, env, cx) else (if isTok(t, 2, 28) then parseBlock(rest, env, cx) else (if isTok(t, 2, 2) then parseIf(rest, env, cx) else (if isTok(t, 2, 8) then ("(lit true)", rest) else (if isTok(t, 2, 9) then ("(lit false)", rest) else (emitInt(0), rest)))))))))))))
 // Bracket list literal `[e1, .., en]` in EXPRESSION position == `List(e1,..,en)` (ssc bracket sugar,
