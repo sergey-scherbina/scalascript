@@ -139,7 +139,9 @@ def lexNum1(s, i, n, e) = if isFloatDot(s, e, n) then lexFloat(s, i, n, scanNumE
 def lexFloat(s, i, n, fe) = Cons((5, s.substring(i, fe)), lex(s, fe, n))
 // `%` (modulo, code 56) — same precedence class as `*`/`/` (ssc1-front opPrec :1439), symbol "%".
 // `^`=64 (bitwise xor, infix) and `~`=68 (bitwise not, prefix) reach here via lexOp1; both were DROPPED.
-def opCode(c) = if c == 40 then 21 else (if c == 41 then 22 else (if c == 45 then 24 else (if c == 42 then 25 else (if c == 44 then 27 else (if c == 46 then 31 else (if c == 123 then 28 else (if c == 125 then 29 else (if c == 91 then 50 else (if c == 93 then 51 else (if c == 37 then 56 else (if c == 94 then 64 else (if c == 126 then 68 else 0))))))))))))
+// A source `;` (char 59) is a statement separator → token 52 (same as a layout-inserted `;`); the oracle
+// lexes it too (ssc1-front :358). F used to DROP it (opCode 0), losing statement boundaries in `a; b`.
+def opCode(c) = if c == 40 then 21 else (if c == 41 then 22 else (if c == 45 then 24 else (if c == 42 then 25 else (if c == 44 then 27 else (if c == 46 then 31 else (if c == 123 then 28 else (if c == 125 then 29 else (if c == 91 then 50 else (if c == 93 then 51 else (if c == 37 then 56 else (if c == 94 then 64 else (if c == 126 then 68 else (if c == 59 then 52 else 0)))))))))))))
 def lexOp1(s, i, n, c) = if opCode(c) == 0 then lex(s, i + 1, n) else Cons((2, opCode(c)), lex(s, i + 1, n))
 
 // -- K62.6c-indent: layout (offside -> virtual braces) ----------------------------------------
@@ -810,7 +812,17 @@ def parseArm(ts, menv, cx) = if isWild(hd(ts)) then parseWildArm(tl(ts), menv, c
 // value. parseExpr alone stops at `=` (not a binop) and drops the RHS; armBodyExpr parses the assign when
 // the body head is `id =`. Fires ONLY on a genuine assignment head (never `id ==`), so a non-assign body
 // is byte-unchanged. (A braced multi-statement body still opens a block via layout -> parseBlock.)
-def armBodyExpr(ts, aenv, cx) = if isAssignHead(ts) then parseAssign(ts, aenv, cx) else parseExpr(ts, 0, aenv, cx)
+// A match arm body is a STATEMENT SEQUENCE (ssc1-front parseArmBody :1992-2014): `case X => a; b` →
+// `(let (a) b)`, terminated by the next `case` (2,6) or the layout-frame close `}` (2,29) — `match` is a
+// layout opener so braceless arms close with a `}`. A single-expr body is byte-unchanged (armSeqCont hits
+// the boundary immediately). A bare non-final stmt pushes an anon env slot ("") so later refs shift, as in
+// a block. The leading-assign path stays single (its block form is `(seq ..)`, not `(let ..)` — separate).
+def armBodyExpr(ts, aenv, cx) = if isAssignHead(ts) then parseAssign(ts, aenv, cx) else armSeqExpr(ts, aenv, cx)
+def armSeqExpr(ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => armSeqCont(e, skipSemisF(r), env, cx) }
+def armSeqCont(e, ts, env, cx) = if armSeqEnd(ts) then (e, ts) else armSeqMore(e, ts, env, cx)
+def armSeqEnd(ts) = if isEmpty(ts) then true else (if isTok(hd(ts), 2, 6) then true else isTok(hd(ts), 2, 29))
+def armSeqMore(e, ts, env, cx) = armSeqStmt(ts, "" :: env, cx) match { case (b, r) => ("(let (" ++ e ++ ") " ++ b ++ ")", r) }
+def armSeqStmt(ts, env, cx) = if isAssignHead(ts) then parseAssign(ts, env, cx) else armSeqExpr(ts, env, cx)
 def parseWildArm(ts, menv, cx) = armBodyExpr(tl(ts), menv, cx) match { case (b, r) => (("", " (default " ++ b ++ ")"), armsRest(r)) }
 def parsePatVars(ts, vs) = if isEmpty(ts) then (vs, ts) else (if isTok(hd(ts), 2, 22) then (vs, tl(ts)) else (if isTok(hd(ts), 2, 27) then parsePatVars(tl(ts), vs) else parsePatVars(tl(ts), snd(hd(ts)) :: vs)))
 // A QUALIFIED ctor pattern `case Enum.Case(..)` drops the enum qualifier and matches on the CASE tag
