@@ -186,32 +186,50 @@ baseline set `/tmp/baseline_deep.txt` for `comm -23` drop-checks. --self via cap
   `SSC_JAR=/tmp/ssc-deep.jar V2_DIR=<wt>/v2 NEWFRONT_WORK=/tmp/p65deep bash specs/v2.2-p6.5-corpus.sh`.
   GOTCHA: F-source defs must avoid `match {case Nil => .. case cs => ..}` (bare-var arm after ctor arm
   mis-parses as cons in F's OWN parseCtorMatch — broke self-compile once; use isEmpty/helper).
-**ORACLE-DEGRADATION TALLY = 23 (re-verified this session, UNCHANGED — all 7 flips were genuine F-gaps).
-  Clean ceiling = 508 − 23 = 485; of the 139 remaining DIFFs, 23 oracle-bug + 116 genuine (deep) F-gaps.**
-  12 `@`-annotated case classes → oracle collapses fields to `_` (graph-codecs/fullstack/fullstack-rdf/
-  rdf4j-storage/storage/janusgraph-gremlin/neo4j-storage, object-store-jdbc/sync-routes, spark-schema-mapping/
-  shared-schema-reader, typed-object-codec); 3 `@`-annotated val/def → oracle `_err` (spark-catalog-hive/
-  hive-demo/udf-demo); 4 custom-interpolator `id"""..."""` → oracle raw-triple leak (uploads, ws-chat,
-  rest-api, rest-api-fm); 4 mutual-fail (type-ascription `(e:T)`, wasm-collections/http/scalascript `@main`).
-**REMAINING GENUINE F-GAPS (impact-ordered, all DEEP; measured first-divergence, NOT-my-targets noted):**
+**ORACLE-DEGRADATION TALLY = 23 confirmed + 1 NEW candidate (24). The 23 unchanged (all 12 deep2 flips
+  were genuine F-gaps). NEW candidate #24: `std-ui-jobpanel` — `case _ => []` (empty-list arm body): the
+  oracle DROPS `[]` (parses it as an empty markdown link-import) → arm body `(lit unit)`, while F correctly
+  emits `(ctor Nil)`; the oracle is INCONSISTENT (`val y = []` → oracle DOES give `(ctor Nil)`). F-right,
+  oracle-wrong, sole divergence, same byte length → do NOT reproduce. Clean ceiling now ≈ 484.**
+  23 confirmed: 12 `@`-annotated case classes → oracle collapses fields to `_` (graph-codecs/fullstack/
+  fullstack-rdf/rdf4j-storage/storage/janusgraph-gremlin/neo4j-storage, object-store-jdbc/sync-routes,
+  spark-schema-mapping/shared-schema-reader, typed-object-codec); 3 `@`-annotated val/def → oracle `_err`
+  (spark-catalog-hive/hive-demo/udf-demo); 4 custom-interpolator `id"""..."""` → oracle raw-triple leak
+  (uploads, ws-chat, rest-api, rest-api-fm); 4 mutual-fail (type-ascription `(e:T)`, wasm-collections/http/
+  scalascript `@main`).
+**REMAINING GENUINE F-GAPS after deep2 (impact-ordered, measured first-divergence; deep2 CLEARED DA4-DA9):**
   - **actors-receive `let((local 0))(match)` cluster (~10: actors-bounded-mailbox/pingpong/process-info,
-    graphql-typed-resolvers, distributed-dataset-typed-helpers/wire-*, dep-cps-basic, scljet-readonly, …) —
-    DO NOT TOUCH (shared deep match strategy, per handoff).**
+    graphql-typed-resolvers, distributed-dataset-*, dep-cps-basic, distributed-streams, …) — DO NOT TOUCH
+    (shared deep match strategy). NOTE: DA6's ctor-guard routing now sends some of these to F's ordered
+    resolver (MINE `match (local 0) ((arm ..))` vs REF `let ((local 0)) (if ..)`) — still DIFF, still the
+    hard residual, 0 drops.**
   - **`_sel_` list-var registry / multi-line for-BLOCK (architectural): for-comprehensions (multi-gen for
-    layout), typed-sql-crud (Db.queryTyped). F's selMethodOr already routes ctor/method receivers; the gap is
-    the list-VARIABLE registry + the `for\n gens\nyield` block-layout parse.**
-  - **ctor-pattern guards `case Ctor(f) if g` (direct-syntax-demo direct; auth-full/distributed-streams gated
-    earlier) — gpat+cpat guard-failure fallthrough (IrMatch + Some fallback), moderate; extends DA1.**
+    layout desugars to `_sel_flatMap`/`_sel_map` chains), typed-sql-crud (Db.queryTyped). The gap is the
+    list-VARIABLE registry + the `for\n gens\nyield` block-layout parse.**
+  - **source-`;` FIRST-stmt-assign / leading-var/val in arm body (DA9 left these): armBodyExpr keeps a
+    leading assign single (block form is `(seq ..)` not `(let ..)`); a `case X => id = e; more` or
+    `case X => val y = ..; more` still desyncs. actors-global-registry, litdoc need this. Moderate; extend
+    armSeqStmt to the assign-`seq`/val-bind forms (mirror parseBlockAssign/parseBlockVal).**
   - **call-site default synthesis: default-params (`def f(x=..)`/`C()`/`shift(10)` fill defaults; funcDefaults
     registry K62.17) — deep; the "Int10" type-string pollution is only the first symptom.**
   - **extension methods (`extension (n) def m`): extensions, script (`(lam 1 …(local 0))` vs F `(lam 0 …(global
     n))`) — the layout E/EB/X frames were DEFERRED (F has no `extension`); big.**
   - **derived-codecs / given-summon: custom-derives-mirror, distributed-dataset-*, rozum-agent-schema-derived —
-    `__derived_*Codec` + given table, deep.** Plus assorted 1-off deep gaps (auth-demo/oauth-demo extra-let,
-    actors-*, dsl-*, parsing-error-node/recover-until tuple-arity, content @meta, control-center-live float-exp).
-  METHOD (kept exactly, took the lane 1→369): read the oracle's lowering on a tiny program FIRST, reproduce
-  byte-exact via /tmp/oc.sh, then corpus + `comm -23` drop-check + `--self` fixpoint. Each remaining lever is a
-  substantial dedicated feature — no cheap broad wins remain.
+    `__derived_*Codec` + given table, deep.**
+  - **custom string interpolators `uri"$url"` / `id"..."` (x402-cardano/cardano-scalus/client) — the oracle
+    fail-opens to `(lit (str "raw"))` + `(global _err)`; entangled with a `(lit unit)` vs `(lit (int 0))` first
+    divergence upstream. Likely oracle-adjacent — verify F-right before counting; NOT a clean flip.**
+  - **float E-notation (control-center-live, actors-phi-accrual): the oracle renders IR floats via
+    `Double.toString` (CoreIR.floatLit → `107374182.4`→`1.073741824E8`); F emits the raw source float text.
+    REQUIRES a kernel δ-primitive exposing floatLit OR reimplementing shortest-round-trip Double.toString in
+    the subset — ESCALATE (kernel change) if pursued; only 2 files, both with other divergences too.**
+  - Assorted 1-offs: auth-demo/oauth-demo extra-let, parsing-error-node/recover-until NESTED tuple patterns
+    (`(Ctor(..), ..)` → F emits `Tuple7 7 (lit 0)`; needs nested-pattern support), content `md"..."` interp,
+    symbolic operators `<~`/`~>` (dsl-calc-parser, js-symbolic-infix-operator — F's lexer doesn't tokenize
+    arbitrary symbolic ops; oracle → `(app (global op) l r)`), companion-object methods (`B.of`→`B_of`).
+  METHOD (kept exactly, took the lane 1→381): read the oracle's lowering on a tiny program FIRST, reproduce
+  byte-exact, then corpus + `comm -23` drop-check + `--self` fixpoint. GOTCHA: oc.sh reads raw `.ssc` — for
+  markdown/fenced files use the corpus gate on the extracted `.code` (oc.sh gives false divergences there).
 
 ## v2-finish — make v2 ideal, small, powerful, fully self-hosted (2026-07-18, Sergiy)
 
