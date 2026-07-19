@@ -1,0 +1,6 @@
+feature/v2-f7-internal-gate 2026-07-19T13:42:57Z
+agent: codex
+heartbeat: 2026-07-19T13:42:57Z
+status: not-started
+done-so-far:
+next: create the worktree, then write the resume-cold SPRINT/spec plan before reproducing the current v2 internal gate
