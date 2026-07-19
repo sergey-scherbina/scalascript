@@ -1,5 +1,29 @@
 # Bug tracker
 
+## scljet-js-large-page-byteslice-recursion-overflow — a 4096-byte page overflows the JS stack on a byte-slice update
+
+**Status:** OPEN (found 2026-07-19 by `scljet-hello-example` while writing `examples/scljet-hello.ssc`).
+**JS backend / non-tail recursion**, not the engine's logic. Low severity — clear workaround.
+
+**Symptom/reproduce:** `buildTableDatabase(4096, …)` then a façade `INSERT`/`UPDATE` on the JS lane:
+
+```
+bin/ssc-tools run-js …  → RangeError: Maximum call stack size exceeded
+                          at replaceAt (…) / rawUpdated (…)
+```
+
+The same program with `buildTableDatabase(512, …)` runs fine on JS, and 4096 runs fine on the
+interpreter and the native lane. `replaceAt`/`rawUpdated` (`scljet/bytes.ssc`) recurse once per byte
+of the page during a mutable update; a 4096-byte page recurses ~4096 deep and blows the JS engine's
+stack, while 512 stays shallow. The interpreter and native VM trampoline / have deeper stacks, so
+they tolerate it.
+
+**Fix direction:** make the byte-slice update iterative (or chunked) rather than one recursion per
+byte — an engine change in the `scljet-m3-writes` lane. Until then, examples and `[int, js]`
+conformance use 512-byte pages (as the existing scljet cases already do). Filed with a pointer;
+`examples/scljet-hello.ssc` uses 512 deliberately.
+
+
 ## p65-fsub-toplevel-val-infinite-loop — F (P6.5 subset compiler) hangs on a top-level `val`
 
 **Status:** OPEN (found 2026-07-18 by `v2-p65-canonical` while building the F3 real-corpus gate
