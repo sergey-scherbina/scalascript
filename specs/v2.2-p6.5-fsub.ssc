@@ -821,7 +821,16 @@ def parseBlockLamBody(ar, env2, ts, cx) = parseBlock(ts, env2, cx) match { case 
 def parseBlock0(ts, env, cx) = if isTok(hd(ts), 2, 6) then parseCaseLambda(ts, env, cx) else (if isBlockLamHead(ts) then parseBlockLamDisp(ts, env, cx) else (if isTok(hd(ts), 2, 7) then parseBlockVal(tl(ts), env, cx) else (if isVarHead(ts) then parseBlockVar(tl(ts), env, cx) else (if isWhileHead(ts) then parseBlockWhile(tl(ts), env, cx) else (if isAssignHead(ts) then parseBlockAssign(ts, env, cx) else parseBlockExpr(ts, env, cx))))))
 def parseBlockLamDisp(ts, env, cx) = if blockLamMulti(ts) then parseBlockLam(ts, env, cx) else parseBlockExpr(ts, env, cx)
 def parseCaseLambda(ts, env, cx) = parseArms(ts, "" :: env, cx) match { case (arms, r) => ("(lam 1 (match (local 0) (" ++ fst(arms) ++ ")" ++ snd(arms) ++ "))", r) }
-def parseBlockVal(ts, env, cx) = parseBlockVal1(snd(hd(ts)), skipToEq(tl(ts)), env, cx)
+// A block-local `val (a, b, ..) = e` tuple-destructure binds the tuple to an anon slot then each element
+// via its 1-based `_sel__i` projection as nested lets: `(let (<e>) (let ((app _sel__1 (local 0))) (let
+// ((app _sel__2 (local 1))) <rest>)))` (measured vs oracle; distinct from the top-level cell form). The
+// tuple sits at (local i-1) when element i's let is built. Plain `val name = e` unchanged.
+def parseBlockVal(ts, env, cx) = if isTok(hd(ts), 2, 21) then parseBlockValTup(ts, env, cx) else parseBlockVal1(snd(hd(ts)), skipToEq(tl(ts)), env, cx)
+def parseBlockValTup(ts, env, cx) = bvtInit(tupNames(tl(ts)), skipToEq(ts), env, cx)
+def bvtInit(names, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => bvtBody(names, e, r, env, cx) }
+def bvtBody(names, e, ts, env, cx) = bvtChain(names, 1, "" :: env, ts, cx) match { case (chain, r) => ("(let (" ++ e ++ ") " ++ chain ++ ")", r) }
+def bvtChain(names, i, env, ts, cx) = names match { case Nil => parseBlock(ts, env, cx) case h :: t => bvtWrap(i, bvtChain(t, i + 1, h :: env, ts, cx)) }
+def bvtWrap(i, pr) = pr match { case (rest, r) => ("(let ((app (global _sel__" ++ i ++ ") (local " ++ (i - 1) ++ "))) " ++ rest ++ ")", r) }
 def parseBlockVal1(nm, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => parseBlockRest(nm, e, r, env, cx) }
 def parseBlockRest(nm, e, ts, env, cx) = parseBlock(ts, nm :: env, cx) match { case (b, r) => ("(let (" ++ e ++ ") " ++ b ++ ")", r) }
 // A block is a sequence of statements; every non-final statement (a `val x = e` OR a bare expr e)
