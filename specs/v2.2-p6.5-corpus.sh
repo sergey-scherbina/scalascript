@@ -75,13 +75,14 @@ def app2 = (xs, ys) => match xs { case Nil => ys case Cons(h, t) => Cons(h, app2
 def prim0 = (nm) => Pair("prim", Pair(nm, Nil))
 def prim1 = (nm, a) => Pair("prim", Pair(nm, Cons(a, Nil)))
 def consPat = Pair("cpat", Pair("Cons", Cons(Pair("vpat", "path"), Cons(Pair("vpat", "rest"), Nil))))
-def readCompile = (dqArg) => prim1("io.print", mkApp(mkVar("compile"), Cons(prim1("utf8->str", prim1("io.readFile", mkVar("path"))), Cons(dqArg, Nil))))
-def fileMain = (dqArg) => mkDef("main", Nil, Pair("match", Pair(prim0("io.args"), Cons(Pair(consPat, readCompile(dqArg)), Nil))))
+def readCompile = (dqArg, bsArg) => prim1("io.print", mkApp(mkVar("compile"), Cons(prim1("utf8->str", prim1("io.readFile", mkVar("path"))), Cons(dqArg, Cons(bsArg, Nil)))))
+def fileMain = (dqArg, bsArg) => mkDef("main", Nil, Pair("match", Pair(prim0("io.args"), Cons(Pair(consPat, readCompile(dqArg, bsArg)), Nil))))
 def main = () =>
   let srcPath = match #io.env("FSUB_SRC") { case Some(p) => p case None => "" } in
   let fsubSrc = #utf8->str(#io.readFile(srcPath)) in
   let dqArg = mkStr(#sfromCodes(Cons(34, Nil))) in
-  let prog = app2(parse(fsubSrc), Cons(fileMain(dqArg), Nil)) in
+  let bsArg = mkStr(#sfromCodes(Cons(92, Nil))) in
+  let prog = app2(parse(fsubSrc), Cons(fileMain(dqArg, bsArg), Nil)) in
   #io.print(#coreir.encode(lowerProg(prog)))
 DRV
 FSUB_SRC="$FSUB" run bin/_p65c_drv.ssc0 > "$WORK/F0.ir"

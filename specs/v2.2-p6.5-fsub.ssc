@@ -45,8 +45,22 @@ def lexNL2(ind, pos, s, n) = if atEnd(pos, n) then Nil else Cons((7, ind), lex(s
 //   46 `&&`  47 `||`  48 `++`  49 `::`  50 `[`  51 `]`
 def kwCode(w) = if w == "def" then 1 else (if w == "if" then 2 else (if w == "then" then 3 else (if w == "else" then 4 else (if w == "match" then 5 else (if w == "case" then 6 else (if w == "val" then 7 else (if w == "true" then 8 else (if w == "false" then 9 else (if w == "class" then 10 else 0)))))))))
 def lex(s, i, n) = if atEnd(i, n) then Nil else lexDispatch(s, i, n, s.charAt(i))
-def lexDispatch(s, i, n, c) = if c == 32 then lex(s, i + 1, n) else (if c == 10 then lexNL(s, i, n) else (if c == 9 then lex(s, i + 1, n) else (if c == 13 then lexNL(s, i, n) else (if isLet(c) then lexWord(s, i, n, scanId(s, i, n)) else (if isDig(c) then lexNum(s, i, n) else (if c == 34 then lexStr(s, i, n, scanStr(s, i + 1, n)) else (if c == 47 then lexSlash(s, i, n) else (if c == 43 then lexPlus(s, i, n) else (if c == 45 then lexMinus(s, i, n) else (if c == 42 then lexStar(s, i, n) else (if c == 58 then lexColon(s, i, n) else (if c == 61 then lexEq(s, i, n) else (if c == 60 then lexLt(s, i, n) else (if c == 62 then lexGt(s, i, n) else (if c == 33 then lexBang(s, i, n) else (if c == 38 then lexAmp(s, i, n) else (if c == 124 then lexPipe(s, i, n) else lexOp1(s, i, n, c))))))))))))))))))
+def lexDispatch(s, i, n, c) = if c == 32 then lex(s, i + 1, n) else (if c == 10 then lexNL(s, i, n) else (if c == 9 then lex(s, i + 1, n) else (if c == 13 then lexNL(s, i, n) else (if isLet(c) then lexWord(s, i, n, scanId(s, i, n)) else (if isDig(c) then lexNum(s, i, n) else (if c == 34 then lexStrOrTriple(s, i, n) else (if c == 47 then lexSlash(s, i, n) else (if c == 43 then lexPlus(s, i, n) else (if c == 45 then lexMinus(s, i, n) else (if c == 42 then lexStar(s, i, n) else (if c == 58 then lexColon(s, i, n) else (if c == 61 then lexEq(s, i, n) else (if c == 60 then lexLt(s, i, n) else (if c == 62 then lexGt(s, i, n) else (if c == 33 then lexBang(s, i, n) else (if c == 38 then lexAmp(s, i, n) else (if c == 124 then lexPipe(s, i, n) else lexOp1(s, i, n, c))))))))))))))))))
 def lexStr(s, i, n, j) = Cons((4, s.substring(i + 1, j)), lex(s, j + 1, n))
+// Triple-quoted `"""..."""` (ssc1-front :341-344): captured RAW (verbatim newlines/quotes/backslashes)
+// as token kind 8; parseAtom1 escapes the raw content on emit so it byte-matches `#coreir.encode`.strLit.
+// A leading `"` is a triple ONLY when the next two chars are also `"`; else it is a regular/empty string.
+def isTriple(s, i, n) = if atEnd(i + 2, n) then false else (if s.charAt(i + 1) == 34 then s.charAt(i + 2) == 34 else false)
+def lexStrOrTriple(s, i, n) = if isTriple(s, i, n) then lexTriple(s, i, n, scanTriple(s, i + 3, n)) else lexStr(s, i, n, scanStr(s, i + 1, n))
+// scanTriple returns the index of the FIRST of the closing `"""` (or the end if unterminated).
+def scanTriple(s, i, n) = if atEnd(i, n) then i else (if s.charAt(i) == 34 then scanTriple2(s, i, n) else scanTriple(s, i + 1, n))
+def scanTriple2(s, i, n) = if atEnd(i + 1, n) then i + 1 else (if s.charAt(i + 1) == 34 then scanTriple3(s, i, n) else scanTriple(s, i + 1, n))
+def scanTriple3(s, i, n) = if atEnd(i + 2, n) then i + 2 else (if s.charAt(i + 2) == 34 then i else scanTriple(s, i + 1, n))
+def lexTriple(s, i, n, e) = Cons((8, s.substring(i + 3, e)), lex(s, e + 3, n))
+// Escape raw triple content to `#coreir.encode`.strLit form (bs = backslash char, threaded like dq).
+def escTriple(s, i, n, dq, bs) = if atEnd(i, n) then "" else escTripleC(s, i, n, dq, bs, s.charAt(i))
+def escTripleC(s, i, n, dq, bs, c) = escPiece(c, s, i, dq, bs) ++ escTriple(s, i + 1, n, dq, bs)
+def escPiece(c, s, i, dq, bs) = if c == 34 then bs ++ dq else (if c == 92 then bs ++ bs else (if c == 10 then bs ++ "n" else (if c == 13 then bs ++ "r" else (if c == 9 then bs ++ "t" else s.substring(i, i + 1)))))
 def lexColon(s, i, n) = if s.charAt(i + 1) == 58 then Cons((2, 49), lex(s, i + 2, n)) else Cons((2, 34), lex(s, i + 1, n))
 // compound-assignment tokens: `+=`=53 `-=`=54 `*=`=55 (`x += e` desugars to `x = x + e`, ssc1-front
 // compoundBaseOp :1512). `+=` is checked after `++`; `-`/`*` get their own dispatch (else they lexOp1).
@@ -114,7 +128,7 @@ def sepAfter1(v, nt) = nt match { case (ntag, nind) => if isLayFrame(ntag) then 
 def sepAfter2(v, nind) = if v == nind then Cons((2, 52), Nil) else Nil
 def topStackIs(wanted, stack) = stack match { case Nil => false case top :: srest => topStackIs1(wanted, top) }
 def topStackIs1(wanted, top) = top match { case (tag, ind) => tag == wanted }
-def canEndLine(t) = if fst(t) == 1 then true else (if fst(t) == 3 then true else (if fst(t) == 0 then true else (if fst(t) == 5 then true else (if fst(t) == 4 then true else (if fst(t) == 6 then true else canEndLineP(t))))))
+def canEndLine(t) = if fst(t) == 1 then true else (if fst(t) == 3 then true else (if fst(t) == 0 then true else (if fst(t) == 5 then true else (if fst(t) == 4 then true else (if fst(t) == 8 then true else (if fst(t) == 6 then true else canEndLineP(t)))))))
 def canEndLineP(t) = if isTok(t, 2, 22) then true else (if isTok(t, 2, 51) then true else (if isTok(t, 2, 29) then true else (if isTok(t, 2, 8) then true else isTok(t, 2, 9))))
 def canStartLine(ts) = if isEmpty(ts) then false else canStartLine1(hd(ts))
 def canStartLine1(t) = if fst(t) == 2 then canStartLineP(t) else canStartLine2(t)
@@ -223,14 +237,15 @@ def binPrecK(k) = if k == 57 then 1 else (if k == 47 then 1 else (if k == 46 the
 // -> the nullary-case ctor cons-list (measured: ssc1-lower enumCasesCell/enumValuesList :140/349-390).
 // varNames = top-level `var` names: read like a top val (`(prim cell.get (global name__cell))`, IDENTICAL
 // to isTopVal), but its cell is emitted in the topVar slot (BEFORE val cells) and it is assignable.
-def mkCx(dq, ccNames, fldNames, valNames, ecn, ereg, varNames) = (dq, (ccNames, (fldNames, (valNames, (ecn, (ereg, varNames))))))
+def mkCx(dq, ccNames, fldNames, valNames, ecn, ereg, varNames, bs) = (dq, (ccNames, (fldNames, (valNames, (ecn, (ereg, (varNames, bs)))))))
 def dqOf(cx) = fst(cx)
+def bsOf(cx) = snd(snd(snd(snd(snd(snd(snd(cx)))))))
 def ccNamesOf(cx) = fst(snd(cx))
 def fldNamesOf(cx) = fst(snd(snd(cx)))
 def valNamesOf(cx) = fst(snd(snd(snd(cx))))
 def enumCaseNamesOf(cx) = fst(snd(snd(snd(snd(cx)))))
 def enumRegOf(cx) = fst(snd(snd(snd(snd(snd(cx))))))
-def varNamesOf(cx) = snd(snd(snd(snd(snd(snd(cx))))))
+def varNamesOf(cx) = fst(snd(snd(snd(snd(snd(snd(cx)))))))
 def isCC(nm, cx) = memL(nm, ccNamesOf(cx))
 def isFld(nm, cx) = memL(nm, fldNamesOf(cx))
 def isTopVal(nm, cx) = memL(nm, valNamesOf(cx))
@@ -247,7 +262,7 @@ def enumCasesOfName(ename, reg) = reg match { case Nil => Nil case h :: t => if 
 def parseAtom(ts, env, cx) = if isEmpty(ts) then (emitInt(0), Nil) else (if isTok(hd(ts), 2, 24) then parseNeg(tl(ts), env, cx) else postfix(parseAtom0(ts, env, cx), env, cx))
 def parseNeg(ts, env, cx) = parseAtom(ts, env, cx) match { case (a, r) => ("(prim i.sub (lit (int 0)) " ++ a ++ ")", r) }
 def parseAtom0(ts, env, cx) = parseAtom1(hd(ts), tl(ts), env, cx)
-def parseAtom1(t, rest, env, cx) = if fst(t) == 0 then (emitInt(snd(t)), rest) else (if fst(t) == 5 then (emitFloat(snd(t)), rest) else (if fst(t) == 6 then (parseInterp(snd(t), env, cx), rest) else (if fst(t) == 4 then (emitStr(snd(t), dqOf(cx)), rest) else (if fst(t) == 3 then parseCtor(snd(t), rest, env, cx) else (if fst(t) == 1 then parseIdent(t, rest, env, cx) else (if isTok(t, 2, 21) then parseParenOrLam(rest, env, cx) else (if isTok(t, 2, 28) then parseBlock(rest, env, cx) else (if isTok(t, 2, 2) then parseIf(rest, env, cx) else (if isTok(t, 2, 8) then ("(lit true)", rest) else (if isTok(t, 2, 9) then ("(lit false)", rest) else (emitInt(0), rest)))))))))))
+def parseAtom1(t, rest, env, cx) = if fst(t) == 0 then (emitInt(snd(t)), rest) else (if fst(t) == 5 then (emitFloat(snd(t)), rest) else (if fst(t) == 6 then (parseInterp(snd(t), env, cx), rest) else (if fst(t) == 4 then (emitStr(snd(t), dqOf(cx)), rest) else (if fst(t) == 8 then (emitStr(escTriple(snd(t), 0, (snd(t)).length, dqOf(cx), bsOf(cx)), dqOf(cx)), rest) else (if fst(t) == 3 then parseCtor(snd(t), rest, env, cx) else (if fst(t) == 1 then parseIdent(t, rest, env, cx) else (if isTok(t, 2, 21) then parseParenOrLam(rest, env, cx) else (if isTok(t, 2, 28) then parseBlock(rest, env, cx) else (if isTok(t, 2, 2) then parseIf(rest, env, cx) else (if isTok(t, 2, 8) then ("(lit true)", rest) else (if isTok(t, 2, 9) then ("(lit false)", rest) else (emitInt(0), rest))))))))))))
 // -- string interpolation desugar --------------------------------------------------------------
 // `s"lit $id lit ${expr} .."` -> a right-nested `++` chain of pieces (measured: empty literal chunks are
 // DROPPED; `$id` scans a bare identifier and stops at `.`; `${..}` is a full expr; single piece has no
@@ -840,14 +855,14 @@ def hasMain(ts) = if isEmpty(ts) then false else (if isTok(hd(ts), 2, 1) then ha
 def hasMain1(t, ts) = if fst(t) == 1 then hasMainN(snd(t), ts) else hasMain(ts)
 def hasMainN(nm, ts) = if nm == "main" then true else hasMain(ts)
 def entryOf2(ts, cs, docEntry, nDoc, dq) = ") (entry " ++ entryBody2(ts, cs, docEntry, nDoc, dq) ++ "))"
-def compile(src, dq) = compile1(layout(lex(src, 0, src.length)), dq)
-def compile1(ts, dq) = compile2(ts, collectCC(ts), collectTypeCases(ts), dq)
+def compile(src, dq, bs) = compile1(layout(lex(src, 0, src.length)), dq, bs)
+def compile1(ts, dq, bs) = compile2(ts, collectCC(ts), collectTypeCases(ts), dq, bs)
 // The pre-pass results become the parse CONTEXT: case-class names (cs, cc-only, for isCC) + the UNIFIED
 // type-case field names (tcs, cc + enum cases) + top-level val names + the enum registries. Top-level vals
 // are collected with a base cx first (their `rest` boundaries do not depend on val-name resolution).
-def mkCxE(cs, tcs, ts, dq, vals, vars) = mkCx(dq, ccNamesL(cs), allFieldNames(tcs), vals, collectEnumCaseNames(ts), collectEnumReg(ts), vars)
-def compile2(ts, cs, tcs, dq) = compile2b(ts, cs, tcs, dq, mkCxE(cs, tcs, ts, dq, Nil, Nil))
-def compile2b(ts, cs, tcs, dq, base) = compile3(ts, cs, tcs, dq, mkCxE(cs, tcs, ts, dq, collectTopVals(ts, base), collectTopVars(ts, base)))
+def mkCxE(cs, tcs, ts, dq, vals, vars, bs) = mkCx(dq, ccNamesL(cs), allFieldNames(tcs), vals, collectEnumCaseNames(ts), collectEnumReg(ts), vars, bs)
+def compile2(ts, cs, tcs, dq, bs) = compile2b(ts, cs, tcs, dq, bs, mkCxE(cs, tcs, ts, dq, Nil, Nil, bs))
+def compile2b(ts, cs, tcs, dq, bs, base) = compile3(ts, cs, tcs, dq, mkCxE(cs, tcs, ts, dq, collectTopVals(ts, base), collectTopVars(ts, base), bs))
 def compile3(ts, cs, tcs, dq, cx) = walkTop(ts, cx) match { case (strs, nDoc) => compile4(strs, nDoc, ts, tcs, dq, cx) }
 // def order: prelude, topValCells, sels(accessors), userDefs; then the entry. prelude/valCells/sels
 // each carry a trailing space as their separator; when userDefs is empty that space would sit right
