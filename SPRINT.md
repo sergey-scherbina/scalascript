@@ -362,6 +362,81 @@ baseline set `/tmp/baseline_deep4.txt` for `comm -23` drop-checks. Impact map + 
   METHOD (kept exactly): read the oracle's lowering on a tiny program FIRST (oc.sh on the extracted `.code`),
   reproduce byte-exact, then corpus + `comm -23` drop-check + `--self` fixpoint. Land each slice separately.
 
+## v2-p65-deep5 (`v2-p65-deep`, 2026-07-19) — NESTED PATTERNS arc complete + adjacent clean features. Baseline MATCH 395/509
+Claim `v2-p65-deep` on origin/main. Jar `/tmp/ssc-deep5.jar` (`scala-cli --power package v2/src --assembly`);
+corpus `SSC_JAR=/tmp/ssc-deep5.jar V2_DIR=<wt>/v2 NEWFRONT_WORK=/tmp/p65deep5 bash specs/v2.2-p6.5-corpus.sh`;
+single-file `SSC_JAR=... V2_DIR=<wt>/v2 FSUB=<wt>/specs/v2.2-p6.5-fsub.ssc WORK=/tmp/p65deep5 F0_STALE=1 /tmp/dr.sh <name>`
+(dr.sh caches F0; F0_STALE=1 rebootstraps after editing fsub.ssc); histogram `/tmp/hist5.py /tmp/p65deep5`;
+baseline set `/tmp/baseline_deep5.txt` for `comm -23` drop-checks. --self via captured file + `grep -cE '^ok '` (153).
+- [x] **A — ordered-match terminal `(lit unit)` not `(lit (int 0))` (`cc24428a2`).** parseGenArms0 empty ->
+      `(lit unit)` (oracle lowerOrderedGuardArms Nil :3365). Latent-bug fix (only reachable when a match ends
+      in a ctor/int arm with no catch-all). Corpus 395->396 (+actors-cluster-self-health). Prereq for B.
+- [x] **B — NESTED constructor patterns (`87c651fe0`).** `case Person(n,a,Some(e))` -> whole match routes to
+      the ordered resolver (oracle lowerMatch hasNestedPat :3661 -> lowerOrderedGuardArms) with recursive
+      obligation discharge byte-faithful to dischargeObsOr :3119. NEW: structured pattern parser parsePatF
+      (mirrors ssc1-front parsePatAtom/goSubPats/tuplePat), fldBinders/refinedObligs/accScope/dischargeF,
+      hasNestedArms routing (brace-depth-tracked arm scan). Corpus 396->401 (+5). F self-neutral (no nested pats).
+- [x] **C — char literals `'x'`/`'\n'`/`'\uXXXX'` -> `(lit (int code))` (`d4791f8a2`).** lexChar in lexDispatch
+      (oracle ssc1-front :361-374). Corpus 401 (+0 prereq; 28 files use chars, each has further divergences).
+      F self-neutral (all `'` in F are in comments, stripped pre-lex).
+- [x] **D — `type X = Y`/`opaque type X = Y` alias skip (`a955031c9`).** isTypeHead in parseTopItem -> skipStmt
+      (oracle :2746/:2794). Corpus 401->402 (+typed-data: needed B+C+D combined).
+- [x] **E — tuple-outer nested patterns (`8556b6b31`).** tuple-first arm in a nested match (`case (a, Some(x))`,
+      `case (w: String, _: Int)`) -> parseGenTupDisp -> parseNestedArm (dischargeObsOr with 0 obs = plain arm).
+      Corpus 402->407 (+5: distributed-join, distributed-log-aggregation, distributed-word-count,
+      parsing-error-node, parsing-recover-until).
+- [x] **F — multi-statement lambda body in a block-arg (`38f3b99b2`).** `f { () => s1; s2; s3 }` is ONE lambda
+      whose body is the whole sequence, not a block whose first stmt is a single-expr lambda (spurious `(lam 0)`
+      wrap). parseBlock0 detects a lambda head + MULTI-statement body -> `(lam N <parseBlock body>)`; single-stmt
+      keeps the DA11 self-match path. Corpus 407->408 (+generators).
+- [x] **G — block-local `val (a,b) = e` tuple destructure (`e73b654db`).** `(let (<e>) (let ((app _sel__1 (local
+      0))) (let ((app _sel__2 (local 1))) <rest>)))` — nested-let form (distinct from C6's top-level cell form).
+      parseBlockVal dispatches on leading `(`. Corpus 408 (+0 prereq; dsl-yaml-like advances, has more).
+**➜ v2-p65-deep5 SESSION HANDOFF (2026-07-19): corpus MATCH 395 -> 408/509 (80%, +13), ALL 0 drops (every
+  slice `comm -23` empty, 0 EMPTY/0 TIMEOUT), X1 fixpoint stage1==stage2 byte-identical each slice
+  (297,902 -> 326,331 B), --self 153 ok/0 FAIL each, kernel +0, no v2/lib oracle edits. The NESTED-PATTERNS
+  arc (task item 1) is COMPLETE + exceeded (~5 est -> +11 for B/E; +13 with the adjacent A/C/D/F/G clean
+  features). NEW INFRA in F: structured pattern parser (parsePatF family) + the ordered-resolver
+  nested-obligation emitter (dischargeF / accScopeF / fldBindersF / refinedObligsF) — reusable for any future
+  pattern work. GOTCHA confirmed: F has NO nested patterns / char literals / block-val-tuples / multi-stmt
+  lambda blocks in its OWN source, so all routing was self-compile-neutral (verified each with --self).**
+**➜ CLEAN CHEAP WINS ARE NOW EXHAUSTED (measured `/tmp/hist5.py` over the 101 remaining DIFFs). Categorized:**
+  - **OUT per Decision C (~29, DO NOT chase — NOT gaps):** @-annotated case classes -> oracle collapses fields
+    to `_` (~12: graph-codecs/fullstack/fullstack-rdf/rdf4j-storage/rdf4j-http-storage/storage/janusgraph-
+    gremlin/neo4j-storage); @-annotated val -> oracle `_err` (spark-catalog-hive/hive-demo/udf-demo); custom
+    interpolators `html"""`/`id"""` raw-triple leak (uploads/ws-chat/rest-api/rest-api-fm/oauth-demo/auth-demo);
+    actors-receive `let(match)`/`if __isTag__` (~10: actors-bounded-mailbox/pingpong/process-info/cluster-
+    discovery/global-registry/typed-remote-spawn, dep-cps-basic, distributed-streams, scljet-readonly,
+    graphql-typed-resolvers, distributed-failure-partial/retry [`!` actor-send]); float-E notation (kernel δ:
+    control-center-live, actors-phi-accrual).
+  - **given/summon = THE WALL (~10-15, the largest remaining arc):** algebraic-effects (`Logger_log`),
+    quoted-macro-constfold/interpreter (`__missing_using_QuotedContext`), typeclass/typeclass-extension,
+    tagless-program/multi-file/resolution/context-bounds, effects/effects-handler/effect-deep-handler-state,
+    custom-derives-mirror, rozum-agent-schema-derived, distributed-dataset-typed-helpers/wire-protocol
+    (derived codecs). `X_method` naming flips first but `using`/summon needs given-table + `__mk_method_obj__`
+    dictionary synthesis. STOP+report if it needs a kernel δ (feeds the F4 decision on whether given/summon is
+    IN or OUT of v2's surface).
+  - **extension methods (~2: extensions, script) — BIG ARC, needs the deferred layout E/EB/X frames.** F ALREADY
+    parses the indented `def stars` but as `(lam 0 ... (global n))` (receiver NOT a param); the header
+    `extension (n: Int)` currently emits GARBAGE into the entry (`(app (global extension) (global n)) (global
+    Int) (lit (int 0))`) because F's layout does NOT cleanly delimit the group (E-frame deferred, F comment
+    :158). Oracle: extensionParamsCell/extensionMethodsCell (ssc1-front :626/:1700/:1765) — `extension (recv)`
+    sets the receiver params; each group `def m` prepends recv as FIRST param + registers m; call `x.m` ->
+    `(app (global m) x)` (resolveField isExtensionMethod :1598). Needs: (1) layout E-frame to delimit the group,
+    (2) receiver-param prepend, (3) method registry (pre-pass, like collectCC), (4) call-site dispatch. `script`
+    would flip with just extensions; `extensions.code` ALSO needs multi-line for-BLOCK layout.
+  - **`_sel_` list-var registry (~4, architectural):** `.map`/`.length` on a val/var whose init is a list ->
+    `_sel_map`/`_sel_length` (dsl-json-parser, indent-block-statements, indent-config-format, webauthn-demo).
+    Needs a mutable-cell-like list-var registry threaded through cx (deferred by every predecessor).
+  - **misc medium 1-offs:** indexed assignment `a(i) = v` -> `(prim arr.set a i v)` (mcp-keyvalue-server); symbolic
+    operators `<~`/`~>` (dsl-calc-parser, entangled w/ extensions); dsl-yaml-like (block-val-tuple done, now
+    hits an `asInstanceOf`/`_sel__` chain); bureau-demo/content (`__mdStrip__`/md-interp). Each a distinct feature.
+  **RECOMMENDATION for F4 (coordinator): cheap clean wins are done (80%). The remaining ~24 oracle-bugs + ~12
+  actors + ~2 float-E are OUT of v2's surface (Decision C) — that's the clean ceiling ~=471. The only large
+  CLEAN arcs left are extension methods (layout E-frame arc) and given/summon (the wall). Both are dedicated
+  fresh-agent pushes. This is the natural F4 trigger: author `specs/v2-language-surface.md` (IN/OUT contract —
+  is given/summon IN? are extensions IN?), then cut F over as canonical + retire the bridge.**
+
 ## v2-finish — make v2 ideal, small, powerful, fully self-hosted (2026-07-18, Sergiy)
 
 **Sergiy's vision (2026-07-18):** v1 and v2 are INDEPENDENT. v1 stays as-is — it stabilizes and
@@ -394,8 +469,10 @@ crystallizes; **do not develop v1 further.** v2 is the NEW version: fully self-w
 > 2. Author `specs/v2-language-surface.md` — the definitive IN/OUT list (what v2's language is; what v1
 >    warts + oracle bugs are deliberately excluded). This is the F4 contract.
 > 3. F4: cut `bin/ssc` over to F as canonical for v2's surface; retire the FrontendBridge; then F5
->    shrinks the kernel for real. State: corpus MATCH 395/509 (78%), fixpoint byte-identical @ 297,902 B,
+>    shrinks the kernel for real. State: corpus MATCH 408/509 (80%), fixpoint byte-identical @ 326,331 B,
 >    self-host + backends (F6) done, F5 mechanical done (kernel 5936 lines, awaiting the bridge retirement).
+>    Nested-patterns arc DONE (`v2-p65-deep5`, +13); clean cheap wins exhausted — remaining CLEAN arcs are
+>    extension methods (layout E-frame) + given/summon (the wall); the rest is OUT (oracle-bugs/actors/float-E).
 
 **This DESELECTS** (do not pursue these as v2 goals): making v2 parse v1's surface via a bridge;
 dropping scalameta *from v1* (v1 keeps whatever it has); the K61 v1.0-compat-frontend framing;
