@@ -3,7 +3,7 @@ package scalascript.compiler.plugin.fetch
 import scala.annotation.nowarn
 import scalascript.backend.spi.*
 import scalascript.ir.QualifiedName
-import scalascript.frontend.{ReactiveSignal, FetchUrlSignal, FetchJsonSignal, EventHandler, View, FieldColumnDef, RowActionDef, TableDataSource, ColumnKind, RowPayload}
+import scalascript.frontend.{ReactiveSignal, FetchUrlSignal, FetchJsonSignal, FetchStreamSignal, IntervalTick, EventHandler, View, FieldColumnDef, RowActionDef, TableDataSource, ColumnKind, RowPayload}
 import scalascript.plugin.api.{PluginNative, PluginValue, PluginError}
 
 object FetchIntrinsics:
@@ -78,6 +78,42 @@ object FetchIntrinsics:
             new FetchJsonSignal(name, url, tick.id, modelTypeName,
               if hId == "__ssc_empty_headers" then None else Some(hId)))
         case _ => PluginError.raise("fetchJsonSignal(name, url, refreshTick, modelTypeName[, headers])")
+    },
+
+    // fetchStreamSignal(name, url, body, tick[, headers]): Signal[String]
+    // Creates a FetchStreamSignal that POSTs `body`'s value to `url` on mount + whenever
+    // `tick` increments, streaming the response body into the signal (accumulated text).
+    // On JVM (interpreter) the initial value is just ""; the JS runtime performs the stream.
+    QualifiedName("fetchStreamSignal") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case List(name: String, url: String,
+                  PluginValue.Foreign("ReactiveSignal", body: ReactiveSignal[?]),
+                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
+          PluginValue.foreign("ReactiveSignal", new FetchStreamSignal(name, url, body.id, tick.id))
+        case List(name: String, url: String,
+                  PluginValue.Foreign("ReactiveSignal", body: ReactiveSignal[?]),
+                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
+                  PluginValue.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
+          val hId = headers.id
+          PluginValue.foreign("ReactiveSignal",
+            new FetchStreamSignal(name, url, body.id, tick.id,
+              if hId == "__ssc_empty_headers" then None else Some(hId)))
+        case _ => PluginError.raise("fetchStreamSignal(name, url, body, tick[, headers])")
+    },
+
+    // intervalTick(name, ms): Signal[Int] — Int signal that auto-increments every `ms`
+    // milliseconds (setInterval in the JS runtime). Initial value 0; headless on the JVM.
+    QualifiedName("intervalTick") -> PluginNative.evalLegacy { (_, args) =>
+      def toMs(v: Any): Option[Int] = v match
+        case i: Int    => Some(i)
+        case l: Long   => Some(l.toInt)
+        case d: Double => Some(d.toInt)
+        case s: String => s.toIntOption
+        case _         => None
+      args match
+        case List(name: String, msArg) if toMs(msArg).isDefined =>
+          PluginValue.foreign("ReactiveSignal", new IntervalTick(name, toMs(msArg).get))
+        case _ => PluginError.raise("intervalTick(name, ms)")
     },
 
     // fetchAction(method, url, body, onSuccessTick[, headers]): EventHandler

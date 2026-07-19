@@ -709,6 +709,29 @@ final class FetchJsonSignal(
 ) extends FetchUrlSignal(id2, fetchUrl2, tickId2, headersId2):
   override def codec: CodecHint = CodecHint.Json(modelTypeName)
 
+/** Signal backed by a STREAMING POST fetch.  On mount (and whenever `tickId`
+ *  increments) the browser runtime POSTs the current `bodyId` signal value to
+ *  `fetchUrl` (Content-Type application/json), then reads the response body via
+ *  `r.body.getReader()` and sets this signal to the ACCUMULATED decoded text so
+ *  far on each chunk — so a consumer bound to it sees the value grow token-by-token
+ *  (OpenAI-style SSE token streams; raw decoded bytes accumulated, not SSE-parsed).
+ *  On error the last-good value is retained (mirrors `FetchUrlSignal`). */
+final class FetchStreamSignal(
+    id2:           String,
+    val fetchUrl:  String,
+    val bodyId:    String,
+    val tickId:    String,
+    val headersId: Option[String] = None
+) extends ReactiveSignal[String](id2, "")
+
+/** Int signal that auto-increments every `ms` milliseconds (via `setInterval` in
+ *  the JS runtime).  Initial value 0.  Feeds a `fetchUrlSignal`'s refresh tick to
+ *  auto-poll: `fetchUrlSignal(..., intervalTick("t", 5000))`. */
+final class IntervalTick(
+    id2:     String,
+    val ms:  Int
+) extends ReactiveSignal[Int](id2, 0)
+
 // ── Widget ref (formerly DomRef) ──────────────────────────────────────────────
 
 /** Handle on a rendered element that platform code can access after mount.

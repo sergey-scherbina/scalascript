@@ -83,6 +83,16 @@ object JvmRuntimeUiPrimitives:
        |          .filter(_.id != "__ssc_empty_headers").map(_.id)
        |        new scalascript.frontend.FetchUrlSignal(name, url, _tick.id, _hOpt)
        |
+       |      def fetchStreamSignal(name: String, url: String, body: Any, tick: Any, headers: Any = null): Any =
+       |        val _body = body.asInstanceOf[scalascript.frontend.ReactiveSignal[?]]
+       |        val _tick = tick.asInstanceOf[scalascript.frontend.ReactiveSignal[?]]
+       |        val _hOpt = Option(headers).map(_.asInstanceOf[scalascript.frontend.ReactiveSignal[String]])
+       |          .filter(_.id != "__ssc_empty_headers").map(_.id)
+       |        new scalascript.frontend.FetchStreamSignal(name, url, _body.id, _tick.id, _hOpt)
+       |
+       |      def intervalTick(name: String, ms: Int): Any =
+       |        new scalascript.frontend.IntervalTick(name, ms)
+       |
        |      // Scope B.3 — a managed-fetch Remote source whose optional dotted envelope
        |      // path (e.g. "result.items") is carried on the model so the served custom
        |      // frontend drills it (StaticJsEmitter __ssc_rowsOf), matching the browser.
