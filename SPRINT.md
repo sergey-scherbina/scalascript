@@ -120,8 +120,19 @@ baseline set `/tmp/baseline_deep.txt` for `comm -23` drop-checks. --self via cap
       `__handler_dispatch_miss__(pf)` (ssc1-lower lowerHandlerMatch :3636/handlerMarkedArms :3603), exact
       de-Bruijn. Flips dataset-agg + dataset-error. Corpus 364→366, 0 drops, X1 stage1==stage2 250,190 B,
       --self 153 ok/0 FAIL. Other try files (bureau/graphql-client/mcp-*/webauthn) gated ELSEWHERE (measured).
-- [ ] **DA3 — direct{} / for-comp flatMap** (evaluate after DA1/DA2; direct-* ~4, for-comprehensions/
-      typed-sql-crud 2). DEEP de-Bruijn flatMap threading.
+- [x] **DA3 — direct{} monad desugar DONE (`48bed345a`).** `direct[M]{x=rhs;..;result}` → flatMap chain
+      (ssc1-lower directStmts :1979): bare bind → `rhs.flatMap(x=>rest)` via emitMethodCall; val/var/
+      mutation/expr reuse F's parseBlock machinery (de-Bruijn matches, incl. r5 var-cell-before-flatMap).
+      Flips direct-syntax + direct-control-flow + tagless-direct-syntax. Corpus 366→369, 0 drops, X1
+      stage1==stage2 259,326 B, --self 153 ok/0 FAIL. direct-syntax-demo blocked LATER on ctor-pattern
+      guards (`case Some(n) if g`); for-comprehensions blocked on multi-line for-BLOCK layout; typed-sql-crud
+      on typed-SQL Db.queryTyped — all separate features.
+**➜ v2-p65-deep SESSION: corpus MATCH 362→369/508 (+7, DA1 typed-patterns +2, DA2 try/catch +2, DA3
+  direct{} +3), ALL 0 drops, X1 fixpoint stage1==stage2 byte-identical each slice (232,332→259,326 B),
+  --self 153 ok/0 FAIL each, kernel +0, no v2/lib oracle edits. Jar /tmp/ssc-deep.jar; gate
+  `SSC_JAR=/tmp/ssc-deep.jar V2_DIR=<wt>/v2 NEWFRONT_WORK=/tmp/p65deep bash specs/v2.2-p6.5-corpus.sh`.
+  GOTCHA: F-source defs must avoid `match {case Nil => .. case cs => ..}` (bare-var arm after ctor arm
+  mis-parses as cons in F's OWN parseCtorMatch — broke self-compile once; use isEmpty/helper).
 
 ## v2-finish — make v2 ideal, small, powerful, fully self-hosted (2026-07-18, Sergiy)
 
