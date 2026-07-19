@@ -139,6 +139,22 @@ lazy val v2Core = project
     scalacOptions ++= Seq("-deprecation", "-feature"),
   )
 
+// v2 std/ui ABI annotation pass (`ssc.NativeUiSites`). Relocated OUT of the
+// minimal self-hosting kernel (`v2/src`) per specs/v2-state-2026-07-18.md §R4:
+// it is a UI-target compile pass, is NOT used by the kernel's own pipeline
+// (no reference in any other v2/src file), and only its downstream consumers
+// need it — the JVM Swift backend, the v2 std/ui native plugin, and the v1 CLI
+// native-v2 runner. Keeping it in the kernel jar (`scala-cli package v2/src`)
+// was dead weight and violated the "if it can be a program on the tower, it is"
+// invariant. Package stays `ssc`; depends on v2Core for the CoreIR ADTs it walks.
+lazy val v2NativeUi = project
+  .in(file("v2/nativeui"))
+  .dependsOn(v2Core)
+  .settings(
+    name := "scalascript-v2-nativeui",
+    scalacOptions ++= Seq("-deprecation", "-feature"),
+  )
+
 // Target-neutral, language-reproducible public ABI/control/artifact descriptors.
 // This is intentionally a leaf: no v1 compiler/runtime, CoreIR, backend, UniML,
 // or Scala-host control dependency may enter the canonical wire contract.
@@ -200,7 +216,7 @@ lazy val v2JsBackend = project
 // the legacy SwiftUI View emitter.
 lazy val v2SwiftBackend = project
   .in(file("v2/backend/swift"))
-  .dependsOn(v2Core)
+  .dependsOn(v2Core, v2NativeUi)
   .settings(
     name := "scalascript-v2-swift-backend",
     libraryDependencies += scalatestTest,
@@ -298,7 +314,7 @@ lazy val v2NativeSqlPlugin = project
 
 lazy val v2NativeUiPlugin = project
   .in(file("v2/runtime/std/ui-plugin"))
-  .dependsOn(v2NativePluginSpi)
+  .dependsOn(v2NativePluginSpi, v2NativeUi)
   .settings(
     name := "scalascript-v2-native-ui-plugin",
     libraryDependencies += scalatestTest,
@@ -1494,7 +1510,7 @@ lazy val cli = project
     pwaPlugin, markupCore, paymentsPlugin, paymentsBankRails, paymentsPix,
     loggerEffectPlugin, stateEffectPlugin, randomEffectPlugin, clockEffectPlugin,
     envEffectPlugin, retryEffectPlugin, cacheEffectPlugin,
-    v2JvmBytecode, v2JsBackend, v2SwiftBackend, v2NativePluginSpi, v2NativeHostPlugin, v2NativeCryptoPlugin, v2NativeOsPlugin, v2NativeFsPlugin, v2NativeJsonPlugin, v2NativeHttpFastPlugin, v2NativeSqlPlugin, v2NativeUiPlugin, v2NativeStateEffectPlugin, v2NativeEffectRunnersPlugin, v2NativeStorageEffectPlugin, v2NativeReactivePlugin, v2NativeYamlPlugin, v2NativeContentPlugin, v2NativeDatasetPlugin, v2NativeGeneratorPlugin, v2NativeActorsPlugin, v2NativeDistributedPlugin, v2NativeGraphPlugin, v2NativeOpticsPlugin, v2NativePdfPlugin, v2NativeNfcPlugin, v2NativeMcpPlugin, v2NativeGraphRdf4jPlugin, v2NativeSwiftPlugin, v2NativeScljetVfsPlugin)
+    v2JvmBytecode, v2JsBackend, v2SwiftBackend, v2NativeUi, v2NativePluginSpi, v2NativeHostPlugin, v2NativeCryptoPlugin, v2NativeOsPlugin, v2NativeFsPlugin, v2NativeJsonPlugin, v2NativeHttpFastPlugin, v2NativeSqlPlugin, v2NativeUiPlugin, v2NativeStateEffectPlugin, v2NativeEffectRunnersPlugin, v2NativeStorageEffectPlugin, v2NativeReactivePlugin, v2NativeYamlPlugin, v2NativeContentPlugin, v2NativeDatasetPlugin, v2NativeGeneratorPlugin, v2NativeActorsPlugin, v2NativeDistributedPlugin, v2NativeGraphPlugin, v2NativeOpticsPlugin, v2NativePdfPlugin, v2NativeNfcPlugin, v2NativeMcpPlugin, v2NativeGraphRdf4jPlugin, v2NativeSwiftPlugin, v2NativeScljetVfsPlugin)
   // Frontend backends — derived from allFrontends registry (arch-build-registry Phase 4)
   .dependsOn(allFrontends.map(f => ClasspathDependency(f.project, None)): _*)
   .settings(
@@ -4749,7 +4765,7 @@ lazy val root = project
     v2NativeContentPlugin, v2NativeDatasetPlugin, v2NativeGeneratorPlugin, v2NativeActorsPlugin,
     v2NativeDistributedPlugin, v2NativeGraphPlugin, v2NativeOpticsPlugin, v2NativePdfPlugin,
     v2NativeNfcPlugin, v2NativeMcpPlugin, v2NativeGraphRdf4jPlugin, v2NativeSwiftPlugin,
-    v2JvmBytecode, v2JsBackend, v2SwiftBackend,
+    v2JvmBytecode, v2JsBackend, v2SwiftBackend, v2NativeUi,
     valueData, backendSpi, pluginApi, ir, logger, yaml, uniml, unimlJs, unimlJson, unimlJsonJs, unimlXml, unimlXmlJs, unimlYaml, unimlYamlJs, unimlMarkdown, unimlMarkdownJs, unimlMarkdownBridge, core, scala3ControlApi, interop, testUtils, pluginHost, wireCore,
 
     runtimeServerCommon, runtimeServerSpi, runtimeServerJvm,
