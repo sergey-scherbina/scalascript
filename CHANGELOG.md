@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-07-19 — v2-f5-buildjvm-fix: bundle relocated Emit/NativeUiSites into `build-jvm` artifacts
+
+`v2-f5-buildjvm-fix`. The F5 kernel-slimming relocated `ssc.Emit` → `scalascript-v2-jvm-runtime` and
+`ssc.NativeUiSites` → `scalascript-v2-nativeui` (out of `scalascript-v2-core`), and fixed `installBin`'s
+`standardJarPrefixes` so `bin/ssc run` works — but `ssc build-jvm`'s standalone-artifact writer
+(`NativeJvmArtifact.scala`) has its OWN, independent jar allowlist that still bundled only `v2-core`. So a
+produced jar threw `java.lang.NoClassDefFoundError: ssc/Emit$` at `NativeArtifactRuntime.initialize:21`,
+turning main's CI red (the `ScalaScript 2.1 compiler-free ASM artifact release gate`, run `0681d1f08`).
+Fix: added `scalascript-v2-jvm-runtime_` (Emit) and `scalascript-v2-nativeui_` (NativeUiSites — needed
+next: `UiNativePlugin.install`, run by `NativePluginHost.loadAll`, calls `NativeUiSites.internalName`) to
+`RuntimePrefixes` (bundled) and `RequiredPrefixes` (fail-fast at build time). **Verified:
+`tests/e2e/v21-build-jvm-release-gate.sh` red→green** (was CNFE `ssc.Emit$` at check 'app'; now PASS,
+`forbidden.references=0`, all ~20 artifacts run under a sanitized PATH). CLI-only change (no v2/src/lib/
+build.sbt delta): kernel builds, `--self` fixpoint byte-identical (stage1==stage2, 0 FAIL), conformance
+unaffected, `bin/ssc run` + `--bytecode` still print `Int: 24`.
+
 ## 2026-07-19 — v2-p65-guard G5: tuple-3+ patterns (correct prereq)
 
 `v2-p65-guard` (v2-finish breadth). F's parseTupArm hardcoded `(arm Pair 2)(arm Tuple2 2)` for every tuple

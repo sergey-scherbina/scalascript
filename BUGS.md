@@ -1,5 +1,32 @@
 # Bug tracker
 
+## f5-buildjvm-artifact-missing-relocated-jars — `build-jvm` jars NoClassDefFoundError after F5 kernel-slimming
+
+**Status:** FIXED 2026-07-19 (`v2-f5-buildjvm-fix`, commit fixing `NativeJvmArtifact.scala`). Found by the
+coordinator on CI run `0681d1f08` (the `ScalaScript 2.1 compiler-free ASM artifact release gate` went red).
+
+**Symptom/reproduce** — a `ssc build-jvm`-produced standalone jar threw at runtime:
+
+```
+bash tests/e2e/v21-build-jvm-release-gate.sh   # -> FAILED check 'app'
+java.lang.NoClassDefFoundError: ssc/Emit$
+  at ssc.plugin.NativeArtifactRuntime$.initialize(NativeArtifactRuntime.scala:21)
+Caused by: java.lang.ClassNotFoundException: ssc.Emit$
+```
+
+**Root cause.** F5 relocated `ssc.Emit`→`scalascript-v2-jvm-runtime` and `ssc.NativeUiSites`→
+`scalascript-v2-nativeui` out of `scalascript-v2-core`. Three INDEPENDENT jar allowlists gate relocated
+classes; F5 fixed two (`cli`.dependsOn + root aggregate; `installBin`'s `standardJarPrefixes`) but missed
+the third: `NativeJvmArtifact.{RuntimePrefixes,RequiredPrefixes}`, which bundle jars INTO the produced
+standalone artifact. It still listed only `v2-core`, so the artifact couldn't find `ssc.Emit` (linked by
+`NativeArtifactRuntime`) — nor `ssc.NativeUiSites` (linked by `UiNativePlugin.install` via `loadAll`, the
+next failure once Emit is fixed). `bin/ssc run`/`--bytecode` green does NOT cover the produced-artifact path.
+
+**Fix.** Added `scalascript-v2-jvm-runtime_` + `scalascript-v2-nativeui_` to both `RuntimePrefixes`
+(bundle) and `RequiredPrefixes` (fail-fast). Gate `tests/e2e/v21-build-jvm-release-gate.sh` red→green
+(PASS, `forbidden.references=0`). Lesson recorded in `SPRINT.md` F5 (the "SECOND STAGING LIST" note).
+
+
 ## scljet-js-large-page-byteslice-recursion-overflow — a 4096-byte page overflows the JS stack on a byte-slice update
 
 **Status:** OPEN (found 2026-07-19 by `scljet-hello-example` while writing `examples/scljet-hello.ssc`).

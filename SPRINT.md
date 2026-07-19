@@ -937,6 +937,16 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
       slice MUST end with `sbt cli/installBin` then `SSC_NO_CDS=1 bin/ssc run FILE` AND
       `... run --bytecode FILE` on a program exercising the moved surface** (else you ship a
       `ClassNotFoundException` in the staged binary that all gates pass through green).
+      **⚠ SECOND STAGING LIST (found by coordinator on CI `0681d1f08`, fixed in `v2-f5-buildjvm-fix`):
+      there is a THIRD, INDEPENDENT jar allowlist for relocated classes:** `ssc build-jvm`'s standalone-
+      artifact writer `NativeJvmArtifact.scala` has its own `RuntimePrefixes`/`RequiredPrefixes` lists —
+      distinct from `standardJarPrefixes` (bin/ssc launcher) and `lib/jars` (ssc-tools). It bundled only
+      `scalascript-v2-core_`, so a `build-jvm` jar threw `NoClassDefFoundError: ssc/Emit$` at runtime and
+      turned the ASM release gate red. **`bin/ssc run`/`--bytecode` green does NOT cover this** — the
+      produced-artifact path is separate. So the FULL relocation checklist is: (1) `cli`.dependsOn + root
+      aggregate; (2) `standardJarPrefixes` (installBin); (3) `NativeJvmArtifact.{RuntimePrefixes,
+      RequiredPrefixes}`; and the mandatory smoke is **`tests/e2e/v21-build-jvm-release-gate.sh`** on top
+      of the bin/ssc run/--bytecode smoke.
       - [x] **Slice 1 — `NativeUiSites` (127) relocated.** Moved `v2/src/NativeUiSites.scala` →
         new sbt module `v2/nativeui` (`scalascript-v2-nativeui`, `.dependsOn(v2Core)`, package still `ssc`);
         consumers (`v2SwiftBackend`, `v2NativeUiPlugin`, `cli`) + root aggregate wired to it. Kernel
