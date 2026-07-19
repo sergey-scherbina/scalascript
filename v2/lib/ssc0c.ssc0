@@ -32,12 +32,36 @@ def skipBlock = (s, i) =>
     (if cand(#i.eq(#scodeAt(s, i), 45), #i.eq(#scodeAt(s, #i.add(i, 1)), 125)) then #i.add(i, 2) else skipBlock(s, #i.add(i, 1)))
   else #slen(s)
 def strToI = (sub) => match #str->i(sub) { case Some(n) => n case None => 0 }
+def oneCode = (c) => #sfromCodes(Cons(c, Nil))
+def hexVal = (c) =>
+  if cand(#i.ge(c, 48), #i.le(c, 57)) then #i.sub(c, 48)
+  else if cand(#i.ge(c, 97), #i.le(c, 102)) then #i.add(#i.sub(c, 97), 10)
+  else #i.add(#i.sub(c, 65), 10)
+def hex4 = (s, i) =>
+  #i.add(#i.mul(hexVal(#scodeAt(s, i)), 4096),
+    #i.add(#i.mul(hexVal(#scodeAt(s, #i.add(i, 1))), 256),
+      #i.add(#i.mul(hexVal(#scodeAt(s, #i.add(i, 2))), 16), hexVal(#scodeAt(s, #i.add(i, 3))))))
+def escapedCode = (c) =>
+  if #i.eq(c, 34) then 34
+  else if #i.eq(c, 92) then 92
+  else if #i.eq(c, 110) then 10
+  else if #i.eq(c, 114) then 13
+  else if #i.eq(c, 116) then 9
+  else c
 def scanStr = (s, i, acc) =>
   if #i.ge(i, #slen(s)) then Pair(acc, i)
   else
     let c = #scodeAt(s, i) in
     if #i.eq(c, 34) then Pair(acc, #i.add(i, 1))
-    else scanStr(s, #i.add(i, 1), #sconcat(acc, #sslice(s, i, #i.add(i, 1))))
+    else if #i.eq(c, 92) then
+      let j = #i.add(i, 1) in
+      if #i.ge(j, #slen(s)) then Pair(acc, j)
+      else
+        let e = #scodeAt(s, j) in
+        let code = if #i.eq(e, 117) then hex4(s, #i.add(j, 1)) else escapedCode(e) in
+        let next = if #i.eq(e, 117) then #i.add(i, 6) else #i.add(i, 2) in
+        scanStr(s, next, #sconcat(acc, oneCode(code)))
+    else scanStr(s, #i.add(i, 1), #sconcat(acc, oneCode(c)))
 
 def lexFrom = (s, i) =>
   if #i.ge(i, #slen(s)) then Nil

@@ -28,6 +28,6 @@ def loadImports = (imps, dir, seen) =>
 def main = () =>
   match #io.args() {
     case Cons(path, rest) =>
-      match loadDefs(path, Nil) { case Pair(defs, seen) => #io.print(#coreir.encode(compileModule(defs))) }
+      match loadDefs(path, Nil) { case Pair(defs, seen) => #io.print(#sconcat(#coreir.encode(compileModule(defs)), "\n")) }
     case Nil => #io.eprint("usage: ssc0c <file.ssc0>")
   }

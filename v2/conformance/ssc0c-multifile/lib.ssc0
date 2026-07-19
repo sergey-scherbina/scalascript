@@ -1,0 +1,2 @@
+def inc = (n) => #i.add(n, 1)
+def escapedWidth = () => #slen("\"\\\n\r\t\u0041")

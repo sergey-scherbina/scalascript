@@ -1,0 +1,4 @@
+-- Minimal import-boundary differential for the Scala and self-hosted ssc0 compilers.
+import "lib.ssc0"
+
+def main = () => #i.add(inc(35), escapedWidth())

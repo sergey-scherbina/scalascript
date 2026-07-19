@@ -79,6 +79,94 @@ run_stdout_logged() { # label command...
   cat "$out"
   return "$code"
 }
+file_size() { wc -c < "$1" | tr -d '[:space:]'; }
+print_tail_hex() { # file
+  tail -c 16 "$1" | od -An -tx1 | tr -s ' ' | tr '\n' ' '
+}
+compare_exact_files() { # label expected-file actual-file
+  local lbl expected actual cmp_code expected_size actual_size
+  lbl="$1"; expected="$2"; actual="$3"
+  if cmp -s "$expected" "$actual"; then cmp_code=0; else cmp_code=$?; fi
+  expected_size=$(file_size "$expected")
+  actual_size=$(file_size "$actual")
+  if [ "$expected_size" = "0" ] || [ "$actual_size" = "0" ]; then
+    printf 'FAIL %-26s exact comparison has empty output\n' "$lbl"
+  elif [ "$cmp_code" -eq 0 ]; then
+    return 0
+  else
+    printf 'FAIL %-26s exact bytes differ\n' "$lbl"
+  fi
+  printf '     expected=%s (%s bytes)\n' "$expected" "$expected_size"
+  printf '     actual=%s (%s bytes)\n' "$actual" "$actual_size"
+  if [ "$cmp_code" -eq 1 ]; then
+    echo '     first differences (byte expected actual; octal, max 16):'
+    cmp -l "$expected" "$actual" 2>&1 | sed -n '1,16p' | sed 's/^/       /'
+  else
+    printf '     cmp exit=%s\n' "$cmp_code"
+  fi
+  printf '     expected-tail-hex='; print_tail_hex "$expected"; printf '\n'
+  printf '     actual-tail-hex='; print_tail_hex "$actual"; printf '\n'
+  return 1
+}
+check_exact_result() { # label expected-file actual-file expected-status actual-status success-text
+  local lbl expected actual expected_status actual_status success_text cmp_code
+  lbl="$1"; expected="$2"; actual="$3"; expected_status="$4"; actual_status="$5"; success_text="$6"
+  if compare_exact_files "$lbl" "$expected" "$actual"; then cmp_code=0; else cmp_code=$?; fi
+  if [ "$expected_status" -ne 0 ] || [ "$actual_status" -ne 0 ]; then
+    if [ "$cmp_code" -eq 0 ]; then
+      printf 'FAIL %-26s commands failed despite equal output\n' "$lbl"
+      printf '     expected=%s (%s bytes, exit=%s)\n' "$expected" "$(file_size "$expected")" "$expected_status"
+      printf '     actual=%s (%s bytes, exit=%s)\n' "$actual" "$(file_size "$actual")" "$actual_status"
+    else
+      printf '     command exits: expected=%s actual=%s\n' "$expected_status" "$actual_status"
+    fi
+    return 1
+  fi
+  if [ "$cmp_code" -eq 0 ]; then
+    printf 'ok   %-26s => %s (%s bytes)\n' "$lbl" "$success_text" "$(file_size "$expected")"
+    return 0
+  fi
+  return 1
+}
+check_exact_comparator_probe() {
+  local expected actual diag expected_line actual_line empty_expected empty_actual empty_diag
+  expected="$LOGDIR/exact-comparator-no-lf.bin"
+  actual="$LOGDIR/exact-comparator-with-lf.bin"
+  diag="$LOGDIR/exact-comparator-probe.log"
+  printf 'x' > "$expected"
+  printf 'x\n' > "$actual"
+  if compare_exact_files "exact comparator probe" "$expected" "$actual" > "$diag" 2>&1; then
+    printf 'FAIL %-26s accepted x == x\\n\n' "exact byte comparator"
+    fail=1
+    return
+  fi
+  expected_line="expected=$expected (1 bytes)"
+  actual_line="actual=$actual (2 bytes)"
+  if ! grep -Fq "$expected_line" "$diag" || ! grep -Fq "$actual_line" "$diag"; then
+    printf 'FAIL %-26s diagnostic lost byte evidence\n' "exact byte comparator"
+    printf '     want=[%s] and [%s]\n' "$expected_line" "$actual_line"
+    sed -n '1,24p' "$diag" | sed 's/^/     got: /'
+    fail=1
+    return
+  fi
+  empty_expected="$LOGDIR/exact-comparator-empty-expected.bin"
+  empty_actual="$LOGDIR/exact-comparator-empty-actual.bin"
+  empty_diag="$LOGDIR/exact-comparator-empty-probe.log"
+  : > "$empty_expected"
+  : > "$empty_actual"
+  if compare_exact_files "exact empty comparator probe" "$empty_expected" "$empty_actual" > "$empty_diag" 2>&1; then
+    printf 'FAIL %-26s accepted two empty outputs\n' "exact byte comparator"
+    fail=1
+    return
+  fi
+  if grep -Fq "expected=$empty_expected (0 bytes)" "$empty_diag" && grep -Fq "actual=$empty_actual (0 bytes)" "$empty_diag"; then
+    printf 'ok   %-26s => distinguishes x from x\\n; rejects empty\n' "exact byte comparator"
+  else
+    printf 'FAIL %-26s empty diagnostic lost byte evidence\n' "exact byte comparator"
+    sed -n '1,24p' "$empty_diag" | sed 's/^/     got: /'
+    fail=1
+  fi
+}
 # K63.5: cache the assembly jar keyed by a hash of src/ — skip the ~2-3 min
 # scala-cli package when the sources are unchanged. SSC_CONF_NOCACHE=1 forces a rebuild.
 CONF_CACHE_DIR="${SSC_CONF_CACHE:-$HOME/.cache/ssc-conf}"
@@ -2879,16 +2967,20 @@ if have_rust; then
 fi
 
 echo "# self-hosting: ssc0c (the ssc0 compiler, in ssc0) emits the SAME ir as the Scala compiler"
-chk_diff() { # file-stem
-  a=$(ssc compile "examples/$1.ssc0")
-  b=$(ssc run bin/ssc0c.ssc0 "examples/$1.ssc0")
-  if [ "$a" = "$b" ]; then printf 'ok   %-26s => byte-identical ir\n' "ssc0c $1.ssc0"
-  else printf 'FAIL %-26s ir differs from Scala compiler\n' "ssc0c $1.ssc0"; fail=1; fi
+check_exact_comparator_probe
+chk_compiler_diff() { # label source success-text
+  local lbl source success_text key expected actual expected_status actual_status
+  lbl="$1"; source="$2"; success_text="$3"; key=$(diag_path "$lbl")
+  expected="$LOGDIR/$key-scala.coreir"
+  actual="$LOGDIR/$key-self.coreir"
+  if ssc compile "$source" > "$expected"; then expected_status=0; else expected_status=$?; fi
+  if sscx run bin/ssc0c.ssc0 "$source" > "$actual"; then actual_status=0; else actual_status=$?; fi
+  if ! check_exact_result "$lbl" "$expected" "$actual" "$expected_status" "$actual_status" "$success_text"; then fail=1; fi
 }
-chk_diff fact
-chk_diff tco
-chk_diff map
-chk_diff calc
+chk_compiler_diff "ssc0c fact.ssc0" "examples/fact.ssc0" "byte-identical ir"
+chk_compiler_diff "ssc0c tco.ssc0" "examples/tco.ssc0" "byte-identical ir"
+chk_compiler_diff "ssc0c map.ssc0" "examples/map.ssc0" "byte-identical ir"
+chk_compiler_diff "ssc0c calc.ssc0" "examples/calc.ssc0" "byte-identical ir"
 ssc run bin/ssc0c.ssc0 examples/fact.ssc0 > "${TMPDIR:-/tmp}/ssc0c-fact.coreir" 2>/dev/null
 got=$(ssc run-ir "${TMPDIR:-/tmp}/ssc0c-fact.coreir" | tail -1)
 if [ "$got" = "120" ]; then printf 'ok   %-26s => %s\n' "ssc0c fact -> run-ir" "$got"
@@ -2905,26 +2997,22 @@ else printf 'FAIL %-26s got [%s] want [%s]\n' "ssc0c #prim η-expansion" "$got" 
 
 echo "# self-hosting FIXPOINT: ssc0c (built by the Scala front) run on its OWN source == itself"
 # gen1 = Scala front compiles the self-compiler; gen2 = that bytecode compiling itself.
-gen1=$(ssc compile examples/ssc0c-self.ssc0)
-printf '%s' "$gen1" > "${TMPDIR:-/tmp}/ssc0c-gen1.ir"
+gen1="$LOGDIR/ssc0c-fixpoint-gen1.coreir"
+gen2="$LOGDIR/ssc0c-fixpoint-gen2.coreir"
+if ssc compile examples/ssc0c-self.ssc0 > "$gen1"; then gen1_status=0; else gen1_status=$?; fi
 # the VM needs a big stack for the self-compiler's deep non-tail recursion over its own source
-gen2=$(java -Xss512m -jar "$JAR" run-ir "${TMPDIR:-/tmp}/ssc0c-gen1.ir" examples/ssc0c-self.ssc0 2>/dev/null)
-if [ -n "$gen1" ] && [ "$gen1" = "$gen2" ]; then
-  printf 'ok   %-26s => reproduces itself byte-for-byte (%s bytes)\n' "ssc0c FIXPOINT" "${#gen1}"
-else
-  printf 'FAIL %-26s gen1(%s) != gen2(%s)\n' "ssc0c FIXPOINT" "${#gen1}" "${#gen2}"; fail=1
-fi
+if sscx run-ir "$gen1" examples/ssc0c-self.ssc0 > "$gen2"; then gen2_status=0; else gen2_status=$?; fi
+if ! check_exact_result "ssc0c FIXPOINT" "$gen1" "$gen2" "$gen1_status" "$gen2_status" "reproduces itself byte-for-byte"; then fail=1; fi
 
 echo "# MULTI-FILE: ssc0c resolves imports == Scala (uselib); and the multi-file fixpoint"
-ua=$(ssc compile examples/uselib.ssc0); ub=$(ssc run bin/ssc0c.ssc0 examples/uselib.ssc0)
-if [ -n "$ua" ] && [ "$ua" = "$ub" ]; then printf 'ok   %-26s => byte-identical ir (across import)\n' "ssc0c uselib.ssc0"
-else printf 'FAIL %-26s ir differs\n' "ssc0c uselib.ssc0"; fail=1; fi
+chk_compiler_diff "ssc0c two-file fixture" "conformance/ssc0c-multifile/main.ssc0" "byte-identical ir across import"
+chk_compiler_diff "ssc0c uselib.ssc0" "examples/uselib.ssc0" "byte-identical ir across import"
 # the multi-file driver bin/ssc0c.ssc0 (imports lib/ssc0c.ssc0) compiles ITSELF, byte-for-byte
-m1=$(ssc compile bin/ssc0c.ssc0)
-printf '%s' "$m1" > "${TMPDIR:-/tmp}/m3-gen1.ir"
-m2=$(java -Xss512m -jar "$JAR" run-ir "${TMPDIR:-/tmp}/m3-gen1.ir" bin/ssc0c.ssc0 2>/dev/null)
-if [ -n "$m1" ] && [ "$m1" = "$m2" ]; then printf 'ok   %-26s => reproduces itself (%s bytes)\n' "ssc0c MULTI-FILE FIXPOINT" "${#m1}"
-else printf 'FAIL %-26s m1(%s) != m2(%s)\n' "ssc0c MULTI-FILE FIXPOINT" "${#m1}" "${#m2}"; fail=1; fi
+m1="$LOGDIR/ssc0c-multifile-fixpoint-gen1.coreir"
+m2="$LOGDIR/ssc0c-multifile-fixpoint-gen2.coreir"
+if ssc compile bin/ssc0c.ssc0 > "$m1"; then m1_status=0; else m1_status=$?; fi
+if sscx run-ir "$m1" bin/ssc0c.ssc0 > "$m2"; then m2_status=0; else m2_status=$?; fi
+if ! check_exact_result "ssc0c MULTI-FILE FIXPOINT" "$m1" "$m2" "$m1_status" "$m2_status" "reproduces itself"; then fail=1; fi
 
 echo "# backend: ir -> JS (lib/backend-js.ssc0) — node output == VM output"
 if have_node; then
