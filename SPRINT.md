@@ -258,6 +258,37 @@ SELF-HOSTS (the layout code is in F's own source and compiles byte-identically t
       codecs/derives (~16); enums (`enum X:` + declHead class/object bodies — layout groups them but F
       lacks the member-def-in-type + enum-ctor lowering); param-less `def name = body` → `(lam 0 ..)`.
 
+## v2-f6-backends (`v2-f6-backends`, 2026-07-19) — F6 powerful: close measured v2 backend gaps
+
+Fail-CLOSED: every gap gives the RIGHT answer or a LOUD error, never a silent-wrong value. Edits are
+in the v2 BACKENDS only (`v2/backend/js/JsBackend.scala`, `v2/lib/backend-rust.ssc0`), never `v1/`, the
+v2 KERNEL (`v2/src/*`), or the `v2/lib` oracle fronts. Reproduced each gap first end-to-end on the
+assembled `bin/ssc-tools run-js --v2` (native reference: `bin/ssc run`), differential.
+Fast loop: `v2/ssc1c file.ssc > x.coreir; scala-cli run v2/backend/js -- x.coreir > x.cjs; node x.cjs`.
+
+- [ ] **J1 — v2-JS `List.foldLeft`/`reduce` + full combinator set.** `$method` (JsBackend.scala) only
+      dispatches map/filter/mkString/reverse/foreach/sum/head/tail/etc. on lists; `foldLeft`/`reduce`
+      crash with `no dispatch for .foldLeft on List`. Add the whole set matching the VM
+      (`v2/src/Runtime.scala:3247-3450`), incl. the CURRIED `foldLeft(z)(op)`/`foldRight`/`scanLeft`
+      (front lowers as `App(__method__(foldLeft,xs,z),[op])` → `$method('foldLeft',recv,z)` must return
+      a fn when given 1 non-recv arg). Repro `/tmp/f6/r2_list.ssc`, native = `15 / 15 / [2,4,6,8,10] / 12`.
+- [ ] **J2 — v2-JS `Map` access + methods.** `m("a")` lowers to `$apply(map,[key])` → crash
+      `not callable: <map>`; `.get/.getOrElse/.size` → `$method` (no map arm). Add map-apply (Scala
+      `Map.apply` throws on missing key = fail-closed) + map method dispatch matching VM
+      (`Runtime.scala:3587-3611`). Repro `/tmp/f6/r2_map.ssc`, native = `1 / Some(2) / 3 / 99`.
+- [ ] **J3 — v2-JS effects (`effect.perform.oneshot`/`effect.handle`/`effect.pure`).** Deeper: needs
+      Op-threading through Let/Seq (JS currently force-evaluates, ignoring Op suspensions) + a JS port of
+      the PortableEffects handle driver (`v2/src/PortableEffects.scala`). Repro `/tmp/f6/r2_effects.ssc`,
+      native = `List(Hello, World!)`. Assess ANF-lift-then-thread (mirror bytecode `OpAnfNative.lift`) vs
+      thread-at-every-eval-point.
+- [ ] **J4 — un-flag any v2-JS conformance case that now passes** (opt-in `also-codegen: v2` lane,
+      known-red today). Move green honestly.
+- [ ] **R5 — tower Rust/WASM BigInt silent-drop.** `backend-rust.ssc0` emits `V::U` (Unit) for every
+      `big.*`/`i->big` prim → `bigfact` prints empty (fail-OPEN, the class we ban). Implement real
+      wide-int (i128) or a faithful BigInt, or make it a LOUD error. Repro
+      `v2/ssc0-rust v2/examples/bigfact.ssc0 | rustc -O - -o /tmp/bf && /tmp/bf`, VM ref =
+      `265252859812191058636308480000000`. WASM reuses the Rust backend (same fix).
+
 ## v2-p65-enums (`v2-p65-enums`, 2026-07-19) — enum cluster, impact-ordered slices
 
 Oracle map (all verified): parse `ssc1-front.ssc0`:2797-2837; registry `ssc1-lower.ssc0`:140/349-390;
