@@ -228,6 +228,18 @@ baseline set `/tmp/baseline_deep.txt` for `comm -23` drop-checks. --self via cap
   `SSC_JAR=/tmp/ssc-deep.jar V2_DIR=<wt>/v2 NEWFRONT_WORK=/tmp/p65deep bash specs/v2.2-p6.5-corpus.sh`.
   GOTCHA: F-source defs must avoid `match {case Nil => .. case cs => ..}` (bare-var arm after ctor arm
   mis-parses as cons in F's OWN parseCtorMatch — broke self-compile once; use isEmpty/helper).
+**➜ v2-p65-deep3 SESSION (2026-07-19): corpus MATCH 381→393/508 (+12; DA10 object method flattening +1,
+  DA11 self-match-lambda direct +1, DA12 assignment-bodies+optional-else-if +6, DA13 object val/var members
+  +1, DA14 extern-decl erasure +2, DA15 generic-case-classes+enum-boundary +1). ALL 0 drops, X1 fixpoint
+  stage1==stage2 byte-identical each slice (271,756→281,960 B), --self 153 ok/0 FAIL each, kernel +0, no
+  v2/lib oracle edits. Jar `/tmp/ssc-deep3.jar` (rebuild: `scala-cli --power package v2/src --assembly -o
+  /tmp/ssc-deep3.jar`). NEW INFRA now in F: objReg cx slot (11th, innermost `(sub, objReg)`; objRegOf +
+  subInfoOf shifted by one `fst`); bodyExpr (isAssignHead?parseAssign:parseExpr) used by
+  emitDefBody/parseLamBodyG/forDo/parseIf; parseIf now 4 defs (optional else → `(lit unit)`);
+  skipGenParen/skipNameGenParen for generic case classes. ORACLE-DEGRADATION TALLY UNCHANGED = 24 (all 12
+  deep3 flips were genuine F-gaps; no oracle bug reproduced). Fast single-file harness written this session:
+  scratchpad `oc1.sh` (JAR/V2/FSUB/WORK env, F0_STALE=1 rebootstraps F0 from FSUB, compares vs cached
+  /tmp/p65deep3/ref). Baseline set for `comm -23` drop-checks: `/tmp/baseline_deep3.txt`.
 **ORACLE-DEGRADATION TALLY = 23 confirmed + 1 NEW candidate (24). The 23 unchanged (all 12 deep2 flips
   were genuine F-gaps). NEW candidate #24: `std-ui-jobpanel` — `case _ => []` (empty-list arm body): the
   oracle DROPS `[]` (parses it as an empty markdown link-import) → arm body `(lit unit)`, while F correctly
@@ -239,36 +251,39 @@ baseline set `/tmp/baseline_deep.txt` for `comm -23` drop-checks. --self via cap
   (spark-catalog-hive/hive-demo/udf-demo); 4 custom-interpolator `id"""..."""` → oracle raw-triple leak
   (uploads, ws-chat, rest-api, rest-api-fm); 4 mutual-fail (type-ascription `(e:T)`, wasm-collections/http/
   scalascript `@main`).
-**REMAINING GENUINE F-GAPS after deep2 (impact-ordered, measured first-divergence; deep2 CLEARED DA4-DA9):**
-  - **actors-receive `let((local 0))(match)` cluster (~10: actors-bounded-mailbox/pingpong/process-info,
-    graphql-typed-resolvers, distributed-dataset-*, dep-cps-basic, distributed-streams, …) — DO NOT TOUCH
-    (shared deep match strategy). NOTE: DA6's ctor-guard routing now sends some of these to F's ordered
-    resolver (MINE `match (local 0) ((arm ..))` vs REF `let ((local 0)) (if ..)`) — still DIFF, still the
-    hard residual, 0 drops.**
-  - **`_sel_` list-var registry / multi-line for-BLOCK (architectural): for-comprehensions (multi-gen for
-    layout desugars to `_sel_flatMap`/`_sel_map` chains), typed-sql-crud (Db.queryTyped). The gap is the
-    list-VARIABLE registry + the `for\n gens\nyield` block-layout parse.**
-  - **source-`;` FIRST-stmt-assign / leading-var/val in arm body (DA9 left these): armBodyExpr keeps a
-    leading assign single (block form is `(seq ..)` not `(let ..)`); a `case X => id = e; more` or
-    `case X => val y = ..; more` still desyncs. actors-global-registry, litdoc need this. Moderate; extend
-    armSeqStmt to the assign-`seq`/val-bind forms (mirror parseBlockAssign/parseBlockVal).**
-  - **call-site default synthesis: default-params (`def f(x=..)`/`C()`/`shift(10)` fill defaults; funcDefaults
-    registry K62.17) — deep; the "Int10" type-string pollution is only the first symptom.**
-  - **extension methods (`extension (n) def m`): extensions, script (`(lam 1 …(local 0))` vs F `(lam 0 …(global
-    n))`) — the layout E/EB/X frames were DEFERRED (F has no `extension`); big.**
-  - **derived-codecs / given-summon: custom-derives-mirror, distributed-dataset-*, rozum-agent-schema-derived —
-    `__derived_*Codec` + given table, deep.**
-  - **custom string interpolators `uri"$url"` / `id"..."` (x402-cardano/cardano-scalus/client) — the oracle
-    fail-opens to `(lit (str "raw"))` + `(global _err)`; entangled with a `(lit unit)` vs `(lit (int 0))` first
-    divergence upstream. Likely oracle-adjacent — verify F-right before counting; NOT a clean flip.**
-  - **float E-notation (control-center-live, actors-phi-accrual): the oracle renders IR floats via
-    `Double.toString` (CoreIR.floatLit → `107374182.4`→`1.073741824E8`); F emits the raw source float text.
-    REQUIRES a kernel δ-primitive exposing floatLit OR reimplementing shortest-round-trip Double.toString in
-    the subset — ESCALATE (kernel change) if pursued; only 2 files, both with other divergences too.**
-  - Assorted 1-offs: auth-demo/oauth-demo extra-let, parsing-error-node/recover-until NESTED tuple patterns
-    (`(Ctor(..), ..)` → F emits `Tuple7 7 (lit 0)`; needs nested-pattern support), content `md"..."` interp,
-    symbolic operators `<~`/`~>` (dsl-calc-parser, js-symbolic-infix-operator — F's lexer doesn't tokenize
-    arbitrary symbolic ops; oracle → `(app (global op) l r)`), companion-object methods (`B.of`→`B_of`).
+**REMAINING GENUINE F-GAPS after deep3 (impact-ordered; deep3 CLEARED: object methods DA10, object
+  val/var DA13, self-match-lambda DA11, assignment-bodies+optional-else-if DA12, extern DA14, generic
+  case classes + enum/case-class boundary DA15; companion-object `B.of`→`B_of` is now DONE via DA10):**
+  - **default-params / call-site synthesis (NEXT BIGGEST TRACTABLE, but a MULTI-SLICE feature): default-params,
+    typed-data (+ helps others). Two parts: (a) SMALL — case-class/def field DEFAULT `= expr` erasure from the
+    field TYPE text (typeText must stop at `=` code 20; then skip the default `= expr` to the next `,`/`)` —
+    that's the `Int10`/`Int20` first-divergence in default-params & typed-data's Person mirror). (b) DEEP —
+    call-site synthesis: `greet()`/`Box()`/`shift(10)`/`Person("Bob",25)` fill omitted trailing args from a
+    funcDefaults registry. Oracle: funcDefaultsCell keyed by BARE name → Pair(paramNames, positionalDefaults),
+    populated at parseDef; under-applied positional call expanded to NESTED one-arg lambdas so defaults eval
+    left-to-right seeing earlier params; PLUS enum-case ctor tail (resolveDfltTail), curried first-clause
+    (padFirstClauseDflts), named-arg (`narg`), object-method aliasing (aliasFuncDefault O_f). See ssc1-lower
+    :1754-1900 + :1291/1830/1888. RECOMMEND: land (a) first (regression-safe, tiny), then (b) as its own arc.**
+  - **actors-receive `let((local 0))(match)` cluster (~10) — DO NOT TOUCH (shared deep match strategy).**
+  - **`_sel_` list-var registry / multi-line for-BLOCK: for-comprehensions, typed-sql-crud. list-VARIABLE
+    registry + `for\n gens\nyield` block-layout parse. Architectural.**
+  - **NESTED patterns: parsing-error-node/recover-until (`case (Some(ParseOk(v,rest,_)), errs) =>` → F emits
+    `Tuple7 7`/`Tuple6 6` flat; oracle recursively decomposes via lowerOrderedGuardArms npat), distributed-
+    word-count/log-aggregation (`Pair 2 (if ..)` vs `Tuple6 6`). 4 files; deep (same ordered-resolver machinery
+    as the actors cluster).**
+  - **extension methods (`extension (n) def m`): extensions, script — layout E/EB/X frames DEFERRED; big.**
+  - **derived-codecs / given-summon (~10: tagless-program/multi-file/resolution, typeclass, typeclass-extension,
+    effects/effects-handler, algebraic-effects, custom-derives-mirror, rozum-agent-schema-derived, …): a `given
+    g: T with {defs}` → `g_m` prefixed defs + `__mk_method_obj__` dictionary + given table; `using`/context-
+    bound synthesis (summon). NOTE the `X_method` naming (Int_show/Console_writeLine) is the FIRST divergence
+    but summon/using is the real wall — NOT a clean flip. DA10's objReg infra is reusable for the prefixing.**
+  - **symbolic operators `<~`/`~>` (indent-block-statements, dsl-calc-parser, js-symbolic-infix-operator): F's
+    lexer doesn't tokenize arbitrary symbolic ops; oracle → `(app (global op) l r)`. Lexer change.**
+  - **f-string interpolator `f"...%-4s..."` (standard-scala-multifence): oracle `__fInterpolate__`; distinct feature.**
+  - **float E-notation (control-center-live, actors-phi-accrual): oracle renders IR floats via `Double.toString`
+    (`107374182.4`→`1.073741824E8`). REQUIRES a kernel δ — ESCALATE (do NOT attempt in the subset).**
+  - Assorted 1-offs: generators (block first-stmt double `(lam 0 ..)` wrap), dsl-yaml-like (tuple-destructure
+    let), auth-demo/oauth-demo extra-let, content `md"..."` interp.
   METHOD (kept exactly, took the lane 1→381): read the oracle's lowering on a tiny program FIRST, reproduce
   byte-exact, then corpus + `comm -23` drop-check + `--self` fixpoint. GOTCHA: oc.sh reads raw `.ssc` — for
   markdown/fenced files use the corpus gate on the extracted `.code` (oc.sh gives false divergences there).
