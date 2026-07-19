@@ -335,6 +335,9 @@ d triple_q   'def main(): String = """say "hi" done"""'
 d triple_tl  'val page = """<h1>Hi</h1>
 <p>x</p>"""
 println(page)'
+d null_lit   'def main(): String = { val x: String = null  x }'
+d null_ret   'def f(): String = null
+def main(): String = f()'
 
 if [ "${1:-}" = "--self" ]; then
   echo "--- X1: F compiles its OWN source ---"

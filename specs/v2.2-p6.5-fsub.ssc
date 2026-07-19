@@ -478,7 +478,9 @@ def calleeOf(nm, env, cx) = if lookup(nm, env) >= 0 then "(local " ++ lookup(nm,
 // `coroutineCreate[Int, Unit, String] { .. }`. Type args are erased, so skip the `[..]` (skipGen) and
 // dispatch on the following `(` (or fall to a bare ref, letting postfix pick up a trailing block arg).
 // NOT skipping them fabricated spurious top-level cells (F left `[T] { .. }` unconsumed → mis-parse cascade).
-def parseVarOrCall(nm, ts, env, cx) = parseVarOrCallG(nm, skipGen(ts), env, cx)
+// `null` keyword -> None (ssc1-front :1119-1120, mirrors scalameta Lit.Null -> Ctor("None")). A bare
+// `null` var-atom lowers to `(ctor None)`; not in env, so no local shadows it (it is a reserved word).
+def parseVarOrCall(nm, ts, env, cx) = if nm == "null" then ("(ctor None)", ts) else parseVarOrCallG(nm, skipGen(ts), env, cx)
 def parseVarOrCallG(nm, ts, env, cx) = if isTok(hd(ts), 2, 21) then parseCall(nm, tl(ts), env, cx) else (calleeOf(nm, env, cx), ts)
 def parseCall(nm, ts, env, cx) = parseArgs(ts, env, cx) match { case (args, r) => (emitApp(calleeOf(nm, env, cx), args), r) }
 def emitApp(callee, args) = "(app " ++ callee ++ args ++ ")"
