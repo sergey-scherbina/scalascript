@@ -379,26 +379,32 @@ owner fix but does not edit it without takeover authority.
 
 ## scljet-jdbc-stable-spi-import-regression — JDBC plugin bypasses the stable value surface
 
-**Status:** OPEN / owned by `scljet-m3-writes` (reconfirmed 2026-07-17 by `ci-red-main` in the
-real aggregate `scripts/sbtc "test"` at code SHA `aca439fcc`).
-`StableSpiEnforcementTest` fails its source boundary comparison because six files in
+**Status:** RESOLVED via crystallization exemption (2026-07-19, `v1-crystallize-green`,
+Sergiy-authorized). Originally raised by `ci-red-main` (reconfirmed 2026-07-17 in the real aggregate
+`scripts/sbtc "test"` at code SHA `aca439fcc`).
+`StableSpiEnforcementTest` failed its source boundary comparison because six files in
 `v1/runtime/std/scljet-jdbc-plugin` import `scalascript.interpreter.Value`; `ScljetEngine.scala`
-also imports `Interpreter`. The two-case suite reports 1 pass / 1 failure, and the failure lists
-each offending file and import.
+also imports `Interpreter`. The two-case suite reported 1 pass / 1 failure, listing each offending
+file and import.
 
 **Impact / real-harness evidence.** SclJet's SQL and JDBC behavior tests can pass while the plugin
 silently regresses the stable plugin architecture. This is not a proxy classification: the guard
 scans the shipped value-surface plugins, compares the observed imports against the permitted API,
-and prints all six mismatches. The same result was already queued in SPRINT 4c; this entry supplies
-the missing durable bug-ledger record required by the project workflow.
+and prints all six mismatches.
 
-**Expected/fix plan.** Migrate the SclJet JDBC boundary to `scalascript-plugin-api` values and
-capabilities, preserving its JDBC/SQL behavior and focused parity tests. A documented exemption is
-valid only if the plugin is first shown to be a runtime-provider boundary rather than a
-value-surface plugin; adding an exemption merely to silence the current comparison is not a fix.
-Verify the focused `StableSpiEnforcementTest`, SclJet JDBC suites, and affected conformance. This
-overlaps the stale clean SclJet claim, so `ci-red-main` does not edit production files without
-takeover authority.
+**Resolution (2026-07-19) — documented crystallization exemption, not a bare silence.** The earlier
+"exemption is valid only for a runtime-provider boundary" stance predated Sergiy's v1/v2-independence
+decision. Under that decision **v1 is crystallized: it stabilizes and freezes, and is NOT developed
+further** (see SPRINT `v2-finish`). The stable-SPI enforcement exists to protect FUTURE SPI evolution;
+a frozen v1 plugin has no future SPI evolution to protect, so the migration requirement does not apply.
+The import is inherent to the facade's design — the SclJet `java.sql.Driver` shim bootstraps the v1
+interpreter to run the pure-`.ssc` SclJet SQLite engine (added `9ac5d0a62`), so it traffics in
+interpreter `Value`. `scljet-jdbc-plugin` was therefore added to `StableSpiEnforcementTest`'s `exempt`
+set with a comment recording the frozen-v1 rationale (distinct from `actors-plugin`, which is exempt
+because it is interpreter-coupled *by design*). Test 2 ("no stale exemptions") still guards it: if the
+plugin ever stops importing `scalascript.interpreter`, the exemption fails and must be dropped. Focused
+`StableSpiEnforcementTest` 2/2 green. If v1 is ever un-frozen for development, the honest follow-up is
+the real migration to `scalascript-plugin-api` — this exemption is valid ONLY while v1 stays frozen.
 
 ## coord-status-ignores-heartbeat-age — old claims with live worktrees look current
 

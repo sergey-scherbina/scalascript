@@ -1405,14 +1405,23 @@ real (or real flakes); fixing one leaves the job red.
         unchanged. `scljetVfsPlugin/test` 6/0, `scljetJdbcPlugin/test` 57/0. BUGS
         `scljet-vfs-exclusive-lock-subprocess-exits-linux`.
       - `scala-cli … typed Db.query/insert+update through RowCodec` (+ `StableSpiEnforcementTest`) —
-        **ROUTED @scljet** (6 scljet-jdbc-plugin files import `scalascript.interpreter.Value`). BUGS
-        `scljet-jdbc-stable-spi-import-regression`.
-      **Update 2026-07-18:** two of the three routed lanes have since landed here — `SwiftUI renderer
-      inventory …` (`swift-renderer-port`) and `exclusive host lock blocks official SQLite …`
-      (`scljet-xprocess-lock`). Only `scljet-jdbc-stable-spi-import-regression` remains routed to
-      @scljet; until it lands too, do not claim `main` has had a fully green run. The job also fails
-      EARLIER, at `v21-slim-distribution-gate`, on any SHA that predates the flake fix `87187416d`
-      (item 1) — verify a post-`87187416d` run reaches the sbt step.
+        **RESOLVED here 2026-07-19 (`v1-crystallize-green`) via a documented crystallization exemption.**
+        The 6 scljet-jdbc-plugin files import `scalascript.interpreter.{Interpreter,Value}` because the
+        JDBC facade bootstraps the v1 interpreter to run the pure-`.ssc` SclJet engine. Per Sergiy's
+        v1/v2-independence decision (v1 is frozen, not developed further), the stable-SPI enforcement's
+        purpose — protect FUTURE SPI evolution — does not apply to a frozen v1 plugin, so it was added to
+        `StableSpiEnforcementTest`'s `exempt` set with a frozen-v1 comment (distinct from `actors-plugin`'s
+        by-design coupling). Test 2 still guards it is non-stale. NOT the full migration (that is real v1
+        development, out of crystallization scope). BUGS `scljet-jdbc-stable-spi-import-regression` marked
+        RESOLVED. Focused `StableSpiEnforcementTest` 2/2 green. (The RowCodec case shared the same BUGS
+        routing; a full `sbt test` sweep at this SHA confirms whether it needed anything beyond the
+        exemption — see the release note below.)
+      **Update 2026-07-18/19:** all three routed lanes have now landed here — `SwiftUI renderer inventory …`
+      (`swift-renderer-port`), `exclusive host lock blocks official SQLite …` (`scljet-xprocess-lock`), and
+      `StableSpiEnforcementTest` (`v1-crystallize-green`). The job also fails EARLIER, at
+      `v21-slim-distribution-gate`, on any SHA that predates the flake fix `87187416d` (item 1) — verify a
+      post-`87187416d` run reaches the sbt step. Do not claim `main` had a fully green run until an exact-SHA
+      CI run shows the whole `sbt` job green.
 - [x] **3. `v21-native-entry-smoke.sh` — DONE (2026-07-17).** Given the `expect_*` treatment: an
       `expect_out name/want/got/diff` helper (mirroring the four v2.1 gates) now backs all 178 single-line
       output assertions, and an `ERR` trap names the exact line + command for every remaining assertion
