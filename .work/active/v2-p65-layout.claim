@@ -1,13 +1,17 @@
 claim: v2-p65-layout
 branch: feature/v2-p65-codecs2
 agent: opus (orchestrator session — fresh agent, handoff chain)
-heartbeat: 2026-07-19T11:08:49Z
+heartbeat: 2026-07-19T14:30:00Z
 status: in-progress (spawned agent)
-what: P6.5 breadth lane. DONE (coordinator-verified): +guarded-scalar-match/!expr/???/hex/tuple-3,
-      corpus MATCH 1→311/508 (61%), fixpoint 203,415 B all stage1==stage2. NEXT (§v2-p65-guard map over
-      197 DIFFs): .copy(f=v) (clean +1, byte-shape derived in §v2-p65-guard — do first), :+/+: & bitwise
-      ops (clean-ish, needs opPrec), derived-codecs/derives (~20 HARD), ctor-guard (extends G1, needs
-      guard-fail fallthrough), direct{}/optics (deep). Keep --self green; drop-check via baseline stash;
-      never push broken. GOTCHA: F uses tuple (a,b) not Pair; DO NOT touch actors-receive match.
-coord: F5+F6 done; a v2-f5-buildjvm-fix sibling is fixing a build.sbt classpath regression (build-jvm
-      artifact ClassNotFound Emit) — it touches build.sbt/CLI, not your specs/v2.2-p6.5-fsub.ssc. Rebase clean.
+what: P6.5 breadth lane. DONE (coordinator-verified through v2-p65-guard): corpus MATCH 1→311/508.
+      v2-p65-codecs2 session (2026-07-19) landed 8 more slices, MATCH 311→334/508 (66%), all 0
+      regressions, X1 fixpoint stage1==stage2 203,415→222,668 B, --self 153 ok/0 FAIL, kernel +0:
+      C1 .copy(f=v), C2 :+/+:/:::, C3 bitwise &|^<<>>>>>~, C4 derives-codec cell+init, C5 import X.*
+      over-skip FIX (+7!), C6 val(a,b) tuple-destructure, C7 tuple-N literals, C8 parenless def.
+      NEXT (fresh impact map in SPRINT §v2-p65-codecs2 handoff over 174 DIFFs): optics Focus/Prism
+      (5, deep, biggest), custom-interpolator id\"\"\"..\"\"\" (4, degenerate mis-parse/escape-hatch),
+      derived-codecs remaining (~17, summon/object OR Vector/JsonValue/@annot diffs), Vector(..)->Cons,
+      direct{}, parenless-in-object-bodies. Keep --self green; drop-check via /tmp/baseline_match.txt.
+      GOTCHA: paren-count big nested-ifs (stray ) -> _err); name-collision check new defs.
+      DO NOT touch actors-receive/! send.
+coord: F5+F6+v2-f5-buildjvm-fix all landed. Only edits specs/v2.2-p6.5-fsub.ssc (+gate/SPRINT). Rebase clean.
