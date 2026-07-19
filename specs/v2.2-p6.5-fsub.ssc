@@ -51,7 +51,9 @@ def lexColon(s, i, n) = if s.charAt(i + 1) == 58 then Cons((2, 49), lex(s, i + 2
 // compound-assignment tokens: `+=`=53 `-=`=54 `*=`=55 (`x += e` desugars to `x = x + e`, ssc1-front
 // compoundBaseOp :1512). `+=` is checked after `++`; `-`/`*` get their own dispatch (else they lexOp1).
 def lexPlus(s, i, n) = if s.charAt(i + 1) == 43 then Cons((2, 48), lex(s, i + 2, n)) else (if s.charAt(i + 1) == 61 then Cons((2, 53), lex(s, i + 2, n)) else Cons((2, 23), lex(s, i + 1, n)))
-def lexMinus(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 54), lex(s, i + 2, n)) else Cons((2, 24), lex(s, i + 1, n))
+// `->` (pair arrow, code 57) — lexed after `-=`; lowers `a -> b` to a 2-tuple `(ctor Pair a b)`
+// (ssc1-front :1477 prec 1, ssc1-lower inf `->` :2572) and is the entry separator in `Map(k -> v, ..)`.
+def lexMinus(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 54), lex(s, i + 2, n)) else (if s.charAt(i + 1) == 62 then Cons((2, 57), lex(s, i + 2, n)) else Cons((2, 24), lex(s, i + 1, n)))
 def lexStar(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 55), lex(s, i + 2, n)) else Cons((2, 25), lex(s, i + 1, n))
 def lexSlash(s, i, n) = if s.charAt(i + 1) == 47 then lex(s, scanLineEnd(s, i + 2, n), n) else Cons((2, 26), lex(s, i + 1, n))
 def lexEq(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 44), lex(s, i + 2, n)) else (if s.charAt(i + 1) == 62 then Cons((2, 30), lex(s, i + 2, n)) else Cons((2, 20), lex(s, i + 1, n)))
@@ -203,10 +205,10 @@ def plusSym(l, r, dq) = if isStrExprCode(l, dq) then "++" else (if isStrExprCode
 def emitArith(k, l, r, dq) = if k == 23 then emitArithS(plusSym(l, r, dq), l, r, dq) else emitArithS(arithSym(k), l, r, dq)
 def emitEq(l, r) = "(prim __eq__ " ++ l ++ " " ++ r ++ ")"
 def emitIf(c, t, e) = "(if " ++ c ++ " " ++ t ++ " " ++ e ++ ")"
-def emitBin(k, l, r, dq) = if k == 49 then "(ctor Cons " ++ l ++ " " ++ r ++ ")" else (if k == 48 then emitArithS("++", l, r, dq) else (if k == 44 then emitEq(l, r) else (if k == 45 then emitIf(emitEq(l, r), "(lit false)", "(lit true)") else (if k == 46 then emitIf(l, r, "(lit false)") else (if k == 47 then emitIf(l, "(lit true)", r) else emitArith(k, l, r, dq))))))
+def emitBin(k, l, r, dq) = if k == 57 then "(ctor Pair " ++ l ++ " " ++ r ++ ")" else (if k == 49 then "(ctor Cons " ++ l ++ " " ++ r ++ ")" else (if k == 48 then emitArithS("++", l, r, dq) else (if k == 44 then emitEq(l, r) else (if k == 45 then emitIf(emitEq(l, r), "(lit false)", "(lit true)") else (if k == 46 then emitIf(l, r, "(lit false)") else (if k == 47 then emitIf(l, "(lit true)", r) else emitArith(k, l, r, dq)))))))
 // Scala's precedence-by-first-character, restricted to the operators the subset uses.
 def binPrec(t) = if fst(t) == 2 then binPrecK(snd(t)) else 0
-def binPrecK(k) = if k == 47 then 1 else (if k == 46 then 2 else (if k == 44 then 3 else (if k == 45 then 3 else (if k == 40 then 4 else (if k == 41 then 4 else (if k == 42 then 4 else (if k == 43 then 4 else (if k == 49 then 5 else (if k == 23 then 6 else (if k == 24 then 6 else (if k == 48 then 6 else (if k == 25 then 7 else (if k == 26 then 7 else (if k == 56 then 7 else 0))))))))))))))
+def binPrecK(k) = if k == 57 then 1 else (if k == 47 then 1 else (if k == 46 then 2 else (if k == 44 then 3 else (if k == 45 then 3 else (if k == 40 then 4 else (if k == 41 then 4 else (if k == 42 then 4 else (if k == 43 then 4 else (if k == 49 then 5 else (if k == 23 then 6 else (if k == 24 then 6 else (if k == 48 then 6 else (if k == 25 then 7 else (if k == 26 then 7 else (if k == 56 then 7 else 0)))))))))))))))
 
 // -- the parse context ---------------------------------------------------------------------------
 // cx = (dq, (ccNames, fieldNames)). Case classes made the parser context-dependent: a ctor call and
@@ -369,9 +371,23 @@ def enumValuesStr(names) = names match { case Nil => "(ctor Nil)" case h :: t =>
 // `List(a, b, c)` is NOT a ctor call — it desugars to a right-nested Cons chain ending in Nil (measured:
 // List() -> (ctor Nil); List(a,b) -> (ctor Cons a (ctor Cons b (ctor Nil)))). Needs the args as a LIST
 // (to nest), so parseArgL collects them; every other ctor keeps the flat parseArgs string.
-def parseCtorArgs(nm, ts, env, cx) = if nm == "List" then parseListLit(ts, env, cx) else parseArgs(ts, env, cx) match { case (args, r) => (ctorApp(nm, args, cx), r) }
+def parseCtorArgs(nm, ts, env, cx) = if nm == "List" then parseListLit(ts, env, cx) else (if nm == "Map" then parseMapLit(ts, env, cx) else parseArgs(ts, env, cx) match { case (args, r) => (ctorApp(nm, args, cx), r) })
 def parseListLit(ts, env, cx) = parseArgL(ts, env, cx) match { case (es, r) => (consChain(es), r) }
 def consChain(es) = es match { case Nil => "(ctor Nil)" case h :: t => "(ctor Cons " ++ h ++ " " ++ consChain(t) ++ ")" }
+// `Map(k -> v, ..)` desugars to a mutate-and-return IIFE (ssc1-lower buildMapExpr :1362): `(lam 1 ..)`
+// applied to `(prim map.new)`, its body a let-chain of `(prim map.put (local d) k v)` where d = entry index
+// (__m sits at (local d) after d preceding lets), ending in `(local n)` (__m) for n entries. An `a -> b`
+// entry contributes (a, b); a bare entry `a` contributes (a, a). k/v parse with the env deepened by (d+1)
+// anon slots (the lam param + d lets) so a free local's index shifts exactly as lowerE's block-lower would.
+def parseMapLit(ts, env, cx) = mapLit0(ts, env, cx, 0) match { case (body, r) => ("(app (lam 1 " ++ body ++ ") (prim map.new))", r) }
+def pushAnon(n, env) = if n <= 0 then env else pushAnon(n - 1, "" :: env)
+def mapLit0(ts, env, cx, d) = if isTok(hd(ts), 2, 22) then ("(local " ++ d ++ ")", tl(ts)) else mapEntry(ts, env, cx, d)
+def mapEntry(ts, env, cx, d) = parseExpr(ts, 2, pushAnon(d + 1, env), cx) match { case (k, r) => mapEntryArrow(k, r, env, cx, d) }
+def mapEntryArrow(k, ts, env, cx, d) = if isTok(hd(ts), 2, 57) then mapEntryVal(k, tl(ts), env, cx, d) else mapPut(k, k, ts, env, cx, d)
+def mapEntryVal(k, ts, env, cx, d) = parseExpr(ts, 0, pushAnon(d + 1, env), cx) match { case (v, r) => mapPut(k, v, r, env, cx, d) }
+def mapPut(k, v, ts, env, cx, d) = if isTok(hd(ts), 2, 27) then mapCont(k, v, tl(ts), env, cx, d) else (mkPut(d, k, v, "(local " ++ (d + 1) ++ ")"), tl(ts))
+def mapCont(k, v, ts, env, cx, d) = mapLit0(ts, env, cx, d + 1) match { case (rest, r) => (mkPut(d, k, v, rest), r) }
+def mkPut(d, k, v, rest) = "(let ((prim map.put (local " ++ d ++ ") " ++ k ++ " " ++ v ++ ")) " ++ rest ++ ")"
 def parseArgL(ts, env, cx) = if isTok(hd(ts), 2, 22) then (Nil, tl(ts)) else parseArgL1(ts, env, cx)
 def parseArgL1(ts, env, cx) = parseArgExpr(ts, env, cx) match { case (e, r) => parseArgLMore(e, r, env, cx) }
 def parseArgLMore(e, ts, env, cx) = if isTok(hd(ts), 2, 27) then parseArgL(tl(ts), env, cx) match { case (rest, r2) => (Cons(e, rest), r2) } else (Cons(e, Nil), tl(ts))
