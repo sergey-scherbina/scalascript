@@ -590,7 +590,8 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
   keep `--self` green, re-freeze fixpoint bytes; push separately. BUGS `p65-fsub-toplevel-val-infinite-loop`.
 - [ ] **F5 (parallel, lower priority) — "small": kernel/tower boundary.** Relocate the accreted
       candidates above to the tower per R4; target ~2,400–2,800 kernel lines. Analysis in
-      `specs/v2-state-2026-07-18.md` §R4. **In progress (`v2-f5-kernel-small`).**
+      `specs/v2-state-2026-07-18.md` §R4. **Mechanical-relocation phase DONE (`v2-f5-kernel-small`): 2
+      candidates relocated (−419 lines), 2 proven irreducible — see per-slice notes below.**
       **Live fixpoint invariant (measure, don't assume — the byte count MOVES as the p65 breadth lane
       grows F): as of origin/main@31cde7db6 it is 169,133 B, 136 ok / 0 FAIL** (`--self`; it was 164,022
       B@ace60efc3, 168,895 B@38e673ddc — it climbs every p65 push). Any kernel relocation must keep this
@@ -616,11 +617,33 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
         wired. Kernel 6228→**5936** (−292; cumulative **−419**). Kernel jar drops `ssc/Emit`; fixpoint
         byte-identical (169,133 B @31cde7db6, proven vs origin/main); conformance 3 FAIL (⊂ baseline);
         **bin/ssc VM + `--bytecode` both print `total=24`** (the staging fix above is what makes this pass).
-      - [ ] Slice 3 — `PortableDecimal` (171), `PortableEffects` (221, effect driver — may back a kernel δ-prim
-        `effect.*`, i.e. irreducible; check `Prims`/`Runtime` for compile-time use; STOP+report if so).
-        NOTE: `NativeArtifactRuntime` imports BOTH `Emit` + `PortableEffects` — if PortableEffects moves it
-        can share the `v2/jvm-runtime` module (or a peer); mind cross-module `private[ssc]` access.
-      - [ ] Slice 4 — `FastCode`/`SelfRec*` (962, perf) — relocate only if byte-neutral; else report irreducible.
+      - [x] **Slice 3 — `PortableDecimal` (171) + `PortableEffects` (221): PROVEN IRREDUCIBLE (2026-07-19).**
+        Both are **bidirectionally coupled** with the kernel core, so a file-move (as done for NativeUiSites/Emit)
+        would be a compile CYCLE, and removing them is a kernel-δ change (forbidden). Measured:
+        (a) both `import Value.*` and pattern-match kernel value types (PortableDecimal 38 refs incl. `DecimalV`
+        equals/hashCode via `PortableDecimal.canonicalText/numericEquals` in `Runtime.scala:78/80/83`;
+        PortableEffects 44 refs, uses `Runtime.emptyEnv`/`Done`); (b) the kernel calls INTO them — `Prims.
+        resolveBuiltinRaw` routes the `dec.*` δ-prims (`Runtime.scala:2498`) and `effect.*` δ-prims (`:2500`)
+        to them, the trampoline driver uses `PortableEffects.completeManaged` (`:414`), method-dispatch +
+        arith use `PortableDecimal` (~20 sites). (c) conformance exercises `effect.*` heavily
+        (`effects-state`/`effects-nondet` multi-shot, async, mira typed effects on VM/JS/Rust) → removal
+        breaks it. Turning them into TOWER `.ssc` libraries (the §R4 aspiration) is a **δ-changing redesign**
+        (drop `dec.*`/`effect.*`, add lower BigDecimal prims; effects = the unstarted K3 work) — OUT of F5's
+        byte-identical/no-δ scope. NOT the same as the FrontendBridge prims the task said to leave alone, but
+        the same reason applies: they're live δ-table entries serving the full `.ssc` surface + conformance.
+      - [x] **Slice 4 — `FastCode`/`SelfRec*` (962, perf): PROVEN IRREDUCIBLE (2026-07-19).** The kernel's
+        **Value ADT itself carries a `var fcEntry: Option[FastCode.FC]` field** (`Runtime.scala:89`) and the
+        `Compiler` hot path calls `FastCode.tryFC/tryFBc/tryFCLongSet` + `SelfRecLL.compile` +
+        `SelfTailRecLL2.compile` at ~12 sites (`:715/907/948/963/992/1030/1211/1291/1311`), while FastCode
+        references `Value`/`Term`/`Runtime`/globals — bidirectional ⇒ compile cycle, un-extractable as a module.
+        It is a perf layer embedded in the kernel's hottest code; *deleting* it (not relocating) is risky
+        hot-path surgery with no byte-identity guarantee (effect-threading eval order) and is not a "tower
+        relocation" — deferred as a finding.
+      **F5 mechanical-relocation phase COMPLETE: 2 relocated (NativeUiSites+Emit, −419 lines, 6355→5936),
+      2 proven irreducible.** The §R4 "~2,400–2,800" target is NOT reachable by mechanical relocation — the
+      rest needs (i) F4 retiring the ~1200 FrontendBridge/method-dispatch δ prims once the breadth lane hits
+      high coverage, (ii) a K3 effects-as-tower-library redesign, (iii) removing the FastCode perf layer.
+      All three change the kernel δ / behavior and are out of F5's byte-identical scope.
 - [ ] **F6 (parallel) — "powerful": backend gaps.** v2-JS `foldLeft`/`Map`/effects; Rust/WASM BigInt.
 - [ ] **F7 — green the v2 internal gate.** `v2/conformance/check.sh`: the K62.3 unbounded-compile-depth
       (give the tower compiler an iterative path or a bounded-stack guard) + the `ssc0c uselib` IR

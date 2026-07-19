@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-07-19 — v2-f5-kernel-small: mechanical-relocation phase complete + irreducibility findings
+
+`v2-f5-kernel-small`, F5 "small". Closes the mechanical-relocation phase: **kernel `v2/src` 6355→5936
+lines (−419, −6.6%)** via slices 1 (NativeUiSites) + 2 (Emit). The other §R4 candidates were **proven
+irreducible within F5's byte-identical/no-kernel-δ constraint** (measured, not assumed): `PortableDecimal`
+(171) + `PortableEffects` (221) are bidirectionally coupled with the kernel Runtime/Value and back live
+`dec.*`/`effect.*` δ-prims (extraction = compile cycle; removal = δ change that breaks conformance effects);
+`FastCode`/`SelfRec*` (962) is a perf layer embedded in the kernel Value ADT (`fcEntry` field) + Compiler
+hot path. The §R4 "~2,400–2,800" target is not reachable mechanically — it needs the δ-changing work out of
+F5 scope (F4 FrontendBridge-prim retirement coupled to breadth coverage; a K3 effects-as-tower-library
+redesign; FastCode perf-layer removal). Moveability rule found: leaf/one-directional deps move (NativeUiSites
+unreferenced, Emit comments-only); bidirectionally-coupled / live-δ-table code does not. Findings in
+`SPRINT.md` F5 + `specs/v2-state-2026-07-18.md` §R4.
+
 ## 2026-07-19 — v2-f5-kernel-small (slice 2): relocate `Emit` out of the kernel + fix standard-tier staging
 
 `v2-f5-kernel-small`, F5 "small" axis. Moved `ssc.Emit` (292 lines — the static call surface that
