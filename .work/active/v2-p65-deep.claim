@@ -1,12 +1,12 @@
 claim: v2-p65-deep
-branch: feature/v2-p65-deep4
+branch: feature/v2-p65-deep5
 agent: opus (orchestrator session — fresh agent, handoff chain)
-heartbeat: 2026-07-19T17:18:05Z
+heartbeat: 2026-07-19T18:30:23Z
 status: in-progress (spawned agent)
-what: P6.5 breadth DEEP tail. corpus MATCH 1→393/508 (77%), fixpoint 281,960 B all stage1==stage2.
-      Clean ceiling ~484 (oracle-bug tally 24). NEXT (§v2-p65-deep): default-params — part (a) field-default
-      TYPE ERASURE (small, regression-safe: Int10/Option[String]None first-div in default-params & typed-data)
-      first, THEN part (b) call-site synthesis via funcDefaultsCell (deep, ssc1-lower :1754-1900). Then nested
-      tuple patterns (4), extension methods, symbolic ops ~>. WALL: given/summon (~10, using/summon is the wall).
-      FORBIDDEN: actors-receive. ESCALATED: float E-notation (kernel δ). Keep --self green; drop-check;
-      do-not-reproduce the 24 oracle bugs.
+what: P6.5 breadth under DECISION C (v2 = ideal subset, NOT oracle-mimicry). corpus MATCH 1→395/509
+      (78%), fixpoint 297,902 B all stage1==stage2. Grind CLEAN/IDEAL arcs only (§v2-p65-deep4 map):
+      nested tuple patterns (~5), extension methods (~2-5, needs deferred E/EB/X layout frames — a whole
+      arc), given/summon (~10, the WALL — dictionary synthesis). These BELONG in ideal v2. OUT of v2's
+      surface (do NOT chase, NOT gaps): 24 oracle-bugs (F correct), 10 actors-receive quirks, 2 float-E
+      (kernel δ). Keep --self green; drop-check; report when clean arcs wind down → triggers F4 (surface
+      spec + bridge retirement + kernel shrink).
