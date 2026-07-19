@@ -998,7 +998,13 @@ def importItem(ts) = (("", ""), skipImport(ts))
 // import as the wildcard terminator, so stop right after it (consuming a trailing `;` if layout made one).
 def skipImport(ts) = if isEmpty(ts) then ts else (if isTok(hd(ts), 2, 52) then tl(ts) else (if isTok(hd(ts), 2, 25) then skipImportStar(tl(ts)) else skipImport(tl(ts))))
 def skipImportStar(ts) = if isTok(hd(ts), 2, 52) then tl(ts) else ts
-def parseTopItem(ts, cx) = if isImportHead(ts) then importItem(ts) else (if isEnumHead(ts) then enumItem(ts, cx) else (if isCCHead(ts) then ccTopItem(ts, cx) else (if isTraitHead(ts) then traitItem(ts) else (if isObjectHead(ts) then objectItem(ts, cx) else (if isTok(hd(ts), 2, 1) then defTopItem(ts, cx) else (if isTok(hd(ts), 2, 7) then valItem(ts, cx) else (if isVarHead(ts) then varTopItem(ts, cx) else (if isWhileHead(ts) then whileTopItem(ts, cx) else (if isAssignHead(ts) then assignTopItem(ts, cx) else exprItem(ts, cx))))))))))
+def parseTopItem(ts, cx) = if isImportHead(ts) then importItem(ts) else (if isEnumHead(ts) then enumItem(ts, cx) else (if isCCHead(ts) then ccTopItem(ts, cx) else (if isTraitHead(ts) then traitItem(ts) else (if isObjectHead(ts) then objectItem(ts, cx) else (if isExternHead(ts) then externItem(ts) else (if isTok(hd(ts), 2, 1) then defTopItem(ts, cx) else (if isTok(hd(ts), 2, 7) then valItem(ts, cx) else (if isVarHead(ts) then varTopItem(ts, cx) else (if isWhileHead(ts) then whileTopItem(ts, cx) else (if isAssignHead(ts) then assignTopItem(ts, cx) else exprItem(ts, cx)))))))))))
+// DA14: `extern def f(..): T` / `extern class X { .. }` is a signature-only declaration the runtime
+// provides — the oracle ERASES it (emits nothing, ssc1-front :2782-2793) and a call `f(x)` resolves to a
+// bare `(app (global f) x)`. F skips the whole statement (skipStmt tracks the class body's braces + stops
+// at the layout `;`). F's own source has no `extern` → --self neutral.
+def isExternHead(ts) = isWord(hd(ts), "extern")
+def externItem(ts) = (("", ""), skipStmt(ts))
 // -- objects (DA10 + DA13) ----------------------------------------------------------------------
 // `object O [extends ..]: <members>` / `object O { <members> }` flattens each member to a top-level
 // prefixed def, emitted INLINE at O's source position (userDefs, doc order) — ssc1-front
