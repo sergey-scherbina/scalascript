@@ -8,14 +8,24 @@ import org.scalatest.funsuite.AnyFunSuite
  */
 class V2TuplePatternCliTest extends AnyFunSuite:
 
+  // Require BOTH the launcher script AND its backing jar. A bare `sbt test` (without
+  // `cli/assembly installBin` first) leaves `bin/ssc` on disk but no
+  // `bin/lib/standard/ssc.jar`, so the launcher would fail to load
+  // `scalascript.cli.StandardMain` (ClassNotFoundException) and the test would fail HARD
+  // instead of skipping. Mirror the sibling CLI tests (AutoResolveCliTest etc.), which
+  // `cancel` when the assembled jar is absent. No-op in CI, where the "Compile and assemble
+  // ssc.jar" step runs `sbt compile cli/assembly installBin` before "Test via sbt".
+  private def launcherReady(sscBin: os.Path): Boolean =
+    os.exists(sscBin) && os.exists(sscBin / os.up / "lib" / "standard" / "ssc.jar")
+
   private val sscLauncher: Option[os.Path] =
     val cwd = os.pwd
     Iterator.iterate(cwd)(_ / os.up).take(8)
       .map(_ / "bin" / "ssc")
-      .find(os.exists)
+      .find(launcherReady)
 
   private def requireLauncher(): os.Path = sscLauncher.getOrElse:
-    cancel("bin/ssc not found - run `sbt cli/assembly installBin` first")
+    cancel("assembled bin/ssc launcher not found - run `sbt cli/assembly installBin` first")
 
   private def runSsc(cwd: os.Path, args: String*): os.CommandResult =
     val launcher = requireLauncher()
