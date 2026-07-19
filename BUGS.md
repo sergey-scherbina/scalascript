@@ -1,5 +1,28 @@
 # Bug tracker
 
+## ssc0c-multifile-uselib-ir-divergence — self-hosted compiler disagrees with the Scala seed across an import
+
+**Status:** OPEN / claimed 2026-07-19 by `v2-f7-internal-gate`. Found by the 2026-07-18 v2-state audit
+at `358facd8e`; current-head reproduction is the first planned slice because both the compiler and gate
+have moved since that measurement.
+
+**Real-harness repro:** run `bash v2/conformance/check.sh` from a clean worktree and preserve its real
+exit code (never `| tail`). The focused comparison is the same one the gate performs:
+
+```bash
+scala-front:  ssc compile examples/uselib.ssc0
+self-hosted:  ssc run bin/ssc0c.ssc0 examples/uselib.ssc0
+```
+
+At the audited SHA both commands returned non-empty canonical Core IR, but their bytes differed while
+the single-file and multi-file self-fixpoints still passed. This violates the byte-for-byte differential
+in `v2/specs/20-bootstrap.md`, not merely a formatting expectation.
+
+**Plan / done-when:** save and print both complete observables before classification, minimize the first
+semantic/canonical difference in a real two-file fixture, fix the owning self-hosted loader/compiler path,
+and add a multi-file regression. Done requires exact bytes for `uselib`, both fixpoints, and the complete
+v2 gate; weakening the comparison, normalizing unequal output, or updating an expected blob is forbidden.
+
 ## f5-buildjvm-artifact-missing-relocated-jars — `build-jvm` jars NoClassDefFoundError after F5 kernel-slimming
 
 **Status:** FIXED 2026-07-19 (`v2-f5-buildjvm-fix`, commit fixing `NativeJvmArtifact.scala`). Found by the
@@ -1390,8 +1413,8 @@ the contract change was announced in the rozum `scalascript` room before landing
 
 ## coreir-compiler-unbounded-depth — a deep-but-well-formed capsule overflows the COMPILER at ~depth 500 on a 1m stack
 
-**Status:** OPEN (found 2026-07-16 by `coreir-contract` while bounding the *reader*; the reader half
-is fixed, this half is not). Not a regression — pre-existing.
+**Status:** OPEN / claimed 2026-07-19 by `v2-f7-internal-gate` (found 2026-07-16 by `coreir-contract`
+while bounding the *reader*; the reader half is fixed, this half is not). Not a regression — pre-existing.
 
 **Symptom.** `Compiler.valuePositionsNeedEffectThreading` / `FastCode.tryFC` recurse without a bound.
 A perfectly well-formed (nothing malformed — merely deeply nested) Core IR program overflows the JVM

@@ -1156,9 +1156,29 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
       Findings filed (out of scope): native effect-runner PLUGINS (runState/runLogger) not yet on JS;
       kernel `Map.foldLeft`/`List.product` fail-opens matched for parity. Claim released — its work is done
       and verified; the only thing "blocking" was the pre-existing unrelated `ci-red-main` sbt-job red.
-- [ ] **F7 — green the v2 internal gate.** `v2/conformance/check.sh`: the K62.3 unbounded-compile-depth
-      (give the tower compiler an iterative path or a bounded-stack guard) + the `ssc0c uselib` IR
-      divergence.
+- [ ] **F7 — green the v2 internal gate** (`v2-f7-internal-gate`, claimed by codex 2026-07-19).
+      `v2/conformance/check.sh` must finish with its real exit code and every comparison must print
+      the two disagreeing observables. Existing evidence at `358facd8e`: `ssc0c uselib.ssc0` canonical
+      IR differs and the compiler overflows in `compileEffectAwareApplication`; re-measure current
+      `origin/main` before accepting either diagnosis because the harness and runtime have moved.
+      Spec: `specs/v2-f7-internal-gate.md`; ledger:
+      `BUGS.md#ssc0c-multifile-uselib-ir-divergence` and `#coreir-compiler-unbounded-depth`.
+      - [ ] **F7.1 — establish current truth.** Run the full gate from this clean worktree with stdout,
+            stderr, and exit status captured separately; record exact SHA, ok/fail count, failing labels,
+            and artifact paths. Never pipe through `tail`. Re-run each failure directly in the assembled
+            v2 jar and byte-compare before classifying it.
+      - [ ] **F7.2 — restore the multi-file compiler invariant.** Save Scala-front and self-hosted
+            `uselib.ssc0` Core IR, print a canonical diff, minimize it across a real imported two-file
+            fixture, fix the owning loader/compiler path, and preserve both single-file and multi-file
+            self-fixpoints. Do not normalize away or bless unequal bytes.
+      - [ ] **F7.3 — close compiler-depth fail-open.** Reproduce the current smallest well-formed Core IR
+            depth that overflows at `-Xss1m` and the legitimate tower program that needs the same path.
+            Make traversal iterative or fail closed at a documented compiler bound with a stable
+            diagnostic; merely raising a launcher stack is not a DoS fix. Preserve 1e6 tail-call runtime
+            behavior and all ordinary fixpoints.
+      - [ ] **F7.4 — prove closure.** Add faithful multi-file and depth regressions, run their focused
+            suites plus `bash v2/conformance/check.sh` to natural exit, then run affected shared
+            conformance and exact-SHA GitHub CI before marking F7 complete.
 
 The path to ideal/small/powerful is: **(1) establish truth (reconcile the stale ROADMAP), (2) converge
 the two fronts into one, (3) redraw the kernel/tower boundary so "small" is real.** Breadth (cover the
