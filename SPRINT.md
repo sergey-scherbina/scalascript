@@ -179,6 +179,21 @@ baseline set `/tmp/baseline_deep.txt` for `comm -23` drop-checks. --self via cap
       kept single (its block form is `(seq ..)` not `(let ..)`). Flips scljet-address-write, scljet-hello,
       scljet-jdbc (+3); actors-global-registry/litdoc/std-ui-jobpanel have OTHER divergences. F code has no
       bare `;` → --self neutral. Corpus 378→381, 0 drops, X1 271,756 B, --self 153 ok/0 FAIL.
+- [x] **DA10 — `object X` method flattening DONE (deep3).** `object O: def m(p) = body` → `(def O_m (lam N body))`
+      emitted INLINE at O's source position (userDefs, doc order); call-site `O.m(args)` →
+      `(app (global O_m) args)`. Oracle: ssc1-front `("object",(name,[stmts]))` :2731 + ssc1-lower prefixDefs
+      :4146. NEW infra: objReg cx slot `[Pair(objName,[memberNames])]` (collectObjReg pre-pass, reuse
+      collectMethodDefs), objectItem in parseTopItem (reuse emitDef1 with prefixed name), emitMethodCall
+      object branch (globalNameOf recv ∈ objReg + nm ∈ members → app global O_nm). Flips
+      companion-case-class-order. Scope: DEF members (param'd + empty-parens); parameterless-def/val/var/
+      nested-type members are FOLLOW-UP (companion has none). F's own source has no `object` → --self neutral.
+- [ ] **DA11 — litdoc scrutinee-let elision (deep3).** A 1-param lambda `p => p match {simple-ctor arms}`
+      lowers to a DIRECT `(match (local 0) arms)` — NO `(let ((local 0)) ..)` wrapper (oracle ssc1-lower
+      KC11 :2707-2718 + lowerDirectHandlerMatch :3613: the lambda param already IS local 0). F's emitMatch
+      always wraps in a let → 18-byte spurious `(let ((local 0)) ` in litdoc (sole divergence, 15752 vs 15734).
+      Gate: only when body is EXACTLY `param match` (scrutinee==param) + simple ctor arms (parseCtorMatch
+      path). Complex/typed/guard 1-param self-matches use handler-markers in oracle — LEAVE (F already
+      diverges, not currently MATCHing). Flips litdoc.
 **➜ v2-p65-deep SESSION: corpus MATCH 362→381/508 (+19, DA1 typed-patterns +2, DA2 try/catch +2, DA3
   direct{} +3, DA4 println()/.yaml +1, DA5 min64-literal +1, DA6 ctor-guards +1, DA7 numeric-underscore +3,
   DA8 qualified-enum-case-patterns +3, DA9 source-`;`+arm-sequences +3), ALL 0 drops, X1 fixpoint stage1==stage2 byte-identical each slice (232,332→271,756 B),
