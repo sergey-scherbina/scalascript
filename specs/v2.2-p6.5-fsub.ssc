@@ -594,19 +594,25 @@ def emitMatch(scrut, arms, dflt) = "(let (" ++ scrut ++ ") (match (local 0) (" +
 def parseArms(ts, menv, cx) = parseArms0(skipSemisF(ts), menv, cx)
 def parseArms0(ts, menv, cx) = if isTok(hd(ts), 2, 6) then parseArm(tl(ts), menv, cx) else (("", ""), armsRest(ts))
 def parseArm(ts, menv, cx) = if isWild(hd(ts)) then parseWildArm(tl(ts), menv, cx) else (if fst(hd(ts)) == 3 then parseCtorArm(ts, menv, cx) else (if isTok(hd(ts), 2, 21) then parseTupArm(ts, menv, cx) else parseConsArm(ts, menv, cx)))
-def parseWildArm(ts, menv, cx) = parseExpr(tl(ts), 0, menv, cx) match { case (b, r) => (("", " (default " ++ b ++ ")"), armsRest(r)) }
+// A single-line match-arm body can be a statement-position ASSIGNMENT (`case Left(e) => adA = adA`):
+// the front's finishAssignment (:1536) makes `id = e`/`id += e` an assign EXPRESSION, so it is the arm's
+// value. parseExpr alone stops at `=` (not a binop) and drops the RHS; armBodyExpr parses the assign when
+// the body head is `id =`. Fires ONLY on a genuine assignment head (never `id ==`), so a non-assign body
+// is byte-unchanged. (A braced multi-statement body still opens a block via layout -> parseBlock.)
+def armBodyExpr(ts, aenv, cx) = if isAssignHead(ts) then parseAssign(ts, aenv, cx) else parseExpr(ts, 0, aenv, cx)
+def parseWildArm(ts, menv, cx) = armBodyExpr(tl(ts), menv, cx) match { case (b, r) => (("", " (default " ++ b ++ ")"), armsRest(r)) }
 def parsePatVars(ts, vs) = if isEmpty(ts) then (vs, ts) else (if isTok(hd(ts), 2, 22) then (vs, tl(ts)) else (if isTok(hd(ts), 2, 27) then parsePatVars(tl(ts), vs) else parsePatVars(tl(ts), snd(hd(ts)) :: vs)))
 def parseCtorArm(ts, menv, cx) = parseCtorArm1(snd(hd(ts)), tl(ts), menv, cx)
 def parseCtorArm1(nm, ts, menv, cx) = if isTok(hd(ts), 2, 21) then parseCtorArm2(nm, tl(ts), menv, cx) else parseArmBody(nm, 0, Nil, ts, menv, cx)
 def parseCtorArm2(nm, ts, menv, cx) = parsePatVars(ts, Nil) match { case (vs, r) => parseArmBody(nm, dlen(vs), vs, r, menv, cx) }
-def parseArmBody(nm, ar, vs, ts, menv, cx) = parseExpr(tl(ts), 0, appEnv(vs, menv), cx) match { case (body, r) => parseArmsMore("(arm " ++ nm ++ " " ++ ar ++ " " ++ body ++ ")", r, menv, cx) }
+def parseArmBody(nm, ar, vs, ts, menv, cx) = armBodyExpr(tl(ts), appEnv(vs, menv), cx) match { case (body, r) => parseArmsMore("(arm " ++ nm ++ " " ++ ar ++ " " ++ body ++ ")", r, menv, cx) }
 def parseArmsMore(a, ts, menv, cx) = parseArms(ts, menv, cx) match { case (more, r) => ((joinArm(a, fst(more)), snd(more)), r) }
 // `case h :: t =>` is the same (arm Cons 2 ..) as `case Cons(h, t) =>`.
 def parseConsArm(ts, menv, cx) = parseConsArm1(snd(hd(ts)), snd(hd(tl(tl(ts)))), tl(tl(tl(ts))), menv, cx)
 def parseConsArm1(h, t, ts, menv, cx) = parseArmBody("Cons", 2, t :: h :: Nil, ts, menv, cx)
 // A tuple pattern lowers to TWO arms, Pair and Tuple2, sharing the body.
 def parseTupArm(ts, menv, cx) = parsePatVars(tl(ts), Nil) match { case (vs, r) => parseTupArmBody(vs, r, menv, cx) }
-def parseTupArmBody(vs, ts, menv, cx) = parseExpr(tl(ts), 0, appEnv(vs, menv), cx) match { case (body, r) => parseArmsMore("(arm Pair 2 " ++ body ++ ") (arm Tuple2 2 " ++ body ++ ")", r, menv, cx) }
+def parseTupArmBody(vs, ts, menv, cx) = armBodyExpr(tl(ts), appEnv(vs, menv), cx) match { case (body, r) => parseArmsMore("(arm Pair 2 " ++ body ++ ") (arm Tuple2 2 " ++ body ++ ")", r, menv, cx) }
 // An int-literal match lowers to an if-chain over __eq__ against the let-bound scrutinee.
 def parseIntMatch(scrut, ts, env, cx) = parseIntArms(ts, "__m" :: env, cx) match { case (chain, r) => ("(let (" ++ scrut ++ ") " ++ chain ++ ")", r) }
 def parseIntArms(ts, menv, cx) = parseIntArms0(skipSemisF(ts), menv, cx)
