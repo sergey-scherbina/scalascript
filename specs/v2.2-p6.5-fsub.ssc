@@ -477,7 +477,10 @@ def parseLamP(pr, env, cx) = pr match { case (env2, r) => parseLamBody(dlen(env2
 def parseLamBody(ar, env2, ts, cx) = parseExpr(ts, 0, env2, cx) match { case (b, r) => ("(lam " ++ ar ++ " " ++ b ++ ")", r) }
 
 // An Upper name is a constructor: `Cons(a, b)` -> (ctor Cons a b), bare `Nil` -> (ctor Nil).
-def parseIdent(t, rest, env, cx) = if snd(t) == "for" then parseForExpr(rest, env, cx) else (if isTok(hd(rest), 2, 30) then parseLamBody(1, snd(t) :: env, tl(rest), cx) else parseVarOrCall(snd(t), rest, env, cx))
+// `throw e` -> `(prim __throw__ e)` (ssc1-front :1071, e a full parseExpr). `new X(a)` == `X(a)` -- drop
+// `new`, parse the following atom (ssc1-front :1114). Neither is a keyword in F's lexer (plain id tokens).
+def parseThrow(ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => ("(prim __throw__ " ++ e ++ ")", r) }
+def parseIdent(t, rest, env, cx) = if snd(t) == "throw" then parseThrow(rest, env, cx) else (if snd(t) == "new" then parseAtom(rest, env, cx) else (if snd(t) == "for" then parseForExpr(rest, env, cx) else (if isTok(hd(rest), 2, 30) then parseLamBody(1, snd(t) :: env, tl(rest), cx) else parseVarOrCall(snd(t), rest, env, cx))))
 // `for <pat> <- gen [if g] (yield e | [do] body)` desugars to method-call chains (ssc1-front parseForFrom
 // :1000): `yield e` -> `gen.map(x=>e)`; `if g` -> `gen.filter(x=>g).map(..)`; `do`/braceless body ->
 // `gen.foreach(x=>body)`; a second generator (`;`-separated, layout-inserted) -> `gen.flatMap(x=><rest>)`.
