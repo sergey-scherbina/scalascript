@@ -23,8 +23,22 @@ import org.scalatest.funsuite.AnyFunSuite
  *    at 27/28; this is the deliberate 28th. */
 class StableSpiEnforcementTest extends AnyFunSuite:
 
-  /** Plugins allowed to still reference `scalascript.interpreter` (see scaladoc above). */
-  private val exempt = Set("actors-plugin")
+  /** Plugins allowed to still reference `scalascript.interpreter` (see scaladoc above).
+   *
+   *  EXEMPTION — `scljet-jdbc-plugin` is a FROZEN v1 plugin (crystallization exemption,
+   *  2026-07-19, Sergiy-authorized):
+   *
+   *    Unlike `actors-plugin` (interpreter-coupled BY DESIGN), the SclJet JDBC facade is a
+   *    value-surface plugin whose six files (`ScljetEngine`, `ScljetResultSet`, `ScljetStatement`,
+   *    `ScljetCatalog`, `ScljetConnection`, `ScljetDriver`) import `scalascript.interpreter.{Interpreter,
+   *    Value}` because the facade bootstraps the v1 interpreter to run the pure-`.ssc` SclJet SQLite
+   *    engine.  A full migration to `scalascript-plugin-api` is genuinely possible but is real
+   *    development.  Per Sergiy's v1/v2-independence decision, **v1 is crystallized: it stabilizes and
+   *    freezes, it is not developed further.**  The stable-SPI enforcement exists to protect FUTURE SPI
+   *    evolution; a frozen v1 plugin has no future SPI evolution to protect, so the migration does not
+   *    apply.  The exemption reflects that frozen reality — it is not silencing an in-flight plugin.
+   *    (BUGS `scljet-jdbc-stable-spi-import-regression`.) */
+  private val exempt = Set("actors-plugin", "scljet-jdbc-plugin")
 
   private def isCodeLine(l: String): Boolean =
     val t = l.trim
