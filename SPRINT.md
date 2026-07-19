@@ -35,6 +35,10 @@ baseline MATCH set `/tmp/baseline_match.txt` for `comm -23` drop-checks. --self 
       indexeddb-sync-client, std-monaderror, sync-todo). Also fixes `X.method[T](..)` companion recv (`(ctor X)`
       via existing methodRecv) + `.asInstanceOf[T]` (56 uses). 0 drops. postDot1: skip `[` then re-dispatch.
 
+- [x] **O6 (`74e252e08`) infix range words `a to b`/`a until b` → `(app (global _sel_<w>) a b)`** (ssc1-front parseInfix
+      :1484; RHS = single postfix expr, consumed unconditionally). MATCH 354→357 (+lang-split, streams,
+      wasm-fibonacci). 0 drops. Added isInfixWord/infixWord to climb, checked before the precedence gate.
+
 **ORACLE-DEGRADATION TALLY (remaining DIFFs that are the ORACLE being WRONG, not F-gaps — do NOT reproduce):**
 - `@`-annotated case-class fields (10: graph-codecs, graph-fullstack, graph-fullstack-rdf, graph-rdf4j-storage,
   graph-storage, object-store-jdbc, object-store-sync-routes, spark-schema-mapping, spark-shared-schema-reader,
