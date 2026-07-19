@@ -875,7 +875,7 @@ def matchBody(ts) = if isTok(hd(ts), 2, 28) then tl(ts) else ts
 // A match with a GUARD on its first arm routes to the ordered resolver (parseGenMatch), which — with the
 // ctor-arm branch below — reproduces ssc1-lower lowerMatch's hasGuardPat path (:3657). F's own source has
 // no pattern guards (every `if` sits after `=>`, in the body), so this leaves --self byte-unchanged.
-def parseMatchArms(scrut, ts, env, cx) = if firstArmHasGuard(ts) then parseGenMatch(scrut, ts, env, cx) else (if fst(hd(tl(ts))) == 0 then parseGenMatch(scrut, ts, env, cx) else (if isGenVarHead(tl(ts)) then parseGenMatch(scrut, ts, env, cx) else (if isTypedArm(tl(ts)) then parseGenMatch(scrut, ts, env, cx) else parseCtorMatch(scrut, ts, env, cx))))
+def parseMatchArms(scrut, ts, env, cx) = if firstArmHasGuard(ts) then parseGenMatch(scrut, ts, env, cx) else (if fst(hd(tl(ts))) == 0 then parseGenMatch(scrut, ts, env, cx) else (if isGenVarHead(tl(ts)) then parseGenMatch(scrut, ts, env, cx) else (if isTypedArm(tl(ts)) then parseGenMatch(scrut, ts, env, cx) else (if hasNestedArms(ts) then parseGenMatch(scrut, ts, env, cx) else parseCtorMatch(scrut, ts, env, cx)))))
 // A guard is an `if` at pattern depth 0 (balanced ()/[]/{}) BEFORE the arm's `=>`; `case p => if ..` is a
 // body `if`, correctly not detected (the `=>` is hit first). ts points at the leading `case` (tl skips it).
 def firstArmHasGuard(ts) = scanArmGuard(tl(ts), 0)
@@ -955,7 +955,7 @@ def parseGenArms(ts, menv, cx) = parseGenArms0(skipSemisF(ts), menv, cx)
 // IrLit(IrUnit)), NOT `(lit (int 0))`. Only reachable when a match ends in a ctor/int arm with no
 // catch-all (every currently-MATCHing ordered file ends in a var/wildcard, so this is a latent-bug fix).
 def parseGenArms0(ts, menv, cx) = if isTok(hd(ts), 2, 6) then parseGenArm(tl(ts), menv, cx) else ("(lit unit)", armsRest(ts))
-def parseGenArm(ts, menv, cx) = if isTypedArm(ts) then parseTypedArm(ts, menv, cx) else (if isWild(hd(ts)) then parseGenWild(tl(ts), menv, cx) else (if fst(hd(ts)) == 3 then parseGenCtor(ts, menv, cx) else (if fst(hd(ts)) == 0 then parseGenInt(snd(hd(ts)), tl(ts), menv, cx) else parseGenVar(snd(hd(ts)), tl(ts), menv, cx))))
+def parseGenArm(ts, menv, cx) = if isTypedArm(ts) then parseTypedArm(ts, menv, cx) else (if isWild(hd(ts)) then parseGenWild(tl(ts), menv, cx) else (if fst(hd(ts)) == 3 then parseGenCtorDisp(ts, menv, cx) else (if fst(hd(ts)) == 0 then parseGenInt(snd(hd(ts)), tl(ts), menv, cx) else parseGenVar(snd(hd(ts)), tl(ts), menv, cx))))
 // -- ctor-pattern arms in the ordered resolver (`case Ctor(x) [if g] => ..`) ----------------------
 // A ctor arm lowers to a ONE-arm IrMatch whose default is the ordered lowering of the REST, and (when
 // guarded) whose arm body is `(if g body <fallback>)` where the fallback is the ordered lowering of the
@@ -997,6 +997,94 @@ def parseGenWildPlain(ts, menv, cx) = parseExpr(ts, 0, menv, cx) match { case (b
 def parseGenWildGuard(ts, menv, cx) = parseExpr(ts, 0, menv, cx) match { case (g, r) => parseGenWildGuard2(g, r, menv, cx) }
 def parseGenWildGuard2(g, ts, menv, cx) = parseExpr(tl(ts), 0, menv, cx) match { case (body, r) => parseGenWildGuard3(g, body, r, menv, cx) }
 def parseGenWildGuard3(g, body, ts, menv, cx) = parseGenArms(ts, menv, cx) match { case (rest, r) => (emitIf(g, body, rest), r) }
+
+// -- NESTED constructor/tuple patterns (K62.10) ---------------------------------------------------
+// A ctor arm with a NESTED sub-pattern field (`case Person(n, a, Some(e)) => ..`) routes the WHOLE
+// match to the ordered resolver (oracle lowerMatch hasNestedPat :3661 -> lowerOrderedGuardArms). A
+// nested field lowers to an INNER `(match (local <pos>) ((arm SubCtor m <body-or-deeper>)) (default
+// <fallback>))` on the field's local; the default at every level re-lowers the REST arms on a FAILED
+// scope (dummy binders keep outer locals stable). Byte-faithful to ssc1-lower dischargeObsOr :3119.
+// F has NO nested patterns in its own source, so routing + the parser are self-compile-neutral.
+//
+// Structured pattern parser (mirrors ssc1-front parsePatAtom/parsePat/goSubPats/tuplePat :1882-1964).
+// Nodes: ("vpat",name) ("wpat","") ("cpat",(tag,subs)) ("lpat",(ty,v)) ("tpat",(basePat,typeHead)).
+def parsePatF(ts) = parsePatConsF(parsePatAtomF(ts))
+def parsePatConsF(pr) = pr match { case (h, r) => if isTok(hd(r), 2, 49) then parsePatCons2(h, parsePatF(tl(r))) else (h, r) }
+def parsePatCons2(h, tpr) = tpr match { case (t, r) => (("cpat", ("Cons", Cons(h, Cons(t, Nil)))), r) }
+def parsePatAtomF(ts) = parsePatAtom1(hd(ts), ts)
+def parsePatAtom1(t, ts) = if fst(t) == 3 then parsePatUid(snd(t), tl(ts)) else (if fst(t) == 1 then parsePatId(snd(t), tl(ts)) else (if isTok(t, 2, 8) then (("lpat", ("bool", "true")), tl(ts)) else (if isTok(t, 2, 9) then (("lpat", ("bool", "false")), tl(ts)) else (if isTok(t, 2, 21) then parsePatTuple(tl(ts)) else (if fst(t) == 0 then (("lpat", ("int", snd(t))), tl(ts)) else (if fst(t) == 4 then (("lpat", ("str", snd(t))), tl(ts)) else (if fst(t) == 5 then (("lpat", ("float", snd(t))), tl(ts)) else (("wpat", ""), tl(ts)))))))))
+def parsePatId(v, ts) = if v == "_" then (("wpat", ""), ts) else (("vpat", v), ts)
+def parsePatUid(v, ts) = if isTok(hd(ts), 2, 31) then finishCtorPatF(snd(hd(tl(ts))), tl(tl(ts))) else finishCtorPatF(v, ts)
+def finishCtorPatF(tag, ts) = if isTok(hd(ts), 2, 21) then finishCtorP1(tag, tl(ts)) else (("cpat", (tag, Nil)), ts)
+def finishCtorP1(tag, ts) = if isTok(hd(ts), 2, 22) then (("cpat", (tag, Nil)), tl(ts)) else finishCtorP2(tag, goSubPatsF(ts))
+def finishCtorP2(tag, spr) = spr match { case (subs, r) => (("cpat", (tag, subs)), skipCloseP(r)) }
+def skipCloseP(ts) = if isTok(hd(ts), 2, 22) then tl(ts) else ts
+def parsePatTuple(ts) = parsePatTup2(goSubPatsF(ts))
+def parsePatTup2(spr) = spr match { case (subs, r) => (tuplePatF(subs), skipCloseP(r)) }
+def goSubPatsF(ts) = goSubP0(ts, Nil)
+def goSubP0(ts, acc) = goSubP1(parsePatF(ts), acc)
+def goSubP1(pr, acc) = pr match { case (p, r) => goSubP2(fieldPatF(p, r), r, acc) }
+def fieldPatF(p, r) = if isTok(hd(r), 2, 34) then ("tpat", (p, typeHeadName(hd(tl(r))))) else p
+def goSubP2(fp, r, acc) = goSubP3(fp, skipTypeSub(r), acc)
+def goSubP3(fp, tsA, acc) = if isTok(hd(tsA), 2, 27) then goSubP0(tl(tsA), Cons(fp, acc)) else (revL(Cons(fp, acc)), tsA)
+def typeHeadName(t) = if fst(t) == 3 then snd(t) else (if fst(t) == 1 then snd(t) else "")
+def tuplePatF(subs) = subs match { case Nil => ("wpat", "") case h :: t => tuplePat1(h, t, subs) }
+def tuplePat1(first, rest, subs) = rest match { case Nil => first case h :: t => tuplePat2(first, h, t, subs) }
+def tuplePat2(first, second, tail, subs) = tail match { case Nil => ("cpat", ("Pair", Cons(first, Cons(second, Nil)))) case h :: t => ("cpat", ("Tuple" ++ dlen(subs), subs)) }
+// pattern sub-type annotation `: T[..]` skip (mirrors ssc1-front skipTypeAnnot :518 -> skipTypeAt :496:
+// stops at depth-0 `= , ; { }` and depth-0 `) ]`; continues through balanced []/()).
+def skipTypeSub(ts) = if isTok(hd(ts), 2, 34) then skipTypeSubAt(tl(ts), 0) else ts
+def skipTypeSubAt(ts, d) = if isEmpty(ts) then ts else skipTypeSub1(hd(ts), tl(ts), ts, d)
+def skipTypeSub1(t, r, ts, d) = if isTok(t, 2, 50) then skipTypeSubAt(r, d + 1) else (if isTok(t, 2, 21) then skipTypeSubAt(r, d + 1) else (if isTok(t, 2, 51) then skipTypeSubClose(r, ts, d) else (if isTok(t, 2, 22) then skipTypeSubClose(r, ts, d) else (if d > 0 then skipTypeSubAt(r, d) else skipTypeSubD0(t, r, ts, d)))))
+def skipTypeSubClose(r, ts, d) = if d == 0 then ts else skipTypeSubAt(r, d - 1)
+def skipTypeSubD0(t, r, ts, d) = if isTok(t, 2, 20) then ts else (if isTok(t, 2, 27) then ts else (if isTok(t, 2, 52) then ts else (if isTok(t, 2, 28) then ts else (if isTok(t, 2, 29) then ts else skipTypeSubAt(r, d)))))
+// A field is "nested" iff it is a cpat/lpat/tpat (not a plain vpat/wpat) — fieldsHaveNestedPat :3318.
+def isNestedField(f) = if fst(f) == "cpat" then true else (if fst(f) == "lpat" then true else fst(f) == "tpat")
+def patNested(p) = if fst(p) == "cpat" then fieldsNested(snd(snd(p))) else false
+def fieldsNested(fields) = fields match { case Nil => false case h :: t => if isNestedField(h) then true else fieldsNested(t) }
+// hasNestedArms: scan every arm (skip its body to the next depth-0 `case`) for a nested-field ctor arm.
+// Brace/paren/bracket depth is tracked so a nested match's own `case`s (inside virtual `{}`) are skipped.
+def hasNestedArms(ts) = hasNested0(skipSemisF(ts))
+def hasNested0(ts) = if isTok(hd(ts), 2, 6) then hasNested1(parsePatF(tl(ts))) else false
+def hasNested1(pr) = pr match { case (p, r) => if patNested(p) then true else hasNested0(skipSemisF(skipToNextArm(r))) }
+def skipToNextArm(ts) = skipArm0(ts, 0)
+def skipArm0(ts, d) = if isEmpty(ts) then ts else skipArm1(hd(ts), tl(ts), ts, d)
+def skipArm1(t, r, ts, d) = if isOpenTok(t) then skipArm0(r, d + 1) else (if isCloseTok(t) then skipArmClose(t, r, ts, d) else (if d > 0 then skipArm0(r, d) else (if isTok(t, 2, 6) then ts else skipArm0(r, d))))
+def skipArmClose(t, r, ts, d) = if d == 0 then ts else skipArm0(r, d - 1)
+// field binders (fldBinder :3025): vpat->name, wpat->"_", tpat->basePat's binder, cpat/lpat->fresh temp.
+def npTempF(i) = "__np" ++ i
+def fldBinderF(fld, idx) = if fst(fld) == "vpat" then snd(fld) else (if fst(fld) == "wpat" then "_" else (if fst(fld) == "tpat" then fldBinderF(fst(snd(fld)), idx) else npTempF(idx)))
+def fldBindersF(fields) = fldBind0(fields, 0)
+def fldBind0(fields, idx) = fields match { case Nil => Nil case h :: t => Cons(fldBinderF(h, idx), fldBind0(t, idx + 1)) }
+// refined obligations Pair(localPos, fieldPat) for each nested field; field i at local n-1-i (:3059).
+def refinedObligsF(fields, n) = refinedObl0(fields, 0, n)
+def refinedObl0(fields, idx, n) = fields match { case Nil => Nil case h :: t => if isNestedField(h) then Cons((n - 1 - idx, h), refinedObl0(t, idx + 1, n)) else refinedObl0(t, idx + 1, n) }
+def shiftObsF(obs, d) = obs match { case Nil => Nil case h :: t => Cons((fst(h) + d, snd(h)), shiftObsF(t, d)) }
+// accScopeF: the innermost success scope the body is lowered at (obligations discharged depth-first).
+def accScopeF(obs, scope) = obs match { case Nil => scope case h :: t => accScope1(snd(h), t, scope) }
+def accScope1(sp, rest, scope) = if fst(sp) == "cpat" then accScopeCpat(snd(snd(sp)), rest, scope) else accScopeF(rest, scope)
+def accScopeCpat(subs, rest, scope) = accScopeF(appEnv(refinedObligsF(subs, dlen(subs)), rest), appEnv(revL(fldBindersF(subs)), scope))
+// dischargeF: emit the nested obligation structure (dischargeObsOr :3119); bodyStr already lowered at
+// the innermost success scope; each level's fallback re-lowers restTs (the rest arms) on the fail scope.
+def dischargeF(obs, succ, fail, bodyStr, restTs, cx) = obs match { case Nil => bodyStr case h :: t => dischargeF1(fst(h), snd(h), t, succ, fail, bodyStr, restTs, cx) }
+def dischargeF1(pos, sp, rest, succ, fail, bodyStr, restTs, cx) = if fst(sp) == "cpat" then dischCpat(pos, fst(snd(sp)), snd(snd(sp)), rest, succ, fail, bodyStr, restTs, cx) else (if fst(sp) == "lpat" then dischLpat(pos, fst(snd(sp)), snd(snd(sp)), rest, succ, fail, bodyStr, restTs, cx) else (if fst(sp) == "tpat" then dischTpat(pos, snd(snd(sp)), rest, succ, fail, bodyStr, restTs, cx) else dischargeF(rest, succ, fail, bodyStr, restTs, cx)))
+def dischCpat(pos, subctor, subs, rest, succ, fail, bodyStr, restTs, cx) = dischCpat2(pos, subctor, dlen(subs), subs, rest, succ, fail, bodyStr, restTs, cx)
+def dischCpat2(pos, subctor, m, subs, rest, succ, fail, bodyStr, restTs, cx) = dischCpat3(pos, subctor, m, dischargeF(appEnv(refinedObligsF(subs, m), shiftObsF(rest, m)), appEnv(revL(fldBindersF(subs)), succ), appEnv(dummyBinders(m), fail), bodyStr, restTs, cx), fst(parseGenArms(restTs, fail, cx)))
+def dischCpat3(pos, subctor, m, successBody, failureBody) = "(match (local " ++ pos ++ ") (" ++ genArmStr(subctor, m, successBody) ++ ") (default " ++ failureBody ++ "))"
+def dischLpat(pos, ty, v, rest, succ, fail, bodyStr, restTs, cx) = "(if " ++ emitEq("(local " ++ pos ++ ")", litPatF(ty, v, cx)) ++ " " ++ dischargeF(rest, succ, fail, bodyStr, restTs, cx) ++ " " ++ fst(parseGenArms(restTs, fail, cx)) ++ ")"
+def dischTpat(pos, th, rest, succ, fail, bodyStr, restTs, cx) = "(if " ++ typedTagTest("(local " ++ pos ++ ")", th, cx) ++ " " ++ dischargeF(rest, succ, fail, bodyStr, restTs, cx) ++ " " ++ fst(parseGenArms(restTs, fail, cx)) ++ ")"
+def litPatF(ty, v, cx) = if ty == "int" then emitInt(v) else (if ty == "str" then emitStr(v, dqOf(cx)) else (if ty == "bool" then ("(lit " ++ v ++ ")") else emitFloat(v)))
+// a nested ctor arm: parse fields structurally, lower the body at the innermost scope, emit the arm +
+// the ordered default (rest arms re-lowered on menv). Dispatched from parseGenArm (ctor branch).
+def parseGenCtorDisp(ts, menv, cx) = parseGenCtorDisp1(parsePatF(ts), ts, menv, cx)
+def parseGenCtorDisp1(pr, ts, menv, cx) = pr match { case (p, r) => if patNested(p) then dispNested(p, r, ts, menv, cx) else parseGenCtor(ts, menv, cx) }
+def dispNested(p, r, ts, menv, cx) = if isTok(hd(r), 2, 2) then parseGenCtor(ts, menv, cx) else parseNestedArm(p, r, menv, cx)
+def parseNestedArm(p, ts, menv, cx) = parseNestedCtorArm(fst(snd(p)), snd(snd(p)), ts, menv, cx)
+def parseNestedCtorArm(nm, fields, ts, menv, cx) = nestA1(nm, fields, dlen(fields), menv, tl(ts), cx)
+def nestA1(nm, fields, arity, menv, bodyTs, cx) = nestA2(nm, fields, arity, appEnv(revL(fldBindersF(fields)), menv), refinedObligsF(fields, arity), menv, bodyTs, cx)
+def nestA2(nm, fields, arity, armScope, obs, menv, bodyTs, cx) = nestA3(nm, arity, armScope, obs, appEnv(dummyBinders(arity), menv), menv, armBodyExpr(bodyTs, accScopeF(obs, armScope), cx), cx)
+def nestA3(nm, arity, armScope, obs, failScope, menv, bodyPr, cx) = bodyPr match { case (bodyStr, restTs) => nestA4(nm, arity, dischargeF(obs, armScope, failScope, bodyStr, restTs, cx), restTs, menv, cx) }
+def nestA4(nm, arity, armBodyStr, restTs, menv, cx) = parseGenArms(restTs, menv, cx) match { case (deflt, r) => (genCtorMatch(nm, arity, armBodyStr, deflt, menv), r) }
 
 // -- declarations -----------------------------------------------------------------------------
 // `def name(p1: T, p2: T): T = body`. Types are ERASED by the reference lowerer (measured: `def
