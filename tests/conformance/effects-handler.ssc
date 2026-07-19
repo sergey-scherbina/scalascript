@@ -1,0 +1,35 @@
+---
+name: effects-handler
+also-codegen: v2
+---
+
+# Algebraic effects + handler + `resume` on every backend
+
+Pins the core algebraic-effects surface across all codegen lanes. Until
+2026-07-19 the **v2-JS** backend (`run-js --v2`) crashed on the first `perform`
+with `unimplemented primitive: effect.perform.oneshot` — while native and
+JVM-bytecode had full parity (`specs/v2-state-2026-07-18.md` §R2). This case
+exercises an effect declaration, two `perform`s inside a function, and a
+collecting handler that accumulates via `resume`, so a v2-JS regression on the
+perform/handle/resume machinery fails the suite (`v2-f6-backends` J3).
+
+Scoped to the one-shot collecting-handler pattern all five lanes agree on
+(INT/v1-JS/v1-JVM/v2-JS/v2-JVM). Multi-shot handlers and native effect-runner
+plugins (`runState`/`runLogger`) are NOT pinned here: the v1 codegen backends do
+not implement them, so they cannot share one expected file.
+
+```scalascript
+effect Console:
+  def writeLine(s: String): Unit
+
+def program(): Unit =
+  Console.writeLine("first")
+  Console.writeLine("second")
+  Console.writeLine("third")
+
+val lines = handle { program(); List() } {
+  case Console.writeLine(msg, resume) => msg :: resume(())
+}
+
+println(lines)
+```
