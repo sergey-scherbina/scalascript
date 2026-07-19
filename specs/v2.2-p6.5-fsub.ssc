@@ -539,7 +539,14 @@ def parseArgsMore(e, ts, env, cx) = if isTok(hd(ts), 2, 27) then parseArgs(tl(ts
 //     `xs.map(_+1).filter(_%2==0)`, or a bare `f(_)`): plain parse, unchanged. The nested call args get
 //     wrapped by their OWN parseArgExpr, so wrapping HERE would double-wrap. (The rare bare `f(_)` partial
 //     application is thus left as-is — acceptably a DIFF; no MATCH file has a placeholder arg → no regress.)
-def parseArgExpr(ts, env, cx) = phArgWrap(phScanArg(ts), ts, env, cx)
+// NAMED ARGUMENT `label = value` in a call: the reference STRIPS the label and lowers the VALUE positionally
+// (ssc1-front stripNargs; a method call can't reorder — it dispatches at runtime — so source order is kept).
+// `label` is a lowercase ident immediately followed by `=` (code 20, NOT `==` code 44 nor `=>` code 30, so
+// a lambda `x => ..` is untouched). CTOR named-args that REORDER to field order / synthesise omitted defaults
+// are NOT handled (strip-only keeps source order) — those stay DIFF, but no MATCH file has a named-arg call
+// (F used to emit the label as `(global label)`), so stripping can never regress one.
+def parseArgExpr(ts, env, cx) = if isNamedArg(ts) then parseArgExpr(tl(tl(ts)), env, cx) else phArgWrap(phScanArg(ts), ts, env, cx)
+def isNamedArg(ts) = if fst(hd(ts)) == 1 then isTok(hd(tl(ts)), 2, 20) else false
 def phArgWrap(sc, ts, env, cx) = sc match { case (c0, rest) => rest match { case (ct, binder) =>
   if binder then parseExpr(ts, 0, env, cx)
   else if ct == 0 then parseExpr(ts, 0, env, cx)
