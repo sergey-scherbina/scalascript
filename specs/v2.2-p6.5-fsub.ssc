@@ -57,7 +57,8 @@ def lexMinus(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 54), lex(s, i + 2
 def lexStar(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 55), lex(s, i + 2, n)) else Cons((2, 25), lex(s, i + 1, n))
 def lexSlash(s, i, n) = if s.charAt(i + 1) == 47 then lex(s, scanLineEnd(s, i + 2, n), n) else Cons((2, 26), lex(s, i + 1, n))
 def lexEq(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 44), lex(s, i + 2, n)) else (if s.charAt(i + 1) == 62 then Cons((2, 30), lex(s, i + 2, n)) else Cons((2, 20), lex(s, i + 1, n)))
-def lexLt(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 42), lex(s, i + 2, n)) else Cons((2, 40), lex(s, i + 1, n))
+// `<-` (generator arrow, code 58) — the `for x <- xs ..` binder separator (ssc1-front lex :400).
+def lexLt(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 42), lex(s, i + 2, n)) else (if s.charAt(i + 1) == 45 then Cons((2, 58), lex(s, i + 2, n)) else Cons((2, 40), lex(s, i + 1, n)))
 def lexGt(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 43), lex(s, i + 2, n)) else Cons((2, 41), lex(s, i + 1, n))
 def lexBang(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 45), lex(s, i + 2, n)) else lex(s, i + 1, n)
 def lexAmp(s, i, n) = if s.charAt(i + 1) == 38 then Cons((2, 46), lex(s, i + 2, n)) else lex(s, i + 1, n)
@@ -363,7 +364,27 @@ def parseLamP(pr, env, cx) = pr match { case (env2, r) => parseLamBody(dlen(env2
 def parseLamBody(ar, env2, ts, cx) = parseExpr(ts, 0, env2, cx) match { case (b, r) => ("(lam " ++ ar ++ " " ++ b ++ ")", r) }
 
 // An Upper name is a constructor: `Cons(a, b)` -> (ctor Cons a b), bare `Nil` -> (ctor Nil).
-def parseIdent(t, rest, env, cx) = if isTok(hd(rest), 2, 30) then parseLamBody(1, snd(t) :: env, tl(rest), cx) else parseVarOrCall(snd(t), rest, env, cx)
+def parseIdent(t, rest, env, cx) = if snd(t) == "for" then parseForExpr(rest, env, cx) else (if isTok(hd(rest), 2, 30) then parseLamBody(1, snd(t) :: env, tl(rest), cx) else parseVarOrCall(snd(t), rest, env, cx))
+// `for <pat> <- gen [if g] (yield e | [do] body)` desugars to method-call chains (ssc1-front parseForFrom
+// :1000): `yield e` -> `gen.map(x=>e)`; `if g` -> `gen.filter(x=>g).map(..)`; `do`/braceless body ->
+// `gen.foreach(x=>body)`; a second generator (`;`-separated, layout-inserted) -> `gen.flatMap(x=><rest>)`.
+// gen parses in the outer env; each lambda body parses with the binder pushed. Single-name binder only
+// (tuple binders / infix `1 to n` generators are a follow-on). Reuses emitMethodCall so the receiver's
+// map/filter/foreach/flatMap dispatch (var->__method__, list-ctor->_sel_*) is byte-identical.
+def parseForExpr(ts, env, cx) = parseForFromF(skipForOpen(ts), env, cx)
+def skipForOpen(ts) = if isTok(hd(ts), 2, 21) then tl(ts) else (if isTok(hd(ts), 2, 28) then tl(ts) else ts)
+def parseForFromF(ts, env, cx) = forGen(snd(hd(ts)), skipArrow(tl(ts)), env, cx)
+def skipArrow(ts) = if isTok(hd(ts), 2, 58) then tl(ts) else ts
+def forGen(nm, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (genE, r) => forGuard(nm, genE, r, env, cx) }
+def forGuard(nm, genE, ts, env, cx) = if isTok(hd(ts), 2, 2) then forGuardG(nm, genE, tl(ts), env, cx) else forSep(nm, genE, ts, env, cx)
+def forGuardG(nm, genE, ts, env, cx) = parseExpr(ts, 0, nm :: env, cx) match { case (g, r) => forSep(nm, emitMethodCall("filter", genE, Cons(forLam(g), Nil), cx), r, env, cx) }
+def forLam(body) = "(lam 1 " ++ body ++ ")"
+def forSep(nm, genE, ts, env, cx) = if isTok(hd(ts), 2, 52) then forFlatMap(nm, genE, tl(ts), env, cx) else forEnd(nm, genE, forSkipClose(ts), env, cx)
+def forSkipClose(ts) = if isTok(hd(ts), 2, 22) then tl(ts) else (if isTok(hd(ts), 2, 29) then tl(ts) else ts)
+def forFlatMap(nm, genE, ts, env, cx) = parseForFromF(ts, nm :: env, cx) match { case (rRest, r) => (emitMethodCall("flatMap", genE, Cons(forLam(rRest), Nil), cx), r) }
+def forEnd(nm, genE, ts, env, cx) = if isWord(hd(ts), "yield") then forYield(nm, genE, tl(ts), env, cx) else forDo(nm, genE, skipDoKw(ts), env, cx)
+def forYield(nm, genE, ts, env, cx) = parseExpr(ts, 0, nm :: env, cx) match { case (b, r) => (emitMethodCall("map", genE, Cons(forLam(b), Nil), cx), r) }
+def forDo(nm, genE, ts, env, cx) = parseExpr(ts, 0, nm :: env, cx) match { case (b, r) => (emitMethodCall("foreach", genE, Cons(forLam(b), Nil), cx), r) }
 def parseParenOrLam(ts, env, cx) = if isLamParen(ts) then parseLamParen(ts, env, cx) else parseParen(ts, env, cx)
 // An enum TYPE name in select position (`EnumName.Case` / `EnumName.values`) is a companion access, not a
 // ctor: `E.Case` (nullary) -> `(ctor Case)` (drops the qualifier, ssc1-lower :1703), `E.values` -> the
