@@ -1422,6 +1422,20 @@ real (or real flakes); fixing one leaves the job red.
       `v21-slim-distribution-gate`, on any SHA that predates the flake fix `87187416d` (item 1) — verify a
       post-`87187416d` run reaches the sbt step. Do not claim `main` had a fully green run until an exact-SHA
       CI run shows the whole `sbt` job green.
+      **FULL `sbt test` sweep 2026-07-19 (`v1-crystallize-green`, macOS, ~39 min, WITH the StableSpi
+      exemption):** the ONLY failures were 4 in `V2TuplePatternCliTest`, all identical
+      `ClassNotFoundException: scalascript.cli.StandardMain`. Root cause is NOT the v2 runner and NOT
+      frozen-v1 hygiene — it is a LOCAL-ENV ARTIFACT: a bare `sbt test` (no `cli/assembly installBin`
+      first) leaves `bin/ssc` on disk but no `bin/lib/standard/ssc.jar`, so the launcher can't load
+      `StandardMain`. In CI the step "Compile and assemble ssc.jar" runs `sbt compile cli/assembly
+      installBin` BEFORE "Test via sbt", so `bin/ssc` is fresh and all 4 PASS — verified by reproducing
+      the CI sequence locally (`cli/assembly installBin` → `cli/testOnly *V2TuplePatternCliTest` = 4/4).
+      RowCodec (`JvmGenSqlRuntimeTest`, scala-cli) ran and passed in the sweep — needed nothing beyond
+      the exemption. Hardened `V2TuplePatternCliTest.requireLauncher()` to CANCEL (like sibling
+      `AutoResolveCliTest` etc.) when the assembled launcher jar is absent, so a bare local `sbt test`
+      is clean too (no-op in CI). Proven non-vacuous: jar present → 4 succeeded/0 canceled; jar absent →
+      4 canceled/0 failed. Net: with the StableSpi exemption + this test-cancel hardening, the ONLY real
+      CI blocker in "Test via sbt" was StableSpi. Awaiting exact-SHA CI confirmation of the whole `sbt` job.
 - [x] **3. `v21-native-entry-smoke.sh` — DONE (2026-07-17).** Given the `expect_*` treatment: an
       `expect_out name/want/got/diff` helper (mirroring the four v2.1 gates) now backs all 178 single-line
       output assertions, and an `ERR` trap names the exact line + command for every remaining assertion
