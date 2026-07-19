@@ -304,7 +304,12 @@ def parseArgLMore(e, ts, env, cx) = if isTok(hd(ts), 2, 27) then parseArgL(tl(ts
 // a bare reference lowers to its cell read, exactly like a lower-case top-val (calleeOf). Checked before
 // isCC (they are distinct decls) so `val Transfer = ..; Transfer.sql` resolves to the cell, not `(ctor)`.
 def bareCtor(nm, cx) = if isTopVal(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else (if isCC(nm, cx) then "(app (global " ++ nm ++ "))" else "(ctor " ++ nm ++ ")")
-def ctorApp(nm, args, cx) = if isCC(nm, cx) then "(app (global " ++ nm ++ ")" ++ args ++ ")" else "(ctor " ++ nm ++ args ++ ")"
+// An applied Upper-name `X(args)` lowers to `(ctor X args)` ONLY for the builtin ctors
+// {Cons, Some, Left, Right, Signal, ComputedSignal} (ssc1-lower :2078-2134); EVERY other uid — a local
+// case class OR an imported/unknown name (e.g. AchConfig) — lowers to `(app (global X) args)`, the same
+// as a user-ctor call. (List is intercepted upstream by parseListLit.)
+def isBuiltinCtor(nm) = if nm == "Cons" then true else (if nm == "Some" then true else (if nm == "Left" then true else (if nm == "Right" then true else (if nm == "Signal" then true else nm == "ComputedSignal"))))
+def ctorApp(nm, args, cx) = if isBuiltinCtor(nm) then "(ctor " ++ nm ++ args ++ ")" else "(app (global " ++ nm ++ ")" ++ args ++ ")"
 // `(e)` is a group; `(a, b)` is a Tuple2 construction.
 def parseParen(ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => parseParenEnd(e, r, env, cx) }
 def parseParenEnd(e, ts, env, cx) = if isTok(hd(ts), 2, 27) then parseTupRest(e, tl(ts), env, cx) else (e, tl(ts))
@@ -419,7 +424,12 @@ def emitDefBody(nm, ar, env, ts, cx) = parseExpr(ts, 0, env, cx) match { case (b
 // on ssc1-lower topExprs: val -> `(prim cell.set (global name__cell) init)`, expr -> the expr itself).
 // The val CELL def is emitted separately (valCells) and references resolve via cell.get. walkTop
 // returns ((userDefs, docEntryItems), nDocItems); parseTopItem returns ((defPart, entryPart), rest).
-def parseTopItem(ts, cx) = if isCCHead(ts) then ccTopItem(ts, cx) else (if isTraitHead(ts) then traitItem(ts) else (if isTok(hd(ts), 2, 1) then defTopItem(ts, cx) else (if isTok(hd(ts), 2, 7) then valItem(ts, cx) else exprItem(ts, cx))))
+// A top-level `import a.b.{x, y}` is a module directive that lowers to NOTHING (measured: the oracle
+// emits no IR for it). F skips the whole statement to the layout-inserted `;` (imports have no inner `;`).
+def isImportHead(ts) = isWord(hd(ts), "import")
+def importItem(ts) = (("", ""), skipImport(ts))
+def skipImport(ts) = if isEmpty(ts) then ts else (if isTok(hd(ts), 2, 52) then tl(ts) else skipImport(tl(ts)))
+def parseTopItem(ts, cx) = if isImportHead(ts) then importItem(ts) else (if isCCHead(ts) then ccTopItem(ts, cx) else (if isTraitHead(ts) then traitItem(ts) else (if isTok(hd(ts), 2, 1) then defTopItem(ts, cx) else (if isTok(hd(ts), 2, 7) then valItem(ts, cx) else exprItem(ts, cx)))))
 // `[sealed] trait X [extends ..] [{ .. }]` is a pure TYPE marker: the oracle emits NOTHING for it (a
 // sealed trait has no runtime rep). traitItem emits nothing and advances past the whole decl.
 def isWord(t, w) = if fst(t) == 1 then snd(t) == w else false
