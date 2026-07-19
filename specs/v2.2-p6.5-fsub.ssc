@@ -309,7 +309,12 @@ def enumCasesOfName(ename, reg) = reg match { case Nil => Nil case h :: t => if 
 // includes the postfix atom (measured: `-g(x)` -> i.sub(0, (app g x))). Binary `-` is handled in climb, so
 // this only fires where an atom is expected. F's own source uses `0 - 1` (binary), never a leading `-`.
 def parseAtom(ts, env, cx) = if isEmpty(ts) then (emitInt(0), Nil) else (if isTok(hd(ts), 2, 24) then parseNeg(tl(ts), env, cx) else (if isTok(hd(ts), 2, 59) then parseBang(tl(ts), env, cx) else (if isTok(hd(ts), 2, 68) then parseTilde(tl(ts), env, cx) else postfix(parseAtom0(ts, env, cx), env, cx))))
-def parseNeg(ts, env, cx) = parseAtom(ts, env, cx) match { case (a, r) => ("(prim i.sub (lit (int 0)) " ++ a ++ ")", r) }
+// min64 fold: `-9223372036854775808` is a legal Int whose positive half 2^63 overflows Long, so the
+// oracle parses the SIGNED string to IrInt(Long.MinValue) instead of `0 - <sub>` (ssc1-lower pre "-"
+// :2615-2632). F's lexer already wraps 9223372036854775808 around to Long.MinValue, so the negated atom
+// IS exactly that literal — emit it bare rather than wrapping in i.sub. Every other negative keeps i.sub.
+def parseNeg(ts, env, cx) = parseAtom(ts, env, cx) match { case (a, r) => (negEmit(a), r) }
+def negEmit(a) = if a == "(lit (int -9223372036854775808))" then a else "(prim i.sub (lit (int 0)) " ++ a ++ ")"
 // `~x` bitwise-not prefix -> (prim i.not x), binds to the atom like unary `-`/`!` (ssc1-lower :1168).
 def parseTilde(ts, env, cx) = parseAtom(ts, env, cx) match { case (a, r) => ("(prim i.not " ++ a ++ ")", r) }
 // `!x` (boolean not) desugars to `(if x (lit false) (lit true))` (oracle-measured). Binds to the atom
