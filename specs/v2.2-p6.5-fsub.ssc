@@ -659,7 +659,7 @@ def join2(a, b) = if a == "" then b else (if b == "" then a else a ++ " " ++ b)
 // arms stop at the next statement without eating its first token. Braced match is byte-unchanged.
 def parseMatch(scrut, ts, env, cx) = parseMatchArms(scrut, matchBody(ts), env, cx)
 def matchBody(ts) = if isTok(hd(ts), 2, 28) then tl(ts) else ts
-def parseMatchArms(scrut, ts, env, cx) = if fst(hd(tl(ts))) == 0 then parseIntMatch(scrut, ts, env, cx) else parseCtorMatch(scrut, ts, env, cx)
+def parseMatchArms(scrut, ts, env, cx) = if fst(hd(tl(ts))) == 0 then parseGenMatch(scrut, ts, env, cx) else (if isGenVarHead(tl(ts)) then parseGenMatch(scrut, ts, env, cx) else parseCtorMatch(scrut, ts, env, cx))
 def armsRest(ts) = if isTok(hd(ts), 2, 29) then tl(ts) else ts
 def parseCtorMatch(scrut, ts, env, cx) = parseArms(ts, "__m" :: env, cx) match { case (arms, r) => (emitMatch(scrut, fst(arms), snd(arms)), r) }
 def emitMatch(scrut, arms, dflt) = "(let (" ++ scrut ++ ") (match (local 0) (" ++ arms ++ ")" ++ dflt ++ "))"
@@ -693,6 +693,40 @@ def parseIntArm(ts, menv, cx) = if isWild(hd(tl(ts))) then parseIntDefault(tl(tl
 def parseIntDefault(ts, menv, cx) = parseExpr(ts, 0, menv, cx) match { case (b, r) => (b, armsRest(r)) }
 def parseIntArm2(n, ts, menv, cx) = parseExpr(ts, 0, menv, cx) match { case (body, r) => parseIntArm3(n, body, r, menv, cx) }
 def parseIntArm3(n, body, ts, menv, cx) = parseIntArms(ts, menv, cx) match { case (rest, r) => (emitIf(emitEq("(local 0)", emitInt(n)), body, rest), r) }
+
+// -- general scalar match (VAR / INT / WILDCARD arms with optional `if` guards) ------------------
+// A match whose arms are all SCALAR (a bare var `case x`, an int `case N`, a wildcard `case _`) and
+// where at least one arm is a var OR carries a guard lowers NOT as F's fast int-chain or ctor
+// `(match ..)` but as the oracle's general nested-let/if chain (VERIFIED byte-exact vs ssc1-lower
+// resolveMatch on data-types `classify` + pattern-matching `describe`): a VAR arm `case x [if g]` ->
+// `(let (<scrut>) [(if g body rest) | body])` binding x to the CURRENT scrutinee (whose `(local i)`
+// rises as var-lets accumulate); an INT arm `case N` -> `(if (__eq__ <scrut> (lit N)) body rest)`; a
+// WILDCARD `case _` is the terminal body (guarded `case _ if g` -> `(if g body rest)`). The scrutinee
+// reference is recovered at every depth as `(local <lookup "__m">)` -- "__m" is the ONE synthetic scrut
+// binding, so each var-let shifts its index up by one exactly as the reference does. This is a STRICT
+// SUPERSET of parseIntMatch (a pure-int match deepens no lets, so scrut stays local 0 and the output is
+// byte-identical), so int-first matches route here too; ctor/cons/tuple-first and typed `x: T` patterns
+// (a `__isTag__` test, a different lowering) stay on parseCtorMatch. NOT handled (need guard-failure
+// FALLTHROUGH = the full resolver): guarded-int and ctor-guard (`case Some(m) if ..`).
+def isGenVarHead(ts) = if fst(hd(ts)) == 1 then genVarNext(hd(ts), hd(tl(ts))) else false
+def genVarNext(h, nx) = if isWild(h) then isTok(nx, 2, 2) else (if isTok(nx, 2, 30) then true else isTok(nx, 2, 2))
+def genScrut(menv) = "(local " ++ lookup("__m", menv) ++ ")"
+def parseGenMatch(scrut, ts, env, cx) = parseGenArms(ts, "__m" :: env, cx) match { case (chain, r) => ("(let (" ++ scrut ++ ") " ++ chain ++ ")", r) }
+def parseGenArms(ts, menv, cx) = parseGenArms0(skipSemisF(ts), menv, cx)
+def parseGenArms0(ts, menv, cx) = if isTok(hd(ts), 2, 6) then parseGenArm(tl(ts), menv, cx) else (emitInt(0), armsRest(ts))
+def parseGenArm(ts, menv, cx) = if isWild(hd(ts)) then parseGenWild(tl(ts), menv, cx) else (if fst(hd(ts)) == 0 then parseGenInt(snd(hd(ts)), tl(ts), menv, cx) else parseGenVar(snd(hd(ts)), tl(ts), menv, cx))
+def parseGenInt(n, ts, menv, cx) = parseExpr(tl(ts), 0, menv, cx) match { case (body, r) => parseGenIntRest(n, body, r, menv, cx) }
+def parseGenIntRest(n, body, ts, menv, cx) = parseGenArms(ts, menv, cx) match { case (rest, r) => (emitIf(emitEq(genScrut(menv), emitInt(n)), body, rest), r) }
+def parseGenVar(nm, ts, menv, cx) = if isTok(hd(ts), 2, 2) then parseGenVarGuard(nm, tl(ts), menv, cx) else parseGenVarPlain(nm, tl(ts), menv, cx)
+def parseGenVarGuard(nm, ts, menv, cx) = parseExpr(ts, 0, nm :: menv, cx) match { case (g, r) => parseGenVarGuard2(nm, g, r, menv, cx) }
+def parseGenVarGuard2(nm, g, ts, menv, cx) = parseExpr(tl(ts), 0, nm :: menv, cx) match { case (body, r) => parseGenVarGuard3(nm, g, body, r, menv, cx) }
+def parseGenVarGuard3(nm, g, body, ts, menv, cx) = parseGenArms(ts, nm :: menv, cx) match { case (rest, r) => ("(let (" ++ genScrut(menv) ++ ") " ++ emitIf(g, body, rest) ++ ")", r) }
+def parseGenVarPlain(nm, ts, menv, cx) = parseExpr(ts, 0, nm :: menv, cx) match { case (body, r) => ("(let (" ++ genScrut(menv) ++ ") " ++ body ++ ")", armsRest(r)) }
+def parseGenWild(ts, menv, cx) = if isTok(hd(ts), 2, 2) then parseGenWildGuard(tl(ts), menv, cx) else parseGenWildPlain(tl(ts), menv, cx)
+def parseGenWildPlain(ts, menv, cx) = parseExpr(ts, 0, menv, cx) match { case (body, r) => (body, armsRest(r)) }
+def parseGenWildGuard(ts, menv, cx) = parseExpr(ts, 0, menv, cx) match { case (g, r) => parseGenWildGuard2(g, r, menv, cx) }
+def parseGenWildGuard2(g, ts, menv, cx) = parseExpr(tl(ts), 0, menv, cx) match { case (body, r) => parseGenWildGuard3(g, body, r, menv, cx) }
+def parseGenWildGuard3(g, body, ts, menv, cx) = parseGenArms(ts, menv, cx) match { case (rest, r) => (emitIf(g, body, rest), r) }
 
 // -- declarations -----------------------------------------------------------------------------
 // `def name(p1: T, p2: T): T = body`. Types are ERASED by the reference lowerer (measured: `def
