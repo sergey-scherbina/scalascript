@@ -463,10 +463,15 @@ Slices, impact-ordered (biggest clean lever first):
       parses the assign when the body head is `id =` (isAssignHead), else parseExpr; used by parseArmBody +
       parseWildArm + parseTupArmBody. Fires only on a genuine `id =` head, so non-assign arms byte-unchanged.
       Fixed scljet-write-deep-btree/deep-overflow/index-deep/index-multileaf, scljet-wal-checkpoint.
-- [ ] **derived-codec (20), cc/tc-method-def+`.copy` (16+3), string `"""`+encoder-escape (12): later.**
-      OTHER-tail sub-clusters (measured): match-lowered-to-`if __isTag__` (actors receive, ~7, DEEP — do NOT
-      touch core match); companion-statics Array.fill/List.x (3); infix `1 to n`/`until` generator; assign in
-      other expr positions (if-branch/lambda body — same finishAssignment gap, only arm bodies done so far).
+- [x] **G7 — generic type args on ctor/companion calls `Name[T,..](args)`. Corpus 243 → 246 (+3), 0 regr.
+      fixpoint 168,895→169,009.** Type args are erased; parseCtor now skipGen's the `[..]` before the `(`
+      dispatch: `List[Int]()`→`(ctor Nil)`, `Right[A,B](x)`→`(ctor Right x)`. Fixed json-read/
+      multi-link-imports/functional. (Lowercase `foo[T](x)` NOT yet handled — parseVarOrCall unchanged.)
+- [ ] **derived-codec (20), cc/tc-method-def+`.copy` (16+3), string `"""`+encoder-escape (13): later.**
+      OTHER-tail sub-clusters (measured): match-lowered-to-`if __isTag__` (actors receive, 4, DEEP — do NOT
+      touch core match); Array/Vector-ctor (2, `_arr_fill`); lowercase generic call `foo[T](x)`; infix
+      `1 to n`/`until` generator; assign in other expr positions (if-branch/lambda body — same
+      finishAssignment gap, only arm bodies done). See the §v2-p65-codec HANDOFF block below for the full map.
 Each slice: byte-verify vs oracle on the cached corpus, keep `--self` GREEN (re-freeze fixpoint), re-run
 `v2.2-p6.5-corpus.sh`, CONFIRM no MATCH dropped. Build: `scala-cli --power package v2/src --assembly -o
 /tmp/ssc-codec.jar --force`; gate: `SSC_JAR=/tmp/ssc-codec.jar V2_DIR=<wt>/v2 NEWFRONT_WORK=/tmp/p65codec_work`.
