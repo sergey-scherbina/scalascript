@@ -1172,7 +1172,7 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
             failures with `StackOverflowError` in `Compiler.compileEffectAwareApplication`; there is no
             independent current loader/lowering diff. Full streams: `/tmp/v2-f7-baseline.{out,err}`;
             runtime diagnostics: `$TMPDIR/ssc-conformance-logs-25835/failures.log`.
-      - [ ] **F7.2 — restore the multi-file compiler invariant.** Save Scala-front and self-hosted
+      - [x] **F7.2 — restore the multi-file compiler invariant.** Save Scala-front and self-hosted
             `uselib.ssc0` Core IR, print a canonical diff, minimize it across a real imported two-file
             fixture, fix the owning loader/compiler path, and preserve both single-file and multi-file
             self-fixpoints. Do not normalize away or bless unequal bytes. **Fresh finding @
@@ -1184,7 +1184,12 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
             `scanStr` preserves escapes while the Scala seed decodes them: exact fixpoints now report
             21050/21051 and 25875/25876 bytes. Decode the seed's valid escape set in both compiler copies
             and keep an escaped LF in the persistent two-file differential; tracked as
-            `BUGS.md#ssc0c-string-escape-divergence`.
+            `BUGS.md#ssc0c-string-escape-divergence`. **Landed locally in `3056aa3b8`:** complete streams
+            now go through file-backed `cmp` with paths/sizes/first differences/tail hex; the self-probe
+            distinguishes `x` from `x\n` and rejects equal empties. Both scanner copies decode the seed's
+            six valid escape forms. Exact results: fixture 259/259, `uselib` 2866/2866, single fixpoint
+            22844/22844, multi fixpoint 27669/27669. `CONF_FAST=1 bash v2/conformance/check.sh` natural
+            exit 0, 408 ok / 0 FAIL (`/tmp/v2-f7-f2-fast2.{out,err,status}`).
       - [ ] **F7.3 — close compiler-depth fail-open.** Reproduce the current smallest well-formed Core IR
             depth that overflows at `-Xss1m` and the legitimate tower program that needs the same path.
             Make traversal iterative or fail closed at a documented compiler bound with a stable

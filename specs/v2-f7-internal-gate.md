@@ -20,12 +20,12 @@ it does not change the Core IR node set, value domain, or canonical encoding.
 
 ## Behavior
 
-- [ ] The Scala bootstrap and self-hosted compiler emit byte-identical non-empty Core IR for
+- [x] The Scala bootstrap and self-hosted compiler emit byte-identical non-empty Core IR for
       `v2/examples/uselib.ssc0` and a minimized two-file regression fixture.
-- [ ] The self-hosted string scanner decodes the Scala seed's valid escape set (`\"`, `\\`, `\n`, `\r`,
+- [x] The self-hosted string scanner decodes the Scala seed's valid escape set (`\"`, `\\`, `\n`, `\r`,
       `\t`, and `\uXXXX`); the two-file differential contains an escaped LF so lexical parity is measured.
-- [ ] The single-file `ssc0c` fixpoint and the multi-file `bin/ssc0c.ssc0` fixpoint remain byte-identical.
-- [ ] A mismatch prints the compared artifact paths, byte sizes, and a useful first canonical difference
+- [x] The single-file `ssc0c` fixpoint and the multi-file `bin/ssc0c.ssc0` fixpoint remain byte-identical.
+- [x] A mismatch prints the compared artifact paths, byte sizes, and a useful first canonical difference
       before the gate exits non-zero; it is never classified or skipped before the byte comparison runs.
 - [ ] On `-Xss1m`, the smallest adversarial well-formed capsule from the bug ledger either compiles and
       runs or fails with a stable compiler-depth diagnostic; it never throws `StackOverflowError`.
@@ -106,3 +106,9 @@ reader-depth check alone cannot close compiler recursion. Replacing command subs
 comparator immediately exposed a second frontend discrepancy: `scanStr` preserves `\n` while the seed
 decodes it, making the single/multi fixpoints 21050/21051 and 25875/25876 bytes respectively. F7.2 therefore
 includes escape parity rather than hiding the discrepancy with a different newline spelling.
+
+F7.2 result (`3056aa3b8`): both compiler CLIs emit one LF and all exact comparisons operate on complete
+files. The comparator self-probe distinguishes one versus two bytes and rejects equal empty streams. The
+all-escape two-file fixture is 259/259 bytes and runs to 42; `uselib` is 2866/2866; single and multi-file
+fixpoints are 22844/22844 and 27669/27669. `CONF_FAST=1 bash v2/conformance/check.sh` reaches natural exit
+0 with 408 ok / 0 FAIL; streams/status are `/tmp/v2-f7-f2-fast2.{out,err,status}`.

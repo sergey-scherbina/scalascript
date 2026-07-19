@@ -2,8 +2,8 @@
 
 ## ssc0c-multifile-uselib-ir-divergence — self-hosted compiler disagrees with the Scala seed across an import
 
-**Status:** REPRODUCED / claimed 2026-07-19 by `v2-f7-internal-gate`. Found by the 2026-07-18 v2-state
-audit at `358facd8e`; re-measured at `a3b115623` after both the compiler and gate had moved.
+**Status:** FIXED 2026-07-19 by `v2-f7-internal-gate` (`3056aa3b8`; awaiting full F7 exact-SHA CI).
+Found by the 2026-07-18 v2-state audit at `358facd8e`; re-measured after both the compiler and gate moved.
 
 **Real-harness repro:** run `bash v2/conformance/check.sh` from a clean worktree and preserve its real
 exit code (never `| tail`). The focused comparison is the same one the gate performs:
@@ -34,10 +34,16 @@ mismatch is caught with paths/sizes/diff. Done requires exact bytes for `uselib`
 complete v2 gate; command-substitution normalization, weakening the comparison, or refreshing an expected
 blob is forbidden.
 
+**Resolution:** both CLIs now emit one trailing LF, and every compiler differential/fixpoint writes complete
+streams to named artifacts before `cmp`. Empty streams fail even when equal; mismatches report paths, sizes,
+the first 16 byte differences, and tail hex. A self-test proves `x` differs from `x\n` and that two empty
+streams are not success. The persistent two-file fixture and `uselib` compare exactly at 259/259 and
+2866/2866 bytes; `CONF_FAST=1 bash v2/conformance/check.sh` exits 0 with 408 ok / 0 FAIL.
+
 ## ssc0c-string-escape-divergence — self-hosted lexer preserves escapes that the Scala seed decodes
 
-**Status:** REPRODUCED / claimed 2026-07-19 by `v2-f7-internal-gate`. Found while aligning the exact
-compiler-output line terminator on the working tree based on `a985605e2`.
+**Status:** FIXED 2026-07-19 by `v2-f7-internal-gate` (`3056aa3b8`; awaiting full F7 exact-SHA CI).
+Found while aligning the exact compiler-output line terminator on the working tree based on `a985605e2`.
 
 **Real-harness repro:** append an LF with the source literal `"\n"` in both self-hosted compiler drivers,
 then build and execute the compiler with the assembled v2 jar:
@@ -58,6 +64,11 @@ the same one-byte expansion, 25875 versus 25876. Root cause is `scanStr` in both
 **Plan / done-when:** make the self-hosted scanner decode the seed's valid escape set, cover an escaped LF
 inside the persistent two-file differential, and require both exact fixpoints. Silently constructing the
 CLI newline by another spelling would hide the frontend divergence and is not an acceptable closure.
+
+**Resolution:** both self-hosted scanner copies now decode `\"`, `\\`, `\n`, `\r`, `\t`, and `\uXXXX`
+into code units exactly like the Scala seed. The imported regression contains all six forms and executes to
+42 after compiling to byte-identical 259-byte Core IR. Single/multi exact fixpoints are restored at
+22844/22844 and 27669/27669 bytes.
 
 ## f5-buildjvm-artifact-missing-relocated-jars — `build-jvm` jars NoClassDefFoundError after F5 kernel-slimming
 
